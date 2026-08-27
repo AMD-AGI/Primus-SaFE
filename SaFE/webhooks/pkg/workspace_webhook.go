@@ -199,17 +199,37 @@ func isNodesActionWithdrawal(oldWorkspace, newWorkspace *v1.Workspace) bool {
 	// they attach to it: a Spec.Volume the mutator never normalised, a Spec.Manager recorded
 	// without the permission sync that goes with it.
 	//
-	// The three fields that are the withdrawal are excluded and everything else must match.
-	// dropRefusedActions writes exactly those three in one patch, so a real withdrawal
-	// passes; skipping the normalisations is then free, which is the only reason skipping
-	// them was ever sound.
+	// The fields that are the withdrawal are excluded and everything else must match.
+	// dropRefusedActions writes exactly those in one patch, so a real withdrawal passes;
+	// skipping the normalisations is then free, which is the only reason skipping them was
+	// ever sound.
+	//
+	// WorkspaceForcedAction is one of them because a withdrawal that empties the request
+	// drops it in the same patch -- it qualifies the request, and there is no request left
+	// to qualify. Left out of this list it made a forced request whose every entry was
+	// refused unrecognisable: the shape check failed on that one key, the write fell through
+	// to mutateNodesAction, and it was rejected there for moving Spec.Replica alongside the
+	// annotation. The controller has no other way to end that request, so it would re-send
+	// the same doomed patch for good -- annotation never cleared, replica never given back,
+	// and every later nodes-action and scale-down on the workspace refused behind it.
 	if !maps.EqualIgnoreOrder(
 		maps.Copy(oldWorkspace.Labels), maps.Copy(newWorkspace.Labels)) {
 		return false
 	}
+	// Excluded, but only ever on its way out. The one thing this annotation does is let a
+	// remove past the in-use check in validateNodesRemoved, so an author who could set it
+	// under cover of the withdrawal shape would be buying the exemption for whatever entries
+	// the withdrawal leaves behind. Withdrawals only ever drop it.
+	if v1.HasAnnotation(newWorkspace, v1.WorkspaceForcedAction) &&
+		v1.GetAnnotation(newWorkspace, v1.WorkspaceForcedAction) !=
+			v1.GetAnnotation(oldWorkspace, v1.WorkspaceForcedAction) {
+		return false
+	}
 	if !maps.EqualIgnoreOrder(
-		maps.Copy(oldWorkspace.Annotations, v1.WorkspaceNodesAction, v1.WorkspaceNodesActionError),
-		maps.Copy(newWorkspace.Annotations, v1.WorkspaceNodesAction, v1.WorkspaceNodesActionError)) {
+		maps.Copy(oldWorkspace.Annotations,
+			v1.WorkspaceNodesAction, v1.WorkspaceNodesActionError, v1.WorkspaceForcedAction),
+		maps.Copy(newWorkspace.Annotations,
+			v1.WorkspaceNodesAction, v1.WorkspaceNodesActionError, v1.WorkspaceForcedAction)) {
 		return false
 	}
 	oldSpec := oldWorkspace.Spec.DeepCopy()

@@ -739,6 +739,64 @@ func TestWorkspaceWithdrawalCannotCarryAnythingElse(t *testing.T) {
 	}
 }
 
+// A forced request withdrawn whole. dropRefusedActions drops WorkspaceForcedAction in the
+// same patch when nothing is left of the request, so this write differs from the stored
+// object by one annotation more than a partial withdrawal does -- and that extra key is the
+// whole test. Unrecognised, the write falls through to mutateNodesAction and is rejected for
+// moving Spec.Replica alongside the annotation, which the controller has no way to recover
+// from: it re-sends the same patch forever, the request never ends, the replica is never
+// given back, and every later nodes-action and scale-down on the workspace queues behind it.
+//
+// TestWorkspaceWithdrawalCannotCarryAnythingElse covers the opposite direction -- what may
+// not ride along -- and cannot catch this one, where the extra key is the controller's own.
+func TestWorkspaceAdmitForcedWithdrawalOfTheWholeRequest(t *testing.T) {
+	scheme := newScheme(t)
+	taken := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{v1.ClusterIdLabel: "cluster1"}},
+		Spec:       v1.NodeSpec{Workspace: pointer.String("ws-other")},
+	}
+	flavor := &v1.NodeFlavor{ObjectMeta: metav1.ObjectMeta{Name: "flavor"}}
+	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster1"}}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(taken, flavor, cluster).Build()
+	m := &WorkspaceMutator{Client: cli}
+	v := &WorkspaceValidator{Client: cli}
+
+	// A forced request for the workspace's only in-flight entry, as the apiserver writes it.
+	oldWs := validWorkspace("ws1")
+	oldWs.Spec.NodeFlavor = "flavor"
+	oldWs.Spec.Replica = 3
+	v1.SetAnnotation(oldWs, v1.GpuResourceNameAnnotation, "amd.com/gpu")
+	v1.SetAnnotation(oldWs, v1.WorkspaceNodesAction, `{"n1":"add"}`)
+	v1.SetAnnotation(oldWs, v1.WorkspaceForcedAction, v1.TrueStr)
+
+	// n1 was taken before it could bind, so nothing is left: annotation, forced flag and the
+	// replica it was charged all go in one patch.
+	newWs := oldWs.DeepCopy()
+	newWs.Spec.Replica = 2
+	v1.RemoveAnnotation(newWs, v1.WorkspaceNodesAction)
+	v1.RemoveAnnotation(newWs, v1.WorkspaceForcedAction)
+	v1.SetAnnotation(newWs, v1.WorkspaceNodesActionError, "n1: it is already bound to ws-other")
+
+	assert.Assert(t, isNodesActionWithdrawal(oldWs, newWs), "the forced shape is a withdrawal")
+	assert.NilError(t, admit(t, m, v, oldWs, newWs))
+	// Untouched by either webhook: the refund the controller wrote, and the reason it wrote
+	// it for.
+	assert.Equal(t, newWs.Spec.Replica, 2)
+	assert.Equal(t, v1.GetAnnotation(newWs, v1.WorkspaceNodesActionError), "n1: it is already bound to ws-other")
+	assert.Assert(t, !v1.HasAnnotation(newWs, v1.WorkspaceForcedAction))
+
+	// The exemption only ever goes away with the request. Setting it under cover of the
+	// withdrawal shape would buy a remove its way past validateNodesRemoved's in-use check,
+	// so a write that turns it on is not a withdrawal however well the rest of it fits.
+	partial := requestingWorkspace(3, `{"n1":"add","n2":"add"}`)
+	forging := partial.DeepCopy()
+	forging.Spec.Replica = 2
+	v1.SetAnnotation(forging, v1.WorkspaceNodesAction, `{"n2":"add"}`)
+	v1.SetAnnotation(forging, v1.WorkspaceNodesActionError, "n1: it is already bound to ws-other")
+	v1.SetAnnotation(forging, v1.WorkspaceForcedAction, v1.TrueStr)
+	assert.Assert(t, !isNodesActionWithdrawal(partial, forging), "the forced flag was switched on")
+}
+
 // The controller giving up on an entry it cannot bind. Its patch carries both the shrunk
 // request and the Spec.Replica those entries were charged; the mutator's only job is to keep
 // its hands off it, because anything it changed here the validator would see instead of what
