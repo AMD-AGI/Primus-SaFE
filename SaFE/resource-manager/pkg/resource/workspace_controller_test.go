@@ -91,8 +91,10 @@ func TestDeleteWorkspace(t *testing.T) {
 	assert.Equal(t, controllerutil.ContainsFinalizer(workspace, v1.WorkspaceFinalizer), true)
 
 	r := newMockWorkspaceReconciler(adminClient)
-	err = r.delete(context.Background(), workspace)
+	// Still waiting to be told the unbindings landed, so it asks to be looked at again.
+	result, err := r.delete(context.Background(), workspace)
 	assert.NilError(t, err)
+	assert.Assert(t, result.RequeueAfter > 0)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: workspace.Name}, workspace)
 	assert.NilError(t, err)
 	assert.Equal(t, workspace.Status.Phase, v1.WorkspaceDeleting)
@@ -100,8 +102,10 @@ func TestDeleteWorkspace(t *testing.T) {
 
 	r.observeNode(workspace.Name, adminNode1.Name)
 	r.observeNode(workspace.Name, adminNode2.Name)
-	err = r.delete(context.Background(), workspace)
+	// Told, so this pass finishes the deletion instead of asking again.
+	result, err = r.delete(context.Background(), workspace)
 	assert.NilError(t, err)
+	assert.Equal(t, result.RequeueAfter, time.Duration(0))
 	assert.Equal(t, controllerutil.ContainsFinalizer(workspace, v1.WorkspaceFinalizer), false)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode1.Name}, adminNode1)
 	assert.NilError(t, err)
@@ -1091,7 +1095,7 @@ func TestWorkspaceDelete(t *testing.T) {
 		WithStatusSubresource(&v1.Workspace{}).WithObjects(ws).Build()
 	r := newMockWorkspaceReconciler(cl)
 	// No nodes bound, no cluster -> deletes resources + removes finalizer.
-	err := r.delete(context.Background(), ws)
+	_, err := r.delete(context.Background(), ws)
 	testifyassert.NoError(t, err)
 }
 

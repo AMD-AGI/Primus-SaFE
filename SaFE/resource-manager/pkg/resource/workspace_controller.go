@@ -49,6 +49,9 @@ import (
 
 type WorkspaceReconciler struct {
 	*ClusterBaseReconciler
+	// apiReader reads straight from the apiserver. Used for the one question whose wrong
+	// answer is final: whether the workspace a migration is addressed to is really gone.
+	apiReader client.Reader
 	// recorder puts what this controller decides on its own onto the Workspace. A migration
 	// is carried out long after the request that started it returned 200, so a handover that
 	// cannot land, or a migration given up on, has nowhere else to be reported: a line in the
@@ -81,6 +84,7 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 	}
 	r := &WorkspaceReconciler{
 		ClusterBaseReconciler: baseReconciler,
+		apiReader:             mgr.GetAPIReader(),
 		recorder:              mgr.GetEventRecorderFor("workspace-controller"),
 		clientManager:         commonutils.NewObjectManagerSingleton(),
 		expectations:          make(map[string]*nodeExpectations),
@@ -281,7 +285,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if !workspace.GetDeletionTimestamp().IsZero() {
-		return ctrlruntime.Result{}, r.delete(ctx, workspace)
+		return r.delete(ctx, workspace)
 	}
 	clientSet, err := r.getClientSetOfDataplane(ctx, workspace.Spec.Cluster)
 	if err != nil {
@@ -304,16 +308,16 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 }
 
 // delete handles the deletion of a Workspace resource by unbinding nodes and removing finalizers.
-func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspace) error {
+func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspace) (ctrlruntime.Result, error) {
 	var err error
 	if err = r.updatePhase(ctx, workspace, v1.WorkspaceDeleting); err != nil {
 		klog.ErrorS(err, "failed to update phase for workspace", "name", workspace.Name)
-		return err
+		return ctrlruntime.Result{}, err
 	}
 
 	nodeList := &v1.NodeList{}
 	if err = r.List(ctx, nodeList); err != nil {
-		return err
+		return ctrlruntime.Result{}, err
 	}
 	var nodes []*v1.Node
 	var migrating []*v1.Node
@@ -331,22 +335,27 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 		}
 	}
 	if err = r.abandonMigrations(ctx, workspace, migrating); err != nil {
-		return err
+		return ctrlruntime.Result{}, err
 	}
 	if err = r.updateNodesBinding(ctx, workspace, nodes, buildTargetList(nodes, "")); err != nil {
-		return err
+		return ctrlruntime.Result{}, err
 	}
 	// Wait for all expected unbind operations to be observed before proceeding
+	r.pruneExpectations(workspace.Name)
 	if !r.meetExpectations(workspace.Name) {
+		// Asked to come back, because nothing else will. A terminating workspace changes no
+		// generation, and a node released mid-migration carries no workspace on its labels
+		// for a node event to route by -- so without this the wait ends at the next full
+		// resync, hours later, with the finalizer still on.
 		klog.Infof("Workspace(%s) delete waiting for node unbinding to complete", workspace.Name)
-		return nil
+		return ctrlruntime.Result{RequeueAfter: r.option.nodeWait}, nil
 	}
 	r.removeExpectations(workspace.Name)
 	if err = r.deleteDataPlaneResources(ctx, workspace); err != nil {
 		klog.ErrorS(err, "failed to delete data plane resources for workspace", "name", workspace.Name)
-		return err
+		return ctrlruntime.Result{}, err
 	}
-	return utils.RemoveFinalizer(ctx, r.Client, workspace, v1.WorkspaceFinalizer)
+	return ctrlruntime.Result{}, utils.RemoveFinalizer(ctx, r.Client, workspace, v1.WorkspaceFinalizer)
 }
 
 // updatePhase updates the phase of a Workspace resource.
@@ -376,11 +385,26 @@ func (r *WorkspaceReconciler) updatePhase(ctx context.Context, workspace *v1.Wor
 // written, or an event missed, would otherwise leave the workspace that way for good.
 const expectationTimeout = 5 * time.Minute
 
-// nodeExpectations is the set of nodes a Workspace is waiting to see settled, and the point
-// past which it stops waiting.
+// nodeExpectations is the nodes a Workspace is waiting to see settled, each with the point
+// past which it stops being waited on.
+//
+// Per node, not per workspace. A workspace that keeps binding nodes keeps having entries
+// added, and one shared deadline pushed forward by each of them never arrives -- which is
+// exactly the workspace where a stale entry hides, since node actions run before the gate and
+// go on adding to it.
 type nodeExpectations struct {
-	nodes    sets.Set
-	deadline time.Time
+	deadlines map[string]time.Time
+}
+
+// unsettled counts the nodes still worth waiting on at the given time.
+func (e *nodeExpectations) unsettled(now time.Time) int {
+	count := 0
+	for _, deadline := range e.deadlines {
+		if now.Before(deadline) {
+			count++
+		}
+	}
+	return count
 }
 
 // setExpectations sets the expected node operations for a Workspace.
@@ -392,33 +416,52 @@ func (r *WorkspaceReconciler) setExpectations(workspaceId string, nodeNames sets
 	// waiting on. The workspace then reads as settled while a binding is still in flight, and
 	// the next scaling decision is taken on counts that have not caught up: a scale-down
 	// already under way is counted as not yet done and a further node is let go.
-	deadline := time.Now().Add(expectationTimeout)
 	left, ok := r.expectations[workspaceId]
 	if !ok || left == nil {
-		r.expectations[workspaceId] = &nodeExpectations{nodes: nodeNames, deadline: deadline}
-		return
+		left = &nodeExpectations{deadlines: make(map[string]time.Time)}
+		r.expectations[workspaceId] = left
 	}
+	deadline := time.Now().Add(expectationTimeout)
 	for nodeName := range nodeNames {
-		left.nodes.Insert(nodeName)
+		// Each node keeps the deadline it came in with; a later binding is not a reason to go
+		// on waiting for an earlier one.
+		if _, waiting := left.deadlines[nodeName]; !waiting {
+			left.deadlines[nodeName] = deadline
+		}
 	}
-	left.deadline = deadline
 }
 
 // meetExpectations checks if all expected node operations for a Workspace have been completed.
+// It only reads: an expired entry is not waited on, and pruneExpectations is what removes it.
+// A check that quietly consumed the way out would leave whoever calls it next -- a metric, a
+// probe -- to find the workspace waiting all over again.
 func (r *WorkspaceReconciler) meetExpectations(workspaceId string) bool {
+	r.RLock()
+	defer r.RUnlock()
+	left, ok := r.expectations[workspaceId]
+	return !ok || left == nil || left.unsettled(time.Now()) == 0
+}
+
+// pruneExpectations drops the nodes a Workspace has stopped waiting on.
+func (r *WorkspaceReconciler) pruneExpectations(workspaceId string) {
 	r.Lock()
 	defer r.Unlock()
 	left, ok := r.expectations[workspaceId]
-	if !ok || left == nil || left.nodes.Len() == 0 {
-		return true
+	if !ok || left == nil {
+		return
 	}
-	if time.Now().After(left.deadline) {
-		klog.Infof("workspace(%s) stopped waiting on nodes %v after %s",
-			workspaceId, left.nodes, expectationTimeout.String())
+	now := time.Now()
+	for nodeName, deadline := range left.deadlines {
+		if now.Before(deadline) {
+			continue
+		}
+		klog.Infof("workspace(%s) stopped waiting on node(%s) after %s",
+			workspaceId, nodeName, expectationTimeout.String())
+		delete(left.deadlines, nodeName)
+	}
+	if len(left.deadlines) == 0 {
 		delete(r.expectations, workspaceId)
-		return true
 	}
-	return false
 }
 
 // removeExpectations removes the expectations for a Workspace.
@@ -433,11 +476,14 @@ func (r *WorkspaceReconciler) observeNode(workspaceId, nodeName string) {
 	r.Lock()
 	defer r.Unlock()
 	left, ok := r.expectations[workspaceId]
-	if !ok || left == nil || !left.nodes.Has(nodeName) {
+	if !ok || left == nil {
 		return
 	}
-	left.nodes.Delete(nodeName)
-	if left.nodes.Len() == 0 {
+	if _, waiting := left.deadlines[nodeName]; !waiting {
+		return
+	}
+	delete(left.deadlines, nodeName)
+	if len(left.deadlines) == 0 {
 		delete(r.expectations, workspaceId)
 	}
 }
@@ -487,7 +533,13 @@ func (r *WorkspaceReconciler) processWorkspace(ctx context.Context, workspace *v
 			return actionResult, err
 		}
 	}
+	r.pruneExpectations(workspace.Name)
 	if !r.meetExpectations(workspace.Name) {
+		// Same reason: the event that settles this may never come, and the deadline that ends
+		// the wait is only read when something asks.
+		if actionResult.RequeueAfter == 0 {
+			actionResult.RequeueAfter = r.option.nodeWait
+		}
 		return actionResult, nil
 	}
 	if err = r.syncWorkspace(ctx, workspace); err != nil {
@@ -1016,10 +1068,21 @@ func (r *WorkspaceReconciler) handOverToTarget(ctx context.Context, target strin
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		targetWorkspace := &v1.Workspace{}
 		if err := r.Get(ctx, client.ObjectKey{Name: target}, targetWorkspace); err != nil {
-			if apierrors.IsNotFound(err) {
-				return fmt.Errorf("%w: workspace(%s) does not exist", errMigrationTargetGone, target)
+			if !apierrors.IsNotFound(err) {
+				return err
 			}
-			return err
+			// Confirmed against the apiserver before it counts. This read comes from a cache,
+			// and giving up is final -- the reservation comes off and the source's replica is
+			// not given back -- so a cache that has not caught up must not be what decides
+			// it. Without a reader to confirm with, the cached answer stands.
+			if r.apiReader != nil {
+				if err = r.apiReader.Get(ctx, client.ObjectKey{Name: target}, targetWorkspace); err == nil {
+					return fmt.Errorf("the target workspace(%s) is not in the cache yet", target)
+				} else if !apierrors.IsNotFound(err) {
+					return err
+				}
+			}
+			return fmt.Errorf("%w: workspace(%s) does not exist", errMigrationTargetGone, target)
 		}
 		if !targetWorkspace.GetDeletionTimestamp().IsZero() {
 			return fmt.Errorf("%w: workspace(%s) is being deleted", errMigrationTargetGone, target)

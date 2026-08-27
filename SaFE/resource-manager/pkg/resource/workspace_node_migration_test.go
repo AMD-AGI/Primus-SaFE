@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"gotest.tools/assert"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/util/workqueue"
@@ -513,7 +514,8 @@ func TestDeleteWorkspaceReleasesTheNodesItWasMigrating(t *testing.T) {
 	controllerutil.AddFinalizer(m.source, v1.WorkspaceFinalizer)
 	assert.NilError(t, m.client.Update(context.Background(), m.source))
 
-	assert.NilError(t, m.reconciler.delete(context.Background(), m.source))
+	_, err := m.reconciler.delete(context.Background(), m.source)
+	assert.NilError(t, err)
 
 	assert.NilError(t, m.client.Get(context.Background(), client.ObjectKey{Name: m.node.Name}, m.node))
 	assert.Assert(t, v1.GetNodeMigrateInfo(m.node) == nil,
@@ -608,16 +610,43 @@ func TestExpectationsStopBeingWaitedOnEventually(t *testing.T) {
 	r.setExpectations("ws-a", sets.NewSetByKeys("a-node-nobody-will-report-on"))
 	assert.Equal(t, r.meetExpectations("ws-a"), false)
 
-	r.Lock()
-	r.expectations["ws-a"].deadline = time.Now().Add(-time.Second)
-	r.Unlock()
+	expire(&r, "ws-a", "a-node-nobody-will-report-on")
 
 	assert.Equal(t, r.meetExpectations("ws-a"), true, "the workspace waited for good")
-	// And it is dropped, so the workspace is not judged against it again.
+	// Reading does not consume the way out; pruning is what removes it.
 	r.RLock()
 	_, still := r.expectations["ws-a"]
 	r.RUnlock()
-	assert.Equal(t, still, false)
+	assert.Equal(t, still, true)
+
+	r.pruneExpectations("ws-a")
+	r.RLock()
+	_, afterPrune := r.expectations["ws-a"]
+	r.RUnlock()
+	assert.Equal(t, afterPrune, false)
+}
+
+// expire backdates one node's deadline so the wait for it has run out.
+func expire(r *WorkspaceReconciler, workspaceId, nodeName string) {
+	r.Lock()
+	defer r.Unlock()
+	r.expectations[workspaceId].deadlines[nodeName] = time.Now().Add(-time.Second)
+}
+
+// A workspace that keeps binding nodes keeps having entries added, and that is exactly the
+// workspace where a stale one hides -- node actions run before the gate and go on adding to
+// it. Each node has to age on its own clock.
+func TestExpectationsAgeOnTheirOwnClock(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	r.setExpectations("ws-a", sets.NewSetByKeys("stale-node"))
+	expire(&r, "ws-a", "stale-node")
+
+	// A later binding for another node must not put the stale one back on the clock.
+	r.setExpectations("ws-a", sets.NewSetByKeys("fresh-node"))
+	assert.Equal(t, r.meetExpectations("ws-a"), false, "the fresh binding is still worth waiting on")
+
+	r.observeNode("ws-a", "fresh-node")
+	assert.Equal(t, r.meetExpectations("ws-a"), true, "the stale node was put back on the clock")
 }
 
 // Waiting for a workspace that no longer exists reaches a conclusion that is already certain,
@@ -647,4 +676,67 @@ func TestClassifyMigrationGivesUpOnSomeoneElsesCrossing(t *testing.T) {
 	})
 	state, _ := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
 	assert.Equal(t, state, migrationAbandoned)
+}
+
+// Giving up is final -- the reservation comes off and the source's replica is not given back
+// -- so a cache that has not caught up must not be what decides it.
+func TestProcessNodesActionMigrateConfirmsAMissingTargetBeforeGivingUp(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+	})
+	// Gone as far as the cache is concerned, still there as far as the apiserver is.
+	stillThere := m.target.DeepCopy()
+	m.reconciler.apiReader = fake.NewClientBuilder().WithScheme(scheme.Scheme).
+		WithObjects(stillThere).Build()
+	m.target.Finalizers = nil
+	assert.NilError(t, m.client.Update(context.Background(), m.target))
+	assert.NilError(t, m.client.Delete(context.Background(), m.target))
+	assert.Assert(t, apierrors.IsNotFound(
+		m.client.Get(context.Background(), client.ObjectKey{Name: m.target.Name}, m.target.DeepCopy())))
+
+	_, _, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+
+	assert.NilError(t, m.client.Get(context.Background(), client.ObjectKey{Name: m.node.Name}, m.node))
+	assert.Assert(t, v1.GetNodeMigrateInfo(m.node) != nil,
+		"a stale cache read was enough to give up on the migration")
+	assert.NilError(t, m.client.Get(context.Background(), client.ObjectKey{Name: m.source.Name}, m.source))
+	assert.Assert(t, v1.GetWorkspaceNodesAction(m.source) != "")
+}
+
+// A binding that has to be retried re-registers the same node every pass. Refreshing its
+// deadline each time means the wait never runs out on exactly the node that is not settling.
+func TestSetExpectationsDoesNotPutANodeBackOnTheClock(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	r.setExpectations("ws-a", sets.NewSetByKeys("retried-node"))
+	r.RLock()
+	first := r.expectations["ws-a"].deadlines["retried-node"]
+	r.RUnlock()
+
+	expire(&r, "ws-a", "retried-node")
+	// The next pass asks for the same node again, as a retried binding does.
+	r.setExpectations("ws-a", sets.NewSetByKeys("retried-node"))
+
+	r.RLock()
+	second := r.expectations["ws-a"].deadlines["retried-node"]
+	r.RUnlock()
+	assert.Assert(t, !second.After(first), "the retry pushed the deadline out")
+	assert.Equal(t, r.meetExpectations("ws-a"), true, "the wait never runs out on a retried binding")
+}
+
+// The deadline is only read when something asks, and nothing asks unless the workspace is
+// reconciled again. Blocked on the gate, nothing else brings it back: a node released
+// mid-migration carries no workspace on its labels for a node event to route by.
+func TestProcessWorkspaceAsksToComeBackWhileItIsWaiting(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	cluster := testCluster("c1")
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	ws.Spec.Cluster = "c1"
+	r := newWorkspaceReconcilerFull(t, cs, cluster, ws)
+	r.option = &WorkspaceReconcilerOption{nodeWait: 30 * time.Second}
+	r.setExpectations(ws.Name, sets.NewSetByKeys("a-node-still-in-flight"))
+
+	result, err := r.processWorkspace(context.Background(), ws)
+	assert.NilError(t, err)
+	assert.Assert(t, result.RequeueAfter > 0, "the workspace was left with nothing to bring it back")
 }
