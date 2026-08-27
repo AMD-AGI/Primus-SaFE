@@ -528,3 +528,60 @@ func TestProcessNodesActionIgnoresAnUnknownAction(t *testing.T) {
 	assert.NilError(t, adminClient.Get(context.Background(), client.ObjectKey{Name: node.Name}, node))
 	assert.Equal(t, node.GetSpecWorkspace(), "", "a malformed action claimed the node")
 }
+
+// Two things bind nodes for one workspace: the scaling loop, and the node action a user
+// asked for. Replacing what the workspace is waiting on drops whatever the other one had
+// outstanding -- the workspace then reads as settled with a binding still in flight, and the
+// next scaling decision is taken on counts that have not caught up.
+func TestSetExpectationsKeepsWhatIsAlreadyOutstanding(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+
+	r.setExpectations("ws-a", sets.NewSetByKeys("scaling-down-node"))
+	r.setExpectations("ws-a", sets.NewSetByKeys("node-action-node"))
+	assert.Equal(t, r.meetExpectations("ws-a"), false)
+
+	r.observeNode("ws-a", "node-action-node")
+	assert.Equal(t, r.meetExpectations("ws-a"), false,
+		"the workspace read as settled while the earlier binding was still in flight")
+
+	r.observeNode("ws-a", "scaling-down-node")
+	assert.Equal(t, r.meetExpectations("ws-a"), true)
+}
+
+// Once a reservation has expired it stops being honoured, so the node can be picked up by
+// someone other than its target. The reservation has done its work either way and must come
+// off, or it goes on naming workspaces with no part in this node and waking them for it.
+func TestUpdateSingleNodeBindingClearsAnExpiredReservationOnWhoeverTakesTheNode(t *testing.T) {
+	node := genMockAdminNode("node1", "cluster", genMockNodeFlavor())
+	v1.SetNodeMigrateInfo(node, &v1.NodeMigrateInfo{
+		From:      "ws-source",
+		Target:    "ws-target",
+		StartTime: &metav1.Time{Time: time.Now().UTC().Add(-2 * v1.DefaultNodeMigrateTimeout)},
+	})
+	adminClient := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).Build()
+	r := newMockWorkspaceReconciler(adminClient)
+
+	_, err := r.updateSingleNodeBinding(context.Background(), node, nodeBinding{workspace: "ws-unrelated"})
+	assert.NilError(t, err)
+
+	assert.NilError(t, adminClient.Get(context.Background(), client.ObjectKey{Name: node.Name}, node))
+	assert.Equal(t, node.GetSpecWorkspace(), "ws-unrelated")
+	assert.Assert(t, v1.GetNodeMigrateInfo(node) == nil, "the reservation outlived the crossing")
+}
+
+// The node webhook stops honouring a reservation at the shared timeout and cannot read this
+// controller's setting, so a longer or unset one here would leave the migration still being
+// driven after the node has stopped being protected.
+func TestMigrateTimeoutNeverOutlastsTheGuard(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	for _, configured := range []time.Duration{0, -time.Minute, 2 * v1.DefaultNodeMigrateTimeout} {
+		option := *r.option
+		option.migrateTimeout = configured
+		r.option = &option
+		assert.Equal(t, r.migrateTimeout(), v1.DefaultNodeMigrateTimeout)
+	}
+	option := *r.option
+	option.migrateTimeout = time.Minute
+	r.option = &option
+	assert.Equal(t, r.migrateTimeout(), time.Minute)
+}
