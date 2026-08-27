@@ -20,7 +20,11 @@ import (
 	"time"
 
 	testifyassert "github.com/stretchr/testify/assert"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
+
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
 // TestAcceptorScriptAgainstRealSocat runs the scripts we send into the Pod against a
@@ -560,5 +564,52 @@ func TestExecPodListenerSurvivesADroppedConnection(t *testing.T) {
 	if err == nil {
 		testifyassert.Equal(t, uint32(51234), conn.OriginPort())
 		testifyassert.NoError(t, conn.Close())
+	}
+}
+
+// TestExecRequestShape pins the exec request the relay is actually launched with.
+// The rest of the suite replaces newPodExecutor, so without this the container, the
+// command and the stdin flag would only ever be checked against a real API server.
+func TestExecRequestShape(t *testing.T) {
+	clientSet, err := kubernetes.NewForConfig(&rest.Config{Host: "https://example.invalid"})
+	testifyassert.NoError(t, err)
+	clients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", clientSet)
+	clients.AttachRestConfigForTest(&rest.Config{Host: "https://example.invalid"})
+
+	l := &execPodListener{
+		clients:   clients,
+		userInfo:  &UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"},
+		container: "main",
+	}
+
+	url := l.execRequest("echo relay", true).URL()
+	testifyassert.Contains(t, url.Path, "/namespaces/ns/pods/pod-0/exec")
+	query := url.Query()
+	testifyassert.Equal(t, "main", query.Get("container"))
+	// The acceptor learns the session ended from its stdin closing, so the exec has
+	// to carry one; stdout and stderr carry the readiness and connection markers.
+	testifyassert.Equal(t, "true", query.Get("stdin"))
+	testifyassert.Equal(t, "true", query.Get("stdout"))
+	testifyassert.Equal(t, "true", query.Get("stderr"))
+	// A false flag is left out of the query rather than spelled out.
+	testifyassert.Empty(t, query.Get("tty"))
+	testifyassert.Equal(t, []string{"/bin/sh", "-c", "echo relay"}, query["command"])
+
+	// A relay that does not need stdin must not be given one.
+	testifyassert.Empty(t, l.execRequest("echo relay", false).URL().Query().Get("stdin"))
+
+	executor, err := l.newExecutor("echo relay", true)
+	testifyassert.NoError(t, err)
+	testifyassert.NotNil(t, executor)
+}
+
+// TestRelayLogWriter verifies relay diagnostics are absorbed rather than treated as
+// stream errors: a short write would make the exec stream fail mid-connection.
+func TestRelayLogWriter(t *testing.T) {
+	w := newLogWriter("pod-0")
+	for _, chunk := range []string{"socat: warning\n", "   \n", ""} {
+		n, err := w.Write([]byte(chunk))
+		testifyassert.NoError(t, err)
+		testifyassert.Equal(t, len(chunk), n, "a short write would abort the exec stream")
 	}
 }

@@ -22,7 +22,16 @@ import (
 	"github.com/spf13/viper"
 	testifyassert "github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/ssh"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/remotecommand"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
@@ -988,4 +997,91 @@ func TestReverseForwardEchoesRequestedBindAddr(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- the authorization a forward request actually goes through ---------------
+
+// newResolveTestHandler builds a handler whose workspace, pod and workload resolve,
+// with only adminUser permitted to reach the workload.
+func newResolveTestHandler(t *testing.T, adminUser string) *SshHandler {
+	t.Helper()
+
+	scheme := runtime.NewScheme()
+	testifyassert.NoError(t, v1.AddToScheme(scheme))
+
+	workspace := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ns"},
+		Spec:       v1.WorkspaceSpec{Cluster: "c1"},
+	}
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-1"},
+		Spec:       v1.WorkloadSpec{Workspace: "ns"},
+	}
+	admin := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: adminUser},
+		Spec:       v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.SystemAdminRole}},
+	}
+	adminRole := &v1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: string(v1.SystemAdminRole)},
+		Rules: []v1.PolicyRule{{
+			Resources:    []string{authority.AllResource},
+			Verbs:        []v1.RoleVerb{v1.AllVerb},
+			GrantedUsers: []string{authority.GrantedAllUser},
+		}},
+	}
+	ctrlClient := ctrlfake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(workspace, workload, admin, adminRole).Build()
+
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name:      "pod-0",
+		Namespace: "ns",
+		Labels:    map[string]string{v1.WorkloadIdLabel: "wl-1"},
+	}}
+	clientManager := commonutils.NewObjectManagerSingleton()
+	clientManager.Add("c1", commonclient.NewClientFactoryWithOnlyClient(
+		context.Background(), "c1", k8sfake.NewSimpleClientset(pod)))
+
+	return &SshHandler{
+		Client:           ctrlClient,
+		clientManager:    clientManager,
+		accessController: authority.NewAccessController(ctrlClient),
+	}
+}
+
+// TestResolveForwardTargetAuthorizes covers the check that stands between a
+// tcpip-forward request and someone else's pod. Every other test in this file
+// replaces it, so without this the guard is only ever exercised by a stub.
+func TestResolveForwardTargetAuthorizes(t *testing.T) {
+	h := newResolveTestHandler(t, "admin")
+
+	clients, err := h.resolveForwardTarget(context.Background(),
+		&UserInfo{User: "admin", Namespace: "ns", Pod: "pod-0", Container: "main"})
+	testifyassert.NoError(t, err)
+	testifyassert.NotNil(t, clients)
+
+	// A user with no claim on the workload cannot open a forward into its pod.
+	_, err = h.resolveForwardTarget(context.Background(),
+		&UserInfo{User: "someone-else", Namespace: "ns", Pod: "pod-0", Container: "main"})
+	testifyassert.Error(t, err)
+
+	// A pod outside any workspace we know about resolves to nothing at all.
+	_, err = h.resolveForwardTarget(context.Background(),
+		&UserInfo{User: "admin", Namespace: "other-ns", Pod: "pod-0", Container: "main"})
+	testifyassert.Error(t, err)
+}
+
+// TestReverseForwardRejectsUnauthorizedUser drives the same guard over a real SSH
+// connection: the client asks for a forward and is refused before any pod-side work.
+func TestReverseForwardRejectsUnauthorizedUser(t *testing.T) {
+	enableReverseForward(t, nil)
+
+	h := newResolveTestHandler(t, "admin")
+	rig := newForwardTestRigWith(t, func(m *reverseForwardManager) {
+		m.resolve = h.resolveForwardTarget
+	})
+
+	// testForwardUser logs in as "root", which owns nothing here.
+	_, err := rig.client.ListenTCP(&net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 10001})
+	testifyassert.Error(t, err)
+	testifyassert.Empty(t, rig.listeners)
 }

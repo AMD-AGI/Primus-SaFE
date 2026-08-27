@@ -19,6 +19,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/klog/v2"
 
@@ -283,9 +284,11 @@ func (l *execPodListener) dial(ctx context.Context, conn acceptedConn) (podConn,
 	return c, nil
 }
 
-// newExecutor builds an exec request running the given shell script in the container.
-func (l *execPodListener) newExecutor(script string, stdin bool) (remotecommand.Executor, error) {
-	req := l.clients.ClientSet().CoreV1().RESTClient().Post().
+// execRequest builds the exec request that runs one relay script in the container.
+// It is separate from newExecutor so a test can read back what we ask the API server
+// for without needing an API server to ask.
+func (l *execPodListener) execRequest(script string, stdin bool) *rest.Request {
+	return l.clients.ClientSet().CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(l.userInfo.Pod).
 		Namespace(l.userInfo.Namespace).
@@ -298,7 +301,11 @@ func (l *execPodListener) newExecutor(script string, stdin bool) (remotecommand.
 			Stderr:    true,
 			TTY:       false,
 		}, scheme.ParameterCodec)
-	return remotecommand.NewSPDYExecutor(l.clients.RestConfig(), "POST", req.URL())
+}
+
+// newExecutor builds an exec request running the given shell script in the container.
+func (l *execPodListener) newExecutor(script string, stdin bool) (remotecommand.Executor, error) {
+	return remotecommand.NewSPDYExecutor(l.clients.RestConfig(), "POST", l.execRequest(script, stdin).URL())
 }
 
 // Close stops the acceptor exec; the script's trap removes the Pod-side sockets.
