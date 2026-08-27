@@ -786,13 +786,27 @@ func TestWorkspaceWithdrawnNodesActionIsNotJustAnySmallerRequest(t *testing.T) {
 	}
 	assert.Assert(t, isNodesActionWithdrawal(base, withdrawal()), "the shape itself is a withdrawal")
 
+	// And still one when the reason it writes is the text already there. The same node
+	// refused twice for the same cause produces the same sentence; requiring the reason to
+	// have changed would leave those entries in flight with no write able to take them out.
+	repeated := withdrawal()
+	v1.SetAnnotation(base, v1.WorkspaceNodesActionError,
+		v1.GetAnnotation(repeated, v1.WorkspaceNodesActionError))
+	assert.Assert(t, isNodesActionWithdrawal(base, repeated), "a repeated reason is still a reason")
+	v1.RemoveAnnotation(base, v1.WorkspaceNodesActionError)
+
 	cases := map[string]func(*v1.Workspace){
 		"no reason means nobody withdrew anything": func(w *v1.Workspace) {
 			v1.RemoveAnnotation(w, v1.WorkspaceNodesActionError)
 		},
+		// A reason already on the object buys nothing on its own: what makes this a withdrawal
+		// is entries leaving, and an unrelated write that merely carries the reason along
+		// takes none out.
 		"a stale reason carried through an unrelated write is not a fresh one": func(w *v1.Workspace) {
 			v1.SetAnnotation(base, v1.WorkspaceNodesActionError,
 				v1.GetAnnotation(w, v1.WorkspaceNodesActionError))
+			v1.SetAnnotation(w, v1.WorkspaceNodesAction, v1.GetWorkspaceNodesAction(base))
+			w.Spec.Replica = base.Spec.Replica
 		},
 		// The refund is an exact number, not a direction. Accepting any smaller replica would
 		// hand a forged withdrawal a scale-down of its author's choosing, and one that skips
@@ -989,6 +1003,47 @@ func TestWorkspaceMutateNodesActionRefusesABoundNode(t *testing.T) {
 	err = m.mutateNodesAction(context.Background(), oldWs, newWs)
 	assert.Assert(t, err != nil)
 	assert.Equal(t, newWs.Spec.Replica, 1)
+}
+
+// Which flavor a nodes-action settles on, and which entry gets blamed when they disagree.
+func TestWorkspaceMutateNodesActionFlavor(t *testing.T) {
+	scheme := newScheme(t)
+	node := func(name, flavor string) *v1.Node {
+		return &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{
+				v1.ClusterIdLabel: "cluster1", v1.NodeFlavorIdLabel: flavor,
+			}},
+			Status: v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
+		}
+	}
+	m := &WorkspaceMutator{Client: fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(node("a1", "flavor"), node("b2", "other"), node("c3", "other")).Build()}
+
+	// A workspace holding nothing may be handed a different flavor than the one left over
+	// from the nodes it used to have. Scaling to zero does not clear Spec.NodeFlavor, so
+	// checking the add against it would leave the workspace pinned to a flavor that no longer
+	// describes anything it owns, with no way out short of deleting it.
+	emptied := requestingWorkspace(0, `{"b2":"add"}`)
+	assert.NilError(t, m.mutateNodesAction(context.Background(), requestingWorkspace(0, ""), emptied))
+	assert.Equal(t, emptied.Spec.NodeFlavor, "other")
+	assert.Equal(t, emptied.Spec.Replica, 1)
+
+	// A workspace that still holds nodes does not get to change flavor this way.
+	held := requestingWorkspace(1, `{"b2":"add"}`)
+	err := m.mutateNodesAction(context.Background(), requestingWorkspace(1, ""), held)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "flavor(other)"), err)
+
+	// Two adds that disagree, on an empty workspace: the first in key order settles it and
+	// the second is the one refused -- the same one on every run, which is the whole reason
+	// the keys are sorted rather than ranged over.
+	for range 8 {
+		mixed := requestingWorkspace(0, `{"a1":"add","c3":"add"}`)
+		mixed.Spec.NodeFlavor = ""
+		err = m.mutateNodesAction(context.Background(), requestingWorkspace(0, ""), mixed)
+		assert.Assert(t, err != nil)
+		assert.Assert(t, strings.Contains(err.Error(), "flavor(other)"), err)
+	}
 }
 
 // A node that has not finished being taken into the cluster cannot be added, and is refused

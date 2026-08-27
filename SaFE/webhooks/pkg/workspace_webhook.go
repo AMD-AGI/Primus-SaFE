@@ -161,9 +161,15 @@ func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, new
 // turned away by the in-flight check; an author who forges the rest of the shape still cannot
 // use it to move Spec.Replica anywhere of their choosing.
 func isNodesActionWithdrawal(oldWorkspace, newWorkspace *v1.Workspace) bool {
-	if v1.GetAnnotation(newWorkspace, v1.WorkspaceNodesActionError) == "" ||
-		v1.GetAnnotation(oldWorkspace, v1.WorkspaceNodesActionError) ==
-			v1.GetAnnotation(newWorkspace, v1.WorkspaceNodesActionError) {
+	// Present, not changed. dropRefusedActions writes the reason it has for the entries it is
+	// dropping, and nothing stops that text from being the one already on the object: the same
+	// node refused twice in a row for the same cause, a request whose second withdrawal reads
+	// exactly like its first. Asking for a change would refuse the real withdrawal in that
+	// case, and the entries would be stuck in flight with no write able to take them out.
+	//
+	// Nothing is lost by dropping the comparison: a write that only repeats the reason and
+	// changes nothing else fails the shrinking-entries check below.
+	if v1.GetAnnotation(newWorkspace, v1.WorkspaceNodesActionError) == "" {
 		return false
 	}
 	oldActions, err := commonnodes.ParseAction(oldWorkspace)
@@ -330,13 +336,19 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 	sort.Strings(keys)
 
 	newActions := make(map[string]string)
-	// The flavor of each accepted entry, in key order, for the pass below.
-	accepted := make([]string, 0, len(keys))
+	// The flavor of each accepted entry, keyed by node, for the pass below.
+	flavors := make(map[string]string, len(keys))
 	for _, key := range keys {
 		val := currentActions[key]
-		n, _ := getNode(ctx, m.Client, key)
+		// The error, not just the nil. getNode returns one for any failed read, and mapping
+		// all of them to NotFound tells whoever asked that their node does not exist when the
+		// apiserver was merely unreachable -- a claim they would act on, and the wrong one.
+		n, getErr := getNode(ctx, m.Client, key)
+		if getErr != nil && !apierrors.IsNotFound(getErr) {
+			klog.ErrorS(getErr, "failed to get node", "node", key)
+			return getErr
+		}
 		if n == nil {
-			klog.ErrorS(err, "failed to get node")
 			return commonerrors.NewNotFound(v1.NodeKind, key)
 		}
 		// Add only, and ahead of the cluster check, for the reasons validateNodesAction spells
@@ -388,11 +400,11 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 		} else {
 			continue
 		}
-		accepted = append(accepted, v1.GetNodeFlavorId(n))
+		flavors[key] = v1.GetNodeFlavorId(n)
 		newActions[key] = val
 	}
 
-	if err := m.applyNodesActionReplica(newWorkspace, keys, newActions, accepted); err != nil {
+	if err := m.applyNodesActionReplica(newWorkspace, keys, newActions, flavors); err != nil {
 		return err
 	}
 
@@ -408,26 +420,38 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 }
 
 // applyNodesActionReplica moves Spec.Replica by what the accepted entries add up to, and
-// settles the flavor while it is there. keys is in sorted order and flavors is parallel to it,
-// skipping the keys that are not in accepted.
+// settles the flavor while it is there. keys is in sorted order; accepted and flavors are both
+// keyed by node name, and a key absent from accepted was not accepted.
 //
-// A workspace with no flavor yet takes it from the first add in key order -- an empty
-// Spec.Replica is the only state in which a nodes-action may name the flavor rather than be
-// checked against it, and picking by key order rather than by map order is what makes a
-// two-add request that disagrees about flavor reject the same one every time.
+// A workspace holding nothing takes its flavor from the first add in key order -- no flavor
+// recorded or no nodes left to justify the one that is, which are the only two states in
+// which a nodes-action may name the flavor rather than be checked against it. Picking by key
+// order rather than by map order is what makes a two-add request that disagrees about flavor
+// reject the same one every time.
 func (m *WorkspaceMutator) applyNodesActionReplica(newWorkspace *v1.Workspace,
-	keys []string, accepted map[string]string, flavors []string) error {
-	i, adds, removes := 0, 0, 0
+	keys []string, accepted map[string]string, flavors map[string]string) error {
+	adds, removes := 0, 0
 	for _, key := range keys {
 		val, ok := accepted[key]
 		if !ok {
 			continue
 		}
-		flavor := flavors[i]
-		i++
+		flavor := flavors[key]
 		if val == v1.NodeActionAdd {
 			adds++
-			if newWorkspace.Spec.NodeFlavor == "" {
+			// The first add in key order names the flavor when the workspace has nothing to
+			// contradict it: no flavor recorded, or a flavor left over from nodes it no
+			// longer has. The second is why the condition is not simply an empty flavor --
+			// scaling to zero does not clear Spec.NodeFlavor, and a workspace holding no
+			// nodes has no stake in the flavor of the ones it used to hold. Requiring an
+			// empty one would make the first add to an emptied workspace fail against a
+			// flavor that no longer describes anything, with no way to change it short of
+			// deleting the workspace.
+			//
+			// Only the first, and by key order rather than map order: every entry after it
+			// is checked against what it set, so a request whose adds disagree rejects the
+			// same one every time rather than whichever the range happened to reach second.
+			if adds == 1 && (newWorkspace.Spec.NodeFlavor == "" || newWorkspace.Spec.Replica == 0) {
 				newWorkspace.Spec.NodeFlavor = flavor
 			}
 		} else {
@@ -1015,7 +1039,12 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 	}
 	var toRemoveNodes []string
 	for key, val := range newActions {
-		n, _ := getNode(ctx, v.Client, key)
+		// See mutateNodesAction: a read that failed for any other reason is not a missing node.
+		n, getErr := getNode(ctx, v.Client, key)
+		if getErr != nil && !apierrors.IsNotFound(getErr) {
+			klog.ErrorS(getErr, "failed to get node", "node", key)
+			return getErr
+		}
 		if n == nil {
 			return commonerrors.NewNotFound(v1.NodeKind, key)
 		}
