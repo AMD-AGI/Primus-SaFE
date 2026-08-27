@@ -7,6 +7,7 @@
 # Targets (use --target):
 #   base     - ROCm + system libs + RCCL (foundation layer)
 #   bench    - + lightweight bench tools (rccl-tests, rdma, transfer_bench, ...)
+#              no torch, so preflight model_check is NOT available in this target
 #   pytorch  - + PyTorch (model inference, micro_benchmarks)
 #   full     - + Primus training stack (Transformer Engine, Primus-Turbo)
 #
@@ -43,13 +44,12 @@ ENV PY_VERSION=${PY_VERSION}
 
 # Pre-ROCm packages: only stock Ubuntu packages that do NOT conflict with ROCm.
 # rocm-cmake, dkms, hipify-clang must be installed AFTER ROCm repo is configured.
-RUN apt-get update && \
-    DISTUTILS_PKG="" && \
+RUN DISTUTILS_PKG="" && \
     if [ "${OS_VERSION}" != "24.04" ]; then DISTUTILS_PKG="python3-distutils"; fi && \
     LIBTINFO_PKG="libtinfo5" && \
     if [ "${OS_VERSION}" = "24.04" ]; then LIBTINFO_PKG="libtinfo6"; fi && \
     for i in 1 2 3; do \
-        apt-get install -y --no-install-recommends \
+        apt-get update && apt-get install -y --no-install-recommends \
             python3 python3-pip ${DISTUTILS_PKG} python3-setuptools python3-wheel python3-docutils \
             build-essential automake autoconf libtool dpkg-dev \
             apt-utils sed wget git jq ca-certificates pkg-config \
@@ -98,6 +98,10 @@ WORKDIR /opt
 #
 # Usable image for quick hardware checks: rccl-tests, rdma, transfer_bench,
 # rocBLAS, babel_stream, ROCm validation suite, fio, ior, etc.
+#
+# Deliberately torch-free. preflight model_check (and its HF pre-download) is
+# installed in the pytorch stage instead -- see the SKIP_INSTALL_SCRIPTS note
+# below for why running it here would poison the image with CUDA wheels.
 # ============================================================================
 FROM base AS bench
 
@@ -119,14 +123,30 @@ RUN mkdir -p ${PREFLIGHT_HOME}/{ssh,network,node,install} && \
     mkdir -p ${PREFLIGHT_HOME}/node/{config_check,node_check,model_check}
 
 COPY preflight/install/* ${PREFLIGHT_HOME}/install/
-# install.sh runs install_model_check.sh, which needs this path before full node/ COPY
-COPY preflight/node/model_check/requirements.txt ${PREFLIGHT_HOME}/node/model_check/requirements.txt
 
+# Cache locations must be set before install.sh so install_prepare_dataset.sh
+# (run later, in the pytorch stage) and any runtime download land in the same place.
+ENV PRIMUSBENCH_CACHE=/opt/primusbench_cache \
+    HF_HOME=/opt/primusbench_cache/huggingface \
+    TRANSFORMERS_CACHE=/opt/primusbench_cache/huggingface/hub \
+    DATASET_CACHE_DIR=/opt/primusbench_cache/datasets \
+    HF_HUB_DOWNLOAD_TIMEOUT=300 \
+    HF_HUB_ETAG_TIMEOUT=60
+
+# install_model_check.sh installs preflight/node/model_check/requirements.txt,
+# which pins torch>=2.6.0. This stage has no torch and no ROCm wheel index, so
+# running it here would pull the CUDA build from PyPI (multi-GB of nvidia-*
+# wheels baked into an immutable layer, then shadowed by ROCm torch in stage 3).
+# install_prepare_dataset.sh imports those same packages. Both are deferred to
+# the pytorch stage; the bench target intentionally has no model_check support.
 RUN if [ -n "${AINIC_BUNDLE_FILENAME}" ]; then \
       export AINIC_BUNDLE_PATH="${PREFLIGHT_HOME}/install/${AINIC_BUNDLE_FILENAME}"; \
       echo "AINIC bundle path: ${AINIC_BUNDLE_PATH}"; \
     fi && \
-    bash ${PREFLIGHT_HOME}/install/install.sh && rm -rf ${PREFLIGHT_HOME}/install
+    SKIP_INSTALL_SCRIPTS="install_model_check.sh install_prepare_dataset.sh" \
+      bash ${PREFLIGHT_HOME}/install/install.sh && \
+    find ${PREFLIGHT_HOME}/install -maxdepth 1 -type f \
+        \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.deb' -o -name '*.rpm' \) -delete
 
 COPY preflight/ssh/* ${PREFLIGHT_HOME}/ssh/
 COPY preflight/network/*.py ${PREFLIGHT_HOME}/network/
@@ -141,13 +161,6 @@ RUN cd benchmarks && bash build.sh
 
 COPY playbooks ./playbooks
 COPY run.sh config.sh ./
-
-ENV PRIMUSBENCH_CACHE=/opt/primusbench_cache \
-    HF_HOME=/opt/primusbench_cache/huggingface \
-    TRANSFORMERS_CACHE=/opt/primusbench_cache/huggingface/hub \
-    DATASET_CACHE_DIR=/opt/primusbench_cache/datasets \
-    HF_HUB_DOWNLOAD_TIMEOUT=300 \
-    HF_HUB_ETAG_TIMEOUT=60
 
 ENV PATH="/opt/superbench/bin:/opt/bin:/usr/local/bin:/opt/rocm/bin:${PATH}" \
     ANSIBLE_DEPRECATION_WARNINGS=FALSE \
@@ -182,6 +195,24 @@ RUN PIP_EXTRA_ARGS="" && \
     fi
 
 RUN python3 -c "import torch; print(f'PyTorch {torch.__version__}, ROCm {torch.version.hip}')"
+
+# Deferred from the bench stage: model_check needs torch, and its
+# requirements.txt carries a bare `torch>=2.6.0` that would happily resolve to
+# the CUDA wheel on PyPI. Pin torch to whatever ROCm build was just installed
+# via PIP_CONSTRAINT so nothing downstream can swap it out.
+ARG WORKSPACE=/opt/primusbench
+ARG PREFLIGHT_HOME=${WORKSPACE}/preflight
+RUN python3 -c "import torch; print('torch==' + torch.__version__)" > /tmp/torch.constraint && \
+    cat /tmp/torch.constraint && \
+    PIP_CONSTRAINT=/tmp/torch.constraint bash ${PREFLIGHT_HOME}/install/install_model_check.sh && \
+    PIP_CONSTRAINT=/tmp/torch.constraint bash ${PREFLIGHT_HOME}/install/install_prepare_dataset.sh && \
+    rm -f /tmp/torch.constraint && \
+    rm -rf ${PREFLIGHT_HOME}/install
+
+# Fail the build here rather than shipping an image whose GPUs are invisible.
+RUN python3 -c "import torch, transformers, datasets; \
+assert torch.version.hip, 'torch is not a ROCm build: ' + torch.__version__; \
+print('ROCm torch preserved:', torch.__version__)"
 
 # ============================================================================
 # Stage 4: full - Primus training capabilities
@@ -241,13 +272,19 @@ RUN git clone --depth=1 --branch ${PRIMUS_BRANCH} \
     git submodule update --init --depth=1 third_party/Megatron-LM && \
     echo "Primus ${PRIMUS_BRANCH} pre-installed at ${PRIMUS_PREINSTALL_DIR}"
 
-# Primus Python dependencies (from Primus requirements.txt + extras)
-RUN pip3 install pybind11 && \
+# Primus Python dependencies (from Primus requirements.txt + extras).
+# Same hazard as the pytorch stage: Primus' requirements.txt and the torch*
+# extras below can resolve torch off PyPI (CUDA build) and silently replace the
+# ROCm one. Constrain torch to the installed version for the whole install.
+RUN python3 -c "import torch; print('torch==' + torch.__version__)" > /tmp/torch.constraint && \
+    export PIP_CONSTRAINT=/tmp/torch.constraint && \
+    pip3 install pybind11 && \
     pip3 install -r ${PRIMUS_PREINSTALL_DIR}/requirements.txt && \
     pip3 install \
         loguru wandb expecttest nltk matplotlib markdown2 weasyprint \
         tyro torchao blobfile "torchdata>=0.8.0" "datasets>=3.6.0" \
-        "mlflow==3.4.0" pyrsmi plotext
+        "mlflow==3.4.0" pyrsmi plotext && \
+    rm -f /tmp/torch.constraint
 
 # Build Megatron C++ dataset helpers
 RUN cd ${PRIMUS_PREINSTALL_DIR}/third_party/Megatron-LM/megatron/core/datasets && \
@@ -255,5 +292,10 @@ RUN cd ${PRIMUS_PREINSTALL_DIR}/third_party/Megatron-LM/megatron/core/datasets &
     echo "Megatron helpers_cpp built successfully"
 
 ENV PYTHONPATH="${PRIMUS_PREINSTALL_DIR}:${PRIMUS_PREINSTALL_DIR}/third_party/Megatron-LM:${PYTHONPATH}"
+
+# Last line of defence: nothing above may have swapped in a CUDA torch.
+RUN python3 -c "import torch; \
+assert torch.version.hip, 'torch is not a ROCm build: ' + torch.__version__; \
+print('final torch:', torch.__version__)"
 
 WORKDIR /opt/primusbench

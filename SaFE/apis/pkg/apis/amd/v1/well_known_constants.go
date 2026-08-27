@@ -80,13 +80,21 @@ const (
 	NodeFlavorIdLabel = NodeFlavorPrefix + "id"
 
 	// workspace
-	WorkspacePrefix        = PrimusSafePrefix + "workspace."
-	WorkspaceFinalizer     = PrimusSafeDomain + "workspace.finalizer"
-	WorkspaceIdLabel       = WorkspacePrefix + "id"
-	WorkspaceNodesAction   = WorkspacePrefix + "nodes.action"
-	WorkspaceForcedAction  = WorkspacePrefix + "forced.action"
-	WorkspaceIdsAnnotation = WorkspacePrefix + "ids"
-	SourceWorkloadIdLabel  = "source.workload.id"
+	WorkspacePrefix       = PrimusSafePrefix + "workspace."
+	WorkspaceFinalizer    = PrimusSafeDomain + "workspace.finalizer"
+	WorkspaceIdLabel      = WorkspacePrefix + "id"
+	WorkspaceNodesAction  = WorkspacePrefix + "nodes.action"
+	WorkspaceForcedAction = WorkspacePrefix + "forced.action"
+	// WorkspaceNodesActionError carries why entries of a nodes.action request were
+	// dropped instead of applied. Written by the controller when it gives up on a request that
+	// cannot succeed on a retry, cleared by the mutating webhook when the next request is
+	// accepted. It is also the mark that webhook reads a withdrawal by, so that it can give
+	// back the replica it charged for the entries being dropped -- writing it beside a
+	// nodes.action annotation that is not shrinking, or leaving it off one that is, changes
+	// what a workspace ends up asking for.
+	WorkspaceNodesActionError = WorkspacePrefix + "nodes.action.error"
+	WorkspaceIdsAnnotation    = WorkspacePrefix + "ids"
+	SourceWorkloadIdLabel     = "source.workload.id"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."

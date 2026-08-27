@@ -403,7 +403,25 @@ func (r *NodeK8sReconciler) handleNodeUpdate(ctx context.Context, message *nodeQ
 func (r *NodeK8sReconciler) syncK8sMetadata(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) error {
 	shouldUpdate := false
 	for _, k := range concernedK8sLabelKeys {
-		if v, ok := k8sNode.Labels[k]; ok {
+		v, ok := k8sNode.Labels[k]
+		// Which workspace owns a node is decided in the admin plane; the data plane label is
+		// only the confirmation that the binding landed. A value that disagrees with
+		// spec.workspace is stale or was edited by hand, and copying it back would make the
+		// admin plane report an ownership nobody asked for. NodeReconciler pushes the right
+		// value back down; the label is still removed through the branch below, once the data
+		// plane no longer carries it at all.
+		//
+		// V(4), not a warning: every bind and unbind opens this window between the admin
+		// plane write and the data plane catching up, and this function runs against every
+		// managed node every few seconds. A scale-down of a large workspace would otherwise
+		// fill the log with a line per node per pass while it is doing exactly the right
+		// thing.
+		if ok && k == v1.WorkspaceIdLabel && v != adminNode.GetSpecWorkspace() {
+			klog.V(4).Infof("ignore workspace label %s on k8s node %s, the node is bound to %q",
+				v, k8sNode.Name, adminNode.GetSpecWorkspace())
+			continue
+		}
+		if ok {
 			if v1.SetLabel(adminNode, k, v) {
 				shouldUpdate = true
 			}

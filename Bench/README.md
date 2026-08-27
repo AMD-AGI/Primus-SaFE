@@ -165,7 +165,7 @@ Important notes:
 - `kubernetes/`: Kubernetes manifests including PyTorchJob specifications
 - `benchmarks/`: benchmark implementations and build scripts
 - `preflight/`: SSH, node, and network preflight components
-- `Dockerfile`: builds an image with necessary dependencies and tools
+- `build/`: `Dockerfile` and `build.sh`, which build the images with the necessary dependencies and tools
 
 ---
 

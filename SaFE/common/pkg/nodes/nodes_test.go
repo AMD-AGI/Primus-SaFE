@@ -19,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/pointer"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -519,6 +520,10 @@ func nodesScheme(t *testing.T) *runtime.Scheme {
 	return s
 }
 
+// nodeWith builds a node the way a settled binding leaves one: the claim in spec.workspace
+// and the label that mirrors it back from the data plane, both naming the same workspace.
+// The two are separate fields on purpose -- see nodeWithClaim for what happens when they
+// disagree, which is the state every scale-down has to survive.
 func nodeWith(name, cluster, workspace string) *v1.Node {
 	n := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{}}}
 	if cluster != "" {
@@ -526,7 +531,21 @@ func nodeWith(name, cluster, workspace string) *v1.Node {
 	}
 	if workspace != "" {
 		n.Labels[v1.WorkspaceIdLabel] = workspace
+		n.Spec.Workspace = pointer.String(workspace)
 	}
+	return n
+}
+
+// nodeWithClaim builds a node mid-flight: labelled for one workspace, claimed by another (or
+// by nobody). This is what the admin plane looks like for the length of a binding's round
+// trip through the data plane, not a corruption.
+func nodeWithClaim(name, cluster, labelled, claimed string) *v1.Node {
+	n := nodeWith(name, cluster, labelled)
+	if claimed == "" {
+		n.Spec.Workspace = nil
+		return n
+	}
+	n.Spec.Workspace = pointer.String(claimed)
 	return n
 }
 
@@ -642,4 +661,100 @@ func TestGetUsingNodesOfCluster(t *testing.T) {
 	set, err := GetUsingNodesOfCluster(ctx, cl, "c1")
 	testifyassert.NoError(t, err)
 	testifyassert.True(t, set.Has("used"))
+}
+
+// The number three parties have to agree on: the controller writes it, and both webhooks
+// recompute it to decide whether the write in front of them is a withdrawal at all.
+func TestWithdrawnReplica(t *testing.T) {
+	cases := []struct {
+		name       string
+		replica    int
+		oldActions map[string]string
+		newActions map[string]string
+		want       int
+	}{
+		{
+			name:       "one add of two withdrawn",
+			replica:    3,
+			oldActions: map[string]string{"n1": v1.NodeActionAdd, "n2": v1.NodeActionAdd},
+			newActions: map[string]string{"n2": v1.NodeActionAdd},
+			want:       2,
+		},
+		{
+			name:       "the whole request withdrawn",
+			replica:    3,
+			oldActions: map[string]string{"n1": v1.NodeActionAdd, "n2": v1.NodeActionAdd},
+			newActions: nil,
+			want:       1,
+		},
+		{
+			// The node was refused because somebody else already has it, so this workspace
+			// lost it either way. The decrement that already applied describes where it ended
+			// up, and adding one back would ask for a replacement it never released.
+			name:       "a withdrawn remove is not given back",
+			replica:    2,
+			oldActions: map[string]string{"n1": v1.NodeActionRemove},
+			newActions: nil,
+			want:       2,
+		},
+		{
+			name:       "adds and removes withdrawn together",
+			replica:    5,
+			oldActions: map[string]string{"n1": v1.NodeActionAdd, "n2": v1.NodeActionRemove, "n3": v1.NodeActionAdd},
+			newActions: nil,
+			want:       3,
+		},
+		{
+			name:       "nothing withdrawn is nothing given back",
+			replica:    2,
+			oldActions: map[string]string{"n1": v1.NodeActionAdd},
+			newActions: map[string]string{"n1": v1.NodeActionAdd},
+			want:       2,
+		},
+		{
+			// Cannot happen from a count the webhook itself moved, but the result of this is
+			// written to a spec field, so it clamps rather than going negative.
+			name:       "never below zero",
+			replica:    1,
+			oldActions: map[string]string{"n1": v1.NodeActionAdd, "n2": v1.NodeActionAdd},
+			newActions: nil,
+			want:       0,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, WithdrawnReplica(c.replica, c.oldActions, c.newActions), c.want)
+		})
+	}
+}
+
+// Scale-down candidates are the nodes the workspace can actually release, which is the nodes
+// it still holds the claim on -- not the nodes still carrying its label. The two say different
+// things for the length of a binding's round trip, and this is the function that has to pick
+// the right one: judgeNodeBinding decides the unbind on spec.workspace, so a candidate chosen
+// on the label alone comes back refused, and its slot in the batch is spent on a node the
+// workspace did hold and did not need to give back.
+func TestGetIdleNodesOfWorkspaceFollowsTheClaimNotTheLabel(t *testing.T) {
+	ctx := context.Background()
+	held := nodeWith("held", "c1", "ws1")
+	// Released by ws1; its label has not caught up yet. An unbind here is a no-op that still
+	// consumes one of the count nodes asked for.
+	released := nodeWithClaim("released", "c1", "ws1", "")
+	// Taken by ws2 while ws1's label lingered. An unbind here is refused outright.
+	stolen := nodeWithClaim("stolen", "c1", "ws1", "ws2")
+	cl := ctrlfake.NewClientBuilder().WithScheme(nodesScheme(t)).
+		WithObjects(held, released, stolen).Build()
+
+	idle, err := GetIdleNodesOfWorkspace(ctx, cl, "ws1")
+	testifyassert.NoError(t, err)
+	testifyassert.Len(t, idle, 1)
+	assert.Equal(t, "held", idle[0].Name)
+
+	// And the shortfall is reported rather than papered over with the wrong node: asking for
+	// two back when only one can be given hands back one, and the callers refuse to build a
+	// request out of a short list.
+	down, err := GetNodesForScalingDown(ctx, cl, "ws1", 2)
+	testifyassert.NoError(t, err)
+	testifyassert.Len(t, down, 1)
+	assert.Equal(t, "held", down[0].Name)
 }

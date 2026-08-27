@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -445,7 +446,39 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 			commonworkload.IsSandBox(workload), false)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
+	sortVolumeMountsByDepth(volumeMounts)
 	return volumeMounts
+}
+
+// sortVolumeMountsByDepth orders mounts so that an ancestor mount path always
+// precedes any mount nested inside it. The kubelet mounts a container's
+// volumeMounts in list order, so a nested mount listed before its ancestor is
+// set up first and then has the ancestor mounted over it. The pair that makes
+// this concrete is the sandbox layout produced by buildVolumeMount with
+// EnableUserDir: a read-write /shared_nfs/users/{user_id} nested inside a
+// read-only /shared_nfs. Emitted in the wrong order the writable window is
+// lost and every write into it fails with EROFS, even though the pod spec
+// says readOnly: false.
+//
+// A mount path nested inside another is always the longer string, so ordering
+// by path length is enough to guarantee ancestors come first; the sort is
+// stable so mounts that are not nested keep the order the caller built them
+// in, which keeps the volume-name ids lining up with modifyVolumes.
+func sortVolumeMountsByDepth(volumeMounts []interface{}) {
+	sort.SliceStable(volumeMounts, func(i, j int) bool {
+		return len(volumeMountPath(volumeMounts[i])) < len(volumeMountPath(volumeMounts[j]))
+	})
+}
+
+// volumeMountPath returns the mountPath of a volume mount built by
+// buildVolumeMount, or "" if the entry is not the expected shape.
+func volumeMountPath(volumeMount interface{}) string {
+	m, ok := volumeMount.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	mountPath, _ := m["mountPath"].(string)
+	return mountPath
 }
 
 // modifyInitContainerVolumeMounts mirrors the persistent shared-filesystem

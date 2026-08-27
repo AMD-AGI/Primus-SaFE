@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/lib/pq"
@@ -824,6 +825,33 @@ func TestGenerateOpsJobNodesInput(t *testing.T) {
 	}
 	_, err = h.generateOpsJobNodesInput(context.Background(), badJob)
 	testifyassert.Error(t, err)
+}
+
+// The workspace branch takes the nodes the workspace still holds, not the ones whose label
+// still says so. The label is a mirror of Node.Spec.Workspace and lags it by a data-plane
+// round trip, and what gets built here is the target list of a job that then runs on those
+// machines -- a released node would put this workspace's job onto one another workspace is
+// already using.
+func TestGenerateOpsJobNodesInputSkipsANodeTheWorkspaceNoLongerHolds(t *testing.T) {
+	held := &v1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name: "node-held", Labels: map[string]string{v1.WorkspaceIdLabel: "ws-1"}},
+		Spec: v1.NodeSpec{Workspace: pointer.String("ws-1")}}
+	// Released to another workspace; only the label has yet to catch up.
+	moved := &v1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name: "node-moved", Labels: map[string]string{v1.WorkspaceIdLabel: "ws-1"}},
+		Spec: v1.NodeSpec{Workspace: pointer.String("ws-2")}}
+	h, _ := newAdminHandlerWithObjects(held, moved)
+
+	job := &v1.OpsJob{
+		Spec: v1.OpsJobSpec{Inputs: []v1.Parameter{{Name: v1.ParameterWorkspace, Value: "ws-1"}}},
+	}
+	_, err := h.generateOpsJobNodesInput(context.Background(), job)
+	testifyassert.NoError(t, err)
+	var targets []string
+	for _, p := range job.GetParameters(v1.ParameterNode) {
+		targets = append(targets, p.Value)
+	}
+	assert.Equal(t, []string{"node-held"}, targets)
 }
 
 func TestGenerateAddonJob(t *testing.T) {

@@ -1480,7 +1480,7 @@ func TestWorkspaceValidateNodesActionRemove(t *testing.T) {
 	v := &WorkspaceValidator{Client: k8sClient}
 	newWs := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
 	v1.SetAnnotation(newWs, v1.WorkspaceNodesAction, `{"node1":"remove"}`)
-	assert.NilError(t, v.validateNodesAction(context.Background(), newWs, &v1.Workspace{}))
+	assert.NilError(t, v.validateNodesAction(context.Background(), newWs, &v1.Workspace{}, false))
 }
 
 // TestWorkspaceMutateNodesActionRemove covers node remove action mutation.
@@ -1505,10 +1505,15 @@ func TestWorkspaceMutateNodesActionRemove(t *testing.T) {
 // TestWorkspaceMutateScaleDownSuccess covers successful scale-down node selection.
 func TestWorkspaceMutateScaleDownSuccess(t *testing.T) {
 	scheme := newScheme(t)
-	idleNode := &v1.Node{ObjectMeta: metav1.ObjectMeta{
-		Name:   "node1",
-		Labels: map[string]string{v1.WorkspaceIdLabel: "ws1"},
-	}}
+	// Claim and label both, as a settled binding leaves it: scale-down offers the nodes the
+	// workspace can actually release, and that is decided on the claim.
+	idleNode := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node1",
+			Labels: map[string]string{v1.WorkspaceIdLabel: "ws1"},
+		},
+		Spec: v1.NodeSpec{Workspace: pointer.String("ws1")},
+	}
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(idleNode).Build()
 	m := &WorkspaceMutator{Client: k8sClient}
 	oldWs := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Replica: 2}}

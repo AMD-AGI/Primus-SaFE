@@ -461,6 +461,22 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *view.ListNodeRequest) (
 				continue
 			}
 		}
+		// The workspace filter is answered by the claim, not by the label the List selected
+		// on -- see commonnodes.FilterUnclaimedNode. The label mirrors Node.Spec.Workspace
+		// through the data plane and lags it by a round trip, so for as long as that takes,
+		// the label alone answers both halves of the question wrong: a node another
+		// workspace has since taken still lists under the old one, and a node just claimed
+		// still lists as unassigned -- the answer an operator is most likely to act on, by
+		// handing out a machine that is no longer free.
+		//
+		// It costs visibility in one narrow window: a node whose claim has landed and whose
+		// label has not appears under neither its new workspace (the List cannot select it)
+		// nor the unassigned filter. It is still in the unfiltered and cluster-filtered
+		// lists. Between a node briefly missing from a filtered view and a node advertised
+		// as free while somebody else runs on it, only one of the two gets acted on.
+		if query.WorkspaceId != nil && n.GetSpecWorkspace() != *query.WorkspaceId {
+			continue
+		}
 		nodes = append(nodes, &nodeList[i])
 	}
 	totalCount := len(nodes)
