@@ -959,10 +959,21 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 	// volume, a label -- and each of those carries the annotation along unchanged; rejecting
 	// them would freeze the object for as long as a binding takes. A second nodes-action is
 	// the one thing that changes those bytes, and it is refused whether or not it happens to
-	// parse to the same entries. Same condition and same message as mutateNodesAction, which
-	// has already turned it away by the time this runs; this is the copy that holds if it
-	// did not.
-	if len(oldActions) > 0 &&
+	// parse to the same entries.
+	//
+	// A write that empties the annotation is not a second request and is never refused here.
+	// That is how a request ends: WorkspaceReconciler.removeNodesAction clears the annotation
+	// once every entry has been applied, refused, or found already true, and it is an
+	// ordinary patch -- no reason annotation, no replica movement -- so isNodesActionWithdrawal
+	// does not recognise it and nothing else would let it past. Refusing it deadlocks the
+	// happy path: the request can never be marked finished, so it stays in flight forever and
+	// takes every later nodes-action and scale-down down with it.
+	//
+	// Same condition and same message as mutateNodesAction, which has already turned a second
+	// request away by the time this runs; this is the copy that holds if it did not. The
+	// exemption matches too -- that function returns before its own check when the new
+	// annotation is empty.
+	if len(oldActions) > 0 && v1.GetWorkspaceNodesAction(newWorkspace) != "" &&
 		v1.GetWorkspaceNodesAction(oldWorkspace) != v1.GetWorkspaceNodesAction(newWorkspace) {
 		return commonerrors.NewResourceProcessing(
 			fmt.Sprintf("another job(%s) is processing, please wait for it to complete", v1.GetWorkspaceNodesAction(oldWorkspace)))

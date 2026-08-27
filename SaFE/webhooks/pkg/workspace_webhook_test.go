@@ -1494,3 +1494,48 @@ func TestWorkspaceAdmitRefusesAScaleDownDuringANodesAction(t *testing.T) {
 	incoming.Spec.Replica = 5
 	assert.NilError(t, admit(t, m, v, stored, incoming))
 }
+
+// TestWorkspaceAdmitLetsTheControllerEndANodesAction covers the two writes that finish a
+// request, both of which change the annotation while one is in flight and so run straight
+// into the check that refuses a second request.
+//
+// The clear is the one that matters most: it is how every successful request ends, it is an
+// ordinary patch with no shape to recognise it by, and refusing it strands the request in
+// flight forever -- which under the same in-flight rule freezes every later nodes-action and
+// scale-down on the workspace.
+func TestWorkspaceAdmitLetsTheControllerEndANodesAction(t *testing.T) {
+	scheme := newScheme(t)
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		inFlightNode(t, "node-n", "ws1"), inFlightNode(t, "node-x", ""),
+		&v1.NodeFlavor{ObjectMeta: metav1.ObjectMeta{Name: "flavor1"}},
+		&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster1"}},
+	).Build()
+	m, v := &WorkspaceMutator{Client: cli}, &WorkspaceValidator{Client: cli}
+
+	stored := func(action string) *v1.Workspace {
+		w := validWorkspace("ws1")
+		w.Spec.NodeFlavor = "flavor1"
+		w.Spec.Replica = 2
+		w.Status.AvailableReplica = 1
+		v1.SetAnnotation(w, v1.WorkspaceNodesAction, action)
+		return w
+	}
+
+	// removeNodesAction: the request is done, so the annotation goes. Nothing else moves.
+	old := stored(`{"node-n":"add"}`)
+	incoming := old.DeepCopy()
+	v1.RemoveAnnotation(incoming, v1.WorkspaceNodesAction)
+	assert.NilError(t, admit(t, m, v, old, incoming))
+	assert.Equal(t, v1.GetWorkspaceNodesAction(incoming), "")
+	assert.Equal(t, incoming.Spec.Replica, 2)
+
+	// dropRefusedActions withdrawing the only entry: the annotation goes the same way, but
+	// with a reason and the replica the entry was counted into given back.
+	old = stored(`{"node-x":"add"}`)
+	incoming = old.DeepCopy()
+	v1.RemoveAnnotation(incoming, v1.WorkspaceNodesAction)
+	v1.SetAnnotation(incoming, v1.WorkspaceNodesActionError, "node-x: it no longer exists")
+	incoming.Spec.Replica = 1
+	assert.NilError(t, admit(t, m, v, old, incoming))
+	assert.Equal(t, incoming.Spec.Replica, 1)
+}
