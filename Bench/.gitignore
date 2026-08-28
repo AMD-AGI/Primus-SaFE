@@ -12,7 +12,6 @@ local/
 output
 outputs
 experiment
-data
 20*
 .ssh
 remote.ini
