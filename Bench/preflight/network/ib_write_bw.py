@@ -77,6 +77,48 @@ def kill_remote_listener(node, ssh_cmd):
     log(f"[{node}] Warning: Remote ib_write_bw processes may still be running")
     return False
 
+def report_server_failure(tag, server_process):
+    """
+    Explain *why* a listener never came up.
+
+    The readiness probe can only observe that ib_write_bw never showed up in
+    netstat; it cannot say what went wrong. The reason -- no such device, no
+    /dev/infiniband, permission denied, address already in use -- is on the
+    process' own stderr, which was piped and then discarded, leaving
+    "startup timeout" as the sole clue in the log. Unread pipes are also a
+    deadlock hazard: a process that fills the 64K pipe buffer blocks forever
+    while we wait() on it.
+
+    Must run *after* the process is dead: communicate() on a live listener
+    would block until it exits, and a healthy listener never exits on its own.
+    """
+    if server_process is None:
+        return
+    if server_process.poll() is None:
+        server_process.terminate()
+        try:
+            server_process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            server_process.kill()
+    try:
+        out, err = server_process.communicate(timeout=5)
+    except Exception as e:
+        log(f"{tag} could not read server output: {e}")
+        return
+    saw_output = False
+    for stream_name, data in (("stdout", out), ("stderr", err)):
+        if not data:
+            continue
+        if isinstance(data, bytes):
+            data = data.decode(errors="replace")
+        for line in data.strip().split("\n"):
+            if line.strip():
+                saw_output = True
+                log(f"{tag} server {stream_name}: {line}")
+    if not saw_output:
+        log(f"{tag} server produced no output")
+    log(f"{tag} server exit code: {server_process.returncode}")
+
 def kill_local_listener(server_process):
     # Clean up the failed server
     server_process.terminate()
@@ -191,6 +233,7 @@ def test_node_pair(client, local_ip, server, client_ib_hca, server_ib_hca, ib_pa
             if not check_local_server_ready(server_ib_hca):
                 log(f"[{server}] failed to start Local server")
                 kill_local_listener(server_process)
+                report_server_failure(f"[{server}]", server_process)
                 return False
         else:
             # For remote node, use SSH as before
@@ -205,6 +248,7 @@ def test_node_pair(client, local_ip, server, client_ib_hca, server_ib_hca, ib_pa
                 log(f"[{server}] failed to start Remote server ")
                 # Clean up the failed server
                 kill_remote_listener(server, ssh_cmd)
+                report_server_failure(f"[{server}]", server_process)
                 return False
 
         # === STEP 2: Start Client ===
