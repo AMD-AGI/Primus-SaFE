@@ -56,9 +56,14 @@ const maxConcurrentRelayExecs = 32
 // relayHalfCloseGrace is how long a relay keeps a half-closed connection open.
 // socat's default is half a second, after which one direction ending closes the
 // whole connection - which turns every half-close into a truncation, because the
-// side still talking has barely started. The forward's own teardown is what really
-// bounds these, so this only has to be longer than any exchange worth carrying.
-const relayHalfCloseGrace = 3600
+// side still talking has barely started.
+//
+// Two minutes, not an hour. It has to outlast a request waiting on its reply, which
+// is seconds; the reason not to make it generous is that a relay whose watcher has
+// gone lives exactly this long, and after a fifty-seven minute forward a handful of
+// them were still sitting in the pod. Long enough for any exchange worth carrying,
+// short enough that what escapes the watcher is gone in minutes.
+const relayHalfCloseGrace = 120
 
 // listenerReadyTimeout bounds how long we wait for the Pod-side listener to bind.
 // It shares a budget with forwardResolveTimeout: both run inside one global request,

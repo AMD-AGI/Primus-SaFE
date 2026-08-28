@@ -200,7 +200,7 @@ func TestAcceptorScript(t *testing.T) {
 	testifyassert.Contains(t, script, "TCP-LISTEN:10001,bind=127.0.0.1,reuseaddr,fork")
 	// Every relay socat needs the half-close grace: the default folds one direction
 	// ending into closing the whole connection half a second later.
-	testifyassert.Equal(t, 2, strings.Count(script, "socat -t 3600"))
+	testifyassert.Equal(t, 2, strings.Count(script, "socat -t 120"))
 	testifyassert.Contains(t, script, rfwdReadyMarker)
 	testifyassert.Contains(t, script, rfwdConnMarker)
 	testifyassert.Contains(t, script, rfwdErrMarker)
@@ -216,7 +216,7 @@ func TestAcceptorScript(t *testing.T) {
 
 	// Both scripts hand their own stdin to a background socat: a shell would
 	// otherwise give it /dev/null, and the relay would carry an instant EOF.
-	testifyassert.Contains(t, script, "socat -t 3600 - UNIX-LISTEN:\"$S\" <&3 &")
+	testifyassert.Contains(t, script, "socat -t 120 - UNIX-LISTEN:\"$S\" <&3 &")
 	testifyassert.Equal(t, 2, strings.Count(script, "exec 3<&0"))
 
 	// socat splits address strings on commas, so a comma anywhere in the SYSTEM:
@@ -230,7 +230,7 @@ func TestAcceptorScript(t *testing.T) {
 
 func TestConnectScript(t *testing.T) {
 	testifyassert.Equal(t,
-		"exec socat -t 3600 - UNIX-CONNECT:/tmp/.safe-rfwd-abcd/4242/s,retry=100,interval=0.1",
+		"exec socat -t 120 - UNIX-CONNECT:/tmp/.safe-rfwd-abcd/4242/s,retry=100,interval=0.1",
 		connectScript("/tmp/.safe-rfwd-abcd", "4242"))
 }
 
