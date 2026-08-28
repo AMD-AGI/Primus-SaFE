@@ -239,6 +239,10 @@ def check_local_server_ready(dev):
 _rail_cache = {}
 _rail_cache_lock = threading.Lock()
 
+# Resolved pairing per (client, server), so the decision is logged once per pair.
+_pairing_cache = {}
+_pairing_cache_lock = threading.Lock()
+
 # Shell run on each node to report, for every HCA, the subnet of its first
 # routable GID. Link-local (fe80::) and the all-zero placeholder are skipped:
 # every card has a link-local GID, so it identifies nothing.
@@ -288,38 +292,18 @@ def get_rail_map(node, local_ip, ib_hca_list, ssh_cmd):
         _rail_cache[node] = rails
     return rails
 
-def get_mapped_hca(index, ib_hca_list, client_rails=None, server_rails=None):
+def get_mapped_hca(index, ib_hca_list):
     """
-    Pick the server-side HCA to pair with client HCA `index`.
+    Get the corresponding HCA device based on HCA mapping relationship
 
-    These NICs sit on a rail fabric: each card is on its own subnet, and only
-    cards on the *same* subnet can reach each other. Pairing across rails does
-    not fail cleanly -- the QP just never completes and ib_write_bw reports
-    "Failed status 12" (IBV_WC_RETRY_EXC_ERR), which reads like a broken node
-    rather than a mis-chosen pair.
+    Args:
+        index (int): the index of input HCA device
+        ib_hca_list (list): List of available HCA devices
 
-    So derive the pairing from the GID subnets when both sides could be probed.
-    That is correct whether the fabric is wired straight through or permuted,
-    and it does not have to be revised per cluster.
-
-    The table below is the historical hardcoded permutation, kept only as the
-    fallback for when the rails cannot be read (probe failed, or the subnets
-    are not distinct enough to identify a partner unambiguously).
+    Returns:
+        str: Mapped HCA device name
     """
     hca_mapping = {0: 0, 1: 2, 2: 4, 3: 6, 4: 7, 5: 5, 6: 3, 7: 1}
-    client_hca = ib_hca_list[index]
-
-    if client_rails and server_rails:
-        rail = client_rails.get(client_hca)
-        if rail:
-            matches = [h for h in ib_hca_list if server_rails.get(h) == rail]
-            if len(matches) == 1:
-                return matches[0]
-            # 0 matches: the peer has no card on this rail. >1: the subnets do
-            # not distinguish the cards (e.g. IPv4-mapped GIDs that all share a
-            # prefix). Neither is something to guess at.
-            log(f"    rail {rail} for {client_hca} matched {len(matches)} peer HCAs, "
-                f"falling back to the static mapping")
 
     # Only use mapping relationship when HCA count is 8
     if len(ib_hca_list) == 8:
@@ -327,6 +311,91 @@ def get_mapped_hca(index, ib_hca_list, client_rails=None, server_rails=None):
 
     # By default, return the input HCA (when array element count is not 8 or mapping not found)
     return ib_hca_list[index]
+
+def rail_pairing(ib_hca_list, client_rails, server_rails):
+    """
+    Derive the client->server HCA pairing from the rail subnets.
+
+    Returns a full list (client HCA i pairs with pairing[i]) or None. None means
+    "the rails do not settle this", and the caller must keep the static mapping.
+
+    Deliberately all-or-nothing. A half-derived pairing -- some indices from the
+    rails, some from the table -- would be a third behaviour that has never run
+    anywhere, and it is not obviously better than either input. The bijection
+    check at the end is the same idea: every card must pair with a distinct
+    partner, as both the rail fabric and the static table already guarantee.
+    """
+    if not client_rails or not server_rails:
+        return None
+
+    pairing = []
+    for hca in ib_hca_list:
+        rail = client_rails.get(hca)
+        if not rail:
+            return None
+        matches = [s for s in ib_hca_list if server_rails.get(s) == rail]
+        if len(matches) != 1:
+            # 0: the peer has no card on this rail. >1: the subnets do not tell
+            # the cards apart -- e.g. IPv4-mapped GIDs, which share a prefix on
+            # every card. Neither is something to guess at.
+            return None
+        pairing.append(matches[0])
+
+    if len(set(pairing)) != len(ib_hca_list):
+        return None
+    return pairing
+
+def resolve_pairing(client, server, local_ip, ib_hca_list, ssh_cmd):
+    """
+    Decide how to pair this client's HCAs with this server's, once per node pair.
+
+    These NICs sit on a rail fabric: each card is on its own subnet and only
+    reaches cards on the same subnet. Pairing across rails does not fail
+    cleanly -- the QP never completes and ib_write_bw reports "Failed status 12"
+    (IBV_WC_RETRY_EXC_ERR), which reads like a broken node rather than a
+    mis-chosen pair, so the node gets marked unhealthy.
+
+    get_mapped_hca's table encodes one cluster's wiring. Where that table is
+    right, it is right *because* those pairs share a rail, so reading the rails
+    reproduces it rather than contradicting it. Where the wiring differs -- as
+    on a straight-through fabric, where the table crosses 6 of 8 pairs -- the
+    rails are right and the table is not.
+
+    So: use the rails when they settle the question, keep the table otherwise.
+    IB_HCA_PAIRING=table forces the old behaviour outright.
+    """
+    key = (client, server)
+    with _pairing_cache_lock:
+        if key in _pairing_cache:
+            return _pairing_cache[key]
+
+    static = [get_mapped_hca(i, ib_hca_list) for i in range(len(ib_hca_list))]
+    mode = os.environ.get("IB_HCA_PAIRING", "auto").strip().lower()
+
+    if mode == "table":
+        pairing, why = static, "static table (forced by IB_HCA_PAIRING=table)"
+    else:
+        derived = rail_pairing(
+            ib_hca_list,
+            get_rail_map(client, local_ip, ib_hca_list, ssh_cmd),
+            get_rail_map(server, local_ip, ib_hca_list, ssh_cmd),
+        )
+        if derived is None:
+            pairing, why = static, "static table (rails did not settle the pairing)"
+        elif derived == static:
+            pairing, why = derived, "GID rails (agrees with the static table)"
+        else:
+            pairing, why = derived, "GID rails (differs from the static table)"
+
+    log(f"[{client} -> {server}] HCA pairing from {why}")
+    if pairing != static:
+        for i, hca in enumerate(ib_hca_list):
+            if pairing[i] != static[i]:
+                log(f"    {hca} -> {pairing[i]} (static table said {static[i]})")
+
+    with _pairing_cache_lock:
+        _pairing_cache[key] = pairing
+    return pairing
 
 def test_node_pair(client, local_ip, server, client_ib_hca, server_ib_hca, ib_params, ssh_cmd, group_idx):
     """
@@ -459,15 +528,13 @@ def test_node_group(local_ip, node_group, ib_hca_list, ib_params, ssh_cmd, group
 
         # The pairing depends on the peer's rail layout, so it is resolved per
         # server node rather than once per device index.
-        client_rails = get_rail_map(client_candidate, local_ip, ib_hca_list, ssh_cmd)
         for index, client_ib_hca in enumerate(ib_hca_list):
             for node in node_group:
                 try:
                     if (client_candidate == node) or (node in current_failed_nodes):
                         continue
-                    server_ib_hca = get_mapped_hca(
-                        index, ib_hca_list, client_rails,
-                        get_rail_map(node, local_ip, ib_hca_list, ssh_cmd))
+                    server_ib_hca = resolve_pairing(
+                        client_candidate, node, local_ip, ib_hca_list, ssh_cmd)[index]
                     success = test_node_pair(client_candidate, local_ip, node,
                                              client_ib_hca, server_ib_hca, ib_params, ssh_cmd, group_idx)
                     if not success:
