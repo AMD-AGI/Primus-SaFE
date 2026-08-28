@@ -202,3 +202,35 @@ func TestProcessWorkspaceNodesAuthorizesTheTargetAsItsOwner(t *testing.T) {
 	testifyassert.NoError(t, h.Get(c.Request.Context(), client.ObjectKey{Name: "ws-a"}, stored))
 	testifyassert.JSONEq(t, `{"node1":"migrate:ws-b"}`, v1.GetWorkspaceNodesAction(stored))
 }
+
+// Reading the target before the caller has been asked about the source hands out the
+// difference between a workspace that does not exist and one they may not touch -- which is a
+// list of every workspace, to someone with no rights to any of them.
+func TestProcessWorkspaceNodesChecksTheSourceBeforeReadingTheTarget(t *testing.T) {
+	stranger := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "stranger",
+			Labels: map[string]string{v1.UserIdLabel: "stranger"},
+		},
+		Spec: v1.UserSpec{Type: v1.DefaultUserType},
+	}
+	scheme := runtime.NewScheme()
+	testifyassert.NoError(t, v1.AddToScheme(scheme))
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(stranger,
+		&v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-a"}},
+		&v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-real"}}).Build()
+	h := &Handler{Client: fakeClient, accessController: &authority.AccessController{Client: fakeClient}}
+
+	// The same answer for a target that exists and one that does not.
+	var answers []string
+	for _, target := range []string{"ws-real", "ws-does-not-exist"} {
+		c := newProcessNodesContext(t, "ws-a",
+			`{"nodeIds":["node1"],"action":"migrate","targetWorkspaceId":"`+target+`"}`)
+		c.Set(common.UserId, stranger.Name)
+		_, err := h.processWorkspaceNodes(c)
+		testifyassert.Error(t, err)
+		answers = append(answers, err.Error())
+	}
+	testifyassert.Equal(t, answers[0], answers[1],
+		"the answer told the caller whether the workspace exists")
+}

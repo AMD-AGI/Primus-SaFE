@@ -36,8 +36,8 @@
         <div v-else class="ml-3 textx-13">{{ selectedId }}</div>
       </div>
       <div v-if="action === 'migrate'" class="textx-12 opacity-70">
-        Only workspaces in the same cluster running the same node flavor, or none yet, can take this
-        node.
+        Workspaces in the same cluster. Whether the target can take this node's flavor is checked
+        when you confirm.
       </div>
       <div
         v-if="action === 'remove' || action === 'migrate'"

@@ -393,31 +393,45 @@ func (h *Handler) processWorkspaceNodes(c *gin.Context) (interface{}, error) {
 	}
 	action := req.Action
 	if req.Action == v1.NodeActionMigrate {
-		// A migration changes two workspaces: the source gives a node up and the target
-		// takes it on. Only the source is named in the route and authorized by the update
-		// below, so the target is authorized here -- otherwise a user with rights over one
-		// workspace could push nodes into any other.
+		// The source first, before anything is read about the target. A migration changes two
+		// workspaces, and only the source is named in the route, so the target needs a check
+		// of its own -- but making that check first means fetching a workspace on behalf of
+		// someone who may have no business here at all, and answering 404 for a name that
+		// does not exist and 403 for one that does. That difference is a list of every
+		// workspace, handed out to a caller with no rights to any of them.
+		source, err := h.getAdminWorkspace(c.Request.Context(), c.GetString(common.Name))
+		if err != nil {
+			return nil, err
+		}
+		if err = h.authorizeWorkspaceUpdate(c, source); err != nil {
+			return nil, err
+		}
 		// The real object, not a stand-in carrying only the name. Authorization reads the
 		// kind off the resource and the owner out of its labels, and a synthesized workspace
 		// has neither: rules scoped to workspaces stop matching, and the target's own owner
 		// is refused permission to be migrated into.
-		targetWorkspace, err := h.getAdminWorkspace(c.Request.Context(), req.TargetWorkspaceId)
+		target, err := h.getAdminWorkspace(c.Request.Context(), req.TargetWorkspaceId)
 		if err != nil {
 			return nil, err
 		}
-		if err = h.accessController.Authorize(authority.AccessInput{
-			Context:      c.Request.Context(),
-			Resource:     targetWorkspace,
-			ResourceKind: v1.WorkspaceKind,
-			Verb:         v1.UpdateVerb,
-			Workspaces:   []string{req.TargetWorkspaceId},
-			UserId:       c.GetString(common.UserId),
-		}); err != nil {
+		if err = h.authorizeWorkspaceUpdate(c, target); err != nil {
 			return nil, err
 		}
 		action = v1.BuildMigrateAction(req.TargetWorkspaceId)
 	}
 	return nil, h.updateWorkspaceNodesAction(c, c.GetString(common.Name), action, req.NodeIds, req.Force)
+}
+
+// authorizeWorkspaceUpdate asks whether this caller may change the given workspace.
+func (h *Handler) authorizeWorkspaceUpdate(c *gin.Context, workspace *v1.Workspace) error {
+	return h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		Resource:     workspace,
+		ResourceKind: v1.WorkspaceKind,
+		Verb:         v1.UpdateVerb,
+		Workspaces:   []string{workspace.Name},
+		UserId:       c.GetString(common.UserId),
+	})
 }
 
 // updateWorkspaceNodesAction converts requested nodes and action into a node action

@@ -77,10 +77,11 @@ describe('migrateTargetOptions', () => {
     ws('ws-other-cluster', 'cluster2', 'flavor1'),
   ]
 
-  it('offers the workspaces the API will accept', () => {
+  it('offers every other workspace in the same cluster', () => {
     const options = migrateTargetOptions(workspaces, 'ws-a').map((w) => w.workspaceId)
-    // A workspace with no flavor adopts the node's, so it is a valid target.
-    expect(options).toEqual(['ws-same', 'ws-no-flavor'])
+    // Flavor is not filtered on: whether a target can take one is the API's rule, and it has
+    // more to it than this side can see -- a workspace scaled to zero may take any flavor.
+    expect(options).toEqual(['ws-same', 'ws-other-flavor', 'ws-no-flavor'])
   })
 
   it('never offers the workspace the node is already in', () => {

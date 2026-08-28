@@ -48,14 +48,18 @@ export const buildNodeRelateRequest = (params: {
 }
 
 /**
- * The workspaces a node may be migrated to, mirroring what the API will admit: the same
- * cluster, and either the same node flavor or none yet -- a workspace with no flavor adopts
- * the flavor of the first node it is given.
+ * The workspaces a node may be migrated to: another workspace in the same cluster.
  *
- * The source workspace stands in for the node's own cluster and flavor, which the node list
- * does not carry. When it cannot be found -- a node in a workspace the viewer has no access
- * to -- nothing is filtered rather than everything: an empty list with no explanation is a
- * worse answer than a list the API will narrow down itself.
+ * Cluster only. Whether a target can take a given flavor is a rule the API owns, and it has
+ * more to it than it looks -- a workspace scaled to zero may take any flavor, whatever it
+ * still records -- so a copy of it here is a copy that goes out of date, and it goes out of
+ * date by hiding options that would in fact have worked. What is left is the one condition
+ * this side can be sure of, and the API answers the rest where its answer can say why.
+ *
+ * The source workspace stands in for the node's own cluster, which the node list does not
+ * carry. When it cannot be found -- a node in a workspace the viewer has no access to --
+ * nothing is filtered rather than everything: an empty list with no explanation is a worse
+ * answer than a list the API will narrow down itself.
  */
 export const migrateTargetOptions = (
   workspaces: WorkspaceItem[],
@@ -66,9 +70,5 @@ export const migrateTargetOptions = (
   if (!source) {
     return others
   }
-  return others.filter(
-    (ws) =>
-      (ws.clusterId || '') === (source.clusterId || '') &&
-      (!ws.flavorId || ws.flavorId === source.flavorId),
-  )
+  return others.filter((ws) => (ws.clusterId || '') === (source.clusterId || ''))
 }
