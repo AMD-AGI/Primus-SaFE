@@ -67,7 +67,43 @@ echo "AINIC Driver Version: ${AINIC_DRIVER_VERSION}"
 
 cd ${WORKDIR}
 
-# Install dependencies - add AMD AINIC pensando repository and install libionic-dev
+# Install dependencies - libionic-dev, needed to build ANP.
+#
+# install_ainic_driver.sh runs before this script and hands the AINIC bundle's
+# own install.sh the job, which already installs libionic1/libionic-dev: it
+# picks the .deb for this image's Ubuntu suite out of the bundle, serves it from
+# a local repo at /opt/amd/ainic/deb-repo, and verifies the installed version
+# afterwards. When that has happened the matching libionic is on the system by
+# construction, and this script must leave it alone.
+#
+# Reinstalling it from the pensando repo is not merely redundant, it is wrong.
+# That repo serves the *same file* for its jammy and noble suites -- both are
+# libionic-dev_54.0-149.g3304be71_amd64.deb, md5 8e659561..., the jammy build --
+# while the bundle ships a genuinely different noble build, md5 58cf9765...,
+# under an identical version string. On a jammy base the two are byte-identical,
+# so apt saw nothing to do and this step was a silent no-op; that is the only
+# reason it ever worked. On a noble base apt finds the same version from a
+# higher-priority source with different contents and stops:
+#
+#   The following packages will be DOWNGRADED: libionic-dev libionic1
+#   E: Packages were downgraded and -y was used without --allow-downgrades.
+#
+# Forcing that through would overwrite the bundle's noble libionic with the
+# jammy build -- exactly the pairing this script is supposed to protect. So the
+# remote repo is a fallback for builds that carry no bundle, not the norm.
+LIBIONIC_INSTALLED=$(dpkg-query -W -f='${Status}|${Version}' libionic-dev 2>/dev/null \
+    | awk -F'|' '$1 == "install ok installed" { print $2 }' || true)
+
+if [ -n "${LIBIONIC_INSTALLED}" ] && [ -z "${LIBIONIC_VERSION:-}" ]; then
+  echo "libionic-dev ${LIBIONIC_INSTALLED} is already installed (AINIC bundle); \
+not adding the pensando repo."
+  SKIP_PENSANDO_REPO=true
+else
+  SKIP_PENSANDO_REPO=false
+fi
+
+if [ "${SKIP_PENSANDO_REPO}" != "true" ]; then
+
 echo "Adding AMD AINIC pensando repository for driver version ${AINIC_DRIVER_VERSION}..."
 
 # The suite must be this image's own Ubuntu release, not a fixed one. libionic
@@ -126,7 +162,18 @@ apt-get install -y --allow-unauthenticated libionic-dev${LIBIONIC_PIN} || {
   apt-cache policy libionic-dev libionic1 libibverbs1 >&2 || true
   exit 1
 }
+
+fi  # SKIP_PENSANDO_REPO
+
 echo "libionic installed: $(dpkg-query -W -f='${Version}' libionic1 2>/dev/null || echo unknown)"
+
+# ANP builds against libionic's headers, so their absence must stop the build
+# here rather than surface as a compile error a hundred lines down.
+if ! dpkg-query -W -f='${Status}' libionic-dev 2>/dev/null | grep -q "install ok installed"; then
+  echo "Error: libionic-dev is not installed; ANP cannot be built." >&2
+  apt-cache policy libionic-dev libionic1 libibverbs1 >&2 || true
+  exit 1
+fi
 
 # Clone AMD ANP repository (retry on transient network errors)
 echo "Cloning AMD ANP repository..."
