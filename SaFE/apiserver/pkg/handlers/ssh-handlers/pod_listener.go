@@ -47,6 +47,12 @@ const childIDBaseEnv = "SAFE_RFWD_ID_BASE"
 // a failure, and the scanner's default line is 64 KiB.
 const relayMaxLineBytes = 1 << 20
 
+// maxConcurrentRelayExecs bounds how many per-connection exec streams one listener
+// holds against the target cluster at once. The per-session forward limit counts
+// listeners, not the connections through them, so a single `pip install` behind
+// HTTPS_PROXY would otherwise open hundreds of streams to one API server.
+const maxConcurrentRelayExecs = 32
+
 // relayHalfCloseGrace is how long a relay keeps a half-closed connection open.
 // socat's default is half a second, after which one direction ending closes the
 // whole connection - which turns every half-close into a truncation, because the
@@ -121,6 +127,8 @@ type execPodListener struct {
 
 	accepted chan acceptedConn
 	cancel   context.CancelFunc
+	// execSlots bounds the per-connection exec streams this listener holds at once.
+	execSlots chan struct{}
 	// stdinW is never written to. Closing it is how the acceptor script inside the
 	// Pod is told the session has ended.
 	stdinW *io.PipeWriter
@@ -152,6 +160,7 @@ func newExecPodListener(ctx context.Context, userInfo *UserInfo,
 		bindAddr:   bindAddr,
 		bindPort:   bindPort,
 		accepted:   make(chan acceptedConn, 16),
+		execSlots:  make(chan struct{}, maxConcurrentRelayExecs),
 		cancel:     cancel,
 		doneCh:     make(chan struct{}),
 		streamDone: make(chan struct{}),
@@ -219,7 +228,12 @@ func newExecPodListener(ctx context.Context, userInfo *UserInfo,
 }
 
 // scan consumes one relay output stream, turning marker lines into events.
-func (l *execPodListener) scan(r io.Reader, readyCh chan<- error) {
+func (l *execPodListener) scan(r *io.PipeReader, readyCh chan<- error) {
+	// Whatever ends this loop, the stream is still writing into the other end of
+	// this pipe. Leaving it there strands the copier mid-write, so the exec never
+	// returns, the listener never reports itself finished, and Close waits out its
+	// whole grace before giving up - delaying the very port release it is there for.
+	defer r.CloseWithError(io.EOF)
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), relayMaxLineBytes)
 	for scanner.Scan() {
@@ -292,8 +306,16 @@ func (l *execPodListener) Accept(ctx context.Context) (podConn, error) {
 
 // dial attaches to the unix socket the announced socat child is listening on.
 func (l *execPodListener) dial(ctx context.Context, conn acceptedConn) (podConn, error) {
+	select {
+	case l.execSlots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-l.doneCh:
+		return nil, l.closeErr()
+	}
 	executor, err := newPodExecutor(l, connectScript(l.dir, conn.id), true)
 	if err != nil {
+		<-l.execSlots
 		return nil, err
 	}
 
@@ -320,6 +342,7 @@ func (l *execPodListener) dial(ctx context.Context, conn acceptedConn) (podConn,
 		_ = stdoutW.CloseWithError(streamErr)
 		_ = stdinR.CloseWithError(streamErr)
 		cancel()
+		<-l.execSlots
 	}()
 	return c, nil
 }
@@ -471,7 +494,7 @@ func isRendezvousID(id string) bool {
 // SYSTEM: command down to a single `sh <dir>/child.sh` leaves nothing to mangle.
 func acceptorScript(dir, bindAddr string, bindPort uint32, readySeconds int) string {
 	script := fmt.Sprintf(`set -e
-for tool in socat awk date grep mkdir; do
+for tool in socat awk date grep mkdir readlink; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "%[4]s $tool is not installed in the container" >&2
     exit 127
@@ -523,15 +546,21 @@ HEXPORT=$(printf '%%04X' %[3]d)
 DEADLINE=$(( $(date +%%s) + %[6]d ))
 READY=
 while [ -z "$READY" ]; do
-  INODE=$(awk -v p=":$HEXPORT" '$2 ~ (p "$") && $4 == "0A" { print $10; exit }' /proc/net/tcp 2>/dev/null)
-  if [ -n "$INODE" ]; then
+  # Every row for this port, not just the first: something else in the pod may hold
+  # the same port on another address, and the kernel lists them in its own order. One
+  # of these inodes is ours; taking whichever came first would have us wait out the
+  # deadline while our own listener sat there bound.
+  for INODE in $(awk -v p=":$HEXPORT" '$2 ~ (p "$") && $4 == "0A" { print $10 }' /proc/net/tcp 2>/dev/null); do
     for FD in /proc/$SPID/fd/*; do
       if [ "$(readlink "$FD" 2>/dev/null)" = "socket:[$INODE]" ]; then
         READY=1
         break
       fi
     done
-  fi
+    if [ -n "$READY" ]; then
+      break
+    fi
+  done
   if [ -n "$READY" ]; then
     break
   fi
@@ -559,12 +588,14 @@ wait "$SPID"
 // UNIX-CONNECT to a socket that does not exist yet outright instead of retrying.
 func childScript(dir string) string {
 	return fmt.Sprintf(`D=%[1]s
-# Claim an id no live sibling holds. This used to be the PID alone, which is unique
-# among running processes but comes back once one exits - and a returning id would
-# have this child remove and re-create a path an earlier connection is still
-# announced under, handing one connection's bytes to the other's channel. mkdir
-# either creates the directory or fails, so exactly one child can own an id.
-N=${%[3]s:-$$}
+# Claim an id. The PID alone will not do: it is unique among running processes but
+# comes back once one exits, and a returning id would have this child take a path an
+# earlier connection is still announced under, handing one connection's bytes to the
+# other's channel. Pairing it with the clock is enough - the same PID twice in one
+# second would need millions of forks - so ids do not repeat and the directory can be
+# released when the connection ends, rather than piling up for the life of a forward
+# until the claim loop below runs out of room.
+N=${%[3]s:-$(date +%%s)$$}
 c=0
 while ! mkdir "$D/$N" 2>/dev/null; do
   N=$((N+1))
@@ -598,7 +629,7 @@ done
 if [ ! -S "$S" ]; then
   echo "%[4]s the relay socket for $N never appeared" >&2
   kill "$P" 2>/dev/null || true
-  rm -f "$S"
+  rm -rf "$D/$N"
   exit 1
 fi
 echo "%[2]s $N ${SOCAT_PEERADDR:-127.0.0.1} ${SOCAT_PEERPORT:-0}" >&2
@@ -608,10 +639,7 @@ echo "%[2]s $N ${SOCAT_PEERADDR:-127.0.0.1} ${SOCAT_PEERPORT:-0}" >&2
 ( while [ -d "$D" ] && [ -e "/proc/$P" ]; do sleep 2; done
   kill "$P" 2>/dev/null ) >/dev/null 2>&1 &
 wait "$P"
-# Remove the socket but keep the directory: it is this connection's claim on the id,
-# and releasing it would let a later child take the same one. An announcement still
-# queued for the first connection would then be attached to the second.
-rm -f "$S"`, dir, rfwdConnMarker, childIDBaseEnv, rfwdDropMarker, relayHalfCloseGrace)
+rm -rf "$D/$N"`, dir, rfwdConnMarker, childIDBaseEnv, rfwdDropMarker, relayHalfCloseGrace)
 }
 
 // connectScript builds the short-lived script that hands one accepted connection

@@ -67,12 +67,12 @@ const (
 // usablePort converts a configured port, falling back when it could not be one.
 // The conversion matters: a negative value becomes 4294967295 as a uint32, which
 // silently refuses every forward and reports a range nobody configured.
-func usablePort(value, fallback int) uint32 {
+func usablePort(value, fallback int, once *sync.Once) uint32 {
 	if value < 1 || value > 65535 {
 		// Logged once rather than per connection: the policy is re-read for every
 		// SSH connection, and a misconfigured range would otherwise repeat this
 		// line thousands of times a day.
-		badPortOnce.Do(func() {
+		once.Do(func() {
 			klog.Warningf("ssh reverse forward port %d is not a usable port, using %d instead", value, fallback)
 		})
 		return uint32(fallback)
@@ -80,8 +80,10 @@ func usablePort(value, fallback int) uint32 {
 	return uint32(value)
 }
 
-// badPortOnce keeps the misconfiguration warnings above and below to one apiece.
-var badPortOnce, invertedRangeOnce, badLimitOnce sync.Once
+// One warning apiece, which needs one latch apiece: sharing one between the two
+// ends of the port range reported whichever was read first and stayed quiet about
+// the other, so an operator who got both wrong only ever heard about one.
+var badPortMinOnce, badPortMaxOnce, invertedRangeOnce, badLimitOnce sync.Once
 
 // usableForwardLimit keeps a misconfigured per-session limit from removing the
 // limit. Zero or less reads as "no ceiling" in reserve, so an operator who meant
@@ -99,8 +101,8 @@ func usableForwardLimit(value, fallback int) int {
 
 // loadReverseForwardPolicy snapshots the reverse forwarding configuration.
 func loadReverseForwardPolicy() reverseForwardPolicy {
-	portMin := usablePort(commonconfig.GetSSHReverseForwardPortMin(), defaultForwardPortMin)
-	portMax := usablePort(commonconfig.GetSSHReverseForwardPortMax(), defaultForwardPortMax)
+	portMin := usablePort(commonconfig.GetSSHReverseForwardPortMin(), defaultForwardPortMin, &badPortMinOnce)
+	portMax := usablePort(commonconfig.GetSSHReverseForwardPortMax(), defaultForwardPortMax, &badPortMaxOnce)
 	if portMin > portMax {
 		invertedRangeOnce.Do(func() {
 			klog.Warningf("ssh reverse forward port range %d-%d is inverted, using %d-%d instead",

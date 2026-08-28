@@ -127,6 +127,8 @@ Requirements and limits for `-R`:
 - Server-allocated ports (`RemoteForward 0 …`) are not supported; ask for an explicit port.
 - The proxy on your machine must be running, and the listener disappears as soon as the SSH session
   disconnects.
+- If the pod restarts, or the platform is upgraded underneath you, the forward stops working and
+  nothing tells your SSH client — the protocol has no message for it. Reconnect to get it back.
 
 If all you need is access to a service that allowlists source IPs, consider asking for the cluster
 egress CIDR to be allowlisted instead — it needs no session to stay open.

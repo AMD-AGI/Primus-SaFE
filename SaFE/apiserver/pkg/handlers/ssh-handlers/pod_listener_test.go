@@ -8,6 +8,7 @@ package ssh_handlers
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -330,9 +331,12 @@ type acceptorOutput struct {
 	stdout, stderr string
 	exitErr        error
 	// stuck models a relay that keeps running after its stdin ends; hold models one
-	// that exits only when the test says so.
-	stuck bool
-	hold  bool
+	// that exits only when the test says so; announce is how many connections the
+	// stream reports before doing anything else, which is how a backlog is built
+	// from inside the stream rather than beside it.
+	stuck    bool
+	hold     bool
+	announce int
 }
 
 func (f *fakePodExec) Stream(opts remotecommand.StreamOptions) error {
@@ -365,6 +369,13 @@ func (f *fakePodExec) StreamWithContext(ctx context.Context, opts remotecommand.
 		}
 	} else {
 		_, _ = io.WriteString(opts.Stdout, rfwdReadyMarker+"\n")
+	}
+	// Reported from inside the stream, so a queue nobody drains parks the stream
+	// itself on the write - which is how a real exec's copier behaves.
+	if f.output != nil {
+		for i := 0; i < f.output.announce; i++ {
+			_, _ = io.WriteString(opts.Stderr, fmt.Sprintf("%s %d 10.0.0.9 51234\n", rfwdConnMarker, 7000+i))
+		}
 	}
 	go func() {
 		defer close(f.copied)
@@ -409,6 +420,16 @@ func (f *fakePodExec) announce(t *testing.T, line string) {
 	f.mu.Unlock()
 	_, err := io.WriteString(stderr, line+"\n")
 	testifyassert.NoError(t, err)
+}
+
+// announceQuietly writes a line without touching the test, for use from a goroutine
+// that may outlive it.
+func (f *fakePodExec) announceQuietly(line string) {
+	<-f.started
+	f.mu.Lock()
+	stderr := f.opts.Stderr
+	f.mu.Unlock()
+	_, _ = io.WriteString(stderr, line+"\n")
 }
 
 // stdinEnded reports whether the exec's stdin reached EOF, which is how the relay
@@ -597,7 +618,9 @@ func startChild(t *testing.T, ctx context.Context, dir, idBase string) string {
 	t.Helper()
 
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", childScript(dir))
-	cmd.Env = append(os.Environ(), childIDBaseEnv+"="+idBase)
+	if idBase != "" {
+		cmd.Env = append(os.Environ(), childIDBaseEnv+"="+idBase)
+	}
 	// The child backgrounds socat and a watcher, which outlive it. Put the lot in
 	// one process group so the cleanup below takes them all, rather than leaving a
 	// socat behind on the machine for every run of this test.
@@ -907,11 +930,11 @@ func TestExecPodListenerSurvivesALongRelayLine(t *testing.T) {
 	}
 }
 
-// TestChildScriptDoesNotReuseAFinishedId pins that an id stays taken after the
-// connection using it has gone. Releasing it lets a later child claim the same one,
-// and an announcement still queued for the first connection would then be attached
-// to the second - one connection's bytes delivered on the other's channel. Two live
-// children never collide, so only a finished one can show this.
+// TestChildScriptDoesNotReuseAFinishedId pins that a connection which has finished
+// cannot have its id handed to the next one. An announcement still queued for the
+// first would otherwise be attached to the second, putting one connection's bytes on
+// the other's channel. Ids pair the PID with the clock so they do not repeat, which
+// is also what lets the directory be released instead of accumulating.
 func TestChildScriptDoesNotReuseAFinishedId(t *testing.T) {
 	if _, err := exec.LookPath("socat"); err != nil {
 		t.Skip("socat is not installed")
@@ -921,16 +944,27 @@ func TestChildScriptDoesNotReuseAFinishedId(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	first := startChild(t, ctx, dir, "4242")
-	testifyassert.Equal(t, "4242", first)
-
-	// The connection ends the way a real one does, running the child's own cleanup.
-	// Its relay is gone; its claim on the id must not be.
+	first := startChild(t, ctx, dir, "")
 	endChildNormally(t, dir, first)
 
-	second := startChild(t, ctx, dir, "4242")
+	second := startChild(t, ctx, dir, "")
 	testifyassert.NotEqual(t, first, second,
 		"a finished connection's id was handed to the next one")
+
+	// Distinctness between two live children proves nothing - PIDs already give
+	// that. What stops an id coming back is the clock in front of it.
+	testifyassert.GreaterOrEqual(t, len(second), 15,
+		"the id looks like a bare PID, which comes back once the process exits")
+	epoch, err := strconv.ParseInt(second[:10], 10, 64)
+	testifyassert.NoError(t, err)
+	testifyassert.InDelta(t, time.Now().Unix(), epoch, 300,
+		"the id does not begin with the current time, so it can repeat")
+
+	// And the finished one left nothing behind.
+	_, err = os.Stat(filepath.Join(dir, first))
+	testifyassert.Truef(t, os.IsNotExist(err),
+		"the finished connection's directory is still there: ids that do not repeat "+
+			"must not accumulate for the life of the forward")
 }
 
 // TestRelayCarriesAHalfCloseThroughRealSocat is the half-close test that matters.
@@ -993,4 +1027,113 @@ func TestRelayCarriesAHalfCloseThroughRealSocat(t *testing.T) {
 	back, err := bufio.NewReader(podSide).ReadString('\n')
 	testifyassert.NoError(t, err, "the pod's half-close was turned into a full close")
 	testifyassert.Equal(t, "late-reply\n", back)
+}
+
+// TestAcceptorReadyWithAnotherListenerOnTheSamePort covers a pod that already has
+// something listening on the requested port, on a different address - a server bound
+// to the pod IP, or to another loopback alias, while the forward binds 127.0.0.1.
+// All of them appear in the kernel's listen table under the same port, and readiness
+// has to find ours among them rather than judging by whichever the kernel lists
+// first. The order is the kernel's hash order, so the competing listeners are many:
+// with one, a buggy check passes half the time.
+func TestAcceptorReadyWithAnotherListenerOnTheSamePort(t *testing.T) {
+	if _, err := exec.LookPath("socat"); err != nil {
+		t.Skip("socat is not installed")
+	}
+
+	port := freeTCPPort(t)
+	for i := 2; i <= 9; i++ {
+		other, err := net.Listen("tcp", net.JoinHostPort(fmt.Sprintf("127.0.0.%d", i), itoa(port)))
+		if err != nil {
+			continue
+		}
+		defer other.Close()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// startAcceptor fails the test if readiness never arrives, which is the point:
+	// our socat binds fine, and the question is whether we notice.
+	startAcceptor(t, ctx, filepath.Join(t.TempDir(), "rfwd"), port)
+
+	conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", itoa(port)))
+	testifyassert.NoError(t, err, "the forward's own listener should be reachable")
+	if err == nil {
+		_ = conn.Close()
+	}
+}
+
+// TestExecPodListenerCloseIsPromptWithABacklog pins that a listener whose
+// announcements have outrun the apiserver still shuts down at once. The scan
+// goroutine parks on the full queue; if leaving it there stranded the exec's copier
+// mid-write, the stream would never end and Close would wait out its whole grace -
+// holding the pod port for exactly as long as the wait was meant to shorten.
+func TestExecPodListenerCloseIsPromptWithABacklog(t *testing.T) {
+	previous := listenerShutdownGrace
+	listenerShutdownGrace = 5 * time.Second
+	t.Cleanup(func() { listenerShutdownGrace = previous })
+
+	// The stream itself reports more connections than the queue holds and nobody
+	// accepts them, so it is the stream that ends up parked on the write.
+	stubPodExec(t, &acceptorOutput{stdout: rfwdReadyMarker, announce: 40})
+	listener, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.NoError(t, err)
+	time.Sleep(200 * time.Millisecond)
+
+	start := time.Now()
+	testifyassert.NoError(t, listener.Close())
+	testifyassert.Less(t, time.Since(start), 2*time.Second,
+		"Close waited out its grace because the relay's output was left unread")
+}
+
+// TestExecPodListenerBoundsConcurrentExecs pins the ceiling on per-connection exec
+// streams. The per-session forward limit counts listeners, not the connections
+// through them, so without this one command behind HTTPS_PROXY could hold hundreds
+// of streams open against the target cluster's API server.
+func TestExecPodListenerBoundsConcurrentExecs(t *testing.T) {
+	execs := stubPodExec(t)
+	listener, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+
+	l, ok := listener.(*execPodListener)
+	testifyassert.True(t, ok)
+	testifyassert.Equal(t, maxConcurrentRelayExecs, cap(l.execSlots))
+
+	acceptor := execFor(t, execs, "acceptor")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	held := make([]podConn, 0, maxConcurrentRelayExecs)
+	for i := 0; i < maxConcurrentRelayExecs; i++ {
+		acceptor.announce(t, fmt.Sprintf("%s %d 10.0.0.9 51234", rfwdConnMarker, 6000+i))
+		conn, err := listener.Accept(ctx)
+		testifyassert.NoError(t, err)
+		held = append(held, conn)
+	}
+	testifyassert.Equal(t, maxConcurrentRelayExecs, len(l.execSlots), "every slot should be taken")
+
+	// One more has to wait for a slot rather than opening another stream.
+	acceptor.announce(t, fmt.Sprintf("%s 6999 10.0.0.9 51234", rfwdConnMarker))
+	overflow := make(chan error, 1)
+	go func() {
+		short, stop := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer stop()
+		_, err := listener.Accept(short)
+		overflow <- err
+	}()
+	select {
+	case err := <-overflow:
+		testifyassert.Error(t, err,
+			"a connection past the ceiling was handed a stream instead of waiting for one")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Accept neither took a slot nor gave up")
+	}
+
+	// Releasing one lets the next through.
+	testifyassert.NoError(t, held[0].Close())
+	waitFor(t, func() bool { return len(l.execSlots) < maxConcurrentRelayExecs }, "a slot to come free")
 }
