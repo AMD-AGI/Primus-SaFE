@@ -235,18 +235,91 @@ def check_local_server_ready(dev):
     log(f"[LOCAL] Server on device {dev} startup timeout")
     return False
 
-def get_mapped_hca(index, ib_hca_list):
+# Rail subnet per HCA, cached per node. Reading it costs one ssh round trip.
+_rail_cache = {}
+_rail_cache_lock = threading.Lock()
+
+# Shell run on each node to report, for every HCA, the subnet of its first
+# routable GID. Link-local (fe80::) and the all-zero placeholder are skipped:
+# every card has a link-local GID, so it identifies nothing.
+_RAIL_PROBE = """
+for d in %s; do
+  r=""
+  for i in 0 1 2 3 4 5 6 7; do
+    g=$(cat /sys/class/infiniband/$d/ports/1/gids/$i 2>/dev/null) || continue
+    case "$g" in
+      0000:0000:0000:0000:0000:0000:0000:0000) continue ;;
+      fe80:*) continue ;;
+    esac
+    r=$(echo "$g" | cut -d: -f1-2)
+    break
+  done
+  echo "$d $r"
+done
+"""
+
+def get_rail_map(node, local_ip, ib_hca_list, ssh_cmd):
     """
-    Get the corresponding HCA device based on HCA mapping relationship
+    Map each HCA on `node` to the subnet of its routable GID.
 
-    Args:
-        index (int): the index of input HCA device
-        ib_hca_list (list): List of available HCA devices
+    Returns {} if the node cannot be probed; callers must treat that as
+    "unknown" and fall back rather than guessing.
+    """
+    with _rail_cache_lock:
+        if node in _rail_cache:
+            return _rail_cache[node]
 
-    Returns:
-        str: Mapped HCA device name
+    script = _RAIL_PROBE % " ".join(ib_hca_list)
+    try:
+        if node == local_ip:
+            r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=20)
+        else:
+            r = subprocess.run(ssh_cmd + [node, script], capture_output=True, text=True, timeout=30)
+        rails = {}
+        for line in (r.stdout or "").split("\n"):
+            parts = line.split()
+            if len(parts) == 2:
+                rails[parts[0]] = parts[1]
+    except Exception as e:
+        log(f"[{node}] could not read GID rail map: {e}")
+        rails = {}
+
+    with _rail_cache_lock:
+        _rail_cache[node] = rails
+    return rails
+
+def get_mapped_hca(index, ib_hca_list, client_rails=None, server_rails=None):
+    """
+    Pick the server-side HCA to pair with client HCA `index`.
+
+    These NICs sit on a rail fabric: each card is on its own subnet, and only
+    cards on the *same* subnet can reach each other. Pairing across rails does
+    not fail cleanly -- the QP just never completes and ib_write_bw reports
+    "Failed status 12" (IBV_WC_RETRY_EXC_ERR), which reads like a broken node
+    rather than a mis-chosen pair.
+
+    So derive the pairing from the GID subnets when both sides could be probed.
+    That is correct whether the fabric is wired straight through or permuted,
+    and it does not have to be revised per cluster.
+
+    The table below is the historical hardcoded permutation, kept only as the
+    fallback for when the rails cannot be read (probe failed, or the subnets
+    are not distinct enough to identify a partner unambiguously).
     """
     hca_mapping = {0: 0, 1: 2, 2: 4, 3: 6, 4: 7, 5: 5, 6: 3, 7: 1}
+    client_hca = ib_hca_list[index]
+
+    if client_rails and server_rails:
+        rail = client_rails.get(client_hca)
+        if rail:
+            matches = [h for h in ib_hca_list if server_rails.get(h) == rail]
+            if len(matches) == 1:
+                return matches[0]
+            # 0 matches: the peer has no card on this rail. >1: the subnets do
+            # not distinguish the cards (e.g. IPv4-mapped GIDs that all share a
+            # prefix). Neither is something to guess at.
+            log(f"    rail {rail} for {client_hca} matched {len(matches)} peer HCAs, "
+                f"falling back to the static mapping")
 
     # Only use mapping relationship when HCA count is 8
     if len(ib_hca_list) == 8:
@@ -384,13 +457,17 @@ def test_node_group(local_ip, node_group, ib_hca_list, ib_params, ssh_cmd, group
         current_failed_nodes = set()
         current_success = False
 
-        # Get mapped HCA for this device
+        # The pairing depends on the peer's rail layout, so it is resolved per
+        # server node rather than once per device index.
+        client_rails = get_rail_map(client_candidate, local_ip, ib_hca_list, ssh_cmd)
         for index, client_ib_hca in enumerate(ib_hca_list):
-            server_ib_hca = get_mapped_hca(index, ib_hca_list)
             for node in node_group:
                 try:
                     if (client_candidate == node) or (node in current_failed_nodes):
                         continue
+                    server_ib_hca = get_mapped_hca(
+                        index, ib_hca_list, client_rails,
+                        get_rail_map(node, local_ip, ib_hca_list, ssh_cmd))
                     success = test_node_pair(client_candidate, local_ip, node,
                                              client_ib_hca, server_ib_hca, ib_params, ssh_cmd, group_idx)
                     if not success:
