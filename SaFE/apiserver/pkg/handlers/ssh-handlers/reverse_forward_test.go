@@ -1309,3 +1309,45 @@ func TestReverseForwardRefusesWhenNoBindAddressIsAllowed(t *testing.T) {
 		testifyassert.Errorf(t, err, "%q was allowed although no bind address is configured", addr)
 	}
 }
+
+// stopObservingListener samples the forward's own account of why it is stopping at
+// the instant the accept loop would wake: when the listener is closed.
+type stopObservingListener struct {
+	*fakePodListener
+	fwd               *reverseForward
+	unexpectedAtClose bool
+}
+
+func (l *stopObservingListener) Close() error {
+	l.unexpectedAtClose = l.fwd.unexpectedStop()
+	return l.fakePodListener.Close()
+}
+
+// TestForwardKnowsWhoStoppedIt pins how the accept loop tells a listener that died
+// from one we shut down. It used to read that off the forward's context, which only
+// worked while teardown cancelled before closing; now the listener is closed first -
+// so the pod lets go of the port before we report it gone - and the context is still
+// live at the moment Accept returns. Reading the context there would log every
+// ordinary disconnect as a listener failure, burying the real ones.
+func TestForwardKnowsWhoStoppedIt(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	fwd := &reverseForward{
+		bindAddr:  "127.0.0.1",
+		bindPort:  10001,
+		ctx:       ctx,
+		cancel:    cancel,
+		userInfo:  &UserInfo{User: "root", Namespace: "ns", Pod: "pod-0"},
+		startedAt: time.Now(),
+	}
+	listener := &stopObservingListener{fakePodListener: newFakePodListener(), fwd: fwd}
+	fwd.listener = listener
+
+	// A listener that stops while nobody asked it to is worth reporting.
+	testifyassert.True(t, fwd.unexpectedStop())
+
+	closeForward(fwd, "ssh session ended")
+
+	testifyassert.False(t, listener.unexpectedAtClose,
+		"at the moment the accept loop wakes, our own teardown looked like a listener failure")
+	testifyassert.False(t, fwd.unexpectedStop())
+}

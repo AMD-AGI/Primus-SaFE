@@ -12,6 +12,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -166,6 +167,16 @@ type reverseForward struct {
 	// the same identity the open was logged under, plus how long it was up.
 	userInfo  *UserInfo
 	startedAt time.Time
+	// closing marks a teardown we started, so the accept loop ending is expected.
+	closing atomic.Bool
+}
+
+// unexpectedStop reports whether the accept loop ended for a reason worth logging.
+// A teardown we started is not one - and it cannot be read off the context, because
+// the listener is closed before the context is cancelled so that the pod lets go of
+// the port first.
+func (fwd *reverseForward) unexpectedStop() bool {
+	return !fwd.closing.Load() && fwd.ctx.Err() == nil
 }
 
 // reverseForwardManager owns every remote forward requested over a single SSH
@@ -394,7 +405,7 @@ func (m *reverseForwardManager) serve(userInfo *UserInfo, fwd *reverseForward) {
 	for {
 		pc, err := fwd.listener.Accept(fwd.ctx)
 		if err != nil {
-			if fwd.ctx.Err() == nil {
+			if fwd.unexpectedStop() {
 				klog.ErrorS(err, "reverse forward listener stopped",
 					"pod", userInfo.Pod, "listen", forwardKey(fwd.bindAddr, fwd.bindPort))
 			}
@@ -540,6 +551,7 @@ func (m *reverseForwardManager) closeAll() {
 // Every route out of a forward passes through here, so an "established" line in the
 // audit trail always has exactly one matching close.
 func closeForward(fwd *reverseForward, reason string) {
+	fwd.closing.Store(true)
 	// Close before cancel, not the other way round. This context is the parent of
 	// the listener's exec stream, so cancelling first would tear that stream down
 	// where it stands - leaving Close with no stdin to end, nothing to wait for,
