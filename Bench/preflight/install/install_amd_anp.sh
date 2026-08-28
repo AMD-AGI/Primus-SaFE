@@ -158,20 +158,55 @@ if ! make -j 16 MPI_INCLUDE=/opt/mpich/include/ \
   exit 1
 fi
 
-# Create symlink librccl-anp.so <-> librccl-net.so if needed (RCCL looks for librccl-anp.so)
+# Name the plugin every way RCCL might ask for it.
+#
+# With NCCL_NET_PLUGIN=<name> set -- config.sh sets it to "anp" whenever
+# ENABLE_AINIC=true -- RCCL does not look for librccl-net.so at all. It
+# interpolates the name and opens librccl-net-<name>.so. This block used to
+# create librccl-anp.so, librccl-net.so and libnccl-net.so, none of which is
+# that filename, so the plugin was never loaded:
+#
+#   NET/Plugin: Could not find: librccl-net-anp.so. Using internal net plugin.
+#   Using network IB
+#
+# and every AINIC run silently benchmarked RCCL's built-in IB transport
+# instead, with all the ANP tuning in config.sh inert.
 ANP_BUILD_DIR="${WORKDIR}/${ANP_DIR}/build"
-cd ${ANP_BUILD_DIR}
-if [ -f "librccl-anp.so" ] && [ ! -f "librccl-net.so" ]; then
-  echo "Creating symlink: librccl-net.so -> librccl-anp.so"
-  ln -sf librccl-anp.so librccl-net.so
-elif [ -f "librccl-net.so" ] && [ ! -f "librccl-anp.so" ]; then
-  echo "Creating symlink: librccl-anp.so -> librccl-net.so"
-  ln -sf librccl-net.so librccl-anp.so
+cd "${ANP_BUILD_DIR}"
+
+# Whichever of these the build produced is the real library; the rest become
+# symlinks to it.
+ANP_LIB=""
+for candidate in librccl-net.so librccl-anp.so libnccl-net.so; do
+  if [ -f "${candidate}" ] && [ ! -L "${candidate}" ]; then
+    ANP_LIB="${candidate}"
+    break
+  fi
+done
+if [ -z "${ANP_LIB}" ]; then
+  echo "Error: the ANP build produced no plugin library in ${ANP_BUILD_DIR}." >&2
+  ls -la "${ANP_BUILD_DIR}" >&2 || true
+  exit 1
 fi
-# Create symlink libnccl-net.so -> librccl-net.so for NCCL-compatible plugin lookup
-if [ -f "librccl-net.so" ] && [ ! -f "libnccl-net.so" ]; then
-  echo "Creating symlink: libnccl-net.so -> librccl-net.so"
-  ln -sf librccl-net.so libnccl-net.so
-fi
+echo "ANP plugin library: ${ANP_LIB}"
+
+# librccl-net-anp.so / libnccl-net-anp.so are what NCCL_NET_PLUGIN=anp resolves
+# to; the unsuffixed names are what an unset NCCL_NET_PLUGIN falls back to.
+for alias in librccl-net.so librccl-anp.so libnccl-net.so \
+             librccl-net-anp.so libnccl-net-anp.so; do
+  if [ "${alias}" = "${ANP_LIB}" ]; then
+    continue
+  fi
+  if [ -e "${alias}" ]; then
+    continue
+  fi
+  echo "Creating symlink: ${alias} -> ${ANP_LIB}"
+  ln -sf "${ANP_LIB}" "${alias}"
+done
+
+# The plugin loading is only observable at runtime, so make the artefacts
+# visible at build time instead of discovering the gap in a benchmark result.
+echo "ANP plugin libraries in ${ANP_BUILD_DIR}:"
+ls -la librccl-*.so libnccl-*.so 2>/dev/null || true
 
 echo "============== install  AMD AINIC Network Plugin (amd-anp) ${ANP_VERSION} successfully =============="
