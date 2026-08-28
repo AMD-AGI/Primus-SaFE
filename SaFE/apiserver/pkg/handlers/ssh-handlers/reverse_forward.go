@@ -43,6 +43,14 @@ type reverseForwardPolicy struct {
 	maxForwards   int
 }
 
+// forwardResolveTimeout bounds the authorization round trip to the target cluster.
+// Global requests are answered one at a time so that replies keep the order the
+// client sent them in, which means a slow answer here delays every keepalive and
+// every later request on the connection. The session's own context runs for twelve
+// hours, so without this a cluster that stops answering takes the SSH session with
+// it. It is a variable so tests do not have to wait it out.
+var forwardResolveTimeout = 30 * time.Second
+
 // Defaults applied when the configured port range cannot be used.
 const (
 	defaultForwardPortMin = 1024
@@ -235,7 +243,9 @@ func (m *reverseForwardManager) handleForward(req *ssh.Request) {
 		m.reject(req, fmt.Errorf("invalid user %s", m.conn.User()))
 		return
 	}
-	k8sClients, err := m.resolve(m.ctx, userInfo)
+	resolveCtx, cancelResolve := context.WithTimeout(m.ctx, forwardResolveTimeout)
+	k8sClients, err := m.resolve(resolveCtx, userInfo)
+	cancelResolve()
 	if err != nil {
 		m.reject(req, err)
 		return

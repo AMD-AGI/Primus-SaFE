@@ -1088,3 +1088,50 @@ func TestReverseForwardRejectsUnauthorizedUser(t *testing.T) {
 	testifyassert.Error(t, err)
 	testifyassert.Empty(t, rig.listeners)
 }
+
+// TestReverseForwardBoundsAuthorizationWait pins that a target cluster which stops
+// answering cannot hold the connection's request loop. Global requests are answered
+// in order, so an unbounded wait here stalls keepalives and everything behind it -
+// the session's context runs for twelve hours, which is not a bound worth having.
+func TestReverseForwardBoundsAuthorizationWait(t *testing.T) {
+	enableReverseForward(t, nil)
+
+	previous := forwardResolveTimeout
+	forwardResolveTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { forwardResolveTimeout = previous })
+
+	resolving := make(chan struct{}, 1)
+	m := &reverseForwardManager{
+		conn:     &ssh.ServerConn{Conn: fakeSSHConn{user: testForwardUser}},
+		ctx:      context.Background(),
+		policy:   loadReverseForwardPolicy(),
+		forwards: map[string]*reverseForward{},
+		resolve: func(ctx context.Context, _ *UserInfo) (*commonclient.ClientFactory, error) {
+			resolving <- struct{}{}
+			<-ctx.Done() // a cluster that never answers
+			return nil, ctx.Err()
+		},
+		newListener: func(context.Context, *UserInfo, *commonclient.ClientFactory,
+			string, uint32) (podListener, error) {
+			t.Error("no listener should be started when authorization never answered")
+			return nil, nil
+		},
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		m.handleForward(&ssh.Request{
+			Type:    tcpipForwardRequest,
+			Payload: ssh.Marshal(tcpipForwardPayload{BindAddr: "127.0.0.1", BindPort: 10001}),
+		})
+	}()
+
+	<-resolving
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handleForward never gave up on the unreachable cluster")
+	}
+	testifyassert.Empty(t, m.forwards, "a request that timed out must not hold a reservation")
+}
