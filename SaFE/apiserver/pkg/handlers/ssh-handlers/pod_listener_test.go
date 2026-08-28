@@ -176,6 +176,10 @@ func startAcceptor(t *testing.T, ctx context.Context, dir string, port uint32) *
 
 	script := acceptorScript(dir, "127.0.0.1", port, 12)
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", script)
+	// The acceptor backgrounds socat and two watchers, which outlive the shell. Put
+	// them in one process group so the cleanup takes the lot, rather than leaving a
+	// socat on the machine for every run.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// The exec stream's stdin stays open for the life of the session; without it
 	// the script would read EOF at once and shut itself down.
 	stdin, err := cmd.StdinPipe()
@@ -186,7 +190,7 @@ func startAcceptor(t *testing.T, ctx context.Context, dir string, port uint32) *
 	testifyassert.NoError(t, err)
 	testifyassert.NoError(t, cmd.Start())
 	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		_, _ = cmd.Process.Wait()
 	})
 
