@@ -75,11 +75,15 @@ data:
       reverse_forward:
         # Whether to allow `ssh -R` (RemoteForward). The listen socket is created
         # inside the user's target Pod, so Pod processes can reach a proxy running
-        # on the developer's machine. Off unless the deployment opts in.
-        enable: {{ default false $rf.enable }}
+        # on the developer's machine. On unless the deployment turns it off.
+        # hasKey rather than `default`: `default` treats false as absent, so an
+        # operator turning this off would have it rendered back on.
+        enable: {{ if hasKey $rf "enable" }}{{ $rf.enable }}{{ else }}true{{ end }}
         # Addresses the Pod-side listener may bind. Keep this at loopback so the
         # tunnel is not reachable from outside the Pod.
-        bind_addresses: {{ default (list "127.0.0.1") $rf.bind_addresses | toJson }}
+        # Likewise an empty list is a decision, not an omission: it leaves no address
+        # a forward may bind, and must not be replaced by the default.
+        bind_addresses: {{ if hasKey $rf "bind_addresses" }}{{ $rf.bind_addresses | toJson }}{{ else }}["127.0.0.1"]{{ end }}
         # Ports the Pod-side listener may bind.
         port_min: {{ default 1024 $rf.port_min }}
         port_max: {{ default 65535 $rf.port_max }}

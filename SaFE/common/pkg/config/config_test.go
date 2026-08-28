@@ -304,12 +304,14 @@ func TestSSHReverseForwardGetters(t *testing.T) {
 	// runs after this one, which only shows up under some -run orders.
 	t.Cleanup(viper.Reset)
 
-	testifyassert.False(t, IsSSHReverseForwardEnable())
+	testifyassert.True(t, IsSSHReverseForwardEnable())
 	testifyassert.Equal(t, []string{"127.0.0.1"}, GetSSHReverseForwardBindAddresses())
 	testifyassert.Equal(t, 1024, GetSSHReverseForwardPortMin())
 	testifyassert.Equal(t, 65535, GetSSHReverseForwardPortMax())
 	testifyassert.Equal(t, 8, GetSSHReverseForwardMaxPerSession())
 
+	viper.Set(sshReverseForwardEnable, false)
+	testifyassert.False(t, IsSSHReverseForwardEnable(), "a deployment must be able to turn it off")
 	viper.Set(sshReverseForwardEnable, true)
 	viper.Set(sshReverseForwardPortMin, 20000)
 	viper.Set(sshReverseForwardPortMax, 20010)

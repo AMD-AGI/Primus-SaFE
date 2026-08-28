@@ -163,9 +163,12 @@ func GetSSHRsaPrivate() string {
 }
 
 // IsSSHReverseForwardEnable returns whether SSH remote port forwarding (`ssh -R`)
-// is enabled. It stays off until a deployment opts in.
+// is enabled. On by default: it is what an SSH client already expects of a dev box,
+// and what bounds it is the rest of the policy - loopback only, a port range, and a
+// per-session limit - not the absence of the feature. A deployment that does not
+// want pod traffic leaving through a developer's network turns it off here.
 func IsSSHReverseForwardEnable() bool {
-	return getBool(sshReverseForwardEnable, false)
+	return getBool(sshReverseForwardEnable, true)
 }
 
 // GetSSHReverseForwardBindAddresses returns the addresses a remote forward may

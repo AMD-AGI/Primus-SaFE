@@ -68,12 +68,12 @@ func loadRendered(t *testing.T, rendered string) {
 	testifyassert.NoError(t, LoadConfig(path))
 }
 
-// TestChartRendersReverseForwardDefaults pins that a default install renders a
-// config the getters read as "remote forwarding is off".
+// TestChartRendersReverseForwardDefaults pins what a stock install actually gets:
+// remote forwarding on, bound to loopback inside the pod, and limited.
 func TestChartRendersReverseForwardDefaults(t *testing.T) {
 	loadRendered(t, renderApiserverConfig(t))
 
-	testifyassert.False(t, IsSSHReverseForwardEnable())
+	testifyassert.True(t, IsSSHReverseForwardEnable())
 	testifyassert.Equal(t, []string{"127.0.0.1"}, GetSSHReverseForwardBindAddresses())
 	testifyassert.Equal(t, 1024, GetSSHReverseForwardPortMin())
 	testifyassert.Equal(t, 65535, GetSSHReverseForwardPortMax())
@@ -84,16 +84,25 @@ func TestChartRendersReverseForwardDefaults(t *testing.T) {
 // reaches the getters - the wiring an operator depends on when enabling it.
 func TestChartRendersReverseForwardOverrides(t *testing.T) {
 	loadRendered(t, renderApiserverConfig(t,
-		"--set", "ssh.reverse_forward.enable=true",
+		"--set", "ssh.reverse_forward.enable=false",
 		"--set", "ssh.reverse_forward.port_min=20000",
 		"--set", "ssh.reverse_forward.port_max=20010",
 		"--set", "ssh.reverse_forward.max_forwards_per_session=3",
 		"--set", "ssh.reverse_forward.bind_addresses={127.0.0.1,0.0.0.0}",
 	))
 
-	testifyassert.True(t, IsSSHReverseForwardEnable())
+	// Turning it off has to reach the getters too. Helm's `default` treats false as
+	// absent, so writing enable: false once rendered back to on.
+	testifyassert.False(t, IsSSHReverseForwardEnable())
 	testifyassert.Equal(t, []string{"127.0.0.1", "0.0.0.0"}, GetSSHReverseForwardBindAddresses())
 	testifyassert.Equal(t, 20000, GetSSHReverseForwardPortMin())
 	testifyassert.Equal(t, 20010, GetSSHReverseForwardPortMax())
 	testifyassert.Equal(t, 3, GetSSHReverseForwardMaxPerSession())
+}
+
+// TestChartRendersAnEmptyBindListAsEmpty pins the other half of the same trap: an
+// operator who removes every bind address gets none, not the default put back.
+func TestChartRendersAnEmptyBindListAsEmpty(t *testing.T) {
+	loadRendered(t, renderApiserverConfig(t, "--set", "ssh.reverse_forward.bind_addresses={}"))
+	testifyassert.Empty(t, GetSSHReverseForwardBindAddresses())
 }

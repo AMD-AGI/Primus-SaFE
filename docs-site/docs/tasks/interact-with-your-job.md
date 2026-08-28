@@ -117,7 +117,8 @@ would make the same proxy reachable inside the pod as `127.0.0.1:10800` instead.
 
 Requirements and limits for `-R`:
 
-- The platform administrator must enable it (`ssh.reverse_forward.enable`); it is off by default.
+- It is on by default. A platform administrator can turn it off for a cluster with
+  `ssh.reverse_forward.enable: false`, in which case `-R` is refused.
 - The workload image must contain `socat` — the pod-side listener is built from it.
 - The pod-side listener may only bind `127.0.0.1`, so no other workload can use your tunnel.
 - The listen port must fall inside the configured range (`1024`–`65535` by default, so that a

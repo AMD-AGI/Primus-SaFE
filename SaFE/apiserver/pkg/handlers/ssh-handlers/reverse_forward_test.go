@@ -41,8 +41,9 @@ const testForwardUser = "root.pod-0.main.bash.ns"
 // enableReverseForward turns the feature on for the duration of a test.
 func enableReverseForward(t *testing.T, values map[string]any) {
 	t.Helper()
+	wasEnabled := viper.Get(sshReverseForwardEnableKey)
 	viper.Set(sshReverseForwardEnableKey, true)
-	t.Cleanup(func() { viper.Set(sshReverseForwardEnableKey, false) })
+	t.Cleanup(func() { viper.Set(sshReverseForwardEnableKey, wasEnabled) })
 	for key, value := range values {
 		key, value := key, value
 		previous := viper.Get(key)
@@ -125,7 +126,7 @@ func TestReverseForwardPolicyAllowsConfiguredWildcard(t *testing.T) {
 // produce when nothing is configured.
 func TestLoadReverseForwardPolicyDefaults(t *testing.T) {
 	policy := loadReverseForwardPolicy()
-	testifyassert.False(t, policy.enabled)
+	testifyassert.True(t, policy.enabled)
 	testifyassert.Equal(t, []string{"127.0.0.1"}, policy.bindAddresses)
 	testifyassert.Equal(t, uint32(1024), policy.portMin)
 	testifyassert.Equal(t, uint32(65535), policy.portMax)
@@ -494,9 +495,13 @@ func TestReverseForwardSessionCloseClosesPodListener(t *testing.T) {
 	testifyassert.True(t, podListener.isClosed())
 }
 
-// TestReverseForwardRejectedWhenDisabled verifies the default configuration still
-// refuses `-R`, as it did before the feature existed.
+// TestReverseForwardRejectedWhenDisabled verifies a deployment that turns the
+// feature off refuses `-R`, exactly as the gateway did before it existed.
 func TestReverseForwardRejectedWhenDisabled(t *testing.T) {
+	previous := viper.Get(sshReverseForwardEnableKey)
+	viper.Set(sshReverseForwardEnableKey, false)
+	t.Cleanup(func() { viper.Set(sshReverseForwardEnableKey, previous) })
+
 	rig := newForwardTestRig(t)
 	_, err := rig.client.ListenTCP(&net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 10001})
 	testifyassert.Error(t, err)
