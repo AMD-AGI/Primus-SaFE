@@ -174,7 +174,7 @@ type runningAcceptor struct {
 func startAcceptor(t *testing.T, ctx context.Context, dir string, port uint32) *runningAcceptor {
 	t.Helper()
 
-	script := acceptorScript(dir, "127.0.0.1", port)
+	script := acceptorScript(dir, "127.0.0.1", port, 12)
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", script)
 	// The exec stream's stdin stays open for the life of the session; without it
 	// the script would read EOF at once and shut itself down.
@@ -224,7 +224,7 @@ func waitForPortFree(t *testing.T, port uint32) {
 // workload image has no socat, instead of hanging until the readiness timeout.
 func TestAcceptorScriptWithoutSocat(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "rfwd")
-	cmd := exec.Command("/bin/sh", "-c", acceptorScript(dir, "127.0.0.1", 10001))
+	cmd := exec.Command("/bin/sh", "-c", acceptorScript(dir, "127.0.0.1", 10001, 12))
 	// An empty PATH makes `command -v socat` fail the way a stripped image would.
 	cmd.Env = append(os.Environ(), "PATH=")
 	out, err := cmd.CombinedOutput()
@@ -248,7 +248,7 @@ func TestAcceptorScriptNamesTheMissingTool(t *testing.T) {
 	onlySocat := t.TempDir()
 	testifyassert.NoError(t, os.Symlink(socat, filepath.Join(onlySocat, "socat")))
 
-	cmd := exec.Command("/bin/sh", "-c", acceptorScript(filepath.Join(t.TempDir(), "rfwd"), "127.0.0.1", 10001))
+	cmd := exec.Command("/bin/sh", "-c", acceptorScript(filepath.Join(t.TempDir(), "rfwd"), "127.0.0.1", 10001, 12))
 	cmd.Env = append(os.Environ(), "PATH="+onlySocat)
 	out, err := cmd.CombinedOutput()
 
@@ -538,9 +538,13 @@ func TestExecPodListenerIgnoresMalformedAnnouncement(t *testing.T) {
 // retries before its connection dies for no stated reason.
 func TestChildScriptDoesNotAnnounceWithoutItsSocket(t *testing.T) {
 	dir := t.TempDir()
+	// Shadow socat rather than emptying PATH: without mkdir the script never gets
+	// as far as the branch this test is about, and both assertions would still hold.
+	shadow := t.TempDir()
+	testifyassert.NoError(t, os.WriteFile(filepath.Join(shadow, "socat"),
+		[]byte("#!/bin/sh\nexit 127\n"), 0o755))
 	cmd := exec.Command("/bin/sh", "-c", childScript(dir))
-	// An empty PATH makes the child's socat fail, so the socket never appears.
-	cmd.Env = append(os.Environ(), "PATH=")
+	cmd.Env = append(os.Environ(), "PATH="+shadow+":"+os.Getenv("PATH"))
 	cmd.Stdin = strings.NewReader("")
 	out, err := cmd.CombinedOutput()
 
@@ -551,6 +555,37 @@ func TestChildScriptDoesNotAnnounceWithoutItsSocket(t *testing.T) {
 	// listener itself is fine, so this must not be the listener's error marker.
 	testifyassert.Contains(t, string(out), rfwdDropMarker)
 	testifyassert.NotContains(t, string(out), rfwdErrMarker)
+}
+
+// runningChild is a started child relay, kept so a test can end one deliberately.
+type runningChild struct {
+	cmd   *exec.Cmd
+	stdin io.WriteCloser
+}
+
+var childGroups = map[string]runningChild{}
+
+// endChildNormally lets a child run its own cleanup, rather than killing it: the
+// line that releases or keeps an id only runs on the way out.
+func endChildNormally(t *testing.T, dir, id string) {
+	t.Helper()
+	child, ok := childGroups[dir+"/"+id]
+	testifyassert.Truef(t, ok, "no child recorded for id %s", id)
+
+	// Attaching and letting go closes both of the relay's directions, which is what
+	// ends its socat; closing the accepted socket alone only half-closes it.
+	conn, err := net.Dial("unix", filepath.Join(dir, id, "s"))
+	testifyassert.NoError(t, err)
+	_ = conn.Close()
+	_ = child.stdin.Close()
+
+	done := make(chan struct{})
+	go func() { _, _ = child.cmd.Process.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the child never finished on its own")
+	}
 }
 
 // startChild runs one child relay and returns the id it announced, leaving it alive.
@@ -581,6 +616,7 @@ func startChild(t *testing.T, ctx context.Context, dir, idBase string) string {
 	case line := <-announcements:
 		conn, ok := parseConnAnnouncement(line)
 		testifyassert.Truef(t, ok, "unexpected child output: %s", line)
+		childGroups[dir+"/"+conn.id] = runningChild{cmd: cmd, stdin: stdin}
 		return conn.id
 	case <-time.After(30 * time.Second):
 		t.Fatal("the child never announced itself")
@@ -829,7 +865,7 @@ func TestAcceptorReportsABindItCannotWin(t *testing.T) {
 	port := uint32(occupied.Addr().(*net.TCPAddr).Port)
 
 	dir := filepath.Join(t.TempDir(), "rfwd")
-	cmd := exec.Command("/bin/sh", "-c", acceptorScript(dir, "127.0.0.1", port))
+	cmd := exec.Command("/bin/sh", "-c", acceptorScript(dir, "127.0.0.1", port, 12))
 	stdin, err := cmd.StdinPipe()
 	testifyassert.NoError(t, err)
 	defer stdin.Close()
@@ -865,4 +901,92 @@ func TestExecPodListenerSurvivesALongRelayLine(t *testing.T) {
 	if err == nil {
 		testifyassert.NoError(t, conn.Close())
 	}
+}
+
+// TestChildScriptDoesNotReuseAFinishedId pins that an id stays taken after the
+// connection using it has gone. Releasing it lets a later child claim the same one,
+// and an announcement still queued for the first connection would then be attached
+// to the second - one connection's bytes delivered on the other's channel. Two live
+// children never collide, so only a finished one can show this.
+func TestChildScriptDoesNotReuseAFinishedId(t *testing.T) {
+	if _, err := exec.LookPath("socat"); err != nil {
+		t.Skip("socat is not installed")
+	}
+
+	dir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	first := startChild(t, ctx, dir, "4242")
+	testifyassert.Equal(t, "4242", first)
+
+	// The connection ends the way a real one does, running the child's own cleanup.
+	// Its relay is gone; its claim on the id must not be.
+	endChildNormally(t, dir, first)
+
+	second := startChild(t, ctx, dir, "4242")
+	testifyassert.NotEqual(t, first, second,
+		"a finished connection's id was handed to the next one")
+}
+
+// TestRelayCarriesAHalfCloseThroughRealSocat is the half-close test that matters.
+// The two in reverse_forward_test.go drive a Go fake, so they prove the bridge
+// half-closes correctly and nothing about whether the relay carries it: socat closes
+// the whole connection a short time after either direction ends, which folds a
+// half-close into a full one and truncates whatever the other side still had to say.
+func TestRelayCarriesAHalfCloseThroughRealSocat(t *testing.T) {
+	if _, err := exec.LookPath("socat"); err != nil {
+		t.Skip("socat is not installed")
+	}
+
+	dir := filepath.Join(t.TempDir(), "rfwd")
+	port := freeTCPPort(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	acceptor := startAcceptor(t, ctx, dir, port)
+
+	// A process in the pod sends its request and says it is done writing.
+	podSide, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", itoa(port)))
+	testifyassert.NoError(t, err)
+	defer podSide.Close()
+	_, err = podSide.Write([]byte("req\n"))
+	testifyassert.NoError(t, err)
+	testifyassert.NoError(t, podSide.(*net.TCPConn).CloseWrite())
+
+	var announced acceptedConn
+	deadline := time.After(30 * time.Second)
+	for announced.id == "" {
+		select {
+		case line := <-acceptor.stderr:
+			if conn, ok := parseConnAnnouncement(line); ok {
+				announced = conn
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for the connection announcement")
+		}
+	}
+
+	attach := exec.CommandContext(ctx, "/bin/sh", "-c", connectScript(dir, announced.id))
+	attachIn, err := attach.StdinPipe()
+	testifyassert.NoError(t, err)
+	attachOut, err := attach.StdoutPipe()
+	testifyassert.NoError(t, err)
+	testifyassert.NoError(t, attach.Start())
+	t.Cleanup(func() { _ = attach.Process.Kill(); _, _ = attach.Process.Wait() })
+
+	line, err := bufio.NewReader(attachOut).ReadString('\n')
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, "req\n", line)
+
+	// The reply comes back later than socat's post-EOF grace, which is the whole
+	// point: a proxy on the other end does not answer instantly.
+	time.Sleep(1500 * time.Millisecond)
+	_, err = attachIn.Write([]byte("late-reply\n"))
+	testifyassert.NoError(t, err)
+
+	_ = podSide.SetReadDeadline(time.Now().Add(10 * time.Second))
+	back, err := bufio.NewReader(podSide).ReadString('\n')
+	testifyassert.NoError(t, err, "the pod's half-close was turned into a full close")
+	testifyassert.Equal(t, "late-reply\n", back)
 }

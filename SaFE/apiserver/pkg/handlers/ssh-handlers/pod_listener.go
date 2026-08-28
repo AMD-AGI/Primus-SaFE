@@ -47,10 +47,18 @@ const childIDBaseEnv = "SAFE_RFWD_ID_BASE"
 // a failure, and the scanner's default line is 64 KiB.
 const relayMaxLineBytes = 1 << 20
 
+// relayHalfCloseGrace is how long a relay keeps a half-closed connection open.
+// socat's default is half a second, after which one direction ending closes the
+// whole connection - which turns every half-close into a truncation, because the
+// side still talking has barely started. The forward's own teardown is what really
+// bounds these, so this only has to be longer than any exchange worth carrying.
+const relayHalfCloseGrace = 3600
+
 // listenerReadyTimeout bounds how long we wait for the Pod-side listener to bind.
 // It shares a budget with forwardResolveTimeout: both run inside one global request,
 // which is answered before the next one on the connection is looked at.
-const listenerReadyTimeout = 15 * time.Second
+// It is a variable so a test can reach the branch where the pod never binds.
+var listenerReadyTimeout = 15 * time.Second
 
 // listenerShutdownGrace bounds how long Close waits for the Pod-side relay to exit
 // and give the listen port back. It is a variable so tests do not wait it out.
@@ -151,7 +159,13 @@ func newExecPodListener(ctx context.Context, userInfo *UserInfo,
 
 	// The acceptor reads stdin only to learn when it ends, so it needs a stdin
 	// stream even though nothing is ever sent on it.
-	executor, err := newPodExecutor(l, acceptorScript(l.dir, bindAddr, bindPort), true)
+	// The script gives up a little before we do, so its account of what went wrong
+	// is the one that reaches the caller.
+	readySeconds := int(listenerReadyTimeout.Seconds()) - 3
+	if readySeconds < 1 {
+		readySeconds = 1
+	}
+	executor, err := newPodExecutor(l, acceptorScript(l.dir, bindAddr, bindPort, readySeconds), true)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -455,9 +469,9 @@ func isRendezvousID(id string) bool {
 // options and consuming quotes - before handing the command to a shell, which
 // silently mangles anything more involved than a plain command. Keeping the
 // SYSTEM: command down to a single `sh <dir>/child.sh` leaves nothing to mangle.
-func acceptorScript(dir, bindAddr string, bindPort uint32) string {
-	return fmt.Sprintf(`set -e
-for tool in socat awk; do
+func acceptorScript(dir, bindAddr string, bindPort uint32, readySeconds int) string {
+	script := fmt.Sprintf(`set -e
+for tool in socat awk date grep mkdir; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "%[4]s $tool is not installed in the container" >&2
     exit 127
@@ -473,9 +487,9 @@ rm -rf "$D"
 # whatever the image's umask allows.
 mkdir -m 700 -p "$D"
 cat > "$D/child.sh" <<'SAFE_RFWD_CHILD_EOF'
-%[6]s
+CHILD_SCRIPT_PLACEHOLDER
 SAFE_RFWD_CHILD_EOF
-socat TCP-LISTEN:%[3]d,bind=%[2]s,reuseaddr,fork SYSTEM:'sh %[1]s/child.sh' &
+socat -t %[7]d TCP-LISTEN:%[3]d,bind=%[2]s,reuseaddr,fork SYSTEM:'sh %[1]s/child.sh' &
 SPID=$!
 # The exec stream going away is how a session ends, and it shows up here as EOF on
 # stdin. A background job's stdin is /dev/null unless it is handed our own, so dup
@@ -503,8 +517,11 @@ trap 'kill "$SPID" "$WPID" 2>/dev/null || true; rm -rf "$D"' EXIT INT TERM
 # listening socket's inode against socat's own descriptors, so what we report is that
 # this relay bound the port, not that somebody did.
 HEXPORT=$(printf '%%04X' %[3]d)
+# Give up before the apiserver does, so the reason below is what the user is told
+# rather than a generic "timed out waiting for pod listener" - and so a bind that
+# lands late is still ours to report rather than something already abandoned.
+DEADLINE=$(( $(date +%%s) + %[6]d ))
 READY=
-i=0
 while [ -z "$READY" ]; do
   INODE=$(awk -v p=":$HEXPORT" '$2 ~ (p "$") && $4 == "0A" { print $10; exit }' /proc/net/tcp 2>/dev/null)
   if [ -n "$INODE" ]; then
@@ -524,21 +541,16 @@ while [ -z "$READY" ]; do
     echo "%[4]s failed to listen on %[2]s:%[3]d" >&2
     exit 1
   fi
-  i=$((i+1))
-  if [ $i -ge 75 ]; then
+  if [ "$(date +%%s)" -ge "$DEADLINE" ]; then
     echo "%[4]s timed out waiting for %[2]s:%[3]d to be listening" >&2
     exit 1
   fi
-  # socat normally binds within milliseconds, so the first tries go back to back
-  # rather than making every forward pay a fixed second up front. Only once that
-  # has not worked does this settle into a slow poll for the genuinely busy node.
-  if [ $i -gt 50 ]; then
-    sleep 1
-  fi
+  sleep 0.1 2>/dev/null || sleep 1
 done
 echo "%[5]s"
 wait "$SPID"
-`, dir, bindAddr, bindPort, rfwdErrMarker, rfwdReadyMarker, childScript(dir))
+`, dir, bindAddr, bindPort, rfwdErrMarker, rfwdReadyMarker, readySeconds, relayHalfCloseGrace)
+	return strings.Replace(script, "CHILD_SCRIPT_PLACEHOLDER", childScript(dir), 1)
 }
 
 // childScript is what socat runs for each accepted connection, with the accepted
@@ -570,18 +582,13 @@ S=$D/$N/s
 # background job /dev/null for stdin. Without this dup socat would relay an
 # immediate EOF and nothing from the pod would ever reach the client.
 exec 3<&0
-socat - UNIX-LISTEN:"$S" <&3 &
+socat -t %[5]d - UNIX-LISTEN:"$S" <&3 &
 P=$!
-# A short spin catches the usual case, where socat publishes the socket almost at
-# once, without paying for a syscall. Anything longer waits on the clock: this pod
-# may have a CPU limit, and a hundred thousand iterations of shell arithmetic would
-# spend that limit starving the very socat being waited for - once per connection.
+# Wait on the clock, not the CPU. A spin here is both useless - socat cannot fork
+# and bind inside a few hundred shell iterations - and harmful, because this pod may
+# have a CPU limit and the spin would spend it starving the socat being waited for.
 i=0
 while [ ! -S "$S" ] && [ $i -lt 100 ]; do
-  i=$((i+1))
-done
-i=0
-while [ ! -S "$S" ] && [ $i -lt 50 ]; do
   sleep 0.1 2>/dev/null || sleep 1
   i=$((i+1))
 done
@@ -591,7 +598,7 @@ done
 if [ ! -S "$S" ]; then
   echo "%[4]s the relay socket for $N never appeared" >&2
   kill "$P" 2>/dev/null || true
-  rm -rf "$D/$N"
+  rm -f "$S"
   exit 1
 fi
 echo "%[2]s $N ${SOCAT_PEERADDR:-127.0.0.1} ${SOCAT_PEERPORT:-0}" >&2
@@ -601,14 +608,18 @@ echo "%[2]s $N ${SOCAT_PEERADDR:-127.0.0.1} ${SOCAT_PEERPORT:-0}" >&2
 ( while [ -d "$D" ] && [ -e "/proc/$P" ]; do sleep 2; done
   kill "$P" 2>/dev/null ) >/dev/null 2>&1 &
 wait "$P"
-rm -rf "$D/$N"`, dir, rfwdConnMarker, childIDBaseEnv, rfwdDropMarker)
+# Remove the socket but keep the directory: it is this connection's claim on the id,
+# and releasing it would let a later child take the same one. An announcement still
+# queued for the first connection would then be attached to the second.
+rm -f "$S"`, dir, rfwdConnMarker, childIDBaseEnv, rfwdDropMarker, relayHalfCloseGrace)
 }
 
 // connectScript builds the short-lived script that hands one accepted connection
 // to the apiserver over the exec stream.
 func connectScript(dir, id string) string {
 	// Each child owns a directory named by its id, with the socket inside it.
-	return fmt.Sprintf("exec socat - UNIX-CONNECT:%s/%s/s,retry=100,interval=0.1", dir, id)
+	return fmt.Sprintf("exec socat -t %d - UNIX-CONNECT:%s/%s/s,retry=100,interval=0.1",
+		relayHalfCloseGrace, dir, id)
 }
 
 // randomToken returns a hex token used to name the Pod-side rendezvous directory.

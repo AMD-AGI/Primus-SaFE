@@ -60,6 +60,8 @@ var forwardResolveTimeout = 15 * time.Second
 const (
 	defaultForwardPortMin = 1024
 	defaultForwardPortMax = 65535
+	// defaultForwardMaxPerSession mirrors the chart's default.
+	defaultForwardMaxPerSession = 8
 )
 
 // usablePort converts a configured port, falling back when it could not be one.
@@ -79,7 +81,21 @@ func usablePort(value, fallback int) uint32 {
 }
 
 // badPortOnce keeps the misconfiguration warnings above and below to one apiece.
-var badPortOnce, invertedRangeOnce sync.Once
+var badPortOnce, invertedRangeOnce, badLimitOnce sync.Once
+
+// usableForwardLimit keeps a misconfigured per-session limit from removing the
+// limit. Zero or less reads as "no ceiling" in reserve, so an operator who meant
+// "none allowed" would instead let one session hold as many pod-side listeners as
+// it asks for, each an exec stream and a socat.
+func usableForwardLimit(value, fallback int) int {
+	if value < 1 {
+		badLimitOnce.Do(func() {
+			klog.Warningf("ssh reverse forward limit %d is not a usable count, using %d instead", value, fallback)
+		})
+		return fallback
+	}
+	return value
+}
 
 // loadReverseForwardPolicy snapshots the reverse forwarding configuration.
 func loadReverseForwardPolicy() reverseForwardPolicy {
@@ -97,7 +113,7 @@ func loadReverseForwardPolicy() reverseForwardPolicy {
 		bindAddresses: commonconfig.GetSSHReverseForwardBindAddresses(),
 		portMin:       portMin,
 		portMax:       portMax,
-		maxForwards:   commonconfig.GetSSHReverseForwardMaxPerSession(),
+		maxForwards:   usableForwardLimit(commonconfig.GetSSHReverseForwardMaxPerSession(), defaultForwardMaxPerSession),
 	}
 }
 

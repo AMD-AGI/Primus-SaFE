@@ -85,10 +85,10 @@ data:
         # a forward may bind, and must not be replaced by the default.
         bind_addresses: {{ if hasKey $rf "bind_addresses" }}{{ $rf.bind_addresses | toJson }}{{ else }}["127.0.0.1"]{{ end }}
         # Ports the Pod-side listener may bind.
-        port_min: {{ default 1024 $rf.port_min }}
-        port_max: {{ default 65535 $rf.port_max }}
+        port_min: {{ if hasKey $rf "port_min" }}{{ $rf.port_min }}{{ else }}1024{{ end }}
+        port_max: {{ if hasKey $rf "port_max" }}{{ $rf.port_max }}{{ else }}65535{{ end }}
         # How many remote forwards a single SSH session may hold at once.
-        max_forwards_per_session: {{ default 8 $rf.max_forwards_per_session }}
+        max_forwards_per_session: {{ if hasKey $rf "max_forwards_per_session" }}{{ $rf.max_forwards_per_session }}{{ else }}8{{ end }}
     s3:
       # Whether to enable s3, it is used to download logs
       enable: {{ .Values.s3.enable }}

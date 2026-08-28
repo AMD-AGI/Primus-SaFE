@@ -196,8 +196,11 @@ func TestParseConnAnnouncement(t *testing.T) {
 }
 
 func TestAcceptorScript(t *testing.T) {
-	script := acceptorScript("/tmp/.safe-rfwd-abcd", "127.0.0.1", 10001)
+	script := acceptorScript("/tmp/.safe-rfwd-abcd", "127.0.0.1", 10001, 12)
 	testifyassert.Contains(t, script, "TCP-LISTEN:10001,bind=127.0.0.1,reuseaddr,fork")
+	// Every relay socat needs the half-close grace: the default folds one direction
+	// ending into closing the whole connection half a second later.
+	testifyassert.Equal(t, 2, strings.Count(script, "socat -t 3600"))
 	testifyassert.Contains(t, script, rfwdReadyMarker)
 	testifyassert.Contains(t, script, rfwdConnMarker)
 	testifyassert.Contains(t, script, rfwdErrMarker)
@@ -213,7 +216,7 @@ func TestAcceptorScript(t *testing.T) {
 
 	// Both scripts hand their own stdin to a background socat: a shell would
 	// otherwise give it /dev/null, and the relay would carry an instant EOF.
-	testifyassert.Contains(t, script, "socat - UNIX-LISTEN:\"$S\" <&3 &")
+	testifyassert.Contains(t, script, "socat -t 3600 - UNIX-LISTEN:\"$S\" <&3 &")
 	testifyassert.Equal(t, 2, strings.Count(script, "exec 3<&0"))
 
 	// socat splits address strings on commas, so a comma anywhere in the SYSTEM:
@@ -227,7 +230,7 @@ func TestAcceptorScript(t *testing.T) {
 
 func TestConnectScript(t *testing.T) {
 	testifyassert.Equal(t,
-		"exec socat - UNIX-CONNECT:/tmp/.safe-rfwd-abcd/4242/s,retry=100,interval=0.1",
+		"exec socat -t 3600 - UNIX-CONNECT:/tmp/.safe-rfwd-abcd/4242/s,retry=100,interval=0.1",
 		connectScript("/tmp/.safe-rfwd-abcd", "4242"))
 }
 
@@ -1355,4 +1358,25 @@ func TestForwardKnowsWhoStoppedIt(t *testing.T) {
 	testifyassert.False(t, listener.unexpectedAtClose,
 		"at the moment the accept loop wakes, our own teardown looked like a listener failure")
 	testifyassert.False(t, fwd.unexpectedStop())
+}
+
+// TestLoadReverseForwardPolicyRejectsAnUnusableLimit pins that a misconfigured
+// per-session count does not remove the limit. reserve reads anything below one as
+// "no ceiling", so an operator writing 0 to mean "none allowed" would instead let a
+// single session hold as many pod-side listeners as it cares to open.
+func TestLoadReverseForwardPolicyRejectsAnUnusableLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  int
+		want int
+	}{
+		{name: "zero", set: 0, want: 8},
+		{name: "negative", set: -1, want: 8},
+		{name: "usable kept", set: 3, want: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			enableReverseForward(t, map[string]any{sshReverseForwardMaxPerSess: tc.set})
+			testifyassert.Equal(t, tc.want, loadReverseForwardPolicy().maxForwards)
+		})
+	}
 }
