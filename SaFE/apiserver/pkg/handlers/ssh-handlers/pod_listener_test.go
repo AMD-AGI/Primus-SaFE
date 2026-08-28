@@ -275,6 +275,7 @@ type fakePodExec struct {
 	// script is a different thing and must not look like one.
 	stdinEOF  bool
 	output    *acceptorOutput
+	release   chan struct{}
 	started   chan struct{}
 	copied    chan struct{}
 	startOnce sync.Once
@@ -286,14 +287,22 @@ func newFakePodExec(script string, stdin bool) *fakePodExec {
 		stdin:   stdin,
 		started: make(chan struct{}),
 		copied:  make(chan struct{}),
+		release: make(chan struct{}),
 	}
 }
+
+// finish lets a stubbed relay exit, standing in for the pod-side script returning.
+func (f *fakePodExec) finish() { close(f.release) }
 
 // acceptorOutput overrides what a stubbed acceptor writes instead of reporting
 // itself ready: relay diagnostics, or a failure the pod side detected.
 type acceptorOutput struct {
 	stdout, stderr string
 	exitErr        error
+	// stuck models a relay that keeps running after its stdin ends; hold models one
+	// that exits only when the test says so.
+	stuck bool
+	hold  bool
 }
 
 func (f *fakePodExec) Stream(opts remotecommand.StreamOptions) error {
@@ -344,6 +353,19 @@ func (f *fakePodExec) StreamWithContext(ctx context.Context, opts remotecommand.
 		}
 		return ctx.Err()
 	case <-f.copied:
+		// The script has been told to stop; it exits when it is done, or never if
+		// this stub is standing in for one that hangs.
+		if f.output != nil && f.output.stuck {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		if f.output != nil && f.output.hold {
+			select {
+			case <-f.release:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
 		return nil
 	}
 }
@@ -675,4 +697,56 @@ func TestExecPodListenerIgnoresRelayChatter(t *testing.T) {
 	if err == nil {
 		testifyassert.NoError(t, listener.Close())
 	}
+}
+
+// TestExecPodListenerCloseWaitsForRelayExit pins that Close does not report the
+// listener gone while the pod-side relay still holds the port. A client that drops
+// and reconnects asks for the same port again - what OpenSSH does after a broken
+// link - and reuseaddr does not cover a socket another live process is still
+// listening on, so returning early makes the reconnect fail on a port we just said
+// we had released.
+func TestExecPodListenerCloseWaitsForRelayExit(t *testing.T) {
+	execs := stubPodExec(t, &acceptorOutput{stdout: rfwdReadyMarker, hold: true})
+
+	listener, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.NoError(t, err)
+
+	acceptor := execFor(t, execs, "acceptor")
+
+	closed := make(chan struct{})
+	go func() { _ = listener.Close(); close(closed) }()
+
+	waitFor(t, acceptor.stdinEnded, "the relay to be told to shut down")
+	select {
+	case <-closed:
+		t.Fatal("Close returned before the relay had exited: the port may still be held")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	acceptor.finish()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close never returned after the relay exited")
+	}
+}
+
+// TestExecPodListenerCloseGivesUpOnAStuckRelay verifies the wait above is bounded: a
+// relay that never exits must not hold teardown of the whole session.
+func TestExecPodListenerCloseGivesUpOnAStuckRelay(t *testing.T) {
+	previous := listenerShutdownGrace
+	listenerShutdownGrace = 120 * time.Millisecond
+	t.Cleanup(func() { listenerShutdownGrace = previous })
+
+	execs := stubPodExec(t, &acceptorOutput{stdout: rfwdReadyMarker, stuck: true})
+
+	listener, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.NoError(t, err)
+	execFor(t, execs, "acceptor")
+
+	start := time.Now()
+	testifyassert.NoError(t, listener.Close())
+	testifyassert.Less(t, time.Since(start), 3*time.Second, "a stuck relay must not block teardown")
 }

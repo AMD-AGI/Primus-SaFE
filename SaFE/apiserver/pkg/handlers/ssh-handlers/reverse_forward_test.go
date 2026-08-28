@@ -1135,3 +1135,45 @@ func TestReverseForwardBoundsAuthorizationWait(t *testing.T) {
 	}
 	testifyassert.Empty(t, m.forwards, "a request that timed out must not hold a reservation")
 }
+
+// slowClosePodListener stands in for a relay that takes its time letting go of the
+// pod-side port, which is what Close now waits for.
+type slowClosePodListener struct {
+	*fakePodListener
+	delay time.Duration
+}
+
+func (l *slowClosePodListener) Close() error {
+	time.Sleep(l.delay)
+	return l.fakePodListener.Close()
+}
+
+// TestCloseAllClosesForwardsTogether pins that a session's teardown costs one relay
+// shutdown, not one per forward. A session may hold eight, and closing each in turn
+// would multiply the wait by eight before the connection goroutine can finish.
+func TestCloseAllClosesForwardsTogether(t *testing.T) {
+	const delay = 200 * time.Millisecond
+
+	m := &reverseForwardManager{
+		conn:     &ssh.ServerConn{Conn: fakeSSHConn{user: testForwardUser}},
+		ctx:      context.Background(),
+		forwards: map[string]*reverseForward{},
+	}
+	for port := uint32(10001); port <= 10004; port++ {
+		fwd := &reverseForward{
+			bindAddr:  "127.0.0.1",
+			bindPort:  port,
+			listener:  &slowClosePodListener{fakePodListener: newFakePodListener(), delay: delay},
+			cancel:    func() {},
+			userInfo:  &UserInfo{User: "root", Namespace: "ns", Pod: "pod-0"},
+			startedAt: time.Now(),
+		}
+		testifyassert.True(t, m.activate(forwardKey("127.0.0.1", port), fwd))
+		m.wg.Done() // no accept loop in this test
+	}
+
+	start := time.Now()
+	m.closeAll()
+	testifyassert.Less(t, time.Since(start), 3*delay,
+		"four forwards were closed one after another instead of together")
+}

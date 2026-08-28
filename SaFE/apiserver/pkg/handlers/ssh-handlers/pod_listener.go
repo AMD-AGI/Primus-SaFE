@@ -46,6 +46,10 @@ const childIDBaseEnv = "SAFE_RFWD_ID_BASE"
 // listenerReadyTimeout bounds how long we wait for the Pod-side listener to bind.
 const listenerReadyTimeout = 30 * time.Second
 
+// listenerShutdownGrace bounds how long Close waits for the Pod-side relay to exit
+// and give the listen port back. It is a variable so tests do not wait it out.
+var listenerShutdownGrace = 5 * time.Second
+
 // podListener is a TCP listener living inside the target Pod's network namespace.
 type podListener interface {
 	// Accept returns the next connection made to the Pod-side listen socket.
@@ -106,6 +110,9 @@ type execPodListener struct {
 
 	closeOnce sync.Once
 	doneCh    chan struct{}
+	// streamDone closes when the acceptor exec has ended, which is the moment the
+	// Pod-side relay has let go of the listen port.
+	streamDone chan struct{}
 
 	mu  sync.Mutex
 	err error
@@ -121,15 +128,16 @@ func newExecPodListener(ctx context.Context, userInfo *UserInfo,
 
 	runCtx, cancel := context.WithCancel(ctx)
 	l := &execPodListener{
-		clients:   clients,
-		userInfo:  userInfo,
-		container: userInfo.Container,
-		dir:       "/tmp/.safe-rfwd-" + token,
-		bindAddr:  bindAddr,
-		bindPort:  bindPort,
-		accepted:  make(chan acceptedConn, 16),
-		cancel:    cancel,
-		doneCh:    make(chan struct{}),
+		clients:    clients,
+		userInfo:   userInfo,
+		container:  userInfo.Container,
+		dir:        "/tmp/.safe-rfwd-" + token,
+		bindAddr:   bindAddr,
+		bindPort:   bindPort,
+		accepted:   make(chan acceptedConn, 16),
+		cancel:     cancel,
+		doneCh:     make(chan struct{}),
+		streamDone: make(chan struct{}),
 	}
 
 	// The acceptor reads stdin only to learn when it ends, so it needs a stdin
@@ -149,6 +157,7 @@ func newExecPodListener(ctx context.Context, userInfo *UserInfo,
 	go l.scan(stdoutR, readyCh)
 	go l.scan(stderrR, readyCh)
 	go func() {
+		defer close(l.streamDone)
 		streamErr := executor.StreamWithContext(runCtx, remotecommand.StreamOptions{
 			Stdin:  stdinR,
 			Stdout: stdoutW,
@@ -316,6 +325,16 @@ func (l *execPodListener) Close() error {
 	// torn down. Closing it also releases the stream's stdin copier.
 	if l.stdinW != nil {
 		_ = l.stdinW.Close()
+	}
+	// Wait for the relay to actually exit before reporting the listener gone. A
+	// client that reconnects asks for the same port straight away, and reuseaddr
+	// does not cover a socket another live process is still listening on - so
+	// returning early turns a reconnect into "the port you just released is busy".
+	// Bounded, because a stuck relay must not hold up the rest of the teardown.
+	select {
+	case <-l.streamDone:
+	case <-time.After(listenerShutdownGrace):
+		klog.Warningf("pod listener on %s:%d did not exit within %s", l.bindAddr, l.bindPort, listenerShutdownGrace)
 	}
 	l.cancel()
 	return nil

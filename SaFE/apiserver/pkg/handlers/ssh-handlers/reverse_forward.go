@@ -498,9 +498,18 @@ func (m *reverseForwardManager) closeAll() {
 	}
 	m.mu.Unlock()
 
+	// Closing a forward waits for its Pod-side relay to let go of the listen port,
+	// so closing them one after another would make a session's teardown cost the
+	// sum of those waits. They are independent; take them together.
+	var closing sync.WaitGroup
 	for _, fwd := range forwards {
-		closeForward(fwd, "ssh session ended")
+		closing.Add(1)
+		go func(fwd *reverseForward) {
+			defer closing.Done()
+			closeForward(fwd, "ssh session ended")
+		}(fwd)
 	}
+	closing.Wait()
 	m.wg.Wait()
 }
 
