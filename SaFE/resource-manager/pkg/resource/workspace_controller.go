@@ -234,6 +234,10 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 			}
 			observeGone(q, node.Name)
 			enqueue(q, v1.GetWorkspaceId(node))
+			// A node deleted mid-crossing carries no workspace label to route by, so the two
+			// ends hear nothing at all without this -- the same reason the other two handlers
+			// have it.
+			enqueueMigration(q, node)
 		},
 	}
 }
@@ -1013,6 +1017,8 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context,
 	// whose reservation has to come off because their migration is being given up on.
 	pendingHandover := make(map[string][]*v1.Node)
 	var abandoned []*v1.Node
+	// Replica to give back: see the migrationAbandoned case below.
+	refund := 0
 	for key, val := range actions {
 		node := &v1.Node{}
 		// Uncached, like the read in updateSingleNodeBinding and for the same reason: a
@@ -1047,6 +1053,13 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context,
 			case migrationAbandoned:
 				abandoned = append(abandoned, node)
 				refusals[key] = fmt.Sprintf("its migration to workspace(%s) cannot be completed", migrateTarget)
+				// Given up on with the node still in hand -- it never left. The replica the
+				// mutating webhook took for the crossing has to come back with it, or the
+				// workspace holds one more node than it is counting and releases a healthy
+				// one to get back down.
+				if node.GetSpecWorkspace() == workspace.Name {
+					refund++
+				}
 			case migrationDone:
 			}
 			continue
@@ -1076,6 +1089,23 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context,
 		newActions[node.Name] = nodeBinding{workspace: target}
 		adminNodes = append(adminNodes, node)
 	}
+	// Ahead of the withdrawal, so a handover that turns out to be impossible is withdrawn in
+	// the same write as everything else this pass refused -- and says why. Left to a second
+	// withdrawal afterwards it would have to rewrite an annotation the first one just
+	// rewrote, and the entry would otherwise be cleared with no reason recorded anywhere.
+	waiting := 0
+	for _, nodes := range pendingHandover {
+		waiting += len(nodes)
+	}
+	for _, node := range r.handOverMigrations(ctx, workspace, pendingHandover) {
+		abandoned = append(abandoned, node)
+		if info := v1.GetNodeMigrateInfo(node); info != nil {
+			refusals[node.Name] = fmt.Sprintf("workspace(%s) is no longer there to take it", info.Target)
+		} else {
+			refusals[node.Name] = "the workspace it was being migrated to is no longer there"
+		}
+		waiting--
+	}
 	if len(abandoned) > 0 {
 		// Before the withdrawal below takes the entries away: the annotation is what brings
 		// this code back, so a node left carrying a reservation after its entry has gone is
@@ -1085,7 +1115,7 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context,
 		}
 	}
 	if len(refusals) > 0 {
-		if err := r.dropRefusedActions(ctx, workspace, actions, refusals); err != nil {
+		if err := r.dropRefusedActions(ctx, workspace, actions, refusals, refund); err != nil {
 			return ctrlruntime.Result{}, false, err
 		}
 	}
@@ -1095,7 +1125,7 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context,
 		}
 		return ctrlruntime.Result{}, true, nil
 	}
-	if len(pendingHandover) > 0 {
+	if waiting > 0 {
 		// The requeue is the backstop for a handover the node events cannot carry -- a target
 		// busy with another action changes nothing about the node, so nothing else brings us
 		// back to ask again.
@@ -1104,19 +1134,7 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context,
 		// normally over in well under a second, but a handover that cannot land holds this
 		// state for as long as the timeout allows, and the workspace still has to have its
 		// status refreshed and its own replicas kept up in the meantime.
-		waiting := 0
-		for _, nodes := range pendingHandover {
-			waiting += len(nodes)
-		}
-		if lost := r.handOverMigrations(ctx, workspace, pendingHandover); len(lost) > 0 {
-			if err := r.abandonMigrations(ctx, workspace, lost); err != nil {
-				return ctrlruntime.Result{}, false, err
-			}
-			waiting -= len(lost)
-		}
-		if waiting > 0 {
-			return ctrlruntime.Result{RequeueAfter: r.option.nodeWait}, false, nil
-		}
+		return ctrlruntime.Result{RequeueAfter: r.option.nodeWait}, false, nil
 	}
 	// Nothing is pending any more, whether the entries were applied already or withdrawn.
 	// Saying otherwise makes processWorkspace stop for a requeue that may never be asked
@@ -1207,11 +1225,6 @@ func (r *WorkspaceReconciler) abandonMigrations(ctx context.Context,
 		if info != nil {
 			target = info.Target
 		}
-		// The node does not go back: this workspace gave it up when the migration was
-		// admitted and had its replica lowered to match. That is a loss of capacity nobody
-		// asked for, so it is said out loud rather than left to a log line.
-		r.recordf(workspace, corev1.EventTypeWarning, "NodeMigrationAbandoned",
-			"gave up migrating node(%s) to workspace(%s); the node is now unassigned", node.Name, target)
 		patch := client.MergeFrom(node.DeepCopy())
 		v1.RemoveAnnotation(node, v1.NodeMigrateAnnotation)
 		if err := r.Patch(ctx, node, patch); err != nil {
@@ -1219,6 +1232,16 @@ func (r *WorkspaceReconciler) abandonMigrations(ctx context.Context,
 				"node", node.Name, "workspace", workspace.Name)
 			return err
 		}
+		// Announced once it has happened. Said first, a failure part-way through this loop
+		// leaves the nodes it already reported to be reported again on the next pass, each
+		// one telling the user a second time about capacity it lost once.
+		//
+		// The node does not go back to this workspace when it was already released: it gave
+		// the node up when the migration was admitted and had its replica lowered to match.
+		// That is a loss of capacity nobody asked for, so it is said out loud rather than
+		// left to a log line.
+		r.recordf(workspace, corev1.EventTypeWarning, "NodeMigrationAbandoned",
+			"gave up migrating node(%s) to workspace(%s); the node is now unassigned", node.Name, target)
 	}
 	return nil
 }
@@ -1246,6 +1269,15 @@ func (r *WorkspaceReconciler) handOverMigrations(ctx context.Context,
 			nodeNames = append(nodeNames, node.Name)
 		}
 		if err := r.handOverToTarget(ctx, target, nodeNames); err != nil {
+			if errors.Is(err, errMigrationTargetBusy) {
+				// A workspace takes one node action at a time, so waiting for it is the
+				// ordinary course of a handover, not a fault. Reported as one it would put a
+				// warning on both workspaces every pass -- around a hundred apiece over a
+				// crossing that has to wait out its timeout.
+				klog.V(4).Infof("waiting to hand nodes %v over to workspace(%s): %v",
+					nodeNames, target, err)
+				continue
+			}
 			if errors.Is(err, errMigrationTargetGone) {
 				klog.Infof("the target workspace(%s) is gone, giving up the migration of nodes %v from workspace(%s)",
 					target, nodeNames, workspace.Name)
@@ -1274,6 +1306,25 @@ func (r *WorkspaceReconciler) getWorkspace(ctx context.Context, name string) (*v
 		return nil, err
 	}
 	return workspace, nil
+}
+
+// errMigrationTargetBusy marks a handover that has to wait: the target is carrying another
+// node action, which is the ordinary course of things rather than a failure.
+var errMigrationTargetBusy = errors.New("the migration target is busy")
+
+// carriesAll reports whether a workspace's node action already asks it to take every one of
+// these nodes.
+func carriesAll(workspace *v1.Workspace, nodeNames []string) bool {
+	actions, err := commonnodes.ParseAction(workspace)
+	if err != nil {
+		return false
+	}
+	for _, nodeName := range nodeNames {
+		if actions[nodeName] != v1.NodeActionAdd {
+			return false
+		}
+	}
+	return true
 }
 
 // errMigrationTargetGone marks a handover that will not succeed however often it is retried,
@@ -1306,13 +1357,23 @@ func (r *WorkspaceReconciler) handOverToTarget(ctx context.Context, target strin
 			return fmt.Errorf("%w: workspace(%s) is being deleted", errMigrationTargetGone, target)
 		}
 		if current := v1.GetWorkspaceNodesAction(targetWorkspace); current != "" {
-			if current == action {
+			// By what the request says, not by the text of it. The target's mutating webhook
+			// rewrites the annotation as it accepts it -- entries already true are dropped --
+			// so the string read back is not the string written, and comparing the two makes
+			// a workspace mistake its own handover for somebody else's job and wait out the
+			// timeout beside it.
+			if carriesAll(targetWorkspace, nodeNames) {
 				// Already asked; the target has not finished with it yet.
 				return nil
 			}
-			return fmt.Errorf("the target workspace(%s) is processing another job(%s)", target, current)
+			return fmt.Errorf("%w: workspace(%s) is processing another job(%s)",
+				errMigrationTargetBusy, target, current)
 		}
-		patch := client.MergeFrom(targetWorkspace.DeepCopy())
+		// Locked, which is what makes the retry above mean anything: a plain merge patch
+		// carries no resourceVersion, so it never conflicts, never retries, and quietly
+		// overwrites whatever was written into this annotation between the read and the
+		// write -- losing that request while the replica its admission added stays behind.
+		patch := client.MergeFromWithOptions(targetWorkspace.DeepCopy(), client.MergeFromWithOptimisticLock{})
 		v1.SetAnnotation(targetWorkspace, v1.WorkspaceNodesAction, action)
 		if err := r.Patch(ctx, targetWorkspace, patch); err != nil {
 			return err
@@ -1322,6 +1383,11 @@ func (r *WorkspaceReconciler) handOverToTarget(ctx context.Context, target strin
 	})
 }
 
+// The refund is the replica the mutating webhook took for entries this withdrawal is giving
+// back with the node still in hand. WithdrawnReplica cannot work it out: it sees the action
+// values, and a migration counted like a removal is right when the node has already gone and
+// wrong when it has not.
+//
 // dropRefusedActions takes the refused entries back out of the request.
 //
 // A refusal here is permanent in the only sense that matters to a retry: the node belongs to
@@ -1354,7 +1420,7 @@ func (r *WorkspaceReconciler) handOverToTarget(ctx context.Context, target strin
 // refused there, by the mutating webhook, and never reaches this controller; what reaches it
 // is a node that was free when the request was admitted and was taken before it could bind.
 func (r *WorkspaceReconciler) dropRefusedActions(ctx context.Context,
-	workspace *v1.Workspace, actions, refusals map[string]string) error {
+	workspace *v1.Workspace, actions, refusals map[string]string, refund int) error {
 	left := make(map[string]string, len(actions))
 	reasons := make([]string, 0, len(refusals))
 	for key, val := range actions {
@@ -1377,7 +1443,7 @@ func (r *WorkspaceReconciler) dropRefusedActions(ctx context.Context,
 	// webhooks take as the mark of a withdrawal, and without it they judge this patch as its
 	// author shrinking a request the controller is still working through -- and reject it.
 	v1.SetAnnotation(workspace, v1.WorkspaceNodesActionError, strings.Join(reasons, "; "))
-	workspace.Spec.Replica = commonnodes.WithdrawnReplica(workspace.Spec.Replica, actions, left)
+	workspace.Spec.Replica = commonnodes.WithdrawnReplica(workspace.Spec.Replica, actions, left) + refund
 	if len(left) == 0 {
 		v1.RemoveAnnotation(workspace, v1.WorkspaceNodesAction)
 		v1.RemoveAnnotation(workspace, v1.WorkspaceForcedAction)

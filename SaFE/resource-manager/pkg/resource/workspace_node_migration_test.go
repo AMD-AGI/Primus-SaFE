@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sort"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -749,4 +751,129 @@ func TestClassifyMigrationGivesUpOnANodeBeingDeleted(t *testing.T) {
 
 	state, _ := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
 	assert.Equal(t, state, migrationAbandoned)
+}
+
+// Given up on with the node still in hand: it never left, so the replica the mutating webhook
+// took for the crossing has to come back with it. Left off, the workspace holds one more node
+// than it is counting and releases a healthy one to get back down.
+func TestProcessNodesActionMigrateGivesTheReplicaBackWhenTheNodeNeverLeft(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		boundToSource(node, source, target)
+		// A finalizer, so deleting it leaves it in the fleet with a deletion timestamp rather
+		// than removing it outright.
+		node.Finalizers = []string{v1.NodeFinalizer}
+	})
+	assert.NilError(t, m.client.Delete(context.Background(), m.node))
+	assert.NilError(t, m.client.Get(context.Background(), client.ObjectKey{Name: m.node.Name}, m.node))
+	before := m.source.Spec.Replica
+
+	_, _, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+
+	m.reload(t)
+	assert.Equal(t, m.source.Spec.Replica, before+1,
+		"the workspace kept the node and lost the replica it was counting it with")
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.source), "")
+	assert.Assert(t, v1.GetAnnotation(m.source, v1.WorkspaceNodesActionError) != "",
+		"the withdrawal did not say why")
+}
+
+// A node released for a workspace that has gone is withdrawn like any other refusal, so the
+// request does not disappear from the console without a word.
+func TestProcessNodesActionMigrateRecordsWhyAGoneTargetWasGivenUpOn(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+	})
+	assert.NilError(t, m.client.Delete(context.Background(), m.target))
+	m.reconciler.apiReader = fake.NewClientBuilder().WithScheme(scheme.Scheme).
+		WithObjects(m.node.DeepCopy()).Build()
+
+	_, _, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+
+	m.reload(t)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.source), "")
+	assert.Assert(t, v1.GetAnnotation(m.source, v1.WorkspaceNodesActionError) != "",
+		"the request vanished with no reason recorded")
+	assert.Assert(t, v1.GetNodeMigrateInfo(m.node) == nil)
+}
+
+// The target's mutating webhook rewrites the annotation as it accepts it, so the string read
+// back is not the string written. Compared by text, a workspace mistakes its own handover for
+// somebody else's job and waits out the timeout beside it.
+func TestHandOverToTargetRecognisesItsOwnRequestAfterTheWebhookRewritesIt(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+	})
+	// What the target carries after its webhook dropped an entry that was already true.
+	rewritten := string(jsonutils.MarshalSilently(map[string]string{
+		m.node.Name: v1.NodeActionAdd, "already-there": v1.NodeActionAdd,
+	}))
+	metav1.SetMetaDataAnnotation(&m.target.ObjectMeta, v1.WorkspaceNodesAction, rewritten)
+	assert.NilError(t, m.client.Update(context.Background(), m.target))
+
+	assert.NilError(t, m.reconciler.handOverToTarget(context.Background(), m.target.Name,
+		[]string{m.node.Name}))
+
+	m.reload(t)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.target), rewritten,
+		"it wrote over a request that already asked for this node")
+}
+
+// A target carrying somebody else's action is waited for, not overwritten.
+func TestHandOverToTargetLeavesAnotherRequestAlone(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+	})
+	other := string(jsonutils.MarshalSilently(map[string]string{"other-node": v1.NodeActionAdd}))
+	metav1.SetMetaDataAnnotation(&m.target.ObjectMeta, v1.WorkspaceNodesAction, other)
+	assert.NilError(t, m.client.Update(context.Background(), m.target))
+
+	err := m.reconciler.handOverToTarget(context.Background(), m.target.Name, []string{m.node.Name})
+	assert.Assert(t, err != nil)
+	assert.Assert(t, errors.Is(err, errMigrationTargetBusy), "a busy target read as something worse")
+
+	m.reload(t)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.target), other)
+}
+
+// A plain merge patch carries no resourceVersion, so it never conflicts and never retries --
+// it just writes over whatever landed on the target between the read and the write. Here that
+// is somebody else's node action, and its replica has already been counted for it.
+func TestHandOverToTargetDoesNotOverwriteARequestThatLandedFirst(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+	})
+	competing := string(jsonutils.MarshalSilently(map[string]string{"someone-elses-node": v1.NodeActionAdd}))
+
+	// Slipped in after the handover has read the target and before it writes.
+	raced := false
+	base := m.client
+	m.reconciler.Client = fake.NewClientBuilder().WithScheme(scheme.Scheme).
+		WithObjects(m.node.DeepCopy(), m.source.DeepCopy(), m.target.DeepCopy()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey,
+				obj client.Object, opts ...client.GetOption) error {
+				if err := cl.Get(ctx, key, obj, opts...); err != nil {
+					return err
+				}
+				workspace, ok := obj.(*v1.Workspace)
+				if !ok || raced || key.Name != m.target.Name {
+					return nil
+				}
+				raced = true
+				winner := workspace.DeepCopy()
+				metav1.SetMetaDataAnnotation(&winner.ObjectMeta, v1.WorkspaceNodesAction, competing)
+				return cl.Update(ctx, winner)
+			},
+		}).Build()
+
+	err := m.reconciler.handOverToTarget(context.Background(), m.target.Name, []string{m.node.Name})
+	assert.Assert(t, err != nil, "the handover reported success over somebody else's request")
+
+	stored := &v1.Workspace{}
+	assert.NilError(t, m.reconciler.Get(context.Background(), client.ObjectKey{Name: m.target.Name}, stored))
+	assert.Equal(t, v1.GetWorkspaceNodesAction(stored), competing,
+		"the request that landed first was overwritten")
+	_ = base
 }
