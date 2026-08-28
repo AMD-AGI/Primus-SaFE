@@ -70,5 +70,12 @@ export const migrateTargetOptions = (
   if (!source) {
     return others
   }
-  return others.filter((ws) => (ws.clusterId || '') === (source.clusterId || ''))
+  // Both sides have to actually say which cluster they are in. clusterId is optional on the
+  // list response, and treating two absences as a match turns the one condition this side is
+  // sure of into no condition at all -- every workspace in the system, other clusters
+  // included, offered as somewhere this node could go.
+  if (!source.clusterId) {
+    return others
+  }
+  return others.filter((ws) => ws.clusterId === source.clusterId)
 }

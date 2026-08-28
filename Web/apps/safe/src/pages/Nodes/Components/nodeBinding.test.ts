@@ -88,6 +88,25 @@ describe('migrateTargetOptions', () => {
     expect(migrateTargetOptions(workspaces, 'ws-a').map((w) => w.workspaceId)).not.toContain('ws-a')
   })
 
+  // clusterId is optional on the list response, and two absences are not a match: reading
+  // them as one turns the single condition this side is sure of into no condition at all.
+  it('does not treat a missing cluster as a match', () => {
+    const noCluster = [
+      { ...ws('ws-a', '', 'flavor1'), clusterId: undefined },
+      { ...ws('ws-elsewhere', 'cluster9', 'flavor1') },
+    ] as WorkspaceItem[]
+    const options = migrateTargetOptions(noCluster, 'ws-a').map((w) => w.workspaceId)
+    // Nothing to compare against, so the API narrows it down -- but never by pretending the
+    // two agree.
+    expect(options).toEqual(['ws-elsewhere'])
+
+    const known = [
+      ws('ws-a', 'cluster1', 'flavor1'),
+      { ...ws('ws-x', '', 'flavor1') },
+    ] as WorkspaceItem[]
+    expect(migrateTargetOptions(known, 'ws-a')).toEqual([])
+  })
+
   // Filtering stands in for the node's own cluster and flavor. Without the source there is
   // nothing to compare against, and an empty list explains nothing -- let the API answer.
   it('falls back to every other workspace when the source is unknown', () => {

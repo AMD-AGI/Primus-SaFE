@@ -423,14 +423,19 @@ func (h *Handler) processWorkspaceNodes(c *gin.Context) (interface{}, error) {
 }
 
 // authorizeWorkspaceUpdate asks whether this caller may change the given workspace.
+//
+// Shaped exactly like the check updateWorkspaceNodesAction makes, ResourceKind left unset and
+// all. Naming the kind here would let rules scoped to workspaces match where they do not
+// today, so a migration would be admitted for callers a removal of the same node is refused
+// for. Making the two agree by widening the other one is a change to who may do what, and
+// belongs on its own rather than inside a feature.
 func (h *Handler) authorizeWorkspaceUpdate(c *gin.Context, workspace *v1.Workspace) error {
 	return h.accessController.Authorize(authority.AccessInput{
-		Context:      c.Request.Context(),
-		Resource:     workspace,
-		ResourceKind: v1.WorkspaceKind,
-		Verb:         v1.UpdateVerb,
-		Workspaces:   []string{workspace.Name},
-		UserId:       c.GetString(common.UserId),
+		Context:    c.Request.Context(),
+		Resource:   workspace,
+		Verb:       v1.UpdateVerb,
+		Workspaces: []string{workspace.Name},
+		UserId:     c.GetString(common.UserId),
 	})
 }
 
@@ -452,7 +457,12 @@ func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action
 		}); err != nil {
 			return err
 		}
-		patch := client.MergeFrom(workspace.DeepCopy())
+		// Locked, which is what makes the retry around this mean anything: a plain merge patch
+		// carries no resourceVersion, so it never conflicts, never retries, and writes over
+		// whatever landed on this annotation since the read. A migration holds it for as long
+		// as the crossing takes rather than the second an add or a remove needs, so the
+		// window that used to be theoretical is now the length of the operation.
+		patch := client.MergeFromWithOptions(workspace.DeepCopy(), client.MergeFromWithOptimisticLock{})
 		v1.SetAnnotation(workspace, v1.WorkspaceNodesAction, nodeAction)
 		if force {
 			v1.SetAnnotation(workspace, v1.WorkspaceForcedAction, v1.TrueStr)
