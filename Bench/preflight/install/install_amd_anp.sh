@@ -7,9 +7,12 @@ set -e
 
 ANP_REPO="https://github.com/rocm/amd-anp.git"
 ANP_DIR="amd-anp"
-ANP_VERSION="v1.3.0"
 LIBIONIC_VERSION="54.0-184"
 WORKDIR="/opt"
+RCCL_HOME="${RCCL_HOME:-/opt/rccl}"
+RCCL_BUILD="${RCCL_BUILD:-${RCCL_HOME}/build/release}"
+# ANP_VERSION is not a constant -- it is chosen from the RCCL headers further
+# down. See the "Select the ANP release" block.
 
 # Get AINIC_DRIVER_VERSION from environment or extract from AINIC_BUNDLE_PATH
 if [ -z "${AINIC_DRIVER_VERSION}" ] && [ -n "${AINIC_BUNDLE_PATH}" ]; then
@@ -22,6 +25,42 @@ if [ -z "${AINIC_DRIVER_VERSION}" ]; then
   echo "Error: AINIC_DRIVER_VERSION not specified and could not be extracted from AINIC_BUNDLE_PATH"
   exit 1
 fi
+
+# ---------------------------------------------------------------------------
+# Select the ANP release that matches the RCCL this image actually built.
+#
+# The plugin compiles against RCCL's *internal* headers, so a mismatch is a hard
+# compile error in src/net_ib.cc, not a runtime surprise. RCCL changed
+#     int          ncclFindInterfaces(ifNames, ifAddrs, ifNameMaxSize, maxIfs)
+# to
+#     ncclResult_t ncclFindInterfaces(ifNames, ifAddrs, ifNameMaxSize, maxIfs, nIfs)
+# in rocm-7.1.0, and ANP v1.3.0 is v1.2.0 plus exactly that adaptation and
+# nothing else (upstream diff: 3 lines, one file). So the two tags are
+# interchangeable in features; only the RCCL they compile against differs:
+#     rccl rocm-6.4.3 / 7.0.1 / 7.0.2 -> 4-arg -> ANP v1.2.0
+#     rccl rocm-7.1.0 / 7.2.0         -> 5-arg -> ANP v1.3.0
+#
+# Detect this from the header rather than re-deriving it from ROCM_VERSION: the
+# ROCM_VERSION -> RCCL tag mapping lives in pytorch/install_rccl.sh (7.0.3
+# deliberately builds rocm-7.1.0, for instance), and a second copy here would
+# silently drift out of sync the next time that file gains a version.
+RCCL_SOCKET_H=""
+for h in "${RCCL_BUILD}/hipify/src/include/socket.h" \
+         "${RCCL_HOME}/src/include/socket.h"; do
+  if [ -f "$h" ]; then RCCL_SOCKET_H="$h"; break; fi
+done
+if [ -z "${RCCL_SOCKET_H}" ]; then
+  echo "Error: cannot locate RCCL's socket.h under ${RCCL_BUILD} or ${RCCL_HOME}." >&2
+  echo "       RCCL must be built before the ANP plugin." >&2
+  exit 1
+fi
+if grep -qE '^[[:space:]]*ncclResult_t[[:space:]]+ncclFindInterfaces' "${RCCL_SOCKET_H}"; then
+  ANP_VERSION="v1.3.0"
+else
+  ANP_VERSION="v1.2.0"
+fi
+echo "RCCL headers: ${RCCL_SOCKET_H}"
+echo "  -> ncclFindInterfaces is the $([ "${ANP_VERSION}" = "v1.3.0" ] && echo 5-arg || echo 4-arg) form, selecting ANP ${ANP_VERSION}"
 
 echo "============== begin to install AMD AINIC Network Plugin (amd-anp) ${ANP_VERSION} =============="
 echo "AINIC Driver Version: ${AINIC_DRIVER_VERSION}"
@@ -92,7 +131,7 @@ fi
 
 # Build
 echo "Building AMD ANP driver..."
-export RCCL_HOME=/opt/rccl 
+export RCCL_HOME
 # RCCL_BUILD points to where RCCL is installed (with lib/ and include/ subdirectories)
 if ! make -j 16 MPI_INCLUDE=/opt/mpich/include/ \
            MPI_LIB_PATH=/opt/mpich/lib/ \
