@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -810,19 +812,41 @@ func TestHandOverToTargetRecognisesItsOwnRequestAfterTheWebhookRewritesIt(t *tes
 	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
 		markMigrating(node, source.Name, target.Name)
 	})
-	// What the target carries after its webhook dropped an entry that was already true.
-	rewritten := string(jsonutils.MarshalSilently(map[string]string{
-		m.node.Name: v1.NodeActionAdd, "already-there": v1.NodeActionAdd,
-	}))
+	// What the target carries after its webhook dropped an entry that was already true: a
+	// subset of what the handover asked for.
+	rewritten := string(jsonutils.MarshalSilently(map[string]string{m.node.Name: v1.NodeActionAdd}))
 	metav1.SetMetaDataAnnotation(&m.target.ObjectMeta, v1.WorkspaceNodesAction, rewritten)
 	assert.NilError(t, m.client.Update(context.Background(), m.target))
 
 	assert.NilError(t, m.reconciler.handOverToTarget(context.Background(), m.target.Name,
-		[]string{m.node.Name}))
+		[]string{m.node.Name, "already-landed"}))
 
 	m.reload(t)
 	assert.Equal(t, v1.GetWorkspaceNodesAction(m.target), rewritten,
 		"it wrote over a request that already asked for this node")
+}
+
+// A request somebody else made that happens to name these nodes is not this handover. Read as
+// one, the handover reports itself done and writes nothing -- and if that other request is
+// later withdrawn the nodes are left with nobody asking for them, while the replica it moved
+// goes back to a workspace they did reach.
+func TestHandOverToTargetDoesNotAdoptSomebodyElsesRequest(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+	})
+	// Names our node, and two more we never asked about.
+	theirs := string(jsonutils.MarshalSilently(map[string]string{
+		m.node.Name: v1.NodeActionAdd, "n2": v1.NodeActionAdd, "n3": v1.NodeActionAdd,
+	}))
+	metav1.SetMetaDataAnnotation(&m.target.ObjectMeta, v1.WorkspaceNodesAction, theirs)
+	assert.NilError(t, m.client.Update(context.Background(), m.target))
+
+	err := m.reconciler.handOverToTarget(context.Background(), m.target.Name, []string{m.node.Name})
+	assert.Assert(t, err != nil, "somebody else's request was taken for this handover")
+	assert.Assert(t, errors.Is(err, errMigrationTargetBusy))
+
+	m.reload(t)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.target), theirs)
 }
 
 // A target carrying somebody else's action is waited for, not overwritten.
@@ -1007,4 +1031,128 @@ func refusingTarget(m *migration, err error) client.Client {
 				return cl.Patch(ctx, obj, patch, opts...)
 			},
 		}).Build()
+}
+
+// assertNoInvoluntaryEviction is the invariant every abandonment has to leave behind: the
+// workspace must never end up counting fewer nodes than it holds. Counting fewer is what makes
+// the scaling loop release a healthy node nobody asked to give up -- the failure this feature
+// has produced in four different places, each time with a test that read every field but this
+// one. Counting more is the other direction and is meant: a crossing that did not happen
+// leaves the workspace short of a machine it should have, and scaling up replaces it.
+func assertNoInvoluntaryEviction(t *testing.T, m *migration) int {
+	t.Helper()
+	stored := &v1.Workspace{}
+	assert.NilError(t, m.reconciler.Get(context.Background(),
+		client.ObjectKey{Name: m.source.Name}, stored))
+	nodes := &v1.NodeList{}
+	assert.NilError(t, m.reconciler.List(context.Background(), nodes))
+	held := 0
+	for i := range nodes.Items {
+		if nodes.Items[i].GetSpecWorkspace() == m.source.Name {
+			held++
+		}
+	}
+	assert.Assert(t, stored.Spec.Replica >= held,
+		"workspace(%s) counts %d nodes and holds %d, so it will release one it still has",
+		m.source.Name, stored.Spec.Replica, held)
+	return held
+}
+
+// Every way a crossing can be given up on, against the one thing all of them have to leave
+// true. The workspace enters each of them as it would in production: the count went out with
+// the request, whether or not the node has followed it yet.
+func TestMigrationAbandonmentNeverEvictsAHealthyNode(t *testing.T) {
+	cases := []struct {
+		name      string
+		place     func(node *v1.Node, source, target *v1.Workspace)
+		setUp     func(t *testing.T, m *migration)
+		wantExact bool
+	}{
+		{
+			name:  "the node starts deleting before it is released",
+			place: boundToSource,
+			// It never left, so the count has to come back to exactly what is held: one more
+			// would buy a machine to stand beside a node the workspace still has.
+			wantExact: true,
+			setUp: func(t *testing.T, m *migration) {
+				assert.NilError(t, m.client.Delete(context.Background(), m.node))
+			},
+		},
+		{
+			name:  "the node ends up in a third workspace",
+			place: boundToSource,
+			setUp: func(t *testing.T, m *migration) {
+				m.node.Spec.Workspace = ptr.To("somewhere-else")
+				assert.NilError(t, m.client.Update(context.Background(), m.node))
+			},
+		},
+		{
+			name: "the reservation is taken off after the release",
+			place: func(node *v1.Node, source, target *v1.Workspace) {
+				markMigrating(node, source.Name, target.Name)
+				delete(node.Annotations, v1.NodeMigrateAnnotation)
+			},
+		},
+		{
+			name: "the target is gone by the time it is asked",
+			place: func(node *v1.Node, source, target *v1.Workspace) {
+				markMigrating(node, source.Name, target.Name)
+			},
+			setUp: func(t *testing.T, m *migration) {
+				assert.NilError(t, m.client.Delete(context.Background(), m.target))
+				m.reconciler.apiReader = fake.NewClientBuilder().WithScheme(scheme.Scheme).
+					WithObjects(m.node.DeepCopy()).Build()
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+				node.Finalizers = []string{v1.NodeFinalizer}
+				tc.place(node, source, target)
+			})
+			// As admission leaves it: the count went out when the request was accepted, so a
+			// workspace with this one node counts none of it from here on.
+			m.source.Spec.Replica = 0
+			assert.NilError(t, m.client.Update(context.Background(), m.source))
+			if tc.setUp != nil {
+				tc.setUp(t, m)
+			}
+
+			_, _, err := m.reconciler.processNodesAction(context.Background(), m.source)
+			assert.NilError(t, err)
+
+			m.reload(t)
+			assert.Equal(t, v1.GetWorkspaceNodesAction(m.source), "", "the request was left behind")
+			held := assertNoInvoluntaryEviction(t, m)
+			if tc.wantExact {
+				assert.Equal(t, m.source.Spec.Replica, held,
+					"the node never left, so the count should be back to what it holds")
+			}
+		})
+	}
+}
+
+// Only a node that was released carries a reservation, so skipping the whole iteration for
+// nodes without one skipped it for exactly the two crossings given up on before the release --
+// the ones where the user is told nothing at all and the node is still sitting where it was.
+func TestAbandonMigrationsTellsBothEndsEvenBeforeTheRelease(t *testing.T) {
+	m := newMigration(t, time.Hour, boundToSource)
+	events := record.NewFakeRecorder(8)
+	m.reconciler.recorder = events
+
+	// No reservation on it: it never left.
+	assert.Assert(t, !v1.HasAnnotation(m.node, v1.NodeMigrateAnnotation))
+	assert.NilError(t, m.reconciler.abandonMigrations(context.Background(), m.source,
+		[]*v1.Node{m.node}, map[string]string{m.node.Name: m.target.Name}))
+
+	var told []string
+	for len(events.Events) > 0 {
+		told = append(told, <-events.Events)
+	}
+	assert.Equal(t, len(told), 2, "not both workspaces were told: %v", told)
+	for _, event := range told {
+		assert.Assert(t, strings.Contains(event, "NodeMigrationAbandoned"), event)
+		assert.Assert(t, strings.Contains(event, m.node.Name), event)
+	}
 }

@@ -204,9 +204,11 @@ does for a removal). One migration moves nodes to a single target and cannot be 
 The move is not instantaneous: the source releases the nodes, the target is then asked to take
 them, and each node is reserved for its target in the meantime so no other workspace can pick
 it up. The source's quota drops as soon as the request is accepted; the target's rises when it
-takes the nodes on. A migration that cannot be completed within 30 minutes is given up on, and
-the nodes are left unassigned rather than returned to the source, which has already given them
-up — add them wherever they are wanted.
+takes the nodes on. A migration that cannot be completed within 30 minutes is given up on. The nodes are left
+unassigned rather than handed back, but the source's quota is restored: a migration that did
+not happen costs it nothing, so it takes on a replacement — which may well be the same node,
+now that it is free again. What went wrong is recorded on both workspaces, as an event and on
+the source as `primus-safe.workspace.nodes.action.error`.
 
 Like `add` and `remove`, a migration can be started by editing the Workspace resource directly,
 which is what the API call above does on your behalf:
