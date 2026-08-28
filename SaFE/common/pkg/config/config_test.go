@@ -300,6 +300,9 @@ func TestStringHelpers(t *testing.T) {
 // TestSSHReverseForwardGetters pins the `ssh -R` policy defaults and overrides.
 func TestSSHReverseForwardGetters(t *testing.T) {
 	viper.Reset()
+	// Without this the enable flag and the port range leak into every test that
+	// runs after this one, which only shows up under some -run orders.
+	t.Cleanup(viper.Reset)
 
 	testifyassert.False(t, IsSSHReverseForwardEnable())
 	testifyassert.Equal(t, []string{"127.0.0.1"}, GetSSHReverseForwardBindAddresses())
@@ -322,10 +325,10 @@ func TestSSHReverseForwardGetters(t *testing.T) {
 	viper.Set(sshReverseForwardBindAddresses, "127.0.0.1, 10.0.0.1")
 	testifyassert.Equal(t, []string{"127.0.0.1", "10.0.0.1"}, GetSSHReverseForwardBindAddresses())
 
-	// An explicitly empty list falls back to the safe default rather than
-	// allowing every bind address through.
+	// Deleting every entry is not the same as never configuring one: it leaves no
+	// address a forward may bind, rather than quietly restoring loopback.
 	viper.Set(sshReverseForwardBindAddresses, []string{})
-	testifyassert.Equal(t, []string{"127.0.0.1"}, GetSSHReverseForwardBindAddresses())
+	testifyassert.Empty(t, GetSSHReverseForwardBindAddresses())
 }
 
 // TestModelOptimizationClawBaseURLDerivation covers the domain-derived fallback.

@@ -283,6 +283,7 @@ func (f *fakePodListener) push() net.Conn {
 
 type fakePodConn struct{ net.Conn }
 
+func (c *fakePodConn) CloseWrite() error  { return nil }
 func (c *fakePodConn) OriginAddr() string { return "127.0.0.1" }
 func (c *fakePodConn) OriginPort() uint32 { return 51234 }
 
@@ -782,20 +783,49 @@ func TestReverseForwardClosesExactlyOnce(t *testing.T) {
 // halfClosedPodConn is a pod-side connection that stops producing on demand while
 // still accepting what comes back, so a half-close can be driven from a test.
 type halfClosedPodConn struct {
-	readEOF chan struct{}
-	mu      sync.Mutex
-	written []byte
-	got     chan struct{}
-	closed  bool
+	readEOF     chan struct{}
+	toRead      chan []byte
+	writeClosed bool
+	mu          sync.Mutex
+	written     []byte
+	got         chan struct{}
+	closed      bool
 }
 
 func newHalfClosedPodConn() *halfClosedPodConn {
-	return &halfClosedPodConn{readEOF: make(chan struct{}), got: make(chan struct{}, 8)}
+	return &halfClosedPodConn{
+		readEOF: make(chan struct{}),
+		toRead:  make(chan []byte, 8),
+		got:     make(chan struct{}, 8),
+	}
 }
 
-func (c *halfClosedPodConn) Read([]byte) (int, error) {
-	<-c.readEOF
-	return 0, io.EOF
+func (c *halfClosedPodConn) Read(p []byte) (int, error) {
+	// Hand over everything queued before reporting the end. Both cases can be ready
+	// at once, and select would then pick between them at random, losing a reply
+	// that was queued just before the half-close.
+	select {
+	case chunk := <-c.toRead:
+		return copy(p, chunk), nil
+	default:
+	}
+	select {
+	case chunk := <-c.toRead:
+		return copy(p, chunk), nil
+	case <-c.readEOF:
+		return 0, io.EOF
+	}
+}
+
+// deliver queues bytes for the bridge to carry to the client.
+func (c *halfClosedPodConn) deliver(s string) { c.toRead <- []byte(s) }
+
+// CloseWrite records that the client finished sending, without ending the read side.
+func (c *halfClosedPodConn) CloseWrite() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.writeClosed = true
+	return nil
 }
 
 func (c *halfClosedPodConn) Write(p []byte) (int, error) {
@@ -1176,4 +1206,106 @@ func TestCloseAllClosesForwardsTogether(t *testing.T) {
 	m.closeAll()
 	testifyassert.Less(t, time.Since(start), 3*delay,
 		"four forwards were closed one after another instead of together")
+}
+
+// ctxWatchingListener records whether the forward's context had already been
+// cancelled by the time the listener was asked to close.
+type ctxWatchingListener struct {
+	*fakePodListener
+	ctx                  context.Context
+	cancelledBeforeClose bool
+}
+
+func (l *ctxWatchingListener) Close() error {
+	l.cancelledBeforeClose = l.ctx.Err() != nil
+	return l.fakePodListener.Close()
+}
+
+// TestCloseForwardClosesTheListenerBeforeCancelling pins the order teardown depends
+// on. The forward's context is the parent of the listener's exec stream, so
+// cancelling first tears that stream down where it stands: Close then has no stdin
+// left to end and nothing to wait for, and the pod keeps the port a moment longer -
+// exactly the reconnect failure the wait was added to prevent. Closing the listener
+// directly, as an earlier test did, cannot see this.
+func TestCloseForwardClosesTheListenerBeforeCancelling(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	listener := &ctxWatchingListener{fakePodListener: newFakePodListener(), ctx: ctx}
+	fwd := &reverseForward{
+		bindAddr:  "127.0.0.1",
+		bindPort:  10001,
+		listener:  listener,
+		ctx:       ctx,
+		cancel:    cancel,
+		userInfo:  &UserInfo{User: "root", Namespace: "ns", Pod: "pod-0"},
+		startedAt: time.Now(),
+	}
+
+	closeForward(fwd, "ssh session ended")
+
+	testifyassert.False(t, listener.cancelledBeforeClose,
+		"the exec stream was cancelled before the listener could shut the relay down")
+	testifyassert.True(t, listener.isClosed())
+	testifyassert.Error(t, ctx.Err(), "the forward's context must still end up cancelled")
+}
+
+// TestReverseForwardHalfCloseFromTheClientKeepsPodDataFlowing is the mirror of the
+// pod-side half-close: the machine at the other end finishes writing and waits for
+// the rest of the pod's data. A proxy does exactly this once it has sent a whole
+// response, so tearing the pair down on the client's EOF truncates the pod's side of
+// the exchange.
+func TestReverseForwardHalfCloseFromTheClientKeepsPodDataFlowing(t *testing.T) {
+	enableReverseForward(t, nil)
+	rig := newForwardTestRig(t)
+
+	// Take the channel directly: the net.Conn the client library hands back does
+	// not expose the half-close this test has to perform.
+	channels := rig.client.HandleChannelOpen(forwardedTCPIPChannel)
+
+	ok, _, err := rig.client.SendRequest(tcpipForwardRequest, true,
+		ssh.Marshal(tcpipForwardPayload{BindAddr: "127.0.0.1", BindPort: 10001}))
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, ok)
+
+	podListener := <-rig.listeners
+	pc := newHalfClosedPodConn()
+	podListener.conns <- pc
+
+	newCh := <-channels
+	ch, reqs, err := newCh.Accept()
+	testifyassert.NoError(t, err)
+	go ssh.DiscardRequests(reqs)
+
+	// The client is done sending and waits for the pod.
+	testifyassert.NoError(t, ch.CloseWrite())
+
+	// The pod answers afterwards; it must still get through.
+	pc.deliver("late-reply-from-pod")
+	close(pc.readEOF)
+
+	read := make(chan string, 1)
+	go func() {
+		body, _ := io.ReadAll(ch)
+		read <- string(body)
+	}()
+	select {
+	case got := <-read:
+		testifyassert.Equal(t, "late-reply-from-pod", got,
+			"the client's half-close cut the pod off mid-reply")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the pod's reply never arrived after the client half-closed")
+	}
+}
+
+// TestReverseForwardRefusesWhenNoBindAddressIsAllowed pins the end of the chain an
+// operator pulls when they empty the bind list: no address is permitted, so no
+// forward is. Restoring loopback here would hand back the one address they removed.
+func TestReverseForwardRefusesWhenNoBindAddressIsAllowed(t *testing.T) {
+	enableReverseForward(t, map[string]any{sshReverseForwardBindAddrKey: []string{}})
+
+	policy := loadReverseForwardPolicy()
+	testifyassert.Empty(t, policy.bindAddresses)
+	for _, addr := range []string{"127.0.0.1", "localhost", "0.0.0.0"} {
+		_, err := policy.validate(addr, 10001)
+		testifyassert.Errorf(t, err, "%q was allowed although no bind address is configured", addr)
+	}
 }

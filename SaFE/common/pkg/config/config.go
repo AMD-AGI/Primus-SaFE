@@ -76,9 +76,9 @@ func getStringSlice(key string, defaultValue []string) []string {
 	if _, isScalar := viper.Get(key).(string); isScalar {
 		values = getStrings(key)
 	}
-	if len(values) == 0 {
-		return defaultValue
-	}
+	// An empty result here means the key was set to an empty list, which is not the
+	// same as leaving it out: the operator removed every entry, and answering with
+	// the default would hand back a value they deleted.
 	return values
 }
 

@@ -232,6 +232,31 @@ func TestAcceptorScriptWithoutSocat(t *testing.T) {
 	testifyassert.Contains(t, string(out), "socat is not installed")
 }
 
+// TestAcceptorScriptNamesTheMissingTool covers the preflight for every tool the
+// relay needs, not just socat. Readiness is decided by reading the kernel's listen
+// table with awk, and the script runs under set -e: an image without awk would exit
+// on the first read with no marker at all, leaving the operator with nothing but
+// "pod listener exited".
+func TestAcceptorScriptNamesTheMissingTool(t *testing.T) {
+	socat, err := exec.LookPath("socat")
+	if err != nil {
+		t.Skip("socat is not installed")
+	}
+
+	// A PATH holding socat and nothing else.
+	onlySocat := t.TempDir()
+	testifyassert.NoError(t, os.Symlink(socat, filepath.Join(onlySocat, "socat")))
+
+	cmd := exec.Command("/bin/sh", "-c", acceptorScript(filepath.Join(t.TempDir(), "rfwd"), "127.0.0.1", 10001))
+	cmd.Env = append(os.Environ(), "PATH="+onlySocat)
+	out, err := cmd.CombinedOutput()
+
+	testifyassert.Error(t, err)
+	testifyassert.Contains(t, string(out), rfwdErrMarker)
+	testifyassert.Contains(t, string(out), "awk is not installed")
+	testifyassert.NotContains(t, string(out), rfwdReadyMarker)
+}
+
 // scanLines forwards each line of r onto ch until r ends.
 func scanLines(r io.Reader, ch chan<- string) {
 	scanner := bufio.NewScanner(r)
@@ -806,4 +831,30 @@ func TestAcceptorReportsABindItCannotWin(t *testing.T) {
 	testifyassert.Contains(t, string(out), rfwdErrMarker)
 	testifyassert.NotContains(t, string(out), rfwdReadyMarker,
 		"a listener that never bound must not report itself ready")
+}
+
+// TestExecPodListenerSurvivesALongRelayLine pins that a diagnostic longer than the
+// scanner's default line keeps the forward alive. socat can emit a very long error,
+// and a line that does not fit ends the scan: the goroutine returns, nothing marks
+// the listener failed, and Accept then waits for announcements that will never come
+// again - a forward that hangs with nothing in the log to say why.
+func TestExecPodListenerSurvivesALongRelayLine(t *testing.T) {
+	execs := stubPodExec(t)
+
+	listener, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+
+	acceptor := execFor(t, execs, "acceptor")
+	acceptor.announce(t, "socat: E "+strings.Repeat("x", 200*1024))
+	acceptor.announce(t, rfwdConnMarker+" 4242 10.0.0.9 51234")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, err := listener.Accept(ctx)
+	testifyassert.NoError(t, err, "a long relay line stopped the listener reporting connections")
+	if err == nil {
+		testifyassert.NoError(t, conn.Close())
+	}
 }

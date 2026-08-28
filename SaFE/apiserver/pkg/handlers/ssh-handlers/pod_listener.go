@@ -43,8 +43,14 @@ const (
 // point is the child's own PID.
 const childIDBaseEnv = "SAFE_RFWD_ID_BASE"
 
+// relayMaxLineBytes caps a single line of relay output. socat can be verbose about
+// a failure, and the scanner's default line is 64 KiB.
+const relayMaxLineBytes = 1 << 20
+
 // listenerReadyTimeout bounds how long we wait for the Pod-side listener to bind.
-const listenerReadyTimeout = 30 * time.Second
+// It shares a budget with forwardResolveTimeout: both run inside one global request,
+// which is answered before the next one on the connection is looked at.
+const listenerReadyTimeout = 15 * time.Second
 
 // listenerShutdownGrace bounds how long Close waits for the Pod-side relay to exit
 // and give the listen port back. It is a variable so tests do not wait it out.
@@ -61,6 +67,9 @@ type podListener interface {
 // podConn is a byte stream bridged to one connection accepted inside the Pod.
 type podConn interface {
 	io.ReadWriteCloser
+	// CloseWrite reports that nothing further will be sent to the Pod, leaving what
+	// the Pod still has to say on its way.
+	CloseWrite() error
 	// OriginAddr is the Pod-side peer address that opened the connection.
 	OriginAddr() string
 	// OriginPort is the Pod-side peer port that opened the connection.
@@ -198,6 +207,7 @@ func newExecPodListener(ctx context.Context, userInfo *UserInfo,
 // scan consumes one relay output stream, turning marker lines into events.
 func (l *execPodListener) scan(r io.Reader, readyCh chan<- error) {
 	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), relayMaxLineBytes)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		switch {
@@ -234,6 +244,13 @@ func (l *execPodListener) scan(r io.Reader, readyCh chan<- error) {
 				klog.V(4).Infof("pod %s reverse forward relay: %s", l.userInfo.Pod, line)
 			}
 		}
+	}
+	// Reaching here without an error is the stream ending, which the exec goroutine
+	// already reports. With one, the relay has stopped being readable while the
+	// listener still looks alive - say so, or Accept waits for announcements that
+	// are never coming and nothing in the log explains it.
+	if err := scanner.Err(); err != nil {
+		l.fail(fmt.Errorf("pod listener output could not be read: %v", err))
 	}
 }
 
@@ -372,7 +389,12 @@ type execPodConn struct {
 	closeOnce sync.Once
 }
 
-func (c *execPodConn) Read(p []byte) (int, error)  { return c.stdoutR.Read(p) }
+func (c *execPodConn) Read(p []byte) (int, error) { return c.stdoutR.Read(p) }
+
+// CloseWrite ends the relay's stdin, which is how the Pod-side socket learns the
+// other end has finished writing, without disturbing what it is still sending back.
+func (c *execPodConn) CloseWrite() error { return c.stdinW.Close() }
+
 func (c *execPodConn) Write(p []byte) (int, error) { return c.stdinW.Write(p) }
 func (c *execPodConn) OriginAddr() string          { return c.originAddr }
 func (c *execPodConn) OriginPort() uint32          { return c.originPort }
@@ -435,14 +457,21 @@ func isRendezvousID(id string) bool {
 // SYSTEM: command down to a single `sh <dir>/child.sh` leaves nothing to mangle.
 func acceptorScript(dir, bindAddr string, bindPort uint32) string {
 	return fmt.Sprintf(`set -e
-if ! command -v socat >/dev/null 2>&1; then
-  echo "%[4]s socat is not installed in the container" >&2
-  exit 127
+for tool in socat awk; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "%[4]s $tool is not installed in the container" >&2
+    exit 127
+  fi
+done
+if [ ! -r /proc/net/tcp ]; then
+  echo "%[4]s /proc/net/tcp is not readable, cannot confirm the listen port" >&2
+  exit 1
 fi
 D=%[1]s
 rm -rf "$D"
-mkdir -p "$D"
-chmod 700 "$D"
+# -m rather than a following chmod: otherwise the directory exists, briefly, with
+# whatever the image's umask allows.
+mkdir -m 700 -p "$D"
 cat > "$D/child.sh" <<'SAFE_RFWD_CHILD_EOF'
 %[6]s
 SAFE_RFWD_CHILD_EOF
@@ -543,10 +572,17 @@ S=$D/$N/s
 exec 3<&0
 socat - UNIX-LISTEN:"$S" <&3 &
 P=$!
-# Spin rather than sleep: the socket appears within microseconds, and a minimal pod
-# image is not guaranteed a sleep that accepts sub-second intervals.
+# A short spin catches the usual case, where socat publishes the socket almost at
+# once, without paying for a syscall. Anything longer waits on the clock: this pod
+# may have a CPU limit, and a hundred thousand iterations of shell arithmetic would
+# spend that limit starving the very socat being waited for - once per connection.
 i=0
-while [ ! -S "$S" ] && [ $i -lt 100000 ]; do
+while [ ! -S "$S" ] && [ $i -lt 100 ]; do
+  i=$((i+1))
+done
+i=0
+while [ ! -S "$S" ] && [ $i -lt 50 ]; do
+  sleep 0.1 2>/dev/null || sleep 1
   i=$((i+1))
 done
 # Announce only what the apiserver can actually attach to. Falling out of the spin

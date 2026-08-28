@@ -48,8 +48,12 @@ type reverseForwardPolicy struct {
 // client sent them in, which means a slow answer here delays every keepalive and
 // every later request on the connection. The session's own context runs for twelve
 // hours, so without this a cluster that stops answering takes the SSH session with
-// it. It is a variable so tests do not have to wait it out.
-var forwardResolveTimeout = 30 * time.Second
+// it. Kept well inside what a client waits before giving up: with the documented
+// ServerAliveInterval of 60 and OpenSSH's default of three misses, a session
+// tolerates about three minutes of silence, and this plus the listener's own
+// readiness timeout has to fit inside that. It is a variable so tests do not have
+// to wait it out.
+var forwardResolveTimeout = 15 * time.Second
 
 // Defaults applied when the configured port range cannot be used.
 const (
@@ -62,19 +66,29 @@ const (
 // silently refuses every forward and reports a range nobody configured.
 func usablePort(value, fallback int) uint32 {
 	if value < 1 || value > 65535 {
-		klog.Warningf("ssh reverse forward port %d is not a usable port, using %d instead", value, fallback)
+		// Logged once rather than per connection: the policy is re-read for every
+		// SSH connection, and a misconfigured range would otherwise repeat this
+		// line thousands of times a day.
+		badPortOnce.Do(func() {
+			klog.Warningf("ssh reverse forward port %d is not a usable port, using %d instead", value, fallback)
+		})
 		return uint32(fallback)
 	}
 	return uint32(value)
 }
+
+// badPortOnce keeps the misconfiguration warnings above and below to one apiece.
+var badPortOnce, invertedRangeOnce sync.Once
 
 // loadReverseForwardPolicy snapshots the reverse forwarding configuration.
 func loadReverseForwardPolicy() reverseForwardPolicy {
 	portMin := usablePort(commonconfig.GetSSHReverseForwardPortMin(), defaultForwardPortMin)
 	portMax := usablePort(commonconfig.GetSSHReverseForwardPortMax(), defaultForwardPortMax)
 	if portMin > portMax {
-		klog.Warningf("ssh reverse forward port range %d-%d is inverted, using %d-%d instead",
-			portMin, portMax, defaultForwardPortMin, defaultForwardPortMax)
+		invertedRangeOnce.Do(func() {
+			klog.Warningf("ssh reverse forward port range %d-%d is inverted, using %d-%d instead",
+				portMin, portMax, defaultForwardPortMin, defaultForwardPortMax)
+		})
 		portMin, portMax = defaultForwardPortMin, defaultForwardPortMax
 	}
 	return reverseForwardPolicy{
@@ -447,19 +461,28 @@ func (m *reverseForwardManager) bridge(fwd *reverseForward, pc podConn) {
 		_ = pc.Close()
 	}()
 
+	// Each direction ends on its own. A clean end is a half-close - one side saying
+	// "nothing more from me" while the other keeps going, which is what a request
+	// followed by its reply looks like on the wire - so it only closes that
+	// direction. An error is a broken connection and takes the pair down. The pair
+	// is done once both directions are.
+	var copying sync.WaitGroup
+	copying.Add(2)
 	go func() {
-		_, copyErr := io.Copy(ch, pc)
-		// Half-close so the client sees the Pod side finish writing. A clean end
-		// here is the pod saying "request sent" - the reply still has to come back
-		// the other way, so the pair stays up until the client is done too. An
-		// error is a broken pod side, and then holding the pair open would strand
-		// the client on a connection nothing can answer.
-		_ = ch.CloseWrite()
-		if copyErr != nil {
+		defer copying.Done()
+		if _, err := io.Copy(ch, pc); err != nil {
 			finish()
 		}
+		_ = ch.CloseWrite()
 	}()
-	_, _ = io.Copy(pc, ch)
+	go func() {
+		defer copying.Done()
+		if _, err := io.Copy(pc, ch); err != nil {
+			finish()
+		}
+		_ = pc.CloseWrite()
+	}()
+	copying.Wait()
 	finish()
 }
 
@@ -517,8 +540,12 @@ func (m *reverseForwardManager) closeAll() {
 // Every route out of a forward passes through here, so an "established" line in the
 // audit trail always has exactly one matching close.
 func closeForward(fwd *reverseForward, reason string) {
-	fwd.cancel()
+	// Close before cancel, not the other way round. This context is the parent of
+	// the listener's exec stream, so cancelling first would tear that stream down
+	// where it stands - leaving Close with no stdin to end, nothing to wait for,
+	// and the pod holding the listen port for a moment longer.
 	_ = fwd.listener.Close()
+	fwd.cancel()
 	klog.Infof("reverse forward closed (%s), user: %s, pod: %s/%s, listen: %s, duration: %s",
 		reason, fwd.userInfo.User, fwd.userInfo.Namespace, fwd.userInfo.Pod,
 		forwardKey(fwd.bindAddr, fwd.bindPort), time.Since(fwd.startedAt).Truncate(time.Second))
