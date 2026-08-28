@@ -397,6 +397,89 @@ def resolve_pairing(client, server, local_ip, ib_hca_list, ssh_cmd):
         _pairing_cache[key] = pairing
     return pairing
 
+# perftest's result row: byte count, iterations, BW peak, BW average, and on
+# most builds a message rate. Columns are whitespace separated, sometimes tabs.
+_BW_ROW_RE = re.compile(
+    r"^\s*(\d+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)(?:\s+([\d.]+))?\s*$")
+
+# Things perftest prints when the transfer itself did not complete. None of
+# these appear in a run that moved data.
+_IB_FAILURE_MARKERS = (
+    "Failed to complete run_iter_bw",
+    "Completion with error",
+    "Failed status",
+)
+
+def parse_ib_bandwidth(output):
+    """
+    Return the BW average in Gb/sec from ib_write_bw's output, or None.
+
+    None means "this output does not contain a result row" -- not "zero
+    bandwidth". Callers must tell those apart: an unrecognised layout is a
+    reason to fall back, a missing row on a recognised layout is a failure.
+    """
+    best = None
+    for line in output.replace("\t", " ").split("\n"):
+        m = _BW_ROW_RE.match(line)
+        if not m:
+            continue
+        try:
+            bw = float(m.group(4))
+        except ValueError:
+            continue
+        if best is None or bw > best:
+            best = bw
+    return best
+
+def ib_verdict(client_ret, output):
+    """
+    Decide whether one ib_write_bw pair passed, and describe why.
+
+    The old criterion was `client_ret == 0 and "Gb/sec" in output`. That
+    substring is in the *header* perftest prints before transferring anything,
+    so it is satisfied by a run that printed the header and then died -- the
+    exit code was doing all the work, and the measured bandwidth was never
+    looked at or reported.
+
+    Both of those conditions are still required here. Added on top, and only
+    when the output is actually understood:
+      - an explicit perftest failure marker fails the pair
+      - a parsed result row must carry non-zero bandwidth
+      - IB_BW_MIN_GBPS, if set, is enforced against that row
+
+    If no result row can be parsed the layout is not recognised, so the verdict
+    falls back to exactly the old criterion rather than guessing.
+
+    Returns (success, detail) where detail is appended to the RESULT line.
+    """
+    success = client_ret == 0 and "Gb/sec" in output
+
+    bw = parse_ib_bandwidth(output)
+    failure_marker = next((m for m in _IB_FAILURE_MARKERS if m in output), None)
+    detail = f", {bw:.2f} Gb/sec" if bw is not None else ""
+
+    if not success:
+        return False, detail
+
+    if failure_marker:
+        return False, detail + f" [{failure_marker}]"
+
+    if bw is None:
+        return True, " [no result row parsed, verdict from exit code alone]"
+
+    if bw <= 0:
+        return False, detail + " [no bandwidth measured]"
+
+    floor = os.environ.get("IB_BW_MIN_GBPS", "").strip()
+    if floor:
+        try:
+            if bw < float(floor):
+                return False, detail + f" [below IB_BW_MIN_GBPS={floor}]"
+        except ValueError:
+            log(f"    [WARN] ignoring unparseable IB_BW_MIN_GBPS={floor!r}")
+
+    return True, detail
+
 def test_node_pair(client, local_ip, server, client_ib_hca, server_ib_hca, ib_params, ssh_cmd, group_idx):
     """
     Test a single node pair (client -> server)
@@ -480,11 +563,12 @@ def test_node_pair(client, local_ip, server, client_ib_hca, server_ib_hca, ib_pa
             kill_remote_listener(server, ssh_cmd)
 
         # === STEP 5: Determine PASS/FAIL ===
-        success = client_ret == 0 and "Gb/sec" in output
+        success, detail = ib_verdict(client_ret, output)
+
         if success:
-            log(f"RESULT: PASS - {client_ib_hca} -> {server}:{server_ib_hca}, group: {group_idx+1}")
+            log(f"RESULT: PASS - {client_ib_hca} -> {server}:{server_ib_hca}, group: {group_idx+1}{detail}")
         else:
-            log(f"RESULT: FAIL - {client_ib_hca} -> {server}:{server_ib_hca}, group: {group_idx+1} (exit code: {client_ret})")
+            log(f"RESULT: FAIL - {client_ib_hca} -> {server}:{server_ib_hca}, group: {group_idx+1} (exit code: {client_ret}){detail}")
             # Highlight common errors
             error_patterns = ["Couldn't connect", "No route", "Device not found", "Permission denied", "timeout"]
             for pattern in error_patterns:
