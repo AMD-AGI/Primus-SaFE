@@ -77,6 +77,54 @@ def kill_remote_listener(node, ssh_cmd):
     log(f"[{node}] Warning: Remote ib_write_bw processes may still be running")
     return False
 
+_rdma_env_lock = threading.Lock()
+_rdma_env_logged = False
+
+def log_rdma_environment():
+    """
+    Dump the RDMA environment once, the first time a listener fails to start.
+
+    ib_write_bw's own message is not enough to tell the three failure modes
+    apart, and they need completely different fixes:
+
+      "Did not detect devices"      -> ibv_get_device_list() came back empty:
+                                       no /dev/infiniband in the container, i.e.
+                                       the pod never got the rdma resource.
+      "IB device ionic_0 not found" -> the list was NOT empty but held no device
+                                       by that name: either the userspace
+                                       provider was rejected (libibverbs prints
+                                       an ABI warning) or dropped silently, or
+                                       the cards are named something else.
+
+    Printing what the container can actually see settles it from the log alone.
+    """
+    global _rdma_env_logged
+    with _rdma_env_lock:
+        if _rdma_env_logged:
+            return
+        _rdma_env_logged = True
+
+    log("--- RDMA environment (printed once, on first listener failure) ---")
+
+    devs = sorted(glob.glob("/dev/infiniband/*"))
+    log(f"    /dev/infiniband: {' '.join(os.path.basename(d) for d in devs) if devs else 'MISSING -- container has no RDMA char devices'}")
+
+    sysfs = sorted(glob.glob("/sys/class/infiniband/*"))
+    log(f"    /sys/class/infiniband: {' '.join(os.path.basename(d) for d in sysfs) if sysfs else '(none)'}")
+
+    try:
+        r = subprocess.run(["ibv_devices"], capture_output=True, text=True, timeout=15)
+        out = (r.stdout or "") + (r.stderr or "")
+        for line in out.strip().split("\n"):
+            if line.strip():
+                log(f"    ibv_devices: {line}")
+        if not out.strip():
+            log("    ibv_devices: (no output)")
+    except Exception as e:
+        log(f"    ibv_devices: could not run ({e})")
+
+    log("--- end RDMA environment ---")
+
 def report_server_failure(tag, server_process):
     """
     Explain *why* a listener never came up.
@@ -118,6 +166,7 @@ def report_server_failure(tag, server_process):
     if not saw_output:
         log(f"{tag} server produced no output")
     log(f"{tag} server exit code: {server_process.returncode}")
+    log_rdma_environment()
 
 def kill_local_listener(server_process):
     # Clean up the failed server
