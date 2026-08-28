@@ -10,7 +10,7 @@
 #
 # Options:
 #   --target <stage>       Build target: base, bench, pytorch, full (default: full)
-#   --rocm <version>       ROCm version: 6.4.3, 7.0.3, 7.2.0 (default: 7.0.3)
+#   --rocm <version>       ROCm version: 6.4.3, 7.0.1, 7.0.3, 7.2.0 (default: 7.0.3)
 #   --gpu <arch>           GPU architecture: gfx942, gfx950 (default: gfx950)
 #   --os <name>            OS name: ubuntu, oci (default: oci)
 #   --os-version <ver>     OS version: 22.04, 24.04 (default: 22.04)

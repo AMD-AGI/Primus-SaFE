@@ -184,7 +184,10 @@ def load_and_tokenize(
     
     # Build dataset
     if dataset_name == "wikitext":
-        dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split=split)
+        # Must be the namespaced repo id. huggingface_hub 1.x dropped legacy
+        # "canonical" datasets, so a bare "wikitext" now raises HfUriError
+        # ("Repository id must be 'namespace/name'") instead of resolving.
+        dataset = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split=split)
         text_key = "text"
         texts = [sample[text_key] for sample in dataset if sample[text_key].strip()]
         texts = texts[:max_samples]

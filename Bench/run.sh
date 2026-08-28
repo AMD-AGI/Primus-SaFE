@@ -19,6 +19,48 @@ ok()     { echo "✔ $1"; }
 warn()   { echo "⚠ $1"; }
 err()    { echo "✘ $1"; }
 
+# Resolve a node label (as it appears in LOG_HEADER / $HOSTS) to an IPv4 address.
+#
+# Order matters, and it is deliberately conservative: steps 1-2 are the original
+# logic, byte for byte, so any deployment where they already produced an address
+# keeps producing the exact same address. Step 3 only ever runs when the old
+# chain came up empty -- i.e. on inputs that used to be dropped outright.
+#
+# Step 3 exists for the Kubernetes deployment, where the label is a *pod* name:
+# LOG_HEADER is built from $(hostname) inside the bench container, and each bench
+# pod gets a same-named headless Service. Such a name resolves in this pod's
+# namespace but not in the host namespace -- verified on a node, where
+# `getent hosts primusbench-xxx-master-0` exits 2 with no output because the host
+# resolv.conf carries the corporate search domains, not cluster.local.
+#
+# Returns non-zero (and prints nothing) when no usable address was found, so the
+# caller can tell "unresolved" apart from a bogus value.
+resolve_node_ip() {
+    local node="$1" ip
+
+    # 1) Host namespace. The bare-metal path: $HOSTS holds real machine names
+    #    that only the host knows. Needs privileged + hostPID; a denial here is
+    #    not fatal, we simply fall through.
+    ip=$(nsenter --target 1 --mount --uts --ipc --net --pid -- \
+         getent hosts "$node" 2>/dev/null | awk '{print $1; exit}')
+
+    # 2) Original loopback workaround, unchanged.
+    if [[ "$ip" == 127.* ]]; then
+        ip=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $7}')
+    fi
+
+    # 3) New fallback, reached only when the above yielded nothing usable.
+    #    Resolve in this pod's namespace (search domains + cluster DNS), skipping
+    #    loopback lines so a name mapped to both 127.0.0.1 and a routable address
+    #    yields the routable one regardless of the order they are listed in.
+    if [[ ! "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "$ip" == 127.* ]]; then
+        ip=$(getent hosts "$node" 2>/dev/null | awk '$1 !~ /^127\./ {print $1; exit}')
+    fi
+
+    [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+    echo "$ip"
+}
+
 # Send SIGUSR1 signal and wait for background process
 send_ready_signal() {
     log "🏁 Benchmarks completed. Synchronizing all nodes... $(date +'%Y-%m-%d %H:%M:%S')"
@@ -591,10 +633,7 @@ else
             log "Skipping node check (SKIP_NODE_CHECK=true)"
             while IFS= read -r node; do
                 [ -z "$node" ] && continue
-                ip_addr=$(nsenter --target 1 --mount --uts --ipc --net --pid -- getent hosts "$node" | awk '{print $1; exit}')
-                if [[ "$ip_addr" == 127.* ]]; then
-                    ip_addr=$(ip route get 8.8.8.8 | awk '{print $7}')
-                fi
+                ip_addr=$(resolve_node_ip "$node")
                 if [[ -n "$ip_addr" ]] && [[ "$ip_addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
                     node_ip_map[$node]="$ip_addr"
                     ip_node_map[$ip_addr]="$node"
@@ -656,11 +695,7 @@ else
                 if [[ -n "${node_ip_map[$node]}" ]]; then
                     continue
                 fi
-                ip_addr=$(nsenter --target 1 --mount --uts --ipc --net --pid -- getent hosts "$node" | awk '{print $1; exit}')
-
-                if [[ "$ip_addr" == 127.* ]]; then
-                    ip_addr=$(ip route get 8.8.8.8 | awk '{print $7}')
-                fi
+                ip_addr=$(resolve_node_ip "$node")
                 if [[ -n "$ip_addr" ]] && [[ "$ip_addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
                     node_ip_map[$node]="$ip_addr"
                     ip_node_map[$ip_addr]="$node"

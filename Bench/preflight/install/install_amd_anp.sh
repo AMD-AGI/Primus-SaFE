@@ -36,17 +36,21 @@ echo "Adding AMD AINIC pensando repository for driver version ${AINIC_DRIVER_VER
 echo "deb [arch=amd64 trusted=yes] https://repo.radeon.com/amdainic/pensando/ubuntu/${AINIC_DRIVER_VERSION} jammy main" \
     > /etc/apt/sources.list.d/amdainic-pensando.list
 
-apt-get update >/dev/null 2>&1
-if [ $? -ne 0 ]; then
-  echo "Warning: apt-get update had issues, continuing anyway..."
-fi
+# NOTE on error handling below: `set -e` is in effect, so a plain
+# `cmd; if [ $? -ne 0 ]` never reaches the if -- the shell has already exited.
+# Both handlers here used to be written that way and were dead code, which is
+# why an apt failure in this step produced no message at all. Use `|| { ... }`
+# so the handler actually runs, and do not swallow apt's own output: it is the
+# only description of what went wrong.
+apt-get update || echo "Warning: apt-get update had issues, continuing anyway..."
 
 echo "Installing libionic-dev=${LIBIONIC_VERSION}..."
-apt-get install -y --allow-unauthenticated libionic-dev=${LIBIONIC_VERSION} >/dev/null 2>&1
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to install libionic-dev=${LIBIONIC_VERSION}."
+apt-get install -y --allow-unauthenticated libionic-dev=${LIBIONIC_VERSION} || {
+  echo "Error: Failed to install libionic-dev=${LIBIONIC_VERSION}." >&2
+  echo "--- apt-cache policy (what apt actually sees) ---" >&2
+  apt-cache policy libionic-dev libionic1 libibverbs1 >&2 || true
   exit 1
-fi
+}
 
 # Clone AMD ANP repository (retry on transient network errors)
 echo "Cloning AMD ANP repository..."

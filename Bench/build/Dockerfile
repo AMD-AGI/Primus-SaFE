@@ -72,6 +72,17 @@ RUN DISTUTILS_PKG="" && \
     fi && \
     apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/*
 
+# Ubuntu 24.04 marks the system Python as externally managed (PEP 668), so every
+# bare `pip3 install` fails with "externally-managed-environment". This image IS
+# the environment -- there is no venv to protect -- and pip calls are scattered
+# across preflight/*.sh, pytorch/*.sh, Primus' own requirements install and the
+# runtime model_benchmark. Setting it once here beats tacking
+# --break-system-packages onto each call site and missing some.
+RUN if [ "${OS_VERSION}" = "24.04" ]; then \
+        printf '[global]\nbreak-system-packages = true\n' > /etc/pip.conf && \
+        cat /etc/pip.conf; \
+    fi
+
 ARG _BUILD=/opt/_build
 RUN mkdir -p ${_BUILD}
 COPY pytorch/install_cmake.sh pytorch/install_rocm.sh pytorch/install_rccl.sh ${_BUILD}/
@@ -154,7 +165,11 @@ COPY preflight/network/*.sh ${PREFLIGHT_HOME}/network/
 COPY preflight/node/*.sh ${PREFLIGHT_HOME}/node/
 COPY preflight/node/config_check/* ${PREFLIGHT_HOME}/node/config_check/
 COPY preflight/node/node_check/* ${PREFLIGHT_HOME}/node/node_check/
-COPY preflight/node/model_check/* ${PREFLIGHT_HOME}/node/model_check/
+# NOTE: no wildcard here. `COPY dir/* dest/` copies the *contents* of every
+# matched subdirectory into dest, flattening the tree -- model_check has
+# config/ data/ engine/ models/ utils/, whose four __init__.py would collide
+# on one file and break `from data.build_dataset import ...` at runtime.
+COPY preflight/node/model_check/ ${PREFLIGHT_HOME}/node/model_check/
 
 COPY benchmarks ./benchmarks
 RUN cd benchmarks && bash build.sh
@@ -184,6 +199,8 @@ RUN PIP_EXTRA_ARGS="" && \
     if [ "${OS_VERSION}" = "24.04" ]; then PIP_EXTRA_ARGS="--break-system-packages"; fi && \
     if [ "${ROCM_VERSION}" = "6.4.3" ]; then \
         pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.4 $PIP_EXTRA_ARGS; \
+    elif [ "${ROCM_VERSION}" = "7.0.1" ]; then \
+        pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm7.0 $PIP_EXTRA_ARGS; \
     elif [ "${ROCM_VERSION}" = "7.0.3" ]; then \
         pip3 install torch torchvision --pre --index-url https://download.pytorch.org/whl/nightly/rocm7.0 $PIP_EXTRA_ARGS; \
     elif [ "${ROCM_VERSION}" = "7.2.0" ]; then \
@@ -291,7 +308,9 @@ RUN cd ${PRIMUS_PREINSTALL_DIR}/third_party/Megatron-LM/megatron/core/datasets &
     make -j4 && \
     echo "Megatron helpers_cpp built successfully"
 
-ENV PYTHONPATH="${PRIMUS_PREINSTALL_DIR}:${PRIMUS_PREINSTALL_DIR}/third_party/Megatron-LM:${PYTHONPATH}"
+# Nothing upstream sets PYTHONPATH (base is stock ubuntu), so do not append to
+# it -- referencing it only earns an UndefinedVar warning and a trailing colon.
+ENV PYTHONPATH="${PRIMUS_PREINSTALL_DIR}:${PRIMUS_PREINSTALL_DIR}/third_party/Megatron-LM"
 
 # Last line of defence: nothing above may have swapped in a CUDA torch.
 RUN python3 -c "import torch; \
