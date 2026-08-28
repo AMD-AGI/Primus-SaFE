@@ -70,9 +70,29 @@ cd ${WORKDIR}
 # Install dependencies - add AMD AINIC pensando repository and install libionic-dev
 echo "Adding AMD AINIC pensando repository for driver version ${AINIC_DRIVER_VERSION}..."
 
+# The suite must be this image's own Ubuntu release, not a fixed one. libionic
+# has to pair with the ionic driver the AINIC bundle installed, and that bundle
+# picks its .deb by ${UBUNTU_VERSION} read from /etc/os-release -- so a
+# hardcoded suite here only agrees with the bundle by coincidence. This line
+# said "jammy" unconditionally, which was right on a 22.04 base and silently
+# wrong on 24.04: noble ionic packages from the bundle, jammy libionic from the
+# repo. That mismatch surfaces far downstream as
+#   "Driver ionic does not support the kernel ABI of N ... IB device ionic_0 not found".
+UBUNTU_SUITE="${UBUNTU_SUITE:-$( . /etc/os-release 2>/dev/null && echo "${VERSION_CODENAME}" )}"
+case "${UBUNTU_SUITE}" in
+  jammy|noble) ;;
+  *)
+    echo "Error: unsupported Ubuntu suite '${UBUNTU_SUITE}' for the AINIC pensando repo." >&2
+    echo "  The AINIC bundle ships packages for jammy and noble only." >&2
+    echo "  Override with UBUNTU_SUITE=<jammy|noble> if this is intentional." >&2
+    exit 1
+    ;;
+esac
+echo "AINIC pensando repo suite: ${UBUNTU_SUITE}"
+
 # Add repository with trusted=yes to bypass GPG signature verification
 # This is consistent with using --allow-unauthenticated for apt-get install
-echo "deb [arch=amd64 trusted=yes] https://repo.radeon.com/amdainic/pensando/ubuntu/${AINIC_DRIVER_VERSION} jammy main" \
+echo "deb [arch=amd64 trusted=yes] https://repo.radeon.com/amdainic/pensando/ubuntu/${AINIC_DRIVER_VERSION} ${UBUNTU_SUITE} main" \
     > /etc/apt/sources.list.d/amdainic-pensando.list
 
 # NOTE on error handling below: `set -e` is in effect, so a plain
