@@ -7,12 +7,12 @@ set -e
 
 ANP_REPO="https://github.com/rocm/amd-anp.git"
 ANP_DIR="amd-anp"
-LIBIONIC_VERSION="54.0-184"
 WORKDIR="/opt"
 RCCL_HOME="${RCCL_HOME:-/opt/rccl}"
 RCCL_BUILD="${RCCL_BUILD:-${RCCL_HOME}/build/release}"
-# ANP_VERSION is not a constant -- it is chosen from the RCCL headers further
-# down. See the "Select the ANP release" block.
+# Neither ANP_VERSION nor LIBIONIC_VERSION is a constant here:
+#   ANP_VERSION     is chosen from the RCCL headers -- see "Select the ANP release".
+#   LIBIONIC_VERSION defaults to whatever the AINIC repo for this bundle ships.
 
 # Get AINIC_DRIVER_VERSION from environment or extract from AINIC_BUNDLE_PATH
 if [ -z "${AINIC_DRIVER_VERSION}" ] && [ -n "${AINIC_BUNDLE_PATH}" ]; then
@@ -83,13 +83,30 @@ echo "deb [arch=amd64 trusted=yes] https://repo.radeon.com/amdainic/pensando/ubu
 # only description of what went wrong.
 apt-get update || echo "Warning: apt-get update had issues, continuing anyway..."
 
-echo "Installing libionic-dev=${LIBIONIC_VERSION}..."
-apt-get install -y --allow-unauthenticated libionic-dev=${LIBIONIC_VERSION} || {
-  echo "Error: Failed to install libionic-dev=${LIBIONIC_VERSION}." >&2
+# libionic must pair with the *host* ionic kernel driver, not merely be recent:
+# libibverbs refuses a provider whose declared ABI range excludes the kernel's
+# uverbs abi_version, and the failure surfaces far downstream as
+#   "Driver ionic does not support the kernel ABI of N ... IB device ionic_0 not found".
+#
+# Each AINIC release directory in the pensando repo ships exactly one libionic,
+# so the bundle version already determines it. LIBIONIC_VERSION used to be a
+# separate hardcoded constant, which meant swapping the bundle silently left the
+# two disagreeing. Default to the repo's own version; keep the env override for
+# the case where a specific build has to be forced.
+LIBIONIC_PIN=""
+if [ -n "${LIBIONIC_VERSION}" ]; then
+  LIBIONIC_PIN="=${LIBIONIC_VERSION}"
+  echo "Installing libionic-dev${LIBIONIC_PIN} (pinned via LIBIONIC_VERSION)..."
+else
+  echo "Installing libionic-dev from AINIC ${AINIC_DRIVER_VERSION}: $(apt-cache policy libionic-dev 2>/dev/null | awk '/Candidate:/{print $2}')"
+fi
+apt-get install -y --allow-unauthenticated libionic-dev${LIBIONIC_PIN} || {
+  echo "Error: Failed to install libionic-dev${LIBIONIC_PIN}." >&2
   echo "--- apt-cache policy (what apt actually sees) ---" >&2
   apt-cache policy libionic-dev libionic1 libibverbs1 >&2 || true
   exit 1
 }
+echo "libionic installed: $(dpkg-query -W -f='${Version}' libionic1 2>/dev/null || echo unknown)"
 
 # Clone AMD ANP repository (retry on transient network errors)
 echo "Cloning AMD ANP repository..."
