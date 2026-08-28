@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -558,6 +559,10 @@ func startChild(t *testing.T, ctx context.Context, dir, idBase string) string {
 
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", childScript(dir))
 	cmd.Env = append(os.Environ(), childIDBaseEnv+"="+idBase)
+	// The child backgrounds socat and a watcher, which outlive it. Put the lot in
+	// one process group so the cleanup below takes them all, rather than leaving a
+	// socat behind on the machine for every run of this test.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// The accepted socket is the child's stdin; hold it open so the child stays up.
 	stdin, err := cmd.StdinPipe()
 	testifyassert.NoError(t, err)
@@ -565,7 +570,10 @@ func startChild(t *testing.T, ctx context.Context, dir, idBase string) string {
 	stderr, err := cmd.StderrPipe()
 	testifyassert.NoError(t, err)
 	testifyassert.NoError(t, cmd.Start())
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() })
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_, _ = cmd.Process.Wait()
+	})
 
 	announcements := make(chan string, 8)
 	go scanLines(stderr, announcements)
