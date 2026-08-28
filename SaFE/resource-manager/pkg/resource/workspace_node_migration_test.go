@@ -16,6 +16,7 @@ import (
 	"gotest.tools/assert"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
@@ -744,10 +745,8 @@ func TestSetExpectationsRestartsTheClockOnALapsedEntry(t *testing.T) {
 		"the new binding inherited a deadline that had already passed")
 }
 
-// A node on its way out is not going anywhere else. Which of the two it becomes depends on
-// whether the source still holds it: held while it does, since the replica has already been
-// counted out and a withdrawal would not put it back; given up on once it has been released,
-// since there is then nothing left to wait for.
+// A node on its way out is not going anywhere else, held by the source or not. Admission
+// turns these away; getting here means it started deleting after the request was accepted.
 func TestClassifyMigrationOnANodeBeingDeleted(t *testing.T) {
 	m := newMigration(t, time.Hour, boundToSource)
 	now := metav1.NewTime(time.Now())
@@ -755,7 +754,7 @@ func TestClassifyMigrationOnANodeBeingDeleted(t *testing.T) {
 	m.node.Finalizers = []string{v1.NodeFinalizer}
 
 	state, _, _ := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
-	assert.Equal(t, state, migrationHeld)
+	assert.Equal(t, state, migrationAbandoned)
 
 	markMigrating(m.node, m.source.Name, m.target.Name)
 	m.node.DeletionTimestamp = &now
@@ -763,27 +762,25 @@ func TestClassifyMigrationOnANodeBeingDeleted(t *testing.T) {
 	assert.Equal(t, state, migrationAbandoned)
 }
 
-// A node on its way out that the source still holds is kept waiting, not given up on. Giving
-// up would leave the workspace holding a node its replica no longer counts -- the count moved
-// when the migration was admitted, and a withdrawal does not move it back, no more than it
-// does for a removal -- and the workspace would release a healthy node to get back down.
-func TestProcessNodesActionMigrateHoldsANodeOnItsWayOut(t *testing.T) {
+// Admission turns these away, so getting here means the node started deleting after the
+// request was accepted. Given up on rather than carried further -- releasing a node on its
+// way out is allowed and binding one is not, so the crossing would only be turned down by the
+// far end, once a pass, until it timed out.
+func TestProcessNodesActionMigrateGivesUpOnANodeThatStartedDeleting(t *testing.T) {
 	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
 		boundToSource(node, source, target)
 		node.Finalizers = []string{v1.NodeFinalizer}
 	})
 	assert.NilError(t, m.client.Delete(context.Background(), m.node))
-	before := m.source.Spec.Replica
 
-	result, isUpdated, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	_, isUpdated, err := m.reconciler.processNodesAction(context.Background(), m.source)
 	assert.NilError(t, err)
 	assert.Equal(t, isUpdated, false)
-	assert.Assert(t, result.RequeueAfter > 0, "nothing will bring the crossing back")
 
 	m.reload(t)
-	assert.Equal(t, m.source.Spec.Replica, before, "the replica moved while the entry was held")
-	assert.Assert(t, v1.GetWorkspaceNodesAction(m.source) != "", "the request was dropped")
-	assert.Equal(t, m.node.GetSpecWorkspace(), m.source.Name, "the node was let go on its way out")
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.source), "")
+	assert.Assert(t, v1.GetAnnotation(m.source, v1.WorkspaceNodesActionError) != "",
+		"the request was dropped with no reason recorded")
 }
 
 // A node released for a workspace that has gone is withdrawn like any other refusal, so the
@@ -942,4 +939,48 @@ func TestHandleNodeEventIgnoresAnExpiredReservation(t *testing.T) {
 	handlerFuncs.Update(context.Background(), event.UpdateEvent{ObjectOld: stale, ObjectNew: touched}, q)
 
 	assert.Equal(t, len(drain(q)), 0, "a reservation nobody is driving kept waking its workspaces")
+}
+
+// An annotation this cannot read is one whose claims are unknown, and reading unknown as
+// empty hands the nodes it names to whoever asks next -- which is the thing reservedNodes
+// exists to prevent.
+func TestReservedNodesFailsClosedOnAnUnreadableClaim(t *testing.T) {
+	nodeFlavor := genMockNodeFlavor()
+	asking := genMockWorkspace("cluster", nodeFlavor.Name, 1)
+	other := genMockWorkspace("cluster", nodeFlavor.Name, 1)
+	metav1.SetMetaDataAnnotation(&other.ObjectMeta, v1.WorkspaceNodesAction, "{not json")
+
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).
+		WithObjects(asking, other).Build())
+
+	_, err := r.reservedNodes(context.Background(), asking.Name)
+	assert.Assert(t, err != nil, "an unreadable claim was read as claiming nothing")
+}
+
+// The target's own admission turning the request down is a judgement, not a passing
+// condition: retrying waits for a workspace to change its mind, and the optimistic-lock
+// conflicts that do clear are already absorbed inside the handover.
+func TestProcessNodesActionMigrateGivesUpWhenTheTargetRefuses(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+	})
+	m.reconciler.Client = fake.NewClientBuilder().WithScheme(scheme.Scheme).
+		WithObjects(m.node.DeepCopy(), m.source.DeepCopy(), m.target.DeepCopy()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object,
+				patch client.Patch, opts ...client.PatchOption) error {
+				if workspace, ok := obj.(*v1.Workspace); ok && workspace.Name == m.target.Name {
+					return apierrors.NewConflict(schema.GroupResource{Resource: "workspaces"},
+						workspace.Name, errors.New("the flavor does not match"))
+				}
+				return cl.Patch(ctx, obj, patch, opts...)
+			},
+		}).Build()
+
+	_, _, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+
+	stored := &v1.Node{}
+	assert.NilError(t, m.reconciler.Get(context.Background(), client.ObjectKey{Name: m.node.Name}, stored))
+	assert.Assert(t, v1.GetNodeMigrateInfo(stored) == nil, "the node was left reserved for a refusal")
 }
