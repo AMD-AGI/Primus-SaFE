@@ -611,3 +611,36 @@ func TestMutateNodesActionMigrateRefusesAnUnmanagedNode(t *testing.T) {
 	assert.Assert(t, err != nil)
 	assert.Equal(t, newWs.Spec.Replica, 3, "the replica moved for an entry that cannot succeed")
 }
+
+// Refused where the request is made, so the count never moves for it. Accepted, the
+// workspace's replica drops for a node that cannot reach anywhere -- releasing a deleting
+// node is allowed and binding one is not -- and until it finally disappears the workspace
+// holds one more than it counts and releases a healthy node to get back down.
+func TestNodesActionRefusesMigratingADepartingNode(t *testing.T) {
+	scheme := newScheme(t)
+	departing := migrateNode("node1", migrateCluster, migrateFlavor, "ws-a")
+	now := metav1.NewTime(time.Now())
+	departing.DeletionTimestamp = &now
+	departing.Finalizers = []string{v1.NodeFinalizer}
+	objects := []client.Object{departing, migrateWorkspace("ws-b", migrateCluster, migrateFlavor, 1)}
+	source := migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 3)
+	action := map[string]string{"node1": v1.BuildMigrateAction("ws-b")}
+
+	validator := &WorkspaceValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build(),
+	}
+	assert.Assert(t, validator.validateNodesAction(context.Background(),
+		withNodesAction(source.DeepCopy(), action), source, false) != nil)
+
+	// And by the mutator, so the replica does not move on the way past.
+	mutator := &WorkspaceMutator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build(),
+	}
+	newWs := withNodesAction(source.DeepCopy(), action)
+	assert.Assert(t, mutator.mutateNodesAction(context.Background(), source.DeepCopy(), newWs) != nil)
+	assert.Equal(t, newWs.Spec.Replica, 3, "the replica moved for a node that is on its way out")
+
+	// Removing that same node stays allowed: it asks for what is already happening.
+	removal := withNodesAction(source.DeepCopy(), map[string]string{"node1": v1.NodeActionRemove})
+	assert.NilError(t, validator.validateNodesAction(context.Background(), removal, source, false))
+}

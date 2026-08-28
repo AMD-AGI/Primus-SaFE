@@ -387,6 +387,9 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 				"the node(%s) is not managed yet(phase %q, cluster %q). it can't be added",
 				key, n.Status.ClusterStatus.Phase, v1.GetClusterId(n)))
 		}
+		if err := refuseMigratingADepartingNode(val, n); err != nil {
+			return err
+		}
 		if v1.GetClusterId(n) != newWorkspace.Spec.Cluster {
 			err = fmt.Errorf("the cluster(%s) of the operation and the workspace's"+
 				" cluster do not match", v1.GetClusterId(n))
@@ -1109,6 +1112,9 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 				"the node(%s) is not managed yet(phase %q, cluster %q). it can't be added",
 				key, n.Status.ClusterStatus.Phase, v1.GetClusterId(n)))
 		}
+		if err := refuseMigratingADepartingNode(val, n); err != nil {
+			return err
+		}
 		if v1.GetClusterId(n) != newWorkspace.Spec.Cluster {
 			return fmt.Errorf("the node %s and workspace %s are not in the same cluster", n.Name, newWorkspace.Name)
 		}
@@ -1170,6 +1176,25 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 		return err
 	}
 	return nil
+}
+
+// refuseMigratingADepartingNode turns away a migration of a node that is on its way out.
+//
+// Refused here, where the request is made, so that the count never moves for it. Accepted,
+// the workspace's replica drops for a node that is not going to reach anywhere -- releasing a
+// deleting node is allowed and binding one is not -- and until the node finally disappears
+// the workspace holds one more than it is counting and releases a healthy node to get back
+// down. A removal of the same node is a different thing and stays allowed: it asks for
+// exactly what is already happening.
+func refuseMigratingADepartingNode(action string, node *v1.Node) error {
+	if _, ok := v1.ParseMigrateAction(action); !ok {
+		return nil
+	}
+	if node.GetDeletionTimestamp().IsZero() {
+		return nil
+	}
+	return commonerrors.NewConflict(fmt.Sprintf(
+		"the node(%s) is being deleted. it can't be migrated", node.Name))
 }
 
 // takesNode reports whether an action ends with this node in a workspace's hands -- an add
