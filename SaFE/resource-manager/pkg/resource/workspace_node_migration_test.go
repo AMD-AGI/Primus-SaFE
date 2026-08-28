@@ -178,8 +178,12 @@ func newMigration(t *testing.T, timeout time.Duration,
 	metav1.SetMetaDataAnnotation(&source.ObjectMeta, v1.WorkspaceNodesAction,
 		string(jsonutils.MarshalSilently(map[string]string{node.Name: v1.BuildMigrateAction(target.Name)})))
 
+	// The same admission rule the real webhook applies to a nodes-action write. Without it
+	// these tests judge writes the API server would refuse -- which is how a replica
+	// adjustment that could never be persisted passed here once already.
 	adminClient := fake.NewClientBuilder().WithObjects(node, source, target).
-		WithStatusSubresource(source, target).WithScheme(scheme.Scheme).Build()
+		WithStatusSubresource(source, target).WithScheme(scheme.Scheme).
+		WithInterceptorFuncs(admissionRules()).Build()
 	reconciler := newMockWorkspaceReconciler(adminClient)
 	option := *reconciler.option
 	option.migrateTimeout = timeout
@@ -740,42 +744,46 @@ func TestSetExpectationsRestartsTheClockOnALapsedEntry(t *testing.T) {
 		"the new binding inherited a deadline that had already passed")
 }
 
-// A node on its way out is not going anywhere else. Releasing it would be allowed -- only
-// binding a deleting node is refused -- so the crossing would run to its timeout being turned
-// down by the far end, once a pass, for a node that is about to stop existing.
-func TestClassifyMigrationGivesUpOnANodeBeingDeleted(t *testing.T) {
+// A node on its way out is not going anywhere else. Which of the two it becomes depends on
+// whether the source still holds it: held while it does, since the replica has already been
+// counted out and a withdrawal would not put it back; given up on once it has been released,
+// since there is then nothing left to wait for.
+func TestClassifyMigrationOnANodeBeingDeleted(t *testing.T) {
 	m := newMigration(t, time.Hour, boundToSource)
 	now := metav1.NewTime(time.Now())
 	m.node.DeletionTimestamp = &now
 	m.node.Finalizers = []string{v1.NodeFinalizer}
 
 	state, _, _ := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
+	assert.Equal(t, state, migrationHeld)
+
+	markMigrating(m.node, m.source.Name, m.target.Name)
+	m.node.DeletionTimestamp = &now
+	state, _, _ = m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
 	assert.Equal(t, state, migrationAbandoned)
 }
 
-// Given up on with the node still in hand: it never left, so the replica the mutating webhook
-// took for the crossing has to come back with it. Left off, the workspace holds one more node
-// than it is counting and releases a healthy one to get back down.
-func TestProcessNodesActionMigrateGivesTheReplicaBackWhenTheNodeNeverLeft(t *testing.T) {
+// A node on its way out that the source still holds is kept waiting, not given up on. Giving
+// up would leave the workspace holding a node its replica no longer counts -- the count moved
+// when the migration was admitted, and a withdrawal does not move it back, no more than it
+// does for a removal -- and the workspace would release a healthy node to get back down.
+func TestProcessNodesActionMigrateHoldsANodeOnItsWayOut(t *testing.T) {
 	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
 		boundToSource(node, source, target)
-		// A finalizer, so deleting it leaves it in the fleet with a deletion timestamp rather
-		// than removing it outright.
 		node.Finalizers = []string{v1.NodeFinalizer}
 	})
 	assert.NilError(t, m.client.Delete(context.Background(), m.node))
-	assert.NilError(t, m.client.Get(context.Background(), client.ObjectKey{Name: m.node.Name}, m.node))
 	before := m.source.Spec.Replica
 
-	_, _, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	result, isUpdated, err := m.reconciler.processNodesAction(context.Background(), m.source)
 	assert.NilError(t, err)
+	assert.Equal(t, isUpdated, false)
+	assert.Assert(t, result.RequeueAfter > 0, "nothing will bring the crossing back")
 
 	m.reload(t)
-	assert.Equal(t, m.source.Spec.Replica, before+1,
-		"the workspace kept the node and lost the replica it was counting it with")
-	assert.Equal(t, v1.GetWorkspaceNodesAction(m.source), "")
-	assert.Assert(t, v1.GetAnnotation(m.source, v1.WorkspaceNodesActionError) != "",
-		"the withdrawal did not say why")
+	assert.Equal(t, m.source.Spec.Replica, before, "the replica moved while the entry was held")
+	assert.Assert(t, v1.GetWorkspaceNodesAction(m.source) != "", "the request was dropped")
+	assert.Equal(t, m.node.GetSpecWorkspace(), m.source.Name, "the node was let go on its way out")
 }
 
 // A node released for a workspace that has gone is withdrawn like any other refusal, so the
@@ -908,4 +916,30 @@ func TestProcessNodesActionKeepsTheWaitWhenItAlsoBindsSomething(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, isUpdated, true, "a node was bound this pass")
 	assert.Assert(t, result.RequeueAfter > 0, "the node still waiting to be taken was forgotten")
+}
+
+// Nothing removes a reservation once it has expired -- it is only ignored where it is read --
+// so a node carrying a stale one would wake both of its workspaces on every write it ever
+// receives, and the data plane writes node status every few seconds.
+func TestHandleNodeEventIgnoresAnExpiredReservation(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	handlerFuncs := r.handleNodeEvent().(interface {
+		Update(context.Context, event.UpdateEvent, v1.RequestWorkQueue)
+	})
+
+	stale := genMockAdminNode("node1", "cluster", genMockNodeFlavor())
+	v1.SetNodeMigrateInfo(stale, &v1.NodeMigrateInfo{
+		From:      "ws-source",
+		Target:    "ws-target",
+		StartTime: &metav1.Time{Time: time.Now().UTC().Add(-2 * v1.DefaultNodeMigrateTimeout)},
+	})
+	// The sort of write the data plane makes constantly.
+	touched := stale.DeepCopy()
+	touched.Status.MachineStatus.HostName = "renamed"
+
+	q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+	defer q.ShutDown()
+	handlerFuncs.Update(context.Background(), event.UpdateEvent{ObjectOld: stale, ObjectNew: touched}, q)
+
+	assert.Equal(t, len(drain(q)), 0, "a reservation nobody is driving kept waking its workspaces")
 }

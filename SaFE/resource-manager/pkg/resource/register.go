@@ -8,9 +8,9 @@ package resource
 import (
 	"context"
 	"fmt"
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"time"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
