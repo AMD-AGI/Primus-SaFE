@@ -92,13 +92,15 @@ func TestNodeMigrationPredicates(t *testing.T) {
 	node := &Node{}
 	SetNodeMigrateInfo(node, &NodeMigrateInfo{From: "ws-a", Target: "ws-b"})
 
-	if !IsNodeMigratingTo(node, "ws-b") {
-		t.Fatal("a node released for ws-b is not reported as migrating to it")
+	if !IsNodeReleasedFor(node, "ws-a", "ws-b") {
+		t.Fatal("a node released by ws-a for ws-b is not reported as such")
 	}
-	if IsNodeMigratingTo(node, "ws-c") {
-		t.Fatal("a node released for ws-b is reported as migrating to ws-c")
+	// Both ends have to match: the target alone would let any workspace take over a crossing
+	// someone else started.
+	if IsNodeReleasedFor(node, "ws-c", "ws-b") || IsNodeReleasedFor(node, "ws-a", "ws-c") {
+		t.Fatal("a migration was recognised by only one of its two ends")
 	}
-	if IsNodeMigratingTo(&Node{}, "ws-b") {
+	if IsNodeReleasedFor(&Node{}, "ws-a", "ws-b") {
 		t.Fatal("a node with no migration is reported as migrating")
 	}
 }

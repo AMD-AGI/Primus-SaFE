@@ -311,6 +311,9 @@ func (v *NodeValidator) validateOnUpdate(ctx context.Context, newNode, oldNode *
 	if err := v.validateImmutableFields(newNode, oldNode); err != nil {
 		return err
 	}
+	if err := validateNodeMigrationReservation(oldNode, newNode); err != nil {
+		return err
+	}
 	if err := v.validateCommon(ctx, newNode); err != nil {
 		return err
 	}
@@ -426,9 +429,6 @@ func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error
 	if oldNode.Spec.PrivateIP != newNode.Spec.PrivateIP && v1.IsControlPlane(newNode) {
 		return field.Forbidden(field.NewPath("spec").Key("privateIP"), "immutable")
 	}
-	if err := validateNodeMigrationReservation(oldNode, newNode); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -464,10 +464,12 @@ func validateNodeMigrationReservation(oldNode, newNode *v1.Node) error {
 	if v1.IsNodeMigrationExpired(info, v1.DefaultNodeMigrateTimeout) {
 		return nil
 	}
-	return commonerrors.NewConflict(fmt.Sprintf(
-		"the node(%s) is being migrated from workspace(%s) to workspace(%s)."+
+	// A field error, like every other refusal this validator makes: the caller aggregates
+	// them as such, and one shaped differently reads differently wherever they surface.
+	return field.Forbidden(field.NewPath("spec").Key("workspace"), fmt.Sprintf(
+		"the node is being migrated from workspace(%s) to workspace(%s);"+
 			" it can't be bound to workspace(%s) until that finishes",
-		newNode.Name, info.From, info.Target, target))
+		info.From, info.Target, target))
 }
 
 // getNode retrieves the requested information.

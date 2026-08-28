@@ -360,16 +360,15 @@ func TestValidateNodesActionAddRefusesSomeoneElsesReservedNode(t *testing.T) {
 	assert.Assert(t, validator.validateNodesAction(context.Background(),
 		withNodesAction(thirdParty.DeepCopy(), map[string]string{"node1": v1.NodeActionAdd}), thirdParty, false) != nil)
 
-	nodeValidator := &NodeValidator{}
 	bound := node.DeepCopy()
 	bound.Spec.Workspace = pointer.String("ws-c")
-	err := nodeValidator.validateImmutableFields(bound, node)
-	assert.Assert(t, err != nil, "ws-c was allowed to bind a node reserved for ws-b")
+	assert.Assert(t, validateNodeMigrationReservation(node, bound) != nil,
+		"ws-c was allowed to bind a node reserved for ws-b")
 
 	// The workspace it was released for is the one exception.
 	toTarget := node.DeepCopy()
 	toTarget.Spec.Workspace = pointer.String("ws-b")
-	assert.NilError(t, nodeValidator.validateImmutableFields(toTarget, node))
+	assert.NilError(t, validateNodeMigrationReservation(node, toTarget))
 }
 
 // The reservation lives on the node, so it cannot also be what excuses the node: whoever can
@@ -396,7 +395,6 @@ func TestValidateNodesActionAddRefusesABoundNodeWhateverItsAnnotationSays(t *tes
 // workspace that was driving it can be deleted mid-crossing, and a node can leave the cluster
 // and come back still carrying the annotation.
 func TestNodeMigrationReservationStopsHoldingWhenItExpires(t *testing.T) {
-	nodeValidator := &NodeValidator{}
 	stale := migrateNode("node1", migrateCluster, migrateFlavor, "")
 	v1.SetNodeMigrateInfo(stale, &v1.NodeMigrateInfo{
 		From:      "ws-a",
@@ -405,14 +403,14 @@ func TestNodeMigrationReservationStopsHoldingWhenItExpires(t *testing.T) {
 	})
 	bound := stale.DeepCopy()
 	bound.Spec.Workspace = pointer.String("ws-c")
-	assert.NilError(t, nodeValidator.validateImmutableFields(bound, stale))
+	assert.NilError(t, validateNodeMigrationReservation(stale, bound))
 
 	// A reservation with no start time cannot be aged, so it is not honoured at all.
 	noClock := migrateNode("node2", migrateCluster, migrateFlavor, "")
 	v1.SetNodeMigrateInfo(noClock, &v1.NodeMigrateInfo{From: "ws-a", Target: "ws-b"})
 	boundNoClock := noClock.DeepCopy()
 	boundNoClock.Spec.Workspace = pointer.String("ws-c")
-	assert.NilError(t, nodeValidator.validateImmutableFields(boundNoClock, noClock))
+	assert.NilError(t, validateNodeMigrationReservation(noClock, boundNoClock))
 }
 
 // A migration's action stays on the source for the whole crossing, and the target is busy for
@@ -546,4 +544,70 @@ func TestValidateMigrateTargetJudgesTheBatchWhicheverOrderItIsRead(t *testing.T)
 			withNodesAction(source.DeepCopy(), action), source, false) != nil,
 			"attempt %d let a mixed-flavor batch through", i)
 	}
+}
+
+// A migration ends in an add on the target, so it needs what an add needs. Admitted on a node
+// that has not finished onboarding, the source releases it and every attempt to place it is
+// turned away, until the crossing times out with the node belonging to nobody.
+func TestValidateNodesActionMigrateRefusesAnUnmanagedNode(t *testing.T) {
+	scheme := newScheme(t)
+	node := migrateNode("node1", migrateCluster, migrateFlavor, "ws-a")
+	node.Status.ClusterStatus.Phase = v1.NodeManaging
+	validator := &WorkspaceValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(node,
+			migrateWorkspace("ws-b", migrateCluster, migrateFlavor, 1)).Build(),
+	}
+	source := migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1)
+	assert.Assert(t, validator.validateNodesAction(context.Background(),
+		withNodesAction(source.DeepCopy(), map[string]string{"node1": v1.BuildMigrateAction("ws-b")}),
+		source, false) != nil)
+}
+
+// A workspace scaled to zero still records the flavor of the nodes it used to hold, and the
+// accounting lets the next add name a new one. Read more strictly here, the same workspace
+// could be added to and not migrated into, for no reason a user could see.
+func TestValidateMigrateTargetLetsAnEmptiedWorkspaceTakeAnotherFlavor(t *testing.T) {
+	scheme := newScheme(t)
+	node := migrateNode("node1", migrateCluster, migrateFlavor, "ws-a")
+	// Holds nothing, but still remembers what it used to hold.
+	emptied := migrateWorkspace("ws-b", migrateCluster, "an-older-flavor", 0)
+	validator := &WorkspaceValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(node, emptied).Build(),
+	}
+	source := migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1)
+	assert.NilError(t, validator.validateNodesAction(context.Background(),
+		withNodesAction(source.DeepCopy(), map[string]string{"node1": v1.BuildMigrateAction("ws-b")}),
+		source, false))
+}
+
+// Reached through the update path, not only by calling the check directly: a guard the
+// validator does not run is a guard that is not there.
+func TestValidateOnUpdateHoldsTheMigrationReservation(t *testing.T) {
+	validator := &NodeValidator{}
+	released := releasedForMigration(migrateNode("node1", migrateCluster, migrateFlavor, "ws-a"),
+		"ws-a", "ws-b")
+	taken := released.DeepCopy()
+	taken.Spec.Workspace = pointer.String("ws-c")
+	assert.Assert(t, validator.validateOnUpdate(context.Background(), taken, released) != nil,
+		"the update path let a node reserved for ws-b be bound to ws-c")
+}
+
+// The mutator turns it down too, not only the validator. Everything past that point in
+// mutateNodesAction moves Spec.Replica, and an entry that cannot succeed must not move it --
+// the validator discarding the whole request afterwards is a second webhook keeping the
+// first one's arithmetic honest, which is one misconfiguration away from not happening.
+func TestMutateNodesActionMigrateRefusesAnUnmanagedNode(t *testing.T) {
+	scheme := newScheme(t)
+	node := migrateNode("node1", migrateCluster, migrateFlavor, "ws-a")
+	node.Status.ClusterStatus.Phase = v1.NodeManaging
+	mutator := &WorkspaceMutator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build(),
+	}
+	newWs := withNodesAction(migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 3),
+		map[string]string{"node1": v1.BuildMigrateAction("ws-b")})
+
+	err := mutator.mutateNodesAction(context.Background(),
+		migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 3), newWs)
+	assert.Assert(t, err != nil)
+	assert.Equal(t, newWs.Spec.Replica, 3, "the replica moved for an entry that cannot succeed")
 }

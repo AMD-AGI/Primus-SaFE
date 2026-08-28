@@ -382,7 +382,7 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 		// Turned down here rather than left to the validator for the reason the bound-node
 		// check further down gives: everything past this point moves Spec.Replica, and an
 		// entry that cannot succeed must not move it.
-		if val == v1.NodeActionAdd && !n.IsManaged() {
+		if takesNode(val) && !n.IsManaged() {
 			return commonerrors.NewResourceProcessing(fmt.Sprintf(
 				"the node(%s) is not managed yet(phase %q, cluster %q). it can't be added",
 				key, n.Status.ClusterStatus.Phase, v1.GetClusterId(n)))
@@ -1102,7 +1102,7 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 		//
 		// Add only. A remove has to stay possible for a node that ended up bound and then
 		// lost its managed state, which is exactly when it needs releasing.
-		if val == v1.NodeActionAdd && !n.IsManaged() {
+		if takesNode(val) && !n.IsManaged() {
 			// Both halves of IsManaged in the message: a node can sit in phase Managed with
 			// no cluster label, and reporting only the phase reads as a contradiction.
 			return commonerrors.NewResourceProcessing(fmt.Sprintf(
@@ -1170,6 +1170,19 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 		return err
 	}
 	return nil
+}
+
+// takesNode reports whether an action ends with this node in a workspace's hands -- an add
+// directly, and a migration by way of the add its handover sends to the target. Both need the
+// node to have finished onboarding: a migration admitted on an unmanaged node is released by
+// the source and then turned away by every attempt to place it, until it times out with the
+// node belonging to nobody.
+func takesNode(action string) bool {
+	if action == v1.NodeActionAdd {
+		return true
+	}
+	_, ok := v1.ParseMigrateAction(action)
+	return ok
 }
 
 // migrateTargetOf returns the workspace a nodes-action moves its nodes to, or an empty string
@@ -1243,20 +1256,25 @@ func (v *WorkspaceValidator) validateMigrateTarget(ctx context.Context,
 	// the answer depend on the iteration order: the same request accepted on one attempt and
 	// refused on the next, and when it is accepted the odd node out is only found on arrival,
 	// after the source has already let every one of them go.
-	flavours := make([]string, 0, 2)
+	distinct := sets.NewSet()
 	for _, node := range nodes {
-		nodeFlavor := v1.GetNodeFlavorId(node)
-		if !sliceutil.Contains(flavours, nodeFlavor) {
-			flavours = append(flavours, nodeFlavor)
-		}
+		distinct.Insert(v1.GetNodeFlavorId(node))
+	}
+	flavours := make([]string, 0, distinct.Len())
+	for nodeFlavor := range distinct {
+		flavours = append(flavours, nodeFlavor)
 	}
 	sort.Strings(flavours)
 	if len(flavours) > 1 {
 		return commonerrors.NewBadRequest(fmt.Sprintf(
 			"the nodes being migrated have different flavors(%s)", strings.Join(flavours, ", ")))
 	}
-	// A target with no flavor adopts the one flavor the batch agrees on.
-	if targetWorkspace.Spec.NodeFlavor != "" && len(flavours) == 1 &&
+	// Adopting when there is nothing to contradict the batch: no flavor recorded, or one left
+	// over from nodes the workspace no longer has. The same two conditions applyNodesActionReplica
+	// uses when it lets the first add name the flavor -- read more strictly here, a workspace
+	// scaled to zero could be added to and not migrated into, for no reason a user could see.
+	adopting := targetWorkspace.Spec.NodeFlavor == "" || targetWorkspace.Spec.Replica == 0
+	if !adopting && len(flavours) == 1 &&
 		flavours[0] != targetWorkspace.Spec.NodeFlavor {
 		return fmt.Errorf("the flavor(%s) of the nodes and the flavor(%s) of workspace(%s) do not match",
 			flavours[0], targetWorkspace.Spec.NodeFlavor, target)

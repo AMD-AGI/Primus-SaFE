@@ -255,12 +255,6 @@ func IsNodeMigrationExpired(info *NodeMigrateInfo, timeout time.Duration) bool {
 	return time.Since(info.StartTime.Time) > timeout
 }
 
-// IsNodeMigratingTo reports whether the node is on its way to workspaceId.
-func IsNodeMigratingTo(obj metav1.Object, workspaceId string) bool {
-	info := GetNodeMigrateInfo(obj)
-	return info != nil && info.Target == workspaceId
-}
-
 // SetNodeMigrateInfo records the migration on the node, reporting whether anything changed.
 func SetNodeMigrateInfo(obj metav1.Object, info *NodeMigrateInfo) bool {
 	data, err := json.Marshal(info)
