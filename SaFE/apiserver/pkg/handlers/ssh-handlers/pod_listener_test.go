@@ -750,3 +750,60 @@ func TestExecPodListenerCloseGivesUpOnAStuckRelay(t *testing.T) {
 	testifyassert.NoError(t, listener.Close())
 	testifyassert.Less(t, time.Since(start), 3*time.Second, "a stuck relay must not block teardown")
 }
+
+// TestAcceptorReadyMeansTheePortIsBound pins what the ready marker promises. It used
+// to mean "socat is not a zombie one second later", which is neither necessary nor
+// sufficient: a busy node can take longer than the fixed wait, and the first request
+// through the forward is then refused; a bind that fails more slowly is reported as
+// success. Ready now means the port is listening, checked rather than assumed.
+func TestAcceptorReadyMeansThePortIsBound(t *testing.T) {
+	if _, err := exec.LookPath("socat"); err != nil {
+		t.Skip("socat is not installed")
+	}
+
+	dir := filepath.Join(t.TempDir(), "rfwd")
+	port := freeTCPPort(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	startAcceptor(t, ctx, dir, port)
+	elapsed := time.Since(start)
+
+	// The moment it says ready, the port must accept a connection.
+	conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", itoa(port)))
+	testifyassert.NoError(t, err, "ready was reported before the port was bound")
+	if err == nil {
+		_ = conn.Close()
+	}
+
+	// And it must not be paying a fixed wait to say so.
+	testifyassert.Less(t, elapsed, 900*time.Millisecond,
+		"readiness is still waiting out a fixed sleep rather than checking the port")
+}
+
+// TestAcceptorReportsABindItCannotWin verifies the other direction: a port already
+// taken is reported as a failure rather than waited out.
+func TestAcceptorReportsABindItCannotWin(t *testing.T) {
+	if _, err := exec.LookPath("socat"); err != nil {
+		t.Skip("socat is not installed")
+	}
+
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	testifyassert.NoError(t, err)
+	defer occupied.Close()
+	port := uint32(occupied.Addr().(*net.TCPAddr).Port)
+
+	dir := filepath.Join(t.TempDir(), "rfwd")
+	cmd := exec.Command("/bin/sh", "-c", acceptorScript(dir, "127.0.0.1", port))
+	stdin, err := cmd.StdinPipe()
+	testifyassert.NoError(t, err)
+	defer stdin.Close()
+
+	out, err := cmd.CombinedOutput()
+	testifyassert.Error(t, err, "binding an occupied port must fail")
+	testifyassert.Contains(t, string(out), rfwdErrMarker)
+	testifyassert.NotContains(t, string(out), rfwdReadyMarker,
+		"a listener that never bound must not report itself ready")
+}

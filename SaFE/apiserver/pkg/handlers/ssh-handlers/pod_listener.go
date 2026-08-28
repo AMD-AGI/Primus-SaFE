@@ -465,15 +465,49 @@ MPID=$$
 # it kills have usually exited already - without the || true, that failed kill would
 # end the trap before the rendezvous directory is removed.
 trap 'kill "$SPID" "$WPID" 2>/dev/null || true; rm -rf "$D"' EXIT INT TERM
-sleep 1
-# A socat that died on a bind error is still an unreaped zombie here, and a zombie
-# answers kill -0, so ask /proc whether it is actually running.
-if [ -r "/proc/$SPID/status" ] && ! grep -qi '^State:[[:space:]]*Z' "/proc/$SPID/status"; then
-  echo "%[5]s"
-else
-  echo "%[4]s failed to listen on %[2]s:%[3]d" >&2
-  exit 1
-fi
+# Ready has to mean the port is bound, not that socat has not died yet: a fixed wait
+# is both too long on an idle node and too short on a busy one, and a bind that fails
+# slowly would be reported as success. Ask the kernel instead - state 0A is LISTEN.
+#
+# A listening port alone is not the answer either, because something else may already
+# hold it - which is precisely the case where our socat is about to die. Match the
+# listening socket's inode against socat's own descriptors, so what we report is that
+# this relay bound the port, not that somebody did.
+HEXPORT=$(printf '%%04X' %[3]d)
+READY=
+i=0
+while [ -z "$READY" ]; do
+  INODE=$(awk -v p=":$HEXPORT" '$2 ~ (p "$") && $4 == "0A" { print $10; exit }' /proc/net/tcp 2>/dev/null)
+  if [ -n "$INODE" ]; then
+    for FD in /proc/$SPID/fd/*; do
+      if [ "$(readlink "$FD" 2>/dev/null)" = "socket:[$INODE]" ]; then
+        READY=1
+        break
+      fi
+    done
+  fi
+  if [ -n "$READY" ]; then
+    break
+  fi
+  # A socat that lost the bind is an unreaped zombie here, and a zombie answers
+  # kill -0, so ask /proc whether it is actually still running.
+  if [ ! -r "/proc/$SPID/status" ] || grep -qi '^State:[[:space:]]*Z' "/proc/$SPID/status"; then
+    echo "%[4]s failed to listen on %[2]s:%[3]d" >&2
+    exit 1
+  fi
+  i=$((i+1))
+  if [ $i -ge 75 ]; then
+    echo "%[4]s timed out waiting for %[2]s:%[3]d to be listening" >&2
+    exit 1
+  fi
+  # socat normally binds within milliseconds, so the first tries go back to back
+  # rather than making every forward pay a fixed second up front. Only once that
+  # has not worked does this settle into a slow poll for the genuinely busy node.
+  if [ $i -gt 50 ]; then
+    sleep 1
+  fi
+done
+echo "%[5]s"
 wait "$SPID"
 `, dir, bindAddr, bindPort, rfwdErrMarker, rfwdReadyMarker, childScript(dir))
 }
