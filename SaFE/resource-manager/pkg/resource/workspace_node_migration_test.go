@@ -478,7 +478,7 @@ func TestClassifyMigrationKeepsTheOriginalStartTime(t *testing.T) {
 		From: m.source.Name, Target: m.target.Name, StartTime: started,
 	})
 
-	state, info := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
+	state, info, _ := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
 	assert.Equal(t, state, migrationRelease)
 	assert.Assert(t, info.StartTime != nil)
 	assert.Equal(t, info.StartTime.Time.Equal(started.Time), true,
@@ -675,7 +675,7 @@ func TestClassifyMigrationGivesUpOnSomeoneElsesCrossing(t *testing.T) {
 	m := newMigration(t, time.Hour, func(node *v1.Node, _, target *v1.Workspace) {
 		markMigrating(node, "another-workspace", target.Name)
 	})
-	state, _ := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
+	state, _, _ := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
 	assert.Equal(t, state, migrationAbandoned)
 }
 
@@ -749,7 +749,7 @@ func TestClassifyMigrationGivesUpOnANodeBeingDeleted(t *testing.T) {
 	m.node.DeletionTimestamp = &now
 	m.node.Finalizers = []string{v1.NodeFinalizer}
 
-	state, _ := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
+	state, _, _ := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
 	assert.Equal(t, state, migrationAbandoned)
 }
 
@@ -848,7 +848,6 @@ func TestHandOverToTargetDoesNotOverwriteARequestThatLandedFirst(t *testing.T) {
 
 	// Slipped in after the handover has read the target and before it writes.
 	raced := false
-	base := m.client
 	m.reconciler.Client = fake.NewClientBuilder().WithScheme(scheme.Scheme).
 		WithObjects(m.node.DeepCopy(), m.source.DeepCopy(), m.target.DeepCopy()).
 		WithInterceptorFuncs(interceptor.Funcs{
@@ -875,5 +874,38 @@ func TestHandOverToTargetDoesNotOverwriteARequestThatLandedFirst(t *testing.T) {
 	assert.NilError(t, m.reconciler.Get(context.Background(), client.ObjectKey{Name: m.target.Name}, stored))
 	assert.Equal(t, v1.GetWorkspaceNodesAction(stored), competing,
 		"the request that landed first was overwritten")
-	_ = base
+}
+
+// A pass can have both: one node to bind, and another already released and waiting to be
+// taken. Returning for the binding alone leaves the wait to whatever event the binding
+// happens to produce, or to the resync hours later if it produces none.
+func TestProcessNodesActionKeepsTheWaitWhenItAlsoBindsSomething(t *testing.T) {
+	nodeFlavor := genMockNodeFlavor()
+	source := genMockWorkspace("cluster", nodeFlavor.Name, 2)
+	target := genMockWorkspace("cluster", nodeFlavor.Name, 1)
+
+	toRelease := genMockAdminNode("node1", "cluster", nodeFlavor)
+	toRelease.Status.ClusterStatus.Phase = v1.NodeManaged
+	boundToSource(toRelease, source, target)
+	waiting := genMockAdminNode("node2", "cluster", nodeFlavor)
+	waiting.Status.ClusterStatus.Phase = v1.NodeManaged
+	markMigrating(waiting, source.Name, target.Name)
+
+	metav1.SetMetaDataAnnotation(&source.ObjectMeta, v1.WorkspaceNodesAction,
+		string(jsonutils.MarshalSilently(map[string]string{
+			toRelease.Name: v1.BuildMigrateAction(target.Name),
+			waiting.Name:   v1.BuildMigrateAction(target.Name),
+		})))
+	// Busy, so the second node stays waiting instead of being taken this pass.
+	metav1.SetMetaDataAnnotation(&target.ObjectMeta, v1.WorkspaceNodesAction,
+		string(jsonutils.MarshalSilently(map[string]string{"someone-else": v1.NodeActionAdd})))
+
+	adminClient := fake.NewClientBuilder().WithObjects(toRelease, waiting, source, target).
+		WithStatusSubresource(source, target).WithScheme(scheme.Scheme).Build()
+	r := newMockWorkspaceReconciler(adminClient)
+
+	result, isUpdated, err := r.processNodesAction(context.Background(), source)
+	assert.NilError(t, err)
+	assert.Equal(t, isUpdated, true, "a node was bound this pass")
+	assert.Assert(t, result.RequeueAfter > 0, "the node still waiting to be taken was forgotten")
 }

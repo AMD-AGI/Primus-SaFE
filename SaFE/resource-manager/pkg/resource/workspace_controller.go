@@ -1037,7 +1037,7 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context,
 			return ctrlruntime.Result{}, false, err
 		}
 		if migrateTarget, ok := v1.ParseMigrateAction(val); ok {
-			state, migration := r.classifyMigration(node, workspace.Name, migrateTarget)
+			state, migration, why := r.classifyMigration(node, workspace.Name, migrateTarget)
 			switch state {
 			case migrationRelease:
 				// Judged as the unbind it is, by the same rule as any other release: only the
@@ -1051,8 +1051,11 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context,
 			case migrationPending:
 				pendingHandover[migrateTarget] = append(pendingHandover[migrateTarget], node)
 			case migrationAbandoned:
+				klog.Infof("giving up the migration of node(%s) to workspace(%s): %s",
+					node.Name, migrateTarget, why)
 				abandoned = append(abandoned, node)
-				refusals[key] = fmt.Sprintf("its migration to workspace(%s) cannot be completed", migrateTarget)
+				refusals[key] = fmt.Sprintf("its migration to workspace(%s) was given up on: %s",
+					migrateTarget, why)
 				// Given up on with the node still in hand -- it never left. The replica the
 				// mutating webhook took for the crossing has to come back with it, or the
 				// workspace holds one more node than it is counting and releases a healthy
@@ -1123,7 +1126,15 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context,
 		if err := r.updateNodesBinding(ctx, workspace, adminNodes, newActions); err != nil {
 			return ctrlruntime.Result{}, false, err
 		}
-		return ctrlruntime.Result{}, true, nil
+		// Carrying the wait with it. A pass can have both -- one node to bind and another
+		// already released and waiting to be taken -- and returning here without the requeue
+		// leaves the second to whatever event the first happens to produce, or to the resync
+		// hours later if it produces none.
+		result := ctrlruntime.Result{}
+		if waiting > 0 {
+			result.RequeueAfter = r.option.nodeWait
+		}
+		return result, true, nil
 	}
 	if waiting > 0 {
 		// The requeue is the backstop for a handover the node events cannot carry -- a target
@@ -1160,18 +1171,16 @@ const (
 // classifyMigration works out where in a migration a node is, and for a node about to be
 // released, the crossing to stamp on it.
 func (r *WorkspaceReconciler) classifyMigration(node *v1.Node,
-	source, target string) (migrationState, *v1.NodeMigrateInfo) {
+	source, target string) (migrationState, *v1.NodeMigrateInfo, string) {
 	if node.GetSpecWorkspace() == target {
-		return migrationDone, nil
+		return migrationDone, nil, ""
 	}
 	// A node on its way out is not going anywhere else. Releasing it would still be allowed --
 	// only binding a deleting node is refused, so that a workspace being deleted can let go of
 	// what it holds -- and the crossing would then run to its timeout being turned down by the
 	// far end, once a pass, for a node that is about to stop existing.
 	if !node.GetDeletionTimestamp().IsZero() {
-		klog.Infof("node(%s) is being deleted, giving up its migration to workspace(%s)",
-			node.Name, target)
-		return migrationAbandoned, nil
+		return migrationAbandoned, nil, "the node is being deleted"
 	}
 	if node.GetSpecWorkspace() == source {
 		// A release that had to be retried keeps the clock it started with. Re-stamping it
@@ -1181,7 +1190,7 @@ func (r *WorkspaceReconciler) classifyMigration(node *v1.Node,
 		if info := v1.GetNodeMigrateInfo(node); info != nil && info.Target == target && info.StartTime != nil {
 			start = info.StartTime
 		}
-		return migrationRelease, &v1.NodeMigrateInfo{From: source, Target: target, StartTime: start}
+		return migrationRelease, &v1.NodeMigrateInfo{From: source, Target: target, StartTime: start}, ""
 	}
 	if node.GetSpecWorkspace() != "" {
 		// Bound to a workspace that is neither end of this migration. The node webhook
@@ -1189,9 +1198,7 @@ func (r *WorkspaceReconciler) classifyMigration(node *v1.Node,
 		// running, or by a route that does not pass admission at all. Either way the node is
 		// not ours to hand over, and going on would have us asking the target to take a node
 		// that belongs to someone else, once every pass until the timeout.
-		klog.Infof("node(%s) now belongs to workspace(%s), giving up its migration to workspace(%s)",
-			node.Name, node.GetSpecWorkspace(), target)
-		return migrationAbandoned, nil
+		return migrationAbandoned, nil, fmt.Sprintf("it now belongs to workspace(%s)", node.GetSpecWorkspace())
 	}
 	info := v1.GetNodeMigrateInfo(node)
 	if !v1.IsNodeReleasedFor(node, source, target) {
@@ -1199,16 +1206,12 @@ func (r *WorkspaceReconciler) classifyMigration(node *v1.Node,
 		// reserved at all, reserved for somewhere else, or released by another workspace
 		// whose crossing this one has no business finishing. The admission side refuses to
 		// take one of those on; this is the same line held where the work is done.
-		klog.Infof("node(%s) is no longer reserved for the migration to workspace(%s), giving up",
-			node.Name, target)
-		return migrationAbandoned, nil
+		return migrationAbandoned, nil, "it is no longer reserved for this migration"
 	}
 	if v1.IsNodeMigrationExpired(info, r.migrateTimeout()) {
-		klog.Infof("the migration of node(%s) to workspace(%s) timed out after %s, giving up",
-			node.Name, target, r.migrateTimeout().String())
-		return migrationAbandoned, nil
+		return migrationAbandoned, nil, fmt.Sprintf("it did not complete within %s", r.migrateTimeout())
 	}
-	return migrationPending, nil
+	return migrationPending, nil, ""
 }
 
 // abandonMigrations drops the reservation from nodes whose migration will not complete. The
