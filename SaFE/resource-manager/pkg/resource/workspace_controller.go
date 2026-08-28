@@ -1295,11 +1295,18 @@ func (r *WorkspaceReconciler) handOverMigrations(ctx context.Context,
 					nodeNames, target, err)
 				continue
 			}
-			if apierrors.IsConflict(err) || apierrors.IsBadRequest(err) || apierrors.IsForbidden(err) {
-				// The target's own admission turned the request down. Retrying waits for a
-				// workspace to change its mind: an optimistic-lock conflict is absorbed by
-				// the retry inside handOverToTarget, so what reaches here is a judgement, and
-				// it will read the same way in thirty minutes' time.
+			if apierrors.IsBadRequest(err) || apierrors.IsForbidden(err) {
+				// The target's own admission turned the request down, for a reason that will
+				// read the same way in thirty minutes' time. Retrying waits for a workspace
+				// to change its mind.
+				//
+				// Not a conflict, deliberately. This codebase answers an admission refusal
+				// with 409 and so does optimistic locking, and RetryOnConflict hands back the
+				// last conflict when it runs out of attempts -- so a target under sustained
+				// contention, which is a target being written by its own controller, looks
+				// exactly like one that has refused. Abandoning a crossing that would have
+				// landed is worse than waiting out a timeout for one that will not, so a
+				// conflict keeps its retries and the timeout has the last word.
 				klog.Infof("workspace(%s) will not take nodes %v migrated from workspace(%s): %v",
 					target, nodeNames, workspace.Name, err)
 				lost = append(lost, nodes...)

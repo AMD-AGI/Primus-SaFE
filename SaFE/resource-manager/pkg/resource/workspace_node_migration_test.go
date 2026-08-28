@@ -957,25 +957,13 @@ func TestReservedNodesFailsClosedOnAnUnreadableClaim(t *testing.T) {
 	assert.Assert(t, err != nil, "an unreadable claim was read as claiming nothing")
 }
 
-// The target's own admission turning the request down is a judgement, not a passing
-// condition: retrying waits for a workspace to change its mind, and the optimistic-lock
-// conflicts that do clear are already absorbed inside the handover.
+// The target's own admission turning the request down for good is a judgement, not a passing
+// condition: retrying waits for a workspace to change its mind.
 func TestProcessNodesActionMigrateGivesUpWhenTheTargetRefuses(t *testing.T) {
 	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
 		markMigrating(node, source.Name, target.Name)
 	})
-	m.reconciler.Client = fake.NewClientBuilder().WithScheme(scheme.Scheme).
-		WithObjects(m.node.DeepCopy(), m.source.DeepCopy(), m.target.DeepCopy()).
-		WithInterceptorFuncs(interceptor.Funcs{
-			Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object,
-				patch client.Patch, opts ...client.PatchOption) error {
-				if workspace, ok := obj.(*v1.Workspace); ok && workspace.Name == m.target.Name {
-					return apierrors.NewConflict(schema.GroupResource{Resource: "workspaces"},
-						workspace.Name, errors.New("the flavor does not match"))
-				}
-				return cl.Patch(ctx, obj, patch, opts...)
-			},
-		}).Build()
+	m.reconciler.Client = refusingTarget(m, apierrors.NewBadRequest("the flavor does not match"))
 
 	_, _, err := m.reconciler.processNodesAction(context.Background(), m.source)
 	assert.NilError(t, err)
@@ -983,4 +971,40 @@ func TestProcessNodesActionMigrateGivesUpWhenTheTargetRefuses(t *testing.T) {
 	stored := &v1.Node{}
 	assert.NilError(t, m.reconciler.Get(context.Background(), client.ObjectKey{Name: m.node.Name}, stored))
 	assert.Assert(t, v1.GetNodeMigrateInfo(stored) == nil, "the node was left reserved for a refusal")
+}
+
+// A conflict is not that judgement. This codebase answers an admission refusal with 409 and so
+// does optimistic locking, and RetryOnConflict hands back the last conflict when it runs out
+// of attempts -- so a target being written by its own controller looks exactly like one that
+// has refused. The crossing keeps its reservation and waits for the timeout to decide.
+func TestProcessNodesActionMigrateKeepsGoingThroughAConflict(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+	})
+	m.reconciler.Client = refusingTarget(m, apierrors.NewConflict(
+		schema.GroupResource{Resource: "workspaces"}, m.target.Name, errors.New("modified")))
+
+	result, _, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+	assert.Assert(t, result.RequeueAfter > 0, "the crossing was not asked to come back")
+
+	stored := &v1.Node{}
+	assert.NilError(t, m.reconciler.Get(context.Background(), client.ObjectKey{Name: m.node.Name}, stored))
+	assert.Assert(t, v1.GetNodeMigrateInfo(stored) != nil,
+		"a crossing that would have landed was given up on over a passing conflict")
+}
+
+// refusingTarget builds a client whose writes to the migration target always fail with err.
+func refusingTarget(m *migration, err error) client.Client {
+	return fake.NewClientBuilder().WithScheme(scheme.Scheme).
+		WithObjects(m.node.DeepCopy(), m.source.DeepCopy(), m.target.DeepCopy()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object,
+				patch client.Patch, opts ...client.PatchOption) error {
+				if workspace, ok := obj.(*v1.Workspace); ok && workspace.Name == m.target.Name {
+					return err
+				}
+				return cl.Patch(ctx, obj, patch, opts...)
+			},
+		}).Build()
 }
