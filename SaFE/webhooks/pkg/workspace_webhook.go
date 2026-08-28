@@ -1238,19 +1238,28 @@ func (v *WorkspaceValidator) validateMigrateTarget(ctx context.Context,
 	// has to agree on one -- otherwise the first node decides and the rest are refused on
 	// arrival, with the source workspace already having let them go.
 	//
-	// Which node decides is settled before the loop rather than by whichever one is looked at
-	// while the flavor is still unset. Deciding inside the loop lets a node with no flavor at
-	// all leave it unset for the next one to fill in, and a batch of mixed flavors passes.
-	flavor := targetWorkspace.Spec.NodeFlavor
-	if flavor == "" && len(nodes) > 0 {
-		flavor = v1.GetNodeFlavorId(nodes[0])
-	}
+	// Judged over the whole batch at once, and not against whichever node happens to be
+	// looked at first. The nodes come out of a map, so picking one to name the flavor makes
+	// the answer depend on the iteration order: the same request accepted on one attempt and
+	// refused on the next, and when it is accepted the odd node out is only found on arrival,
+	// after the source has already let every one of them go.
+	flavours := make([]string, 0, 2)
 	for _, node := range nodes {
 		nodeFlavor := v1.GetNodeFlavorId(node)
-		if nodeFlavor != flavor {
-			return fmt.Errorf("the flavor(%s) of node(%s) and the flavor(%s) of workspace(%s) do not match",
-				nodeFlavor, node.Name, flavor, target)
+		if !sliceutil.Contains(flavours, nodeFlavor) {
+			flavours = append(flavours, nodeFlavor)
 		}
+	}
+	sort.Strings(flavours)
+	if len(flavours) > 1 {
+		return commonerrors.NewBadRequest(fmt.Sprintf(
+			"the nodes being migrated have different flavors(%s)", strings.Join(flavours, ", ")))
+	}
+	// A target with no flavor adopts the one flavor the batch agrees on.
+	if targetWorkspace.Spec.NodeFlavor != "" && len(flavours) == 1 &&
+		flavours[0] != targetWorkspace.Spec.NodeFlavor {
+		return fmt.Errorf("the flavor(%s) of the nodes and the flavor(%s) of workspace(%s) do not match",
+			flavours[0], targetWorkspace.Spec.NodeFlavor, target)
 	}
 	return nil
 }

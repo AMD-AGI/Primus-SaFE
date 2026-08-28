@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sigs.k8s.io/kustomize/kyaml/sliceutil"
 	"sort"
 	"strings"
 
@@ -32,6 +31,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -585,8 +585,6 @@ func (h *Handler) getAdminCluster(ctx context.Context, clusterId string) (*v1.Cl
 	return cluster.DeepCopy(), nil
 }
 
-// parseProcessNodesRequest parses and validates the request for processing cluster nodes.
-// Ensures that node IDs and action are provided in the request.
 // parseProcessNodesRequest parses the request and checks the action against the ones the
 // endpoint calling it can actually carry out. The two endpoints sharing this parser do not
 // support the same set: a cluster has no notion of migrating a node between workspaces, and

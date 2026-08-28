@@ -518,3 +518,32 @@ func TestValidateMigrateTargetRefusesAMixedBatchIncludingAFlavourlessNode(t *tes
 	assert.Assert(t, validator.validateNodesAction(context.Background(),
 		withNodesAction(source.DeepCopy(), action), source, false) != nil)
 }
+
+// The nodes come out of a map, so naming the flavor after one of them makes the answer depend
+// on the iteration order: the same request accepted on one attempt and refused on the next,
+// and when it is accepted the odd node out is only found on arrival -- after the source has
+// let every one of them go.
+func TestValidateMigrateTargetJudgesTheBatchWhicheverOrderItIsRead(t *testing.T) {
+	scheme := newScheme(t)
+	nodes := []client.Object{
+		migrateNode("node1", migrateCluster, migrateFlavor, "ws-a"),
+		migrateNode("node2", migrateCluster, "another-flavor", "ws-a"),
+		migrateNode("node3", migrateCluster, migrateFlavor, "ws-a"),
+		migrateWorkspace("ws-b", migrateCluster, "", 0),
+	}
+	action := map[string]string{
+		"node1": v1.BuildMigrateAction("ws-b"),
+		"node2": v1.BuildMigrateAction("ws-b"),
+		"node3": v1.BuildMigrateAction("ws-b"),
+	}
+	source := migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 3)
+	// Every attempt, not one: a single run only samples one order out of the map.
+	for i := 0; i < 20; i++ {
+		validator := &WorkspaceValidator{
+			Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(nodes...).Build(),
+		}
+		assert.Assert(t, validator.validateNodesAction(context.Background(),
+			withNodesAction(source.DeepCopy(), action), source, false) != nil,
+			"attempt %d let a mixed-flavor batch through", i)
+	}
+}
