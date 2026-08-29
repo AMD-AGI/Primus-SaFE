@@ -359,16 +359,18 @@ def build_env_vars() -> Dict[str, str]:
         "NCCL_SOCKET_IFNAME": RCCL_SOCKET_IFNAME,
         "NCCL_IB_GID_INDEX": str(NCCL_IB_GID_INDEX),
         "NCCL_IB_HCA": RCCL_IB_HCA,
-        "NCCL_IB_DISABLE": "0",
-        "NCCL_IB_PCI_RELAXED_ORDERING": "1",
-        "NCCL_SHM_DISABLE": "1",
-        "NCCL_CHECKS_DISABLE": "1",
-        "NCCL_CROSS_NIC": "0",
-        "RCCL_MSCCL_ENABLE": "0",
+        "NCCL_IB_DISABLE": os.environ.get("NCCL_IB_DISABLE", "0"),
+        "NCCL_IB_PCI_RELAXED_ORDERING": os.environ.get("NCCL_IB_PCI_RELAXED_ORDERING", "1"),
+        "NCCL_SHM_DISABLE": os.environ.get("NCCL_SHM_DISABLE", "1"),
+        "NCCL_CHECKS_DISABLE": os.environ.get("NCCL_CHECKS_DISABLE", "1"),
+        "NCCL_CROSS_NIC": os.environ.get("NCCL_CROSS_NIC", "0"),
+        "RCCL_MSCCL_ENABLE": os.environ.get("RCCL_MSCCL_ENABLE", "0"),
         "NCCL_DEBUG": RCCL_DEBUG,
-        "NCCL_NET_GDR_LEVEL": "2",
-        "HSA_NO_SCRATCH_RECLAIM": "0",
-        "NCCL_NET_GDR_READ": "1",
+        # PXB. Worth overriding where the NICs are not behind a PCIe switch:
+        # if the GPU-to-NIC path is PHB, this threshold disables GDR outright.
+        "NCCL_NET_GDR_LEVEL": os.environ.get("NCCL_NET_GDR_LEVEL", "2"),
+        "HSA_NO_SCRATCH_RECLAIM": os.environ.get("HSA_NO_SCRATCH_RECLAIM", "0"),
+        "NCCL_NET_GDR_READ": os.environ.get("NCCL_NET_GDR_READ", "1"),
         "MPIEXEC_RSH": f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
     })
     
