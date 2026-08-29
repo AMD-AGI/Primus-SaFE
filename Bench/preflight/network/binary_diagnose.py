@@ -369,7 +369,11 @@ def build_env_vars() -> Dict[str, str]:
         # PXB. Worth overriding where the NICs are not behind a PCIe switch:
         # if the GPU-to-NIC path is PHB, this threshold disables GDR outright.
         "NCCL_NET_GDR_LEVEL": os.environ.get("NCCL_NET_GDR_LEVEL", "2"),
-        "HSA_NO_SCRATCH_RECLAIM": os.environ.get("HSA_NO_SCRATCH_RECLAIM", "0"),
+        # Deliberately NOT read from the environment: config.sh exports
+        # HSA_NO_SCRATCH_RECLAIM=1 bench-wide, and this test overrides it back
+        # to 0 on purpose. Making it overridable let the ambient 1 win and broke
+        # all_reduce at connect time.
+        "HSA_NO_SCRATCH_RECLAIM": "0",
         "NCCL_NET_GDR_READ": os.environ.get("NCCL_NET_GDR_READ", "1"),
         "MPIEXEC_RSH": f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
     })
