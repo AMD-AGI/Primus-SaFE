@@ -376,16 +376,21 @@ def build_env_vars() -> Dict[str, str]:
         # AINIC mode: use special library paths and AINIC-specific settings
         env.update({
             "LD_LIBRARY_PATH": f"/opt/amd-anp/build:/opt/amd-anp/build/lib:/opt/rccl/build/release:{LD_LIBRARY_PATH}",
-            "NCCL_DMABUF_ENABLE": "0",
-            "NCCL_GDR_FLUSH_DISABLE": "1",
-            "NCCL_MAX_P2P_CHANNELS": "56",
-            "NET_OPTIONAL_RECV_COMPLETION": "1",
-            "NCCL_IB_USE_INLINE": "1",
-            "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING": "0",
+            # These are the AMD AINIC reference tuning values. They are kept as
+            # defaults, but must stay overridable: several of them (notably
+            # NCCL_GDR_FLUSH_DISABLE and NET_OPTIONAL_RECV_COMPLETION) trade
+            # correctness guarantees for latency, so isolating a data-corruption
+            # report means flipping them one at a time from the workload spec.
+            "NCCL_DMABUF_ENABLE": os.environ.get("NCCL_DMABUF_ENABLE", "0"),
+            "NCCL_GDR_FLUSH_DISABLE": os.environ.get("NCCL_GDR_FLUSH_DISABLE", "1"),
+            "NCCL_MAX_P2P_CHANNELS": os.environ.get("NCCL_MAX_P2P_CHANNELS", "56"),
+            "NET_OPTIONAL_RECV_COMPLETION": os.environ.get("NET_OPTIONAL_RECV_COMPLETION", "1"),
+            "NCCL_IB_USE_INLINE": os.environ.get("NCCL_IB_USE_INLINE", "1"),
+            "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING": os.environ.get("RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING", "0"),
             "NCCL_IB_TC": os.environ.get("NCCL_IB_TC", "104"),
             "NCCL_IB_FIFO_TC": os.environ.get("NCCL_IB_FIFO_TC", "192"),
-            "NCCL_IGNORE_CPU_AFFINITY": "1",
-            "NCCL_IB_QPS_PER_CONNECTION": "1",
+            "NCCL_IGNORE_CPU_AFFINITY": os.environ.get("NCCL_IGNORE_CPU_AFFINITY", "1"),
+            "NCCL_IB_QPS_PER_CONNECTION": os.environ.get("NCCL_IB_QPS_PER_CONNECTION", "1"),
             "UCX_NET_DEVICES": RCCL_SOCKET_IFNAME
         })
 
