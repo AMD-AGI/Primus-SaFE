@@ -172,9 +172,24 @@ def get_log_filename(nodes: List[str]) -> str:
     timestamp = int(time.time())
     return f"/tmp/rccl_test_{hash_hex}_{timestamp}.log"
 
-# AMD's published MI350X/MI355X acceptance bar for multi-node all-reduce, as
-# *busbw* at 8G. Everything this tool measures and compares is algbw, so the
-# bar has to be converted before it can be used as a limit -- see threshold().
+# 350.0 is AMD's published all-reduce acceptance bar for MI350X/MI355X: in-place
+# *busbw* at an 8G message size, from the Instinct Customer Acceptance Guide
+# (instinct.docs.amd.com/projects/system-acceptance, "RCCL Benchmarking").
+#
+# Read the scope before trusting a pass/fail built on it. That bar is the
+# SINGLE-NODE test -- the guide pairs it with `all_reduce_perf -b 8 -e 8G -f 2
+# -g 8`, eight GPUs on one host, where the collective never leaves xGMI. AMD
+# publishes no multi-node all-reduce threshold at all, and no scaling-efficiency
+# target either; the only numeric multi-node criterion in the guide is per-path
+# RDMA throughput (>=770 Gbps on a 400G NIC). So on two or more nodes this
+# constant is a locally chosen target that happens to reuse the single-node
+# number, not an AMD criterion, and it is graded against a path AMD never
+# measured it on. RCCL_BUSBW_TARGET exists to set a target the site actually
+# agreed to. For a same-hardware reference point, Crusoe published 368 GB/s
+# busbw at 8G on two virtualized MI355X + Pollara 400 nodes.
+#
+# Everything this tool measures and compares is algbw, so whatever the target
+# is, it has to be converted before it can be used as a limit -- see threshold().
 ALLREDUCE_BUSBW_TARGET = float(os.environ.get("RCCL_BUSBW_TARGET", "350.0"))
 ALLREDUCE_MARGIN = 0.85
 
@@ -188,7 +203,7 @@ def busbw_from_algbw(algbw: float, node_count: int, g_per_node: int = 8) -> floa
 def bw_note(algbw: float, node_count: int) -> str:
     """Log suffix restating an all-reduce algbw as busbw.
 
-    The bar operators are handed (350 GB/s) is busbw; every number this tool
+    Published figures, AMD's bar included, are busbw; every number this tool
     prints is algbw. Without the restatement there is no way to read a pass/fail
     line and tell how far off the published figure the cluster actually is.
     """
@@ -696,13 +711,13 @@ def parse_args() -> List[str]:
         MAX_BYTES = "1G"   # Tiny clusters (1-2 nodes): 1G
 
     # The ladder above is a runtime-cost heuristic, not a measurement spec, and
-    # on <=2 nodes it stops at 1G -- below the size AMD's acceptance criterion is
-    # written against. AMD states the MI350X/MI355X 2-node all-reduce bar as
-    # >=350 GB/s busbw *at 8G*, and the curve is still climbing at 1G here
-    # (116 -> 201 GB/s from 32M to 1G), so a 1G number is not comparable to that
-    # bar at all. threshold() has hardcoded 350.0 since it was written, which
-    # means the pass/fail line and the measurement point disagreed on every
-    # cluster of 2 nodes or fewer.
+    # on <=2 nodes it stops at 1G. Every published all-reduce number worth
+    # comparing against -- AMD's own bar, and the vendor multi-node results that
+    # quote it -- is stated at 8G, and the curve is still climbing at 1G here
+    # (148 -> 219 GB/s busbw from 32M to 1G), so a 1G measurement cannot be put
+    # next to any of them. Since threshold() has scaled a 350.0 constant taken
+    # from an 8G bar since it was written, the pass/fail line and the
+    # measurement point disagreed on every cluster of two nodes or fewer.
     #
     # Keep the ladder as the default so existing runs are byte-for-byte
     # unchanged, and let an operator pin the size when the point of the run is
