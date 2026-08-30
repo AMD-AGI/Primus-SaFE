@@ -172,12 +172,44 @@ def get_log_filename(nodes: List[str]) -> str:
     timestamp = int(time.time())
     return f"/tmp/rccl_test_{hash_hex}_{timestamp}.log"
 
+# AMD's published MI350X/MI355X acceptance bar for multi-node all-reduce, as
+# *busbw* at 8G. Everything this tool measures and compares is algbw, so the
+# bar has to be converted before it can be used as a limit -- see threshold().
+ALLREDUCE_BUSBW_TARGET = float(os.environ.get("RCCL_BUSBW_TARGET", "350.0"))
+ALLREDUCE_MARGIN = 0.85
+
+def busbw_from_algbw(algbw: float, node_count: int, g_per_node: int = 8) -> float:
+    """all-reduce busbw = algbw * 2(n-1)/n, with n = total ranks."""
+    n = node_count * g_per_node
+    if n < 2:
+        return algbw
+    return algbw * 2.0 * (n - 1) / n
+
+def bw_note(algbw: float, node_count: int) -> str:
+    """Log suffix restating an all-reduce algbw as busbw.
+
+    The bar operators are handed (350 GB/s) is busbw; every number this tool
+    prints is algbw. Without the restatement there is no way to read a pass/fail
+    line and tell how far off the published figure the cluster actually is.
+    """
+    if RCCL_TEST_TYPE != 0 or algbw <= 0.0:
+        return ""
+    return f" ({busbw_from_algbw(algbw, node_count):.2f} GB/s busbw)"
+
 def threshold(node_count: int) -> float:
     """Calculate bandwidth threshold for given node count."""
     G_PER_NODE = 8
     
     if RCCL_TEST_TYPE == 0:  # all_reduce
-        return 350.0 * node_count * G_PER_NODE / (2 * node_count * G_PER_NODE - 1) * 0.85
+        # Inverse of busbw = algbw * 2(n-1)/n, so algbw = busbw * n / (2(n-1)).
+        # This denominator used to read (2 * n - 1) instead of 2 * (n - 1),
+        # which is not the all-reduce bus factor -- it made the limit ~3% lower
+        # than the published bar actually implies (153.55 vs 158.67 GB/s on two
+        # nodes), so a marginal cluster could pass against a bar it misses.
+        n = node_count * G_PER_NODE
+        if n < 2:
+            return ALLREDUCE_BUSBW_TARGET * ALLREDUCE_MARGIN
+        return ALLREDUCE_BUSBW_TARGET * n / (2 * (n - 1)) * ALLREDUCE_MARGIN
     
     # alltoall test
     bnic = float(os.environ.get('BNIC', '48.0'))
@@ -535,7 +567,7 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> T
             limit = threshold(len(test_nodes))
             is_faulty = algbw < limit
             test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
-            log(f"[INFO] {test_name} {node_label(suspect_node)}+{node_label(healthy_node)} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
+            log(f"[INFO] {test_name} {node_label(suspect_node)}+{node_label(healthy_node)} -> {algbw:.2f} GB/s algbw{bw_note(algbw, len(test_nodes))}, threshold:{limit:.2f} GB/s algbw-> {'FAULTY' if is_faulty else 'OK'}")
             healthy_node_queue.put(healthy_node)
             return suspect_node, is_faulty
         except Empty:
@@ -560,7 +592,7 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
     algbw = run_rccl_test(nodes)
     limit = threshold(len(nodes))
     test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
-    log(f"[INFO] {test_name} {label_nodes(nodes)} -> {algbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
+    log(f"[INFO] {test_name} {label_nodes(nodes)} -> {algbw:.2f} GB/s algbw{bw_note(algbw, len(nodes))}, threshold: {limit:.2f} GB/s algbw")
 
     if algbw >= limit:
         log(f"[PASS] Group {label_nodes(nodes)} is healthy. Adding to global healthy pool.")
@@ -662,6 +694,30 @@ def parse_args() -> List[str]:
         MAX_BYTES = "2G"   # Small clusters (3-4 nodes): 2G
     else:
         MAX_BYTES = "1G"   # Tiny clusters (1-2 nodes): 1G
+
+    # The ladder above is a runtime-cost heuristic, not a measurement spec, and
+    # on <=2 nodes it stops at 1G -- below the size AMD's acceptance criterion is
+    # written against. AMD states the MI350X/MI355X 2-node all-reduce bar as
+    # >=350 GB/s busbw *at 8G*, and the curve is still climbing at 1G here
+    # (116 -> 201 GB/s from 32M to 1G), so a 1G number is not comparable to that
+    # bar at all. threshold() has hardcoded 350.0 since it was written, which
+    # means the pass/fail line and the measurement point disagreed on every
+    # cluster of 2 nodes or fewer.
+    #
+    # Keep the ladder as the default so existing runs are byte-for-byte
+    # unchanged, and let an operator pin the size when the point of the run is
+    # to compare against a published number.
+    max_bytes_override = os.environ.get("RCCL_MAX_BYTES", "").strip()
+    if max_bytes_override:
+        try:
+            parse_size(max_bytes_override)
+        except Exception:
+            log(f"[WARN] RCCL_MAX_BYTES={max_bytes_override!r} is not a valid size, "
+                f"keeping the adaptive value {MAX_BYTES}")
+        else:
+            log(f"[INFO] RCCL_MAX_BYTES={max_bytes_override} overrides the adaptive "
+                f"value {MAX_BYTES} for {node_count} node(s)")
+            MAX_BYTES = max_bytes_override
 
     return nodes
 
