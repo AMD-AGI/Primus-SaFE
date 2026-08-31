@@ -10,6 +10,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
@@ -18,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/pointer"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -762,7 +764,7 @@ func TestGetNodesForScalingUpStopsWhenTheClaimsCannotBeRead(t *testing.T) {
 	nodeFlavor := genMockNodeFlavor()
 	free := genMockAdminNode("node1", "cluster", nodeFlavor)
 	workspace := genMockWorkspace("cluster", nodeFlavor.Name, 1)
-	cli := fake.NewClientBuilder().WithObjects(free, workspace).WithScheme(scheme.Scheme).
+	cli := fake.NewClientBuilder().WithObjects(free, workspace, nodeFlavor).WithScheme(scheme.Scheme).
 		WithInterceptorFuncs(interceptor.Funcs{
 			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList,
 				opts ...client.ListOption) error {
@@ -929,4 +931,90 @@ func TestSyncWorkspaceCountsTheClaimNotTheLabel(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(idle), stored.CurrentReplica())
 	assert.Equal(t, idle[0].Name, "held")
+}
+
+// The pass that arms an expectation is the only one that can schedule the visit which reads
+// its deadline, and until this it did not: scaleUp returns an empty Result once the bind
+// succeeds, the claim it wrote re-enqueues nothing -- handleNodeEvent wants the label, which
+// is the thing being waited for -- the Workspace predicates reject a generation-equal resync,
+// and the manager sets no SyncPeriod. So the deadline repaired the second and later visits to
+// the gate and not the first, which is the only visit a lost label round trip ever gets.
+//
+// Driven through a real scaleUp rather than a hand-installed entry: the wedge is a property of
+// the pass that creates an expectation, and an entry put there by the test proves nothing
+// about it. The bind assertions are what keep this honest -- with no node taken, scaleUp
+// requeues on its own at :772 and the requeue below would be true for the wrong reason.
+func TestProcessWorkspaceArmsTheDeadlineItJustCreated(t *testing.T) {
+	nodeFlavor := genMockNodeFlavor()
+	free := genMockAdminNode("node1", "cluster", nodeFlavor)
+	free.Status.ClusterStatus.Phase = v1.NodeManaged
+	workspace := genMockWorkspace("cluster", nodeFlavor.Name, 1)
+	cli := fake.NewClientBuilder().WithObjects(free, workspace, nodeFlavor).
+		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
+	r := newMockWorkspaceReconciler(cli)
+	r.clientManager.AddOrReplace("cluster", commonclient.NewClientFactoryWithOnlyClient(
+		context.Background(), "cluster", k8sfake.NewClientset(
+			genMockK8sNode(free.Name, "cluster", nodeFlavor.Name, ""))))
+
+	result, err := r.processWorkspace(context.Background(), workspace)
+	assert.NilError(t, err)
+
+	// A node was actually taken, and its label has not made the round trip yet.
+	assert.Equal(t, storedNode(t, cli, free.Name).GetSpecWorkspace(), workspace.Name)
+	assert.Equal(t, r.meetExpectations(workspace.Name), false,
+		"the bind left nothing outstanding, so this says nothing about arming one")
+	// And the pass that created it left something to bring the workspace back.
+	assert.Equal(t, result.RequeueAfter, r.option.nodeWait,
+		"the reconcile that armed the expectation scheduled no way back to the gate")
+}
+
+// armExpectations only fills a gap. A reconcile already coming back keeps the time it asked
+// for -- every requeue in this controller is shorter than expectationTimeout -- and a
+// workspace waiting on nothing is not given a wake-up it has no use for.
+func TestArmExpectationsOnlyFillsTheGap(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+
+	// Whole-value, not just RequeueAfter: Requeue is the field a caller could be using to ask
+	// for an immediate rate-limited retry, and it is the one this must not trample.
+	assert.Equal(t, ctrlruntime.Result{}, r.armExpectations("ws-a", ctrlruntime.Result{}),
+		"nothing outstanding, so nothing to come back for")
+
+	r.setExpectations("ws-a", sets.NewSetByKeys("n1"))
+	assert.Equal(t, ctrlruntime.Result{RequeueAfter: time.Second},
+		r.armExpectations("ws-a", ctrlruntime.Result{RequeueAfter: time.Second}),
+		"a sooner requeue was already asked for")
+	assert.Equal(t, ctrlruntime.Result{Requeue: true},
+		r.armExpectations("ws-a", ctrlruntime.Result{Requeue: true}),
+		"an immediate retry is an answer too, and must not become a wait")
+	assert.Equal(t, ctrlruntime.Result{RequeueAfter: r.option.nodeWait},
+		r.armExpectations("ws-a", ctrlruntime.Result{}))
+}
+
+// A RequeueAfter of zero is not a short wait, it is no requeue at all -- the exact behaviour
+// the arming exists to remove. newWorkspaceReconcilerFull builds its option with a zero
+// nodeWait, and a guard that disarms itself under a zero option is not a guard.
+func TestExpectationRetryNeverCollapsesToZero(t *testing.T) {
+	r := newWorkspaceReconcilerFull(t, k8sfake.NewClientset())
+	assert.Equal(t, r.option.nodeWait, time.Duration(0), "this fixture is why the fallback exists")
+
+	r.setExpectations("ws-a", sets.NewSetByKeys("n1"))
+	assert.Equal(t, r.armExpectations("ws-a", ctrlruntime.Result{}).RequeueAfter, defaultExpectationRetry)
+}
+
+// Abandoning a wait is a data plane fault the workspace has just stopped reporting: the
+// annotation was cleared on the pass after the bind, so nothing on the object records that the
+// binding was given up on. The counter is the only thing left to alert on, and it is counted
+// per node because that is the granularity a deadline is kept and dropped at.
+func TestAbandonedExpectationIsCounted(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	before := testutil.ToFloat64(rmmetrics.WorkspaceExpectationExpiredTotal)
+
+	r.setExpectations("ws-a", sets.NewSetByKeys("n1", "n2", "n3"))
+	expire(&r, "ws-a", "n1")
+	expire(&r, "ws-a", "n2")
+	r.pruneExpectations("ws-a")
+
+	assert.Equal(t, testutil.ToFloat64(rmmetrics.WorkspaceExpectationExpiredTotal)-before, float64(2),
+		"abandonment is counted per node, as it is pruned per node")
+	assert.Equal(t, r.meetExpectations("ws-a"), false, "n3 was still worth waiting on")
 }
