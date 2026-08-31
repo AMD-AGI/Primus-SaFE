@@ -335,11 +335,20 @@ def parse_algbw(text: str, target_size: int, tolerance: int = 10000) -> float:
         if not line or line.startswith('#'):
             continue
         
-        # Parse data line
+        # Parse data line.
+        #
+        # Validate the whole numeric shape of the row, not just the one column
+        # being read. A debug line interleaved into the row (see the stream
+        # handling in run_rccl_test) shifts every field after the splice point,
+        # and a lone float(parts[10]) can then succeed on the wrong number.
+        # Columns: size count type redop root | time algbw busbw wrong | time algbw busbw wrong
         parts = line.split()
         if len(parts) > 10:  # Need at least 11 parts to access parts[10] (in-place algbw)
             try:
                 size = int(parts[0])
+                int(parts[1])                       # count
+                for i in (5, 6, 7, 9, 10):          # out-of-place and in-place timings
+                    float(parts[i])
                 if abs(size - target_size) <= tolerance:
                     return float(parts[10])  # In-place algbw column
             except (ValueError, IndexError):
@@ -505,48 +514,59 @@ def run_rccl_test(nodes: List[str]) -> float:
 
     try:
         with open(log_file, "w") as f:
-            # Use Popen for real-time output
+            # rccl-tests prints the result table to stdout; NCCL/RCCL and the
+            # ANP plugin write their debug output to stderr. Feeding both into
+            # one pipe (stderr=STDOUT) lets a debug line land in the middle of
+            # a table row and take its time/algbw/busbw columns with it. With
+            # NCCL_DEBUG=INFO the ANP plugin emits a line per operation, so
+            # every row is corrupted, algbw parses as 0.0, and a perfectly
+            # healthy pair of nodes is reported as unhealthy.
+            #
+            # Keep both streams in the console and in the log exactly as
+            # before -- only the text handed to parse_algbw is stdout-only.
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stderr=subprocess.PIPE,
                 text=True,
                 env=env_vars
             )
-            output_lines = []
-            start_time = time.time()
+            output_lines = []          # stdout only: what parse_algbw reads
+            emit_lock = threading.Lock()
             timeout_seconds = 300
-            
-            while True:
-                # Check if process has finished
-                retcode = process.poll()
-                
-                # Read available output
-                line = ""
-                if process.stdout:
-                    line = process.stdout.readline()
-                    if line:
-                        print(line, end='', flush=True)
-                        f.write(line)
-                        f.flush()  # Ensure data is written to file
-                        output_lines.append(line)
-                
-                # Check timeout
-                if time.time() - start_time > timeout_seconds:
-                    process.kill()
-                    raise subprocess.TimeoutExpired(cmd, timeout_seconds)
-                
-                # If process finished and no more output, break
-                if retcode is not None and not line:
-                    # Read any remaining output after process ends
-                    remaining = process.stdout.read()
-                    if remaining:
-                        print(remaining, end='', flush=True)
-                        f.write(remaining)
-                        f.flush()
-                        output_lines.append(remaining)
-                    break
-            
+
+            def _pump(stream, collect):
+                # Separate threads: reading the two pipes in sequence would
+                # deadlock as soon as the one not being read fills up.
+                try:
+                    for line in iter(stream.readline, ''):
+                        with emit_lock:
+                            print(line, end='', flush=True)
+                            f.write(line)
+                            f.flush()
+                            if collect:
+                                output_lines.append(line)
+                finally:
+                    stream.close()
+
+            readers = [
+                threading.Thread(target=_pump, args=(process.stdout, True), daemon=True),
+                threading.Thread(target=_pump, args=(process.stderr, False), daemon=True),
+            ]
+            for t in readers:
+                t.start()
+
+            try:
+                process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                for t in readers:
+                    t.join(timeout=5)
+                raise
+            for t in readers:
+                t.join(timeout=10)
+
             result_stdout = ''.join(output_lines)
 
         target_size = parse_size(MAX_BYTES)
