@@ -70,8 +70,7 @@ type WorkspaceReconciler struct {
 }
 
 type WorkspaceReconcilerOption struct {
-	processWait time.Duration
-	nodeWait    time.Duration
+	nodeWait time.Duration
 	// migrateTimeout bounds how long a node may sit released for a migration that never
 	// completes. Past it the reservation is dropped and the node becomes an ordinary
 	// unassigned node. It is not handed back to the source, but the source's replica is:
@@ -323,24 +322,72 @@ func (r *WorkspaceReconciler) deleteDataPlaneResources(ctx context.Context, work
 	return nil
 }
 
+// resyncPeriod is the longest a live Workspace goes without being reconciled.
+//
+// Nothing else guarantees one. The predicates on this controller admit a nodes-action
+// appearing, a deletion timestamp appearing, and a generation change; the cache's own resync
+// produces a generation-equal Update that both of them reject, and the Workspace CRD has a
+// status subresource, so this controller's own status writes do not bump the generation
+// either. The manager sets no SyncPeriod. So every path out of Reconcile that leaves the
+// workspace alive and asks for nothing is a path where the next reconcile depends entirely on
+// somebody else's event -- and the failure this file exists to bound is exactly the one where
+// that event never comes.
+//
+// armExpectations is the tight bound for the case we can name: a bind whose label round trip
+// is outstanding, brought back in 30s so the deadline gets read. This is the loose bound for
+// the cases we cannot -- it costs one reconcile per workspace per quarter hour and removes
+// "wedged until the process restarts" as an outcome any single missed event can produce.
+const resyncPeriod = 15 * time.Minute
+
+// keepAlive gives a Workspace that asked for nothing a way back anyway.
+//
+// Applied to every exit from Reconcile that leaves a live Workspace behind, rather than to the
+// one that happened to be under the cursor. Two of them -- an absent Cluster object and a
+// workspace naming no cluster -- return before processWorkspace is called at all, and nothing
+// else brings a Workspace back: the controller does not watch Cluster, and setting the field
+// is the only other door in.
+//
+// What this does NOT do is expire anything. pruneExpectations is inside processWorkspace, so
+// an expectation held by a workspace parked on one of those two exits is not dropped there and
+// is not counted. That costs nothing: both exits mean there is no data plane to reach, and
+// scaling, status and the node action all need one, so an open gate would have nothing to open
+// onto. What the requeue buys is the pass after the Cluster returns -- which does reach
+// pruneExpectations -- happening within a quarter hour rather than never.
+//
+// Only fills a gap: any answer the caller already gave is kept, including the deprecated
+// Requeue bool, which is why this tests IsZero rather than RequeueAfter alone. Reading only
+// RequeueAfter would take "come back now, rate limited" for "asked for nothing".
+func keepAlive(result ctrlruntime.Result) ctrlruntime.Result {
+	if result.IsZero() {
+		result.RequeueAfter = resyncPeriod
+	}
+	return result
+}
+
 // Reconcile is the main control loop for Workspace resources.
 func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	workspace := new(v1.Workspace)
 	if err := r.Get(ctx, req.NamespacedName, workspace); err != nil {
+		// Nothing to keep alive: the object is gone, or the work queue is retrying the error.
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if !workspace.GetDeletionTimestamp().IsZero() {
+		// Nor here: delete ends by removing the finalizer, so a successful pass is the last
+		// one, and a failed one comes back through the work queue.
 		return ctrlruntime.Result{}, r.delete(ctx, workspace)
 	}
 	clientSet, err := r.getClientSetOfDataplane(ctx, workspace.Spec.Cluster)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return ctrlruntime.Result{}, nil
+			// The Cluster object is not there. Not watched, so nothing reports its return.
+			return keepAlive(ctrlruntime.Result{}), nil
 		}
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 	if clientSet == nil {
-		return ctrlruntime.Result{}, nil
+		// No cluster named yet. Setting one bumps the generation and enqueues on its own, but
+		// that is the only door in, and this workspace can be carrying expectations already.
+		return keepAlive(ctrlruntime.Result{}), nil
 	}
 	if err = r.guaranteeDataPlaneResources(ctx, workspace, clientSet); err != nil {
 		return ctrlruntime.Result{}, err
@@ -348,8 +395,9 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 	result, err := r.processWorkspace(ctx, workspace)
 	if err != nil {
 		klog.ErrorS(err, "failed to process workspace", "name", workspace.Name)
+		return result, err
 	}
-	return result, err
+	return keepAlive(result), nil
 }
 
 // delete handles the deletion of a Workspace resource by unbinding nodes and removing finalizers.
