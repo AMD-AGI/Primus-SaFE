@@ -251,11 +251,17 @@ if [[ "$RANK" == "0" ]]; then
 
     if [ ${#current_run_unhealthy[@]} -eq 0 ]; then
       if [ "$harness_failure" -eq 1 ]; then
-        echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] No node was blamed in run $run, but a test failed. Exiting early."
+        # Do NOT break here. harness_failure is set precisely when no node was
+        # blamed, which is precisely when current_run_unhealthy is empty -- so
+        # breaking on this branch meant the retry could never run, and one
+        # transient ssh hiccup in run 1 failed the whole cluster. Retrying is
+        # the whole point: a harness error that run 2 does not reproduce is
+        # not a reason to condemn a cluster the retry validated.
+        echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] No node was blamed in run $run, but a test failed. Retrying to see whether it reproduces."
       else
         echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] All nodes passed diagnosis in run $run. Exiting early."
+        break
       fi
-      break
     fi
     echo
   done

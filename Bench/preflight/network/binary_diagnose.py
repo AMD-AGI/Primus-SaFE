@@ -354,11 +354,18 @@ def parse_algbw(text: str, target_size: int, tolerance: int = 10000) -> float:
         # and a lone float(parts[10]) can then succeed on the wrong number.
         # Columns: size count type redop root | time algbw busbw wrong | time algbw busbw wrong
         parts = line.split()
-        if len(parts) > 10:  # Need at least 11 parts to access parts[10] (in-place algbw)
+        # Exactly 13, not "at least 11". A row spliced by a debug line can end
+        # up short -- 11 fields whose first 11 all parse as numbers -- and a
+        # >10 test accepts it, reading whatever landed in slot 10 as algbw.
+        # An intact rccl-tests row is always 13 fields, so require that.
+        if len(parts) == 13:
             try:
                 size = int(parts[0])
                 int(parts[1])                       # count
-                for i in (5, 6, 7, 9, 10):          # out-of-place and in-place timings
+                # Every numeric column of both halves. 8 and 12 (#wrong) are
+                # left out on purpose: with checking off rccl-tests prints
+                # "N/A" there, which is a valid row.
+                for i in (5, 6, 7, 9, 10, 11):      # time/algbw/busbw, out-of-place and in-place
                     float(parts[i])
                 if abs(size - target_size) <= tolerance:
                     return float(parts[10])  # In-place algbw column
@@ -447,6 +454,7 @@ def build_env_vars() -> Dict[str, str]:
     # was tuned with. That is deliberate for a test meant to reproduce the
     # workload's conditions -- but it does mean these are not the values the
     # test actually runs with unless you check the environment.
+    overridden = []
     for key, value in {
         "NCCL_IB_DISABLE": "0",
         "NCCL_IB_PCI_RELAXED_ORDERING": "1",
@@ -460,6 +468,13 @@ def build_env_vars() -> Dict[str, str]:
         "NCCL_NET_GDR_READ": "1",
     }.items():
         env.setdefault(key, value)
+        if env[key] != value:
+            # The whole point of these being overridable is that a site can
+            # retune them, but then the log has to say what the diagnosis
+            # actually ran with -- otherwise a verdict produced under, say,
+            # NCCL_NET_GDR_LEVEL=0 reads exactly like one produced under the
+            # default, and the numbers are not comparable between clusters.
+            overridden.append(f"{key}={env[key]} (default {value})")
     
     if ENABLE_AINIC:
         # AINIC mode: use special library paths and AINIC-specific settings
@@ -470,18 +485,25 @@ def build_env_vars() -> Dict[str, str]:
             # NCCL_GDR_FLUSH_DISABLE and NET_OPTIONAL_RECV_COMPLETION) trade
             # correctness guarantees for latency, so isolating a data-corruption
             # report means flipping them one at a time from the workload spec.
-            "NCCL_DMABUF_ENABLE": os.environ.get("NCCL_DMABUF_ENABLE", "0"),
-            "NCCL_GDR_FLUSH_DISABLE": os.environ.get("NCCL_GDR_FLUSH_DISABLE", "1"),
-            "NCCL_MAX_P2P_CHANNELS": os.environ.get("NCCL_MAX_P2P_CHANNELS", "56"),
-            "NET_OPTIONAL_RECV_COMPLETION": os.environ.get("NET_OPTIONAL_RECV_COMPLETION", "1"),
-            "NCCL_IB_USE_INLINE": os.environ.get("NCCL_IB_USE_INLINE", "1"),
-            "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING": os.environ.get("RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING", "0"),
-            "NCCL_IB_TC": os.environ.get("NCCL_IB_TC", "104"),
-            "NCCL_IB_FIFO_TC": os.environ.get("NCCL_IB_FIFO_TC", "192"),
-            "NCCL_IGNORE_CPU_AFFINITY": os.environ.get("NCCL_IGNORE_CPU_AFFINITY", "1"),
-            "NCCL_IB_QPS_PER_CONNECTION": os.environ.get("NCCL_IB_QPS_PER_CONNECTION", "1"),
             "UCX_NET_DEVICES": RCCL_SOCKET_IFNAME
         })
+        for key, value in {
+            "NCCL_DMABUF_ENABLE": "0",
+            "NCCL_GDR_FLUSH_DISABLE": "1",
+            "NCCL_MAX_P2P_CHANNELS": "56",
+            "NET_OPTIONAL_RECV_COMPLETION": "1",
+            "NCCL_IB_USE_INLINE": "1",
+            "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING": "0",
+            "NCCL_IB_TC": "104",
+            "NCCL_IB_FIFO_TC": "192",
+            "NCCL_IGNORE_CPU_AFFINITY": "1",
+            "NCCL_IB_QPS_PER_CONNECTION": "1",
+        }.items():
+            # Same spelling as the block above; `env` is a copy of os.environ,
+            # so setdefault is exactly the old os.environ.get(key, default).
+            env.setdefault(key, value)
+            if env[key] != value:
+                overridden.append(f"{key}={env[key]} (default {value})")
 
     else:
         # Standard mode: use default library paths
@@ -489,7 +511,11 @@ def build_env_vars() -> Dict[str, str]:
             "LD_LIBRARY_PATH": LD_LIBRARY_PATH,
             "UCX_NET_DEVICES": RCCL_IB_HCA.split(',')[0] + ":1"
         })
-    
+
+    if overridden:
+        log("[INFO] RCCL tuning knobs taken from the environment instead of the "
+            "built-in defaults: " + ", ".join(sorted(overridden)))
+
     return env
 
 def run_rccl_test(nodes: List[str]) -> float:
