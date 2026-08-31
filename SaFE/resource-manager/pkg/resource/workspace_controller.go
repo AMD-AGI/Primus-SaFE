@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -21,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -47,22 +49,34 @@ import (
 
 type WorkspaceReconciler struct {
 	*ClusterBaseReconciler
-	// apiReader reads straight from the apiserver, bypassing the manager's cache. Reserved
-	// for updateSingleNodeBinding, where the read is both the state the ownership rule is
-	// judged against and the resourceVersion the write is locked to.
+	// apiReader reads straight from the apiserver, bypassing the manager's cache. Used where
+	// a cached answer would be either unsafe or final: in updateSingleNodeBinding, where the
+	// read is both the state the ownership rule is judged against and the resourceVersion the
+	// write is locked to; and when deciding that the workspace a migration is addressed to is
+	// really gone, which cannot be taken back.
 	apiReader client.Reader
+	// recorder puts what this controller decides on its own onto the Workspace. A migration
+	// is carried out long after the request that started it returned 200, so a handover that
+	// cannot land, or a migration given up on, has nowhere else to be reported: a line in the
+	// resource-manager log is not somewhere the user who asked for it can look.
+	recorder record.EventRecorder
 	// holds all data-plane Kubernetes clients, with the key being cluster.id
 	clientManager *commonutils.ObjectManager
 	sync.RWMutex
 	// Maintain a map of ongoing operations
 	// key is workspace ID, value is the list of node IDs involved in the operation
-	expectations map[string]sets.Set
+	expectations map[string]*nodeExpectations
 	option       *WorkspaceReconcilerOption
 }
 
 type WorkspaceReconcilerOption struct {
 	processWait time.Duration
 	nodeWait    time.Duration
+	// migrateTimeout bounds how long a node may sit released for a migration that never
+	// completes. Past it the reservation is dropped and the node becomes an ordinary
+	// unassigned node. It is not handed back to the source, but the source's replica is:
+	// see WithdrawnReplica for why a migration that did not happen costs it nothing.
+	migrateTimeout time.Duration
 }
 
 // SetupWorkspaceController initializes and registers the WorkspaceReconciler with the controller manager.
@@ -74,8 +88,9 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 	r := &WorkspaceReconciler{
 		ClusterBaseReconciler: baseReconciler,
 		apiReader:             mgr.GetAPIReader(),
+		recorder:              mgr.GetEventRecorderFor("workspace-controller"),
 		clientManager:         commonutils.NewObjectManagerSingleton(),
-		expectations:          make(map[string]sets.Set),
+		expectations:          make(map[string]*nodeExpectations),
 		option:                opt,
 	}
 	if r.clientManager == nil {
@@ -152,6 +167,31 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 			enqueue(q, workspaceId)
 		}
 	}
+	// enqueueMigration wakes both ends of a migration the node is part of.
+	//
+	// A migrating node's two ends are not both in its labels, and for one of the two moments
+	// that matter neither is. The source workspace drives the migration and has to see the
+	// node land to clear the action it is driving with -- but on landing the label goes from
+	// empty to the target, so enqueueing by label wakes the target only, and the source waits
+	// for its next resync before noticing that a migration which took milliseconds is over.
+	// It holds the workspace's one action slot for that whole wait, and every node operation
+	// a user asks of that workspace in the meantime is refused as already busy.
+	//
+	// The record the source is driving with names both ends, and the node still carries it in
+	// the update's old object -- it is cleared by the same patch that binds the node.
+	// Waking only, never settling: an expectation is settled by the label arriving, and a
+	// migration says nothing about whether it has.
+	enqueueMigration := func(q v1.RequestWorkQueue, node *v1.Node) {
+		info := v1.GetNodeMigrateInfo(node)
+		// Nothing removes a reservation once it has expired -- it is only ignored where it is
+		// read -- so a node carrying a stale one would wake both of its workspaces on every
+		// write the node ever receives, and NodeK8sReconciler writes them every few seconds.
+		if info == nil || v1.IsNodeMigrationExpired(info, v1.DefaultNodeMigrateTimeout) {
+			return
+		}
+		enqueue(q, info.From)
+		enqueue(q, info.Target)
+	}
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
 			node, ok := evt.Object.(*v1.Node)
@@ -160,6 +200,7 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 			}
 			observe(node.Name, v1.GetWorkspaceId(node))
 			enqueue(q, v1.GetWorkspaceId(node))
+			enqueueMigration(q, node)
 		},
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
 			oldNode, ok1 := evt.ObjectOld.(*v1.Node)
@@ -167,6 +208,10 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 			if !ok1 || !ok2 {
 				return
 			}
+			// Both objects: the old one names the migration a landing node has just finished,
+			// the new one the migration a released node is starting.
+			enqueueMigration(q, oldNode)
+			enqueueMigration(q, newNode)
 			if v1.GetWorkspaceId(oldNode) != v1.GetWorkspaceId(newNode) {
 				observe(newNode.Name, v1.GetWorkspaceId(oldNode), v1.GetWorkspaceId(newNode))
 				enqueue(q, v1.GetWorkspaceId(oldNode))
@@ -192,6 +237,10 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 			}
 			observeGone(q, node.Name)
 			enqueue(q, v1.GetWorkspaceId(node))
+			// A node deleted mid-crossing carries no workspace label to route by, so the two
+			// ends hear nothing at all without this -- the same reason the other two handlers
+			// have it.
+			enqueueMigration(q, node)
 		},
 	}
 }
@@ -333,10 +382,24 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 		return err
 	}
 	var nodes []*v1.Node
+	var migrating []*v1.Node
+	migratingTargets := make(map[string]string)
 	for i, item := range nodeList.Items {
 		if item.GetSpecWorkspace() == workspace.Name {
 			nodes = append(nodes, &nodeList.Items[i])
+			continue
 		}
+		// A node this workspace released and has not finished handing over is bound to
+		// nobody, so the loop above does not see it -- and once the finalizer goes there is
+		// no workspace left to carry the migration or to give up on it. The reservation would
+		// outlive everything that could act on it.
+		if info := v1.GetNodeMigrateInfo(&nodeList.Items[i]); info != nil && info.From == workspace.Name {
+			migrating = append(migrating, &nodeList.Items[i])
+			migratingTargets[item.Name] = info.Target
+		}
+	}
+	if err = r.abandonMigrations(ctx, workspace, migrating, migratingTargets); err != nil {
+		return err
 	}
 	if err = r.updateNodesBinding(ctx, workspace, nodes, buildTargetList(nodes, "")); err != nil {
 		return err
@@ -349,9 +412,8 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 	// the node's own reconcile, whether or not this Workspace still exists.
 	//
 	// Waiting was also wrong here in a way it is not there: the node list is rebuilt from the
-	// remaining claims on every pass, so it shrinks as unbinds land, and setExpectations
-	// replaces rather than merges. A node whose claim was cleared on an earlier pass dropped
-	// out of the set anyway.
+	// remaining claims on every pass, so it shrinks as unbinds land, and a node whose claim
+	// was cleared on an earlier pass is not in the set the next one waits on.
 	//
 	// The entry still goes, so a workspace that had expectations outstanding when it was
 	// deleted does not leave them in the map for good. concurrent.Exec has joined its
@@ -380,19 +442,103 @@ func (r *WorkspaceReconciler) updatePhase(ctx context.Context, workspace *v1.Wor
 	return nil
 }
 
+// expectationTimeout is how long a workspace waits to be told its bindings landed before it
+// carries on without being told.
+//
+// The wait is normally seconds -- it ends when the node controller writes the workspace onto
+// the node's labels and the event comes back. What it protects against is a scaling decision
+// taken on counts that have not caught up, and a stale count is a far smaller problem than
+// the alternative: nothing settles an expectation except that one event, and a workspace
+// still holding one runs nothing at all -- no status, no scaling, and no deletion, because
+// removing the finalizer waits behind the same gate. A node deleted before its label is
+// written, or an event missed, would otherwise leave the workspace that way for good.
+const expectationTimeout = 5 * time.Minute
+
+// nodeExpectations is the nodes a Workspace is waiting to see settled, each with the point
+// past which it stops being waited on.
+//
+// Per node, not per workspace. A workspace that keeps binding nodes keeps having entries
+// added, and one shared deadline pushed forward by each of them never arrives -- which is
+// exactly the workspace where a stale entry hides, since node actions run before the gate and
+// go on adding to it.
+type nodeExpectations struct {
+	deadlines map[string]time.Time
+}
+
+// unsettled counts the nodes still worth waiting on at the given time.
+func (e *nodeExpectations) unsettled(now time.Time) int {
+	count := 0
+	for _, deadline := range e.deadlines {
+		if now.Before(deadline) {
+			count++
+		}
+	}
+	return count
+}
+
 // setExpectations sets the expected node operations for a Workspace.
 func (r *WorkspaceReconciler) setExpectations(workspaceId string, nodeNames sets.Set) {
 	r.Lock()
 	defer r.Unlock()
-	r.expectations[workspaceId] = nodeNames
+	// Merged, not replaced. Two things bind nodes for one workspace -- the scaling loop and
+	// the node action a user asked for -- and replacing drops whatever the other one is still
+	// waiting on. The workspace then reads as settled while a binding is still in flight, and
+	// the next scaling decision is taken on counts that have not caught up: a scale-down
+	// already under way is counted as not yet done and a further node is let go.
+	left, ok := r.expectations[workspaceId]
+	if !ok || left == nil {
+		left = &nodeExpectations{deadlines: make(map[string]time.Time)}
+		r.expectations[workspaceId] = left
+	}
+	now := time.Now()
+	deadline := now.Add(expectationTimeout)
+	for nodeName := range nodeNames {
+		// Each node keeps the deadline it came in with; a later binding is not a reason to go
+		// on waiting for an earlier one.
+		//
+		// Unless that deadline has already passed. An entry is only removed when the node
+		// settles or when a prune reaches it, and neither is guaranteed to have happened by
+		// now -- so a lapsed entry can still be sitting here when the same node is bound
+		// again. Left as it was, the new binding inherits a deadline that expired before it
+		// started, the gate opens on it at once, and it opens on that node for every binding
+		// after this one too.
+		if existing, waiting := left.deadlines[nodeName]; !waiting || !now.Before(existing) {
+			left.deadlines[nodeName] = deadline
+		}
+	}
 }
 
 // meetExpectations checks if all expected node operations for a Workspace have been completed.
+// It only reads: an expired entry is not waited on, and pruneExpectations is what removes it.
+// A check that quietly consumed the way out would leave whoever calls it next -- a metric, a
+// probe -- to find the workspace waiting all over again.
 func (r *WorkspaceReconciler) meetExpectations(workspaceId string) bool {
 	r.RLock()
 	defer r.RUnlock()
-	nodeNames, ok := r.expectations[workspaceId]
-	return !ok || nodeNames.Len() == 0
+	left, ok := r.expectations[workspaceId]
+	return !ok || left == nil || left.unsettled(time.Now()) == 0
+}
+
+// pruneExpectations drops the nodes a Workspace has stopped waiting on.
+func (r *WorkspaceReconciler) pruneExpectations(workspaceId string) {
+	r.Lock()
+	defer r.Unlock()
+	left, ok := r.expectations[workspaceId]
+	if !ok || left == nil {
+		return
+	}
+	now := time.Now()
+	for nodeName, deadline := range left.deadlines {
+		if now.Before(deadline) {
+			continue
+		}
+		klog.Infof("workspace(%s) stopped waiting on node(%s) after %s",
+			workspaceId, nodeName, expectationTimeout.String())
+		delete(left.deadlines, nodeName)
+	}
+	if len(left.deadlines) == 0 {
+		delete(r.expectations, workspaceId)
+	}
 }
 
 // removeExpectations removes the expectations for a Workspace.
@@ -405,16 +551,18 @@ func (r *WorkspaceReconciler) removeExpectations(workspaceId string) {
 // settle drops a node from a Workspace's outstanding expectations and reports whether it was
 // there to drop. Callers hold the write lock.
 //
-// An emptied entry is deleted rather than left as an empty set: observeNodeForAll walks this
-// map on every admin Node event, and NodeK8sReconciler writes those nodes every few seconds.
+// An emptied entry is deleted rather than left behind: observeNodeForAll walks this map on
+// every admin Node event, and NodeK8sReconciler writes those nodes every few seconds.
 func (r *WorkspaceReconciler) settle(workspaceId, nodeName string) bool {
-	leftNodeNames, ok := r.expectations[workspaceId]
-	if !ok || !leftNodeNames.Has(nodeName) {
+	left, ok := r.expectations[workspaceId]
+	if !ok || left == nil {
 		return false
 	}
-	// sets.Set is a map, so this lands in the stored set; there is nothing to write back.
-	leftNodeNames.Delete(nodeName)
-	if leftNodeNames.Len() == 0 {
+	if _, waiting := left.deadlines[nodeName]; !waiting {
+		return false
+	}
+	delete(left.deadlines, nodeName)
+	if len(left.deadlines) == 0 {
 		delete(r.expectations, workspaceId)
 	}
 	return true
@@ -473,7 +621,16 @@ func (r *WorkspaceReconciler) reservedNodes(ctx context.Context, workspaceId str
 		if !other.GetDeletionTimestamp().IsZero() {
 			continue
 		}
-		for nodeName, action := range parseNodesAction(other) {
+		claimed, err := commonnodes.ParseAction(other)
+		if err != nil {
+			// Not "it has claimed nothing". An annotation this cannot read is one whose
+			// claims are unknown, and reading unknown as empty hands the nodes it names to
+			// whoever asks next -- which is the thing this function exists to prevent.
+			klog.ErrorS(err, "unreadable nodes action, skipping this round of scaling up",
+				"workspace", other.Name)
+			return nil, err
+		}
+		for nodeName, action := range claimed {
 			if action != v1.NodeActionRemove {
 				reserved.Insert(nodeName)
 			}
@@ -482,32 +639,78 @@ func (r *WorkspaceReconciler) reservedNodes(ctx context.Context, workspaceId str
 	return reserved, nil
 }
 
+// migrateTimeout is how long this controller lets a crossing run before giving up on it.
+//
+// The node webhook stops honouring a reservation at v1.DefaultNodeMigrateTimeout, and it has
+// no way to read this controller's setting. Anything longer here would leave a window where
+// the migration is still being driven and the node is no longer protected, so an unset or
+// longer value is brought back to the one both sides can agree on.
+func (r *WorkspaceReconciler) migrateTimeout() time.Duration {
+	// No nil check on the option itself: every way of building this reconciler sets one, here
+	// and in the tests, and the rest of the file reads it without asking. A guard in one place
+	// and not the others says the field is sometimes absent, which sends the next reader
+	// looking for the path where it is.
+	if r.option.migrateTimeout <= 0 || r.option.migrateTimeout > v1.DefaultNodeMigrateTimeout {
+		return v1.DefaultNodeMigrateTimeout
+	}
+	return r.option.migrateTimeout
+}
+
+// recordf puts an event on the workspace when a recorder is configured. Tests build the
+// reconciler without one, and an unreported event must not take the reconcile down with it.
+func (r *WorkspaceReconciler) recordf(workspace *v1.Workspace, eventType, reason, format string, args ...interface{}) {
+	if r.recorder == nil || workspace == nil {
+		return
+	}
+	r.recorder.Eventf(workspace, eventType, reason, format, args...)
+}
+
 // processWorkspace handles the main processing logic for a Workspace resource
 // include scaling up and scaling down nodes.
 func (r *WorkspaceReconciler) processWorkspace(ctx context.Context, workspace *v1.Workspace) (ctrlruntime.Result, error) {
-	if !r.meetExpectations(workspace.Name) {
-		return ctrlruntime.Result{}, nil
-	}
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
 	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
+	// Ahead of the expectations gate on purpose. That gate waits on bindings to be observed
+	// through the node labels, which the node controller writes from the data plane -- so a
+	// data plane that cannot be reached holds it shut. Scaling has to wait for it, because
+	// scaling decides from counts that would otherwise be stale. A node action does not: it
+	// re-reads every node it names and skips the ones already where they belong. Behind the
+	// gate, a migration stalled that way would never be carried on and never even time out,
+	// leaving the node released and reserved with nothing driving it.
+	// Ahead of the node action, not after it: that call returns early on the passes where it
+	// applied something, which are exactly the passes that have just added expectations, so a
+	// prune behind it never runs on the rounds that need it most.
+	r.pruneExpectations(workspace.Name)
+	var actionResult ctrlruntime.Result
 	if v1.GetWorkspaceNodesAction(workspace) != "" {
-		isUpdated, err := r.processNodesAction(ctx, workspace)
-		if err != nil || isUpdated {
-			return ctrlruntime.Result{}, err
+		var isUpdated bool
+		if actionResult, isUpdated, err = r.processNodesAction(ctx, workspace); err != nil || isUpdated {
+			return actionResult, err
 		}
+	}
+	if !r.meetExpectations(workspace.Name) {
+		// Same reason: the event that settles this may never come, and the deadline that ends
+		// the wait is only read when something asks.
+		if actionResult.RequeueAfter == 0 {
+			actionResult.RequeueAfter = r.option.nodeWait
+		}
+		return actionResult, nil
 	}
 	if err = r.syncWorkspace(ctx, workspace); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	if workspace.Spec.NodeFlavor == "" {
-		return ctrlruntime.Result{}, nil
+		// A workspace with no flavor does no scaling, but it can still be in the middle of
+		// handing a node over -- it is what a workspace looks like before its first node
+		// arrives -- and the requeue is the only thing bringing that back.
+		return actionResult, nil
 	}
 
 	totalStatusCount := workspace.CurrentReplica()
-	var result ctrlruntime.Result
+	result := actionResult
 	switch {
 	case totalStatusCount > workspace.Spec.Replica:
 		count := totalStatusCount - workspace.Spec.Replica
@@ -523,6 +726,12 @@ func (r *WorkspaceReconciler) processWorkspace(ctx context.Context, workspace *v
 		if phase != workspace.Status.Phase {
 			err = r.updatePhase(ctx, workspace, phase)
 		}
+	}
+	// A scaling requeue is never longer than the action's, but keep whichever comes first so
+	// a pending handover is not left waiting on the slower of the two.
+	if actionResult.RequeueAfter > 0 &&
+		(result.RequeueAfter == 0 || actionResult.RequeueAfter < result.RequeueAfter) {
+		result.RequeueAfter = actionResult.RequeueAfter
 	}
 	return result, err
 }
@@ -583,14 +792,7 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 	}
 	candidates := make([]int, 0, len(nodeList.Items))
 	for i := range nodeList.Items {
-		n := &nodeList.Items[i]
-		if !n.IsMachineReady() || !n.IsManaged() {
-			continue
-		}
-		if n.GetSpecWorkspace() != "" || v1.GetWorkspaceId(n) != "" {
-			continue
-		}
-		if v1.GetNodeFlavorId(n) != workspace.Spec.NodeFlavor {
+		if !isNodeEligibleForScalingUp(&nodeList.Items[i], workspace) {
 			continue
 		}
 		candidates = append(candidates, i)
@@ -633,6 +835,49 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 		}
 	}
 	return result, nil
+}
+
+// isNodeEligibleForScalingUp reports whether an unbound node in the workspace's cluster may
+// be picked up by it. Callers have already narrowed the list to that cluster.
+//
+// The workspace argument is what keeps a migration from being undone by the scaling loop.
+// A node released by its source workspace is unbound and of a matching flavor, which is
+// every quality scale-up looks for, so between the two halves of a migration any workspace
+// in the cluster short of a replica would take it -- including the source workspace itself,
+// were its replica not decremented first. The node carries the target it was released for,
+// and only that target may claim it.
+func isNodeEligibleForScalingUp(node *v1.Node, workspace *v1.Workspace) bool {
+	if !node.IsMachineReady() || !node.IsManaged() {
+		return false
+	}
+	if node.GetSpecWorkspace() != "" || v1.GetWorkspaceId(node) != "" {
+		return false
+	}
+	if v1.GetNodeFlavorId(node) != workspace.Spec.NodeFlavor {
+		return false
+	}
+	// No exception for the target of the migration. Letting it pick the node up here was a
+	// second way to finish a crossing whose handover had been lost, but it finishes it
+	// without the accounting: scaling up happens because the workspace is already short of a
+	// replica, so the node arrives against a replica the workspace wanted anyway, and the one
+	// the migration was supposed to add is never added. The source has already given one up,
+	// so a migration completed this way quietly costs the pair a replica. The handover is
+	// retried until the migration times out, which is the one path that keeps the count.
+	//
+	// Judged against the shared timeout rather than this controller's own. The node webhook
+	// stops refusing bindings at the shared one, and a node this loop thinks is free while
+	// the webhook still refuses to bind it is picked and rejected, over and over.
+	//
+	// A stale reservation is ignored, because this is the only place a reservation can do
+	// harm on its own and the things that clear one can all go away: the source workspace
+	// can be deleted mid-migration, and a node can be taken out of the cluster and brought
+	// back still carrying the annotation. Without the age check any of those parks a node
+	// for good, and nothing left in the system would explain why.
+	if info := v1.GetNodeMigrateInfo(node); info != nil &&
+		!v1.IsNodeMigrationExpired(info, v1.DefaultNodeMigrateTimeout) {
+		return false
+	}
+	return true
 }
 
 // sortNodesForScalingUp sorts nodes based on priority for scaling up operations.
@@ -763,19 +1008,34 @@ func parseNodesAction(workspace *v1.Workspace) map[string]string {
 // of the controller a request is still in flight, and an entry that can never be applied
 // would keep saying so forever, freezing this workspace's scaling behind a request that has
 // already failed.
-func (r *WorkspaceReconciler) processNodesAction(ctx context.Context, workspace *v1.Workspace) (bool, error) {
+//
+// A migration is the exception, and the only entry that does not finish in a single pass. It
+// is carried out from the source workspace, whose annotation stays put for the whole crossing
+// and is the record that one is under way: release the node here, hand it to the target, and
+// clear the annotation once it has landed. Every pass works out which of those three it is
+// looking at, so an interrupted migration resumes rather than restarts -- and one that cannot
+// finish is refused like any other entry, which withdraws it where the user can see it.
+func (r *WorkspaceReconciler) processNodesAction(ctx context.Context,
+	workspace *v1.Workspace) (ctrlruntime.Result, bool, error) {
 	actions := parseNodesAction(workspace)
 	if len(actions) == 0 {
 		if raw := v1.GetWorkspaceNodesAction(workspace); raw != "" {
 			klog.Errorf("workspace %s: unusable nodes action %q. dropping it", workspace.Name, raw)
 		}
-		return false, r.removeNodesAction(ctx, workspace)
+		return ctrlruntime.Result{}, false, r.removeNodesAction(ctx, workspace)
 	}
 	klog.Infof("process node action: %v", actions)
 
-	newActions := make(map[string]string)
+	newActions := make(map[string]nodeBinding)
 	adminNodes := make([]*v1.Node, 0, len(actions))
 	refusals := make(map[string]string, len(actions))
+	// Nodes already released and waiting for the target to take them, by target, and nodes
+	// whose reservation has to come off because their migration is being given up on.
+	pendingHandover := make(map[string][]*v1.Node)
+	var abandoned []*v1.Node
+	// Where each abandoned node was headed. Taken from the action rather than the node: the
+	// crossings given up on before the release never wrote it on the node at all.
+	abandonedTargets := make(map[string]string)
 	for key, val := range actions {
 		node := &v1.Node{}
 		// Uncached, like the read in updateSingleNodeBinding and for the same reason: a
@@ -791,11 +1051,44 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context, workspace 
 				refusals[key] = "it no longer exists"
 				continue
 			}
-			return false, err
+			return ctrlruntime.Result{}, false, err
+		}
+		if migrateTarget, ok := v1.ParseMigrateAction(val); ok {
+			state, migration, why := r.classifyMigration(node, workspace.Name, migrateTarget)
+			switch state {
+			case migrationRelease:
+				// Judged as the unbind it is, by the same rule as any other release: only the
+				// workspace holding a node may let it go.
+				if verdict, reason := judgeNodeBinding(node, "", workspace.Name); verdict != bindProceed {
+					refusals[key] = reason
+					continue
+				}
+				newActions[node.Name] = nodeBinding{migration: migration}
+				adminNodes = append(adminNodes, node)
+			case migrationPending:
+				pendingHandover[migrateTarget] = append(pendingHandover[migrateTarget], node)
+			case migrationAbandoned:
+				klog.Infof("giving up the migration of node(%s) to workspace(%s): %s",
+					node.Name, migrateTarget, why)
+				abandoned = append(abandoned, node)
+				abandonedTargets[node.Name] = migrateTarget
+				refusals[key] = fmt.Sprintf("its migration to workspace(%s) was given up on: %s",
+					migrateTarget, why)
+			case migrationDone:
+			}
+			continue
 		}
 		target := workspace.Name
 		if val == v1.NodeActionRemove {
 			target = ""
+		} else if val != v1.NodeActionAdd {
+			// Anything else is not an action this understands, and the one thing not to do
+			// with it is guess. Reading it as an add -- which taking the default above
+			// amounts to -- binds the node with none of the replica accounting a real add is
+			// admitted with, so a migrate that lost its target on the way in would quietly
+			// claim the node instead of being turned down.
+			refusals[key] = fmt.Sprintf("%q is not an action this understands", val)
+			continue
 		}
 		verdict, reason := judgeNodeBinding(node, target, workspace.Name)
 		switch verdict {
@@ -807,25 +1100,360 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context, workspace 
 			refusals[key] = reason
 			continue
 		}
-		newActions[node.Name] = target
+		newActions[node.Name] = nodeBinding{workspace: target}
 		adminNodes = append(adminNodes, node)
+	}
+	// Ahead of the withdrawal, so a handover that turns out to be impossible is withdrawn in
+	// the same write as everything else this pass refused -- and says why. Left to a second
+	// withdrawal afterwards it would have to rewrite an annotation the first one just
+	// rewrote, and the entry would otherwise be cleared with no reason recorded anywhere.
+	waiting := 0
+	for _, nodes := range pendingHandover {
+		waiting += len(nodes)
+	}
+	for _, lost := range r.handOverMigrations(ctx, workspace, pendingHandover) {
+		abandoned = append(abandoned, lost.node)
+		abandonedTargets[lost.node.Name] = lost.target
+		refusals[lost.node.Name] = lost.reason
+		waiting--
+	}
+	if len(abandoned) > 0 {
+		// Before the withdrawal below takes the entries away: the annotation is what brings
+		// this code back, so a node left carrying a reservation after its entry has gone is
+		// reserved for a workspace that is never coming for it.
+		if err := r.abandonMigrations(ctx, workspace, abandoned, abandonedTargets); err != nil {
+			return ctrlruntime.Result{}, false, err
+		}
 	}
 	if len(refusals) > 0 {
 		if err := r.dropRefusedActions(ctx, workspace, actions, refusals); err != nil {
-			return false, err
+			return ctrlruntime.Result{}, false, err
 		}
 	}
-	if len(adminNodes) == 0 {
-		// Nothing is pending any more, whether the entries were applied already or withdrawn.
-		// Saying otherwise makes processWorkspace stop for a requeue that may never be asked
-		// for: a withdrawal need not change any spec field, and neither predicate on this
-		// controller fires for an annotation that only goes away.
-		return false, r.removeNodesAction(ctx, workspace)
+	if len(adminNodes) > 0 {
+		if err := r.updateNodesBinding(ctx, workspace, adminNodes, newActions); err != nil {
+			return ctrlruntime.Result{}, false, err
+		}
+		// Carrying the wait with it. A pass can have both -- one node to bind and another
+		// already released and waiting to be taken -- and returning here without the requeue
+		// leaves the second to whatever event the first happens to produce, or to the resync
+		// hours later if it produces none.
+		result := ctrlruntime.Result{}
+		if waiting > 0 {
+			result.RequeueAfter = r.option.nodeWait
+		}
+		return result, true, nil
 	}
-	if err := r.updateNodesBinding(ctx, workspace, adminNodes, newActions); err != nil {
-		return false, err
+	if waiting > 0 {
+		// The requeue is the backstop for a handover the node events cannot carry -- a target
+		// busy with another action changes nothing about the node, so nothing else brings us
+		// back to ask again.
+		//
+		// Reported as not updated, so the rest of the reconcile still runs. A crossing is
+		// normally over in well under a second, but a handover that cannot land holds this
+		// state for as long as the timeout allows, and the workspace still has to have its
+		// status refreshed and its own replicas kept up in the meantime.
+		return ctrlruntime.Result{RequeueAfter: r.option.nodeWait}, false, nil
 	}
-	return true, nil
+	// Nothing is pending any more, whether the entries were applied already or withdrawn.
+	// Saying otherwise makes processWorkspace stop for a requeue that may never be asked
+	// for: a withdrawal need not change any spec field, and neither predicate on this
+	// controller fires for an annotation that only goes away.
+	return ctrlruntime.Result{}, false, r.removeNodesAction(ctx, workspace)
+}
+
+// migrationState is which part of a migration a node is in the middle of.
+type migrationState int
+
+const (
+	// migrationRelease: the node is still bound to the source and has to be let go.
+	migrationRelease migrationState = iota
+	// migrationPending: released, waiting for the target to take it.
+	migrationPending
+	// migrationDone: the node is in the target workspace.
+	migrationDone
+	// migrationAbandoned: the migration cannot be completed and has to be given up on.
+	migrationAbandoned
+)
+
+// classifyMigration works out where in a migration a node is, and for a node about to be
+// released, the crossing to stamp on it.
+func (r *WorkspaceReconciler) classifyMigration(node *v1.Node,
+	source, target string) (migrationState, *v1.NodeMigrateInfo, string) {
+	if node.GetSpecWorkspace() == target {
+		return migrationDone, nil, ""
+	}
+	// A node on its way out is not going anywhere else. Releasing it would still be allowed --
+	// only binding a deleting node is refused, so that a workspace being deleted can let go of
+	// what it holds -- and the crossing would then run to its timeout being turned down by the
+	// far end, once a pass, for a node that is about to stop existing.
+	// Admission turns these away, so reaching here means the node started deleting after the
+	// request was accepted. Given up on rather than carried further: releasing a node on its
+	// way out is allowed and binding it is not, so the crossing would only be turned down by
+	// the far end, once a pass, until it timed out.
+	if !node.GetDeletionTimestamp().IsZero() {
+		return migrationAbandoned, nil, "the node is being deleted"
+	}
+	if node.GetSpecWorkspace() == source {
+		// A release that had to be retried keeps the clock it started with. Re-stamping it
+		// each pass would mean a release that keeps failing never ages, and the workspace's
+		// one action slot is held for as long as the failure lasts.
+		start := &metav1.Time{Time: time.Now().UTC()}
+		// Both ends, as IsNodeReleasedFor asks below. A reservation left behind by some other
+		// crossing can name the same target while having been written for a different source,
+		// and inheriting its clock starts this crossing already old: a migration of a few
+		// seconds is then given up on for not completing within the timeout.
+		if info := v1.GetNodeMigrateInfo(node); info != nil && info.StartTime != nil &&
+			info.From == source && info.Target == target {
+			start = info.StartTime
+		}
+		return migrationRelease, &v1.NodeMigrateInfo{From: source, Target: target, StartTime: start}, ""
+	}
+	if node.GetSpecWorkspace() != "" {
+		// Bound to a workspace that is neither end of this migration. The node webhook
+		// refuses that write, so reaching here means it happened before this version was
+		// running, or by a route that does not pass admission at all. Either way the node is
+		// not ours to hand over, and going on would have us asking the target to take a node
+		// that belongs to someone else, once every pass until the timeout.
+		return migrationAbandoned, nil, fmt.Sprintf("it now belongs to workspace(%s)", node.GetSpecWorkspace())
+	}
+	info := v1.GetNodeMigrateInfo(node)
+	if !v1.IsNodeReleasedFor(node, source, target) {
+		// The node is neither here nor there and is not reserved for this migration -- not
+		// reserved at all, reserved for somewhere else, or released by another workspace
+		// whose crossing this one has no business finishing. The admission side refuses to
+		// take one of those on; this is the same line held where the work is done.
+		return migrationAbandoned, nil, "it is no longer reserved for this migration"
+	}
+	if v1.IsNodeMigrationExpired(info, r.migrateTimeout()) {
+		return migrationAbandoned, nil, fmt.Sprintf("it did not complete within %s", r.migrateTimeout())
+	}
+	return migrationPending, nil, ""
+}
+
+// abandonMigrations drops the reservation from nodes whose migration will not complete, so
+// the node becomes an ordinary unassigned one again.
+//
+// The replica is not this function's to put back and must not be added here: the withdrawal
+// that follows recomputes Spec.Replica from the actions alone, and both webhooks recompute
+// the same number to recognise that write as a withdrawal at all. A correction applied here
+// would be a number none of them arrive at, and the write would stop being recognised. See
+// WithdrawnReplica.
+func (r *WorkspaceReconciler) abandonMigrations(ctx context.Context,
+	workspace *v1.Workspace, nodes []*v1.Node, targets map[string]string) error {
+	for _, node := range nodes {
+		// Only a node that was released carries one. The crossings given up on before the
+		// release -- a node found on its way out, or one that has ended up somewhere else --
+		// have nothing to clear, and skipping the whole iteration for them is how they came
+		// to be the two that nobody was ever told about.
+		if v1.HasAnnotation(node, v1.NodeMigrateAnnotation) {
+			patch := client.MergeFrom(node.DeepCopy())
+			v1.RemoveAnnotation(node, v1.NodeMigrateAnnotation)
+			if err := r.Patch(ctx, node, patch); err != nil {
+				klog.ErrorS(err, "failed to drop the migration reservation",
+					"node", node.Name, "workspace", workspace.Name)
+				return err
+			}
+		}
+		target := targets[node.Name]
+		// Announced once it has happened. Said first, a failure part-way through this loop
+		// leaves the nodes it already reported to be reported again on the next pass, each
+		// one telling the user a second time about capacity it lost once.
+		//
+		// Worth saying out loud rather than leaving to a log line: the node is not going
+		// where it was asked to go, and whoever asked is not otherwise told.
+		r.recordf(workspace, corev1.EventTypeWarning, "NodeMigrationAbandoned",
+			"gave up migrating node(%s) to workspace(%s)", node.Name, target)
+		// And on the target. It was expecting this node, and when the source is a workspace
+		// being deleted the event just written goes with it moments later -- leaving the one
+		// workspace still around to be the only one that never heard.
+		if targetWorkspace, err := r.getWorkspace(ctx, target); err == nil {
+			r.recordf(targetWorkspace, corev1.EventTypeWarning, "NodeMigrationAbandoned",
+				"node(%s) migrating from workspace(%s) will not arrive", node.Name, workspace.Name)
+		}
+	}
+	return nil
+}
+
+// handOverMigrations asks each target workspace to take the nodes released for it, by writing
+// the add action it would have received had a user asked for those nodes directly. That is
+// what raises the target's replica, so the handover has to go through the annotation rather
+// than binding the nodes here.
+//
+// Failures are logged and left for the next pass. A target already carrying an action is the
+// ordinary case, not an error: a workspace takes one node action at a time, and the nodes
+// stay reserved in the meantime.
+//
+// A target that is gone is the exception, and the nodes released for it are returned so the
+// caller can give up on them now. Retrying that one is waiting for a workspace to come back:
+// the nodes stay reserved and the source holds its action slot for the whole of the migration
+// timeout to reach a conclusion that is already certain. Deleted and being deleted count the
+// same -- a workspace on its way out is not going to take the nodes on.
+func (r *WorkspaceReconciler) handOverMigrations(ctx context.Context,
+	workspace *v1.Workspace, byTarget map[string][]*v1.Node) []lostHandover {
+	var lost []lostHandover
+	for target, nodes := range byTarget {
+		nodeNames := make([]string, 0, len(nodes))
+		for _, node := range nodes {
+			nodeNames = append(nodeNames, node.Name)
+		}
+		if err := r.handOverToTarget(ctx, target, nodeNames); err != nil {
+			if errors.Is(err, errMigrationTargetBusy) || errors.Is(err, errMigrationHandoverRetry) {
+				// A workspace takes one node action at a time, so waiting for it is the
+				// ordinary course of a handover, not a fault. Reported as one it would put a
+				// warning on both workspaces every pass -- around a hundred apiece over a
+				// crossing that has to wait out its timeout.
+				klog.V(4).Infof("waiting to hand nodes %v over to workspace(%s): %v",
+					nodeNames, target, err)
+				continue
+			}
+			if apierrors.IsBadRequest(err) || apierrors.IsForbidden(err) {
+				for _, node := range nodes {
+					lost = append(lost, lostHandover{node: node, target: target,
+						reason: fmt.Sprintf("workspace(%s) would not take it: %v", target, err)})
+				}
+				// The target's own admission turned the request down, for a reason that will
+				// read the same way in thirty minutes' time. Retrying waits for a workspace
+				// to change its mind.
+				//
+				// Not a conflict, deliberately. This codebase answers an admission refusal
+				// with 409 and so does optimistic locking, and RetryOnConflict hands back the
+				// last conflict when it runs out of attempts -- so a target under sustained
+				// contention, which is a target being written by its own controller, looks
+				// exactly like one that has refused. Abandoning a crossing that would have
+				// landed is worse than waiting out a timeout for one that will not, so a
+				// conflict keeps its retries and the timeout has the last word.
+				klog.Infof("workspace(%s) will not take nodes %v migrated from workspace(%s): %v",
+					target, nodeNames, workspace.Name, err)
+				continue
+			}
+			if errors.Is(err, errMigrationTargetGone) {
+				klog.Infof("the target workspace(%s) is gone, giving up the migration of nodes %v from workspace(%s)",
+					target, nodeNames, workspace.Name)
+				for _, node := range nodes {
+					lost = append(lost, lostHandover{node: node, target: target,
+						reason: fmt.Sprintf("workspace(%s) is no longer there to take it", target)})
+				}
+				continue
+			}
+			// Logged, not recorded. Whatever this is -- a retry budget spent, throttling, a
+			// permission changed underneath -- it is being retried, and an event a pass on
+			// two workspaces until the timeout is a hundred apiece saying the same thing.
+			// The outcome is recorded once, when the crossing is given up on, with the
+			// reason it was given up for.
+			klog.ErrorS(err, "failed to hand the migrated nodes over",
+				"source", workspace.Name, "target", target, "nodes", nodeNames)
+		}
+	}
+	return lost
+}
+
+// getWorkspace reads a workspace, or reports why it could not be read.
+func (r *WorkspaceReconciler) getWorkspace(ctx context.Context, name string) (*v1.Workspace, error) {
+	workspace := &v1.Workspace{}
+	if err := r.Get(ctx, client.ObjectKey{Name: name}, workspace); err != nil {
+		return nil, err
+	}
+	return workspace, nil
+}
+
+// errMigrationHandoverRetry marks a handover that failed for a reason that clears on its own.
+// Told apart from the rest so a passing condition is not reported as a fault on both
+// workspaces once a pass for as long as it lasts.
+var errMigrationHandoverRetry = errors.New("the handover will be retried")
+
+// errMigrationTargetBusy marks a handover that has to wait: the target is carrying another
+// node action, which is the ordinary course of things rather than a failure.
+var errMigrationTargetBusy = errors.New("the migration target is busy")
+
+// carriesNothingBut reports whether a workspace's node action is this handover and nothing
+// else: every entry in it is an add of one of these nodes.
+//
+// Asking only whether the nodes appear in it would answer yes to a request somebody else made
+// that happens to name them too -- an operator adding n1, n2 and n3 by hand while a handover
+// of n1 and n2 is in flight. The handover would then report itself done and write nothing, and
+// if that other request is later withdrawn the nodes are left with nobody asking for them,
+// while the replica it moved is given back to a workspace the nodes did reach.
+//
+// A subset counts, because the target's mutating webhook drops the entries that are already
+// true: a handover of two nodes can legitimately read back as one.
+func carriesNothingBut(workspace *v1.Workspace, nodeNames []string) bool {
+	actions, err := commonnodes.ParseAction(workspace)
+	if err != nil || len(actions) == 0 {
+		return false
+	}
+	asked := sets.NewSetByKeys(nodeNames...)
+	for nodeName, action := range actions {
+		if action != v1.NodeActionAdd || !asked.Has(nodeName) {
+			return false
+		}
+	}
+	return true
+}
+
+// errMigrationTargetGone marks a handover that will not succeed however often it is retried,
+// because the workspace it is addressed to has gone or is going.
+var errMigrationTargetGone = errors.New("the migration target is gone")
+
+// lostHandover is a crossing the target will not take, and what to tell the user about it.
+type lostHandover struct {
+	node   *v1.Node
+	target string
+	reason string
+}
+
+// handOverToTarget writes the add action for the migrated nodes on the target workspace.
+func (r *WorkspaceReconciler) handOverToTarget(ctx context.Context, target string, nodeNames []string) error {
+	action := commonnodes.BuildAction(v1.NodeActionAdd, nodeNames...)
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		targetWorkspace := &v1.Workspace{}
+		if err := r.Get(ctx, client.ObjectKey{Name: target}, targetWorkspace); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
+			// Confirmed against the apiserver before it counts. This read comes from a
+			// cache, and giving up is not something the crossing comes back from -- the
+			// reservation comes off and the request is withdrawn -- so a cache that has not
+			// caught up must not be what decides it. Without a reader to confirm with, the
+			// cached answer stands.
+			if r.apiReader != nil {
+				if err = r.apiReader.Get(ctx, client.ObjectKey{Name: target}, targetWorkspace); err == nil {
+					return fmt.Errorf("%w: workspace(%s) is not in the cache yet",
+						errMigrationHandoverRetry, target)
+				} else if !apierrors.IsNotFound(err) {
+					return err
+				}
+			}
+			return fmt.Errorf("%w: workspace(%s) does not exist", errMigrationTargetGone, target)
+		}
+		if !targetWorkspace.GetDeletionTimestamp().IsZero() {
+			return fmt.Errorf("%w: workspace(%s) is being deleted", errMigrationTargetGone, target)
+		}
+		if current := v1.GetWorkspaceNodesAction(targetWorkspace); current != "" {
+			// By what the request says, not by the text of it. The target's mutating webhook
+			// rewrites the annotation as it accepts it -- entries already true are dropped --
+			// so the string read back is not the string written, and comparing the two makes
+			// a workspace mistake its own handover for somebody else's job and wait out the
+			// timeout beside it.
+			if carriesNothingBut(targetWorkspace, nodeNames) {
+				// Already asked; the target has not finished with it yet.
+				return nil
+			}
+			return fmt.Errorf("%w: workspace(%s) is processing another job(%s)",
+				errMigrationTargetBusy, target, current)
+		}
+		// Locked, which is what makes the retry above mean anything: a plain merge patch
+		// carries no resourceVersion, so it never conflicts, never retries, and quietly
+		// overwrites whatever was written into this annotation between the read and the
+		// write -- losing that request while the replica its admission added stays behind.
+		patch := client.MergeFromWithOptions(targetWorkspace.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		v1.SetAnnotation(targetWorkspace, v1.WorkspaceNodesAction, action)
+		if err := r.Patch(ctx, targetWorkspace, patch); err != nil {
+			return err
+		}
+		klog.Infof("handed nodes %v over to workspace(%s)", nodeNames, target)
+		return nil
+	})
 }
 
 // dropRefusedActions takes the refused entries back out of the request.
@@ -883,6 +1511,10 @@ func (r *WorkspaceReconciler) dropRefusedActions(ctx context.Context,
 	// webhooks take as the mark of a withdrawal, and without it they judge this patch as its
 	// author shrinking a request the controller is still working through -- and reject it.
 	v1.SetAnnotation(workspace, v1.WorkspaceNodesActionError, strings.Join(reasons, "; "))
+	// The same arithmetic the admission side runs to recognise this write as a withdrawal, and
+	// it has to come out at the same number: anything added on top here is read as an author
+	// changing the replica alongside a node action, which is refused. A migration is counted
+	// like the removal it is, on the way in and on the way back out.
 	workspace.Spec.Replica = commonnodes.WithdrawnReplica(workspace.Spec.Replica, actions, left)
 	if len(left) == 0 {
 		v1.RemoveAnnotation(workspace, v1.WorkspaceNodesAction)
@@ -913,7 +1545,7 @@ func (r *WorkspaceReconciler) removeNodesAction(ctx context.Context, workspace *
 
 // updateNodesBinding updates the binding of nodes to a Workspace.
 func (r *WorkspaceReconciler) updateNodesBinding(ctx context.Context,
-	workspace *v1.Workspace, nodes []*v1.Node, targets map[string]string) error {
+	workspace *v1.Workspace, nodes []*v1.Node, targets map[string]nodeBinding) error {
 	count := len(nodes)
 	if count == 0 {
 		return nil
@@ -937,7 +1569,7 @@ func (r *WorkspaceReconciler) updateNodesBinding(ctx context.Context,
 		// wedges the workspace: no admin Node write is coming to carry a transition that has
 		// already happened. n is the object updateSingleNodeBinding read through, so its
 		// labels are fresh.
-		if !ok || err != nil || v1.GetWorkspaceId(n) == target {
+		if !ok || err != nil || v1.GetWorkspaceId(n) == target.workspace {
 			r.observeNode(workspace.Name, n.Name)
 		}
 		return err
@@ -948,6 +1580,16 @@ func (r *WorkspaceReconciler) updateNodesBinding(ctx context.Context,
 		return err
 	}
 	return nil
+}
+
+// clearsReservation reports whether this binding ends a crossing the node is carrying.
+//
+// Binding to any workspace ends it: the one the node was released for, or -- once the
+// reservation has expired and stopped being honoured -- whoever picks it up next. Releasing
+// does not, or a release would erase the record it is supposed to be writing.
+func clearsReservation(node *v1.Node, target nodeBinding) bool {
+	return target.workspace != "" && target.migration == nil &&
+		v1.HasAnnotation(node, v1.NodeMigrateAnnotation)
 }
 
 // nodeBindVerdict is what the single-owner rule says about one requested change to a node's
@@ -1042,9 +1684,9 @@ func judgeNodeBinding(node *v1.Node, target, requester string) (nodeBindVerdict,
 // this call must not do is drop the request quietly -- that would strand the replica and turn
 // a refused explicit bind into an automatic scale-up onto some other node.
 func (r *WorkspaceReconciler) updateSingleNodeBinding(ctx context.Context,
-	requester string, node *v1.Node, target string) (bool, error) {
+	requester string, node *v1.Node, target nodeBinding) (bool, error) {
 	action := "bind"
-	if target == "" {
+	if target.workspace == "" {
 		action = "unbind"
 	}
 	updated := false
@@ -1066,24 +1708,39 @@ func (r *WorkspaceReconciler) updateSingleNodeBinding(ctx context.Context,
 			return getErr
 		}
 		*node = *fresh
-		verdict, reason := judgeNodeBinding(node, target, requester)
+		verdict, reason := judgeNodeBinding(node, target.workspace, requester)
 		switch verdict {
 		case bindSettled:
 			// Already where it should be. Note this covers an unbind against a nil
 			// Spec.Workspace, which reads as "". Writing "" over the nil to make the release
 			// explicit would return updated=true and stop the caller settling the
 			// expectation, while changing nothing any reader can see.
-			return nil
+			//
+			// A reservation left on a node that has already arrived is the exception: the
+			// bind landed and the write that was to clear it did not, and nothing else would
+			// ever take it off.
+			if !clearsReservation(node, target) {
+				return nil
+			}
 		case bindRefused:
 			rmmetrics.WorkspaceNodeBindingTotal.WithLabelValues(action, "refused").Inc()
 			return fmt.Errorf("cannot %s node %s for %s: %s", action, node.Name, requester, reason)
 		}
 		patch := client.MergeFromWithOptions(node.DeepCopy(), client.MergeFromWithOptimisticLock{})
-		node.Spec.Workspace = pointer.String(target)
+		node.Spec.Workspace = pointer.String(target.workspace)
+		// The crossing is recorded and erased by the same write that moves the node, so there
+		// is no moment where the node is released without the record, or bound with it still
+		// on. The first would leave it unassigned and unclaimed for anyone short of a replica
+		// to take; the second would go on naming workspaces with no part in it.
+		if target.migration != nil {
+			v1.SetNodeMigrateInfo(node, target.migration)
+		} else if clearsReservation(node, target) {
+			v1.RemoveAnnotation(node, v1.NodeMigrateAnnotation)
+		}
 		patchErr := r.Patch(ctx, node, patch)
 		if patchErr == nil {
 			updated = true
-			klog.Infof("updateSingleNodeBinding, node: %s, target: %s", node.Name, target)
+			klog.Infof("updateSingleNodeBinding, node: %s, target: %s", node.Name, target.workspace)
 			rmmetrics.WorkspaceNodeBindingTotal.WithLabelValues(action, "success").Inc()
 			return nil
 		}
@@ -1093,7 +1750,7 @@ func (r *WorkspaceReconciler) updateSingleNodeBinding(ctx context.Context,
 			return patchErr
 		}
 		klog.Warningf("conflict while trying to %s node %s, target: %s. it will be retried",
-			action, node.Name, target)
+			action, node.Name, target.workspace)
 		return patchErr
 	})
 	if err != nil && apierrors.IsConflict(err) {
@@ -1131,11 +1788,23 @@ func resetWorkspaceStatus(workspace *v1.Workspace) bool {
 	return isChanged
 }
 
+// nodeBinding is where a node is being sent, and -- when it is being released for a
+// migration -- the crossing to stamp on it as it goes. The two travel together because they
+// have to be written together: a node that is unbound without the stamp, even for the moment
+// between two patches, is an unassigned node of a matching flavor that any workspace in the
+// cluster short of a replica may take.
+type nodeBinding struct {
+	// workspace to bind the node to; empty releases it.
+	workspace string
+	// migration to record on the node, or nil to leave its migration state alone.
+	migration *v1.NodeMigrateInfo
+}
+
 // buildTargetList builds a map of node names to their target Workspace names.
-func buildTargetList(nodes []*v1.Node, target string) map[string]string {
-	results := make(map[string]string)
+func buildTargetList(nodes []*v1.Node, target string) map[string]nodeBinding {
+	results := make(map[string]nodeBinding)
 	for _, n := range nodes {
-		results[n.Name] = target
+		results[n.Name] = nodeBinding{workspace: target}
 	}
 	return results
 }

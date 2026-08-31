@@ -846,6 +846,22 @@ func TestCleanupNodeAfterUnmanage(t *testing.T) {
 	testifyassert.NoError(t, r.cleanupNodeAfterUnmanage(context.Background(), clean))
 }
 
+// A node leaving the cluster is not on its way to any workspace. Left on, the reservation
+// comes back with the node and keeps every workspace but one off it, with nothing left in
+// the system to say why.
+func TestCleanupNodeAfterUnmanageDropsTheMigrationReservation(t *testing.T) {
+	scheme, _ := genMockScheme()
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name:   "n1",
+		Labels: map[string]string{v1.ClusterIdLabel: "c1", v1.WorkspaceIdLabel: "ws1"},
+	}}
+	v1.SetNodeMigrateInfo(node, &v1.NodeMigrateInfo{From: "ws1", Target: "ws2"})
+	r := newMockNodeReconciler(ctrlfakeNewClient(scheme, node))
+
+	testifyassert.NoError(t, r.cleanupNodeAfterUnmanage(context.Background(), node))
+	testifyassert.Nil(t, v1.GetNodeMigrateInfo(node))
+}
+
 func TestProcessNodeManagementCleanup(t *testing.T) {
 	scheme, _ := genMockScheme()
 	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}

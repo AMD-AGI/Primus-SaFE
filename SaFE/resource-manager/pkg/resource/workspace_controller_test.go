@@ -49,7 +49,7 @@ func newMockWorkspaceReconciler(adminClient client.Client) WorkspaceReconciler {
 		// what the production pair does too once the cache has caught up.
 		apiReader:     adminClient,
 		option:        &defaultWorkspaceOption,
-		expectations:  make(map[string]sets.Set),
+		expectations:  make(map[string]*nodeExpectations),
 		clientManager: commonutils.NewObjectManagerSingleton(),
 	}
 }
@@ -278,7 +278,7 @@ func TestWorkspaceNodesAction(t *testing.T) {
 		WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(adminClient)
 
-	_, err := r.processNodesAction(context.Background(), workspace)
+	_, _, err := r.processNodesAction(context.Background(), workspace)
 	assert.NilError(t, err)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode1.Name}, adminNode1)
 	assert.NilError(t, err)
@@ -563,7 +563,9 @@ func TestBuildTargetList(t *testing.T) {
 			result := buildTargetList(tt.nodes, tt.target)
 			assert.Equal(t, len(result), len(tt.expected))
 			for k, v := range tt.expected {
-				assert.Equal(t, result[k], v)
+				assert.Equal(t, result[k].workspace, v)
+				// Plain binding carries no migration; only a release for a migration does.
+				assert.Assert(t, result[k].migration == nil)
 			}
 		})
 	}
@@ -948,7 +950,7 @@ func newWorkspaceReconcilerFull(t *testing.T, cs *k8sfake.Clientset, objs ...ctr
 	return &WorkspaceReconciler{
 		ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl, clientSet: cs},
 		clientManager:         mgr,
-		expectations:          map[string]sets.Set{},
+		expectations:          map[string]*nodeExpectations{},
 		// The same client twice, as newMockWorkspaceReconciler does. In production apiReader is
 		// mgr.GetAPIReader() and reads straight from the API server; the fake client has no
 		// cache, so one object serves as both. Leaving it nil is what a nil dereference in

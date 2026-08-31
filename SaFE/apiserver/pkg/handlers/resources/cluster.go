@@ -31,6 +31,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -384,7 +385,7 @@ func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
 	if !cluster.IsReady() {
 		return nil, commonerrors.NewInternalError("the cluster is not ready")
 	}
-	req, err := parseProcessNodesRequest(c)
+	req, err := parseProcessNodesRequest(c, v1.NodeActionAdd, v1.NodeActionRemove)
 	if err != nil {
 		return nil, err
 	}
@@ -584,9 +585,13 @@ func (h *Handler) getAdminCluster(ctx context.Context, clusterId string) (*v1.Cl
 	return cluster.DeepCopy(), nil
 }
 
-// parseProcessNodesRequest parses and validates the request for processing cluster nodes.
-// Ensures that node IDs and action are provided in the request.
-func parseProcessNodesRequest(c *gin.Context) (*view.ProcessNodesRequest, error) {
+// parseProcessNodesRequest parses the request and checks the action against the ones the
+// endpoint calling it can actually carry out. The two endpoints sharing this parser do not
+// support the same set: a cluster has no notion of migrating a node between workspaces, and
+// letting the word through there reaches code that reads anything other than "add" as a
+// removal from the cluster -- which either reports a cluster mismatch that does not exist, or
+// counts a node it did nothing to as successfully processed.
+func parseProcessNodesRequest(c *gin.Context, supportedActions ...string) (*view.ProcessNodesRequest, error) {
 	req := &view.ProcessNodesRequest{}
 	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
@@ -598,6 +603,18 @@ func parseProcessNodesRequest(c *gin.Context) (*view.ProcessNodesRequest, error)
 	}
 	if len(req.Action) == 0 {
 		return nil, commonerrors.NewBadRequest("no action provided")
+	}
+	if len(supportedActions) > 0 && !sliceutil.Contains(supportedActions, req.Action) {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf(
+			"unsupported action(%s) for this endpoint, supported: %v", req.Action, supportedActions))
+	}
+	if req.Action == v1.NodeActionMigrate {
+		if req.TargetWorkspaceId == "" {
+			return nil, commonerrors.NewBadRequest("no targetWorkspaceId provided for the migrate action")
+		}
+	} else if req.TargetWorkspaceId != "" {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf(
+			"targetWorkspaceId is only meaningful for the migrate action, not %s", req.Action))
 	}
 	return req, nil
 }

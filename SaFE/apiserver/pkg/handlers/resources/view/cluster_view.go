@@ -82,8 +82,10 @@ type GetClusterResponse struct {
 type ProcessNodesRequest struct {
 	// List of node IDs to operate on.
 	NodeIds []string `json:"nodeIds"`
-	// Action type: add/remove
+	// Action type: add/remove/migrate
 	Action string `json:"action"`
+	// Workspace the nodes are moving to. Required by migrate, rejected by the others.
+	TargetWorkspaceId string `json:"targetWorkspaceId,omitempty"`
 	// Force remove nodes
 	Force bool `json:"force,omitempty"`
 }

@@ -326,6 +326,9 @@
           <el-button type="warning" :disabled="unBindDis" plain @click="openBindWl('remove', true)"
             >UnBind</el-button
           >
+          <el-button type="primary" :disabled="unBindDis" plain @click="openBindWl('migrate', true)"
+            >Migrate</el-button
+          >
         </div>
       </div>
     </transition>
