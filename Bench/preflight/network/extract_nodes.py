@@ -7,6 +7,9 @@ Two producers write that line, in two different shapes:
     ib_write_bw.py    unhealthy nodes: ['10.245.156.254']
     binary_diagnose.py unhealthy nodes: [crsuse2-m2m-182(10.245.156.254), ...]
 
+The second shape carries both names for the node. Report the hostname and use
+the ip only as a fallback, for when the hostname half is absent or unreadable.
+
 The second is a human label, not a Python literal. This used to be parsed with
 ast.literal_eval under a bare `except: return ''`, so every binary_diagnose
 failure was read as "no unhealthy nodes" -- run.sh then saw an empty list, took
@@ -22,8 +25,10 @@ import sys
 
 # The bracketed list on the "unhealthy nodes:" line.
 LIST_RE = re.compile(r"unhealthy nodes:\s*\[([^\]]*)\]")
-# "hostname(ip)" -- keep the ip, which is what run.sh matches nodes on.
-LABEL_RE = re.compile(r"^[^()]+\(([^()]+)\)$")
+# "hostname(ip)" -- capture both halves. The hostname is the identifier we
+# report; the ip is only the fallback for when the hostname half is missing or
+# not usable as a node name.
+LABEL_RE = re.compile(r"^([^()]*)\(([^()]+)\)$")
 # A bare IPv4 address, the other shape.
 IP_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
 # ...or a bare hostname. NODES_FILE is not required to hold IPs -- the
@@ -50,7 +55,13 @@ def extract_unhealthy_nodes(text):
             if not entry:
                 continue
             label = LABEL_RE.match(entry)
-            node = label.group(1).strip() if label else entry
+            if label:
+                # Prefer the hostname; fall back to the ip only when the
+                # hostname half cannot be read.
+                host = label.group(1).strip()
+                node = host if HOSTNAME_RE.match(host) else label.group(2).strip()
+            else:
+                node = entry
             if not (IP_RE.match(node) or HOSTNAME_RE.match(node)):
                 # Do not pass a value downstream that run.sh cannot match
                 # against its node list -- say so instead of dropping it.
