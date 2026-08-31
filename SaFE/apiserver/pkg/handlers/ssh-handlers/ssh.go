@@ -157,10 +157,16 @@ func (h *SshHandler) HandleConnection(conn net.Conn) {
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
+
+	// Remote forwards outlive the request that created them, so they are torn
+	// down before we wait on the request loop.
+	forwards := newReverseForwardManager(ctx, h, sshConn)
+	defer forwards.closeAll()
+
 	wg.Add(1)
 	go func() {
-		ssh.DiscardRequests(reqs)
-		wg.Done()
+		defer wg.Done()
+		forwards.handleGlobalRequests(reqs)
 	}()
 
 	for ch := range newChannel {

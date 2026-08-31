@@ -297,6 +297,42 @@ func TestStringHelpers(t *testing.T) {
 	testifyassert.Equal(t, []string{"c1", "c2"}, GetComponents())
 }
 
+// TestSSHReverseForwardGetters pins the `ssh -R` policy defaults and overrides.
+func TestSSHReverseForwardGetters(t *testing.T) {
+	viper.Reset()
+	// Without this the enable flag and the port range leak into every test that
+	// runs after this one, which only shows up under some -run orders.
+	t.Cleanup(viper.Reset)
+
+	testifyassert.True(t, IsSSHReverseForwardEnable())
+	testifyassert.Equal(t, []string{"127.0.0.1"}, GetSSHReverseForwardBindAddresses())
+	testifyassert.Equal(t, 1024, GetSSHReverseForwardPortMin())
+	testifyassert.Equal(t, 65535, GetSSHReverseForwardPortMax())
+	testifyassert.Equal(t, 8, GetSSHReverseForwardMaxPerSession())
+
+	viper.Set(sshReverseForwardEnable, false)
+	testifyassert.False(t, IsSSHReverseForwardEnable(), "a deployment must be able to turn it off")
+	viper.Set(sshReverseForwardEnable, true)
+	viper.Set(sshReverseForwardPortMin, 20000)
+	viper.Set(sshReverseForwardPortMax, 20010)
+	viper.Set(sshReverseForwardMaxPerSession, 2)
+	testifyassert.True(t, IsSSHReverseForwardEnable())
+	testifyassert.Equal(t, 20000, GetSSHReverseForwardPortMin())
+	testifyassert.Equal(t, 20010, GetSSHReverseForwardPortMax())
+	testifyassert.Equal(t, 2, GetSSHReverseForwardMaxPerSession())
+
+	// Both a YAML list and a comma separated scalar are accepted.
+	viper.Set(sshReverseForwardBindAddresses, []string{"127.0.0.1", "0.0.0.0"})
+	testifyassert.Equal(t, []string{"127.0.0.1", "0.0.0.0"}, GetSSHReverseForwardBindAddresses())
+	viper.Set(sshReverseForwardBindAddresses, "127.0.0.1, 10.0.0.1")
+	testifyassert.Equal(t, []string{"127.0.0.1", "10.0.0.1"}, GetSSHReverseForwardBindAddresses())
+
+	// Deleting every entry is not the same as never configuring one: it leaves no
+	// address a forward may bind, rather than quietly restoring loopback.
+	viper.Set(sshReverseForwardBindAddresses, []string{})
+	testifyassert.Empty(t, GetSSHReverseForwardBindAddresses())
+}
+
 // TestModelOptimizationClawBaseURLDerivation covers the domain-derived fallback.
 func TestModelOptimizationClawBaseURLDerivation(t *testing.T) {
 	viper.Reset()

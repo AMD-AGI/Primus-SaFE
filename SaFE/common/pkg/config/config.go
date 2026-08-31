@@ -64,6 +64,25 @@ func getFloat(key string, defaultValue float64) float64 {
 	return viper.GetFloat64(key)
 }
 
+// getStringSlice reads a YAML list, falling back to a comma separated scalar so
+// both `["a", "b"]` and `"a,b"` are accepted.
+func getStringSlice(key string, defaultValue []string) []string {
+	if !viper.IsSet(key) {
+		return defaultValue
+	}
+	// viper splits a scalar on whitespace, which would keep the commas; decide on
+	// the raw value first, rather than doing the list work and throwing it away -
+	// this is re-read for every SSH connection.
+	if _, isScalar := viper.Get(key).(string); isScalar {
+		return getStrings(key)
+	}
+	values := removeBlank(viper.GetStringSlice(key))
+	// An empty result here means the key was set to an empty list, which is not the
+	// same as leaving it out: the operator removed every entry, and answering with
+	// the default would hand back a value they deleted.
+	return values
+}
+
 func getStrings(key string) []string {
 	val := viper.GetString(key)
 	return removeBlank(strings.Split(val, ","))
@@ -142,6 +161,40 @@ func GetSSHRsaPublic() string {
 // GetSSHRsaPrivate returns the SSH RSA private key path.
 func GetSSHRsaPrivate() string {
 	return getFromFile(sshSecretPath, "id_rsa")
+}
+
+// IsSSHReverseForwardEnable returns whether SSH remote port forwarding (`ssh -R`)
+// is enabled. On by default: it is what an SSH client already expects of a dev box,
+// and what bounds it is the rest of the policy - loopback only, a port range, and a
+// per-session limit - not the absence of the feature. A deployment that does not
+// want pod traffic leaving through a developer's network turns it off here.
+func IsSSHReverseForwardEnable() bool {
+	return getBool(sshReverseForwardEnable, true)
+}
+
+// GetSSHReverseForwardBindAddresses returns the addresses a remote forward may
+// listen on inside the target Pod.
+func GetSSHReverseForwardBindAddresses() []string {
+	return getStringSlice(sshReverseForwardBindAddresses, []string{"127.0.0.1"})
+}
+
+// GetSSHReverseForwardPortMin returns the lowest port a remote forward may bind.
+// The default is the first unprivileged port: a forward that could take 22, 53 or
+// 443 would shadow the pod's own services, while everything above that is the
+// user's own business, as it would be on a dev box.
+func GetSSHReverseForwardPortMin() int {
+	return getInt(sshReverseForwardPortMin, 1024)
+}
+
+// GetSSHReverseForwardPortMax returns the highest port a remote forward may bind.
+func GetSSHReverseForwardPortMax() int {
+	return getInt(sshReverseForwardPortMax, 65535)
+}
+
+// GetSSHReverseForwardMaxPerSession returns how many remote forwards a single SSH
+// session may hold at once.
+func GetSSHReverseForwardMaxPerSession() int {
+	return getInt(sshReverseForwardMaxPerSession, 8)
 }
 
 // GetMemoryReservePercent returns the percentage of memory to reserve.
