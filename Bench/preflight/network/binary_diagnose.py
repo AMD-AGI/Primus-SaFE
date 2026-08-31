@@ -193,7 +193,16 @@ def get_log_filename(nodes: List[str]) -> str:
 #
 # Everything this tool measures and compares is algbw, so whatever the target
 # is, it has to be converted before it can be used as a limit -- see threshold().
-ALLREDUCE_BUSBW_TARGET = float(os.environ.get("RCCL_BUSBW_TARGET", "350.0"))
+_BUSBW_TARGET_DEFAULT = 350.0
+try:
+    ALLREDUCE_BUSBW_TARGET = float(os.environ.get("RCCL_BUSBW_TARGET", _BUSBW_TARGET_DEFAULT))
+except ValueError:
+    # A bare float() here crashed at import time on e.g. RCCL_BUSBW_TARGET=350GB,
+    # with a traceback pointing at module scope that says nothing about which
+    # variable was wrong. Keep the default and say so.
+    log(f"[WARN] RCCL_BUSBW_TARGET={os.environ['RCCL_BUSBW_TARGET']!r} is not a "
+        f"number (GB/s, e.g. 350 or 300.0); using {_BUSBW_TARGET_DEFAULT}")
+    ALLREDUCE_BUSBW_TARGET = _BUSBW_TARGET_DEFAULT
 ALLREDUCE_MARGIN = 0.85
 
 def busbw_from_algbw(algbw: float, node_count: int, g_per_node: int = None) -> float:

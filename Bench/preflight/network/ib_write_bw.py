@@ -152,6 +152,15 @@ def report_server_failure(tag, server_process):
         out, err = server_process.communicate(timeout=5)
     except Exception as e:
         log(f"{tag} could not read server output: {e}")
+        # communicate() closes both pipes when it returns normally but not when
+        # it raises, and this is now the only place that reaps a failed local
+        # listener.
+        for pipe in (server_process.stdout, server_process.stderr):
+            if pipe is not None:
+                try:
+                    pipe.close()
+                except Exception:
+                    pass
         return
     saw_output = False
     for stream_name, data in (("stdout", out), ("stderr", err)):
@@ -169,12 +178,32 @@ def report_server_failure(tag, server_process):
     log_rdma_environment()
 
 def kill_local_listener(server_process):
-    # Clean up the failed server
+    # Clean up the failed server.
+    #
+    # communicate() rather than wait(): the stdout/stderr pipes are never read
+    # on this path, so a plain wait() left both fds open for the lifetime of
+    # the run -- one pair leaked per failed pair, which a full-mesh test on a
+    # large cluster can walk into the ulimit with. communicate() reads them to
+    # EOF and closes them, and it takes the same timeout, so the terminate ->
+    # kill escalation is unchanged.
     server_process.terminate()
     try:
-        server_process.wait(timeout=3)
+        server_process.communicate(timeout=3)
     except subprocess.TimeoutExpired:
         server_process.kill()
+        # wait(), not a second communicate(): ib_write_bw spawns children that
+        # inherit these pipes, so after the kill they can still be held open
+        # and communicate() would sit out its whole timeout again. wait()
+        # returns as soon as the direct child is reaped, and the finally-block
+        # closes the fds regardless.
+        server_process.wait()
+    finally:
+        for pipe in (server_process.stdout, server_process.stderr):
+            if pipe is not None:
+                try:
+                    pipe.close()
+                except Exception:
+                    pass
 
 def check_remote_server_ready(node, dev, ssh_cmd):
     """
@@ -286,6 +315,14 @@ def get_rail_map(node, local_ip, ib_hca_list, ssh_cmd):
             r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=20)
         else:
             r = subprocess.run(ssh_cmd + [node, script], capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            # subprocess.run without check=True only raises on timeout, so an
+            # ssh auth failure or a broken probe script fell through here with
+            # an empty stdout, rails came out {}, and the except-branch log
+            # below never ran. The pairing then silently reverted to the static
+            # table with nothing saying why.
+            log(f"[{node}] GID rail probe exited {r.returncode}: "
+                f"{(r.stderr or '').strip()[:200]}")
         rails = {}
         for line in (r.stdout or "").split("\n"):
             parts = line.split()
@@ -396,6 +433,13 @@ def resolve_pairing(client, server, local_ip, ib_hca_list, ssh_cmd):
         )
         if derived is None:
             pairing, why = static, "static table (rails did not settle the pairing)"
+            # Do not cache this one. get_rail_map deliberately does not memoise
+            # a failed probe, but caching the fallback here would pin the pair
+            # anyway and undo that: the rails would never be re-read for this
+            # (client, server) again. Every other outcome is a real answer and
+            # is cached as before.
+            log(f"[{client} -> {server}] HCA pairing from {why}")
+            return static
         elif derived == static:
             pairing, why = derived, "GID rails (agrees with the static table)"
         else:
@@ -520,7 +564,12 @@ def test_node_pair(client, local_ip, server, client_ib_hca, server_ib_hca, ib_pa
 
             if not check_local_server_ready(server_ib_hca):
                 log(f"[{server}] failed to start Local server")
-                kill_local_listener(server_process)
+                # No kill_local_listener() here: it drains and closes the
+                # pipes, and report_server_failure exists precisely to read
+                # them -- the reason the listener never came up is on that
+                # stderr. It performs the same terminate -> 3s -> kill
+                # escalation itself before reading, so the cleanup is
+                # unchanged; only the order of who reaps is.
                 report_server_failure(f"[{server}]", server_process)
                 return False
         else:
