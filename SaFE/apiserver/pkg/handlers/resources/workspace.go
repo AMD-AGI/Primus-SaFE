@@ -457,12 +457,17 @@ func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action
 		}); err != nil {
 			return err
 		}
-		// Locked, which is what makes the retry around this mean anything: a plain merge patch
-		// carries no resourceVersion, so it never conflicts, never retries, and writes over
-		// whatever landed on this annotation since the read. A migration holds it for as long
-		// as the crossing takes rather than the second an add or a remove needs, so the
-		// window that used to be theoretical is now the length of the operation.
-		patch := client.MergeFromWithOptions(workspace.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		// Deliberately not locked. This handler reads through the manager's cache, so the
+		// resourceVersion a lock would pin is whatever the cache last saw -- routinely behind
+		// after any write to this workspace, which includes the controller clearing this very
+		// annotation. Every attempt would then be refused, and the retry above cannot recover
+		// because it re-reads the same cache: a request that used to succeed comes back 409.
+		//
+		// What stops a second request landing on top of one in flight is the admission check,
+		// which judges against the object as it really is rather than as this read saw it.
+		// Locking here would need an uncached read to be worth anything, and the guard it
+		// would add is one that already exists.
+		patch := client.MergeFrom(workspace.DeepCopy())
 		v1.SetAnnotation(workspace, v1.WorkspaceNodesAction, nodeAction)
 		if force {
 			v1.SetAnnotation(workspace, v1.WorkspaceForcedAction, v1.TrueStr)
