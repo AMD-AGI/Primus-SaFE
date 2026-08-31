@@ -1156,3 +1156,31 @@ func TestAbandonMigrationsTellsBothEndsEvenBeforeTheRelease(t *testing.T) {
 		assert.Assert(t, strings.Contains(event, m.node.Name), event)
 	}
 }
+
+// A reservation left behind by some other crossing can name the same target while having been
+// written for a different source. Inheriting its clock starts this crossing already old, and a
+// migration of a few seconds is then given up on for not completing within the timeout.
+func TestClassifyMigrationDoesNotInheritAnotherCrossingsClock(t *testing.T) {
+	m := newMigration(t, time.Hour, boundToSource)
+	// Left over from a crossing this workspace had no part in, and long past its timeout.
+	v1.SetNodeMigrateInfo(m.node, &v1.NodeMigrateInfo{
+		From:      "some-other-workspace",
+		Target:    m.target.Name,
+		StartTime: &metav1.Time{Time: time.Now().UTC().Add(-3 * time.Hour)},
+	})
+
+	state, info, _ := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
+	assert.Equal(t, state, migrationRelease)
+	assert.Assert(t, info.StartTime != nil)
+	assert.Assert(t, !v1.IsNodeMigrationExpired(info, v1.DefaultNodeMigrateTimeout),
+		"this crossing started out already expired, on somebody else's clock")
+
+	// Its own earlier attempt is still inherited, so a release that has to be retried does
+	// not keep restarting the clock.
+	started := &metav1.Time{Time: time.Now().UTC().Add(-time.Minute).Truncate(time.Second)}
+	v1.SetNodeMigrateInfo(m.node, &v1.NodeMigrateInfo{
+		From: m.source.Name, Target: m.target.Name, StartTime: started,
+	})
+	_, info, _ = m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
+	assert.Equal(t, info.StartTime.Time.Equal(started.Time), true, "the retry restarted the clock")
+}

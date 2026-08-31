@@ -74,8 +74,8 @@ type WorkspaceReconcilerOption struct {
 	nodeWait    time.Duration
 	// migrateTimeout bounds how long a node may sit released for a migration that never
 	// completes. Past it the reservation is dropped and the node becomes an ordinary
-	// unassigned node -- it does not return to the source workspace, which gave it up when
-	// the migration was admitted and had its replica lowered to match.
+	// unassigned node. It is not handed back to the source, but the source's replica is:
+	// see WithdrawnReplica for why a migration that did not happen costs it nothing.
 	migrateTimeout time.Duration
 }
 
@@ -1199,7 +1199,12 @@ func (r *WorkspaceReconciler) classifyMigration(node *v1.Node,
 		// each pass would mean a release that keeps failing never ages, and the workspace's
 		// one action slot is held for as long as the failure lasts.
 		start := &metav1.Time{Time: time.Now().UTC()}
-		if info := v1.GetNodeMigrateInfo(node); info != nil && info.Target == target && info.StartTime != nil {
+		// Both ends, as IsNodeReleasedFor asks below. A reservation left behind by some other
+		// crossing can name the same target while having been written for a different source,
+		// and inheriting its clock starts this crossing already old: a migration of a few
+		// seconds is then given up on for not completing within the timeout.
+		if info := v1.GetNodeMigrateInfo(node); info != nil && info.StartTime != nil &&
+			info.From == source && info.Target == target {
 			start = info.StartTime
 		}
 		return migrationRelease, &v1.NodeMigrateInfo{From: source, Target: target, StartTime: start}, ""
@@ -1226,9 +1231,14 @@ func (r *WorkspaceReconciler) classifyMigration(node *v1.Node,
 	return migrationPending, nil, ""
 }
 
-// abandonMigrations drops the reservation from nodes whose migration will not complete. The
-// node becomes an ordinary unassigned node: it does not go back to the source workspace,
-// which gave it up when the migration was admitted and had its replica lowered to match.
+// abandonMigrations drops the reservation from nodes whose migration will not complete, so
+// the node becomes an ordinary unassigned one again.
+//
+// The replica is not this function's to put back and must not be added here: the withdrawal
+// that follows recomputes Spec.Replica from the actions alone, and both webhooks recompute
+// the same number to recognise that write as a withdrawal at all. A correction applied here
+// would be a number none of them arrive at, and the write would stop being recognised. See
+// WithdrawnReplica.
 func (r *WorkspaceReconciler) abandonMigrations(ctx context.Context,
 	workspace *v1.Workspace, nodes []*v1.Node, targets map[string]string) error {
 	for _, node := range nodes {
@@ -1250,10 +1260,8 @@ func (r *WorkspaceReconciler) abandonMigrations(ctx context.Context,
 		// leaves the nodes it already reported to be reported again on the next pass, each
 		// one telling the user a second time about capacity it lost once.
 		//
-		// The node does not go back to this workspace when it was already released: it gave
-		// the node up when the migration was admitted and had its replica lowered to match.
-		// That is a loss of capacity nobody asked for, so it is said out loud rather than
-		// left to a log line.
+		// Worth saying out loud rather than leaving to a log line: the node is not going
+		// where it was asked to go, and whoever asked is not otherwise told.
 		r.recordf(workspace, corev1.EventTypeWarning, "NodeMigrationAbandoned",
 			"gave up migrating node(%s) to workspace(%s)", node.Name, target)
 		// And on the target. It was expecting this node, and when the source is a workspace
@@ -1403,10 +1411,11 @@ func (r *WorkspaceReconciler) handOverToTarget(ctx context.Context, target strin
 			if !apierrors.IsNotFound(err) {
 				return err
 			}
-			// Confirmed against the apiserver before it counts. This read comes from a cache,
-			// and giving up is final -- the reservation comes off and the source's replica is
-			// not given back -- so a cache that has not caught up must not be what decides
-			// it. Without a reader to confirm with, the cached answer stands.
+			// Confirmed against the apiserver before it counts. This read comes from a
+			// cache, and giving up is not something the crossing comes back from -- the
+			// reservation comes off and the request is withdrawn -- so a cache that has not
+			// caught up must not be what decides it. Without a reader to confirm with, the
+			// cached answer stands.
 			if r.apiReader != nil {
 				if err = r.apiReader.Get(ctx, client.ObjectKey{Name: target}, targetWorkspace); err == nil {
 					return fmt.Errorf("%w: workspace(%s) is not in the cache yet",
