@@ -641,6 +641,12 @@ func (r *NodeReconciler) cleanupNodeAfterUnmanage(ctx context.Context, adminNode
 		adminNode.Spec.Workspace = nil
 		isChanged = true
 	}
+	// A node leaving the cluster is not on its way to any workspace, and the reservation
+	// would otherwise come back with it: kept, it says the node is spoken for by a migration
+	// that ended when the node left, and keeps every other workspace off it.
+	if v1.RemoveAnnotation(adminNode, v1.NodeMigrateAnnotation) {
+		isChanged = true
+	}
 	if v1.IsNodeTemplateInstalled(adminNode) {
 		v1.RemoveAnnotation(adminNode, v1.NodeTemplateInstalledAnnotation)
 		isChanged = true

@@ -8,6 +8,8 @@ package v1
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -186,6 +188,80 @@ func IsNodeTemplateInstalled(obj metav1.Object) bool {
 // GetWorkspaceNodesAction retrieves the workspace nodes action from annotations.
 func GetWorkspaceNodesAction(obj metav1.Object) string {
 	return GetAnnotation(obj, WorkspaceNodesAction)
+}
+
+// BuildMigrateAction renders the nodes-action value that moves a node to targetWorkspaceId.
+func BuildMigrateAction(targetWorkspaceId string) string {
+	return NodeActionMigrate + ":" + targetWorkspaceId
+}
+
+// ParseMigrateAction reads back what BuildMigrateAction wrote. It reports false for every
+// other action value, so callers can keep treating add and remove as the bare verbs they
+// have always been -- and false for a migrate carrying no target, which is not a migration
+// anyone can carry out and must be refused rather than defaulted.
+func ParseMigrateAction(action string) (string, bool) {
+	target, ok := strings.CutPrefix(action, NodeActionMigrate+":")
+	if !ok || target == "" {
+		return "", false
+	}
+	return target, true
+}
+
+// GetNodeMigrateInfo returns the migration a node is in the middle of, or nil when it is not
+// migrating. Unparseable content is nil too: the annotation only ever arrives from
+// SetNodeMigrateInfo, so anything else is corruption, and reporting a migration whose target
+// cannot be read would strand the node instead of letting the source workspace restart it.
+func GetNodeMigrateInfo(obj metav1.Object) *NodeMigrateInfo {
+	val := GetAnnotation(obj, NodeMigrateAnnotation)
+	if val == "" {
+		return nil
+	}
+	info := &NodeMigrateInfo{}
+	if err := json.Unmarshal([]byte(val), info); err != nil {
+		return nil
+	}
+	if info.Target == "" {
+		return nil
+	}
+	return info
+}
+
+// IsNodeReleasedFor reports whether the node was released by one named workspace for another.
+// Both ends have to match: the target alone would let any workspace take over a crossing
+// someone else started, leaving two of them driving one node.
+func IsNodeReleasedFor(obj metav1.Object, from, target string) bool {
+	info := GetNodeMigrateInfo(obj)
+	return info != nil && info.From == from && info.Target == target
+}
+
+// IsNodeMigrationExpired reports whether a migration has been under way for longer than a
+// migration should take.
+//
+// A reservation with no start time cannot be aged and is treated as expired whatever the
+// timeout: nothing this code writes is missing one, so it was written by hand, and a
+// reservation that can never expire is the one outcome with no way back. The nil check comes
+// first for that reason -- ordering it after the timeout check would make a hand-written
+// reservation permanent exactly when timeouts are switched off.
+func IsNodeMigrationExpired(info *NodeMigrateInfo, timeout time.Duration) bool {
+	if info == nil {
+		return false
+	}
+	if info.StartTime == nil {
+		return true
+	}
+	if timeout <= 0 {
+		return false
+	}
+	return time.Since(info.StartTime.Time) > timeout
+}
+
+// SetNodeMigrateInfo records the migration on the node, reporting whether anything changed.
+func SetNodeMigrateInfo(obj metav1.Object, info *NodeMigrateInfo) bool {
+	data, err := json.Marshal(info)
+	if err != nil {
+		return false
+	}
+	return SetAnnotation(obj, NodeMigrateAnnotation, string(data))
 }
 
 // IsWorkloadDispatched checks if a workload has been dispatched for execution.

@@ -387,11 +387,56 @@ func (h *Handler) getAdminWorkspace(ctx context.Context, workspaceId string) (*v
 // processWorkspaceNodes handles the processing of nodes for a workspace.
 // Parses the request and updates the workspace with the specified node action.
 func (h *Handler) processWorkspaceNodes(c *gin.Context) (interface{}, error) {
-	req, err := parseProcessNodesRequest(c)
+	req, err := parseProcessNodesRequest(c, v1.NodeActionAdd, v1.NodeActionRemove, v1.NodeActionMigrate)
 	if err != nil {
 		return nil, err
 	}
-	return nil, h.updateWorkspaceNodesAction(c, c.GetString(common.Name), req.Action, req.NodeIds, req.Force)
+	action := req.Action
+	if req.Action == v1.NodeActionMigrate {
+		// The source first, before anything is read about the target. A migration changes two
+		// workspaces, and only the source is named in the route, so the target needs a check
+		// of its own -- but making that check first means fetching a workspace on behalf of
+		// someone who may have no business here at all, and answering 404 for a name that
+		// does not exist and 403 for one that does. That difference is a list of every
+		// workspace, handed out to a caller with no rights to any of them.
+		source, err := h.getAdminWorkspace(c.Request.Context(), c.GetString(common.Name))
+		if err != nil {
+			return nil, err
+		}
+		if err = h.authorizeWorkspaceUpdate(c, source); err != nil {
+			return nil, err
+		}
+		// The real object, not a stand-in carrying only the name. Authorization reads the
+		// kind off the resource and the owner out of its labels, and a synthesized workspace
+		// has neither: rules scoped to workspaces stop matching, and the target's own owner
+		// is refused permission to be migrated into.
+		target, err := h.getAdminWorkspace(c.Request.Context(), req.TargetWorkspaceId)
+		if err != nil {
+			return nil, err
+		}
+		if err = h.authorizeWorkspaceUpdate(c, target); err != nil {
+			return nil, err
+		}
+		action = v1.BuildMigrateAction(req.TargetWorkspaceId)
+	}
+	return nil, h.updateWorkspaceNodesAction(c, c.GetString(common.Name), action, req.NodeIds, req.Force)
+}
+
+// authorizeWorkspaceUpdate asks whether this caller may change the given workspace.
+//
+// Shaped exactly like the check updateWorkspaceNodesAction makes, ResourceKind left unset and
+// all. Naming the kind here would let rules scoped to workspaces match where they do not
+// today, so a migration would be admitted for callers a removal of the same node is refused
+// for. Making the two agree by widening the other one is a change to who may do what, and
+// belongs on its own rather than inside a feature.
+func (h *Handler) authorizeWorkspaceUpdate(c *gin.Context, workspace *v1.Workspace) error {
+	return h.accessController.Authorize(authority.AccessInput{
+		Context:    c.Request.Context(),
+		Resource:   workspace,
+		Verb:       v1.UpdateVerb,
+		Workspaces: []string{workspace.Name},
+		UserId:     c.GetString(common.UserId),
+	})
 }
 
 // updateWorkspaceNodesAction converts requested nodes and action into a node action
@@ -412,6 +457,16 @@ func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action
 		}); err != nil {
 			return err
 		}
+		// Deliberately not locked. This handler reads through the manager's cache, so the
+		// resourceVersion a lock would pin is whatever the cache last saw -- routinely behind
+		// after any write to this workspace, which includes the controller clearing this very
+		// annotation. Every attempt would then be refused, and the retry above cannot recover
+		// because it re-reads the same cache: a request that used to succeed comes back 409.
+		//
+		// What stops a second request landing on top of one in flight is the admission check,
+		// which judges against the object as it really is rather than as this read saw it.
+		// Locking here would need an uncached read to be worth anything, and the guard it
+		// would add is one that already exists.
 		patch := client.MergeFrom(workspace.DeepCopy())
 		v1.SetAnnotation(workspace, v1.WorkspaceNodesAction, nodeAction)
 		if force {

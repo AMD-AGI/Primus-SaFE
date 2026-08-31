@@ -111,6 +111,10 @@ export const mockGetRebootLogs = async (
 interface NodeRelateData {
   action: string
   nodeIds: string[]
+  // Where the nodes are going. Only meaningful for the migrate action, which is addressed to
+  // the workspace giving them up; the API refuses it on add and remove.
+  targetWorkspaceId?: string
+  force?: boolean
 }
 export const relateNodeToWs = (id: string, data: NodeRelateData): Promise<any> =>
   request.post(`/workspaces/${id}/nodes`, data)

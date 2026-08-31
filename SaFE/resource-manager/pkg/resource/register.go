@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -19,6 +20,10 @@ var (
 	defaultWorkspaceOption = WorkspaceReconcilerOption{
 		processWait: 1 * time.Second,
 		nodeWait:    30 * time.Second,
+		// Long enough that a target busy with another node action, or a resource-manager
+		// restart, does not cut a migration short; short enough that a node released for a
+		// migration nobody can complete comes back into service the same day.
+		migrateTimeout: v1.DefaultNodeMigrateTimeout,
 	}
 	defaultFaultOption = FaultReconcilerOption{
 		maxRetryCount: 30,

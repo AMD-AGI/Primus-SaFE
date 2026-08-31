@@ -125,7 +125,7 @@ func TestUpdateSingleNodeBindingRefusesToTakeANodeFromItsOwner(t *testing.T) {
 	cli := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "ws1")
+	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, nodeBinding{workspace: "ws1"})
 	assert.Equal(t, updated, false)
 	assert.ErrorContains(t, err, "already bound to ws2")
 	assert.Equal(t, storedNode(t, cli, "node1").GetSpecWorkspace(), "ws2")
@@ -136,7 +136,7 @@ func TestUpdateSingleNodeBindingRefusesAnUnbindFromAnyoneButTheOwner(t *testing.
 	cli := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "")
+	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, nodeBinding{workspace: ""})
 	assert.Equal(t, updated, false)
 	assert.ErrorContains(t, err, "not the workspace asking")
 	assert.Equal(t, storedNode(t, cli, "node1").GetSpecWorkspace(), "ws2")
@@ -147,7 +147,7 @@ func TestUpdateSingleNodeBindingSettlesWhenTheNodeIsAlreadyWhereItShouldBe(t *te
 	cli := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "ws1")
+	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, nodeBinding{workspace: "ws1"})
 	assert.NilError(t, err)
 	assert.Equal(t, updated, false)
 }
@@ -158,7 +158,7 @@ func TestUpdateSingleNodeBindingTreatsAVanishedNodeAsDone(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", ownedNode("node1", ""), "ws1")
+	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", ownedNode("node1", ""), nodeBinding{workspace: "ws1"})
 	assert.NilError(t, err)
 	assert.Equal(t, updated, false)
 }
@@ -173,7 +173,7 @@ func TestUpdateSingleNodeBindingRefusesToBindADeletingNode(t *testing.T) {
 	cli := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "ws1")
+	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, nodeBinding{workspace: "ws1"})
 	assert.Equal(t, updated, false)
 	assert.ErrorContains(t, err, "being deleted")
 }
@@ -185,7 +185,7 @@ func TestUpdateSingleNodeBindingReleasesADeletingNode(t *testing.T) {
 	cli := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "")
+	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, nodeBinding{workspace: ""})
 	assert.NilError(t, err)
 	assert.Equal(t, updated, true)
 	assert.Equal(t, storedNode(t, cli, "node1").GetSpecWorkspace(), "")
@@ -210,7 +210,7 @@ func TestUpdateSingleNodeBindingRetriesAfterAConflict(t *testing.T) {
 		}).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "ws1")
+	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, nodeBinding{workspace: "ws1"})
 	assert.NilError(t, err)
 	assert.Equal(t, updated, true)
 	assert.Equal(t, conflicts, 1)
@@ -245,7 +245,7 @@ func TestUpdateSingleNodeBindingRejudgesAfterAConflict(t *testing.T) {
 		}).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "ws1")
+	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, nodeBinding{workspace: "ws1"})
 	assert.Equal(t, updated, false)
 	assert.ErrorContains(t, err, "already bound to ws2")
 	assert.Equal(t, storedNode(t, cli, "node1").GetSpecWorkspace(), "ws2")
@@ -295,7 +295,7 @@ func TestUpdateSingleNodeBindingReadsIntoAFreshObject(t *testing.T) {
 		}).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "ws1")
+	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, nodeBinding{workspace: "ws1"})
 	assert.NilError(t, err)
 	// Reading into the object the first attempt mutated would carry "ws1" into the retry's
 	// judgement, which would then answer bindSettled and report nothing written.
@@ -473,7 +473,7 @@ func TestProcessNodesActionWithdrawsARefusedBind(t *testing.T) {
 		WithInterceptorFuncs(admissionRules()).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	_, err := r.processNodesAction(context.Background(), workspace)
+	_, _, err := r.processNodesAction(context.Background(), workspace)
 	assert.NilError(t, err)
 	assert.Equal(t, storedNode(t, cli, node.Name).GetSpecWorkspace(), "ws-other")
 
@@ -496,7 +496,7 @@ func TestProcessNodesActionWithdrawsAVanishedNode(t *testing.T) {
 		WithInterceptorFuncs(admissionRules()).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	isUpdated, err := r.processNodesAction(context.Background(), workspace)
+	_, isUpdated, err := r.processNodesAction(context.Background(), workspace)
 	assert.NilError(t, err)
 	// Nothing is pending after a withdrawal, and saying otherwise waits for a requeue that
 	// an annotation merely going away does not produce.
@@ -523,7 +523,7 @@ func TestProcessNodesActionWithdrawsOnlyTheRefusedEntry(t *testing.T) {
 		WithInterceptorFuncs(admissionRules()).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	_, err := r.processNodesAction(context.Background(), workspace)
+	_, _, err := r.processNodesAction(context.Background(), workspace)
 	assert.NilError(t, err)
 	assert.Equal(t, storedNode(t, cli, free.Name).GetSpecWorkspace(), workspace.Name)
 
@@ -538,7 +538,7 @@ func TestProcessNodesActionWithdrawsOnlyTheRefusedEntry(t *testing.T) {
 	// clear that touches no reason -- nothing was withdrawn this time, and a reason written
 	// again beside a shrinking request is a second withdrawal, and a second refund with it.
 	reason := v1.GetAnnotation(stored, v1.WorkspaceNodesActionError)
-	_, err = r.processNodesAction(context.Background(), stored)
+	_, _, err = r.processNodesAction(context.Background(), stored)
 	assert.NilError(t, err)
 	stored = storedWorkspace(t, cli, workspace.Name)
 	assert.Equal(t, v1.GetWorkspaceNodesAction(stored), "")
@@ -577,7 +577,7 @@ func TestDropRefusedActionsRefundsExactlyOnceAcrossAConflict(t *testing.T) {
 		WithInterceptorFuncs(rules).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	_, err := r.processNodesAction(context.Background(), workspace)
+	_, _, err := r.processNodesAction(context.Background(), workspace)
 	assert.Assert(t, apierrors.IsConflict(err))
 	// Not half applied: the request is whole and the replica is untouched.
 	stored := storedWorkspace(t, cli, workspace.Name)
@@ -586,7 +586,7 @@ func TestDropRefusedActionsRefundsExactlyOnceAcrossAConflict(t *testing.T) {
 	assert.Assert(t, strings.Contains(v1.GetWorkspaceNodesAction(stored), "node1"))
 
 	// The requeue, off the object as it now stands.
-	_, err = r.processNodesAction(context.Background(), stored)
+	_, _, err = r.processNodesAction(context.Background(), stored)
 	assert.NilError(t, err)
 	stored = storedWorkspace(t, cli, workspace.Name)
 	assert.Equal(t, stored.Spec.Replica, 1)
@@ -594,7 +594,7 @@ func TestDropRefusedActionsRefundsExactlyOnceAcrossAConflict(t *testing.T) {
 
 	// And once the request is done there is nothing left to give back, however many times it
 	// comes round again.
-	_, err = r.processNodesAction(context.Background(), stored)
+	_, _, err = r.processNodesAction(context.Background(), stored)
 	assert.NilError(t, err)
 	assert.Equal(t, storedWorkspace(t, cli, workspace.Name).Spec.Replica, 1)
 }
@@ -609,7 +609,7 @@ func TestProcessNodesActionWithdrawsARefusedRemove(t *testing.T) {
 		WithInterceptorFuncs(admissionRules()).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	_, err := r.processNodesAction(context.Background(), workspace)
+	_, _, err := r.processNodesAction(context.Background(), workspace)
 	assert.NilError(t, err)
 	assert.Equal(t, storedNode(t, cli, node.Name).GetSpecWorkspace(), "ws-other")
 	stored := storedWorkspace(t, cli, workspace.Name)
@@ -632,7 +632,7 @@ func TestProcessNodesActionLeavesReplicaAloneForASettledEntry(t *testing.T) {
 		WithInterceptorFuncs(admissionRules()).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	_, err := r.processNodesAction(context.Background(), workspace)
+	_, _, err := r.processNodesAction(context.Background(), workspace)
 	assert.NilError(t, err)
 	stored := storedWorkspace(t, cli, workspace.Name)
 	assert.Equal(t, stored.Spec.Replica, 1)
@@ -676,7 +676,7 @@ func TestUpdateSingleNodeBindingLetsOnlyOneWorkspaceWin(t *testing.T) {
 		}).Build()
 	r := newMockWorkspaceReconciler(cli)
 
-	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "ws1")
+	updated, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, nodeBinding{workspace: "ws1"})
 	// Without the lock on the patch, ws1 would overwrite ws2 here and both workspaces would
 	// believe they own node1.
 	assert.Equal(t, updated, false)
@@ -794,7 +794,7 @@ func TestUpdateSingleNodeBindingCountsWhatItTurnedDown(t *testing.T) {
 	r := newMockWorkspaceReconciler(cli)
 
 	before := bindingCount(t, "bind", "refused")
-	_, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "ws1")
+	_, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, nodeBinding{workspace: "ws1"})
 	assert.ErrorContains(t, err, "already bound to ws2")
 	assert.Equal(t, bindingCount(t, "bind", "refused"), before+1)
 }
@@ -814,7 +814,7 @@ func TestUpdateSingleNodeBindingCountsAnExhaustedRetryOnce(t *testing.T) {
 	r := newMockWorkspaceReconciler(cli)
 
 	before := bindingCount(t, "bind", "conflict")
-	_, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "ws1")
+	_, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, nodeBinding{workspace: "ws1"})
 	assert.Assert(t, apierrors.IsConflict(err))
 	assert.Equal(t, bindingCount(t, "bind", "conflict"), before+1)
 }
@@ -833,7 +833,7 @@ func TestUpdateSingleNodeBindingCountsAReadThatFails(t *testing.T) {
 	r := newMockWorkspaceReconciler(cli)
 
 	before := bindingCount(t, "bind", "failed")
-	_, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "ws1")
+	_, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, nodeBinding{workspace: "ws1"})
 	assert.ErrorContains(t, err, "throttled")
 	assert.Equal(t, bindingCount(t, "bind", "failed"), before+1)
 }

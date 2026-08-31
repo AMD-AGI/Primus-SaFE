@@ -311,6 +311,9 @@ func (v *NodeValidator) validateOnUpdate(ctx context.Context, newNode, oldNode *
 	if err := v.validateImmutableFields(newNode, oldNode); err != nil {
 		return err
 	}
+	if err := validateNodeMigrationReservation(oldNode, newNode); err != nil {
+		return err
+	}
 	if err := v.validateCommon(ctx, newNode); err != nil {
 		return err
 	}
@@ -427,6 +430,46 @@ func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error
 		return field.Forbidden(field.NewPath("spec").Key("privateIP"), "immutable")
 	}
 	return nil
+}
+
+// validateNodeMigrationReservation keeps a node released for a migration for the workspace it
+// was released for.
+//
+// A node is claimed by writing this field, so guarding the write covers every route that
+// claims one at once: the workspace nodes-action a user asks for, the scaling loop picking up
+// an unassigned node, a controller restoring state, someone with kubectl. Guarding any one of
+// those callers instead would leave the others open, and the node is unassigned and of a
+// matching flavor for as long as the crossing takes -- exactly what each of them looks for.
+//
+// What it does not cover: this reads the reservation off the object as it was, so anyone able
+// to write the node can take the annotation off in one request and bind the node in the next.
+// Closing that would mean refusing to clear a reservation at all, which is a thing the
+// resource-manager legitimately does when it gives up on a migration. Whoever can do it can
+// already move nodes between workspaces by hand; the guard is what stops the routes that
+// ordinary use goes through, not an authorization boundary.
+//
+// An expired reservation is not honoured. The workspace driving the migration can be deleted
+// mid-crossing, and a node can leave the cluster and come back still carrying the annotation;
+// held to strictly, either would leave a node that no workspace can ever bind again.
+func validateNodeMigrationReservation(oldNode, newNode *v1.Node) error {
+	target := newNode.GetSpecWorkspace()
+	if target == "" {
+		// Releasing a node takes nothing from the migration -- and is how one starts.
+		return nil
+	}
+	info := v1.GetNodeMigrateInfo(oldNode)
+	if info == nil || info.Target == target {
+		return nil
+	}
+	if v1.IsNodeMigrationExpired(info, v1.DefaultNodeMigrateTimeout) {
+		return nil
+	}
+	// A field error, like every other refusal this validator makes: the caller aggregates
+	// them as such, and one shaped differently reads differently wherever they surface.
+	return field.Forbidden(field.NewPath("spec").Key("workspace"), fmt.Sprintf(
+		"the node is being migrated from workspace(%s) to workspace(%s);"+
+			" it can't be bound to workspace(%s) until that finishes",
+		info.From, info.Target, target))
 }
 
 // getNode retrieves the requested information.
