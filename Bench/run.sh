@@ -314,6 +314,13 @@ print(f'_ne={d.get(\"error\",\"\")}')
                 unhealthy_nodes=()
             fi
             log "Unhealthy nodes detected: ${unhealthy_nodes[*]:-none}"
+            # A test can fail without any node being blamed (harness error,
+            # too few nodes, ...). That is not a pass, and used to be silent.
+            network_harness_failed=0
+            if grep -q "Diagnosis did not complete" "$preflight_network_logname"; then
+                network_harness_failed=1
+                warn "Network preflight did not complete: a test failed without identifying any unhealthy node. This is NOT a clean pass -- see $preflight_network_logname"
+            fi
 
             if [ ${#unhealthy_nodes[@]} -eq 0 ]; then
                 healthy_nodes_ip=("${successed_nodes_ip[@]}")
@@ -334,6 +341,11 @@ print(f'_ne={d.get(\"error\",\"\")}')
         fi
         ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
 
+        if [ "${network_harness_failed:-0}" -eq 1 ]; then
+            echo "WARNING: network check did not complete -- a test failed without identifying any unhealthy node." >> "$BENCH_REPORT"
+            echo "         The nodes listed below were NOT validated. See preflight_network.log." >> "$BENCH_REPORT"
+            echo "" >> "$BENCH_REPORT"
+        fi
         echo "Failed Nodes (Network Check) - ${#unhealthy_nodes[@]} nodes" >> "$BENCH_REPORT"
         echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
         if [ ${#unhealthy_nodes[@]} -gt 0 ]; then
@@ -783,6 +795,13 @@ else
                 unhealthy_nodes=()
             fi
             log "Unhealthy nodes detected: ${unhealthy_nodes[*]:-none}"
+            # A test can fail without any node being blamed (harness error,
+            # too few nodes, ...). That is not a pass, and used to be silent.
+            network_harness_failed=0
+            if grep -q "Diagnosis did not complete" "$preflight_network_logname"; then
+                network_harness_failed=1
+                warn "Network preflight did not complete: a test failed without identifying any unhealthy node. This is NOT a clean pass -- see $preflight_network_logname"
+            fi
 
             if [ ${#unhealthy_nodes[@]} -eq 0 ]; then
                 healthy_nodes_ip=("${successed_nodes_ip[@]}")
@@ -803,6 +822,11 @@ else
         fi
         ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
 
+        if [ "${network_harness_failed:-0}" -eq 1 ]; then
+            echo "WARNING: network check did not complete -- a test failed without identifying any unhealthy node." >> "$BENCH_REPORT"
+            echo "         The nodes listed below were NOT validated. See preflight_network.log." >> "$BENCH_REPORT"
+            echo "" >> "$BENCH_REPORT"
+        fi
         echo "Failed Nodes (Network Check) - ${#unhealthy_nodes[@]} nodes" >> "$BENCH_REPORT"
         echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
         if [ ${#unhealthy_nodes[@]} -gt 0 ]; then

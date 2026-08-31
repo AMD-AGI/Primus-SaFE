@@ -127,6 +127,10 @@ if [[ "$RANK" == "0" ]]; then
   }
 
   declare -A unhealthy_nodes_intersection
+  # Set when a test exits non-zero but the failure cannot be attributed to
+  # any node (e.g. the harness itself errored out). Without this, such a run
+  # is indistinguishable from "everything passed".
+  harness_failure=0
   # Define test types and parameters (all_reduce first, then alltoall)
   TEST_TYPES=(0 1)
   TEST_NAMES=("all_reduce_perf" "alltoall_perf")
@@ -209,6 +213,9 @@ if [[ "$RANK" == "0" ]]; then
             done
             remove_unhealthy_nodes "$unhealthy_list"
             echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Removed unhealthy nodes from $test_name: $unhealthy_list"
+          else
+            harness_failure=1
+            echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] [NETWORK] [ERROR] $test_name failed (exit $test_ret) but no node could be blamed; treating as a harness failure"
           fi
         fi
       done
@@ -230,7 +237,11 @@ if [[ "$RANK" == "0" ]]; then
     fi
 
     if [ ${#current_run_unhealthy[@]} -eq 0 ]; then
-      echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] All nodes passed diagnosis in run $run. Exiting early."
+      if [ "$harness_failure" -eq 1 ]; then
+        echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] No node was blamed in run $run, but a test failed. Exiting early."
+      else
+        echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] All nodes passed diagnosis in run $run. Exiting early."
+      fi
       break
     fi
     echo
@@ -251,6 +262,9 @@ if [[ "$RANK" == "0" ]]; then
       done
     fi
     echo "]"
+  elif [ "$harness_failure" -eq 1 ]; then
+    ret=1
+    echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] [NETWORK] [ERROR] ❌ Diagnosis did not complete: a test failed without identifying any unhealthy node. See the log above."
   else
     echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] [NETWORK] [SUCCESS] ✅ All diagnosis tests passed."
   fi
