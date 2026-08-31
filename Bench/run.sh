@@ -38,6 +38,15 @@ err()    { echo "✘ $1"; }
 resolve_node_ip() {
     local node="$1" ip
 
+    # 0) Already an IP. $HOSTS holds addresses in the k8s path, and a reverse
+    #    lookup of one is not just redundant but actively harmful: on clusters
+    #    where each node's /etc/hosts knows only itself and DNS has no PTR
+    #    record, every peer resolves to nothing and is silently dropped.
+    if [[ "$node" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "$node"
+        return 0
+    fi
+
     # 1) Host namespace. The bare-metal path: $HOSTS holds real machine names
     #    that only the host knows. Needs privileged + hostPID; a denial here is
     #    not fatal, we simply fall through.
@@ -640,6 +649,8 @@ else
                     all_nodes+=("$node")
                     successed_nodes+=("$node")
                     successed_nodes_ip+=("$ip_addr")
+                else
+                    warn "Node $node: cannot resolve to an IP, dropped from node list"
                 fi
             done < "$HOSTS"
         else
