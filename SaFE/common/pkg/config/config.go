@@ -71,11 +71,12 @@ func getStringSlice(key string, defaultValue []string) []string {
 		return defaultValue
 	}
 	// viper splits a scalar on whitespace, which would keep the commas; decide on
-	// the raw value instead.
-	values := removeBlank(viper.GetStringSlice(key))
+	// the raw value first, rather than doing the list work and throwing it away -
+	// this is re-read for every SSH connection.
 	if _, isScalar := viper.Get(key).(string); isScalar {
-		values = getStrings(key)
+		return getStrings(key)
 	}
+	values := removeBlank(viper.GetStringSlice(key))
 	// An empty result here means the key was set to an empty list, which is not the
 	// same as leaving it out: the operator removed every entry, and answering with
 	// the default would hand back a value they deleted.

@@ -6,6 +6,7 @@
 package config
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/spf13/viper"
 	testifyassert "github.com/stretchr/testify/assert"
+	testifyrequire "github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,8 +34,9 @@ func renderApiserverConfig(t *testing.T, values ...string) string {
 	}
 
 	args := append([]string{"template", chartPath}, values...)
-	out, err := exec.Command("helm", args...).Output()
-	testifyassert.NoError(t, err)
+	out, err := exec.Command("helm", args...).CombinedOutput()
+	// helm puts the reason on stderr, and nothing below can run without a render.
+	testifyrequire.NoErrorf(t, err, "helm template failed:\n%s", out)
 
 	decoder := yaml.NewDecoder(strings.NewReader(string(out)))
 	for {
@@ -45,6 +48,9 @@ func renderApiserverConfig(t *testing.T, values ...string) string {
 			Data map[string]string `yaml:"data"`
 		}
 		if err := decoder.Decode(&doc); err != nil {
+			// End of stream is the loop's exit; anything else means the chart
+			// rendered something that is not YAML, which is worth saying out loud.
+			testifyrequire.ErrorIsf(t, err, io.EOF, "rendered chart is not valid YAML: %v", err)
 			break
 		}
 		if doc.Kind == "ConfigMap" && strings.Contains(doc.Metadata.Name, "apiserver") {
@@ -80,8 +86,9 @@ func TestChartRendersReverseForwardDefaults(t *testing.T) {
 	testifyassert.Equal(t, 8, GetSSHReverseForwardMaxPerSession())
 }
 
-// TestChartRendersReverseForwardOverrides pins that turning the feature on in values
-// reaches the getters - the wiring an operator depends on when enabling it.
+// TestChartRendersReverseForwardOverrides pins that values written by an operator
+// reach the getters, including turning the feature off - the case Helm's `default`
+// used to swallow.
 func TestChartRendersReverseForwardOverrides(t *testing.T) {
 	loadRendered(t, renderApiserverConfig(t,
 		"--set", "ssh.reverse_forward.enable=false",
@@ -98,6 +105,14 @@ func TestChartRendersReverseForwardOverrides(t *testing.T) {
 	testifyassert.Equal(t, 20000, GetSSHReverseForwardPortMin())
 	testifyassert.Equal(t, 20010, GetSSHReverseForwardPortMax())
 	testifyassert.Equal(t, 3, GetSSHReverseForwardMaxPerSession())
+}
+
+// TestChartRendersReverseForwardEnabledExplicitly covers the other direction: an
+// operator who writes the default out in full gets what they wrote, rather than a
+// render that only works while the value is absent.
+func TestChartRendersReverseForwardEnabledExplicitly(t *testing.T) {
+	loadRendered(t, renderApiserverConfig(t, "--set", "ssh.reverse_forward.enable=true"))
+	testifyassert.True(t, IsSSHReverseForwardEnable())
 }
 
 // TestChartRendersAnEmptyBindListAsEmpty pins the other half of the same trap: an

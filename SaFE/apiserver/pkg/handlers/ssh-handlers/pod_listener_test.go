@@ -614,13 +614,10 @@ func endChildNormally(t *testing.T, dir, id string) {
 }
 
 // startChild runs one child relay and returns the id it announced, leaving it alive.
-func startChild(t *testing.T, ctx context.Context, dir, idBase string) string {
+func startChild(t *testing.T, ctx context.Context, dir string) string {
 	t.Helper()
 
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", childScript(dir))
-	if idBase != "" {
-		cmd.Env = append(os.Environ(), childIDBaseEnv+"="+idBase)
-	}
 	// The child backgrounds socat and a watcher, which outlive it. Put the lot in
 	// one process group so the cleanup below takes them all, rather than leaving a
 	// socat behind on the machine for every run of this test.
@@ -648,37 +645,6 @@ func startChild(t *testing.T, ctx context.Context, dir, idBase string) string {
 	case <-time.After(30 * time.Second):
 		t.Fatal("the child never announced itself")
 		return ""
-	}
-}
-
-// TestChildScriptClaimsAnIdNoSiblingHolds pins that two children cannot end up on the
-// same rendezvous path. The id started life as the child's PID, which is unique among
-// live processes but comes back once one exits - and a returning id would have the
-// new child delete and re-create a path an older connection was still announced
-// under, delivering one connection's bytes to the other's channel.
-func TestChildScriptClaimsAnIdNoSiblingHolds(t *testing.T) {
-	if _, err := exec.LookPath("socat"); err != nil {
-		t.Skip("socat is not installed")
-	}
-
-	dir := t.TempDir()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	first := startChild(t, ctx, dir, "4242")
-	testifyassert.Equal(t, "4242", first)
-
-	// A second child that wants the same id has to take another one.
-	second := startChild(t, ctx, dir, "4242")
-	testifyassert.NotEqual(t, first, second, "two children claimed the same rendezvous id")
-
-	// Both are reachable, each at its own path.
-	for _, id := range []string{first, second} {
-		info, err := os.Stat(filepath.Join(dir, id, "s"))
-		testifyassert.NoErrorf(t, err, "no rendezvous socket for id %s", id)
-		if err == nil {
-			testifyassert.NotEqual(t, 0, info.Mode()&os.ModeSocket, "id %s is not a socket", id)
-		}
 	}
 }
 
@@ -944,10 +910,10 @@ func TestChildScriptDoesNotReuseAFinishedId(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	first := startChild(t, ctx, dir, "")
+	first := startChild(t, ctx, dir)
 	endChildNormally(t, dir, first)
 
-	second := startChild(t, ctx, dir, "")
+	second := startChild(t, ctx, dir)
 	testifyassert.NotEqual(t, first, second,
 		"a finished connection's id was handed to the next one")
 

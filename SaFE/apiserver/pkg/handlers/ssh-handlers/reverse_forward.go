@@ -85,12 +85,12 @@ func usablePort(value, fallback int, once *sync.Once) uint32 {
 // the other, so an operator who got both wrong only ever heard about one.
 var badPortMinOnce, badPortMaxOnce, invertedRangeOnce, badLimitOnce sync.Once
 
-// usableForwardLimit keeps a misconfigured per-session limit from removing the
-// limit. Zero or less reads as "no ceiling" in reserve, so an operator who meant
-// "none allowed" would instead let one session hold as many pod-side listeners as
-// it asks for, each an exec stream and a socat.
+// usableForwardLimit rejects a per-session limit that cannot be a count. Zero is
+// left alone: the chart goes out of its way to let an operator write it, and it
+// means what it says - no remote forwards on this deployment. Only a negative value
+// is a mistake, and reserve refuses at zero rather than reading it as "no ceiling".
 func usableForwardLimit(value, fallback int) int {
-	if value < 1 {
+	if value < 0 {
 		badLimitOnce.Do(func() {
 			klog.Warningf("ssh reverse forward limit %d is not a usable count, using %d instead", value, fallback)
 		})
@@ -200,7 +200,6 @@ func (fwd *reverseForward) unexpectedStop() bool {
 // reverseForwardManager owns every remote forward requested over a single SSH
 // connection and tears them all down when that connection ends.
 type reverseForwardManager struct {
-	h           *SshHandler
 	conn        *ssh.ServerConn
 	ctx         context.Context
 	policy      reverseForwardPolicy
@@ -233,7 +232,6 @@ func (h *SshHandler) resolveForwardTarget(ctx context.Context, userInfo *UserInf
 // newReverseForwardManager creates a forward registry scoped to one SSH connection.
 func newReverseForwardManager(ctx context.Context, h *SshHandler, conn *ssh.ServerConn) *reverseForwardManager {
 	return &reverseForwardManager{
-		h:           h,
 		conn:        conn,
 		ctx:         ctx,
 		policy:      loadReverseForwardPolicy(),
@@ -384,7 +382,10 @@ func (m *reverseForwardManager) reserve(key string) error {
 	if _, exists := m.forwards[key]; exists {
 		return fmt.Errorf("%s is already forwarded by this session", key)
 	}
-	if m.policy.maxForwards > 0 && len(m.forwards) >= m.policy.maxForwards {
+	if m.policy.maxForwards == 0 {
+		return fmt.Errorf("remote forwarding is configured to permit no forwards")
+	}
+	if len(m.forwards) >= m.policy.maxForwards {
 		return fmt.Errorf("this session already holds the maximum of %d remote forwards", m.policy.maxForwards)
 	}
 	m.forwards[key] = nil
@@ -529,8 +530,13 @@ func channelBindAddr(requested string) string {
 }
 
 // reject logs why a forward request failed and tells the client it failed.
+// reject answers a request we will not carry out. This is a protocol reply, not a
+// failure of the apiserver: a deployment with the feature off, a client re-asking
+// for a port it already holds, or OpenSSH cancelling a forward as it tears a link
+// down all arrive here on an ordinary day, and logging them as errors buries the
+// ones that are not ordinary.
 func (m *reverseForwardManager) reject(req *ssh.Request, err error) {
-	klog.Errorf("%s rejected for user %s: %v", req.Type, m.conn.User(), err)
+	klog.Warningf("%s rejected for user %s: %v", req.Type, m.conn.User(), err)
 	if req.WantReply {
 		_ = req.Reply(false, nil)
 	}

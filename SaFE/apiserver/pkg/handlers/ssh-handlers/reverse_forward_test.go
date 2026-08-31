@@ -1360,17 +1360,18 @@ func TestForwardKnowsWhoStoppedIt(t *testing.T) {
 	testifyassert.False(t, fwd.unexpectedStop())
 }
 
-// TestLoadReverseForwardPolicyRejectsAnUnusableLimit pins that a misconfigured
-// per-session count does not remove the limit. reserve reads anything below one as
-// "no ceiling", so an operator writing 0 to mean "none allowed" would instead let a
-// single session hold as many pod-side listeners as it cares to open.
+// TestLoadReverseForwardPolicyRejectsAnUnusableLimit pins what a per-session count
+// means at each end. Zero is a decision - no forwards on this deployment - and the
+// chart goes out of its way to let it be written, so it must survive the getters;
+// only a value that cannot be a count at all falls back.
 func TestLoadReverseForwardPolicyRejectsAnUnusableLimit(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		set  int
 		want int
 	}{
-		{name: "zero", set: 0, want: 8},
+		// Zero is the one value the chart takes trouble to let an operator write.
+		{name: "zero means none", set: 0, want: 0},
 		{name: "negative", set: -1, want: 8},
 		{name: "usable kept", set: 3, want: 3},
 	} {
@@ -1379,4 +1380,23 @@ func TestLoadReverseForwardPolicyRejectsAnUnusableLimit(t *testing.T) {
 			testifyassert.Equal(t, tc.want, loadReverseForwardPolicy().maxForwards)
 		})
 	}
+}
+
+// TestReverseForwardRefusesWhenNoForwardsArePermitted pins the end of the chain an
+// operator pulls by setting the per-session count to zero. Silently restoring the
+// default here would hand them eight of the thing they asked for none of.
+func TestReverseForwardRefusesWhenNoForwardsArePermitted(t *testing.T) {
+	enableReverseForward(t, map[string]any{sshReverseForwardMaxPerSess: 0})
+
+	m := &reverseForwardManager{
+		conn:     &ssh.ServerConn{Conn: fakeSSHConn{user: testForwardUser}},
+		ctx:      context.Background(),
+		policy:   loadReverseForwardPolicy(),
+		forwards: map[string]*reverseForward{},
+	}
+	testifyassert.Equal(t, 0, m.policy.maxForwards)
+	err := m.reserve(forwardKey("127.0.0.1", 10001))
+	testifyassert.Error(t, err)
+	testifyassert.Contains(t, err.Error(), "no forwards")
+	testifyassert.Empty(t, m.forwards)
 }

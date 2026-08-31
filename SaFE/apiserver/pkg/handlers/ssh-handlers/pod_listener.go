@@ -38,11 +38,6 @@ const (
 	rfwdDropMarker = "SAFE-RFWD-DROP"
 )
 
-// childIDBaseEnv lets a test choose the id a child starts from, so two children can
-// be made to want the same one. Nothing sets it in production, where the starting
-// point is the child's own PID.
-const childIDBaseEnv = "SAFE_RFWD_ID_BASE"
-
 // relayMaxLineBytes caps a single line of relay output. socat can be verbose about
 // a failure, and the scanner's default line is 64 KiB.
 const relayMaxLineBytes = 1 << 20
@@ -499,7 +494,7 @@ func isRendezvousID(id string) bool {
 // SYSTEM: command down to a single `sh <dir>/child.sh` leaves nothing to mangle.
 func acceptorScript(dir, bindAddr string, bindPort uint32, readySeconds int) string {
 	script := fmt.Sprintf(`set -e
-for tool in socat awk date grep mkdir readlink; do
+for tool in socat awk cat date grep mkdir readlink sleep; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "%[4]s $tool is not installed in the container" >&2
     exit 127
@@ -600,7 +595,7 @@ func childScript(dir string) string {
 # second would need millions of forks - so ids do not repeat and the directory can be
 # released when the connection ends, rather than piling up for the life of a forward
 # until the claim loop below runs out of room.
-N=${%[3]s:-$(date +%%s)$$}
+N=$(date +%%s)$$
 c=0
 while ! mkdir "$D/$N" 2>/dev/null; do
   N=$((N+1))
@@ -609,7 +604,7 @@ while ! mkdir "$D/$N" 2>/dev/null; do
   # fix - the rendezvous directory is gone because the forward ended, or there is
   # no mkdir to run - and an unbounded retry would spin on a core forever.
   if [ $c -ge 100 ]; then
-    echo "%[4]s could not claim a rendezvous id under $D" >&2
+    echo "%[3]s could not claim a rendezvous id under $D" >&2
     exit 1
   fi
 done
@@ -618,7 +613,7 @@ S=$D/$N/s
 # background job /dev/null for stdin. Without this dup socat would relay an
 # immediate EOF and nothing from the pod would ever reach the client.
 exec 3<&0
-socat -t %[5]d - UNIX-LISTEN:"$S" <&3 &
+socat -t %[4]d - UNIX-LISTEN:"$S" <&3 &
 P=$!
 # Wait on the clock, not the CPU. A spin here is both useless - socat cannot fork
 # and bind inside a few hundred shell iterations - and harmful, because this pod may
@@ -632,7 +627,7 @@ done
 # without a socket means socat never got it published, and announcing anyway would
 # send the apiserver to a path that is never going to exist.
 if [ ! -S "$S" ]; then
-  echo "%[4]s the relay socket for $N never appeared" >&2
+  echo "%[3]s the relay socket for $N never appeared" >&2
   kill "$P" 2>/dev/null || true
   rm -rf "$D/$N"
   exit 1
@@ -644,7 +639,7 @@ echo "%[2]s $N ${SOCAT_PEERADDR:-127.0.0.1} ${SOCAT_PEERPORT:-0}" >&2
 ( while [ -d "$D" ] && [ -e "/proc/$P" ]; do sleep 2; done
   kill "$P" 2>/dev/null ) >/dev/null 2>&1 &
 wait "$P"
-rm -rf "$D/$N"`, dir, rfwdConnMarker, childIDBaseEnv, rfwdDropMarker, relayHalfCloseGrace)
+rm -rf "$D/$N"`, dir, rfwdConnMarker, rfwdDropMarker, relayHalfCloseGrace)
 }
 
 // connectScript builds the short-lived script that hands one accepted connection

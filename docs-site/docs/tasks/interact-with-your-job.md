@@ -119,7 +119,9 @@ Requirements and limits for `-R`:
 
 - It is on by default. A platform administrator can turn it off for a cluster with
   `ssh.reverse_forward.enable: false`, in which case `-R` is refused.
-- The workload image must contain `socat` — the pod-side listener is built from it.
+- The workload image must contain `socat`, along with `awk`, `cat`, `date`, `grep`,
+  `mkdir`, `readlink` and `sleep` — the pod-side listener is built from them. A
+  missing one is reported by name rather than as a mysterious failure to listen.
 - The pod-side listener may only bind `127.0.0.1`, so no other workload can use your tunnel.
 - The listen port must fall inside the configured range (`1024`–`65535` by default, so that a
   forward cannot shadow a privileged service inside your pod), and a session may hold at most 8
