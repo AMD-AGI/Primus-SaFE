@@ -29,6 +29,9 @@ RCCL_TESTS = {
 
 # Default settings
 NUM_GPUS_PER_NODE = 8
+# Start size of the rccl-tests ladder (`-b`). Named because RCCL_MAX_BYTES has
+# to be validated against it: an -e below -b produces no data rows at all.
+MIN_BYTES = "32M"
 LD_LIBRARY_PATH = "/opt/rocm/lib:/opt/mpich/lib:/usr/local/lib"
 
 # Runtime variables (will be updated by parse_args)
@@ -193,8 +196,16 @@ def get_log_filename(nodes: List[str]) -> str:
 ALLREDUCE_BUSBW_TARGET = float(os.environ.get("RCCL_BUSBW_TARGET", "350.0"))
 ALLREDUCE_MARGIN = 0.85
 
-def busbw_from_algbw(algbw: float, node_count: int, g_per_node: int = 8) -> float:
-    """all-reduce busbw = algbw * 2(n-1)/n, with n = total ranks."""
+def busbw_from_algbw(algbw: float, node_count: int, g_per_node: int = None) -> float:
+    """all-reduce busbw = algbw * 2(n-1)/n, with n = total ranks.
+
+    g_per_node defaults to NUM_GPUS_PER_NODE, the same constant run_rccl_test
+    launches with (-n node_count * NUM_GPUS_PER_NODE). A second hardcoded 8
+    here would silently keep computing with 8 on a non-8-GPU node, and every
+    pass/fail line and busbw restatement would be wrong without saying so.
+    """
+    if g_per_node is None:
+        g_per_node = NUM_GPUS_PER_NODE
     n = node_count * g_per_node
     if n < 2:
         return algbw
@@ -213,8 +224,8 @@ def bw_note(algbw: float, node_count: int) -> str:
 
 def threshold(node_count: int) -> float:
     """Calculate bandwidth threshold for given node count."""
-    G_PER_NODE = 8
-    
+    G_PER_NODE = NUM_GPUS_PER_NODE
+
     if RCCL_TEST_TYPE == 0:  # all_reduce
         # Inverse of busbw = algbw * 2(n-1)/n, so algbw = busbw * n / (2(n-1)).
         # This denominator used to read (2 * n - 1) instead of 2 * (n - 1),
@@ -500,7 +511,7 @@ def run_rccl_test(nodes: List[str]) -> float:
     if HYDRA_IFACE:
         cmd += ["-iface", HYDRA_IFACE]
     cmd += ["-launcher", "ssh", "-hosts", nodes_str,
-            rccl_test, "-b", "32M", "-e", MAX_BYTES, "-f", "2", "-g", "1"]
+            rccl_test, "-b", MIN_BYTES, "-e", MAX_BYTES, "-f", "2", "-g", "1"]
 
     log_file = get_log_filename(nodes)
     log(f"# Log: {log_file}")
@@ -533,6 +544,12 @@ def run_rccl_test(nodes: List[str]) -> float:
             )
             output_lines = []          # stdout only: what parse_algbw reads
             emit_lock = threading.Lock()
+            # A reader can outlive the join timeout below (mpirun exits but a
+            # child still holds the inherited pipe open). By then the enclosing
+            # `with open(...)` has closed f, and an unguarded f.write would
+            # raise ValueError from a daemon thread and dump a traceback into
+            # the console. The flag is read and written under emit_lock.
+            sink_open = [True]
             timeout_seconds = 300
 
             def _pump(stream, collect):
@@ -541,6 +558,8 @@ def run_rccl_test(nodes: List[str]) -> float:
                 try:
                     for line in iter(stream.readline, ''):
                         with emit_lock:
+                            if not sink_open[0]:
+                                return
                             print(line, end='', flush=True)
                             f.write(line)
                             f.flush()
@@ -563,9 +582,13 @@ def run_rccl_test(nodes: List[str]) -> float:
                 process.wait()
                 for t in readers:
                     t.join(timeout=5)
+                with emit_lock:
+                    sink_open[0] = False
                 raise
             for t in readers:
                 t.join(timeout=10)
+            with emit_lock:
+                sink_open[0] = False
 
             result_stdout = ''.join(output_lines)
 
@@ -745,14 +768,24 @@ def parse_args() -> List[str]:
     max_bytes_override = os.environ.get("RCCL_MAX_BYTES", "").strip()
     if max_bytes_override:
         try:
-            parse_size(max_bytes_override)
+            override_bytes = parse_size(max_bytes_override)
         except Exception:
             log(f"[WARN] RCCL_MAX_BYTES={max_bytes_override!r} is not a valid size, "
                 f"keeping the adaptive value {MAX_BYTES}")
         else:
-            log(f"[INFO] RCCL_MAX_BYTES={max_bytes_override} overrides the adaptive "
-                f"value {MAX_BYTES} for {node_count} node(s)")
-            MAX_BYTES = max_bytes_override
+            # An -e below the ladder's -b start size yields no data rows, so
+            # parse_algbw returns 0.0 for every group and recursive_diagnose
+            # condemns the whole cluster with "[FAIL] Failed to parse algbw" --
+            # a config typo presenting as total hardware failure. Refuse it.
+            if override_bytes < parse_size(MIN_BYTES):
+                log(f"[WARN] RCCL_MAX_BYTES={max_bytes_override} is below the "
+                    f"{MIN_BYTES} start size of the test ladder, which would "
+                    f"produce no results at all; keeping the adaptive value "
+                    f"{MAX_BYTES}")
+            else:
+                log(f"[INFO] RCCL_MAX_BYTES={max_bytes_override} overrides the adaptive "
+                    f"value {MAX_BYTES} for {node_count} node(s)")
+                MAX_BYTES = max_bytes_override
 
     return nodes
 

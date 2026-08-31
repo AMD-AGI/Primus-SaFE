@@ -26,6 +26,14 @@ LIST_RE = re.compile(r"unhealthy nodes:\s*\[([^\]]*)\]")
 LABEL_RE = re.compile(r"^[^()]+\(([^()]+)\)$")
 # A bare IPv4 address, the other shape.
 IP_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+# ...or a bare hostname. NODES_FILE is not required to hold IPs -- the
+# documented default is /root/hosts, and binary_diagnose's node_label() falls
+# back to the raw node string whenever HOSTNAME_MAP has no entry for it, so
+# "unhealthy nodes: ['node-a']" is a shape that really occurs. run.sh matches
+# NODES_FILE lines literally, so a hostname is just as usable to it as an IP;
+# accepting only IPv4 here would drop those nodes on the floor and leave them
+# in the list for the next test. (The old ast.literal_eval path handled them.)
+HOSTNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def extract_unhealthy_nodes(text):
@@ -43,7 +51,7 @@ def extract_unhealthy_nodes(text):
                 continue
             label = LABEL_RE.match(entry)
             node = label.group(1).strip() if label else entry
-            if not IP_RE.match(node):
+            if not (IP_RE.match(node) or HOSTNAME_RE.match(node)):
                 # Do not pass a value downstream that run.sh cannot match
                 # against its node list -- say so instead of dropping it.
                 unparsed.append(entry)

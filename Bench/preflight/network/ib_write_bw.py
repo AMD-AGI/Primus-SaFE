@@ -246,11 +246,18 @@ _pairing_cache_lock = threading.Lock()
 # Shell run on each node to report, for every HCA, the subnet of its first
 # routable GID. Link-local (fe80::) and the all-zero placeholder are skipped:
 # every card has a link-local GID, so it identifies nothing.
+#
+# Iterate the gids directory rather than a fixed 0..7: which index carries the
+# routable RoCEv2 GID varies by card and by configuration (config.sh defaults
+# NCCL_IB_GID_INDEX to 1, binary_diagnose to 3), and on a card that exposes it
+# above 7 a bounded loop finds nothing, rail_pairing never engages, and the log
+# gives no hint that the index range was the reason.
 _RAIL_PROBE = """
 for d in %s; do
   r=""
-  for i in 0 1 2 3 4 5 6 7; do
-    g=$(cat /sys/class/infiniband/$d/ports/1/gids/$i 2>/dev/null) || continue
+  for f in /sys/class/infiniband/$d/ports/1/gids/*; do
+    [ -r "$f" ] || continue
+    g=$(cat "$f" 2>/dev/null) || continue
     case "$g" in
       0000:0000:0000:0000:0000:0000:0000:0000) continue ;;
       fe80:*) continue ;;
@@ -288,8 +295,15 @@ def get_rail_map(node, local_ip, ib_hca_list, ssh_cmd):
         log(f"[{node}] could not read GID rail map: {e}")
         rails = {}
 
-    with _rail_cache_lock:
-        _rail_cache[node] = rails
+    # Never memoise a failure. One ssh timeout or a momentary load hiccup would
+    # otherwise pin this node to {} for the rest of the run: rail_pairing()
+    # returns None every time afterwards, the run silently reverts to the
+    # static table, and on a straight-through fabric that crosses most pairs
+    # and reports a healthy node as unhealthy. An empty map costs one retry;
+    # a cached empty map costs the node.
+    if rails:
+        with _rail_cache_lock:
+            _rail_cache[node] = rails
     return rails
 
 def get_mapped_hca(index, ib_hca_list):

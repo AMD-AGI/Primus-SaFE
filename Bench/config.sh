@@ -35,7 +35,17 @@ export SSH_PORT="${SSH_PORT:-22366}"
 # ==============================================================================
 # Network Interface Configuration
 # ==============================================================================
-export IP_INTERFACE="${IP_INTERFACE:-ens3}"
+# Derive the control-plane interface from the default route rather than
+# hardcoding a name: it is eth0 inside most k8s pods, ens3 on the Crusoe VMs,
+# and something else again on bare metal. Hardcoding either one silently
+# breaks every cluster that uses the other -- ib_write_bw.py's get_ip() then
+# returns None and exits 1, and RCCL bootstrap fails with "no interface
+# found". Fall back to eth0, which is what this defaulted to historically.
+if [ -z "${IP_INTERFACE}" ]; then
+    IP_INTERFACE=$(ip route get 8.8.8.8 2>/dev/null | grep -oP '\bdev\s+\K\S+' | head -n1)
+    IP_INTERFACE="${IP_INTERFACE:-eth0}"
+fi
+export IP_INTERFACE
 export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-${IP_INTERFACE}}"
 export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-${IP_INTERFACE}}"
 export NCCL_IB_HCA="${NCCL_IB_HCA:-"ionic_0,ionic_1,ionic_2,ionic_3,ionic_4,ionic_5,ionic_6,ionic_7"}"

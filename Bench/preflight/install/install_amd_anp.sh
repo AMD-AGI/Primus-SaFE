@@ -54,6 +54,17 @@ if [ -z "${RCCL_SOCKET_H}" ]; then
   echo "       RCCL must be built before the ANP plugin." >&2
   exit 1
 fi
+# Require the symbol to actually be there before reading anything into its
+# absence. Falling straight through to v1.2.0 on a grep miss makes "this header
+# is not shaped the way we expect" indistinguishable from "this is the old
+# 4-arg RCCL", and the build then dies a hundred lines later inside net_ib.cc
+# with an argument-count error whose stated cause is wrong.
+if ! grep -qE '\bncclFindInterfaces[[:space:]]*\(' "${RCCL_SOCKET_H}"; then
+  echo "Error: ncclFindInterfaces is not declared in ${RCCL_SOCKET_H}." >&2
+  echo "       Cannot tell the 4-arg from the 5-arg RCCL ABI, so the ANP" >&2
+  echo "       version cannot be selected. Check the RCCL source layout." >&2
+  exit 1
+fi
 if grep -qE '^[[:space:]]*ncclResult_t[[:space:]]+ncclFindInterfaces' "${RCCL_SOCKET_H}"; then
   ANP_VERSION="v1.3.0"
 else
@@ -220,7 +231,7 @@ export RCCL_HOME
 if ! make -j 16 MPI_INCLUDE=/opt/mpich/include/ \
            MPI_LIB_PATH=/opt/mpich/lib/ \
            ROCM_PATH=/opt/rocm \
-           RCCL_HOME=/opt/rccl; then
+           RCCL_HOME="${RCCL_HOME}"; then
   echo "Error: Failed to build AMD ANP driver."
   exit 1
 fi

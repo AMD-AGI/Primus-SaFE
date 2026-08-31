@@ -307,7 +307,15 @@ print(f'_ne={d.get(\"error\",\"\")}')
             bash run.sh 2>&1 | tee $preflight_network_logname
             cd $PRIMUSBENCH_PATH
 
-            match=$(grep -oP "unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tail -n1)
+            # Anchor on the *final* verdict line, not on any line ending in
+            # "unhealthy nodes: [". binary_diagnose logs a per-test
+            # "[RESULT] unhealthy nodes: [host(ip), ...]" for every test it
+            # runs, and preflight/network/run.sh only prints a "Final
+            # unhealthy nodes" line when the retry intersection is non-empty.
+            # So on a cluster where run 1 blamed a node and run 2 came back
+            # clean, tail -n1 picked up the stale per-test line and reported
+            # nodes that the retry had just exonerated.
+            match=$(grep -oP "Final unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tail -n1)
             if [[ -n "$match" ]]; then
                 unhealthy_nodes=($(echo "$match" | tr -d "'" | tr ',' ' '))
             else
@@ -339,7 +347,15 @@ print(f'_ne={d.get(\"error\",\"\")}')
                 done
             fi
         fi
-        ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
+        # Do not call it a clean pass when the check did not complete: the
+        # node list below is "not known to be bad", which is not the same as
+        # "validated". The list itself is unchanged either way -- an
+        # unattributable failure gives us no node to drop.
+        if [ "${network_harness_failed:-0}" -eq 1 ]; then
+            warn "Network check did NOT complete. Unvalidated nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
+        else
+            ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
+        fi
 
         if [ "${network_harness_failed:-0}" -eq 1 ]; then
             echo "WARNING: network check did not complete -- a test failed without identifying any unhealthy node." >> "$BENCH_REPORT"
@@ -788,7 +804,15 @@ else
             bash run.sh 2>&1 | tee $preflight_network_logname
             cd $PRIMUSBENCH_PATH
 
-            match=$(grep -oP "unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tail -n1)
+            # Anchor on the *final* verdict line, not on any line ending in
+            # "unhealthy nodes: [". binary_diagnose logs a per-test
+            # "[RESULT] unhealthy nodes: [host(ip), ...]" for every test it
+            # runs, and preflight/network/run.sh only prints a "Final
+            # unhealthy nodes" line when the retry intersection is non-empty.
+            # So on a cluster where run 1 blamed a node and run 2 came back
+            # clean, tail -n1 picked up the stale per-test line and reported
+            # nodes that the retry had just exonerated.
+            match=$(grep -oP "Final unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tail -n1)
             if [[ -n "$match" ]]; then
                 unhealthy_nodes=($(echo "$match" | tr -d "'" | tr ',' ' '))
             else
@@ -820,7 +844,15 @@ else
                 done
             fi
         fi
-        ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
+        # Do not call it a clean pass when the check did not complete: the
+        # node list below is "not known to be bad", which is not the same as
+        # "validated". The list itself is unchanged either way -- an
+        # unattributable failure gives us no node to drop.
+        if [ "${network_harness_failed:-0}" -eq 1 ]; then
+            warn "Network check did NOT complete. Unvalidated nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
+        else
+            ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
+        fi
 
         if [ "${network_harness_failed:-0}" -eq 1 ]; then
             echo "WARNING: network check did not complete -- a test failed without identifying any unhealthy node." >> "$BENCH_REPORT"

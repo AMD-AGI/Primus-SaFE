@@ -24,14 +24,15 @@
 # no nested-quote escaping, and the glob is expanded by the host's shell.
 # Plain POSIX sh -- the host is not guaranteed to have bash.
 
+# Read every governor in one process. A `cat` per CPU forks 384 times on a
+# large host, all of it under the 60s timeout config_check/run.sh imposes;
+# `grep -h . <glob>` gives the same list of values in one.
 nsenter --target 1 --mount --uts --ipc --net --pid -- sh <<'REMOTE'
 total=0
 bad=0
 seen=""
-for f in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_governor; do
-  [ -e "$f" ] || continue        # POSIX sh leaves an unmatched glob literal
+for g in $(grep -h . /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_governor 2>/dev/null); do
   total=$((total + 1))
-  g=$(cat "$f" 2>/dev/null)
   [ "$g" = "performance" ] && continue
   bad=$((bad + 1))
   case " $seen " in

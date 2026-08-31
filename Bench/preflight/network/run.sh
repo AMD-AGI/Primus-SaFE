@@ -130,6 +130,11 @@ if [[ "$RANK" == "0" ]]; then
   # Set when a test exits non-zero but the failure cannot be attributed to
   # any node (e.g. the harness itself errored out). Without this, such a run
   # is indistinguishable from "everything passed".
+  #
+  # Scoped to one run and reset at the top of each: MAX_RETRY exists so a
+  # transient failure can be disproved by a retry, and that has to apply here
+  # too. A run-1 harness error that run 2 does not reproduce is not a reason
+  # to fail a cluster the retry just validated.
   harness_failure=0
   # Define test types and parameters (all_reduce first, then alltoall)
   TEST_TYPES=(0 1)
@@ -145,6 +150,7 @@ if [[ "$RANK" == "0" ]]; then
     cat "$NODES_FILE"
     unset current_run_unhealthy
     declare -A current_run_unhealthy
+    harness_failure=0
 
     # Step 1: Run IB bandwidth test first to filter out nodes with basic connectivity issues
     echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Running ib_write_bw test first (Run $run)..."
@@ -171,6 +177,13 @@ if [[ "$RANK" == "0" ]]; then
         # Remove unhealthy nodes before RCCL tests
         remove_unhealthy_nodes "$unhealthy_list"
         echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Removed unhealthy nodes from IB test: $unhealthy_list"
+      else
+        # Same reasoning as the RCCL branch below: ib_write_bw.py exits 1 for
+        # failures that blame no node (get_ip() returning None, every group
+        # raising). Left unrecorded, a clean RCCL run afterwards would print
+        # "All diagnosis tests passed" for a cluster whose IB test never ran.
+        harness_failure=1
+        echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] [NETWORK] [ERROR] ib_write_bw failed (exit $test_ret) but no node could be blamed; treating as a harness failure"
       fi
     fi
 
