@@ -420,30 +420,46 @@ def build_env_vars() -> Dict[str, str]:
     """Build environment variables for RCCL test."""
     env = os.environ.copy()
     
-    # Common environment variables for all modes
+    # Pinned for all modes: these are what the diagnosis is, and an ambient
+    # value must not change them.
     env.update({
         "MPIEXEC_ALLOW_ROOT": "1",
         "NCCL_SOCKET_IFNAME": RCCL_SOCKET_IFNAME,
         "NCCL_IB_GID_INDEX": str(NCCL_IB_GID_INDEX),
         "NCCL_IB_HCA": RCCL_IB_HCA,
-        "NCCL_IB_DISABLE": os.environ.get("NCCL_IB_DISABLE", "0"),
-        "NCCL_IB_PCI_RELAXED_ORDERING": os.environ.get("NCCL_IB_PCI_RELAXED_ORDERING", "1"),
-        "NCCL_SHM_DISABLE": os.environ.get("NCCL_SHM_DISABLE", "1"),
-        "NCCL_CHECKS_DISABLE": os.environ.get("NCCL_CHECKS_DISABLE", "1"),
-        "NCCL_CROSS_NIC": os.environ.get("NCCL_CROSS_NIC", "0"),
-        "RCCL_MSCCL_ENABLE": os.environ.get("RCCL_MSCCL_ENABLE", "0"),
         "NCCL_DEBUG": RCCL_DEBUG,
-        # PXB. Worth overriding where the NICs are not behind a PCIe switch:
-        # if the GPU-to-NIC path is PHB, this threshold disables GDR outright.
-        "NCCL_NET_GDR_LEVEL": os.environ.get("NCCL_NET_GDR_LEVEL", "2"),
         # Deliberately NOT read from the environment: config.sh exports
         # HSA_NO_SCRATCH_RECLAIM=1 bench-wide, and this test overrides it back
         # to 0 on purpose. Making it overridable let the ambient 1 win and broke
         # all_reduce at connect time.
         "HSA_NO_SCRATCH_RECLAIM": "0",
-        "NCCL_NET_GDR_READ": os.environ.get("NCCL_NET_GDR_READ", "1"),
         "MPIEXEC_RSH": f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
     })
+
+    # Defaults, i.e. used only when the caller has not already exported one.
+    # env is a copy of os.environ, so setdefault is exactly what the old
+    # `"K": os.environ.get("K", d)` spelling did, sixteen times over.
+    #
+    # Worth knowing what that means in the shipped path: config.sh
+    # unconditionally exports NCCL_CROSS_NIC, NCCL_CHECKS_DISABLE,
+    # NCCL_NET_GDR_LEVEL and RCCL_MSCCL_ENABLE, so for those four the value
+    # below is never reached and the diagnosis inherits whatever the workload
+    # was tuned with. That is deliberate for a test meant to reproduce the
+    # workload's conditions -- but it does mean these are not the values the
+    # test actually runs with unless you check the environment.
+    for key, value in {
+        "NCCL_IB_DISABLE": "0",
+        "NCCL_IB_PCI_RELAXED_ORDERING": "1",
+        "NCCL_SHM_DISABLE": "1",
+        "NCCL_CHECKS_DISABLE": "1",
+        "NCCL_CROSS_NIC": "0",
+        "RCCL_MSCCL_ENABLE": "0",
+        # PXB. Worth overriding where the NICs are not behind a PCIe switch:
+        # if the GPU-to-NIC path is PHB, this threshold disables GDR outright.
+        "NCCL_NET_GDR_LEVEL": "2",
+        "NCCL_NET_GDR_READ": "1",
+    }.items():
+        env.setdefault(key, value)
     
     if ENABLE_AINIC:
         # AINIC mode: use special library paths and AINIC-specific settings
