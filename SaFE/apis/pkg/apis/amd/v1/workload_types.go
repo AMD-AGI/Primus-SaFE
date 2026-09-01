@@ -293,6 +293,16 @@ type WorkloadPod struct {
 type Container struct {
 	// Container name
 	Name string `json:"name"`
+	// Why the container last terminated, as the kubelet named it: OOMKilled,
+	// Error, ContainerCannotRun, DeadlineExceeded, Completed.
+	//
+	// Distinct from Message, which is free text. This is the only place OOM is
+	// stated: the pod-level status.reason that WorkloadPod.FailedMessage carries
+	// covers the kill decisions made above the container (Evicted, Preempted,
+	// NodeLost), and a container the kernel killed for memory leaves that field
+	// empty. Consumers were left inferring it from exit code 137, which is any
+	// SIGKILL and therefore also every eviction and every deliberate stop.
+	Reason string `json:"reason,omitempty"`
 	// Message regarding the last termination of the container
 	Message string `json:"message,omitempty"`
 	// Exit status from the last termination of the container

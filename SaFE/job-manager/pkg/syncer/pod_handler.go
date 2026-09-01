@@ -836,6 +836,7 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 		}
 		c := v1.Container{
 			Name:     container.Name,
+			Reason:   terminated.Reason,
 			ExitCode: terminated.ExitCode,
 			Message:  terminated.Message,
 		}
