@@ -30,6 +30,22 @@ import (
 	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 )
 
+// GetK8sServiceName returns the data-plane Kubernetes Service object name.
+// It reads ServiceNameLabel first, then Spec.Service.Name, and only then the
+// workload name so callers do not treat Workload.Name as the Service name.
+func GetK8sServiceName(w *v1.Workload) string {
+	if w == nil {
+		return ""
+	}
+	if name := v1.GetLabel(w, v1.ServiceNameLabel); name != "" {
+		return name
+	}
+	if w.Spec.Service != nil && w.Spec.Service.Name != "" {
+		return w.Spec.Service.Name
+	}
+	return w.Name
+}
+
 // GetTotalReplica returns the total replica count across all resources in the workload
 func GetTotalReplica(w *v1.Workload) int {
 	n := 0

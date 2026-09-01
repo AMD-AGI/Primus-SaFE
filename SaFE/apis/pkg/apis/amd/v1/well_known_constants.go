@@ -142,8 +142,11 @@ const (
 	GroupIdLabel                      = WorkloadPrefix + "group.id"
 	RootWorkloadIdLabel               = WorkloadPrefix + "root.id"
 	K8sObjectIdLabel                  = PrimusSafePrefix + "k8s.object.id"
-	UseWorkspaceStorageAnnotation     = WorkloadPrefix + "use.workspace.storage"
-	ForceHostNetworkAnnotation        = WorkloadPrefix + "force.host.network"
+	// Data-plane Kubernetes Service object name. Dispatcher and the service
+	// API read this label instead of treating Workload.Name as the Service name.
+	ServiceNameLabel              = PrimusSafePrefix + "service.name"
+	UseWorkspaceStorageAnnotation = WorkloadPrefix + "use.workspace.storage"
+	ForceHostNetworkAnnotation    = WorkloadPrefix + "force.host.network"
 	// For full-GPU jobs with required affinity, the system reserves a node during retries to ensure reuse.
 	// Note: This feature is disabled when preemption is enabled
 	RetryOnOriginalNodesAnnotation = PrimusSafePrefix + "retry.on.original.nodes"

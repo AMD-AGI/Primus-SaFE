@@ -200,7 +200,7 @@ func (r *DispatcherReconciler) processTorchFTWorkload(ctx context.Context, rootW
 	if result, err := r.processWorkload(ctx, lightHouseWorkload); err != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
-	lightHouseAddr := "http://" + lightHouseWorkload.Name + "." + rootWorkload.Spec.Workspace +
+	lightHouseAddr := "http://" + commonworkload.GetK8sServiceName(lightHouseWorkload) + "." + rootWorkload.Spec.Workspace +
 		".svc.cluster.local:" + strconv.Itoa(LightHousePort)
 
 	for i := 0; i < group; i++ {
@@ -805,18 +805,23 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 	}
 	k8sClientSet := clientSets.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
+	svcName := commonworkload.GetK8sServiceName(adminWorkload)
 	var err error
-	if _, err = k8sClientSet.CoreV1().Services(namespace).Get(ctx, adminWorkload.Name, metav1.GetOptions{}); err == nil {
+	if _, err = k8sClientSet.CoreV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{}); err == nil {
 		return ctrlruntime.Result{}, nil
 	}
 	specService := adminWorkload.Spec.Service
 	service := &corev1.Service{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      adminWorkload.Name,
+			Name:      svcName,
 			Namespace: namespace,
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: v1.GetUserName(adminWorkload),
+			},
+			Labels: map[string]string{
+				v1.WorkloadIdLabel:  adminWorkload.Name,
+				v1.ServiceNameLabel: svcName,
 			},
 		},
 		Spec: corev1.ServiceSpec{
@@ -850,14 +855,14 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 
 	if service, err = k8sClientSet.CoreV1().Services(namespace).Create(ctx,
 		service, metav1.CreateOptions{}); client.IgnoreAlreadyExists(err) != nil {
-		klog.ErrorS(err, "failed to create service", "name", adminWorkload.Name)
+		klog.ErrorS(err, "failed to create service", "name", svcName)
 		if specService.NodePort > 0 {
 			// NodePort error occurred; cannot retry.
 			return ctrlruntime.Result{}, commonerrors.NewInternalError(err.Error())
 		}
 		return ctrlruntime.Result{}, err
 	}
-	klog.Infof("service %s/%s created", namespace, adminWorkload.Name)
+	klog.Infof("service %s/%s created", namespace, svcName)
 	return ctrlruntime.Result{}, nil
 }
 
@@ -869,15 +874,19 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 	clientSets *syncer.ClusterClientSets, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
 	k8sClientSet := clientSets.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
+	svcName := commonworkload.GetK8sServiceName(adminWorkload)
 
 	// Delete when no service desired
 	if adminWorkload.Spec.Service == nil {
-		err := k8sClientSet.CoreV1().Services(namespace).Delete(ctx, adminWorkload.Name, metav1.DeleteOptions{})
+		err := k8sClientSet.CoreV1().Services(namespace).Delete(ctx, svcName, metav1.DeleteOptions{})
+		if adminWorkload.Name != "" && adminWorkload.Name != svcName {
+			_ = k8sClientSet.CoreV1().Services(namespace).Delete(ctx, adminWorkload.Name, metav1.DeleteOptions{})
+		}
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// Get or create
-	existing, err := k8sClientSet.CoreV1().Services(namespace).Get(ctx, adminWorkload.Name, metav1.GetOptions{})
+	existing, err := k8sClientSet.CoreV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return r.createService(ctx, adminWorkload, clientSets, obj)
 	}
@@ -917,7 +926,7 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 		return ctrlruntime.Result{}, nil
 	}
 	if _, err = k8sClientSet.CoreV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
-		klog.ErrorS(err, "failed to update service", "name", adminWorkload.Name)
+		klog.ErrorS(err, "failed to update service", "name", svcName)
 		if specService.NodePort > 0 {
 			// NodePort related update errors are not retryable via generic update
 			err = commonerrors.NewInternalError(err.Error())
@@ -936,6 +945,7 @@ func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload 
 	k8sClientSet := clientSets.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
 	name := adminWorkload.Name
+	svcName := commonworkload.GetK8sServiceName(adminWorkload)
 	if _, err := k8sClientSet.NetworkingV1().Ingresses(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
 		return ctrlruntime.Result{}, nil
 	}
@@ -962,7 +972,7 @@ func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload 
 							PathType: &pathType,
 							Backend: networkingv1.IngressBackend{
 								Service: &networkingv1.IngressServiceBackend{
-									Name: name, Port: networkingv1.ServiceBackendPort{
+									Name: svcName, Port: networkingv1.ServiceBackendPort{
 										Number: int32(specService.Port),
 									},
 								},
@@ -1021,11 +1031,14 @@ func (r *DispatcherReconciler) updateIngress(ctx context.Context, adminWorkload 
 		return ctrlruntime.Result{}, err
 	}
 	specService := adminWorkload.Spec.Service
+	svcName := commonworkload.GetK8sServiceName(adminWorkload)
 	if len(existing.Spec.Rules) > 0 && existing.Spec.Rules[0].HTTP != nil && len(existing.Spec.Rules[0].HTTP.Paths) > 0 {
-		if existing.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Port.Number == int32(specService.Port) {
+		backend := existing.Spec.Rules[0].HTTP.Paths[0].Backend.Service
+		if backend.Name == svcName && backend.Port.Number == int32(specService.Port) {
 			return ctrlruntime.Result{}, nil
 		}
-		existing.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Port.Number = int32(specService.Port)
+		backend.Name = svcName
+		backend.Port.Number = int32(specService.Port)
 	} else {
 		return ctrlruntime.Result{}, commonerrors.NewInternalError("no rules found in ingress")
 	}

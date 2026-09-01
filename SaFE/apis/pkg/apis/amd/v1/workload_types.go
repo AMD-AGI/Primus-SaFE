@@ -95,6 +95,9 @@ type HealthCheck struct {
 }
 
 type Service struct {
+	// Kubernetes Service object name. When empty, the webhook defaults it to
+	// the workload name and stamps ServiceNameLabel on the Workload.
+	Name string `json:"name,omitempty"`
 	// Service protocol, e.g. TCP/UDP, default TCP
 	Protocol corev1.Protocol `json:"protocol"`
 	// Service port for external access, Defaults to targetPort.
@@ -269,7 +272,7 @@ type WorkloadPod struct {
 	Phase corev1.PodPhase `json:"phase,omitempty"`
 	// The node's IP address where the Pod is running
 	HostIp string `json:"hostIP,omitempty"`
-	// The Pod's own IP address inside the cluster Pod network. 
+	// The Pod's own IP address inside the cluster Pod network.
 	PodIp string `json:"podIP,omitempty"`
 	// The rank of pod, only for pytorch-job
 	Rank string `json:"rank,omitempty"`

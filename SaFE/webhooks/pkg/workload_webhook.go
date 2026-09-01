@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -363,6 +364,16 @@ func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 	}
 	if workload.Spec.Service.Port == 0 {
 		workload.Spec.Service.Port = workload.Spec.Service.TargetPort
+	}
+	if workload.Spec.Service.Name != "" {
+		workload.Spec.Service.Name = stringutil.NormalizeName(workload.Spec.Service.Name)
+	} else if existing := v1.GetLabel(workload, v1.ServiceNameLabel); existing != "" {
+		workload.Spec.Service.Name = existing
+	} else {
+		workload.Spec.Service.Name = workload.Name
+	}
+	if workload.Spec.Service.Name != "" {
+		v1.SetLabel(workload, v1.ServiceNameLabel, workload.Spec.Service.Name)
 	}
 	if workload.Spec.Service.Extends == nil {
 		workload.Spec.Service.Extends = make(map[string]string)
@@ -944,6 +955,11 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	if err = v.validateService(ctx, newWorkload); err != nil {
 		return err
 	}
+	if oldWorkload != nil && v1.IsWorkloadDispatched(newWorkload) &&
+		oldWorkload.Spec.Service != nil && newWorkload.Spec.Service != nil &&
+		commonworkload.GetK8sServiceName(oldWorkload) != commonworkload.GetK8sServiceName(newWorkload) {
+		return fmt.Errorf("service name is immutable after the workload is dispatched")
+	}
 	if err = v.validateHealthCheck(newWorkload); err != nil {
 		return err
 	}
@@ -1330,6 +1346,38 @@ func (v *WorkloadValidator) validateService(ctx context.Context, workload *v1.Wo
 	if workload.Spec.Service.ServiceType == corev1.ServiceTypeNodePort {
 		if workload.Spec.Service.NodePort <= 0 {
 			return fmt.Errorf("the nodePort is empty")
+		}
+	}
+	svcName := commonworkload.GetK8sServiceName(workload)
+	if svcName != "" {
+		if errs := validation.IsDNS1035Label(svcName); len(errs) > 0 {
+			return fmt.Errorf("invalid service name %s: %s", svcName, strings.Join(errs, ", "))
+		}
+		if err := v.validateServiceNameUnique(ctx, workload, svcName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateServiceNameUnique rejects a Service name already used by another
+// workload in the same workspace.
+func (v *WorkloadValidator) validateServiceNameUnique(ctx context.Context, workload *v1.Workload, svcName string) error {
+	if v.Client == nil || workload.Spec.Workspace == "" {
+		return nil
+	}
+	list := &v1.WorkloadList{}
+	selector := labels.SelectorFromSet(map[string]string{v1.WorkspaceIdLabel: workload.Spec.Workspace})
+	if err := v.Client.List(ctx, list, &client.ListOptions{LabelSelector: selector}); err != nil {
+		return err
+	}
+	for i := range list.Items {
+		other := &list.Items[i]
+		if other.Name == workload.Name {
+			continue
+		}
+		if commonworkload.GetK8sServiceName(other) == svcName {
+			return fmt.Errorf("the service name %s is already used by workload %s", svcName, other.Name)
 		}
 	}
 	return nil

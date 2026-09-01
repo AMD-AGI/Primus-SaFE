@@ -234,6 +234,11 @@ spec:
               service:
                 description: Service configuration
                 properties:
+                  name:
+                    description: |-
+                      Kubernetes Service object name. When empty, the webhook defaults it to
+                      the workload name and stamps ServiceNameLabel on the Workload.
+                    type: string
                   extends:
                     additionalProperties:
                       type: string
