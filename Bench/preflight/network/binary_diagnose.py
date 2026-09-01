@@ -495,6 +495,15 @@ def build_env_vars() -> Dict[str, str]:
         "NCCL_IB_GID_INDEX": str(NCCL_IB_GID_INDEX),
         "NCCL_IB_HCA": RCCL_IB_HCA,
         "NCCL_DEBUG": RCCL_DEBUG,
+        # Pinned, not defaulted, and not a tuning knob. It decides whether RCCL
+        # uses RDMA at all -- with it set, RCCL falls back to TCP sockets and
+        # this preflight measures the wrong transport. An ambient 1 would put
+        # every pair far under the busbw bar, the bisection would "confirm"
+        # every node faulty, and Bench/run.sh would abort a perfectly healthy
+        # cluster with nothing in the log naming the transport as the reason.
+        # The other knobs below are legitimately site-tunable; this one is what
+        # the test *is*.
+        "NCCL_IB_DISABLE": "0",
         # Deliberately NOT read from the environment: config.sh exports
         # HSA_NO_SCRATCH_RECLAIM=1 bench-wide, and this test overrides it back
         # to 0 on purpose. Making it overridable let the ambient 1 win and broke
@@ -504,8 +513,17 @@ def build_env_vars() -> Dict[str, str]:
     })
 
     # Defaults, i.e. used only when the caller has not already exported one.
-    # env is a copy of os.environ, so setdefault is exactly what the old
-    # `"K": os.environ.get("K", d)` spelling did, sixteen times over.
+    # env is a copy of os.environ, so setdefault is exactly what the
+    # `"K": os.environ.get("K", d)` spelling it replaced did.
+    #
+    # That spelling was itself introduced earlier in this branch, so read
+    # against main this is not a refactor: on main all of these were pinned
+    # with update() and no ambient value could reach them. Making them
+    # overridable is deliberate -- a check meant to reproduce the workload's
+    # conditions has to run with the workload's tuning -- but it is a
+    # behaviour change, and the log line at the end of this function exists so
+    # a verdict produced under site tuning cannot be mistaken for one produced
+    # under these defaults.
     #
     # Worth knowing what that means in the shipped path: config.sh
     # unconditionally exports NCCL_CROSS_NIC, NCCL_CHECKS_DISABLE,
@@ -516,7 +534,6 @@ def build_env_vars() -> Dict[str, str]:
     # test actually runs with unless you check the environment.
     overridden = []
     for key, value in {
-        "NCCL_IB_DISABLE": "0",
         "NCCL_IB_PCI_RELAXED_ORDERING": "1",
         "NCCL_SHM_DISABLE": "1",
         "NCCL_CHECKS_DISABLE": "1",
@@ -580,12 +597,30 @@ def build_env_vars() -> Dict[str, str]:
 
 def run_rccl_test(nodes: List[str]) -> Optional[float]:
     """Run RCCL performance test on specified nodes."""
+    # The three paths below return 0.0, not None, and the difference from the
+    # parse-miss path further down is deliberate: it is whether the bisection
+    # can resolve the failure.
+    #
+    # A missing result row cannot be bisected -- its cause is the -e size or
+    # the table layout, so every subgroup reproduces it and the leaves end up
+    # blaming hardware for a config slip. That is why it returns None.
+    #
+    # A group of one, an unreachable node and a hung mpiexec can be bisected:
+    # a subgroup that excludes the culprit passes, the recursion narrows to the
+    # node, and diagnose_single_with_healthy retests it against a known-good
+    # peer. Returning None for these would abandon exactly the isolation this
+    # tool exists to do. They stay 0.0 -- "did not clear the bar, go find out
+    # who" -- and say in the log which of them happened.
     if len(nodes) < 2:
+        # Not a measurement failure at all: a single node has no peer to talk
+        # to. 0.0 sends it to the pair test against a healthy node below.
         log(f"[WARN] Not enough nodes ({label_nodes(nodes)}) for RCCL test.")
         return 0.0
 
     if not check_connectivity(nodes):
-        log(f"[FAIL] Connectivity check failed for nodes {label_nodes(nodes)}")
+        log(f"[FAIL] Connectivity check failed for {label_nodes(nodes)} "
+            f"(ssh/mpiexec could not reach every node; the bisection will "
+            f"narrow this to the node responsible)")
         return 0.0
 
     # Get test binary
@@ -711,7 +746,9 @@ def run_rccl_test(nodes: List[str]) -> Optional[float]:
             log(f"[INFO] After {test_name} on {label_nodes(nodes)}, count={len(nodes)}, algbw = {algbw:.2f} GB/s")
         return algbw
     except subprocess.TimeoutExpired:
-        log(f"[Exception] RCCL test timed out for {label_nodes(nodes)}")
+        log(f"[Exception] RCCL test timed out for {label_nodes(nodes)} "
+            f"(bisectable: a hang that is one node's fault narrows to it, one "
+            f"that is not ends at the unverified-blame warning below)")
         return 0.0
     except Exception as e:
         log(f"[Exception] Test failed for {label_nodes(nodes)}: {e}")
@@ -795,7 +832,21 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
         with stat_lock:
             total_failed_nodes += len(nodes)
             if total_failed_nodes >= total_nodes and healthy_node_queue.empty():
-                log(f"[WARNING] All nodes appear to be faulty or no healthy nodes available for comparison")
+                # Every node failed and not one was ever confirmed healthy, so
+                # there is no reference to test these against. The nodes are
+                # still returned -- an all-dead cluster must stop the benchmark,
+                # and downgrading this to "did not complete" would let it
+                # proceed on nodes nothing worked on. But the blame is
+                # unverified, and a cluster-wide harness fault (mpiexec gone,
+                # ssh keys broken, RCCL built against the wrong ROCm) produces
+                # exactly this shape. Say so, so the operator reads the node
+                # list as "nothing worked here" rather than as sixteen
+                # independent hardware failures.
+                log(f"[WARNING] All {total_nodes} node(s) failed and none was ever "
+                    f"confirmed healthy, so none of these verdicts was checked "
+                    f"against a known-good peer. Blaming {label_nodes(nodes)}, but "
+                    f"a cluster-wide harness fault looks identical to this -- "
+                    f"check the failure mode logged above before replacing hardware.")
                 return nodes.copy()
 
         log(f"[FINAL CHECK] Testing {label_nodes(nodes)} individually with healthy nodes.")

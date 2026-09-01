@@ -76,7 +76,7 @@ record_run 1 1
 record_run 2 0
 verdict
 check "a retry that completes clean is a pass, with the hiccup noted" 0 \
-  "All diagnosis tests passed" "Run(s) 1 failed without identifying any unhealthy node"
+  "All diagnosis tests passed" "Run(s) 1 hit a test failure that blamed no node"
 
 # --- both facts get reported, not one or the other ---------------------------
 # The old code reported the harness failure only in an elif under "intersection
@@ -88,7 +88,36 @@ record_run 2 1
 verdict
 check "blamed nodes and an unfinished run are both reported" 1 \
   "Final unhealthy nodes: ['10.0.0.5']" \
-  "Run(s) 2 failed without identifying any unhealthy node"
+  "Run(s) 2 hit a test failure that blamed no node"
+
+# --- an unfinished run's positive findings are not thrown away ---------------
+# Every retry both blamed a node and hit an unattributable failure. Nothing was
+# ever comparable, so nothing seeded the intersection -- and reporting only
+# "did not complete" here meant Bench/run.sh matched no node list and handed
+# the node that demonstrably failed a test straight to the benchmark.
+reset_verdict_state
+record_run 1 1 "10.0.0.7"
+record_run 2 1 "10.0.0.7"
+verdict
+check "a node blamed only by unfinished runs is still reported" 1   "Final unhealthy nodes: ['10.0.0.7']" "Diagnosis did not complete"
+
+# With nothing to confirm against, report the union rather than the overlap.
+reset_verdict_state
+record_run 1 1 "10.0.0.7"
+record_run 2 1 "10.0.0.8"
+verdict
+check "with no completed run the fallback is the union" 1 "Diagnosis did not complete"
+check "with no completed run the fallback is the union (7)" 1 "10.0.0.7"
+check "with no completed run the fallback is the union (8)" 1 "10.0.0.8"
+
+# A completed run stays authoritative: it is the confirmation mechanism, and an
+# unfinished run's blame must not slip past it.
+reset_verdict_state
+record_run 1 1 "10.0.0.7"
+record_run 2 0
+verdict
+check "a completed clean run outranks an unfinished run's blame" 0 "All diagnosis tests passed"
+refute "a completed clean run outranks an unfinished run's blame" "10.0.0.7"
 
 # --- ordinary intersection behaviour -----------------------------------------
 reset_verdict_state

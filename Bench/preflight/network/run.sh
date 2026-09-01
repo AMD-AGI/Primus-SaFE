@@ -98,7 +98,22 @@ fi
 # ========================================
 
 ret=0
-if [[ "$RANK" == "0" ]]; then
+# Both tests need a pair. With fewer than two nodes ib_write_bw.py and
+# binary_diagnose.py each exit 1 without blaming anyone, which run.sh reads as
+# a harness failure -- so a legitimate single-node bench reported "Network
+# check did NOT complete" in BENCH_REPORT forever. There is nothing wrong and
+# nothing to check: say that and skip, rather than manufacturing a failure or,
+# worse, a pass.
+#
+# Same rule get_hosts() applies in both python tools: non-blank, not a comment.
+# (grep -c is not usable here: with no match it prints 0 *and* exits 1, so the
+# obvious `|| echo 0` appends a second line and the -lt test then aborts.)
+NODE_COUNT=$(awk 'NF && $1 !~ /^#/' "$NODES_FILE" 2>/dev/null | wc -l)
+if [[ "$RANK" == "0" ]] && [ "$NODE_COUNT" -lt 2 ]; then
+  echo "=================================================="
+  echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] [NETWORK] [SKIPPED] Only $NODE_COUNT node(s) in $NODES_FILE; the network diagnosis tests a pair of nodes and has nothing to do here."
+  echo "=================================================="
+elif [[ "$RANK" == "0" ]]; then
   echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Starting diagnosis tasks..."
 
   remove_unhealthy_nodes() {

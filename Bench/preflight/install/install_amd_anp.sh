@@ -254,6 +254,17 @@ cd "${ANP_BUILD_DIR}"
 
 # Whichever of these the build produced is the real library; the rest become
 # symlinks to it.
+#
+# Three shapes have to be accepted, in this order of preference:
+#
+#   1. a plain file under one of the three names -- the common case;
+#   2. one of those names as a symlink onto a real file, which is what a build
+#      that emits a versioned soname (librccl-net.so.1.2.3 + librccl-net.so ->
+#      it) produces. Requiring `! -L` rejected every one of those, and with the
+#      hard exit below that turns a build which used to work into a failure;
+#   3. a versioned file with no unsuffixed name at all.
+#
+# Only when none of the three matches has the build genuinely produced nothing.
 ANP_LIB=""
 for candidate in librccl-net.so librccl-anp.so libnccl-net.so; do
   if [ -f "${candidate}" ] && [ ! -L "${candidate}" ]; then
@@ -261,6 +272,26 @@ for candidate in librccl-net.so librccl-anp.so libnccl-net.so; do
     break
   fi
 done
+if [ -z "${ANP_LIB}" ]; then
+  for candidate in librccl-net.so librccl-anp.so libnccl-net.so; do
+    # -f follows the link, so this is "a symlink that resolves to a real file"
+    # and skips a dangling one.
+    if [ -L "${candidate}" ] && [ -f "${candidate}" ]; then
+      ANP_LIB="${candidate}"
+      echo "Note: ${candidate} is a symlink to $(readlink -f "${candidate}" 2>/dev/null || echo '?'); using it as the plugin library."
+      break
+    fi
+  done
+fi
+if [ -z "${ANP_LIB}" ]; then
+  for candidate in librccl-net.so.* librccl-anp.so.* libnccl-net.so.*; do
+    if [ -f "${candidate}" ] && [ ! -L "${candidate}" ]; then
+      ANP_LIB="${candidate}"
+      echo "Note: the build emitted a versioned library only; using ${candidate}."
+      break
+    fi
+  done
+fi
 if [ -z "${ANP_LIB}" ]; then
   echo "Error: the ANP build produced no plugin library in ${ANP_BUILD_DIR}." >&2
   ls -la "${ANP_BUILD_DIR}" >&2 || true

@@ -286,6 +286,14 @@ def check_local_server_ready(dev):
 # Rail subnet per HCA, cached per node. Reading it costs one ssh round trip.
 _rail_cache = {}
 _rail_cache_lock = threading.Lock()
+# Failed probes per node. A failure is retried rather than memoised (see
+# get_rail_map), but only up to this many times: test_node_group resolves the
+# pairing once per (HCA index, peer), so on a 16-node group an unprobeable
+# node was re-probed ~120 times per client candidate, each one an ssh with a
+# 30 s timeout. Retrying past a couple of attempts buys nothing and costs
+# hours.
+_rail_probe_failures = {}
+_RAIL_PROBE_MAX_ATTEMPTS = 2
 
 # Resolved pairing per (client, server), so the decision is logged once per pair.
 _pairing_cache = {}
@@ -327,6 +335,8 @@ def get_rail_map(node, local_ip, ib_hca_list, ssh_cmd):
     with _rail_cache_lock:
         if node in _rail_cache:
             return _rail_cache[node]
+        if _rail_probe_failures.get(node, 0) >= _RAIL_PROBE_MAX_ATTEMPTS:
+            return {}
 
     script = _RAIL_PROBE % " ".join(ib_hca_list)
     try:
@@ -351,16 +361,37 @@ def get_rail_map(node, local_ip, ib_hca_list, ssh_cmd):
         log(f"[{node}] could not read GID rail map: {e}")
         rails = {}
 
-    # Never memoise a failure. One ssh timeout or a momentary load hiccup would
-    # otherwise pin this node to {} for the rest of the run: rail_pairing()
-    # returns None every time afterwards, the run silently reverts to the
-    # static table, and on a straight-through fabric that crosses most pairs
-    # and reports a healthy node as unhealthy. An empty map costs one retry;
-    # a cached empty map costs the node.
-    if rails:
-        with _rail_cache_lock:
+    # Do not memoise a failure outright. One ssh timeout or a momentary load
+    # hiccup would otherwise pin this node to {} for the rest of the run:
+    # rail_pairing() returns None every time afterwards, the run silently
+    # reverts to the static table, and on a straight-through fabric that
+    # crosses most pairs and reports a healthy node as unhealthy.
+    #
+    # Count the failures instead, and give up after _RAIL_PROBE_MAX_ATTEMPTS.
+    # A hiccup still costs only a retry; a node that genuinely cannot be
+    # probed no longer costs 120 ssh timeouts.
+    with _rail_cache_lock:
+        if rails:
             _rail_cache[node] = rails
+            _rail_probe_failures.pop(node, None)
+        else:
+            n = _rail_probe_failures.get(node, 0) + 1
+            _rail_probe_failures[node] = n
+            if n >= _RAIL_PROBE_MAX_ATTEMPTS:
+                log(f"[{node}] GID rail probe failed {n} times; giving up and "
+                    f"using the static HCA pairing table for this node")
     return rails
+
+
+def rail_map_is_settled(node):
+    """
+    Whether get_rail_map has a final answer for `node` -- either a cached map
+    or an exhausted retry budget. Until then a fallback decision taken on its
+    behalf is provisional and must not be cached.
+    """
+    with _rail_cache_lock:
+        return (node in _rail_cache
+                or _rail_probe_failures.get(node, 0) >= _RAIL_PROBE_MAX_ATTEMPTS)
 
 def get_mapped_hca(index, ib_hca_list):
     """
@@ -452,12 +483,15 @@ def resolve_pairing(client, server, local_ip, ib_hca_list, ssh_cmd):
         )
         if derived is None:
             pairing, why = static, "static table (rails did not settle the pairing)"
-            # Do not cache this one. get_rail_map deliberately does not memoise
-            # a failed probe, but caching the fallback here would pin the pair
-            # anyway and undo that: the rails would never be re-read for this
-            # (client, server) again. Every other outcome is a real answer and
-            # is cached as before.
+            # Cacheable only once both endpoints have a final rail answer.
+            # While a probe may still succeed on retry, caching the fallback
+            # would pin the pair and undo that retry; once the probes have
+            # settled, re-deriving this on every one of the ~120 (HCA index,
+            # peer) lookups just repeats the same work and the same log line.
             log(f"[{client} -> {server}] HCA pairing from {why}")
+            if rail_map_is_settled(client) and rail_map_is_settled(server):
+                with _pairing_cache_lock:
+                    _pairing_cache[key] = static
             return static
         elif derived == static:
             pairing, why = derived, "GID rails (agrees with the static table)"

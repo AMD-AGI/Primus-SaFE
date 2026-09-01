@@ -255,6 +255,79 @@ class TestIbVerdict(unittest.TestCase):
             self.assertTrue(ok, bad)
 
 
+class TestPinnedEnv(unittest.TestCase):
+    """Which knobs a site may retune, and which one it may not."""
+
+    def test_the_tuning_knobs_are_overridable(self):
+        with mock.patch.dict(os.environ, {"NCCL_CROSS_NIC": "1",
+                                          "NCCL_NET_GDR_LEVEL": "0"}):
+            env = bd.build_env_vars()
+        self.assertEqual(env["NCCL_CROSS_NIC"], "1")
+        self.assertEqual(env["NCCL_NET_GDR_LEVEL"], "0")
+
+    def test_ib_disable_is_pinned_because_it_changes_the_transport(self):
+        # An ambient 1 would run the RDMA preflight over TCP, put every pair
+        # far under the busbw bar and "confirm" every node faulty.
+        with mock.patch.dict(os.environ, {"NCCL_IB_DISABLE": "1"}):
+            env = bd.build_env_vars()
+        self.assertEqual(env["NCCL_IB_DISABLE"], "0")
+
+    def test_scratch_reclaim_stays_pinned(self):
+        with mock.patch.dict(os.environ, {"HSA_NO_SCRATCH_RECLAIM": "1"}):
+            env = bd.build_env_vars()
+        self.assertEqual(env["HSA_NO_SCRATCH_RECLAIM"], "0")
+
+
+class TestRailProbeBudget(unittest.TestCase):
+    """An unprobeable node must not cost one ssh timeout per lookup."""
+
+    def setUp(self):
+        ib._rail_cache.clear()
+        ib._rail_probe_failures.clear()
+        ib._pairing_cache.clear()
+
+    tearDown = setUp
+
+    def test_a_failing_probe_is_retried_then_given_up_on(self):
+        calls = []
+
+        def fake_run(cmd, **kw):
+            calls.append(cmd)
+            return mock.Mock(returncode=255, stdout="", stderr="ssh: timed out")
+
+        with mock.patch.object(ib.subprocess, "run", fake_run):
+            # test_node_group asks once per (HCA index, peer): 8 x 15 on a full
+            # group. Ten lookups is already past the old cost model.
+            for _ in range(10):
+                self.assertEqual(ib.get_rail_map("10.0.0.9", "10.0.0.1", ["ionic_0"], ["ssh"]), {})
+        self.assertEqual(len(calls), ib._RAIL_PROBE_MAX_ATTEMPTS)
+        self.assertTrue(ib.rail_map_is_settled("10.0.0.9"))
+
+    def test_a_transient_failure_still_gets_its_retry(self):
+        results = [mock.Mock(returncode=255, stdout="", stderr="hiccup"),
+                   mock.Mock(returncode=0, stdout="ionic_0 fe81:0001\n", stderr="")]
+        with mock.patch.object(ib.subprocess, "run", lambda cmd, **kw: results.pop(0)):
+            self.assertEqual(ib.get_rail_map("10.0.0.9", "10.0.0.1", ["ionic_0"], ["ssh"]), {})
+            self.assertFalse(ib.rail_map_is_settled("10.0.0.9"))
+            self.assertEqual(ib.get_rail_map("10.0.0.9", "10.0.0.1", ["ionic_0"], ["ssh"]),
+                             {"ionic_0": "fe81:0001"})
+        self.assertTrue(ib.rail_map_is_settled("10.0.0.9"))
+
+    def test_the_static_fallback_is_cached_once_the_probes_settle(self):
+        hcas = ["ionic_0", "ionic_1"]
+        with mock.patch.object(ib, "get_rail_map", return_value={}):
+            for _ in range(5):
+                ib.resolve_pairing("10.0.0.1", "10.0.0.2", "10.0.0.1", hcas, ["ssh"])
+        # Unsettled probes must stay uncached so a retry is still possible.
+        self.assertNotIn(("10.0.0.1", "10.0.0.2"), ib._pairing_cache)
+
+        ib._rail_probe_failures["10.0.0.1"] = ib._RAIL_PROBE_MAX_ATTEMPTS
+        ib._rail_probe_failures["10.0.0.2"] = ib._RAIL_PROBE_MAX_ATTEMPTS
+        with mock.patch.object(ib, "get_rail_map", return_value={}):
+            ib.resolve_pairing("10.0.0.1", "10.0.0.2", "10.0.0.1", hcas, ["ssh"])
+        self.assertIn(("10.0.0.1", "10.0.0.2"), ib._pairing_cache)
+
+
 class TestRailPairing(unittest.TestCase):
     """All-or-nothing: anything the rails do not settle keeps the static table."""
 
