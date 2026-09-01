@@ -7,6 +7,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import math
 import os
 import re
 import socket
@@ -43,6 +44,8 @@ RCCL_TEST_TYPE = 0
 SSH_PORT = 22
 ENABLE_AINIC = False
 MAX_BYTES = "1G"
+# Whether MAX_BYTES came from RCCL_MAX_BYTES rather than the node-count ladder.
+MAX_BYTES_PINNED = False
 MAX_CONCURRENT_TESTS = 8
 
 # Global state
@@ -51,6 +54,21 @@ total_failed_nodes = 0
 healthy_node_queue: Queue[str] = Queue()
 print_lock = threading.Lock()
 stat_lock = threading.Lock()
+# Failures that no node can be blamed for: the test did not produce a usable
+# measurement, so its nodes are neither healthy nor faulty. Blaming them would
+# condemn hardware for a harness problem; staying silent would exit 0 and hand
+# an untested cluster to the benchmark. Recorded here and turned into an exit
+# code without a node list, which preflight/network/run.sh reads as a harness
+# failure.
+harness_error_lock = threading.Lock()
+harness_errors: List[str] = []
+
+
+def record_harness_error(reason: str) -> None:
+    with harness_error_lock:
+        harness_errors.append(reason)
+    log(f"[HARNESS] {reason}")
+
 
 HYDRA_IFACE: Optional[str] = None
 HOSTNAME_MAP: Dict[str, str] = {}
@@ -194,14 +212,26 @@ def get_log_filename(nodes: List[str]) -> str:
 # Everything this tool measures and compares is algbw, so whatever the target
 # is, it has to be converted before it can be used as a limit -- see threshold().
 _BUSBW_TARGET_DEFAULT = 350.0
+# The message size _BUSBW_TARGET_DEFAULT is quoted at. Pinning RCCL_MAX_BYTES
+# away from it without moving the bar grades the cluster against a number
+# measured somewhere else on the curve.
+_BUSBW_TARGET_SIZE = "8G"
 try:
     ALLREDUCE_BUSBW_TARGET = float(os.environ.get("RCCL_BUSBW_TARGET", _BUSBW_TARGET_DEFAULT))
-except ValueError:
+    # Parsing is not enough: this number *is* the pass/fail line, and float()
+    # happily accepts values that switch the check off without failing. 0 or a
+    # negative makes threshold() non-positive, so every measurement clears it
+    # and the diagnosis passes a cluster it never really graded; "nan" fails
+    # every comparison instead and condemns all of it. Neither is a target
+    # anyone means to set, and both are silent.
+    if not math.isfinite(ALLREDUCE_BUSBW_TARGET) or ALLREDUCE_BUSBW_TARGET <= 0:
+        raise ValueError("must be a positive, finite number of GB/s")
+except ValueError as e:
     # A bare float() here crashed at import time on e.g. RCCL_BUSBW_TARGET=350GB,
     # with a traceback pointing at module scope that says nothing about which
     # variable was wrong. Keep the default and say so.
-    log(f"[WARN] RCCL_BUSBW_TARGET={os.environ['RCCL_BUSBW_TARGET']!r} is not a "
-        f"number (GB/s, e.g. 350 or 300.0); using {_BUSBW_TARGET_DEFAULT}")
+    log(f"[WARN] RCCL_BUSBW_TARGET={os.environ['RCCL_BUSBW_TARGET']!r} is not usable "
+        f"({e}); expected GB/s, e.g. 350 or 300.0. Using {_BUSBW_TARGET_DEFAULT}")
     ALLREDUCE_BUSBW_TARGET = _BUSBW_TARGET_DEFAULT
 ALLREDUCE_MARGIN = 0.85
 
@@ -220,14 +250,14 @@ def busbw_from_algbw(algbw: float, node_count: int, g_per_node: int = None) -> f
         return algbw
     return algbw * 2.0 * (n - 1) / n
 
-def bw_note(algbw: float, node_count: int) -> str:
+def bw_note(algbw: Optional[float], node_count: int) -> str:
     """Log suffix restating an all-reduce algbw as busbw.
 
     Published figures, AMD's bar included, are busbw; every number this tool
     prints is algbw. Without the restatement there is no way to read a pass/fail
     line and tell how far off the published figure the cluster actually is.
     """
-    if RCCL_TEST_TYPE != 0 or algbw <= 0.0:
+    if RCCL_TEST_TYPE != 0 or algbw is None or algbw <= 0.0:
         return ""
     return f" ({busbw_from_algbw(algbw, node_count):.2f} GB/s busbw)"
 
@@ -337,8 +367,29 @@ def format_size(size_bytes: int, precision: int = 0) -> str:
     
     return "0B"
 
-def parse_algbw(text: str, target_size: int, tolerance: int = 10000) -> float:
-    """Parse algbw value from RCCL test output for a specific size."""
+def ladder_steps(start: int, at_least: int) -> List[int]:
+    """
+    The sizes `-b start -f 2 -e ...` actually tests, up to and including the
+    first step at or above `at_least`.
+    """
+    steps = [start]
+    while steps[-1] < at_least:
+        steps.append(steps[-1] * 2)
+    return steps
+
+def parse_algbw(text: str, target_size: int, tolerance: int = 10000) -> Optional[float]:
+    """
+    Parse the in-place algbw for `target_size` out of rccl-tests output.
+
+    Returns None when the output carries no row for that size -- which is not
+    the same as "the row said zero". The two used to share the 0.0 return, and
+    every caller read that as no bandwidth, so anything that stopped the table
+    from being produced or recognised (an -e off the -b/-f ladder, a debug line
+    spliced into every row, an upstream column added to a repo we clone
+    unpinned) presented as a cluster-wide hardware failure. The same rule is
+    already written down for parse_ib_bandwidth in ib_write_bw.py; it belongs
+    here too. A missing row is a harness problem and is reported as one.
+    """
     lines = text.strip().splitlines()
     header_found = False
     
@@ -381,7 +432,7 @@ def parse_algbw(text: str, target_size: int, tolerance: int = 10000) -> float:
             except (ValueError, IndexError):
                 continue
     
-    return 0.0
+    return None
 
 def check_connectivity(nodes: List[str], timeout: int = 300) -> bool:
     if len(nodes) < 2:
@@ -527,7 +578,7 @@ def build_env_vars() -> Dict[str, str]:
 
     return env
 
-def run_rccl_test(nodes: List[str]) -> float:
+def run_rccl_test(nodes: List[str]) -> Optional[float]:
     """Run RCCL performance test on specified nodes."""
     if len(nodes) < 2:
         log(f"[WARN] Not enough nodes ({label_nodes(nodes)}) for RCCL test.")
@@ -645,8 +696,16 @@ def run_rccl_test(nodes: List[str]) -> float:
 
         target_size = parse_size(MAX_BYTES)
         algbw = parse_algbw(result_stdout, target_size)
-        if algbw == 0.0:
-            log(f"[FAIL] Failed to parse algbw from output for {label_nodes(nodes)}")
+        if algbw is None:
+            # No row for MAX_BYTES in output the test did produce. Nothing was
+            # measured, so there is nothing to compare against the threshold:
+            # returning 0.0 here is what let a mis-set RCCL_MAX_BYTES or an
+            # unrecognised table layout read as "every node is dead".
+            record_harness_error(
+                f"no {format_size(target_size)} result row in the "
+                f"{'all_reduce_perf' if RCCL_TEST_TYPE == 0 else 'alltoall_perf'} "
+                f"output for {label_nodes(nodes)}; nothing was measured"
+            )
         else:
             test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
             log(f"[INFO] After {test_name} on {label_nodes(nodes)}, count={len(nodes)}, algbw = {algbw:.2f} GB/s")
@@ -659,10 +718,13 @@ def run_rccl_test(nodes: List[str]) -> float:
         return 0.0
 
 
-def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> Tuple[str, bool]:
+def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> Tuple[str, Optional[bool]]:
     """
     Single suspicious node and healthy node combination test
     Retrieve a healthy node from the global health node pool and return it after testing is completed
+
+    is_faulty is None when the pair produced no measurement at all: neither
+    "faulty" nor "OK" is a claim this run is entitled to make about it.
     """
     start_time = time.time()
     healthy_node = None
@@ -674,10 +736,13 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> T
             test_nodes=[suspect_node, healthy_node]
             algbw = run_rccl_test(test_nodes)
             limit = threshold(len(test_nodes))
-            is_faulty = algbw < limit
             test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
-            log(f"[INFO] {test_name} {node_label(suspect_node)}+{node_label(healthy_node)} -> {algbw:.2f} GB/s algbw{bw_note(algbw, len(test_nodes))}, threshold:{limit:.2f} GB/s algbw-> {'FAULTY' if is_faulty else 'OK'}")
             healthy_node_queue.put(healthy_node)
+            if algbw is None:
+                log(f"[INFO] {test_name} {node_label(suspect_node)}+{node_label(healthy_node)} -> no measurement, threshold:{limit:.2f} GB/s algbw-> UNKNOWN")
+                return suspect_node, None
+            is_faulty = algbw < limit
+            log(f"[INFO] {test_name} {node_label(suspect_node)}+{node_label(healthy_node)} -> {algbw:.2f} GB/s algbw{bw_note(algbw, len(test_nodes))}, threshold:{limit:.2f} GB/s algbw-> {'FAULTY' if is_faulty else 'OK'}")
             return suspect_node, is_faulty
         except Empty:
             with stat_lock:
@@ -701,6 +766,23 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
     algbw = run_rccl_test(nodes)
     limit = threshold(len(nodes))
     test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
+    if algbw is None:
+        # run_rccl_test has already recorded the harness error. Do not descend:
+        # splitting the group would just repeat a test that cannot produce a
+        # number, and do it 2n more times. Do not blame the nodes either --
+        # they were never measured. main() turns the recorded error into a
+        # non-zero exit with no node list, which run.sh reads as a harness
+        # failure rather than as a clean pass.
+        log(f"[SKIP] {test_name} {label_nodes(nodes)} -> no measurement; not judging these nodes")
+        # These nodes will never reach healthy_node_queue, so count them the
+        # same way the faulty path does. diagnose_single_with_healthy waits on
+        # that queue and only gives up once total_failed_nodes covers the
+        # cluster; without this, a sibling group in FINAL CHECK blocks for the
+        # full 600s timeout and then blames its node for the wait.
+        with stat_lock:
+            global total_failed_nodes
+            total_failed_nodes += len(nodes)
+        return []
     log(f"[INFO] {test_name} {label_nodes(nodes)} -> {algbw:.2f} GB/s algbw{bw_note(algbw, len(nodes))}, threshold: {limit:.2f} GB/s algbw")
 
     if algbw >= limit:
@@ -711,7 +793,6 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
 
     if len(nodes) <= 2:
         with stat_lock:
-            global total_failed_nodes
             total_failed_nodes += len(nodes)
             if total_failed_nodes >= total_nodes and healthy_node_queue.empty():
                 log(f"[WARNING] All nodes appear to be faulty or no healthy nodes available for comparison")
@@ -721,20 +802,33 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
         bad_nodes = []
         # Parallel testing (up to MAX_CONCURRENT_TESTS)
         with ThreadPoolExecutor(max_workers=min(MAX_CONCURRENT_TESTS, len(nodes))) as executor:
-            futures = [executor.submit(diagnose_single_with_healthy, node) for node in nodes]
-            for future in futures:
+            # Keyed by node, not a bare list: the exception path below used to
+            # have no idea which node it was handling and appended the literal
+            # string "unknown" to bad_nodes. extract_nodes.py accepts that as a
+            # hostname (it matches the hostname shape), run.sh then tries to
+            # remove a node called "unknown" from the node list and removes
+            # nothing, and the node that actually failed stays in the run.
+            futures = {executor.submit(diagnose_single_with_healthy, node): node
+                       for node in nodes}
+            for future, node in futures.items():
                 try:
-                    node, is_faulty = future.result()
-                    if is_faulty:
-                        bad_nodes.append(node)
-                        log(f"[FAIL] {node_label(node)} confirmed faulty.")
-                    else:
-                        healthy_node_queue.put(node)
-                        log(f"[PASS] {node_label(node)} passed with healthy node.")
+                    _, is_faulty = future.result()
                 except Exception as e:
-                    node = "unknown"
-                    log(f"[Exception] during test for {node}: {e}")
+                    # The test blew up rather than returning a verdict. That is
+                    # the harness failing, not the node: record it and let the
+                    # exit code say so instead of condemning hardware for it.
+                    record_harness_error(
+                        f"exception while testing {node_label(node)} against a healthy node: {e}")
+                    continue
+                if is_faulty is None:
+                    record_harness_error(
+                        f"no measurement for {node_label(node)} against a healthy node")
+                elif is_faulty:
                     bad_nodes.append(node)
+                    log(f"[FAIL] {node_label(node)} confirmed faulty.")
+                else:
+                    healthy_node_queue.put(node)
+                    log(f"[PASS] {node_label(node)} passed with healthy node.")
         return bad_nodes
 
     # Split nodes into two groups
@@ -774,6 +868,7 @@ def parse_args() -> List[str]:
     # Update global configuration
     global MAX_CONCURRENT_TESTS, RCCL_DEBUG, RCCL_SOCKET_IFNAME, RCCL_IB_HCA
     global SSH_PORT, NCCL_IB_GID_INDEX, RCCL_TEST_TYPE, MAX_BYTES, ENABLE_AINIC
+    global MAX_BYTES_PINNED
     
     MAX_CONCURRENT_TESTS = args.max_concurrent
     RCCL_DEBUG = args.rccl_debug
@@ -824,19 +919,51 @@ def parse_args() -> List[str]:
             log(f"[WARN] RCCL_MAX_BYTES={max_bytes_override!r} is not a valid size, "
                 f"keeping the adaptive value {MAX_BYTES}")
         else:
-            # An -e below the ladder's -b start size yields no data rows, so
-            # parse_algbw returns 0.0 for every group and recursive_diagnose
-            # condemns the whole cluster with "[FAIL] Failed to parse algbw" --
-            # a config typo presenting as total hardware failure. Refuse it.
-            if override_bytes < parse_size(MIN_BYTES):
+            # The test walks -b 32M doubling by -f 2, and the verdict is read
+            # off the row at exactly -e. So -e has to *be* one of those steps.
+            # Anything else -- below the start size, or between two steps like
+            # 3G, 100M, 10G -- means the run stops one step short and there is
+            # no row to read: the very failure this guard's comment claimed to
+            # prevent, in the two thirds of the cases it did not check.
+            #
+            # parse_algbw no longer reads that as 0 GB/s, so a slip here is a
+            # reported harness failure rather than a dead cluster. It is still
+            # a whole diagnosis run spent measuring nothing, so refuse it up
+            # front and name the two steps the operator probably meant.
+            min_bytes = parse_size(MIN_BYTES)
+            steps = ladder_steps(min_bytes, override_bytes)
+            if override_bytes < min_bytes:
                 log(f"[WARN] RCCL_MAX_BYTES={max_bytes_override} is below the "
                     f"{MIN_BYTES} start size of the test ladder, which would "
                     f"produce no results at all; keeping the adaptive value "
                     f"{MAX_BYTES}")
+            elif override_bytes not in steps:
+                below = max(x for x in steps if x < override_bytes)
+                log(f"[WARN] RCCL_MAX_BYTES={max_bytes_override} is not on the "
+                    f"-b {MIN_BYTES} -f 2 ladder, so the test would stop at "
+                    f"{format_size(below)} and leave no row at "
+                    f"{format_size(override_bytes)} to read; use "
+                    f"{format_size(below)} or {format_size(below * 2)}. "
+                    f"Keeping the adaptive value {MAX_BYTES}")
             else:
                 log(f"[INFO] RCCL_MAX_BYTES={max_bytes_override} overrides the adaptive "
                     f"value {MAX_BYTES} for {node_count} node(s)")
                 MAX_BYTES = max_bytes_override
+                MAX_BYTES_PINNED = True
+                if (MAX_BYTES != _BUSBW_TARGET_SIZE
+                        and not os.environ.get("RCCL_BUSBW_TARGET", "").strip()):
+                    # The two knobs are one setting. ALLREDUCE_BUSBW_TARGET's
+                    # default is a number quoted at 8G, and the curve is still
+                    # climbing well below that (148 -> 219 GB/s busbw from 32M
+                    # to 1G), so pinning the size without moving the bar grades
+                    # the cluster against a target it was never measured at --
+                    # at 32M every node on earth fails it.
+                    log(f"[WARN] RCCL_MAX_BYTES is pinned to {MAX_BYTES} but "
+                        f"RCCL_BUSBW_TARGET is unset, so the pass/fail bar is "
+                        f"still the {_BUSBW_TARGET_DEFAULT} GB/s busbw default, "
+                        f"which is quoted at {_BUSBW_TARGET_SIZE}. Set "
+                        f"RCCL_BUSBW_TARGET to the target that belongs to "
+                        f"{MAX_BYTES}")
 
     return nodes
 
@@ -877,7 +1004,9 @@ def main():
             f"NCCL_IB_FIFO_TC={os.environ.get('NCCL_IB_FIFO_TC', '(unset, default=192)')}")
     else:
         log("📌 Standard mode: using default RCCL configuration")
-    log(f"📊 Test parameters: MAX_BYTES={MAX_BYTES} (adaptive for {len(nodes)} nodes), Interface={RCCL_SOCKET_IFNAME}")
+    sizing = ("pinned by RCCL_MAX_BYTES" if MAX_BYTES_PINNED
+              else f"adaptive for {len(nodes)} nodes")
+    log(f"📊 Test parameters: MAX_BYTES={MAX_BYTES} ({sizing}), Interface={RCCL_SOCKET_IFNAME}")
     log("⚙️ Starting recursive diagnosis...")
     
     # Initialize global state
@@ -892,9 +1021,22 @@ def main():
     if bad_nodes:
         log(f"[RESULT] unhealthy nodes: {label_nodes(bad_nodes)}, obtained through {test_name}")
         sys.exit(1)
-    else:
-        log(f"[RESULT] ✅ all passed, obtained through {test_name}")
-        sys.exit(0)
+
+    with harness_error_lock:
+        pending = list(harness_errors)
+    if pending:
+        # Nothing measurable came back, so no node can be blamed -- but this is
+        # not a pass either. Exit non-zero with no "unhealthy nodes:" line:
+        # extract_nodes.py finds nothing to remove and run.sh takes its
+        # harness-failure branch, which is exactly the shape of this outcome.
+        log(f"[RESULT] ❌ did not complete: {len(pending)} test(s) produced no usable "
+            f"measurement and no node could be blamed, through {test_name}")
+        for reason in pending:
+            log(f"[RESULT]   - {reason}")
+        sys.exit(1)
+
+    log(f"[RESULT] ✅ all passed, obtained through {test_name}")
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()

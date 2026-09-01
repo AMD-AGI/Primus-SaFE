@@ -188,6 +188,10 @@ docker_podman_proxy run \
     --env ADD_LOG_HEADER=${ADD_LOG_HEADER} \
     --env BNIC=${BNIC} \
     --env BXGMI=${BXGMI} \
+    ${RCCL_MAX_BYTES:+--env RCCL_MAX_BYTES=$RCCL_MAX_BYTES} \
+    ${RCCL_BUSBW_TARGET:+--env RCCL_BUSBW_TARGET=$RCCL_BUSBW_TARGET} \
+    ${IB_HCA_PAIRING:+--env IB_HCA_PAIRING=$IB_HCA_PAIRING} \
+    ${IB_BW_MIN_GBPS:+--env IB_BW_MIN_GBPS=$IB_BW_MIN_GBPS} \
     --ipc=host --network=host --pid=host \
     --device=/dev/kfd --device=/dev/dri \
     --cap-add=SYS_PTRACE --cap-add=CAP_SYS_ADMIN \

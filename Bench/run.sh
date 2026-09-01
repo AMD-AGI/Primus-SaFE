@@ -374,7 +374,18 @@ print(f'_ne={d.get(\"error\",\"\")}')
         fi
         echo "" >> "$BENCH_REPORT"
 
-        echo "Healthy Nodes (Passed All Checks) - ${#healthy_nodes_ip[@]} nodes" >> "$BENCH_REPORT"
+        # The heading has to agree with the WARNING above it. When the check
+        # did not complete these nodes are "not known to be bad", and calling
+        # that "Passed All Checks" in the one artefact people forward is how
+        # an unvalidated cluster gets signed off.
+        if [ "${network_harness_failed:-0}" -eq 1 ]; then
+            healthy_heading="Unvalidated Nodes (network check did NOT complete)"
+            healthy_summary="unvalidated"
+        else
+            healthy_heading="Healthy Nodes (Passed All Checks)"
+            healthy_summary="healthy"
+        fi
+        echo "$healthy_heading - ${#healthy_nodes_ip[@]} nodes" >> "$BENCH_REPORT"
         echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
         if [ ${#healthy_nodes_ip[@]} -gt 0 ]; then
             for ip in "${healthy_nodes_ip[@]}"; do
@@ -387,7 +398,7 @@ print(f'_ne={d.get(\"error\",\"\")}')
         echo "" >> "$BENCH_REPORT"
         echo "================================================================================" >> "$BENCH_REPORT"
         echo "" >> "$BENCH_REPORT"
-        echo "Summary: ${#healthy_nodes_ip[@]} healthy nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
+        echo "Summary: ${#healthy_nodes_ip[@]} $healthy_summary nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
         echo "" >> "$BENCH_REPORT"
         echo "================================================================================" >> "$BENCH_REPORT"
         echo "" >> "$BENCH_REPORT"
@@ -871,7 +882,18 @@ else
         fi
         echo "" >> "$BENCH_REPORT"
 
-        echo "Healthy Nodes (Passed All Checks) - ${#healthy_nodes_ip[@]} nodes" >> "$BENCH_REPORT"
+        # The heading has to agree with the WARNING above it. When the check
+        # did not complete these nodes are "not known to be bad", and calling
+        # that "Passed All Checks" in the one artefact people forward is how
+        # an unvalidated cluster gets signed off.
+        if [ "${network_harness_failed:-0}" -eq 1 ]; then
+            healthy_heading="Unvalidated Nodes (network check did NOT complete)"
+            healthy_summary="unvalidated"
+        else
+            healthy_heading="Healthy Nodes (Passed All Checks)"
+            healthy_summary="healthy"
+        fi
+        echo "$healthy_heading - ${#healthy_nodes_ip[@]} nodes" >> "$BENCH_REPORT"
         echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
         if [ ${#healthy_nodes_ip[@]} -gt 0 ]; then
             for ip in "${healthy_nodes_ip[@]}"; do
@@ -884,7 +906,7 @@ else
         echo "" >> "$BENCH_REPORT"
         echo "================================================================================" >> "$BENCH_REPORT"
         echo "" >> "$BENCH_REPORT"
-        echo "Summary: ${#healthy_nodes_ip[@]} healthy nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
+        echo "Summary: ${#healthy_nodes_ip[@]} $healthy_summary nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
         echo "" >> "$BENCH_REPORT"
         echo "================================================================================" >> "$BENCH_REPORT"
         echo "" >> "$BENCH_REPORT"

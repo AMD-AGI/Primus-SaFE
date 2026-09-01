@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
+import math
 import os
 import subprocess
 import sys
 import time
 import re
 import socket
-import glob
 import argparse
 from datetime import datetime
 from typing import List
@@ -78,11 +78,28 @@ def kill_remote_listener(node, ssh_cmd):
     return False
 
 _rdma_env_lock = threading.Lock()
-_rdma_env_logged = False
+# Hosts whose RDMA environment has already been dumped. Was a single global
+# bool: the first failure anywhere spent it, so if that failure was remote the
+# one dump on record described a container that had nothing to do with it, and
+# every later local failure got none at all.
+_rdma_env_logged = set()
 
-def log_rdma_environment():
+# One shell probe, run wherever the listener that failed actually lives. A
+# single command so the remote case costs one ssh round trip.
+_RDMA_PROBE = r"""
+d=$(ls -1 /dev/infiniband 2>/dev/null | tr '\n' ' ')
+echo "/dev/infiniband: ${d:-MISSING -- host has no RDMA char devices}"
+s=$(ls -1 /sys/class/infiniband 2>/dev/null | tr '\n' ' ')
+echo "/sys/class/infiniband: ${s:-(none)}"
+echo "ibv_devices:"
+ibv_devices 2>&1 || echo "  (could not run ibv_devices)"
+"""
+
+
+def log_rdma_environment(tag, host, ssh_cmd=None):
     """
-    Dump the RDMA environment once, the first time a listener fails to start.
+    Dump the RDMA environment of `host`, once per host, on the first listener
+    failure there.
 
     ib_write_bw's own message is not enough to tell the three failure modes
     apart, and they need completely different fixes:
@@ -96,36 +113,34 @@ def log_rdma_environment():
                                        an ABI warning) or dropped silently, or
                                        the cards are named something else.
 
-    Printing what the container can actually see settles it from the log alone.
+    Printing what the host can actually see settles it from the log alone --
+    provided it is the right host. This used to probe the local container
+    unconditionally and print the result directly beneath a remote node's
+    failure, which reads as that node's environment and is not.
     """
-    global _rdma_env_logged
     with _rdma_env_lock:
-        if _rdma_env_logged:
+        if host in _rdma_env_logged:
             return
-        _rdma_env_logged = True
+        _rdma_env_logged.add(host)
 
-    log("--- RDMA environment (printed once, on first listener failure) ---")
+    where = "local container" if ssh_cmd is None else f"{host} (over ssh)"
+    log(f"{tag} --- RDMA environment on {where}, printed once per host ---")
 
-    devs = sorted(glob.glob("/dev/infiniband/*"))
-    log(f"    /dev/infiniband: {' '.join(os.path.basename(d) for d in devs) if devs else 'MISSING -- container has no RDMA char devices'}")
-
-    sysfs = sorted(glob.glob("/sys/class/infiniband/*"))
-    log(f"    /sys/class/infiniband: {' '.join(os.path.basename(d) for d in sysfs) if sysfs else '(none)'}")
-
+    cmd = ["sh", "-c", _RDMA_PROBE] if ssh_cmd is None else list(ssh_cmd) + [host, _RDMA_PROBE]
     try:
-        r = subprocess.run(["ibv_devices"], capture_output=True, text=True, timeout=15)
-        out = (r.stdout or "") + (r.stderr or "")
-        for line in out.strip().split("\n"):
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        out = ((r.stdout or "") + (r.stderr or "")).strip()
+        for line in out.split("\n") if out else []:
             if line.strip():
-                log(f"    ibv_devices: {line}")
-        if not out.strip():
-            log("    ibv_devices: (no output)")
+                log(f"{tag}     {line}")
+        if not out:
+            log(f"{tag}     (probe produced no output)")
     except Exception as e:
-        log(f"    ibv_devices: could not run ({e})")
+        log(f"{tag}     could not probe: {e}")
 
-    log("--- end RDMA environment ---")
+    log(f"{tag} --- end RDMA environment ---")
 
-def report_server_failure(tag, server_process):
+def report_server_failure(tag, server_process, host, ssh_cmd=None):
     """
     Explain *why* a listener never came up.
 
@@ -139,6 +154,10 @@ def report_server_failure(tag, server_process):
 
     Must run *after* the process is dead: communicate() on a live listener
     would block until it exits, and a healthy listener never exits on its own.
+
+    `host` is the node the listener was supposed to come up on, and ssh_cmd is
+    None only when that is this container. Both are passed straight to
+    log_rdma_environment so the environment it prints is the one that failed.
     """
     if server_process is None:
         return
@@ -175,7 +194,7 @@ def report_server_failure(tag, server_process):
     if not saw_output:
         log(f"{tag} server produced no output")
     log(f"{tag} server exit code: {server_process.returncode}")
-    log_rdma_environment()
+    log_rdma_environment(tag, host, ssh_cmd)
 
 def kill_local_listener(server_process):
     # Clean up the failed server.
@@ -531,10 +550,16 @@ def ib_verdict(client_ret, output):
     floor = os.environ.get("IB_BW_MIN_GBPS", "").strip()
     if floor:
         try:
-            if bw < float(floor):
+            floor_gbps = float(floor)
+            # Same reasoning as RCCL_BUSBW_TARGET in binary_diagnose.py: this
+            # value is the check, and 0, a negative, or nan all parse fine and
+            # silently turn it off (or, for nan, fail every pair). Say so.
+            if not math.isfinite(floor_gbps) or floor_gbps <= 0:
+                raise ValueError("must be a positive, finite number of Gb/sec")
+            if bw < floor_gbps:
                 return False, detail + f" [below IB_BW_MIN_GBPS={floor}]"
-        except ValueError:
-            log(f"    [WARN] ignoring unparseable IB_BW_MIN_GBPS={floor!r}")
+        except ValueError as e:
+            log(f"    [WARN] ignoring IB_BW_MIN_GBPS={floor!r}: {e}")
 
     return True, detail
 
@@ -570,7 +595,7 @@ def test_node_pair(client, local_ip, server, client_ib_hca, server_ib_hca, ib_pa
                 # stderr. It performs the same terminate -> 3s -> kill
                 # escalation itself before reading, so the cleanup is
                 # unchanged; only the order of who reaps is.
-                report_server_failure(f"[{server}]", server_process)
+                report_server_failure(f"[{server}]", server_process, server)
                 return False
         else:
             # For remote node, use SSH as before
@@ -585,7 +610,7 @@ def test_node_pair(client, local_ip, server, client_ib_hca, server_ib_hca, ib_pa
                 log(f"[{server}] failed to start Remote server ")
                 # Clean up the failed server
                 kill_remote_listener(server, ssh_cmd)
-                report_server_failure(f"[{server}]", server_process)
+                report_server_failure(f"[{server}]", server_process, server, ssh_cmd)
                 return False
 
         # === STEP 2: Start Client ===
@@ -836,8 +861,13 @@ def main():
     ssh_cmd = build_ssh_cmd(args.ssh_port)
     nodes = get_hosts(args.nodes_file)
     if len(nodes) < 2:
-        print("Error: At least 2 nodes are required.")
-        sys.exit(0)
+        # exit 0 here meant "IB check passed" to run.sh, for a check that
+        # could not be run at all. binary_diagnose.py already exits 1 on the
+        # same condition one step later, so the end verdict is unchanged --
+        # this only stops the log from crediting a pass first.
+        log("[RESULT] ❌ did not complete: at least 2 nodes are required, "
+            f"got {len(nodes)}; no IB pair could be tested")
+        sys.exit(1)
 
     # Get local IP address from socket interface
     local_ip = get_ip(socket_ifname)
@@ -850,6 +880,11 @@ def main():
 
     # Global list to track failed nodes
     failed_nodes_list = []
+    # Groups that died of an exception instead of returning a verdict. These
+    # blame nobody, and an empty failed_nodes_list used to be read as "all
+    # passed" -- so every group throwing produced a green IB check for a
+    # cluster on which not one pair was measured.
+    group_errors = []
 
     # Split nodes into groups of 16 for concurrent testing
     node_groups = group_nodes(nodes, 16)
@@ -874,15 +909,26 @@ def main():
                     failed_nodes_list.extend(failed_nodes)
                 log(f"=== Group {group_idx + 1} completed ===")
             except Exception as exc:
+                group_errors.append(f"group {group_idx + 1}: {exc}")
                 log(f"Group {group_idx + 1} generated an exception: {exc}")
 
     # === Final Summary ===
     log("=== All tests completed ===")
-    if len(failed_nodes_list) == 0:
-        log("[RESULT] ✅ all passed, obtained through ib_write_bw")
-    else:
+    if failed_nodes_list:
         log(f"[RESULT] unhealthy nodes: {failed_nodes_list}, obtained through ib_write_bw")
         sys.exit(1)
+
+    if group_errors:
+        # Non-zero with no "unhealthy nodes:" line: extract_nodes.py finds
+        # nothing to remove and run.sh takes its harness-failure branch, which
+        # is the honest shape of "nothing was measured and nobody is to blame".
+        log(f"[RESULT] ❌ did not complete: {len(group_errors)} group(s) failed "
+            f"without testing any pair, obtained through ib_write_bw")
+        for reason in group_errors:
+            log(f"[RESULT]   - {reason}")
+        sys.exit(1)
+
+    log("[RESULT] ✅ all passed, obtained through ib_write_bw")
 
 if __name__ == "__main__":
     main()
