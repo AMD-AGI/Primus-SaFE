@@ -1380,7 +1380,8 @@ func (v *WorkloadValidator) validateServiceNameUnique(ctx context.Context, workl
 			continue
 		}
 		if commonworkload.GetK8sServiceName(other) == svcName {
-			return fmt.Errorf("the service name %s is already used by workload %s", svcName, other.Name)
+			return commonerrors.NewAlreadyExist(
+				fmt.Sprintf("the service name %s is already used by workload %s", svcName, other.Name))
 		}
 	}
 	return nil

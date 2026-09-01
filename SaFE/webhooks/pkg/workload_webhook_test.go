@@ -7,6 +7,7 @@ package webhooks
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -678,6 +680,46 @@ func TestWorkloadValidateFullChain(t *testing.T) {
 	v := &WorkloadValidator{Client: c}
 	assert.NilError(t, v.validateOnCreation(context.Background(), fullValidWorkload()))
 	assert.NilError(t, v.validateOnUpdate(context.Background(), fullValidWorkload(), fullValidWorkload()))
+}
+
+// TestWorkloadValidateCreationDuplicateServiceName verifies creation is denied
+// when another workload in the workspace already owns the service name.
+func TestWorkloadValidateCreationDuplicateServiceName(t *testing.T) {
+	owner := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "wl-owner",
+			Labels: map[string]string{
+				v1.WorkspaceIdLabel: "ws1",
+				v1.ServiceNameLabel: "shared-svc",
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			Workspace: "ws1",
+			Service:   &v1.Service{Name: "shared-svc"},
+		},
+	}
+	c := fullWorkloadEnvClient(t)
+	assert.NilError(t, c.Create(context.Background(), owner))
+
+	w := fullValidWorkload()
+	w.Name = "wl-new"
+	w.Spec.Service = &v1.Service{
+		Name: "shared-svc", Port: 80, TargetPort: 8080,
+		Protocol: corev1.ProtocolTCP, ServiceType: corev1.ServiceTypeClusterIP,
+	}
+
+	v := &WorkloadValidator{Client: c, decoder: newDecoder(t)}
+	err := v.validateOnCreation(context.Background(), w)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+
+	resp := v.Handle(context.Background(), newRequest(t, admissionv1.Create, w, nil))
+	assert.Assert(t, !resp.Allowed)
+	assert.Equal(t, resp.Result.Code, int32(http.StatusConflict))
+
+	// A free name in the same workspace still passes.
+	w.Spec.Service.Name = "other-svc"
+	assert.NilError(t, v.validateOnCreation(context.Background(), w))
 }
 
 // TestWorkloadValidatorHandleFull verifies the validator handler with a complete environment.
