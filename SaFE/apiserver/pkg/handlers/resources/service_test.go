@@ -13,11 +13,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	k8sclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
@@ -180,6 +184,41 @@ func TestGetWorkloadServiceValidation(t *testing.T) {
 		// Depending on implementation, this might be treated as invalid or as a workload name
 		// Current implementation checks for empty string only
 	})
+}
+
+func TestGetWorkloadServiceRejectsForeignService(t *testing.T) {
+	mockUser, adminClient := createMockUser()
+	workload := genMockWorkloadForService(mockUser.Name)
+	workload.Spec.Service = &v1.Service{Name: "shared-service"}
+	v1.SetLabel(workload, v1.ServiceNameLabel, "shared-service")
+	assert.NoError(t, adminClient.Create(context.Background(), workload))
+
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shared-service",
+			Namespace: workload.Spec.Workspace,
+			Labels:    map[string]string{v1.WorkloadIdLabel: "another-workload"},
+		},
+		Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 80}}},
+	}
+	clientManager := commonutils.NewObjectManager()
+	clientManager.Add("test-cluster", k8sclient.NewClientFactoryWithOnlyClient(
+		context.Background(), "test-cluster", k8sfake.NewSimpleClientset(service)))
+	handler := Handler{
+		Client:           adminClient,
+		accessController: authority.NewAccessController(adminClient),
+		clientManager:    clientManager,
+	}
+	response := httptest.NewRecorder()
+	ginContext, _ := gin.CreateTestContext(response)
+	ginContext.Request = httptest.NewRequest(http.MethodGet, "/api/v1/services/"+workload.Name, nil)
+	ginContext.Set(common.UserId, mockUser.Name)
+	ginContext.Set(common.Name, workload.Name)
+
+	_, err := handler.getWorkloadService(ginContext)
+
+	assert.Error(t, err)
+	assert.True(t, apierrors.IsConflict(err))
 }
 
 // genMockWorkloadForService creates a mock workload for service tests

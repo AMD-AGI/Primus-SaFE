@@ -38,6 +38,7 @@ import (
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -1426,7 +1427,8 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 					}, k8sWorkload); err != nil {
 						klog.ErrorS(err, "failed to get K8s Workload for judge", "workloadId", judgeWorkload.WorkloadId)
 					} else {
-						judgeEndpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:8000/v1", judgeWorkload.WorkloadId, judgeWorkload.Workspace)
+						judgeEndpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:8000/v1",
+							commonworkload.GetK8sServiceName(k8sWorkload), judgeWorkload.Workspace)
 
 						// Extract served model name from workload
 						entryPoint := ""

@@ -7,6 +7,7 @@ package webhooks
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -104,11 +106,61 @@ func TestWorkloadMutateHealthCheck(t *testing.T) {
 // TestWorkloadMutateService verifies service protocol and defaults.
 func TestWorkloadMutateService(t *testing.T) {
 	m := &WorkloadMutator{}
-	w := &v1.Workload{Spec: v1.WorkloadSpec{Service: &v1.Service{TargetPort: 8080}}}
-	m.mutateService(w)
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "workload-a"},
+		Spec:       v1.WorkloadSpec{Service: &v1.Service{TargetPort: 8080}},
+	}
+	m.mutateService(nil, w)
 	assert.Equal(t, w.Spec.Service.Protocol, corev1.ProtocolTCP)
 	assert.Equal(t, w.Spec.Service.Port, 8080)
+	assert.Equal(t, w.Spec.Service.Name, "workload-a")
+	assert.Equal(t, v1.GetLabel(w, v1.ServiceNameLabel), "workload-a")
 	assert.Assert(t, w.Spec.Service.Extends != nil)
+}
+
+func TestLegacyDispatchedWorkloadAcceptsDefaultServiceNameBackfill(t *testing.T) {
+	oldWorkload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "legacy"},
+		Spec: v1.WorkloadSpec{
+			Service: &v1.Service{
+				Protocol: corev1.ProtocolTCP,
+				Port:     8080,
+				Extends: map[string]string{
+					"maxUnavailable": common.DefaultMaxUnavailable,
+					"maxSurge":       common.DefaultMaxMaxSurge,
+				},
+			},
+		},
+	}
+	v1.SetAnnotation(oldWorkload, v1.WorkloadDispatchedAnnotation, "now")
+	newWorkload := oldWorkload.DeepCopy()
+
+	(&WorkloadMutator{}).mutateService(oldWorkload, newWorkload)
+
+	assert.Equal(t, newWorkload.Spec.Service.Name, "legacy")
+	assert.NilError(t, (&WorkloadValidator{}).validateSpecChanged(newWorkload, oldWorkload))
+}
+
+func TestWorkloadMutateServiceNameLabelRemoval(t *testing.T) {
+	mutator := &WorkloadMutator{}
+	oldWorkload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "workload",
+			Labels: map[string]string{v1.ServiceNameLabel: "custom-service"},
+		},
+		Spec: v1.WorkloadSpec{Service: &v1.Service{Name: "custom-service"}},
+	}
+	newWorkload := oldWorkload.DeepCopy()
+	newWorkload.Spec.Service = nil
+
+	mutator.mutateService(oldWorkload, newWorkload)
+	assert.Equal(t, v1.GetLabel(newWorkload, v1.ServiceNameLabel), "")
+
+	v1.SetAnnotation(oldWorkload, v1.WorkloadDispatchedAnnotation, "now")
+	newWorkload = oldWorkload.DeepCopy()
+	newWorkload.Spec.Service = nil
+	mutator.mutateService(oldWorkload, newWorkload)
+	assert.Equal(t, v1.GetLabel(newWorkload, v1.ServiceNameLabel), "custom-service")
 }
 
 // TestWorkloadMutateDeployment verifies deployment-specific resets.
@@ -365,6 +417,55 @@ func TestWorkloadValidateService(t *testing.T) {
 		Port: 80, TargetPort: 8080, Protocol: corev1.ProtocolTCP, ServiceType: corev1.ServiceTypeClusterIP,
 	}}}
 	assert.NilError(t, v.validateService(context.Background(), ok))
+}
+
+// TestWorkloadValidateServiceNameDuplicate rejects a Service name already used
+// by another service-bearing workload in the same workspace.
+func TestWorkloadValidateServiceNameDuplicate(t *testing.T) {
+	scheme := newScheme(t)
+	existing := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "wl-a",
+			Labels: map[string]string{
+				v1.WorkspaceIdLabel: "ws1",
+				v1.ServiceNameLabel: "shared-svc",
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			Workspace: "ws1",
+			Service: &v1.Service{
+				Name: "shared-svc", Port: 80, TargetPort: 8080,
+				Protocol: corev1.ProtocolTCP, ServiceType: corev1.ServiceTypeClusterIP,
+			},
+		},
+	}
+	v := &WorkloadValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()}
+
+	dup := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-b", Labels: map[string]string{v1.WorkspaceIdLabel: "ws1"}},
+		Spec: v1.WorkloadSpec{
+			Workspace: "ws1",
+			Service: &v1.Service{
+				Name: "shared-svc", Port: 80, TargetPort: 8080,
+				Protocol: corev1.ProtocolTCP, ServiceType: corev1.ServiceTypeClusterIP,
+			},
+		},
+	}
+	err := v.validateService(context.Background(), dup)
+	assert.Assert(t, err != nil)
+	assert.ErrorContains(t, err, "already used")
+
+	otherWs := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-c", Labels: map[string]string{v1.WorkspaceIdLabel: "ws2"}},
+		Spec: v1.WorkloadSpec{
+			Workspace: "ws2",
+			Service: &v1.Service{
+				Name: "shared-svc", Port: 80, TargetPort: 8080,
+				Protocol: corev1.ProtocolTCP, ServiceType: corev1.ServiceTypeClusterIP,
+			},
+		},
+	}
+	assert.NilError(t, v.validateService(context.Background(), otherWs))
 }
 
 // TestWorkloadValidateHealthCheck verifies health check validation.
@@ -629,6 +730,46 @@ func TestWorkloadValidateFullChain(t *testing.T) {
 	v := &WorkloadValidator{Client: c}
 	assert.NilError(t, v.validateOnCreation(context.Background(), fullValidWorkload()))
 	assert.NilError(t, v.validateOnUpdate(context.Background(), fullValidWorkload(), fullValidWorkload()))
+}
+
+// TestWorkloadValidateCreationDuplicateServiceName verifies creation is denied
+// when another workload in the workspace already owns the service name.
+func TestWorkloadValidateCreationDuplicateServiceName(t *testing.T) {
+	owner := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "wl-owner",
+			Labels: map[string]string{
+				v1.WorkspaceIdLabel: "ws1",
+				v1.ServiceNameLabel: "shared-svc",
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			Workspace: "ws1",
+			Service:   &v1.Service{Name: "shared-svc"},
+		},
+	}
+	c := fullWorkloadEnvClient(t)
+	assert.NilError(t, c.Create(context.Background(), owner))
+
+	w := fullValidWorkload()
+	w.Name = "wl-new"
+	w.Spec.Service = &v1.Service{
+		Name: "shared-svc", Port: 80, TargetPort: 8080,
+		Protocol: corev1.ProtocolTCP, ServiceType: corev1.ServiceTypeClusterIP,
+	}
+
+	v := &WorkloadValidator{Client: c, decoder: newDecoder(t)}
+	err := v.validateOnCreation(context.Background(), w)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+
+	resp := v.Handle(context.Background(), newRequest(t, admissionv1.Create, w, nil))
+	assert.Assert(t, !resp.Allowed)
+	assert.Equal(t, resp.Result.Code, int32(http.StatusConflict))
+
+	// A free name in the same workspace still passes.
+	w.Spec.Service.Name = "other-svc"
+	assert.NilError(t, v.validateOnCreation(context.Background(), w))
 }
 
 // TestWorkloadValidatorHandleFull verifies the validator handler with a complete environment.

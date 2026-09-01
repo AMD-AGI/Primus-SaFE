@@ -6,6 +6,7 @@
 package resources
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
 // GetWorkloadService Obtain the service started by the data plane corresponding to this workload.
@@ -55,9 +57,14 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	service, err := k8sClients.ClientSet().CoreV1().Services(workspace).Get(ctx, name, metav1.GetOptions{})
+	svcName := commonworkload.GetK8sServiceName(adminWorkload)
+	service, err := k8sClients.ClientSet().CoreV1().Services(workspace).Get(ctx, svcName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
+	}
+	if owner := commonworkload.GetK8sServiceOwner(service); owner != adminWorkload.Name {
+		return nil, commonerrors.NewConflict(
+			fmt.Sprintf("service name %s is owned by workload %s", svcName, owner))
 	}
 	if len(service.Spec.Ports) == 0 {
 		return nil, commonerrors.NewNotFoundWithMessage("service does not have any ports")
@@ -67,7 +74,7 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 		ClusterIp: service.Spec.ClusterIP,
 		Type:      service.Spec.Type,
 	}
-	internalDomain := adminWorkload.Name + "." + adminWorkload.Spec.Workspace +
+	internalDomain := svcName + "." + adminWorkload.Spec.Workspace +
 		".svc.cluster.local:" + strconv.Itoa(int(service.Spec.Ports[0].Port))
 	result.InternalDomain = internalDomain
 	if commonconfig.GetIngress() == common.HigressClassname && commonconfig.GetSystemHost() != "" {

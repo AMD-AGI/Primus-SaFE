@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -200,7 +201,7 @@ func (r *DispatcherReconciler) processTorchFTWorkload(ctx context.Context, rootW
 	if result, err := r.processWorkload(ctx, lightHouseWorkload); err != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
-	lightHouseAddr := "http://" + lightHouseWorkload.Name + "." + rootWorkload.Spec.Workspace +
+	lightHouseAddr := "http://" + commonworkload.GetK8sServiceName(lightHouseWorkload) + "." + rootWorkload.Spec.Workspace +
 		".svc.cluster.local:" + strconv.Itoa(LightHousePort)
 
 	for i := 0; i < group; i++ {
@@ -805,18 +806,26 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 	}
 	k8sClientSet := clientSets.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
-	var err error
-	if _, err = k8sClientSet.CoreV1().Services(namespace).Get(ctx, adminWorkload.Name, metav1.GetOptions{}); err == nil {
-		return ctrlruntime.Result{}, nil
+	svcName := commonworkload.GetK8sServiceName(adminWorkload)
+	existing, err := k8sClientSet.CoreV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{})
+	if err == nil {
+		return ctrlruntime.Result{}, checkK8sServiceOwner(existing, adminWorkload)
+	}
+	if !apierrors.IsNotFound(err) {
+		return ctrlruntime.Result{}, err
 	}
 	specService := adminWorkload.Spec.Service
 	service := &corev1.Service{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      adminWorkload.Name,
+			Name:      svcName,
 			Namespace: namespace,
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: v1.GetUserName(adminWorkload),
+			},
+			Labels: map[string]string{
+				v1.WorkloadIdLabel:  adminWorkload.Name,
+				v1.ServiceNameLabel: svcName,
 			},
 		},
 		Spec: corev1.ServiceSpec{
@@ -848,16 +857,22 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 		service.Spec.Ports[0].NodePort = int32(specService.NodePort)
 	}
 
-	if service, err = k8sClientSet.CoreV1().Services(namespace).Create(ctx,
-		service, metav1.CreateOptions{}); client.IgnoreAlreadyExists(err) != nil {
-		klog.ErrorS(err, "failed to create service", "name", adminWorkload.Name)
+	if _, err = k8sClientSet.CoreV1().Services(namespace).Create(ctx, service, metav1.CreateOptions{}); apierrors.IsAlreadyExists(err) {
+		existing, getErr := k8sClientSet.CoreV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{})
+		if getErr != nil {
+			return ctrlruntime.Result{}, getErr
+		}
+		return ctrlruntime.Result{}, checkK8sServiceOwner(existing, adminWorkload)
+	}
+	if err != nil {
+		klog.ErrorS(err, "failed to create service", "name", svcName)
 		if specService.NodePort > 0 {
 			// NodePort error occurred; cannot retry.
 			return ctrlruntime.Result{}, commonerrors.NewInternalError(err.Error())
 		}
 		return ctrlruntime.Result{}, err
 	}
-	klog.Infof("service %s/%s created", namespace, adminWorkload.Name)
+	klog.Infof("service %s/%s created", namespace, svcName)
 	return ctrlruntime.Result{}, nil
 }
 
@@ -869,19 +884,38 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 	clientSets *syncer.ClusterClientSets, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
 	k8sClientSet := clientSets.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
+	svcName := commonworkload.GetK8sServiceName(adminWorkload)
 
 	// Delete when no service desired
 	if adminWorkload.Spec.Service == nil {
-		err := k8sClientSet.CoreV1().Services(namespace).Delete(ctx, adminWorkload.Name, metav1.DeleteOptions{})
-		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
+		services := k8sClientSet.CoreV1().Services(namespace)
+		if err := deleteServiceIfOwned(ctx, services, svcName, adminWorkload); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if adminWorkload.Name != "" && adminWorkload.Name != svcName {
+			if err := deleteServiceIfOwned(ctx, services, adminWorkload.Name, adminWorkload); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+		}
+		if v1.GetLabel(adminWorkload, v1.ServiceNameLabel) != "" {
+			patch := client.MergeFrom(adminWorkload.DeepCopy())
+			v1.RemoveLabel(adminWorkload, v1.ServiceNameLabel)
+			if err := r.Patch(ctx, adminWorkload, patch); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+		}
+		return ctrlruntime.Result{}, nil
 	}
 
 	// Get or create
-	existing, err := k8sClientSet.CoreV1().Services(namespace).Get(ctx, adminWorkload.Name, metav1.GetOptions{})
+	existing, err := k8sClientSet.CoreV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return r.createService(ctx, adminWorkload, clientSets, obj)
 	}
 	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	if err = checkK8sServiceOwner(existing, adminWorkload); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 
@@ -917,7 +951,7 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 		return ctrlruntime.Result{}, nil
 	}
 	if _, err = k8sClientSet.CoreV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
-		klog.ErrorS(err, "failed to update service", "name", adminWorkload.Name)
+		klog.ErrorS(err, "failed to update service", "name", svcName)
 		if specService.NodePort > 0 {
 			// NodePort related update errors are not retryable via generic update
 			err = commonerrors.NewInternalError(err.Error())
@@ -939,40 +973,7 @@ func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload 
 	if _, err := k8sClientSet.NetworkingV1().Ingresses(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
 		return ctrlruntime.Result{}, nil
 	}
-	specService := adminWorkload.Spec.Service
-	pathType := networkingv1.PathTypePrefix
-	path := "/" + namespace + "/" + name + "/(.*)"
-	ing := &networkingv1.Ingress{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Annotations: map[string]string{
-				v1.UserNameAnnotation:       v1.GetUserName(adminWorkload),
-				"higress.io/rewrite-target": "/$1",
-			},
-		},
-		Spec: networkingv1.IngressSpec{
-			IngressClassName: pointer.String(common.HigressClassname),
-			Rules: []networkingv1.IngressRule{{
-				Host: commonconfig.GetSystemHost(),
-				IngressRuleValue: networkingv1.IngressRuleValue{
-					HTTP: &networkingv1.HTTPIngressRuleValue{
-						Paths: []networkingv1.HTTPIngressPath{{
-							Path:     path,
-							PathType: &pathType,
-							Backend: networkingv1.IngressBackend{
-								Service: &networkingv1.IngressServiceBackend{
-									Name: name, Port: networkingv1.ServiceBackendPort{
-										Number: int32(specService.Port),
-									},
-								},
-							},
-						}},
-					},
-				},
-			}},
-		},
-	}
+	ing := buildIngress(adminWorkload)
 	// Only set owner reference when the owner object has a valid UID.
 	owner := obj
 	if len(owner.GetUID()) == 0 {
@@ -995,6 +996,44 @@ func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload 
 	}
 	klog.Infof("ingress %s/%s created", namespace, name)
 	return ctrlruntime.Result{}, nil
+}
+
+// buildIngress creates the desired Ingress definition for a workload.
+func buildIngress(workload *v1.Workload) *networkingv1.Ingress {
+	pathType := networkingv1.PathTypePrefix
+	path := "/" + workload.Spec.Workspace + "/" + workload.Name + "/(.*)"
+	return &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      workload.Name,
+			Namespace: workload.Spec.Workspace,
+			Annotations: map[string]string{
+				v1.UserNameAnnotation:       v1.GetUserName(workload),
+				"higress.io/rewrite-target": "/$1",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: pointer.String(common.HigressClassname),
+			Rules: []networkingv1.IngressRule{{
+				Host: commonconfig.GetSystemHost(),
+				IngressRuleValue: networkingv1.IngressRuleValue{
+					HTTP: &networkingv1.HTTPIngressRuleValue{
+						Paths: []networkingv1.HTTPIngressPath{{
+							Path:     path,
+							PathType: &pathType,
+							Backend: networkingv1.IngressBackend{
+								Service: &networkingv1.IngressServiceBackend{
+									Name: commonworkload.GetK8sServiceName(workload),
+									Port: networkingv1.ServiceBackendPort{
+										Number: int32(workload.Spec.Service.Port),
+									},
+								},
+							},
+						}},
+					},
+				},
+			}},
+		},
+	}
 }
 
 // updateIngress makes sure the Ingress exists (or is removed) and points to the same-named Service and port.
@@ -1021,11 +1060,14 @@ func (r *DispatcherReconciler) updateIngress(ctx context.Context, adminWorkload 
 		return ctrlruntime.Result{}, err
 	}
 	specService := adminWorkload.Spec.Service
+	svcName := commonworkload.GetK8sServiceName(adminWorkload)
 	if len(existing.Spec.Rules) > 0 && existing.Spec.Rules[0].HTTP != nil && len(existing.Spec.Rules[0].HTTP.Paths) > 0 {
-		if existing.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Port.Number == int32(specService.Port) {
+		backend := existing.Spec.Rules[0].HTTP.Paths[0].Backend.Service
+		if backend.Name == svcName && backend.Port.Number == int32(specService.Port) {
 			return ctrlruntime.Result{}, nil
 		}
-		existing.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Port.Number = int32(specService.Port)
+		backend.Name = svcName
+		backend.Port.Number = int32(specService.Port)
 	} else {
 		return ctrlruntime.Result{}, commonerrors.NewInternalError("no rules found in ingress")
 	}
@@ -1082,11 +1124,13 @@ func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkl
 	workload.Spec.Kind = common.DeploymentKind
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[0]}
 	workload.Spec.Service = &v1.Service{
+		Name:        workload.Name,
 		Protocol:    corev1.ProtocolTCP,
 		Port:        LightHousePort,
 		TargetPort:  LightHousePort,
 		ServiceType: corev1.ServiceTypeClusterIP,
 	}
+	v1.SetLabel(workload, v1.ServiceNameLabel, workload.Name)
 	workload.Spec.Service.Extends = make(map[string]string)
 	workload.Spec.Service.Extends["maxUnavailable"] = common.DefaultMaxUnavailable
 	workload.Spec.Service.Extends["maxSurge"] = common.DefaultMaxMaxSurge
@@ -1104,6 +1148,7 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / totalGroup
 	displayName := v1.GetDisplayName(rootWorkload) + "-" + groupIdStr
 	workload.Name = rootWorkload.Name + "-" + groupIdStr
+	rebindGeneratedServiceName(workload)
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[1]}
 	workload.Spec.Resources[0].Replica = 1 // pytorch master
 	if nodePerGroup > 1 {
@@ -1170,6 +1215,7 @@ func (r *DispatcherReconciler) generateMonarchMesh(ctx context.Context, rootWork
 	displayName := generateMeshNamePrefix(rootWorkload.Name) + groupIdStr
 	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / totalGroup
 	workload.Name = displayName
+	rebindGeneratedServiceName(workload)
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
 	v1.SetLabel(workload, v1.GroupIdLabel, groupIdStr)
@@ -1202,6 +1248,45 @@ func generateServicePorts(specService *v1.Service) []corev1.ServicePort {
 		Port:       int32(specService.Port),
 		TargetPort: intstr.IntOrString{IntVal: int32(specService.TargetPort)},
 	}}
+}
+
+// checkK8sServiceOwner verifies that the workload owns the data-plane Service.
+// Missing WorkloadIdLabel uses the legacy Service-name ownership convention.
+func checkK8sServiceOwner(svc *corev1.Service, workload *v1.Workload) error {
+	owner := commonworkload.GetK8sServiceOwner(svc)
+	if owner != workload.Name {
+		return fmt.Errorf("service name %s is already used by workload %s", svc.Name, owner)
+	}
+	return nil
+}
+
+// deleteServiceIfOwned deletes a Service only when the workload owns it.
+func deleteServiceIfOwned(ctx context.Context, services corev1client.ServiceInterface,
+	name string, workload *v1.Workload) error {
+	if name == "" {
+		return nil
+	}
+	service, err := services.Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err = checkK8sServiceOwner(service, workload); err != nil {
+		return err
+	}
+	return client.IgnoreNotFound(services.Delete(ctx, name, metav1.DeleteOptions{}))
+}
+
+// rebindGeneratedServiceName scopes an inherited Service to a generated workload.
+func rebindGeneratedServiceName(workload *v1.Workload) {
+	if workload.Spec.Service == nil {
+		v1.RemoveLabel(workload, v1.ServiceNameLabel)
+		return
+	}
+	workload.Spec.Service.Name = workload.Name
+	v1.SetLabel(workload, v1.ServiceNameLabel, workload.Name)
 }
 
 // buildServiceSelector composes the K8s Service selector for a workload.

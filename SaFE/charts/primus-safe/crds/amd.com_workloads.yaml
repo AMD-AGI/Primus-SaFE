@@ -250,6 +250,11 @@ spec:
                       endpoints to the head pod, otherwise traffic round-robins to workers
                       and hits connection refused.
                     type: object
+                  name:
+                    description: |-
+                      Kubernetes Service object name. When empty, the webhook defaults it to
+                      the workload name and stamps ServiceNameLabel on the Workload.
+                    type: string
                   nodePort:
                     description: Port of Host Node (for NodePort type)
                     type: integer

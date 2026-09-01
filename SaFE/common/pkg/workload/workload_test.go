@@ -30,6 +30,32 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
+func TestGetK8sServiceName(t *testing.T) {
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "workload", Labels: map[string]string{}},
+		Spec:       v1.WorkloadSpec{Service: &v1.Service{Name: "spec-service"}},
+	}
+	assert.Equal(t, GetK8sServiceName(workload), "spec-service")
+
+	v1.SetLabel(workload, v1.ServiceNameLabel, "label-service")
+	assert.Equal(t, GetK8sServiceName(workload), "label-service")
+
+	workload.Spec.Service = nil
+	v1.RemoveLabel(workload, v1.ServiceNameLabel)
+	assert.Equal(t, GetK8sServiceName(workload), "workload")
+}
+
+func TestGetK8sServiceOwner(t *testing.T) {
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+		Name:   "service",
+		Labels: map[string]string{v1.WorkloadIdLabel: "workload"},
+	}}
+	assert.Equal(t, GetK8sServiceOwner(service), "workload")
+
+	delete(service.Labels, v1.WorkloadIdLabel)
+	assert.Equal(t, GetK8sServiceOwner(service), "service")
+}
+
 func genMockWorkload(clusterName, workspace string) *v1.Workload {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
