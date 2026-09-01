@@ -11,6 +11,16 @@ package v1
 type ContainerApplyConfiguration struct {
 	// Container name
 	Name *string `json:"name,omitempty"`
+	// Why the container last terminated, as the kubelet named it: OOMKilled,
+	// Error, ContainerCannotRun, DeadlineExceeded, Completed.
+	//
+	// Distinct from Message, which is free text. This is the only place OOM is
+	// stated: the pod-level status.reason that WorkloadPod.FailedMessage carries
+	// covers the kill decisions made above the container (Evicted, Preempted,
+	// NodeLost), and a container the kernel killed for memory leaves that field
+	// empty. Consumers were left inferring it from exit code 137, which is any
+	// SIGKILL and therefore also every eviction and every deliberate stop.
+	Reason *string `json:"reason,omitempty"`
 	// Message regarding the last termination of the container
 	Message *string `json:"message,omitempty"`
 	// Exit status from the last termination of the container
@@ -28,6 +38,14 @@ func Container() *ContainerApplyConfiguration {
 // If called multiple times, the Name field is set to the value of the last call.
 func (b *ContainerApplyConfiguration) WithName(value string) *ContainerApplyConfiguration {
 	b.Name = &value
+	return b
+}
+
+// WithReason sets the Reason field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Reason field is set to the value of the last call.
+func (b *ContainerApplyConfiguration) WithReason(value string) *ContainerApplyConfiguration {
+	b.Reason = &value
 	return b
 }
 

@@ -411,6 +411,54 @@ func TestBuildPodTerminatedInfoSucceeded(t *testing.T) {
 	assert.Assert(t, wp.EndTime != "")
 }
 
+// A container the kernel killed for memory is the case the pod-level reason
+// cannot describe: status.reason carries the kill decisions made *above* the
+// container (Evicted, Preempted, NodeLost) and is empty for an OOM, so consumers
+// were left inferring it from exit code 137 -- which is any SIGKILL, and therefore
+// also every eviction and every deliberate stop.
+func TestBuildPodTerminatedInfoCarriesContainerReason(t *testing.T) {
+	w := &v1.Workload{}
+	pod := &corev1.Pod{Status: corev1.PodStatus{
+		Phase: corev1.PodFailed,
+		ContainerStatuses: []corev1.ContainerStatus{{
+			Name: "main",
+			State: corev1.ContainerState{
+				Terminated: &corev1.ContainerStateTerminated{
+					Reason:   "OOMKilled",
+					ExitCode: 137,
+					Message:  "",
+				},
+			},
+		}},
+	}}
+	wp := &v1.WorkloadPod{}
+	buildPodTerminatedInfo(context.Background(), nil, w, pod, wp, "main")
+	assert.Equal(t, len(wp.Containers), 1)
+	assert.Equal(t, wp.Containers[0].Reason, "OOMKilled")
+	assert.Equal(t, wp.Containers[0].ExitCode, int32(137))
+	// The pod-level field says nothing here, which is exactly why the container
+	// one had to be carried.
+	assert.Equal(t, wp.FailedMessage, "")
+}
+
+// The ordinary case still reports its reason, so a consumer can tell "the process
+// exited badly" from "something killed it" without a second source.
+func TestBuildPodTerminatedInfoCarriesOrdinaryReason(t *testing.T) {
+	w := &v1.Workload{}
+	pod := &corev1.Pod{Status: corev1.PodStatus{
+		Phase: corev1.PodFailed,
+		ContainerStatuses: []corev1.ContainerStatus{{
+			Name: "main",
+			State: corev1.ContainerState{
+				Terminated: &corev1.ContainerStateTerminated{Reason: "Error", ExitCode: 1},
+			},
+		}},
+	}}
+	wp := &v1.WorkloadPod{}
+	buildPodTerminatedInfo(context.Background(), nil, w, pod, wp, "main")
+	assert.Equal(t, wp.Containers[0].Reason, "Error")
+}
+
 func TestGenerateStickyFault(t *testing.T) {
 	// Empty node id -> nil fault, no error.
 	f, err := generateStickyFault(&v1.Workload{}, "", syncerScheme(t))
