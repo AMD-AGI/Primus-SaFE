@@ -145,6 +145,22 @@ var (
 		Help: "Total workspace node bind/unbind operations, by action and result.",
 	}, []string{"action", "result"})
 
+	// WorkspaceExpectationExpiredTotal counts node expectations abandoned because the label
+	// round trip never completed.
+	//
+	// This is the alert signal for the failure the deadline bounds. A non-zero rate means node
+	// bindings are being written whose label never makes it back to the admin plane, and each
+	// one cost the workspace a stalled reconcile until a prune cleared it. Counted per node,
+	// because that is the granularity a deadline is kept and dropped at.
+	//
+	// Unlabelled on purpose: the workspace and node names are in the warning log this is
+	// incremented next to, and workspaces come and go, so a label here would be unbounded
+	// cardinality for something already recorded elsewhere.
+	WorkspaceExpectationExpiredTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "safe_workspace_expectation_expired_total",
+		Help: "Total workspace node expectations abandoned after the label round trip timed out.",
+	})
+
 	// --- github workflow sync ---
 
 	// GithubSyncBacklog reports the number of unsynced GitHub workflow runs picked
@@ -183,6 +199,7 @@ func init() {
 		OpsJobTimeoutTotal,
 		WorkspacePhaseTotal,
 		WorkspaceNodeBindingTotal,
+		WorkspaceExpectationExpiredTotal,
 		GithubSyncBacklog,
 		GithubSyncTotal,
 	)

@@ -18,8 +18,7 @@ import (
 
 var (
 	defaultWorkspaceOption = WorkspaceReconcilerOption{
-		processWait: 1 * time.Second,
-		nodeWait:    30 * time.Second,
+		nodeWait: 30 * time.Second,
 		// Long enough that a target busy with another node action, or a resource-manager
 		// restart, does not cut a migration short; short enough that a node released for a
 		// migration nobody can complete comes back into service the same day.

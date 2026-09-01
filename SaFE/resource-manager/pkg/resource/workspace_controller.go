@@ -70,8 +70,7 @@ type WorkspaceReconciler struct {
 }
 
 type WorkspaceReconcilerOption struct {
-	processWait time.Duration
-	nodeWait    time.Duration
+	nodeWait time.Duration
 	// migrateTimeout bounds how long a node may sit released for a migration that never
 	// completes. Past it the reservation is dropped and the node becomes an ordinary
 	// unassigned node. It is not handed back to the source, but the source's replica is:
@@ -323,24 +322,72 @@ func (r *WorkspaceReconciler) deleteDataPlaneResources(ctx context.Context, work
 	return nil
 }
 
+// resyncPeriod is the longest a live Workspace goes without being reconciled.
+//
+// Nothing else guarantees one. The predicates on this controller admit a nodes-action
+// appearing, a deletion timestamp appearing, and a generation change; the cache's own resync
+// produces a generation-equal Update that both of them reject, and the Workspace CRD has a
+// status subresource, so this controller's own status writes do not bump the generation
+// either. The manager sets no SyncPeriod. So every path out of Reconcile that leaves the
+// workspace alive and asks for nothing is a path where the next reconcile depends entirely on
+// somebody else's event -- and the failure this file exists to bound is exactly the one where
+// that event never comes.
+//
+// armExpectations is the tight bound for the case we can name: a bind whose label round trip
+// is outstanding, brought back in 30s so the deadline gets read. This is the loose bound for
+// the cases we cannot -- it costs one reconcile per workspace per quarter hour and removes
+// "wedged until the process restarts" as an outcome any single missed event can produce.
+const resyncPeriod = 15 * time.Minute
+
+// keepAlive gives a Workspace that asked for nothing a way back anyway.
+//
+// Applied to every exit from Reconcile that leaves a live Workspace behind, rather than to the
+// one that happened to be under the cursor. Two of them -- an absent Cluster object and a
+// workspace naming no cluster -- return before processWorkspace is called at all, and nothing
+// else brings a Workspace back: the controller does not watch Cluster, and setting the field
+// is the only other door in.
+//
+// What this does NOT do is expire anything. pruneExpectations is inside processWorkspace, so
+// an expectation held by a workspace parked on one of those two exits is not dropped there and
+// is not counted. That costs nothing: both exits mean there is no data plane to reach, and
+// scaling, status and the node action all need one, so an open gate would have nothing to open
+// onto. What the requeue buys is the pass after the Cluster returns -- which does reach
+// pruneExpectations -- happening within a quarter hour rather than never.
+//
+// Only fills a gap: any answer the caller already gave is kept, including the deprecated
+// Requeue bool, which is why this tests IsZero rather than RequeueAfter alone. Reading only
+// RequeueAfter would take "come back now, rate limited" for "asked for nothing".
+func keepAlive(result ctrlruntime.Result) ctrlruntime.Result {
+	if result.IsZero() {
+		result.RequeueAfter = resyncPeriod
+	}
+	return result
+}
+
 // Reconcile is the main control loop for Workspace resources.
 func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	workspace := new(v1.Workspace)
 	if err := r.Get(ctx, req.NamespacedName, workspace); err != nil {
+		// Nothing to keep alive: the object is gone, or the work queue is retrying the error.
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if !workspace.GetDeletionTimestamp().IsZero() {
+		// Nor here: delete ends by removing the finalizer, so a successful pass is the last
+		// one, and a failed one comes back through the work queue.
 		return ctrlruntime.Result{}, r.delete(ctx, workspace)
 	}
 	clientSet, err := r.getClientSetOfDataplane(ctx, workspace.Spec.Cluster)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return ctrlruntime.Result{}, nil
+			// The Cluster object is not there. Not watched, so nothing reports its return.
+			return keepAlive(ctrlruntime.Result{}), nil
 		}
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 	if clientSet == nil {
-		return ctrlruntime.Result{}, nil
+		// No cluster named yet. Setting one bumps the generation and enqueues on its own, but
+		// that is the only door in, and this workspace can be carrying expectations already.
+		return keepAlive(ctrlruntime.Result{}), nil
 	}
 	if err = r.guaranteeDataPlaneResources(ctx, workspace, clientSet); err != nil {
 		return ctrlruntime.Result{}, err
@@ -348,8 +395,9 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 	result, err := r.processWorkspace(ctx, workspace)
 	if err != nil {
 		klog.ErrorS(err, "failed to process workspace", "name", workspace.Name)
+		return result, err
 	}
-	return result, err
+	return keepAlive(result), nil
 }
 
 // delete handles the deletion of a Workspace resource by unbinding nodes and removing finalizers.
@@ -532,8 +580,19 @@ func (r *WorkspaceReconciler) pruneExpectations(workspaceId string) {
 		if now.Before(deadline) {
 			continue
 		}
-		klog.Infof("workspace(%s) stopped waiting on node(%s) after %s",
-			workspaceId, nodeName, expectationTimeout.String())
+		// The elapsed wait, not the configured timeout. A deadline is only read when a
+		// reconcile reaches this function, so the wait can run past expectationTimeout by
+		// however long it took one to arrive -- and how far past is the interesting part of
+		// the report.
+		//
+		// Warning rather than Info, and counted: this is the branch that says a binding was
+		// written whose label never came back, which is a data plane fault the workspace has
+		// just stopped waiting on. Nothing else records it -- the annotation was cleared on
+		// the pass after the bind, so the request leaves no trace of having been given up on.
+		klog.Warningf("workspace(%s) stopped waiting on node(%s) after %s: the label round "+
+			"trip never completed for it; recounting from the claims instead",
+			workspaceId, nodeName, (expectationTimeout + now.Sub(deadline)).Truncate(time.Second))
+		rmmetrics.WorkspaceExpectationExpiredTotal.Inc()
 		delete(left.deadlines, nodeName)
 	}
 	if len(left.deadlines) == 0 {
@@ -665,9 +724,85 @@ func (r *WorkspaceReconciler) recordf(workspace *v1.Workspace, eventType, reason
 	r.recorder.Eventf(workspace, eventType, reason, format, args...)
 }
 
+// defaultExpectationRetry is the fallback for expectationRetry.
+const defaultExpectationRetry = 30 * time.Second
+
+// expectationRetry is how long to wait before returning to a workspace whose expectations are
+// still outstanding.
+//
+// It reads the same option the gate requeues on, and has a fallback of its own because a zero
+// here is not a harmless default: a RequeueAfter of zero is no requeue at all, which is the
+// exact behaviour this change exists to remove. A guard that disarms itself under a zero
+// option is not a guard.
+//
+// The zero only. option itself is never nil -- SetupWorkspaceController is the one production
+// construction and passes &defaultWorkspaceOption -- and the other readers of nodeWait do not
+// check, so checking here would say the field is sometimes absent and send the next reader
+// looking for the path where it is.
+func (r *WorkspaceReconciler) expectationRetry() time.Duration {
+	if r.option.nodeWait > 0 {
+		return r.option.nodeWait
+	}
+	return defaultExpectationRetry
+}
+
 // processWorkspace handles the main processing logic for a Workspace resource
 // include scaling up and scaling down nodes.
+//
+// The body is reconcileWorkspace; this wrapper exists to arm the requeue on every exit from
+// it. setExpectations is reached only from updateNodesBinding, which is reached only from
+// inside reconcileWorkspace -- and from delete, which removes expectations rather than
+// leaving them -- so this is the one boundary every new expectation crosses.
 func (r *WorkspaceReconciler) processWorkspace(ctx context.Context, workspace *v1.Workspace) (ctrlruntime.Result, error) {
+	result, err := r.reconcileWorkspace(ctx, workspace)
+	if err != nil {
+		// The work queue requeues an error with backoff and ignores RequeueAfter alongside
+		// one, so there is nothing to arm: the workspace is already coming back.
+		return result, err
+	}
+	return r.armExpectations(workspace.Name, result), nil
+}
+
+// armExpectations makes a reconcile that leaves expectations outstanding schedule its own way
+// back to the gate that can expire them.
+//
+// A deadline is only read by pruneExpectations and meetExpectations, and both are reached only
+// from reconcileWorkspace. So a deadline is worth nothing unless a later reconcile is
+// guaranteed to happen -- and after the pass that *creates* an expectation, none is. scaleUp
+// returns an empty Result once the bind succeeds; so does scaleDown when it found every node
+// it asked for; and processNodesAction returns before the gate on exactly the passes where it
+// applied something. The write updateSingleNodeBinding just made does not bring the workspace
+// back either: handleNodeEvent's UpdateFunc does not enqueue on a claim being written -- the
+// label is unchanged, which is the thing being waited for -- and isRelevantFieldChanged does
+// not look at Spec.Workspace. Nothing else does: the Workspace predicates reject a
+// generation-equal resync, and the manager sets no SyncPeriod.
+//
+// So the requeue has to be armed on the way out, not only on the way in. Without it the
+// deadline repairs the second and later visits to the gate but not the first, which is the
+// only visit the failure it exists for actually gets.
+func (r *WorkspaceReconciler) armExpectations(workspaceId string, result ctrlruntime.Result) ctrlruntime.Result {
+	if !result.IsZero() || r.meetExpectations(workspaceId) {
+		// Already coming back, or nothing is outstanding.
+		//
+		// Sooner than a deadline could ask for, too: the longest requeue reconcileWorkspace
+		// produces is option.nodeWait, well inside expectationTimeout. Deliberately said of
+		// reconcileWorkspace and not of the controller -- keepAlive's resyncPeriod is three
+		// times expectationTimeout, and it is applied to this function's *result*, above in
+		// Reconcile, never to its argument. Wiring a new exit through keepAlive first would
+		// hand this one a wait longer than the deadline it is arming for.
+		//
+		// IsZero rather than RequeueAfter == 0, because Result also carries the deprecated
+		// Requeue bool, which means "come back now, rate limited". Reading only RequeueAfter
+		// would take that for "asked for nothing" and quietly turn it into a wait.
+		return result
+	}
+	result.RequeueAfter = r.expectationRetry()
+	return result
+}
+
+// reconcileWorkspace is processWorkspace's body. Call processWorkspace, not this: a bind made
+// here leaves an expectation that only the wrapper schedules the way back to.
+func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace *v1.Workspace) (ctrlruntime.Result, error) {
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
 	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
@@ -695,7 +830,7 @@ func (r *WorkspaceReconciler) processWorkspace(ctx context.Context, workspace *v
 		// Same reason: the event that settles this may never come, and the deadline that ends
 		// the wait is only read when something asks.
 		if actionResult.RequeueAfter == 0 {
-			actionResult.RequeueAfter = r.option.nodeWait
+			actionResult.RequeueAfter = r.expectationRetry()
 		}
 		return actionResult, nil
 	}
