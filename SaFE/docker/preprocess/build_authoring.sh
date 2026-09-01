@@ -16,6 +16,20 @@ else
   echo "openssh-server installation failed"
 fi
 
+# socat backs the Pod-side listener for `ssh -R`: the apiserver execs a
+# `socat TCP-LISTEN:<port>,bind=127.0.0.1,fork` in this container and refuses the
+# forward outright when it is absent. The workload image belongs to the user - it is
+# usually an upstream vLLM/SGLang/PyTorch image - so the platform cannot assume socat
+# is in it, any more than it assumes sshd is. Report on what is actually on PATH
+# rather than on the install's exit status: install_if_not_exists sends apt's own
+# output to /dev/null, and PATH is what the apiserver's listener script tests.
+install_if_not_exists socat
+if command -v socat >/dev/null 2>&1; then
+  echo "socat is available, ssh -R remote forwarding will work"
+else
+  echo "WARN: socat is not available, ssh -R remote forwarding will be refused"
+fi
+
 # curl is required below to fetch the AMD certificate setup script.
 install_if_not_exists curl
 
