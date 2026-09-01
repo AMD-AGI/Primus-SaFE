@@ -13,6 +13,9 @@ import (
 // ServiceApplyConfiguration represents a declarative configuration of the Service type for use
 // with apply.
 type ServiceApplyConfiguration struct {
+	// Kubernetes Service object name. When empty, the webhook defaults it to
+	// the workload name and stamps ServiceNameLabel on the Workload.
+	Name *string `json:"name,omitempty"`
 	// Service protocol, e.g. TCP/UDP, default TCP
 	Protocol *corev1.Protocol `json:"protocol,omitempty"`
 	// Service port for external access, Defaults to targetPort.
@@ -38,6 +41,14 @@ type ServiceApplyConfiguration struct {
 // apply.
 func Service() *ServiceApplyConfiguration {
 	return &ServiceApplyConfiguration{}
+}
+
+// WithName sets the Name field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Name field is set to the value of the last call.
+func (b *ServiceApplyConfiguration) WithName(value string) *ServiceApplyConfiguration {
+	b.Name = &value
+	return b
 }
 
 // WithProtocol sets the Protocol field in the declarative configuration to the given value
