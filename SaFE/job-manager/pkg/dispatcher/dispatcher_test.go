@@ -15,6 +15,7 @@ import (
 	"gotest.tools/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -69,6 +70,10 @@ func genMockScheme() (*runtime.Scheme, error) {
 		return nil, err
 	}
 	err = appsv1.AddToScheme(result)
+	if err != nil {
+		return nil, err
+	}
+	err = networkingv1.AddToScheme(result)
 	if err != nil {
 		return nil, err
 	}
@@ -1287,21 +1292,27 @@ func newGenReconciler(t *testing.T) *DispatcherReconciler {
 func TestGenerateLighthouse(t *testing.T) {
 	r := newGenReconciler(t)
 	w := multiResourceWorkload()
+	w.Spec.Service = &v1.Service{Name: "root-service"}
+	v1.SetLabel(w, v1.ServiceNameLabel, "root-service")
 	lh := r.generateLighthouse(context.Background(), w)
 	assert.Assert(t, lh != nil)
 	assert.Equal(t, lh.Name, "rw-0")
 	assert.Equal(t, string(lh.Spec.Kind), common.DeploymentKind)
 	assert.Assert(t, lh.Spec.Service != nil)
+	assert.Equal(t, commonworkload.GetK8sServiceName(lh), "rw-0")
 }
 
 func TestGenerateTorchFTWorker(t *testing.T) {
 	r := newGenReconciler(t)
 	w := multiResourceWorkload()
+	w.Spec.Service = &v1.Service{Name: "root-service"}
+	v1.SetLabel(w, v1.ServiceNameLabel, "root-service")
 	worker := r.generateTorchFTWorker(context.Background(), w, 0, 2, "lighthouse:29400")
 	assert.Assert(t, worker != nil)
 	assert.Equal(t, worker.Name, "rw-1")
 	assert.Equal(t, string(worker.Spec.Kind), common.PytorchJobKind)
 	assert.Equal(t, worker.Spec.Env[common.TorchFTLightHouse], "lighthouse:29400")
+	assert.Equal(t, commonworkload.GetK8sServiceName(worker), "rw-1")
 }
 
 func TestGenerateMonarchClient(t *testing.T) {
@@ -1316,9 +1327,12 @@ func TestGenerateMonarchClient(t *testing.T) {
 func TestGenerateMonarchMesh(t *testing.T) {
 	r := newGenReconciler(t)
 	w := multiResourceWorkload()
+	w.Spec.Service = &v1.Service{Name: "root-service"}
+	v1.SetLabel(w, v1.ServiceNameLabel, "root-service")
 	mesh := r.generateMonarchMesh(context.Background(), w, 2, 0)
 	assert.Assert(t, mesh != nil)
 	assert.Equal(t, string(mesh.Spec.Kind), common.MonarchMesh)
+	assert.Equal(t, commonworkload.GetK8sServiceName(mesh), mesh.Name)
 }
 
 // --- merged from dispatcher_monkey_test.go ---
@@ -1561,9 +1575,9 @@ func TestCreateService(t *testing.T) {
 		ServiceType: corev1.ServiceTypeClusterIP,
 	}
 
+	clientset := k8sfake.NewSimpleClientset()
 	cs := &syncer.ClusterClientSets{}
-	cs.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(
-		context.Background(), "c", k8sfake.NewSimpleClientset()))
+	cs.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c", clientset))
 
 	// Give the owner object a UID + GVK so SetControllerReference works and the
 	// dynamic GetObject fallback is skipped.
@@ -1576,6 +1590,10 @@ func TestCreateService(t *testing.T) {
 	res, err := r.createService(context.Background(), w, cs, obj)
 	assert.NilError(t, err)
 	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
+	service, err := clientset.CoreV1().Services("ns").Get(context.Background(), "w", metav1.GetOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, service.Labels[v1.WorkloadIdLabel], "w")
+	assert.Equal(t, service.Labels[v1.ServiceNameLabel], "w")
 }
 
 func TestCreateServiceDuplicateNameOwnedByOther(t *testing.T) {
@@ -1606,7 +1624,8 @@ func TestCreateServiceDuplicateNameOwnedByOther(t *testing.T) {
 
 	res, err := r.createService(context.Background(), w, serviceClientSets(existing), obj)
 	assert.Assert(t, err != nil)
-	assert.Assert(t, commonerrors.IsBadRequest(err))
+	assert.ErrorContains(t, err, "already used by workload wl-a")
+	assert.Assert(t, !commonerrors.IsBadRequest(err))
 	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
 }
 
@@ -1617,6 +1636,19 @@ func TestCreateIngressNoService(t *testing.T) {
 	res, err := r.createIngress(context.Background(), w, nil, nil)
 	assert.NilError(t, err)
 	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
+}
+
+func TestCreateIngressUsesCustomServiceName(t *testing.T) {
+	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:   "workload",
+		Labels: map[string]string{v1.ServiceNameLabel: "custom-service"},
+	}}
+	workload.Spec.Workspace = "ns"
+	workload.Spec.Service = &v1.Service{Port: 80}
+
+	ingress := buildIngress(workload)
+
+	assert.Equal(t, ingress.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Name, "custom-service")
 }
 
 func serviceClientSets(objs ...runtime.Object) *syncer.ClusterClientSets {
@@ -1634,6 +1666,75 @@ func TestUpdateServiceDeleteWhenNoSpec(t *testing.T) {
 	res, err := r.updateService(context.Background(), w, serviceClientSets(), nil)
 	assert.NilError(t, err)
 	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
+}
+
+func TestUpdateServiceDoesNotDeleteServiceOwnedByAnotherWorkload(t *testing.T) {
+	existing := &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+		Name:      "wl-a",
+		Namespace: "ns",
+		Labels:    map[string]string{v1.WorkloadIdLabel: "wl-b"},
+	}}
+	clientset := k8sfake.NewSimpleClientset(existing)
+	cs := &syncer.ClusterClientSets{}
+	cs.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c", clientset))
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl-a"}}
+	w.Spec.Workspace = "ns"
+
+	_, err := (&DispatcherReconciler{}).updateService(context.Background(), w, cs, nil)
+	assert.Assert(t, err != nil)
+	_, getErr := clientset.CoreV1().Services("ns").Get(context.Background(), "wl-a", metav1.GetOptions{})
+	assert.NilError(t, getErr)
+}
+
+func TestUpdateServiceChecksOwnerBeforeDeletingLegacyFallback(t *testing.T) {
+	custom := &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+		Name:      "custom",
+		Namespace: "ns",
+		Labels:    map[string]string{v1.WorkloadIdLabel: "wl-a"},
+	}}
+	legacy := &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+		Name:      "wl-a",
+		Namespace: "ns",
+		Labels:    map[string]string{v1.WorkloadIdLabel: "wl-b"},
+	}}
+	clientset := k8sfake.NewSimpleClientset(custom, legacy)
+	cs := &syncer.ClusterClientSets{}
+	cs.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c", clientset))
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:   "wl-a",
+		Labels: map[string]string{v1.ServiceNameLabel: "custom"},
+	}}
+	w.Spec.Workspace = "ns"
+
+	_, err := (&DispatcherReconciler{}).updateService(context.Background(), w, cs, nil)
+	assert.Assert(t, err != nil)
+	_, customErr := clientset.CoreV1().Services("ns").Get(context.Background(), "custom", metav1.GetOptions{})
+	assert.Assert(t, apierrors.IsNotFound(customErr))
+	_, legacyErr := clientset.CoreV1().Services("ns").Get(context.Background(), "wl-a", metav1.GetOptions{})
+	assert.NilError(t, legacyErr)
+}
+
+func TestUpdateServiceClearsServiceNameLabelAfterDelete(t *testing.T) {
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:   "wl-a",
+		Labels: map[string]string{v1.ServiceNameLabel: "custom"},
+	}}
+	workload.Spec.Workspace = "ns"
+	adminClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(workload).Build()
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+		Name:      "custom",
+		Namespace: "ns",
+		Labels:    map[string]string{v1.WorkloadIdLabel: "wl-a"},
+	}}
+
+	_, err = (&DispatcherReconciler{Client: adminClient}).updateService(
+		context.Background(), workload, serviceClientSets(service), nil)
+	assert.NilError(t, err)
+	stored := &v1.Workload{}
+	assert.NilError(t, adminClient.Get(context.Background(), ctrlclient.ObjectKey{Name: "wl-a"}, stored))
+	assert.Equal(t, v1.GetLabel(stored, v1.ServiceNameLabel), "")
 }
 
 func TestUpdateServiceUpdatesExisting(t *testing.T) {

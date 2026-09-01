@@ -106,11 +106,61 @@ func TestWorkloadMutateHealthCheck(t *testing.T) {
 // TestWorkloadMutateService verifies service protocol and defaults.
 func TestWorkloadMutateService(t *testing.T) {
 	m := &WorkloadMutator{}
-	w := &v1.Workload{Spec: v1.WorkloadSpec{Service: &v1.Service{TargetPort: 8080}}}
-	m.mutateService(w)
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "workload-a"},
+		Spec:       v1.WorkloadSpec{Service: &v1.Service{TargetPort: 8080}},
+	}
+	m.mutateService(nil, w)
 	assert.Equal(t, w.Spec.Service.Protocol, corev1.ProtocolTCP)
 	assert.Equal(t, w.Spec.Service.Port, 8080)
+	assert.Equal(t, w.Spec.Service.Name, "workload-a")
+	assert.Equal(t, v1.GetLabel(w, v1.ServiceNameLabel), "workload-a")
 	assert.Assert(t, w.Spec.Service.Extends != nil)
+}
+
+func TestLegacyDispatchedWorkloadAcceptsDefaultServiceNameBackfill(t *testing.T) {
+	oldWorkload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "legacy"},
+		Spec: v1.WorkloadSpec{
+			Service: &v1.Service{
+				Protocol: corev1.ProtocolTCP,
+				Port:     8080,
+				Extends: map[string]string{
+					"maxUnavailable": common.DefaultMaxUnavailable,
+					"maxSurge":       common.DefaultMaxMaxSurge,
+				},
+			},
+		},
+	}
+	v1.SetAnnotation(oldWorkload, v1.WorkloadDispatchedAnnotation, "now")
+	newWorkload := oldWorkload.DeepCopy()
+
+	(&WorkloadMutator{}).mutateService(oldWorkload, newWorkload)
+
+	assert.Equal(t, newWorkload.Spec.Service.Name, "legacy")
+	assert.NilError(t, (&WorkloadValidator{}).validateSpecChanged(newWorkload, oldWorkload))
+}
+
+func TestWorkloadMutateServiceNameLabelRemoval(t *testing.T) {
+	mutator := &WorkloadMutator{}
+	oldWorkload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "workload",
+			Labels: map[string]string{v1.ServiceNameLabel: "custom-service"},
+		},
+		Spec: v1.WorkloadSpec{Service: &v1.Service{Name: "custom-service"}},
+	}
+	newWorkload := oldWorkload.DeepCopy()
+	newWorkload.Spec.Service = nil
+
+	mutator.mutateService(oldWorkload, newWorkload)
+	assert.Equal(t, v1.GetLabel(newWorkload, v1.ServiceNameLabel), "")
+
+	v1.SetAnnotation(oldWorkload, v1.WorkloadDispatchedAnnotation, "now")
+	newWorkload = oldWorkload.DeepCopy()
+	newWorkload.Spec.Service = nil
+	mutator.mutateService(oldWorkload, newWorkload)
+	assert.Equal(t, v1.GetLabel(newWorkload, v1.ServiceNameLabel), "custom-service")
 }
 
 // TestWorkloadMutateDeployment verifies deployment-specific resets.

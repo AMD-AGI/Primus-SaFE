@@ -33,6 +33,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
 // Chat handles direct chat with a model or workload.
@@ -143,7 +144,8 @@ func (h *Handler) Chat(c *gin.Context) {
 				baseUrl = "https://" + commonconfig.GetSystemHost() + "/" + clusterId + "/" + k8sWorkload.Spec.Workspace + "/" + k8sWorkload.Name + "/"
 			} else {
 				// Fallback to internal domain
-				baseUrl = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", k8sWorkload.Name, k8sWorkload.Spec.Workspace, port)
+				baseUrl = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+					commonworkload.GetK8sServiceName(k8sWorkload), k8sWorkload.Spec.Workspace, port)
 			}
 		}
 
@@ -294,7 +296,8 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 			baseUrl = "https://" + commonconfig.GetSystemHost() + "/" + clusterId + "/" + w.Spec.Workspace + "/" + w.Name + "/"
 		} else {
 			// Fallback to internal domain: http://{name}.{workspace}.svc.cluster.local:{port}
-			baseUrl = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", w.Name, w.Spec.Workspace, port)
+			baseUrl = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+				commonworkload.GetK8sServiceName(&w), w.Spec.Workspace, port)
 		}
 
 		items = append(items, PlaygroundServiceItem{

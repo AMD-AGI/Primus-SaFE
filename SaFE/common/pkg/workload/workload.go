@@ -46,6 +46,17 @@ func GetK8sServiceName(w *v1.Workload) string {
 	return w.Name
 }
 
+// GetK8sServiceOwner returns the workload identity recorded on a Service.
+func GetK8sServiceOwner(service *corev1.Service) string {
+	if service == nil {
+		return ""
+	}
+	if owner := service.Labels[v1.WorkloadIdLabel]; owner != "" {
+		return owner
+	}
+	return service.Name
+}
+
 // GetTotalReplica returns the total replica count across all resources in the workload
 func GetTotalReplica(w *v1.Workload) int {
 	n := 0

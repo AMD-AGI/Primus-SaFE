@@ -6,6 +6,7 @@
 package resources
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -60,6 +61,10 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	service, err := k8sClients.ClientSet().CoreV1().Services(workspace).Get(ctx, svcName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
+	}
+	if owner := commonworkload.GetK8sServiceOwner(service); owner != adminWorkload.Name {
+		return nil, commonerrors.NewConflict(
+			fmt.Sprintf("service name %s is owned by workload %s", svcName, owner))
 	}
 	if len(service.Spec.Ports) == 0 {
 		return nil, commonerrors.NewNotFoundWithMessage("service does not have any ports")

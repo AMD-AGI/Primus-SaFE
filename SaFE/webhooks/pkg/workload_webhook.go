@@ -170,7 +170,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	m.mutateCustomerLabels(newWorkload)
 	m.mutateCronJobs(newWorkload)
 	m.mutateHealthCheck(newWorkload)
-	m.mutateService(newWorkload)
+	m.mutateService(oldWorkload, newWorkload)
 	m.mutateSecrets(ctx, newWorkload, workspace)
 	m.mutateStickNodes(ctx, newWorkload, workspace)
 	return nil
@@ -352,9 +352,12 @@ func mutateHealthCheck(field *v1.HealthCheck) {
 	}
 }
 
-// mutateService uppercases protocol and defaults to TCP.
-func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
+// mutateService normalizes Service settings and maintains its resolved name.
+func (m *WorkloadMutator) mutateService(oldWorkload, workload *v1.Workload) {
 	if workload.Spec.Service == nil {
+		if oldWorkload == nil || oldWorkload.Spec.Service == nil || !v1.IsWorkloadDispatched(oldWorkload) {
+			v1.RemoveLabel(workload, v1.ServiceNameLabel)
+		}
 		return
 	}
 	if workload.Spec.Service.Protocol != "" {
@@ -1594,9 +1597,12 @@ func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Wor
 			return true
 		} else if oldWorkload.Spec.Service == nil && newWorkload.Spec.Service != nil {
 			return true
-		} else if newWorkload.Spec.Service != nil && oldWorkload.Spec.Service != nil &&
-			!reflect.DeepEqual(*newWorkload.Spec.Service, *oldWorkload.Spec.Service) {
-			return true
+		} else if newWorkload.Spec.Service != nil && oldWorkload.Spec.Service != nil {
+			newService := *newWorkload.Spec.Service
+			oldService := *oldWorkload.Spec.Service
+			newService.Name = commonworkload.GetK8sServiceName(newWorkload)
+			oldService.Name = commonworkload.GetK8sServiceName(oldWorkload)
+			return !reflect.DeepEqual(newService, oldService)
 		}
 		return false
 	}

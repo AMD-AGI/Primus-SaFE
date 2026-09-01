@@ -18,8 +18,8 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"gotest.tools/assert"
-	corev1 "k8s.io/api/core/v1"
 	admissionv1 "k8s.io/api/admission/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -466,7 +466,7 @@ func TestWorkloadMutateOwnerReferenceEarlyReturns(t *testing.T) {
 func TestWorkloadMutateServiceProtocolSet(t *testing.T) {
 	m := &WorkloadMutator{}
 	w := &v1.Workload{Spec: v1.WorkloadSpec{Service: &v1.Service{Protocol: "tcp", TargetPort: 80, Port: 90}}}
-	m.mutateService(w)
+	m.mutateService(nil, w)
 	assert.Equal(t, w.Spec.Service.Protocol, corev1.ProtocolTCP)
 }
 
