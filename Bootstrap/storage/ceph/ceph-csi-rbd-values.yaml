@@ -1,0 +1,33 @@
+# Values for the ceph-csi-rbd chart (installed by ceph.sh).
+#
+# The node plugin is a DaemonSet, and the upstream chart ships it with no
+# tolerations at all. That is wrong for any cluster that taints nodes, and this
+# one taints most of them: `hyperloom.amd.com/spur-hold=absent:NoSchedule` sits
+# on the nodes spur has not pinned, which was 155 of 191 when this was written.
+#
+# NoSchedule does not evict, so the fleet looks healthy -- plugin pods placed
+# before a node was tainted keep running. The damage only shows when a node
+# loses its pod (reboot, eviction, a DaemonSet rollout): it can never get one
+# back. kubelet then has no registered CSI driver, and every pod that lands
+# there with an RBD volume hangs in ContainerCreating on
+#
+#   MountVolume.MountDevice failed ... driver name rbd.csi.ceph.com not found
+#   in the list of registered CSI drivers
+#
+# which reads like the node is missing the driver rather than the plugin being
+# unschedulable. It is also slow to notice: the node's CSINode object still
+# lists the driver from its previous registration, so the driver looks present
+# in the API while kubelet's in-memory registry has nothing. One NATS replica
+# sat unmountable this way for 15 days before anyone traced it back here.
+#
+# `operator: Exists` with no key tolerates everything, which is what a storage
+# driver wants: it has to be available wherever a workload can be scheduled, so
+# it should never be the reason a pod cannot start. The same argument applies
+# to the CNI and node-level monitoring.
+#
+# The signal to watch for is the DaemonSet's own DESIRED count. It was 36
+# against a 191-node cluster -- the driver was simply absent from 155 nodes,
+# and nothing alerted.
+nodeplugin:
+  tolerations:
+    - operator: Exists

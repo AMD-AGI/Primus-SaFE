@@ -30,7 +30,10 @@ CLUSTERID=$(kubectl get cephcluster -n rook-ceph rook-ceph  -o jsonpath='{.statu
 # Add the Ceph CSI Helm repository
 helm repo add ceph-csi https://ceph.github.io/csi-charts
 # Install the Ceph CSI RBD driver in its own namespace
-helm install --namespace "ceph-csi-rbd" "ceph-csi-rbd" ceph-csi/ceph-csi-rbd --create-namespace
+# -f is not optional: the chart's default node plugin has no tolerations and so
+# skips every tainted node. See the comment in the values file.
+helm install --namespace "ceph-csi-rbd" "ceph-csi-rbd" ceph-csi/ceph-csi-rbd --create-namespace \
+  -f ceph-csi-rbd-values.yaml
 # Export the Ceph CSI configmap to a local file
 kubectl get cm -n ceph-csi-rbd ceph-csi-config -o yaml > ceph-csi-config.yaml
 # Check if the cluster ID is already present in the config
