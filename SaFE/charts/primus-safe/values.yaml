@@ -163,7 +163,8 @@ ssh:
   server_ip: ""
   # Remote port forwarding (`ssh -R` / RemoteForward). The listen socket is opened
   # inside the user's target Pod, letting Pod processes reach a proxy running on
-  # the developer's machine. Requires `socat` in the workload image.
+  # the developer's machine. The pod-side listener is a `socat`, which an Authoring pod
+  # installs at startup; other workload kinds need it in the image.
   reverse_forward:
     # On by default. Set to false where pod traffic must not be able to leave through
     # a developer's network; what keeps it contained otherwise is the rest of this
