@@ -22,6 +22,8 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/gin-gonic/gin"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 )
 
@@ -29,6 +31,14 @@ const (
 	createBindingOperationTimeout = 30 * time.Second
 	litellmRollbackTimeout        = 15 * time.Second
 )
+
+// userLookupBackoff bounds the User CR read retries in the request path: three
+// attempts spanning ~150ms total.
+var userLookupBackoff = wait.Backoff{
+	Steps:    3,
+	Duration: 50 * time.Millisecond,
+	Factor:   2.0,
+}
 
 type llmBindingAdvisoryLocker interface {
 	WithLLMBindingAdvisoryLock(ctx context.Context, email string, fn func(context.Context) error) error
@@ -693,10 +703,10 @@ func (h *Handler) getUserIdentity(c *gin.Context) (email string, ntid string) {
 
 	// Look up User CR to get the real email
 	if h.accessController != nil {
-		user, err := h.accessController.GetRequestUser(c.Request.Context(), userId)
+		user, err := h.getRequestUserWithRetry(c.Request.Context(), userId)
 		if err != nil {
-			klog.V(4).InfoS("LLM Gateway: failed to get user, falling back to userName",
-				"userId", userId, "error", err)
+			klog.ErrorS(err, "LLM Gateway: failed to get user, falling back to userName",
+				"userId", userId)
 		} else {
 			email = v1.GetUserEmail(user)
 			ntid = ntidFromPreferredName(v1.GetAnnotation(user, v1.UserPreferredNameAnnotation))
@@ -711,6 +721,27 @@ func (h *Handler) getUserIdentity(c *gin.Context) (email string, ntid string) {
 		return name, ntid
 	}
 	return userId, ntid
+}
+
+// getRequestUserWithRetry reads the User CR, retrying a few times before giving
+// up. The read is served from a shared informer cache, so a user that was just
+// created -- or one whose watch is briefly behind -- can miss on the first
+// attempt and hit moments later. Retrying converts that transient miss into a
+// resolved identity instead of a request proxied without an NTID.
+//
+// A user that genuinely does not exist costs the full budget, which is bounded
+// and cache-local, so it stays well inside a request's latency budget.
+func (h *Handler) getRequestUserWithRetry(ctx context.Context, userId string) (*v1.User, error) {
+	var user *v1.User
+	err := retry.OnError(userLookupBackoff, func(error) bool { return true }, func() error {
+		var getErr error
+		user, getErr = h.accessController.GetRequestUser(ctx, userId)
+		return getErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
 }
 
 // ntidFromPreferredName takes the local part of a preferred name, which carries

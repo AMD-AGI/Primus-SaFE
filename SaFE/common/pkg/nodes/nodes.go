@@ -313,17 +313,37 @@ func GetUsingNodesOfCluster(ctx context.Context, cli client.Client, clusterId st
 // not it asked to, and the decrement that already applied describes where it ended up.
 // Restoring it would be asking for a machine to replace one that was never released.
 //
+// A withdrawn migration is undone, and that is the difference between the two. Admission
+// counts one out for a migration exactly as it does for a removal, but a migration that is
+// withdrawn is one that did not happen: either the node never left, in which case the
+// workspace is holding a machine it has stopped counting and will release a healthy one to
+// get back down, or it left and has ended up unassigned, in which case the workspace lost
+// capacity to a failure it did not cause. Both are put right by counting it back in, and only
+// the first of the two is put right by anything else.
+//
+// Undone from the action value alone, not from where the node happens to be. Every caller has
+// to arrive at the same number and only one of them can see the node, so a rule that consults
+// it is a rule the others cannot apply: the withdrawal then fails to be recognised as one,
+// and the workspace is left with a request it can neither finish nor drop.
+//
 // It lives here rather than beside either caller because there are three of them: the
 // controller computes it to write the withdrawal, and both webhooks compute it to recognise
 // one. The whole mechanism rests on all three arriving at the same number, so there is one
 // function and no copies to keep in step.
 func WithdrawnReplica(replica int, oldActions, newActions map[string]string) int {
 	for key, val := range oldActions {
-		if _, kept := newActions[key]; kept || val != v1.NodeActionAdd {
+		if _, kept := newActions[key]; kept {
 			continue
 		}
-		if replica > 0 {
-			replica--
+		switch {
+		case val == v1.NodeActionAdd:
+			if replica > 0 {
+				replica--
+			}
+		default:
+			if _, isMigration := v1.ParseMigrateAction(val); isMigration {
+				replica++
+			}
 		}
 	}
 	return replica

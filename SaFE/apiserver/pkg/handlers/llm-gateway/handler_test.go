@@ -962,8 +962,15 @@ func TestProxyLLMRequest_ForwardsSingleClientIP(t *testing.T) {
 	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(binding, nil)
 
 	var clientIPAfterProxy string
+	// Closed when the handler has finished writing both of the values asserted below.
+	// Receiving the response is not enough to read them: clientIPAfterProxy is written after
+	// ProxyLLMRequest has already sent it, so the client can be reading while the server
+	// goroutine is still writing -- a race the detector catches, and a read that can catch
+	// the value before it is set.
+	handled := make(chan struct{})
 	router := gin.New()
 	router.POST("/api/v1/llm-proxy/*proxyPath", func(c *gin.Context) {
+		defer close(handled)
 		setUserContext(c, "user1", "test@amd.com")
 		handler.ProxyLLMRequest(c)
 		clientIPAfterProxy = c.ClientIP()
@@ -981,6 +988,7 @@ func TestProxyLLMRequest_ForwardsSingleClientIP(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	<-handled
 	// LiteLLM stores this verbatim, so the apiserver hop must not be appended.
 	assert.Equal(t, "10.1.2.3", forwardedFor)
 	// The access log resolves the address again after the handler returns, so

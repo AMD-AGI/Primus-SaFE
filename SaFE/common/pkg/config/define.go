@@ -32,6 +32,14 @@ const (
 	sshServerPort = sshPrefix + "server_port"
 	sshSecretPath = sshPrefix + "secret_path"
 
+	// ssh remote port forwarding (`ssh -R`)
+	sshReverseForwardPrefix        = sshPrefix + "reverse_forward."
+	sshReverseForwardEnable        = sshReverseForwardPrefix + "enable"
+	sshReverseForwardBindAddresses = sshReverseForwardPrefix + "bind_addresses"
+	sshReverseForwardPortMin       = sshReverseForwardPrefix + "port_min"
+	sshReverseForwardPortMax       = sshReverseForwardPrefix + "port_max"
+	sshReverseForwardMaxPerSession = sshReverseForwardPrefix + "max_forwards_per_session"
+
 	// health_check
 	healthCheckPrefix = "health_check."
 	healthCheckEnable = healthCheckPrefix + "enable"

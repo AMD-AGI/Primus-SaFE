@@ -174,12 +174,52 @@ curl -X POST https://<your-console>/api/v1/workspaces/<workspaceId>/nodes \
   -d '{ "action": "add", "nodeIds": ["gpu-node-001"], "force": false }'
 ```
 
-- `action` is `add` or `remove`.
+- `action` is `add`, `remove` or `migrate`.
 - Removing a node reduces the workspace's `totalQuota`; in-flight workloads on that node may be
   affected, so prefer to drain first (next section). `force` overrides safety checks.
 
 > **Not yet covered:** confirm the exact request body for the workspace-nodes endpoint
 > (field names for `nodeIds`/`action`/`force`) against the handler.
+
+### Migrate a node to another workspace
+
+A node belongs to one workspace at a time, so moving it means removing it from one and adding
+it to the other. `migrate` does both as one request, addressed to the workspace the node is
+leaving:
+
+```bash
+curl -X POST https://<your-console>/api/v1/workspaces/<sourceWorkspaceId>/nodes \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "action": "migrate", "nodeIds": ["gpu-node-001"],
+        "targetWorkspaceId": "<targetWorkspaceId>", "force": false }'
+```
+
+The request is refused unless both workspaces are in the same cluster, the target either runs
+the nodes' flavor or has none yet and adopts it, neither workspace is in the middle of another
+node operation, and nothing is running on the nodes (`force` overrides the last, exactly as it
+does for a removal). One migration moves nodes to a single target and cannot be combined with
+`add` or `remove` in the same request.
+
+The move is not instantaneous: the source releases the nodes, the target is then asked to take
+them, and each node is reserved for its target in the meantime so no other workspace can pick
+it up. The source's quota drops as soon as the request is accepted; the target's rises when it
+takes the nodes on. A migration that cannot be completed within 30 minutes is given up on. The nodes are left
+unassigned rather than handed back, but the source's quota is restored: a migration that did
+not happen costs it nothing, so it takes on a replacement — which may well be the same node,
+now that it is free again. What went wrong is recorded on both workspaces, as an event and on
+the source as `primus-safe.workspace.nodes.action.error`.
+
+Like `add` and `remove`, a migration can be started by editing the Workspace resource directly,
+which is what the API call above does on your behalf:
+
+```bash
+kubectl annotate workspace <sourceWorkspaceId> \
+  primus-safe.workspace.nodes.action='{"gpu-node-001":"migrate:<targetWorkspaceId>"}'
+```
+
+Note that the checks the API performs on your permissions over the *target* workspace only
+apply to the API path; going through `kubectl` is governed by Kubernetes RBAC alone.
 
 ## Take a node out of service (cordon / drain)
 
@@ -310,6 +350,7 @@ binding changed.
 | Retry stuck manage/unmanage | `POST /api/v1/nodes/retry` |
 | List / inspect capacity | `GET /api/v1/nodes` (`brief`, `phase`, `available`, `clusterId`, …) |
 | Bind/unbind to workspace | `POST /api/v1/workspaces/{id}/nodes` (`add`/`remove`) |
+| Move between workspaces | `POST /api/v1/workspaces/{id}/nodes` (`migrate` + `targetWorkspaceId`) |
 | Cordon / drain (taint) | `PATCH /api/v1/nodes/{id}` (`taints`) |
 | Reboot | `POST /api/v1/opsjobs` (`type: reboot`) |
 | Reboot history | `GET /api/v1/nodes/{id}/reboot/logs` |

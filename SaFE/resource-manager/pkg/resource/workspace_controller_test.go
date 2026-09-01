@@ -49,7 +49,7 @@ func newMockWorkspaceReconciler(adminClient client.Client) WorkspaceReconciler {
 		// what the production pair does too once the cache has caught up.
 		apiReader:     adminClient,
 		option:        &defaultWorkspaceOption,
-		expectations:  make(map[string]sets.Set),
+		expectations:  make(map[string]*nodeExpectations),
 		clientManager: commonutils.NewObjectManagerSingleton(),
 	}
 }
@@ -196,8 +196,12 @@ func TestReconcile(t *testing.T) {
 	req := ctrlruntime.Request{
 		NamespacedName: types.NamespacedName{Name: workspace.Name},
 	}
-	_, err := r.Reconcile(context.Background(), req)
+	res, err := r.Reconcile(context.Background(), req)
 	assert.NilError(t, err)
+	// Steady state -- 2 held against a spec of 2 -- so nothing below asked to come back, and
+	// this is the safety net doing it anyway. Without it a Workspace that reaches its target
+	// is never reconciled again until somebody else's event arrives.
+	assert.Equal(t, ctrlruntime.Result{RequeueAfter: resyncPeriod}, res)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: workspace.Name}, workspace)
 	assert.NilError(t, err)
 	assert.Equal(t, workspace.Status.AvailableReplica, 1)
@@ -278,7 +282,7 @@ func TestWorkspaceNodesAction(t *testing.T) {
 		WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(adminClient)
 
-	_, err := r.processNodesAction(context.Background(), workspace)
+	_, _, err := r.processNodesAction(context.Background(), workspace)
 	assert.NilError(t, err)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode1.Name}, adminNode1)
 	assert.NilError(t, err)
@@ -563,7 +567,9 @@ func TestBuildTargetList(t *testing.T) {
 			result := buildTargetList(tt.nodes, tt.target)
 			assert.Equal(t, len(result), len(tt.expected))
 			for k, v := range tt.expected {
-				assert.Equal(t, result[k], v)
+				assert.Equal(t, result[k].workspace, v)
+				// Plain binding carries no migration; only a release for a migration does.
+				assert.Assert(t, result[k].migration == nil)
 			}
 		})
 	}
@@ -948,7 +954,7 @@ func newWorkspaceReconcilerFull(t *testing.T, cs *k8sfake.Clientset, objs ...ctr
 	return &WorkspaceReconciler{
 		ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl, clientSet: cs},
 		clientManager:         mgr,
-		expectations:          map[string]sets.Set{},
+		expectations:          map[string]*nodeExpectations{},
 		// The same client twice, as newMockWorkspaceReconciler does. In production apiReader is
 		// mgr.GetAPIReader() and reads straight from the API server; the fake client has no
 		// cache, so one object serves as both. Leaving it nil is what a nil dereference in
@@ -1133,10 +1139,43 @@ func TestWorkspaceReconcileNoCluster(t *testing.T) {
 	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).
 		WithStatusSubresource(&v1.Workspace{}).WithObjects(ws).Build()
 	r := newMockWorkspaceReconciler(cl)
-	// No cluster -> clientSet nil -> nil result.
+	// No cluster -> clientSet nil -> the exit that returns before processWorkspace, so neither
+	// pruneExpectations nor armExpectations is reached on it. Setting spec.cluster bumps the
+	// generation and enqueues on its own, but that is the only other door in.
 	res, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "ws1"}})
 	testifyassert.NoError(t, err)
-	assert.Equal(t, ctrlruntime.Result{}, res)
+	assert.Equal(t, ctrlruntime.Result{RequeueAfter: resyncPeriod}, res)
+}
+
+// The same door, reached the other way, and the one that can strand an outstanding
+// expectation: a Workspace naming a Cluster object that is not there. This controller does not
+// watch Cluster, so nothing reports the Cluster coming back -- and the return is above
+// processWorkspace, so the deadline on the expectation is never read. That is the reported
+// wedge again with a different first step.
+func TestWorkspaceReconcileComesBackWhenItsClusterIsGone(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "vanished"}}
+	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).
+		WithStatusSubresource(&v1.Workspace{}).WithObjects(ws).Build()
+	r := newMockWorkspaceReconciler(cl)
+	r.setExpectations("ws1", sets.NewSetByKeys("n1"))
+
+	res, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "ws1"}})
+	testifyassert.NoError(t, err)
+	assert.Equal(t, ctrlruntime.Result{RequeueAfter: resyncPeriod}, res)
+	// Not settled and not expired: this exit is above pruneExpectations, so the entry is still
+	// there. That is the point -- what is asserted is coming back at all, which is what lets
+	// the pass after the Cluster returns be the one that expires it.
+}
+
+// Only a gap-filler. A caller that already asked to come back sooner keeps its own answer --
+// armExpectations' 30s for an outstanding bind must not be stretched to a quarter hour.
+func TestKeepAliveKeepsASoonerRequeue(t *testing.T) {
+	assert.Equal(t, ctrlruntime.Result{RequeueAfter: 30 * time.Second},
+		keepAlive(ctrlruntime.Result{RequeueAfter: 30 * time.Second}))
+	// An immediate rate-limited retry is an answer too. Read as RequeueAfter alone it looks
+	// like no answer at all, and becomes a quarter-hour wait.
+	assert.Equal(t, ctrlruntime.Result{Requeue: true}, keepAlive(ctrlruntime.Result{Requeue: true}))
+	assert.Equal(t, ctrlruntime.Result{RequeueAfter: resyncPeriod}, keepAlive(ctrlruntime.Result{}))
 }
 
 func TestWorkspaceDelete(t *testing.T) {

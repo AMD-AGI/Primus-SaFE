@@ -134,6 +134,11 @@ func (h *Handler) ProxyLLMRequest(c *gin.Context) {
 func applyUpstreamUserHeader(c *gin.Context, ntid string) {
 	c.Request.Header.Del(upstreamUserHeader)
 	if ntid == "" {
+		// Every way the NTID can go unresolved converges here, so this is the one
+		// place that observes the outcome itself: the request is about to reach
+		// APIM with no identity to attribute it to.
+		klog.Warningf("LLM Proxy: no NTID resolved, forwarding %s without %s",
+			c.Request.URL.Path, upstreamUserHeader)
 		return
 	}
 	c.Request.Header.Set(upstreamUserHeader, ntid)
