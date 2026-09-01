@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
+import math
 import os
 import subprocess
 import sys
 import time
 import re
 import socket
-import glob
 import argparse
 from datetime import datetime
 from typing import List
@@ -77,13 +77,152 @@ def kill_remote_listener(node, ssh_cmd):
     log(f"[{node}] Warning: Remote ib_write_bw processes may still be running")
     return False
 
+_rdma_env_lock = threading.Lock()
+# Hosts whose RDMA environment has already been dumped. Was a single global
+# bool: the first failure anywhere spent it, so if that failure was remote the
+# one dump on record described a container that had nothing to do with it, and
+# every later local failure got none at all.
+_rdma_env_logged = set()
+
+# One shell probe, run wherever the listener that failed actually lives. A
+# single command so the remote case costs one ssh round trip.
+_RDMA_PROBE = r"""
+d=$(ls -1 /dev/infiniband 2>/dev/null | tr '\n' ' ')
+echo "/dev/infiniband: ${d:-MISSING -- host has no RDMA char devices}"
+s=$(ls -1 /sys/class/infiniband 2>/dev/null | tr '\n' ' ')
+echo "/sys/class/infiniband: ${s:-(none)}"
+echo "ibv_devices:"
+ibv_devices 2>&1 || echo "  (could not run ibv_devices)"
+"""
+
+
+def log_rdma_environment(tag, host, ssh_cmd=None):
+    """
+    Dump the RDMA environment of `host`, once per host, on the first listener
+    failure there.
+
+    ib_write_bw's own message is not enough to tell the three failure modes
+    apart, and they need completely different fixes:
+
+      "Did not detect devices"      -> ibv_get_device_list() came back empty:
+                                       no /dev/infiniband in the container, i.e.
+                                       the pod never got the rdma resource.
+      "IB device ionic_0 not found" -> the list was NOT empty but held no device
+                                       by that name: either the userspace
+                                       provider was rejected (libibverbs prints
+                                       an ABI warning) or dropped silently, or
+                                       the cards are named something else.
+
+    Printing what the host can actually see settles it from the log alone --
+    provided it is the right host. This used to probe the local container
+    unconditionally and print the result directly beneath a remote node's
+    failure, which reads as that node's environment and is not.
+    """
+    with _rdma_env_lock:
+        if host in _rdma_env_logged:
+            return
+        _rdma_env_logged.add(host)
+
+    where = "local container" if ssh_cmd is None else f"{host} (over ssh)"
+    log(f"{tag} --- RDMA environment on {where}, printed once per host ---")
+
+    cmd = ["sh", "-c", _RDMA_PROBE] if ssh_cmd is None else list(ssh_cmd) + [host, _RDMA_PROBE]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        out = ((r.stdout or "") + (r.stderr or "")).strip()
+        for line in out.split("\n") if out else []:
+            if line.strip():
+                log(f"{tag}     {line}")
+        if not out:
+            log(f"{tag}     (probe produced no output)")
+    except Exception as e:
+        log(f"{tag}     could not probe: {e}")
+
+    log(f"{tag} --- end RDMA environment ---")
+
+def report_server_failure(tag, server_process, host, ssh_cmd=None):
+    """
+    Explain *why* a listener never came up.
+
+    The readiness probe can only observe that ib_write_bw never showed up in
+    netstat; it cannot say what went wrong. The reason -- no such device, no
+    /dev/infiniband, permission denied, address already in use -- is on the
+    process' own stderr, which was piped and then discarded, leaving
+    "startup timeout" as the sole clue in the log. Unread pipes are also a
+    deadlock hazard: a process that fills the 64K pipe buffer blocks forever
+    while we wait() on it.
+
+    Must run *after* the process is dead: communicate() on a live listener
+    would block until it exits, and a healthy listener never exits on its own.
+
+    `host` is the node the listener was supposed to come up on, and ssh_cmd is
+    None only when that is this container. Both are passed straight to
+    log_rdma_environment so the environment it prints is the one that failed.
+    """
+    if server_process is None:
+        return
+    if server_process.poll() is None:
+        server_process.terminate()
+        try:
+            server_process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            server_process.kill()
+    try:
+        out, err = server_process.communicate(timeout=5)
+    except Exception as e:
+        log(f"{tag} could not read server output: {e}")
+        # communicate() closes both pipes when it returns normally but not when
+        # it raises, and this is now the only place that reaps a failed local
+        # listener.
+        for pipe in (server_process.stdout, server_process.stderr):
+            if pipe is not None:
+                try:
+                    pipe.close()
+                except Exception:
+                    pass
+        return
+    saw_output = False
+    for stream_name, data in (("stdout", out), ("stderr", err)):
+        if not data:
+            continue
+        if isinstance(data, bytes):
+            data = data.decode(errors="replace")
+        for line in data.strip().split("\n"):
+            if line.strip():
+                saw_output = True
+                log(f"{tag} server {stream_name}: {line}")
+    if not saw_output:
+        log(f"{tag} server produced no output")
+    log(f"{tag} server exit code: {server_process.returncode}")
+    log_rdma_environment(tag, host, ssh_cmd)
+
 def kill_local_listener(server_process):
-    # Clean up the failed server
+    # Clean up the failed server.
+    #
+    # communicate() rather than wait(): the stdout/stderr pipes are never read
+    # on this path, so a plain wait() left both fds open for the lifetime of
+    # the run -- one pair leaked per failed pair, which a full-mesh test on a
+    # large cluster can walk into the ulimit with. communicate() reads them to
+    # EOF and closes them, and it takes the same timeout, so the terminate ->
+    # kill escalation is unchanged.
     server_process.terminate()
     try:
-        server_process.wait(timeout=3)
+        server_process.communicate(timeout=3)
     except subprocess.TimeoutExpired:
         server_process.kill()
+        # wait(), not a second communicate(): ib_write_bw spawns children that
+        # inherit these pipes, so after the kill they can still be held open
+        # and communicate() would sit out its whole timeout again. wait()
+        # returns as soon as the direct child is reaped, and the finally-block
+        # closes the fds regardless.
+        server_process.wait()
+    finally:
+        for pipe in (server_process.stdout, server_process.stderr):
+            if pipe is not None:
+                try:
+                    pipe.close()
+                except Exception:
+                    pass
 
 def check_remote_server_ready(node, dev, ssh_cmd):
     """
@@ -144,6 +283,116 @@ def check_local_server_ready(dev):
     log(f"[LOCAL] Server on device {dev} startup timeout")
     return False
 
+# Rail subnet per HCA, cached per node. Reading it costs one ssh round trip.
+_rail_cache = {}
+_rail_cache_lock = threading.Lock()
+# Failed probes per node. A failure is retried rather than memoised (see
+# get_rail_map), but only up to this many times: test_node_group resolves the
+# pairing once per (HCA index, peer), so on a 16-node group an unprobeable
+# node was re-probed ~120 times per client candidate, each one an ssh with a
+# 30 s timeout. Retrying past a couple of attempts buys nothing and costs
+# hours.
+_rail_probe_failures = {}
+_RAIL_PROBE_MAX_ATTEMPTS = 2
+
+# Resolved pairing per (client, server), so the decision is logged once per pair.
+_pairing_cache = {}
+_pairing_cache_lock = threading.Lock()
+
+# Shell run on each node to report, for every HCA, the subnet of its first
+# routable GID. Link-local (fe80::) and the all-zero placeholder are skipped:
+# every card has a link-local GID, so it identifies nothing.
+#
+# Iterate the gids directory rather than a fixed 0..7: which index carries the
+# routable RoCEv2 GID varies by card and by configuration (config.sh defaults
+# NCCL_IB_GID_INDEX to 1, binary_diagnose to 3), and on a card that exposes it
+# above 7 a bounded loop finds nothing, rail_pairing never engages, and the log
+# gives no hint that the index range was the reason.
+_RAIL_PROBE = """
+for d in %s; do
+  r=""
+  for f in /sys/class/infiniband/$d/ports/1/gids/*; do
+    [ -r "$f" ] || continue
+    g=$(cat "$f" 2>/dev/null) || continue
+    case "$g" in
+      0000:0000:0000:0000:0000:0000:0000:0000) continue ;;
+      fe80:*) continue ;;
+    esac
+    r=$(echo "$g" | cut -d: -f1-2)
+    break
+  done
+  echo "$d $r"
+done
+"""
+
+def get_rail_map(node, local_ip, ib_hca_list, ssh_cmd):
+    """
+    Map each HCA on `node` to the subnet of its routable GID.
+
+    Returns {} if the node cannot be probed; callers must treat that as
+    "unknown" and fall back rather than guessing.
+    """
+    with _rail_cache_lock:
+        if node in _rail_cache:
+            return _rail_cache[node]
+        if _rail_probe_failures.get(node, 0) >= _RAIL_PROBE_MAX_ATTEMPTS:
+            return {}
+
+    script = _RAIL_PROBE % " ".join(ib_hca_list)
+    try:
+        if node == local_ip:
+            r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=20)
+        else:
+            r = subprocess.run(ssh_cmd + [node, script], capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            # subprocess.run without check=True only raises on timeout, so an
+            # ssh auth failure or a broken probe script fell through here with
+            # an empty stdout, rails came out {}, and the except-branch log
+            # below never ran. The pairing then silently reverted to the static
+            # table with nothing saying why.
+            log(f"[{node}] GID rail probe exited {r.returncode}: "
+                f"{(r.stderr or '').strip()[:200]}")
+        rails = {}
+        for line in (r.stdout or "").split("\n"):
+            parts = line.split()
+            if len(parts) == 2:
+                rails[parts[0]] = parts[1]
+    except Exception as e:
+        log(f"[{node}] could not read GID rail map: {e}")
+        rails = {}
+
+    # Do not memoise a failure outright. One ssh timeout or a momentary load
+    # hiccup would otherwise pin this node to {} for the rest of the run:
+    # rail_pairing() returns None every time afterwards, the run silently
+    # reverts to the static table, and on a straight-through fabric that
+    # crosses most pairs and reports a healthy node as unhealthy.
+    #
+    # Count the failures instead, and give up after _RAIL_PROBE_MAX_ATTEMPTS.
+    # A hiccup still costs only a retry; a node that genuinely cannot be
+    # probed no longer costs 120 ssh timeouts.
+    with _rail_cache_lock:
+        if rails:
+            _rail_cache[node] = rails
+            _rail_probe_failures.pop(node, None)
+        else:
+            n = _rail_probe_failures.get(node, 0) + 1
+            _rail_probe_failures[node] = n
+            if n >= _RAIL_PROBE_MAX_ATTEMPTS:
+                log(f"[{node}] GID rail probe failed {n} times; giving up and "
+                    f"using the static HCA pairing table for this node")
+    return rails
+
+
+def rail_map_is_settled(node):
+    """
+    Whether get_rail_map has a final answer for `node` -- either a cached map
+    or an exhausted retry budget. Until then a fallback decision taken on its
+    behalf is provisional and must not be cached.
+    """
+    with _rail_cache_lock:
+        return (node in _rail_cache
+                or _rail_probe_failures.get(node, 0) >= _RAIL_PROBE_MAX_ATTEMPTS)
+
 def get_mapped_hca(index, ib_hca_list):
     """
     Get the corresponding HCA device based on HCA mapping relationship
@@ -163,6 +412,190 @@ def get_mapped_hca(index, ib_hca_list):
 
     # By default, return the input HCA (when array element count is not 8 or mapping not found)
     return ib_hca_list[index]
+
+def rail_pairing(ib_hca_list, client_rails, server_rails):
+    """
+    Derive the client->server HCA pairing from the rail subnets.
+
+    Returns a full list (client HCA i pairs with pairing[i]) or None. None means
+    "the rails do not settle this", and the caller must keep the static mapping.
+
+    Deliberately all-or-nothing. A half-derived pairing -- some indices from the
+    rails, some from the table -- would be a third behaviour that has never run
+    anywhere, and it is not obviously better than either input. The bijection
+    check at the end is the same idea: every card must pair with a distinct
+    partner, as both the rail fabric and the static table already guarantee.
+    """
+    if not client_rails or not server_rails:
+        return None
+
+    pairing = []
+    for hca in ib_hca_list:
+        rail = client_rails.get(hca)
+        if not rail:
+            return None
+        matches = [s for s in ib_hca_list if server_rails.get(s) == rail]
+        if len(matches) != 1:
+            # 0: the peer has no card on this rail. >1: the subnets do not tell
+            # the cards apart -- e.g. IPv4-mapped GIDs, which share a prefix on
+            # every card. Neither is something to guess at.
+            return None
+        pairing.append(matches[0])
+
+    if len(set(pairing)) != len(ib_hca_list):
+        return None
+    return pairing
+
+def resolve_pairing(client, server, local_ip, ib_hca_list, ssh_cmd):
+    """
+    Decide how to pair this client's HCAs with this server's, once per node pair.
+
+    These NICs sit on a rail fabric: each card is on its own subnet and only
+    reaches cards on the same subnet. Pairing across rails does not fail
+    cleanly -- the QP never completes and ib_write_bw reports "Failed status 12"
+    (IBV_WC_RETRY_EXC_ERR), which reads like a broken node rather than a
+    mis-chosen pair, so the node gets marked unhealthy.
+
+    get_mapped_hca's table encodes one cluster's wiring. Where that table is
+    right, it is right *because* those pairs share a rail, so reading the rails
+    reproduces it rather than contradicting it. Where the wiring differs -- as
+    on a straight-through fabric, where the table crosses 6 of 8 pairs -- the
+    rails are right and the table is not.
+
+    So: use the rails when they settle the question, keep the table otherwise.
+    IB_HCA_PAIRING=table forces the old behaviour outright.
+    """
+    key = (client, server)
+    with _pairing_cache_lock:
+        if key in _pairing_cache:
+            return _pairing_cache[key]
+
+    static = [get_mapped_hca(i, ib_hca_list) for i in range(len(ib_hca_list))]
+    mode = os.environ.get("IB_HCA_PAIRING", "auto").strip().lower()
+
+    if mode == "table":
+        pairing, why = static, "static table (forced by IB_HCA_PAIRING=table)"
+    else:
+        derived = rail_pairing(
+            ib_hca_list,
+            get_rail_map(client, local_ip, ib_hca_list, ssh_cmd),
+            get_rail_map(server, local_ip, ib_hca_list, ssh_cmd),
+        )
+        if derived is None:
+            pairing, why = static, "static table (rails did not settle the pairing)"
+            # Cacheable only once both endpoints have a final rail answer.
+            # While a probe may still succeed on retry, caching the fallback
+            # would pin the pair and undo that retry; once the probes have
+            # settled, re-deriving this on every one of the ~120 (HCA index,
+            # peer) lookups just repeats the same work and the same log line.
+            log(f"[{client} -> {server}] HCA pairing from {why}")
+            if rail_map_is_settled(client) and rail_map_is_settled(server):
+                with _pairing_cache_lock:
+                    _pairing_cache[key] = static
+            return static
+        elif derived == static:
+            pairing, why = derived, "GID rails (agrees with the static table)"
+        else:
+            pairing, why = derived, "GID rails (differs from the static table)"
+
+    log(f"[{client} -> {server}] HCA pairing from {why}")
+    if pairing != static:
+        for i, hca in enumerate(ib_hca_list):
+            if pairing[i] != static[i]:
+                log(f"    {hca} -> {pairing[i]} (static table said {static[i]})")
+
+    with _pairing_cache_lock:
+        _pairing_cache[key] = pairing
+    return pairing
+
+# perftest's result row: byte count, iterations, BW peak, BW average, and on
+# most builds a message rate. Columns are whitespace separated, sometimes tabs.
+_BW_ROW_RE = re.compile(
+    r"^\s*(\d+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)(?:\s+([\d.]+))?\s*$")
+
+# Things perftest prints when the transfer itself did not complete. None of
+# these appear in a run that moved data.
+_IB_FAILURE_MARKERS = (
+    "Failed to complete run_iter_bw",
+    "Completion with error",
+    "Failed status",
+)
+
+def parse_ib_bandwidth(output):
+    """
+    Return the BW average in Gb/sec from ib_write_bw's output, or None.
+
+    None means "this output does not contain a result row" -- not "zero
+    bandwidth". Callers must tell those apart: an unrecognised layout is a
+    reason to fall back, a missing row on a recognised layout is a failure.
+    """
+    best = None
+    for line in output.replace("\t", " ").split("\n"):
+        m = _BW_ROW_RE.match(line)
+        if not m:
+            continue
+        try:
+            bw = float(m.group(4))
+        except ValueError:
+            continue
+        if best is None or bw > best:
+            best = bw
+    return best
+
+def ib_verdict(client_ret, output):
+    """
+    Decide whether one ib_write_bw pair passed, and describe why.
+
+    The old criterion was `client_ret == 0 and "Gb/sec" in output`. That
+    substring is in the *header* perftest prints before transferring anything,
+    so it is satisfied by a run that printed the header and then died -- the
+    exit code was doing all the work, and the measured bandwidth was never
+    looked at or reported.
+
+    Both of those conditions are still required here. Added on top, and only
+    when the output is actually understood:
+      - an explicit perftest failure marker fails the pair
+      - a parsed result row must carry non-zero bandwidth
+      - IB_BW_MIN_GBPS, if set, is enforced against that row
+
+    If no result row can be parsed the layout is not recognised, so the verdict
+    falls back to exactly the old criterion rather than guessing.
+
+    Returns (success, detail) where detail is appended to the RESULT line.
+    """
+    success = client_ret == 0 and "Gb/sec" in output
+
+    bw = parse_ib_bandwidth(output)
+    failure_marker = next((m for m in _IB_FAILURE_MARKERS if m in output), None)
+    detail = f", {bw:.2f} Gb/sec" if bw is not None else ""
+
+    if not success:
+        return False, detail
+
+    if failure_marker:
+        return False, detail + f" [{failure_marker}]"
+
+    if bw is None:
+        return True, " [no result row parsed, verdict from exit code alone]"
+
+    if bw <= 0:
+        return False, detail + " [no bandwidth measured]"
+
+    floor = os.environ.get("IB_BW_MIN_GBPS", "").strip()
+    if floor:
+        try:
+            floor_gbps = float(floor)
+            # Same reasoning as RCCL_BUSBW_TARGET in binary_diagnose.py: this
+            # value is the check, and 0, a negative, or nan all parse fine and
+            # silently turn it off (or, for nan, fail every pair). Say so.
+            if not math.isfinite(floor_gbps) or floor_gbps <= 0:
+                raise ValueError("must be a positive, finite number of Gb/sec")
+            if bw < floor_gbps:
+                return False, detail + f" [below IB_BW_MIN_GBPS={floor}]"
+        except ValueError as e:
+            log(f"    [WARN] ignoring IB_BW_MIN_GBPS={floor!r}: {e}")
+
+    return True, detail
 
 def test_node_pair(client, local_ip, server, client_ib_hca, server_ib_hca, ib_params, ssh_cmd, group_idx):
     """
@@ -190,7 +623,13 @@ def test_node_pair(client, local_ip, server, client_ib_hca, server_ib_hca, ib_pa
 
             if not check_local_server_ready(server_ib_hca):
                 log(f"[{server}] failed to start Local server")
-                kill_local_listener(server_process)
+                # No kill_local_listener() here: it drains and closes the
+                # pipes, and report_server_failure exists precisely to read
+                # them -- the reason the listener never came up is on that
+                # stderr. It performs the same terminate -> 3s -> kill
+                # escalation itself before reading, so the cleanup is
+                # unchanged; only the order of who reaps is.
+                report_server_failure(f"[{server}]", server_process, server)
                 return False
         else:
             # For remote node, use SSH as before
@@ -205,6 +644,7 @@ def test_node_pair(client, local_ip, server, client_ib_hca, server_ib_hca, ib_pa
                 log(f"[{server}] failed to start Remote server ")
                 # Clean up the failed server
                 kill_remote_listener(server, ssh_cmd)
+                report_server_failure(f"[{server}]", server_process, server, ssh_cmd)
                 return False
 
         # === STEP 2: Start Client ===
@@ -245,11 +685,12 @@ def test_node_pair(client, local_ip, server, client_ib_hca, server_ib_hca, ib_pa
             kill_remote_listener(server, ssh_cmd)
 
         # === STEP 5: Determine PASS/FAIL ===
-        success = client_ret == 0 and "Gb/sec" in output
+        success, detail = ib_verdict(client_ret, output)
+
         if success:
-            log(f"RESULT: PASS - {client_ib_hca} -> {server}:{server_ib_hca}, group: {group_idx+1}")
+            log(f"RESULT: PASS - {client_ib_hca} -> {server}:{server_ib_hca}, group: {group_idx+1}{detail}")
         else:
-            log(f"RESULT: FAIL - {client_ib_hca} -> {server}:{server_ib_hca}, group: {group_idx+1} (exit code: {client_ret})")
+            log(f"RESULT: FAIL - {client_ib_hca} -> {server}:{server_ib_hca}, group: {group_idx+1} (exit code: {client_ret}){detail}")
             # Highlight common errors
             error_patterns = ["Couldn't connect", "No route", "Device not found", "Permission denied", "timeout"]
             for pattern in error_patterns:
@@ -291,13 +732,15 @@ def test_node_group(local_ip, node_group, ib_hca_list, ib_params, ssh_cmd, group
         current_failed_nodes = set()
         current_success = False
 
-        # Get mapped HCA for this device
+        # The pairing depends on the peer's rail layout, so it is resolved per
+        # server node rather than once per device index.
         for index, client_ib_hca in enumerate(ib_hca_list):
-            server_ib_hca = get_mapped_hca(index, ib_hca_list)
             for node in node_group:
                 try:
                     if (client_candidate == node) or (node in current_failed_nodes):
                         continue
+                    server_ib_hca = resolve_pairing(
+                        client_candidate, node, local_ip, ib_hca_list, ssh_cmd)[index]
                     success = test_node_pair(client_candidate, local_ip, node,
                                              client_ib_hca, server_ib_hca, ib_params, ssh_cmd, group_idx)
                     if not success:
@@ -452,8 +895,13 @@ def main():
     ssh_cmd = build_ssh_cmd(args.ssh_port)
     nodes = get_hosts(args.nodes_file)
     if len(nodes) < 2:
-        print("Error: At least 2 nodes are required.")
-        sys.exit(0)
+        # exit 0 here meant "IB check passed" to run.sh, for a check that
+        # could not be run at all. binary_diagnose.py already exits 1 on the
+        # same condition one step later, so the end verdict is unchanged --
+        # this only stops the log from crediting a pass first.
+        log("[RESULT] ❌ did not complete: at least 2 nodes are required, "
+            f"got {len(nodes)}; no IB pair could be tested")
+        sys.exit(1)
 
     # Get local IP address from socket interface
     local_ip = get_ip(socket_ifname)
@@ -466,6 +914,11 @@ def main():
 
     # Global list to track failed nodes
     failed_nodes_list = []
+    # Groups that died of an exception instead of returning a verdict. These
+    # blame nobody, and an empty failed_nodes_list used to be read as "all
+    # passed" -- so every group throwing produced a green IB check for a
+    # cluster on which not one pair was measured.
+    group_errors = []
 
     # Split nodes into groups of 16 for concurrent testing
     node_groups = group_nodes(nodes, 16)
@@ -490,15 +943,26 @@ def main():
                     failed_nodes_list.extend(failed_nodes)
                 log(f"=== Group {group_idx + 1} completed ===")
             except Exception as exc:
+                group_errors.append(f"group {group_idx + 1}: {exc}")
                 log(f"Group {group_idx + 1} generated an exception: {exc}")
 
     # === Final Summary ===
     log("=== All tests completed ===")
-    if len(failed_nodes_list) == 0:
-        log("[RESULT] ✅ all passed, obtained through ib_write_bw")
-    else:
+    if failed_nodes_list:
         log(f"[RESULT] unhealthy nodes: {failed_nodes_list}, obtained through ib_write_bw")
         sys.exit(1)
+
+    if group_errors:
+        # Non-zero with no "unhealthy nodes:" line: extract_nodes.py finds
+        # nothing to remove and run.sh takes its harness-failure branch, which
+        # is the honest shape of "nothing was measured and nobody is to blame".
+        log(f"[RESULT] ❌ did not complete: {len(group_errors)} group(s) failed "
+            f"without testing any pair, obtained through ib_write_bw")
+        for reason in group_errors:
+            log(f"[RESULT]   - {reason}")
+        sys.exit(1)
+
+    log("[RESULT] ✅ all passed, obtained through ib_write_bw")
 
 if __name__ == "__main__":
     main()

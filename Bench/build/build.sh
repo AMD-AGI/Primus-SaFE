@@ -10,7 +10,7 @@
 #
 # Options:
 #   --target <stage>       Build target: base, bench, pytorch, full (default: full)
-#   --rocm <version>       ROCm version: 6.4.3, 7.0.3, 7.2.0 (default: 7.0.3)
+#   --rocm <version>       ROCm version: 6.4.3, 7.0.1, 7.0.3, 7.2.0 (default: 7.0.3)
 #   --gpu <arch>           GPU architecture: gfx942, gfx950 (default: gfx950)
 #   --os <name>            OS name: ubuntu, oci (default: oci)
 #   --os-version <ver>     OS version: 22.04, 24.04 (default: 22.04)
@@ -101,7 +101,12 @@ if [ -n "${CUSTOM_TAG}" ]; then
 else
     AINIC_SUFFIX=""
     if [ -n "${AINIC_FILENAME}" ]; then AINIC_SUFFIX="_ainic"; fi
-    IMAGE_TAG="primussafe/primusbench:${TARGET}_rocm${ROCM_VERSION}_${GPU_ARCHS}_${OS_NAME}${OS_VERSION}${AINIC_SUFFIX}_${IMAGE_VERSION}"
+    # `full` is the default target and the one that actually ships, so it keeps
+    # the historical unprefixed name (cf. the default IMAGE in config.sh). The
+    # partial targets stay prefixed -- without it all four would collide.
+    TARGET_PREFIX="${TARGET}_"
+    if [ "${TARGET}" = "full" ]; then TARGET_PREFIX=""; fi
+    IMAGE_TAG="primussafe/primusbench:${TARGET_PREFIX}rocm${ROCM_VERSION}_${GPU_ARCHS}_${OS_NAME}${OS_VERSION}${AINIC_SUFFIX}_${IMAGE_VERSION}"
 fi
 
 echo "============================================"

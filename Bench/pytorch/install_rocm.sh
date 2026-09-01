@@ -10,13 +10,15 @@ set -e
 tag="$ROCM_VERSION"
 if [ "$ROCM_VERSION" = "6.4.3" ]; then
   AMDGPU_INSTALL_FILE="amdgpu-install_6.4.60403-1_all.deb"
+elif [ "$ROCM_VERSION" = "7.0.1" ]; then
+  AMDGPU_INSTALL_FILE="amdgpu-install_7.0.1.70001-1_all.deb"
 elif [ "$ROCM_VERSION" = "7.0.3" ]; then
   AMDGPU_INSTALL_FILE="amdgpu-install_7.0.3.70003-1_all.deb"
 elif [ "$ROCM_VERSION" = "7.2.0" ]; then
   tag="7.2"
   AMDGPU_INSTALL_FILE="amdgpu-install_7.2.70200-1_all.deb"
 else
-  echo "Error: Unsupported ROCM_VERSION '$ROCM_VERSION'. Only 6.4.3, 7.0.3 and 7.2.0 are supported."
+  echo "Error: Unsupported ROCM_VERSION '$ROCM_VERSION'. Only 6.4.3, 7.0.1, 7.0.3 and 7.2.0 are supported."
   exit 1
 fi
 

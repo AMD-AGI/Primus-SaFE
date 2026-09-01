@@ -18,12 +18,14 @@ fi
 TRANSFER_TAG=""
 if [ "$ROCM_VERSION" = "6.4.3" ]; then
   TRANSFER_TAG="rocm-6.4.3"
+elif [ "$ROCM_VERSION" = "7.0.1" ]; then
+  TRANSFER_TAG="rocm-7.0.1"
 elif [ "$ROCM_VERSION" = "7.0.3" ]; then
   TRANSFER_TAG="rocm-7.0.2"
 elif [ "$ROCM_VERSION" = "7.2.0" ]; then
   TRANSFER_TAG="rocm-7.2.0"
 else
-  echo "Error: Unsupported ROCM_VERSION '$ROCM_VERSION'. Only 6.4.3, 7.0.3 and 7.2.0 are supported." >&2
+  echo "Error: Unsupported ROCM_VERSION '$ROCM_VERSION'. Only 6.4.3, 7.0.1, 7.0.3 and 7.2.0 are supported." >&2
   exit 1
 fi
 

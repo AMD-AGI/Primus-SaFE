@@ -7,6 +7,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import math
 import os
 import re
 import socket
@@ -29,6 +30,9 @@ RCCL_TESTS = {
 
 # Default settings
 NUM_GPUS_PER_NODE = 8
+# Start size of the rccl-tests ladder (`-b`). Named because RCCL_MAX_BYTES has
+# to be validated against it: an -e below -b produces no data rows at all.
+MIN_BYTES = "32M"
 LD_LIBRARY_PATH = "/opt/rocm/lib:/opt/mpich/lib:/usr/local/lib"
 
 # Runtime variables (will be updated by parse_args)
@@ -40,6 +44,8 @@ RCCL_TEST_TYPE = 0
 SSH_PORT = 22
 ENABLE_AINIC = False
 MAX_BYTES = "1G"
+# Whether MAX_BYTES came from RCCL_MAX_BYTES rather than the node-count ladder.
+MAX_BYTES_PINNED = False
 MAX_CONCURRENT_TESTS = 8
 
 # Global state
@@ -48,6 +54,21 @@ total_failed_nodes = 0
 healthy_node_queue: Queue[str] = Queue()
 print_lock = threading.Lock()
 stat_lock = threading.Lock()
+# Failures that no node can be blamed for: the test did not produce a usable
+# measurement, so its nodes are neither healthy nor faulty. Blaming them would
+# condemn hardware for a harness problem; staying silent would exit 0 and hand
+# an untested cluster to the benchmark. Recorded here and turned into an exit
+# code without a node list, which preflight/network/run.sh reads as a harness
+# failure.
+harness_error_lock = threading.Lock()
+harness_errors: List[str] = []
+
+
+def record_harness_error(reason: str) -> None:
+    with harness_error_lock:
+        harness_errors.append(reason)
+    log(f"[HARNESS] {reason}")
+
 
 HYDRA_IFACE: Optional[str] = None
 HOSTNAME_MAP: Dict[str, str] = {}
@@ -172,12 +193,88 @@ def get_log_filename(nodes: List[str]) -> str:
     timestamp = int(time.time())
     return f"/tmp/rccl_test_{hash_hex}_{timestamp}.log"
 
+# 350.0 is AMD's published all-reduce acceptance bar for MI350X/MI355X: in-place
+# *busbw* at an 8G message size, from the Instinct Customer Acceptance Guide
+# (instinct.docs.amd.com/projects/system-acceptance, "RCCL Benchmarking").
+#
+# Read the scope before trusting a pass/fail built on it. That bar is the
+# SINGLE-NODE test -- the guide pairs it with `all_reduce_perf -b 8 -e 8G -f 2
+# -g 8`, eight GPUs on one host, where the collective never leaves xGMI. AMD
+# publishes no multi-node all-reduce threshold at all, and no scaling-efficiency
+# target either; the only numeric multi-node criterion in the guide is per-path
+# RDMA throughput (>=770 Gbps on a 400G NIC). So on two or more nodes this
+# constant is a locally chosen target that happens to reuse the single-node
+# number, not an AMD criterion, and it is graded against a path AMD never
+# measured it on. RCCL_BUSBW_TARGET exists to set a target the site actually
+# agreed to. For a same-hardware reference point, Crusoe published 368 GB/s
+# busbw at 8G on two virtualized MI355X + Pollara 400 nodes.
+#
+# Everything this tool measures and compares is algbw, so whatever the target
+# is, it has to be converted before it can be used as a limit -- see threshold().
+_BUSBW_TARGET_DEFAULT = 350.0
+# The message size _BUSBW_TARGET_DEFAULT is quoted at. Pinning RCCL_MAX_BYTES
+# away from it without moving the bar grades the cluster against a number
+# measured somewhere else on the curve.
+_BUSBW_TARGET_SIZE = "8G"
+try:
+    ALLREDUCE_BUSBW_TARGET = float(os.environ.get("RCCL_BUSBW_TARGET", _BUSBW_TARGET_DEFAULT))
+    # Parsing is not enough: this number *is* the pass/fail line, and float()
+    # happily accepts values that switch the check off without failing. 0 or a
+    # negative makes threshold() non-positive, so every measurement clears it
+    # and the diagnosis passes a cluster it never really graded; "nan" fails
+    # every comparison instead and condemns all of it. Neither is a target
+    # anyone means to set, and both are silent.
+    if not math.isfinite(ALLREDUCE_BUSBW_TARGET) or ALLREDUCE_BUSBW_TARGET <= 0:
+        raise ValueError("must be a positive, finite number of GB/s")
+except ValueError as e:
+    # A bare float() here crashed at import time on e.g. RCCL_BUSBW_TARGET=350GB,
+    # with a traceback pointing at module scope that says nothing about which
+    # variable was wrong. Keep the default and say so.
+    log(f"[WARN] RCCL_BUSBW_TARGET={os.environ['RCCL_BUSBW_TARGET']!r} is not usable "
+        f"({e}); expected GB/s, e.g. 350 or 300.0. Using {_BUSBW_TARGET_DEFAULT}")
+    ALLREDUCE_BUSBW_TARGET = _BUSBW_TARGET_DEFAULT
+ALLREDUCE_MARGIN = 0.85
+
+def busbw_from_algbw(algbw: float, node_count: int, g_per_node: int = None) -> float:
+    """all-reduce busbw = algbw * 2(n-1)/n, with n = total ranks.
+
+    g_per_node defaults to NUM_GPUS_PER_NODE, the same constant run_rccl_test
+    launches with (-n node_count * NUM_GPUS_PER_NODE). A second hardcoded 8
+    here would silently keep computing with 8 on a non-8-GPU node, and every
+    pass/fail line and busbw restatement would be wrong without saying so.
+    """
+    if g_per_node is None:
+        g_per_node = NUM_GPUS_PER_NODE
+    n = node_count * g_per_node
+    if n < 2:
+        return algbw
+    return algbw * 2.0 * (n - 1) / n
+
+def bw_note(algbw: Optional[float], node_count: int) -> str:
+    """Log suffix restating an all-reduce algbw as busbw.
+
+    Published figures, AMD's bar included, are busbw; every number this tool
+    prints is algbw. Without the restatement there is no way to read a pass/fail
+    line and tell how far off the published figure the cluster actually is.
+    """
+    if RCCL_TEST_TYPE != 0 or algbw is None or algbw <= 0.0:
+        return ""
+    return f" ({busbw_from_algbw(algbw, node_count):.2f} GB/s busbw)"
+
 def threshold(node_count: int) -> float:
     """Calculate bandwidth threshold for given node count."""
-    G_PER_NODE = 8
-    
+    G_PER_NODE = NUM_GPUS_PER_NODE
+
     if RCCL_TEST_TYPE == 0:  # all_reduce
-        return 350.0 * node_count * G_PER_NODE / (2 * node_count * G_PER_NODE - 1) * 0.85
+        # Inverse of busbw = algbw * 2(n-1)/n, so algbw = busbw * n / (2(n-1)).
+        # This denominator used to read (2 * n - 1) instead of 2 * (n - 1),
+        # which is not the all-reduce bus factor -- it made the limit ~3% lower
+        # than the published bar actually implies (153.55 vs 158.67 GB/s on two
+        # nodes), so a marginal cluster could pass against a bar it misses.
+        n = node_count * G_PER_NODE
+        if n < 2:
+            return ALLREDUCE_BUSBW_TARGET * ALLREDUCE_MARGIN
+        return ALLREDUCE_BUSBW_TARGET * n / (2 * (n - 1)) * ALLREDUCE_MARGIN
     
     # alltoall test
     bnic = float(os.environ.get('BNIC', '48.0'))
@@ -270,8 +367,29 @@ def format_size(size_bytes: int, precision: int = 0) -> str:
     
     return "0B"
 
-def parse_algbw(text: str, target_size: int, tolerance: int = 10000) -> float:
-    """Parse algbw value from RCCL test output for a specific size."""
+def ladder_steps(start: int, at_least: int) -> List[int]:
+    """
+    The sizes `-b start -f 2 -e ...` actually tests, up to and including the
+    first step at or above `at_least`.
+    """
+    steps = [start]
+    while steps[-1] < at_least:
+        steps.append(steps[-1] * 2)
+    return steps
+
+def parse_algbw(text: str, target_size: int, tolerance: int = 10000) -> Optional[float]:
+    """
+    Parse the in-place algbw for `target_size` out of rccl-tests output.
+
+    Returns None when the output carries no row for that size -- which is not
+    the same as "the row said zero". The two used to share the 0.0 return, and
+    every caller read that as no bandwidth, so anything that stopped the table
+    from being produced or recognised (an -e off the -b/-f ladder, a debug line
+    spliced into every row, an upstream column added to a repo we clone
+    unpinned) presented as a cluster-wide hardware failure. The same rule is
+    already written down for parse_ib_bandwidth in ib_write_bw.py; it belongs
+    here too. A missing row is a harness problem and is reported as one.
+    """
     lines = text.strip().splitlines()
     header_found = False
     
@@ -288,17 +406,33 @@ def parse_algbw(text: str, target_size: int, tolerance: int = 10000) -> float:
         if not line or line.startswith('#'):
             continue
         
-        # Parse data line
+        # Parse data line.
+        #
+        # Validate the whole numeric shape of the row, not just the one column
+        # being read. A debug line interleaved into the row (see the stream
+        # handling in run_rccl_test) shifts every field after the splice point,
+        # and a lone float(parts[10]) can then succeed on the wrong number.
+        # Columns: size count type redop root | time algbw busbw wrong | time algbw busbw wrong
         parts = line.split()
-        if len(parts) > 10:  # Need at least 11 parts to access parts[10] (in-place algbw)
+        # Exactly 13, not "at least 11". A row spliced by a debug line can end
+        # up short -- 11 fields whose first 11 all parse as numbers -- and a
+        # >10 test accepts it, reading whatever landed in slot 10 as algbw.
+        # An intact rccl-tests row is always 13 fields, so require that.
+        if len(parts) == 13:
             try:
                 size = int(parts[0])
+                int(parts[1])                       # count
+                # Every numeric column of both halves. 8 and 12 (#wrong) are
+                # left out on purpose: with checking off rccl-tests prints
+                # "N/A" there, which is a valid row.
+                for i in (5, 6, 7, 9, 10, 11):      # time/algbw/busbw, out-of-place and in-place
+                    float(parts[i])
                 if abs(size - target_size) <= tolerance:
                     return float(parts[10])  # In-place algbw column
             except (ValueError, IndexError):
                 continue
     
-    return 0.0
+    return None
 
 def check_connectivity(nodes: List[str], timeout: int = 300) -> bool:
     if len(nodes) < 2:
@@ -353,41 +487,100 @@ def build_env_vars() -> Dict[str, str]:
     """Build environment variables for RCCL test."""
     env = os.environ.copy()
     
-    # Common environment variables for all modes
+    # Pinned for all modes: these are what the diagnosis is, and an ambient
+    # value must not change them.
     env.update({
         "MPIEXEC_ALLOW_ROOT": "1",
         "NCCL_SOCKET_IFNAME": RCCL_SOCKET_IFNAME,
         "NCCL_IB_GID_INDEX": str(NCCL_IB_GID_INDEX),
         "NCCL_IB_HCA": RCCL_IB_HCA,
+        "NCCL_DEBUG": RCCL_DEBUG,
+        # Pinned, not defaulted, and not a tuning knob. It decides whether RCCL
+        # uses RDMA at all -- with it set, RCCL falls back to TCP sockets and
+        # this preflight measures the wrong transport. An ambient 1 would put
+        # every pair far under the busbw bar, the bisection would "confirm"
+        # every node faulty, and Bench/run.sh would abort a perfectly healthy
+        # cluster with nothing in the log naming the transport as the reason.
+        # The other knobs below are legitimately site-tunable; this one is what
+        # the test *is*.
         "NCCL_IB_DISABLE": "0",
+        # Deliberately NOT read from the environment: config.sh exports
+        # HSA_NO_SCRATCH_RECLAIM=1 bench-wide, and this test overrides it back
+        # to 0 on purpose. Making it overridable let the ambient 1 win and broke
+        # all_reduce at connect time.
+        "HSA_NO_SCRATCH_RECLAIM": "0",
+        "MPIEXEC_RSH": f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
+    })
+
+    # Defaults, i.e. used only when the caller has not already exported one.
+    # env is a copy of os.environ, so setdefault is exactly what the
+    # `"K": os.environ.get("K", d)` spelling it replaced did.
+    #
+    # That spelling was itself introduced earlier in this branch, so read
+    # against main this is not a refactor: on main all of these were pinned
+    # with update() and no ambient value could reach them. Making them
+    # overridable is deliberate -- a check meant to reproduce the workload's
+    # conditions has to run with the workload's tuning -- but it is a
+    # behaviour change, and the log line at the end of this function exists so
+    # a verdict produced under site tuning cannot be mistaken for one produced
+    # under these defaults.
+    #
+    # Worth knowing what that means in the shipped path: config.sh
+    # unconditionally exports NCCL_CROSS_NIC, NCCL_CHECKS_DISABLE,
+    # NCCL_NET_GDR_LEVEL and RCCL_MSCCL_ENABLE, so for those four the value
+    # below is never reached and the diagnosis inherits whatever the workload
+    # was tuned with. That is deliberate for a test meant to reproduce the
+    # workload's conditions -- but it does mean these are not the values the
+    # test actually runs with unless you check the environment.
+    overridden = []
+    for key, value in {
         "NCCL_IB_PCI_RELAXED_ORDERING": "1",
         "NCCL_SHM_DISABLE": "1",
         "NCCL_CHECKS_DISABLE": "1",
         "NCCL_CROSS_NIC": "0",
         "RCCL_MSCCL_ENABLE": "0",
-        "NCCL_DEBUG": RCCL_DEBUG,
+        # PXB. Worth overriding where the NICs are not behind a PCIe switch:
+        # if the GPU-to-NIC path is PHB, this threshold disables GDR outright.
         "NCCL_NET_GDR_LEVEL": "2",
-        "HSA_NO_SCRATCH_RECLAIM": "0",
         "NCCL_NET_GDR_READ": "1",
-        "MPIEXEC_RSH": f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
-    })
+    }.items():
+        env.setdefault(key, value)
+        if env[key] != value:
+            # The whole point of these being overridable is that a site can
+            # retune them, but then the log has to say what the diagnosis
+            # actually ran with -- otherwise a verdict produced under, say,
+            # NCCL_NET_GDR_LEVEL=0 reads exactly like one produced under the
+            # default, and the numbers are not comparable between clusters.
+            overridden.append(f"{key}={env[key]} (default {value})")
     
     if ENABLE_AINIC:
         # AINIC mode: use special library paths and AINIC-specific settings
         env.update({
             "LD_LIBRARY_PATH": f"/opt/amd-anp/build:/opt/amd-anp/build/lib:/opt/rccl/build/release:{LD_LIBRARY_PATH}",
+            # These are the AMD AINIC reference tuning values. They are kept as
+            # defaults, but must stay overridable: several of them (notably
+            # NCCL_GDR_FLUSH_DISABLE and NET_OPTIONAL_RECV_COMPLETION) trade
+            # correctness guarantees for latency, so isolating a data-corruption
+            # report means flipping them one at a time from the workload spec.
+            "UCX_NET_DEVICES": RCCL_SOCKET_IFNAME
+        })
+        for key, value in {
             "NCCL_DMABUF_ENABLE": "0",
             "NCCL_GDR_FLUSH_DISABLE": "1",
             "NCCL_MAX_P2P_CHANNELS": "56",
             "NET_OPTIONAL_RECV_COMPLETION": "1",
             "NCCL_IB_USE_INLINE": "1",
             "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING": "0",
-            "NCCL_IB_TC": os.environ.get("NCCL_IB_TC", "104"),
-            "NCCL_IB_FIFO_TC": os.environ.get("NCCL_IB_FIFO_TC", "192"),
+            "NCCL_IB_TC": "104",
+            "NCCL_IB_FIFO_TC": "192",
             "NCCL_IGNORE_CPU_AFFINITY": "1",
             "NCCL_IB_QPS_PER_CONNECTION": "1",
-            "UCX_NET_DEVICES": RCCL_SOCKET_IFNAME
-        })
+        }.items():
+            # Same spelling as the block above; `env` is a copy of os.environ,
+            # so setdefault is exactly the old os.environ.get(key, default).
+            env.setdefault(key, value)
+            if env[key] != value:
+                overridden.append(f"{key}={env[key]} (default {value})")
 
     else:
         # Standard mode: use default library paths
@@ -395,17 +588,39 @@ def build_env_vars() -> Dict[str, str]:
             "LD_LIBRARY_PATH": LD_LIBRARY_PATH,
             "UCX_NET_DEVICES": RCCL_IB_HCA.split(',')[0] + ":1"
         })
-    
+
+    if overridden:
+        log("[INFO] RCCL tuning knobs taken from the environment instead of the "
+            "built-in defaults: " + ", ".join(sorted(overridden)))
+
     return env
 
-def run_rccl_test(nodes: List[str]) -> float:
+def run_rccl_test(nodes: List[str]) -> Optional[float]:
     """Run RCCL performance test on specified nodes."""
+    # The three paths below return 0.0, not None, and the difference from the
+    # parse-miss path further down is deliberate: it is whether the bisection
+    # can resolve the failure.
+    #
+    # A missing result row cannot be bisected -- its cause is the -e size or
+    # the table layout, so every subgroup reproduces it and the leaves end up
+    # blaming hardware for a config slip. That is why it returns None.
+    #
+    # A group of one, an unreachable node and a hung mpiexec can be bisected:
+    # a subgroup that excludes the culprit passes, the recursion narrows to the
+    # node, and diagnose_single_with_healthy retests it against a known-good
+    # peer. Returning None for these would abandon exactly the isolation this
+    # tool exists to do. They stay 0.0 -- "did not clear the bar, go find out
+    # who" -- and say in the log which of them happened.
     if len(nodes) < 2:
+        # Not a measurement failure at all: a single node has no peer to talk
+        # to. 0.0 sends it to the pair test against a healthy node below.
         log(f"[WARN] Not enough nodes ({label_nodes(nodes)}) for RCCL test.")
         return 0.0
 
     if not check_connectivity(nodes):
-        log(f"[FAIL] Connectivity check failed for nodes {label_nodes(nodes)}")
+        log(f"[FAIL] Connectivity check failed for {label_nodes(nodes)} "
+            f"(ssh/mpiexec could not reach every node; the bisection will "
+            f"narrow this to the node responsible)")
         return 0.0
 
     # Get test binary
@@ -433,7 +648,7 @@ def run_rccl_test(nodes: List[str]) -> float:
     if HYDRA_IFACE:
         cmd += ["-iface", HYDRA_IFACE]
     cmd += ["-launcher", "ssh", "-hosts", nodes_str,
-            rccl_test, "-b", "32M", "-e", MAX_BYTES, "-f", "2", "-g", "1"]
+            rccl_test, "-b", MIN_BYTES, "-e", MAX_BYTES, "-f", "2", "-g", "1"]
 
     log_file = get_log_filename(nodes)
     log(f"# Log: {log_file}")
@@ -447,70 +662,106 @@ def run_rccl_test(nodes: List[str]) -> float:
 
     try:
         with open(log_file, "w") as f:
-            # Use Popen for real-time output
+            # rccl-tests prints the result table to stdout; NCCL/RCCL and the
+            # ANP plugin write their debug output to stderr. Feeding both into
+            # one pipe (stderr=STDOUT) lets a debug line land in the middle of
+            # a table row and take its time/algbw/busbw columns with it. With
+            # NCCL_DEBUG=INFO the ANP plugin emits a line per operation, so
+            # every row is corrupted, algbw parses as 0.0, and a perfectly
+            # healthy pair of nodes is reported as unhealthy.
+            #
+            # Keep both streams in the console and in the log exactly as
+            # before -- only the text handed to parse_algbw is stdout-only.
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stderr=subprocess.PIPE,
                 text=True,
                 env=env_vars
             )
-            output_lines = []
-            start_time = time.time()
+            output_lines = []          # stdout only: what parse_algbw reads
+            emit_lock = threading.Lock()
+            # A reader can outlive the join timeout below (mpirun exits but a
+            # child still holds the inherited pipe open). By then the enclosing
+            # `with open(...)` has closed f, and an unguarded f.write would
+            # raise ValueError from a daemon thread and dump a traceback into
+            # the console. The flag is read and written under emit_lock.
+            sink_open = [True]
             timeout_seconds = 300
-            
-            while True:
-                # Check if process has finished
-                retcode = process.poll()
-                
-                # Read available output
-                line = ""
-                if process.stdout:
-                    line = process.stdout.readline()
-                    if line:
-                        print(line, end='', flush=True)
-                        f.write(line)
-                        f.flush()  # Ensure data is written to file
-                        output_lines.append(line)
-                
-                # Check timeout
-                if time.time() - start_time > timeout_seconds:
-                    process.kill()
-                    raise subprocess.TimeoutExpired(cmd, timeout_seconds)
-                
-                # If process finished and no more output, break
-                if retcode is not None and not line:
-                    # Read any remaining output after process ends
-                    remaining = process.stdout.read()
-                    if remaining:
-                        print(remaining, end='', flush=True)
-                        f.write(remaining)
-                        f.flush()
-                        output_lines.append(remaining)
-                    break
-            
+
+            def _pump(stream, collect):
+                # Separate threads: reading the two pipes in sequence would
+                # deadlock as soon as the one not being read fills up.
+                try:
+                    for line in iter(stream.readline, ''):
+                        with emit_lock:
+                            if not sink_open[0]:
+                                return
+                            print(line, end='', flush=True)
+                            f.write(line)
+                            f.flush()
+                            if collect:
+                                output_lines.append(line)
+                finally:
+                    stream.close()
+
+            readers = [
+                threading.Thread(target=_pump, args=(process.stdout, True), daemon=True),
+                threading.Thread(target=_pump, args=(process.stderr, False), daemon=True),
+            ]
+            for t in readers:
+                t.start()
+
+            try:
+                process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                for t in readers:
+                    t.join(timeout=5)
+                with emit_lock:
+                    sink_open[0] = False
+                raise
+            for t in readers:
+                t.join(timeout=10)
+            with emit_lock:
+                sink_open[0] = False
+
             result_stdout = ''.join(output_lines)
 
         target_size = parse_size(MAX_BYTES)
         algbw = parse_algbw(result_stdout, target_size)
-        if algbw == 0.0:
-            log(f"[FAIL] Failed to parse algbw from output for {label_nodes(nodes)}")
+        if algbw is None:
+            # No row for MAX_BYTES in output the test did produce. Nothing was
+            # measured, so there is nothing to compare against the threshold:
+            # returning 0.0 here is what let a mis-set RCCL_MAX_BYTES or an
+            # unrecognised table layout read as "every node is dead".
+            record_harness_error(
+                f"no {format_size(target_size)} result row in the "
+                f"{'all_reduce_perf' if RCCL_TEST_TYPE == 0 else 'alltoall_perf'} "
+                f"output for {label_nodes(nodes)}; nothing was measured"
+            )
         else:
             test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
             log(f"[INFO] After {test_name} on {label_nodes(nodes)}, count={len(nodes)}, algbw = {algbw:.2f} GB/s")
         return algbw
     except subprocess.TimeoutExpired:
-        log(f"[Exception] RCCL test timed out for {label_nodes(nodes)}")
+        log(f"[Exception] RCCL test timed out for {label_nodes(nodes)} "
+            f"(bisectable: a hang that is one node's fault narrows to it, one "
+            f"that is not ends at the unverified-blame warning below)")
         return 0.0
     except Exception as e:
         log(f"[Exception] Test failed for {label_nodes(nodes)}: {e}")
         return 0.0
 
 
-def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> Tuple[str, bool]:
+def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> Tuple[str, Optional[bool]]:
     """
     Single suspicious node and healthy node combination test
     Retrieve a healthy node from the global health node pool and return it after testing is completed
+
+    is_faulty is None when the pair produced no measurement at all: neither
+    "faulty" nor "OK" is a claim this run is entitled to make about it.
     """
     start_time = time.time()
     healthy_node = None
@@ -522,10 +773,13 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> T
             test_nodes=[suspect_node, healthy_node]
             algbw = run_rccl_test(test_nodes)
             limit = threshold(len(test_nodes))
-            is_faulty = algbw < limit
             test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
-            log(f"[INFO] {test_name} {node_label(suspect_node)}+{node_label(healthy_node)} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
             healthy_node_queue.put(healthy_node)
+            if algbw is None:
+                log(f"[INFO] {test_name} {node_label(suspect_node)}+{node_label(healthy_node)} -> no measurement, threshold:{limit:.2f} GB/s algbw-> UNKNOWN")
+                return suspect_node, None
+            is_faulty = algbw < limit
+            log(f"[INFO] {test_name} {node_label(suspect_node)}+{node_label(healthy_node)} -> {algbw:.2f} GB/s algbw{bw_note(algbw, len(test_nodes))}, threshold:{limit:.2f} GB/s algbw-> {'FAULTY' if is_faulty else 'OK'}")
             return suspect_node, is_faulty
         except Empty:
             with stat_lock:
@@ -549,7 +803,24 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
     algbw = run_rccl_test(nodes)
     limit = threshold(len(nodes))
     test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
-    log(f"[INFO] {test_name} {label_nodes(nodes)} -> {algbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
+    if algbw is None:
+        # run_rccl_test has already recorded the harness error. Do not descend:
+        # splitting the group would just repeat a test that cannot produce a
+        # number, and do it 2n more times. Do not blame the nodes either --
+        # they were never measured. main() turns the recorded error into a
+        # non-zero exit with no node list, which run.sh reads as a harness
+        # failure rather than as a clean pass.
+        log(f"[SKIP] {test_name} {label_nodes(nodes)} -> no measurement; not judging these nodes")
+        # These nodes will never reach healthy_node_queue, so count them the
+        # same way the faulty path does. diagnose_single_with_healthy waits on
+        # that queue and only gives up once total_failed_nodes covers the
+        # cluster; without this, a sibling group in FINAL CHECK blocks for the
+        # full 600s timeout and then blames its node for the wait.
+        with stat_lock:
+            global total_failed_nodes
+            total_failed_nodes += len(nodes)
+        return []
+    log(f"[INFO] {test_name} {label_nodes(nodes)} -> {algbw:.2f} GB/s algbw{bw_note(algbw, len(nodes))}, threshold: {limit:.2f} GB/s algbw")
 
     if algbw >= limit:
         log(f"[PASS] Group {label_nodes(nodes)} is healthy. Adding to global healthy pool.")
@@ -559,30 +830,56 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
 
     if len(nodes) <= 2:
         with stat_lock:
-            global total_failed_nodes
             total_failed_nodes += len(nodes)
             if total_failed_nodes >= total_nodes and healthy_node_queue.empty():
-                log(f"[WARNING] All nodes appear to be faulty or no healthy nodes available for comparison")
+                # Every node failed and not one was ever confirmed healthy, so
+                # there is no reference to test these against. The nodes are
+                # still returned -- an all-dead cluster must stop the benchmark,
+                # and downgrading this to "did not complete" would let it
+                # proceed on nodes nothing worked on. But the blame is
+                # unverified, and a cluster-wide harness fault (mpiexec gone,
+                # ssh keys broken, RCCL built against the wrong ROCm) produces
+                # exactly this shape. Say so, so the operator reads the node
+                # list as "nothing worked here" rather than as sixteen
+                # independent hardware failures.
+                log(f"[WARNING] All {total_nodes} node(s) failed and none was ever "
+                    f"confirmed healthy, so none of these verdicts was checked "
+                    f"against a known-good peer. Blaming {label_nodes(nodes)}, but "
+                    f"a cluster-wide harness fault looks identical to this -- "
+                    f"check the failure mode logged above before replacing hardware.")
                 return nodes.copy()
 
         log(f"[FINAL CHECK] Testing {label_nodes(nodes)} individually with healthy nodes.")
         bad_nodes = []
         # Parallel testing (up to MAX_CONCURRENT_TESTS)
         with ThreadPoolExecutor(max_workers=min(MAX_CONCURRENT_TESTS, len(nodes))) as executor:
-            futures = [executor.submit(diagnose_single_with_healthy, node) for node in nodes]
-            for future in futures:
+            # Keyed by node, not a bare list: the exception path below used to
+            # have no idea which node it was handling and appended the literal
+            # string "unknown" to bad_nodes. extract_nodes.py accepts that as a
+            # hostname (it matches the hostname shape), run.sh then tries to
+            # remove a node called "unknown" from the node list and removes
+            # nothing, and the node that actually failed stays in the run.
+            futures = {executor.submit(diagnose_single_with_healthy, node): node
+                       for node in nodes}
+            for future, node in futures.items():
                 try:
-                    node, is_faulty = future.result()
-                    if is_faulty:
-                        bad_nodes.append(node)
-                        log(f"[FAIL] {node_label(node)} confirmed faulty.")
-                    else:
-                        healthy_node_queue.put(node)
-                        log(f"[PASS] {node_label(node)} passed with healthy node.")
+                    _, is_faulty = future.result()
                 except Exception as e:
-                    node = "unknown"
-                    log(f"[Exception] during test for {node}: {e}")
+                    # The test blew up rather than returning a verdict. That is
+                    # the harness failing, not the node: record it and let the
+                    # exit code say so instead of condemning hardware for it.
+                    record_harness_error(
+                        f"exception while testing {node_label(node)} against a healthy node: {e}")
+                    continue
+                if is_faulty is None:
+                    record_harness_error(
+                        f"no measurement for {node_label(node)} against a healthy node")
+                elif is_faulty:
                     bad_nodes.append(node)
+                    log(f"[FAIL] {node_label(node)} confirmed faulty.")
+                else:
+                    healthy_node_queue.put(node)
+                    log(f"[PASS] {node_label(node)} passed with healthy node.")
         return bad_nodes
 
     # Split nodes into two groups
@@ -622,6 +919,7 @@ def parse_args() -> List[str]:
     # Update global configuration
     global MAX_CONCURRENT_TESTS, RCCL_DEBUG, RCCL_SOCKET_IFNAME, RCCL_IB_HCA
     global SSH_PORT, NCCL_IB_GID_INDEX, RCCL_TEST_TYPE, MAX_BYTES, ENABLE_AINIC
+    global MAX_BYTES_PINNED
     
     MAX_CONCURRENT_TESTS = args.max_concurrent
     RCCL_DEBUG = args.rccl_debug
@@ -651,6 +949,72 @@ def parse_args() -> List[str]:
         MAX_BYTES = "2G"   # Small clusters (3-4 nodes): 2G
     else:
         MAX_BYTES = "1G"   # Tiny clusters (1-2 nodes): 1G
+
+    # The ladder above is a runtime-cost heuristic, not a measurement spec, and
+    # on <=2 nodes it stops at 1G. Every published all-reduce number worth
+    # comparing against -- AMD's own bar, and the vendor multi-node results that
+    # quote it -- is stated at 8G, and the curve is still climbing at 1G here
+    # (148 -> 219 GB/s busbw from 32M to 1G), so a 1G measurement cannot be put
+    # next to any of them. Since threshold() has scaled a 350.0 constant taken
+    # from an 8G bar since it was written, the pass/fail line and the
+    # measurement point disagreed on every cluster of two nodes or fewer.
+    #
+    # Keep the ladder as the default so existing runs are byte-for-byte
+    # unchanged, and let an operator pin the size when the point of the run is
+    # to compare against a published number.
+    max_bytes_override = os.environ.get("RCCL_MAX_BYTES", "").strip()
+    if max_bytes_override:
+        try:
+            override_bytes = parse_size(max_bytes_override)
+        except Exception:
+            log(f"[WARN] RCCL_MAX_BYTES={max_bytes_override!r} is not a valid size, "
+                f"keeping the adaptive value {MAX_BYTES}")
+        else:
+            # The test walks -b 32M doubling by -f 2, and the verdict is read
+            # off the row at exactly -e. So -e has to *be* one of those steps.
+            # Anything else -- below the start size, or between two steps like
+            # 3G, 100M, 10G -- means the run stops one step short and there is
+            # no row to read: the very failure this guard's comment claimed to
+            # prevent, in the two thirds of the cases it did not check.
+            #
+            # parse_algbw no longer reads that as 0 GB/s, so a slip here is a
+            # reported harness failure rather than a dead cluster. It is still
+            # a whole diagnosis run spent measuring nothing, so refuse it up
+            # front and name the two steps the operator probably meant.
+            min_bytes = parse_size(MIN_BYTES)
+            steps = ladder_steps(min_bytes, override_bytes)
+            if override_bytes < min_bytes:
+                log(f"[WARN] RCCL_MAX_BYTES={max_bytes_override} is below the "
+                    f"{MIN_BYTES} start size of the test ladder, which would "
+                    f"produce no results at all; keeping the adaptive value "
+                    f"{MAX_BYTES}")
+            elif override_bytes not in steps:
+                below = max(x for x in steps if x < override_bytes)
+                log(f"[WARN] RCCL_MAX_BYTES={max_bytes_override} is not on the "
+                    f"-b {MIN_BYTES} -f 2 ladder, so the test would stop at "
+                    f"{format_size(below)} and leave no row at "
+                    f"{format_size(override_bytes)} to read; use "
+                    f"{format_size(below)} or {format_size(below * 2)}. "
+                    f"Keeping the adaptive value {MAX_BYTES}")
+            else:
+                log(f"[INFO] RCCL_MAX_BYTES={max_bytes_override} overrides the adaptive "
+                    f"value {MAX_BYTES} for {node_count} node(s)")
+                MAX_BYTES = max_bytes_override
+                MAX_BYTES_PINNED = True
+                if (MAX_BYTES != _BUSBW_TARGET_SIZE
+                        and not os.environ.get("RCCL_BUSBW_TARGET", "").strip()):
+                    # The two knobs are one setting. ALLREDUCE_BUSBW_TARGET's
+                    # default is a number quoted at 8G, and the curve is still
+                    # climbing well below that (148 -> 219 GB/s busbw from 32M
+                    # to 1G), so pinning the size without moving the bar grades
+                    # the cluster against a target it was never measured at --
+                    # at 32M every node on earth fails it.
+                    log(f"[WARN] RCCL_MAX_BYTES is pinned to {MAX_BYTES} but "
+                        f"RCCL_BUSBW_TARGET is unset, so the pass/fail bar is "
+                        f"still the {_BUSBW_TARGET_DEFAULT} GB/s busbw default, "
+                        f"which is quoted at {_BUSBW_TARGET_SIZE}. Set "
+                        f"RCCL_BUSBW_TARGET to the target that belongs to "
+                        f"{MAX_BYTES}")
 
     return nodes
 
@@ -691,7 +1055,9 @@ def main():
             f"NCCL_IB_FIFO_TC={os.environ.get('NCCL_IB_FIFO_TC', '(unset, default=192)')}")
     else:
         log("📌 Standard mode: using default RCCL configuration")
-    log(f"📊 Test parameters: MAX_BYTES={MAX_BYTES} (adaptive for {len(nodes)} nodes), Interface={RCCL_SOCKET_IFNAME}")
+    sizing = ("pinned by RCCL_MAX_BYTES" if MAX_BYTES_PINNED
+              else f"adaptive for {len(nodes)} nodes")
+    log(f"📊 Test parameters: MAX_BYTES={MAX_BYTES} ({sizing}), Interface={RCCL_SOCKET_IFNAME}")
     log("⚙️ Starting recursive diagnosis...")
     
     # Initialize global state
@@ -706,9 +1072,22 @@ def main():
     if bad_nodes:
         log(f"[RESULT] unhealthy nodes: {label_nodes(bad_nodes)}, obtained through {test_name}")
         sys.exit(1)
-    else:
-        log(f"[RESULT] ✅ all passed, obtained through {test_name}")
-        sys.exit(0)
+
+    with harness_error_lock:
+        pending = list(harness_errors)
+    if pending:
+        # Nothing measurable came back, so no node can be blamed -- but this is
+        # not a pass either. Exit non-zero with no "unhealthy nodes:" line:
+        # extract_nodes.py finds nothing to remove and run.sh takes its
+        # harness-failure branch, which is exactly the shape of this outcome.
+        log(f"[RESULT] ❌ did not complete: {len(pending)} test(s) produced no usable "
+            f"measurement and no node could be blamed, through {test_name}")
+        for reason in pending:
+            log(f"[RESULT]   - {reason}")
+        sys.exit(1)
+
+    log(f"[RESULT] ✅ all passed, obtained through {test_name}")
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()

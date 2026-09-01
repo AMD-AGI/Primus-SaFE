@@ -14,6 +14,8 @@ fi
 
 if [ "$ROCM_VERSION" = "6.4.3" ]; then
   pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.4 $PIP_EXTRA_ARGS
+elif [ "$ROCM_VERSION" = "7.0.1" ]; then
+  pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm7.0 $PIP_EXTRA_ARGS
 elif [ "$ROCM_VERSION" = "7.0.3" ]; then
   pip3 install torch torchvision --pre --index-url https://download.pytorch.org/whl/nightly/rocm7.0 $PIP_EXTRA_ARGS
 elif [ "$ROCM_VERSION" = "7.2.0" ]; then
@@ -23,7 +25,7 @@ elif [ "$ROCM_VERSION" = "7.2.0" ]; then
   pip3 install torch torchvision \
     --find-links ${RADEON_REPO} $PIP_EXTRA_ARGS
 else
-  echo "Error: Unsupported ROCM_VERSION '$ROCM_VERSION'. Only 6.4.3, 7.0.3 and 7.2.0 are supported."
+  echo "Error: Unsupported ROCM_VERSION '$ROCM_VERSION'. Only 6.4.3, 7.0.1, 7.0.3 and 7.2.0 are supported."
   exit 1
 fi
 

@@ -10,12 +10,15 @@
 # Usage:
 #   ./build/harbor-login-k8s.sh [REGISTRY_HOST]
 #
-# Default REGISTRY_HOST: harbor.oci-slc.primus-safe.amd.com
+# REGISTRY_HOST defaults to the harbor ingress host of the cluster kubectl
+# currently points at, so this works on any cluster. It used to default to
+# harbor.oci-slc.primus-safe.amd.com, which logged in to the wrong registry
+# on every other cluster.
 #
 
 set -euo pipefail
 
-REGISTRY_HOST="${1:-harbor.oci-slc.primus-safe.amd.com}"
+REGISTRY_HOST="${1:-}"
 SECRET_NS="${HARBOR_SECRET_NAMESPACE:-harbor}"
 SECRET_NAME="${HARBOR_SECRET_NAME:-harbor-core}"
 SECRET_KEY="${HARBOR_ADMIN_PASSWORD_KEY:-HARBOR_ADMIN_PASSWORD}"
@@ -23,6 +26,16 @@ ADMIN_USER="${HARBOR_ADMIN_USER:-admin}"
 
 if ! command -v kubectl >/dev/null 2>&1; then
     echo "Error: kubectl not found" >&2
+    exit 1
+fi
+
+if [ -z "${REGISTRY_HOST}" ]; then
+    REGISTRY_HOST=$(kubectl -n "${SECRET_NS}" get ingress \
+        -o jsonpath='{.items[0].spec.rules[0].host}' 2>/dev/null || true)
+fi
+if [ -z "${REGISTRY_HOST}" ]; then
+    echo "Error: no registry host given and none found from the harbor ingress" >&2
+    echo "  in namespace ${SECRET_NS}. Pass it explicitly: $0 <registry-host>" >&2
     exit 1
 fi
 

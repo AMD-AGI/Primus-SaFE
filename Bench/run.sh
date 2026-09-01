@@ -19,6 +19,57 @@ ok()     { echo "✔ $1"; }
 warn()   { echo "⚠ $1"; }
 err()    { echo "✘ $1"; }
 
+# Resolve a node label (as it appears in LOG_HEADER / $HOSTS) to an IPv4 address.
+#
+# Order matters, and it is deliberately conservative: steps 1-2 are the original
+# logic, byte for byte, so any deployment where they already produced an address
+# keeps producing the exact same address. Step 3 only ever runs when the old
+# chain came up empty -- i.e. on inputs that used to be dropped outright.
+#
+# Step 3 exists for the Kubernetes deployment, where the label is a *pod* name:
+# LOG_HEADER is built from $(hostname) inside the bench container, and each bench
+# pod gets a same-named headless Service. Such a name resolves in this pod's
+# namespace but not in the host namespace -- verified on a node, where
+# `getent hosts primusbench-xxx-master-0` exits 2 with no output because the host
+# resolv.conf carries the corporate search domains, not cluster.local.
+#
+# Returns non-zero (and prints nothing) when no usable address was found, so the
+# caller can tell "unresolved" apart from a bogus value.
+resolve_node_ip() {
+    local node="$1" ip
+
+    # 0) Already an IP. $HOSTS holds addresses in the k8s path, and a reverse
+    #    lookup of one is not just redundant but actively harmful: on clusters
+    #    where each node's /etc/hosts knows only itself and DNS has no PTR
+    #    record, every peer resolves to nothing and is silently dropped.
+    if [[ "$node" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "$node"
+        return 0
+    fi
+
+    # 1) Host namespace. The bare-metal path: $HOSTS holds real machine names
+    #    that only the host knows. Needs privileged + hostPID; a denial here is
+    #    not fatal, we simply fall through.
+    ip=$(nsenter --target 1 --mount --uts --ipc --net --pid -- \
+         getent hosts "$node" 2>/dev/null | awk '{print $1; exit}')
+
+    # 2) Original loopback workaround, unchanged.
+    if [[ "$ip" == 127.* ]]; then
+        ip=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $7}')
+    fi
+
+    # 3) New fallback, reached only when the above yielded nothing usable.
+    #    Resolve in this pod's namespace (search domains + cluster DNS), skipping
+    #    loopback lines so a name mapped to both 127.0.0.1 and a routable address
+    #    yields the routable one regardless of the order they are listed in.
+    if [[ ! "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "$ip" == 127.* ]]; then
+        ip=$(getent hosts "$node" 2>/dev/null | awk '$1 !~ /^127\./ {print $1; exit}')
+    fi
+
+    [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+    echo "$ip"
+}
+
 # Send SIGUSR1 signal and wait for background process
 send_ready_signal() {
     log "🏁 Benchmarks completed. Synchronizing all nodes... $(date +'%Y-%m-%d %H:%M:%S')"
@@ -256,13 +307,28 @@ print(f'_ne={d.get(\"error\",\"\")}')
             bash run.sh 2>&1 | tee $preflight_network_logname
             cd $PRIMUSBENCH_PATH
 
-            match=$(grep -oP "unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tail -n1)
+            # Anchor on the *final* verdict line, not on any line ending in
+            # "unhealthy nodes: [". binary_diagnose logs a per-test
+            # "[RESULT] unhealthy nodes: [host(ip), ...]" for every test it
+            # runs, and preflight/network/run.sh only prints a "Final
+            # unhealthy nodes" line when the retry intersection is non-empty.
+            # So on a cluster where run 1 blamed a node and run 2 came back
+            # clean, tail -n1 picked up the stale per-test line and reported
+            # nodes that the retry had just exonerated.
+            match=$(grep -oP "Final unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tail -n1)
             if [[ -n "$match" ]]; then
                 unhealthy_nodes=($(echo "$match" | tr -d "'" | tr ',' ' '))
             else
                 unhealthy_nodes=()
             fi
             log "Unhealthy nodes detected: ${unhealthy_nodes[*]:-none}"
+            # A test can fail without any node being blamed (harness error,
+            # too few nodes, ...). That is not a pass, and used to be silent.
+            network_harness_failed=0
+            if grep -q "Diagnosis did not complete" "$preflight_network_logname"; then
+                network_harness_failed=1
+                warn "Network preflight did not complete: a test failed without identifying any unhealthy node. This is NOT a clean pass -- see $preflight_network_logname"
+            fi
 
             if [ ${#unhealthy_nodes[@]} -eq 0 ]; then
                 healthy_nodes_ip=("${successed_nodes_ip[@]}")
@@ -281,8 +347,21 @@ print(f'_ne={d.get(\"error\",\"\")}')
                 done
             fi
         fi
-        ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
+        # Do not call it a clean pass when the check did not complete: the
+        # node list below is "not known to be bad", which is not the same as
+        # "validated". The list itself is unchanged either way -- an
+        # unattributable failure gives us no node to drop.
+        if [ "${network_harness_failed:-0}" -eq 1 ]; then
+            warn "Network check did NOT complete. Unvalidated nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
+        else
+            ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
+        fi
 
+        if [ "${network_harness_failed:-0}" -eq 1 ]; then
+            echo "WARNING: network check did not complete -- a test failed without identifying any unhealthy node." >> "$BENCH_REPORT"
+            echo "         The nodes listed below were NOT validated. See preflight_network.log." >> "$BENCH_REPORT"
+            echo "" >> "$BENCH_REPORT"
+        fi
         echo "Failed Nodes (Network Check) - ${#unhealthy_nodes[@]} nodes" >> "$BENCH_REPORT"
         echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
         if [ ${#unhealthy_nodes[@]} -gt 0 ]; then
@@ -295,7 +374,18 @@ print(f'_ne={d.get(\"error\",\"\")}')
         fi
         echo "" >> "$BENCH_REPORT"
 
-        echo "Healthy Nodes (Passed All Checks) - ${#healthy_nodes_ip[@]} nodes" >> "$BENCH_REPORT"
+        # The heading has to agree with the WARNING above it. When the check
+        # did not complete these nodes are "not known to be bad", and calling
+        # that "Passed All Checks" in the one artefact people forward is how
+        # an unvalidated cluster gets signed off.
+        if [ "${network_harness_failed:-0}" -eq 1 ]; then
+            healthy_heading="Unvalidated Nodes (network check did NOT complete)"
+            healthy_summary="unvalidated"
+        else
+            healthy_heading="Healthy Nodes (Passed All Checks)"
+            healthy_summary="healthy"
+        fi
+        echo "$healthy_heading - ${#healthy_nodes_ip[@]} nodes" >> "$BENCH_REPORT"
         echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
         if [ ${#healthy_nodes_ip[@]} -gt 0 ]; then
             for ip in "${healthy_nodes_ip[@]}"; do
@@ -308,7 +398,7 @@ print(f'_ne={d.get(\"error\",\"\")}')
         echo "" >> "$BENCH_REPORT"
         echo "================================================================================" >> "$BENCH_REPORT"
         echo "" >> "$BENCH_REPORT"
-        echo "Summary: ${#healthy_nodes_ip[@]} healthy nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
+        echo "Summary: ${#healthy_nodes_ip[@]} $healthy_summary nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
         echo "" >> "$BENCH_REPORT"
         echo "================================================================================" >> "$BENCH_REPORT"
         echo "" >> "$BENCH_REPORT"
@@ -591,16 +681,15 @@ else
             log "Skipping node check (SKIP_NODE_CHECK=true)"
             while IFS= read -r node; do
                 [ -z "$node" ] && continue
-                ip_addr=$(nsenter --target 1 --mount --uts --ipc --net --pid -- getent hosts "$node" | awk '{print $1; exit}')
-                if [[ "$ip_addr" == 127.* ]]; then
-                    ip_addr=$(ip route get 8.8.8.8 | awk '{print $7}')
-                fi
+                ip_addr=$(resolve_node_ip "$node")
                 if [[ -n "$ip_addr" ]] && [[ "$ip_addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
                     node_ip_map[$node]="$ip_addr"
                     ip_node_map[$ip_addr]="$node"
                     all_nodes+=("$node")
                     successed_nodes+=("$node")
                     successed_nodes_ip+=("$ip_addr")
+                else
+                    warn "Node $node: cannot resolve to an IP, dropped from node list"
                 fi
             done < "$HOSTS"
         else
@@ -656,11 +745,7 @@ else
                 if [[ -n "${node_ip_map[$node]}" ]]; then
                     continue
                 fi
-                ip_addr=$(nsenter --target 1 --mount --uts --ipc --net --pid -- getent hosts "$node" | awk '{print $1; exit}')
-
-                if [[ "$ip_addr" == 127.* ]]; then
-                    ip_addr=$(ip route get 8.8.8.8 | awk '{print $7}')
-                fi
+                ip_addr=$(resolve_node_ip "$node")
                 if [[ -n "$ip_addr" ]] && [[ "$ip_addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
                     node_ip_map[$node]="$ip_addr"
                     ip_node_map[$ip_addr]="$node"
@@ -730,13 +815,28 @@ else
             bash run.sh 2>&1 | tee $preflight_network_logname
             cd $PRIMUSBENCH_PATH
 
-            match=$(grep -oP "unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tail -n1)
+            # Anchor on the *final* verdict line, not on any line ending in
+            # "unhealthy nodes: [". binary_diagnose logs a per-test
+            # "[RESULT] unhealthy nodes: [host(ip), ...]" for every test it
+            # runs, and preflight/network/run.sh only prints a "Final
+            # unhealthy nodes" line when the retry intersection is non-empty.
+            # So on a cluster where run 1 blamed a node and run 2 came back
+            # clean, tail -n1 picked up the stale per-test line and reported
+            # nodes that the retry had just exonerated.
+            match=$(grep -oP "Final unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tail -n1)
             if [[ -n "$match" ]]; then
                 unhealthy_nodes=($(echo "$match" | tr -d "'" | tr ',' ' '))
             else
                 unhealthy_nodes=()
             fi
             log "Unhealthy nodes detected: ${unhealthy_nodes[*]:-none}"
+            # A test can fail without any node being blamed (harness error,
+            # too few nodes, ...). That is not a pass, and used to be silent.
+            network_harness_failed=0
+            if grep -q "Diagnosis did not complete" "$preflight_network_logname"; then
+                network_harness_failed=1
+                warn "Network preflight did not complete: a test failed without identifying any unhealthy node. This is NOT a clean pass -- see $preflight_network_logname"
+            fi
 
             if [ ${#unhealthy_nodes[@]} -eq 0 ]; then
                 healthy_nodes_ip=("${successed_nodes_ip[@]}")
@@ -755,8 +855,21 @@ else
                 done
             fi
         fi
-        ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
+        # Do not call it a clean pass when the check did not complete: the
+        # node list below is "not known to be bad", which is not the same as
+        # "validated". The list itself is unchanged either way -- an
+        # unattributable failure gives us no node to drop.
+        if [ "${network_harness_failed:-0}" -eq 1 ]; then
+            warn "Network check did NOT complete. Unvalidated nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
+        else
+            ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
+        fi
 
+        if [ "${network_harness_failed:-0}" -eq 1 ]; then
+            echo "WARNING: network check did not complete -- a test failed without identifying any unhealthy node." >> "$BENCH_REPORT"
+            echo "         The nodes listed below were NOT validated. See preflight_network.log." >> "$BENCH_REPORT"
+            echo "" >> "$BENCH_REPORT"
+        fi
         echo "Failed Nodes (Network Check) - ${#unhealthy_nodes[@]} nodes" >> "$BENCH_REPORT"
         echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
         if [ ${#unhealthy_nodes[@]} -gt 0 ]; then
@@ -769,7 +882,18 @@ else
         fi
         echo "" >> "$BENCH_REPORT"
 
-        echo "Healthy Nodes (Passed All Checks) - ${#healthy_nodes_ip[@]} nodes" >> "$BENCH_REPORT"
+        # The heading has to agree with the WARNING above it. When the check
+        # did not complete these nodes are "not known to be bad", and calling
+        # that "Passed All Checks" in the one artefact people forward is how
+        # an unvalidated cluster gets signed off.
+        if [ "${network_harness_failed:-0}" -eq 1 ]; then
+            healthy_heading="Unvalidated Nodes (network check did NOT complete)"
+            healthy_summary="unvalidated"
+        else
+            healthy_heading="Healthy Nodes (Passed All Checks)"
+            healthy_summary="healthy"
+        fi
+        echo "$healthy_heading - ${#healthy_nodes_ip[@]} nodes" >> "$BENCH_REPORT"
         echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
         if [ ${#healthy_nodes_ip[@]} -gt 0 ]; then
             for ip in "${healthy_nodes_ip[@]}"; do
@@ -782,7 +906,7 @@ else
         echo "" >> "$BENCH_REPORT"
         echo "================================================================================" >> "$BENCH_REPORT"
         echo "" >> "$BENCH_REPORT"
-        echo "Summary: ${#healthy_nodes_ip[@]} healthy nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
+        echo "Summary: ${#healthy_nodes_ip[@]} $healthy_summary nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
         echo "" >> "$BENCH_REPORT"
         echo "================================================================================" >> "$BENCH_REPORT"
         echo "" >> "$BENCH_REPORT"

@@ -35,7 +35,7 @@ export SSH_PORT="${SSH_PORT:-22366}"
 # ==============================================================================
 # Network Interface Configuration
 # ==============================================================================
-export IP_INTERFACE="${IP_INTERFACE:-eth0}"
+export IP_INTERFACE="${IP_INTERFACE:-ens3}"
 export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-${IP_INTERFACE}}"
 export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-${IP_INTERFACE}}"
 export NCCL_IB_HCA="${NCCL_IB_HCA:-"ionic_0,ionic_1,ionic_2,ionic_3,ionic_4,ionic_5,ionic_6,ionic_7"}"
