@@ -15,13 +15,13 @@ import (
 	"gotest.tools/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	k8sfake "k8s.io/client-go/kubernetes/fake"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -29,8 +29,9 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
@@ -1574,6 +1575,38 @@ func TestCreateService(t *testing.T) {
 
 	res, err := r.createService(context.Background(), w, cs, obj)
 	assert.NilError(t, err)
+	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
+}
+
+func TestCreateServiceDuplicateNameOwnedByOther(t *testing.T) {
+	r := &DispatcherReconciler{}
+
+	existing := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shared-svc",
+			Namespace: "ns",
+			Labels:    map[string]string{v1.WorkloadIdLabel: "wl-a"},
+		},
+	}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl-b"}}
+	w.Spec.Workspace = "ns"
+	w.Spec.Service = &v1.Service{
+		Name:        "shared-svc",
+		Protocol:    corev1.ProtocolTCP,
+		Port:        80,
+		TargetPort:  8080,
+		ServiceType: corev1.ServiceTypeClusterIP,
+	}
+
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	obj.SetName("wl-b")
+	obj.SetNamespace("ns")
+	obj.SetUID("owner-uid")
+	obj.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Pod"))
+
+	res, err := r.createService(context.Background(), w, serviceClientSets(existing), obj)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, commonerrors.IsBadRequest(err))
 	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
 }
 

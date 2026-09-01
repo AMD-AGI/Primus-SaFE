@@ -806,9 +806,12 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 	k8sClientSet := clientSets.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
 	svcName := commonworkload.GetK8sServiceName(adminWorkload)
-	var err error
-	if _, err = k8sClientSet.CoreV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{}); err == nil {
-		return ctrlruntime.Result{}, nil
+	existing, err := k8sClientSet.CoreV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{})
+	if err == nil {
+		return ctrlruntime.Result{}, checkK8sServiceOwner(existing, adminWorkload)
+	}
+	if !apierrors.IsNotFound(err) {
+		return ctrlruntime.Result{}, err
 	}
 	specService := adminWorkload.Spec.Service
 	service := &corev1.Service{
@@ -853,8 +856,14 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 		service.Spec.Ports[0].NodePort = int32(specService.NodePort)
 	}
 
-	if service, err = k8sClientSet.CoreV1().Services(namespace).Create(ctx,
-		service, metav1.CreateOptions{}); client.IgnoreAlreadyExists(err) != nil {
+	if _, err = k8sClientSet.CoreV1().Services(namespace).Create(ctx, service, metav1.CreateOptions{}); apierrors.IsAlreadyExists(err) {
+		existing, getErr := k8sClientSet.CoreV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{})
+		if getErr != nil {
+			return ctrlruntime.Result{}, getErr
+		}
+		return ctrlruntime.Result{}, checkK8sServiceOwner(existing, adminWorkload)
+	}
+	if err != nil {
 		klog.ErrorS(err, "failed to create service", "name", svcName)
 		if specService.NodePort > 0 {
 			// NodePort error occurred; cannot retry.
@@ -891,6 +900,9 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 		return r.createService(ctx, adminWorkload, clientSets, obj)
 	}
 	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	if err = checkK8sServiceOwner(existing, adminWorkload); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 
@@ -1215,6 +1227,24 @@ func generateServicePorts(specService *v1.Service) []corev1.ServicePort {
 		Port:       int32(specService.Port),
 		TargetPort: intstr.IntOrString{IntVal: int32(specService.TargetPort)},
 	}}
+}
+
+// checkK8sServiceOwner returns a bad request when the data-plane Service
+// belongs to another workload. Missing WorkloadIdLabel is treated as the
+// pre-custom-name convention where the Service was named after the workload.
+func checkK8sServiceOwner(svc *corev1.Service, workload *v1.Workload) error {
+	owner := ""
+	if svc.Labels != nil {
+		owner = svc.Labels[v1.WorkloadIdLabel]
+	}
+	if owner == "" {
+		owner = svc.Name
+	}
+	if owner != workload.Name {
+		return commonerrors.NewBadRequest(
+			fmt.Sprintf("service name %s is already used by workload %s", svc.Name, owner))
+	}
+	return nil
 }
 
 // buildServiceSelector composes the K8s Service selector for a workload.

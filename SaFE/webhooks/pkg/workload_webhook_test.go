@@ -367,6 +367,55 @@ func TestWorkloadValidateService(t *testing.T) {
 	assert.NilError(t, v.validateService(context.Background(), ok))
 }
 
+// TestWorkloadValidateServiceNameDuplicate rejects a Service name already used
+// by another service-bearing workload in the same workspace.
+func TestWorkloadValidateServiceNameDuplicate(t *testing.T) {
+	scheme := newScheme(t)
+	existing := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "wl-a",
+			Labels: map[string]string{
+				v1.WorkspaceIdLabel: "ws1",
+				v1.ServiceNameLabel: "shared-svc",
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			Workspace: "ws1",
+			Service: &v1.Service{
+				Name: "shared-svc", Port: 80, TargetPort: 8080,
+				Protocol: corev1.ProtocolTCP, ServiceType: corev1.ServiceTypeClusterIP,
+			},
+		},
+	}
+	v := &WorkloadValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()}
+
+	dup := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-b", Labels: map[string]string{v1.WorkspaceIdLabel: "ws1"}},
+		Spec: v1.WorkloadSpec{
+			Workspace: "ws1",
+			Service: &v1.Service{
+				Name: "shared-svc", Port: 80, TargetPort: 8080,
+				Protocol: corev1.ProtocolTCP, ServiceType: corev1.ServiceTypeClusterIP,
+			},
+		},
+	}
+	err := v.validateService(context.Background(), dup)
+	assert.Assert(t, err != nil)
+	assert.ErrorContains(t, err, "already used")
+
+	otherWs := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-c", Labels: map[string]string{v1.WorkspaceIdLabel: "ws2"}},
+		Spec: v1.WorkloadSpec{
+			Workspace: "ws2",
+			Service: &v1.Service{
+				Name: "shared-svc", Port: 80, TargetPort: 8080,
+				Protocol: corev1.ProtocolTCP, ServiceType: corev1.ServiceTypeClusterIP,
+			},
+		},
+	}
+	assert.NilError(t, v.validateService(context.Background(), otherWs))
+}
+
 // TestWorkloadValidateHealthCheck verifies health check validation.
 func TestWorkloadValidateHealthCheck(t *testing.T) {
 	v := &WorkloadValidator{}
