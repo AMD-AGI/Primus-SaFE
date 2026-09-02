@@ -250,3 +250,71 @@ func TestStripOffloadedStatus(t *testing.T) {
 	assert.Assert(t, w.Status.Nodes == nil)
 	assert.Assert(t, w.Status.Ranks == nil)
 }
+
+// TestStripOffloadedStatusRebuildsStaleAggregate covers the case where a lost
+// patch race left the stored aggregate on the unscheduled placement while the
+// pods hydrated from the DB already carry the admin node. Stripping must
+// republish the node rather than the stale empty entry.
+func TestStripOffloadedStatusRebuildsStaleAggregate(t *testing.T) {
+	w := &v1.Workload{Status: v1.WorkloadStatus{
+		NodeUsage: []v1.NodePodUsage{{Node: "", Active: map[string]int{"0": 1}}},
+		Pods: []v1.WorkloadPod{{
+			PodId:         "p1",
+			AdminNodeName: "n1",
+			Phase:         corev1.PodRunning,
+		}},
+	}}
+
+	StripOffloadedStatus(w)
+
+	assert.Equal(t, len(w.Status.NodeUsage), 1)
+	assert.Equal(t, w.Status.NodeUsage[0].Node, "n1")
+	assert.Equal(t, w.Status.NodeUsage[0].Active["0"], 1)
+	assert.Equal(t, w.Status.NodeUsage[0].Running["0"], 1)
+	assert.Assert(t, w.Status.Pods == nil)
+}
+
+// TestStripOffloadedStatusKeepsAggregateWithoutPods verifies a caller that holds
+// no pod detail leaves the stored aggregate alone instead of erasing it.
+func TestStripOffloadedStatusKeepsAggregateWithoutPods(t *testing.T) {
+	w := &v1.Workload{Status: v1.WorkloadStatus{
+		NodeUsage: []v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 1}}},
+	}}
+
+	StripOffloadedStatus(w)
+
+	assert.Equal(t, len(w.Status.NodeUsage), 1)
+	assert.Equal(t, w.Status.NodeUsage[0].Node, "n1")
+}
+
+// TestNodeUsageEquivalent covers ordering, the nil-versus-empty count map that a
+// round trip through the CRD produces, and the placement differences that must
+// still register as a change.
+func TestNodeUsageEquivalent(t *testing.T) {
+	assert.Assert(t, NodeUsageEquivalent(nil, nil))
+
+	reordered := []v1.NodePodUsage{
+		{Node: "n2", Active: map[string]int{"0": 1}},
+		{Node: "n1", Active: map[string]int{"0": 2}},
+	}
+	original := []v1.NodePodUsage{
+		{Node: "n1", Active: map[string]int{"0": 2}},
+		{Node: "n2", Active: map[string]int{"0": 1}},
+	}
+	assert.Assert(t, NodeUsageEquivalent(original, reordered))
+
+	// An empty Running map is dropped by omitempty and read back as nil.
+	built := []v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 1}, Running: map[string]int{}}}
+	stored := []v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 1}}}
+	assert.Assert(t, NodeUsageEquivalent(built, stored))
+
+	unscheduled := []v1.NodePodUsage{{Node: "", Active: map[string]int{"0": 1}}}
+	scheduled := []v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 1}}}
+	assert.Assert(t, !NodeUsageEquivalent(unscheduled, scheduled))
+
+	assert.Assert(t, !NodeUsageEquivalent(scheduled, nil))
+	assert.Assert(t, !NodeUsageEquivalent(
+		scheduled,
+		[]v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 2}}},
+	))
+}

@@ -557,6 +557,88 @@ func TestUpdateWorkloadNodeAndPodsAppend(t *testing.T) {
 	assert.Equal(t, len(w.Status.Pods), 1)
 }
 
+// settledPodWorkload returns an offloaded workload whose hydrated pod already
+// agrees with the live pod, plus the matching pod and node, so only the stored
+// aggregate decides whether the sync has more work to do.
+func settledPodWorkload(usage []v1.NodePodUsage) (*v1.Workload, *corev1.Pod, *corev1.Node) {
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "w",
+			Labels:      map[string]string{v1.WorkloadDispatchCntLabel: "1"},
+			Annotations: map[string]string{v1.WorkloadStatusOffloadAnnotation: v1.TrueStr},
+		},
+		Status: v1.WorkloadStatus{
+			NodeUsage: usage,
+			Pods: []v1.WorkloadPod{{
+				PodId:         "p1",
+				ResourceId:    0,
+				AdminNodeName: "n1",
+				Phase:         corev1.PodRunning,
+				HostIp:        "10.0.0.1",
+				StartTime:     "2026-09-02T07:50:51",
+			}},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "p1"},
+		Status:     corev1.PodStatus{Phase: corev1.PodRunning, HostIP: "10.0.0.1"},
+	}
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Labels: map[string]string{v1.NodeIdLabel: "n1"},
+	}}
+	return w, pod, node
+}
+
+// TestUpdateWorkloadNodeAndPodsSkipsWhenAggregateMatches keeps the no-op path:
+// an unchanged pod whose stored aggregate already names the node needs no write.
+func TestUpdateWorkloadNodeAndPodsSkipsWhenAggregateMatches(t *testing.T) {
+	w, pod, node := settledPodWorkload([]v1.NodePodUsage{{
+		Node:    "n1",
+		Active:  map[string]int{"0": 1},
+		Running: map[string]int{"0": 1},
+	}})
+
+	r := &SyncerReconciler{}
+	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, node)
+	assert.Equal(t, updated, false)
+}
+
+// TestUpdateWorkloadNodeAndPodsResyncsStaleAggregate reproduces the placement
+// lost to a patch race: the DB-hydrated pod names the node while the stored
+// aggregate is still unscheduled. Reporting no change here strands the aggregate
+// permanently, because no later pod event would differ either.
+func TestUpdateWorkloadNodeAndPodsResyncsStaleAggregate(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "buildWorkloadPodInfo",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, _ *v1.Workload, _ *corev1.Pod, _ *corev1.Node) v1.WorkloadPod {
+			return v1.WorkloadPod{
+				PodId:         "p1",
+				AdminNodeName: "n1",
+				Phase:         corev1.PodRunning,
+				HostIp:        "10.0.0.1",
+				StartTime:     "2026-09-02T07:50:51",
+			}
+		})
+
+	w, pod, node := settledPodWorkload([]v1.NodePodUsage{{
+		Node:   "",
+		Active: map[string]int{"0": 1},
+	}})
+
+	r := &SyncerReconciler{}
+	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, node)
+	assert.Equal(t, updated, true)
+}
+
+// TestIsNodeUsageStaleIgnoresNonOffloaded verifies workloads that still keep pod
+// detail in etcd are untouched by the aggregate check.
+func TestIsNodeUsageStaleIgnoresNonOffloaded(t *testing.T) {
+	w, _, _ := settledPodWorkload(nil)
+	w.Annotations = nil
+	assert.Equal(t, isNodeUsageStale(w), false)
+}
+
 // TestGetAdminWorkloadAndSyncPodNonMesh covers the non-mesh path: the admin workload is
 // fetched directly by message.workloadId and stamped with the dispatch count.
 func TestGetAdminWorkloadAndSyncPodNonMesh(t *testing.T) {

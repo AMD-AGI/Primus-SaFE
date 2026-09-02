@@ -212,6 +212,18 @@ func (r *SyncerReconciler) getK8sNode(ctx context.Context, clientSets *ClusterCl
 	return k8sNode, nil
 }
 
+// isNodeUsageStale reports whether the offloaded aggregate in etcd disagrees
+// with the per-pod detail the workload carries, which is hydrated from the DB.
+// A concurrent status writer can win the patch race and leave the aggregate
+// behind; the pod sync is the only writer that rebuilds it, so an otherwise
+// unchanged pod must not be treated as a no-op while the two disagree.
+func isNodeUsageStale(w *v1.Workload) bool {
+	if !v1.IsWorkloadStatusOffloadEnabled(w) {
+		return false
+	}
+	return !commonworkload.NodeUsageEquivalent(commonworkload.BuildNodeUsage(w), w.Status.NodeUsage)
+}
+
 func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, clientSets *ClusterClientSets,
 	adminWorkload *v1.Workload, pod *corev1.Pod, k8sNode *corev1.Node) (v1.WorkloadPod, corev1.PodPhase, bool) {
 	id := -1
@@ -222,7 +234,8 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 		id = i
 		//
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == v1.GetNodeId(k8sNode) &&
-			p.StartTime != "" && p.HostIp == pod.Status.HostIP {
+			p.StartTime != "" && p.HostIp == pod.Status.HostIP &&
+			!isNodeUsageStale(adminWorkload) {
 			// Return early if no critical changes detected
 			return v1.WorkloadPod{}, "", false
 		}

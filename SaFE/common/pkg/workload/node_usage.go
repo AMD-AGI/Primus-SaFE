@@ -142,11 +142,58 @@ func workloadResourceUsageFromUsage(usage []v1.NodePodUsage, allPodResources []c
 // update that does not rebuild them. It applies only when NodeUsage is already
 // populated, meaning the workload has been offloaded to DB; workloads that still
 // rely on etcd pod detail are left unchanged.
+//
+// The aggregate is recomputed from the per-pod detail the caller holds before
+// the arrays are dropped. Callers reach here with pods hydrated from the DB, so
+// writing the stored aggregate back unchanged would republish a placement that
+// a lost patch race left behind. An empty rebuild keeps the stored aggregate,
+// since a caller without pod detail cannot claim the workload has no placement.
 func StripOffloadedStatus(w *v1.Workload) {
 	if w == nil || len(w.Status.NodeUsage) == 0 {
 		return
 	}
+	if usage := BuildNodeUsage(w); len(usage) > 0 {
+		w.Status.NodeUsage = usage
+	}
 	w.Status.Pods = nil
 	w.Status.Nodes = nil
 	w.Status.Ranks = nil
+}
+
+// NodeUsageEquivalent reports whether two aggregates describe the same placement.
+// Entries are matched by node instead of by position, and an absent count map
+// compares equal to an empty one because the CRD omits empty maps when it
+// serialises, so a round trip through etcd cannot by itself signal a difference.
+func NodeUsageEquivalent(a, b []v1.NodePodUsage) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	index := make(map[string]*v1.NodePodUsage, len(b))
+	for i := range b {
+		index[b[i].Node] = &b[i]
+	}
+	for i := range a {
+		other, ok := index[a[i].Node]
+		if !ok {
+			return false
+		}
+		if !podCountsEqual(a[i].Active, other.Active) || !podCountsEqual(a[i].Running, other.Running) {
+			return false
+		}
+	}
+	return true
+}
+
+// podCountsEqual compares two resourceId->count maps, treating nil and empty as
+// the same value.
+func podCountsEqual(a, b map[string]int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, count := range a {
+		if other, ok := b[key]; !ok || other != count {
+			return false
+		}
+	}
+	return true
 }
