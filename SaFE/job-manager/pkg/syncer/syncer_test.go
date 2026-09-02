@@ -9,6 +9,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	testifyassert "github.com/stretchr/testify/assert"
 
@@ -122,6 +123,30 @@ func TestDoRoutesToHandlers(t *testing.T) {
 	assert.NilError(t, err)
 	_, err = r.Do(context.Background(), &resourceMessage{cluster: "c", gvk: schema.GroupVersionKind{Kind: "Pod"}})
 	assert.NilError(t, err)
+}
+
+func TestPodStatusLockSerializesWorkload(t *testing.T) {
+	r := &SyncerReconciler{}
+	unlock := r.lockPodStatus("w")
+	acquired := make(chan struct{})
+	go func() {
+		release := r.lockPodStatus("w")
+		close(acquired)
+		release()
+	}()
+
+	select {
+	case <-acquired:
+		t.Fatal("same workload acquired the pod status lock concurrently")
+	case <-time.After(20 * time.Millisecond):
+	}
+	unlock()
+
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		t.Fatal("pod status lock was not released")
+	}
 }
 
 // --- merged from syncer_queue_test.go ---

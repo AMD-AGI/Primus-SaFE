@@ -86,9 +86,9 @@ func GetTotalGpuReplica(w *v1.Workload) int {
 // their node and are excluded, matching the paired used-quota computation and the
 // NodePodUsage aggregate (also built from non-terminated pods only).
 func GetInUseNodeCount(w *v1.Workload) int {
-	// Per-pod detail is the complete dataset when present; otherwise the etcd
-	// aggregate answers, including when it is empty.
-	if len(w.Status.Pods) == 0 {
+	// Prefer the etcd NodePodUsage aggregate; fall back to Status.Pods when it is
+	// absent.
+	if len(w.Status.NodeUsage) > 0 {
 		return totalNodeCountFromUsage(w.Status.NodeUsage)
 	}
 	uniqNodeSet := sets.NewSet()
@@ -157,7 +157,8 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 		return nil, err
 	}
 
-	if len(workload.Status.Pods) == 0 {
+	// Dual-read: prefer the etcd NodePodUsage aggregate; fall back to Status.Pods.
+	if len(workload.Status.NodeUsage) > 0 {
 		return resourcesPerNodeFromUsage(workload.Status.NodeUsage, allPodResources, adminNodeName), nil
 	}
 
@@ -276,7 +277,8 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 		return nil, nil, nil, err
 	}
 
-	if len(workload.Status.Pods) == 0 {
+	// Dual-read: prefer the etcd NodePodUsage aggregate; fall back to Status.Pods.
+	if len(workload.Status.NodeUsage) > 0 {
 		total, avail, nodes := workloadResourceUsageFromUsage(workload.Status.NodeUsage, allPodResources, filterNode)
 		return total, avail, nodes, nil
 	}

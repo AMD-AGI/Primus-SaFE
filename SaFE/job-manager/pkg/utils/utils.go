@@ -84,30 +84,11 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 	if FindCondition(workload, condition) == nil {
 		workload.Status.Conditions = append(workload.Status.Conditions, *condition)
 	}
-	// Only the fields this transition owns are written. A whole-status update
-	// would also carry the per-pod arrays the caller's copy happens to hold:
-	// callers reach here with a plain etcd read or with detail hydrated from the
-	// DB, and neither is this path's to publish.
-	//
-	// Single attempt with the caller's own resourceVersion: a conflict means the
-	// object changed under us, so we return the error and let the controller
-	// requeue and recompute from fresh state instead of clobbering the concurrent
-	// writer.
+	// Only write fields owned by the failed transition.
 	fields := map[string]any{
 		"phase":      workload.Status.Phase,
 		"endTime":    workload.Status.EndTime,
 		"conditions": workload.Status.Conditions,
-	}
-	// Callers that hydrated from the DB still hold pod detail. Rebuild the
-	// aggregate from it so a fail that never sees another pod event does not
-	// leave the old occupation in etcd. Callers that only have the etcd snapshot
-	// have no detail to rebuild from and leave nodeUsage alone.
-	if len(workload.Status.Pods) > 0 {
-		usage := commonworkload.BuildNodeUsage(workload)
-		if !commonworkload.NodeUsageEquivalent(usage, workload.Status.NodeUsage) {
-			workload.Status.NodeUsage = usage
-			fields["nodeUsage"] = usage
-		}
 	}
 	return PatchWorkloadStatusFields(ctx, cli, workload, fields)
 }

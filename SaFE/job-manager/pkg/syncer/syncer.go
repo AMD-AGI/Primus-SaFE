@@ -42,6 +42,7 @@ type SyncerReconciler struct {
 	// already reconciled against the informer cache, and drops each one once its
 	// workload ends. See reconcileVanishedPods.
 	vanishedPodsChecked sync.Map
+	podStatusLocks      [256]sync.Mutex
 	*controller.KeyedController[*resourceMessage]
 }
 
@@ -67,6 +68,17 @@ func mergeResourceMessage(existing *resourceMessage, existingOK bool, incoming *
 		return existing
 	}
 	return incoming
+}
+
+// lockPodStatus serializes pod status snapshots for the same workload.
+func (r *SyncerReconciler) lockPodStatus(workloadID string) func() {
+	var index uint8
+	for i := 0; i < len(workloadID); i++ {
+		index = index*31 + workloadID[i]
+	}
+	lock := &r.podStatusLocks[index]
+	lock.Lock()
+	return lock.Unlock
 }
 
 // SetupSyncerController initializes and registers the syncer controller with the manager.
@@ -274,6 +286,8 @@ func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ct
 		common.DynamoGraphDeploymentKind, common.InferaDeploymentKind:
 		result, err = r.handleJob(ctx, message, clientSets)
 	case common.PodKind:
+		unlock := r.lockPodStatus(message.workloadId)
+		defer unlock()
 		result, err = r.handlePod(ctx, message, clientSets)
 	}
 	if jobutils.IsUnrecoverableError(err) {

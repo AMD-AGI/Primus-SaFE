@@ -349,60 +349,6 @@ func TestUpdateAdminWorkloadByJobKeepsOffloadedDetailOutOfEtcd(t *testing.T) {
 	assert.Equal(t, fresh.Status.NodeUsage[0].Node, "n1")
 }
 
-// TestUpdateAdminWorkloadByJobRepairsStaleAggregate covers a phase write whose
-// hydrated pods already name the node while etcd still holds the unscheduled
-// aggregate. No later pod event is guaranteed, so this path must publish the
-// rebuilt occupation in the same patch.
-func TestUpdateAdminWorkloadByJobRepairsStaleAggregate(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
-	patches.ApplyFunc(jobutils.GetObject,
-		func(context.Context, *commonclient.ClientFactory, string, string, schema.GroupVersionKind) (*unstructured.Unstructured, error) {
-			return &unstructured.Unstructured{}, nil
-		})
-	patches.ApplyFunc(commonworkload.IsTorchFT, func(*v1.Workload) bool { return false })
-	patches.ApplyFunc(commonworkload.IsMonarchJob, func(*v1.Workload) bool { return false })
-	patches.ApplyFunc(commonworkload.IsCICDScalingRunnerSet, func(*v1.Workload) bool { return false })
-	patches.ApplyFunc(commonworkload.GetResourceTemplate,
-		func(context.Context, ctrlclient.Client, *v1.Workload) (*v1.ResourceTemplate, error) {
-			return &v1.ResourceTemplate{}, nil
-		})
-	patches.ApplyFunc(jobutils.GetK8sObjectStatus,
-		func(*unstructured.Unstructured, *v1.ResourceTemplate) (*jobutils.K8sObjectStatus, error) {
-			return &jobutils.K8sObjectStatus{Phase: string(v1.K8sSucceeded)}, nil
-		})
-
-	stored := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
-		Name:        "w",
-		Annotations: map[string]string{v1.WorkloadStatusOffloadAnnotation: v1.TrueStr},
-	}}
-	stored.Status.NodeUsage = []v1.NodePodUsage{{Node: "", Active: map[string]int{"0": 1}}}
-	cl := ctrlfake.NewClientBuilder().
-		WithScheme(syncerScheme(t)).
-		WithObjects(stored).
-		WithStatusSubresource(&v1.Workload{}).
-		Build()
-	r := offloadedSyncer(t)
-	r.Client = cl
-
-	hydrated := &v1.Workload{}
-	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, hydrated))
-	hydrated.Status.Pods = []v1.WorkloadPod{{
-		PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodSucceeded, ResourceId: 0,
-	}}
-
-	out, err := r.updateAdminWorkloadByJob(context.Background(), monkeyClientSets(), hydrated,
-		&resourceMessage{name: "o", namespace: "ns", dispatchCount: 1, gvk: schema.GroupVersionKind{Kind: "Job"}})
-	assert.NilError(t, err)
-	assert.Assert(t, out != nil)
-
-	fresh := &v1.Workload{}
-	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, fresh))
-	assert.Equal(t, string(fresh.Status.Phase), string(v1.WorkloadSucceeded))
-	assert.Equal(t, len(fresh.Status.Pods), 0)
-	assert.Equal(t, len(fresh.Status.NodeUsage), 0)
-}
-
 func TestUpdateAdminWorkloadPhase(t *testing.T) {
 	r := &SyncerReconciler{}
 	msg := &resourceMessage{dispatchCount: 1}

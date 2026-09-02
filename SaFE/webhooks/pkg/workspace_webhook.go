@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -30,7 +29,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
@@ -1328,44 +1326,26 @@ func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace
 	}
 
 	for _, workload := range runningWorkloads {
-		occupied := commonnodes.OccupiedNodes(workload)
-		for _, node := range occupied {
-			if !nodeNamesSet.Has(node) {
+		// Dual-read: prefer the etcd NodePodUsage aggregate; fall back to Status.Pods.
+		if len(workload.Status.NodeUsage) > 0 {
+			for _, u := range workload.Status.NodeUsage {
+				if !nodeNamesSet.Has(u.Node) {
+					continue
+				}
+				return commonerrors.NewForbidden(fmt.Sprintf("the node(%s) is currently in use by"+
+					" the workload(%s) and cannot be removed. alternatively, you can force the unbinding.", u.Node, workload.Name))
+			}
+			continue
+		}
+		for _, p := range workload.Status.Pods {
+			if !nodeNamesSet.Has(p.AdminNodeName) {
 				continue
 			}
 			return commonerrors.NewForbidden(fmt.Sprintf("the node(%s) is currently in use by"+
-				" the workload(%s) and cannot be removed. alternatively, you can force the unbinding.", node, workload.Name))
-		}
-		if offloadedPlacementMissing(workload) {
-			return commonerrors.NewForbidden(fmt.Sprintf(
-				"the workload(%s) is running with offloaded status but no node placement is visible; "+
-					"refusing to unbind. alternatively, you can force the unbinding.", workload.Name))
+				" the workload(%s) and cannot be removed. alternatively, you can force the unbinding.", p.AdminNodeName, workload.Name))
 		}
 	}
 	return nil
-}
-
-// offloadedPlacementAge is how long a running offloaded workload may have an
-// empty NodeUsage before unbind is refused. Shorter than this is treated as the
-// window between dispatch and the first pod status write.
-const offloadedPlacementAge = 2 * time.Minute
-
-// offloadedPlacementMissing reports a running offloaded workload whose etcd
-// snapshot shows no occupation after it has been running long enough that the
-// aggregate should have been published. The database flag is the same one the
-// other components use to decide whether per-pod detail lives in the DB; without
-// it this check stays off.
-func offloadedPlacementMissing(w *v1.Workload) bool {
-	if !commonconfig.IsDBEnable() || !v1.IsWorkloadStatusOffloadEnabled(w) {
-		return false
-	}
-	if w.Status.Phase != v1.WorkloadRunning || w.Status.StartTime == nil {
-		return false
-	}
-	if time.Since(w.Status.StartTime.Time) < offloadedPlacementAge {
-		return false
-	}
-	return len(commonnodes.OccupiedNodes(w)) == 0
 }
 
 // getWorkspace retrieves a workspace by ID, returning nil for default or empty workspace IDs.

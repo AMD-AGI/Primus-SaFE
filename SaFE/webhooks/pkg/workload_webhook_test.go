@@ -29,7 +29,6 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
-	"github.com/spf13/viper"
 )
 
 // wlResource builds a valid workload resource.
@@ -1592,32 +1591,6 @@ func TestWorkspaceValidateNodesRemoved(t *testing.T) {
 
 	assert.NilError(t, v.validateNodesRemoved(context.Background(), ws, nil))
 	assert.Assert(t, v.validateNodesRemoved(context.Background(), ws, []string{"node1"}) != nil)
-}
-
-// TestWorkspaceValidateNodesRemovedOffloadedPlacementMissing refuses unbind when
-// a long-running offloaded workload shows no occupation: the aggregate should
-// have been published by then, and empty etcd pods cannot prove the nodes are
-// free. Force unbind remains the escape.
-func TestWorkspaceValidateNodesRemovedOffloadedPlacementMissing(t *testing.T) {
-	viper.Reset()
-	viper.Set("db.enable", true)
-	t.Cleanup(viper.Reset)
-
-	scheme := newScheme(t)
-	wl := dispatchedWorkload("w1", "cluster1", "ws1", "node1")
-	wl.Annotations[v1.WorkloadStatusOffloadAnnotation] = v1.TrueStr
-	wl.Status.Pods = nil
-	wl.Status.NodeUsage = nil
-	wl.Status.Phase = v1.WorkloadRunning
-	wl.Status.StartTime = &metav1.Time{Time: time.Now().Add(-5 * time.Minute)}
-	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wl).Build()
-	v := &WorkspaceValidator{Client: k8sClient}
-	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
-
-	assert.Assert(t, v.validateNodesRemoved(context.Background(), ws, []string{"node1"}) != nil)
-
-	viper.Set("db.enable", false)
-	assert.NilError(t, v.validateNodesRemoved(context.Background(), ws, []string{"node1"}))
 }
 
 // TestWorkspaceValidateVolumeRemovedConflict covers pvc-in-use removal validation.

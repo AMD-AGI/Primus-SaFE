@@ -20,8 +20,8 @@ import (
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
@@ -148,9 +148,11 @@ func TestSetWorkloadFailed(t *testing.T) {
 // must not carry the per-pod arrays back into etcd, whose object size limit is
 // the reason the detail was offloaded in the first place.
 func TestSetWorkloadFailedLeavesOffloadedDetailInDB(t *testing.T) {
+	stored := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	stored.Status.NodeUsage = []v1.NodePodUsage{{Node: "n1"}}
 	cl := ctrlfake.NewClientBuilder().
 		WithScheme(utilsScheme(t)).
-		WithObjects(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}).
+		WithObjects(stored).
 		WithStatusSubresource(&v1.Workload{}).
 		Build()
 

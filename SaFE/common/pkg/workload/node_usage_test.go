@@ -175,14 +175,6 @@ func TestGetInUseNodeCountExcludesTerminatedOnlyNode(t *testing.T) {
 	wUsage.Status.NodeUsage = BuildNodeUsage(wUsage)
 	assert.Equal(t, GetInUseNodeCount(wUsage), 1)
 	assert.Equal(t, GetInUseNodeCount(w), GetInUseNodeCount(wUsage))
-
-	// Hydrated pods win over a stale aggregate that still names a released node.
-	stale := w.DeepCopy()
-	stale.Status.NodeUsage = []v1.NodePodUsage{
-		{Node: "n1", Active: map[string]int{"0": 1}},
-		{Node: "n2", Active: map[string]int{"0": 1}},
-	}
-	assert.Equal(t, GetInUseNodeCount(stale), 1)
 }
 
 // TestNodeUsageNodeSetEquivalence locks the scheduling-relevant equivalence that
@@ -192,12 +184,12 @@ func TestGetInUseNodeCountExcludesTerminatedOnlyNode(t *testing.T) {
 // pods. A node holding only terminated pods is excluded by both paths.
 func TestNodeUsageNodeSetEquivalence(t *testing.T) {
 	w := &v1.Workload{Status: v1.WorkloadStatus{Pods: []v1.WorkloadPod{
-		{AdminNodeName: "n1", Phase: corev1.PodRunning},               // scheduled running
-		{AdminNodeName: "n1", Phase: corev1.PodPending},               // scheduled pending (still "running" set)
-		{AdminNodeName: "n2", Phase: corev1.PodRunning},               // scheduled running
-		{AdminNodeName: "n2", Phase: corev1.PodSucceeded},             // terminated, shares n2
-		{AdminNodeName: "n3", Phase: corev1.PodFailed},                // terminated-only node -> excluded
-		{AdminNodeName: "", Phase: corev1.PodPending},                 // unscheduled -> no node
+		{AdminNodeName: "n1", Phase: corev1.PodRunning},   // scheduled running
+		{AdminNodeName: "n1", Phase: corev1.PodPending},   // scheduled pending (still "running" set)
+		{AdminNodeName: "n2", Phase: corev1.PodRunning},   // scheduled running
+		{AdminNodeName: "n2", Phase: corev1.PodSucceeded}, // terminated, shares n2
+		{AdminNodeName: "n3", Phase: corev1.PodFailed},    // terminated-only node -> excluded
+		{AdminNodeName: "", Phase: corev1.PodPending},     // unscheduled -> no node
 	}}}
 
 	legacy := map[string]bool{}
