@@ -21,23 +21,33 @@ import (
 // hydrateWorkloadStatusFromDB loads per-pod and dispatch history from DB into
 // the in-memory workload when status offload is enabled. DB rows override etcd
 // only when present so workloads not yet migrated keep their etcd detail.
-func (r *SyncerReconciler) hydrateWorkloadStatusFromDB(ctx context.Context, workloadId string, w *v1.Workload) {
+//
+// Both lists must succeed before either is applied. A failed read leaves the
+// etcd arrays (usually empty after offload) as the in-memory snapshot; treating
+// that as the full pod set and then calling DeleteWorkloadPodsNotIn would drop
+// authoritative DB rows that the query never returned.
+func (r *SyncerReconciler) hydrateWorkloadStatusFromDB(ctx context.Context, workloadId string, w *v1.Workload) error {
 	if !commonconfig.IsDBEnable() || r.dbClient == nil || w == nil || !v1.IsWorkloadStatusOffloadEnabled(w) {
-		return
+		return nil
 	}
 	pods, err := r.dbClient.ListWorkloadPods(ctx, workloadId)
 	if err != nil {
 		klog.ErrorS(err, "failed to list workload pods from DB for hydration", "workloadId", workloadId)
-	} else if len(pods) > 0 {
-		w.Status.Pods = dbclient.WorkloadPodsToV1(pods)
+		return err
 	}
 	rows, err := r.dbClient.ListWorkloadDispatchNodes(ctx, workloadId)
 	if err != nil {
 		klog.ErrorS(err, "failed to list workload dispatch nodes from DB for hydration", "workloadId", workloadId)
-	} else if len(rows) > 0 {
+		return err
+	}
+	if len(pods) > 0 {
+		w.Status.Pods = dbclient.WorkloadPodsToV1(pods)
+	}
+	if len(rows) > 0 {
 		w.Status.Nodes = dbclient.DispatchNodesToV1(rows)
 		w.Status.Ranks = dbclient.DispatchRanksToV1(rows)
 	}
+	return nil
 }
 
 // persistWorkloadStatus writes workload status to etcd. When offload is enabled

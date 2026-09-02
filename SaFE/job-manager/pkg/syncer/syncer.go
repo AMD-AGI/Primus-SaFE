@@ -294,6 +294,8 @@ func (r *SyncerReconciler) getAdminWorkload(ctx context.Context, workloadId stri
 		return nil, err
 	}
 	copy := adminWorkload.DeepCopy()
-	r.hydrateWorkloadStatusFromDB(ctx, workloadId, copy)
+	if err := r.hydrateWorkloadStatusFromDB(ctx, workloadId, copy); err != nil {
+		return nil, err
+	}
 	return copy, nil
 }
