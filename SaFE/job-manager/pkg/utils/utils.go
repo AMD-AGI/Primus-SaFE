@@ -84,11 +84,13 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 	if FindCondition(workload, condition) == nil {
 		workload.Status.Conditions = append(workload.Status.Conditions, *condition)
 	}
-	// Only write fields owned by the failed transition.
 	fields := map[string]any{
 		"phase":      workload.Status.Phase,
 		"endTime":    workload.Status.EndTime,
 		"conditions": workload.Status.Conditions,
+	}
+	if workload.Status.DependenciesPhase != nil {
+		fields["dependenciesPhase"] = workload.Status.DependenciesPhase
 	}
 	return PatchWorkloadStatusFields(ctx, cli, workload, fields)
 }

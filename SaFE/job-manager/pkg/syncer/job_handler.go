@@ -48,6 +48,12 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 	if err != nil || adminWorkload == nil {
 		return ctrlruntime.Result{}, err
 	}
+	unlock := r.lockPodStatus(adminWorkload.Name)
+	defer unlock()
+	adminWorkload, err = r.getAdminWorkload(ctx, adminWorkload.Name)
+	if err != nil || adminWorkload == nil {
+		return ctrlruntime.Result{}, err
+	}
 	if message.namespace != adminWorkload.Spec.Workspace {
 		return ctrlruntime.Result{}, nil
 	}

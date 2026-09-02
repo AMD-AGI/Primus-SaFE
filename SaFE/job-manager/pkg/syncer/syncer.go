@@ -70,8 +70,13 @@ func mergeResourceMessage(existing *resourceMessage, existingOK bool, incoming *
 	return incoming
 }
 
-// lockPodStatus serializes pod status snapshots for the same workload.
+// lockPodStatus serializes hydrate-then-write of the same workload's pod status.
+// An empty id is a no-op: mesh pods resolve the workload after the event is
+// queued, and hashing "" would pin every unresolved event onto one mutex.
 func (r *SyncerReconciler) lockPodStatus(workloadID string) func() {
+	if workloadID == "" {
+		return func() {}
+	}
 	var index uint8
 	for i := 0; i < len(workloadID); i++ {
 		index = index*31 + workloadID[i]
@@ -286,8 +291,6 @@ func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ct
 		common.DynamoGraphDeploymentKind, common.InferaDeploymentKind:
 		result, err = r.handleJob(ctx, message, clientSets)
 	case common.PodKind:
-		unlock := r.lockPodStatus(message.workloadId)
-		defer unlock()
 		result, err = r.handlePod(ctx, message, clientSets)
 	}
 	if jobutils.IsUnrecoverableError(err) {

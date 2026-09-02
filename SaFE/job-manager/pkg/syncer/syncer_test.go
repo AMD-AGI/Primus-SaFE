@@ -149,6 +149,23 @@ func TestPodStatusLockSerializesWorkload(t *testing.T) {
 	}
 }
 
+func TestPodStatusLockSkipsEmptyID(t *testing.T) {
+	r := &SyncerReconciler{}
+	unlockEmpty := r.lockPodStatus("")
+	acquired := make(chan struct{})
+	go func() {
+		release := r.lockPodStatus("")
+		close(acquired)
+		release()
+	}()
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		t.Fatal("empty lock id must not serialize all mesh pods")
+	}
+	unlockEmpty()
+}
+
 // --- merged from syncer_queue_test.go ---
 
 func TestResourceMessageKey(t *testing.T) {

@@ -176,6 +176,28 @@ func TestSetWorkloadFailedLeavesOffloadedDetailInDB(t *testing.T) {
 	assert.Equal(t, fresh.Status.NodeUsage[0].Node, "n1")
 }
 
+func TestSetWorkloadFailedKeepsDependenciesPhase(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.SetDependenciesPhase("dep", v1.WorkloadFailed)
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(utilsScheme(t)).
+		WithObjects(w).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+
+	fresh := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlClient.ObjectKey{Name: "w"}, fresh))
+	fresh.SetDependenciesPhase("dep", v1.WorkloadFailed)
+	assert.NilError(t, SetWorkloadFailed(context.Background(), cl, fresh, "dependency workload dep failed"))
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlClient.ObjectKey{Name: "w"}, got))
+	assert.Equal(t, got.Status.Phase, v1.WorkloadFailed)
+	phase, ok := got.GetDependenciesPhase("dep")
+	assert.Equal(t, ok, true)
+	assert.Equal(t, phase, v1.WorkloadFailed)
+}
+
 func TestMarkWorkloadStopped(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
 	cl := ctrlfake.NewClientBuilder().

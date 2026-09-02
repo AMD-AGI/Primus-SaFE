@@ -114,6 +114,12 @@ func (r *SyncerReconciler) updateAdminWorkloadByPod(ctx context.Context, clientS
 		return ctrlruntime.Result{}, nil
 	}
 
+	unlock, err := r.lockPodStatusForPod(ctx, clientSets, pod, message)
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	defer unlock()
+
 	adminWorkload, err := r.getAdminWorkloadAndSyncPod(ctx, clientSets, pod, message)
 	if adminWorkload == nil || err != nil {
 		return ctrlruntime.Result{}, err
@@ -179,6 +185,19 @@ func convertPodFromUnstructured(obj *unstructured.Unstructured) *corev1.Pod {
 			pod.Name, pod.Status.Reason, pod.Status.Message, string(jsonutils.MarshalSilently(pod.Status.ContainerStatuses)))
 	}
 	return pod
+}
+
+func (r *SyncerReconciler) lockPodStatusForPod(ctx context.Context, clientSets *ClusterClientSets,
+	pod *corev1.Pod, message *resourceMessage) (func(), error) {
+	id := message.workloadId
+	if meshName := pod.GetLabels()[monarchMeshLabel]; meshName != "" {
+		meshObj, err := r.getMonarchMesh(ctx, clientSets, meshName, pod.GetNamespace())
+		if err != nil {
+			return nil, err
+		}
+		id = v1.GetWorkloadId(meshObj)
+	}
+	return r.lockPodStatus(id), nil
 }
 
 func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
@@ -409,6 +428,8 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 	if message.workloadId == "" {
 		return nil
 	}
+	unlock := r.lockPodStatus(message.workloadId)
+	defer unlock()
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
 	if adminWorkload == nil {
 		return err
