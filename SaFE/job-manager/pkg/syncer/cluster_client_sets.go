@@ -76,6 +76,9 @@ type resourceMessage struct {
 	action     string
 	workloadId string
 	groupId    string
+	// meshName is the Monarch mesh a pod belongs to. Mesh pods are not stamped
+	// with a workload id; delete events still need this to find the workload.
+	meshName string
 	// dispatch count for this message — note that messages can be redelivered due to failover
 	dispatchCount int
 }
@@ -256,11 +259,18 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 		msg.action = ResourceDeleting
 	}
 
-	// Only resources dispatched by this system are currently synchronized; others are ignored
-	if msg.workloadId = v1.GetWorkloadId(newUnstructured); msg.workloadId == "" {
-		if newUnstructured.GetLabels()[monarchMeshLabel] == "" {
-			return
+	msg.workloadId = v1.GetWorkloadId(newUnstructured)
+	msg.meshName = newUnstructured.GetLabels()[monarchMeshLabel]
+	if msg.workloadId == "" && msg.meshName == "" {
+		if oldUnstructured, ok := toUnstructured(oldObj); ok {
+			msg.workloadId = v1.GetWorkloadId(oldUnstructured)
+			msg.meshName = oldUnstructured.GetLabels()[monarchMeshLabel]
 		}
+	}
+	// Only resources dispatched by this system are currently synchronized; others are ignored.
+	// Mesh pods carry no workload id; the mesh name is enough to accept the event.
+	if msg.workloadId == "" && msg.meshName == "" {
+		return
 	}
 	if strCount := newUnstructured.GetLabels()[v1.WorkloadDispatchCntLabel]; strCount != "" {
 		if n, err := strconv.Atoi(strCount); err == nil {

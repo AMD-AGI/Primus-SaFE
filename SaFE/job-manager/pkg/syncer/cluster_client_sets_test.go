@@ -306,6 +306,24 @@ func TestHandleResourceDeleteTombstone(t *testing.T) {
 	assert.Equal(t, captured.name, "sb")
 }
 
+func TestHandleResourceMeshPodDelete(t *testing.T) {
+	var captured *resourceMessage
+	c := &ClusterClientSets{
+		name:    "cl",
+		handler: ResourceHandler(func(m *resourceMessage) { captured = m }),
+	}
+	u := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	u.SetKind("Pod")
+	u.SetName("mj-mesh-0-worker-0")
+	u.SetNamespace("ws")
+	u.SetLabels(map[string]string{monarchMeshLabel: "mj-mesh-0"})
+	c.handleResource(context.Background(), nil, u, ResourceDel)
+	assert.Assert(t, captured != nil)
+	assert.Equal(t, captured.workloadId, "")
+	assert.Equal(t, captured.meshName, "mj-mesh-0")
+	assert.Equal(t, captured.action, ResourceDel)
+}
+
 func TestHandleResourceManaged(t *testing.T) {
 	var captured *resourceMessage
 	c := &ClusterClientSets{

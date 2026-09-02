@@ -65,7 +65,10 @@ func (r *SyncerReconciler) handlePod(ctx context.Context,
 		return ctrlruntime.Result{}, err
 	}
 	if obj == nil || !obj.GetDeletionTimestamp().IsZero() {
-		if err = r.removeWorkloadPod(ctx, message); err != nil {
+		if obj != nil && message.meshName == "" {
+			message.meshName = obj.GetLabels()[monarchMeshLabel]
+		}
+		if err = r.removeWorkloadPod(ctx, clusterClientSets, message); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		return r.deletePod(ctx, obj, clusterClientSets)
@@ -189,15 +192,31 @@ func convertPodFromUnstructured(obj *unstructured.Unstructured) *corev1.Pod {
 
 func (r *SyncerReconciler) lockPodStatusForPod(ctx context.Context, clientSets *ClusterClientSets,
 	pod *corev1.Pod, message *resourceMessage) (func(), error) {
-	id := message.workloadId
+	msg := *message
 	if meshName := pod.GetLabels()[monarchMeshLabel]; meshName != "" {
-		meshObj, err := r.getMonarchMesh(ctx, clientSets, meshName, pod.GetNamespace())
-		if err != nil {
-			return nil, err
-		}
-		id = v1.GetWorkloadId(meshObj)
+		msg.meshName = meshName
+		msg.namespace = pod.GetNamespace()
+	}
+	id, err := r.resolvePodWorkloadID(ctx, clientSets, &msg)
+	if err != nil {
+		return nil, err
 	}
 	return r.lockPodStatus(id), nil
+}
+
+func (r *SyncerReconciler) resolvePodWorkloadID(ctx context.Context, clientSets *ClusterClientSets,
+	message *resourceMessage) (string, error) {
+	if message.workloadId != "" {
+		return message.workloadId, nil
+	}
+	if message.meshName == "" || clientSets == nil {
+		return "", nil
+	}
+	meshObj, err := r.getMonarchMesh(ctx, clientSets, message.meshName, message.namespace)
+	if err != nil {
+		return "", err
+	}
+	return v1.GetWorkloadId(meshObj), nil
 }
 
 func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
@@ -424,24 +443,26 @@ func getMainContainerRank(mainContainerName string, pod *corev1.Pod) string {
 
 // removeWorkloadPod removes a pod entry from the workload status.
 // Called when a pod is deleted to clean up the workload's pod list.
-func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resourceMessage) error {
-	if message.workloadId == "" {
-		return nil
+func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *ClusterClientSets,
+	message *resourceMessage) error {
+	workloadID, err := r.resolvePodWorkloadID(ctx, clientSets, message)
+	if err != nil || workloadID == "" {
+		return err
 	}
-	unlock := r.lockPodStatus(message.workloadId)
+	unlock := r.lockPodStatus(workloadID)
 	defer unlock()
-	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
+	adminWorkload, err := r.getAdminWorkload(ctx, workloadID)
 	if adminWorkload == nil {
 		return err
 	}
 
 	id := indexOfPod(adminWorkload.Status.Pods, message.name)
-	if id < 0 {
-		return nil
-	}
-
-	if !r.applyPodGone(adminWorkload, id) {
-		return nil
+	if id < 0 || !r.applyPodGone(adminWorkload, id) {
+		// A prior attempt may have written the DB (Stopped or dropped the row)
+		// and then lost the etcd CAS. Hydration already shows the pod gone, so
+		// there is no pod field to patch; the aggregate still needs publishing.
+		_, err = r.repairNodeUsage(ctx, adminWorkload)
+		return err
 	}
 
 	if err = r.patchWorkloadPodStatus(ctx, adminWorkload, nil); err != nil {

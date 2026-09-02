@@ -33,6 +33,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
@@ -205,14 +206,14 @@ func TestUpdateWorkloadNodes(t *testing.T) {
 
 func TestRemoveWorkloadPodEmptyId(t *testing.T) {
 	r := &SyncerReconciler{}
-	err := r.removeWorkloadPod(context.Background(), &resourceMessage{})
+	err := r.removeWorkloadPod(context.Background(), nil, &resourceMessage{})
 	assert.NilError(t, err)
 }
 
 func TestRemoveWorkloadPodNotFound(t *testing.T) {
 	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).Build()
 	r := &SyncerReconciler{Client: cl}
-	err := r.removeWorkloadPod(context.Background(), &resourceMessage{workloadId: "missing", name: "p"})
+	err := r.removeWorkloadPod(context.Background(), nil, &resourceMessage{workloadId: "missing", name: "p"})
 	assert.NilError(t, err)
 }
 
@@ -221,7 +222,7 @@ func TestRemoveWorkloadPodEnded(t *testing.T) {
 	w.Status.Phase = v1.WorkloadFailed
 	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).Build()
 	r := &SyncerReconciler{Client: cl}
-	err := r.removeWorkloadPod(context.Background(), &resourceMessage{workloadId: "w", name: "p"})
+	err := r.removeWorkloadPod(context.Background(), nil, &resourceMessage{workloadId: "w", name: "p"})
 	assert.NilError(t, err)
 }
 
@@ -234,7 +235,7 @@ func TestRemoveWorkloadPodNotInList(t *testing.T) {
 	w.Status.Pods = []v1.WorkloadPod{{PodId: "other"}}
 	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).Build()
 	r := &SyncerReconciler{Client: cl}
-	err := r.removeWorkloadPod(context.Background(),
+	err := r.removeWorkloadPod(context.Background(), nil,
 		&resourceMessage{workloadId: "w", name: "p", dispatchCount: 1})
 	assert.NilError(t, err)
 }
@@ -252,7 +253,7 @@ func TestRemoveWorkloadPodStopsLivePod(t *testing.T) {
 		WithStatusSubresource(&v1.Workload{}).
 		Build()
 	r := &SyncerReconciler{Client: cl}
-	err := r.removeWorkloadPod(context.Background(),
+	err := r.removeWorkloadPod(context.Background(), nil,
 		&resourceMessage{workloadId: "w", name: "p1", dispatchCount: 1})
 	assert.NilError(t, err)
 
@@ -288,7 +289,7 @@ func TestRemoveWorkloadPodDropsCICDEntry(t *testing.T) {
 			WithStatusSubresource(&v1.Workload{}).
 			Build()
 		r := &SyncerReconciler{Client: cl}
-		err := r.removeWorkloadPod(context.Background(),
+		err := r.removeWorkloadPod(context.Background(), nil,
 			&resourceMessage{workloadId: "w", name: "p1", dispatchCount: 1})
 		assert.NilError(t, err)
 
@@ -318,7 +319,7 @@ func TestRemoveWorkloadPodStopsLivePodDuringTeardown(t *testing.T) {
 		WithStatusSubresource(&v1.Workload{}).
 		Build()
 	r := &SyncerReconciler{Client: cl}
-	err := r.removeWorkloadPod(context.Background(),
+	err := r.removeWorkloadPod(context.Background(), nil,
 		&resourceMessage{workloadId: "w", name: "p1", dispatchCount: 1})
 	assert.NilError(t, err)
 
@@ -352,7 +353,7 @@ func TestRemoveWorkloadPodKeepsHistoryOnTeardown(t *testing.T) {
 	assert.NilError(t, cl.Delete(context.Background(), w.DeepCopy()))
 
 	r := &SyncerReconciler{Client: cl}
-	err := r.removeWorkloadPod(context.Background(),
+	err := r.removeWorkloadPod(context.Background(), nil,
 		&resourceMessage{workloadId: "w", name: "p1", dispatchCount: 1})
 	assert.NilError(t, err)
 
@@ -363,6 +364,76 @@ func TestRemoveWorkloadPodKeepsHistoryOnTeardown(t *testing.T) {
 	assert.Equal(t, len(got.Status.Pods), 2)
 	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
 	assert.Equal(t, got.Status.Pods[1].Phase, corev1.PodFailed)
+}
+
+func TestRemoveWorkloadPodRepairsStaleAggregateAfterConflict(t *testing.T) {
+	stored := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name: "w",
+		Annotations: map[string]string{
+			v1.WorkloadDispatchedAnnotation:    "true",
+			v1.WorkloadStatusOffloadAnnotation: v1.TrueStr,
+		},
+	}}
+	stored.Status.NodeUsage = []v1.NodePodUsage{{
+		Node: "n1", Active: map[string]int{"0": 1}, Running: map[string]int{"0": 1},
+	}}
+	cl, _ := storedWorkload(t, stored)
+
+	ctrl := gomock.NewController(t)
+	mockDB := mockclient.NewMockInterface(ctrl)
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w").Return([]*dbclient.WorkloadPod{
+		dbclient.WorkloadPodFromV1("w", 1, &v1.WorkloadPod{
+			PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodPhase(v1.WorkloadStopped),
+		}),
+	}, nil)
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w").Return(nil, nil)
+
+	viper.Reset()
+	viper.Set("db.enable", true)
+	t.Cleanup(viper.Reset)
+	r := &SyncerReconciler{Client: cl, dbClient: mockDB}
+
+	err := r.removeWorkloadPod(context.Background(), nil,
+		&resourceMessage{workloadId: "w", name: "p1"})
+	assert.NilError(t, err)
+
+	fresh := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, fresh))
+	assert.Equal(t, len(fresh.Status.NodeUsage), 0)
+	assert.Equal(t, len(fresh.Status.Pods), 0)
+}
+
+func TestRemoveWorkloadPodResolvesMeshWorkload(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:        "w",
+		Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
+	}}
+	w.Status.Pods = []v1.WorkloadPod{{
+		PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodRunning,
+	}}
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(syncerScheme(t)).
+		WithObjects(w).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getMonarchMesh",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, _, _ string) (*unstructured.Unstructured, error) {
+			mesh := &unstructured.Unstructured{Object: map[string]interface{}{}}
+			mesh.SetLabels(map[string]string{v1.WorkloadIdLabel: "w"})
+			return mesh, nil
+		})
+
+	r := &SyncerReconciler{Client: cl}
+	err := r.removeWorkloadPod(context.Background(), monkeyClientSets(),
+		&resourceMessage{meshName: "mj-mesh-0", namespace: "ws", name: "p1"})
+	assert.NilError(t, err)
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
 }
 
 func TestHandleRaySubmitterTimeoutNonRayJob(t *testing.T) {
