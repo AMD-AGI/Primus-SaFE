@@ -36,11 +36,7 @@ data:
       # The maximum percentage of ephemeral storage that can be used by a workload.
       max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
     db:
-      # Whether the database is enabled. Mirrors the flag the other components
-      # receive so a webhook can tell where a workload's pod placement is stored:
-      # with the database enabled, per-pod detail lives there and etcd keeps only
-      # the NodeUsage aggregate. No database connection is opened here, which is
-      # why no db secret is mounted.
+      # Whether to enable database.
       enable: {{ .Values.db.enable }}
     ssh:
       # Whether to enable ssh, Users can log in directly to their own pods.
