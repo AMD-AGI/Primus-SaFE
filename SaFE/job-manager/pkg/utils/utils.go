@@ -93,11 +93,23 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 	// object changed under us, so we return the error and let the controller
 	// requeue and recompute from fresh state instead of clobbering the concurrent
 	// writer.
-	return PatchWorkloadStatusFields(ctx, cli, workload, map[string]any{
+	fields := map[string]any{
 		"phase":      workload.Status.Phase,
 		"endTime":    workload.Status.EndTime,
 		"conditions": workload.Status.Conditions,
-	})
+	}
+	// Callers that hydrated from the DB still hold pod detail. Rebuild the
+	// aggregate from it so a fail that never sees another pod event does not
+	// leave the old occupation in etcd. Callers that only have the etcd snapshot
+	// have no detail to rebuild from and leave nodeUsage alone.
+	if len(workload.Status.Pods) > 0 {
+		usage := commonworkload.BuildNodeUsage(workload)
+		if !commonworkload.NodeUsageEquivalent(usage, workload.Status.NodeUsage) {
+			workload.Status.NodeUsage = usage
+			fields["nodeUsage"] = usage
+		}
+	}
+	return PatchWorkloadStatusFields(ctx, cli, workload, fields)
 }
 
 // StopReason describes why a workload was forcibly transitioned to the

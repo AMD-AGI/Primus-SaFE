@@ -647,6 +647,14 @@ func TestOccupiedNodes(t *testing.T) {
 		{PodId: "p1", AdminNodeName: "n1", Phase: "Succeeded"},
 	}}}
 	testifyassert.Empty(t, OccupiedNodes(done))
+
+	// Pod detail is the complete dataset: a stale aggregate must not hide the
+	// node the hydrated pods already name.
+	both := &v1.Workload{Status: v1.WorkloadStatus{
+		NodeUsage: []v1.NodePodUsage{{Node: "", Active: map[string]int{"0": 1}}},
+		Pods:      []v1.WorkloadPod{{PodId: "p1", AdminNodeName: "n1", Phase: corev1PodRunningPhase}},
+	}}
+	testifyassert.Equal(t, []string{"n1"}, OccupiedNodes(both))
 }
 
 func TestGetNodesOfWorkspacesAndCluster(t *testing.T) {

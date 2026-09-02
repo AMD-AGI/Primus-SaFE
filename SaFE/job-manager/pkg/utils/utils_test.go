@@ -170,6 +170,8 @@ func TestSetWorkloadFailedLeavesOffloadedDetailInDB(t *testing.T) {
 	assert.Equal(t, len(fresh.Status.Pods), 0)
 	assert.Equal(t, len(fresh.Status.Nodes), 0)
 	assert.Equal(t, len(fresh.Status.Ranks), 0)
+	assert.Equal(t, len(fresh.Status.NodeUsage), 1)
+	assert.Equal(t, fresh.Status.NodeUsage[0].Node, "n1")
 }
 
 func TestMarkWorkloadStopped(t *testing.T) {

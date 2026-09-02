@@ -175,6 +175,14 @@ func TestGetInUseNodeCountExcludesTerminatedOnlyNode(t *testing.T) {
 	wUsage.Status.NodeUsage = BuildNodeUsage(wUsage)
 	assert.Equal(t, GetInUseNodeCount(wUsage), 1)
 	assert.Equal(t, GetInUseNodeCount(w), GetInUseNodeCount(wUsage))
+
+	// Hydrated pods win over a stale aggregate that still names a released node.
+	stale := w.DeepCopy()
+	stale.Status.NodeUsage = []v1.NodePodUsage{
+		{Node: "n1", Active: map[string]int{"0": 1}},
+		{Node: "n2", Active: map[string]int{"0": 1}},
+	}
+	assert.Equal(t, GetInUseNodeCount(stale), 1)
 }
 
 // TestNodeUsageNodeSetEquivalence locks the scheduling-relevant equivalence that

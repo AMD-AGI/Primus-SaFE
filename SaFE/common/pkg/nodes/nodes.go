@@ -127,18 +127,16 @@ func IsPodRunning(p corev1.Pod) bool {
 // OccupiedNodes returns the admin nodes a workload currently holds, without
 // duplicates.
 //
-// The NodePodUsage aggregate answers whenever it carries entries, and the
-// per-pod array answers otherwise. Both sources describe one placement and must
-// report it alike, so the pod branch mirrors workload.BuildNodeUsage: pods that
-// v1.IsPodTerminated accepts are skipped, and a pod holding no admin node yet
-// contributes nothing. This is deliberately not v1.IsPodRunning, which admits a
-// Stopped pod because it tests only Succeeded and Failed.
+// Per-pod detail is the complete dataset, so it answers whenever it is present
+// (a hydrated copy, or a workload that still stores pods in etcd). Otherwise the
+// NodeUsage aggregate answers, including when that aggregate is empty: an
+// offloaded etcd snapshot has no pods by design, and falling through would not
+// recover a missing placement.
 //
-// An empty result does not distinguish a workload that occupies nothing from one
-// whose aggregate is missing, and etcd alone cannot settle which it is: an
-// offloaded workload's per-pod array is cleared there by design. A caller that
-// must not act on the wrong reading has to take the offload annotation and the
-// db config into account as well.
+// The pod branch mirrors workload.BuildNodeUsage: pods that v1.IsPodTerminated
+// accepts are skipped, and a pod holding no admin node yet contributes nothing.
+// This is deliberately not v1.IsPodRunning, which admits a Stopped pod because
+// it tests only Succeeded and Failed.
 func OccupiedNodes(w *v1.Workload) []string {
 	if w == nil {
 		return nil
@@ -156,17 +154,17 @@ func OccupiedNodes(w *v1.Workload) []string {
 		nodes = append(nodes, node)
 	}
 
-	if len(w.Status.NodeUsage) > 0 {
-		for i := range w.Status.NodeUsage {
-			add(w.Status.NodeUsage[i].Node)
+	if len(w.Status.Pods) > 0 {
+		for i := range w.Status.Pods {
+			if v1.IsPodTerminated(&w.Status.Pods[i]) {
+				continue
+			}
+			add(w.Status.Pods[i].AdminNodeName)
 		}
 		return nodes
 	}
-	for i := range w.Status.Pods {
-		if v1.IsPodTerminated(&w.Status.Pods[i]) {
-			continue
-		}
-		add(w.Status.Pods[i].AdminNodeName)
+	for i := range w.Status.NodeUsage {
+		add(w.Status.NodeUsage[i].Node)
 	}
 	return nodes
 }

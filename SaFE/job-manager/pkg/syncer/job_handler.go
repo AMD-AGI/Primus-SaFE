@@ -362,15 +362,25 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 		adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
 	}
 	if reflect.DeepEqual(adminWorkload.Status, originalWorkload.Status) {
-		return originalWorkload, nil
+		// Phase did not move, but this copy is hydrated from the DB and may be
+		// the last event that still holds pod detail. Repair a stale aggregate
+		// here so a workload with no further pod events does not keep occupying
+		// nodes it has already left.
+		_, err := r.repairNodeUsage(ctx, adminWorkload)
+		return originalWorkload, err
 	}
 	// Only the fields the k8s object status drives are written. pods/nodes/ranks
-	// and the NodeUsage aggregate belong to the pod sync: this copy carries them
-	// hydrated from the DB, so a whole-status update would restore the large
-	// arrays to etcd and republish an aggregate this path never recomputed.
+	// belong to the pod sync: this copy carries them hydrated from the DB, so a
+	// whole-status update would restore the large arrays to etcd. The aggregate
+	// is included only when it disagrees with that hydrated detail, in the same
+	// patch, so a terminal job event still publishes the empty occupation.
 	statusFields := map[string]any{
 		"phase":      adminWorkload.Status.Phase,
 		"conditions": adminWorkload.Status.Conditions,
+	}
+	if r.isNodeUsageStale(adminWorkload) {
+		adminWorkload.Status.NodeUsage = commonworkload.BuildNodeUsage(adminWorkload)
+		statusFields["nodeUsage"] = adminWorkload.Status.NodeUsage
 	}
 	// A merge patch deletes a key sent as null, and these three only ever go from
 	// unset to set, so an unset one is omitted rather than cleared.
