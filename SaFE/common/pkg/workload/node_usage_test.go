@@ -226,105 +226,18 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
-func TestStripOffloadedStatus(t *testing.T) {
-	// nil workload is a no-op.
-	StripOffloadedStatus(nil)
-
-	// Not offloaded (no NodeUsage) -> pods are kept.
+// TestBuildNodeUsageEmptyWhenAllPodsTerminated covers the end of a run: every
+// pod has terminated, so the aggregate is empty rather than retaining the nodes
+// the finished pods ran on.
+func TestBuildNodeUsageEmptyWhenAllPodsTerminated(t *testing.T) {
 	w := &v1.Workload{Status: v1.WorkloadStatus{
-		Pods: []v1.WorkloadPod{{PodId: "p1"}},
-	}}
-	StripOffloadedStatus(w)
-	assert.Equal(t, len(w.Status.Pods), 1)
-
-	// Offloaded (NodeUsage present) -> large arrays are cleared.
-	w = &v1.Workload{Status: v1.WorkloadStatus{
-		NodeUsage: []v1.NodePodUsage{{Node: "n1"}},
-		Pods:      []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
-		Nodes:     [][]string{{"n1"}},
-		Ranks:     [][]string{{"0"}},
-	}}
-	StripOffloadedStatus(w)
-	assert.Equal(t, len(w.Status.NodeUsage), 1)
-	assert.Assert(t, w.Status.Pods == nil)
-	assert.Assert(t, w.Status.Nodes == nil)
-	assert.Assert(t, w.Status.Ranks == nil)
-}
-
-// TestStripOffloadedStatusRebuildsStaleAggregate covers the case where a lost
-// patch race left the stored aggregate on the unscheduled placement while the
-// pods hydrated from the DB already carry the admin node. Stripping must
-// republish the node rather than the stale empty entry.
-func TestStripOffloadedStatusRebuildsStaleAggregate(t *testing.T) {
-	w := &v1.Workload{Status: v1.WorkloadStatus{
-		NodeUsage: []v1.NodePodUsage{{Node: "", Active: map[string]int{"0": 1}}},
-		Pods: []v1.WorkloadPod{{
-			PodId:         "p1",
-			AdminNodeName: "n1",
-			Phase:         corev1.PodRunning,
-		}},
-	}}
-
-	StripOffloadedStatus(w)
-
-	assert.Equal(t, len(w.Status.NodeUsage), 1)
-	assert.Equal(t, w.Status.NodeUsage[0].Node, "n1")
-	assert.Equal(t, w.Status.NodeUsage[0].Active["0"], 1)
-	assert.Equal(t, w.Status.NodeUsage[0].Running["0"], 1)
-	assert.Assert(t, w.Status.Pods == nil)
-}
-
-// TestStripOffloadedStatusClearsAggregateWhenAllPodsTerminated covers the end of
-// a run: every pod has terminated, so the workload holds no node. Keeping the
-// stored entries would strand the old placement, since the pod detail proving
-// it is gone is dropped in the same call.
-func TestStripOffloadedStatusClearsAggregateWhenAllPodsTerminated(t *testing.T) {
-	w := &v1.Workload{Status: v1.WorkloadStatus{
-		NodeUsage: []v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 1}}},
 		Pods: []v1.WorkloadPod{
 			{PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodSucceeded},
 			{PodId: "p2", AdminNodeName: "n1", Phase: corev1.PodFailed},
 		},
 	}}
 
-	StripOffloadedStatus(w)
-
-	assert.Equal(t, len(w.Status.NodeUsage), 0)
-	assert.Assert(t, w.Status.Pods == nil)
-}
-
-// TestStripOffloadedStatusKeepsSurvivingNode verifies a partial teardown keeps
-// the node that still holds an active pod.
-func TestStripOffloadedStatusKeepsSurvivingNode(t *testing.T) {
-	w := &v1.Workload{Status: v1.WorkloadStatus{
-		NodeUsage: []v1.NodePodUsage{
-			{Node: "n1", Active: map[string]int{"0": 1}},
-			{Node: "n2", Active: map[string]int{"0": 1}},
-		},
-		Pods: []v1.WorkloadPod{
-			{PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodSucceeded},
-			{PodId: "p2", AdminNodeName: "n2", Phase: corev1.PodRunning},
-		},
-	}}
-
-	StripOffloadedStatus(w)
-
-	assert.Equal(t, len(w.Status.NodeUsage), 1)
-	assert.Equal(t, w.Status.NodeUsage[0].Node, "n2")
-	assert.Equal(t, w.Status.NodeUsage[0].Running["0"], 1)
-}
-
-// TestStripOffloadedStatusKeepsAggregateWithoutPods verifies a caller that holds
-// no pod detail leaves the stored aggregate alone instead of erasing it.
-func TestStripOffloadedStatusKeepsAggregateWithoutPods(t *testing.T) {
-	w := &v1.Workload{Status: v1.WorkloadStatus{
-		NodeUsage: []v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 1}}},
-	}}
-
-	StripOffloadedStatus(w)
-
-	assert.Equal(t, len(w.Status.NodeUsage), 1)
-	assert.Equal(t, w.Status.NodeUsage[0].Node, "n1")
+	assert.Equal(t, len(BuildNodeUsage(w)), 0)
 }
 
 // TestNodeUsageEquivalent covers ordering, the nil-versus-empty count map that a

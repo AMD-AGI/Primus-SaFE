@@ -364,8 +364,26 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 	if reflect.DeepEqual(adminWorkload.Status, originalWorkload.Status) {
 		return originalWorkload, nil
 	}
-	commonworkload.StripOffloadedStatus(adminWorkload)
-	if err := r.Status().Update(ctx, adminWorkload); err != nil {
+	// Only the fields the k8s object status drives are written. pods/nodes/ranks
+	// and the NodeUsage aggregate belong to the pod sync: this copy carries them
+	// hydrated from the DB, so a whole-status update would restore the large
+	// arrays to etcd and republish an aggregate this path never recomputed.
+	statusFields := map[string]any{
+		"phase":      adminWorkload.Status.Phase,
+		"conditions": adminWorkload.Status.Conditions,
+	}
+	// A merge patch deletes a key sent as null, and these three only ever go from
+	// unset to set, so an unset one is omitted rather than cleared.
+	if adminWorkload.Status.StartTime != nil {
+		statusFields["startTime"] = adminWorkload.Status.StartTime
+	}
+	if adminWorkload.Status.EndTime != nil {
+		statusFields["endTime"] = adminWorkload.Status.EndTime
+	}
+	if adminWorkload.Status.TorchFTPhase != nil {
+		statusFields["torchFTPhase"] = adminWorkload.Status.TorchFTPhase
+	}
+	if err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, adminWorkload, statusFields); err != nil {
 		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
 		return nil, err
 	}

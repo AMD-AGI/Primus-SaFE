@@ -84,16 +84,20 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 	if FindCondition(workload, condition) == nil {
 		workload.Status.Conditions = append(workload.Status.Conditions, *condition)
 	}
-	commonworkload.StripOffloadedStatus(workload)
+	// Only the fields this transition owns are written. A whole-status update
+	// would also carry the per-pod arrays the caller's copy happens to hold:
+	// callers reach here with a plain etcd read or with detail hydrated from the
+	// DB, and neither is this path's to publish.
+	//
 	// Single attempt with the caller's own resourceVersion: a conflict means the
 	// object changed under us, so we return the error and let the controller
 	// requeue and recompute from fresh state instead of clobbering the concurrent
 	// writer.
-	if err := cli.Status().Update(ctx, workload); err != nil {
-		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
-		return err
-	}
-	return nil
+	return PatchWorkloadStatusFields(ctx, cli, workload, map[string]any{
+		"phase":      workload.Status.Phase,
+		"endTime":    workload.Status.EndTime,
+		"conditions": workload.Status.Conditions,
+	})
 }
 
 // StopReason describes why a workload was forcibly transitioned to the

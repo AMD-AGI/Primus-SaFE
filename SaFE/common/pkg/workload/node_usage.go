@@ -138,33 +138,6 @@ func workloadResourceUsageFromUsage(usage []v1.NodePodUsage, allPodResources []c
 	return totalResource, availableResource, availableNodes
 }
 
-// StripOffloadedStatus removes large per-pod status arrays before a status
-// update that does not rebuild them. It applies only when NodeUsage is already
-// populated, meaning the workload has been offloaded to DB; workloads that still
-// rely on etcd pod detail are left unchanged.
-//
-// The aggregate is recomputed from the per-pod detail the caller holds before
-// the arrays are dropped. Callers reach here with pods hydrated from the DB, so
-// writing the stored aggregate back unchanged would republish a placement that
-// a lost patch race left behind.
-//
-// Pod detail that is present but entirely terminated rebuilds to an empty
-// aggregate, and that is the answer to publish: the workload occupies no node.
-// Keeping the stored entries there instead would hold the old nodes after the
-// detail backing them is dropped. A caller without pod detail has nothing to
-// rebuild from, so the stored aggregate stands.
-func StripOffloadedStatus(w *v1.Workload) {
-	if w == nil || len(w.Status.NodeUsage) == 0 {
-		return
-	}
-	if len(w.Status.Pods) > 0 {
-		w.Status.NodeUsage = BuildNodeUsage(w)
-	}
-	w.Status.Pods = nil
-	w.Status.Nodes = nil
-	w.Status.Ranks = nil
-}
-
 // NodeUsageEquivalent reports whether two aggregates describe the same placement.
 // Entries are matched by node instead of by position, and an absent count map
 // compares equal to an empty one because the CRD omits empty maps when it

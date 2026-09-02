@@ -287,6 +287,68 @@ func TestUpdateAdminWorkloadByJobRunning(t *testing.T) {
 	assert.Assert(t, out != nil)
 }
 
+// TestUpdateAdminWorkloadByJobKeepsOffloadedDetailOutOfEtcd covers an offloaded
+// workload whose pod detail reached this copy through hydration. The phase
+// transition owns neither the per-pod arrays nor the aggregate: writing the
+// whole status back would restore the arrays to etcd against the object size
+// limit, and would republish an aggregate this path never recomputed.
+func TestUpdateAdminWorkloadByJobKeepsOffloadedDetailOutOfEtcd(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(jobutils.GetObject,
+		func(context.Context, *commonclient.ClientFactory, string, string, schema.GroupVersionKind) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{}, nil
+		})
+	patches.ApplyFunc(commonworkload.IsTorchFT, func(*v1.Workload) bool { return false })
+	patches.ApplyFunc(commonworkload.IsMonarchJob, func(*v1.Workload) bool { return false })
+	patches.ApplyFunc(commonworkload.IsCICDScalingRunnerSet, func(*v1.Workload) bool { return false })
+	patches.ApplyFunc(commonworkload.GetResourceTemplate,
+		func(context.Context, ctrlclient.Client, *v1.Workload) (*v1.ResourceTemplate, error) {
+			return &v1.ResourceTemplate{}, nil
+		})
+	patches.ApplyFunc(jobutils.GetK8sObjectStatus,
+		func(*unstructured.Unstructured, *v1.ResourceTemplate) (*jobutils.K8sObjectStatus, error) {
+			return &jobutils.K8sObjectStatus{Phase: string(v1.K8sRunning)}, nil
+		})
+
+	// etcd holds the aggregate alone, the shape an offloaded workload is stored in.
+	stored := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:        "w",
+		Annotations: map[string]string{v1.WorkloadStatusOffloadAnnotation: v1.TrueStr},
+	}}
+	stored.Status.NodeUsage = []v1.NodePodUsage{{
+		Node:    "n1",
+		Active:  map[string]int{"0": 1},
+		Running: map[string]int{"0": 1},
+	}}
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(syncerScheme(t)).
+		WithObjects(stored).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+	r := &SyncerReconciler{Client: cl}
+
+	hydrated := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, hydrated))
+	hydrated.Status.Pods = []v1.WorkloadPod{{PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodRunning}}
+	hydrated.Status.Nodes = [][]string{{"n1"}}
+	hydrated.Status.Ranks = [][]string{{"0"}}
+
+	out, err := r.updateAdminWorkloadByJob(context.Background(), monkeyClientSets(), hydrated,
+		&resourceMessage{name: "o", namespace: "ns", dispatchCount: 1, gvk: schema.GroupVersionKind{Kind: "Job"}})
+	assert.NilError(t, err)
+	assert.Assert(t, out != nil)
+
+	fresh := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, fresh))
+	assert.Equal(t, string(fresh.Status.Phase), string(v1.WorkloadRunning))
+	assert.Equal(t, len(fresh.Status.Pods), 0)
+	assert.Equal(t, len(fresh.Status.Nodes), 0)
+	assert.Equal(t, len(fresh.Status.Ranks), 0)
+	assert.Equal(t, len(fresh.Status.NodeUsage), 1)
+	assert.Equal(t, fresh.Status.NodeUsage[0].Node, "n1")
+}
+
 func TestUpdateAdminWorkloadPhase(t *testing.T) {
 	r := &SyncerReconciler{}
 	msg := &resourceMessage{dispatchCount: 1}

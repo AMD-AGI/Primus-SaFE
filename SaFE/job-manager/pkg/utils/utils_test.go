@@ -143,6 +143,35 @@ func TestSetWorkloadFailed(t *testing.T) {
 	assert.Assert(t, len(w.Status.Conditions) > 0)
 }
 
+// TestSetWorkloadFailedLeavesOffloadedDetailInDB covers a caller whose copy was
+// hydrated from the DB. The transition owns phase, endTime and conditions; it
+// must not carry the per-pod arrays back into etcd, whose object size limit is
+// the reason the detail was offloaded in the first place.
+func TestSetWorkloadFailedLeavesOffloadedDetailInDB(t *testing.T) {
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(utilsScheme(t)).
+		WithObjects(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+
+	hydrated := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlClient.ObjectKey{Name: "w"}, hydrated))
+	hydrated.Status.Pods = []v1.WorkloadPod{{PodId: "p1", AdminNodeName: "n1"}}
+	hydrated.Status.Nodes = [][]string{{"n1"}}
+	hydrated.Status.Ranks = [][]string{{"0"}}
+
+	assert.NilError(t, SetWorkloadFailed(context.Background(), cl, hydrated, "boom"))
+
+	fresh := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlClient.ObjectKey{Name: "w"}, fresh))
+	assert.Equal(t, fresh.Status.Phase, v1.WorkloadFailed)
+	assert.Assert(t, fresh.Status.EndTime != nil)
+	assert.Assert(t, len(fresh.Status.Conditions) > 0)
+	assert.Equal(t, len(fresh.Status.Pods), 0)
+	assert.Equal(t, len(fresh.Status.Nodes), 0)
+	assert.Equal(t, len(fresh.Status.Ranks), 0)
+}
+
 func TestMarkWorkloadStopped(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
 	cl := ctrlfake.NewClientBuilder().
