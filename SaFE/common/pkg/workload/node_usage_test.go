@@ -274,6 +274,46 @@ func TestStripOffloadedStatusRebuildsStaleAggregate(t *testing.T) {
 	assert.Assert(t, w.Status.Pods == nil)
 }
 
+// TestStripOffloadedStatusClearsAggregateWhenAllPodsTerminated covers the end of
+// a run: every pod has terminated, so the workload holds no node. Keeping the
+// stored entries would strand the old placement, since the pod detail proving
+// it is gone is dropped in the same call.
+func TestStripOffloadedStatusClearsAggregateWhenAllPodsTerminated(t *testing.T) {
+	w := &v1.Workload{Status: v1.WorkloadStatus{
+		NodeUsage: []v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 1}}},
+		Pods: []v1.WorkloadPod{
+			{PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodSucceeded},
+			{PodId: "p2", AdminNodeName: "n1", Phase: corev1.PodFailed},
+		},
+	}}
+
+	StripOffloadedStatus(w)
+
+	assert.Equal(t, len(w.Status.NodeUsage), 0)
+	assert.Assert(t, w.Status.Pods == nil)
+}
+
+// TestStripOffloadedStatusKeepsSurvivingNode verifies a partial teardown keeps
+// the node that still holds an active pod.
+func TestStripOffloadedStatusKeepsSurvivingNode(t *testing.T) {
+	w := &v1.Workload{Status: v1.WorkloadStatus{
+		NodeUsage: []v1.NodePodUsage{
+			{Node: "n1", Active: map[string]int{"0": 1}},
+			{Node: "n2", Active: map[string]int{"0": 1}},
+		},
+		Pods: []v1.WorkloadPod{
+			{PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodSucceeded},
+			{PodId: "p2", AdminNodeName: "n2", Phase: corev1.PodRunning},
+		},
+	}}
+
+	StripOffloadedStatus(w)
+
+	assert.Equal(t, len(w.Status.NodeUsage), 1)
+	assert.Equal(t, w.Status.NodeUsage[0].Node, "n2")
+	assert.Equal(t, w.Status.NodeUsage[0].Running["0"], 1)
+}
+
 // TestStripOffloadedStatusKeepsAggregateWithoutPods verifies a caller that holds
 // no pod detail leaves the stored aggregate alone instead of erasing it.
 func TestStripOffloadedStatusKeepsAggregateWithoutPods(t *testing.T) {

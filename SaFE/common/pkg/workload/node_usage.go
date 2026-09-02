@@ -146,14 +146,19 @@ func workloadResourceUsageFromUsage(usage []v1.NodePodUsage, allPodResources []c
 // The aggregate is recomputed from the per-pod detail the caller holds before
 // the arrays are dropped. Callers reach here with pods hydrated from the DB, so
 // writing the stored aggregate back unchanged would republish a placement that
-// a lost patch race left behind. An empty rebuild keeps the stored aggregate,
-// since a caller without pod detail cannot claim the workload has no placement.
+// a lost patch race left behind.
+//
+// Pod detail that is present but entirely terminated rebuilds to an empty
+// aggregate, and that is the answer to publish: the workload occupies no node.
+// Keeping the stored entries there instead would hold the old nodes after the
+// detail backing them is dropped. A caller without pod detail has nothing to
+// rebuild from, so the stored aggregate stands.
 func StripOffloadedStatus(w *v1.Workload) {
 	if w == nil || len(w.Status.NodeUsage) == 0 {
 		return
 	}
-	if usage := BuildNodeUsage(w); len(usage) > 0 {
-		w.Status.NodeUsage = usage
+	if len(w.Status.Pods) > 0 {
+		w.Status.NodeUsage = BuildNodeUsage(w)
 	}
 	w.Status.Pods = nil
 	w.Status.Nodes = nil
