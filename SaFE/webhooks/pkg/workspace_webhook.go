@@ -1326,23 +1326,12 @@ func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace
 	}
 
 	for _, workload := range runningWorkloads {
-		// Dual-read: prefer the etcd NodePodUsage aggregate; fall back to Status.Pods.
-		if len(workload.Status.NodeUsage) > 0 {
-			for _, u := range workload.Status.NodeUsage {
-				if !nodeNamesSet.Has(u.Node) {
-					continue
-				}
-				return commonerrors.NewForbidden(fmt.Sprintf("the node(%s) is currently in use by"+
-					" the workload(%s) and cannot be removed. alternatively, you can force the unbinding.", u.Node, workload.Name))
-			}
-			continue
-		}
-		for _, p := range workload.Status.Pods {
-			if !nodeNamesSet.Has(p.AdminNodeName) {
+		for _, node := range commonnodes.OccupiedNodes(workload) {
+			if !nodeNamesSet.Has(node) {
 				continue
 			}
 			return commonerrors.NewForbidden(fmt.Sprintf("the node(%s) is currently in use by"+
-				" the workload(%s) and cannot be removed. alternatively, you can force the unbinding.", p.AdminNodeName, workload.Name))
+				" the workload(%s) and cannot be removed. alternatively, you can force the unbinding.", node, workload.Name))
 		}
 	}
 	return nil

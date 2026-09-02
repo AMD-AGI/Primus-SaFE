@@ -124,6 +124,53 @@ func IsPodRunning(p corev1.Pod) bool {
 		p.Spec.NodeName != ""
 }
 
+// OccupiedNodes returns the admin nodes a workload currently holds, without
+// duplicates.
+//
+// The NodePodUsage aggregate answers whenever it carries entries, and the
+// per-pod array answers otherwise. Both sources describe one placement and must
+// report it alike, so the pod branch mirrors workload.BuildNodeUsage: pods that
+// v1.IsPodTerminated accepts are skipped, and a pod holding no admin node yet
+// contributes nothing. This is deliberately not v1.IsPodRunning, which admits a
+// Stopped pod because it tests only Succeeded and Failed.
+//
+// An empty result does not distinguish a workload that occupies nothing from one
+// whose aggregate is missing, and etcd alone cannot settle which it is: an
+// offloaded workload's per-pod array is cleared there by design. A caller that
+// must not act on the wrong reading has to take the offload annotation and the
+// db config into account as well.
+func OccupiedNodes(w *v1.Workload) []string {
+	if w == nil {
+		return nil
+	}
+	nodes := make([]string, 0, len(w.Status.NodeUsage))
+	seen := make(map[string]struct{}, len(w.Status.NodeUsage))
+	add := func(node string) {
+		if node == "" {
+			return
+		}
+		if _, dup := seen[node]; dup {
+			return
+		}
+		seen[node] = struct{}{}
+		nodes = append(nodes, node)
+	}
+
+	if len(w.Status.NodeUsage) > 0 {
+		for i := range w.Status.NodeUsage {
+			add(w.Status.NodeUsage[i].Node)
+		}
+		return nodes
+	}
+	for i := range w.Status.Pods {
+		if v1.IsPodTerminated(&w.Status.Pods[i]) {
+			continue
+		}
+		add(w.Status.Pods[i].AdminNodeName)
+	}
+	return nodes
+}
+
 // GetNodesOfWorkspaces retrieves all nodes under the given workspaces(as namespaces).
 func GetNodesOfWorkspaces(ctx context.Context, cli client.Client,
 	workspaceNames []string, filterFunc func(v1.Node) bool) ([]v1.Node, error) {
@@ -250,20 +297,8 @@ func GetIdleNodesOfWorkspace(ctx context.Context, cli client.Client, name string
 		if w.IsEnd() {
 			continue
 		}
-		// Dual-read: prefer the etcd NodePodUsage aggregate (running = scheduled,
-		// non-terminated); fall back to Status.Pods.
-		if len(w.Status.NodeUsage) > 0 {
-			for _, u := range w.Status.NodeUsage {
-				if u.Node != "" {
-					usedNodesSet.Insert(u.Node)
-				}
-			}
-		} else {
-			for _, p := range w.Status.Pods {
-				if v1.IsPodRunning(&p) {
-					usedNodesSet.Insert(p.AdminNodeName)
-				}
-			}
+		for _, node := range OccupiedNodes(w) {
+			usedNodesSet.Insert(node)
 		}
 	}
 	claimed := FilterUnclaimedNode(name)
@@ -290,15 +325,8 @@ func GetUsingNodesOfCluster(ctx context.Context, cli client.Client, clusterId st
 		if w.IsEnd() {
 			continue
 		}
-		// Dual-read: prefer the etcd NodePodUsage aggregate; fall back to Status.Pods.
-		if len(w.Status.NodeUsage) > 0 {
-			for _, u := range w.Status.NodeUsage {
-				result.Insert(u.Node)
-			}
-		} else {
-			for _, p := range w.Status.Pods {
-				result.Insert(p.AdminNodeName)
-			}
+		for _, node := range OccupiedNodes(w) {
+			result.Insert(node)
 		}
 	}
 	return result, nil

@@ -36,6 +36,12 @@ func parseRid(key string) (int, bool) {
 // node yet) are bucketed under the empty node key so resource totals stay exact.
 // It is the canonical producer of NodeUsage so the NodeUsage-derived results
 // match the Status.Pods-derived ones.
+//
+// A nil return means there is no pod detail to aggregate; an empty one means
+// every pod has terminated, which at the end of a run is the correct aggregate
+// rather than an indication the workload was never offloaded. Whether per-pod
+// detail lives in the DB is decided by the offload annotation together with the
+// db config, not by the length of this aggregate.
 func BuildNodeUsage(w *v1.Workload) []v1.NodePodUsage {
 	if w == nil || len(w.Status.Pods) == 0 {
 		return nil

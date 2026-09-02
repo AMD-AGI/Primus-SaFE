@@ -613,6 +613,42 @@ func TestGetUsingNodesOfClusterOffloaded(t *testing.T) {
 	testifyassert.True(t, set.Has("used"))
 }
 
+// TestOccupiedNodes locks the contract both read sources have to satisfy: a
+// terminated pod has released its node, a pod not yet scheduled holds none, and
+// a node is reported once however many pods it carries. The inline pairs this
+// replaced disagreed on the first point, which let a workload whose pods had
+// finished still read as holding their nodes.
+func TestOccupiedNodes(t *testing.T) {
+	testifyassert.Nil(t, OccupiedNodes(nil))
+
+	// The aggregate answers whenever it carries entries. The unscheduled bucket
+	// names no node, and a node split across resourceIds is still one node.
+	agg := &v1.Workload{Status: v1.WorkloadStatus{NodeUsage: []v1.NodePodUsage{
+		{Node: "n1", Active: map[string]int{"0": 1}},
+		{Node: "n1", Active: map[string]int{"1": 1}},
+		{Node: "", Active: map[string]int{"0": 1}},
+	}}}
+	testifyassert.Equal(t, []string{"n1"}, OccupiedNodes(agg))
+
+	// Without an aggregate the pod array answers, under the same rules.
+	pods := &v1.Workload{Status: v1.WorkloadStatus{Pods: []v1.WorkloadPod{
+		{PodId: "p1", AdminNodeName: "n1", Phase: corev1PodRunningPhase},
+		{PodId: "p2", AdminNodeName: "n1", Phase: corev1PodRunningPhase},
+		{PodId: "p3", AdminNodeName: "n2", Phase: "Succeeded"},
+		{PodId: "p4", AdminNodeName: "n3", Phase: "Failed"},
+		{PodId: "p5", AdminNodeName: "n4", Phase: corev1.PodPhase(v1.WorkloadStopped)},
+		{PodId: "p6", AdminNodeName: "", Phase: "Pending"},
+	}}}
+	testifyassert.Equal(t, []string{"n1"}, OccupiedNodes(pods))
+
+	// A workload whose pods have all finished holds nothing, which is what makes
+	// an empty aggregate the correct answer at the end of a run.
+	done := &v1.Workload{Status: v1.WorkloadStatus{Pods: []v1.WorkloadPod{
+		{PodId: "p1", AdminNodeName: "n1", Phase: "Succeeded"},
+	}}}
+	testifyassert.Empty(t, OccupiedNodes(done))
+}
+
 func TestGetNodesOfWorkspacesAndCluster(t *testing.T) {
 	ctx := context.Background()
 	n1 := nodeWith("n1", "c1", "ws1")
