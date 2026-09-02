@@ -30,6 +30,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
@@ -217,8 +218,14 @@ func (r *SyncerReconciler) getK8sNode(ctx context.Context, clientSets *ClusterCl
 // A concurrent status writer can win the patch race and leave the aggregate
 // behind; the pod sync is the only writer that rebuilds it, so an otherwise
 // unchanged pod must not be treated as a no-op while the two disagree.
-func isNodeUsageStale(w *v1.Workload) bool {
-	if !v1.IsWorkloadStatusOffloadEnabled(w) {
+//
+// The condition mirrors the one patchWorkloadPodStatus writes the aggregate
+// under. The offload annotation alone does not imply the aggregate is
+// maintained: the webhook stamps it on every workload it creates, while the
+// aggregate is only written when the DB is configured. Comparing without the DB
+// would report every pod as changed and disable the no-op path entirely.
+func (r *SyncerReconciler) isNodeUsageStale(w *v1.Workload) bool {
+	if !commonconfig.IsDBEnable() || r.dbClient == nil || !v1.IsWorkloadStatusOffloadEnabled(w) {
 		return false
 	}
 	return !commonworkload.NodeUsageEquivalent(commonworkload.BuildNodeUsage(w), w.Status.NodeUsage)
@@ -235,7 +242,7 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 		//
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == v1.GetNodeId(k8sNode) &&
 			p.StartTime != "" && p.HostIp == pod.Status.HostIP &&
-			!isNodeUsageStale(adminWorkload) {
+			!r.isNodeUsageStale(adminWorkload) {
 			// Return early if no critical changes detected
 			return v1.WorkloadPod{}, "", false
 		}

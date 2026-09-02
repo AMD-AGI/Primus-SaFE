@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/golang/mock/gomock"
+	"github.com/spf13/viper"
 	tassert "github.com/stretchr/testify/assert"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -31,6 +33,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
@@ -589,6 +592,16 @@ func settledPodWorkload(usage []v1.NodePodUsage) (*v1.Workload, *corev1.Pod, *co
 	return w, pod, node
 }
 
+// offloadedSyncer returns a reconciler configured the way the aggregate is
+// actually maintained: DB enabled and a client present.
+func offloadedSyncer(t *testing.T) *SyncerReconciler {
+	t.Helper()
+	viper.Reset()
+	viper.Set("db.enable", true)
+	t.Cleanup(viper.Reset)
+	return &SyncerReconciler{dbClient: mockclient.NewMockInterface(gomock.NewController(t))}
+}
+
 // TestUpdateWorkloadNodeAndPodsSkipsWhenAggregateMatches keeps the no-op path:
 // an unchanged pod whose stored aggregate already names the node needs no write.
 func TestUpdateWorkloadNodeAndPodsSkipsWhenAggregateMatches(t *testing.T) {
@@ -597,6 +610,21 @@ func TestUpdateWorkloadNodeAndPodsSkipsWhenAggregateMatches(t *testing.T) {
 		Active:  map[string]int{"0": 1},
 		Running: map[string]int{"0": 1},
 	}})
+
+	r := offloadedSyncer(t)
+	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, node)
+	assert.Equal(t, updated, false)
+}
+
+// TestUpdateWorkloadNodeAndPodsSkipsWithoutDB guards the deployment that keeps
+// status on etcd. The webhook stamps the offload annotation regardless of the DB
+// setting, and the aggregate is never written there, so comparing against it
+// would report every pod as changed and rewrite status on every resync.
+func TestUpdateWorkloadNodeAndPodsSkipsWithoutDB(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	w, pod, node := settledPodWorkload(nil)
 
 	r := &SyncerReconciler{}
 	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, node)
@@ -626,7 +654,7 @@ func TestUpdateWorkloadNodeAndPodsResyncsStaleAggregate(t *testing.T) {
 		Active: map[string]int{"0": 1},
 	}})
 
-	r := &SyncerReconciler{}
+	r := offloadedSyncer(t)
 	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, node)
 	assert.Equal(t, updated, true)
 }
@@ -636,7 +664,21 @@ func TestUpdateWorkloadNodeAndPodsResyncsStaleAggregate(t *testing.T) {
 func TestIsNodeUsageStaleIgnoresNonOffloaded(t *testing.T) {
 	w, _, _ := settledPodWorkload(nil)
 	w.Annotations = nil
-	assert.Equal(t, isNodeUsageStale(w), false)
+	assert.Equal(t, offloadedSyncer(t).isNodeUsageStale(w), false)
+}
+
+// TestIsNodeUsageStaleIgnoresMissingDBClient covers the DB being enabled while
+// the client failed to build: the aggregate is not maintained on that path
+// either, so the check must stay off.
+func TestIsNodeUsageStaleIgnoresMissingDBClient(t *testing.T) {
+	viper.Reset()
+	viper.Set("db.enable", true)
+	defer viper.Reset()
+
+	w, _, _ := settledPodWorkload(nil)
+
+	r := &SyncerReconciler{}
+	assert.Equal(t, r.isNodeUsageStale(w), false)
 }
 
 // TestGetAdminWorkloadAndSyncPodNonMesh covers the non-mesh path: the admin workload is
