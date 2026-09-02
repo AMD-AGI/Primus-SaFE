@@ -134,7 +134,12 @@ func (r *SyncerReconciler) updateAdminWorkloadByPod(ctx context.Context, clientS
 
 	podInfo, oldPodPhase, isUpdated := r.updateWorkloadNodeAndPods(ctx, clientSets, adminWorkload, pod, k8sNode)
 	if !isUpdated {
-		return ctrlruntime.Result{}, nil
+		// This pod's detail is already current, but the aggregate built from the
+		// whole set may still be behind a lost patch race, and no other writer
+		// rebuilds it. Repair it alone rather than falling into the full status
+		// write, which would rewrite the DB from this snapshot.
+		_, err = r.repairNodeUsage(ctx, adminWorkload)
+		return ctrlruntime.Result{}, err
 	}
 
 	if isAllPodsAssigned(adminWorkload) {
@@ -216,19 +221,41 @@ func (r *SyncerReconciler) getK8sNode(ctx context.Context, clientSets *ClusterCl
 // isNodeUsageStale reports whether the offloaded aggregate in etcd disagrees
 // with the per-pod detail the workload carries, which is hydrated from the DB.
 // A concurrent status writer can win the patch race and leave the aggregate
-// behind; the pod sync is the only writer that rebuilds it, so an otherwise
-// unchanged pod must not be treated as a no-op while the two disagree.
+// behind, and the pod sync is the only writer that rebuilds it.
 //
 // The condition mirrors the one patchWorkloadPodStatus writes the aggregate
 // under. The offload annotation alone does not imply the aggregate is
 // maintained: the webhook stamps it on every workload it creates, while the
 // aggregate is only written when the DB is configured. Comparing without the DB
-// would report every pod as changed and disable the no-op path entirely.
+// would report every aggregate as stale, since none is ever published.
 func (r *SyncerReconciler) isNodeUsageStale(w *v1.Workload) bool {
 	if !commonconfig.IsDBEnable() || r.dbClient == nil || !v1.IsWorkloadStatusOffloadEnabled(w) {
 		return false
 	}
 	return !commonworkload.NodeUsageEquivalent(commonworkload.BuildNodeUsage(w), w.Status.NodeUsage)
+}
+
+// repairNodeUsage republishes the offloaded aggregate when it no longer matches
+// the pod detail hydrated from the DB, and reports whether it patched.
+//
+// Only the aggregate is written. The DB already holds the detail this rebuild
+// comes from, so it needs no correction, and a full status write would carry
+// this snapshot's pod set into DeleteWorkloadPodsNotIn: events are keyed per
+// pod, so a worker handling a sibling pod of the same workload runs
+// concurrently, and its committed rows are absent from a snapshot taken before
+// it wrote.
+func (r *SyncerReconciler) repairNodeUsage(ctx context.Context, w *v1.Workload) (bool, error) {
+	if !r.isNodeUsageStale(w) {
+		return false, nil
+	}
+	w.Status.NodeUsage = commonworkload.BuildNodeUsage(w)
+	if err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, w,
+		map[string]any{"nodeUsage": w.Status.NodeUsage}); err != nil {
+		return false, err
+	}
+	klog.Infof("repaired stale node usage of workload %s, nodes: %d",
+		w.Name, len(w.Status.NodeUsage))
+	return true, nil
 }
 
 func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, clientSets *ClusterClientSets,
@@ -241,8 +268,7 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 		id = i
 		//
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == v1.GetNodeId(k8sNode) &&
-			p.StartTime != "" && p.HostIp == pod.Status.HostIP &&
-			!r.isNodeUsageStale(adminWorkload) {
+			p.StartTime != "" && p.HostIp == pod.Status.HostIP {
 			// Return early if no critical changes detected
 			return v1.WorkloadPod{}, "", false
 		}

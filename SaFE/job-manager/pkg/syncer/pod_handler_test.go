@@ -602,9 +602,11 @@ func offloadedSyncer(t *testing.T) *SyncerReconciler {
 	return &SyncerReconciler{dbClient: mockclient.NewMockInterface(gomock.NewController(t))}
 }
 
-// TestUpdateWorkloadNodeAndPodsSkipsWhenAggregateMatches keeps the no-op path:
-// an unchanged pod whose stored aggregate already names the node needs no write.
-func TestUpdateWorkloadNodeAndPodsSkipsWhenAggregateMatches(t *testing.T) {
+// TestUpdateWorkloadNodeAndPodsSkipsUnchangedPod keeps the no-op path: a pod
+// whose recorded phase, node, host IP and start time all still hold needs no
+// status write. The aggregate is repaired on its own path, so it is not part of
+// this decision.
+func TestUpdateWorkloadNodeAndPodsSkipsUnchangedPod(t *testing.T) {
 	w, pod, node := settledPodWorkload([]v1.NodePodUsage{{
 		Node:    "n1",
 		Active:  map[string]int{"0": 1},
@@ -616,47 +618,52 @@ func TestUpdateWorkloadNodeAndPodsSkipsWhenAggregateMatches(t *testing.T) {
 	assert.Equal(t, updated, false)
 }
 
-// TestUpdateWorkloadNodeAndPodsSkipsWithoutDB guards the deployment that keeps
-// status on etcd. The webhook stamps the offload annotation regardless of the DB
-// setting, and the aggregate is never written there, so comparing against it
-// would report every pod as changed and rewrite status on every resync.
-func TestUpdateWorkloadNodeAndPodsSkipsWithoutDB(t *testing.T) {
-	viper.Reset()
-	defer viper.Reset()
-
-	w, pod, node := settledPodWorkload(nil)
-
-	r := &SyncerReconciler{}
-	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, node)
-	assert.Equal(t, updated, false)
-}
-
-// TestUpdateWorkloadNodeAndPodsResyncsStaleAggregate reproduces the placement
-// lost to a patch race: the DB-hydrated pod names the node while the stored
-// aggregate is still unscheduled. Reporting no change here strands the aggregate
-// permanently, because no later pod event would differ either.
-func TestUpdateWorkloadNodeAndPodsResyncsStaleAggregate(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
-	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "buildWorkloadPodInfo",
-		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, _ *v1.Workload, _ *corev1.Pod, _ *corev1.Node) v1.WorkloadPod {
-			return v1.WorkloadPod{
-				PodId:         "p1",
-				AdminNodeName: "n1",
-				Phase:         corev1.PodRunning,
-				HostIp:        "10.0.0.1",
-				StartTime:     "2026-09-02T07:50:51",
-			}
-		})
-
-	w, pod, node := settledPodWorkload([]v1.NodePodUsage{{
+// TestRepairNodeUsagePatchesAggregateOnly reproduces the placement lost to a
+// patch race: the DB-hydrated pod names the node while the stored aggregate is
+// still unscheduled. No later pod event differs either, so the repair is the
+// only way out. It must write the aggregate without touching the DB, whose rows
+// a worker handling a sibling pod owns; the mock client fails the test if any
+// call reaches it.
+func TestRepairNodeUsagePatchesAggregateOnly(t *testing.T) {
+	w, _, _ := settledPodWorkload([]v1.NodePodUsage{{
 		Node:   "",
 		Active: map[string]int{"0": 1},
 	}})
+	// etcd carries the aggregate alone; the pod detail lives in the DB and
+	// reaches the reconciler's copy through hydration.
+	offloaded := w.DeepCopy()
+	offloaded.Status.Pods = nil
+	cl, stored := storedWorkload(t, offloaded)
+	stored.Status = w.Status
 
 	r := offloadedSyncer(t)
-	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, node)
-	assert.Equal(t, updated, true)
+	r.Client = cl
+
+	patched, err := r.repairNodeUsage(context.Background(), stored)
+	assert.NilError(t, err)
+	assert.Equal(t, patched, true)
+
+	fresh := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, fresh))
+	assert.Equal(t, len(fresh.Status.NodeUsage), 1)
+	assert.Equal(t, fresh.Status.NodeUsage[0].Node, "n1")
+	// The per-pod arrays stay out of etcd: the repair carries the aggregate alone.
+	assert.Equal(t, len(fresh.Status.Pods), 0)
+}
+
+// TestRepairNodeUsageSkipsFreshAggregate keeps the no-op path: an aggregate that
+// already matches the pod detail must not be rewritten on every resync of an
+// unchanged pod.
+func TestRepairNodeUsageSkipsFreshAggregate(t *testing.T) {
+	w, _, _ := settledPodWorkload([]v1.NodePodUsage{{
+		Node:    "n1",
+		Active:  map[string]int{"0": 1},
+		Running: map[string]int{"0": 1},
+	}})
+
+	patched, err := offloadedSyncer(t).repairNodeUsage(context.Background(), w)
+	assert.NilError(t, err)
+	assert.Equal(t, patched, false)
 }
 
 // TestIsNodeUsageStaleIgnoresNonOffloaded verifies workloads that still keep pod
