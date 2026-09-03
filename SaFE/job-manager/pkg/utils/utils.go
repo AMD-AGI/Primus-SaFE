@@ -84,16 +84,15 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 	if FindCondition(workload, condition) == nil {
 		workload.Status.Conditions = append(workload.Status.Conditions, *condition)
 	}
-	commonworkload.StripOffloadedStatus(workload)
-	// Single attempt with the caller's own resourceVersion: a conflict means the
-	// object changed under us, so we return the error and let the controller
-	// requeue and recompute from fresh state instead of clobbering the concurrent
-	// writer.
-	if err := cli.Status().Update(ctx, workload); err != nil {
-		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
-		return err
+	fields := map[string]any{
+		"phase":      workload.Status.Phase,
+		"endTime":    workload.Status.EndTime,
+		"conditions": workload.Status.Conditions,
 	}
-	return nil
+	if workload.Status.DependenciesPhase != nil {
+		fields["dependenciesPhase"] = workload.Status.DependenciesPhase
+	}
+	return PatchWorkloadStatusFields(ctx, cli, workload, fields)
 }
 
 // StopReason describes why a workload was forcibly transitioned to the

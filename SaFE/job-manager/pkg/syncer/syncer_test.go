@@ -9,6 +9,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	testifyassert "github.com/stretchr/testify/assert"
 
@@ -17,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -124,6 +126,47 @@ func TestDoRoutesToHandlers(t *testing.T) {
 	assert.NilError(t, err)
 }
 
+func TestPodStatusLockSerializesWorkload(t *testing.T) {
+	r := &SyncerReconciler{}
+	unlock := r.lockPodStatus("w")
+	acquired := make(chan struct{})
+	go func() {
+		release := r.lockPodStatus("w")
+		close(acquired)
+		release()
+	}()
+
+	select {
+	case <-acquired:
+		t.Fatal("same workload acquired the pod status lock concurrently")
+	case <-time.After(20 * time.Millisecond):
+	}
+	unlock()
+
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		t.Fatal("pod status lock was not released")
+	}
+}
+
+func TestPodStatusLockSkipsEmptyID(t *testing.T) {
+	r := &SyncerReconciler{}
+	unlockEmpty := r.lockPodStatus("")
+	acquired := make(chan struct{})
+	go func() {
+		release := r.lockPodStatus("")
+		close(acquired)
+		release()
+	}()
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		t.Fatal("empty lock id must not serialize all mesh pods")
+	}
+	unlockEmpty()
+}
+
 // --- merged from syncer_queue_test.go ---
 
 func TestResourceMessageKey(t *testing.T) {
@@ -131,6 +174,7 @@ func TestResourceMessageKey(t *testing.T) {
 		cluster:   "c1",
 		namespace: "ns",
 		name:      "pod-1",
+		uid:       apitypes.UID("uid-1"),
 		gvk:       schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"},
 	}
 	// Same object identity -> same key regardless of action/dispatchCount.
@@ -138,6 +182,7 @@ func TestResourceMessageKey(t *testing.T) {
 		cluster:       "c1",
 		namespace:     "ns",
 		name:          "pod-1",
+		uid:           apitypes.UID("uid-1"),
 		gvk:           schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"},
 		action:        ResourceDel,
 		dispatchCount: 5,
@@ -148,6 +193,11 @@ func TestResourceMessageKey(t *testing.T) {
 	m3 := &resourceMessage{cluster: "c1", namespace: "ns", name: "pod-2",
 		gvk: schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"}}
 	testifyassert.NotEqual(t, resourceMessageKey(m1), resourceMessageKey(m3))
+
+	// Same-name replacements are separate queue entries.
+	m4 := *m1
+	m4.uid = apitypes.UID("uid-2")
+	testifyassert.NotEqual(t, resourceMessageKey(m1), resourceMessageKey(&m4))
 }
 
 func TestMergeResourceMessage(t *testing.T) {

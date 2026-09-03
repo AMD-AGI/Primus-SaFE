@@ -261,3 +261,60 @@ func TestHydrateWorkloadStatusFromDB(t *testing.T) {
 	assert.Len(t, got.Status.Pods, 1)
 	assert.Equal(t, "p1", got.Status.Pods[0].PodId)
 }
+
+// TestGetAdminWorkload_HydratePodsError surfaces a failed pod list instead of
+// returning the etcd snapshot. Callers that then writeWorkloadStatusToDB would
+// otherwise treat that snapshot as the full set and DeleteWorkloadPodsNotIn
+// would drop rows the query never returned.
+func TestGetAdminWorkload_HydratePodsError(t *testing.T) {
+	viper.Reset()
+	viper.Set("db.enable", true)
+	defer viper.Reset()
+
+	ctrl := gomock.NewController(t)
+	mockDB := mockclient.NewMockInterface(ctrl)
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1").Return(nil, fmt.Errorf("db down"))
+
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:        "w1",
+		Annotations: map[string]string{v1.WorkloadStatusOffloadAnnotation: v1.TrueStr},
+	}}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).Build()
+	r := &SyncerReconciler{Client: cl, dbClient: mockDB}
+
+	got, err := r.getAdminWorkload(context.Background(), "w1")
+	require.Error(t, err)
+	assert.Nil(t, got)
+}
+
+// TestHydrateWorkloadStatusFromDB_DispatchErrorKeepsEtcdSnapshot does not apply
+// a successful pod list when the dispatch-node list fails, so a later persist
+// cannot reconcile from a half-loaded view.
+func TestHydrateWorkloadStatusFromDB_DispatchErrorKeepsEtcdSnapshot(t *testing.T) {
+	viper.Reset()
+	viper.Set("db.enable", true)
+	defer viper.Reset()
+
+	ctrl := gomock.NewController(t)
+	mockDB := mockclient.NewMockInterface(ctrl)
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1").Return([]*dbclient.WorkloadPod{
+		{WorkloadId: "w1", PodId: "from-db", ResourceId: 0},
+	}, nil)
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w1").Return(nil, fmt.Errorf("db down"))
+
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "w1",
+			Annotations: map[string]string{v1.WorkloadStatusOffloadAnnotation: v1.TrueStr},
+		},
+		Status: v1.WorkloadStatus{
+			Pods: []v1.WorkloadPod{{PodId: "from-etcd"}},
+		},
+	}
+	r := &SyncerReconciler{dbClient: mockDB}
+
+	err := r.hydrateWorkloadStatusFromDB(context.Background(), "w1", w)
+	require.Error(t, err)
+	require.Len(t, w.Status.Pods, 1)
+	assert.Equal(t, "from-etcd", w.Status.Pods[0].PodId)
+}

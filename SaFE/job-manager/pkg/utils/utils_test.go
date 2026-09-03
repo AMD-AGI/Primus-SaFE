@@ -20,8 +20,8 @@ import (
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
@@ -141,6 +141,61 @@ func TestSetWorkloadFailed(t *testing.T) {
 	assert.Equal(t, w.Status.Phase, v1.WorkloadFailed)
 	assert.Assert(t, w.Status.EndTime != nil)
 	assert.Assert(t, len(w.Status.Conditions) > 0)
+}
+
+// TestSetWorkloadFailedLeavesOffloadedDetailInDB covers a caller whose copy was
+// hydrated from the DB. The transition owns phase, endTime and conditions; it
+// must not carry the per-pod arrays back into etcd, whose object size limit is
+// the reason the detail was offloaded in the first place.
+func TestSetWorkloadFailedLeavesOffloadedDetailInDB(t *testing.T) {
+	stored := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	stored.Status.NodeUsage = []v1.NodePodUsage{{Node: "n1"}}
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(utilsScheme(t)).
+		WithObjects(stored).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+
+	hydrated := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlClient.ObjectKey{Name: "w"}, hydrated))
+	hydrated.Status.Pods = []v1.WorkloadPod{{PodId: "p1", AdminNodeName: "n1"}}
+	hydrated.Status.Nodes = [][]string{{"n1"}}
+	hydrated.Status.Ranks = [][]string{{"0"}}
+
+	assert.NilError(t, SetWorkloadFailed(context.Background(), cl, hydrated, "boom"))
+
+	fresh := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlClient.ObjectKey{Name: "w"}, fresh))
+	assert.Equal(t, fresh.Status.Phase, v1.WorkloadFailed)
+	assert.Assert(t, fresh.Status.EndTime != nil)
+	assert.Assert(t, len(fresh.Status.Conditions) > 0)
+	assert.Equal(t, len(fresh.Status.Pods), 0)
+	assert.Equal(t, len(fresh.Status.Nodes), 0)
+	assert.Equal(t, len(fresh.Status.Ranks), 0)
+	assert.Equal(t, len(fresh.Status.NodeUsage), 1)
+	assert.Equal(t, fresh.Status.NodeUsage[0].Node, "n1")
+}
+
+func TestSetWorkloadFailedKeepsDependenciesPhase(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.SetDependenciesPhase("dep", v1.WorkloadFailed)
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(utilsScheme(t)).
+		WithObjects(w).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+
+	fresh := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlClient.ObjectKey{Name: "w"}, fresh))
+	fresh.SetDependenciesPhase("dep", v1.WorkloadFailed)
+	assert.NilError(t, SetWorkloadFailed(context.Background(), cl, fresh, "dependency workload dep failed"))
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlClient.ObjectKey{Name: "w"}, got))
+	assert.Equal(t, got.Status.Phase, v1.WorkloadFailed)
+	phase, ok := got.GetDependenciesPhase("dep")
+	assert.Equal(t, ok, true)
+	assert.Equal(t, phase, v1.WorkloadFailed)
 }
 
 func TestMarkWorkloadStopped(t *testing.T) {

@@ -306,6 +306,46 @@ func TestHandleResourceDeleteTombstone(t *testing.T) {
 	assert.Equal(t, captured.name, "sb")
 }
 
+func TestHandleResourceMeshPodDelete(t *testing.T) {
+	var captured *resourceMessage
+	c := &ClusterClientSets{
+		name:    "cl",
+		handler: ResourceHandler(func(m *resourceMessage) { captured = m }),
+	}
+	u := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	u.SetKind("Pod")
+	u.SetName("mj-mesh-0-worker-0")
+	u.SetNamespace("ws")
+	u.SetLabels(map[string]string{monarchMeshLabel: "mj-mesh-0"})
+	c.handleResource(context.Background(), nil, u, ResourceDel)
+	assert.Assert(t, captured != nil)
+	assert.Equal(t, captured.workloadId, "")
+	assert.Equal(t, captured.meshName, "mj-mesh-0")
+	assert.Equal(t, captured.action, ResourceDel)
+}
+
+// A mesh pod stripped of its labels on the way out still has to reach its
+// workload, so ownership falls back to the object the event replaced.
+func TestHandleResourceFallsBackToPreviousObject(t *testing.T) {
+	var captured *resourceMessage
+	c := &ClusterClientSets{
+		name:    "cl",
+		handler: ResourceHandler(func(m *resourceMessage) { captured = m }),
+	}
+	old := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	old.SetKind("Pod")
+	old.SetName("mj-mesh-0-worker-0")
+	old.SetNamespace("ws")
+	old.SetLabels(map[string]string{monarchMeshLabel: "mj-mesh-0"})
+
+	stripped := old.DeepCopy()
+	stripped.SetLabels(nil)
+
+	c.handleResource(context.Background(), old, stripped, ResourceUpdate)
+	assert.Assert(t, captured != nil)
+	assert.Equal(t, captured.meshName, "mj-mesh-0")
+}
+
 func TestHandleResourceManaged(t *testing.T) {
 	var captured *resourceMessage
 	c := &ClusterClientSets{

@@ -42,6 +42,7 @@ type SyncerReconciler struct {
 	// already reconciled against the informer cache, and drops each one once its
 	// workload ends. See reconcileVanishedPods.
 	vanishedPodsChecked sync.Map
+	podStatusLocks      [256]sync.Mutex
 	*controller.KeyedController[*resourceMessage]
 }
 
@@ -56,7 +57,7 @@ const clusterClientSetsRetryInterval = 15 * time.Second
 // resourceMessageKey identifies the k8s object a message is about. Messages with
 // the same key are serialized and coalesced by the KeyedController.
 func resourceMessageKey(m *resourceMessage) string {
-	return m.cluster + "|" + m.gvk.String() + "|" + m.namespace + "|" + m.name
+	return m.cluster + "|" + m.gvk.String() + "|" + m.namespace + "|" + m.name + "|" + string(m.uid)
 }
 
 // mergeResourceMessage keeps the latest event for a key, except that a pending
@@ -67,6 +68,22 @@ func mergeResourceMessage(existing *resourceMessage, existingOK bool, incoming *
 		return existing
 	}
 	return incoming
+}
+
+// lockPodStatus serializes hydrate-then-write of the same workload's pod status.
+// An empty id is a no-op: mesh pods resolve the workload after the event is
+// queued, and hashing "" would pin every unresolved event onto one mutex.
+func (r *SyncerReconciler) lockPodStatus(workloadID string) func() {
+	if workloadID == "" {
+		return func() {}
+	}
+	var index uint8
+	for i := 0; i < len(workloadID); i++ {
+		index = index*31 + workloadID[i]
+	}
+	lock := &r.podStatusLocks[index]
+	lock.Lock()
+	return lock.Unlock
 }
 
 // SetupSyncerController initializes and registers the syncer controller with the manager.
@@ -275,6 +292,8 @@ func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ct
 		result, err = r.handleJob(ctx, message, clientSets)
 	case common.PodKind:
 		result, err = r.handlePod(ctx, message, clientSets)
+	case common.MonarchMesh:
+		result, err = r.handleMonarchMesh(ctx, clientSets, message)
 	}
 	if jobutils.IsUnrecoverableError(err) {
 		err = nil
@@ -294,6 +313,8 @@ func (r *SyncerReconciler) getAdminWorkload(ctx context.Context, workloadId stri
 		return nil, err
 	}
 	copy := adminWorkload.DeepCopy()
-	r.hydrateWorkloadStatusFromDB(ctx, workloadId, copy)
+	if err := r.hydrateWorkloadStatusFromDB(ctx, workloadId, copy); err != nil {
+		return nil, err
+	}
 	return copy, nil
 }

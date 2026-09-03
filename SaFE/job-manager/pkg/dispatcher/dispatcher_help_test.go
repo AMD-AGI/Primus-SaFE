@@ -431,6 +431,16 @@ func checkPodAntiAffinity(t *testing.T, obj *unstructured.Unstructured, workload
 	assert.Equal(t, matchLabels[v1.WorkloadIdLabel], workload.Name)
 }
 
+func TestUpdateMonarchMeshAddsFinalizer(t *testing.T) {
+	obj := &unstructured.Unstructured{Object: map[string]any{
+		"spec": map[string]any{},
+	}}
+
+	assert.NilError(t, updateMonarchMesh(obj, &v1.Workload{}))
+	assert.Equal(t, len(obj.GetFinalizers()), 1)
+	assert.Equal(t, obj.GetFinalizers()[0], v1.MonarchMeshFinalizer)
+}
+
 func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
 	containerPath := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "containers")
 

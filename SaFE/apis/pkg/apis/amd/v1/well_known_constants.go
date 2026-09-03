@@ -123,6 +123,7 @@ const (
 	// workload
 	WorkloadPrefix                    = PrimusSafePrefix + "workload."
 	WorkloadFinalizer                 = PrimusSafeDomain + "workload.finalizer"
+	MonarchMeshFinalizer              = PrimusSafeDomain + "monarch.mesh.finalizer"
 	WorkloadIdLabel                   = WorkloadPrefix + "id"
 	WorkloadDispatchedAnnotation      = WorkloadPrefix + "dispatched"
 	WorkloadScheduledAnnotation       = WorkloadPrefix + "scheduled"

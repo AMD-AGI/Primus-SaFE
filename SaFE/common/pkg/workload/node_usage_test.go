@@ -184,12 +184,12 @@ func TestGetInUseNodeCountExcludesTerminatedOnlyNode(t *testing.T) {
 // pods. A node holding only terminated pods is excluded by both paths.
 func TestNodeUsageNodeSetEquivalence(t *testing.T) {
 	w := &v1.Workload{Status: v1.WorkloadStatus{Pods: []v1.WorkloadPod{
-		{AdminNodeName: "n1", Phase: corev1.PodRunning},               // scheduled running
-		{AdminNodeName: "n1", Phase: corev1.PodPending},               // scheduled pending (still "running" set)
-		{AdminNodeName: "n2", Phase: corev1.PodRunning},               // scheduled running
-		{AdminNodeName: "n2", Phase: corev1.PodSucceeded},             // terminated, shares n2
-		{AdminNodeName: "n3", Phase: corev1.PodFailed},                // terminated-only node -> excluded
-		{AdminNodeName: "", Phase: corev1.PodPending},                 // unscheduled -> no node
+		{AdminNodeName: "n1", Phase: corev1.PodRunning},   // scheduled running
+		{AdminNodeName: "n1", Phase: corev1.PodPending},   // scheduled pending (still "running" set)
+		{AdminNodeName: "n2", Phase: corev1.PodRunning},   // scheduled running
+		{AdminNodeName: "n2", Phase: corev1.PodSucceeded}, // terminated, shares n2
+		{AdminNodeName: "n3", Phase: corev1.PodFailed},    // terminated-only node -> excluded
+		{AdminNodeName: "", Phase: corev1.PodPending},     // unscheduled -> no node
 	}}}
 
 	legacy := map[string]bool{}
@@ -226,27 +226,55 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
-func TestStripOffloadedStatus(t *testing.T) {
-	// nil workload is a no-op.
-	StripOffloadedStatus(nil)
-
-	// Not offloaded (no NodeUsage) -> pods are kept.
+// TestBuildNodeUsageEmptyWhenAllPodsTerminated covers the end of a run: every
+// pod has terminated, so the aggregate is empty rather than retaining the nodes
+// the finished pods ran on.
+func TestBuildNodeUsageEmptyWhenAllPodsTerminated(t *testing.T) {
 	w := &v1.Workload{Status: v1.WorkloadStatus{
-		Pods: []v1.WorkloadPod{{PodId: "p1"}},
+		Pods: []v1.WorkloadPod{
+			{PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodSucceeded},
+			{PodId: "p2", AdminNodeName: "n1", Phase: corev1.PodFailed},
+		},
 	}}
-	StripOffloadedStatus(w)
-	assert.Equal(t, len(w.Status.Pods), 1)
 
-	// Offloaded (NodeUsage present) -> large arrays are cleared.
-	w = &v1.Workload{Status: v1.WorkloadStatus{
-		NodeUsage: []v1.NodePodUsage{{Node: "n1"}},
-		Pods:      []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
-		Nodes:     [][]string{{"n1"}},
-		Ranks:     [][]string{{"0"}},
-	}}
-	StripOffloadedStatus(w)
-	assert.Equal(t, len(w.Status.NodeUsage), 1)
-	assert.Assert(t, w.Status.Pods == nil)
-	assert.Assert(t, w.Status.Nodes == nil)
-	assert.Assert(t, w.Status.Ranks == nil)
+	assert.Equal(t, len(BuildNodeUsage(w)), 0)
+}
+
+// TestNodeUsageEquivalent covers ordering, the nil-versus-empty count map that a
+// round trip through the CRD produces, and the placement differences that must
+// still register as a change.
+func TestNodeUsageEquivalent(t *testing.T) {
+	assert.Assert(t, NodeUsageEquivalent(nil, nil))
+
+	reordered := []v1.NodePodUsage{
+		{Node: "n2", Active: map[string]int{"0": 1}},
+		{Node: "n1", Active: map[string]int{"0": 2}},
+	}
+	original := []v1.NodePodUsage{
+		{Node: "n1", Active: map[string]int{"0": 2}},
+		{Node: "n2", Active: map[string]int{"0": 1}},
+	}
+	assert.Assert(t, NodeUsageEquivalent(original, reordered))
+
+	// An empty Running map is dropped by omitempty and read back as nil.
+	built := []v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 1}, Running: map[string]int{}}}
+	stored := []v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 1}}}
+	assert.Assert(t, NodeUsageEquivalent(built, stored))
+
+	unscheduled := []v1.NodePodUsage{{Node: "", Active: map[string]int{"0": 1}}}
+	scheduled := []v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 1}}}
+	assert.Assert(t, !NodeUsageEquivalent(unscheduled, scheduled))
+
+	assert.Assert(t, !NodeUsageEquivalent(scheduled, nil))
+	assert.Assert(t, !NodeUsageEquivalent(
+		scheduled,
+		[]v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 2}}},
+	))
+
+	// A node gaining a second resource id keeps the same node set and the same
+	// count for the id it already had, so only the map size tells them apart.
+	assert.Assert(t, !NodeUsageEquivalent(
+		scheduled,
+		[]v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 1, "1": 1}}},
+	))
 }

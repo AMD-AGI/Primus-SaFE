@@ -36,6 +36,12 @@ func parseRid(key string) (int, bool) {
 // node yet) are bucketed under the empty node key so resource totals stay exact.
 // It is the canonical producer of NodeUsage so the NodeUsage-derived results
 // match the Status.Pods-derived ones.
+//
+// A nil return means there is no pod detail to aggregate; an empty one means
+// every pod has terminated, which at the end of a run is the correct aggregate
+// rather than an indication the workload was never offloaded. Whether per-pod
+// detail lives in the DB is decided by the offload annotation together with the
+// db config, not by the length of this aggregate.
 func BuildNodeUsage(w *v1.Workload) []v1.NodePodUsage {
 	if w == nil || len(w.Status.Pods) == 0 {
 		return nil
@@ -138,15 +144,40 @@ func workloadResourceUsageFromUsage(usage []v1.NodePodUsage, allPodResources []c
 	return totalResource, availableResource, availableNodes
 }
 
-// StripOffloadedStatus removes large per-pod status arrays before a status
-// update that does not rebuild them. It applies only when NodeUsage is already
-// populated, meaning the workload has been offloaded to DB; workloads that still
-// rely on etcd pod detail are left unchanged.
-func StripOffloadedStatus(w *v1.Workload) {
-	if w == nil || len(w.Status.NodeUsage) == 0 {
-		return
+// NodeUsageEquivalent reports whether two aggregates describe the same placement.
+// Entries are matched by node instead of by position, and an absent count map
+// compares equal to an empty one because the CRD omits empty maps when it
+// serialises, so a round trip through etcd cannot by itself signal a difference.
+func NodeUsageEquivalent(a, b []v1.NodePodUsage) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	w.Status.Pods = nil
-	w.Status.Nodes = nil
-	w.Status.Ranks = nil
+	index := make(map[string]*v1.NodePodUsage, len(b))
+	for i := range b {
+		index[b[i].Node] = &b[i]
+	}
+	for i := range a {
+		other, ok := index[a[i].Node]
+		if !ok {
+			return false
+		}
+		if !podCountsEqual(a[i].Active, other.Active) || !podCountsEqual(a[i].Running, other.Running) {
+			return false
+		}
+	}
+	return true
+}
+
+// podCountsEqual compares two resourceId->count maps, treating nil and empty as
+// the same value.
+func podCountsEqual(a, b map[string]int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, count := range a {
+		if other, ok := b[key]; !ok || other != count {
+			return false
+		}
+	}
+	return true
 }
