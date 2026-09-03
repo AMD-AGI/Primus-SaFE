@@ -107,13 +107,13 @@
 
           <el-tooltip
             v-if="showResumeButton"
-            :content="detailData?.phase !== 'Stopped' ? 'Already running' : 'Resume'"
+            :content="canResumePhase ? 'Resume' : 'Resume is unavailable for this workload state'"
             placement="top"
           >
             <el-button
               circle
               class="glass-btn glass-btn--success"
-              :disabled="!['Stopped','Failed','Succeeded'].includes(detailData?.phase)"
+              :disabled="!canResumePhase"
               @click="emit('resume')"
             >
               <el-icon><VideoPlay /></el-icon>
@@ -191,6 +191,7 @@ import {
   Edit,
 } from '@element-plus/icons-vue'
 import { WorkloadPhaseButtonType } from '@/services'
+import { RESUMABLE_PHASES } from '@/composables/useWorkloadResumePermission'
 import { copyText, formatTimeStr } from '@/utils'
 import { useDark } from '@vueuse/core'
 import { useRouter } from 'vue-router'
@@ -249,6 +250,10 @@ const showResumeButton = computed(() => {
   const noResumeKinds = ['PyTorchJob', 'TorchFT', 'RayJob']
   return !noResumeKinds.includes(kind ?? '')
 })
+
+// Shares the phase whitelist with the list-page action so the button state and
+// its tooltip cannot disagree.
+const canResumePhase = computed(() => RESUMABLE_PHASES.includes(props.detailData?.phase ?? ''))
 
 const handleBack = () => {
   emit('back')

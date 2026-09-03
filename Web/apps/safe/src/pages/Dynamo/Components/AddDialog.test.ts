@@ -50,4 +50,9 @@ describe('Dynamo/Infera AddDialog', () => {
   it('does not keep unreachable Infera entrypoint preview code in the Dynamo-only section', () => {
     expect(dialogSource).not.toContain('inferaBackendEntrySections')
   })
+
+  it('resumes the original workload id instead of submitting a new workload', () => {
+    expect(dialogSource).toContain('resumeWorkload(props.wlid, payload)')
+    expect(dialogSource).toContain(':disabled="isEdit || isResume"')
+  })
 })

@@ -4,6 +4,7 @@
     :detail-data="detailData"
     hide-edit
     @clone="onClone"
+    @resume="onResume"
     @delete="onDelete"
     @stop="onStop"
   />
@@ -136,7 +137,7 @@
     :wlid="workloadId"
     :action="addAction"
     :workload-type="props.workloadType"
-    @success="router.push(workloadConfig.listPath)"
+    @success="onDialogSuccess"
   />
   <SshConfigDialog
     v-model:visible="sshVisible"
@@ -193,7 +194,7 @@ const { canWrite } = useWorkloadWriteGuard()
 
 const activeTab = ref('overview')
 const addVisible = ref(false)
-const addAction = ref<'Clone'>('Clone')
+const addAction = ref<'Clone' | 'Resume'>('Clone')
 
 interface ServiceData {
   type?: string
@@ -287,6 +288,21 @@ const roleRows = computed(() => {
 const onClone = () => {
   addAction.value = 'Clone'
   addVisible.value = true
+}
+
+const onResume = () => {
+  addAction.value = 'Resume'
+  addVisible.value = true
+}
+
+const onDialogSuccess = () => {
+  // Resume restarts this same workload id, so stay here and refetch instead of
+  // bouncing to the list like Clone does.
+  if (addAction.value === 'Resume') {
+    getDetail()
+    return
+  }
+  router.push(workloadConfig.value.listPath)
 }
 
 const refreshPods = async () => {
