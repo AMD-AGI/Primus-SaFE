@@ -160,12 +160,43 @@ func TestWatchTimeoutSecondsIsRandomizedAboveMinimum(t *testing.T) {
 	assert.Assert(t, len(seen) > 1, "timeout was not randomized")
 }
 
-func TestResourceVersionOlderUsesDecimalOrder(t *testing.T) {
-	assert.Equal(t, resourceVersionOlder("9", "10"), true)
-	assert.Equal(t, resourceVersionOlder("10", "9"), false)
-	assert.Equal(t, resourceVersionOlder("12", "12"), false)
-	assert.Equal(t, resourceVersionOlder("", "12"), true)
-	assert.Equal(t, resourceVersionOlder("12", ""), false)
+func TestResourceVersionOlderUsesAPICompare(t *testing.T) {
+	older, err := resourceVersionOlder("9", "10")
+	assert.NilError(t, err)
+	assert.Equal(t, older, true)
+
+	older, err = resourceVersionOlder("10", "9")
+	assert.NilError(t, err)
+	assert.Equal(t, older, false)
+
+	older, err = resourceVersionOlder("12", "12")
+	assert.NilError(t, err)
+	assert.Equal(t, older, false)
+
+	_, err = resourceVersionOlder("", "12")
+	assert.Assert(t, err != nil)
+	_, err = resourceVersionOlder("12", "")
+	assert.Assert(t, err != nil)
+	_, err = resourceVersionOlder("01", "12")
+	assert.Assert(t, err != nil)
+}
+
+func TestSetK8sNodeIfNewerKeepsCacheWhenResourceVersionIsIncomparable(t *testing.T) {
+	n, _ := newNode(t)
+	n.setK8sNode(nodeWithRV(n.GetK8sNode(), "12", "watch"))
+
+	assert.Equal(t, n.setK8sNodeIfNewer(nodeWithRV(n.GetK8sNode(), "", "empty")), false)
+	assert.Equal(t, n.setK8sNodeIfNewer(nodeWithRV(n.GetK8sNode(), "01", "leading-zero")), false)
+	assert.Equal(t, n.setK8sNodeIfNewer(nodeWithRV(n.GetK8sNode(), "not-an-rv", "opaque")), false)
+	assert.Equal(t, n.GetK8sNode().ResourceVersion, "12")
+	assert.Equal(t, n.GetK8sNode().Labels["source"], "watch")
+}
+
+func TestSetK8sNodeIfNewerAllowsWellFormedRVOverEmptyCache(t *testing.T) {
+	n, _ := newNode(t)
+	assert.Equal(t, n.GetK8sNode().ResourceVersion, "")
+	assert.Equal(t, n.setK8sNodeIfNewer(nodeWithRV(n.GetK8sNode(), "12", "watch")), true)
+	assert.Equal(t, n.GetK8sNode().ResourceVersion, "12")
 }
 
 func TestSetK8sNodeIfNewerSkipsOlderResourceVersion(t *testing.T) {

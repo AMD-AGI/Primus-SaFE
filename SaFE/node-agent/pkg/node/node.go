@@ -19,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/resourceversion"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
@@ -375,42 +376,46 @@ func (n *Node) setK8sNode(node *corev1.Node) {
 }
 
 // setK8sNodeIfNewer stores node unless its resource version is older than the
-// cache. Equality is not an ordering: a delayed watch event and a GET or
-// UpdateStatus response can both differ from the cached value, and only a
-// numeric compare tells which one should win.
+// cache. Ordering uses CompareResourceVersion. If that compare fails and the
+// cache already holds a well-formed resource version, the cache is kept.
 func (n *Node) setK8sNodeIfNewer(node *corev1.Node) bool {
 	if node == nil {
 		return false
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if n.k8sNode != nil && resourceVersionOlder(node.ResourceVersion, n.k8sNode.ResourceVersion) {
-		klog.V(4).InfoS("skip older node object",
-			"cached", n.k8sNode.ResourceVersion, "incoming", node.ResourceVersion)
-		return false
+	if n.k8sNode != nil {
+		older, err := resourceVersionOlder(node.ResourceVersion, n.k8sNode.ResourceVersion)
+		if err != nil {
+			if wellFormedResourceVersion(n.k8sNode.ResourceVersion) {
+				klog.V(4).InfoS("skip node object with incomparable resource version",
+					"cached", n.k8sNode.ResourceVersion, "incoming", node.ResourceVersion, "err", err)
+				return false
+			}
+		} else if older {
+			klog.V(4).InfoS("skip older node object",
+				"cached", n.k8sNode.ResourceVersion, "incoming", node.ResourceVersion)
+			return false
+		}
 	}
 	n.k8sNode = node.DeepCopy()
 	return true
 }
 
-// resourceVersionOlder reports whether incoming is behind cached. apiserver
-// resource versions are decimal etcd revisions, so "9" is older than "10".
-func resourceVersionOlder(incoming, cached string) bool {
-	if incoming == cached {
-		return false
+// resourceVersionOlder reports whether incoming is behind cached using the
+// Kubernetes ResourceVersion ordering. A compare error means the values are
+// not well-formed and the caller must not replace the cache.
+func resourceVersionOlder(incoming, cached string) (bool, error) {
+	cmp, err := resourceversion.CompareResourceVersion(incoming, cached)
+	if err != nil {
+		return false, err
 	}
-	if incoming == "" {
-		return cached != ""
-	}
-	if cached == "" {
-		return false
-	}
-	in, errIn := strconv.ParseUint(incoming, 10, 64)
-	ca, errCa := strconv.ParseUint(cached, 10, 64)
-	if errIn != nil || errCa != nil {
-		return false
-	}
-	return in < ca
+	return cmp < 0, nil
+}
+
+func wellFormedResourceVersion(rv string) bool {
+	_, err := resourceversion.CompareResourceVersion(rv, rv)
+	return err == nil
 }
 
 // IsMatchGpuChip checks if the node's GPU chip matches the specified chip type.
