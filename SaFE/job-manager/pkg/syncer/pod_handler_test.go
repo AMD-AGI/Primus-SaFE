@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
@@ -436,14 +437,43 @@ func TestRemoveWorkloadPodResolvesMeshWorkload(t *testing.T) {
 	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
 }
 
-func TestRemoveWorkloadPodUsesCachedMeshWhenMeshGone(t *testing.T) {
+func TestPersistMeshPodOwnership(t *testing.T) {
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name:      "mesh-worker-0",
+		Namespace: "ws",
+		Labels:    map[string]string{monarchMeshLabel: "mesh"},
+	}}
+	clientSet := k8sfake.NewSimpleClientset(pod)
+	clientSets := &ClusterClientSets{
+		dataClientFactory: commonclient.NewClientFactoryWithOnlyClient(
+			context.Background(), "cluster", clientSet),
+	}
+	r := &SyncerReconciler{}
+
+	assert.NilError(t, r.persistMeshPodOwnership(context.Background(), clientSets, pod,
+		"workload", "1", "1", "main"))
+
+	got, err := clientSet.CoreV1().Pods("ws").Get(context.Background(), pod.Name, metav1.GetOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, v1.GetWorkloadId(got), "workload")
+	assert.Equal(t, v1.GetGroupId(got), "1")
+	resourceID, ok := v1.GetResourceId(got)
+	assert.Assert(t, ok)
+	assert.Equal(t, resourceID, 1)
+	assert.Equal(t, v1.GetMainContainer(got), "main")
+}
+
+func TestHandleMonarchMeshDeleteReleasesOnlyItsGroup(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
 		Name:        "w",
 		Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
 	}}
-	w.Status.Pods = []v1.WorkloadPod{{
-		PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodRunning,
-	}}
+	w.Spec.Kind = common.MonarchJob
+	w.Status.Pods = []v1.WorkloadPod{
+		{PodId: "client", ResourceId: 0, GroupId: -1, AdminNodeName: "n1", Phase: corev1.PodRunning},
+		{PodId: "mesh-1", ResourceId: 1, GroupId: 1, AdminNodeName: "n2", Phase: corev1.PodRunning},
+		{PodId: "mesh-2", ResourceId: 1, GroupId: 2, AdminNodeName: "n3", Phase: corev1.PodRunning},
+	}
 	cl := ctrlfake.NewClientBuilder().
 		WithScheme(syncerScheme(t)).
 		WithObjects(w).
@@ -454,19 +484,68 @@ func TestRemoveWorkloadPodUsesCachedMeshWhenMeshGone(t *testing.T) {
 	defer patches.Reset()
 	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getMonarchMesh",
 		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, _, _ string) (*unstructured.Unstructured, error) {
-			return nil, apierrors.NewNotFound(schema.GroupResource{Group: "monarch.pytorch.org", Resource: "monarchmeshes"}, "mj-mesh-0")
+			return nil, apierrors.NewNotFound(
+				schema.GroupResource{Group: "monarch.pytorch.org", Resource: "monarchmeshes"}, "mesh")
 		})
 
-	clientSets := monkeyClientSets()
-	clientSets.rememberMeshWorkload("ws", "mj-mesh-0", "w")
 	r := &SyncerReconciler{Client: cl}
-	err := r.removeWorkloadPod(context.Background(), clientSets,
-		&resourceMessage{meshName: "mj-mesh-0", namespace: "ws", name: "p1"})
+	result, err := r.handleMonarchMesh(context.Background(), clientSetsWithPodCache(t, true),
+		&resourceMessage{
+			action:     ResourceDel,
+			name:       "mesh",
+			namespace:  "ws",
+			uid:        apitypes.UID("old-mesh-uid"),
+			workloadId: "w",
+			groupId:    "1",
+		})
 	assert.NilError(t, err)
+	assert.Equal(t, result.RequeueAfter, time.Duration(0))
 
 	got := &v1.Workload{}
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
-	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodRunning)
+	assert.Equal(t, got.Status.Pods[1].Phase, corev1.PodPhase(v1.WorkloadStopped))
+	assert.Equal(t, got.Status.Pods[2].Phase, corev1.PodRunning)
+}
+
+func TestHandleMonarchMeshDeleteSkipsSameNameReplacement(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getMonarchMesh",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, _, _ string) (*unstructured.Unstructured, error) {
+			mesh := &unstructured.Unstructured{Object: map[string]any{}}
+			mesh.SetUID(apitypes.UID("new-mesh-uid"))
+			return mesh, nil
+		})
+
+	r := &SyncerReconciler{}
+	result, err := r.handleMonarchMesh(context.Background(), monkeyClientSets(), &resourceMessage{
+		action: ResourceDel, name: "mesh", namespace: "ws", uid: apitypes.UID("old-mesh-uid"),
+		workloadId: "old-workload", groupId: "1",
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, result.RequeueAfter, time.Duration(0))
+}
+
+func TestHandleMonarchMeshDeleteWaitsForPods(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getMonarchMesh",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, _, _ string) (*unstructured.Unstructured, error) {
+			return nil, apierrors.NewNotFound(
+				schema.GroupResource{Group: "monarch.pytorch.org", Resource: "monarchmeshes"}, "mesh")
+		})
+	meshPod := podInCache("ws", "mesh-worker-0", "")
+	meshPod.SetLabels(map[string]string{monarchMeshLabel: "mesh"})
+
+	r := &SyncerReconciler{}
+	result, err := r.handleMonarchMesh(context.Background(),
+		clientSetsWithPodCache(t, true, meshPod), &resourceMessage{
+			action: ResourceDel, name: "mesh", namespace: "ws",
+			uid: apitypes.UID("mesh-uid"), workloadId: "w", groupId: "1",
+		})
+	assert.NilError(t, err)
+	assert.Equal(t, result.RequeueAfter, time.Second)
 }
 
 func TestHandleRaySubmitterTimeoutNonRayJob(t *testing.T) {

@@ -56,10 +56,6 @@ type ClusterClientSets struct {
 	resourceInformers *commonutils.ObjectManager
 	// guards addResourceTemplate / delResourceTemplate against concurrent setup.
 	templateMu sync.Mutex
-	// meshWorkloadIDs maps namespace/meshName to the root workload id. Mesh
-	// pods carry no workload id; a live Get of the mesh fails after the mesh
-	// is deleted, so this mapping is kept after mesh delete events.
-	meshWorkloadIDs sync.Map
 }
 
 // resourceInformer wraps a GenericInformer with context management for lifecycle control
@@ -121,31 +117,6 @@ func (r *ClusterClientSets) SetName(name string) {
 
 func (r *ClusterClientSets) SetClientFactory(factory *commonclient.ClientFactory) {
 	r.dataClientFactory = factory
-}
-
-func meshCacheKey(namespace, meshName string) string {
-	return namespace + "/" + meshName
-}
-
-// rememberMeshWorkload records which workload owns a Monarch mesh.
-func (r *ClusterClientSets) rememberMeshWorkload(namespace, meshName, workloadID string) {
-	if r == nil || namespace == "" || meshName == "" || workloadID == "" {
-		return
-	}
-	r.meshWorkloadIDs.Store(meshCacheKey(namespace, meshName), workloadID)
-}
-
-// lookupMeshWorkload returns the cached workload id for a Monarch mesh.
-func (r *ClusterClientSets) lookupMeshWorkload(namespace, meshName string) string {
-	if r == nil || meshName == "" {
-		return ""
-	}
-	v, ok := r.meshWorkloadIDs.Load(meshCacheKey(namespace, meshName))
-	if !ok {
-		return ""
-	}
-	id, _ := v.(string)
-	return id
 }
 
 // ClientFactory returns the data plane client factory.
@@ -295,12 +266,6 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 			msg.workloadId = v1.GetWorkloadId(oldUnstructured)
 			msg.meshName = oldUnstructured.GetLabels()[monarchMeshLabel]
 		}
-	}
-	if msg.gvk.Kind == common.MonarchMesh && msg.workloadId != "" {
-		r.rememberMeshWorkload(msg.namespace, msg.name, msg.workloadId)
-	}
-	if msg.workloadId == "" && msg.meshName != "" {
-		msg.workloadId = r.lookupMeshWorkload(msg.namespace, msg.meshName)
 	}
 	// Only resources dispatched by this system are currently synchronized; others are ignored.
 	// Mesh pods carry no workload id; the mesh name is enough to accept the event.

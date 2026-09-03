@@ -292,6 +292,8 @@ func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ct
 		result, err = r.handleJob(ctx, message, clientSets)
 	case common.PodKind:
 		result, err = r.handlePod(ctx, message, clientSets)
+	case common.MonarchMesh:
+		result, err = r.handleMonarchMesh(ctx, clientSets, message)
 	}
 	if jobutils.IsUnrecoverableError(err) {
 		err = nil

@@ -324,30 +324,6 @@ func TestHandleResourceMeshPodDelete(t *testing.T) {
 	assert.Equal(t, captured.action, ResourceDel)
 }
 
-func TestHandleResourceMeshEventCachesWorkloadForPodDelete(t *testing.T) {
-	var captured *resourceMessage
-	c := &ClusterClientSets{
-		name:    "cl",
-		handler: ResourceHandler(func(m *resourceMessage) { captured = m }),
-	}
-	mesh := &unstructured.Unstructured{Object: map[string]interface{}{}}
-	mesh.SetKind(common.MonarchMesh)
-	mesh.SetName("mj-mesh-0")
-	mesh.SetNamespace("ws")
-	mesh.SetLabels(map[string]string{v1.WorkloadIdLabel: "w"})
-	c.handleResource(context.Background(), nil, mesh, ResourceDel)
-
-	pod := &unstructured.Unstructured{Object: map[string]interface{}{}}
-	pod.SetKind("Pod")
-	pod.SetName("mj-mesh-0-worker-0")
-	pod.SetNamespace("ws")
-	pod.SetLabels(map[string]string{monarchMeshLabel: "mj-mesh-0"})
-	c.handleResource(context.Background(), nil, pod, ResourceDel)
-	assert.Assert(t, captured != nil)
-	assert.Equal(t, captured.meshName, "mj-mesh-0")
-	assert.Equal(t, captured.workloadId, "w")
-}
-
 func TestHandleResourceManaged(t *testing.T) {
 	var captured *resourceMessage
 	c := &ClusterClientSets{

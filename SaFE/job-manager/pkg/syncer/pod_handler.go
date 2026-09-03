@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
@@ -192,12 +193,26 @@ func convertPodFromUnstructured(obj *unstructured.Unstructured) *corev1.Pod {
 
 func (r *SyncerReconciler) lockPodStatusForPod(ctx context.Context, clientSets *ClusterClientSets,
 	pod *corev1.Pod, message *resourceMessage) (func(), error) {
-	msg := *message
 	if meshName := pod.GetLabels()[monarchMeshLabel]; meshName != "" {
-		msg.meshName = meshName
-		msg.namespace = pod.GetNamespace()
+		message.meshName = meshName
+		message.namespace = pod.GetNamespace()
+		if v1.GetWorkloadId(pod) == "" {
+			meshObj, err := r.getMonarchMesh(ctx, clientSets, meshName, pod.GetNamespace())
+			if err != nil {
+				return nil, err
+			}
+			message.workloadId = v1.GetWorkloadId(meshObj)
+			if err = r.persistMeshPodOwnership(ctx, clientSets, pod, message.workloadId,
+				v1.GetLabel(meshObj, v1.GroupIdLabel),
+				v1.GetAnnotation(meshObj, v1.ResourceIdAnnotation),
+				v1.GetAnnotation(meshObj, v1.MainContainerAnnotation)); err != nil {
+				return nil, err
+			}
+		} else {
+			message.workloadId = v1.GetWorkloadId(pod)
+		}
 	}
-	id, err := r.resolvePodWorkloadID(ctx, clientSets, &msg)
+	id, err := r.resolvePodWorkloadID(ctx, clientSets, message)
 	if err != nil {
 		return nil, err
 	}
@@ -213,17 +228,10 @@ func (r *SyncerReconciler) resolvePodWorkloadID(ctx context.Context, clientSets 
 		return "", nil
 	}
 	meshObj, err := r.getMonarchMesh(ctx, clientSets, message.meshName, message.namespace)
-	if err == nil {
-		id := v1.GetWorkloadId(meshObj)
-		clientSets.rememberMeshWorkload(message.namespace, message.meshName, id)
-		return id, nil
+	if err != nil {
+		return "", err
 	}
-	if apierrors.IsNotFound(err) {
-		if id := clientSets.lookupMeshWorkload(message.namespace, message.meshName); id != "" {
-			return id, nil
-		}
-	}
-	return "", err
+	return v1.GetWorkloadId(meshObj), nil
 }
 
 func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
@@ -231,16 +239,22 @@ func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
 	var adminWorkload *v1.Workload
 	var err error
 	if meshName := pod.GetLabels()[monarchMeshLabel]; meshName != "" {
-		var meshObj *unstructured.Unstructured
-		meshObj, err = r.getMonarchMesh(ctx, clientSets, meshName, pod.GetNamespace())
-		if err != nil {
-			return nil, err
+		workloadID := v1.GetWorkloadId(pod)
+		if workloadID == "" {
+			var meshObj *unstructured.Unstructured
+			meshObj, err = r.getMonarchMesh(ctx, clientSets, meshName, pod.GetNamespace())
+			if err != nil {
+				return nil, err
+			}
+			workloadID = v1.GetWorkloadId(meshObj)
+			groupID := v1.GetLabel(meshObj, v1.GroupIdLabel)
+			resourceID := v1.GetAnnotation(meshObj, v1.ResourceIdAnnotation)
+			mainContainer := v1.GetAnnotation(meshObj, v1.MainContainerAnnotation)
+			if err = r.persistMeshPodOwnership(ctx, clientSets, pod,
+				workloadID, groupID, resourceID, mainContainer); err != nil {
+				return nil, err
+			}
 		}
-		v1.SetLabel(pod, v1.GroupIdLabel, v1.GetLabel(meshObj, v1.GroupIdLabel))
-		v1.SetAnnotation(pod, v1.ResourceIdAnnotation, v1.GetAnnotation(meshObj, v1.ResourceIdAnnotation))
-		v1.SetAnnotation(pod, v1.MainContainerAnnotation, v1.GetAnnotation(meshObj, v1.MainContainerAnnotation))
-		workloadID := v1.GetWorkloadId(meshObj)
-		clientSets.rememberMeshWorkload(pod.GetNamespace(), meshName, workloadID)
 		adminWorkload, err = r.getAdminWorkload(ctx, workloadID)
 	} else {
 		adminWorkload, err = r.getAdminWorkload(ctx, message.workloadId)
@@ -250,6 +264,48 @@ func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
 	}
 	v1.SetLabel(adminWorkload, v1.WorkloadDispatchCntLabel, strconv.Itoa(message.dispatchCount))
 	return adminWorkload, nil
+}
+
+// persistMeshPodOwnership stores stable ownership on a generated mesh pod.
+func (r *SyncerReconciler) persistMeshPodOwnership(ctx context.Context, clientSets *ClusterClientSets,
+	pod *corev1.Pod, workloadID, groupID, resourceID, mainContainer string) error {
+	labelsPatch := map[string]any{v1.WorkloadIdLabel: workloadID}
+	annotationsPatch := map[string]any{}
+	if groupID != "" {
+		labelsPatch[v1.GroupIdLabel] = groupID
+	}
+	if resourceID != "" {
+		annotationsPatch[v1.ResourceIdAnnotation] = resourceID
+	}
+	if mainContainer != "" {
+		annotationsPatch[v1.MainContainerAnnotation] = mainContainer
+	}
+	metadataPatch := map[string]any{"labels": labelsPatch}
+	if pod.ResourceVersion != "" {
+		// Guard against stamping ownership from an old event onto a same-name
+		// replacement pod.
+		metadataPatch["resourceVersion"] = pod.ResourceVersion
+	}
+	patch := map[string]any{"metadata": metadataPatch}
+	if len(annotationsPatch) > 0 {
+		metadataPatch["annotations"] = annotationsPatch
+	}
+	_, err := clientSets.dataClientFactory.ClientSet().CoreV1().Pods(pod.Namespace).Patch(
+		ctx, pod.Name, apitypes.MergePatchType, jsonutils.MarshalSilently(patch), metav1.PatchOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	v1.SetLabel(pod, v1.WorkloadIdLabel, workloadID)
+	if groupID != "" {
+		v1.SetLabel(pod, v1.GroupIdLabel, groupID)
+	}
+	if resourceID != "" {
+		v1.SetAnnotation(pod, v1.ResourceIdAnnotation, resourceID)
+	}
+	if mainContainer != "" {
+		v1.SetAnnotation(pod, v1.MainContainerAnnotation, mainContainer)
+	}
+	return nil
 }
 
 func (r *SyncerReconciler) getK8sNode(ctx context.Context, clientSets *ClusterClientSets, nodeName string) (*corev1.Node, error) {
@@ -481,6 +537,78 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	return nil
 }
 
+// handleMonarchMesh releases one mesh group's pod records after its pods are gone.
+func (r *SyncerReconciler) handleMonarchMesh(ctx context.Context, clientSets *ClusterClientSets,
+	message *resourceMessage) (ctrlruntime.Result, error) {
+	if message.action != ResourceDeleting && message.action != ResourceDel {
+		return ctrlruntime.Result{}, nil
+	}
+
+	mesh, err := r.getMonarchMesh(ctx, clientSets, message.name, message.namespace)
+	if err == nil && mesh.GetUID() != message.uid {
+		klog.InfoS("skip stale mesh delete event after same-name mesh replacement",
+			"namespace", message.namespace, "mesh", message.name,
+			"deletedUID", message.uid, "currentUID", mesh.GetUID())
+		return ctrlruntime.Result{}, nil
+	}
+	if err != nil && !apierrors.IsNotFound(err) {
+		return ctrlruntime.Result{}, err
+	}
+
+	remain, known, err := meshPodsRemain(ctx, clientSets, message.namespace, message.name)
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	if !known || remain {
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+	}
+
+	groupID, err := strconv.Atoi(message.groupId)
+	if err != nil {
+		return ctrlruntime.Result{}, fmt.Errorf("invalid MonarchMesh group id %q: %w", message.groupId, err)
+	}
+	unlock := r.lockPodStatus(message.workloadId)
+	defer unlock()
+	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
+	if err != nil || adminWorkload == nil {
+		return ctrlruntime.Result{}, err
+	}
+	if !commonworkload.IsMonarchJob(adminWorkload) {
+		return ctrlruntime.Result{}, fmt.Errorf("workload %s is not a MonarchJob", adminWorkload.Name)
+	}
+
+	changed := false
+	for i := range adminWorkload.Status.Pods {
+		pod := &adminWorkload.Status.Pods[i]
+		if pod.ResourceId <= 0 || int(pod.GroupId) != groupID {
+			continue
+		}
+		if r.applyPodGone(adminWorkload, i) {
+			changed = true
+		}
+	}
+	if !changed {
+		_, err = r.repairNodeUsage(ctx, adminWorkload)
+		return ctrlruntime.Result{}, err
+	}
+	return ctrlruntime.Result{}, r.patchWorkloadPodStatus(ctx, adminWorkload, nil)
+}
+
+// meshPodsRemain checks the synced pod cache for pods owned by a mesh name.
+func meshPodsRemain(ctx context.Context, clientSets *ClusterClientSets,
+	namespace, meshName string) (bool, bool, error) {
+	informer, err := clientSets.GetResourceInformer(ctx, podResourceGVK)
+	if err != nil || !informer.Informer().HasSynced() {
+		return false, false, nil
+	}
+	selector := labels.SelectorFromSet(labels.Set{monarchMeshLabel: meshName})
+	pods, err := informer.Lister().ByNamespace(namespace).List(selector)
+	if err != nil {
+		return false, false, err
+	}
+	return len(pods) > 0, true, nil
+}
+
 // applyPodGone records in the workload status that one of its pods no longer
 // exists, and reports whether the status changed.
 //
@@ -661,10 +789,8 @@ func (r *SyncerReconciler) livePodNames(ctx context.Context, clientSets *Cluster
 	if !addPodNames(objs, live, adminWorkload.Name) {
 		return nil, false
 	}
-	// Monarch mesh pods carry neither label: MonarchMesh exposes a bare PodSpec under
-	// spec.podTemplate, which has no metadata for updateMetadata to stamp, so the pods
-	// are identified by their mesh instead -- the same route handleResource and
-	// getAdminWorkloadAndSyncPod take to attribute their records.
+	// A mesh pod gets the workload label after its first successful sync. Pods not
+	// yet observed by this process still need ownership resolved from the mesh.
 	if commonworkload.IsMonarchJob(adminWorkload) &&
 		!r.addMeshPodNames(ctx, clientSets, informer.Lister(), adminWorkload, live) {
 		return nil, false
@@ -691,13 +817,9 @@ func addPodNames(objs []runtime.Object, live map[string]struct{}, workloadName s
 // addMeshPodNames adds the workload's Monarch mesh pods to live, and reports whether
 // their ownership could be established.
 //
-// A mesh pod names its mesh rather than its workload, so ownership is resolved from
-// the mesh object exactly as getAdminWorkloadAndSyncPod resolves it when recording
-// the pod. Only a pod that a record names is resolved: live is read by record, so any
-// other pod's mesh is a live Get that cannot change the outcome -- and one belonging
-// to an unrelated job, torn down as those routinely are, would otherwise make this
-// workload's answer unknown. Meshes are resolved once each, a mesh having as many
-// pods as it has nodes.
+// Persisted workload labels are authoritative for one pod generation. Unlabeled
+// pods are resolved from their live mesh. Only a pod that a record names is
+// resolved, and each mesh is read once.
 func (r *SyncerReconciler) addMeshPodNames(ctx context.Context, clientSets *ClusterClientSets,
 	lister cache.GenericLister, adminWorkload *v1.Workload, live map[string]struct{}) bool {
 	selector, err := labels.Parse(monarchMeshLabel)
@@ -722,6 +844,12 @@ func (r *SyncerReconciler) addMeshPodNames(ctx context.Context, clientSets *Clus
 			return false
 		}
 		if _, hasRecord := recorded[pod.GetName()]; !hasRecord {
+			continue
+		}
+		if workloadID := v1.GetWorkloadId(pod); workloadID != "" {
+			if workloadID == adminWorkload.Name {
+				live[pod.GetName()] = struct{}{}
+			}
 			continue
 		}
 		meshName := pod.GetLabels()[monarchMeshLabel]
