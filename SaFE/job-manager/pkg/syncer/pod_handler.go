@@ -213,10 +213,17 @@ func (r *SyncerReconciler) resolvePodWorkloadID(ctx context.Context, clientSets 
 		return "", nil
 	}
 	meshObj, err := r.getMonarchMesh(ctx, clientSets, message.meshName, message.namespace)
-	if err != nil {
-		return "", err
+	if err == nil {
+		id := v1.GetWorkloadId(meshObj)
+		clientSets.rememberMeshWorkload(message.namespace, message.meshName, id)
+		return id, nil
 	}
-	return v1.GetWorkloadId(meshObj), nil
+	if apierrors.IsNotFound(err) {
+		if id := clientSets.lookupMeshWorkload(message.namespace, message.meshName); id != "" {
+			return id, nil
+		}
+	}
+	return "", err
 }
 
 func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
@@ -232,7 +239,9 @@ func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
 		v1.SetLabel(pod, v1.GroupIdLabel, v1.GetLabel(meshObj, v1.GroupIdLabel))
 		v1.SetAnnotation(pod, v1.ResourceIdAnnotation, v1.GetAnnotation(meshObj, v1.ResourceIdAnnotation))
 		v1.SetAnnotation(pod, v1.MainContainerAnnotation, v1.GetAnnotation(meshObj, v1.MainContainerAnnotation))
-		adminWorkload, err = r.getAdminWorkload(ctx, v1.GetWorkloadId(meshObj))
+		workloadID := v1.GetWorkloadId(meshObj)
+		clientSets.rememberMeshWorkload(pod.GetNamespace(), meshName, workloadID)
+		adminWorkload, err = r.getAdminWorkload(ctx, workloadID)
 	} else {
 		adminWorkload, err = r.getAdminWorkload(ctx, message.workloadId)
 	}

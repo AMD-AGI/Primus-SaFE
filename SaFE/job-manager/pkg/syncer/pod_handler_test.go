@@ -436,6 +436,39 @@ func TestRemoveWorkloadPodResolvesMeshWorkload(t *testing.T) {
 	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
 }
 
+func TestRemoveWorkloadPodUsesCachedMeshWhenMeshGone(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:        "w",
+		Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
+	}}
+	w.Status.Pods = []v1.WorkloadPod{{
+		PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodRunning,
+	}}
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(syncerScheme(t)).
+		WithObjects(w).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getMonarchMesh",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, _, _ string) (*unstructured.Unstructured, error) {
+			return nil, apierrors.NewNotFound(schema.GroupResource{Group: "monarch.pytorch.org", Resource: "monarchmeshes"}, "mj-mesh-0")
+		})
+
+	clientSets := monkeyClientSets()
+	clientSets.rememberMeshWorkload("ws", "mj-mesh-0", "w")
+	r := &SyncerReconciler{Client: cl}
+	err := r.removeWorkloadPod(context.Background(), clientSets,
+		&resourceMessage{meshName: "mj-mesh-0", namespace: "ws", name: "p1"})
+	assert.NilError(t, err)
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+}
+
 func TestHandleRaySubmitterTimeoutNonRayJob(t *testing.T) {
 	r := &SyncerReconciler{}
 	w := &v1.Workload{}
