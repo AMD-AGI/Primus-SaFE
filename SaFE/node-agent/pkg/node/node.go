@@ -241,7 +241,7 @@ func (n *Node) applyWatchEvent(event watch.Event) error {
 		if !ok || node == nil {
 			return fmt.Errorf("unexpected watch object: %T", event.Object)
 		}
-		n.setK8sNode(node)
+		n.setK8sNodeIfNewer(node)
 	case watch.Deleted:
 		klog.InfoS("watched node was deleted")
 	case watch.Error:
@@ -309,20 +309,18 @@ func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
 		if k8sNode == nil {
 			return fmt.Errorf("please initialize node first")
 		}
-		sentResourceVersion := k8sNode.ResourceVersion
 		k8sNode.Status.Conditions = conditions
 
 		node, updateErr := n.k8sClient.Nodes().UpdateStatus(n.ctx, k8sNode, metav1.UpdateOptions{})
 		if updateErr != nil {
 			if apierrors.IsConflict(updateErr) {
-				// refresh node
 				if err = n.syncK8sNode(); err != nil {
 					return err
 				}
 			}
 			return updateErr
 		}
-		n.setK8sNodeIfUnchanged(sentResourceVersion, node)
+		n.setK8sNodeIfNewer(node)
 		return nil
 	})
 
@@ -345,7 +343,7 @@ func (n *Node) updateNodeStartTime(startTime time.Time) error {
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	n.setK8sNodeIfUnchanged(k8sNode.ResourceVersion, patched)
+	n.setK8sNodeIfNewer(patched)
 	return nil
 }
 
@@ -376,22 +374,43 @@ func (n *Node) setK8sNode(node *corev1.Node) {
 	n.k8sNode = node.DeepCopy()
 }
 
-// setK8sNodeIfUnchanged stores an API response only when the cache still holds
-// the resource version the request was built from. A watch event applied while
-// the request was in flight is newer and must not be rolled back.
-func (n *Node) setK8sNodeIfUnchanged(expectedResourceVersion string, node *corev1.Node) bool {
+// setK8sNodeIfNewer stores node unless its resource version is older than the
+// cache. Equality is not an ordering: a delayed watch event and a GET or
+// UpdateStatus response can both differ from the cached value, and only a
+// numeric compare tells which one should win.
+func (n *Node) setK8sNodeIfNewer(node *corev1.Node) bool {
 	if node == nil {
 		return false
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if n.k8sNode != nil && n.k8sNode.ResourceVersion != expectedResourceVersion {
-		klog.V(4).InfoS("skip stale node response",
-			"cached", n.k8sNode.ResourceVersion, "expected", expectedResourceVersion)
+	if n.k8sNode != nil && resourceVersionOlder(node.ResourceVersion, n.k8sNode.ResourceVersion) {
+		klog.V(4).InfoS("skip older node object",
+			"cached", n.k8sNode.ResourceVersion, "incoming", node.ResourceVersion)
 		return false
 	}
 	n.k8sNode = node.DeepCopy()
 	return true
+}
+
+// resourceVersionOlder reports whether incoming is behind cached. apiserver
+// resource versions are decimal etcd revisions, so "9" is older than "10".
+func resourceVersionOlder(incoming, cached string) bool {
+	if incoming == cached {
+		return false
+	}
+	if incoming == "" {
+		return cached != ""
+	}
+	if cached == "" {
+		return false
+	}
+	in, errIn := strconv.ParseUint(incoming, 10, 64)
+	ca, errCa := strconv.ParseUint(cached, 10, 64)
+	if errIn != nil || errCa != nil {
+		return false
+	}
+	return in < ca
 }
 
 // IsMatchGpuChip checks if the node's GPU chip matches the specified chip type.
@@ -471,7 +490,7 @@ func (n *Node) syncK8sNode() error {
 		klog.ErrorS(err, "failed to get k8s node")
 		return err
 	}
-	n.setK8sNode(k8sNode)
+	n.setK8sNodeIfNewer(k8sNode)
 	return nil
 }
 

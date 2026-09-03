@@ -160,7 +160,15 @@ func TestWatchTimeoutSecondsIsRandomizedAboveMinimum(t *testing.T) {
 	assert.Assert(t, len(seen) > 1, "timeout was not randomized")
 }
 
-func TestSetK8sNodeIfUnchangedSkipsStaleResponse(t *testing.T) {
+func TestResourceVersionOlderUsesDecimalOrder(t *testing.T) {
+	assert.Equal(t, resourceVersionOlder("9", "10"), true)
+	assert.Equal(t, resourceVersionOlder("10", "9"), false)
+	assert.Equal(t, resourceVersionOlder("12", "12"), false)
+	assert.Equal(t, resourceVersionOlder("", "12"), true)
+	assert.Equal(t, resourceVersionOlder("12", ""), false)
+}
+
+func TestSetK8sNodeIfNewerSkipsOlderResourceVersion(t *testing.T) {
 	n, _ := newNode(t)
 	watched := n.GetK8sNode().DeepCopy()
 	watched.ResourceVersion = "12"
@@ -170,15 +178,62 @@ func TestSetK8sNodeIfUnchangedSkipsStaleResponse(t *testing.T) {
 	stale := n.GetK8sNode().DeepCopy()
 	stale.ResourceVersion = "11"
 	stale.Labels["source"] = "update"
-	assert.Equal(t, n.setK8sNodeIfUnchanged("11", stale), false)
+	assert.Equal(t, n.setK8sNodeIfNewer(stale), false)
 	assert.Equal(t, n.GetK8sNode().ResourceVersion, "12")
 	assert.Equal(t, n.GetK8sNode().Labels["source"], "watch")
 
 	fresh := n.GetK8sNode().DeepCopy()
 	fresh.ResourceVersion = "13"
 	fresh.Labels["source"] = "update"
-	assert.Equal(t, n.setK8sNodeIfUnchanged("12", fresh), true)
+	assert.Equal(t, n.setK8sNodeIfNewer(fresh), true)
 	assert.Equal(t, n.GetK8sNode().ResourceVersion, "13")
+}
+
+func TestCacheKeepsAheadGetWhenDelayedWatchArrives(t *testing.T) {
+	n, _ := newNode(t)
+	n.setK8sNode(nodeWithRV(n.GetK8sNode(), "10", "watch-10"))
+	assert.Equal(t, n.setK8sNodeIfNewer(nodeWithRV(n.GetK8sNode(), "11", "get-11")), true)
+	assert.Equal(t, n.setK8sNodeIfNewer(nodeWithRV(n.GetK8sNode(), "12", "update-12")), true)
+
+	assert.NilError(t, n.applyWatchEvent(watch.Event{
+		Type:   watch.Modified,
+		Object: nodeWithRV(n.GetK8sNode(), "10", "watch-10"),
+	}))
+	assert.NilError(t, n.applyWatchEvent(watch.Event{
+		Type:   watch.Modified,
+		Object: nodeWithRV(n.GetK8sNode(), "11", "get-11"),
+	}))
+	assert.Equal(t, n.GetK8sNode().ResourceVersion, "12")
+	assert.Equal(t, n.GetK8sNode().Labels["source"], "update-12")
+}
+
+func TestUpdateStatusAppliesAfterStaleWatchEvent(t *testing.T) {
+	n, _ := newNode(t)
+	n.setK8sNode(nodeWithRV(n.GetK8sNode(), "12", "update-12"))
+
+	staleWatch := nodeWithRV(n.GetK8sNode(), "10", "watch-10")
+	assert.NilError(t, n.applyWatchEvent(watch.Event{Type: watch.Modified, Object: staleWatch}))
+	assert.Equal(t, n.GetK8sNode().ResourceVersion, "12")
+	assert.Equal(t, n.GetK8sNode().Labels["source"], "update-12")
+
+	response := nodeWithRV(n.GetK8sNode(), "12", "update-12")
+	assert.Equal(t, n.setK8sNodeIfNewer(response), true)
+	assert.Equal(t, n.GetK8sNode().ResourceVersion, "12")
+
+	n.setK8sNode(nodeWithRV(n.GetK8sNode(), "10", "watch-10"))
+	assert.Equal(t, n.setK8sNodeIfNewer(response), true)
+	assert.Equal(t, n.GetK8sNode().ResourceVersion, "12")
+	assert.Equal(t, n.GetK8sNode().Labels["source"], "update-12")
+}
+
+func nodeWithRV(node *corev1.Node, rv, source string) *corev1.Node {
+	out := node.DeepCopy()
+	out.ResourceVersion = rv
+	if out.Labels == nil {
+		out.Labels = map[string]string{}
+	}
+	out.Labels["source"] = source
+	return out
 }
 
 func TestUpdateConditionsKeepsNewerWatchState(t *testing.T) {
