@@ -16,7 +16,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/util/retry"
@@ -33,7 +35,7 @@ import (
 var (
 	NSENTER = "nsenter --target 1 --mount --uts --ipc --net --pid --"
 
-	SYNC_INTERVAL = 3 * time.Second
+	WATCH_RETRY_INTERVAL = 3 * time.Second
 )
 
 // Node represents a Kubernetes node with additional functionality for monitoring and updating node status
@@ -82,22 +84,83 @@ func (n *Node) Start() error {
 	return nil
 }
 
-// update runs continuously to sync node status at regular intervals.
+// update watches the current node and reconnects after watch failures.
 func (n *Node) update() {
-	ticker := time.NewTicker(SYNC_INTERVAL)
-	defer ticker.Stop()
-	n.syncK8sNode()
+	for {
+		if n.ctx.Err() != nil {
+			n.logWatcherStop()
+			return
+		}
+		if err := n.watchK8sNode(); err != nil && n.ctx.Err() == nil {
+			klog.ErrorS(err, "failed to watch k8s node")
+		}
+		select {
+		case <-n.ctx.Done():
+			n.logWatcherStop()
+			return
+		case <-time.After(WATCH_RETRY_INTERVAL):
+		}
+	}
+}
+
+func (n *Node) logWatcherStop() {
+	if n.k8sNode != nil {
+		klog.Infof("stop node watcher: %s", n.k8sNode.Name)
+	}
+}
+
+// watchK8sNode watches only the current node and updates the local cache.
+func (n *Node) watchK8sNode() error {
+	if err := n.syncK8sNode(); err != nil {
+		return err
+	}
+
+	n.mu.Lock()
+	name := n.k8sNode.Name
+	rv := n.k8sNode.ResourceVersion
+	n.mu.Unlock()
+
+	watcher, err := n.k8sClient.Nodes().Watch(n.ctx, metav1.ListOptions{
+		FieldSelector:   fields.OneTermEqualSelector("metadata.name", name).String(),
+		ResourceVersion: rv,
+	})
+	if err != nil {
+		return err
+	}
+	defer watcher.Stop()
+
 	for {
 		select {
 		case <-n.ctx.Done():
-			if n.k8sNode != nil {
-				klog.Infof("stop node watcher: %s", n.k8sNode.Name)
+			return n.ctx.Err()
+		case event, ok := <-watcher.ResultChan():
+			if !ok {
+				return fmt.Errorf("watch closed")
 			}
-			return
-		case <-ticker.C:
-			n.syncK8sNode()
+			if err := n.applyWatchEvent(event); err != nil {
+				return err
+			}
 		}
 	}
+}
+
+// applyWatchEvent applies a watch event for the current node to the local cache.
+func (n *Node) applyWatchEvent(event watch.Event) error {
+	switch event.Type {
+	case watch.Added, watch.Modified:
+		node, ok := event.Object.(*corev1.Node)
+		if !ok || node == nil {
+			return fmt.Errorf("unexpected watch object: %T", event.Object)
+		}
+		n.mu.Lock()
+		n.k8sNode = node.DeepCopy()
+		n.mu.Unlock()
+	case watch.Deleted:
+		klog.InfoS("watched node was deleted")
+	case watch.Error:
+		return fmt.Errorf("watch error: %v", event.Object)
+	}
+	return nil
 }
 
 // updateStartTime updates the node's startup time by executing system commands(uptime -s).

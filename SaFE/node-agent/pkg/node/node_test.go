@@ -7,7 +7,6 @@ package node
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"runtime"
 	"strconv"
@@ -23,7 +22,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
 
@@ -55,36 +54,114 @@ func newNode(t *testing.T) (*Node, *fake.Clientset) {
 	opts := &types.Options{
 		NodeName: testNode.Name,
 	}
-	SYNC_INTERVAL = time.Millisecond * 100
+	savedRetry := WATCH_RETRY_INTERVAL
+	WATCH_RETRY_INTERVAL = time.Millisecond * 100
+	t.Cleanup(func() { WATCH_RETRY_INTERVAL = savedRetry })
 	n, err := NewNodeWithClientSet(context.Background(), opts, fakeClientSet)
 	assert.NilError(t, err)
 	return n, fakeClientSet
 }
 
+func waitForNodeLabel(t *testing.T, n *Node, key, want string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if n.GetK8sNode().Labels[key] == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("node label %s=%q, want %q", key, n.GetK8sNode().Labels[key], want)
+}
+
 func TestWatchNode(t *testing.T) {
-	// Mock NSENTER to avoid permission issues
-	savedNSENTER := NSENTER
-	NSENTER = ""
-	defer func() { NSENTER = savedNSENTER }()
-
 	n, fakeClientSet := newNode(t)
-	err := n.Start()
-	assert.NilError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	n.ctx = ctx
 
-	data, _ := json.Marshal(map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"labels": map[string]interface{}{
-				"test.key": "test.val",
-			},
-		},
+	watcher := watch.NewFake()
+	var fieldSelector string
+	fakeClientSet.PrependWatchReactor("nodes", func(action ktesting.Action) (bool, watch.Interface, error) {
+		wa := action.(ktesting.WatchAction)
+		if fields := wa.GetWatchRestrictions().Fields; fields != nil {
+			fieldSelector = fields.String()
+		}
+		return true, watcher, nil
 	})
-	_, err = fakeClientSet.CoreV1().Nodes().Patch(context.Background(), n.GetK8sNode().Name,
-		apitypes.MergePatchType, data, metav1.PatchOptions{})
-	assert.NilError(t, err)
 
-	time.Sleep(time.Millisecond * 200)
-	val, _ := n.GetK8sNode().Labels["test.key"]
-	assert.Equal(t, val, "test.val")
+	done := make(chan error, 1)
+	go func() {
+		done <- n.watchK8sNode()
+	}()
+
+	updated := n.GetK8sNode().DeepCopy()
+	updated.Labels["test.key"] = "test.val"
+	watcher.Modify(updated)
+	waitForNodeLabel(t, n, "test.key", "test.val")
+	assert.Equal(t, fieldSelector, "metadata.name=test-node")
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("watchK8sNode did not return after cancel")
+	}
+}
+
+func TestApplyWatchEventModified(t *testing.T) {
+	n, _ := newNode(t)
+	updated := n.GetK8sNode().DeepCopy()
+	updated.Labels["test.key"] = "test.val"
+	assert.NilError(t, n.applyWatchEvent(watch.Event{Type: watch.Modified, Object: updated}))
+	assert.Equal(t, n.GetK8sNode().Labels["test.key"], "test.val")
+}
+
+func TestApplyWatchEventUnexpectedObject(t *testing.T) {
+	n, _ := newNode(t)
+	err := n.applyWatchEvent(watch.Event{Type: watch.Added, Object: &corev1.Pod{}})
+	assert.Assert(t, err != nil)
+}
+
+func TestApplyWatchEventDeletedKeepsCache(t *testing.T) {
+	n, _ := newNode(t)
+	name := n.GetK8sNode().Name
+	assert.NilError(t, n.applyWatchEvent(watch.Event{Type: watch.Deleted, Object: n.GetK8sNode()}))
+	assert.Equal(t, n.GetK8sNode().Name, name)
+}
+
+func TestApplyWatchEventError(t *testing.T) {
+	n, _ := newNode(t)
+	err := n.applyWatchEvent(watch.Event{Type: watch.Error, Object: &metav1.Status{Message: "watch failed"}})
+	assert.Assert(t, err != nil)
+}
+
+func TestWatchK8sNodeWatchError(t *testing.T) {
+	n, fakeClientSet := newNode(t)
+	fakeClientSet.PrependWatchReactor("nodes", func(action ktesting.Action) (bool, watch.Interface, error) {
+		return true, nil, fmt.Errorf("watch failed")
+	})
+	err := n.watchK8sNode()
+	assert.Assert(t, err != nil)
+}
+
+func TestWatchK8sNodeClosed(t *testing.T) {
+	n, fakeClientSet := newNode(t)
+	watcher := watch.NewFake()
+	fakeClientSet.PrependWatchReactor("nodes", func(action ktesting.Action) (bool, watch.Interface, error) {
+		return true, watcher, nil
+	})
+	done := make(chan error, 1)
+	go func() {
+		done <- n.watchK8sNode()
+	}()
+	watcher.Stop()
+	select {
+	case err := <-done:
+		assert.Assert(t, err != nil)
+	case <-time.After(time.Second):
+		t.Fatal("watchK8sNode did not return after watch closed")
+	}
 }
 
 func TestGetGpuQuantity(t *testing.T) {
@@ -337,15 +414,22 @@ func TestIsMatchGpuChipInvalidAmdLabel(t *testing.T) {
 	assert.Equal(t, n.IsMatchGpuChip(string(v1.AmdGpuChip)), false)
 }
 
-// TestNodeUpdateStopsOnCancel exits the sync loop when the context is cancelled.
+// TestNodeUpdateStopsOnCancel exits the watch loop when the context is cancelled.
 func TestNodeUpdateStopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	n, _ := newNode(t)
 	n.ctx = ctx
-	go n.update()
+	done := make(chan struct{})
+	go func() {
+		n.update()
+		close(done)
+	}()
 	cancel()
-	time.Sleep(150 * time.Millisecond)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("update did not stop after cancel")
+	}
 }
 
 // --- merged from node_new_test.go ---
