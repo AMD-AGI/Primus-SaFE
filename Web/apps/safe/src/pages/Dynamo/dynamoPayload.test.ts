@@ -259,4 +259,29 @@ describe('dynamoPayload', () => {
       'Aggregation requires worker replica greater than 1',
     )
   })
+
+  it('omits the service name so the backend defaults it to the workload id', () => {
+    const form = createDefaultDynamoForm()
+
+    expect(form.service.name).toBe('')
+    expect(buildDynamoCreatePayload(form, 'core42-hyperloom').service).not.toHaveProperty('name')
+  })
+
+  it('sends a trimmed service name in both single-node and PD mode', () => {
+    const form = createDefaultDynamoForm()
+    form.service.name = '  dynamo-ds-r1  '
+
+    expect(buildDynamoCreatePayload(form, 'core42-hyperloom').service).toEqual({
+      name: 'dynamo-ds-r1',
+      protocol: 'TCP',
+      port: 8000,
+      targetPort: 8000,
+      serviceType: 'ClusterIP',
+    })
+
+    form.enablePd = true
+    expect(buildDynamoCreatePayload(form, 'core42-hyperloom').service).toMatchObject({
+      name: 'dynamo-ds-r1',
+    })
+  })
 })

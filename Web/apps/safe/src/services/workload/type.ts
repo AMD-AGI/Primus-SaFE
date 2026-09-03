@@ -119,6 +119,9 @@ export interface EditWorkloadRequest {
     rdmaResource?: string
   }>
   service?: {
+    // K8s Service name. Backend defaults it to the workload id when omitted,
+    // and rejects a name already taken by another workload in the workspace.
+    name?: string
     protocol: string
     port: number | null
     targetPort: number | null
@@ -180,6 +183,9 @@ export interface SubmitWorkloadRequest {
     rdmaResource?: string
   }>
   service?: {
+    // K8s Service name. Backend defaults it to the workload id when omitted,
+    // and rejects a name already taken by another workload in the workspace.
+    name?: string
     protocol: string
     port: number | null
     targetPort: number | null

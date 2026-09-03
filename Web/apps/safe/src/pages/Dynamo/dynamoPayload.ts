@@ -36,6 +36,7 @@ export interface DynamoFormModel {
   kvTransferBackend: DynamoKvTransferBackend
   env: Record<string, string>
   service: {
+    name: string
     protocol: string
     port: number
     targetPort: number
@@ -60,6 +61,7 @@ export interface DynamoCreatePayload {
   resources: DynamoResourcePayload[]
   env: Record<string, string>
   service: {
+    name?: string
     protocol: string
     port: number
     targetPort: number
@@ -100,6 +102,12 @@ export const DYNAMO_SERVICE = {
   serviceType: 'ClusterIP',
 } as const
 
+// Omitting the name lets the backend default the K8s Service to the workload id.
+function toServicePayload(form: DynamoFormModel) {
+  const name = form.service.name?.trim()
+  return { ...DYNAMO_SERVICE, ...(name ? { name } : {}) }
+}
+
 export function createDefaultDynamoForm(): DynamoFormModel {
   return {
     displayName: '',
@@ -117,6 +125,7 @@ export function createDefaultDynamoForm(): DynamoFormModel {
     kvTransferBackend: 'nixl',
     env: {},
     service: {
+      name: '',
       protocol: 'TCP',
       port: 8000,
       targetPort: 8000,
@@ -248,7 +257,7 @@ export function buildDynamoCreatePayload(form: DynamoFormModel, workspace: strin
       entryPoints: [frontendEntryPoint, workerEntryPoint, workerEntryPoint],
       resources: [FRONTEND_RESOURCE, toResourcePayload(form.prefill), toResourcePayload(form.decode)],
       env: form.env,
-      service: { ...DYNAMO_SERVICE },
+      service: toServicePayload(form),
       dynamoOptions: {
         serviceRoles: ['frontend', 'prefill', 'decode'],
         kvTransferBackend: form.kvTransferBackend || 'nixl',
@@ -269,7 +278,7 @@ export function buildDynamoCreatePayload(form: DynamoFormModel, workspace: strin
     entryPoints: [frontendEntryPoint, workerEntryPoint],
     resources: [FRONTEND_RESOURCE, toResourcePayload(form.worker)],
     env: form.env,
-    service: { ...DYNAMO_SERVICE },
+    service: toServicePayload(form),
     dynamoOptions: {
       serviceRoles: ['frontend', 'worker'],
       kvTransferBackend: form.kvTransferBackend || 'nixl',

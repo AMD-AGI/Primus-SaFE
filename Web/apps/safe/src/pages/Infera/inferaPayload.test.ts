@@ -171,4 +171,29 @@ describe('inferaPayload', () => {
 
     expect(decodeFromBase64String(payload.entryPoints[0])).toBe(form.frontendEntrypoint)
   })
+
+  it('omits the service name so the backend defaults it to the workload id', () => {
+    const form = createDefaultInferaForm()
+
+    expect(form.service.name).toBe('')
+    expect(buildInferaCreatePayload(form, 'core42-hyperloom').service).not.toHaveProperty('name')
+  })
+
+  it('sends a trimmed service name in both single-node and PD mode', () => {
+    const form = createDefaultInferaForm()
+    form.service.name = '  infera-glm53-1p1d  '
+
+    expect(buildInferaCreatePayload(form, 'core42-hyperloom').service).toEqual({
+      name: 'infera-glm53-1p1d',
+      protocol: 'TCP',
+      port: 8000,
+      targetPort: 8000,
+      serviceType: 'ClusterIP',
+    })
+
+    form.enablePd = true
+    expect(buildInferaCreatePayload(form, 'core42-hyperloom').service).toMatchObject({
+      name: 'infera-glm53-1p1d',
+    })
+  })
 })

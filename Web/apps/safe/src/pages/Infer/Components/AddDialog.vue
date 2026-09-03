@@ -217,9 +217,32 @@
             <div class="section-bar"></div>
             <div>
               <div class="section-title">Service Configuration</div>
-              <div class="section-subtitle">Protocol, ports and service type</div>
+              <div class="section-subtitle">Name, protocol, ports and service type</div>
             </div>
           </div>
+
+          <el-row :gutter="20">
+            <el-col :span="24">
+              <el-form-item label="Service Name" prop="service.name">
+                <div class="flex items-center gap-2 w-full">
+                  <el-input
+                    v-model="form.service.name"
+                    placeholder="Defaults to the workload ID"
+                    :disabled="isEdit"
+                    class="flex-1"
+                  />
+                  <el-tooltip
+                    content="In-cluster Service DNS name. Defaults to the workload ID, which changes on every recreate, so set a stable name to keep clients reachable across Resume. Cannot be changed once the workload is dispatched."
+                    placement="top"
+                  >
+                    <el-icon class="text-gray-500 cursor-help">
+                      <InfoFilled />
+                    </el-icon>
+                  </el-tooltip>
+                </div>
+              </el-form-item>
+            </el-col>
+          </el-row>
 
           <el-row :gutter="20">
             <el-col :span="12">
@@ -563,6 +586,7 @@ const initialForm = () => ({
 
   // Service configuration
   service: {
+    name: '',
     protocol: 'TCP',
     port: null as number | null,
     targetPort: null as number | null,
@@ -609,6 +633,8 @@ const placeholders = computed(() => {
 })
 
 const nameRegex = /^[a-z](?:[-a-z0-9]{0,38}[a-z0-9])?$/
+// The backend validates the K8s Service name as a DNS1035 label.
+const serviceNameRegex = /^[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?$/
 
 const ruleFormRef = ref<FormInstance>()
 const rules: Record<string, FormItemRule[]> = reactive({
@@ -639,6 +665,13 @@ const rules: Record<string, FormItemRule[]> = reactive({
       required: true,
       message: 'Please select at least one node',
       trigger: 'change',
+    },
+  ],
+  'service.name': [
+    {
+      pattern: serviceNameRegex,
+      message: 'Must start with lowercase letter, only a-z, 0-9, and "-" allowed, max 63 chars',
+      trigger: 'blur',
     },
   ],
   'service.port': [
@@ -743,6 +776,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       form.service.targetPort && form.service.port
         ? {
             service: {
+              // Omitting the name lets the backend default the Service to the workload ID.
+              ...(form.service.name.trim() ? { name: form.service.name.trim() } : {}),
               protocol: form.service.protocol,
               port: form.service.port,
               targetPort: form.service.targetPort,
@@ -900,6 +935,11 @@ const setInitialFormValues = async () => {
   // Map service configuration
   if (res.service) {
     form.service = {
+      // Resume and Edit must send back the existing service name: it is immutable
+      // once dispatched, and dropping it would silently rename the Service to the
+      // workload ID. A Clone gets a new workload ID, so it has to drop the name to
+      // avoid colliding with the source workload.
+      name: props.action === 'Clone' ? '' : String(res.service.name || ''),
       protocol: res.service.protocol || 'TCP',
       port: res.service.port || null,
       targetPort: res.service.targetPort || null,
