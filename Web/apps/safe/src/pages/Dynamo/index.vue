@@ -236,9 +236,11 @@ import {
   Refresh,
   Search,
   Timer,
+  VideoPlay,
 } from '@element-plus/icons-vue'
 import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
+import { useWorkloadResumePermission } from '@/composables/useWorkloadResumePermission'
 import { useWorkloadListQuery } from '@/composables/useWorkloadListQuery'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUserStore } from '@/stores/user'
@@ -263,6 +265,8 @@ dayjs.extend(utc)
 
 defineOptions({ name: 'dynamoPage' })
 
+const RESUME_COOLDOWN_SECONDS = 15
+
 const props = withDefaults(defineProps<{
   workloadType?: 'dynamo' | 'infera'
 }>(), {
@@ -286,6 +290,7 @@ const workloadConfig = computed(() =>
 const store = useWorkspaceStore()
 const userStore = useUserStore()
 const { canWrite } = useWorkloadWriteGuard()
+const { getResumeDisabled, getResumeTooltip } = useWorkloadResumePermission(canWrite)
 const tableRef = ref()
 const isDark = useDark()
 
@@ -307,7 +312,11 @@ interface DynamoRow {
   phase?: string
   priority?: number
   creationTime?: string
+  endTime?: string
   secondsUntilTimeout?: number
+  workspaceId?: string
+  workspace?: string
+  userId?: string
   resources?: Array<{ replica?: number | string }>
   dynamoOptions?: {
     serviceRoles?: string[]
@@ -353,7 +362,7 @@ const { readQuery, writeQuery, syncUserId } = useWorkloadListQuery({
 
 const addVisible = ref(false)
 const curWlId = ref('')
-const curAction = ref<'Create' | 'Clone'>('Create')
+const curAction = ref<'Create' | 'Clone' | 'Resume'>('Create')
 const tableHeight = computed(() => 'calc(100vh / var(--zoom) - 245px)')
 const moreOpenId = ref<string | null>(null)
 
@@ -365,6 +374,19 @@ const openCreate = () => {
 
 const openClone = (row: DynamoRow) => {
   curAction.value = 'Clone'
+  curWlId.value = row.workloadId
+  addVisible.value = true
+}
+
+const openResume = (row: DynamoRow) => {
+  // The backend rejects a resume that lands too soon after the stop it follows.
+  if (row.endTime && dayjs().diff(dayjs.utc(row.endTime), 'second') < RESUME_COOLDOWN_SECONDS) {
+    ElMessage.warning(
+      `Please wait ${RESUME_COOLDOWN_SECONDS} seconds after stopping before resuming the workload.`,
+    )
+    return
+  }
+  curAction.value = 'Resume'
   curWlId.value = row.workloadId
   addVisible.value = true
 }
@@ -471,6 +493,17 @@ type Action = {
 }
 
 const getActions = (_row: DynamoRow): Action[] => [
+  // Resume leads the action row so the phase-gated restart keeps one of the two
+  // inline slots instead of being pushed under the "..." menu by Clone/Stop.
+  {
+    key: 'resume',
+    label: 'Resume',
+    icon: VideoPlay,
+    btnClass: 'btn-primary-plain',
+    disabled: getResumeDisabled,
+    tooltip: getResumeTooltip,
+    onClick: (row) => openResume(row),
+  },
   {
     key: 'clone',
     label: 'Clone',

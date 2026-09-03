@@ -31,7 +31,7 @@
           <el-row :gutter="16">
             <el-col :span="16">
               <el-form-item label="name" prop="displayName">
-                <el-input v-model="form.displayName" :disabled="isEdit" />
+                <el-input v-model="form.displayName" :disabled="isEdit || isResume" />
               </el-form-item>
             </el-col>
             <el-col :span="8">
@@ -424,7 +424,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { type FormInstance, type FormRules, ElMessage } from 'element-plus'
 import ImageInput from '@/components/Base/ImageInput.vue'
 import KeyValueList from '@/components/Base/KeyValueList.vue'
-import { addWorkload, editWorkload, getWorkloadDetail } from '@/services/workload'
+import { addWorkload, editWorkload, getWorkloadDetail, resumeWorkload } from '@/services/workload'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUserStore } from '@/stores/user'
 import { ArrowRight, InfoFilled } from '@element-plus/icons-vue'
@@ -486,6 +486,7 @@ const store = useWorkspaceStore()
 const userStore = useUserStore()
 const isManager = computed(() => userStore.isManager)
 const isEdit = computed(() => props.action === 'Edit')
+const isResume = computed(() => props.action === 'Resume')
 const isInfera = computed(() => props.workloadType === 'infera')
 const workloadLabel = computed(() => (isInfera.value ? 'Infera' : 'Dynamo'))
 const workloadDefaultName = computed(() => (isInfera.value ? 'infera' : 'dynamo'))
@@ -757,6 +758,11 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       const { workspaceId: _workspaceId, displayName: _displayName, groupVersionKind: _gvk, ...editPayload } = payload
       await editWorkload(props.wlid, editPayload)
       ElMessage.success('Edit successful')
+    } else if (isResume.value) {
+      // Resume restarts the original workload id rather than creating a new one.
+      if (!props.wlid) return
+      await resumeWorkload(props.wlid, payload)
+      ElMessage.success('Resume successful')
     } else {
       await addWorkload(payload)
       ElMessage.success(`${props.action} successful`)
