@@ -270,4 +270,11 @@ func TestNodeUsageEquivalent(t *testing.T) {
 		scheduled,
 		[]v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 2}}},
 	))
+
+	// A node gaining a second resource id keeps the same node set and the same
+	// count for the id it already had, so only the map size tells them apart.
+	assert.Assert(t, !NodeUsageEquivalent(
+		scheduled,
+		[]v1.NodePodUsage{{Node: "n1", Active: map[string]int{"0": 1, "1": 1}}},
+	))
 }

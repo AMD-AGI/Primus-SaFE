@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,6 +40,7 @@ import (
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -2015,4 +2018,637 @@ func TestReconcileVanishedPodsDoesNothingWhenNothingIsKnown(t *testing.T) {
 	assert.Equal(t, stub.calls, 2)
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
 	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+}
+
+// clientSetsWithK8s builds a client set whose data plane is the given clientset.
+func clientSetsWithK8s(cs kubernetes.Interface) *ClusterClientSets {
+	return &ClusterClientSets{
+		dataClientFactory: commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c", cs),
+	}
+}
+
+// meshObject builds a MonarchMesh carrying the ownership a worker pod inherits.
+func meshObject(workloadID, groupID, resourceID, mainContainer string) *unstructured.Unstructured {
+	mesh := &unstructured.Unstructured{Object: map[string]any{}}
+	mesh.SetLabels(map[string]string{
+		v1.WorkloadIdLabel: workloadID,
+		v1.GroupIdLabel:    groupID,
+	})
+	mesh.SetAnnotations(map[string]string{
+		v1.ResourceIdAnnotation:    resourceID,
+		v1.MainContainerAnnotation: mainContainer,
+	})
+	return mesh
+}
+
+// meshWorkerPod builds a mesh worker pod, optionally already stamped with owner.
+func meshWorkerPod(workloadID string) *corev1.Pod {
+	labels := map[string]string{monarchMeshLabel: "mesh"}
+	if workloadID != "" {
+		labels[v1.WorkloadIdLabel] = workloadID
+	}
+	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name: "mesh-worker-0", Namespace: "ws", Labels: labels,
+	}}
+}
+
+// patchMeshRead replaces the mesh read with a fixed answer and counts the reads.
+func patchMeshRead(patches *gomonkey.Patches, mesh *unstructured.Unstructured, err error, reads *int) {
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getMonarchMesh",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets,
+			_, _ string) (*unstructured.Unstructured, error) {
+			if reads != nil {
+				*reads++
+			}
+			return mesh, err
+		})
+}
+
+// patchInformerPod replaces the informer lookup with a fixed object.
+func patchInformerPod(patches *gomonkey.Patches, obj *unstructured.Unstructured) {
+	patches.ApplyMethod(reflect.TypeOf(&ClusterClientSets{}), "GetResourceInformer",
+		func(_ *ClusterClientSets, _ context.Context, _ schema.GroupVersionKind) (informers.GenericInformer, error) {
+			return nil, nil
+		})
+	patches.ApplyFunc(jobutils.GetObjectByInformer,
+		func(informers.GenericInformer, string, string) (*unstructured.Unstructured, error) {
+			return obj, nil
+		})
+}
+
+// A mesh worker pod carries no workload id, so a delete event can only reach its
+// workload through the mesh name the pod itself is labelled with.
+func TestHandlePodDeletingMeshPodCarriesMeshName(t *testing.T) {
+	obj := &unstructured.Unstructured{Object: map[string]any{}}
+	obj.SetName("mesh-worker-0")
+	obj.SetNamespace("ws")
+	obj.SetLabels(map[string]string{monarchMeshLabel: "mesh"})
+	deleted := metav1.NewTime(time.Now())
+	obj.SetDeletionTimestamp(&deleted)
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchInformerPod(patches, obj)
+	seen := ""
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "removeWorkloadPod",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, message *resourceMessage) error {
+			seen = message.meshName
+			return nil
+		})
+
+	r := &SyncerReconciler{}
+	res, err := r.handlePod(context.Background(), &resourceMessage{
+		name: "mesh-worker-0", namespace: "ws", action: ResourceDeleting,
+		gvk: schema.GroupVersionKind{Kind: "Pod"},
+	}, monkeyClientSets())
+	assert.NilError(t, err)
+	assert.Equal(t, seen, "mesh")
+	// A pod deleted moments ago is not force-deleted yet.
+	assert.Assert(t, res.RequeueAfter > 0)
+}
+
+func TestHandlePodDeletePropagatesReleaseError(t *testing.T) {
+	obj := &unstructured.Unstructured{Object: map[string]any{}}
+	obj.SetName("p1")
+	obj.SetNamespace("ws")
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchInformerPod(patches, nil)
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "removeWorkloadPod",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, _ *resourceMessage) error {
+			return errors.New("release failed")
+		})
+
+	r := &SyncerReconciler{}
+	_, err := r.handlePod(context.Background(), &resourceMessage{
+		name: "p1", namespace: "ws", action: ResourceDel,
+		gvk: schema.GroupVersionKind{Kind: "Pod"},
+	}, monkeyClientSets())
+	assert.Assert(t, err != nil)
+}
+
+// Once ownership is stamped on the pod, the mesh is no longer read: the label is
+// authoritative and survives the mesh being deleted.
+func TestLockPodStatusForPodUsesStampedOwner(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	meshReads := 0
+	patchMeshRead(patches, nil, errors.New("mesh must not be read"), &meshReads)
+
+	r := &SyncerReconciler{}
+	message := &resourceMessage{}
+	unlock, err := r.lockPodStatusForPod(context.Background(), monkeyClientSets(),
+		meshWorkerPod("w"), message)
+	assert.NilError(t, err)
+	unlock()
+	assert.Equal(t, message.workloadId, "w")
+	assert.Equal(t, message.meshName, "mesh")
+	assert.Equal(t, message.namespace, "ws")
+	assert.Equal(t, meshReads, 0)
+}
+
+// An unlabelled mesh pod resolves its owner from the mesh and stamps it, so the
+// next event needs no mesh at all.
+func TestLockPodStatusForPodStampsOwnerFromMesh(t *testing.T) {
+	pod := meshWorkerPod("")
+	clientSet := k8sfake.NewSimpleClientset(pod)
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, meshObject("w", "1", "1", "main"), nil, nil)
+
+	r := &SyncerReconciler{}
+	message := &resourceMessage{}
+	unlock, err := r.lockPodStatusForPod(context.Background(), clientSetsWithK8s(clientSet), pod, message)
+	assert.NilError(t, err)
+	unlock()
+	assert.Equal(t, message.workloadId, "w")
+
+	stamped, err := clientSet.CoreV1().Pods("ws").Get(context.Background(), pod.Name, metav1.GetOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, v1.GetWorkloadId(stamped), "w")
+	assert.Equal(t, v1.GetGroupId(stamped), "1")
+}
+
+func TestLockPodStatusForPodPropagatesMeshReadError(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, nil, errors.New("mesh unreachable"), nil)
+
+	r := &SyncerReconciler{}
+	_, err := r.lockPodStatusForPod(context.Background(), monkeyClientSets(),
+		meshWorkerPod(""), &resourceMessage{})
+	assert.Assert(t, err != nil)
+}
+
+func TestLockPodStatusForPodPropagatesStampError(t *testing.T) {
+	pod := meshWorkerPod("")
+	clientSet := k8sfake.NewSimpleClientset(pod)
+	clientSet.PrependReactor("patch", "pods",
+		func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("patch rejected")
+		})
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, meshObject("w", "1", "1", "main"), nil, nil)
+
+	r := &SyncerReconciler{}
+	_, err := r.lockPodStatusForPod(context.Background(), clientSetsWithK8s(clientSet),
+		pod, &resourceMessage{})
+	assert.Assert(t, err != nil)
+}
+
+func TestResolvePodWorkloadIDPropagatesMeshReadError(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, nil, errors.New("mesh unreachable"), nil)
+
+	r := &SyncerReconciler{}
+	id, err := r.resolvePodWorkloadID(context.Background(), monkeyClientSets(),
+		&resourceMessage{meshName: "mesh", namespace: "ws"})
+	assert.Assert(t, err != nil)
+	assert.Equal(t, id, "")
+}
+
+func TestGetAdminWorkloadAndSyncPodStampsMeshPod(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).Build()
+	pod := meshWorkerPod("")
+	clientSet := k8sfake.NewSimpleClientset(pod)
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, meshObject("w", "2", "1", "main"), nil, nil)
+
+	r := &SyncerReconciler{Client: cl}
+	got, err := r.getAdminWorkloadAndSyncPod(context.Background(), clientSetsWithK8s(clientSet),
+		pod, &resourceMessage{dispatchCount: 3})
+	assert.NilError(t, err)
+	assert.Assert(t, got != nil)
+	assert.Equal(t, got.Name, "w")
+	assert.Equal(t, v1.GetWorkloadDispatchCnt(got), 3)
+	assert.Equal(t, v1.GetWorkloadId(pod), "w")
+}
+
+func TestGetAdminWorkloadAndSyncPodPropagatesMeshReadError(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, nil, errors.New("mesh unreachable"), nil)
+
+	r := &SyncerReconciler{}
+	_, err := r.getAdminWorkloadAndSyncPod(context.Background(), monkeyClientSets(),
+		meshWorkerPod(""), &resourceMessage{})
+	assert.Assert(t, err != nil)
+}
+
+// Ownership is stamped against the resource version the event carried, so an old
+// event cannot label a same-name replacement pod.
+func TestPersistMeshPodOwnershipGuardsAgainstReplacement(t *testing.T) {
+	pod := meshWorkerPod("")
+	pod.ResourceVersion = "7"
+	clientSet := k8sfake.NewSimpleClientset(pod)
+	patchBody := ""
+	clientSet.PrependReactor("patch", "pods",
+		func(action k8stesting.Action) (bool, runtime.Object, error) {
+			patchBody = string(action.(k8stesting.PatchAction).GetPatch())
+			return true, pod, nil
+		})
+
+	r := &SyncerReconciler{}
+	assert.NilError(t, r.persistMeshPodOwnership(context.Background(),
+		clientSetsWithK8s(clientSet), pod, "w", "", "", ""))
+	assert.Assert(t, strings.Contains(patchBody, `"resourceVersion":"7"`), patchBody)
+	// Nothing to carry beyond the workload id, so no annotations are written.
+	assert.Assert(t, !strings.Contains(patchBody, "annotations"), patchBody)
+}
+
+func TestPersistMeshPodOwnershipPropagatesPatchError(t *testing.T) {
+	pod := meshWorkerPod("")
+	clientSet := k8sfake.NewSimpleClientset(pod)
+	clientSet.PrependReactor("patch", "pods",
+		func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("patch rejected")
+		})
+
+	r := &SyncerReconciler{}
+	err := r.persistMeshPodOwnership(context.Background(), clientSetsWithK8s(clientSet),
+		pod, "w", "1", "1", "main")
+	assert.Assert(t, err != nil)
+}
+
+// A pod deleted before the stamp lands leaves nothing to own; that is not an error.
+func TestPersistMeshPodOwnershipToleratesVanishedPod(t *testing.T) {
+	pod := meshWorkerPod("")
+	clientSet := k8sfake.NewSimpleClientset()
+
+	r := &SyncerReconciler{}
+	assert.NilError(t, r.persistMeshPodOwnership(context.Background(),
+		clientSetsWithK8s(clientSet), pod, "w", "1", "1", "main"))
+	assert.Equal(t, v1.GetWorkloadId(pod), "w")
+}
+
+func TestRepairNodeUsagePropagatesPatchError(t *testing.T) {
+	w, _, _ := settledPodWorkload([]v1.NodePodUsage{{Node: "", Active: map[string]int{"0": 1}}})
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(jobutils.PatchWorkloadStatusFields,
+		func(_ context.Context, _ ctrlclient.Client, _ *v1.Workload, _ map[string]any) error {
+			return errors.New("patch rejected")
+		})
+
+	patched, err := offloadedSyncer(t).repairNodeUsage(context.Background(), w)
+	assert.Assert(t, err != nil)
+	assert.Equal(t, patched, false)
+}
+
+func TestHandleMonarchMeshAddPropagatesReadError(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, nil, errors.New("mesh unreachable"), nil)
+
+	r := &SyncerReconciler{}
+	_, err := r.handleMonarchMesh(context.Background(), monkeyClientSets(),
+		&resourceMessage{action: ResourceAdd, name: "mesh", namespace: "ws"})
+	assert.Assert(t, err != nil)
+}
+
+func TestHandleMonarchMeshDeletePropagatesReadError(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, nil, errors.New("mesh unreachable"), nil)
+
+	r := &SyncerReconciler{}
+	_, err := r.handleMonarchMesh(context.Background(), monkeyClientSets(), &resourceMessage{
+		action: ResourceDel, name: "mesh", namespace: "ws", workloadId: "w", groupId: "1",
+	})
+	assert.Assert(t, err != nil)
+}
+
+func TestHandleMonarchMeshDeleteRejectsUnreadableGroupId(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, nil, apierrors.NewNotFound(
+		schema.GroupResource{Resource: "monarchmeshes"}, "mesh"), nil)
+
+	r := &SyncerReconciler{}
+	_, err := r.handleMonarchMesh(context.Background(), clientSetsWithPodCache(t, true),
+		&resourceMessage{
+			action: ResourceDel, name: "mesh", namespace: "ws",
+			workloadId: "w", groupId: "not-a-number",
+		})
+	assert.Assert(t, err != nil)
+}
+
+// A workload that is already gone owns no records, so the mesh is simply released.
+func TestHandleMonarchMeshDeleteReleasesMeshWithoutWorkload(t *testing.T) {
+	mesh := &unstructured.Unstructured{Object: map[string]any{}}
+	mesh.SetUID(apitypes.UID("mesh-uid"))
+	mesh.SetFinalizers([]string{v1.MonarchMeshFinalizer})
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, mesh, nil, nil)
+	finalizerRemoved := false
+	patches.ApplyFunc(jobutils.PatchObject,
+		func(_ context.Context, _ *commonclient.ClientFactory,
+			_ *unstructured.Unstructured, _ []byte) error {
+			finalizerRemoved = true
+			return nil
+		})
+
+	r := &SyncerReconciler{Client: ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).Build()}
+	_, err := r.handleMonarchMesh(context.Background(), clientSetsWithPodCache(t, true),
+		&resourceMessage{
+			action: ResourceDel, name: "mesh", namespace: "ws",
+			uid: apitypes.UID("mesh-uid"), workloadId: "w", groupId: "1",
+		})
+	assert.NilError(t, err)
+	assert.Equal(t, finalizerRemoved, true)
+}
+
+func TestHandleMonarchMeshDeleteRejectsNonMonarchWorkload(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).Build()
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, nil, apierrors.NewNotFound(
+		schema.GroupResource{Resource: "monarchmeshes"}, "mesh"), nil)
+
+	r := &SyncerReconciler{Client: cl}
+	_, err := r.handleMonarchMesh(context.Background(), clientSetsWithPodCache(t, true),
+		&resourceMessage{
+			action: ResourceDel, name: "mesh", namespace: "ws",
+			uid: apitypes.UID("mesh-uid"), workloadId: "w", groupId: "1",
+		})
+	assert.Assert(t, err != nil)
+}
+
+// A retry after the records were already released has no pod field left to write,
+// and must not fall into the full status write.
+func TestHandleMonarchMeshDeleteRepairsAggregateWhenAlreadyReleased(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:        "w",
+		Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
+	}}
+	w.Spec.Kind = common.MonarchJob
+	w.Status.Pods = []v1.WorkloadPod{
+		{PodId: "mesh-1", ResourceId: 1, GroupId: 1, Phase: corev1.PodPhase(v1.WorkloadStopped)},
+	}
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(syncerScheme(t)).
+		WithObjects(w).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, nil, apierrors.NewNotFound(
+		schema.GroupResource{Resource: "monarchmeshes"}, "mesh"), nil)
+	statusWritten := false
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "patchWorkloadPodStatus",
+		func(_ *SyncerReconciler, _ context.Context, _ *v1.Workload, _ map[string]any) error {
+			statusWritten = true
+			return nil
+		})
+
+	r := &SyncerReconciler{Client: cl}
+	_, err := r.handleMonarchMesh(context.Background(), clientSetsWithPodCache(t, true),
+		&resourceMessage{
+			action: ResourceDel, name: "mesh", namespace: "ws",
+			uid: apitypes.UID("mesh-uid"), workloadId: "w", groupId: "1",
+		})
+	assert.NilError(t, err)
+	assert.Equal(t, statusWritten, false)
+}
+
+func TestHandleMonarchMeshDeletePropagatesStatusWriteError(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:        "w",
+		Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
+	}}
+	w.Spec.Kind = common.MonarchJob
+	w.Status.Pods = []v1.WorkloadPod{
+		{PodId: "mesh-1", ResourceId: 1, GroupId: 1, Phase: corev1.PodRunning},
+	}
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(syncerScheme(t)).
+		WithObjects(w).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, nil, apierrors.NewNotFound(
+		schema.GroupResource{Resource: "monarchmeshes"}, "mesh"), nil)
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "patchWorkloadPodStatus",
+		func(_ *SyncerReconciler, _ context.Context, _ *v1.Workload, _ map[string]any) error {
+			return errors.New("status write rejected")
+		})
+
+	r := &SyncerReconciler{Client: cl}
+	_, err := r.handleMonarchMesh(context.Background(), clientSetsWithPodCache(t, true),
+		&resourceMessage{
+			action: ResourceDel, name: "mesh", namespace: "ws",
+			uid: apitypes.UID("mesh-uid"), workloadId: "w", groupId: "1",
+		})
+	assert.Assert(t, err != nil)
+}
+
+func TestEnsureMonarchMeshFinalizerIsIdempotent(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patched := false
+	patches.ApplyFunc(jobutils.PatchObject,
+		func(_ context.Context, _ *commonclient.ClientFactory,
+			_ *unstructured.Unstructured, _ []byte) error {
+			patched = true
+			return nil
+		})
+
+	assert.NilError(t, ensureMonarchMeshFinalizer(context.Background(), monkeyClientSets(), nil))
+	mesh := &unstructured.Unstructured{Object: map[string]any{}}
+	mesh.SetFinalizers([]string{v1.MonarchMeshFinalizer})
+	assert.NilError(t, ensureMonarchMeshFinalizer(context.Background(), monkeyClientSets(), mesh))
+	assert.Equal(t, patched, false)
+}
+
+// Removing the SaFE finalizer must leave whatever else holds the mesh, and must
+// be written against the version that was read.
+func TestRemoveMonarchMeshFinalizerKeepsForeignFinalizers(t *testing.T) {
+	mesh := &unstructured.Unstructured{Object: map[string]any{}}
+	mesh.SetFinalizers([]string{"other.io/keep", v1.MonarchMeshFinalizer})
+	mesh.SetResourceVersion("9")
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	body := ""
+	patches.ApplyFunc(jobutils.PatchObject,
+		func(_ context.Context, _ *commonclient.ClientFactory,
+			_ *unstructured.Unstructured, patch []byte) error {
+			body = string(patch)
+			return nil
+		})
+
+	assert.NilError(t, removeMonarchMeshFinalizer(context.Background(), monkeyClientSets(), mesh))
+	assert.Assert(t, strings.Contains(body, "other.io/keep"), body)
+	assert.Assert(t, !strings.Contains(body, v1.MonarchMeshFinalizer), body)
+	assert.Assert(t, strings.Contains(body, `"resourceVersion":"9"`), body)
+}
+
+func TestRemoveMonarchMeshFinalizerSkipsWhenAbsent(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patched := false
+	patches.ApplyFunc(jobutils.PatchObject,
+		func(_ context.Context, _ *commonclient.ClientFactory,
+			_ *unstructured.Unstructured, _ []byte) error {
+			patched = true
+			return nil
+		})
+
+	assert.NilError(t, removeMonarchMeshFinalizer(context.Background(), monkeyClientSets(), nil))
+	assert.NilError(t, removeMonarchMeshFinalizer(context.Background(), monkeyClientSets(),
+		&unstructured.Unstructured{Object: map[string]any{}}))
+	assert.Equal(t, patched, false)
+}
+
+// An unsynced cache cannot say the mesh pods are gone, and releasing records on
+// that answer would stop pods that are running.
+func TestMeshPodsRemainUnknownWhenCacheUnsynced(t *testing.T) {
+	meshPod := podInCache("ws", "mesh-worker-0", "")
+	meshPod.SetLabels(map[string]string{monarchMeshLabel: "mesh"})
+
+	remain, known, err := meshPodsRemain(context.Background(),
+		clientSetsWithPodCache(t, false, meshPod), "ws", "mesh")
+	assert.NilError(t, err)
+	assert.Equal(t, known, false)
+	assert.Equal(t, remain, false)
+}
+
+// Once a mesh pod carries the workload id, its own label decides ownership and
+// the mesh object is never read -- which is what keeps a deleted mesh from
+// making its pods unattributable.
+func TestLivePodNamesTrustsStampedMeshPods(t *testing.T) {
+	w := dispatchedWorkloadWithPods("mj", time.Hour,
+		podRecord("mj-mesh-0-worker-0", "n1", corev1.PodRunning, time.Hour),
+		podRecord("other-mesh-0-worker-0", "n1", corev1.PodRunning, time.Hour))
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.MonarchJob}
+
+	mine := podInCache("ws", "mj-mesh-0-worker-0", "mj")
+	mine.SetLabels(map[string]string{monarchMeshLabel: "mj-mesh-0", v1.WorkloadIdLabel: "mj"})
+	stranger := podInCache("ws", "other-mesh-0-worker-0", "another")
+	stranger.SetLabels(map[string]string{monarchMeshLabel: "other-mesh-0", v1.WorkloadIdLabel: "another"})
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	meshReads := 0
+	patchMeshRead(patches, nil, errors.New("mesh must not be read"), &meshReads)
+
+	r := &SyncerReconciler{}
+	live, ok := r.livePodNames(context.Background(),
+		clientSetsWithPodCache(t, true, mine, stranger), w)
+
+	assert.Equal(t, ok, true)
+	assert.Equal(t, meshReads, 0)
+	_, hasMine := live["mj-mesh-0-worker-0"]
+	assert.Equal(t, hasMine, true)
+	_, hasStranger := live["other-mesh-0-worker-0"]
+	assert.Equal(t, hasStranger, false)
+}
+
+func TestUpdateAdminWorkloadByPodPropagatesLockError(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, nil, errors.New("mesh unreachable"), nil)
+
+	obj := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1", "kind": "Pod",
+		"metadata": map[string]any{
+			"name": "mesh-worker-0", "namespace": "ws",
+			"labels": map[string]any{monarchMeshLabel: "mesh"},
+		},
+	}}
+
+	r := &SyncerReconciler{}
+	_, err := r.updateAdminWorkloadByPod(context.Background(), monkeyClientSets(), obj, &resourceMessage{})
+	assert.Assert(t, err != nil)
+}
+
+// A pod whose labels are already gone is still attributed through the mesh name
+// the event carried, and a mesh that cannot be read has to surface as an error.
+func TestLockPodStatusForPodPropagatesMessageMeshError(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, nil, errors.New("mesh unreachable"), nil)
+
+	r := &SyncerReconciler{}
+	_, err := r.lockPodStatusForPod(context.Background(), monkeyClientSets(),
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "mesh-worker-0", Namespace: "ws"}},
+		&resourceMessage{meshName: "mesh", namespace: "ws"})
+	assert.Assert(t, err != nil)
+}
+
+func TestGetAdminWorkloadAndSyncPodPropagatesStampError(t *testing.T) {
+	pod := meshWorkerPod("")
+	clientSet := k8sfake.NewSimpleClientset(pod)
+	clientSet.PrependReactor("patch", "pods",
+		func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("patch rejected")
+		})
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, meshObject("w", "1", "1", "main"), nil, nil)
+
+	r := &SyncerReconciler{}
+	_, err := r.getAdminWorkloadAndSyncPod(context.Background(), clientSetsWithK8s(clientSet),
+		pod, &resourceMessage{})
+	assert.Assert(t, err != nil)
+}
+
+func TestHandleMonarchMeshDeletePropagatesWorkloadReadError(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchMeshRead(patches, nil, apierrors.NewNotFound(
+		schema.GroupResource{Resource: "monarchmeshes"}, "mesh"), nil)
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getAdminWorkload",
+		func(_ *SyncerReconciler, _ context.Context, _ string) (*v1.Workload, error) {
+			return nil, errors.New("workload unreadable")
+		})
+
+	r := &SyncerReconciler{}
+	_, err := r.handleMonarchMesh(context.Background(), clientSetsWithPodCache(t, true),
+		&resourceMessage{
+			action: ResourceDel, name: "mesh", namespace: "ws",
+			uid: apitypes.UID("mesh-uid"), workloadId: "w", groupId: "1",
+		})
+	assert.Assert(t, err != nil)
+}
+
+// A mesh delete event routes to the mesh handler rather than the pod or job one.
+func TestDoRoutesMonarchMeshEvents(t *testing.T) {
+	mgr := commonutils.NewObjectManager()
+	assert.NilError(t, mgr.Add("c1", newTestClientSets()))
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	routed := false
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "handleMonarchMesh",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets,
+			_ *resourceMessage) (ctrlruntime.Result, error) {
+			routed = true
+			return ctrlruntime.Result{}, nil
+		})
+
+	r := &SyncerReconciler{clusterClientSets: mgr}
+	_, err := r.Do(context.Background(), &resourceMessage{
+		cluster: "c1", name: "mesh", namespace: "ws",
+		gvk: schema.GroupVersionKind{Kind: common.MonarchMesh},
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, routed, true)
 }

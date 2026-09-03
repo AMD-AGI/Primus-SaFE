@@ -349,6 +349,74 @@ func TestUpdateAdminWorkloadByJobKeepsOffloadedDetailOutOfEtcd(t *testing.T) {
 	assert.Equal(t, fresh.Status.NodeUsage[0].Node, "n1")
 }
 
+// A TorchFT workload tracks a phase per group. That map is set only once the
+// groups report, so the status patch has to carry it when it exists.
+func TestUpdateAdminWorkloadByJobCarriesTorchFTPhase(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(jobutils.GetObject,
+		func(context.Context, *commonclient.ClientFactory, string, string, schema.GroupVersionKind) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{}, nil
+		})
+	patches.ApplyFunc(commonworkload.IsTorchFT, func(*v1.Workload) bool { return false })
+	patches.ApplyFunc(commonworkload.IsMonarchJob, func(*v1.Workload) bool { return false })
+	patches.ApplyFunc(commonworkload.IsCICDScalingRunnerSet, func(*v1.Workload) bool { return false })
+	patches.ApplyFunc(commonworkload.GetResourceTemplate,
+		func(context.Context, ctrlclient.Client, *v1.Workload) (*v1.ResourceTemplate, error) {
+			return &v1.ResourceTemplate{}, nil
+		})
+	patches.ApplyFunc(jobutils.GetK8sObjectStatus,
+		func(*unstructured.Unstructured, *v1.ResourceTemplate) (*jobutils.K8sObjectStatus, error) {
+			return &jobutils.K8sObjectStatus{Phase: string(v1.K8sRunning)}, nil
+		})
+
+	stored := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(syncerScheme(t)).
+		WithObjects(stored).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+
+	w := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, w))
+	w.Status.TorchFTPhase = map[string]v1.WorkloadPhase{"1": v1.WorkloadRunning}
+
+	r := &SyncerReconciler{Client: cl}
+	out, err := r.updateAdminWorkloadByJob(context.Background(), monkeyClientSets(), w,
+		&resourceMessage{name: "o", namespace: "ns", dispatchCount: 1, gvk: schema.GroupVersionKind{Kind: "Job"}})
+	assert.NilError(t, err)
+	assert.Assert(t, out != nil)
+
+	fresh := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, fresh))
+	assert.Equal(t, string(fresh.Status.TorchFTPhase["1"]), string(v1.WorkloadRunning))
+}
+
+// The workload can be deleted between the two reads that bracket the pod status
+// lock, and the second read is the one that decides there is nothing to sync.
+func TestHandleJobStopsWhenWorkloadVanishesUnderLock(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).Build()
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	reads := 0
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getAdminWorkload",
+		func(_ *SyncerReconciler, _ context.Context, _ string) (*v1.Workload, error) {
+			reads++
+			if reads == 1 {
+				return w, nil
+			}
+			return nil, nil
+		})
+
+	r := &SyncerReconciler{Client: cl}
+	res, err := r.handleJob(context.Background(), &resourceMessage{workloadId: "w"}, nil)
+	assert.NilError(t, err)
+	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
+	assert.Equal(t, reads, 2)
+}
+
 func TestUpdateAdminWorkloadPhase(t *testing.T) {
 	r := &SyncerReconciler{}
 	msg := &resourceMessage{dispatchCount: 1}
