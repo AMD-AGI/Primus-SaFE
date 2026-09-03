@@ -228,6 +228,9 @@ export function useWorkloadDetail(options: UseWorkloadDetailOptions) {
         const servicePayload = detail.service
           ? {
               service: {
+                // Resume echoes back the name from GET. Omitting it would make the
+                // backend fall back to the workload id and rename the Service.
+                ...(detail.service.name ? { name: detail.service.name } : {}),
                 protocol: detail.service.protocol,
                 port: detail.service.port,
                 targetPort: detail.service.targetPort,
