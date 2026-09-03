@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -36,11 +37,15 @@ var (
 	NSENTER = "nsenter --target 1 --mount --uts --ipc --net --pid --"
 
 	WATCH_RETRY_INTERVAL = 3 * time.Second
+	WATCH_RETRY_MAX      = 30 * time.Second
+	// WATCH_SHORT_DURATION treats a watch that dies sooner than this as a
+	// short-lived failure. Healthy timeout reconnects are not short.
+	WATCH_SHORT_DURATION = 5 * time.Second
 	// WATCH_TIMEOUT_SECONDS bounds a single watch so a stalled connection is
 	// torn down and the cache is refreshed from a new Get.
 	WATCH_TIMEOUT_SECONDS int64 = 300
-	// WATCH_CLOSE_WARN_COUNT raises the log level after this many watches
-	// close without delivering an event.
+	// WATCH_CLOSE_WARN_COUNT raises the log level after this many consecutive
+	// short-lived watches.
 	WATCH_CLOSE_WARN_COUNT = 3
 )
 
@@ -48,7 +53,7 @@ var (
 type Node struct {
 	ctx       context.Context
 	k8sNode   *corev1.Node
-	mu        sync.Mutex
+	mu        sync.RWMutex
 	k8sClient typedcorev1.CoreV1Interface
 }
 
@@ -79,10 +84,10 @@ func NewNodeWithClientSet(ctx context.Context, opts *types.Options, k8sClientSet
 
 // Start initializes and starts the node watcher goroutine.
 func (n *Node) Start() error {
-	if n == nil || n.k8sNode == nil {
+	if n == nil || n.snapshotK8sNode() == nil {
 		return fmt.Errorf("please initialize node first")
 	}
-	klog.Infof("begin to start node watcher: %s", n.k8sNode.Name)
+	klog.Infof("begin to start node watcher: %s", n.snapshotK8sNode().Name)
 	if err := n.updateStartTime(); err != nil {
 		klog.ErrorS(err, "failed to update start time")
 	}
@@ -92,90 +97,124 @@ func (n *Node) Start() error {
 
 // update watches the current node and reconnects after watch failures.
 func (n *Node) update() {
-	consecutiveImmediate := 0
+	consecutiveShort := 0
 	for {
 		if n.ctx.Err() != nil {
 			n.logWatcherStop()
 			return
 		}
-		immediateClose, err := n.watchK8sNode()
+		started := time.Now()
+		err := n.watchK8sNode()
 		if n.ctx.Err() != nil {
 			n.logWatcherStop()
 			return
 		}
-		if err == nil {
-			if immediateClose {
-				consecutiveImmediate++
-			} else {
-				consecutiveImmediate = 0
-			}
-			n.logWatchClosed(immediateClose, consecutiveImmediate)
-			continue
+		lived := time.Since(started)
+		if err != nil {
+			klog.ErrorS(err, "failed to watch k8s node")
 		}
-		consecutiveImmediate = 0
-		klog.ErrorS(err, "failed to watch k8s node")
-		select {
-		case <-n.ctx.Done():
+		delay := time.Duration(0)
+		if lived < WATCH_SHORT_DURATION {
+			consecutiveShort++
+			delay = watchRetryDelay(consecutiveShort)
+			n.logWatchClosed(lived, consecutiveShort, err)
+		} else {
+			consecutiveShort = 0
+			if err != nil {
+				delay = watchRetryDelay(1)
+			}
+			klog.V(4).InfoS("node watch closed, reconnecting", "duration", lived)
+		}
+		if n.waitRetry(delay) {
 			n.logWatcherStop()
 			return
-		case <-time.After(WATCH_RETRY_INTERVAL):
 		}
 	}
 }
 
-func (n *Node) logWatchClosed(immediateClose bool, consecutive int) {
-	if immediateClose && consecutive >= WATCH_CLOSE_WARN_COUNT {
-		klog.InfoS("node watch closed immediately, reconnecting", "consecutive", consecutive)
+// watchRetryDelay returns a jittered exponential delay for consecutive short watches.
+func watchRetryDelay(consecutiveShort int) time.Duration {
+	if consecutiveShort <= 0 {
+		return 0
+	}
+	d := WATCH_RETRY_INTERVAL
+	for i := 1; i < consecutiveShort; i++ {
+		if d >= WATCH_RETRY_MAX/2 {
+			d = WATCH_RETRY_MAX
+			break
+		}
+		d *= 2
+	}
+	if d > WATCH_RETRY_MAX {
+		d = WATCH_RETRY_MAX
+	}
+	return wait.Jitter(d, 0.5)
+}
+
+func (n *Node) waitRetry(d time.Duration) bool {
+	if d <= 0 {
+		return n.ctx.Err() != nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-n.ctx.Done():
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+func (n *Node) logWatchClosed(lived time.Duration, consecutive int, err error) {
+	if consecutive >= WATCH_CLOSE_WARN_COUNT {
+		klog.InfoS("node watch closed after a short connection, backing off",
+			"duration", lived, "consecutive", consecutive, "err", err)
 		return
 	}
-	klog.V(4).InfoS("node watch closed, reconnecting")
+	klog.V(4).InfoS("node watch closed after a short connection, backing off",
+		"duration", lived, "consecutive", consecutive)
 }
 
 func (n *Node) logWatcherStop() {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if n.k8sNode != nil {
-		klog.Infof("stop node watcher: %s", n.k8sNode.Name)
+	node := n.snapshotK8sNode()
+	if node != nil {
+		klog.Infof("stop node watcher: %s", node.Name)
 	}
 }
 
 // watchK8sNode watches only the current node and updates the local cache.
-// A clean close with no events returns immediateClose so the caller can reconnect
-// without waiting; a close after at least one event is the expected timeout.
-func (n *Node) watchK8sNode() (immediateClose bool, err error) {
+func (n *Node) watchK8sNode() error {
 	if err := n.syncK8sNode(); err != nil {
-		return false, err
+		return err
 	}
 
-	n.mu.Lock()
-	name := n.k8sNode.Name
-	rv := n.k8sNode.ResourceVersion
-	n.mu.Unlock()
+	node := n.snapshotK8sNode()
+	if node == nil {
+		return fmt.Errorf("please initialize node first")
+	}
 
 	timeout := WATCH_TIMEOUT_SECONDS
 	watcher, err := n.k8sClient.Nodes().Watch(n.ctx, metav1.ListOptions{
-		FieldSelector:   fields.OneTermEqualSelector("metadata.name", name).String(),
-		ResourceVersion: rv,
+		FieldSelector:   fields.OneTermEqualSelector("metadata.name", node.Name).String(),
+		ResourceVersion: node.ResourceVersion,
 		TimeoutSeconds:  &timeout,
 	})
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer watcher.Stop()
 
-	sawEvent := false
 	for {
 		select {
 		case <-n.ctx.Done():
-			return false, n.ctx.Err()
+			return n.ctx.Err()
 		case event, ok := <-watcher.ResultChan():
 			if !ok {
-				return !sawEvent, nil
+				return nil
 			}
 			if err := n.applyWatchEvent(event); err != nil {
-				return false, err
+				return err
 			}
-			sawEvent = true
 		}
 	}
 }
@@ -221,12 +260,13 @@ func (n *Node) updateStartTime() error {
 
 // FindConditionByType finds a node condition by its type string.
 func (n *Node) FindConditionByType(conditionType string) *corev1.NodeCondition {
-	if n.k8sNode == nil {
+	node := n.snapshotK8sNode()
+	if node == nil {
 		return nil
 	}
-	for i, currentCond := range n.k8sNode.Status.Conditions {
+	for i, currentCond := range node.Status.Conditions {
 		if conditionType == string(currentCond.Type) {
-			return &n.k8sNode.Status.Conditions[i]
+			return &node.Status.Conditions[i]
 		}
 	}
 	return nil
@@ -234,12 +274,13 @@ func (n *Node) FindConditionByType(conditionType string) *corev1.NodeCondition {
 
 // FindCondition finds a node condition using a custom comparison function.
 func (n *Node) FindCondition(cond *corev1.NodeCondition, isCondEqual func(cond1, cond2 *corev1.NodeCondition) bool) *corev1.NodeCondition {
-	if n.k8sNode == nil {
+	node := n.snapshotK8sNode()
+	if node == nil {
 		return nil
 	}
-	for i, currentCond := range n.k8sNode.Status.Conditions {
+	for i, currentCond := range node.Status.Conditions {
 		if isCondEqual(&currentCond, cond) {
-			return &n.k8sNode.Status.Conditions[i]
+			return &node.Status.Conditions[i]
 		}
 	}
 	return nil
@@ -247,15 +288,16 @@ func (n *Node) FindCondition(cond *corev1.NodeCondition, isCondEqual func(cond1,
 
 // UpdateConditions updates the node's status conditions with retry logic for conflict handling.
 func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
-	if n.k8sNode == nil {
+	if n.snapshotK8sNode() == nil {
 		return fmt.Errorf("please initialize node first")
 	}
 	var err error
 	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		n.mu.Lock()
-		k8sNode := n.k8sNode.DeepCopy()
+		k8sNode := n.snapshotK8sNode()
+		if k8sNode == nil {
+			return fmt.Errorf("please initialize node first")
+		}
 		k8sNode.Status.Conditions = conditions
-		n.mu.Unlock()
 
 		node, updateErr := n.k8sClient.Nodes().UpdateStatus(n.ctx, k8sNode, metav1.UpdateOptions{})
 		if updateErr != nil {
@@ -267,9 +309,7 @@ func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
 			}
 			return updateErr
 		}
-		n.mu.Lock()
-		n.k8sNode = node.DeepCopy()
-		n.mu.Unlock()
+		n.setK8sNode(node)
 		return nil
 	})
 
@@ -278,23 +318,49 @@ func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
 
 // updateNodeStartTime updates the node's startup time label.
 func (n *Node) updateNodeStartTime(startTime time.Time) error {
+	k8sNode := n.snapshotK8sNode()
+	if k8sNode == nil {
+		return fmt.Errorf("please initialize node first")
+	}
 	startTimeStr := strconv.FormatInt(startTime.Unix(), 10)
-	if v1.GetNodeStartupTime(n.k8sNode) == startTimeStr {
+	if v1.GetNodeStartupTime(k8sNode) == startTimeStr {
 		return nil
 	}
 	data := fmt.Sprintf(`{"metadata":{"labels":{"%s": "%s"}}}`, v1.NodeStartupTimeLabel, startTimeStr)
-	k8sNode, err := n.k8sClient.Nodes().Patch(n.ctx,
-		n.k8sNode.Name, apitypes.MergePatchType, []byte(data), metav1.PatchOptions{})
+	patched, err := n.k8sClient.Nodes().Patch(n.ctx,
+		k8sNode.Name, apitypes.MergePatchType, []byte(data), metav1.PatchOptions{})
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	n.k8sNode = k8sNode
+	n.setK8sNode(patched)
 	return nil
 }
 
-// GetK8sNode returns the current Kubernetes node object.
+// GetK8sNode returns a snapshot of the current Kubernetes node object.
 func (n *Node) GetK8sNode() *corev1.Node {
-	return n.k8sNode
+	return n.snapshotK8sNode()
+}
+
+func (n *Node) snapshotK8sNode() *corev1.Node {
+	if n == nil {
+		return nil
+	}
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	if n.k8sNode == nil {
+		return nil
+	}
+	return n.k8sNode.DeepCopy()
+}
+
+func (n *Node) setK8sNode(node *corev1.Node) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if node == nil {
+		n.k8sNode = nil
+		return
+	}
+	n.k8sNode = node.DeepCopy()
 }
 
 // IsMatchGpuChip checks if the node's GPU chip matches the specified chip type.
@@ -313,57 +379,68 @@ func (n *Node) IsMatchGpuChip(chip string) bool {
 
 // GetGpuQuantity returns the allocatable GPU quantity for the node.
 func (n *Node) GetGpuQuantity() resource.Quantity {
-	if n.k8sNode == nil {
+	node := n.snapshotK8sNode()
+	if node == nil {
 		return resource.Quantity{}
 	}
 	var result resource.Quantity
 	switch {
-	case n.isAmdGpu():
-		result, _ = n.k8sNode.Status.Allocatable[common.AmdGpu]
-	case n.isNvGpu():
-		result, _ = n.k8sNode.Status.Allocatable[common.NvidiaGpu]
+	case isAmdGpu(node):
+		result, _ = node.Status.Allocatable[common.AmdGpu]
+	case isNvGpu(node):
+		result, _ = node.Status.Allocatable[common.NvidiaGpu]
 	}
 	return result
 }
 
 // GetEphemeralStorage returns the allocatable EphemeralStorage for the node.
 func (n *Node) GetEphemeralStorage() resource.Quantity {
-	if n.k8sNode == nil {
+	node := n.snapshotK8sNode()
+	if node == nil {
 		return resource.Quantity{}
 	}
-	result, _ := n.k8sNode.Status.Allocatable[corev1.ResourceEphemeralStorage]
+	result, _ := node.Status.Allocatable[corev1.ResourceEphemeralStorage]
 	return result
 }
 
 // isNvGpu checks if the node has NVIDIA GPU hardware.
 func (n *Node) isNvGpu() bool {
-	if n.k8sNode == nil {
-		return false
-	}
-	_, ok := n.k8sNode.Labels[common.NvidiaIdentification]
-	return ok
+	return isNvGpu(n.snapshotK8sNode())
 }
 
 // isAmdGpu checks if the node has AMD GPU hardware.
 func (n *Node) isAmdGpu() bool {
-	if n.k8sNode == nil {
+	return isAmdGpu(n.snapshotK8sNode())
+}
+
+func isNvGpu(node *corev1.Node) bool {
+	if node == nil {
 		return false
 	}
-	val, ok := n.k8sNode.Labels[common.AMDGpuIdentification]
+	_, ok := node.Labels[common.NvidiaIdentification]
+	return ok
+}
+
+func isAmdGpu(node *corev1.Node) bool {
+	if node == nil {
+		return false
+	}
+	val, ok := node.Labels[common.AMDGpuIdentification]
 	return ok && val == v1.TrueStr
 }
 
 // syncK8sNode synchronizes the local node cache with the latest version from Kubernetes API.
 func (n *Node) syncK8sNode() error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	k8sNode, err := n.k8sClient.Nodes().Get(n.ctx, n.GetK8sNode().Name, metav1.GetOptions{})
+	current := n.snapshotK8sNode()
+	if current == nil {
+		return fmt.Errorf("please initialize node first")
+	}
+	k8sNode, err := n.k8sClient.Nodes().Get(n.ctx, current.Name, metav1.GetOptions{})
 	if err != nil {
 		klog.ErrorS(err, "failed to get k8s node")
 		return err
 	}
-	n.k8sNode = k8sNode.DeepCopy()
+	n.setK8sNode(k8sNode)
 	return nil
 }
 
