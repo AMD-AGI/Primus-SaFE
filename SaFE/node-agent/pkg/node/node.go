@@ -36,6 +36,9 @@ var (
 	NSENTER = "nsenter --target 1 --mount --uts --ipc --net --pid --"
 
 	WATCH_RETRY_INTERVAL = 3 * time.Second
+	// WATCH_TIMEOUT_SECONDS bounds a single watch so a stalled connection is
+	// torn down and the cache is refreshed from a new Get.
+	WATCH_TIMEOUT_SECONDS int64 = 300
 )
 
 // Node represents a Kubernetes node with additional functionality for monitoring and updating node status
@@ -104,6 +107,8 @@ func (n *Node) update() {
 }
 
 func (n *Node) logWatcherStop() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	if n.k8sNode != nil {
 		klog.Infof("stop node watcher: %s", n.k8sNode.Name)
 	}
@@ -120,9 +125,11 @@ func (n *Node) watchK8sNode() error {
 	rv := n.k8sNode.ResourceVersion
 	n.mu.Unlock()
 
+	timeout := WATCH_TIMEOUT_SECONDS
 	watcher, err := n.k8sClient.Nodes().Watch(n.ctx, metav1.ListOptions{
 		FieldSelector:   fields.OneTermEqualSelector("metadata.name", name).String(),
 		ResourceVersion: rv,
+		TimeoutSeconds:  &timeout,
 	})
 	if err != nil {
 		return err
@@ -135,7 +142,8 @@ func (n *Node) watchK8sNode() error {
 			return n.ctx.Err()
 		case event, ok := <-watcher.ResultChan():
 			if !ok {
-				return fmt.Errorf("watch closed")
+				klog.V(4).InfoS("node watch closed, reconnecting")
+				return nil
 			}
 			if err := n.applyWatchEvent(event); err != nil {
 				return err

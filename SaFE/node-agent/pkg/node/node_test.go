@@ -158,10 +158,29 @@ func TestWatchK8sNodeClosed(t *testing.T) {
 	watcher.Stop()
 	select {
 	case err := <-done:
-		assert.Assert(t, err != nil)
+		assert.NilError(t, err)
 	case <-time.After(time.Second):
 		t.Fatal("watchK8sNode did not return after watch closed")
 	}
+}
+
+func TestStartWatchesNode(t *testing.T) {
+	savedNSENTER := NSENTER
+	NSENTER = ""
+	defer func() { NSENTER = savedNSENTER }()
+
+	n, fakeClientSet := newNode(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	n.ctx = ctx
+	assert.NilError(t, n.Start())
+
+	updated := n.GetK8sNode().DeepCopy()
+	updated.Labels["test.key"] = "test.val"
+	_, err := fakeClientSet.CoreV1().Nodes().Update(context.Background(), updated, metav1.UpdateOptions{})
+	assert.NilError(t, err)
+	waitForNodeLabel(t, n, "test.key", "test.val")
+	cancel()
 }
 
 func TestGetGpuQuantity(t *testing.T) {
