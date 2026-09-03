@@ -8,7 +8,7 @@ type ResumePermissionRow = {
   userId?: string
 }
 
-const RESUMABLE_PHASES = ['Stopped', 'Failed', 'Succeeded']
+export const RESUMABLE_PHASES = ['Stopped', 'Failed', 'Succeeded']
 
 export function useWorkloadResumePermission(canWrite?: MaybeRefOrGetter<boolean>) {
   const userStore = useUserStore()
