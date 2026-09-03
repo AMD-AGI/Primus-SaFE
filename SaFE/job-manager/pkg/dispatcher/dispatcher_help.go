@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
@@ -1418,6 +1419,7 @@ func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) er
 
 // updateMonarchMesh updates the monarch-job configuration
 func updateMonarchMesh(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+	controllerutil.AddFinalizer(obj, v1.MonarchMeshFinalizer)
 	path := []string{"spec"}
 	specObject, ok, err := jobutils.NestedMap(obj.Object, path)
 	if err != nil {

@@ -65,6 +65,12 @@ func (r *SyncerReconciler) handlePod(ctx context.Context,
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
+	if obj != nil && message.uid != "" && obj.GetUID() != message.uid {
+		klog.V(4).InfoS("ignore pod event for a replaced object",
+			"namespace", message.namespace, "pod", message.name,
+			"eventUID", message.uid, "currentUID", obj.GetUID())
+		return ctrlruntime.Result{}, nil
+	}
 	if obj == nil || !obj.GetDeletionTimestamp().IsZero() {
 		if obj != nil && message.meshName == "" {
 			message.meshName = obj.GetLabels()[monarchMeshLabel]
@@ -540,11 +546,13 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 // handleMonarchMesh releases one mesh group's pod records after its pods are gone.
 func (r *SyncerReconciler) handleMonarchMesh(ctx context.Context, clientSets *ClusterClientSets,
 	message *resourceMessage) (ctrlruntime.Result, error) {
-	if message.action != ResourceDeleting && message.action != ResourceDel {
-		return ctrlruntime.Result{}, nil
-	}
-
 	mesh, err := r.getMonarchMesh(ctx, clientSets, message.name, message.namespace)
+	if message.action != ResourceDeleting && message.action != ResourceDel {
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		return ctrlruntime.Result{}, ensureMonarchMeshFinalizer(ctx, clientSets, mesh)
+	}
 	if err == nil && mesh.GetUID() != message.uid {
 		klog.InfoS("skip stale mesh delete event after same-name mesh replacement",
 			"namespace", message.namespace, "mesh", message.name,
@@ -570,8 +578,11 @@ func (r *SyncerReconciler) handleMonarchMesh(ctx context.Context, clientSets *Cl
 	unlock := r.lockPodStatus(message.workloadId)
 	defer unlock()
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
-	if err != nil || adminWorkload == nil {
+	if err != nil {
 		return ctrlruntime.Result{}, err
+	}
+	if adminWorkload == nil {
+		return ctrlruntime.Result{}, removeMonarchMeshFinalizer(ctx, clientSets, mesh)
 	}
 	if !commonworkload.IsMonarchJob(adminWorkload) {
 		return ctrlruntime.Result{}, fmt.Errorf("workload %s is not a MonarchJob", adminWorkload.Name)
@@ -589,9 +600,49 @@ func (r *SyncerReconciler) handleMonarchMesh(ctx context.Context, clientSets *Cl
 	}
 	if !changed {
 		_, err = r.repairNodeUsage(ctx, adminWorkload)
+	} else {
+		err = r.patchWorkloadPodStatus(ctx, adminWorkload, nil)
+	}
+	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	return ctrlruntime.Result{}, r.patchWorkloadPodStatus(ctx, adminWorkload, nil)
+	return ctrlruntime.Result{}, removeMonarchMeshFinalizer(ctx, clientSets, mesh)
+}
+
+// ensureMonarchMeshFinalizer keeps a mesh readable until pod status cleanup.
+func ensureMonarchMeshFinalizer(ctx context.Context, clientSets *ClusterClientSets,
+	mesh *unstructured.Unstructured) error {
+	if mesh == nil || controllerutil.ContainsFinalizer(mesh, v1.MonarchMeshFinalizer) {
+		return nil
+	}
+	finalizers := append([]string(nil), mesh.GetFinalizers()...)
+	finalizers = append(finalizers, v1.MonarchMeshFinalizer)
+	return patchMonarchMeshFinalizers(ctx, clientSets, mesh, finalizers)
+}
+
+// removeMonarchMeshFinalizer allows a mesh to disappear after cleanup.
+func removeMonarchMeshFinalizer(ctx context.Context, clientSets *ClusterClientSets,
+	mesh *unstructured.Unstructured) error {
+	if mesh == nil || !controllerutil.ContainsFinalizer(mesh, v1.MonarchMeshFinalizer) {
+		return nil
+	}
+	finalizers := make([]string, 0, len(mesh.GetFinalizers())-1)
+	for _, finalizer := range mesh.GetFinalizers() {
+		if finalizer != v1.MonarchMeshFinalizer {
+			finalizers = append(finalizers, finalizer)
+		}
+	}
+	return patchMonarchMeshFinalizers(ctx, clientSets, mesh, finalizers)
+}
+
+func patchMonarchMeshFinalizers(ctx context.Context, clientSets *ClusterClientSets,
+	mesh *unstructured.Unstructured, finalizers []string) error {
+	metadata := map[string]any{"finalizers": finalizers}
+	if mesh.GetResourceVersion() != "" {
+		metadata["resourceVersion"] = mesh.GetResourceVersion()
+	}
+	return jobutils.PatchObject(ctx, clientSets.ClientFactory(), mesh,
+		jsonutils.MarshalSilently(map[string]any{"metadata": metadata}))
 }
 
 // meshPodsRemain checks the synced pod cache for pods owned by a mesh name.

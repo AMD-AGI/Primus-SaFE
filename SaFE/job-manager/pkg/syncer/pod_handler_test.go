@@ -484,8 +484,17 @@ func TestHandleMonarchMeshDeleteReleasesOnlyItsGroup(t *testing.T) {
 	defer patches.Reset()
 	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getMonarchMesh",
 		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, _, _ string) (*unstructured.Unstructured, error) {
-			return nil, apierrors.NewNotFound(
-				schema.GroupResource{Group: "monarch.pytorch.org", Resource: "monarchmeshes"}, "mesh")
+			mesh := &unstructured.Unstructured{Object: map[string]any{}}
+			mesh.SetUID(apitypes.UID("old-mesh-uid"))
+			mesh.SetFinalizers([]string{v1.MonarchMeshFinalizer})
+			return mesh, nil
+		})
+	finalizerRemoved := false
+	patches.ApplyFunc(jobutils.PatchObject,
+		func(_ context.Context, _ *commonclient.ClientFactory,
+			_ *unstructured.Unstructured, _ []byte) error {
+			finalizerRemoved = true
+			return nil
 		})
 
 	r := &SyncerReconciler{Client: cl}
@@ -506,6 +515,7 @@ func TestHandleMonarchMeshDeleteReleasesOnlyItsGroup(t *testing.T) {
 	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodRunning)
 	assert.Equal(t, got.Status.Pods[1].Phase, corev1.PodPhase(v1.WorkloadStopped))
 	assert.Equal(t, got.Status.Pods[2].Phase, corev1.PodRunning)
+	assert.Equal(t, finalizerRemoved, true)
 }
 
 func TestHandleMonarchMeshDeleteSkipsSameNameReplacement(t *testing.T) {
@@ -546,6 +556,29 @@ func TestHandleMonarchMeshDeleteWaitsForPods(t *testing.T) {
 		})
 	assert.NilError(t, err)
 	assert.Equal(t, result.RequeueAfter, time.Second)
+}
+
+func TestHandleMonarchMeshAddsFinalizerToExistingMesh(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getMonarchMesh",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, _, _ string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{}}, nil
+		})
+	finalizerAdded := false
+	patches.ApplyFunc(jobutils.PatchObject,
+		func(_ context.Context, _ *commonclient.ClientFactory,
+			_ *unstructured.Unstructured, _ []byte) error {
+			finalizerAdded = true
+			return nil
+		})
+
+	r := &SyncerReconciler{}
+	_, err := r.handleMonarchMesh(context.Background(), monkeyClientSets(), &resourceMessage{
+		action: ResourceAdd, name: "mesh", namespace: "ws",
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, finalizerAdded, true)
 }
 
 func TestHandleRaySubmitterTimeoutNonRayJob(t *testing.T) {
@@ -719,6 +752,36 @@ func TestHandlePodPath(t *testing.T) {
 		&resourceMessage{name: "p1", namespace: "ns", gvk: schema.GroupVersionKind{Kind: "Pod"}},
 		monkeyClientSets())
 	assert.NilError(t, err)
+}
+
+func TestHandlePodIgnoresSameNameReplacement(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyMethod(reflect.TypeOf(&ClusterClientSets{}), "GetResourceInformer",
+		func(_ *ClusterClientSets, _ context.Context, _ schema.GroupVersionKind) (informers.GenericInformer, error) {
+			return nil, nil
+		})
+	patches.ApplyFunc(jobutils.GetObjectByInformer,
+		func(informers.GenericInformer, string, string) (*unstructured.Unstructured, error) {
+			obj := &unstructured.Unstructured{Object: map[string]any{}}
+			obj.SetUID(apitypes.UID("new-pod-uid"))
+			return obj, nil
+		})
+	called := false
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "updateAdminWorkloadByPod",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets,
+			_ *unstructured.Unstructured, _ *resourceMessage) (ctrlruntime.Result, error) {
+			called = true
+			return ctrlruntime.Result{}, nil
+		})
+
+	r := &SyncerReconciler{}
+	_, err := r.handlePod(context.Background(), &resourceMessage{
+		name: "p1", namespace: "ns", uid: apitypes.UID("old-pod-uid"),
+		gvk: schema.GroupVersionKind{Kind: "Pod"}, action: ResourceDel,
+	}, monkeyClientSets())
+	assert.NilError(t, err)
+	assert.Equal(t, called, false)
 }
 
 // TestUpdateWorkloadNodeAndPodsAppend patches buildWorkloadPodInfo so the function

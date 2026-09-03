@@ -57,7 +57,7 @@ const clusterClientSetsRetryInterval = 15 * time.Second
 // resourceMessageKey identifies the k8s object a message is about. Messages with
 // the same key are serialized and coalesced by the KeyedController.
 func resourceMessageKey(m *resourceMessage) string {
-	return m.cluster + "|" + m.gvk.String() + "|" + m.namespace + "|" + m.name
+	return m.cluster + "|" + m.gvk.String() + "|" + m.namespace + "|" + m.name + "|" + string(m.uid)
 }
 
 // mergeResourceMessage keeps the latest event for a key, except that a pending
