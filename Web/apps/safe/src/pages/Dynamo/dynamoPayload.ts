@@ -102,10 +102,18 @@ export const DYNAMO_SERVICE = {
   serviceType: 'ClusterIP',
 } as const
 
+// The frontend entrypoint owns the port the server listens on, so the Service has to
+// follow it rather than assume the default.
+function resolveServicePort() {
+  const port = Number(DYNAMO_FRONTEND_ENTRYPOINT.match(/--http-port\s+(\d+)/)?.[1])
+  return port > 0 && port <= 65535 ? port : DYNAMO_SERVICE.port
+}
+
 // Omitting the name lets the backend default the K8s Service to the workload id.
 function toServicePayload(form: DynamoFormModel) {
   const name = form.service.name?.trim()
-  return { ...DYNAMO_SERVICE, ...(name ? { name } : {}) }
+  const port = resolveServicePort()
+  return { ...DYNAMO_SERVICE, port, targetPort: port, ...(name ? { name } : {}) }
 }
 
 export function createDefaultDynamoForm(): DynamoFormModel {

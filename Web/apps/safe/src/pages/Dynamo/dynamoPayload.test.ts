@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { decodeFromBase64String } from '@/utils'
 import {
+  DYNAMO_FRONTEND_ENTRYPOINT,
   buildDynamoEntrypointPreviewTokens,
   buildDynamoCreatePayload,
   createDefaultDynamoForm,
@@ -282,6 +283,16 @@ describe('dynamoPayload', () => {
     form.enablePd = true
     expect(buildDynamoCreatePayload(form, 'core42-hyperloom').service).toMatchObject({
       name: 'dynamo-ds-r1',
+    })
+  })
+
+  it('keeps both service ports in sync with the frontend entrypoint port', () => {
+    const entrypointPort = Number(DYNAMO_FRONTEND_ENTRYPOINT.match(/--http-port\s+(\d+)/)?.[1])
+
+    expect(entrypointPort).toBeGreaterThan(0)
+    expect(buildDynamoCreatePayload(createDefaultDynamoForm(), 'core42-hyperloom').service).toMatchObject({
+      port: entrypointPort,
+      targetPort: entrypointPort,
     })
   })
 })

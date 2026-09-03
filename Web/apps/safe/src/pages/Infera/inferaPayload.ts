@@ -97,10 +97,18 @@ export const INFERA_SERVICE = {
   serviceType: 'ClusterIP',
 } as const
 
+// The frontend entrypoint owns the port the server listens on, so the Service has to
+// follow it rather than assume the default.
+function resolveServicePort(form: InferaFormModel) {
+  const port = Number(resolveFrontendEntrypoint(form).match(/--port\s+(\d+)/)?.[1])
+  return port > 0 && port <= 65535 ? port : INFERA_SERVICE.port
+}
+
 // Omitting the name lets the backend default the K8s Service to the workload id.
 function toServicePayload(form: InferaFormModel) {
   const name = form.service.name?.trim()
-  return { ...INFERA_SERVICE, ...(name ? { name } : {}) }
+  const port = resolveServicePort(form)
+  return { ...INFERA_SERVICE, port, targetPort: port, ...(name ? { name } : {}) }
 }
 
 export function createDefaultInferaForm(): InferaFormModel {

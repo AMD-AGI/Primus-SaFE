@@ -45,25 +45,6 @@
             </el-col>
           </el-row>
 
-          <el-form-item label="service name" prop="service.name">
-            <div class="flex items-center gap-2 w-full">
-              <el-input
-                v-model="form.service.name"
-                :disabled="isEdit"
-                placeholder="Defaults to the workload ID"
-                class="flex-1"
-              />
-              <el-tooltip
-                content="In-cluster Service DNS name. Defaults to the workload ID, which changes on every recreate, so set a stable name to keep clients reachable across Resume. Cannot be changed once the workload is dispatched."
-                placement="top"
-              >
-                <el-icon class="text-gray-500 cursor-help">
-                  <InfoFilled />
-                </el-icon>
-              </el-tooltip>
-            </div>
-          </el-form-item>
-
           <el-form-item label="description">
             <el-input v-model="form.description" type="textarea" :rows="2" />
           </el-form-item>
@@ -383,6 +364,38 @@
             class="entry-editor"
             @input="markWorkerEntrypointCustomized"
           />
+        </div>
+
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-bar"></div>
+            <div>
+              <div class="section-title">Service Configuration</div>
+              <div class="section-subtitle">
+                Service name. Ports follow the frontend entrypoint, over {{ form.service.protocol }}
+                / {{ form.service.serviceType }}
+              </div>
+            </div>
+          </div>
+
+          <el-form-item label="Service Name" prop="service.name">
+            <div class="flex items-center gap-2 w-full">
+              <el-input
+                v-model="form.service.name"
+                :disabled="isEdit"
+                placeholder="Defaults to the workload ID"
+                class="flex-1"
+              />
+              <el-tooltip
+                content="In-cluster Service DNS name. Defaults to the workload ID, which changes on every recreate, so set a stable name to keep clients reachable across Resume. Cannot be changed once the workload is dispatched."
+                placement="top"
+              >
+                <el-icon class="text-gray-500 cursor-help">
+                  <InfoFilled />
+                </el-icon>
+              </el-tooltip>
+            </div>
+          </el-form-item>
         </div>
 
         <div class="section-card">

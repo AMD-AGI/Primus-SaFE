@@ -196,4 +196,30 @@ describe('inferaPayload', () => {
       name: 'infera-glm53-1p1d',
     })
   })
+
+  it('points both service ports at the frontend entrypoint port', () => {
+    const form = createDefaultInferaForm()
+
+    expect(buildInferaCreatePayload(form, 'core42-hyperloom').service).toMatchObject({
+      port: 8000,
+      targetPort: 8000,
+    })
+
+    form.frontendEntrypoint =
+      'python3 -m infera.server --host 0.0.0.0 --port 9001 --router-tokenizer-path /models/x'
+    expect(buildInferaCreatePayload(form, 'core42-hyperloom').service).toMatchObject({
+      port: 9001,
+      targetPort: 9001,
+    })
+  })
+
+  it('falls back to the default port when the entrypoint has no usable port', () => {
+    const form = createDefaultInferaForm()
+    form.frontendEntrypoint = 'python3 -m infera.server --host 0.0.0.0 --router-policy kv-aware'
+
+    expect(buildInferaCreatePayload(form, 'core42-hyperloom').service).toMatchObject({
+      port: 8000,
+      targetPort: 8000,
+    })
+  })
 })
