@@ -202,6 +202,15 @@ $btn-colors: (
 }
 
 /* **********操作栏-三个折叠+展开pop按钮样式****************** */
+/* Row action buttons. Each inline action is wrapped in a span because a native
+   disabled button never fires the hover el-tooltip listens for, which left a
+   greyed-out action unable to say why it is unavailable. Those wrappers break
+   the .el-button+.el-button sibling margin, so spacing comes from gap instead. */
+.action-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .actions-menu {
   padding: 6px 0;
 }

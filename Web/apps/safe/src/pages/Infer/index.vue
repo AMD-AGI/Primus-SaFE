@@ -235,53 +235,57 @@
 
         <el-table-column label="Actions" width="180" fixed="right">
           <template #default="{ row }">
-            <!-- First 2 inline actions -->
-            <template v-for="act in getActions(row).slice(0, 2)" :key="act.key">
-              <el-tooltip :content="act.tooltip?.(row) ?? act.label" placement="top">
-                <el-button
-                  circle
-                  size="default"
-                  :class="act.btnClass"
-                  :icon="act.icon"
-                  :disabled="act.disabled?.(row) ?? false"
-                  @click="act.onClick(row)"
-                />
-              </el-tooltip>
-            </template>
-
-            <el-popover
-              v-if="getActions(row).length > 2"
-              placement="bottom-start"
-              trigger="click"
-              :width="240"
-              :teleported="true"
-              :enterable="true"
-              popper-class="actions-menu"
-              :visible="moreOpenId === row.workloadId"
-              @hide="moreOpenId === row.workloadId && (moreOpenId = null)"
-            >
-              <template #reference>
-                <el-button
-                  circle
-                  class="btn-primary-plain"
-                  :icon="MoreFilled"
-                  size="default"
-                  @click.stop="toggleMore(row.workloadId)"
-                />
+            <div class="action-cell">
+              <!-- First 2 inline actions -->
+              <template v-for="act in getActions(row).slice(0, 2)" :key="act.key">
+                <el-tooltip :content="act.tooltip?.(row) ?? act.label" placement="top">
+                  <span>
+                    <el-button
+                      circle
+                      size="default"
+                      :class="act.btnClass"
+                      :icon="act.icon"
+                      :disabled="act.disabled?.(row) ?? false"
+                      @click="act.onClick(row)"
+                    />
+                  </span>
+                </el-tooltip>
               </template>
 
-              <ul class="menu-col">
-                <li
-                  v-for="act in getActions(row).slice(2)"
-                  :key="act.key"
-                  :class="['menu-item', { disabled: act.disabled?.(row) }]"
-                  @click.stop="handleMenuClick(act, row)"
-                >
-                  <component :is="act.icon" class="menu-ico" />
-                  <span class="menu-label">{{ act.label }}</span>
-                </li>
-              </ul>
-            </el-popover>
+              <el-popover
+                v-if="getActions(row).length > 2"
+                placement="bottom-start"
+                trigger="click"
+                :width="240"
+                :teleported="true"
+                :enterable="true"
+                popper-class="actions-menu"
+                :visible="moreOpenId === row.workloadId"
+                @hide="moreOpenId === row.workloadId && (moreOpenId = null)"
+              >
+                <template #reference>
+                  <el-button
+                    circle
+                    class="btn-primary-plain"
+                    :icon="MoreFilled"
+                    size="default"
+                    @click.stop="toggleMore(row.workloadId)"
+                  />
+                </template>
+
+                <ul class="menu-col">
+                  <li
+                    v-for="act in getActions(row).slice(2)"
+                    :key="act.key"
+                    :class="['menu-item', { disabled: act.disabled?.(row) }]"
+                    @click.stop="handleMenuClick(act, row)"
+                  >
+                    <component :is="act.icon" class="menu-ico" />
+                    <span class="menu-label">{{ act.label }}</span>
+                  </li>
+                </ul>
+              </el-popover>
+            </div>
           </template>
         </el-table-column>
       </el-table>
