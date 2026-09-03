@@ -8,6 +8,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"strconv"
 	"sync"
 	"time"
@@ -38,12 +39,15 @@ var (
 
 	WATCH_RETRY_INTERVAL = 3 * time.Second
 	WATCH_RETRY_MAX      = 30 * time.Second
-	// WATCH_SHORT_DURATION treats a watch that dies sooner than this as a
-	// short-lived failure. Healthy timeout reconnects are not short.
-	WATCH_SHORT_DURATION = 5 * time.Second
-	// WATCH_TIMEOUT_SECONDS bounds a single watch so a stalled connection is
-	// torn down and the cache is refreshed from a new Get.
-	WATCH_TIMEOUT_SECONDS int64 = 300
+	// WATCH_HEALTHY_DURATION is the connection lifetime that clears the
+	// backoff. Anything shorter counts as a failed connection, so proxies
+	// dropping idle connections keep backing the agent off instead of
+	// looping over Get and Watch.
+	WATCH_HEALTHY_DURATION = 2 * time.Minute
+	// WATCH_MIN_TIMEOUT_SECONDS is the lower bound of a single watch. The
+	// real timeout is randomized within [min, 2*min) so agents do not
+	// reconnect in lockstep.
+	WATCH_MIN_TIMEOUT_SECONDS int64 = 300
 	// WATCH_CLOSE_WARN_COUNT raises the log level after this many consecutive
 	// short-lived watches.
 	WATCH_CLOSE_WARN_COUNT = 3
@@ -114,7 +118,7 @@ func (n *Node) update() {
 			klog.ErrorS(err, "failed to watch k8s node")
 		}
 		delay := time.Duration(0)
-		if lived < WATCH_SHORT_DURATION {
+		if lived < WATCH_HEALTHY_DURATION {
 			consecutiveShort++
 			delay = watchRetryDelay(consecutiveShort)
 			n.logWatchClosed(lived, consecutiveShort, err)
@@ -193,7 +197,7 @@ func (n *Node) watchK8sNode() error {
 		return fmt.Errorf("please initialize node first")
 	}
 
-	timeout := WATCH_TIMEOUT_SECONDS
+	timeout := watchTimeoutSeconds()
 	watcher, err := n.k8sClient.Nodes().Watch(n.ctx, metav1.ListOptions{
 		FieldSelector:   fields.OneTermEqualSelector("metadata.name", node.Name).String(),
 		ResourceVersion: node.ResourceVersion,
@@ -219,6 +223,16 @@ func (n *Node) watchK8sNode() error {
 	}
 }
 
+// watchTimeoutSeconds randomizes the watch timeout so agents reconnect at
+// different times instead of in lockstep.
+func watchTimeoutSeconds() int64 {
+	base := WATCH_MIN_TIMEOUT_SECONDS
+	if base <= 0 {
+		return base
+	}
+	return base + rand.Int64N(base)
+}
+
 // applyWatchEvent applies a watch event for the current node to the local cache.
 func (n *Node) applyWatchEvent(event watch.Event) error {
 	switch event.Type {
@@ -227,13 +241,11 @@ func (n *Node) applyWatchEvent(event watch.Event) error {
 		if !ok || node == nil {
 			return fmt.Errorf("unexpected watch object: %T", event.Object)
 		}
-		n.mu.Lock()
-		n.k8sNode = node.DeepCopy()
-		n.mu.Unlock()
+		n.setK8sNode(node)
 	case watch.Deleted:
 		klog.InfoS("watched node was deleted")
 	case watch.Error:
-		return fmt.Errorf("watch error: %v", event.Object)
+		return apierrors.FromObject(event.Object)
 	}
 	return nil
 }
@@ -297,6 +309,7 @@ func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
 		if k8sNode == nil {
 			return fmt.Errorf("please initialize node first")
 		}
+		sentResourceVersion := k8sNode.ResourceVersion
 		k8sNode.Status.Conditions = conditions
 
 		node, updateErr := n.k8sClient.Nodes().UpdateStatus(n.ctx, k8sNode, metav1.UpdateOptions{})
@@ -309,7 +322,7 @@ func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
 			}
 			return updateErr
 		}
-		n.setK8sNode(node)
+		n.setK8sNodeIfUnchanged(sentResourceVersion, node)
 		return nil
 	})
 
@@ -332,7 +345,7 @@ func (n *Node) updateNodeStartTime(startTime time.Time) error {
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	n.setK8sNode(patched)
+	n.setK8sNodeIfUnchanged(k8sNode.ResourceVersion, patched)
 	return nil
 }
 
@@ -361,6 +374,24 @@ func (n *Node) setK8sNode(node *corev1.Node) {
 		return
 	}
 	n.k8sNode = node.DeepCopy()
+}
+
+// setK8sNodeIfUnchanged stores an API response only when the cache still holds
+// the resource version the request was built from. A watch event applied while
+// the request was in flight is newer and must not be rolled back.
+func (n *Node) setK8sNodeIfUnchanged(expectedResourceVersion string, node *corev1.Node) bool {
+	if node == nil {
+		return false
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.k8sNode != nil && n.k8sNode.ResourceVersion != expectedResourceVersion {
+		klog.V(4).InfoS("skip stale node response",
+			"cached", n.k8sNode.ResourceVersion, "expected", expectedResourceVersion)
+		return false
+	}
+	n.k8sNode = node.DeepCopy()
+	return true
 }
 
 // IsMatchGpuChip checks if the node's GPU chip matches the specified chip type.

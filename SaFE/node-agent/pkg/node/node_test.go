@@ -134,8 +134,71 @@ func TestApplyWatchEventDeletedKeepsCache(t *testing.T) {
 
 func TestApplyWatchEventError(t *testing.T) {
 	n, _ := newNode(t)
-	err := n.applyWatchEvent(watch.Event{Type: watch.Error, Object: &metav1.Status{Message: "watch failed"}})
+	err := n.applyWatchEvent(watch.Event{Type: watch.Error, Object: &metav1.Status{
+		Status:  metav1.StatusFailure,
+		Code:    410,
+		Reason:  metav1.StatusReasonExpired,
+		Message: "too old resource version",
+	}})
 	assert.Assert(t, err != nil)
+	assert.Equal(t, apierrors.ReasonForError(err), metav1.StatusReasonExpired)
+	assert.Equal(t, apierrors.IsResourceExpired(err), true)
+}
+
+func TestWatchTimeoutSecondsIsRandomizedAboveMinimum(t *testing.T) {
+	saved := WATCH_MIN_TIMEOUT_SECONDS
+	WATCH_MIN_TIMEOUT_SECONDS = 300
+	t.Cleanup(func() { WATCH_MIN_TIMEOUT_SECONDS = saved })
+
+	seen := map[int64]struct{}{}
+	for i := 0; i < 100; i++ {
+		got := watchTimeoutSeconds()
+		assert.Assert(t, got >= WATCH_MIN_TIMEOUT_SECONDS, "got=%d", got)
+		assert.Assert(t, got < 2*WATCH_MIN_TIMEOUT_SECONDS, "got=%d", got)
+		seen[got] = struct{}{}
+	}
+	assert.Assert(t, len(seen) > 1, "timeout was not randomized")
+}
+
+func TestSetK8sNodeIfUnchangedSkipsStaleResponse(t *testing.T) {
+	n, _ := newNode(t)
+	watched := n.GetK8sNode().DeepCopy()
+	watched.ResourceVersion = "12"
+	watched.Labels["source"] = "watch"
+	n.setK8sNode(watched)
+
+	stale := n.GetK8sNode().DeepCopy()
+	stale.ResourceVersion = "11"
+	stale.Labels["source"] = "update"
+	assert.Equal(t, n.setK8sNodeIfUnchanged("11", stale), false)
+	assert.Equal(t, n.GetK8sNode().ResourceVersion, "12")
+	assert.Equal(t, n.GetK8sNode().Labels["source"], "watch")
+
+	fresh := n.GetK8sNode().DeepCopy()
+	fresh.ResourceVersion = "13"
+	fresh.Labels["source"] = "update"
+	assert.Equal(t, n.setK8sNodeIfUnchanged("12", fresh), true)
+	assert.Equal(t, n.GetK8sNode().ResourceVersion, "13")
+}
+
+func TestUpdateConditionsKeepsNewerWatchState(t *testing.T) {
+	n, fakeClientSet := newNode(t)
+	fakeClientSet.PrependReactor("update", "nodes", func(action ktesting.Action) (bool, kruntime.Object, error) {
+		watched := n.GetK8sNode().DeepCopy()
+		watched.ResourceVersion = "12"
+		watched.Labels["source"] = "watch"
+		n.setK8sNode(watched)
+
+		returned := action.(ktesting.UpdateAction).GetObject().(*corev1.Node).DeepCopy()
+		returned.ResourceVersion = "11"
+		return true, returned, nil
+	})
+
+	assert.NilError(t, n.UpdateConditions([]corev1.NodeCondition{
+		{Type: "safe.stale", Status: corev1.ConditionTrue},
+	}))
+	assert.Equal(t, n.GetK8sNode().ResourceVersion, "12")
+	assert.Equal(t, n.GetK8sNode().Labels["source"], "watch")
 }
 
 func TestWatchK8sNodeWatchError(t *testing.T) {
@@ -211,12 +274,12 @@ func TestWatchRetryDelayGrowsWithConsecutiveShortWatches(t *testing.T) {
 func TestUpdateBacksOffOnShortWatchClose(t *testing.T) {
 	n, fakeClientSet := newNode(t)
 	savedRetry := WATCH_RETRY_INTERVAL
-	savedShort := WATCH_SHORT_DURATION
+	savedHealthy := WATCH_HEALTHY_DURATION
 	WATCH_RETRY_INTERVAL = 300 * time.Millisecond
-	WATCH_SHORT_DURATION = time.Second
+	WATCH_HEALTHY_DURATION = time.Second
 	t.Cleanup(func() {
 		WATCH_RETRY_INTERVAL = savedRetry
-		WATCH_SHORT_DURATION = savedShort
+		WATCH_HEALTHY_DURATION = savedHealthy
 	})
 
 	var watches atomic.Int32
@@ -260,12 +323,12 @@ func TestUpdateBacksOffOnShortWatchClose(t *testing.T) {
 func TestUpdateReconnectsImmediatelyAfterLongWatch(t *testing.T) {
 	n, fakeClientSet := newNode(t)
 	savedRetry := WATCH_RETRY_INTERVAL
-	savedShort := WATCH_SHORT_DURATION
+	savedHealthy := WATCH_HEALTHY_DURATION
 	WATCH_RETRY_INTERVAL = time.Second
-	WATCH_SHORT_DURATION = 30 * time.Millisecond
+	WATCH_HEALTHY_DURATION = 30 * time.Millisecond
 	t.Cleanup(func() {
 		WATCH_RETRY_INTERVAL = savedRetry
-		WATCH_SHORT_DURATION = savedShort
+		WATCH_HEALTHY_DURATION = savedHealthy
 	})
 
 	var watches atomic.Int32
@@ -293,7 +356,7 @@ func TestUpdateReconnectsImmediatelyAfterLongWatch(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	time.Sleep(WATCH_SHORT_DURATION + 20*time.Millisecond)
+	time.Sleep(WATCH_HEALTHY_DURATION + 20*time.Millisecond)
 	watcher.Stop()
 
 	deadline = time.Now().Add(400 * time.Millisecond)
