@@ -30,6 +30,7 @@ export interface InferaFormModel {
   kvTransferBackend: InferaKvTransferBackend
   env: Record<string, string>
   service: {
+    name: string
     protocol: string
     port: number
     targetPort: number
@@ -55,6 +56,7 @@ export interface InferaCreatePayload {
   resources: InferaResourcePayload[]
   env: Record<string, string>
   service: {
+    name?: string
     protocol: string
     port: number
     targetPort: number
@@ -95,6 +97,20 @@ export const INFERA_SERVICE = {
   serviceType: 'ClusterIP',
 } as const
 
+// The frontend entrypoint owns the port the server listens on, so the Service has to
+// follow it rather than assume the default.
+function resolveServicePort(form: InferaFormModel) {
+  const port = Number(resolveFrontendEntrypoint(form).match(/--port\s+(\d+)/)?.[1])
+  return port > 0 && port <= 65535 ? port : INFERA_SERVICE.port
+}
+
+// Omitting the name lets the backend default the K8s Service to the workload id.
+function toServicePayload(form: InferaFormModel) {
+  const name = form.service.name?.trim()
+  const port = resolveServicePort(form)
+  return { ...INFERA_SERVICE, port, targetPort: port, ...(name ? { name } : {}) }
+}
+
 export function createDefaultInferaForm(): InferaFormModel {
   return {
     displayName: '',
@@ -122,6 +138,7 @@ export function createDefaultInferaForm(): InferaFormModel {
       NCCL_DEBUG: 'INFO',
     },
     service: {
+      name: '',
       protocol: 'TCP',
       port: 8000,
       targetPort: 8000,
@@ -205,7 +222,7 @@ export function buildInferaCreatePayload(form: InferaFormModel, workspace: strin
       entryPoints: [frontendEntryPoint, prefillEntryPoint, decodeEntryPoint],
       resources: [toResourcePayload(form.frontend), toResourcePayload(form.prefill), toResourcePayload(form.decode)],
       env: form.env,
-      service: { ...INFERA_SERVICE },
+      service: toServicePayload(form),
       inferaOptions: {
         serviceRoles: ['frontend', 'prefill', 'decode'],
         kvTransferBackend: form.kvTransferBackend || 'mori',
@@ -223,7 +240,7 @@ export function buildInferaCreatePayload(form: InferaFormModel, workspace: strin
     entryPoints: [frontendEntryPoint, workerEntryPoint],
     resources: [toResourcePayload(form.frontend), toResourcePayload(form.worker)],
     env: form.env,
-    service: { ...INFERA_SERVICE },
+    service: toServicePayload(form),
     inferaOptions: {
       serviceRoles: ['frontend', 'worker'],
     },

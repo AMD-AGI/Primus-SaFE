@@ -55,4 +55,12 @@ describe('Dynamo/Infera AddDialog', () => {
     expect(dialogSource).toContain('resumeWorkload(props.wlid, payload)')
     expect(dialogSource).toContain(':disabled="isEdit || isResume"')
   })
+
+  it('carries the service name over on Resume but drops it on Clone', () => {
+    expect(dialogSource).toContain('<div class="section-title">Service Configuration</div>')
+    expect(dialogSource).toContain('label="Service Name"')
+    expect(dialogSource).toContain(
+      "name: props.action === 'Clone' ? '' : String(detail.service?.name || '')",
+    )
+  })
 })

@@ -367,6 +367,38 @@
         </div>
 
         <div class="section-card">
+          <div class="section-header">
+            <div class="section-bar"></div>
+            <div>
+              <div class="section-title">Service Configuration</div>
+              <div class="section-subtitle">
+                Service name. Ports follow the frontend entrypoint, over {{ form.service.protocol }}
+                / {{ form.service.serviceType }}
+              </div>
+            </div>
+          </div>
+
+          <el-form-item label="Service Name" prop="service.name">
+            <div class="flex items-center gap-2 w-full">
+              <el-input
+                v-model="form.service.name"
+                :disabled="isEdit"
+                placeholder="Defaults to the workload ID"
+                class="flex-1"
+              />
+              <el-tooltip
+                content="In-cluster Service DNS name. Defaults to the workload ID, which changes on every recreate, so set a stable name to keep clients reachable across Resume. Cannot be changed once the workload is dispatched."
+                placement="top"
+              >
+                <el-icon class="text-gray-500 cursor-help">
+                  <InfoFilled />
+                </el-icon>
+              </el-tooltip>
+            </div>
+          </el-form-item>
+        </div>
+
+        <div class="section-card">
           <div
             class="section-header section-header--clickable"
             @click="advancedOpen = !advancedOpen"
@@ -516,6 +548,8 @@ const commandOverrideOpen = reactive<Record<InferaRoleKey, boolean>>({
 const advancedOpen = ref(false)
 
 const nameRegex = /^[a-z](?:[-a-z0-9]{0,38}[a-z0-9])?$/
+// The backend validates the K8s Service name as a DNS1035 label.
+const serviceNameRegex = /^[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?$/
 const required = (message: string) => ({ required: true, message, trigger: 'blur' })
 
 const rules = reactive<FormRules>({
@@ -556,6 +590,13 @@ const rules = reactive<FormRules>({
   'decode.memory': [required('Please input memory')],
   'service.port': [required('Please input service port')],
   'service.targetPort': [required('Please input target port')],
+  'service.name': [
+    {
+      pattern: serviceNameRegex,
+      message: 'Must start with lowercase letter, only a-z, 0-9, and "-" allowed, max 63 chars',
+      trigger: 'blur',
+    },
+  ],
 })
 
 interface DynamoDetail {
@@ -810,7 +851,13 @@ function hydrateFormFromDetail(detail: DynamoDetail) {
     dynamoOptions.kvTransferBackend || next.kvTransferBackend
   ) as WorkloadFormModel['kvTransferBackend']
 
-  next.service = { ...workloadService.value }
+  // Resume and Edit must send back the existing service name: it is immutable once
+  // dispatched, and dropping it would silently rename the Service to the workload id.
+  // A Clone gets a new workload id, so it has to drop the name to avoid a duplicate.
+  next.service = {
+    ...workloadService.value,
+    name: props.action === 'Clone' ? '' : String(detail.service?.name || ''),
+  }
 
   if (isInfera.value) {
     const frontendEntryPoint = detail.entryPoints?.[0]

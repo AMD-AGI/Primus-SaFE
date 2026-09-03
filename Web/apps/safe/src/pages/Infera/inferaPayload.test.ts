@@ -171,4 +171,55 @@ describe('inferaPayload', () => {
 
     expect(decodeFromBase64String(payload.entryPoints[0])).toBe(form.frontendEntrypoint)
   })
+
+  it('omits the service name so the backend defaults it to the workload id', () => {
+    const form = createDefaultInferaForm()
+
+    expect(form.service.name).toBe('')
+    expect(buildInferaCreatePayload(form, 'core42-hyperloom').service).not.toHaveProperty('name')
+  })
+
+  it('sends a trimmed service name in both single-node and PD mode', () => {
+    const form = createDefaultInferaForm()
+    form.service.name = '  infera-glm53-1p1d  '
+
+    expect(buildInferaCreatePayload(form, 'core42-hyperloom').service).toEqual({
+      name: 'infera-glm53-1p1d',
+      protocol: 'TCP',
+      port: 8000,
+      targetPort: 8000,
+      serviceType: 'ClusterIP',
+    })
+
+    form.enablePd = true
+    expect(buildInferaCreatePayload(form, 'core42-hyperloom').service).toMatchObject({
+      name: 'infera-glm53-1p1d',
+    })
+  })
+
+  it('points both service ports at the frontend entrypoint port', () => {
+    const form = createDefaultInferaForm()
+
+    expect(buildInferaCreatePayload(form, 'core42-hyperloom').service).toMatchObject({
+      port: 8000,
+      targetPort: 8000,
+    })
+
+    form.frontendEntrypoint =
+      'python3 -m infera.server --host 0.0.0.0 --port 9001 --router-tokenizer-path /models/x'
+    expect(buildInferaCreatePayload(form, 'core42-hyperloom').service).toMatchObject({
+      port: 9001,
+      targetPort: 9001,
+    })
+  })
+
+  it('falls back to the default port when the entrypoint has no usable port', () => {
+    const form = createDefaultInferaForm()
+    form.frontendEntrypoint = 'python3 -m infera.server --host 0.0.0.0 --router-policy kv-aware'
+
+    expect(buildInferaCreatePayload(form, 'core42-hyperloom').service).toMatchObject({
+      port: 8000,
+      targetPort: 8000,
+    })
+  })
 })

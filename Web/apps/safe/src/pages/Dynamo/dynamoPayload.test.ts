@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { decodeFromBase64String } from '@/utils'
 import {
+  DYNAMO_FRONTEND_ENTRYPOINT,
   buildDynamoEntrypointPreviewTokens,
   buildDynamoCreatePayload,
   createDefaultDynamoForm,
@@ -258,5 +259,40 @@ describe('dynamoPayload', () => {
     expect(() => buildDynamoCreatePayload(form, 'core42-hyperloom')).toThrow(
       'Aggregation requires worker replica greater than 1',
     )
+  })
+
+  it('omits the service name so the backend defaults it to the workload id', () => {
+    const form = createDefaultDynamoForm()
+
+    expect(form.service.name).toBe('')
+    expect(buildDynamoCreatePayload(form, 'core42-hyperloom').service).not.toHaveProperty('name')
+  })
+
+  it('sends a trimmed service name in both single-node and PD mode', () => {
+    const form = createDefaultDynamoForm()
+    form.service.name = '  dynamo-ds-r1  '
+
+    expect(buildDynamoCreatePayload(form, 'core42-hyperloom').service).toEqual({
+      name: 'dynamo-ds-r1',
+      protocol: 'TCP',
+      port: 8000,
+      targetPort: 8000,
+      serviceType: 'ClusterIP',
+    })
+
+    form.enablePd = true
+    expect(buildDynamoCreatePayload(form, 'core42-hyperloom').service).toMatchObject({
+      name: 'dynamo-ds-r1',
+    })
+  })
+
+  it('keeps both service ports in sync with the frontend entrypoint port', () => {
+    const entrypointPort = Number(DYNAMO_FRONTEND_ENTRYPOINT.match(/--http-port\s+(\d+)/)?.[1])
+
+    expect(entrypointPort).toBeGreaterThan(0)
+    expect(buildDynamoCreatePayload(createDefaultDynamoForm(), 'core42-hyperloom').service).toMatchObject({
+      port: entrypointPort,
+      targetPort: entrypointPort,
+    })
   })
 })
