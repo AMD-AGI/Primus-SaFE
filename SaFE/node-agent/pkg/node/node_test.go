@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"runtime"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -92,7 +93,8 @@ func TestWatchNode(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- n.watchK8sNode()
+		_, err := n.watchK8sNode()
+		done <- err
 	}()
 
 	updated := n.GetK8sNode().DeepCopy()
@@ -141,7 +143,7 @@ func TestWatchK8sNodeWatchError(t *testing.T) {
 	fakeClientSet.PrependWatchReactor("nodes", func(action ktesting.Action) (bool, watch.Interface, error) {
 		return true, nil, fmt.Errorf("watch failed")
 	})
-	err := n.watchK8sNode()
+	_, err := n.watchK8sNode()
 	assert.Assert(t, err != nil)
 }
 
@@ -151,17 +153,94 @@ func TestWatchK8sNodeClosed(t *testing.T) {
 	fakeClientSet.PrependWatchReactor("nodes", func(action ktesting.Action) (bool, watch.Interface, error) {
 		return true, watcher, nil
 	})
-	done := make(chan error, 1)
+	done := make(chan struct {
+		immediate bool
+		err       error
+	}, 1)
 	go func() {
-		done <- n.watchK8sNode()
+		immediate, err := n.watchK8sNode()
+		done <- struct {
+			immediate bool
+			err       error
+		}{immediate, err}
 	}()
 	watcher.Stop()
 	select {
-	case err := <-done:
-		assert.NilError(t, err)
+	case got := <-done:
+		assert.NilError(t, got.err)
+		assert.Equal(t, got.immediate, true)
 	case <-time.After(time.Second):
 		t.Fatal("watchK8sNode did not return after watch closed")
 	}
+}
+
+func TestWatchK8sNodeClosedAfterEvent(t *testing.T) {
+	n, fakeClientSet := newNode(t)
+	watcher := watch.NewFake()
+	fakeClientSet.PrependWatchReactor("nodes", func(action ktesting.Action) (bool, watch.Interface, error) {
+		return true, watcher, nil
+	})
+	done := make(chan struct {
+		immediate bool
+		err       error
+	}, 1)
+	go func() {
+		immediate, err := n.watchK8sNode()
+		done <- struct {
+			immediate bool
+			err       error
+		}{immediate, err}
+	}()
+	updated := n.GetK8sNode().DeepCopy()
+	updated.Labels["test.key"] = "test.val"
+	watcher.Modify(updated)
+	waitForNodeLabel(t, n, "test.key", "test.val")
+	watcher.Stop()
+	select {
+	case got := <-done:
+		assert.NilError(t, got.err)
+		assert.Equal(t, got.immediate, false)
+	case <-time.After(time.Second):
+		t.Fatal("watchK8sNode did not return after watch closed")
+	}
+}
+
+func TestUpdateReconnectsImmediatelyOnCleanClose(t *testing.T) {
+	n, fakeClientSet := newNode(t)
+	savedRetry := WATCH_RETRY_INTERVAL
+	WATCH_RETRY_INTERVAL = time.Second
+	t.Cleanup(func() { WATCH_RETRY_INTERVAL = savedRetry })
+
+	var watches atomic.Int32
+	fakeClientSet.PrependWatchReactor("nodes", func(action ktesting.Action) (bool, watch.Interface, error) {
+		watches.Add(1)
+		w := watch.NewFake()
+		w.Stop()
+		return true, w, nil
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	n.ctx = ctx
+	done := make(chan struct{})
+	go func() {
+		n.update()
+		close(done)
+	}()
+
+	deadline := time.Now().Add(400 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if watches.Load() >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("update did not stop after cancel")
+	}
+	assert.Assert(t, watches.Load() >= 2, "watches=%d", watches.Load())
 }
 
 func TestStartWatchesNode(t *testing.T) {

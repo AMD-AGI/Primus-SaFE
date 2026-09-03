@@ -39,6 +39,9 @@ var (
 	// WATCH_TIMEOUT_SECONDS bounds a single watch so a stalled connection is
 	// torn down and the cache is refreshed from a new Get.
 	WATCH_TIMEOUT_SECONDS int64 = 300
+	// WATCH_CLOSE_WARN_COUNT raises the log level after this many watches
+	// close without delivering an event.
+	WATCH_CLOSE_WARN_COUNT = 3
 )
 
 // Node represents a Kubernetes node with additional functionality for monitoring and updating node status
@@ -89,14 +92,28 @@ func (n *Node) Start() error {
 
 // update watches the current node and reconnects after watch failures.
 func (n *Node) update() {
+	consecutiveImmediate := 0
 	for {
 		if n.ctx.Err() != nil {
 			n.logWatcherStop()
 			return
 		}
-		if err := n.watchK8sNode(); err != nil && n.ctx.Err() == nil {
-			klog.ErrorS(err, "failed to watch k8s node")
+		immediateClose, err := n.watchK8sNode()
+		if n.ctx.Err() != nil {
+			n.logWatcherStop()
+			return
 		}
+		if err == nil {
+			if immediateClose {
+				consecutiveImmediate++
+			} else {
+				consecutiveImmediate = 0
+			}
+			n.logWatchClosed(immediateClose, consecutiveImmediate)
+			continue
+		}
+		consecutiveImmediate = 0
+		klog.ErrorS(err, "failed to watch k8s node")
 		select {
 		case <-n.ctx.Done():
 			n.logWatcherStop()
@@ -104,6 +121,14 @@ func (n *Node) update() {
 		case <-time.After(WATCH_RETRY_INTERVAL):
 		}
 	}
+}
+
+func (n *Node) logWatchClosed(immediateClose bool, consecutive int) {
+	if immediateClose && consecutive >= WATCH_CLOSE_WARN_COUNT {
+		klog.InfoS("node watch closed immediately, reconnecting", "consecutive", consecutive)
+		return
+	}
+	klog.V(4).InfoS("node watch closed, reconnecting")
 }
 
 func (n *Node) logWatcherStop() {
@@ -115,9 +140,11 @@ func (n *Node) logWatcherStop() {
 }
 
 // watchK8sNode watches only the current node and updates the local cache.
-func (n *Node) watchK8sNode() error {
+// A clean close with no events returns immediateClose so the caller can reconnect
+// without waiting; a close after at least one event is the expected timeout.
+func (n *Node) watchK8sNode() (immediateClose bool, err error) {
 	if err := n.syncK8sNode(); err != nil {
-		return err
+		return false, err
 	}
 
 	n.mu.Lock()
@@ -132,22 +159,23 @@ func (n *Node) watchK8sNode() error {
 		TimeoutSeconds:  &timeout,
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer watcher.Stop()
 
+	sawEvent := false
 	for {
 		select {
 		case <-n.ctx.Done():
-			return n.ctx.Err()
+			return false, n.ctx.Err()
 		case event, ok := <-watcher.ResultChan():
 			if !ok {
-				klog.V(4).InfoS("node watch closed, reconnecting")
-				return nil
+				return !sawEvent, nil
 			}
 			if err := n.applyWatchEvent(event); err != nil {
-				return err
+				return false, err
 			}
+			sawEvent = true
 		}
 	}
 }
