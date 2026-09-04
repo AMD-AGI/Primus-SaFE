@@ -30,8 +30,9 @@ const (
 	OpsJobPreflightType   OpsJobType = "preflight"
 	OpsJobRebootType      OpsJobType = "reboot"
 	OpsJobExportImageType OpsJobType = "exportimage"
-	OpsJobPrewarmType     OpsJobType = "prewarm"
-	OpsJobDownloadType    OpsJobType = "download"
+	OpsJobPrewarmType      OpsJobType = "prewarm"
+	OpsJobModelPrewarmType  OpsJobType = "model-prewarm"
+	OpsJobDownloadType     OpsJobType = "download"
 	OpsJobCDType          OpsJobType = "cd"         // CD deployment job (supports both Safe and Lens via deploy.type parameter)
 	OpsJobEvaluationType  OpsJobType = "evaluation" // Model evaluation job
 
@@ -82,6 +83,11 @@ const (
 
 	// Evaluation performance parameters
 	ParameterEvalConcurrency = "eval.concurrency" // Concurrency level for evaluation (default 32)
+
+	// Model prewarm job parameters
+	ParameterModelPath   = "model.path"
+	ParameterModelGlob   = "model.glob"
+	ParameterParallelism = "parallelism"
 )
 
 type Parameter struct {

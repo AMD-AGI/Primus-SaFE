@@ -66,6 +66,12 @@ type CreateAddonRequest struct {
 	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 }
 
+type CreateModelPrewarmRequest struct {
+	BaseOpsJobRequest
+	// Nodes to be excluded, not participating in the ops job
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
+}
+
 type CreateDumplogRequest struct {
 	BaseOpsJobRequest
 }

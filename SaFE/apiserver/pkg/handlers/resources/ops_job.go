@@ -37,6 +37,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
+	modelprewarm "github.com/AMD-AIG-AIMA/SAFE/common/pkg/model_prewarm"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
@@ -103,6 +104,8 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 		job, err = h.generateExportImageJob(c, body)
 	case v1.OpsJobPrewarmType:
 		job, err = h.generatePrewarmImageJob(c, body)
+	case v1.OpsJobModelPrewarmType:
+		job, err = h.generateModelPrewarmJob(c, body)
 	case v1.OpsJobDownloadType:
 		job, err = h.generateDownloadJob(c, body)
 	case v1.OpsJobEvaluationType:
@@ -601,6 +604,112 @@ func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJ
 	// Add workspace and cluster labels for statistics and tracking
 	job.Labels[v1.WorkspaceIdLabel] = workspace
 	job.Labels[v1.ClusterIdLabel] = workspaceObj.Spec.Cluster
+
+	return job, nil
+}
+
+// generateModelPrewarmJob creates a model-prewarm-type ops job.
+func (h *Handler) generateModelPrewarmJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &view.CreateModelPrewarmRequest{}
+	if err := jsonutils.Unmarshal(body, req); err != nil {
+		return nil, err
+	}
+
+	modelPath := ""
+	glob := modelprewarm.DefaultGlob
+	parallelism := modelprewarm.DefaultParallelism
+	for i, param := range req.Inputs {
+		switch param.Name {
+		case v1.ParameterModelPath:
+			modelPath = strings.TrimSpace(param.Value)
+			req.Inputs[i].Value = modelPath
+		case v1.ParameterModelGlob:
+			glob = strings.TrimSpace(param.Value)
+			if glob == "" {
+				glob = modelprewarm.DefaultGlob
+			}
+			req.Inputs[i].Value = glob
+		case v1.ParameterParallelism:
+			if param.Value != "" {
+				p, parseErr := strconv.Atoi(strings.TrimSpace(param.Value))
+				if parseErr != nil || p <= 0 {
+					return nil, commonerrors.NewBadRequest("parallelism must be a positive integer")
+				}
+				parallelism = p
+				req.Inputs[i].Value = strconv.Itoa(parallelism)
+			}
+		}
+	}
+	if err := modelprewarm.ValidateModelPath(modelPath); err != nil {
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	if err := modelprewarm.ValidateGlob(glob); err != nil {
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+
+	timeoutSecond := req.TimeoutSecond
+	if timeoutSecond == 0 {
+		timeoutSecond = commonconfig.GetModelPrewarmTimeoutSecond()
+	}
+
+	jobReq := &view.BaseOpsJobRequest{
+		Name:                    req.Name,
+		Type:                    v1.OpsJobModelPrewarmType,
+		Inputs:                  req.Inputs,
+		TimeoutSecond:           timeoutSecond,
+		TTLSecondsAfterFinished: req.TTLSecondsAfterFinished,
+	}
+	job := genDefaultOpsJob(jobReq, requestUser)
+	job.Spec.ExcludedNodes = req.ExcludedNodes
+
+	ctx := c.Request.Context()
+	if _, err = h.generateOpsJobNodesInput(ctx, job); err != nil {
+		return nil, err
+	}
+	if job.GetParameter(v1.ParameterNode) == nil {
+		return nil, commonerrors.NewBadRequest("opsJob nodes are either empty or unhealthy")
+	}
+
+	if workspaceId := v1.GetWorkspaceId(job); workspaceId != "" {
+		workspaceObj, err := h.getAdminWorkspace(ctx, workspaceId)
+		if err != nil {
+			return nil, commonerrors.NewBadRequest("failed to get workspace: " + err.Error())
+		}
+		v1.SetLabel(job, v1.ClusterIdLabel, workspaceObj.Spec.Cluster)
+		if err = h.accessController.Authorize(authority.AccessInput{
+			Context:    ctx,
+			Resource:   workspaceObj,
+			Verb:       v1.GetVerb,
+			User:       requestUser,
+			Workspaces: []string{workspaceId},
+		}); err != nil {
+			return nil, err
+		}
+	} else {
+		if err = h.accessController.Authorize(authority.AccessInput{
+			Context:      ctx,
+			ResourceKind: v1.NodeKind,
+			Verb:         v1.UpdateVerb,
+			User:         requestUser,
+		}); err != nil {
+			return nil, err
+		}
+		if clusterParam := job.GetParameter(v1.ParameterCluster); clusterParam != nil {
+			v1.SetLabel(job, v1.ClusterIdLabel, clusterParam.Value)
+		}
+	}
+
+	if job.GetParameter(v1.ParameterModelGlob) == nil {
+		job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterModelGlob, Value: glob})
+	}
+	if job.GetParameter(v1.ParameterParallelism) == nil {
+		job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterParallelism, Value: strconv.Itoa(parallelism)})
+	}
 
 	return job, nil
 }

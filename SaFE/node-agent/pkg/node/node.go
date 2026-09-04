@@ -31,6 +31,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/model_prewarm"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/utils"
 )
@@ -56,10 +57,11 @@ var (
 
 // Node represents a Kubernetes node with additional functionality for monitoring and updating node status
 type Node struct {
-	ctx       context.Context
-	k8sNode   *corev1.Node
-	mu        sync.RWMutex
-	k8sClient typedcorev1.CoreV1Interface
+	ctx           context.Context
+	k8sNode       *corev1.Node
+	mu            sync.RWMutex
+	k8sClient     typedcorev1.CoreV1Interface
+	modelPrewarm  *model_prewarm.Handler
 }
 
 // NewNode creates a new Node instance using in-cluster Kubernetes client configuration.
@@ -84,6 +86,7 @@ func NewNodeWithClientSet(ctx context.Context, opts *types.Options, k8sClientSet
 		klog.ErrorS(err, "failed to get node")
 		return nil, err
 	}
+	n.modelPrewarm = model_prewarm.NewHandler(ctx, opts.NodeName, n.k8sClient)
 	return n, nil
 }
 
@@ -243,6 +246,9 @@ func (n *Node) applyWatchEvent(event watch.Event) error {
 			return fmt.Errorf("unexpected watch object: %T", event.Object)
 		}
 		n.setK8sNodeIfNewer(node)
+		if n.modelPrewarm != nil {
+			n.modelPrewarm.HandleNodeUpdate(node)
+		}
 	case watch.Deleted:
 		klog.InfoS("watched node was deleted")
 	case watch.Error:
