@@ -40,6 +40,19 @@ func TestMarshalRoundTrip(t *testing.T) {
 }
 
 func TestAnnotationKeys(t *testing.T) {
-	assert.Equal(t, "primus-safe.ops.job.model-prewarm.request.job-1", RequestAnnotationKey("job-1"))
-	assert.Equal(t, "primus-safe.ops.job.model-prewarm.result.job-1", ResultAnnotationKey("job-1"))
+	jobUID := "edcb8cbd-b452-405e-b368-65e15734b726"
+	reqKey := RequestAnnotationKey(jobUID)
+	resKey := ResultAnnotationKey(jobUID)
+	assert.Equal(t, "primus-safe.ops.job.mp.r."+jobUID, reqKey)
+	assert.Equal(t, "primus-safe.ops.job.mp.s."+jobUID, resKey)
+	assert.LessOrEqual(t, len(reqKey), MaxK8sAnnotationKeyLength)
+	assert.LessOrEqual(t, len(resKey), MaxK8sAnnotationKeyLength)
+	assert.NoError(t, ValidateAnnotationKeySuffix(jobUID))
+}
+
+func TestAnnotationKeyFitsProductionJobName(t *testing.T) {
+	// Regression: prewarm-glm53-ws-ntvmh exceeded the old 64-char key limit.
+	jobUID := "edcb8cbd-b452-405e-b368-65e15734b726"
+	key := RequestAnnotationKey(jobUID)
+	assert.LessOrEqual(t, len(key), MaxK8sAnnotationKeyLength)
 }

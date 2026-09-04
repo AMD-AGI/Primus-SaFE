@@ -143,7 +143,10 @@ func (r *ModelPrewarmJobReconciler) dispatchRequests(ctx context.Context, job *v
 	if err != nil {
 		return err
 	}
-	reqKey := modelprewarm.RequestAnnotationKey(job.Name)
+	if err := modelprewarm.ValidateAnnotationKeySuffix(string(job.UID)); err != nil {
+		return err
+	}
+	reqKey := modelprewarm.RequestAnnotationKey(string(job.UID))
 
 	for _, adminNodeName := range r.getTargetNodes(job) {
 		adminNode, err := r.getAdminNode(ctx, adminNodeName)
@@ -199,7 +202,7 @@ func (r *ModelPrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context,
 			continue
 		}
 		k8sNodeName := adminNode.GetK8sNodeName()
-		result, err := r.readK8sNodeResult(ctx, k8sClients, k8sNodeName, job.Name)
+		result, err := r.readK8sNodeResult(ctx, k8sClients, k8sNodeName, string(job.UID))
 		detail := modelprewarm.NodeDetail{
 			Node:        k8sNodeName,
 			AdminNodeId: adminNodeName,
@@ -287,7 +290,7 @@ func (r *ModelPrewarmJobReconciler) updateModelPrewarmProgress(
 }
 
 func (r *ModelPrewarmJobReconciler) readK8sNodeResult(
-	ctx context.Context, k8sClients *k8sclient.ClientFactory, k8sNodeName, jobName string) (*modelprewarm.Result, error) {
+	ctx context.Context, k8sClients *k8sclient.ClientFactory, k8sNodeName, jobUID string) (*modelprewarm.Result, error) {
 	if k8sNodeName == "" {
 		return nil, fmt.Errorf("k8s node name is empty")
 	}
@@ -295,7 +298,7 @@ func (r *ModelPrewarmJobReconciler) readK8sNodeResult(
 	if err != nil {
 		return nil, err
 	}
-	raw, ok := k8sNode.Annotations[modelprewarm.ResultAnnotationKey(jobName)]
+	raw, ok := k8sNode.Annotations[modelprewarm.ResultAnnotationKey(jobUID)]
 	if !ok || raw == "" {
 		return nil, nil
 	}
@@ -326,8 +329,9 @@ func (r *ModelPrewarmJobReconciler) cleanupAnnotations(ctx context.Context, job 
 			"job", job.Name, "cluster", v1.GetClusterId(job))
 		return nil
 	}
-	reqKey := modelprewarm.RequestAnnotationKey(job.Name)
-	resKey := modelprewarm.ResultAnnotationKey(job.Name)
+	jobUID := string(job.UID)
+	reqKey := modelprewarm.RequestAnnotationKey(jobUID)
+	resKey := modelprewarm.ResultAnnotationKey(jobUID)
 	for _, adminNodeName := range r.getTargetNodes(job) {
 		adminNode := &v1.Node{}
 		if err := r.Get(ctx, client.ObjectKey{Name: adminNodeName}, adminNode); err != nil {

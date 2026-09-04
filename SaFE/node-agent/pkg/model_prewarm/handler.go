@@ -55,15 +55,16 @@ func (h *Handler) HandleNodeUpdate(node *corev1.Node) {
 	if node == nil || node.Annotations == nil {
 		return
 	}
+	requestPrefix := modelprewarm.RequestAnnotationPrefix()
 	for key, raw := range node.Annotations {
-		if !strings.HasPrefix(key, modelprewarm.RequestAnnotationKey("")) {
+		if !strings.HasPrefix(key, requestPrefix) {
 			continue
 		}
-		opsJobId := strings.TrimPrefix(key, modelprewarm.RequestAnnotationKey(""))
-		if opsJobId == "" {
+		jobUID := strings.TrimPrefix(key, requestPrefix)
+		if jobUID == "" {
 			continue
 		}
-		resultKey := modelprewarm.ResultAnnotationKey(opsJobId)
+		resultKey := modelprewarm.ResultAnnotationKey(jobUID)
 		if resultRaw, ok := node.Annotations[resultKey]; ok && resultRaw != "" {
 			result, err := modelprewarm.ParseResult(resultRaw)
 			if err == nil && modelprewarm.IsTerminal(result.Phase) {
@@ -72,46 +73,46 @@ func (h *Handler) HandleNodeUpdate(node *corev1.Node) {
 		}
 		req, err := modelprewarm.ParseRequest(raw)
 		if err != nil {
-			klog.ErrorS(err, "failed to parse model prewarm request", "opsJobId", opsJobId)
+			klog.ErrorS(err, "failed to parse model prewarm request", "jobUID", jobUID)
 			continue
 		}
-		h.startJob(opsJobId, req)
+		h.startJob(jobUID, req)
 	}
 }
 
-func (h *Handler) startJob(opsJobId string, req *modelprewarm.Request) {
+func (h *Handler) startJob(jobUID string, req *modelprewarm.Request) {
 	h.mu.Lock()
-	if h.running[opsJobId] {
+	if h.running[jobUID] {
 		h.mu.Unlock()
 		return
 	}
-	h.running[opsJobId] = true
+	h.running[jobUID] = true
 	h.mu.Unlock()
 
 	go func() {
 		defer func() {
 			h.mu.Lock()
-			delete(h.running, opsJobId)
+			delete(h.running, jobUID)
 			h.mu.Unlock()
 		}()
-		h.execute(opsJobId, req)
+		h.execute(jobUID, req)
 	}()
 }
 
-func (h *Handler) execute(opsJobId string, req *modelprewarm.Request) {
+func (h *Handler) execute(jobUID string, req *modelprewarm.Request) {
 	startedAt := time.Now().UTC()
-	if err := h.writeResult(opsJobId, &modelprewarm.Result{
-		OpsJobId: opsJobId,
+	if err := h.writeResult(jobUID, &modelprewarm.Result{
+		OpsJobId: req.OpsJobId,
 		Phase:    modelprewarm.PhaseRunning,
 	}); err != nil {
-		klog.ErrorS(err, "failed to write running model prewarm result", "opsJobId", opsJobId)
+		klog.ErrorS(err, "failed to write running model prewarm result", "jobUID", jobUID, "opsJobId", req.OpsJobId)
 		return
 	}
 
 	bytesRead, err := h.prewarmOnHost(req)
 	finishedAt := time.Now().UTC()
 	result := &modelprewarm.Result{
-		OpsJobId:        opsJobId,
+		OpsJobId:        req.OpsJobId,
 		BytesRead:       bytesRead,
 		DurationSeconds: int64(finishedAt.Sub(startedAt).Seconds()),
 		FinishedAt:      finishedAt,
@@ -119,14 +120,14 @@ func (h *Handler) execute(opsJobId string, req *modelprewarm.Request) {
 	if err != nil {
 		result.Phase = modelprewarm.PhaseFailed
 		result.Message = err.Error()
-		klog.ErrorS(err, "model prewarm failed", "opsJobId", opsJobId)
+		klog.ErrorS(err, "model prewarm failed", "jobUID", jobUID, "opsJobId", req.OpsJobId)
 	} else {
 		result.Phase = modelprewarm.PhaseSucceeded
 		klog.Infof("model prewarm succeeded, opsJobId=%s bytesRead=%d duration=%ds",
-			opsJobId, bytesRead, int64(result.DurationSeconds))
+			req.OpsJobId, bytesRead, int64(result.DurationSeconds))
 	}
-	if err := h.writeResult(opsJobId, result); err != nil {
-		klog.ErrorS(err, "failed to write model prewarm result", "opsJobId", opsJobId)
+	if err := h.writeResult(jobUID, result); err != nil {
+		klog.ErrorS(err, "failed to write model prewarm result", "jobUID", jobUID, "opsJobId", req.OpsJobId)
 	}
 }
 
@@ -159,12 +160,12 @@ echo "$BYTES"`,
 	return bytesRead, nil
 }
 
-func (h *Handler) writeResult(opsJobId string, result *modelprewarm.Result) error {
+func (h *Handler) writeResult(jobUID string, result *modelprewarm.Result) error {
 	value, err := modelprewarm.MarshalResult(result)
 	if err != nil {
 		return err
 	}
-	key := modelprewarm.ResultAnnotationKey(opsJobId)
+	key := modelprewarm.ResultAnnotationKey(jobUID)
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		node, getErr := h.k8sClient.Nodes().Get(h.ctx, h.nodeName, metav1.GetOptions{})
 		if getErr != nil {

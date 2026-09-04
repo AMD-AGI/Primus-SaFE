@@ -17,6 +17,8 @@ import (
 const (
 	DefaultGlob        = "*.safetensors"
 	DefaultParallelism = 4
+	// MaxK8sAnnotationKeyLength is the Kubernetes annotation key length limit.
+	MaxK8sAnnotationKeyLength = 63
 
 	PhaseRunning   = "Running"
 	PhaseSucceeded = "Succeeded"
@@ -52,14 +54,40 @@ type NodeDetail struct {
 	BytesRead       int64  `json:"bytesRead,omitempty"`
 }
 
-// RequestAnnotationKey returns the request annotation key for an OpsJob.
-func RequestAnnotationKey(opsJobId string) string {
-	return v1.OpsJobModelPrewarmRequestAnnotation + opsJobId
+// RequestAnnotationPrefix returns the model prewarm request annotation key prefix.
+func RequestAnnotationPrefix() string {
+	return v1.OpsJobModelPrewarmRequestAnnotation
 }
 
-// ResultAnnotationKey returns the result annotation key for an OpsJob.
-func ResultAnnotationKey(opsJobId string) string {
-	return v1.OpsJobModelPrewarmResultAnnotation + opsJobId
+// ResultAnnotationPrefix returns the model prewarm result annotation key prefix.
+func ResultAnnotationPrefix() string {
+	return v1.OpsJobModelPrewarmResultAnnotation
+}
+
+// AnnotationKeySuffix returns the annotation key suffix for an OpsJob (its UID).
+func AnnotationKeySuffix(jobUID string) string {
+	return jobUID
+}
+
+// RequestAnnotationKey returns the request annotation key for an OpsJob UID suffix.
+func RequestAnnotationKey(jobUID string) string {
+	return v1.OpsJobModelPrewarmRequestAnnotation + jobUID
+}
+
+// ResultAnnotationKey returns the result annotation key for an OpsJob UID suffix.
+func ResultAnnotationKey(jobUID string) string {
+	return v1.OpsJobModelPrewarmResultAnnotation + jobUID
+}
+
+// ValidateAnnotationKeySuffix ensures the composed annotation key fits Kubernetes limits.
+func ValidateAnnotationKeySuffix(jobUID string) error {
+	if jobUID == "" {
+		return fmt.Errorf("ops job uid is empty")
+	}
+	if len(RequestAnnotationKey(jobUID)) > MaxK8sAnnotationKeyLength {
+		return fmt.Errorf("model prewarm annotation key exceeds %d characters", MaxK8sAnnotationKeyLength)
+	}
+	return nil
 }
 
 // IsTerminal reports whether the result phase is a finished state.
