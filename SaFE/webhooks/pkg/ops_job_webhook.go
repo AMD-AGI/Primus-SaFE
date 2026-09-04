@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"path"
 	"reflect"
+	"strconv"
 	"strings"
 
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
@@ -32,6 +33,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	modelprewarm "github.com/AMD-AIG-AIMA/SAFE/common/pkg/model_prewarm"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -115,7 +117,12 @@ func (m *OpsJobMutator) mutateJobSpec(ctx context.Context, job *v1.OpsJob) {
 		job.Spec.TTLSecondsAfterFinished = commonconfig.GetOpsJobTTLSecond()
 	}
 	if job.Spec.TimeoutSecond == 0 {
-		job.Spec.TimeoutSecond = commonconfig.GetOpsJobTimeoutSecond()
+		switch job.Spec.Type {
+		case v1.OpsJobModelPrewarmType:
+			job.Spec.TimeoutSecond = commonconfig.GetModelPrewarmTimeoutSecond()
+		default:
+			job.Spec.TimeoutSecond = commonconfig.GetOpsJobTimeoutSecond()
+		}
 	}
 	for i := range job.Spec.Inputs {
 		job.Spec.Inputs[i].Name = stringutil.NormalizeName(job.Spec.Inputs[i].Name)
@@ -188,7 +195,8 @@ func (m *OpsJobMutator) removeDuplicates(job *v1.OpsJob) {
 // filterUnhealthyNodes filters out unhealthy nodes from preflight/addon job inputs.
 // It removes nodes that are not ready, being deleted, or have inappropriate taints.
 func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob) {
-	if job.Spec.Type != v1.OpsJobPreflightType && job.Spec.Type != v1.OpsJobAddonType {
+	if job.Spec.Type != v1.OpsJobPreflightType && job.Spec.Type != v1.OpsJobAddonType &&
+		job.Spec.Type != v1.OpsJobModelPrewarmType {
 		return
 	}
 	newInputs := make([]v1.Parameter, 0, len(job.Spec.Inputs))
@@ -299,6 +307,8 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 		err = v.validateDumpling(ctx, job)
 	case v1.OpsJobDownloadType:
 		err = v.validateDownload(ctx, job)
+	case v1.OpsJobModelPrewarmType:
+		err = v.validateModelPrewarm(ctx, job)
 	default:
 	}
 	if err != nil {
@@ -336,7 +346,8 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 	if len(job.Spec.Inputs) == 0 {
 		errs = append(errs, fmt.Errorf("the inputs of ops job are empty"))
 	}
-	if job.Spec.Type == v1.OpsJobAddonType || job.Spec.Type == v1.OpsJobPreflightType || job.Spec.Type == v1.OpsJobRebootType {
+	if job.Spec.Type == v1.OpsJobAddonType || job.Spec.Type == v1.OpsJobPreflightType ||
+		job.Spec.Type == v1.OpsJobRebootType || job.Spec.Type == v1.OpsJobModelPrewarmType {
 		if job.GetParameter(v1.ParameterNode) == nil {
 			errs = append(errs, fmt.Errorf("opsJob nodes are either empty or unhealthy"))
 		}
@@ -449,6 +460,32 @@ func (v *OpsJobValidator) validateAddon(ctx context.Context, job *v1.OpsJob) err
 				v1.ParameterAddonTemplate, v1.ParameterNodeTemplate, v1.ParameterScript))
 	}
 	return nil
+}
+
+// validateModelPrewarm validates model prewarm job parameters and node scope.
+func (v *OpsJobValidator) validateModelPrewarm(ctx context.Context, job *v1.OpsJob) error {
+	if err := v.validateNodeDuplicated(ctx, job); err != nil {
+		return err
+	}
+	modelPathParam := job.GetParameter(v1.ParameterModelPath)
+	if modelPathParam == nil || strings.TrimSpace(modelPathParam.Value) == "" {
+		return commonerrors.NewBadRequest("model.path is required in inputs")
+	}
+	if err := modelprewarm.ValidateModelPath(modelPathParam.Value); err != nil {
+		return commonerrors.NewBadRequest(err.Error())
+	}
+	if globParam := job.GetParameter(v1.ParameterModelGlob); globParam != nil && globParam.Value != "" {
+		if err := modelprewarm.ValidateGlob(globParam.Value); err != nil {
+			return commonerrors.NewBadRequest(err.Error())
+		}
+	}
+	if parallelismParam := job.GetParameter(v1.ParameterParallelism); parallelismParam != nil && parallelismParam.Value != "" {
+		p, err := strconv.Atoi(parallelismParam.Value)
+		if err != nil || p <= 0 {
+			return commonerrors.NewBadRequest("parallelism must be a positive integer")
+		}
+	}
+	return v.validateNodes(ctx, job)
 }
 
 // validateDownload checks if another download job is already running on the same input.

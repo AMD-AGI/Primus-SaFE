@@ -59,6 +59,22 @@ func TestPrewarmReconcileEntry(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestModelPrewarmReconcileEntry(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1", Finalizers: []string{v1.OpsJobFinalizer}},
+		Spec: v1.OpsJobSpec{
+			Type: v1.OpsJobModelPrewarmType,
+			Inputs: []v1.Parameter{
+				{Name: v1.ParameterModelPath, Value: "/models/glm"},
+				{Name: v1.ParameterNode, Value: "node-1"},
+			},
+		},
+	}
+	r := &ModelPrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
+	assert.NoError(t, err)
+}
+
 func TestPrewarmCleanupDaemonSet(t *testing.T) {
 	ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: common.PrimusSafeNamespace}}
 	cs := k8sfake.NewSimpleClientset(ds)

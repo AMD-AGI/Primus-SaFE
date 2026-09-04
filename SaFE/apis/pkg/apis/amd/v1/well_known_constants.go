@@ -180,6 +180,9 @@ const (
 	OpsJobSecurityOperationAnnotation = OpsJobPrefix + "security.operation"
 	OpsJobBatchCountAnnotation        = OpsJobPrefix + "batch.count"
 	OpsJobAvailRatioAnnotation        = OpsJobPrefix + "avail.ratio"
+	OpsJobModelPrewarmPrefix          = OpsJobPrefix + "model-prewarm."
+	OpsJobModelPrewarmRequestAnnotation = OpsJobModelPrewarmPrefix + "request."
+	OpsJobModelPrewarmResultAnnotation  = OpsJobModelPrewarmPrefix + "result."
 	OpsJobFinalizer                   = PrimusSafeDomain + "ops.job.finalizer"
 
 	// addon

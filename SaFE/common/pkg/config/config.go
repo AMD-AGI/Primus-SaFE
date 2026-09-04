@@ -374,6 +374,11 @@ func GetPrewarmWorkerConcurrent() int {
 	return getInt(prewarmWorkerConcurrent, 10)
 }
 
+// GetModelPrewarmTimeoutSecond returns the timeout in seconds for model prewarm jobs.
+func GetModelPrewarmTimeoutSecond() int {
+	return getInt(modelPrewarmTimeoutSecond, 7200)
+}
+
 // IsS3Enable returns whether S3 storage is enabled.
 func IsS3Enable() bool {
 	return getBool(s3Enable, false)
