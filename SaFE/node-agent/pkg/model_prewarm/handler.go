@@ -7,6 +7,7 @@ package model_prewarm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -28,6 +29,13 @@ import (
 )
 
 var errPrewarmCancelled = errors.New("model prewarm cancelled")
+var errRequestRevoked = errors.New("model prewarm request revoked")
+
+type jsonPatchOp struct {
+	Op    string `json:"op"`
+	Path  string `json:"path"`
+	Value string `json:"value,omitempty"`
+}
 
 type jobRunner struct {
 	cancel context.CancelFunc
@@ -119,12 +127,17 @@ func (h *Handler) execute(ctx context.Context, jobUID string, req *modelprewarm.
 	if ctx.Err() != nil {
 		return
 	}
+	requestValue, err := modelprewarm.MarshalRequest(req)
+	if err != nil {
+		klog.ErrorS(err, "failed to marshal model prewarm request", "jobUID", jobUID, "opsJobId", req.OpsJobId)
+		return
+	}
 	startedAt := time.Now().UTC()
-	if err := h.writeResult(ctx, jobUID, &modelprewarm.Result{
+	if err := h.writeResult(ctx, jobUID, requestValue, &modelprewarm.Result{
 		OpsJobId: req.OpsJobId,
 		Phase:    modelprewarm.PhaseRunning,
-	}); err != nil {
-		if ctx.Err() != nil {
+	}, false); err != nil {
+		if errors.Is(err, errRequestRevoked) || ctx.Err() != nil {
 			return
 		}
 		klog.ErrorS(err, "failed to write running model prewarm result", "jobUID", jobUID, "opsJobId", req.OpsJobId)
@@ -159,7 +172,10 @@ func (h *Handler) execute(ctx context.Context, jobUID string, req *modelprewarm.
 	if ctx.Err() != nil {
 		return
 	}
-	if err := h.writeResult(ctx, jobUID, result); err != nil && ctx.Err() == nil {
+	if err := h.writeResult(ctx, jobUID, requestValue, result, true); err != nil {
+		if errors.Is(err, errRequestRevoked) || ctx.Err() != nil {
+			return
+		}
 		klog.ErrorS(err, "failed to write model prewarm result", "jobUID", jobUID, "opsJobId", req.OpsJobId)
 	}
 }
@@ -191,16 +207,19 @@ func (h *Handler) prewarmOnHost(ctx context.Context, req *modelprewarm.Request) 
 	return bytesRead, nil
 }
 
-func (h *Handler) writeResult(ctx context.Context, jobUID string, result *modelprewarm.Result) error {
+func (h *Handler) writeResult(
+	ctx context.Context, jobUID, requestValue string, result *modelprewarm.Result, replace bool) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	value, err := modelprewarm.MarshalResult(result)
+	resultValue, err := modelprewarm.MarshalResult(result)
 	if err != nil {
 		return err
 	}
-	key := modelprewarm.ResultAnnotationKey(jobUID)
-	patch := []byte(fmt.Sprintf(`{"metadata":{"annotations":{"%s":%s}}}`, key, jsonEscape(value)))
+	patch, err := buildConditionalResultPatch(jobUID, requestValue, resultValue, replace)
+	if err != nil {
+		return err
+	}
 	return retry.OnError(retry.DefaultRetry, func(err error) bool {
 		return apierrors.IsTimeout(err) ||
 			apierrors.IsServerTimeout(err) ||
@@ -211,9 +230,38 @@ func (h *Handler) writeResult(ctx context.Context, jobUID string, result *modelp
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		_, patchErr := h.k8sClient.Nodes().Patch(ctx, h.nodeName, apitypes.MergePatchType, patch, metav1.PatchOptions{})
+		_, patchErr := h.k8sClient.Nodes().Patch(ctx, h.nodeName, apitypes.JSONPatchType, patch, metav1.PatchOptions{})
+		if patchErr == nil {
+			return nil
+		}
+		if apierrors.IsInvalid(patchErr) {
+			return errRequestRevoked
+		}
 		return patchErr
 	})
+}
+
+func buildConditionalResultPatch(jobUID, requestValue, resultValue string, replace bool) ([]byte, error) {
+	reqKey := modelprewarm.RequestAnnotationKey(jobUID)
+	resKey := modelprewarm.ResultAnnotationKey(jobUID)
+	writeOp := "add"
+	if replace {
+		writeOp = "replace"
+	}
+	ops := []jsonPatchOp{
+		{Op: "test", Path: annotationJSONPointer(reqKey), Value: requestValue},
+		{Op: writeOp, Path: annotationJSONPointer(resKey), Value: resultValue},
+	}
+	return json.Marshal(ops)
+}
+
+func annotationJSONPointer(key string) string {
+	return "/metadata/annotations/" + jsonPointerEscape(key)
+}
+
+func jsonPointerEscape(value string) string {
+	value = strings.ReplaceAll(value, "~", "~0")
+	return strings.ReplaceAll(value, "/", "~1")
 }
 
 const nsenterPrefix = "nsenter --target 1 --mount --uts --ipc --net --pid --"
@@ -236,10 +284,4 @@ exit $rc`,
 
 func shellSingleQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
-}
-
-func jsonEscape(value string) string {
-	escaped := strings.ReplaceAll(value, "\\", "\\\\")
-	escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-	return "\"" + escaped + "\""
 }

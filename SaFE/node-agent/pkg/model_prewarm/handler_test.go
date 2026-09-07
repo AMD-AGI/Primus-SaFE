@@ -20,3 +20,22 @@ func TestPreloadScriptUsesDecimalBytesAndParallelReaders(t *testing.T) {
 	assert.Contains(t, script, "set -o pipefail")
 	assert.True(t, strings.Contains(script, "symlinks excluded"))
 }
+
+func TestBuildConditionalResultPatch(t *testing.T) {
+	jobUID := "abc-123"
+	requestValue := `{"opsJobId":"job-1"}`
+	resultValue := `{"opsJobId":"job-1","phase":"Running"}`
+
+	addPatch, err := buildConditionalResultPatch(jobUID, requestValue, resultValue, false)
+	assert.NoError(t, err)
+	assert.Contains(t, string(addPatch), `"op":"test"`)
+	assert.Contains(t, string(addPatch), `"op":"add"`)
+
+	replacePatch, err := buildConditionalResultPatch(jobUID, requestValue, resultValue, true)
+	assert.NoError(t, err)
+	assert.Contains(t, string(replacePatch), `"op":"replace"`)
+}
+
+func TestAnnotationJSONPointerEscapesSlashes(t *testing.T) {
+	assert.Equal(t, "/metadata/annotations/a~1b", annotationJSONPointer("a/b"))
+}
