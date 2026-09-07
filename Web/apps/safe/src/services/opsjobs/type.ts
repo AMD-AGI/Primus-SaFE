@@ -20,3 +20,7 @@ export interface SubmitOpsjobsRequest {
     ephemeralStorage: string
   }
 }
+
+export interface CreateOpsjobsResponse {
+  jobId: string
+}

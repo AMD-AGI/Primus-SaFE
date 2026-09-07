@@ -102,6 +102,9 @@ const (
 	prewarmTimeoutSecond    = prewarmPrefix + "timeout_second"
 	prewarmWorkerConcurrent = prewarmPrefix + "worker_concurrent"
 
+	modelPrewarmPrefix        = opsJobPrefix + "model_prewarm."
+	modelPrewarmTimeoutSecond = modelPrewarmPrefix + "timeout_second"
+
 	// s3
 	s3Prefix     = "s3."
 	s3Enable     = s3Prefix + "enable"
