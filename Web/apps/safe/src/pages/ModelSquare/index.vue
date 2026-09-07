@@ -531,12 +531,15 @@ interface PrewarmRow {
 const prewarmLoading = ref(false)
 const prewarmRows = ref<PrewarmRow[]>([])
 const pollTimer = ref<ReturnType<typeof setInterval>>()
+const pendingPrewarmJobIds = ref<Set<string>>(new Set())
 
 const PREWARM_TERMINAL_PHASES = new Set(['Succeeded', 'Failed', 'Stopped', 'Cancelled'])
 const isPrewarmActive = (phase: string) => !PREWARM_TERMINAL_PHASES.has(phase)
 
-const buildPrewarmListParams = () => {
-  const params: Record<string, string> = { type: 'model-prewarm' }
+type PrewarmListParams = Parameters<typeof getOpsjobs>[0]
+
+const buildPrewarmListParams = (): PrewarmListParams => {
+  const params: PrewarmListParams = { type: 'model-prewarm' }
   if (userStore.isManager) {
     if (clusterStore.currentClusterId) {
       params.clusterId = clusterStore.currentClusterId
@@ -545,6 +548,30 @@ const buildPrewarmListParams = () => {
     params.workspaceId = wsStore.currentWorkspaceId
   }
   return params
+}
+
+const shouldKeepPrewarmPolling = (rows: PrewarmRow[]) => {
+  if (rows.length === 0) {
+    return true
+  }
+  if (pendingPrewarmJobIds.value.size > 0) {
+    return true
+  }
+  return rows.some((r) => isPrewarmActive(r.phase))
+}
+
+const syncPendingPrewarmJobIds = (rows: PrewarmRow[]) => {
+  if (pendingPrewarmJobIds.value.size === 0) {
+    return
+  }
+  const listed = new Set(rows.map((r) => r.jobId))
+  const next = new Set<string>()
+  for (const jobId of pendingPrewarmJobIds.value) {
+    if (!listed.has(jobId)) {
+      next.add(jobId)
+    }
+  }
+  pendingPrewarmJobIds.value = next
 }
 
 const startPrewarmPolling = () => {
@@ -714,6 +741,7 @@ const fetchPrewarmList = async () => {
     const res = await getOpsjobs(buildPrewarmListParams())
     const items = res?.items || []
     prewarmRows.value = await Promise.all(items.map((item: any) => enrichPrewarmRow(item)))
+    syncPendingPrewarmJobIds(prewarmRows.value)
   } catch (_error) {
     ElMessage.error('Failed to load model prewarm jobs')
     prewarmRows.value = []
@@ -722,8 +750,11 @@ const fetchPrewarmList = async () => {
   }
 }
 
-const handlePrewarmSuccess = () => {
+const handlePrewarmSuccess = (jobId?: string) => {
   activeTab.value = 'prewarm'
+  if (jobId) {
+    pendingPrewarmJobIds.value = new Set([...pendingPrewarmJobIds.value, jobId])
+  }
   startPrewarmPolling()
   fetchPrewarmList()
 }
@@ -753,7 +784,7 @@ watch(
     if (activeTab.value !== 'prewarm') {
       return
     }
-    if (rows.length === 0 || rows.some((r) => isPrewarmActive(r.phase))) {
+    if (shouldKeepPrewarmPolling(rows)) {
       startPrewarmPolling()
     } else {
       stopPrewarmPolling()

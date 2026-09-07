@@ -1130,10 +1130,11 @@ func (h *Handler) authGetModelPrewarmOpsJob(c *gin.Context, workspaceId string) 
 			Workspaces: []string{workspaceId},
 		})
 	}
+	// Cluster-scoped jobs have no workspace; use global OpsJob read roles (incl. readonly admin).
 	return h.accessController.Authorize(authority.AccessInput{
 		Context:      ctx,
-		ResourceKind: v1.NodeKind,
-		Verb:         v1.UpdateVerb,
+		ResourceKind: v1.OpsJobKind,
+		Verb:         v1.GetVerb,
 		UserId:       userId,
 	})
 }

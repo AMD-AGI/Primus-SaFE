@@ -146,7 +146,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
-  (e: 'success'): void
+  (e: 'success', jobId?: string): void
 }>()
 
 const wsStore = useWorkspaceStore()
@@ -330,10 +330,10 @@ const onSubmit = async () => {
       payload.excludedNodes = form.excludedNodes
     }
 
-    await addOpsjobs(payload as any, { skipErrorHandler: true })
+    const res = await addOpsjobs(payload as any, { skipErrorHandler: true })
     ElMessage.success('Model prewarm task created successfully')
     emit('update:visible', false)
-    emit('success')
+    emit('success', res?.jobId)
   } catch (err) {
     ElMessage.error(resolveSubmitError(err))
   } finally {

@@ -686,7 +686,11 @@ func TestCvtToGetOpsJobSql(t *testing.T) {
 
 func TestAuthGetOpsJob(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h, user := newAdminHandlerWithObjects()
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws-1"},
+		Spec:       v1.WorkspaceSpec{Cluster: "c1"},
+	}
+	h, user := newAdminHandlerWithObjects(ws)
 
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
@@ -701,6 +705,8 @@ func TestAuthGetOpsJob(t *testing.T) {
 	} {
 		testifyassert.NoError(t, h.authGetOpsJob(c, "ws-1", opsType))
 	}
+	// Cluster-scoped model-prewarm list/detail has no workspace label.
+	testifyassert.NoError(t, h.authGetOpsJob(c, "", string(v1.OpsJobModelPrewarmType)))
 }
 
 func TestParseCreateOpsJobRequest(t *testing.T) {

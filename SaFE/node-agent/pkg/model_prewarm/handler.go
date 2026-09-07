@@ -116,11 +116,17 @@ func (h *Handler) startJob(jobUID string, req *modelprewarm.Request) {
 }
 
 func (h *Handler) execute(ctx context.Context, jobUID string, req *modelprewarm.Request) {
+	if ctx.Err() != nil {
+		return
+	}
 	startedAt := time.Now().UTC()
-	if err := h.writeResult(jobUID, &modelprewarm.Result{
+	if err := h.writeResult(ctx, jobUID, &modelprewarm.Result{
 		OpsJobId: req.OpsJobId,
 		Phase:    modelprewarm.PhaseRunning,
 	}); err != nil {
+		if ctx.Err() != nil {
+			return
+		}
 		klog.ErrorS(err, "failed to write running model prewarm result", "jobUID", jobUID, "opsJobId", req.OpsJobId)
 		return
 	}
@@ -150,7 +156,10 @@ func (h *Handler) execute(ctx context.Context, jobUID string, req *modelprewarm.
 		klog.Infof("model prewarm succeeded, opsJobId=%s bytesRead=%d duration=%ds",
 			req.OpsJobId, bytesRead, int64(result.DurationSeconds))
 	}
-	if err := h.writeResult(jobUID, result); err != nil {
+	if ctx.Err() != nil {
+		return
+	}
+	if err := h.writeResult(ctx, jobUID, result); err != nil && ctx.Err() == nil {
 		klog.ErrorS(err, "failed to write model prewarm result", "jobUID", jobUID, "opsJobId", req.OpsJobId)
 	}
 }
@@ -182,7 +191,10 @@ func (h *Handler) prewarmOnHost(ctx context.Context, req *modelprewarm.Request) 
 	return bytesRead, nil
 }
 
-func (h *Handler) writeResult(jobUID string, result *modelprewarm.Result) error {
+func (h *Handler) writeResult(ctx context.Context, jobUID string, result *modelprewarm.Result) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	value, err := modelprewarm.MarshalResult(result)
 	if err != nil {
 		return err
@@ -196,7 +208,10 @@ func (h *Handler) writeResult(jobUID string, result *modelprewarm.Result) error 
 			apierrors.IsServiceUnavailable(err) ||
 			apierrors.IsTooManyRequests(err)
 	}, func() error {
-		_, patchErr := h.k8sClient.Nodes().Patch(h.ctx, h.nodeName, apitypes.MergePatchType, patch, metav1.PatchOptions{})
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		_, patchErr := h.k8sClient.Nodes().Patch(ctx, h.nodeName, apitypes.MergePatchType, patch, metav1.PatchOptions{})
 		return patchErr
 	})
 }
