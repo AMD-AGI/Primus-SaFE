@@ -147,6 +147,8 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateAuthoring(newWorkload)
 	case common.CICDScaleRunnerSetKind:
 		m.mutateCICDScaleSet(newWorkload)
+	case common.CICDGithubRunnerKind:
+		m.mutateGithubRunner(newWorkload)
 	case common.MonarchJob:
 		m.mutateMonarchJob(newWorkload)
 	case common.RayJobKind:
@@ -417,6 +419,20 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 		workload.Spec.Resources[0].Replica = 1
 	}
 	workload.Spec.Dependencies = nil
+}
+
+// mutateGithubRunner disables supervision and keeps replica count for a runner pool.
+func (m *WorkloadMutator) mutateGithubRunner(workload *v1.Workload) {
+	workload.Spec.IsSupervised = false
+	workload.Spec.MaxRetry = 0
+	workload.Spec.Dependencies = nil
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	if len(workload.Spec.Resources) > 1 {
+		workload.Spec.Resources = workload.Spec.Resources[0:1]
+	}
+	if len(workload.Spec.EntryPoints) == 0 || workload.Spec.EntryPoints[0] == "" {
+		workload.Spec.EntryPoints = []string{commonworkload.GithubRunnerStartScript()}
+	}
 }
 
 // mutateMonarchJob sets no-retry, disable Supervised
@@ -694,7 +710,8 @@ func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 func (m *WorkloadMutator) mutateEntryPoints(workload *v1.Workload) {
 	for i := 0; i < len(workload.Spec.EntryPoints); i++ {
 		workload.Spec.EntryPoints[i] = strings.TrimSpace(workload.Spec.EntryPoints[i])
-		if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
+		if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) ||
+			commonworkload.IsCICDGithubRunner(workload) {
 			continue
 		}
 		if !stringutil.IsBase64(workload.Spec.EntryPoints[i]) {
@@ -932,6 +949,8 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		err = v.validateAuthoring(newWorkload)
 	case common.CICDScaleRunnerSetKind:
 		err = v.validateCICDScalingRunnerSet(newWorkload)
+	case common.CICDGithubRunnerKind:
+		err = v.validateGithubRunner(newWorkload)
 	case common.TorchFTKind:
 		err = v.validateTorchFT(newWorkload, oldWorkload)
 	case common.RayJobKind:
@@ -1086,6 +1105,20 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 	}
 	if !v1.IsEnableWorkspaceStorage(workload) && workload.GetEnv(common.UnifiedJobEnable) == v1.TrueStr {
 		return fmt.Errorf("unified job must use workspace storage")
+	}
+	return nil
+}
+
+// validateGithubRunner validates persistent self-hosted runner configuration.
+func (v *WorkloadValidator) validateGithubRunner(workload *v1.Workload) error {
+	if workload.GetEnv(common.GithubConfigUrl) == "" {
+		return fmt.Errorf("the %s of workload environment variables is empty", common.GithubConfigUrl)
+	}
+	if !v1.IsEnableWorkspaceStorage(workload) {
+		return fmt.Errorf("github runner must use workspace storage")
+	}
+	if v1.GetGithubSecretId(workload) == "" {
+		return fmt.Errorf("the github registration token secret is empty")
 	}
 	return nil
 }

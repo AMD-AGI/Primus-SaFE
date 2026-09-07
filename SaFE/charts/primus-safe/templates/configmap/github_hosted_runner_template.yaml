@@ -1,0 +1,54 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: github-hosted-runner-template
+  namespace: {{ .Release.Namespace }}
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: GithubRunner
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    # The main container name should match the configuration defined in the template below
+    primus-safe.main.container: runner
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+data:
+ template: |
+  apiVersion: apps/v1
+  kind: StatefulSet
+  spec:
+    podManagementPolicy: Parallel
+    template:
+      spec:
+        dnsPolicy: ClusterFirstWithHostNet
+        containers:
+        - name: runner
+          image: ghcr.io/actions/actions-runner:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUNNER_ALLOW_RUNASROOT
+              value: "1"
+            - name: ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT
+              value: "1"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - "cd /home/runner && [ -f .credentials ] && ./config.sh remove --unattended || true"
+          securityContext:
+            runAsUser: 0
+            privileged: true
+        terminationGracePeriodSeconds: 30
+        restartPolicy: Always
+        schedulerName: kube-scheduler-plugins

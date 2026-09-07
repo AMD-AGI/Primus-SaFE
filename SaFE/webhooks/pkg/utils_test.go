@@ -954,7 +954,7 @@ func TestWorkloadMutateCommonAllKinds(t *testing.T) {
 	m := &WorkloadMutator{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
 	kinds := []string{
 		common.DeploymentKind, common.StatefulSetKind, common.AuthoringKind,
-		common.CICDScaleRunnerSetKind, common.MonarchJob, common.RayJobKind,
+		common.CICDScaleRunnerSetKind, common.CICDGithubRunnerKind, common.MonarchJob, common.RayJobKind,
 		common.TorchFTKind, common.SandboxKind, common.DynamoDeploymentKind,
 		common.InferaDeploymentKind,
 	}
@@ -969,7 +969,7 @@ func TestWorkloadValidateCommonAllKinds(t *testing.T) {
 	scheme := newScheme(t)
 	v := &WorkloadValidator{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
 	kinds := []string{
-		common.AuthoringKind, common.CICDScaleRunnerSetKind, common.TorchFTKind,
+		common.AuthoringKind, common.CICDScaleRunnerSetKind, common.CICDGithubRunnerKind, common.TorchFTKind,
 		common.RayJobKind, common.MonarchJob, common.SandboxKind,
 		common.DynamoDeploymentKind, common.InferaDeploymentKind,
 	}

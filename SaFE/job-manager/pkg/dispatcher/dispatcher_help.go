@@ -719,7 +719,7 @@ func buildCommands(workload *v1.Workload, id int) []interface{} {
 	}
 	// Only launcher workloads: exec so launcher.sh becomes PID 1 (see launcher.sh). CICD and
 	// other raw shell entrypoints must stay plain -c without exec to preserve multi-command scripts.
-	if workload.SpecKind() == common.CICDScaleRunnerSetKind {
+	if workload.SpecKind() == common.CICDScaleRunnerSetKind || workload.SpecKind() == common.CICDGithubRunnerKind {
 		return []interface{}{"/bin/sh", "-c", entryPoint}
 	}
 	return []interface{}{"/bin/sh", "-c", "exec " + entryPoint}
@@ -727,6 +727,9 @@ func buildCommands(workload *v1.Workload, id int) []interface{} {
 
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload, id int) string {
+	if commonworkload.IsCICDGithubRunner(workload) {
+		return githubRunnerEntryPoint(workload, id)
+	}
 	if len(workload.Spec.EntryPoints) <= id || workload.Spec.EntryPoints[id] == "" {
 		if id > 0 && commonworkload.IsRayJob(workload) {
 			return Launcher
@@ -742,6 +745,19 @@ func buildEntryPoint(workload *v1.Workload, id int) string {
 		result = Launcher + " " + workload.Spec.EntryPoints[id]
 	}
 	return result
+}
+
+func githubRunnerEntryPoint(workload *v1.Workload, id int) string {
+	if len(workload.Spec.EntryPoints) <= id || workload.Spec.EntryPoints[id] == "" {
+		return commonworkload.GithubRunnerStartScript()
+	}
+	ep := workload.Spec.EntryPoints[id]
+	if stringutil.IsBase64(ep) {
+		if decoded := stringutil.Base64Decode(ep); decoded != "" {
+			return decoded
+		}
+	}
+	return ep
 }
 
 // launcherEntryPayload returns the argument after /shared-data/launcher.sh for launcher-style commands.
@@ -1295,6 +1311,38 @@ func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterCl
 		}
 	}
 	return nil
+}
+
+// updateGithubRunner injects registration URL, secret id, pool labels and the
+// per-pod credential directory used across restarts.
+func updateGithubRunner(obj *unstructured.Unstructured,
+	adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
+	if len(rt.Spec.ResourceSpecs) == 0 {
+		return fmt.Errorf("no resource template found")
+	}
+	if v1.GetGithubSecretId(adminWorkload) == "" || len(adminWorkload.Spec.Env) == 0 ||
+		adminWorkload.Spec.Env[common.GithubConfigUrl] == "" {
+		return fmt.Errorf("github config is not set")
+	}
+	nfsPath := getNfsPathFromWorkspace(adminWorkload, workspace)
+	if nfsPath == "" {
+		return fmt.Errorf("github runner requires workspace storage")
+	}
+	containers, path, err := getContainers(adminWorkload, obj, rt.Spec.ResourceSpecs[0])
+	if err != nil {
+		return err
+	}
+	envs := maps.Copy(adminWorkload.Spec.Env)
+	envs[jobutils.GithubSecretEnv] = v1.GetGithubSecretId(adminWorkload)
+	envs[common.GithubRunnerStateRoot] = nfsPath + "/github-runners/" + adminWorkload.Name
+	if strings.TrimSpace(envs[common.RunnerLabels]) == "" {
+		envs[common.RunnerLabels] = v1.GetDisplayName(adminWorkload)
+	}
+	for i := range containers {
+		container := containers[i].(map[string]interface{})
+		updateContainerEnv(envs, container, nil)
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
 }
 
 // updateCICDGithub updates the CICD scale set configuration in the unstructured object.

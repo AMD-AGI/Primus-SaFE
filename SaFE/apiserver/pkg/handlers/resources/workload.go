@@ -625,6 +625,22 @@ func (h *Handler) updateWorkload(ctx context.Context,
 			h.deleteSupersededCICDSecret(ctx, rotation, requestUser)
 		}
 	}
+	if commonworkload.IsCICDGithubRunner(adminWorkload) {
+		if auth := normalizeGithubRunnerAuth(req.GitHubAuth, requestEnv(req)); auth != nil {
+			patch := client.MergeFrom(adminWorkload.DeepCopy())
+			rotation, secretErr := h.updateGithubRunnerSecret(ctx, adminWorkload, requestUser, auth)
+			if secretErr != nil {
+				klog.ErrorS(secretErr, "failed to update github runner secret")
+				return secretErr
+			}
+			if err = h.Patch(ctx, adminWorkload, patch); err != nil {
+				klog.ErrorS(err, "failed to patch workload")
+				h.discardRolledBackCICDSecret(ctx, adminWorkload, rotation, requestUser)
+				return err
+			}
+			h.deleteSupersededCICDSecret(ctx, rotation, requestUser)
+		}
+	}
 	return nil
 }
 
@@ -852,6 +868,11 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	}
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
 		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser, req.GitHubAuth); err != nil {
+			return nil, err
+		}
+	}
+	if commonworkload.IsCICDGithubRunner(workload) {
+		if err = h.generateGithubRunner(ctx, workload, requestUser, req.GitHubAuth); err != nil {
 			return nil, err
 		}
 	}
@@ -1306,7 +1327,7 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 		adminWorkload.Spec.Timeout = pointer.Int(*req.Timeout)
 	}
 	if req.Env != nil {
-		adminWorkload.Spec.Env = maputil.Copy(*req.Env, GithubPAT)
+		adminWorkload.Spec.Env = maputil.Copy(*req.Env, GithubPAT, common.RunnerToken)
 	}
 	if req.MaxRetry != nil {
 		adminWorkload.Spec.MaxRetry = *req.MaxRetry
@@ -1339,7 +1360,7 @@ func sanitizePatchWorkloadRequestForLog(req *view.PatchWorkloadRequest) view.Pat
 		sanitized.GitHubAuth = &auth
 	}
 	if sanitized.Env != nil {
-		env := maputil.Copy(*sanitized.Env, GithubPAT)
+		env := maputil.Copy(*sanitized.Env, GithubPAT, common.RunnerToken)
 		sanitized.Env = &env
 	}
 	return sanitized

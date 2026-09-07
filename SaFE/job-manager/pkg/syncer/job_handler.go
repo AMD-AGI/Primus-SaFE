@@ -63,6 +63,9 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && message.gvk.Kind != common.CICDScaleRunnerSetKind {
 		return ctrlruntime.Result{}, nil
 	}
+	if commonworkload.IsCICDGithubRunner(adminWorkload) && message.gvk.Kind != common.StatefulSetKind {
+		return ctrlruntime.Result{}, nil
+	}
 	if !v1.IsWorkloadDispatched(adminWorkload) {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}

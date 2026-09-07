@@ -235,7 +235,7 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 	if len(adminWorkload.Spec.CronJobs) > 0 {
 		r.cronManager.remove(adminWorkload.Name)
 	}
-	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) || commonworkload.IsCICDGithubRunner(adminWorkload) {
 		if err = r.deleteRelatedSecrets(ctx, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}
@@ -403,10 +403,10 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		sourceWorkload := &v1.Workload{}
 		err := r.Get(ctx, client.ObjectKey{Name: sourceWorkloadId}, sourceWorkload)
 		if err == nil && !sourceWorkload.IsEnd() {
-		reason = SourceWorkloadReason
-		klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
-		jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonSource).Inc()
-		return false, reason, nil
+			reason = SourceWorkloadReason
+			klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
+			jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonSource).Inc()
+			return false, reason, nil
 		}
 		patch := client.MergeFrom(workspace.DeepCopy())
 		v1.RemoveLabel(workspace, v1.SourceWorkloadIdLabel)

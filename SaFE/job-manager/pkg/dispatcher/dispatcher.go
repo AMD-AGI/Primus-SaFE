@@ -751,6 +751,8 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 		err = updateCICDScaleSet(obj, adminWorkload, workspace, rt)
 	case commonworkload.IsCICDEphemeralRunner(adminWorkload):
 		err = updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, rt)
+	case commonworkload.IsCICDGithubRunner(adminWorkload):
+		err = updateGithubRunner(obj, adminWorkload, workspace, rt)
 	case commonworkload.IsRayJob(adminWorkload):
 		err = updateRayJob(obj, adminWorkload)
 	case commonworkload.IsMonarchMesh(adminWorkload):
