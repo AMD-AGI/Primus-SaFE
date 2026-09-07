@@ -291,13 +291,8 @@ const onOpen = async () => {
   if (!clusterStore.isFetched) {
     await clusterStore.fetchClusters()
   }
-  if (form.scopeType === 'workspace' && form.scopeValue) {
+  if (form.scopeValue) {
     await fetchNodes({ workspaceId: String(form.scopeValue) })
-  } else if (form.scopeType === 'cluster' && clusterStore.currentClusterId) {
-    form.scopeValue = clusterStore.currentClusterId
-    await fetchNodes({ clusterId: clusterStore.currentClusterId })
-  } else {
-    await fetchNodes({ workspaceId: wsStore.currentWorkspaceId })
   }
 }
 
