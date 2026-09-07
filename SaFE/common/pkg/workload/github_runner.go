@@ -44,3 +44,41 @@ fi
 exec ./run.sh
 `
 }
+
+// GithubRunnerStopScript unregisters the runner when this ordinal is leaving
+// the pool. Rolling restarts keep the ordinal and must not remove credentials.
+func GithubRunnerStopScript() string {
+	return `set +e
+RUNNER_DIR="${RUNNER_DIR:-/home/runner}"
+STATE_DIR="${GITHUB_RUNNER_STATE_ROOT:-}/${POD_NAME:-}"
+should_deregister() {
+  [ -n "${POD_NAME:-}" ] || return 1
+  TOKEN_FILE="/var/run/secrets/kubernetes.io/serviceaccount/token"
+  CA_FILE="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+  NS_FILE="/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+  [ -f "${TOKEN_FILE}" ] && [ -f "${NS_FILE}" ] || return 1
+  NS="$(cat "${NS_FILE}")"
+  ORDINAL="${POD_NAME##*-}"
+  STS_NAME="${POD_NAME%-*}"
+  HOST="${KUBERNETES_SERVICE_HOST:-kubernetes.default.svc}"
+  PORT="${KUBERNETES_SERVICE_PORT:-443}"
+  URL="https://${HOST}:${PORT}/apis/apps/v1/namespaces/${NS}/statefulsets/${STS_NAME}"
+  CODE="$(curl -sS -o /tmp/github-runner-sts.json -w "%{http_code}" --cacert "${CA_FILE}" -H "Authorization: Bearer $(cat "${TOKEN_FILE}")" "${URL}" || echo 000)"
+  if [ "${CODE}" = "404" ]; then
+    return 0
+  fi
+  if [ "${CODE}" != "200" ]; then
+    return 1
+  fi
+  REPLICAS="$(tr -d ' \n' < /tmp/github-runner-sts.json | sed -n 's/.*"spec":{"replicas":\([0-9][0-9]*\).*/\1/p')"
+  [ -n "${REPLICAS}" ] || return 1
+  [ "${ORDINAL}" -ge "${REPLICAS}" ]
+}
+if should_deregister; then
+  cd "${RUNNER_DIR}" && ./config.sh remove --unattended || true
+  if [ -n "${GITHUB_RUNNER_STATE_ROOT:-}" ] && [ -n "${POD_NAME:-}" ]; then
+    rm -rf "${STATE_DIR}"
+  fi
+fi
+`
+}

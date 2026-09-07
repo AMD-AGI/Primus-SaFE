@@ -1693,6 +1693,40 @@ func TestBuildPersistentVolumeMountsOrdersAncestorsFirst(t *testing.T) {
 	assert.Equal(t, nested["readOnly"], false)
 }
 
+func TestGithubRunnerWritableMountPath(t *testing.T) {
+	const userId = "user-1"
+	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:   "runner-wl",
+		Labels: map[string]string{v1.UserIdLabel: userId},
+		Annotations: map[string]string{
+			v1.UseWorkspaceStorageAnnotation: v1.TrueStr,
+		},
+	}}
+
+	plain := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Type: v1.PFS, MountPath: "/ceph"},
+	}}}
+	path, err := githubRunnerWritableMountPath(workload, plain)
+	assert.NilError(t, err)
+	assert.Equal(t, path, "/ceph")
+	root, err := githubRunnerStateRoot(workload, plain)
+	assert.NilError(t, err)
+	assert.Equal(t, root, "/ceph/github-runners/runner-wl")
+
+	userDir := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Type: v1.PFS, MountPath: "/shared_nfs", EnableUserDir: true},
+	}}}
+	path, err = githubRunnerWritableMountPath(workload, userDir)
+	assert.NilError(t, err)
+	assert.Equal(t, path, "/shared_nfs/users/"+userId)
+
+	readonly := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Type: v1.PFS, MountPath: "/ceph", AccessMode: corev1.ReadOnlyMany},
+	}}}
+	_, err = githubRunnerWritableMountPath(workload, readonly)
+	assert.ErrorContains(t, err, "writable workspace volume")
+}
+
 func TestBuildRequiredMatchExpressionExcludedNodes(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
 	w.Spec.Workspace = corev1.NamespaceDefault

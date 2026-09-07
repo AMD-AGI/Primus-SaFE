@@ -1324,9 +1324,9 @@ func updateGithubRunner(obj *unstructured.Unstructured,
 		adminWorkload.Spec.Env[common.GithubConfigUrl] == "" {
 		return fmt.Errorf("github config is not set")
 	}
-	nfsPath := getNfsPathFromWorkspace(adminWorkload, workspace)
-	if nfsPath == "" {
-		return fmt.Errorf("github runner requires workspace storage")
+	stateRoot, err := githubRunnerStateRoot(adminWorkload, workspace)
+	if err != nil {
+		return err
 	}
 	containers, path, err := getContainers(adminWorkload, obj, rt.Spec.ResourceSpecs[0])
 	if err != nil {
@@ -1334,18 +1334,93 @@ func updateGithubRunner(obj *unstructured.Unstructured,
 	}
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.GithubSecretEnv] = v1.GetGithubSecretId(adminWorkload)
-	envs[common.GithubRunnerStateRoot] = nfsPath + "/github-runners/" + adminWorkload.Name
+	envs[common.GithubRunnerStateRoot] = stateRoot
 	if strings.TrimSpace(envs[common.RunnerLabels]) == "" {
 		envs[common.RunnerLabels] = v1.GetDisplayName(adminWorkload)
 	}
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
 		updateContainerEnv(envs, container, nil)
+		container["lifecycle"] = githubRunnerLifecycle()
 	}
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
 		return err
 	}
-	return syncGithubRunnerSecretMounts(obj, adminWorkload, rt.Spec.ResourceSpecs[0])
+	// Create path: initializeObject/modifyVolumes appends SecretGeneral mounts.
+	// Update path: initializeObject does not run, so rewrite mounts in place.
+	if githubRunnerHasSecretVolume(obj, adminWorkload, rt.Spec.ResourceSpecs[0]) {
+		return syncGithubRunnerSecretMounts(obj, adminWorkload, rt.Spec.ResourceSpecs[0])
+	}
+	return nil
+}
+
+func githubRunnerLifecycle() map[string]interface{} {
+	return map[string]interface{}{
+		"preStop": map[string]interface{}{
+			"exec": map[string]interface{}{
+				"command": []interface{}{"/bin/sh", "-c", commonworkload.GithubRunnerStopScript()},
+			},
+		},
+	}
+}
+
+func githubRunnerHasSecretVolume(obj *unstructured.Unstructured,
+	workload *v1.Workload, resourceSpec v1.ResourceSpec) bool {
+	volumes, found, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &resourceSpec, "volumes"))
+	if err != nil || !found {
+		return false
+	}
+	for _, volume := range volumes {
+		volumeMap, ok := volume.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if _, hasSecret := volumeMap["secret"]; hasSecret {
+			return true
+		}
+	}
+	return false
+}
+
+func githubRunnerStateRoot(workload *v1.Workload, workspace *v1.Workspace) (string, error) {
+	mountPath, err := githubRunnerWritableMountPath(workload, workspace)
+	if err != nil {
+		return "", err
+	}
+	return mountPath + "/github-runners/" + workload.Name, nil
+}
+
+func githubRunnerWritableMountPath(workload *v1.Workload, workspace *v1.Workspace) (string, error) {
+	if workspace == nil || !v1.IsEnableWorkspaceStorage(workload) {
+		return "", fmt.Errorf("github runner requires workspace storage")
+	}
+	vol, ok := pickWritableWorkspaceVolume(workspace)
+	if !ok || vol.MountPath == "" {
+		return "", fmt.Errorf("github runner requires a writable workspace volume")
+	}
+	path := vol.MountPath
+	if vol.EnableUserDir {
+		path = path + "/" + generateUserDir(v1.GetUserId(workload))
+	}
+	return path, nil
+}
+
+func pickWritableWorkspaceVolume(workspace *v1.Workspace) (v1.WorkspaceVolume, bool) {
+	var first v1.WorkspaceVolume
+	foundFirst := false
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.AccessMode == corev1.ReadOnlyMany {
+			continue
+		}
+		if vol.Type == v1.PFS {
+			return vol, true
+		}
+		if !foundFirst {
+			first = vol
+			foundFirst = true
+		}
+	}
+	return first, foundFirst
 }
 
 // syncGithubRunnerSecretMounts rebuilds dispatcher-managed general Secret

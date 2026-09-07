@@ -307,6 +307,36 @@ data:
           terminationGracePeriodSeconds: 5
 `
 
+	TestGithubRunnerTemplateConfig = `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: github-hosted-runner-template
+  namespace: "primus-safe"
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: GithubRunner
+  annotations:
+    primus-safe.main.container: runner
+data:
+ template: |
+  apiVersion: apps/v1
+  kind: StatefulSet
+  spec:
+    podManagementPolicy: Parallel
+    template:
+      spec:
+        containers:
+        - name: runner
+          image: ghcr.io/actions/actions-runner:latest
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+        restartPolicy: Always
+`
+
 	TestCICDScaleSetTemplateConfig = `
 apiVersion: v1
 kind: ConfigMap

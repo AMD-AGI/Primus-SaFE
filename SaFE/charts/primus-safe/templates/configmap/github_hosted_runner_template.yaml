@@ -42,6 +42,8 @@ data:
           securityContext:
             runAsUser: 0
             privileged: true
-        terminationGracePeriodSeconds: 30
+          # Dispatcher injects preStop (config.sh remove) for scale-down and
+          # workload delete. Rolling restarts keep the ordinal and skip remove.
+        terminationGracePeriodSeconds: 60
         restartPolicy: Always
         schedulerName: kube-scheduler-plugins

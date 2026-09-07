@@ -1056,6 +1056,65 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 	assert.Assert(t, found)
 	assert.Equal(t, len(volumes), 1)
 	assert.Equal(t, volumes[0].(map[string]interface{})["name"], "new-secret")
+
+	envsMap := convertEnvsToStringMap(envs)
+	assert.Equal(t, envsMap[common.GithubRunnerStateRoot],
+		"/ceph/github-runners/"+workload.Name)
+	lifecycle := containers[0].(map[string]interface{})["lifecycle"].(map[string]interface{})
+	preStop := lifecycle["preStop"].(map[string]interface{})
+	execHook := preStop["exec"].(map[string]interface{})
+	cmd := execHook["command"].([]interface{})
+	assert.Equal(t, cmd[2], commonworkload.GithubRunnerStopScript())
+}
+
+func TestGithubRunnerCreateDoesNotDuplicateSecretMounts(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.CICDGithubRunnerKind}
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "runner-secret", Type: v1.SecretGeneral}}
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "runner-secret")
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+
+	configmap, err := parseConfigmap(TestGithubRunnerTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(
+		configmap, jobutils.TestGithubRunnerResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+
+	volumes, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "volumes"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	volumeNames := map[string]int{}
+	for _, volume := range volumes {
+		name, _ := volume.(map[string]interface{})["name"].(string)
+		volumeNames[name]++
+	}
+	assert.Equal(t, volumeNames["runner-secret"], 1)
+
+	containers, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "containers"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	mounts := containers[0].(map[string]interface{})["volumeMounts"].([]interface{})
+	mountPaths := map[string]int{}
+	for _, mount := range mounts {
+		mountPath, _ := mount.(map[string]interface{})["mountPath"].(string)
+		mountPaths[mountPath]++
+	}
+	assert.Equal(t, mountPaths[common.SecretPath+"/runner-secret"], 1)
+
+	envs, err := jobutils.GetEnv(obj, jobutils.TestGithubRunnerResourceTemplate, 1)
+	assert.NilError(t, err)
+	assert.Equal(t, convertEnvsToStringMap(envs)[common.GithubRunnerStateRoot],
+		"/ceph/github-runners/"+workload.Name)
 }
 
 func TestCreateRayJob(t *testing.T) {

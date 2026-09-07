@@ -42,6 +42,14 @@ func TestGithubRunnerStartScriptUsesCompleteAtomicState(t *testing.T) {
 		strings.Index(script, `GITHUB_RUNNER_STATE_ROOT and POD_NAME are required`))
 }
 
+func TestGithubRunnerStopScriptRemovesOnlyWhenLeavingPool(t *testing.T) {
+	script := GithubRunnerStopScript()
+	assert.Assert(t, strings.Contains(script, `./config.sh remove --unattended`))
+	assert.Assert(t, strings.Contains(script, `should_deregister`))
+	assert.Assert(t, strings.Contains(script, `[ "${ORDINAL}" -ge "${REPLICAS}" ]`))
+	assert.Assert(t, strings.Contains(script, `rm -rf "${STATE_DIR}"`))
+}
+
 func TestGetK8sServiceName(t *testing.T) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: "workload", Labels: map[string]string{}},
