@@ -491,6 +491,7 @@ watch(activeTab, (newTab) => {
     stopTick()
     fetchPrewarmList()
   } else if (newTab === 'models') {
+    clearInterval(pollTimer.value)
     fetchModels()
     startTick()
   }

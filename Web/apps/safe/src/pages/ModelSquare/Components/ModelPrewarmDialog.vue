@@ -215,6 +215,37 @@ const mapNodes = (items: Array<{ nodeId: string }> = []) =>
 const nodeScopeFetchParams = () =>
   isManager.value ? {} : { workspaceId: wsStore.currentWorkspaceId }
 
+const resolveSubmitError = (err: unknown): string => {
+  if (err instanceof Error) {
+    const e = err as Error & { errorMessage?: string }
+    return e.errorMessage || e.message || 'Failed to create model prewarm task'
+  }
+  if (err && typeof err === 'object') {
+    const axiosErr = err as {
+      response?: { data?: { errorMessage?: string; message?: string } }
+      message?: string
+    }
+    if (axiosErr.response?.data?.errorMessage) {
+      return axiosErr.response.data.errorMessage
+    }
+    if (axiosErr.response?.data?.message) {
+      return axiosErr.response.data.message
+    }
+    const fields = err as Record<string, Array<{ message?: string }>>
+    const firstKey = Object.keys(fields)[0]
+    if (firstKey && Array.isArray(fields[firstKey])) {
+      return fields[firstKey]?.[0]?.message || 'Invalid form'
+    }
+    if (axiosErr.message) {
+      return axiosErr.message
+    }
+  }
+  if (typeof err === 'string' && err) {
+    return err
+  }
+  return 'Failed to create model prewarm task'
+}
+
 const fetchNodes = async (params: { workspaceId?: string; clusterId?: string } = {}) => {
   const res = await getNodesList({ ...params, limit: -1 })
   const items = mapNodes(res?.items || [])
@@ -299,17 +330,12 @@ const onSubmit = async () => {
       payload.excludedNodes = form.excludedNodes
     }
 
-    await addOpsjobs(payload as any)
+    await addOpsjobs(payload as any, { skipErrorHandler: true })
     ElMessage.success('Model prewarm task created successfully')
     emit('update:visible', false)
     emit('success')
   } catch (err) {
-    if (err && typeof err === 'object' && !(err instanceof Error)) {
-      const fields = err as Record<string, Array<{ message?: string }>>
-      const firstKey = Object.keys(fields)[0]
-      const firstMsg = fields[firstKey]?.[0]?.message || 'Invalid form'
-      ElMessage.error(firstMsg)
-    }
+    ElMessage.error(resolveSubmitError(err))
   } finally {
     submitting.value = false
   }

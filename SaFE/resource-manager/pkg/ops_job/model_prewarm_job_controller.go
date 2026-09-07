@@ -24,8 +24,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	modelprewarm "github.com/AMD-AIG-AIMA/SAFE/common/pkg/model_prewarm"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	modelprewarm "github.com/AMD-AIG-AIMA/SAFE/common/pkg/model_prewarm"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	rmutils "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
@@ -69,15 +69,18 @@ func (r *ModelPrewarmJobReconciler) filter(_ context.Context, job *v1.OpsJob) bo
 
 func (r *ModelPrewarmJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	if job.IsPending() {
-		if err := r.setJobPhase(ctx, job, v1.OpsJobRunning); err != nil {
+		if err := r.ensureDispatched(ctx, job); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		if err := r.dispatchRequests(ctx, job); err != nil {
+		if err := r.setJobPhase(ctx, job, v1.OpsJobRunning); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		return ctrlruntime.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 	if job.Status.Phase == v1.OpsJobRunning {
+		if err := r.ensureDispatched(ctx, job); err != nil {
+			return ctrlruntime.Result{}, err
+		}
 		return r.checkAndUpdateJobStatus(ctx, job)
 	}
 	return ctrlruntime.Result{}, nil
@@ -122,7 +125,7 @@ func (r *ModelPrewarmJobReconciler) getTargetNodes(job *v1.OpsJob) []string {
 	return nodes
 }
 
-func (r *ModelPrewarmJobReconciler) dispatchRequests(ctx context.Context, job *v1.OpsJob) error {
+func (r *ModelPrewarmJobReconciler) ensureDispatched(ctx context.Context, job *v1.OpsJob) error {
 	cfg, err := r.parseConfig(job)
 	if err != nil {
 		return err
@@ -132,12 +135,17 @@ func (r *ModelPrewarmJobReconciler) dispatchRequests(ctx context.Context, job *v
 		return err
 	}
 
+	timeoutSeconds := job.Spec.TimeoutSecond
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = modelprewarm.DefaultTimeoutSeconds
+	}
 	reqPayload := &modelprewarm.Request{
-		OpsJobId:    job.Name,
-		ModelPath:   cfg.modelPath,
-		Glob:        cfg.glob,
-		Parallelism: cfg.parallelism,
-		RequestedAt: time.Now().UTC(),
+		OpsJobId:       job.Name,
+		ModelPath:      cfg.modelPath,
+		Glob:           cfg.glob,
+		Parallelism:    cfg.parallelism,
+		TimeoutSeconds: timeoutSeconds,
+		RequestedAt:    time.Now().UTC(),
 	}
 	reqValue, err := modelprewarm.MarshalRequest(reqPayload)
 	if err != nil {
@@ -153,15 +161,23 @@ func (r *ModelPrewarmJobReconciler) dispatchRequests(ctx context.Context, job *v
 		if err != nil {
 			return err
 		}
-		if err := r.patchAdminNodeAnnotation(ctx, adminNode, reqKey, reqValue); err != nil {
-			return err
+		if adminNode.Annotations == nil || adminNode.Annotations[reqKey] == "" {
+			if err := r.patchAdminNodeAnnotation(ctx, adminNode, reqKey, reqValue); err != nil {
+				return err
+			}
 		}
 		k8sNodeName := adminNode.GetK8sNodeName()
 		if k8sNodeName == "" {
 			return fmt.Errorf("k8s node name is empty for admin node %s", adminNodeName)
 		}
-		if err := r.patchK8sNodeAnnotation(ctx, k8sClients, k8sNodeName, reqKey, reqValue); err != nil {
+		k8sNode, err := k8sClients.ClientSet().CoreV1().Nodes().Get(ctx, k8sNodeName, metav1.GetOptions{})
+		if err != nil {
 			return err
+		}
+		if k8sNode.Annotations == nil || k8sNode.Annotations[reqKey] == "" {
+			if err := r.patchK8sNodeAnnotation(ctx, k8sClients, k8sNodeName, reqKey, reqValue); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -207,8 +223,16 @@ func (r *ModelPrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context,
 			Node:        k8sNodeName,
 			AdminNodeId: adminNodeName,
 		}
-		if err != nil || result == nil {
-			detail.Phase = "Pending"
+		if err != nil {
+			failed++
+			detail.Phase = modelprewarm.PhaseFailed
+			detail.Message = modelprewarm.TruncateMessage(err.Error())
+			failures = append(failures, fmt.Sprintf("%s(%v)", k8sNodeName, err))
+			details = append(details, detail)
+			continue
+		}
+		if result == nil {
+			detail.Phase = modelprewarm.PhasePending
 			details = append(details, detail)
 			continue
 		}
@@ -237,21 +261,31 @@ func (r *ModelPrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context,
 		klog.V(4).ErrorS(err, "failed to update model prewarm progress", "job", job.Name)
 	}
 
+	if pending > 0 {
+		return ctrlruntime.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
 	if failed > 0 {
 		message := fmt.Sprintf("model prewarm failed on %d/%d nodes: %s", failed, total, strings.Join(failures, ", "))
 		outputs := r.buildModelPrewarmOutputs(total, succeeded, failed, details, "Failed", message)
+		if err := r.setJobCompleted(ctx, job, v1.OpsJobFailed, message, outputs); err != nil {
+			return ctrlruntime.Result{}, err
+		}
 		if err := r.cleanupAnnotations(ctx, job); err != nil {
 			klog.ErrorS(err, "failed to cleanup model prewarm annotations", "job", job.Name)
 		}
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, message, outputs)
+		return ctrlruntime.Result{}, nil
 	}
 	if succeeded == total && total > 0 {
 		message := fmt.Sprintf("model prewarm completed successfully on %d nodes", total)
 		outputs := r.buildModelPrewarmOutputs(total, succeeded, failed, details, "Succeeded", message)
+		if err := r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, message, outputs); err != nil {
+			return ctrlruntime.Result{}, err
+		}
 		if err := r.cleanupAnnotations(ctx, job); err != nil {
 			klog.ErrorS(err, "failed to cleanup model prewarm annotations", "job", job.Name)
 		}
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, message, outputs)
+		return ctrlruntime.Result{}, nil
 	}
 
 	return ctrlruntime.Result{RequeueAfter: 10 * time.Second}, nil

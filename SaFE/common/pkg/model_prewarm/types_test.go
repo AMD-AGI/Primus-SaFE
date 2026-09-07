@@ -6,7 +6,9 @@
 package model_prewarm
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -48,6 +50,17 @@ func TestAnnotationKeys(t *testing.T) {
 	assert.LessOrEqual(t, len(reqKey), MaxK8sAnnotationKeyLength)
 	assert.LessOrEqual(t, len(resKey), MaxK8sAnnotationKeyLength)
 	assert.NoError(t, ValidateAnnotationKeySuffix(jobUID))
+}
+
+func TestTruncateMessage(t *testing.T) {
+	long := strings.Repeat("x", MaxResultMessageLength+100)
+	truncated := TruncateMessage(long)
+	assert.Equal(t, MaxResultMessageLength, len(truncated))
+}
+
+func TestRequestTimeout(t *testing.T) {
+	assert.Equal(t, time.Duration(DefaultTimeoutSeconds)*time.Second, RequestTimeout(nil))
+	assert.Equal(t, 600*time.Second, RequestTimeout(&Request{TimeoutSeconds: 600}))
 }
 
 func TestAnnotationKeyFitsProductionJobName(t *testing.T) {

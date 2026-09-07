@@ -25,16 +25,16 @@ const (
 	OpsJobRunning   OpsJobPhase = "Running"
 	OpsJobPending   OpsJobPhase = "Pending"
 
-	OpsJobAddonType       OpsJobType = "addon"
-	OpsJobDumpLogType     OpsJobType = "dumplog"
-	OpsJobPreflightType   OpsJobType = "preflight"
-	OpsJobRebootType      OpsJobType = "reboot"
-	OpsJobExportImageType OpsJobType = "exportimage"
+	OpsJobAddonType        OpsJobType = "addon"
+	OpsJobDumpLogType      OpsJobType = "dumplog"
+	OpsJobPreflightType    OpsJobType = "preflight"
+	OpsJobRebootType       OpsJobType = "reboot"
+	OpsJobExportImageType  OpsJobType = "exportimage"
 	OpsJobPrewarmType      OpsJobType = "prewarm"
-	OpsJobModelPrewarmType  OpsJobType = "model-prewarm"
+	OpsJobModelPrewarmType OpsJobType = "model-prewarm"
 	OpsJobDownloadType     OpsJobType = "download"
-	OpsJobCDType          OpsJobType = "cd"         // CD deployment job (supports both Safe and Lens via deploy.type parameter)
-	OpsJobEvaluationType  OpsJobType = "evaluation" // Model evaluation job
+	OpsJobCDType           OpsJobType = "cd"         // CD deployment job (supports both Safe and Lens via deploy.type parameter)
+	OpsJobEvaluationType   OpsJobType = "evaluation" // Model evaluation job
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"

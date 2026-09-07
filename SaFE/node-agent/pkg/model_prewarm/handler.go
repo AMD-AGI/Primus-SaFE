@@ -14,8 +14,9 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	apitypes "k8s.io/apimachinery/pkg/types"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
@@ -23,12 +24,6 @@ import (
 	modelprewarm "github.com/AMD-AIG-AIMA/SAFE/common/pkg/model_prewarm"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/utils"
-)
-
-const (
-	nsenterPrefix = "nsenter --target 1 --mount --uts --ipc --net --pid --"
-	// prewarmTimeout bounds a single model prewarm execution on the host.
-	prewarmTimeout = 2 * time.Hour
 )
 
 // Handler executes model prewarm requests observed on the local Kubernetes node.
@@ -119,7 +114,7 @@ func (h *Handler) execute(jobUID string, req *modelprewarm.Request) {
 	}
 	if err != nil {
 		result.Phase = modelprewarm.PhaseFailed
-		result.Message = err.Error()
+		result.Message = modelprewarm.TruncateMessage(err.Error())
 		klog.ErrorS(err, "model prewarm failed", "jobUID", jobUID, "opsJobId", req.OpsJobId)
 	} else {
 		result.Phase = modelprewarm.PhaseSucceeded
@@ -139,17 +134,21 @@ func (h *Handler) prewarmOnHost(req *modelprewarm.Request) (int64, error) {
 		parallelism = modelprewarm.DefaultParallelism
 	}
 	script := fmt.Sprintf(
-		`MODEL_PATH=%s; GLOB=%s; PAR=%d;
+		`set -o pipefail;
+MODEL_PATH=%s; GLOB=%s; PAR=%d;
 if [ ! -d "$MODEL_PATH" ]; then echo "model path not found: $MODEL_PATH"; exit 1; fi;
 BYTES=$(find "$MODEL_PATH" -type f -name "$GLOB" -print0 | xargs -0 -r stat -c%%s | awk '{s+=$1} END {print s+0}');
 find "$MODEL_PATH" -type f -name "$GLOB" -print0 | sort -z | xargs -0 -P"$PAR" -r cat >/dev/null;
-echo "$BYTES"`,
+rc=$?;
+echo "$BYTES";
+exit $rc`,
 		modelPath, glob, parallelism,
 	)
 	cmd := fmt.Sprintf("%s bash -c %s", nsenterPrefix, shellSingleQuote(script))
-	statusCode, output := utils.ExecuteCommand(cmd, prewarmTimeout)
+	timeout := modelprewarm.RequestTimeout(req)
+	statusCode, output := utils.ExecuteCommand(cmd, timeout)
 	if statusCode != types.StatusOk {
-		return 0, fmt.Errorf("preload command failed: %s", output)
+		return 0, fmt.Errorf("preload command failed: %s", modelprewarm.TruncateMessage(output))
 	}
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	bytesLine := lines[len(lines)-1]
@@ -166,20 +165,20 @@ func (h *Handler) writeResult(jobUID string, result *modelprewarm.Result) error 
 		return err
 	}
 	key := modelprewarm.ResultAnnotationKey(jobUID)
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		node, getErr := h.k8sClient.Nodes().Get(h.ctx, h.nodeName, metav1.GetOptions{})
-		if getErr != nil {
-			return getErr
-		}
-		if node.Annotations == nil {
-			node.Annotations = make(map[string]string)
-		}
-		node.Annotations[key] = value
-		patch := []byte(fmt.Sprintf(`{"metadata":{"annotations":{"%s":%s}}}`, key, jsonEscape(value)))
+	patch := []byte(fmt.Sprintf(`{"metadata":{"annotations":{"%s":%s}}}`, key, jsonEscape(value)))
+	return retry.OnError(retry.DefaultRetry, func(err error) bool {
+		return apierrors.IsTimeout(err) ||
+			apierrors.IsServerTimeout(err) ||
+			apierrors.IsInternalError(err) ||
+			apierrors.IsServiceUnavailable(err) ||
+			apierrors.IsTooManyRequests(err)
+	}, func() error {
 		_, patchErr := h.k8sClient.Nodes().Patch(h.ctx, h.nodeName, apitypes.MergePatchType, patch, metav1.PatchOptions{})
 		return patchErr
 	})
 }
+
+const nsenterPrefix = "nsenter --target 1 --mount --uts --ipc --net --pid --"
 
 func shellSingleQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"

@@ -182,9 +182,9 @@ const (
 	OpsJobAvailRatioAnnotation        = OpsJobPrefix + "avail.ratio"
 	// Short keys (mp.r/mp.s) keep request+job UID within the 63-char annotation limit.
 	OpsJobModelPrewarmPrefix            = OpsJobPrefix + "mp."
-	OpsJobModelPrewarmRequestAnnotation   = OpsJobModelPrewarmPrefix + "r."
-	OpsJobModelPrewarmResultAnnotation    = OpsJobModelPrewarmPrefix + "s."
-	OpsJobFinalizer                   = PrimusSafeDomain + "ops.job.finalizer"
+	OpsJobModelPrewarmRequestAnnotation = OpsJobModelPrewarmPrefix + "r."
+	OpsJobModelPrewarmResultAnnotation  = OpsJobModelPrewarmPrefix + "s."
+	OpsJobFinalizer                     = PrimusSafeDomain + "ops.job.finalizer"
 
 	// addon
 	AddonPrefix       = PrimusSafePrefix + "addon."

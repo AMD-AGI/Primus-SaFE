@@ -1,9 +1,11 @@
 import request from '@/services/request'
 import type { SubmitOpsjobsRequest } from './type'
+import type { AxiosRequestConfig } from 'axios'
 
 const LONG_TIMEOUT = 30_000
 
-export const addOpsjobs = (data: SubmitOpsjobsRequest) => request.post('/opsjobs', data)
+export const addOpsjobs = (data: SubmitOpsjobsRequest, config?: AxiosRequestConfig) =>
+  request.post('/opsjobs', data, config)
 
 export const getOpsjobs = (params: { 
   type: string

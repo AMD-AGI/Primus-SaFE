@@ -57,11 +57,11 @@ var (
 
 // Node represents a Kubernetes node with additional functionality for monitoring and updating node status
 type Node struct {
-	ctx           context.Context
-	k8sNode       *corev1.Node
-	mu            sync.RWMutex
-	k8sClient     typedcorev1.CoreV1Interface
-	modelPrewarm  *model_prewarm.Handler
+	ctx          context.Context
+	k8sNode      *corev1.Node
+	mu           sync.RWMutex
+	k8sClient    typedcorev1.CoreV1Interface
+	modelPrewarm *model_prewarm.Handler
 }
 
 // NewNode creates a new Node instance using in-cluster Kubernetes client configuration.
@@ -87,6 +87,7 @@ func NewNodeWithClientSet(ctx context.Context, opts *types.Options, k8sClientSet
 		return nil, err
 	}
 	n.modelPrewarm = model_prewarm.NewHandler(ctx, opts.NodeName, n.k8sClient)
+	n.modelPrewarm.HandleNodeUpdate(n.k8sNode)
 	return n, nil
 }
 

@@ -17,9 +17,14 @@ import (
 const (
 	DefaultGlob        = "*.safetensors"
 	DefaultParallelism = 4
+	// DefaultTimeoutSeconds matches the control-plane default for model-prewarm OpsJobs.
+	DefaultTimeoutSeconds = 7200
 	// MaxK8sAnnotationKeyLength is the Kubernetes annotation key length limit.
 	MaxK8sAnnotationKeyLength = 63
+	// MaxResultMessageLength caps result messages stored in node annotations.
+	MaxResultMessageLength = 4096
 
+	PhasePending   = "Pending"
 	PhaseRunning   = "Running"
 	PhaseSucceeded = "Succeeded"
 	PhaseFailed    = "Failed"
@@ -27,11 +32,12 @@ const (
 
 // Request carries model prewarm instructions from the reconciler to node-agent.
 type Request struct {
-	OpsJobId    string    `json:"opsJobId"`
-	ModelPath   string    `json:"modelPath"`
-	Glob        string    `json:"glob"`
-	Parallelism int       `json:"parallelism"`
-	RequestedAt time.Time `json:"requestedAt"`
+	OpsJobId       string    `json:"opsJobId"`
+	ModelPath      string    `json:"modelPath"`
+	Glob           string    `json:"glob"`
+	Parallelism    int       `json:"parallelism"`
+	TimeoutSeconds int       `json:"timeoutSeconds"`
+	RequestedAt    time.Time `json:"requestedAt"`
 }
 
 // Result reports per-node model prewarm progress back to the reconciler.
@@ -93,6 +99,22 @@ func ValidateAnnotationKeySuffix(jobUID string) error {
 // IsTerminal reports whether the result phase is a finished state.
 func IsTerminal(phase string) bool {
 	return phase == PhaseSucceeded || phase == PhaseFailed
+}
+
+// RequestTimeout returns the effective timeout for a model prewarm request.
+func RequestTimeout(req *Request) time.Duration {
+	if req == nil || req.TimeoutSeconds <= 0 {
+		return time.Duration(DefaultTimeoutSeconds) * time.Second
+	}
+	return time.Duration(req.TimeoutSeconds) * time.Second
+}
+
+// TruncateMessage limits message size before persisting to Kubernetes annotations.
+func TruncateMessage(message string) string {
+	if len(message) <= MaxResultMessageLength {
+		return message
+	}
+	return message[len(message)-MaxResultMessageLength:]
 }
 
 // ValidateModelPath ensures the model path is a safe absolute path.
