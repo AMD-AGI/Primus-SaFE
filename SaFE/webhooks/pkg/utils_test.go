@@ -528,6 +528,25 @@ func TestWorkloadMutateRdmaResourceBranches(t *testing.T) {
 	m.mutateRdmaResource(context.Background(), missing)
 }
 
+func TestMutateSecretsUsesAPIReaderForNewGithubRunnerSecret(t *testing.T) {
+	scheme := newScheme(t)
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name:      "runner-secret",
+		Namespace: common.PrimusSafeNamespace,
+		Labels:    map[string]string{v1.SecretTypeLabel: string(v1.SecretGeneral)},
+	}}
+	cachedClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	apiReader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+	m := &WorkloadMutator{Client: cachedClient, APIReader: apiReader}
+	workload := workloadOfKind(common.CICDGithubRunnerKind)
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: secret.Name, Type: v1.SecretGeneral}}
+
+	m.mutateSecrets(context.Background(), workload, nil)
+
+	assert.Equal(t, len(workload.Spec.Secrets), 1)
+	assert.Equal(t, workload.Spec.Secrets[0].Id, secret.Name)
+}
+
 // TestWorkloadValidateOwnerWorkloadCycle covers the owner cycle detection branch.
 func TestWorkloadValidateOwnerWorkloadCycle(t *testing.T) {
 	scheme := newScheme(t)
@@ -880,6 +899,9 @@ type fakeManager struct {
 
 // GetClient returns the embedded fake client.
 func (m *fakeManager) GetClient() client.Client { return m.client }
+
+// GetAPIReader returns the uncached reader used by secret mutation.
+func (m *fakeManager) GetAPIReader() client.Reader { return m.client }
 
 // GetScheme returns the embedded scheme.
 func (m *fakeManager) GetScheme() *runtime.Scheme { return m.scheme }

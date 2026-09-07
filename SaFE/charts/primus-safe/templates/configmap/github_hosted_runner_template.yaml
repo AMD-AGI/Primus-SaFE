@@ -39,13 +39,6 @@ data:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /bin/sh
-                  - -c
-                  - "cd /home/runner && [ -f .credentials ] && ./config.sh remove --unattended || true"
           securityContext:
             runAsUser: 0
             privileged: true

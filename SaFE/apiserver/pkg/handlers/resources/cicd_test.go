@@ -777,6 +777,52 @@ func Test_updateCICDSecret_OldSecretLookupError(t *testing.T) {
 	assert.Equal(t, v1.GetGithubSecretId(workload), "old-secret-id")
 }
 
+func TestUpdateGithubRunnerSecretReplacesReferenceAndRetainsOldSecret(t *testing.T) {
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Secrets = []v1.SecretEntity{
+		{Id: "old-secret-id", Type: v1.SecretGeneral},
+		{Id: "user-secret", Type: v1.SecretGeneral},
+	}
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "old-secret-id")
+	user := genMockUser()
+	role := genMockRole()
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "old-secret-id",
+			Namespace: common.PrimusSafeNamespace,
+			Labels:    map[string]string{v1.OwnerLabel: workload.Name},
+		},
+		Data: map[string][]byte{GitHubToken: []byte("old-token")},
+	}
+	fakeClientSet := k8sfake.NewSimpleClientset(oldSecret)
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
+		Build()
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        fakeClientSet,
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+
+	rotation, err := h.updateGithubRunnerSecret(ctx, workload, user, &view.GitHubAuthRequest{
+		Type:  GitHubAuthTypeRegistrationToken,
+		Token: "new-token",
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, rotation != nil)
+	assert.Equal(t, rotation.SupersededSecretId, "old-secret-id")
+	assert.Equal(t, len(workload.Spec.Secrets), 2)
+	assert.Equal(t, workload.Spec.Secrets[0].Id, "user-secret")
+	assert.Equal(t, workload.Spec.Secrets[1].Id, rotation.NewSecretId)
+
+	_, err = fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).
+		Get(ctx, "old-secret-id", metav1.GetOptions{})
+	assert.NilError(t, err, "old secret must remain until workload cleanup")
+}
+
 // Test_generateCICDScaleRunnerSet tests generating CICD scale runner set configuration
 func Test_generateCICDScaleRunnerSet(t *testing.T) {
 	commonconfig.SetValue("cicd.enable", "true")

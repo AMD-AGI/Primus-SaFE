@@ -155,9 +155,15 @@ func (h *Handler) discardRolledBackCICDSecret(ctx context.Context,
 	}
 	if rotation.SupersededSecretId != "" {
 		v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, rotation.SupersededSecretId)
+		if commonworkload.IsCICDGithubRunner(workload) {
+			replaceGithubRunnerSecret(workload, rotation.NewSecretId, rotation.SupersededSecretId)
+		}
 		return
 	}
 	delete(workload.Annotations, v1.GithubSecretIdAnnotation)
+	if commonworkload.IsCICDGithubRunner(workload) {
+		replaceGithubRunnerSecret(workload, rotation.NewSecretId, "")
+	}
 }
 
 // cleanupCICDSecrets deletes secrets created for CICD scaling runner set workloads.
@@ -283,7 +289,7 @@ func (h *Handler) updateGithubRunnerSecret(ctx context.Context, workload *v1.Wor
 		return nil, err
 	}
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, newSecret.Name)
-	attachGithubRunnerSecret(workload, newSecret.Name)
+	replaceGithubRunnerSecret(workload, oldSecretId, newSecret.Name)
 	return &cicdSecretRotation{NewSecretId: newSecret.Name, SupersededSecretId: oldSecretId}, nil
 }
 
@@ -345,6 +351,20 @@ func attachGithubRunnerSecret(workload *v1.Workload, secretId string) {
 		}
 	}
 	workload.Spec.Secrets = append(workload.Spec.Secrets, v1.SecretEntity{Id: secretId, Type: v1.SecretGeneral})
+}
+
+// replaceGithubRunnerSecret replaces only the runner registration secret while
+// preserving unrelated workload secrets.
+func replaceGithubRunnerSecret(workload *v1.Workload, oldSecretId, newSecretId string) {
+	secrets := make([]v1.SecretEntity, 0, len(workload.Spec.Secrets)+1)
+	for _, secret := range workload.Spec.Secrets {
+		if secret.Id == oldSecretId || secret.Id == newSecretId {
+			continue
+		}
+		secrets = append(secrets, secret)
+	}
+	workload.Spec.Secrets = secrets
+	attachGithubRunnerSecret(workload, newSecretId)
 }
 
 func normalizeCICDGitHubAuth(auth *view.GitHubAuthRequest, env map[string]string) *view.GitHubAuthRequest {

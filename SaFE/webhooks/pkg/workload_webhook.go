@@ -63,8 +63,9 @@ const (
 // AddWorkloadWebhook registers the workload validation and mutation webhooks.
 func AddWorkloadWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.WorkloadKind), &webhook.Admission{Handler: &WorkloadMutator{
-		Client:  mgr.GetClient(),
-		decoder: decoder,
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		decoder:   decoder,
 	}})
 	(*server).Register(generateValidatePath(v1.WorkloadKind), &webhook.Admission{Handler: &WorkloadValidator{
 		Client:  mgr.GetClient(),
@@ -75,7 +76,8 @@ func AddWorkloadWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder
 // WorkloadMutator handles mutation logic for Workload resources on create and update.
 type WorkloadMutator struct {
 	client.Client
-	decoder admission.Decoder
+	APIReader client.Reader
+	decoder   admission.Decoder
 }
 
 // Handle processes workload admission requests and applies mutations on create and update.
@@ -795,6 +797,10 @@ func (m *WorkloadMutator) mutateCronJobs(workload *v1.Workload) {
 // 2. Inheriting ImageSecrets from workspace when available
 // 3. Adding default cluster image secret when no workspace exists but global config is present
 func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
+	reader := m.APIReader
+	if reader == nil {
+		reader = m.Client
+	}
 	secretsSet := sets.NewSet()
 	newSecrets := make([]v1.SecretEntity, 0, len(workload.Spec.Secrets))
 	for i, s := range workload.Spec.Secrets {
@@ -802,7 +808,8 @@ func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Worklo
 			continue
 		}
 		secret := &corev1.Secret{}
-		if m.Get(ctx, types.NamespacedName{Name: s.Id, Namespace: common.PrimusSafeNamespace}, secret) != nil {
+		if reader == nil ||
+			reader.Get(ctx, types.NamespacedName{Name: s.Id, Namespace: common.PrimusSafeNamespace}, secret) != nil {
 			continue
 		}
 		secretsSet.Insert(s.Id)
@@ -1117,10 +1124,16 @@ func (v *WorkloadValidator) validateGithubRunner(workload *v1.Workload) error {
 	if !v1.IsEnableWorkspaceStorage(workload) {
 		return fmt.Errorf("github runner must use workspace storage")
 	}
-	if v1.GetGithubSecretId(workload) == "" {
+	secretId := v1.GetGithubSecretId(workload)
+	if secretId == "" {
 		return fmt.Errorf("the github registration token secret is empty")
 	}
-	return nil
+	for _, secret := range workload.Spec.Secrets {
+		if secret.Id == secretId && secret.Type == v1.SecretGeneral {
+			return nil
+		}
+	}
+	return fmt.Errorf("the github registration token secret is not attached to the workload")
 }
 
 // validateTorchFT validates TorchFT workload configuration including environment variables and resource requirements.

@@ -999,6 +999,65 @@ func Test_updateCICDScaleSet(t *testing.T) {
 	assert.Assert(t, len(containers) > 0, "should have at least one container")
 }
 
+func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "new-secret", Type: v1.SecretGeneral}}
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "new-secret")
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+
+	rt := jobutils.TestStatefulSetResourceTemplate.DeepCopy()
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "apps/v1",
+		"kind":       "StatefulSet",
+		"metadata": map[string]interface{}{
+			"name":        workload.Name,
+			"namespace":   workspace.Name,
+			"annotations": map[string]interface{}{v1.MainContainerAnnotation: "runner"},
+		},
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"spec": map[string]interface{}{
+					"containers": []interface{}{map[string]interface{}{
+						"name": "runner",
+						"env": []interface{}{map[string]interface{}{
+							"name": jobutils.GithubSecretEnv, "value": "old-secret",
+						}},
+						"volumeMounts": []interface{}{map[string]interface{}{
+							"name": "old-secret", "mountPath": common.SecretPath + "/old-secret",
+						}},
+					}},
+					"volumes": []interface{}{buildSecretVolume("old-secret")},
+				},
+			},
+		},
+	}}
+
+	assert.Assert(t, isGithubSecretChanged(workload, obj, rt))
+	assert.NilError(t, updateGithubRunner(obj, workload, workspace, rt))
+
+	envs, err := jobutils.GetEnv(obj, rt, 1)
+	assert.NilError(t, err)
+	assert.Equal(t, convertEnvsToStringMap(envs)[jobutils.GithubSecretEnv], "new-secret")
+
+	containers, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "containers"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	mounts := containers[0].(map[string]interface{})["volumeMounts"].([]interface{})
+	assert.Equal(t, len(mounts), 1)
+	assert.Equal(t, mounts[0].(map[string]interface{})["name"], "new-secret")
+
+	volumes, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "volumes"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, len(volumes), 1)
+	assert.Equal(t, volumes[0].(map[string]interface{})["name"], "new-secret")
+}
+
 func TestCreateRayJob(t *testing.T) {
 	commonconfig.SetValue("net.rdma_name", "rdma/hca")
 	defer commonconfig.SetValue("net.rdma_name", "")

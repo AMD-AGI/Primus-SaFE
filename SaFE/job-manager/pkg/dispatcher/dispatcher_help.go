@@ -1342,7 +1342,66 @@ func updateGithubRunner(obj *unstructured.Unstructured,
 		container := containers[i].(map[string]interface{})
 		updateContainerEnv(envs, container, nil)
 	}
-	return jobutils.SetNestedField(obj.Object, containers, path)
+	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
+		return err
+	}
+	return syncGithubRunnerSecretMounts(obj, adminWorkload, rt.Spec.ResourceSpecs[0])
+}
+
+// syncGithubRunnerSecretMounts rebuilds dispatcher-managed general Secret
+// volumes and mounts so a registration-token rotation reaches the StatefulSet.
+func syncGithubRunnerSecretMounts(obj *unstructured.Unstructured,
+	workload *v1.Workload, resourceSpec v1.ResourceSpec) error {
+	desired := make([]v1.SecretEntity, 0, len(workload.Spec.Secrets))
+	for _, secret := range workload.Spec.Secrets {
+		if secret.Type == v1.SecretGeneral {
+			desired = append(desired, secret)
+		}
+	}
+
+	volumePath := podSpecPath(workload, &resourceSpec, "volumes")
+	volumes, _, err := jobutils.NestedSlice(obj.Object, volumePath)
+	if err != nil {
+		return err
+	}
+	filteredVolumes := make([]interface{}, 0, len(volumes)+len(desired))
+	for _, volume := range volumes {
+		volumeMap, ok := volume.(map[string]interface{})
+		if _, managed := volumeMap["secret"]; ok && managed {
+			continue
+		}
+		filteredVolumes = append(filteredVolumes, volume)
+	}
+	for _, secret := range desired {
+		filteredVolumes = append(filteredVolumes, buildSecretVolume(secret.Id))
+	}
+	if err = jobutils.SetNestedField(obj.Object, filteredVolumes, volumePath); err != nil {
+		return err
+	}
+
+	containers, containerPath, err := getContainers(workload, obj, resourceSpec)
+	if err != nil {
+		return err
+	}
+	for i := range containers {
+		container := containers[i].(map[string]interface{})
+		mounts, _ := container["volumeMounts"].([]interface{})
+		filteredMounts := make([]interface{}, 0, len(mounts)+len(desired))
+		for _, mount := range mounts {
+			mountMap, ok := mount.(map[string]interface{})
+			mountPath, _ := mountMap["mountPath"].(string)
+			if ok && strings.HasPrefix(mountPath, common.SecretPath+"/") {
+				continue
+			}
+			filteredMounts = append(filteredMounts, mount)
+		}
+		for _, secret := range desired {
+			filteredMounts = append(filteredMounts, buildVolumeMount(
+				secret.Id, common.SecretPath+"/"+secret.Id, "", "", true, false))
+		}
+		container["volumeMounts"] = filteredMounts
+	}
+	return jobutils.SetNestedField(obj.Object, containers, containerPath)
 }
 
 // updateCICDGithub updates the CICD scale set configuration in the unstructured object.

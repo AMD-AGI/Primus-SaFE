@@ -30,6 +30,18 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
+func TestGithubRunnerStartScriptUsesCompleteAtomicState(t *testing.T) {
+	script := GithubRunnerStartScript()
+	assert.Assert(t, strings.Contains(script,
+		`[ ! -f "${STATE_DIR}/.credentials" ] || [ ! -f "${STATE_DIR}/.runner" ]`))
+	assert.Assert(t, strings.Contains(script,
+		`mv -f "${STATE_DIR}/.credentials.tmp" "${STATE_DIR}/.credentials"`))
+	assert.Assert(t, strings.Contains(script,
+		`mv -f "${STATE_DIR}/.runner.tmp" "${STATE_DIR}/.runner"`))
+	assert.Assert(t, strings.Index(script, `STATE_DIR="${GITHUB_RUNNER_STATE_ROOT}/${POD_NAME}"`) >
+		strings.Index(script, `GITHUB_RUNNER_STATE_ROOT and POD_NAME are required`))
+}
+
 func TestGetK8sServiceName(t *testing.T) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: "workload", Labels: map[string]string{}},

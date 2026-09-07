@@ -728,7 +728,15 @@ func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstru
 }
 
 // isGithubSecretChanged checks if the GitHub secret of the workload has changed.
-func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, _ *v1.ResourceTemplate) bool {
+func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
+	if commonworkload.IsCICDGithubRunner(adminWorkload) {
+		envs, err := jobutils.GetEnv(obj, rt, len(adminWorkload.Spec.Resources))
+		if err != nil {
+			return true
+		}
+		return convertEnvsToStringMap(envs)[jobutils.GithubSecretEnv] !=
+			v1.GetGithubSecretId(adminWorkload)
+	}
 	if !commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		return false
 	}
