@@ -9,6 +9,9 @@ import (
 	"context"
 	"testing"
 
+	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	appsv1 "k8s.io/api/apps/v1"
@@ -16,9 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
-	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
-	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -55,6 +55,22 @@ func TestPrewarmReconcileEntry(t *testing.T) {
 	}
 	r := &PrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
 	r.Controller = commonctrl.NewController[string](nil, 1)
+	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
+	assert.NoError(t, err)
+}
+
+func TestModelPrewarmReconcileEntry(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1", Finalizers: []string{v1.OpsJobFinalizer}},
+		Spec: v1.OpsJobSpec{
+			Type: v1.OpsJobModelPrewarmType,
+			Inputs: []v1.Parameter{
+				{Name: v1.ParameterModelPath, Value: "/models/glm"},
+				{Name: v1.ParameterNode, Value: "node-1"},
+			},
+		},
+	}
+	r := &ModelPrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
 	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
 	assert.NoError(t, err)
 }

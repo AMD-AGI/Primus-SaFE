@@ -17,18 +17,28 @@ import (
 
 // execute a shell command
 func ExecuteCommand(cmd string, timeout time.Duration) (int, string) {
+	return ExecuteCommandContext(context.Background(), cmd, timeout)
+}
+
+// ExecuteCommandContext runs a shell command and cancels it when ctx is done.
+func ExecuteCommandContext(ctx context.Context, cmd string, timeout time.Duration) (int, string) {
 	args := []string{"-c", cmd}
-	return ExecuteScript(args, timeout)
+	return ExecuteScriptContext(ctx, args, timeout)
 }
 
 // Execute a script, where args contains the script path and its input arguments.
 func ExecuteScript(args []string, timeout time.Duration) (int, string) {
+	return ExecuteScriptContext(context.Background(), args, timeout)
+}
+
+// ExecuteScriptContext runs a script and cancels it when ctx is done.
+func ExecuteScriptContext(parent context.Context, args []string, timeout time.Duration) (int, string) {
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+		ctx, cancel = context.WithTimeout(parent, timeout)
 	} else {
-		ctx, cancel = context.WithCancel(context.Background())
+		ctx, cancel = context.WithCancel(parent)
 	}
 	defer cancel()
 	cmd := Exec(ctx, "/bin/bash", args...)

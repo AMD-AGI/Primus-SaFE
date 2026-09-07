@@ -80,6 +80,7 @@ func TestGettersDefaults(t *testing.T) {
 	testifyassert.NotEmpty(t, GetDownloadJoImage())
 	testifyassert.NotEmpty(t, GetEvalScopeImage())
 	testifyassert.Equal(t, 900, GetPrewarmTimeoutSecond())
+	testifyassert.Equal(t, 7200, GetModelPrewarmTimeoutSecond())
 	testifyassert.Equal(t, 10, GetPrewarmWorkerConcurrent())
 	testifyassert.False(t, IsS3Enable())
 	testifyassert.Equal(t, int32(0), GetS3ExpireDay())

@@ -13,6 +13,7 @@
       <!-- Left side actions -->
       <div class="flex flex-wrap items-center gap-2">
         <el-button
+          v-if="activeTab === 'models'"
           type="primary"
           round
           :icon="Plus"
@@ -21,6 +22,16 @@
         >
           Create Model
         </el-button>
+        <el-button
+          type="primary"
+          round
+          :icon="SetUp"
+          @click="showPrewarmDialog = true"
+          class="mb-2 text-black"
+        >
+          Model Prewarm
+        </el-button>
+        <el-segmented v-model="activeTab" :options="tabSegOptions" class="mb-2" />
         <el-tooltip
           :content="refreshPaused ? 'Resume auto-refresh' : 'Pause auto-refresh'"
           placement="top"
@@ -36,7 +47,10 @@
       </div>
 
       <!-- Right side filters -->
-      <div class="flex flex-wrap items-center mt-2 mb-2 sm:mt-0 ml-auto gap-3">
+      <div
+        v-if="activeTab === 'models'"
+        class="flex flex-wrap items-center mt-2 mb-2 sm:mt-0 ml-auto gap-3"
+      >
         <el-input
           v-model="filters.search"
           placeholder="Search models..."
@@ -68,7 +82,7 @@
     </div>
 
     <!-- Model card grid -->
-    <div v-if="!loading && paginatedModels.length > 0" class="model-grid">
+    <div v-show="activeTab === 'models'" v-if="!loading && paginatedModels.length > 0" class="model-grid">
       <el-card
         v-for="model in paginatedModels"
         :key="model.id"
@@ -278,7 +292,7 @@
     </div>
 
     <!-- Pagination -->
-    <div v-if="!loading && models.length > 0" class="pagination-row">
+    <div v-show="activeTab === 'models'" v-if="!loading && models.length > 0" class="pagination-row">
       <el-pagination
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
@@ -292,7 +306,11 @@
     </div>
 
     <!-- Empty state -->
-    <el-empty v-else-if="!loading" description="No models found" :image-size="200">
+    <el-empty
+      v-else-if="activeTab === 'models' && !loading"
+      description="No models found"
+      :image-size="200"
+    >
       <template #image>
         <el-icon :size="100" color="#C0C4CC">
           <Box />
@@ -301,12 +319,92 @@
     </el-empty>
 
     <!-- Loading state -->
-    <div v-if="loading" class="loading-container">
+    <div v-if="activeTab === 'models' && loading" class="loading-container">
       <el-skeleton :rows="6" animated />
     </div>
 
+    <!-- Model prewarm records -->
+    <el-card v-show="activeTab === 'prewarm'" class="mt-4 safe-card" shadow="never">
+      <el-table
+        :height="'calc(100vh / var(--zoom) - 260px)'"
+        :data="prewarmRows"
+        size="large"
+        v-loading="prewarmLoading"
+        :element-loading-text="$loadingText"
+      >
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <ModelPrewarmNodeDetail :job-id="row.jobId" />
+          </template>
+        </el-table-column>
+        <el-table-column label="Name/ID" min-width="220">
+          <template #default="{ row }">
+            <div class="flex flex-col items-start">
+              <span class="font-medium">{{ row.jobName }}</span>
+              <div class="text-[13px] text-gray-400">
+                {{ row.jobId }}
+                <el-icon
+                  class="cursor-pointer hover:text-blue-500 transition"
+                  size="11"
+                  @click="copyText(row.jobId)"
+                >
+                  <CopyDocument />
+                </el-icon>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="Model Path" min-width="260" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.modelPath || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="Progress" min-width="200">
+          <template #default="{ row }">
+            <el-progress
+              :percentage="row.progressPercent || 0"
+              :status="row.phase === 'Failed' ? 'exception' : row.phase === 'Succeeded' ? 'success' : undefined"
+              :stroke-width="8"
+            >
+              <span class="text-xs">{{ row.progressLabel || row.phase }}</span>
+            </el-progress>
+          </template>
+        </el-table-column>
+        <el-table-column label="Phase" width="120">
+          <template #default="{ row }">
+            <el-tag :type="WorkloadPhaseButtonType[row.phase]?.type || 'info'">{{ row.phase }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="User" prop="userName" min-width="140" show-overflow-tooltip />
+        <el-table-column label="Created Time" min-width="180">
+          <template #default="{ row }">
+            {{ formatTimeStr(row.creationTime) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="End Time" min-width="180">
+          <template #default="{ row }">
+            {{ formatTimeStr(row.endTime) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="Actions" width="80" fixed="right">
+          <template #default="{ row }">
+            <el-tooltip content="Delete" placement="top">
+              <el-button
+                circle
+                size="default"
+                class="btn-danger-plain"
+                :icon="Delete"
+                @click="onDeletePrewarm(row.jobId)"
+              />
+            </el-tooltip>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <!-- Add model dialog -->
     <AddModelDialog v-model:visible="showAddDialog" @success="handleAddSuccess" />
+    <ModelPrewarmDialog v-model:visible="showPrewarmDialog" @success="handlePrewarmSuccess" />
 
     <!-- Stop service dialog -->
     <ToggleServiceDialog
@@ -335,7 +433,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, h } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -349,9 +447,11 @@ import {
   Box,
   RefreshRight,
   Refresh,
+  SetUp,
+  CopyDocument,
 } from '@element-plus/icons-vue'
 import { useDark, useDebounceFn } from '@vueuse/core'
-import { formatTimeStr } from '@/utils'
+import { formatTimeStr, copyText } from '@/utils'
 import {
   getModelsList,
   deleteModel,
@@ -362,17 +462,42 @@ import {
   type ModelsListParams,
   type ModelsListResp,
 } from '@/services/playground'
+import { getOpsjobs, getOpsjobsDetail, deleteOpsjobs, WorkloadPhaseButtonType } from '@/services'
 import AddModelDialog from './Components/AddModelDialog.vue'
+import ModelPrewarmDialog from './Components/ModelPrewarmDialog.vue'
+import ModelPrewarmNodeDetail from './Components/ModelPrewarmNodeDetail.vue'
 import ToggleServiceDialog from './Components/ToggleServiceDialog.vue'
 import InferAddDialog from '@/pages/Infer/Components/AddDialog.vue'
 import SelectInferDialog from './Components/SelectInferDialog.vue'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useClusterStore } from '@/stores/cluster'
 import { useUserStore } from '@/stores/user'
+import { parseModelPrewarmOutputs, parseProgressPercent } from './utils/modelPrewarm'
 
 const router = useRouter()
 const _isDark = useDark()
 const wsStore = useWorkspaceStore()
+const clusterStore = useClusterStore()
 const userStore = useUserStore()
+
+const activeTab = ref((router.currentRoute.value.query.tab as string) || 'models')
+const tabSegOptions = [
+  { label: 'Models', value: 'models' },
+  { label: 'Prewarm', value: 'prewarm' },
+] as const
+
+watch(activeTab, (newTab) => {
+  const query = { ...router.currentRoute.value.query, tab: newTab }
+  router.replace({ query })
+  if (newTab === 'prewarm') {
+    stopTick()
+    fetchPrewarmList()
+  } else if (newTab === 'models') {
+    stopPrewarmPolling()
+    fetchModels()
+    startTick()
+  }
+})
 
 // State
 const loading = ref(false)
@@ -381,6 +506,7 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(12)
 const showAddDialog = ref(false)
+const showPrewarmDialog = ref(false)
 const showToggleDialog = ref(false)
 const currentToggleModel = ref<PlaygroundModel | null>(null)
 const showInferDialog = ref(false)
@@ -389,6 +515,75 @@ const inferAction = ref('Create')
 const inferPrefillData = ref<Record<string, unknown>>({})
 const showSelectInferDialog = ref(false)
 const currentSelectModel = ref<PlaygroundModel | null>(null)
+
+interface PrewarmRow {
+  jobId: string
+  jobName: string
+  phase: string
+  userName?: string
+  creationTime?: string
+  endTime?: string
+  modelPath?: string
+  progressPercent?: number
+  progressLabel?: string
+}
+
+const prewarmLoading = ref(false)
+const prewarmRows = ref<PrewarmRow[]>([])
+const pollTimer = ref<ReturnType<typeof setInterval>>()
+const pendingPrewarmJobIds = ref<Set<string>>(new Set())
+
+const PREWARM_TERMINAL_PHASES = new Set(['Succeeded', 'Failed', 'Stopped', 'Cancelled'])
+const isPrewarmActive = (phase: string) => !PREWARM_TERMINAL_PHASES.has(phase)
+
+type PrewarmListParams = Parameters<typeof getOpsjobs>[0]
+
+const buildPrewarmListParams = (): PrewarmListParams => {
+  const params: PrewarmListParams = { type: 'model-prewarm' }
+  if (userStore.isManager) {
+    if (clusterStore.currentClusterId) {
+      params.clusterId = clusterStore.currentClusterId
+    }
+  } else if (wsStore.currentWorkspaceId) {
+    params.workspaceId = wsStore.currentWorkspaceId
+  }
+  return params
+}
+
+const shouldKeepPrewarmPolling = (rows: PrewarmRow[]) => {
+  if (rows.length === 0) {
+    return true
+  }
+  if (pendingPrewarmJobIds.value.size > 0) {
+    return true
+  }
+  return rows.some((r) => isPrewarmActive(r.phase))
+}
+
+const syncPendingPrewarmJobIds = (rows: PrewarmRow[]) => {
+  if (pendingPrewarmJobIds.value.size === 0) {
+    return
+  }
+  const listed = new Set(rows.map((r) => r.jobId))
+  const next = new Set<string>()
+  for (const jobId of pendingPrewarmJobIds.value) {
+    if (!listed.has(jobId)) {
+      next.add(jobId)
+    }
+  }
+  pendingPrewarmJobIds.value = next
+}
+
+const startPrewarmPolling = () => {
+  clearInterval(pollTimer.value)
+  pollTimer.value = setInterval(fetchPrewarmList, 15000)
+}
+
+const stopPrewarmPolling = () => {
+  clearInterval(pollTimer.value)
+  pollTimer.value = undefined
+}
+
 // Filter criteria
 const filters = reactive({
   origin: '',
@@ -443,6 +638,7 @@ const paginatedModels = computed(() => {
 // a model detail page restores the same view (client-side pagination included).
 const readQuery = () => {
   const q = router.currentRoute.value.query
+  activeTab.value = (q.tab as string) || 'models'
   filters.search = (q.search as string) || ''
   filters.owner = (q.owner as string) || ''
   filters.origin = (q.origin as string) || ''
@@ -451,6 +647,7 @@ const readQuery = () => {
 }
 const writeQuery = () => {
   const query: Record<string, string> = {}
+  if (activeTab.value && activeTab.value !== 'models') query.tab = activeTab.value
   if (filters.search?.trim()) query.search = filters.search.trim()
   if (filters.owner) query.owner = filters.owner
   if (filters.origin) query.origin = filters.origin
@@ -502,6 +699,99 @@ const handleFilterChange = () => {
   currentPage.value = 1
   fetchModels()
 }
+
+const enrichPrewarmRow = async (item: any): Promise<PrewarmRow> => {
+  const row: PrewarmRow = {
+    jobId: item.jobId,
+    jobName: item.jobName,
+    phase: item.phase,
+    userName: item.userName,
+    creationTime: item.creationTime,
+    endTime: item.endTime,
+  }
+  try {
+    const detail = await getOpsjobsDetail(item.jobId)
+    const outputs = parseModelPrewarmOutputs(detail.outputs || [])
+    row.modelPath =
+      (detail.inputs || []).find((i: { name?: string }) => i.name === 'model.path')?.value || ''
+    row.progressPercent = parseProgressPercent(outputs.prewarmProgress, item.phase)
+    if (outputs.nodesTotal) {
+      const total = Number(outputs.nodesTotal)
+      const done = Number(outputs.nodesSucceeded || 0) + Number(outputs.nodesFailed || 0)
+      if (!outputs.prewarmProgress && total > 0) {
+        row.progressPercent = Math.round((done / total) * 100)
+      }
+      row.progressLabel = `${outputs.nodesSucceeded || 0}/${outputs.nodesTotal}`
+    } else if (item.phase === 'Running') {
+      const match = detail.conditions?.[0]?.message?.match(/(\d+)\/(\d+)/)
+      if (match) {
+        row.progressLabel = `${match[1]}/${match[2]}`
+        row.progressPercent = Math.round((Number(match[1]) / Number(match[2])) * 100)
+      }
+    }
+  } catch {
+    row.progressLabel = item.phase
+  }
+  return row
+}
+
+const fetchPrewarmList = async () => {
+  prewarmLoading.value = true
+  try {
+    const res = await getOpsjobs(buildPrewarmListParams())
+    const items = res?.items || []
+    prewarmRows.value = await Promise.all(items.map((item: any) => enrichPrewarmRow(item)))
+    syncPendingPrewarmJobIds(prewarmRows.value)
+  } catch (_error) {
+    ElMessage.error('Failed to load model prewarm jobs')
+    prewarmRows.value = []
+  } finally {
+    prewarmLoading.value = false
+  }
+}
+
+const handlePrewarmSuccess = (jobId?: string) => {
+  activeTab.value = 'prewarm'
+  if (jobId) {
+    pendingPrewarmJobIds.value = new Set([...pendingPrewarmJobIds.value, jobId])
+  }
+  startPrewarmPolling()
+  fetchPrewarmList()
+}
+
+const onDeletePrewarm = (jobId: string) => {
+  const msg = h('span', null, [
+    'Are you sure you want to delete model prewarm job ',
+    h('span', { style: 'color: var(--el-color-primary); font-weight: 600' }, jobId),
+    ' ?',
+  ])
+  ElMessageBox.confirm(msg, 'Delete model prewarm', {
+    confirmButtonText: 'Delete',
+    cancelButtonText: 'Cancel',
+    type: 'warning',
+  })
+    .then(async () => {
+      await deleteOpsjobs(jobId)
+      ElMessage.success('Delete completed')
+      fetchPrewarmList()
+    })
+    .catch(() => {})
+}
+
+watch(
+  () => prewarmRows.value,
+  (rows) => {
+    if (activeTab.value !== 'prewarm') {
+      return
+    }
+    if (shouldKeepPrewarmPolling(rows)) {
+      startPrewarmPolling()
+    } else {
+      stopPrewarmPolling()
+    }
+  },
+  { immediate: true },
+)
 
 // Open chat
 const openChat = (model: PlaygroundModel) => {
@@ -748,12 +1038,17 @@ const toggleRefreshPause = () => {
 // Initialize
 onMounted(() => {
   readQuery()
-  fetchModels()
-  startTick()
+  if (activeTab.value === 'models') {
+    fetchModels()
+    startTick()
+  } else {
+    fetchPrewarmList()
+  }
 })
 
 onUnmounted(() => {
   stopTick()
+  stopPrewarmPolling()
 })
 
 // Watch for workspace changes, auto refresh list
@@ -762,7 +1057,11 @@ watch(
   (newWorkspaceId, oldWorkspaceId) => {
     if (newWorkspaceId !== oldWorkspaceId) {
       currentPage.value = 1
-      fetchModels()
+      if (activeTab.value === 'models') {
+        fetchModels()
+      } else {
+        fetchPrewarmList()
+      }
     }
   },
 )
