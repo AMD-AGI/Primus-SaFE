@@ -696,7 +696,8 @@ func TestAuthGetOpsJob(t *testing.T) {
 	// Admin passes for each resource-kind branch.
 	for _, opsType := range []string{
 		string(v1.OpsJobPreflightType), string(v1.OpsJobDownloadType),
-		string(v1.OpsJobDumpLogType), string(v1.OpsJobAddonType), "other",
+		string(v1.OpsJobDumpLogType), string(v1.OpsJobAddonType),
+		string(v1.OpsJobModelPrewarmType), "other",
 	} {
 		testifyassert.NoError(t, h.authGetOpsJob(c, "ws-1", opsType))
 	}

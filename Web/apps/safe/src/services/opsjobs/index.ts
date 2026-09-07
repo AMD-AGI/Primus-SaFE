@@ -10,6 +10,7 @@ export const addOpsjobs = (data: SubmitOpsjobsRequest, config?: AxiosRequestConf
 export const getOpsjobs = (params: { 
   type: string
   workspaceId?: string
+  clusterId?: string
   page?: number
   limit?: number
   since?: string

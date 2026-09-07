@@ -470,12 +470,14 @@ import ToggleServiceDialog from './Components/ToggleServiceDialog.vue'
 import InferAddDialog from '@/pages/Infer/Components/AddDialog.vue'
 import SelectInferDialog from './Components/SelectInferDialog.vue'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useClusterStore } from '@/stores/cluster'
 import { useUserStore } from '@/stores/user'
 import { parseModelPrewarmOutputs, parseProgressPercent } from './utils/modelPrewarm'
 
 const router = useRouter()
 const _isDark = useDark()
 const wsStore = useWorkspaceStore()
+const clusterStore = useClusterStore()
 const userStore = useUserStore()
 
 const activeTab = ref((router.currentRoute.value.query.tab as string) || 'models')
@@ -491,7 +493,7 @@ watch(activeTab, (newTab) => {
     stopTick()
     fetchPrewarmList()
   } else if (newTab === 'models') {
-    clearInterval(pollTimer.value)
+    stopPrewarmPolling()
     fetchModels()
     startTick()
   }
@@ -529,6 +531,31 @@ interface PrewarmRow {
 const prewarmLoading = ref(false)
 const prewarmRows = ref<PrewarmRow[]>([])
 const pollTimer = ref<ReturnType<typeof setInterval>>()
+
+const PREWARM_TERMINAL_PHASES = new Set(['Succeeded', 'Failed', 'Stopped', 'Cancelled'])
+const isPrewarmActive = (phase: string) => !PREWARM_TERMINAL_PHASES.has(phase)
+
+const buildPrewarmListParams = () => {
+  const params: Record<string, string> = { type: 'model-prewarm' }
+  if (userStore.isManager) {
+    if (clusterStore.currentClusterId) {
+      params.clusterId = clusterStore.currentClusterId
+    }
+  } else if (wsStore.currentWorkspaceId) {
+    params.workspaceId = wsStore.currentWorkspaceId
+  }
+  return params
+}
+
+const startPrewarmPolling = () => {
+  clearInterval(pollTimer.value)
+  pollTimer.value = setInterval(fetchPrewarmList, 15000)
+}
+
+const stopPrewarmPolling = () => {
+  clearInterval(pollTimer.value)
+  pollTimer.value = undefined
+}
 
 // Filter criteria
 const filters = reactive({
@@ -684,10 +711,7 @@ const enrichPrewarmRow = async (item: any): Promise<PrewarmRow> => {
 const fetchPrewarmList = async () => {
   prewarmLoading.value = true
   try {
-    const res = await getOpsjobs({
-      type: 'model-prewarm',
-      workspaceId: wsStore.currentWorkspaceId,
-    })
+    const res = await getOpsjobs(buildPrewarmListParams())
     const items = res?.items || []
     prewarmRows.value = await Promise.all(items.map((item: any) => enrichPrewarmRow(item)))
   } catch (_error) {
@@ -700,6 +724,7 @@ const fetchPrewarmList = async () => {
 
 const handlePrewarmSuccess = () => {
   activeTab.value = 'prewarm'
+  startPrewarmPolling()
   fetchPrewarmList()
 }
 
@@ -725,9 +750,13 @@ const onDeletePrewarm = (jobId: string) => {
 watch(
   () => prewarmRows.value,
   (rows) => {
-    clearInterval(pollTimer.value)
-    if (rows.some((r) => r.phase === 'Running')) {
-      pollTimer.value = setInterval(fetchPrewarmList, 15000)
+    if (activeTab.value !== 'prewarm') {
+      return
+    }
+    if (rows.length === 0 || rows.some((r) => isPrewarmActive(r.phase))) {
+      startPrewarmPolling()
+    } else {
+      stopPrewarmPolling()
     }
   },
   { immediate: true },
@@ -988,7 +1017,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopTick()
-  clearInterval(pollTimer.value)
+  stopPrewarmPolling()
 })
 
 // Watch for workspace changes, auto refresh list

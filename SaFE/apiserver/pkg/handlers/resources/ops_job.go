@@ -1081,6 +1081,9 @@ func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
 }
 
 func (h *Handler) authGetOpsJob(c *gin.Context, workspaceId, opsType string) error {
+	if opsType == string(v1.OpsJobModelPrewarmType) {
+		return h.authGetModelPrewarmOpsJob(c, workspaceId)
+	}
 	var workspaces []string
 	if workspaceId != "" {
 		workspaces = []string{workspaceId}
@@ -1108,6 +1111,31 @@ func (h *Handler) authGetOpsJob(c *gin.Context, workspaceId, opsType string) err
 		return err
 	}
 	return nil
+}
+
+// authGetModelPrewarmOpsJob mirrors create authorization for model-prewarm list/detail.
+func (h *Handler) authGetModelPrewarmOpsJob(c *gin.Context, workspaceId string) error {
+	ctx := c.Request.Context()
+	userId := c.GetString(common.UserId)
+	if workspaceId != "" {
+		workspaceObj, err := h.getAdminWorkspace(ctx, workspaceId)
+		if err != nil {
+			return err
+		}
+		return h.accessController.Authorize(authority.AccessInput{
+			Context:    ctx,
+			Resource:   workspaceObj,
+			Verb:       v1.GetVerb,
+			UserId:     userId,
+			Workspaces: []string{workspaceId},
+		})
+	}
+	return h.accessController.Authorize(authority.AccessInput{
+		Context:      ctx,
+		ResourceKind: v1.NodeKind,
+		Verb:         v1.UpdateVerb,
+		UserId:       userId,
+	})
 }
 
 // parseCreateOpsJobRequest parses and validates the request for creating an ops job.
