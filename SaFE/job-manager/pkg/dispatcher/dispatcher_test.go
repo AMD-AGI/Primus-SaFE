@@ -2169,3 +2169,37 @@ func TestSyncCICDProxy_ValidatedOptIn(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, !changed)
 }
+
+func TestInheritCICDProxySecretRef(t *testing.T) {
+	owner := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"proxySecretRef": "scaleset-runner-proxy"}}}
+	proxied := map[string]interface{}{
+		"spec": map[string]interface{}{"proxy": map[string]interface{}{
+			"http": map[string]interface{}{"url": "http://proxy:3128"}}}}
+
+	obj := &unstructured.Unstructured{Object: proxied}
+	assert.NilError(t, inheritCICDProxySecretRef(obj, owner))
+	ref, found, err := unstructured.NestedString(obj.Object, "spec", "proxySecretRef")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, ref, "scaleset-runner-proxy")
+
+	// A ref without spec.proxy is dereferenced unguarded by the controller, so it must never be set.
+	bare := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"proxySecretRef": "stale"}}}
+	assert.NilError(t, inheritCICDProxySecretRef(bare, owner))
+	_, found, err = unstructured.NestedString(bare.Object, "spec", "proxySecretRef")
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
+
+	// Owner without a ref of its own leaves the runner unproxied rather than dangling.
+	obj = &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"proxy":          map[string]interface{}{"http": map[string]interface{}{"url": "http://proxy:3128"}},
+			"proxySecretRef": "stale",
+		}}}
+	assert.NilError(t, inheritCICDProxySecretRef(obj, &unstructured.Unstructured{Object: map[string]interface{}{}}))
+	_, found, err = unstructured.NestedString(obj.Object, "spec", "proxySecretRef")
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
+}

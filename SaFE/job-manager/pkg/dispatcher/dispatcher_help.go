@@ -1279,13 +1279,13 @@ func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterCl
 		return err
 	}
 	// Set owner reference to the parent scale runner if CICDScaleRunnerIdLabel is present
-	if scaleRunnerId := v1.GetLabel(adminWorkload, v1.CICDScaleRunnerIdLabel); scaleRunnerId != "" {
-		if clientSets != nil && !commonutils.HasOwnerReferences(obj, scaleRunnerId) {
-			ownerObj, err := jobutils.GetObject(ctx,
-				clientSets.ClientFactory(), scaleRunnerId, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
-			if err != nil {
-				return fmt.Errorf("failed to get owner scale runner: %v", err.Error())
-			}
+	if scaleRunnerId := v1.GetLabel(adminWorkload, v1.CICDScaleRunnerIdLabel); scaleRunnerId != "" && clientSets != nil {
+		ownerObj, err := jobutils.GetObject(ctx,
+			clientSets.ClientFactory(), scaleRunnerId, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
+		if err != nil {
+			return fmt.Errorf("failed to get owner scale runner: %v", err.Error())
+		}
+		if !commonutils.HasOwnerReferences(obj, scaleRunnerId) {
 			ownerRef := metav1.OwnerReference{
 				APIVersion:         ownerObj.GetAPIVersion(),
 				Kind:               ownerObj.GetKind(),
@@ -1296,8 +1296,34 @@ func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterCl
 			}
 			obj.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
 		}
+		if err = inheritCICDProxySecretRef(obj, ownerObj); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// inheritCICDProxySecretRef points the runner at the proxy Secret the controller already built for
+// the scale set. spec.proxy alone is inert on a runner: proxy env reaches the job's git and curl
+// only when proxySecretRef is set, and only the EphemeralRunnerSet controller creates that Secret,
+// which a runner dispatched here has no parent to do for it. The two fields must move together --
+// spec.proxy is dereferenced without a nil check once the ref is non-empty.
+func inheritCICDProxySecretRef(obj, owner *unstructured.Unstructured) error {
+	proxy, found, err := unstructured.NestedMap(obj.Object, "spec", "proxy")
+	if err != nil {
+		return err
+	}
+	ref := ""
+	if found && len(proxy) > 0 {
+		if ref, _, err = unstructured.NestedString(owner.Object, "spec", "proxySecretRef"); err != nil {
+			return err
+		}
+	}
+	if ref == "" {
+		unstructured.RemoveNestedField(obj.Object, "spec", "proxySecretRef")
+		return nil
+	}
+	return unstructured.SetNestedField(obj.Object, ref, "spec", "proxySecretRef")
 }
 
 func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured) error {
