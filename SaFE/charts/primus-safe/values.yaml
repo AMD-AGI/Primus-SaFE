@@ -113,6 +113,10 @@ cicd:
   # configuration, for hosts a workload cannot know about (package mirrors,
   # internal registries). In-cluster targets are always bypassed.
   no_proxy: ""
+  # Sidecar that fronts the cluster proxy for CI/CD jobs, for a proxy whose
+  # authentication the runner's own HTTP client cannot complete. Empty disables it.
+  proxy_relay_image: ""
+  proxy_relay_port: 3129
   # cicd component image version. used for starting jobs for runner
   runner: "cicd-runner-proxy:latest"
   unified_job: "cicd-unified-job-proxy:latest"

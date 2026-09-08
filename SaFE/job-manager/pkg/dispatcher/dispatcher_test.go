@@ -2276,3 +2276,80 @@ func TestInheritCICDProxySecretRef(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, !found)
 }
+
+func ephemeralRunnerSpec() v1.ResourceSpec {
+	return v1.ResourceSpec{PodSpecPaths: []string{"spec"}, PrePaths: []string{"spec"}}
+}
+
+func relayObject() *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"spec": map[string]interface{}{
+			"containers": []interface{}{
+				map[string]interface{}{"name": cicdProxyRelayContainer},
+				map[string]interface{}{"name": "runner"},
+			},
+			"volumes": []interface{}{
+				map[string]interface{}{"name": cicdProxyCredentialVol,
+					"secret": map[string]interface{}{"optional": true}},
+			},
+		}}}}
+}
+
+func relaySource(credential string) *v1.Workload {
+	w := &v1.Workload{Spec: v1.WorkloadSpec{Env: map[string]string{
+		common.ProxyUrl: "http://proxy.example.com:3128"}}}
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Kind: common.CICDEphemeralRunnerKind, Version: "v1"}
+	if credential != "" {
+		w.Spec.Env[common.ProxyCredentialSecret] = credential
+	}
+	v1.SetAnnotation(w, v1.CICDProxyManagedAnnotation, v1.TrueStr)
+	v1.SetAnnotation(w, v1.MainContainerAnnotation, "runner")
+	return w
+}
+
+func TestConfigureCICDProxyRelay(t *testing.T) {
+	obj, w := relayObject(), relaySource("proxy-auth")
+	relay, err := configureCICDProxyRelay(obj, w, w, ephemeralRunnerSpec())
+	assert.NilError(t, err)
+	assert.Assert(t, relay)
+
+	containers, _, err := unstructured.NestedSlice(obj.Object, "spec", "spec", "containers")
+	assert.NilError(t, err)
+	env := map[string]map[string]string{}
+	for _, entry := range containers {
+		c := entry.(map[string]interface{})
+		values := map[string]string{}
+		list, _, _ := unstructured.NestedSlice(c, "env")
+		for _, e := range list {
+			item := e.(map[string]interface{})
+			values[item["name"].(string)], _ = item["value"].(string)
+		}
+		env[c["name"].(string)] = values
+	}
+	assert.Equal(t, env[cicdProxyRelayContainer]["PROXY_UPSTREAM_HOST"], "proxy.example.com")
+	assert.Equal(t, env[cicdProxyRelayContainer]["PROXY_UPSTREAM_PORT"], "3128")
+	// The runner reaches the relay on loopback, so it never holds the credential.
+	assert.Equal(t, env["runner"]["http_proxy"], "http://127.0.0.1:3129")
+	assert.Equal(t, env["runner"]["https_proxy"], "http://127.0.0.1:3129")
+
+	volumes, _, err := unstructured.NestedSlice(obj.Object, "spec", "spec", "volumes")
+	assert.NilError(t, err)
+	secret := volumes[0].(map[string]interface{})["secret"].(map[string]interface{})
+	assert.Equal(t, secret["secretName"], "proxy-auth")
+}
+
+func TestConfigureCICDProxyRelaySkipped(t *testing.T) {
+	// No credential: nothing to front, so the runner keeps the direct path.
+	obj, w := relayObject(), relaySource("")
+	relay, err := configureCICDProxyRelay(obj, w, w, ephemeralRunnerSpec())
+	assert.NilError(t, err)
+	assert.Assert(t, !relay)
+
+	// Chart did not add the sidecar: the relay cannot take over even with a credential.
+	bare := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"spec": map[string]interface{}{
+			"containers": []interface{}{map[string]interface{}{"name": "runner"}}}}}}
+	relay, err = configureCICDProxyRelay(bare, relaySource("proxy-auth"), relaySource("proxy-auth"), ephemeralRunnerSpec())
+	assert.NilError(t, err)
+	assert.Assert(t, !relay)
+}

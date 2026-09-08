@@ -8,7 +8,9 @@ package dispatcher
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,7 +30,90 @@ import (
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
-const cicdProxyOwnerIndex = "cicdProxyOwnerUID"
+const (
+	cicdProxyOwnerIndex     = "cicdProxyOwnerUID"
+	cicdProxyRelayContainer = "proxy-relay"
+	cicdProxyCredentialVol  = "proxy-credential"
+)
+
+// configureCICDProxyRelay wires the relay the chart puts beside the runner when the cluster proxy
+// needs authentication the runner's own client cannot complete: the relay is told the upstream and
+// given the credential, and the runner is pointed at it on loopback so it carries no credential.
+// Reports whether the relay took over, so the caller keeps the direct path exclusive to it.
+// Without a credential there is nothing to front and the runner talks to the proxy itself.
+func configureCICDProxyRelay(obj *unstructured.Unstructured, workload, source *v1.Workload,
+	resourceSpec v1.ResourceSpec) (bool, error) {
+	if !commonworkload.IsCICDProxyManaged(source) {
+		return false, nil
+	}
+	config, err := commonworkload.ParseCICDProxy(source.Spec.Env)
+	if err != nil || config == nil || config.CredentialSecret == "" {
+		return false, err
+	}
+	upstream, err := url.Parse(config.URL)
+	if err != nil {
+		return false, err
+	}
+	port := upstream.Port()
+	if port == "" {
+		port = "3128"
+	}
+	containers, path, err := getContainers(workload, obj, resourceSpec)
+	if err != nil {
+		return false, err
+	}
+	relay := false
+	for _, entry := range containers {
+		container, ok := entry.(map[string]interface{})
+		if !ok {
+			return false, fmt.Errorf("spec.template: expected a container object")
+		}
+		switch container["name"] {
+		case cicdProxyRelayContainer:
+			relay = true
+			updateContainerEnv(map[string]string{
+				"PROXY_UPSTREAM_HOST": upstream.Hostname(), "PROXY_UPSTREAM_PORT": port,
+			}, container, nil)
+		case v1.GetMainContainer(workload):
+			endpoint := "http://127.0.0.1:" + strconv.Itoa(commonconfig.GetCICDProxyRelayPort())
+			updateContainerEnv(map[string]string{
+				"http_proxy": endpoint, "https_proxy": endpoint,
+			}, container, nil)
+		}
+	}
+	if !relay {
+		return false, nil
+	}
+	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
+		return false, err
+	}
+	return true, bindCICDProxyCredential(obj, workload, resourceSpec, config.CredentialSecret)
+}
+
+// bindCICDProxyCredential names the Secret behind the volume the chart declares without one, so a
+// cluster with no proxy configured renders a template that mounts nothing.
+func bindCICDProxyCredential(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec, secretName string) error {
+	path := podSpecPath(workload, &resourceSpec, "volumes")
+	volumes, found, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil || !found {
+		return err
+	}
+	for _, entry := range volumes {
+		volume, ok := entry.(map[string]interface{})
+		if !ok || volume["name"] != cicdProxyCredentialVol {
+			continue
+		}
+		secret, ok := volume["secret"].(map[string]interface{})
+		if !ok {
+			secret = map[string]interface{}{}
+		}
+		secret["secretName"] = secretName
+		volume["secret"] = secret
+		return jobutils.SetNestedField(obj.Object, volumes, path)
+	}
+	return nil
+}
 
 func desiredCICDProxy(source *v1.Workload) (map[string]interface{}, error) {
 	config, err := commonworkload.ParseCICDProxy(source.Spec.Env)
@@ -197,7 +282,13 @@ func (r *DispatcherReconciler) syncCICDEphemeralRunnerProxy(ctx context.Context,
 	if err = updateCICDProxy(desired, source); err != nil {
 		return err
 	}
-	if scaleRunnerId := v1.GetLabel(workload, v1.CICDScaleRunnerIdLabel); scaleRunnerId != "" && clientSets != nil {
+	relay, err := configureCICDProxyRelay(desired, workload, source, rt.Spec.ResourceSpecs[0])
+	if err != nil {
+		return err
+	}
+	if relay {
+		unstructured.RemoveNestedField(desired.Object, "spec", "proxySecretRef")
+	} else if scaleRunnerId := v1.GetLabel(workload, v1.CICDScaleRunnerIdLabel); scaleRunnerId != "" && clientSets != nil {
 		owner, getErr := jobutils.GetObject(ctx,
 			clientSets.ClientFactory(), scaleRunnerId, workload.Spec.Workspace, rt.ToSchemaGVK())
 		if getErr != nil {

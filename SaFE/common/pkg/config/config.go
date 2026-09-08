@@ -526,6 +526,11 @@ func GetCICDNoProxy() string {
 	return getString(cicdNoProxy, "")
 }
 
+// GetCICDProxyRelayPort returns the loopback port the CI/CD proxy relay listens on.
+func GetCICDProxyRelayPort() int {
+	return getInt(cicdProxyRelayPort, 3129)
+}
+
 // GetModelDownloaderImage returns the image for model downloader job.
 // Used for downloading models from HuggingFace and uploading to S3.
 func GetModelDownloaderImage() string {

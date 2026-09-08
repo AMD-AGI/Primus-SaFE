@@ -78,6 +78,49 @@ data:
           - name: shared-data
             mountPath: /shared-data
       containers:
+{{- if (default "" (default .Values.cicd).proxy_relay_image) }}
+      # Fronts the cluster proxy for the job. The runner's HTTP client attaches proxy
+      # credentials only after a 407, and the tunnel it would talk to answers 401, so it
+      # never authenticates. This peer holds the credential and sends it upstream on every
+      # request; the runner reaches an unauthenticated proxy on loopback and needs none.
+      - name: proxy-relay
+        image: {{ .Values.cicd.proxy_relay_image }}
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            : "${PROXY_UPSTREAM_HOST:?}" "${PROXY_UPSTREAM_PORT:?}"
+            login=""
+            if [ -s /etc/secrets/proxy/username ] && [ -s /etc/secrets/proxy/password ]; then
+              login=" login=$(cat /etc/secrets/proxy/username):$(cat /etc/secrets/proxy/password)"
+            fi
+            cat >/tmp/squid.conf <<EOF
+            http_port ${PROXY_RELAY_PORT}
+            acl loopback src 127.0.0.1/32 ::1
+            acl CONNECT method CONNECT
+            http_access allow loopback
+            http_access deny all
+            cache_peer ${PROXY_UPSTREAM_HOST} parent ${PROXY_UPSTREAM_PORT} 0 no-query default${login}
+            never_direct allow all
+            cache deny all
+            access_log stdio:/dev/stdout
+            cache_log stdio:/dev/stderr
+            pid_filename none
+            EOF
+            exec squid -N -f /tmp/squid.conf
+        env:
+          - name: PROXY_RELAY_PORT
+            value: "{{ default 3129 (default .Values.cicd).proxy_relay_port }}"
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        volumeMounts:
+          - name: proxy-credential
+            mountPath: /etc/secrets/proxy
+            readOnly: true
+{{- end }}
       - name: runner
         imagePullPolicy: IfNotPresent
         env:
@@ -144,3 +187,8 @@ data:
         emptyDir: {}
       - name: shared-data
         emptyDir: {}
+{{- if (default "" (default .Values.cicd).proxy_relay_image) }}
+      - name: proxy-credential
+        secret:
+          optional: true
+{{- end }}
