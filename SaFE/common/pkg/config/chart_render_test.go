@@ -196,8 +196,8 @@ func TestChartRendersCICDProxyRelayCredentialEncoding(t *testing.T) {
 	}
 	testifyrequire.NotEmpty(t, script)
 	testifyassert.Contains(t, script, "username=$(percent_encode </etc/secrets/proxy/username)")
-	testifyassert.Contains(t, script, "password=$(percent_encode </etc/secrets/proxy/password)")
-	testifyassert.Contains(t, script, `login=" login=${username}:${password}"`)
+	testifyassert.Contains(t, script, "pw=$(percent_encode </etc/secrets/proxy/password)")
+	testifyassert.Contains(t, script, `login=" login=${username}:${pw}"`)
 
 	start := strings.Index(script, "percent_encode() {")
 	testifyrequire.NotEqual(t, -1, start)

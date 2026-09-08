@@ -83,8 +83,8 @@ data:
               login=""
               if [ -s /etc/secrets/proxy/username ] && [ -s /etc/secrets/proxy/password ]; then
                 username=$(percent_encode </etc/secrets/proxy/username)
-                password=$(percent_encode </etc/secrets/proxy/password)
-                login=" login=${username}:${password}"
+                pw=$(percent_encode </etc/secrets/proxy/password)
+                login=" login=${username}:${pw}"
               fi
               cat >/tmp/squid.conf <<EOF
               http_port ${PROXY_RELAY_PORT}
