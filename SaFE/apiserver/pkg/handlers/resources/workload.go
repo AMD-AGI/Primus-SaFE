@@ -1359,8 +1359,7 @@ func sanitizePatchWorkloadRequestForLog(req *view.PatchWorkloadRequest) view.Pat
 	}
 	sanitized := *req
 	if sanitized.GitHubProxyPassword != nil {
-		redacted := ""
-		sanitized.GitHubProxyPassword = &redacted
+		sanitized.GitHubProxyPassword = pointer.String("")
 	}
 	if sanitized.GitHubAuth != nil {
 		auth := *sanitized.GitHubAuth

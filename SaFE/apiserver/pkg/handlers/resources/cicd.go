@@ -286,7 +286,7 @@ func (h *Handler) updateGithubRunnerSecret(ctx context.Context, workload *v1.Wor
 	}
 	oldSecretId := v1.GetGithubSecretId(workload)
 	token := ""
-	password := ""
+	proxyCredential := ""
 	var oldSecret *corev1.Secret
 	if oldSecretId != "" {
 		var err error
@@ -299,26 +299,26 @@ func (h *Handler) updateGithubRunnerSecret(ctx context.Context, workload *v1.Wor
 			}
 		} else {
 			token = string(oldSecret.Data[GitHubToken])
-			password = string(oldSecret.Data[GitHubProxyPassword])
+			proxyCredential = string(oldSecret.Data[GitHubProxyPassword])
 		}
 	}
 	if auth != nil {
 		token = strings.TrimSpace(auth.Token)
 	}
 	if proxyPassword != nil {
-		password = strings.TrimSpace(*proxyPassword)
+		proxyCredential = strings.TrimSpace(*proxyPassword)
 	}
 	if token == "" {
 		return nil, commonerrors.NewBadRequest("the github registration token is empty")
 	}
-	if commonconfig.GetCICDGithubProxyURL() != "" && password == "" {
+	if commonconfig.GetCICDGithubProxyURL() != "" && proxyCredential == "" {
 		return nil, commonerrors.NewBadRequest("the github proxy password is empty")
 	}
 	if oldSecret != nil && string(oldSecret.Data[GitHubToken]) == token &&
-		string(oldSecret.Data[GitHubProxyPassword]) == password {
+		string(oldSecret.Data[GitHubProxyPassword]) == proxyCredential {
 		return nil, nil
 	}
-	newSecret, err := h.createGithubRunnerSecret(ctx, workload, requestUser, token, password)
+	newSecret, err := h.createGithubRunnerSecret(ctx, workload, requestUser, token, proxyCredential)
 	if err != nil {
 		return nil, err
 	}
