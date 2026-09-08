@@ -52,6 +52,19 @@ data:
     cicd:
       enable: {{ .Values.cicd.enable }}
       role_name: {{ .Values.cicd.role_name }}
+      controller_name: {{ .Values.cicd.controller_name }}
+    opensearch:
+      # Whether to enable opensearch, it is used for log search.
+      enable: {{ .Values.opensearch.enable }}
+      # The path of opensearch secret
+      secret_path: {{ .Values.opensearch.secret_path }}
+      # The endpoint of opensearch
+      endpoint: {{ .Values.opensearch.endpoint }}
+      # The prefix of index
+      prefix: {{ .Values.opensearch.prefix }}
+      # OpenSearch username and password are optional; either use them or the secret above
+      username: "{{ default "" (default .Values.opensearch).username }}"
+      password: "{{ default "" (default .Values.opensearch).password }}"
     sandbox:
       enable: {{ .Values.sandbox.enable }}
       namespace: {{ .Values.sandbox.namespace }}
