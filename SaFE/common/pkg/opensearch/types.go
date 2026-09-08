@@ -5,6 +5,8 @@
 
 package opensearch
 
+import "encoding/json"
+
 const (
 	TimeField    = "@timestamp"
 	MessageField = "message"
@@ -50,6 +52,7 @@ type OpenSearchScrollRequest struct {
 }
 
 type OpenSearchLogDoc struct {
+	SourceFields map[string]interface{} `json:"-"`
 	// unique document id
 	Id     string `json:"_id"`
 	Source struct {
@@ -75,6 +78,23 @@ type OpenSearchLogDoc struct {
 			ContainerName string `json:"container_name,omitempty"`
 		} `json:"kubernetes,omitempty"`
 	} `json:"_source"`
+}
+
+func (d *OpenSearchLogDoc) UnmarshalJSON(data []byte) error {
+	type document OpenSearchLogDoc
+	var parsed document
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return err
+	}
+	var raw struct {
+		Source map[string]interface{} `json:"_source"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	parsed.SourceFields = raw.Source
+	*d = OpenSearchLogDoc(parsed)
+	return nil
 }
 
 type OpenSearchLogHits struct {
