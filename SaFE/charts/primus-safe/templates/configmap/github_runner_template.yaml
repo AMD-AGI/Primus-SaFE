@@ -103,6 +103,7 @@ data:
               cache_peer_access upstream allow upstream_domains
               cache_peer_access upstream deny all
               never_direct allow upstream_domains
+              always_direct deny upstream_domains
               always_direct allow all
               EOF
               else
