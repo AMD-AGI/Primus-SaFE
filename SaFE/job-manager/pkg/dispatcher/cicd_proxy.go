@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -111,6 +112,10 @@ func cicdProxyWorkload(workload, source *v1.Workload, obj *unstructured.Unstruct
 	removed := v1.GetEnvToBeRemoved(workload)
 	for _, key := range commonworkload.CICDProxyEnvKeys() {
 		value, exists := source.Spec.Env[key]
+		if key == common.NoProxy && source.Spec.Env[common.ProxyUrl] != "" {
+			value = strings.Join(commonworkload.CICDProxyNoProxy(source, commonconfig.GetCICDNoProxy(), strings.Split(value, ",")), ",")
+			exists = true
+		}
 		if exists {
 			derived.Spec.Env[key] = value
 		} else {
@@ -149,7 +154,7 @@ func updateCICDProxyContainerEnvs(obj *unstructured.Unstructured, workload, sour
 	if !commonworkload.IsCICDProxyManaged(source) {
 		return nil
 	}
-	env, err := commonworkload.CICDProxyEnv(source.Spec.Env)
+	env, err := commonworkload.CICDProxyEnv(workload.Spec.Env)
 	if err != nil {
 		return err
 	}

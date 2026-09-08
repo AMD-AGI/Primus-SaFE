@@ -2416,6 +2416,7 @@ func TestUpdateCICDProxy_AddChangeRemove(t *testing.T) {
 			steps := []map[string]string{
 				{common.ProxyUrl: "https://new-proxy.example.com", common.ProxyCredentialSecret: "replacement-auth", common.NoProxy: "localhost,192.0.2.0/24"},
 				{common.ProxyUrl: "https://new-proxy.example.com", common.NoProxy: "localhost"},
+				{common.ProxyUrl: "http://proxy.example.com", common.NoProxy: ""},
 				{common.ProxyUrl: "http://proxy.example.com"},
 				{common.ProxyUrl: ""},
 				{},
@@ -2446,13 +2447,19 @@ func TestUpdateCICDProxy_AddChangeRemove(t *testing.T) {
 					assert.NilError(t, err)
 					assert.DeepEqual(t, actual, desired)
 				}
+				noProxy, _, err := unstructured.NestedStringSlice(obj.Object, "spec", "proxy", "noProxy")
+				assert.NilError(t, err)
 				containers, _, err := getContainers(w, obj, rt.Spec.ResourceSpecs[0])
 				assert.NilError(t, err)
 				for _, entry := range containers {
 					actual, _, err := unstructured.NestedSlice(entry.(map[string]interface{}), "env")
 					assert.NilError(t, err)
 					for _, key := range commonworkload.CICDProxyEnvKeys() {
-						if value, present := env[key]; present {
+						value, present := env[key]
+						if key == common.NoProxy && env[common.ProxyUrl] != "" {
+							value, present = strings.Join(noProxy, ","), true
+						}
+						if present {
 							assert.Assert(t, findEnv(actual, key, value))
 						} else {
 							for _, item := range actual {
