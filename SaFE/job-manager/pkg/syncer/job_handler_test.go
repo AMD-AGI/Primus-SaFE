@@ -9,6 +9,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"reflect"
 	"strings"
 	"testing"
@@ -777,6 +780,41 @@ func TestUpdateRunnerSetFailure_RespectsRetry(t *testing.T) {
 	assert.Equal(t, r.cicdFailureLogs.GetQueueSize(), 0)
 }
 
+func TestRunnerSetRegistrationTimeoutDiagnosticUsesConstant(t *testing.T) {
+	source, err := parser.ParseFile(token.NewFileSet(), "job_handler.go", nil, 0)
+	assert.NilError(t, err)
+	for _, declaration := range source.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Name.Name != "checkRunnerSetRegistration" {
+			continue
+		}
+		for _, statement := range function.Body.List {
+			assignment, ok := statement.(*ast.AssignStmt)
+			if !ok || len(assignment.Lhs) != 1 || len(assignment.Rhs) != 1 {
+				continue
+			}
+			name, ok := assignment.Lhs[0].(*ast.Ident)
+			if !ok || name.Name != "diagnostic" {
+				continue
+			}
+			call, ok := assignment.Rhs[0].(*ast.CallExpr)
+			assert.Assert(t, ok, "registration timeout diagnostic must be formatted from its timeout constant")
+			formatter, ok := call.Fun.(*ast.SelectorExpr)
+			assert.Assert(t, ok)
+			pkg, ok := formatter.X.(*ast.Ident)
+			assert.Assert(t, ok)
+			assert.Equal(t, pkg.Name, "fmt")
+			assert.Equal(t, formatter.Sel.Name, "Sprintf")
+			assert.Equal(t, len(call.Args), 2)
+			timeout, ok := call.Args[1].(*ast.Ident)
+			assert.Assert(t, ok)
+			assert.Equal(t, timeout.Name, "runnerSetRegistrationTimeout")
+			return
+		}
+	}
+	t.Fatal("registration timeout diagnostic assignment not found")
+}
+
 func TestRunnerSetProxyRegistrationTimeout_Message(t *testing.T) {
 	for _, elapsed := range []time.Duration{time.Minute, runnerSetRegistrationTimeout, runnerSetRegistrationTimeout + time.Minute} {
 		t.Run(elapsed.String(), func(t *testing.T) {
@@ -794,7 +832,7 @@ func TestRunnerSetProxyRegistrationTimeout_Message(t *testing.T) {
 				return
 			}
 			assert.Equal(t, current.Status.Phase, v1.WorkloadFailed)
-			assert.Assert(t, strings.Contains(current.Status.Message, "Runner scale set registration timed out after 10m0s"))
+			assert.Assert(t, strings.Contains(current.Status.Message, fmt.Sprintf("Runner scale set registration timed out after %s", runnerSetRegistrationTimeout)))
 			assert.Assert(t, strings.Contains(current.Status.Message, "Proxy configuration is enabled"))
 			assert.Equal(t, current.Status.Conditions[0].Message, current.Status.Message)
 			assert.Equal(t, r.cicdFailureLogs.GetQueueSize(), 1)

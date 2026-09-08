@@ -151,7 +151,7 @@ func checkRunnerSetRegistration(workload *v1.Workload, message *resourceMessage)
 	}
 	klog.Errorf("CICD scaling runner set %s was not registered with GitHub within %s of dispatch, failing it",
 		workload.Name, runnerSetRegistrationTimeout)
-	diagnostic := "Runner scale set registration timed out after 10m0s; no runner can start. Check ARC controller logs for details."
+	diagnostic := fmt.Sprintf("Runner scale set registration timed out after %s; no runner can start. Check ARC controller logs for details.", runnerSetRegistrationTimeout)
 	if commonworkload.IsCICDProxyManaged(workload) && workload.GetEnv(common.ProxyUrl) != "" {
 		diagnostic += " Proxy configuration is enabled; check proxy reachability and its credential Secret."
 	}
