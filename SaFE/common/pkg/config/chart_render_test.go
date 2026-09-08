@@ -6,6 +6,7 @@
 package config
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"os/exec"
@@ -19,12 +20,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// chartPath is the chart that renders the config file the apiserver reads.
+// chartPath is the chart that renders the configuration consumed by SaFE services.
 const chartPath = "../../../charts/primus-safe"
 
-// renderApiserverConfig renders the chart and returns the apiserver's config.yaml.
-// It skips the test where helm is unavailable.
-func renderApiserverConfig(t *testing.T, values ...string) string {
+func renderConfigMapData(t *testing.T, name, key string, values ...string) string {
 	t.Helper()
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm is not installed")
@@ -34,9 +33,12 @@ func renderApiserverConfig(t *testing.T, values ...string) string {
 	}
 
 	args := append([]string{"template", chartPath}, values...)
-	out, err := exec.Command("helm", args...).CombinedOutput()
+	cmd := exec.Command("helm", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	// helm puts the reason on stderr, and nothing below can run without a render.
-	testifyrequire.NoErrorf(t, err, "helm template failed:\n%s", out)
+	testifyrequire.NoErrorf(t, err, "helm template failed:\n%s", stderr.String())
 
 	decoder := yaml.NewDecoder(strings.NewReader(string(out)))
 	for {
@@ -50,17 +52,22 @@ func renderApiserverConfig(t *testing.T, values ...string) string {
 		if err := decoder.Decode(&doc); err != nil {
 			// End of stream is the loop's exit; anything else means the chart
 			// rendered something that is not YAML, which is worth saying out loud.
-			testifyrequire.ErrorIsf(t, err, io.EOF, "rendered chart is not valid YAML: %v", err)
+			testifyrequire.ErrorIsf(t, err, io.EOF, "rendered chart is not valid YAML: %v\n%s", err, out)
 			break
 		}
-		if doc.Kind == "ConfigMap" && strings.Contains(doc.Metadata.Name, "apiserver") {
-			if cfg, ok := doc.Data["config.yaml"]; ok {
+		if doc.Kind == "ConfigMap" && strings.Contains(doc.Metadata.Name, name) {
+			if cfg, ok := doc.Data[key]; ok {
 				return cfg
 			}
 		}
 	}
-	t.Fatal("no apiserver config.yaml in the rendered chart")
+	t.Fatalf("no %s key in rendered ConfigMap %s", key, name)
 	return ""
+}
+
+func renderApiserverConfig(t *testing.T, values ...string) string {
+	t.Helper()
+	return renderConfigMapData(t, "apiserver", "config.yaml", values...)
 }
 
 // loadRendered writes the rendered config where LoadConfig can read it, so the
@@ -120,4 +127,42 @@ func TestChartRendersReverseForwardEnabledExplicitly(t *testing.T) {
 func TestChartRendersAnEmptyBindListAsEmpty(t *testing.T) {
 	loadRendered(t, renderApiserverConfig(t, "--set", "ssh.reverse_forward.bind_addresses={}"))
 	testifyassert.Empty(t, GetSSHReverseForwardBindAddresses())
+}
+
+func TestChartRendersCICDProxyRelayAsNativeSidecar(t *testing.T) {
+	type container struct {
+		Name          string `yaml:"name"`
+		RestartPolicy string `yaml:"restartPolicy"`
+		Resources     struct {
+			Limits   map[string]string `yaml:"limits"`
+			Requests map[string]string `yaml:"requests"`
+		} `yaml:"resources"`
+	}
+	var runner struct {
+		Spec struct {
+			Spec struct {
+				Containers     []container `yaml:"containers"`
+				InitContainers []container `yaml:"initContainers"`
+			} `yaml:"spec"`
+		} `yaml:"spec"`
+	}
+	rendered := renderConfigMapData(t, "github-runner-template", "template",
+		"--show-only", "templates/configmap/github_runner_template.yaml",
+		"--set", "cicd.proxy_relay_image=example/proxy-relay:latest")
+	testifyrequire.NoError(t, yaml.Unmarshal([]byte(rendered), &runner))
+
+	for _, current := range runner.Spec.Spec.Containers {
+		testifyassert.NotEqual(t, "proxy-relay", current.Name)
+	}
+	for _, current := range runner.Spec.Spec.InitContainers {
+		if current.Name != "proxy-relay" {
+			continue
+		}
+		testifyassert.Equal(t, "Always", current.RestartPolicy)
+		testifyassert.Equal(t, map[string]string{"cpu": "500m", "memory": "256Mi"}, current.Resources.Limits)
+		testifyassert.Empty(t, current.Resources.Requests)
+		testifyassert.NotContains(t, current.Resources.Limits, "amd.com/gpu")
+		return
+	}
+	t.Fatal("proxy-relay init container not found")
 }

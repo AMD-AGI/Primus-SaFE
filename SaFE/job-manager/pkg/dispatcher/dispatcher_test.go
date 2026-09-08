@@ -1915,7 +1915,7 @@ func TestCICDEphemeralRunnerProxy_InheritsOwner(t *testing.T) {
 func TestCreateCICDEphemeralRunnerWithoutCredentialedProxyRemovesRelay(t *testing.T) {
 	for name, removeProxy := range map[string]bool{"no proxy": true, "no credential": false} {
 		t.Run(name, func(t *testing.T) {
-			r, w, parent, _ := proxyRelayDispatcherFixture(t, "containers")
+			r, w, parent, _ := proxyRelayDispatcherFixture(t)
 			delete(parent.Spec.Env, common.ProxyCredentialSecret)
 			if removeProxy {
 				delete(parent.Spec.Env, common.ProxyUrl)
@@ -1929,10 +1929,50 @@ func TestCreateCICDEphemeralRunnerWithoutCredentialedProxyRemovesRelay(t *testin
 	}
 }
 
+func TestCreateCICDEphemeralRunnerProxyRelayPreservesRunnerResources(t *testing.T) {
+	resources := v1.WorkloadResource{
+		Replica: 1, CPU: "8", Memory: "16Gi", GPU: "1", GPUName: common.AmdGpu, EphemeralStorage: "40Gi",
+	}
+	plainReconciler, plainWorkload, _, _ := proxyRunnerDispatcherFixture(t, false)
+	plainWorkload.Spec.Resources = []v1.WorkloadResource{resources}
+	plain, err := plainReconciler.generateK8sObject(context.Background(), plainWorkload, nil)
+	assert.NilError(t, err)
+
+	relayReconciler, relayWorkload, _, _ := proxyRelayDispatcherFixture(t)
+	relayWorkload.Spec.Resources = []v1.WorkloadResource{resources}
+	withRelay, err := relayReconciler.generateK8sObject(context.Background(), relayWorkload, nil)
+	assert.NilError(t, err)
+
+	plainRunner := findCICDContainer(t, plain, "containers", "runner")
+	relayRunner := findCICDContainer(t, withRelay, "containers", "runner")
+	assert.Check(t, reflect.DeepEqual(relayRunner["resources"], plainRunner["resources"]),
+		"relay changed runner resources: %#v", relayRunner["resources"])
+	limits := relayRunner["resources"].(map[string]interface{})["limits"].(map[string]interface{})
+	assert.Check(t, reflect.DeepEqual(limits, map[string]interface{}{
+		"cpu": "8", "memory": "16Gi", common.AmdGpu: "1", "ephemeral-storage": "40Gi",
+	}), "runner limits changed: %#v", limits)
+
+	normalRelay := lookupCICDContainer(t, withRelay, "containers", cicdProxyRelayContainer)
+	relay := lookupCICDContainer(t, withRelay, "initContainers", cicdProxyRelayContainer)
+	assert.Check(t, normalRelay == nil, "proxy relay rendered as a regular container")
+	assert.Check(t, relay != nil, "proxy relay init container not found")
+	if relay == nil {
+		relay = normalRelay
+	}
+	assert.Assert(t, relay != nil)
+	relayResources := relay["resources"].(map[string]interface{})
+	assert.Check(t, reflect.DeepEqual(relayResources["limits"], map[string]interface{}{"cpu": "500m", "memory": "256Mi"}),
+		"relay limits changed: %#v", relayResources["limits"])
+	_, hasRequests := relayResources["requests"]
+	assert.Check(t, !hasRequests, "relay received workload resource requests: %#v", relayResources["requests"])
+	_, hasGPU := relayResources["limits"].(map[string]interface{})[common.AmdGpu]
+	assert.Check(t, !hasGPU, "relay received a GPU limit")
+}
+
 func TestSyncCICDEphemeralRunnerWithoutCredentialedProxyRemovesRelay(t *testing.T) {
 	for name, removeProxy := range map[string]bool{"no proxy": true, "no credential": false} {
 		t.Run(name, func(t *testing.T) {
-			r, w, parent, rt := proxyRelayDispatcherFixture(t, "containers")
+			r, w, parent, rt := proxyRelayDispatcherFixture(t)
 			obj, err := r.generateK8sObject(context.Background(), w, nil)
 			assert.NilError(t, err)
 			delete(parent.Spec.Env, common.ProxyCredentialSecret)
@@ -2320,7 +2360,12 @@ func ephemeralRunnerSpec() v1.ResourceSpec {
 	return v1.ResourceSpec{PodSpecPaths: []string{"spec"}, PrePaths: []string{"spec"}}
 }
 
-func proxyRelayDispatcherFixture(t *testing.T, field string) (*DispatcherReconciler, *v1.Workload, *v1.Workload, *v1.ResourceTemplate) {
+func proxyRelayDispatcherFixture(t *testing.T) (*DispatcherReconciler, *v1.Workload, *v1.Workload, *v1.ResourceTemplate) {
+	t.Helper()
+	return proxyRunnerDispatcherFixture(t, true)
+}
+
+func proxyRunnerDispatcherFixture(t *testing.T, relay bool) (*DispatcherReconciler, *v1.Workload, *v1.Workload, *v1.ResourceTemplate) {
 	t.Helper()
 	r, w, parent, rt := proxyDispatcherFixture(t, common.CICDEphemeralRunnerKind, false)
 	configMap := &corev1.ConfigMap{}
@@ -2328,7 +2373,23 @@ func proxyRelayDispatcherFixture(t *testing.T, field string) (*DispatcherReconci
 	assert.NilError(t, r.Get(context.Background(), key, configMap))
 	template := &unstructured.Unstructured{}
 	assert.NilError(t, yamlutil.NewYAMLOrJSONDecoder(strings.NewReader(configMap.Data["template"]), 4096).Decode(template))
-	path := []string{"spec", "spec", field}
+	containers, _, err := unstructured.NestedSlice(template.Object, "spec", "spec", "containers")
+	assert.NilError(t, err)
+	runnerFound := false
+	for _, entry := range containers {
+		if entry.(map[string]interface{})["name"] == "runner" {
+			assert.NilError(t, unstructured.SetNestedSlice(template.Object, []interface{}{entry}, "spec", "spec", "containers"))
+			runnerFound = true
+			break
+		}
+	}
+	assert.Assert(t, runnerFound)
+	if !relay {
+		configMap.Data["template"] = string(jsonutils.MarshalSilently(template.Object))
+		assert.NilError(t, r.Update(context.Background(), configMap))
+		return r, w, parent, rt
+	}
+	path := []string{"spec", "spec", "initContainers"}
 	entries, _, err := unstructured.NestedSlice(template.Object, path...)
 	assert.NilError(t, err)
 	entries = append([]interface{}{proxyRelayContainer()}, entries...)
@@ -2344,11 +2405,35 @@ func proxyRelayDispatcherFixture(t *testing.T, field string) (*DispatcherReconci
 
 func proxyRelayContainer() map[string]interface{} {
 	return map[string]interface{}{
-		"name": cicdProxyRelayContainer,
+		"name":          cicdProxyRelayContainer,
+		"restartPolicy": "Always",
 		"resources": map[string]interface{}{"limits": map[string]interface{}{
 			"cpu": "500m", "memory": "256Mi",
 		}},
 	}
+}
+
+func findCICDContainer(t *testing.T, obj *unstructured.Unstructured, field, name string) map[string]interface{} {
+	t.Helper()
+	container := lookupCICDContainer(t, obj, field, name)
+	if container != nil {
+		return container
+	}
+	t.Fatalf("%s %q not found", field, name)
+	return nil
+}
+
+func lookupCICDContainer(t *testing.T, obj *unstructured.Unstructured, field, name string) map[string]interface{} {
+	t.Helper()
+	containers, _, err := unstructured.NestedSlice(obj.Object, "spec", "spec", field)
+	assert.NilError(t, err)
+	for _, entry := range containers {
+		container := entry.(map[string]interface{})
+		if container["name"] == name {
+			return container
+		}
+	}
+	return nil
 }
 
 func proxyCredentialVolume() map[string]interface{} {
@@ -2379,11 +2464,9 @@ func assertCICDProxyRelayRemoved(t *testing.T, obj *unstructured.Unstructured) {
 func relayObject() *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]interface{}{
 		"spec": map[string]interface{}{"spec": map[string]interface{}{
-			"containers": []interface{}{
-				proxyRelayContainer(),
-				map[string]interface{}{"name": "runner"},
-			},
-			"volumes": []interface{}{proxyCredentialVolume()},
+			"containers":     []interface{}{map[string]interface{}{"name": "runner"}},
+			"initContainers": []interface{}{proxyRelayContainer()},
+			"volumes":        []interface{}{proxyCredentialVolume()},
 		}}}}
 }
 
@@ -2405,18 +2488,20 @@ func TestConfigureCICDProxyRelay(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, relay)
 
-	containers, _, err := unstructured.NestedSlice(obj.Object, "spec", "spec", "containers")
-	assert.NilError(t, err)
 	env := map[string]map[string]string{}
-	for _, entry := range containers {
-		c := entry.(map[string]interface{})
-		values := map[string]string{}
-		list, _, _ := unstructured.NestedSlice(c, "env")
-		for _, e := range list {
-			item := e.(map[string]interface{})
-			values[item["name"].(string)], _ = item["value"].(string)
+	for _, field := range []string{"containers", "initContainers"} {
+		containers, _, err := unstructured.NestedSlice(obj.Object, "spec", "spec", field)
+		assert.NilError(t, err)
+		for _, entry := range containers {
+			c := entry.(map[string]interface{})
+			values := map[string]string{}
+			list, _, _ := unstructured.NestedSlice(c, "env")
+			for _, e := range list {
+				item := e.(map[string]interface{})
+				values[item["name"].(string)], _ = item["value"].(string)
+			}
+			env[c["name"].(string)] = values
 		}
-		env[c["name"].(string)] = values
 	}
 	assert.Equal(t, env[cicdProxyRelayContainer]["PROXY_UPSTREAM_HOST"], "proxy.example.com")
 	assert.Equal(t, env[cicdProxyRelayContainer]["PROXY_UPSTREAM_PORT"], "3128")
