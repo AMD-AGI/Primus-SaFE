@@ -1368,7 +1368,7 @@ func sanitizePatchWorkloadRequestForLog(req *view.PatchWorkloadRequest) view.Pat
 		sanitized.GitHubAuth = &auth
 	}
 	if sanitized.Env != nil {
-		env := maputil.Copy(*sanitized.Env, GithubPAT, common.RunnerToken)
+		env := maputil.Copy(*sanitized.Env, GithubPAT, common.RunnerToken, common.GithubProxyPassword)
 		sanitized.Env = &env
 	}
 	return sanitized

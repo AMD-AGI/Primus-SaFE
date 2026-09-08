@@ -44,6 +44,7 @@ const (
 	GithubRunnerStateRoot = "GITHUB_RUNNER_STATE_ROOT"
 	GithubProxyURL        = "GITHUB_PROXY_URL"
 	GithubProxyUsername   = "GITHUB_PROXY_USERNAME"
+	GithubProxyPassword   = "GITHUB_PROXY_PASSWORD"
 	GithubProxyNoProxy    = "GITHUB_PROXY_NO_PROXY"
 	UnifiedJobEnable      = "UNIFIED_JOB_ENABLE"
 	ScaleRunnerSetID      = "SCALE_RUNNER_SET_ID"

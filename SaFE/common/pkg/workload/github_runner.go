@@ -26,14 +26,22 @@ if [ -n "${GITHUB_PROXY_URL:-}" ]; then
   encode_proxy_component() {
     printf '%s' "$1" | "${NODE_BIN}" -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>process.stdout.write(encodeURIComponent(s)))'
   }
-  PROXY_USER="$(encode_proxy_component "${GITHUB_PROXY_USERNAME}")"
-  PROXY_PASSWORD="$(encode_proxy_component "$(cat "${PROXY_PASSWORD_FILE}")")"
+  PROXY_USER="$(encode_proxy_component "${GITHUB_PROXY_USERNAME:-github}")"
+  PROXY_SECRET="${GITHUB_PROXY_PASSWORD:-}"
+  if [ -z "${PROXY_SECRET}" ] && [ -f "${PROXY_PASSWORD_FILE}" ]; then
+    PROXY_SECRET="$(cat "${PROXY_PASSWORD_FILE}")"
+  fi
   PROXY_SCHEME="${GITHUB_PROXY_URL%%://*}"
   PROXY_AUTHORITY="${GITHUB_PROXY_URL#*://}"
-  PROXY="${PROXY_SCHEME}://${PROXY_USER}:${PROXY_PASSWORD}@${PROXY_AUTHORITY}"
+  if [ -n "${PROXY_SECRET}" ]; then
+    PROXY="${PROXY_SCHEME}://${PROXY_USER}:$(encode_proxy_component "${PROXY_SECRET}")@${PROXY_AUTHORITY}"
+  else
+    PROXY="${GITHUB_PROXY_URL}"
+  fi
   export http_proxy="${PROXY}" HTTP_PROXY="${PROXY}"
   export https_proxy="${PROXY}" HTTPS_PROXY="${PROXY}"
-  export no_proxy="${GITHUB_PROXY_NO_PROXY:-}" NO_PROXY="${GITHUB_PROXY_NO_PROXY:-}"
+  export no_proxy="${GITHUB_PROXY_NO_PROXY:-localhost,127.0.0.1,::1,.svc,.cluster.local}"
+  export NO_PROXY="${no_proxy}"
 fi
 cd "${RUNNER_DIR}"
 if [ ! -f "${STATE_DIR}/.credentials" ] || [ ! -f "${STATE_DIR}/.runner" ]; then

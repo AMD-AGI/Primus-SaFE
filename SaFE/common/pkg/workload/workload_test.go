@@ -43,11 +43,13 @@ func TestGithubRunnerStartScriptUsesCompleteAtomicState(t *testing.T) {
 	assert.Assert(t, strings.Contains(script,
 		`PROXY_PASSWORD_FILE="/etc/secrets/${GITHUB_SECRET_ID}/github_proxy_password"`))
 	assert.Assert(t, strings.Contains(script,
+		`PROXY_SECRET="${GITHUB_PROXY_PASSWORD:-}"`))
+	assert.Assert(t, strings.Contains(script,
 		`export http_proxy="${PROXY}" HTTP_PROXY="${PROXY}"`))
 	assert.Assert(t, strings.Contains(script,
 		`export https_proxy="${PROXY}" HTTPS_PROXY="${PROXY}"`))
 	assert.Assert(t, strings.Contains(script,
-		`export no_proxy="${GITHUB_PROXY_NO_PROXY:-}" NO_PROXY="${GITHUB_PROXY_NO_PROXY:-}"`))
+		`export no_proxy="${GITHUB_PROXY_NO_PROXY:-localhost,127.0.0.1,::1,.svc,.cluster.local}"`))
 }
 
 func TestGithubRunnerStopScriptRemovesOnlyWhenLeavingPool(t *testing.T) {

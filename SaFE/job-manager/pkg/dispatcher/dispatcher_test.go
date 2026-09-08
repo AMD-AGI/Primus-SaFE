@@ -1013,6 +1013,8 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 	workload.Spec.Workspace = workspace.Name
 	workload.Spec.Secrets = []v1.SecretEntity{{Id: "new-secret", Type: v1.SecretGeneral}}
 	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	workload.Spec.Env[common.GithubProxyURL] = "http://wstunnel-client.github-proxy.svc.cluster.local:3128"
+	workload.Spec.Env[common.GithubProxyPassword] = "proxy-secret"
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "new-secret")
 	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
 	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
@@ -1067,9 +1069,12 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 	envsMap := convertEnvsToStringMap(envs)
 	assert.Equal(t, envsMap[common.GithubRunnerStateRoot],
 		"/ceph/github-runners/"+workload.Name)
-	assert.Equal(t, envsMap[common.GithubProxyURL], "http://github-proxy:3128")
+	assert.Equal(t, envsMap[common.GithubProxyURL],
+		"http://wstunnel-client.github-proxy.svc.cluster.local:3128")
 	assert.Equal(t, envsMap[common.GithubProxyUsername], "github")
-	assert.Equal(t, envsMap[common.GithubProxyNoProxy], "localhost,.svc")
+	assert.Equal(t, envsMap[common.GithubProxyPassword], "proxy-secret")
+	assert.Equal(t, envsMap[common.GithubProxyNoProxy],
+		"localhost,127.0.0.1,::1,.svc,.cluster.local")
 	lifecycle := containers[0].(map[string]interface{})["lifecycle"].(map[string]interface{})
 	preStop := lifecycle["preStop"].(map[string]interface{})
 	execHook := preStop["exec"].(map[string]interface{})

@@ -747,17 +747,29 @@ func buildEntryPoint(workload *v1.Workload, id int) string {
 	return result
 }
 
-func githubRunnerEntryPoint(workload *v1.Workload, id int) string {
-	if len(workload.Spec.EntryPoints) <= id || workload.Spec.EntryPoints[id] == "" {
-		return commonworkload.GithubRunnerStartScript()
-	}
-	ep := workload.Spec.EntryPoints[id]
-	if stringutil.IsBase64(ep) {
-		if decoded := stringutil.Base64Decode(ep); decoded != "" {
-			return decoded
+func githubRunnerEntryPoint(_ *v1.Workload, _ int) string {
+	return commonworkload.GithubRunnerStartScript()
+}
+
+func applyGithubRunnerProxyEnv(envs map[string]string) {
+	if strings.TrimSpace(envs[common.GithubProxyURL]) == "" {
+		if proxyURL := commonconfig.GetCICDGithubProxyURL(); proxyURL != "" {
+			envs[common.GithubProxyURL] = proxyURL
+			if strings.TrimSpace(envs[common.GithubProxyUsername]) == "" {
+				envs[common.GithubProxyUsername] = commonconfig.GetCICDGithubProxyUsername()
+			}
+			if strings.TrimSpace(envs[common.GithubProxyNoProxy]) == "" {
+				envs[common.GithubProxyNoProxy] = commonconfig.GetCICDGithubProxyNoProxy()
+			}
 		}
+		return
 	}
-	return ep
+	if strings.TrimSpace(envs[common.GithubProxyUsername]) == "" {
+		envs[common.GithubProxyUsername] = "github"
+	}
+	if strings.TrimSpace(envs[common.GithubProxyNoProxy]) == "" {
+		envs[common.GithubProxyNoProxy] = "localhost,127.0.0.1,::1,.svc,.cluster.local"
+	}
 }
 
 // launcherEntryPayload returns the argument after /shared-data/launcher.sh for launcher-style commands.
@@ -1335,11 +1347,7 @@ func updateGithubRunner(obj *unstructured.Unstructured,
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.GithubSecretEnv] = v1.GetGithubSecretId(adminWorkload)
 	envs[common.GithubRunnerStateRoot] = stateRoot
-	if proxyURL := commonconfig.GetCICDGithubProxyURL(); proxyURL != "" {
-		envs[common.GithubProxyURL] = proxyURL
-		envs[common.GithubProxyUsername] = commonconfig.GetCICDGithubProxyUsername()
-		envs[common.GithubProxyNoProxy] = commonconfig.GetCICDGithubProxyNoProxy()
-	}
+	applyGithubRunnerProxyEnv(envs)
 	if strings.TrimSpace(envs[common.RunnerLabels]) == "" {
 		envs[common.RunnerLabels] = v1.GetDisplayName(adminWorkload)
 	}
