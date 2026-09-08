@@ -449,6 +449,9 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 // Running pods result in WorkloadRunning status, pending pods result in WorkloadPending,
 // and all other pod phases result in WorkloadNotReady status.
 func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod) {
+	if adminWorkload.IsEnd() {
+		return
+	}
 	val, ok := pod.Labels[appComponent]
 	if !ok || val != scaleSetListener {
 		return

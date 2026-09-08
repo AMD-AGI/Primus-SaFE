@@ -8,7 +8,9 @@ package syncer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -719,4 +721,154 @@ func TestHandleJobFullPath(t *testing.T) {
 		&resourceMessage{workloadId: "w", namespace: "ns", gvk: schema.GroupVersionKind{Kind: "Job"}},
 		monkeyClientSets())
 	assert.NilError(t, err)
+}
+
+func runnerFailureFixture(t *testing.T, elapsed time.Duration, conditions interface{}) (*SyncerReconciler, *v1.Workload, *resourceMessage, *unstructured.Unstructured) {
+	t.Helper()
+	w := unregisteredRunnerSet(elapsed)
+	w.Name = "example-set"
+	w.UID = "example-set-uid"
+	w.Spec.Workspace = "test-workspace"
+	w.Status.Phase = v1.WorkloadPending
+	w.Status.Message = "waiting for capacity"
+	v1.SetLabel(w, v1.WorkloadDispatchCntLabel, "1")
+	v1.SetLabel(w, v1.ClusterIdLabel, "test-cluster")
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	rt := jobutils.TestCICDScaleSetResourceTemplate.DeepCopy()
+	if conditions != nil {
+		rt.Spec.ResourceStatus = v1.ResourceStatus{PrePaths: []string{"status", "conditions"}, MessagePaths: []string{"message"},
+			Phases: []v1.PhaseExpression{{MatchExpressions: map[string]string{"type": "Failed", "status": "True"}, Phase: string(v1.K8sFailed)}}}
+		obj.Object["status"] = map[string]interface{}{"conditions": conditions}
+	}
+	cli := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(rt).WithStatusSubresource(w).Build()
+	assert.NilError(t, cli.Create(context.Background(), w))
+	r := &SyncerReconciler{Client: cli}
+	r.newCICDFailureWorker()
+	patches := gomonkey.ApplyFunc(jobutils.GetObject, func(context.Context, *commonclient.ClientFactory, string, string, schema.GroupVersionKind) (*unstructured.Unstructured, error) {
+		return obj.DeepCopy(), nil
+	})
+	t.Cleanup(patches.Reset)
+	msg := &resourceMessage{workloadId: w.Name, name: w.Name, namespace: w.Spec.Workspace, dispatchCount: 1, action: ResourceUpdate, gvk: rt.ToSchemaGVK()}
+	return r, w, msg, obj
+}
+
+func TestUpdateRunnerSetFailure_WithRegisteredID(t *testing.T) {
+	conditions := []interface{}{map[string]interface{}{"type": "Failed", "status": "True", "message": "controller registration failure"}}
+	r, w, msg, obj := runnerFailureFixture(t, time.Minute, conditions)
+	obj.SetAnnotations(map[string]string{v1.CICDScaleSetIdAnnotation: "1"})
+	result, err := r.updateAdminWorkloadByJob(context.Background(), monkeyClientSets(), w, msg)
+	assert.NilError(t, err)
+	assert.Equal(t, result.Status.RunnerScaleSetId, "1")
+	assert.Assert(t, result.Status.StartTime != nil)
+	assert.Equal(t, result.Status.Phase, v1.WorkloadFailed)
+	assert.Equal(t, result.Status.Message, "controller registration failure")
+	assert.Equal(t, result.Status.Conditions[0].Message, result.Status.Message)
+	assert.Equal(t, r.cicdFailureLogs.GetQueueSize(), 1)
+}
+
+func TestUpdateRunnerSetFailure_RespectsRetry(t *testing.T) {
+	conditions := []interface{}{map[string]interface{}{"type": "Failed", "status": "True", "message": "retryable controller failure"}}
+	r, w, msg, _ := runnerFailureFixture(t, time.Minute, conditions)
+	w.Spec.MaxRetry = 3
+	result, err := r.updateAdminWorkloadByJob(context.Background(), monkeyClientSets(), w, msg)
+	assert.NilError(t, err)
+	assert.Equal(t, result.Status.Phase, v1.WorkloadPending)
+	assert.Equal(t, result.Status.Message, "waiting for capacity")
+	assert.Equal(t, r.cicdFailureLogs.GetQueueSize(), 0)
+}
+
+func TestRunnerSetProxyRegistrationTimeout_Message(t *testing.T) {
+	for _, elapsed := range []time.Duration{time.Minute, runnerSetRegistrationTimeout, runnerSetRegistrationTimeout + time.Minute} {
+		t.Run(elapsed.String(), func(t *testing.T) {
+			r, w, msg, _ := runnerFailureFixture(t, elapsed, nil)
+			v1.SetAnnotation(w, v1.CICDProxyManagedAnnotation, v1.TrueStr)
+			w.Spec.Env = map[string]string{common.ProxyUrl: "http://proxy.example.com"}
+			assert.NilError(t, r.Update(context.Background(), w))
+			result, err := r.handleJob(context.Background(), msg, monkeyClientSets())
+			assert.NilError(t, err)
+			current := &v1.Workload{}
+			assert.NilError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(w), current))
+			if elapsed < runnerSetRegistrationTimeout {
+				assert.Assert(t, result.RequeueAfter > 0)
+				assert.Equal(t, r.cicdFailureLogs.GetQueueSize(), 0)
+				return
+			}
+			assert.Equal(t, current.Status.Phase, v1.WorkloadFailed)
+			assert.Assert(t, strings.Contains(current.Status.Message, "Runner scale set registration timed out after 10m0s"))
+			assert.Assert(t, strings.Contains(current.Status.Message, "Proxy configuration is enabled"))
+			assert.Equal(t, current.Status.Conditions[0].Message, current.Status.Message)
+			assert.Equal(t, r.cicdFailureLogs.GetQueueSize(), 1)
+		})
+	}
+}
+
+func TestRunnerSetRegistrationTimeout_PreservesControllerDetail(t *testing.T) {
+	w := unregisteredRunnerSet(runnerSetRegistrationTimeout)
+	w.Status.Conditions = []metav1.Condition{*jobutils.NewCondition(string(v1.K8sFailed), "controller failure detail", commonworkload.GenerateDispatchReason(1))}
+	_, err := checkRunnerSetRegistration(w, &resourceMessage{action: ResourceUpdate})
+	assert.ErrorContains(t, err, "controller failure detail")
+	w.Status.Conditions[0].Reason = commonworkload.GenerateDispatchReason(2)
+	_, err = checkRunnerSetRegistration(w, &resourceMessage{action: ResourceUpdate})
+	assert.Assert(t, !strings.Contains(err.Error(), "controller failure detail"))
+}
+
+func TestRunnerSetRegistrationTimeout_UnreadableStatus(t *testing.T) {
+	for _, elapsed := range []time.Duration{time.Minute, runnerSetRegistrationTimeout} {
+		for _, registered := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/%t", elapsed, registered), func(t *testing.T) {
+				r, w, msg, obj := runnerFailureFixture(t, elapsed, "malformed conditions")
+				if registered {
+					obj.SetAnnotations(map[string]string{v1.CICDScaleSetIdAnnotation: "1"})
+				}
+				_, err := r.handleJobImpl(context.Background(), msg, w, monkeyClientSets())
+				assert.Assert(t, err != nil)
+				if registered || elapsed < runnerSetRegistrationTimeout {
+					assert.Assert(t, !jobutils.IsUnrecoverableError(err))
+				} else {
+					assert.ErrorContains(t, err, "ARC status could not be read")
+					assert.Assert(t, jobutils.IsUnrecoverableError(err))
+				}
+				if registered {
+					current := &v1.Workload{}
+					assert.NilError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(w), current))
+					assert.Equal(t, current.Status.RunnerScaleSetId, "1")
+				}
+			})
+		}
+	}
+}
+
+func TestRunnerSetFailure_NoProxy(t *testing.T) {
+	r, w, msg, _ := runnerFailureFixture(t, runnerSetRegistrationTimeout, nil)
+	_, err := r.handleJob(context.Background(), msg, monkeyClientSets())
+	assert.NilError(t, err)
+	current := &v1.Workload{}
+	assert.NilError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(w), current))
+	assert.Equal(t, current.Status.Phase, v1.WorkloadFailed)
+	assert.Assert(t, strings.TrimSpace(current.Status.Message) != "")
+	assert.Assert(t, !strings.Contains(current.Status.Message, "Proxy configuration is enabled"))
+}
+
+func TestRunnerSetFailure_ConflictAndRestart(t *testing.T) {
+	conditions := []interface{}{map[string]interface{}{"type": "Failed", "status": "True", "message": "controller failure detail"}}
+	r, w, msg, obj := runnerFailureFixture(t, time.Minute, conditions)
+	obj.SetAnnotations(map[string]string{v1.CICDScaleSetIdAnnotation: "1"})
+	stale := w.DeepCopy()
+	v1.SetAnnotation(w, "example.com/change", "concurrent")
+	assert.NilError(t, r.Update(context.Background(), w))
+	_, err := r.updateAdminWorkloadByJob(context.Background(), monkeyClientSets(), stale, msg)
+	assert.Assert(t, apierrors.IsConflict(err))
+	restarted := &SyncerReconciler{Client: r.Client}
+	current := &v1.Workload{}
+	assert.NilError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(w), current))
+	current, err = restarted.updateAdminWorkloadByJob(context.Background(), monkeyClientSets(), current, msg)
+	assert.NilError(t, err)
+	assert.Equal(t, current.Status.RunnerScaleSetId, "1")
+	assert.Equal(t, current.Status.Message, "controller failure detail")
+	before := current.DeepCopy()
+	obj.Object = map[string]interface{}{}
+	msg.action = ResourceDel
+	current, err = restarted.updateAdminWorkloadByJob(context.Background(), nil, current, msg)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, current.Status, before.Status)
 }

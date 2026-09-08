@@ -36,8 +36,10 @@ type SyncerReconciler struct {
 	client.Client
 	// clusterClientSets manages client sets for different clusters
 	// Key: cluster name, Value: *ClusterClientSets instance
-	clusterClientSets *commonutils.ObjectManager
-	dbClient          dbclient.Interface
+	clusterClientSets   *commonutils.ObjectManager
+	dbClient            dbclient.Interface
+	cicdFailureLogs     *controller.KeyedController[*cicdFailureSnapshot]
+	cicdFailureAttempts sync.Map
 	// vanishedPodsChecked holds the workloads whose pod records this process has
 	// already reconciled against the informer cache, and drops each one once its
 	// workload ends. See reconcileVanishedPods.
@@ -98,6 +100,9 @@ func SetupSyncerController(ctx context.Context, mgr manager.Manager) error {
 		Client:            mgr.GetClient(),
 		clusterClientSets: commonutils.NewObjectManagerSingleton(),
 		dbClient:          dbCli,
+	}
+	if err := mgr.Add(r.newCICDFailureWorker()); err != nil {
+		return err
 	}
 	r.KeyedController = controller.NewKeyedController[*resourceMessage](r, resourceMessageKey, mergeResourceMessage, syncerWorkers)
 	if err := r.start(ctx); err != nil {
