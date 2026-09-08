@@ -104,8 +104,10 @@ data:
             cache_peer ${PROXY_UPSTREAM_HOST} parent ${PROXY_UPSTREAM_PORT} 0 no-query default${login}
             never_direct allow all
             cache deny all
-            access_log stdio:/dev/stdout
-            cache_log stdio:/dev/stderr
+            # squid drops to an unprivileged user and refuses to run as root, so it can
+            # write neither /dev/stdout nor a pid file here; its own log path is writable.
+            access_log none
+            cache_log stdio:/var/log/squid/cache.log
             pid_filename none
             EOF
             exec squid -N -f /tmp/squid.conf
