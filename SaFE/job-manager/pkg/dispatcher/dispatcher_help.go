@@ -1278,6 +1278,14 @@ func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterCl
 	if err := updateCICDProxy(obj, source); err != nil {
 		return err
 	}
+	relay, err := configureCICDProxyRelay(obj, adminWorkload, source, rt.Spec.ResourceSpecs[0])
+	if err != nil {
+		return err
+	}
+	// ARC appends its own http_proxy from proxySecretRef after rendering the template.
+	if relay {
+		unstructured.RemoveNestedField(obj.Object, "spec", "proxySecretRef")
+	}
 	// Set owner reference to the parent scale runner if CICDScaleRunnerIdLabel is present
 	if scaleRunnerId := v1.GetLabel(adminWorkload, v1.CICDScaleRunnerIdLabel); scaleRunnerId != "" && clientSets != nil {
 		ownerObj, err := jobutils.GetObject(ctx,
@@ -1296,16 +1304,10 @@ func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterCl
 			}
 			obj.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
 		}
-		relay, err := configureCICDProxyRelay(obj, adminWorkload, source, rt.Spec.ResourceSpecs[0])
-		if err != nil {
-			return err
-		}
-		// The controller appends its own http_proxy after this template is rendered, so letting it
-		// do that alongside the relay would hand the runner the credentialed upstream again.
-		if relay {
-			unstructured.RemoveNestedField(obj.Object, "spec", "proxySecretRef")
-		} else if err = inheritCICDProxySecretRef(obj, ownerObj); err != nil {
-			return err
+		if !relay {
+			if err = inheritCICDProxySecretRef(obj, ownerObj); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

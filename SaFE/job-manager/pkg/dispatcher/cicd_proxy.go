@@ -36,19 +36,19 @@ const (
 	cicdProxyCredentialVol  = "proxy-credential"
 )
 
-// configureCICDProxyRelay wires the relay the chart puts beside the runner when the cluster proxy
-// needs authentication the runner's own client cannot complete: the relay is told the upstream and
-// given the credential, and the runner is pointed at it on loopback so it carries no credential.
-// Reports whether the relay took over, so the caller keeps the direct path exclusive to it.
-// Without a credential there is nothing to front and the runner talks to the proxy itself.
+// configureCICDProxyRelay activates the chart relay only for credentialed proxies and removes its
+// pod fields otherwise, so a cluster-wide relay template remains valid for unproxied workloads.
 func configureCICDProxyRelay(obj *unstructured.Unstructured, workload, source *v1.Workload,
 	resourceSpec v1.ResourceSpec) (bool, error) {
 	if !commonworkload.IsCICDProxyManaged(source) {
-		return false, nil
+		return false, removeCICDProxyRelay(obj, workload, resourceSpec)
 	}
 	config, err := commonworkload.ParseCICDProxy(source.Spec.Env)
-	if err != nil || config == nil || config.CredentialSecret == "" {
+	if err != nil {
 		return false, err
+	}
+	if config == nil || config.CredentialSecret == "" {
+		return false, removeCICDProxyRelay(obj, workload, resourceSpec)
 	}
 	upstream, err := url.Parse(config.URL)
 	if err != nil {
@@ -62,36 +62,97 @@ func configureCICDProxyRelay(obj *unstructured.Unstructured, workload, source *v
 	if err != nil {
 		return false, err
 	}
-	relay := false
+	relay, err := findCICDProxyRelay(containers)
+	if err != nil {
+		return false, err
+	}
+	initContainersPath := podSpecPath(workload, &resourceSpec, "initContainers")
+	initContainers, found, err := jobutils.NestedSlice(obj.Object, initContainersPath)
+	if err != nil {
+		return false, err
+	}
+	if relay == nil && found {
+		relay, err = findCICDProxyRelay(initContainers)
+		if err != nil {
+			return false, err
+		}
+	}
+	if relay == nil {
+		return false, removeCICDProxyRelay(obj, workload, resourceSpec)
+	}
+	updateContainerEnv(map[string]string{
+		"PROXY_UPSTREAM_HOST": upstream.Hostname(), "PROXY_UPSTREAM_PORT": port,
+	}, relay, nil)
 	for _, entry := range containers {
 		container, ok := entry.(map[string]interface{})
 		if !ok {
 			return false, fmt.Errorf("spec.template: expected a container object")
 		}
-		switch container["name"] {
-		case cicdProxyRelayContainer:
-			relay = true
-			updateContainerEnv(map[string]string{
-				"PROXY_UPSTREAM_HOST": upstream.Hostname(), "PROXY_UPSTREAM_PORT": port,
-			}, container, nil)
-		case v1.GetMainContainer(workload):
+		if container["name"] == v1.GetMainContainer(workload) {
 			endpoint := "http://127.0.0.1:" + strconv.Itoa(commonconfig.GetCICDProxyRelayPort())
 			updateContainerEnv(map[string]string{
 				"http_proxy": endpoint, "https_proxy": endpoint,
 			}, container, nil)
 		}
 	}
-	if !relay {
-		return false, nil
-	}
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
 		return false, err
+	}
+	if found {
+		if err = jobutils.SetNestedField(obj.Object, initContainers, initContainersPath); err != nil {
+			return false, err
+		}
 	}
 	return true, bindCICDProxyCredential(obj, workload, resourceSpec, config.CredentialSecret)
 }
 
-// bindCICDProxyCredential names the Secret behind the volume the chart declares without one, so a
-// cluster with no proxy configured renders a template that mounts nothing.
+func findCICDProxyRelay(containers []interface{}) (map[string]interface{}, error) {
+	for _, entry := range containers {
+		container, ok := entry.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("spec.template: expected a container object")
+		}
+		if container["name"] == cicdProxyRelayContainer {
+			return container, nil
+		}
+	}
+	return nil, nil
+}
+
+func removeCICDProxyRelay(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	for _, field := range []string{"containers", "initContainers", "volumes"} {
+		name := cicdProxyRelayContainer
+		if field == "volumes" {
+			name = cicdProxyCredentialVol
+		}
+		path := podSpecPath(workload, &resourceSpec, field)
+		entries, found, err := jobutils.NestedSlice(obj.Object, path)
+		if err != nil || !found {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		filtered := make([]interface{}, 0, len(entries))
+		for _, entry := range entries {
+			item, ok := entry.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("%s: expected an object", strings.Join(path, "."))
+			}
+			if item["name"] != name {
+				filtered = append(filtered, item)
+			}
+		}
+		if len(filtered) != len(entries) {
+			if err = jobutils.SetNestedField(obj.Object, filtered, path); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func bindCICDProxyCredential(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec, secretName string) error {
 	path := podSpecPath(workload, &resourceSpec, "volumes")
