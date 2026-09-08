@@ -197,6 +197,16 @@ func (r *DispatcherReconciler) syncCICDEphemeralRunnerProxy(ctx context.Context,
 	if err = updateCICDProxy(desired, source); err != nil {
 		return err
 	}
+	if scaleRunnerId := v1.GetLabel(workload, v1.CICDScaleRunnerIdLabel); scaleRunnerId != "" && clientSets != nil {
+		owner, getErr := jobutils.GetObject(ctx,
+			clientSets.ClientFactory(), scaleRunnerId, workload.Spec.Workspace, rt.ToSchemaGVK())
+		if getErr != nil {
+			return fmt.Errorf("failed to get owner scale runner: %v", getErr.Error())
+		}
+		if err = inheritCICDProxySecretRef(desired, owner); err != nil {
+			return err
+		}
+	}
 	if err = updateCICDProxyContainerEnvs(desired, derived, source, rt); err != nil {
 		return err
 	}

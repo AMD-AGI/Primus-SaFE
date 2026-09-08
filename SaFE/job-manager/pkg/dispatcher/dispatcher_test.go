@@ -1912,10 +1912,15 @@ func TestCICDEphemeralRunnerProxy_InheritsOwner(t *testing.T) {
 	}
 }
 
-func proxyDynamicClient(t *testing.T, initial *unstructured.Unstructured) (*syncer.ClusterClientSets, func() (*unstructured.Unstructured, int)) {
+func proxyDynamicClient(t *testing.T, initial *unstructured.Unstructured,
+	objects ...*unstructured.Unstructured) (*syncer.ClusterClientSets, func() (*unstructured.Unstructured, int)) {
 	t.Helper()
 	current := initial.DeepCopy()
 	current.SetResourceVersion("1")
+	objectsByName := make(map[string]*unstructured.Unstructured, len(objects))
+	for _, obj := range objects {
+		objectsByName[obj.GetName()] = obj.DeepCopy()
+	}
 	updates := 0
 	var mu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -1937,6 +1942,17 @@ func proxyDynamicClient(t *testing.T, initial *unstructured.Unstructured) (*sync
 			next.SetResourceVersion(strconv.Itoa(version + 1))
 			current = next
 			updates++
+		}
+		name := request.URL.Path[strings.LastIndex(request.URL.Path, "/")+1:]
+		if request.Method == http.MethodGet && name != current.GetName() {
+			obj, found := objectsByName[name]
+			if !found {
+				writer.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(writer).Encode(apierrors.NewNotFound(schema.GroupResource{Resource: "runners"}, name).ErrStatus)
+				return
+			}
+			_ = json.NewEncoder(writer).Encode(obj)
+			return
 		}
 		_ = json.NewEncoder(writer).Encode(current)
 	}))
@@ -2168,6 +2184,63 @@ func TestSyncCICDProxy_ValidatedOptIn(t *testing.T) {
 	changed, err = isCICDProxyChanged(w, current)
 	assert.NilError(t, err)
 	assert.Assert(t, !changed)
+}
+
+func TestCICDEphemeralRunnerProxy_DriftClearsSecretRef(t *testing.T) {
+	r, w, parent, rt := proxyDispatcherFixture(t, common.CICDEphemeralRunnerKind, false)
+	owner := proxyRunnerOwner(rt, w.Spec.Workspace, "scale-runner", "runner-proxy")
+	v1.SetLabel(w, v1.CICDScaleRunnerIdLabel, owner.GetName())
+	obj, err := r.generateK8sObject(context.Background(), w, nil)
+	assert.NilError(t, err)
+	assert.NilError(t, unstructured.SetNestedField(obj.Object, "runner-proxy", "spec", "proxySecretRef"))
+	assert.NilError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(parent), parent))
+	for _, key := range commonworkload.CICDProxyEnvKeys() {
+		delete(parent.Spec.Env, key)
+	}
+	assert.NilError(t, r.Update(context.Background(), parent))
+	cs, read := proxyDynamicClient(t, obj, owner)
+
+	current, _ := read()
+	assert.NilError(t, syncProxyFixture(context.Background(), r, w, cs, current, rt))
+	current, count := read()
+	assert.Equal(t, count, 1)
+	_, found, err := unstructured.NestedFieldNoCopy(current.Object, "spec", "proxy")
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
+	_, found, err = unstructured.NestedFieldNoCopy(current.Object, "spec", "proxySecretRef")
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
+}
+
+func TestCICDEphemeralRunnerProxy_LaterInheritsSecretRef(t *testing.T) {
+	r, w, _, rt := proxyDispatcherFixture(t, common.CICDEphemeralRunnerKind, false)
+	owner := proxyRunnerOwner(rt, w.Spec.Workspace, "scale-runner", "runner-proxy")
+	v1.SetLabel(w, v1.CICDScaleRunnerIdLabel, owner.GetName())
+	obj, err := r.generateK8sObject(context.Background(), w, nil)
+	assert.NilError(t, err)
+	_, found, err := unstructured.NestedFieldNoCopy(obj.Object, "spec", "proxySecretRef")
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
+	cs, read := proxyDynamicClient(t, obj, owner)
+
+	current, _ := read()
+	assert.NilError(t, syncProxyFixture(context.Background(), r, w, cs, current, rt))
+	current, count := read()
+	assert.Equal(t, count, 1)
+	ref, found, err := unstructured.NestedString(current.Object, "spec", "proxySecretRef")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, ref, "runner-proxy")
+}
+
+func proxyRunnerOwner(rt *v1.ResourceTemplate, namespace, name, proxySecretRef string) *unstructured.Unstructured {
+	owner := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"proxySecretRef": proxySecretRef},
+	}}
+	owner.SetGroupVersionKind(rt.ToSchemaGVK())
+	owner.SetNamespace(namespace)
+	owner.SetName(name)
+	return owner
 }
 
 func TestInheritCICDProxySecretRef(t *testing.T) {

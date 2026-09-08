@@ -1303,11 +1303,8 @@ func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterCl
 	return nil
 }
 
-// inheritCICDProxySecretRef points the runner at the proxy Secret the controller already built for
-// the scale set. spec.proxy alone is inert on a runner: proxy env reaches the job's git and curl
-// only when proxySecretRef is set, and only the EphemeralRunnerSet controller creates that Secret,
-// which a runner dispatched here has no parent to do for it. The two fields must move together --
-// spec.proxy is dereferenced without a nil check once the ref is non-empty.
+// inheritCICDProxySecretRef points the runner at the proxy Secret its owner already built.
+// ARC dereferences proxySecretRef without checking spec.proxy, so the fields must move together.
 func inheritCICDProxySecretRef(obj, owner *unstructured.Unstructured) error {
 	proxy, found, err := unstructured.NestedMap(obj.Object, "spec", "proxy")
 	if err != nil {
