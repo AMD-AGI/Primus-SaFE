@@ -772,6 +772,72 @@ func TestWorkloadValidateCreationDuplicateServiceName(t *testing.T) {
 	assert.NilError(t, v.validateOnCreation(context.Background(), w))
 }
 
+func githubRunnerForLabelTest(name, runnerLabels string) *v1.Workload {
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: v1.WorkloadSpec{
+			Workspace:        "ws1",
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.CICDGithubRunnerKind, Version: "v1"},
+			Env:              map[string]string{common.GithubConfigUrl: "https://github.com/org/repo", common.RunnerLabels: runnerLabels},
+			Secrets:          []v1.SecretEntity{{Id: "runner-secret", Type: v1.SecretGeneral}},
+			Resources:        []v1.WorkloadResource{wlResource()},
+		},
+	}
+	v1.SetLabel(w, v1.WorkloadKindLabel, common.CICDGithubRunnerKind)
+	v1.SetLabel(w, v1.DisplayNameLabel, name)
+	v1.SetAnnotation(w, v1.GithubSecretIdAnnotation, "runner-secret")
+	v1.SetAnnotation(w, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	return w
+}
+
+func TestGithubRunnerPoolLabelsRejectsDuplicates(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "spur-autopilot-hosted")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+
+	dup := githubRunnerForLabelTest("runner-b", "spur-autopilot-hosted")
+	err := v.validateGithubRunner(context.Background(), dup)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+
+	overlap := githubRunnerForLabelTest("runner-c", "other,spur-autopilot-hosted")
+	err = v.validateGithubRunner(context.Background(), overlap)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+
+	unique := githubRunnerForLabelTest("runner-d", "other-pool")
+	assert.NilError(t, v.validateGithubRunner(context.Background(), unique))
+
+	// Updating the same workload keeps its labels.
+	assert.NilError(t, v.validateGithubRunner(context.Background(), existing))
+}
+
+func TestGithubRunnerPoolLabelsFallbackToDisplayName(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "")
+	v1.SetLabel(existing, v1.DisplayNameLabel, "shared-name")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+
+	dup := githubRunnerForLabelTest("runner-b", "")
+	v1.SetLabel(dup, v1.DisplayNameLabel, "shared-name")
+	err := v.validateGithubRunner(context.Background(), dup)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+}
+
+func TestGithubRunnerPoolLabelsIgnoresDeletingWorkloads(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "shared-label")
+	now := metav1.Now()
+	existing.SetDeletionTimestamp(&now)
+	existing.SetFinalizers([]string{"primus-safe/workload.finalizer"})
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+	assert.NilError(t, v.validateGithubRunner(context.Background(), githubRunnerForLabelTest("runner-b", "shared-label")))
+}
+
 // TestWorkloadValidatorHandleFull verifies the validator handler with a complete environment.
 func TestWorkloadValidatorHandleFull(t *testing.T) {
 	c := fullWorkloadEnvClient(t)

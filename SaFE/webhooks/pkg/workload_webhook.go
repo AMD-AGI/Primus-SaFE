@@ -957,7 +957,7 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	case common.CICDScaleRunnerSetKind:
 		err = v.validateCICDScalingRunnerSet(newWorkload)
 	case common.CICDGithubRunnerKind:
-		err = v.validateGithubRunner(newWorkload)
+		err = v.validateGithubRunner(ctx, newWorkload)
 	case common.TorchFTKind:
 		err = v.validateTorchFT(newWorkload, oldWorkload)
 	case common.RayJobKind:
@@ -1117,7 +1117,7 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 }
 
 // validateGithubRunner validates persistent self-hosted runner configuration.
-func (v *WorkloadValidator) validateGithubRunner(workload *v1.Workload) error {
+func (v *WorkloadValidator) validateGithubRunner(ctx context.Context, workload *v1.Workload) error {
 	if workload.GetEnv(common.GithubConfigUrl) == "" {
 		return fmt.Errorf("the %s of workload environment variables is empty", common.GithubConfigUrl)
 	}
@@ -1128,12 +1128,81 @@ func (v *WorkloadValidator) validateGithubRunner(workload *v1.Workload) error {
 	if secretId == "" {
 		return fmt.Errorf("the github registration token secret is empty")
 	}
+	attached := false
 	for _, secret := range workload.Spec.Secrets {
 		if secret.Id == secretId && secret.Type == v1.SecretGeneral {
-			return nil
+			attached = true
+			break
 		}
 	}
-	return fmt.Errorf("the github registration token secret is not attached to the workload")
+	if !attached {
+		return fmt.Errorf("the github registration token secret is not attached to the workload")
+	}
+	return v.validateGithubRunnerLabelsUnique(ctx, workload)
+}
+
+// githubRunnerPoolLabels returns the custom runner labels this pool advertises.
+// An empty RUNNER_LABELS falls back to the workload display name, matching dispatcher.
+func githubRunnerPoolLabels(workload *v1.Workload) []string {
+	raw := strings.TrimSpace(workload.GetEnv(common.RunnerLabels))
+	if raw == "" {
+		raw = strings.TrimSpace(v1.GetDisplayName(workload))
+	}
+	if raw == "" {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0)
+	for _, part := range strings.Split(raw, ",") {
+		label := strings.TrimSpace(part)
+		if label == "" {
+			continue
+		}
+		key := strings.ToLower(label)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, label)
+	}
+	return out
+}
+
+// validateGithubRunnerLabelsUnique rejects a GithubRunner whose custom labels
+// overlap another live GithubRunner pool.
+func (v *WorkloadValidator) validateGithubRunnerLabelsUnique(ctx context.Context, workload *v1.Workload) error {
+	if v.Client == nil {
+		return nil
+	}
+	wanted := githubRunnerPoolLabels(workload)
+	if len(wanted) == 0 {
+		return fmt.Errorf("the %s of workload environment variables is empty", common.RunnerLabels)
+	}
+	list := &v1.WorkloadList{}
+	selector := labels.SelectorFromSet(map[string]string{v1.WorkloadKindLabel: common.CICDGithubRunnerKind})
+	if err := v.Client.List(ctx, list, &client.ListOptions{LabelSelector: selector}); err != nil {
+		return err
+	}
+	wantedKeys := map[string]string{}
+	for _, label := range wanted {
+		wantedKeys[strings.ToLower(label)] = label
+	}
+	for i := range list.Items {
+		other := &list.Items[i]
+		if other.Name == workload.Name || !other.GetDeletionTimestamp().IsZero() {
+			continue
+		}
+		if !commonworkload.IsCICDGithubRunner(other) {
+			continue
+		}
+		for _, existing := range githubRunnerPoolLabels(other) {
+			if label, ok := wantedKeys[strings.ToLower(existing)]; ok {
+				return commonerrors.NewAlreadyExist(
+					fmt.Sprintf("the github runner label %q is already used by workload %s", label, other.Name))
+			}
+		}
+	}
+	return nil
 }
 
 // validateTorchFT validates TorchFT workload configuration including environment variables and resource requirements.
