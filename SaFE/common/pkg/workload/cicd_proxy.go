@@ -6,6 +6,7 @@
 package workload
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -31,7 +32,7 @@ import (
 
 const (
 	CICDProxySecretMissing     = "env.PROXY_CREDENTIAL_SECRET: referenced Secret does not exist; create it with the Secret API and bind it to this workspace"
-	CICDProxySecretInvalid     = "env.PROXY_CREDENTIAL_SECRET: expected a non-deleting, workspace-bound general Secret with nonempty username and password keys"
+	CICDProxySecretInvalid     = "env.PROXY_CREDENTIAL_SECRET: expected a non-deleting, workspace-bound general Secret with nonempty username and password keys containing no control characters"
 	CICDProxySecretForbidden   = "env.PROXY_CREDENTIAL_SECRET: access to the referenced Secret is forbidden"
 	CICDProxySecretUnavailable = "env.PROXY_CREDENTIAL_SECRET: unable to verify the referenced Secret; retry the request"
 	invalidProxyURL            = "env.PROXY_URL: expected an absolute http or https URL with a host, optional port 1-65535, and no credentials, query, fragment, or non-root path"
@@ -179,6 +180,11 @@ func ValidateCICDProxySecret(secret *corev1.Secret, workspace string) error {
 		json.Unmarshal([]byte(v1.GetAnnotation(secret, v1.WorkspaceIdsAnnotation)), &workspaces) != nil ||
 		workspace == "" || !slices.Contains(workspaces, workspace) {
 		return commonerrors.NewBadRequest(CICDProxySecretInvalid)
+	}
+	for _, key := range []string{"username", "password"} {
+		if bytes.IndexFunc(secret.Data[key], unicode.IsControl) >= 0 {
+			return commonerrors.NewBadRequest(fmt.Sprintf("%s: %s key contains a control character", CICDProxySecretInvalid, key))
+		}
 	}
 	return nil
 }

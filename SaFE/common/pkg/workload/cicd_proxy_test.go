@@ -11,10 +11,23 @@ import (
 	"testing"
 
 	"gotest.tools/assert"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
+
+func validCICDProxySecret(password []byte) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels:      map[string]string{v1.SecretTypeLabel: string(v1.SecretGeneral)},
+			Annotations: map[string]string{v1.WorkspaceIdsAnnotation: `["workspace"]`},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{"username": []byte("proxy-user"), "password": password},
+	}
+}
 
 func TestParseCICDProxy_NoProxy(t *testing.T) {
 	for _, env := range []map[string]string{nil, {}, {common.ProxyUrl: ""}, {common.NoProxy: "localhost"}, {"HTTP_PROXY": "http://proxy.example.com"}} {
@@ -96,6 +109,32 @@ func TestParseCICDProxy_SecretName(t *testing.T) {
 	_, err := ParseCICDProxy(map[string]string{common.ProxyCredentialSecret: "proxy-auth"})
 	assert.Assert(t, err != nil)
 	assert.Assert(t, strings.Contains(err.Error(), "requires a nonempty PROXY_URL"))
+}
+
+func TestValidateCICDProxySecretAllowsPrintableCredentials(t *testing.T) {
+	for _, password := range []string{"p@ss w0rd", "p%40ss", "p#ss", "päss🔒"} {
+		t.Run(password, func(t *testing.T) {
+			assert.NilError(t, ValidateCICDProxySecret(validCICDProxySecret([]byte(password)), "workspace"))
+		})
+	}
+}
+
+func TestValidateCICDProxySecretRejectsControlCharacters(t *testing.T) {
+	for _, tc := range []struct {
+		name, key string
+		value     []byte
+	}{
+		{"password newline", "password", []byte("p@ss\nword")},
+		{"password NUL", "password", []byte{'p', 0, 'w'}},
+		{"username tab", "username", []byte("proxy\tuser")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			secret := validCICDProxySecret([]byte("password"))
+			secret.Data[tc.key] = tc.value
+			err := ValidateCICDProxySecret(secret, "workspace")
+			assert.ErrorContains(t, err, tc.key+" key contains a control character")
+		})
+	}
 }
 
 func TestCICDProxyNoProxy(t *testing.T) {
