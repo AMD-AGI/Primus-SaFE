@@ -92,8 +92,25 @@ data:
               acl CONNECT method CONNECT
               http_access allow loopback
               http_access deny all
-              cache_peer ${PROXY_UPSTREAM_HOST} parent ${PROXY_UPSTREAM_PORT} 0 no-query default${login}
+              cache_peer ${PROXY_UPSTREAM_HOST} parent ${PROXY_UPSTREAM_PORT} 0 no-query default${login} name=upstream
+              EOF
+              # A proxy that only serves some destinations strands every other host behind a TLS
+              # error the job cannot attribute to it. Route by destination here rather than making
+              # each workload enumerate the bypasses; with no list, everything goes upstream.
+              if [ -n "${PROXY_UPSTREAM_DOMAINS:-}" ]; then
+                cat >>/tmp/squid.conf <<EOF
+              acl upstream_domains dstdomain ${PROXY_UPSTREAM_DOMAINS}
+              cache_peer_access upstream allow upstream_domains
+              cache_peer_access upstream deny all
+              never_direct allow upstream_domains
+              always_direct allow all
+              EOF
+              else
+                cat >>/tmp/squid.conf <<EOF
               never_direct allow all
+              EOF
+              fi
+              cat >>/tmp/squid.conf <<EOF
               cache deny all
               # squid drops to an unprivileged user and refuses to run as root, so it can
               # write neither /dev/stdout nor a pid file here; its own log path is writable.
@@ -105,6 +122,8 @@ data:
           env:
             - name: PROXY_RELAY_PORT
               value: "{{ default 3129 (default .Values.cicd).proxy_relay_port }}"
+            - name: PROXY_UPSTREAM_DOMAINS
+              value: "{{ default "" (default .Values.cicd).proxy_relay_upstream_domains }}"
           resources:
             limits:
               cpu: 500m

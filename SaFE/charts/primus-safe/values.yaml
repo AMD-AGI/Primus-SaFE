@@ -117,6 +117,9 @@ cicd:
   # authentication the runner's own HTTP client cannot complete. Empty disables it.
   proxy_relay_image: ""
   proxy_relay_port: 3129
+  # Destinations the relay sends through the cluster proxy, as squid dstdomain patterns
+  # (".github.com .githubusercontent.com"). Everything else goes direct. Empty sends all.
+  proxy_relay_upstream_domains: ""
   # cicd component image version. used for starting jobs for runner
   runner: "cicd-runner-proxy:latest"
   unified_job: "cicd-unified-job-proxy:latest"
