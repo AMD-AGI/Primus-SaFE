@@ -2406,3 +2406,95 @@ func TestUpdateMetadataSkipsInfera(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 }
+
+func TestUpdateCICDProxy_AddChangeRemove(t *testing.T) {
+	for _, kind := range []string{common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind} {
+		t.Run(kind, func(t *testing.T) {
+			r, w, parent, rt := proxyDispatcherFixture(t, kind, true)
+			obj, err := r.generateK8sObject(context.Background(), w, nil)
+			assert.NilError(t, err)
+			steps := []map[string]string{
+				{common.ProxyUrl: "https://new-proxy.example.com", common.ProxyCredentialSecret: "replacement-auth", common.NoProxy: "localhost,192.0.2.0/24"},
+				{common.ProxyUrl: "https://new-proxy.example.com", common.NoProxy: "localhost"},
+				{common.ProxyUrl: "http://proxy.example.com"},
+				{common.ProxyUrl: ""},
+				{},
+			}
+			for _, env := range steps {
+				for _, key := range commonworkload.CICDProxyEnvKeys() {
+					delete(parent.Spec.Env, key)
+				}
+				for key, value := range env {
+					parent.Spec.Env[key] = value
+				}
+				derived := cicdProxyWorkload(w, parent, obj)
+				if kind == common.CICDScaleRunnerSetKind {
+					assert.NilError(t, updateCICDScaleSet(obj, derived, jobutils.TestWorkspaceData, rt))
+				} else {
+					assert.NilError(t, updateCICDProxy(obj, parent))
+					assert.NilError(t, updateCICDProxyContainerEnvs(obj, derived, parent, rt))
+				}
+				if env[common.ProxyUrl] == "" {
+					_, exists, err := unstructured.NestedMap(obj.Object, "spec", "proxy")
+					assert.NilError(t, err)
+					assert.Assert(t, !exists)
+					assert.Assert(t, !v1.HasAnnotation(obj, v1.CICDProxyManagedAnnotation))
+				} else {
+					desired, err := desiredCICDProxy(parent)
+					assert.NilError(t, err)
+					actual, _, err := unstructured.NestedMap(obj.Object, "spec", "proxy")
+					assert.NilError(t, err)
+					assert.DeepEqual(t, actual, desired)
+				}
+				containers, _, err := getContainers(w, obj, rt.Spec.ResourceSpecs[0])
+				assert.NilError(t, err)
+				for _, entry := range containers {
+					actual, _, err := unstructured.NestedSlice(entry.(map[string]interface{}), "env")
+					assert.NilError(t, err)
+					for _, key := range commonworkload.CICDProxyEnvKeys() {
+						if value, present := env[key]; present {
+							assert.Assert(t, findEnv(actual, key, value))
+						} else {
+							for _, item := range actual {
+								assert.Assert(t, item.(map[string]interface{})["name"] != key)
+							}
+						}
+					}
+				}
+				assert.Assert(t, commonworkload.IsCICDProxyManaged(parent))
+			}
+		})
+	}
+}
+
+func TestUpdateCICDProxy_UnmanagedTemplate(t *testing.T) {
+	for _, kind := range []string{common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind} {
+		t.Run(kind, func(t *testing.T) {
+			_, _, source, _ := proxyDispatcherFixture(t, kind, false)
+			custom := map[string]interface{}{"https": map[string]interface{}{"url": "http://custom.example.com"}, "customField": "preserved"}
+			obj := &unstructured.Unstructured{Object: map[string]interface{}{"kind": kind, "spec": map[string]interface{}{"proxy": custom}}}
+			v1.RemoveAnnotation(source, v1.CICDProxyManagedAnnotation)
+			before := obj.DeepCopy()
+			assert.NilError(t, updateCICDProxy(obj, source))
+			assert.DeepEqual(t, obj.Object, before.Object)
+			obj.SetAnnotations(map[string]string{v1.CICDProxyManagedAnnotation: v1.TrueStr})
+			before = obj.DeepCopy()
+			assert.NilError(t, updateCICDProxy(obj, source))
+			assert.DeepEqual(t, obj.Object, before.Object)
+			obj.SetAnnotations(nil)
+			v1.SetAnnotation(source, v1.CICDProxyManagedAnnotation, v1.TrueStr)
+			source.Spec.Env = map[string]string{common.NoProxy: "localhost"}
+			before = obj.DeepCopy()
+			assert.NilError(t, updateCICDProxy(obj, source))
+			assert.DeepEqual(t, obj.Object, before.Object)
+			source.Spec.Env[common.ProxyUrl] = "http://proxy.example.com"
+			assert.NilError(t, updateCICDProxy(obj, source))
+			assert.Equal(t, v1.GetAnnotation(obj, v1.CICDProxyManagedAnnotation), v1.TrueStr)
+			delete(source.Spec.Env, common.ProxyUrl)
+			assert.NilError(t, updateCICDProxy(obj, source))
+			_, found, err := unstructured.NestedFieldNoCopy(obj.Object, "spec", "proxy")
+			assert.NilError(t, err)
+			assert.Assert(t, !found)
+		})
+	}
+}

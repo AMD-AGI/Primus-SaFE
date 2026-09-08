@@ -7,22 +7,32 @@ package dispatcher
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"gotest.tools/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/dynamic"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -208,7 +218,7 @@ func TestUpdateDeployment(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects().WithScheme(scheme).Build()
 	r := DispatcherReconciler{Client: adminClient}
 
-	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
+	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate, nil)
 	assert.NilError(t, err)
 	deployment := &appsv1.Deployment{}
 	err = unstructuredutils.ConvertUnstructuredToObject(workloadObj, deployment)
@@ -260,7 +270,7 @@ func TestUpdatePytorchJob(t *testing.T) {
 	assert.NilError(t, err)
 	adminClient := fake.NewClientBuilder().WithObjects().WithScheme(scheme).Build()
 	r := DispatcherReconciler{Client: adminClient}
-	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
+	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate, nil)
 	assert.NilError(t, err)
 
 	pytorchJob := &PytorchJob{}
@@ -306,7 +316,7 @@ func TestUpdatePytorchJobMaster(t *testing.T) {
 	assert.NilError(t, err)
 	adminClient := fake.NewClientBuilder().WithObjects().WithScheme(scheme).Build()
 	r := DispatcherReconciler{Client: adminClient}
-	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
+	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate, nil)
 	assert.NilError(t, err)
 
 	pytorchJob := &PytorchJob{}
@@ -449,7 +459,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	assert.NilError(t, err)
 	adminClient := fake.NewClientBuilder().WithObjects().WithScheme(scheme).Build()
 	r := DispatcherReconciler{Client: adminClient}
-	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
+	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate, nil)
 	assert.NilError(t, err)
 	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, 1)
 	assert.NilError(t, err)
@@ -472,7 +482,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 		"key":                "val",
 	}
 
-	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
+	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate, nil)
 	assert.NilError(t, err)
 	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, 1)
 	assert.NilError(t, err)
@@ -495,7 +505,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	}
 	v1.SetAnnotation(adminWorkload, v1.EnvToBeRemovedAnnotation, string(jsonutils.MarshalSilently([]string{"key"})))
 
-	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
+	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate, nil)
 	assert.NilError(t, err)
 	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, 1)
 	assert.NilError(t, err)
@@ -1759,4 +1769,392 @@ func TestUpdateServiceUpdatesExisting(t *testing.T) {
 	res, err := r.updateService(context.Background(), w, serviceClientSets(existing), nil)
 	assert.NilError(t, err)
 	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
+}
+
+func proxyDispatcherFixture(t *testing.T, kind string, unified bool) (*DispatcherReconciler, *v1.Workload, *v1.Workload, *v1.ResourceTemplate) {
+	t.Helper()
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workspace.Name = "test-workspace"
+	parent := jobutils.TestWorkloadData.DeepCopy()
+	parent.Name, parent.UID, parent.Spec.Workspace = "proxy-set", "proxy-set-uid", workspace.Name
+	parent.Spec.GroupVersionKind = v1.GroupVersionKind{Kind: common.CICDScaleRunnerSetKind, Version: "v1"}
+	parent.Spec.Env = map[string]string{common.GithubConfigUrl: "https://github.com/example", common.ProxyUrl: "http://proxy.example.com:8080",
+		common.ProxyCredentialSecret: "proxy-auth", common.NoProxy: " localhost, .example.com, "}
+	parent.Spec.Images = []string{"example/runner:latest"}
+	parent.Spec.Resources = parent.Spec.Resources[:1]
+	parent.Spec.EntryPoints = []string{stringutil.Base64Encode("sleep 1")}
+	v1.SetAnnotation(parent, v1.MainContainerAnnotation, "runner")
+	v1.SetAnnotation(parent, v1.GithubSecretIdAnnotation, "github-auth")
+	v1.SetAnnotation(parent, v1.CICDProxyManagedAnnotation, v1.TrueStr)
+	if unified {
+		parent.Spec.Env[common.UnifiedJobEnable] = v1.TrueStr
+	}
+	configmap, err := parseConfigmap(TestCICDScaleSetTemplateConfig)
+	assert.NilError(t, err)
+	rt := jobutils.TestCICDScaleSetResourceTemplate.DeepCopy()
+	rt.Name = "proxy-resource-template"
+	w := parent
+	objects := []ctrlclient.Object{workspace}
+	if kind == common.CICDEphemeralRunnerKind {
+		w = parent.DeepCopy()
+		w.Name, w.UID, w.Spec.Kind = "proxy-child", "proxy-child-uid", kind
+		w.Spec.Env = map[string]string{common.GithubConfigUrl: "https://github.com/example", common.ScaleRunnerSetID: parent.Name, "CHILD_SETTING": "retained"}
+		v1.RemoveAnnotation(w, v1.CICDProxyManagedAnnotation)
+		v1.SetAnnotation(w, v1.CICDScaleSetIdAnnotation, "1")
+		w.OwnerReferences = []metav1.OwnerReference{{APIVersion: v1.SchemeGroupVersion.String(), Kind: v1.WorkloadKind, Name: parent.Name, UID: parent.UID, Controller: ptr.To(true)}}
+		template := &unstructured.Unstructured{}
+		assert.NilError(t, yamlutil.NewYAMLOrJSONDecoder(strings.NewReader(configmap.Data["template"]), 4096).Decode(template))
+		pod, _, err := unstructured.NestedMap(template.Object, "spec", "template", "spec")
+		assert.NilError(t, err)
+		template.SetKind(kind)
+		template.Object["spec"] = map[string]interface{}{"spec": pod}
+		configmap.Data["template"] = string(jsonutils.MarshalSilently(template.Object))
+		configmap.Labels[v1.WorkloadKindLabel] = kind
+		rt = jobutils.TestCICDRunnerResourceTemplate.DeepCopy()
+		rt.Name = "proxy-resource-template"
+		objects = append(objects, parent)
+	}
+	objects = append(objects, rt, configmap)
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1.Workload{}).WithIndex(&v1.Workload{}, cicdProxyOwnerIndex, cicdProxyOwnerUID).WithObjects(objects...).Build()
+	assert.NilError(t, cli.Create(context.Background(), w))
+	return &DispatcherReconciler{Client: cli}, w, parent, rt
+}
+
+func TestCreateCICDScaleSet_Proxy(t *testing.T) {
+	for _, unified := range []bool{false, true} {
+		r, w, _, rt := proxyDispatcherFixture(t, common.CICDScaleRunnerSetKind, unified)
+		obj, err := r.generateK8sObject(context.Background(), w, nil)
+		assert.NilError(t, err)
+		assert.Equal(t, obj.GetNamespace(), w.Spec.Workspace)
+		assert.Equal(t, v1.GetAnnotation(obj, v1.CICDProxyManagedAnnotation), v1.TrueStr)
+		for _, protocol := range []string{"http", "https"} {
+			url, _, err := unstructured.NestedString(obj.Object, "spec", "proxy", protocol, "url")
+			assert.NilError(t, err)
+			assert.Equal(t, url, w.Spec.Env[common.ProxyUrl])
+			secret, _, err := unstructured.NestedString(obj.Object, "spec", "proxy", protocol, "credentialSecretRef")
+			assert.NilError(t, err)
+			assert.Equal(t, secret, "proxy-auth")
+		}
+		list, _, err := unstructured.NestedStringSlice(obj.Object, "spec", "proxy", "noProxy")
+		assert.NilError(t, err)
+		assert.DeepEqual(t, list, []string{"localhost", ".example.com"})
+		containers, _, err := getContainers(w, obj, rt.Spec.ResourceSpecs[0])
+		assert.NilError(t, err)
+		if unified {
+			assert.Equal(t, len(containers), 2)
+		} else {
+			assert.Equal(t, len(containers), 1)
+		}
+		for _, entry := range containers {
+			env, _, err := unstructured.NestedSlice(entry.(map[string]interface{}), "env")
+			assert.NilError(t, err)
+			assert.Assert(t, findEnv(env, common.ProxyCredentialSecret, "proxy-auth"))
+		}
+		assert.Assert(t, !strings.Contains(string(jsonutils.MarshalSilently(obj)), `"password"`))
+	}
+}
+
+func TestCreateCICDScaleSet_NoProxy(t *testing.T) {
+	for _, unified := range []bool{false, true} {
+		r, w, _, _ := proxyDispatcherFixture(t, common.CICDScaleRunnerSetKind, unified)
+		for _, key := range commonworkload.CICDProxyEnvKeys() {
+			delete(w.Spec.Env, key)
+		}
+		obj, err := r.generateK8sObject(context.Background(), w, nil)
+		assert.NilError(t, err)
+		_, exists, err := unstructured.NestedFieldNoCopy(obj.Object, "spec", "proxy")
+		assert.NilError(t, err)
+		assert.Assert(t, !exists)
+		assert.Assert(t, !v1.HasAnnotation(obj, v1.CICDProxyManagedAnnotation))
+		assert.Assert(t, commonworkload.IsCICDProxyManaged(w))
+	}
+}
+
+func TestCICDEphemeralRunnerProxy_InheritsOwner(t *testing.T) {
+	r, w, parent, rt := proxyDispatcherFixture(t, common.CICDEphemeralRunnerKind, false)
+	w.Spec.Env[common.ProxyUrl] = "http://stale.example.com"
+	refs := append([]metav1.OwnerReference{}, w.OwnerReferences...)
+	obj, err := r.generateK8sObject(context.Background(), w, nil)
+	assert.NilError(t, err)
+	endpoint, _, err := unstructured.NestedString(obj.Object, "spec", "proxy", "http", "url")
+	assert.NilError(t, err)
+	assert.Equal(t, endpoint, parent.Spec.Env[common.ProxyUrl])
+	id, _, err := unstructured.NestedInt64(obj.Object, "spec", "runnerScaleSetId")
+	assert.NilError(t, err)
+	assert.Equal(t, id, int64(1))
+	env := getEnvs(t, obj, w, &rt.Spec.ResourceSpecs[0])
+	assert.Assert(t, findEnv(env, common.ProxyUrl, parent.Spec.Env[common.ProxyUrl]))
+	assert.Assert(t, findEnv(env, "CHILD_SETTING", "retained"))
+	assert.DeepEqual(t, w.OwnerReferences, refs)
+	assert.Equal(t, w.Spec.Env[common.ProxyUrl], "http://stale.example.com")
+	for _, change := range []func(*v1.Workload){
+		func(c *v1.Workload) { c.OwnerReferences = nil }, func(c *v1.Workload) { c.OwnerReferences[0].UID = "wrong" },
+		func(c *v1.Workload) { c.OwnerReferences[0].Kind = "Pod" }, func(c *v1.Workload) { c.Spec.Workspace = "other-workspace" },
+		func(c *v1.Workload) { v1.SetLabel(c, v1.ClusterIdLabel, "other-cluster") }, func(c *v1.Workload) { c.Spec.Env[common.ScaleRunnerSetID] = "missing" },
+	} {
+		child := w.DeepCopy()
+		change(child)
+		_, err := commonworkload.ResolveCICDProxySource(context.Background(), r.Client, child)
+		assert.Assert(t, err != nil)
+	}
+}
+
+func proxyDynamicClient(t *testing.T, initial *unstructured.Unstructured) (*syncer.ClusterClientSets, func() (*unstructured.Unstructured, int)) {
+	t.Helper()
+	current := initial.DeepCopy()
+	current.SetResourceVersion("1")
+	updates := 0
+	var mu sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		writer.Header().Set("Content-Type", "application/json")
+		if request.Method == http.MethodPut {
+			next := &unstructured.Unstructured{}
+			if err := json.NewDecoder(request.Body).Decode(next); err != nil {
+				http.Error(writer, "invalid object", 400)
+				return
+			}
+			if next.GetResourceVersion() != current.GetResourceVersion() {
+				writer.WriteHeader(http.StatusConflict)
+				_ = json.NewEncoder(writer).Encode(apierrors.NewConflict(schema.GroupResource{Resource: "runners"}, current.GetName(), fmt.Errorf("stale resource version")).ErrStatus)
+				return
+			}
+			version, _ := strconv.Atoi(current.GetResourceVersion())
+			next.SetResourceVersion(strconv.Itoa(version + 1))
+			current = next
+			updates++
+		}
+		_ = json.NewEncoder(writer).Encode(current)
+	}))
+	t.Cleanup(server.Close)
+	dynamicClient, err := dynamic.NewForConfig(&rest.Config{Host: server.URL})
+	assert.NilError(t, err)
+	mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{initial.GroupVersionKind().GroupVersion()})
+	mapper.Add(initial.GroupVersionKind(), meta.RESTScopeNamespace)
+	factory := commonclient.NewClientFactoryForTest("test-cluster", server.URL)
+	patches := gomonkey.NewPatches()
+	t.Cleanup(patches.Reset)
+	patches.ApplyMethod(reflect.TypeOf(factory), "DynamicClient", func(*commonclient.ClientFactory) *dynamic.DynamicClient { return dynamicClient })
+	patches.ApplyMethod(reflect.TypeOf(factory), "Mapper", func(*commonclient.ClientFactory) meta.RESTMapper { return mapper })
+	cs := &syncer.ClusterClientSets{}
+	cs.SetClientFactory(factory)
+	return cs, func() (*unstructured.Unstructured, int) {
+		mu.Lock()
+		defer mu.Unlock()
+		return current.DeepCopy(), updates
+	}
+}
+
+func syncProxyFixture(ctx context.Context, r *DispatcherReconciler, w *v1.Workload, cs *syncer.ClusterClientSets, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) error {
+	if commonworkload.IsCICDEphemeralRunner(w) {
+		source, err := commonworkload.ResolveCICDProxySource(ctx, r.Client, w)
+		if err != nil {
+			return err
+		}
+		return r.syncCICDEphemeralRunnerProxy(ctx, w, source, cs, obj, rt)
+	}
+	return r.syncWorkloadToObject(ctx, w, cs, obj)
+}
+
+func TestSyncCICDProxy_Drift(t *testing.T) {
+	for _, kind := range []string{common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind} {
+		t.Run(kind, func(t *testing.T) {
+			r, w, parent, rt := proxyDispatcherFixture(t, kind, false)
+			obj, err := r.generateK8sObject(context.Background(), w, nil)
+			assert.NilError(t, err)
+			assert.NilError(t, unstructured.SetNestedField(obj.Object, "http://drift.example.com", "spec", "proxy", "http", "url"))
+			cs, read := proxyDynamicClient(t, obj)
+			current, _ := read()
+			assert.NilError(t, syncProxyFixture(context.Background(), r, w, cs, current, rt))
+			current, count := read()
+			assert.Equal(t, count, 1)
+			endpoint, _, err := unstructured.NestedString(current.Object, "spec", "proxy", "http", "url")
+			assert.NilError(t, err)
+			assert.Equal(t, endpoint, parent.Spec.Env[common.ProxyUrl])
+		})
+	}
+}
+
+func TestSyncCICDProxy_Idempotent(t *testing.T) {
+	for _, kind := range []string{common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind} {
+		t.Run(kind, func(t *testing.T) {
+			r, w, _, rt := proxyDispatcherFixture(t, kind, false)
+			obj, err := r.generateK8sObject(context.Background(), w, nil)
+			assert.NilError(t, err)
+			cs, read := proxyDynamicClient(t, obj)
+			for i := 0; i < 2; i++ {
+				current, _ := read()
+				assert.NilError(t, syncProxyFixture(context.Background(), r, w, cs, current, rt))
+			}
+			_, count := read()
+			assert.Equal(t, count, 0)
+		})
+	}
+}
+
+func TestSyncCICDProxy_ConflictRestartRemoval(t *testing.T) {
+	for _, kind := range []string{common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind} {
+		t.Run(kind, func(t *testing.T) {
+			r, w, parent, rt := proxyDispatcherFixture(t, kind, false)
+			obj, err := r.generateK8sObject(context.Background(), w, nil)
+			assert.NilError(t, err)
+			cs, read := proxyDynamicClient(t, obj)
+			assert.NilError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(parent), parent))
+			for _, key := range commonworkload.CICDProxyEnvKeys() {
+				delete(parent.Spec.Env, key)
+			}
+			assert.NilError(t, r.Update(context.Background(), parent))
+			if kind == common.CICDScaleRunnerSetKind {
+				w = parent
+			}
+			stale, _ := read()
+			stale.SetResourceVersion("0")
+			err = syncProxyFixture(context.Background(), r, w, cs, stale, rt)
+			assert.Assert(t, apierrors.IsConflict(err))
+			current, count := read()
+			assert.Equal(t, count, 0)
+			assert.Equal(t, v1.GetAnnotation(current, v1.CICDProxyManagedAnnotation), v1.TrueStr)
+			restarted := &DispatcherReconciler{Client: r.Client}
+			assert.NilError(t, syncProxyFixture(context.Background(), restarted, w, cs, current, rt))
+			current, count = read()
+			assert.Equal(t, count, 1)
+			_, found, err := unstructured.NestedFieldNoCopy(current.Object, "spec", "proxy")
+			assert.NilError(t, err)
+			assert.Assert(t, !found)
+			assert.Assert(t, !v1.HasAnnotation(current, v1.CICDProxyManagedAnnotation))
+			assert.Assert(t, commonworkload.IsCICDProxyManaged(parent))
+			env := getEnvs(t, current, w, &rt.Spec.ResourceSpecs[0])
+			for _, key := range commonworkload.CICDProxyEnvKeys() {
+				for _, item := range env {
+					assert.Assert(t, item.(map[string]interface{})["name"] != key)
+				}
+			}
+		})
+	}
+}
+
+func TestSyncCICDProxy_InvalidStoredConfig(t *testing.T) {
+	for _, kind := range []string{common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind} {
+		t.Run(kind, func(t *testing.T) {
+			r, w, parent, rt := proxyDispatcherFixture(t, kind, false)
+			obj, err := r.generateK8sObject(context.Background(), w, nil)
+			assert.NilError(t, err)
+			cs, read := proxyDynamicClient(t, obj)
+			assert.NilError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(parent), parent))
+			parent.Spec.Env[common.ProxyUrl] = "http://sample@example.com"
+			assert.NilError(t, r.Update(context.Background(), parent))
+			if kind == common.CICDScaleRunnerSetKind {
+				w = parent
+			}
+			current, _ := read()
+			before := current.DeepCopy()
+			assert.Assert(t, syncProxyFixture(context.Background(), r, w, cs, current, rt) != nil)
+			current, count := read()
+			assert.Equal(t, count, 0)
+			assert.DeepEqual(t, current.Object, before.Object)
+		})
+	}
+}
+
+func TestSyncCICDProxy_LegacyUnmarked(t *testing.T) {
+	for _, kind := range []string{common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind} {
+		for _, endpoint := range []string{"arbitrary legacy value", "http://proxy.example.com"} {
+			t.Run(kind+endpoint, func(t *testing.T) {
+				r, w, parent, rt := proxyDispatcherFixture(t, kind, false)
+				assert.NilError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(parent), parent))
+				v1.RemoveAnnotation(parent, v1.CICDProxyManagedAnnotation)
+				parent.Spec.Env[common.ProxyUrl] = endpoint
+				assert.NilError(t, r.Update(context.Background(), parent))
+				if kind == common.CICDScaleRunnerSetKind {
+					w = parent
+				}
+				obj, err := r.generateK8sObject(context.Background(), w, nil)
+				assert.NilError(t, err)
+				custom := map[string]interface{}{"https": map[string]interface{}{"url": "http://custom.example.com"}}
+				assert.NilError(t, unstructured.SetNestedMap(obj.Object, custom, "spec", "proxy"))
+				cs, read := proxyDynamicClient(t, obj)
+				patches := gomonkey.NewPatches()
+				defer patches.Reset()
+				patches.ApplyFunc(commonworkload.ParseCICDProxy, func(map[string]string) (*commonworkload.CICDProxyConfig, error) {
+					t.Fatal("unmarked source was parsed")
+					return nil, nil
+				})
+				for i := 0; i < 2; i++ {
+					current, _ := read()
+					assert.NilError(t, syncProxyFixture(context.Background(), r, w, cs, current, rt))
+				}
+				w.Spec.Images[0] = "example/runner:updated"
+				current, _ := read()
+				assert.NilError(t, syncProxyFixture(context.Background(), r, w, cs, current, rt))
+				current, _ = read()
+				actual, _, err := unstructured.NestedMap(current.Object, "spec", "proxy")
+				assert.NilError(t, err)
+				assert.DeepEqual(t, actual, custom)
+				assert.Assert(t, !v1.HasAnnotation(current, v1.CICDProxyManagedAnnotation))
+			})
+		}
+	}
+}
+
+func TestCICDEphemeralRunnerProxy_ParentChangeRequeues(t *testing.T) {
+	r, w, parent, rt := proxyDispatcherFixture(t, common.CICDEphemeralRunnerKind, false)
+	obj, err := r.generateK8sObject(context.Background(), w, nil)
+	assert.NilError(t, err)
+	cs, read := proxyDynamicClient(t, obj)
+	r.clusterClientSets = commonutils.NewObjectManager()
+	assert.NilError(t, r.clusterClientSets.Add(v1.GetClusterId(w), cs))
+	terminal := w.DeepCopy()
+	terminal.Name = "ended-child"
+	terminal.UID = "ended-child-uid"
+	terminal.ResourceVersion = ""
+	terminal.Status.Phase = v1.WorkloadSucceeded
+	assert.NilError(t, r.Create(context.Background(), terminal))
+	for _, endpoint := range []string{"https://changed.example.com", "", "http://enabled.example.com"} {
+		assert.NilError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(parent), parent))
+		old := parent.DeepCopy()
+		parent.Spec.Env = map[string]string{common.ProxyUrl: endpoint}
+		assert.NilError(t, r.Update(context.Background(), parent))
+		assert.Assert(t, cicdProxyParentPredicate().Update(event.UpdateEvent{ObjectOld: old, ObjectNew: parent}))
+		requests := r.enqueueCICDProxyChildren(context.Background(), parent)
+		assert.Equal(t, len(requests), 1)
+		assert.Equal(t, requests[0].Name, w.Name)
+		assert.NilError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(w), w))
+		result, err := r.processWorkload(context.Background(), w)
+		assert.NilError(t, err)
+		assert.Equal(t, result.RequeueAfter, 30*time.Second)
+		current, _ := read()
+		changed, err := isCICDProxyChanged(parent, current)
+		assert.NilError(t, err)
+		assert.Assert(t, !changed)
+		assert.NilError(t, syncProxyFixture(context.Background(), &DispatcherReconciler{Client: r.Client}, w, cs, current, rt))
+	}
+	_, before := read()
+	_, err = r.processWorkload(context.Background(), terminal)
+	assert.NilError(t, err)
+	_, after := read()
+	assert.Equal(t, before, after)
+	assert.Assert(t, (relevantChangePredicate{}).Create(event.CreateEvent{Object: w}))
+}
+
+func TestSyncCICDProxy_ValidatedOptIn(t *testing.T) {
+	r, w, _, rt := proxyDispatcherFixture(t, common.CICDScaleRunnerSetKind, false)
+	v1.RemoveAnnotation(w, v1.CICDProxyManagedAnnotation)
+	obj, err := r.generateK8sObject(context.Background(), w, nil)
+	assert.NilError(t, err)
+	obj.SetAnnotations(map[string]string{v1.CICDProxyManagedAnnotation: v1.TrueStr})
+	changed, err := isCICDProxyChanged(w, obj)
+	assert.NilError(t, err)
+	assert.Assert(t, !changed)
+	cs, read := proxyDynamicClient(t, obj)
+	v1.SetAnnotation(w, v1.CICDProxyManagedAnnotation, v1.TrueStr)
+	current, _ := read()
+	assert.NilError(t, syncProxyFixture(context.Background(), r, w, cs, current, rt))
+	current, count := read()
+	assert.Equal(t, count, 1)
+	changed, err = isCICDProxyChanged(w, current)
+	assert.NilError(t, err)
+	assert.Assert(t, !changed)
 }

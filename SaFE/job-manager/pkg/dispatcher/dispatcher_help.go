@@ -1248,16 +1248,16 @@ func updateMinReplicas(obj *unstructured.Unstructured, resourceSpec v1.ResourceS
 	return jobutils.SetNestedField(obj.Object, replica, resourceSpec.MinReplicasPath())
 }
 
-// updateCICDScaleSet updates the CICD scale set configuration in the unstructured object.
-// It first updates the GitHub configuration, then conditionally updates the environments for build
-// or removes unnecessary containers based on whether CICD unified build is enabled.
-// Returns an error if no resource templates are found or if any update operation fails.
 func updateCICDScaleSet(obj *unstructured.Unstructured,
 	adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource template found")
 	}
+	adminWorkload = cicdProxyWorkload(adminWorkload, adminWorkload, obj)
 	if err := updateCICDGithub(adminWorkload, obj); err != nil {
+		return err
+	}
+	if err := updateCICDProxy(obj, adminWorkload); err != nil {
 		return err
 	}
 	if err := updateCICDScaleSetEnvs(obj, adminWorkload, workspace, rt.Spec.ResourceSpecs[0]); err != nil {
@@ -1268,11 +1268,14 @@ func updateCICDScaleSet(obj *unstructured.Unstructured,
 
 // updateCICDEphemeralRunner updates the CICD ephemeral runner configuration
 func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterClientSets,
-	obj *unstructured.Unstructured, adminWorkload *v1.Workload, rt *v1.ResourceTemplate) error {
+	obj *unstructured.Unstructured, adminWorkload, source *v1.Workload, rt *v1.ResourceTemplate) error {
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource template found")
 	}
 	if err := updateCICDGithub(adminWorkload, obj); err != nil {
+		return err
+	}
+	if err := updateCICDProxy(obj, source); err != nil {
 		return err
 	}
 	// Set owner reference to the parent scale runner if CICDScaleRunnerIdLabel is present
@@ -1297,9 +1300,6 @@ func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterCl
 	return nil
 }
 
-// updateCICDGithub updates the CICD scale set configuration in the unstructured object.
-// It updates the GitHub configuration and then configures environment variables based on unified build settings.
-// Returns an error if no resource templates are found or if any update operation fails.
 func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured) error {
 	specObject, ok, err := jobutils.NestedMap(obj.Object, []string{"spec"})
 	if err != nil {
@@ -1371,7 +1371,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 		// When unified build is enabled, update all containers with envs
 		for i := range containers {
 			container := containers[i].(map[string]interface{})
-			updateContainerEnv(envs, container, nil)
+			updateContainerEnv(envs, container, v1.GetEnvToBeRemoved(adminWorkload))
 		}
 		if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
 			return err
@@ -1383,7 +1383,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 			container := containers[i].(map[string]interface{})
 			name := jobutils.NestedStringSilently(container, []string{"name"})
 			if name == mainContainerName {
-				updateContainerEnv(envs, container, nil)
+				updateContainerEnv(envs, container, v1.GetEnvToBeRemoved(adminWorkload))
 				// Keep only the main container and remove other container
 				newContainers := []interface{}{container}
 				return jobutils.SetNestedField(obj.Object, newContainers, path)
@@ -2166,7 +2166,7 @@ func updateContainerEnv(envs map[string]string, container map[string]interface{}
 
 		if newValue, exists := envs[nameStr]; exists {
 			currentValue, valueOk := env["value"]
-			if valueOk && newValue != currentValue.(string) {
+			if !valueOk || newValue != currentValue {
 				isChanged = true
 				updatedEnvs = append(updatedEnvs, map[string]interface{}{
 					"name":  nameStr,
