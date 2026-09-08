@@ -193,6 +193,23 @@ func TestWorkloadMutateCICDScaleSet(t *testing.T) {
 	assert.Equal(t, len(w.Spec.Resources), 1)
 }
 
+// TestWorkloadMutateGithubRunner truncates extra resources and entrypoints.
+func TestWorkloadMutateGithubRunner(t *testing.T) {
+	m := &WorkloadMutator{}
+	w := &v1.Workload{Spec: v1.WorkloadSpec{
+		IsSupervised: true,
+		MaxRetry:     5,
+		Resources:    []v1.WorkloadResource{wlResource(), wlResource()},
+		EntryPoints:  []string{"one", "two"},
+	}}
+	m.mutateGithubRunner(w)
+	assert.Assert(t, !w.Spec.IsSupervised)
+	assert.Equal(t, w.Spec.MaxRetry, 0)
+	assert.Equal(t, len(w.Spec.Resources), 1)
+	assert.Equal(t, len(w.Spec.EntryPoints), 1)
+	assert.Equal(t, w.Spec.EntryPoints[0], "one")
+}
+
 // TestWorkloadMutateTorchFT verifies torchFT env defaulting.
 func TestWorkloadMutateTorchFT(t *testing.T) {
 	m := &WorkloadMutator{}

@@ -29,7 +29,11 @@ const githubRunnerProxySetup = `setup_github_proxy() {
   RELAY_JS="${RELAY_DIR}/github-proxy-relay.js"
   RELAY_LOG="${RELAY_DIR}/github-proxy-relay.log"
   RELAY_PORT="${GITHUB_PROXY_RELAY_PORT:-3129}"
-  NODE_BIN="$(find "${RUNNER_DIR}/externals" -type f -path '*/bin/node' | sort | head -n 1)"
+  NODE_BIN="$(find "${RUNNER_DIR}/externals" -type f -path '*/bin/node' 2>/dev/null | sort | head -n 1 || true)"
+  if [ -z "${NODE_BIN}" ] || [ ! -x "${NODE_BIN}" ]; then
+    echo "github proxy relay: node binary not found under ${RUNNER_DIR}/externals" >&2
+    return 1
+  fi
   cat >"${RELAY_JS}" <<'RELAY_EOF'
 const net = require('net');
 const upstream = new URL(process.env.RELAY_UPSTREAM);
@@ -50,6 +54,7 @@ function relay(client, header, body) {
     }
     client.pipe(server);
     server.pipe(client);
+    client.resume();
   });
   server.on('error', () => client.destroy());
 }
@@ -65,6 +70,7 @@ net.createServer((client) => {
       }
       return;
     }
+    client.pause();
     client.removeListener('data', onData);
     relay(client, head.slice(0, end).toString('latin1'), head.slice(end + 4));
   };
@@ -86,6 +92,13 @@ RELAY_EOF
     RELAY_WAIT=$((RELAY_WAIT + 1))
     sleep 1
   done
+  if ! grep -q 'github proxy relay listening' "${RELAY_LOG}" 2>/dev/null; then
+    echo "github proxy relay failed to listen on 127.0.0.1:${RELAY_PORT}" >&2
+    if [ -f "${RELAY_LOG}" ]; then
+      cat "${RELAY_LOG}" >&2 || true
+    fi
+    return 1
+  fi
   export http_proxy="http://127.0.0.1:${RELAY_PORT}" HTTP_PROXY="http://127.0.0.1:${RELAY_PORT}"
   export https_proxy="http://127.0.0.1:${RELAY_PORT}" HTTPS_PROXY="http://127.0.0.1:${RELAY_PORT}"
 }

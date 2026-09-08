@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	testifyassert "github.com/stretchr/testify/assert"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -1024,11 +1023,12 @@ func wsForHelper(name string) *v1.Workspace {
 }
 
 func TestServiceAccountLifecycleFull(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	patches.ApplyFunc(commonconfig.IsCICDEnable, func() bool { return true })
-	patches.ApplyFunc(commonconfig.IsMonarchEnable, func() bool { return true })
-	patches.ApplyFunc(commonconfig.GetMonarchClientRole, func() string { return "monarch-sa" })
-	defer patches.Reset()
+	commonconfig.SetValue("cicd.enable", "true")
+	commonconfig.SetValue("monarch.enable", "true")
+	commonconfig.SetValue("monarch.client_role", "monarch-sa")
+	defer commonconfig.SetValue("cicd.enable", "")
+	defer commonconfig.SetValue("monarch.enable", "")
+	defer commonconfig.SetValue("monarch.client_role", "")
 
 	cs := k8sfake.NewSimpleClientset()
 	ws := wsForHelper("ws1")
@@ -1045,6 +1045,27 @@ func TestServiceAccountLifecycleFull(t *testing.T) {
 
 	testifyassert.NoError(t, deleteMonarchServiceAccount(ctx, ws, cs))
 	testifyassert.NoError(t, deleteCICDServiceAccount(ctx, ws, cs))
+}
+
+func TestGithubRunnerServiceAccountLifecycle(t *testing.T) {
+	commonconfig.SetValue("cicd.enable", "true")
+	defer commonconfig.SetValue("cicd.enable", "")
+
+	cs := k8sfake.NewSimpleClientset()
+	ws := wsForHelper("ws1")
+	ctx := context.Background()
+
+	testifyassert.NoError(t, createGithubRunnerServiceAccount(ctx, ws, cs))
+	testifyassert.NoError(t, createGithubRunnerServiceAccount(ctx, ws, cs))
+
+	_, err := cs.CoreV1().ServiceAccounts("ws1").Get(ctx, common.GithubRunnerServiceAccount, metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	rb, err := cs.RbacV1().RoleBindings("ws1").Get(ctx, common.GithubRunnerServiceAccount, metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	assert.Equal(t, common.GithubRunnerServiceAccount, rb.RoleRef.Name)
+	assert.Equal(t, common.ClusterRoleKind, rb.RoleRef.Kind)
+
+	testifyassert.NoError(t, deleteGithubRunnerServiceAccount(ctx, ws, cs))
 }
 
 func TestGetPvTemplateAndCreateDataPlanePv(t *testing.T) {

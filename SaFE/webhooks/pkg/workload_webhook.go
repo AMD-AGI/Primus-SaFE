@@ -432,6 +432,9 @@ func (m *WorkloadMutator) mutateGithubRunner(workload *v1.Workload) {
 	if len(workload.Spec.Resources) > 1 {
 		workload.Spec.Resources = workload.Spec.Resources[0:1]
 	}
+	if len(workload.Spec.EntryPoints) > 1 {
+		workload.Spec.EntryPoints = workload.Spec.EntryPoints[0:1]
+	}
 	if len(workload.Spec.EntryPoints) == 0 || workload.Spec.EntryPoints[0] == "" {
 		workload.Spec.EntryPoints = []string{commonworkload.GithubRunnerStartScript()}
 	}
@@ -797,9 +800,9 @@ func (m *WorkloadMutator) mutateCronJobs(workload *v1.Workload) {
 // 2. Inheriting ImageSecrets from workspace when available
 // 3. Adding default cluster image secret when no workspace exists but global config is present
 func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
-	reader := m.APIReader
-	if reader == nil {
-		reader = m.Client
+	reader := client.Reader(m.Client)
+	if commonworkload.IsCICDGithubRunner(workload) && m.APIReader != nil {
+		reader = m.APIReader
 	}
 	secretsSet := sets.NewSet()
 	newSecrets := make([]v1.SecretEntity, 0, len(workload.Spec.Secrets))

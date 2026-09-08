@@ -26,6 +26,7 @@ data:
     template:
       spec:
         dnsPolicy: ClusterFirstWithHostNet
+        serviceAccountName: github-runner
         containers:
         - name: runner
           image: ghcr.io/actions/actions-runner:latest

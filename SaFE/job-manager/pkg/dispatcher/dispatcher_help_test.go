@@ -721,6 +721,7 @@ func TestModifyServiceAccountName(t *testing.T) {
 	tests := []struct {
 		name        string
 		opsJobType  string
+		kind        string
 		expectedSA  string
 		shouldBeSet bool
 	}{
@@ -740,6 +741,12 @@ func TestModifyServiceAccountName(t *testing.T) {
 			opsJobType:  "",
 			shouldBeSet: false,
 		},
+		{
+			name:        "GithubRunner should set github-runner service account",
+			kind:        common.CICDGithubRunnerKind,
+			expectedSA:  common.GithubRunnerServiceAccount,
+			shouldBeSet: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -754,7 +761,9 @@ func TestModifyServiceAccountName(t *testing.T) {
 				},
 			}
 
-			workload := &v1.Workload{}
+			workload := &v1.Workload{Spec: v1.WorkloadSpec{
+				GroupVersionKind: v1.GroupVersionKind{Kind: tt.kind},
+			}}
 			if tt.opsJobType != "" {
 				workload.Labels = map[string]string{
 					v1.OpsJobTypeLabel: tt.opsJobType,

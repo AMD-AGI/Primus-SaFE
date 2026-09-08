@@ -547,6 +547,23 @@ func TestMutateSecretsUsesAPIReaderForNewGithubRunnerSecret(t *testing.T) {
 	assert.Equal(t, workload.Spec.Secrets[0].Id, secret.Name)
 }
 
+func TestMutateSecretsDoesNotUseAPIReaderForNonGithubRunner(t *testing.T) {
+	scheme := newScheme(t)
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name:      "runner-secret",
+		Namespace: common.PrimusSafeNamespace,
+	}}
+	cachedClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	apiReader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+	m := &WorkloadMutator{Client: cachedClient, APIReader: apiReader}
+	workload := workloadOfKind(common.PytorchJobKind)
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: secret.Name, Type: v1.SecretGeneral}}
+
+	m.mutateSecrets(context.Background(), workload, nil)
+
+	assert.Equal(t, len(workload.Spec.Secrets), 0)
+}
+
 // TestWorkloadValidateOwnerWorkloadCycle covers the owner cycle detection branch.
 func TestWorkloadValidateOwnerWorkloadCycle(t *testing.T) {
 	scheme := newScheme(t)

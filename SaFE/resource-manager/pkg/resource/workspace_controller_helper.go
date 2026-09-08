@@ -266,6 +266,31 @@ func deleteCICDServiceAccount(ctx context.Context, workspace *v1.Workspace, clie
 	return deleteServiceAccount(ctx, workspace, clientSet, saName)
 }
 
+// createGithubRunnerServiceAccount creates the hosted-runner ServiceAccount and
+// binds it to the github-runner ClusterRole so preStop can GET the StatefulSet.
+func createGithubRunnerServiceAccount(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface) error {
+	if !commonconfig.IsCICDEnable() {
+		return nil
+	}
+	saName := common.GithubRunnerServiceAccount
+	if err := createServiceAccount(ctx, workspace, clientSet, saName); err != nil {
+		return err
+	}
+	return createMonarchRoleBinding(ctx, workspace, clientSet, saName)
+}
+
+// deleteGithubRunnerServiceAccount removes the hosted-runner RoleBinding and ServiceAccount.
+func deleteGithubRunnerServiceAccount(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface) error {
+	if !commonconfig.IsCICDEnable() {
+		return nil
+	}
+	saName := common.GithubRunnerServiceAccount
+	if err := deleteRoleBinding(ctx, workspace, clientSet, saName); err != nil {
+		return err
+	}
+	return deleteServiceAccount(ctx, workspace, clientSet, saName)
+}
+
 // createMonarchServiceAccount creates a Monarch ServiceAccount for the workspace in the data plane cluster.
 // It checks if the ServiceAccount already exists, and creates it if not found.
 func createMonarchServiceAccount(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface) error {

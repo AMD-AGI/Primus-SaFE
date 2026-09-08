@@ -1011,10 +1011,12 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Kind = common.CICDGithubRunnerKind
 	workload.Spec.Workspace = workspace.Name
-	workload.Spec.Secrets = []v1.SecretEntity{{Id: "new-secret", Type: v1.SecretGeneral}}
+	workload.Spec.Secrets = []v1.SecretEntity{
+		{Id: "new-secret", Type: v1.SecretGeneral},
+		{Id: "image-secret", Type: v1.SecretImage},
+	}
 	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
 	workload.Spec.Env[common.GithubProxyURL] = "http://wstunnel-client.github-proxy.svc.cluster.local:3128"
-	workload.Spec.Env[common.GithubProxyPassword] = "proxy-secret"
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "new-secret")
 	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
 	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
@@ -1036,11 +1038,19 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 						"env": []interface{}{map[string]interface{}{
 							"name": jobutils.GithubSecretEnv, "value": "old-secret",
 						}},
-						"volumeMounts": []interface{}{map[string]interface{}{
-							"name": "old-secret", "mountPath": common.SecretPath + "/old-secret",
-						}},
+						"volumeMounts": []interface{}{
+							map[string]interface{}{
+								"name": "old-secret", "mountPath": common.SecretPath + "/old-secret",
+							},
+							map[string]interface{}{
+								"name": "image-secret", "mountPath": common.SecretPath + "/image-secret",
+							},
+						},
 					}},
-					"volumes": []interface{}{buildSecretVolume("old-secret")},
+					"volumes": []interface{}{
+						buildSecretVolume("old-secret"),
+						buildSecretVolume("image-secret"),
+					},
 				},
 			},
 		},
@@ -1057,14 +1067,24 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, found)
 	mounts := containers[0].(map[string]interface{})["volumeMounts"].([]interface{})
-	assert.Equal(t, len(mounts), 1)
-	assert.Equal(t, mounts[0].(map[string]interface{})["name"], "new-secret")
+	mountNames := map[string]bool{}
+	for _, mount := range mounts {
+		mountNames[mount.(map[string]interface{})["name"].(string)] = true
+	}
+	assert.Equal(t, mountNames["new-secret"], true)
+	assert.Equal(t, mountNames["image-secret"], true)
+	assert.Equal(t, mountNames["old-secret"], false)
 
 	volumes, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "volumes"})
 	assert.NilError(t, err)
 	assert.Assert(t, found)
-	assert.Equal(t, len(volumes), 1)
-	assert.Equal(t, volumes[0].(map[string]interface{})["name"], "new-secret")
+	volumeNames := map[string]bool{}
+	for _, volume := range volumes {
+		volumeNames[volume.(map[string]interface{})["name"].(string)] = true
+	}
+	assert.Equal(t, volumeNames["new-secret"], true)
+	assert.Equal(t, volumeNames["image-secret"], true)
+	assert.Equal(t, volumeNames["old-secret"], false)
 
 	envsMap := convertEnvsToStringMap(envs)
 	assert.Equal(t, envsMap[common.GithubRunnerStateRoot],
@@ -1072,14 +1092,68 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 	assert.Equal(t, envsMap[common.GithubProxyURL],
 		"http://wstunnel-client.github-proxy.svc.cluster.local:3128")
 	assert.Equal(t, envsMap[common.GithubProxyUsername], "github")
-	assert.Equal(t, envsMap[common.GithubProxyPassword], "proxy-secret")
+	_, hasProxyPassword := envsMap[common.GithubProxyPassword]
+	assert.Equal(t, hasProxyPassword, false)
 	assert.Equal(t, envsMap[common.GithubProxyNoProxy],
 		"localhost,127.0.0.1,::1,.svc,.cluster.local")
+	sa, found, err := unstructured.NestedString(obj.Object, "spec", "template", "spec", "serviceAccountName")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, sa, common.GithubRunnerServiceAccount)
 	lifecycle := containers[0].(map[string]interface{})["lifecycle"].(map[string]interface{})
 	preStop := lifecycle["preStop"].(map[string]interface{})
 	execHook := preStop["exec"].(map[string]interface{})
 	cmd := execHook["command"].([]interface{})
 	assert.Equal(t, cmd[2], commonworkload.GithubRunnerStopScript())
+}
+
+func TestGithubRunnerInjectedEnvSurvivesRemoval(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "runner-secret", Type: v1.SecretGeneral}}
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	workload.Spec.Env[common.GithubProxyURL] = "http://github-proxy:3128"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "runner-secret")
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+	v1.SetAnnotation(workload, v1.EnvToBeRemovedAnnotation, string(jsonutils.MarshalSilently([]string{
+		common.GithubProxyURL, common.GithubRunnerStateRoot, jobutils.GithubSecretEnv,
+	})))
+
+	rt := jobutils.TestStatefulSetResourceTemplate.DeepCopy()
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "apps/v1",
+		"kind":       "StatefulSet",
+		"metadata": map[string]interface{}{
+			"name":        workload.Name,
+			"namespace":   workspace.Name,
+			"annotations": map[string]interface{}{v1.MainContainerAnnotation: "runner"},
+		},
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"spec": map[string]interface{}{
+					"containers": []interface{}{map[string]interface{}{
+						"name": "runner",
+						"env": []interface{}{
+							map[string]interface{}{"name": common.GithubProxyURL, "value": "stale"},
+							map[string]interface{}{"name": jobutils.GithubSecretEnv, "value": "stale"},
+						},
+					}},
+				},
+			},
+		},
+	}}
+
+	r := DispatcherReconciler{}
+	assert.NilError(t, r.applyWorkloadSpecToObject(context.Background(), nil, obj, workload, workspace, rt))
+	envs, err := jobutils.GetEnv(obj, rt, 1)
+	assert.NilError(t, err)
+	envsMap := convertEnvsToStringMap(envs)
+	assert.Equal(t, envsMap[common.GithubProxyURL], "http://github-proxy:3128")
+	assert.Equal(t, envsMap[common.GithubRunnerStateRoot], "/ceph/github-runners/"+workload.Name)
+	assert.Equal(t, envsMap[jobutils.GithubSecretEnv], "runner-secret")
 }
 
 func TestGithubRunnerCreateDoesNotDuplicateSecretMounts(t *testing.T) {
@@ -1125,6 +1199,11 @@ func TestGithubRunnerCreateDoesNotDuplicateSecretMounts(t *testing.T) {
 		mountPaths[mountPath]++
 	}
 	assert.Equal(t, mountPaths[common.SecretPath+"/runner-secret"], 1)
+
+	sa, found, err := unstructured.NestedString(obj.Object, "spec", "template", "spec", "serviceAccountName")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, sa, common.GithubRunnerServiceAccount)
 
 	envs, err := jobutils.GetEnv(obj, jobutils.TestGithubRunnerResourceTemplate, 1)
 	assert.NilError(t, err)

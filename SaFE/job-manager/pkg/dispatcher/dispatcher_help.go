@@ -625,6 +625,11 @@ func modifyServiceAccountName(obj *unstructured.Unstructured, workload *v1.Workl
 			return err
 		}
 	}
+	if commonworkload.IsCICDGithubRunner(workload) {
+		if err := jobutils.SetNestedField(obj.Object, common.GithubRunnerServiceAccount, path); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -1359,6 +1364,10 @@ func updateGithubRunner(obj *unstructured.Unstructured,
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
 		return err
 	}
+	saPath := podSpecPath(adminWorkload, &rt.Spec.ResourceSpecs[0], "serviceAccountName")
+	if err = jobutils.SetNestedField(obj.Object, common.GithubRunnerServiceAccount, saPath); err != nil {
+		return err
+	}
 	// Create path: initializeObject/modifyVolumes appends SecretGeneral mounts.
 	// Update path: initializeObject does not run, so rewrite mounts in place.
 	if githubRunnerHasSecretVolume(obj, adminWorkload, rt.Spec.ResourceSpecs[0]) {
@@ -1441,7 +1450,9 @@ func pickWritableWorkspaceVolume(workspace *v1.Workspace) (v1.WorkspaceVolume, b
 func syncGithubRunnerSecretMounts(obj *unstructured.Unstructured,
 	workload *v1.Workload, resourceSpec v1.ResourceSpec) error {
 	desired := make([]v1.SecretEntity, 0, len(workload.Spec.Secrets))
+	secretTypeByID := make(map[string]v1.SecretType, len(workload.Spec.Secrets))
 	for _, secret := range workload.Spec.Secrets {
+		secretTypeByID[secret.Id] = secret.Type
 		if secret.Type == v1.SecretGeneral {
 			desired = append(desired, secret)
 		}
@@ -1455,7 +1466,14 @@ func syncGithubRunnerSecretMounts(obj *unstructured.Unstructured,
 	filteredVolumes := make([]interface{}, 0, len(volumes)+len(desired))
 	for _, volume := range volumes {
 		volumeMap, ok := volume.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := volumeMap["name"].(string)
 		if _, managed := volumeMap["secret"]; ok && managed {
+			if secretType, exists := secretTypeByID[name]; exists && secretType != v1.SecretGeneral {
+				filteredVolumes = append(filteredVolumes, volume)
+			}
 			continue
 		}
 		filteredVolumes = append(filteredVolumes, volume)
@@ -1477,8 +1495,15 @@ func syncGithubRunnerSecretMounts(obj *unstructured.Unstructured,
 		filteredMounts := make([]interface{}, 0, len(mounts)+len(desired))
 		for _, mount := range mounts {
 			mountMap, ok := mount.(map[string]interface{})
+			if !ok {
+				continue
+			}
 			mountPath, _ := mountMap["mountPath"].(string)
-			if ok && strings.HasPrefix(mountPath, common.SecretPath+"/") {
+			if strings.HasPrefix(mountPath, common.SecretPath+"/") {
+				secretID := strings.TrimPrefix(mountPath, common.SecretPath+"/")
+				if secretType, exists := secretTypeByID[secretID]; exists && secretType != v1.SecretGeneral {
+					filteredMounts = append(filteredMounts, mount)
+				}
 				continue
 			}
 			filteredMounts = append(filteredMounts, mount)

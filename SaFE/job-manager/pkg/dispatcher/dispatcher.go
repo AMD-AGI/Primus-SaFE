@@ -759,8 +759,6 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 		err = updateCICDScaleSet(obj, adminWorkload, workspace, rt)
 	case commonworkload.IsCICDEphemeralRunner(adminWorkload):
 		err = updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, rt)
-	case commonworkload.IsCICDGithubRunner(adminWorkload):
-		err = updateGithubRunner(obj, adminWorkload, workspace, rt)
 	case commonworkload.IsRayJob(adminWorkload):
 		err = updateRayJob(obj, adminWorkload)
 	case commonworkload.IsMonarchMesh(adminWorkload):
@@ -797,6 +795,12 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 	for i := len(rt.Spec.ResourceSpecs) - 1; i >= len(adminWorkload.Spec.Resources); i-- {
 		t := rt.Spec.ResourceSpecs[i]
 		if err = jobutils.RemoveNestedField(obj.Object, t.PrePaths); err != nil {
+			return err
+		}
+	}
+	// Apply after updateContainers so GetEnvToBeRemoved cannot drop injected keys.
+	if commonworkload.IsCICDGithubRunner(adminWorkload) {
+		if err = updateGithubRunner(obj, adminWorkload, workspace, rt); err != nil {
 			return err
 		}
 	}

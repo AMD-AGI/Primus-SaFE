@@ -230,6 +230,9 @@ func (h *Handler) generateGithubRunner(ctx context.Context, workload *v1.Workloa
 	if err := validateGithubRunnerAuth(auth); err != nil {
 		return err
 	}
+	if strings.TrimSpace(proxyPassword) == "" && workload.Spec.Env != nil {
+		proxyPassword = workload.Spec.Env[common.GithubProxyPassword]
+	}
 	if err := validateGithubRunnerProxyPassword(proxyPassword); err != nil {
 		return err
 	}
@@ -311,9 +314,6 @@ func (h *Handler) updateGithubRunnerSecret(ctx context.Context, workload *v1.Wor
 	if token == "" {
 		return nil, commonerrors.NewBadRequest("the github registration token is empty")
 	}
-	if commonconfig.GetCICDGithubProxyURL() != "" && proxyCredential == "" {
-		return nil, commonerrors.NewBadRequest("the github proxy password is empty")
-	}
 	if oldSecret != nil && string(oldSecret.Data[GitHubToken]) == token &&
 		string(oldSecret.Data[GitHubProxyPassword]) == proxyCredential {
 		return nil, nil
@@ -389,6 +389,7 @@ func stripGithubRunnerTokenEnv(workload *v1.Workload) {
 	}
 	delete(workload.Spec.Env, GithubPAT)
 	delete(workload.Spec.Env, common.RunnerToken)
+	delete(workload.Spec.Env, common.GithubProxyPassword)
 }
 
 func attachGithubRunnerSecret(workload *v1.Workload, secretId string) {

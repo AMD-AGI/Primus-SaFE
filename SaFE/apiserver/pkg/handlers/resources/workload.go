@@ -1332,7 +1332,7 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 		adminWorkload.Spec.Timeout = pointer.Int(*req.Timeout)
 	}
 	if req.Env != nil {
-		adminWorkload.Spec.Env = maputil.Copy(*req.Env, GithubPAT, common.RunnerToken)
+		adminWorkload.Spec.Env = maputil.Copy(*req.Env, GithubPAT, common.RunnerToken, common.GithubProxyPassword)
 	}
 	if req.MaxRetry != nil {
 		adminWorkload.Spec.MaxRetry = *req.MaxRetry
