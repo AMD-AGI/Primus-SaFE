@@ -201,6 +201,9 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 	if err := validateCICDGitHubAuth(auth); err != nil {
 		return err
 	}
+	if err := h.validateCICDProxyReference(ctx, workload, requestUser); err != nil {
+		return err
+	}
 	secret, err := h.createCICDSecret(ctx, workload, requestUser, auth)
 	if err != nil {
 		return err
@@ -208,6 +211,27 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 	delete(workload.Spec.Env, GithubPAT)
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, secret.Name)
 	return nil
+}
+
+func (h *Handler) validateCICDProxyReference(ctx context.Context, workload *v1.Workload, requestUser *v1.User) error {
+	if !commonworkload.IsCICDScalingRunnerSet(workload) {
+		return nil
+	}
+	config, err := commonworkload.ParseCICDProxy(workload.Spec.Env)
+	if err != nil || config == nil || config.CredentialSecret == "" {
+		return err
+	}
+	if h.Client == nil || h.clientSet == nil || h.accessController == nil {
+		return commonerrors.NewInternalError(commonworkload.CICDProxySecretUnavailable)
+	}
+	secret, err := h.getAndAuthorizeSecret(ctx, config.CredentialSecret, workload.Spec.Workspace, requestUser, v1.GetVerb)
+	if err != nil {
+		if commonerrors.IsForbidden(err) {
+			return commonerrors.NewForbidden(commonworkload.CICDProxySecretForbidden)
+		}
+		return commonworkload.CICDProxySecretLookupError(err)
+	}
+	return commonworkload.ValidateCICDProxySecret(secret, workload.Spec.Workspace)
 }
 
 func normalizeCICDGitHubAuth(auth *view.GitHubAuthRequest, env map[string]string) *view.GitHubAuthRequest {

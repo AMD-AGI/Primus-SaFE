@@ -154,6 +154,10 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 
 	mainWorkload, err := h.generateWorkload(ctx, req, body, requestUser)
 	if err != nil {
+		if status, typed := err.(apierrors.APIStatus); typed &&
+			(strings.Contains(status.Status().Message, "env.PROXY_") || strings.Contains(status.Status().Message, "env.NO_PROXY:")) {
+			return nil, err
+		}
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 	var preheatWorkloads []*v1.Workload
@@ -600,6 +604,9 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 // updateWorkload updates the workload in the system and handles CICD auth secret updates.
 func (h *Handler) updateWorkload(ctx context.Context,
 	adminWorkload *v1.Workload, requestUser *v1.User, req *view.PatchWorkloadRequest) error {
+	if err := h.validateCICDProxyReference(ctx, adminWorkload, requestUser); err != nil {
+		return err
+	}
 	err := h.Update(ctx, adminWorkload)
 	if err != nil {
 		return err
@@ -1406,7 +1413,21 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, dbWorkload *d
 			result.Message = adminWorkload.Status.Message
 		}
 	}
+	if result.Phase == string(v1.WorkloadFailed) {
+		result.Message = failedDBWorkloadMessage(dbWorkload)
+	}
 	return result
+}
+
+func failedDBWorkloadMessage(workload *dbclient.Workload) string {
+	var conditions []metav1.Condition
+	if workload.Conditions.Valid && workload.Conditions.String != "" {
+		if err := json.Unmarshal([]byte(workload.Conditions.String), &conditions); err != nil {
+			klog.Error("failed to decode stored workload failure conditions")
+			return "Workload failed; stored failure details could not be read."
+		}
+	}
+	return commonworkload.GetWorkloadFailureMessage(conditions, workload.DispatchCount)
 }
 
 // cvtDBWorkloadToGetResponse converts a database workload record to a detailed response format.

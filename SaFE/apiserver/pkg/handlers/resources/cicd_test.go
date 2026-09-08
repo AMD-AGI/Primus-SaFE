@@ -8,6 +8,7 @@ package resources
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -987,4 +988,117 @@ func Test_cleanupCICDSecrets_Guards(t *testing.T) {
 	h.cleanupCICDSecrets(ctx, workload)
 	_, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(ctx, secret.Name, metav1.GetOptions{})
 	assert.NilError(t, err, "A non-CICD workload should not have its secrets swept")
+}
+
+func proxyAPIHandler(t *testing.T) (*Handler, *v1.User, *v1.Workload, *k8sfake.Clientset) {
+	t.Helper()
+	user, role := genMockUser(), genMockRole()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Name = "proxy-workload"
+	workload.Spec.Kind = common.CICDScaleRunnerSetKind
+	workload.Spec.Env = map[string]string{common.GithubConfigUrl: "https://github.com/example", "RESOURCES": `{"replica":1,"cpu":"1","memory":"1Gi"}`, "IMAGE": "example/runner:latest", "ENTRYPOINT": "sleep 1"}
+	v1.SetLabel(workload, v1.UserIdLabel, user.Name)
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "example-node", Labels: map[string]string{common.KubernetesControlPlane: ""}}, Status: corev1.NodeStatus{Addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "192.0.2.1"}}}}
+	testScheme := runtime.NewScheme()
+	assert.NilError(t, v1.AddToScheme(testScheme))
+	assert.NilError(t, corev1.AddToScheme(testScheme))
+	cli := ctrlruntimefake.NewClientBuilder().WithScheme(testScheme).WithObjects(user, role, node).WithStatusSubresource(workload).Build()
+	assert.NilError(t, cli.Create(context.Background(), workload))
+	clientset := k8sfake.NewSimpleClientset()
+	h := &Handler{Client: cli, clientSet: clientset, accessController: &authority.AccessController{Client: cli}}
+	commonconfig.SetValue("cicd.enable", "true")
+	t.Cleanup(func() { commonconfig.SetValue("cicd.enable", "") })
+	return h, user, workload, clientset
+}
+
+func createProxyAPISecret(t *testing.T, h *Handler, user *v1.User) *corev1.Secret {
+	t.Helper()
+	secret, err := h.createSecretImpl(context.Background(), &view.CreateSecretRequest{Name: "proxy-auth", Type: v1.SecretGeneral, WorkspaceIds: []string{"test-workspace"},
+		Params: []map[view.SecretParam]string{{view.UserNameParam: "AQ==", view.PasswordParam: "Ag=="}}}, user)
+	assert.NilError(t, err)
+	return secret
+}
+
+func TestGenerateCICDScaleRunnerSet_ProxyReference(t *testing.T) {
+	for _, app := range []bool{false, true} {
+		t.Run(fmt.Sprint(app), func(t *testing.T) {
+			h, user, w, cs := proxyAPIHandler(t)
+			secret := createProxyAPISecret(t, h, user)
+			w.Spec.Env[common.ProxyUrl], w.Spec.Env[common.ProxyCredentialSecret] = "http://proxy.example.com", secret.Name
+			w.Spec.Env[GithubPAT] = "example-auth-value"
+			var auth *view.GitHubAuthRequest
+			if app {
+				auth = githubAppAuth("1", "2", "example-private-key")
+			}
+			assert.NilError(t, h.generateCICDScaleRunnerSet(context.Background(), w, user, auth))
+			assert.Equal(t, w.Spec.Env[common.ProxyCredentialSecret], secret.Name)
+			_, present := w.Spec.Env[GithubPAT]
+			assert.Assert(t, !present)
+			secrets, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).List(context.Background(), metav1.ListOptions{})
+			assert.NilError(t, err)
+			assert.Equal(t, len(secrets.Items), 2)
+			current, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).Get(context.Background(), secret.Name, metav1.GetOptions{})
+			assert.NilError(t, err)
+			assert.Equal(t, v1.GetLabel(current, v1.OwnerLabel), "")
+			assert.Equal(t, len(current.OwnerReferences), 0)
+			assert.DeepEqual(t, current.Data, secret.Data)
+			assert.Assert(t, v1.GetGithubSecretId(w) != secret.Name)
+			assert.Equal(t, len(w.Spec.Secrets), 0)
+		})
+	}
+}
+
+func TestGenerateCICDScaleRunnerSet_InvalidProxyPreflight(t *testing.T) {
+	for _, mode := range []string{"invalid", "missing", "unauthorized"} {
+		t.Run(mode, func(t *testing.T) {
+			h, user, w, cs := proxyAPIHandler(t)
+			w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com"
+			if mode == "invalid" {
+				w.Spec.Env[common.ProxyUrl] = "http://sample@example.com"
+			} else {
+				w.Spec.Env[common.ProxyCredentialSecret] = "proxy-auth"
+			}
+			if mode == "unauthorized" {
+				createProxyAPISecret(t, h, user)
+				user.Spec.Roles = nil
+			}
+			before, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).List(context.Background(), metav1.ListOptions{})
+			assert.NilError(t, err)
+			err = h.generateCICDScaleRunnerSet(context.Background(), w, user, patAuth("example-auth-value"))
+			assert.Assert(t, err != nil)
+			assert.ErrorContains(t, err, "env.PROXY_")
+			after, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).List(context.Background(), metav1.ListOptions{})
+			assert.NilError(t, err)
+			assert.Equal(t, len(after.Items), len(before.Items))
+			assert.Equal(t, v1.GetGithubSecretId(w), "")
+		})
+	}
+}
+
+func TestUpdateCICDScaleRunnerSet_ProxyValidation(t *testing.T) {
+	h, user, w, cs := proxyAPIHandler(t)
+	secret := createProxyAPISecret(t, h, user)
+	original := w.DeepCopy()
+	replacement := map[string]string{common.ProxyUrl: "http://sample@example.com", common.ProxyCredentialSecret: secret.Name}
+	req := &view.PatchWorkloadRequest{Env: &replacement, GitHubAuth: patAuth("replacement-example-auth")}
+	assert.NilError(t, applyWorkloadPatch(w, req))
+	assert.ErrorContains(t, h.updateWorkload(context.Background(), w, user, req), "userinfo is not allowed")
+	current := &v1.Workload{}
+	assert.NilError(t, h.Get(context.Background(), client.ObjectKeyFromObject(w), current))
+	assert.DeepEqual(t, current.Spec.Env, original.Spec.Env)
+	secrets, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).List(context.Background(), metav1.ListOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, len(secrets.Items), 1)
+	replacement[common.ProxyUrl] = "http://proxy.example.com"
+	req.GitHubAuth = nil
+	reads := 0
+	cs.PrependReactor("get", "secrets", func(action k8stesting.Action) (bool, runtime.Object, error) { reads++; return false, nil, nil })
+	for i := 0; i < 2; i++ {
+		assert.NilError(t, applyWorkloadPatch(current, req))
+		assert.NilError(t, h.updateWorkload(context.Background(), current, user, req))
+	}
+	assert.Equal(t, reads, 2)
+	before := current.DeepCopy()
+	assert.NilError(t, applyWorkloadPatch(current, &view.PatchWorkloadRequest{}))
+	assert.DeepEqual(t, current.Spec.Env, before.Spec.Env)
 }
