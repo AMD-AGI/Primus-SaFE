@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -84,7 +85,8 @@ func (r *SyncerReconciler) enqueueCICDFailureEnrichment(workload *v1.Workload) {
 	snapshot := &cicdFailureSnapshot{
 		workload: workload.DeepCopy(), condition: workload.Status.Conditions[index], since: since, until: workload.Status.EndTime.Time,
 	}
-	if _, exists := r.cicdFailureAttempts.LoadOrStore(cicdFailureKey(snapshot), struct{}{}); !exists {
+	attempts, _ := r.cicdFailureAttempts.LoadOrStore(workload.Name, &sync.Map{})
+	if _, exists := attempts.(*sync.Map).LoadOrStore(cicdFailureKey(snapshot), struct{}{}); !exists {
 		r.cicdFailureLogs.Add(snapshot)
 	}
 }

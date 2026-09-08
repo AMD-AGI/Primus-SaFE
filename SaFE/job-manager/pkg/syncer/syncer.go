@@ -48,6 +48,11 @@ type SyncerReconciler struct {
 	*controller.KeyedController[*resourceMessage]
 }
 
+func (r *SyncerReconciler) forgetWorkloadChecks(name string) {
+	r.vanishedPodsChecked.Delete(name)
+	r.cicdFailureAttempts.Delete(name)
+}
+
 // syncerWorkers is the number of concurrent workers for the event queue. The
 // queue is keyed by object identity, so the same object is still processed
 // serially while different objects fan out across workers.

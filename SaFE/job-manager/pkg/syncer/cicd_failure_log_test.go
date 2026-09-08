@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"gotest.tools/assert"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -251,6 +252,68 @@ func TestCICDFailureEnrichment_ConflictAndRestart(t *testing.T) {
 	assert.Equal(t, restarted.cicdFailureLogs.GetQueueSize(), 0)
 	assert.NilError(t, r.Get(context.Background(), client.ObjectKeyFromObject(w), current))
 	assert.Assert(t, strings.TrimSpace(current.Status.Message) != "")
+}
+
+func TestCICDFailureAttemptsEvictedWithWorkload(t *testing.T) {
+	for _, mode := range []string{"failed", "no pods", "deleted", "deleting", "undispatched", "missing", "fresh ended"} {
+		t.Run(mode, func(t *testing.T) {
+			r, w, _ := controllerCICDFailure(t, common.CICDScaleRunnerSetKind)
+			defer r.cicdFailureLogs.ShutDown()
+			w.Status.Pods = []v1.WorkloadPod{podRecord("example-pod", "example-node", corev1.PodRunning, time.Hour)}
+			assert.NilError(t, r.Status().Update(context.Background(), w))
+			prior := w.DeepCopy()
+			v1.SetAnnotation(prior, v1.WorkloadDispatchedAnnotation, timeutil.FormatRFC3339(time.Now().UTC().Add(-time.Hour)))
+			r.enqueueCICDFailureEnrichment(prior)
+			r.enqueueCICDFailureEnrichment(w)
+			assert.Equal(t, r.cicdFailureLogs.GetQueueSize(), 2)
+			var keys []any
+			r.cicdFailureAttempts.Range(func(key, _ any) bool {
+				keys = append(keys, key)
+				return true
+			})
+			assert.Assert(t, len(keys) > 0)
+			other := w.DeepCopy()
+			other.Name += "-other"
+			other.UID += "-other"
+			r.enqueueCICDFailureEnrichment(other)
+			assert.Equal(t, r.cicdFailureLogs.GetQueueSize(), 3)
+			message := &resourceMessage{action: ResourceUpdate}
+			r.vanishedPodsChecked.Store(w.Name, struct{}{})
+			switch mode {
+			case "no pods":
+				w.Status.Pods = nil
+			case "deleted", "deleting":
+				w.Status.Phase = v1.WorkloadRunning
+				message.action = ResourceDel
+				if mode == "deleting" {
+					message.action = ResourceDeleting
+				}
+			case "undispatched":
+				w.Status.Phase = v1.WorkloadRunning
+				v1.RemoveAnnotation(w, v1.WorkloadDispatchedAnnotation)
+			case "missing", "fresh ended":
+				w.Status.Phase = v1.WorkloadRunning
+				r.vanishedPodsChecked.Delete(w.Name)
+				if mode == "missing" {
+					assert.NilError(t, r.Delete(context.Background(), w))
+				}
+			}
+
+			assert.NilError(t, r.reconcileVanishedPods(context.Background(), nil, w, message))
+			_, remembered := r.vanishedPodsChecked.Load(w.Name)
+			assert.Equal(t, remembered, false)
+			for _, key := range keys {
+				_, remembered = r.cicdFailureAttempts.Load(key)
+				assert.Equal(t, remembered, false, "failure attempts are evicted with the workload")
+			}
+			remaining := 0
+			r.cicdFailureAttempts.Range(func(_, _ any) bool {
+				remaining++
+				return true
+			})
+			assert.Equal(t, remaining, 1, "another workload's attempts are retained")
+		})
+	}
 }
 
 func TestCICDFailureEnrichment_DiscardsStaleResults(t *testing.T) {
