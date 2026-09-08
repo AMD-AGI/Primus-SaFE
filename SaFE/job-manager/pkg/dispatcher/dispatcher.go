@@ -732,7 +732,8 @@ func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 	if commonworkload.IsCICDGithubRunner(adminWorkload) {
 		envs, err := jobutils.GetEnv(obj, rt, len(adminWorkload.Spec.Resources))
 		if err != nil {
-			return true
+			klog.ErrorS(err, "failed to get env", "obj", obj.GetName())
+			return false
 		}
 		return convertEnvsToStringMap(envs)[jobutils.GithubSecretEnv] !=
 			v1.GetGithubSecretId(adminWorkload)

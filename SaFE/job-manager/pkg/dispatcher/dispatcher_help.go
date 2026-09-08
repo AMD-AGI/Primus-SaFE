@@ -760,20 +760,24 @@ func applyGithubRunnerProxyEnv(envs map[string]string) {
 	if strings.TrimSpace(envs[common.GithubProxyURL]) == "" {
 		if proxyURL := commonconfig.GetCICDGithubProxyURL(); proxyURL != "" {
 			envs[common.GithubProxyURL] = proxyURL
-			if strings.TrimSpace(envs[common.GithubProxyUsername]) == "" {
-				envs[common.GithubProxyUsername] = commonconfig.GetCICDGithubProxyUsername()
-			}
-			if strings.TrimSpace(envs[common.GithubProxyNoProxy]) == "" {
-				envs[common.GithubProxyNoProxy] = commonconfig.GetCICDGithubProxyNoProxy()
-			}
 		}
+	}
+	if strings.TrimSpace(envs[common.GithubProxyURL]) == "" {
 		return
 	}
 	if strings.TrimSpace(envs[common.GithubProxyUsername]) == "" {
-		envs[common.GithubProxyUsername] = "github"
+		if username := commonconfig.GetCICDGithubProxyUsername(); username != "" {
+			envs[common.GithubProxyUsername] = username
+		} else {
+			envs[common.GithubProxyUsername] = "github"
+		}
 	}
 	if strings.TrimSpace(envs[common.GithubProxyNoProxy]) == "" {
-		envs[common.GithubProxyNoProxy] = "localhost,127.0.0.1,::1,.svc,.cluster.local"
+		if noProxy := commonconfig.GetCICDGithubProxyNoProxy(); noProxy != "" {
+			envs[common.GithubProxyNoProxy] = noProxy
+		} else {
+			envs[common.GithubProxyNoProxy] = "localhost,127.0.0.1,::1,.svc,.cluster.local"
+		}
 	}
 }
 

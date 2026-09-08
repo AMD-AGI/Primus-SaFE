@@ -28,7 +28,16 @@ const githubRunnerProxySetup = `setup_github_proxy() {
   RELAY_DIR="${RUNNER_TEMP:-/tmp}"
   RELAY_JS="${RELAY_DIR}/github-proxy-relay.js"
   RELAY_LOG="${RELAY_DIR}/github-proxy-relay.log"
+  RELAY_PID_FILE="${RELAY_DIR}/github-proxy-relay.pid"
   RELAY_PORT="${GITHUB_PROXY_RELAY_PORT:-3129}"
+  if [ -f "${RELAY_PID_FILE}" ]; then
+    RELAY_PID="$(cat "${RELAY_PID_FILE}")"
+    if [ -n "${RELAY_PID}" ] && kill -0 "${RELAY_PID}" 2>/dev/null; then
+      export http_proxy="http://127.0.0.1:${RELAY_PORT}" HTTP_PROXY="http://127.0.0.1:${RELAY_PORT}"
+      export https_proxy="http://127.0.0.1:${RELAY_PORT}" HTTPS_PROXY="http://127.0.0.1:${RELAY_PORT}"
+      return 0
+    fi
+  fi
   NODE_BIN="$(find "${RUNNER_DIR}/externals" -type f -path '*/bin/node' 2>/dev/null | sort | head -n 1 || true)"
   if [ -z "${NODE_BIN}" ] || [ ! -x "${NODE_BIN}" ]; then
     echo "github proxy relay: node binary not found under ${RUNNER_DIR}/externals" >&2
@@ -36,19 +45,46 @@ const githubRunnerProxySetup = `setup_github_proxy() {
   fi
   cat >"${RELAY_JS}" <<'RELAY_EOF'
 const net = require('net');
+const tls = require('tls');
 const upstream = new URL(process.env.RELAY_UPSTREAM);
-const upstreamPort = Number(upstream.port) || 3128;
 const credential = Buffer.from(
   process.env.RELAY_USER + ':' + process.env.RELAY_SECRET
 ).toString('base64');
 
-function relay(client, header, body) {
+function upstreamPort() {
+  if (upstream.port) {
+    return Number(upstream.port);
+  }
+  return upstream.protocol === 'https:' ? 443 : 80;
+}
+
+function connectUpstream(onConnect) {
+  const port = upstreamPort();
+  const host = upstream.hostname;
+  if (upstream.protocol === 'https:') {
+    return tls.connect({ host: host, port: port, servername: host }, onConnect);
+  }
+  return net.connect(port, host, onConnect);
+}
+
+function rewrite(header) {
   const lines = header
     .split('\r\n')
     .filter((line) => !/^proxy-authorization:/i.test(line));
+  const method = (lines[0] || '').split(' ')[0].toUpperCase();
   lines.splice(1, 0, 'Proxy-Authorization: Basic ' + credential);
-  const server = net.connect(upstreamPort, upstream.hostname, () => {
-    server.write(lines.join('\r\n') + '\r\n\r\n');
+  if (method !== 'CONNECT') {
+    const kept = lines.filter((line) => !/^connection:/i.test(line));
+    kept.splice(1, 0, 'Connection: close');
+    return { method: method, payload: kept.join('\r\n') + '\r\n\r\n' };
+  }
+  return { method: method, payload: lines.join('\r\n') + '\r\n\r\n' };
+}
+
+function relay(client, header, body) {
+  const rewritten = rewrite(header);
+  const server = connectUpstream(() => {
+    server.write(rewritten.payload);
     if (body.length > 0) {
       server.write(body);
     }
@@ -84,6 +120,7 @@ RELAY_EOF
   RELAY_UPSTREAM="${GITHUB_PROXY_URL}" RELAY_PORT="${RELAY_PORT}" \
     RELAY_USER="${GITHUB_PROXY_USERNAME:-github}" RELAY_SECRET="${PROXY_SECRET}" \
     "${NODE_BIN}" "${RELAY_JS}" >"${RELAY_LOG}" 2>&1 &
+  echo $! >"${RELAY_PID_FILE}"
   RELAY_WAIT=0
   while [ "${RELAY_WAIT}" -lt 10 ]; do
     if grep -q 'github proxy relay listening' "${RELAY_LOG}" 2>/dev/null; then
@@ -120,8 +157,16 @@ TOKEN_FILE="` + common.SecretPath + `/${GITHUB_SECRET_ID}/github_token"
 ` + githubRunnerProxySetup + `setup_github_proxy
 cd "${RUNNER_DIR}"
 if [ ! -f "${STATE_DIR}/.credentials" ] || [ ! -f "${STATE_DIR}/.runner" ]; then
+  if [ -f "${STATE_DIR}/.register_failed" ]; then
+    echo "github runner registration already failed; patch a new githubAuth.token" >&2
+    exit 1
+  fi
   TOKEN="$(cat "${TOKEN_FILE}")"
-  ./config.sh --unattended --url "${GITHUB_CONFIG_URL}" --token "${TOKEN}" --name "${POD_NAME}" --labels "${LABELS}" --replace --work _work
+  if ! ./config.sh --unattended --url "${GITHUB_CONFIG_URL}" --token "${TOKEN}" --name "${POD_NAME}" --labels "${LABELS}" --replace --work _work; then
+    touch "${STATE_DIR}/.register_failed"
+    echo "github runner registration failed" >&2
+    exit 1
+  fi
   cp -f .runner "${STATE_DIR}/.runner.tmp"
   if [ -f .credentials_rsaparams ]; then
     cp -f .credentials_rsaparams "${STATE_DIR}/.credentials_rsaparams.tmp"
@@ -132,6 +177,7 @@ if [ ! -f "${STATE_DIR}/.credentials" ] || [ ! -f "${STATE_DIR}/.runner" ]; then
     mv -f "${STATE_DIR}/.credentials_rsaparams.tmp" "${STATE_DIR}/.credentials_rsaparams"
   fi
   mv -f "${STATE_DIR}/.credentials.tmp" "${STATE_DIR}/.credentials"
+  rm -f "${STATE_DIR}/.register_failed"
 else
   cp -f "${STATE_DIR}/.credentials" "${RUNNER_DIR}/.credentials"
   cp -f "${STATE_DIR}/.runner" "${RUNNER_DIR}/.runner"
@@ -173,10 +219,18 @@ STATE_DIR="${GITHUB_RUNNER_STATE_ROOT:-}/${POD_NAME:-}"
   [ "${ORDINAL}" -ge "${REPLICAS}" ]
 }
 if should_deregister; then
-  setup_github_proxy
-  cd "${RUNNER_DIR}" && ./config.sh remove --unattended || true
-  if [ -n "${GITHUB_RUNNER_STATE_ROOT:-}" ] && [ -n "${POD_NAME:-}" ]; then
-    rm -rf "${STATE_DIR}"
+  if ! setup_github_proxy; then
+    echo "github proxy setup failed; keeping ${STATE_DIR}" >&2
+  else
+    cd "${RUNNER_DIR}" && ./config.sh remove --unattended
+    REMOVE_STATUS=$?
+    if [ "${REMOVE_STATUS}" -eq 0 ]; then
+      if [ -n "${GITHUB_RUNNER_STATE_ROOT:-}" ] && [ -n "${POD_NAME:-}" ]; then
+        rm -rf "${STATE_DIR}"
+      fi
+    else
+      echo "github runner deregister failed; keeping ${STATE_DIR}" >&2
+    fi
   fi
 fi
 `

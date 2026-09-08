@@ -27,6 +27,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -207,7 +208,7 @@ func TestWorkloadMutateGithubRunner(t *testing.T) {
 	assert.Equal(t, w.Spec.MaxRetry, 0)
 	assert.Equal(t, len(w.Spec.Resources), 1)
 	assert.Equal(t, len(w.Spec.EntryPoints), 1)
-	assert.Equal(t, w.Spec.EntryPoints[0], "one")
+	assert.Equal(t, w.Spec.EntryPoints[0], commonworkload.GithubRunnerStartScript())
 }
 
 // TestWorkloadMutateTorchFT verifies torchFT env defaulting.
@@ -850,6 +851,15 @@ func TestGithubRunnerPoolLabelsIgnoresDeletingWorkloads(t *testing.T) {
 	now := metav1.Now()
 	existing.SetDeletionTimestamp(&now)
 	existing.SetFinalizers([]string{"primus-safe/workload.finalizer"})
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+	assert.NilError(t, v.validateGithubRunner(context.Background(), githubRunnerForLabelTest("runner-b", "shared-label")))
+}
+
+func TestGithubRunnerPoolLabelsIgnoresStoppedWorkloads(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "shared-label")
+	existing.Status.Phase = v1.WorkloadStopped
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
 	v := &WorkloadValidator{Client: c}
 	assert.NilError(t, v.validateGithubRunner(context.Background(), githubRunnerForLabelTest("runner-b", "shared-label")))

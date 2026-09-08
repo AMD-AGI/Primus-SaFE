@@ -386,6 +386,14 @@ func TestIsCICDSecretChanged(t *testing.T) {
 	assert.Equal(t, ok, true)
 }
 
+func TestIsGithubSecretChangedGetEnvError(t *testing.T) {
+	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+	adminWorkload.Spec.Kind = common.CICDGithubRunnerKind
+	v1.SetAnnotation(adminWorkload, v1.GithubSecretIdAnnotation, "runner-secret")
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	assert.Equal(t, isGithubSecretChanged(adminWorkload, obj, jobutils.TestStatefulSetResourceTemplate), false)
+}
+
 func TestIsShareMemoryChanged(t *testing.T) {
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
 	assert.NilError(t, err)
@@ -1094,8 +1102,7 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 	assert.Equal(t, envsMap[common.GithubProxyUsername], "github")
 	_, hasProxyPassword := envsMap[common.GithubProxyPassword]
 	assert.Equal(t, hasProxyPassword, false)
-	assert.Equal(t, envsMap[common.GithubProxyNoProxy],
-		"localhost,127.0.0.1,::1,.svc,.cluster.local")
+	assert.Equal(t, envsMap[common.GithubProxyNoProxy], "localhost,.svc")
 	sa, found, err := unstructured.NestedString(obj.Object, "spec", "template", "spec", "serviceAccountName")
 	assert.NilError(t, err)
 	assert.Assert(t, found)

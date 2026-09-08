@@ -435,9 +435,7 @@ func (m *WorkloadMutator) mutateGithubRunner(workload *v1.Workload) {
 	if len(workload.Spec.EntryPoints) > 1 {
 		workload.Spec.EntryPoints = workload.Spec.EntryPoints[0:1]
 	}
-	if len(workload.Spec.EntryPoints) == 0 || workload.Spec.EntryPoints[0] == "" {
-		workload.Spec.EntryPoints = []string{commonworkload.GithubRunnerStartScript()}
-	}
+	workload.Spec.EntryPoints = []string{commonworkload.GithubRunnerStartScript()}
 }
 
 // mutateMonarchJob sets no-retry, disable Supervised
@@ -1192,7 +1190,7 @@ func (v *WorkloadValidator) validateGithubRunnerLabelsUnique(ctx context.Context
 	}
 	for i := range list.Items {
 		other := &list.Items[i]
-		if other.Name == workload.Name || !other.GetDeletionTimestamp().IsZero() {
+		if other.Name == workload.Name || other.IsEnd() {
 			continue
 		}
 		if !commonworkload.IsCICDGithubRunner(other) {

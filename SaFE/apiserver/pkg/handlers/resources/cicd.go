@@ -327,19 +327,7 @@ func (h *Handler) updateGithubRunnerSecret(ctx context.Context, workload *v1.Wor
 	return &cicdSecretRotation{NewSecretId: newSecret.Name, SupersededSecretId: oldSecretId}, nil
 }
 
-func validateGithubRunnerProxyPassword(password string) error {
-	if commonconfig.GetCICDGithubProxyURL() == "" {
-		if strings.TrimSpace(password) != "" {
-			return commonerrors.NewBadRequest("the github proxy is not configured")
-		}
-		return nil
-	}
-	if commonconfig.GetCICDGithubProxyUsername() == "" {
-		return commonerrors.NewInternalError("the github proxy username is not configured")
-	}
-	if strings.TrimSpace(password) == "" {
-		return commonerrors.NewBadRequest("the github proxy password is empty")
-	}
+func validateGithubRunnerProxyPassword(_ string) error {
 	return nil
 }
 
@@ -379,6 +367,22 @@ func validateGithubRunnerAuth(auth *view.GitHubAuthRequest) error {
 		}
 	default:
 		return commonerrors.NewBadRequest("github runner requires type registration_token")
+	}
+	return nil
+}
+
+func githubRunnerProxyPasswordFromPatch(req *view.PatchWorkloadRequest) *string {
+	if req == nil {
+		return nil
+	}
+	if req.GitHubProxyPassword != nil {
+		return req.GitHubProxyPassword
+	}
+	if env := requestEnv(req); env != nil {
+		if value, ok := env[common.GithubProxyPassword]; ok {
+			trimmed := strings.TrimSpace(value)
+			return &trimmed
+		}
 	}
 	return nil
 }

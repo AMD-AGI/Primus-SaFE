@@ -70,7 +70,8 @@ func TestGithubRunnerStopScriptRemovesOnlyWhenLeavingPool(t *testing.T) {
 	assert.Assert(t, strings.Contains(script, `rm -rf "${STATE_DIR}"`))
 	// The k8s API is reached by IP, which no_proxy cannot bypass, so the proxy
 	// must be set up only after should_deregister has queried the StatefulSet.
-	assert.Assert(t, strings.Index(script, "if should_deregister; then\n  setup_github_proxy") > 0)
+	assert.Assert(t, strings.Index(script, "if should_deregister; then\n  if ! setup_github_proxy") > 0)
+	assert.Assert(t, strings.Contains(script, "github runner deregister failed; keeping ${STATE_DIR}"))
 }
 
 func TestGetK8sServiceName(t *testing.T) {

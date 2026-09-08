@@ -993,6 +993,84 @@ func TestUpdateGithubRunnerSecretRotatesTokenWithoutProxyPassword(t *testing.T) 
 	assert.Equal(t, string(newSecret.Data[GitHubProxyPassword]), "")
 }
 
+func TestGithubRunnerProxyPasswordFromPatchReadsEnv(t *testing.T) {
+	env := map[string]string{common.GithubProxyPassword: "env-password"}
+	req := &view.PatchWorkloadRequest{Env: &env}
+	got := githubRunnerProxyPasswordFromPatch(req)
+	assert.Assert(t, got != nil)
+	assert.Equal(t, *got, "env-password")
+
+	field := "field-password"
+	req.GitHubProxyPassword = &field
+	got = githubRunnerProxyPasswordFromPatch(req)
+	assert.Equal(t, *got, "field-password")
+}
+
+func TestGenerateGithubRunnerAllowsPasswordWithoutClusterProxy(t *testing.T) {
+	commonconfig.SetValue("cicd.enable", "true")
+	defer commonconfig.SetValue("cicd.enable", "")
+
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Env = map[string]string{
+		common.GithubConfigUrl: "https://github.com/test/repo",
+		common.GithubProxyURL:  "http://custom-proxy:8080",
+	}
+	user := genMockUser()
+	role := genMockRole()
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
+		Build()
+	fakeClientSet := k8sfake.NewSimpleClientset()
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        fakeClientSet,
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+	err := h.generateGithubRunner(ctx, workload, user, &view.GitHubAuthRequest{
+		Type:  GitHubAuthTypeRegistrationToken,
+		Token: "registration-token",
+	}, "workload-password")
+	assert.NilError(t, err)
+	secret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).
+		Get(ctx, v1.GetGithubSecretId(workload), metav1.GetOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, string(secret.Data[GitHubProxyPassword]), "workload-password")
+}
+
+func TestGenerateGithubRunnerAllowsEmptyPasswordWithClusterProxy(t *testing.T) {
+	commonconfig.SetValue("cicd.enable", "true")
+	commonconfig.SetValue("cicd.github_proxy_url", "http://github-proxy:3128")
+	commonconfig.SetValue("cicd.github_proxy_username", "github")
+	defer commonconfig.SetValue("cicd.enable", "")
+	defer commonconfig.SetValue("cicd.github_proxy_url", "")
+	defer commonconfig.SetValue("cicd.github_proxy_username", "")
+
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Env = map[string]string{common.GithubConfigUrl: "https://github.com/test/repo"}
+	user := genMockUser()
+	role := genMockRole()
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
+		Build()
+	fakeClientSet := k8sfake.NewSimpleClientset()
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        fakeClientSet,
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+	err := h.generateGithubRunner(ctx, workload, user, &view.GitHubAuthRequest{
+		Type:  GitHubAuthTypeRegistrationToken,
+		Token: "registration-token",
+	}, "")
+	assert.NilError(t, err)
+}
+
 // Test_generateCICDScaleRunnerSet tests generating CICD scale runner set configuration
 func Test_generateCICDScaleRunnerSet(t *testing.T) {
 	commonconfig.SetValue("cicd.enable", "true")

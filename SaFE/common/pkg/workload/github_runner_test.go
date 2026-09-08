@@ -19,5 +19,12 @@ func TestGithubRunnerProxySetupFailsClosed(t *testing.T) {
 	assert.Assert(t, strings.Contains(start, "failed to listen"))
 	assert.Assert(t, strings.Contains(start, "client.pause()"))
 	assert.Assert(t, strings.Contains(start, "client.resume()"))
+	assert.Assert(t, strings.Contains(start, "github-proxy-relay.pid"))
+	assert.Assert(t, strings.Contains(start, "tls.connect"))
+	assert.Assert(t, strings.Contains(start, "protocol === 'https:' ? 443 : 80"))
+	assert.Assert(t, strings.Contains(start, "Connection: close"))
+	assert.Assert(t, strings.Contains(start, ".register_failed"))
 	assert.Assert(t, strings.Contains(stop, "node binary not found"))
+	assert.Assert(t, strings.Contains(stop, "kill -0"))
+	assert.Assert(t, strings.Contains(stop, "keeping ${STATE_DIR}"))
 }

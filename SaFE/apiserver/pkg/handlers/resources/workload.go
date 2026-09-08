@@ -627,10 +627,11 @@ func (h *Handler) updateWorkload(ctx context.Context,
 	}
 	if commonworkload.IsCICDGithubRunner(adminWorkload) {
 		auth := normalizeGithubRunnerAuth(req.GitHubAuth, requestEnv(req))
-		if auth != nil || req.GitHubProxyPassword != nil {
+		proxyPassword := githubRunnerProxyPasswordFromPatch(req)
+		if auth != nil || proxyPassword != nil {
 			patch := client.MergeFrom(adminWorkload.DeepCopy())
 			rotation, secretErr := h.updateGithubRunnerSecret(
-				ctx, adminWorkload, requestUser, auth, req.GitHubProxyPassword)
+				ctx, adminWorkload, requestUser, auth, proxyPassword)
 			if secretErr != nil {
 				klog.ErrorS(secretErr, "failed to update github runner secret")
 				return secretErr

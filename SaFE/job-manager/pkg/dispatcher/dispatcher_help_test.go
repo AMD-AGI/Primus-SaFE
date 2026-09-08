@@ -1702,6 +1702,30 @@ func TestBuildPersistentVolumeMountsOrdersAncestorsFirst(t *testing.T) {
 	assert.Equal(t, nested["readOnly"], false)
 }
 
+func TestApplyGithubRunnerProxyEnvKeepsCustomUsername(t *testing.T) {
+	commonconfig.SetValue("cicd.github_proxy_username", "cluster-user")
+	commonconfig.SetValue("cicd.github_proxy_no_proxy", "cluster-noproxy")
+	defer commonconfig.SetValue("cicd.github_proxy_username", "")
+	defer commonconfig.SetValue("cicd.github_proxy_no_proxy", "")
+
+	envs := map[string]string{
+		common.GithubProxyURL:      "http://custom-proxy:8080",
+		common.GithubProxyUsername: "custom-user",
+	}
+	applyGithubRunnerProxyEnv(envs)
+	assert.Equal(t, envs[common.GithubProxyUsername], "custom-user")
+	assert.Equal(t, envs[common.GithubProxyNoProxy], "cluster-noproxy")
+}
+
+func TestApplyGithubRunnerProxyEnvUsesClusterUsernameForCustomURL(t *testing.T) {
+	commonconfig.SetValue("cicd.github_proxy_username", "cluster-user")
+	defer commonconfig.SetValue("cicd.github_proxy_username", "")
+
+	envs := map[string]string{common.GithubProxyURL: "http://custom-proxy:8080"}
+	applyGithubRunnerProxyEnv(envs)
+	assert.Equal(t, envs[common.GithubProxyUsername], "cluster-user")
+}
+
 func TestGithubRunnerWritableMountPath(t *testing.T) {
 	const userId = "user-1"
 	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
