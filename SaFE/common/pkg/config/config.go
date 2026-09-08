@@ -519,6 +519,13 @@ func GetCICDControllerName() string {
 	return getString(cicdControllerName, "")
 }
 
+// GetCICDNoProxy returns the cluster-wide proxy bypass list merged into every
+// CI/CD workload's proxy configuration, for hosts a workload cannot know about
+// (package mirrors, internal registries).
+func GetCICDNoProxy() string {
+	return getString(cicdNoProxy, "")
+}
+
 // GetModelDownloaderImage returns the image for model downloader job.
 // Used for downloading models from HuggingFace and uploading to S3.
 func GetModelDownloaderImage() string {

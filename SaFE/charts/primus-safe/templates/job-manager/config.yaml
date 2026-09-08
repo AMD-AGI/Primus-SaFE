@@ -53,6 +53,7 @@ data:
       enable: {{ .Values.cicd.enable }}
       role_name: {{ .Values.cicd.role_name }}
       controller_name: {{ .Values.cicd.controller_name }}
+      no_proxy: "{{ default "" (default .Values.cicd).no_proxy }}"
     opensearch:
       # Whether to enable opensearch, it is used for log search.
       enable: {{ .Values.opensearch.enable }}

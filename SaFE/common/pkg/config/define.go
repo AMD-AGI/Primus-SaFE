@@ -138,6 +138,7 @@ const (
 	cicdEnable         = cicdPrefix + "enable"
 	cicdRoleName       = cicdPrefix + "role_name"
 	cicdControllerName = cicdPrefix + "controller_name"
+	cicdNoProxy        = cicdPrefix + "no_proxy"
 
 	// model
 	modelPrefix          = "model."

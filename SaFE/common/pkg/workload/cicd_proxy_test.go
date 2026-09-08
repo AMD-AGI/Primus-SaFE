@@ -6,11 +6,13 @@
 package workload
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	"gotest.tools/assert"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
@@ -94,4 +96,40 @@ func TestParseCICDProxy_SecretName(t *testing.T) {
 	_, err := ParseCICDProxy(map[string]string{common.ProxyCredentialSecret: "proxy-auth"})
 	assert.Assert(t, err != nil)
 	assert.Assert(t, strings.Contains(err.Error(), "requires a nonempty PROXY_URL"))
+}
+
+func TestCICDProxyNoProxy(t *testing.T) {
+	t.Setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
+	workload := &v1.Workload{}
+	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, "10.245.157.232")
+
+	merged := CICDProxyNoProxy(workload, " pypi.org , files.pythonhosted.org ", []string{"localhost", ".example.com"})
+
+	for _, required := range []string{
+		"localhost", ".svc", ".cluster.local", "10.96.0.1", "10.245.157.232", "pypi.org", ".example.com"} {
+		if !slices.Contains(merged, required) {
+			t.Fatalf("expected %q in %v", required, merged)
+		}
+	}
+	if got := slices.Index(merged, "localhost"); got != 0 {
+		t.Fatalf("reserved entries must come first, got %v", merged)
+	}
+	seen := map[string]int{}
+	for _, entry := range merged {
+		seen[entry]++
+		if seen[entry] > 1 {
+			t.Fatalf("duplicate entry %q in %v", entry, merged)
+		}
+	}
+}
+
+func TestCICDProxyNoProxyWithoutControlPlane(t *testing.T) {
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+	merged := CICDProxyNoProxy(&v1.Workload{}, "", nil)
+	if slices.Contains(merged, "") {
+		t.Fatalf("empty entry leaked into %v", merged)
+	}
+	if !slices.Contains(merged, ".cluster.local") {
+		t.Fatalf("reserved entries missing from %v", merged)
+	}
 }

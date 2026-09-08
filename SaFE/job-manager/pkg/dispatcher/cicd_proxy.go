@@ -20,6 +20,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
@@ -41,9 +42,10 @@ func desiredCICDProxy(source *v1.Workload) (map[string]interface{}, error) {
 		}
 		proxy[scheme] = endpoint
 	}
-	if len(config.NoProxy) > 0 {
-		entries := make([]interface{}, len(config.NoProxy))
-		for i, entry := range config.NoProxy {
+	noProxy := commonworkload.CICDProxyNoProxy(source, commonconfig.GetCICDNoProxy(), config.NoProxy)
+	if len(noProxy) > 0 {
+		entries := make([]interface{}, len(noProxy))
+		for i, entry := range noProxy {
 			entries[i] = entry
 		}
 		proxy["noProxy"] = entries

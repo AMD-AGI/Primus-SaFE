@@ -1823,6 +1823,7 @@ func proxyDispatcherFixture(t *testing.T, kind string, unified bool) (*Dispatche
 }
 
 func TestCreateCICDScaleSet_Proxy(t *testing.T) {
+	t.Setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
 	for _, unified := range []bool{false, true} {
 		r, w, _, rt := proxyDispatcherFixture(t, common.CICDScaleRunnerSetKind, unified)
 		obj, err := r.generateK8sObject(context.Background(), w, nil)
@@ -1839,7 +1840,8 @@ func TestCreateCICDScaleSet_Proxy(t *testing.T) {
 		}
 		list, _, err := unstructured.NestedStringSlice(obj.Object, "spec", "proxy", "noProxy")
 		assert.NilError(t, err)
-		assert.DeepEqual(t, list, []string{"localhost", ".example.com"})
+		assert.DeepEqual(t, list, []string{
+			"localhost", "127.0.0.1", "::1", ".svc", ".cluster.local", "10.96.0.1", ".example.com"})
 		containers, _, err := getContainers(w, obj, rt.Spec.ResourceSpecs[0])
 		assert.NilError(t, err)
 		if unified {

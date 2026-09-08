@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"reflect"
 	"slices"
 	"strconv"
@@ -91,6 +92,49 @@ func ParseCICDProxy(env map[string]string) (*CICDProxyConfig, error) {
 		}
 	}
 	return config, nil
+}
+
+// reservedCICDProxyNoProxy lists what a runner reaches without leaving the
+// cluster: the in-cluster service domains, and the SaFE control plane the
+// runner proxy calls back to create its EphemeralRunner. Routing either through
+// an external proxy strands the runner with no runnable job.
+func reservedCICDProxyNoProxy(workload *v1.Workload) []string {
+	entries := []string{"localhost", "127.0.0.1", "::1", ".svc", ".cluster.local"}
+	if host := v1.GetAdminControlPlane(workload); host != "" {
+		entries = append(entries, host)
+	}
+	if host := os.Getenv("KUBERNETES_SERVICE_HOST"); host != "" {
+		entries = append(entries, host)
+	}
+	return entries
+}
+
+// CICDProxyNoProxy combines the reserved entries, the cluster-wide default and
+// the workload's own list, keeping first-seen order and dropping repeats. The
+// workload cannot opt out of the reserved entries.
+func CICDProxyNoProxy(workload *v1.Workload, clusterDefault string, userEntries []string) []string {
+	merged := make([]string, 0, len(userEntries)+8)
+	seen := make(map[string]struct{})
+	add := func(entry string) {
+		if entry = strings.TrimSpace(entry); entry == "" {
+			return
+		}
+		if _, exists := seen[entry]; exists {
+			return
+		}
+		seen[entry] = struct{}{}
+		merged = append(merged, entry)
+	}
+	for _, entry := range reservedCICDProxyNoProxy(workload) {
+		add(entry)
+	}
+	for _, entry := range strings.Split(clusterDefault, ",") {
+		add(entry)
+	}
+	for _, entry := range userEntries {
+		add(entry)
+	}
+	return merged
 }
 
 func validateCICDProxyURL(endpoint string) error {
