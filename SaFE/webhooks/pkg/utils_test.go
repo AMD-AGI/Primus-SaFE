@@ -357,7 +357,7 @@ func TestWorkloadValidateRayJobBranches(t *testing.T) {
 func TestWorkloadValidateCICDBranches(t *testing.T) {
 	v := &WorkloadValidator{}
 	missingKey := &v1.Workload{Spec: v1.WorkloadSpec{Env: map[string]string{ResourcesEnv: "x"}}}
-	assert.Assert(t, v.validateCICDScalingRunnerSet(missingKey) != nil)
+	assert.Assert(t, v.validateCICDScalingRunnerSet(context.Background(), missingKey, nil) != nil)
 
 	badJSON := &v1.Workload{Spec: v1.WorkloadSpec{Env: map[string]string{
 		ResourcesEnv:           "not-json",
@@ -365,7 +365,7 @@ func TestWorkloadValidateCICDBranches(t *testing.T) {
 		ImageEnv:               "img",
 		common.GithubConfigUrl: "http://x",
 	}}}
-	assert.Assert(t, v.validateCICDScalingRunnerSet(badJSON) != nil)
+	assert.Assert(t, v.validateCICDScalingRunnerSet(context.Background(), badJSON, nil) != nil)
 }
 
 // TestWorkloadValidateImmutableCICDEnv covers cicd unified-job-enable immutability branch.
@@ -880,6 +880,8 @@ type fakeManager struct {
 
 // GetClient returns the embedded fake client.
 func (m *fakeManager) GetClient() client.Client { return m.client }
+
+func (m *fakeManager) GetAPIReader() client.Reader { return m.client }
 
 // GetScheme returns the embedded scheme.
 func (m *fakeManager) GetScheme() *runtime.Scheme { return m.scheme }

@@ -63,19 +63,22 @@ const (
 // AddWorkloadWebhook registers the workload validation and mutation webhooks.
 func AddWorkloadWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.WorkloadKind), &webhook.Admission{Handler: &WorkloadMutator{
-		Client:  mgr.GetClient(),
-		decoder: decoder,
+		Client:       mgr.GetClient(),
+		secretReader: mgr.GetAPIReader(),
+		decoder:      decoder,
 	}})
 	(*server).Register(generateValidatePath(v1.WorkloadKind), &webhook.Admission{Handler: &WorkloadValidator{
-		Client:  mgr.GetClient(),
-		decoder: decoder,
+		Client:       mgr.GetClient(),
+		secretReader: mgr.GetAPIReader(),
+		decoder:      decoder,
 	}})
 }
 
 // WorkloadMutator handles mutation logic for Workload resources on create and update.
 type WorkloadMutator struct {
 	client.Client
-	decoder admission.Decoder
+	secretReader client.Reader
+	decoder      admission.Decoder
 }
 
 // Handle processes workload admission requests and applies mutations on create and update.
@@ -129,6 +132,9 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 
 // mutateOnUpdate applies mutations during updates.
 func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) error {
+	if commonworkload.IsCICD(newWorkload) && reflect.DeepEqual(oldWorkload.Spec, newWorkload.Spec) {
+		return m.mutateCICDProxyOptIn(ctx, oldWorkload, newWorkload)
+	}
 	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
 	if err := m.mutateCommon(ctx, oldWorkload, newWorkload, workspace); err != nil {
 		return err
@@ -164,7 +170,12 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	m.mutatePriority(newWorkload)
 	m.mutateImages(newWorkload)
 	m.mutateEntryPoints(newWorkload)
-	m.mutateEnv(oldWorkload, newWorkload)
+	if err := m.mutateEnv(oldWorkload, newWorkload); err != nil {
+		return err
+	}
+	if err := m.mutateCICDProxyOptIn(ctx, oldWorkload, newWorkload); err != nil {
+		return err
+	}
 	m.mutateMaxRetry(newWorkload)
 	m.mutateRdmaResource(ctx, newWorkload)
 	m.mutateCustomerLabels(newWorkload)
@@ -657,8 +668,15 @@ func (m *WorkloadMutator) mutateMaxRetry(workload *v1.Workload) {
 	}
 }
 
-// mutateEnv removes empty values and preserves deletions from the old spec.
-func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
+func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) error {
+	if commonworkload.IsCICD(newWorkload) {
+		if oldWorkload != nil && reflect.DeepEqual(oldWorkload.Spec, newWorkload.Spec) {
+			return nil
+		}
+		if _, err := commonworkload.CICDProxyEnv(newWorkload.Spec.Env); err != nil {
+			return err
+		}
+	}
 	newEnv := make(map[string]string)
 	for key, val := range newWorkload.Spec.Env {
 		newEnv[strings.TrimSpace(key)] = val
@@ -681,6 +699,7 @@ func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 			v1.SetAnnotation(newWorkload, v1.EnvToBeRemovedAnnotation, string(jsonutils.MarshalSilently(envToBeRemoved)))
 		}
 	}
+	return nil
 }
 
 // mutateTTLSeconds sets a default TTL if not provided.
@@ -856,7 +875,8 @@ func (m *WorkloadMutator) mutateTimeout(workload *v1.Workload, workspace *v1.Wor
 // WorkloadValidator validates Workload resources on create and update operations.
 type WorkloadValidator struct {
 	client.Client
-	decoder admission.Decoder
+	secretReader client.Reader
+	decoder      admission.Decoder
 }
 
 // Handle validates workload resources on create, update, and delete operations.
@@ -931,7 +951,9 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	case common.AuthoringKind:
 		err = v.validateAuthoring(newWorkload)
 	case common.CICDScaleRunnerSetKind:
-		err = v.validateCICDScalingRunnerSet(newWorkload)
+		err = v.validateCICDScalingRunnerSet(ctx, newWorkload, oldWorkload)
+	case common.CICDEphemeralRunnerKind:
+		err = validateCICDProxyAdmission(ctx, v.Client, v.secretReader, newWorkload, oldWorkload)
 	case common.TorchFTKind:
 		err = v.validateTorchFT(newWorkload, oldWorkload)
 	case common.RayJobKind:
@@ -1066,7 +1088,10 @@ func (v *WorkloadValidator) validateAuthoring(workload *v1.Workload) error {
 }
 
 // validateCICDScalingRunnerSet validates cicd runnerSet workload configuration including environment variables and resource requirements.
-func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) error {
+func (v *WorkloadValidator) validateCICDScalingRunnerSet(ctx context.Context, workload, oldWorkload *v1.Workload) error {
+	if err := validateCICDProxyAdmission(ctx, v.Client, v.secretReader, workload, oldWorkload); err != nil {
+		return err
+	}
 	if len(workload.Spec.Env) == 0 {
 		return fmt.Errorf("the environment variables of workload is empty")
 	}
