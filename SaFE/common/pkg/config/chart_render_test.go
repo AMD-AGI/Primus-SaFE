@@ -8,11 +8,13 @@ package config
 import (
 	"bytes"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/spf13/viper"
 	testifyassert "github.com/stretchr/testify/assert"
@@ -165,4 +167,72 @@ func TestChartRendersCICDProxyRelayAsNativeSidecar(t *testing.T) {
 		return
 	}
 	t.Fatal("proxy-relay init container not found")
+}
+
+func TestChartRendersCICDProxyRelayCredentialEncoding(t *testing.T) {
+	type container struct {
+		Name string   `yaml:"name"`
+		Args []string `yaml:"args"`
+	}
+	var runner struct {
+		Spec struct {
+			Spec struct {
+				InitContainers []container `yaml:"initContainers"`
+			} `yaml:"spec"`
+		} `yaml:"spec"`
+	}
+	rendered := renderConfigMapData(t, "github-runner-template", "template",
+		"--show-only", "templates/configmap/github_runner_template.yaml",
+		"--set", "cicd.proxy_relay_image=example/proxy-relay:latest")
+	testifyrequire.NoError(t, yaml.Unmarshal([]byte(rendered), &runner))
+
+	var script string
+	for _, current := range runner.Spec.Spec.InitContainers {
+		if current.Name == "proxy-relay" {
+			testifyrequire.Len(t, current.Args, 1)
+			script = current.Args[0]
+			break
+		}
+	}
+	testifyrequire.NotEmpty(t, script)
+	testifyassert.Contains(t, script, "username=$(percent_encode </etc/secrets/proxy/username)")
+	testifyassert.Contains(t, script, "password=$(percent_encode </etc/secrets/proxy/password)")
+	testifyassert.Contains(t, script, `login=" login=${username}:${password}"`)
+
+	start := strings.Index(script, "percent_encode() {")
+	testifyrequire.NotEqual(t, -1, start)
+	end := strings.Index(script[start:], "\n}")
+	testifyrequire.NotEqual(t, -1, end)
+	encoder := script[start : start+end+2]
+	encode := func(t *testing.T, value string) string {
+		t.Helper()
+		cmd := exec.Command("/bin/sh", "-c", encoder+"\npercent_encode")
+		cmd.Stdin = strings.NewReader(value)
+		out, err := cmd.CombinedOutput()
+		testifyrequire.NoErrorf(t, err, "relay credential encoder failed: %s", out)
+		return string(out)
+	}
+
+	encodedUsername := encode(t, "proxy user%#")
+	testifyassert.Regexp(t, `^(%[0-9a-f]{2})+$`, encodedUsername)
+	for _, password := range []string{"p@ss w0rd", "p%40ss", "päss🔒"} {
+		t.Run(password, func(t *testing.T) {
+			encodedPassword := encode(t, password)
+			testifyassert.Regexp(t, `^(%[0-9a-f]{2})+$`, encodedPassword)
+			cachePeer := "cache_peer proxy.example parent 3128 0 no-query default login=" + encodedUsername + ":" + encodedPassword
+			fields := strings.Fields(cachePeer)
+			testifyrequire.Len(t, fields, 8)
+			testifyassert.Equal(t, "login="+encodedUsername+":"+encodedPassword, fields[7])
+			testifyassert.Equal(t, -1, strings.IndexFunc(fields[7], unicode.IsSpace))
+
+			credentials := strings.SplitN(strings.TrimPrefix(fields[7], "login="), ":", 2)
+			testifyrequire.Len(t, credentials, 2)
+			username, err := url.PathUnescape(credentials[0])
+			testifyrequire.NoError(t, err)
+			decodedPassword, err := url.PathUnescape(credentials[1])
+			testifyrequire.NoError(t, err)
+			testifyassert.Equal(t, "proxy user%#", username)
+			testifyassert.Equal(t, password, decodedPassword)
+		})
+	}
 }

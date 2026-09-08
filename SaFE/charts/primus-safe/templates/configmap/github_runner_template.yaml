@@ -77,9 +77,14 @@ data:
             - |
               set -eu
               : "${PROXY_UPSTREAM_HOST:?}" "${PROXY_UPSTREAM_PORT:?}"
+              percent_encode() {
+                LC_ALL=C od -A n -v -t x1 | tr -d '[:space:]' | sed 's/../%&/g'
+              }
               login=""
               if [ -s /etc/secrets/proxy/username ] && [ -s /etc/secrets/proxy/password ]; then
-                login=" login=$(cat /etc/secrets/proxy/username):$(cat /etc/secrets/proxy/password)"
+                username=$(percent_encode </etc/secrets/proxy/username)
+                password=$(percent_encode </etc/secrets/proxy/password)
+                login=" login=${username}:${password}"
               fi
               cat >/tmp/squid.conf <<EOF
               http_port ${PROXY_RELAY_PORT}
