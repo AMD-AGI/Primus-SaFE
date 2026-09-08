@@ -519,6 +519,22 @@ func GetCICDControllerName() string {
 	return getString(cicdControllerName, "")
 }
 
+// GetCICDGithubProxyURL returns the shared GitHub proxy endpoint.
+func GetCICDGithubProxyURL() string {
+	return strings.TrimSpace(getString(cicdGithubProxyURL, ""))
+}
+
+// GetCICDGithubProxyUsername returns the shared GitHub proxy username.
+func GetCICDGithubProxyUsername() string {
+	return strings.TrimSpace(getString(cicdGithubProxyUser, ""))
+}
+
+// GetCICDGithubProxyNoProxy returns the proxy bypass list.
+func GetCICDGithubProxyNoProxy() string {
+	return strings.TrimSpace(getString(cicdGithubProxyNoProxy,
+		"localhost,127.0.0.1,::1,.svc,.cluster.local"))
+}
+
 // GetModelDownloaderImage returns the image for model downloader job.
 // Used for downloading models from HuggingFace and uploading to S3.
 func GetModelDownloaderImage() string {

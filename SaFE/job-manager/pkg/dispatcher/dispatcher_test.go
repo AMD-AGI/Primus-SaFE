@@ -1000,6 +1000,13 @@ func Test_updateCICDScaleSet(t *testing.T) {
 }
 
 func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
+	commonconfig.SetValue("cicd.github_proxy_url", "http://github-proxy:3128")
+	commonconfig.SetValue("cicd.github_proxy_username", "github")
+	commonconfig.SetValue("cicd.github_proxy_no_proxy", "localhost,.svc")
+	defer commonconfig.SetValue("cicd.github_proxy_url", "")
+	defer commonconfig.SetValue("cicd.github_proxy_username", "")
+	defer commonconfig.SetValue("cicd.github_proxy_no_proxy", "")
+
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Kind = common.CICDGithubRunnerKind
@@ -1060,6 +1067,9 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 	envsMap := convertEnvsToStringMap(envs)
 	assert.Equal(t, envsMap[common.GithubRunnerStateRoot],
 		"/ceph/github-runners/"+workload.Name)
+	assert.Equal(t, envsMap[common.GithubProxyURL], "http://github-proxy:3128")
+	assert.Equal(t, envsMap[common.GithubProxyUsername], "github")
+	assert.Equal(t, envsMap[common.GithubProxyNoProxy], "localhost,.svc")
 	lifecycle := containers[0].(map[string]interface{})["lifecycle"].(map[string]interface{})
 	preStop := lifecycle["preStop"].(map[string]interface{})
 	execHook := preStop["exec"].(map[string]interface{})

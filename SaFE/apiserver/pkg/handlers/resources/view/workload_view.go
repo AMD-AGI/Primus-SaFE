@@ -17,6 +17,8 @@ type CreateWorkloadRequest struct {
 	// GitHubAuth carries CICD runner authentication material. It is used to create
 	// the ARC githubConfigSecret and must not be persisted on the workload env.
 	GitHubAuth *GitHubAuthRequest `json:"githubAuth,omitempty"`
+	// GitHubProxyPassword carries the shared GitHub proxy credential.
+	GitHubProxyPassword string `json:"githubProxyPassword,omitempty"`
 	// SpecifiedNodes defines the list of node names where the workload should run.
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
 	// NodesAffinity controls how strictly the workload adheres to SpecifiedNodes.
@@ -285,6 +287,8 @@ type WorkloadPodWrapper struct {
 type PatchWorkloadRequest struct {
 	// GitHubAuth carries updated CICD runner authentication material.
 	GitHubAuth *GitHubAuthRequest `json:"githubAuth,omitempty"`
+	// GitHubProxyPassword rotates the shared GitHub proxy credential.
+	GitHubProxyPassword *string `json:"githubProxyPassword,omitempty"`
 	// Workload scheduling Priority (0-2), default 0
 	Priority *int `json:"priority,omitempty"`
 	// Workload resource requirements

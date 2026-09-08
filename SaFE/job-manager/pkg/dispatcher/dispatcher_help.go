@@ -1335,6 +1335,11 @@ func updateGithubRunner(obj *unstructured.Unstructured,
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.GithubSecretEnv] = v1.GetGithubSecretId(adminWorkload)
 	envs[common.GithubRunnerStateRoot] = stateRoot
+	if proxyURL := commonconfig.GetCICDGithubProxyURL(); proxyURL != "" {
+		envs[common.GithubProxyURL] = proxyURL
+		envs[common.GithubProxyUsername] = commonconfig.GetCICDGithubProxyUsername()
+		envs[common.GithubProxyNoProxy] = commonconfig.GetCICDGithubProxyNoProxy()
+	}
 	if strings.TrimSpace(envs[common.RunnerLabels]) == "" {
 		envs[common.RunnerLabels] = v1.GetDisplayName(adminWorkload)
 	}

@@ -52,6 +52,9 @@ data:
     cicd:
       enable: {{ .Values.cicd.enable }}
       role_name: {{ .Values.cicd.role_name }}
+      github_proxy_url: {{ .Values.cicd.github_proxy_url | quote }}
+      github_proxy_username: {{ .Values.cicd.github_proxy_username | quote }}
+      github_proxy_no_proxy: {{ .Values.cicd.github_proxy_no_proxy | quote }}
     sandbox:
       enable: {{ .Values.sandbox.enable }}
       namespace: {{ .Values.sandbox.namespace }}

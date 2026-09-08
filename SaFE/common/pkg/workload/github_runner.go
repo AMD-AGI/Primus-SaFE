@@ -20,6 +20,21 @@ STATE_DIR="${GITHUB_RUNNER_STATE_ROOT}/${POD_NAME}"
 mkdir -p "${STATE_DIR}"
 LABELS="${RUNNER_LABELS:-${DISPLAY_NAME}}"
 TOKEN_FILE="` + common.SecretPath + `/${GITHUB_SECRET_ID}/github_token"
+if [ -n "${GITHUB_PROXY_URL:-}" ]; then
+  PROXY_PASSWORD_FILE="` + common.SecretPath + `/${GITHUB_SECRET_ID}/github_proxy_password"
+  NODE_BIN="$(find "${RUNNER_DIR}/externals" -type f -path '*/bin/node' | sort | head -n 1)"
+  encode_proxy_component() {
+    printf '%s' "$1" | "${NODE_BIN}" -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>process.stdout.write(encodeURIComponent(s)))'
+  }
+  PROXY_USER="$(encode_proxy_component "${GITHUB_PROXY_USERNAME}")"
+  PROXY_PASSWORD="$(encode_proxy_component "$(cat "${PROXY_PASSWORD_FILE}")")"
+  PROXY_SCHEME="${GITHUB_PROXY_URL%%://*}"
+  PROXY_AUTHORITY="${GITHUB_PROXY_URL#*://}"
+  PROXY="${PROXY_SCHEME}://${PROXY_USER}:${PROXY_PASSWORD}@${PROXY_AUTHORITY}"
+  export http_proxy="${PROXY}" HTTP_PROXY="${PROXY}"
+  export https_proxy="${PROXY}" HTTPS_PROXY="${PROXY}"
+  export no_proxy="${GITHUB_PROXY_NO_PROXY:-}" NO_PROXY="${GITHUB_PROXY_NO_PROXY:-}"
+fi
 cd "${RUNNER_DIR}"
 if [ ! -f "${STATE_DIR}/.credentials" ] || [ ! -f "${STATE_DIR}/.runner" ]; then
   TOKEN="$(cat "${TOKEN_FILE}")"

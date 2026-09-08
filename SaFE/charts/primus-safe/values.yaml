@@ -109,6 +109,9 @@ cicd:
   enable: true
   role_name: "gha-rs-manager"
   controller_name: "gha-runner-scale-set-gha-rs-controller"
+  github_proxy_url: ""
+  github_proxy_username: "github"
+  github_proxy_no_proxy: "localhost,127.0.0.1,::1,.svc,.cluster.local"
   # cicd component image version. used for starting jobs for runner
   runner: "cicd-runner-proxy:latest"
   unified_job: "cicd-unified-job-proxy:latest"

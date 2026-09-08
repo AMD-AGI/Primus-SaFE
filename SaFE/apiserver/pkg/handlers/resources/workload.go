@@ -626,9 +626,11 @@ func (h *Handler) updateWorkload(ctx context.Context,
 		}
 	}
 	if commonworkload.IsCICDGithubRunner(adminWorkload) {
-		if auth := normalizeGithubRunnerAuth(req.GitHubAuth, requestEnv(req)); auth != nil {
+		auth := normalizeGithubRunnerAuth(req.GitHubAuth, requestEnv(req))
+		if auth != nil || req.GitHubProxyPassword != nil {
 			patch := client.MergeFrom(adminWorkload.DeepCopy())
-			rotation, secretErr := h.updateGithubRunnerSecret(ctx, adminWorkload, requestUser, auth)
+			rotation, secretErr := h.updateGithubRunnerSecret(
+				ctx, adminWorkload, requestUser, auth, req.GitHubProxyPassword)
 			if secretErr != nil {
 				klog.ErrorS(secretErr, "failed to update github runner secret")
 				return secretErr
@@ -874,7 +876,8 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		}
 	}
 	if commonworkload.IsCICDGithubRunner(workload) {
-		if err = h.generateGithubRunner(ctx, workload, requestUser, req.GitHubAuth); err != nil {
+		if err = h.generateGithubRunner(
+			ctx, workload, requestUser, req.GitHubAuth, req.GitHubProxyPassword); err != nil {
 			return nil, err
 		}
 	}
@@ -1355,6 +1358,10 @@ func sanitizePatchWorkloadRequestForLog(req *view.PatchWorkloadRequest) view.Pat
 		return view.PatchWorkloadRequest{}
 	}
 	sanitized := *req
+	if sanitized.GitHubProxyPassword != nil {
+		redacted := ""
+		sanitized.GitHubProxyPassword = &redacted
+	}
 	if sanitized.GitHubAuth != nil {
 		auth := *sanitized.GitHubAuth
 		auth.Token = ""

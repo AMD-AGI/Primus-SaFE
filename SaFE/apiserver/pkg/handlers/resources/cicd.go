@@ -35,6 +35,7 @@ const (
 	GitHubAppId                     = "github_app_id"
 	GitHubAppInstallationId         = "github_app_installation_id"
 	GitHubAppPrivateKey             = "github_app_private_key"
+	GitHubProxyPassword             = "github_proxy_password"
 )
 
 // createCICDSecret creates a new secret for CICD scaling runner workloads.
@@ -221,7 +222,7 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 // generateGithubRunner stores the one-time GitHub registration token in a secret
 // and attaches that secret to the workload so the runner pod can mount it.
 func (h *Handler) generateGithubRunner(ctx context.Context, workload *v1.Workload,
-	requestUser *v1.User, auth *view.GitHubAuthRequest) error {
+	requestUser *v1.User, auth *view.GitHubAuthRequest, proxyPassword string) error {
 	if !commonconfig.IsCICDEnable() {
 		return commonerrors.NewNotImplemented("the CICD is not enabled")
 	}
@@ -229,7 +230,11 @@ func (h *Handler) generateGithubRunner(ctx context.Context, workload *v1.Workloa
 	if err := validateGithubRunnerAuth(auth); err != nil {
 		return err
 	}
-	secret, err := h.createGithubRunnerSecret(ctx, workload, requestUser, auth)
+	if err := validateGithubRunnerProxyPassword(proxyPassword); err != nil {
+		return err
+	}
+	secret, err := h.createGithubRunnerSecret(
+		ctx, workload, requestUser, strings.TrimSpace(auth.Token), strings.TrimSpace(proxyPassword))
 	if err != nil {
 		return err
 	}
@@ -240,9 +245,12 @@ func (h *Handler) generateGithubRunner(ctx context.Context, workload *v1.Workloa
 }
 
 func (h *Handler) createGithubRunnerSecret(ctx context.Context,
-	workload *v1.Workload, requestUser *v1.User, auth *view.GitHubAuthRequest) (*corev1.Secret, error) {
-	if err := validateGithubRunnerAuth(auth); err != nil {
-		return nil, err
+	workload *v1.Workload, requestUser *v1.User, token, proxyPassword string) (*corev1.Secret, error) {
+	params := map[view.SecretParam]string{
+		GitHubToken: stringutil.Base64Encode(token),
+	}
+	if proxyPassword != "" {
+		params[GitHubProxyPassword] = stringutil.Base64Encode(proxyPassword)
 	}
 	name := commonutils.GenerateName(v1.GetDisplayName(workload))
 	createSecretReq := &view.CreateSecretRequest{
@@ -250,9 +258,7 @@ func (h *Handler) createGithubRunnerSecret(ctx context.Context,
 		WorkspaceIds: []string{workload.Spec.Workspace},
 		Type:         v1.SecretGeneral,
 		Owner:        workload.Name,
-		Params: []map[view.SecretParam]string{
-			{GitHubToken: stringutil.Base64Encode(strings.TrimSpace(auth.Token))},
-		},
+		Params:       []map[view.SecretParam]string{params},
 		Labels: map[string]string{
 			"secret.usage": "github-runner",
 		},
@@ -265,32 +271,76 @@ func (h *Handler) createGithubRunnerSecret(ctx context.Context,
 	return secret, nil
 }
 
-// updateGithubRunnerSecret rotates the registration token for scale-up of new ordinals.
+// updateGithubRunnerSecret rotates runner authentication while preserving omitted values.
 func (h *Handler) updateGithubRunnerSecret(ctx context.Context, workload *v1.Workload,
-	requestUser *v1.User, auth *view.GitHubAuthRequest) (*cicdSecretRotation, error) {
-	if err := validateGithubRunnerAuth(auth); err != nil {
-		return nil, err
+	requestUser *v1.User, auth *view.GitHubAuthRequest, proxyPassword *string) (*cicdSecretRotation, error) {
+	if auth != nil {
+		if err := validateGithubRunnerAuth(auth); err != nil {
+			return nil, err
+		}
+	}
+	if proxyPassword != nil {
+		if err := validateGithubRunnerProxyPassword(*proxyPassword); err != nil {
+			return nil, err
+		}
 	}
 	oldSecretId := v1.GetGithubSecretId(workload)
+	token := ""
+	password := ""
+	var oldSecret *corev1.Secret
 	if oldSecretId != "" {
-		oldSecret, err := h.getAdminSecret(ctx, oldSecretId)
+		var err error
+		oldSecret, err = h.getAdminSecret(ctx, oldSecretId)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				oldSecretId = ""
 			} else {
 				return nil, fmt.Errorf("failed to get existing github runner secret %q: %w", oldSecretId, err)
 			}
-		} else if string(oldSecret.Data[GitHubToken]) == strings.TrimSpace(auth.Token) {
-			return nil, nil
+		} else {
+			token = string(oldSecret.Data[GitHubToken])
+			password = string(oldSecret.Data[GitHubProxyPassword])
 		}
 	}
-	newSecret, err := h.createGithubRunnerSecret(ctx, workload, requestUser, auth)
+	if auth != nil {
+		token = strings.TrimSpace(auth.Token)
+	}
+	if proxyPassword != nil {
+		password = strings.TrimSpace(*proxyPassword)
+	}
+	if token == "" {
+		return nil, commonerrors.NewBadRequest("the github registration token is empty")
+	}
+	if commonconfig.GetCICDGithubProxyURL() != "" && password == "" {
+		return nil, commonerrors.NewBadRequest("the github proxy password is empty")
+	}
+	if oldSecret != nil && string(oldSecret.Data[GitHubToken]) == token &&
+		string(oldSecret.Data[GitHubProxyPassword]) == password {
+		return nil, nil
+	}
+	newSecret, err := h.createGithubRunnerSecret(ctx, workload, requestUser, token, password)
 	if err != nil {
 		return nil, err
 	}
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, newSecret.Name)
 	replaceGithubRunnerSecret(workload, oldSecretId, newSecret.Name)
 	return &cicdSecretRotation{NewSecretId: newSecret.Name, SupersededSecretId: oldSecretId}, nil
+}
+
+func validateGithubRunnerProxyPassword(password string) error {
+	if commonconfig.GetCICDGithubProxyURL() == "" {
+		if strings.TrimSpace(password) != "" {
+			return commonerrors.NewBadRequest("the github proxy is not configured")
+		}
+		return nil
+	}
+	if commonconfig.GetCICDGithubProxyUsername() == "" {
+		return commonerrors.NewInternalError("the github proxy username is not configured")
+	}
+	if strings.TrimSpace(password) == "" {
+		return commonerrors.NewBadRequest("the github proxy password is empty")
+	}
+	return nil
 }
 
 func normalizeGithubRunnerAuth(auth *view.GitHubAuthRequest, env map[string]string) *view.GitHubAuthRequest {
