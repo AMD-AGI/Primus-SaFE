@@ -41,15 +41,25 @@ func TestGithubRunnerStartScriptUsesCompleteAtomicState(t *testing.T) {
 	assert.Assert(t, strings.Index(script, `STATE_DIR="${GITHUB_RUNNER_STATE_ROOT}/${POD_NAME}"`) >
 		strings.Index(script, `GITHUB_RUNNER_STATE_ROOT and POD_NAME are required`))
 	assert.Assert(t, strings.Contains(script,
-		`PROXY_PASSWORD_FILE="/etc/secrets/${GITHUB_SECRET_ID}/github_proxy_password"`))
+		`PROXY_SECRET_FILE="/etc/secrets/${GITHUB_SECRET_ID:-}/github_proxy_password"`))
 	assert.Assert(t, strings.Contains(script,
 		`PROXY_SECRET="${GITHUB_PROXY_PASSWORD:-}"`))
 	assert.Assert(t, strings.Contains(script,
-		`export http_proxy="${PROXY}" HTTP_PROXY="${PROXY}"`))
-	assert.Assert(t, strings.Contains(script,
-		`export https_proxy="${PROXY}" HTTPS_PROXY="${PROXY}"`))
-	assert.Assert(t, strings.Contains(script,
 		`export no_proxy="${GITHUB_PROXY_NO_PROXY:-localhost,127.0.0.1,::1,.svc,.cluster.local}"`))
+	assert.Assert(t, strings.Index(script, "setup_github_proxy\ncd \"${RUNNER_DIR}\"") > 0)
+}
+
+// The runner authenticates to the proxy only after a 407 challenge, so the
+// relay must inject Proxy-Authorization and serve the runner without auth.
+func TestGithubRunnerProxyRelayAuthenticatesUpstream(t *testing.T) {
+	for _, script := range []string{GithubRunnerStartScript(), GithubRunnerStopScript()} {
+		assert.Assert(t, strings.Contains(script,
+			`lines.splice(1, 0, 'Proxy-Authorization: Basic ' + credential);`))
+		assert.Assert(t, strings.Contains(script,
+			`export https_proxy="http://127.0.0.1:${RELAY_PORT}" HTTPS_PROXY="http://127.0.0.1:${RELAY_PORT}"`))
+		assert.Assert(t, strings.Contains(script,
+			`RELAY_USER="${GITHUB_PROXY_USERNAME:-github}" RELAY_SECRET="${PROXY_SECRET}" \`))
+	}
 }
 
 func TestGithubRunnerStopScriptRemovesOnlyWhenLeavingPool(t *testing.T) {
@@ -58,6 +68,9 @@ func TestGithubRunnerStopScriptRemovesOnlyWhenLeavingPool(t *testing.T) {
 	assert.Assert(t, strings.Contains(script, `should_deregister`))
 	assert.Assert(t, strings.Contains(script, `[ "${ORDINAL}" -ge "${REPLICAS}" ]`))
 	assert.Assert(t, strings.Contains(script, `rm -rf "${STATE_DIR}"`))
+	// The k8s API is reached by IP, which no_proxy cannot bypass, so the proxy
+	// must be set up only after should_deregister has queried the StatefulSet.
+	assert.Assert(t, strings.Index(script, "if should_deregister; then\n  setup_github_proxy") > 0)
 }
 
 func TestGetK8sServiceName(t *testing.T) {

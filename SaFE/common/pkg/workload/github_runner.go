@@ -7,6 +7,90 @@ package workload
 
 import "github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 
+// githubRunnerProxySetup defines setup_github_proxy, which points the runner at
+// the GitHub proxy. An authenticated proxy is reached through a local relay:
+// the runner's .NET client only sends Proxy-Authorization after a 407 challenge,
+// while the tunnel rejects the unauthenticated CONNECT with a 401 instead.
+const githubRunnerProxySetup = `setup_github_proxy() {
+  [ -n "${GITHUB_PROXY_URL:-}" ] || return 0
+  export no_proxy="${GITHUB_PROXY_NO_PROXY:-localhost,127.0.0.1,::1,.svc,.cluster.local}"
+  export NO_PROXY="${no_proxy}"
+  PROXY_SECRET_FILE="` + common.SecretPath + `/${GITHUB_SECRET_ID:-}/github_proxy_password"
+  PROXY_SECRET="${GITHUB_PROXY_PASSWORD:-}"
+  if [ -z "${PROXY_SECRET}" ] && [ -f "${PROXY_SECRET_FILE}" ]; then
+    PROXY_SECRET="$(cat "${PROXY_SECRET_FILE}")"
+  fi
+  if [ -z "${PROXY_SECRET}" ]; then
+    export http_proxy="${GITHUB_PROXY_URL}" HTTP_PROXY="${GITHUB_PROXY_URL}"
+    export https_proxy="${GITHUB_PROXY_URL}" HTTPS_PROXY="${GITHUB_PROXY_URL}"
+    return 0
+  fi
+  RELAY_DIR="${RUNNER_TEMP:-/tmp}"
+  RELAY_JS="${RELAY_DIR}/github-proxy-relay.js"
+  RELAY_LOG="${RELAY_DIR}/github-proxy-relay.log"
+  RELAY_PORT="${GITHUB_PROXY_RELAY_PORT:-3129}"
+  NODE_BIN="$(find "${RUNNER_DIR}/externals" -type f -path '*/bin/node' | sort | head -n 1)"
+  cat >"${RELAY_JS}" <<'RELAY_EOF'
+const net = require('net');
+const upstream = new URL(process.env.RELAY_UPSTREAM);
+const upstreamPort = Number(upstream.port) || 3128;
+const credential = Buffer.from(
+  process.env.RELAY_USER + ':' + process.env.RELAY_SECRET
+).toString('base64');
+
+function relay(client, header, body) {
+  const lines = header
+    .split('\r\n')
+    .filter((line) => !/^proxy-authorization:/i.test(line));
+  lines.splice(1, 0, 'Proxy-Authorization: Basic ' + credential);
+  const server = net.connect(upstreamPort, upstream.hostname, () => {
+    server.write(lines.join('\r\n') + '\r\n\r\n');
+    if (body.length > 0) {
+      server.write(body);
+    }
+    client.pipe(server);
+    server.pipe(client);
+  });
+  server.on('error', () => client.destroy());
+}
+
+net.createServer((client) => {
+  let head = Buffer.alloc(0);
+  const onData = (chunk) => {
+    head = Buffer.concat([head, chunk]);
+    const end = head.indexOf('\r\n\r\n');
+    if (end < 0) {
+      if (head.length > 65536) {
+        client.destroy();
+      }
+      return;
+    }
+    client.removeListener('data', onData);
+    relay(client, head.slice(0, end).toString('latin1'), head.slice(end + 4));
+  };
+  client.on('data', onData);
+  client.on('error', () => client.destroy());
+}).listen(Number(process.env.RELAY_PORT), '127.0.0.1', () => {
+  console.log('github proxy relay listening');
+});
+RELAY_EOF
+  rm -f "${RELAY_LOG}"
+  RELAY_UPSTREAM="${GITHUB_PROXY_URL}" RELAY_PORT="${RELAY_PORT}" \
+    RELAY_USER="${GITHUB_PROXY_USERNAME:-github}" RELAY_SECRET="${PROXY_SECRET}" \
+    "${NODE_BIN}" "${RELAY_JS}" >"${RELAY_LOG}" 2>&1 &
+  RELAY_WAIT=0
+  while [ "${RELAY_WAIT}" -lt 10 ]; do
+    if grep -q 'github proxy relay listening' "${RELAY_LOG}" 2>/dev/null; then
+      break
+    fi
+    RELAY_WAIT=$((RELAY_WAIT + 1))
+    sleep 1
+  done
+  export http_proxy="http://127.0.0.1:${RELAY_PORT}" HTTP_PROXY="http://127.0.0.1:${RELAY_PORT}"
+  export https_proxy="http://127.0.0.1:${RELAY_PORT}" HTTPS_PROXY="http://127.0.0.1:${RELAY_PORT}"
+}
+`
+
 // GithubRunnerStartScript registers the runner on first boot and then listens for jobs.
 // Credentials are copied to workspace storage so a pod restart does not need a new token.
 func GithubRunnerStartScript() string {
@@ -20,29 +104,7 @@ STATE_DIR="${GITHUB_RUNNER_STATE_ROOT}/${POD_NAME}"
 mkdir -p "${STATE_DIR}"
 LABELS="${RUNNER_LABELS:-${DISPLAY_NAME}}"
 TOKEN_FILE="` + common.SecretPath + `/${GITHUB_SECRET_ID}/github_token"
-if [ -n "${GITHUB_PROXY_URL:-}" ]; then
-  PROXY_PASSWORD_FILE="` + common.SecretPath + `/${GITHUB_SECRET_ID}/github_proxy_password"
-  NODE_BIN="$(find "${RUNNER_DIR}/externals" -type f -path '*/bin/node' | sort | head -n 1)"
-  encode_proxy_component() {
-    printf '%s' "$1" | "${NODE_BIN}" -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>process.stdout.write(encodeURIComponent(s)))'
-  }
-  PROXY_USER="$(encode_proxy_component "${GITHUB_PROXY_USERNAME:-github}")"
-  PROXY_SECRET="${GITHUB_PROXY_PASSWORD:-}"
-  if [ -z "${PROXY_SECRET}" ] && [ -f "${PROXY_PASSWORD_FILE}" ]; then
-    PROXY_SECRET="$(cat "${PROXY_PASSWORD_FILE}")"
-  fi
-  PROXY_SCHEME="${GITHUB_PROXY_URL%%://*}"
-  PROXY_AUTHORITY="${GITHUB_PROXY_URL#*://}"
-  if [ -n "${PROXY_SECRET}" ]; then
-    PROXY="${PROXY_SCHEME}://${PROXY_USER}:$(encode_proxy_component "${PROXY_SECRET}")@${PROXY_AUTHORITY}"
-  else
-    PROXY="${GITHUB_PROXY_URL}"
-  fi
-  export http_proxy="${PROXY}" HTTP_PROXY="${PROXY}"
-  export https_proxy="${PROXY}" HTTPS_PROXY="${PROXY}"
-  export no_proxy="${GITHUB_PROXY_NO_PROXY:-localhost,127.0.0.1,::1,.svc,.cluster.local}"
-  export NO_PROXY="${no_proxy}"
-fi
+` + githubRunnerProxySetup + `setup_github_proxy
 cd "${RUNNER_DIR}"
 if [ ! -f "${STATE_DIR}/.credentials" ] || [ ! -f "${STATE_DIR}/.runner" ]; then
   TOKEN="$(cat "${TOKEN_FILE}")"
@@ -74,7 +136,7 @@ func GithubRunnerStopScript() string {
 	return `set +e
 RUNNER_DIR="${RUNNER_DIR:-/home/runner}"
 STATE_DIR="${GITHUB_RUNNER_STATE_ROOT:-}/${POD_NAME:-}"
-should_deregister() {
+` + githubRunnerProxySetup + `should_deregister() {
   [ -n "${POD_NAME:-}" ] || return 1
   TOKEN_FILE="/var/run/secrets/kubernetes.io/serviceaccount/token"
   CA_FILE="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
@@ -98,6 +160,7 @@ should_deregister() {
   [ "${ORDINAL}" -ge "${REPLICAS}" ]
 }
 if should_deregister; then
+  setup_github_proxy
   cd "${RUNNER_DIR}" && ./config.sh remove --unattended || true
   if [ -n "${GITHUB_RUNNER_STATE_ROOT:-}" ] && [ -n "${POD_NAME:-}" ]; then
     rm -rf "${STATE_DIR}"
