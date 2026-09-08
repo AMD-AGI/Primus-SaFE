@@ -2297,7 +2297,7 @@ func proxyAdmissionSecret() *corev1.Secret {
 		ObjectMeta: metav1.ObjectMeta{Name: "proxy-auth", Namespace: common.PrimusSafeNamespace,
 			Labels:      map[string]string{v1.SecretTypeLabel: string(v1.SecretGeneral)},
 			Annotations: map[string]string{v1.WorkspaceIdsAnnotation: `["ws1"]`}},
-		Type: corev1.SecretTypeOpaque, Data: map[string][]byte{"username": {1}, "password": {2}},
+		Type: corev1.SecretTypeOpaque, Data: map[string][]byte{"username": []byte("user"), "password": []byte("pass")},
 	}
 }
 

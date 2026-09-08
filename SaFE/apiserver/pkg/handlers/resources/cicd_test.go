@@ -1014,7 +1014,7 @@ func proxyAPIHandler(t *testing.T) (*Handler, *v1.User, *v1.Workload, *k8sfake.C
 func createProxyAPISecret(t *testing.T, h *Handler, user *v1.User) *corev1.Secret {
 	t.Helper()
 	secret, err := h.createSecretImpl(context.Background(), &view.CreateSecretRequest{Name: "proxy-auth", Type: v1.SecretGeneral, WorkspaceIds: []string{"test-workspace"},
-		Params: []map[view.SecretParam]string{{view.UserNameParam: "AQ==", view.PasswordParam: "Ag=="}}}, user)
+		Params: []map[view.SecretParam]string{{view.UserNameParam: "cHJveHktdXNlcg==", view.PasswordParam: "cHJveHktcGFzcw=="}}}, user)
 	assert.NilError(t, err)
 	return secret
 }
