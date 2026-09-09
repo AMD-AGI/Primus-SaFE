@@ -156,7 +156,9 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	mainWorkload, err := h.generateWorkload(ctx, req, body, requestUser)
 	if err != nil {
 		if status, typed := err.(apierrors.APIStatus); typed &&
-			(strings.Contains(status.Status().Message, "env.PROXY_") || strings.Contains(status.Status().Message, "env.NO_PROXY:")) {
+			(strings.Contains(status.Status().Message, "env.PROXY_") ||
+				strings.Contains(status.Status().Message, "env.NO_PROXY:") ||
+				strings.Contains(status.Status().Message, "workloadId:")) {
 			return nil, err
 		}
 		return nil, commonerrors.NewBadRequest(err.Error())
