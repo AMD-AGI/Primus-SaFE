@@ -35,6 +35,7 @@ export enum WorkloadKind {
   StatefulSet = 'StatefulSet',
 
   AutoscalingRunnerSet = 'AutoscalingRunnerSet',
+  GithubRunner = 'GithubRunner',
   EphemeralRunner = 'EphemeralRunner',
   UnifiedJob = 'UnifiedJob',
 
@@ -53,6 +54,7 @@ export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
   [WorkloadKind.Deployment]: '/infer',
   [WorkloadKind.StatefulSet]: '/infer',
   [WorkloadKind.AutoscalingRunnerSet]: '/cicd',
+  [WorkloadKind.GithubRunner]: '/cicd',
   [WorkloadKind.EphemeralRunner]: '/cicd',
   [WorkloadKind.UnifiedJob]: '/cicd',
   [WorkloadKind.TorchFT]: '/torchft',
@@ -152,7 +154,9 @@ export type GitHubAuthPayload =
       privateKey: string
     }
   | {
-      type: 'pat'
+      // 'pat' authenticates AutoscalingRunnerSet, 'registration_token' authenticates
+      // GithubRunner. Same wire shape, different runner implementation.
+      type: 'pat' | 'registration_token'
       token: string
     }
 

@@ -256,6 +256,13 @@
           </template>
         </el-table-column>
 
+        <!-- The list mixes both runner kinds, so the kind has to be visible on the row. -->
+        <el-table-column prop="kind" label="Kind" width="180">
+          <template #default="{ row }">
+            {{ row.groupVersionKind?.kind || '-' }}
+          </template>
+        </el-table-column>
+
         <el-table-column prop="phase" label="Phase" width="160" header-align="center">
           <template #default="{ row }">
             <el-tooltip
@@ -637,6 +644,10 @@ import { useWorkloadResumePermission } from '@/composables/useWorkloadResumePerm
 
 dayjs.extend(utc)
 
+// Both kinds are CICD runners and share this list; the backend accepts them
+// comma-separated on the kind filter.
+const CICD_KINDS = [WorkloadKind.AutoscalingRunnerSet, WorkloadKind.GithubRunner]
+
 const tableRef = ref()
 const isDark = useDark()
 const route = useRoute()
@@ -778,7 +789,7 @@ const fetchData = async (params?: WorkloadParams) => {
       workspaceId: store.currentWorkspaceId,
       offset: (pagination.page - 1) * pagination.pageSize,
       limit: pagination.pageSize,
-      kind: WorkloadKind.AutoscalingRunnerSet,
+      kind: CICD_KINDS.join(','),
       ...params,
     })
     tableData.value = res?.items || []
@@ -839,22 +850,29 @@ type Row = {
   workspaceId?: string
   workspace?: string
   userId?: string
+  groupVersionKind?: { kind?: string }
 }
 
-const handleUpdatePAT = async (row: Row) => {
+const isGithubRunnerRow = (row: Row) => row.groupVersionKind?.kind === WorkloadKind.GithubRunner
+
+// Both kinds authenticate with a single token, but a GithubRunner takes a registration
+// token while an AutoscalingRunnerSet takes a PAT.
+const handleUpdateToken = async (row: Row) => {
+  const isRunner = isGithubRunnerRow(row)
+  const tokenLabel = isRunner ? 'registration token' : 'PAT'
+  const emptyMessage = `${isRunner ? 'Registration token' : 'PAT'} cannot be empty`
   try {
-    // Show dialog to input new PAT
-    const messageBox = ElMessageBox.prompt('', 'Update PAT', {
+    const messageBox = ElMessageBox.prompt('', `Update ${tokenLabel}`, {
       confirmButtonText: 'Update',
       cancelButtonText: 'Cancel',
       inputPattern: /.+/,
-      inputErrorMessage: 'PAT cannot be empty',
-      inputPlaceholder: 'Enter new GitHub PAT',
+      inputErrorMessage: emptyMessage,
+      inputPlaceholder: `Enter new GitHub ${tokenLabel}`,
       distinguishCancelAndClose: true,
       beforeClose: (action, instance, done) => {
         if (action === 'confirm') {
           if (!instance.inputValue) {
-            ElMessage.error('PAT cannot be empty')
+            ElMessage.error(emptyMessage)
             return
           }
         }
@@ -865,26 +883,26 @@ const handleUpdatePAT = async (row: Row) => {
     const { value } = (await messageBox) as { value: string }
     const token = value.trim()
     if (!token) {
-      ElMessage.error('PAT cannot be empty')
+      ElMessage.error(emptyMessage)
       return
     }
 
     // Call workload edit API
     await editWorkload(row.workloadId, {
       githubAuth: {
-        type: 'pat',
+        type: isRunner ? 'registration_token' : 'pat',
         token,
       },
     })
 
-    ElMessage.success('GitHub PAT updated successfully')
+    ElMessage.success(`GitHub ${tokenLabel} updated successfully`)
   } catch (error: any) {
     if (error === 'cancel' || error === 'close') {
       // User cancelled the operation
       return
     }
-    console.error('Failed to update GitHub PAT:', error)
-    ElMessage.error('Failed to update GitHub PAT')
+    console.error(`Failed to update GitHub ${tokenLabel}:`, error)
+    ElMessage.error(`Failed to update GitHub ${tokenLabel}`)
   }
 }
 
@@ -944,13 +962,13 @@ const getActions = (_row: Row): Action[] => [
     },
   },
   {
-    key: 'updatePat',
-    label: 'Update PAT',
+    key: 'updateToken',
+    label: 'Update Token',
     icon: Key,
     btnClass: 'btn-warning-plain',
     disabled: () => !canWrite.value,
     onClick: (r: Row) => {
-      handleUpdatePAT(r)
+      handleUpdateToken(r)
     },
   },
   {

@@ -184,6 +184,37 @@ export function useWorkloadDetail(options: UseWorkloadDetailOptions) {
           workloadId: detail.workloadId,
           ...(detail.useWorkspaceStorage !== undefined ? { useWorkspaceStorage: detail.useWorkspaceStorage } : {}),
         }
+      } else if (kind === 'GithubRunner') {
+        // CICD - GithubRunner. Its image, resources and env are plain workload fields,
+        // and the replica count is meaningful, so nothing is rebuilt or split here.
+        const firstResource = (detail.resources || [detail.resource])[0] || {}
+        const excludedNodes = (detail.excludedNodes ?? []).filter(Boolean)
+
+        payload = {
+          workspace: wsStore.currentWorkspaceId!,
+          displayName: detail.displayName,
+          groupVersionKind: detail.groupVersionKind,
+          description: detail.description,
+          priority: detail.priority,
+          maxRetry: detail.maxRetry ?? 50,
+          isTolerateAll: detail.isTolerateAll ?? true,
+          images: Array.isArray(detail.images) ? detail.images : detail.image ? [detail.image] : [],
+          resources: [
+            {
+              replica: Number(firstResource.replica) || 1,
+              cpu: firstResource.cpu,
+              ...(Number(firstResource.gpu) > 0 ? { gpu: firstResource.gpu } : {}),
+              memory: firstResource.memory,
+              ephemeralStorage: firstResource.ephemeralStorage,
+            },
+          ],
+          ...(detail.env ? { env: detail.env } : {}),
+          ...(excludedNodes.length ? { excludedNodes } : {}),
+          ...(secrets.length > 0 ? { secrets } : {}),
+          // resume the same workload
+          workloadId: detail.workloadId,
+          ...(detail.useWorkspaceStorage !== undefined ? { useWorkspaceStorage: detail.useWorkspaceStorage } : {}),
+        }
       } else if (kind === 'VLLMServer') {
         // Authoring - VLLMServer
         const resources = detail.resources || [detail.resource]

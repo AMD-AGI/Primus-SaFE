@@ -57,7 +57,13 @@
           <el-descriptions-item label="GitHubConfigURL" v-if="envData.githubConfigUrl">{{
             envData.githubConfigUrl
           }}</el-descriptions-item>
-          <el-descriptions-item label="multiNodes">{{
+          <el-descriptions-item label="runnerLabels" v-if="envData.runnerLabels">{{
+            envData.runnerLabels
+          }}</el-descriptions-item>
+          <el-descriptions-item label="GitHubProxyURL" v-if="envData.githubProxyUrl">{{
+            envData.githubProxyUrl
+          }}</el-descriptions-item>
+          <el-descriptions-item label="multiNodes" v-if="!isGithubRunner">{{
             envData.unifiedJobEnable ? 'Enabled' : 'Disabled'
           }}</el-descriptions-item>
           <el-descriptions-item label="actionRunner" v-if="detailData.scaleRunnerId">{{
@@ -201,6 +207,8 @@ import WorkloadHeader from '@/components/Workload/WorkloadHeader.vue'
 import WorkloadPodsTable from '@/components/Workload/WorkloadPodsTable.vue'
 import WorkloadTimeline from '@/components/Workload/WorkloadTimeline.vue'
 import { decodeFromBase64String, calculateDefaultTime } from '@/utils/index'
+import { WorkloadKind } from '@/services/workload/type'
+import { GITHUB_PROXY_URL_ENV, RUNNER_LABELS_ENV } from './githubRunnerPayload'
 import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useWorkloadDetail } from '@/composables/useWorkloadDetail'
@@ -255,6 +263,8 @@ interface EnvData {
   image?: string
   entryPoint?: string
   githubConfigUrl?: string
+  runnerLabels?: string
+  githubProxyUrl?: string
   unifiedJobEnable?: boolean
   resources?: {
     replica?: number
@@ -269,6 +279,8 @@ const envData = ref<EnvData>({
   image: '',
   entryPoint: '',
   githubConfigUrl: '',
+  runnerLabels: '',
+  githubProxyUrl: '',
   unifiedJobEnable: false,
   resources: undefined,
 })
@@ -285,6 +297,14 @@ function extractEnvData(res: { env?: Record<string, string> }) {
 
     if (res.env.GITHUB_CONFIG_URL) {
       envData.value.githubConfigUrl = res.env.GITHUB_CONFIG_URL
+    }
+
+    if (res.env[RUNNER_LABELS_ENV]) {
+      envData.value.runnerLabels = res.env[RUNNER_LABELS_ENV]
+    }
+
+    if (res.env[GITHUB_PROXY_URL_ENV]) {
+      envData.value.githubProxyUrl = res.env[GITHUB_PROXY_URL_ENV]
     }
 
     if (res.env.UNIFIED_JOB_ENABLE) {
@@ -314,12 +334,15 @@ const truncatedEntryPoint = computed(() => {
 })
 
 const currentKind = computed(() => detailData.value?.groupVersionKind?.kind ?? '')
+const isGithubRunner = computed(() => currentKind.value === WorkloadKind.GithubRunner)
 
+// Only AutoscalingRunnerSet wraps its image into env.IMAGE; the other kinds keep it on
+// the workload.
 const displayImage = computed(() => {
-  if (currentKind.value === 'UnifiedJob' || currentKind.value === 'EphemeralRunner') {
-    return detailData.value?.images?.[0] || ''
+  if (currentKind.value === 'AutoscalingRunnerSet') {
+    return envData.value.image || ''
   }
-  return envData.value.image || ''
+  return detailData.value?.images?.[0] || envData.value.image || ''
 })
 
 const displayEntryPoint = computed(() => {

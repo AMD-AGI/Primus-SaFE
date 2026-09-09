@@ -21,23 +21,135 @@
         :rules="rules"
         :validate-on-rule-change="false"
       >
+        <!-- ===== GitHub ===== -->
+        <!-- Auth leads the form because it selects the runner kind, which decides which
+             of the fields below exist at all. -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-bar"></div>
+            <div>
+              <div class="section-title">GitHub</div>
+              <div class="section-subtitle">Authentication and repository configuration</div>
+            </div>
+          </div>
+
+          <!-- Editing cannot change the auth, and the API does not report which one an
+               existing workload used, so the kind is shown instead of a stale choice. -->
+          <el-form-item v-if="isEdit" label="kind">
+            <el-text>{{ editingKind }}</el-text>
+          </el-form-item>
+          <el-form-item v-else label="GitHubAuth" prop="githubAuthType">
+            <el-radio-group v-model="form.githubAuthType">
+              <el-radio-button label="github_app">GitHub App (recommended)</el-radio-button>
+              <el-radio-button label="pat">Personal Access Token (legacy)</el-radio-button>
+              <el-radio-button label="registration_token">self-hosted runner</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+
+          <el-form-item label="GitHubConfigURL" prop="githubConfigUrl">
+            <el-input
+              v-model="form.githubConfigUrl"
+              placeholder="Enter GitHub Config URL"
+              :disabled="isEdit"
+            />
+          </el-form-item>
+
+          <template v-if="!isEdit">
+            <template v-if="form.githubAuthType === 'github_app'">
+              <el-form-item label="App ID" prop="githubAppId">
+                <el-input v-model="form.githubAppId" placeholder="Enter GitHub App ID" />
+              </el-form-item>
+              <el-form-item label="Installation ID" prop="githubAppInstallationId">
+                <el-input
+                  v-model="form.githubAppInstallationId"
+                  placeholder="Enter GitHub App installation ID"
+                />
+              </el-form-item>
+              <el-form-item label="Private Key" prop="githubAppPrivateKey">
+                <div class="w-full">
+                  <el-input
+                    v-model="form.githubAppPrivateKey"
+                    :rows="5"
+                    type="textarea"
+                    placeholder="Paste the GitHub App private key PEM"
+                    show-word-limit
+                  />
+                  <input
+                    class="pem-file-input"
+                    type="file"
+                    accept=".pem,.key,text/plain"
+                    @change="onPrivateKeyFileChange"
+                  />
+                </div>
+              </el-form-item>
+            </template>
+
+            <el-form-item label="token" prop="githubToken" v-else>
+              <div class="flex items-center gap-2 w-full">
+                <el-input
+                  v-model="form.githubToken"
+                  :placeholder="tokenPlaceholder"
+                  type="password"
+                  show-password
+                  class="flex-1"
+                />
+                <el-tooltip placement="top" raw-content>
+                  <template #content>
+                    <div>{{ tokenTooltip }}</div>
+                  </template>
+                  <el-icon class="text-gray-500 cursor-help">
+                    <InfoFilled />
+                  </el-icon>
+                </el-tooltip>
+              </div>
+            </el-form-item>
+          </template>
+
+          <template v-if="isGithubRunner">
+            <el-form-item label="GitHubProxyURL" prop="githubProxyUrl">
+              <el-input
+                v-model="form.githubProxyUrl"
+                placeholder="Optional. Proxy used to reach GitHub from the cluster"
+              />
+            </el-form-item>
+            <el-form-item label="GitHubProxyPassword" prop="githubProxyPassword">
+              <el-input
+                v-model="form.githubProxyPassword"
+                placeholder="Required once a proxy URL is set"
+                type="password"
+                show-password
+              />
+            </el-form-item>
+          </template>
+        </div>
+
         <!-- ===== Basic Information ===== -->
         <div class="section-card">
           <div class="section-header">
             <div class="section-bar"></div>
             <div>
               <div class="section-title">Basic Information</div>
-              <div class="section-subtitle">Name, description, entry point and image</div>
+              <div class="section-subtitle">
+                {{
+                  isGithubRunner
+                    ? 'Name, description and image'
+                    : 'Name, description, entry point and image'
+                }}
+              </div>
             </div>
           </div>
 
           <el-form-item label="name" prop="displayName">
             <el-input v-model="form.displayName" :disabled="isEdit || isResume" />
+            <el-text v-if="isGithubRunner" size="small" type="info">
+              <el-icon class="mr-1"><InfoFilled /></el-icon>
+              {{ RUNNER_LABELS_INFO }}
+            </el-text>
           </el-form-item>
           <el-form-item label="description">
             <el-input v-model="form.description" :rows="2" type="textarea" />
           </el-form-item>
-          <el-form-item label="entryPoint" prop="entryPoint">
+          <el-form-item label="entryPoint" prop="entryPoint" v-if="!isGithubRunner">
             <el-input
               v-model="form.entryPoint"
               :rows="2"
@@ -74,7 +186,17 @@
           <el-row :gutter="20">
             <el-col :span="24">
               <el-form-item label="replica">
-                <el-input placeholder="1" disabled />
+                <!-- A GithubRunner scales by running several identical runners, so the
+                     count is a create-time choice. AutoscalingRunnerSet scales itself. -->
+                <el-input-number
+                  v-if="isGithubRunner"
+                  v-model.number="form.resource.replica"
+                  :min="1"
+                  :step="1"
+                  :disabled="isEdit"
+                  class="w-[160px]"
+                />
+                <el-input v-else placeholder="1" disabled />
               </el-form-item>
             </el-col>
             <el-col :span="24">
@@ -167,7 +289,7 @@
             <div class="section-bar"></div>
             <div class="flex-1">
               <div class="section-title">Advanced Options</div>
-              <div class="section-subtitle">Toleration, retry, GitHub config and secrets</div>
+              <div class="section-subtitle">Toleration, retry and secrets</div>
             </div>
             <el-icon :class="['section-chevron', { 'is-open': advancedOpen }]">
               <ArrowRight />
@@ -186,7 +308,7 @@
                     </el-text>
                   </el-form-item>
                 </el-col>
-                <el-col :span="12">
+                <el-col :span="12" v-if="!isGithubRunner">
                   <el-form-item label="multiNodes" prop="unifiedJobEnable">
                     <el-switch v-model="form.unifiedJobEnable" :disabled="isEdit" />
                   </el-form-item>
@@ -245,73 +367,6 @@
                   </el-form-item>
                 </el-col>
               </el-row>
-
-              <el-form-item label="GitHubConfigURL" prop="githubConfigUrl">
-                <el-input
-                  v-model="form.githubConfigUrl"
-                  placeholder="Enter GitHub Config URL"
-                  :disabled="isEdit"
-                />
-              </el-form-item>
-
-              <template v-if="!isEdit">
-                <el-form-item label="GitHubAuth" prop="githubAuthType">
-                  <el-radio-group v-model="form.githubAuthType">
-                    <el-radio-button label="github_app">GitHub App (recommended)</el-radio-button>
-                    <el-radio-button label="pat">Personal Access Token (legacy)</el-radio-button>
-                  </el-radio-group>
-                </el-form-item>
-
-                <template v-if="form.githubAuthType === 'github_app'">
-                  <el-form-item label="App ID" prop="githubAppId">
-                    <el-input v-model="form.githubAppId" placeholder="Enter GitHub App ID" />
-                  </el-form-item>
-                  <el-form-item label="Installation ID" prop="githubAppInstallationId">
-                    <el-input
-                      v-model="form.githubAppInstallationId"
-                      placeholder="Enter GitHub App installation ID"
-                    />
-                  </el-form-item>
-                  <el-form-item label="Private Key" prop="githubAppPrivateKey">
-                    <div class="w-full">
-                      <el-input
-                        v-model="form.githubAppPrivateKey"
-                        :rows="5"
-                        type="textarea"
-                        placeholder="Paste the GitHub App private key PEM"
-                        show-word-limit
-                      />
-                      <input
-                        class="pem-file-input"
-                        type="file"
-                        accept=".pem,.key,text/plain"
-                        @change="onPrivateKeyFileChange"
-                      />
-                    </div>
-                  </el-form-item>
-                </template>
-
-                <el-form-item label="GitHubPAT" prop="githubPAT" v-else>
-                  <div class="flex items-center gap-2 w-full">
-                    <el-input
-                      v-model="form.githubPAT"
-                      placeholder="Enter legacy GitHub PAT"
-                      type="password"
-                      class="flex-1"
-                    />
-                    <el-tooltip placement="top" raw-content>
-                      <template #content>
-                        <div>
-                          Legacy PAT authentication is still supported for existing workflows.
-                        </div>
-                      </template>
-                      <el-icon class="text-gray-500 cursor-help">
-                        <InfoFilled />
-                      </el-icon>
-                    </el-tooltip>
-                  </div>
-                </el-form-item>
-              </template>
             </div>
           </transition>
         </div>
@@ -348,7 +403,22 @@ import { debounce } from 'lodash'
 import { useUserStore } from '@/stores/user'
 import { InfoFilled, CopyDocument, ArrowRight } from '@element-plus/icons-vue'
 import ImageInput from '@/components/Base/ImageInput.vue'
-import { buildGitHubAuthPayload, validateGitHubAuthForm, type GitHubAuthType } from './githubAuth'
+import {
+  buildGitHubAuthPayload,
+  isGithubRunnerAuth,
+  validateGitHubAuthForm,
+  type GitHubAuthType,
+} from './githubAuth'
+import {
+  buildGithubRunnerCreatePayload,
+  buildGithubRunnerEditPayload,
+  validateGithubRunnerProxy,
+  GITHUB_CONFIG_URL_ENV,
+  GITHUB_PROXY_PASSWORD_ENV,
+  GITHUB_PROXY_URL_ENV,
+  type GithubRunnerForm,
+} from '../githubRunnerPayload'
+import { WorkloadKind } from '@/services/workload/type'
 
 const props = defineProps<{
   visible: boolean
@@ -368,6 +438,7 @@ const isManager = computed(() => userStore.isManager)
 const TOLERATE_INFO = 'If enabled, workloads can be scheduled to nodes with taints'
 const RETRY_TIMES_INFO = 'Maximum retries:50'
 const FORCE_HOST_NETWORK_INFO = 'Force host network (default: auto-based on resources)'
+const RUNNER_LABELS_INFO = 'Also used as the runner label your workflows target with runs-on'
 
 const imageOptions = ref([] as Array<{ id: number; tag: string }>)
 const excludedNodeOptions = ref(
@@ -410,7 +481,9 @@ const initialForm = () => ({
   githubAppId: '',
   githubAppInstallationId: '',
   githubAppPrivateKey: '',
-  githubPAT: '',
+  githubToken: '',
+  githubProxyUrl: '',
+  githubProxyPassword: '',
   resource: {
     replica: 1,
     cpu: '4',
@@ -427,6 +500,19 @@ const initialForm = () => ({
   forceHostNetwork: false,
 })
 const form = reactive({ ...initialForm() })
+
+const isGithubRunner = computed(() => isGithubRunnerAuth(form.githubAuthType))
+const editingKind = computed(() =>
+  isGithubRunner.value ? WorkloadKind.GithubRunner : WorkloadKind.AutoscalingRunnerSet,
+)
+const tokenPlaceholder = computed(() =>
+  isGithubRunner.value ? 'Enter the runner registration token' : 'Enter legacy GitHub PAT',
+)
+const tokenTooltip = computed(() =>
+  isGithubRunner.value
+    ? 'A runner registration token from the repository or organization runner settings.'
+    : 'Legacy PAT authentication is still supported for existing workflows.',
+)
 
 const copyImage = async () => {
   if (!form.image) return
@@ -491,7 +577,7 @@ const rules: Record<string, FormItemRule[]> = reactive({
       trigger: 'blur',
     },
   ],
-  githubPAT: [
+  githubToken: [
     {
       validator: (_rule, _value, callback) => {
         const [message] = validateGitHubAuthForm(form)
@@ -500,7 +586,146 @@ const rules: Record<string, FormItemRule[]> = reactive({
       trigger: 'blur',
     },
   ],
+  githubProxyPassword: [
+    {
+      validator: (_rule, _value, callback) => {
+        const [message] = validateGithubRunnerProxy(form)
+        callback(message ? new Error(message) : undefined)
+      },
+      trigger: 'blur',
+    },
+  ],
 })
+
+// A GithubRunner sends its image, resources and env as the plain backend fields, so it
+// shares nothing with the AutoscalingRunnerSet payload beyond the workload basics.
+const submitGithubRunner = async () => {
+  const runnerForm = form as unknown as GithubRunnerForm
+
+  if (isEdit.value) {
+    if (!props.wlid) return false
+    const res = await getWorkloadDetail(props.wlid)
+    await editWorkload(props.wlid, buildGithubRunnerEditPayload(runnerForm, res.env) as any)
+    return true
+  }
+
+  const payload = buildGithubRunnerCreatePayload(runnerForm, {
+    workspace: props.action === 'Clone' ? pendingWorkspaceId.value : store.currentWorkspaceId!,
+    githubAuth: buildGitHubAuthPayload(form),
+    useWorkspaceStorage: cachedUseWorkspaceStorage.value ?? true,
+  }) as any
+
+  if (isResume.value) {
+    if (!props.wlid) return false
+    await resumeWorkload(props.wlid, payload)
+  } else {
+    await addWorkload(payload)
+  }
+  return true
+}
+
+const submitScaleRunnerSet = async () => {
+  const {
+    resource,
+    entryPoint,
+    timeout,
+    unifiedJobEnable,
+    githubConfigUrl,
+    githubAuthType,
+    githubAppId,
+    githubAppInstallationId,
+    githubAppPrivateKey,
+    githubToken,
+    githubProxyUrl,
+    githubProxyPassword,
+    image,
+    ...addPayload
+  } = form
+
+  if (!flavorMaxVal.value?.['amd.com/gpu']) form.resource.gpu = ''
+
+  // Build user-submitted resource object for storing in env
+  const userResource = {
+    replica: 1,
+    cpu: form.resource.cpu,
+    gpu: form.resource.gpu || '0',
+    memory: `${form.resource.memory}Gi`,
+    sharedMemory: `${Math.floor(Number(form.resource.memory) / 2)}Gi`,
+    ephemeralStorage: `${form.resource.ephemeralStorage}Gi`,
+  }
+
+  // Fixed resource values to send to the backend
+  const fixedResource = {
+    replica: 1,
+    cpu: form.unifiedJobEnable ? '2' : '1',
+    gpu: '0',
+    memory: form.unifiedJobEnable ? '8Gi' : '4Gi',
+    ephemeralStorage: '10Gi',
+  }
+
+  // Build environment variables with fixed keys
+  const envMap: Record<string, string> = {
+    UNIFIED_JOB_ENABLE: String(unifiedJobEnable),
+    GITHUB_CONFIG_URL: githubConfigUrl,
+    RESOURCES: JSON.stringify(userResource),
+    IMAGE: form.image,
+    ENTRYPOINT: encodeToBase64String(entryPoint),
+  }
+
+  // Build secrets array
+  const secrets = form.secretIds.map((id) => ({ id }))
+
+  if (!isEdit.value) {
+    // excludedNodes only works in replica mode (CICD is always in replica mode)
+    const excludedNodesPayload = (() => {
+      const arr = (addPayload.excludedNodes ?? []).filter(Boolean)
+      return arr.length ? arr : undefined
+    })()
+
+    const payload: any = {
+      ...addPayload,
+      resources: [fixedResource],
+      workspace: props.action === 'Clone' ? pendingWorkspaceId.value : store.currentWorkspaceId!,
+      env: envMap,
+      githubAuth: buildGitHubAuthPayload(form),
+      ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
+      ...(secrets.length > 0 ? { secrets: secrets } : {}),
+      ...(cachedUseWorkspaceStorage.value !== undefined
+        ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value }
+        : {}),
+    }
+
+    if (isResume.value) {
+      if (!props.wlid) return false
+      await resumeWorkload(props.wlid, payload)
+    } else {
+      await addWorkload(payload)
+    }
+    return true
+  }
+
+  if (!props.wlid) return false
+
+  // During Edit, fetch existing env and update
+  const res = await getWorkloadDetail(props.wlid)
+  const editEnvMap = { ...res.env }
+
+  // Update fixed keys
+  editEnvMap.UNIFIED_JOB_ENABLE = String(form.unifiedJobEnable)
+  editEnvMap.GITHUB_CONFIG_URL = form.githubConfigUrl
+  editEnvMap.RESOURCES = JSON.stringify(userResource)
+  editEnvMap.IMAGE = form.image
+  editEnvMap.ENTRYPOINT = encodeToBase64String(form.entryPoint)
+
+  await editWorkload(props.wlid, {
+    description: form.description,
+    priority: form.priority,
+    maxRetry: form.maxRetry,
+    resources: [fixedResource],
+    env: editEnvMap,
+  })
+  return true
+}
 
 const onSubmit = async (formEl: FormInstance | undefined) => {
   if (!formEl) return
@@ -508,110 +733,12 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
   try {
     await formEl.validate()
 
-    const {
-      resource,
-      entryPoint,
-      timeout,
-      unifiedJobEnable,
-      githubConfigUrl,
-      githubAuthType,
-      githubAppId,
-      githubAppInstallationId,
-      githubAppPrivateKey,
-      githubPAT,
-      image,
-      ...addPayload
-    } = form
+    const submitted = isGithubRunner.value
+      ? await submitGithubRunner()
+      : await submitScaleRunnerSet()
+    if (!submitted) return
+    ElMessage({ message: `${props.action} successful`, type: 'success' })
 
-    if (!flavorMaxVal.value?.['amd.com/gpu']) form.resource.gpu = ''
-
-    // Build user-submitted resource object for storing in env
-    const userResource = {
-      replica: 1,
-      cpu: form.resource.cpu,
-      gpu: form.resource.gpu || '0',
-      memory: `${form.resource.memory}Gi`,
-      sharedMemory: `${Math.floor(Number(form.resource.memory) / 2)}Gi`,
-      ephemeralStorage: `${form.resource.ephemeralStorage}Gi`,
-    }
-
-    // Fixed resource values to send to the backend
-    const fixedResource = {
-      replica: 1,
-      cpu: form.unifiedJobEnable ? '2' : '1',
-      gpu: '0',
-      memory: form.unifiedJobEnable ? '8Gi' : '4Gi',
-      ephemeralStorage: '10Gi',
-    }
-
-    // Build environment variables with fixed keys
-    const envMap: Record<string, string> = {
-      UNIFIED_JOB_ENABLE: String(unifiedJobEnable),
-      GITHUB_CONFIG_URL: githubConfigUrl,
-      RESOURCES: JSON.stringify(userResource),
-      IMAGE: form.image,
-      ENTRYPOINT: encodeToBase64String(entryPoint),
-    }
-
-    // Build secrets array
-    const secrets = form.secretIds.map((id) => ({ id }))
-
-    if (!isEdit.value) {
-      // excludedNodes only works in replica mode (CICD is always in replica mode)
-      const excludedNodesPayload = (() => {
-        const arr = (addPayload.excludedNodes ?? []).filter(Boolean)
-        return arr.length ? arr : undefined
-      })()
-
-      const payload: any = {
-        ...addPayload,
-        resources: [fixedResource],
-        workspace: props.action === 'Clone' ? pendingWorkspaceId.value : store.currentWorkspaceId!,
-        env: envMap,
-        githubAuth: buildGitHubAuthPayload({
-          githubAuthType,
-          githubAppId,
-          githubAppInstallationId,
-          githubAppPrivateKey,
-          githubPAT,
-        }),
-        ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
-        ...(secrets.length > 0 ? { secrets: secrets } : {}),
-        ...(cachedUseWorkspaceStorage.value !== undefined
-          ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value }
-          : {}),
-      }
-
-      if (isResume.value) {
-        if (!props.wlid) return
-        await resumeWorkload(props.wlid, payload)
-      } else {
-        await addWorkload(payload)
-      }
-      ElMessage({ message: `${props.action} successful`, type: 'success' })
-    } else {
-      if (!props.wlid) return
-
-      // During Edit, fetch existing env and update
-      const res = await getWorkloadDetail(props.wlid)
-      const editEnvMap = { ...res.env }
-
-      // Update fixed keys
-      editEnvMap.UNIFIED_JOB_ENABLE = String(form.unifiedJobEnable)
-      editEnvMap.GITHUB_CONFIG_URL = form.githubConfigUrl
-      editEnvMap.RESOURCES = JSON.stringify(userResource)
-      editEnvMap.IMAGE = form.image
-      editEnvMap.ENTRYPOINT = encodeToBase64String(form.entryPoint)
-
-      await editWorkload(props.wlid, {
-        description: form.description,
-        priority: form.priority,
-        maxRetry: form.maxRetry,
-        resources: [fixedResource],
-        env: editEnvMap,
-      })
-      ElMessage({ message: 'Edit successful', type: 'success' })
-    }
     if (props.action === 'Clone' && pendingWorkspaceId.value !== store.currentWorkspaceId) {
       store.setCurrentWorkspace(pendingWorkspaceId.value)
       await store.fetchWorkspace(true)
@@ -680,7 +807,8 @@ watch(
       'githubAppId',
       'githubAppInstallationId',
       'githubAppPrivateKey',
-      'githubPAT',
+      'githubToken',
+      'githubProxyPassword',
     ])
   },
 )
@@ -729,6 +857,19 @@ const setInitialFormValues = async () => {
 
   // Extract fixed keys from environment variables
   const envCopy = { ...res.env }
+
+  // The kind is what tells the two runner flavours apart; the auth type follows from it
+  // because a GithubRunner can only have been created with a registration token.
+  if (res.groupVersionKind?.kind === WorkloadKind.GithubRunner) {
+    form.githubAuthType = 'registration_token'
+    setInitialGithubRunnerValues(res, envCopy)
+    finishInitialFormValues(res)
+    await nextTick()
+    ruleFormRef.value?.clearValidate()
+    return
+  }
+  form.githubAuthType = 'github_app'
+
   form.unifiedJobEnable = envCopy.UNIFIED_JOB_ENABLE === 'true'
   form.githubConfigUrl =
     envCopy.GITHUB_CONFIG_URL || 'https://github.com/ROCm/unified-training-dockers'
@@ -780,13 +921,38 @@ const setInitialFormValues = async () => {
     form.resource.ephemeralStorage = firstResource?.ephemeralStorage?.replace(/Gi$/i, '') ?? ''
   }
 
+  finishInitialFormValues(res)
+  await nextTick()
+  ruleFormRef.value?.clearValidate()
+}
+
+// GithubRunner keeps its image and resources on the workload itself, so none of the
+// AutoscalingRunnerSet env wrappers (RESOURCES/IMAGE/ENTRYPOINT) are read back here.
+const setInitialGithubRunnerValues = (res: any, envCopy: Record<string, string>) => {
+  form.unifiedJobEnable = false
+  form.entryPoint = ''
+  form.githubConfigUrl = envCopy[GITHUB_CONFIG_URL_ENV] ?? ''
+  form.githubProxyUrl = envCopy[GITHUB_PROXY_URL_ENV] ?? ''
+  form.githubProxyPassword = envCopy[GITHUB_PROXY_PASSWORD_ENV] ?? ''
+  form.image = res.images?.[0] ?? res.image ?? ''
+
+  const firstResource = res.resources?.[0] ?? {}
+  form.resource.replica = Number(firstResource.replica) || 1
+  form.resource.cpu = String(firstResource.cpu ?? '')
+  form.resource.gpu = String(firstResource.gpu ?? '0')
+  form.resource.memory = String(firstResource.memory ?? '').replace(/Gi$/i, '')
+  form.resource.ephemeralStorage = String(firstResource.ephemeralStorage ?? '').replace(/Gi$/i, '')
+}
+
+const finishInitialFormValues = (res: any) => {
   // Handle special logic for Edit, Clone, and Resume
   if (props.action === 'Edit' && res.secrets && res.secrets.length > 0) {
     form.secretIds = res.secrets.map((s: any) => s.id)
   } else if (props.action === 'Clone' || props.action === 'Resume') {
-    // Clear sensitive info during Clone/Resume so users can re-select
+    // Clear sensitive info during Clone/Resume so users can re-select. Tokens and keys
+    // never come back from the API anyway -- they live in a secret, not in env.
     form.secretIds = []
-    form.githubPAT = ''
+    form.githubToken = ''
     form.githubAppId = ''
     form.githubAppInstallationId = ''
     form.githubAppPrivateKey = ''
@@ -795,8 +961,6 @@ const setInitialFormValues = async () => {
   if (props.action === 'Clone') {
     fetchWorkspaceOption()
   }
-  await nextTick()
-  ruleFormRef.value?.clearValidate()
 }
 
 const fetchNodes = async () => {
