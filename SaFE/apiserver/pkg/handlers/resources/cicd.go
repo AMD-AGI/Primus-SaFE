@@ -230,14 +230,15 @@ func (h *Handler) generateGithubRunner(ctx context.Context, workload *v1.Workloa
 	if err := validateGithubRunnerAuth(auth); err != nil {
 		return err
 	}
-	if strings.TrimSpace(proxyPassword) == "" && workload.Spec.Env != nil {
-		proxyPassword = workload.Spec.Env[common.GithubProxyPassword]
+	proxyCredential := strings.TrimSpace(proxyPassword)
+	if proxyCredential == "" && workload.Spec.Env != nil {
+		proxyCredential = strings.TrimSpace(workload.Spec.Env[common.GithubProxyPassword])
 	}
-	if err := validateGithubRunnerProxyPassword(proxyPassword); err != nil {
+	if err := validateGithubRunnerProxyPassword(proxyCredential); err != nil {
 		return err
 	}
 	secret, err := h.createGithubRunnerSecret(
-		ctx, workload, requestUser, strings.TrimSpace(auth.Token), strings.TrimSpace(proxyPassword))
+		ctx, workload, requestUser, strings.TrimSpace(auth.Token), proxyCredential)
 	if err != nil {
 		return err
 	}
