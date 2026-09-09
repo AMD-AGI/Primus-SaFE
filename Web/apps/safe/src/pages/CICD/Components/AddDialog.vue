@@ -43,7 +43,6 @@
               <el-button
                 v-for="option in GITHUB_AUTH_OPTIONS"
                 :key="option.value"
-                size="small"
                 :type="form.githubAuthType === option.value ? 'primary' : 'default'"
                 :plain="form.githubAuthType === option.value"
                 @click="form.githubAuthType = option.value"
@@ -1129,7 +1128,7 @@ html.dark .section-card:hover {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 16px;
 }
 .section-bar {
   width: 4px;
@@ -1172,8 +1171,20 @@ html.dark .section-card:hover {
   font-size: 12px;
 }
 
-/* Keep the three options on one row; the form label column leaves them little width */
+/* Fill the field width as one segmented row, matching the inputs below it. Buttons in
+   an el-button-group are floats inside an inline-block, so they drop onto a second line
+   as soon as the label column squeezes them; flex items shrink instead of wrapping. */
 .auth-mode {
+  display: flex;
+  width: 100%;
+}
+.auth-mode :deep(.el-button) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.auth-mode :deep(.el-button > span) {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 /* Soften unselected button hover, darken background */
