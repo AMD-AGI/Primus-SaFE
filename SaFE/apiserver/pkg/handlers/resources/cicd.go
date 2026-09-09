@@ -147,7 +147,7 @@ func carryForwardCICDAuth(oldSecret *corev1.Secret, auth *view.GitHubAuthRequest
 				PrivateKey:     string(oldSecret.Data[GitHubAppPrivateKey]),
 			}
 		} else if token := string(oldSecret.Data[GitHubToken]); token != "" {
-			auth = &view.GitHubAuthRequest{Token: token}
+			auth = &view.GitHubAuthRequest{Type: GitHubAuthTypePAT, Token: token}
 		}
 	}
 	if proxyAuth == nil && oldSecret != nil {

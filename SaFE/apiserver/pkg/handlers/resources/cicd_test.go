@@ -1136,11 +1136,15 @@ func TestCarryForwardCICDAuthKeepsTheOmittedHalf(t *testing.T) {
 	auth, proxyAuth := carryForwardCICDAuth(old, nil, &view.ProxyAuthRequest{Username: "u2", Password: "p2"})
 	assert.Assert(t, auth != nil)
 	assert.Equal(t, auth.Token, "tok")
+	// The carried value has to survive the same validation a submitted one does,
+	// or rotating just the proxy credential is rejected for the half nobody sent.
+	assert.NilError(t, validateCICDGitHubAuth(auth))
 	assert.Equal(t, proxyAuth.Username, "u2")
 
 	// And the other way round.
 	auth, proxyAuth = carryForwardCICDAuth(old, patAuth("tok2"), nil)
 	assert.Equal(t, auth.Token, "tok2")
+	assert.NilError(t, validateCICDGitHubAuth(auth))
 	assert.Assert(t, proxyAuth != nil)
 	assert.Equal(t, proxyAuth.Password, "p")
 }
