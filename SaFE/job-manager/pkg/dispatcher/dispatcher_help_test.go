@@ -2513,6 +2513,13 @@ func TestConstrainCICDListener_PinsListenerToTheWorkspace(t *testing.T) {
 	obj := &unstructured.Unstructured{Object: map[string]interface{}{"spec": map[string]interface{}{}}}
 	assert.NilError(t, constrainCICDListener(obj, workload))
 
+	// listenerTemplate is a PodTemplateSpec: the API server rejects the whole
+	// object if the affinity arrives without the containers a PodSpec requires.
+	containers, found, err := unstructured.NestedSlice(obj.Object, "spec", "listenerTemplate", "spec", "containers")
+	assert.NilError(t, err)
+	assert.Assert(t, found && len(containers) > 0, "listenerTemplate.spec.containers is required")
+	assert.Equal(t, containers[0].(map[string]interface{})["name"], cicdListenerContainer)
+
 	terms, found, err := unstructured.NestedSlice(obj.Object, "spec", "listenerTemplate", "spec",
 		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	assert.NilError(t, err)

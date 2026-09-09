@@ -1269,15 +1269,34 @@ func updateCICDScaleSet(obj *unstructured.Unstructured,
 	return nil
 }
 
+// cicdListenerContainer is the name ARC gives the listener container; a
+// listenerTemplate entry must match it to be merged rather than appended.
+const cicdListenerContainer = "listener"
+
 // constrainCICDListener holds the listener to the same nodes as the runners it
 // serves. It sits outside the pod spec the rest of the dispatch writes, so
 // without this it lands on whatever node the cluster picks -- observed on a
 // production workspace's node, and on one tainted for reclaim, where losing it
 // stops the scale set from being handed any work at all.
 func constrainCICDListener(obj *unstructured.Unstructured, workload *v1.Workload) error {
-	path := []string{"spec", "listenerTemplate", "spec",
-		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms"}
-	if err := modifyRequiredNodeAffinity(obj, workload, path); err != nil {
+	base := []string{"spec", "listenerTemplate", "spec"}
+	// listenerTemplate is a PodTemplateSpec, so writing anything under it means
+	// satisfying a PodSpec: containers is required and each entry needs a name.
+	// ARC merges this one into the listener it builds by that name rather than
+	// adding a second container, so the entry carries nothing else.
+	containers, found, err := jobutils.NestedSlice(obj.Object, append(base, "containers"))
+	if err != nil {
+		return err
+	}
+	if !found || len(containers) == 0 {
+		containers = []interface{}{map[string]interface{}{"name": cicdListenerContainer}}
+		if err = jobutils.SetNestedField(obj.Object, containers, append(base, "containers")); err != nil {
+			return err
+		}
+	}
+	path := append(base,
+		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	if err = modifyRequiredNodeAffinity(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to constrain the listener to the workspace: %v", err.Error())
 	}
 	return nil
