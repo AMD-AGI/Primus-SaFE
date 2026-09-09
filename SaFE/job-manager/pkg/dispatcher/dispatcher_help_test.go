@@ -2505,3 +2505,24 @@ func TestUpdateCICDProxy_UnmanagedTemplate(t *testing.T) {
 		})
 	}
 }
+
+func TestConstrainCICDListener_PinsListenerToTheWorkspace(t *testing.T) {
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Workspace = "control-plan-cicd"
+
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{"spec": map[string]interface{}{}}}
+	assert.NilError(t, constrainCICDListener(obj, workload))
+
+	terms, found, err := unstructured.NestedSlice(obj.Object, "spec", "listenerTemplate", "spec",
+		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	assert.NilError(t, err)
+	assert.Assert(t, found, "the listener must carry a node affinity of its own")
+
+	// The listener is not part of the pod spec the rest of the dispatch writes,
+	// so an unconstrained one lands anywhere in the cluster.
+	rendered := fmt.Sprintf("%v", terms)
+	assert.Assert(t, strings.Contains(rendered, v1.WorkspaceIdLabel),
+		"expected the workspace label in %s", rendered)
+	assert.Assert(t, strings.Contains(rendered, workload.Spec.Workspace),
+		"expected the workspace id in %s", rendered)
+}

@@ -1263,6 +1263,23 @@ func updateCICDScaleSet(obj *unstructured.Unstructured,
 	if err := updateCICDScaleSetEnvs(obj, adminWorkload, workspace, rt.Spec.ResourceSpecs[0]); err != nil {
 		return err
 	}
+	if err := constrainCICDListener(obj, adminWorkload); err != nil {
+		return err
+	}
+	return nil
+}
+
+// constrainCICDListener holds the listener to the same nodes as the runners it
+// serves. It sits outside the pod spec the rest of the dispatch writes, so
+// without this it lands on whatever node the cluster picks -- observed on a
+// production workspace's node, and on one tainted for reclaim, where losing it
+// stops the scale set from being handed any work at all.
+func constrainCICDListener(obj *unstructured.Unstructured, workload *v1.Workload) error {
+	path := []string{"spec", "listenerTemplate", "spec",
+		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms"}
+	if err := modifyRequiredNodeAffinity(obj, workload, path); err != nil {
+		return fmt.Errorf("failed to constrain the listener to the workspace: %v", err.Error())
+	}
 	return nil
 }
 
