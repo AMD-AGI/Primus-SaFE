@@ -194,7 +194,7 @@ func TestWorkloadMutateCICDScaleSet(t *testing.T) {
 	assert.Equal(t, len(w.Spec.Resources), 1)
 }
 
-// TestWorkloadMutateGithubRunner truncates extra resources and entrypoints.
+// TestWorkloadMutateGithubRunner truncates extra resources and preserves a custom entrypoint for validation.
 func TestWorkloadMutateGithubRunner(t *testing.T) {
 	m := &WorkloadMutator{}
 	w := &v1.Workload{Spec: v1.WorkloadSpec{
@@ -207,8 +207,11 @@ func TestWorkloadMutateGithubRunner(t *testing.T) {
 	assert.Assert(t, !w.Spec.IsSupervised)
 	assert.Equal(t, w.Spec.MaxRetry, 0)
 	assert.Equal(t, len(w.Spec.Resources), 1)
-	assert.Equal(t, len(w.Spec.EntryPoints), 1)
-	assert.Equal(t, w.Spec.EntryPoints[0], commonworkload.GithubRunnerStartScript())
+	assert.DeepEqual(t, w.Spec.EntryPoints, []string{"one", "two"})
+
+	w.Spec.EntryPoints = nil
+	m.mutateGithubRunner(w)
+	assert.DeepEqual(t, w.Spec.EntryPoints, []string{commonworkload.GithubRunnerStartScript()})
 }
 
 // TestWorkloadMutateTorchFT verifies torchFT env defaulting.
@@ -829,6 +832,14 @@ func TestGithubRunnerPoolLabelsRejectsDuplicates(t *testing.T) {
 
 	// Updating the same workload keeps its labels.
 	assert.NilError(t, v.validateGithubRunner(context.Background(), existing))
+}
+
+func TestValidateGithubRunnerRejectsCustomEntryPoint(t *testing.T) {
+	w := githubRunnerForLabelTest("runner", "runner-label")
+	w.Spec.EntryPoints = []string{"custom"}
+	v := &WorkloadValidator{}
+	err := v.validateGithubRunner(context.Background(), w)
+	assert.ErrorContains(t, err, "entrypoint is managed")
 }
 
 func TestGithubRunnerPoolLabelsFallbackToDisplayName(t *testing.T) {

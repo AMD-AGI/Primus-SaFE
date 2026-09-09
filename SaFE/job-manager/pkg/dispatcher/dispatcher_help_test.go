@@ -1758,6 +1758,14 @@ func TestGithubRunnerWritableMountPath(t *testing.T) {
 	}}}
 	_, err = githubRunnerWritableMountPath(workload, readonly)
 	assert.ErrorContains(t, err, "writable workspace volume")
+
+	withEmptyPath := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Type: v1.PFS},
+		{Type: v1.PFS, MountPath: "/valid"},
+	}}}
+	path, err = githubRunnerWritableMountPath(workload, withEmptyPath)
+	assert.NilError(t, err)
+	assert.Equal(t, path, "/valid")
 }
 
 func TestBuildRequiredMatchExpressionExcludedNodes(t *testing.T) {

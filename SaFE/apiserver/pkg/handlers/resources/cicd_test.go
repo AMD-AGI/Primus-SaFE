@@ -1006,6 +1006,16 @@ func TestGithubRunnerProxyPasswordFromPatchReadsEnv(t *testing.T) {
 	assert.Equal(t, *got, "field-password")
 }
 
+func TestNormalizeGithubRunnerAuthIgnoresPAT(t *testing.T) {
+	auth := normalizeGithubRunnerAuth(nil, map[string]string{GithubPAT: "pat-value"})
+	assert.Assert(t, auth == nil)
+
+	auth = normalizeGithubRunnerAuth(nil, map[string]string{common.RunnerToken: "registration-token"})
+	assert.Assert(t, auth != nil)
+	assert.Equal(t, auth.Type, GitHubAuthTypeRegistrationToken)
+	assert.Equal(t, auth.Token, "registration-token")
+}
+
 func TestGenerateGithubRunnerAllowsPasswordWithoutClusterProxy(t *testing.T) {
 	commonconfig.SetValue("cicd.enable", "true")
 	defer commonconfig.SetValue("cicd.enable", "")

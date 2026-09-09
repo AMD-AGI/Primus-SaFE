@@ -432,10 +432,9 @@ func (m *WorkloadMutator) mutateGithubRunner(workload *v1.Workload) {
 	if len(workload.Spec.Resources) > 1 {
 		workload.Spec.Resources = workload.Spec.Resources[0:1]
 	}
-	if len(workload.Spec.EntryPoints) > 1 {
-		workload.Spec.EntryPoints = workload.Spec.EntryPoints[0:1]
+	if len(workload.Spec.EntryPoints) == 0 {
+		workload.Spec.EntryPoints = []string{commonworkload.GithubRunnerStartScript()}
 	}
-	workload.Spec.EntryPoints = []string{commonworkload.GithubRunnerStartScript()}
 }
 
 // mutateMonarchJob sets no-retry, disable Supervised
@@ -1119,6 +1118,11 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 
 // validateGithubRunner validates persistent self-hosted runner configuration.
 func (v *WorkloadValidator) validateGithubRunner(ctx context.Context, workload *v1.Workload) error {
+	if len(workload.Spec.EntryPoints) > 0 &&
+		(len(workload.Spec.EntryPoints) != 1 ||
+			workload.Spec.EntryPoints[0] != commonworkload.GithubRunnerStartScript()) {
+		return fmt.Errorf("github runner entrypoint is managed by the platform")
+	}
 	if workload.GetEnv(common.GithubConfigUrl) == "" {
 		return fmt.Errorf("the %s of workload environment variables is empty", common.GithubConfigUrl)
 	}

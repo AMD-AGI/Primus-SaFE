@@ -30,7 +30,7 @@ data:
         containers:
         - name: runner
           image: ghcr.io/actions/actions-runner:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: RUNNER_ALLOW_RUNASROOT
               value: "1"

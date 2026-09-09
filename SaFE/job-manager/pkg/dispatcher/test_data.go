@@ -329,6 +329,7 @@ data:
         containers:
         - name: runner
           image: ghcr.io/actions/actions-runner:latest
+          imagePullPolicy: Always
           env:
             - name: POD_NAME
               valueFrom:

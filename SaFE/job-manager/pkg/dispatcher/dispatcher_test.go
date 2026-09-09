@@ -1041,23 +1041,37 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 		"spec": map[string]interface{}{
 			"template": map[string]interface{}{
 				"spec": map[string]interface{}{
-					"containers": []interface{}{map[string]interface{}{
-						"name": "runner",
-						"env": []interface{}{map[string]interface{}{
-							"name": jobutils.GithubSecretEnv, "value": "old-secret",
-						}},
-						"volumeMounts": []interface{}{
-							map[string]interface{}{
-								"name": "old-secret", "mountPath": common.SecretPath + "/old-secret",
-							},
-							map[string]interface{}{
-								"name": "image-secret", "mountPath": common.SecretPath + "/image-secret",
+					"containers": []interface{}{
+						map[string]interface{}{
+							"name": "runner",
+							"env": []interface{}{map[string]interface{}{
+								"name": jobutils.GithubSecretEnv, "value": "old-secret",
+							}},
+							"volumeMounts": []interface{}{
+								map[string]interface{}{
+									"name": "old-secret", "mountPath": common.SecretPath + "/old-secret",
+								},
+								map[string]interface{}{
+									"name": "image-secret", "mountPath": common.SecretPath + "/image-secret",
+								},
+								map[string]interface{}{
+									"name": "template-secret", "mountPath": "/runner-creds",
+								},
 							},
 						},
-					}},
+						map[string]interface{}{
+							"name": "sidecar",
+							"lifecycle": map[string]interface{}{
+								"postStart": map[string]interface{}{"exec": map[string]interface{}{
+									"command": []interface{}{"true"},
+								}},
+							},
+						},
+					},
 					"volumes": []interface{}{
 						buildSecretVolume("old-secret"),
 						buildSecretVolume("image-secret"),
+						buildSecretVolume("template-secret"),
 					},
 				},
 			},
@@ -1082,6 +1096,7 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 	assert.Equal(t, mountNames["new-secret"], true)
 	assert.Equal(t, mountNames["image-secret"], true)
 	assert.Equal(t, mountNames["old-secret"], false)
+	assert.Equal(t, mountNames["template-secret"], true)
 
 	volumes, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "volumes"})
 	assert.NilError(t, err)
@@ -1093,6 +1108,7 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 	assert.Equal(t, volumeNames["new-secret"], true)
 	assert.Equal(t, volumeNames["image-secret"], true)
 	assert.Equal(t, volumeNames["old-secret"], false)
+	assert.Equal(t, volumeNames["template-secret"], true)
 
 	envsMap := convertEnvsToStringMap(envs)
 	assert.Equal(t, envsMap[common.GithubRunnerStateRoot],
@@ -1112,6 +1128,11 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 	execHook := preStop["exec"].(map[string]interface{})
 	cmd := execHook["command"].([]interface{})
 	assert.Equal(t, cmd[2], commonworkload.GithubRunnerStopScript())
+	sidecarLifecycle := containers[1].(map[string]interface{})["lifecycle"].(map[string]interface{})
+	_, hasPreStop := sidecarLifecycle["preStop"]
+	assert.Equal(t, hasPreStop, false)
+	_, hasPostStart := sidecarLifecycle["postStart"]
+	assert.Equal(t, hasPostStart, true)
 }
 
 func TestGithubRunnerInjectedEnvSurvivesRemoval(t *testing.T) {

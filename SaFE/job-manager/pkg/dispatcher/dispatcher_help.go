@@ -1360,10 +1360,18 @@ func updateGithubRunner(obj *unstructured.Unstructured,
 	if strings.TrimSpace(envs[common.RunnerLabels]) == "" {
 		envs[common.RunnerLabels] = v1.GetDisplayName(adminWorkload)
 	}
+	mainContainerName := commonworkload.GetMainContainer(adminWorkload, adminWorkload.SpecKind(), 0)
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
 		updateContainerEnv(envs, container, nil)
-		container["lifecycle"] = githubRunnerLifecycle()
+		if name, _ := container["name"].(string); name == mainContainerName {
+			lifecycle, _ := container["lifecycle"].(map[string]interface{})
+			if lifecycle == nil {
+				lifecycle = map[string]interface{}{}
+			}
+			lifecycle["preStop"] = githubRunnerLifecycle()["preStop"]
+			container["lifecycle"] = lifecycle
+		}
 	}
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
 		return err
@@ -1435,7 +1443,7 @@ func pickWritableWorkspaceVolume(workspace *v1.Workspace) (v1.WorkspaceVolume, b
 	var first v1.WorkspaceVolume
 	foundFirst := false
 	for _, vol := range workspace.Spec.Volumes {
-		if vol.AccessMode == corev1.ReadOnlyMany {
+		if vol.AccessMode == corev1.ReadOnlyMany || strings.TrimSpace(vol.MountPath) == "" {
 			continue
 		}
 		if vol.Type == v1.PFS {
@@ -1462,6 +1470,30 @@ func syncGithubRunnerSecretMounts(obj *unstructured.Unstructured,
 		}
 	}
 
+	containers, containerPath, err := getContainers(workload, obj, resourceSpec)
+	if err != nil {
+		return err
+	}
+	managedNames := make(map[string]struct{}, len(secretTypeByID))
+	for name := range secretTypeByID {
+		managedNames[name] = struct{}{}
+	}
+	for i := range containers {
+		container := containers[i].(map[string]interface{})
+		mounts, _ := container["volumeMounts"].([]interface{})
+		for _, mount := range mounts {
+			mountMap, ok := mount.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			mountPath, _ := mountMap["mountPath"].(string)
+			if strings.HasPrefix(mountPath, common.SecretPath+"/") {
+				name, _ := mountMap["name"].(string)
+				managedNames[name] = struct{}{}
+			}
+		}
+	}
+
 	volumePath := podSpecPath(workload, &resourceSpec, "volumes")
 	volumes, _, err := jobutils.NestedSlice(obj.Object, volumePath)
 	if err != nil {
@@ -1474,11 +1506,13 @@ func syncGithubRunnerSecretMounts(obj *unstructured.Unstructured,
 			continue
 		}
 		name, _ := volumeMap["name"].(string)
-		if _, managed := volumeMap["secret"]; ok && managed {
-			if secretType, exists := secretTypeByID[name]; exists && secretType != v1.SecretGeneral {
-				filteredVolumes = append(filteredVolumes, volume)
+		if _, hasSecret := volumeMap["secret"]; hasSecret {
+			if _, managed := managedNames[name]; managed {
+				if secretType, exists := secretTypeByID[name]; exists && secretType != v1.SecretGeneral {
+					filteredVolumes = append(filteredVolumes, volume)
+				}
+				continue
 			}
-			continue
 		}
 		filteredVolumes = append(filteredVolumes, volume)
 	}
@@ -1489,10 +1523,6 @@ func syncGithubRunnerSecretMounts(obj *unstructured.Unstructured,
 		return err
 	}
 
-	containers, containerPath, err := getContainers(workload, obj, resourceSpec)
-	if err != nil {
-		return err
-	}
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
 		mounts, _ := container["volumeMounts"].([]interface{})
@@ -1502,10 +1532,9 @@ func syncGithubRunnerSecretMounts(obj *unstructured.Unstructured,
 			if !ok {
 				continue
 			}
-			mountPath, _ := mountMap["mountPath"].(string)
-			if strings.HasPrefix(mountPath, common.SecretPath+"/") {
-				secretID := strings.TrimPrefix(mountPath, common.SecretPath+"/")
-				if secretType, exists := secretTypeByID[secretID]; exists && secretType != v1.SecretGeneral {
+			name, _ := mountMap["name"].(string)
+			if _, managed := managedNames[name]; managed {
+				if secretType, exists := secretTypeByID[name]; exists && secretType != v1.SecretGeneral {
 					filteredMounts = append(filteredMounts, mount)
 				}
 				continue

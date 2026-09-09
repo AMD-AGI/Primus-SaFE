@@ -234,9 +234,6 @@ func (h *Handler) generateGithubRunner(ctx context.Context, workload *v1.Workloa
 	if proxyCredential == "" && workload.Spec.Env != nil {
 		proxyCredential = strings.TrimSpace(workload.Spec.Env[common.GithubProxyPassword])
 	}
-	if err := validateGithubRunnerProxyPassword(proxyCredential); err != nil {
-		return err
-	}
 	secret, err := h.createGithubRunnerSecret(
 		ctx, workload, requestUser, strings.TrimSpace(auth.Token), proxyCredential)
 	if err != nil {
@@ -283,11 +280,6 @@ func (h *Handler) updateGithubRunnerSecret(ctx context.Context, workload *v1.Wor
 			return nil, err
 		}
 	}
-	if proxyPassword != nil {
-		if err := validateGithubRunnerProxyPassword(*proxyPassword); err != nil {
-			return nil, err
-		}
-	}
 	oldSecretId := v1.GetGithubSecretId(workload)
 	token := ""
 	proxyCredential := ""
@@ -328,10 +320,6 @@ func (h *Handler) updateGithubRunnerSecret(ctx context.Context, workload *v1.Wor
 	return &cicdSecretRotation{NewSecretId: newSecret.Name, SupersededSecretId: oldSecretId}, nil
 }
 
-func validateGithubRunnerProxyPassword(_ string) error {
-	return nil
-}
-
 func normalizeGithubRunnerAuth(auth *view.GitHubAuthRequest, env map[string]string) *view.GitHubAuthRequest {
 	if auth != nil {
 		if strings.TrimSpace(auth.Type) == "" {
@@ -345,9 +333,6 @@ func normalizeGithubRunnerAuth(auth *view.GitHubAuthRequest, env map[string]stri
 		return nil
 	}
 	token := strings.TrimSpace(env[common.RunnerToken])
-	if token == "" {
-		token = strings.TrimSpace(env[GithubPAT])
-	}
 	if token == "" {
 		return nil
 	}

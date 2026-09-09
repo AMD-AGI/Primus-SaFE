@@ -54,7 +54,9 @@ func TestGithubRunnerStartScriptUsesCompleteAtomicState(t *testing.T) {
 func TestGithubRunnerProxyRelayAuthenticatesUpstream(t *testing.T) {
 	for _, script := range []string{GithubRunnerStartScript(), GithubRunnerStopScript()} {
 		assert.Assert(t, strings.Contains(script,
-			`lines.splice(1, 0, 'Proxy-Authorization: Basic ' + credential);`))
+			`result['proxy-authorization'] = authorization;`))
+		assert.Assert(t, strings.Contains(script,
+			`'Proxy-Authorization: ' + authorization`))
 		assert.Assert(t, strings.Contains(script,
 			`export https_proxy="http://127.0.0.1:${RELAY_PORT}" HTTPS_PROXY="http://127.0.0.1:${RELAY_PORT}"`))
 		assert.Assert(t, strings.Contains(script,

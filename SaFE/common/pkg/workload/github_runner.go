@@ -11,7 +11,10 @@ import "github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 // the GitHub proxy. An authenticated proxy is reached through a local relay:
 // the runner's .NET client only sends Proxy-Authorization after a 407 challenge,
 // while the tunnel rejects the unauthenticated CONNECT with a 401 instead.
-const githubRunnerProxySetup = `setup_github_proxy() {
+const githubRunnerProxySetup = `find_runner_node() {
+  find "${RUNNER_DIR}/externals" -type f -path '*/bin/node' 2>/dev/null | sort | head -n 1 || true
+}
+setup_github_proxy() {
   [ -n "${GITHUB_PROXY_URL:-}" ] || return 0
   export no_proxy="${GITHUB_PROXY_NO_PROXY:-localhost,127.0.0.1,::1,.svc,.cluster.local}"
   export NO_PROXY="${no_proxy}"
@@ -38,18 +41,23 @@ const githubRunnerProxySetup = `setup_github_proxy() {
       return 0
     fi
   fi
-  NODE_BIN="$(find "${RUNNER_DIR}/externals" -type f -path '*/bin/node' 2>/dev/null | sort | head -n 1 || true)"
+  NODE_BIN="$(find_runner_node)"
   if [ -z "${NODE_BIN}" ] || [ ! -x "${NODE_BIN}" ]; then
     echo "github proxy relay: node binary not found under ${RUNNER_DIR}/externals" >&2
     return 1
   fi
   cat >"${RELAY_JS}" <<'RELAY_EOF'
+const http = require('http');
+const https = require('https');
 const net = require('net');
 const tls = require('tls');
 const upstream = new URL(process.env.RELAY_UPSTREAM);
 const credential = Buffer.from(
   process.env.RELAY_USER + ':' + process.env.RELAY_SECRET
 ).toString('base64');
+const authorization = 'Basic ' + credential;
+const connectTimeoutMs = 10000;
+const requestTimeoutMs = 60000;
 
 function upstreamPort() {
   if (upstream.port) {
@@ -61,58 +69,87 @@ function upstreamPort() {
 function connectUpstream(onConnect) {
   const port = upstreamPort();
   const host = upstream.hostname;
+  let connected = false;
+  let socket;
   if (upstream.protocol === 'https:') {
-    return tls.connect({ host: host, port: port, servername: host }, onConnect);
+    socket = tls.connect({ host: host, port: port, servername: host }, connectedCallback);
+  } else {
+    socket = net.connect(port, host, connectedCallback);
   }
-  return net.connect(port, host, onConnect);
+  function connectedCallback() {
+    connected = true;
+    socket.setTimeout(0);
+    onConnect();
+  }
+  socket.setTimeout(connectTimeoutMs, () => {
+    if (!connected) {
+      socket.destroy(new Error('upstream proxy connect timeout'));
+    }
+  });
+  return socket;
 }
 
-function rewrite(header) {
-  const lines = header
-    .split('\r\n')
-    .filter((line) => !/^proxy-authorization:/i.test(line));
-  const method = (lines[0] || '').split(' ')[0].toUpperCase();
-  lines.splice(1, 0, 'Proxy-Authorization: Basic ' + credential);
-  if (method !== 'CONNECT') {
-    const kept = lines.filter((line) => !/^connection:/i.test(line));
-    kept.splice(1, 0, 'Connection: close');
-    return { method: method, payload: kept.join('\r\n') + '\r\n\r\n' };
-  }
-  return { method: method, payload: lines.join('\r\n') + '\r\n\r\n' };
+function proxyHeaders(headers) {
+  const result = { ...headers };
+  delete result['proxy-authorization'];
+  result['proxy-authorization'] = authorization;
+  return result;
 }
 
-function relay(client, header, body) {
-  const rewritten = rewrite(header);
+function relayConnect(request, client, body) {
   const server = connectUpstream(() => {
-    server.write(rewritten.payload);
+    const lines = [
+      'CONNECT ' + request.url + ' HTTP/' + request.httpVersion,
+      'Proxy-Authorization: ' + authorization,
+    ];
+    for (let i = 0; i < request.rawHeaders.length; i += 2) {
+      if (request.rawHeaders[i].toLowerCase() !== 'proxy-authorization') {
+        lines.push(request.rawHeaders[i] + ': ' + request.rawHeaders[i + 1]);
+      }
+    }
+    server.write(lines.join('\r\n') + '\r\n\r\n');
     if (body.length > 0) {
       server.write(body);
     }
     client.pipe(server);
     server.pipe(client);
-    client.resume();
   });
+  client.on('close', () => server.destroy());
+  client.on('error', () => server.destroy());
   server.on('error', () => client.destroy());
+  server.on('close', () => client.destroy());
 }
 
-net.createServer((client) => {
-  let head = Buffer.alloc(0);
-  const onData = (chunk) => {
-    head = Buffer.concat([head, chunk]);
-    const end = head.indexOf('\r\n\r\n');
-    if (end < 0) {
-      if (head.length > 65536) {
-        client.destroy();
-      }
-      return;
+const relay = http.createServer((request, response) => {
+  const transport = upstream.protocol === 'https:' ? https : http;
+  const upstreamRequest = transport.request({
+    hostname: upstream.hostname,
+    port: upstreamPort(),
+    method: request.method,
+    path: request.url,
+    headers: proxyHeaders(request.headers),
+    agent: false,
+  }, (upstreamResponse) => {
+    response.writeHead(upstreamResponse.statusCode, upstreamResponse.headers);
+    upstreamResponse.pipe(response);
+  });
+  upstreamRequest.setTimeout(requestTimeoutMs, () => {
+    upstreamRequest.destroy(new Error('upstream proxy request timeout'));
+  });
+  const closeUpstream = () => upstreamRequest.destroy();
+  request.socket.once('close', closeUpstream);
+  upstreamRequest.on('close', () => request.socket.removeListener('close', closeUpstream));
+  upstreamRequest.on('error', () => {
+    if (!response.headersSent) {
+      response.writeHead(502);
     }
-    client.pause();
-    client.removeListener('data', onData);
-    relay(client, head.slice(0, end).toString('latin1'), head.slice(end + 4));
-  };
-  client.on('data', onData);
-  client.on('error', () => client.destroy());
-}).listen(Number(process.env.RELAY_PORT), '127.0.0.1', () => {
+    response.end();
+  });
+  request.pipe(upstreamRequest);
+});
+relay.on('connect', relayConnect);
+relay.on('clientError', (_error, socket) => socket.destroy());
+relay.listen(Number(process.env.RELAY_PORT), '127.0.0.1', () => {
   console.log('github proxy relay listening');
 });
 RELAY_EOF
@@ -158,12 +195,16 @@ TOKEN_FILE="` + common.SecretPath + `/${GITHUB_SECRET_ID}/github_token"
 cd "${RUNNER_DIR}"
 if [ ! -f "${STATE_DIR}/.credentials" ] || [ ! -f "${STATE_DIR}/.runner" ]; then
   if [ -f "${STATE_DIR}/.register_failed" ]; then
-    echo "github runner registration already failed; patch a new githubAuth.token" >&2
-    exit 1
+    FAILED_SECRET_ID="$(cat "${STATE_DIR}/.register_failed" 2>/dev/null || true)"
+    if [ "${FAILED_SECRET_ID}" = "${GITHUB_SECRET_ID}" ]; then
+      echo "github runner registration already failed for the current secret; patch a new githubAuth.token" >&2
+      exit 1
+    fi
+    rm -f "${STATE_DIR}/.register_failed"
   fi
   TOKEN="$(cat "${TOKEN_FILE}")"
   if ! ./config.sh --unattended --url "${GITHUB_CONFIG_URL}" --token "${TOKEN}" --name "${POD_NAME}" --labels "${LABELS}" --replace --work _work; then
-    touch "${STATE_DIR}/.register_failed"
+    printf '%s\n' "${GITHUB_SECRET_ID}" >"${STATE_DIR}/.register_failed"
     echo "github runner registration failed" >&2
     exit 1
   fi
@@ -214,8 +255,20 @@ STATE_DIR="${GITHUB_RUNNER_STATE_ROOT:-}/${POD_NAME:-}"
   if [ "${CODE}" != "200" ]; then
     return 1
   fi
-  REPLICAS="$(tr -d ' \n' < /tmp/github-runner-sts.json | sed -n 's/.*"spec":{"replicas":\([0-9][0-9]*\).*/\1/p')"
-  [ -n "${REPLICAS}" ] || return 1
+  NODE_BIN="$(find_runner_node)"
+  if [ -z "${NODE_BIN}" ] || [ ! -x "${NODE_BIN}" ]; then
+    echo "github runner deregistration: node binary not found under ${RUNNER_DIR}/externals" >&2
+    return 1
+  fi
+  REPLICAS="$("${NODE_BIN}" -e '
+const fs = require("fs");
+const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).spec.replicas;
+process.stdout.write(String(value == null ? 1 : value));
+' /tmp/github-runner-sts.json 2>/dev/null)"
+  if [ -z "${REPLICAS}" ]; then
+    echo "github runner deregistration: failed to read StatefulSet replicas" >&2
+    return 1
+  fi
   [ "${ORDINAL}" -ge "${REPLICAS}" ]
 }
 if should_deregister; then
