@@ -28,8 +28,8 @@
           <div class="section-header">
             <div class="section-bar"></div>
             <div>
-              <div class="section-title">GitHub</div>
-              <div class="section-subtitle">Authentication and repository configuration</div>
+              <div class="section-title">GitHub Connection</div>
+              <div class="section-subtitle">Authentication, repository and proxy</div>
             </div>
           </div>
 
@@ -39,11 +39,18 @@
             <el-text>{{ editingKind }}</el-text>
           </el-form-item>
           <el-form-item v-else label="GitHubAuth" prop="githubAuthType">
-            <el-radio-group v-model="form.githubAuthType">
-              <el-radio-button label="github_app">GitHub App (recommended)</el-radio-button>
-              <el-radio-button label="pat">Personal Access Token (legacy)</el-radio-button>
-              <el-radio-button label="registration_token">self-hosted runner</el-radio-button>
-            </el-radio-group>
+            <el-button-group class="auth-mode">
+              <el-button
+                v-for="option in GITHUB_AUTH_OPTIONS"
+                :key="option.value"
+                size="small"
+                :type="form.githubAuthType === option.value ? 'primary' : 'default'"
+                :plain="form.githubAuthType === option.value"
+                @click="form.githubAuthType = option.value"
+              >
+                {{ option.label }}
+              </el-button>
+            </el-button-group>
           </el-form-item>
 
           <el-form-item label="GitHubConfigURL" prop="githubConfigUrl">
@@ -440,6 +447,14 @@ const RETRY_TIMES_INFO = 'Maximum retries:50'
 const FORCE_HOST_NETWORK_INFO = 'Force host network (default: auto-based on resources)'
 const RUNNER_LABELS_INFO = 'Also used as the runner label your workflows target with runs-on'
 
+// Rendered as the same button-group toggle as the image Select/Custom switch further
+// down the form, so the two mode pickers in one drawer look alike.
+const GITHUB_AUTH_OPTIONS: Array<{ value: GitHubAuthType; label: string }> = [
+  { value: 'github_app', label: 'GitHub App (recommended)' },
+  { value: 'pat', label: 'Personal Access Token (legacy)' },
+  { value: 'registration_token', label: 'self-hosted runner' },
+]
+
 const imageOptions = ref([] as Array<{ id: number; tag: string }>)
 const excludedNodeOptions = ref(
   [] as Array<{ nodeId: string; available: boolean; internalIP?: string }>,
@@ -550,8 +565,11 @@ const rules: Record<string, FormItemRule[]> = reactive({
     { required: true, message: 'Please input ephemeral storage', trigger: 'blur' },
   ],
   githubConfigUrl: [{ required: true, message: 'Please input GitHub config URL', trigger: 'blur' }],
+  // The credentials carry `required` for the asterisk only; the message itself comes
+  // from the validator, which knows which auth type is selected.
   githubAppId: [
     {
+      required: true,
       validator: (_rule, _value, callback) => {
         const [message] = validateGitHubAuthForm(form).filter((msg) => msg.includes('App ID'))
         callback(message ? new Error(message) : undefined)
@@ -561,6 +579,7 @@ const rules: Record<string, FormItemRule[]> = reactive({
   ],
   githubAppInstallationId: [
     {
+      required: true,
       validator: (_rule, _value, callback) => {
         const [message] = validateGitHubAuthForm(form).filter((msg) => msg.includes('installation'))
         callback(message ? new Error(message) : undefined)
@@ -570,6 +589,7 @@ const rules: Record<string, FormItemRule[]> = reactive({
   ],
   githubAppPrivateKey: [
     {
+      required: true,
       validator: (_rule, _value, callback) => {
         const [message] = validateGitHubAuthForm(form).filter((msg) => msg.includes('private key'))
         callback(message ? new Error(message) : undefined)
@@ -579,6 +599,7 @@ const rules: Record<string, FormItemRule[]> = reactive({
   ],
   githubToken: [
     {
+      required: true,
       validator: (_rule, _value, callback) => {
         const [message] = validateGitHubAuthForm(form)
         callback(message ? new Error(message) : undefined)
@@ -1149,6 +1170,17 @@ html.dark .section-card:hover {
 .pem-file-input {
   margin-top: 8px;
   font-size: 12px;
+}
+
+/* Keep the three options on one row; the form label column leaves them little width */
+.auth-mode {
+  white-space: nowrap;
+}
+/* Soften unselected button hover, darken background */
+.auth-mode :deep(.el-button--default:not(.el-button--primary):hover) {
+  color: var(--el-text-color-regular);
+  border-color: var(--el-border-color-hover);
+  background-color: var(--el-fill-color-darker);
 }
 
 /* Drawer footer */
