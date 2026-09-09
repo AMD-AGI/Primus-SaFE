@@ -131,6 +131,12 @@ func (h *Handler) updateCICDSecret(ctx context.Context, workload *v1.Workload, r
 	}
 
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, newSecret.Name)
+	// Both references name the same Secret, so both have to move: the superseded
+	// one is deleted once the rotation lands, and an env left pointing at it
+	// sends ARC to a Secret that is no longer there.
+	if workload.Spec.Env[common.ProxyCredentialSecret] != "" {
+		workload.Spec.Env[common.ProxyCredentialSecret] = newSecret.Name
+	}
 	return &cicdSecretRotation{NewSecretId: newSecret.Name, SupersededSecretId: oldSecretId}, nil
 }
 

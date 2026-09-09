@@ -1148,3 +1148,41 @@ func TestCarryForwardCICDAuthKeepsTheOmittedHalf(t *testing.T) {
 	assert.Assert(t, proxyAuth != nil)
 	assert.Equal(t, proxyAuth.Password, "p")
 }
+
+func TestRotationMovesBothReferencesToTheNewSecret(t *testing.T) {
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	user := genMockUser()
+	role := genMockRole()
+
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "old-secret-id")
+	workload.Spec.Env = map[string]string{common.ProxyCredentialSecret: "old-secret-id"}
+
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "old-secret-id", Namespace: common.PrimusSafeNamespace},
+		Data: map[string][]byte{
+			GitHubToken:                []byte("tok"),
+			string(view.UserNameParam): []byte("u"),
+			string(view.PasswordParam): []byte("p"),
+		},
+	}
+
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
+		Build()
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        k8sfake.NewSimpleClientset(oldSecret),
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+
+	rotation, err := h.updateCICDSecret(ctx, workload, user,
+		nil, &view.ProxyAuthRequest{Username: "u2", Password: "p2"})
+	assert.NilError(t, err)
+	assert.Assert(t, rotation != nil, "a changed proxy credential should rotate the secret")
+
+	assert.Equal(t, v1.GetGithubSecretId(workload), rotation.NewSecretId)
+	assert.Equal(t, workload.Spec.Env[common.ProxyCredentialSecret], rotation.NewSecretId,
+		"the env must not keep naming the superseded secret")
+}
