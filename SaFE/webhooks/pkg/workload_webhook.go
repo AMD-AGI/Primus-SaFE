@@ -68,8 +68,9 @@ func AddWorkloadWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder
 		decoder:   decoder,
 	}})
 	(*server).Register(generateValidatePath(v1.WorkloadKind), &webhook.Admission{Handler: &WorkloadValidator{
-		Client:  mgr.GetClient(),
-		decoder: decoder,
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		decoder:   decoder,
 	}})
 }
 
@@ -880,7 +881,8 @@ func (m *WorkloadMutator) mutateTimeout(workload *v1.Workload, workspace *v1.Wor
 // WorkloadValidator validates Workload resources on create and update operations.
 type WorkloadValidator struct {
 	client.Client
-	decoder admission.Decoder
+	APIReader client.Reader
+	decoder   admission.Decoder
 }
 
 // Handle validates workload resources on create, update, and delete operations.
@@ -1120,7 +1122,8 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 func (v *WorkloadValidator) validateGithubRunner(ctx context.Context, workload *v1.Workload) error {
 	if len(workload.Spec.EntryPoints) > 0 &&
 		(len(workload.Spec.EntryPoints) != 1 ||
-			workload.Spec.EntryPoints[0] != commonworkload.GithubRunnerStartScript()) {
+			strings.TrimSpace(workload.Spec.EntryPoints[0]) !=
+				strings.TrimSpace(commonworkload.GithubRunnerStartScript())) {
 		return fmt.Errorf("github runner entrypoint is managed by the platform")
 	}
 	if workload.GetEnv(common.GithubConfigUrl) == "" {
@@ -1176,7 +1179,11 @@ func githubRunnerPoolLabels(workload *v1.Workload) []string {
 // validateGithubRunnerLabelsUnique rejects a GithubRunner whose custom labels
 // overlap another live GithubRunner pool.
 func (v *WorkloadValidator) validateGithubRunnerLabelsUnique(ctx context.Context, workload *v1.Workload) error {
-	if v.Client == nil {
+	var reader client.Reader = v.Client
+	if v.APIReader != nil {
+		reader = v.APIReader
+	}
+	if reader == nil {
 		return nil
 	}
 	wanted := githubRunnerPoolLabels(workload)
@@ -1185,9 +1192,10 @@ func (v *WorkloadValidator) validateGithubRunnerLabelsUnique(ctx context.Context
 	}
 	list := &v1.WorkloadList{}
 	selector := labels.SelectorFromSet(map[string]string{v1.WorkloadKindLabel: common.CICDGithubRunnerKind})
-	if err := v.Client.List(ctx, list, &client.ListOptions{LabelSelector: selector}); err != nil {
+	if err := reader.List(ctx, list, &client.ListOptions{LabelSelector: selector}); err != nil {
 		return err
 	}
+	configURL := strings.TrimSpace(workload.GetEnv(common.GithubConfigUrl))
 	wantedKeys := map[string]string{}
 	for _, label := range wanted {
 		wantedKeys[strings.ToLower(label)] = label
@@ -1200,10 +1208,13 @@ func (v *WorkloadValidator) validateGithubRunnerLabelsUnique(ctx context.Context
 		if !commonworkload.IsCICDGithubRunner(other) {
 			continue
 		}
+		if strings.TrimSpace(other.GetEnv(common.GithubConfigUrl)) != configURL {
+			continue
+		}
 		for _, existing := range githubRunnerPoolLabels(other) {
 			if label, ok := wantedKeys[strings.ToLower(existing)]; ok {
 				return commonerrors.NewAlreadyExist(
-					fmt.Sprintf("the github runner label %q is already used by workload %s", label, other.Name))
+					fmt.Sprintf("the github runner label %q is already in use", label))
 			}
 		}
 	}

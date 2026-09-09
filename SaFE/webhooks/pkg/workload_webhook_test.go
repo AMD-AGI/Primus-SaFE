@@ -8,6 +8,7 @@ package webhooks
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -840,6 +841,34 @@ func TestValidateGithubRunnerRejectsCustomEntryPoint(t *testing.T) {
 	v := &WorkloadValidator{}
 	err := v.validateGithubRunner(context.Background(), w)
 	assert.ErrorContains(t, err, "entrypoint is managed")
+}
+
+// TestValidateGithubRunnerAcceptsMutatedEntryPoint verifies canonical whitespace handling.
+func TestValidateGithubRunnerAcceptsMutatedEntryPoint(t *testing.T) {
+	w := githubRunnerForLabelTest("runner", "runner-label")
+	m := &WorkloadMutator{}
+	m.mutateGithubRunner(w)
+	m.mutateEntryPoints(w)
+	v := &WorkloadValidator{}
+	assert.NilError(t, v.validateGithubRunner(context.Background(), w))
+}
+
+// TestGithubRunnerPoolLabelsUsesAPIReaderAndConfigURLScope verifies fresh scoped lookup.
+func TestGithubRunnerPoolLabelsUsesAPIReaderAndConfigURLScope(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "shared-label")
+	cachedClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	apiReader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: cachedClient, APIReader: apiReader}
+
+	duplicate := githubRunnerForLabelTest("runner-b", "shared-label")
+	err := v.validateGithubRunner(context.Background(), duplicate)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+	assert.Assert(t, !strings.Contains(err.Error(), existing.Name))
+
+	otherConfig := githubRunnerForLabelTest("runner-c", "shared-label")
+	otherConfig.Spec.Env[common.GithubConfigUrl] = "https://github.com/other/repo"
+	assert.NilError(t, v.validateGithubRunner(context.Background(), otherConfig))
 }
 
 func TestGithubRunnerPoolLabelsFallbackToDisplayName(t *testing.T) {

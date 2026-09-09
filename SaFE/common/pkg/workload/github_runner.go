@@ -260,11 +260,20 @@ STATE_DIR="${GITHUB_RUNNER_STATE_ROOT:-}/${POD_NAME:-}"
     echo "github runner deregistration: node binary not found under ${RUNNER_DIR}/externals" >&2
     return 1
   fi
-  REPLICAS="$("${NODE_BIN}" -e '
+  STS_STATE="$("${NODE_BIN}" -e '
 const fs = require("fs");
-const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).spec.replicas;
-process.stdout.write(String(value == null ? 1 : value));
+const statefulSet = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (statefulSet.metadata && statefulSet.metadata.deletionTimestamp) {
+  process.stdout.write("deleting");
+} else {
+  const value = statefulSet.spec.replicas;
+  process.stdout.write(String(value == null ? 1 : value));
+}
 ' /tmp/github-runner-sts.json 2>/dev/null)"
+  if [ "${STS_STATE}" = "deleting" ]; then
+    return 0
+  fi
+  REPLICAS="${STS_STATE}"
   if [ -z "${REPLICAS}" ]; then
     echo "github runner deregistration: failed to read StatefulSet replicas" >&2
     return 1

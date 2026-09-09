@@ -626,7 +626,7 @@ func (h *Handler) updateWorkload(ctx context.Context,
 		}
 	}
 	if commonworkload.IsCICDGithubRunner(adminWorkload) {
-		auth := normalizeGithubRunnerAuth(req.GitHubAuth, nil)
+		auth := githubRunnerAuthFromPatch(req)
 		proxyPassword := githubRunnerProxyPasswordFromPatch(req)
 		if auth != nil || proxyPassword != nil {
 			patch := client.MergeFrom(adminWorkload.DeepCopy())

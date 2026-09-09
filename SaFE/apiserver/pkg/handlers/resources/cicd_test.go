@@ -1004,6 +1004,15 @@ func TestGithubRunnerProxyPasswordFromPatchReadsEnv(t *testing.T) {
 	req.GitHubProxyPassword = &field
 	got = githubRunnerProxyPasswordFromPatch(req)
 	assert.Equal(t, *got, "field-password")
+
+	emptyEnv := map[string]string{common.GithubProxyPassword: ""}
+	got = githubRunnerProxyPasswordFromPatch(&view.PatchWorkloadRequest{Env: &emptyEnv})
+	assert.Assert(t, got == nil)
+
+	emptyField := ""
+	got = githubRunnerProxyPasswordFromPatch(&view.PatchWorkloadRequest{GitHubProxyPassword: &emptyField})
+	assert.Assert(t, got != nil)
+	assert.Equal(t, *got, "")
 }
 
 func TestNormalizeGithubRunnerAuthIgnoresPAT(t *testing.T) {
@@ -1014,6 +1023,15 @@ func TestNormalizeGithubRunnerAuthIgnoresPAT(t *testing.T) {
 	assert.Assert(t, auth != nil)
 	assert.Equal(t, auth.Type, GitHubAuthTypeRegistrationToken)
 	assert.Equal(t, auth.Token, "registration-token")
+}
+
+// TestGithubRunnerAuthFromPatchReadsRunnerToken verifies explicit env token rotation.
+func TestGithubRunnerAuthFromPatchReadsRunnerToken(t *testing.T) {
+	env := map[string]string{common.RunnerToken: "new-registration-token"}
+	auth := githubRunnerAuthFromPatch(&view.PatchWorkloadRequest{Env: &env})
+	assert.Assert(t, auth != nil)
+	assert.Equal(t, auth.Type, GitHubAuthTypeRegistrationToken)
+	assert.Equal(t, auth.Token, "new-registration-token")
 }
 
 func TestGenerateGithubRunnerAllowsPasswordWithoutClusterProxy(t *testing.T) {

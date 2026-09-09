@@ -367,10 +367,21 @@ func githubRunnerProxyPasswordFromPatch(req *view.PatchWorkloadRequest) *string 
 	if env := requestEnv(req); env != nil {
 		if value, ok := env[common.GithubProxyPassword]; ok {
 			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				return nil
+			}
 			return &trimmed
 		}
 	}
 	return nil
+}
+
+// githubRunnerAuthFromPatch reads an explicit GitHub auth field or runner token env value.
+func githubRunnerAuthFromPatch(req *view.PatchWorkloadRequest) *view.GitHubAuthRequest {
+	if req == nil {
+		return nil
+	}
+	return normalizeGithubRunnerAuth(req.GitHubAuth, requestEnv(req))
 }
 
 func stripGithubRunnerTokenEnv(workload *v1.Workload) {

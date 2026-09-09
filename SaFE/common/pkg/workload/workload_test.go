@@ -68,6 +68,7 @@ func TestGithubRunnerStopScriptRemovesOnlyWhenLeavingPool(t *testing.T) {
 	script := GithubRunnerStopScript()
 	assert.Assert(t, strings.Contains(script, `./config.sh remove --unattended`))
 	assert.Assert(t, strings.Contains(script, `should_deregister`))
+	assert.Assert(t, strings.Contains(script, `deletionTimestamp`))
 	assert.Assert(t, strings.Contains(script, `[ "${ORDINAL}" -ge "${REPLICAS}" ]`))
 	assert.Assert(t, strings.Contains(script, `rm -rf "${STATE_DIR}"`))
 	// The k8s API is reached by IP, which no_proxy cannot bypass, so the proxy
