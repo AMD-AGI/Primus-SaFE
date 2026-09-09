@@ -2459,6 +2459,16 @@ func assertCICDProxyRelayRemoved(t *testing.T, obj *unstructured.Unstructured) {
 	for _, entry := range volumes {
 		assert.Assert(t, entry.(map[string]interface{})["name"] != cicdProxyCredentialVol)
 	}
+	runner := lookupCICDContainer(t, obj, "containers", "runner")
+	if runner == nil {
+		return
+	}
+	envs, _, err := unstructured.NestedSlice(runner, "env")
+	assert.NilError(t, err)
+	for _, entry := range envs {
+		name, _ := entry.(map[string]interface{})["name"].(string)
+		assert.Assert(t, name != cicdProxyHTTPEnv && name != cicdProxyHTTPSEnv)
+	}
 }
 
 func relayObject() *unstructured.Unstructured {
@@ -2513,6 +2523,12 @@ func TestConfigureCICDProxyRelay(t *testing.T) {
 	assert.NilError(t, err)
 	secret := volumes[0].(map[string]interface{})["secret"].(map[string]interface{})
 	assert.Equal(t, secret["secretName"], "proxy-auth")
+
+	delete(w.Spec.Env, common.ProxyCredentialSecret)
+	relay, err = configureCICDProxyRelay(obj, w, w, ephemeralRunnerSpec())
+	assert.NilError(t, err)
+	assert.Assert(t, !relay)
+	assertCICDProxyRelayRemoved(t, obj)
 }
 
 func TestConfigureCICDProxyRelaySkipped(t *testing.T) {

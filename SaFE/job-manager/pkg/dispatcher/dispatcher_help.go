@@ -1296,10 +1296,63 @@ func constrainCICDListener(obj *unstructured.Unstructured, workload *v1.Workload
 	}
 	path := append(base,
 		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
-	if err = modifyRequiredNodeAffinity(obj, workload, path); err != nil {
+	if err = replaceRequiredNodeAffinity(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to constrain the listener to the workspace: %v", err.Error())
 	}
 	return nil
+}
+
+func replaceRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	desired := buildRequiredMatchExpression(workload)
+	if len(desired) == 0 {
+		return nil
+	}
+	sort.SliceStable(desired, func(i, j int) bool {
+		leftExpression, _ := desired[i].(map[string]interface{})
+		rightExpression, _ := desired[j].(map[string]interface{})
+		left, _ := leftExpression["key"].(string)
+		right, _ := rightExpression["key"].(string)
+		return left < right
+	})
+	terms, _, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	if len(terms) == 0 {
+		return jobutils.SetNestedField(obj.Object, []interface{}{
+			map[string]interface{}{"matchExpressions": desired},
+		}, path)
+	}
+	term, ok := terms[0].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("nodeSelectorTerms: expected an object")
+	}
+	managedKeys := make(map[string]struct{}, len(desired))
+	for _, entry := range desired {
+		expression, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if key, ok := expression["key"].(string); ok {
+			managedKeys[key] = struct{}{}
+		}
+	}
+	existing, _ := term["matchExpressions"].([]interface{})
+	expressions := make([]interface{}, 0, len(existing)+len(desired))
+	for _, entry := range existing {
+		expression, ok := entry.(map[string]interface{})
+		if !ok {
+			expressions = append(expressions, entry)
+			continue
+		}
+		key, _ := expression["key"].(string)
+		if _, managed := managedKeys[key]; !managed {
+			expressions = append(expressions, entry)
+		}
+	}
+	term["matchExpressions"] = append(expressions, desired...)
+	terms[0] = term
+	return jobutils.SetNestedField(obj.Object, terms, path)
 }
 
 // updateCICDEphemeralRunner updates the CICD ephemeral runner configuration

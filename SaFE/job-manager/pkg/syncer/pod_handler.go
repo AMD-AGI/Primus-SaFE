@@ -711,12 +711,16 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	if adminWorkload == nil {
 		return nil
 	}
-	// An ended workload's records no longer count toward usage, and teardown deletes
-	// its pods on purpose, so neither is a case for releasing records. Dropping the
-	// entry keeps the map to the unfinished set, and gives the round that follows a
-	// re-schedule -- which tears the old objects down the same way -- its own pass.
-	if adminWorkload.IsEnd() || message.action == ResourceDel || message.action == ResourceDeleting {
+	if message.action == ResourceDel || message.action == ResourceDeleting {
 		r.forgetWorkloadChecks(adminWorkload.Name)
+		return nil
+	}
+	// An ended workload's records no longer count toward usage, and teardown deletes
+	// its pods on purpose, so neither is a case for releasing records. Keep the CICD
+	// failure-attempt key until the workload is actually deleted: enrichment is queued
+	// before this cleanup during the reconcile that first marks the workload failed.
+	if adminWorkload.IsEnd() {
+		r.forgetVanishedPodsCheck(adminWorkload.Name)
 		return nil
 	}
 	// Dispatch is a precondition rather than an assumption about the caller: its
@@ -751,7 +755,7 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	}
 	adminWorkload = fresh
 	if adminWorkload.IsEnd() {
-		r.forgetWorkloadChecks(adminWorkload.Name)
+		r.forgetVanishedPodsCheck(adminWorkload.Name)
 		return nil
 	}
 

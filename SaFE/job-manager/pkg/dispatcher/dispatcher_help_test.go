@@ -2532,4 +2532,12 @@ func TestConstrainCICDListener_PinsListenerToTheWorkspace(t *testing.T) {
 		"expected the workspace label in %s", rendered)
 	assert.Assert(t, strings.Contains(rendered, workload.Spec.Workspace),
 		"expected the workspace id in %s", rendered)
+
+	assert.NilError(t, constrainCICDListener(obj, workload))
+	reconciledTerms, found, err := unstructured.NestedSlice(obj.Object, "spec", "listenerTemplate", "spec",
+		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, len(reconciledTerms), len(terms), "reconciling the listener twice must not grow its affinity")
+	assert.DeepEqual(t, reconciledTerms, terms)
 }

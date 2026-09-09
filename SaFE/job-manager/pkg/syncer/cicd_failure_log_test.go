@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -254,7 +255,20 @@ func TestCICDFailureEnrichment_ConflictAndRestart(t *testing.T) {
 	assert.Assert(t, strings.TrimSpace(current.Status.Message) != "")
 }
 
-func TestCICDFailureAttemptsEvictedWithWorkload(t *testing.T) {
+func TestCICDFailureEnrichment_DedupSurvivesFailedReconcile(t *testing.T) {
+	r, workload, snapshot := persistedCICDFailure(t)
+
+	attempts, remembered := r.cicdFailureAttempts.Load(workload.Name)
+	assert.Assert(t, remembered, "the failed reconcile must retain its enrichment attempts")
+	_, remembered = attempts.(*sync.Map).Load(cicdFailureKey(snapshot))
+	assert.Assert(t, remembered, "the failed reconcile must retain the dispatch dedup key")
+
+	queued := r.cicdFailureLogs.GetQueueSize()
+	r.enqueueCICDFailureEnrichment(workload)
+	assert.Equal(t, r.cicdFailureLogs.GetQueueSize(), queued)
+}
+
+func TestCICDFailureAttemptsCleanup(t *testing.T) {
 	for _, mode := range []string{"failed", "no pods", "deleted", "deleting", "undispatched", "missing", "fresh ended"} {
 		t.Run(mode, func(t *testing.T) {
 			r, w, _ := controllerCICDFailure(t, common.CICDScaleRunnerSetKind)
@@ -302,16 +316,21 @@ func TestCICDFailureAttemptsEvictedWithWorkload(t *testing.T) {
 			assert.NilError(t, r.reconcileVanishedPods(context.Background(), nil, w, message))
 			_, remembered := r.vanishedPodsChecked.Load(w.Name)
 			assert.Equal(t, remembered, false)
+			retained := mode == "failed" || mode == "no pods" || mode == "fresh ended"
 			for _, key := range keys {
 				_, remembered = r.cicdFailureAttempts.Load(key)
-				assert.Equal(t, remembered, false, "failure attempts are evicted with the workload")
+				assert.Equal(t, remembered, retained)
 			}
 			remaining := 0
 			r.cicdFailureAttempts.Range(func(_, _ any) bool {
 				remaining++
 				return true
 			})
-			assert.Equal(t, remaining, 1, "another workload's attempts are retained")
+			expectedRemaining := 1
+			if retained {
+				expectedRemaining++
+			}
+			assert.Equal(t, remaining, expectedRemaining, "only deleted or reset workload attempts are evicted")
 		})
 	}
 }

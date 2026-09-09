@@ -34,6 +34,8 @@ const (
 	cicdProxyOwnerIndex     = "cicdProxyOwnerUID"
 	cicdProxyRelayContainer = "proxy-relay"
 	cicdProxyCredentialVol  = "proxy-credential"
+	cicdProxyHTTPEnv        = "http_proxy"
+	cicdProxyHTTPSEnv       = "https_proxy"
 )
 
 // configureCICDProxyRelay activates the chart relay only for credentialed proxies and removes its
@@ -91,7 +93,7 @@ func configureCICDProxyRelay(obj *unstructured.Unstructured, workload, source *v
 		if container["name"] == v1.GetMainContainer(workload) {
 			endpoint := "http://127.0.0.1:" + strconv.Itoa(commonconfig.GetCICDProxyRelayPort())
 			updateContainerEnv(map[string]string{
-				"http_proxy": endpoint, "https_proxy": endpoint,
+				cicdProxyHTTPEnv: endpoint, cicdProxyHTTPSEnv: endpoint,
 			}, container, nil)
 		}
 	}
@@ -135,16 +137,21 @@ func removeCICDProxyRelay(obj *unstructured.Unstructured, workload *v1.Workload,
 			continue
 		}
 		filtered := make([]interface{}, 0, len(entries))
+		mainContainerUpdated := false
 		for _, entry := range entries {
 			item, ok := entry.(map[string]interface{})
 			if !ok {
 				return fmt.Errorf("%s: expected an object", strings.Join(path, "."))
 			}
+			if field == "containers" && item["name"] == v1.GetMainContainer(workload) {
+				updateContainerEnv(nil, item, []string{cicdProxyHTTPEnv, cicdProxyHTTPSEnv})
+				mainContainerUpdated = true
+			}
 			if item["name"] != name {
 				filtered = append(filtered, item)
 			}
 		}
-		if len(filtered) != len(entries) {
+		if len(filtered) != len(entries) || mainContainerUpdated {
 			if err = jobutils.SetNestedField(obj.Object, filtered, path); err != nil {
 				return err
 			}

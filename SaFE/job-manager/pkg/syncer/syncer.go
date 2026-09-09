@@ -48,8 +48,12 @@ type SyncerReconciler struct {
 	*controller.KeyedController[*resourceMessage]
 }
 
-func (r *SyncerReconciler) forgetWorkloadChecks(name string) {
+func (r *SyncerReconciler) forgetVanishedPodsCheck(name string) {
 	r.vanishedPodsChecked.Delete(name)
+}
+
+func (r *SyncerReconciler) forgetWorkloadChecks(name string) {
+	r.forgetVanishedPodsCheck(name)
 	r.cicdFailureAttempts.Delete(name)
 }
 

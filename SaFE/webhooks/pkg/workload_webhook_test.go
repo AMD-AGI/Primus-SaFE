@@ -2506,3 +2506,12 @@ func TestCICDEphemeralRunnerProxy_RejectsOverrides(t *testing.T) {
 	child.Spec.Env[common.ProxyUrl] = "http://different.example.com"
 	assert.ErrorContains(t, validateCICDProxyAdmission(context.Background(), cli, cli, child, nil), "must match the owning scale set")
 }
+
+func TestCICDEphemeralRunnerWithoutProxy_DoesNotRequireOwner(t *testing.T) {
+	child := validWorkload()
+	child.Spec.Kind = common.CICDEphemeralRunnerKind
+	child.Spec.Env = map[string]string{common.ScaleRunnerSetID: "unresolved-scale-set"}
+	cli := proxyAdmissionClient()
+
+	assert.NilError(t, validateCICDProxyAdmission(context.Background(), cli, cli, child, nil))
+}
