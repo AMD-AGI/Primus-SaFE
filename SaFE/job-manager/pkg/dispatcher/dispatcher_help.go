@@ -1377,12 +1377,12 @@ func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterCl
 	}
 	// Set owner reference to the parent scale runner if CICDScaleRunnerIdLabel is present
 	if scaleRunnerId := v1.GetLabel(adminWorkload, v1.CICDScaleRunnerIdLabel); scaleRunnerId != "" && clientSets != nil {
-		ownerObj, err := jobutils.GetObject(ctx,
-			clientSets.ClientFactory(), scaleRunnerId, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
-		if err != nil {
-			return fmt.Errorf("failed to get owner scale runner: %v", err.Error())
-		}
 		if !commonutils.HasOwnerReferences(obj, scaleRunnerId) {
+			ownerObj, err := jobutils.GetObject(ctx,
+				clientSets.ClientFactory(), scaleRunnerId, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
+			if err != nil {
+				return fmt.Errorf("failed to get owner scale runner: %v", err.Error())
+			}
 			ownerRef := metav1.OwnerReference{
 				APIVersion:         ownerObj.GetAPIVersion(),
 				Kind:               ownerObj.GetKind(),
@@ -1392,10 +1392,10 @@ func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterCl
 				Controller:         pointer.Bool(true),
 			}
 			obj.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
-		}
-		if !relay {
-			if err = inheritCICDProxySecretRef(obj, ownerObj); err != nil {
-				return err
+			if !relay {
+				if err = inheritCICDProxySecretRef(obj, ownerObj); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -2287,6 +2287,10 @@ func updateContainerEnv(envs map[string]string, container map[string]interface{}
 		existingEnvNames.Insert(nameStr)
 
 		if newValue, exists := envs[nameStr]; exists {
+			if _, usesValueFrom := env["valueFrom"]; usesValueFrom {
+				updatedEnvs = append(updatedEnvs, envItem)
+				continue
+			}
 			currentValue, valueOk := env["value"]
 			if !valueOk || newValue != currentValue {
 				isChanged = true

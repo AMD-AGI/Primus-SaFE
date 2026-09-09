@@ -2326,7 +2326,7 @@ func TestWorkloadValidateCICDProxy_CreateAndUpdate(t *testing.T) {
 			endpoint, secret string
 			valid            bool
 		}{
-			{"http://proxy.example.com", "", true}, {"https://proxy.example.com", "proxy-auth", true},
+			{"http://proxy.example.com", "", true}, {"http://proxy.example.com:8080", "proxy-auth", true},
 			{"http://sample@example.com", "", false}, {"https://example.com/path", "", false},
 		} {
 			w := proxyAdmissionWorkload()
@@ -2454,7 +2454,7 @@ func TestCICDProxyOptIn_Admission(t *testing.T) {
 	assert.NilError(t, admitCICDProxy(context.Background(), cli, w, old))
 	assert.Assert(t, !commonworkload.IsCICDProxyManaged(w))
 	old = w.DeepCopy()
-	w.Spec.Env[common.ProxyUrl] = "https://proxy.example.com"
+	w.Spec.Env[common.ProxyUrl] = "http://new-proxy.example.com"
 	assert.NilError(t, admitCICDProxy(context.Background(), cli, w, old))
 	assert.Assert(t, commonworkload.IsCICDProxyManaged(w))
 	old = w.DeepCopy()
@@ -2508,10 +2508,19 @@ func TestCICDEphemeralRunnerProxy_RejectsOverrides(t *testing.T) {
 }
 
 func TestCICDEphemeralRunnerWithoutProxy_DoesNotRequireOwner(t *testing.T) {
-	child := validWorkload()
-	child.Spec.Kind = common.CICDEphemeralRunnerKind
-	child.Spec.Env = map[string]string{common.ScaleRunnerSetID: "unresolved-scale-set"}
 	cli := proxyAdmissionClient()
 
-	assert.NilError(t, validateCICDProxyAdmission(context.Background(), cli, cli, child, nil))
+	for _, proxyEnv := range []map[string]string{
+		{},
+		{common.ProxyUrl: "", common.NoProxy: ""},
+		{common.NoProxy: "localhost"},
+	} {
+		child := validWorkload()
+		child.Spec.Kind = common.CICDEphemeralRunnerKind
+		child.Spec.Env = map[string]string{common.ScaleRunnerSetID: "unresolved-scale-set"}
+		for key, value := range proxyEnv {
+			child.Spec.Env[key] = value
+		}
+		assert.NilError(t, validateCICDProxyAdmission(context.Background(), cli, cli, child, nil))
+	}
 }

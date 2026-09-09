@@ -888,13 +888,15 @@ func TestUpdateContainerEnv(t *testing.T) {
 			},
 		},
 		{
-			name: "update env that has valueFrom to value",
+			name: "preserve downward API env when a literal value is present",
 			envs: map[string]string{
-				"KEY1": "new_value1",
+				"HOSTNAME": "literal-hostname",
 			},
 			container: map[string]interface{}{
 				"env": []interface{}{
-					map[string]interface{}{"name": "KEY1", "valueFrom": map[string]interface{}{"secretKeyRef": "secret"}},
+					map[string]interface{}{"name": "HOSTNAME", "valueFrom": map[string]interface{}{
+						"fieldRef": map[string]interface{}{"fieldPath": "spec.nodeName"},
+					}},
 				},
 			},
 			toBeRemovedKeys: []string{},
@@ -913,10 +915,7 @@ func TestUpdateContainerEnv(t *testing.T) {
 			updateContainerEnv(tt.envs, containerCopy, tt.toBeRemovedKeys)
 
 			if tt.expectNoChange {
-				if tt.container["env"] == nil {
-					_, exists := containerCopy["env"]
-					assert.Equal(t, exists, false, "env should not be added when no changes")
-				}
+				assert.DeepEqual(t, containerCopy, tt.container)
 				return
 			}
 
@@ -1912,6 +1911,31 @@ func TestCICDEphemeralRunnerProxy_InheritsOwner(t *testing.T) {
 	}
 }
 
+func TestUpdateCICDEphemeralRunnerDoesNotRefetchExistingOwner(t *testing.T) {
+	r, workload, source, rt := proxyDispatcherFixture(t, common.CICDEphemeralRunnerKind, false)
+	scaleRunnerID := "deleted-scale-runner"
+	v1.SetLabel(workload, v1.CICDScaleRunnerIdLabel, scaleRunnerID)
+	for _, key := range commonworkload.CICDProxyEnvKeys() {
+		delete(source.Spec.Env, key)
+	}
+	v1.RemoveAnnotation(source, v1.CICDProxyManagedAnnotation)
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+	obj.SetOwnerReferences([]metav1.OwnerReference{{Name: scaleRunnerID}})
+
+	gets := 0
+	patches := gomonkey.ApplyFunc(jobutils.GetObject,
+		func(context.Context, *commonclient.ClientFactory, string, string, schema.GroupVersionKind) (*unstructured.Unstructured, error) {
+			gets++
+			return nil, apierrors.NewNotFound(schema.GroupResource{Resource: "autoscalingrunnersets"}, scaleRunnerID)
+		})
+	defer patches.Reset()
+
+	err = updateCICDEphemeralRunner(context.Background(), &syncer.ClusterClientSets{}, obj, workload, source, rt)
+	assert.NilError(t, err)
+	assert.Equal(t, gets, 0)
+}
+
 func TestCreateCICDEphemeralRunnerWithoutCredentialedProxyRemovesRelay(t *testing.T) {
 	for name, removeProxy := range map[string]bool{"no proxy": true, "no credential": false} {
 		t.Run(name, func(t *testing.T) {
@@ -2218,7 +2242,7 @@ func TestCICDEphemeralRunnerProxy_ParentChangeRequeues(t *testing.T) {
 	terminal.ResourceVersion = ""
 	terminal.Status.Phase = v1.WorkloadSucceeded
 	assert.NilError(t, r.Create(context.Background(), terminal))
-	for _, endpoint := range []string{"https://changed.example.com", "", "http://enabled.example.com"} {
+	for _, endpoint := range []string{"http://changed.example.com", "", "http://enabled.example.com"} {
 		assert.NilError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(parent), parent))
 		old := parent.DeepCopy()
 		parent.Spec.Env = map[string]string{common.ProxyUrl: endpoint}

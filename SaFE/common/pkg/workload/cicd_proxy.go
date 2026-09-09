@@ -35,7 +35,7 @@ const (
 	CICDProxySecretInvalid     = "env.PROXY_CREDENTIAL_SECRET: expected a non-deleting, workspace-bound general Secret with nonempty username and password keys containing no control characters"
 	CICDProxySecretForbidden   = "env.PROXY_CREDENTIAL_SECRET: access to the referenced Secret is forbidden"
 	CICDProxySecretUnavailable = "env.PROXY_CREDENTIAL_SECRET: unable to verify the referenced Secret; retry the request"
-	invalidProxyURL            = "env.PROXY_URL: expected an absolute http or https URL with a host, optional port 1-65535, and no credentials, query, fragment, or non-root path"
+	invalidProxyURL            = "env.PROXY_URL: expected an absolute http URL with a host, optional port 1-65535, and no credentials, query, fragment, or non-root path"
 )
 
 type CICDProxyConfig struct {
@@ -147,7 +147,7 @@ func validateCICDProxyURL(endpoint string) error {
 		return commonerrors.NewBadRequest("env.PROXY_URL: userinfo is not allowed; use PROXY_CREDENTIAL_SECRET with a pre-existing Secret")
 	}
 	if strings.IndexFunc(endpoint, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 ||
-		(parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.Opaque != "" ||
+		parsed.Scheme != "http" || parsed.Hostname() == "" || parsed.Opaque != "" ||
 		(parsed.Path != "" && parsed.Path != "/") || strings.ContainsAny(endpoint, "?#") {
 		return commonerrors.NewBadRequest(invalidProxyURL)
 	}

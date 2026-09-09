@@ -103,12 +103,15 @@ func (h *Handler) updateCICDSecret(ctx context.Context, workload *v1.Workload, r
 		return nil, err
 	}
 	oldSecretId := v1.GetGithubSecretId(workload)
+	var oldSecret *corev1.Secret
 	if oldSecretId != "" {
-		oldSecret, err := h.getAdminSecret(ctx, oldSecretId)
+		var err error
+		oldSecret, err = h.getAdminSecret(ctx, oldSecretId)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				// The annotation is stale; there is nothing to fall back to or delete.
 				oldSecretId = ""
+				oldSecret = nil
 			} else {
 				return nil, fmt.Errorf("failed to get existing CICD GitHub secret %q: %w", oldSecretId, err)
 			}
@@ -116,13 +119,13 @@ func (h *Handler) updateCICDSecret(ctx context.Context, workload *v1.Workload, r
 			// One Secret holds both credentials, so rotating either one has to write
 			// the other back unchanged rather than drop it.
 			auth, proxyAuth = carryForwardCICDAuth(oldSecret, auth, proxyAuth)
-			if cicdSecretDataMatchesAuth(oldSecret, auth) && cicdSecretDataMatchesProxyAuth(oldSecret, proxyAuth) {
-				return nil, nil
-			}
 		}
 	}
 	if err := validateCICDGitHubAuth(auth); err != nil {
 		return nil, err
+	}
+	if oldSecret != nil && cicdSecretDataMatchesAuth(oldSecret, auth) && cicdSecretDataMatchesProxyAuth(oldSecret, proxyAuth) {
+		return nil, nil
 	}
 
 	newSecret, err := h.createCICDSecret(ctx, workload, requestUser, auth, proxyAuth)
@@ -403,6 +406,9 @@ func validateCICDProxyAuth(proxyAuth *view.ProxyAuthRequest) error {
 // cicdSecretDataMatchesAuth is an idempotency check that avoids rotating
 // credentials when the submitted values already match the existing ARC secret.
 func cicdSecretDataMatchesAuth(secret *corev1.Secret, auth *view.GitHubAuthRequest) bool {
+	if auth == nil {
+		return false
+	}
 	switch cicdGitHubAuthType(auth) {
 	case GitHubAuthTypeApp:
 		return string(secret.Data[GitHubAppId]) == strings.TrimSpace(auth.AppId) &&

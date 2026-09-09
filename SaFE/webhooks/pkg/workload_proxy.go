@@ -43,13 +43,14 @@ func validateCICDProxyInput(ctx context.Context, reader, secretReader client.Rea
 	}
 	source := workload
 	if commonworkload.IsCICDEphemeralRunner(workload) {
-		childEnv, err := commonworkload.CICDProxyEnv(workload.Spec.Env)
+		config, err := commonworkload.ParseCICDProxy(workload.Spec.Env)
 		if err != nil {
 			return err
 		}
-		if len(childEnv) == 0 {
+		if config == nil {
 			return nil
 		}
+		childEnv, _ := commonworkload.CICDProxyEnv(workload.Spec.Env)
 		source, err = commonworkload.ResolveCICDProxySource(ctx, reader, workload)
 		if err != nil {
 			return err

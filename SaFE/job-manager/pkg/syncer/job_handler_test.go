@@ -769,6 +769,21 @@ func TestUpdateRunnerSetFailure_WithRegisteredID(t *testing.T) {
 	assert.Equal(t, r.cicdFailureLogs.GetQueueSize(), 1)
 }
 
+func TestUpdateRunnerSetFailureUsesWorkloadDispatchCount(t *testing.T) {
+	conditions := []interface{}{map[string]interface{}{"type": "Failed", "status": "True", "message": "current dispatch failure"}}
+	r, workload, message, _ := runnerFailureFixture(t, time.Minute, conditions)
+	v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, "2")
+	assert.NilError(t, r.Update(context.Background(), workload))
+	message.dispatchCount = 1
+
+	result, err := r.updateAdminWorkloadByJob(context.Background(), monkeyClientSets(), workload, message)
+
+	assert.NilError(t, err)
+	assert.Equal(t, result.Status.Message, "current dispatch failure")
+	assert.Equal(t, result.Status.Conditions[0].Reason, commonworkload.GenerateDispatchReason(2))
+	assert.Equal(t, r.cicdFailureLogs.GetQueueSize(), 1)
+}
+
 func TestUpdateRunnerSetFailure_RespectsRetry(t *testing.T) {
 	conditions := []interface{}{map[string]interface{}{"type": "Failed", "status": "True", "message": "retryable controller failure"}}
 	r, w, msg, _ := runnerFailureFixture(t, time.Minute, conditions)

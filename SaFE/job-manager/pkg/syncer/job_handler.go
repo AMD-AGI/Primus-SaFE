@@ -340,6 +340,7 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 		return originalWorkload, statusErr
 	}
 	adminWorkload := originalWorkload.DeepCopy()
+	dispatchCount := v1.GetWorkloadDispatchCnt(adminWorkload)
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && status.RunnerScaleSetId != "" {
 		adminWorkload.Status.RunnerScaleSetId = status.RunnerScaleSetId
 		if adminWorkload.Status.StartTime == nil {
@@ -348,18 +349,18 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 	}
 	if statusErr == nil && status.Phase != "" {
 		if status.Phase == string(v1.K8sFailed) && strings.TrimSpace(status.Message) == "" {
-			status.Message = commonworkload.GetWorkloadFailureMessage(adminWorkload.Status.Conditions, message.dispatchCount)
+			status.Message = commonworkload.GetWorkloadFailureMessage(adminWorkload.Status.Conditions, dispatchCount)
 		}
 		r.updateAdminWorkloadPhase(adminWorkload, status, message)
 		if !commonworkload.IsTorchFT(adminWorkload) ||
 			adminWorkload.Status.Phase != originalWorkload.Status.Phase || isTorchFTGroupFailed(adminWorkload) {
 			cond := jobutils.NewCondition(status.Phase, status.Message,
-				commonworkload.GenerateDispatchReason(max(1, message.dispatchCount)))
+				commonworkload.GenerateDispatchReason(max(1, dispatchCount)))
 			updateWorkloadCondition(adminWorkload, cond)
 		}
 	}
 	if adminWorkload.Status.Phase == v1.WorkloadFailed {
-		adminWorkload.Status.Message = commonworkload.GetWorkloadFailureMessage(adminWorkload.Status.Conditions, message.dispatchCount)
+		adminWorkload.Status.Message = commonworkload.GetWorkloadFailureMessage(adminWorkload.Status.Conditions, dispatchCount)
 	}
 	if !adminWorkload.IsPending() && adminWorkload.Status.StartTime == nil {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}

@@ -2414,8 +2414,8 @@ func TestUpdateCICDProxy_AddChangeRemove(t *testing.T) {
 			obj, err := r.generateK8sObject(context.Background(), w, nil)
 			assert.NilError(t, err)
 			steps := []map[string]string{
-				{common.ProxyUrl: "https://new-proxy.example.com", common.ProxyCredentialSecret: "replacement-auth", common.NoProxy: "localhost,192.0.2.0/24"},
-				{common.ProxyUrl: "https://new-proxy.example.com", common.NoProxy: "localhost"},
+				{common.ProxyUrl: "http://new-proxy.example.com", common.ProxyCredentialSecret: "replacement-auth", common.NoProxy: "localhost,192.0.2.0/24"},
+				{common.ProxyUrl: "http://new-proxy.example.com", common.NoProxy: "localhost"},
 				{common.ProxyUrl: "http://proxy.example.com", common.NoProxy: ""},
 				{common.ProxyUrl: "http://proxy.example.com"},
 				{common.ProxyUrl: ""},

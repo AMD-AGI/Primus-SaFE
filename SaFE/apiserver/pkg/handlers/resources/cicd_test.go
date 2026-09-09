@@ -1178,6 +1178,27 @@ func TestCarryForwardCICDAuthKeepsTheOmittedHalf(t *testing.T) {
 	assert.Equal(t, proxyAuth.Password, "p")
 }
 
+func TestUpdateCICDSecretRejectsMissingCarriedGitHubAuth(t *testing.T) {
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "proxy-only-secret")
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "proxy-only-secret", Namespace: common.PrimusSafeNamespace},
+		Data: map[string][]byte{
+			string(view.UserNameParam): []byte("proxy-user"),
+			string(view.PasswordParam): []byte("proxy-password"),
+		},
+	}
+	h := Handler{clientSet: k8sfake.NewSimpleClientset(oldSecret)}
+
+	rotation, err := h.updateCICDSecret(ctx, workload, genMockUser(), nil,
+		&view.ProxyAuthRequest{Username: "new-user", Password: "new-password"})
+
+	assert.Assert(t, err != nil)
+	assert.ErrorContains(t, err, "github authentication is empty")
+	assert.Assert(t, rotation == nil)
+}
+
 func TestRotationMovesBothReferencesToTheNewSecret(t *testing.T) {
 	ctx := context.Background()
 	workload := genMockWorkload("test-cluster", "test-workspace")

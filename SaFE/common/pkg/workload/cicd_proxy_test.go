@@ -38,14 +38,14 @@ func TestParseCICDProxy_NoProxy(t *testing.T) {
 }
 
 func TestParseCICDProxy_Endpoints(t *testing.T) {
-	for _, endpoint := range []string{"http://proxy.example.com", "https://proxy.example.com/", "http://192.0.2.1:1", "http://[2001:db8::1]:65535", "https://[::1]", "http://localhost:8080"} {
+	for _, endpoint := range []string{"http://proxy.example.com", "http://proxy.example.com/", "http://192.0.2.1:1", "http://[2001:db8::1]:65535", "http://localhost:8080"} {
 		t.Run(endpoint, func(t *testing.T) {
 			config, err := ParseCICDProxy(map[string]string{common.ProxyUrl: endpoint})
 			assert.NilError(t, err)
 			assert.Equal(t, config.URL, endpoint)
 		})
 	}
-	for _, endpoint := range []string{"http://", "proxy.example.com", "http://%xx", " http://proxy.example.com", "http://proxy.example.com\n", "http:proxy.example.com", "ftp://proxy.example.com", "http://proxy.example.com:0", "http://proxy.example.com:65536", "http://proxy.example.com:port", "http://proxy.example.com:", "http://proxy.example.com?", "http://proxy.example.com#", "http://proxy.example.com/path", "http://2001:db8::1", "https://proxy.example.com/a%xx"} {
+	for _, endpoint := range []string{"http://", "proxy.example.com", "http://%xx", " http://proxy.example.com", "http://proxy.example.com\n", "http:proxy.example.com", "https://proxy.example.com", "https://[::1]", "ftp://proxy.example.com", "http://proxy.example.com:0", "http://proxy.example.com:65536", "http://proxy.example.com:port", "http://proxy.example.com:", "http://proxy.example.com?", "http://proxy.example.com#", "http://proxy.example.com/path", "http://2001:db8::1", "https://proxy.example.com/a%xx"} {
 		t.Run(endpoint, func(t *testing.T) {
 			_, err := ParseCICDProxy(map[string]string{common.ProxyUrl: endpoint})
 			assert.Assert(t, err != nil)
