@@ -2226,6 +2226,23 @@ func TestWorkloadProxyValidation_SafeErrorLogs(t *testing.T) {
 	assert.Assert(t, !strings.Contains(captured.String(), "example-value"))
 }
 
+func TestSanitizePatchWorkloadRequestForLog(t *testing.T) {
+	req := &view.PatchWorkloadRequest{
+		GitHubAuth: &view.GitHubAuthRequest{Token: "github-token", PrivateKey: "private-key"},
+		ProxyAuth:  &view.ProxyAuthRequest{Username: "proxy-user", Password: "proxy-password"},
+	}
+
+	sanitized := sanitizePatchWorkloadRequestForLog(req)
+
+	assert.Equal(t, sanitized.GitHubAuth.Token, "")
+	assert.Equal(t, sanitized.GitHubAuth.PrivateKey, "")
+	assert.Equal(t, sanitized.ProxyAuth.Username, req.ProxyAuth.Username)
+	assert.Equal(t, sanitized.ProxyAuth.Password, "")
+	assert.Equal(t, req.GitHubAuth.Token, "github-token")
+	assert.Equal(t, req.GitHubAuth.PrivateKey, "private-key")
+	assert.Equal(t, req.ProxyAuth.Password, "proxy-password")
+}
+
 func TestFailedWorkloadMessage_MalformedDecodeLog(t *testing.T) {
 	state := klog.CaptureState()
 	defer state.Restore()
@@ -2244,9 +2261,9 @@ func TestValidateWorkloadId(t *testing.T) {
 	assert.NilError(t, validateWorkloadId("a"))
 
 	for _, id := range []string{
-		"Dispatron-CI",       // uppercase is not a DNS subdomain
-		"bad_name!",          // underscore and bang
-		"-leading",           // must start alphanumeric
+		"Dispatron-CI", // uppercase is not a DNS subdomain
+		"bad_name!",    // underscore and bang
+		"-leading",     // must start alphanumeric
 		strings.Repeat("x", 254),
 	} {
 		assert.Assert(t, validateWorkloadId(id) != nil, "expected rejection for %q", id)

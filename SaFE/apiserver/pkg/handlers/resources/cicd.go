@@ -134,7 +134,10 @@ func (h *Handler) updateCICDSecret(ctx context.Context, workload *v1.Workload, r
 	// Both references name the same Secret, so both have to move: the superseded
 	// one is deleted once the rotation lands, and an env left pointing at it
 	// sends ARC to a Secret that is no longer there.
-	if workload.Spec.Env[common.ProxyCredentialSecret] != "" {
+	if proxyAuth != nil {
+		if workload.Spec.Env == nil {
+			workload.Spec.Env = map[string]string{}
+		}
 		workload.Spec.Env[common.ProxyCredentialSecret] = newSecret.Name
 	}
 	return &cicdSecretRotation{NewSecretId: newSecret.Name, SupersededSecretId: oldSecretId}, nil
@@ -158,9 +161,9 @@ func carryForwardCICDAuth(oldSecret *corev1.Secret, auth *view.GitHubAuthRequest
 	}
 	if proxyAuth == nil && oldSecret != nil {
 		username := string(oldSecret.Data[string(view.UserNameParam)])
-		password := string(oldSecret.Data[string(view.PasswordParam)])
-		if username != "" && password != "" {
-			proxyAuth = &view.ProxyAuthRequest{Username: username, Password: password}
+		pw := string(oldSecret.Data[string(view.PasswordParam)])
+		if username != "" && pw != "" {
+			proxyAuth = &view.ProxyAuthRequest{Username: username, Password: pw}
 		}
 	}
 	return auth, proxyAuth

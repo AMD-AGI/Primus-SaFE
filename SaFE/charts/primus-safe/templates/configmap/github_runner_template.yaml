@@ -219,4 +219,9 @@ data:
       - name: proxy-credential
         secret:
           optional: true
+          items:
+          - key: username
+            path: username
+          - key: password
+            path: password
 {{- end }}

@@ -1103,6 +1103,35 @@ func TestUpdateCICDScaleRunnerSet_ProxyValidation(t *testing.T) {
 	assert.DeepEqual(t, current.Spec.Env, before.Spec.Env)
 }
 
+func TestUpdateCICDScaleRunnerSet_AttachesProxyCredential(t *testing.T) {
+	ctx := context.Background()
+	h, user, workload, clientset := proxyAPIHandler(t)
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "old-secret-id", Namespace: common.PrimusSafeNamespace},
+		Data:       map[string][]byte{GitHubToken: []byte("tok")},
+	}
+	_, err := clientset.CoreV1().Secrets(common.PrimusSafeNamespace).Create(ctx, oldSecret, metav1.CreateOptions{})
+	assert.NilError(t, err)
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, oldSecret.Name)
+	assert.NilError(t, h.Update(ctx, workload))
+
+	env := workload.DeepCopy().Spec.Env
+	env[common.ProxyUrl] = "http://proxy.example.com"
+	req := &view.PatchWorkloadRequest{
+		Env:       &env,
+		ProxyAuth: &view.ProxyAuthRequest{Username: "proxy-user", Password: "proxy-pass"},
+	}
+	assert.NilError(t, applyWorkloadPatch(workload, req))
+	assert.NilError(t, h.updateWorkload(ctx, workload, user, req))
+
+	current := &v1.Workload{}
+	assert.NilError(t, h.Get(ctx, client.ObjectKeyFromObject(workload), current))
+	credentialSecret := current.Spec.Env[common.ProxyCredentialSecret]
+	assert.Assert(t, credentialSecret != "")
+	assert.Assert(t, credentialSecret != oldSecret.Name)
+	assert.Equal(t, credentialSecret, v1.GetGithubSecretId(current))
+}
+
 func TestBuildCICDSecretParamsCarriesProxyCredential(t *testing.T) {
 	params := buildCICDSecretParams(patAuth("tok"), &view.ProxyAuthRequest{Username: "u", Password: "p"})
 
@@ -1127,9 +1156,9 @@ func TestValidateCICDProxyAuthRejectsUnusableValues(t *testing.T) {
 
 func TestCarryForwardCICDAuthKeepsTheOmittedHalf(t *testing.T) {
 	old := &corev1.Secret{Data: map[string][]byte{
-		GitHubToken:                    []byte("tok"),
-		string(view.UserNameParam):     []byte("u"),
-		string(view.PasswordParam):     []byte("p"),
+		GitHubToken:                []byte("tok"),
+		string(view.UserNameParam): []byte("u"),
+		string(view.PasswordParam): []byte("p"),
 	}}
 
 	// Rotating only the proxy credential must not drop the GitHub one.

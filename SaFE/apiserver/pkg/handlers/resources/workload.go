@@ -21,9 +21,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1366,6 +1366,11 @@ func sanitizePatchWorkloadRequestForLog(req *view.PatchWorkloadRequest) view.Pat
 		auth.Token = ""
 		auth.PrivateKey = ""
 		sanitized.GitHubAuth = &auth
+	}
+	if sanitized.ProxyAuth != nil {
+		auth := *sanitized.ProxyAuth
+		auth.Password = ""
+		sanitized.ProxyAuth = &auth
 	}
 	if sanitized.Env != nil {
 		env := maputil.Copy(*sanitized.Env, GithubPAT)
