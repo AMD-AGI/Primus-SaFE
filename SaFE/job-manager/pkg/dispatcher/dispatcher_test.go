@@ -888,6 +888,34 @@ func TestUpdateContainerEnv(t *testing.T) {
 			},
 		},
 		{
+			name: "replace secret reference with a literal value",
+			envs: map[string]string{"KEY1": "literal-value"},
+			container: map[string]interface{}{
+				"env": []interface{}{
+					map[string]interface{}{"name": "KEY1", "valueFrom": map[string]interface{}{
+						"secretKeyRef": map[string]interface{}{"name": "settings", "key": "key1"},
+					}},
+				},
+			},
+			expectedEnvs: []map[string]interface{}{
+				{"name": "KEY1", "value": "literal-value"},
+			},
+		},
+		{
+			name: "replace config map reference with a literal value",
+			envs: map[string]string{"KEY1": "literal-value"},
+			container: map[string]interface{}{
+				"env": []interface{}{
+					map[string]interface{}{"name": "KEY1", "valueFrom": map[string]interface{}{
+						"configMapKeyRef": map[string]interface{}{"name": "settings", "key": "key1"},
+					}},
+				},
+			},
+			expectedEnvs: []map[string]interface{}{
+				{"name": "KEY1", "value": "literal-value"},
+			},
+		},
+		{
 			name: "preserve downward API env when a literal value is present",
 			envs: map[string]string{
 				"HOSTNAME": "literal-hostname",
@@ -931,12 +959,7 @@ func TestUpdateContainerEnv(t *testing.T) {
 					envMap := env.(map[string]interface{})
 					if envMap["name"] == expectedName {
 						found = true
-						if expectedVal, hasVal := expectedEnv["value"]; hasVal {
-							assert.Equal(t, envMap["value"], expectedVal, "value mismatch for "+expectedName)
-						}
-						if expectedValFrom, hasValFrom := expectedEnv["valueFrom"]; hasValFrom {
-							assert.DeepEqual(t, envMap["valueFrom"], expectedValFrom)
-						}
+						assert.DeepEqual(t, envMap, expectedEnv)
 						break
 					}
 				}
@@ -2334,6 +2357,71 @@ func TestCICDEphemeralRunnerProxy_LaterInheritsSecretRef(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, found)
 	assert.Equal(t, ref, "runner-proxy")
+}
+
+func TestSyncCICDEphemeralRunnerProxy_OwnerNotFound(t *testing.T) {
+	ctx := context.Background()
+	r, workload, _, rt := proxyDispatcherFixture(t, common.CICDEphemeralRunnerKind, false)
+	const scaleRunnerID = "deleted-scale-runner"
+	v1.SetLabel(workload, v1.CICDScaleRunnerIdLabel, scaleRunnerID)
+	obj, err := r.generateK8sObject(ctx, workload, nil)
+	assert.NilError(t, err)
+	obj.SetOwnerReferences([]metav1.OwnerReference{{
+		APIVersion: rt.ToSchemaGVK().GroupVersion().String(), Kind: common.CICDScaleRunnerSetKind,
+		Name: scaleRunnerID, UID: "deleted-scale-runner-uid", Controller: ptr.To(true),
+	}})
+	assert.NilError(t, unstructured.SetNestedField(obj.Object, "http://drift.example.com", "spec", "proxy", "http", "url"))
+	assert.NilError(t, unstructured.SetNestedField(obj.Object, "runner-proxy", "spec", "proxySecretRef"))
+	cs, read := proxyDynamicClient(t, obj)
+	original, _ := read()
+
+	for i := 0; i < 2; i++ {
+		current, _ := read()
+		assert.NilError(t, syncProxyFixture(ctx, r, workload, cs, current, rt))
+		assert.DeepEqual(t, current.Object, original.Object)
+	}
+	current, updates := read()
+	assert.Equal(t, updates, 0)
+	assert.DeepEqual(t, current.Object, original.Object)
+}
+
+func TestSyncCICDEphemeralRunnerProxy_OwnerLookupError(t *testing.T) {
+	resource := schema.GroupResource{Group: "actions.github.com", Resource: "autoscalingrunnersets"}
+	for _, tc := range []struct {
+		name      string
+		getErr    error
+		isSameErr func(error) bool
+	}{
+		{
+			name:      "forbidden",
+			getErr:    apierrors.NewForbidden(resource, "scale-runner", fmt.Errorf("access denied")),
+			isSameErr: apierrors.IsForbidden,
+		},
+		{
+			name:      "internal server error",
+			getErr:    apierrors.NewInternalError(fmt.Errorf("owner lookup unavailable")),
+			isSameErr: apierrors.IsInternalError,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			r, workload, _, rt := proxyDispatcherFixture(t, common.CICDEphemeralRunnerKind, false)
+			v1.SetLabel(workload, v1.CICDScaleRunnerIdLabel, "scale-runner")
+			obj, err := r.generateK8sObject(ctx, workload, nil)
+			assert.NilError(t, err)
+			cs, read := proxyDynamicClient(t, obj)
+			patches := gomonkey.NewPatches()
+			t.Cleanup(patches.Reset)
+			patches.ApplyFuncReturn(jobutils.GetObject, nil, tc.getErr)
+
+			current, _ := read()
+			err = syncProxyFixture(ctx, r, workload, cs, current, rt)
+			assert.ErrorContains(t, err, "failed to get owner scale runner")
+			assert.Assert(t, tc.isSameErr(err))
+			_, updates := read()
+			assert.Equal(t, updates, 0)
+		})
+	}
 }
 
 func proxyRunnerOwner(rt *v1.ResourceTemplate, namespace, name, proxySecretRef string) *unstructured.Unstructured {

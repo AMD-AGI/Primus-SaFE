@@ -2287,7 +2287,7 @@ func updateContainerEnv(envs map[string]string, container map[string]interface{}
 		existingEnvNames.Insert(nameStr)
 
 		if newValue, exists := envs[nameStr]; exists {
-			if _, usesValueFrom := env["valueFrom"]; usesValueFrom {
+			if valueFrom, ok := env["valueFrom"].(map[string]interface{}); ok && valueFrom["fieldRef"] != nil {
 				updatedEnvs = append(updatedEnvs, envItem)
 				continue
 			}

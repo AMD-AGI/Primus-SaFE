@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/klog/v2"
@@ -360,7 +361,12 @@ func (r *DispatcherReconciler) syncCICDEphemeralRunnerProxy(ctx context.Context,
 		owner, getErr := jobutils.GetObject(ctx,
 			clientSets.ClientFactory(), scaleRunnerId, workload.Spec.Workspace, rt.ToSchemaGVK())
 		if getErr != nil {
-			return fmt.Errorf("failed to get owner scale runner: %v", getErr.Error())
+			if apierrors.IsNotFound(getErr) {
+				klog.V(4).InfoS("skipping runner proxy sync because owner scale runner is gone",
+					"workload", workload.Name, "owner", scaleRunnerId)
+				return nil
+			}
+			return fmt.Errorf("failed to get owner scale runner: %w", getErr)
 		}
 		if err = inheritCICDProxySecretRef(desired, owner); err != nil {
 			return err
