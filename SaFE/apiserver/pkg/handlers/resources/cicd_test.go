@@ -124,7 +124,7 @@ func Test_updateCICDSecret_TokenUnchanged(t *testing.T) {
 	}
 
 	// Call updateCICDSecret with same token
-	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(oldToken))
+	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(oldToken), nil)
 
 	// Should return nil without error (optimization kicks in)
 	assert.NilError(t, err)
@@ -188,7 +188,7 @@ func Test_updateCICDSecret_TokenChanged(t *testing.T) {
 	}
 
 	// Call updateCICDSecret with new token
-	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken))
+	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken), nil)
 
 	// Should succeed
 	assert.NilError(t, err)
@@ -242,7 +242,7 @@ func Test_updateCICDSecret_UppercaseAuthType(t *testing.T) {
 	auth := githubAppAuth("123456", "789012", "-----BEGIN RSA PRIVATE KEY-----\nkey\n-----END RSA PRIVATE KEY-----")
 	auth.Type = " GITHUB_APP "
 
-	rotation, err := h.updateCICDSecret(ctx, workload, user, auth)
+	rotation, err := h.updateCICDSecret(ctx, workload, user, auth, nil)
 	assert.NilError(t, err)
 	assert.Assert(t, rotation != nil, "Uppercase github_app should be accepted and rotate")
 
@@ -260,7 +260,7 @@ func Test_updateCICDSecret_UppercaseAuthType(t *testing.T) {
 	sameAuth := githubAppAuth("123456", "789012",
 		"-----BEGIN RSA PRIVATE KEY-----\nkey\n-----END RSA PRIVATE KEY-----")
 	sameAuth.Type = "GitHub_App"
-	again, err := h.updateCICDSecret(ctx, workload, user, sameAuth)
+	again, err := h.updateCICDSecret(ctx, workload, user, sameAuth, nil)
 	assert.NilError(t, err)
 	assert.Assert(t, again == nil, "Unchanged github app credentials should not rotate")
 }
@@ -302,7 +302,7 @@ func Test_discardRolledBackCICDSecret(t *testing.T) {
 			accessController: authority.NewAccessController(fakeCtrlClient),
 		}
 
-		rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth("new_token_456"))
+		rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth("new_token_456"), nil)
 		assert.NilError(t, err)
 		assert.Assert(t, rotation != nil)
 
@@ -331,7 +331,7 @@ func Test_discardRolledBackCICDSecret(t *testing.T) {
 			accessController: authority.NewAccessController(fakeCtrlClient),
 		}
 
-		rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth("first_token"))
+		rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth("first_token"), nil)
 		assert.NilError(t, err)
 		assert.Assert(t, rotation != nil)
 		assert.Equal(t, rotation.SupersededSecretId, "")
@@ -381,7 +381,7 @@ func Test_createCICDSecret_Success(t *testing.T) {
 	}
 
 	// Call createCICDSecret
-	secret, err := h.createCICDSecret(ctx, workload, user, patAuth(token))
+	secret, err := h.createCICDSecret(ctx, workload, user, patAuth(token), nil)
 
 	// Should succeed
 	assert.NilError(t, err)
@@ -692,7 +692,7 @@ func Test_updateCICDSecret_NoOldSecret(t *testing.T) {
 	}
 
 	// Call updateCICDSecret with new token
-	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken))
+	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken), nil)
 
 	// Should succeed
 	assert.NilError(t, err)
@@ -733,7 +733,7 @@ func Test_updateCICDSecret_MissingAnnotatedOldSecret(t *testing.T) {
 		accessController: authority.NewAccessController(fakeCtrlClient),
 	}
 
-	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken))
+	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken), nil)
 	assert.NilError(t, err)
 	assert.Assert(t, rotation != nil)
 	assert.Equal(t, rotation.SupersededSecretId, "",
@@ -772,7 +772,7 @@ func Test_updateCICDSecret_OldSecretLookupError(t *testing.T) {
 		accessController: authority.NewAccessController(fakeCtrlClient),
 	}
 
-	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth("new_token_123"))
+	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth("new_token_123"), nil)
 	assert.ErrorContains(t, err, "failed to get existing CICD GitHub secret")
 	assert.Assert(t, rotation == nil, "A failed lookup must not report a rotation to settle")
 	assert.Equal(t, v1.GetGithubSecretId(workload), "old-secret-id")
@@ -811,7 +811,7 @@ func Test_generateCICDScaleRunnerSet(t *testing.T) {
 	}
 
 	// Call generateCICDScaleRunnerSet
-	err := h.generateCICDScaleRunnerSet(ctx, workload, user, nil)
+	err := h.generateCICDScaleRunnerSet(ctx, workload, user, nil, nil)
 
 	// Should succeed
 	assert.NilError(t, err)
@@ -861,7 +861,7 @@ func Test_generateCICDScaleRunnerSet_GitHubApp(t *testing.T) {
 		accessController: authority.NewAccessController(fakeCtrlClient),
 	}
 
-	err := h.generateCICDScaleRunnerSet(ctx, workload, user, auth)
+	err := h.generateCICDScaleRunnerSet(ctx, workload, user, auth, nil)
 
 	assert.NilError(t, err)
 	assert.Equal(t, workload.Spec.Env["OTHER_VAR"], "other_value", "Other env vars should remain")
@@ -935,7 +935,7 @@ func Test_cleanupCICDSecrets_CICDWorkload(t *testing.T) {
 
 	// Create the secret the same way the CICD path does, so its name carries the random
 	// suffix that GenerateName adds.
-	secret, err := h.createCICDSecret(ctx, workload, user, patAuth("test-token"))
+	secret, err := h.createCICDSecret(ctx, workload, user, patAuth("test-token"), nil)
 	assert.NilError(t, err)
 	assert.Assert(t, secret.Name != v1.GetDisplayName(workload),
 		"GenerateName must produce a name that differs from the display name")
@@ -1030,7 +1030,7 @@ func TestGenerateCICDScaleRunnerSet_ProxyReference(t *testing.T) {
 			if app {
 				auth = githubAppAuth("1", "2", "example-private-key")
 			}
-			assert.NilError(t, h.generateCICDScaleRunnerSet(context.Background(), w, user, auth))
+			assert.NilError(t, h.generateCICDScaleRunnerSet(context.Background(), w, user, auth, nil))
 			assert.Equal(t, w.Spec.Env[common.ProxyCredentialSecret], secret.Name)
 			_, present := w.Spec.Env[GithubPAT]
 			assert.Assert(t, !present)
@@ -1064,7 +1064,7 @@ func TestGenerateCICDScaleRunnerSet_InvalidProxyPreflight(t *testing.T) {
 			}
 			before, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).List(context.Background(), metav1.ListOptions{})
 			assert.NilError(t, err)
-			err = h.generateCICDScaleRunnerSet(context.Background(), w, user, patAuth("example-auth-value"))
+			err = h.generateCICDScaleRunnerSet(context.Background(), w, user, patAuth("example-auth-value"), nil)
 			assert.Assert(t, err != nil)
 			assert.ErrorContains(t, err, "env.PROXY_")
 			after, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).List(context.Background(), metav1.ListOptions{})
@@ -1101,4 +1101,46 @@ func TestUpdateCICDScaleRunnerSet_ProxyValidation(t *testing.T) {
 	before := current.DeepCopy()
 	assert.NilError(t, applyWorkloadPatch(current, &view.PatchWorkloadRequest{}))
 	assert.DeepEqual(t, current.Spec.Env, before.Spec.Env)
+}
+
+func TestBuildCICDSecretParamsCarriesProxyCredential(t *testing.T) {
+	params := buildCICDSecretParams(patAuth("tok"), &view.ProxyAuthRequest{Username: "u", Password: "p"})
+
+	assert.Equal(t, stringutil.Base64Decode(params[view.UserNameParam]), "u")
+	assert.Equal(t, stringutil.Base64Decode(params[view.PasswordParam]), "p")
+	assert.Equal(t, stringutil.Base64Decode(params[GitHubToken]), "tok")
+}
+
+func TestValidateCICDProxyAuthRejectsUnusableValues(t *testing.T) {
+	assert.NilError(t, validateCICDProxyAuth(nil))
+	assert.NilError(t, validateCICDProxyAuth(&view.ProxyAuthRequest{Username: "u", Password: "p"}))
+
+	for _, auth := range []*view.ProxyAuthRequest{
+		{Username: "", Password: "p"},
+		{Username: "u", Password: " "},
+		{Username: "u\n", Password: "p"},
+		{Username: "u", Password: "p\x00"},
+	} {
+		assert.Assert(t, validateCICDProxyAuth(auth) != nil, "expected rejection for %+v", auth)
+	}
+}
+
+func TestCarryForwardCICDAuthKeepsTheOmittedHalf(t *testing.T) {
+	old := &corev1.Secret{Data: map[string][]byte{
+		GitHubToken:                    []byte("tok"),
+		string(view.UserNameParam):     []byte("u"),
+		string(view.PasswordParam):     []byte("p"),
+	}}
+
+	// Rotating only the proxy credential must not drop the GitHub one.
+	auth, proxyAuth := carryForwardCICDAuth(old, nil, &view.ProxyAuthRequest{Username: "u2", Password: "p2"})
+	assert.Assert(t, auth != nil)
+	assert.Equal(t, auth.Token, "tok")
+	assert.Equal(t, proxyAuth.Username, "u2")
+
+	// And the other way round.
+	auth, proxyAuth = carryForwardCICDAuth(old, patAuth("tok2"), nil)
+	assert.Equal(t, auth.Token, "tok2")
+	assert.Assert(t, proxyAuth != nil)
+	assert.Equal(t, proxyAuth.Password, "p")
 }

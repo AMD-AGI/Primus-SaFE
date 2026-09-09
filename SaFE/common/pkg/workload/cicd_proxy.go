@@ -223,8 +223,16 @@ func CICDProxyEnvChanged(oldWorkload, newWorkload *v1.Workload) bool {
 	return oldErr != nil || newErr != nil || !reflect.DeepEqual(oldEnv, newEnv)
 }
 
+// IsCICDProxyRoot reports whether a workload is a CICD runner that carries the
+// proxy configuration itself, as opposed to one that inherits it from an owner.
+// A new runner kind joins the proxy by being named here; the relay and the
+// credential handling below read this rather than any one kind.
+func IsCICDProxyRoot(workload *v1.Workload) bool {
+	return IsCICDScalingRunnerSet(workload)
+}
+
 func ExpectedCICDProxyOptIn(workload, oldWorkload *v1.Workload) bool {
-	if !IsCICDScalingRunnerSet(workload) {
+	if !IsCICDProxyRoot(workload) {
 		return false
 	}
 	if oldWorkload != nil {
@@ -236,7 +244,7 @@ func ExpectedCICDProxyOptIn(workload, oldWorkload *v1.Workload) bool {
 }
 
 func ResolveCICDProxySource(ctx context.Context, reader client.Reader, workload *v1.Workload) (*v1.Workload, error) {
-	if IsCICDScalingRunnerSet(workload) {
+	if IsCICDProxyRoot(workload) {
 		return workload, nil
 	}
 	if !IsCICDEphemeralRunner(workload) {

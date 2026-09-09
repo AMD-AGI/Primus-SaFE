@@ -17,6 +17,8 @@ type CreateWorkloadRequest struct {
 	// GitHubAuth carries CICD runner authentication material. It is used to create
 	// the ARC githubConfigSecret and must not be persisted on the workload env.
 	GitHubAuth *GitHubAuthRequest `json:"githubAuth,omitempty"`
+	// ProxyAuth carries the egress proxy credential for a CICD runner.
+	ProxyAuth *ProxyAuthRequest `json:"proxyAuth,omitempty"`
 	// SpecifiedNodes defines the list of node names where the workload should run.
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
 	// NodesAffinity controls how strictly the workload adheres to SpecifiedNodes.
@@ -103,6 +105,14 @@ type GitHubAuthRequest struct {
 	AppId          string `json:"appId,omitempty"`
 	InstallationId string `json:"installationId,omitempty"`
 	PrivateKey     string `json:"privateKey,omitempty"`
+}
+
+// ProxyAuthRequest carries the credential for the egress proxy a CICD runner
+// registers through. It is written to the runner's Secret and never to the
+// workload, whose env only ever names that Secret.
+type ProxyAuthRequest struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
 }
 
 func (req *CreateWorkloadRequest) GetNodesAffinity() string {
@@ -285,6 +295,8 @@ type WorkloadPodWrapper struct {
 type PatchWorkloadRequest struct {
 	// GitHubAuth carries updated CICD runner authentication material.
 	GitHubAuth *GitHubAuthRequest `json:"githubAuth,omitempty"`
+	// ProxyAuth carries an updated egress proxy credential.
+	ProxyAuth *ProxyAuthRequest `json:"proxyAuth,omitempty"`
 	// Workload scheduling Priority (0-2), default 0
 	Priority *int `json:"priority,omitempty"`
 	// Workload resource requirements

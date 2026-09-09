@@ -613,9 +613,10 @@ func (h *Handler) updateWorkload(ctx context.Context,
 	}
 
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		if auth := normalizeCICDGitHubAuth(req.GitHubAuth, requestEnv(req)); auth != nil {
+		auth := normalizeCICDGitHubAuth(req.GitHubAuth, requestEnv(req))
+		if auth != nil || req.ProxyAuth != nil {
 			patch := client.MergeFrom(adminWorkload.DeepCopy())
-			rotation, secretErr := h.updateCICDSecret(ctx, adminWorkload, requestUser, auth)
+			rotation, secretErr := h.updateCICDSecret(ctx, adminWorkload, requestUser, auth, req.ProxyAuth)
 			if secretErr != nil {
 				klog.ErrorS(secretErr, "failed to update cicd secret")
 				return secretErr
@@ -858,7 +859,7 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		}
 	}
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser, req.GitHubAuth); err != nil {
+		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser, req.GitHubAuth, req.ProxyAuth); err != nil {
 			return nil, err
 		}
 	}
