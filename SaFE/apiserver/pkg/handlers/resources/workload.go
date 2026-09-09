@@ -21,6 +21,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -805,6 +806,21 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 	return nil
 }
 
+// validateWorkloadId checks a caller-chosen id against every constraint it has
+// to satisfy downstream. Without this the first thing to reject it is the owner
+// label on a Secret the caller never named, which reports the caller's id as an
+// invalid label on an object they did not ask for.
+func validateWorkloadId(id string) error {
+	if errs := validation.IsDNS1123Subdomain(id); len(errs) != 0 {
+		return commonerrors.NewBadRequest(fmt.Sprintf("workloadId: %s", strings.Join(errs, "; ")))
+	}
+	// The id becomes an owner label, whose values are shorter than object names.
+	if errs := validation.IsValidLabelValue(id); len(errs) != 0 {
+		return commonerrors.NewBadRequest(fmt.Sprintf("workloadId: %s", strings.Join(errs, "; ")))
+	}
+	return nil
+}
+
 // generateWorkload creates a new workload object based on the creation request.
 // Populates workload metadata, specifications, and customer labels.
 func (h *Handler) generateWorkload(ctx context.Context,
@@ -821,6 +837,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		},
 	}
 	if req.WorkloadId != "" {
+		if err := validateWorkloadId(req.WorkloadId); err != nil {
+			return nil, err
+		}
 		workload.Name = req.WorkloadId
 	}
 	var err error

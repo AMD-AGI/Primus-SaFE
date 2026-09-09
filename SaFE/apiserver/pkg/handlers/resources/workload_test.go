@@ -2238,3 +2238,20 @@ func TestFailedWorkloadMessage_MalformedDecodeLog(t *testing.T) {
 	assert.Assert(t, strings.Contains(captured.String(), "failed to decode stored workload failure conditions"))
 	assert.Assert(t, !strings.Contains(captured.String(), "invalid-sensitive-payload"))
 }
+
+func TestValidateWorkloadId(t *testing.T) {
+	assert.NilError(t, validateWorkloadId("dispatron-ci"))
+	assert.NilError(t, validateWorkloadId("a"))
+
+	for _, id := range []string{
+		"Dispatron-CI",       // uppercase is not a DNS subdomain
+		"bad_name!",          // underscore and bang
+		"-leading",           // must start alphanumeric
+		strings.Repeat("x", 254),
+	} {
+		assert.Assert(t, validateWorkloadId(id) != nil, "expected rejection for %q", id)
+	}
+
+	// Long enough for an object name but too long for the owner label it becomes.
+	assert.Assert(t, validateWorkloadId(strings.Repeat("x", 100)) != nil)
+}
