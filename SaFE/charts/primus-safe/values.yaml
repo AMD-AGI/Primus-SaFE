@@ -117,7 +117,8 @@ cicd:
   no_proxy: ""
   # Sidecar that fronts the cluster proxy for CI/CD jobs, for a proxy whose
   # authentication the runner's own HTTP client cannot complete. Empty disables it.
-  proxy_relay_image: ""
+  # Relative to global.image_registry/primussafe/ (see github_*_runner_template).
+  proxy_relay_image: "cicd-proxy-relay:latest"
   proxy_relay_port: 3129
   # Budget for the OpenSearch lookup that appends the ARC controller error to a failed
   # CI/CD workload. Enrichment is single-shot, so a lookup that times out leaves the

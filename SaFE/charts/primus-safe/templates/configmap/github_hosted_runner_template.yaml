@@ -36,7 +36,7 @@ data:
             mountPath: /home/runner/tmpDir
 {{- if (default "" (default .Values.cicd).proxy_relay_image) }}
         - name: proxy-relay
-          image: {{ .Values.cicd.proxy_relay_image }}
+          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.proxy_relay_image }}
           imagePullPolicy: IfNotPresent
           restartPolicy: Always
           command: ["/bin/sh", "-c"]
