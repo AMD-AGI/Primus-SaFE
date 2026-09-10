@@ -2265,7 +2265,7 @@ func TestCICDEphemeralRunnerProxy_ParentChangeRequeues(t *testing.T) {
 	terminal.ResourceVersion = ""
 	terminal.Status.Phase = v1.WorkloadSucceeded
 	assert.NilError(t, r.Create(context.Background(), terminal))
-	for _, endpoint := range []string{"http://changed.example.com", "", "http://enabled.example.com"} {
+	for _, endpoint := range []string{"http://changed.example.com:3128", "", "http://enabled.example.com:3128"} {
 		assert.NilError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(parent), parent))
 		old := parent.DeepCopy()
 		parent.Spec.Env = map[string]string{common.ProxyUrl: endpoint}
