@@ -362,7 +362,7 @@ spec:
                 format: date-time
                 type: string
               message:
-                description: Some status descriptions of the workload. only for pending
+                description: Scheduling explanations for Pending workloads and diagnostics for Failed workloads.
                 type: string
               nodeUsage:
                 description: |-

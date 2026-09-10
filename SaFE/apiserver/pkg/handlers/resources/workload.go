@@ -23,6 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -154,6 +155,12 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 
 	mainWorkload, err := h.generateWorkload(ctx, req, body, requestUser)
 	if err != nil {
+		if status, typed := err.(apierrors.APIStatus); typed &&
+			(strings.Contains(status.Status().Message, "env.PROXY_") ||
+				strings.Contains(status.Status().Message, "env.NO_PROXY:") ||
+				strings.Contains(status.Status().Message, "workloadId:")) {
+			return nil, err
+		}
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 	var preheatWorkloads []*v1.Workload
@@ -600,15 +607,19 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 // updateWorkload updates the workload in the system and handles CICD auth secret updates.
 func (h *Handler) updateWorkload(ctx context.Context,
 	adminWorkload *v1.Workload, requestUser *v1.User, req *view.PatchWorkloadRequest) error {
+	if err := h.validateCICDProxyReference(ctx, adminWorkload, requestUser); err != nil {
+		return err
+	}
 	err := h.Update(ctx, adminWorkload)
 	if err != nil {
 		return err
 	}
 
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		if auth := normalizeCICDGitHubAuth(req.GitHubAuth, requestEnv(req)); auth != nil {
+		auth := normalizeCICDGitHubAuth(req.GitHubAuth, requestEnv(req))
+		if auth != nil || req.ProxyAuth != nil {
 			patch := client.MergeFrom(adminWorkload.DeepCopy())
-			rotation, secretErr := h.updateCICDSecret(ctx, adminWorkload, requestUser, auth)
+			rotation, secretErr := h.updateCICDSecret(ctx, adminWorkload, requestUser, auth, req.ProxyAuth)
 			if secretErr != nil {
 				klog.ErrorS(secretErr, "failed to update cicd secret")
 				return secretErr
@@ -797,6 +808,21 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 	return nil
 }
 
+// validateWorkloadId checks a caller-chosen id against every constraint it has
+// to satisfy downstream. Without this the first thing to reject it is the owner
+// label on a Secret the caller never named, which reports the caller's id as an
+// invalid label on an object they did not ask for.
+func validateWorkloadId(id string) error {
+	if errs := validation.IsDNS1123Subdomain(id); len(errs) != 0 {
+		return commonerrors.NewBadRequest(fmt.Sprintf("workloadId: %s", strings.Join(errs, "; ")))
+	}
+	// The id becomes an owner label, whose values are shorter than object names.
+	if errs := validation.IsValidLabelValue(id); len(errs) != 0 {
+		return commonerrors.NewBadRequest(fmt.Sprintf("workloadId: %s", strings.Join(errs, "; ")))
+	}
+	return nil
+}
+
 // generateWorkload creates a new workload object based on the creation request.
 // Populates workload metadata, specifications, and customer labels.
 func (h *Handler) generateWorkload(ctx context.Context,
@@ -813,6 +839,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		},
 	}
 	if req.WorkloadId != "" {
+		if err := validateWorkloadId(req.WorkloadId); err != nil {
+			return nil, err
+		}
 		workload.Name = req.WorkloadId
 	}
 	var err error
@@ -851,7 +880,7 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		}
 	}
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser, req.GitHubAuth); err != nil {
+		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser, req.GitHubAuth, req.ProxyAuth); err != nil {
 			return nil, err
 		}
 	}
@@ -1338,6 +1367,11 @@ func sanitizePatchWorkloadRequestForLog(req *view.PatchWorkloadRequest) view.Pat
 		auth.PrivateKey = ""
 		sanitized.GitHubAuth = &auth
 	}
+	if sanitized.ProxyAuth != nil {
+		auth := *sanitized.ProxyAuth
+		auth.Password = ""
+		sanitized.ProxyAuth = &auth
+	}
 	if sanitized.Env != nil {
 		env := maputil.Copy(*sanitized.Env, GithubPAT)
 		sanitized.Env = &env
@@ -1406,7 +1440,21 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, dbWorkload *d
 			result.Message = adminWorkload.Status.Message
 		}
 	}
+	if result.Phase == string(v1.WorkloadFailed) {
+		result.Message = failedDBWorkloadMessage(dbWorkload)
+	}
 	return result
+}
+
+func failedDBWorkloadMessage(workload *dbclient.Workload) string {
+	var conditions []metav1.Condition
+	if workload.Conditions.Valid && workload.Conditions.String != "" {
+		if err := json.Unmarshal([]byte(workload.Conditions.String), &conditions); err != nil {
+			klog.Error("failed to decode stored workload failure conditions")
+			return "Workload failed; stored failure details could not be read."
+		}
+	}
+	return commonworkload.GetWorkloadFailureMessage(conditions, workload.DispatchCount)
 }
 
 // cvtDBWorkloadToGetResponse converts a database workload record to a detailed response format.

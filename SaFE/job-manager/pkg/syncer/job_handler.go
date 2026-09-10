@@ -7,9 +7,11 @@ package syncer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -68,9 +70,12 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 	}
 
 	result, err := r.handleJobImpl(ctx, message, adminWorkload, clientSets)
-	if jobutils.IsUnrecoverableError(err) {
+	if jobutils.IsUnrecoverableError(err) && !adminWorkload.IsEnd() {
 		// Errors defined internally are fatal and lead to a terminal state without retry
 		err = jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, err.Error())
+		if err == nil {
+			r.enqueueCICDFailureEnrichment(adminWorkload)
+		}
 	}
 	if err != nil {
 		return result, err
@@ -93,6 +98,12 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 		adminWorkload, err = r.updateAdminWorkloadByJob(ctx, clientSets, adminWorkload, message)
 		if err != nil {
 			klog.ErrorS(err, "failed to update admin workload status")
+			var extractionError *cicdStatusExtractionError
+			if errors.As(err, &extractionError) {
+				if result, timeoutErr := checkRunnerSetRegistration(adminWorkload, message); timeoutErr != nil {
+					return result, commonerrors.NewInternalError(timeoutErr.Error() + " ARC status could not be read.")
+				}
+			}
 			return ctrlruntime.Result{}, err
 		}
 	}
@@ -119,16 +130,6 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 	return checkRunnerSetRegistration(adminWorkload, message)
 }
 
-// checkRunnerSetRegistration bounds how long a dispatched CICD scaling runner set
-// may wait for ARC to register it with GitHub.
-//
-// A failed registration leaves no trace on the AutoscalingRunnerSet -- no status,
-// no runner-scale-set-id, no event -- so the deadline is the only signal available.
-// Past it, the unrecoverable error makes handleJob mark the workload Failed with
-// that message on its condition, which both reports the failure and releases the
-// workspace queue the Pending workload was holding. Before it, the result asks to
-// be re-queued at the deadline, since ARC does not write to the object while it
-// retries.
 func checkRunnerSetRegistration(workload *v1.Workload, message *resourceMessage) (ctrlruntime.Result, error) {
 	if !commonworkload.IsCICDScalingRunnerSet(workload) || workload.Status.RunnerScaleSetId != "" {
 		return ctrlruntime.Result{}, nil
@@ -150,11 +151,14 @@ func checkRunnerSetRegistration(workload *v1.Workload, message *resourceMessage)
 	}
 	klog.Errorf("CICD scaling runner set %s was not registered with GitHub within %s of dispatch, failing it",
 		workload.Name, runnerSetRegistrationTimeout)
-	return ctrlruntime.Result{}, commonerrors.NewInternalError(fmt.Sprintf(
-		"the runner scale set was not registered with GitHub within %s of being dispatched, "+
-			"so no runner can start; ARC records the reason only in its own log "+
-			"(gha-rs-controller), commonly an organisation IP allow list or a revoked app installation",
-		runnerSetRegistrationTimeout))
+	diagnostic := fmt.Sprintf("Runner scale set registration timed out after %s; no runner can start. Check ARC controller logs for details.", runnerSetRegistrationTimeout)
+	if commonworkload.IsCICDProxyManaged(workload) && workload.GetEnv(common.ProxyUrl) != "" {
+		diagnostic += " Proxy configuration is enabled; check proxy reachability and its credential Secret."
+	}
+	if detail := commonworkload.GetWorkloadFailureMessage(workload.Status.Conditions, v1.GetWorkloadDispatchCnt(workload)); detail != commonworkload.WorkloadFailureFallback {
+		diagnostic += " " + detail
+	}
+	return ctrlruntime.Result{}, commonerrors.NewInternalError(diagnostic)
 }
 
 // getK8sObjectStatus retrieves the status of a Kubernetes object in data plane.
@@ -198,6 +202,9 @@ func (r *SyncerReconciler) getK8sObjectStatus(ctx context.Context, message *reso
 	status, err := jobutils.GetK8sObjectStatus(k8sObject, rt)
 	if err != nil {
 		klog.ErrorS(err, "failed to get phase", "name", message.name, "namespace", message.namespace)
+		if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+			return status, &cicdStatusExtractionError{err}
+		}
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	if status == nil {
@@ -325,41 +332,35 @@ func (r *SyncerReconciler) shouldReSchedule(ctx context.Context,
 // and update workload phase and condition.
 func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientSets *ClusterClientSets,
 	originalWorkload *v1.Workload, message *resourceMessage) (*v1.Workload, error) {
-	status, err := r.getK8sObjectStatus(ctx, message, clientSets, originalWorkload)
-	if err != nil || status == nil {
-		return originalWorkload, err
+	if originalWorkload.IsEnd() {
+		return originalWorkload, nil
 	}
-
+	status, statusErr := r.getK8sObjectStatus(ctx, message, clientSets, originalWorkload)
+	if status == nil {
+		return originalWorkload, statusErr
+	}
 	adminWorkload := originalWorkload.DeepCopy()
+	dispatchCount := v1.GetWorkloadDispatchCnt(adminWorkload)
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && status.RunnerScaleSetId != "" {
+		adminWorkload.Status.RunnerScaleSetId = status.RunnerScaleSetId
 		if adminWorkload.Status.StartTime == nil {
 			adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
 		}
-		if adminWorkload.Status.RunnerScaleSetId != status.RunnerScaleSetId {
-			patch := client.MergeFrom(originalWorkload)
-			adminWorkload.Status.RunnerScaleSetId = status.RunnerScaleSetId
-			if err := r.Status().Patch(ctx, adminWorkload, patch); err != nil {
-				return nil, err
-			}
+	}
+	if statusErr == nil && status.Phase != "" {
+		if status.Phase == string(v1.K8sFailed) && strings.TrimSpace(status.Message) == "" {
+			status.Message = commonworkload.GetWorkloadFailureMessage(adminWorkload.Status.Conditions, dispatchCount)
 		}
-		return adminWorkload, nil
-	}
-	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		// A CICD scaling runner set reaching the generic phase logic means its
-		// RunnerScaleSetId is empty (ARS not yet/again reconciled by ARC, or being
-		// deleted). The generic path may mark it Failed/Stopped and lead to deletion,
-		// so make this dangerous fall-through observable.
-		klog.Infof("CICD scaling runner set %s entered generic phase handling (empty RunnerScaleSetId), k8s.phase: %s, action: %s, dispatchCnt: %d",
-			adminWorkload.Name, status.Phase, message.action, message.dispatchCount)
-	}
-	if status.Phase != "" {
 		r.updateAdminWorkloadPhase(adminWorkload, status, message)
 		if !commonworkload.IsTorchFT(adminWorkload) ||
 			adminWorkload.Status.Phase != originalWorkload.Status.Phase || isTorchFTGroupFailed(adminWorkload) {
 			cond := jobutils.NewCondition(status.Phase, status.Message,
-				commonworkload.GenerateDispatchReason(message.dispatchCount))
+				commonworkload.GenerateDispatchReason(max(1, dispatchCount)))
 			updateWorkloadCondition(adminWorkload, cond)
 		}
+	}
+	if adminWorkload.Status.Phase == v1.WorkloadFailed {
+		adminWorkload.Status.Message = commonworkload.GetWorkloadFailureMessage(adminWorkload.Status.Conditions, dispatchCount)
 	}
 	if !adminWorkload.IsPending() && adminWorkload.Status.StartTime == nil {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
@@ -368,12 +369,18 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 		adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
 	}
 	if reflect.DeepEqual(adminWorkload.Status, originalWorkload.Status) {
-		return originalWorkload, nil
+		return originalWorkload, statusErr
 	}
 	// Only write fields owned by the job status path.
 	statusFields := map[string]any{
 		"phase":      adminWorkload.Status.Phase,
 		"conditions": adminWorkload.Status.Conditions,
+	}
+	if adminWorkload.Status.RunnerScaleSetId != "" {
+		statusFields["runnerScaleSetId"] = adminWorkload.Status.RunnerScaleSetId
+	}
+	if adminWorkload.Status.Phase == v1.WorkloadFailed {
+		statusFields["message"] = adminWorkload.Status.Message
 	}
 	// A merge patch deletes a key sent as null, and these three only ever go from
 	// unset to set, so an unset one is omitted rather than cleared.
@@ -392,7 +399,14 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 	}
 	klog.Infof("update workload status, name: %s, phase: %s, dispatchCount: %d, k8s.status: %s",
 		adminWorkload.Name, adminWorkload.Status.Phase, message.dispatchCount, jsonutils.MarshalSilently(status))
-	return adminWorkload, nil
+	if adminWorkload.Status.Phase == v1.WorkloadFailed && originalWorkload.Status.Phase != v1.WorkloadFailed {
+		r.enqueueCICDFailureEnrichment(adminWorkload)
+	}
+	return adminWorkload, statusErr
+}
+
+type cicdStatusExtractionError struct {
+	error
 }
 
 // updateAdminWorkloadPhase updates the workload phase based on k8s object status.

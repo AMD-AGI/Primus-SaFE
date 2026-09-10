@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	sigsyaml "sigs.k8s.io/yaml"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/registry"
 	corev1 "k8s.io/api/core/v1"
@@ -26,6 +25,7 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
+	sigsyaml "sigs.k8s.io/yaml"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
@@ -78,12 +78,12 @@ func (c *RESTClientGetter) setDefaults() {
 	}
 }
 
-// WithNamespace returns a shallow copy of the RESTClientGetter with the given namespace,
-// leaving the original getter unchanged so that cached instances are not mutated.
 func (c *RESTClientGetter) WithNamespace(ns string) *RESTClientGetter {
-	cpy := *c
-	cpy.namespace = ns
-	return &cpy
+	return NewRESTClientGetter(c.cfg, func(getter *RESTClientGetter) {
+		getter.namespace = ns
+		getter.impersonate = c.impersonate
+		getter.persistent = c.persistent
+	})
 }
 
 // NewRESTClientGetter returns a new RESTClientGetter.

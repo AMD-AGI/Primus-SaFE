@@ -25,13 +25,18 @@ import (
 	"github.com/lib/pq"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	k8stesting "k8s.io/client-go/testing"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlruntimefake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
@@ -42,6 +47,7 @@ import (
 	mockdb "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -2062,4 +2068,207 @@ func TestCompactDispatchNodesAndRanks(t *testing.T) {
 	nodes, ranks := compactDispatchNodesAndRanks([]string{"", "n1", "n2"}, []string{"skip", "0", "1"})
 	testifyassert.Equal(t, []string{"n1", "n2"}, nodes)
 	testifyassert.Equal(t, []string{"0", "1"}, ranks)
+}
+
+func TestWorkloadProxyValidation_ErrorResponses(t *testing.T) {
+	for _, method := range []string{http.MethodPost, http.MethodPatch} {
+		for _, tc := range []struct {
+			name string
+			code int
+		}{
+			{"userinfo", 400}, {"missing", 400}, {"unauthorized", 403}, {"unavailable", 503}, {"configuration", 500},
+		} {
+			t.Run(method+"/"+tc.name, func(t *testing.T) {
+				h, user, w, cs := proxyAPIHandler(t)
+				env := w.DeepCopy().Spec.Env
+				env[common.ProxyUrl] = "http://proxy.example.com:3128"
+				env[common.ProxyCredentialSecret] = "proxy-auth"
+				if tc.name == "userinfo" {
+					env[common.ProxyUrl] = "http://sample@example.com"
+				}
+				if tc.name == "unauthorized" {
+					createProxyAPISecret(t, h, user)
+					role := genMockRole()
+					role.Rules = []v1.PolicyRule{{Resources: []string{strings.ToLower(v1.WorkloadKind)}, Verbs: []v1.RoleVerb{v1.AllVerb}, GrantedUsers: []string{authority.GrantedAllUser}}}
+					stored := &v1.Role{}
+					assert.NilError(t, h.Get(context.Background(), client.ObjectKeyFromObject(role), stored))
+					stored.Rules = role.Rules
+					assert.NilError(t, h.Update(context.Background(), stored))
+				}
+				if tc.name == "unavailable" {
+					cs.PrependReactor("get", "secrets", func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, context.DeadlineExceeded })
+				}
+				if tc.name == "configuration" {
+					h.clientSet = nil
+				}
+				var body []byte
+				if method == http.MethodPost {
+					body, _ = json.Marshal(view.CreateWorkloadRequest{WorkloadSpec: v1.WorkloadSpec{GroupVersionKind: w.Spec.GroupVersionKind, Workspace: w.Spec.Workspace, Env: env}, GitHubAuth: patAuth("example-auth-value")})
+				} else {
+					body, _ = json.Marshal(view.PatchWorkloadRequest{Env: &env})
+				}
+				writer := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(writer)
+				c.Request = httptest.NewRequest(method, "/", bytes.NewReader(body))
+				c.Request.Header.Set("Content-Type", "application/json")
+				c.Set(common.UserId, user.Name)
+				c.Set(common.Name, w.Name)
+				if method == http.MethodPost {
+					h.CreateWorkload(c)
+				} else {
+					h.PatchWorkload(c)
+				}
+				assert.Equal(t, writer.Code, tc.code)
+				assert.Assert(t, strings.Contains(writer.Body.String(), "env.PROXY_"))
+				assert.Assert(t, !strings.Contains(writer.Body.String(), "sample@example.com"))
+				current := &v1.Workload{}
+				assert.NilError(t, h.Get(context.Background(), client.ObjectKeyFromObject(w), current))
+				assert.DeepEqual(t, current.Spec.Env, w.Spec.Env)
+			})
+		}
+	}
+}
+
+func TestFailedWorkloadMessage_ListAndDetail(t *testing.T) {
+	h, user, _, _ := proxyAPIHandler(t)
+	reads := 0
+	h.Client = interceptor.NewClient(h.Client.(client.WithWatch), interceptor.Funcs{Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+		reads++
+		return fmt.Errorf("live object reclaimed")
+	}})
+	conditions := []metav1.Condition{
+		{Type: string(v1.AdminFailed), Status: metav1.ConditionTrue, Reason: commonworkload.GenerateDispatchReason(1), Message: "previous attempt", LastTransitionTime: metav1.Now()},
+		{Type: string(v1.K8sFailed), Status: metav1.ConditionTrue, Reason: commonworkload.GenerateDispatchReason(2), Message: "registration timed out ARC controller: proxy connection refused", LastTransitionTime: metav1.Now()},
+	}
+	data, err := json.Marshal(conditions)
+	assert.NilError(t, err)
+	row := &dbclient.Workload{WorkloadId: "reclaimed-workload", Phase: sql.NullString{String: string(v1.WorkloadFailed), Valid: true}, DispatchCount: 2, Conditions: sql.NullString{String: string(data), Valid: true}, GVK: `{"kind":"AutoscalingRunnerSet"}`}
+	list := h.cvtDBWorkloadToResponseItem(context.Background(), row)
+	detail := h.cvtDBWorkloadToGetResponse(context.Background(), user, []*v1.Role{genMockRole()}, row)
+	assert.Equal(t, list.Message, conditions[1].Message)
+	assert.Equal(t, detail.Message, list.Message)
+	assert.Equal(t, reads, 0)
+}
+
+func TestFailedWorkloadMessage_LegacyAndMalformed(t *testing.T) {
+	h, user, _, _ := proxyAPIHandler(t)
+	for _, tc := range []struct {
+		conditions string
+		want       string
+	}{
+		{"", commonworkload.WorkloadFailureFallback}, {"[]", commonworkload.WorkloadFailureFallback}, {"null", commonworkload.WorkloadFailureFallback},
+		{"{invalid json", "Workload failed; stored failure details could not be read."},
+	} {
+		row := &dbclient.Workload{Phase: sql.NullString{String: string(v1.WorkloadFailed), Valid: true}, Conditions: sql.NullString{String: tc.conditions, Valid: true}, GVK: `{"kind":"AutoscalingRunnerSet"}`}
+		assert.Equal(t, h.cvtDBWorkloadToResponseItem(context.Background(), row).Message, tc.want)
+		assert.Equal(t, h.cvtDBWorkloadToGetResponse(context.Background(), user, []*v1.Role{genMockRole()}, row).Message, tc.want)
+	}
+}
+
+func TestWorkloadProxyValidation_ConflictRetry(t *testing.T) {
+	h, user, w, cs := proxyAPIHandler(t)
+	source := createProxyAPISecret(t, h, user)
+	env := w.DeepCopy().Spec.Env
+	env[common.ProxyUrl] = "http://proxy.example.com:3128"
+	env[common.ProxyCredentialSecret] = source.Name
+	attempts := 0
+	reads := 0
+	cs.PrependReactor("get", "secrets", func(k8stesting.Action) (bool, runtime.Object, error) {
+		reads++
+		if reads > 1 {
+			return true, nil, apierrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, source.Name)
+		}
+		return false, nil, nil
+	})
+	h.Client = interceptor.NewClient(h.Client.(client.WithWatch), interceptor.Funcs{Update: func(ctx context.Context, cli client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+		attempts++
+		return apierrors.NewConflict(schema.GroupResource{Resource: "workloads"}, w.Name, fmt.Errorf("concurrent workload update"))
+	}})
+	body, _ := json.Marshal(view.PatchWorkloadRequest{Env: &env, GitHubAuth: patAuth("example-rotation-auth")})
+	writer := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(writer)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/", bytes.NewReader(body))
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, w.Name)
+	h.PatchWorkload(c)
+	assert.Equal(t, writer.Code, http.StatusBadRequest)
+	assert.Equal(t, reads, 2)
+	assert.Equal(t, attempts, 1)
+	current := &v1.Workload{}
+	assert.NilError(t, h.Get(context.Background(), client.ObjectKeyFromObject(w), current))
+	assert.DeepEqual(t, current.Spec.Env, w.Spec.Env)
+	secrets, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).List(context.Background(), metav1.ListOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, len(secrets.Items), 1)
+}
+
+func TestWorkloadProxyValidation_SafeErrorLogs(t *testing.T) {
+	state := klog.CaptureState()
+	defer state.Restore()
+	var captured bytes.Buffer
+	klog.LogToStderr(false)
+	klog.SetOutput(&captured)
+	h, user, w, _ := proxyAPIHandler(t)
+	endpoint := "http://example-user:example-value@proxy.example.com"
+	env := w.DeepCopy().Spec.Env
+	env[common.ProxyUrl] = endpoint
+	body, _ := json.Marshal(view.PatchWorkloadRequest{Env: &env})
+	writer := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(writer)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/", bytes.NewReader(body))
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, w.Name)
+	h.PatchWorkload(c)
+	klog.Flush()
+	assert.Equal(t, writer.Code, http.StatusBadRequest)
+	assert.Assert(t, strings.Contains(captured.String(), "userinfo is not allowed"))
+	assert.Assert(t, !strings.Contains(captured.String(), endpoint))
+	assert.Assert(t, !strings.Contains(captured.String(), "example-value"))
+}
+
+func TestSanitizePatchWorkloadRequestForLog(t *testing.T) {
+	req := &view.PatchWorkloadRequest{
+		GitHubAuth: &view.GitHubAuthRequest{Token: "github-token", PrivateKey: "private-key"},
+		ProxyAuth:  &view.ProxyAuthRequest{Username: "proxy-user", Password: "proxy-password"},
+	}
+
+	sanitized := sanitizePatchWorkloadRequestForLog(req)
+
+	assert.Equal(t, sanitized.GitHubAuth.Token, "")
+	assert.Equal(t, sanitized.GitHubAuth.PrivateKey, "")
+	assert.Equal(t, sanitized.ProxyAuth.Username, req.ProxyAuth.Username)
+	assert.Equal(t, sanitized.ProxyAuth.Password, "")
+	assert.Equal(t, req.GitHubAuth.Token, "github-token")
+	assert.Equal(t, req.GitHubAuth.PrivateKey, "private-key")
+	assert.Equal(t, req.ProxyAuth.Password, "proxy-password")
+}
+
+func TestFailedWorkloadMessage_MalformedDecodeLog(t *testing.T) {
+	state := klog.CaptureState()
+	defer state.Restore()
+	var captured bytes.Buffer
+	klog.LogToStderr(false)
+	klog.SetOutput(&captured)
+	message := failedDBWorkloadMessage(&dbclient.Workload{Conditions: sql.NullString{String: "invalid-sensitive-payload", Valid: true}})
+	klog.Flush()
+	assert.Equal(t, message, "Workload failed; stored failure details could not be read.")
+	assert.Assert(t, strings.Contains(captured.String(), "failed to decode stored workload failure conditions"))
+	assert.Assert(t, !strings.Contains(captured.String(), "invalid-sensitive-payload"))
+}
+
+func TestValidateWorkloadId(t *testing.T) {
+	assert.NilError(t, validateWorkloadId("runner-ci"))
+	assert.NilError(t, validateWorkloadId("a"))
+
+	for _, id := range []string{
+		"Runner-CI", // uppercase is not a DNS subdomain
+		"bad_name!", // underscore and bang
+		"-leading",  // must start alphanumeric
+		strings.Repeat("x", 254),
+	} {
+		assert.Assert(t, validateWorkloadId(id) != nil, "expected rejection for %q", id)
+	}
+
+	// Long enough for an object name but too long for the owner label it becomes.
+	assert.Assert(t, validateWorkloadId(strings.Repeat("x", 100)) != nil)
 }

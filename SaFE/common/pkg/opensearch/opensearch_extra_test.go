@@ -6,7 +6,9 @@
 package opensearch
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -135,4 +137,39 @@ func TestDiscovery(t *testing.T) {
 
 	any := GetAnyOpensearchClient()
 	assert.NotNil(t, any)
+}
+
+func TestSearchByTimeRangeContext_CancelsRequest(t *testing.T) {
+	entered := make(chan struct{})
+	canceled := make(chan struct{})
+	sc, server := newSearchClientTo(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		close(entered)
+		<-r.Context().Done()
+		close(canceled)
+	})
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := sc.SearchByTimeRangeContext(ctx, time.Now(), time.Now(), "", "/_search", []byte(`{}`))
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("HTTP request did not start")
+	}
+	select {
+	case err := <-done:
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(time.Second):
+		t.Fatal("request outlived deadline")
+	}
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("HTTP request was not canceled")
+	}
 }

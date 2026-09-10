@@ -2652,3 +2652,15 @@ func TestDoRoutesMonarchMeshEvents(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, routed, true)
 }
+
+func TestUpdateCICDScalingRunnerSetPhase_PreservesEndedWorkload(t *testing.T) {
+	for _, phase := range []v1.WorkloadPhase{v1.WorkloadFailed, v1.WorkloadSucceeded, v1.WorkloadStopped} {
+		for _, podPhase := range []corev1.PodPhase{corev1.PodRunning, corev1.PodPending, corev1.PodFailed} {
+			w := &v1.Workload{Status: v1.WorkloadStatus{Phase: phase, Message: "terminal diagnostic"}}
+			pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{appComponent: scaleSetListener}}, Status: corev1.PodStatus{Phase: podPhase}}
+			updateCICDScalingRunnerSetPhase(w, pod)
+			assert.Equal(t, w.Status.Phase, phase)
+			assert.Equal(t, w.Status.Message, "terminal diagnostic")
+		}
+	}
+}
