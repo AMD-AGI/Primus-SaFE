@@ -1742,6 +1742,50 @@ func TestGithubRunnerWritableMountPath(t *testing.T) {
 	path, err = githubRunnerWritableMountPath(workload, withEmptyPath)
 	assert.NilError(t, err)
 	assert.Equal(t, path, "/valid")
+
+	dualPFS := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Type: v1.PFS, MountPath: "/wekafs"},
+		{Type: v1.PFS, MountPath: "/wekafs", EnableUserDir: true},
+	}}}
+	path, err = githubRunnerWritableMountPath(workload, dualPFS)
+	assert.NilError(t, err)
+	assert.Equal(t, path, "/wekafs")
+	root, err = githubRunnerStateRoot(workload, dualPFS)
+	assert.NilError(t, err)
+	assert.Equal(t, root, "/wekafs/github-runners/runner-wl")
+}
+
+func TestApplyGithubRunnerPodSecurityContextSetsPFSFsGroup(t *testing.T) {
+	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Annotations: map[string]string{v1.UseWorkspaceStorageAnnotation: v1.TrueStr},
+	}}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{}}},
+	}}
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	spec := v1.ResourceSpec{PrePaths: []string{"spec"}, PodSpecPaths: []string{"template", "spec"}}
+	assert.NilError(t, applyGithubRunnerPodSecurityContext(obj, workload, workspace, spec))
+	fsGroup, found, err := unstructured.NestedInt64(obj.Object, "spec", "template", "spec", "securityContext", "fsGroup")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, fsGroup, githubRunnerPFSFsGroup)
+}
+
+func TestApplyGithubRunnerPodSecurityContextSkipsNonPFSWorkspace(t *testing.T) {
+	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Annotations: map[string]string{v1.UseWorkspaceStorageAnnotation: v1.TrueStr},
+	}}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{}}},
+	}}
+	workspace := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Type: v1.HOSTPATH, MountPath: "/data", HostPath: "/apps"},
+	}}}
+	spec := v1.ResourceSpec{PrePaths: []string{"spec"}, PodSpecPaths: []string{"template", "spec"}}
+	assert.NilError(t, applyGithubRunnerPodSecurityContext(obj, workload, workspace, spec))
+	_, found, err := unstructured.NestedInt64(obj.Object, "spec", "template", "spec", "securityContext", "fsGroup")
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
 }
 
 func TestBuildRequiredMatchExpressionExcludedNodes(t *testing.T) {

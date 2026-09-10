@@ -1139,6 +1139,10 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 
 	assert.Assert(t, isGithubSecretChanged(workload, obj, rt))
 	assert.NilError(t, updateGithubRunner(obj, workload, workspace, rt))
+	fsGroup, found, err := unstructured.NestedInt64(obj.Object, "spec", "template", "spec", "securityContext", "fsGroup")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, fsGroup, githubRunnerPFSFsGroup)
 
 	envs, err := jobutils.GetEnv(obj, rt, 1)
 	assert.NilError(t, err)

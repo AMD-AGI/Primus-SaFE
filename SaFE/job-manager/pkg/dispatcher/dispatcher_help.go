@@ -1465,6 +1465,9 @@ func updateGithubRunner(obj *unstructured.Unstructured,
 			return err
 		}
 	}
+	if err = applyGithubRunnerPodSecurityContext(obj, adminWorkload, workspace, rt.Spec.ResourceSpecs[0]); err != nil {
+		return err
+	}
 	relay, err := configureCICDProxyRelay(obj, adminWorkload, adminWorkload, rt.Spec.ResourceSpecs[0])
 	if err != nil {
 		return err
@@ -1543,8 +1546,32 @@ func githubRunnerHasSecretVolume(obj *unstructured.Unstructured,
 			continue
 		}
 		name, _ := volumeMap["name"].(string)
+		if name == cicdProxyCredentialVol {
+			continue
+		}
 		if _, managed := secretIDs[name]; managed {
 			return true
+		}
+	}
+	containers, found, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &resourceSpec, "containers"))
+	if err != nil || !found {
+		return false
+	}
+	for _, entry := range containers {
+		container, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		mounts, _ := container["volumeMounts"].([]interface{})
+		for _, mount := range mounts {
+			mountMap, ok := mount.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			mountPath, _ := mountMap["mountPath"].(string)
+			if strings.HasPrefix(mountPath, common.SecretPath+"/") {
+				return true
+			}
 		}
 	}
 	return false
@@ -1571,6 +1598,32 @@ func githubRunnerWritableMountPath(workload *v1.Workload, workspace *v1.Workspac
 		path = path + "/" + generateUserDir(v1.GetUserId(workload))
 	}
 	return path, nil
+}
+
+// githubRunnerPFSFsGroup matches the owning group on workspace PFS mounts so the
+// runner (uid 1001) can create state under the shared mount path.
+const githubRunnerPFSFsGroup = int64(1000)
+
+func workspaceHasWritablePFS(workspace *v1.Workspace) bool {
+	vol, ok := pickWritableWorkspaceVolume(workspace)
+	return ok && vol.Type == v1.PFS
+}
+
+func applyGithubRunnerPodSecurityContext(obj *unstructured.Unstructured, workload *v1.Workload,
+	workspace *v1.Workspace, resourceSpec v1.ResourceSpec) error {
+	if !workspaceHasWritablePFS(workspace) {
+		return nil
+	}
+	path := podSpecPath(workload, &resourceSpec, "securityContext")
+	securityContext, found, err := jobutils.NestedMap(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	if !found {
+		securityContext = map[string]interface{}{}
+	}
+	securityContext["fsGroup"] = githubRunnerPFSFsGroup
+	return jobutils.SetNestedField(obj.Object, securityContext, path)
 }
 
 func pickWritableWorkspaceVolume(workspace *v1.Workspace) (v1.WorkspaceVolume, bool) {
