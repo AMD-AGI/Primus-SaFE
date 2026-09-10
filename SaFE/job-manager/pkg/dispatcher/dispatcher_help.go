@@ -1604,6 +1604,9 @@ func githubRunnerWritableMountPath(workload *v1.Workload, workspace *v1.Workspac
 // runner (uid 1001) can create state under the shared mount path.
 const githubRunnerPFSFsGroup = int64(1000)
 
+// githubRunnerPFSFsGroupChangePolicy avoids recursive ownership changes on large shared PFS mounts.
+const githubRunnerPFSFsGroupChangePolicy = "OnRootMismatch"
+
 func workspaceHasWritablePFS(workspace *v1.Workspace) bool {
 	vol, ok := pickWritableWorkspaceVolume(workspace)
 	return ok && vol.Type == v1.PFS
@@ -1623,6 +1626,7 @@ func applyGithubRunnerPodSecurityContext(obj *unstructured.Unstructured, workloa
 		securityContext = map[string]interface{}{}
 	}
 	securityContext["fsGroup"] = githubRunnerPFSFsGroup
+	securityContext["fsGroupChangePolicy"] = githubRunnerPFSFsGroupChangePolicy
 	return jobutils.SetNestedField(obj.Object, securityContext, path)
 }
 
