@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -72,8 +73,12 @@ func SetupDispatcherController(mgr manager.Manager) error {
 		Client:            mgr.GetClient(),
 		clusterClientSets: commonutils.NewObjectManagerSingleton(),
 	}
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1.Workload{}, cicdProxyOwnerIndex, cicdProxyOwnerUID); err != nil {
+		return err
+	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workload{}, builder.WithPredicates(relevantChangePredicate{})).
+		Watches(&v1.Workload{}, handler.EnqueueRequestsFromMapFunc(r.enqueueCICDProxyChildren), builder.WithPredicates(cicdProxyParentPredicate())).
 		// Different workloads dispatch in parallel; controller-runtime still
 		// serializes reconciles of the same object by key.
 		WithOptions(controller.Options{MaxConcurrentReconciles: 5}).
@@ -95,7 +100,7 @@ func (relevantChangePredicate) Create(e event.CreateEvent) bool {
 	if !ok {
 		return false
 	}
-	if shouldDispatch(w) {
+	if shouldDispatch(w) || (commonworkload.IsCICDEphemeralRunner(w) && v1.IsWorkloadDispatched(w) && !w.IsEnd() && w.DeletionTimestamp.IsZero()) {
 		return true
 	}
 	return false
@@ -112,6 +117,9 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 		return true
 	}
 	if v1.IsWorkloadDispatched(newWorkload) {
+		if v1.GetAnnotation(oldWorkload, v1.CICDProxyManagedAnnotation) != v1.GetAnnotation(newWorkload, v1.CICDProxyManagedAnnotation) {
+			return true
+		}
 		oldGroup, _ := commonworkload.GetReplicaCount(oldWorkload, common.ReplicaCount)
 		newGroup, _ := commonworkload.GetReplicaCount(newWorkload, common.ReplicaCount)
 		if oldGroup != newGroup {
@@ -288,6 +296,9 @@ func (r *DispatcherReconciler) processMonarchWorkload(ctx context.Context, rootW
 
 // processWorkload processes a workload resource and updates its state.
 func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
+	if adminWorkload.IsEnd() || !adminWorkload.DeletionTimestamp.IsZero() {
+		return ctrlruntime.Result{}, nil
+	}
 	clientSets, err := syncer.GetClusterClientSets(r.clusterClientSets, v1.GetClusterId(adminWorkload))
 	if err != nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
@@ -315,6 +326,15 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 		if err = r.markAsDispatched(ctx, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}
+		if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
+			source, err := commonworkload.ResolveCICDProxySource(ctx, r.Client, adminWorkload)
+			if err != nil {
+				return ctrlruntime.Result{}, err
+			}
+			if err = r.syncCICDEphemeralRunnerProxy(ctx, adminWorkload, source, clientSets, obj, rt); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+		}
 		if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 			// update the workload which is already dispatched
 			if err = r.syncWorkloadToObject(ctx, adminWorkload, clientSets, obj); err != nil {
@@ -330,6 +350,15 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 			}
 			klog.Infof("the workload is updated, name: %s, dispatch count: %d, max retry: %d",
 				adminWorkload.Name, v1.GetWorkloadDispatchCnt(adminWorkload), adminWorkload.Spec.MaxRetry)
+		}
+	}
+	if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
+		source, err := commonworkload.ResolveCICDProxySource(ctx, r.Client, adminWorkload)
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if commonworkload.IsCICDProxyManaged(source) {
+			return ctrlruntime.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 	}
 	return ctrlruntime.Result{}, nil
@@ -420,14 +449,19 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 		klog.Error(err.Error())
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
-	if err = r.applyWorkloadSpecToObject(ctx, clientSets, result, adminWorkload, workspace, rt); err != nil {
+	source, err := commonworkload.ResolveCICDProxySource(ctx, r.Client, adminWorkload)
+	if err != nil {
+		return nil, err
+	}
+	derived := cicdProxyWorkload(adminWorkload, source, result)
+	if err = r.applyWorkloadSpecToObject(ctx, clientSets, result, derived, workspace, rt, source); err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	for i, t := range rt.Spec.ResourceSpecs {
 		if i >= len(adminWorkload.Spec.Resources) {
 			break
 		}
-		if err = initializeObject(result, adminWorkload, workspace, &t, i); err != nil {
+		if err = initializeObject(result, derived, workspace, &t, i); err != nil {
 			return nil, commonerrors.NewInternalError(err.Error())
 		}
 	}
@@ -482,6 +516,9 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 		targetAnnotations = make(map[string]string)
 	}
 	for key, val := range tmpAnnotations {
+		if key == v1.CICDProxyManagedAnnotation {
+			continue
+		}
 		if strValue, ok := val.(string); ok {
 			targetAnnotations[key] = strValue
 		}
@@ -572,9 +609,18 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 		isResourceChanged, isImagesChanged, isEntrypointChanged, isSharedMemoryChanged,
 		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged,
 	}
-	isChanged := false
+	source, err := commonworkload.ResolveCICDProxySource(ctx, r.Client, adminWorkload)
+	if err != nil {
+		return err
+	}
+	isChanged, err := isCICDProxyChanged(source, obj)
+	if err != nil {
+		return err
+	}
+	derived := cicdProxyWorkload(adminWorkload, source, obj)
 	for _, f := range functions {
-		if isChanged = f(adminWorkload, obj, rt); isChanged {
+		if f(derived, obj, rt) {
+			isChanged = true
 			break
 		}
 	}
@@ -586,19 +632,14 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 	if err != nil {
 		return err
 	}
-	if err = r.applyWorkloadSpecToObject(ctx, clientSets, obj, adminWorkload, workspace, rt); err != nil {
+	if err = r.applyWorkloadSpecToObject(ctx, clientSets, obj, derived, workspace, rt, source); err != nil {
 		return commonerrors.NewBadRequest(err.Error())
 	}
 	if err = jobutils.UpdateObject(ctx, clientSets.ClientFactory(), obj); err != nil {
 		klog.ErrorS(err, "failed to update k8s unstructured object")
 		return err
 	}
-	patch := client.MergeFrom(adminWorkload.DeepCopy())
-	v1.RemoveAnnotation(adminWorkload, v1.EnvToBeRemovedAnnotation)
-	if err = r.Patch(ctx, adminWorkload, patch); err != nil {
-		return err
-	}
-	return nil
+	return r.clearCICDEnvRemoval(ctx, adminWorkload)
 }
 
 // isResourceChanged checks if the resource requirements of the workload have changed.
@@ -752,14 +793,13 @@ func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 // It handles different workload types and updates various object properties including replicas,
 // network settings, containers, and volumes based on the workload specification.
 func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterClientSets,
-	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
-
+	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate, source *v1.Workload) error {
 	var err error
 	switch {
 	case commonworkload.IsCICDScalingRunnerSet(adminWorkload):
 		err = updateCICDScaleSet(obj, adminWorkload, workspace, rt)
 	case commonworkload.IsCICDEphemeralRunner(adminWorkload):
-		err = updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, rt)
+		err = updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, source, rt)
 	case commonworkload.IsRayJob(adminWorkload):
 		err = updateRayJob(obj, adminWorkload)
 	case commonworkload.IsMonarchMesh(adminWorkload):

@@ -134,14 +134,13 @@ const (
 	ssoSecretPath = ssoPrefix + "secret_path"
 
 	// cicd
-	cicdPrefix             = "cicd."
-	cicdEnable             = cicdPrefix + "enable"
-	cicdRoleName           = cicdPrefix + "role_name"
-	cicdControllerName     = cicdPrefix + "controller_name"
-	cicdGithubProxyURL     = cicdPrefix + "github_proxy_url"
-	cicdGithubProxyUser    = cicdPrefix + "github_proxy_username"
-	cicdGithubProxyNoProxy = cicdPrefix + "github_proxy_no_proxy"
-
+	cicdPrefix                  = "cicd."
+	cicdEnable                  = cicdPrefix + "enable"
+	cicdRoleName                = cicdPrefix + "role_name"
+	cicdControllerName          = cicdPrefix + "controller_name"
+	cicdNoProxy                 = cicdPrefix + "no_proxy"
+	cicdProxyRelayPort          = cicdPrefix + "proxy_relay_port"
+	cicdFailureEnrichTimeoutSec = cicdPrefix + "failure_enrich_timeout_seconds"
 	// model
 	modelPrefix          = "model."
 	modelDownloaderImage = modelPrefix + "downloader_image"

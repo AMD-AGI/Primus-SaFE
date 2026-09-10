@@ -605,6 +605,9 @@ func (r *SchedulerReconciler) markAsScheduled(ctx context.Context, workload *v1.
 
 // updateStatus updates the workload status with scheduling information.
 func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Workload) error {
+	if workload.IsEnd() {
+		return nil
+	}
 	reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload) + 1)
 	cond := jobutils.NewCondition(string(v1.AdminScheduled), "the workload is scheduled", reason)
 	if jobutils.FindCondition(workload, cond) != nil {
@@ -631,7 +634,6 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
 			continue
 		}
-		patch := client.MergeFrom(workloads[i].DeepCopy())
 		isChanged := false
 		if workloads[i].Status.QueuePosition != position {
 			workloads[i].Status.QueuePosition = position
@@ -658,7 +660,9 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 			isChanged = true
 		}
 		if isChanged {
-			if err := r.Status().Patch(ctx, workloads[i], patch); err != nil {
+			if err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, workloads[i], map[string]any{
+				"queuePosition": workloads[i].Status.QueuePosition, "message": workloads[i].Status.Message,
+			}); err != nil {
 				klog.ErrorS(err, "failed to patch workload status", "name", workloads[i].Name)
 			}
 		}

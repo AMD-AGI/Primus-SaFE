@@ -8,7 +8,11 @@ export const addOpsjobs = (
   data: SubmitOpsjobsRequest,
   config?: AxiosRequestConfig,
 ): Promise<CreateOpsjobsResponse> =>
-  request.post<CreateOpsjobsResponse>('/opsjobs', data, config) as Promise<CreateOpsjobsResponse>
+  request.post<CreateOpsjobsResponse>(
+    '/opsjobs',
+    data,
+    config,
+  ) as unknown as Promise<CreateOpsjobsResponse>
 
 export const getOpsjobs = (params: { 
   type: string

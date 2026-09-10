@@ -1702,30 +1702,6 @@ func TestBuildPersistentVolumeMountsOrdersAncestorsFirst(t *testing.T) {
 	assert.Equal(t, nested["readOnly"], false)
 }
 
-func TestApplyGithubRunnerProxyEnvKeepsCustomUsername(t *testing.T) {
-	commonconfig.SetValue("cicd.github_proxy_username", "cluster-user")
-	commonconfig.SetValue("cicd.github_proxy_no_proxy", "cluster-noproxy")
-	defer commonconfig.SetValue("cicd.github_proxy_username", "")
-	defer commonconfig.SetValue("cicd.github_proxy_no_proxy", "")
-
-	envs := map[string]string{
-		common.GithubProxyURL:      "http://custom-proxy:8080",
-		common.GithubProxyUsername: "custom-user",
-	}
-	applyGithubRunnerProxyEnv(envs)
-	assert.Equal(t, envs[common.GithubProxyUsername], "custom-user")
-	assert.Equal(t, envs[common.GithubProxyNoProxy], "cluster-noproxy")
-}
-
-func TestApplyGithubRunnerProxyEnvUsesClusterUsernameForCustomURL(t *testing.T) {
-	commonconfig.SetValue("cicd.github_proxy_username", "cluster-user")
-	defer commonconfig.SetValue("cicd.github_proxy_username", "")
-
-	envs := map[string]string{common.GithubProxyURL: "http://custom-proxy:8080"}
-	applyGithubRunnerProxyEnv(envs)
-	assert.Equal(t, envs[common.GithubProxyUsername], "cluster-user")
-}
-
 func TestGithubRunnerWritableMountPath(t *testing.T) {
 	const userId = "user-1"
 	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
@@ -2480,4 +2456,139 @@ func TestUpdateMetadataSkipsInfera(t *testing.T) {
 	_, found, err = jobutils.NestedMap(pytObj.Object, []string{"spec", "template", "metadata", "labels"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
+}
+
+func TestUpdateCICDProxy_AddChangeRemove(t *testing.T) {
+	for _, kind := range []string{common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind} {
+		t.Run(kind, func(t *testing.T) {
+			r, w, parent, rt := proxyDispatcherFixture(t, kind, true)
+			obj, err := r.generateK8sObject(context.Background(), w, nil)
+			assert.NilError(t, err)
+			steps := []map[string]string{
+				{common.ProxyUrl: "http://new-proxy.example.com:3128", common.ProxyCredentialSecret: "replacement-auth", common.NoProxy: "localhost,192.0.2.0/24"},
+				{common.ProxyUrl: "http://new-proxy.example.com:3128", common.NoProxy: "localhost"},
+				{common.ProxyUrl: "http://proxy.example.com:3128", common.NoProxy: ""},
+				{common.ProxyUrl: "http://proxy.example.com:3128"},
+				{common.ProxyUrl: ""},
+				{},
+			}
+			for _, env := range steps {
+				for _, key := range commonworkload.CICDProxyEnvKeys() {
+					delete(parent.Spec.Env, key)
+				}
+				for key, value := range env {
+					parent.Spec.Env[key] = value
+				}
+				derived := cicdProxyWorkload(w, parent, obj)
+				if kind == common.CICDScaleRunnerSetKind {
+					assert.NilError(t, updateCICDScaleSet(obj, derived, jobutils.TestWorkspaceData, rt))
+				} else {
+					assert.NilError(t, updateCICDProxy(obj, parent))
+					assert.NilError(t, updateCICDProxyContainerEnvs(obj, derived, parent, rt))
+				}
+				if env[common.ProxyUrl] == "" {
+					_, exists, err := unstructured.NestedMap(obj.Object, "spec", "proxy")
+					assert.NilError(t, err)
+					assert.Assert(t, !exists)
+					assert.Assert(t, !v1.HasAnnotation(obj, v1.CICDProxyManagedAnnotation))
+				} else {
+					desired, err := desiredCICDProxy(parent)
+					assert.NilError(t, err)
+					actual, _, err := unstructured.NestedMap(obj.Object, "spec", "proxy")
+					assert.NilError(t, err)
+					assert.DeepEqual(t, actual, desired)
+				}
+				noProxy, _, err := unstructured.NestedStringSlice(obj.Object, "spec", "proxy", "noProxy")
+				assert.NilError(t, err)
+				containers, _, err := getContainers(w, obj, rt.Spec.ResourceSpecs[0])
+				assert.NilError(t, err)
+				for _, entry := range containers {
+					actual, _, err := unstructured.NestedSlice(entry.(map[string]interface{}), "env")
+					assert.NilError(t, err)
+					for _, key := range commonworkload.CICDProxyEnvKeys() {
+						value, present := env[key]
+						if key == common.NoProxy && env[common.ProxyUrl] != "" {
+							value, present = strings.Join(noProxy, ","), true
+						}
+						if present {
+							assert.Assert(t, findEnv(actual, key, value))
+						} else {
+							for _, item := range actual {
+								assert.Assert(t, item.(map[string]interface{})["name"] != key)
+							}
+						}
+					}
+				}
+				assert.Assert(t, commonworkload.IsCICDProxyManaged(parent))
+			}
+		})
+	}
+}
+
+func TestUpdateCICDProxy_UnmanagedTemplate(t *testing.T) {
+	for _, kind := range []string{common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind} {
+		t.Run(kind, func(t *testing.T) {
+			_, _, source, _ := proxyDispatcherFixture(t, kind, false)
+			custom := map[string]interface{}{"https": map[string]interface{}{"url": "http://custom.example.com"}, "customField": "preserved"}
+			obj := &unstructured.Unstructured{Object: map[string]interface{}{"kind": kind, "spec": map[string]interface{}{"proxy": custom}}}
+			v1.RemoveAnnotation(source, v1.CICDProxyManagedAnnotation)
+			before := obj.DeepCopy()
+			assert.NilError(t, updateCICDProxy(obj, source))
+			assert.DeepEqual(t, obj.Object, before.Object)
+			obj.SetAnnotations(map[string]string{v1.CICDProxyManagedAnnotation: v1.TrueStr})
+			before = obj.DeepCopy()
+			assert.NilError(t, updateCICDProxy(obj, source))
+			assert.DeepEqual(t, obj.Object, before.Object)
+			obj.SetAnnotations(nil)
+			v1.SetAnnotation(source, v1.CICDProxyManagedAnnotation, v1.TrueStr)
+			source.Spec.Env = map[string]string{common.NoProxy: "localhost"}
+			before = obj.DeepCopy()
+			assert.NilError(t, updateCICDProxy(obj, source))
+			assert.DeepEqual(t, obj.Object, before.Object)
+			source.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
+			assert.NilError(t, updateCICDProxy(obj, source))
+			assert.Equal(t, v1.GetAnnotation(obj, v1.CICDProxyManagedAnnotation), v1.TrueStr)
+			delete(source.Spec.Env, common.ProxyUrl)
+			assert.NilError(t, updateCICDProxy(obj, source))
+			_, found, err := unstructured.NestedFieldNoCopy(obj.Object, "spec", "proxy")
+			assert.NilError(t, err)
+			assert.Assert(t, !found)
+		})
+	}
+}
+
+func TestConstrainCICDListener_PinsListenerToTheWorkspace(t *testing.T) {
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Workspace = "control-plan-cicd"
+
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{"spec": map[string]interface{}{}}}
+	assert.NilError(t, constrainCICDListener(obj, workload))
+
+	// listenerTemplate is a PodTemplateSpec: the API server rejects the whole
+	// object if the affinity arrives without the containers a PodSpec requires.
+	containers, found, err := unstructured.NestedSlice(obj.Object, "spec", "listenerTemplate", "spec", "containers")
+	assert.NilError(t, err)
+	assert.Assert(t, found && len(containers) > 0, "listenerTemplate.spec.containers is required")
+	assert.Equal(t, containers[0].(map[string]interface{})["name"], cicdListenerContainer)
+
+	terms, found, err := unstructured.NestedSlice(obj.Object, "spec", "listenerTemplate", "spec",
+		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	assert.NilError(t, err)
+	assert.Assert(t, found, "the listener must carry a node affinity of its own")
+
+	// The listener is not part of the pod spec the rest of the dispatch writes,
+	// so an unconstrained one lands anywhere in the cluster.
+	rendered := fmt.Sprintf("%v", terms)
+	assert.Assert(t, strings.Contains(rendered, v1.WorkspaceIdLabel),
+		"expected the workspace label in %s", rendered)
+	assert.Assert(t, strings.Contains(rendered, workload.Spec.Workspace),
+		"expected the workspace id in %s", rendered)
+
+	assert.NilError(t, constrainCICDListener(obj, workload))
+	reconciledTerms, found, err := unstructured.NestedSlice(obj.Object, "spec", "listenerTemplate", "spec",
+		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, len(reconciledTerms), len(terms), "reconciling the listener twice must not grow its affinity")
+	assert.DeepEqual(t, reconciledTerms, terms)
 }

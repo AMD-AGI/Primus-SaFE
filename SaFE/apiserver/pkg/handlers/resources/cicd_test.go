@@ -8,6 +8,7 @@ package resources
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -123,7 +124,7 @@ func Test_updateCICDSecret_TokenUnchanged(t *testing.T) {
 	}
 
 	// Call updateCICDSecret with same token
-	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(oldToken))
+	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(oldToken), nil)
 
 	// Should return nil without error (optimization kicks in)
 	assert.NilError(t, err)
@@ -187,7 +188,7 @@ func Test_updateCICDSecret_TokenChanged(t *testing.T) {
 	}
 
 	// Call updateCICDSecret with new token
-	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken))
+	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken), nil)
 
 	// Should succeed
 	assert.NilError(t, err)
@@ -241,7 +242,7 @@ func Test_updateCICDSecret_UppercaseAuthType(t *testing.T) {
 	auth := githubAppAuth("123456", "789012", "-----BEGIN RSA PRIVATE KEY-----\nkey\n-----END RSA PRIVATE KEY-----")
 	auth.Type = " GITHUB_APP "
 
-	rotation, err := h.updateCICDSecret(ctx, workload, user, auth)
+	rotation, err := h.updateCICDSecret(ctx, workload, user, auth, nil)
 	assert.NilError(t, err)
 	assert.Assert(t, rotation != nil, "Uppercase github_app should be accepted and rotate")
 
@@ -259,7 +260,7 @@ func Test_updateCICDSecret_UppercaseAuthType(t *testing.T) {
 	sameAuth := githubAppAuth("123456", "789012",
 		"-----BEGIN RSA PRIVATE KEY-----\nkey\n-----END RSA PRIVATE KEY-----")
 	sameAuth.Type = "GitHub_App"
-	again, err := h.updateCICDSecret(ctx, workload, user, sameAuth)
+	again, err := h.updateCICDSecret(ctx, workload, user, sameAuth, nil)
 	assert.NilError(t, err)
 	assert.Assert(t, again == nil, "Unchanged github app credentials should not rotate")
 }
@@ -301,7 +302,7 @@ func Test_discardRolledBackCICDSecret(t *testing.T) {
 			accessController: authority.NewAccessController(fakeCtrlClient),
 		}
 
-		rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth("new_token_456"))
+		rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth("new_token_456"), nil)
 		assert.NilError(t, err)
 		assert.Assert(t, rotation != nil)
 
@@ -330,7 +331,7 @@ func Test_discardRolledBackCICDSecret(t *testing.T) {
 			accessController: authority.NewAccessController(fakeCtrlClient),
 		}
 
-		rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth("first_token"))
+		rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth("first_token"), nil)
 		assert.NilError(t, err)
 		assert.Assert(t, rotation != nil)
 		assert.Equal(t, rotation.SupersededSecretId, "")
@@ -380,7 +381,7 @@ func Test_createCICDSecret_Success(t *testing.T) {
 	}
 
 	// Call createCICDSecret
-	secret, err := h.createCICDSecret(ctx, workload, user, patAuth(token))
+	secret, err := h.createCICDSecret(ctx, workload, user, patAuth(token), nil)
 
 	// Should succeed
 	assert.NilError(t, err)
@@ -691,7 +692,7 @@ func Test_updateCICDSecret_NoOldSecret(t *testing.T) {
 	}
 
 	// Call updateCICDSecret with new token
-	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken))
+	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken), nil)
 
 	// Should succeed
 	assert.NilError(t, err)
@@ -732,7 +733,7 @@ func Test_updateCICDSecret_MissingAnnotatedOldSecret(t *testing.T) {
 		accessController: authority.NewAccessController(fakeCtrlClient),
 	}
 
-	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken))
+	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken), nil)
 	assert.NilError(t, err)
 	assert.Assert(t, rotation != nil)
 	assert.Equal(t, rotation.SupersededSecretId, "",
@@ -771,7 +772,7 @@ func Test_updateCICDSecret_OldSecretLookupError(t *testing.T) {
 		accessController: authority.NewAccessController(fakeCtrlClient),
 	}
 
-	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth("new_token_123"))
+	rotation, err := h.updateCICDSecret(ctx, workload, user, patAuth("new_token_123"), nil)
 	assert.ErrorContains(t, err, "failed to get existing CICD GitHub secret")
 	assert.Assert(t, rotation == nil, "A failed lookup must not report a rotation to settle")
 	assert.Equal(t, v1.GetGithubSecretId(workload), "old-secret-id")
@@ -823,11 +824,9 @@ func TestUpdateGithubRunnerSecretReplacesReferenceAndRetainsOldSecret(t *testing
 	assert.NilError(t, err, "old secret must remain until workload cleanup")
 }
 
-func TestUpdateGithubRunnerProxyPasswordPreservesRegistrationToken(t *testing.T) {
-	commonconfig.SetValue("cicd.github_proxy_url", "http://github-proxy:3128")
-	commonconfig.SetValue("cicd.github_proxy_username", "github")
-	defer commonconfig.SetValue("cicd.github_proxy_url", "")
-	defer commonconfig.SetValue("cicd.github_proxy_username", "")
+func TestUpdateGithubRunnerProxyAuthPreservesRegistrationToken(t *testing.T) {
+	commonconfig.SetValue("cicd.enable", "true")
+	defer commonconfig.SetValue("cicd.enable", "")
 
 	ctx := context.Background()
 	workload := genMockWorkload("test-cluster", "test-workspace")
@@ -843,8 +842,9 @@ func TestUpdateGithubRunnerProxyPasswordPreservesRegistrationToken(t *testing.T)
 			Labels:    map[string]string{v1.OwnerLabel: workload.Name},
 		},
 		Data: map[string][]byte{
-			GitHubToken:         []byte("registration-token"),
-			GitHubProxyPassword: []byte("old-password"),
+			GitHubToken:                []byte("registration-token"),
+			string(view.UserNameParam): []byte("github"),
+			string(view.PasswordParam): []byte("old-password"),
 		},
 	}
 	fakeClientSet := k8sfake.NewSimpleClientset(oldSecret)
@@ -858,29 +858,30 @@ func TestUpdateGithubRunnerProxyPasswordPreservesRegistrationToken(t *testing.T)
 		accessController: authority.NewAccessController(fakeCtrlClient),
 	}
 
-	newPassword := "new-password"
-	rotation, err := h.updateGithubRunnerSecret(ctx, workload, user, nil, &newPassword)
+	rotation, err := h.updateGithubRunnerSecret(ctx, workload, user, nil, &view.ProxyAuthRequest{
+		Username: "github",
+		Password: "new-password",
+	})
 	assert.NilError(t, err)
 	assert.Assert(t, rotation != nil)
 	newSecret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).
 		Get(ctx, rotation.NewSecretId, metav1.GetOptions{})
 	assert.NilError(t, err)
 	assert.Equal(t, string(newSecret.Data[GitHubToken]), "registration-token")
-	assert.Equal(t, string(newSecret.Data[GitHubProxyPassword]), newPassword)
+	assert.Equal(t, string(newSecret.Data[string(view.PasswordParam)]), "new-password")
 }
 
-func TestGenerateGithubRunnerStoresProxyPassword(t *testing.T) {
+func TestGenerateGithubRunnerStoresProxyAuth(t *testing.T) {
 	commonconfig.SetValue("cicd.enable", "true")
-	commonconfig.SetValue("cicd.github_proxy_url", "http://github-proxy:3128")
-	commonconfig.SetValue("cicd.github_proxy_username", "github")
 	defer commonconfig.SetValue("cicd.enable", "")
-	defer commonconfig.SetValue("cicd.github_proxy_url", "")
-	defer commonconfig.SetValue("cicd.github_proxy_username", "")
 
 	ctx := context.Background()
 	workload := genMockWorkload("test-cluster", "test-workspace")
 	workload.Spec.Kind = common.CICDGithubRunnerKind
-	workload.Spec.Env = map[string]string{common.GithubConfigUrl: "https://github.com/test/repo"}
+	workload.Spec.Env = map[string]string{
+		common.GithubConfigUrl: "https://github.com/test/repo",
+		common.ProxyUrl:        "http://github-proxy:3128",
+	}
 	user := genMockUser()
 	role := genMockRole()
 	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
@@ -898,62 +899,23 @@ func TestGenerateGithubRunnerStoresProxyPassword(t *testing.T) {
 		Type:  GitHubAuthTypeRegistrationToken,
 		Token: "registration-token",
 	}
-	err := h.generateGithubRunner(ctx, workload, user, auth, "proxy-password")
+	err := h.generateGithubRunner(ctx, workload, user, auth, &view.ProxyAuthRequest{
+		Username: "github",
+		Password: "proxy-password",
+	})
 	assert.NilError(t, err)
 	secret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).
 		Get(ctx, v1.GetGithubSecretId(workload), metav1.GetOptions{})
 	assert.NilError(t, err)
 	assert.Equal(t, string(secret.Data[GitHubToken]), auth.Token)
-	assert.Equal(t, string(secret.Data[GitHubProxyPassword]), "proxy-password")
-	_, hasProxyEnv := workload.Spec.Env[common.GithubProxyPassword]
-	assert.Equal(t, hasProxyEnv, false)
+	assert.Equal(t, string(secret.Data[string(view.UserNameParam)]), "github")
+	assert.Equal(t, string(secret.Data[string(view.PasswordParam)]), "proxy-password")
+	assert.Equal(t, workload.Spec.Env[common.ProxyCredentialSecret], secret.Name)
 }
 
-func TestGenerateGithubRunnerReadsProxyPasswordFromEnv(t *testing.T) {
+func TestUpdateGithubRunnerSecretRotatesTokenWithoutProxyAuth(t *testing.T) {
 	commonconfig.SetValue("cicd.enable", "true")
-	commonconfig.SetValue("cicd.github_proxy_url", "http://github-proxy:3128")
-	commonconfig.SetValue("cicd.github_proxy_username", "github")
 	defer commonconfig.SetValue("cicd.enable", "")
-	defer commonconfig.SetValue("cicd.github_proxy_url", "")
-	defer commonconfig.SetValue("cicd.github_proxy_username", "")
-
-	ctx := context.Background()
-	workload := genMockWorkload("test-cluster", "test-workspace")
-	workload.Spec.Kind = common.CICDGithubRunnerKind
-	workload.Spec.Env = map[string]string{
-		common.GithubConfigUrl:     "https://github.com/test/repo",
-		common.GithubProxyPassword: "env-password",
-	}
-	user := genMockUser()
-	role := genMockRole()
-	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
-		WithObjects(workload, user, role).
-		WithScheme(scheme.Scheme).
-		Build()
-	fakeClientSet := k8sfake.NewSimpleClientset()
-	h := Handler{
-		Client:           fakeCtrlClient,
-		clientSet:        fakeClientSet,
-		accessController: authority.NewAccessController(fakeCtrlClient),
-	}
-	err := h.generateGithubRunner(ctx, workload, user, &view.GitHubAuthRequest{
-		Type:  GitHubAuthTypeRegistrationToken,
-		Token: "registration-token",
-	}, "")
-	assert.NilError(t, err)
-	secret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).
-		Get(ctx, v1.GetGithubSecretId(workload), metav1.GetOptions{})
-	assert.NilError(t, err)
-	assert.Equal(t, string(secret.Data[GitHubProxyPassword]), "env-password")
-	_, hasProxyEnv := workload.Spec.Env[common.GithubProxyPassword]
-	assert.Equal(t, hasProxyEnv, false)
-}
-
-func TestUpdateGithubRunnerSecretRotatesTokenWithoutProxyPassword(t *testing.T) {
-	commonconfig.SetValue("cicd.github_proxy_url", "http://github-proxy:3128")
-	commonconfig.SetValue("cicd.github_proxy_username", "github")
-	defer commonconfig.SetValue("cicd.github_proxy_url", "")
-	defer commonconfig.SetValue("cicd.github_proxy_username", "")
 
 	ctx := context.Background()
 	workload := genMockWorkload("test-cluster", "test-workspace")
@@ -990,29 +952,7 @@ func TestUpdateGithubRunnerSecretRotatesTokenWithoutProxyPassword(t *testing.T) 
 		Get(ctx, rotation.NewSecretId, metav1.GetOptions{})
 	assert.NilError(t, err)
 	assert.Equal(t, string(newSecret.Data[GitHubToken]), "new-token")
-	assert.Equal(t, string(newSecret.Data[GitHubProxyPassword]), "")
-}
-
-func TestGithubRunnerProxyPasswordFromPatchReadsEnv(t *testing.T) {
-	env := map[string]string{common.GithubProxyPassword: "env-password"}
-	req := &view.PatchWorkloadRequest{Env: &env}
-	got := githubRunnerProxyPasswordFromPatch(req)
-	assert.Assert(t, got != nil)
-	assert.Equal(t, *got, "env-password")
-
-	field := "field-password"
-	req.GitHubProxyPassword = &field
-	got = githubRunnerProxyPasswordFromPatch(req)
-	assert.Equal(t, *got, "field-password")
-
-	emptyEnv := map[string]string{common.GithubProxyPassword: ""}
-	got = githubRunnerProxyPasswordFromPatch(&view.PatchWorkloadRequest{Env: &emptyEnv})
-	assert.Assert(t, got == nil)
-
-	emptyField := ""
-	got = githubRunnerProxyPasswordFromPatch(&view.PatchWorkloadRequest{GitHubProxyPassword: &emptyField})
-	assert.Assert(t, got != nil)
-	assert.Equal(t, *got, "")
+	assert.Equal(t, string(newSecret.Data[string(view.PasswordParam)]), "")
 }
 
 func TestNormalizeGithubRunnerAuthIgnoresPAT(t *testing.T) {
@@ -1032,71 +972,6 @@ func TestGithubRunnerAuthFromPatchReadsRunnerToken(t *testing.T) {
 	assert.Assert(t, auth != nil)
 	assert.Equal(t, auth.Type, GitHubAuthTypeRegistrationToken)
 	assert.Equal(t, auth.Token, "new-registration-token")
-}
-
-func TestGenerateGithubRunnerAllowsPasswordWithoutClusterProxy(t *testing.T) {
-	commonconfig.SetValue("cicd.enable", "true")
-	defer commonconfig.SetValue("cicd.enable", "")
-
-	ctx := context.Background()
-	workload := genMockWorkload("test-cluster", "test-workspace")
-	workload.Spec.Kind = common.CICDGithubRunnerKind
-	workload.Spec.Env = map[string]string{
-		common.GithubConfigUrl: "https://github.com/test/repo",
-		common.GithubProxyURL:  "http://custom-proxy:8080",
-	}
-	user := genMockUser()
-	role := genMockRole()
-	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
-		WithObjects(workload, user, role).
-		WithScheme(scheme.Scheme).
-		Build()
-	fakeClientSet := k8sfake.NewSimpleClientset()
-	h := Handler{
-		Client:           fakeCtrlClient,
-		clientSet:        fakeClientSet,
-		accessController: authority.NewAccessController(fakeCtrlClient),
-	}
-	err := h.generateGithubRunner(ctx, workload, user, &view.GitHubAuthRequest{
-		Type:  GitHubAuthTypeRegistrationToken,
-		Token: "registration-token",
-	}, "workload-password")
-	assert.NilError(t, err)
-	secret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).
-		Get(ctx, v1.GetGithubSecretId(workload), metav1.GetOptions{})
-	assert.NilError(t, err)
-	assert.Equal(t, string(secret.Data[GitHubProxyPassword]), "workload-password")
-}
-
-func TestGenerateGithubRunnerAllowsEmptyPasswordWithClusterProxy(t *testing.T) {
-	commonconfig.SetValue("cicd.enable", "true")
-	commonconfig.SetValue("cicd.github_proxy_url", "http://github-proxy:3128")
-	commonconfig.SetValue("cicd.github_proxy_username", "github")
-	defer commonconfig.SetValue("cicd.enable", "")
-	defer commonconfig.SetValue("cicd.github_proxy_url", "")
-	defer commonconfig.SetValue("cicd.github_proxy_username", "")
-
-	ctx := context.Background()
-	workload := genMockWorkload("test-cluster", "test-workspace")
-	workload.Spec.Kind = common.CICDGithubRunnerKind
-	workload.Spec.Env = map[string]string{common.GithubConfigUrl: "https://github.com/test/repo"}
-	user := genMockUser()
-	role := genMockRole()
-	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
-		WithObjects(workload, user, role).
-		WithScheme(scheme.Scheme).
-		Build()
-	fakeClientSet := k8sfake.NewSimpleClientset()
-	h := Handler{
-		Client:           fakeCtrlClient,
-		clientSet:        fakeClientSet,
-		accessController: authority.NewAccessController(fakeCtrlClient),
-	}
-	err := h.generateGithubRunner(ctx, workload, user, &view.GitHubAuthRequest{
-		Type:  GitHubAuthTypeRegistrationToken,
-		Token: "registration-token",
-	}, "")
-	assert.NilError(t, err)
 }
 
 // Test_generateCICDScaleRunnerSet tests generating CICD scale runner set configuration
@@ -1132,7 +1007,7 @@ func Test_generateCICDScaleRunnerSet(t *testing.T) {
 	}
 
 	// Call generateCICDScaleRunnerSet
-	err := h.generateCICDScaleRunnerSet(ctx, workload, user, nil)
+	err := h.generateCICDScaleRunnerSet(ctx, workload, user, nil, nil)
 
 	// Should succeed
 	assert.NilError(t, err)
@@ -1182,7 +1057,7 @@ func Test_generateCICDScaleRunnerSet_GitHubApp(t *testing.T) {
 		accessController: authority.NewAccessController(fakeCtrlClient),
 	}
 
-	err := h.generateCICDScaleRunnerSet(ctx, workload, user, auth)
+	err := h.generateCICDScaleRunnerSet(ctx, workload, user, auth, nil)
 
 	assert.NilError(t, err)
 	assert.Equal(t, workload.Spec.Env["OTHER_VAR"], "other_value", "Other env vars should remain")
@@ -1256,7 +1131,7 @@ func Test_cleanupCICDSecrets_CICDWorkload(t *testing.T) {
 
 	// Create the secret the same way the CICD path does, so its name carries the random
 	// suffix that GenerateName adds.
-	secret, err := h.createCICDSecret(ctx, workload, user, patAuth("test-token"))
+	secret, err := h.createCICDSecret(ctx, workload, user, patAuth("test-token"), nil)
 	assert.NilError(t, err)
 	assert.Assert(t, secret.Name != v1.GetDisplayName(workload),
 		"GenerateName must produce a name that differs from the display name")
@@ -1309,4 +1184,251 @@ func Test_cleanupCICDSecrets_Guards(t *testing.T) {
 	h.cleanupCICDSecrets(ctx, workload)
 	_, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(ctx, secret.Name, metav1.GetOptions{})
 	assert.NilError(t, err, "A non-CICD workload should not have its secrets swept")
+}
+
+func proxyAPIHandler(t *testing.T) (*Handler, *v1.User, *v1.Workload, *k8sfake.Clientset) {
+	t.Helper()
+	user, role := genMockUser(), genMockRole()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Name = "proxy-workload"
+	workload.Spec.Kind = common.CICDScaleRunnerSetKind
+	workload.Spec.Env = map[string]string{common.GithubConfigUrl: "https://github.com/example", "RESOURCES": `{"replica":1,"cpu":"1","memory":"1Gi"}`, "IMAGE": "example/runner:latest", "ENTRYPOINT": "sleep 1"}
+	v1.SetLabel(workload, v1.UserIdLabel, user.Name)
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "example-node", Labels: map[string]string{common.KubernetesControlPlane: ""}}, Status: corev1.NodeStatus{Addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "192.0.2.1"}}}}
+	testScheme := runtime.NewScheme()
+	assert.NilError(t, v1.AddToScheme(testScheme))
+	assert.NilError(t, corev1.AddToScheme(testScheme))
+	cli := ctrlruntimefake.NewClientBuilder().WithScheme(testScheme).WithObjects(user, role, node).WithStatusSubresource(workload).Build()
+	assert.NilError(t, cli.Create(context.Background(), workload))
+	clientset := k8sfake.NewSimpleClientset()
+	h := &Handler{Client: cli, clientSet: clientset, accessController: &authority.AccessController{Client: cli}}
+	commonconfig.SetValue("cicd.enable", "true")
+	t.Cleanup(func() { commonconfig.SetValue("cicd.enable", "") })
+	return h, user, workload, clientset
+}
+
+func createProxyAPISecret(t *testing.T, h *Handler, user *v1.User) *corev1.Secret {
+	t.Helper()
+	secret, err := h.createSecretImpl(context.Background(), &view.CreateSecretRequest{Name: "proxy-auth", Type: v1.SecretGeneral, WorkspaceIds: []string{"test-workspace"},
+		Params: []map[view.SecretParam]string{{view.UserNameParam: "cHJveHktdXNlcg==", view.PasswordParam: "cHJveHktcGFzcw=="}}}, user)
+	assert.NilError(t, err)
+	return secret
+}
+
+func TestGenerateCICDScaleRunnerSet_ProxyReference(t *testing.T) {
+	for _, app := range []bool{false, true} {
+		t.Run(fmt.Sprint(app), func(t *testing.T) {
+			h, user, w, cs := proxyAPIHandler(t)
+			secret := createProxyAPISecret(t, h, user)
+			w.Spec.Env[common.ProxyUrl], w.Spec.Env[common.ProxyCredentialSecret] = "http://proxy.example.com:3128", secret.Name
+			w.Spec.Env[GithubPAT] = "example-auth-value"
+			var auth *view.GitHubAuthRequest
+			if app {
+				auth = githubAppAuth("1", "2", "example-private-key")
+			}
+			assert.NilError(t, h.generateCICDScaleRunnerSet(context.Background(), w, user, auth, nil))
+			assert.Equal(t, w.Spec.Env[common.ProxyCredentialSecret], secret.Name)
+			_, present := w.Spec.Env[GithubPAT]
+			assert.Assert(t, !present)
+			secrets, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).List(context.Background(), metav1.ListOptions{})
+			assert.NilError(t, err)
+			assert.Equal(t, len(secrets.Items), 2)
+			current, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).Get(context.Background(), secret.Name, metav1.GetOptions{})
+			assert.NilError(t, err)
+			assert.Equal(t, v1.GetLabel(current, v1.OwnerLabel), "")
+			assert.Equal(t, len(current.OwnerReferences), 0)
+			assert.DeepEqual(t, current.Data, secret.Data)
+			assert.Assert(t, v1.GetGithubSecretId(w) != secret.Name)
+			assert.Equal(t, len(w.Spec.Secrets), 0)
+		})
+	}
+}
+
+func TestGenerateCICDScaleRunnerSet_InvalidProxyPreflight(t *testing.T) {
+	for _, mode := range []string{"invalid", "missing", "unauthorized"} {
+		t.Run(mode, func(t *testing.T) {
+			h, user, w, cs := proxyAPIHandler(t)
+			w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
+			if mode == "invalid" {
+				w.Spec.Env[common.ProxyUrl] = "http://sample@example.com"
+			} else {
+				w.Spec.Env[common.ProxyCredentialSecret] = "proxy-auth"
+			}
+			if mode == "unauthorized" {
+				createProxyAPISecret(t, h, user)
+				user.Spec.Roles = nil
+			}
+			before, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).List(context.Background(), metav1.ListOptions{})
+			assert.NilError(t, err)
+			err = h.generateCICDScaleRunnerSet(context.Background(), w, user, patAuth("example-auth-value"), nil)
+			assert.Assert(t, err != nil)
+			assert.ErrorContains(t, err, "env.PROXY_")
+			after, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).List(context.Background(), metav1.ListOptions{})
+			assert.NilError(t, err)
+			assert.Equal(t, len(after.Items), len(before.Items))
+			assert.Equal(t, v1.GetGithubSecretId(w), "")
+		})
+	}
+}
+
+func TestUpdateCICDScaleRunnerSet_ProxyValidation(t *testing.T) {
+	h, user, w, cs := proxyAPIHandler(t)
+	secret := createProxyAPISecret(t, h, user)
+	original := w.DeepCopy()
+	replacement := map[string]string{common.ProxyUrl: "http://sample@example.com", common.ProxyCredentialSecret: secret.Name}
+	req := &view.PatchWorkloadRequest{Env: &replacement, GitHubAuth: patAuth("replacement-example-auth")}
+	assert.NilError(t, applyWorkloadPatch(w, req))
+	assert.ErrorContains(t, h.updateWorkload(context.Background(), w, user, req), "userinfo is not allowed")
+	current := &v1.Workload{}
+	assert.NilError(t, h.Get(context.Background(), client.ObjectKeyFromObject(w), current))
+	assert.DeepEqual(t, current.Spec.Env, original.Spec.Env)
+	secrets, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).List(context.Background(), metav1.ListOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, len(secrets.Items), 1)
+	replacement[common.ProxyUrl] = "http://proxy.example.com:3128"
+	req.GitHubAuth = nil
+	reads := 0
+	cs.PrependReactor("get", "secrets", func(action k8stesting.Action) (bool, runtime.Object, error) { reads++; return false, nil, nil })
+	for i := 0; i < 2; i++ {
+		assert.NilError(t, applyWorkloadPatch(current, req))
+		assert.NilError(t, h.updateWorkload(context.Background(), current, user, req))
+	}
+	assert.Equal(t, reads, 2)
+	before := current.DeepCopy()
+	assert.NilError(t, applyWorkloadPatch(current, &view.PatchWorkloadRequest{}))
+	assert.DeepEqual(t, current.Spec.Env, before.Spec.Env)
+}
+
+func TestUpdateCICDScaleRunnerSet_AttachesProxyCredential(t *testing.T) {
+	ctx := context.Background()
+	h, user, workload, clientset := proxyAPIHandler(t)
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "old-secret-id", Namespace: common.PrimusSafeNamespace},
+		Data:       map[string][]byte{GitHubToken: []byte("tok")},
+	}
+	_, err := clientset.CoreV1().Secrets(common.PrimusSafeNamespace).Create(ctx, oldSecret, metav1.CreateOptions{})
+	assert.NilError(t, err)
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, oldSecret.Name)
+	assert.NilError(t, h.Update(ctx, workload))
+
+	env := workload.DeepCopy().Spec.Env
+	env[common.ProxyUrl] = "http://proxy.example.com:3128"
+	req := &view.PatchWorkloadRequest{
+		Env:       &env,
+		ProxyAuth: &view.ProxyAuthRequest{Username: "proxy-user", Password: "proxy-pass"},
+	}
+	assert.NilError(t, applyWorkloadPatch(workload, req))
+	assert.NilError(t, h.updateWorkload(ctx, workload, user, req))
+
+	current := &v1.Workload{}
+	assert.NilError(t, h.Get(ctx, client.ObjectKeyFromObject(workload), current))
+	credentialSecret := current.Spec.Env[common.ProxyCredentialSecret]
+	assert.Assert(t, credentialSecret != "")
+	assert.Assert(t, credentialSecret != oldSecret.Name)
+	assert.Equal(t, credentialSecret, v1.GetGithubSecretId(current))
+}
+
+func TestBuildCICDSecretParamsCarriesProxyCredential(t *testing.T) {
+	params := buildCICDSecretParams(patAuth("tok"), &view.ProxyAuthRequest{Username: "u", Password: "p"})
+
+	assert.Equal(t, stringutil.Base64Decode(params[view.UserNameParam]), "u")
+	assert.Equal(t, stringutil.Base64Decode(params[view.PasswordParam]), "p")
+	assert.Equal(t, stringutil.Base64Decode(params[GitHubToken]), "tok")
+}
+
+func TestValidateCICDProxyAuthRejectsUnusableValues(t *testing.T) {
+	assert.NilError(t, validateCICDProxyAuth(nil))
+	assert.NilError(t, validateCICDProxyAuth(&view.ProxyAuthRequest{Username: "u", Password: "p"}))
+
+	for _, auth := range []*view.ProxyAuthRequest{
+		{Username: "", Password: "p"},
+		{Username: "u", Password: " "},
+		{Username: "u\n", Password: "p"},
+		{Username: "u", Password: "p\x00"},
+	} {
+		assert.Assert(t, validateCICDProxyAuth(auth) != nil, "expected rejection for %+v", auth)
+	}
+}
+
+func TestCarryForwardCICDAuthKeepsTheOmittedHalf(t *testing.T) {
+	old := &corev1.Secret{Data: map[string][]byte{
+		GitHubToken:                []byte("tok"),
+		string(view.UserNameParam): []byte("u"),
+		string(view.PasswordParam): []byte("p"),
+	}}
+
+	// Rotating only the proxy credential must not drop the GitHub one.
+	auth, proxyAuth := carryForwardCICDAuth(old, nil, &view.ProxyAuthRequest{Username: "u2", Password: "p2"})
+	assert.Assert(t, auth != nil)
+	assert.Equal(t, auth.Token, "tok")
+	// The carried value has to survive the same validation a submitted one does,
+	// or rotating just the proxy credential is rejected for the half nobody sent.
+	assert.NilError(t, validateCICDGitHubAuth(auth))
+	assert.Equal(t, proxyAuth.Username, "u2")
+
+	// And the other way round.
+	auth, proxyAuth = carryForwardCICDAuth(old, patAuth("tok2"), nil)
+	assert.Equal(t, auth.Token, "tok2")
+	assert.NilError(t, validateCICDGitHubAuth(auth))
+	assert.Assert(t, proxyAuth != nil)
+	assert.Equal(t, proxyAuth.Password, "p")
+}
+
+func TestUpdateCICDSecretRejectsMissingCarriedGitHubAuth(t *testing.T) {
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "proxy-only-secret")
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "proxy-only-secret", Namespace: common.PrimusSafeNamespace},
+		Data: map[string][]byte{
+			string(view.UserNameParam): []byte("proxy-user"),
+			string(view.PasswordParam): []byte("proxy-password"),
+		},
+	}
+	h := Handler{clientSet: k8sfake.NewSimpleClientset(oldSecret)}
+
+	rotation, err := h.updateCICDSecret(ctx, workload, genMockUser(), nil,
+		&view.ProxyAuthRequest{Username: "new-user", Password: "new-password"})
+
+	assert.Assert(t, err != nil)
+	assert.ErrorContains(t, err, "github authentication is empty")
+	assert.Assert(t, rotation == nil)
+}
+
+func TestRotationMovesBothReferencesToTheNewSecret(t *testing.T) {
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	user := genMockUser()
+	role := genMockRole()
+
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "old-secret-id")
+	workload.Spec.Env = map[string]string{common.ProxyCredentialSecret: "old-secret-id"}
+
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "old-secret-id", Namespace: common.PrimusSafeNamespace},
+		Data: map[string][]byte{
+			GitHubToken:                []byte("tok"),
+			string(view.UserNameParam): []byte("u"),
+			string(view.PasswordParam): []byte("p"),
+		},
+	}
+
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
+		Build()
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        k8sfake.NewSimpleClientset(oldSecret),
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+
+	rotation, err := h.updateCICDSecret(ctx, workload, user,
+		nil, &view.ProxyAuthRequest{Username: "u2", Password: "p2"})
+	assert.NilError(t, err)
+	assert.Assert(t, rotation != nil, "a changed proxy credential should rotate the secret")
+
+	assert.Equal(t, v1.GetGithubSecretId(workload), rotation.NewSecretId)
+	assert.Equal(t, workload.Spec.Env[common.ProxyCredentialSecret], rotation.NewSecretId,
+		"the env must not keep naming the superseded secret")
 }

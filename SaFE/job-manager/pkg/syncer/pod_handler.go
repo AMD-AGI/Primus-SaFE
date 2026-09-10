@@ -449,6 +449,9 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 // Running pods result in WorkloadRunning status, pending pods result in WorkloadPending,
 // and all other pod phases result in WorkloadNotReady status.
 func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod) {
+	if adminWorkload.IsEnd() {
+		return
+	}
 	val, ok := pod.Labels[appComponent]
 	if !ok || val != scaleSetListener {
 		return
@@ -705,15 +708,19 @@ const vanishedPodGracePeriod = 5 * time.Minute
 // behind by a process that ended.
 func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets *ClusterClientSets,
 	adminWorkload *v1.Workload, message *resourceMessage) error {
-	if adminWorkload == nil || len(adminWorkload.Status.Pods) == 0 {
+	if adminWorkload == nil {
+		return nil
+	}
+	if message.action == ResourceDel || message.action == ResourceDeleting {
+		r.forgetWorkloadChecks(adminWorkload.Name)
 		return nil
 	}
 	// An ended workload's records no longer count toward usage, and teardown deletes
-	// its pods on purpose, so neither is a case for releasing records. Dropping the
-	// entry keeps the map to the unfinished set, and gives the round that follows a
-	// re-schedule -- which tears the old objects down the same way -- its own pass.
-	if adminWorkload.IsEnd() || message.action == ResourceDel || message.action == ResourceDeleting {
-		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+	// its pods on purpose, so neither is a case for releasing records. Keep the CICD
+	// failure-attempt key until the workload is actually deleted: enrichment is queued
+	// before this cleanup during the reconcile that first marks the workload failed.
+	if adminWorkload.IsEnd() {
+		r.forgetVanishedPodsCheck(adminWorkload.Name)
 		return nil
 	}
 	// Dispatch is a precondition rather than an assumption about the caller: its
@@ -721,7 +728,10 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	// the annotation while it retries. Dropping the entry gives the round that
 	// follows a re-schedule its own pass.
 	if !v1.IsWorkloadDispatched(adminWorkload) {
-		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		r.forgetWorkloadChecks(adminWorkload.Name)
+		return nil
+	}
+	if len(adminWorkload.Status.Pods) == 0 {
 		return nil
 	}
 	if _, done := r.vanishedPodsChecked.LoadOrStore(adminWorkload.Name, struct{}{}); done {
@@ -740,12 +750,12 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	name := adminWorkload.Name
 	fresh, err := r.getAdminWorkload(ctx, name)
 	if err != nil || fresh == nil || len(fresh.Status.Pods) == 0 {
-		r.vanishedPodsChecked.Delete(name)
+		r.forgetWorkloadChecks(name)
 		return err
 	}
 	adminWorkload = fresh
 	if adminWorkload.IsEnd() {
-		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		r.forgetVanishedPodsCheck(adminWorkload.Name)
 		return nil
 	}
 
@@ -753,7 +763,7 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	if !ok {
 		// Unknown answer: nothing may be concluded from a record's absence. Re-armed
 		// so the next event retries.
-		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		r.forgetWorkloadChecks(adminWorkload.Name)
 		return nil
 	}
 
@@ -787,7 +797,7 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 		// re-armed entry means the next event retries with a fresh copy.
 		klog.V(2).Infof("deferred releasing vanished pod records of workload %s: %v",
 			adminWorkload.Name, err)
-		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		r.forgetWorkloadChecks(adminWorkload.Name)
 		return err
 	}
 	return nil

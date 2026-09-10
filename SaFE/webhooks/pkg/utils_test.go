@@ -357,7 +357,7 @@ func TestWorkloadValidateRayJobBranches(t *testing.T) {
 func TestWorkloadValidateCICDBranches(t *testing.T) {
 	v := &WorkloadValidator{}
 	missingKey := &v1.Workload{Spec: v1.WorkloadSpec{Env: map[string]string{ResourcesEnv: "x"}}}
-	assert.Assert(t, v.validateCICDScalingRunnerSet(missingKey) != nil)
+	assert.Assert(t, v.validateCICDScalingRunnerSet(context.Background(), missingKey, nil) != nil)
 
 	badJSON := &v1.Workload{Spec: v1.WorkloadSpec{Env: map[string]string{
 		ResourcesEnv:           "not-json",
@@ -365,7 +365,7 @@ func TestWorkloadValidateCICDBranches(t *testing.T) {
 		ImageEnv:               "img",
 		common.GithubConfigUrl: "http://x",
 	}}}
-	assert.Assert(t, v.validateCICDScalingRunnerSet(badJSON) != nil)
+	assert.Assert(t, v.validateCICDScalingRunnerSet(context.Background(), badJSON, nil) != nil)
 }
 
 // TestWorkloadValidateImmutableCICDEnv covers cicd unified-job-enable immutability branch.
@@ -537,7 +537,7 @@ func TestMutateSecretsUsesAPIReaderForNewGithubRunnerSecret(t *testing.T) {
 	}}
 	cachedClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 	apiReader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
-	m := &WorkloadMutator{Client: cachedClient, APIReader: apiReader}
+	m := &WorkloadMutator{Client: cachedClient, secretReader: apiReader}
 	workload := workloadOfKind(common.CICDGithubRunnerKind)
 	workload.Spec.Secrets = []v1.SecretEntity{{Id: secret.Name, Type: v1.SecretGeneral}}
 
@@ -555,7 +555,7 @@ func TestMutateSecretsDoesNotUseAPIReaderForNonGithubRunner(t *testing.T) {
 	}}
 	cachedClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 	apiReader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
-	m := &WorkloadMutator{Client: cachedClient, APIReader: apiReader}
+	m := &WorkloadMutator{Client: cachedClient, secretReader: apiReader}
 	workload := workloadOfKind(common.PytorchJobKind)
 	workload.Spec.Secrets = []v1.SecretEntity{{Id: secret.Name, Type: v1.SecretGeneral}}
 
@@ -917,7 +917,7 @@ type fakeManager struct {
 // GetClient returns the embedded fake client.
 func (m *fakeManager) GetClient() client.Client { return m.client }
 
-// GetAPIReader returns the uncached reader used by secret mutation.
+// GetAPIReader returns the uncached reader used by secret mutation and GithubRunner lookups.
 func (m *fakeManager) GetAPIReader() client.Reader { return m.client }
 
 // GetScheme returns the embedded scheme.

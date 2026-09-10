@@ -122,7 +122,7 @@ func (c *Client) SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderB
 }
 
 // workloadListColumns are the columns the workload list endpoint renders. It
-// deliberately excludes the large TEXT columns (pods/nodes/ranks/conditions/env/
+// deliberately excludes the large TEXT columns (pods/nodes/ranks/env/
 // customer_labels/service/liveness/readiness/dependencies/cron_jobs/secrets/
 // images/entrypoints) that the list response never reads, so listing large
 // workloads does not pull megabyte-scale pod JSON per row.
@@ -133,6 +133,7 @@ var workloadListColumns = []string{
 	"is_tolerate_all", "priority", "max_retry", "queue_position",
 	"dispatch_count", "timeout", "description", "user_id",
 	"workload_uid", "scale_runner_set", "scale_runner_id",
+	"CASE WHEN phase = 'Failed' THEN conditions ELSE NULL END AS conditions",
 }
 
 // SelectWorkloadsForList is SelectWorkloads restricted to the columns the list

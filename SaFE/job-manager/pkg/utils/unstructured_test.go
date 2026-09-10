@@ -6,6 +6,7 @@
 package utils
 
 import (
+	"strings"
 	"testing"
 
 	"gotest.tools/assert"
@@ -782,4 +783,65 @@ func TestGetMemoryStorageSizeWithoutSizeLimit(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(sizes), 1)
 	assert.Equal(t, sizes[0], "")
+}
+
+func syntheticRunnerFailureMapping() *v1.ResourceTemplate {
+	rt := TestCICDScaleSetResourceTemplate.DeepCopy()
+	rt.Spec.ResourceStatus = v1.ResourceStatus{PrePaths: []string{"status", "conditions"}, MessagePaths: []string{"message"},
+		Phases: []v1.PhaseExpression{{MatchExpressions: map[string]string{"type": "Failed", "status": "True"}, Phase: string(v1.K8sFailed)}}}
+	return rt
+}
+
+func TestGetCICDScaleSetStatus_ConfirmedMapping(t *testing.T) {
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{"metadata": map[string]interface{}{"annotations": map[string]interface{}{v1.CICDScaleSetIdAnnotation: "1"}},
+		"status": map[string]interface{}{"conditions": []interface{}{map[string]interface{}{"type": "Failed", "status": "True", "message": "controller registration failed"}}}}}
+	status, err := GetK8sObjectStatus(obj, syntheticRunnerFailureMapping())
+	assert.NilError(t, err)
+	assert.Equal(t, status.RunnerScaleSetId, "1")
+	assert.Equal(t, status.Phase, string(v1.K8sFailed))
+	assert.Equal(t, status.Message, "controller registration failed")
+}
+
+func TestGetCICDScaleSetStatus_NoMappingOrStatus(t *testing.T) {
+	for _, withMapping := range []bool{false, true} {
+		rt := TestCICDScaleSetResourceTemplate.DeepCopy()
+		if withMapping {
+			rt = syntheticRunnerFailureMapping()
+		}
+		obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+		obj.SetAnnotations(map[string]string{v1.CICDScaleSetIdAnnotation: "1"})
+		status, err := GetK8sObjectStatus(obj, rt)
+		assert.NilError(t, err)
+		assert.Equal(t, status.RunnerScaleSetId, "1")
+		assert.Equal(t, status.Phase, "")
+		assert.Equal(t, status.Message, "")
+	}
+}
+
+func TestGetCICDScaleSetStatus_ConditionBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		conditions      interface{}
+		failed, invalid bool
+	}{
+		{"false", []interface{}{map[string]interface{}{"type": "Failed", "status": "False"}}, false, false},
+		{"unrelated", []interface{}{map[string]interface{}{"type": "Ready", "status": "False", "message": "retrying"}}, false, false},
+		{"missing message", []interface{}{map[string]interface{}{"type": "Failed", "status": "True"}}, true, false},
+		{"blank message", []interface{}{map[string]interface{}{"type": "Failed", "status": "True", "message": " \n"}}, true, false},
+		{"malformed", "not a condition list", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			obj := &unstructured.Unstructured{Object: map[string]interface{}{"status": map[string]interface{}{"conditions": tc.conditions}}}
+			obj.SetAnnotations(map[string]string{v1.CICDScaleSetIdAnnotation: "1"})
+			status, err := GetK8sObjectStatus(obj, syntheticRunnerFailureMapping())
+			assert.Equal(t, err != nil, tc.invalid)
+			assert.Equal(t, status.RunnerScaleSetId, "1")
+			if tc.failed {
+				assert.Equal(t, status.Phase, string(v1.K8sFailed))
+				assert.Assert(t, strings.TrimSpace(status.Message) != "")
+			} else {
+				assert.Equal(t, status.Phase, "")
+			}
+		})
+	}
 }

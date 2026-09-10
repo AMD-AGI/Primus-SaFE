@@ -756,33 +756,6 @@ func githubRunnerEntryPoint(_ *v1.Workload, _ int) string {
 	return commonworkload.GithubRunnerStartScript()
 }
 
-func applyGithubRunnerProxyEnv(envs map[string]string) {
-	if strings.TrimSpace(envs[common.GithubProxyURL]) == "" {
-		if proxyURL := commonconfig.GetCICDGithubProxyURL(); proxyURL != "" {
-			envs[common.GithubProxyURL] = proxyURL
-		}
-	}
-	if strings.TrimSpace(envs[common.GithubProxyURL]) == "" {
-		return
-	}
-	if strings.TrimSpace(envs[common.GithubProxyUsername]) == "" {
-		if username := commonconfig.GetCICDGithubProxyUsername(); username != "" {
-			envs[common.GithubProxyUsername] = username
-		} else {
-			envs[common.GithubProxyUsername] = "github"
-		}
-	}
-	if strings.TrimSpace(envs[common.GithubProxyNoProxy]) == "" {
-		if noProxy := commonconfig.GetCICDGithubProxyNoProxy(); noProxy != "" {
-			envs[common.GithubProxyNoProxy] = noProxy
-		} else {
-			envs[common.GithubProxyNoProxy] = "localhost,127.0.0.1,::1,.svc,.cluster.local"
-		}
-	}
-}
-
-// launcherEntryPayload returns the argument after /shared-data/launcher.sh for launcher-style commands.
-// Accepts legacy "/bin/sh ..." and "exec /bin/bash ..." wrappers for rollout comparison.
 func launcherEntryPayload(ep string) (string, bool) {
 	const marker = "/shared-data/launcher.sh"
 	i := strings.Index(ep, marker)
@@ -1285,36 +1258,136 @@ func updateMinReplicas(obj *unstructured.Unstructured, resourceSpec v1.ResourceS
 	return jobutils.SetNestedField(obj.Object, replica, resourceSpec.MinReplicasPath())
 }
 
-// updateCICDScaleSet updates the CICD scale set configuration in the unstructured object.
-// It first updates the GitHub configuration, then conditionally updates the environments for build
-// or removes unnecessary containers based on whether CICD unified build is enabled.
-// Returns an error if no resource templates are found or if any update operation fails.
 func updateCICDScaleSet(obj *unstructured.Unstructured,
 	adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource template found")
 	}
+	adminWorkload = cicdProxyWorkload(adminWorkload, adminWorkload, obj)
 	if err := updateCICDGithub(adminWorkload, obj); err != nil {
+		return err
+	}
+	if err := updateCICDProxy(obj, adminWorkload); err != nil {
 		return err
 	}
 	if err := updateCICDScaleSetEnvs(obj, adminWorkload, workspace, rt.Spec.ResourceSpecs[0]); err != nil {
 		return err
 	}
+	if err := constrainCICDListener(obj, adminWorkload); err != nil {
+		return err
+	}
 	return nil
+}
+
+// cicdListenerContainer is the name ARC gives the listener container; a
+// listenerTemplate entry must match it to be merged rather than appended.
+const cicdListenerContainer = "listener"
+
+// constrainCICDListener holds the listener to the same nodes as the runners it
+// serves. It sits outside the pod spec the rest of the dispatch writes, so
+// without this it lands on whatever node the cluster picks -- observed on a
+// production workspace's node, and on one tainted for reclaim, where losing it
+// stops the scale set from being handed any work at all.
+func constrainCICDListener(obj *unstructured.Unstructured, workload *v1.Workload) error {
+	base := []string{"spec", "listenerTemplate", "spec"}
+	// listenerTemplate is a PodTemplateSpec, so writing anything under it means
+	// satisfying a PodSpec: containers is required and each entry needs a name.
+	// ARC merges this one into the listener it builds by that name rather than
+	// adding a second container, so the entry carries nothing else.
+	containers, found, err := jobutils.NestedSlice(obj.Object, append(base, "containers"))
+	if err != nil {
+		return err
+	}
+	if !found || len(containers) == 0 {
+		containers = []interface{}{map[string]interface{}{"name": cicdListenerContainer}}
+		if err = jobutils.SetNestedField(obj.Object, containers, append(base, "containers")); err != nil {
+			return err
+		}
+	}
+	path := append(base,
+		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	if err = replaceRequiredNodeAffinity(obj, workload, path); err != nil {
+		return fmt.Errorf("failed to constrain the listener to the workspace: %v", err.Error())
+	}
+	return nil
+}
+
+func replaceRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	desired := buildRequiredMatchExpression(workload)
+	if len(desired) == 0 {
+		return nil
+	}
+	sort.SliceStable(desired, func(i, j int) bool {
+		leftExpression, _ := desired[i].(map[string]interface{})
+		rightExpression, _ := desired[j].(map[string]interface{})
+		left, _ := leftExpression["key"].(string)
+		right, _ := rightExpression["key"].(string)
+		return left < right
+	})
+	terms, _, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	if len(terms) == 0 {
+		return jobutils.SetNestedField(obj.Object, []interface{}{
+			map[string]interface{}{"matchExpressions": desired},
+		}, path)
+	}
+	term, ok := terms[0].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("nodeSelectorTerms: expected an object")
+	}
+	managedKeys := make(map[string]struct{}, len(desired))
+	for _, entry := range desired {
+		expression, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if key, ok := expression["key"].(string); ok {
+			managedKeys[key] = struct{}{}
+		}
+	}
+	existing, _ := term["matchExpressions"].([]interface{})
+	expressions := make([]interface{}, 0, len(existing)+len(desired))
+	for _, entry := range existing {
+		expression, ok := entry.(map[string]interface{})
+		if !ok {
+			expressions = append(expressions, entry)
+			continue
+		}
+		key, _ := expression["key"].(string)
+		if _, managed := managedKeys[key]; !managed {
+			expressions = append(expressions, entry)
+		}
+	}
+	term["matchExpressions"] = append(expressions, desired...)
+	terms[0] = term
+	return jobutils.SetNestedField(obj.Object, terms, path)
 }
 
 // updateCICDEphemeralRunner updates the CICD ephemeral runner configuration
 func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterClientSets,
-	obj *unstructured.Unstructured, adminWorkload *v1.Workload, rt *v1.ResourceTemplate) error {
+	obj *unstructured.Unstructured, adminWorkload, source *v1.Workload, rt *v1.ResourceTemplate) error {
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource template found")
 	}
 	if err := updateCICDGithub(adminWorkload, obj); err != nil {
 		return err
 	}
+	if err := updateCICDProxy(obj, source); err != nil {
+		return err
+	}
+	relay, err := configureCICDProxyRelay(obj, adminWorkload, source, rt.Spec.ResourceSpecs[0])
+	if err != nil {
+		return err
+	}
+	// ARC appends its own http_proxy from proxySecretRef after rendering the template.
+	if relay {
+		unstructured.RemoveNestedField(obj.Object, "spec", "proxySecretRef")
+	}
 	// Set owner reference to the parent scale runner if CICDScaleRunnerIdLabel is present
-	if scaleRunnerId := v1.GetLabel(adminWorkload, v1.CICDScaleRunnerIdLabel); scaleRunnerId != "" {
-		if clientSets != nil && !commonutils.HasOwnerReferences(obj, scaleRunnerId) {
+	if scaleRunnerId := v1.GetLabel(adminWorkload, v1.CICDScaleRunnerIdLabel); scaleRunnerId != "" && clientSets != nil {
+		if !commonutils.HasOwnerReferences(obj, scaleRunnerId) {
 			ownerObj, err := jobutils.GetObject(ctx,
 				clientSets.ClientFactory(), scaleRunnerId, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
 			if err != nil {
@@ -1329,6 +1402,11 @@ func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterCl
 				Controller:         pointer.Bool(true),
 			}
 			obj.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
+			if !relay {
+				if err = inheritCICDProxySecretRef(obj, ownerObj); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
@@ -1349,6 +1427,7 @@ func updateGithubRunner(obj *unstructured.Unstructured,
 	if err != nil {
 		return err
 	}
+	adminWorkload = cicdProxyWorkload(adminWorkload, adminWorkload, obj)
 	containers, path, err := getContainers(adminWorkload, obj, rt.Spec.ResourceSpecs[0])
 	if err != nil {
 		return err
@@ -1356,7 +1435,6 @@ func updateGithubRunner(obj *unstructured.Unstructured,
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.GithubSecretEnv] = v1.GetGithubSecretId(adminWorkload)
 	envs[common.GithubRunnerStateRoot] = stateRoot
-	applyGithubRunnerProxyEnv(envs)
 	if strings.TrimSpace(envs[common.RunnerLabels]) == "" {
 		envs[common.RunnerLabels] = v1.GetDisplayName(adminWorkload)
 	}
@@ -1383,9 +1461,38 @@ func updateGithubRunner(obj *unstructured.Unstructured,
 	// Create path: initializeObject/modifyVolumes appends SecretGeneral mounts.
 	// Update path: initializeObject does not run, so rewrite mounts in place.
 	if githubRunnerHasSecretVolume(obj, adminWorkload, rt.Spec.ResourceSpecs[0]) {
-		return syncGithubRunnerSecretMounts(obj, adminWorkload, rt.Spec.ResourceSpecs[0])
+		if err = syncGithubRunnerSecretMounts(obj, adminWorkload, rt.Spec.ResourceSpecs[0]); err != nil {
+			return err
+		}
 	}
-	return nil
+	relay, err := configureCICDProxyRelay(obj, adminWorkload, adminWorkload, rt.Spec.ResourceSpecs[0])
+	if err != nil {
+		return err
+	}
+	if relay {
+		return nil
+	}
+	return applyGithubRunnerDirectProxy(obj, adminWorkload, rt.Spec.ResourceSpecs[0])
+}
+
+func applyGithubRunnerDirectProxy(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	if !commonworkload.IsCICDProxyManaged(workload) {
+		return nil
+	}
+	config, err := commonworkload.ParseCICDProxy(workload.Spec.Env)
+	if err != nil || config == nil || config.URL == "" || config.CredentialSecret != "" {
+		return err
+	}
+	containers, path, err := getContainers(workload, obj, resourceSpec)
+	if err != nil {
+		return err
+	}
+	endpoint := map[string]string{cicdProxyHTTPEnv: config.URL, cicdProxyHTTPSEnv: config.URL}
+	if err = applyCICDProxyEndpoint(containers, workload, endpoint, nil); err != nil {
+		return err
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
 }
 
 func githubRunnerLifecycle() map[string]interface{} {
@@ -1550,9 +1657,26 @@ func syncGithubRunnerSecretMounts(obj *unstructured.Unstructured,
 	return jobutils.SetNestedField(obj.Object, containers, containerPath)
 }
 
-// updateCICDGithub updates the CICD scale set configuration in the unstructured object.
-// It updates the GitHub configuration and then configures environment variables based on unified build settings.
-// Returns an error if no resource templates are found or if any update operation fails.
+// inheritCICDProxySecretRef points the runner at the proxy Secret its owner already built.
+// ARC dereferences proxySecretRef without checking spec.proxy, so the fields must move together.
+func inheritCICDProxySecretRef(obj, owner *unstructured.Unstructured) error {
+	proxy, found, err := unstructured.NestedMap(obj.Object, "spec", "proxy")
+	if err != nil {
+		return err
+	}
+	ref := ""
+	if found && len(proxy) > 0 {
+		if ref, _, err = unstructured.NestedString(owner.Object, "spec", "proxySecretRef"); err != nil {
+			return err
+		}
+	}
+	if ref == "" {
+		unstructured.RemoveNestedField(obj.Object, "spec", "proxySecretRef")
+		return nil
+	}
+	return unstructured.SetNestedField(obj.Object, ref, "spec", "proxySecretRef")
+}
+
 func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured) error {
 	specObject, ok, err := jobutils.NestedMap(obj.Object, []string{"spec"})
 	if err != nil {
@@ -1624,7 +1748,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 		// When unified build is enabled, update all containers with envs
 		for i := range containers {
 			container := containers[i].(map[string]interface{})
-			updateContainerEnv(envs, container, nil)
+			updateContainerEnv(envs, container, v1.GetEnvToBeRemoved(adminWorkload))
 		}
 		if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
 			return err
@@ -1636,7 +1760,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 			container := containers[i].(map[string]interface{})
 			name := jobutils.NestedStringSilently(container, []string{"name"})
 			if name == mainContainerName {
-				updateContainerEnv(envs, container, nil)
+				updateContainerEnv(envs, container, v1.GetEnvToBeRemoved(adminWorkload))
 				// Keep only the main container and remove other container
 				newContainers := []interface{}{container}
 				return jobutils.SetNestedField(obj.Object, newContainers, path)
@@ -2418,8 +2542,12 @@ func updateContainerEnv(envs map[string]string, container map[string]interface{}
 		existingEnvNames.Insert(nameStr)
 
 		if newValue, exists := envs[nameStr]; exists {
+			if valueFrom, ok := env["valueFrom"].(map[string]interface{}); ok && valueFrom["fieldRef"] != nil {
+				updatedEnvs = append(updatedEnvs, envItem)
+				continue
+			}
 			currentValue, valueOk := env["value"]
-			if valueOk && newValue != currentValue.(string) {
+			if !valueOk || newValue != currentValue {
 				isChanged = true
 				updatedEnvs = append(updatedEnvs, map[string]interface{}{
 					"name":  nameStr,

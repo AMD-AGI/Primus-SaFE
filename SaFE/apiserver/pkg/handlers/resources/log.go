@@ -24,16 +24,14 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/cicdlog"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -128,7 +126,7 @@ func (h *Handler) getCICDArcLog(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse log query")
 		return nil, err
 	}
-	return h.searchCICDLog(queries, workload)
+	return h.searchCICDLog(c.Request.Context(), queries, workload)
 }
 
 // getServiceLog retrieves logs for a specific service from OpenSearch.
@@ -278,214 +276,17 @@ func (h *Handler) searchContextLog(queries []view.ListContextLogRequest,
 	return result, nil
 }
 
-// searchCICDLog performs concurrent OpenSearch queries to retrieve CICD logs for a workload.
-// It executes multiple parallel searches based on the provided queries slice.
-// Each query is executed concurrently using a worker pool pattern with a channel.
-// Returns a slice of OpenSearchLogResponse (one per query) or an error if any search fails.
-func (h *Handler) searchCICDLog(queries []view.ListLogRequest, workload *v1.Workload) ([]commonsearch.OpenSearchLogResponse, error) {
-	clusterId := v1.GetClusterId(workload)
-	opensearchClient := commonsearch.GetOpensearchClient(clusterId)
-	if opensearchClient == nil {
-		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
-	}
-
-	count := len(queries)
-	ch := make(chan int, count)
-	defer close(ch)
-	for i := range queries {
-		ch <- i
-	}
-	result := make([]commonsearch.OpenSearchLogResponse, count)
-	_, err := concurrent.Exec(count, func() error {
-		id := <-ch
-		query := &queries[id]
-		start := time.Now()
-		resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
-			"", "/_search", buildSearchBody(query, workload.Name))
-		apimetrics.ObserveDependency("opensearch", start, &err)
-		if err != nil {
-			return err
-		}
-		if err = json.Unmarshal(resp, &result[id]); err != nil {
-			return err
-		}
-		result[id].NormalizeMessages()
-		return nil
+func (h *Handler) searchCICDLog(ctx context.Context, queries []view.ListLogRequest, workload *v1.Workload) ([]commonsearch.OpenSearchLogResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+	return cicdlog.SearchARCControllerLogs(ctx, cicdlog.ScopeFromWorkload(workload), cicdlog.SearchOptions{
+		Queries: queries,
+		Observe: func(start time.Time, err *error) { apimetrics.ObserveDependency("opensearch", start, err) },
 	})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
 }
 
-// buildSearchBody constructs the OpenSearch query body for log searching.
-// It configures the query parameters including pagination, sorting by time,
-// time range filtering, label filters, keyword searches, and output fields.
-// Returns the serialized JSON byte array of the search request.
 func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
-	req := &commonsearch.OpenSearchRequest{
-		From: query.Offset,
-		Size: query.Limit,
-	}
-	req.Sort = []commonsearch.OpenSearchField{{
-		commonsearch.TimeField: map[string]interface{}{
-			"order": query.Order,
-		}},
-	}
-	req.Query.Bool.Must = []commonsearch.OpenSearchField{{
-		"range": map[string]interface{}{
-			commonsearch.TimeField: map[string]string{
-				"gte": query.SinceTime.Format(timeutil.TimeRFC3339Milli),
-				"lte": query.UntilTime.Format(timeutil.TimeRFC3339Milli),
-			},
-		},
-	}}
-	buildFilter(req, query)
-	buildKeywords(req, query)
-	buildOutput(req, query, workloadId)
-	return jsonutils.MarshalSilently(req)
-}
-
-func buildFilter(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest) {
-	buildSingleTermFilter(req, query.TermFilters, query.UseK8sLabel, false)
-	buildSingleTermFilter(req, query.PrefixFilters, query.UseK8sLabel, true)
-	if query.PodNames != "" {
-		buildMultiTermsFilter(req, "pod_name", query.PodNames)
-	} else if query.NodeNames != "" {
-		buildMultiTermsFilter(req, "host", query.NodeNames)
-	}
-}
-
-func buildSingleTermFilter(req *commonsearch.OpenSearchRequest, filters map[string]string, isK8sLabel, isPrefixMatch bool) {
-	for key, val := range filters {
-		val = strings.TrimSpace(val)
-		if key == "" || val == "" {
-			continue
-		}
-		if isK8sLabel {
-			// Use the same punctuation handling rules as OpenSearch.
-			key = strings.ReplaceAll(key, ".", "_")
-			key = "kubernetes.labels." + key
-		}
-		filterType := ""
-		if isPrefixMatch {
-			filterType = "prefix"
-		} else {
-			filterType = "term"
-		}
-		req.Query.Bool.Filter = append(req.Query.Bool.Filter, commonsearch.OpenSearchField{
-			filterType: map[string]interface{}{
-				key + ".keyword": val,
-			},
-		})
-	}
-}
-
-func buildMultiTermsFilter(req *commonsearch.OpenSearchRequest, key, values string) {
-	valueList := stringutil.Split(values, ",")
-	if len(valueList) == 0 {
-		return
-	}
-	var queries []map[string]interface{}
-	termKey := fmt.Sprintf("kubernetes.%s.keyword", key)
-	for _, val := range valueList {
-		val = strings.TrimSpace(val)
-		if val == "" {
-			continue
-		}
-		queries = append(queries, map[string]interface{}{
-			"term": map[string]string{termKey: val},
-		})
-	}
-	req.Query.Bool.Must = append(req.Query.Bool.Must, commonsearch.OpenSearchField{
-		"bool": map[string]interface{}{
-			"should": queries,
-		},
-	})
-}
-
-func buildKeywords(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest) {
-	// and search
-	for _, key := range query.Keywords {
-		words := stringutil.Split(key, " ")
-		if len(words) == 0 {
-			continue
-		}
-		var phrase string
-		var slop int
-		if len(words) == 1 {
-			// match_phrase slop 0: terms must be adjacent, preserving order.
-			// /123/456 matches /123/456/789 (123,456 adjacent) but NOT /123/789/456 (789 between).
-			// Single token (e.g. "error") works as usual.
-			phrase = normalize(words[0])
-			slop = 0
-		} else {
-			// match_phrase with slop: preserve order but allow gaps between terms
-			normalized := make([]string, len(words))
-			for i, w := range words {
-				normalized[i] = normalize(w)
-			}
-			phrase = strings.Join(normalized, " ")
-			slop = 100
-		}
-		req.Query.Bool.Must = append(req.Query.Bool.Must, keywordMatchAnyField(phrase, slop))
-	}
-}
-
-// keywordMatchAnyField builds a should-clause that matches the phrase against
-// either the canonical `message` field or the raw `log` field. This keeps
-// keyword search working on clusters that have not yet been migrated to the
-// fluent-bit `Rename log message` filter and on historical documents indexed
-// before the migration.
-func keywordMatchAnyField(phrase string, slop int) commonsearch.OpenSearchField {
-	matchOn := func(field string) commonsearch.OpenSearchField {
-		return commonsearch.OpenSearchField{
-			"match_phrase": map[string]interface{}{
-				field: map[string]interface{}{
-					"query": phrase,
-					"slop":  slop,
-				},
-			},
-		}
-	}
-	return commonsearch.OpenSearchField{
-		"bool": map[string]interface{}{
-			"should": []commonsearch.OpenSearchField{
-				matchOn(commonsearch.MessageField),
-				matchOn(commonsearch.LogField),
-			},
-			"minimum_should_match": 1,
-		},
-	}
-}
-
-func normalize(str string) string {
-	// Lowercase to align with standard analyzer. Punctuation is handled by the analyzer at query time.
-	return strings.ToLower(str)
-}
-
-func buildOutput(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest, workloadId string) {
-	if query.DisableOutput {
-		return
-	}
-	// Ask for both `message` and `log` so the response normalizer can fall
-	// back to `log` for clusters whose pipeline did not rename it. Extra
-	// _source fields are cheap; OpenSearch silently ignores unknown ones.
-	req.Source = []string{
-		commonsearch.TimeField, commonsearch.MessageField, commonsearch.LogField,
-	}
-	if !query.UseK8sLabel {
-		return
-	}
-	req.Source = append(req.Source, "kubernetes.host")
-	if workloadId != "" {
-		req.Source = append(req.Source, commonsearch.StreamField)
-		key := strings.ReplaceAll(v1.WorkloadDispatchCntLabel, ".", "_")
-		req.Source = append(req.Source, fmt.Sprintf("kubernetes.labels.%s", key))
-	}
-	if query.PodNames == "" || strings.Contains(query.PodNames, ",") {
-		req.Source = append(req.Source, "kubernetes.pod_name")
-	}
+	return cicdlog.BuildSearchBody(query, workloadId)
 }
 
 func parseWorkloadLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLogRequest, error) {
@@ -547,29 +348,7 @@ func parseCICDArcLogQuery(c *gin.Context, workload *v1.Workload) ([]view.ListLog
 		klog.ErrorS(err, "failed to parse log query")
 		return nil, err
 	}
-	// github arc is fixed in arc-systems namespace
-	query.TermFilters = map[string]string{
-		"kubernetes.namespace_name": "arc-systems",
-	}
-	query.PrefixFilters = map[string]string{
-		"kubernetes.pod_name": commonconfig.GetCICDControllerName(),
-	}
-	// node or pod filtering is not supported
-	query.NodeNames = ""
-	query.PodNames = ""
-
-	query.Keywords = []string{workload.SpecKind(), workload.Spec.Workspace}
-	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		query.Keywords = append(query.Keywords, workload.Name)
-		return []view.ListLogRequest{*query}, nil
-	} else if commonworkload.IsCICDEphemeralRunner(workload) {
-		query2 := new(view.ListLogRequest)
-		*query2 = *query
-		query.Keywords = append(query.Keywords, v1.GetLabel(workload, v1.CICDScaleRunnerIdLabel))
-		query2.Keywords = append(query2.Keywords, v1.GetCICDRunnerScaleSetId(workload))
-		return []view.ListLogRequest{*query, *query2}, nil
-	}
-	return nil, commonerrors.NewBadRequest("the workload is not a CICD workload")
+	return cicdlog.ARCControllerQueries(cicdlog.ScopeFromWorkload(workload), *query)
 }
 
 // parseContextQuery parses the context log query parameters for a workload.
