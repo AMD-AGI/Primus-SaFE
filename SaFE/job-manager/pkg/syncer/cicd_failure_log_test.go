@@ -191,6 +191,8 @@ func TestCICDFailureEnrichment_DoesNotDelayFailed(t *testing.T) {
 	defer server.Close()
 	commonconfig.SetValue("opensearch.enable", "true")
 	defer commonconfig.SetValue("opensearch.enable", "false")
+	commonconfig.SetValue("cicd.failure_enrich_timeout_seconds", "1")
+	defer commonconfig.SetValue("cicd.failure_enrich_timeout_seconds", "30")
 	rc := robustclient.NewClient(robustclient.DefaultClientConfig())
 	rc.RegisterCluster(v1.GetClusterId(w), server.URL)
 	cleanup := opensearch.RegisterClientForTest(v1.GetClusterId(w), opensearch.NewClient(opensearch.SearchClientConfig{DefaultIndex: "logs-"}, rc.ForCluster(v1.GetClusterId(w))))
@@ -220,7 +222,7 @@ func TestCICDFailureEnrichment_DoesNotDelayFailed(t *testing.T) {
 	select {
 	case <-canceled:
 	case <-time.After(3 * time.Second):
-		t.Fatal("two-second deadline did not cancel HTTP")
+		t.Fatal("configured enrichment deadline did not cancel HTTP")
 	}
 	assert.NilError(t, r.Get(context.Background(), client.ObjectKeyFromObject(w), current))
 	assert.Equal(t, current.Status.Message, fallback)

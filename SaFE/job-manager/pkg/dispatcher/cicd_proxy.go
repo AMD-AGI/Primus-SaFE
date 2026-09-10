@@ -34,9 +34,15 @@ import (
 const (
 	cicdProxyOwnerIndex     = "cicdProxyOwnerUID"
 	cicdProxyRelayContainer = "proxy-relay"
-	cicdProxyCredentialVol  = "proxy-credential"
-	cicdProxyHTTPEnv        = "http_proxy"
-	cicdProxyHTTPSEnv       = "https_proxy"
+	// cicdProxyDindContainer is the ARC Docker-in-Docker sidecar. The runner drives it
+	// over the shared docker.sock, so every image pull and job/service container the
+	// workflow asks for is issued by this dockerd, not by the proxied runner process.
+	// Without its own proxy env that traffic leaves from the node address and misses
+	// the GitHub IP allow list that ghcr.io shares with github.com.
+	cicdProxyDindContainer = "dind"
+	cicdProxyCredentialVol = "proxy-credential"
+	cicdProxyHTTPEnv       = "http_proxy"
+	cicdProxyHTTPSEnv      = "https_proxy"
 )
 
 // configureCICDProxyRelay activates the chart relay only for credentialed proxies and removes its
@@ -57,9 +63,11 @@ func configureCICDProxyRelay(obj *unstructured.Unstructured, workload, source *v
 	if err != nil {
 		return false, err
 	}
+	// Admission requires an explicit port on PROXY_URL (validateCICDProxyURL), so
+	// there is nothing to guess here.
 	port := upstream.Port()
 	if port == "" {
-		port = "3128"
+		return false, fmt.Errorf("env.PROXY_URL: missing an explicit upstream proxy port")
 	}
 	containers, path, err := getContainers(workload, obj, resourceSpec)
 	if err != nil {
@@ -86,16 +94,15 @@ func configureCICDProxyRelay(obj *unstructured.Unstructured, workload, source *v
 	updateContainerEnv(map[string]string{
 		"PROXY_UPSTREAM_HOST": upstream.Hostname(), "PROXY_UPSTREAM_PORT": port,
 	}, relay, nil)
-	for _, entry := range containers {
-		container, ok := entry.(map[string]interface{})
-		if !ok {
-			return false, fmt.Errorf("spec.template: expected a container object")
-		}
-		if container["name"] == v1.GetMainContainer(workload) {
-			endpoint := "http://127.0.0.1:" + strconv.Itoa(commonconfig.GetCICDProxyRelayPort())
-			updateContainerEnv(map[string]string{
-				cicdProxyHTTPEnv: endpoint, cicdProxyHTTPSEnv: endpoint,
-			}, container, nil)
+	endpoint := map[string]string{}
+	relayURL := "http://127.0.0.1:" + strconv.Itoa(commonconfig.GetCICDProxyRelayPort())
+	endpoint[cicdProxyHTTPEnv], endpoint[cicdProxyHTTPSEnv] = relayURL, relayURL
+	if err = applyCICDProxyEndpoint(containers, workload, endpoint, nil); err != nil {
+		return false, err
+	}
+	if found {
+		if err = applyCICDProxyEndpoint(initContainers, workload, endpoint, nil); err != nil {
+			return false, err
 		}
 	}
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
@@ -107,6 +114,30 @@ func configureCICDProxyRelay(obj *unstructured.Unstructured, workload, source *v
 		}
 	}
 	return true, bindCICDProxyCredential(obj, workload, resourceSpec, config.CredentialSecret)
+}
+
+// wantsCICDProxyEndpoint reports whether a container should reach the network through
+// the loopback relay. The workload's main container is the runner itself; the dind
+// sidecar is included because the runner delegates all container work to it. The relay
+// is excluded so it never proxies to itself.
+func wantsCICDProxyEndpoint(name interface{}, workload *v1.Workload) bool {
+	return name == v1.GetMainContainer(workload) || name == cicdProxyDindContainer
+}
+
+// applyCICDProxyEndpoint sets env on, or removes removed from, every container in
+// entries that routes through the relay. Callers pass either env or removed.
+func applyCICDProxyEndpoint(entries []interface{}, workload *v1.Workload,
+	env map[string]string, removed []string) error {
+	for _, entry := range entries {
+		container, ok := entry.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("spec.template: expected a container object")
+		}
+		if wantsCICDProxyEndpoint(container["name"], workload) {
+			updateContainerEnv(env, container, removed)
+		}
+	}
+	return nil
 }
 
 func findCICDProxyRelay(containers []interface{}) (map[string]interface{}, error) {
@@ -138,21 +169,21 @@ func removeCICDProxyRelay(obj *unstructured.Unstructured, workload *v1.Workload,
 			continue
 		}
 		filtered := make([]interface{}, 0, len(entries))
-		mainContainerUpdated := false
+		proxyEnvRemoved := false
 		for _, entry := range entries {
 			item, ok := entry.(map[string]interface{})
 			if !ok {
 				return fmt.Errorf("%s: expected an object", strings.Join(path, "."))
 			}
-			if field == "containers" && item["name"] == v1.GetMainContainer(workload) {
+			if field != "volumes" && wantsCICDProxyEndpoint(item["name"], workload) {
 				updateContainerEnv(nil, item, []string{cicdProxyHTTPEnv, cicdProxyHTTPSEnv})
-				mainContainerUpdated = true
+				proxyEnvRemoved = true
 			}
 			if item["name"] != name {
 				filtered = append(filtered, item)
 			}
 		}
-		if len(filtered) != len(entries) || mainContainerUpdated {
+		if len(filtered) != len(entries) || proxyEnvRemoved {
 			if err = jobutils.SetNestedField(obj.Object, filtered, path); err != nil {
 				return err
 			}

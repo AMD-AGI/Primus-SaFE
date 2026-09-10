@@ -2326,7 +2326,7 @@ func TestWorkloadValidateCICDProxy_CreateAndUpdate(t *testing.T) {
 			endpoint, secret string
 			valid            bool
 		}{
-			{"http://proxy.example.com", "", true}, {"http://proxy.example.com:8080", "proxy-auth", true},
+			{"http://proxy.example.com:3128", "", true}, {"http://proxy.example.com:8080", "proxy-auth", true},
 			{"http://sample@example.com", "", false}, {"https://example.com/path", "", false},
 		} {
 			w := proxyAdmissionWorkload()
@@ -2366,7 +2366,7 @@ func TestWorkloadValidateCICDProxy_SecretReference(t *testing.T) {
 			secret := proxyAdmissionSecret()
 			tc.change(secret)
 			w := proxyAdmissionWorkload()
-			w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com"
+			w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
 			w.Spec.Env[common.ProxyCredentialSecret] = secret.Name
 			err := admitCICDProxy(context.Background(), proxyAdmissionClient(secret), w, nil)
 			assert.ErrorContains(t, err, commonworkload.CICDProxySecretInvalid)
@@ -2374,7 +2374,7 @@ func TestWorkloadValidateCICDProxy_SecretReference(t *testing.T) {
 	}
 	for _, name := range []string{"workspace/proxy-auth", " proxy-auth", strings.Repeat("a", 254)} {
 		w := proxyAdmissionWorkload()
-		w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com"
+		w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
 		w.Spec.Env[common.ProxyCredentialSecret] = name
 		assert.ErrorContains(t, admitCICDProxy(context.Background(), proxyAdmissionClient(), w, nil), "expected a Kubernetes Secret name")
 	}
@@ -2383,7 +2383,7 @@ func TestWorkloadValidateCICDProxy_SecretReference(t *testing.T) {
 	assert.ErrorContains(t, admitCICDProxy(context.Background(), proxyAdmissionClient(), w, nil), "requires a nonempty PROXY_URL")
 	secret := proxyAdmissionSecret()
 	secret.Name = strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d", 61)
-	w.Spec.Env[common.ProxyCredentialSecret], w.Spec.Env[common.ProxyUrl] = secret.Name, "http://proxy.example.com"
+	w.Spec.Env[common.ProxyCredentialSecret], w.Spec.Env[common.ProxyUrl] = secret.Name, "http://proxy.example.com:3128"
 	assert.NilError(t, admitCICDProxy(context.Background(), proxyAdmissionClient(secret), w, nil))
 }
 
@@ -2394,7 +2394,7 @@ func TestWorkloadValidateCICDProxy_LookupFailure(t *testing.T) {
 			return lookupError
 		}})
 		w := proxyAdmissionWorkload()
-		w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com"
+		w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
 		w.Spec.Env[common.ProxyCredentialSecret] = "proxy-auth"
 		err := admitCICDProxy(context.Background(), cli, w, nil)
 		if apierrors.IsNotFound(lookupError) {
@@ -2407,7 +2407,7 @@ func TestWorkloadValidateCICDProxy_LookupFailure(t *testing.T) {
 
 func TestWorkloadValidateCICDProxy_StatusAfterSecretDeletion(t *testing.T) {
 	w := proxyAdmissionWorkload()
-	w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com"
+	w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
 	w.Spec.Env[common.ProxyCredentialSecret] = "proxy-auth"
 	assert.NilError(t, admitCICDProxy(context.Background(), proxyAdmissionClient(proxyAdmissionSecret()), w, nil))
 	old := w.DeepCopy()
@@ -2427,7 +2427,7 @@ func TestWorkloadMutateCICDProxy_KeysAndRemoval(t *testing.T) {
 	w.Spec.Env[" PROXY_URL "] = "http://sample@example.com"
 	assert.NilError(t, m.mutateEnv(nil, w))
 	assert.ErrorContains(t, m.mutateCICDProxyOptIn(context.Background(), nil, w), "userinfo is not allowed")
-	w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com"
+	w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
 	w.Spec.Env[" PROXY_URL "] = ""
 	assert.ErrorContains(t, m.mutateEnv(nil, w), "multiple keys")
 	delete(w.Spec.Env, " PROXY_URL ")
@@ -2448,13 +2448,13 @@ func TestCICDProxyOptIn_Admission(t *testing.T) {
 		assert.Equal(t, commonworkload.IsCICDProxyManaged(w), key != "")
 	}
 	w := proxyAdmissionWorkload()
-	w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com"
+	w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
 	old := w.DeepCopy()
 	w.Spec.Priority++
 	assert.NilError(t, admitCICDProxy(context.Background(), cli, w, old))
 	assert.Assert(t, !commonworkload.IsCICDProxyManaged(w))
 	old = w.DeepCopy()
-	w.Spec.Env[common.ProxyUrl] = "http://new-proxy.example.com"
+	w.Spec.Env[common.ProxyUrl] = "http://new-proxy.example.com:3128"
 	assert.NilError(t, admitCICDProxy(context.Background(), cli, w, old))
 	assert.Assert(t, commonworkload.IsCICDProxyManaged(w))
 	old = w.DeepCopy()
@@ -2495,7 +2495,7 @@ func TestCICDProxyOptIn_ReservedMarker(t *testing.T) {
 func TestCICDEphemeralRunnerProxy_RejectsOverrides(t *testing.T) {
 	parent := proxyAdmissionWorkload()
 	parent.UID = "parent-uid"
-	parent.Spec.Env[common.ProxyUrl] = "http://proxy.example.com"
+	parent.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
 	v1.SetAnnotation(parent, v1.CICDProxyManagedAnnotation, v1.TrueStr)
 	child := validWorkload()
 	child.Spec.Kind = common.CICDEphemeralRunnerKind
@@ -2503,7 +2503,7 @@ func TestCICDEphemeralRunnerProxy_RejectsOverrides(t *testing.T) {
 	child.OwnerReferences = []metav1.OwnerReference{{APIVersion: v1.SchemeGroupVersion.String(), Kind: v1.WorkloadKind, Name: parent.Name, UID: parent.UID, Controller: pointer.Bool(true)}}
 	cli := proxyAdmissionClient(parent)
 	assert.NilError(t, validateCICDProxyAdmission(context.Background(), cli, cli, child, nil))
-	child.Spec.Env[common.ProxyUrl] = "http://different.example.com"
+	child.Spec.Env[common.ProxyUrl] = "http://different.example.com:3128"
 	assert.ErrorContains(t, validateCICDProxyAdmission(context.Background(), cli, cli, child, nil), "must match the owning scale set")
 }
 

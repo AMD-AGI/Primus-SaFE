@@ -34,36 +34,9 @@ data:
           volumeMounts:
           - mountPath: /home/runner/tmpDir
             name: dind-externals
-        - name: dind
-          args:
-          - dockerd
-          - --host=unix:///var/run/docker.sock
-          - --group=$(DOCKER_GROUP_GID)
-          env:
-          - name: DOCKER_GROUP_GID
-            value: "123"
-          image: docker:dind
-          restartPolicy: Always
-          securityContext:
-            privileged: true
-            runAsGroup: 0
-            runAsUser: 0
-          startupProbe:
-            exec:
-              command:
-              - docker
-              - info
-            failureThreshold: 24
-            initialDelaySeconds: 0
-            periodSeconds: 5
-          volumeMounts:
-          - mountPath: /home/runner/_work
-            name: work
-          - mountPath: /var/run
-            name: dind-sock
-          - mountPath: /home/runner/externals
-            name: dind-externals
 {{- if (default "" (default .Values.cicd).proxy_relay_image) }}
+        # Declared before dind so squid is listening before dockerd starts: native sidecars
+        # start in declaration order, and dockerd reads http_proxy from its environment.
         # Fronts the cluster proxy for the job. The runner's HTTP client attaches proxy
         # credentials only after a 407, and the tunnel it would talk to answers 401, so it
         # never authenticates. This peer holds the credential and sends it upstream on every
@@ -97,6 +70,15 @@ data:
               # A proxy that only serves some destinations strands every other host behind a TLS
               # error the job cannot attribute to it. Route by destination here rather than making
               # each workload enumerate the bypasses; with no list, everything goes upstream.
+              # Operator-supplied and expanded unquoted into the heredoc below, so a stray
+              # newline or shell metacharacter would silently rewrite the ACL rather than
+              # fail. Accept only space-separated dstdomain patterns and stop otherwise.
+              case "${PROXY_UPSTREAM_DOMAINS:-}" in
+                *[!A-Za-z0-9.*_ -]*)
+                  echo "PROXY_UPSTREAM_DOMAINS: expected domain patterns separated by spaces" >&2
+                  exit 1
+                  ;;
+              esac
               if [ -n "${PROXY_UPSTREAM_DOMAINS:-}" ]; then
                 cat >>/tmp/squid.conf <<EOF
               acl upstream_domains dstdomain ${PROXY_UPSTREAM_DOMAINS}
@@ -134,6 +116,35 @@ data:
               mountPath: /etc/secrets/proxy
               readOnly: true
 {{- end }}
+        - name: dind
+          args:
+          - dockerd
+          - --host=unix:///var/run/docker.sock
+          - --group=$(DOCKER_GROUP_GID)
+          env:
+          - name: DOCKER_GROUP_GID
+            value: "123"
+          image: docker:dind
+          restartPolicy: Always
+          securityContext:
+            privileged: true
+            runAsGroup: 0
+            runAsUser: 0
+          startupProbe:
+            exec:
+              command:
+              - docker
+              - info
+            failureThreshold: 24
+            initialDelaySeconds: 0
+            periodSeconds: 5
+          volumeMounts:
+          - mountPath: /home/runner/_work
+            name: work
+          - mountPath: /var/run
+            name: dind-sock
+          - mountPath: /home/runner/externals
+            name: dind-externals
         - name: preprocess
           image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
           imagePullPolicy: IfNotPresent
