@@ -110,10 +110,7 @@ data:
           args:
           - dockerd
           - --host=unix:///var/run/docker.sock
-          - --group=$(DOCKER_GROUP_GID)
-          env:
-          - name: DOCKER_GROUP_GID
-            value: "123"
+          - --group=123
           securityContext:
             privileged: true
             runAsGroup: 0

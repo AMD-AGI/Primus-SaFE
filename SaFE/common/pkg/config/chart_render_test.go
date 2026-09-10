@@ -284,9 +284,10 @@ func TestChartRendersCICDProxyRelayCredentialEncoding(t *testing.T) {
 
 func TestChartRendersHostedRunnerRuntime(t *testing.T) {
 	type container struct {
-		Name            string `yaml:"name"`
-		Image           string `yaml:"image"`
-		RestartPolicy   string `yaml:"restartPolicy"`
+		Name            string   `yaml:"name"`
+		Image           string   `yaml:"image"`
+		RestartPolicy   string   `yaml:"restartPolicy"`
+		Args            []string `yaml:"args"`
 		SecurityContext struct {
 			Privileged bool `yaml:"privileged"`
 			RunAsUser  int  `yaml:"runAsUser"`
@@ -324,4 +325,9 @@ func TestChartRendersHostedRunnerRuntime(t *testing.T) {
 	testifyassert.Equal(t, "docker:28.3.3-dind", names["dind"].Image)
 	testifyassert.Equal(t, "Always", names["dind"].RestartPolicy)
 	testifyassert.True(t, names["dind"].SecurityContext.Privileged)
+	testifyassert.Equal(t, []string{
+		"dockerd",
+		"--host=unix:///var/run/docker.sock",
+		"--group=123",
+	}, names["dind"].Args)
 }

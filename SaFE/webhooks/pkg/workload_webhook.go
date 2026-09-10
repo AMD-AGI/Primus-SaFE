@@ -1192,7 +1192,21 @@ func githubRunnerPoolLabels(workload *v1.Workload) []string {
 	if raw == "" {
 		raw = strings.TrimSpace(v1.GetDisplayName(workload))
 	}
-	if raw == "" {
+	return parseRunnerLabels(raw)
+}
+
+// cicdAdvertisedRunnerLabels returns labels compared across GithubRunner and ScaleSet pools.
+// Scale set object names are generated ids; GitHub identity uses Name and DisplayName.
+func cicdAdvertisedRunnerLabels(workload *v1.Workload) []string {
+	if commonworkload.IsCICDScalingRunnerSet(workload) {
+		return parseRunnerLabels(strings.Join([]string{workload.Name, v1.GetDisplayName(workload)}, ","))
+	}
+	return githubRunnerPoolLabels(workload)
+}
+
+// parseRunnerLabels splits a comma-separated label list and de-duplicates case-insensitively.
+func parseRunnerLabels(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
 	seen := map[string]struct{}{}
@@ -1221,10 +1235,7 @@ func (v *WorkloadValidator) validateCICDRunnerLabelsUnique(ctx context.Context, 
 	if reader == nil {
 		return nil
 	}
-	wanted := githubRunnerPoolLabels(workload)
-	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		wanted = []string{workload.Name}
-	}
+	wanted := cicdAdvertisedRunnerLabels(workload)
 	if len(wanted) == 0 {
 		return fmt.Errorf("the %s of workload environment variables is empty", common.RunnerLabels)
 	}
@@ -1249,10 +1260,7 @@ func (v *WorkloadValidator) validateCICDRunnerLabelsUnique(ctx context.Context, 
 		if strings.TrimSpace(other.GetEnv(common.GithubConfigUrl)) != configURL {
 			continue
 		}
-		existingLabels := githubRunnerPoolLabels(other)
-		if commonworkload.IsCICDScalingRunnerSet(other) {
-			existingLabels = []string{other.Name, v1.GetDisplayName(other)}
-		}
+		existingLabels := cicdAdvertisedRunnerLabels(other)
 		for _, existing := range existingLabels {
 			if label, ok := wantedKeys[strings.ToLower(existing)]; ok {
 				return commonerrors.NewAlreadyExist(

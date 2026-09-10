@@ -837,11 +837,17 @@ func TestGithubRunnerPoolLabelsRejectsDuplicates(t *testing.T) {
 	assert.NilError(t, v.validateGithubRunner(context.Background(), existing, nil))
 }
 
+func cicdScaleSetForLabelTest(name, displayName string) *v1.Workload {
+	w := githubRunnerForLabelTest(name, "")
+	w.Spec.GroupVersionKind.Kind = common.CICDScaleRunnerSetKind
+	v1.SetLabel(w, v1.WorkloadKindLabel, common.CICDScaleRunnerSetKind)
+	v1.SetLabel(w, v1.DisplayNameLabel, displayName)
+	return w
+}
+
 func TestGithubRunnerPoolLabelsRejectsScaleSetName(t *testing.T) {
 	scheme := newScheme(t)
-	scaleSet := githubRunnerForLabelTest("shared-label", "")
-	scaleSet.Spec.GroupVersionKind.Kind = common.CICDScaleRunnerSetKind
-	v1.SetLabel(scaleSet, v1.WorkloadKindLabel, common.CICDScaleRunnerSetKind)
+	scaleSet := cicdScaleSetForLabelTest("ars-generated-id", "shared-label")
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(scaleSet).Build()
 	v := &WorkloadValidator{Client: c}
 
@@ -850,15 +856,13 @@ func TestGithubRunnerPoolLabelsRejectsScaleSetName(t *testing.T) {
 	assert.Assert(t, commonerrors.IsAlreadyExist(err))
 }
 
-func TestScaleSetNameRejectsGithubRunnerLabel(t *testing.T) {
+func TestScaleSetDisplayNameRejectsGithubRunnerLabel(t *testing.T) {
 	scheme := newScheme(t)
 	runner := githubRunnerForLabelTest("runner-a", "shared-label")
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(runner).Build()
 	v := &WorkloadValidator{Client: c}
 
-	scaleSet := githubRunnerForLabelTest("shared-label", "")
-	scaleSet.Spec.GroupVersionKind.Kind = common.CICDScaleRunnerSetKind
-	v1.SetLabel(scaleSet, v1.WorkloadKindLabel, common.CICDScaleRunnerSetKind)
+	scaleSet := cicdScaleSetForLabelTest("ars-generated-id", "shared-label")
 	err := v.validateCICDRunnerLabelsUnique(context.Background(), scaleSet)
 	assert.Assert(t, commonerrors.IsAlreadyExist(err))
 }
