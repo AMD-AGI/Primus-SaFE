@@ -36,8 +36,7 @@ if [ ! -f "${STATE_DIR}/.credentials" ] || [ ! -f "${STATE_DIR}/.runner" ]; then
     fi
     rm -f "${STATE_DIR}/.register_failed"
   fi
-  TOKEN="$(cat "${TOKEN_FILE}")"
-  if ! ./config.sh --unattended --url "${GITHUB_CONFIG_URL}" --token "${TOKEN}" --name "${POD_NAME}" --labels "${LABELS}" --replace --work _work; then
+  if ! ./config.sh --unattended --url "${GITHUB_CONFIG_URL}" --token "$(cat "${TOKEN_FILE}")" --name "${POD_NAME}" --labels "${LABELS}" --replace --work _work; then
     printf '%s\n' "${GITHUB_SECRET_ID}" >"${STATE_DIR}/.register_failed"
     echo "github runner registration failed" >&2
     exit 1
@@ -75,7 +74,10 @@ STATE_DIR="${GITHUB_RUNNER_STATE_ROOT:-}/${POD_NAME:-}"
   TOKEN_FILE="/var/run/secrets/kubernetes.io/serviceaccount/token"
   CA_FILE="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
   NS_FILE="/var/run/secrets/kubernetes.io/serviceaccount/namespace"
-  [ -f "${TOKEN_FILE}" ] && [ -f "${NS_FILE}" ] || return 1
+  if [ ! -f "${TOKEN_FILE}" ] || [ ! -f "${NS_FILE}" ]; then
+    echo "github runner deregistration: service account token or namespace is unavailable" >&2
+    return 1
+  fi
   NS="$(cat "${NS_FILE}")"
   ORDINAL="${POD_NAME##*-}"
   STS_NAME="${POD_NAME%-*}"
@@ -87,6 +89,7 @@ STATE_DIR="${GITHUB_RUNNER_STATE_ROOT:-}/${POD_NAME:-}"
     return 0
   fi
   if [ "${CODE}" != "200" ]; then
+    echo "github runner deregistration: StatefulSet lookup returned HTTP ${CODE}" >&2
     return 1
   fi
   NODE_BIN="$(find_runner_node)"
@@ -115,7 +118,11 @@ if (statefulSet.metadata && statefulSet.metadata.deletionTimestamp) {
   [ "${ORDINAL}" -ge "${REPLICAS}" ]
 }
 if should_deregister; then
-  cd "${RUNNER_DIR}" && ./config.sh remove --unattended
+  if [ ! -f "${RUNNER_DIR}/.credentials" ] || [ ! -f "${RUNNER_DIR}/.runner" ]; then
+    echo "github runner deregistration: runner credentials are incomplete; keeping ${STATE_DIR}" >&2
+    exit 0
+  fi
+  cd "${RUNNER_DIR}" && timeout 150 ./config.sh remove --unattended
   REMOVE_STATUS=$?
   if [ "${REMOVE_STATUS}" -eq 0 ]; then
     if [ -n "${GITHUB_RUNNER_STATE_ROOT:-}" ] && [ -n "${POD_NAME:-}" ]; then

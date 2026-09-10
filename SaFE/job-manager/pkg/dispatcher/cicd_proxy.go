@@ -89,6 +89,10 @@ func configureCICDProxyRelay(obj *unstructured.Unstructured, workload, source *v
 		}
 	}
 	if relay == nil {
+		if commonworkload.IsCICDGithubRunner(workload) {
+			return false, fmt.Errorf(
+				"credentialed CICD proxy requires a proxy-relay sidecar; configure cicd.proxy_relay_image")
+		}
 		return false, removeCICDProxyRelay(obj, workload, resourceSpec)
 	}
 	updateContainerEnv(map[string]string{
@@ -97,6 +101,9 @@ func configureCICDProxyRelay(obj *unstructured.Unstructured, workload, source *v
 	endpoint := map[string]string{}
 	relayURL := "http://127.0.0.1:" + strconv.Itoa(commonconfig.GetCICDProxyRelayPort())
 	endpoint[cicdProxyHTTPEnv], endpoint[cicdProxyHTTPSEnv] = relayURL, relayURL
+	if noProxy := strings.TrimSpace(workload.Spec.Env[common.NoProxy]); noProxy != "" {
+		endpoint[common.NoProxy] = noProxy
+	}
 	if err = applyCICDProxyEndpoint(containers, workload, endpoint, nil); err != nil {
 		return false, err
 	}

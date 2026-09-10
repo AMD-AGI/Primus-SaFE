@@ -22,6 +22,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,6 +53,39 @@ import (
 	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
 	"github.com/agiledragon/gomonkey/v2"
 )
+
+func TestValidateGithubRunnerRBAC(t *testing.T) {
+	ctx := context.Background()
+	namespace := "runner-workspace"
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{
+		Name: common.GithubRunnerServiceAccount, Namespace: namespace,
+	}}
+	role := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: common.GithubRunnerServiceAccount},
+		Rules: []rbacv1.PolicyRule{{
+			APIGroups: []string{"apps"}, Resources: []string{"statefulsets"}, Verbs: []string{"get"},
+		}},
+	}
+	binding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: common.GithubRunnerServiceAccount, Namespace: namespace},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: rbacv1.GroupName,
+			Kind:     common.ClusterRoleKind,
+			Name:     common.GithubRunnerServiceAccount,
+		},
+		Subjects: []rbacv1.Subject{{
+			Kind: "ServiceAccount", Name: common.GithubRunnerServiceAccount, Namespace: namespace,
+		}},
+	}
+
+	assert.ErrorContains(t, validateGithubRunnerRBAC(ctx, k8sfake.NewSimpleClientset(), namespace),
+		"ServiceAccount")
+	assert.ErrorContains(t, validateGithubRunnerRBAC(ctx, k8sfake.NewSimpleClientset(sa), namespace),
+		"RoleBinding")
+	assert.ErrorContains(t, validateGithubRunnerRBAC(ctx, k8sfake.NewSimpleClientset(sa, binding), namespace),
+		"ClusterRole")
+	assert.NilError(t, validateGithubRunnerRBAC(ctx, k8sfake.NewSimpleClientset(sa, binding, role), namespace))
+}
 
 type PytorchSpec struct {
 	PytorchReplicaSpecs struct {
@@ -1203,6 +1237,33 @@ func TestGithubRunnerInjectedEnvSurvivesRemoval(t *testing.T) {
 	assert.Equal(t, envsMap[common.ProxyUrl], "http://github-proxy:3128")
 	assert.Equal(t, envsMap[common.GithubRunnerStateRoot], "/ceph/github-runners/"+workload.Name)
 	assert.Equal(t, envsMap[jobutils.GithubSecretEnv], "runner-secret")
+}
+
+func TestGithubRunnerDirectProxyReachesDind(t *testing.T) {
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
+	workload.Spec.Env[common.NoProxy] = ".svc,.cluster.local"
+	v1.SetAnnotation(workload, v1.CICDProxyManagedAnnotation, v1.TrueStr)
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
+			"containers":     []interface{}{map[string]interface{}{"name": "runner"}},
+			"initContainers": []interface{}{map[string]interface{}{"name": cicdProxyDindContainer}},
+		}}},
+	}}
+
+	spec := jobutils.TestStatefulSetResourceTemplate.Spec.ResourceSpecs[0]
+	assert.NilError(t, applyGithubRunnerDirectProxy(obj, workload, spec))
+	for _, field := range []string{"containers", "initContainers"} {
+		entries, _, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &spec, field))
+		assert.NilError(t, err)
+		env, _, err := unstructured.NestedSlice(entries[0].(map[string]interface{}), "env")
+		assert.NilError(t, err)
+		values := convertEnvsToStringMap(env)
+		assert.Equal(t, values[cicdProxyHTTPEnv], "http://proxy.example.com:3128")
+		assert.Equal(t, values[common.NoProxy], ".svc,.cluster.local")
+	}
 }
 
 func TestGithubRunnerCreateDoesNotDuplicateSecretMounts(t *testing.T) {
@@ -2839,6 +2900,7 @@ func relaySource(credential string) *v1.Workload {
 
 func TestConfigureCICDProxyRelay(t *testing.T) {
 	obj, w := relayObject(), relaySource("proxy-auth")
+	w.Spec.Env[common.NoProxy] = ".svc,.cluster.local"
 	relay, err := configureCICDProxyRelay(obj, w, w, ephemeralRunnerSpec())
 	assert.NilError(t, err)
 	assert.Assert(t, relay)
@@ -2867,6 +2929,7 @@ func TestConfigureCICDProxyRelay(t *testing.T) {
 	// docker.sock, so dockerd needs the relay too or ghcr.io leaves via the node.
 	assert.Equal(t, env[cicdProxyDindContainer]["http_proxy"], "http://127.0.0.1:3129")
 	assert.Equal(t, env[cicdProxyDindContainer]["https_proxy"], "http://127.0.0.1:3129")
+	assert.Equal(t, env[cicdProxyDindContainer][common.NoProxy], ".svc,.cluster.local")
 	// The relay must not be pointed at itself.
 	assert.Equal(t, env[cicdProxyRelayContainer]["http_proxy"], "")
 
@@ -2933,11 +2996,13 @@ func TestConfigureCICDProxyRelaySkipped(t *testing.T) {
 	assert.Assert(t, !relay)
 	assertCICDProxyRelayRemoved(t, obj)
 
-	// Chart did not add the sidecar: the relay cannot take over even with a credential.
+	// A credential cannot be used safely without the relay that keeps it out of runner env.
 	bare := &unstructured.Unstructured{Object: map[string]interface{}{
 		"spec": map[string]interface{}{"spec": map[string]interface{}{
 			"containers": []interface{}{map[string]interface{}{"name": "runner"}}}}}}
-	relay, err = configureCICDProxyRelay(bare, relaySource("proxy-auth"), relaySource("proxy-auth"), ephemeralRunnerSpec())
-	assert.NilError(t, err)
+	hosted := relaySource("proxy-auth")
+	hosted.Spec.GroupVersionKind.Kind = common.CICDGithubRunnerKind
+	relay, err = configureCICDProxyRelay(bare, hosted, hosted, ephemeralRunnerSpec())
+	assert.ErrorContains(t, err, "proxy-relay")
 	assert.Assert(t, !relay)
 }

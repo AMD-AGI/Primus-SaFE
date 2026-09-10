@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path"
 	"reflect"
 	"strconv"
 	"strings"
@@ -1116,6 +1117,9 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(ctx context.Context, wo
 	if err := validateCICDProxyAdmission(ctx, v.Client, v.secretReader, workload, oldWorkload); err != nil {
 		return err
 	}
+	if err := v.validateCICDRunnerLabelsUnique(ctx, workload); err != nil {
+		return err
+	}
 	if len(workload.Spec.Env) == 0 {
 		return fmt.Errorf("the environment variables of workload is empty")
 	}
@@ -1147,6 +1151,14 @@ func (v *WorkloadValidator) validateGithubRunner(ctx context.Context, workload, 
 				strings.TrimSpace(commonworkload.GithubRunnerStartScript())) {
 		return fmt.Errorf("github runner entrypoint is managed by the platform")
 	}
+	for _, image := range workload.Spec.Images {
+		normalized := strings.TrimSpace(image)
+		if strings.HasSuffix(normalized, ":latest") ||
+			(!strings.Contains(normalized, "@sha256:") &&
+				!strings.Contains(path.Base(normalized), ":")) {
+			return fmt.Errorf("github runner image %q must use a pinned tag or digest", image)
+		}
+	}
 	if workload.GetEnv(common.GithubConfigUrl) == "" {
 		return fmt.Errorf("the %s of workload environment variables is empty", common.GithubConfigUrl)
 	}
@@ -1167,7 +1179,7 @@ func (v *WorkloadValidator) validateGithubRunner(ctx context.Context, workload, 
 	if !attached {
 		return fmt.Errorf("the github registration token secret is not attached to the workload")
 	}
-	if err := v.validateGithubRunnerLabelsUnique(ctx, workload); err != nil {
+	if err := v.validateCICDRunnerLabelsUnique(ctx, workload); err != nil {
 		return err
 	}
 	return validateCICDProxyAdmission(ctx, v.Client, v.secretReader, workload, oldWorkload)
@@ -1200,9 +1212,8 @@ func githubRunnerPoolLabels(workload *v1.Workload) []string {
 	return out
 }
 
-// validateGithubRunnerLabelsUnique rejects a GithubRunner whose custom labels
-// overlap another live GithubRunner pool.
-func (v *WorkloadValidator) validateGithubRunnerLabelsUnique(ctx context.Context, workload *v1.Workload) error {
+// validateCICDRunnerLabelsUnique rejects conflicting persistent and ARC runner labels.
+func (v *WorkloadValidator) validateCICDRunnerLabelsUnique(ctx context.Context, workload *v1.Workload) error {
 	var reader client.Reader = v.Client
 	if v.secretReader != nil {
 		reader = v.secretReader
@@ -1211,12 +1222,14 @@ func (v *WorkloadValidator) validateGithubRunnerLabelsUnique(ctx context.Context
 		return nil
 	}
 	wanted := githubRunnerPoolLabels(workload)
+	if commonworkload.IsCICDScalingRunnerSet(workload) {
+		wanted = []string{workload.Name}
+	}
 	if len(wanted) == 0 {
 		return fmt.Errorf("the %s of workload environment variables is empty", common.RunnerLabels)
 	}
 	list := &v1.WorkloadList{}
-	selector := labels.SelectorFromSet(map[string]string{v1.WorkloadKindLabel: common.CICDGithubRunnerKind})
-	if err := reader.List(ctx, list, &client.ListOptions{LabelSelector: selector}); err != nil {
+	if err := reader.List(ctx, list); err != nil {
 		return err
 	}
 	configURL := strings.TrimSpace(workload.GetEnv(common.GithubConfigUrl))
@@ -1229,13 +1242,18 @@ func (v *WorkloadValidator) validateGithubRunnerLabelsUnique(ctx context.Context
 		if other.Name == workload.Name || other.IsEnd() {
 			continue
 		}
-		if !commonworkload.IsCICDGithubRunner(other) {
+		if !commonworkload.IsCICDGithubRunner(other) &&
+			!commonworkload.IsCICDScalingRunnerSet(other) {
 			continue
 		}
 		if strings.TrimSpace(other.GetEnv(common.GithubConfigUrl)) != configURL {
 			continue
 		}
-		for _, existing := range githubRunnerPoolLabels(other) {
+		existingLabels := githubRunnerPoolLabels(other)
+		if commonworkload.IsCICDScalingRunnerSet(other) {
+			existingLabels = []string{other.Name, v1.GetDisplayName(other)}
+		}
+		for _, existing := range existingLabels {
 			if label, ok := wantedKeys[strings.ToLower(existing)]; ok {
 				return commonerrors.NewAlreadyExist(
 					fmt.Sprintf("the github runner label %q is already in use", label))

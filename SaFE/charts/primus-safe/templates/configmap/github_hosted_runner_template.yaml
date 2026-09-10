@@ -25,10 +25,16 @@ data:
     podManagementPolicy: Parallel
     template:
       spec:
-        dnsPolicy: ClusterFirstWithHostNet
+        dnsPolicy: ClusterFirst
         serviceAccountName: github-runner
-{{- if (default "" (default .Values.cicd).proxy_relay_image) }}
         initContainers:
+        - name: init-dind-externals
+          image: {{ default "ghcr.io/actions/actions-runner:2.328.0" (default .Values.cicd).github_runner_image }}
+          command: ["cp", "-r", "/home/runner/externals/.", "/home/runner/tmpDir/"]
+          volumeMounts:
+          - name: dind-externals
+            mountPath: /home/runner/tmpDir
+{{- if (default "" (default .Values.cicd).proxy_relay_image) }}
         - name: proxy-relay
           image: {{ .Values.cicd.proxy_relay_image }}
           imagePullPolicy: IfNotPresent
@@ -98,29 +104,71 @@ data:
               mountPath: /etc/secrets/proxy
               readOnly: true
 {{- end }}
+        - name: dind
+          image: {{ default "docker:28.3.3-dind" (default .Values.cicd).github_runner_dind_image }}
+          restartPolicy: Always
+          args:
+          - dockerd
+          - --host=unix:///var/run/docker.sock
+          - --group=$(DOCKER_GROUP_GID)
+          env:
+          - name: DOCKER_GROUP_GID
+            value: "123"
+          securityContext:
+            privileged: true
+            runAsGroup: 0
+            runAsUser: 0
+          startupProbe:
+            exec:
+              command: ["docker", "info"]
+            failureThreshold: 24
+            periodSeconds: 5
+          volumeMounts:
+          - name: work
+            mountPath: /home/runner/_work
+          - name: dind-sock
+            mountPath: /var/run
+          - name: dind-externals
+            mountPath: /home/runner/externals
         containers:
         - name: runner
-          image: ghcr.io/actions/actions-runner:latest
-          imagePullPolicy: Always
+          image: {{ default "ghcr.io/actions/actions-runner:2.328.0" (default .Values.cicd).github_runner_image }}
+          imagePullPolicy: IfNotPresent
           env:
-            - name: RUNNER_ALLOW_RUNASROOT
-              value: "1"
             - name: ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT
               value: "1"
+            - name: DOCKER_HOST
+              value: unix:///var/run/docker.sock
+            - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+              value: "120"
             - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
           securityContext:
-            runAsUser: 0
-            privileged: true
+            allowPrivilegeEscalation: false
+            runAsGroup: 123
+            runAsUser: 1001
+          volumeMounts:
+          - name: work
+            mountPath: /home/runner/_work
+          - name: dind-sock
+            mountPath: /var/run
+          - name: dind-externals
+            mountPath: /home/runner/externals
           # Dispatcher injects preStop (config.sh remove) for scale-down and
           # workload delete. Rolling restarts keep the ordinal and skip remove.
-        terminationGracePeriodSeconds: 60
+        terminationGracePeriodSeconds: 180
         restartPolicy: Always
         schedulerName: kube-scheduler-plugins
-{{- if (default "" (default .Values.cicd).proxy_relay_image) }}
         volumes:
+        - name: work
+          emptyDir: {}
+        - name: dind-sock
+          emptyDir: {}
+        - name: dind-externals
+          emptyDir: {}
+{{- if (default "" (default .Values.cicd).proxy_relay_image) }}
         - name: proxy-credential
           secret:
             optional: true

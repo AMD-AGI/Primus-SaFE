@@ -1489,10 +1489,24 @@ func applyGithubRunnerDirectProxy(obj *unstructured.Unstructured, workload *v1.W
 		return err
 	}
 	endpoint := map[string]string{cicdProxyHTTPEnv: config.URL, cicdProxyHTTPSEnv: config.URL}
+	if noProxy := strings.TrimSpace(workload.Spec.Env[common.NoProxy]); noProxy != "" {
+		endpoint[common.NoProxy] = noProxy
+	}
 	if err = applyCICDProxyEndpoint(containers, workload, endpoint, nil); err != nil {
 		return err
 	}
-	return jobutils.SetNestedField(obj.Object, containers, path)
+	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
+		return err
+	}
+	initPath := podSpecPath(workload, &resourceSpec, "initContainers")
+	initContainers, found, err := jobutils.NestedSlice(obj.Object, initPath)
+	if err != nil || !found {
+		return err
+	}
+	if err = applyCICDProxyEndpoint(initContainers, workload, endpoint, nil); err != nil {
+		return err
+	}
+	return jobutils.SetNestedField(obj.Object, initContainers, initPath)
 }
 
 func githubRunnerLifecycle() map[string]interface{} {

@@ -16,12 +16,14 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/client-go/kubernetes"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -841,6 +843,12 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 	}
 	// Apply after updateContainers so GetEnvToBeRemoved cannot drop injected keys.
 	if commonworkload.IsCICDGithubRunner(adminWorkload) {
+		if clientSets != nil {
+			if err = validateGithubRunnerRBAC(
+				ctx, clientSets.ClientFactory().ClientSet(), adminWorkload.Spec.Workspace); err != nil {
+				return err
+			}
+		}
 		if err = updateGithubRunner(obj, adminWorkload, workspace, rt); err != nil {
 			return err
 		}
@@ -851,6 +859,60 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 	// NOT here. Running it inside applyWorkloadSpecToObject would delete the
 	// containers[] field before initializeObject's modifyContainers sees it.
 	return nil
+}
+
+// validateGithubRunnerRBAC verifies the data plane can run the preStop lookup.
+func validateGithubRunnerRBAC(ctx context.Context, clientSet kubernetes.Interface, namespace string) error {
+	name := common.GithubRunnerServiceAccount
+	if _, err := clientSet.CoreV1().ServiceAccounts(namespace).Get(ctx, name, metav1.GetOptions{}); err != nil {
+		return fmt.Errorf("GithubRunner ServiceAccount %s/%s is not ready: %w", namespace, name, err)
+	}
+	binding, err := clientSet.RbacV1().RoleBindings(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("GithubRunner RoleBinding %s/%s is not ready: %w", namespace, name, err)
+	}
+	if binding.RoleRef.APIGroup != rbacv1.GroupName ||
+		binding.RoleRef.Kind != common.ClusterRoleKind || binding.RoleRef.Name != name {
+		return fmt.Errorf("GithubRunner RoleBinding %s/%s does not reference ClusterRole %s",
+			namespace, name, name)
+	}
+	subjectFound := false
+	for _, subject := range binding.Subjects {
+		if subject.Kind == "ServiceAccount" && subject.Name == name && subject.Namespace == namespace {
+			subjectFound = true
+			break
+		}
+	}
+	if !subjectFound {
+		return fmt.Errorf("GithubRunner RoleBinding %s/%s does not reference ServiceAccount %s/%s",
+			namespace, name, namespace, name)
+	}
+	role, err := clientSet.RbacV1().ClusterRoles().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("GithubRunner ClusterRole %s is not ready: %w", name, err)
+	}
+	allowed := false
+	for _, rule := range role.Rules {
+		if containsString(rule.APIGroups, "apps") &&
+			containsString(rule.Resources, "statefulsets") &&
+			containsString(rule.Verbs, "get") {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return fmt.Errorf("GithubRunner ClusterRole %s cannot get apps/statefulsets", name)
+	}
+	return nil
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted || value == "*" {
+			return true
+		}
+	}
+	return false
 }
 
 // createService creates a Kubernetes Service for the workload if specified.
