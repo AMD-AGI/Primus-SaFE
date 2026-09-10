@@ -1321,6 +1321,69 @@ func TestGithubRunnerCreateDoesNotDuplicateSecretMounts(t *testing.T) {
 		"/ceph/github-runners/"+workload.Name)
 }
 
+func TestGithubRunnerCreateWithProxyRelayDoesNotDuplicateSecretMounts(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.CICDGithubRunnerKind}
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "runner-secret", Type: v1.SecretGeneral}}
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	workload.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
+	workload.Spec.Env[common.ProxyCredentialSecret] = "runner-secret"
+	v1.SetAnnotation(workload, v1.CICDProxyManagedAnnotation, v1.TrueStr)
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "runner-secret")
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+
+	configmap, err := parseConfigmap(TestGithubRunnerTemplateConfig)
+	assert.NilError(t, err)
+	template := &unstructured.Unstructured{}
+	assert.NilError(t, yamlutil.NewYAMLOrJSONDecoder(strings.NewReader(configmap.Data["template"]), 4096).Decode(template))
+	initPath := []string{"spec", "template", "spec", "initContainers"}
+	initContainers, _, err := unstructured.NestedSlice(template.Object, initPath...)
+	assert.NilError(t, err)
+	initContainers = append([]interface{}{proxyRelayContainer()}, initContainers...)
+	assert.NilError(t, unstructured.SetNestedSlice(template.Object, initContainers, initPath...))
+	volumePath := []string{"spec", "template", "spec", "volumes"}
+	volumes, _, err := unstructured.NestedSlice(template.Object, volumePath...)
+	assert.NilError(t, err)
+	volumes = append(volumes, proxyCredentialVolume())
+	assert.NilError(t, unstructured.SetNestedSlice(template.Object, volumes, volumePath...))
+	configmap.Data["template"] = string(jsonutils.MarshalSilently(template.Object))
+
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(
+		configmap, jobutils.TestGithubRunnerResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+
+	volumes, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "volumes"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	volumeNames := map[string]int{}
+	for _, volume := range volumes {
+		name, _ := volume.(map[string]interface{})["name"].(string)
+		volumeNames[name]++
+	}
+	assert.Equal(t, volumeNames["runner-secret"], 1)
+	assert.Equal(t, volumeNames[cicdProxyCredentialVol], 1)
+
+	containers, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "containers"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	mounts := containers[0].(map[string]interface{})["volumeMounts"].([]interface{})
+	mountPaths := map[string]int{}
+	for _, mount := range mounts {
+		mountPath, _ := mount.(map[string]interface{})["mountPath"].(string)
+		mountPaths[mountPath]++
+	}
+	assert.Equal(t, mountPaths[common.SecretPath+"/runner-secret"], 1)
+}
+
 func TestCreateRayJob(t *testing.T) {
 	commonconfig.SetValue("net.rdma_name", "rdma/hca")
 	defer commonconfig.SetValue("net.rdma_name", "")

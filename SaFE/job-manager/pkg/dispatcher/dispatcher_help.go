@@ -1521,6 +1521,15 @@ func githubRunnerLifecycle() map[string]interface{} {
 
 func githubRunnerHasSecretVolume(obj *unstructured.Unstructured,
 	workload *v1.Workload, resourceSpec v1.ResourceSpec) bool {
+	secretIDs := make(map[string]struct{}, len(workload.Spec.Secrets))
+	for _, secret := range workload.Spec.Secrets {
+		if secret.Type == v1.SecretGeneral {
+			secretIDs[secret.Id] = struct{}{}
+		}
+	}
+	if len(secretIDs) == 0 {
+		return false
+	}
 	volumes, found, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &resourceSpec, "volumes"))
 	if err != nil || !found {
 		return false
@@ -1530,7 +1539,11 @@ func githubRunnerHasSecretVolume(obj *unstructured.Unstructured,
 		if !ok {
 			continue
 		}
-		if _, hasSecret := volumeMap["secret"]; hasSecret {
+		if _, hasSecret := volumeMap["secret"]; !hasSecret {
+			continue
+		}
+		name, _ := volumeMap["name"].(string)
+		if _, managed := secretIDs[name]; managed {
 			return true
 		}
 	}
