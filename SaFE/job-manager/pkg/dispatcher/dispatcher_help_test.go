@@ -2414,10 +2414,10 @@ func TestUpdateCICDProxy_AddChangeRemove(t *testing.T) {
 			obj, err := r.generateK8sObject(context.Background(), w, nil)
 			assert.NilError(t, err)
 			steps := []map[string]string{
-				{common.ProxyUrl: "http://new-proxy.example.com", common.ProxyCredentialSecret: "replacement-auth", common.NoProxy: "localhost,192.0.2.0/24"},
-				{common.ProxyUrl: "http://new-proxy.example.com", common.NoProxy: "localhost"},
-				{common.ProxyUrl: "http://proxy.example.com", common.NoProxy: ""},
-				{common.ProxyUrl: "http://proxy.example.com"},
+				{common.ProxyUrl: "http://new-proxy.example.com:3128", common.ProxyCredentialSecret: "replacement-auth", common.NoProxy: "localhost,192.0.2.0/24"},
+				{common.ProxyUrl: "http://new-proxy.example.com:3128", common.NoProxy: "localhost"},
+				{common.ProxyUrl: "http://proxy.example.com:3128", common.NoProxy: ""},
+				{common.ProxyUrl: "http://proxy.example.com:3128"},
 				{common.ProxyUrl: ""},
 				{},
 			}
@@ -2494,7 +2494,7 @@ func TestUpdateCICDProxy_UnmanagedTemplate(t *testing.T) {
 			before = obj.DeepCopy()
 			assert.NilError(t, updateCICDProxy(obj, source))
 			assert.DeepEqual(t, obj.Object, before.Object)
-			source.Spec.Env[common.ProxyUrl] = "http://proxy.example.com"
+			source.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
 			assert.NilError(t, updateCICDProxy(obj, source))
 			assert.Equal(t, v1.GetAnnotation(obj, v1.CICDProxyManagedAnnotation), v1.TrueStr)
 			delete(source.Spec.Env, common.ProxyUrl)

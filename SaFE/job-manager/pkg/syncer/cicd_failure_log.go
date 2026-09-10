@@ -25,6 +25,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jmmetrics "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/metrics"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -99,9 +100,11 @@ func (r *SyncerReconciler) enrichCICDFailureMessage(ctx context.Context, snapsho
 	if err != nil {
 		return err
 	}
-	queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, commonconfig.GetCICDFailureEnrichTimeout())
 	defer cancel()
-	responses, err := cicdlog.SearchARCControllerLogs(queryCtx, scope, cicdlog.SearchOptions{Queries: queries, ErrorsOnly: true})
+	responses, err := cicdlog.SearchARCControllerLogs(queryCtx, scope, cicdlog.SearchOptions{
+		Queries: queries, ErrorsOnly: true, Observe: jmmetrics.ObserveCICDFailureEnrichment,
+	})
 	if err != nil {
 		return err
 	}

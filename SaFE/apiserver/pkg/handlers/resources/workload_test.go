@@ -2081,7 +2081,7 @@ func TestWorkloadProxyValidation_ErrorResponses(t *testing.T) {
 			t.Run(method+"/"+tc.name, func(t *testing.T) {
 				h, user, w, cs := proxyAPIHandler(t)
 				env := w.DeepCopy().Spec.Env
-				env[common.ProxyUrl] = "http://proxy.example.com"
+				env[common.ProxyUrl] = "http://proxy.example.com:3128"
 				env[common.ProxyCredentialSecret] = "proxy-auth"
 				if tc.name == "userinfo" {
 					env[common.ProxyUrl] = "http://sample@example.com"
@@ -2169,7 +2169,7 @@ func TestWorkloadProxyValidation_ConflictRetry(t *testing.T) {
 	h, user, w, cs := proxyAPIHandler(t)
 	source := createProxyAPISecret(t, h, user)
 	env := w.DeepCopy().Spec.Env
-	env[common.ProxyUrl] = "http://proxy.example.com"
+	env[common.ProxyUrl] = "http://proxy.example.com:3128"
 	env[common.ProxyCredentialSecret] = source.Name
 	attempts := 0
 	reads := 0

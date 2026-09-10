@@ -1024,7 +1024,7 @@ func TestGenerateCICDScaleRunnerSet_ProxyReference(t *testing.T) {
 		t.Run(fmt.Sprint(app), func(t *testing.T) {
 			h, user, w, cs := proxyAPIHandler(t)
 			secret := createProxyAPISecret(t, h, user)
-			w.Spec.Env[common.ProxyUrl], w.Spec.Env[common.ProxyCredentialSecret] = "http://proxy.example.com", secret.Name
+			w.Spec.Env[common.ProxyUrl], w.Spec.Env[common.ProxyCredentialSecret] = "http://proxy.example.com:3128", secret.Name
 			w.Spec.Env[GithubPAT] = "example-auth-value"
 			var auth *view.GitHubAuthRequest
 			if app {
@@ -1052,7 +1052,7 @@ func TestGenerateCICDScaleRunnerSet_InvalidProxyPreflight(t *testing.T) {
 	for _, mode := range []string{"invalid", "missing", "unauthorized"} {
 		t.Run(mode, func(t *testing.T) {
 			h, user, w, cs := proxyAPIHandler(t)
-			w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com"
+			w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
 			if mode == "invalid" {
 				w.Spec.Env[common.ProxyUrl] = "http://sample@example.com"
 			} else {
@@ -1089,7 +1089,7 @@ func TestUpdateCICDScaleRunnerSet_ProxyValidation(t *testing.T) {
 	secrets, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).List(context.Background(), metav1.ListOptions{})
 	assert.NilError(t, err)
 	assert.Equal(t, len(secrets.Items), 1)
-	replacement[common.ProxyUrl] = "http://proxy.example.com"
+	replacement[common.ProxyUrl] = "http://proxy.example.com:3128"
 	req.GitHubAuth = nil
 	reads := 0
 	cs.PrependReactor("get", "secrets", func(action k8stesting.Action) (bool, runtime.Object, error) { reads++; return false, nil, nil })
@@ -1116,7 +1116,7 @@ func TestUpdateCICDScaleRunnerSet_AttachesProxyCredential(t *testing.T) {
 	assert.NilError(t, h.Update(ctx, workload))
 
 	env := workload.DeepCopy().Spec.Env
-	env[common.ProxyUrl] = "http://proxy.example.com"
+	env[common.ProxyUrl] = "http://proxy.example.com:3128"
 	req := &view.PatchWorkloadRequest{
 		Env:       &env,
 		ProxyAuth: &view.ProxyAuthRequest{Username: "proxy-user", Password: "proxy-pass"},

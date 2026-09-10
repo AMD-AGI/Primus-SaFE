@@ -30,7 +30,7 @@ func validCICDProxySecret(password []byte) *corev1.Secret {
 }
 
 func TestParseCICDProxy_NoProxy(t *testing.T) {
-	for _, env := range []map[string]string{nil, {}, {common.ProxyUrl: ""}, {common.NoProxy: "localhost"}, {"HTTP_PROXY": "http://proxy.example.com"}} {
+	for _, env := range []map[string]string{nil, {}, {common.ProxyUrl: ""}, {common.NoProxy: "localhost"}, {"HTTP_PROXY": "http://proxy.example.com:3128"}} {
 		config, err := ParseCICDProxy(env)
 		assert.NilError(t, err)
 		assert.Assert(t, config == nil)
@@ -38,14 +38,14 @@ func TestParseCICDProxy_NoProxy(t *testing.T) {
 }
 
 func TestParseCICDProxy_Endpoints(t *testing.T) {
-	for _, endpoint := range []string{"http://proxy.example.com", "http://proxy.example.com/", "http://192.0.2.1:1", "http://[2001:db8::1]:65535", "http://localhost:8080"} {
+	for _, endpoint := range []string{"http://proxy.example.com:3128", "http://proxy.example.com:3128/", "http://192.0.2.1:1", "http://[2001:db8::1]:65535", "http://localhost:8080"} {
 		t.Run(endpoint, func(t *testing.T) {
 			config, err := ParseCICDProxy(map[string]string{common.ProxyUrl: endpoint})
 			assert.NilError(t, err)
 			assert.Equal(t, config.URL, endpoint)
 		})
 	}
-	for _, endpoint := range []string{"http://", "proxy.example.com", "http://%xx", " http://proxy.example.com", "http://proxy.example.com\n", "http:proxy.example.com", "https://proxy.example.com", "https://[::1]", "ftp://proxy.example.com", "http://proxy.example.com:0", "http://proxy.example.com:65536", "http://proxy.example.com:port", "http://proxy.example.com:", "http://proxy.example.com?", "http://proxy.example.com#", "http://proxy.example.com/path", "http://2001:db8::1", "https://proxy.example.com/a%xx"} {
+	for _, endpoint := range []string{"http://", "proxy.example.com", "http://%xx", " http://proxy.example.com", "http://proxy.example.com\n", "http:proxy.example.com", "https://proxy.example.com", "https://[::1]", "ftp://proxy.example.com", "http://proxy.example.com:0", "http://proxy.example.com:65536", "http://proxy.example.com:port", "http://proxy.example.com:", "http://proxy.example.com", "http://proxy.example.com/", "http://[2001:db8::1]", "http://proxy.example.com?", "http://proxy.example.com#", "http://proxy.example.com/path", "http://2001:db8::1", "https://proxy.example.com/a%xx"} {
 		t.Run(endpoint, func(t *testing.T) {
 			_, err := ParseCICDProxy(map[string]string{common.ProxyUrl: endpoint})
 			assert.Assert(t, err != nil)
@@ -68,9 +68,9 @@ func TestParseCICDProxy_RejectsAllUserinfo(t *testing.T) {
 }
 
 func TestParseCICDProxy_NormalizedKeys(t *testing.T) {
-	config, err := ParseCICDProxy(map[string]string{" PROXY_URL ": "http://proxy.example.com", " NO_PROXY ": " localhost "})
+	config, err := ParseCICDProxy(map[string]string{" PROXY_URL ": "http://proxy.example.com:3128", " NO_PROXY ": " localhost "})
 	assert.NilError(t, err)
-	assert.Equal(t, config.URL, "http://proxy.example.com")
+	assert.Equal(t, config.URL, "http://proxy.example.com:3128")
 	assert.DeepEqual(t, config.NoProxy, []string{"localhost"})
 	for _, key := range CICDProxyEnvKeys() {
 		_, err = ParseCICDProxy(map[string]string{key: "", " " + key: ""})
@@ -88,7 +88,7 @@ func TestParseCICDProxy_NoProxyList(t *testing.T) {
 	}{
 		{"", nil}, {", ,", nil}, {"localhost, , .example.com,2001:db8::1,192.0.2.0/24,*.example.org,", []string{"localhost", ".example.com", "2001:db8::1", "192.0.2.0/24", "*.example.org"}},
 	} {
-		config, err := ParseCICDProxy(map[string]string{common.ProxyUrl: "http://proxy.example.com", common.NoProxy: tc.input})
+		config, err := ParseCICDProxy(map[string]string{common.ProxyUrl: "http://proxy.example.com:3128", common.NoProxy: tc.input})
 		assert.NilError(t, err)
 		assert.DeepEqual(t, config.NoProxy, tc.want)
 	}
@@ -97,12 +97,12 @@ func TestParseCICDProxy_NoProxyList(t *testing.T) {
 func TestParseCICDProxy_SecretName(t *testing.T) {
 	boundary := strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d", 61)
 	for _, name := range []string{"proxy-auth", boundary} {
-		config, err := ParseCICDProxy(map[string]string{common.ProxyUrl: "http://proxy.example.com", common.ProxyCredentialSecret: name})
+		config, err := ParseCICDProxy(map[string]string{common.ProxyUrl: "http://proxy.example.com:3128", common.ProxyCredentialSecret: name})
 		assert.NilError(t, err)
 		assert.Equal(t, config.CredentialSecret, name)
 	}
 	for _, name := range []string{" proxy-auth", "proxy-auth ", "workspace/proxy-auth", "https://example.com", "ProxyAuth", boundary + "x"} {
-		_, err := ParseCICDProxy(map[string]string{common.ProxyUrl: "http://proxy.example.com", common.ProxyCredentialSecret: name})
+		_, err := ParseCICDProxy(map[string]string{common.ProxyUrl: "http://proxy.example.com:3128", common.ProxyCredentialSecret: name})
 		assert.Assert(t, err != nil)
 		assert.Assert(t, strings.Contains(err.Error(), "env.PROXY_CREDENTIAL_SECRET:"))
 	}

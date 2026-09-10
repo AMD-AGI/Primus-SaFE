@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -529,6 +530,16 @@ func GetCICDNoProxy() string {
 // GetCICDProxyRelayPort returns the loopback port the CI/CD proxy relay listens on.
 func GetCICDProxyRelayPort() int {
 	return getInt(cicdProxyRelayPort, 3129)
+}
+
+// GetCICDFailureEnrichTimeout bounds the ARC controller log lookup that enriches a
+// failed CI/CD workload. Enrichment is effectively single-shot -- a failed lookup is
+// swallowed, the key is forgotten and the per-dispatch dedup map blocks a re-enqueue
+// -- so the budget must cover a cross-namespace OpenSearch query under load. It runs
+// on a dedicated worker queue rather than a reconcile path, so waiting costs
+// enrichment latency only; the interactive log handler uses 120s for the same query.
+func GetCICDFailureEnrichTimeout() time.Duration {
+	return time.Duration(getInt(cicdFailureEnrichTimeoutSec, 30)) * time.Second
 }
 
 // GetModelDownloaderImage returns the image for model downloader job.

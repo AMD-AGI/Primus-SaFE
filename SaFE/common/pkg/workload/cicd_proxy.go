@@ -35,7 +35,7 @@ const (
 	CICDProxySecretInvalid     = "env.PROXY_CREDENTIAL_SECRET: expected a non-deleting, workspace-bound general Secret with nonempty username and password keys containing no control characters"
 	CICDProxySecretForbidden   = "env.PROXY_CREDENTIAL_SECRET: access to the referenced Secret is forbidden"
 	CICDProxySecretUnavailable = "env.PROXY_CREDENTIAL_SECRET: unable to verify the referenced Secret; retry the request"
-	invalidProxyURL            = "env.PROXY_URL: expected an absolute http URL with a host, optional port 1-65535, and no credentials, query, fragment, or non-root path"
+	invalidProxyURL            = "env.PROXY_URL: expected an absolute http URL with a host, an explicit port 1-65535, and no credentials, query, fragment, or non-root path"
 )
 
 type CICDProxyConfig struct {
@@ -159,12 +159,17 @@ func validateCICDProxyURL(endpoint string) error {
 		(strings.HasPrefix(parsed.Host, "[") && net.ParseIP(host) == nil) {
 		return commonerrors.NewBadRequest(invalidProxyURL)
 	}
-	if port := parsed.Port(); port != "" {
-		number, err := strconv.Atoi(port)
-		if err != nil || number < 1 || number > 65535 {
-			return commonerrors.NewBadRequest(invalidProxyURL)
-		}
-	} else if strings.HasSuffix(parsed.Host, ":") {
+	// The port is mandatory. This address is a forward proxy, not an origin server,
+	// so there is no well-known port to fall back on: 80 and 3128 are both guesses,
+	// and a wrong one strands the relay behind a peer that never answers. Reject it
+	// here so the operator sees an admission error instead of a runner that fails to
+	// reach anything.
+	port := parsed.Port()
+	if port == "" {
+		return commonerrors.NewBadRequest(invalidProxyURL)
+	}
+	number, err := strconv.Atoi(port)
+	if err != nil || number < 1 || number > 65535 {
 		return commonerrors.NewBadRequest(invalidProxyURL)
 	}
 	return nil
@@ -231,6 +236,18 @@ func IsCICDProxyRoot(workload *v1.Workload) bool {
 	return IsCICDScalingRunnerSet(workload)
 }
 
+// ExpectedCICDProxyOptIn reports whether the proxy marker belongs on a workload.
+//
+// Opt-in is one-way for the life of a Workload: once the marker is stamped this
+// returns true even after every proxy env var is cleared. That is deliberate. The
+// reconciler owns the ARC object's spec.proxy, its relay container and the proxy
+// env on the proxied containers, and every teardown path in
+// job-manager/pkg/dispatcher/cicd_proxy.go is gated on IsCICDProxyManaged(source).
+// Letting the marker fall back to legacy the moment the env goes away would strand
+// all of that on the ARC object with nothing left to remove it. Clearing the env
+// instead drives a managed teardown; a genuinely unproxied scale set is expressed
+// by creating a new Workload without proxy env, which takes the oldWorkload == nil
+// branch below.
 func ExpectedCICDProxyOptIn(workload, oldWorkload *v1.Workload) bool {
 	if !IsCICDProxyRoot(workload) {
 		return false

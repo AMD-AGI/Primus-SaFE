@@ -2214,7 +2214,7 @@ func TestSyncCICDProxy_InvalidStoredConfig(t *testing.T) {
 
 func TestSyncCICDProxy_LegacyUnmarked(t *testing.T) {
 	for _, kind := range []string{common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind} {
-		for _, endpoint := range []string{"arbitrary legacy value", "http://proxy.example.com"} {
+		for _, endpoint := range []string{"arbitrary legacy value", "http://proxy.example.com:3128"} {
 			t.Run(kind+endpoint, func(t *testing.T) {
 				r, w, parent, rt := proxyDispatcherFixture(t, kind, false)
 				assert.NilError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(parent), parent))
@@ -2571,24 +2571,28 @@ func assertCICDProxyRelayRemoved(t *testing.T, obj *unstructured.Unstructured) {
 	for _, entry := range volumes {
 		assert.Assert(t, entry.(map[string]interface{})["name"] != cicdProxyCredentialVol)
 	}
-	runner := lookupCICDContainer(t, obj, "containers", "runner")
-	if runner == nil {
-		return
-	}
-	envs, _, err := unstructured.NestedSlice(runner, "env")
-	assert.NilError(t, err)
-	for _, entry := range envs {
-		name, _ := entry.(map[string]interface{})["name"].(string)
-		assert.Assert(t, name != cicdProxyHTTPEnv && name != cicdProxyHTTPSEnv)
+	for _, target := range []struct{ field, name string }{
+		{"containers", "runner"}, {"initContainers", cicdProxyDindContainer}} {
+		container := lookupCICDContainer(t, obj, target.field, target.name)
+		if container == nil {
+			continue
+		}
+		envs, _, err := unstructured.NestedSlice(container, "env")
+		assert.NilError(t, err)
+		for _, entry := range envs {
+			name, _ := entry.(map[string]interface{})["name"].(string)
+			assert.Assert(t, name != cicdProxyHTTPEnv && name != cicdProxyHTTPSEnv)
+		}
 	}
 }
 
 func relayObject() *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]interface{}{
 		"spec": map[string]interface{}{"spec": map[string]interface{}{
-			"containers":     []interface{}{map[string]interface{}{"name": "runner"}},
-			"initContainers": []interface{}{proxyRelayContainer()},
-			"volumes":        []interface{}{proxyCredentialVolume()},
+			"containers": []interface{}{map[string]interface{}{"name": "runner"}},
+			"initContainers": []interface{}{proxyRelayContainer(),
+				map[string]interface{}{"name": cicdProxyDindContainer}},
+			"volumes": []interface{}{proxyCredentialVolume()},
 		}}}}
 }
 
@@ -2630,6 +2634,12 @@ func TestConfigureCICDProxyRelay(t *testing.T) {
 	// The runner reaches the relay on loopback, so it never holds the credential.
 	assert.Equal(t, env["runner"]["http_proxy"], "http://127.0.0.1:3129")
 	assert.Equal(t, env["runner"]["https_proxy"], "http://127.0.0.1:3129")
+	// The runner delegates every pull and job container to dind over the shared
+	// docker.sock, so dockerd needs the relay too or ghcr.io leaves via the node.
+	assert.Equal(t, env[cicdProxyDindContainer]["http_proxy"], "http://127.0.0.1:3129")
+	assert.Equal(t, env[cicdProxyDindContainer]["https_proxy"], "http://127.0.0.1:3129")
+	// The relay must not be pointed at itself.
+	assert.Equal(t, env[cicdProxyRelayContainer]["http_proxy"], "")
 
 	volumes, _, err := unstructured.NestedSlice(obj.Object, "spec", "spec", "volumes")
 	assert.NilError(t, err)
@@ -2641,6 +2651,17 @@ func TestConfigureCICDProxyRelay(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, !relay)
 	assertCICDProxyRelayRemoved(t, obj)
+}
+
+func TestConfigureCICDProxyRelayRequiresUpstreamPort(t *testing.T) {
+	// A forward proxy has no well-known port, so a portless PROXY_URL must fail
+	// rather than have the relay peer at a guessed 3128. ParseCICDProxy rejects it
+	// first; the dispatcher's own guard behind it is defense in depth.
+	obj, w := relayObject(), relaySource("proxy-auth")
+	w.Spec.Env[common.ProxyUrl] = "http://proxy.example.com"
+	relay, err := configureCICDProxyRelay(obj, w, w, ephemeralRunnerSpec())
+	assert.ErrorContains(t, err, "explicit port 1-65535")
+	assert.Assert(t, !relay)
 }
 
 func TestConfigureCICDProxyRelaySkipped(t *testing.T) {
