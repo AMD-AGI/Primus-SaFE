@@ -169,6 +169,51 @@ func TestChartRendersCICDProxyRelayAsNativeSidecar(t *testing.T) {
 	t.Fatal("proxy-relay init container not found")
 }
 
+func TestChartRendersCICDProxyRelayUpstreamDomains(t *testing.T) {
+	// The relay exists to tunnel what GitHub's IP allow list gates. Defaulting the list
+	// to empty would instead force every destination upstream with no direct fallback,
+	// so package mirrors and internal registries would fail as opaque tunnel errors.
+	domains := func(t *testing.T, values ...string) string {
+		t.Helper()
+		rendered := renderConfigMapData(t, "github-runner-template", "template",
+			append([]string{"--show-only", "templates/configmap/github_runner_template.yaml",
+				"--set", "cicd.proxy_relay_image=example/proxy-relay:latest"}, values...)...)
+		var runner struct {
+			Spec struct {
+				Spec struct {
+					InitContainers []struct {
+						Name string `yaml:"name"`
+						Env  []struct {
+							Name  string `yaml:"name"`
+							Value string `yaml:"value"`
+						} `yaml:"env"`
+					} `yaml:"initContainers"`
+				} `yaml:"spec"`
+			} `yaml:"spec"`
+		}
+		testifyrequire.NoError(t, yaml.Unmarshal([]byte(rendered), &runner))
+		for _, current := range runner.Spec.Spec.InitContainers {
+			if current.Name != "proxy-relay" {
+				continue
+			}
+			for _, env := range current.Env {
+				if env.Name == "PROXY_UPSTREAM_DOMAINS" {
+					return env.Value
+				}
+			}
+			t.Fatal("PROXY_UPSTREAM_DOMAINS not found on the relay")
+		}
+		t.Fatal("proxy-relay init container not found")
+		return ""
+	}
+
+	testifyassert.Equal(t, ".github.com .githubusercontent.com .ghcr.io", domains(t))
+	testifyassert.Equal(t, ".corp.example",
+		domains(t, "--set", "cicd.proxy_relay_upstream_domains=.corp.example"))
+	// An explicit empty value stays the all-upstream escape hatch.
+	testifyassert.Equal(t, "", domains(t, "--set", "cicd.proxy_relay_upstream_domains="))
+}
+
 func TestChartRendersCICDProxyRelayCredentialEncoding(t *testing.T) {
 	type container struct {
 		Name string   `yaml:"name"`

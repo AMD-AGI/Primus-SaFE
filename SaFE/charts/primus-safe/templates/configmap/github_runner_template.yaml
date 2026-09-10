@@ -74,7 +74,7 @@ data:
               # newline or shell metacharacter would silently rewrite the ACL rather than
               # fail. Accept only space-separated dstdomain patterns and stop otherwise.
               case "${PROXY_UPSTREAM_DOMAINS:-}" in
-                *[!A-Za-z0-9.*_ -]*)
+                *[!A-Za-z0-9.*_\ -]*)
                   echo "PROXY_UPSTREAM_DOMAINS: expected domain patterns separated by spaces" >&2
                   exit 1
                   ;;
@@ -111,7 +111,7 @@ data:
             - name: PROXY_RELAY_PORT
               value: "{{ default 3129 (default .Values.cicd).proxy_relay_port }}"
             - name: PROXY_UPSTREAM_DOMAINS
-              value: "{{ default "" (default .Values.cicd).proxy_relay_upstream_domains }}"
+              value: "{{ if kindIs "invalid" (default .Values.cicd).proxy_relay_upstream_domains }}.github.com .githubusercontent.com .ghcr.io{{ else }}{{ (default .Values.cicd).proxy_relay_upstream_domains }}{{ end }}"
           resources:
             limits:
               cpu: 500m

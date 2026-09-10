@@ -122,9 +122,16 @@ cicd:
   # workload with its generic failure message. Raise it on clusters where the log index
   # is slow; it runs on a background queue and never delays the failure itself.
   failure_enrich_timeout_seconds: 30
-  # Destinations the relay sends through the cluster proxy, as squid dstdomain patterns
-  # (".github.com .githubusercontent.com"). Everything else goes direct. Empty sends all.
-  proxy_relay_upstream_domains: ""
+  # Destinations the relay sends through the cluster proxy, as squid dstdomain patterns;
+  # a leading dot matches the domain and its subdomains. Everything else goes direct.
+  # The default covers what the IP allow list actually gates: git and the API
+  # (.github.com), raw/artifact/actions endpoints and ghcr blobs (.githubusercontent.com),
+  # and the container registry (.ghcr.io). Package mirrors and internal registries stay
+  # direct, which is what keeps them working when the proxy does not serve them.
+  # Setting this to "" forces EVERY destination upstream with no direct fallback: anything
+  # the proxy refuses then fails as an opaque tunnel error. Only do that when the proxy is
+  # a general-purpose forward proxy for all egress.
+  proxy_relay_upstream_domains: ".github.com .githubusercontent.com .ghcr.io"
   # cicd component image version. used for starting jobs for runner
   runner: "cicd-runner-proxy:latest"
   unified_job: "cicd-unified-job-proxy:latest"
