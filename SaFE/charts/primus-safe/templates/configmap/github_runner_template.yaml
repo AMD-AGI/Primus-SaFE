@@ -89,6 +89,11 @@ data:
               always_direct allow all
               EOF
               else
+                # No list means every destination is forced upstream with no direct
+                # fallback, so a host the peer will not serve fails as an opaque tunnel
+                # error. Say so once at startup: the job cannot attribute it otherwise.
+                echo "relay: PROXY_UPSTREAM_DOMAINS is empty; ALL egress goes through" \
+                  "${PROXY_UPSTREAM_HOST}:${PROXY_UPSTREAM_PORT} with no direct fallback" >&2
                 cat >>/tmp/squid.conf <<EOF
               never_direct allow all
               EOF

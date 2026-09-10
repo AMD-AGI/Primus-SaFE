@@ -364,6 +364,26 @@ func updateCICDProxyContainerEnvs(obj *unstructured.Unstructured, workload, sour
 		if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
 			return err
 		}
+		// NO_PROXY carries the bypasses that keep in-cluster traffic off the external
+		// proxy (.svc, .cluster.local, the control plane). Any container pointed at the
+		// relay needs them or those destinations are forced upstream with no escape:
+		// with an empty upstream domain list squid has no direct path to fall back to.
+		// dind is a native sidecar, so it lives in initContainers and the loop above
+		// never reaches it.
+		initPath := podSpecPath(workload, &spec, "initContainers")
+		initContainers, found, err := jobutils.NestedSlice(obj.Object, initPath)
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue
+		}
+		if err = applyCICDProxyEndpoint(initContainers, workload, env, removed); err != nil {
+			return err
+		}
+		if err = jobutils.SetNestedField(obj.Object, initContainers, initPath); err != nil {
+			return err
+		}
 	}
 	return nil
 }

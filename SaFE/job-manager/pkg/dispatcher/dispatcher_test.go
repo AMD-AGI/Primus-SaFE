@@ -2653,6 +2653,38 @@ func TestConfigureCICDProxyRelay(t *testing.T) {
 	assertCICDProxyRelayRemoved(t, obj)
 }
 
+func TestUpdateCICDProxyContainerEnvsReachesDind(t *testing.T) {
+	// NO_PROXY carries the in-cluster bypasses. dind is pointed at the relay, so it
+	// needs them too: with an empty upstream domain list squid has no direct path to
+	// fall back to, and an in-cluster registry pull would be forced at the corporate
+	// proxy instead. dind is a native sidecar, so it sits in initContainers.
+	obj, w := relayObject(), relaySource("proxy-auth")
+	w.Spec.Env[common.NoProxy] = ".svc,.cluster.local"
+	rt := &v1.ResourceTemplate{Spec: v1.ResourceTemplateSpec{
+		ResourceSpecs: []v1.ResourceSpec{ephemeralRunnerSpec()}}}
+	assert.NilError(t, updateCICDProxyContainerEnvs(obj, w, w, rt))
+
+	for _, target := range []struct{ field, name string }{
+		{"containers", "runner"}, {"initContainers", cicdProxyDindContainer}} {
+		container := lookupCICDContainer(t, obj, target.field, target.name)
+		assert.Assert(t, container != nil, "missing container %s", target.name)
+		values := map[string]string{}
+		list, _, _ := unstructured.NestedSlice(container, "env")
+		for _, e := range list {
+			item := e.(map[string]interface{})
+			values[item["name"].(string)], _ = item["value"].(string)
+		}
+		assert.Equal(t, values[common.NoProxy], ".svc,.cluster.local", "container %s", target.name)
+	}
+	// The relay talks to the upstream proxy directly; it must not inherit the bypasses.
+	relay := lookupCICDContainer(t, obj, "initContainers", cicdProxyRelayContainer)
+	assert.Assert(t, relay != nil)
+	list, _, _ := unstructured.NestedSlice(relay, "env")
+	for _, e := range list {
+		assert.Assert(t, e.(map[string]interface{})["name"] != common.NoProxy)
+	}
+}
+
 func TestConfigureCICDProxyRelayRequiresUpstreamPort(t *testing.T) {
 	// A forward proxy has no well-known port, so a portless PROXY_URL must fail
 	// rather than have the relay peer at a guessed 3128. ParseCICDProxy rejects it
