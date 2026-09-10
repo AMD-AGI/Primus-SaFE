@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path"
 	"reflect"
 	"strconv"
 	"strings"
@@ -1150,14 +1149,6 @@ func (v *WorkloadValidator) validateGithubRunner(ctx context.Context, workload, 
 			strings.TrimSpace(workload.Spec.EntryPoints[0]) !=
 				strings.TrimSpace(commonworkload.GithubRunnerStartScript())) {
 		return fmt.Errorf("github runner entrypoint is managed by the platform")
-	}
-	for _, image := range workload.Spec.Images {
-		normalized := strings.TrimSpace(image)
-		if strings.HasSuffix(normalized, ":latest") ||
-			(!strings.Contains(normalized, "@sha256:") &&
-				!strings.Contains(path.Base(normalized), ":")) {
-			return fmt.Errorf("github runner image %q must use a pinned tag or digest", image)
-		}
 	}
 	if workload.GetEnv(common.GithubConfigUrl) == "" {
 		return fmt.Errorf("the %s of workload environment variables is empty", common.GithubConfigUrl)

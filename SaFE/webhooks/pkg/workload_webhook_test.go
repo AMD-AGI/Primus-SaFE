@@ -875,12 +875,15 @@ func TestValidateGithubRunnerRejectsCustomEntryPoint(t *testing.T) {
 	assert.ErrorContains(t, err, "entrypoint is managed")
 }
 
-func TestValidateGithubRunnerRejectsLatestImage(t *testing.T) {
-	w := githubRunnerForLabelTest("runner", "runner-label")
-	w.Spec.Images = []string{"ghcr.io/actions/actions-runner:latest"}
+// TestValidateGithubRunnerAcceptsAnyImageTag covers floating tags and the empty
+// image that makes the dispatcher keep the chart default.
+func TestValidateGithubRunnerAcceptsAnyImageTag(t *testing.T) {
 	v := &WorkloadValidator{}
-	err := v.validateGithubRunner(context.Background(), w, nil)
-	assert.ErrorContains(t, err, "must use a pinned tag or digest")
+	for _, image := range []string{"ghcr.io/actions/actions-runner:latest", "ghcr.io/actions/actions-runner", ""} {
+		w := githubRunnerForLabelTest("runner", "runner-label")
+		w.Spec.Images = []string{image}
+		assert.NilError(t, v.validateGithubRunner(context.Background(), w, nil))
+	}
 }
 
 // TestValidateGithubRunnerAcceptsMutatedEntryPoint verifies canonical whitespace handling.
