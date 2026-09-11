@@ -32,10 +32,9 @@ const initialWindow = 128 * 1024
 // connection on bookkeeping than on payload.
 const windowUpdateThreshold = initialWindow / 2
 
-// ctrlQueueDepth bounds the frames the read loop may hand to the writer. The read
-// loop must never block on a write - it is what drains the connection, so a read
-// loop waiting on a full transport is a session that can never recover - and every
-// frame that travels this way is a courtesy the protocol works without.
+// ctrlQueueDepth bounds each class of frames the read loop may hand to the writer.
+// The read loop must never block on a write - it is what drains the connection, so
+// a read loop waiting on a full transport is a session that can never recover.
 const ctrlQueueDepth = 128
 
 var (
@@ -98,7 +97,8 @@ type Session struct {
 	writeMu  sync.Mutex
 	writeBuf []byte
 
-	ctrl chan ctrlFrame
+	ctrl     chan ctrlFrame
+	teardown chan ctrlFrame
 
 	mu      sync.Mutex
 	streams map[uint32]*Stream
@@ -124,6 +124,7 @@ func NewSession(conn io.ReadWriteCloser, cfg Config) *Session {
 		cfg:      cfg,
 		writeBuf: frameBuffer(),
 		ctrl:     make(chan ctrlFrame, ctrlQueueDepth),
+		teardown: make(chan ctrlFrame, ctrlQueueDepth),
 		streams:  map[uint32]*Stream{},
 		nextID:   1,
 		accept:   make(chan *Stream, cfg.maxStreams()),
@@ -280,8 +281,9 @@ func (s *Session) writeFrame(h header, payload []byte) error {
 	return nil
 }
 
-// enqueueCtrl hands a frame to the writer without waiting. It is how the read loop
-// answers a frame, and a frame dropped here only costs the peer a diagnostic.
+// enqueueCtrl hands a best-effort frame to the writer without waiting. Pings and
+// pongs keep a healthy session observable, but dropping one under backpressure
+// does not leave a stream open.
 func (s *Session) enqueueCtrl(h header, payload []byte) {
 	select {
 	case s.ctrl <- ctrlFrame{h: h, payload: payload}:
@@ -290,10 +292,36 @@ func (s *Session) enqueueCtrl(h header, payload []byte) {
 	}
 }
 
-// ctrlLoop writes the frames the read loop handed over.
+// enqueueTeardown gives a stream-ending frame its own queue. If that queue is
+// exhausted too, closing the session is the only bounded way to guarantee the
+// peer does not keep the refused stream open forever.
+func (s *Session) enqueueTeardown(h header, payload []byte) {
+	select {
+	case s.teardown <- ctrlFrame{h: h, payload: payload}:
+	case <-s.done:
+	default:
+		s.shutdown(errors.New("rfwdmux: teardown queue full"))
+	}
+}
+
+// ctrlLoop writes the frames the read loop handed over, always draining stream
+// teardown before best-effort health traffic.
 func (s *Session) ctrlLoop() {
 	for {
 		select {
+		case f := <-s.teardown:
+			if err := s.writeFrame(f.h, f.payload); err != nil {
+				return
+			}
+			continue
+		default:
+		}
+
+		select {
+		case f := <-s.teardown:
+			if err := s.writeFrame(f.h, f.payload); err != nil {
+				return
+			}
 		case f := <-s.ctrl:
 			if err := s.writeFrame(f.h, f.payload); err != nil {
 				return
@@ -490,7 +518,7 @@ func (s *Session) queueForAccept(st *Stream) bool {
 func (s *Session) refuse(id uint32, reason string) {
 	s.dropped.Add(1)
 	s.cfg.logf("rfwdmux: refused stream %d: %s", id, reason)
-	s.enqueueCtrl(header{typ: frameReset, stream: id}, []byte(reason))
+	s.enqueueTeardown(header{typ: frameReset, stream: id}, []byte(reason))
 }
 
 // stream looks up a live stream.

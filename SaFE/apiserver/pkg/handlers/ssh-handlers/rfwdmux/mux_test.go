@@ -365,6 +365,65 @@ func TestTheAcceptingEndRefusesPastItsOwnCap(t *testing.T) {
 	_ = second.Close()
 }
 
+// TestARefusalOutranksAFullControlQueue covers the overloaded writer path: health
+// traffic may be dropped, but the reset that ends a refused stream must still get
+// through as soon as the writer can make progress.
+func TestARefusalOutranksAFullControlQueue(t *testing.T) {
+	client, server := sessionPairWith(t,
+		Config{MaxStreams: 2},
+		Config{MaxStreams: 1})
+
+	first, err := client.Open("127.0.0.1", 1)
+	testifyassert.NoError(t, err)
+	firstIn := accept(t, server)
+
+	server.writeMu.Lock()
+	writeLocked := true
+	defer func() {
+		if writeLocked {
+			server.writeMu.Unlock()
+		}
+	}()
+
+	// Let the writer take one regular frame and block on writeMu, then fill every
+	// remaining regular queue slot. The refusal below must not join or be dropped
+	// from this queue.
+	server.enqueueCtrl(header{typ: framePong}, nil)
+	waitFor(t, func() bool { return len(server.ctrl) == 0 }, "the control writer to block")
+	for i := 0; i < cap(server.ctrl); i++ {
+		server.ctrl <- ctrlFrame{h: header{typ: framePong}}
+	}
+	testifyassert.Equal(t, cap(server.ctrl), len(server.ctrl))
+
+	refused, err := client.Open("127.0.0.1", 2)
+	testifyassert.NoError(t, err)
+	waitFor(t, func() bool { return droppedOf(server) == 1 }, "the accepting end to refuse the stream")
+	waitFor(t, func() bool { return len(server.teardown) == 1 }, "the refusal reset to be queued")
+
+	server.writeMu.Unlock()
+	writeLocked = false
+
+	readDone := make(chan error, 1)
+	go func() {
+		_, err := io.ReadAll(refused)
+		readDone <- err
+	}()
+	select {
+	case err := <-readDone:
+		testifyassert.ErrorIs(t, err, ErrStreamReset)
+		testifyassert.ErrorContains(t, err, "stream limit reached")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the refused stream stayed open after the writer resumed")
+	}
+
+	_, err = first.Write([]byte("unaffected"))
+	testifyassert.NoError(t, err)
+	buf := make([]byte, len("unaffected"))
+	_, err = io.ReadFull(firstIn, buf)
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, "unaffected", string(buf))
+}
+
 // TestAbandonedConnectionsDoNotFillTheAcceptQueue covers a burst the peer gives up
 // on before anything takes it. Those hold a place in the queue without carrying
 // anything, so without clearing them out a session with nothing in flight would
