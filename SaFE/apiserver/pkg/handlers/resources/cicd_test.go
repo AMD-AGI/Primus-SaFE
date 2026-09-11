@@ -787,6 +787,7 @@ func TestUpdateGithubRunnerSecretReplacesReferenceAndRetainsOldSecret(t *testing
 		{Id: "user-secret", Type: v1.SecretGeneral},
 	}
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "old-secret-id")
+	v1.SetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation, "older-secret-id")
 	user := genMockUser()
 	role := genMockRole()
 	oldSecret := &corev1.Secret{
@@ -815,6 +816,8 @@ func TestUpdateGithubRunnerSecretReplacesReferenceAndRetainsOldSecret(t *testing
 	assert.NilError(t, err)
 	assert.Assert(t, rotation != nil)
 	assert.Equal(t, rotation.SupersededSecretId, "old-secret-id")
+	assert.Equal(t, rotation.PriorPreviousSecretId, "older-secret-id")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation), "old-secret-id")
 	assert.Equal(t, len(workload.Spec.Secrets), 2)
 	assert.Equal(t, workload.Spec.Secrets[0].Id, "user-secret")
 	assert.Equal(t, workload.Spec.Secrets[1].Id, rotation.NewSecretId)
@@ -822,6 +825,10 @@ func TestUpdateGithubRunnerSecretReplacesReferenceAndRetainsOldSecret(t *testing
 	_, err = fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).
 		Get(ctx, "old-secret-id", metav1.GetOptions{})
 	assert.NilError(t, err, "old secret must remain until workload cleanup")
+
+	h.discardRolledBackCICDSecret(ctx, workload, rotation, user)
+	assert.Equal(t, v1.GetGithubSecretId(workload), "old-secret-id")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation), "older-secret-id")
 }
 
 func TestUpdateGithubRunnerProxyAuthPreservesRegistrationToken(t *testing.T) {

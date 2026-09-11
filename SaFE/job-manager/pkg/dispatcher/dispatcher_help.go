@@ -1600,12 +1600,9 @@ func githubRunnerWritableMountPath(workload *v1.Workload, workspace *v1.Workspac
 	return path, nil
 }
 
-// githubRunnerPFSFsGroup matches the owning group on workspace PFS mounts so the
-// runner (uid 1001) can create state under the shared mount path.
-const githubRunnerPFSFsGroup = int64(1000)
-
-// githubRunnerPFSFsGroupChangePolicy avoids recursive ownership changes on large shared PFS mounts.
-const githubRunnerPFSFsGroupChangePolicy = "OnRootMismatch"
+// githubRunnerPFSSupplementalGroup grants access to pre-provisioned PFS paths
+// without asking kubelet to change ownership across a shared filesystem.
+const githubRunnerPFSSupplementalGroup = int64(1000)
 
 func workspaceHasWritablePFS(workspace *v1.Workspace) bool {
 	vol, ok := pickWritableWorkspaceVolume(workspace)
@@ -1625,8 +1622,21 @@ func applyGithubRunnerPodSecurityContext(obj *unstructured.Unstructured, workloa
 	if !found {
 		securityContext = map[string]interface{}{}
 	}
-	securityContext["fsGroup"] = githubRunnerPFSFsGroup
-	securityContext["fsGroupChangePolicy"] = githubRunnerPFSFsGroupChangePolicy
+	// fsGroup can make kubelet recursively change every file on a shared PFS.
+	// Remove values from older StatefulSets and rely on the provisioned group.
+	delete(securityContext, "fsGroup")
+	delete(securityContext, "fsGroupChangePolicy")
+	groups, _ := securityContext["supplementalGroups"].([]interface{})
+	hasGroup := false
+	for _, group := range groups {
+		if group == githubRunnerPFSSupplementalGroup {
+			hasGroup = true
+			break
+		}
+	}
+	if !hasGroup {
+		securityContext["supplementalGroups"] = append(groups, githubRunnerPFSSupplementalGroup)
+	}
 	return jobutils.SetNestedField(obj.Object, securityContext, path)
 }
 

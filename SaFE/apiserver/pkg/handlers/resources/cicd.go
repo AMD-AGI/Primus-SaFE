@@ -113,6 +113,9 @@ type cicdSecretRotation struct {
 	// SupersededSecretId is the secret the replacement displaced, still present in the
 	// cluster so a failed persist can fall back to it. Empty when there was none.
 	SupersededSecretId string
+	// PriorPreviousSecretId restores the retained generation annotation if the
+	// workload patch fails. It is used only by persistent GithubRunner pools.
+	PriorPreviousSecretId string
 }
 
 // updateCICDSecret rotates the CICD GitHub auth secret: it creates the replacement
@@ -244,13 +247,24 @@ func (h *Handler) discardRolledBackCICDSecret(ctx context.Context,
 		v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, rotation.SupersededSecretId)
 		if commonworkload.IsCICDGithubRunner(workload) {
 			replaceGithubRunnerSecret(workload, rotation.NewSecretId, rotation.SupersededSecretId)
+			restoreGithubRunnerPreviousSecret(workload, rotation.PriorPreviousSecretId)
 		}
 		return
 	}
 	delete(workload.Annotations, v1.GithubSecretIdAnnotation)
 	if commonworkload.IsCICDGithubRunner(workload) {
 		replaceGithubRunnerSecret(workload, rotation.NewSecretId, "")
+		restoreGithubRunnerPreviousSecret(workload, rotation.PriorPreviousSecretId)
 	}
+}
+
+// restoreGithubRunnerPreviousSecret restores the retained generation marker.
+func restoreGithubRunnerPreviousSecret(workload *v1.Workload, secretId string) {
+	if secretId == "" {
+		v1.RemoveAnnotation(workload, v1.GithubPreviousSecretIdAnnotation)
+		return
+	}
+	v1.SetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation, secretId)
 }
 
 // cleanupCICDSecrets deletes secrets created for CICD scaling runner set workloads.
@@ -372,6 +386,7 @@ func (h *Handler) updateGithubRunnerSecret(ctx context.Context, workload *v1.Wor
 		return nil, err
 	}
 	oldSecretId := v1.GetGithubSecretId(workload)
+	priorPreviousSecretId := v1.GetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation)
 	var oldSecret *corev1.Secret
 	if oldSecretId != "" {
 		var err error
@@ -404,6 +419,7 @@ func (h *Handler) updateGithubRunnerSecret(ctx context.Context, workload *v1.Wor
 		return nil, err
 	}
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, newSecret.Name)
+	restoreGithubRunnerPreviousSecret(workload, oldSecretId)
 	replaceGithubRunnerSecret(workload, oldSecretId, newSecret.Name)
 	if proxyAuth != nil {
 		if workload.Spec.Env == nil {
@@ -411,7 +427,11 @@ func (h *Handler) updateGithubRunnerSecret(ctx context.Context, workload *v1.Wor
 		}
 		workload.Spec.Env[common.ProxyCredentialSecret] = newSecret.Name
 	}
-	return &cicdSecretRotation{NewSecretId: newSecret.Name, SupersededSecretId: oldSecretId}, nil
+	return &cicdSecretRotation{
+		NewSecretId:           newSecret.Name,
+		SupersededSecretId:    oldSecretId,
+		PriorPreviousSecretId: priorPreviousSecretId,
+	}, nil
 }
 
 func normalizeGithubRunnerAuth(auth *view.GitHubAuthRequest, env map[string]string) *view.GitHubAuthRequest {

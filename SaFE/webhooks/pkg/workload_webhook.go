@@ -1186,15 +1186,6 @@ func githubRunnerPoolLabels(workload *v1.Workload) []string {
 	return parseRunnerLabels(raw)
 }
 
-// cicdAdvertisedRunnerLabels returns labels compared across GithubRunner and ScaleSet pools.
-// Scale set object names are generated ids; GitHub identity uses Name and DisplayName.
-func cicdAdvertisedRunnerLabels(workload *v1.Workload) []string {
-	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		return parseRunnerLabels(strings.Join([]string{workload.Name, v1.GetDisplayName(workload)}, ","))
-	}
-	return githubRunnerPoolLabels(workload)
-}
-
 // parseRunnerLabels splits a comma-separated label list and de-duplicates case-insensitively.
 func parseRunnerLabels(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
@@ -1217,6 +1208,41 @@ func parseRunnerLabels(raw string) []string {
 	return out
 }
 
+// scaleSetPoolLabels returns the GitHub labels that identify an ARC runner pool.
+func scaleSetPoolLabels(workload *v1.Workload) []string {
+	return parseRunnerLabels(strings.Join([]string{workload.Name, v1.GetDisplayName(workload)}, ","))
+}
+
+// cicdRunnerPoolIdentities returns labels reserved as pool identities. The last
+// GithubRunner label is the user-selected pool label; preceding labels describe
+// shared capabilities such as linux or x64.
+func cicdRunnerPoolIdentities(workload *v1.Workload) []string {
+	if commonworkload.IsCICDScalingRunnerSet(workload) {
+		return scaleSetPoolLabels(workload)
+	}
+	labels := githubRunnerPoolLabels(workload)
+	if len(labels) == 0 {
+		return nil
+	}
+	return labels[len(labels)-1:]
+}
+
+// cicdRunnerPoolConflict compares pool identities without reserving capability labels.
+func cicdRunnerPoolConflict(left, right *v1.Workload) (string, bool) {
+	leftLabels := cicdRunnerPoolIdentities(left)
+	rightLabels := cicdRunnerPoolIdentities(right)
+	leftKeys := make(map[string]string, len(leftLabels))
+	for _, label := range leftLabels {
+		leftKeys[strings.ToLower(label)] = label
+	}
+	for _, label := range rightLabels {
+		if wanted, ok := leftKeys[strings.ToLower(label)]; ok {
+			return wanted, true
+		}
+	}
+	return "", false
+}
+
 // validateCICDRunnerLabelsUnique rejects conflicting persistent and ARC runner labels.
 func (v *WorkloadValidator) validateCICDRunnerLabelsUnique(ctx context.Context, workload *v1.Workload) error {
 	var reader client.Reader = v.Client
@@ -1226,7 +1252,7 @@ func (v *WorkloadValidator) validateCICDRunnerLabelsUnique(ctx context.Context, 
 	if reader == nil {
 		return nil
 	}
-	wanted := cicdAdvertisedRunnerLabels(workload)
+	wanted := cicdRunnerPoolIdentities(workload)
 	if len(wanted) == 0 {
 		return fmt.Errorf("the %s of workload environment variables is empty", common.RunnerLabels)
 	}
@@ -1235,10 +1261,6 @@ func (v *WorkloadValidator) validateCICDRunnerLabelsUnique(ctx context.Context, 
 		return err
 	}
 	configURL := strings.TrimSpace(workload.GetEnv(common.GithubConfigUrl))
-	wantedKeys := map[string]string{}
-	for _, label := range wanted {
-		wantedKeys[strings.ToLower(label)] = label
-	}
 	for i := range list.Items {
 		other := &list.Items[i]
 		if other.Name == workload.Name || other.IsEnd() {
@@ -1251,12 +1273,9 @@ func (v *WorkloadValidator) validateCICDRunnerLabelsUnique(ctx context.Context, 
 		if strings.TrimSpace(other.GetEnv(common.GithubConfigUrl)) != configURL {
 			continue
 		}
-		existingLabels := cicdAdvertisedRunnerLabels(other)
-		for _, existing := range existingLabels {
-			if label, ok := wantedKeys[strings.ToLower(existing)]; ok {
-				return commonerrors.NewAlreadyExist(
-					fmt.Sprintf("the github runner label %q is already in use", label))
-			}
+		if label, conflict := cicdRunnerPoolConflict(workload, other); conflict {
+			return commonerrors.NewAlreadyExist(
+				fmt.Sprintf("the github runner pool label %q is already in use", label))
 		}
 	}
 	return nil

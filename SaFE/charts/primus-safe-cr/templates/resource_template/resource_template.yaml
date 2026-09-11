@@ -341,7 +341,7 @@ spec:
   activeReplica:
     prePaths:
       - status
-    replicaPath: availableReplicas
+    replicaPath: readyReplicas
 ---
 apiVersion: amd.com/v1
 kind: ResourceTemplate

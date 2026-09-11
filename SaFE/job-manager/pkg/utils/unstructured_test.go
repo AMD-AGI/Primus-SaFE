@@ -310,6 +310,19 @@ func TestGetStatefulSetPhase(t *testing.T) {
 	assert.Equal(t, status.Phase, string(v1.K8sUpdating))
 }
 
+func TestGetGithubRunnerStatusUsesReadyReplicas(t *testing.T) {
+	statefulSet, err := jsonutils.ParseYamlToJson(TestStatefulSetData)
+	assert.NilError(t, err)
+	assert.NilError(t, unstructured.SetNestedField(
+		statefulSet.Object, int64(1), "status", "readyReplicas"))
+
+	status, err := GetK8sObjectStatus(statefulSet, TestGithubRunnerResourceTemplate.DeepCopy())
+	assert.NilError(t, err)
+	assert.Equal(t, status.SpecReplica, 2)
+	assert.Equal(t, status.ActiveReplica, 1)
+	assert.Equal(t, status.Phase, string(v1.K8sNotReady))
+}
+
 func TestGetDeploymentEnv(t *testing.T) {
 	deploy, err := jsonutils.ParseYamlToJson(TestDeploymentData)
 	assert.NilError(t, err)

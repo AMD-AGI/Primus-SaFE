@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/dynamic"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
@@ -436,6 +437,62 @@ func TestIsGithubSecretChangedGetEnvError(t *testing.T) {
 	v1.SetAnnotation(adminWorkload, v1.GithubSecretIdAnnotation, "runner-secret")
 	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
 	assert.Equal(t, isGithubSecretChanged(adminWorkload, obj, jobutils.TestStatefulSetResourceTemplate), false)
+}
+
+func TestPruneGithubRunnerSecretsKeepsCurrentAndDataPlaneGeneration(t *testing.T) {
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.GroupVersionKind.Kind = common.CICDGithubRunnerKind
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "current-secret")
+	v1.SetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation, "annotated-previous-secret")
+	generatedSecret := func(name, usage string) *corev1.Secret {
+		return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				v1.OwnerLabel:  workload.Name,
+				"secret.usage": usage,
+			},
+		}}
+	}
+	current := generatedSecret("current-secret", "github-runner")
+	previous := generatedSecret("previous-secret", "github-runner")
+	annotatedPrevious := generatedSecret("annotated-previous-secret", "github-runner")
+	podSecret := generatedSecret("pod-secret", "github-runner")
+	stale := generatedSecret("stale-secret", "github-runner")
+	userSecret := generatedSecret("user-secret", "other")
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(current, previous, annotatedPrevious, podSecret, stale, userSecret).Build()
+	r := &DispatcherReconciler{Client: adminClient}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name:      "runner-0",
+		Namespace: workload.Spec.Workspace,
+		Labels:    map[string]string{v1.WorkloadIdLabel: workload.Name},
+	}, Spec: corev1.PodSpec{Volumes: []corev1.Volume{{
+		Name: "runner-secret",
+		VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
+			SecretName: podSecret.Name,
+		}},
+	}}}}
+	clientSets := &syncer.ClusterClientSets{}
+	clientSets.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(
+		context.Background(), "test", k8sfake.NewSimpleClientset(pod)))
+
+	assert.NilError(t, r.pruneGithubRunnerSecrets(
+		context.Background(), workload, previous.Name, clientSets))
+	for _, name := range []string{
+		current.Name, previous.Name, annotatedPrevious.Name, podSecret.Name, userSecret.Name,
+	} {
+		got := &corev1.Secret{}
+		assert.NilError(t, adminClient.Get(context.Background(),
+			types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: name}, got))
+	}
+	got := &corev1.Secret{}
+	err = adminClient.Get(context.Background(),
+		types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: stale.Name}, got)
+	assert.Assert(t, apierrors.IsNotFound(err))
 }
 
 func TestIsShareMemoryChanged(t *testing.T) {
@@ -1139,14 +1196,19 @@ func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
 
 	assert.Assert(t, isGithubSecretChanged(workload, obj, rt))
 	assert.NilError(t, updateGithubRunner(obj, workload, workspace, rt))
-	fsGroup, found, err := unstructured.NestedInt64(obj.Object, "spec", "template", "spec", "securityContext", "fsGroup")
+	_, found, err := unstructured.NestedInt64(
+		obj.Object, "spec", "template", "spec", "securityContext", "fsGroup")
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
+	_, found, err = unstructured.NestedString(
+		obj.Object, "spec", "template", "spec", "securityContext", "fsGroupChangePolicy")
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
+	groups, found, err := unstructured.NestedSlice(
+		obj.Object, "spec", "template", "spec", "securityContext", "supplementalGroups")
 	assert.NilError(t, err)
 	assert.Assert(t, found)
-	assert.Equal(t, fsGroup, githubRunnerPFSFsGroup)
-	policy, found, err := unstructured.NestedString(obj.Object, "spec", "template", "spec", "securityContext", "fsGroupChangePolicy")
-	assert.NilError(t, err)
-	assert.Assert(t, found)
-	assert.Equal(t, policy, githubRunnerPFSFsGroupChangePolicy)
+	assert.DeepEqual(t, groups, []interface{}{githubRunnerPFSSupplementalGroup})
 
 	envs, err := jobutils.GetEnv(obj, rt, 1)
 	assert.NilError(t, err)

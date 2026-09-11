@@ -7,16 +7,11 @@ package workload
 
 import "github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 
-// githubRunnerFindNode locates the Node binary shipped with the runner image.
-const githubRunnerFindNode = `find_runner_node() {
-  find "${RUNNER_DIR}/externals" -type f -path '*/bin/node' 2>/dev/null | sort | head -n 1 || true
-}
-`
-
 // GithubRunnerStartScript registers the runner on first boot and then listens for jobs.
 // Credentials are copied to workspace storage so a pod restart does not need a new token.
 func GithubRunnerStartScript() string {
 	return `set -eu
+umask 077
 RUNNER_DIR="${RUNNER_DIR:-/home/runner}"
 if [ -z "${GITHUB_RUNNER_STATE_ROOT:-}" ] || [ -z "${POD_NAME:-}" ]; then
   echo "GITHUB_RUNNER_STATE_ROOT and POD_NAME are required" >&2
@@ -24,8 +19,10 @@ if [ -z "${GITHUB_RUNNER_STATE_ROOT:-}" ] || [ -z "${POD_NAME:-}" ]; then
 fi
 STATE_DIR="${GITHUB_RUNNER_STATE_ROOT}/${POD_NAME}"
 mkdir -p "${STATE_DIR}"
+chmod 700 "${STATE_DIR}"
 LABELS="${RUNNER_LABELS:-${DISPLAY_NAME}}"
-TOKEN_FILE="` + common.SecretPath + `/${GITHUB_SECRET_ID}/github_token"
+SECRET_ROOT="${GITHUB_SECRET_ROOT:-` + common.SecretPath + `}"
+TOKEN_FILE="${SECRET_ROOT}/${GITHUB_SECRET_ID}/github_token"
 cd "${RUNNER_DIR}"
 if [ ! -f "${STATE_DIR}/.credentials" ] || [ ! -f "${STATE_DIR}/.runner" ]; then
   if [ -f "${STATE_DIR}/.register_failed" ]; then
@@ -46,6 +43,10 @@ if [ ! -f "${STATE_DIR}/.credentials" ] || [ ! -f "${STATE_DIR}/.runner" ]; then
     cp -f .credentials_rsaparams "${STATE_DIR}/.credentials_rsaparams.tmp"
   fi
   cp -f .credentials "${STATE_DIR}/.credentials.tmp"
+  chmod 600 "${STATE_DIR}/.runner.tmp" "${STATE_DIR}/.credentials.tmp"
+  if [ -f "${STATE_DIR}/.credentials_rsaparams.tmp" ]; then
+    chmod 600 "${STATE_DIR}/.credentials_rsaparams.tmp"
+  fi
   mv -f "${STATE_DIR}/.runner.tmp" "${STATE_DIR}/.runner"
   if [ -f "${STATE_DIR}/.credentials_rsaparams.tmp" ]; then
     mv -f "${STATE_DIR}/.credentials_rsaparams.tmp" "${STATE_DIR}/.credentials_rsaparams"
@@ -69,58 +70,90 @@ func GithubRunnerStopScript() string {
 	return `set +e
 RUNNER_DIR="${RUNNER_DIR:-/home/runner}"
 STATE_DIR="${GITHUB_RUNNER_STATE_ROOT:-}/${POD_NAME:-}"
-` + githubRunnerFindNode + `should_deregister() {
+should_deregister() {
   [ -n "${POD_NAME:-}" ] || return 1
-  TOKEN_FILE="/var/run/secrets/kubernetes.io/serviceaccount/token"
-  CA_FILE="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-  NS_FILE="/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+  SERVICEACCOUNT_ROOT="${KUBERNETES_SERVICEACCOUNT_ROOT:-/var/run/secrets/kubernetes.io/serviceaccount}"
+  TOKEN_FILE="${SERVICEACCOUNT_ROOT}/token"
+  CA_FILE="${SERVICEACCOUNT_ROOT}/ca.crt"
+  NS_FILE="${SERVICEACCOUNT_ROOT}/namespace"
   if [ ! -f "${TOKEN_FILE}" ] || [ ! -f "${NS_FILE}" ]; then
     echo "github runner deregistration: service account token or namespace is unavailable" >&2
-    return 1
+    return 2
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "github runner deregistration: curl is unavailable" >&2
+    return 2
   fi
   NS="$(cat "${NS_FILE}")"
   ORDINAL="${POD_NAME##*-}"
+  case "${ORDINAL}" in
+    ''|*[!0-9]*)
+      echo "github runner deregistration: invalid pod ordinal ${ORDINAL}" >&2
+      return 2
+      ;;
+  esac
   STS_NAME="${POD_NAME%-*}"
   HOST="${KUBERNETES_SERVICE_HOST:-kubernetes.default.svc}"
   PORT="${KUBERNETES_SERVICE_PORT:-443}"
   URL="https://${HOST}:${PORT}/apis/apps/v1/namespaces/${NS}/statefulsets/${STS_NAME}"
-  CODE="$(curl -sS -o /tmp/github-runner-sts.json -w "%{http_code}" --cacert "${CA_FILE}" -H "Authorization: Bearer $(cat "${TOKEN_FILE}")" "${URL}" || echo 000)"
-  if [ "${CODE}" = "404" ]; then
-    return 0
-  fi
+  STS_FILE="/tmp/github-runner-sts.json"
+  CODE=""
+  ATTEMPT=1
+  while [ "${ATTEMPT}" -le 3 ]; do
+    CODE="$(curl -sS --connect-timeout 3 --max-time 10 -o "${STS_FILE}" -w "%{http_code}" \
+      --cacert "${CA_FILE}" -H "Authorization: Bearer $(cat "${TOKEN_FILE}")" "${URL}")"
+    CURL_STATUS=$?
+    if [ "${CURL_STATUS}" -eq 0 ] && [ "${CODE}" = "404" ]; then
+      return 0
+    fi
+    if [ "${CURL_STATUS}" -eq 0 ] && [ "${CODE}" = "200" ]; then
+      break
+    fi
+    echo "github runner deregistration: StatefulSet lookup attempt ${ATTEMPT} returned HTTP ${CODE:-000}" >&2
+    if [ "${ATTEMPT}" -lt 3 ]; then
+      sleep 2
+    fi
+    ATTEMPT=$((ATTEMPT + 1))
+  done
   if [ "${CODE}" != "200" ]; then
     echo "github runner deregistration: StatefulSet lookup returned HTTP ${CODE}" >&2
-    return 1
+    return 2
   fi
-  NODE_BIN="$(find_runner_node)"
-  if [ -z "${NODE_BIN}" ] || [ ! -x "${NODE_BIN}" ]; then
-    echo "github runner deregistration: node binary not found under ${RUNNER_DIR}/externals" >&2
-    return 1
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "github runner deregistration: jq is unavailable" >&2
+    return 2
   fi
-  STS_STATE="$("${NODE_BIN}" -e '
-const fs = require("fs");
-const statefulSet = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-if (statefulSet.metadata && statefulSet.metadata.deletionTimestamp) {
-  process.stdout.write("deleting");
-} else {
-  const value = statefulSet.spec.replicas;
-  process.stdout.write(String(value == null ? 1 : value));
-}
-' /tmp/github-runner-sts.json 2>/dev/null)"
+  STS_STATE="$(jq -er '
+    if .metadata.deletionTimestamp != null then
+      "deleting"
+    elif .spec.replicas == null then
+      "1"
+    elif (.spec.replicas | type) == "number" then
+      (.spec.replicas | tostring)
+    else
+      error("invalid StatefulSet replicas")
+    end
+  ' "${STS_FILE}" 2>/dev/null)"
+  if [ $? -ne 0 ]; then
+    echo "github runner deregistration: failed to parse StatefulSet state" >&2
+    return 2
+  fi
   if [ "${STS_STATE}" = "deleting" ]; then
     return 0
   fi
   REPLICAS="${STS_STATE}"
   if [ -z "${REPLICAS}" ]; then
     echo "github runner deregistration: failed to read StatefulSet replicas" >&2
-    return 1
+    return 2
   fi
   [ "${ORDINAL}" -ge "${REPLICAS}" ]
 }
-if should_deregister; then
+should_deregister
+DEREGISTER_DECISION=$?
+if [ "${DEREGISTER_DECISION}" -eq 0 ]; then
   if [ ! -f "${RUNNER_DIR}/.credentials" ] || [ ! -f "${RUNNER_DIR}/.runner" ]; then
     echo "github runner deregistration: runner credentials are incomplete; keeping ${STATE_DIR}" >&2
-    exit 0
+    exit 1
   fi
   cd "${RUNNER_DIR}" && timeout 150 ./config.sh remove --unattended
   REMOVE_STATUS=$?
@@ -130,7 +163,10 @@ if should_deregister; then
     fi
   else
     echo "github runner deregister failed; keeping ${STATE_DIR}" >&2
+    exit "${REMOVE_STATUS}"
   fi
+elif [ "${DEREGISTER_DECISION}" -ne 1 ]; then
+  exit 1
 fi
 `
 }

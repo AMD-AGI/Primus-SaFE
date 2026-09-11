@@ -627,9 +627,11 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 		}
 	}
 	if !isChanged {
-		return nil
+		return r.pruneGithubRunnerSecrets(ctx, adminWorkload,
+			githubRunnerDataPlaneSecretID(adminWorkload, obj, rt), clientSets)
 	}
 
+	previousGithubSecret := githubRunnerDataPlaneSecretID(adminWorkload, obj, rt)
 	workspace, err := r.getWorkspace(ctx, adminWorkload)
 	if err != nil {
 		return err
@@ -641,7 +643,10 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 		klog.ErrorS(err, "failed to update k8s unstructured object")
 		return err
 	}
-	return r.clearCICDEnvRemoval(ctx, adminWorkload)
+	if err = r.clearCICDEnvRemoval(ctx, adminWorkload); err != nil {
+		return err
+	}
+	return r.pruneGithubRunnerSecrets(ctx, adminWorkload, previousGithubSecret, clientSets)
 }
 
 // isResourceChanged checks if the resource requirements of the workload have changed.
@@ -789,6 +794,72 @@ func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 		return true
 	}
 	return v1.GetGithubSecretId(adminWorkload) != secretId
+}
+
+// githubRunnerDataPlaneSecretID returns the Secret referenced by the current
+// StatefulSet pod template. It is retained while a replacement is persisted.
+func githubRunnerDataPlaneSecretID(adminWorkload *v1.Workload, obj *unstructured.Unstructured,
+	rt *v1.ResourceTemplate) string {
+	if !commonworkload.IsCICDGithubRunner(adminWorkload) || rt == nil {
+		return ""
+	}
+	envs, err := jobutils.GetEnv(obj, rt, len(adminWorkload.Spec.Resources))
+	if err != nil {
+		return ""
+	}
+	return convertEnvsToStringMap(envs)[jobutils.GithubSecretEnv]
+}
+
+// pruneGithubRunnerSecrets removes historical generated credentials after the
+// StatefulSet update succeeds. The desired and previously mounted Secrets are
+// retained so an in-flight rollout cannot lose either generation.
+func (r *DispatcherReconciler) pruneGithubRunnerSecrets(ctx context.Context,
+	workload *v1.Workload, previousSecret string, clientSets *syncer.ClusterClientSets) error {
+	if !commonworkload.IsCICDGithubRunner(workload) {
+		return nil
+	}
+	secrets := &corev1.SecretList{}
+	if err := r.List(ctx, secrets,
+		client.InNamespace(common.PrimusSafeNamespace),
+		client.MatchingLabels{v1.OwnerLabel: workload.Name}); err != nil {
+		return err
+	}
+	keep := map[string]struct{}{
+		v1.GetGithubSecretId(workload):                                  {},
+		v1.GetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation): {},
+		previousSecret: {},
+	}
+	delete(keep, "")
+	if clientSets != nil && clientSets.ClientFactory() != nil {
+		pods, err := clientSets.ClientFactory().ClientSet().CoreV1().Pods(workload.Spec.Workspace).
+			List(ctx, metav1.ListOptions{LabelSelector: fmt.Sprintf(
+				"%s=%s", v1.WorkloadIdLabel, workload.Name)})
+		if err != nil {
+			return err
+		}
+		for i := range pods.Items {
+			for _, volume := range pods.Items[i].Spec.Volumes {
+				if volume.Secret != nil {
+					keep[volume.Secret.SecretName] = struct{}{}
+				}
+			}
+		}
+	}
+	for i := range secrets.Items {
+		secret := &secrets.Items[i]
+		if secret.Labels["secret.usage"] != "github-runner" {
+			continue
+		}
+		if _, ok := keep[secret.Name]; ok {
+			continue
+		}
+		if err := r.Delete(ctx, secret); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+		klog.Infof("deleted superseded GithubRunner secret %s for workload %s",
+			secret.Name, workload.Name)
+	}
+	return nil
 }
 
 // applyWorkloadSpecToObject applies the workload specifications to the unstructured Kubernetes object.

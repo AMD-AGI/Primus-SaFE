@@ -652,9 +652,8 @@ func (h *Handler) updateWorkload(ctx context.Context,
 				h.discardRolledBackCICDSecret(ctx, adminWorkload, rotation, requestUser)
 				return err
 			}
-			// Keep the previous secret until workload deletion. Dispatcher updates
-			// the data-plane StatefulSet asynchronously, so deleting it here can
-			// leave existing pods unable to mount their currently referenced secret.
+			// Dispatcher prunes historical credentials only after the data-plane
+			// StatefulSet references the replacement Secret.
 		}
 	}
 	return nil

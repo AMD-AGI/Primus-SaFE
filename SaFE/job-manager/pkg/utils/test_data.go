@@ -902,7 +902,7 @@ var (
 			}},
 			ActiveReplica: v1.ActiveReplica{
 				PrePaths:    []string{"status"},
-				ReplicaPath: "availableReplicas",
+				ReplicaPath: "readyReplicas",
 			},
 		},
 	}

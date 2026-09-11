@@ -825,16 +825,32 @@ func TestGithubRunnerPoolLabelsRejectsDuplicates(t *testing.T) {
 	assert.Assert(t, err != nil)
 	assert.Assert(t, commonerrors.IsAlreadyExist(err))
 
-	overlap := githubRunnerForLabelTest("runner-c", "other,spur-autopilot-hosted")
-	err = v.validateGithubRunner(context.Background(), overlap, nil)
-	assert.Assert(t, err != nil)
-	assert.Assert(t, commonerrors.IsAlreadyExist(err))
-
 	unique := githubRunnerForLabelTest("runner-d", "other-pool")
 	assert.NilError(t, v.validateGithubRunner(context.Background(), unique, nil))
 
 	// Updating the same workload keeps its labels.
 	assert.NilError(t, v.validateGithubRunner(context.Background(), existing, nil))
+}
+
+func TestGithubRunnerPoolLabelsAllowSharedCapabilityLabels(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "linux,pool-a")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+
+	otherPool := githubRunnerForLabelTest("runner-b", "linux,pool-b")
+	assert.NilError(t, v.validateGithubRunner(context.Background(), otherPool, nil))
+}
+
+func TestGithubRunnerPoolLabelsRejectsSamePoolIdentity(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "linux,My-Pool")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+
+	duplicate := githubRunnerForLabelTest("runner-b", "x64,my-pool")
+	err := v.validateGithubRunner(context.Background(), duplicate, nil)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
 }
 
 func cicdScaleSetForLabelTest(name, displayName string) *v1.Workload {
