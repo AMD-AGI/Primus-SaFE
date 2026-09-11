@@ -1,0 +1,5 @@
+This file is a placeholder for the pod-side reverse-forward multiplexer built for
+linux/amd64. It is committed so the apiserver compiles from a clean checkout; the
+container image build replaces it with the real binary.
+
+Build it with SaFE/apiserver/installer/build-rfwd-mux.sh before building the image.

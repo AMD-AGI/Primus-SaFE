@@ -11,6 +11,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,6 +36,11 @@ const (
 // liveTarget reads the live-cluster target, skipping the test when it is absent.
 func liveTarget(t *testing.T) (*commonclient.ClientFactory, *UserInfo) {
 	t.Helper()
+
+	// The test process runs inside the target Pod, so a multiplexer built here is
+	// one that pod can run - and building it means the live tests do not depend on
+	// the image build having already replaced the committed placeholder.
+	injectHostMux(t)
 
 	kubeconfig := os.Getenv(liveKubeconfigEnv)
 	namespace, pod := os.Getenv(liveNamespaceEnv), os.Getenv(livePodEnv)
@@ -74,6 +82,7 @@ func TestLivePodListenerOverK8sExec(t *testing.T) {
 		return
 	}
 	defer listener.Close()
+	dir := installDir(t, listener)
 
 	// A process in the Pod connects to the forwarded port.
 	podSide, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", itoa(port)))
@@ -105,9 +114,125 @@ func TestLivePodListenerOverK8sExec(t *testing.T) {
 	testifyassert.NoError(t, err)
 	testifyassert.Equal(t, "from-apiserver\n", string(back))
 
+	// A half-close in one direction must leave the other one flowing, which is what
+	// every request followed by its reply depends on.
+	testifyassert.NoError(t, conn.CloseWrite())
+	_, err = podSide.Write([]byte("after-half-close\n"))
+	testifyassert.NoError(t, err)
+	tail := make([]byte, len("after-half-close\n"))
+	_, err = io.ReadFull(conn, tail)
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, "after-half-close\n", string(tail))
+
 	// Closing the listener must free the port inside the Pod.
 	testifyassert.NoError(t, listener.Close())
 	waitForPortFree(t, port)
+	// The multiplexer removes its own files, so a forward leaves the container as
+	// it found it.
+	waitFor(t, func() bool { return installRemoved(dir) },
+		"the injected multiplexer to be removed from the pod")
+}
+
+// installDir is where the listener under test put its multiplexer.
+//
+// The check is against this one directory rather than every `.safe-rfwd-*` under the
+// install directories: a pod may well be carrying other forwards of its own, and
+// this test is not entitled to an opinion about those.
+func installDir(t *testing.T, listener podListener) string {
+	t.Helper()
+	l, ok := listener.(*execPodListener)
+	testifyassert.True(t, ok)
+	if !ok {
+		return ""
+	}
+	testifyassert.NotEmpty(t, l.dir, "the listener never recorded where it installed")
+	return l.dir
+}
+
+// installRemoved reports whether the multiplexer has taken its own files away. The
+// live tests run inside the target Pod, so this is the Pod's filesystem.
+func installRemoved(dir string) bool {
+	_, err := os.Stat(dir)
+	return os.IsNotExist(err)
+}
+
+// TestLiveReverseForwardBurstLeavesNothingBehind is the load the single-exec
+// design exists for. The socat relay took one exec per connection, capped at
+// thirty-two, and left the pod holding rendezvous directories and unattached
+// children; a burst here has to leave one exec, no leftover files, and a listen
+// port that is free the moment the forward closes.
+func TestLiveReverseForwardBurstLeavesNothingBehind(t *testing.T) {
+	clients, userInfo := liveTarget(t)
+
+	port := freeTCPPort(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	listener, err := newExecPodListener(ctx, userInfo, clients, "127.0.0.1", port)
+	testifyassert.NoError(t, err)
+	if err != nil {
+		return
+	}
+	defer listener.Close()
+	dir := installDir(t, listener)
+
+	// Serve every accepted connection with one line and hang up, so the burst is a
+	// burst of connections rather than of bytes.
+	served := make(chan struct{}, 256)
+	go func() {
+		for {
+			conn, acceptErr := listener.Accept(ctx)
+			if acceptErr != nil {
+				return
+			}
+			go func(c podConn) {
+				defer c.Close()
+				_, _ = io.Copy(c, strings.NewReader("ok\n"))
+				_ = c.CloseWrite()
+				_, _ = io.Copy(io.Discard, c)
+				served <- struct{}{}
+			}(conn)
+		}
+	}()
+
+	const connections = 150
+	var failures atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < connections; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c, dialErr := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", itoa(port)), 30*time.Second)
+			if dialErr != nil {
+				failures.Add(1)
+				return
+			}
+			defer c.Close()
+			_ = c.SetDeadline(time.Now().Add(60 * time.Second))
+			if _, writeErr := c.Write([]byte("ping\n")); writeErr != nil {
+				failures.Add(1)
+				return
+			}
+			body, readErr := io.ReadAll(c)
+			if readErr != nil || string(body) != "ok\n" {
+				failures.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	testifyassert.Zero(t, failures.Load(), "connections were lost across one forward")
+
+	// Nothing is left holding a stream once the burst is over.
+	l, ok := listener.(*execPodListener)
+	testifyassert.True(t, ok)
+	if ok {
+		waitFor(t, func() bool { return l.session.NumStreams() == 0 }, "every stream to be released")
+	}
+
+	testifyassert.NoError(t, listener.Close())
+	waitForPortFree(t, port)
+	waitFor(t, func() bool { return installRemoved(dir) },
+		"the pod to be left with no reverse forward files")
 }
 
 // TestLiveReverseForwardEndToEnd runs the whole feature against a real Pod: a real
