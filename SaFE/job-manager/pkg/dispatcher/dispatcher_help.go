@@ -2592,7 +2592,48 @@ func updateContainers(adminWorkload *v1.Workload,
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
 		return err
 	}
-	return nil
+	return syncGithubRunnerExternalsImage(adminWorkload, obj, resourceSpec, id)
+}
+
+const githubRunnerDindExternalsInit = "init-dind-externals"
+
+// syncGithubRunnerExternalsImage copies the runner image onto init-dind-externals.
+// That init copies /home/runner/externals into a volume dind and the runner both
+// mount, so a mismatched tag leaves Docker jobs on a different runner toolkit.
+func syncGithubRunnerExternalsImage(adminWorkload *v1.Workload, obj *unstructured.Unstructured,
+	resourceSpec v1.ResourceSpec, id int) error {
+	if !commonworkload.IsCICDGithubRunner(adminWorkload) {
+		return nil
+	}
+	if len(adminWorkload.Spec.Images) <= id || adminWorkload.Spec.Images[id] == "" {
+		return nil
+	}
+	image := adminWorkload.Spec.Images[id]
+	path := podSpecPath(adminWorkload, &resourceSpec, "initContainers")
+	initContainers, found, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	changed := false
+	for i := range initContainers {
+		container, ok := initContainers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if jobutils.NestedStringSilently(container, []string{"name"}) != githubRunnerDindExternalsInit {
+			continue
+		}
+		container["image"] = image
+		initContainers[i] = container
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	return jobutils.SetNestedField(obj.Object, initContainers, path)
 }
 
 // updateContainerEnv updates environment variables in the container.

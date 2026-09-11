@@ -326,6 +326,9 @@ data:
     podManagementPolicy: Parallel
     template:
       spec:
+        initContainers:
+        - name: init-dind-externals
+          image: ghcr.io/actions/actions-runner:2.328.0
         containers:
         - name: runner
           image: ghcr.io/actions/actions-runner:latest

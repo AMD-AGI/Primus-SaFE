@@ -28,6 +28,9 @@ data:
         dnsPolicy: ClusterFirst
         serviceAccountName: github-runner
         initContainers:
+        # Copies /home/runner/externals into the shared volume before dind starts.
+        # Dispatcher overwrites this image with Spec.Images[0] so it stays aligned
+        # with the runner container when the workload pins a different tag.
         - name: init-dind-externals
           image: {{ default "ghcr.io/actions/actions-runner:2.328.0" (default .Values.cicd).github_runner_image }}
           command: ["cp", "-r", "/home/runner/externals/.", "/home/runner/tmpDir/"]

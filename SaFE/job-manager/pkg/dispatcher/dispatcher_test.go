@@ -1392,6 +1392,41 @@ func TestGithubRunnerCreateWithProxyRelayDoesNotDuplicateSecretMounts(t *testing
 	assert.Equal(t, mountPaths[common.SecretPath+"/runner-secret"], 1)
 }
 
+func TestGithubRunnerImageAppliesToDindExternals(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.CICDGithubRunnerKind}
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.Images = []string{"ghcr.io/actions/actions-runner:latest"}
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "runner-secret")
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+
+	configmap, err := parseConfigmap(TestGithubRunnerTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(
+		configmap, jobutils.TestGithubRunnerResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+
+	runner, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, runner[0].(map[string]interface{})["image"], workload.Spec.Images[0])
+
+	inits, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "initContainers")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, inits[0].(map[string]interface{})["name"], githubRunnerDindExternalsInit)
+	assert.Equal(t, inits[0].(map[string]interface{})["image"], workload.Spec.Images[0])
+}
+
 func TestCreateRayJob(t *testing.T) {
 	commonconfig.SetValue("net.rdma_name", "rdma/hca")
 	defer commonconfig.SetValue("net.rdma_name", "")
