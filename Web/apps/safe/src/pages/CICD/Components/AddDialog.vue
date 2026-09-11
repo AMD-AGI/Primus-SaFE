@@ -112,20 +112,27 @@
           </template>
 
           <template v-if="isGithubRunner">
-            <el-form-item label="GitHubProxyURL" prop="githubProxyUrl">
+            <el-form-item label="ProxyURL" prop="proxyUrl">
               <el-input
-                v-model="form.githubProxyUrl"
-                placeholder="Optional. Proxy used to reach GitHub from the cluster"
+                v-model="form.proxyUrl"
+                placeholder="Optional. Egress proxy the runner reaches GitHub through, e.g. http://proxy.internal:3128"
               />
             </el-form-item>
-            <el-form-item label="GitHubProxyPassword" prop="githubProxyPassword">
-              <el-input
-                v-model="form.githubProxyPassword"
-                placeholder="Required once a proxy URL is set"
-                type="password"
-                show-password
-              />
-            </el-form-item>
+            <template v-if="form.proxyUrl">
+              <el-form-item label="ProxyUsername" prop="proxyUsername">
+                <el-input v-model="form.proxyUsername" />
+              </el-form-item>
+              <el-form-item label="ProxyPassword" prop="proxyPassword">
+                <el-input
+                  v-model="form.proxyPassword"
+                  :placeholder="
+                    isEdit ? 'Leave empty to keep the stored password' : 'Proxy password'
+                  "
+                  type="password"
+                  show-password
+                />
+              </el-form-item>
+            </template>
           </template>
         </div>
 
@@ -419,10 +426,11 @@ import {
   buildGithubRunnerCreatePayload,
   buildGithubRunnerEditPayload,
   validateGithubRunnerProxy,
+  DEFAULT_PROXY_USERNAME,
   GITHUB_CONFIG_URL_ENV,
-  GITHUB_PROXY_PASSWORD_ENV,
-  GITHUB_PROXY_URL_ENV,
+  PROXY_URL_ENV,
   type GithubRunnerForm,
+  type GithubRunnerProxyErrors,
 } from '../githubRunnerPayload'
 import { WorkloadKind } from '@/services/workload/type'
 
@@ -496,8 +504,9 @@ const initialForm = () => ({
   githubAppInstallationId: '',
   githubAppPrivateKey: '',
   githubToken: '',
-  githubProxyUrl: '',
-  githubProxyPassword: '',
+  proxyUrl: '',
+  proxyUsername: DEFAULT_PROXY_USERNAME,
+  proxyPassword: '',
   resource: {
     replica: 1,
     cpu: '4',
@@ -545,6 +554,15 @@ const placeholders = computed(() => {
 })
 
 const nameRegex = /^[a-z](?:[-a-z0-9]{0,37}[a-z0-9])?$/
+
+// The three proxy fields validate as a group -- none of them is required until a URL is
+// entered -- so each rule reports only the message that belongs to its own field.
+const proxyFieldValidator =
+  (field: keyof GithubRunnerProxyErrors): FormItemRule['validator'] =>
+  (_rule, _value, callback) => {
+    const message = validateGithubRunnerProxy(form, { hasStoredCredential: isEdit.value })[field]
+    callback(message ? new Error(message) : undefined)
+  }
 
 const ruleFormRef = ref<FormInstance>()
 const rules: Record<string, FormItemRule[]> = reactive({
@@ -606,15 +624,11 @@ const rules: Record<string, FormItemRule[]> = reactive({
       trigger: 'blur',
     },
   ],
-  githubProxyPassword: [
-    {
-      validator: (_rule, _value, callback) => {
-        const [message] = validateGithubRunnerProxy(form)
-        callback(message ? new Error(message) : undefined)
-      },
-      trigger: 'blur',
-    },
+  proxyUrl: [{ validator: proxyFieldValidator('proxyUrl'), trigger: 'blur' }],
+  proxyUsername: [
+    { required: true, validator: proxyFieldValidator('proxyUsername'), trigger: 'blur' },
   ],
+  proxyPassword: [{ validator: proxyFieldValidator('proxyPassword'), trigger: 'blur' }],
 })
 
 // A GithubRunner sends its image, resources and env as the plain backend fields, so it
@@ -656,8 +670,9 @@ const submitScaleRunnerSet = async () => {
     githubAppInstallationId,
     githubAppPrivateKey,
     githubToken,
-    githubProxyUrl,
-    githubProxyPassword,
+    proxyUrl,
+    proxyUsername,
+    proxyPassword,
     image,
     ...addPayload
   } = form
@@ -828,7 +843,9 @@ watch(
       'githubAppInstallationId',
       'githubAppPrivateKey',
       'githubToken',
-      'githubProxyPassword',
+      'proxyUrl',
+      'proxyUsername',
+      'proxyPassword',
     ])
   },
 )
@@ -952,8 +969,11 @@ const setInitialGithubRunnerValues = (res: any, envCopy: Record<string, string>)
   form.unifiedJobEnable = false
   form.entryPoint = ''
   form.githubConfigUrl = envCopy[GITHUB_CONFIG_URL_ENV] ?? ''
-  form.githubProxyUrl = envCopy[GITHUB_PROXY_URL_ENV] ?? ''
-  form.githubProxyPassword = envCopy[GITHUB_PROXY_PASSWORD_ENV] ?? ''
+  form.proxyUrl = envCopy[PROXY_URL_ENV] ?? ''
+  // The credential lives in a Secret, so only the URL comes back from the API. An empty
+  // password on Edit means "keep it"; Clone and Resume clear it below with the rest.
+  form.proxyUsername = DEFAULT_PROXY_USERNAME
+  form.proxyPassword = ''
   form.image = res.images?.[0] ?? res.image ?? ''
 
   const firstResource = res.resources?.[0] ?? {}

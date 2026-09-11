@@ -7,7 +7,7 @@
     @clone="onClone"
     @delete="onDelete"
     @stop="onStop"
-    @resume="onResume"
+    @resume="onResumeAction"
   />
 
   <el-tabs v-model="activeTab" class="mt-4">
@@ -33,7 +33,13 @@
             detailData.secondsUntilTimeout
           }}</el-descriptions-item>
         </el-descriptions>
-        <el-descriptions v-if="detailData" border :column="5" direction="vertical" class="no-margin-top">
+        <el-descriptions
+          v-if="detailData"
+          border
+          :column="5"
+          direction="vertical"
+          class="no-margin-top"
+        >
           <el-descriptions-item label="entryPoint" :span="3" v-if="displayEntryPoint">
             <div>
               <span v-if="!entryPointExpanded">
@@ -60,8 +66,8 @@
           <el-descriptions-item label="runnerLabels" v-if="envData.runnerLabels">{{
             envData.runnerLabels
           }}</el-descriptions-item>
-          <el-descriptions-item label="GitHubProxyURL" v-if="envData.githubProxyUrl">{{
-            envData.githubProxyUrl
+          <el-descriptions-item label="ProxyURL" v-if="envData.proxyUrl">{{
+            envData.proxyUrl
           }}</el-descriptions-item>
           <el-descriptions-item label="multiNodes" v-if="!isGithubRunner">{{
             envData.unifiedJobEnable ? 'Enabled' : 'Disabled'
@@ -178,7 +184,7 @@
     v-model:visible="addVisible"
     :wlid="workloadId"
     :action="addAction"
-    @success="addAction === 'Edit' ? getDetail() : router.push('/cicd')"
+    @success="addAction === 'Clone' ? router.push('/cicd') : getDetail()"
   />
   <SshConfigDialog
     v-model:visible="sshVisible"
@@ -208,7 +214,7 @@ import WorkloadPodsTable from '@/components/Workload/WorkloadPodsTable.vue'
 import WorkloadTimeline from '@/components/Workload/WorkloadTimeline.vue'
 import { decodeFromBase64String, calculateDefaultTime } from '@/utils/index'
 import { WorkloadKind } from '@/services/workload/type'
-import { GITHUB_PROXY_URL_ENV, RUNNER_LABELS_ENV } from './githubRunnerPayload'
+import { PROXY_URL_ENV, RUNNER_LABELS_ENV } from './githubRunnerPayload'
 import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useWorkloadDetail } from '@/composables/useWorkloadDetail'
@@ -232,7 +238,7 @@ const { canWrite } = useWorkloadWriteGuard()
 
 const activeTab = ref('overview')
 const addVisible = ref(false)
-const addAction = ref<'Clone' | 'Edit'>('Clone')
+const addAction = ref<'Clone' | 'Edit' | 'Resume'>('Clone')
 const entryPointExpanded = ref(false)
 
 const editDisabled = computed(() => {
@@ -251,6 +257,18 @@ const onClone = () => {
   addVisible.value = true
 }
 
+// A registration token is single-use and is never returned by the API, so a one-click
+// resume has nothing left to authenticate a GithubRunner with. Send it through the
+// dialog, which asks for a fresh token, instead of failing the request.
+const onResumeAction = () => {
+  if (isGithubRunner.value) {
+    addAction.value = 'Resume'
+    addVisible.value = true
+    return
+  }
+  onResume()
+}
+
 const refreshPods = async () => {
   await getDetail()
   activeTab.value = 'pods'
@@ -264,7 +282,7 @@ interface EnvData {
   entryPoint?: string
   githubConfigUrl?: string
   runnerLabels?: string
-  githubProxyUrl?: string
+  proxyUrl?: string
   unifiedJobEnable?: boolean
   resources?: {
     replica?: number
@@ -280,7 +298,7 @@ const envData = ref<EnvData>({
   entryPoint: '',
   githubConfigUrl: '',
   runnerLabels: '',
-  githubProxyUrl: '',
+  proxyUrl: '',
   unifiedJobEnable: false,
   resources: undefined,
 })
@@ -303,8 +321,8 @@ function extractEnvData(res: { env?: Record<string, string> }) {
       envData.value.runnerLabels = res.env[RUNNER_LABELS_ENV]
     }
 
-    if (res.env[GITHUB_PROXY_URL_ENV]) {
-      envData.value.githubProxyUrl = res.env[GITHUB_PROXY_URL_ENV]
+    if (res.env[PROXY_URL_ENV]) {
+      envData.value.proxyUrl = res.env[PROXY_URL_ENV]
     }
 
     if (res.env.UNIFIED_JOB_ENABLE) {
