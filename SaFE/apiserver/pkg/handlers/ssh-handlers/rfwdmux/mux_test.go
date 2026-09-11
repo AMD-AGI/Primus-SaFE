@@ -43,6 +43,31 @@ func sessionPairWith(t *testing.T, initiatorCfg, acceptorCfg Config) (initiator,
 	return initiator, acceptor
 }
 
+// frameRecordingConn reports frames after the peer has read them from the pipe.
+type frameRecordingConn struct {
+	io.ReadWriteCloser
+	writes chan header
+}
+
+func (c *frameRecordingConn) Write(p []byte) (int, error) {
+	n, err := c.ReadWriteCloser.Write(p)
+	if n >= headerSize {
+		c.writes <- decodeHeader(p[:headerSize])
+	}
+	return n, err
+}
+
+func nextWrittenFrame(t *testing.T, writes <-chan header) header {
+	t.Helper()
+	select {
+	case h := <-writes:
+		return h
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for the next written frame")
+		return header{}
+	}
+}
+
 // accept takes the next stream, failing the test rather than hanging forever.
 func accept(t *testing.T, s *Session) *Stream {
 	t.Helper()
@@ -369,9 +394,18 @@ func TestTheAcceptingEndRefusesPastItsOwnCap(t *testing.T) {
 // traffic may be dropped, but the reset that ends a refused stream must still get
 // through as soon as the writer can make progress.
 func TestARefusalOutranksAFullControlQueue(t *testing.T) {
-	client, server := sessionPairWith(t,
-		Config{MaxStreams: 2},
-		Config{MaxStreams: 1})
+	const refusalCount = 16
+	a, b := net.Pipe()
+	recorded := &frameRecordingConn{
+		ReadWriteCloser: b,
+		writes:          make(chan header, 2*ctrlQueueDepth+1),
+	}
+	client := NewSession(a, Config{MaxStreams: refusalCount + 1, Initiator: true})
+	server := NewSession(recorded, Config{MaxStreams: 1})
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+	})
 
 	first, err := client.Open("127.0.0.1", 1)
 	testifyassert.NoError(t, err)
@@ -395,26 +429,36 @@ func TestARefusalOutranksAFullControlQueue(t *testing.T) {
 	}
 	testifyassert.Equal(t, cap(server.ctrl), len(server.ctrl))
 
-	refused, err := client.Open("127.0.0.1", 2)
-	testifyassert.NoError(t, err)
-	waitFor(t, func() bool { return droppedOf(server) == 1 }, "the accepting end to refuse the stream")
-	waitFor(t, func() bool { return len(server.teardown) == 1 }, "the refusal reset to be queued")
+	refused := make([]*Stream, 0, refusalCount)
+	for i := 0; i < refusalCount; i++ {
+		st, openErr := client.Open("127.0.0.1", uint32(i+2))
+		testifyassert.NoError(t, openErr)
+		refused = append(refused, st)
+	}
+	waitFor(t, func() bool { return droppedOf(server) == refusalCount },
+		"the accepting end to refuse the streams")
+	waitFor(t, func() bool { return len(server.teardown) == refusalCount },
+		"the refusal resets to be queued")
 
 	server.writeMu.Unlock()
 	writeLocked = false
 
-	readDone := make(chan error, 1)
-	go func() {
-		_, err := io.ReadAll(refused)
-		readDone <- err
-	}()
-	select {
-	case err := <-readDone:
-		testifyassert.ErrorIs(t, err, ErrStreamReset)
-		testifyassert.ErrorContains(t, err, "stream limit reached")
-	case <-time.After(10 * time.Second):
-		t.Fatal("the refused stream stayed open after the writer resumed")
+	// The writer had already selected this pong before it was blocked. Once that
+	// write completes, every pending reset must drain before queued health traffic.
+	testifyassert.Equal(t, framePong, nextWrittenFrame(t, recorded.writes).typ)
+	for i, st := range refused {
+		h := nextWrittenFrame(t, recorded.writes)
+		if h.typ != frameReset {
+			t.Fatalf("frame %d after the in-flight pong was %s, want RST", i+1, h.typ)
+		}
+		testifyassert.Equal(t, st.ID(), h.stream)
 	}
+
+	_, err = io.ReadAll(refused[0])
+	testifyassert.ErrorIs(t, err, ErrStreamReset)
+	testifyassert.ErrorContains(t, err, "stream limit reached")
+	_, err = refused[0].Write([]byte("late"))
+	testifyassert.ErrorIs(t, err, ErrStreamReset)
 
 	_, err = first.Write([]byte("unaffected"))
 	testifyassert.NoError(t, err)
