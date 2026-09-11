@@ -617,6 +617,48 @@ func TestExecPodListenerRemovesAnInstallThatNeverRan(t *testing.T) {
 	}
 }
 
+// TestExecPodListenerRemovesAnInstallThatFailedHalfway covers the other arm of the
+// same promise: a setup that died inside the install script. The script only
+// removes its own directory on the branch where the binary would not run, so an
+// exec cut short anywhere before that - a cancelled request, a full filesystem -
+// leaves a multi-megabyte binary in the user's container for the life of the pod,
+// under a fresh token each time it is retried.
+func TestExecPodListenerRemovesAnInstallThatFailedHalfway(t *testing.T) {
+	pod := stubPod(t, fakePodBehaviour{installErr: context.Canceled})
+	_, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.Error(t, err)
+
+	select {
+	case script := <-pod.cleaned:
+		// Every directory the probe could have written under, not just the one it
+		// settled on: a setup cancelled during the probe has no chosen directory
+		// yet, and what it left behind still has to go.
+		for _, dir := range installDirs {
+			testifyassert.Containsf(t, script, dir+"/.safe-rfwd-",
+				"the cleanup must cover %s", dir)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("a failed install left the multiplexer in the pod")
+	}
+}
+
+// TestExecPodListenerCleansUpAfterAFailedProbe covers the stage before any
+// directory has been chosen, where there is no install path to name yet.
+func TestExecPodListenerCleansUpAfterAFailedProbe(t *testing.T) {
+	pod := stubPod(t, fakePodBehaviour{probeErr: context.Canceled})
+	_, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.Error(t, err)
+
+	select {
+	case script := <-pod.cleaned:
+		testifyassert.Contains(t, script, "/.safe-rfwd-")
+	case <-time.After(20 * time.Second):
+		t.Fatal("a cancelled probe left its test directory in the pod")
+	}
+}
+
 // TestExecPodListenerTimesOutOnASilentPod keeps a container that starts the
 // multiplexer but never binds from holding the SSH global request forever.
 func TestExecPodListenerTimesOutOnASilentPod(t *testing.T) {

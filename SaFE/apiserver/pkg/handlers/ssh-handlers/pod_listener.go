@@ -66,6 +66,12 @@ const muxIdleTimeout = 5 * time.Minute
 // up on the connection. It is a variable so tests do not wait it out.
 var installTimeout = 60 * time.Second
 
+// installCleanupTimeout bounds the exec that removes a half-finished install. It is
+// deliberately much shorter than installTimeout: it runs on the failure path, inside
+// the same global request that has already spent its install budget, and leaving the
+// pod tidy is not worth pushing that request past what an ssh client will wait.
+var installCleanupTimeout = 10 * time.Second
+
 // listenerReadyTimeout bounds how long we wait for the Pod-side listener to bind.
 // It is a variable so a test can reach the branch where the pod never binds.
 var listenerReadyTimeout = 15 * time.Second
@@ -132,6 +138,10 @@ type execPodListener struct {
 	dir       string
 	bindAddr  string
 	bindPort  uint32
+	// token names everything this listener creates inside the pod. It is kept
+	// apart from dir because the probe writes under it in whichever candidate
+	// directory it is trying, before any of them has been chosen.
+	token string
 
 	session *rfwdmux.Session
 	cancel  context.CancelFunc
@@ -164,20 +174,24 @@ func newExecPodListener(ctx context.Context, userInfo *UserInfo,
 		container:  userInfo.Container,
 		bindAddr:   bindAddr,
 		bindPort:   bindPort,
+		token:      token,
 		cancel:     cancel,
 		doneCh:     make(chan struct{}),
 		streamDone: make(chan struct{}),
 	}
 
+	// Both failure arms clean up, because neither of the pod's own cleanup routes
+	// has started yet: the run script's trap needs the run script, and the
+	// multiplexer removes its own files only once the port is bound. What is left
+	// behind otherwise stays for the life of the pod, under a fresh token each
+	// time, so a client that keeps retrying keeps adding copies.
 	if err = l.install(runCtx, token); err != nil {
 		cancel()
+		l.removeInstall()
 		return nil, err
 	}
 	if err = l.run(runCtx); err != nil {
 		_ = l.Close()
-		// The run script's trap and the multiplexer's own cleanup both need the
-		// multiplexer to have started. This is the path where neither did, and
-		// nothing else in the pod would ever clear the install away.
 		l.removeInstall()
 		return nil, err
 	}
@@ -280,18 +294,29 @@ func (l *execPodListener) run(ctx context.Context) error {
 	return nil
 }
 
-// removeInstall deletes the install directory from the container. It runs on its own
-// context: the forward's is cancelled by the time this is wanted, and leaving a
-// binary in a user's pod is worse than one more short exec.
+// removeInstall deletes whatever this listener put in the container.
+//
+// It names every candidate directory rather than the one that was chosen, because
+// the probe writes a test file under the token before any directory has been
+// settled on - so a setup cancelled during the probe leaves something behind that
+// dir alone would not describe. The paths are built from installDirs and a hex
+// token, so nothing here comes from outside this process.
+//
+// It runs on its own context: the forward's is cancelled by the time this is
+// wanted, and leaving a binary in a user's pod is worse than one more short exec.
 func (l *execPodListener) removeInstall() {
-	if l.dir == "" {
+	if l.token == "" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), installTimeout)
+	paths := make([]string, 0, len(installDirs))
+	for _, dir := range installDirs {
+		paths = append(paths, dir+"/.safe-rfwd-"+l.token)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), installCleanupTimeout)
 	defer cancel()
-	if _, _, err := l.runSetup(ctx, "rm -rf "+l.dir, nil); err != nil {
-		klog.Warningf("could not remove %s from pod %s/%s: %v",
-			l.dir, l.userInfo.Namespace, l.userInfo.Pod, err)
+	if _, _, err := l.runSetup(ctx, "rm -rf "+strings.Join(paths, " "), nil); err != nil {
+		klog.Warningf("could not remove the reverse forward install from pod %s/%s: %v",
+			l.userInfo.Namespace, l.userInfo.Pod, err)
 	}
 }
 

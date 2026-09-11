@@ -700,3 +700,102 @@ func TestAHostileOriginDoesNotReachTheAcceptingEnd(t *testing.T) {
 	testifyassert.Equal(t, "127.0.0.1", st.OriginAddr())
 	testifyassert.Equal(t, uint32(0xC0DE), st.OriginPort())
 }
+
+// TestQueueCompactionLooksPastALiveHead covers a queue whose head is still worth
+// keeping while abandoned connections sit behind it. Stopping at the head refuses a
+// connection the queue had room for.
+func TestQueueCompactionLooksPastALiveHead(t *testing.T) {
+	const room = 4
+	client, server := sessionPairWith(t,
+		Config{MaxStreams: 64},
+		Config{MaxStreams: room})
+
+	// One live connection first, so it is the head of the queue.
+	live, err := client.Open("127.0.0.1", 1)
+	testifyassert.NoError(t, err)
+	waitFor(t, func() bool { return server.NumStreams() == 1 }, "the live stream to arrive")
+
+	// Then fill the rest of the queue with connections the peer abandons.
+	for i := 0; i < room-1; i++ {
+		st, openErr := client.Open("127.0.0.1", uint32(i+2))
+		testifyassert.NoError(t, openErr)
+		waitFor(t, func() bool { return server.NumStreams() == 2 }, "the open to arrive")
+		testifyassert.NoError(t, st.Close())
+		waitFor(t, func() bool { return server.NumStreams() == 1 }, "the reset to arrive")
+	}
+
+	// The queue is full, but only of one live entry and three dead ones.
+	wanted, err := client.Open("127.0.0.1", 99)
+	testifyassert.NoError(t, err)
+	_, _, dropped := server.Stats()
+	testifyassert.Equal(t, uint64(0), dropped,
+		"a connection was refused while the queue held abandoned entries")
+
+	// Both the original head and the new connection are handed over.
+	var ports []uint32
+	ports = append(ports, accept(t, server).OriginPort(), accept(t, server).OriginPort())
+	testifyassert.ElementsMatch(t, []uint32{1, 99}, ports)
+	_ = live.Close()
+	_ = wanted.Close()
+}
+
+// TestGrantWindowIsClamped keeps a peer from inflating the credit this end holds.
+// Using more than the peer really has would make the peer end the session, and an
+// unbounded counter would eventually overflow and stall the writer for good.
+func TestGrantWindowIsClamped(t *testing.T) {
+	client, server := sessionPair(t, Config{})
+	st, err := client.Open("127.0.0.1", 1)
+	testifyassert.NoError(t, err)
+	defer accept(t, server).Close()
+
+	for i := 0; i < 8; i++ {
+		st.grantWindow(initialWindow)
+	}
+	st.mu.Lock()
+	window := st.sendWindow
+	st.mu.Unlock()
+	testifyassert.Equal(t, initialWindow, window)
+}
+
+// TestARefusalBurstDoesNotEndTheSession pins the difference between refusing a
+// connection and giving up on the forward. Refusing every connection past the cap
+// is the designed overload behaviour, so a peer that runs into it repeatedly while
+// the writer is stalled must not have its whole session torn down.
+func TestARefusalBurstDoesNotEndTheSession(t *testing.T) {
+	// The production cap, because the point of the test is that a full cap's worth
+	// of refusals is more than the control queue alone would hold.
+	const cap = DefaultMaxStreams
+	client, server := sessionPairWith(t,
+		Config{MaxStreams: cap * 4},
+		Config{MaxStreams: cap})
+
+	// Hold the writer so every refusal has to wait in the queue.
+	server.writeMu.Lock()
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			server.writeMu.Unlock()
+		}
+	}()
+
+	for i := 0; i < cap; i++ {
+		_, err := client.Open("127.0.0.1", uint32(i+1))
+		testifyassert.NoError(t, err)
+	}
+	waitFor(t, func() bool { return server.NumStreams() == cap }, "the accepting end to fill")
+
+	// Everything from here is refused, and every refusal is waiting on the writer.
+	refusals := cap
+	for i := 0; i < refusals; i++ {
+		_, err := client.Open("127.0.0.1", uint32(cap+i+1))
+		testifyassert.NoError(t, err)
+	}
+	waitFor(t, func() bool { return droppedOf(server) == uint64(refusals) }, "every refusal to be queued")
+
+	testifyassert.NoError(t, server.Err(), "a burst of refusals ended the session")
+	server.writeMu.Unlock()
+	unlocked = true
+
+	// And they are all delivered once the writer moves again.
+	waitFor(t, func() bool { return client.NumStreams() == cap }, "refused streams to be released")
+}

@@ -248,6 +248,13 @@ func (st *Stream) grantWindow(n int) {
 	}
 	st.mu.Lock()
 	st.sendWindow += n
+	if st.sendWindow > initialWindow {
+		// An honest peer never returns more credit than it was spent. Clamping
+		// keeps a peer from inflating this into writes that overrun its own window
+		// - which it would then end the session over - and keeps the counter away
+		// from an overflow that would stall this stream's writer for good.
+		st.sendWindow = initialWindow
+	}
 	st.mu.Unlock()
 	notify(st.winNotify)
 }

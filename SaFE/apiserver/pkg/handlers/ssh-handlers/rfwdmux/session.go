@@ -37,6 +37,19 @@ const windowUpdateThreshold = initialWindow / 2
 // a read loop waiting on a full transport is a session that can never recover.
 const ctrlQueueDepth = 128
 
+// teardownQueueDepth sizes the queue refusals wait in. Overflowing it ends the
+// session, so it has to be able to hold every refusal an honest peer can have
+// outstanding: a stream the peer opened stays in its table until the reset lands,
+// so that is one per stream it is allowed to open. Sizing it to the control depth
+// alone would turn a burst of refusals - which is the overload behaviour this
+// design is meant to have - into the whole forward being torn down.
+func teardownQueueDepth(cfg Config) int {
+	if n := cfg.maxStreams(); n > ctrlQueueDepth {
+		return n
+	}
+	return ctrlQueueDepth
+}
+
 var (
 	// ErrSessionClosed reports a session that has ended.
 	ErrSessionClosed = errors.New("rfwdmux: session is closed")
@@ -124,7 +137,7 @@ func NewSession(conn io.ReadWriteCloser, cfg Config) *Session {
 		cfg:      cfg,
 		writeBuf: frameBuffer(),
 		ctrl:     make(chan ctrlFrame, ctrlQueueDepth),
-		teardown: make(chan ctrlFrame, ctrlQueueDepth),
+		teardown: make(chan ctrlFrame, teardownQueueDepth(cfg)),
 		streams:  map[uint32]*Stream{},
 		nextID:   1,
 		accept:   make(chan *Stream, cfg.maxStreams()),
@@ -493,17 +506,21 @@ func (s *Session) queueForAccept(st *Stream) bool {
 		return true
 	default:
 	}
-	for i := 0; i < cap(s.accept); i++ {
+	// Walk the whole queue once rather than stopping at the first entry still worth
+	// keeping: a live connection at the head says nothing about the abandoned ones
+	// behind it, and giving up there refuses a connection the queue had room for.
+	for i, n := 0, cap(s.accept); i < n; i++ {
 		select {
 		case queued := <-s.accept:
 			if queued.alive() {
-				// Still worth handing over. The order connections are accepted in
-				// is not a contract; losing one would be.
+				// Still worth handing over, so it goes to the back. Losing one
+				// would be a bug; the order they are accepted in is not a contract.
+				// This send cannot block: the read loop is the only producer, and
+				// it has just taken an entry out.
 				s.accept <- queued
-				return false
 			}
 		default:
-			return false
+			// Drained underneath us, which is the outcome this was after.
 		}
 		select {
 		case s.accept <- st:
