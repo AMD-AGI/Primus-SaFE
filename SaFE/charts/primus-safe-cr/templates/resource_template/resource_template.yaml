@@ -104,7 +104,17 @@ spec:
       - message
     reasonPaths:
       - reason
+    # The matcher uses the first matching condition. Terminal pod conditions
+    # must win over Ready=False so a dead sandbox is reported as terminal.
     phases:
+      - matchExpressions:
+          status: 'True'
+          type: Succeeded
+        phase: K8sSucceeded
+      - matchExpressions:
+          status: 'True'
+          type: Failed
+        phase: K8sFailed
       - matchExpressions:
           status: 'True'
           type: Ready
