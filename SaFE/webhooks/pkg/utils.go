@@ -100,7 +100,7 @@ func getMaxNameLength(workloadKind string) int {
 	switch workloadKind {
 	case common.PytorchJobKind, common.UnifiedJobKind, common.AuthoringKind:
 		return commonutils.MaxPytorchJobNameLen
-	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind:
+	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind, common.CICDGithubRunnerKind:
 		return commonutils.MaxDeploymentNameLen
 	case common.TorchFTKind:
 		return commonutils.MaxTorchFTNameLen

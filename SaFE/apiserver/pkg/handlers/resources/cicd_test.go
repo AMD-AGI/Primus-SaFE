@@ -778,6 +778,209 @@ func Test_updateCICDSecret_OldSecretLookupError(t *testing.T) {
 	assert.Equal(t, v1.GetGithubSecretId(workload), "old-secret-id")
 }
 
+func TestUpdateGithubRunnerSecretReplacesReferenceAndRetainsOldSecret(t *testing.T) {
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Secrets = []v1.SecretEntity{
+		{Id: "old-secret-id", Type: v1.SecretGeneral},
+		{Id: "user-secret", Type: v1.SecretGeneral},
+	}
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "old-secret-id")
+	v1.SetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation, "older-secret-id")
+	user := genMockUser()
+	role := genMockRole()
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "old-secret-id",
+			Namespace: common.PrimusSafeNamespace,
+			Labels:    map[string]string{v1.OwnerLabel: workload.Name},
+		},
+		Data: map[string][]byte{GitHubToken: []byte("old-token")},
+	}
+	fakeClientSet := k8sfake.NewSimpleClientset(oldSecret)
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
+		Build()
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        fakeClientSet,
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+
+	rotation, err := h.updateGithubRunnerSecret(ctx, workload, user, &view.GitHubAuthRequest{
+		Type:  GitHubAuthTypeRegistrationToken,
+		Token: "new-token",
+	}, nil)
+	assert.NilError(t, err)
+	assert.Assert(t, rotation != nil)
+	assert.Equal(t, rotation.SupersededSecretId, "old-secret-id")
+	assert.Equal(t, rotation.PriorPreviousSecretId, "older-secret-id")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation), "old-secret-id")
+	assert.Equal(t, len(workload.Spec.Secrets), 2)
+	assert.Equal(t, workload.Spec.Secrets[0].Id, "user-secret")
+	assert.Equal(t, workload.Spec.Secrets[1].Id, rotation.NewSecretId)
+
+	_, err = fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).
+		Get(ctx, "old-secret-id", metav1.GetOptions{})
+	assert.NilError(t, err, "old secret must remain until workload cleanup")
+
+	h.discardRolledBackCICDSecret(ctx, workload, rotation, user)
+	assert.Equal(t, v1.GetGithubSecretId(workload), "old-secret-id")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation), "older-secret-id")
+}
+
+func TestUpdateGithubRunnerProxyAuthPreservesRegistrationToken(t *testing.T) {
+	commonconfig.SetValue("cicd.enable", "true")
+	defer commonconfig.SetValue("cicd.enable", "")
+
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "old-secret-id", Type: v1.SecretGeneral}}
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "old-secret-id")
+	user := genMockUser()
+	role := genMockRole()
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "old-secret-id",
+			Namespace: common.PrimusSafeNamespace,
+			Labels:    map[string]string{v1.OwnerLabel: workload.Name},
+		},
+		Data: map[string][]byte{
+			GitHubToken:                []byte("registration-token"),
+			string(view.UserNameParam): []byte("github"),
+			string(view.PasswordParam): []byte("old-password"),
+		},
+	}
+	fakeClientSet := k8sfake.NewSimpleClientset(oldSecret)
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
+		Build()
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        fakeClientSet,
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+
+	rotation, err := h.updateGithubRunnerSecret(ctx, workload, user, nil, &view.ProxyAuthRequest{
+		Username: "github",
+		Password: "new-password",
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, rotation != nil)
+	newSecret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).
+		Get(ctx, rotation.NewSecretId, metav1.GetOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, string(newSecret.Data[GitHubToken]), "registration-token")
+	assert.Equal(t, string(newSecret.Data[string(view.PasswordParam)]), "new-password")
+}
+
+func TestGenerateGithubRunnerStoresProxyAuth(t *testing.T) {
+	commonconfig.SetValue("cicd.enable", "true")
+	defer commonconfig.SetValue("cicd.enable", "")
+
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Env = map[string]string{
+		common.GithubConfigUrl: "https://github.com/test/repo",
+		common.ProxyUrl:        "http://github-proxy:3128",
+	}
+	user := genMockUser()
+	role := genMockRole()
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
+		Build()
+	fakeClientSet := k8sfake.NewSimpleClientset()
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        fakeClientSet,
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+
+	auth := &view.GitHubAuthRequest{
+		Type:  GitHubAuthTypeRegistrationToken,
+		Token: "registration-token",
+	}
+	err := h.generateGithubRunner(ctx, workload, user, auth, &view.ProxyAuthRequest{
+		Username: "github",
+		Password: "proxy-password",
+	})
+	assert.NilError(t, err)
+	secret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).
+		Get(ctx, v1.GetGithubSecretId(workload), metav1.GetOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, string(secret.Data[GitHubToken]), auth.Token)
+	assert.Equal(t, string(secret.Data[string(view.UserNameParam)]), "github")
+	assert.Equal(t, string(secret.Data[string(view.PasswordParam)]), "proxy-password")
+	assert.Equal(t, workload.Spec.Env[common.ProxyCredentialSecret], secret.Name)
+}
+
+func TestUpdateGithubRunnerSecretRotatesTokenWithoutProxyAuth(t *testing.T) {
+	commonconfig.SetValue("cicd.enable", "true")
+	defer commonconfig.SetValue("cicd.enable", "")
+
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "old-secret-id", Type: v1.SecretGeneral}}
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "old-secret-id")
+	user := genMockUser()
+	role := genMockRole()
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "old-secret-id",
+			Namespace: common.PrimusSafeNamespace,
+			Labels:    map[string]string{v1.OwnerLabel: workload.Name},
+		},
+		Data: map[string][]byte{GitHubToken: []byte("old-token")},
+	}
+	fakeClientSet := k8sfake.NewSimpleClientset(oldSecret)
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
+		Build()
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        fakeClientSet,
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+	rotation, err := h.updateGithubRunnerSecret(ctx, workload, user, &view.GitHubAuthRequest{
+		Type:  GitHubAuthTypeRegistrationToken,
+		Token: "new-token",
+	}, nil)
+	assert.NilError(t, err)
+	assert.Assert(t, rotation != nil)
+	newSecret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).
+		Get(ctx, rotation.NewSecretId, metav1.GetOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, string(newSecret.Data[GitHubToken]), "new-token")
+	assert.Equal(t, string(newSecret.Data[string(view.PasswordParam)]), "")
+}
+
+func TestNormalizeGithubRunnerAuthIgnoresPAT(t *testing.T) {
+	auth := normalizeGithubRunnerAuth(nil, map[string]string{GithubPAT: "pat-value"})
+	assert.Assert(t, auth == nil)
+
+	auth = normalizeGithubRunnerAuth(nil, map[string]string{common.RunnerToken: "registration-token"})
+	assert.Assert(t, auth != nil)
+	assert.Equal(t, auth.Type, GitHubAuthTypeRegistrationToken)
+	assert.Equal(t, auth.Token, "registration-token")
+}
+
+// TestGithubRunnerAuthFromPatchReadsRunnerToken verifies explicit env token rotation.
+func TestGithubRunnerAuthFromPatchReadsRunnerToken(t *testing.T) {
+	env := map[string]string{common.RunnerToken: "new-registration-token"}
+	auth := githubRunnerAuthFromPatch(&view.PatchWorkloadRequest{Env: &env})
+	assert.Assert(t, auth != nil)
+	assert.Equal(t, auth.Type, GitHubAuthTypeRegistrationToken)
+	assert.Equal(t, auth.Token, "new-registration-token")
+}
+
 // Test_generateCICDScaleRunnerSet tests generating CICD scale runner set configuration
 func Test_generateCICDScaleRunnerSet(t *testing.T) {
 	commonconfig.SetValue("cicd.enable", "true")

@@ -122,6 +122,8 @@ func TestGuaranteeCICDClusterRoleDisabled(t *testing.T) {
 	assert.NoError(t, r.deleteCICDClusterRole(context.Background(), testCluster("c1")))
 	assert.NoError(t, r.guaranteeMonarchClusterRole(context.Background(), testCluster("c1")))
 	assert.NoError(t, r.deleteMonarchClusterRole(context.Background(), testCluster("c1")))
+	assert.NoError(t, r.guaranteeGithubRunnerClusterRole(context.Background(), testCluster("c1")))
+	assert.NoError(t, r.deleteGithubRunnerClusterRole(context.Background(), testCluster("c1")))
 }
 
 var _ = v1.ClusterKind
@@ -337,6 +339,17 @@ func TestGuaranteeMonarchClusterRoleFull(t *testing.T) {
 	r := newClusterReconcilerFull(t, cs, role)
 	testifyassert.NoError(t, r.guaranteeMonarchClusterRole(context.Background(), testCluster("c1")))
 	testifyassert.NoError(t, r.deleteMonarchClusterRole(context.Background(), testCluster("c1")))
+}
+
+func TestGuaranteeGithubRunnerClusterRoleFull(t *testing.T) {
+	commonconfig.SetValue("cicd.enable", "true")
+	defer commonconfig.SetValue("cicd.enable", "")
+
+	role := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: common.GithubRunnerServiceAccount}}
+	cs := k8sfake.NewSimpleClientset()
+	r := newClusterReconcilerFull(t, cs, role)
+	testifyassert.NoError(t, r.guaranteeGithubRunnerClusterRole(context.Background(), testCluster("c1")))
+	testifyassert.NoError(t, r.deleteGithubRunnerClusterRole(context.Background(), testCluster("c1")))
 }
 
 // --- merged from cluster_guarantee_test.go ---

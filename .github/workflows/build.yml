@@ -53,7 +53,7 @@ jobs:
         if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.build_all }}" == "true" ]]; then
           echo "Manual dispatch (build_all): building all modules"
           for module in apiserver resource_manager job_manager preprocess \
-            cicd_runner_proxy cicd_unified_job_proxy s3_downloader a2a_gateway \
+            cicd_runner_proxy cicd_unified_job_proxy cicd_proxy_relay s3_downloader a2a_gateway \
             webhooks node_agent sync_image; do
             echo "${module}_changed=true" >> $GITHUB_OUTPUT
           done
@@ -132,6 +132,13 @@ jobs:
           echo "cicd_unified_job_proxy_changed=true" >> $GITHUB_OUTPUT
         else
           echo "cicd_unified_job_proxy_changed=false" >> $GITHUB_OUTPUT
+        fi
+
+        # cicd_proxy_relay: SaFE/docker/cicd/proxy-relay/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/docker/cicd/proxy-relay/'; then
+          echo "cicd_proxy_relay_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "cicd_proxy_relay_changed=false" >> $GITHUB_OUTPUT
         fi
 
         # s3-downloader: SaFE/common/pkg/s3/**
@@ -221,6 +228,9 @@ jobs:
         fi
         if [[ "${{ steps.detect-changes.outputs.cicd_unified_job_proxy_changed }}" == "true" ]]; then
           MATRIX+='{"name":"cicd-unified-job-proxy","basepath":"SaFE/docker/cicd/unified-job-proxy","dockerfile_path":"SaFE/docker/cicd/unified-job-proxy/Dockerfile"},'
+        fi
+        if [[ "${{ steps.detect-changes.outputs.cicd_proxy_relay_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"cicd-proxy-relay","basepath":"SaFE/docker/cicd/proxy-relay","dockerfile_path":"SaFE/docker/cicd/proxy-relay/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.webhooks_changed }}" == "true" ]]; then
           MATRIX+='{"name":"webhooks","basepath":"SaFE/webhooks","dockerfile_path":"SaFE/webhooks/installer/Dockerfile"},'

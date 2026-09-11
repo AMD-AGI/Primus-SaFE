@@ -42,7 +42,7 @@ data:
         # never authenticates. This peer holds the credential and sends it upstream on every
         # request; the runner reaches an unauthenticated proxy on loopback and needs none.
         - name: proxy-relay
-          image: {{ .Values.cicd.proxy_relay_image }}
+          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.proxy_relay_image }}
           imagePullPolicy: IfNotPresent
           restartPolicy: Always
           command: ["/bin/sh", "-c"]
@@ -129,7 +129,7 @@ data:
           env:
           - name: DOCKER_GROUP_GID
             value: "123"
-          image: docker:dind
+          image: {{ default "docker:28.3.3-dind" (default .Values.cicd).github_runner_dind_image }}
           restartPolicy: Always
           securityContext:
             privileged: true

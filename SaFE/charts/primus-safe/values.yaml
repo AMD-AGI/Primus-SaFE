@@ -109,13 +109,16 @@ cicd:
   enable: true
   role_name: "gha-rs-manager"
   controller_name: "gha-runner-scale-set-gha-rs-controller"
+  github_runner_image: "ghcr.io/actions/actions-runner:2.328.0"
+  github_runner_dind_image: "docker:28.3.3-dind"
   # Cluster-wide proxy bypass list merged into every CI/CD workload's proxy
   # configuration, for hosts a workload cannot know about (package mirrors,
   # internal registries). In-cluster targets are always bypassed.
   no_proxy: ""
   # Sidecar that fronts the cluster proxy for CI/CD jobs, for a proxy whose
   # authentication the runner's own HTTP client cannot complete. Empty disables it.
-  proxy_relay_image: ""
+  # Relative to global.image_registry/primussafe/ (see github_*_runner_template).
+  proxy_relay_image: "cicd-proxy-relay:latest"
   proxy_relay_port: 3129
   # Budget for the OpenSearch lookup that appends the ARC controller error to a failed
   # CI/CD workload. Enrichment is single-shot, so a lookup that times out leaves the
@@ -131,8 +134,7 @@ cicd:
   # Setting this to "" forces EVERY destination upstream with no direct fallback: anything
   # the proxy refuses then fails as an opaque tunnel error. Only do that when the proxy is
   # a general-purpose forward proxy for all egress.
-  proxy_relay_upstream_domains: ".github.com .githubusercontent.com .ghcr.io"
-  # cicd component image version. used for starting jobs for runner
+  proxy_relay_upstream_domains: ".github.com .githubusercontent.com .ghcr.io"  # cicd component image version. used for starting jobs for runner
   runner: "cicd-runner-proxy:latest"
   unified_job: "cicd-unified-job-proxy:latest"
   # Max concurrent ephemeral runners per AutoscalingRunnerSet (CI concurrency).

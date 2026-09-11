@@ -153,6 +153,8 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateAuthoring(newWorkload)
 	case common.CICDScaleRunnerSetKind:
 		m.mutateCICDScaleSet(newWorkload)
+	case common.CICDGithubRunnerKind:
+		m.mutateGithubRunner(newWorkload)
 	case common.MonarchJob:
 		m.mutateMonarchJob(newWorkload)
 	case common.RayJobKind:
@@ -428,6 +430,20 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 		workload.Spec.Resources[0].Replica = 1
 	}
 	workload.Spec.Dependencies = nil
+}
+
+// mutateGithubRunner disables supervision and keeps replica count for a runner pool.
+func (m *WorkloadMutator) mutateGithubRunner(workload *v1.Workload) {
+	workload.Spec.IsSupervised = false
+	workload.Spec.MaxRetry = 0
+	workload.Spec.Dependencies = nil
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	if len(workload.Spec.Resources) > 1 {
+		workload.Spec.Resources = workload.Spec.Resources[0:1]
+	}
+	if len(workload.Spec.EntryPoints) == 0 {
+		workload.Spec.EntryPoints = []string{commonworkload.GithubRunnerStartScript()}
+	}
 }
 
 // mutateMonarchJob sets no-retry, disable Supervised
@@ -713,7 +729,8 @@ func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 func (m *WorkloadMutator) mutateEntryPoints(workload *v1.Workload) {
 	for i := 0; i < len(workload.Spec.EntryPoints); i++ {
 		workload.Spec.EntryPoints[i] = strings.TrimSpace(workload.Spec.EntryPoints[i])
-		if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
+		if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) ||
+			commonworkload.IsCICDGithubRunner(workload) {
 			continue
 		}
 		if !stringutil.IsBase64(workload.Spec.EntryPoints[i]) {
@@ -797,6 +814,10 @@ func (m *WorkloadMutator) mutateCronJobs(workload *v1.Workload) {
 // 2. Inheriting ImageSecrets from workspace when available
 // 3. Adding default cluster image secret when no workspace exists but global config is present
 func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
+	reader := client.Reader(m.Client)
+	if commonworkload.IsCICDGithubRunner(workload) && m.secretReader != nil {
+		reader = m.secretReader
+	}
 	secretsSet := sets.NewSet()
 	newSecrets := make([]v1.SecretEntity, 0, len(workload.Spec.Secrets))
 	for i, s := range workload.Spec.Secrets {
@@ -804,7 +825,8 @@ func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Worklo
 			continue
 		}
 		secret := &corev1.Secret{}
-		if m.Get(ctx, types.NamespacedName{Name: s.Id, Namespace: common.PrimusSafeNamespace}, secret) != nil {
+		if reader == nil ||
+			reader.Get(ctx, types.NamespacedName{Name: s.Id, Namespace: common.PrimusSafeNamespace}, secret) != nil {
 			continue
 		}
 		secretsSet.Insert(s.Id)
@@ -952,6 +974,8 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		err = v.validateAuthoring(newWorkload)
 	case common.CICDScaleRunnerSetKind:
 		err = v.validateCICDScalingRunnerSet(ctx, newWorkload, oldWorkload)
+	case common.CICDGithubRunnerKind:
+		err = v.validateGithubRunner(ctx, newWorkload, oldWorkload)
 	case common.CICDEphemeralRunnerKind:
 		err = validateCICDProxyAdmission(ctx, v.Client, v.secretReader, newWorkload, oldWorkload)
 	case common.TorchFTKind:
@@ -1092,6 +1116,9 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(ctx context.Context, wo
 	if err := validateCICDProxyAdmission(ctx, v.Client, v.secretReader, workload, oldWorkload); err != nil {
 		return err
 	}
+	if err := v.validateCICDRunnerLabelsUnique(ctx, workload); err != nil {
+		return err
+	}
 	if len(workload.Spec.Env) == 0 {
 		return fmt.Errorf("the environment variables of workload is empty")
 	}
@@ -1111,6 +1138,175 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(ctx context.Context, wo
 	}
 	if !v1.IsEnableWorkspaceStorage(workload) && workload.GetEnv(common.UnifiedJobEnable) == v1.TrueStr {
 		return fmt.Errorf("unified job must use workspace storage")
+	}
+	return nil
+}
+
+// validateGithubRunner validates persistent self-hosted runner configuration.
+func (v *WorkloadValidator) validateGithubRunner(ctx context.Context, workload, oldWorkload *v1.Workload) error {
+	if len(workload.Spec.EntryPoints) > 0 &&
+		(len(workload.Spec.EntryPoints) != 1 ||
+			strings.TrimSpace(workload.Spec.EntryPoints[0]) !=
+				strings.TrimSpace(commonworkload.GithubRunnerStartScript())) {
+		return fmt.Errorf("github runner entrypoint is managed by the platform")
+	}
+	if workload.GetEnv(common.GithubConfigUrl) == "" {
+		return fmt.Errorf("the %s of workload environment variables is empty", common.GithubConfigUrl)
+	}
+	if !v1.IsEnableWorkspaceStorage(workload) {
+		return fmt.Errorf("github runner must use workspace storage")
+	}
+	secretId := v1.GetGithubSecretId(workload)
+	if secretId == "" {
+		return fmt.Errorf("the github registration token secret is empty")
+	}
+	attached := false
+	for _, secret := range workload.Spec.Secrets {
+		if secret.Id == secretId && secret.Type == v1.SecretGeneral {
+			attached = true
+			break
+		}
+	}
+	if !attached {
+		return fmt.Errorf("the github registration token secret is not attached to the workload")
+	}
+	if err := v.validateCICDRunnerLabelsUnique(ctx, workload); err != nil {
+		return err
+	}
+	return validateCICDProxyAdmission(ctx, v.Client, v.secretReader, workload, oldWorkload)
+}
+
+// githubRunnerPoolLabels returns the custom runner labels this pool advertises.
+// An empty RUNNER_LABELS falls back to the workload display name, matching dispatcher.
+func githubRunnerPoolLabels(workload *v1.Workload) []string {
+	raw := strings.TrimSpace(workload.GetEnv(common.RunnerLabels))
+	if raw == "" {
+		raw = strings.TrimSpace(v1.GetDisplayName(workload))
+	}
+	return parseRunnerLabels(raw)
+}
+
+// parseRunnerLabels splits a comma-separated label list and de-duplicates case-insensitively.
+func parseRunnerLabels(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0)
+	for _, part := range strings.Split(raw, ",") {
+		label := strings.TrimSpace(part)
+		if label == "" {
+			continue
+		}
+		key := strings.ToLower(label)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, label)
+	}
+	return out
+}
+
+// scaleSetPoolLabels returns the GitHub labels that identify an ARC runner pool.
+func scaleSetPoolLabels(workload *v1.Workload) []string {
+	return parseRunnerLabels(strings.Join([]string{workload.Name, v1.GetDisplayName(workload)}, ","))
+}
+
+// githubRunnerCapabilityLabels are GitHub OS/arch labels shared across pools
+// and must not be used as the unique pool identity.
+var githubRunnerCapabilityLabels = map[string]struct{}{
+	"self-hosted": {},
+	"linux":       {},
+	"windows":     {},
+	"macos":       {},
+	"x64":         {},
+	"arm":         {},
+	"arm64":       {},
+}
+
+func isGithubRunnerCapabilityLabel(label string) bool {
+	_, ok := githubRunnerCapabilityLabels[strings.ToLower(label)]
+	return ok
+}
+
+// githubRunnerPoolIdentity is the last non-capability label in RUNNER_LABELS.
+func githubRunnerPoolIdentity(labels []string) string {
+	for i := len(labels) - 1; i >= 0; i-- {
+		if !isGithubRunnerCapabilityLabel(labels[i]) {
+			return labels[i]
+		}
+	}
+	return ""
+}
+
+// cicdRunnerPoolIdentities returns labels reserved as pool identities.
+// GithubRunner uniqueness uses the last non-capability label so shared
+// labels such as linux or x64 can appear in any position.
+func cicdRunnerPoolIdentities(workload *v1.Workload) []string {
+	if commonworkload.IsCICDScalingRunnerSet(workload) {
+		return scaleSetPoolLabels(workload)
+	}
+	identity := githubRunnerPoolIdentity(githubRunnerPoolLabels(workload))
+	if identity == "" {
+		return nil
+	}
+	return []string{identity}
+}
+
+// cicdRunnerPoolConflict compares pool identities without reserving capability labels.
+func cicdRunnerPoolConflict(left, right *v1.Workload) (string, bool) {
+	leftLabels := cicdRunnerPoolIdentities(left)
+	rightLabels := cicdRunnerPoolIdentities(right)
+	leftKeys := make(map[string]string, len(leftLabels))
+	for _, label := range leftLabels {
+		leftKeys[strings.ToLower(label)] = label
+	}
+	for _, label := range rightLabels {
+		if wanted, ok := leftKeys[strings.ToLower(label)]; ok {
+			return wanted, true
+		}
+	}
+	return "", false
+}
+
+// validateCICDRunnerLabelsUnique rejects conflicting persistent and ARC runner labels.
+func (v *WorkloadValidator) validateCICDRunnerLabelsUnique(ctx context.Context, workload *v1.Workload) error {
+	var reader client.Reader = v.Client
+	if v.secretReader != nil {
+		reader = v.secretReader
+	}
+	if reader == nil {
+		return nil
+	}
+	wanted := cicdRunnerPoolIdentities(workload)
+	if len(wanted) == 0 {
+		if commonworkload.IsCICDGithubRunner(workload) && len(githubRunnerPoolLabels(workload)) > 0 {
+			return fmt.Errorf("github runner pool label must include a non-capability identity")
+		}
+		return fmt.Errorf("the %s of workload environment variables is empty", common.RunnerLabels)
+	}
+	list := &v1.WorkloadList{}
+	if err := reader.List(ctx, list); err != nil {
+		return err
+	}
+	configURL := strings.TrimSpace(workload.GetEnv(common.GithubConfigUrl))
+	for i := range list.Items {
+		other := &list.Items[i]
+		if other.Name == workload.Name || other.IsEnd() {
+			continue
+		}
+		if !commonworkload.IsCICDGithubRunner(other) &&
+			!commonworkload.IsCICDScalingRunnerSet(other) {
+			continue
+		}
+		if strings.TrimSpace(other.GetEnv(common.GithubConfigUrl)) != configURL {
+			continue
+		}
+		if label, conflict := cicdRunnerPoolConflict(workload, other); conflict {
+			return commonerrors.NewAlreadyExist(
+				fmt.Sprintf("the github runner pool label %q is already in use", label))
+		}
 	}
 	return nil
 }

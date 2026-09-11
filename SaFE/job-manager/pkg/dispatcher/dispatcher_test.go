@@ -8,6 +8,7 @@ package dispatcher
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -22,12 +23,14 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/dynamic"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
@@ -52,6 +55,42 @@ import (
 	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
 	"github.com/agiledragon/gomonkey/v2"
 )
+
+func TestValidateGithubRunnerRBAC(t *testing.T) {
+	ctx := context.Background()
+	namespace := "runner-workspace"
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{
+		Name: common.GithubRunnerServiceAccount, Namespace: namespace,
+	}}
+	role := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: common.GithubRunnerServiceAccount},
+		Rules: []rbacv1.PolicyRule{{
+			APIGroups: []string{"apps"}, Resources: []string{"statefulsets"}, Verbs: []string{"get"},
+		}},
+	}
+	binding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: common.GithubRunnerServiceAccount, Namespace: namespace},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: rbacv1.GroupName,
+			Kind:     common.ClusterRoleKind,
+			Name:     common.GithubRunnerServiceAccount,
+		},
+		Subjects: []rbacv1.Subject{{
+			Kind: "ServiceAccount", Name: common.GithubRunnerServiceAccount, Namespace: namespace,
+		}},
+	}
+
+	assert.ErrorContains(t, validateGithubRunnerRBAC(ctx, k8sfake.NewSimpleClientset(), namespace),
+		"ServiceAccount")
+	err := validateGithubRunnerRBAC(ctx, k8sfake.NewSimpleClientset(), namespace)
+	assert.Assert(t, errors.Is(err, errGithubRunnerRBACNotReady))
+	assert.Equal(t, jobutils.IsUnrecoverableError(err), false)
+	assert.ErrorContains(t, validateGithubRunnerRBAC(ctx, k8sfake.NewSimpleClientset(sa), namespace),
+		"RoleBinding")
+	assert.ErrorContains(t, validateGithubRunnerRBAC(ctx, k8sfake.NewSimpleClientset(sa, binding), namespace),
+		"ClusterRole")
+	assert.NilError(t, validateGithubRunnerRBAC(ctx, k8sfake.NewSimpleClientset(sa, binding, role), namespace))
+}
 
 type PytorchSpec struct {
 	PytorchReplicaSpecs struct {
@@ -394,6 +433,70 @@ func TestIsCICDSecretChanged(t *testing.T) {
 	v1.SetAnnotation(adminWorkload, v1.GithubSecretIdAnnotation, "test-cicd")
 	ok = isGithubSecretChanged(adminWorkload, runnerSetData, nil)
 	assert.Equal(t, ok, true)
+}
+
+func TestIsGithubSecretChangedGetEnvError(t *testing.T) {
+	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+	adminWorkload.Spec.Kind = common.CICDGithubRunnerKind
+	v1.SetAnnotation(adminWorkload, v1.GithubSecretIdAnnotation, "runner-secret")
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	assert.Equal(t, isGithubSecretChanged(adminWorkload, obj, jobutils.TestStatefulSetResourceTemplate), false)
+}
+
+func TestPruneGithubRunnerSecretsKeepsCurrentAndDataPlaneGeneration(t *testing.T) {
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.GroupVersionKind.Kind = common.CICDGithubRunnerKind
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "current-secret")
+	v1.SetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation, "annotated-previous-secret")
+	generatedSecret := func(name, usage string) *corev1.Secret {
+		return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				v1.OwnerLabel:  workload.Name,
+				"secret.usage": usage,
+			},
+		}}
+	}
+	current := generatedSecret("current-secret", "github-runner")
+	previous := generatedSecret("previous-secret", "github-runner")
+	annotatedPrevious := generatedSecret("annotated-previous-secret", "github-runner")
+	podSecret := generatedSecret("pod-secret", "github-runner")
+	stale := generatedSecret("stale-secret", "github-runner")
+	userSecret := generatedSecret("user-secret", "other")
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(current, previous, annotatedPrevious, podSecret, stale, userSecret).Build()
+	r := &DispatcherReconciler{Client: adminClient}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name:      "runner-0",
+		Namespace: workload.Spec.Workspace,
+		Labels:    map[string]string{v1.WorkloadIdLabel: workload.Name},
+	}, Spec: corev1.PodSpec{Volumes: []corev1.Volume{{
+		Name: "runner-secret",
+		VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
+			SecretName: podSecret.Name,
+		}},
+	}}}}
+	clientSets := &syncer.ClusterClientSets{}
+	clientSets.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(
+		context.Background(), "test", k8sfake.NewSimpleClientset(pod)))
+
+	assert.NilError(t, r.pruneGithubRunnerSecrets(
+		context.Background(), workload, previous.Name, clientSets))
+	for _, name := range []string{
+		current.Name, previous.Name, annotatedPrevious.Name, podSecret.Name, userSecret.Name,
+	} {
+		got := &corev1.Secret{}
+		assert.NilError(t, adminClient.Get(context.Background(),
+			types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: name}, got))
+	}
+	got := &corev1.Secret{}
+	err = adminClient.Get(context.Background(),
+		types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: stale.Name}, got)
+	assert.Assert(t, apierrors.IsNotFound(err))
 }
 
 func TestIsShareMemoryChanged(t *testing.T) {
@@ -1029,6 +1132,392 @@ func Test_updateCICDScaleSet(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, found, true, "containers should exist")
 	assert.Assert(t, len(containers) > 0, "should have at least one container")
+}
+
+func TestGithubRunnerSecretRotationUpdatesPodSpec(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.Secrets = []v1.SecretEntity{
+		{Id: "new-secret", Type: v1.SecretGeneral},
+		{Id: "image-secret", Type: v1.SecretImage},
+	}
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	workload.Spec.Env[common.ProxyUrl] = "http://wstunnel-client.github-proxy.svc.cluster.local:3128"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "new-secret")
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+
+	rt := jobutils.TestStatefulSetResourceTemplate.DeepCopy()
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "apps/v1",
+		"kind":       "StatefulSet",
+		"metadata": map[string]interface{}{
+			"name":        workload.Name,
+			"namespace":   workspace.Name,
+			"annotations": map[string]interface{}{v1.MainContainerAnnotation: "runner"},
+		},
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"spec": map[string]interface{}{
+					"containers": []interface{}{
+						map[string]interface{}{
+							"name": "runner",
+							"env": []interface{}{map[string]interface{}{
+								"name": jobutils.GithubSecretEnv, "value": "old-secret",
+							}},
+							"volumeMounts": []interface{}{
+								map[string]interface{}{
+									"name": "old-secret", "mountPath": common.SecretPath + "/old-secret",
+								},
+								map[string]interface{}{
+									"name": "image-secret", "mountPath": common.SecretPath + "/image-secret",
+								},
+								map[string]interface{}{
+									"name": "template-secret", "mountPath": "/runner-creds",
+								},
+							},
+						},
+						map[string]interface{}{
+							"name": "sidecar",
+							"lifecycle": map[string]interface{}{
+								"postStart": map[string]interface{}{"exec": map[string]interface{}{
+									"command": []interface{}{"true"},
+								}},
+							},
+						},
+					},
+					"volumes": []interface{}{
+						buildSecretVolume("old-secret"),
+						buildSecretVolume("image-secret"),
+						buildSecretVolume("template-secret"),
+					},
+				},
+			},
+		},
+	}}
+
+	assert.Assert(t, isGithubSecretChanged(workload, obj, rt))
+	assert.NilError(t, updateGithubRunner(obj, workload, workspace, rt))
+	_, found, err := unstructured.NestedInt64(
+		obj.Object, "spec", "template", "spec", "securityContext", "fsGroup")
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
+	_, found, err = unstructured.NestedString(
+		obj.Object, "spec", "template", "spec", "securityContext", "fsGroupChangePolicy")
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
+	groups, found, err := unstructured.NestedSlice(
+		obj.Object, "spec", "template", "spec", "securityContext", "supplementalGroups")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.DeepEqual(t, groups, []interface{}{githubRunnerPFSSupplementalGroup})
+
+	envs, err := jobutils.GetEnv(obj, rt, 1)
+	assert.NilError(t, err)
+	assert.Equal(t, convertEnvsToStringMap(envs)[jobutils.GithubSecretEnv], "new-secret")
+
+	containers, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "containers"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	mounts := containers[0].(map[string]interface{})["volumeMounts"].([]interface{})
+	mountNames := map[string]bool{}
+	for _, mount := range mounts {
+		mountNames[mount.(map[string]interface{})["name"].(string)] = true
+	}
+	assert.Equal(t, mountNames["new-secret"], true)
+	assert.Equal(t, mountNames["image-secret"], true)
+	assert.Equal(t, mountNames["old-secret"], false)
+	assert.Equal(t, mountNames["template-secret"], true)
+
+	volumes, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "volumes"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	volumeNames := map[string]bool{}
+	for _, volume := range volumes {
+		volumeNames[volume.(map[string]interface{})["name"].(string)] = true
+	}
+	assert.Equal(t, volumeNames["new-secret"], true)
+	assert.Equal(t, volumeNames["image-secret"], true)
+	assert.Equal(t, volumeNames["old-secret"], false)
+	assert.Equal(t, volumeNames["template-secret"], true)
+
+	envsMap := convertEnvsToStringMap(envs)
+	assert.Equal(t, envsMap[common.GithubRunnerStateRoot],
+		"/ceph/github-runners/"+workload.Name)
+	assert.Equal(t, envsMap[common.ProxyUrl],
+		"http://wstunnel-client.github-proxy.svc.cluster.local:3128")
+	sa, found, err := unstructured.NestedString(obj.Object, "spec", "template", "spec", "serviceAccountName")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, sa, common.GithubRunnerServiceAccount)
+	lifecycle := containers[0].(map[string]interface{})["lifecycle"].(map[string]interface{})
+	preStop := lifecycle["preStop"].(map[string]interface{})
+	execHook := preStop["exec"].(map[string]interface{})
+	cmd := execHook["command"].([]interface{})
+	assert.Equal(t, cmd[2], commonworkload.GithubRunnerStopScript())
+	sidecarLifecycle := containers[1].(map[string]interface{})["lifecycle"].(map[string]interface{})
+	_, hasPreStop := sidecarLifecycle["preStop"]
+	assert.Equal(t, hasPreStop, false)
+	_, hasPostStart := sidecarLifecycle["postStart"]
+	assert.Equal(t, hasPostStart, true)
+}
+
+func TestGithubRunnerInjectedEnvSurvivesRemoval(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "runner-secret", Type: v1.SecretGeneral}}
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	workload.Spec.Env[common.ProxyUrl] = "http://github-proxy:3128"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "runner-secret")
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+	v1.SetAnnotation(workload, v1.EnvToBeRemovedAnnotation, string(jsonutils.MarshalSilently([]string{
+		common.ProxyUrl, common.GithubRunnerStateRoot, jobutils.GithubSecretEnv,
+	})))
+
+	rt := jobutils.TestStatefulSetResourceTemplate.DeepCopy()
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "apps/v1",
+		"kind":       "StatefulSet",
+		"metadata": map[string]interface{}{
+			"name":        workload.Name,
+			"namespace":   workspace.Name,
+			"annotations": map[string]interface{}{v1.MainContainerAnnotation: "runner"},
+		},
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"spec": map[string]interface{}{
+					"containers": []interface{}{map[string]interface{}{
+						"name": "runner",
+						"env": []interface{}{
+							map[string]interface{}{"name": common.ProxyUrl, "value": "stale"},
+							map[string]interface{}{"name": jobutils.GithubSecretEnv, "value": "stale"},
+						},
+					}},
+				},
+			},
+		},
+	}}
+
+	r := DispatcherReconciler{}
+	assert.NilError(t, r.applyWorkloadSpecToObject(context.Background(), nil, obj, workload, workspace, rt, workload))
+	envs, err := jobutils.GetEnv(obj, rt, 1)
+	assert.NilError(t, err)
+	envsMap := convertEnvsToStringMap(envs)
+	assert.Equal(t, envsMap[common.ProxyUrl], "http://github-proxy:3128")
+	assert.Equal(t, envsMap[common.GithubRunnerStateRoot], "/ceph/github-runners/"+workload.Name)
+	assert.Equal(t, envsMap[jobutils.GithubSecretEnv], "runner-secret")
+}
+
+func TestGithubRunnerDirectProxyReachesDind(t *testing.T) {
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
+	workload.Spec.Env[common.NoProxy] = ".svc,.cluster.local"
+	v1.SetAnnotation(workload, v1.CICDProxyManagedAnnotation, v1.TrueStr)
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
+			"containers":     []interface{}{map[string]interface{}{"name": "runner"}},
+			"initContainers": []interface{}{map[string]interface{}{"name": cicdProxyDindContainer}},
+		}}},
+	}}
+
+	spec := jobutils.TestStatefulSetResourceTemplate.Spec.ResourceSpecs[0]
+	assert.NilError(t, applyGithubRunnerDirectProxy(obj, workload, spec))
+	for _, field := range []string{"containers", "initContainers"} {
+		entries, _, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &spec, field))
+		assert.NilError(t, err)
+		env, _, err := unstructured.NestedSlice(entries[0].(map[string]interface{}), "env")
+		assert.NilError(t, err)
+		values := convertEnvsToStringMap(env)
+		assert.Equal(t, values[cicdProxyHTTPEnv], "http://proxy.example.com:3128")
+		assert.Assert(t, strings.Contains(values[common.NoProxy], "localhost"))
+		assert.Assert(t, strings.Contains(values[common.NoProxy], ".cluster.local"))
+		assert.Assert(t, strings.Contains(values[common.NoProxy], ".svc"))
+	}
+}
+
+func TestGithubRunnerDirectProxyMergesReservedNoProxy(t *testing.T) {
+	t.Setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
+	delete(workload.Spec.Env, common.NoProxy)
+	v1.SetAnnotation(workload, v1.CICDProxyManagedAnnotation, v1.TrueStr)
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
+			"containers": []interface{}{map[string]interface{}{"name": "runner"}},
+		}}},
+	}}
+	spec := jobutils.TestStatefulSetResourceTemplate.Spec.ResourceSpecs[0]
+	assert.NilError(t, applyGithubRunnerDirectProxy(obj, workload, spec))
+	entries, _, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &spec, "containers"))
+	assert.NilError(t, err)
+	env, _, err := unstructured.NestedSlice(entries[0].(map[string]interface{}), "env")
+	assert.NilError(t, err)
+	values := convertEnvsToStringMap(env)
+	assert.Assert(t, strings.Contains(values[common.NoProxy], "localhost"))
+	assert.Assert(t, strings.Contains(values[common.NoProxy], ".cluster.local"))
+	assert.Assert(t, strings.Contains(values[common.NoProxy], "10.96.0.1"))
+}
+
+func TestGithubRunnerCreateDoesNotDuplicateSecretMounts(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.CICDGithubRunnerKind}
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "runner-secret", Type: v1.SecretGeneral}}
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "runner-secret")
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+
+	configmap, err := parseConfigmap(TestGithubRunnerTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(
+		configmap, jobutils.TestGithubRunnerResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+
+	volumes, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "volumes"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	volumeNames := map[string]int{}
+	for _, volume := range volumes {
+		name, _ := volume.(map[string]interface{})["name"].(string)
+		volumeNames[name]++
+	}
+	assert.Equal(t, volumeNames["runner-secret"], 1)
+
+	containers, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "containers"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	mounts := containers[0].(map[string]interface{})["volumeMounts"].([]interface{})
+	mountPaths := map[string]int{}
+	for _, mount := range mounts {
+		mountPath, _ := mount.(map[string]interface{})["mountPath"].(string)
+		mountPaths[mountPath]++
+	}
+	assert.Equal(t, mountPaths[common.SecretPath+"/runner-secret"], 1)
+
+	sa, found, err := unstructured.NestedString(obj.Object, "spec", "template", "spec", "serviceAccountName")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, sa, common.GithubRunnerServiceAccount)
+
+	envs, err := jobutils.GetEnv(obj, jobutils.TestGithubRunnerResourceTemplate, 1)
+	assert.NilError(t, err)
+	assert.Equal(t, convertEnvsToStringMap(envs)[common.GithubRunnerStateRoot],
+		"/ceph/github-runners/"+workload.Name)
+}
+
+func TestGithubRunnerCreateWithProxyRelayDoesNotDuplicateSecretMounts(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.CICDGithubRunnerKind}
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "runner-secret", Type: v1.SecretGeneral}}
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	workload.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
+	workload.Spec.Env[common.ProxyCredentialSecret] = "runner-secret"
+	v1.SetAnnotation(workload, v1.CICDProxyManagedAnnotation, v1.TrueStr)
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "runner-secret")
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+
+	configmap, err := parseConfigmap(TestGithubRunnerTemplateConfig)
+	assert.NilError(t, err)
+	template := &unstructured.Unstructured{}
+	assert.NilError(t, yamlutil.NewYAMLOrJSONDecoder(strings.NewReader(configmap.Data["template"]), 4096).Decode(template))
+	initPath := []string{"spec", "template", "spec", "initContainers"}
+	initContainers, _, err := unstructured.NestedSlice(template.Object, initPath...)
+	assert.NilError(t, err)
+	initContainers = append([]interface{}{proxyRelayContainer()}, initContainers...)
+	assert.NilError(t, unstructured.SetNestedSlice(template.Object, initContainers, initPath...))
+	volumePath := []string{"spec", "template", "spec", "volumes"}
+	volumes, _, err := unstructured.NestedSlice(template.Object, volumePath...)
+	assert.NilError(t, err)
+	volumes = append(volumes, proxyCredentialVolume())
+	assert.NilError(t, unstructured.SetNestedSlice(template.Object, volumes, volumePath...))
+	configmap.Data["template"] = string(jsonutils.MarshalSilently(template.Object))
+
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(
+		configmap, jobutils.TestGithubRunnerResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+
+	volumes, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "volumes"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	volumeNames := map[string]int{}
+	for _, volume := range volumes {
+		name, _ := volume.(map[string]interface{})["name"].(string)
+		volumeNames[name]++
+	}
+	assert.Equal(t, volumeNames["runner-secret"], 1)
+	assert.Equal(t, volumeNames[cicdProxyCredentialVol], 1)
+
+	containers, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "containers"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	mounts := containers[0].(map[string]interface{})["volumeMounts"].([]interface{})
+	mountPaths := map[string]int{}
+	for _, mount := range mounts {
+		mountPath, _ := mount.(map[string]interface{})["mountPath"].(string)
+		mountPaths[mountPath]++
+	}
+	assert.Equal(t, mountPaths[common.SecretPath+"/runner-secret"], 1)
+}
+
+func TestGithubRunnerImageAppliesToDindExternals(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.CICDGithubRunnerKind}
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.Images = []string{"ghcr.io/actions/actions-runner:latest"}
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "runner-secret")
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+
+	configmap, err := parseConfigmap(TestGithubRunnerTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(
+		configmap, jobutils.TestGithubRunnerResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+
+	runner, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, runner[0].(map[string]interface{})["image"], workload.Spec.Images[0])
+
+	inits, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "initContainers")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, inits[0].(map[string]interface{})["name"], githubRunnerDindExternalsInit)
+	assert.Equal(t, inits[0].(map[string]interface{})["image"], workload.Spec.Images[0])
 }
 
 func TestCreateRayJob(t *testing.T) {
@@ -2610,6 +3099,7 @@ func relaySource(credential string) *v1.Workload {
 
 func TestConfigureCICDProxyRelay(t *testing.T) {
 	obj, w := relayObject(), relaySource("proxy-auth")
+	w.Spec.Env[common.NoProxy] = ".svc,.cluster.local"
 	relay, err := configureCICDProxyRelay(obj, w, w, ephemeralRunnerSpec())
 	assert.NilError(t, err)
 	assert.Assert(t, relay)
@@ -2638,6 +3128,9 @@ func TestConfigureCICDProxyRelay(t *testing.T) {
 	// docker.sock, so dockerd needs the relay too or ghcr.io leaves via the node.
 	assert.Equal(t, env[cicdProxyDindContainer]["http_proxy"], "http://127.0.0.1:3129")
 	assert.Equal(t, env[cicdProxyDindContainer]["https_proxy"], "http://127.0.0.1:3129")
+	assert.Equal(t, env[cicdProxyDindContainer][common.NoProxy], env["runner"][common.NoProxy])
+	assert.Assert(t, strings.Contains(env[cicdProxyDindContainer][common.NoProxy], "localhost"))
+	assert.Assert(t, strings.Contains(env[cicdProxyDindContainer][common.NoProxy], ".cluster.local"))
 	// The relay must not be pointed at itself.
 	assert.Equal(t, env[cicdProxyRelayContainer]["http_proxy"], "")
 
@@ -2704,11 +3197,13 @@ func TestConfigureCICDProxyRelaySkipped(t *testing.T) {
 	assert.Assert(t, !relay)
 	assertCICDProxyRelayRemoved(t, obj)
 
-	// Chart did not add the sidecar: the relay cannot take over even with a credential.
+	// A credential cannot be used safely without the relay that keeps it out of runner env.
 	bare := &unstructured.Unstructured{Object: map[string]interface{}{
 		"spec": map[string]interface{}{"spec": map[string]interface{}{
 			"containers": []interface{}{map[string]interface{}{"name": "runner"}}}}}}
-	relay, err = configureCICDProxyRelay(bare, relaySource("proxy-auth"), relaySource("proxy-auth"), ephemeralRunnerSpec())
-	assert.NilError(t, err)
+	hosted := relaySource("proxy-auth")
+	hosted.Spec.GroupVersionKind.Kind = common.CICDGithubRunnerKind
+	relay, err = configureCICDProxyRelay(bare, hosted, hosted, ephemeralRunnerSpec())
+	assert.ErrorContains(t, err, "proxy-relay")
 	assert.Assert(t, !relay)
 }

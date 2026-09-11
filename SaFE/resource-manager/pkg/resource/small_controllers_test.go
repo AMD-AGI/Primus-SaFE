@@ -178,6 +178,8 @@ func TestCICDAndMonarchServiceAccountGated(t *testing.T) {
 	// CI/CD and Monarch are disabled by default -> these return nil without touching cluster.
 	assert.NoError(t, createCICDServiceAccount(context.Background(), ws, cs))
 	assert.NoError(t, deleteCICDServiceAccount(context.Background(), ws, cs))
+	assert.NoError(t, createGithubRunnerServiceAccount(context.Background(), ws, cs))
+	assert.NoError(t, deleteGithubRunnerServiceAccount(context.Background(), ws, cs))
 	assert.NoError(t, createMonarchServiceAccount(context.Background(), ws, cs))
 	assert.NoError(t, deleteMonarchServiceAccount(context.Background(), ws, cs))
 }

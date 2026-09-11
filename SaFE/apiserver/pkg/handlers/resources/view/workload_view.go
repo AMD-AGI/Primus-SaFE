@@ -138,7 +138,7 @@ type ListWorkloadRequest struct {
 	UserId string `form:"userId" binding:"omitempty,max=64"`
 	// Filter results by username (fuzzy match)
 	UserName string `form:"userName" binding:"omitempty"`
-	// Filter by workload kind: Deployment/PyTorchJob/StatefulSet/Authoring/AutoscalingRunnerSet(comma-separated)/Sandbox/MonarchJob
+	// Filter by workload kind: Deployment/PyTorchJob/StatefulSet/Authoring/AutoscalingRunnerSet/GithubRunner(comma-separated)/Sandbox/MonarchJob
 	Kind string `form:"kind" binding:"omitempty"`
 	// Filter by description (fuzzy match)
 	Description string `form:"description" binding:"omitempty"`

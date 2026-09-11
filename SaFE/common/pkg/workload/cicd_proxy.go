@@ -233,7 +233,7 @@ func CICDProxyEnvChanged(oldWorkload, newWorkload *v1.Workload) bool {
 // A new runner kind joins the proxy by being named here; the relay and the
 // credential handling below read this rather than any one kind.
 func IsCICDProxyRoot(workload *v1.Workload) bool {
-	return IsCICDScalingRunnerSet(workload)
+	return IsCICDScalingRunnerSet(workload) || IsCICDGithubRunner(workload)
 }
 
 // ExpectedCICDProxyOptIn reports whether the proxy marker belongs on a workload.

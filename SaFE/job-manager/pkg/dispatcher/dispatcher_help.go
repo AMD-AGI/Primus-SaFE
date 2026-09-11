@@ -8,6 +8,7 @@ package dispatcher
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -625,6 +626,11 @@ func modifyServiceAccountName(obj *unstructured.Unstructured, workload *v1.Workl
 			return err
 		}
 	}
+	if commonworkload.IsCICDGithubRunner(workload) {
+		if err := jobutils.SetNestedField(obj.Object, common.GithubRunnerServiceAccount, path); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -719,7 +725,7 @@ func buildCommands(workload *v1.Workload, id int) []interface{} {
 	}
 	// Only launcher workloads: exec so launcher.sh becomes PID 1 (see launcher.sh). CICD and
 	// other raw shell entrypoints must stay plain -c without exec to preserve multi-command scripts.
-	if workload.SpecKind() == common.CICDScaleRunnerSetKind {
+	if workload.SpecKind() == common.CICDScaleRunnerSetKind || workload.SpecKind() == common.CICDGithubRunnerKind {
 		return []interface{}{"/bin/sh", "-c", entryPoint}
 	}
 	return []interface{}{"/bin/sh", "-c", "exec " + entryPoint}
@@ -727,6 +733,9 @@ func buildCommands(workload *v1.Workload, id int) []interface{} {
 
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload, id int) string {
+	if commonworkload.IsCICDGithubRunner(workload) {
+		return githubRunnerEntryPoint(workload, id)
+	}
 	if len(workload.Spec.EntryPoints) <= id || workload.Spec.EntryPoints[id] == "" {
 		if id > 0 && commonworkload.IsRayJob(workload) {
 			return Launcher
@@ -744,8 +753,10 @@ func buildEntryPoint(workload *v1.Workload, id int) string {
 	return result
 }
 
-// launcherEntryPayload returns the argument after /shared-data/launcher.sh for launcher-style commands.
-// Accepts legacy "/bin/sh ..." and "exec /bin/bash ..." wrappers for rollout comparison.
+func githubRunnerEntryPoint(_ *v1.Workload, _ int) string {
+	return commonworkload.GithubRunnerStartScript()
+}
+
 func launcherEntryPayload(ep string) (string, bool) {
 	const marker = "/shared-data/launcher.sh"
 	i := strings.Index(ep, marker)
@@ -1400,6 +1411,373 @@ func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterCl
 		}
 	}
 	return nil
+}
+
+// updateGithubRunner injects registration URL, secret id, pool labels and the
+// per-pod credential directory used across restarts.
+func updateGithubRunner(obj *unstructured.Unstructured,
+	adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
+	if len(rt.Spec.ResourceSpecs) == 0 {
+		return fmt.Errorf("no resource template found")
+	}
+	if v1.GetGithubSecretId(adminWorkload) == "" || len(adminWorkload.Spec.Env) == 0 ||
+		adminWorkload.Spec.Env[common.GithubConfigUrl] == "" {
+		return fmt.Errorf("github config is not set")
+	}
+	stateRoot, err := githubRunnerStateRoot(adminWorkload, workspace)
+	if err != nil {
+		return err
+	}
+	adminWorkload = cicdProxyWorkload(adminWorkload, adminWorkload, obj)
+	containers, path, err := getContainers(adminWorkload, obj, rt.Spec.ResourceSpecs[0])
+	if err != nil {
+		return err
+	}
+	envs := maps.Copy(adminWorkload.Spec.Env)
+	envs[jobutils.GithubSecretEnv] = v1.GetGithubSecretId(adminWorkload)
+	envs[common.GithubRunnerStateRoot] = stateRoot
+	if strings.TrimSpace(envs[common.RunnerLabels]) == "" {
+		envs[common.RunnerLabels] = v1.GetDisplayName(adminWorkload)
+	}
+	mainContainerName := commonworkload.GetMainContainer(adminWorkload, adminWorkload.SpecKind(), 0)
+	for i := range containers {
+		container := containers[i].(map[string]interface{})
+		updateContainerEnv(envs, container, nil)
+		if name, _ := container["name"].(string); name == mainContainerName {
+			lifecycle, _ := container["lifecycle"].(map[string]interface{})
+			if lifecycle == nil {
+				lifecycle = map[string]interface{}{}
+			}
+			lifecycle["preStop"] = githubRunnerLifecycle()["preStop"]
+			container["lifecycle"] = lifecycle
+		}
+	}
+	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
+		return err
+	}
+	saPath := podSpecPath(adminWorkload, &rt.Spec.ResourceSpecs[0], "serviceAccountName")
+	if err = jobutils.SetNestedField(obj.Object, common.GithubRunnerServiceAccount, saPath); err != nil {
+		return err
+	}
+	// Create path: initializeObject/modifyVolumes appends SecretGeneral mounts.
+	// Update path: initializeObject does not run, so rewrite mounts in place.
+	if githubRunnerHasSecretVolume(obj, adminWorkload, rt.Spec.ResourceSpecs[0]) {
+		if err = syncGithubRunnerSecretMounts(obj, adminWorkload, rt.Spec.ResourceSpecs[0]); err != nil {
+			return err
+		}
+	}
+	if err = applyGithubRunnerPodSecurityContext(obj, adminWorkload, workspace, rt.Spec.ResourceSpecs[0]); err != nil {
+		return err
+	}
+	relay, err := configureCICDProxyRelay(obj, adminWorkload, adminWorkload, rt.Spec.ResourceSpecs[0])
+	if err != nil {
+		return err
+	}
+	if relay {
+		return nil
+	}
+	return applyGithubRunnerDirectProxy(obj, adminWorkload, rt.Spec.ResourceSpecs[0])
+}
+
+func applyGithubRunnerDirectProxy(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	if !commonworkload.IsCICDProxyManaged(workload) {
+		return nil
+	}
+	config, err := commonworkload.ParseCICDProxy(workload.Spec.Env)
+	if err != nil || config == nil || config.URL == "" || config.CredentialSecret != "" {
+		return err
+	}
+	containers, path, err := getContainers(workload, obj, resourceSpec)
+	if err != nil {
+		return err
+	}
+	endpoint := map[string]string{cicdProxyHTTPEnv: config.URL, cicdProxyHTTPSEnv: config.URL}
+	applyCICDProxyNoProxy(endpoint, workload, config)
+	if err = applyCICDProxyEndpoint(containers, workload, endpoint, nil); err != nil {
+		return err
+	}
+	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
+		return err
+	}
+	initPath := podSpecPath(workload, &resourceSpec, "initContainers")
+	initContainers, found, err := jobutils.NestedSlice(obj.Object, initPath)
+	if err != nil || !found {
+		return err
+	}
+	if err = applyCICDProxyEndpoint(initContainers, workload, endpoint, nil); err != nil {
+		return err
+	}
+	return jobutils.SetNestedField(obj.Object, initContainers, initPath)
+}
+
+func githubRunnerLifecycle() map[string]interface{} {
+	return map[string]interface{}{
+		"preStop": map[string]interface{}{
+			"exec": map[string]interface{}{
+				"command": []interface{}{"/bin/sh", "-c", commonworkload.GithubRunnerStopScript()},
+			},
+		},
+	}
+}
+
+func githubRunnerHasSecretVolume(obj *unstructured.Unstructured,
+	workload *v1.Workload, resourceSpec v1.ResourceSpec) bool {
+	secretIDs := make(map[string]struct{}, len(workload.Spec.Secrets))
+	for _, secret := range workload.Spec.Secrets {
+		if secret.Type == v1.SecretGeneral {
+			secretIDs[secret.Id] = struct{}{}
+		}
+	}
+	if len(secretIDs) == 0 {
+		return false
+	}
+	volumes, found, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &resourceSpec, "volumes"))
+	if err != nil || !found {
+		return false
+	}
+	for _, volume := range volumes {
+		volumeMap, ok := volume.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if _, hasSecret := volumeMap["secret"]; !hasSecret {
+			continue
+		}
+		name, _ := volumeMap["name"].(string)
+		if name == cicdProxyCredentialVol {
+			continue
+		}
+		if _, managed := secretIDs[name]; managed {
+			return true
+		}
+	}
+	containers, found, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &resourceSpec, "containers"))
+	if err != nil || !found {
+		return false
+	}
+	for _, entry := range containers {
+		container, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		mounts, _ := container["volumeMounts"].([]interface{})
+		for _, mount := range mounts {
+			mountMap, ok := mount.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			mountPath, _ := mountMap["mountPath"].(string)
+			if strings.HasPrefix(mountPath, common.SecretPath+"/") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func githubRunnerStateRoot(workload *v1.Workload, workspace *v1.Workspace) (string, error) {
+	mountPath, err := githubRunnerWritableMountPath(workload, workspace)
+	if err != nil {
+		return "", err
+	}
+	return mountPath + "/github-runners/" + workload.Name, nil
+}
+
+func githubRunnerWritableMountPath(workload *v1.Workload, workspace *v1.Workspace) (string, error) {
+	if workspace == nil || !v1.IsEnableWorkspaceStorage(workload) {
+		return "", fmt.Errorf("github runner requires workspace storage")
+	}
+	vol, ok := pickWritableWorkspaceVolume(workspace)
+	if !ok || vol.MountPath == "" {
+		return "", fmt.Errorf("github runner requires a writable workspace volume")
+	}
+	path := vol.MountPath
+	if vol.EnableUserDir {
+		path = path + "/" + generateUserDir(v1.GetUserId(workload))
+	}
+	return path, nil
+}
+
+// githubRunnerPFSSupplementalGroup grants access to pre-provisioned PFS paths
+// without asking kubelet to change ownership across a shared filesystem.
+const githubRunnerPFSSupplementalGroup = int64(1000)
+
+func workspaceHasWritablePFS(workspace *v1.Workspace) bool {
+	vol, ok := pickWritableWorkspaceVolume(workspace)
+	return ok && vol.Type == v1.PFS
+}
+
+func applyGithubRunnerPodSecurityContext(obj *unstructured.Unstructured, workload *v1.Workload,
+	workspace *v1.Workspace, resourceSpec v1.ResourceSpec) error {
+	if !workspaceHasWritablePFS(workspace) {
+		return nil
+	}
+	path := podSpecPath(workload, &resourceSpec, "securityContext")
+	securityContext, found, err := jobutils.NestedMap(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	if !found {
+		securityContext = map[string]interface{}{}
+	}
+	// fsGroup can make kubelet recursively change every file on a shared PFS.
+	// Remove values from older StatefulSets and rely on the provisioned group.
+	delete(securityContext, "fsGroup")
+	delete(securityContext, "fsGroupChangePolicy")
+	groups, _ := securityContext["supplementalGroups"].([]interface{})
+	if !containsSupplementalGroup(groups, githubRunnerPFSSupplementalGroup) {
+		securityContext["supplementalGroups"] = append(groups, githubRunnerPFSSupplementalGroup)
+	}
+	return jobutils.SetNestedField(obj.Object, securityContext, path)
+}
+
+// containsSupplementalGroup compares group IDs by numeric value so JSON
+// round-trips (float64 / json.Number) do not append a duplicate.
+func containsSupplementalGroup(groups []interface{}, want int64) bool {
+	for _, group := range groups {
+		id, ok := supplementalGroupID(group)
+		if ok && id == want {
+			return true
+		}
+	}
+	return false
+}
+
+func supplementalGroupID(group interface{}) (int64, bool) {
+	switch v := group.(type) {
+	case int:
+		return int64(v), true
+	case int32:
+		return int64(v), true
+	case int64:
+		return v, true
+	case float64:
+		return int64(v), true
+	case json.Number:
+		n, err := v.Int64()
+		if err != nil {
+			f, ferr := v.Float64()
+			if ferr != nil {
+				return 0, false
+			}
+			return int64(f), true
+		}
+		return n, true
+	default:
+		return 0, false
+	}
+}
+
+func pickWritableWorkspaceVolume(workspace *v1.Workspace) (v1.WorkspaceVolume, bool) {
+	var first v1.WorkspaceVolume
+	foundFirst := false
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.AccessMode == corev1.ReadOnlyMany || strings.TrimSpace(vol.MountPath) == "" {
+			continue
+		}
+		if vol.Type == v1.PFS {
+			return vol, true
+		}
+		if !foundFirst {
+			first = vol
+			foundFirst = true
+		}
+	}
+	return first, foundFirst
+}
+
+// syncGithubRunnerSecretMounts rebuilds dispatcher-managed general Secret
+// volumes and mounts so a registration-token rotation reaches the StatefulSet.
+func syncGithubRunnerSecretMounts(obj *unstructured.Unstructured,
+	workload *v1.Workload, resourceSpec v1.ResourceSpec) error {
+	desired := make([]v1.SecretEntity, 0, len(workload.Spec.Secrets))
+	secretTypeByID := make(map[string]v1.SecretType, len(workload.Spec.Secrets))
+	for _, secret := range workload.Spec.Secrets {
+		secretTypeByID[secret.Id] = secret.Type
+		if secret.Type == v1.SecretGeneral {
+			desired = append(desired, secret)
+		}
+	}
+
+	containers, containerPath, err := getContainers(workload, obj, resourceSpec)
+	if err != nil {
+		return err
+	}
+	managedNames := make(map[string]struct{}, len(secretTypeByID))
+	for name := range secretTypeByID {
+		managedNames[name] = struct{}{}
+	}
+	for i := range containers {
+		container := containers[i].(map[string]interface{})
+		mounts, _ := container["volumeMounts"].([]interface{})
+		for _, mount := range mounts {
+			mountMap, ok := mount.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			mountPath, _ := mountMap["mountPath"].(string)
+			if strings.HasPrefix(mountPath, common.SecretPath+"/") {
+				name, _ := mountMap["name"].(string)
+				managedNames[name] = struct{}{}
+			}
+		}
+	}
+
+	volumePath := podSpecPath(workload, &resourceSpec, "volumes")
+	volumes, _, err := jobutils.NestedSlice(obj.Object, volumePath)
+	if err != nil {
+		return err
+	}
+	filteredVolumes := make([]interface{}, 0, len(volumes)+len(desired))
+	for _, volume := range volumes {
+		volumeMap, ok := volume.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := volumeMap["name"].(string)
+		if _, hasSecret := volumeMap["secret"]; hasSecret {
+			if _, managed := managedNames[name]; managed {
+				if secretType, exists := secretTypeByID[name]; exists && secretType != v1.SecretGeneral {
+					filteredVolumes = append(filteredVolumes, volume)
+				}
+				continue
+			}
+		}
+		filteredVolumes = append(filteredVolumes, volume)
+	}
+	for _, secret := range desired {
+		filteredVolumes = append(filteredVolumes, buildSecretVolume(secret.Id))
+	}
+	if err = jobutils.SetNestedField(obj.Object, filteredVolumes, volumePath); err != nil {
+		return err
+	}
+
+	for i := range containers {
+		container := containers[i].(map[string]interface{})
+		mounts, _ := container["volumeMounts"].([]interface{})
+		filteredMounts := make([]interface{}, 0, len(mounts)+len(desired))
+		for _, mount := range mounts {
+			mountMap, ok := mount.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, _ := mountMap["name"].(string)
+			if _, managed := managedNames[name]; managed {
+				if secretType, exists := secretTypeByID[name]; exists && secretType != v1.SecretGeneral {
+					filteredMounts = append(filteredMounts, mount)
+				}
+				continue
+			}
+			filteredMounts = append(filteredMounts, mount)
+		}
+		for _, secret := range desired {
+			filteredMounts = append(filteredMounts, buildVolumeMount(
+				secret.Id, common.SecretPath+"/"+secret.Id, "", "", true, false))
+		}
+		container["volumeMounts"] = filteredMounts
+	}
+	return jobutils.SetNestedField(obj.Object, containers, containerPath)
 }
 
 // inheritCICDProxySecretRef points the runner at the proxy Secret its owner already built.
@@ -2253,7 +2631,48 @@ func updateContainers(adminWorkload *v1.Workload,
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
 		return err
 	}
-	return nil
+	return syncGithubRunnerExternalsImage(adminWorkload, obj, resourceSpec, id)
+}
+
+const githubRunnerDindExternalsInit = "init-dind-externals"
+
+// syncGithubRunnerExternalsImage copies the runner image onto init-dind-externals.
+// That init copies /home/runner/externals into a volume dind and the runner both
+// mount, so a mismatched tag leaves Docker jobs on a different runner toolkit.
+func syncGithubRunnerExternalsImage(adminWorkload *v1.Workload, obj *unstructured.Unstructured,
+	resourceSpec v1.ResourceSpec, id int) error {
+	if !commonworkload.IsCICDGithubRunner(adminWorkload) {
+		return nil
+	}
+	if len(adminWorkload.Spec.Images) <= id || adminWorkload.Spec.Images[id] == "" {
+		return nil
+	}
+	image := adminWorkload.Spec.Images[id]
+	path := podSpecPath(adminWorkload, &resourceSpec, "initContainers")
+	initContainers, found, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	changed := false
+	for i := range initContainers {
+		container, ok := initContainers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if jobutils.NestedStringSilently(container, []string{"name"}) != githubRunnerDindExternalsInit {
+			continue
+		}
+		container["image"] = image
+		initContainers[i] = container
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	return jobutils.SetNestedField(obj.Object, initContainers, path)
 }
 
 // updateContainerEnv updates environment variables in the container.

@@ -141,7 +141,6 @@ const (
 	cicdNoProxy                 = cicdPrefix + "no_proxy"
 	cicdProxyRelayPort          = cicdPrefix + "proxy_relay_port"
 	cicdFailureEnrichTimeoutSec = cicdPrefix + "failure_enrich_timeout_seconds"
-
 	// model
 	modelPrefix          = "model."
 	modelDownloaderImage = modelPrefix + "downloader_image"

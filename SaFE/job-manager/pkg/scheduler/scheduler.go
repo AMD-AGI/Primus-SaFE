@@ -235,7 +235,7 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 	if len(adminWorkload.Spec.CronJobs) > 0 {
 		r.cronManager.remove(adminWorkload.Name)
 	}
-	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) || commonworkload.IsCICDGithubRunner(adminWorkload) {
 		if err = r.deleteRelatedSecrets(ctx, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}

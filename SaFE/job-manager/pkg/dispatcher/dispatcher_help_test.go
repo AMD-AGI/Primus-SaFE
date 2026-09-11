@@ -7,6 +7,7 @@ package dispatcher
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -721,6 +722,7 @@ func TestModifyServiceAccountName(t *testing.T) {
 	tests := []struct {
 		name        string
 		opsJobType  string
+		kind        string
 		expectedSA  string
 		shouldBeSet bool
 	}{
@@ -740,6 +742,12 @@ func TestModifyServiceAccountName(t *testing.T) {
 			opsJobType:  "",
 			shouldBeSet: false,
 		},
+		{
+			name:        "GithubRunner should set github-runner service account",
+			kind:        common.CICDGithubRunnerKind,
+			expectedSA:  common.GithubRunnerServiceAccount,
+			shouldBeSet: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -754,7 +762,9 @@ func TestModifyServiceAccountName(t *testing.T) {
 				},
 			}
 
-			workload := &v1.Workload{}
+			workload := &v1.Workload{Spec: v1.WorkloadSpec{
+				GroupVersionKind: v1.GroupVersionKind{Kind: tt.kind},
+			}}
 			if tt.opsJobType != "" {
 				workload.Labels = map[string]string{
 					v1.OpsJobTypeLabel: tt.opsJobType,
@@ -1691,6 +1701,152 @@ func TestBuildPersistentVolumeMountsOrdersAncestorsFirst(t *testing.T) {
 	assert.Equal(t, nested["mountPath"], "/shared_nfs/users/"+userId)
 	assert.Equal(t, nested["subPath"], "users/"+userId)
 	assert.Equal(t, nested["readOnly"], false)
+}
+
+func TestGithubRunnerWritableMountPath(t *testing.T) {
+	const userId = "user-1"
+	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:   "runner-wl",
+		Labels: map[string]string{v1.UserIdLabel: userId},
+		Annotations: map[string]string{
+			v1.UseWorkspaceStorageAnnotation: v1.TrueStr,
+		},
+	}}
+
+	plain := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Type: v1.PFS, MountPath: "/ceph"},
+	}}}
+	path, err := githubRunnerWritableMountPath(workload, plain)
+	assert.NilError(t, err)
+	assert.Equal(t, path, "/ceph")
+	root, err := githubRunnerStateRoot(workload, plain)
+	assert.NilError(t, err)
+	assert.Equal(t, root, "/ceph/github-runners/runner-wl")
+
+	userDir := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Type: v1.PFS, MountPath: "/shared_nfs", EnableUserDir: true},
+	}}}
+	path, err = githubRunnerWritableMountPath(workload, userDir)
+	assert.NilError(t, err)
+	assert.Equal(t, path, "/shared_nfs/users/"+userId)
+
+	readonly := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Type: v1.PFS, MountPath: "/ceph", AccessMode: corev1.ReadOnlyMany},
+	}}}
+	_, err = githubRunnerWritableMountPath(workload, readonly)
+	assert.ErrorContains(t, err, "writable workspace volume")
+
+	withEmptyPath := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Type: v1.PFS},
+		{Type: v1.PFS, MountPath: "/valid"},
+	}}}
+	path, err = githubRunnerWritableMountPath(workload, withEmptyPath)
+	assert.NilError(t, err)
+	assert.Equal(t, path, "/valid")
+
+	dualPFS := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Type: v1.PFS, MountPath: "/wekafs"},
+		{Type: v1.PFS, MountPath: "/wekafs", EnableUserDir: true},
+	}}}
+	path, err = githubRunnerWritableMountPath(workload, dualPFS)
+	assert.NilError(t, err)
+	assert.Equal(t, path, "/wekafs")
+	root, err = githubRunnerStateRoot(workload, dualPFS)
+	assert.NilError(t, err)
+	assert.Equal(t, root, "/wekafs/github-runners/runner-wl")
+}
+
+func TestApplyGithubRunnerPodSecurityContextUsesPFSGroupWithoutChown(t *testing.T) {
+	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Annotations: map[string]string{v1.UseWorkspaceStorageAnnotation: v1.TrueStr},
+	}}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
+			"securityContext": map[string]interface{}{
+				"fsGroup":             int64(1000),
+				"fsGroupChangePolicy": "OnRootMismatch",
+			},
+		}}},
+	}}
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	spec := v1.ResourceSpec{PrePaths: []string{"spec"}, PodSpecPaths: []string{"template", "spec"}}
+	assert.NilError(t, applyGithubRunnerPodSecurityContext(obj, workload, workspace, spec))
+	_, found, err := unstructured.NestedInt64(
+		obj.Object, "spec", "template", "spec", "securityContext", "fsGroup")
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
+	_, found, err = unstructured.NestedString(
+		obj.Object, "spec", "template", "spec", "securityContext", "fsGroupChangePolicy")
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
+	groups, found, err := unstructured.NestedSlice(
+		obj.Object, "spec", "template", "spec", "securityContext", "supplementalGroups")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.DeepEqual(t, groups, []interface{}{githubRunnerPFSSupplementalGroup})
+}
+
+func TestApplyGithubRunnerPodSecurityContextKeepsJSONGroupIDs(t *testing.T) {
+	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Annotations: map[string]string{v1.UseWorkspaceStorageAnnotation: v1.TrueStr},
+	}}
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	spec := v1.ResourceSpec{PrePaths: []string{"spec"}, PodSpecPaths: []string{"template", "spec"}}
+
+	for _, existing := range []interface{}{
+		float64(githubRunnerPFSSupplementalGroup),
+		json.Number("1000"),
+		int64(githubRunnerPFSSupplementalGroup),
+	} {
+		obj := &unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
+				"securityContext": map[string]interface{}{
+					"supplementalGroups": []interface{}{existing},
+				},
+			}}},
+		}}
+		assert.NilError(t, applyGithubRunnerPodSecurityContext(obj, workload, workspace, spec))
+		assert.NilError(t, applyGithubRunnerPodSecurityContext(obj, workload, workspace, spec))
+		groups, found, err := unstructured.NestedSlice(
+			obj.Object, "spec", "template", "spec", "securityContext", "supplementalGroups")
+		assert.NilError(t, err)
+		assert.Assert(t, found)
+		assert.Equal(t, len(groups), 1)
+	}
+
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "apps/v1",
+		"kind":       "StatefulSet",
+		"spec":       map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{}}},
+	}}
+	assert.NilError(t, applyGithubRunnerPodSecurityContext(obj, workload, workspace, spec))
+	raw, err := obj.MarshalJSON()
+	assert.NilError(t, err)
+	roundTripped := &unstructured.Unstructured{}
+	assert.NilError(t, roundTripped.UnmarshalJSON(raw))
+	assert.NilError(t, applyGithubRunnerPodSecurityContext(roundTripped, workload, workspace, spec))
+	groups, found, err := unstructured.NestedSlice(
+		roundTripped.Object, "spec", "template", "spec", "securityContext", "supplementalGroups")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, len(groups), 1)
+}
+
+func TestApplyGithubRunnerPodSecurityContextSkipsNonPFSWorkspace(t *testing.T) {
+	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Annotations: map[string]string{v1.UseWorkspaceStorageAnnotation: v1.TrueStr},
+	}}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{}}},
+	}}
+	workspace := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Type: v1.HOSTPATH, MountPath: "/data", HostPath: "/apps"},
+	}}}
+	spec := v1.ResourceSpec{PrePaths: []string{"spec"}, PodSpecPaths: []string{"template", "spec"}}
+	assert.NilError(t, applyGithubRunnerPodSecurityContext(obj, workload, workspace, spec))
+	_, found, err := unstructured.NestedInt64(obj.Object, "spec", "template", "spec", "securityContext", "fsGroup")
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
 }
 
 func TestBuildRequiredMatchExpressionExcludedNodes(t *testing.T) {

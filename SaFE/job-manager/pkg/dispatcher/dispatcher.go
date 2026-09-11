@@ -7,6 +7,7 @@ package dispatcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -16,12 +17,14 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/client-go/kubernetes"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -625,21 +628,29 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 		}
 	}
 	if !isChanged {
-		return nil
+		return r.pruneGithubRunnerSecrets(ctx, adminWorkload,
+			githubRunnerDataPlaneSecretID(adminWorkload, obj, rt), clientSets)
 	}
 
+	previousGithubSecret := githubRunnerDataPlaneSecretID(adminWorkload, obj, rt)
 	workspace, err := r.getWorkspace(ctx, adminWorkload)
 	if err != nil {
 		return err
 	}
 	if err = r.applyWorkloadSpecToObject(ctx, clientSets, obj, derived, workspace, rt, source); err != nil {
+		if errors.Is(err, errGithubRunnerRBACNotReady) {
+			return err
+		}
 		return commonerrors.NewBadRequest(err.Error())
 	}
 	if err = jobutils.UpdateObject(ctx, clientSets.ClientFactory(), obj); err != nil {
 		klog.ErrorS(err, "failed to update k8s unstructured object")
 		return err
 	}
-	return r.clearCICDEnvRemoval(ctx, adminWorkload)
+	if err = r.clearCICDEnvRemoval(ctx, adminWorkload); err != nil {
+		return err
+	}
+	return r.pruneGithubRunnerSecrets(ctx, adminWorkload, previousGithubSecret, clientSets)
 }
 
 // isResourceChanged checks if the resource requirements of the workload have changed.
@@ -769,7 +780,16 @@ func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstru
 }
 
 // isGithubSecretChanged checks if the GitHub secret of the workload has changed.
-func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, _ *v1.ResourceTemplate) bool {
+func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
+	if commonworkload.IsCICDGithubRunner(adminWorkload) {
+		envs, err := jobutils.GetEnv(obj, rt, len(adminWorkload.Spec.Resources))
+		if err != nil {
+			klog.ErrorS(err, "failed to get env", "obj", obj.GetName())
+			return false
+		}
+		return convertEnvsToStringMap(envs)[jobutils.GithubSecretEnv] !=
+			v1.GetGithubSecretId(adminWorkload)
+	}
 	if !commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		return false
 	}
@@ -778,6 +798,72 @@ func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 		return true
 	}
 	return v1.GetGithubSecretId(adminWorkload) != secretId
+}
+
+// githubRunnerDataPlaneSecretID returns the Secret referenced by the current
+// StatefulSet pod template. It is retained while a replacement is persisted.
+func githubRunnerDataPlaneSecretID(adminWorkload *v1.Workload, obj *unstructured.Unstructured,
+	rt *v1.ResourceTemplate) string {
+	if !commonworkload.IsCICDGithubRunner(adminWorkload) || rt == nil {
+		return ""
+	}
+	envs, err := jobutils.GetEnv(obj, rt, len(adminWorkload.Spec.Resources))
+	if err != nil {
+		return ""
+	}
+	return convertEnvsToStringMap(envs)[jobutils.GithubSecretEnv]
+}
+
+// pruneGithubRunnerSecrets removes historical generated credentials after the
+// StatefulSet update succeeds. The desired and previously mounted Secrets are
+// retained so an in-flight rollout cannot lose either generation.
+func (r *DispatcherReconciler) pruneGithubRunnerSecrets(ctx context.Context,
+	workload *v1.Workload, previousSecret string, clientSets *syncer.ClusterClientSets) error {
+	if !commonworkload.IsCICDGithubRunner(workload) {
+		return nil
+	}
+	secrets := &corev1.SecretList{}
+	if err := r.List(ctx, secrets,
+		client.InNamespace(common.PrimusSafeNamespace),
+		client.MatchingLabels{v1.OwnerLabel: workload.Name}); err != nil {
+		return err
+	}
+	keep := map[string]struct{}{
+		v1.GetGithubSecretId(workload):                                  {},
+		v1.GetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation): {},
+		previousSecret: {},
+	}
+	delete(keep, "")
+	if clientSets != nil && clientSets.ClientFactory() != nil {
+		pods, err := clientSets.ClientFactory().ClientSet().CoreV1().Pods(workload.Spec.Workspace).
+			List(ctx, metav1.ListOptions{LabelSelector: fmt.Sprintf(
+				"%s=%s", v1.WorkloadIdLabel, workload.Name)})
+		if err != nil {
+			return err
+		}
+		for i := range pods.Items {
+			for _, volume := range pods.Items[i].Spec.Volumes {
+				if volume.Secret != nil {
+					keep[volume.Secret.SecretName] = struct{}{}
+				}
+			}
+		}
+	}
+	for i := range secrets.Items {
+		secret := &secrets.Items[i]
+		if secret.Labels["secret.usage"] != "github-runner" {
+			continue
+		}
+		if _, ok := keep[secret.Name]; ok {
+			continue
+		}
+		if err := r.Delete(ctx, secret); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+		klog.Infof("deleted superseded GithubRunner secret %s for workload %s",
+			secret.Name, workload.Name)
+	}
+	return nil
 }
 
 // applyWorkloadSpecToObject applies the workload specifications to the unstructured Kubernetes object.
@@ -830,12 +916,89 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 			return err
 		}
 	}
+	// Apply after updateContainers so GetEnvToBeRemoved cannot drop injected keys.
+	if commonworkload.IsCICDGithubRunner(adminWorkload) {
+		if clientSets != nil && clientSets.ClientFactory() != nil {
+			if err = validateGithubRunnerRBAC(
+				ctx, clientSets.ClientFactory().ClientSet(), adminWorkload.Spec.Workspace); err != nil {
+				return err
+			}
+		}
+		if err = updateGithubRunner(obj, adminWorkload, workspace, rt); err != nil {
+			return err
+		}
+	}
 	// NB: kind-specific normalization (e.g. normalizeDynamoDGD which converts
 	// containers[main] -> extraPodSpec.mainContainer) runs in
 	// generateK8sObject after the per-ResourceSpec initializeObject loop,
 	// NOT here. Running it inside applyWorkloadSpecToObject would delete the
 	// containers[] field before initializeObject's modifyContainers sees it.
 	return nil
+}
+
+// errGithubRunnerRBACNotReady is returned while workspace RBAC is still
+// converging. It must not be wrapped as BadRequest or the workload is failed.
+var errGithubRunnerRBACNotReady = errors.New("github runner RBAC is not ready")
+
+func githubRunnerRBACGetError(kind, name string, err error) error {
+	if apierrors.IsNotFound(err) {
+		return fmt.Errorf("%w: %s %s", errGithubRunnerRBACNotReady, kind, name)
+	}
+	return fmt.Errorf("GithubRunner %s %s is not ready: %w", kind, name, err)
+}
+
+// validateGithubRunnerRBAC verifies the data plane can run the preStop lookup.
+func validateGithubRunnerRBAC(ctx context.Context, clientSet kubernetes.Interface, namespace string) error {
+	name := common.GithubRunnerServiceAccount
+	if _, err := clientSet.CoreV1().ServiceAccounts(namespace).Get(ctx, name, metav1.GetOptions{}); err != nil {
+		return githubRunnerRBACGetError("ServiceAccount", namespace+"/"+name, err)
+	}
+	binding, err := clientSet.RbacV1().RoleBindings(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return githubRunnerRBACGetError("RoleBinding", namespace+"/"+name, err)
+	}
+	if binding.RoleRef.APIGroup != rbacv1.GroupName ||
+		binding.RoleRef.Kind != common.ClusterRoleKind || binding.RoleRef.Name != name {
+		return fmt.Errorf("GithubRunner RoleBinding %s/%s does not reference ClusterRole %s",
+			namespace, name, name)
+	}
+	subjectFound := false
+	for _, subject := range binding.Subjects {
+		if subject.Kind == "ServiceAccount" && subject.Name == name && subject.Namespace == namespace {
+			subjectFound = true
+			break
+		}
+	}
+	if !subjectFound {
+		return fmt.Errorf("GithubRunner RoleBinding %s/%s does not reference ServiceAccount %s/%s",
+			namespace, name, namespace, name)
+	}
+	role, err := clientSet.RbacV1().ClusterRoles().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return githubRunnerRBACGetError("ClusterRole", name, err)
+	}
+	allowed := false
+	for _, rule := range role.Rules {
+		if containsString(rule.APIGroups, "apps") &&
+			containsString(rule.Resources, "statefulsets") &&
+			containsString(rule.Verbs, "get") {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return fmt.Errorf("GithubRunner ClusterRole %s cannot get apps/statefulsets", name)
+	}
+	return nil
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted || value == "*" {
+			return true
+		}
+	}
+	return false
 }
 
 // createService creates a Kubernetes Service for the workload if specified.

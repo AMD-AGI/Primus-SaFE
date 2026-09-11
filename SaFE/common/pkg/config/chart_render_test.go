@@ -281,3 +281,53 @@ func TestChartRendersCICDProxyRelayCredentialEncoding(t *testing.T) {
 		})
 	}
 }
+
+func TestChartRendersHostedRunnerRuntime(t *testing.T) {
+	type container struct {
+		Name            string   `yaml:"name"`
+		Image           string   `yaml:"image"`
+		RestartPolicy   string   `yaml:"restartPolicy"`
+		Args            []string `yaml:"args"`
+		SecurityContext struct {
+			Privileged bool `yaml:"privileged"`
+			RunAsUser  int  `yaml:"runAsUser"`
+		} `yaml:"securityContext"`
+	}
+	var runner struct {
+		Spec struct {
+			Template struct {
+				Spec struct {
+					DNSPolicy                     string      `yaml:"dnsPolicy"`
+					TerminationGracePeriodSeconds int         `yaml:"terminationGracePeriodSeconds"`
+					Containers                    []container `yaml:"containers"`
+					InitContainers                []container `yaml:"initContainers"`
+				} `yaml:"spec"`
+			} `yaml:"template"`
+		} `yaml:"spec"`
+	}
+	rendered := renderConfigMapData(t, "github-hosted-runner-template", "template",
+		"--show-only", "templates/configmap/github_hosted_runner_template.yaml")
+	testifyrequire.NoError(t, yaml.Unmarshal([]byte(rendered), &runner))
+
+	testifyassert.Equal(t, "ClusterFirst", runner.Spec.Template.Spec.DNSPolicy)
+	testifyassert.Equal(t, 180, runner.Spec.Template.Spec.TerminationGracePeriodSeconds)
+	testifyrequire.Len(t, runner.Spec.Template.Spec.Containers, 1)
+	testifyassert.Equal(t, "ghcr.io/actions/actions-runner:2.328.0",
+		runner.Spec.Template.Spec.Containers[0].Image)
+	testifyassert.False(t, runner.Spec.Template.Spec.Containers[0].SecurityContext.Privileged)
+	testifyassert.Equal(t, 1001, runner.Spec.Template.Spec.Containers[0].SecurityContext.RunAsUser)
+
+	names := map[string]container{}
+	for _, current := range runner.Spec.Template.Spec.InitContainers {
+		names[current.Name] = current
+	}
+	testifyassert.Equal(t, "ghcr.io/actions/actions-runner:2.328.0", names["init-dind-externals"].Image)
+	testifyassert.Equal(t, "docker:28.3.3-dind", names["dind"].Image)
+	testifyassert.Equal(t, "Always", names["dind"].RestartPolicy)
+	testifyassert.True(t, names["dind"].SecurityContext.Privileged)
+	testifyassert.Equal(t, []string{
+		"dockerd",
+		"--host=unix:///var/run/docker.sock",
+		"--group=123",
+	}, names["dind"].Args)
+}

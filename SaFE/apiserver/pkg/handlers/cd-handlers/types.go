@@ -44,6 +44,7 @@ const (
 	ImagePreprocess      = "preprocess"
 	ImageNodeAgent       = "node-agent"
 	ImageCICDRunner      = "cicd-runner-proxy"
+	ImageCICDProxyRelay  = "cicd-proxy-relay"
 	ImageCICDUnifiedJob  = "cicd-unified-job-proxy"
 	ImageModelDownloader = "model-downloader"
 	ImageOpsDownload     = "s3-downloader"

@@ -197,6 +197,26 @@ func TestWorkloadMutateCICDScaleSet(t *testing.T) {
 	assert.Equal(t, len(w.Spec.Resources), 1)
 }
 
+// TestWorkloadMutateGithubRunner truncates extra resources and preserves a custom entrypoint for validation.
+func TestWorkloadMutateGithubRunner(t *testing.T) {
+	m := &WorkloadMutator{}
+	w := &v1.Workload{Spec: v1.WorkloadSpec{
+		IsSupervised: true,
+		MaxRetry:     5,
+		Resources:    []v1.WorkloadResource{wlResource(), wlResource()},
+		EntryPoints:  []string{"one", "two"},
+	}}
+	m.mutateGithubRunner(w)
+	assert.Assert(t, !w.Spec.IsSupervised)
+	assert.Equal(t, w.Spec.MaxRetry, 0)
+	assert.Equal(t, len(w.Spec.Resources), 1)
+	assert.DeepEqual(t, w.Spec.EntryPoints, []string{"one", "two"})
+
+	w.Spec.EntryPoints = nil
+	m.mutateGithubRunner(w)
+	assert.DeepEqual(t, w.Spec.EntryPoints, []string{commonworkload.GithubRunnerStartScript()})
+}
+
 // TestWorkloadMutateTorchFT verifies torchFT env defaulting.
 func TestWorkloadMutateTorchFT(t *testing.T) {
 	m := &WorkloadMutator{}
@@ -774,6 +794,202 @@ func TestWorkloadValidateCreationDuplicateServiceName(t *testing.T) {
 	// A free name in the same workspace still passes.
 	w.Spec.Service.Name = "other-svc"
 	assert.NilError(t, v.validateOnCreation(context.Background(), w))
+}
+
+func githubRunnerForLabelTest(name, runnerLabels string) *v1.Workload {
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: v1.WorkloadSpec{
+			Workspace:        "ws1",
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.CICDGithubRunnerKind, Version: "v1"},
+			Env:              map[string]string{common.GithubConfigUrl: "https://github.com/org/repo", common.RunnerLabels: runnerLabels},
+			Secrets:          []v1.SecretEntity{{Id: "runner-secret", Type: v1.SecretGeneral}},
+			Resources:        []v1.WorkloadResource{wlResource()},
+		},
+	}
+	v1.SetLabel(w, v1.WorkloadKindLabel, common.CICDGithubRunnerKind)
+	v1.SetLabel(w, v1.DisplayNameLabel, name)
+	v1.SetAnnotation(w, v1.GithubSecretIdAnnotation, "runner-secret")
+	v1.SetAnnotation(w, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	return w
+}
+
+func TestGithubRunnerPoolLabelsRejectsDuplicates(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "spur-autopilot-hosted")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+
+	dup := githubRunnerForLabelTest("runner-b", "spur-autopilot-hosted")
+	err := v.validateGithubRunner(context.Background(), dup, nil)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+
+	unique := githubRunnerForLabelTest("runner-d", "other-pool")
+	assert.NilError(t, v.validateGithubRunner(context.Background(), unique, nil))
+
+	// Updating the same workload keeps its labels.
+	assert.NilError(t, v.validateGithubRunner(context.Background(), existing, nil))
+}
+
+func TestGithubRunnerPoolLabelsAllowSharedCapabilityLabels(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "linux,pool-a")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+
+	otherPool := githubRunnerForLabelTest("runner-b", "linux,pool-b")
+	assert.NilError(t, v.validateGithubRunner(context.Background(), otherPool, nil))
+}
+
+func TestGithubRunnerPoolLabelsRejectsSamePoolIdentity(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "linux,My-Pool")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+
+	duplicate := githubRunnerForLabelTest("runner-b", "x64,my-pool")
+	err := v.validateGithubRunner(context.Background(), duplicate, nil)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+}
+
+func TestGithubRunnerPoolLabelsIgnoresTrailingCapabilityLabels(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "my-pool,linux")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+
+	otherPool := githubRunnerForLabelTest("runner-b", "linux,other-pool")
+	assert.NilError(t, v.validateGithubRunner(context.Background(), otherPool, nil))
+
+	duplicate := githubRunnerForLabelTest("runner-c", "linux,x64,my-pool")
+	err := v.validateGithubRunner(context.Background(), duplicate, nil)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+}
+
+func TestGithubRunnerPoolLabelsRejectsCapabilityOnly(t *testing.T) {
+	scheme := newScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	v := &WorkloadValidator{Client: c}
+
+	err := v.validateGithubRunner(context.Background(), githubRunnerForLabelTest("runner-a", "linux,x64"), nil)
+	assert.ErrorContains(t, err, "non-capability identity")
+
+	onlyLinux := githubRunnerForLabelTest("runner-b", "")
+	v1.SetLabel(onlyLinux, v1.DisplayNameLabel, "linux")
+	err = v.validateGithubRunner(context.Background(), onlyLinux, nil)
+	assert.ErrorContains(t, err, "non-capability identity")
+}
+
+func cicdScaleSetForLabelTest(name, displayName string) *v1.Workload {
+	w := githubRunnerForLabelTest(name, "")
+	w.Spec.GroupVersionKind.Kind = common.CICDScaleRunnerSetKind
+	v1.SetLabel(w, v1.WorkloadKindLabel, common.CICDScaleRunnerSetKind)
+	v1.SetLabel(w, v1.DisplayNameLabel, displayName)
+	return w
+}
+
+func TestGithubRunnerPoolLabelsRejectsScaleSetName(t *testing.T) {
+	scheme := newScheme(t)
+	scaleSet := cicdScaleSetForLabelTest("ars-generated-id", "shared-label")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(scaleSet).Build()
+	v := &WorkloadValidator{Client: c}
+
+	runner := githubRunnerForLabelTest("runner-b", "shared-label")
+	err := v.validateGithubRunner(context.Background(), runner, nil)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+}
+
+func TestScaleSetDisplayNameRejectsGithubRunnerLabel(t *testing.T) {
+	scheme := newScheme(t)
+	runner := githubRunnerForLabelTest("runner-a", "shared-label")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(runner).Build()
+	v := &WorkloadValidator{Client: c}
+
+	scaleSet := cicdScaleSetForLabelTest("ars-generated-id", "shared-label")
+	err := v.validateCICDRunnerLabelsUnique(context.Background(), scaleSet)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+}
+
+func TestValidateGithubRunnerRejectsCustomEntryPoint(t *testing.T) {
+	w := githubRunnerForLabelTest("runner", "runner-label")
+	w.Spec.EntryPoints = []string{"custom"}
+	v := &WorkloadValidator{}
+	err := v.validateGithubRunner(context.Background(), w, nil)
+	assert.ErrorContains(t, err, "entrypoint is managed")
+}
+
+// TestValidateGithubRunnerAcceptsAnyImageTag covers floating tags and the empty
+// image that makes the dispatcher keep the chart default.
+func TestValidateGithubRunnerAcceptsAnyImageTag(t *testing.T) {
+	v := &WorkloadValidator{}
+	for _, image := range []string{"ghcr.io/actions/actions-runner:latest", "ghcr.io/actions/actions-runner", ""} {
+		w := githubRunnerForLabelTest("runner", "runner-label")
+		w.Spec.Images = []string{image}
+		assert.NilError(t, v.validateGithubRunner(context.Background(), w, nil))
+	}
+}
+
+// TestValidateGithubRunnerAcceptsMutatedEntryPoint verifies canonical whitespace handling.
+func TestValidateGithubRunnerAcceptsMutatedEntryPoint(t *testing.T) {
+	w := githubRunnerForLabelTest("runner", "runner-label")
+	m := &WorkloadMutator{}
+	m.mutateGithubRunner(w)
+	m.mutateEntryPoints(w)
+	v := &WorkloadValidator{}
+	assert.NilError(t, v.validateGithubRunner(context.Background(), w, nil))
+}
+
+// TestGithubRunnerPoolLabelsUsesAPIReaderAndConfigURLScope verifies fresh scoped lookup.
+func TestGithubRunnerPoolLabelsUsesAPIReaderAndConfigURLScope(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "shared-label")
+	cachedClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	apiReader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: cachedClient, secretReader: apiReader}
+
+	duplicate := githubRunnerForLabelTest("runner-b", "shared-label")
+	err := v.validateGithubRunner(context.Background(), duplicate, nil)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+	assert.Assert(t, !strings.Contains(err.Error(), existing.Name))
+
+	otherConfig := githubRunnerForLabelTest("runner-c", "shared-label")
+	otherConfig.Spec.Env[common.GithubConfigUrl] = "https://github.com/other/repo"
+	assert.NilError(t, v.validateGithubRunner(context.Background(), otherConfig, nil))
+}
+
+func TestGithubRunnerPoolLabelsFallbackToDisplayName(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "")
+	v1.SetLabel(existing, v1.DisplayNameLabel, "shared-name")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+
+	dup := githubRunnerForLabelTest("runner-b", "")
+	v1.SetLabel(dup, v1.DisplayNameLabel, "shared-name")
+	err := v.validateGithubRunner(context.Background(), dup, nil)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+}
+
+func TestGithubRunnerPoolLabelsIgnoresDeletingWorkloads(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "shared-label")
+	now := metav1.Now()
+	existing.SetDeletionTimestamp(&now)
+	existing.SetFinalizers([]string{"primus-safe/workload.finalizer"})
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+	assert.NilError(t, v.validateGithubRunner(context.Background(), githubRunnerForLabelTest("runner-b", "shared-label"), nil))
+}
+
+func TestGithubRunnerPoolLabelsIgnoresStoppedWorkloads(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "shared-label")
+	existing.Status.Phase = v1.WorkloadStopped
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+	assert.NilError(t, v.validateGithubRunner(context.Background(), githubRunnerForLabelTest("runner-b", "shared-label"), nil))
 }
 
 // TestWorkloadValidatorHandleFull verifies the validator handler with a complete environment.
