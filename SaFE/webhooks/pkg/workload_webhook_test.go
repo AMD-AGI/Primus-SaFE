@@ -853,6 +853,34 @@ func TestGithubRunnerPoolLabelsRejectsSamePoolIdentity(t *testing.T) {
 	assert.Assert(t, commonerrors.IsAlreadyExist(err))
 }
 
+func TestGithubRunnerPoolLabelsIgnoresTrailingCapabilityLabels(t *testing.T) {
+	scheme := newScheme(t)
+	existing := githubRunnerForLabelTest("runner-a", "my-pool,linux")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &WorkloadValidator{Client: c}
+
+	otherPool := githubRunnerForLabelTest("runner-b", "linux,other-pool")
+	assert.NilError(t, v.validateGithubRunner(context.Background(), otherPool, nil))
+
+	duplicate := githubRunnerForLabelTest("runner-c", "linux,x64,my-pool")
+	err := v.validateGithubRunner(context.Background(), duplicate, nil)
+	assert.Assert(t, commonerrors.IsAlreadyExist(err))
+}
+
+func TestGithubRunnerPoolLabelsRejectsCapabilityOnly(t *testing.T) {
+	scheme := newScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	v := &WorkloadValidator{Client: c}
+
+	err := v.validateGithubRunner(context.Background(), githubRunnerForLabelTest("runner-a", "linux,x64"), nil)
+	assert.ErrorContains(t, err, "non-capability identity")
+
+	onlyLinux := githubRunnerForLabelTest("runner-b", "")
+	v1.SetLabel(onlyLinux, v1.DisplayNameLabel, "linux")
+	err = v.validateGithubRunner(context.Background(), onlyLinux, nil)
+	assert.ErrorContains(t, err, "non-capability identity")
+}
+
 func cicdScaleSetForLabelTest(name, displayName string) *v1.Workload {
 	w := githubRunnerForLabelTest(name, "")
 	w.Spec.GroupVersionKind.Kind = common.CICDScaleRunnerSetKind

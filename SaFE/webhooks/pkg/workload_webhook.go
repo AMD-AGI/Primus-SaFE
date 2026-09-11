@@ -1213,18 +1213,45 @@ func scaleSetPoolLabels(workload *v1.Workload) []string {
 	return parseRunnerLabels(strings.Join([]string{workload.Name, v1.GetDisplayName(workload)}, ","))
 }
 
-// cicdRunnerPoolIdentities returns labels reserved as pool identities. The last
-// GithubRunner label is the user-selected pool label; preceding labels describe
-// shared capabilities such as linux or x64.
+// githubRunnerCapabilityLabels are GitHub OS/arch labels shared across pools
+// and must not be used as the unique pool identity.
+var githubRunnerCapabilityLabels = map[string]struct{}{
+	"self-hosted": {},
+	"linux":       {},
+	"windows":     {},
+	"macos":       {},
+	"x64":         {},
+	"arm":         {},
+	"arm64":       {},
+}
+
+func isGithubRunnerCapabilityLabel(label string) bool {
+	_, ok := githubRunnerCapabilityLabels[strings.ToLower(label)]
+	return ok
+}
+
+// githubRunnerPoolIdentity is the last non-capability label in RUNNER_LABELS.
+func githubRunnerPoolIdentity(labels []string) string {
+	for i := len(labels) - 1; i >= 0; i-- {
+		if !isGithubRunnerCapabilityLabel(labels[i]) {
+			return labels[i]
+		}
+	}
+	return ""
+}
+
+// cicdRunnerPoolIdentities returns labels reserved as pool identities.
+// GithubRunner uniqueness uses the last non-capability label so shared
+// labels such as linux or x64 can appear in any position.
 func cicdRunnerPoolIdentities(workload *v1.Workload) []string {
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
 		return scaleSetPoolLabels(workload)
 	}
-	labels := githubRunnerPoolLabels(workload)
-	if len(labels) == 0 {
+	identity := githubRunnerPoolIdentity(githubRunnerPoolLabels(workload))
+	if identity == "" {
 		return nil
 	}
-	return labels[len(labels)-1:]
+	return []string{identity}
 }
 
 // cicdRunnerPoolConflict compares pool identities without reserving capability labels.
@@ -1254,6 +1281,9 @@ func (v *WorkloadValidator) validateCICDRunnerLabelsUnique(ctx context.Context, 
 	}
 	wanted := cicdRunnerPoolIdentities(workload)
 	if len(wanted) == 0 {
+		if commonworkload.IsCICDGithubRunner(workload) && len(githubRunnerPoolLabels(workload)) > 0 {
+			return fmt.Errorf("github runner pool label must include a non-capability identity")
+		}
 		return fmt.Errorf("the %s of workload environment variables is empty", common.RunnerLabels)
 	}
 	list := &v1.WorkloadList{}

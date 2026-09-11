@@ -8,6 +8,7 @@ package dispatcher
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -1627,17 +1628,47 @@ func applyGithubRunnerPodSecurityContext(obj *unstructured.Unstructured, workloa
 	delete(securityContext, "fsGroup")
 	delete(securityContext, "fsGroupChangePolicy")
 	groups, _ := securityContext["supplementalGroups"].([]interface{})
-	hasGroup := false
-	for _, group := range groups {
-		if group == githubRunnerPFSSupplementalGroup {
-			hasGroup = true
-			break
-		}
-	}
-	if !hasGroup {
+	if !containsSupplementalGroup(groups, githubRunnerPFSSupplementalGroup) {
 		securityContext["supplementalGroups"] = append(groups, githubRunnerPFSSupplementalGroup)
 	}
 	return jobutils.SetNestedField(obj.Object, securityContext, path)
+}
+
+// containsSupplementalGroup compares group IDs by numeric value so JSON
+// round-trips (float64 / json.Number) do not append a duplicate.
+func containsSupplementalGroup(groups []interface{}, want int64) bool {
+	for _, group := range groups {
+		id, ok := supplementalGroupID(group)
+		if ok && id == want {
+			return true
+		}
+	}
+	return false
+}
+
+func supplementalGroupID(group interface{}) (int64, bool) {
+	switch v := group.(type) {
+	case int:
+		return int64(v), true
+	case int32:
+		return int64(v), true
+	case int64:
+		return v, true
+	case float64:
+		return int64(v), true
+	case json.Number:
+		n, err := v.Int64()
+		if err != nil {
+			f, ferr := v.Float64()
+			if ferr != nil {
+				return 0, false
+			}
+			return int64(f), true
+		}
+		return n, true
+	default:
+		return 0, false
+	}
 }
 
 func pickWritableWorkspaceVolume(workspace *v1.Workspace) (v1.WorkspaceVolume, bool) {

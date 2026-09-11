@@ -7,6 +7,7 @@ package dispatcher
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -1783,6 +1784,52 @@ func TestApplyGithubRunnerPodSecurityContextUsesPFSGroupWithoutChown(t *testing.
 	assert.NilError(t, err)
 	assert.Assert(t, found)
 	assert.DeepEqual(t, groups, []interface{}{githubRunnerPFSSupplementalGroup})
+}
+
+func TestApplyGithubRunnerPodSecurityContextKeepsJSONGroupIDs(t *testing.T) {
+	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Annotations: map[string]string{v1.UseWorkspaceStorageAnnotation: v1.TrueStr},
+	}}
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	spec := v1.ResourceSpec{PrePaths: []string{"spec"}, PodSpecPaths: []string{"template", "spec"}}
+
+	for _, existing := range []interface{}{
+		float64(githubRunnerPFSSupplementalGroup),
+		json.Number("1000"),
+		int64(githubRunnerPFSSupplementalGroup),
+	} {
+		obj := &unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
+				"securityContext": map[string]interface{}{
+					"supplementalGroups": []interface{}{existing},
+				},
+			}}},
+		}}
+		assert.NilError(t, applyGithubRunnerPodSecurityContext(obj, workload, workspace, spec))
+		assert.NilError(t, applyGithubRunnerPodSecurityContext(obj, workload, workspace, spec))
+		groups, found, err := unstructured.NestedSlice(
+			obj.Object, "spec", "template", "spec", "securityContext", "supplementalGroups")
+		assert.NilError(t, err)
+		assert.Assert(t, found)
+		assert.Equal(t, len(groups), 1)
+	}
+
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "apps/v1",
+		"kind":       "StatefulSet",
+		"spec":       map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{}}},
+	}}
+	assert.NilError(t, applyGithubRunnerPodSecurityContext(obj, workload, workspace, spec))
+	raw, err := obj.MarshalJSON()
+	assert.NilError(t, err)
+	roundTripped := &unstructured.Unstructured{}
+	assert.NilError(t, roundTripped.UnmarshalJSON(raw))
+	assert.NilError(t, applyGithubRunnerPodSecurityContext(roundTripped, workload, workspace, spec))
+	groups, found, err := unstructured.NestedSlice(
+		roundTripped.Object, "spec", "template", "spec", "securityContext", "supplementalGroups")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, len(groups), 1)
 }
 
 func TestApplyGithubRunnerPodSecurityContextSkipsNonPFSWorkspace(t *testing.T) {
