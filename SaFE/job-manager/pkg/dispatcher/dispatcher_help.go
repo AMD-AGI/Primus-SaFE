@@ -1493,9 +1493,7 @@ func applyGithubRunnerDirectProxy(obj *unstructured.Unstructured, workload *v1.W
 		return err
 	}
 	endpoint := map[string]string{cicdProxyHTTPEnv: config.URL, cicdProxyHTTPSEnv: config.URL}
-	if noProxy := strings.TrimSpace(workload.Spec.Env[common.NoProxy]); noProxy != "" {
-		endpoint[common.NoProxy] = noProxy
-	}
+	applyCICDProxyNoProxy(endpoint, workload, config)
 	if err = applyCICDProxyEndpoint(containers, workload, endpoint, nil); err != nil {
 		return err
 	}

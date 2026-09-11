@@ -101,9 +101,7 @@ func configureCICDProxyRelay(obj *unstructured.Unstructured, workload, source *v
 	endpoint := map[string]string{}
 	relayURL := "http://127.0.0.1:" + strconv.Itoa(commonconfig.GetCICDProxyRelayPort())
 	endpoint[cicdProxyHTTPEnv], endpoint[cicdProxyHTTPSEnv] = relayURL, relayURL
-	if noProxy := strings.TrimSpace(workload.Spec.Env[common.NoProxy]); noProxy != "" {
-		endpoint[common.NoProxy] = noProxy
-	}
+	applyCICDProxyNoProxy(endpoint, source, config)
 	if err = applyCICDProxyEndpoint(containers, workload, endpoint, nil); err != nil {
 		return false, err
 	}
@@ -121,6 +119,20 @@ func configureCICDProxyRelay(obj *unstructured.Unstructured, workload, source *v
 		}
 	}
 	return true, bindCICDProxyCredential(obj, workload, resourceSpec, config.CredentialSecret)
+}
+
+// applyCICDProxyNoProxy writes the merged bypass list. Reserved in-cluster
+// targets cannot be omitted by the workload env.
+func applyCICDProxyNoProxy(endpoint map[string]string, workload *v1.Workload,
+	config *commonworkload.CICDProxyConfig) {
+	var user []string
+	if config != nil {
+		user = config.NoProxy
+	}
+	if value := strings.Join(commonworkload.CICDProxyNoProxy(
+		workload, commonconfig.GetCICDNoProxy(), user), ","); value != "" {
+		endpoint[common.NoProxy] = value
+	}
 }
 
 // wantsCICDProxyEndpoint reports whether a container should reach the network through

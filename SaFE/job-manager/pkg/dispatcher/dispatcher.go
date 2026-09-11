@@ -7,6 +7,7 @@ package dispatcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -637,6 +638,9 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 		return err
 	}
 	if err = r.applyWorkloadSpecToObject(ctx, clientSets, obj, derived, workspace, rt, source); err != nil {
+		if errors.Is(err, errGithubRunnerRBACNotReady) {
+			return err
+		}
 		return commonerrors.NewBadRequest(err.Error())
 	}
 	if err = jobutils.UpdateObject(ctx, clientSets.ClientFactory(), obj); err != nil {
@@ -914,7 +918,7 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 	}
 	// Apply after updateContainers so GetEnvToBeRemoved cannot drop injected keys.
 	if commonworkload.IsCICDGithubRunner(adminWorkload) {
-		if clientSets != nil {
+		if clientSets != nil && clientSets.ClientFactory() != nil {
 			if err = validateGithubRunnerRBAC(
 				ctx, clientSets.ClientFactory().ClientSet(), adminWorkload.Spec.Workspace); err != nil {
 				return err
@@ -932,15 +936,26 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 	return nil
 }
 
+// errGithubRunnerRBACNotReady is returned while workspace RBAC is still
+// converging. It must not be wrapped as BadRequest or the workload is failed.
+var errGithubRunnerRBACNotReady = errors.New("github runner RBAC is not ready")
+
+func githubRunnerRBACGetError(kind, name string, err error) error {
+	if apierrors.IsNotFound(err) {
+		return fmt.Errorf("%w: %s %s", errGithubRunnerRBACNotReady, kind, name)
+	}
+	return fmt.Errorf("GithubRunner %s %s is not ready: %w", kind, name, err)
+}
+
 // validateGithubRunnerRBAC verifies the data plane can run the preStop lookup.
 func validateGithubRunnerRBAC(ctx context.Context, clientSet kubernetes.Interface, namespace string) error {
 	name := common.GithubRunnerServiceAccount
 	if _, err := clientSet.CoreV1().ServiceAccounts(namespace).Get(ctx, name, metav1.GetOptions{}); err != nil {
-		return fmt.Errorf("GithubRunner ServiceAccount %s/%s is not ready: %w", namespace, name, err)
+		return githubRunnerRBACGetError("ServiceAccount", namespace+"/"+name, err)
 	}
 	binding, err := clientSet.RbacV1().RoleBindings(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("GithubRunner RoleBinding %s/%s is not ready: %w", namespace, name, err)
+		return githubRunnerRBACGetError("RoleBinding", namespace+"/"+name, err)
 	}
 	if binding.RoleRef.APIGroup != rbacv1.GroupName ||
 		binding.RoleRef.Kind != common.ClusterRoleKind || binding.RoleRef.Name != name {
@@ -960,7 +975,7 @@ func validateGithubRunnerRBAC(ctx context.Context, clientSet kubernetes.Interfac
 	}
 	role, err := clientSet.RbacV1().ClusterRoles().Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("GithubRunner ClusterRole %s is not ready: %w", name, err)
+		return githubRunnerRBACGetError("ClusterRole", name, err)
 	}
 	allowed := false
 	for _, rule := range role.Rules {

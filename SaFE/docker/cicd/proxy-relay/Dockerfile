@@ -10,5 +10,7 @@ FROM ${REGISTRY}/library/ubuntu:22.04
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends squid && \
+    mkdir -p /var/log/squid /var/spool/squid && \
+    chown -R proxy:proxy /var/log/squid /var/spool/squid && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*

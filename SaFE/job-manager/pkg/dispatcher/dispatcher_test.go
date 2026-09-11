@@ -8,6 +8,7 @@ package dispatcher
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -81,6 +82,9 @@ func TestValidateGithubRunnerRBAC(t *testing.T) {
 
 	assert.ErrorContains(t, validateGithubRunnerRBAC(ctx, k8sfake.NewSimpleClientset(), namespace),
 		"ServiceAccount")
+	err := validateGithubRunnerRBAC(ctx, k8sfake.NewSimpleClientset(), namespace)
+	assert.Assert(t, errors.Is(err, errGithubRunnerRBACNotReady))
+	assert.Equal(t, jobutils.IsUnrecoverableError(err), false)
 	assert.ErrorContains(t, validateGithubRunnerRBAC(ctx, k8sfake.NewSimpleClientset(sa), namespace),
 		"RoleBinding")
 	assert.ErrorContains(t, validateGithubRunnerRBAC(ctx, k8sfake.NewSimpleClientset(sa, binding), namespace),
@@ -1332,8 +1336,35 @@ func TestGithubRunnerDirectProxyReachesDind(t *testing.T) {
 		assert.NilError(t, err)
 		values := convertEnvsToStringMap(env)
 		assert.Equal(t, values[cicdProxyHTTPEnv], "http://proxy.example.com:3128")
-		assert.Equal(t, values[common.NoProxy], ".svc,.cluster.local")
+		assert.Assert(t, strings.Contains(values[common.NoProxy], "localhost"))
+		assert.Assert(t, strings.Contains(values[common.NoProxy], ".cluster.local"))
+		assert.Assert(t, strings.Contains(values[common.NoProxy], ".svc"))
 	}
+}
+
+func TestGithubRunnerDirectProxyMergesReservedNoProxy(t *testing.T) {
+	t.Setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Kind = common.CICDGithubRunnerKind
+	workload.Spec.Env[common.ProxyUrl] = "http://proxy.example.com:3128"
+	delete(workload.Spec.Env, common.NoProxy)
+	v1.SetAnnotation(workload, v1.CICDProxyManagedAnnotation, v1.TrueStr)
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
+			"containers": []interface{}{map[string]interface{}{"name": "runner"}},
+		}}},
+	}}
+	spec := jobutils.TestStatefulSetResourceTemplate.Spec.ResourceSpecs[0]
+	assert.NilError(t, applyGithubRunnerDirectProxy(obj, workload, spec))
+	entries, _, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &spec, "containers"))
+	assert.NilError(t, err)
+	env, _, err := unstructured.NestedSlice(entries[0].(map[string]interface{}), "env")
+	assert.NilError(t, err)
+	values := convertEnvsToStringMap(env)
+	assert.Assert(t, strings.Contains(values[common.NoProxy], "localhost"))
+	assert.Assert(t, strings.Contains(values[common.NoProxy], ".cluster.local"))
+	assert.Assert(t, strings.Contains(values[common.NoProxy], "10.96.0.1"))
 }
 
 func TestGithubRunnerCreateDoesNotDuplicateSecretMounts(t *testing.T) {
@@ -3097,7 +3128,9 @@ func TestConfigureCICDProxyRelay(t *testing.T) {
 	// docker.sock, so dockerd needs the relay too or ghcr.io leaves via the node.
 	assert.Equal(t, env[cicdProxyDindContainer]["http_proxy"], "http://127.0.0.1:3129")
 	assert.Equal(t, env[cicdProxyDindContainer]["https_proxy"], "http://127.0.0.1:3129")
-	assert.Equal(t, env[cicdProxyDindContainer][common.NoProxy], ".svc,.cluster.local")
+	assert.Equal(t, env[cicdProxyDindContainer][common.NoProxy], env["runner"][common.NoProxy])
+	assert.Assert(t, strings.Contains(env[cicdProxyDindContainer][common.NoProxy], "localhost"))
+	assert.Assert(t, strings.Contains(env[cicdProxyDindContainer][common.NoProxy], ".cluster.local"))
 	// The relay must not be pointed at itself.
 	assert.Equal(t, env[cicdProxyRelayContainer]["http_proxy"], "")
 

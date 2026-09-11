@@ -20,7 +20,7 @@ fi
 STATE_DIR="${GITHUB_RUNNER_STATE_ROOT}/${POD_NAME}"
 mkdir -p "${STATE_DIR}"
 chmod 700 "${STATE_DIR}"
-LABELS="${RUNNER_LABELS:-${DISPLAY_NAME}}"
+LABELS="${RUNNER_LABELS:-${DISPLAY_NAME:-}}"
 SECRET_ROOT="${GITHUB_SECRET_ROOT:-` + common.SecretPath + `}"
 TOKEN_FILE="${SECRET_ROOT}/${GITHUB_SECRET_ID}/github_token"
 cd "${RUNNER_DIR}"
@@ -119,23 +119,43 @@ should_deregister() {
     echo "github runner deregistration: StatefulSet lookup returned HTTP ${CODE}" >&2
     return 2
   fi
-  if ! command -v jq >/dev/null 2>&1; then
-    echo "github runner deregistration: jq is unavailable" >&2
-    return 2
-  fi
-  STS_STATE="$(jq -er '
-    if .metadata.deletionTimestamp != null then
-      "deleting"
-    elif .spec.replicas == null then
-      "1"
-    elif (.spec.replicas | type) == "number" then
-      (.spec.replicas | tostring)
-    else
-      error("invalid StatefulSet replicas")
-    end
-  ' "${STS_FILE}" 2>/dev/null)"
-  if [ $? -ne 0 ]; then
-    echo "github runner deregistration: failed to parse StatefulSet state" >&2
+  STS_STATE=""
+  if command -v python3 >/dev/null 2>&1; then
+    STS_STATE="$(python3 -c '
+import json, sys
+data = json.load(open(sys.argv[1]))
+if (data.get("metadata") or {}).get("deletionTimestamp"):
+    print("deleting")
+    raise SystemExit(0)
+replicas = (data.get("spec") or {}).get("replicas")
+if replicas is None:
+    print("1")
+elif isinstance(replicas, bool) or not isinstance(replicas, (int, float)):
+    raise SystemExit(1)
+print(str(int(replicas)))
+' "${STS_FILE}")"
+    if [ $? -ne 0 ]; then
+      echo "github runner deregistration: failed to parse StatefulSet state" >&2
+      return 2
+    fi
+  elif command -v jq >/dev/null 2>&1; then
+    STS_STATE="$(jq -er '
+      if .metadata.deletionTimestamp != null then
+        "deleting"
+      elif .spec.replicas == null then
+        "1"
+      elif (.spec.replicas | type) == "number" then
+        (.spec.replicas | tostring)
+      else
+        error("invalid StatefulSet replicas")
+      end
+    ' "${STS_FILE}" 2>/dev/null)"
+    if [ $? -ne 0 ]; then
+      echo "github runner deregistration: failed to parse StatefulSet state" >&2
+      return 2
+    fi
+  else
+    echo "github runner deregistration: python3 and jq are unavailable" >&2
     return 2
   fi
   if [ "${STS_STATE}" = "deleting" ]; then
