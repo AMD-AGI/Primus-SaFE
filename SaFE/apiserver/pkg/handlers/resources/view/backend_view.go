@@ -22,4 +22,6 @@ type GetEnvResponse struct {
 	SSOAuthUrl string `json:"ssoAuthUrl"`
 	// Whether CD deployment requires approval from another user
 	CDRequireApproval bool `json:"cdRequireApproval"`
+	// KubeSpray image tags mapped to the Kubernetes versions they install.
+	KubeSprayK8sVersions map[string]string `json:"kubeSprayK8sVersions"`
 }
