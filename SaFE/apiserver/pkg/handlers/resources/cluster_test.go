@@ -306,6 +306,28 @@ func TestApplyClusterPatch(t *testing.T) {
 	// Old custom label removed.
 	_, ok := cluster.Labels["old"]
 	testifyassert.False(t, ok)
+
+	img := "primussafe/kubespray:v2.31.0"
+	ver := "1.35.4"
+	changed, err = applyClusterPatch(cluster, &view.PatchClusterRequest{
+		KubeSprayImage: &img,
+		KubeVersion:    &ver,
+	})
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, changed)
+	assert.Equal(t, img, *cluster.Spec.ControlPlane.KubeSprayImage)
+	assert.Equal(t, ver, *cluster.Spec.ControlPlane.KubeVersion)
+
+	changed, err = applyClusterPatch(cluster, &view.PatchClusterRequest{
+		KubeSprayImage: &img,
+		KubeVersion:    &ver,
+	})
+	testifyassert.NoError(t, err)
+	testifyassert.False(t, changed)
+
+	empty := ""
+	_, err = applyClusterPatch(cluster, &view.PatchClusterRequest{KubeSprayImage: &empty})
+	testifyassert.Error(t, err)
 }
 
 // --- merged from cluster_more_test.go ---

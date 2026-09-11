@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -1063,4 +1065,64 @@ func TestFilterHealthyPreservesExistingBackends(t *testing.T) {
 	addrs := r.filterHealthyControlPlaneAddresses(context.Background(), cluster, nodes)
 	testifyassert.Len(t, addrs, 1)
 	testifyassert.Equal(t, "10.0.0.1", addrs[0].IP)
+}
+
+func readyUpgradeCluster(t *testing.T) (*v1.Cluster, *ClusterReconciler) {
+	t.Helper()
+	cluster, r := planeClusterWithNode(t)
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:old")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	testifyassert.NoError(t, r.patchControlPlanePhase(context.Background(), cluster, v1.ReadyPhase))
+	testifyassert.NoError(t, r.persistAppliedKubeSpray(context.Background(), cluster, "1.32.5", "primussafe/kubespray:old"))
+	got := &v1.Cluster{}
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
+	return got, r
+}
+
+func TestGuaranteeClusterUpgradeSeedsApplied(t *testing.T) {
+	cluster, r := planeClusterWithNode(t)
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("img:1")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	testifyassert.NoError(t, r.patchControlPlanePhase(context.Background(), cluster, v1.ReadyPhase))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
+	got := &v1.Cluster{}
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
+	assert.Equal(t, "1.32.5", v1.GetAnnotation(got, v1.ClusterAppliedKubeVersionAnnotation))
+	podList := &corev1.PodList{}
+	testifyassert.NoError(t, r.List(context.Background(), podList))
+	assert.Equal(t, 0, len(podList.Items))
+}
+
+func TestGuaranteeClusterUpgradeCreatesPod(t *testing.T) {
+	cluster, r := readyUpgradeCluster(t)
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.0")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.0")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
+	pod := &corev1.Pod{}
+	err := r.Get(context.Background(), types.NamespacedName{
+		Namespace: common.PrimusSafeNamespace,
+		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
+	}, pod)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, string(v1.ClusterUpgradeAction), pod.Labels[v1.ClusterManageActionLabel])
+	testifyassert.Contains(t, strings.Join(pod.Spec.Containers[0].Args, " "), "upgrade-cluster.yml")
+	got := &v1.Cluster{}
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
+	assert.Equal(t, v1.UpgradingPhase, got.Status.ControlPlaneStatus.Phase)
+}
+
+func TestGuaranteeClusterUpgradeRejectsSkippedMinor(t *testing.T) {
+	cluster, r := readyUpgradeCluster(t)
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.35.4")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
+	got := &v1.Cluster{}
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
+	assert.Equal(t, v1.UpgradeFailedPhase, got.Status.ControlPlaneStatus.Phase)
+	podList := &corev1.PodList{}
+	testifyassert.NoError(t, r.List(context.Background(), podList))
+	assert.Equal(t, 0, len(podList.Items))
 }

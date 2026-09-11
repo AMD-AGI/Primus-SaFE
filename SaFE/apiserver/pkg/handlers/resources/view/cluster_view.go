@@ -113,4 +113,8 @@ type PatchClusterRequest struct {
 	IsControlPlane *bool `json:"isControlPlane,omitempty"`
 	// User-defined labels. Keys cannot start with "primus-safe."
 	Labels *map[string]string `json:"labels,omitempty"`
+	// KubeSpray image name used for installation. Omit to leave unchanged.
+	KubeSprayImage *string `json:"kubeSprayImage,omitempty"`
+	// Kubernetes version. Omit to leave unchanged.
+	KubeVersion *string `json:"kubernetesVersion,omitempty"`
 }

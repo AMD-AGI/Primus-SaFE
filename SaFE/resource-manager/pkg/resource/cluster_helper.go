@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -504,6 +505,90 @@ func getKubeSprayEnv(cluster *v1.Cluster) string {
 // getKubeSprayResetCMD generates the command for resetting a cluster with KubeSpray.
 func getKubeSprayResetCMD(user, env string) string {
 	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s reset.yml -e reset_confirmation=yes %s --become-user=root -b -vvv", utils.Authorize, env)
+}
+
+// getKubeSprayUpgradeCMD generates the command for upgrading a cluster with KubeSpray.
+func getKubeSprayUpgradeCMD(user, env string) string {
+	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s upgrade-cluster.yml --become-user=root %s -b -vvv", utils.Authorize, env)
+}
+
+func controlPlaneString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func appliedKubeVersion(cluster *v1.Cluster) string {
+	return v1.GetAnnotation(cluster, v1.ClusterAppliedKubeVersionAnnotation)
+}
+
+func appliedKubeSprayImage(cluster *v1.Cluster) string {
+	return v1.GetAnnotation(cluster, v1.ClusterAppliedKubeSprayImageAnnotation)
+}
+
+func hasAppliedKubeSprayRecord(cluster *v1.Cluster) bool {
+	if cluster == nil {
+		return false
+	}
+	ann := cluster.GetAnnotations()
+	if ann == nil {
+		return false
+	}
+	_, hasVer := ann[v1.ClusterAppliedKubeVersionAnnotation]
+	_, hasImg := ann[v1.ClusterAppliedKubeSprayImageAnnotation]
+	return hasVer && hasImg
+}
+
+// needsClusterUpgrade reports whether spec kube version or kubespray image differs from last apply.
+func needsClusterUpgrade(cluster *v1.Cluster) bool {
+	if cluster == nil || !hasAppliedKubeSprayRecord(cluster) {
+		return false
+	}
+	return appliedKubeVersion(cluster) != controlPlaneString(cluster.Spec.ControlPlane.KubeVersion) ||
+		appliedKubeSprayImage(cluster) != controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
+}
+
+func normalizeKubeVersion(ver string) string {
+	return strings.TrimPrefix(strings.TrimSpace(ver), "v")
+}
+
+func parseKubeVersion(ver string) (major, minor, patch int, ok bool) {
+	parts := strings.Split(normalizeKubeVersion(ver), ".")
+	if len(parts) < 2 {
+		return 0, 0, 0, false
+	}
+	major, err1 := strconv.Atoi(parts[0])
+	minor, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return 0, 0, 0, false
+	}
+	if len(parts) > 2 {
+		patch, _ = strconv.Atoi(parts[2])
+	}
+	return major, minor, patch, true
+}
+
+// isAllowedKubeVersionUpgrade allows same version, patch bumps, or a single minor step. Empty to is rejected when from is set.
+func isAllowedKubeVersionUpgrade(from, to string) bool {
+	if normalizeKubeVersion(from) == normalizeKubeVersion(to) {
+		return true
+	}
+	if to == "" {
+		return false
+	}
+	if from == "" {
+		return true
+	}
+	fm, fmi, fp, ok1 := parseKubeVersion(from)
+	tm, tmi, tp, ok2 := parseKubeVersion(to)
+	if !ok1 || !ok2 || fm != tm {
+		return false
+	}
+	if tmi == fmi {
+		return tp >= fp
+	}
+	return tmi == fmi+1
 }
 
 // getKubesprayImage returns the KubeSpray image to use, with fallback to default.

@@ -71,6 +71,9 @@ func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cl
 	if guaranteeControllerPlane(cluster) {
 		return r.handleControlPlaneCreation(ctx, cluster)
 	}
+	if err := r.guaranteeClusterUpgrade(ctx, cluster); err != nil {
+		return err
+	}
 
 	return r.clearPods(ctx, cluster)
 }
@@ -346,6 +349,183 @@ func (r *ClusterReconciler) createResetPod(ctx context.Context, cluster *v1.Clus
 	return pod, nil
 }
 
+// guaranteeClusterUpgrade runs kubespray upgrade-cluster.yml when spec diverges from the last applied version.
+func (r *ClusterReconciler) guaranteeClusterUpgrade(ctx context.Context, cluster *v1.Cluster) error {
+	if !cluster.DeletionTimestamp.IsZero() {
+		return nil
+	}
+	phase := cluster.Status.ControlPlaneStatus.Phase
+	if phase != v1.ReadyPhase && phase != v1.UpgradingPhase && phase != v1.UpgradeFailedPhase {
+		return nil
+	}
+
+	if phase == v1.ReadyPhase {
+		if err := r.ensureAppliedKubeSprayRecorded(ctx, cluster); err != nil {
+			return err
+		}
+	}
+
+	podName := fmt.Sprintf("%s-%s", cluster.Name, v1.ClusterUpgradeAction)
+	pod := new(corev1.Pod)
+	err := r.Get(ctx, types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: podName}, pod)
+	podExists := err == nil
+	if err != nil && !errors.IsNotFound(err) {
+		return err
+	}
+
+	if podExists {
+		return r.reconcileExistingUpgradePod(ctx, cluster, pod)
+	}
+
+	if !needsClusterUpgrade(cluster) {
+		if phase == v1.UpgradeFailedPhase || phase == v1.UpgradingPhase {
+			return r.patchControlPlanePhase(ctx, cluster, v1.ReadyPhase)
+		}
+		return nil
+	}
+	if !isAllowedKubeVersionUpgrade(appliedKubeVersion(cluster), controlPlaneString(cluster.Spec.ControlPlane.KubeVersion)) {
+		klog.Errorf("cluster %s kube version upgrade must be a single minor step from %s to %s",
+			cluster.Name, appliedKubeVersion(cluster), controlPlaneString(cluster.Spec.ControlPlane.KubeVersion))
+		return r.patchControlPlanePhase(ctx, cluster, v1.UpgradeFailedPhase)
+	}
+
+	hostsContent, err := r.generateHosts(ctx, cluster, nil)
+	if err != nil {
+		return err
+	}
+	upgradePod, err := r.createUpgradeWorkerPod(ctx, cluster, hostsContent)
+	if err != nil {
+		return err
+	}
+	return r.updateUpgradePodStatus(ctx, cluster, upgradePod)
+}
+
+// reconcileExistingUpgradePod updates cluster phase from an in-flight upgrade pod.
+func (r *ClusterReconciler) reconcileExistingUpgradePod(ctx context.Context, cluster *v1.Cluster, pod *corev1.Pod) error {
+	if !upgradePodOwnedByCluster(cluster, pod) {
+		return r.Delete(ctx, pod)
+	}
+	if pod.Status.Phase == corev1.PodSucceeded {
+		if upgradePodMatchesSpec(cluster, pod) {
+			if err := r.persistAppliedKubeSpray(ctx, cluster, upgradePodTargetVersion(pod), upgradePodTargetImage(pod)); err != nil {
+				return err
+			}
+			return r.patchControlPlanePhase(ctx, cluster, v1.ReadyPhase)
+		}
+		if err := r.Delete(ctx, pod); err != nil {
+			return err
+		}
+		return nil
+	}
+	if pod.Status.Phase == corev1.PodFailed && !upgradePodMatchesSpec(cluster, pod) {
+		return r.Delete(ctx, pod)
+	}
+	return r.updateUpgradePodStatus(ctx, cluster, pod)
+}
+
+// createUpgradeWorkerPod creates the kubespray upgrade-cluster.yml worker pod.
+func (r *ClusterReconciler) createUpgradeWorkerPod(ctx context.Context, cluster *v1.Cluster, hostsContent *HostTemplateContent) (*corev1.Pod, error) {
+	username, err := r.getUsername(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+	cmd := getKubeSprayUpgradeCMD(username, getKubeSprayEnv(cluster))
+	pod := generateWorkerPod(v1.ClusterUpgradeAction, cluster, username, cmd, getKubesprayImage(cluster), cluster.Name, hostsContent)
+	if pod.Annotations == nil {
+		pod.Annotations = map[string]string{}
+	}
+	pod.Annotations[v1.ClusterAppliedKubeVersionAnnotation] = controlPlaneString(cluster.Spec.ControlPlane.KubeVersion)
+	pod.Annotations[v1.ClusterAppliedKubeSprayImageAnnotation] = controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
+	r.addOwnerReferences(pod, hostsContent)
+	if err = r.Create(ctx, pod); err != nil {
+		return nil, err
+	}
+	ownerRef := metav1.OwnerReference{
+		APIVersion:         common.DefaultVersion,
+		Kind:               common.PodKind,
+		Name:               pod.Name,
+		UID:                pod.UID,
+		Controller:         pointer.Bool(true),
+		BlockOwnerDeletion: pointer.Bool(true),
+	}
+	if _, err = r.guaranteeHostsConfigMapCreated(ctx, cluster.Name, ownerRef, hostsContent); err != nil {
+		return nil, err
+	}
+	return pod, nil
+}
+
+// updateUpgradePodStatus sets Upgrading / UpgradeFailed from the worker pod phase.
+func (r *ClusterReconciler) updateUpgradePodStatus(ctx context.Context, cluster *v1.Cluster, pod *corev1.Pod) error {
+	phase := v1.UpgradingPhase
+	if pod.Status.Phase == corev1.PodFailed {
+		phase = v1.UpgradeFailedPhase
+	} else if pod.Status.Phase == corev1.PodSucceeded {
+		if err := r.persistAppliedKubeSpray(ctx, cluster, upgradePodTargetVersion(pod), upgradePodTargetImage(pod)); err != nil {
+			return err
+		}
+		phase = v1.ReadyPhase
+	}
+	return r.patchControlPlanePhase(ctx, cluster, phase)
+}
+
+func (r *ClusterReconciler) patchControlPlanePhase(ctx context.Context, cluster *v1.Cluster, phase v1.ClusterPhase) error {
+	if cluster.Status.ControlPlaneStatus.Phase == phase {
+		return nil
+	}
+	originalCluster := client.MergeFrom(cluster.DeepCopy())
+	cluster.Status.ControlPlaneStatus.Phase = phase
+	return r.Status().Patch(ctx, cluster, originalCluster)
+}
+
+func (r *ClusterReconciler) ensureAppliedKubeSprayRecorded(ctx context.Context, cluster *v1.Cluster) error {
+	if hasAppliedKubeSprayRecord(cluster) {
+		return nil
+	}
+	return r.persistAppliedKubeSpray(ctx, cluster, controlPlaneString(cluster.Spec.ControlPlane.KubeVersion),
+		controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage))
+}
+
+func (r *ClusterReconciler) persistAppliedKubeSpray(ctx context.Context, cluster *v1.Cluster, version, image string) error {
+	latest := &v1.Cluster{}
+	if err := r.Get(ctx, types.NamespacedName{Name: cluster.Name}, latest); err != nil {
+		return err
+	}
+	verChanged := v1.SetAnnotation(latest, v1.ClusterAppliedKubeVersionAnnotation, version)
+	imgChanged := v1.SetAnnotation(latest, v1.ClusterAppliedKubeSprayImageAnnotation, image)
+	if !verChanged && !imgChanged {
+		cluster.SetAnnotations(latest.GetAnnotations())
+		return nil
+	}
+	if err := r.Update(ctx, latest); err != nil {
+		return err
+	}
+	cluster.SetAnnotations(latest.GetAnnotations())
+	cluster.SetResourceVersion(latest.GetResourceVersion())
+	return nil
+}
+
+func upgradePodOwnedByCluster(cluster *v1.Cluster, pod *corev1.Pod) bool {
+	for _, owner := range pod.OwnerReferences {
+		if owner.Kind == cluster.Kind && owner.UID == cluster.UID {
+			return true
+		}
+	}
+	return false
+}
+
+func upgradePodMatchesSpec(cluster *v1.Cluster, pod *corev1.Pod) bool {
+	return upgradePodTargetVersion(pod) == controlPlaneString(cluster.Spec.ControlPlane.KubeVersion) &&
+		upgradePodTargetImage(pod) == controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
+}
+
+func upgradePodTargetVersion(pod *corev1.Pod) string {
+	return v1.GetAnnotation(pod, v1.ClusterAppliedKubeVersionAnnotation)
+}
+
+func upgradePodTargetImage(pod *corev1.Pod) string {
+	return v1.GetAnnotation(pod, v1.ClusterAppliedKubeSprayImageAnnotation)
+}
+
 // getControllerPlaneNodes retrieves all control plane nodes for the cluster.
 func (r *ClusterReconciler) getControllerPlaneNodes(ctx context.Context, cluster *v1.Cluster) ([]*v1.Node, error) {
 	nodes := make([]*v1.Node, 0, len(cluster.Spec.ControlPlane.Nodes))
@@ -482,7 +662,8 @@ func (r *ClusterReconciler) updateClusterKubeConfig(ctx context.Context, cluster
 		return fmt.Errorf("failed load config %+v", err)
 	}
 
-	return nil
+	return r.persistAppliedKubeSpray(ctx, cluster, controlPlaneString(cluster.Spec.ControlPlane.KubeVersion),
+		controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage))
 }
 
 // patchKubeControlPlanNodes updates the control plane nodes with cluster ownership information.

@@ -33,10 +33,13 @@ const (
 	DeletingPhase          ClusterPhase        = "Deleting"
 	DeletedPhase           ClusterPhase        = "Deleted"
 	DeleteFailedPhase      ClusterPhase        = "DeleteFailed"
+	UpgradingPhase         ClusterPhase        = "Upgrading"
+	UpgradeFailedPhase     ClusterPhase        = "UpgradeFailed"
 	ClusterCreateAction    ClusterManageAction = "create"
 	ClusterScaleUpAction   ClusterManageAction = "up"
 	ClusterScaleDownAction ClusterManageAction = "down"
 	ClusterResetAction     ClusterManageAction = "reset"
+	ClusterUpgradeAction   ClusterManageAction = "upgrade"
 )
 
 const (

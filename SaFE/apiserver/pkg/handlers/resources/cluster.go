@@ -64,6 +64,7 @@ func (h *Handler) DeleteCluster(c *gin.Context) {
 
 // PatchCluster handles partial updates to a cluster resource.
 // Authorizes the request, parses update parameters, and applies changes to the specified cluster.
+// Spec fields follow PatchWorkspace: omitted pointers are left unchanged.
 func (h *Handler) PatchCluster(c *gin.Context) {
 	handle(c, h.patchCluster)
 }
@@ -320,9 +321,22 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 }
 
 // applyClusterPatch applies updates to a cluster based on the patch request.
-// Handles changes to cluster protection status and image secret references.
+// Handles protection, control-plane label, labels, kubeSprayImage, and kubernetesVersion.
 func applyClusterPatch(cluster *v1.Cluster, req *view.PatchClusterRequest) (bool, error) {
 	isChanged := false
+	if req.KubeSprayImage != nil {
+		if strings.TrimSpace(*req.KubeSprayImage) == "" {
+			return false, commonerrors.NewBadRequest("the kubeSprayImage is empty")
+		}
+		if applyOptionalString(&cluster.Spec.ControlPlane.KubeSprayImage, req.KubeSprayImage) {
+			isChanged = true
+		}
+	}
+	if req.KubeVersion != nil {
+		if applyOptionalString(&cluster.Spec.ControlPlane.KubeVersion, req.KubeVersion) {
+			isChanged = true
+		}
+	}
 	if req.IsProtected != nil && *req.IsProtected != v1.IsProtected(cluster) {
 		if *req.IsProtected {
 			v1.SetLabel(cluster, v1.ProtectLabel, "")
@@ -361,6 +375,19 @@ func applyClusterPatch(cluster *v1.Cluster, req *view.PatchClusterRequest) (bool
 		}
 	}
 	return isChanged, nil
+}
+
+// applyOptionalString copies src into dst when src is set and the value differs.
+func applyOptionalString(dst **string, src *string) bool {
+	if src == nil {
+		return false
+	}
+	if *dst != nil && **dst == *src {
+		return false
+	}
+	val := *src
+	*dst = &val
+	return true
 }
 
 // processClusterNodes handles the addition or removal of nodes from a cluster.
