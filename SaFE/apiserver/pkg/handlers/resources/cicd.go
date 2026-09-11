@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode"
 
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -27,21 +28,25 @@ import (
 )
 
 const (
-	GithubPAT               = "GITHUB_PAT"
-	GitHubAuthTypePAT       = "pat"
-	GitHubAuthTypeApp       = "github_app"
-	GitHubToken             = "github_token"
-	GitHubAppId             = "github_app_id"
-	GitHubAppInstallationId = "github_app_installation_id"
-	GitHubAppPrivateKey     = "github_app_private_key"
+	GithubPAT                       = "GITHUB_PAT"
+	GitHubAuthTypePAT               = "pat"
+	GitHubAuthTypeApp               = "github_app"
+	GitHubAuthTypeRegistrationToken = "registration_token"
+	GitHubToken                     = "github_token"
+	GitHubAppId                     = "github_app_id"
+	GitHubAppInstallationId         = "github_app_installation_id"
+	GitHubAppPrivateKey             = "github_app_private_key"
 )
 
 // createCICDSecret creates a new secret for CICD scaling runner workloads.
 // The secret contains ARC-compatible GitHub authentication keys.
 // It returns the created secret or an error if the creation fails.
-func (h *Handler) createCICDSecret(ctx context.Context,
-	workload *v1.Workload, requestUser *v1.User, auth *view.GitHubAuthRequest) (*corev1.Secret, error) {
+func (h *Handler) createCICDSecret(ctx context.Context, workload *v1.Workload,
+	requestUser *v1.User, auth *view.GitHubAuthRequest, proxyAuth *view.ProxyAuthRequest) (*corev1.Secret, error) {
 	if err := validateCICDGitHubAuth(auth); err != nil {
+		return nil, err
+	}
+	if err := validateCICDProxyAuth(proxyAuth); err != nil {
 		return nil, err
 	}
 	name := commonutils.GenerateName(v1.GetDisplayName(workload))
@@ -51,7 +56,7 @@ func (h *Handler) createCICDSecret(ctx context.Context,
 		Type:         v1.SecretGeneral,
 		Owner:        workload.Name,
 		Params: []map[view.SecretParam]string{
-			buildCICDSecretParams(auth),
+			buildCICDSecretParams(auth, proxyAuth),
 		},
 		Labels: map[string]string{
 			"secret.usage": "cicd",
@@ -60,6 +65,35 @@ func (h *Handler) createCICDSecret(ctx context.Context,
 	secret, err := h.createSecretImpl(ctx, createSecretReq, requestUser)
 	if err != nil {
 		klog.ErrorS(err, "failed to create secret", "name", createSecretReq.Name)
+		return nil, err
+	}
+	return secret, nil
+}
+
+func (h *Handler) createGithubRunnerSecret(ctx context.Context, workload *v1.Workload,
+	requestUser *v1.User, auth *view.GitHubAuthRequest, proxyAuth *view.ProxyAuthRequest) (*corev1.Secret, error) {
+	if err := validateGithubRunnerAuth(auth); err != nil {
+		return nil, err
+	}
+	if err := validateCICDProxyAuth(proxyAuth); err != nil {
+		return nil, err
+	}
+	name := commonutils.GenerateName(v1.GetDisplayName(workload))
+	createSecretReq := &view.CreateSecretRequest{
+		Name:         name,
+		WorkspaceIds: []string{workload.Spec.Workspace},
+		Type:         v1.SecretGeneral,
+		Owner:        workload.Name,
+		Params: []map[view.SecretParam]string{
+			buildCICDSecretParams(auth, proxyAuth),
+		},
+		Labels: map[string]string{
+			"secret.usage": "github-runner",
+		},
+	}
+	secret, err := h.createSecretImpl(ctx, createSecretReq, requestUser)
+	if err != nil {
+		klog.ErrorS(err, "failed to create github runner secret", "name", createSecretReq.Name)
 		return nil, err
 	}
 	return secret, nil
@@ -79,6 +113,9 @@ type cicdSecretRotation struct {
 	// SupersededSecretId is the secret the replacement displaced, still present in the
 	// cluster so a failed persist can fall back to it. Empty when there was none.
 	SupersededSecretId string
+	// PriorPreviousSecretId restores the retained generation annotation if the
+	// workload patch fails. It is used only by persistent GithubRunner pools.
+	PriorPreviousSecretId string
 }
 
 // updateCICDSecret rotates the CICD GitHub auth secret: it creates the replacement
@@ -93,33 +130,87 @@ type cicdSecretRotation struct {
 //
 // A nil rotation means the submitted credentials already match the current secret and
 // nothing was created or changed.
-func (h *Handler) updateCICDSecret(ctx context.Context, workload *v1.Workload,
-	requestUser *v1.User, auth *view.GitHubAuthRequest) (*cicdSecretRotation, error) {
-	if err := validateCICDGitHubAuth(auth); err != nil {
+func (h *Handler) updateCICDSecret(ctx context.Context, workload *v1.Workload, requestUser *v1.User,
+	auth *view.GitHubAuthRequest, proxyAuth *view.ProxyAuthRequest) (*cicdSecretRotation, error) {
+	if err := validateCICDProxyAuth(proxyAuth); err != nil {
 		return nil, err
 	}
 	oldSecretId := v1.GetGithubSecretId(workload)
+	var oldSecret *corev1.Secret
 	if oldSecretId != "" {
-		oldSecret, err := h.getAdminSecret(ctx, oldSecretId)
+		var err error
+		oldSecret, err = h.getAdminSecret(ctx, oldSecretId)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				// The annotation is stale; there is nothing to fall back to or delete.
 				oldSecretId = ""
+				oldSecret = nil
 			} else {
 				return nil, fmt.Errorf("failed to get existing CICD GitHub secret %q: %w", oldSecretId, err)
 			}
-		} else if cicdSecretDataMatchesAuth(oldSecret, auth) {
-			return nil, nil
+		} else {
+			// One Secret holds both credentials, so rotating either one has to write
+			// the other back unchanged rather than drop it.
+			auth, proxyAuth = carryForwardCICDAuth(oldSecret, auth, proxyAuth)
 		}
 	}
+	if err := validateCICDGitHubAuth(auth); err != nil {
+		return nil, err
+	}
+	if oldSecret != nil && cicdSecretDataMatchesAuth(oldSecret, auth) && cicdSecretDataMatchesProxyAuth(oldSecret, proxyAuth) {
+		return nil, nil
+	}
 
-	newSecret, err := h.createCICDSecret(ctx, workload, requestUser, auth)
+	newSecret, err := h.createCICDSecret(ctx, workload, requestUser, auth, proxyAuth)
 	if err != nil {
 		return nil, err
 	}
 
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, newSecret.Name)
+	// Both references name the same Secret, so both have to move: the superseded
+	// one is deleted once the rotation lands, and an env left pointing at it
+	// sends ARC to a Secret that is no longer there.
+	if proxyAuth != nil {
+		if workload.Spec.Env == nil {
+			workload.Spec.Env = map[string]string{}
+		}
+		workload.Spec.Env[common.ProxyCredentialSecret] = newSecret.Name
+	}
 	return &cicdSecretRotation{NewSecretId: newSecret.Name, SupersededSecretId: oldSecretId}, nil
+}
+
+// carryForwardCICDAuth fills whichever credential the request omitted from the
+// Secret it is replacing, so a caller rotating one does not erase the other.
+func carryForwardCICDAuth(oldSecret *corev1.Secret, auth *view.GitHubAuthRequest,
+	proxyAuth *view.ProxyAuthRequest) (*view.GitHubAuthRequest, *view.ProxyAuthRequest) {
+	if auth == nil && oldSecret != nil {
+		if appId := string(oldSecret.Data[GitHubAppId]); appId != "" {
+			auth = &view.GitHubAuthRequest{
+				Type:           GitHubAuthTypeApp,
+				AppId:          appId,
+				InstallationId: string(oldSecret.Data[GitHubAppInstallationId]),
+				PrivateKey:     string(oldSecret.Data[GitHubAppPrivateKey]),
+			}
+		} else if token := string(oldSecret.Data[GitHubToken]); token != "" {
+			auth = &view.GitHubAuthRequest{Type: GitHubAuthTypePAT, Token: token}
+		}
+	}
+	if proxyAuth == nil && oldSecret != nil {
+		username := string(oldSecret.Data[string(view.UserNameParam)])
+		pw := string(oldSecret.Data[string(view.PasswordParam)])
+		if username != "" && pw != "" {
+			proxyAuth = &view.ProxyAuthRequest{Username: username, Password: pw}
+		}
+	}
+	return auth, proxyAuth
+}
+
+func cicdSecretDataMatchesProxyAuth(secret *corev1.Secret, proxyAuth *view.ProxyAuthRequest) bool {
+	if proxyAuth == nil {
+		return len(secret.Data[string(view.UserNameParam)]) == 0 && len(secret.Data[string(view.PasswordParam)]) == 0
+	}
+	return string(secret.Data[string(view.UserNameParam)]) == strings.TrimSpace(proxyAuth.Username) &&
+		string(secret.Data[string(view.PasswordParam)]) == strings.TrimSpace(proxyAuth.Password)
 }
 
 // deleteSupersededCICDSecret drops the secret a rotation replaced, once the new
@@ -154,9 +245,26 @@ func (h *Handler) discardRolledBackCICDSecret(ctx context.Context,
 	}
 	if rotation.SupersededSecretId != "" {
 		v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, rotation.SupersededSecretId)
+		if commonworkload.IsCICDGithubRunner(workload) {
+			replaceGithubRunnerSecret(workload, rotation.NewSecretId, rotation.SupersededSecretId)
+			restoreGithubRunnerPreviousSecret(workload, rotation.PriorPreviousSecretId)
+		}
 		return
 	}
 	delete(workload.Annotations, v1.GithubSecretIdAnnotation)
+	if commonworkload.IsCICDGithubRunner(workload) {
+		replaceGithubRunnerSecret(workload, rotation.NewSecretId, "")
+		restoreGithubRunnerPreviousSecret(workload, rotation.PriorPreviousSecretId)
+	}
+}
+
+// restoreGithubRunnerPreviousSecret restores the retained generation marker.
+func restoreGithubRunnerPreviousSecret(workload *v1.Workload, secretId string) {
+	if secretId == "" {
+		v1.RemoveAnnotation(workload, v1.GithubPreviousSecretIdAnnotation)
+		return
+	}
+	v1.SetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation, secretId)
 }
 
 // cleanupCICDSecrets deletes secrets created for CICD scaling runner set workloads.
@@ -169,7 +277,8 @@ func (h *Handler) discardRolledBackCICDSecret(ctx context.Context,
 // sweep only runs for a Workload that reached the API server, which is not the case for
 // every path that lands here.
 func (h *Handler) cleanupCICDSecrets(ctx context.Context, workload *v1.Workload) {
-	if workload == nil || !commonworkload.IsCICDScalingRunnerSet(workload) {
+	if workload == nil || (!commonworkload.IsCICDScalingRunnerSet(workload) &&
+		!commonworkload.IsCICDGithubRunner(workload)) {
 		return
 	}
 	secrets, err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).List(ctx, metav1.ListOptions{
@@ -193,7 +302,7 @@ func (h *Handler) cleanupCICDSecrets(ctx context.Context, workload *v1.Workload)
 // generateCICDScaleRunnerSet configures a workload for CICD scaling runner set.
 // It validates CICD settings and creates a GitHub auth secret.
 func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.Workload,
-	requestUser *v1.User, auth *view.GitHubAuthRequest) error {
+	requestUser *v1.User, auth *view.GitHubAuthRequest, proxyAuth *view.ProxyAuthRequest) error {
 	if !commonconfig.IsCICDEnable() {
 		return commonerrors.NewNotImplemented("the CICD is not enabled")
 	}
@@ -201,13 +310,228 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 	if err := validateCICDGitHubAuth(auth); err != nil {
 		return err
 	}
-	secret, err := h.createCICDSecret(ctx, workload, requestUser, auth)
+	if err := validateCICDProxyAuth(proxyAuth); err != nil {
+		return err
+	}
+	// A submitted credential and a named Secret are alternatives, not a pair: the
+	// name would be overwritten below, so a caller sending both is telling us two
+	// different things about where the credential lives.
+	if proxyAuth != nil && workload.Spec.Env[common.ProxyCredentialSecret] != "" {
+		return commonerrors.NewBadRequest(
+			"proxyAuth: cannot be combined with env.PROXY_CREDENTIAL_SECRET; send the credential or name a Secret, not both")
+	}
+	if err := h.validateCICDProxyReference(ctx, workload, requestUser); err != nil {
+		return err
+	}
+	secret, err := h.createCICDSecret(ctx, workload, requestUser, auth, proxyAuth)
 	if err != nil {
 		return err
 	}
 	delete(workload.Spec.Env, GithubPAT)
+	if proxyAuth != nil {
+		if workload.Spec.Env == nil {
+			workload.Spec.Env = map[string]string{}
+		}
+		workload.Spec.Env[common.ProxyCredentialSecret] = secret.Name
+	}
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, secret.Name)
 	return nil
+}
+
+// generateGithubRunner stores the registration token and optional CICD proxyAuth.
+func (h *Handler) generateGithubRunner(ctx context.Context, workload *v1.Workload,
+	requestUser *v1.User, auth *view.GitHubAuthRequest, proxyAuth *view.ProxyAuthRequest) error {
+	if !commonconfig.IsCICDEnable() {
+		return commonerrors.NewNotImplemented("the CICD is not enabled")
+	}
+	auth = normalizeGithubRunnerAuth(auth, workload.Spec.Env)
+	if err := validateGithubRunnerAuth(auth); err != nil {
+		return err
+	}
+	if err := validateCICDProxyAuth(proxyAuth); err != nil {
+		return err
+	}
+	if proxyAuth != nil && workload.Spec.Env[common.ProxyCredentialSecret] != "" {
+		return commonerrors.NewBadRequest(
+			"proxyAuth: cannot be combined with env.PROXY_CREDENTIAL_SECRET; send the credential or name a Secret, not both")
+	}
+	if err := h.validateCICDProxyReference(ctx, workload, requestUser); err != nil {
+		return err
+	}
+	secret, err := h.createGithubRunnerSecret(ctx, workload, requestUser, auth, proxyAuth)
+	if err != nil {
+		return err
+	}
+	stripGithubRunnerTokenEnv(workload)
+	if proxyAuth != nil {
+		if workload.Spec.Env == nil {
+			workload.Spec.Env = map[string]string{}
+		}
+		workload.Spec.Env[common.ProxyCredentialSecret] = secret.Name
+	}
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, secret.Name)
+	attachGithubRunnerSecret(workload, secret.Name)
+	return nil
+}
+
+// updateGithubRunnerSecret rotates runner authentication while preserving omitted values.
+func (h *Handler) updateGithubRunnerSecret(ctx context.Context, workload *v1.Workload,
+	requestUser *v1.User, auth *view.GitHubAuthRequest, proxyAuth *view.ProxyAuthRequest) (*cicdSecretRotation, error) {
+	if auth != nil {
+		if err := validateGithubRunnerAuth(auth); err != nil {
+			return nil, err
+		}
+	}
+	if err := validateCICDProxyAuth(proxyAuth); err != nil {
+		return nil, err
+	}
+	oldSecretId := v1.GetGithubSecretId(workload)
+	priorPreviousSecretId := v1.GetAnnotation(workload, v1.GithubPreviousSecretIdAnnotation)
+	var oldSecret *corev1.Secret
+	if oldSecretId != "" {
+		var err error
+		oldSecret, err = h.getAdminSecret(ctx, oldSecretId)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				oldSecretId = ""
+			} else {
+				return nil, fmt.Errorf("failed to get existing github runner secret %q: %w", oldSecretId, err)
+			}
+		}
+	}
+	if oldSecret != nil {
+		auth, proxyAuth = carryForwardCICDAuth(oldSecret, auth, proxyAuth)
+		if auth != nil && cicdGitHubAuthType(auth) == GitHubAuthTypePAT {
+			copied := *auth
+			copied.Type = GitHubAuthTypeRegistrationToken
+			auth = &copied
+		}
+	}
+	if err := validateGithubRunnerAuth(auth); err != nil {
+		return nil, err
+	}
+	if oldSecret != nil && cicdSecretDataMatchesAuth(oldSecret, auth) &&
+		cicdSecretDataMatchesProxyAuth(oldSecret, proxyAuth) {
+		return nil, nil
+	}
+	newSecret, err := h.createGithubRunnerSecret(ctx, workload, requestUser, auth, proxyAuth)
+	if err != nil {
+		return nil, err
+	}
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, newSecret.Name)
+	restoreGithubRunnerPreviousSecret(workload, oldSecretId)
+	replaceGithubRunnerSecret(workload, oldSecretId, newSecret.Name)
+	if proxyAuth != nil {
+		if workload.Spec.Env == nil {
+			workload.Spec.Env = map[string]string{}
+		}
+		workload.Spec.Env[common.ProxyCredentialSecret] = newSecret.Name
+	}
+	return &cicdSecretRotation{
+		NewSecretId:           newSecret.Name,
+		SupersededSecretId:    oldSecretId,
+		PriorPreviousSecretId: priorPreviousSecretId,
+	}, nil
+}
+
+func normalizeGithubRunnerAuth(auth *view.GitHubAuthRequest, env map[string]string) *view.GitHubAuthRequest {
+	if auth != nil {
+		if strings.TrimSpace(auth.Type) == "" {
+			copied := *auth
+			copied.Type = GitHubAuthTypeRegistrationToken
+			return &copied
+		}
+		return auth
+	}
+	if env == nil {
+		return nil
+	}
+	token := strings.TrimSpace(env[common.RunnerToken])
+	if token == "" {
+		return nil
+	}
+	return &view.GitHubAuthRequest{
+		Type:  GitHubAuthTypeRegistrationToken,
+		Token: token,
+	}
+}
+
+func validateGithubRunnerAuth(auth *view.GitHubAuthRequest) error {
+	if auth == nil {
+		return commonerrors.NewBadRequest("the github authentication is empty")
+	}
+	switch cicdGitHubAuthType(auth) {
+	case GitHubAuthTypeRegistrationToken, "":
+		if strings.TrimSpace(auth.Token) == "" {
+			return commonerrors.NewBadRequest("the github registration token is empty")
+		}
+	default:
+		return commonerrors.NewBadRequest("github runner requires type registration_token")
+	}
+	return nil
+}
+
+// githubRunnerAuthFromPatch reads an explicit GitHub auth field or runner token env value.
+func githubRunnerAuthFromPatch(req *view.PatchWorkloadRequest) *view.GitHubAuthRequest {
+	if req == nil {
+		return nil
+	}
+	return normalizeGithubRunnerAuth(req.GitHubAuth, requestEnv(req))
+}
+
+func stripGithubRunnerTokenEnv(workload *v1.Workload) {
+	if workload.Spec.Env == nil {
+		return
+	}
+	delete(workload.Spec.Env, GithubPAT)
+	delete(workload.Spec.Env, common.RunnerToken)
+}
+
+func attachGithubRunnerSecret(workload *v1.Workload, secretId string) {
+	if secretId == "" {
+		return
+	}
+	for _, s := range workload.Spec.Secrets {
+		if s.Id == secretId {
+			return
+		}
+	}
+	workload.Spec.Secrets = append(workload.Spec.Secrets, v1.SecretEntity{Id: secretId, Type: v1.SecretGeneral})
+}
+
+// replaceGithubRunnerSecret replaces only the runner registration secret while
+// preserving unrelated workload secrets.
+func replaceGithubRunnerSecret(workload *v1.Workload, oldSecretId, newSecretId string) {
+	secrets := make([]v1.SecretEntity, 0, len(workload.Spec.Secrets)+1)
+	for _, secret := range workload.Spec.Secrets {
+		if secret.Id == oldSecretId || secret.Id == newSecretId {
+			continue
+		}
+		secrets = append(secrets, secret)
+	}
+	workload.Spec.Secrets = secrets
+	attachGithubRunnerSecret(workload, newSecretId)
+}
+
+func (h *Handler) validateCICDProxyReference(ctx context.Context, workload *v1.Workload, requestUser *v1.User) error {
+	if !commonworkload.IsCICDProxyRoot(workload) {
+		return nil
+	}
+	config, err := commonworkload.ParseCICDProxy(workload.Spec.Env)
+	if err != nil || config == nil || config.CredentialSecret == "" {
+		return err
+	}
+	if h.Client == nil || h.clientSet == nil || h.accessController == nil {
+		return commonerrors.NewInternalError(commonworkload.CICDProxySecretUnavailable)
+	}
+	secret, err := h.getAndAuthorizeSecret(ctx, config.CredentialSecret, workload.Spec.Workspace, requestUser, v1.GetVerb)
+	if err != nil {
+		if commonerrors.IsForbidden(err) {
+			return commonerrors.NewForbidden(commonworkload.CICDProxySecretForbidden)
+		}
+		return commonworkload.CICDProxySecretLookupError(err)
+	}
+	return commonworkload.ValidateCICDProxySecret(secret, workload.Spec.Workspace)
 }
 
 func normalizeCICDGitHubAuth(auth *view.GitHubAuthRequest, env map[string]string) *view.GitHubAuthRequest {
@@ -259,24 +583,58 @@ func validateCICDGitHubAuth(auth *view.GitHubAuthRequest) error {
 	return nil
 }
 
-func buildCICDSecretParams(auth *view.GitHubAuthRequest) map[view.SecretParam]string {
+func buildCICDSecretParams(auth *view.GitHubAuthRequest, proxyAuth *view.ProxyAuthRequest) map[view.SecretParam]string {
+	var params map[view.SecretParam]string
 	switch cicdGitHubAuthType(auth) {
 	case GitHubAuthTypeApp:
-		return map[view.SecretParam]string{
+		params = map[view.SecretParam]string{
 			GitHubAppId:             stringutil.Base64Encode(strings.TrimSpace(auth.AppId)),
 			GitHubAppInstallationId: stringutil.Base64Encode(strings.TrimSpace(auth.InstallationId)),
 			GitHubAppPrivateKey:     stringutil.Base64Encode(strings.TrimSpace(auth.PrivateKey)),
 		}
 	default:
-		return map[view.SecretParam]string{
+		params = map[view.SecretParam]string{
 			GitHubToken: stringutil.Base64Encode(strings.TrimSpace(auth.Token)),
 		}
 	}
+	// The proxy credential rides in the same Secret as the GitHub one: ARC reads
+	// each through its own reference and ignores the keys it was not asked for,
+	// so one Secret keeps one rotation and one lifetime for both.
+	if proxyAuth != nil {
+		params[view.UserNameParam] = stringutil.Base64Encode(strings.TrimSpace(proxyAuth.Username))
+		params[view.PasswordParam] = stringutil.Base64Encode(strings.TrimSpace(proxyAuth.Password))
+	}
+	return params
+}
+
+// validateCICDProxyAuth rejects what ValidateCICDProxySecret would reject later,
+// while the caller can still be told which field was wrong.
+func validateCICDProxyAuth(proxyAuth *view.ProxyAuthRequest) error {
+	if proxyAuth == nil {
+		return nil
+	}
+	for field, value := range map[string]string{
+		"username": proxyAuth.Username,
+		"password": proxyAuth.Password,
+	} {
+		// Checked before trimming, because trimming would hide exactly the
+		// characters ValidateCICDProxySecret later rejects in the stored value.
+		if strings.IndexFunc(value, unicode.IsControl) >= 0 {
+			return commonerrors.NewBadRequest(fmt.Sprintf("proxyAuth.%s: must not contain a control character", field))
+		}
+		if strings.TrimSpace(value) == "" {
+			return commonerrors.NewBadRequest(fmt.Sprintf("proxyAuth.%s: must not be empty", field))
+		}
+	}
+	return nil
 }
 
 // cicdSecretDataMatchesAuth is an idempotency check that avoids rotating
 // credentials when the submitted values already match the existing ARC secret.
 func cicdSecretDataMatchesAuth(secret *corev1.Secret, auth *view.GitHubAuthRequest) bool {
+	if auth == nil {
+		return false
+	}
 	switch cicdGitHubAuthType(auth) {
 	case GitHubAuthTypeApp:
 		return string(secret.Data[GitHubAppId]) == strings.TrimSpace(auth.AppId) &&

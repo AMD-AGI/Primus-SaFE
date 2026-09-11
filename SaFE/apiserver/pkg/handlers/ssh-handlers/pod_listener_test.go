@@ -6,7 +6,7 @@
 package ssh_handlers
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -17,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -26,193 +25,776 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers/muxbin"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers/rfwdmux"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
-// TestAcceptorScriptAgainstRealSocat runs the scripts we send into the Pod against a
-// real socat, so the shell the apiserver depends on is exercised rather than only
-// string-matched. It is skipped where socat is unavailable.
-func TestAcceptorScriptAgainstRealSocat(t *testing.T) {
-	if _, err := exec.LookPath("socat"); err != nil {
-		t.Skip("socat is not installed")
-	}
+// --- the scripts we send into the pod, against a real shell -----------------
 
-	dir := filepath.Join(t.TempDir(), "rfwd")
-	port := freeTCPPort(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	acceptor := startAcceptor(t, ctx, dir, port)
-	announcements := acceptor.stderr
-
-	// A connection to the Pod-side port is announced with its peer address.
-	client, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", itoa(port)))
-	testifyassert.NoError(t, err)
-	defer client.Close()
-
-	var announced acceptedConn
-	var diagnostics []string
-	deadline := time.After(30 * time.Second)
-	for announced.id == "" {
-		select {
-		case line := <-announcements:
-			if conn, ok := parseConnAnnouncement(line); ok {
-				announced = conn
-				break
-			}
-			diagnostics = append(diagnostics, line)
-		case <-deadline:
-			t.Fatalf("timed out waiting for a connection announcement; relay said: %v", diagnostics)
-		}
-	}
-	testifyassert.Equal(t, "127.0.0.1", announced.peerAddr)
-	testifyassert.NotZero(t, announced.peerPort)
-
-	// Attaching to the announced rendezvous socket yields that connection's bytes.
-	attach := exec.CommandContext(ctx, "/bin/sh", "-c", connectScript(dir, announced.id))
-	attachIn, err := attach.StdinPipe()
-	testifyassert.NoError(t, err)
-	attachOut, err := attach.StdoutPipe()
-	testifyassert.NoError(t, err)
-	attachErr, err := attach.StderrPipe()
-	testifyassert.NoError(t, err)
-	attachDiag := make(chan string, 64)
-	go scanLines(attachErr, attachDiag)
-	defer func() {
-		for {
-			select {
-			case line := <-attachDiag:
-				t.Logf("attach stderr: %s", line)
-			default:
-				return
-			}
-		}
-	}()
-	testifyassert.NoError(t, attach.Start())
-	defer func() {
-		_ = attach.Process.Kill()
-		_, _ = attach.Process.Wait()
-	}()
-
-	// Pod -> apiserver.
-	_, err = client.Write([]byte("from-pod\n"))
-	testifyassert.NoError(t, err)
-	line, err := bufio.NewReader(attachOut).ReadString('\n')
-	testifyassert.NoError(t, err)
-	testifyassert.Equal(t, "from-pod\n", line)
-
-	// apiserver -> Pod.
-	_, err = attachIn.Write([]byte("from-client\n"))
-	testifyassert.NoError(t, err)
-	_ = client.SetReadDeadline(time.Now().Add(30 * time.Second))
-	back, err := bufio.NewReader(client).ReadString('\n')
-	testifyassert.NoError(t, err)
-	testifyassert.Equal(t, "from-client\n", back)
-
-	// SIGKILL is what the container runtime uses, and it leaves the script no
-	// chance to run its trap: only the detached watcher can free the Pod port.
-	_ = acceptor.cmd.Process.Kill()
-	_, _ = acceptor.cmd.Process.Wait()
-	waitForPortFree(t, port)
-	waitFor(t, func() bool {
-		_, statErr := os.Stat(dir)
-		return os.IsNotExist(statErr)
-	}, "the rendezvous directory to be removed")
-}
-
-// TestAcceptorScriptStdinCloseStopsListener pins the shutdown signal the apiserver
-// actually sends: it ends the exec's stdin rather than signalling the script, which
-// is the only teardown a runtime that leaves the exec'd process running will honour.
-func TestAcceptorScriptStdinCloseStopsListener(t *testing.T) {
-	if _, err := exec.LookPath("socat"); err != nil {
-		t.Skip("socat is not installed")
-	}
-
-	dir := filepath.Join(t.TempDir(), "rfwd")
-	port := freeTCPPort(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	acceptor := startAcceptor(t, ctx, dir, port)
-
-	// A connection the apiserver never attached to still has a relay pair behind it
-	// in the pod, and ending the session has to release that too.
-	orphan, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", itoa(port)))
-	testifyassert.NoError(t, err)
-	defer orphan.Close()
-	select {
-	case line := <-acceptor.stderr:
-		_, ok := parseConnAnnouncement(line)
-		testifyassert.Truef(t, ok, "unexpected relay output: %s", line)
-	case <-time.After(30 * time.Second):
-		t.Fatal("timed out waiting for the pod-side relay to announce the connection")
-	}
-
-	testifyassert.NoError(t, acceptor.stdin.Close())
-
-	waitForPortFree(t, port)
-	waitFor(t, func() bool {
-		_, statErr := os.Stat(dir)
-		return os.IsNotExist(statErr)
-	}, "the rendezvous directory to be removed")
-
-	_ = orphan.SetReadDeadline(time.Now().Add(15 * time.Second))
-	_, err = orphan.Read(make([]byte, 1))
-	testifyassert.ErrorIs(t, err, io.EOF, "the pod-side relay must let the connection go")
-}
-
-// runningAcceptor is an acceptor script started for a test, with the streams the
-// apiserver would hold open in production.
-type runningAcceptor struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stderr chan string
-}
-
-// startAcceptor runs the acceptor script and returns once it reports it is bound.
-func startAcceptor(t *testing.T, ctx context.Context, dir string, port uint32) *runningAcceptor {
+// runScriptLocally runs one of the pod-side scripts the way a container would, so
+// the shell the apiserver depends on is exercised rather than only string-matched.
+func runScriptLocally(t *testing.T, script string, stdin io.Reader) (string, string, error) {
 	t.Helper()
-
-	script := acceptorScript(dir, "127.0.0.1", port, 12)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", script)
-	// The acceptor backgrounds socat and two watchers, which outlive the shell. Put
-	// them in one process group so the cleanup takes the lot, rather than leaving a
-	// socat on the machine for every run.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// The exec stream's stdin stays open for the life of the session; without it
-	// the script would read EOF at once and shut itself down.
-	stdin, err := cmd.StdinPipe()
-	testifyassert.NoError(t, err)
-	stdout, err := cmd.StdoutPipe()
-	testifyassert.NoError(t, err)
-	stderr, err := cmd.StderrPipe()
-	testifyassert.NoError(t, err)
-	testifyassert.NoError(t, cmd.Start())
-	t.Cleanup(func() {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		_, _ = cmd.Process.Wait()
-	})
-
-	ready := make(chan string, 64)
-	go scanLines(stdout, ready)
-	announcements := make(chan string, 64)
-	go scanLines(stderr, announcements)
-
-	// The listener announces readiness only once it is actually bound.
-	select {
-	case line := <-ready:
-		testifyassert.Equal(t, rfwdReadyMarker, line)
-	case line := <-announcements:
-		t.Fatalf("pod listener failed to bind: %s", line)
-	case <-time.After(30 * time.Second):
-		t.Fatal("timed out waiting for the pod listener to bind")
-	}
-	return &runningAcceptor{cmd: cmd, stdin: stdin, stderr: announcements}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, &stdout, &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
 }
 
-// waitForPortFree blocks until nothing in the pod holds the listen port any more.
+func TestProbeScriptReportsArchitectureAndAnExecutableDirectory(t *testing.T) {
+	stdout, stderr, err := runScriptLocally(t, probeScript(testToken(t)), nil)
+	testifyassert.NoError(t, err, stderr)
+
+	machine, dir, err := parseProbe(stdout)
+	testifyassert.NoError(t, err)
+	testifyassert.NotEmpty(t, machine)
+	testifyassert.Contains(t, installDirs, dir)
+}
+
+// TestProbeScriptFallsPastADirectoryItCannotUse covers the noexec /tmp the plan
+// calls out: the probe has to keep looking rather than report the first writable
+// directory it finds.
+func TestProbeScriptFallsPastADirectoryItCannotUse(t *testing.T) {
+	unusable := filepath.Join(t.TempDir(), "not-a-directory")
+	testifyassert.NoError(t, os.WriteFile(unusable, []byte("x"), 0o600))
+	restore := installDirs
+	installDirs = []string{unusable, "/tmp"}
+	t.Cleanup(func() { installDirs = restore })
+
+	stdout, stderr, err := runScriptLocally(t, probeScript(testToken(t)), nil)
+	testifyassert.NoError(t, err, stderr)
+	_, dir, err := parseProbe(stdout)
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, "/tmp", dir)
+}
+
+// TestInstallScriptRefusesADirectoryItDidNotCreate covers the shared, world-writable
+// directories the multiplexer is installed into: mkdir has to be what creates the
+// path, so that something already sitting there - a symlink another process in the
+// container put in the way - is refused rather than written through.
+func TestInstallScriptRefusesADirectoryItDidNotCreate(t *testing.T) {
+	elsewhere := t.TempDir()
+	dir := filepath.Join(t.TempDir(), ".safe-rfwd-"+testToken(t))
+	testifyassert.NoError(t, os.Symlink(elsewhere, dir))
+
+	_, stderr, err := runScriptLocally(t, installScript(dir), strings.NewReader("payload"))
+	testifyassert.Error(t, err)
+	testifyassert.Contains(t, stderr, rfwdErrMarker)
+	testifyassert.Contains(t, stderr, "could not create")
+
+	// Nothing was written through the symlink.
+	entries, err := os.ReadDir(elsewhere)
+	testifyassert.NoError(t, err)
+	testifyassert.Empty(t, entries)
+}
+
+// TestProbeScriptNamesTheProblem keeps a container with nowhere to run from being
+// reported as a mysterious failure to listen.
+func TestProbeScriptNamesTheProblem(t *testing.T) {
+	restore := installDirs
+	installDirs = []string{filepath.Join(t.TempDir(), "absent")}
+	t.Cleanup(func() { installDirs = restore })
+
+	_, stderr, err := runScriptLocally(t, probeScript(testToken(t)), nil)
+	testifyassert.Error(t, err)
+	testifyassert.Contains(t, stderr, rfwdErrMarker)
+	testifyassert.Contains(t, stderr, "writable and executable")
+}
+
+func TestInstallScriptWritesABinaryThatRuns(t *testing.T) {
+	binary := hostMuxBinary(t)
+	dir := filepath.Join(t.TempDir(), ".safe-rfwd-"+testToken(t))
+
+	_, stderr, err := runScriptLocally(t, installScript(dir), bytes.NewReader(binary))
+	testifyassert.NoError(t, err, stderr)
+
+	info, err := os.Stat(filepath.Join(dir, "mux"))
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+	testifyassert.Equal(t, int64(len(binary)), info.Size())
+}
+
+// TestInstallScriptRejectsABinaryThatCannotRun is the check that turns the two
+// failures that look identical later - the wrong architecture, and a filesystem
+// that is not executable after all - into a reason reported before any connection
+// depends on it.
+func TestInstallScriptRejectsABinaryThatCannotRun(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ".safe-rfwd-"+testToken(t))
+
+	_, stderr, err := runScriptLocally(t, installScript(dir), strings.NewReader("not a binary"))
+	testifyassert.Error(t, err)
+	testifyassert.Contains(t, stderr, rfwdErrMarker)
+	testifyassert.Contains(t, stderr, "could not run in this container")
+
+	// Nothing is left behind for a later session to trip over.
+	_, err = os.Stat(dir)
+	testifyassert.True(t, os.IsNotExist(err))
+}
+
+func TestRunScriptStartsTheInstalledMultiplexer(t *testing.T) {
+	script := runScript("/tmp/.safe-rfwd-abcd", "127.0.0.1", 10001)
+	testifyassert.Contains(t, script,
+		fmt.Sprintf(`"$D/mux" listen -max-streams %d -remove-dir "$D" 127.0.0.1 10001`, muxMaxStreams))
+	// The multiplexer removes its own files once the port is bound; the trap is for
+	// the paths where it never got that far.
+	testifyassert.Contains(t, script, `trap 'rm -rf "$D"' EXIT INT TERM`)
+	testifyassert.Contains(t, script, "D=/tmp/.safe-rfwd-abcd")
+}
+
+func TestParseProbe(t *testing.T) {
+	machine, dir, err := parseProbe("ARCH x86_64\nDIR /dev/shm\n")
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, "x86_64", machine)
+	testifyassert.Equal(t, "/dev/shm", dir)
+
+	// A directory the apiserver did not offer must not become a path it writes to
+	// and executes, however the pod came to report it.
+	_, _, err = parseProbe("ARCH x86_64\nDIR /etc\n")
+	testifyassert.Error(t, err)
+	_, _, err = parseProbe("ARCH x86_64\n")
+	testifyassert.Error(t, err)
+	_, _, err = parseProbe("DIR /tmp\n")
+	testifyassert.Error(t, err)
+}
+
+func TestMuxBinaryForUnknownMachine(t *testing.T) {
+	_, _, err := muxbin.For("s390x")
+	testifyassert.ErrorContains(t, err, "s390x")
+	testifyassert.True(t, muxbin.Available("x86_64") == muxbin.Available("amd64"))
+}
+
+// testToken names the paths a script test creates. The probe writes into the same
+// shared directories production does, so a fixed name would collide with a leftover
+// from an interrupted run or with another copy of the suite running beside it.
+func testToken(t *testing.T) string {
+	t.Helper()
+	token, err := randomToken()
+	testifyassert.NoError(t, err)
+	return token
+}
+
+// hostMux is the multiplexer built for the machine running the tests, built once
+// for the whole run.
+var hostMux struct {
+	once   sync.Once
+	binary []byte
+	err    error
+}
+
+// hostMuxBinary returns a multiplexer the tests can actually inject.
+//
+// It builds one rather than reading the embedded copy: a source checkout carries a
+// placeholder, and the tests that exercise the real binary - the install script, and
+// the whole stack over a local exec - are the ones most worth not skipping. The
+// build is the same one the image build runs, and Go caches it after the first.
+func hostMuxBinary(t *testing.T) []byte {
+	t.Helper()
+	hostMux.once.Do(func() {
+		if _, err := exec.LookPath("go"); err != nil {
+			hostMux.err = fmt.Errorf("no go toolchain to build the multiplexer with: %v", err)
+			return
+		}
+		out := filepath.Join(t.TempDir(), "safe-rfwd-mux")
+		build := exec.Command("go", "build", "-o", out,
+			"github.com/AMD-AIG-AIMA/SAFE/apiserver/cmd/safe-rfwd-mux")
+		build.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if output, err := build.CombinedOutput(); err != nil {
+			hostMux.err = fmt.Errorf("could not build the multiplexer: %v: %s", err, output)
+			return
+		}
+		hostMux.binary, hostMux.err = os.ReadFile(out)
+	})
+	if hostMux.err != nil {
+		t.Skipf("%v", hostMux.err)
+	}
+	return hostMux.binary
+}
+
+// injectHostMux makes the listener install a multiplexer that really runs, in place
+// of whatever the tree has embedded.
+func injectHostMux(t *testing.T) {
+	t.Helper()
+	binary := hostMuxBinary(t)
+	previous := muxBinaryFor
+	muxBinaryFor = func(machine string) ([]byte, string, error) {
+		return binary, "linux/" + machine, nil
+	}
+	t.Cleanup(func() { muxBinaryFor = previous })
+}
+
+// --- the go side of the listener, without a Kubernetes API server ------------
+
+// podScript is which of the three scripts an exec is running.
+type podScript int
+
+const (
+	probeExec podScript = iota
+	installExec
+	runExec
+	cleanupExec
+)
+
+// classify tells the scripts apart the way a reader of the exec log would.
+func classify(script string) podScript {
+	switch {
+	case strings.Contains(script, "uname -m"):
+		return probeExec
+	case strings.Contains(script, `cat > "$D/mux"`):
+		return installExec
+	case strings.HasPrefix(script, "rm -rf "):
+		return cleanupExec
+	default:
+		return runExec
+	}
+}
+
+// fakePodBehaviour bends what the stubbed pod does, so a test can reach the
+// failures a real container would produce.
+type fakePodBehaviour struct {
+	probeStdout   string
+	probeStderr   string
+	probeErr      error
+	installStdin  io.Writer
+	installErr    error
+	installStderr string
+	// silent models a multiplexer that starts but never reports the port bound.
+	silent    bool
+	runErr    error
+	runStderr string
+	// linger models a run exec that keeps going after its stdin ends, which is what
+	// a runtime that leaves the exec'd process running looks like.
+	linger bool
+}
+
+// fakePod stands in for one target container across the three execs a forward takes.
+type fakePod struct {
+	t         *testing.T
+	behave    fakePodBehaviour
+	release   chan struct{}
+	installed chan []byte
+	cleaned   chan string
+
+	mu          sync.Mutex
+	scripts     map[podScript]string
+	stdinSet    map[podScript]bool
+	session     *rfwdmux.Session
+	sessionUp   chan struct{}
+	sessionOnce sync.Once
+}
+
+// testMuxBinary stands in for the embedded multiplexer. Its leading bytes are what
+// muxbin uses to tell a real binary from the placeholder a source checkout carries.
+var testMuxBinary = append([]byte{0x7f, 'E', 'L', 'F'}, []byte(" not really a multiplexer")...)
+
+// stubMuxBinary answers for the architectures the apiserver builds for, and refuses
+// the rest the way the real lookup does.
+func stubMuxBinary(t *testing.T) {
+	t.Helper()
+	previous := muxBinaryFor
+	muxBinaryFor = func(machine string) ([]byte, string, error) {
+		switch machine {
+		case "x86_64", "amd64":
+			return testMuxBinary, "linux/amd64", nil
+		case "aarch64", "arm64":
+			return testMuxBinary, "linux/arm64", nil
+		default:
+			return nil, "", fmt.Errorf("no reverse forward multiplexer is built for machine %q", machine)
+		}
+	}
+	t.Cleanup(func() { muxBinaryFor = previous })
+}
+
+// stubPod routes every exec to a fake container for the test's duration.
+func stubPod(t *testing.T, behave fakePodBehaviour) *fakePod {
+	t.Helper()
+	stubMuxBinary(t)
+	p := &fakePod{
+		t:         t,
+		behave:    behave,
+		release:   make(chan struct{}),
+		installed: make(chan []byte, 1),
+		cleaned:   make(chan string, 4),
+		scripts:   map[podScript]string{},
+		stdinSet:  map[podScript]bool{},
+		sessionUp: make(chan struct{}),
+	}
+	previous := newPodExecutor
+	newPodExecutor = func(_ *execPodListener, script string, stdin bool) (remotecommand.Executor, error) {
+		kind := classify(script)
+		p.mu.Lock()
+		p.scripts[kind] = script
+		p.stdinSet[kind] = stdin
+		p.mu.Unlock()
+		return &fakeExec{pod: p, kind: kind}, nil
+	}
+	t.Cleanup(func() {
+		newPodExecutor = previous
+		close(p.release)
+	})
+	return p
+}
+
+// podSession is the multiplexer end of the run exec, once it is up.
+func (p *fakePod) podSession() *rfwdmux.Session {
+	select {
+	case <-p.sessionUp:
+	case <-time.After(20 * time.Second):
+		p.t.Fatal("the run exec never started a session")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.session
+}
+
+// script returns what the apiserver asked the container to run.
+func (p *fakePod) script(kind podScript) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.scripts[kind]
+}
+
+// wantsStdin reports whether an exec was given a stdin stream.
+func (p *fakePod) wantsStdin(kind podScript) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.stdinSet[kind]
+}
+
+// fakeExec is one exec against the fake container.
+type fakeExec struct {
+	pod  *fakePod
+	kind podScript
+}
+
+func (f *fakeExec) Stream(opts remotecommand.StreamOptions) error {
+	return f.StreamWithContext(context.Background(), opts)
+}
+
+func (f *fakeExec) StreamWithContext(ctx context.Context, opts remotecommand.StreamOptions) error {
+	b := f.pod.behave
+	switch f.kind {
+	case probeExec:
+		stdout := b.probeStdout
+		if stdout == "" {
+			stdout = "ARCH x86_64\nDIR /tmp\n"
+		}
+		_, _ = io.WriteString(opts.Stdout, stdout)
+		if b.probeStderr != "" {
+			_, _ = io.WriteString(opts.Stderr, b.probeStderr+"\n")
+		}
+		return b.probeErr
+	case cleanupExec:
+		select {
+		case f.pod.cleaned <- f.pod.script(cleanupExec):
+		default:
+		}
+		return nil
+	case installExec:
+		var written bytes.Buffer
+		if opts.Stdin != nil {
+			_, _ = io.Copy(&written, opts.Stdin)
+		}
+		select {
+		case f.pod.installed <- written.Bytes():
+		default:
+		}
+		if b.installStderr != "" {
+			_, _ = io.WriteString(opts.Stderr, b.installStderr+"\n")
+		}
+		return b.installErr
+	default:
+		return f.runStream(ctx, opts)
+	}
+}
+
+// runStream behaves like the multiplexer: it speaks the real framing over the
+// exec's stdin and stdout, and stops when its stdin ends.
+func (f *fakeExec) runStream(ctx context.Context, opts remotecommand.StreamOptions) error {
+	b := f.pod.behave
+	if b.runStderr != "" {
+		_, _ = io.WriteString(opts.Stderr, b.runStderr+"\n")
+	}
+	if b.runErr != nil {
+		return b.runErr
+	}
+	session := rfwdmux.NewSession(
+		rfwdmux.Join(opts.Stdin, opts.Stdout),
+		rfwdmux.Config{Initiator: true})
+	f.pod.mu.Lock()
+	f.pod.session = session
+	f.pod.mu.Unlock()
+	f.pod.sessionOnce.Do(func() { close(f.pod.sessionUp) })
+
+	if !b.silent {
+		_, _ = io.WriteString(opts.Stderr, rfwdmux.ReadyMarker+"\n")
+	}
+	select {
+	case <-session.Done():
+		if b.linger {
+			// The stream is gone but the process is not; only tearing the exec down
+			// ends it.
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		return nil
+	case <-ctx.Done():
+		_ = session.Close()
+		return ctx.Err()
+	case <-f.pod.release:
+		return nil
+	}
+}
+
+// newTestListener starts a listener against the fake container.
+func newTestListener(t *testing.T) (podListener, *fakePod) {
+	t.Helper()
+	pod := stubPod(t, fakePodBehaviour{})
+	listener, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.NoError(t, err)
+	if err != nil {
+		t.FailNow()
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	return listener, pod
+}
+
+// TestExecPodListenerInstallsTheMultiplexer pins the shape of a forward's setup:
+// one probe, one install carrying the binary itself, and one long-lived run exec.
+func TestExecPodListenerInstallsTheMultiplexer(t *testing.T) {
+	_, pod := newTestListener(t)
+
+	testifyassert.False(t, pod.wantsStdin(probeExec), "the probe has nothing to be sent")
+	testifyassert.True(t, pod.wantsStdin(installExec), "the binary arrives on the install exec's stdin")
+	testifyassert.True(t, pod.wantsStdin(runExec), "ending stdin is how the multiplexer is stopped")
+
+	select {
+	case written := <-pod.installed:
+		testifyassert.True(t, bytes.Equal(testMuxBinary, written),
+			"the install exec carries the embedded binary itself")
+	case <-time.After(20 * time.Second):
+		t.Fatal("nothing was written to the install exec")
+	}
+
+	// The install directory is under the probe's answer, named by a token, and the
+	// run exec is the one that binds the port.
+	testifyassert.Contains(t, pod.script(installExec), "/tmp/.safe-rfwd-")
+	testifyassert.Contains(t, pod.script(runExec), "127.0.0.1 10001")
+}
+
+// TestExecPodListenerAcceptCarriesAConnection is the whole point of the session:
+// a connection the pod accepted arrives as a stream, with its origin intact.
+func TestExecPodListenerAcceptCarriesAConnection(t *testing.T) {
+	listener, pod := newTestListener(t)
+
+	podStream, err := pod.podSession().Open("10.0.0.9", 51234)
+	testifyassert.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	conn, err := listener.Accept(ctx)
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, "10.0.0.9", conn.OriginAddr())
+	testifyassert.Equal(t, uint32(51234), conn.OriginPort())
+
+	_, err = podStream.Write([]byte("from-pod"))
+	testifyassert.NoError(t, err)
+	buf := make([]byte, len("from-pod"))
+	_, err = io.ReadFull(conn, buf)
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, "from-pod", string(buf))
+
+	// And a half-close in the other direction leaves the reply on its way.
+	_, err = conn.Write([]byte("from-apiserver"))
+	testifyassert.NoError(t, err)
+	testifyassert.NoError(t, conn.CloseWrite())
+	got, err := io.ReadAll(podStream)
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, "from-apiserver", string(got))
+}
+
+// TestExecPodListenerCloseEndsTheSession pins the shutdown signal the apiserver
+// sends to the pod: it ends the run exec's stdin, which is the only teardown a
+// runtime honours when it leaves the exec'd process running.
+func TestExecPodListenerCloseEndsTheSession(t *testing.T) {
+	listener, pod := newTestListener(t)
+	session := pod.podSession()
+
+	testifyassert.NoError(t, listener.Close())
+	select {
+	case <-session.Done():
+	case <-time.After(20 * time.Second):
+		t.Fatal("the pod-side session was never told the forward ended")
+	}
+
+	// Accept must not block once the listener is gone.
+	_, err := listener.Accept(context.Background())
+	testifyassert.Error(t, err)
+}
+
+// TestExecPodListenerCloseGivesUpOnAStuckRun keeps one wedged container from
+// holding up the rest of a session's teardown.
+func TestExecPodListenerCloseGivesUpOnAStuckRun(t *testing.T) {
+	previous := listenerShutdownGrace
+	listenerShutdownGrace = 200 * time.Millisecond
+	t.Cleanup(func() { listenerShutdownGrace = previous })
+
+	stubPod(t, fakePodBehaviour{linger: true})
+	listener, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.NoError(t, err)
+
+	start := time.Now()
+	testifyassert.NoError(t, listener.Close())
+	testifyassert.Less(t, time.Since(start), 5*time.Second)
+}
+
+// TestExecPodListenerCloseIsPromptWithABacklog covers teardown while connections
+// nobody has accepted are queued: the queue must not be what Close waits on.
+func TestExecPodListenerCloseIsPromptWithABacklog(t *testing.T) {
+	previous := listenerShutdownGrace
+	listenerShutdownGrace = 5 * time.Second
+	t.Cleanup(func() { listenerShutdownGrace = previous })
+
+	listener, pod := newTestListener(t)
+	session := pod.podSession()
+	for i := 0; i < 64; i++ {
+		_, err := session.Open("10.0.0.9", uint32(40000+i))
+		testifyassert.NoError(t, err)
+	}
+	waitFor(t, func() bool { return session.NumStreams() == 64 }, "the backlog to build")
+
+	start := time.Now()
+	testifyassert.NoError(t, listener.Close())
+	testifyassert.Less(t, time.Since(start), 2*time.Second,
+		"Close waited out its grace because a backlog was left unread")
+}
+
+// TestExecPodListenerReportsPodSideFailure pins the consumer of the error marker.
+// Without it a pod that cannot bind - the port already taken - would leave the
+// caller waiting out the readiness timeout instead of being told what went wrong.
+func TestExecPodListenerReportsPodSideFailure(t *testing.T) {
+	stubPod(t, fakePodBehaviour{
+		silent:    true,
+		runStderr: rfwdErrMarker + " failed to listen on 127.0.0.1:10001",
+	})
+	_, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.ErrorContains(t, err, "failed to listen on 127.0.0.1:10001")
+}
+
+// TestExecPodListenerReportsTheRunExecDying covers the multiplexer exiting before
+// it ever reports itself ready.
+func TestExecPodListenerReportsTheRunExecDying(t *testing.T) {
+	stubPod(t, fakePodBehaviour{runErr: fmt.Errorf("command terminated with exit code 126")})
+	_, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.ErrorContains(t, err, "exit code 126")
+}
+
+// TestExecPodListenerRemovesAnInstallThatNeverRan covers the one path where nothing
+// inside the pod would clear the multiplexer away: the run script's trap and the
+// multiplexer's own cleanup both need it to have started, and here it never did.
+func TestExecPodListenerRemovesAnInstallThatNeverRan(t *testing.T) {
+	previous := listenerReadyTimeout
+	listenerReadyTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { listenerReadyTimeout = previous })
+
+	pod := stubPod(t, fakePodBehaviour{silent: true})
+	_, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.Error(t, err)
+
+	select {
+	case script := <-pod.cleaned:
+		testifyassert.Contains(t, script, "rm -rf /tmp/.safe-rfwd-")
+	case <-time.After(20 * time.Second):
+		t.Fatal("a failed setup left the multiplexer in the pod")
+	}
+}
+
+// TestExecPodListenerRemovesAnInstallThatFailedHalfway covers the other arm of the
+// same promise: a setup that died inside the install script. The script only
+// removes its own directory on the branch where the binary would not run, so an
+// exec cut short anywhere before that - a cancelled request, a full filesystem -
+// leaves a multi-megabyte binary in the user's container for the life of the pod,
+// under a fresh token each time it is retried.
+func TestExecPodListenerRemovesAnInstallThatFailedHalfway(t *testing.T) {
+	pod := stubPod(t, fakePodBehaviour{installErr: context.Canceled})
+	_, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.Error(t, err)
+
+	select {
+	case script := <-pod.cleaned:
+		// Every directory the probe could have written under, not just the one it
+		// settled on: a setup cancelled during the probe has no chosen directory
+		// yet, and what it left behind still has to go.
+		for _, dir := range installDirs {
+			testifyassert.Containsf(t, script, dir+"/.safe-rfwd-",
+				"the cleanup must cover %s", dir)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("a failed install left the multiplexer in the pod")
+	}
+}
+
+// TestExecPodListenerCleansUpAfterAFailedProbe covers the stage before any
+// directory has been chosen, where there is no install path to name yet.
+func TestExecPodListenerCleansUpAfterAFailedProbe(t *testing.T) {
+	pod := stubPod(t, fakePodBehaviour{probeErr: context.Canceled})
+	_, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.Error(t, err)
+
+	select {
+	case script := <-pod.cleaned:
+		testifyassert.Contains(t, script, "/.safe-rfwd-")
+	case <-time.After(20 * time.Second):
+		t.Fatal("a cancelled probe left its test directory in the pod")
+	}
+}
+
+// TestExecPodListenerTimesOutOnASilentPod keeps a container that starts the
+// multiplexer but never binds from holding the SSH global request forever.
+func TestExecPodListenerTimesOutOnASilentPod(t *testing.T) {
+	previous := listenerReadyTimeout
+	listenerReadyTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { listenerReadyTimeout = previous })
+
+	stubPod(t, fakePodBehaviour{silent: true})
+	_, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.ErrorContains(t, err, "timed out waiting for pod listener")
+}
+
+// TestExecPodListenerReportsAnUnreachableProbe surfaces the container's own words
+// rather than only that a command failed.
+func TestExecPodListenerReportsAnUnreachableProbe(t *testing.T) {
+	stubPod(t, fakePodBehaviour{
+		probeErr:    fmt.Errorf("command terminated with exit code 1"),
+		probeStderr: rfwdErrMarker + " no directory among /tmp is both writable and executable",
+	})
+	_, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.ErrorContains(t, err, "writable and executable")
+}
+
+// TestExecPodListenerReportsAnUnsupportedArchitecture stops before writing
+// anything, because there is nothing that would run.
+func TestExecPodListenerReportsAnUnsupportedArchitecture(t *testing.T) {
+	stubPod(t, fakePodBehaviour{probeStdout: "ARCH s390x\nDIR /tmp\n"})
+	_, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.ErrorContains(t, err, "s390x")
+}
+
+// TestExecPodListenerReportsAFailedInstall names the install rather than leaving
+// the caller to guess which of the three execs failed.
+func TestExecPodListenerReportsAFailedInstall(t *testing.T) {
+	stubPod(t, fakePodBehaviour{
+		installErr:    fmt.Errorf("command terminated with exit code 1"),
+		installStderr: rfwdErrMarker + " the multiplexer written to /tmp/x could not run in this container",
+	})
+	_, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.ErrorContains(t, err, "could not run in this container")
+}
+
+// TestExecPodListenerSurvivesChatter keeps diagnostics from the container - which
+// are neither markers nor connections - from being read as anything else.
+func TestExecPodListenerSurvivesChatter(t *testing.T) {
+	pod := stubPod(t, fakePodBehaviour{runStderr: "libfoo: warning about nothing in particular"})
+	listener, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	session := pod.podSession()
+
+	stream, err := session.Open("10.0.0.9", 1)
+	testifyassert.NoError(t, err)
+	defer stream.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	conn, err := listener.Accept(ctx)
+	testifyassert.NoError(t, err)
+	testifyassert.NoError(t, conn.Close())
+}
+
+// TestExecPodListenerRefusesPastTheCap is the overload contract seen from the
+// apiserver: the cap is what the pod side is told to enforce, and the session on
+// this end enforces the same number.
+func TestExecPodListenerRefusesPastTheCap(t *testing.T) {
+	listener, pod := newTestListener(t)
+	testifyassert.Contains(t, pod.script(runExec), fmt.Sprintf("-max-streams %d", muxMaxStreams))
+
+	l, ok := listener.(*execPodListener)
+	testifyassert.True(t, ok)
+	testifyassert.Equal(t, muxMaxStreams, l.session.MaxStreams())
+}
+
+func TestExecRequestShape(t *testing.T) {
+	clientSet, err := kubernetes.NewForConfig(&rest.Config{Host: "https://example.invalid"})
+	testifyassert.NoError(t, err)
+	clients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", clientSet)
+	clients.AttachRestConfigForTest(&rest.Config{Host: "https://example.invalid"})
+
+	l := &execPodListener{
+		clients:   clients,
+		userInfo:  &UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"},
+		container: "main",
+	}
+
+	url := l.execRequest("echo hello", true).URL()
+	testifyassert.Contains(t, url.Path, "/namespaces/ns/pods/pod-0/exec")
+	query := url.Query()
+	testifyassert.Equal(t, "main", query.Get("container"))
+	// The multiplexer learns the session ended from its stdin closing, so the exec
+	// has to carry one; stdout carries the multiplexed session and stderr the
+	// readiness marker.
+	testifyassert.Equal(t, "true", query.Get("stdin"))
+	testifyassert.Equal(t, "true", query.Get("stdout"))
+	testifyassert.Equal(t, "true", query.Get("stderr"))
+	// A false flag is left out of the query rather than spelled out.
+	testifyassert.Empty(t, query.Get("tty"))
+	testifyassert.Equal(t, []string{"/bin/sh", "-c", "echo hello"}, query["command"])
+
+	// An exec that does not need stdin must not be given one.
+	testifyassert.Empty(t, l.execRequest("echo hello", false).URL().Query().Get("stdin"))
+
+	executor, err := l.newExecutor("echo hello", true)
+	testifyassert.NoError(t, err)
+	testifyassert.NotNil(t, executor)
+}
+
+func TestLimitedWriterAbsorbsAFlood(t *testing.T) {
+	var sink bytes.Buffer
+	w := &limitedWriter{w: &sink, left: 8}
+	// A short write would abort the exec stream, so everything is accounted for
+	// even once nothing more is kept.
+	n, err := w.Write([]byte("0123456789"))
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, 10, n)
+	n, err = w.Write([]byte("more"))
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, 4, n)
+	testifyassert.Equal(t, "01234567", sink.String())
+}
+
+func TestReportedReason(t *testing.T) {
+	testifyassert.Equal(t, ": nothing is executable",
+		reportedReason("some noise\n"+rfwdErrMarker+" nothing is executable\n"))
+	testifyassert.Empty(t, reportedReason("just noise\n"))
+}
+
+// --- shared port helpers ----------------------------------------------------
+
+// waitForPortFree blocks until nothing holds the listen port any more.
 func waitForPortFree(t *testing.T, port uint32) {
 	t.Helper()
 	waitFor(t, func() bool {
@@ -223,59 +805,6 @@ func waitForPortFree(t *testing.T, port uint32) {
 		_ = l.Close()
 		return true
 	}, "the pod listen port to be released")
-}
-
-// TestAcceptorScriptWithoutSocat verifies the script reports a usable error when the
-// workload image has no socat, instead of hanging until the readiness timeout.
-func TestAcceptorScriptWithoutSocat(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "rfwd")
-	cmd := exec.Command("/bin/sh", "-c", acceptorScript(dir, "127.0.0.1", 10001, 12))
-	// An empty PATH makes `command -v socat` fail the way a stripped image would.
-	cmd.Env = append(os.Environ(), "PATH=")
-	out, err := cmd.CombinedOutput()
-	testifyassert.Error(t, err)
-	testifyassert.Contains(t, string(out), rfwdErrMarker)
-	testifyassert.Contains(t, string(out), "socat is not installed")
-}
-
-// TestAcceptorScriptNamesTheMissingTool covers the preflight for every tool the
-// relay needs, not just socat. Readiness is decided by reading the kernel's listen
-// table with awk, and the script runs under set -e: an image without awk would exit
-// on the first read with no marker at all, leaving the operator with nothing but
-// "pod listener exited".
-func TestAcceptorScriptNamesTheMissingTool(t *testing.T) {
-	socat, err := exec.LookPath("socat")
-	if err != nil {
-		t.Skip("socat is not installed")
-	}
-
-	// A PATH holding socat and nothing else.
-	onlySocat := t.TempDir()
-	testifyassert.NoError(t, os.Symlink(socat, filepath.Join(onlySocat, "socat")))
-
-	cmd := exec.Command("/bin/sh", "-c", acceptorScript(filepath.Join(t.TempDir(), "rfwd"), "127.0.0.1", 10001, 12))
-	cmd.Env = append(os.Environ(), "PATH="+onlySocat)
-	out, err := cmd.CombinedOutput()
-
-	testifyassert.Error(t, err)
-	testifyassert.Contains(t, string(out), rfwdErrMarker)
-	testifyassert.Contains(t, string(out), "awk is not installed")
-	testifyassert.NotContains(t, string(out), rfwdReadyMarker)
-}
-
-// scanLines forwards each line of r onto ch until r ends.
-func scanLines(r io.Reader, ch chan<- string) {
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		select {
-		case ch <- line:
-		default:
-		}
-	}
 }
 
 // freeTCPPort returns a loopback port that is free right now.
@@ -293,813 +822,26 @@ func itoa(port uint32) string {
 	return strconv.FormatUint(uint64(port), 10)
 }
 
-// --- the Go side of the listener, without a Kubernetes API server ------------
+// TestExecPodListenerFailsPromptlyWhenTheRunExecCannotStart covers teardown of a
+// listener that never got as far as a stream: Close has nothing to wait for, and
+// must not sit out its grace discovering that.
+func TestExecPodListenerFailsPromptlyWhenTheRunExecCannotStart(t *testing.T) {
+	previous := listenerShutdownGrace
+	listenerShutdownGrace = 30 * time.Second
+	t.Cleanup(func() { listenerShutdownGrace = previous })
 
-// fakePodExec stands in for one exec'd relay script inside the Pod.
-type fakePodExec struct {
-	script string
-	stdin  bool
-
-	mu   sync.Mutex
-	opts remotecommand.StreamOptions
-	// stdinEOF records that stdin ended cleanly. A stream torn down underneath the
-	// script is a different thing and must not look like one.
-	stdinEOF  bool
-	output    *acceptorOutput
-	release   chan struct{}
-	started   chan struct{}
-	copied    chan struct{}
-	startOnce sync.Once
-}
-
-func newFakePodExec(script string, stdin bool) *fakePodExec {
-	return &fakePodExec{
-		script:  script,
-		stdin:   stdin,
-		started: make(chan struct{}),
-		copied:  make(chan struct{}),
-		release: make(chan struct{}),
-	}
-}
-
-// finish lets a stubbed relay exit, standing in for the pod-side script returning.
-func (f *fakePodExec) finish() { close(f.release) }
-
-// acceptorOutput overrides what a stubbed acceptor writes instead of reporting
-// itself ready: relay diagnostics, or a failure the pod side detected.
-type acceptorOutput struct {
-	stdout, stderr string
-	exitErr        error
-	// stuck models a relay that keeps running after its stdin ends; hold models one
-	// that exits only when the test says so; announce is how many connections the
-	// stream reports before doing anything else, which is how a backlog is built
-	// from inside the stream rather than beside it.
-	stuck    bool
-	hold     bool
-	announce int
-}
-
-func (f *fakePodExec) Stream(opts remotecommand.StreamOptions) error {
-	return f.StreamWithContext(context.Background(), opts)
-}
-
-// StreamWithContext behaves like the relay script: it reports itself ready and then
-// runs until either its stdin ends or the exec stream is torn down.
-func (f *fakePodExec) StreamWithContext(ctx context.Context, opts remotecommand.StreamOptions) error {
-	f.mu.Lock()
-	f.opts = opts
-	f.mu.Unlock()
-	f.startOnce.Do(func() { close(f.started) })
-
-	if strings.Contains(f.script, "UNIX-CONNECT") {
-		// An attached connection: echo whatever the apiserver writes back at it.
-		_, err := io.Copy(opts.Stdout, opts.Stdin)
-		return err
-	}
-
-	if f.output != nil {
-		if f.output.stdout != "" {
-			_, _ = io.WriteString(opts.Stdout, f.output.stdout+"\n")
+	stubPod(t, fakePodBehaviour{})
+	wrapped := newPodExecutor
+	newPodExecutor = func(l *execPodListener, script string, stdin bool) (remotecommand.Executor, error) {
+		if classify(script) == runExec {
+			return nil, fmt.Errorf("no route to the api server")
 		}
-		if f.output.stderr != "" {
-			_, _ = io.WriteString(opts.Stderr, f.output.stderr+"\n")
-		}
-		if f.output.exitErr != nil {
-			return f.output.exitErr
-		}
-	} else {
-		_, _ = io.WriteString(opts.Stdout, rfwdReadyMarker+"\n")
+		return wrapped(l, script, stdin)
 	}
-	// Reported from inside the stream, so a queue nobody drains parks the stream
-	// itself on the write - which is how a real exec's copier behaves.
-	if f.output != nil {
-		for i := 0; i < f.output.announce; i++ {
-			_, _ = io.WriteString(opts.Stderr, fmt.Sprintf("%s %d 10.0.0.9 51234\n", rfwdConnMarker, 7000+i))
-		}
-	}
-	go func() {
-		defer close(f.copied)
-		_, err := io.Copy(io.Discard, opts.Stdin)
-		f.mu.Lock()
-		f.stdinEOF = err == nil
-		f.mu.Unlock()
-	}()
-	select {
-	case <-ctx.Done():
-		// A real container keeps reading until its stdin actually ends, so an EOF
-		// already in flight must be seen before the stream is reported as gone.
-		select {
-		case <-f.copied:
-		case <-time.After(time.Second):
-		}
-		return ctx.Err()
-	case <-f.copied:
-		// The script has been told to stop; it exits when it is done, or never if
-		// this stub is standing in for one that hangs.
-		if f.output != nil && f.output.stuck {
-			<-ctx.Done()
-			return ctx.Err()
-		}
-		if f.output != nil && f.output.hold {
-			select {
-			case <-f.release:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-		return nil
-	}
-}
-
-// announce feeds a connection announcement down the acceptor's stderr.
-func (f *fakePodExec) announce(t *testing.T, line string) {
-	t.Helper()
-	<-f.started
-	f.mu.Lock()
-	stderr := f.opts.Stderr
-	f.mu.Unlock()
-	_, err := io.WriteString(stderr, line+"\n")
-	testifyassert.NoError(t, err)
-}
-
-// announceQuietly writes a line without touching the test, for use from a goroutine
-// that may outlive it.
-func (f *fakePodExec) announceQuietly(line string) {
-	<-f.started
-	f.mu.Lock()
-	stderr := f.opts.Stderr
-	f.mu.Unlock()
-	_, _ = io.WriteString(stderr, line+"\n")
-}
-
-// stdinEnded reports whether the exec's stdin reached EOF, which is how the relay
-// script learns the session is over.
-func (f *fakePodExec) stdinEnded() bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.stdinEOF
-}
-
-// stubPodExec routes every relay script to a recorded fake for the test's duration.
-func stubPodExec(t *testing.T, output ...*acceptorOutput) *sync.Map {
-	t.Helper()
-	execs := &sync.Map{}
-	previous := newPodExecutor
-	newPodExecutor = func(_ *execPodListener, script string, stdin bool) (remotecommand.Executor, error) {
-		fake := newFakePodExec(script, stdin)
-		if len(output) > 0 && !strings.Contains(script, "UNIX-CONNECT") {
-			fake.output = output[0]
-		}
-		key := "connect"
-		if !strings.Contains(script, "UNIX-CONNECT") {
-			key = "acceptor"
-		}
-		execs.Store(key, fake)
-		return fake, nil
-	}
-	t.Cleanup(func() { newPodExecutor = previous })
-	return execs
-}
-
-// execFor returns the fake standing in for the named relay script.
-func execFor(t *testing.T, execs *sync.Map, key string) *fakePodExec {
-	t.Helper()
-	var fake *fakePodExec
-	waitFor(t, func() bool {
-		value, ok := execs.Load(key)
-		if !ok {
-			return false
-		}
-		fake = value.(*fakePodExec)
-		return true
-	}, "the "+key+" exec to be started")
-	return fake
-}
-
-// TestExecPodListenerCloseEndsStdin pins the shutdown signal the apiserver sends to
-// the Pod: the acceptor exec must carry a stdin stream, and closing the listener
-// must end it. That is the only teardown a runtime honours when it leaves the
-// exec'd process running after the stream is torn down.
-func TestExecPodListenerCloseEndsStdin(t *testing.T) {
-	execs := stubPodExec(t)
-
-	listener, err := newExecPodListener(context.Background(),
-		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
-	testifyassert.NoError(t, err)
-
-	acceptor := execFor(t, execs, "acceptor")
-	testifyassert.True(t, acceptor.stdin, "the acceptor exec must request stdin")
-	testifyassert.False(t, acceptor.stdinEnded())
-
-	testifyassert.NoError(t, listener.Close())
-	waitFor(t, acceptor.stdinEnded, "the acceptor's stdin to end")
-
-	// Accept must not block once the listener is gone.
-	_, err = listener.Accept(context.Background())
-	testifyassert.Error(t, err)
-}
-
-// TestExecPodListenerAcceptBridgesAnnouncedConn verifies an announcement from the
-// Pod turns into a byte stream attached to that connection.
-func TestExecPodListenerAcceptBridgesAnnouncedConn(t *testing.T) {
-	execs := stubPodExec(t)
-
-	listener, err := newExecPodListener(context.Background(),
-		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
-	testifyassert.NoError(t, err)
-	t.Cleanup(func() { _ = listener.Close() })
-
-	execFor(t, execs, "acceptor").announce(t, rfwdConnMarker+" 4242 10.0.0.9 51234")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	conn, err := listener.Accept(ctx)
-	testifyassert.NoError(t, err)
-	testifyassert.Equal(t, "10.0.0.9", conn.OriginAddr())
-	testifyassert.Equal(t, uint32(51234), conn.OriginPort())
-
-	// The connect exec attaches to the announced rendezvous socket, not another one.
-	connect := execFor(t, execs, "connect")
-	testifyassert.Contains(t, connect.script, "/4242")
-	testifyassert.True(t, connect.stdin)
-
-	_, err = conn.Write([]byte("to-pod\n"))
-	testifyassert.NoError(t, err)
-	line, err := bufio.NewReader(conn).ReadString('\n')
-	testifyassert.NoError(t, err)
-	testifyassert.Equal(t, "to-pod\n", line)
-
-	testifyassert.NoError(t, conn.Close())
-}
-
-// TestExecPodListenerIgnoresMalformedAnnouncement verifies a garbled announcement is
-// dropped rather than becoming a connection or killing the listener.
-func TestExecPodListenerIgnoresMalformedAnnouncement(t *testing.T) {
-	execs := stubPodExec(t)
-
-	listener, err := newExecPodListener(context.Background(),
-		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
-	testifyassert.NoError(t, err)
-	t.Cleanup(func() { _ = listener.Close() })
-
-	acceptor := execFor(t, execs, "acceptor")
-	acceptor.announce(t, rfwdConnMarker+" ../escape 10.0.0.9 51234")
-	acceptor.announce(t, rfwdConnMarker+" 4242 10.0.0.9 51234")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	conn, err := listener.Accept(ctx)
-	testifyassert.NoError(t, err)
-	connect := execFor(t, execs, "connect")
-	testifyassert.Contains(t, connect.script, "/4242")
-	testifyassert.NotContains(t, connect.script, "escape")
-	testifyassert.NoError(t, conn.Close())
-}
-
-// TestChildScriptDoesNotAnnounceWithoutItsSocket pins that a child which never
-// managed to publish its rendezvous socket says so instead of announcing a
-// connection. An announcement without a socket sends the apiserver to attach to a
-// path that will never exist, and the pod-side application waits out the connect
-// retries before its connection dies for no stated reason.
-func TestChildScriptDoesNotAnnounceWithoutItsSocket(t *testing.T) {
-	dir := t.TempDir()
-	// Shadow socat rather than emptying PATH: without mkdir the script never gets
-	// as far as the branch this test is about, and both assertions would still hold.
-	shadow := t.TempDir()
-	testifyassert.NoError(t, os.WriteFile(filepath.Join(shadow, "socat"),
-		[]byte("#!/bin/sh\nexit 127\n"), 0o755))
-	cmd := exec.Command("/bin/sh", "-c", childScript(dir))
-	cmd.Env = append(os.Environ(), "PATH="+shadow+":"+os.Getenv("PATH"))
-	cmd.Stdin = strings.NewReader("")
-	out, err := cmd.CombinedOutput()
-
-	testifyassert.Error(t, err, "a child with no socket must not exit successfully")
-	testifyassert.NotContains(t, string(out), rfwdConnMarker,
-		"a connection was announced although its rendezvous socket never appeared")
-	// A child that cannot publish its socket loses that one connection; the
-	// listener itself is fine, so this must not be the listener's error marker.
-	testifyassert.Contains(t, string(out), rfwdDropMarker)
-	testifyassert.NotContains(t, string(out), rfwdErrMarker)
-}
-
-// runningChild is a started child relay, kept so a test can end one deliberately.
-type runningChild struct {
-	cmd   *exec.Cmd
-	stdin io.WriteCloser
-}
-
-var childGroups = map[string]runningChild{}
-
-// endChildNormally lets a child run its own cleanup, rather than killing it: the
-// line that releases or keeps an id only runs on the way out.
-func endChildNormally(t *testing.T, dir, id string) {
-	t.Helper()
-	child, ok := childGroups[dir+"/"+id]
-	testifyassert.Truef(t, ok, "no child recorded for id %s", id)
-
-	// Attaching and letting go closes both of the relay's directions, which is what
-	// ends its socat; closing the accepted socket alone only half-closes it.
-	conn, err := net.Dial("unix", filepath.Join(dir, id, "s"))
-	testifyassert.NoError(t, err)
-	_ = conn.Close()
-	_ = child.stdin.Close()
-
-	done := make(chan struct{})
-	go func() { _, _ = child.cmd.Process.Wait(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the child never finished on its own")
-	}
-}
-
-// startChild runs one child relay and returns the id it announced, leaving it alive.
-func startChild(t *testing.T, ctx context.Context, dir string) string {
-	t.Helper()
-
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", childScript(dir))
-	// The child backgrounds socat and a watcher, which outlive it. Put the lot in
-	// one process group so the cleanup below takes them all, rather than leaving a
-	// socat behind on the machine for every run of this test.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// The accepted socket is the child's stdin; hold it open so the child stays up.
-	stdin, err := cmd.StdinPipe()
-	testifyassert.NoError(t, err)
-	t.Cleanup(func() { _ = stdin.Close() })
-	stderr, err := cmd.StderrPipe()
-	testifyassert.NoError(t, err)
-	testifyassert.NoError(t, cmd.Start())
-	t.Cleanup(func() {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		_, _ = cmd.Process.Wait()
-	})
-
-	announcements := make(chan string, 8)
-	go scanLines(stderr, announcements)
-	select {
-	case line := <-announcements:
-		conn, ok := parseConnAnnouncement(line)
-		testifyassert.Truef(t, ok, "unexpected child output: %s", line)
-		childGroups[dir+"/"+conn.id] = runningChild{cmd: cmd, stdin: stdin}
-		return conn.id
-	case <-time.After(30 * time.Second):
-		t.Fatal("the child never announced itself")
-		return ""
-	}
-}
-
-// TestExecPodListenerSurvivesADroppedConnection pins the difference between "this
-// listener never came up" and "this one connection could not be handed over". Both
-// are reported by the relay on the same stream, and treating the second as the first
-// would take a user's whole forward down because one connection went wrong.
-func TestExecPodListenerSurvivesADroppedConnection(t *testing.T) {
-	execs := stubPodExec(t)
-
-	listener, err := newExecPodListener(context.Background(),
-		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
-	testifyassert.NoError(t, err)
-	t.Cleanup(func() { _ = listener.Close() })
-
-	acceptor := execFor(t, execs, "acceptor")
-	acceptor.announce(t, rfwdDropMarker+" the relay socket for 4242 never appeared")
-	acceptor.announce(t, rfwdConnMarker+" 4243 10.0.0.9 51234")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	conn, err := listener.Accept(ctx)
-	testifyassert.NoError(t, err, "one dropped connection took the whole forward down")
-	if err == nil {
-		testifyassert.Equal(t, uint32(51234), conn.OriginPort())
-		testifyassert.NoError(t, conn.Close())
-	}
-}
-
-// TestExecRequestShape pins the exec request the relay is actually launched with.
-// The rest of the suite replaces newPodExecutor, so without this the container, the
-// command and the stdin flag would only ever be checked against a real API server.
-func TestExecRequestShape(t *testing.T) {
-	clientSet, err := kubernetes.NewForConfig(&rest.Config{Host: "https://example.invalid"})
-	testifyassert.NoError(t, err)
-	clients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", clientSet)
-	clients.AttachRestConfigForTest(&rest.Config{Host: "https://example.invalid"})
-
-	l := &execPodListener{
-		clients:   clients,
-		userInfo:  &UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"},
-		container: "main",
-	}
-
-	url := l.execRequest("echo relay", true).URL()
-	testifyassert.Contains(t, url.Path, "/namespaces/ns/pods/pod-0/exec")
-	query := url.Query()
-	testifyassert.Equal(t, "main", query.Get("container"))
-	// The acceptor learns the session ended from its stdin closing, so the exec has
-	// to carry one; stdout and stderr carry the readiness and connection markers.
-	testifyassert.Equal(t, "true", query.Get("stdin"))
-	testifyassert.Equal(t, "true", query.Get("stdout"))
-	testifyassert.Equal(t, "true", query.Get("stderr"))
-	// A false flag is left out of the query rather than spelled out.
-	testifyassert.Empty(t, query.Get("tty"))
-	testifyassert.Equal(t, []string{"/bin/sh", "-c", "echo relay"}, query["command"])
-
-	// A relay that does not need stdin must not be given one.
-	testifyassert.Empty(t, l.execRequest("echo relay", false).URL().Query().Get("stdin"))
-
-	executor, err := l.newExecutor("echo relay", true)
-	testifyassert.NoError(t, err)
-	testifyassert.NotNil(t, executor)
-}
-
-// TestRelayLogWriter verifies relay diagnostics are absorbed rather than treated as
-// stream errors: a short write would make the exec stream fail mid-connection.
-func TestRelayLogWriter(t *testing.T) {
-	w := newLogWriter("pod-0")
-	for _, chunk := range []string{"socat: warning\n", "   \n", ""} {
-		n, err := w.Write([]byte(chunk))
-		testifyassert.NoError(t, err)
-		testifyassert.Equal(t, len(chunk), n, "a short write would abort the exec stream")
-	}
-}
-
-// TestExecPodListenerReportsPodSideFailure pins the consumer of the error marker the
-// relay script emits. Without it a pod that cannot bind - no socat in the image, or
-// the port already taken - would leave the caller waiting out the readiness timeout
-// instead of being told what went wrong.
-func TestExecPodListenerReportsPodSideFailure(t *testing.T) {
-	stubPodExec(t, &acceptorOutput{stderr: rfwdErrMarker + " failed to listen on 127.0.0.1:10001"})
 
 	start := time.Now()
 	_, err := newExecPodListener(context.Background(),
 		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
-	testifyassert.Error(t, err)
-	testifyassert.Contains(t, err.Error(), "failed to listen on 127.0.0.1:10001")
-	testifyassert.Less(t, time.Since(start), listenerReadyTimeout,
-		"the failure must be reported, not waited out")
-}
-
-// TestExecPodListenerReportsRelayExit covers the other way a listener never comes up:
-// the exec stream ends before the relay reports itself ready.
-func TestExecPodListenerReportsRelayExit(t *testing.T) {
-	stubPodExec(t, &acceptorOutput{exitErr: errSSH("container terminated")})
-
-	_, err := newExecPodListener(context.Background(),
-		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
-	testifyassert.Error(t, err)
-	testifyassert.Contains(t, err.Error(), "container terminated")
-}
-
-// TestExecPodListenerIgnoresRelayChatter verifies ordinary relay output is logged and
-// dropped rather than mistaken for a marker.
-func TestExecPodListenerIgnoresRelayChatter(t *testing.T) {
-	stubPodExec(t, &acceptorOutput{stderr: "socat: W address is opened in read-write mode", stdout: rfwdReadyMarker})
-
-	listener, err := newExecPodListener(context.Background(),
-		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
-	testifyassert.NoError(t, err)
-	if err == nil {
-		testifyassert.NoError(t, listener.Close())
-	}
-}
-
-// TestExecPodListenerCloseWaitsForRelayExit pins that Close does not report the
-// listener gone while the pod-side relay still holds the port. A client that drops
-// and reconnects asks for the same port again - what OpenSSH does after a broken
-// link - and reuseaddr does not cover a socket another live process is still
-// listening on, so returning early makes the reconnect fail on a port we just said
-// we had released.
-func TestExecPodListenerCloseWaitsForRelayExit(t *testing.T) {
-	execs := stubPodExec(t, &acceptorOutput{stdout: rfwdReadyMarker, hold: true})
-
-	listener, err := newExecPodListener(context.Background(),
-		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
-	testifyassert.NoError(t, err)
-
-	acceptor := execFor(t, execs, "acceptor")
-
-	closed := make(chan struct{})
-	go func() { _ = listener.Close(); close(closed) }()
-
-	waitFor(t, acceptor.stdinEnded, "the relay to be told to shut down")
-	select {
-	case <-closed:
-		t.Fatal("Close returned before the relay had exited: the port may still be held")
-	case <-time.After(150 * time.Millisecond):
-	}
-
-	acceptor.finish()
-	select {
-	case <-closed:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Close never returned after the relay exited")
-	}
-}
-
-// TestExecPodListenerCloseGivesUpOnAStuckRelay verifies the wait above is bounded: a
-// relay that never exits must not hold teardown of the whole session.
-func TestExecPodListenerCloseGivesUpOnAStuckRelay(t *testing.T) {
-	previous := listenerShutdownGrace
-	listenerShutdownGrace = 120 * time.Millisecond
-	t.Cleanup(func() { listenerShutdownGrace = previous })
-
-	execs := stubPodExec(t, &acceptorOutput{stdout: rfwdReadyMarker, stuck: true})
-
-	listener, err := newExecPodListener(context.Background(),
-		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
-	testifyassert.NoError(t, err)
-	execFor(t, execs, "acceptor")
-
-	start := time.Now()
-	testifyassert.NoError(t, listener.Close())
-	testifyassert.Less(t, time.Since(start), 3*time.Second, "a stuck relay must not block teardown")
-}
-
-// TestAcceptorReadyMeansTheePortIsBound pins what the ready marker promises. It used
-// to mean "socat is not a zombie one second later", which is neither necessary nor
-// sufficient: a busy node can take longer than the fixed wait, and the first request
-// through the forward is then refused; a bind that fails more slowly is reported as
-// success. Ready now means the port is listening, checked rather than assumed.
-func TestAcceptorReadyMeansThePortIsBound(t *testing.T) {
-	if _, err := exec.LookPath("socat"); err != nil {
-		t.Skip("socat is not installed")
-	}
-
-	dir := filepath.Join(t.TempDir(), "rfwd")
-	port := freeTCPPort(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	start := time.Now()
-	startAcceptor(t, ctx, dir, port)
-	elapsed := time.Since(start)
-
-	// The moment it says ready, the port must accept a connection.
-	conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", itoa(port)))
-	testifyassert.NoError(t, err, "ready was reported before the port was bound")
-	if err == nil {
-		_ = conn.Close()
-	}
-
-	// And it must not be paying a fixed wait to say so.
-	testifyassert.Less(t, elapsed, 900*time.Millisecond,
-		"readiness is still waiting out a fixed sleep rather than checking the port")
-}
-
-// TestAcceptorReportsABindItCannotWin verifies the other direction: a port already
-// taken is reported as a failure rather than waited out.
-func TestAcceptorReportsABindItCannotWin(t *testing.T) {
-	if _, err := exec.LookPath("socat"); err != nil {
-		t.Skip("socat is not installed")
-	}
-
-	occupied, err := net.Listen("tcp", "127.0.0.1:0")
-	testifyassert.NoError(t, err)
-	defer occupied.Close()
-	port := uint32(occupied.Addr().(*net.TCPAddr).Port)
-
-	dir := filepath.Join(t.TempDir(), "rfwd")
-	cmd := exec.Command("/bin/sh", "-c", acceptorScript(dir, "127.0.0.1", port, 12))
-	stdin, err := cmd.StdinPipe()
-	testifyassert.NoError(t, err)
-	defer stdin.Close()
-
-	out, err := cmd.CombinedOutput()
-	testifyassert.Error(t, err, "binding an occupied port must fail")
-	testifyassert.Contains(t, string(out), rfwdErrMarker)
-	testifyassert.NotContains(t, string(out), rfwdReadyMarker,
-		"a listener that never bound must not report itself ready")
-}
-
-// TestExecPodListenerSurvivesALongRelayLine pins that a diagnostic longer than the
-// scanner's default line keeps the forward alive. socat can emit a very long error,
-// and a line that does not fit ends the scan: the goroutine returns, nothing marks
-// the listener failed, and Accept then waits for announcements that will never come
-// again - a forward that hangs with nothing in the log to say why.
-func TestExecPodListenerSurvivesALongRelayLine(t *testing.T) {
-	execs := stubPodExec(t)
-
-	listener, err := newExecPodListener(context.Background(),
-		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
-	testifyassert.NoError(t, err)
-	t.Cleanup(func() { _ = listener.Close() })
-
-	acceptor := execFor(t, execs, "acceptor")
-	acceptor.announce(t, "socat: E "+strings.Repeat("x", 200*1024))
-	acceptor.announce(t, rfwdConnMarker+" 4242 10.0.0.9 51234")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	conn, err := listener.Accept(ctx)
-	testifyassert.NoError(t, err, "a long relay line stopped the listener reporting connections")
-	if err == nil {
-		testifyassert.NoError(t, conn.Close())
-	}
-}
-
-// TestChildScriptDoesNotReuseAFinishedId pins that a connection which has finished
-// cannot have its id handed to the next one. An announcement still queued for the
-// first would otherwise be attached to the second, putting one connection's bytes on
-// the other's channel. Ids pair the PID with the clock so they do not repeat, which
-// is also what lets the directory be released instead of accumulating.
-func TestChildScriptDoesNotReuseAFinishedId(t *testing.T) {
-	if _, err := exec.LookPath("socat"); err != nil {
-		t.Skip("socat is not installed")
-	}
-
-	dir := t.TempDir()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	first := startChild(t, ctx, dir)
-	endChildNormally(t, dir, first)
-
-	second := startChild(t, ctx, dir)
-	testifyassert.NotEqual(t, first, second,
-		"a finished connection's id was handed to the next one")
-
-	// Distinctness between two live children proves nothing - PIDs already give
-	// that. What stops an id coming back is the clock in front of it.
-	testifyassert.GreaterOrEqual(t, len(second), 15,
-		"the id looks like a bare PID, which comes back once the process exits")
-	epoch, err := strconv.ParseInt(second[:10], 10, 64)
-	testifyassert.NoError(t, err)
-	testifyassert.InDelta(t, time.Now().Unix(), epoch, 300,
-		"the id does not begin with the current time, so it can repeat")
-
-	// And the finished one left nothing behind.
-	_, err = os.Stat(filepath.Join(dir, first))
-	testifyassert.Truef(t, os.IsNotExist(err),
-		"the finished connection's directory is still there: ids that do not repeat "+
-			"must not accumulate for the life of the forward")
-}
-
-// TestRelayCarriesAHalfCloseThroughRealSocat is the half-close test that matters.
-// The two in reverse_forward_test.go drive a Go fake, so they prove the bridge
-// half-closes correctly and nothing about whether the relay carries it: socat closes
-// the whole connection a short time after either direction ends, which folds a
-// half-close into a full one and truncates whatever the other side still had to say.
-func TestRelayCarriesAHalfCloseThroughRealSocat(t *testing.T) {
-	if _, err := exec.LookPath("socat"); err != nil {
-		t.Skip("socat is not installed")
-	}
-
-	dir := filepath.Join(t.TempDir(), "rfwd")
-	port := freeTCPPort(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	acceptor := startAcceptor(t, ctx, dir, port)
-
-	// A process in the pod sends its request and says it is done writing.
-	podSide, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", itoa(port)))
-	testifyassert.NoError(t, err)
-	defer podSide.Close()
-	_, err = podSide.Write([]byte("req\n"))
-	testifyassert.NoError(t, err)
-	testifyassert.NoError(t, podSide.(*net.TCPConn).CloseWrite())
-
-	var announced acceptedConn
-	deadline := time.After(30 * time.Second)
-	for announced.id == "" {
-		select {
-		case line := <-acceptor.stderr:
-			if conn, ok := parseConnAnnouncement(line); ok {
-				announced = conn
-			}
-		case <-deadline:
-			t.Fatal("timed out waiting for the connection announcement")
-		}
-	}
-
-	attach := exec.CommandContext(ctx, "/bin/sh", "-c", connectScript(dir, announced.id))
-	attachIn, err := attach.StdinPipe()
-	testifyassert.NoError(t, err)
-	attachOut, err := attach.StdoutPipe()
-	testifyassert.NoError(t, err)
-	testifyassert.NoError(t, attach.Start())
-	t.Cleanup(func() { _ = attach.Process.Kill(); _, _ = attach.Process.Wait() })
-
-	line, err := bufio.NewReader(attachOut).ReadString('\n')
-	testifyassert.NoError(t, err)
-	testifyassert.Equal(t, "req\n", line)
-
-	// The reply comes back later than socat's post-EOF grace, which is the whole
-	// point: a proxy on the other end does not answer instantly.
-	time.Sleep(1500 * time.Millisecond)
-	_, err = attachIn.Write([]byte("late-reply\n"))
-	testifyassert.NoError(t, err)
-
-	_ = podSide.SetReadDeadline(time.Now().Add(10 * time.Second))
-	back, err := bufio.NewReader(podSide).ReadString('\n')
-	testifyassert.NoError(t, err, "the pod's half-close was turned into a full close")
-	testifyassert.Equal(t, "late-reply\n", back)
-}
-
-// TestAcceptorReadyWithAnotherListenerOnTheSamePort covers a pod that already has
-// something listening on the requested port, on a different address - a server bound
-// to the pod IP, or to another loopback alias, while the forward binds 127.0.0.1.
-// All of them appear in the kernel's listen table under the same port, and readiness
-// has to find ours among them rather than judging by whichever the kernel lists
-// first. The order is the kernel's hash order, so the competing listeners are many:
-// with one, a buggy check passes half the time.
-func TestAcceptorReadyWithAnotherListenerOnTheSamePort(t *testing.T) {
-	if _, err := exec.LookPath("socat"); err != nil {
-		t.Skip("socat is not installed")
-	}
-
-	port := freeTCPPort(t)
-	for i := 2; i <= 9; i++ {
-		other, err := net.Listen("tcp", net.JoinHostPort(fmt.Sprintf("127.0.0.%d", i), itoa(port)))
-		if err != nil {
-			continue
-		}
-		defer other.Close()
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	// startAcceptor fails the test if readiness never arrives, which is the point:
-	// our socat binds fine, and the question is whether we notice.
-	startAcceptor(t, ctx, filepath.Join(t.TempDir(), "rfwd"), port)
-
-	conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", itoa(port)))
-	testifyassert.NoError(t, err, "the forward's own listener should be reachable")
-	if err == nil {
-		_ = conn.Close()
-	}
-}
-
-// TestExecPodListenerCloseIsPromptWithABacklog pins that a listener whose
-// announcements have outrun the apiserver still shuts down at once. The scan
-// goroutine parks on the full queue; if leaving it there stranded the exec's copier
-// mid-write, the stream would never end and Close would wait out its whole grace -
-// holding the pod port for exactly as long as the wait was meant to shorten.
-func TestExecPodListenerCloseIsPromptWithABacklog(t *testing.T) {
-	previous := listenerShutdownGrace
-	listenerShutdownGrace = 5 * time.Second
-	t.Cleanup(func() { listenerShutdownGrace = previous })
-
-	// The stream itself reports more connections than the queue holds and nobody
-	// accepts them, so it is the stream that ends up parked on the write.
-	stubPodExec(t, &acceptorOutput{stdout: rfwdReadyMarker, announce: 40})
-	listener, err := newExecPodListener(context.Background(),
-		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
-	testifyassert.NoError(t, err)
-	time.Sleep(200 * time.Millisecond)
-
-	start := time.Now()
-	testifyassert.NoError(t, listener.Close())
-	testifyassert.Less(t, time.Since(start), 2*time.Second,
-		"Close waited out its grace because the relay's output was left unread")
-}
-
-// TestExecPodListenerBoundsConcurrentExecs pins the ceiling on per-connection exec
-// streams. The per-session forward limit counts listeners, not the connections
-// through them, so without this one command behind HTTPS_PROXY could hold hundreds
-// of streams open against the target cluster's API server.
-func TestExecPodListenerBoundsConcurrentExecs(t *testing.T) {
-	execs := stubPodExec(t)
-	listener, err := newExecPodListener(context.Background(),
-		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
-	testifyassert.NoError(t, err)
-	t.Cleanup(func() { _ = listener.Close() })
-
-	l, ok := listener.(*execPodListener)
-	testifyassert.True(t, ok)
-	testifyassert.Equal(t, maxConcurrentRelayExecs, cap(l.execSlots))
-
-	acceptor := execFor(t, execs, "acceptor")
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
-	held := make([]podConn, 0, maxConcurrentRelayExecs)
-	for i := 0; i < maxConcurrentRelayExecs; i++ {
-		acceptor.announce(t, fmt.Sprintf("%s %d 10.0.0.9 51234", rfwdConnMarker, 6000+i))
-		conn, err := listener.Accept(ctx)
-		testifyassert.NoError(t, err)
-		held = append(held, conn)
-	}
-	testifyassert.Equal(t, maxConcurrentRelayExecs, len(l.execSlots), "every slot should be taken")
-
-	// One more has to wait for a slot rather than opening another stream.
-	acceptor.announce(t, fmt.Sprintf("%s 6999 10.0.0.9 51234", rfwdConnMarker))
-	overflow := make(chan error, 1)
-	go func() {
-		short, stop := context.WithTimeout(context.Background(), 300*time.Millisecond)
-		defer stop()
-		_, err := listener.Accept(short)
-		overflow <- err
-	}()
-	select {
-	case err := <-overflow:
-		testifyassert.Error(t, err,
-			"a connection past the ceiling was handed a stream instead of waiting for one")
-	case <-time.After(5 * time.Second):
-		t.Fatal("Accept neither took a slot nor gave up")
-	}
-
-	// Releasing one lets the next through.
-	testifyassert.NoError(t, held[0].Close())
-	waitFor(t, func() bool { return len(l.execSlots) < maxConcurrentRelayExecs }, "a slot to come free")
+	testifyassert.ErrorContains(t, err, "no route to the api server")
+	testifyassert.Less(t, time.Since(start), 5*time.Second)
 }

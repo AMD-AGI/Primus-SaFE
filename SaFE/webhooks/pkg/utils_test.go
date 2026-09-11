@@ -357,7 +357,7 @@ func TestWorkloadValidateRayJobBranches(t *testing.T) {
 func TestWorkloadValidateCICDBranches(t *testing.T) {
 	v := &WorkloadValidator{}
 	missingKey := &v1.Workload{Spec: v1.WorkloadSpec{Env: map[string]string{ResourcesEnv: "x"}}}
-	assert.Assert(t, v.validateCICDScalingRunnerSet(missingKey) != nil)
+	assert.Assert(t, v.validateCICDScalingRunnerSet(context.Background(), missingKey, nil) != nil)
 
 	badJSON := &v1.Workload{Spec: v1.WorkloadSpec{Env: map[string]string{
 		ResourcesEnv:           "not-json",
@@ -365,7 +365,7 @@ func TestWorkloadValidateCICDBranches(t *testing.T) {
 		ImageEnv:               "img",
 		common.GithubConfigUrl: "http://x",
 	}}}
-	assert.Assert(t, v.validateCICDScalingRunnerSet(badJSON) != nil)
+	assert.Assert(t, v.validateCICDScalingRunnerSet(context.Background(), badJSON, nil) != nil)
 }
 
 // TestWorkloadValidateImmutableCICDEnv covers cicd unified-job-enable immutability branch.
@@ -526,6 +526,42 @@ func TestWorkloadMutateRdmaResourceBranches(t *testing.T) {
 	missing := &v1.Workload{Spec: v1.WorkloadSpec{Resources: []v1.WorkloadResource{wlResource()}}}
 	v1.SetLabel(missing, v1.NodeFlavorIdLabel, "missing")
 	m.mutateRdmaResource(context.Background(), missing)
+}
+
+func TestMutateSecretsUsesAPIReaderForNewGithubRunnerSecret(t *testing.T) {
+	scheme := newScheme(t)
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name:      "runner-secret",
+		Namespace: common.PrimusSafeNamespace,
+		Labels:    map[string]string{v1.SecretTypeLabel: string(v1.SecretGeneral)},
+	}}
+	cachedClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	apiReader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+	m := &WorkloadMutator{Client: cachedClient, secretReader: apiReader}
+	workload := workloadOfKind(common.CICDGithubRunnerKind)
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: secret.Name, Type: v1.SecretGeneral}}
+
+	m.mutateSecrets(context.Background(), workload, nil)
+
+	assert.Equal(t, len(workload.Spec.Secrets), 1)
+	assert.Equal(t, workload.Spec.Secrets[0].Id, secret.Name)
+}
+
+func TestMutateSecretsDoesNotUseAPIReaderForNonGithubRunner(t *testing.T) {
+	scheme := newScheme(t)
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name:      "runner-secret",
+		Namespace: common.PrimusSafeNamespace,
+	}}
+	cachedClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	apiReader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+	m := &WorkloadMutator{Client: cachedClient, secretReader: apiReader}
+	workload := workloadOfKind(common.PytorchJobKind)
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: secret.Name, Type: v1.SecretGeneral}}
+
+	m.mutateSecrets(context.Background(), workload, nil)
+
+	assert.Equal(t, len(workload.Spec.Secrets), 0)
 }
 
 // TestWorkloadValidateOwnerWorkloadCycle covers the owner cycle detection branch.
@@ -881,6 +917,9 @@ type fakeManager struct {
 // GetClient returns the embedded fake client.
 func (m *fakeManager) GetClient() client.Client { return m.client }
 
+// GetAPIReader returns the uncached reader used by secret mutation and GithubRunner lookups.
+func (m *fakeManager) GetAPIReader() client.Reader { return m.client }
+
 // GetScheme returns the embedded scheme.
 func (m *fakeManager) GetScheme() *runtime.Scheme { return m.scheme }
 
@@ -954,7 +993,7 @@ func TestWorkloadMutateCommonAllKinds(t *testing.T) {
 	m := &WorkloadMutator{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
 	kinds := []string{
 		common.DeploymentKind, common.StatefulSetKind, common.AuthoringKind,
-		common.CICDScaleRunnerSetKind, common.MonarchJob, common.RayJobKind,
+		common.CICDScaleRunnerSetKind, common.CICDGithubRunnerKind, common.MonarchJob, common.RayJobKind,
 		common.TorchFTKind, common.SandboxKind, common.DynamoDeploymentKind,
 		common.InferaDeploymentKind,
 	}
@@ -969,7 +1008,7 @@ func TestWorkloadValidateCommonAllKinds(t *testing.T) {
 	scheme := newScheme(t)
 	v := &WorkloadValidator{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
 	kinds := []string{
-		common.AuthoringKind, common.CICDScaleRunnerSetKind, common.TorchFTKind,
+		common.AuthoringKind, common.CICDScaleRunnerSetKind, common.CICDGithubRunnerKind, common.TorchFTKind,
 		common.RayJobKind, common.MonarchJob, common.SandboxKind,
 		common.DynamoDeploymentKind, common.InferaDeploymentKind,
 	}

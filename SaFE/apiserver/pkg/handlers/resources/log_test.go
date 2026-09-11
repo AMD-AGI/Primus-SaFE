@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/cicdlog"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/gin-gonic/gin"
@@ -497,119 +498,22 @@ func TestBuildFilter(t *testing.T) {
 		wantFilter int
 		wantMust   int
 	}{
-		{
-			name: "no filters",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{},
-			},
-			wantFilter: 0,
-			wantMust:   0,
-		},
-		{
-			name: "only label filters",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{},
-				TermFilters: map[string]string{
-					"app": "test",
-				},
-			},
-			wantFilter: 1,
-			wantMust:   0,
-		},
-		{
-			name: "with pod names",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{
-					PodNames: "pod1,pod2",
-				},
-			},
-			wantFilter: 0,
-			wantMust:   1,
-		},
-		{
-			name: "with node names (no pod names)",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{
-					NodeNames: "node1,node2",
-				},
-			},
-			wantFilter: 0,
-			wantMust:   1,
-		},
-		{
-			name: "pod names takes precedence over node names",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{
-					PodNames:  "pod1",
-					NodeNames: "node1",
-				},
-			},
-			wantFilter: 0,
-			wantMust:   1,
-		},
-		{
-			name: "combined label and pod filters",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{
-					PodNames: "pod1",
-				},
-				TermFilters: map[string]string{
-					"app": "test",
-				},
-			},
-			wantFilter: 1,
-			wantMust:   1,
-		},
-		{
-			name: "empty filters map",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{},
-				TermFilters:  map[string]string{},
-			},
-			wantFilter: 0,
-			wantMust:   0,
-		},
-		{
-			name: "filter with empty key is skipped",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{},
-				TermFilters: map[string]string{
-					"":    "value",
-					"app": "test",
-				},
-			},
-			wantFilter: 1,
-			wantMust:   0,
-		},
-		{
-			name: "filter with empty value is skipped",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{},
-				TermFilters: map[string]string{
-					"key": "",
-					"app": "test",
-				},
-			},
-			wantFilter: 1,
-			wantMust:   0,
-		},
-		{
-			name: "filter key with dots is converted",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{},
-				TermFilters: map[string]string{
-					"primus.safe.workload": "test",
-				},
-			},
-			wantFilter: 1,
-			wantMust:   0,
-		},
+		{"no filters", &view.ListLogRequest{}, 0, 0},
+		{"only label filters", &view.ListLogRequest{TermFilters: map[string]string{"app": "test"}}, 1, 0},
+		{"with pod names", &view.ListLogRequest{ListLogInput: view.ListLogInput{PodNames: "pod1,pod2"}}, 0, 1},
+		{"with node names (no pod names)", &view.ListLogRequest{ListLogInput: view.ListLogInput{NodeNames: "node1,node2"}}, 0, 1},
+		{"pod names takes precedence over node names", &view.ListLogRequest{ListLogInput: view.ListLogInput{PodNames: "pod1", NodeNames: "node1"}}, 0, 1},
+		{"combined label and pod filters", &view.ListLogRequest{ListLogInput: view.ListLogInput{PodNames: "pod1"}, TermFilters: map[string]string{"app": "test"}}, 1, 1},
+		{"empty filters map", &view.ListLogRequest{TermFilters: map[string]string{}}, 0, 0},
+		{"filter with empty key is skipped", &view.ListLogRequest{TermFilters: map[string]string{"": "value", "app": "test"}}, 1, 0},
+		{"filter with empty value is skipped", &view.ListLogRequest{TermFilters: map[string]string{"key": "", "app": "test"}}, 1, 0},
+		{"filter key with dots is converted", &view.ListLogRequest{TermFilters: map[string]string{"primus.safe.workload": "test"}}, 1, 0},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &commonsearch.OpenSearchRequest{}
-			buildFilter(req, tt.query)
+			cicdlog.BuildFilter(req, tt.query)
 			assert.Len(t, req.Query.Bool.Filter, tt.wantFilter)
 			assert.Len(t, req.Query.Bool.Must, tt.wantMust)
 		})
@@ -653,7 +557,7 @@ func TestBuildMultiTermsFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &commonsearch.OpenSearchRequest{}
 			req.Query.Bool.Must = []commonsearch.OpenSearchField{}
-			buildMultiTermsFilter(req, tt.key, tt.values)
+			cicdlog.BuildMultiTermsFilter(req, tt.key, tt.values)
 			assert.Len(t, req.Query.Bool.Must, tt.wantLen)
 		})
 	}
@@ -710,7 +614,7 @@ func TestBuildKeywords(t *testing.T) {
 					Keywords: tt.keywords,
 				},
 			}
-			buildKeywords(req, query)
+			cicdlog.BuildKeywords(req, query)
 			assert.Len(t, req.Query.Bool.Must, tt.wantLen)
 		})
 	}
@@ -779,7 +683,7 @@ func TestBuildOutput(t *testing.T) {
 				},
 				UseK8sLabel: true,
 			}
-			buildOutput(req, query, tt.workloadId)
+			cicdlog.BuildOutput(req, query, tt.workloadId)
 			for _, expected := range tt.expectSource {
 				assert.Contains(t, req.Source, expected)
 			}
@@ -852,7 +756,7 @@ func TestNormalize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := normalize(tt.input)
+			result := cicdlog.Normalize(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -1247,22 +1151,22 @@ func TestGetAndAuthWorkload(t *testing.T) {
 func TestBuildSingleTermFilter(t *testing.T) {
 	// Plain term filter.
 	req := &commonsearch.OpenSearchRequest{}
-	buildSingleTermFilter(req, map[string]string{"app": "svc"}, false, false)
+	cicdlog.BuildSingleTermFilter(req, map[string]string{"app": "svc"}, false, false)
 	testifyassert.Len(t, req.Query.Bool.Filter, 1)
 
 	// k8s label + prefix match.
 	req2 := &commonsearch.OpenSearchRequest{}
-	buildSingleTermFilter(req2, map[string]string{"my.label": "v"}, true, true)
+	cicdlog.BuildSingleTermFilter(req2, map[string]string{"my.label": "v"}, true, true)
 	testifyassert.Len(t, req2.Query.Bool.Filter, 1)
 
 	// Empty key/value is skipped.
 	req3 := &commonsearch.OpenSearchRequest{}
-	buildSingleTermFilter(req3, map[string]string{"": "v", "k": ""}, false, false)
+	cicdlog.BuildSingleTermFilter(req3, map[string]string{"": "v", "k": ""}, false, false)
 	testifyassert.Empty(t, req3.Query.Bool.Filter)
 }
 
 func TestKeywordMatchAnyField(t *testing.T) {
-	field := keywordMatchAnyField("error", 0)
+	field := cicdlog.KeywordMatchAnyField("error", 0)
 	testifyassert.Contains(t, field, "bool")
 }
 

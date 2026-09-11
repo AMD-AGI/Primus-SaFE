@@ -307,6 +307,45 @@ spec:
 apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
+  name: github-hosted-runner
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.workload.version: v1
+  annotations:
+    primus-safe.workload.kind: GithubRunner
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  groupVersionKind:
+    group: apps
+    version: v1
+    kind: StatefulSet
+  resourceSpecs:
+    - prePaths:
+        - spec
+      templatePaths:
+        - template
+      podSpecPaths:
+        - template
+        - spec
+      replicasPaths:
+        - replicas
+  resourceStatus:
+    prePaths:
+      - status
+      - conditions
+    messagePaths:
+      - message
+    reasonPaths:
+      - reason
+  activeReplica:
+    prePaths:
+      - status
+    replicaPath: readyReplicas
+---
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
   name: job
   labels:
     app.kubernetes.io/managed-by: Helm

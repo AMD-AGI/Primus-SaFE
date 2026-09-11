@@ -46,7 +46,7 @@ func workloadCreateSchema() map[string]any {
 			"display_name": prop("string", "Workload display name"),
 			"workspace_id": prop("string", "Workspace ID"),
 			"kind": propEnum("string", "Workload type", []string{
-				"PyTorchJob", "Deployment", "StatefulSet", "Authoring", "TorchFT", "RayJob", "AutoscalingRunnerSet",
+				"PyTorchJob", "Deployment", "StatefulSet", "Authoring", "TorchFT", "RayJob", "AutoscalingRunnerSet", "GithubRunner",
 			}),
 			"images":    propArray(prop("string", ""), "Container image URLs array. Length should match resources array."),
 			"resources": propArray(workloadResourceItemSchema(), "Resources array. For PyTorchJob: [master, worker]. For TorchFT: [lighthouse, worker]. For RayJob: [head, worker_group_1, worker_group_2(optional)], head replica must be 1."),
@@ -176,7 +176,7 @@ func workloadList() *mcpserver.MCPTool {
 					"Succeeded", "Failed", "Pending", "Running", "Stopped", "Updating", "NotReady",
 				}),
 				"kind": propEnum("string", "Filter by workload type", []string{
-					"PyTorchJob", "Deployment", "StatefulSet", "Authoring", "AutoscalingRunnerSet", "TorchFT", "RayJob",
+					"PyTorchJob", "Deployment", "StatefulSet", "Authoring", "AutoscalingRunnerSet", "GithubRunner", "TorchFT", "RayJob",
 				}),
 				"workload_id": prop("string", "Fuzzy match by workload ID"),
 				"offset":      prop("integer", "Pagination offset, default 0"),
@@ -238,7 +238,7 @@ func workloadGet() *mcpserver.MCPTool {
 func workloadCreate() *mcpserver.MCPTool {
 	return &mcpserver.MCPTool{
 		Name:        "workload_create",
-		Description: "Create a new workload. Supports PyTorchJob (distributed training), Deployment (inference), StatefulSet (stateful service), Authoring (development), TorchFT (fault-tolerant training), RayJob (Ray distributed training), and AutoscalingRunnerSet (CI/CD).",
+		Description: "Create a new workload. Supports PyTorchJob (distributed training), Deployment (inference), StatefulSet (stateful service), Authoring (development), TorchFT (fault-tolerant training), RayJob (Ray distributed training), AutoscalingRunnerSet (CI/CD), and GithubRunner (persistent self-hosted runner).",
 		InputSchema: workloadCreateSchema(),
 		Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			p, err := parseParams(raw)

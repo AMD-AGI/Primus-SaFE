@@ -35,9 +35,11 @@ const (
 	RequireNodeSpreadAnnotation = PrimusSafePrefix + "require.node.spread"
 
 	// cicd
-	CICDScaleSetIdAnnotation = "runner-scale-set-id"
-	CICDScaleRunnerIdLabel   = PrimusSafePrefix + "scale.runner.id"
-	GithubSecretIdAnnotation = PrimusSafePrefix + "github.secret.id"
+	CICDScaleSetIdAnnotation         = "runner-scale-set-id"
+	CICDProxyManagedAnnotation       = PrimusSafePrefix + "cicd.proxy.managed"
+	CICDScaleRunnerIdLabel           = PrimusSafePrefix + "scale.runner.id"
+	GithubSecretIdAnnotation         = PrimusSafePrefix + "github.secret.id"
+	GithubPreviousSecretIdAnnotation = PrimusSafePrefix + "github.previous.secret.id"
 
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."

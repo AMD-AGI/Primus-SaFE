@@ -68,6 +68,10 @@ func NewCondition(conditionType, message, reason string) *metav1.Condition {
 // SetWorkloadFailed sets the workload to failed state and updates its status.
 // It adds a failure condition and sets the end time if not already set.
 func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Workload, message string) error {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = commonworkload.GetWorkloadFailureMessage(workload.Status.Conditions, v1.GetWorkloadDispatchCnt(workload))
+	}
 	workload.Status.Phase = v1.WorkloadFailed
 	if workload.Status.EndTime == nil {
 		workload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
@@ -81,11 +85,15 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 	condition := NewCondition(string(v1.AdminFailed), message, commonworkload.GenerateDispatchReason(dispatchCount))
 	// Dedup by (Type, Reason) so repeated reconciles (e.g. after a status conflict
 	// requeue) do not accumulate duplicate AdminFailed conditions.
-	if FindCondition(workload, condition) == nil {
+	if current := FindCondition(workload, condition); current == nil {
 		workload.Status.Conditions = append(workload.Status.Conditions, *condition)
+	} else if current.Message != message || current.Status != metav1.ConditionTrue {
+		*current = *condition
 	}
+	workload.Status.Message = commonworkload.GetWorkloadFailureMessage(workload.Status.Conditions, dispatchCount)
 	fields := map[string]any{
 		"phase":      workload.Status.Phase,
+		"message":    workload.Status.Message,
 		"endTime":    workload.Status.EndTime,
 		"conditions": workload.Status.Conditions,
 	}

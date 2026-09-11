@@ -30,6 +30,28 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
+func TestGithubRunnerStartScriptUsesCompleteAtomicState(t *testing.T) {
+	script := GithubRunnerStartScript()
+	assert.Assert(t, strings.Contains(script,
+		`[ ! -f "${STATE_DIR}/.credentials" ] || [ ! -f "${STATE_DIR}/.runner" ]`))
+	assert.Assert(t, strings.Contains(script,
+		`mv -f "${STATE_DIR}/.credentials.tmp" "${STATE_DIR}/.credentials"`))
+	assert.Assert(t, strings.Contains(script,
+		`mv -f "${STATE_DIR}/.runner.tmp" "${STATE_DIR}/.runner"`))
+	assert.Assert(t, strings.Index(script, `STATE_DIR="${GITHUB_RUNNER_STATE_ROOT}/${POD_NAME}"`) >
+		strings.Index(script, `GITHUB_RUNNER_STATE_ROOT and POD_NAME are required`))
+}
+
+func TestGithubRunnerStopScriptRemovesOnlyWhenLeavingPool(t *testing.T) {
+	script := GithubRunnerStopScript()
+	assert.Assert(t, strings.Contains(script, `./config.sh remove --unattended`))
+	assert.Assert(t, strings.Contains(script, `should_deregister`))
+	assert.Assert(t, strings.Contains(script, `deletionTimestamp`))
+	assert.Assert(t, strings.Contains(script, `[ "${ORDINAL}" -ge "${REPLICAS}" ]`))
+	assert.Assert(t, strings.Contains(script, `rm -rf "${STATE_DIR}"`))
+	assert.Assert(t, strings.Contains(script, "github runner deregister failed; keeping ${STATE_DIR}"))
+}
+
 func TestGetK8sServiceName(t *testing.T) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: "workload", Labels: map[string]string{}},
@@ -448,6 +470,7 @@ func TestGetScope(t *testing.T) {
 	assert.Equal(t, GetScope(wlKind(common.DeploymentKind)), v1.InferScope)
 	assert.Equal(t, GetScope(wlKind(common.AuthoringKind)), v1.AuthoringScope)
 	assert.Equal(t, GetScope(wlKind(common.CICDScaleRunnerSetKind)), v1.CICDScope)
+	assert.Equal(t, GetScope(wlKind(common.CICDGithubRunnerKind)), v1.CICDScope)
 	assert.Equal(t, GetScope(wlKind(common.RayJobKind)), v1.RayScope)
 	assert.Equal(t, GetScope(wlKind(common.SandboxKind)), v1.SandboxScope)
 	assert.Equal(t, GetScope(wlKind("Unknown")), v1.WorkspaceScope(""))
@@ -456,12 +479,16 @@ func TestGetScope(t *testing.T) {
 func TestKindPredicates(t *testing.T) {
 	assert.Assert(t, IsApplication(wlKind(common.DeploymentKind)))
 	assert.Assert(t, IsApplication(wlKind(common.StatefulSetKind)))
+	assert.Assert(t, IsApplication(wlKind(common.CICDGithubRunnerKind)))
 	assert.Assert(t, !IsApplication(wlKind(common.JobKind)))
 	assert.Assert(t, IsAuthoring(wlKind(common.AuthoringKind)))
 	assert.Assert(t, !IsAuthoring(wlKind(common.JobKind)))
 	assert.Assert(t, IsCICD(wlKind(common.CICDScaleRunnerSetKind)))
 	assert.Assert(t, IsCICD(wlKind(common.CICDEphemeralRunnerKind)))
+	assert.Assert(t, IsCICD(wlKind(common.CICDGithubRunnerKind)))
 	assert.Assert(t, !IsCICD(wlKind(common.JobKind)))
+	assert.Assert(t, IsCICDGithubRunner(wlKind(common.CICDGithubRunnerKind)))
+	assert.Assert(t, !IsCICDGithubRunner(wlKind(common.JobKind)))
 	assert.Assert(t, IsCICDScalingRunnerSet(wlKind(common.CICDScaleRunnerSetKind)))
 	assert.Assert(t, !IsCICDScalingRunnerSet(wlKind(common.JobKind)))
 	assert.Assert(t, IsCICDEphemeralRunner(wlKind(common.CICDEphemeralRunnerKind)))

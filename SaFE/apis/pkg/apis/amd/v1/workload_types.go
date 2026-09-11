@@ -153,8 +153,9 @@ type WorkloadSpec struct {
 	IsSupervised bool `json:"isSupervised,omitempty"`
 	// Group: An extension field that is not currently in use
 	// Version: version of workload, default value is v1
-	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet, default PyTorchJob
+	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet/GithubRunner, default PyTorchJob
 	// AutoscalingRunnerSet is a CI/CD configuration, and if enabled, it requires NFS storage support.
+	// GithubRunner is a persistent self-hosted GitHub Actions runner StatefulSet.
 	GroupVersionKind `json:"groupVersionKind"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`
@@ -200,7 +201,7 @@ type WorkloadStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// The status of workload, e.g. Pending, Running, Succeeded, Failed, Stopped, Updating
 	Phase WorkloadPhase `json:"phase,omitempty"`
-	// Some status descriptions of the workload. only for pending
+	// Scheduling explanations for Pending workloads and diagnostics for Failed workloads.
 	Message string `json:"message,omitempty"`
 	// The current position of the workload in the queue, only for pending
 	QueuePosition int `json:"queuePosition,omitempty"`

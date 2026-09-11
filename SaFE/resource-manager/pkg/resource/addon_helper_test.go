@@ -6,9 +6,11 @@
 package resource
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/client-go/rest"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
@@ -109,4 +111,35 @@ func TestRESTClientGetterWithNamespace(t *testing.T) {
 	assert.Equal(t, "b", cpy.namespace)
 	// Original unchanged.
 	assert.Equal(t, "a", g.namespace)
+}
+
+func TestRESTClientGetterWithNamespaceKeepsCachesIndependent(t *testing.T) {
+	getter := NewRESTClientGetter(&rest.Config{Host: "https://example.com"}, func(g *RESTClientGetter) {
+		g.namespace = "original"
+		g.persistent = true
+		g.impersonate = "example-user"
+	})
+	originalConfig := getter.ToRawKubeConfigLoader()
+	getter.restMapperMu.Lock()
+	defer getter.restMapperMu.Unlock()
+	getter.discoveryMu.Lock()
+	defer getter.discoveryMu.Unlock()
+	getter.clientCfgMu.Lock()
+	defer getter.clientCfgMu.Unlock()
+	copy := getter.WithNamespace("replacement")
+	for _, mutex := range []*sync.Mutex{&copy.restMapperMu, &copy.discoveryMu, &copy.clientCfgMu} {
+		if !assert.True(t, mutex.TryLock(), "namespace copy must have independent unlocked mutexes") {
+			continue
+		}
+		mutex.Unlock()
+	}
+	assert.Same(t, getter.cfg, copy.cfg)
+	assert.Equal(t, getter.impersonate, copy.impersonate)
+	assert.Equal(t, getter.persistent, copy.persistent)
+	assert.Nil(t, copy.clientCfg)
+	assert.Nil(t, copy.discoveryClient)
+	assert.Nil(t, copy.restMapper)
+	assert.Same(t, originalConfig, getter.clientCfg)
+	assert.Equal(t, "original", getter.namespace)
+	assert.Equal(t, "replacement", copy.namespace)
 }

@@ -28,6 +28,12 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 		SSHPort:           commonconfig.GetSSHServerPort(),
 		SSOEnable:         commonconfig.IsSSOEnable(),
 		CDRequireApproval: commonconfig.IsCDRequireApproval(),
+		KubeSprayK8sVersions: map[string]string{
+			"primussafe/kubespray:20200530": "1.32.5",
+			"primussafe/kubespray:v2.31.0":  "1.35.4",
+			"primussafe/kubespray:v2.29.1":  "1.33.7",
+			"primussafe/kubespray:v2.30.0":  "1.34.3",
+		},
 	}
 	if resp.SSOEnable {
 		inst := authority.SSOInstance()

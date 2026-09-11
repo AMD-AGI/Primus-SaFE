@@ -878,6 +878,35 @@ var (
 		},
 	}
 
+	TestGithubRunnerResourceTemplate = &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "github-hosted-runner",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: common.CICDGithubRunnerKind,
+			},
+		},
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Group:   "apps",
+				Version: "v1",
+				Kind:    "StatefulSet",
+			},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths:      []string{"spec"},
+				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
+				ReplicasPaths: []string{"replicas"},
+			}},
+			ActiveReplica: v1.ActiveReplica{
+				PrePaths:    []string{"status"},
+				ReplicaPath: "readyReplicas",
+			},
+		},
+	}
+
 	TestCICDScaleSetResourceTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "job",

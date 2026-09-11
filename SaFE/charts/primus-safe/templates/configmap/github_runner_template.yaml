@@ -34,6 +34,93 @@ data:
           volumeMounts:
           - mountPath: /home/runner/tmpDir
             name: dind-externals
+{{- if (default "" (default .Values.cicd).proxy_relay_image) }}
+        # Declared before dind so squid is listening before dockerd starts: native sidecars
+        # start in declaration order, and dockerd reads http_proxy from its environment.
+        # Fronts the cluster proxy for the job. The runner's HTTP client attaches proxy
+        # credentials only after a 407, and the tunnel it would talk to answers 401, so it
+        # never authenticates. This peer holds the credential and sends it upstream on every
+        # request; the runner reaches an unauthenticated proxy on loopback and needs none.
+        - name: proxy-relay
+          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.proxy_relay_image }}
+          imagePullPolicy: IfNotPresent
+          restartPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              : "${PROXY_UPSTREAM_HOST:?}" "${PROXY_UPSTREAM_PORT:?}"
+              percent_encode() {
+                LC_ALL=C od -A n -v -t x1 | tr -d '[:space:]' | sed 's/../%&/g'
+              }
+              login=""
+              if [ -s /etc/secrets/proxy/username ] && [ -s /etc/secrets/proxy/password ]; then
+                username=$(percent_encode </etc/secrets/proxy/username)
+                pw=$(percent_encode </etc/secrets/proxy/password)
+                login=" login=${username}:${pw}"
+              fi
+              cat >/tmp/squid.conf <<EOF
+              http_port ${PROXY_RELAY_PORT}
+              acl loopback src 127.0.0.1/32 ::1
+              acl CONNECT method CONNECT
+              http_access allow loopback
+              http_access deny all
+              cache_peer ${PROXY_UPSTREAM_HOST} parent ${PROXY_UPSTREAM_PORT} 0 no-query default${login} name=upstream
+              EOF
+              # A proxy that only serves some destinations strands every other host behind a TLS
+              # error the job cannot attribute to it. Route by destination here rather than making
+              # each workload enumerate the bypasses; with no list, everything goes upstream.
+              # Operator-supplied and expanded unquoted into the heredoc below, so a stray
+              # newline or shell metacharacter would silently rewrite the ACL rather than
+              # fail. Accept only space-separated dstdomain patterns and stop otherwise.
+              case "${PROXY_UPSTREAM_DOMAINS:-}" in
+                *[!A-Za-z0-9.*_\ -]*)
+                  echo "PROXY_UPSTREAM_DOMAINS: expected domain patterns separated by spaces" >&2
+                  exit 1
+                  ;;
+              esac
+              if [ -n "${PROXY_UPSTREAM_DOMAINS:-}" ]; then
+                cat >>/tmp/squid.conf <<EOF
+              acl upstream_domains dstdomain ${PROXY_UPSTREAM_DOMAINS}
+              cache_peer_access upstream allow upstream_domains
+              cache_peer_access upstream deny all
+              never_direct allow upstream_domains
+              always_direct deny upstream_domains
+              always_direct allow all
+              EOF
+              else
+                # No list means every destination is forced upstream with no direct
+                # fallback, so a host the peer will not serve fails as an opaque tunnel
+                # error. Say so once at startup: the job cannot attribute it otherwise.
+                echo "relay: PROXY_UPSTREAM_DOMAINS is empty; ALL egress goes through" \
+                  "${PROXY_UPSTREAM_HOST}:${PROXY_UPSTREAM_PORT} with no direct fallback" >&2
+                cat >>/tmp/squid.conf <<EOF
+              never_direct allow all
+              EOF
+              fi
+              cat >>/tmp/squid.conf <<EOF
+              cache deny all
+              # squid drops to an unprivileged user and refuses to run as root, so it can
+              # write neither /dev/stdout nor a pid file here; its own log path is writable.
+              access_log none
+              cache_log stdio:/var/log/squid/cache.log
+              pid_filename none
+              EOF
+              exec squid -N -f /tmp/squid.conf
+          env:
+            - name: PROXY_RELAY_PORT
+              value: "{{ default 3129 (default .Values.cicd).proxy_relay_port }}"
+            - name: PROXY_UPSTREAM_DOMAINS
+              value: "{{ if kindIs "invalid" (default .Values.cicd).proxy_relay_upstream_domains }}.github.com .githubusercontent.com .ghcr.io{{ else }}{{ (default .Values.cicd).proxy_relay_upstream_domains }}{{ end }}"
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: proxy-credential
+              mountPath: /etc/secrets/proxy
+              readOnly: true
+{{- end }}
         - name: dind
           args:
           - dockerd
@@ -42,7 +129,7 @@ data:
           env:
           - name: DOCKER_GROUP_GID
             value: "123"
-          image: docker:dind
+          image: {{ default "docker:28.3.3-dind" (default .Values.cicd).github_runner_dind_image }}
           restartPolicy: Always
           securityContext:
             privileged: true
@@ -144,3 +231,13 @@ data:
         emptyDir: {}
       - name: shared-data
         emptyDir: {}
+{{- if (default "" (default .Values.cicd).proxy_relay_image) }}
+      - name: proxy-credential
+        secret:
+          optional: true
+          items:
+          - key: username
+            path: username
+          - key: password
+            path: password
+{{- end }}
