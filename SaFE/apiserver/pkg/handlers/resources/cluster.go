@@ -64,6 +64,7 @@ func (h *Handler) DeleteCluster(c *gin.Context) {
 
 // PatchCluster handles partial updates to a cluster resource.
 // Authorizes the request, parses update parameters, and applies changes to the specified cluster.
+// Spec fields follow PatchWorkspace: omitted pointers are left unchanged.
 func (h *Handler) PatchCluster(c *gin.Context) {
 	handle(c, h.patchCluster)
 }
@@ -308,6 +309,9 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
 	}
+	if err = validateClusterUpgradePatch(cluster, req); err != nil {
+		return nil, err
+	}
 
 	isChanged, err := applyClusterPatch(cluster, req)
 	if err != nil {
@@ -320,9 +324,25 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 }
 
 // applyClusterPatch applies updates to a cluster based on the patch request.
-// Handles changes to cluster protection status and image secret references.
+// Handles protection, control-plane label, labels, kubeSprayImage, and kubernetesVersion.
 func applyClusterPatch(cluster *v1.Cluster, req *view.PatchClusterRequest) (bool, error) {
 	isChanged := false
+	if req.KubeSprayImage != nil {
+		if applyOptionalString(&cluster.Spec.ControlPlane.KubeSprayImage, req.KubeSprayImage) {
+			isChanged = true
+		}
+	}
+	if req.KubeVersion != nil {
+		if applyOptionalString(&cluster.Spec.ControlPlane.KubeVersion, req.KubeVersion) {
+			isChanged = true
+		}
+	}
+	if (req.KubeSprayImage != nil || req.KubeVersion != nil) &&
+		cluster.Status.ControlPlaneStatus.Phase == v1.UpgradeFailedPhase {
+		if v1.SetAnnotation(cluster, v1.ClusterUpgradeRetryCountAnnotation, "0") {
+			isChanged = true
+		}
+	}
 	if req.IsProtected != nil && *req.IsProtected != v1.IsProtected(cluster) {
 		if *req.IsProtected {
 			v1.SetLabel(cluster, v1.ProtectLabel, "")
@@ -361,6 +381,74 @@ func applyClusterPatch(cluster *v1.Cluster, req *view.PatchClusterRequest) (bool
 		}
 	}
 	return isChanged, nil
+}
+
+// validateClusterUpgradePatch validates the desired image and version before updating the spec.
+func validateClusterUpgradePatch(cluster *v1.Cluster, req *view.PatchClusterRequest) error {
+	if req.KubeSprayImage == nil && req.KubeVersion == nil {
+		return nil
+	}
+	phase := cluster.Status.ControlPlaneStatus.Phase
+	if phase != v1.ReadyPhase && phase != v1.UpgradeFailedPhase {
+		return commonerrors.NewConflict("the cluster is not ready for upgrade")
+	}
+
+	image := controlPlanePatchValue(cluster.Spec.ControlPlane.KubeSprayImage, req.KubeSprayImage)
+	version := controlPlanePatchValue(cluster.Spec.ControlPlane.KubeVersion, req.KubeVersion)
+	if image == "" {
+		return commonerrors.NewBadRequest("the kubeSprayImage is empty")
+	}
+	if _, _, _, ok := v1.ParseKubeVersion(version); !ok {
+		return commonerrors.NewBadRequest("the kubernetesVersion must use x.y.z format")
+	}
+	expectedVersion, ok := v1.KubeVersionForKubeSprayImage(image)
+	if !ok || expectedVersion != version {
+		return commonerrors.NewBadRequest("the kubeSprayImage and kubernetesVersion are not a supported pair")
+	}
+
+	annotations := cluster.GetAnnotations()
+	appliedVersion, hasVersion := annotations[v1.ClusterAppliedKubeVersionAnnotation]
+	_, hasImage := annotations[v1.ClusterAppliedKubeSprayImageAnnotation]
+	if !hasVersion || !hasImage {
+		return commonerrors.NewConflict("the cluster upgrade baseline is not initialized")
+	}
+	if !v1.IsAllowedKubeVersionUpgrade(appliedVersion, version) {
+		return commonerrors.NewBadRequest("kubernetesVersion must be a patch upgrade or one minor version step")
+	}
+
+	if req.KubeSprayImage != nil {
+		trimmed := strings.TrimSpace(*req.KubeSprayImage)
+		req.KubeSprayImage = &trimmed
+	}
+	if req.KubeVersion != nil {
+		trimmed := strings.TrimSpace(*req.KubeVersion)
+		req.KubeVersion = &trimmed
+	}
+	return nil
+}
+
+// controlPlanePatchValue returns the requested value, or the current value when omitted.
+func controlPlanePatchValue(current, requested *string) string {
+	if requested != nil {
+		return strings.TrimSpace(*requested)
+	}
+	if current == nil {
+		return ""
+	}
+	return strings.TrimSpace(*current)
+}
+
+// applyOptionalString copies src into dst when src is set and the value differs.
+func applyOptionalString(dst **string, src *string) bool {
+	if src == nil {
+		return false
+	}
+	if *dst != nil && **dst == *src {
+		return false
+	}
+	val := *src
+	*dst = &val
+	return true
 }
 
 // processClusterNodes handles the addition or removal of nodes from a cluster.

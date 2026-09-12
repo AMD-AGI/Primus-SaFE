@@ -89,6 +89,12 @@ const (
 	ClusterManageScaleDownLabel   = ClusterManagePrefix + "scale.down"
 	ClusterIdLabel                = ClusterPrefix + "id"
 	ClusterControlPlaneLabel      = ClusterPrefix + "control-plane"
+	// ClusterAppliedKubeVersionAnnotation records the kube_version last applied by kubespray.
+	ClusterAppliedKubeVersionAnnotation = ClusterPrefix + "applied.kube.version"
+	// ClusterAppliedKubeSprayImageAnnotation records the kubespray image last applied.
+	ClusterAppliedKubeSprayImageAnnotation = ClusterPrefix + "applied.kubespray.image"
+	// ClusterUpgradeRetryCountAnnotation records failed attempts for the current target.
+	ClusterUpgradeRetryCountAnnotation = ClusterPrefix + "upgrade.retry.count"
 
 	// storage
 	StoragePrefix              = PrimusSafePrefix + "storage."

@@ -7,6 +7,7 @@ package resource
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	testifyassert "github.com/stretchr/testify/assert"
@@ -49,6 +50,30 @@ func TestGenerateWorkerPod(t *testing.T) {
 	assert.Len(t, pod.Spec.Containers, 1)
 	assert.Equal(t, "img:1", pod.Spec.Containers[0].Image)
 	assert.Len(t, pod.Spec.HostAliases, 1)
+}
+
+func TestGenerateUpgradeHostsIncludesManagedWorkers(t *testing.T) {
+	cluster, r := planeClusterWithNode(t)
+	worker := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "worker1",
+			Labels: map[string]string{v1.ClusterIdLabel: cluster.Name},
+		},
+		Spec: v1.NodeSpec{
+			Cluster:   pointer.String(cluster.Name),
+			PrivateIP: "10.0.0.2",
+		},
+		Status: v1.NodeStatus{
+			MachineStatus: v1.MachineStatus{Phase: v1.NodeReady, HostName: "worker1"},
+			ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged},
+		},
+	}
+	testifyassert.NoError(t, r.Create(context.Background(), worker))
+
+	hosts, err := r.generateUpgradeHosts(context.Background(), cluster)
+	testifyassert.NoError(t, err)
+	assert.Contains(t, hosts.NodeName, "worker1")
+	testifyassert.Contains(t, strings.Join(hosts.NodeAndIP, "\n"), "worker1")
 }
 
 func TestGenerateScaleWorkerPod(t *testing.T) {
@@ -171,6 +196,37 @@ func TestGetKubeSprayEnv(t *testing.T) {
 
 func TestGetKubeSprayResetCMD(t *testing.T) {
 	testifyassert.Contains(t, getKubeSprayResetCMD("root", ""), "reset.yml")
+}
+
+func TestGetKubeSprayUpgradeCMD(t *testing.T) {
+	cmd := getKubeSprayUpgradeCMD("root", "-e kube_version=1.33.0")
+	testifyassert.Contains(t, cmd, "upgrade-cluster.yml")
+	testifyassert.Contains(t, cmd, "-e kube_version=1.33.0")
+}
+
+func TestNeedsClusterUpgrade(t *testing.T) {
+	cluster := &v1.Cluster{}
+	testifyassert.False(t, needsClusterUpgrade(cluster))
+
+	v1.SetAnnotation(cluster, v1.ClusterAppliedKubeVersionAnnotation, "1.32.5")
+	v1.SetAnnotation(cluster, v1.ClusterAppliedKubeSprayImageAnnotation, "img:old")
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("img:old")
+	testifyassert.False(t, needsClusterUpgrade(cluster))
+
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.0")
+	testifyassert.True(t, needsClusterUpgrade(cluster))
+}
+
+func TestIsAllowedKubeVersionUpgrade(t *testing.T) {
+	testifyassert.True(t, isAllowedKubeVersionUpgrade("1.32.5", "1.32.5"))
+	testifyassert.True(t, isAllowedKubeVersionUpgrade("v1.32.5", "1.32.9"))
+	testifyassert.True(t, isAllowedKubeVersionUpgrade("1.32.5", "1.33.0"))
+	testifyassert.False(t, isAllowedKubeVersionUpgrade("1.32.5", "1.34.0"))
+	testifyassert.False(t, isAllowedKubeVersionUpgrade("1.32.5", "1.32.4"))
+	testifyassert.False(t, isAllowedKubeVersionUpgrade("1.32.5", ""))
+	testifyassert.False(t, isAllowedKubeVersionUpgrade("", "1.33.0"))
+	testifyassert.False(t, isAllowedKubeVersionUpgrade("1.32.5", "1.33.0; touch /tmp/unsafe"))
 }
 
 func TestGetKubesprayImage(t *testing.T) {

@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/pointer"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -306,6 +307,73 @@ func TestApplyClusterPatch(t *testing.T) {
 	// Old custom label removed.
 	_, ok := cluster.Labels["old"]
 	testifyassert.False(t, ok)
+
+	img := "primussafe/kubespray:v2.31.0"
+	ver := "1.35.4"
+	changed, err = applyClusterPatch(cluster, &view.PatchClusterRequest{
+		KubeSprayImage: &img,
+		KubeVersion:    &ver,
+	})
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, changed)
+	assert.Equal(t, img, *cluster.Spec.ControlPlane.KubeSprayImage)
+	assert.Equal(t, ver, *cluster.Spec.ControlPlane.KubeVersion)
+
+	changed, err = applyClusterPatch(cluster, &view.PatchClusterRequest{
+		KubeSprayImage: &img,
+		KubeVersion:    &ver,
+	})
+	testifyassert.NoError(t, err)
+	testifyassert.False(t, changed)
+
+	cluster.Status.ControlPlaneStatus.Phase = v1.UpgradeFailedPhase
+	v1.SetAnnotation(cluster, v1.ClusterUpgradeRetryCountAnnotation, "3")
+	changed, err = applyClusterPatch(cluster, &view.PatchClusterRequest{
+		KubeSprayImage: &img,
+		KubeVersion:    &ver,
+	})
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, changed)
+	assert.Equal(t, "0", v1.GetAnnotation(cluster, v1.ClusterUpgradeRetryCountAnnotation))
+}
+
+func TestValidateClusterUpgradePatch(t *testing.T) {
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+			v1.ClusterAppliedKubeVersionAnnotation:    "1.32.5",
+			v1.ClusterAppliedKubeSprayImageAnnotation: "primussafe/kubespray:20200530",
+		}},
+		Status: v1.ClusterStatus{ControlPlaneStatus: v1.ControlPlaneStatus{Phase: v1.ReadyPhase}},
+	}
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:20200530")
+
+	image := " primussafe/kubespray:v2.29.1 "
+	version := " 1.33.7 "
+	req := &view.PatchClusterRequest{KubeSprayImage: &image, KubeVersion: &version}
+	testifyassert.NoError(t, validateClusterUpgradePatch(cluster, req))
+	assert.Equal(t, "primussafe/kubespray:v2.29.1", *req.KubeSprayImage)
+	assert.Equal(t, "1.33.7", *req.KubeVersion)
+
+	invalidVersion := "1.33.7; touch /tmp/unsafe"
+	err := validateClusterUpgradePatch(cluster, &view.PatchClusterRequest{KubeVersion: &invalidVersion})
+	testifyassert.Error(t, err)
+
+	skippedVersion := "1.35.4"
+	skippedImage := "primussafe/kubespray:v2.31.0"
+	err = validateClusterUpgradePatch(cluster, &view.PatchClusterRequest{
+		KubeSprayImage: &skippedImage,
+		KubeVersion:    &skippedVersion,
+	})
+	testifyassert.Error(t, err)
+
+	mismatchedVersion := "1.33.7"
+	err = validateClusterUpgradePatch(cluster, &view.PatchClusterRequest{KubeVersion: &mismatchedVersion})
+	testifyassert.Error(t, err)
+
+	delete(cluster.Annotations, v1.ClusterAppliedKubeVersionAnnotation)
+	err = validateClusterUpgradePatch(cluster, req)
+	testifyassert.Error(t, err)
 }
 
 // --- merged from cluster_more_test.go ---

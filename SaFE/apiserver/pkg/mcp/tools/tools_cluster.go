@@ -96,12 +96,16 @@ func clusterCreate() *mcpserver.MCPTool {
 func clusterUpdate() *mcpserver.MCPTool {
 	return &mcpserver.MCPTool{
 		Name:        "cluster_update",
-		Description: "Update cluster configuration (currently only supports modifying protection status)",
+		Description: "Update cluster configuration. Omitted fields are left unchanged.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"cluster_id":   prop("string", "Cluster ID"),
-				"is_protected": prop("boolean", "Whether to protect the cluster"),
+				"cluster_id":          prop("string", "Cluster ID"),
+				"is_protected":        prop("boolean", "Whether to protect the cluster"),
+				"is_control_plane":    prop("boolean", "Whether the cluster is a control plane"),
+				"labels":              propObject("User-defined labels"),
+				"kube_spray_image":    prop("string", "KubeSpray image address"),
+				"kube_version":        prop("string", "Kubernetes version, e.g. '1.35.4'"),
 			},
 			"required": []string{"cluster_id"},
 		},
@@ -111,8 +115,23 @@ func clusterUpdate() *mcpserver.MCPTool {
 				return nil, err
 			}
 			id := getStr(p, "cluster_id")
-			delete(p, "cluster_id")
-			return APICall(ctx, http.MethodPatch, fmt.Sprintf("/clusters/%s", id), p)
+			body := map[string]any{}
+			if v, ok := p["is_protected"]; ok {
+				body["isProtected"] = v
+			}
+			if v, ok := p["is_control_plane"]; ok {
+				body["isControlPlane"] = v
+			}
+			if v, ok := p["labels"]; ok {
+				body["labels"] = v
+			}
+			if v := getStr(p, "kube_spray_image"); v != "" {
+				body["kubeSprayImage"] = v
+			}
+			if v := getStr(p, "kube_version"); v != "" {
+				body["kubernetesVersion"] = v
+			}
+			return APICall(ctx, http.MethodPatch, fmt.Sprintf("/clusters/%s", id), body)
 		},
 	}
 }

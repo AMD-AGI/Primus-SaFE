@@ -136,7 +136,6 @@ func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.C
 		Controllers:   controllers,
 		ClusterID:     "1.0.0.1",
 	}
-	count := 0
 	for _, machine := range controllers {
 		hostname := machine.Status.MachineStatus.HostName
 		publicIP := machine.Spec.PublicIP
@@ -158,39 +157,76 @@ func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.C
 		if l, ok := getNodeLabelsString(machine); ok {
 			hostsContent.Labels[machine.Name] = l
 		}
-		count++
 	}
 	if worker != nil {
 		node, err := r.getNode(ctx, worker.Name)
 		if err != nil {
 			return nil, err
 		}
-		hostname := node.Status.MachineStatus.HostName
-		publicIP := node.Spec.PublicIP
-		if publicIP == "" {
-			publicIP = node.Spec.PrivateIP
-		}
-		username, err := r.getUsername(ctx, node, cluster)
-		if err != nil {
+		if err = r.appendWorkerHost(ctx, cluster, hostsContent, node); err != nil {
 			return nil, err
 		}
-		nodeAndIp := fmt.Sprintf("%s ansible_host=%s ip=%s ansible_ssh_user=%s", hostname, publicIP, node.Spec.PrivateIP, username)
-		hostsContent.NodeName = append(hostsContent.NodeName, hostname)
-		hostsContent.NodeAndIP = append(hostsContent.NodeAndIP, nodeAndIp)
-		if hostname != publicIP {
-			hostsContent.Hosts = append(hostsContent.Hosts, fmt.Sprintf("%s %s", publicIP, hostname))
-			hostsContent.PodHostsAlias[hostname] = publicIP
-		}
-
-		if l, ok := getNodeLabelsString(node); ok {
-			hostsContent.Labels[node.Name] = l
-		}
-		count++
 	}
 	if len(hostsContent.NodeName) == 0 {
 		hostsContent.NodeName = append(hostsContent.NodeName, hostsContent.MasterName...)
 	}
 	return hostsContent, nil
+}
+
+// generateUpgradeHosts builds an inventory containing every managed node in the cluster.
+func (r *ClusterBaseReconciler) generateUpgradeHosts(ctx context.Context, cluster *v1.Cluster) (*HostTemplateContent, error) {
+	hostsContent, err := r.generateHosts(ctx, cluster, nil)
+	if err != nil {
+		return nil, err
+	}
+	hostsContent.NodeName = nil
+
+	nodeList := new(v1.NodeList)
+	if err = r.List(ctx, nodeList); err != nil {
+		return nil, err
+	}
+	for i := range nodeList.Items {
+		node := &nodeList.Items[i]
+		if node.GetSpecCluster() != cluster.Name || v1.IsControlPlane(node) || !node.IsManaged() {
+			continue
+		}
+		if !node.IsMachineReady() {
+			return nil, fmt.Errorf("cluster worker node %s is not ready", node.Name)
+		}
+		if err = r.appendWorkerHost(ctx, cluster, hostsContent, node); err != nil {
+			return nil, err
+		}
+	}
+	if len(hostsContent.NodeName) == 0 {
+		hostsContent.NodeName = append(hostsContent.NodeName, hostsContent.MasterName...)
+	}
+	return hostsContent, nil
+}
+
+// appendWorkerHost adds one worker node to a KubeSpray inventory.
+func (r *ClusterBaseReconciler) appendWorkerHost(ctx context.Context, cluster *v1.Cluster,
+	hostsContent *HostTemplateContent, node *v1.Node) error {
+	hostname := node.Status.MachineStatus.HostName
+	publicIP := node.Spec.PublicIP
+	if publicIP == "" {
+		publicIP = node.Spec.PrivateIP
+	}
+	username, err := r.getUsername(ctx, node, cluster)
+	if err != nil {
+		return err
+	}
+	nodeAndIP := fmt.Sprintf("%s ansible_host=%s ip=%s ansible_ssh_user=%s",
+		hostname, publicIP, node.Spec.PrivateIP, username)
+	hostsContent.NodeName = append(hostsContent.NodeName, hostname)
+	hostsContent.NodeAndIP = append(hostsContent.NodeAndIP, nodeAndIP)
+	if hostname != publicIP {
+		hostsContent.Hosts = append(hostsContent.Hosts, fmt.Sprintf("%s %s", publicIP, hostname))
+		hostsContent.PodHostsAlias[hostname] = publicIP
+	}
+	if labels, ok := getNodeLabelsString(node); ok {
+		hostsContent.Labels[node.Name] = labels
+	}
+	return nil
 }
 
 // guaranteeHostsConfigMapCreated ensures a ConfigMap with host information is created or updated.
@@ -236,6 +272,7 @@ func (r *ClusterBaseReconciler) guaranteeHostsConfigMapCreated(ctx context.Conte
 		originalCM := client.MergeFrom(cm.DeepCopy())
 		cm.Data[HostsYaml] = strings.TrimSpace(kubesprayHostData.String())
 		cm.Data[Hosts] = strings.TrimSpace(hostData.String())
+		cm.OwnerReferences = []metav1.OwnerReference{owner}
 		err = r.Patch(ctx, cm, originalCM)
 		if err != nil {
 			return nil, err
@@ -504,6 +541,59 @@ func getKubeSprayEnv(cluster *v1.Cluster) string {
 // getKubeSprayResetCMD generates the command for resetting a cluster with KubeSpray.
 func getKubeSprayResetCMD(user, env string) string {
 	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s reset.yml -e reset_confirmation=yes %s --become-user=root -b -vvv", utils.Authorize, env)
+}
+
+// getKubeSprayUpgradeCMD generates the command for upgrading a cluster with KubeSpray.
+func getKubeSprayUpgradeCMD(user, env string) string {
+	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s upgrade-cluster.yml --become-user=root %s -b -vvv", utils.Authorize, env)
+}
+
+func controlPlaneString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func appliedKubeVersion(cluster *v1.Cluster) string {
+	return v1.GetAnnotation(cluster, v1.ClusterAppliedKubeVersionAnnotation)
+}
+
+func appliedKubeSprayImage(cluster *v1.Cluster) string {
+	return v1.GetAnnotation(cluster, v1.ClusterAppliedKubeSprayImageAnnotation)
+}
+
+func hasAppliedKubeSprayRecord(cluster *v1.Cluster) bool {
+	if cluster == nil {
+		return false
+	}
+	ann := cluster.GetAnnotations()
+	if ann == nil {
+		return false
+	}
+	_, hasVer := ann[v1.ClusterAppliedKubeVersionAnnotation]
+	_, hasImg := ann[v1.ClusterAppliedKubeSprayImageAnnotation]
+	return hasVer && hasImg
+}
+
+// needsClusterUpgrade reports whether spec kube version or kubespray image differs from last apply.
+func needsClusterUpgrade(cluster *v1.Cluster) bool {
+	if cluster == nil || !hasAppliedKubeSprayRecord(cluster) {
+		return false
+	}
+	return appliedKubeVersion(cluster) != controlPlaneString(cluster.Spec.ControlPlane.KubeVersion) ||
+		appliedKubeSprayImage(cluster) != controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
+}
+
+// isAllowedKubeVersionUpgrade validates strict versions and permits one minor step.
+func isAllowedKubeVersionUpgrade(from, to string) bool {
+	return v1.IsAllowedKubeVersionUpgrade(from, to)
+}
+
+// isSupportedKubeSprayPair checks the product-supported image and version mapping.
+func isSupportedKubeSprayPair(image, version string) bool {
+	expected, ok := v1.KubeVersionForKubeSprayImage(image)
+	return ok && expected == version
 }
 
 // getKubesprayImage returns the KubeSpray image to use, with fallback to default.

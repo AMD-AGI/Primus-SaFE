@@ -1235,6 +1235,7 @@ func TestSyncOrCreateScaleUpPodCreates(t *testing.T) {
 	node.Status.MachineStatus.HostName = "host1"
 	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}
 	cluster.Spec.ControlPlane.Nodes = []string{"n1"}
+	cluster.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "primus-safe"},
 		Data:       map[string][]byte{"username": []byte("root")},
@@ -1246,6 +1247,27 @@ func TestSyncOrCreateScaleUpPodCreates(t *testing.T) {
 	_, err := r.syncOrCreateScaleUpPod(context.Background(), node)
 	testifyassert.NoError(t, err)
 	assert.Equal(t, v1.NodeManaging, node.Status.ClusterStatus.Phase)
+}
+
+func TestSyncOrCreateScaleUpPodWaitsForUpgrade(t *testing.T) {
+	scheme, _ := genMockScheme()
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
+	node.Spec.Cluster = ptrString("c1")
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Status: v1.ClusterStatus{
+			ControlPlaneStatus: v1.ControlPlaneStatus{Phase: v1.UpgradingPhase},
+		},
+	}
+	r := newMockNodeReconciler(ctrlfakeNewClient(scheme, node, cluster))
+
+	result, err := r.syncOrCreateScaleUpPod(context.Background(), node)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, time.Second*3, result.RequeueAfter)
+	assert.Equal(t, v1.NodePhase(""), node.Status.ClusterStatus.Phase)
+	pods := new(corev1.PodList)
+	testifyassert.NoError(t, r.List(context.Background(), pods))
+	assert.Equal(t, 0, len(pods.Items))
 }
 
 func TestNodeDeleteK8sNodeViaFactory(t *testing.T) {

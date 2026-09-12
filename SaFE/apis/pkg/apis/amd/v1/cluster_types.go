@@ -33,10 +33,13 @@ const (
 	DeletingPhase          ClusterPhase        = "Deleting"
 	DeletedPhase           ClusterPhase        = "Deleted"
 	DeleteFailedPhase      ClusterPhase        = "DeleteFailed"
+	UpgradingPhase         ClusterPhase        = "Upgrading"
+	UpgradeFailedPhase     ClusterPhase        = "UpgradeFailed"
 	ClusterCreateAction    ClusterManageAction = "create"
 	ClusterScaleUpAction   ClusterManageAction = "up"
 	ClusterScaleDownAction ClusterManageAction = "down"
 	ClusterResetAction     ClusterManageAction = "reset"
+	ClusterUpgradeAction   ClusterManageAction = "upgrade"
 )
 
 const (
@@ -180,12 +183,13 @@ func init() {
 	SchemeBuilder.Register(&Cluster{}, &ClusterList{})
 }
 
-// IsReady returns true if the cluster is in Ready phase.
+// IsReady returns true while the data plane remains available for clients.
 func (cluster *Cluster) IsReady() bool {
-	if cluster != nil && cluster.Status.ControlPlaneStatus.Phase == ReadyPhase {
-		return true
+	if cluster == nil {
+		return false
 	}
-	return false
+	phase := cluster.Status.ControlPlaneStatus.Phase
+	return phase == ReadyPhase || phase == UpgradingPhase || phase == UpgradeFailedPhase
 }
 
 // IsInDeletion returns true if the cluster is already in the deletion process
