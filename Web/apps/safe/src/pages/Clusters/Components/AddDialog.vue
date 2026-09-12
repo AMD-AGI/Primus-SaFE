@@ -89,9 +89,19 @@
       </el-form-item>
 
       <el-form-item label="Kube Spray Image" prop="kubeSprayImage">
-        <el-select v-model="form.kubeSprayImage" @change="onKubeSprayImageChange">
+        <el-select
+          v-model="form.kubeSprayImage"
+          filterable
+          allow-create
+          default-first-option
+          :placeholder="imageOptions.length ? 'Select' : 'Enter a KubeSpray image'"
+          @change="onKubeSprayImageChange"
+        >
           <el-option v-for="img in imageOptions" :key="img" :label="img" :value="img" />
         </el-select>
+        <el-text v-if="!imageOptions.length" size="small" type="info">
+          This API build publishes no image list. Enter an image and set the version below.
+        </el-text>
       </el-form-item>
 
       <el-form-item label="Kubernetes Version" prop="kubernetesVersion">
@@ -312,9 +322,10 @@ const onOpen = async () => {
   formRef.value?.clearValidate()
   fetchSecretsOnce()
   fetchNodes()
-  // The image/version mapping is part of the envs payload, which older caches may not
-  // have yet.
-  if (!userStore.envs) await userStore.fetchEnvs().catch(() => {})
+  // envs is fetched once per session, so a session that started against an API build
+  // without the mapping would never see it. Retry on the mapping itself rather than on
+  // envs being absent, which is what makes the dialog pick it up after a backend roll.
+  if (!imageOptions.value.length) await userStore.fetchEnvs().catch(() => {})
 
   if (isUpgrade.value) {
     await setInitialFormValues()
