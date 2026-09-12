@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -137,7 +136,6 @@ func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.C
 		Controllers:   controllers,
 		ClusterID:     "1.0.0.1",
 	}
-	count := 0
 	for _, machine := range controllers {
 		hostname := machine.Status.MachineStatus.HostName
 		publicIP := machine.Spec.PublicIP
@@ -159,39 +157,76 @@ func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.C
 		if l, ok := getNodeLabelsString(machine); ok {
 			hostsContent.Labels[machine.Name] = l
 		}
-		count++
 	}
 	if worker != nil {
 		node, err := r.getNode(ctx, worker.Name)
 		if err != nil {
 			return nil, err
 		}
-		hostname := node.Status.MachineStatus.HostName
-		publicIP := node.Spec.PublicIP
-		if publicIP == "" {
-			publicIP = node.Spec.PrivateIP
-		}
-		username, err := r.getUsername(ctx, node, cluster)
-		if err != nil {
+		if err = r.appendWorkerHost(ctx, cluster, hostsContent, node); err != nil {
 			return nil, err
 		}
-		nodeAndIp := fmt.Sprintf("%s ansible_host=%s ip=%s ansible_ssh_user=%s", hostname, publicIP, node.Spec.PrivateIP, username)
-		hostsContent.NodeName = append(hostsContent.NodeName, hostname)
-		hostsContent.NodeAndIP = append(hostsContent.NodeAndIP, nodeAndIp)
-		if hostname != publicIP {
-			hostsContent.Hosts = append(hostsContent.Hosts, fmt.Sprintf("%s %s", publicIP, hostname))
-			hostsContent.PodHostsAlias[hostname] = publicIP
-		}
-
-		if l, ok := getNodeLabelsString(node); ok {
-			hostsContent.Labels[node.Name] = l
-		}
-		count++
 	}
 	if len(hostsContent.NodeName) == 0 {
 		hostsContent.NodeName = append(hostsContent.NodeName, hostsContent.MasterName...)
 	}
 	return hostsContent, nil
+}
+
+// generateUpgradeHosts builds an inventory containing every managed node in the cluster.
+func (r *ClusterBaseReconciler) generateUpgradeHosts(ctx context.Context, cluster *v1.Cluster) (*HostTemplateContent, error) {
+	hostsContent, err := r.generateHosts(ctx, cluster, nil)
+	if err != nil {
+		return nil, err
+	}
+	hostsContent.NodeName = nil
+
+	nodeList := new(v1.NodeList)
+	if err = r.List(ctx, nodeList); err != nil {
+		return nil, err
+	}
+	for i := range nodeList.Items {
+		node := &nodeList.Items[i]
+		if node.GetSpecCluster() != cluster.Name || v1.IsControlPlane(node) || !node.IsManaged() {
+			continue
+		}
+		if !node.IsMachineReady() {
+			return nil, fmt.Errorf("cluster worker node %s is not ready", node.Name)
+		}
+		if err = r.appendWorkerHost(ctx, cluster, hostsContent, node); err != nil {
+			return nil, err
+		}
+	}
+	if len(hostsContent.NodeName) == 0 {
+		hostsContent.NodeName = append(hostsContent.NodeName, hostsContent.MasterName...)
+	}
+	return hostsContent, nil
+}
+
+// appendWorkerHost adds one worker node to a KubeSpray inventory.
+func (r *ClusterBaseReconciler) appendWorkerHost(ctx context.Context, cluster *v1.Cluster,
+	hostsContent *HostTemplateContent, node *v1.Node) error {
+	hostname := node.Status.MachineStatus.HostName
+	publicIP := node.Spec.PublicIP
+	if publicIP == "" {
+		publicIP = node.Spec.PrivateIP
+	}
+	username, err := r.getUsername(ctx, node, cluster)
+	if err != nil {
+		return err
+	}
+	nodeAndIP := fmt.Sprintf("%s ansible_host=%s ip=%s ansible_ssh_user=%s",
+		hostname, publicIP, node.Spec.PrivateIP, username)
+	hostsContent.NodeName = append(hostsContent.NodeName, hostname)
+	hostsContent.NodeAndIP = append(hostsContent.NodeAndIP, nodeAndIP)
+	if hostname != publicIP {
+		hostsContent.Hosts = append(hostsContent.Hosts, fmt.Sprintf("%s %s", publicIP, hostname))
+		hostsContent.PodHostsAlias[hostname] = publicIP
+	}
+	if labels, ok := getNodeLabelsString(node); ok {
+		hostsContent.Labels[node.Name] = labels
+	}
+	return nil
 }
 
 // guaranteeHostsConfigMapCreated ensures a ConfigMap with host information is created or updated.
@@ -237,6 +272,7 @@ func (r *ClusterBaseReconciler) guaranteeHostsConfigMapCreated(ctx context.Conte
 		originalCM := client.MergeFrom(cm.DeepCopy())
 		cm.Data[HostsYaml] = strings.TrimSpace(kubesprayHostData.String())
 		cm.Data[Hosts] = strings.TrimSpace(hostData.String())
+		cm.OwnerReferences = []metav1.OwnerReference{owner}
 		err = r.Patch(ctx, cm, originalCM)
 		if err != nil {
 			return nil, err
@@ -549,46 +585,15 @@ func needsClusterUpgrade(cluster *v1.Cluster) bool {
 		appliedKubeSprayImage(cluster) != controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
 }
 
-func normalizeKubeVersion(ver string) string {
-	return strings.TrimPrefix(strings.TrimSpace(ver), "v")
-}
-
-func parseKubeVersion(ver string) (major, minor, patch int, ok bool) {
-	parts := strings.Split(normalizeKubeVersion(ver), ".")
-	if len(parts) < 2 {
-		return 0, 0, 0, false
-	}
-	major, err1 := strconv.Atoi(parts[0])
-	minor, err2 := strconv.Atoi(parts[1])
-	if err1 != nil || err2 != nil {
-		return 0, 0, 0, false
-	}
-	if len(parts) > 2 {
-		patch, _ = strconv.Atoi(parts[2])
-	}
-	return major, minor, patch, true
-}
-
-// isAllowedKubeVersionUpgrade allows same version, patch bumps, or a single minor step. Empty to is rejected when from is set.
+// isAllowedKubeVersionUpgrade validates strict versions and permits one minor step.
 func isAllowedKubeVersionUpgrade(from, to string) bool {
-	if normalizeKubeVersion(from) == normalizeKubeVersion(to) {
-		return true
-	}
-	if to == "" {
-		return false
-	}
-	if from == "" {
-		return true
-	}
-	fm, fmi, fp, ok1 := parseKubeVersion(from)
-	tm, tmi, tp, ok2 := parseKubeVersion(to)
-	if !ok1 || !ok2 || fm != tm {
-		return false
-	}
-	if tmi == fmi {
-		return tp >= fp
-	}
-	return tmi == fmi+1
+	return v1.IsAllowedKubeVersionUpgrade(from, to)
+}
+
+// isSupportedKubeSprayPair checks the product-supported image and version mapping.
+func isSupportedKubeSprayPair(image, version string) bool {
+	expected, ok := v1.KubeVersionForKubeSprayImage(image)
+	return ok && expected == version
 }
 
 // getKubesprayImage returns the KubeSpray image to use, with fallback to default.

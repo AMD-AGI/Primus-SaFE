@@ -93,6 +93,8 @@ const (
 	ClusterAppliedKubeVersionAnnotation = ClusterPrefix + "applied.kube.version"
 	// ClusterAppliedKubeSprayImageAnnotation records the kubespray image last applied.
 	ClusterAppliedKubeSprayImageAnnotation = ClusterPrefix + "applied.kubespray.image"
+	// ClusterUpgradeRetryCountAnnotation records failed attempts for the current target.
+	ClusterUpgradeRetryCountAnnotation = ClusterPrefix + "upgrade.retry.count"
 
 	// storage
 	StoragePrefix              = PrimusSafePrefix + "storage."

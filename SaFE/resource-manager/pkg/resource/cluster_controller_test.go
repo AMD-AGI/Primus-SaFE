@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -780,6 +781,8 @@ func TestUpdateClusterKubeConfigNilConfig(t *testing.T) {
 func TestUpdateClusterKubeConfig(t *testing.T) {
 	scheme, _ := genMockScheme()
 	cluster := testCluster("c1")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:20200530")
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
 	cs := k8sfakeClientset()
 	cl := ctrlfake.NewClientBuilder().
 		WithScheme(scheme).
@@ -796,6 +799,7 @@ func TestUpdateClusterKubeConfig(t *testing.T) {
 	testifyassert.NoError(t, err)
 	assert.Equal(t, v1.ReadyPhase, cluster.Status.ControlPlaneStatus.Phase)
 	testifyassert.Len(t, cluster.Status.ControlPlaneStatus.Endpoints, 1)
+	assert.Equal(t, "1.32.5", v1.GetAnnotation(cluster, v1.ClusterAppliedKubeVersionAnnotation))
 }
 
 func TestResetWithHostsContent(t *testing.T) {
@@ -1097,8 +1101,8 @@ func TestGuaranteeClusterUpgradeSeedsApplied(t *testing.T) {
 
 func TestGuaranteeClusterUpgradeCreatesPod(t *testing.T) {
 	cluster, r := readyUpgradeCluster(t)
-	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.0")
-	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.0")
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
 	testifyassert.NoError(t, r.Update(context.Background(), cluster))
 	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
 	pod := &corev1.Pod{}
@@ -1109,9 +1113,23 @@ func TestGuaranteeClusterUpgradeCreatesPod(t *testing.T) {
 	testifyassert.NoError(t, err)
 	assert.Equal(t, string(v1.ClusterUpgradeAction), pod.Labels[v1.ClusterManageActionLabel])
 	testifyassert.Contains(t, strings.Join(pod.Spec.Containers[0].Args, " "), "upgrade-cluster.yml")
+	config := new(corev1.ConfigMap)
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{
+		Namespace: common.PrimusSafeNamespace,
+		Name:      cluster.Name,
+	}, config))
+	testifyassert.Len(t, config.OwnerReferences, 1)
+	assert.Equal(t, v1.ClusterKind, config.OwnerReferences[0].Kind)
 	got := &v1.Cluster{}
 	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
 	assert.Equal(t, v1.UpgradingPhase, got.Status.ControlPlaneStatus.Phase)
+
+	testifyassert.NoError(t, r.Delete(context.Background(), config))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), got))
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{
+		Namespace: common.PrimusSafeNamespace,
+		Name:      cluster.Name,
+	}, new(corev1.ConfigMap)))
 }
 
 func TestGuaranteeClusterUpgradeRejectsSkippedMinor(t *testing.T) {
@@ -1121,8 +1139,103 @@ func TestGuaranteeClusterUpgradeRejectsSkippedMinor(t *testing.T) {
 	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
 	got := &v1.Cluster{}
 	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
-	assert.Equal(t, v1.UpgradeFailedPhase, got.Status.ControlPlaneStatus.Phase)
+	assert.Equal(t, v1.ReadyPhase, got.Status.ControlPlaneStatus.Phase)
 	podList := &corev1.PodList{}
 	testifyassert.NoError(t, r.List(context.Background(), podList))
 	assert.Equal(t, 0, len(podList.Items))
+}
+
+func TestClusterUpgradeWaitsForScalePod(t *testing.T) {
+	cluster, r := readyUpgradeCluster(t)
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	scalePod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "scale-up",
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				v1.ClusterManageClusterLabel: cluster.Name,
+				v1.ClusterManageActionLabel:  string(v1.ClusterScaleUpAction),
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	testifyassert.NoError(t, r.Create(context.Background(), scalePod))
+
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
+	upgradePod := new(corev1.Pod)
+	err := r.Get(context.Background(), types.NamespacedName{
+		Namespace: common.PrimusSafeNamespace,
+		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
+	}, upgradePod)
+	testifyassert.Error(t, err)
+	got := new(v1.Cluster)
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
+	assert.Equal(t, v1.ReadyPhase, got.Status.ControlPlaneStatus.Phase)
+}
+
+func TestClusterUpgradePersistsSucceededStaleTarget(t *testing.T) {
+	cluster, r := readyUpgradeCluster(t)
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
+
+	pod := new(corev1.Pod)
+	podKey := types.NamespacedName{
+		Namespace: common.PrimusSafeNamespace,
+		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
+	}
+	testifyassert.NoError(t, r.Get(context.Background(), podKey, pod))
+	pod.Status.Phase = corev1.PodSucceeded
+	testifyassert.NoError(t, r.Status().Update(context.Background(), pod))
+
+	got := new(v1.Cluster)
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
+	got.Spec.ControlPlane.KubeVersion = pointer.String("1.34.3")
+	got.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.30.0")
+	testifyassert.NoError(t, r.Update(context.Background(), got))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), got))
+
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
+	assert.Equal(t, "1.33.7", v1.GetAnnotation(got, v1.ClusterAppliedKubeVersionAnnotation))
+	err := r.Get(context.Background(), podKey, new(corev1.Pod))
+	testifyassert.Error(t, err)
+}
+
+func TestClusterUpgradeRetriesThreeTimesAndCanBeReset(t *testing.T) {
+	cluster, r := readyUpgradeCluster(t)
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	podKey := types.NamespacedName{
+		Namespace: common.PrimusSafeNamespace,
+		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
+	}
+
+	for attempt := 1; attempt <= maxClusterUpgradeAttempts; attempt++ {
+		current := new(v1.Cluster)
+		testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+		testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
+		pod := new(corev1.Pod)
+		testifyassert.NoError(t, r.Get(context.Background(), podKey, pod))
+		assert.Equal(t, strconv.Itoa(attempt), v1.GetAnnotation(pod, upgradePodAttemptAnnotation))
+		pod.Status.Phase = corev1.PodFailed
+		testifyassert.NoError(t, r.Status().Update(context.Background(), pod))
+		testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+		testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
+	}
+
+	current := new(v1.Cluster)
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+	assert.Equal(t, v1.UpgradeFailedPhase, current.Status.ControlPlaneStatus.Phase)
+	assert.True(t, current.IsReady())
+	testifyassert.NoError(t, r.Get(context.Background(), podKey, new(corev1.Pod)))
+
+	testifyassert.NoError(t, r.persistUpgradeRetryCount(context.Background(), current, 0))
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
+	err := r.Get(context.Background(), podKey, new(corev1.Pod))
+	testifyassert.Error(t, err)
 }

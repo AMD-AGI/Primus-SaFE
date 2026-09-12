@@ -78,6 +78,26 @@ func TestClusterValidateControlPlane(t *testing.T) {
 	assert.NilError(t, v.validateControlPlane(ctx, validControlPlaneCluster()))
 }
 
+func TestValidateClusterUpgradeUpdate(t *testing.T) {
+	oldCluster := validControlPlaneCluster()
+	oldCluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:20200530")
+	oldCluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
+	v1.SetAnnotation(oldCluster, v1.ClusterAppliedKubeVersionAnnotation, "1.32.5")
+	v1.SetAnnotation(oldCluster, v1.ClusterAppliedKubeSprayImageAnnotation,
+		"primussafe/kubespray:20200530")
+
+	newCluster := oldCluster.DeepCopy()
+	newCluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	newCluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	assert.NilError(t, validateClusterUpgradeUpdate(newCluster, oldCluster))
+
+	newCluster.Spec.ControlPlane.KubeVersion = pointer.String("1.35.4")
+	assert.Assert(t, validateClusterUpgradeUpdate(newCluster, oldCluster) != nil)
+
+	newCluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7; touch /tmp/unsafe")
+	assert.Assert(t, validateClusterUpgradeUpdate(newCluster, oldCluster) != nil)
+}
+
 // TestClusterValidateNodesInUse verifies node-in-use detection.
 func TestClusterValidateNodesInUse(t *testing.T) {
 	scheme := newScheme(t)

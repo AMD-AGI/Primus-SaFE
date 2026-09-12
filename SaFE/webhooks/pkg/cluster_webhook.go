@@ -146,6 +146,11 @@ func (v *ClusterValidator) validateControlPlane(ctx context.Context, cluster *v1
 	if cluster.Spec.ControlPlane.KubeSprayImage == nil || *cluster.Spec.ControlPlane.KubeSprayImage == "" {
 		return fmt.Errorf("the KubeSprayImage of spec is empty")
 	}
+	if cluster.Spec.ControlPlane.KubeVersion != nil {
+		if _, _, _, ok := v1.ParseKubeVersion(*cluster.Spec.ControlPlane.KubeVersion); !ok {
+			return fmt.Errorf("the KubernetesVersion must use x.y.z format")
+		}
+	}
 	return nil
 }
 
@@ -191,7 +196,38 @@ func (v *ClusterValidator) validateOnUpdate(newCluster, oldCluster *v1.Cluster) 
 	if err := validateLabels(newCluster.GetLabels()); err != nil {
 		return err
 	}
+	if err := validateClusterUpgradeUpdate(newCluster, oldCluster); err != nil {
+		return err
+	}
 	return nil
+}
+
+// validateClusterUpgradeUpdate validates direct CR updates to upgrade fields.
+func validateClusterUpgradeUpdate(newCluster, oldCluster *v1.Cluster) error {
+	newImage := pointerValue(newCluster.Spec.ControlPlane.KubeSprayImage)
+	oldImage := pointerValue(oldCluster.Spec.ControlPlane.KubeSprayImage)
+	newVersion := pointerValue(newCluster.Spec.ControlPlane.KubeVersion)
+	oldVersion := pointerValue(oldCluster.Spec.ControlPlane.KubeVersion)
+	if newImage == oldImage && newVersion == oldVersion {
+		return nil
+	}
+	expectedVersion, ok := v1.KubeVersionForKubeSprayImage(newImage)
+	if !ok || expectedVersion != newVersion {
+		return fmt.Errorf("the KubeSprayImage and KubernetesVersion are not a supported pair")
+	}
+	appliedVersion := v1.GetAnnotation(oldCluster, v1.ClusterAppliedKubeVersionAnnotation)
+	if !v1.IsAllowedKubeVersionUpgrade(appliedVersion, newVersion) {
+		return fmt.Errorf("the KubernetesVersion must be a patch upgrade or one minor version step")
+	}
+	return nil
+}
+
+// pointerValue returns an empty string for an unset string pointer.
+func pointerValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // validateImmutableFields ensures control plane nodes cannot be modified.
