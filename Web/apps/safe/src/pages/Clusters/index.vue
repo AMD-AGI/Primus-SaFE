@@ -8,6 +8,8 @@
       class="m-t-4 text-black"
       @click="
         () => {
+          curAction = 'Create'
+          curClusterId = ''
           addVisible = true
         }
       "
@@ -114,7 +116,12 @@
     :id="state.id"
   />
 
-  <AddDialog v-model:visible="addVisible" @success="clusterStore.fetchClusters()" />
+  <AddDialog
+    v-model:visible="addVisible"
+    :action="curAction"
+    :cluster-id="curClusterId"
+    @success="clusterStore.fetchClusters()"
+  />
 
   <el-dialog
     v-model="editState.editVisible"
@@ -160,10 +167,10 @@
 import { ref, onMounted, reactive, nextTick, h } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useUserStore } from '@/stores/user'
-import { getNodesList, editClusterProtected, deleteCluster, getClusterDetail } from '@/services'
+import { getNodesList, patchCluster, deleteCluster, getClusterDetail } from '@/services'
 import { getSecrets } from '@/services'
 import ManageDialog from './Components/ManageDialog.vue'
-import { Check, Close, Plus, Minus, Edit, Delete, MoreFilled } from '@element-plus/icons-vue'
+import { Check, Close, Plus, Minus, Edit, Top, Delete, MoreFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AddDialog from './Components/AddDialog.vue'
 import { useRouter } from 'vue-router'
@@ -197,6 +204,8 @@ const editState = reactive({
 const selectedSecretId = ref('')
 
 const addVisible = ref(false)
+const curAction = ref<'Create' | 'Upgrade'>('Create')
+const curClusterId = ref('')
 const clusterStore = useClusterStore()
 const loading = ref(false)
 
@@ -227,6 +236,17 @@ const getActions = (row: ClusterRowItem): Action[] => [
     icon: Minus,
     btnClass: 'btn-danger-plain',
     onClick: () => openDialog('Unmanage', row),
+  },
+  {
+    key: 'upgrade',
+    label: 'Upgrade',
+    icon: Top,
+    btnClass: 'btn-primary-plain',
+    onClick: (r: ClusterRowItem) => {
+      curAction.value = 'Upgrade'
+      curClusterId.value = r.clusterId
+      addVisible.value = true
+    },
   },
   {
     key: 'bind',
@@ -301,7 +321,7 @@ const openDialog = (action: 'Manage' | 'Unmanage', row?: ClusterRowItem) => {
 
 const changeProtected = async (val: boolean, id: string) => {
   try {
-    await editClusterProtected(id, { isProtected: val })
+    await patchCluster(id, { isProtected: val })
     ElMessage({
       type: 'success',
       message: 'Edit completed',
@@ -314,7 +334,7 @@ const changeProtected = async (val: boolean, id: string) => {
 }
 const onBindConfirm = async () => {
   try {
-    await editClusterProtected(editState.curId, { imageSecretId: selectedSecretId.value })
+    await patchCluster(editState.curId, { imageSecretId: selectedSecretId.value })
     ElMessage({
       type: 'success',
       message: 'Bind completed',

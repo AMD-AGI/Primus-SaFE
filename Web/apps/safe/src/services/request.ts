@@ -14,8 +14,19 @@ declare module 'axios' {
 /** ---- Flag to prevent concurrent 401 handling ---- **/
 let isHandling401 = false
 
+type InterceptorOptions = {
+  /**
+   * Whether a 401 from this instance means the browser session is gone. Only the API that
+   * issues the session should claim that; see the 401 branch below.
+   */
+  ownsSession?: boolean
+}
+
 /** ---- Attach interceptors to an axios instance ---- **/
-function attachInterceptors(instance: AxiosInstance) {
+function attachInterceptors(
+  instance: AxiosInstance,
+  { ownsSession = true }: InterceptorOptions = {},
+) {
   instance.interceptors.request.use((config) => config)
 
   instance.interceptors.response.use(
@@ -49,6 +60,13 @@ function attachInterceptors(instance: AxiosInstance) {
       const status = error?.response?.status as number | undefined
 
       if (status === 401) {
+        // An auxiliary service can be unauthorized on its own, typically because it sits behind
+        // a different gateway than /api. Ending the session there turns a panel that cannot
+        // load into a login loop: the redirect goes through SSO, comes back, requests again.
+        if (!ownsSession) {
+          return Promise.reject(error)
+        }
+
         // Prevent duplicate 401 handling from concurrent requests (race condition)
         if (isHandling401) {
           return Promise.reject(error)
@@ -155,7 +173,7 @@ lensRequest.interceptors.request.use((config) => {
   return config
 })
 
-attachInterceptors(lensRequest)
+attachInterceptors(lensRequest, { ownsSession: false })
 
 // Root Cause Analysis Request
 const rootCauseRequest = axios.create({
