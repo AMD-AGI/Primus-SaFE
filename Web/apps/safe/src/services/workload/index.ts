@@ -123,6 +123,14 @@ function toQuery(obj?: Record<string, any>) {
   }
   return usp.toString()
 }
+// The GPU panels are supplementary and every caller already renders a missing payload as an
+// empty chart, so an unauthorized lens resolves to nothing rather than rejecting into callers
+// that have no catch. Any other status keeps the global error handling.
+const emptyOnUnauthorized = (err: any) => {
+  if (err?.response?.status === 401) return undefined
+  throw err
+}
+
 export const getLensHourlyStats = (p: {
   cluster: string
   namespace: string
@@ -135,9 +143,11 @@ export const getLensHourlyStats = (p: {
   order_direction?: 'asc' | 'desc'
 }) => {
   const qs = toQuery(p)
-  return lensRequest.get(`/gpu-aggregation/workloads/hourly-stats${qs ? `?${qs}` : ''}`, {
-    params: undefined as any,
-  })
+  return lensRequest
+    .get(`/gpu-aggregation/workloads/hourly-stats${qs ? `?${qs}` : ''}`, {
+      params: undefined as any,
+    })
+    .catch(emptyOnUnauthorized)
 }
 
 export const getGPUAggregation = (p: {
@@ -151,9 +161,11 @@ export const getGPUAggregation = (p: {
   order_direction?: 'asc' | 'desc'
 }) => {
   const qs = toQuery(p)
-  return lensRequest.get(`/gpu-aggregation/namespaces/hourly-stats${qs ? `?${qs}` : ''}`, {
-    params: undefined as any,
-  })
+  return lensRequest
+    .get(`/gpu-aggregation/namespaces/hourly-stats${qs ? `?${qs}` : ''}`, {
+      params: undefined as any,
+    })
+    .catch(emptyOnUnauthorized)
 }
 
 // Root Cause Analysis
