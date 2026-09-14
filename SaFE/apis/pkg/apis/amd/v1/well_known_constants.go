@@ -130,6 +130,27 @@ const (
 	WorkspaceIdsAnnotation    = WorkspacePrefix + "ids"
 	SourceWorkloadIdLabel     = "source.workload.id"
 
+	// external execution
+	//
+	// These reach the execution cluster on the pod itself and are what the provider
+	// rechecks after binding. They are derived from the approved workload and claim, never
+	// copied from user input: an annotation a user could write by hand would otherwise be
+	// an authorisation.
+	ExternalExecutionPrefix        = "safe-exec.amd.com/"
+	ExternalExecutionLabel         = ExternalExecutionPrefix + "external"
+	ExternalWorkloadUIDAnnotation  = ExternalExecutionPrefix + "workload-uid"
+	ExternalDispatchGenAnnotation  = ExternalExecutionPrefix + "dispatch-generation"
+	ExternalClaimIdAnnotation      = ExternalExecutionPrefix + "claim-id"
+	ExternalClaimRevAnnotation     = ExternalExecutionPrefix + "claim-revision"
+	ExternalUnitKeyAnnotation      = ExternalExecutionPrefix + "unit-key"
+	ExternalProfileIdAnnotation    = ExternalExecutionPrefix + "profile-id"
+	ExternalProfileRevAnnotation   = ExternalExecutionPrefix + "profile-revision"
+	ExternalAllocationIdAnnotation = ExternalExecutionPrefix + "allocation-id"
+	// ExternalSingleUnitKey is the unit key of a single-replica workload, the only shape
+	// the first release admits. Multi-replica support needs a stable role and index per
+	// child pod, which the operators creating those pods do not provide.
+	ExternalSingleUnitKey = "master/0"
+
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
 	FaultFinalizer = PrimusSafeDomain + "fault.finalizer"

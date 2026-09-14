@@ -317,6 +317,16 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 		if !apierrors.IsNotFound(err) {
 			return ctrlruntime.Result{}, err
 		}
+		// Recheck the reservation before creating anything. The scheduler verified it, but
+		// time passes before the pods are built, and a claim revoked or expired inside that
+		// window would otherwise place a pod on devices the provider is reclaiming.
+		if isExternalWorkload(adminWorkload) {
+			if verifyErr := r.verifyExternalClaim(ctx, adminWorkload); verifyErr != nil {
+				klog.ErrorS(verifyErr, "external claim recheck failed, not dispatching",
+					"workload", adminWorkload.Name)
+				return ctrlruntime.Result{RequeueAfter: externalClaimRecheckDelay}, nil
+			}
+		}
 		if result, err := r.dispatch(ctx, adminWorkload, clientSets); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}

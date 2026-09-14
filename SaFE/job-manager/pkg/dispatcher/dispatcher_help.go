@@ -122,6 +122,15 @@ func initializeObject(obj *unstructured.Unstructured,
 	if err = modifyTolerations(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
+	if isExternalWorkload(workload) {
+		// The task runs on hardware the provider owns, reached over a protocol that carries
+		// its own identity. A projected service account token would put a credential for
+		// the execution cluster inside it for no purpose the task has.
+		path = podSpecPath(workload, resourceSpec, "automountServiceAccountToken")
+		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
+			return fmt.Errorf("failed to disable service account token: %v", err.Error())
+		}
+	}
 	if commonworkload.IsApplication(workload) {
 		path = []string{"spec", "strategy"}
 		if err = modifyStrategy(obj, workload, path); err != nil {
@@ -900,6 +909,11 @@ func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]inter
 	if mainContainerName != "" {
 		result[v1.MainContainerAnnotation] = mainContainerName
 	}
+	// Carries the claim identity to the execution cluster, where the provider rechecks it
+	// against the reservation after the pod binds.
+	for key, value := range externalPodAnnotations(workload, v1.ExternalSingleUnitKey) {
+		result[key] = value
+	}
 	return result
 }
 
@@ -1085,6 +1099,20 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 		result = append(result, map[string]interface{}{
 			"key":      key,
 			"operator": operator,
+			"values":   values,
+		})
+	}
+	// Confine the pod to the virtual nodes the provider approved for this claim. Required
+	// affinity rather than spec.nodeName: the execution cluster scheduler must still do the
+	// binding, and the provider verifies that actual binding before it starts the task.
+	if nodes := externalApprovedNodes(workload); len(nodes) > 0 {
+		values := make([]interface{}, 0, len(nodes))
+		for i := range nodes {
+			values = append(values, nodes[i])
+		}
+		result = append(result, map[string]interface{}{
+			"key":      v1.K8sHostName,
+			"operator": "In",
 			"values":   values,
 		})
 	}
