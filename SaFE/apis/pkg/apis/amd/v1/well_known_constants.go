@@ -109,11 +109,16 @@ const (
 	NodeFlavorIdLabel = NodeFlavorPrefix + "id"
 
 	// workspace
-	WorkspacePrefix       = PrimusSafePrefix + "workspace."
-	WorkspaceFinalizer    = PrimusSafeDomain + "workspace.finalizer"
-	WorkspaceIdLabel      = WorkspacePrefix + "id"
-	WorkspaceNodesAction  = WorkspacePrefix + "nodes.action"
-	WorkspaceForcedAction = WorkspacePrefix + "forced.action"
+	WorkspacePrefix    = PrimusSafePrefix + "workspace."
+	WorkspaceFinalizer = PrimusSafeDomain + "workspace.finalizer"
+	WorkspaceIdLabel   = WorkspacePrefix + "id"
+	// WorkspaceExternalLabel marks a workspace whose capacity is supplied by an external
+	// execution provider rather than by managed physical nodes. Presence alone selects the
+	// external path; the value is ignored. It is immutable after creation, because flipping
+	// it would change queue admission, scaling and node lifecycle under running workloads.
+	WorkspaceExternalLabel = WorkspacePrefix + "external"
+	WorkspaceNodesAction   = WorkspacePrefix + "nodes.action"
+	WorkspaceForcedAction  = WorkspacePrefix + "forced.action"
 	// WorkspaceNodesActionError carries why entries of a nodes.action request were
 	// dropped instead of applied. Written by the controller when it gives up on a request that
 	// cannot succeed on a retry, cleared by the mutating webhook when the next request is

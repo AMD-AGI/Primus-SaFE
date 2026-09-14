@@ -8,12 +8,42 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type NodePhase string
+
+// NodeLifecycleMode selects how a node is provisioned and reclaimed.
+type NodeLifecycleMode string
+
+const (
+	// NodeLifecycleExternal marks a node backed by an external execution provider. There is
+	// no physical host to manage: no SSH, no hostname or DNS change, no addon install, no
+	// kubespray, no kubeadm reset and no reboot. An empty value keeps the managed lifecycle.
+	NodeLifecycleExternal NodeLifecycleMode = "external"
+)
+
+// DefaultExternalObservationMaxAge caps how long a provider observation stays usable after
+// the provider stops reporting. It backstops ValidUntil, which the provider itself chooses.
+const DefaultExternalObservationMaxAge = 120 * time.Second
+
+var (
+	// nowFunc is replaced in tests to exercise the freshness boundaries.
+	nowFunc = time.Now
+	// externalObservationMaxAge is the effective backstop for provider observations.
+	externalObservationMaxAge = DefaultExternalObservationMaxAge
+)
+
+// SetExternalObservationMaxAge tightens the freshness backstop to match the provider
+// reporting interval. Non-positive values are ignored.
+func SetExternalObservationMaxAge(d time.Duration) {
+	if d > 0 {
+		externalObservationMaxAge = d
+	}
+}
 
 const (
 	NodeKind = "Node"
@@ -30,6 +60,9 @@ const (
 	NodeReady          NodePhase = "Ready"
 	NodeSSHFailed      NodePhase = "SSHFailed"
 	NodeHostnameFailed NodePhase = "HostnameFailed"
+
+	// the phase reported for an external node whose provider observation went stale
+	NodeExternalStale NodePhase = "ExternalStale"
 )
 
 type CommandPhase string
@@ -70,6 +103,44 @@ type NodeSpec struct {
 	Taints []corev1.Taint `json:"taints,omitempty"`
 	// Secret for ssh
 	SSHSecret *corev1.ObjectReference `json:"secret"`
+	// Lifecycle mode of the node. Empty keeps the managed physical-host lifecycle.
+	LifecycleMode NodeLifecycleMode `json:"lifecycleMode,omitempty"`
+	// Provider allocation backing this node. Required and immutable when lifecycleMode
+	// is external, and rejected otherwise.
+	ExternalRef *NodeExternalRef `json:"externalRef,omitempty"`
+}
+
+// NodeExternalRef identifies the provider allocation backing a virtual node.
+type NodeExternalRef struct {
+	// The external execution provider that owns the allocation
+	Provider string `json:"provider"`
+	// The provider-side allocation holding the host
+	AllocationId string `json:"allocationId"`
+	// Distinguishes reuses of the same allocation id
+	Generation int64 `json:"generation"`
+	// Identifies the verified physical host behind the allocation
+	HostKey string `json:"hostKey"`
+}
+
+// NodeExternalStatus carries provider facts for a virtual node. The capacity controller is
+// the only writer; SaFE validates these values before projecting standard node resources.
+type NodeExternalStatus struct {
+	// The provider view of the allocation backing this node
+	Phase string `json:"phase,omitempty"`
+	// When the provider last confirmed the facts below
+	ObservedAt *metav1.Time `json:"observedAt,omitempty"`
+	// How long the provider vouches for this observation
+	ValidUntil *metav1.Time `json:"validUntil,omitempty"`
+	// When the underlying allocation expires
+	AllocationDeadline *metav1.Time `json:"allocationDeadline,omitempty"`
+	// The execution profile revision this node was admitted under
+	ProfileRevision string `json:"profileRevision,omitempty"`
+	// Binds the node to the capability evidence that validated it
+	ValidationFingerprint string `json:"validationFingerprint,omitempty"`
+	// The node name registered in the execution cluster
+	NodeName string `json:"nodeName,omitempty"`
+	// The verified usable total reported by the provider
+	Resources corev1.ResourceList `json:"resources,omitempty"`
 }
 
 type NodeClusterStatus struct {
@@ -109,6 +180,8 @@ type NodeStatus struct {
 	Resources corev1.ResourceList `json:"resources,omitempty"`
 	// Node condition, automatically synchronized from the Kubernetes node
 	Conditions []corev1.NodeCondition `json:"conditions,omitempty"`
+	// Provider facts for external nodes, written by the capacity controller
+	External *NodeExternalStatus `json:"external,omitempty"`
 }
 
 // +genclient
@@ -181,14 +254,45 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 	return true, ""
 }
 
-// IsMachineReady returns true if the underlying machine is ready.
-func (n *Node) IsMachineReady() bool {
-	return n != nil && n.Status.MachineStatus.Phase == NodeReady
+// IsExternal reports whether the node is owned by an external execution provider.
+func (n *Node) IsExternal() bool {
+	return n != nil && n.Spec.LifecycleMode == NodeLifecycleExternal
 }
 
-// IsManaged returns true if the node is managed by the system.
+// IsMachineReady returns true if the underlying machine is ready. An external node has no
+// machine to probe over SSH, so its readiness is the freshness of the provider observation.
+func (n *Node) IsMachineReady() bool {
+	if n == nil {
+		return false
+	}
+	if n.IsExternal() {
+		return n.hasFreshExternalObservation()
+	}
+	return n.Status.MachineStatus.Phase == NodeReady
+}
+
+// hasFreshExternalObservation reports whether the provider observation still holds. Both
+// bounds must pass: ValidUntil is the provider's own claim, and the max age caps how long
+// that claim survives once the provider stops reporting. A missing observation is stale.
+func (n *Node) hasFreshExternalObservation() bool {
+	ext := n.Status.External
+	if ext == nil || ext.ObservedAt == nil || ext.ValidUntil == nil {
+		return false
+	}
+	now := nowFunc()
+	return now.Before(ext.ValidUntil.Time) && now.Sub(ext.ObservedAt.Time) < externalObservationMaxAge
+}
+
+// IsManaged returns true if the node is managed by the system. An external node never joins
+// through kubespray, so cluster ownership is the only condition it can satisfy.
 func (n *Node) IsManaged() bool {
-	return n != nil && n.Status.ClusterStatus.Phase == NodeManaged && GetClusterId(n) != ""
+	if n == nil {
+		return false
+	}
+	if n.IsExternal() {
+		return GetClusterId(n) != ""
+	}
+	return n.Status.ClusterStatus.Phase == NodeManaged && GetClusterId(n) != ""
 }
 
 // GetSpecCluster returns the cluster ID specified in the node spec.
@@ -249,6 +353,14 @@ func (n *Node) GetK8sNodeName() string {
 func (n *Node) GetPhase() NodePhase {
 	if n == nil {
 		return ""
+	}
+	if n.IsExternal() {
+		// MachineStatus is never written for external nodes, so reporting it would show an
+		// empty phase. Freshness of the provider observation is what decides availability.
+		if n.IsMachineReady() {
+			return NodeReady
+		}
+		return NodeExternalStale
 	}
 	if !n.IsMachineReady() {
 		return n.Status.MachineStatus.Phase

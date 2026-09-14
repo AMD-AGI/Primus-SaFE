@@ -23,7 +23,7 @@ type WorkloadStatusApplyConfiguration struct {
 	Conditions []applyconfigurationsmetav1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	// The status of workload, e.g. Pending, Running, Succeeded, Failed, Stopped, Updating
 	Phase *amdv1.WorkloadPhase `json:"phase,omitempty"`
-	// Some status descriptions of the workload. only for pending
+	// Scheduling explanations for Pending workloads and diagnostics for Failed workloads.
 	Message *string `json:"message,omitempty"`
 	// The current position of the workload in the queue, only for pending
 	QueuePosition *int `json:"queuePosition,omitempty"`
