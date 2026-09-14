@@ -8,12 +8,25 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 )
 
 // maxWorkloadNodesHistory is the number of past runs kept in nodes_history.
 const maxWorkloadNodesHistory = 10
+
+var (
+	selectWorkloadForNodesArchiveCmd = fmt.Sprintf(`SELECT
+		workload_id, dispatch_count, phase, start_time, end_time, nodes, nodes_history
+		FROM %s WHERE workload_id = $1 FOR UPDATE`, TWorkload)
+	listWorkloadDispatchNodesForArchiveCmd = fmt.Sprintf(
+		`SELECT * FROM %s WHERE workload_id = $1 ORDER BY dispatch_index`, TWorkloadDispatchNode)
+	updateWorkloadNodesHistoryCmd = fmt.Sprintf(
+		`UPDATE %s SET nodes_history = $1, nodes = NULL, ranks = NULL WHERE workload_id = $2`, TWorkload)
+	deleteWorkloadDispatchNodesForArchiveCmd = fmt.Sprintf(
+		`DELETE FROM %s WHERE workload_id = $1`, TWorkloadDispatchNode)
+)
 
 // WorkloadNodesHistoryEntry is the node assignment of one run of a workload id,
 // together with the minimal context needed to tell the runs apart. A resumed
@@ -40,29 +53,21 @@ func DecodeWorkloadNodesHistory(raw string) []WorkloadNodesHistoryEntry {
 	return entries
 }
 
-// isNewWorkloadRun reports whether cur is a new run of an already stored
-// workload id, which is what a resume produces: the same id with a fresh UID.
-func isNewWorkloadRun(old, cur *Workload) bool {
-	oldUid := dbutils.ParseNullString(old.WorkloadUId)
-	curUid := dbutils.ParseNullString(cur.WorkloadUId)
-	return oldUid != "" && curUid != "" && oldUid != curUid
-}
-
 // buildWorkloadNodesHistoryEntry snapshots the node assignment of the stored
 // run. Nodes come from the dispatch rows when the run was offloaded, and from
 // the mirrored nodes column otherwise. It returns nil when the run never got
 // any node, which leaves nothing worth archiving.
-func buildWorkloadNodesHistoryEntry(old *Workload, rows []*WorkloadDispatchNode) *WorkloadNodesHistoryEntry {
+func buildWorkloadNodesHistoryEntry(old *Workload, rows []*WorkloadDispatchNode) (*WorkloadNodesHistoryEntry, error) {
 	nodes := DispatchNodesToV1(rows)
 	if len(nodes) == 0 {
 		if raw := dbutils.ParseNullString(old.Nodes); raw != "" {
 			if err := json.Unmarshal([]byte(raw), &nodes); err != nil {
-				nodes = nil
+				return nil, fmt.Errorf("decode workload nodes: %w", err)
 			}
 		}
 	}
 	if len(nodes) == 0 {
-		return nil
+		return nil, nil
 	}
 	return &WorkloadNodesHistoryEntry{
 		DispatchCount: old.DispatchCount,
@@ -70,13 +75,19 @@ func buildWorkloadNodesHistoryEntry(old *Workload, rows []*WorkloadDispatchNode)
 		StartTime:     dbutils.ParseNullTimeToString(old.StartTime),
 		EndTime:       dbutils.ParseNullTimeToString(old.EndTime),
 		Nodes:         nodes,
-	}
+	}, nil
 }
 
 // appendWorkloadNodesHistory appends entry to raw and keeps the most recent
 // maxWorkloadNodesHistory runs.
 func appendWorkloadNodesHistory(raw string, entry *WorkloadNodesHistoryEntry) (string, error) {
-	entries := append(DecodeWorkloadNodesHistory(raw), *entry)
+	var entries []WorkloadNodesHistoryEntry
+	if raw != "" {
+		if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+			return "", fmt.Errorf("decode workload nodes history: %w", err)
+		}
+	}
+	entries = append(entries, *entry)
 	if len(entries) > maxWorkloadNodesHistory {
 		entries = entries[len(entries)-maxWorkloadNodesHistory:]
 	}
@@ -87,29 +98,47 @@ func appendWorkloadNodesHistory(raw string, entry *WorkloadNodesHistoryEntry) (s
 	return string(encoded), nil
 }
 
-// prepareWorkloadNodesHistory fills cur.NodesHistory so the update that
-// overwrites the stored run carries the history forward, appending that run
-// when cur starts a new one. It reports whether a new run was detected, in
-// which case the caller drops the dispatch rows of the previous run once the
-// update lands. Carrying the column in the same update keeps the archive tied
-// to the UID change: a failed update archives nothing and is retried as a whole.
-func (c *Client) prepareWorkloadNodesHistory(ctx context.Context, old, cur *Workload) (bool, error) {
-	cur.NodesHistory = old.NodesHistory
-	if !isNewWorkloadRun(old, cur) {
-		return false, nil
+// ArchiveWorkloadNodesForResume moves the node assignment of the stored run
+// into nodes_history immediately before a resumed workload is created. The
+// archive and dispatch-row cleanup are atomic, so a failed cleanup is retried
+// without exposing a partially archived run.
+func (c *Client) ArchiveWorkloadNodesForResume(ctx context.Context, workloadId string) error {
+	if workloadId == "" {
+		return fmt.Errorf("workloadId is empty")
 	}
-	rows, err := c.ListWorkloadDispatchNodes(ctx, old.WorkloadId)
+	db, err := c.getDB()
 	if err != nil {
-		return false, err
+		return err
 	}
-	entry := buildWorkloadNodesHistoryEntry(old, rows)
-	if entry == nil {
-		return true, nil
-	}
-	history, err := appendWorkloadNodesHistory(dbutils.ParseNullString(old.NodesHistory), entry)
+	tx, err := db.BeginTxx(ctx, nil)
 	if err != nil {
-		return false, err
+		return err
 	}
-	cur.NodesHistory = dbutils.NullString(history)
-	return true, nil
+	defer func() { _ = tx.Rollback() }()
+
+	old := &Workload{}
+	if err = tx.GetContext(ctx, old, selectWorkloadForNodesArchiveCmd, workloadId); err != nil {
+		return err
+	}
+	var rows []*WorkloadDispatchNode
+	if err = tx.SelectContext(ctx, &rows, listWorkloadDispatchNodesForArchiveCmd, workloadId); err != nil {
+		return err
+	}
+	entry, err := buildWorkloadNodesHistoryEntry(old, rows)
+	if err != nil {
+		return err
+	}
+	if entry != nil {
+		history, err := appendWorkloadNodesHistory(dbutils.ParseNullString(old.NodesHistory), entry)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, updateWorkloadNodesHistoryCmd, history, workloadId); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.ExecContext(ctx, deleteWorkloadDispatchNodesForArchiveCmd, workloadId); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

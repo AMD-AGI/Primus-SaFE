@@ -45,6 +45,7 @@ type Interface interface {
 
 type WorkloadInterface interface {
 	UpsertWorkload(ctx context.Context, workload *Workload) error
+	ArchiveWorkloadNodesForResume(ctx context.Context, workloadId string) error
 	SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Workload, error)
 	SelectWorkloadsForList(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Workload, error)
 	GetWorkload(ctx context.Context, workloadId string) (*Workload, error)

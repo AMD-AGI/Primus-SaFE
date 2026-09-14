@@ -65,6 +65,20 @@ func (mr *MockInterfaceMockRecorder) AppendOptimizationEvent(ctx, event interfac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendOptimizationEvent", reflect.TypeOf((*MockInterface)(nil).AppendOptimizationEvent), ctx, event)
 }
 
+// ArchiveWorkloadNodesForResume mocks base method.
+func (m *MockInterface) ArchiveWorkloadNodesForResume(ctx context.Context, workloadId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ArchiveWorkloadNodesForResume", ctx, workloadId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ArchiveWorkloadNodesForResume indicates an expected call of ArchiveWorkloadNodesForResume.
+func (mr *MockInterfaceMockRecorder) ArchiveWorkloadNodesForResume(ctx, workloadId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveWorkloadNodesForResume", reflect.TypeOf((*MockInterface)(nil).ArchiveWorkloadNodesForResume), ctx, workloadId)
+}
+
 // OptimizationEventSeq mocks base method.
 func (m *MockInterface) OptimizationEventSeq(ctx context.Context, taskID, eventID string) (int64, bool, error) {
 	m.ctrl.T.Helper()
@@ -2478,6 +2492,20 @@ func NewMockWorkloadInterface(ctrl *gomock.Controller) *MockWorkloadInterface {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockWorkloadInterface) EXPECT() *MockWorkloadInterfaceMockRecorder {
 	return m.recorder
+}
+
+// ArchiveWorkloadNodesForResume mocks base method.
+func (m *MockWorkloadInterface) ArchiveWorkloadNodesForResume(ctx context.Context, workloadId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ArchiveWorkloadNodesForResume", ctx, workloadId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ArchiveWorkloadNodesForResume indicates an expected call of ArchiveWorkloadNodesForResume.
+func (mr *MockWorkloadInterfaceMockRecorder) ArchiveWorkloadNodesForResume(ctx, workloadId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveWorkloadNodesForResume", reflect.TypeOf((*MockWorkloadInterface)(nil).ArchiveWorkloadNodesForResume), ctx, workloadId)
 }
 
 // CountWorkloads mocks base method.

@@ -495,6 +495,48 @@ func Test_createWorkloadImpl(t *testing.T) {
 	assert.Equal(t, createdWorkload.Status.Phase, v1.WorkloadPending)
 }
 
+// TestCreateWorkloadImplWithHook verifies that the hook runs after validation
+// but before the workload becomes visible to controllers.
+func TestCreateWorkloadImplWithHook(t *testing.T) {
+	clusterId := "test-cluster"
+	workspaceId := "test-workspace"
+	workload := genMockWorkload(clusterId, workspaceId)
+	user := genMockUser()
+	role := genMockRole()
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(user, role).
+		WithScheme(scheme.Scheme).
+		WithStatusSubresource(workload).
+		Build()
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        k8sfake.NewSimpleClientset(),
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.UserName, v1.GetUserName(user))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/workloads", nil)
+
+	hookCalled := false
+	resp, err := h.createWorkloadImplWithHook(c, workload, user, []*v1.Role{role}, func(ctx context.Context) error {
+		hookCalled = true
+		stored := &v1.Workload{}
+		err := h.Get(ctx, client.ObjectKey{Name: workload.Name}, stored)
+		if !apierrors.IsNotFound(err) {
+			t.Fatalf("workload became visible before hook: %v", err)
+		}
+		return nil
+	})
+
+	assert.NilError(t, err)
+	assert.Assert(t, resp != nil, "Response should not be nil")
+	assert.Assert(t, hookCalled, "Hook should be called")
+	stored := &v1.Workload{}
+	assert.NilError(t, h.Get(context.Background(), client.ObjectKey{Name: workload.Name}, stored))
+}
+
 // Test_createWorkloadImpl_WithSecrets tests creating workload with secrets
 func Test_createWorkloadImpl_WithSecrets(t *testing.T) {
 	ctx := context.Background()

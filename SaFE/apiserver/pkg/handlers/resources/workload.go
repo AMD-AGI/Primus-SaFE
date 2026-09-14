@@ -210,6 +210,13 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 // Handles authorization checks, workload creation in etcd, and initial phase setting.
 func (h *Handler) createWorkloadImpl(c *gin.Context,
 	workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) (*view.CreateWorkloadResponse, error) {
+	return h.createWorkloadImplWithHook(c, workload, requestUser, roles, nil)
+}
+
+// createWorkloadImplWithHook validates and authorizes the workload, then calls
+// beforeCreate immediately before persisting it.
+func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Workload,
+	requestUser *v1.User, roles []*v1.Role, beforeCreate func(context.Context) error) (*view.CreateWorkloadResponse, error) {
 	var err error
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		klog.ErrorS(err, "failed to auth workload", "workload", workload.Name,
@@ -245,6 +252,11 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 	}
 	if v1.GetUserName(workload) == "" {
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserName(requestUser))
+	}
+	if beforeCreate != nil {
+		if err = beforeCreate(c.Request.Context()); err != nil {
+			return nil, err
+		}
 	}
 	if err = h.Create(c.Request.Context(), workload); err != nil {
 		return nil, err
@@ -1821,7 +1833,9 @@ func (h *Handler) resumeWorkload(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 	roles := h.accessController.GetRoles(ctx, requestUser)
-	return h.createWorkloadImpl(c, adminWorkload, requestUser, roles)
+	return h.createWorkloadImplWithHook(c, adminWorkload, requestUser, roles, func(ctx context.Context) error {
+		return h.dbClient.ArchiveWorkloadNodesForResume(ctx, workloadId)
+	})
 }
 
 func cvtToWorkloadResources(dbWorkload *dbclient.Workload, kind string) []v1.WorkloadResource {
