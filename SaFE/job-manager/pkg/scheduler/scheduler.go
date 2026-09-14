@@ -202,11 +202,22 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 		return ctrlruntime.Result{}, err
 	}
 
+	// Withdraw the reservation once the workload is finished. The resources stay charged
+	// to the workspace until the provider confirms the release, so this has to keep asking
+	// rather than assume the first call settled it.
+	stillReclaiming, err := r.reconcileExternalRelease(ctx, workload)
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+
 	msg := &SchedulerMessage{
 		ClusterId:   v1.GetClusterId(workload),
 		WorkspaceId: workload.Spec.Workspace,
 	}
 	r.Add(msg)
+	if stillReclaiming {
+		return ctrlruntime.Result{RequeueAfter: externalReleaseRetry}, nil
+	}
 	return ctrlruntime.Result{}, nil
 }
 
@@ -523,6 +534,13 @@ func (r *SchedulerReconciler) getWorkspace(ctx context.Context, workspaceId stri
 func (r *SchedulerReconciler) getUnfinishedWorkloads(ctx context.Context,
 	workspace *v1.Workspace) ([]*v1.Workload, []*v1.Workload, error) {
 	filterFunc := func(w *v1.Workload) bool {
+		// A finished workload whose external reservation has not been confirmed released
+		// still holds devices on the provider side. Dropping it from the accounting here
+		// would offer the next workload capacity that is not free yet, and the claim
+		// transaction would refuse it -- after this side had already admitted it.
+		if w.IsEnd() && isExternalReclaiming(w) {
+			return false
+		}
 		return w.IsEnd()
 	}
 	workloads, err := commonworkload.GetWorkloadsOfWorkspace(ctx, r.Client,

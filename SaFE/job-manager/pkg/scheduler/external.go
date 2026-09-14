@@ -40,6 +40,74 @@ const (
 // window, not a limit on how long an already running task may run.
 const demandExpiry = 5 * time.Minute
 
+// externalReleaseRetry paces the wait for a release to be confirmed. Revoking is not a
+// terminal answer: it says the withdrawal was recorded, and the devices come back only when
+// the provider has stopped the task and verified its cleanup.
+const externalReleaseRetry = 15 * time.Second
+
+// isExternalReclaiming reports whether a workload still holds provider capacity. It stays
+// true from the moment a claim is created until the provider reports it released, which is
+// what keeps the resources charged to the workspace across the workload's own end.
+func isExternalReclaiming(workload *v1.Workload) bool {
+	state := workload.Status.ExternalExecution
+	return state != nil && state.ClaimId != "" && state.ClaimPhase != execution.ClaimPhaseReleased
+}
+
+// reconcileExternalRelease withdraws the reservation of a finished workload and reports
+// whether the provider has yet to confirm it.
+//
+// Neither the workload ending nor the release call returning means the devices are free.
+// The provider has to stop the task and verify its cleanup first, and until it says
+// Released the reservation keeps counting against the workspace. Time passing, the pod
+// disappearing and the release being acknowledged are all not evidence of that.
+func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
+	workload *v1.Workload) (bool, error) {
+	if !workload.IsEnd() || !isExternalReclaiming(workload) {
+		return false, nil
+	}
+	state := workload.Status.ExternalExecution
+	client, err := execution.Shared()
+	if err != nil {
+		return false, err
+	}
+	claim, err := client.ReleaseClaim(ctx, state.ClaimId, &execution.ReleaseRequest{
+		RequestID:          uuid.NewString(),
+		ExpectedRevision:   state.ClaimRevision,
+		DispatchGeneration: state.DispatchGeneration,
+		Reason:             string(workload.Status.Phase),
+	})
+	if err != nil {
+		// A reservation the provider no longer knows about cannot be holding anything. Any
+		// other failure leaves the state alone, so the resources stay charged.
+		if execution.IsCode(err, execution.CodeNotFound) {
+			return false, r.markClaimReleased(ctx, workload, state)
+		}
+		return false, err
+	}
+
+	updated := state.DeepCopy()
+	updated.ClaimPhase = claim.Phase
+	updated.ClaimRevision = claim.Revision
+	updated.Reclaiming = claim.Phase != execution.ClaimPhaseReleased
+	if err = r.patchExternalState(ctx, workload, updated); err != nil {
+		return false, err
+	}
+	if updated.Reclaiming {
+		klog.V(2).InfoS("external claim is not released yet", "workload", workload.Name,
+			"claim", state.ClaimId, "phase", claim.Phase)
+	}
+	return updated.Reclaiming, nil
+}
+
+// markClaimReleased records that a reservation no longer exists on the provider.
+func (r *SchedulerReconciler) markClaimReleased(ctx context.Context, workload *v1.Workload,
+	state *v1.WorkloadExternalExecution) error {
+	updated := state.DeepCopy()
+	updated.ClaimPhase = execution.ClaimPhaseReleased
+	updated.Reclaiming = false
+	return r.patchExternalState(ctx, workload, updated)
+}
+
 // publishExternalDemand records a workload's unmet need with the capacity provider so it
 // can acquire nodes.
 //

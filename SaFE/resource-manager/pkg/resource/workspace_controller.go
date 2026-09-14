@@ -1118,7 +1118,14 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 			availResources = quantity.AddResource(availResources, node.Status.Resources)
 			availReplica++
 		} else {
-			abnormalResources = quantity.AddResource(abnormalResources, nf.ToResourceList(commonconfig.GetRdmaName()))
+			// A physical node that is unhealthy still exists, and charging the flavor's
+			// full resources reflects hardware the workspace continues to hold. A stale
+			// virtual node is different: the allocation behind it may already be gone, so
+			// the same accounting would advertise capacity that nobody holds.
+			if !node.IsExternal() {
+				abnormalResources = quantity.AddResource(abnormalResources,
+					nf.ToResourceList(commonconfig.GetRdmaName()))
+			}
 			abnormalReplica++
 		}
 	}
