@@ -154,6 +154,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.UserSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Workload"):
 		return &amdv1.WorkloadApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("WorkloadExternalExecution"):
+		return &amdv1.WorkloadExternalExecutionApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("WorkloadExternalPlacement"):
+		return &amdv1.WorkloadExternalPlacementApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("WorkloadPod"):
 		return &amdv1.WorkloadPodApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("WorkloadResource"):
