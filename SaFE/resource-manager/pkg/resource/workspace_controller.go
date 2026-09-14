@@ -844,6 +844,25 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	if err = r.syncWorkspace(ctx, workspace); err != nil {
 		return ctrlruntime.Result{}, err
 	}
+	if v1.IsExternalWorkspace(workspace) {
+		// Capacity for an external workspace is decided by the provider's pool, not by
+		// spec.Replica. Running the scaling switch below would read the virtual nodes the
+		// provider just published as a surplus over a replica count that is deliberately
+		// left unset, and scale down would answer by clearing spec.workspace on them --
+		// taking away the capacity that was just delivered.
+		//
+		// The short requeue is what makes the observation freshness check effective. The
+		// controller's own backstop is fifteen minutes, and the events that would otherwise
+		// drive a reconcile stop arriving in exactly the case freshness exists to catch:
+		// the execution cluster becoming unreachable.
+		result := actionResult
+		if resync := commonconfig.GetExternalWorkspaceResync(); resync > 0 &&
+			(result.RequeueAfter == 0 || resync < result.RequeueAfter) {
+			result.RequeueAfter = resync
+		}
+		return result, nil
+	}
+
 	if workspace.Spec.NodeFlavor == "" {
 		// A workspace with no flavor does no scaling, but it can still be in the middle of
 		// handing a node over -- it is what a workspace looks like before its first node
@@ -990,6 +1009,12 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 // and only that target may claim it.
 func isNodeEligibleForScalingUp(node *v1.Node, workspace *v1.Workspace) bool {
 	if !node.IsMachineReady() || !node.IsManaged() {
+		return false
+	}
+	// A virtual node satisfies both predicates above while it is idle, and a native
+	// workspace short of a replica would otherwise pick it up. Its capacity belongs to the
+	// provider's pool and is handed out through claims, not by binding it to a workspace.
+	if node.IsExternal() {
 		return false
 	}
 	if node.GetSpecWorkspace() != "" || v1.GetWorkspaceId(node) != "" {
