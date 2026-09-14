@@ -71,6 +71,8 @@ type Workload struct {
 	ScaleRunnerSet      sql.NullString `db:"scale_runner_set"`
 	ScaleRunnerId       sql.NullString `db:"scale_runner_id"`
 	NodesAffinity       sql.NullString `db:"nodes_affinity"`
+	// JSON-encoded []WorkloadNodesHistoryEntry
+	NodesHistory sql.NullString `db:"nodes_history"`
 }
 
 // GetWorkloadFieldTags returns the WorkloadFieldTags value.

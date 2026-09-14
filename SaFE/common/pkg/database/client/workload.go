@@ -52,6 +52,7 @@ var (
 		    cron_jobs = :cron_jobs,
 		    service = :service,
 		    workload_uid = :workload_uid,
+		    nodes_history = :nodes_history,
 		    is_privileged = :is_privileged 
 		WHERE workload_id = :workload_id`, TWorkload)
 )
@@ -72,15 +73,26 @@ func (c *Client) UpsertWorkload(ctx context.Context, workload *Workload) error {
 		return err
 	}
 	if len(workloads) > 0 && workloads[0] != nil {
-		_, err = db.NamedExecContext(ctx, updateWorkloadCmd, workload)
+		// A resumed workload reuses the id, so archive the node assignment of the
+		// stored run before this update overwrites it.
+		newRun, err := c.prepareWorkloadNodesHistory(ctx, workloads[0], workload)
 		if err != nil {
+			return err
+		}
+		if _, err = db.NamedExecContext(ctx, updateWorkloadCmd, workload); err != nil {
 			klog.ErrorS(err, "failed to upsert workload db", "id", workload.WorkloadId)
+			return err
 		}
-	} else {
-		_, err = db.NamedExecContext(ctx, generateCommand(*workload, insertWorkloadFormat, "id"), workload)
-		if err != nil {
-			klog.ErrorS(err, "failed to insert workload db", "id", workload.WorkloadId)
+		if newRun {
+			// The new run restarts dispatch indexes, so rows of the previous run
+			// would otherwise survive and be read back as part of this run.
+			return c.DeleteWorkloadDispatchNodes(ctx, workload.WorkloadId)
 		}
+		return nil
+	}
+	_, err = db.NamedExecContext(ctx, generateCommand(*workload, insertWorkloadFormat, "id"), workload)
+	if err != nil {
+		klog.ErrorS(err, "failed to insert workload db", "id", workload.WorkloadId)
 	}
 	return err
 }

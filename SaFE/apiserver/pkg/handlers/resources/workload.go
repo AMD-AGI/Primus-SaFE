@@ -1529,6 +1529,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		}
 	}
 	result.Nodes, result.Ranks = compactDispatchNodeHistory(result.Nodes, result.Ranks)
+	result.NodesHistory = cvtToWorkloadNodesHistory(dbutils.ParseNullString(dbWorkload.NodesHistory))
 	if str := dbutils.ParseNullString(dbWorkload.CustomerLabels); str != "" {
 		var customerLabels map[string]string
 		json.Unmarshal([]byte(str), &customerLabels)
@@ -1607,6 +1608,27 @@ func (h *Handler) listOffloadedDispatchNodes(ctx context.Context, workloadId str
 		return nil
 	}
 	return rows
+}
+
+// cvtToWorkloadNodesHistory renders the archived node assignment of the runs
+// that earlier shared this workload id.
+func cvtToWorkloadNodesHistory(raw string) []view.WorkloadNodesHistoryItem {
+	entries := dbclient.DecodeWorkloadNodesHistory(raw)
+	if len(entries) == 0 {
+		return nil
+	}
+	items := make([]view.WorkloadNodesHistoryItem, 0, len(entries))
+	for _, entry := range entries {
+		nodes, _ := compactDispatchNodeHistory(entry.Nodes, nil)
+		items = append(items, view.WorkloadNodesHistoryItem{
+			DispatchCount: entry.DispatchCount,
+			Phase:         entry.Phase,
+			StartTime:     entry.StartTime,
+			EndTime:       entry.EndTime,
+			Nodes:         nodes,
+		})
+	}
+	return items
 }
 
 func compactDispatchNodesAndRanks(nodes, ranks []string) ([]string, []string) {
