@@ -10,11 +10,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -39,6 +41,10 @@ const (
 // demandExpiry bounds how long an unconsumed demand stays actionable. It is the admission
 // window, not a limit on how long an already running task may run.
 const demandExpiry = 5 * time.Minute
+
+// demandRefreshMargin republishes a demand before it lapses, so the provider is never left
+// without a current statement of need while the workload is still queued.
+const demandRefreshMargin = time.Minute
 
 // externalReleaseRetry paces the wait for a release to be confirmed. Revoking is not a
 // terminal answer: it says the withdrawal was recorded, and the devices come back only when
@@ -118,18 +124,42 @@ func (r *SchedulerReconciler) markClaimReleased(ctx context.Context, workload *v
 	return r.patchExternalState(ctx, workload, updated)
 }
 
-// publishExternalDemand records a workload's unmet need with the capacity provider so it
-// can acquire nodes.
+// admitExternalCapacity runs the whole external admission for one queued workload: state
+// the need, then try to take a seat.
 //
-// Only a genuine shortage is published. A workload waiting on a dependency, a start time
-// or a pause has no unmet capacity need, and asking the provider to buy hardware for it
-// would grow the pool for work that is not ready to run.
-func (r *SchedulerReconciler) publishExternalDemand(ctx context.Context, workload *v1.Workload,
-	workspace *v1.Workspace) error {
-	client, err := execution.Shared()
-	if err != nil {
-		return err
+// There is no local capacity test in front of this. Whether the devices exist is the
+// provider's judgement, and the only thing this side can see -- the aggregate of the nodes
+// the provider has already published -- says nothing about what it could still acquire.
+// Gating on it would withhold the demand exactly when acquisition is needed, and since a
+// failed plan produces no demand either, the workload would queue forever with nobody
+// asked to buy anything.
+//
+// Publishing unconditionally does not cause over-buying: the provider subtracts its ready
+// layout and its in-flight requests before acting on a demand.
+func (r *SchedulerReconciler) admitExternalCapacity(ctx context.Context, workload *v1.Workload,
+	workspace *v1.Workspace) (bool, string, error) {
+	if err := r.ensureExternalDemand(ctx, workload, workspace); err != nil {
+		var unsupported *unsupportedShapeError
+		if errors.As(err, &unsupported) {
+			// The shape cannot be expressed as a unit at all, so no amount of capacity
+			// would help. Surfaced as a rejection rather than a wait.
+			klog.ErrorS(err, "workload shape is not supported by external capacity",
+				"workload", workload.Name)
+			return false, ExternalUnsupportedReason, nil
+		}
+		return false, externalWaitingReason(err), nil
 	}
+	return r.reserveExternalCapacity(ctx, workload, workspace)
+}
+
+// ensureExternalDemand keeps a current statement of need on file with the provider.
+//
+// A revision is republished only when there is none or the present one is close to
+// lapsing. The contract refuses a revision whose body changed, and the body carries its own
+// observation time, so re-sending on every pass would either turn an intended replay into a
+// conflict or make the revision climb without end.
+func (r *SchedulerReconciler) ensureExternalDemand(ctx context.Context, workload *v1.Workload,
+	workspace *v1.Workspace) error {
 	units, err := buildDemandUnits(workload, workspace)
 	if err != nil {
 		return err
@@ -138,15 +168,35 @@ func (r *SchedulerReconciler) publishExternalDemand(ctx context.Context, workloa
 	if err != nil {
 		return err
 	}
+	if !demandNeedsRefresh(state) {
+		return nil
+	}
 
-	profileID, profileRevision := commonconfig.GetExternalExecutionProfile()
+	// Persisted before the call, like every other identifier here: a reply that never
+	// arrives is then reconciled by replaying this exact revision and body.
 	now := time.Now().UTC()
-	demand := &execution.CapacityDemand{
-		RequestID:                state.DemandRequestId,
-		DemandID:                 state.DemandId,
-		Revision:                 state.DemandRevision,
+	observedAt := metav1.NewTime(now)
+	expiresAt := metav1.NewTime(now.Add(demandExpiry))
+	next := state.DeepCopy()
+	next.DemandRevision = state.DemandRevision + 1
+	next.DemandRequestId = uuid.NewString()
+	next.DemandObservedAt = &observedAt
+	next.DemandExpiresAt = &expiresAt
+	if err = r.patchExternalState(ctx, workload, next); err != nil {
+		return err
+	}
+
+	client, err := execution.Shared()
+	if err != nil {
+		return err
+	}
+	profileID, profileRevision := commonconfig.GetExternalExecutionProfile()
+	if _, err = client.PublishDemand(ctx, &execution.CapacityDemand{
+		RequestID:                next.DemandRequestId,
+		DemandID:                 next.DemandId,
+		Revision:                 next.DemandRevision,
 		WorkloadUID:              string(workload.UID),
-		DispatchGeneration:       state.DispatchGeneration,
+		DispatchGeneration:       next.DispatchGeneration,
 		ClusterID:                workspace.Spec.Cluster,
 		WorkspaceID:              workspace.Name,
 		ProfileID:                profileID,
@@ -158,14 +208,28 @@ func (r *SchedulerReconciler) publishExternalDemand(ctx context.Context, workloa
 		Units:                    units,
 		ObservedAt:               execution.NewTimestamp(now),
 		ExpiresAt:                execution.NewTimestamp(now.Add(demandExpiry)),
-	}
-	if _, err = client.PublishDemand(ctx, demand); err != nil {
+	}); err != nil {
 		return err
 	}
 	klog.V(2).InfoS("published external capacity demand", "workload", workload.Name,
-		"demand", state.DemandId, "revision", state.DemandRevision)
+		"demand", next.DemandId, "revision", next.DemandRevision)
 	return nil
 }
+
+// demandNeedsRefresh reports whether a new revision has to be published.
+func demandNeedsRefresh(state *v1.WorkloadExternalExecution) bool {
+	if state.DemandRevision == 0 || state.DemandExpiresAt == nil {
+		return true
+	}
+	return time.Now().UTC().After(state.DemandExpiresAt.Time.Add(-demandRefreshMargin))
+}
+
+// unsupportedShapeError marks a workload the contract cannot express, as opposed to one
+// that is merely waiting. The two must not share a reason: a wait implies more capacity
+// would eventually help, and here none would.
+type unsupportedShapeError struct{ reason string }
+
+func (e *unsupportedShapeError) Error() string { return e.reason }
 
 // withdrawExternalDemand tells the provider to stop acquiring capacity for a workload that
 // is no longer waiting on it. Withdrawing the demand does not release a claim that was
@@ -311,11 +375,11 @@ func (r *SchedulerReconciler) ensureExternalState(ctx context.Context,
 
 	// A new dispatch generation is a new attempt and gets its own identifiers. Reusing the
 	// previous claim id would attach this attempt to a reservation made for the last one.
+	// DemandRevision stays zero: ensureExternalDemand owns it and publishes the first
+	// revision together with the observation window that has to stay fixed inside it.
 	state := &v1.WorkloadExternalExecution{
 		DispatchGeneration: generation,
 		DemandId:           uuid.NewString(),
-		DemandRevision:     1,
-		DemandRequestId:    uuid.NewString(),
 		ClaimId:            uuid.NewString(),
 		ClaimRequestId:     uuid.NewString(),
 	}
@@ -344,18 +408,18 @@ func (r *SchedulerReconciler) patchExternalState(ctx context.Context, workload *
 // instruction for that case: the alternative is every replica claiming the same unit key.
 func buildDemandUnits(workload *v1.Workload, workspace *v1.Workspace) ([]execution.DemandUnit, error) {
 	if len(workload.Spec.Resources) != 1 || workload.Spec.Resources[0].Replica != 1 {
-		return nil, fmt.Errorf("external capacity supports single replica workloads only")
+		return nil, &unsupportedShapeError{"external capacity supports single replica workloads only"}
 	}
 	res := &workload.Spec.Resources[0]
 	if !res.HasGpu() {
-		return nil, fmt.Errorf("external capacity requires a gpu request")
+		return nil, &unsupportedShapeError{"external capacity requires a gpu request"}
 	}
 	resources, err := toResourceVector(res, workspace)
 	if err != nil {
 		return nil, err
 	}
 	if len(workload.Spec.Images) == 0 || workload.Spec.Images[0] == "" {
-		return nil, fmt.Errorf("external capacity requires an image reference")
+		return nil, &unsupportedShapeError{"external capacity requires an image reference"}
 	}
 
 	constraints := execution.PlacementConstraints{

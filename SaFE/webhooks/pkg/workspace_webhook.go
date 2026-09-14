@@ -645,9 +645,13 @@ func (m *WorkspaceMutator) mutateWorkloadsOfWorkspace(ctx context.Context, works
 	if err != nil {
 		return err
 	}
+	// Same rule as on workload admission: an external workspace never carries the mark, so
+	// turning the setting on later cannot start preempting work whose capacity the provider
+	// has not confirmed released.
+	enablePreempt := workspace.Spec.EnablePreempt && !v1.IsExternalWorkspace(workspace)
 	for _, w := range workloads {
 		isChanged := false
-		if workspace.Spec.EnablePreempt {
+		if enablePreempt {
 			if v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr) {
 				isChanged = true
 			}

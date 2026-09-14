@@ -445,6 +445,24 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		return false, reason, nil
 	}
 
+	// External capacity is arbitrated by the provider, so the local resource comparison
+	// below does not apply. It measures only what the provider has already published,
+	// which says nothing about what it could still acquire -- and using it as a gate would
+	// withhold the demand precisely when acquisition is what the workload is waiting for.
+	//
+	// This also runs ahead of preempt, which is deliberate. Marking a victim preempted
+	// records an intent, not a release: the devices return only after the provider has
+	// stopped the task and verified cleanup, so the capacity a preemptor was admitted
+	// against would not exist yet. The workload webhook already withholds the preempt mark
+	// on this path; keeping the branch here means the ordering does not depend on it.
+	//
+	// The checks above still apply: a workload waiting on a dependency, a start time or a
+	// pause has already returned, so nothing asks the provider to buy hardware for work
+	// that cannot start.
+	if v1.IsExternalWorkspace(workspace) {
+		return r.admitExternalCapacity(ctx, requestWorkload, workspace)
+	}
+
 	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
 	isPreemptable := false
 	if !hasEnoughQuota {
@@ -456,26 +474,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 			requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
 			string(jsonutils.MarshalSilently(leftResources)))
 		jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonInsufficient).Inc()
-		// The shortage is real and the workload is otherwise ready to run, so this is the
-		// point where the provider is asked to acquire capacity. The checks above have
-		// already excluded the workloads that are waiting on a dependency, a start time or
-		// a pause: those have no unmet capacity need, and buying hardware for them would
-		// grow the pool for work that cannot start anyway.
-		if v1.IsExternalWorkspace(workspace) {
-			if demandErr := r.publishExternalDemand(ctx, requestWorkload, workspace); demandErr != nil {
-				klog.ErrorS(demandErr, "failed to publish external capacity demand",
-					"workload", requestWorkload.Name)
-				return false, externalWaitingReason(demandErr), nil
-			}
-			return false, ExternalCapacityReason, nil
-		}
 		return false, reason, nil
-	}
-	// Local accounting says the capacity is there, but on the external path the provider
-	// owns the devices and arbitrates between workspaces. Nothing may leave the queue until
-	// it has granted a reservation for this exact workload and generation.
-	if v1.IsExternalWorkspace(workspace) {
-		return r.reserveExternalCapacity(ctx, requestWorkload, workspace)
 	}
 	return true, "", nil
 }

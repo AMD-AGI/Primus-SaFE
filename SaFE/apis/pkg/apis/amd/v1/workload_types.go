@@ -257,6 +257,12 @@ type WorkloadExternalExecution struct {
 	DemandId        string `json:"demandId,omitempty"`
 	DemandRevision  int32  `json:"demandRevision,omitempty"`
 	DemandRequestId string `json:"demandRequestId,omitempty"`
+	// Observation and expiry of the current demand revision. They are stored rather than
+	// recomputed because the contract refuses a revision whose body changed, and both
+	// timestamps are part of that body: taking the clock again on every pass would turn an
+	// intended replay into a conflict.
+	DemandObservedAt *metav1.Time `json:"demandObservedAt,omitempty"`
+	DemandExpiresAt  *metav1.Time `json:"demandExpiresAt,omitempty"`
 	// Claim identity, the request id that created it and the phase last observed
 	ClaimId        string `json:"claimId,omitempty"`
 	ClaimRequestId string `json:"claimRequestId,omitempty"`

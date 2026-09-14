@@ -6,6 +6,10 @@
 
 package v1
 
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
 // WorkloadExternalExecutionApplyConfiguration represents a declarative configuration of the WorkloadExternalExecution type for use
 // with apply.
 //
@@ -23,6 +27,12 @@ type WorkloadExternalExecutionApplyConfiguration struct {
 	DemandId        *string `json:"demandId,omitempty"`
 	DemandRevision  *int32  `json:"demandRevision,omitempty"`
 	DemandRequestId *string `json:"demandRequestId,omitempty"`
+	// Observation and expiry of the current demand revision. They are stored rather than
+	// recomputed because the contract refuses a revision whose body changed, and both
+	// timestamps are part of that body: taking the clock again on every pass would turn an
+	// intended replay into a conflict.
+	DemandObservedAt *metav1.Time `json:"demandObservedAt,omitempty"`
+	DemandExpiresAt  *metav1.Time `json:"demandExpiresAt,omitempty"`
 	// Claim identity, the request id that created it and the phase last observed
 	ClaimId        *string `json:"claimId,omitempty"`
 	ClaimRequestId *string `json:"claimRequestId,omitempty"`
@@ -73,6 +83,22 @@ func (b *WorkloadExternalExecutionApplyConfiguration) WithDemandRevision(value i
 // If called multiple times, the DemandRequestId field is set to the value of the last call.
 func (b *WorkloadExternalExecutionApplyConfiguration) WithDemandRequestId(value string) *WorkloadExternalExecutionApplyConfiguration {
 	b.DemandRequestId = &value
+	return b
+}
+
+// WithDemandObservedAt sets the DemandObservedAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DemandObservedAt field is set to the value of the last call.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithDemandObservedAt(value metav1.Time) *WorkloadExternalExecutionApplyConfiguration {
+	b.DemandObservedAt = &value
+	return b
+}
+
+// WithDemandExpiresAt sets the DemandExpiresAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DemandExpiresAt field is set to the value of the last call.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithDemandExpiresAt(value metav1.Time) *WorkloadExternalExecutionApplyConfiguration {
+	b.DemandExpiresAt = &value
 	return b
 }
 

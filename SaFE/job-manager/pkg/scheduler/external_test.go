@@ -6,6 +6,9 @@
 package scheduler
 
 import (
+	"errors"
+	"time"
+
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -138,6 +141,70 @@ func TestReclaimingHoldsCapacityUntilReleaseIsConfirmed(t *testing.T) {
 	workload.Status.ExternalExecution.ClaimPhase = execution.ClaimPhaseReleased
 	if isExternalReclaiming(workload) {
 		t.Fatal("a released claim holds nothing")
+	}
+}
+
+// A demand is republished only when there is none or the current one is close to lapsing.
+// Re-sending on every pass would either conflict with the stored revision, whose body
+// carries a fixed observation time, or make the revision climb without end.
+func TestDemandRefreshesOnlyWhenAbsentOrExpiring(t *testing.T) {
+	now := time.Now().UTC()
+	stamp := func(d time.Duration) *metav1.Time {
+		value := metav1.NewTime(now.Add(d))
+		return &value
+	}
+
+	cases := []struct {
+		name  string
+		state *v1.WorkloadExternalExecution
+		want  bool
+	}{
+		{"never published", &v1.WorkloadExternalExecution{}, true},
+		{
+			"published but no window recorded",
+			&v1.WorkloadExternalExecution{DemandRevision: 1},
+			true,
+		},
+		{
+			"window has room left",
+			&v1.WorkloadExternalExecution{DemandRevision: 1, DemandExpiresAt: stamp(demandExpiry)},
+			false,
+		},
+		{
+			"inside the refresh margin",
+			&v1.WorkloadExternalExecution{
+				DemandRevision:  1,
+				DemandExpiresAt: stamp(demandRefreshMargin / 2),
+			},
+			true,
+		},
+		{
+			"already lapsed",
+			&v1.WorkloadExternalExecution{DemandRevision: 3, DemandExpiresAt: stamp(-time.Minute)},
+			true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := demandNeedsRefresh(tc.state); got != tc.want {
+				t.Fatalf("demandNeedsRefresh() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+// An unsupported shape must not be reported as a wait. A wait implies more capacity would
+// eventually help; here no amount of it would, so the workload is rejected instead.
+func TestUnsupportedShapeIsDistinguishableFromAWait(t *testing.T) {
+	multiReplica := gpuWorkload()
+	multiReplica.Spec.Resources[0].Replica = 4
+	_, err := buildDemandUnits(multiReplica, externalWorkspace())
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	var unsupported *unsupportedShapeError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("expected an unsupportedShapeError, got %T", err)
 	}
 }
 

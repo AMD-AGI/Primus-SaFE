@@ -199,7 +199,12 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	if workspace != nil {
 		v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)
 		v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
-		if workspace.Spec.EnablePreempt {
+		// Preemption stays off on the external path regardless of the workspace setting.
+		// Marking a victim preempted only records an intent here; the devices come back
+		// when the provider has stopped the task and verified its cleanup, so the freed
+		// capacity the preemptor was admitted against would not exist yet. It can be
+		// enabled once stop and cleanup are closed end to end with the provider.
+		if workspace.Spec.EnablePreempt && !v1.IsExternalWorkspace(workspace) {
 			v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr)
 		}
 	}
