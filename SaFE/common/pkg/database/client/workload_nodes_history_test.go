@@ -121,6 +121,9 @@ func TestArchiveWorkloadNodesForResume(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadDispatchNodesForArchiveCmd)).
 		WithArgs("w1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadPodsForArchiveCmd)).
+		WithArgs("w1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	if err := c.ArchiveWorkloadNodesForResume(t.Context(), "w1"); err != nil {

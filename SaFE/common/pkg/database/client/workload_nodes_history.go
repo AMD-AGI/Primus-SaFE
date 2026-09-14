@@ -26,6 +26,8 @@ var (
 		`UPDATE %s SET nodes_history = $1, nodes = NULL, ranks = NULL WHERE workload_id = $2`, TWorkload)
 	deleteWorkloadDispatchNodesForArchiveCmd = fmt.Sprintf(
 		`DELETE FROM %s WHERE workload_id = $1`, TWorkloadDispatchNode)
+	deleteWorkloadPodsForArchiveCmd = fmt.Sprintf(
+		`DELETE FROM %s WHERE workload_id = $1`, TWorkloadPod)
 )
 
 // WorkloadNodesHistoryEntry is the node assignment of one run of a workload id,
@@ -100,8 +102,11 @@ func appendWorkloadNodesHistory(raw string, entry *WorkloadNodesHistoryEntry) (s
 
 // ArchiveWorkloadNodesForResume moves the node assignment of the stored run
 // into nodes_history immediately before a resumed workload is created. The
-// archive and dispatch-row cleanup are atomic, so a failed cleanup is retried
-// without exposing a partially archived run.
+// archive and the cleanup of the previous run's dispatch and pod rows are
+// atomic, so a failed cleanup is retried without exposing a partially archived
+// run. Pod rows are dropped too: a resumed job reuses the same pod id, and
+// leaving the previous run in place would hydrate as an unchanged assignment
+// and skip rewriting dispatch nodes.
 func (c *Client) ArchiveWorkloadNodesForResume(ctx context.Context, workloadId string) error {
 	if workloadId == "" {
 		return fmt.Errorf("workloadId is empty")
@@ -138,6 +143,9 @@ func (c *Client) ArchiveWorkloadNodesForResume(ctx context.Context, workloadId s
 		}
 	}
 	if _, err = tx.ExecContext(ctx, deleteWorkloadDispatchNodesForArchiveCmd, workloadId); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, deleteWorkloadPodsForArchiveCmd, workloadId); err != nil {
 		return err
 	}
 	return tx.Commit()

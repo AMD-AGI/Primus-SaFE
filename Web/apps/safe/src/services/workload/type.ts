@@ -72,6 +72,14 @@ export const PRIORITY_LABEL_MAP: Record<PriorityValue, 'Low' | 'Medium' | 'High'
   2: 'High',
 }
 
+export interface WorkloadNodesHistoryItem {
+  dispatchCount: number
+  phase?: string
+  startTime?: string
+  endTime?: string
+  nodes: string[][]
+}
+
 export interface WorkloadParams {
   workspaceId?: string
   clusterId?: string

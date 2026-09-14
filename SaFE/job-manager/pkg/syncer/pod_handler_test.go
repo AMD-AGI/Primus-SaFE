@@ -821,6 +821,8 @@ func settledPodWorkload(usage []v1.NodePodUsage) (*v1.Workload, *corev1.Pod, *co
 		},
 		Status: v1.WorkloadStatus{
 			NodeUsage: usage,
+			Nodes:     [][]string{{"n1"}},
+			Ranks:     [][]string{{"0"}},
 			Pods: []v1.WorkloadPod{{
 				PodId:         "p1",
 				ResourceId:    0,
@@ -865,6 +867,26 @@ func TestUpdateWorkloadNodeAndPodsSkipsUnchangedPod(t *testing.T) {
 	r := offloadedSyncer(t)
 	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, node)
 	assert.Equal(t, updated, false)
+}
+
+// TestUpdateWorkloadNodeAndPodsRefreshesEmptyDispatch covers a resumed
+// workload: hydrate still has the previous pod (same id/node) but dispatch
+// history was archived, so Nodes is empty. The pod looks unchanged; the
+// assignment still has to be rewritten.
+func TestUpdateWorkloadNodeAndPodsRefreshesEmptyDispatch(t *testing.T) {
+	w, pod, node := settledPodWorkload([]v1.NodePodUsage{{
+		Node:    "n1",
+		Active:  map[string]int{"0": 1},
+		Running: map[string]int{"0": 1},
+	}})
+	w.Status.Nodes = nil
+	w.Status.Ranks = nil
+
+	r := offloadedSyncer(t)
+	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, node)
+	assert.Equal(t, updated, true)
+	assert.Equal(t, len(w.Status.Nodes), 1)
+	assert.Equal(t, w.Status.Nodes[0][0], "n1")
 }
 
 // TestRepairNodeUsagePatchesAggregateOnly reproduces the placement lost to a

@@ -375,9 +375,9 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 			continue
 		}
 		id = i
-		//
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == v1.GetNodeId(k8sNode) &&
-			p.StartTime != "" && p.HostIp == pod.Status.HostIP {
+			p.StartTime != "" && p.HostIp == pod.Status.HostIP &&
+			len(adminWorkload.Status.Nodes) > 0 {
 			// Return early if no critical changes detected
 			return v1.WorkloadPod{}, "", false
 		}
@@ -397,6 +397,9 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 		adminWorkload.Status.Pods[id] = podInfo
 	} else {
 		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods, podInfo)
+		needUpdateNode = true
+	}
+	if len(adminWorkload.Status.Nodes) == 0 {
 		needUpdateNode = true
 	}
 	if commonworkload.IsRayJob(adminWorkload) {

@@ -123,6 +123,13 @@ func (r *SyncerReconciler) writeWorkloadStatusToDB(ctx context.Context, w *v1.Wo
 	if err := r.dbClient.DeleteWorkloadPodsNotIn(ctx, w.Name, keepPodIds); err != nil {
 		return err
 	}
+	// A resumed run archives and drops the previous dispatch rows. If this
+	// snapshot still has pods but no Nodes (common when the previous pod id is
+	// reused and hydrate found no dispatch history), rebuild from the pods so
+	// the current assignment is written.
+	if len(w.Status.Nodes) == 0 && len(w.Status.Pods) > 0 {
+		r.updateWorkloadNodes(w)
+	}
 	for _, row := range dbclient.WorkloadDispatchNodesFromV1(w.Name, w.Status.Nodes, w.Status.Ranks) {
 		if row == nil {
 			continue
