@@ -493,13 +493,20 @@ func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload) {
 		}
 	}
 	dispatchCount := v1.GetWorkloadDispatchCnt(adminWorkload)
-	if len(adminWorkload.Status.Nodes) < dispatchCount {
-		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, nodeNames)
-		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, ranks)
-	} else if dispatchCount > 0 {
-		adminWorkload.Status.Nodes[dispatchCount-1] = nodeNames
-		adminWorkload.Status.Ranks[dispatchCount-1] = ranks
+	if dispatchCount <= 0 {
+		return
 	}
+	// Pad missing earlier slots instead of appending the current assignment as
+	// a new history entry. An empty Nodes after resume must land at
+	// dispatchCount-1; writing it at index 0 fabricates dispatch history.
+	for len(adminWorkload.Status.Nodes) < dispatchCount {
+		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, nil)
+	}
+	for len(adminWorkload.Status.Ranks) < dispatchCount {
+		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, nil)
+	}
+	adminWorkload.Status.Nodes[dispatchCount-1] = nodeNames
+	adminWorkload.Status.Ranks[dispatchCount-1] = ranks
 }
 
 // getMainContainerRank retrieves the rank value from the main container's environment variables.
@@ -993,6 +1000,9 @@ func indexOfPod(pods []v1.WorkloadPod, podId string) int {
 func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWorkload *v1.Workload) error {
 	count := v1.GetWorkloadDispatchCnt(adminWorkload)
 	if !v1.IsRetryingOnOriginal(adminWorkload) || count <= 0 || shouldWorkloadStopRetry(adminWorkload, count) {
+		return nil
+	}
+	if len(adminWorkload.Status.Nodes) < count {
 		return nil
 	}
 	var toAddNodes, toDelNodes []string

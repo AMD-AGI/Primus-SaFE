@@ -208,6 +208,21 @@ func TestUpdateWorkloadNodes(t *testing.T) {
 	assert.Equal(t, len(w.Status.Nodes[0]), 2)
 }
 
+func TestUpdateWorkloadNodesEmptyAtDispatchCountTwo(t *testing.T) {
+	r := &SyncerReconciler{}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:   "w",
+		Labels: map[string]string{v1.WorkloadDispatchCntLabel: "2"},
+	}}
+	w.Status.Pods = []v1.WorkloadPod{
+		{PodId: "p1", AdminNodeName: "n1", Rank: "0"},
+	}
+	r.updateWorkloadNodes(w)
+	assert.Equal(t, len(w.Status.Nodes), 2)
+	assert.Equal(t, len(w.Status.Nodes[0]), 0)
+	assert.Equal(t, w.Status.Nodes[1][0], "n1")
+}
+
 func TestRemoveWorkloadPodEmptyId(t *testing.T) {
 	r := &SyncerReconciler{}
 	err := r.removeWorkloadPod(context.Background(), nil, &resourceMessage{})
@@ -1154,6 +1169,26 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 		err = cli.List(ctx, faultList)
 		tassert.NoError(t, err)
 		tassert.Empty(t, faultList.Items)
+	})
+
+	t.Run("dispatch count 2 with empty Nodes - must not panic", func(t *testing.T) {
+		workload := &v1.Workload{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-workload",
+				Labels: map[string]string{
+					v1.WorkloadDispatchCntLabel: "2",
+				},
+				Annotations: map[string]string{
+					v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
+				},
+			},
+			Spec: v1.WorkloadSpec{MaxRetry: 3},
+		}
+		cli := ctrlfake.NewClientBuilder().WithScheme(scheme).Build()
+		r := &SyncerReconciler{Client: cli}
+
+		err := r.createStickyNodeFaults(ctx, workload)
+		tassert.NoError(t, err)
 	})
 
 	t.Run("count is zero - should skip", func(t *testing.T) {

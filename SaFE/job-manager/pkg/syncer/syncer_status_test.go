@@ -178,6 +178,51 @@ func TestPersistWorkloadStatus_OffloadRebuildsEmptyDispatchNodes(t *testing.T) {
 	require.NoError(t, r.persistWorkloadStatus(context.Background(), fresh))
 }
 
+// TestPersistWorkloadStatus_OffloadRebuildsCurrentDispatchOnly covers a
+// resumed workload whose dispatch count is already >1: empty Nodes must not be
+// written as dispatch_index 0 (that would invent earlier scheduling history).
+func TestPersistWorkloadStatus_OffloadRebuildsCurrentDispatchOnly(t *testing.T) {
+	viper.Reset()
+	viper.Set("db.enable", true)
+	defer viper.Reset()
+
+	ctrl := gomock.NewController(t)
+	mockDB := mockclient.NewMockInterface(ctrl)
+	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", []string{"p1"}).Return(nil)
+	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).Times(1).DoAndReturn(
+		func(_ context.Context, dn *dbclient.WorkloadDispatchNode) error {
+			require.NotNil(t, dn)
+			assert.Equal(t, 1, dn.DispatchIndex)
+			require.True(t, dn.Nodes.Valid)
+			assert.Contains(t, dn.Nodes.String, "n1")
+			return nil
+		})
+
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "w1",
+			Labels:      map[string]string{v1.WorkloadDispatchCntLabel: "2"},
+			Annotations: map[string]string{v1.WorkloadStatusOffloadAnnotation: v1.TrueStr},
+		},
+		Spec: v1.WorkloadSpec{
+			Resources: []v1.WorkloadResource{{Replica: 1, CPU: "1", GPU: "1", Memory: "1Gi"}},
+		},
+		Status: v1.WorkloadStatus{
+			Pods: []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning, AdminNodeName: "n1", Rank: "0", ResourceId: 0}},
+		},
+	}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w.DeepCopy()).WithStatusSubresource(w).Build()
+	r := &SyncerReconciler{Client: cl, dbClient: mockDB}
+
+	fresh := &v1.Workload{}
+	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, fresh))
+	fresh.Status = w.Status
+	fresh.Labels = w.Labels
+	fresh.Annotations = w.Annotations
+	require.NoError(t, r.persistWorkloadStatus(context.Background(), fresh))
+}
+
 // TestPatchWorkloadPodStatus_PreservesPhase verifies the field-scoped merge
 // patch writes pods/nodes/ranks without clobbering status.phase owned by other
 // reconcilers, even when the in-memory copy carries a stale phase.

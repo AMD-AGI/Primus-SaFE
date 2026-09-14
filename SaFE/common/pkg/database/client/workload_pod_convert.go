@@ -86,6 +86,14 @@ func WorkloadPodsToV1(rows []*WorkloadPod) []v1.WorkloadPod {
 	return pods
 }
 
+// WorkloadDispatchNodeHasNodes reports whether the row records at least one node.
+func WorkloadDispatchNodeHasNodes(row *WorkloadDispatchNode) bool {
+	if row == nil {
+		return false
+	}
+	return len(decodeStringSlice(row.Nodes)) > 0
+}
+
 // WorkloadDispatchNodesFromV1 maps the per-dispatch Nodes/Ranks history into DB
 // rows (one row per dispatch index).
 func WorkloadDispatchNodesFromV1(workloadId string, nodes, ranks [][]string) []*WorkloadDispatchNode {

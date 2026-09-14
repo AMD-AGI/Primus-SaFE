@@ -56,6 +56,17 @@ func TestBuildWorkloadNodesHistoryEntry(t *testing.T) {
 	if entry != nil {
 		t.Errorf("a run without nodes has nothing to archive, got %+v", entry)
 	}
+
+	entry, err = buildWorkloadNodesHistoryEntry(&Workload{
+		WorkloadId: "w1",
+		Nodes:      dbutils.NullString("not json"),
+	}, nil)
+	if err != nil {
+		t.Fatalf("corrupt nodes column must not fail archive: %v", err)
+	}
+	if entry != nil {
+		t.Errorf("unreadable nodes column is not an assignment, got %+v", entry)
+	}
 }
 
 func TestAppendWorkloadNodesHistoryKeepsLastRuns(t *testing.T) {
@@ -89,6 +100,47 @@ func TestDecodeWorkloadNodesHistoryMalformed(t *testing.T) {
 	t.Parallel()
 	if entries := DecodeWorkloadNodesHistory("not json"); entries != nil {
 		t.Errorf("expected nil on unreadable history, got %+v", entries)
+	}
+}
+
+func TestAppendWorkloadNodesHistoryIgnoresCorruptJSON(t *testing.T) {
+	t.Parallel()
+	raw, err := appendWorkloadNodesHistory("not json", &WorkloadNodesHistoryEntry{
+		DispatchCount: 1,
+		Nodes:         [][]string{{"n1"}},
+	})
+	if err != nil {
+		t.Fatalf("corrupt history must not fail the archive write: %v", err)
+	}
+	entries := DecodeWorkloadNodesHistory(raw)
+	if len(entries) != 1 || entries[0].DispatchCount != 1 {
+		t.Errorf("expected a single new entry, got %+v", entries)
+	}
+}
+
+func TestAppendWorkloadNodesHistoryCapsBytes(t *testing.T) {
+	t.Parallel()
+	node := strings.Repeat("n", maxWorkloadNodesHistoryBytes/2)
+	raw := ""
+	for i := 0; i < 4; i++ {
+		var err error
+		raw, err = appendWorkloadNodesHistory(raw, &WorkloadNodesHistoryEntry{
+			DispatchCount: i,
+			Nodes:         [][]string{{node}},
+		})
+		if err != nil {
+			t.Fatalf("append failed: %v", err)
+		}
+	}
+	if len(raw) > maxWorkloadNodesHistoryBytes {
+		t.Errorf("history JSON exceeds byte cap: %d", len(raw))
+	}
+	entries := DecodeWorkloadNodesHistory(raw)
+	if len(entries) == 0 {
+		t.Fatal("expected at least the newest run")
+	}
+	if entries[len(entries)-1].DispatchCount != 3 {
+		t.Errorf("newest run must be kept, got %+v", entries)
 	}
 }
 

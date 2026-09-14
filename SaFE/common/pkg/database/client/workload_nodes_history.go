@@ -16,6 +16,10 @@ import (
 // maxWorkloadNodesHistory is the number of past runs kept in nodes_history.
 const maxWorkloadNodesHistory = 10
 
+// maxWorkloadNodesHistoryBytes bounds the JSON stored in nodes_history so a
+// detail or bulk SELECT cannot pull unbounded node-name payloads.
+const maxWorkloadNodesHistoryBytes = 64 * 1024
+
 var (
 	selectWorkloadForNodesArchiveCmd = fmt.Sprintf(`SELECT
 		workload_id, dispatch_count, phase, start_time, end_time, nodes, nodes_history
@@ -64,7 +68,7 @@ func buildWorkloadNodesHistoryEntry(old *Workload, rows []*WorkloadDispatchNode)
 	if len(nodes) == 0 {
 		if raw := dbutils.ParseNullString(old.Nodes); raw != "" {
 			if err := json.Unmarshal([]byte(raw), &nodes); err != nil {
-				return nil, fmt.Errorf("decode workload nodes: %w", err)
+				nodes = nil
 			}
 		}
 	}
@@ -83,12 +87,7 @@ func buildWorkloadNodesHistoryEntry(old *Workload, rows []*WorkloadDispatchNode)
 // appendWorkloadNodesHistory appends entry to raw and keeps the most recent
 // maxWorkloadNodesHistory runs.
 func appendWorkloadNodesHistory(raw string, entry *WorkloadNodesHistoryEntry) (string, error) {
-	var entries []WorkloadNodesHistoryEntry
-	if raw != "" {
-		if err := json.Unmarshal([]byte(raw), &entries); err != nil {
-			return "", fmt.Errorf("decode workload nodes history: %w", err)
-		}
-	}
+	entries := DecodeWorkloadNodesHistory(raw)
 	entries = append(entries, *entry)
 	if len(entries) > maxWorkloadNodesHistory {
 		entries = entries[len(entries)-maxWorkloadNodesHistory:]
@@ -96,6 +95,13 @@ func appendWorkloadNodesHistory(raw string, entry *WorkloadNodesHistoryEntry) (s
 	encoded, err := json.Marshal(entries)
 	if err != nil {
 		return "", err
+	}
+	for len(encoded) > maxWorkloadNodesHistoryBytes && len(entries) > 1 {
+		entries = entries[1:]
+		encoded, err = json.Marshal(entries)
+		if err != nil {
+			return "", err
+		}
 	}
 	return string(encoded), nil
 }

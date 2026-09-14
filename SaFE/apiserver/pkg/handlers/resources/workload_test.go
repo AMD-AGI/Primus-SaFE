@@ -537,6 +537,39 @@ func TestCreateWorkloadImplWithHook(t *testing.T) {
 	assert.NilError(t, h.Get(context.Background(), client.ObjectKey{Name: workload.Name}, stored))
 }
 
+// TestCreateWorkloadImplWithHookSkipsWhenCRExists refuses resume-style create
+// before the archive hook runs, so a lingering Failed CR cannot drop pod rows.
+func TestCreateWorkloadImplWithHookSkipsWhenCRExists(t *testing.T) {
+	clusterId := "test-cluster"
+	workspaceId := "test-workspace"
+	workload := genMockWorkload(clusterId, workspaceId)
+	user := genMockUser()
+	role := genMockRole()
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(user, role, workload).
+		WithScheme(scheme.Scheme).
+		WithStatusSubresource(workload).
+		Build()
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        k8sfake.NewSimpleClientset(),
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.UserName, v1.GetUserName(user))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/workloads", nil)
+
+	hookCalled := false
+	_, err := h.createWorkloadImplWithHook(c, workload, user, []*v1.Role{role}, func(ctx context.Context) error {
+		hookCalled = true
+		return nil
+	})
+	assert.Assert(t, err != nil)
+	assert.Assert(t, !hookCalled, "archive hook must not run while the CR exists")
+}
+
 // Test_createWorkloadImpl_WithSecrets tests creating workload with secrets
 func Test_createWorkloadImpl_WithSecrets(t *testing.T) {
 	ctx := context.Background()

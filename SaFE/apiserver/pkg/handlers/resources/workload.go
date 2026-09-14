@@ -253,6 +253,16 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 	if v1.GetUserName(workload) == "" {
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserName(requestUser))
 	}
+	// Resume archives pods before Create. A Failed CR that is still in etcd
+	// (ttlSecondsAfterFinished) makes Create return AlreadyExists after that
+	// archive has already committed, so refuse while the object is present.
+	existing := &v1.Workload{}
+	if err = h.Get(c.Request.Context(), client.ObjectKey{Name: workload.Name}, existing); err == nil {
+		return nil, commonerrors.NewAlreadyExist(fmt.Sprintf("workload %s already exists", workload.Name))
+	}
+	if !apierrors.IsNotFound(err) {
+		return nil, err
+	}
 	if beforeCreate != nil {
 		if err = beforeCreate(c.Request.Context()); err != nil {
 			return nil, err
