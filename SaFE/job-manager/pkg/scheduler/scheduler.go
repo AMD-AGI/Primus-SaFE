@@ -445,7 +445,26 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 			requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
 			string(jsonutils.MarshalSilently(leftResources)))
 		jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonInsufficient).Inc()
+		// The shortage is real and the workload is otherwise ready to run, so this is the
+		// point where the provider is asked to acquire capacity. The checks above have
+		// already excluded the workloads that are waiting on a dependency, a start time or
+		// a pause: those have no unmet capacity need, and buying hardware for them would
+		// grow the pool for work that cannot start anyway.
+		if v1.IsExternalWorkspace(workspace) {
+			if demandErr := r.publishExternalDemand(ctx, requestWorkload, workspace); demandErr != nil {
+				klog.ErrorS(demandErr, "failed to publish external capacity demand",
+					"workload", requestWorkload.Name)
+				return false, externalWaitingReason(demandErr), nil
+			}
+			return false, ExternalCapacityReason, nil
+		}
 		return false, reason, nil
+	}
+	// Local accounting says the capacity is there, but on the external path the provider
+	// owns the devices and arbitrates between workspaces. Nothing may leave the queue until
+	// it has granted a reservation for this exact workload and generation.
+	if v1.IsExternalWorkspace(workspace) {
+		return r.reserveExternalCapacity(ctx, requestWorkload, workspace)
 	}
 	return true, "", nil
 }
