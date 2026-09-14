@@ -343,6 +343,9 @@ func applyClusterPatch(cluster *v1.Cluster, req *view.PatchClusterRequest) (bool
 		if v1.SetAnnotation(cluster, v1.ClusterUpgradeRetryCountAnnotation, "0") {
 			isChanged = true
 		}
+		if v1.RemoveAnnotation(cluster, v1.ClusterUpgradeRetryTargetAnnotation) {
+			isChanged = true
+		}
 	}
 	if req.IsProtected != nil && *req.IsProtected != v1.IsProtected(cluster) {
 		if *req.IsProtected {

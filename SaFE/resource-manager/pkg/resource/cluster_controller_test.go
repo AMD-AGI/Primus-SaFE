@@ -1299,3 +1299,50 @@ func TestClusterUpgradeRetriesThreeTimesAndCanBeReset(t *testing.T) {
 	testifyassert.NoError(t, r.Get(context.Background(), podKey, pod))
 	assert.Equal(t, "1", v1.GetAnnotation(pod, upgradePodAttemptAnnotation))
 }
+
+func TestClusterUpgradeRetriesResetWhenTargetChanges(t *testing.T) {
+	cluster, r := readyUpgradeCluster(t)
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	podKey := types.NamespacedName{
+		Namespace: common.PrimusSafeNamespace,
+		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
+	}
+
+	for attempt := 1; attempt <= maxClusterUpgradeAttempts; attempt++ {
+		current := new(v1.Cluster)
+		testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+		testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
+		pod := new(corev1.Pod)
+		testifyassert.NoError(t, r.Get(context.Background(), podKey, pod))
+		pod.Status.Phase = corev1.PodFailed
+		testifyassert.NoError(t, r.Status().Update(context.Background(), pod))
+		testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+		testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
+	}
+
+	current := new(v1.Cluster)
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+	assert.Equal(t, "3", v1.GetAnnotation(current, v1.ClusterUpgradeRetryCountAnnotation))
+
+	// Cancelling out of band drops a count that no longer matches the target.
+	current.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
+	current.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:old")
+	testifyassert.NoError(t, r.Update(context.Background(), current))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+	assert.Equal(t, "0", v1.GetAnnotation(current, v1.ClusterUpgradeRetryCountAnnotation))
+
+	// Re-requesting the same target out of band still gets a fresh budget.
+	current.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	current.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	testifyassert.NoError(t, r.Update(context.Background(), current))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
+
+	pod := new(corev1.Pod)
+	testifyassert.NoError(t, r.Get(context.Background(), podKey, pod))
+	assert.Equal(t, "1", v1.GetAnnotation(pod, upgradePodAttemptAnnotation))
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+	assert.Equal(t, v1.UpgradingPhase, current.Status.ControlPlaneStatus.Phase)
+}

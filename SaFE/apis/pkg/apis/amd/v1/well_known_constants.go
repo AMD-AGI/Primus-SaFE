@@ -95,6 +95,8 @@ const (
 	ClusterAppliedKubeSprayImageAnnotation = ClusterPrefix + "applied.kubespray.image"
 	// ClusterUpgradeRetryCountAnnotation records failed attempts for the current target.
 	ClusterUpgradeRetryCountAnnotation = ClusterPrefix + "upgrade.retry.count"
+	// ClusterUpgradeRetryTargetAnnotation records the target the retry count belongs to.
+	ClusterUpgradeRetryTargetAnnotation = ClusterPrefix + "upgrade.retry.target"
 
 	// storage
 	StoragePrefix              = PrimusSafePrefix + "storage."

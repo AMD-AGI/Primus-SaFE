@@ -370,6 +370,13 @@ func (r *ClusterReconciler) guaranteeClusterUpgrade(ctx context.Context, cluster
 		}
 	}
 
+	// Failures only count against the target they were recorded for.
+	if clusterUpgradeRetryCount(cluster) > 0 && !retryCountBelongsToTarget(cluster) {
+		if err := r.persistUpgradeRetryCount(ctx, cluster, 0); err != nil {
+			return err
+		}
+	}
+
 	podName := fmt.Sprintf("%s-%s", cluster.Name, v1.ClusterUpgradeAction)
 	pod := new(corev1.Pod)
 	err := r.Get(ctx, types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: podName}, pod)
@@ -395,6 +402,9 @@ func (r *ClusterReconciler) guaranteeClusterUpgrade(ctx context.Context, cluster
 		return r.reconcileExistingUpgradePod(ctx, cluster, pod)
 	}
 	if clusterUpgradeRetryCount(cluster) >= maxClusterUpgradeAttempts {
+		klog.InfoS("cluster upgrade exhausted its retry budget for the desired target",
+			"cluster", cluster.Name, "target", clusterUpgradeTarget(cluster),
+			"attempts", maxClusterUpgradeAttempts)
 		return r.patchControlPlanePhase(ctx, cluster, v1.UpgradeFailedPhase)
 	}
 	targetVersion := controlPlaneString(cluster.Spec.ControlPlane.KubeVersion)
@@ -570,7 +580,8 @@ func (r *ClusterReconciler) persistAppliedKubeSpray(ctx context.Context, cluster
 	verChanged := v1.SetAnnotation(latest, v1.ClusterAppliedKubeVersionAnnotation, version)
 	imgChanged := v1.SetAnnotation(latest, v1.ClusterAppliedKubeSprayImageAnnotation, image)
 	retryChanged := v1.SetAnnotation(latest, v1.ClusterUpgradeRetryCountAnnotation, "0")
-	if !verChanged && !imgChanged && !retryChanged {
+	targetChanged := v1.RemoveAnnotation(latest, v1.ClusterUpgradeRetryTargetAnnotation)
+	if !verChanged && !imgChanged && !retryChanged && !targetChanged {
 		cluster.SetAnnotations(latest.GetAnnotations())
 		return nil
 	}
@@ -582,13 +593,20 @@ func (r *ClusterReconciler) persistAppliedKubeSpray(ctx context.Context, cluster
 	return nil
 }
 
-// persistUpgradeRetryCount records completed failures for the current target.
+// persistUpgradeRetryCount records completed failures together with the target they belong to.
 func (r *ClusterReconciler) persistUpgradeRetryCount(ctx context.Context, cluster *v1.Cluster, count int) error {
 	latest := new(v1.Cluster)
 	if err := r.Get(ctx, types.NamespacedName{Name: cluster.Name}, latest); err != nil {
 		return err
 	}
-	if !v1.SetAnnotation(latest, v1.ClusterUpgradeRetryCountAnnotation, strconv.Itoa(count)) {
+	countChanged := v1.SetAnnotation(latest, v1.ClusterUpgradeRetryCountAnnotation, strconv.Itoa(count))
+	targetChanged := false
+	if count > 0 {
+		targetChanged = v1.SetAnnotation(latest, v1.ClusterUpgradeRetryTargetAnnotation, clusterUpgradeTarget(cluster))
+	} else {
+		targetChanged = v1.RemoveAnnotation(latest, v1.ClusterUpgradeRetryTargetAnnotation)
+	}
+	if !countChanged && !targetChanged {
 		cluster.SetAnnotations(latest.GetAnnotations())
 		return nil
 	}
@@ -656,6 +674,17 @@ func clusterUpgradeRetryCount(cluster *v1.Cluster) int {
 		return 0
 	}
 	return count
+}
+
+// clusterUpgradeTarget identifies the desired image and version pair.
+func clusterUpgradeTarget(cluster *v1.Cluster) string {
+	return controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage) + "|" +
+		controlPlaneString(cluster.Spec.ControlPlane.KubeVersion)
+}
+
+// retryCountBelongsToTarget reports whether the recorded failures apply to the desired target.
+func retryCountBelongsToTarget(cluster *v1.Cluster) bool {
+	return v1.GetAnnotation(cluster, v1.ClusterUpgradeRetryTargetAnnotation) == clusterUpgradeTarget(cluster)
 }
 
 // getControllerPlaneNodes retrieves all control plane nodes for the cluster.
