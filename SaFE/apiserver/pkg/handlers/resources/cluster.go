@@ -338,7 +338,8 @@ func applyClusterPatch(cluster *v1.Cluster, req *view.PatchClusterRequest) (bool
 		}
 	}
 	if (req.KubeSprayImage != nil || req.KubeVersion != nil) &&
-		cluster.Status.ControlPlaneStatus.Phase == v1.UpgradeFailedPhase {
+		(cluster.Status.ControlPlaneStatus.Phase == v1.UpgradeFailedPhase ||
+			cluster.Status.ControlPlaneStatus.Phase == v1.UpgradingPhase) {
 		if v1.SetAnnotation(cluster, v1.ClusterUpgradeRetryCountAnnotation, "0") {
 			isChanged = true
 		}

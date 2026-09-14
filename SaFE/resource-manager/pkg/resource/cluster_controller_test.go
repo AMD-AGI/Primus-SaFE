@@ -1223,12 +1223,16 @@ func TestClusterUpgradeCanBeCancelledToAppliedPair(t *testing.T) {
 	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
 
 	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-	assert.Equal(t, v1.ReadyPhase, current.Status.ControlPlaneStatus.Phase)
+	assert.Equal(t, v1.UpgradingPhase, current.Status.ControlPlaneStatus.Phase)
 	err := r.Get(context.Background(), types.NamespacedName{
 		Namespace: common.PrimusSafeNamespace,
 		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
 	}, new(corev1.Pod))
 	testifyassert.Error(t, err)
+
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+	assert.Equal(t, v1.ReadyPhase, current.Status.ControlPlaneStatus.Phase)
 }
 
 func TestUpgradePodTimedOut(t *testing.T) {
@@ -1282,13 +1286,16 @@ func TestClusterUpgradeRetriesThreeTimesAndCanBeReset(t *testing.T) {
 
 	current := new(v1.Cluster)
 	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
 	assert.Equal(t, v1.UpgradeFailedPhase, current.Status.ControlPlaneStatus.Phase)
 	assert.True(t, current.IsReady())
-	testifyassert.NoError(t, r.Get(context.Background(), podKey, new(corev1.Pod)))
+	testifyassert.Error(t, r.Get(context.Background(), podKey, new(corev1.Pod)))
 
 	testifyassert.NoError(t, r.persistUpgradeRetryCount(context.Background(), current, 0))
 	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
 	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
-	err := r.Get(context.Background(), podKey, new(corev1.Pod))
-	testifyassert.Error(t, err)
+	pod := new(corev1.Pod)
+	testifyassert.NoError(t, r.Get(context.Background(), podKey, pod))
+	assert.Equal(t, "1", v1.GetAnnotation(pod, upgradePodAttemptAnnotation))
 }

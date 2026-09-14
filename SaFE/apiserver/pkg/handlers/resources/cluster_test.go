@@ -335,6 +335,16 @@ func TestApplyClusterPatch(t *testing.T) {
 	testifyassert.NoError(t, err)
 	testifyassert.True(t, changed)
 	assert.Equal(t, "0", v1.GetAnnotation(cluster, v1.ClusterUpgradeRetryCountAnnotation))
+
+	cluster.Status.ControlPlaneStatus.Phase = v1.UpgradingPhase
+	v1.SetAnnotation(cluster, v1.ClusterUpgradeRetryCountAnnotation, "2")
+	changed, err = applyClusterPatch(cluster, &view.PatchClusterRequest{
+		KubeSprayImage: &img,
+		KubeVersion:    &ver,
+	})
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, changed)
+	assert.Equal(t, "0", v1.GetAnnotation(cluster, v1.ClusterUpgradeRetryCountAnnotation))
 }
 
 func TestValidateClusterUpgradePatch(t *testing.T) {

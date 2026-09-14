@@ -102,6 +102,11 @@ func TestValidateClusterUpgradeUpdate(t *testing.T) {
 	newCluster.Spec.ControlPlane.KubeSprayImage = pointer.String("custom/kubespray:installed")
 	newCluster.Spec.ControlPlane.KubeVersion = pointer.String("1.31.9")
 	assert.NilError(t, validateClusterUpgradeUpdate(newCluster, oldCluster))
+
+	oldCluster.SetAnnotations(nil)
+	newCluster.Spec.ControlPlane.KubeSprayImage = pointer.String("")
+	newCluster.Spec.ControlPlane.KubeVersion = pointer.String("")
+	assert.Assert(t, validateClusterUpgradeUpdate(newCluster, oldCluster) != nil)
 }
 
 // TestClusterValidateNodesInUse verifies node-in-use detection.

@@ -1279,6 +1279,33 @@ func TestClusterAllowsNodeManagementAfterUpgradeFailure(t *testing.T) {
 	assert.Equal(t, false, clusterAllowsNodeManagement(cluster))
 }
 
+func TestNodeManagementWaitsForActiveClusterPod(t *testing.T) {
+	scheme, _ := genMockScheme()
+	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}
+	cluster.Status.ControlPlaneStatus.Phase = v1.UpgradeFailedPhase
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "c1-upgrade",
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				v1.ClusterManageClusterLabel: cluster.Name,
+				v1.ClusterManageActionLabel:  string(v1.ClusterUpgradeAction),
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	r := newMockNodeReconciler(ctrlfakeNewClient(scheme, cluster, pod))
+
+	allowed, err := r.canStartNodeManagement(context.Background(), cluster)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, false, allowed)
+
+	testifyassert.NoError(t, r.Delete(context.Background(), pod))
+	allowed, err = r.canStartNodeManagement(context.Background(), cluster)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, true, allowed)
+}
+
 func TestNodeDeleteK8sNodeViaFactory(t *testing.T) {
 	scheme, _ := genMockScheme()
 	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{

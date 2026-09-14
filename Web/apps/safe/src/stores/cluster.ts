@@ -1,16 +1,7 @@
 import { defineStore } from 'pinia'
 import { getClusters } from '@/services/base'
 import type { ClusterItem } from '@/services'
-
-const USABLE_CLUSTER_PHASES = new Set(['Ready', 'Upgrading', 'UpgradeFailed'])
-
-export const isUsableClusterPhase = (phase?: string) => !!phase && USABLE_CLUSTER_PHASES.has(phase)
-
-export const clusterPhaseTagType = (phase?: string) => {
-  if (phase === 'Ready') return 'success'
-  if (phase === 'Upgrading') return 'warning'
-  return 'danger'
-}
+import { isUsableClusterPhase } from './clusterPhase'
 
 export interface ClusterState {
   totalCount: number

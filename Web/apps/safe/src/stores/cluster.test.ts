@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clusterPhaseTagType, isUsableClusterPhase } from './cluster'
+import { clusterPhaseTagType, isUsableClusterPhase } from './clusterPhase'
 
 describe('isUsableClusterPhase', () => {
   it.each(['Ready', 'Upgrading', 'UpgradeFailed'])('accepts %s', (phase) => {

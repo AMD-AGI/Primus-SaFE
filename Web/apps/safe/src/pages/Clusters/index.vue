@@ -158,7 +158,8 @@
 </template>
 <script lang="ts" setup>
 import { ref, onMounted, reactive, nextTick, h } from 'vue'
-import { clusterPhaseTagType, useClusterStore } from '@/stores/cluster'
+import { useClusterStore } from '@/stores/cluster'
+import { clusterPhaseTagType } from '@/stores/clusterPhase'
 import { useUserStore } from '@/stores/user'
 import { getNodesList, editClusterProtected, deleteCluster, getClusterDetail } from '@/services'
 import { getSecrets } from '@/services'

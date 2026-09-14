@@ -211,9 +211,10 @@ func validateClusterUpgradeUpdate(newCluster, oldCluster *v1.Cluster) error {
 	if newImage == oldImage && newVersion == oldVersion {
 		return nil
 	}
-	appliedImage := v1.GetAnnotation(oldCluster, v1.ClusterAppliedKubeSprayImageAnnotation)
-	appliedVersion := v1.GetAnnotation(oldCluster, v1.ClusterAppliedKubeVersionAnnotation)
-	if newImage == appliedImage && newVersion == appliedVersion {
+	annotations := oldCluster.GetAnnotations()
+	appliedImage, hasImage := annotations[v1.ClusterAppliedKubeSprayImageAnnotation]
+	appliedVersion, hasVersion := annotations[v1.ClusterAppliedKubeVersionAnnotation]
+	if hasImage && hasVersion && newImage == appliedImage && newVersion == appliedVersion {
 		return nil
 	}
 	expectedVersion, ok := v1.KubeVersionForKubeSprayImage(newImage)

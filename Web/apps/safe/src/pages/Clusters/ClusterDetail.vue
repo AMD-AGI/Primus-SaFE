@@ -363,7 +363,7 @@
 import { getClusterDetail, getNodesList, type NodesParams, NODE_PHASE } from '@/services'
 import { onMounted, ref, computed, reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { clusterPhaseTagType } from '@/stores/cluster'
+import { clusterPhaseTagType } from '@/stores/clusterPhase'
 import dayjs from 'dayjs'
 import { copyText, byte2Gi } from '@/utils/index'
 import { CopyDocument, ArrowLeft, Loading } from '@element-plus/icons-vue'

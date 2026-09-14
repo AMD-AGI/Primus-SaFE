@@ -383,10 +383,8 @@ func (r *ClusterReconciler) guaranteeClusterUpgrade(ctx context.Context, cluster
 	}
 
 	if !needsClusterUpgrade(cluster) {
-		if podExists && pod.GetDeletionTimestamp().IsZero() {
-			if err = r.Delete(ctx, pod); err != nil {
-				return err
-			}
+		if podExists {
+			return r.deleteUpgradePod(ctx, pod)
 		}
 		if phase == v1.UpgradeFailedPhase || phase == v1.UpgradingPhase {
 			return r.patchControlPlanePhase(ctx, cluster, v1.ReadyPhase)
@@ -395,6 +393,9 @@ func (r *ClusterReconciler) guaranteeClusterUpgrade(ctx context.Context, cluster
 	}
 	if podExists {
 		return r.reconcileExistingUpgradePod(ctx, cluster, pod)
+	}
+	if clusterUpgradeRetryCount(cluster) >= maxClusterUpgradeAttempts {
+		return r.patchControlPlanePhase(ctx, cluster, v1.UpgradeFailedPhase)
 	}
 	targetVersion := controlPlaneString(cluster.Spec.ControlPlane.KubeVersion)
 	targetImage := controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
@@ -440,17 +441,14 @@ func (r *ClusterReconciler) guaranteeClusterUpgrade(ctx context.Context, cluster
 // reconcileExistingUpgradePod updates cluster phase from an in-flight upgrade pod.
 func (r *ClusterReconciler) reconcileExistingUpgradePod(ctx context.Context, cluster *v1.Cluster, pod *corev1.Pod) error {
 	if !upgradePodOwnedByCluster(cluster, pod) {
-		if !pod.GetDeletionTimestamp().IsZero() {
-			return nil
-		}
-		return r.Delete(ctx, pod)
+		return r.deleteUpgradePod(ctx, pod)
 	}
 	if pod.Status.Phase == corev1.PodSucceeded {
 		if err := r.persistAppliedKubeSpray(ctx, cluster, upgradePodTargetVersion(pod), upgradePodTargetImage(pod)); err != nil {
 			return err
 		}
 		if !upgradePodMatchesSpec(cluster, pod) {
-			return r.Delete(ctx, pod)
+			return r.deleteUpgradePod(ctx, pod)
 		}
 		return r.patchControlPlanePhase(ctx, cluster, v1.ReadyPhase)
 	}
@@ -459,23 +457,17 @@ func (r *ClusterReconciler) reconcileExistingUpgradePod(ctx context.Context, clu
 			if err := r.persistUpgradeRetryCount(ctx, cluster, 0); err != nil {
 				return err
 			}
-			return r.Delete(ctx, pod)
+			return r.deleteUpgradePod(ctx, pod)
 		}
 		attempt := upgradePodAttempt(pod)
 		retryCount := clusterUpgradeRetryCount(cluster)
 		if retryCount < attempt-1 {
-			if err := r.persistUpgradeRetryCount(ctx, cluster, attempt-1); err != nil {
-				return err
-			}
-			return r.Delete(ctx, pod)
+			return r.deleteUpgradePod(ctx, pod)
 		}
 		if err := r.persistUpgradeRetryCount(ctx, cluster, attempt); err != nil {
 			return err
 		}
-		if attempt < maxClusterUpgradeAttempts {
-			return r.Delete(ctx, pod)
-		}
-		return r.patchControlPlanePhase(ctx, cluster, v1.UpgradeFailedPhase)
+		return r.deleteUpgradePod(ctx, pod)
 	}
 	hostsContent, err := r.generateUpgradeHosts(ctx, cluster, false)
 	if err != nil {
@@ -486,6 +478,14 @@ func (r *ClusterReconciler) reconcileExistingUpgradePod(ctx context.Context, clu
 		return err
 	}
 	return r.updateUpgradePodStatus(ctx, cluster, pod)
+}
+
+// deleteUpgradePod requests deletion and waits for a later reconcile to advance the phase.
+func (r *ClusterReconciler) deleteUpgradePod(ctx context.Context, pod *corev1.Pod) error {
+	if !pod.GetDeletionTimestamp().IsZero() {
+		return nil
+	}
+	return r.Delete(ctx, pod)
 }
 
 // upgradePodTimedOut reports whether a nonterminal upgrade pod exceeded its deadline.
