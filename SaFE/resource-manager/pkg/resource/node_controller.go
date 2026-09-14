@@ -168,9 +168,15 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request)
 
 // delete handles Node deletion by removing the finalizer.
 func (r *NodeReconciler) delete(ctx context.Context, adminNode *v1.Node) (ctrlruntime.Result, error) {
-	result, err := r.deleteK8sNode(ctx, adminNode)
-	if err != nil || result.RequeueAfter > 0 {
-		return result, err
+	// The provider owns the virtual node in the execution cluster and deregisters it as
+	// part of releasing the allocation. Deleting that node object here would evict pods
+	// whose tasks the provider has not finished stopping, and the deletion would race the
+	// provider's own cleanup rather than replace it.
+	if !adminNode.IsExternal() {
+		result, err := r.deleteK8sNode(ctx, adminNode)
+		if err != nil || result.RequeueAfter > 0 {
+			return result, err
+		}
 	}
 	return ctrlruntime.Result{}, utils.RemoveFinalizer(ctx, r.Client, adminNode, v1.NodeFinalizer)
 }
@@ -284,6 +290,9 @@ func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node, k
 
 // processNode handles the main processing logic for a Node.
 func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
+	if adminNode.IsExternal() {
+		return r.processExternalNode(adminNode)
+	}
 	if result, err := r.updateK8sNode(ctx, adminNode, k8sNode); err != nil || result.RequeueAfter > 0 {
 		if err != nil {
 			klog.ErrorS(err, "failed to update k8s node", "node", adminNode.Name)
@@ -308,6 +317,25 @@ func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8
 		return ctrlruntime.Result{}, err
 	}
 	return r.processNodeManagement(ctx, adminNode, k8sNode)
+}
+
+// processExternalNode reconciles a node owned by an external execution provider.
+//
+// It performs no host operation: no SSH, no hostname or DNS change, no addon install, no
+// kubespray, no kubeadm reset and no reboot. There is no machine to manage. The provider
+// creates the node, registers the matching node in the execution cluster and keeps
+// status.external current; those facts reach SaFE through node_k8s_controller, which syncs
+// from the execution cluster and never touches a host.
+//
+// Taints and labels are not pushed outward either. The virtual node belongs to the
+// provider, and writing to it from here would contend with the provider's own updates.
+//
+// This path deliberately does not reuse manage or unmanage. Their early exits do not hold
+// for a virtual node -- the execution cluster node carries no SaFE cluster label, so the
+// "already managed" check fails -- and control would fall through to syncClusterStatus,
+// which opens an SSH connection.
+func (r *NodeReconciler) processExternalNode(_ *v1.Node) (ctrlruntime.Result, error) {
+	return ctrlruntime.Result{}, nil
 }
 
 // syncMachineStatus synchronizes the machine status of a Node via SSH.
@@ -1453,6 +1481,11 @@ func (r *NodeReconciler) executeSSHCommand(sshClient *ssh.Client, command string
 // shouldSyncMachineStatus determines whether the machine status of a node needs to be synchronized.
 // Return true if needed, otherwise false.
 func shouldSyncMachineStatus(adminNode *v1.Node) bool {
+	// An external node has no machine to probe. Its MachineStatus is never written, so the
+	// update time below is always zero and every caller would read this as overdue.
+	if adminNode.IsExternal() {
+		return false
+	}
 	if !adminNode.IsMachineReady() {
 		return true
 	}
