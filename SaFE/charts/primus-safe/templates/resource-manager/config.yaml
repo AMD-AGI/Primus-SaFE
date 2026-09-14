@@ -101,6 +101,11 @@ data:
     addon:
 {{ toYaml .Values.addon | indent 6 }}
 {{- end }}
+    external_execution:
+      # Off by default; external objects are refused at admission while it is false.
+      enabled: {{ default false (default .Values.external_execution).enabled }}
+      observation_max_age_seconds: {{ default 120 (default .Values.external_execution).observation_max_age_seconds }}
+      workspace_resync_seconds: {{ default 30 (default .Values.external_execution).workspace_resync_seconds }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-resource-manager

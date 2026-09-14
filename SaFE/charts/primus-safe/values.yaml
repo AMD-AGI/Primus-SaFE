@@ -336,6 +336,26 @@ model_optimization:
   # per-deploy via .env `optimize_max_concurrent` (synced into values.yaml by
   # upgrade.sh and into the live apiserver ConfigMap by cd-deploy.sh).
   max_concurrent: 1024
+external_execution:
+  # Whether capacity from an external execution provider is admitted. Off by default:
+  # with it off, external objects are rejected at admission and no capacity demand is
+  # published, so a half-deployed integration cannot dispatch work.
+  enabled: false
+  # Capacity controller endpoint. One deployment talks to one controller, which is also
+  # the single active mutator of the execution ledger.
+  controller_url: ""
+  # Mounted secret holding ca.crt, tls.crt and tls.key for service mTLS to the controller.
+  controller_secret_path: "/etc/secrets/external-execution"
+  controller_timeout_seconds: 10
+  # Execution profile capacity is requested under. The provider owns the definition and
+  # the validation state; naming an unvalidated profile is refused by the provider.
+  profile_id: ""
+  profile_revision: 1
+  # Caps how long a provider observation stays usable once the provider stops reporting.
+  observation_max_age_seconds: 120
+  # Bounds how long an external workspace goes without a reconcile, so a stale observation
+  # is noticed well before the controller's own fifteen minute backstop.
+  workspace_resync_seconds: 30
 sandbox:
   enable: true
   namespace: "agent-sandbox-system"
