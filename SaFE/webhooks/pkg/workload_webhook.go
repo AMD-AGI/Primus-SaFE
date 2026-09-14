@@ -1641,6 +1641,19 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 		}
 		return nil
 	}
+	if v1.IsExternalWorkspace(workspace) {
+		if !commonconfig.IsExternalExecutionEnable() {
+			return commonerrors.NewForbidden(
+				"external execution is not enabled in this deployment")
+		}
+		// An external workspace has no local capacity to measure a request against. Its
+		// status.totalResources is empty until the provider publishes a node, and the
+		// budget is arbitrated by the provider when the claim is made, so applying the
+		// quota check here would reject every submission while the workspace is idle --
+		// exactly the scale-from-zero case it exists to serve. Request shape is still
+		// bounded by validateResourceEnough against the node flavor.
+		return nil
+	}
 	if commonworkload.GetTotalReplica(workload) > workspace.Spec.Replica {
 		requestResources, err := commonworkload.GetTotalResourceList(workload)
 		if err != nil {
