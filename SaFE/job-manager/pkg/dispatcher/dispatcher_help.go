@@ -2643,6 +2643,13 @@ func updateContainers(adminWorkload *v1.Workload,
 			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
 				container["image"] = adminWorkload.Spec.Images[id]
 			}
+			// The reservation was granted against the digest the provider resolved at claim
+			// time, not against the tag the user submitted. Using the tag here would let a
+			// moved tag run content nothing was admitted for, and the provider would refuse
+			// the task after the pod had already bound.
+			if approved := externalApprovedImage(adminWorkload, v1.ExternalSingleUnitKey); approved != "" {
+				container["image"] = approved
+			}
 			// expectedCommands, not buildCommands: an IDEP command carries the
 			// disaggregation and multi-node flags normalizeInferaIDEP grafts on
 			// top of the launcher payload, which Workload.Spec.EntryPoints does

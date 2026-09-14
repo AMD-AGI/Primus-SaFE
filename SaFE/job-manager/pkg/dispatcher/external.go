@@ -11,9 +11,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
-	"k8s.io/klog/v2"
-
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/execution"
@@ -69,35 +66,6 @@ func (r *DispatcherReconciler) verifyExternalClaim(ctx context.Context,
 	if !claim.ExpiresAt.IsZero() && time.Now().UTC().After(claim.ExpiresAt.Time) {
 		return fmt.Errorf("claim %s admission expired at %s", state.ClaimId, claim.ExpiresAt.Time)
 	}
-	return nil
-}
-
-// releaseExternalClaim withdraws a reservation once the workload no longer needs it.
-//
-// The reply reporting Revoking means the withdrawal was recorded, not that the devices are
-// free. The workload keeps its resources charged until the provider confirms Released,
-// which is why the caller marks the state reclaiming rather than clearing it.
-func (r *DispatcherReconciler) releaseExternalClaim(ctx context.Context, workload *v1.Workload,
-	reason string) error {
-	state := workload.Status.ExternalExecution
-	if state == nil || state.ClaimId == "" {
-		return nil
-	}
-	client, err := execution.Shared()
-	if err != nil {
-		return err
-	}
-	claim, err := client.ReleaseClaim(ctx, state.ClaimId, &execution.ReleaseRequest{
-		RequestID:          uuid.NewString(),
-		ExpectedRevision:   state.ClaimRevision,
-		DispatchGeneration: state.DispatchGeneration,
-		Reason:             reason,
-	})
-	if err != nil {
-		return err
-	}
-	klog.V(2).InfoS("released external claim", "workload", workload.Name,
-		"claim", state.ClaimId, "phase", claim.Phase)
 	return nil
 }
 

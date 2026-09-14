@@ -70,6 +70,16 @@ func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 	if err != nil {
 		return false, err
 	}
+	// Stop the acquisition first. The demand would lapse on its own at expires_at, but that
+	// window is long enough for the provider to buy a node for a workload that has already
+	// finished. Best effort: failing to withdraw must not hold up the release below, which
+	// is the part that actually returns devices.
+	if workspace, wsErr := r.getWorkspace(ctx, workload.Spec.Workspace); wsErr == nil && workspace != nil {
+		if wdErr := r.withdrawExternalDemand(ctx, workload, workspace); wdErr != nil {
+			klog.V(2).InfoS("failed to withdraw external demand", "workload", workload.Name,
+				"error", wdErr)
+		}
+	}
 	claim, err := client.ReleaseClaim(ctx, state.ClaimId, &execution.ReleaseRequest{
 		RequestID:          uuid.NewString(),
 		ExpectedRevision:   state.ClaimRevision,
