@@ -680,6 +680,28 @@ func GetSandboxSecret() string {
 	return getString(sandboxSecret, "")
 }
 
+// ── External execution capacity ─────────────────────────────────────────
+
+// IsExternalExecutionEnable reports whether external execution capacity is admitted.
+// Disabled by default: with the flag off, external objects are rejected at admission and
+// no capacity demand is published, so a half-deployed integration cannot dispatch work.
+func IsExternalExecutionEnable() bool {
+	return getBool(externalExecutionEnabled, false)
+}
+
+// GetExternalObservationMaxAge caps how long a provider observation stays usable once the
+// provider stops reporting, backstopping the validUntil the provider sets for itself.
+func GetExternalObservationMaxAge() time.Duration {
+	return time.Duration(getInt(externalExecutionObservationMaxAge, 120)) * time.Second
+}
+
+// GetExternalWorkspaceResync bounds how long an external workspace goes without a
+// reconcile. The controller's own fifteen minute backstop would let a stale provider
+// observation stay counted as available capacity for that long.
+func GetExternalWorkspaceResync() time.Duration {
+	return time.Duration(getInt(externalExecutionWorkspaceResync, 30)) * time.Second
+}
+
 // ── MCP (Model Context Protocol) ────────────────────────────────────────
 
 func IsMCPEnable() bool {
