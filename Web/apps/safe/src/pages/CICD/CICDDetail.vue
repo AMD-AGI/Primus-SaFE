@@ -220,6 +220,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useWorkloadDetail } from '@/composables/useWorkloadDetail'
 import { usePodActions } from '@/composables/usePodActions'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
+import { ensureResumeCooldownElapsed } from '@/composables/useWorkloadResumePermission'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -262,6 +263,7 @@ const onClone = () => {
 // dialog, which asks for a fresh token, instead of failing the request.
 const onResumeAction = () => {
   if (isGithubRunner.value) {
+    if (!ensureResumeCooldownElapsed(detailData.value?.endTime)) return
     addAction.value = 'Resume'
     addVisible.value = true
     return

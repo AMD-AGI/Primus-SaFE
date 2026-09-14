@@ -244,7 +244,10 @@ import {
 } from '@element-plus/icons-vue'
 import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
-import { useWorkloadResumePermission } from '@/composables/useWorkloadResumePermission'
+import {
+  useWorkloadResumePermission,
+  ensureResumeCooldownElapsed,
+} from '@/composables/useWorkloadResumePermission'
 import { useWorkloadListQuery } from '@/composables/useWorkloadListQuery'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUserStore } from '@/stores/user'
@@ -268,8 +271,6 @@ import AddDialog from './Components/AddDialog.vue'
 dayjs.extend(utc)
 
 defineOptions({ name: 'dynamoPage' })
-
-const RESUME_COOLDOWN_SECONDS = 15
 
 const props = withDefaults(defineProps<{
   workloadType?: 'dynamo' | 'infera'
@@ -383,13 +384,7 @@ const openClone = (row: DynamoRow) => {
 }
 
 const openResume = (row: DynamoRow) => {
-  // The backend rejects a resume that lands too soon after the stop it follows.
-  if (row.endTime && dayjs().diff(dayjs.utc(row.endTime), 'second') < RESUME_COOLDOWN_SECONDS) {
-    ElMessage.warning(
-      `Please wait ${RESUME_COOLDOWN_SECONDS} seconds after stopping before resuming the workload.`,
-    )
-    return
-  }
+  if (!ensureResumeCooldownElapsed(row.endTime)) return
   curAction.value = 'Resume'
   curWlId.value = row.workloadId
   addVisible.value = true
