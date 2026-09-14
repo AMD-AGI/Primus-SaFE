@@ -70,10 +70,36 @@ func TestGenerateUpgradeHostsIncludesManagedWorkers(t *testing.T) {
 	}
 	testifyassert.NoError(t, r.Create(context.Background(), worker))
 
-	hosts, err := r.generateUpgradeHosts(context.Background(), cluster)
+	hosts, err := r.generateUpgradeHosts(context.Background(), cluster, true)
 	testifyassert.NoError(t, err)
 	assert.Contains(t, hosts.NodeName, "worker1")
 	testifyassert.Contains(t, strings.Join(hosts.NodeAndIP, "\n"), "worker1")
+}
+
+func TestGenerateUpgradeHostsAllowsUnavailableWorkerDuringUpgrade(t *testing.T) {
+	cluster, r := planeClusterWithNode(t)
+	worker := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "worker1",
+			Labels: map[string]string{v1.ClusterIdLabel: cluster.Name},
+		},
+		Spec: v1.NodeSpec{
+			Cluster:   pointer.String(cluster.Name),
+			PrivateIP: "10.0.0.2",
+		},
+		Status: v1.NodeStatus{
+			MachineStatus: v1.MachineStatus{HostName: "worker1"},
+			ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged},
+		},
+	}
+	testifyassert.NoError(t, r.Create(context.Background(), worker))
+
+	_, err := r.generateUpgradeHosts(context.Background(), cluster, true)
+	testifyassert.Error(t, err)
+
+	hosts, err := r.generateUpgradeHosts(context.Background(), cluster, false)
+	testifyassert.NoError(t, err)
+	assert.Contains(t, hosts.NodeName, "worker1")
 }
 
 func TestGenerateScaleWorkerPod(t *testing.T) {

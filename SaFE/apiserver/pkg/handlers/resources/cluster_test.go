@@ -371,6 +371,16 @@ func TestValidateClusterUpgradePatch(t *testing.T) {
 	err = validateClusterUpgradePatch(cluster, &view.PatchClusterRequest{KubeVersion: &mismatchedVersion})
 	testifyassert.Error(t, err)
 
+	cluster.Status.ControlPlaneStatus.Phase = v1.UpgradingPhase
+	appliedImage := "custom/kubespray:installed"
+	appliedVersion := "1.31.9"
+	v1.SetAnnotation(cluster, v1.ClusterAppliedKubeSprayImageAnnotation, appliedImage)
+	v1.SetAnnotation(cluster, v1.ClusterAppliedKubeVersionAnnotation, appliedVersion)
+	testifyassert.NoError(t, validateClusterUpgradePatch(cluster, &view.PatchClusterRequest{
+		KubeSprayImage: &appliedImage,
+		KubeVersion:    &appliedVersion,
+	}))
+
 	delete(cluster.Annotations, v1.ClusterAppliedKubeVersionAnnotation)
 	err = validateClusterUpgradePatch(cluster, req)
 	testifyassert.Error(t, err)

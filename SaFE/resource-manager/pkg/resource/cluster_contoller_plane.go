@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	stderrors "errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -49,6 +50,7 @@ const (
 	deprecatedDefaultNginxTemplate = "nginx.22.3.2"
 	deprecatedDefaultNginxRelease  = "nginx"
 	maxClusterUpgradeAttempts      = 3
+	clusterUpgradeTimeout          = 6 * time.Hour
 	upgradePodAttemptAnnotation    = v1.ClusterPrefix + "upgrade.attempt"
 )
 
@@ -376,15 +378,23 @@ func (r *ClusterReconciler) guaranteeClusterUpgrade(ctx context.Context, cluster
 		return err
 	}
 
-	if podExists {
+	if podExists && pod.Status.Phase == corev1.PodSucceeded {
 		return r.reconcileExistingUpgradePod(ctx, cluster, pod)
 	}
 
 	if !needsClusterUpgrade(cluster) {
+		if podExists && pod.GetDeletionTimestamp().IsZero() {
+			if err = r.Delete(ctx, pod); err != nil {
+				return err
+			}
+		}
 		if phase == v1.UpgradeFailedPhase || phase == v1.UpgradingPhase {
 			return r.patchControlPlanePhase(ctx, cluster, v1.ReadyPhase)
 		}
 		return nil
+	}
+	if podExists {
+		return r.reconcileExistingUpgradePod(ctx, cluster, pod)
 	}
 	targetVersion := controlPlaneString(cluster.Spec.ControlPlane.KubeVersion)
 	targetImage := controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
@@ -402,8 +412,12 @@ func (r *ClusterReconciler) guaranteeClusterUpgrade(ctx context.Context, cluster
 		return nil
 	}
 
-	hostsContent, err := r.generateUpgradeHosts(ctx, cluster)
+	hostsContent, err := r.generateUpgradeHosts(ctx, cluster, true)
 	if err != nil {
+		if stderrors.Is(err, errUpgradeWorkerNotReady) {
+			klog.InfoS("cluster upgrade is waiting for ready workers", "cluster", cluster.Name, "error", err)
+			return nil
+		}
 		return err
 	}
 	if err = r.patchControlPlanePhase(ctx, cluster, v1.UpgradingPhase); err != nil {
@@ -426,6 +440,9 @@ func (r *ClusterReconciler) guaranteeClusterUpgrade(ctx context.Context, cluster
 // reconcileExistingUpgradePod updates cluster phase from an in-flight upgrade pod.
 func (r *ClusterReconciler) reconcileExistingUpgradePod(ctx context.Context, cluster *v1.Cluster, pod *corev1.Pod) error {
 	if !upgradePodOwnedByCluster(cluster, pod) {
+		if !pod.GetDeletionTimestamp().IsZero() {
+			return nil
+		}
 		return r.Delete(ctx, pod)
 	}
 	if pod.Status.Phase == corev1.PodSucceeded {
@@ -437,7 +454,7 @@ func (r *ClusterReconciler) reconcileExistingUpgradePod(ctx context.Context, clu
 		}
 		return r.patchControlPlanePhase(ctx, cluster, v1.ReadyPhase)
 	}
-	if pod.Status.Phase == corev1.PodFailed {
+	if pod.Status.Phase == corev1.PodFailed || upgradePodTimedOut(pod, time.Now()) {
 		if !upgradePodMatchesSpec(cluster, pod) {
 			if err := r.persistUpgradeRetryCount(ctx, cluster, 0); err != nil {
 				return err
@@ -447,6 +464,9 @@ func (r *ClusterReconciler) reconcileExistingUpgradePod(ctx context.Context, clu
 		attempt := upgradePodAttempt(pod)
 		retryCount := clusterUpgradeRetryCount(cluster)
 		if retryCount < attempt-1 {
+			if err := r.persistUpgradeRetryCount(ctx, cluster, attempt-1); err != nil {
+				return err
+			}
 			return r.Delete(ctx, pod)
 		}
 		if err := r.persistUpgradeRetryCount(ctx, cluster, attempt); err != nil {
@@ -457,7 +477,7 @@ func (r *ClusterReconciler) reconcileExistingUpgradePod(ctx context.Context, clu
 		}
 		return r.patchControlPlanePhase(ctx, cluster, v1.UpgradeFailedPhase)
 	}
-	hostsContent, err := r.generateUpgradeHosts(ctx, cluster)
+	hostsContent, err := r.generateUpgradeHosts(ctx, cluster, false)
 	if err != nil {
 		return err
 	}
@@ -466,6 +486,18 @@ func (r *ClusterReconciler) reconcileExistingUpgradePod(ctx context.Context, clu
 		return err
 	}
 	return r.updateUpgradePodStatus(ctx, cluster, pod)
+}
+
+// upgradePodTimedOut reports whether a nonterminal upgrade pod exceeded its deadline.
+func upgradePodTimedOut(pod *corev1.Pod, now time.Time) bool {
+	if pod == nil || pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+		return false
+	}
+	startedAt := pod.CreationTimestamp.Time
+	if pod.Status.StartTime != nil {
+		startedAt = pod.Status.StartTime.Time
+	}
+	return !startedAt.IsZero() && !now.Before(startedAt.Add(clusterUpgradeTimeout))
 }
 
 // createUpgradeWorkerPod creates the kubespray upgrade-cluster.yml worker pod.
@@ -482,6 +514,7 @@ func (r *ClusterReconciler) createUpgradeWorkerPod(ctx context.Context, cluster 
 	pod.Annotations[v1.ClusterAppliedKubeVersionAnnotation] = controlPlaneString(cluster.Spec.ControlPlane.KubeVersion)
 	pod.Annotations[v1.ClusterAppliedKubeSprayImageAnnotation] = controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
 	pod.Annotations[upgradePodAttemptAnnotation] = strconv.Itoa(clusterUpgradeRetryCount(cluster) + 1)
+	pod.Spec.ActiveDeadlineSeconds = pointer.Int64(int64(clusterUpgradeTimeout / time.Second))
 	r.addOwnerReferences(pod, hostsContent)
 	if _, err = r.guaranteeHostsConfigMapCreated(ctx, cluster.Name,
 		createKubernetesClusterOwnerReference(cluster), hostsContent); err != nil {
@@ -523,12 +556,8 @@ func (r *ClusterReconciler) ensureAppliedKubeSprayRecorded(ctx context.Context, 
 	image := controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
 	version := controlPlaneString(cluster.Spec.ControlPlane.KubeVersion)
 	if _, _, _, ok := v1.ParseKubeVersion(version); !ok {
-		var found bool
-		version, found = v1.KubeVersionForKubeSprayImage(image)
-		if !found {
-			klog.Infof("cluster %s upgrade baseline is not available", cluster.Name)
-			return nil
-		}
+		klog.Infof("cluster %s upgrade baseline is not available", cluster.Name)
+		return nil
 	}
 	return r.persistAppliedKubeSpray(ctx, cluster, version, image)
 }
@@ -907,7 +936,7 @@ func (r *ClusterReconciler) clearPods(ctx context.Context, cluster *v1.Cluster) 
 
 // guaranteeService creates the Kubernetes service and endpoints for the cluster.
 func (r *ClusterReconciler) guaranteeService(ctx context.Context, cluster *v1.Cluster) error {
-	if cluster.Status.ControlPlaneStatus.Phase != v1.ReadyPhase && cluster.Status.ControlPlaneStatus.Phase != v1.CreatedPhase {
+	if !cluster.IsReady() && cluster.Status.ControlPlaneStatus.Phase != v1.CreatedPhase {
 		return nil
 	}
 

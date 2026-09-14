@@ -211,11 +211,15 @@ func validateClusterUpgradeUpdate(newCluster, oldCluster *v1.Cluster) error {
 	if newImage == oldImage && newVersion == oldVersion {
 		return nil
 	}
+	appliedImage := v1.GetAnnotation(oldCluster, v1.ClusterAppliedKubeSprayImageAnnotation)
+	appliedVersion := v1.GetAnnotation(oldCluster, v1.ClusterAppliedKubeVersionAnnotation)
+	if newImage == appliedImage && newVersion == appliedVersion {
+		return nil
+	}
 	expectedVersion, ok := v1.KubeVersionForKubeSprayImage(newImage)
 	if !ok || expectedVersion != newVersion {
 		return fmt.Errorf("the KubeSprayImage and KubernetesVersion are not a supported pair")
 	}
-	appliedVersion := v1.GetAnnotation(oldCluster, v1.ClusterAppliedKubeVersionAnnotation)
 	if !v1.IsAllowedKubeVersionUpgrade(appliedVersion, newVersion) {
 		return fmt.Errorf("the KubernetesVersion must be a patch upgrade or one minor version step")
 	}

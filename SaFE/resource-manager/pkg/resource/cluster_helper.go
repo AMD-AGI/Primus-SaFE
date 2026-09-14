@@ -9,6 +9,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"html/template"
 	"strings"
@@ -33,6 +34,8 @@ const (
 	DefaultKubeSprayImage        = "quay.io/kubespray/kubespray:v2.24.0"
 	KubeletStatusUpdateFrequency = "60s"
 )
+
+var errUpgradeWorkerNotReady = stderrors.New("upgrade worker is not ready")
 
 // ClusterBaseReconciler provides base functionality for cluster reconciliation operations.
 type ClusterBaseReconciler struct {
@@ -174,7 +177,8 @@ func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.C
 }
 
 // generateUpgradeHosts builds an inventory containing every managed node in the cluster.
-func (r *ClusterBaseReconciler) generateUpgradeHosts(ctx context.Context, cluster *v1.Cluster) (*HostTemplateContent, error) {
+func (r *ClusterBaseReconciler) generateUpgradeHosts(ctx context.Context, cluster *v1.Cluster,
+	requireReady bool) (*HostTemplateContent, error) {
 	hostsContent, err := r.generateHosts(ctx, cluster, nil)
 	if err != nil {
 		return nil, err
@@ -190,8 +194,8 @@ func (r *ClusterBaseReconciler) generateUpgradeHosts(ctx context.Context, cluste
 		if node.GetSpecCluster() != cluster.Name || v1.IsControlPlane(node) || !node.IsManaged() {
 			continue
 		}
-		if !node.IsMachineReady() {
-			return nil, fmt.Errorf("cluster worker node %s is not ready", node.Name)
+		if requireReady && !node.IsMachineReady() {
+			return nil, fmt.Errorf("%w: %s", errUpgradeWorkerNotReady, node.Name)
 		}
 		if err = r.appendWorkerHost(ctx, cluster, hostsContent, node); err != nil {
 			return nil, err

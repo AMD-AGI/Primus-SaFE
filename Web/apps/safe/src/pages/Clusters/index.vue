@@ -31,7 +31,7 @@
       </el-table-column>
       <el-table-column prop="phase" label="Phase">
         <template #default="{ row }">
-          <el-tag :type="row.phase === 'Ready' ? 'success' : 'danger'">{{ row.phase }}</el-tag>
+          <el-tag :type="clusterPhaseTagType(row.phase)">{{ row.phase }}</el-tag>
         </template>
       </el-table-column>
 
@@ -158,7 +158,7 @@
 </template>
 <script lang="ts" setup>
 import { ref, onMounted, reactive, nextTick, h } from 'vue'
-import { useClusterStore } from '@/stores/cluster'
+import { clusterPhaseTagType, useClusterStore } from '@/stores/cluster'
 import { useUserStore } from '@/stores/user'
 import { getNodesList, editClusterProtected, deleteCluster, getClusterDetail } from '@/services'
 import { getSecrets } from '@/services'

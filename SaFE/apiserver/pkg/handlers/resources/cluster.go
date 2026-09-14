@@ -388,11 +388,6 @@ func validateClusterUpgradePatch(cluster *v1.Cluster, req *view.PatchClusterRequ
 	if req.KubeSprayImage == nil && req.KubeVersion == nil {
 		return nil
 	}
-	phase := cluster.Status.ControlPlaneStatus.Phase
-	if phase != v1.ReadyPhase && phase != v1.UpgradeFailedPhase {
-		return commonerrors.NewConflict("the cluster is not ready for upgrade")
-	}
-
 	image := controlPlanePatchValue(cluster.Spec.ControlPlane.KubeSprayImage, req.KubeSprayImage)
 	version := controlPlanePatchValue(cluster.Spec.ControlPlane.KubeVersion, req.KubeVersion)
 	if image == "" {
@@ -401,14 +396,26 @@ func validateClusterUpgradePatch(cluster *v1.Cluster, req *view.PatchClusterRequ
 	if _, _, _, ok := v1.ParseKubeVersion(version); !ok {
 		return commonerrors.NewBadRequest("the kubernetesVersion must use x.y.z format")
 	}
+
+	annotations := cluster.GetAnnotations()
+	appliedVersion, hasVersion := annotations[v1.ClusterAppliedKubeVersionAnnotation]
+	appliedImage, hasImage := annotations[v1.ClusterAppliedKubeSprayImageAnnotation]
+	revertsToApplied := hasVersion && hasImage && image == appliedImage && version == appliedVersion
+	phase := cluster.Status.ControlPlaneStatus.Phase
+	if phase != v1.ReadyPhase && phase != v1.UpgradeFailedPhase &&
+		!(phase == v1.UpgradingPhase && revertsToApplied) {
+		return commonerrors.NewConflict("the cluster is not ready for upgrade")
+	}
+	if revertsToApplied {
+		normalizeClusterUpgradePatch(req)
+		return nil
+	}
+
 	expectedVersion, ok := v1.KubeVersionForKubeSprayImage(image)
 	if !ok || expectedVersion != version {
 		return commonerrors.NewBadRequest("the kubeSprayImage and kubernetesVersion are not a supported pair")
 	}
 
-	annotations := cluster.GetAnnotations()
-	appliedVersion, hasVersion := annotations[v1.ClusterAppliedKubeVersionAnnotation]
-	_, hasImage := annotations[v1.ClusterAppliedKubeSprayImageAnnotation]
 	if !hasVersion || !hasImage {
 		return commonerrors.NewConflict("the cluster upgrade baseline is not initialized")
 	}
@@ -416,6 +423,12 @@ func validateClusterUpgradePatch(cluster *v1.Cluster, req *view.PatchClusterRequ
 		return commonerrors.NewBadRequest("kubernetesVersion must be a patch upgrade or one minor version step")
 	}
 
+	normalizeClusterUpgradePatch(req)
+	return nil
+}
+
+// normalizeClusterUpgradePatch trims requested upgrade values.
+func normalizeClusterUpgradePatch(req *view.PatchClusterRequest) {
 	if req.KubeSprayImage != nil {
 		trimmed := strings.TrimSpace(*req.KubeSprayImage)
 		req.KubeSprayImage = &trimmed
@@ -424,7 +437,6 @@ func validateClusterUpgradePatch(cluster *v1.Cluster, req *view.PatchClusterRequ
 		trimmed := strings.TrimSpace(*req.KubeVersion)
 		req.KubeVersion = &trimmed
 	}
-	return nil
 }
 
 // controlPlanePatchValue returns the requested value, or the current value when omitted.
@@ -470,8 +482,8 @@ func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	if !cluster.IsReady() {
-		return nil, commonerrors.NewInternalError("the cluster is not ready")
+	if cluster.Status.ControlPlaneStatus.Phase != v1.ReadyPhase {
+		return nil, commonerrors.NewConflict("the cluster is not ready")
 	}
 	req, err := parseProcessNodesRequest(c, v1.NodeActionAdd, v1.NodeActionRemove)
 	if err != nil {

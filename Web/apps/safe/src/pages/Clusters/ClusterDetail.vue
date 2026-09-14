@@ -7,7 +7,7 @@
         </el-button>
         <h1 class="w-name">{{ detailData.clusterId }}</h1>
 
-        <el-tag class="ml-4" :type="detailData.phase === 'Ready' ? 'success' : 'danger'">{{
+        <el-tag class="ml-4" :type="clusterPhaseTagType(detailData.phase)">{{
           detailData.phase
         }}</el-tag>
       </div>
@@ -179,7 +179,7 @@
         :filter-method="passAll"
       >
         <template #default="{ row }">
-          <el-tag :type="row.phase === 'Ready' ? 'success' : 'danger'">
+          <el-tag :type="clusterPhaseTagType(row.phase)">
             {{ row.phase }}
           </el-tag>
         </template>
@@ -363,6 +363,7 @@
 import { getClusterDetail, getNodesList, type NodesParams, NODE_PHASE } from '@/services'
 import { onMounted, ref, computed, reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { clusterPhaseTagType } from '@/stores/cluster'
 import dayjs from 'dayjs'
 import { copyText, byte2Gi } from '@/utils/index'
 import { CopyDocument, ArrowLeft, Loading } from '@element-plus/icons-vue'

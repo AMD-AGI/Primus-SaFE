@@ -1270,6 +1270,15 @@ func TestSyncOrCreateScaleUpPodWaitsForUpgrade(t *testing.T) {
 	assert.Equal(t, 0, len(pods.Items))
 }
 
+func TestClusterAllowsNodeManagementAfterUpgradeFailure(t *testing.T) {
+	cluster := &v1.Cluster{}
+	cluster.Status.ControlPlaneStatus.Phase = v1.UpgradeFailedPhase
+	assert.Equal(t, true, clusterAllowsNodeManagement(cluster))
+
+	cluster.Status.ControlPlaneStatus.Phase = v1.UpgradingPhase
+	assert.Equal(t, false, clusterAllowsNodeManagement(cluster))
+}
+
 func TestNodeDeleteK8sNodeViaFactory(t *testing.T) {
 	scheme, _ := genMockScheme()
 	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{

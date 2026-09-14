@@ -100,12 +100,12 @@ func clusterUpdate() *mcpserver.MCPTool {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"cluster_id":          prop("string", "Cluster ID"),
-				"is_protected":        prop("boolean", "Whether to protect the cluster"),
-				"is_control_plane":    prop("boolean", "Whether the cluster is a control plane"),
-				"labels":              propObject("User-defined labels"),
-				"kube_spray_image":    prop("string", "KubeSpray image address"),
-				"kube_version":        prop("string", "Kubernetes version, e.g. '1.35.4'"),
+				"cluster_id":       prop("string", "Cluster ID"),
+				"is_protected":     prop("boolean", "Whether to protect the cluster"),
+				"is_control_plane": prop("boolean", "Whether the cluster is a control plane"),
+				"labels":           propObject("User-defined labels"),
+				"kube_spray_image": prop("string", "KubeSpray image address"),
+				"kube_version":     prop("string", "Kubernetes version, e.g. '1.35.4'"),
 			},
 			"required": []string{"cluster_id"},
 		},

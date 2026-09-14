@@ -2,6 +2,16 @@ import { defineStore } from 'pinia'
 import { getClusters } from '@/services/base'
 import type { ClusterItem } from '@/services'
 
+const USABLE_CLUSTER_PHASES = new Set(['Ready', 'Upgrading', 'UpgradeFailed'])
+
+export const isUsableClusterPhase = (phase?: string) => !!phase && USABLE_CLUSTER_PHASES.has(phase)
+
+export const clusterPhaseTagType = (phase?: string) => {
+  if (phase === 'Ready') return 'success'
+  if (phase === 'Upgrading') return 'warning'
+  return 'danger'
+}
+
 export interface ClusterState {
   totalCount: number
   items: ClusterItem[]
@@ -35,11 +45,11 @@ export const useClusterStore = defineStore('cluster', {
         // If a persisted currentClusterId exists, check if it is still valid
         const persistedCluster = this.items.find((i) => i.clusterId === this.currentClusterId)
 
-        // If the persisted cluster exists and is Ready, keep using it; otherwise use the first Ready cluster
-        if (persistedCluster && persistedCluster.phase === 'Ready') {
+        // Keep clusters whose data plane remains available during the upgrade lifecycle.
+        if (persistedCluster && isUsableClusterPhase(persistedCluster.phase)) {
           this.isReady = true
         } else {
-          const readyItem = this.items.find((i) => i?.phase === 'Ready')
+          const readyItem = this.items.find((i) => isUsableClusterPhase(i?.phase))
           this.currentClusterId = readyItem?.clusterId ?? ''
           this.isReady = !!readyItem
         }

@@ -571,12 +571,14 @@ func TestGuaranteeServiceNotReady(t *testing.T) {
 }
 
 func TestGuaranteeServiceReady(t *testing.T) {
-	cluster := testCluster("c1")
-	cluster.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
-	cluster.Spec.ControlPlane.Nodes = []string{"n1"}
-	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}
-	r := newPlaneReconciler(t, cluster, node)
-	testifyassert.NoError(t, r.guaranteeService(context.Background(), cluster))
+	for _, phase := range []v1.ClusterPhase{v1.ReadyPhase, v1.UpgradingPhase, v1.UpgradeFailedPhase} {
+		cluster := testCluster("c1-" + string(phase))
+		cluster.Status.ControlPlaneStatus.Phase = phase
+		cluster.Spec.ControlPlane.Nodes = []string{"n1"}
+		node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}
+		r := newPlaneReconciler(t, cluster, node)
+		testifyassert.NoError(t, r.guaranteeService(context.Background(), cluster))
+	}
 }
 
 func TestUpdatePodStatus(t *testing.T) {
@@ -1113,6 +1115,8 @@ func TestGuaranteeClusterUpgradeCreatesPod(t *testing.T) {
 	testifyassert.NoError(t, err)
 	assert.Equal(t, string(v1.ClusterUpgradeAction), pod.Labels[v1.ClusterManageActionLabel])
 	testifyassert.Contains(t, strings.Join(pod.Spec.Containers[0].Args, " "), "upgrade-cluster.yml")
+	testifyassert.NotNil(t, pod.Spec.ActiveDeadlineSeconds)
+	assert.Equal(t, int64((6*time.Hour)/time.Second), *pod.Spec.ActiveDeadlineSeconds)
 	config := new(corev1.ConfigMap)
 	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{
 		Namespace: common.PrimusSafeNamespace,
@@ -1202,6 +1206,55 @@ func TestClusterUpgradePersistsSucceededStaleTarget(t *testing.T) {
 	assert.Equal(t, "1.33.7", v1.GetAnnotation(got, v1.ClusterAppliedKubeVersionAnnotation))
 	err := r.Get(context.Background(), podKey, new(corev1.Pod))
 	testifyassert.Error(t, err)
+}
+
+func TestClusterUpgradeCanBeCancelledToAppliedPair(t *testing.T) {
+	cluster, r := readyUpgradeCluster(t)
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
+
+	current := new(v1.Cluster)
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+	current.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
+	current.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:old")
+	testifyassert.NoError(t, r.Update(context.Background(), current))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
+
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+	assert.Equal(t, v1.ReadyPhase, current.Status.ControlPlaneStatus.Phase)
+	err := r.Get(context.Background(), types.NamespacedName{
+		Namespace: common.PrimusSafeNamespace,
+		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
+	}, new(corev1.Pod))
+	testifyassert.Error(t, err)
+}
+
+func TestUpgradePodTimedOut(t *testing.T) {
+	now := time.Now()
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			CreationTimestamp: metav1.NewTime(now.Add(-clusterUpgradeTimeout)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodPending},
+	}
+	assert.True(t, upgradePodTimedOut(pod, now))
+
+	pod.Status.Phase = corev1.PodSucceeded
+	assert.False(t, upgradePodTimedOut(pod, now))
+}
+
+func TestEnsureAppliedKubeSprayDoesNotInferVersion(t *testing.T) {
+	cluster, r := planeClusterWithNode(t)
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	testifyassert.NoError(t, r.patchControlPlanePhase(context.Background(), cluster, v1.ReadyPhase))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
+
+	current := new(v1.Cluster)
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
+	assert.Equal(t, "", v1.GetAnnotation(current, v1.ClusterAppliedKubeVersionAnnotation))
 }
 
 func TestClusterUpgradeRetriesThreeTimesAndCanBeReset(t *testing.T) {
