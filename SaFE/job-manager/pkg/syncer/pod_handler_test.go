@@ -229,6 +229,38 @@ func TestRemoveWorkloadPodEmptyId(t *testing.T) {
 	assert.NilError(t, err)
 }
 
+func TestIsStaleWorkloadGeneration(t *testing.T) {
+	now := metav1.Now()
+	earlier := metav1.NewTime(now.Add(-time.Hour))
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{UID: "new-uid", CreationTimestamp: now}}
+	assert.Equal(t, isStaleWorkloadGeneration(w, "old-uid", time.Time{}), true)
+	assert.Equal(t, isStaleWorkloadGeneration(w, "new-uid", earlier.Time), false)
+	assert.Equal(t, isStaleWorkloadGeneration(w, "", earlier.Time), true)
+	assert.Equal(t, isStaleWorkloadGeneration(w, "", now.Time), false)
+	assert.Equal(t, isStaleWorkloadGeneration(w, "", time.Time{}), false)
+}
+
+func TestRemoveWorkloadPodIgnoresPreviousRun(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:              "w",
+		UID:               "new-uid",
+		CreationTimestamp: metav1.Now(),
+		Annotations:       map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
+	}}
+	w.Status.Pods = []v1.WorkloadPod{{PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodRunning}}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).WithStatusSubresource(w).Build()
+	r := &SyncerReconciler{Client: cl}
+	err := r.removeWorkloadPod(context.Background(), nil, &resourceMessage{
+		workloadId:  "w",
+		name:        "p1",
+		workloadUid: "old-uid",
+	})
+	assert.NilError(t, err)
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodRunning)
+}
+
 func TestRemoveWorkloadPodNotFound(t *testing.T) {
 	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).Build()
 	r := &SyncerReconciler{Client: cl}

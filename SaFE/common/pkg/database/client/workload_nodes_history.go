@@ -19,6 +19,13 @@ import (
 // maxWorkloadNodesHistory is the number of past runs kept in nodes_history.
 const maxWorkloadNodesHistory = 10
 
+// maxWorkloadNodesHistoryBytes bounds the JSON stored in nodes_history so a
+// detail GET cannot pull unbounded node-name payloads.
+const maxWorkloadNodesHistoryBytes = 64 * 1024
+
+var errWorkloadNodesHistoryCorrupt = fmt.Errorf("workload nodes history is not valid JSON")
+var errWorkloadNodesHistoryTooLarge = fmt.Errorf("workload nodes history exceeds size cap")
+
 var (
 	selectWorkloadForNodesArchiveCmd = fmt.Sprintf(
 		`SELECT workload_id, nodes_history FROM %s WHERE workload_id = $1`, TWorkload)
@@ -46,14 +53,22 @@ type WorkloadNodesHistoryEntry struct {
 // DecodeWorkloadNodesHistory decodes the nodes_history column, oldest run
 // first. It returns nil when the column is empty or unreadable.
 func DecodeWorkloadNodesHistory(raw string) []WorkloadNodesHistoryEntry {
-	if raw == "" {
-		return nil
-	}
-	var entries []WorkloadNodesHistoryEntry
-	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+	entries, err := decodeWorkloadNodesHistory(raw)
+	if err != nil {
 		return nil
 	}
 	return entries
+}
+
+func decodeWorkloadNodesHistory(raw string) ([]WorkloadNodesHistoryEntry, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var entries []WorkloadNodesHistoryEntry
+	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+		return nil, errWorkloadNodesHistoryCorrupt
+	}
+	return entries, nil
 }
 
 // buildWorkloadNodesHistoryEntry snapshots the node assignment of the stored
@@ -99,10 +114,16 @@ func dispatchNodesContainAssignment(nodes [][]string) bool {
 }
 
 // appendWorkloadNodesHistory appends one run and keeps the newest entries.
+// A corrupt or oversized payload is left unchanged so resume can still clear
+// the previous run's detail rows.
 func appendWorkloadNodesHistory(
 	raw string, entry *WorkloadNodesHistoryEntry,
 ) (string, int, error) {
-	entries := append(DecodeWorkloadNodesHistory(raw), *entry)
+	entries, err := decodeWorkloadNodesHistory(raw)
+	if err != nil {
+		return "", 0, err
+	}
+	entries = append(entries, *entry)
 	dropped := 0
 	if len(entries) > maxWorkloadNodesHistory {
 		dropped = len(entries) - maxWorkloadNodesHistory
@@ -111,6 +132,9 @@ func appendWorkloadNodesHistory(
 	encoded, err := json.Marshal(entries)
 	if err != nil {
 		return "", 0, err
+	}
+	if len(encoded) > maxWorkloadNodesHistoryBytes {
+		return "", 0, errWorkloadNodesHistoryTooLarge
 	}
 	return string(encoded), dropped, nil
 }

@@ -585,6 +585,20 @@ func (mr *MockInterfaceMockRecorder) DeleteWorkloadDispatchNodes(ctx, workloadId
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadDispatchNodes", reflect.TypeOf((*MockInterface)(nil).DeleteWorkloadDispatchNodes), ctx, workloadId)
 }
 
+// DeleteWorkloadDispatchNodesNotIn mocks base method.
+func (m *MockInterface) DeleteWorkloadDispatchNodesNotIn(ctx context.Context, workloadId string, keepIndexes []int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkloadDispatchNodesNotIn", ctx, workloadId, keepIndexes)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkloadDispatchNodesNotIn indicates an expected call of DeleteWorkloadDispatchNodesNotIn.
+func (mr *MockInterfaceMockRecorder) DeleteWorkloadDispatchNodesNotIn(ctx, workloadId, keepIndexes interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadDispatchNodesNotIn", reflect.TypeOf((*MockInterface)(nil).DeleteWorkloadDispatchNodesNotIn), ctx, workloadId, keepIndexes)
+}
+
 // DeleteWorkloadPods mocks base method.
 func (m *MockInterface) DeleteWorkloadPods(ctx context.Context, workloadId string) error {
 	m.ctrl.T.Helper()
@@ -2767,6 +2781,20 @@ func (m *MockWorkloadDispatchNodeInterface) DeleteWorkloadDispatchNodes(ctx cont
 func (mr *MockWorkloadDispatchNodeInterfaceMockRecorder) DeleteWorkloadDispatchNodes(ctx, workloadId interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadDispatchNodes", reflect.TypeOf((*MockWorkloadDispatchNodeInterface)(nil).DeleteWorkloadDispatchNodes), ctx, workloadId)
+}
+
+// DeleteWorkloadDispatchNodesNotIn mocks base method.
+func (m *MockWorkloadDispatchNodeInterface) DeleteWorkloadDispatchNodesNotIn(ctx context.Context, workloadId string, keepIndexes []int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkloadDispatchNodesNotIn", ctx, workloadId, keepIndexes)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkloadDispatchNodesNotIn indicates an expected call of DeleteWorkloadDispatchNodesNotIn.
+func (mr *MockWorkloadDispatchNodeInterfaceMockRecorder) DeleteWorkloadDispatchNodesNotIn(ctx, workloadId, keepIndexes interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadDispatchNodesNotIn", reflect.TypeOf((*MockWorkloadDispatchNodeInterface)(nil).DeleteWorkloadDispatchNodesNotIn), ctx, workloadId, keepIndexes)
 }
 
 // ListWorkloadDispatchNodes mocks base method.

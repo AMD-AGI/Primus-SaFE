@@ -862,6 +862,9 @@ func buildObjectLabels(workload *v1.Workload) map[string]interface{} {
 		v1.WorkloadIdLabel:          getRootWorkloadId(workload),
 		v1.WorkloadDispatchCntLabel: buildDispatchCount(workload),
 	}
+	if workload.UID != "" {
+		result[v1.WorkloadUidLabel] = string(workload.UID)
+	}
 	for key, value := range workload.Labels {
 		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
 			result[key] = value

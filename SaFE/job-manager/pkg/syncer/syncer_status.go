@@ -130,6 +130,7 @@ func (r *SyncerReconciler) writeWorkloadStatusToDB(ctx context.Context, w *v1.Wo
 	if currentDispatchNodesNeedRepair(w) {
 		r.updateWorkloadNodes(w)
 	}
+	keepDispatchIndexes := make([]int, 0, len(w.Status.Nodes))
 	for _, row := range dbclient.WorkloadDispatchNodesFromV1(w.Name, w.Status.Nodes, w.Status.Ranks) {
 		if row == nil {
 			continue
@@ -142,8 +143,9 @@ func (r *SyncerReconciler) writeWorkloadStatusToDB(ctx context.Context, w *v1.Wo
 		if err := r.dbClient.UpsertWorkloadDispatchNode(ctx, row); err != nil {
 			return err
 		}
+		keepDispatchIndexes = append(keepDispatchIndexes, row.DispatchIndex)
 	}
-	return nil
+	return r.dbClient.DeleteWorkloadDispatchNodesNotIn(ctx, w.Name, keepDispatchIndexes)
 }
 
 // currentDispatchNodesNeedRepair reports whether the current dispatch is absent

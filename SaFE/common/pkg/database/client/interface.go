@@ -73,6 +73,7 @@ type WorkloadDispatchNodeInterface interface {
 	UpsertWorkloadDispatchNode(ctx context.Context, dn *WorkloadDispatchNode) error
 	ListWorkloadDispatchNodes(ctx context.Context, workloadId string) ([]*WorkloadDispatchNode, error)
 	DeleteWorkloadDispatchNodes(ctx context.Context, workloadId string) error
+	DeleteWorkloadDispatchNodesNotIn(ctx context.Context, workloadId string, keepIndexes []int) error
 }
 
 type FaultInterface interface {

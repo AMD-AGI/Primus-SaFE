@@ -209,6 +209,9 @@ func (r *SyncerReconciler) lockPodStatusForPod(ctx context.Context, clientSets *
 				return nil, err
 			}
 			message.workloadId = v1.GetWorkloadId(meshObj)
+			if uid := v1.GetLabel(meshObj, v1.WorkloadUidLabel); uid != "" {
+				v1.SetLabel(pod, v1.WorkloadUidLabel, uid)
+			}
 			if err = r.persistMeshPodOwnership(ctx, clientSets, pod, message.workloadId,
 				v1.GetLabel(meshObj, v1.GroupIdLabel),
 				v1.GetAnnotation(meshObj, v1.ResourceIdAnnotation),
@@ -257,6 +260,9 @@ func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
 			groupID := v1.GetLabel(meshObj, v1.GroupIdLabel)
 			resourceID := v1.GetAnnotation(meshObj, v1.ResourceIdAnnotation)
 			mainContainer := v1.GetAnnotation(meshObj, v1.MainContainerAnnotation)
+			if uid := v1.GetLabel(meshObj, v1.WorkloadUidLabel); uid != "" {
+				v1.SetLabel(pod, v1.WorkloadUidLabel, uid)
+			}
 			if err = r.persistMeshPodOwnership(ctx, clientSets, pod,
 				workloadID, groupID, resourceID, mainContainer); err != nil {
 				return nil, err
@@ -269,6 +275,23 @@ func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
 	if err != nil || adminWorkload == nil {
 		return nil, err
 	}
+	podUid := v1.GetLabel(pod, v1.WorkloadUidLabel)
+	if podUid == "" {
+		podUid = message.workloadUid
+	}
+	createdAt := pod.CreationTimestamp.Time
+	if createdAt.IsZero() {
+		createdAt = message.createdAt
+	}
+	if isStaleWorkloadGeneration(adminWorkload, podUid, createdAt) {
+		klog.V(4).InfoS("ignore pod event from a previous workload run",
+			"workload", adminWorkload.Name, "pod", pod.Name,
+			"eventUID", podUid, "currentUID", adminWorkload.UID)
+		return nil, nil
+	}
+	if podUid == "" && adminWorkload.UID != "" {
+		v1.SetLabel(pod, v1.WorkloadUidLabel, string(adminWorkload.UID))
+	}
 	v1.SetLabel(adminWorkload, v1.WorkloadDispatchCntLabel, strconv.Itoa(message.dispatchCount))
 	return adminWorkload, nil
 }
@@ -277,6 +300,9 @@ func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
 func (r *SyncerReconciler) persistMeshPodOwnership(ctx context.Context, clientSets *ClusterClientSets,
 	pod *corev1.Pod, workloadID, groupID, resourceID, mainContainer string) error {
 	labelsPatch := map[string]any{v1.WorkloadIdLabel: workloadID}
+	if uid := v1.GetLabel(pod, v1.WorkloadUidLabel); uid != "" {
+		labelsPatch[v1.WorkloadUidLabel] = uid
+	}
 	annotationsPatch := map[string]any{}
 	if groupID != "" {
 		labelsPatch[v1.GroupIdLabel] = groupID
@@ -539,6 +565,12 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	adminWorkload, err := r.getAdminWorkload(ctx, workloadID)
 	if adminWorkload == nil {
 		return err
+	}
+	if isStaleWorkloadGeneration(adminWorkload, message.workloadUid, message.createdAt) {
+		klog.V(4).InfoS("ignore pod delete from a previous workload run",
+			"workload", adminWorkload.Name, "pod", message.name,
+			"eventUID", message.workloadUid, "currentUID", adminWorkload.UID)
+		return nil
 	}
 
 	id := indexOfPod(adminWorkload.Status.Pods, message.name)
@@ -994,6 +1026,23 @@ func indexOfPod(pods []v1.WorkloadPod, podId string) int {
 		}
 	}
 	return -1
+}
+
+// isStaleWorkloadGeneration reports whether a data-plane object belongs to a
+// previous CR that reused this workload id. A matching uid label is preferred;
+// pods created before the current CR are treated as leftover when the label is
+// absent.
+func isStaleWorkloadGeneration(w *v1.Workload, workloadUid string, createdAt time.Time) bool {
+	if w == nil || w.UID == "" {
+		return false
+	}
+	if workloadUid != "" {
+		return workloadUid != string(w.UID)
+	}
+	if createdAt.IsZero() || w.CreationTimestamp.IsZero() {
+		return false
+	}
+	return createdAt.Before(w.CreationTimestamp.Time)
 }
 
 // createReservedFaults creates fault to reserve nodes for the workload

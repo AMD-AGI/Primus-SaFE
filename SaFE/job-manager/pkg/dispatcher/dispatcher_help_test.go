@@ -1436,9 +1436,10 @@ func TestBuildObjectAnnotations(t *testing.T) {
 }
 
 func TestBuildPodLabels(t *testing.T) {
-	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "uid-1"}}
 	labels := buildPodLabels(w)
 	assert.Equal(t, labels[v1.K8sObjectIdLabel], "w")
+	assert.Equal(t, labels[v1.WorkloadUidLabel], "uid-1")
 }
 
 func TestBuildPodAnnotations(t *testing.T) {

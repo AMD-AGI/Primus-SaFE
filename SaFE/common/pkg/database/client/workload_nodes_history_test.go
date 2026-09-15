@@ -118,18 +118,25 @@ func TestDecodeWorkloadNodesHistoryMalformed(t *testing.T) {
 	}
 }
 
-func TestAppendWorkloadNodesHistoryIgnoresCorruptJSON(t *testing.T) {
+func TestAppendWorkloadNodesHistoryRejectsCorruptJSON(t *testing.T) {
 	t.Parallel()
-	raw, _, err := appendWorkloadNodesHistory("not json", &WorkloadNodesHistoryEntry{
+	_, _, err := appendWorkloadNodesHistory("not json", &WorkloadNodesHistoryEntry{
 		DispatchCount: 1,
 		Nodes:         [][]string{{"n1"}},
 	})
-	if err != nil {
-		t.Fatalf("corrupt history must not fail the archive write: %v", err)
+	if !errors.Is(err, errWorkloadNodesHistoryCorrupt) {
+		t.Fatalf("corrupt history must not be overwritten, got %v", err)
 	}
-	entries := DecodeWorkloadNodesHistory(raw)
-	if len(entries) != 1 || entries[0].DispatchCount != 1 {
-		t.Errorf("expected a single new entry, got %+v", entries)
+}
+
+func TestAppendWorkloadNodesHistorySkipsOversizedRun(t *testing.T) {
+	t.Parallel()
+	_, _, err := appendWorkloadNodesHistory("", &WorkloadNodesHistoryEntry{
+		DispatchCount: 1,
+		Nodes:         [][]string{{strings.Repeat("n", maxWorkloadNodesHistoryBytes+1)}},
+	})
+	if !errors.Is(err, errWorkloadNodesHistoryTooLarge) {
+		t.Fatalf("oversized history must be skipped, got %v", err)
 	}
 }
 
@@ -225,6 +232,30 @@ func TestArchiveWorkloadNodesForResumeCleansRowsWithoutEntry(t *testing.T) {
 	}
 	if err := c.ArchiveWorkloadNodesForResume(t.Context(), previous, nil); err != nil {
 		t.Fatalf("archive failed: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestArchiveWorkloadNodesForResumeKeepsHistoryOnCorruptJSON(t *testing.T) {
+	c, mock := newMockClient(t)
+	mock.ExpectQuery(regexp.QuoteMeta(selectWorkloadForNodesArchiveCmd)).
+		WithArgs("w1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"workload_id", "nodes_history",
+		}).AddRow("w1", "not json"))
+	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadDispatchNodesForResumeCmd)).
+		WithArgs("w1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadPodsForResumeCmd)).
+		WithArgs("w1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	previous := &Workload{WorkloadId: "w1", DispatchCount: 1}
+	rows := WorkloadDispatchNodesFromV1("w1", [][]string{{"n1"}}, nil)
+	if err := c.ArchiveWorkloadNodesForResume(t.Context(), previous, rows); !errors.Is(err, errWorkloadNodesHistoryCorrupt) {
+		t.Fatalf("expected corrupt history error, got %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

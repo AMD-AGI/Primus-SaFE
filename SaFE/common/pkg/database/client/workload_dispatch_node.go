@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"k8s.io/klog/v2"
 
@@ -86,6 +87,29 @@ func (c *Client) DeleteWorkloadDispatchNodes(ctx context.Context, workloadId str
 	cmd := fmt.Sprintf(`DELETE FROM %s WHERE workload_id = $1`, TWorkloadDispatchNode)
 	if _, err = db.ExecContext(ctx, cmd, workloadId); err != nil {
 		klog.ErrorS(err, "failed to delete workload dispatch nodes", "workloadId", workloadId)
+	}
+	return err
+}
+
+// DeleteWorkloadDispatchNodesNotIn removes dispatch rows whose index is not in
+// keepIndexes. An empty keep list removes every dispatch row of the workload.
+func (c *Client) DeleteWorkloadDispatchNodesNotIn(ctx context.Context, workloadId string, keepIndexes []int) error {
+	db, err := c.getDB()
+	if err != nil {
+		return err
+	}
+	if len(keepIndexes) == 0 {
+		return c.DeleteWorkloadDispatchNodes(ctx, workloadId)
+	}
+	query, args, err := sqlx.In(
+		fmt.Sprintf(`DELETE FROM %s WHERE workload_id = ? AND dispatch_index NOT IN (?)`, TWorkloadDispatchNode),
+		workloadId, keepIndexes)
+	if err != nil {
+		return err
+	}
+	query = db.Rebind(query)
+	if _, err = db.ExecContext(ctx, query, args...); err != nil {
+		klog.ErrorS(err, "failed to delete stale workload dispatch nodes", "workloadId", workloadId)
 	}
 	return err
 }
