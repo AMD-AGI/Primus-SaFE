@@ -150,6 +150,15 @@ func (h *Handler) retryNodes(c *gin.Context) (interface{}, error) {
 			continue
 		}
 
+		// Retry re-runs host provisioning, which a virtual node has none of.
+		if err := h.rejectExternalNodeByName(ctx, nodeName); err != nil {
+			response.FailedNodes = append(response.FailedNodes, view.RetryFailedNode{
+				NodeId: nodeName,
+				Error:  err.Error(),
+			})
+			continue
+		}
+
 		// Delete all up/down pods for this node and get pod info
 		podInfo, err := h.deleteNodeManagementPods(ctx, nodeName)
 		if err != nil {
@@ -170,6 +179,31 @@ func (h *Handler) retryNodes(c *gin.Context) (interface{}, error) {
 	}
 
 	return response, nil
+}
+
+// rejectExternalNodeMutation refuses a change to a node an external capacity provider owns.
+//
+// The object is the provider's own record of an allocation it is accounting for. This API
+// cannot hand the allocation back, stop the tasks running on it, or tell the provider that
+// its record no longer matches, so editing or removing the node here would only leave the
+// two sides disagreeing about what exists. The provider withdraws the node itself when it
+// releases the allocation.
+func rejectExternalNodeMutation(node *v1.Node) error {
+	if node == nil || !node.IsExternal() {
+		return nil
+	}
+	return commonerrors.NewForbidden(fmt.Sprintf(
+		"node %s is owned by external capacity provider %q and cannot be created, changed or deleted through this API",
+		node.Name, node.Spec.ExternalRef.Provider))
+}
+
+// rejectExternalNodeByName is the same guard for call sites that hold only a name.
+func (h *Handler) rejectExternalNodeByName(ctx context.Context, name string) error {
+	node, err := h.getAdminNode(ctx, name)
+	if err != nil {
+		return err
+	}
+	return rejectExternalNodeMutation(node)
 }
 
 // authorizeNodeAccess checks if the user has permission to perform the specified verb on a node.
@@ -268,6 +302,12 @@ func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
 	node, err := h.generateNode(c.Request.Context(), requestUser, req, body)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate node")
+		return nil, err
+	}
+	// Checked on the built object rather than the request, so the guard holds whatever the
+	// request shape grows into. Virtual nodes are registered by the provider's own identity
+	// against an allocation it holds; one created here would stand for no capacity at all.
+	if err = rejectExternalNodeMutation(node); err != nil {
 		return nil, err
 	}
 	if err = h.Create(c.Request.Context(), node); err != nil {
@@ -727,6 +767,9 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err = rejectExternalNodeMutation(node); err != nil {
+		return nil, err
+	}
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   node,
@@ -780,6 +823,10 @@ func (h *Handler) deleteNodeImpl(c *gin.Context, name string, requestUser *v1.Us
 	ctx := c.Request.Context()
 	node, err := h.getAdminNode(ctx, name)
 	if err != nil {
+		return nil, err
+	}
+	// Guards the batch path too, which routes every node through here.
+	if err = rejectExternalNodeMutation(node); err != nil {
 		return nil, err
 	}
 	if err = h.accessController.Authorize(authority.AccessInput{
