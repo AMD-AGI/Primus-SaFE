@@ -34,7 +34,9 @@ type ControlPlaneApplyConfiguration struct {
 	KubeProxyMode  *string `json:"kubeProxyMode,omitempty"`
 	NodeLocalDNSIP *string `json:"nodeLocalDNSIP,omitempty"`
 	// Some parameter settings for Kubernetes
-	KubeApiServerArgs      map[string]string  `json:"kubeApiServerArgs,omitempty"`
+	KubeApiServerArgs map[string]string `json:"kubeApiServerArgs,omitempty"`
+	// Maximum number of pods scheduled on each node
+	KubeletMaxPods         *uint32            `json:"kubeletMaxPods,omitempty"`
 	KubeletLogFilesMaxSize *resource.Quantity `json:"kubeletLogFilesMaxSize,omitempty"`
 	KubeletConfigArgs      map[string]string  `json:"kubeletConfigArgs,omitempty"`
 }
@@ -146,6 +148,14 @@ func (b *ControlPlaneApplyConfiguration) WithKubeApiServerArgs(entries map[strin
 	for k, v := range entries {
 		b.KubeApiServerArgs[k] = v
 	}
+	return b
+}
+
+// WithKubeletMaxPods sets the KubeletMaxPods field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the KubeletMaxPods field is set to the value of the last call.
+func (b *ControlPlaneApplyConfiguration) WithKubeletMaxPods(value uint32) *ControlPlaneApplyConfiguration {
+	b.KubeletMaxPods = &value
 	return b
 }
 

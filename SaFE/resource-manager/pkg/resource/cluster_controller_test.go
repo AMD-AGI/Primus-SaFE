@@ -1077,10 +1077,11 @@ func readyUpgradeCluster(t *testing.T) (*v1.Cluster, *ClusterReconciler) {
 	t.Helper()
 	cluster, r := planeClusterWithNode(t)
 	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
-	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:old")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:20200530")
 	testifyassert.NoError(t, r.Update(context.Background(), cluster))
 	testifyassert.NoError(t, r.patchControlPlanePhase(context.Background(), cluster, v1.ReadyPhase))
-	testifyassert.NoError(t, r.persistAppliedKubeSpray(context.Background(), cluster, "1.32.5", "primussafe/kubespray:old"))
+	testifyassert.NoError(t, r.persistAppliedClusterConfig(context.Background(), cluster,
+		"1.32.5", "primussafe/kubespray:20200530", ""))
 	got := &v1.Cluster{}
 	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
 	return got, r
@@ -1105,6 +1106,8 @@ func TestGuaranteeClusterUpgradeCreatesPod(t *testing.T) {
 	cluster, r := readyUpgradeCluster(t)
 	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
 	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	maxPods := uint32(250)
+	cluster.Spec.ControlPlane.KubeletMaxPods = &maxPods
 	testifyassert.NoError(t, r.Update(context.Background(), cluster))
 	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
 	pod := &corev1.Pod{}
@@ -1115,6 +1118,8 @@ func TestGuaranteeClusterUpgradeCreatesPod(t *testing.T) {
 	testifyassert.NoError(t, err)
 	assert.Equal(t, string(v1.ClusterUpgradeAction), pod.Labels[v1.ClusterManageActionLabel])
 	testifyassert.Contains(t, strings.Join(pod.Spec.Containers[0].Args, " "), "upgrade-cluster.yml")
+	testifyassert.Contains(t, strings.Join(pod.Spec.Containers[0].Args, " "), "kubelet_max_pods=250")
+	assert.Equal(t, "250", v1.GetAnnotation(pod, v1.ClusterAppliedKubeletMaxPodsAnnotation))
 	testifyassert.NotNil(t, pod.Spec.ActiveDeadlineSeconds)
 	assert.Equal(t, int64((6*time.Hour)/time.Second), *pod.Spec.ActiveDeadlineSeconds)
 	config := new(corev1.ConfigMap)
@@ -1134,6 +1139,48 @@ func TestGuaranteeClusterUpgradeCreatesPod(t *testing.T) {
 		Namespace: common.PrimusSafeNamespace,
 		Name:      cluster.Name,
 	}, new(corev1.ConfigMap)))
+}
+
+func TestGuaranteeClusterUpgradeAppliesMaxPodsOnly(t *testing.T) {
+	cluster, r := readyUpgradeCluster(t)
+	maxPods := uint32(250)
+	cluster.Spec.ControlPlane.KubeletMaxPods = &maxPods
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
+
+	pod := new(corev1.Pod)
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{
+		Namespace: common.PrimusSafeNamespace,
+		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
+	}, pod))
+	assert.Equal(t, "250", v1.GetAnnotation(pod, v1.ClusterAppliedKubeletMaxPodsAnnotation))
+	testifyassert.Contains(t, pod.Spec.Containers[0].Args[0], "kubelet_max_pods=250")
+
+	pod.Status.Phase = corev1.PodSucceeded
+	testifyassert.NoError(t, r.Status().Update(context.Background(), pod))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
+
+	applied := new(v1.Cluster)
+	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, applied))
+	assert.Equal(t, "250", v1.GetAnnotation(applied, v1.ClusterAppliedKubeletMaxPodsAnnotation))
+	assert.Equal(t, v1.ReadyPhase, applied.Status.ControlPlaneStatus.Phase)
+}
+
+func TestGuaranteeClusterUpgradeRejectsMaxPodsOverCapacity(t *testing.T) {
+	cluster, r := readyUpgradeCluster(t)
+	maxPods := uint32(255)
+	cluster.Spec.ControlPlane.KubeletMaxPods = &maxPods
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
+
+	pod := new(corev1.Pod)
+	err := r.Get(context.Background(), types.NamespacedName{
+		Namespace: common.PrimusSafeNamespace,
+		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
+	}, pod)
+	testifyassert.Error(t, err)
 }
 
 func TestGuaranteeClusterUpgradeRejectsSkippedMinor(t *testing.T) {
@@ -1218,7 +1265,7 @@ func TestClusterUpgradeCanBeCancelledToAppliedPair(t *testing.T) {
 	current := new(v1.Cluster)
 	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
 	current.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
-	current.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:old")
+	current.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:20200530")
 	testifyassert.NoError(t, r.Update(context.Background(), current))
 	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
 
@@ -1328,7 +1375,7 @@ func TestClusterUpgradeRetriesResetWhenTargetChanges(t *testing.T) {
 
 	// Cancelling out of band drops a count that no longer matches the target.
 	current.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
-	current.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:old")
+	current.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:20200530")
 	testifyassert.NoError(t, r.Update(context.Background(), current))
 	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
 	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))

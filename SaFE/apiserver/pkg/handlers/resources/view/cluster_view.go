@@ -67,12 +67,16 @@ type GetClusterResponse struct {
 	KubeSprayImage *string `json:"kubeSprayImage,omitempty"`
 	// Subnet configuration, e.g. "10.0.0.0/16"
 	KubePodsSubnet *string `json:"kubePodsSubnet,omitempty"`
+	// IPv4 prefix allocated to each node from the Pod subnet
+	KubeNetworkNodePrefix *uint32 `json:"kubeNetworkNodePrefix,omitempty"`
 	// Service Address configuration, e.g. "10.254.0.0/16"
 	KubeServiceAddress *string `json:"kubeServiceAddress,omitempty"`
 	// Network plugin, default flannel
 	KubeNetworkPlugin *string `json:"kubeNetworkPlugin,omitempty"`
 	// Kubernetes version, e.g. "1.32.5"
 	KubeVersion *string `json:"kubernetesVersion,omitempty"`
+	// Maximum number of pods scheduled on each node
+	KubeletMaxPods *uint32 `json:"kubeletMaxPods,omitempty"`
 	// Some settings for Kubernetes
 	KubeApiServerArgs map[string]string `json:"kubeApiServerArgs,omitempty"`
 	// User-defined labels
@@ -117,4 +121,6 @@ type PatchClusterRequest struct {
 	KubeSprayImage *string `json:"kubeSprayImage,omitempty"`
 	// Kubernetes version. Omit to leave unchanged.
 	KubeVersion *string `json:"kubernetesVersion,omitempty"`
+	// Maximum number of pods scheduled on each node. Omit to leave unchanged.
+	KubeletMaxPods *uint32 `json:"kubeletMaxPods,omitempty"`
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/pointer"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -214,9 +215,12 @@ func TestGetKubeSprayEnv(t *testing.T) {
 	cluster := &v1.Cluster{}
 	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.28")
 	cluster.Spec.ControlPlane.KubeProxyMode = pointer.String("ipvs")
+	maxPods := uint32(250)
+	cluster.Spec.ControlPlane.KubeletMaxPods = &maxPods
 	env := getKubeSprayEnv(cluster)
 	testifyassert.Contains(t, env, "kube_version=1.28")
 	testifyassert.Contains(t, env, "conntrack_modules")
+	testifyassert.Contains(t, env, "kubelet_max_pods=250")
 	testifyassert.Contains(t, env, "auto_renew_certificates=true")
 }
 
@@ -228,6 +232,16 @@ func TestGetKubeSprayUpgradeCMD(t *testing.T) {
 	cmd := getKubeSprayUpgradeCMD("root", "-e kube_version=1.33.0")
 	testifyassert.Contains(t, cmd, "upgrade-cluster.yml")
 	testifyassert.Contains(t, cmd, "-e kube_version=1.33.0")
+	testifyassert.Contains(t, cmd,
+		`"drain_pod_selector":"primus-safe.cluster.manage.action!=upgrade"`)
+
+	selector, err := labels.Parse(
+		v1.ClusterManageActionLabel + "!=" + string(v1.ClusterUpgradeAction))
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, selector.Matches(labels.Set{"app": "workload"}))
+	testifyassert.False(t, selector.Matches(labels.Set{
+		v1.ClusterManageActionLabel: string(v1.ClusterUpgradeAction),
+	}))
 }
 
 func TestNeedsClusterUpgrade(t *testing.T) {
@@ -241,6 +255,11 @@ func TestNeedsClusterUpgrade(t *testing.T) {
 	testifyassert.False(t, needsClusterUpgrade(cluster))
 
 	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.0")
+	testifyassert.True(t, needsClusterUpgrade(cluster))
+
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
+	maxPods := uint32(250)
+	cluster.Spec.ControlPlane.KubeletMaxPods = &maxPods
 	testifyassert.True(t, needsClusterUpgrade(cluster))
 }
 

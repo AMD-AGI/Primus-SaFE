@@ -12,6 +12,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"html/template"
+	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -533,6 +534,9 @@ func getKubeSprayEnv(cluster *v1.Cluster) string {
 	if cluster.Spec.ControlPlane.KubeletLogFilesMaxSize != nil {
 		cmd = fmt.Sprintf("%s -e kubelet_logfiles_max_size=%s", cmd, cluster.Spec.ControlPlane.KubeletLogFilesMaxSize.String())
 	}
+	if cluster.Spec.ControlPlane.KubeletMaxPods != nil {
+		cmd = fmt.Sprintf("%s -e kubelet_max_pods=%d", cmd, *cluster.Spec.ControlPlane.KubeletMaxPods)
+	}
 
 	if cluster.Spec.ControlPlane.KubeNetworkNodePrefix != nil {
 		cmd = fmt.Sprintf("%s -e kube_network_node_prefix=%d", cmd, *cluster.Spec.ControlPlane.KubeNetworkNodePrefix)
@@ -549,7 +553,10 @@ func getKubeSprayResetCMD(user, env string) string {
 
 // getKubeSprayUpgradeCMD generates the command for upgrading a cluster with KubeSpray.
 func getKubeSprayUpgradeCMD(user, env string) string {
-	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s upgrade-cluster.yml --become-user=root %s -b -vvv", utils.Authorize, env)
+	drainSelector := fmt.Sprintf("%s!=%s", v1.ClusterManageActionLabel, v1.ClusterUpgradeAction)
+	return fmt.Sprintf(
+		`ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s upgrade-cluster.yml --become-user=root %s -e '{"drain_pod_selector":"%s"}' -b -vvv`,
+		utils.Authorize, env, drainSelector)
 }
 
 func controlPlaneString(p *string) string {
@@ -567,6 +574,17 @@ func appliedKubeSprayImage(cluster *v1.Cluster) string {
 	return v1.GetAnnotation(cluster, v1.ClusterAppliedKubeSprayImageAnnotation)
 }
 
+func desiredKubeletMaxPods(cluster *v1.Cluster) string {
+	if cluster == nil || cluster.Spec.ControlPlane.KubeletMaxPods == nil {
+		return ""
+	}
+	return strconv.FormatUint(uint64(*cluster.Spec.ControlPlane.KubeletMaxPods), 10)
+}
+
+func appliedKubeletMaxPods(cluster *v1.Cluster) string {
+	return v1.GetAnnotation(cluster, v1.ClusterAppliedKubeletMaxPodsAnnotation)
+}
+
 func hasAppliedKubeSprayRecord(cluster *v1.Cluster) bool {
 	if cluster == nil {
 		return false
@@ -580,13 +598,14 @@ func hasAppliedKubeSprayRecord(cluster *v1.Cluster) bool {
 	return hasVer && hasImg
 }
 
-// needsClusterUpgrade reports whether spec kube version or kubespray image differs from last apply.
+// needsClusterUpgrade reports whether desired cluster configuration differs from last apply.
 func needsClusterUpgrade(cluster *v1.Cluster) bool {
 	if cluster == nil || !hasAppliedKubeSprayRecord(cluster) {
 		return false
 	}
 	return appliedKubeVersion(cluster) != controlPlaneString(cluster.Spec.ControlPlane.KubeVersion) ||
-		appliedKubeSprayImage(cluster) != controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
+		appliedKubeSprayImage(cluster) != controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage) ||
+		appliedKubeletMaxPods(cluster) != desiredKubeletMaxPods(cluster)
 }
 
 // isAllowedKubeVersionUpgrade validates strict versions and permits one minor step.
