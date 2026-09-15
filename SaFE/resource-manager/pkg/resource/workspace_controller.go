@@ -855,6 +855,19 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		// controller's own backstop is fifteen minutes, and the events that would otherwise
 		// drive a reconcile stop arriving in exactly the case freshness exists to catch:
 		// the execution cluster becoming unreachable.
+		// Phase still has to advance. The switch below is the only place that sets it, and
+		// returning before it would leave an external workspace on whatever phase it was
+		// created with -- never Running once capacity arrives, never Abnormal when it goes
+		// away, and no way for a user to tell the difference.
+		phase := v1.WorkspaceRunning
+		if workspace.Status.AvailableReplica == 0 {
+			phase = v1.WorkspaceAbnormal
+		}
+		if phase != workspace.Status.Phase {
+			if err = r.updatePhase(ctx, workspace, phase); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+		}
 		result := actionResult
 		if resync := commonconfig.GetExternalWorkspaceResync(); resync > 0 &&
 			(result.RequeueAfter == 0 || resync < result.RequeueAfter) {

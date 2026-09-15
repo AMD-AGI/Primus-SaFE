@@ -33,6 +33,10 @@ type WorkloadExternalExecutionApplyConfiguration struct {
 	// intended replay into a conflict.
 	DemandObservedAt *metav1.Time `json:"demandObservedAt,omitempty"`
 	DemandExpiresAt  *metav1.Time `json:"demandExpiresAt,omitempty"`
+	// Set once the demand has been withdrawn, so the withdrawal is published exactly once.
+	// Repeating it would reuse a revision number under a changed body, which the contract
+	// refuses, and would eventually collide with a revision issued for the opposite meaning.
+	DemandWithdrawn *bool `json:"demandWithdrawn,omitempty"`
 	// Claim identity, the request id that created it and the phase last observed
 	ClaimId        *string `json:"claimId,omitempty"`
 	ClaimRequestId *string `json:"claimRequestId,omitempty"`
@@ -41,8 +45,6 @@ type WorkloadExternalExecutionApplyConfiguration struct {
 	// Placements approved by the provider, kept so the dispatcher builds the pod from the
 	// reservation that was granted rather than asking for a new plan
 	Placements []WorkloadExternalPlacementApplyConfiguration `json:"placements,omitempty"`
-	// Structured reason the workload is waiting, distinct from the display message
-	WaitingReason *string `json:"waitingReason,omitempty"`
 	// Set once the workload is finished but the provider has not confirmed release. The
 	// resources stay charged to the workspace while it is true.
 	Reclaiming *bool `json:"reclaiming,omitempty"`
@@ -102,6 +104,14 @@ func (b *WorkloadExternalExecutionApplyConfiguration) WithDemandExpiresAt(value 
 	return b
 }
 
+// WithDemandWithdrawn sets the DemandWithdrawn field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DemandWithdrawn field is set to the value of the last call.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithDemandWithdrawn(value bool) *WorkloadExternalExecutionApplyConfiguration {
+	b.DemandWithdrawn = &value
+	return b
+}
+
 // WithClaimId sets the ClaimId field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ClaimId field is set to the value of the last call.
@@ -144,14 +154,6 @@ func (b *WorkloadExternalExecutionApplyConfiguration) WithPlacements(values ...*
 		}
 		b.Placements = append(b.Placements, *values[i])
 	}
-	return b
-}
-
-// WithWaitingReason sets the WaitingReason field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the WaitingReason field is set to the value of the last call.
-func (b *WorkloadExternalExecutionApplyConfiguration) WithWaitingReason(value string) *WorkloadExternalExecutionApplyConfiguration {
-	b.WaitingReason = &value
 	return b
 }
 

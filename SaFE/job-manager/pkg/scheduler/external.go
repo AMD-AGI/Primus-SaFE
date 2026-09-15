@@ -17,13 +17,14 @@ import (
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/execution"
 	commonquantity "github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
-	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
 // Waiting reasons surfaced for workloads in an external workspace. They are distinct on
@@ -255,28 +256,46 @@ func (e *unsupportedShapeError) Error() string { return e.reason }
 // withdrawExternalDemand tells the provider to stop acquiring capacity for a workload that
 // is no longer waiting on it. Withdrawing the demand does not release a claim that was
 // already granted; that is a separate release call.
+//
+// The new revision is persisted before it is sent, and the withdrawal is skipped once it
+// has been recorded. Otherwise every retry would republish the same revision number under a
+// different body and a different timestamp, which the contract refuses, and the number
+// would eventually collide with one ensureExternalDemand issues for the opposite meaning.
 func (r *SchedulerReconciler) withdrawExternalDemand(ctx context.Context, workload *v1.Workload,
 	workspace *v1.Workspace) error {
 	state := workload.Status.ExternalExecution
-	if state == nil || state.DemandId == "" {
+	if state == nil || state.DemandId == "" || state.DemandWithdrawn {
 		return nil
-	}
-	client, err := execution.Shared()
-	if err != nil {
-		return err
 	}
 	units, err := buildDemandUnits(workload, workspace)
 	if err != nil {
 		return err
 	}
-	profileID, profileRevision := commonconfig.GetExternalExecutionProfile()
+	client, err := execution.Shared()
+	if err != nil {
+		return err
+	}
+
 	now := time.Now().UTC()
+	observedAt := metav1.NewTime(now)
+	expiresAt := metav1.NewTime(now.Add(demandExpiry))
+	next := state.DeepCopy()
+	next.DemandRevision = state.DemandRevision + 1
+	next.DemandRequestId = uuid.NewString()
+	next.DemandObservedAt = &observedAt
+	next.DemandExpiresAt = &expiresAt
+	next.DemandWithdrawn = true
+	if err = r.patchExternalState(ctx, workload, next); err != nil {
+		return err
+	}
+
+	profileID, profileRevision := commonconfig.GetExternalExecutionProfile()
 	_, err = client.PublishDemand(ctx, &execution.CapacityDemand{
-		RequestID:                uuid.NewString(),
-		DemandID:                 state.DemandId,
-		Revision:                 state.DemandRevision + 1,
+		RequestID:                next.DemandRequestId,
+		DemandID:                 next.DemandId,
+		Revision:                 next.DemandRevision,
 		WorkloadUID:              string(workload.UID),
-		DispatchGeneration:       state.DispatchGeneration,
+		DispatchGeneration:       next.DispatchGeneration,
 		ClusterID:                workspace.Spec.Cluster,
 		WorkspaceID:              workspace.Name,
 		ProfileID:                profileID,
@@ -344,6 +363,18 @@ func (r *SchedulerReconciler) reserveExternalCapacity(ctx context.Context, workl
 	if err != nil {
 		return r.handleReservationRefusal(ctx, workload, workspace, err)
 	}
+
+	// A fresh request id for this set of placements. The id is the server's idempotency
+	// key, and replanning produces a different body: reusing the previous id would be
+	// refused as a conflicting replay, so a claim that failed once could never succeed
+	// again within the same dispatch generation. Safe because a claim that did get created
+	// is found by the GetClaim above and never reaches this call.
+	claimState := state.DeepCopy()
+	claimState.ClaimRequestId = uuid.NewString()
+	if err = r.patchExternalState(ctx, workload, claimState); err != nil {
+		return false, "", err
+	}
+	state = claimState
 
 	claim, err := client.CreateClaim(ctx, &execution.ClaimRequest{
 		RequestID:          state.ClaimRequestId,
@@ -422,10 +453,28 @@ func (r *SchedulerReconciler) ensureExternalState(ctx context.Context,
 }
 
 // patchExternalState writes the bookkeeping back to the workload status.
+//
+// A JSON patch, not a merge patch. Every field of the stored object is omitempty, so under
+// merge semantics a field returning to its zero value simply vanishes from the payload and
+// the old value survives. That makes two things impossible to express: clearing Reclaiming
+// once it has been set, and starting a new dispatch generation with a clean slate -- the
+// previous generation's demand revision and placements would carry over, and the workload
+// would then plan against a demand id the provider has never seen.
+//
+// The test operation gives the same optimistic concurrency the merge path had through
+// metadata.resourceVersion.
 func (r *SchedulerReconciler) patchExternalState(ctx context.Context, workload *v1.Workload,
 	state *v1.WorkloadExternalExecution) error {
-	if err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, workload,
-		map[string]any{"externalExecution": state}); err != nil {
+	patch := []map[string]any{
+		{"op": "test", "path": "/metadata/resourceVersion", "value": workload.ResourceVersion},
+		{"op": "add", "path": "/status/externalExecution", "value": state},
+	}
+	raw, err := json.Marshal(patch)
+	if err != nil {
+		return err
+	}
+	if err = r.Status().Patch(ctx, workload, client.RawPatch(apitypes.JSONPatchType, raw)); err != nil {
+		klog.ErrorS(err, "failed to patch external execution state", "workload", workload.Name)
 		return err
 	}
 	workload.Status.ExternalExecution = state

@@ -263,6 +263,10 @@ type WorkloadExternalExecution struct {
 	// intended replay into a conflict.
 	DemandObservedAt *metav1.Time `json:"demandObservedAt,omitempty"`
 	DemandExpiresAt  *metav1.Time `json:"demandExpiresAt,omitempty"`
+	// Set once the demand has been withdrawn, so the withdrawal is published exactly once.
+	// Repeating it would reuse a revision number under a changed body, which the contract
+	// refuses, and would eventually collide with a revision issued for the opposite meaning.
+	DemandWithdrawn bool `json:"demandWithdrawn,omitempty"`
 	// Claim identity, the request id that created it and the phase last observed
 	ClaimId        string `json:"claimId,omitempty"`
 	ClaimRequestId string `json:"claimRequestId,omitempty"`
@@ -271,8 +275,6 @@ type WorkloadExternalExecution struct {
 	// Placements approved by the provider, kept so the dispatcher builds the pod from the
 	// reservation that was granted rather than asking for a new plan
 	Placements []WorkloadExternalPlacement `json:"placements,omitempty"`
-	// Structured reason the workload is waiting, distinct from the display message
-	WaitingReason string `json:"waitingReason,omitempty"`
 	// Set once the workload is finished but the provider has not confirmed release. The
 	// resources stay charged to the workspace while it is true.
 	Reclaiming bool `json:"reclaiming,omitempty"`

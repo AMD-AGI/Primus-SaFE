@@ -461,22 +461,29 @@ func (r *NodeK8sReconciler) syncK8sStatus(ctx context.Context, adminNode *v1.Nod
 	if reflect.DeepEqual(originalNode.Status, adminNode.Status) {
 		return nil
 	}
-	// Patch the observed fields rather than replacing the status object. On an external
-	// node the capacity provider owns status.external and refreshes it on its own cadence,
-	// so a full update would carry a stale copy of that block back with every sync and
-	// contend with the provider's writes for the same resourceVersion.
-	patch := map[string]any{
-		"metadata": map[string]any{"resourceVersion": adminNode.ResourceVersion},
-		"status": map[string]any{
-			"machineStatus": map[string]any{"privateIP": adminNode.Status.MachineStatus.PrivateIP},
-			"unschedulable": adminNode.Status.Unschedulable,
-			"taints":        adminNode.Status.Taints,
-			"conditions":    adminNode.Status.Conditions,
-			"resources":     adminNode.Status.Resources,
-		},
+	// Patch the observed fields rather than replacing the status object. On an external node
+	// the capacity provider owns status.external and refreshes it on its own cadence, so a
+	// full update would carry a stale copy of that block back with every sync and contend
+	// with the provider's writes for the same resourceVersion.
+	//
+	// A JSON patch, not a merge patch: resources is a map, and merge semantics would union
+	// it with what is already stored. A device that disappears from the node's allocatable
+	// -- a GPU that fell off the bus, a device plugin that went away -- would stay in the
+	// aggregate, and the scheduler would keep admitting work against hardware that is gone.
+	patch := []map[string]any{
+		{"op": "test", "path": "/metadata/resourceVersion", "value": adminNode.ResourceVersion},
+		// The whole block, not the single field: a nested add fails when the parent is
+		// absent, and an external node never has machineStatus written. The value carries
+		// the other fields through unchanged, and the resourceVersion test above catches a
+		// concurrent writer.
+		{"op": "add", "path": "/status/machineStatus", "value": adminNode.Status.MachineStatus},
+		{"op": "add", "path": "/status/unschedulable", "value": adminNode.Status.Unschedulable},
+		{"op": "add", "path": "/status/taints", "value": adminNode.Status.Taints},
+		{"op": "add", "path": "/status/conditions", "value": adminNode.Status.Conditions},
+		{"op": "add", "path": "/status/resources", "value": adminNode.Status.Resources},
 	}
 	raw := jsonutils.MarshalSilently(patch)
-	if err := r.Status().Patch(ctx, adminNode, client.RawPatch(apitypes.MergePatchType, raw)); err != nil {
+	if err := r.Status().Patch(ctx, adminNode, client.RawPatch(apitypes.JSONPatchType, raw)); err != nil {
 		klog.ErrorS(err, "failed to patch node status", "name", adminNode.Name)
 		return err
 	}

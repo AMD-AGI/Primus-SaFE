@@ -15,7 +15,13 @@ import (
 // with apply.
 //
 // NodeExternalStatus carries provider facts for a virtual node. The capacity controller is
-// the only writer; SaFE validates these values before projecting standard node resources.
+// the only writer.
+//
+// Only ObservedAt and ValidUntil are consumed today: together they decide whether the node
+// is ready, since there is no host to probe. The rest is recorded for audit and for the
+// cross-checks that are not implemented yet -- resources in particular is the provider's
+// own account of the node, while the number that reaches scheduling comes from the
+// allocatable the execution cluster reports.
 type NodeExternalStatusApplyConfiguration struct {
 	// The provider view of the allocation backing this node
 	Phase *string `json:"phase,omitempty"`

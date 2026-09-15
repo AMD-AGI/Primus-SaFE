@@ -552,11 +552,15 @@ func (r *SchedulerReconciler) getUnfinishedWorkloads(ctx context.Context,
 	}
 	var schedulingWorkloads, scheduledWorkloads []*v1.Workload
 	for i, w := range workloads {
-		if !v1.IsWorkloadScheduled(w) {
-			schedulingWorkloads = append(schedulingWorkloads, workloads[i])
-		} else {
+		// A finished workload is only here to keep holding its resources until the provider
+		// confirms the release, so it belongs in the accounting and nowhere else. Letting it
+		// reach the scheduling list would request capacity for work that already ended and
+		// then mark the terminated workload scheduled again.
+		if w.IsEnd() || v1.IsWorkloadScheduled(w) {
 			scheduledWorkloads = append(scheduledWorkloads, workloads[i].DeepCopy())
+			continue
 		}
+		schedulingWorkloads = append(schedulingWorkloads, workloads[i])
 	}
 	if len(schedulingWorkloads) > 0 {
 		sort.Sort(WorkloadList(schedulingWorkloads))

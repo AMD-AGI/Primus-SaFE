@@ -188,13 +188,20 @@ func (h *Handler) retryNodes(c *gin.Context) (interface{}, error) {
 // its record no longer matches, so editing or removing the node here would only leave the
 // two sides disagreeing about what exists. The provider withdraws the node itself when it
 // releases the allocation.
+// It keys off the declared lifecycle rather than a complete reference, so a request that
+// asks for the external mode without one is refused here instead of being carried further
+// by code that reads the reference.
 func rejectExternalNodeMutation(node *v1.Node) error {
-	if node == nil || !node.IsExternal() {
+	if node == nil || !node.DeclaresExternalLifecycle() {
 		return nil
+	}
+	provider := "unknown"
+	if node.Spec.ExternalRef != nil {
+		provider = node.Spec.ExternalRef.Provider
 	}
 	return commonerrors.NewForbidden(fmt.Sprintf(
 		"node %s is owned by external capacity provider %q and cannot be created, changed or deleted through this API",
-		node.Name, node.Spec.ExternalRef.Provider))
+		node.Name, provider))
 }
 
 // rejectExternalNodeByName is the same guard for call sites that hold only a name.

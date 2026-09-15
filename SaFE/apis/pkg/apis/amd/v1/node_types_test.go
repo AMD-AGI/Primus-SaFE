@@ -139,6 +139,30 @@ func TestExternalNodePhaseReportsStaleRatherThanEmpty(t *testing.T) {
 	}
 }
 
+// A node asking for the external lifecycle without the reference that must accompany it is
+// not external. Callers read the reference straight off the back of this predicate, and
+// such an object does reach them -- a request body being validated has not been through
+// admission yet.
+func TestExternalPredicateRequiresTheAllocationReference(t *testing.T) {
+	incomplete := &Node{Spec: NodeSpec{LifecycleMode: NodeLifecycleExternal}}
+	if incomplete.IsExternal() {
+		t.Fatal("a node without an external reference must not be treated as external")
+	}
+	if !incomplete.DeclaresExternalLifecycle() {
+		t.Fatal("the declared mode must still be visible so admission can report what is missing")
+	}
+
+	complete := externalNode(nil, nil)
+	if !complete.IsExternal() {
+		t.Fatal("a node with mode and reference is external")
+	}
+
+	native := &Node{}
+	if native.IsExternal() || native.DeclaresExternalLifecycle() {
+		t.Fatal("a node with no lifecycle mode is neither")
+	}
+}
+
 func TestExternalNodeIsUnavailableWhenObservationGoesStale(t *testing.T) {
 	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	fixedNow(t, now)

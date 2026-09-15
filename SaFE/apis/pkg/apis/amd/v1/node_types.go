@@ -123,7 +123,13 @@ type NodeExternalRef struct {
 }
 
 // NodeExternalStatus carries provider facts for a virtual node. The capacity controller is
-// the only writer; SaFE validates these values before projecting standard node resources.
+// the only writer.
+//
+// Only ObservedAt and ValidUntil are consumed today: together they decide whether the node
+// is ready, since there is no host to probe. The rest is recorded for audit and for the
+// cross-checks that are not implemented yet -- resources in particular is the provider's
+// own account of the node, while the number that reaches scheduling comes from the
+// allocatable the execution cluster reports.
 type NodeExternalStatus struct {
 	// The provider view of the allocation backing this node
 	Phase string `json:"phase,omitempty"`
@@ -255,7 +261,19 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 }
 
 // IsExternal reports whether the node is owned by an external execution provider.
+//
+// Both halves are required. Admission rejects an external node without a reference, but
+// this predicate also runs on objects that never reached admission -- a request body being
+// validated, a decoded payload -- and callers read the reference straight off the back of
+// it. Treating a half-built object as external would hand them a nil pointer.
 func (n *Node) IsExternal() bool {
+	return n != nil && n.Spec.LifecycleMode == NodeLifecycleExternal && n.Spec.ExternalRef != nil
+}
+
+// DeclaresExternalLifecycle reports the requested mode alone, before the reference that has
+// to accompany it is known to be there. Admission uses it to tell "external but incomplete"
+// apart from "not external", which IsExternal deliberately cannot distinguish.
+func (n *Node) DeclaresExternalLifecycle() bool {
 	return n != nil && n.Spec.LifecycleMode == NodeLifecycleExternal
 }
 

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -143,4 +143,3 @@ func TestDumpLogDoSearchEmpty(t *testing.T) {
 	_, err := r.doSearch(sc, job, wl)
 	assert.Error(t, err) // not found
 }
-

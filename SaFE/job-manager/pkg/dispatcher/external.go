@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -66,7 +67,26 @@ func (r *DispatcherReconciler) verifyExternalClaim(ctx context.Context,
 	if !claim.ExpiresAt.IsZero() && time.Now().UTC().After(claim.ExpiresAt.Time) {
 		return fmt.Errorf("claim %s admission expired at %s", state.ClaimId, claim.ExpiresAt.Time)
 	}
+	// Refuse rather than dispatch unconstrained. The node restriction is expressed as
+	// affinity built from these placements, so an empty set would not narrow the pod to
+	// anything -- it would let the execution cluster schedule it wherever it liked, on
+	// capacity no claim covers.
+	if len(externalApprovedNodes(workload)) == 0 {
+		return fmt.Errorf("claim %s approved no nodes for workload %s", state.ClaimId, workload.Name)
+	}
+	if image := externalApprovedImage(workload, v1.ExternalSingleUnitKey); !isDigestPinned(image) {
+		// The contract pins image_ref to a digest. Anything else means the pod would run
+		// content the reservation was not granted against, and a tag can be moved after
+		// the fact.
+		return fmt.Errorf("claim %s approved image %q is not digest pinned", state.ClaimId, image)
+	}
 	return nil
+}
+
+// isDigestPinned reports whether a reference names immutable content.
+func isDigestPinned(image string) bool {
+	at := strings.LastIndex(image, "@sha256:")
+	return at > 0 && len(image) == at+len("@sha256:")+64
 }
 
 // externalPodAnnotations are the identifiers the provider rechecks after the pod binds.
@@ -126,9 +146,10 @@ func externalApprovedNodes(workload *v1.Workload) []string {
 	return names
 }
 
-// externalApprovedImage returns the digest-pinned image the provider froze at claim time.
-// The tag the user submitted is not used again: it may have moved since, and the
-// reservation was granted against this exact content.
+// externalApprovedImage returns the image the provider froze at claim time. The contract
+// requires this reference to name a digest, and verifyExternalClaim refuses the dispatch
+// when it does not; the tag the user submitted is never used, because it can be moved to
+// different content after the reservation was granted.
 func externalApprovedImage(workload *v1.Workload, unitKey string) string {
 	state := workload.Status.ExternalExecution
 	if state == nil {

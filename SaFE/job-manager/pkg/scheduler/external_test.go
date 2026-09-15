@@ -6,6 +6,7 @@
 package scheduler
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -205,6 +206,30 @@ func TestUnsupportedShapeIsDistinguishableFromAWait(t *testing.T) {
 	var unsupported *unsupportedShapeError
 	if !errors.As(err, &unsupported) {
 		t.Fatalf("expected an unsupportedShapeError, got %T", err)
+	}
+}
+
+// The stored state is written with a JSON patch precisely so a field can go back to its
+// zero value. Under merge semantics every field here is omitempty, so a false or an empty
+// list would drop out of the payload and the previous value would survive -- which would
+// make Reclaiming a one-way flag and carry one generation's demand into the next.
+func TestExternalStateMustBeExpressibleAtItsZeroValue(t *testing.T) {
+	encoded, err := json.Marshal(&v1.WorkloadExternalExecution{
+		DispatchGeneration: 2,
+		DemandId:           "d",
+		ClaimId:            "c",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var decoded map[string]any
+	if err = json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, field := range []string{"reclaiming", "demandRevision", "placements", "demandExpiresAt"} {
+		if _, present := decoded[field]; present {
+			t.Fatalf("field %q survived at its zero value; a merge patch could then never clear it", field)
+		}
 	}
 }
 

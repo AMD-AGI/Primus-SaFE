@@ -133,7 +133,7 @@ func (m *NodeMutator) mutateOnUpdate(ctx context.Context, newNode, oldNode *v1.N
 
 // mutateSpec normalizes hostname, private IP and default SSH port.
 func (m *NodeMutator) mutateSpec(_ context.Context, node *v1.Node) {
-	if node.IsExternal() {
+	if node.DeclaresExternalLifecycle() {
 		// A virtual node has no address to reach and no SSH endpoint, so neither the
 		// private IP nor the port default applies. The hostname is still normalised
 		// because mutateMeta derives the object name from it, and that name has to match
@@ -355,7 +355,10 @@ func (v *NodeValidator) validateNodeSpec(ctx context.Context, node *v1.Node) err
 	if err := v.validateNodeFlavor(ctx, node); err != nil {
 		return err
 	}
-	if node.IsExternal() {
+	// Branch on the declared mode, not on IsExternal: a node asking for the external
+	// lifecycle without a reference has to reach validateExternalNodeSpec and be told what
+	// is missing, rather than fall through to the native checks and be told it has no IP.
+	if node.DeclaresExternalLifecycle() {
 		return v.validateExternalNodeSpec(node)
 	}
 	if node.Spec.ExternalRef != nil {

@@ -344,7 +344,10 @@ external_execution:
   # Capacity controller endpoint. One deployment talks to one controller, which is also
   # the single active mutator of the execution ledger.
   controller_url: ""
-  # Mounted secret holding ca.crt, tls.crt and tls.key for service mTLS to the controller.
+  # Existing secret holding ca.crt, tls.crt and tls.key for service mTLS to the controller.
+  # It is mounted into job-manager only when both this and enabled are set; the client
+  # refuses to build without the material rather than connecting unverified.
+  controller_secret: ""
   controller_secret_path: "/etc/secrets/external-execution"
   controller_timeout_seconds: 10
   # Execution profile capacity is requested under. The provider owns the definition and
