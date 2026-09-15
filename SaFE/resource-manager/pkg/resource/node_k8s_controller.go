@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -69,8 +70,8 @@ type nodeQueueMessage struct {
 type NodeK8sReconciler struct {
 	ctx context.Context
 	*ClusterBaseReconciler
-	clientManager        *commonutils.ObjectManager
-	queue                NodeQueue
+	clientManager *commonutils.ObjectManager
+	queue         NodeQueue
 	*commonctrl.Controller[*nodeQueueMessage]
 	nodeInformerMu       sync.Mutex
 	startedNodeInformers map[string]*commonclient.ClientFactory
@@ -457,11 +458,27 @@ func (r *NodeK8sReconciler) syncK8sStatus(ctx context.Context, adminNode *v1.Nod
 	adminNode.Status.Taints = k8sNode.Spec.Taints
 	adminNode.Status.Conditions = k8sNode.Status.Conditions
 	adminNode.Status.Resources = quantity.GetConcernedResources(k8sNode.Status.Allocatable)
-	if !reflect.DeepEqual(originalNode.Status, adminNode.Status) {
-		if err := r.Status().Update(ctx, adminNode); err != nil {
-			klog.ErrorS(err, "failed to update node status", "name", adminNode.Name)
-			return err
-		}
+	if reflect.DeepEqual(originalNode.Status, adminNode.Status) {
+		return nil
+	}
+	// Patch the observed fields rather than replacing the status object. On an external
+	// node the capacity provider owns status.external and refreshes it on its own cadence,
+	// so a full update would carry a stale copy of that block back with every sync and
+	// contend with the provider's writes for the same resourceVersion.
+	patch := map[string]any{
+		"metadata": map[string]any{"resourceVersion": adminNode.ResourceVersion},
+		"status": map[string]any{
+			"machineStatus": map[string]any{"privateIP": adminNode.Status.MachineStatus.PrivateIP},
+			"unschedulable": adminNode.Status.Unschedulable,
+			"taints":        adminNode.Status.Taints,
+			"conditions":    adminNode.Status.Conditions,
+			"resources":     adminNode.Status.Resources,
+		},
+	}
+	raw := jsonutils.MarshalSilently(patch)
+	if err := r.Status().Patch(ctx, adminNode, client.RawPatch(apitypes.MergePatchType, raw)); err != nil {
+		klog.ErrorS(err, "failed to patch node status", "name", adminNode.Name)
+		return err
 	}
 	return nil
 }
