@@ -331,7 +331,10 @@
 <script lang="ts" setup>
 import { ref, reactive, watch, nextTick, onMounted, onBeforeUnmount, h, computed } from 'vue'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
-import { useWorkloadResumePermission } from '@/composables/useWorkloadResumePermission'
+import {
+  useWorkloadResumePermission,
+  ensureResumeCooldownElapsed,
+} from '@/composables/useWorkloadResumePermission'
 import {
   getWorkloadsList,
   deleteWorkload,
@@ -557,11 +560,7 @@ const getActions = (_row: Row): Action[] => [
     disabled: getResumeDisabled,
     tooltip: getResumeTooltip,
     onClick: (r: Row) => {
-      const endTime = (r as any).endTime
-      if (endTime && dayjs().diff(dayjs.utc(endTime), 'second') < 15) {
-        ElMessage.warning('Please wait 15 seconds after stopping before resuming the workload.')
-        return
-      }
+      if (!ensureResumeCooldownElapsed((r as any).endTime)) return
       curAction.value = 'Resume'
       curWlId.value = r.workloadId
       addVisible.value = true

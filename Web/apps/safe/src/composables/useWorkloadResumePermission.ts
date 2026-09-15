@@ -1,5 +1,10 @@
 import { toValue, type MaybeRefOrGetter } from 'vue'
+import { ElMessage } from 'element-plus'
+import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
 import { useUserStore } from '@/stores/user'
+
+dayjs.extend(utc)
 
 type ResumePermissionRow = {
   phase?: string
@@ -9,6 +14,23 @@ type ResumePermissionRow = {
 }
 
 export const RESUMABLE_PHASES = ['Stopped', 'Failed', 'Succeeded']
+
+export const RESUME_COOLDOWN_SECONDS = 10
+
+/**
+ * The backend rejects a resume that lands too soon after the stop it follows.
+ * Warns and returns false while the workload is still inside that window, so
+ * list pages and detail pages gate the action the same way.
+ */
+export function ensureResumeCooldownElapsed(endTime?: string): boolean {
+  if (!endTime) return true
+  if (dayjs().diff(dayjs.utc(endTime), 'second') >= RESUME_COOLDOWN_SECONDS) return true
+
+  ElMessage.warning(
+    `Please wait ${RESUME_COOLDOWN_SECONDS} seconds after stopping before resuming the workload.`,
+  )
+  return false
+}
 
 export function useWorkloadResumePermission(canWrite?: MaybeRefOrGetter<boolean>) {
   const userStore = useUserStore()

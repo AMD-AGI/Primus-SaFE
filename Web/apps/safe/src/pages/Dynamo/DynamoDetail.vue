@@ -161,6 +161,7 @@ import AddDialog from './Components/AddDialog.vue'
 import { useWorkloadDetail } from '@/composables/useWorkloadDetail'
 import { usePodActions } from '@/composables/usePodActions'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
+import { ensureResumeCooldownElapsed } from '@/composables/useWorkloadResumePermission'
 import { useUserStore } from '@/stores/user'
 import { decodeFromBase64String } from '@/utils'
 
@@ -291,6 +292,7 @@ const onClone = () => {
 }
 
 const onResume = () => {
+  if (!ensureResumeCooldownElapsed(detailData.value?.endTime)) return
   addAction.value = 'Resume'
   addVisible.value = true
 }
