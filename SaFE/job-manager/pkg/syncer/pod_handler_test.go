@@ -208,10 +208,67 @@ func TestUpdateWorkloadNodes(t *testing.T) {
 	assert.Equal(t, len(w.Status.Nodes[0]), 2)
 }
 
+func TestUpdateWorkloadNodesEmptyAtDispatchCountTwo(t *testing.T) {
+	r := &SyncerReconciler{}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:   "w",
+		Labels: map[string]string{v1.WorkloadDispatchCntLabel: "2"},
+	}}
+	w.Status.Pods = []v1.WorkloadPod{
+		{PodId: "p1", AdminNodeName: "n1", Rank: "0"},
+	}
+	r.updateWorkloadNodes(w)
+	assert.Equal(t, len(w.Status.Nodes), 2)
+	assert.Equal(t, len(w.Status.Nodes[0]), 0)
+	assert.Equal(t, w.Status.Nodes[1][0], "n1")
+}
+
 func TestRemoveWorkloadPodEmptyId(t *testing.T) {
 	r := &SyncerReconciler{}
 	err := r.removeWorkloadPod(context.Background(), nil, &resourceMessage{})
 	assert.NilError(t, err)
+}
+
+func TestIsStaleWorkloadGeneration(t *testing.T) {
+	now := metav1.Now()
+	earlier := metav1.NewTime(now.Add(-time.Hour))
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{UID: "new-uid", CreationTimestamp: now}}
+	assert.Equal(t, isStaleWorkloadGeneration(w, "old-uid", time.Time{}), true)
+	assert.Equal(t, isStaleWorkloadGeneration(w, "new-uid", earlier.Time), false)
+	assert.Equal(t, isStaleWorkloadGeneration(w, "", earlier.Time), true)
+	assert.Equal(t, isStaleWorkloadGeneration(w, "", now.Time), false)
+	assert.Equal(t, isStaleWorkloadGeneration(w, "", time.Time{}), false)
+}
+
+func TestIsStaleWorkloadDispatch(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Labels: map[string]string{v1.WorkloadDispatchCntLabel: "3"},
+	}}
+	assert.Equal(t, isStaleWorkloadDispatch(w, 2), true)
+	assert.Equal(t, isStaleWorkloadDispatch(w, 3), false)
+	assert.Equal(t, isStaleWorkloadDispatch(w, 4), false)
+	assert.Equal(t, isStaleWorkloadDispatch(w, 0), false)
+}
+
+func TestRemoveWorkloadPodIgnoresPreviousRun(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:              "w",
+		UID:               "new-uid",
+		CreationTimestamp: metav1.Now(),
+		Annotations:       map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
+	}}
+	w.Status.Pods = []v1.WorkloadPod{{PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodRunning}}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).WithStatusSubresource(w).Build()
+	r := &SyncerReconciler{Client: cl}
+	err := r.removeWorkloadPod(context.Background(), nil, &resourceMessage{
+		workloadId:  "w",
+		name:        "p1",
+		workloadUid: "old-uid",
+	})
+	assert.NilError(t, err)
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodRunning)
 }
 
 func TestRemoveWorkloadPodNotFound(t *testing.T) {
@@ -385,12 +442,12 @@ func TestRemoveWorkloadPodRepairsStaleAggregateAfterConflict(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w").Return([]*dbclient.WorkloadPod{
-		dbclient.WorkloadPodFromV1("w", 1, &v1.WorkloadPod{
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w", gomock.Any()).Return([]*dbclient.WorkloadPod{
+		dbclient.WorkloadPodFromV1("w", "", 1, &v1.WorkloadPod{
 			PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodPhase(v1.WorkloadStopped),
 		}),
 	}, nil)
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w").Return(nil, nil)
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w", gomock.Any()).Return(nil, nil)
 
 	viper.Reset()
 	viper.Set("db.enable", true)
@@ -821,6 +878,8 @@ func settledPodWorkload(usage []v1.NodePodUsage) (*v1.Workload, *corev1.Pod, *co
 		},
 		Status: v1.WorkloadStatus{
 			NodeUsage: usage,
+			Nodes:     [][]string{{"n1"}},
+			Ranks:     [][]string{{"0"}},
 			Pods: []v1.WorkloadPod{{
 				PodId:         "p1",
 				ResourceId:    0,
@@ -865,6 +924,27 @@ func TestUpdateWorkloadNodeAndPodsSkipsUnchangedPod(t *testing.T) {
 	r := offloadedSyncer(t)
 	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, node)
 	assert.Equal(t, updated, false)
+}
+
+// TestUpdateWorkloadNodeAndPodsRefreshesEmptyDispatch covers a resumed
+// workload: hydrate has an earlier dispatch but the current slot is missing.
+// The pod looks unchanged; the current assignment still has to be rewritten.
+func TestUpdateWorkloadNodeAndPodsRefreshesEmptyDispatch(t *testing.T) {
+	w, pod, node := settledPodWorkload([]v1.NodePodUsage{{
+		Node:    "n1",
+		Active:  map[string]int{"0": 1},
+		Running: map[string]int{"0": 1},
+	}})
+	w.Labels[v1.WorkloadDispatchCntLabel] = "2"
+	w.Status.Nodes = [][]string{{"old-node"}}
+	w.Status.Ranks = [][]string{{"0"}}
+
+	r := offloadedSyncer(t)
+	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, node)
+	assert.Equal(t, updated, true)
+	assert.Equal(t, len(w.Status.Nodes), 2)
+	assert.Equal(t, w.Status.Nodes[0][0], "old-node")
+	assert.Equal(t, w.Status.Nodes[1][0], "n1")
 }
 
 // TestRepairNodeUsagePatchesAggregateOnly reproduces the placement lost to a
@@ -1132,6 +1212,67 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 		err = cli.List(ctx, faultList)
 		tassert.NoError(t, err)
 		tassert.Empty(t, faultList.Items)
+	})
+
+	t.Run("dispatch count 2 with empty Nodes - must not panic", func(t *testing.T) {
+		workload := &v1.Workload{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-workload",
+				Labels: map[string]string{
+					v1.WorkloadDispatchCntLabel: "2",
+				},
+				Annotations: map[string]string{
+					v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
+				},
+			},
+			Spec: v1.WorkloadSpec{MaxRetry: 3},
+		}
+		cli := ctrlfake.NewClientBuilder().WithScheme(scheme).Build()
+		r := &SyncerReconciler{Client: cli}
+
+		err := r.createStickyNodeFaults(ctx, workload)
+		tassert.NoError(t, err)
+	})
+
+	t.Run("missing history rebuilds current nodes and removes stale faults", func(t *testing.T) {
+		workload := &v1.Workload{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-workload",
+				UID:  "test-uid",
+				Labels: map[string]string{
+					v1.WorkloadDispatchCntLabel: "2",
+				},
+				Annotations: map[string]string{
+					v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
+				},
+			},
+			Spec: v1.WorkloadSpec{MaxRetry: 3},
+			Status: v1.WorkloadStatus{
+				Pods: []v1.WorkloadPod{{PodId: "p1", AdminNodeName: "new-node"}},
+			},
+		}
+		stale := &v1.Fault{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: commonfaults.GenerateFaultId("old-node", v1.StickyNodesMonitorId),
+				Labels: map[string]string{
+					v1.WorkloadIdLabel: workload.Name,
+					v1.NodeIdLabel:     "old-node",
+				},
+			},
+			Spec: v1.FaultSpec{MonitorId: v1.StickyNodesMonitorId},
+		}
+		cli := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(stale).Build()
+		r := &SyncerReconciler{Client: cli}
+
+		err := r.createStickyNodeFaults(ctx, workload)
+		tassert.NoError(t, err)
+		fault := &v1.Fault{}
+		err = cli.Get(ctx, ctrlclient.ObjectKey{
+			Name: commonfaults.GenerateFaultId("new-node", v1.StickyNodesMonitorId),
+		}, fault)
+		tassert.NoError(t, err)
+		err = cli.Get(ctx, ctrlclient.ObjectKey{Name: stale.Name}, &v1.Fault{})
+		tassert.True(t, apierrors.IsNotFound(err))
 	})
 
 	t.Run("count is zero - should skip", func(t *testing.T) {

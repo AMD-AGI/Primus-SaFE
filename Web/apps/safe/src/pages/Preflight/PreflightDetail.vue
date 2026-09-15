@@ -98,6 +98,7 @@
     <el-tab-pane label="Pods" name="pods">
       <WorkloadPodsTable
         :pods="workloadDetail?.pods"
+        :nodes-history="workloadDetail?.nodesHistory"
         :workload-phase="workloadDetail?.phase"
         :refresh-loading="detailLoading"
         :show-ssh="false"

@@ -64,7 +64,7 @@ func (h *Handler) ListAvailableEvalServices(c *gin.Context) {
 			workloadQuery = append(workloadQuery, sqrl.Eq{dbclient.GetFieldTag(workloadTags, "Workspace"): workspace})
 		}
 
-		workloads, err := h.dbClient.SelectWorkloads(ctx, workloadQuery, nil, 100, 0)
+		workloads, err := h.dbClient.SelectWorkloadsForList(ctx, workloadQuery, nil, 100, 0)
 		if err != nil {
 			klog.ErrorS(err, "failed to list workloads")
 		} else {

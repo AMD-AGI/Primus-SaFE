@@ -77,6 +77,9 @@ data:
     alter table workload add column if not exists use_workspace_storage boolean default true;
     alter table workload add column if not exists force_host_network boolean default false;
     alter table workload add column if not exists nodes_affinity VARCHAR(16);
+    -- JSON array of the node assignment of earlier runs sharing this workload id,
+    -- written when a resumed workload overwrites the stored run. Oldest first.
+    alter table workload add column if not exists nodes_history TEXT;
 
     create table if not exists fault
     (
@@ -932,12 +935,13 @@ data:
 
     -- Per-pod detail for a workload, offloaded from the etcd Workload status so
     -- very large workloads (>10k pods) do not exceed the etcd object size limit.
-    -- One row per pod; written by the job-manager syncer (single writer), read
-    -- by the apiserver for workload detail/log/ops paths. The etcd status keeps
-    -- only an O(node) aggregate (nodeUsage) for the scheduling hot path.
+    -- One row per pod and CR generation; written by the job-manager syncer,
+    -- read by the apiserver for workload detail/log/ops paths. The etcd status
+    -- keeps only an O(node) aggregate (nodeUsage) for the scheduling hot path.
     create table if not exists workload_pod
     (
         workload_id      VARCHAR(64) NOT NULL,
+        workload_uid     VARCHAR(36) NOT NULL DEFAULT '',
         pod_id           VARCHAR(128) NOT NULL,
         resource_id      SMALLINT NOT NULL DEFAULT 0,
         admin_node_name  VARCHAR(128),
@@ -954,21 +958,36 @@ data:
         updated_at       TIMESTAMPTZ,
         PRIMARY KEY (workload_id, pod_id)
     );
+    alter table workload_pod add column if not exists workload_uid VARCHAR(36) NOT NULL DEFAULT '';
+    update workload_pod p
+    set workload_uid = w.workload_uid
+    from workload w
+    where p.workload_id = w.workload_id
+      and p.workload_uid = ''
+      and w.workload_uid is not null;
     create index if not exists idx_workload_pod_workload on workload_pod (workload_id);
     create index if not exists idx_workload_pod_node on workload_pod (admin_node_name);
     alter table workload_pod owner to "primus-safe";
 
     -- Per-dispatch node/rank history for a workload (Nodes/Ranks were append-only
-    -- per retry in the etcd status). One row per dispatch index; written by the
-    -- job-manager syncer, read by dispatcher (last 1-2 dispatches) and ops/detail.
+    -- per retry in the etcd status). One row per CR generation and dispatch
+    -- index; written by job-manager, read by dispatcher and ops/detail.
     create table if not exists workload_dispatch_node
     (
         workload_id     VARCHAR(64) NOT NULL,
+        workload_uid    VARCHAR(36) NOT NULL DEFAULT '',
         dispatch_index  INTEGER NOT NULL,
         nodes           TEXT,
         ranks           TEXT,
         updated_at      TIMESTAMPTZ,
         PRIMARY KEY (workload_id, dispatch_index)
     );
+    alter table workload_dispatch_node add column if not exists workload_uid VARCHAR(36) NOT NULL DEFAULT '';
+    update workload_dispatch_node d
+    set workload_uid = w.workload_uid
+    from workload w
+    where d.workload_id = w.workload_id
+      and d.workload_uid = ''
+      and w.workload_uid is not null;
     create index if not exists idx_workload_dispatch_node_workload on workload_dispatch_node (workload_id);
     alter table workload_dispatch_node owner to "primus-safe";

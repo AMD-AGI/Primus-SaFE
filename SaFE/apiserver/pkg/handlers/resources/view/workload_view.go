@@ -259,6 +259,9 @@ type GetWorkloadResponse struct {
 	Nodes [][]string `json:"nodes"`
 	// The rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above.
 	Ranks [][]string `json:"ranks"`
+	// The nodes used by earlier runs of this workload id, kept when a resume
+	// overwrote them. Oldest run first, up to the last 10 runs.
+	NodesHistory []WorkloadNodesHistoryItem `json:"nodesHistory,omitempty"`
 	// Workload will run on nodes with the user-specified labels.
 	// If multiple labels are specified, all of them must be satisfied.
 	CustomerLabels map[string]string `json:"customerLabels"`
@@ -284,6 +287,22 @@ type GetWorkloadResponse struct {
 	UseWorkspaceStorage bool `json:"useWorkspaceStorage"`
 	// Whether to use host network forcibly.
 	ForceHostNetwork bool `json:"forceHostNetwork"`
+}
+
+// WorkloadNodesHistoryItem describes one earlier run of the same workload id.
+type WorkloadNodesHistoryItem struct {
+	// Number of times the run was dispatched
+	DispatchCount int `json:"dispatchCount"`
+	// Phase the run ended in
+	Phase string `json:"phase,omitempty"`
+	// Time the run started
+	StartTime string `json:"startTime,omitempty"`
+	// Time the run ended
+	EndTime string `json:"endTime,omitempty"`
+	// The node used for each dispatch of the run
+	Nodes [][]string `json:"nodes"`
+	// The rank corresponding to each node of the run
+	Ranks [][]string `json:"ranks,omitempty"`
 }
 
 type WorkloadPodWrapper struct {

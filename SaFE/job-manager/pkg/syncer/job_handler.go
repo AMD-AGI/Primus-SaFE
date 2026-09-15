@@ -56,6 +56,19 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 	if err != nil || adminWorkload == nil {
 		return ctrlruntime.Result{}, err
 	}
+	if isStaleWorkloadGeneration(adminWorkload, message.workloadUid, message.createdAt) {
+		klog.V(4).InfoS("ignore job event from a previous workload run",
+			"workload", adminWorkload.Name, "object", message.name,
+			"eventUID", message.workloadUid, "currentUID", adminWorkload.UID)
+		return ctrlruntime.Result{}, nil
+	}
+	if isStaleWorkloadDispatch(adminWorkload, message.dispatchCount) {
+		klog.V(4).InfoS("ignore job event from an earlier dispatch",
+			"workload", adminWorkload.Name, "object", message.name,
+			"eventDispatch", message.dispatchCount,
+			"currentDispatch", v1.GetWorkloadDispatchCnt(adminWorkload))
+		return ctrlruntime.Result{}, nil
+	}
 	if message.namespace != adminWorkload.Spec.Workspace {
 		return ctrlruntime.Result{}, nil
 	}
