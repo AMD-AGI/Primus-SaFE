@@ -124,19 +124,13 @@ func (r *SchedulerReconciler) markClaimReleased(ctx context.Context, workload *v
 	return r.patchExternalState(ctx, workload, updated)
 }
 
-// admitExternalCapacity runs the whole external admission for one queued workload: state
-// the need, then try to take a seat.
+// requestExternalCapacity asks the provider to acquire nodes for a workload the workspace
+// has no room for, and reports the wait.
 //
-// There is no local capacity test in front of this. Whether the devices exist is the
-// provider's judgement, and the only thing this side can see -- the aggregate of the nodes
-// the provider has already published -- says nothing about what it could still acquire.
-// Gating on it would withhold the demand exactly when acquisition is needed, and since a
-// failed plan produces no demand either, the workload would queue forever with nobody
-// asked to buy anything.
-//
-// Publishing unconditionally does not cause over-buying: the provider subtracts its ready
-// layout and its in-flight requests before acting on a demand.
-func (r *SchedulerReconciler) admitExternalCapacity(ctx context.Context, workload *v1.Workload,
+// Reaching here means the aggregate synced from the execution cluster cannot hold this
+// workload, which is the one situation where more hardware is the answer. Workloads waiting
+// on anything else returned before the resource comparison and never ask for capacity.
+func (r *SchedulerReconciler) requestExternalCapacity(ctx context.Context, workload *v1.Workload,
 	workspace *v1.Workspace) (bool, string, error) {
 	if err := r.ensureExternalDemand(ctx, workload, workspace); err != nil {
 		var unsupported *unsupportedShapeError
@@ -149,7 +143,34 @@ func (r *SchedulerReconciler) admitExternalCapacity(ctx context.Context, workloa
 		}
 		return false, externalWaitingReason(err), nil
 	}
-	return r.reserveExternalCapacity(ctx, workload, workspace)
+	return false, ExternalCapacityReason, nil
+}
+
+// handleReservationRefusal decides what to do when a seat could not be taken even though
+// the workspace aggregate said there was room.
+//
+// A capacity refusal here means the provider disagrees with the local view, and this side
+// cannot tell why: devices may be held by a cleanup it has not confirmed, or the allocation
+// behind a published node may be gone while the node object lingers. So the need is stated
+// and the provider decides whether that calls for new hardware -- it subtracts its ready
+// layout and in-flight requests first, so saying so cannot cause over-buying.
+//
+// Without this the workload would replan forever against a local view that nothing
+// corrects, with the provider never told anyone was waiting.
+//
+// Other refusals are left alone. An unprepared image or an unvalidated profile is not
+// something more nodes would fix, and a transport failure is not an answer at all.
+func (r *SchedulerReconciler) handleReservationRefusal(ctx context.Context, workload *v1.Workload,
+	workspace *v1.Workspace, cause error) (bool, string, error) {
+	reason := externalWaitingReason(cause)
+	if !execution.IsCode(cause, execution.CodeCapacityUnavailable) {
+		return false, reason, nil
+	}
+	if err := r.ensureExternalDemand(ctx, workload, workspace); err != nil {
+		klog.ErrorS(err, "failed to state capacity need after a refused reservation",
+			"workload", workload.Name)
+	}
+	return false, reason, nil
 }
 
 // ensureExternalDemand keeps a current statement of need on file with the provider.
@@ -301,6 +322,17 @@ func (r *SchedulerReconciler) reserveExternalCapacity(ctx context.Context, workl
 		}
 	}
 
+	// A claim references the demand it was planned against, so one has to exist even when
+	// the workspace already has room and no acquisition is needed.
+	if err = r.ensureExternalDemand(ctx, workload, workspace); err != nil {
+		var unsupported *unsupportedShapeError
+		if errors.As(err, &unsupported) {
+			return false, ExternalUnsupportedReason, nil
+		}
+		return false, externalWaitingReason(err), nil
+	}
+	state = workload.Status.ExternalExecution
+
 	plan, err := client.PlanPlacements(ctx, &execution.PlacementPlanRequest{
 		RequestID:          uuid.NewString(),
 		DemandID:           state.DemandId,
@@ -310,7 +342,7 @@ func (r *SchedulerReconciler) reserveExternalCapacity(ctx context.Context, workl
 		WorkspaceID:        workspace.Name,
 	})
 	if err != nil {
-		return false, externalWaitingReason(err), nil
+		return r.handleReservationRefusal(ctx, workload, workspace, err)
 	}
 
 	claim, err := client.CreateClaim(ctx, &execution.ClaimRequest{
@@ -324,7 +356,7 @@ func (r *SchedulerReconciler) reserveExternalCapacity(ctx context.Context, workl
 		Placements:         plan.Placements,
 	})
 	if err != nil {
-		return false, externalWaitingReason(err), nil
+		return r.handleReservationRefusal(ctx, workload, workspace, err)
 	}
 	return r.acceptClaim(ctx, workload, state, claim)
 }

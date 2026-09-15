@@ -445,36 +445,39 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		return false, reason, nil
 	}
 
-	// External capacity is arbitrated by the provider, so the local resource comparison
-	// below does not apply. It measures only what the provider has already published,
-	// which says nothing about what it could still acquire -- and using it as a gate would
-	// withhold the demand precisely when acquisition is what the workload is waiting for.
-	//
-	// This also runs ahead of preempt, which is deliberate. Marking a victim preempted
-	// records an intent, not a release: the devices return only after the provider has
-	// stopped the task and verified cleanup, so the capacity a preemptor was admitted
-	// against would not exist yet. The workload webhook already withholds the preempt mark
-	// on this path; keeping the branch here means the ordering does not depend on it.
-	//
-	// The checks above still apply: a workload waiting on a dependency, a start time or a
-	// pause has already returned, so nothing asks the provider to buy hardware for work
-	// that cannot start.
-	if v1.IsExternalWorkspace(workspace) {
-		return r.admitExternalCapacity(ctx, requestWorkload, workspace)
-	}
-
 	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
+	isExternal := v1.IsExternalWorkspace(workspace)
 	isPreemptable := false
 	if !hasEnoughQuota {
 		reason = fmt.Sprintf("%s, no %s available", InsufficientReason, formatResourceName(key))
-		isPreemptable, err = r.preempt(ctx, requestWorkload, scheduledWorkloads, leftResources)
+		// Preemption is not attempted on the external path. Marking a victim preempted
+		// records an intent, not a release: the devices return only once the provider has
+		// stopped the task and verified cleanup, so the capacity a preemptor was admitted
+		// against would not exist yet. The workload webhook already withholds the preempt
+		// mark there, and skipping the call keeps the two from depending on each other.
+		if !isExternal {
+			isPreemptable, err = r.preempt(ctx, requestWorkload, scheduledWorkloads, leftResources)
+		}
 	}
 	if !hasEnoughQuota && !isPreemptable {
 		klog.Infof("the workload(%s) is not scheduled, reason: %s, request.resource: %s, left.resource: %s",
 			requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
 			string(jsonutils.MarshalSilently(leftResources)))
 		jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonInsufficient).Inc()
+		// The shortage is measured against capacity the provider has already published, so
+		// closing it means acquiring more. This is the point where the provider is asked.
+		// Everything that is waiting for something other than capacity -- a dependency, a
+		// start time, a pause -- returned earlier and never reaches here.
+		if isExternal {
+			return r.requestExternalCapacity(ctx, requestWorkload, workspace)
+		}
 		return false, reason, nil
+	}
+	// The workspace has room, which on the external path means the provider has published
+	// nodes this workload could sit on. No acquisition is needed, but the seat still has to
+	// be granted: the provider owns the devices and decides which ones this claim gets.
+	if isExternal {
+		return r.reserveExternalCapacity(ctx, requestWorkload, workspace)
 	}
 	return true, "", nil
 }
