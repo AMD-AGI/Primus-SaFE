@@ -382,6 +382,17 @@ func TestValidateClusterUpgradePatch(t *testing.T) {
 	testifyassert.NoError(t, validateClusterUpgradePatch(cluster,
 		&view.PatchClusterRequest{KubeletMaxPods: &maxPods}))
 
+	tooManyPods := uint32(255)
+	err = validateClusterUpgradePatch(cluster,
+		&view.PatchClusterRequest{KubeletMaxPods: &tooManyPods})
+	testifyassert.Error(t, err)
+
+	noBaseline := cluster.DeepCopy()
+	noBaseline.SetAnnotations(nil)
+	err = validateClusterUpgradePatch(noBaseline,
+		&view.PatchClusterRequest{KubeletMaxPods: &maxPods})
+	testifyassert.Error(t, err)
+
 	custom := cluster.DeepCopy()
 	custom.Spec.ControlPlane.KubeSprayImage = pointer.String("custom/kubespray:installed")
 	custom.Spec.ControlPlane.KubeVersion = pointer.String("1.31.9")
@@ -389,6 +400,21 @@ func TestValidateClusterUpgradePatch(t *testing.T) {
 	v1.SetAnnotation(custom, v1.ClusterAppliedKubeVersionAnnotation, "1.31.9")
 	testifyassert.NoError(t, validateClusterUpgradePatch(custom,
 		&view.PatchClusterRequest{KubeletMaxPods: &maxPods}))
+	customImage := "custom/kubespray:installed"
+	customVersion := "1.31.9"
+	testifyassert.NoError(t, validateClusterUpgradePatch(custom, &view.PatchClusterRequest{
+		KubeSprayImage: &customImage,
+		KubeVersion:    &customVersion,
+		KubeletMaxPods: &maxPods,
+	}))
+	changed, err := applyClusterPatch(custom, &view.PatchClusterRequest{
+		KubeSprayImage: &customImage,
+		KubeVersion:    &customVersion,
+		KubeletMaxPods: &maxPods,
+	})
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, changed)
+	assert.Equal(t, maxPods, *custom.Spec.ControlPlane.KubeletMaxPods)
 
 	invalidVersion := "1.33.7; touch /tmp/unsafe"
 	err = validateClusterUpgradePatch(cluster, &view.PatchClusterRequest{KubeVersion: &invalidVersion})
@@ -407,14 +433,26 @@ func TestValidateClusterUpgradePatch(t *testing.T) {
 	testifyassert.Error(t, err)
 
 	cluster.Status.ControlPlaneStatus.Phase = v1.UpgradingPhase
-	appliedImage := "custom/kubespray:installed"
-	appliedVersion := "1.31.9"
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	invalidCurrentMaxPods := uint32(500)
+	cluster.Spec.ControlPlane.KubeletMaxPods = &invalidCurrentMaxPods
+	appliedImage := "primussafe/kubespray:20200530"
+	appliedVersion := "1.32.5"
 	v1.SetAnnotation(cluster, v1.ClusterAppliedKubeSprayImageAnnotation, appliedImage)
 	v1.SetAnnotation(cluster, v1.ClusterAppliedKubeVersionAnnotation, appliedVersion)
 	testifyassert.NoError(t, validateClusterUpgradePatch(cluster, &view.PatchClusterRequest{
 		KubeSprayImage: &appliedImage,
 		KubeVersion:    &appliedVersion,
 	}))
+
+	changed, err = applyClusterPatch(cluster, &view.PatchClusterRequest{
+		KubeSprayImage: &appliedImage,
+		KubeVersion:    &appliedVersion,
+	})
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, changed)
+	testifyassert.Nil(t, cluster.Spec.ControlPlane.KubeletMaxPods)
 
 	delete(cluster.Annotations, v1.ClusterAppliedKubeVersionAnnotation)
 	err = validateClusterUpgradePatch(cluster, req)
@@ -575,22 +613,25 @@ func TestRedactClusterInfra(t *testing.T) {
 	svcAddr := "10.254.0.0/16"
 	kubeSpray := "docker.io/kubespray:v1"
 	maxPods := uint32(110)
+	nodePrefix := uint32(24)
 	resp := view.GetClusterResponse{
-		Endpoint:           "10.0.0.1:6443",
-		SSHSecretId:        "ssh-secret",
-		ImageSecretId:      "img-secret",
-		KubePodsSubnet:     &subnet,
-		KubeServiceAddress: &svcAddr,
-		KubeSprayImage:     &kubeSpray,
-		KubeletMaxPods:     &maxPods,
-		Nodes:              []string{"node-a", "node-b"},
-		KubeApiServerArgs:  map[string]string{"foo": "bar"},
+		Endpoint:              "10.0.0.1:6443",
+		SSHSecretId:           "ssh-secret",
+		ImageSecretId:         "img-secret",
+		KubePodsSubnet:        &subnet,
+		KubeNetworkNodePrefix: &nodePrefix,
+		KubeServiceAddress:    &svcAddr,
+		KubeSprayImage:        &kubeSpray,
+		KubeletMaxPods:        &maxPods,
+		Nodes:                 []string{"node-a", "node-b"},
+		KubeApiServerArgs:     map[string]string{"foo": "bar"},
 	}
 	redactClusterInfra(&resp)
 	testifyassert.Empty(t, resp.Endpoint)
 	testifyassert.Empty(t, resp.SSHSecretId)
 	testifyassert.Empty(t, resp.ImageSecretId)
 	testifyassert.Nil(t, resp.KubePodsSubnet)
+	testifyassert.Nil(t, resp.KubeNetworkNodePrefix)
 	testifyassert.Nil(t, resp.Nodes)
 	testifyassert.Nil(t, resp.KubeServiceAddress)
 	testifyassert.Nil(t, resp.KubeApiServerArgs)

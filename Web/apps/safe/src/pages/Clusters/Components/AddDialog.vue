@@ -112,9 +112,15 @@
       </el-form-item>
 
       <el-form-item label="Max Pods per Node" prop="kubeletMaxPods">
-        <el-input-number v-model="form.kubeletMaxPods" :min="1" :step="1" />
+        <el-input-number
+          v-model="form.kubeletMaxPods"
+          :min="1"
+          :max="maxKubeletPods"
+          :step="1"
+          :precision="0"
+        />
         <el-text size="small" type="info">
-          The value must fit the per-node Pod CIDR capacity.
+          Maximum {{ maxKubeletPods }} for the per-node Pod CIDR.
         </el-text>
       </el-form-item>
 
@@ -215,7 +221,8 @@ const initialForm = () => ({
   kubePodsSubnet: '',
   kubeServiceAddress: '',
   kubernetesVersion: '',
-  kubeletMaxPods: 110,
+  kubeNetworkNodePrefix: 24,
+  kubeletMaxPods: (isUpgrade.value ? undefined : 110) as number | undefined,
 
   // optional
   description: '',
@@ -227,6 +234,16 @@ const initialForm = () => ({
   ] as KV[],
 })
 const form = reactive(initialForm())
+const initialUpgrade = reactive({
+  kubeSprayImage: '',
+  kubernetesVersion: '',
+  kubeletMaxPods: undefined as number | undefined,
+})
+const maxKubeletPods = computed(() => {
+  const prefix = Number(form.kubeNetworkNodePrefix)
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix >= 31) return 0
+  return Math.min(2 ** (32 - prefix) - 2, 2 ** 31 - 1)
+})
 
 const onKubeSprayImageChange = (image: string) => {
   const version = kubeSprayVersions.value[image]
@@ -267,10 +284,14 @@ const rules: FormRules = {
   kubeSprayImage: [{ required: true, message: 'Please select image', trigger: 'change' }],
   kubernetesVersion: [{ required: true, message: 'Please select version', trigger: 'change' }],
   kubeletMaxPods: [
-    { required: true, message: 'Please input max pods per node', trigger: 'change' },
     {
-      validator: (_r, v, cb) =>
-        cb(Number(v) > 0 ? undefined : new Error('Max pods per node must be greater than zero')),
+      validator: (_r, v, cb) => {
+        if (v === undefined && isUpgrade.value) return cb()
+        if (!Number.isInteger(Number(v)) || Number(v) < 1 || Number(v) > maxKubeletPods.value) {
+          return cb(new Error(`Max pods per node must be between 1 and ${maxKubeletPods.value}`))
+        }
+        cb()
+      },
       trigger: 'change',
     },
   ],
@@ -324,7 +345,11 @@ const setInitialFormValues = async () => {
   form.nodes = detail.nodes ?? []
   form.kubeSprayImage = detail.kubeSprayImage ?? ''
   form.kubernetesVersion = detail.kubernetesVersion ?? ''
-  form.kubeletMaxPods = detail.kubeletMaxPods ?? 110
+  form.kubeNetworkNodePrefix = detail.kubeNetworkNodePrefix ?? 24
+  form.kubeletMaxPods = detail.kubeletMaxPods
+  initialUpgrade.kubeSprayImage = form.kubeSprayImage
+  initialUpgrade.kubernetesVersion = form.kubernetesVersion
+  initialUpgrade.kubeletMaxPods = form.kubeletMaxPods
   form.kubePodsSubnet = detail.kubePodsSubnet ?? ''
   form.kubeServiceAddress = detail.kubeServiceAddress ?? ''
   form.kubeApiServerArgsList = Object.entries(detail.kubeApiServerArgs ?? {}).map(
@@ -359,14 +384,30 @@ const onSubmit = async (el?: FormInstance) => {
     await el.validate()
     loading.value = true
 
-    // An upgrade swaps the KubeSpray image, Kubernetes version, and max pods.
-    // Every other field on this form is disabled and left untouched.
+    // Only changed upgrade fields are sent so existing optional settings remain unset.
     if (isUpgrade.value) {
-      await patchCluster(props.clusterId, {
-        kubeSprayImage: form.kubeSprayImage,
-        kubernetesVersion: form.kubernetesVersion,
-        kubeletMaxPods: form.kubeletMaxPods,
-      })
+      const patch: {
+        kubeSprayImage?: string
+        kubernetesVersion?: string
+        kubeletMaxPods?: number
+      } = {}
+      if (form.kubeSprayImage !== initialUpgrade.kubeSprayImage) {
+        patch.kubeSprayImage = form.kubeSprayImage
+      }
+      if (form.kubernetesVersion !== initialUpgrade.kubernetesVersion) {
+        patch.kubernetesVersion = form.kubernetesVersion
+      }
+      if (
+        form.kubeletMaxPods !== undefined &&
+        form.kubeletMaxPods !== initialUpgrade.kubeletMaxPods
+      ) {
+        patch.kubeletMaxPods = form.kubeletMaxPods
+      }
+      if (!Object.keys(patch).length) {
+        ElMessage.info('No cluster changes')
+        return
+      }
+      await patchCluster(props.clusterId, patch)
       ElMessage.success('Cluster upgrade started')
       emit('update:visible', false)
       emit('success')

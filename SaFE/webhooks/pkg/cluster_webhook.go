@@ -146,8 +146,9 @@ func (v *ClusterValidator) validateControlPlane(ctx context.Context, cluster *v1
 	if cluster.Spec.ControlPlane.KubeSprayImage == nil || *cluster.Spec.ControlPlane.KubeSprayImage == "" {
 		return fmt.Errorf("the KubeSprayImage of spec is empty")
 	}
-	if cluster.Spec.ControlPlane.KubeletMaxPods != nil && *cluster.Spec.ControlPlane.KubeletMaxPods == 0 {
-		return fmt.Errorf("the KubeletMaxPods of spec must be greater than zero")
+	if err := validateKubeletMaxPods(cluster.Spec.ControlPlane.KubeletMaxPods,
+		cluster.Spec.ControlPlane.KubeNetworkNodePrefix); err != nil {
+		return err
 	}
 	if cluster.Spec.ControlPlane.KubeVersion != nil {
 		if _, _, _, ok := v1.ParseKubeVersion(*cluster.Spec.ControlPlane.KubeVersion); !ok {
@@ -216,19 +217,22 @@ func validateClusterUpgradeUpdate(newCluster, oldCluster *v1.Cluster) error {
 	if newImage == oldImage && newVersion == oldVersion && newMaxPods == oldMaxPods {
 		return nil
 	}
-	if newCluster.Spec.ControlPlane.KubeletMaxPods != nil &&
-		*newCluster.Spec.ControlPlane.KubeletMaxPods == 0 {
-		return fmt.Errorf("the KubeletMaxPods must be greater than zero")
-	}
-	if newImage == oldImage && newVersion == oldVersion {
-		return nil
-	}
 	annotations := oldCluster.GetAnnotations()
 	appliedImage, hasImage := annotations[v1.ClusterAppliedKubeSprayImageAnnotation]
 	appliedVersion, hasVersion := annotations[v1.ClusterAppliedKubeVersionAnnotation]
-	appliedMaxPods := annotations[v1.ClusterAppliedKubeletMaxPodsAnnotation]
-	if hasImage && hasVersion && newImage == appliedImage && newVersion == appliedVersion &&
-		newMaxPods == appliedMaxPods {
+	imageOrVersionChanged := newImage != oldImage || newVersion != oldVersion
+	if imageOrVersionChanged && hasImage && hasVersion &&
+		newImage == appliedImage && newVersion == appliedVersion {
+		return nil
+	}
+	if err := validateKubeletMaxPods(newCluster.Spec.ControlPlane.KubeletMaxPods,
+		newCluster.Spec.ControlPlane.KubeNetworkNodePrefix); err != nil {
+		return err
+	}
+	if !hasImage || !hasVersion {
+		return fmt.Errorf("the cluster upgrade baseline is not initialized")
+	}
+	if !imageOrVersionChanged {
 		return nil
 	}
 	expectedVersion, ok := v1.KubeVersionForKubeSprayImage(newImage)
@@ -237,6 +241,21 @@ func validateClusterUpgradeUpdate(newCluster, oldCluster *v1.Cluster) error {
 	}
 	if !v1.IsAllowedKubeVersionUpgrade(appliedVersion, newVersion) {
 		return fmt.Errorf("the KubernetesVersion must be a patch upgrade or one minor version step")
+	}
+	return nil
+}
+
+// validateKubeletMaxPods checks kubelet capacity against the per-node IPv4 CIDR.
+func validateKubeletMaxPods(maxPods, nodePrefix *uint32) error {
+	if maxPods == nil {
+		return nil
+	}
+	if *maxPods == 0 {
+		return fmt.Errorf("the KubeletMaxPods must be greater than zero")
+	}
+	limit := v1.KubeletMaxPodsLimit(nodePrefix)
+	if *maxPods > limit {
+		return fmt.Errorf("the KubeletMaxPods must not exceed the per-node Pod CIDR capacity (%d)", limit)
 	}
 	return nil
 }

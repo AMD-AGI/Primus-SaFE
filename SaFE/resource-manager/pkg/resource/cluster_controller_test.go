@@ -1167,6 +1167,22 @@ func TestGuaranteeClusterUpgradeAppliesMaxPodsOnly(t *testing.T) {
 	assert.Equal(t, v1.ReadyPhase, applied.Status.ControlPlaneStatus.Phase)
 }
 
+func TestGuaranteeClusterUpgradeRejectsMaxPodsOverCapacity(t *testing.T) {
+	cluster, r := readyUpgradeCluster(t)
+	maxPods := uint32(255)
+	cluster.Spec.ControlPlane.KubeletMaxPods = &maxPods
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
+
+	pod := new(corev1.Pod)
+	err := r.Get(context.Background(), types.NamespacedName{
+		Namespace: common.PrimusSafeNamespace,
+		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
+	}, pod)
+	testifyassert.Error(t, err)
+}
+
 func TestGuaranteeClusterUpgradeRejectsSkippedMinor(t *testing.T) {
 	cluster, r := readyUpgradeCluster(t)
 	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.35.4")

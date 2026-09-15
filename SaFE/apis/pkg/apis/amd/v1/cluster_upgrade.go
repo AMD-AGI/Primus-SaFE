@@ -13,6 +13,11 @@ import (
 
 var kubeVersionPattern = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+$`)
 
+const (
+	DefaultKubeNetworkNodePrefix uint32 = 24
+	maxKubeletPods               uint32 = 1<<31 - 1
+)
+
 var kubeSprayK8sVersions = map[string]string{
 	"primussafe/kubespray:20200530": "1.32.5",
 	"primussafe/kubespray:v2.29.1":  "1.33.7",
@@ -61,4 +66,20 @@ func IsAllowedKubeVersionUpgrade(from, to string) bool {
 		return toPatch >= fromPatch
 	}
 	return toMinor == fromMinor+1
+}
+
+// KubeletMaxPodsLimit returns the IPv4 pod capacity for one node CIDR.
+func KubeletMaxPodsLimit(prefix *uint32) uint32 {
+	value := DefaultKubeNetworkNodePrefix
+	if prefix != nil {
+		value = *prefix
+	}
+	if value >= 31 {
+		return 0
+	}
+	limit := (uint64(1) << (32 - value)) - 2
+	if limit > uint64(maxKubeletPods) {
+		return maxKubeletPods
+	}
+	return uint32(limit)
 }

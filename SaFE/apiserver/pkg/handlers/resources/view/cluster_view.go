@@ -67,6 +67,8 @@ type GetClusterResponse struct {
 	KubeSprayImage *string `json:"kubeSprayImage,omitempty"`
 	// Subnet configuration, e.g. "10.0.0.0/16"
 	KubePodsSubnet *string `json:"kubePodsSubnet,omitempty"`
+	// IPv4 prefix allocated to each node from the Pod subnet
+	KubeNetworkNodePrefix *uint32 `json:"kubeNetworkNodePrefix,omitempty"`
 	// Service Address configuration, e.g. "10.254.0.0/16"
 	KubeServiceAddress *string `json:"kubeServiceAddress,omitempty"`
 	// Network plugin, default flannel

@@ -417,6 +417,14 @@ func (r *ClusterReconciler) guaranteeClusterUpgrade(ctx context.Context, cluster
 			cluster.Name, targetVersion, targetImage)
 		return r.patchControlPlanePhase(ctx, cluster, v1.ReadyPhase)
 	}
+	if maxPods := cluster.Spec.ControlPlane.KubeletMaxPods; maxPods != nil {
+		limit := v1.KubeletMaxPodsLimit(cluster.Spec.ControlPlane.KubeNetworkNodePrefix)
+		if *maxPods == 0 || *maxPods > limit {
+			klog.Errorf("cluster %s has invalid kubeletMaxPods %d, limit is %d",
+				cluster.Name, *maxPods, limit)
+			return r.patchControlPlanePhase(ctx, cluster, v1.ReadyPhase)
+		}
+	}
 	active, err := r.hasActiveScalePod(ctx, cluster.Name)
 	if err != nil {
 		return err
