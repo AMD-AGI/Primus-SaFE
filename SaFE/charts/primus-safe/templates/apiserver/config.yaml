@@ -190,6 +190,10 @@ data:
 {{- range default (list) (default dict .Values.mcp).allowed_origins }}
         - {{ . | quote }}
 {{- end }}
+    external_execution:
+      # Off by default; external objects are refused at admission while it is false.
+      enabled: {{ default false (default .Values.external_execution).enabled }}
+      observation_max_age_seconds: {{ default 120 (default .Values.external_execution).observation_max_age_seconds }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

@@ -190,6 +190,17 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if !workload.GetDeletionTimestamp().IsZero() {
+		// Give the reservation back before the finalizer goes. Once the object is gone
+		// there is nothing left to retry a failed release from, and nothing to carry the
+		// Revoking to Released confirmation -- the provider would hold those devices with
+		// no record on this side that they were ever owed back.
+		stillHolding, err := r.reconcileExternalRelease(ctx, workload)
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if stillHolding {
+			return ctrlruntime.Result{RequeueAfter: externalReleaseRetry}, nil
+		}
 		if result, err := r.delete(ctx, workload); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
@@ -469,7 +480,8 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		// Everything that is waiting for something other than capacity -- a dependency, a
 		// start time, a pause -- returned earlier and never reaches here.
 		if isExternal {
-			return r.requestExternalCapacity(ctx, requestWorkload, workspace)
+			admitted, waitReason, capacityErr := r.requestExternalCapacity(ctx, requestWorkload, workspace)
+			return r.externalOutcome(requestWorkload, admitted, waitReason, capacityErr)
 		}
 		return false, reason, nil
 	}
@@ -477,9 +489,32 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	// nodes this workload could sit on. No acquisition is needed, but the seat still has to
 	// be granted: the provider owns the devices and decides which ones this claim gets.
 	if isExternal {
-		return r.reserveExternalCapacity(ctx, requestWorkload, workspace)
+		admitted, waitReason, reserveErr := r.reserveExternalCapacity(ctx, requestWorkload, workspace)
+		return r.externalOutcome(requestWorkload, admitted, waitReason, reserveErr)
 	}
 	return true, "", nil
+}
+
+// externalOutcome keeps one workload's failure from stopping the whole workspace.
+//
+// scheduleWorkloads abandons the pass on any error, which is right for a failure to read
+// the queue but wrong for the external exchange: a lost connection to the provider, or a
+// stale cached object losing the resourceVersion test, says nothing about the workloads
+// behind this one. Left to propagate, one workload that cannot reach the provider would
+// stall admission for every workload in the workspace.
+//
+// The error is recorded and turned into a wait, so this workload retries on the next pass
+// and the queue keeps moving.
+func (r *SchedulerReconciler) externalOutcome(workload *v1.Workload,
+	ok bool, reason string, err error) (bool, string, error) {
+	if err == nil {
+		return ok, reason, nil
+	}
+	klog.ErrorS(err, "external capacity exchange failed", "workload", workload.Name)
+	if reason == "" {
+		reason = ExternalUnavailableReason
+	}
+	return false, reason, nil
 }
 
 // checkWorkloadDependencies checks whether all dependencies of the workload are satisfied.

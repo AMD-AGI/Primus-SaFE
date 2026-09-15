@@ -233,6 +233,51 @@ func TestExternalStateMustBeExpressibleAtItsZeroValue(t *testing.T) {
 	}
 }
 
+// A demand whose publish was never confirmed must be retried, not waited out. Recording the
+// expiry before the provider accepted it would make a failed call look like a live demand
+// and suppress every retry for the length of the window.
+func TestUnconfirmedDemandIsRetriedRatherThanWaitedOut(t *testing.T) {
+	observed := metav1.NewTime(time.Now().UTC())
+	unconfirmed := &v1.WorkloadExternalExecution{
+		DemandRevision:   3,
+		DemandObservedAt: &observed,
+		DemandExpiresAt:  nil,
+	}
+	if !demandNeedsRefresh(unconfirmed) {
+		t.Fatal("a demand with no confirmed expiry has to be retried")
+	}
+
+	future := metav1.NewTime(time.Now().UTC().Add(demandExpiry))
+	confirmed := &v1.WorkloadExternalExecution{
+		DemandRevision:   3,
+		DemandObservedAt: &observed,
+		DemandExpiresAt:  &future,
+	}
+	if demandNeedsRefresh(confirmed) {
+		t.Fatal("a confirmed demand with room left must not be republished")
+	}
+}
+
+// A workload under deletion has to reach the release path while its finalizer still holds
+// the object in place. Once the finalizer is dropped there is nothing left to retry a
+// failed release from, and nothing to carry the Revoking to Released confirmation.
+func TestDeletionReachesTheReleasePath(t *testing.T) {
+	deleting := gpuWorkload()
+	now := metav1.NewTime(time.Now())
+	deleting.DeletionTimestamp = &now
+	deleting.Status.ExternalExecution = &v1.WorkloadExternalExecution{
+		ClaimId:    "claim-1",
+		ClaimPhase: execution.ClaimPhaseActive,
+	}
+	// Both conditions the release path gates on.
+	if !deleting.IsEnd() {
+		t.Fatal("deletion has to satisfy IsEnd, otherwise the release never runs")
+	}
+	if !isExternalReclaiming(deleting) {
+		t.Fatal("a workload being deleted still holds its reservation")
+	}
+}
+
 func TestWaitingReasonsSeparateShortageFromOtherRefusals(t *testing.T) {
 	cases := map[string]string{
 		execution.CodeCapacityUnavailable:     ExternalCapacityReason,

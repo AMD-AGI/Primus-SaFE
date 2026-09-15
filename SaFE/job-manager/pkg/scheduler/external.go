@@ -69,10 +69,11 @@ func isExternalReclaiming(workload *v1.Workload) bool {
 // disappearing and the release being acknowledged are all not evidence of that.
 func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 	workload *v1.Workload) (bool, error) {
+	// IsEnd covers deletion as well as the terminal phases, which is what lets this run
+	// before the finalizer is dropped.
 	if !workload.IsEnd() || !isExternalReclaiming(workload) {
 		return false, nil
 	}
-	state := workload.Status.ExternalExecution
 	client, err := execution.Shared()
 	if err != nil {
 		return false, err
@@ -87,6 +88,10 @@ func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 				"error", wdErr)
 		}
 	}
+	// Re-read after the withdrawal, which rewrote the stored state. Working from the copy
+	// captured before it would patch the withdrawal back out, and the next pass would
+	// republish the same revision under a changed body forever.
+	state := workload.Status.ExternalExecution
 	claim, err := client.ReleaseClaim(ctx, state.ClaimId, &execution.ReleaseRequest{
 		RequestID:          uuid.NewString(),
 		ExpectedRevision:   state.ClaimRevision,
@@ -114,6 +119,34 @@ func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 			"claim", state.ClaimId, "phase", claim.Phase)
 	}
 	return updated.Reclaiming, nil
+}
+
+// releaseSupersededClaim gives back a reservation left over from an earlier dispatch
+// generation, before its identifier is replaced.
+//
+// Unlike the terminal-state release this does not wait for Released: the devices come back
+// on the provider's own schedule, and the new attempt is not competing for them -- it will
+// plan against whatever is free when it asks. What matters is that the withdrawal is
+// recorded against the id that owns them, which stops being possible the moment it is
+// overwritten.
+func (r *SchedulerReconciler) releaseSupersededClaim(ctx context.Context, workload *v1.Workload,
+	state *v1.WorkloadExternalExecution) error {
+	client, err := execution.Shared()
+	if err != nil {
+		return err
+	}
+	_, err = client.ReleaseClaim(ctx, state.ClaimId, &execution.ReleaseRequest{
+		RequestID:          uuid.NewString(),
+		ExpectedRevision:   state.ClaimRevision,
+		DispatchGeneration: state.DispatchGeneration,
+		Reason:             "superseded by a new dispatch generation",
+	})
+	if err != nil && !execution.IsCode(err, execution.CodeNotFound) {
+		return err
+	}
+	klog.V(2).InfoS("released claim from a superseded dispatch generation",
+		"workload", workload.Name, "claim", state.ClaimId, "generation", state.DispatchGeneration)
+	return nil
 }
 
 // markClaimReleased records that a reservation no longer exists on the provider.
@@ -194,16 +227,25 @@ func (r *SchedulerReconciler) ensureExternalDemand(ctx context.Context, workload
 		return nil
 	}
 
-	// Persisted before the call, like every other identifier here: a reply that never
-	// arrives is then reconciled by replaying this exact revision and body.
-	now := time.Now().UTC()
-	observedAt := metav1.NewTime(now)
-	expiresAt := metav1.NewTime(now.Add(demandExpiry))
+	// The identifiers are persisted before the call, so a reply that never arrives is
+	// reconciled by replaying this exact revision and body.
+	//
+	// The expiry is persisted only after the provider has accepted it, and it is what
+	// demandNeedsRefresh reads to decide the demand is current. Recording it upfront would
+	// make a failed publish look like a live demand and suppress every retry until the
+	// window ran out, leaving the provider with no statement of need at all.
 	next := state.DeepCopy()
-	next.DemandRevision = state.DemandRevision + 1
-	next.DemandRequestId = uuid.NewString()
-	next.DemandObservedAt = &observedAt
-	next.DemandExpiresAt = &expiresAt
+	if next.DemandRevision == 0 || next.DemandExpiresAt != nil {
+		// Either nothing has been published, or the last revision was accepted. Both mean
+		// this is a new statement and needs its own revision and observation time.
+		observedAt := metav1.NewTime(time.Now().UTC())
+		next.DemandRevision++
+		next.DemandRequestId = uuid.NewString()
+		next.DemandObservedAt = &observedAt
+	}
+	// A retry of an unconfirmed publish keeps the revision, the request id and the
+	// observation time, so the body is byte for byte what the first attempt sent.
+	next.DemandExpiresAt = nil
 	if err = r.patchExternalState(ctx, workload, next); err != nil {
 		return err
 	}
@@ -212,6 +254,8 @@ func (r *SchedulerReconciler) ensureExternalDemand(ctx context.Context, workload
 	if err != nil {
 		return err
 	}
+	observedAt := next.DemandObservedAt.Time.UTC()
+	expiresAt := observedAt.Add(demandExpiry)
 	profileID, profileRevision := commonconfig.GetExternalExecutionProfile()
 	if _, err = client.PublishDemand(ctx, &execution.CapacityDemand{
 		RequestID:                next.DemandRequestId,
@@ -228,17 +272,27 @@ func (r *SchedulerReconciler) ensureExternalDemand(ctx context.Context, workload
 		Eligible:                 true,
 		Reason:                   execution.ReasonInsufficientCapacity,
 		Units:                    units,
-		ObservedAt:               execution.NewTimestamp(now),
-		ExpiresAt:                execution.NewTimestamp(now.Add(demandExpiry)),
+		ObservedAt:               execution.NewTimestamp(observedAt),
+		ExpiresAt:                execution.NewTimestamp(expiresAt),
 	}); err != nil {
 		return err
 	}
+
+	accepted := next.DeepCopy()
+	acceptedExpiry := metav1.NewTime(expiresAt)
+	accepted.DemandExpiresAt = &acceptedExpiry
+	if err = r.patchExternalState(ctx, workload, accepted); err != nil {
+		return err
+	}
 	klog.V(2).InfoS("published external capacity demand", "workload", workload.Name,
-		"demand", next.DemandId, "revision", next.DemandRevision)
+		"demand", accepted.DemandId, "revision", accepted.DemandRevision)
 	return nil
 }
 
-// demandNeedsRefresh reports whether a new revision has to be published.
+// demandNeedsRefresh reports whether the provider needs a statement of need published.
+//
+// A nil expiry means the last attempt was never confirmed, so it has to be retried rather
+// than waited out.
 func demandNeedsRefresh(state *v1.WorkloadExternalExecution) bool {
 	if state.DemandRevision == 0 || state.DemandExpiresAt == nil {
 		return true
@@ -276,21 +330,26 @@ func (r *SchedulerReconciler) withdrawExternalDemand(ctx context.Context, worklo
 		return err
 	}
 
-	now := time.Now().UTC()
-	observedAt := metav1.NewTime(now)
-	expiresAt := metav1.NewTime(now.Add(demandExpiry))
+	// Same two steps as publishing a need: the revision is fixed before the call so a retry
+	// resends an identical body, and the outcome is recorded only once the provider has
+	// taken it. Marking the withdrawal upfront would make a failed call permanent, since
+	// the guard above then skips it forever.
 	next := state.DeepCopy()
-	next.DemandRevision = state.DemandRevision + 1
-	next.DemandRequestId = uuid.NewString()
-	next.DemandObservedAt = &observedAt
-	next.DemandExpiresAt = &expiresAt
-	next.DemandWithdrawn = true
+	if next.DemandExpiresAt != nil {
+		observedAt := metav1.NewTime(time.Now().UTC())
+		next.DemandRevision++
+		next.DemandRequestId = uuid.NewString()
+		next.DemandObservedAt = &observedAt
+	}
+	next.DemandExpiresAt = nil
 	if err = r.patchExternalState(ctx, workload, next); err != nil {
 		return err
 	}
 
+	observedAt := next.DemandObservedAt.Time.UTC()
+	expiresAt := observedAt.Add(demandExpiry)
 	profileID, profileRevision := commonconfig.GetExternalExecutionProfile()
-	_, err = client.PublishDemand(ctx, &execution.CapacityDemand{
+	if _, err = client.PublishDemand(ctx, &execution.CapacityDemand{
 		RequestID:                next.DemandRequestId,
 		DemandID:                 next.DemandId,
 		Revision:                 next.DemandRevision,
@@ -305,10 +364,17 @@ func (r *SchedulerReconciler) withdrawExternalDemand(ctx context.Context, worklo
 		Eligible:                 false,
 		Reason:                   execution.ReasonWithdrawn,
 		Units:                    units,
-		ObservedAt:               execution.NewTimestamp(now),
-		ExpiresAt:                execution.NewTimestamp(now.Add(demandExpiry)),
-	})
-	return err
+		ObservedAt:               execution.NewTimestamp(observedAt),
+		ExpiresAt:                execution.NewTimestamp(expiresAt),
+	}); err != nil {
+		return err
+	}
+
+	accepted := next.DeepCopy()
+	acceptedExpiry := metav1.NewTime(expiresAt)
+	accepted.DemandExpiresAt = &acceptedExpiry
+	accepted.DemandWithdrawn = true
+	return r.patchExternalState(ctx, workload, accepted)
 }
 
 // reserveExternalCapacity turns available capacity into a reservation, and reports whether
@@ -438,6 +504,16 @@ func (r *SchedulerReconciler) ensureExternalState(ctx context.Context,
 
 	// A new dispatch generation is a new attempt and gets its own identifiers. Reusing the
 	// previous claim id would attach this attempt to a reservation made for the last one.
+	//
+	// The previous reservation has to be handed back first. Overwriting the id would strand
+	// it on the provider with nothing left on this side naming it, and a workload that keeps
+	// failing over would leak one reservation per attempt. A failure here blocks the new
+	// attempt on purpose: waiting is recoverable, a leak is not.
+	if current != nil && current.ClaimId != "" && current.ClaimPhase != execution.ClaimPhaseReleased {
+		if err := r.releaseSupersededClaim(ctx, workload, current); err != nil {
+			return nil, err
+		}
+	}
 	// DemandRevision stays zero: ensureExternalDemand owns it and publishes the first
 	// revision together with the observation window that has to stay fixed inside it.
 	state := &v1.WorkloadExternalExecution{
