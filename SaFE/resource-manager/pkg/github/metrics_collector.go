@@ -47,7 +47,7 @@ func (c *MetricsCollector) CollectFromPVC(ctx context.Context,
 			Name:      podName,
 			Namespace: namespace,
 			Labels: map[string]string{
-				"app":                          "primus-safe-metrics-collector",
+				"app":                           "primus-safe-metrics-collector",
 				"primus-safe.collection.run-id": fmt.Sprint(runID),
 			},
 		},

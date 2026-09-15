@@ -519,3 +519,33 @@ func TestSchedulerMessage_DoesNotEraseConcurrentFailure(t *testing.T) {
 	assert.NilError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(w), fresh))
 	assert.Equal(t, fresh.Status.Message, "registration failed")
 }
+
+func TestCanScheduleWorkloadEnoughQuota(t *testing.T) {
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).Build()
+	r := &SchedulerReconciler{Client: cl}
+
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws"}}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	request := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}
+	left := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10")}
+
+	ok, reason, err := r.canScheduleWorkload(context.Background(), w, ws, nil, request, left)
+	assert.NilError(t, err)
+	assert.Equal(t, ok, true)
+	assert.Equal(t, reason, "")
+}
+
+func TestCanScheduleWorkloadInsufficientNoPreempt(t *testing.T) {
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).Build()
+	r := &SchedulerReconciler{Client: cl}
+
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws"}}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	request := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("20")}
+	left := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}
+
+	ok, reason, err := r.canScheduleWorkload(context.Background(), w, ws, nil, request, left)
+	assert.NilError(t, err)
+	assert.Equal(t, ok, false)
+	assert.Assert(t, reason != "")
+}

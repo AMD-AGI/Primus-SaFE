@@ -199,7 +199,12 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	if workspace != nil {
 		v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)
 		v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
-		if workspace.Spec.EnablePreempt {
+		// Preemption stays off on the external path regardless of the workspace setting.
+		// Marking a victim preempted only records an intent here; the devices come back
+		// when the provider has stopped the task and verified its cleanup, so the freed
+		// capacity the preemptor was admitted against would not exist yet. It can be
+		// enabled once stop and cleanup are closed end to end with the provider.
+		if workspace.Spec.EnablePreempt && !v1.IsExternalWorkspace(workspace) {
 			v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr)
 		}
 	}
@@ -1639,6 +1644,19 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 		if v1.GetOpsJobId(workload) == "" {
 			return commonerrors.NewNotFound(v1.WorkspaceKind, workload.Spec.Workspace)
 		}
+		return nil
+	}
+	if v1.IsExternalWorkspace(workspace) {
+		if !commonconfig.IsExternalExecutionEnable() {
+			return commonerrors.NewForbidden(
+				"external execution is not enabled in this deployment")
+		}
+		// An external workspace has no local capacity to measure a request against. Its
+		// status.totalResources is empty until the provider publishes a node, and the
+		// budget is arbitrated by the provider when the claim is made, so applying the
+		// quota check here would reject every submission while the workspace is idle --
+		// exactly the scale-from-zero case it exists to serve. Request shape is still
+		// bounded by validateResourceEnough against the node flavor.
 		return nil
 	}
 	if commonworkload.GetTotalReplica(workload) > workspace.Spec.Replica {

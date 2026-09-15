@@ -1,0 +1,69 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Identity the external capacity provider uses to publish inventory into SaFE.
+#
+# The provider owns the virtual nodes and the facts about them; SaFE validates those facts
+# and derives the workspace aggregate. The split is enforced here: the provider may write
+# nodes and their status, and may read the workspaces and flavors it has to match, but it
+# cannot touch workloads, clusters or any of the fields SaFE itself owns.
+#
+# Rendered only when external execution is enabled, so a deployment that has not adopted it
+# grants nothing.
+{{- if (default .Values.external_execution).enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-external-capacity-provider
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-external-capacity-provider
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+rules:
+  # Virtual nodes are created, updated and removed by the provider as allocations come and
+  # go. Deletion is included because retiring an allocation retires its node.
+  - apiGroups: ["amd.com"]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # status.external is the provider's channel for allocation deadline, profile revision,
+  # validation fingerprint and observation freshness.
+  - apiGroups: ["amd.com"]
+    resources: ["nodes/status"]
+    verbs: ["get", "update", "patch"]
+  # Read-only on the objects a node has to be matched against. The provider needs to know
+  # which workspace and flavor a node belongs to; it does not write either.
+  - apiGroups: ["amd.com"]
+    resources: ["workspaces", "nodeflavors"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-external-capacity-provider
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-external-capacity-provider
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-external-capacity-provider
+    namespace: {{ .Release.Namespace }}
+{{- end }}

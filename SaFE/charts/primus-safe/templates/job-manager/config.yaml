@@ -83,6 +83,16 @@ data:
       target_session_attrs: {{ include "primus-safe.dbTargetSessionAttrs" . }}
     torchft:
       lighthouse: cGlwIGluc3RhbGwgInRvcmNoZnQtbmlnaHRseT09MjAyNS4xMi4xNiIgIm9wZW50ZWxlbWV0cnktc2RrPT0xLjM3LjAiICJvcGVudGVsZW1ldHJ5LWV4cG9ydGVyLW90bHAtcHJvdG8tY29tbW9uPT0xLjM3LjAiICJvcGVudGVsZW1ldHJ5LWV4cG9ydGVyLW90bHAtcHJvdG8taHR0cD09MS4zNy4wIiAmJiBSVVNUX0JBQ0tUUkFDRT0xIHRvcmNoZnRfbGlnaHRob3VzZSAtLXF1b3J1bV90aWNrX21zIDEwMCAtLWpvaW5fdGltZW91dF9tcyAxMDAwMDA=
+    external_execution:
+      # Off by default; external objects are refused at admission while it is false.
+      enabled: {{ default false (default .Values.external_execution).enabled }}
+      controller_url: "{{ default "" (default .Values.external_execution).controller_url }}"
+      controller_secret_path: {{ default "/etc/secrets/external-execution" (default .Values.external_execution).controller_secret_path }}
+      controller_timeout_seconds: {{ default 10 (default .Values.external_execution).controller_timeout_seconds }}
+      profile_id: "{{ default "" (default .Values.external_execution).profile_id }}"
+      profile_revision: {{ default 1 (default .Values.external_execution).profile_revision }}
+      observation_max_age_seconds: {{ default 120 (default .Values.external_execution).observation_max_age_seconds }}
+      workspace_resync_seconds: {{ default 30 (default .Values.external_execution).workspace_resync_seconds }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-job-manager

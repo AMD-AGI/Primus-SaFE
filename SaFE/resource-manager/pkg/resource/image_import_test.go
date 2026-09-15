@@ -17,8 +17,8 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	dbmodel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	dbmodel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 )
 
 func newImageImportReconciler(t *testing.T, db *mockclient.MockInterface, objs ...*batchv1.Job) *ImageImportJobReconciler {

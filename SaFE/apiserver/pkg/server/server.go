@@ -199,6 +199,11 @@ func (s *Server) initConfig() error {
 	if err = commonconfig.LoadConfig(fullPath); err != nil {
 		return fmt.Errorf("config path: %s, err: %v", fullPath, err)
 	}
+	// The node predicates live in the apis package, which cannot read configuration. Without
+	// this the API would judge external node freshness by the compiled-in default while the
+	// controllers use the configured one, and the two would disagree about which nodes are
+	// usable.
+	v1.SetExternalObservationMaxAge(commonconfig.GetExternalObservationMaxAge())
 	return nil
 }
 

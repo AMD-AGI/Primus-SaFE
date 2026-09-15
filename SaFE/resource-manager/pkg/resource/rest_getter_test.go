@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"helm.sh/helm/v3/pkg/cli"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
-	"helm.sh/helm/v3/pkg/cli"
 )
 
 func testRESTConfig() *rest.Config {

@@ -55,9 +55,12 @@ func isWideTable(headers []string) bool {
 
 // parseWideTable converts wide table (date as column names) to long format rows.
 // Input:  #, Op, GPU, Framework, Stage, 2026-02-05, 2026-02-06
-//         1, Attention, MI325, PyTorch, Fwd, 255.36, 260.12
+//
+//	1, Attention, MI325, PyTorch, Fwd, 255.36, 260.12
+//
 // Output: {Op: Attention, GPU: MI325, Framework: PyTorch, Stage: Fwd, date: 2026-02-05, value: 255.36}
-//         {Op: Attention, GPU: MI325, Framework: PyTorch, Stage: Fwd, date: 2026-02-06, value: 260.12}
+//
+//	{Op: Attention, GPU: MI325, Framework: PyTorch, Stage: Fwd, date: 2026-02-06, value: 260.12}
 func parseWideTable(headers []string, rows [][]string) ([]map[string]interface{}, error) {
 	dimCols := []int{}
 	dateCols := []int{}
