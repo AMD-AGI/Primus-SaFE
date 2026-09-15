@@ -1655,6 +1655,7 @@ func cvtToWorkloadNodesHistory(raw string) []view.WorkloadNodesHistoryItem {
 			EndTime:       entry.EndTime,
 			Nodes:         nodes,
 			Ranks:         ranks,
+			Truncated:     entry.Truncated,
 		})
 	}
 	return items

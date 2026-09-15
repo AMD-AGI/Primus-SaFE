@@ -626,7 +626,8 @@ Get detailed information about a specific workload.
       "startTime": "2025-01-14T08:00:00",
       "endTime": "2025-01-14T09:10:00",
       "nodes": [["node-007"], ["node-008"]],
-      "ranks": [["0"], ["0"]]
+      "ranks": [["0"], ["0"]],
+      "truncated": false
     }
   ],
   "customerLabels": {},
@@ -695,6 +696,7 @@ Only fields not already covered by "List Workloads" are listed below. Other fiel
 | nodesHistory[].endTime          | string     | End time of that run (RFC3339)                                                                                                          |
 | nodesHistory[].nodes            | [][]string | The node used for each dispatch of that run, e.g. [["node-007"]]                                                                        |
 | nodesHistory[].ranks            | [][]string | The rank corresponding to each node of that run                                                                                          |
+| nodesHistory[].truncated        | boolean    | Whether older dispatches or ranks were removed to fit the history size limit                                                             |
 | customerLabels                  | object     | Custom labels associated with the workload                                                                                              |
 | specifiedNodes                  | []string   | The nodes explicitly specified to run on                                                                                                |
 | nodesAffinity                   | string     | Node affinity mode for `specifiedNodes`: `required`, `preferred`, or empty when not applicable. Same semantics as create request.       |

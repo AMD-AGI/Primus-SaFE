@@ -251,6 +251,32 @@ func TestWriteWorkloadStatusToDBWritesEmptyCurrentDispatch(t *testing.T) {
 	require.NoError(t, r.writeWorkloadStatusToDB(context.Background(), w))
 }
 
+// TestCurrentDispatchNodesMissing covers index-aware dispatch completeness.
+func TestCurrentDispatchNodesMissing(t *testing.T) {
+	tests := []struct {
+		name          string
+		dispatchCount string
+		nodes         [][]string
+		want          bool
+	}{
+		{name: "missing dispatch label", nodes: nil, want: false},
+		{name: "first dispatch missing", dispatchCount: "1", nodes: nil, want: true},
+		{name: "current slot missing after old dispatch", dispatchCount: "2", nodes: [][]string{{"old"}}, want: true},
+		{name: "current slot empty", dispatchCount: "2", nodes: [][]string{{"old"}, {}}, want: true},
+		{name: "current slot assigned", dispatchCount: "2", nodes: [][]string{{"old"}, {"current"}}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{}}}
+			if tt.dispatchCount != "" {
+				w.Labels[v1.WorkloadDispatchCntLabel] = tt.dispatchCount
+			}
+			w.Status.Nodes = tt.nodes
+			assert.Equal(t, tt.want, currentDispatchNodesMissing(w))
+		})
+	}
+}
+
 // TestPatchWorkloadPodStatus_PreservesPhase verifies the field-scoped merge
 // patch writes pods/nodes/ranks without clobbering status.phase owned by other
 // reconcilers, even when the in-memory copy carries a stale phase.

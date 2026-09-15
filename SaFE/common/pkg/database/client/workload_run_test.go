@@ -52,15 +52,39 @@ func TestListWorkloadDispatchNodesScopesCurrentRun(t *testing.T) {
 	}
 }
 
-func TestListWorkloadRunSQLIncludesLegacyFallback(t *testing.T) {
+// TestListWorkloadRunSQLHasNoLegacyFallback prevents stale rows from reviving.
+// TestListWorkloadRunSQLHasNoLegacyFallback prevents stale rows from reviving.
+func TestListWorkloadRunSQLHasNoLegacyFallback(t *testing.T) {
 	sql := listWorkloadRunSQL("workload_pod", "pod_id")
-	for _, fragment := range []string{
-		"workload_uid = $2",
-		"workload_uid = ''",
-		"NOT EXISTS",
-	} {
-		if !regexp.MustCompile(regexp.QuoteMeta(fragment)).MatchString(sql) {
-			t.Fatalf("missing %q in run query: %s", fragment, sql)
+	if !regexp.MustCompile(regexp.QuoteMeta("workload_uid = $2")).MatchString(sql) {
+		t.Fatalf("missing current run predicate: %s", sql)
+	}
+	for _, forbidden := range []string{"workload_uid = ''", "NOT EXISTS"} {
+		if regexp.MustCompile(regexp.QuoteMeta(forbidden)).MatchString(sql) {
+			t.Fatalf("legacy fallback %q can resurrect stale rows: %s", forbidden, sql)
 		}
+	}
+}
+
+// TestRunUpsertsKeepRollingUpgradeConflictKeys protects old writers at rollout.
+// TestRunUpsertsKeepRollingUpgradeConflictKeys protects old writers at rollout.
+func TestRunUpsertsKeepRollingUpgradeConflictKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+		key  string
+	}{
+		{name: "pod", sql: upsertWorkloadPodCmd, key: "ON CONFLICT (workload_id, pod_id)"},
+		{name: "dispatch", sql: upsertWorkloadDispatchNodeCmd, key: "ON CONFLICT (workload_id, dispatch_index)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !regexp.MustCompile(regexp.QuoteMeta(tt.key)).MatchString(tt.sql) {
+				t.Fatalf("upsert must retain old conflict key during rollout: %s", tt.sql)
+			}
+			if !regexp.MustCompile(regexp.QuoteMeta("workload_uid = EXCLUDED.workload_uid")).MatchString(tt.sql) {
+				t.Fatalf("upsert must move the row to the current run: %s", tt.sql)
+			}
+		})
 	}
 }

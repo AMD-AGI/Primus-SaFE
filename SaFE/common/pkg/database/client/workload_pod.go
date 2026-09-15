@@ -22,8 +22,8 @@ const (
 )
 
 var (
-	// upsertWorkloadPodCmd inserts or updates a single pod row keyed by
-	// (workload_id, workload_uid, pod_id).
+	// upsertWorkloadPodCmd keeps the existing two-column conflict key during
+	// the schema expansion so old and new job-manager replicas can both write.
 	upsertWorkloadPodCmd = `INSERT INTO ` + TWorkloadPod + ` (
 		workload_id, workload_uid, pod_id, resource_id, admin_node_name, host_ip, pod_ip, rank,
 		group_id, phase, start_time, end_time, failed_message, containers,
@@ -32,7 +32,8 @@ var (
 		:workload_id, :workload_uid, :pod_id, :resource_id, :admin_node_name, :host_ip, :pod_ip, :rank,
 		:group_id, :phase, :start_time, :end_time, :failed_message, :containers,
 		:dispatch_count, :updated_at
-	) ON CONFLICT (workload_id, workload_uid, pod_id) DO UPDATE SET
+	) ON CONFLICT (workload_id, pod_id) DO UPDATE SET
+		workload_uid = EXCLUDED.workload_uid,
 		resource_id = EXCLUDED.resource_id,
 		admin_node_name = EXCLUDED.admin_node_name,
 		host_ip = EXCLUDED.host_ip,

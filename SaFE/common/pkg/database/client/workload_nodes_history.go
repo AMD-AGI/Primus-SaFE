@@ -45,6 +45,7 @@ type WorkloadNodesHistoryEntry struct {
 	EndTime       string     `json:"endTime,omitempty"`
 	Nodes         [][]string `json:"nodes"`
 	Ranks         [][]string `json:"ranks,omitempty"`
+	Truncated     bool       `json:"truncated,omitempty"`
 }
 
 // DecodeWorkloadNodesHistory decodes the nodes_history column, oldest run
@@ -92,31 +93,79 @@ func buildWorkloadNodesHistoryEntry(old *Workload, rows []*WorkloadDispatchNode)
 	}, nil
 }
 
-// appendWorkloadNodesHistory appends entry to raw and keeps the most recent
-// maxWorkloadNodesHistory runs.
-func appendWorkloadNodesHistory(raw string, entry *WorkloadNodesHistoryEntry) (string, error) {
-	entries := DecodeWorkloadNodesHistory(raw)
-	dropped := 0
-	entries = append(entries, *entry)
+type workloadNodesHistoryAppendResult struct {
+	Raw       string
+	Appended  bool
+	Truncated bool
+	Dropped   int
+}
+
+// appendWorkloadNodesHistory appends entry without allowing history size to
+// block resume. It drops old runs first, then ranks and old dispatches from the
+// new run. If one latest dispatch still does not fit, the new entry is skipped.
+func appendWorkloadNodesHistory(
+	raw string, entry *WorkloadNodesHistoryEntry,
+) (workloadNodesHistoryAppendResult, error) {
+	original := DecodeWorkloadNodesHistory(raw)
+	entries := append(append([]WorkloadNodesHistoryEntry(nil), original...), *entry)
+	result := workloadNodesHistoryAppendResult{Appended: true}
 	if len(entries) > maxWorkloadNodesHistory {
-		dropped = len(entries) - maxWorkloadNodesHistory
-		entries = entries[dropped:]
+		result.Dropped = len(entries) - maxWorkloadNodesHistory
+		entries = entries[result.Dropped:]
 	}
 	encoded, err := json.Marshal(entries)
 	if err != nil {
-		return "", err
+		return result, err
 	}
 	for len(encoded) > maxWorkloadNodesHistoryBytes && len(entries) > 1 {
 		entries = entries[1:]
+		result.Dropped++
 		encoded, err = json.Marshal(entries)
 		if err != nil {
-			return "", err
+			return result, err
 		}
 	}
 	if len(encoded) > maxWorkloadNodesHistoryBytes {
-		return "", fmt.Errorf("workload nodes history entry exceeds %d bytes", maxWorkloadNodesHistoryBytes)
+		latest := &entries[len(entries)-1]
+		latest.Ranks = nil
+		latest.Truncated = true
+		result.Truncated = true
+		encoded, err = json.Marshal(entries)
+		if err != nil {
+			return result, err
+		}
+		for len(encoded) > maxWorkloadNodesHistoryBytes && len(latest.Nodes) > 1 {
+			latest.Nodes = latest.Nodes[1:]
+			encoded, err = json.Marshal(entries)
+			if err != nil {
+				return result, err
+			}
+		}
 	}
-	return string(encoded), nil
+	if len(encoded) > maxWorkloadNodesHistoryBytes {
+		result.Appended = false
+		result.Truncated = false
+		result.Dropped = 0
+		entries = append([]WorkloadNodesHistoryEntry(nil), original...)
+		for len(entries) > maxWorkloadNodesHistory {
+			entries = entries[1:]
+			result.Dropped++
+		}
+		encoded, err = json.Marshal(entries)
+		if err != nil {
+			return result, err
+		}
+		for len(encoded) > maxWorkloadNodesHistoryBytes && len(entries) > 0 {
+			entries = entries[1:]
+			result.Dropped++
+			encoded, err = json.Marshal(entries)
+			if err != nil {
+				return result, err
+			}
+		}
+	}
+	result.Raw = string(encoded)
+	return result, nil
 }
 
 // ArchiveWorkloadNodesForResume snapshots the previous CR generation into
@@ -153,18 +202,17 @@ func (c *Client) ArchiveWorkloadNodesForResume(ctx context.Context, previous *Wo
 	if err != nil {
 		return err
 	}
-	if entry == nil {
-		klog.Infof("previous workload run has no node assignment; retaining its rows, workloadId=%s",
-			previous.WorkloadId)
-		return tx.Commit()
-	}
-	oldHistory := DecodeWorkloadNodesHistory(dbutils.ParseNullString(current.NodesHistory))
-	history, err := appendWorkloadNodesHistory(dbutils.ParseNullString(current.NodesHistory), entry)
-	if err != nil {
-		return err
-	}
-	if _, err = tx.ExecContext(ctx, updateWorkloadNodesHistoryCmd, history, previous.WorkloadId); err != nil {
-		return err
+	appendResult := workloadNodesHistoryAppendResult{}
+	if entry != nil {
+		appendResult, err = appendWorkloadNodesHistory(dbutils.ParseNullString(current.NodesHistory), entry)
+		if err != nil {
+			return err
+		}
+		if appendResult.Appended {
+			if _, err = tx.ExecContext(ctx, updateWorkloadNodesHistoryCmd, appendResult.Raw, previous.WorkloadId); err != nil {
+				return err
+			}
+		}
 	}
 	dispatchRes, err := tx.ExecContext(ctx, deleteWorkloadDispatchNodesOfOtherRunsCmd, previous.WorkloadId, keepUid)
 	if err != nil {
@@ -179,12 +227,24 @@ func (c *Client) ArchiveWorkloadNodesForResume(ctx context.Context, previous *Wo
 	if err = tx.Commit(); err != nil {
 		return err
 	}
-	dropped := len(oldHistory) + 1 - len(DecodeWorkloadNodesHistory(history))
 	klog.Infof("archived previous workload run, workloadId=%s keepUid=%s historyEntries=%d dispatchDeleted=%d podsDeleted=%d",
-		previous.WorkloadId, keepUid, 1, dispatchN, podN)
-	if dropped > 0 {
+		previous.WorkloadId, keepUid, boolToInt(appendResult.Appended), dispatchN, podN)
+	if appendResult.Truncated {
+		klog.Infof("workload nodes history truncated the archived run, workloadId=%s", previous.WorkloadId)
+	} else if entry != nil && !appendResult.Appended {
+		klog.Infof("workload nodes history skipped an oversized archived run, workloadId=%s", previous.WorkloadId)
+	}
+	if appendResult.Dropped > 0 {
 		klog.Infof("workload nodes history dropped %d older run(s) at the cap, workloadId=%s",
-			dropped, previous.WorkloadId)
+			appendResult.Dropped, previous.WorkloadId)
 	}
 	return nil
+}
+
+// boolToInt renders an archive outcome as a log counter.
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }

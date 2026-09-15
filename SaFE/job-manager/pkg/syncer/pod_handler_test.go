@@ -885,23 +885,24 @@ func TestUpdateWorkloadNodeAndPodsSkipsUnchangedPod(t *testing.T) {
 }
 
 // TestUpdateWorkloadNodeAndPodsRefreshesEmptyDispatch covers a resumed
-// workload: hydrate still has the previous pod (same id/node) but dispatch
-// history was archived, so Nodes is empty. The pod looks unchanged; the
-// assignment still has to be rewritten.
+// workload: hydrate has an earlier dispatch but the current slot is missing.
+// The pod looks unchanged; the current assignment still has to be rewritten.
 func TestUpdateWorkloadNodeAndPodsRefreshesEmptyDispatch(t *testing.T) {
 	w, pod, node := settledPodWorkload([]v1.NodePodUsage{{
 		Node:    "n1",
 		Active:  map[string]int{"0": 1},
 		Running: map[string]int{"0": 1},
 	}})
-	w.Status.Nodes = nil
-	w.Status.Ranks = nil
+	w.Labels[v1.WorkloadDispatchCntLabel] = "2"
+	w.Status.Nodes = [][]string{{"old-node"}}
+	w.Status.Ranks = [][]string{{"0"}}
 
 	r := offloadedSyncer(t)
 	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, node)
 	assert.Equal(t, updated, true)
-	assert.Equal(t, len(w.Status.Nodes), 1)
-	assert.Equal(t, w.Status.Nodes[0][0], "n1")
+	assert.Equal(t, len(w.Status.Nodes), 2)
+	assert.Equal(t, w.Status.Nodes[0][0], "old-node")
+	assert.Equal(t, w.Status.Nodes[1][0], "n1")
 }
 
 // TestRepairNodeUsagePatchesAggregateOnly reproduces the placement lost to a
@@ -1191,7 +1192,7 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 		tassert.NoError(t, err)
 	})
 
-	t.Run("missing current dispatch is rebuilt before creating faults", func(t *testing.T) {
+	t.Run("missing history rebuilds current nodes and removes stale faults", func(t *testing.T) {
 		workload := &v1.Workload{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "test-workload",
@@ -1205,11 +1206,20 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 			},
 			Spec: v1.WorkloadSpec{MaxRetry: 3},
 			Status: v1.WorkloadStatus{
-				Nodes: [][]string{{"old-node"}},
-				Pods:  []v1.WorkloadPod{{PodId: "p1", AdminNodeName: "new-node"}},
+				Pods: []v1.WorkloadPod{{PodId: "p1", AdminNodeName: "new-node"}},
 			},
 		}
-		cli := ctrlfake.NewClientBuilder().WithScheme(scheme).Build()
+		stale := &v1.Fault{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: commonfaults.GenerateFaultId("old-node", v1.StickyNodesMonitorId),
+				Labels: map[string]string{
+					v1.WorkloadIdLabel: workload.Name,
+					v1.NodeIdLabel:     "old-node",
+				},
+			},
+			Spec: v1.FaultSpec{MonitorId: v1.StickyNodesMonitorId},
+		}
+		cli := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(stale).Build()
 		r := &SyncerReconciler{Client: cli}
 
 		err := r.createStickyNodeFaults(ctx, workload)
@@ -1219,6 +1229,8 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 			Name: commonfaults.GenerateFaultId("new-node", v1.StickyNodesMonitorId),
 		}, fault)
 		tassert.NoError(t, err)
+		err = cli.Get(ctx, ctrlclient.ObjectKey{Name: stale.Name}, &v1.Fault{})
+		tassert.True(t, apierrors.IsNotFound(err))
 	})
 
 	t.Run("count is zero - should skip", func(t *testing.T) {

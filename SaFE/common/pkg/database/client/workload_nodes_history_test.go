@@ -6,6 +6,7 @@
 package client
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -81,14 +82,14 @@ func TestAppendWorkloadNodesHistoryKeepsLastRuns(t *testing.T) {
 	raw := ""
 	total := maxWorkloadNodesHistory + 2
 	for i := 0; i < total; i++ {
-		var err error
-		raw, err = appendWorkloadNodesHistory(raw, &WorkloadNodesHistoryEntry{
+		result, err := appendWorkloadNodesHistory(raw, &WorkloadNodesHistoryEntry{
 			DispatchCount: i,
 			Nodes:         [][]string{{fmt.Sprintf("n%d", i)}},
 		})
 		if err != nil {
 			t.Fatalf("append failed: %v", err)
 		}
+		raw = result.Raw
 	}
 
 	entries := DecodeWorkloadNodesHistory(raw)
@@ -112,14 +113,14 @@ func TestDecodeWorkloadNodesHistoryMalformed(t *testing.T) {
 
 func TestAppendWorkloadNodesHistoryIgnoresCorruptJSON(t *testing.T) {
 	t.Parallel()
-	raw, err := appendWorkloadNodesHistory("not json", &WorkloadNodesHistoryEntry{
+	result, err := appendWorkloadNodesHistory("not json", &WorkloadNodesHistoryEntry{
 		DispatchCount: 1,
 		Nodes:         [][]string{{"n1"}},
 	})
 	if err != nil {
 		t.Fatalf("corrupt history must not fail the archive write: %v", err)
 	}
-	entries := DecodeWorkloadNodesHistory(raw)
+	entries := DecodeWorkloadNodesHistory(result.Raw)
 	if len(entries) != 1 || entries[0].DispatchCount != 1 {
 		t.Errorf("expected a single new entry, got %+v", entries)
 	}
@@ -130,14 +131,14 @@ func TestAppendWorkloadNodesHistoryCapsBytes(t *testing.T) {
 	node := strings.Repeat("n", maxWorkloadNodesHistoryBytes/2)
 	raw := ""
 	for i := 0; i < 4; i++ {
-		var err error
-		raw, err = appendWorkloadNodesHistory(raw, &WorkloadNodesHistoryEntry{
+		result, err := appendWorkloadNodesHistory(raw, &WorkloadNodesHistoryEntry{
 			DispatchCount: i,
 			Nodes:         [][]string{{node}},
 		})
 		if err != nil {
 			t.Fatalf("append failed: %v", err)
 		}
+		raw = result.Raw
 	}
 	if len(raw) > maxWorkloadNodesHistoryBytes {
 		t.Errorf("history JSON exceeds byte cap: %d", len(raw))
@@ -148,6 +149,67 @@ func TestAppendWorkloadNodesHistoryCapsBytes(t *testing.T) {
 	}
 	if entries[len(entries)-1].DispatchCount != 3 {
 		t.Errorf("newest run must be kept, got %+v", entries)
+	}
+}
+
+// TestAppendWorkloadNodesHistoryTruncatesOversizedRun keeps resume non-blocking.
+func TestAppendWorkloadNodesHistoryTruncatesOversizedRun(t *testing.T) {
+	t.Parallel()
+	nodes := make([][]string, 8)
+	ranks := make([][]string, 8)
+	for i := range nodes {
+		nodes[i] = []string{strings.Repeat("n", maxWorkloadNodesHistoryBytes/4)}
+		ranks[i] = []string{strings.Repeat("r", maxWorkloadNodesHistoryBytes/4)}
+	}
+	result, err := appendWorkloadNodesHistory("", &WorkloadNodesHistoryEntry{
+		DispatchCount: len(nodes),
+		Nodes:         nodes,
+		Ranks:         ranks,
+	})
+	if err != nil {
+		t.Fatalf("oversized history must not block resume: %v", err)
+	}
+	if !result.Appended || !result.Truncated {
+		t.Fatalf("expected truncated entry, got %+v", result)
+	}
+	if len(result.Raw) > maxWorkloadNodesHistoryBytes {
+		t.Fatalf("truncated history exceeds cap: %d", len(result.Raw))
+	}
+	entries := DecodeWorkloadNodesHistory(result.Raw)
+	if len(entries) != 1 || !entries[0].Truncated || len(entries[0].Ranks) != 0 {
+		t.Fatalf("unexpected truncated entry: %+v", entries)
+	}
+	if len(entries[0].Nodes) == 0 || len(entries[0].Nodes) >= len(nodes) {
+		t.Fatalf("older dispatches should be removed: %d", len(entries[0].Nodes))
+	}
+	if entries[0].Nodes[len(entries[0].Nodes)-1][0] != nodes[len(nodes)-1][0] {
+		t.Fatal("latest dispatch must be retained")
+	}
+}
+
+// TestAppendWorkloadNodesHistorySkipsUnshrinkableRun preserves prior history.
+func TestAppendWorkloadNodesHistorySkipsUnshrinkableRun(t *testing.T) {
+	t.Parallel()
+	original, err := json.Marshal([]WorkloadNodesHistoryEntry{{
+		DispatchCount: 1,
+		Nodes:         [][]string{{"old-node"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := appendWorkloadNodesHistory(string(original), &WorkloadNodesHistoryEntry{
+		DispatchCount: 1,
+		Nodes:         [][]string{{strings.Repeat("n", maxWorkloadNodesHistoryBytes+1)}},
+	})
+	if err != nil {
+		t.Fatalf("unshrinkable history must not block resume: %v", err)
+	}
+	if result.Appended {
+		t.Fatalf("oversized run must be skipped, got %+v", result)
+	}
+	entries := DecodeWorkloadNodesHistory(result.Raw)
+	if len(entries) != 1 || entries[0].Nodes[0][0] != "old-node" {
+		t.Fatalf("existing history must be retained, got %+v", entries)
 	}
 }
 
@@ -235,7 +297,7 @@ func TestArchiveWorkloadNodesForResumeRollsBackDeleteFailure(t *testing.T) {
 	}
 }
 
-func TestArchiveWorkloadNodesForResumeRetainsRowsWithoutEntry(t *testing.T) {
+func TestArchiveWorkloadNodesForResumeCleansRowsWithoutEntry(t *testing.T) {
 	c, mock := newMockClient(t)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(selectWorkloadForNodesArchiveCmd)).
@@ -248,6 +310,12 @@ func TestArchiveWorkloadNodesForResumeRetainsRowsWithoutEntry(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"workload_id", "workload_uid", "dispatch_index", "nodes", "ranks", "updated_at",
 		}))
+	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadDispatchNodesOfOtherRunsCmd)).
+		WithArgs("w1", "new-uid").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadPodsOfOtherRunsCmd)).
+		WithArgs("w1", "new-uid").
+		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectCommit()
 
 	previous := &Workload{

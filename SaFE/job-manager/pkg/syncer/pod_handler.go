@@ -27,6 +27,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -1002,6 +1003,8 @@ func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWork
 	if !v1.IsRetryingOnOriginal(adminWorkload) || count <= 0 || shouldWorkloadStopRetry(adminWorkload, count) {
 		return nil
 	}
+	previousNodesMissing := count >= 2 &&
+		(len(adminWorkload.Status.Nodes) < count-1 || len(adminWorkload.Status.Nodes[count-2]) == 0)
 	if currentDispatchNodesMissing(adminWorkload) && len(adminWorkload.Status.Pods) > 0 {
 		r.updateWorkloadNodes(adminWorkload)
 	}
@@ -1036,7 +1039,38 @@ func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWork
 			return err
 		}
 	}
+	if previousNodesMissing {
+		if err := r.deleteStaleStickyNodeFaults(ctx, adminWorkload, adminWorkload.Status.Nodes[count-1]); err != nil {
+			return err
+		}
+	}
 	klog.Infof("Create sticky nodes faults for the workload %s.", adminWorkload.Name)
+	return nil
+}
+
+// deleteStaleStickyNodeFaults removes reservations that cannot be diffed after
+// an offloaded previous dispatch was archived.
+func (r *SyncerReconciler) deleteStaleStickyNodeFaults(
+	ctx context.Context, workload *v1.Workload, currentNodes []string,
+) error {
+	faults := &v1.FaultList{}
+	if err := r.List(ctx, faults, ctrlclient.MatchingLabels{v1.WorkloadIdLabel: workload.Name}); err != nil {
+		return err
+	}
+	current := sets.NewSet()
+	for _, node := range currentNodes {
+		current.Insert(node)
+	}
+	for i := range faults.Items {
+		fault := &faults.Items[i]
+		if fault.Spec.MonitorId != v1.StickyNodesMonitorId ||
+			current.Has(fault.Labels[v1.NodeIdLabel]) {
+			continue
+		}
+		if err := r.Delete(ctx, fault); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
 	return nil
 }
 

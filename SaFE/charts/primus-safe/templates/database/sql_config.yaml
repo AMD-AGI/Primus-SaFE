@@ -963,7 +963,11 @@ data:
     -- CR UID isolates one run of a reused workload id so resume can keep the
     -- previous pod rows until the new object exists.
     alter table workload_pod add column if not exists workload_uid VARCHAR(36) not null default '';
-    alter table workload_pod drop constraint if exists workload_pod_pkey;
+    update workload_pod p set workload_uid = w.workload_uid
+    from workload w
+    where w.workload_id = p.workload_id
+      and p.workload_uid = ''
+      and coalesce(w.workload_uid, '') <> '';
     create unique index if not exists idx_workload_pod_run on workload_pod (workload_id, workload_uid, pod_id);
 
     -- Per-dispatch node/rank history for a workload (Nodes/Ranks were append-only
@@ -981,5 +985,9 @@ data:
     create index if not exists idx_workload_dispatch_node_workload on workload_dispatch_node (workload_id);
     alter table workload_dispatch_node owner to "primus-safe";
     alter table workload_dispatch_node add column if not exists workload_uid VARCHAR(36) not null default '';
-    alter table workload_dispatch_node drop constraint if exists workload_dispatch_node_pkey;
+    update workload_dispatch_node d set workload_uid = w.workload_uid
+    from workload w
+    where w.workload_id = d.workload_id
+      and d.workload_uid = ''
+      and coalesce(w.workload_uid, '') <> '';
     create unique index if not exists idx_workload_dispatch_node_run on workload_dispatch_node (workload_id, workload_uid, dispatch_index);

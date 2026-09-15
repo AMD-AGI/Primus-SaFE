@@ -21,13 +21,14 @@ const (
 )
 
 var (
-	// upsertWorkloadDispatchNodeCmd inserts or updates one dispatch's node/rank
-	// assignment keyed by (workload_id, workload_uid, dispatch_index).
+	// upsertWorkloadDispatchNodeCmd keeps the existing two-column conflict key
+	// during the schema expansion so old and new replicas can both write.
 	upsertWorkloadDispatchNodeCmd = `INSERT INTO ` + TWorkloadDispatchNode + ` (
 		workload_id, workload_uid, dispatch_index, nodes, ranks, updated_at
 	) VALUES (
 		:workload_id, :workload_uid, :dispatch_index, :nodes, :ranks, :updated_at
-	) ON CONFLICT (workload_id, workload_uid, dispatch_index) DO UPDATE SET
+	) ON CONFLICT (workload_id, dispatch_index) DO UPDATE SET
+		workload_uid = EXCLUDED.workload_uid,
 		nodes = EXCLUDED.nodes,
 		ranks = EXCLUDED.ranks,
 		updated_at = EXCLUDED.updated_at`
