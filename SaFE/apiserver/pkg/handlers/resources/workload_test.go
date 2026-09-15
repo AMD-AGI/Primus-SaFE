@@ -497,7 +497,7 @@ func Test_createWorkloadImpl(t *testing.T) {
 
 // TestCreateWorkloadImplWithHook verifies that the hook runs only after the
 // workload exists, so a failed Create cannot run destructive archive work.
-func TestCreateWorkloadImplWithHook(t *testing.T) {
+func TestCreateWorkloadImplWithHookKeepsCreatedWorkloadOnHookFailure(t *testing.T) {
 	clusterId := "test-cluster"
 	workspaceId := "test-workspace"
 	workload := genMockWorkload(clusterId, workspaceId)
@@ -527,7 +527,7 @@ func TestCreateWorkloadImplWithHook(t *testing.T) {
 		if err != nil {
 			t.Fatalf("workload must be visible before hook: %v", err)
 		}
-		return nil
+		return fmt.Errorf("archive failed")
 	})
 
 	assert.NilError(t, err)
@@ -576,8 +576,8 @@ func TestCreateWorkloadImplWithHookCreateFailureDoesNotArchive(t *testing.T) {
 	assert.Assert(t, !hookCalled, "archive hook must not run after a failed Create")
 }
 
-// TestCreateWorkloadImplWithHookSkipsWhenCRExists refuses resume-style create
-// before the archive hook runs, so a lingering Failed CR cannot drop pod rows.
+// TestCreateWorkloadImplWithHookSkipsWhenCRExists relies on the authoritative
+// Create result before the archive hook runs.
 func TestCreateWorkloadImplWithHookSkipsWhenCRExists(t *testing.T) {
 	clusterId := "test-cluster"
 	workspaceId := "test-workspace"
@@ -819,8 +819,8 @@ func Test_getWorkload(t *testing.T) {
 	}
 
 	mockDBClient.EXPECT().GetWorkload(gomock.Any(), workloadId).Return(mockDBWorkload, nil).AnyTimes()
-	mockDBClient.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	mockDBClient.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDBClient.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDBClient.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	// Create gin context
 	w := httptest.NewRecorder()
@@ -2134,8 +2134,8 @@ func TestGetWorkloadWrapper(t *testing.T) {
 		UserId:      sql.NullString{String: user.Name, Valid: true},
 		GVK:         `{"group":"kubeflow.org","version":"v1","kind":"PyTorchJob"}`,
 	}, nil).AnyTimes()
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
@@ -2161,8 +2161,8 @@ func TestGetWorkloadCleansEmptyDispatchNodes(t *testing.T) {
 		Nodes:      sql.NullString{String: `[["","n1"],["n2"]]`, Valid: true},
 		Ranks:      sql.NullString{String: `[["skip","0"],["1"]]`, Valid: true},
 	}, nil)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)

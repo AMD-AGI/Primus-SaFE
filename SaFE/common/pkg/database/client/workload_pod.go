@@ -22,18 +22,17 @@ const (
 )
 
 var (
-	// upsertWorkloadPodCmd keeps the existing two-column conflict key during
-	// the schema expansion so old and new job-manager replicas can both write.
+	// upsertWorkloadPodCmd inserts or updates a single pod row keyed by
+	// (workload_id, pod_id). resource_id / pod_id form the natural identity.
 	upsertWorkloadPodCmd = `INSERT INTO ` + TWorkloadPod + ` (
-		workload_id, workload_uid, pod_id, resource_id, admin_node_name, host_ip, pod_ip, rank,
+		workload_id, pod_id, resource_id, admin_node_name, host_ip, pod_ip, rank,
 		group_id, phase, start_time, end_time, failed_message, containers,
 		dispatch_count, updated_at
 	) VALUES (
-		:workload_id, :workload_uid, :pod_id, :resource_id, :admin_node_name, :host_ip, :pod_ip, :rank,
+		:workload_id, :pod_id, :resource_id, :admin_node_name, :host_ip, :pod_ip, :rank,
 		:group_id, :phase, :start_time, :end_time, :failed_message, :containers,
 		:dispatch_count, :updated_at
 	) ON CONFLICT (workload_id, pod_id) DO UPDATE SET
-		workload_uid = EXCLUDED.workload_uid,
 		resource_id = EXCLUDED.resource_id,
 		admin_node_name = EXCLUDED.admin_node_name,
 		host_ip = EXCLUDED.host_ip,
@@ -48,7 +47,11 @@ var (
 		dispatch_count = EXCLUDED.dispatch_count,
 		updated_at = EXCLUDED.updated_at`
 
-	listWorkloadPodsCmd = listWorkloadRunSQL(TWorkloadPod, "pod_id")
+	listWorkloadPodsCmd = fmt.Sprintf(`SELECT
+		workload_id, pod_id, resource_id, admin_node_name, host_ip, pod_ip, rank,
+		group_id, phase, start_time, end_time, failed_message, containers,
+		dispatch_count, updated_at
+		FROM %s WHERE workload_id = $1 ORDER BY pod_id`, TWorkloadPod)
 )
 
 // UpsertWorkloadPod inserts or updates a single workload pod row.
@@ -95,8 +98,8 @@ func (c *Client) BatchUpsertWorkloadPods(ctx context.Context, pods []*WorkloadPo
 	return tx.Commit()
 }
 
-// ListWorkloadPods returns pods of one CR generation, ordered by pod id.
-func (c *Client) ListWorkloadPods(ctx context.Context, workloadId, workloadUid string) ([]*WorkloadPod, error) {
+// ListWorkloadPods returns all pods of a workload ordered by pod id.
+func (c *Client) ListWorkloadPods(ctx context.Context, workloadId string) ([]*WorkloadPod, error) {
 	if workloadId == "" {
 		return nil, commonerrors.NewBadRequest("workloadId is empty")
 	}
@@ -108,9 +111,9 @@ func (c *Client) ListWorkloadPods(ctx context.Context, workloadId, workloadUid s
 	if c.RequestTimeout > 0 {
 		ctx2, cancel := context.WithTimeout(ctx, c.RequestTimeout)
 		defer cancel()
-		err = db.SelectContext(ctx2, &pods, listWorkloadPodsCmd, workloadId, workloadUid)
+		err = db.SelectContext(ctx2, &pods, listWorkloadPodsCmd, workloadId)
 	} else {
-		err = db.SelectContext(ctx, &pods, listWorkloadPodsCmd, workloadId, workloadUid)
+		err = db.SelectContext(ctx, &pods, listWorkloadPodsCmd, workloadId)
 	}
 	return pods, err
 }
@@ -128,24 +131,19 @@ func (c *Client) DeleteWorkloadPods(ctx context.Context, workloadId string) erro
 	return err
 }
 
-// DeleteWorkloadPodsNotIn removes pods of one CR generation whose pod_id is not
-// in keepPodIds. When keepPodIds is empty it removes every pod of that generation.
-func (c *Client) DeleteWorkloadPodsNotIn(ctx context.Context, workloadId, workloadUid string, keepPodIds []string) error {
+// DeleteWorkloadPodsNotIn removes pods of a workload whose pod_id is not in
+// keepPodIds. When keepPodIds is empty it removes every pod of the workload.
+func (c *Client) DeleteWorkloadPodsNotIn(ctx context.Context, workloadId string, keepPodIds []string) error {
 	db, err := c.getDB()
 	if err != nil {
 		return err
 	}
 	if len(keepPodIds) == 0 {
-		cmd := fmt.Sprintf(`DELETE FROM %s WHERE workload_id = $1 AND workload_uid = $2`, TWorkloadPod)
-		if _, err = db.ExecContext(ctx, cmd, workloadId, workloadUid); err != nil {
-			klog.ErrorS(err, "failed to delete workload pods of run",
-				"workloadId", workloadId, "workloadUid", workloadUid)
-		}
-		return err
+		return c.DeleteWorkloadPods(ctx, workloadId)
 	}
 	query, args, err := sqlx.In(
-		fmt.Sprintf(`DELETE FROM %s WHERE workload_id = ? AND workload_uid = ? AND pod_id NOT IN (?)`, TWorkloadPod),
-		workloadId, workloadUid, keepPodIds)
+		fmt.Sprintf(`DELETE FROM %s WHERE workload_id = ? AND pod_id NOT IN (?)`, TWorkloadPod),
+		workloadId, keepPodIds)
 	if err != nil {
 		return err
 	}

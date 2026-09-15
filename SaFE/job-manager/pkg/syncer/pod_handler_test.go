@@ -400,12 +400,12 @@ func TestRemoveWorkloadPodRepairsStaleAggregateAfterConflict(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w", "").Return([]*dbclient.WorkloadPod{
-		dbclient.WorkloadPodFromV1("w", "", 1, &v1.WorkloadPod{
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w").Return([]*dbclient.WorkloadPod{
+		dbclient.WorkloadPodFromV1("w", 1, &v1.WorkloadPod{
 			PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodPhase(v1.WorkloadStopped),
 		}),
 	}, nil)
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w", "").Return(nil, nil)
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w").Return(nil, nil)
 
 	viper.Reset()
 	viper.Set("db.enable", true)

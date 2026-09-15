@@ -253,25 +253,12 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 	if v1.GetUserName(workload) == "" {
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserName(requestUser))
 	}
-	// Refuse while a CR with the same name is still present. Resume archives
-	// only after Create, but creating over a terminating object is still invalid.
-	existing := &v1.Workload{}
-	if err = h.Get(c.Request.Context(), client.ObjectKey{Name: workload.Name}, existing); err == nil {
-		return nil, commonerrors.NewAlreadyExist(fmt.Sprintf("workload %s already exists", workload.Name))
-	}
-	if !apierrors.IsNotFound(err) {
-		return nil, err
-	}
 	if err = h.Create(c.Request.Context(), workload); err != nil {
 		return nil, err
 	}
 	if afterCreate != nil {
 		if err = afterCreate(c.Request.Context()); err != nil {
-			if deleteErr := h.Delete(c.Request.Context(), workload); deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
-				klog.ErrorS(deleteErr, "failed to roll back workload after post-create hook",
-					"workload", workload.Name)
-			}
-			return nil, err
+			klog.ErrorS(err, "post-create workload cleanup failed", "workload", workload.Name)
 		}
 	}
 	if err = h.updateWorkloadPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
@@ -1532,8 +1519,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	}
 	// Pods: prefer the workload_pod table (status offload), fall back to the
 	// legacy pods column so pre-offload workloads still render.
-	workloadUid := dbutils.ParseNullString(dbWorkload.WorkloadUId)
-	if pods := h.listOffloadedPods(ctx, dbWorkload.WorkloadId, workloadUid); len(pods) > 0 {
+	if pods := h.listOffloadedPods(ctx, dbWorkload.WorkloadId); len(pods) > 0 {
 		result.Pods = pods
 	} else if str := dbutils.ParseNullString(dbWorkload.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
@@ -1543,7 +1529,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 			&result.Pods[i].WorkloadPod, user.Name, result.WorkspaceId, result.GroupVersionKind)
 	}
 	// Nodes/Ranks: prefer the workload_dispatch_node table, fall back to columns.
-	if rows := h.listOffloadedDispatchNodes(ctx, dbWorkload.WorkloadId, workloadUid); len(rows) > 0 {
+	if rows := h.listOffloadedDispatchNodes(ctx, dbWorkload.WorkloadId); len(rows) > 0 {
 		result.Nodes = dbclient.DispatchNodesToV1(rows)
 		result.Ranks = dbclient.DispatchRanksToV1(rows)
 	} else {
@@ -1607,11 +1593,11 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 // listOffloadedPods returns a workload's pods from the workload_pod table as
 // response wrappers, or nil when the DB is unavailable, errors, or has no rows
 // so the caller can fall back to the legacy pods column without erroring.
-func (h *Handler) listOffloadedPods(ctx context.Context, workloadId, workloadUid string) []view.WorkloadPodWrapper {
+func (h *Handler) listOffloadedPods(ctx context.Context, workloadId string) []view.WorkloadPodWrapper {
 	if h.dbClient == nil {
 		return nil
 	}
-	rows, err := h.dbClient.ListWorkloadPods(ctx, workloadId, workloadUid)
+	rows, err := h.dbClient.ListWorkloadPods(ctx, workloadId)
 	if err != nil || len(rows) == 0 {
 		return nil
 	}
@@ -1626,12 +1612,12 @@ func (h *Handler) listOffloadedPods(ctx context.Context, workloadId, workloadUid
 // listOffloadedDispatchNodes returns a workload's dispatch rows, or nil when the
 // DB is unavailable or errors so the caller can fall back to legacy columns.
 func (h *Handler) listOffloadedDispatchNodes(
-	ctx context.Context, workloadId, workloadUid string,
+	ctx context.Context, workloadId string,
 ) []*dbclient.WorkloadDispatchNode {
 	if h.dbClient == nil {
 		return nil
 	}
-	rows, err := h.dbClient.ListWorkloadDispatchNodes(ctx, workloadId, workloadUid)
+	rows, err := h.dbClient.ListWorkloadDispatchNodes(ctx, workloadId)
 	if err != nil {
 		return nil
 	}
@@ -1655,7 +1641,6 @@ func cvtToWorkloadNodesHistory(raw string) []view.WorkloadNodesHistoryItem {
 			EndTime:       entry.EndTime,
 			Nodes:         nodes,
 			Ranks:         ranks,
-			Truncated:     entry.Truncated,
 		})
 	}
 	return items
@@ -1850,9 +1835,13 @@ func (h *Handler) resumeWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
+	dispatchRows, snapshotErr := h.dbClient.ListWorkloadDispatchNodes(ctx, workloadId)
+	if snapshotErr != nil {
+		klog.ErrorS(snapshotErr, "failed to snapshot previous workload nodes", "workload", workloadId)
+	}
 	roles := h.accessController.GetRoles(ctx, requestUser)
 	return h.createWorkloadImplWithHook(c, adminWorkload, requestUser, roles, func(ctx context.Context) error {
-		return h.dbClient.ArchiveWorkloadNodesForResume(ctx, dbWorkload, string(adminWorkload.UID))
+		return h.dbClient.ArchiveWorkloadNodesForResume(ctx, dbWorkload, dispatchRows)
 	})
 }
 

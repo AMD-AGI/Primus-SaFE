@@ -29,10 +29,8 @@ describe('toNodesHistoryRows', () => {
       },
     ])
     expect(rows).toHaveLength(2)
-    expect(rows[0].index).toBe(2)
     expect(rows[0].phase).toBe('Failed')
     expect(rows[0].nodes).toBe('n-a | n-b')
-    expect(rows[1].index).toBe(1)
     expect(rows[1].phase).toBe('Stopped')
     expect(rows[1].nodes).toBe('tus1-p15-g9')
   })

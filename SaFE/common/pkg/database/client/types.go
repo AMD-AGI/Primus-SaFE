@@ -81,14 +81,13 @@ func GetWorkloadFieldTags() map[string]string {
 	return getFieldTags(w)
 }
 
-// WorkloadPod is one pod of one workload CR generation, offloaded from status
+// WorkloadPod is one pod of one workload, offloaded from status
 // (WorkloadStatus.Pods) so very large workloads do not exceed the etcd object
 // size limit. Written by the job-manager syncer (single writer); read by the
 // apiserver for workload detail / log / ops paths. The etcd status keeps only an
 // O(node) aggregate (WorkloadStatus.NodeUsage) for the scheduling hot path.
 type WorkloadPod struct {
 	WorkloadId    string         `db:"workload_id"`
-	WorkloadUId   string         `db:"workload_uid"`
 	PodId         string         `db:"pod_id"`
 	ResourceId    int            `db:"resource_id"`
 	AdminNodeName sql.NullString `db:"admin_node_name"`
@@ -113,11 +112,10 @@ func GetWorkloadPodFieldTags() map[string]string {
 
 // WorkloadDispatchNode is one dispatch's node/rank assignment of a workload,
 // offloaded from the etcd Workload status (WorkloadStatus.Nodes / .Ranks which
-// were append-only per retry). One row per CR generation and dispatch index.
+// were append-only per retry). One row per workload and dispatch index.
 // Written by job-manager; read by the dispatcher and ops/detail.
 type WorkloadDispatchNode struct {
 	WorkloadId    string         `db:"workload_id"`
-	WorkloadUId   string         `db:"workload_uid"`
 	DispatchIndex int            `db:"dispatch_index"`
 	Nodes         sql.NullString `db:"nodes"` // JSON-encoded []string
 	Ranks         sql.NullString `db:"ranks"` // JSON-encoded []string

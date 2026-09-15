@@ -30,13 +30,12 @@ func (r *SyncerReconciler) hydrateWorkloadStatusFromDB(ctx context.Context, work
 	if !commonconfig.IsDBEnable() || r.dbClient == nil || w == nil || !v1.IsWorkloadStatusOffloadEnabled(w) {
 		return nil
 	}
-	workloadUid := string(w.UID)
-	pods, err := r.dbClient.ListWorkloadPods(ctx, workloadId, workloadUid)
+	pods, err := r.dbClient.ListWorkloadPods(ctx, workloadId)
 	if err != nil {
 		klog.ErrorS(err, "failed to list workload pods from DB for hydration", "workloadId", workloadId)
 		return err
 	}
-	rows, err := r.dbClient.ListWorkloadDispatchNodes(ctx, workloadId, workloadUid)
+	rows, err := r.dbClient.ListWorkloadDispatchNodes(ctx, workloadId)
 	if err != nil {
 		klog.ErrorS(err, "failed to list workload dispatch nodes from DB for hydration", "workloadId", workloadId)
 		return err
@@ -111,28 +110,27 @@ func (r *SyncerReconciler) writeWorkloadStatusToDB(ctx context.Context, w *v1.Wo
 		return fmt.Errorf("database client unavailable while workload status offload is enabled")
 	}
 	dispatchCount := v1.GetWorkloadDispatchCnt(w)
-	workloadUid := string(w.UID)
 	pods := make([]*dbclient.WorkloadPod, 0, len(w.Status.Pods))
 	keepPodIds := make([]string, 0, len(w.Status.Pods))
 	for i := range w.Status.Pods {
 		p := &w.Status.Pods[i]
-		pods = append(pods, dbclient.WorkloadPodFromV1(w.Name, workloadUid, dispatchCount, p))
+		pods = append(pods, dbclient.WorkloadPodFromV1(w.Name, dispatchCount, p))
 		keepPodIds = append(keepPodIds, p.PodId)
 	}
 	if err := r.dbClient.BatchUpsertWorkloadPods(ctx, pods); err != nil {
 		return err
 	}
-	if err := r.dbClient.DeleteWorkloadPodsNotIn(ctx, w.Name, workloadUid, keepPodIds); err != nil {
+	if err := r.dbClient.DeleteWorkloadPodsNotIn(ctx, w.Name, keepPodIds); err != nil {
 		return err
 	}
 	// A resumed run archives and drops the previous dispatch rows. If this
 	// snapshot still has pods but no Nodes (common when the previous pod id is
 	// reused and hydrate found no dispatch history), rebuild from the pods so
 	// the current assignment is written at the live dispatch index.
-	if currentDispatchNodesMissing(w) && len(w.Status.Pods) > 0 {
+	if currentDispatchNodesNeedRepair(w) {
 		r.updateWorkloadNodes(w)
 	}
-	for _, row := range dbclient.WorkloadDispatchNodesFromV1(w.Name, workloadUid, w.Status.Nodes, w.Status.Ranks) {
+	for _, row := range dbclient.WorkloadDispatchNodesFromV1(w.Name, w.Status.Nodes, w.Status.Ranks) {
 		if row == nil {
 			continue
 		}
@@ -148,13 +146,26 @@ func (r *SyncerReconciler) writeWorkloadStatusToDB(ctx context.Context, w *v1.Wo
 	return nil
 }
 
-// currentDispatchNodesMissing reports whether the live dispatch has no node
-// slot. Earlier dispatch entries do not make the current assignment complete.
-func currentDispatchNodesMissing(w *v1.Workload) bool {
+// currentDispatchNodesNeedRepair reports whether the current dispatch is absent
+// or has assigned pods whose node list has not been rebuilt yet.
+func currentDispatchNodesNeedRepair(w *v1.Workload) bool {
 	if w == nil {
 		return false
 	}
 	dispatchCount := v1.GetWorkloadDispatchCnt(w)
-	return dispatchCount > 0 &&
-		(len(w.Status.Nodes) < dispatchCount || len(w.Status.Nodes[dispatchCount-1]) == 0)
+	if dispatchCount <= 0 {
+		return false
+	}
+	if len(w.Status.Nodes) < dispatchCount {
+		return len(w.Status.Pods) > 0
+	}
+	if len(w.Status.Nodes[dispatchCount-1]) > 0 {
+		return false
+	}
+	for i := range w.Status.Pods {
+		if w.Status.Pods[i].AdminNodeName != "" {
+			return true
+		}
+	}
+	return false
 }

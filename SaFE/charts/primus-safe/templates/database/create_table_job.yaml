@@ -62,15 +62,14 @@ spec:
 
               echo "Step 1: Use the postgres user to grant permissions on the public schema to {{ .Release.Name }}..."
 
-              PGPASSWORD=$POSTGRES_PASSWORD psql -U postgres -v ON_ERROR_STOP=1 <<EOF
+              if ! PGPASSWORD=$POSTGRES_PASSWORD psql -U postgres -v ON_ERROR_STOP=1 <<EOF
               GRANT CONNECT ON DATABASE "$PGDATABASE" TO "{{ .Release.Name }}";
               GRANT USAGE ON SCHEMA public TO "{{ .Release.Name }}";
               GRANT CREATE ON SCHEMA public TO "{{ .Release.Name }}";
               GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{{ .Release.Name }}";
               \dn+
               EOF
-
-              if [ $? -ne 0 ]; then
+              then
                 echo "failed to grant"
                 exit 1
               fi

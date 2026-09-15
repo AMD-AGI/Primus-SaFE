@@ -303,8 +303,6 @@ type WorkloadNodesHistoryItem struct {
 	Nodes [][]string `json:"nodes"`
 	// The rank corresponding to each node of the run
 	Ranks [][]string `json:"ranks,omitempty"`
-	// Whether old dispatches or ranks were removed to fit the history limit
-	Truncated bool `json:"truncated,omitempty"`
 }
 
 type WorkloadPodWrapper struct {

@@ -21,19 +21,20 @@ const (
 )
 
 var (
-	// upsertWorkloadDispatchNodeCmd keeps the existing two-column conflict key
-	// during the schema expansion so old and new replicas can both write.
+	// upsertWorkloadDispatchNodeCmd inserts or updates one dispatch's node/rank
+	// assignment keyed by (workload_id, dispatch_index).
 	upsertWorkloadDispatchNodeCmd = `INSERT INTO ` + TWorkloadDispatchNode + ` (
-		workload_id, workload_uid, dispatch_index, nodes, ranks, updated_at
+		workload_id, dispatch_index, nodes, ranks, updated_at
 	) VALUES (
-		:workload_id, :workload_uid, :dispatch_index, :nodes, :ranks, :updated_at
+		:workload_id, :dispatch_index, :nodes, :ranks, :updated_at
 	) ON CONFLICT (workload_id, dispatch_index) DO UPDATE SET
-		workload_uid = EXCLUDED.workload_uid,
 		nodes = EXCLUDED.nodes,
 		ranks = EXCLUDED.ranks,
 		updated_at = EXCLUDED.updated_at`
 
-	listWorkloadDispatchNodesCmd = listWorkloadRunSQL(TWorkloadDispatchNode, "dispatch_index")
+	listWorkloadDispatchNodesCmd = fmt.Sprintf(
+		`SELECT workload_id, dispatch_index, nodes, ranks, updated_at
+		FROM %s WHERE workload_id = $1 ORDER BY dispatch_index`, TWorkloadDispatchNode)
 )
 
 // UpsertWorkloadDispatchNode inserts or updates one dispatch's node/rank row.
@@ -55,9 +56,9 @@ func (c *Client) UpsertWorkloadDispatchNode(ctx context.Context, dn *WorkloadDis
 	return err
 }
 
-// ListWorkloadDispatchNodes returns dispatch rows of one CR generation ordered
-// by dispatch index (ascending; the last element is the latest dispatch).
-func (c *Client) ListWorkloadDispatchNodes(ctx context.Context, workloadId, workloadUid string) ([]*WorkloadDispatchNode, error) {
+// ListWorkloadDispatchNodes returns all dispatch rows of a workload ordered by
+// dispatch index (ascending; the last element is the latest dispatch).
+func (c *Client) ListWorkloadDispatchNodes(ctx context.Context, workloadId string) ([]*WorkloadDispatchNode, error) {
 	if workloadId == "" {
 		return nil, commonerrors.NewBadRequest("workloadId is empty")
 	}
@@ -69,9 +70,9 @@ func (c *Client) ListWorkloadDispatchNodes(ctx context.Context, workloadId, work
 	if c.RequestTimeout > 0 {
 		ctx2, cancel := context.WithTimeout(ctx, c.RequestTimeout)
 		defer cancel()
-		err = db.SelectContext(ctx2, &rows, listWorkloadDispatchNodesCmd, workloadId, workloadUid)
+		err = db.SelectContext(ctx2, &rows, listWorkloadDispatchNodesCmd, workloadId)
 	} else {
-		err = db.SelectContext(ctx, &rows, listWorkloadDispatchNodesCmd, workloadId, workloadUid)
+		err = db.SelectContext(ctx, &rows, listWorkloadDispatchNodesCmd, workloadId)
 	}
 	return rows, err
 }

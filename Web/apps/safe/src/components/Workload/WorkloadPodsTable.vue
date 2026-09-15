@@ -83,7 +83,6 @@
         {{ historyVisible ? 'Hide history' : `View history (${historyRows.length})` }}
       </el-button>
       <el-table v-if="historyVisible" class="mt-2" :data="historyRows">
-        <el-table-column prop="index" label="Run" width="80" />
         <el-table-column prop="phase" label="Phase" min-width="120">
           <template #default="{ row }">
             <el-tag :type="WorkloadPhaseButtonType[row.phase]?.type || 'info'">

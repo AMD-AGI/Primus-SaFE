@@ -18,13 +18,12 @@ import (
 // WorkloadPodFromV1 maps a Workload status pod into its DB row. It is the single
 // serialization contract shared by the writer and readers so the round-trip with
 // ToV1 stays lossless.
-func WorkloadPodFromV1(workloadId, workloadUid string, dispatchCount int, p *v1.WorkloadPod) *WorkloadPod {
+func WorkloadPodFromV1(workloadId string, dispatchCount int, p *v1.WorkloadPod) *WorkloadPod {
 	if p == nil {
 		return nil
 	}
 	row := &WorkloadPod{
 		WorkloadId:    workloadId,
-		WorkloadUId:   workloadUid,
 		PodId:         p.PodId,
 		ResourceId:    int(p.ResourceId),
 		AdminNodeName: dbutils.NullString(p.AdminNodeName),
@@ -97,14 +96,14 @@ func WorkloadDispatchNodeHasNodes(row *WorkloadDispatchNode) bool {
 
 // WorkloadDispatchNodesFromV1 maps the per-dispatch Nodes/Ranks history into DB
 // rows (one row per dispatch index).
-func WorkloadDispatchNodesFromV1(workloadId, workloadUid string, nodes, ranks [][]string) []*WorkloadDispatchNode {
+func WorkloadDispatchNodesFromV1(workloadId string, nodes, ranks [][]string) []*WorkloadDispatchNode {
 	n := len(nodes)
 	if len(ranks) > n {
 		n = len(ranks)
 	}
 	rows := make([]*WorkloadDispatchNode, 0, n)
 	for i := 0; i < n; i++ {
-		row := &WorkloadDispatchNode{WorkloadId: workloadId, WorkloadUId: workloadUid, DispatchIndex: i}
+		row := &WorkloadDispatchNode{WorkloadId: workloadId, DispatchIndex: i}
 		if i < len(nodes) {
 			if b, err := json.Marshal(nodes[i]); err == nil {
 				row.Nodes = dbutils.NullString(string(b))

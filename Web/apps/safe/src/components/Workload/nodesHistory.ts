@@ -1,7 +1,6 @@
 import type { WorkloadNodesHistoryItem } from '@/services/workload/type'
 
 export interface WorkloadNodesHistoryRow {
-  index: number
   phase: string
   dispatchCount: number
   startTime: string
@@ -27,8 +26,7 @@ export function toNodesHistoryRows(history?: WorkloadNodesHistoryItem[]): Worklo
     return []
   }
   return history
-    .map((entry, index) => ({
-      index: index + 1,
+    .map((entry) => ({
       phase: entry.phase || '-',
       dispatchCount: entry.dispatchCount ?? 0,
       startTime: entry.startTime || '',
