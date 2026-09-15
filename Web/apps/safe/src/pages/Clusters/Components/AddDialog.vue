@@ -111,6 +111,13 @@
         </el-text>
       </el-form-item>
 
+      <el-form-item label="Max Pods per Node" prop="kubeletMaxPods">
+        <el-input-number v-model="form.kubeletMaxPods" :min="1" :step="1" />
+        <el-text size="small" type="info">
+          The value must fit the per-node Pod CIDR capacity.
+        </el-text>
+      </el-form-item>
+
       <el-form-item label="Kube Apiserver Args">
         <KeyValueList
           v-model="form.kubeApiServerArgsList"
@@ -208,6 +215,7 @@ const initialForm = () => ({
   kubePodsSubnet: '',
   kubeServiceAddress: '',
   kubernetesVersion: '',
+  kubeletMaxPods: 110,
 
   // optional
   description: '',
@@ -258,6 +266,14 @@ const rules: FormRules = {
   ],
   kubeSprayImage: [{ required: true, message: 'Please select image', trigger: 'change' }],
   kubernetesVersion: [{ required: true, message: 'Please select version', trigger: 'change' }],
+  kubeletMaxPods: [
+    { required: true, message: 'Please input max pods per node', trigger: 'change' },
+    {
+      validator: (_r, v, cb) =>
+        cb(Number(v) > 0 ? undefined : new Error('Max pods per node must be greater than zero')),
+      trigger: 'change',
+    },
+  ],
   kubePodsSubnet: [
     { required: true, message: 'Please input Pod CIDR', trigger: 'blur' },
     {
@@ -308,6 +324,7 @@ const setInitialFormValues = async () => {
   form.nodes = detail.nodes ?? []
   form.kubeSprayImage = detail.kubeSprayImage ?? ''
   form.kubernetesVersion = detail.kubernetesVersion ?? ''
+  form.kubeletMaxPods = detail.kubeletMaxPods ?? 110
   form.kubePodsSubnet = detail.kubePodsSubnet ?? ''
   form.kubeServiceAddress = detail.kubeServiceAddress ?? ''
   form.kubeApiServerArgsList = Object.entries(detail.kubeApiServerArgs ?? {}).map(
@@ -342,12 +359,13 @@ const onSubmit = async (el?: FormInstance) => {
     await el.validate()
     loading.value = true
 
-    // An upgrade swaps the KubeSpray image and the Kubernetes version it installs;
-    // every other field on this form is disabled and left untouched.
+    // An upgrade swaps the KubeSpray image, Kubernetes version, and max pods.
+    // Every other field on this form is disabled and left untouched.
     if (isUpgrade.value) {
       await patchCluster(props.clusterId, {
         kubeSprayImage: form.kubeSprayImage,
         kubernetesVersion: form.kubernetesVersion,
+        kubeletMaxPods: form.kubeletMaxPods,
       })
       ElMessage.success('Cluster upgrade started')
       emit('update:visible', false)
@@ -373,6 +391,7 @@ const onSubmit = async (el?: FormInstance) => {
       kubePodsSubnet: form.kubePodsSubnet,
       kubeServiceAddress: form.kubeServiceAddress,
       kubernetesVersion: form.kubernetesVersion,
+      kubeletMaxPods: form.kubeletMaxPods,
       kubeApiServerArgs: Object.keys(kubeApiServerArgs).length ? kubeApiServerArgs : undefined,
       ...(form.isManagedCluster ? { labels: { 'primus-safe.cluster.control-plane': '' } } : {}),
     }

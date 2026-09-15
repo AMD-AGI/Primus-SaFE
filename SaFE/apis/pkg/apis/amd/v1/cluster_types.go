@@ -151,7 +151,11 @@ type ControlPlane struct {
 	KubeProxyMode  *string `json:"kubeProxyMode,omitempty"`
 	NodeLocalDNSIP *string `json:"nodeLocalDNSIP,omitempty"`
 	// Some parameter settings for Kubernetes
-	KubeApiServerArgs      map[string]string  `json:"kubeApiServerArgs,omitempty"`
+	KubeApiServerArgs map[string]string `json:"kubeApiServerArgs,omitempty"`
+	// Maximum number of pods scheduled on each node
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=2147483647
+	KubeletMaxPods         *uint32            `json:"kubeletMaxPods,omitempty"`
 	KubeletLogFilesMaxSize *resource.Quantity `json:"kubeletLogFilesMaxSize,omitempty"`
 	KubeletConfigArgs      map[string]string  `json:"kubeletConfigArgs,omitempty"`
 }

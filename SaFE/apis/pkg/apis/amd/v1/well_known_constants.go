@@ -93,6 +93,8 @@ const (
 	ClusterAppliedKubeVersionAnnotation = ClusterPrefix + "applied.kube.version"
 	// ClusterAppliedKubeSprayImageAnnotation records the kubespray image last applied.
 	ClusterAppliedKubeSprayImageAnnotation = ClusterPrefix + "applied.kubespray.image"
+	// ClusterAppliedKubeletMaxPodsAnnotation records the kubelet_max_pods last applied.
+	ClusterAppliedKubeletMaxPodsAnnotation = ClusterPrefix + "applied.kubelet.max-pods"
 	// ClusterUpgradeRetryCountAnnotation records failed attempts for the current target.
 	ClusterUpgradeRetryCountAnnotation = ClusterPrefix + "upgrade.retry.count"
 	// ClusterUpgradeRetryTargetAnnotation records the target the retry count belongs to.

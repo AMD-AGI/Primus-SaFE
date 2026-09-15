@@ -73,6 +73,8 @@ type GetClusterResponse struct {
 	KubeNetworkPlugin *string `json:"kubeNetworkPlugin,omitempty"`
 	// Kubernetes version, e.g. "1.32.5"
 	KubeVersion *string `json:"kubernetesVersion,omitempty"`
+	// Maximum number of pods scheduled on each node
+	KubeletMaxPods *uint32 `json:"kubeletMaxPods,omitempty"`
 	// Some settings for Kubernetes
 	KubeApiServerArgs map[string]string `json:"kubeApiServerArgs,omitempty"`
 	// User-defined labels
@@ -117,4 +119,6 @@ type PatchClusterRequest struct {
 	KubeSprayImage *string `json:"kubeSprayImage,omitempty"`
 	// Kubernetes version. Omit to leave unchanged.
 	KubeVersion *string `json:"kubernetesVersion,omitempty"`
+	// Maximum number of pods scheduled on each node. Omit to leave unchanged.
+	KubeletMaxPods *uint32 `json:"kubeletMaxPods,omitempty"`
 }

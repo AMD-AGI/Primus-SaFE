@@ -146,6 +146,9 @@ func (v *ClusterValidator) validateControlPlane(ctx context.Context, cluster *v1
 	if cluster.Spec.ControlPlane.KubeSprayImage == nil || *cluster.Spec.ControlPlane.KubeSprayImage == "" {
 		return fmt.Errorf("the KubeSprayImage of spec is empty")
 	}
+	if cluster.Spec.ControlPlane.KubeletMaxPods != nil && *cluster.Spec.ControlPlane.KubeletMaxPods == 0 {
+		return fmt.Errorf("the KubeletMaxPods of spec must be greater than zero")
+	}
 	if cluster.Spec.ControlPlane.KubeVersion != nil {
 		if _, _, _, ok := v1.ParseKubeVersion(*cluster.Spec.ControlPlane.KubeVersion); !ok {
 			return fmt.Errorf("the KubernetesVersion must use x.y.z format")
@@ -208,13 +211,24 @@ func validateClusterUpgradeUpdate(newCluster, oldCluster *v1.Cluster) error {
 	oldImage := pointerValue(oldCluster.Spec.ControlPlane.KubeSprayImage)
 	newVersion := pointerValue(newCluster.Spec.ControlPlane.KubeVersion)
 	oldVersion := pointerValue(oldCluster.Spec.ControlPlane.KubeVersion)
+	newMaxPods := uint32PointerValue(newCluster.Spec.ControlPlane.KubeletMaxPods)
+	oldMaxPods := uint32PointerValue(oldCluster.Spec.ControlPlane.KubeletMaxPods)
+	if newImage == oldImage && newVersion == oldVersion && newMaxPods == oldMaxPods {
+		return nil
+	}
+	if newCluster.Spec.ControlPlane.KubeletMaxPods != nil &&
+		*newCluster.Spec.ControlPlane.KubeletMaxPods == 0 {
+		return fmt.Errorf("the KubeletMaxPods must be greater than zero")
+	}
 	if newImage == oldImage && newVersion == oldVersion {
 		return nil
 	}
 	annotations := oldCluster.GetAnnotations()
 	appliedImage, hasImage := annotations[v1.ClusterAppliedKubeSprayImageAnnotation]
 	appliedVersion, hasVersion := annotations[v1.ClusterAppliedKubeVersionAnnotation]
-	if hasImage && hasVersion && newImage == appliedImage && newVersion == appliedVersion {
+	appliedMaxPods := annotations[v1.ClusterAppliedKubeletMaxPodsAnnotation]
+	if hasImage && hasVersion && newImage == appliedImage && newVersion == appliedVersion &&
+		newMaxPods == appliedMaxPods {
 		return nil
 	}
 	expectedVersion, ok := v1.KubeVersionForKubeSprayImage(newImage)
@@ -233,6 +247,14 @@ func pointerValue(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+// uint32PointerValue returns an empty string for an unset uint32 pointer.
+func uint32PointerValue(value *uint32) string {
+	if value == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d", *value)
 }
 
 // validateImmutableFields ensures control plane nodes cannot be modified.

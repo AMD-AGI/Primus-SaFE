@@ -95,6 +95,10 @@
         detailData.kubernetesVersion
       }}</el-descriptions-item>
 
+      <el-descriptions-item label="kubeletMaxPods">{{
+        detailData.kubeletMaxPods ?? '-'
+      }}</el-descriptions-item>
+
       <el-descriptions-item label="sshSecretId">{{ detailData.sshSecretId }}</el-descriptions-item>
 
       <el-descriptions-item label="nodes">{{ detailData.nodes?.join(', ') }}</el-descriptions-item>

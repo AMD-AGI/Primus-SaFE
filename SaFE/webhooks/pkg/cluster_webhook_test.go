@@ -91,6 +91,22 @@ func TestValidateClusterUpgradeUpdate(t *testing.T) {
 	newCluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
 	assert.NilError(t, validateClusterUpgradeUpdate(newCluster, oldCluster))
 
+	maxPods := uint32(250)
+	maxPodsCluster := oldCluster.DeepCopy()
+	maxPodsCluster.Spec.ControlPlane.KubeletMaxPods = &maxPods
+	assert.NilError(t, validateClusterUpgradeUpdate(maxPodsCluster, oldCluster))
+
+	customImage := oldCluster.DeepCopy()
+	customImage.Spec.ControlPlane.KubeSprayImage = pointer.String("custom/kubespray:installed")
+	customImage.Spec.ControlPlane.KubeVersion = pointer.String("1.31.9")
+	customMaxPods := customImage.DeepCopy()
+	customMaxPods.Spec.ControlPlane.KubeletMaxPods = &maxPods
+	assert.NilError(t, validateClusterUpgradeUpdate(customMaxPods, customImage))
+
+	zero := uint32(0)
+	maxPodsCluster.Spec.ControlPlane.KubeletMaxPods = &zero
+	assert.Assert(t, validateClusterUpgradeUpdate(maxPodsCluster, oldCluster) != nil)
+
 	newCluster.Spec.ControlPlane.KubeVersion = pointer.String("1.35.4")
 	assert.Assert(t, validateClusterUpgradeUpdate(newCluster, oldCluster) != nil)
 

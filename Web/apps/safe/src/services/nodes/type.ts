@@ -152,6 +152,7 @@ export interface CreateClusterPayload {
   kubePodsSubnet: string // e.g. "10.0.0.0/16"
   kubeServiceAddress: string // e.g. "10.254.0.0/16"
   kubernetesVersion: string
+  kubeletMaxPods: number
   kubeApiServerArgs?: Record<string, string>
 }
 export const NODE_PHASE = [

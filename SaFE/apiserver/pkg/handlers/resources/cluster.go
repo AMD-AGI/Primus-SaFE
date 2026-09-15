@@ -243,6 +243,7 @@ func redactClusterInfra(resp *view.GetClusterResponse) {
 	resp.KubeServiceAddress = nil
 	resp.KubeApiServerArgs = nil
 	resp.KubeSprayImage = nil
+	resp.KubeletMaxPods = nil
 }
 
 // deleteCluster handles the deletion of a cluster resource.
@@ -337,7 +338,14 @@ func applyClusterPatch(cluster *v1.Cluster, req *view.PatchClusterRequest) (bool
 			isChanged = true
 		}
 	}
-	if (req.KubeSprayImage != nil || req.KubeVersion != nil) &&
+	if req.KubeletMaxPods != nil &&
+		(cluster.Spec.ControlPlane.KubeletMaxPods == nil ||
+			*cluster.Spec.ControlPlane.KubeletMaxPods != *req.KubeletMaxPods) {
+		value := *req.KubeletMaxPods
+		cluster.Spec.ControlPlane.KubeletMaxPods = &value
+		isChanged = true
+	}
+	if (req.KubeSprayImage != nil || req.KubeVersion != nil || req.KubeletMaxPods != nil) &&
 		(cluster.Status.ControlPlaneStatus.Phase == v1.UpgradeFailedPhase ||
 			cluster.Status.ControlPlaneStatus.Phase == v1.UpgradingPhase) {
 		if v1.SetAnnotation(cluster, v1.ClusterUpgradeRetryCountAnnotation, "0") {
@@ -389,11 +397,15 @@ func applyClusterPatch(cluster *v1.Cluster, req *view.PatchClusterRequest) (bool
 
 // validateClusterUpgradePatch validates the desired image and version before updating the spec.
 func validateClusterUpgradePatch(cluster *v1.Cluster, req *view.PatchClusterRequest) error {
-	if req.KubeSprayImage == nil && req.KubeVersion == nil {
+	if req.KubeSprayImage == nil && req.KubeVersion == nil && req.KubeletMaxPods == nil {
 		return nil
+	}
+	if req.KubeletMaxPods != nil && *req.KubeletMaxPods == 0 {
+		return commonerrors.NewBadRequest("the kubeletMaxPods must be greater than zero")
 	}
 	image := controlPlanePatchValue(cluster.Spec.ControlPlane.KubeSprayImage, req.KubeSprayImage)
 	version := controlPlanePatchValue(cluster.Spec.ControlPlane.KubeVersion, req.KubeVersion)
+	maxPods := controlPlaneUint32PatchValue(cluster.Spec.ControlPlane.KubeletMaxPods, req.KubeletMaxPods)
 	if image == "" {
 		return commonerrors.NewBadRequest("the kubeSprayImage is empty")
 	}
@@ -404,13 +416,19 @@ func validateClusterUpgradePatch(cluster *v1.Cluster, req *view.PatchClusterRequ
 	annotations := cluster.GetAnnotations()
 	appliedVersion, hasVersion := annotations[v1.ClusterAppliedKubeVersionAnnotation]
 	appliedImage, hasImage := annotations[v1.ClusterAppliedKubeSprayImageAnnotation]
-	revertsToApplied := hasVersion && hasImage && image == appliedImage && version == appliedVersion
+	appliedMaxPods := annotations[v1.ClusterAppliedKubeletMaxPodsAnnotation]
+	revertsToApplied := hasVersion && hasImage && image == appliedImage &&
+		version == appliedVersion && maxPods == appliedMaxPods
 	phase := cluster.Status.ControlPlaneStatus.Phase
 	if phase != v1.ReadyPhase && phase != v1.UpgradeFailedPhase &&
 		!(phase == v1.UpgradingPhase && revertsToApplied) {
 		return commonerrors.NewConflict("the cluster is not ready for upgrade")
 	}
 	if revertsToApplied {
+		normalizeClusterUpgradePatch(req)
+		return nil
+	}
+	if req.KubeSprayImage == nil && req.KubeVersion == nil {
 		normalizeClusterUpgradePatch(req)
 		return nil
 	}
@@ -452,6 +470,18 @@ func controlPlanePatchValue(current, requested *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*current)
+}
+
+// controlPlaneUint32PatchValue returns the requested value, or the current value when omitted.
+func controlPlaneUint32PatchValue(current, requested *uint32) string {
+	value := requested
+	if value == nil {
+		value = current
+	}
+	if value == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d", *value)
 }
 
 // applyOptionalString copies src into dst when src is set and the value differs.
@@ -752,6 +782,7 @@ func cvtToGetClusterResponse(ctx context.Context, client client.Client, cluster 
 		KubeServiceAddress:  cluster.Spec.ControlPlane.KubeServiceAddress,
 		KubeNetworkPlugin:   cluster.Spec.ControlPlane.KubeNetworkPlugin,
 		KubeVersion:         cluster.Spec.ControlPlane.KubeVersion,
+		KubeletMaxPods:      cluster.Spec.ControlPlane.KubeletMaxPods,
 		KubeApiServerArgs:   cluster.Spec.ControlPlane.KubeApiServerArgs,
 	}
 	if cluster.Spec.ControlPlane.ImageSecret != nil {
