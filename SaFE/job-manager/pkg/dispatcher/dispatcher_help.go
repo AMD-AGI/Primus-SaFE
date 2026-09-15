@@ -221,7 +221,9 @@ func dispatchNodesAt(workload *v1.Workload, idx int) []string {
 		if db := dbclient.NewClient(); db != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), dispatchNodeReadTimeout)
 			defer cancel()
-			if rows, err := db.ListWorkloadDispatchNodes(ctx, workload.Name); err == nil && len(rows) > 0 {
+			if rows, err := db.ListWorkloadDispatchNodes(
+				ctx, workload.Name, string(workload.UID),
+			); err == nil && len(rows) > 0 {
 				all := dbclient.DispatchNodesToV1(rows)
 				if idx < len(all) {
 					return all[idx]

@@ -935,9 +935,9 @@ data:
 
     -- Per-pod detail for a workload, offloaded from the etcd Workload status so
     -- very large workloads (>10k pods) do not exceed the etcd object size limit.
-    -- One row per pod; written by the job-manager syncer (single writer), read
-    -- by the apiserver for workload detail/log/ops paths. The etcd status keeps
-    -- only an O(node) aggregate (nodeUsage) for the scheduling hot path.
+    -- One row per pod and CR generation; written by the job-manager syncer,
+    -- read by the apiserver for workload detail/log/ops paths. The etcd status
+    -- keeps only an O(node) aggregate (nodeUsage) for the scheduling hot path.
     create table if not exists workload_pod
     (
         workload_id      VARCHAR(64) NOT NULL,
@@ -960,10 +960,15 @@ data:
     create index if not exists idx_workload_pod_workload on workload_pod (workload_id);
     create index if not exists idx_workload_pod_node on workload_pod (admin_node_name);
     alter table workload_pod owner to "primus-safe";
+    -- CR UID isolates one run of a reused workload id so resume can keep the
+    -- previous pod rows until the new object exists.
+    alter table workload_pod add column if not exists workload_uid VARCHAR(36) not null default '';
+    alter table workload_pod drop constraint if exists workload_pod_pkey;
+    create unique index if not exists idx_workload_pod_run on workload_pod (workload_id, workload_uid, pod_id);
 
     -- Per-dispatch node/rank history for a workload (Nodes/Ranks were append-only
-    -- per retry in the etcd status). One row per dispatch index; written by the
-    -- job-manager syncer, read by dispatcher (last 1-2 dispatches) and ops/detail.
+    -- per retry in the etcd status). One row per CR generation and dispatch
+    -- index; written by job-manager, read by dispatcher and ops/detail.
     create table if not exists workload_dispatch_node
     (
         workload_id     VARCHAR(64) NOT NULL,
@@ -975,3 +980,6 @@ data:
     );
     create index if not exists idx_workload_dispatch_node_workload on workload_dispatch_node (workload_id);
     alter table workload_dispatch_node owner to "primus-safe";
+    alter table workload_dispatch_node add column if not exists workload_uid VARCHAR(36) not null default '';
+    alter table workload_dispatch_node drop constraint if exists workload_dispatch_node_pkey;
+    create unique index if not exists idx_workload_dispatch_node_run on workload_dispatch_node (workload_id, workload_uid, dispatch_index);

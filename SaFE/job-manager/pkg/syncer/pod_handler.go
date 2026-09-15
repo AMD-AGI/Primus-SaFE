@@ -377,7 +377,7 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 		id = i
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == v1.GetNodeId(k8sNode) &&
 			p.StartTime != "" && p.HostIp == pod.Status.HostIP &&
-			len(adminWorkload.Status.Nodes) > 0 {
+			!currentDispatchNodesMissing(adminWorkload) {
 			// Return early if no critical changes detected
 			return v1.WorkloadPod{}, "", false
 		}
@@ -399,7 +399,7 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods, podInfo)
 		needUpdateNode = true
 	}
-	if len(adminWorkload.Status.Nodes) == 0 {
+	if currentDispatchNodesMissing(adminWorkload) {
 		needUpdateNode = true
 	}
 	if commonworkload.IsRayJob(adminWorkload) {
@@ -1001,6 +1001,9 @@ func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWork
 	count := v1.GetWorkloadDispatchCnt(adminWorkload)
 	if !v1.IsRetryingOnOriginal(adminWorkload) || count <= 0 || shouldWorkloadStopRetry(adminWorkload, count) {
 		return nil
+	}
+	if currentDispatchNodesMissing(adminWorkload) && len(adminWorkload.Status.Pods) > 0 {
+		r.updateWorkloadNodes(adminWorkload)
 	}
 	if len(adminWorkload.Status.Nodes) < count {
 		return nil

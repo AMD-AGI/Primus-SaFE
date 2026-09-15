@@ -20,7 +20,7 @@ func PodsOf(ctx context.Context, db dbclient.Interface, w *v1.Workload) []v1.Wor
 		return nil
 	}
 	if db != nil {
-		if rows, err := db.ListWorkloadPods(ctx, w.Name); err == nil && len(rows) > 0 {
+		if rows, err := db.ListWorkloadPods(ctx, w.Name, string(w.UID)); err == nil && len(rows) > 0 {
 			return dbclient.WorkloadPodsToV1(rows)
 		}
 	}
@@ -34,7 +34,7 @@ func DispatchNodesOf(ctx context.Context, db dbclient.Interface, w *v1.Workload)
 		return nil
 	}
 	if db != nil {
-		if rows, err := db.ListWorkloadDispatchNodes(ctx, w.Name); err == nil && len(rows) > 0 {
+		if rows, err := db.ListWorkloadDispatchNodes(ctx, w.Name, string(w.UID)); err == nil && len(rows) > 0 {
 			return dbclient.DispatchNodesToV1(rows)
 		}
 	}

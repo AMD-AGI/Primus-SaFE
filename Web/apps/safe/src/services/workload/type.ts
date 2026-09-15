@@ -78,6 +78,7 @@ export interface WorkloadNodesHistoryItem {
   startTime?: string
   endTime?: string
   nodes: string[][]
+  ranks?: string[][]
 }
 
 export interface WorkloadParams {

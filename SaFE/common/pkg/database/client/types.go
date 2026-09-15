@@ -81,13 +81,14 @@ func GetWorkloadFieldTags() map[string]string {
 	return getFieldTags(w)
 }
 
-// WorkloadPod is one pod of a workload, offloaded from the etcd Workload status
+// WorkloadPod is one pod of one workload CR generation, offloaded from status
 // (WorkloadStatus.Pods) so very large workloads do not exceed the etcd object
 // size limit. Written by the job-manager syncer (single writer); read by the
 // apiserver for workload detail / log / ops paths. The etcd status keeps only an
 // O(node) aggregate (WorkloadStatus.NodeUsage) for the scheduling hot path.
 type WorkloadPod struct {
 	WorkloadId    string         `db:"workload_id"`
+	WorkloadUId   string         `db:"workload_uid"`
 	PodId         string         `db:"pod_id"`
 	ResourceId    int            `db:"resource_id"`
 	AdminNodeName sql.NullString `db:"admin_node_name"`
@@ -112,10 +113,11 @@ func GetWorkloadPodFieldTags() map[string]string {
 
 // WorkloadDispatchNode is one dispatch's node/rank assignment of a workload,
 // offloaded from the etcd Workload status (WorkloadStatus.Nodes / .Ranks which
-// were append-only per retry). One row per dispatch index. Written by the
-// job-manager syncer; read by the dispatcher (latest dispatch) and ops/detail.
+// were append-only per retry). One row per CR generation and dispatch index.
+// Written by job-manager; read by the dispatcher and ops/detail.
 type WorkloadDispatchNode struct {
 	WorkloadId    string         `db:"workload_id"`
+	WorkloadUId   string         `db:"workload_uid"`
 	DispatchIndex int            `db:"dispatch_index"`
 	Nodes         sql.NullString `db:"nodes"` // JSON-encoded []string
 	Ranks         sql.NullString `db:"ranks"` // JSON-encoded []string
@@ -317,9 +319,9 @@ type Model struct {
 	LocalPaths   string      `gorm:"column:local_paths" json:"localPaths" db:"local_paths"`    // JSON array of ModelLocalPathDB
 	Origin       string      `gorm:"column:origin;default:external" json:"origin" db:"origin"` // "external" or "fine_tuned"
 	SftJobId     string      `gorm:"column:sft_job_id" json:"sftJobId" db:"sft_job_id"`        // SFT workload ID (origin=fine_tuned)
-	BaseModel     string     `gorm:"column:base_model" json:"baseModel" db:"base_model"`             // Base model HF name (origin=fine_tuned)
-	TargetVolume  string     `gorm:"column:target_volume" json:"targetVolume" db:"target_volume"`    // Optional volume (mountPath) selection for download
-	TargetSubpath string     `gorm:"column:target_subpath" json:"targetSubpath" db:"target_subpath"` // Optional sub-directory under volume
+	BaseModel     string      `gorm:"column:base_model" json:"baseModel" db:"base_model"`             // Base model HF name (origin=fine_tuned)
+	TargetVolume  string      `gorm:"column:target_volume" json:"targetVolume" db:"target_volume"`    // Optional volume (mountPath) selection for download
+	TargetSubpath string      `gorm:"column:target_subpath" json:"targetSubpath" db:"target_subpath"` // Optional sub-directory under volume
 	UserId       string      `gorm:"column:user_id" json:"userId" db:"user_id"`
 	UserName     string      `gorm:"column:user_name" json:"userName" db:"user_name"`
 	CreatedAt    pq.NullTime `gorm:"column:created_at;autoCreateTime" json:"createdAt" db:"created_at"`

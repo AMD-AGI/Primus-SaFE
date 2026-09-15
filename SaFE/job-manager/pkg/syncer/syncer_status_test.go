@@ -97,7 +97,7 @@ func TestPersistWorkloadStatus_Offload(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
 	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
-	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", []string{"p1"}).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", "", []string{"p1"}).Return(nil)
 	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).Return(nil)
 
 	w := &v1.Workload{
@@ -143,7 +143,7 @@ func TestPersistWorkloadStatus_OffloadRebuildsEmptyDispatchNodes(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
 	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
-	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", []string{"p1"}).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", "", []string{"p1"}).Return(nil)
 	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, dn *dbclient.WorkloadDispatchNode) error {
 			require.NotNil(t, dn)
@@ -189,7 +189,7 @@ func TestPersistWorkloadStatus_OffloadRebuildsCurrentDispatchOnly(t *testing.T) 
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
 	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
-	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", []string{"p1"}).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", "", []string{"p1"}).Return(nil)
 	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).Times(1).DoAndReturn(
 		func(_ context.Context, dn *dbclient.WorkloadDispatchNode) error {
 			require.NotNil(t, dn)
@@ -221,6 +221,34 @@ func TestPersistWorkloadStatus_OffloadRebuildsCurrentDispatchOnly(t *testing.T) 
 	fresh.Labels = w.Labels
 	fresh.Annotations = w.Annotations
 	require.NoError(t, r.persistWorkloadStatus(context.Background(), fresh))
+}
+
+// TestWriteWorkloadStatusToDBWritesEmptyCurrentDispatch ensures scale-to-zero
+// replaces a stale DB node assignment with [] while padding slots stay skipped.
+func TestWriteWorkloadStatusToDBWritesEmptyCurrentDispatch(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mockclient.NewMockInterface(ctrl)
+	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", "uid-1", []string{}).Return(nil)
+	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).Times(1).DoAndReturn(
+		func(_ context.Context, dn *dbclient.WorkloadDispatchNode) error {
+			require.NotNil(t, dn)
+			assert.Equal(t, "uid-1", dn.WorkloadUId)
+			assert.Equal(t, 1, dn.DispatchIndex)
+			assert.Equal(t, "[]", dn.Nodes.String)
+			return nil
+		})
+
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "w1",
+			UID:    "uid-1",
+			Labels: map[string]string{v1.WorkloadDispatchCntLabel: "2"},
+		},
+		Status: v1.WorkloadStatus{Nodes: [][]string{nil, []string{}}},
+	}
+	r := &SyncerReconciler{dbClient: mockDB}
+	require.NoError(t, r.writeWorkloadStatusToDB(context.Background(), w))
 }
 
 // TestPatchWorkloadPodStatus_PreservesPhase verifies the field-scoped merge
@@ -290,7 +318,7 @@ func TestPatchWorkloadPodStatus_Offload(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
 	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
-	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", []string{"p1"}).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", "", []string{"p1"}).Return(nil)
 	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).Return(nil)
 
 	w := &v1.Workload{
@@ -332,10 +360,10 @@ func TestHydrateWorkloadStatusFromDB(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1").Return([]*dbclient.WorkloadPod{
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1", "").Return([]*dbclient.WorkloadPod{
 		{WorkloadId: "w1", PodId: "p1", ResourceId: 0},
 	}, nil)
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w1").Return([]*dbclient.WorkloadDispatchNode{
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w1", "").Return([]*dbclient.WorkloadDispatchNode{
 		{WorkloadId: "w1", DispatchIndex: 0},
 	}, nil)
 
@@ -364,7 +392,7 @@ func TestGetAdminWorkload_HydratePodsError(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1").Return(nil, fmt.Errorf("db down"))
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1", "").Return(nil, fmt.Errorf("db down"))
 
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
 		Name:        "w1",
@@ -388,10 +416,10 @@ func TestHydrateWorkloadStatusFromDB_DispatchErrorKeepsEtcdSnapshot(t *testing.T
 
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1").Return([]*dbclient.WorkloadPod{
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1", "").Return([]*dbclient.WorkloadPod{
 		{WorkloadId: "w1", PodId: "from-db", ResourceId: 0},
 	}, nil)
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w1").Return(nil, fmt.Errorf("db down"))
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w1", "").Return(nil, fmt.Errorf("db down"))
 
 	w := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{

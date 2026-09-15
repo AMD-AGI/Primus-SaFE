@@ -22,18 +22,17 @@ const (
 
 var (
 	// upsertWorkloadDispatchNodeCmd inserts or updates one dispatch's node/rank
-	// assignment keyed by (workload_id, dispatch_index).
+	// assignment keyed by (workload_id, workload_uid, dispatch_index).
 	upsertWorkloadDispatchNodeCmd = `INSERT INTO ` + TWorkloadDispatchNode + ` (
-		workload_id, dispatch_index, nodes, ranks, updated_at
+		workload_id, workload_uid, dispatch_index, nodes, ranks, updated_at
 	) VALUES (
-		:workload_id, :dispatch_index, :nodes, :ranks, :updated_at
-	) ON CONFLICT (workload_id, dispatch_index) DO UPDATE SET
+		:workload_id, :workload_uid, :dispatch_index, :nodes, :ranks, :updated_at
+	) ON CONFLICT (workload_id, workload_uid, dispatch_index) DO UPDATE SET
 		nodes = EXCLUDED.nodes,
 		ranks = EXCLUDED.ranks,
 		updated_at = EXCLUDED.updated_at`
 
-	listWorkloadDispatchNodesCmd = fmt.Sprintf(
-		`SELECT * FROM %s WHERE workload_id = $1 ORDER BY dispatch_index`, TWorkloadDispatchNode)
+	listWorkloadDispatchNodesCmd = listWorkloadRunSQL(TWorkloadDispatchNode, "dispatch_index")
 )
 
 // UpsertWorkloadDispatchNode inserts or updates one dispatch's node/rank row.
@@ -55,9 +54,9 @@ func (c *Client) UpsertWorkloadDispatchNode(ctx context.Context, dn *WorkloadDis
 	return err
 }
 
-// ListWorkloadDispatchNodes returns all dispatch rows of a workload ordered by
-// dispatch index (ascending; the last element is the latest dispatch).
-func (c *Client) ListWorkloadDispatchNodes(ctx context.Context, workloadId string) ([]*WorkloadDispatchNode, error) {
+// ListWorkloadDispatchNodes returns dispatch rows of one CR generation ordered
+// by dispatch index (ascending; the last element is the latest dispatch).
+func (c *Client) ListWorkloadDispatchNodes(ctx context.Context, workloadId, workloadUid string) ([]*WorkloadDispatchNode, error) {
 	if workloadId == "" {
 		return nil, commonerrors.NewBadRequest("workloadId is empty")
 	}
@@ -69,9 +68,9 @@ func (c *Client) ListWorkloadDispatchNodes(ctx context.Context, workloadId strin
 	if c.RequestTimeout > 0 {
 		ctx2, cancel := context.WithTimeout(ctx, c.RequestTimeout)
 		defer cancel()
-		err = db.SelectContext(ctx2, &rows, listWorkloadDispatchNodesCmd, workloadId)
+		err = db.SelectContext(ctx2, &rows, listWorkloadDispatchNodesCmd, workloadId, workloadUid)
 	} else {
-		err = db.SelectContext(ctx, &rows, listWorkloadDispatchNodesCmd, workloadId)
+		err = db.SelectContext(ctx, &rows, listWorkloadDispatchNodesCmd, workloadId, workloadUid)
 	}
 	return rows, err
 }

@@ -400,12 +400,12 @@ func TestRemoveWorkloadPodRepairsStaleAggregateAfterConflict(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w").Return([]*dbclient.WorkloadPod{
-		dbclient.WorkloadPodFromV1("w", 1, &v1.WorkloadPod{
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w", "").Return([]*dbclient.WorkloadPod{
+		dbclient.WorkloadPodFromV1("w", "", 1, &v1.WorkloadPod{
 			PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodPhase(v1.WorkloadStopped),
 		}),
 	}, nil)
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w").Return(nil, nil)
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w", "").Return(nil, nil)
 
 	viper.Reset()
 	viper.Set("db.enable", true)
@@ -1188,6 +1188,36 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 		r := &SyncerReconciler{Client: cli}
 
 		err := r.createStickyNodeFaults(ctx, workload)
+		tassert.NoError(t, err)
+	})
+
+	t.Run("missing current dispatch is rebuilt before creating faults", func(t *testing.T) {
+		workload := &v1.Workload{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-workload",
+				UID:  "test-uid",
+				Labels: map[string]string{
+					v1.WorkloadDispatchCntLabel: "2",
+				},
+				Annotations: map[string]string{
+					v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
+				},
+			},
+			Spec: v1.WorkloadSpec{MaxRetry: 3},
+			Status: v1.WorkloadStatus{
+				Nodes: [][]string{{"old-node"}},
+				Pods:  []v1.WorkloadPod{{PodId: "p1", AdminNodeName: "new-node"}},
+			},
+		}
+		cli := ctrlfake.NewClientBuilder().WithScheme(scheme).Build()
+		r := &SyncerReconciler{Client: cli}
+
+		err := r.createStickyNodeFaults(ctx, workload)
+		tassert.NoError(t, err)
+		fault := &v1.Fault{}
+		err = cli.Get(ctx, ctrlclient.ObjectKey{
+			Name: commonfaults.GenerateFaultId("new-node", v1.StickyNodesMonitorId),
+		}, fault)
 		tassert.NoError(t, err)
 	})
 

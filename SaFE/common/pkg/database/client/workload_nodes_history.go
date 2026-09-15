@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"k8s.io/klog/v2"
+
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 )
 
@@ -21,29 +23,28 @@ const maxWorkloadNodesHistory = 10
 const maxWorkloadNodesHistoryBytes = 64 * 1024
 
 var (
-	selectWorkloadForNodesArchiveCmd = fmt.Sprintf(`SELECT
-		workload_id, dispatch_count, phase, start_time, end_time, nodes, nodes_history
-		FROM %s WHERE workload_id = $1 FOR UPDATE`, TWorkload)
-	listWorkloadDispatchNodesForArchiveCmd = fmt.Sprintf(
-		`SELECT * FROM %s WHERE workload_id = $1 ORDER BY dispatch_index`, TWorkloadDispatchNode)
-	updateWorkloadNodesHistoryCmd = fmt.Sprintf(
-		`UPDATE %s SET nodes_history = $1, nodes = NULL, ranks = NULL WHERE workload_id = $2`, TWorkload)
-	deleteWorkloadDispatchNodesForArchiveCmd = fmt.Sprintf(
-		`DELETE FROM %s WHERE workload_id = $1`, TWorkloadDispatchNode)
-	deleteWorkloadPodsForArchiveCmd = fmt.Sprintf(
-		`DELETE FROM %s WHERE workload_id = $1`, TWorkloadPod)
+	selectWorkloadForNodesArchiveCmd = fmt.Sprintf(
+		`SELECT workload_id, nodes_history FROM %s WHERE workload_id = $1 FOR UPDATE`, TWorkload)
+	listWorkloadDispatchNodesForArchiveCmd = listWorkloadRunSQL(TWorkloadDispatchNode, "dispatch_index")
+	updateWorkloadNodesHistoryCmd          = fmt.Sprintf(
+		`UPDATE %s SET nodes_history = $1 WHERE workload_id = $2`, TWorkload)
+	deleteWorkloadDispatchNodesOfOtherRunsCmd = fmt.Sprintf(
+		`DELETE FROM %s WHERE workload_id = $1 AND workload_uid <> $2`, TWorkloadDispatchNode)
+	deleteWorkloadPodsOfOtherRunsCmd = fmt.Sprintf(
+		`DELETE FROM %s WHERE workload_id = $1 AND workload_uid <> $2`, TWorkloadPod)
 )
 
 // WorkloadNodesHistoryEntry is the node assignment of one run of a workload id,
 // together with the minimal context needed to tell the runs apart. A resumed
-// workload reuses its workload id, so the stored run is archived here before the
-// exporter overwrites the row.
+// workload reuses its workload id, so the previous CR generation is archived
+// after the new object exists.
 type WorkloadNodesHistoryEntry struct {
 	DispatchCount int        `json:"dispatchCount"`
 	Phase         string     `json:"phase,omitempty"`
 	StartTime     string     `json:"startTime,omitempty"`
 	EndTime       string     `json:"endTime,omitempty"`
 	Nodes         [][]string `json:"nodes"`
+	Ranks         [][]string `json:"ranks,omitempty"`
 }
 
 // DecodeWorkloadNodesHistory decodes the nodes_history column, oldest run
@@ -65,10 +66,16 @@ func DecodeWorkloadNodesHistory(raw string) []WorkloadNodesHistoryEntry {
 // any node, which leaves nothing worth archiving.
 func buildWorkloadNodesHistoryEntry(old *Workload, rows []*WorkloadDispatchNode) (*WorkloadNodesHistoryEntry, error) {
 	nodes := DispatchNodesToV1(rows)
+	ranks := DispatchRanksToV1(rows)
 	if len(nodes) == 0 {
 		if raw := dbutils.ParseNullString(old.Nodes); raw != "" {
 			if err := json.Unmarshal([]byte(raw), &nodes); err != nil {
 				nodes = nil
+			}
+		}
+		if raw := dbutils.ParseNullString(old.Ranks); raw != "" {
+			if err := json.Unmarshal([]byte(raw), &ranks); err != nil {
+				ranks = nil
 			}
 		}
 	}
@@ -81,6 +88,7 @@ func buildWorkloadNodesHistoryEntry(old *Workload, rows []*WorkloadDispatchNode)
 		StartTime:     dbutils.ParseNullTimeToString(old.StartTime),
 		EndTime:       dbutils.ParseNullTimeToString(old.EndTime),
 		Nodes:         nodes,
+		Ranks:         ranks,
 	}, nil
 }
 
@@ -88,9 +96,11 @@ func buildWorkloadNodesHistoryEntry(old *Workload, rows []*WorkloadDispatchNode)
 // maxWorkloadNodesHistory runs.
 func appendWorkloadNodesHistory(raw string, entry *WorkloadNodesHistoryEntry) (string, error) {
 	entries := DecodeWorkloadNodesHistory(raw)
+	dropped := 0
 	entries = append(entries, *entry)
 	if len(entries) > maxWorkloadNodesHistory {
-		entries = entries[len(entries)-maxWorkloadNodesHistory:]
+		dropped = len(entries) - maxWorkloadNodesHistory
+		entries = entries[dropped:]
 	}
 	encoded, err := json.Marshal(entries)
 	if err != nil {
@@ -103,19 +113,22 @@ func appendWorkloadNodesHistory(raw string, entry *WorkloadNodesHistoryEntry) (s
 			return "", err
 		}
 	}
+	if len(encoded) > maxWorkloadNodesHistoryBytes {
+		return "", fmt.Errorf("workload nodes history entry exceeds %d bytes", maxWorkloadNodesHistoryBytes)
+	}
 	return string(encoded), nil
 }
 
-// ArchiveWorkloadNodesForResume moves the node assignment of the stored run
-// into nodes_history immediately before a resumed workload is created. The
-// archive and the cleanup of the previous run's dispatch and pod rows are
-// atomic, so a failed cleanup is retried without exposing a partially archived
-// run. Pod rows are dropped too: a resumed job reuses the same pod id, and
-// leaving the previous run in place would hydrate as an unchanged assignment
-// and skip rewriting dispatch nodes.
-func (c *Client) ArchiveWorkloadNodesForResume(ctx context.Context, workloadId string) error {
-	if workloadId == "" {
+// ArchiveWorkloadNodesForResume snapshots the previous CR generation into
+// nodes_history and deletes older run rows. keepUid is the UID of the newly
+// created object; its rows are left in place. Called after Create succeeds so a
+// failed Create cannot drop the previous run.
+func (c *Client) ArchiveWorkloadNodesForResume(ctx context.Context, previous *Workload, keepUid string) error {
+	if previous == nil || previous.WorkloadId == "" {
 		return fmt.Errorf("workloadId is empty")
+	}
+	if keepUid == "" {
+		return fmt.Errorf("keepUid is empty")
 	}
 	db, err := c.getDB()
 	if err != nil {
@@ -127,32 +140,51 @@ func (c *Client) ArchiveWorkloadNodesForResume(ctx context.Context, workloadId s
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	old := &Workload{}
-	if err = tx.GetContext(ctx, old, selectWorkloadForNodesArchiveCmd, workloadId); err != nil {
+	current := &Workload{}
+	if err = tx.GetContext(ctx, current, selectWorkloadForNodesArchiveCmd, previous.WorkloadId); err != nil {
 		return err
 	}
 	var rows []*WorkloadDispatchNode
-	if err = tx.SelectContext(ctx, &rows, listWorkloadDispatchNodesForArchiveCmd, workloadId); err != nil {
+	if err = tx.SelectContext(ctx, &rows, listWorkloadDispatchNodesForArchiveCmd,
+		previous.WorkloadId, dbutils.ParseNullString(previous.WorkloadUId)); err != nil {
 		return err
 	}
-	entry, err := buildWorkloadNodesHistoryEntry(old, rows)
+	entry, err := buildWorkloadNodesHistoryEntry(previous, rows)
 	if err != nil {
 		return err
 	}
-	if entry != nil {
-		history, err := appendWorkloadNodesHistory(dbutils.ParseNullString(old.NodesHistory), entry)
-		if err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, updateWorkloadNodesHistoryCmd, history, workloadId); err != nil {
-			return err
-		}
+	if entry == nil {
+		klog.Infof("previous workload run has no node assignment; retaining its rows, workloadId=%s",
+			previous.WorkloadId)
+		return tx.Commit()
 	}
-	if _, err = tx.ExecContext(ctx, deleteWorkloadDispatchNodesForArchiveCmd, workloadId); err != nil {
+	oldHistory := DecodeWorkloadNodesHistory(dbutils.ParseNullString(current.NodesHistory))
+	history, err := appendWorkloadNodesHistory(dbutils.ParseNullString(current.NodesHistory), entry)
+	if err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, deleteWorkloadPodsForArchiveCmd, workloadId); err != nil {
+	if _, err = tx.ExecContext(ctx, updateWorkloadNodesHistoryCmd, history, previous.WorkloadId); err != nil {
 		return err
 	}
-	return tx.Commit()
+	dispatchRes, err := tx.ExecContext(ctx, deleteWorkloadDispatchNodesOfOtherRunsCmd, previous.WorkloadId, keepUid)
+	if err != nil {
+		return err
+	}
+	podRes, err := tx.ExecContext(ctx, deleteWorkloadPodsOfOtherRunsCmd, previous.WorkloadId, keepUid)
+	if err != nil {
+		return err
+	}
+	dispatchN, _ := dispatchRes.RowsAffected()
+	podN, _ := podRes.RowsAffected()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	dropped := len(oldHistory) + 1 - len(DecodeWorkloadNodesHistory(history))
+	klog.Infof("archived previous workload run, workloadId=%s keepUid=%s historyEntries=%d dispatchDeleted=%d podsDeleted=%d",
+		previous.WorkloadId, keepUid, 1, dispatchN, podN)
+	if dropped > 0 {
+		klog.Infof("workload nodes history dropped %d older run(s) at the cap, workloadId=%s",
+			dropped, previous.WorkloadId)
+	}
+	return nil
 }

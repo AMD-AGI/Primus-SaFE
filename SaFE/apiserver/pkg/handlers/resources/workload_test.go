@@ -495,8 +495,8 @@ func Test_createWorkloadImpl(t *testing.T) {
 	assert.Equal(t, createdWorkload.Status.Phase, v1.WorkloadPending)
 }
 
-// TestCreateWorkloadImplWithHook verifies that the hook runs after validation
-// but before the workload becomes visible to controllers.
+// TestCreateWorkloadImplWithHook verifies that the hook runs only after the
+// workload exists, so a failed Create cannot run destructive archive work.
 func TestCreateWorkloadImplWithHook(t *testing.T) {
 	clusterId := "test-cluster"
 	workspaceId := "test-workspace"
@@ -524,8 +524,8 @@ func TestCreateWorkloadImplWithHook(t *testing.T) {
 		hookCalled = true
 		stored := &v1.Workload{}
 		err := h.Get(ctx, client.ObjectKey{Name: workload.Name}, stored)
-		if !apierrors.IsNotFound(err) {
-			t.Fatalf("workload became visible before hook: %v", err)
+		if err != nil {
+			t.Fatalf("workload must be visible before hook: %v", err)
 		}
 		return nil
 	})
@@ -535,6 +535,45 @@ func TestCreateWorkloadImplWithHook(t *testing.T) {
 	assert.Assert(t, hookCalled, "Hook should be called")
 	stored := &v1.Workload{}
 	assert.NilError(t, h.Get(context.Background(), client.ObjectKey{Name: workload.Name}, stored))
+}
+
+// TestCreateWorkloadImplWithHookCreateFailureDoesNotArchive reproduces a CREATE
+// admission or storage failure and proves the archive hook is never called.
+func TestCreateWorkloadImplWithHookCreateFailureDoesNotArchive(t *testing.T) {
+	clusterId := "test-cluster"
+	workspaceId := "test-workspace"
+	workload := genMockWorkload(clusterId, workspaceId)
+	user := genMockUser()
+	role := genMockRole()
+	createErr := fmt.Errorf("create rejected")
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(user, role).
+		WithScheme(scheme.Scheme).
+		WithStatusSubresource(workload).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(context.Context, client.WithWatch, client.Object, ...client.CreateOption) error {
+				return createErr
+			},
+		}).
+		Build()
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        k8sfake.NewSimpleClientset(),
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.UserName, v1.GetUserName(user))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/workloads", nil)
+
+	hookCalled := false
+	_, err := h.createWorkloadImplWithHook(c, workload, user, []*v1.Role{role}, func(context.Context) error {
+		hookCalled = true
+		return nil
+	})
+	assert.ErrorContains(t, err, createErr.Error())
+	assert.Assert(t, !hookCalled, "archive hook must not run after a failed Create")
 }
 
 // TestCreateWorkloadImplWithHookSkipsWhenCRExists refuses resume-style create
@@ -780,8 +819,8 @@ func Test_getWorkload(t *testing.T) {
 	}
 
 	mockDBClient.EXPECT().GetWorkload(gomock.Any(), workloadId).Return(mockDBWorkload, nil).AnyTimes()
-	mockDBClient.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	mockDBClient.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDBClient.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDBClient.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	// Create gin context
 	w := httptest.NewRecorder()
@@ -2095,8 +2134,8 @@ func TestGetWorkloadWrapper(t *testing.T) {
 		UserId:      sql.NullString{String: user.Name, Valid: true},
 		GVK:         `{"group":"kubeflow.org","version":"v1","kind":"PyTorchJob"}`,
 	}, nil).AnyTimes()
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
@@ -2122,8 +2161,8 @@ func TestGetWorkloadCleansEmptyDispatchNodes(t *testing.T) {
 		Nodes:      sql.NullString{String: `[["","n1"],["n2"]]`, Valid: true},
 		Ranks:      sql.NullString{String: `[["skip","0"],["1"]]`, Valid: true},
 	}, nil)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)

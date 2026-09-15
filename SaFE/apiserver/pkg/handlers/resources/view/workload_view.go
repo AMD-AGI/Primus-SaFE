@@ -301,6 +301,8 @@ type WorkloadNodesHistoryItem struct {
 	EndTime string `json:"endTime,omitempty"`
 	// The node used for each dispatch of the run
 	Nodes [][]string `json:"nodes"`
+	// The rank corresponding to each node of the run
+	Ranks [][]string `json:"ranks,omitempty"`
 }
 
 type WorkloadPodWrapper struct {
