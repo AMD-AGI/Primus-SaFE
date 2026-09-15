@@ -26,7 +26,7 @@ func TestBuildWorkloadNodesHistoryEntry(t *testing.T) {
 		Nodes:         dbutils.NullString(`[["legacy-1"]]`),
 	}
 	rows := WorkloadDispatchNodesFromV1(
-		"w1",
+		"w1", "old-uid",
 		[][]string{{"n1", "n2"}, {"n3"}},
 		[][]string{{"0", "1"}, {"0"}},
 	)
@@ -55,7 +55,7 @@ func TestBuildWorkloadNodesHistoryEntry(t *testing.T) {
 	if entry == nil || !reflect.DeepEqual(entry.Nodes, [][]string{{"legacy-1"}}) {
 		t.Errorf("expected the nodes column as fallback, got %+v", entry)
 	}
-	emptyRows := WorkloadDispatchNodesFromV1("w1", [][]string{{}}, nil)
+	emptyRows := WorkloadDispatchNodesFromV1("w1", "old-uid", [][]string{{}}, nil)
 	entry, err = buildWorkloadNodesHistoryEntry(old, emptyRows)
 	if err != nil {
 		t.Fatalf("build empty-row fallback entry failed: %v", err)
@@ -76,11 +76,11 @@ func TestBuildWorkloadNodesHistoryEntry(t *testing.T) {
 		WorkloadId: "w1",
 		Nodes:      dbutils.NullString("not json"),
 	}, nil)
-	if err != nil {
-		t.Fatalf("corrupt nodes column must not fail archive: %v", err)
+	if err == nil {
+		t.Fatal("corrupt legacy nodes must fail the archive")
 	}
 	if entry != nil {
-		t.Errorf("unreadable nodes column is not an assignment, got %+v", entry)
+		t.Errorf("corrupt legacy nodes must not produce an entry, got %+v", entry)
 	}
 }
 
@@ -129,14 +129,43 @@ func TestAppendWorkloadNodesHistoryRejectsCorruptJSON(t *testing.T) {
 	}
 }
 
-func TestAppendWorkloadNodesHistorySkipsOversizedRun(t *testing.T) {
+func TestAppendWorkloadNodesHistoryRetainsOversizedLatestRun(t *testing.T) {
 	t.Parallel()
-	_, _, err := appendWorkloadNodesHistory("", &WorkloadNodesHistoryEntry{
+	raw, dropped, err := appendWorkloadNodesHistory("", &WorkloadNodesHistoryEntry{
 		DispatchCount: 1,
 		Nodes:         [][]string{{strings.Repeat("n", maxWorkloadNodesHistoryBytes+1)}},
 	})
-	if !errors.Is(err, errWorkloadNodesHistoryTooLarge) {
-		t.Fatalf("oversized history must be skipped, got %v", err)
+	if err != nil {
+		t.Fatalf("oversized latest run must be retained: %v", err)
+	}
+	if dropped != 0 || len(raw) <= maxWorkloadNodesHistoryBytes {
+		t.Fatalf("unexpected oversized latest run result: dropped=%d bytes=%d", dropped, len(raw))
+	}
+}
+
+func TestAppendWorkloadNodesHistoryDropsOlderRunsToFit(t *testing.T) {
+	t.Parallel()
+	entrySize := maxWorkloadNodesHistoryBytes/2 + 1
+	first, _, err := appendWorkloadNodesHistory("", &WorkloadNodesHistoryEntry{
+		DispatchCount: 1,
+		Nodes:         [][]string{{strings.Repeat("a", entrySize)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, dropped, err := appendWorkloadNodesHistory(first, &WorkloadNodesHistoryEntry{
+		DispatchCount: 2,
+		Nodes:         [][]string{{strings.Repeat("b", entrySize)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dropped != 1 {
+		t.Fatalf("expected one older run to be dropped, got %d", dropped)
+	}
+	entries := DecodeWorkloadNodesHistory(raw)
+	if len(entries) != 1 || entries[0].DispatchCount != 2 {
+		t.Fatalf("expected only the latest run, got %+v", entries)
 	}
 }
 
@@ -161,10 +190,10 @@ func TestArchiveWorkloadNodesForResume(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), "w1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadDispatchNodesForResumeCmd)).
-		WithArgs("w1").
+		WithArgs("w1", "new-uid").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadPodsForResumeCmd)).
-		WithArgs("w1").
+		WithArgs("w1", "new-uid").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	previous := &Workload{
@@ -172,8 +201,8 @@ func TestArchiveWorkloadNodesForResume(t *testing.T) {
 		DispatchCount: 2,
 		Phase:         dbutils.NullString("Failed"),
 	}
-	rows := WorkloadDispatchNodesFromV1("w1", [][]string{{"n1"}}, [][]string{{"0"}})
-	if err := c.ArchiveWorkloadNodesForResume(t.Context(), previous, rows); err != nil {
+	rows := WorkloadDispatchNodesFromV1("w1", "old-uid", [][]string{{"n1"}}, [][]string{{"0"}})
+	if err := c.ArchiveWorkloadNodesForResume(t.Context(), previous, "new-uid", rows); err != nil {
 		t.Fatalf("archive failed: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -193,10 +222,10 @@ func TestArchiveWorkloadNodesForResumeContinuesAfterDeleteFailure(t *testing.T) 
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deleteErr := errors.New("delete failed")
 	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadDispatchNodesForResumeCmd)).
-		WithArgs("w1").
+		WithArgs("w1", "new-uid").
 		WillReturnError(deleteErr)
 	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadPodsForResumeCmd)).
-		WithArgs("w1").
+		WithArgs("w1", "new-uid").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	previous := &Workload{
@@ -204,8 +233,10 @@ func TestArchiveWorkloadNodesForResumeContinuesAfterDeleteFailure(t *testing.T) 
 		DispatchCount: 1,
 		Phase:         dbutils.NullString("Succeeded"),
 	}
-	rows := WorkloadDispatchNodesFromV1("w1", [][]string{{"n1"}}, [][]string{{"0"}})
-	if err := c.ArchiveWorkloadNodesForResume(t.Context(), previous, rows); !errors.Is(err, deleteErr) {
+	rows := WorkloadDispatchNodesFromV1("w1", "old-uid", [][]string{{"n1"}}, [][]string{{"0"}})
+	if err := c.ArchiveWorkloadNodesForResume(
+		t.Context(), previous, "new-uid", rows,
+	); !errors.Is(err, deleteErr) {
 		t.Fatalf("expected delete failure, got %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -221,16 +252,16 @@ func TestArchiveWorkloadNodesForResumeCleansRowsWithoutEntry(t *testing.T) {
 			"workload_id", "nodes_history",
 		}).AddRow("w1", nil))
 	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadDispatchNodesForResumeCmd)).
-		WithArgs("w1").
+		WithArgs("w1", "new-uid").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadPodsForResumeCmd)).
-		WithArgs("w1").
+		WithArgs("w1", "new-uid").
 		WillReturnResult(sqlmock.NewResult(0, 2))
 
 	previous := &Workload{
 		WorkloadId: "w1",
 	}
-	if err := c.ArchiveWorkloadNodesForResume(t.Context(), previous, nil); err != nil {
+	if err := c.ArchiveWorkloadNodesForResume(t.Context(), previous, "new-uid", nil); err != nil {
 		t.Fatalf("archive failed: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -245,17 +276,25 @@ func TestArchiveWorkloadNodesForResumeKeepsHistoryOnCorruptJSON(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"workload_id", "nodes_history",
 		}).AddRow("w1", "not json"))
-	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadDispatchNodesForResumeCmd)).
-		WithArgs("w1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadPodsForResumeCmd)).
-		WithArgs("w1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
 	previous := &Workload{WorkloadId: "w1", DispatchCount: 1}
-	rows := WorkloadDispatchNodesFromV1("w1", [][]string{{"n1"}}, nil)
-	if err := c.ArchiveWorkloadNodesForResume(t.Context(), previous, rows); !errors.Is(err, errWorkloadNodesHistoryCorrupt) {
+	rows := WorkloadDispatchNodesFromV1("w1", "old-uid", [][]string{{"n1"}}, nil)
+	if err := c.ArchiveWorkloadNodesForResume(
+		t.Context(), previous, "new-uid", rows,
+	); !errors.Is(err, errWorkloadNodesHistoryCorrupt) {
 		t.Fatalf("expected corrupt history error, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeleteWorkloadDispatchNodesNotInEmptyKeep(t *testing.T) {
+	c, mock := newMockClient(t)
+	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadDispatchNodesForResumeCmd)).
+		WithArgs("w1", "uid-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := c.DeleteWorkloadDispatchNodesNotIn(t.Context(), "w1", "uid-1", nil); err != nil {
+		t.Fatalf("empty keep must not delete current dispatch rows: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

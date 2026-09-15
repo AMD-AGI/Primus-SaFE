@@ -819,8 +819,8 @@ func Test_getWorkload(t *testing.T) {
 	}
 
 	mockDBClient.EXPECT().GetWorkload(gomock.Any(), workloadId).Return(mockDBWorkload, nil).AnyTimes()
-	mockDBClient.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	mockDBClient.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDBClient.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDBClient.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	// Create gin context
 	w := httptest.NewRecorder()
@@ -2134,8 +2134,8 @@ func TestGetWorkloadWrapper(t *testing.T) {
 		UserId:      sql.NullString{String: user.Name, Valid: true},
 		GVK:         `{"group":"kubeflow.org","version":"v1","kind":"PyTorchJob"}`,
 	}, nil).AnyTimes()
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
@@ -2161,8 +2161,8 @@ func TestGetWorkloadCleansEmptyDispatchNodes(t *testing.T) {
 		Nodes:      sql.NullString{String: `[["","n1"],["n2"]]`, Valid: true},
 		Ranks:      sql.NullString{String: `[["skip","0"],["1"]]`, Valid: true},
 	}, nil)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)

@@ -88,6 +88,7 @@ func GetWorkloadFieldTags() map[string]string {
 // O(node) aggregate (WorkloadStatus.NodeUsage) for the scheduling hot path.
 type WorkloadPod struct {
 	WorkloadId    string         `db:"workload_id"`
+	WorkloadUid   string         `db:"workload_uid"`
 	PodId         string         `db:"pod_id"`
 	ResourceId    int            `db:"resource_id"`
 	AdminNodeName sql.NullString `db:"admin_node_name"`
@@ -116,6 +117,7 @@ func GetWorkloadPodFieldTags() map[string]string {
 // Written by job-manager; read by the dispatcher and ops/detail.
 type WorkloadDispatchNode struct {
 	WorkloadId    string         `db:"workload_id"`
+	WorkloadUid   string         `db:"workload_uid"`
 	DispatchIndex int            `db:"dispatch_index"`
 	Nodes         sql.NullString `db:"nodes"` // JSON-encoded []string
 	Ranks         sql.NullString `db:"ranks"` // JSON-encoded []string

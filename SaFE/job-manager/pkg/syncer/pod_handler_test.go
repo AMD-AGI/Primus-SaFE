@@ -240,6 +240,16 @@ func TestIsStaleWorkloadGeneration(t *testing.T) {
 	assert.Equal(t, isStaleWorkloadGeneration(w, "", time.Time{}), false)
 }
 
+func TestIsStaleWorkloadDispatch(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Labels: map[string]string{v1.WorkloadDispatchCntLabel: "3"},
+	}}
+	assert.Equal(t, isStaleWorkloadDispatch(w, 2), true)
+	assert.Equal(t, isStaleWorkloadDispatch(w, 3), false)
+	assert.Equal(t, isStaleWorkloadDispatch(w, 4), false)
+	assert.Equal(t, isStaleWorkloadDispatch(w, 0), false)
+}
+
 func TestRemoveWorkloadPodIgnoresPreviousRun(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
 		Name:              "w",
@@ -432,12 +442,12 @@ func TestRemoveWorkloadPodRepairsStaleAggregateAfterConflict(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w").Return([]*dbclient.WorkloadPod{
-		dbclient.WorkloadPodFromV1("w", 1, &v1.WorkloadPod{
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w", gomock.Any()).Return([]*dbclient.WorkloadPod{
+		dbclient.WorkloadPodFromV1("w", "", 1, &v1.WorkloadPod{
 			PodId: "p1", AdminNodeName: "n1", Phase: corev1.PodPhase(v1.WorkloadStopped),
 		}),
 	}, nil)
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w").Return(nil, nil)
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w", gomock.Any()).Return(nil, nil)
 
 	viper.Reset()
 	viper.Set("db.enable", true)

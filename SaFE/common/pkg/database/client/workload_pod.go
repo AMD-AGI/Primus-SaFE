@@ -25,14 +25,15 @@ var (
 	// upsertWorkloadPodCmd inserts or updates a single pod row keyed by
 	// (workload_id, pod_id). resource_id / pod_id form the natural identity.
 	upsertWorkloadPodCmd = `INSERT INTO ` + TWorkloadPod + ` (
-		workload_id, pod_id, resource_id, admin_node_name, host_ip, pod_ip, rank,
+		workload_id, workload_uid, pod_id, resource_id, admin_node_name, host_ip, pod_ip, rank,
 		group_id, phase, start_time, end_time, failed_message, containers,
 		dispatch_count, updated_at
 	) VALUES (
-		:workload_id, :pod_id, :resource_id, :admin_node_name, :host_ip, :pod_ip, :rank,
+		:workload_id, :workload_uid, :pod_id, :resource_id, :admin_node_name, :host_ip, :pod_ip, :rank,
 		:group_id, :phase, :start_time, :end_time, :failed_message, :containers,
 		:dispatch_count, :updated_at
 	) ON CONFLICT (workload_id, pod_id) DO UPDATE SET
+		workload_uid = EXCLUDED.workload_uid,
 		resource_id = EXCLUDED.resource_id,
 		admin_node_name = EXCLUDED.admin_node_name,
 		host_ip = EXCLUDED.host_ip,
@@ -48,10 +49,10 @@ var (
 		updated_at = EXCLUDED.updated_at`
 
 	listWorkloadPodsCmd = fmt.Sprintf(`SELECT
-		workload_id, pod_id, resource_id, admin_node_name, host_ip, pod_ip, rank,
+		workload_id, workload_uid, pod_id, resource_id, admin_node_name, host_ip, pod_ip, rank,
 		group_id, phase, start_time, end_time, failed_message, containers,
 		dispatch_count, updated_at
-		FROM %s WHERE workload_id = $1 ORDER BY pod_id`, TWorkloadPod)
+		FROM %s WHERE workload_id = $1 AND workload_uid = $2 ORDER BY pod_id`, TWorkloadPod)
 )
 
 // UpsertWorkloadPod inserts or updates a single workload pod row.
@@ -99,7 +100,7 @@ func (c *Client) BatchUpsertWorkloadPods(ctx context.Context, pods []*WorkloadPo
 }
 
 // ListWorkloadPods returns all pods of a workload ordered by pod id.
-func (c *Client) ListWorkloadPods(ctx context.Context, workloadId string) ([]*WorkloadPod, error) {
+func (c *Client) ListWorkloadPods(ctx context.Context, workloadId, workloadUid string) ([]*WorkloadPod, error) {
 	if workloadId == "" {
 		return nil, commonerrors.NewBadRequest("workloadId is empty")
 	}
@@ -111,9 +112,9 @@ func (c *Client) ListWorkloadPods(ctx context.Context, workloadId string) ([]*Wo
 	if c.RequestTimeout > 0 {
 		ctx2, cancel := context.WithTimeout(ctx, c.RequestTimeout)
 		defer cancel()
-		err = db.SelectContext(ctx2, &pods, listWorkloadPodsCmd, workloadId)
+		err = db.SelectContext(ctx2, &pods, listWorkloadPodsCmd, workloadId, workloadUid)
 	} else {
-		err = db.SelectContext(ctx, &pods, listWorkloadPodsCmd, workloadId)
+		err = db.SelectContext(ctx, &pods, listWorkloadPodsCmd, workloadId, workloadUid)
 	}
 	return pods, err
 }
@@ -132,24 +133,46 @@ func (c *Client) DeleteWorkloadPods(ctx context.Context, workloadId string) erro
 }
 
 // DeleteWorkloadPodsNotIn removes pods of a workload whose pod_id is not in
-// keepPodIds. When keepPodIds is empty it removes every pod of the workload.
-func (c *Client) DeleteWorkloadPodsNotIn(ctx context.Context, workloadId string, keepPodIds []string) error {
+// keepPodIds. When keepPodIds is empty it removes every pod of the current
+// generation. Rows stamped with a different workload_uid are always dropped.
+func (c *Client) DeleteWorkloadPodsNotIn(
+	ctx context.Context, workloadId, workloadUid string, keepPodIds []string,
+) error {
 	db, err := c.getDB()
 	if err != nil {
 		return err
 	}
+	if err = c.deleteWorkloadPodsOfOtherUids(ctx, db, workloadId, workloadUid); err != nil {
+		return err
+	}
 	if len(keepPodIds) == 0 {
-		return c.DeleteWorkloadPods(ctx, workloadId)
+		cmd := fmt.Sprintf(`DELETE FROM %s WHERE workload_id = $1 AND workload_uid = $2`, TWorkloadPod)
+		_, err = db.ExecContext(ctx, cmd, workloadId, workloadUid)
+		return err
 	}
 	query, args, err := sqlx.In(
-		fmt.Sprintf(`DELETE FROM %s WHERE workload_id = ? AND pod_id NOT IN (?)`, TWorkloadPod),
-		workloadId, keepPodIds)
+		fmt.Sprintf(`DELETE FROM %s WHERE workload_id = ? AND workload_uid = ? AND pod_id NOT IN (?)`, TWorkloadPod),
+		workloadId, workloadUid, keepPodIds)
 	if err != nil {
 		return err
 	}
 	query = db.Rebind(query)
 	if _, err = db.ExecContext(ctx, query, args...); err != nil {
 		klog.ErrorS(err, "failed to delete stale workload pods", "workloadId", workloadId)
+	}
+	return err
+}
+
+// deleteWorkloadPodsOfOtherUids drops leftover rows from a previous CR.
+func (c *Client) deleteWorkloadPodsOfOtherUids(
+	ctx context.Context, db *instrumentedDB, workloadId, keepUid string,
+) error {
+	if keepUid == "" {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, deleteWorkloadPodsForResumeCmd, workloadId, keepUid)
+	if err != nil {
+		klog.ErrorS(err, "failed to delete workload pods of other UIDs", "workloadId", workloadId)
 	}
 	return err
 }

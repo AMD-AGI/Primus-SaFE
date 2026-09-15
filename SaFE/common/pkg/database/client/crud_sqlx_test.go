@@ -91,10 +91,10 @@ func TestWorkloadPodCRUD(t *testing.T) {
 		{WorkloadId: "w1", PodId: "p1"},
 		{WorkloadId: "w1", PodId: "p2"},
 	})
-	_, _ = c.ListWorkloadPods(ctx, "w1")
+	_, _ = c.ListWorkloadPods(ctx, "w1", "uid-1")
 	_ = c.DeleteWorkloadPods(ctx, "w1")
-	_ = c.DeleteWorkloadPodsNotIn(ctx, "w1", []string{"p1", "p2"})
-	_ = c.DeleteWorkloadPodsNotIn(ctx, "w1", nil)
+	_ = c.DeleteWorkloadPodsNotIn(ctx, "w1", "uid-1", []string{"p1", "p2"})
+	_ = c.DeleteWorkloadPodsNotIn(ctx, "w1", "uid-1", nil)
 }
 
 func TestWorkloadDispatchNodeCRUD(t *testing.T) {
@@ -103,9 +103,9 @@ func TestWorkloadDispatchNodeCRUD(t *testing.T) {
 	ctx := context.Background()
 
 	_ = c.UpsertWorkloadDispatchNode(ctx, &WorkloadDispatchNode{WorkloadId: "w1", DispatchIndex: 0})
-	_, _ = c.ListWorkloadDispatchNodes(ctx, "w1")
-	_ = c.DeleteWorkloadDispatchNodesNotIn(ctx, "w1", []int{0})
-	_ = c.DeleteWorkloadDispatchNodesNotIn(ctx, "w1", nil)
+	_, _ = c.ListWorkloadDispatchNodes(ctx, "w1", "uid-1")
+	_ = c.DeleteWorkloadDispatchNodesNotIn(ctx, "w1", "uid-1", []int{0})
+	_ = c.DeleteWorkloadDispatchNodesNotIn(ctx, "w1", "uid-1", nil)
 	_ = c.DeleteWorkloadDispatchNodes(ctx, "w1")
 }
 

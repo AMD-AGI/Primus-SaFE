@@ -25,17 +25,18 @@ var (
 	// upsertWorkloadDispatchNodeCmd inserts or updates one dispatch's node/rank
 	// assignment keyed by (workload_id, dispatch_index).
 	upsertWorkloadDispatchNodeCmd = `INSERT INTO ` + TWorkloadDispatchNode + ` (
-		workload_id, dispatch_index, nodes, ranks, updated_at
+		workload_id, workload_uid, dispatch_index, nodes, ranks, updated_at
 	) VALUES (
-		:workload_id, :dispatch_index, :nodes, :ranks, :updated_at
+		:workload_id, :workload_uid, :dispatch_index, :nodes, :ranks, :updated_at
 	) ON CONFLICT (workload_id, dispatch_index) DO UPDATE SET
+		workload_uid = EXCLUDED.workload_uid,
 		nodes = EXCLUDED.nodes,
 		ranks = EXCLUDED.ranks,
 		updated_at = EXCLUDED.updated_at`
 
 	listWorkloadDispatchNodesCmd = fmt.Sprintf(
-		`SELECT workload_id, dispatch_index, nodes, ranks, updated_at
-		FROM %s WHERE workload_id = $1 ORDER BY dispatch_index`, TWorkloadDispatchNode)
+		`SELECT workload_id, workload_uid, dispatch_index, nodes, ranks, updated_at
+		FROM %s WHERE workload_id = $1 AND workload_uid = $2 ORDER BY dispatch_index`, TWorkloadDispatchNode)
 )
 
 // UpsertWorkloadDispatchNode inserts or updates one dispatch's node/rank row.
@@ -59,7 +60,9 @@ func (c *Client) UpsertWorkloadDispatchNode(ctx context.Context, dn *WorkloadDis
 
 // ListWorkloadDispatchNodes returns all dispatch rows of a workload ordered by
 // dispatch index (ascending; the last element is the latest dispatch).
-func (c *Client) ListWorkloadDispatchNodes(ctx context.Context, workloadId string) ([]*WorkloadDispatchNode, error) {
+func (c *Client) ListWorkloadDispatchNodes(
+	ctx context.Context, workloadId, workloadUid string,
+) ([]*WorkloadDispatchNode, error) {
 	if workloadId == "" {
 		return nil, commonerrors.NewBadRequest("workloadId is empty")
 	}
@@ -71,9 +74,9 @@ func (c *Client) ListWorkloadDispatchNodes(ctx context.Context, workloadId strin
 	if c.RequestTimeout > 0 {
 		ctx2, cancel := context.WithTimeout(ctx, c.RequestTimeout)
 		defer cancel()
-		err = db.SelectContext(ctx2, &rows, listWorkloadDispatchNodesCmd, workloadId)
+		err = db.SelectContext(ctx2, &rows, listWorkloadDispatchNodesCmd, workloadId, workloadUid)
 	} else {
-		err = db.SelectContext(ctx, &rows, listWorkloadDispatchNodesCmd, workloadId)
+		err = db.SelectContext(ctx, &rows, listWorkloadDispatchNodesCmd, workloadId, workloadUid)
 	}
 	return rows, err
 }
@@ -92,24 +95,47 @@ func (c *Client) DeleteWorkloadDispatchNodes(ctx context.Context, workloadId str
 }
 
 // DeleteWorkloadDispatchNodesNotIn removes dispatch rows whose index is not in
-// keepIndexes. An empty keep list removes every dispatch row of the workload.
-func (c *Client) DeleteWorkloadDispatchNodesNotIn(ctx context.Context, workloadId string, keepIndexes []int) error {
+// keepIndexes. An empty keep list is a no-op for the current generation because
+// it may represent an offloaded snapshot that has already been cleared in
+// memory. Rows stamped with a different workload_uid are still dropped.
+func (c *Client) DeleteWorkloadDispatchNodesNotIn(
+	ctx context.Context, workloadId, workloadUid string, keepIndexes []int,
+) error {
 	db, err := c.getDB()
 	if err != nil {
 		return err
 	}
+	if err = c.deleteWorkloadDispatchNodesOfOtherUids(ctx, db, workloadId, workloadUid); err != nil {
+		return err
+	}
 	if len(keepIndexes) == 0 {
-		return c.DeleteWorkloadDispatchNodes(ctx, workloadId)
+		return nil
 	}
 	query, args, err := sqlx.In(
-		fmt.Sprintf(`DELETE FROM %s WHERE workload_id = ? AND dispatch_index NOT IN (?)`, TWorkloadDispatchNode),
-		workloadId, keepIndexes)
+		fmt.Sprintf(`DELETE FROM %s WHERE workload_id = ? AND workload_uid = ? AND dispatch_index NOT IN (?)`,
+			TWorkloadDispatchNode),
+		workloadId, workloadUid, keepIndexes)
 	if err != nil {
 		return err
 	}
 	query = db.Rebind(query)
 	if _, err = db.ExecContext(ctx, query, args...); err != nil {
 		klog.ErrorS(err, "failed to delete stale workload dispatch nodes", "workloadId", workloadId)
+	}
+	return err
+}
+
+// deleteWorkloadDispatchNodesOfOtherUids drops leftover rows from a previous CR.
+func (c *Client) deleteWorkloadDispatchNodesOfOtherUids(
+	ctx context.Context, db *instrumentedDB, workloadId, keepUid string,
+) error {
+	if keepUid == "" {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, deleteWorkloadDispatchNodesForResumeCmd, workloadId, keepUid)
+	if err != nil {
+		klog.ErrorS(err, "failed to delete workload dispatch nodes of other UIDs",
+			"workloadId", workloadId)
 	}
 	return err
 }

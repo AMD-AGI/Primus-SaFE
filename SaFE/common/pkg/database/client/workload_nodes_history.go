@@ -24,7 +24,6 @@ const maxWorkloadNodesHistory = 10
 const maxWorkloadNodesHistoryBytes = 64 * 1024
 
 var errWorkloadNodesHistoryCorrupt = fmt.Errorf("workload nodes history is not valid JSON")
-var errWorkloadNodesHistoryTooLarge = fmt.Errorf("workload nodes history exceeds size cap")
 
 var (
 	selectWorkloadForNodesArchiveCmd = fmt.Sprintf(
@@ -32,9 +31,9 @@ var (
 	updateWorkloadNodesHistoryCmd = fmt.Sprintf(
 		`UPDATE %s SET nodes_history = $1 WHERE workload_id = $2`, TWorkload)
 	deleteWorkloadDispatchNodesForResumeCmd = fmt.Sprintf(
-		`DELETE FROM %s WHERE workload_id = $1`, TWorkloadDispatchNode)
+		`DELETE FROM %s WHERE workload_id = $1 AND workload_uid IS DISTINCT FROM $2`, TWorkloadDispatchNode)
 	deleteWorkloadPodsForResumeCmd = fmt.Sprintf(
-		`DELETE FROM %s WHERE workload_id = $1`, TWorkloadPod)
+		`DELETE FROM %s WHERE workload_id = $1 AND workload_uid IS DISTINCT FROM $2`, TWorkloadPod)
 )
 
 // WorkloadNodesHistoryEntry is the node assignment of one run of a workload id,
@@ -81,12 +80,12 @@ func buildWorkloadNodesHistoryEntry(old *Workload, rows []*WorkloadDispatchNode)
 	if !dispatchNodesContainAssignment(nodes) {
 		if raw := dbutils.ParseNullString(old.Nodes); raw != "" {
 			if err := json.Unmarshal([]byte(raw), &nodes); err != nil {
-				nodes = nil
+				return nil, fmt.Errorf("decode legacy workload nodes: %w", err)
 			}
 		}
 		if raw := dbutils.ParseNullString(old.Ranks); raw != "" {
 			if err := json.Unmarshal([]byte(raw), &ranks); err != nil {
-				ranks = nil
+				return nil, fmt.Errorf("decode legacy workload ranks: %w", err)
 			}
 		}
 	}
@@ -114,8 +113,8 @@ func dispatchNodesContainAssignment(nodes [][]string) bool {
 }
 
 // appendWorkloadNodesHistory appends one run and keeps the newest entries.
-// A corrupt or oversized payload is left unchanged so resume can still clear
-// the previous run's detail rows.
+// Older runs are removed first to meet both the count and byte limits. A single
+// latest run is retained in full even when it exceeds the soft byte limit.
 func appendWorkloadNodesHistory(
 	raw string, entry *WorkloadNodesHistoryEntry,
 ) (string, int, error) {
@@ -129,23 +128,29 @@ func appendWorkloadNodesHistory(
 		dropped = len(entries) - maxWorkloadNodesHistory
 		entries = entries[dropped:]
 	}
-	encoded, err := json.Marshal(entries)
-	if err != nil {
-		return "", 0, err
+	for {
+		encoded, err := json.Marshal(entries)
+		if err != nil {
+			return "", 0, err
+		}
+		if len(encoded) <= maxWorkloadNodesHistoryBytes || len(entries) == 1 {
+			return string(encoded), dropped, nil
+		}
+		entries = entries[1:]
+		dropped++
 	}
-	if len(encoded) > maxWorkloadNodesHistoryBytes {
-		return "", 0, errWorkloadNodesHistoryTooLarge
-	}
-	return string(encoded), dropped, nil
 }
 
 // ArchiveWorkloadNodesForResume best-effort archives a pre-create dispatch
 // snapshot and deletes the previous run's detail rows after CR creation.
 func (c *Client) ArchiveWorkloadNodesForResume(
-	ctx context.Context, previous *Workload, rows []*WorkloadDispatchNode,
+	ctx context.Context, previous *Workload, currentUid string, rows []*WorkloadDispatchNode,
 ) error {
 	if previous == nil || previous.WorkloadId == "" {
 		return fmt.Errorf("workloadId is empty")
+	}
+	if currentUid == "" {
+		return fmt.Errorf("current workload UID is empty")
 	}
 	db, err := c.getDB()
 	if err != nil {
@@ -154,9 +159,10 @@ func (c *Client) ArchiveWorkloadNodesForResume(
 	var archiveErrors []error
 	appended := false
 	dropped := 0
+	archiveBytes := 0
 	entry, buildErr := buildWorkloadNodesHistoryEntry(previous, rows)
 	if buildErr != nil {
-		archiveErrors = append(archiveErrors, buildErr)
+		return buildErr
 	}
 	current := &Workload{}
 	if err = db.GetContext(ctx, current, selectWorkloadForNodesArchiveCmd, previous.WorkloadId); err != nil {
@@ -171,18 +177,23 @@ func (c *Client) ArchiveWorkloadNodesForResume(
 				archiveErrors = append(archiveErrors, err)
 			} else {
 				appended = true
+				archiveBytes = len(raw)
 			}
 		}
 	}
+	if entry != nil && !appended {
+		return errors.Join(archiveErrors...)
+	}
 
 	var dispatchN, podN int64
-	dispatchRes, dispatchErr := db.ExecContext(ctx, deleteWorkloadDispatchNodesForResumeCmd, previous.WorkloadId)
+	dispatchRes, dispatchErr := db.ExecContext(
+		ctx, deleteWorkloadDispatchNodesForResumeCmd, previous.WorkloadId, currentUid)
 	if dispatchErr != nil {
 		archiveErrors = append(archiveErrors, dispatchErr)
 	} else {
 		dispatchN, _ = dispatchRes.RowsAffected()
 	}
-	podRes, podErr := db.ExecContext(ctx, deleteWorkloadPodsForResumeCmd, previous.WorkloadId)
+	podRes, podErr := db.ExecContext(ctx, deleteWorkloadPodsForResumeCmd, previous.WorkloadId, currentUid)
 	if podErr != nil {
 		archiveErrors = append(archiveErrors, podErr)
 	} else {
@@ -193,6 +204,10 @@ func (c *Client) ArchiveWorkloadNodesForResume(
 	if dropped > 0 {
 		klog.Infof("workload nodes history dropped %d older run(s) at the cap, workloadId=%s",
 			dropped, previous.WorkloadId)
+	}
+	if archiveBytes > maxWorkloadNodesHistoryBytes {
+		klog.Infof("workload nodes history retains an oversized latest run, workloadId=%s bytes=%d",
+			previous.WorkloadId, archiveBytes)
 	}
 	return errors.Join(archiveErrors...)
 }

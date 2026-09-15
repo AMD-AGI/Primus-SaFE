@@ -222,7 +222,7 @@ func dispatchNodesAt(workload *v1.Workload, idx int) []string {
 			ctx, cancel := context.WithTimeout(context.Background(), dispatchNodeReadTimeout)
 			defer cancel()
 			if rows, err := db.ListWorkloadDispatchNodes(
-				ctx, workload.Name,
+				ctx, workload.Name, string(workload.UID),
 			); err == nil && len(rows) > 0 {
 				all := dbclient.DispatchNodesToV1(rows)
 				if idx < len(all) {

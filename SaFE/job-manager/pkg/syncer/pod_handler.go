@@ -289,10 +289,19 @@ func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
 			"eventUID", podUid, "currentUID", adminWorkload.UID)
 		return nil, nil
 	}
+	if isStaleWorkloadDispatch(adminWorkload, message.dispatchCount) {
+		klog.V(4).InfoS("ignore pod event from an earlier dispatch",
+			"workload", adminWorkload.Name, "pod", pod.Name,
+			"eventDispatch", message.dispatchCount,
+			"currentDispatch", v1.GetWorkloadDispatchCnt(adminWorkload))
+		return nil, nil
+	}
 	if podUid == "" && adminWorkload.UID != "" {
 		v1.SetLabel(pod, v1.WorkloadUidLabel, string(adminWorkload.UID))
 	}
-	v1.SetLabel(adminWorkload, v1.WorkloadDispatchCntLabel, strconv.Itoa(message.dispatchCount))
+	if message.dispatchCount > v1.GetWorkloadDispatchCnt(adminWorkload) {
+		v1.SetLabel(adminWorkload, v1.WorkloadDispatchCntLabel, strconv.Itoa(message.dispatchCount))
+	}
 	return adminWorkload, nil
 }
 
@@ -570,6 +579,13 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 		klog.V(4).InfoS("ignore pod delete from a previous workload run",
 			"workload", adminWorkload.Name, "pod", message.name,
 			"eventUID", message.workloadUid, "currentUID", adminWorkload.UID)
+		return nil
+	}
+	if isStaleWorkloadDispatch(adminWorkload, message.dispatchCount) {
+		klog.V(4).InfoS("ignore pod delete from an earlier dispatch",
+			"workload", adminWorkload.Name, "pod", message.name,
+			"eventDispatch", message.dispatchCount,
+			"currentDispatch", v1.GetWorkloadDispatchCnt(adminWorkload))
 		return nil
 	}
 
@@ -1043,6 +1059,16 @@ func isStaleWorkloadGeneration(w *v1.Workload, workloadUid string, createdAt tim
 		return false
 	}
 	return createdAt.Before(w.CreationTimestamp.Time)
+}
+
+// isStaleWorkloadDispatch reports whether an event belongs to an earlier
+// dispatch attempt of the current workload generation.
+func isStaleWorkloadDispatch(w *v1.Workload, dispatchCount int) bool {
+	if w == nil || dispatchCount <= 0 {
+		return false
+	}
+	current := v1.GetWorkloadDispatchCnt(w)
+	return current > 0 && dispatchCount < current
 }
 
 // createReservedFaults creates fault to reserve nodes for the workload

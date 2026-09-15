@@ -46,7 +46,7 @@ type Interface interface {
 type WorkloadInterface interface {
 	UpsertWorkload(ctx context.Context, workload *Workload) error
 	ArchiveWorkloadNodesForResume(
-		ctx context.Context, previous *Workload, rows []*WorkloadDispatchNode,
+		ctx context.Context, previous *Workload, currentUid string, rows []*WorkloadDispatchNode,
 	) error
 	SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Workload, error)
 	SelectWorkloadsForList(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Workload, error)
@@ -62,18 +62,18 @@ type WorkloadInterface interface {
 type WorkloadPodInterface interface {
 	UpsertWorkloadPod(ctx context.Context, pod *WorkloadPod) error
 	BatchUpsertWorkloadPods(ctx context.Context, pods []*WorkloadPod) error
-	ListWorkloadPods(ctx context.Context, workloadId string) ([]*WorkloadPod, error)
+	ListWorkloadPods(ctx context.Context, workloadId, workloadUid string) ([]*WorkloadPod, error)
 	DeleteWorkloadPods(ctx context.Context, workloadId string) error
-	DeleteWorkloadPodsNotIn(ctx context.Context, workloadId string, keepPodIds []string) error
+	DeleteWorkloadPodsNotIn(ctx context.Context, workloadId, workloadUid string, keepPodIds []string) error
 }
 
 // WorkloadDispatchNodeInterface defines DB operations for per-dispatch node/rank
 // history offloaded from the etcd Workload status (WorkloadStatus.Nodes/.Ranks).
 type WorkloadDispatchNodeInterface interface {
 	UpsertWorkloadDispatchNode(ctx context.Context, dn *WorkloadDispatchNode) error
-	ListWorkloadDispatchNodes(ctx context.Context, workloadId string) ([]*WorkloadDispatchNode, error)
+	ListWorkloadDispatchNodes(ctx context.Context, workloadId, workloadUid string) ([]*WorkloadDispatchNode, error)
 	DeleteWorkloadDispatchNodes(ctx context.Context, workloadId string) error
-	DeleteWorkloadDispatchNodesNotIn(ctx context.Context, workloadId string, keepIndexes []int) error
+	DeleteWorkloadDispatchNodesNotIn(ctx context.Context, workloadId, workloadUid string, keepIndexes []int) error
 }
 
 type FaultInterface interface {
