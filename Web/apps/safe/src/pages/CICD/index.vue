@@ -639,7 +639,10 @@ import { encodeToBase64String } from '@/utils'
 import { useUserStore } from '@/stores/user'
 import { useDark, useDebounceFn } from '@vueuse/core'
 import { useAutoRefreshUserInfo } from '@/composables/useAutoRefreshUserInfo'
-import { useWorkloadResumePermission } from '@/composables/useWorkloadResumePermission'
+import {
+  useWorkloadResumePermission,
+  ensureResumeCooldownElapsed,
+} from '@/composables/useWorkloadResumePermission'
 // import SshConfigDialog from './Components/SshConfigDialog.vue'
 
 dayjs.extend(utc)
@@ -927,11 +930,7 @@ const getActions = (_row: Row): Action[] => [
     disabled: getResumeDisabled,
     tooltip: getResumeTooltip,
     onClick: (r: Row) => {
-      const endTime = (r as any).endTime
-      if (endTime && dayjs().diff(dayjs.utc(endTime), 'second') < 15) {
-        ElMessage.warning('Please wait 15 seconds after stopping before resuming the workload.')
-        return
-      }
+      if (!ensureResumeCooldownElapsed((r as any).endTime)) return
       curAction.value = 'Resume'
       curWlId.value = r.workloadId
       addVisible.value = true

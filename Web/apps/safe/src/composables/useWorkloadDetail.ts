@@ -2,6 +2,7 @@ import { ref, computed, watch, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getWorkloadDetail, deleteWorkload, stopWorkload, addWorkload } from '@/services'
+import { ensureResumeCooldownElapsed } from '@/composables/useWorkloadResumePermission'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 export interface UseWorkloadDetailOptions {
@@ -121,6 +122,8 @@ export function useWorkloadDetail(options: UseWorkloadDetailOptions) {
 
     try {
       const detail = await getWorkloadDetail(workloadId.value)
+
+      if (!ensureResumeCooldownElapsed(detail.endTime)) return
 
       const msg = h('div', null, [
         h('p', null, [
