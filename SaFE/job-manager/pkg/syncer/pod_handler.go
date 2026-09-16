@@ -525,10 +525,10 @@ func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload) {
 	// a new history entry. An empty Nodes after resume must land at
 	// dispatchCount-1; writing it at index 0 fabricates dispatch history.
 	for len(adminWorkload.Status.Nodes) < dispatchCount {
-		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, nil)
+		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, []string{})
 	}
 	for len(adminWorkload.Status.Ranks) < dispatchCount {
-		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, nil)
+		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, []string{})
 	}
 	adminWorkload.Status.Nodes[dispatchCount-1] = nodeNames
 	adminWorkload.Status.Ranks[dispatchCount-1] = ranks

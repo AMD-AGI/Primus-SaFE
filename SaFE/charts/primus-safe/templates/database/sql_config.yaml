@@ -961,9 +961,14 @@ data:
         PRIMARY KEY (workload_id, pod_id)
     );
     alter table workload_pod add column if not exists workload_uid VARCHAR(36) NOT NULL DEFAULT '';
+    update workload_pod p
+    set workload_uid = w.workload_uid
+    from workload w
+    where p.workload_id = w.workload_id
+      and p.workload_uid = ''
+      and w.workload_uid is not null;
     create index if not exists idx_workload_pod_workload on workload_pod (workload_id);
     create index if not exists idx_workload_pod_node on workload_pod (admin_node_name);
-    drop index if exists idx_workload_pod_run;
     do $$
     begin
         if not exists (
@@ -973,6 +978,7 @@ data:
             alter table workload_pod add primary key (workload_id, pod_id);
         end if;
     end $$;
+    drop index if exists idx_workload_pod_run;
     alter table workload_pod owner to "primus-safe";
 
     -- Per-dispatch node/rank history for a workload (Nodes/Ranks were append-only
@@ -990,8 +996,13 @@ data:
         PRIMARY KEY (workload_id, dispatch_index)
     );
     alter table workload_dispatch_node add column if not exists workload_uid VARCHAR(36) NOT NULL DEFAULT '';
+    update workload_dispatch_node d
+    set workload_uid = w.workload_uid
+    from workload w
+    where d.workload_id = w.workload_id
+      and d.workload_uid = ''
+      and w.workload_uid is not null;
     create index if not exists idx_workload_dispatch_node_workload on workload_dispatch_node (workload_id);
-    drop index if exists idx_workload_dispatch_node_run;
     do $$
     begin
         if not exists (
@@ -1001,4 +1012,5 @@ data:
             alter table workload_dispatch_node add primary key (workload_id, dispatch_index);
         end if;
     end $$;
+    drop index if exists idx_workload_dispatch_node_run;
     alter table workload_dispatch_node owner to "primus-safe";
