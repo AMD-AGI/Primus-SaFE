@@ -355,7 +355,7 @@ func TestListAvailableEvalServicesHandler(t *testing.T) {
 	m := mock_client.NewMockInterface(ctrl)
 	m.EXPECT().ListModels(gomock.Any(), "remote_api", "", false).
 		Return([]*dbclient.Model{{ID: "m1", DisplayName: "M", ModelName: "gpt"}}, nil)
-	m.EXPECT().SelectWorkloads(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+	m.EXPECT().SelectWorkloadsForList(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return([]*dbclient.Workload{}, nil)
 
 	h := &Handler{dbClient: m}
@@ -375,7 +375,7 @@ func TestListAvailableEvalServices(t *testing.T) {
 	m := mock_client.NewMockInterface(ctrl)
 	m.EXPECT().ListModels(gomock.Any(), "remote_api", "", false).
 		Return([]*dbclient.Model{{ID: "m1", DisplayName: "GPT", ModelName: "gpt", SourceURL: "http://api"}}, nil)
-	m.EXPECT().SelectWorkloads(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+	m.EXPECT().SelectWorkloadsForList(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return([]*dbclient.Workload{{WorkloadId: "w1", DisplayName: "infer"}}, nil)
 
 	h := &Handler{dbClient: m}
@@ -391,7 +391,7 @@ func TestListAvailableEvalServicesDBErrors(t *testing.T) {
 	m := mock_client.NewMockInterface(ctrl)
 	m.EXPECT().ListModels(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, assertErr)
-	m.EXPECT().SelectWorkloads(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+	m.EXPECT().SelectWorkloadsForList(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, assertErr)
 
 	h := &Handler{dbClient: m}

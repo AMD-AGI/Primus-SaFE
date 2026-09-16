@@ -619,6 +619,16 @@ Get detailed information about a specific workload.
   ],
   "nodes": [["node-001"]],
   "ranks": [["0"]],
+  "nodesHistory": [
+    {
+      "dispatchCount": 2,
+      "phase": "Failed",
+      "startTime": "2025-01-14T08:00:00",
+      "endTime": "2025-01-14T09:10:00",
+      "nodes": [["node-007"], ["node-008"]],
+      "ranks": [["0"], ["0"]]
+    }
+  ],
   "customerLabels": {},
   "specifiedNodes": [],
   "excludedNodes": [],
@@ -678,6 +688,13 @@ Only fields not already covered by "List Workloads" are listed below. Other fiel
 | pods[].containers[].exitCode    | int32      | Exit status from the last termination of the container                                                                                  |
 | nodes                           | [][]string | The node used for each workload execution, e.g. [["node-001"]]                                                                          |
 | ranks                           | [][]string | The rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above, e.g. [["0"]]                         |
+| nodesHistory                    | []object   | Nodes used by earlier runs of this workload id, archived when a resume reused the id. Oldest run first, up to the last 10 runs          |
+| nodesHistory[].dispatchCount    | int        | Number of dispatch attempts of that run                                                                                                 |
+| nodesHistory[].phase            | string     | Phase that run ended in                                                                                                                 |
+| nodesHistory[].startTime        | string     | Start time of that run (RFC3339)                                                                                                        |
+| nodesHistory[].endTime          | string     | End time of that run (RFC3339)                                                                                                          |
+| nodesHistory[].nodes            | [][]string | The node used for each dispatch of that run, e.g. [["node-007"]]                                                                        |
+| nodesHistory[].ranks            | [][]string | The rank corresponding to each node of that run                                                                                          |
 | customerLabels                  | object     | Custom labels associated with the workload                                                                                              |
 | specifiedNodes                  | []string   | The nodes explicitly specified to run on                                                                                                |
 | nodesAffinity                   | string     | Node affinity mode for `specifiedNodes`: `required`, `preferred`, or empty when not applicable. Same semantics as create request.       |

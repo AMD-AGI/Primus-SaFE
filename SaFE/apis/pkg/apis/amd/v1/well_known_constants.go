@@ -137,6 +137,7 @@ const (
 	WorkloadFinalizer                 = PrimusSafeDomain + "workload.finalizer"
 	MonarchMeshFinalizer              = PrimusSafeDomain + "monarch.mesh.finalizer"
 	WorkloadIdLabel                   = WorkloadPrefix + "id"
+	WorkloadUidLabel                  = WorkloadPrefix + "uid"
 	WorkloadDispatchedAnnotation      = WorkloadPrefix + "dispatched"
 	WorkloadScheduledAnnotation       = WorkloadPrefix + "scheduled"
 	WorkloadPreemptedAnnotation       = WorkloadPrefix + "preempted"

@@ -32,8 +32,8 @@ func TestWorkloadPodConvertRoundTrip(t *testing.T) {
 			{Name: "sidecar", ExitCode: 0},
 		},
 	}
-	row := WorkloadPodFromV1("wl-1", 4, &in)
-	if row.WorkloadId != "wl-1" || row.DispatchCount != 4 {
+	row := WorkloadPodFromV1("wl-1", "uid-1", 4, &in)
+	if row.WorkloadId != "wl-1" || row.WorkloadUid != "uid-1" || row.DispatchCount != 4 {
 		t.Fatalf("unexpected row identity: %+v", row)
 	}
 	out := row.ToV1()
@@ -44,7 +44,7 @@ func TestWorkloadPodConvertRoundTrip(t *testing.T) {
 
 func TestWorkloadPodConvertEmptyContainers(t *testing.T) {
 	in := v1.WorkloadPod{PodId: "p", AdminNodeName: "n"}
-	out := WorkloadPodFromV1("wl", 0, &in).ToV1()
+	out := WorkloadPodFromV1("wl", "uid", 0, &in).ToV1()
 	if len(out.Containers) != 0 {
 		t.Fatalf("expected no containers, got %+v", out.Containers)
 	}
@@ -56,9 +56,12 @@ func TestWorkloadPodConvertEmptyContainers(t *testing.T) {
 func TestDispatchNodesConvert(t *testing.T) {
 	nodes := [][]string{{"n1", "n2"}, {"n3"}}
 	ranks := [][]string{{"0", "1"}, {"0"}}
-	rows := WorkloadDispatchNodesFromV1("wl", nodes, ranks)
+	rows := WorkloadDispatchNodesFromV1("wl", "uid", nodes, ranks)
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0].WorkloadUid != "uid" {
+		t.Fatalf("workload UID was not carried: %+v", rows[0])
 	}
 	got := DispatchNodesToV1(rows)
 	if !reflect.DeepEqual(got, nodes) {
