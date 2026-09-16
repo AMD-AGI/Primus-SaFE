@@ -230,24 +230,11 @@ func TestRemoveWorkloadPodEmptyId(t *testing.T) {
 }
 
 func TestIsStaleWorkloadGeneration(t *testing.T) {
-	now := metav1.Now()
-	earlier := metav1.NewTime(now.Add(-time.Hour))
-	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{UID: "new-uid", CreationTimestamp: now}}
-	assert.Equal(t, isStaleWorkloadGeneration(w, "old-uid", time.Time{}), true)
-	assert.Equal(t, isStaleWorkloadGeneration(w, "new-uid", earlier.Time), false)
-	assert.Equal(t, isStaleWorkloadGeneration(w, "", earlier.Time), true)
-	assert.Equal(t, isStaleWorkloadGeneration(w, "", now.Time), false)
-	assert.Equal(t, isStaleWorkloadGeneration(w, "", time.Time{}), false)
-}
-
-func TestIsStaleWorkloadDispatch(t *testing.T) {
-	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
-		Labels: map[string]string{v1.WorkloadDispatchCntLabel: "3"},
-	}}
-	assert.Equal(t, isStaleWorkloadDispatch(w, 2), true)
-	assert.Equal(t, isStaleWorkloadDispatch(w, 3), false)
-	assert.Equal(t, isStaleWorkloadDispatch(w, 4), false)
-	assert.Equal(t, isStaleWorkloadDispatch(w, 0), false)
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{UID: "new-uid"}}
+	assert.Equal(t, isStaleWorkloadGeneration(w, "old-uid"), true)
+	assert.Equal(t, isStaleWorkloadGeneration(w, "new-uid"), false)
+	assert.Equal(t, isStaleWorkloadGeneration(w, ""), false)
+	assert.Equal(t, isStaleWorkloadGeneration(nil, "old-uid"), false)
 }
 
 func TestRemoveWorkloadPodIgnoresPreviousRun(t *testing.T) {

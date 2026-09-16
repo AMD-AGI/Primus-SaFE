@@ -94,22 +94,19 @@ func (c *Client) DeleteWorkloadDispatchNodes(ctx context.Context, workloadId str
 	return err
 }
 
-// DeleteWorkloadDispatchNodesNotIn removes dispatch rows whose index is not in
-// keepIndexes. An empty keep list is a no-op for the current generation because
-// it may represent an offloaded snapshot that has already been cleared in
-// memory. Rows stamped with a different workload_uid are still dropped.
+// DeleteWorkloadDispatchNodesNotIn removes dispatch rows of the current CR UID
+// whose index is not in keepIndexes. An empty keep list is a no-op because it
+// may represent an offloaded snapshot that has already been cleared in memory.
+// Rows stamped with another UID are left in place.
 func (c *Client) DeleteWorkloadDispatchNodesNotIn(
 	ctx context.Context, workloadId, workloadUid string, keepIndexes []int,
 ) error {
+	if len(keepIndexes) == 0 {
+		return nil
+	}
 	db, err := c.getDB()
 	if err != nil {
 		return err
-	}
-	if err = c.deleteWorkloadDispatchNodesOfOtherUids(ctx, db, workloadId, workloadUid); err != nil {
-		return err
-	}
-	if len(keepIndexes) == 0 {
-		return nil
 	}
 	query, args, err := sqlx.In(
 		fmt.Sprintf(`DELETE FROM %s WHERE workload_id = ? AND workload_uid = ? AND dispatch_index NOT IN (?)`,
@@ -121,21 +118,6 @@ func (c *Client) DeleteWorkloadDispatchNodesNotIn(
 	query = db.Rebind(query)
 	if _, err = db.ExecContext(ctx, query, args...); err != nil {
 		klog.ErrorS(err, "failed to delete stale workload dispatch nodes", "workloadId", workloadId)
-	}
-	return err
-}
-
-// deleteWorkloadDispatchNodesOfOtherUids drops leftover rows from a previous CR.
-func (c *Client) deleteWorkloadDispatchNodesOfOtherUids(
-	ctx context.Context, db *instrumentedDB, workloadId, keepUid string,
-) error {
-	if keepUid == "" {
-		return nil
-	}
-	_, err := db.ExecContext(ctx, deleteWorkloadDispatchNodesForResumeCmd, workloadId, keepUid)
-	if err != nil {
-		klog.ErrorS(err, "failed to delete workload dispatch nodes of other UIDs",
-			"workloadId", workloadId)
 	}
 	return err
 }

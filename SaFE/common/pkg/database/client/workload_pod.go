@@ -132,17 +132,15 @@ func (c *Client) DeleteWorkloadPods(ctx context.Context, workloadId string) erro
 	return err
 }
 
-// DeleteWorkloadPodsNotIn removes pods of a workload whose pod_id is not in
-// keepPodIds. When keepPodIds is empty it removes every pod of the current
-// generation. Rows stamped with a different workload_uid are always dropped.
+// DeleteWorkloadPodsNotIn removes pods of the current CR UID whose pod_id is
+// not in keepPodIds. When keepPodIds is empty it removes every current-UID pod.
+// Rows stamped with another UID are left in place; reads are scoped to the
+// current UID, and the next write of the same pod id overwrites the row.
 func (c *Client) DeleteWorkloadPodsNotIn(
 	ctx context.Context, workloadId, workloadUid string, keepPodIds []string,
 ) error {
 	db, err := c.getDB()
 	if err != nil {
-		return err
-	}
-	if err = c.deleteWorkloadPodsOfOtherUids(ctx, db, workloadId, workloadUid); err != nil {
 		return err
 	}
 	if len(keepPodIds) == 0 {
@@ -159,20 +157,6 @@ func (c *Client) DeleteWorkloadPodsNotIn(
 	query = db.Rebind(query)
 	if _, err = db.ExecContext(ctx, query, args...); err != nil {
 		klog.ErrorS(err, "failed to delete stale workload pods", "workloadId", workloadId)
-	}
-	return err
-}
-
-// deleteWorkloadPodsOfOtherUids drops leftover rows from a previous CR.
-func (c *Client) deleteWorkloadPodsOfOtherUids(
-	ctx context.Context, db *instrumentedDB, workloadId, keepUid string,
-) error {
-	if keepUid == "" {
-		return nil
-	}
-	_, err := db.ExecContext(ctx, deleteWorkloadPodsForResumeCmd, workloadId, keepUid)
-	if err != nil {
-		klog.ErrorS(err, "failed to delete workload pods of other UIDs", "workloadId", workloadId)
 	}
 	return err
 }

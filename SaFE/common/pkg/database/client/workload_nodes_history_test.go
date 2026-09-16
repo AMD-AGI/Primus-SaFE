@@ -189,12 +189,6 @@ func TestArchiveWorkloadNodesForResume(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(updateWorkloadNodesHistoryCmd)).
 		WithArgs(sqlmock.AnyArg(), "w1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadDispatchNodesForResumeCmd)).
-		WithArgs("w1", "new-uid").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadPodsForResumeCmd)).
-		WithArgs("w1", "new-uid").
-		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	previous := &Workload{
 		WorkloadId:    "w1",
@@ -210,54 +204,8 @@ func TestArchiveWorkloadNodesForResume(t *testing.T) {
 	}
 }
 
-func TestArchiveWorkloadNodesForResumeContinuesAfterDeleteFailure(t *testing.T) {
+func TestArchiveWorkloadNodesForResumeSkipsWhenNoNodes(t *testing.T) {
 	c, mock := newMockClient(t)
-	mock.ExpectQuery(regexp.QuoteMeta(selectWorkloadForNodesArchiveCmd)).
-		WithArgs("w1").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"workload_id", "nodes_history",
-		}).AddRow("w1", nil))
-	mock.ExpectExec(regexp.QuoteMeta(updateWorkloadNodesHistoryCmd)).
-		WithArgs(sqlmock.AnyArg(), "w1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	deleteErr := errors.New("delete failed")
-	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadDispatchNodesForResumeCmd)).
-		WithArgs("w1", "new-uid").
-		WillReturnError(deleteErr)
-	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadPodsForResumeCmd)).
-		WithArgs("w1", "new-uid").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
-	previous := &Workload{
-		WorkloadId:    "w1",
-		DispatchCount: 1,
-		Phase:         dbutils.NullString("Succeeded"),
-	}
-	rows := WorkloadDispatchNodesFromV1("w1", "old-uid", [][]string{{"n1"}}, [][]string{{"0"}})
-	if err := c.ArchiveWorkloadNodesForResume(
-		t.Context(), previous, "new-uid", rows,
-	); !errors.Is(err, deleteErr) {
-		t.Fatalf("expected delete failure, got %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestArchiveWorkloadNodesForResumeCleansRowsWithoutEntry(t *testing.T) {
-	c, mock := newMockClient(t)
-	mock.ExpectQuery(regexp.QuoteMeta(selectWorkloadForNodesArchiveCmd)).
-		WithArgs("w1").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"workload_id", "nodes_history",
-		}).AddRow("w1", nil))
-	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadDispatchNodesForResumeCmd)).
-		WithArgs("w1", "new-uid").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadPodsForResumeCmd)).
-		WithArgs("w1", "new-uid").
-		WillReturnResult(sqlmock.NewResult(0, 2))
-
 	previous := &Workload{
 		WorkloadId: "w1",
 	}
@@ -290,11 +238,21 @@ func TestArchiveWorkloadNodesForResumeKeepsHistoryOnCorruptJSON(t *testing.T) {
 
 func TestDeleteWorkloadDispatchNodesNotInEmptyKeep(t *testing.T) {
 	c, mock := newMockClient(t)
-	mock.ExpectExec(regexp.QuoteMeta(deleteWorkloadDispatchNodesForResumeCmd)).
-		WithArgs("w1", "uid-1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := c.DeleteWorkloadDispatchNodesNotIn(t.Context(), "w1", "uid-1", nil); err != nil {
 		t.Fatalf("empty keep must not delete current dispatch rows: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeleteWorkloadDispatchNodesNotInKeepIndexes(t *testing.T) {
+	c, mock := newMockClient(t)
+	mock.ExpectExec("DELETE FROM workload_dispatch_node").
+		WithArgs("w1", "uid-1", 0, 1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := c.DeleteWorkloadDispatchNodesNotIn(t.Context(), "w1", "uid-1", []int{0, 1}); err != nil {
+		t.Fatalf("keep indexes delete failed: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

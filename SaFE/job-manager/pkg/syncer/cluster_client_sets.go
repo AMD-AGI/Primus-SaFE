@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
-	"time"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -83,7 +82,6 @@ type resourceMessage struct {
 	// dispatch count for this message — note that messages can be redelivered due to failover
 	dispatchCount int
 	workloadUid   string
-	createdAt     time.Time
 }
 
 // newClusterClientSets creates and initializes a new ClusterClientSets instance.
@@ -256,9 +254,8 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 		uid:           newUnstructured.GetUID(),
 		gvk:           newUnstructured.GroupVersionKind(),
 		action:        action,
-		dispatchCount: 1,
+		dispatchCount: 0,
 		workloadUid:   v1.GetLabel(newUnstructured, v1.WorkloadUidLabel),
-		createdAt:     newUnstructured.GetCreationTimestamp().Time,
 	}
 	if msg.action != ResourceDel && !newUnstructured.GetDeletionTimestamp().IsZero() {
 		msg.action = ResourceDeleting
@@ -272,9 +269,6 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 			msg.meshName = oldUnstructured.GetLabels()[monarchMeshLabel]
 			if msg.workloadUid == "" {
 				msg.workloadUid = v1.GetLabel(oldUnstructured, v1.WorkloadUidLabel)
-			}
-			if msg.createdAt.IsZero() {
-				msg.createdAt = oldUnstructured.GetCreationTimestamp().Time
 			}
 		}
 	}

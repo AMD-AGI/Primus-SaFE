@@ -2153,16 +2153,17 @@ func TestGetWorkloadCleansEmptyDispatchNodes(t *testing.T) {
 
 	h, user, mockDB := newWorkloadDBHandler(t, ctrl)
 	mockDB.EXPECT().GetWorkload(gomock.Any(), "wl-clean").Return(&dbclient.Workload{
-		WorkloadId: "wl-clean",
-		Workspace:  "ws-1",
-		Cluster:    "c1",
-		UserId:     sql.NullString{String: user.Name, Valid: true},
-		GVK:        `{"group":"kubeflow.org","version":"v1","kind":"PyTorchJob"}`,
-		Nodes:      sql.NullString{String: `[["","n1"],["n2"]]`, Valid: true},
-		Ranks:      sql.NullString{String: `[["skip","0"],["1"]]`, Valid: true},
+		WorkloadId:  "wl-clean",
+		Workspace:   "ws-1",
+		Cluster:     "c1",
+		UserId:      sql.NullString{String: user.Name, Valid: true},
+		WorkloadUId: sql.NullString{String: "uid-clean", Valid: true},
+		GVK:         `{"group":"kubeflow.org","version":"v1","kind":"PyTorchJob"}`,
+		Nodes:       sql.NullString{String: `[["","n1"],["n2"]]`, Valid: true},
+		Ranks:       sql.NullString{String: `[["skip","0"],["1"]]`, Valid: true},
 	}, nil)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "wl-clean", "uid-clean").Return(nil, nil)
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "wl-clean", "uid-clean").Return(nil, nil)
 
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)

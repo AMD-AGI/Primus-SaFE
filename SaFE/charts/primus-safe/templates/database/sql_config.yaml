@@ -935,9 +935,11 @@ data:
 
     -- Per-pod detail for a workload, offloaded from the etcd Workload status so
     -- very large workloads (>10k pods) do not exceed the etcd object size limit.
-    -- One row per pod and CR generation; written by the job-manager syncer,
-    -- read by the apiserver for workload detail/log/ops paths. The etcd status
-    -- keeps only an O(node) aggregate (nodeUsage) for the scheduling hot path.
+    -- One row per pod keyed by (workload_id, pod_id). workload_uid records the
+    -- CR that last wrote the row; it is not part of the primary key.
+    -- Written by the job-manager syncer, read by the apiserver for workload
+    -- detail/log/ops paths. The etcd status keeps only an O(node) aggregate
+    -- (nodeUsage) for the scheduling hot path.
     create table if not exists workload_pod
     (
         workload_id      VARCHAR(64) NOT NULL,
@@ -959,19 +961,24 @@ data:
         PRIMARY KEY (workload_id, pod_id)
     );
     alter table workload_pod add column if not exists workload_uid VARCHAR(36) NOT NULL DEFAULT '';
-    update workload_pod p
-    set workload_uid = w.workload_uid
-    from workload w
-    where p.workload_id = w.workload_id
-      and p.workload_uid = ''
-      and w.workload_uid is not null;
     create index if not exists idx_workload_pod_workload on workload_pod (workload_id);
     create index if not exists idx_workload_pod_node on workload_pod (admin_node_name);
+    drop index if exists idx_workload_pod_run;
+    do $$
+    begin
+        if not exists (
+            select 1 from pg_constraint
+            where conrelid = 'workload_pod'::regclass and contype = 'p'
+        ) then
+            alter table workload_pod add primary key (workload_id, pod_id);
+        end if;
+    end $$;
     alter table workload_pod owner to "primus-safe";
 
     -- Per-dispatch node/rank history for a workload (Nodes/Ranks were append-only
-    -- per retry in the etcd status). One row per CR generation and dispatch
-    -- index; written by job-manager, read by dispatcher and ops/detail.
+    -- per retry in the etcd status). One row per dispatch index keyed by
+    -- (workload_id, dispatch_index). workload_uid records the CR that last
+    -- wrote the row; written by job-manager, read by dispatcher and ops/detail.
     create table if not exists workload_dispatch_node
     (
         workload_id     VARCHAR(64) NOT NULL,
@@ -983,11 +990,15 @@ data:
         PRIMARY KEY (workload_id, dispatch_index)
     );
     alter table workload_dispatch_node add column if not exists workload_uid VARCHAR(36) NOT NULL DEFAULT '';
-    update workload_dispatch_node d
-    set workload_uid = w.workload_uid
-    from workload w
-    where d.workload_id = w.workload_id
-      and d.workload_uid = ''
-      and w.workload_uid is not null;
     create index if not exists idx_workload_dispatch_node_workload on workload_dispatch_node (workload_id);
+    drop index if exists idx_workload_dispatch_node_run;
+    do $$
+    begin
+        if not exists (
+            select 1 from pg_constraint
+            where conrelid = 'workload_dispatch_node'::regclass and contype = 'p'
+        ) then
+            alter table workload_dispatch_node add primary key (workload_id, dispatch_index);
+        end if;
+    end $$;
     alter table workload_dispatch_node owner to "primus-safe";

@@ -755,35 +755,13 @@ func TestHandleJobIgnoresPreviousRun(t *testing.T) {
 	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
 }
 
-func TestHandleJobIgnoresEarlierDispatch(t *testing.T) {
+func TestEventDispatchCountFallsBackToWorkload(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
-		Name: "w",
-		UID:  "uid-1",
-		Labels: map[string]string{
-			v1.WorkloadDispatchCntLabel: "2",
-		},
-		Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
+		Labels: map[string]string{v1.WorkloadDispatchCntLabel: "2"},
 	}}
-	w.Spec.Workspace = "ns"
-	w.Status.Phase = v1.WorkloadRunning
-	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).WithStatusSubresource(w).Build()
-	r := &SyncerReconciler{Client: cl}
-
-	_, err := r.handleJob(context.Background(),
-		&resourceMessage{
-			workloadId:    "w",
-			name:          "w",
-			namespace:     "ns",
-			gvk:           schema.GroupVersionKind{Kind: "Job"},
-			action:        ResourceDel,
-			workloadUid:   "uid-1",
-			dispatchCount: 1,
-		},
-		monkeyClientSets())
-	assert.NilError(t, err)
-	got := &v1.Workload{}
-	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
-	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
+	assert.Equal(t, eventDispatchCount(w, &resourceMessage{dispatchCount: 1}), 1)
+	assert.Equal(t, eventDispatchCount(w, &resourceMessage{}), 2)
+	assert.Equal(t, eventDispatchCount(w, nil), 2)
 }
 
 func runnerFailureFixture(t *testing.T, elapsed time.Duration, conditions interface{}) (*SyncerReconciler, *v1.Workload, *resourceMessage, *unstructured.Unstructured) {

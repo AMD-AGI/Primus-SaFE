@@ -125,10 +125,9 @@ func (r *SyncerReconciler) writeWorkloadStatusToDB(ctx context.Context, w *v1.Wo
 	if err := r.dbClient.DeleteWorkloadPodsNotIn(ctx, w.Name, workloadUid, keepPodIds); err != nil {
 		return err
 	}
-	// A resumed run archives and drops the previous dispatch rows. If this
-	// snapshot still has pods but no Nodes (common when the previous pod id is
-	// reused and hydrate found no dispatch history), rebuild from the pods so
-	// the current assignment is written at the live dispatch index.
+	// A resumed run hydrates only the current CR UID. If this snapshot still
+	// has pods but no Nodes, rebuild from the pods so the current assignment is
+	// written at the live dispatch index and overwrites the previous row.
 	if currentDispatchNodesNeedRepair(w) {
 		r.updateWorkloadNodes(w)
 	}

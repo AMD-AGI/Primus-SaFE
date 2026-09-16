@@ -279,21 +279,10 @@ func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
 	if podUid == "" {
 		podUid = message.workloadUid
 	}
-	createdAt := pod.CreationTimestamp.Time
-	if createdAt.IsZero() {
-		createdAt = message.createdAt
-	}
-	if isStaleWorkloadGeneration(adminWorkload, podUid, createdAt) {
+	if isStaleWorkloadGeneration(adminWorkload, podUid) {
 		klog.V(4).InfoS("ignore pod event from a previous workload run",
 			"workload", adminWorkload.Name, "pod", pod.Name,
 			"eventUID", podUid, "currentUID", adminWorkload.UID)
-		return nil, nil
-	}
-	if isStaleWorkloadDispatch(adminWorkload, message.dispatchCount) {
-		klog.V(4).InfoS("ignore pod event from an earlier dispatch",
-			"workload", adminWorkload.Name, "pod", pod.Name,
-			"eventDispatch", message.dispatchCount,
-			"currentDispatch", v1.GetWorkloadDispatchCnt(adminWorkload))
 		return nil, nil
 	}
 	if podUid == "" && adminWorkload.UID != "" {
@@ -575,17 +564,10 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	if adminWorkload == nil {
 		return err
 	}
-	if isStaleWorkloadGeneration(adminWorkload, message.workloadUid, message.createdAt) {
+	if isStaleWorkloadGeneration(adminWorkload, message.workloadUid) {
 		klog.V(4).InfoS("ignore pod delete from a previous workload run",
 			"workload", adminWorkload.Name, "pod", message.name,
 			"eventUID", message.workloadUid, "currentUID", adminWorkload.UID)
-		return nil
-	}
-	if isStaleWorkloadDispatch(adminWorkload, message.dispatchCount) {
-		klog.V(4).InfoS("ignore pod delete from an earlier dispatch",
-			"workload", adminWorkload.Name, "pod", message.name,
-			"eventDispatch", message.dispatchCount,
-			"currentDispatch", v1.GetWorkloadDispatchCnt(adminWorkload))
 		return nil
 	}
 
@@ -1045,30 +1027,13 @@ func indexOfPod(pods []v1.WorkloadPod, podId string) int {
 }
 
 // isStaleWorkloadGeneration reports whether a data-plane object belongs to a
-// previous CR that reused this workload id. A matching uid label is preferred;
-// pods created before the current CR are treated as leftover when the label is
-// absent.
-func isStaleWorkloadGeneration(w *v1.Workload, workloadUid string, createdAt time.Time) bool {
-	if w == nil || w.UID == "" {
+// previous CR that reused this workload id. Only a mismatched uid label is
+// stale. Objects without a uid are not classified; dispatch count is ignored.
+func isStaleWorkloadGeneration(w *v1.Workload, workloadUid string) bool {
+	if w == nil || w.UID == "" || workloadUid == "" {
 		return false
 	}
-	if workloadUid != "" {
-		return workloadUid != string(w.UID)
-	}
-	if createdAt.IsZero() || w.CreationTimestamp.IsZero() {
-		return false
-	}
-	return createdAt.Before(w.CreationTimestamp.Time)
-}
-
-// isStaleWorkloadDispatch reports whether an event belongs to an earlier
-// dispatch attempt of the current workload generation.
-func isStaleWorkloadDispatch(w *v1.Workload, dispatchCount int) bool {
-	if w == nil || dispatchCount <= 0 {
-		return false
-	}
-	current := v1.GetWorkloadDispatchCnt(w)
-	return current > 0 && dispatchCount < current
+	return workloadUid != string(w.UID)
 }
 
 // createReservedFaults creates fault to reserve nodes for the workload

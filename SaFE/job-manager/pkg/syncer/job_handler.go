@@ -56,17 +56,10 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 	if err != nil || adminWorkload == nil {
 		return ctrlruntime.Result{}, err
 	}
-	if isStaleWorkloadGeneration(adminWorkload, message.workloadUid, message.createdAt) {
+	if isStaleWorkloadGeneration(adminWorkload, message.workloadUid) {
 		klog.V(4).InfoS("ignore job event from a previous workload run",
 			"workload", adminWorkload.Name, "object", message.name,
 			"eventUID", message.workloadUid, "currentUID", adminWorkload.UID)
-		return ctrlruntime.Result{}, nil
-	}
-	if isStaleWorkloadDispatch(adminWorkload, message.dispatchCount) {
-		klog.V(4).InfoS("ignore job event from an earlier dispatch",
-			"workload", adminWorkload.Name, "object", message.name,
-			"eventDispatch", message.dispatchCount,
-			"currentDispatch", v1.GetWorkloadDispatchCnt(adminWorkload))
 		return ctrlruntime.Result{}, nil
 	}
 	if message.namespace != adminWorkload.Spec.Workspace {
@@ -138,7 +131,7 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 	if ok, err := r.shouldReSchedule(ctx, adminWorkload, message, clientSets); err != nil {
 		return ctrlruntime.Result{}, err
 	} else if ok {
-		if err = r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
+		if err = r.reSchedule(ctx, adminWorkload, eventDispatchCount(adminWorkload, message)); err != nil {
 			klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
 			return ctrlruntime.Result{}, err
 		}
@@ -452,9 +445,9 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 				break
 			}
 		}
-		if shouldTerminateWorkload(adminWorkload, status, message.dispatchCount) {
+		if shouldTerminateWorkload(adminWorkload, status, eventDispatchCount(adminWorkload, message)) {
 			klog.Infof("workload %s phase -> Failed (k8s failed, kind: %s, dispatchCnt: %d, message: %s)",
-				adminWorkload.Name, adminWorkload.SpecKind(), message.dispatchCount, status.Message)
+				adminWorkload.Name, adminWorkload.SpecKind(), eventDispatchCount(adminWorkload, message), status.Message)
 			adminWorkload.Status.Phase = v1.WorkloadFailed
 		}
 	case v1.K8sDeleted:
@@ -463,7 +456,7 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 				break
 			}
 		}
-		if shouldTerminateWorkload(adminWorkload, status, message.dispatchCount) {
+		if shouldTerminateWorkload(adminWorkload, status, eventDispatchCount(adminWorkload, message)) {
 			if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
 				// Currently, when an EphemeralRunner successfully completes,
 				// it does not set a success status but is instead deleted directly.
@@ -562,6 +555,17 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, newCondition *metav1.Co
 			adminWorkload.Status.Conditions = conditions
 		}
 	}
+}
+
+// eventDispatchCount returns the dispatch count carried by an event when the
+// object is labeled, and the workload's current count otherwise. Unlabeled
+// mesh/sibling objects default to 0 on the message and must not look like
+// dispatch 1.
+func eventDispatchCount(w *v1.Workload, message *resourceMessage) int {
+	if message != nil && message.dispatchCount > 0 {
+		return message.dispatchCount
+	}
+	return v1.GetWorkloadDispatchCnt(w)
 }
 
 // shouldTerminateWorkload determines if a workload has reached its end state.

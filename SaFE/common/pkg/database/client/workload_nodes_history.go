@@ -8,7 +8,6 @@ package client
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"k8s.io/klog/v2"
@@ -30,10 +29,6 @@ var (
 		`SELECT workload_id, nodes_history FROM %s WHERE workload_id = $1`, TWorkload)
 	updateWorkloadNodesHistoryCmd = fmt.Sprintf(
 		`UPDATE %s SET nodes_history = $1 WHERE workload_id = $2`, TWorkload)
-	deleteWorkloadDispatchNodesForResumeCmd = fmt.Sprintf(
-		`DELETE FROM %s WHERE workload_id = $1 AND workload_uid IS DISTINCT FROM $2`, TWorkloadDispatchNode)
-	deleteWorkloadPodsForResumeCmd = fmt.Sprintf(
-		`DELETE FROM %s WHERE workload_id = $1 AND workload_uid IS DISTINCT FROM $2`, TWorkloadPod)
 )
 
 // WorkloadNodesHistoryEntry is the node assignment of one run of a workload id,
@@ -141,8 +136,10 @@ func appendWorkloadNodesHistory(
 	}
 }
 
-// ArchiveWorkloadNodesForResume best-effort archives a pre-create dispatch
-// snapshot and deletes the previous run's detail rows after CR creation.
+// ArchiveWorkloadNodesForResume best-effort writes the pre-create node snapshot
+// into nodes_history after the new CR exists. It does not delete pod or dispatch
+// rows; the new run overwrites the same keys, and reads are scoped to the new
+// CR UID so leftover rows stay invisible.
 func (c *Client) ArchiveWorkloadNodesForResume(
 	ctx context.Context, previous *Workload, currentUid string, rows []*WorkloadDispatchNode,
 ) error {
@@ -152,70 +149,39 @@ func (c *Client) ArchiveWorkloadNodesForResume(
 	if currentUid == "" {
 		return fmt.Errorf("current workload UID is empty")
 	}
+	entry, err := buildWorkloadNodesHistoryEntry(previous, rows)
+	if err != nil {
+		return err
+	}
+	if entry == nil {
+		klog.Infof("no previous workload nodes to archive, workloadId=%s currentUID=%s",
+			previous.WorkloadId, currentUid)
+		return nil
+	}
 	db, err := c.getDB()
 	if err != nil {
 		return err
 	}
-	var archiveErrors []error
-	appended := false
-	dropped := 0
-	archiveBytes := 0
-	entry, buildErr := buildWorkloadNodesHistoryEntry(previous, rows)
-	if buildErr != nil {
-		return buildErr
-	}
 	current := &Workload{}
 	if err = db.GetContext(ctx, current, selectWorkloadForNodesArchiveCmd, previous.WorkloadId); err != nil {
-		archiveErrors = append(archiveErrors, err)
-	} else if entry != nil {
-		var raw string
-		raw, dropped, err = appendWorkloadNodesHistory(dbutils.ParseNullString(current.NodesHistory), entry)
-		if err != nil {
-			archiveErrors = append(archiveErrors, err)
-		} else {
-			if _, err = db.ExecContext(ctx, updateWorkloadNodesHistoryCmd, raw, previous.WorkloadId); err != nil {
-				archiveErrors = append(archiveErrors, err)
-			} else {
-				appended = true
-				archiveBytes = len(raw)
-			}
-		}
+		return err
 	}
-	if entry != nil && !appended {
-		return errors.Join(archiveErrors...)
+	raw, dropped, err := appendWorkloadNodesHistory(dbutils.ParseNullString(current.NodesHistory), entry)
+	if err != nil {
+		return err
 	}
-
-	var dispatchN, podN int64
-	dispatchRes, dispatchErr := db.ExecContext(
-		ctx, deleteWorkloadDispatchNodesForResumeCmd, previous.WorkloadId, currentUid)
-	if dispatchErr != nil {
-		archiveErrors = append(archiveErrors, dispatchErr)
-	} else {
-		dispatchN, _ = dispatchRes.RowsAffected()
+	if _, err = db.ExecContext(ctx, updateWorkloadNodesHistoryCmd, raw, previous.WorkloadId); err != nil {
+		return err
 	}
-	podRes, podErr := db.ExecContext(ctx, deleteWorkloadPodsForResumeCmd, previous.WorkloadId, currentUid)
-	if podErr != nil {
-		archiveErrors = append(archiveErrors, podErr)
-	} else {
-		podN, _ = podRes.RowsAffected()
-	}
-	klog.Infof("archived previous workload run, workloadId=%s historyEntries=%d dispatchDeleted=%d podsDeleted=%d",
-		previous.WorkloadId, boolToInt(appended), dispatchN, podN)
+	klog.Infof("archived previous workload run, workloadId=%s currentUID=%s historyBytes=%d",
+		previous.WorkloadId, currentUid, len(raw))
 	if dropped > 0 {
 		klog.Infof("workload nodes history dropped %d older run(s) at the cap, workloadId=%s",
 			dropped, previous.WorkloadId)
 	}
-	if archiveBytes > maxWorkloadNodesHistoryBytes {
+	if len(raw) > maxWorkloadNodesHistoryBytes {
 		klog.Infof("workload nodes history retains an oversized latest run, workloadId=%s bytes=%d",
-			previous.WorkloadId, archiveBytes)
+			previous.WorkloadId, len(raw))
 	}
-	return errors.Join(archiveErrors...)
-}
-
-// boolToInt renders an archive outcome as a log counter.
-func boolToInt(value bool) int {
-	if value {
-		return 1
-	}
-	return 0
+	return nil
 }
