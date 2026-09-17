@@ -20,6 +20,7 @@ import (
 	testifyassert "github.com/stretchr/testify/assert"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang/mock/gomock"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -27,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -35,6 +37,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -1061,4 +1064,54 @@ func TestGetWorkspaceDisplayName(t *testing.T) {
 
 	_, err = h.getWorkspaceDisplayName(context.Background(), "missing")
 	testifyassert.Error(t, err)
+}
+
+func TestGetNodePodLog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	node := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node-1",
+			Labels: map[string]string{v1.ClusterIdLabel: "c1"},
+		},
+	}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name: "node-agent-pod", Namespace: common.PrimusSafeNamespace,
+		Labels: map[string]string{
+			v1.ClusterManageClusterLabel: "c1",
+			v1.ClusterManageNodeLabel:    "node-1",
+		},
+		CreationTimestamp: metav1.Now(),
+	}}
+	h, user := newFullHandler([]client.Object{node}, pod)
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "node-1")
+	h.GetNodePodLog(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+func TestListNodeRebootLogHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}}
+	h, user := newAdminHandlerWithObjects(node)
+	mockDB := mock_client.NewMockInterface(ctrl)
+	h.dbClient = mockDB
+	mockDB.EXPECT().SelectJobs(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*dbclient.OpsJob{{JobId: "job-1"}}, nil)
+	mockDB.EXPECT().CountJobs(gomock.Any(), gomock.Any()).Return(1, nil)
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "node-1")
+	h.ListNodeRebootLog(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
 }

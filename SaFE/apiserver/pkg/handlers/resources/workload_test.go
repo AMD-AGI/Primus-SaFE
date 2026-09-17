@@ -2387,3 +2387,34 @@ func TestValidateWorkloadId(t *testing.T) {
 	// Long enough for an object name but too long for the owner label it becomes.
 	assert.Assert(t, validateWorkloadId(strings.Repeat("x", 100)) != nil)
 }
+
+func TestGetWorkloadForAuthDBDisabled(t *testing.T) {
+	// DB disabled -> falls back to admin (controller-runtime) workload lookup.
+	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl-1"}}
+	h, _ := newAdminHandlerWithObjects(wl)
+	got, err := h.getWorkloadForAuth(context.Background(), "wl-1")
+	testifyassert.NoError(t, err)
+	assert.Equal(t, "wl-1", got.Name)
+}
+
+func TestParseGetPodLogQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Defaults applied.
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	q, err := parseGetPodLogQuery(c, "main")
+	testifyassert.NoError(t, err)
+	assert.Equal(t, "main", q.Container)
+	assert.Assert(t, q.TailLines > 0)
+
+	// Explicit container/tailLines from query.
+	rsp2 := httptest.NewRecorder()
+	c2, _ := gin.CreateTestContext(rsp2)
+	c2.Request = httptest.NewRequest(http.MethodGet, "/?container=side&tailLines=50", nil)
+	q2, err := parseGetPodLogQuery(c2, "main")
+	testifyassert.NoError(t, err)
+	assert.Equal(t, "side", q2.Container)
+	assert.Equal(t, int64(50), q2.TailLines)
+}

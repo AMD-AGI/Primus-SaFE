@@ -701,3 +701,38 @@ func TestGetClusterRedactsInfraForNonAdmin(t *testing.T) {
 	testifyassert.NotNil(t, got2.Nodes)
 	testifyassert.NotNil(t, got2.KubeServiceAddress)
 }
+
+func TestGetClusterPodLog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name: "kubespray-pod", Namespace: common.PrimusSafeNamespace,
+		Labels:            map[string]string{v1.ClusterManageClusterLabel: "c1"},
+		CreationTimestamp: metav1.Now(),
+	}}
+	h, user := newFullHandler([]client.Object{cluster}, pod)
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "c1")
+	h.GetClusterPodLog(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+func TestGetClusterPodLogNoPod(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}
+	h, user := newFullHandler([]client.Object{cluster})
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "c1")
+	h.GetClusterPodLog(c)
+	// No pod found -> not-implemented error.
+	assert.NotEqual(t, http.StatusOK, rsp.Code)
+}
