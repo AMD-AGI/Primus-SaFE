@@ -66,6 +66,9 @@ data:
             volumeMounts:
             - mountPath: /shared/bin
               name: envd-bin
+            - mountPath: /var/run/agent-sandbox/session
+              name: envd-session-identity
+              readOnly: true
           initContainers:
           - command:
             - sh
@@ -82,7 +85,7 @@ data:
               ln -sf ld-musl-x86_64.so.1 /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true
               ( cp /amd-root-ca.crt /amd-issuing-ca.crt /amd-bundle.pem /setup-amd-ca.sh /shared/bin/ \
                 && chmod +x /shared/bin/setup-amd-ca.sh ) 2>/dev/null || true
-            image: harbor.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/proxy/primussafe/agent-sandbox-envd-injector:202605061428
+            image: harbor.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/{{ .Values.sandbox.envd_injector_image }}
             imagePullPolicy: IfNotPresent
             name: envd-injector
             resources: {}
@@ -93,3 +96,9 @@ data:
           volumes:
           - emptyDir: {}
             name: envd-bin
+          - name: envd-session-identity
+            downwardAPI:
+              items:
+              - path: session-id
+                fieldRef:
+                  fieldPath: metadata.annotations['runtime.agent-sandbox.io/session-id']
