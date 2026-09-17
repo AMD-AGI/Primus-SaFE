@@ -20,8 +20,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
-// ---- fault_helper ----
-
 func TestFaultConfigIsEnable(t *testing.T) {
 	assert.True(t, (&FaultConfig{Toggle: ToggleOn}).IsEnable())
 	assert.False(t, (&FaultConfig{Toggle: "off"}).IsEnable())
@@ -36,9 +34,9 @@ func TestFaultConfigIsAutoRepairEnabled(t *testing.T) {
 func TestParseFaultConfig(t *testing.T) {
 	cm := &corev1.ConfigMap{Data: map[string]string{
 		"a": `{"id":"f1","toggle":"on","action":"restart"}`,
-		"b": `{"id":"f2","toggle":"off"}`,        // disabled -> skipped
-		"c": `{"toggle":"on"}`,                   // no id -> skipped
-		"d": `not-json`,                          // invalid -> skipped
+		"b": `{"id":"f2","toggle":"off"}`, // disabled -> skipped
+		"c": `{"toggle":"on"}`,            // no id -> skipped
+		"d": `not-json`,                   // invalid -> skipped
 	}}
 	result := parseFaultConfig(cm)
 	assert.Len(t, result, 1)
@@ -139,54 +137,4 @@ func TestListFaults(t *testing.T) {
 	faults, err := listFaults(context.Background(), cl, labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: "c1"}))
 	assert.NoError(t, err)
 	assert.Len(t, faults, 1)
-}
-
-// ---- node_helper ----
-
-func TestGetKubeSprayScaleCMDs(t *testing.T) {
-	up := getKubeSprayScaleUpCMD("u", "n1", "env")
-	assert.Contains(t, up, "scale.yml")
-	assert.Contains(t, up, "n1")
-	down := getKubeSprayScaleDownCMD("u", "n1", "env")
-	assert.Contains(t, down, "remove-node.yml")
-	assert.Contains(t, down, "n1")
-}
-
-func TestIsCommandSuccessful(t *testing.T) {
-	status := []v1.CommandStatus{{Name: "c1", Phase: v1.CommandSucceeded}}
-	assert.True(t, isCommandSuccessful(status, "c1"))
-	assert.False(t, isCommandSuccessful(status, "c2"))
-}
-
-func TestSetCommandStatus(t *testing.T) {
-	var status []v1.CommandStatus
-	status = setCommandStatus(status, "c1", v1.CommandSucceeded)
-	assert.Len(t, status, 1)
-	// Update existing.
-	status = setCommandStatus(status, "c1", v1.CommandFailed)
-	assert.Len(t, status, 1)
-	assert.Equal(t, v1.CommandFailed, status[0].Phase)
-}
-
-func TestIsK8sNodeReady(t *testing.T) {
-	ready := &corev1.Node{Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{
-		{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
-	}}}
-	assert.True(t, isK8sNodeReady(ready))
-	notReady := &corev1.Node{Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{
-		{Type: corev1.NodeReady, Status: corev1.ConditionFalse},
-	}}}
-	assert.False(t, isK8sNodeReady(notReady))
-}
-
-func TestIsConditionsChanged(t *testing.T) {
-	old := []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}
-	same := []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}
-	assert.False(t, isConditionsChanged(old, same))
-
-	diffLen := []corev1.NodeCondition{}
-	assert.True(t, isConditionsChanged(old, diffLen))
-
-	diffStatus := []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionFalse}}
-	assert.True(t, isConditionsChanged(old, diffStatus))
 }

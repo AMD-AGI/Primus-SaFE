@@ -1515,3 +1515,36 @@ func TestModelInitializeLocalPathsPrivate(t *testing.T) {
 	testifyassert.Len(t, paths, 1)
 	assert.Equal(t, "ws1", paths[0].Workspace)
 }
+
+func TestIsS3ImportModel(t *testing.T) {
+	m := &v1.Model{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{v1.ModelS3ImportLabel: v1.TrueStr}}}
+	testifyassert.True(t, isS3ImportModel(m))
+	testifyassert.False(t, isS3ImportModel(&v1.Model{}))
+	testifyassert.False(t, isS3ImportModel(nil))
+}
+
+func TestBuildHTTPURLFromS3URI(t *testing.T) {
+	m := &v1.Model{
+		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{v1.ModelS3SourceEndpointAnn: "minio:9000"}},
+		Spec:       v1.ModelSpec{Source: v1.ModelSource{URL: "s3://bucket/prefix"}},
+	}
+	url, err := buildHTTPURLFromS3URI(m)
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, "https://minio:9000/bucket/prefix/", url)
+
+	// Not an s3 URI.
+	_, err = buildHTTPURLFromS3URI(&v1.Model{Spec: v1.ModelSpec{Source: v1.ModelSource{URL: "http://x"}}})
+	testifyassert.Error(t, err)
+}
+
+func TestContainsString(t *testing.T) {
+	testifyassert.True(t, containsString([]string{"a", "b"}, "a"))
+	testifyassert.False(t, containsString([]string{"a"}, "z"))
+}
+
+func TestConstructDownloadJobErrors(t *testing.T) {
+	r := newMockModelReconciler(nil)
+	// Empty source URL -> error.
+	_, err := r.constructDownloadJob(&v1.Model{})
+	testifyassert.Error(t, err)
+}
