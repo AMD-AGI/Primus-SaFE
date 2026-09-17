@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
@@ -51,4 +52,11 @@ func TestEnvsRouteStaysPublic(t *testing.T) {
 	if w.Code == http.StatusUnauthorized {
 		t.Fatalf("GET /envs = 401, but it must stay public for the login page")
 	}
+}
+
+func TestInitCustomRouters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	InitCustomRouters(engine, &Handler{})
+	assert.NotEmpty(t, engine.Routes())
 }

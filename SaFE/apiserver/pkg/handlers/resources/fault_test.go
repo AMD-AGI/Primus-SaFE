@@ -6,6 +6,7 @@
 package resources
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -18,7 +19,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -441,4 +444,18 @@ func TestDeleteFaultHandler(t *testing.T) {
 		h.DeleteFault(c)
 		assert.Equal(t, http.StatusOK, rsp.Code)
 	})
+}
+
+func TestGetAdminFault(t *testing.T) {
+	h, _ := newAdminHandlerWithObjects(&v1.Fault{ObjectMeta: metav1.ObjectMeta{Name: "fault-1"}})
+
+	_, err := h.getAdminFault(context.Background(), "")
+	assert.Error(t, err)
+
+	f, err := h.getAdminFault(context.Background(), "fault-1")
+	assert.NoError(t, err)
+	assert.Equal(t, "fault-1", f.Name)
+
+	_, err = h.getAdminFault(context.Background(), "missing")
+	assert.Error(t, err)
 }
