@@ -13,13 +13,30 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 )
+
+func evalJob(name string) *v1.OpsJob {
+	return &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: v1.OpsJobSpec{
+			Type: v1.OpsJobEvaluationType,
+			Inputs: []v1.Parameter{
+				{Name: v1.ParameterModelEndpoint, Value: "http://m"},
+				{Name: v1.ParameterModelName, Value: "model"},
+				{Name: v1.ParameterEvalBenchmarks, Value: `[{"datasetName":"math_500","datasetLocalDir":"/data/math_500"}]`},
+			},
+		},
+	}
+}
 
 func TestEvaluationHandle(t *testing.T) {
 	t.Run("pending init", func(t *testing.T) {
@@ -527,4 +544,99 @@ func TestEvalHandleWorkloadEventImplFailed(t *testing.T) {
 	job := newTestOpsJob("j1")
 	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job), dbClient: db}
 	r.handleWorkloadEventImpl(context.Background(), evalWorkload("t1", v1.WorkloadFailed))
+}
+
+func TestEvalObserveFilter(t *testing.T) {
+	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	job := evalJob("j1")
+	quit, err := r.observe(context.Background(), job)
+	assert.NoError(t, err)
+	assert.False(t, quit)
+	assert.False(t, r.filter(context.Background(), job))
+	assert.True(t, r.filter(context.Background(), &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobCDType}}))
+}
+
+func TestEvalGenerateWorkload(t *testing.T) {
+	job := evalJob("j1")
+	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	wl, err := r.generateEvaluationWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, "j1", wl.Name)
+	assert.NotEmpty(t, wl.Spec.EntryPoints)
+}
+
+func TestEvalHandleSetsPending(t *testing.T) {
+	job := evalJob("j1")
+	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	_, err := r.handle(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, v1.OpsJobPending, job.Status.Phase)
+}
+
+func TestEvalHandleWorkloadExists(t *testing.T) {
+	job := evalJob("j1")
+	job.Status.Phase = v1.OpsJobPending
+	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, wl)}
+	// Workload already exists -> early return.
+	_, err := r.handle(context.Background(), job)
+	assert.NoError(t, err)
+}
+
+func TestBuildEvalCommand(t *testing.T) {
+	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	benchmarks := `[{"datasetName":"math_500","datasetLocalDir":"/data/math_500","limit":10}]`
+	cmd, err := r.buildEvalCommand(context.Background(), "http://m", "model", "", benchmarks, "task1", "", "", "", "", 7200, 32)
+	assert.NoError(t, err)
+	assert.Contains(t, cmd, "Pre-flight check")
+	assert.Contains(t, cmd, "math_500")
+}
+
+func TestBuildEvalCommandMultiWithUpload(t *testing.T) {
+	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	benchmarks := `[{"datasetName":"a","datasetLocalDir":"/d/a"},{"datasetName":"b","datasetLocalDir":"/d/b"}]`
+	cmd, err := r.buildEvalCommand(context.Background(), "http://m", "model", "", benchmarks, "task1", "http://put", "", "", "", 0, 16)
+	assert.NoError(t, err)
+	assert.Contains(t, cmd, "http://put")
+}
+
+func TestBuildEvalCommandErrors(t *testing.T) {
+	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	// Invalid JSON.
+	_, err := r.buildEvalCommand(context.Background(), "m", "n", "", "bad", "t", "", "", "", "", 0, 1)
+	assert.Error(t, err)
+	// Empty benchmarks.
+	_, err = r.buildEvalCommand(context.Background(), "m", "n", "", "[]", "t", "", "", "", "", 0, 1)
+	assert.Error(t, err)
+}
+
+func TestBuildReportUploadScript(t *testing.T) {
+	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	script := r.buildReportUploadScript("/out", "http://put")
+	assert.Contains(t, script, "/out")
+	assert.Contains(t, script, "http://put")
+}
+
+func TestEvaluationHandleWorkloadEvent(t *testing.T) {
+	job := newTestOpsJob("j1")
+	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	h := r.handleWorkloadEvent().(interface {
+		Create(context.Context, event.CreateEvent, v1.RequestWorkQueue)
+		Update(context.Context, event.UpdateEvent, v1.RequestWorkQueue)
+	})
+	runWorkloadEventHandler(t, h, endedWorkload(v1.OpsJobEvaluationType))
+	assert.NotNil(t, r)
+}
+
+func TestEvalReconcileEntry(t *testing.T) {
+	job := evalJob("j1")
+	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
+	assert.NoError(t, err)
+}
+
+func TestEvaluationCleanupJobRelatedInfo(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	assert.NoError(t, r.cleanupJobRelatedInfo(context.Background(), job))
 }
