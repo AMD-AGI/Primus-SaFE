@@ -28,158 +28,7 @@ import (
 
 func ptrStr(s string) *string { return &s }
 
-// ---- evaluation controller ----
-
-func evalJob(name string) *v1.OpsJob {
-	return &v1.OpsJob{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec: v1.OpsJobSpec{
-			Type: v1.OpsJobEvaluationType,
-			Inputs: []v1.Parameter{
-				{Name: v1.ParameterModelEndpoint, Value: "http://m"},
-				{Name: v1.ParameterModelName, Value: "model"},
-				{Name: v1.ParameterEvalBenchmarks, Value: `[{"datasetName":"math_500","datasetLocalDir":"/data/math_500"}]`},
-			},
-		},
-	}
-}
-
-func TestEvalObserveFilter(t *testing.T) {
-	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	job := evalJob("j1")
-	quit, err := r.observe(context.Background(), job)
-	assert.NoError(t, err)
-	assert.False(t, quit)
-	assert.False(t, r.filter(context.Background(), job))
-	assert.True(t, r.filter(context.Background(), &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobCDType}}))
-}
-
-func TestEvalGenerateWorkload(t *testing.T) {
-	job := evalJob("j1")
-	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
-	wl, err := r.generateEvaluationWorkload(context.Background(), job)
-	assert.NoError(t, err)
-	assert.Equal(t, "j1", wl.Name)
-	assert.NotEmpty(t, wl.Spec.EntryPoints)
-}
-
-func TestEvalHandleSetsPending(t *testing.T) {
-	job := evalJob("j1")
-	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
-	_, err := r.handle(context.Background(), job)
-	assert.NoError(t, err)
-	assert.Equal(t, v1.OpsJobPending, job.Status.Phase)
-}
-
-func TestEvalHandleWorkloadExists(t *testing.T) {
-	job := evalJob("j1")
-	job.Status.Phase = v1.OpsJobPending
-	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
-	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, wl)}
-	// Workload already exists -> early return.
-	_, err := r.handle(context.Background(), job)
-	assert.NoError(t, err)
-}
-
-func TestPreflightHandleWorkloadExists(t *testing.T) {
-	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}, Spec: v1.OpsJobSpec{Type: v1.OpsJobPreflightType}}
-	job.Status.Phase = v1.OpsJobPending
-	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
-	r := &PreflightJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, wl)}
-	_, err := r.handle(context.Background(), job)
-	assert.NoError(t, err)
-}
-
-func TestCDHandleWorkloadExists(t *testing.T) {
-	job := cdJob("j1")
-	job.Status.Phase = v1.OpsJobPending
-	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
-	r := &CDJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, wl)}
-	_, err := r.handle(context.Background(), job)
-	assert.NoError(t, err)
-}
-
-func TestCDHandleGeneratesWorkload(t *testing.T) {
-	job := cdJob("j1")
-	job.Status.Phase = v1.OpsJobPending
-	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{
-		Name:   "ctrl",
-		Labels: map[string]string{v1.ClusterControlPlaneLabel: ""},
-	}}
-	r := &CDJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, cluster)}
-	_, err := r.handle(context.Background(), job)
-	assert.NoError(t, err)
-	wl := &v1.Workload{}
-	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "j1"}, wl))
-}
-
-func TestBuildEvalCommand(t *testing.T) {
-	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	benchmarks := `[{"datasetName":"math_500","datasetLocalDir":"/data/math_500","limit":10}]`
-	cmd, err := r.buildEvalCommand(context.Background(), "http://m", "model", "", benchmarks, "task1", "", "", "", "", 7200, 32)
-	assert.NoError(t, err)
-	assert.Contains(t, cmd, "Pre-flight check")
-	assert.Contains(t, cmd, "math_500")
-}
-
-func TestBuildEvalCommandMultiWithUpload(t *testing.T) {
-	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	benchmarks := `[{"datasetName":"a","datasetLocalDir":"/d/a"},{"datasetName":"b","datasetLocalDir":"/d/b"}]`
-	cmd, err := r.buildEvalCommand(context.Background(), "http://m", "model", "", benchmarks, "task1", "http://put", "", "", "", 0, 16)
-	assert.NoError(t, err)
-	assert.Contains(t, cmd, "http://put")
-}
-
-func TestBuildEvalCommandErrors(t *testing.T) {
-	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	// Invalid JSON.
-	_, err := r.buildEvalCommand(context.Background(), "m", "n", "", "bad", "t", "", "", "", "", 0, 1)
-	assert.Error(t, err)
-	// Empty benchmarks.
-	_, err = r.buildEvalCommand(context.Background(), "m", "n", "", "[]", "t", "", "", "", "", 0, 1)
-	assert.Error(t, err)
-}
-
-func TestBuildReportUploadScript(t *testing.T) {
-	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	script := r.buildReportUploadScript("/out", "http://put")
-	assert.Contains(t, script, "/out")
-	assert.Contains(t, script, "http://put")
-}
-
-// ---- preflight controller ----
-
-func TestPreflightObserveFilter(t *testing.T) {
-	r := &PreflightJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobPreflightType}}
-	quit, err := r.observe(context.Background(), job)
-	assert.NoError(t, err)
-	assert.False(t, quit)
-	assert.False(t, r.filter(context.Background(), job))
-	assert.True(t, r.filter(context.Background(), &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobCDType}}))
-}
-
-func TestPreflightHandleSetsPending(t *testing.T) {
-	job := &v1.OpsJob{
-		ObjectMeta: metav1.ObjectMeta{Name: "j1"},
-		Spec:       v1.OpsJobSpec{Type: v1.OpsJobPreflightType},
-	}
-	r := &PreflightJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
-	_, err := r.handle(context.Background(), job)
-	assert.NoError(t, err)
-	assert.Equal(t, v1.OpsJobPending, job.Status.Phase)
-}
-
-func TestPreflightGenerateWorkloadNoResource(t *testing.T) {
-	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
-	r := &PreflightJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	_, err := r.generatePreflightWorkload(context.Background(), job)
-	assert.Error(t, err)
-}
-
-// ---- addon controller helpers ----
-
-func TestExecuteCommandViaSSH(t *testing.T) {
+func TestAddonExecuteCommandViaSSH(t *testing.T) {
 	sshClient, cleanup := startInMemorySSHServer(t)
 	defer cleanup()
 	out, err := executeCommand(sshClient, "myaddon", "ZWNobyBoaQ==")
@@ -522,185 +371,61 @@ func TestAddonAddJobNoNodes(t *testing.T) {
 	assert.Error(t, r.addJob(context.Background(), job))
 }
 
-// ---- Reconcile entry points ----
-
-func TestDownloadReconcileEntry(t *testing.T) {
-	job := downloadJob("j1")
-	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
-	r := &DownloadJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, ws)}
-	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
-	assert.NoError(t, err)
-}
-
-func TestRebootReconcileEntry(t *testing.T) {
-	job := rebootJob("j1", "n1")
-	r := &RebootJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
-	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
-	assert.NoError(t, err)
-}
-
-func TestPreflightReconcileEntry(t *testing.T) {
-	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}, Spec: v1.OpsJobSpec{Type: v1.OpsJobPreflightType}}
-	r := &PreflightJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
-	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
-	assert.NoError(t, err)
-}
-
-func TestCDReconcileEntry(t *testing.T) {
-	job := cdJob("j1")
-	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{
-		Name:   "ctrl",
-		Labels: map[string]string{v1.ClusterControlPlaneLabel: ""},
-	}}
-	r := &CDJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, cluster)}
-	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
-	assert.NoError(t, err)
-}
-
-func TestEvalReconcileEntry(t *testing.T) {
-	job := evalJob("j1")
-	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
-	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
-	assert.NoError(t, err)
-}
-
-func TestCDHandleWorkloadEventImpl(t *testing.T) {
-	job := newTestOpsJob("j1")
-	r := &CDJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
-	wl := &v1.Workload{
-		ObjectMeta: metav1.ObjectMeta{Name: "wl1", Labels: map[string]string{v1.OpsJobIdLabel: "j1"}},
-		Status:     v1.WorkloadStatus{Phase: v1.WorkloadRunning},
-	}
-	r.handleWorkloadEventImpl(context.Background(), wl)
+func TestAddonAddFailedNodeCondition(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	r := &AddonJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job), allJobs: map[string]*AddonJob{}}
+	r.addFailedNodeCondition(context.Background(), "j1", "node1", "boom")
 	updated := &v1.OpsJob{}
-	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "j1"}, updated))
+	assert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: "j1"}, updated))
 }
 
-func TestIsCDWorkloadAndEvalReconcileEnd(t *testing.T) {
-	// Ended job -> observe returns quit, Reconcile completes without creating workload.
-	job := cdJob("j1")
-	job.Status.FinishedAt = &metav1.Time{Time: time.Now()}
-	r := &CDJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
-	quit, err := r.observe(context.Background(), job)
-	assert.NoError(t, err)
-	assert.True(t, quit)
+func TestAddonHandleWorkloadEvent(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1", Labels: map[string]string{
+			v1.ClusterIdLabel:  "c1",
+			v1.OpsJobTypeLabel: string(v1.OpsJobAddonType),
+		}},
+	}
+	r := &AddonJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job), allJobs: map[string]*AddonJob{}}
+	h := r.handleWorkloadEvent().(interface {
+		Create(context.Context, event.CreateEvent, v1.RequestWorkQueue)
+		Update(context.Context, event.UpdateEvent, v1.RequestWorkQueue)
+	})
+	q := opsWorkQueue()
+	defer q.ShutDown()
+	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl1", Labels: map[string]string{v1.ClusterIdLabel: "c1"}}}
+	h.Create(context.Background(), event.CreateEvent{Object: wl}, q)
+	h.Update(context.Background(), event.UpdateEvent{ObjectOld: wl, ObjectNew: wl.DeepCopy()}, q)
 }
 
-func TestBaseHandleWorkloadEventImpl(t *testing.T) {
-	job := newTestOpsJob("j1")
-	r := newBaseWithObjs(t, job)
-	wl := &v1.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   "wl1",
-			Labels: map[string]string{v1.OpsJobIdLabel: "j1"},
+func TestAddonHandleNodeEvent(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1", Labels: map[string]string{
+			v1.ClusterIdLabel:  "c1",
+			v1.OpsJobTypeLabel: string(v1.OpsJobAddonType),
+		}},
+	}
+	r := &AddonJobReconciler{
+		OpsJobBaseReconciler: newBaseWithObjs(t, job),
+		allJobs: map[string]*AddonJob{
+			"j1": {nodes: map[string]AddonJobPhase{"n1": {Phase: v1.OpsJobRunning}}, maxFailCount: 1},
 		},
-		Status: v1.WorkloadStatus{Phase: v1.WorkloadRunning},
 	}
-	// Running workload -> sets job phase running. Should not panic.
-	r.handleWorkloadEventImpl(context.Background(), wl)
-	updated := &v1.OpsJob{}
-	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "j1"}, updated))
+	h := r.handleNodeEvent().(interface {
+		Update(context.Context, event.UpdateEvent, v1.RequestWorkQueue)
+	})
+	q := opsWorkQueue()
+	defer q.ShutDown()
+	oldNode := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
+	oldNode.Spec.Cluster = ptrStr("c1")
+	newNode := oldNode.DeepCopy()
+	newNode.Spec.Cluster = nil
+	// Node unmanaged -> handleNodeRemovedEvent path.
+	h.Update(context.Background(), event.UpdateEvent{ObjectOld: oldNode, ObjectNew: newNode}, q)
 }
 
-// ---- exportimage controller helpers ----
-
-func TestGenerateTargetImageName(t *testing.T) {
-	out, err := generateTargetImageName("rocm/7.0-preview:tag")
-	assert.NoError(t, err)
-	assert.Contains(t, out, "rocm/7.0-preview")
-
-	out, err = generateTargetImageName("nginx")
-	assert.NoError(t, err)
-	assert.Contains(t, out, "library/nginx")
-
-	out, err = generateTargetImageName("docker.io/library/nginx:1.0")
-	assert.NoError(t, err)
-	assert.Contains(t, out, "library/nginx")
-}
-
-func TestGetWorkloadIdAndSourceImageFromJob(t *testing.T) {
-	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Inputs: []v1.Parameter{
-		{Name: v1.ParameterWorkload, Value: "wl1"},
-		{Name: v1.ParameterImage, Value: "img:1"},
-	}}}
-	assert.Equal(t, "wl1", getWorkloadIdFromJob(job))
-	assert.Equal(t, "img:1", getSourceImageFromJob(job))
-	assert.Equal(t, "", getWorkloadIdFromJob(&v1.OpsJob{}))
-	assert.Equal(t, "", getSourceImageFromJob(&v1.OpsJob{}))
-}
-
-// ---- dumplog controller helpers ----
-
-func TestBuildLogName(t *testing.T) {
-	assert.Equal(t, "wl1.log", buildLogName("wl1"))
-}
-
-// ---- prewarm controller helpers ----
-
-func TestBuildJobOutputs(t *testing.T) {
-	r := &PrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	outputs := r.buildJobOutputs("done", "msg", 2, 4)
-	assert.Len(t, outputs, 5)
-	var progress string
-	for _, o := range outputs {
-		if o.Name == "prewarm_progress" {
-			progress = o.Value
-		}
-	}
-	assert.Equal(t, "50%", progress)
-}
-
-// ---- job ttl controller ----
-
-func TestJobTTLReconcileNotFound(t *testing.T) {
-	r := &JobTTLController{Client: newBaseWithObjs(t).Client}
-	res, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "missing"}})
-	assert.NoError(t, err)
-	assert.Equal(t, ctrlruntime.Result{}, res)
-}
-
-func TestJobTTLReconcileNotEnded(t *testing.T) {
-	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}, Spec: v1.OpsJobSpec{TTLSecondsAfterFinished: 10}}
-	r := &JobTTLController{Client: newBaseWithObjs(t, job).Client}
-	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
-	assert.NoError(t, err)
-}
-
-func TestJobTTLDeleteExpired(t *testing.T) {
-	job := &v1.OpsJob{
-		ObjectMeta: metav1.ObjectMeta{Name: "j1"},
-		Spec:       v1.OpsJobSpec{TTLSecondsAfterFinished: 1},
-		Status:     v1.OpsJobStatus{FinishedAt: &metav1.Time{Time: time.Now().Add(-time.Hour)}},
-	}
-	r := &JobTTLController{Client: newBaseWithObjs(t, job).Client}
-	res, err := r.deleteExpiredJob(context.Background(), job)
-	assert.NoError(t, err)
-	assert.Equal(t, ctrlruntime.Result{}, res)
-	// Job should be deleted.
-	err = r.Get(context.Background(), client.ObjectKey{Name: "j1"}, &v1.OpsJob{})
-	assert.Error(t, err)
-}
-
-func TestJobTTLDeleteNotYetExpired(t *testing.T) {
-	job := &v1.OpsJob{
-		ObjectMeta: metav1.ObjectMeta{Name: "j1"},
-		Spec:       v1.OpsJobSpec{TTLSecondsAfterFinished: 3600},
-		Status:     v1.OpsJobStatus{FinishedAt: &metav1.Time{Time: time.Now()}},
-	}
-	r := &JobTTLController{Client: newBaseWithObjs(t, job).Client}
-	res, err := r.deleteExpiredJob(context.Background(), job)
-	assert.NoError(t, err)
-	assert.True(t, res.RequeueAfter > 0)
-}
-
-func TestJobTTLRelevantChangePredicate(t *testing.T) {
-	r := &JobTTLController{Client: newBaseWithObjs(t).Client}
-	p := r.relevantChangePredicate()
-	oldJob := &v1.OpsJob{}
-	newJob := &v1.OpsJob{
-		Spec:   v1.OpsJobSpec{TTLSecondsAfterFinished: 10},
-		Status: v1.OpsJobStatus{FinishedAt: &metav1.Time{Time: time.Now()}},
-	}
-	assert.True(t, p.Update(event.UpdateEvent{ObjectOld: oldJob, ObjectNew: newJob}))
-	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: oldJob, ObjectNew: oldJob}))
+func TestAddonCleanupJobRelatedInfo(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	r := &AddonJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job), allJobs: map[string]*AddonJob{}}
+	assert.NoError(t, r.cleanupJobRelatedInfo(context.Background(), job))
 }

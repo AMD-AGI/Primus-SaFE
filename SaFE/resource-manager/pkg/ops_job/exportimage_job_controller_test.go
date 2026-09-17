@@ -8,29 +8,66 @@ package ops_job
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/agiledragon/gomonkey/v2"
-	"golang.org/x/crypto/ssh"
+	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
-	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	rmutils "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
-// ---- exportimage controller ----
+func exportJob(name, workloadId, image string) *v1.OpsJob {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: v1.OpsJobSpec{
+			Type: v1.OpsJobExportImageType,
+			Inputs: []v1.Parameter{
+				{Name: v1.ParameterWorkload, Value: workloadId},
+				{Name: v1.ParameterImage, Value: image},
+			},
+		},
+		Status: v1.OpsJobStatus{Phase: v1.OpsJobRunning},
+	}
+	return job
+}
+
+func TestGenerateTargetImageName(t *testing.T) {
+	out, err := generateTargetImageName("rocm/7.0-preview:tag")
+	assert.NoError(t, err)
+	assert.Contains(t, out, "rocm/7.0-preview")
+
+	out, err = generateTargetImageName("nginx")
+	assert.NoError(t, err)
+	assert.Contains(t, out, "library/nginx")
+
+	out, err = generateTargetImageName("docker.io/library/nginx:1.0")
+	assert.NoError(t, err)
+	assert.Contains(t, out, "library/nginx")
+}
+
+func TestGetWorkloadIdAndSourceImageFromJob(t *testing.T) {
+	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Inputs: []v1.Parameter{
+		{Name: v1.ParameterWorkload, Value: "wl1"},
+		{Name: v1.ParameterImage, Value: "img:1"},
+	}}}
+	assert.Equal(t, "wl1", getWorkloadIdFromJob(job))
+	assert.Equal(t, "img:1", getSourceImageFromJob(job))
+	assert.Equal(t, "", getWorkloadIdFromJob(&v1.OpsJob{}))
+	assert.Equal(t, "", getSourceImageFromJob(&v1.OpsJob{}))
+}
 
 func TestExportImageObserveFilter(t *testing.T) {
 	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
@@ -83,6 +120,20 @@ func TestExportImageDoJobNotFound(t *testing.T) {
 	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
 	_, err := r.Do(context.Background(), "missing")
 	assert.Error(t, err)
+}
+
+func TestExportImageDoMissingWorkloadId(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1"},
+		Spec:       v1.OpsJobSpec{Type: v1.OpsJobExportImageType},
+		Status:     v1.OpsJobStatus{Phase: v1.OpsJobRunning},
+	}
+	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	_, err := r.Do(context.Background(), "j1")
+	assert.NoError(t, err)
+	updated := &v1.OpsJob{}
+	assert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: "j1"}, updated))
+	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
 }
 
 func TestExportImageGetHarborCredentials(t *testing.T) {
@@ -177,91 +228,72 @@ func TestExportImageDoWorkloadNotFound(t *testing.T) {
 	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
 }
 
-// ---- dumplog controller ----
+func TestExportImageDoWorkloadBranches(t *testing.T) {
+	ctx := context.Background()
 
-func TestDumpLogObserveFilter(t *testing.T) {
-	r := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobDumpLogType}}
-	quit, err := r.observe(context.Background(), job)
-	assert.NoError(t, err)
-	assert.False(t, quit)
-	assert.False(t, r.filter(context.Background(), job))
-	assert.True(t, r.filter(context.Background(), &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobRebootType}}))
+	// workload missing -> failed
+	t.Run("workload missing", func(t *testing.T) {
+		job := exportJob("e1", "wl-missing", "img:1")
+		r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+		_, err := r.Do(ctx, "e1")
+		assert.NoError(t, err)
+		updated := &v1.OpsJob{}
+		assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e1"}, updated))
+		assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
+	})
+
+	// workload with no pods -> failed
+	t.Run("workload no pods", func(t *testing.T) {
+		job := exportJob("e2", "wl2", "img:1")
+		wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl2"}}
+		r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, wl)}
+		_, err := r.Do(ctx, "e2")
+		assert.NoError(t, err)
+		updated := &v1.OpsJob{}
+		assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e2"}, updated))
+		assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
+	})
+
+	// workload pod scheduled to no node -> failed
+	t.Run("pod empty node", func(t *testing.T) {
+		job := exportJob("e3", "wl3", "img:1")
+		wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl3"}}
+		wl.Status.Pods = []v1.WorkloadPod{{AdminNodeName: ""}}
+		r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, wl)}
+		_, err := r.Do(ctx, "e3")
+		assert.NoError(t, err)
+		updated := &v1.OpsJob{}
+		assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e3"}, updated))
+		assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
+	})
+
+	// admin node missing -> failed
+	t.Run("node missing", func(t *testing.T) {
+		job := exportJob("e4", "wl4", "img:1")
+		wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl4"}}
+		wl.Status.Pods = []v1.WorkloadPod{{AdminNodeName: "n-missing"}}
+		r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, wl)}
+		_, err := r.Do(ctx, "e4")
+		assert.NoError(t, err)
+		updated := &v1.OpsJob{}
+		assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e4"}, updated))
+		assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
+	})
 }
 
-func TestDumpLogHandlePending(t *testing.T) {
+func TestExportImageReconcileEntry(t *testing.T) {
 	job := &v1.OpsJob{
-		ObjectMeta: metav1.ObjectMeta{Name: "j1"},
-		Spec:       v1.OpsJobSpec{Type: v1.OpsJobDumpLogType},
+		ObjectMeta: metav1.ObjectMeta{Name: "j1", Finalizers: []string{v1.OpsJobFinalizer}},
+		Spec:       v1.OpsJobSpec{Type: v1.OpsJobExportImageType},
 	}
-	r := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
 	r.Controller = commonctrl.NewController[string](nil, 1)
-	_, err := r.handle(context.Background(), job)
+	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
 	assert.NoError(t, err)
-	assert.Equal(t, v1.OpsJobRunning, job.Status.Phase)
 }
 
-func TestBuildSearchBody(t *testing.T) {
-	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Inputs: []v1.Parameter{
-		{Name: v1.ParameterNode, Value: "node1"},
-	}}}
-	wl := &workloadInfo{
-		workloadId: "wl1",
-		startTime:  time.Now().Add(-time.Hour),
-		endTime:    time.Now(),
-	}
-	body := buildSearchBody(job, wl)
-	assert.NotEmpty(t, body)
-	assert.Contains(t, string(body), "wl1")
-}
-
-func TestDumpLogGetInputWorkloadNoParam(t *testing.T) {
-	r := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	_, err := r.getInputWorkload(context.Background(), &v1.OpsJob{})
-	assert.Error(t, err)
-}
-
-func TestDumpLogGetInputWorkloadFromK8s(t *testing.T) {
-	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl1", Labels: map[string]string{v1.ClusterIdLabel: "c1"}}}
-	r := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, wl)}
-	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Inputs: []v1.Parameter{{Name: v1.ParameterWorkload, Value: "wl1"}}}}
-	info, err := r.getInputWorkload(context.Background(), job)
-	assert.NoError(t, err)
-	assert.Equal(t, "wl1", info.workloadId)
-	assert.Equal(t, "c1", info.cluster)
-	assert.False(t, info.endTime.IsZero())
-}
-
-func TestSerializeSearchResponse(t *testing.T) {
-	raw := `{"hits":{"total":{"value":1},"hits":[{"_id":"1","_source":{"@timestamp":"t1","message":"hello"}}]}}`
-	resp := &commonsearch.OpenSearchLogResponse{}
-	assert.NoError(t, json.Unmarshal([]byte(raw), resp))
-	out := serializeSearchResponse(resp)
-	assert.Contains(t, out, "t1")
-	assert.Contains(t, out, "hello")
-}
-
-// ---- prewarm controller ----
-
-func TestPrewarmObserveFilter(t *testing.T) {
-	r := &PrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobPrewarmType}}
-	quit, err := r.observe(context.Background(), job)
-	assert.NoError(t, err)
-	assert.False(t, quit)
-	assert.False(t, r.filter(context.Background(), job))
-	assert.True(t, r.filter(context.Background(), &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobRebootType}}))
-}
-
-func TestPrewarmHandlePending(t *testing.T) {
-	job := &v1.OpsJob{
-		ObjectMeta: metav1.ObjectMeta{Name: "j1"},
-		Spec:       v1.OpsJobSpec{Type: v1.OpsJobPrewarmType},
-	}
-	r := &PrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
-	r.Controller = commonctrl.NewController[string](nil, 1)
-	res, err := r.handle(context.Background(), job)
-	assert.NoError(t, err)
-	assert.Equal(t, v1.OpsJobRunning, job.Status.Phase)
-	assert.True(t, res.RequeueAfter > 0)
+func TestExportImageQueueControllerStarts(t *testing.T) {
+	ei := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	ei.Controller = commonctrl.NewController[string](ei, 0)
+	ei.start(context.Background())
 }
