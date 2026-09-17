@@ -36,9 +36,9 @@ func TestFaultConfigIsAutoRepairEnabled(t *testing.T) {
 func TestParseFaultConfig(t *testing.T) {
 	cm := &corev1.ConfigMap{Data: map[string]string{
 		"a": `{"id":"f1","toggle":"on","action":"restart"}`,
-		"b": `{"id":"f2","toggle":"off"}`,        // disabled -> skipped
-		"c": `{"toggle":"on"}`,                   // no id -> skipped
-		"d": `not-json`,                          // invalid -> skipped
+		"b": `{"id":"f2","toggle":"off"}`, // disabled -> skipped
+		"c": `{"toggle":"on"}`,            // no id -> skipped
+		"d": `not-json`,                   // invalid -> skipped
 	}}
 	result := parseFaultConfig(cm)
 	assert.Len(t, result, 1)

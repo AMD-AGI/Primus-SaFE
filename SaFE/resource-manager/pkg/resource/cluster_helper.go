@@ -192,7 +192,11 @@ func (r *ClusterBaseReconciler) generateUpgradeHosts(ctx context.Context, cluste
 	}
 	for i := range nodeList.Items {
 		node := &nodeList.Items[i]
-		if node.GetSpecCluster() != cluster.Name || v1.IsControlPlane(node) || !node.IsManaged() {
+		// An external node reports managed once it belongs to a cluster, because it never
+		// joins through kubespray in the first place. Upgrading the cluster must skip it:
+		// there is no host for ansible to reach.
+		if node.GetSpecCluster() != cluster.Name || v1.IsControlPlane(node) ||
+			!node.IsManaged() || node.IsExternal() {
 			continue
 		}
 		if requireReady && !node.IsMachineReady() {
@@ -211,6 +215,11 @@ func (r *ClusterBaseReconciler) generateUpgradeHosts(ctx context.Context, cluste
 // appendWorkerHost adds one worker node to a KubeSpray inventory.
 func (r *ClusterBaseReconciler) appendWorkerHost(ctx context.Context, cluster *v1.Cluster,
 	hostsContent *HostTemplateContent, node *v1.Node) error {
+	// Last guard on the inventory. An external node has no address to reach and no SSH
+	// user, so ansible would fail the whole run rather than skip the entry.
+	if node.IsExternal() {
+		return fmt.Errorf("external node %s cannot be added to a kubespray inventory", node.Name)
+	}
 	hostname := node.Status.MachineStatus.HostName
 	publicIP := node.Spec.PublicIP
 	if publicIP == "" {

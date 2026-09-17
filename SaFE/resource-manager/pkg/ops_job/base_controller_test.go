@@ -227,7 +227,7 @@ func TestGetPreflightMasterPodLog(t *testing.T) {
 		Name:      "wl1-master-0",
 		Namespace: "ws1",
 		Labels: map[string]string{
-			v1.WorkloadIdLabel:                    "wl1",
+			v1.WorkloadIdLabel:                   "wl1",
 			"training.kubeflow.org/replica-type": "master",
 		},
 	}}

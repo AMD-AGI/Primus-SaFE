@@ -27,10 +27,10 @@ var grafanaDatasourceGVR = schema.GroupVersionResource{
 
 // GrafanaDatasourceSyncer manages GrafanaDatasource CRs for data-plane clusters.
 type GrafanaDatasourceSyncer struct {
-	dynClient    dynamic.Interface
-	namespace    string
-	crdReady     bool
-	crdChecked   bool
+	dynClient  dynamic.Interface
+	namespace  string
+	crdReady   bool
+	crdChecked bool
 }
 
 // NewGrafanaDatasourceSyncer creates a syncer that targets the given namespace.

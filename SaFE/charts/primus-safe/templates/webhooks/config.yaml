@@ -43,6 +43,9 @@ data:
       ttl_second: {{ default 60 (default .Values.ops_job).ttl_second }}
       # The timeout of the opsjob, in seconds. Default is 3600.
       timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
+    external_execution:
+      # Off by default; external objects are refused at admission while it is false.
+      enabled: {{ default false (default .Values.external_execution).enabled }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-webhooks

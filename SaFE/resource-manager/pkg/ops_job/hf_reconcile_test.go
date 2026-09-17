@@ -20,12 +20,12 @@ import (
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
-	"github.com/agiledragon/gomonkey/v2"
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
+	"github.com/agiledragon/gomonkey/v2"
 )
 
 func patchHFS3Config() *gomonkey.Patches {

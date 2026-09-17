@@ -7,6 +7,7 @@
 package v1
 
 import (
+	amdv1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -36,6 +37,11 @@ type NodeSpecApplyConfiguration struct {
 	Taints []corev1.Taint `json:"taints,omitempty"`
 	// Secret for ssh
 	SSHSecret *corev1.ObjectReference `json:"secret,omitempty"`
+	// Lifecycle mode of the node. Empty keeps the managed physical-host lifecycle.
+	LifecycleMode *amdv1.NodeLifecycleMode `json:"lifecycleMode,omitempty"`
+	// Provider allocation backing this node. Required and immutable when lifecycleMode
+	// is external, and rejected otherwise.
+	ExternalRef *NodeExternalRefApplyConfiguration `json:"externalRef,omitempty"`
 }
 
 // NodeSpecApplyConfiguration constructs a declarative configuration of the NodeSpec type for use with
@@ -123,5 +129,21 @@ func (b *NodeSpecApplyConfiguration) WithTaints(values ...corev1.Taint) *NodeSpe
 // If called multiple times, the SSHSecret field is set to the value of the last call.
 func (b *NodeSpecApplyConfiguration) WithSSHSecret(value corev1.ObjectReference) *NodeSpecApplyConfiguration {
 	b.SSHSecret = &value
+	return b
+}
+
+// WithLifecycleMode sets the LifecycleMode field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LifecycleMode field is set to the value of the last call.
+func (b *NodeSpecApplyConfiguration) WithLifecycleMode(value amdv1.NodeLifecycleMode) *NodeSpecApplyConfiguration {
+	b.LifecycleMode = &value
+	return b
+}
+
+// WithExternalRef sets the ExternalRef field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ExternalRef field is set to the value of the last call.
+func (b *NodeSpecApplyConfiguration) WithExternalRef(value *NodeExternalRefApplyConfiguration) *NodeSpecApplyConfiguration {
+	b.ExternalRef = value
 	return b
 }
