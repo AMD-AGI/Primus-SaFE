@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
@@ -118,4 +119,52 @@ func TestGenNodeOwnerReferenceFields(t *testing.T) {
 
 	assert.NotNil(t, ref.BlockOwnerDeletion, "BlockOwnerDeletion should not be nil")
 	assert.Equal(t, pointer.Bool(true), ref.BlockOwnerDeletion, "BlockOwnerDeletion should be true")
+}
+
+func TestGetKubeSprayScaleCMDs(t *testing.T) {
+	up := getKubeSprayScaleUpCMD("u", "n1", "env")
+	assert.Contains(t, up, "scale.yml")
+	assert.Contains(t, up, "n1")
+	down := getKubeSprayScaleDownCMD("u", "n1", "env")
+	assert.Contains(t, down, "remove-node.yml")
+	assert.Contains(t, down, "n1")
+}
+
+func TestIsCommandSuccessful(t *testing.T) {
+	status := []v1.CommandStatus{{Name: "c1", Phase: v1.CommandSucceeded}}
+	assert.True(t, isCommandSuccessful(status, "c1"))
+	assert.False(t, isCommandSuccessful(status, "c2"))
+}
+
+func TestSetCommandStatus(t *testing.T) {
+	var status []v1.CommandStatus
+	status = setCommandStatus(status, "c1", v1.CommandSucceeded)
+	assert.Len(t, status, 1)
+	// Update existing.
+	status = setCommandStatus(status, "c1", v1.CommandFailed)
+	assert.Len(t, status, 1)
+	assert.Equal(t, v1.CommandFailed, status[0].Phase)
+}
+
+func TestIsK8sNodeReady(t *testing.T) {
+	ready := &corev1.Node{Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{
+		{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+	}}}
+	assert.True(t, isK8sNodeReady(ready))
+	notReady := &corev1.Node{Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{
+		{Type: corev1.NodeReady, Status: corev1.ConditionFalse},
+	}}}
+	assert.False(t, isK8sNodeReady(notReady))
+}
+
+func TestIsConditionsChanged(t *testing.T) {
+	old := []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}
+	same := []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}
+	assert.False(t, isConditionsChanged(old, same))
+
+	diffLen := []corev1.NodeCondition{}
+	assert.True(t, isConditionsChanged(old, diffLen))
+
+	diffStatus := []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionFalse}}
+	assert.True(t, isConditionsChanged(old, diffStatus))
 }

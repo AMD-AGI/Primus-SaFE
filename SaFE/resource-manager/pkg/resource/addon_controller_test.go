@@ -289,10 +289,6 @@ func TestGetHelmFromTemplateOCI(t *testing.T) {
 
 // --- merged from addon_helm_test.go ---
 
-func reconcileRequest(name string) ctrlruntime.Request {
-	return ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: name}}
-}
-
 func newMemActionConfig(t *testing.T, releaseName string, version int) *action.Configuration {
 	t.Helper()
 	store := storage.Init(driver.NewMemory())
