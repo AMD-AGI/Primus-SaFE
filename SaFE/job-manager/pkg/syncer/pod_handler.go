@@ -27,6 +27,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -208,6 +209,9 @@ func (r *SyncerReconciler) lockPodStatusForPod(ctx context.Context, clientSets *
 				return nil, err
 			}
 			message.workloadId = v1.GetWorkloadId(meshObj)
+			if uid := v1.GetLabel(meshObj, v1.WorkloadUidLabel); uid != "" {
+				v1.SetLabel(pod, v1.WorkloadUidLabel, uid)
+			}
 			if err = r.persistMeshPodOwnership(ctx, clientSets, pod, message.workloadId,
 				v1.GetLabel(meshObj, v1.GroupIdLabel),
 				v1.GetAnnotation(meshObj, v1.ResourceIdAnnotation),
@@ -256,6 +260,9 @@ func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
 			groupID := v1.GetLabel(meshObj, v1.GroupIdLabel)
 			resourceID := v1.GetAnnotation(meshObj, v1.ResourceIdAnnotation)
 			mainContainer := v1.GetAnnotation(meshObj, v1.MainContainerAnnotation)
+			if uid := v1.GetLabel(meshObj, v1.WorkloadUidLabel); uid != "" {
+				v1.SetLabel(pod, v1.WorkloadUidLabel, uid)
+			}
 			if err = r.persistMeshPodOwnership(ctx, clientSets, pod,
 				workloadID, groupID, resourceID, mainContainer); err != nil {
 				return nil, err
@@ -268,7 +275,22 @@ func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
 	if err != nil || adminWorkload == nil {
 		return nil, err
 	}
-	v1.SetLabel(adminWorkload, v1.WorkloadDispatchCntLabel, strconv.Itoa(message.dispatchCount))
+	podUid := v1.GetLabel(pod, v1.WorkloadUidLabel)
+	if podUid == "" {
+		podUid = message.workloadUid
+	}
+	if isStaleWorkloadGeneration(adminWorkload, podUid) {
+		klog.V(4).InfoS("ignore pod event from a previous workload run",
+			"workload", adminWorkload.Name, "pod", pod.Name,
+			"eventUID", podUid, "currentUID", adminWorkload.UID)
+		return nil, nil
+	}
+	if podUid == "" && adminWorkload.UID != "" {
+		v1.SetLabel(pod, v1.WorkloadUidLabel, string(adminWorkload.UID))
+	}
+	if message.dispatchCount > v1.GetWorkloadDispatchCnt(adminWorkload) {
+		v1.SetLabel(adminWorkload, v1.WorkloadDispatchCntLabel, strconv.Itoa(message.dispatchCount))
+	}
 	return adminWorkload, nil
 }
 
@@ -276,6 +298,9 @@ func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
 func (r *SyncerReconciler) persistMeshPodOwnership(ctx context.Context, clientSets *ClusterClientSets,
 	pod *corev1.Pod, workloadID, groupID, resourceID, mainContainer string) error {
 	labelsPatch := map[string]any{v1.WorkloadIdLabel: workloadID}
+	if uid := v1.GetLabel(pod, v1.WorkloadUidLabel); uid != "" {
+		labelsPatch[v1.WorkloadUidLabel] = uid
+	}
 	annotationsPatch := map[string]any{}
 	if groupID != "" {
 		labelsPatch[v1.GroupIdLabel] = groupID
@@ -375,9 +400,9 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 			continue
 		}
 		id = i
-		//
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == v1.GetNodeId(k8sNode) &&
-			p.StartTime != "" && p.HostIp == pod.Status.HostIP {
+			p.StartTime != "" && p.HostIp == pod.Status.HostIP &&
+			!currentDispatchNodesNeedRepair(adminWorkload) {
 			// Return early if no critical changes detected
 			return v1.WorkloadPod{}, "", false
 		}
@@ -397,6 +422,9 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 		adminWorkload.Status.Pods[id] = podInfo
 	} else {
 		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods, podInfo)
+		needUpdateNode = true
+	}
+	if currentDispatchNodesNeedRepair(adminWorkload) {
 		needUpdateNode = true
 	}
 	if commonworkload.IsRayJob(adminWorkload) {
@@ -449,6 +477,9 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 // Running pods result in WorkloadRunning status, pending pods result in WorkloadPending,
 // and all other pod phases result in WorkloadNotReady status.
 func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod) {
+	if adminWorkload.IsEnd() {
+		return
+	}
 	val, ok := pod.Labels[appComponent]
 	if !ok || val != scaleSetListener {
 		return
@@ -487,13 +518,20 @@ func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload) {
 		}
 	}
 	dispatchCount := v1.GetWorkloadDispatchCnt(adminWorkload)
-	if len(adminWorkload.Status.Nodes) < dispatchCount {
-		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, nodeNames)
-		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, ranks)
-	} else if dispatchCount > 0 {
-		adminWorkload.Status.Nodes[dispatchCount-1] = nodeNames
-		adminWorkload.Status.Ranks[dispatchCount-1] = ranks
+	if dispatchCount <= 0 {
+		return
 	}
+	// Pad missing earlier slots instead of appending the current assignment as
+	// a new history entry. An empty Nodes after resume must land at
+	// dispatchCount-1; writing it at index 0 fabricates dispatch history.
+	for len(adminWorkload.Status.Nodes) < dispatchCount {
+		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, []string{})
+	}
+	for len(adminWorkload.Status.Ranks) < dispatchCount {
+		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, []string{})
+	}
+	adminWorkload.Status.Nodes[dispatchCount-1] = nodeNames
+	adminWorkload.Status.Ranks[dispatchCount-1] = ranks
 }
 
 // getMainContainerRank retrieves the rank value from the main container's environment variables.
@@ -525,6 +563,12 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	adminWorkload, err := r.getAdminWorkload(ctx, workloadID)
 	if adminWorkload == nil {
 		return err
+	}
+	if isStaleWorkloadGeneration(adminWorkload, message.workloadUid) {
+		klog.V(4).InfoS("ignore pod delete from a previous workload run",
+			"workload", adminWorkload.Name, "pod", message.name,
+			"eventUID", message.workloadUid, "currentUID", adminWorkload.UID)
+		return nil
 	}
 
 	id := indexOfPod(adminWorkload.Status.Pods, message.name)
@@ -705,15 +749,19 @@ const vanishedPodGracePeriod = 5 * time.Minute
 // behind by a process that ended.
 func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets *ClusterClientSets,
 	adminWorkload *v1.Workload, message *resourceMessage) error {
-	if adminWorkload == nil || len(adminWorkload.Status.Pods) == 0 {
+	if adminWorkload == nil {
+		return nil
+	}
+	if message.action == ResourceDel || message.action == ResourceDeleting {
+		r.forgetWorkloadChecks(adminWorkload.Name)
 		return nil
 	}
 	// An ended workload's records no longer count toward usage, and teardown deletes
-	// its pods on purpose, so neither is a case for releasing records. Dropping the
-	// entry keeps the map to the unfinished set, and gives the round that follows a
-	// re-schedule -- which tears the old objects down the same way -- its own pass.
-	if adminWorkload.IsEnd() || message.action == ResourceDel || message.action == ResourceDeleting {
-		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+	// its pods on purpose, so neither is a case for releasing records. Keep the CICD
+	// failure-attempt key until the workload is actually deleted: enrichment is queued
+	// before this cleanup during the reconcile that first marks the workload failed.
+	if adminWorkload.IsEnd() {
+		r.forgetVanishedPodsCheck(adminWorkload.Name)
 		return nil
 	}
 	// Dispatch is a precondition rather than an assumption about the caller: its
@@ -721,7 +769,10 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	// the annotation while it retries. Dropping the entry gives the round that
 	// follows a re-schedule its own pass.
 	if !v1.IsWorkloadDispatched(adminWorkload) {
-		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		r.forgetWorkloadChecks(adminWorkload.Name)
+		return nil
+	}
+	if len(adminWorkload.Status.Pods) == 0 {
 		return nil
 	}
 	if _, done := r.vanishedPodsChecked.LoadOrStore(adminWorkload.Name, struct{}{}); done {
@@ -740,12 +791,12 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	name := adminWorkload.Name
 	fresh, err := r.getAdminWorkload(ctx, name)
 	if err != nil || fresh == nil || len(fresh.Status.Pods) == 0 {
-		r.vanishedPodsChecked.Delete(name)
+		r.forgetWorkloadChecks(name)
 		return err
 	}
 	adminWorkload = fresh
 	if adminWorkload.IsEnd() {
-		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		r.forgetVanishedPodsCheck(adminWorkload.Name)
 		return nil
 	}
 
@@ -753,7 +804,7 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	if !ok {
 		// Unknown answer: nothing may be concluded from a record's absence. Re-armed
 		// so the next event retries.
-		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		r.forgetWorkloadChecks(adminWorkload.Name)
 		return nil
 	}
 
@@ -787,7 +838,7 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 		// re-armed entry means the next event retries with a fresh copy.
 		klog.V(2).Infof("deferred releasing vanished pod records of workload %s: %v",
 			adminWorkload.Name, err)
-		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		r.forgetWorkloadChecks(adminWorkload.Name)
 		return err
 	}
 	return nil
@@ -975,11 +1026,29 @@ func indexOfPod(pods []v1.WorkloadPod, podId string) int {
 	return -1
 }
 
+// isStaleWorkloadGeneration reports whether a data-plane object belongs to a
+// previous CR that reused this workload id. Only a mismatched uid label is
+// stale. Objects without a uid are not classified; dispatch count is ignored.
+func isStaleWorkloadGeneration(w *v1.Workload, workloadUid string) bool {
+	if w == nil || w.UID == "" || workloadUid == "" {
+		return false
+	}
+	return workloadUid != string(w.UID)
+}
+
 // createReservedFaults creates fault to reserve nodes for the workload
 // This ensures that after failover, the workload can still use the same nodes
 func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWorkload *v1.Workload) error {
 	count := v1.GetWorkloadDispatchCnt(adminWorkload)
 	if !v1.IsRetryingOnOriginal(adminWorkload) || count <= 0 || shouldWorkloadStopRetry(adminWorkload, count) {
+		return nil
+	}
+	previousNodesMissing := count >= 2 &&
+		(len(adminWorkload.Status.Nodes) < count-1 || len(adminWorkload.Status.Nodes[count-2]) == 0)
+	if currentDispatchNodesNeedRepair(adminWorkload) {
+		r.updateWorkloadNodes(adminWorkload)
+	}
+	if len(adminWorkload.Status.Nodes) < count {
 		return nil
 	}
 	var toAddNodes, toDelNodes []string
@@ -1010,7 +1079,38 @@ func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWork
 			return err
 		}
 	}
+	if previousNodesMissing {
+		if err := r.deleteStaleStickyNodeFaults(ctx, adminWorkload, adminWorkload.Status.Nodes[count-1]); err != nil {
+			return err
+		}
+	}
 	klog.Infof("Create sticky nodes faults for the workload %s.", adminWorkload.Name)
+	return nil
+}
+
+// deleteStaleStickyNodeFaults removes reservations that cannot be diffed after
+// an offloaded previous dispatch was archived.
+func (r *SyncerReconciler) deleteStaleStickyNodeFaults(
+	ctx context.Context, workload *v1.Workload, currentNodes []string,
+) error {
+	faults := &v1.FaultList{}
+	if err := r.List(ctx, faults, ctrlclient.MatchingLabels{v1.WorkloadIdLabel: workload.Name}); err != nil {
+		return err
+	}
+	current := sets.NewSet()
+	for _, node := range currentNodes {
+		current.Insert(node)
+	}
+	for i := range faults.Items {
+		fault := &faults.Items[i]
+		if fault.Spec.MonitorId != v1.StickyNodesMonitorId ||
+			current.Has(fault.Labels[v1.NodeIdLabel]) {
+			continue
+		}
+		if err := r.Delete(ctx, fault); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
 	return nil
 }
 

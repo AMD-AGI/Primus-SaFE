@@ -16,6 +16,10 @@ ENV GOPATH="/workspace/primus-safe/go"
 COPY ./SaFE /workspace/primus-safe
 WORKDIR /workspace/primus-safe
 RUN mkdir dist && mkdir dist/logs
+# The pod-side reverse-forward multiplexer is embedded in the apiserver and
+# injected into a user's container over an exec, so it has to exist before the
+# apiserver is compiled and has to cover every architecture a workload may run on.
+RUN sh ./apiserver/installer/build-rfwd-mux.sh
 RUN GOOS=linux GOARCH=amd64  go build -o dist/apiserver ./apiserver/cmd/main.go
 
 FROM  ${REGISTRY}/library/ubuntu:22.04

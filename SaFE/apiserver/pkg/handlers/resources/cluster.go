@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -64,6 +65,7 @@ func (h *Handler) DeleteCluster(c *gin.Context) {
 
 // PatchCluster handles partial updates to a cluster resource.
 // Authorizes the request, parses update parameters, and applies changes to the specified cluster.
+// Spec fields follow PatchWorkspace: omitted pointers are left unchanged.
 func (h *Handler) PatchCluster(c *gin.Context) {
 	handle(c, h.patchCluster)
 }
@@ -238,10 +240,12 @@ func redactClusterInfra(resp *view.GetClusterResponse) {
 	resp.SSHSecretId = ""
 	resp.ImageSecretId = ""
 	resp.KubePodsSubnet = nil
+	resp.KubeNetworkNodePrefix = nil
 	resp.Nodes = nil
 	resp.KubeServiceAddress = nil
 	resp.KubeApiServerArgs = nil
 	resp.KubeSprayImage = nil
+	resp.KubeletMaxPods = nil
 }
 
 // deleteCluster handles the deletion of a cluster resource.
@@ -308,6 +312,9 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
 	}
+	if err = validateClusterUpgradePatch(cluster, req); err != nil {
+		return nil, err
+	}
 
 	isChanged, err := applyClusterPatch(cluster, req)
 	if err != nil {
@@ -320,9 +327,40 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 }
 
 // applyClusterPatch applies updates to a cluster based on the patch request.
-// Handles changes to cluster protection status and image secret references.
+// Handles protection, control-plane label, labels, kubeSprayImage, and kubernetesVersion.
 func applyClusterPatch(cluster *v1.Cluster, req *view.PatchClusterRequest) (bool, error) {
 	isChanged := false
+	revertsToApplied := clusterPatchRevertsToApplied(cluster, req)
+	if req.KubeSprayImage != nil {
+		if applyOptionalString(&cluster.Spec.ControlPlane.KubeSprayImage, req.KubeSprayImage) {
+			isChanged = true
+		}
+	}
+	if req.KubeVersion != nil {
+		if applyOptionalString(&cluster.Spec.ControlPlane.KubeVersion, req.KubeVersion) {
+			isChanged = true
+		}
+	}
+	if req.KubeletMaxPods != nil &&
+		(cluster.Spec.ControlPlane.KubeletMaxPods == nil ||
+			*cluster.Spec.ControlPlane.KubeletMaxPods != *req.KubeletMaxPods) {
+		value := *req.KubeletMaxPods
+		cluster.Spec.ControlPlane.KubeletMaxPods = &value
+		isChanged = true
+	}
+	if revertsToApplied && restoreAppliedKubeletMaxPods(cluster) {
+		isChanged = true
+	}
+	if (req.KubeSprayImage != nil || req.KubeVersion != nil || req.KubeletMaxPods != nil) &&
+		(cluster.Status.ControlPlaneStatus.Phase == v1.UpgradeFailedPhase ||
+			cluster.Status.ControlPlaneStatus.Phase == v1.UpgradingPhase) {
+		if v1.SetAnnotation(cluster, v1.ClusterUpgradeRetryCountAnnotation, "0") {
+			isChanged = true
+		}
+		if v1.RemoveAnnotation(cluster, v1.ClusterUpgradeRetryTargetAnnotation) {
+			isChanged = true
+		}
+	}
 	if req.IsProtected != nil && *req.IsProtected != v1.IsProtected(cluster) {
 		if *req.IsProtected {
 			v1.SetLabel(cluster, v1.ProtectLabel, "")
@@ -363,6 +401,159 @@ func applyClusterPatch(cluster *v1.Cluster, req *view.PatchClusterRequest) (bool
 	return isChanged, nil
 }
 
+// validateClusterUpgradePatch validates the desired image and version before updating the spec.
+func validateClusterUpgradePatch(cluster *v1.Cluster, req *view.PatchClusterRequest) error {
+	if req.KubeSprayImage == nil && req.KubeVersion == nil && req.KubeletMaxPods == nil {
+		return nil
+	}
+	image := controlPlanePatchValue(cluster.Spec.ControlPlane.KubeSprayImage, req.KubeSprayImage)
+	version := controlPlanePatchValue(cluster.Spec.ControlPlane.KubeVersion, req.KubeVersion)
+	imageOrVersionChanged :=
+		image != controlPlanePatchValue(cluster.Spec.ControlPlane.KubeSprayImage, nil) ||
+			version != controlPlanePatchValue(cluster.Spec.ControlPlane.KubeVersion, nil)
+	if image == "" {
+		return commonerrors.NewBadRequest("the kubeSprayImage is empty")
+	}
+	if _, _, _, ok := v1.ParseKubeVersion(version); !ok {
+		return commonerrors.NewBadRequest("the kubernetesVersion must use x.y.z format")
+	}
+
+	annotations := cluster.GetAnnotations()
+	appliedVersion, hasVersion := annotations[v1.ClusterAppliedKubeVersionAnnotation]
+	appliedImage, hasImage := annotations[v1.ClusterAppliedKubeSprayImageAnnotation]
+	revertsToApplied := (req.KubeSprayImage != nil || req.KubeVersion != nil) &&
+		hasVersion && hasImage && image == appliedImage && version == appliedVersion
+	phase := cluster.Status.ControlPlaneStatus.Phase
+	if phase != v1.ReadyPhase && phase != v1.UpgradeFailedPhase &&
+		!(phase == v1.UpgradingPhase && revertsToApplied) {
+		return commonerrors.NewConflict("the cluster is not ready for upgrade")
+	}
+	if revertsToApplied {
+		normalizeClusterUpgradePatch(req)
+		return nil
+	}
+	maxPods := req.KubeletMaxPods
+	if maxPods == nil {
+		maxPods = cluster.Spec.ControlPlane.KubeletMaxPods
+	}
+	if err := validateKubeletMaxPods(maxPods, cluster.Spec.ControlPlane.KubeNetworkNodePrefix); err != nil {
+		return err
+	}
+	if !hasVersion || !hasImage {
+		return commonerrors.NewConflict("the cluster upgrade baseline is not initialized")
+	}
+	if !imageOrVersionChanged {
+		normalizeClusterUpgradePatch(req)
+		return nil
+	}
+
+	expectedVersion, ok := v1.KubeVersionForKubeSprayImage(image)
+	if !ok || expectedVersion != version {
+		return commonerrors.NewBadRequest("the kubeSprayImage and kubernetesVersion are not a supported pair")
+	}
+
+	if !v1.IsAllowedKubeVersionUpgrade(appliedVersion, version) {
+		return commonerrors.NewBadRequest("kubernetesVersion must be a patch upgrade or one minor version step")
+	}
+
+	normalizeClusterUpgradePatch(req)
+	return nil
+}
+
+// clusterPatchRevertsToApplied reports whether the request restores the applied upgrade pair.
+func clusterPatchRevertsToApplied(cluster *v1.Cluster, req *view.PatchClusterRequest) bool {
+	if req.KubeSprayImage == nil && req.KubeVersion == nil {
+		return false
+	}
+	annotations := cluster.GetAnnotations()
+	appliedImage, hasImage := annotations[v1.ClusterAppliedKubeSprayImageAnnotation]
+	appliedVersion, hasVersion := annotations[v1.ClusterAppliedKubeVersionAnnotation]
+	if !hasImage || !hasVersion {
+		return false
+	}
+	image := controlPlanePatchValue(cluster.Spec.ControlPlane.KubeSprayImage, req.KubeSprayImage)
+	version := controlPlanePatchValue(cluster.Spec.ControlPlane.KubeVersion, req.KubeVersion)
+	currentImage := controlPlanePatchValue(cluster.Spec.ControlPlane.KubeSprayImage, nil)
+	currentVersion := controlPlanePatchValue(cluster.Spec.ControlPlane.KubeVersion, nil)
+	return image == appliedImage && version == appliedVersion &&
+		(currentImage != appliedImage || currentVersion != appliedVersion)
+}
+
+// restoreAppliedKubeletMaxPods aligns max pods when an in-flight upgrade is cancelled.
+func restoreAppliedKubeletMaxPods(cluster *v1.Cluster) bool {
+	applied := v1.GetAnnotation(cluster, v1.ClusterAppliedKubeletMaxPodsAnnotation)
+	if applied == "" {
+		if cluster.Spec.ControlPlane.KubeletMaxPods == nil {
+			return false
+		}
+		cluster.Spec.ControlPlane.KubeletMaxPods = nil
+		return true
+	}
+	value, err := strconv.ParseUint(applied, 10, 32)
+	if err != nil {
+		return false
+	}
+	maxPods := uint32(value)
+	if cluster.Spec.ControlPlane.KubeletMaxPods != nil &&
+		*cluster.Spec.ControlPlane.KubeletMaxPods == maxPods {
+		return false
+	}
+	cluster.Spec.ControlPlane.KubeletMaxPods = &maxPods
+	return true
+}
+
+// normalizeClusterUpgradePatch trims requested upgrade values.
+func normalizeClusterUpgradePatch(req *view.PatchClusterRequest) {
+	if req.KubeSprayImage != nil {
+		trimmed := strings.TrimSpace(*req.KubeSprayImage)
+		req.KubeSprayImage = &trimmed
+	}
+	if req.KubeVersion != nil {
+		trimmed := strings.TrimSpace(*req.KubeVersion)
+		req.KubeVersion = &trimmed
+	}
+}
+
+// controlPlanePatchValue returns the requested value, or the current value when omitted.
+func controlPlanePatchValue(current, requested *string) string {
+	if requested != nil {
+		return strings.TrimSpace(*requested)
+	}
+	if current == nil {
+		return ""
+	}
+	return strings.TrimSpace(*current)
+}
+
+// validateKubeletMaxPods checks kubelet capacity against the per-node IPv4 CIDR.
+func validateKubeletMaxPods(maxPods, nodePrefix *uint32) error {
+	if maxPods == nil {
+		return nil
+	}
+	if *maxPods == 0 {
+		return commonerrors.NewBadRequest("the kubeletMaxPods must be greater than zero")
+	}
+	limit := v1.KubeletMaxPodsLimit(nodePrefix)
+	if *maxPods > limit {
+		return commonerrors.NewBadRequest(
+			fmt.Sprintf("the kubeletMaxPods must not exceed the per-node Pod CIDR capacity (%d)", limit))
+	}
+	return nil
+}
+
+// applyOptionalString copies src into dst when src is set and the value differs.
+func applyOptionalString(dst **string, src *string) bool {
+	if src == nil {
+		return false
+	}
+	if *dst != nil && **dst == *src {
+		return false
+	}
+	val := *src
+	*dst = &val
+	return true
+}
+
 // processClusterNodes handles the addition or removal of nodes from a cluster.
 // It performs authorization checks, validates cluster readiness, and processes
 // each node according to the requested action (add/remove).
@@ -382,8 +573,8 @@ func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	if !cluster.IsReady() {
-		return nil, commonerrors.NewInternalError("the cluster is not ready")
+	if cluster.Status.ControlPlaneStatus.Phase != v1.ReadyPhase {
+		return nil, commonerrors.NewConflict("the cluster is not ready")
 	}
 	req, err := parseProcessNodesRequest(c, v1.NodeActionAdd, v1.NodeActionRemove)
 	if err != nil {
@@ -640,15 +831,17 @@ func cvtToClusterResponseItem(cluster *v1.Cluster) view.ClusterResponseItem {
 // Includes all cluster details, configuration parameters, and status information.
 func cvtToGetClusterResponse(ctx context.Context, client client.Client, cluster *v1.Cluster) view.GetClusterResponse {
 	result := view.GetClusterResponse{
-		ClusterResponseItem: cvtToClusterResponseItem(cluster),
-		Description:         v1.GetDescription(cluster),
-		Nodes:               cluster.Spec.ControlPlane.Nodes,
-		KubeSprayImage:      cluster.Spec.ControlPlane.KubeSprayImage,
-		KubePodsSubnet:      cluster.Spec.ControlPlane.KubePodsSubnet,
-		KubeServiceAddress:  cluster.Spec.ControlPlane.KubeServiceAddress,
-		KubeNetworkPlugin:   cluster.Spec.ControlPlane.KubeNetworkPlugin,
-		KubeVersion:         cluster.Spec.ControlPlane.KubeVersion,
-		KubeApiServerArgs:   cluster.Spec.ControlPlane.KubeApiServerArgs,
+		ClusterResponseItem:   cvtToClusterResponseItem(cluster),
+		Description:           v1.GetDescription(cluster),
+		Nodes:                 cluster.Spec.ControlPlane.Nodes,
+		KubeSprayImage:        cluster.Spec.ControlPlane.KubeSprayImage,
+		KubePodsSubnet:        cluster.Spec.ControlPlane.KubePodsSubnet,
+		KubeNetworkNodePrefix: cluster.Spec.ControlPlane.KubeNetworkNodePrefix,
+		KubeServiceAddress:    cluster.Spec.ControlPlane.KubeServiceAddress,
+		KubeNetworkPlugin:     cluster.Spec.ControlPlane.KubeNetworkPlugin,
+		KubeVersion:           cluster.Spec.ControlPlane.KubeVersion,
+		KubeletMaxPods:        cluster.Spec.ControlPlane.KubeletMaxPods,
+		KubeApiServerArgs:     cluster.Spec.ControlPlane.KubeApiServerArgs,
 	}
 	if cluster.Spec.ControlPlane.ImageSecret != nil {
 		result.ImageSecretId = cluster.Spec.ControlPlane.ImageSecret.Name

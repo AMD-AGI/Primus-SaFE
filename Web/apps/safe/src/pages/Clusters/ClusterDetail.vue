@@ -7,7 +7,7 @@
         </el-button>
         <h1 class="w-name">{{ detailData.clusterId }}</h1>
 
-        <el-tag class="ml-4" :type="detailData.phase === 'Ready' ? 'success' : 'danger'">{{
+        <el-tag class="ml-4" :type="clusterPhaseTagType(detailData.phase)">{{
           detailData.phase
         }}</el-tag>
       </div>
@@ -83,6 +83,10 @@
         detailData.kubePodsSubnet
       }}</el-descriptions-item>
 
+      <el-descriptions-item label="kubeNetworkNodePrefix">{{
+        detailData.kubeNetworkNodePrefix ?? 24
+      }}</el-descriptions-item>
+
       <el-descriptions-item label="kubeServiceAddress">{{
         detailData.kubeServiceAddress
       }}</el-descriptions-item>
@@ -93,6 +97,10 @@
 
       <el-descriptions-item label="kubernetesVersion">{{
         detailData.kubernetesVersion
+      }}</el-descriptions-item>
+
+      <el-descriptions-item label="kubeletMaxPods">{{
+        detailData.kubeletMaxPods ?? '-'
       }}</el-descriptions-item>
 
       <el-descriptions-item label="sshSecretId">{{ detailData.sshSecretId }}</el-descriptions-item>
@@ -119,7 +127,9 @@
       <el-table-column prop="nodeId" label="Name/ID" width="200" :fixed="true" align="left">
         <template #default="{ row }">
           <div class="flex flex-col items-start">
-            <el-link type="primary" v-route="{ path: '/nodedetail', query: { id: row.nodeId } }">{{ row.nodeName }}</el-link>
+            <el-link type="primary" v-route="{ path: '/nodedetail', query: { id: row.nodeId } }">{{
+              row.nodeName
+            }}</el-link>
             <div class="text-[13px] text-gray-400">
               {{ row.nodeId }}
               <el-icon
@@ -179,7 +189,7 @@
         :filter-method="passAll"
       >
         <template #default="{ row }">
-          <el-tag :type="row.phase === 'Ready' ? 'success' : 'danger'">
+          <el-tag :type="clusterPhaseTagType(row.phase)">
             {{ row.phase }}
           </el-tag>
         </template>
@@ -363,6 +373,7 @@
 import { getClusterDetail, getNodesList, type NodesParams, NODE_PHASE } from '@/services'
 import { onMounted, ref, computed, reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { clusterPhaseTagType } from '@/stores/clusterPhase'
 import dayjs from 'dayjs'
 import { copyText, byte2Gi } from '@/utils/index'
 import { CopyDocument, ArrowLeft, Loading } from '@element-plus/icons-vue'

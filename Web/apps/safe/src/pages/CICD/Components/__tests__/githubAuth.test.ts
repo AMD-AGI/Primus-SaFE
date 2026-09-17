@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { buildGitHubAuthPayload, validateGitHubAuthForm, type GitHubAuthForm } from '../githubAuth'
+import {
+  buildGitHubAuthPayload,
+  isGithubRunnerAuth,
+  validateGitHubAuthForm,
+  type GitHubAuthForm,
+} from '../githubAuth'
 
 const baseForm = (overrides: Partial<GitHubAuthForm>): GitHubAuthForm => ({
   githubAuthType: 'github_app',
   githubAppId: '',
   githubAppInstallationId: '',
   githubAppPrivateKey: '',
-  githubPAT: '',
+  githubToken: '',
   ...overrides,
 })
 
@@ -33,12 +38,26 @@ describe('CICD GitHub auth payload', () => {
       buildGitHubAuthPayload(
         baseForm({
           githubAuthType: 'pat',
-          githubPAT: ' ghp_test ',
+          githubToken: ' ghp_test ',
         }),
       ),
     ).toEqual({
       type: 'pat',
       token: 'ghp_test',
+    })
+  })
+
+  it('builds a registration token payload from the same token field', () => {
+    expect(
+      buildGitHubAuthPayload(
+        baseForm({
+          githubAuthType: 'registration_token',
+          githubToken: ' CLOJQCKV5GDWX2W7MTRQNVLKT7ERY ',
+        }),
+      ),
+    ).toEqual({
+      type: 'registration_token',
+      token: 'CLOJQCKV5GDWX2W7MTRQNVLKT7ERY',
     })
   })
 
@@ -49,9 +68,18 @@ describe('CICD GitHub auth payload', () => {
     ])
   })
 
-  it('validates legacy PAT field', () => {
+  it('validates the token field for both token-based auth types', () => {
     expect(validateGitHubAuthForm(baseForm({ githubAuthType: 'pat' }))).toEqual([
-      'Please input GitHub PAT',
+      'Please input GitHub token',
     ])
+    expect(validateGitHubAuthForm(baseForm({ githubAuthType: 'registration_token' }))).toEqual([
+      'Please input GitHub token',
+    ])
+  })
+
+  it('only treats registration_token as the GithubRunner kind', () => {
+    expect(isGithubRunnerAuth('registration_token')).toBe(true)
+    expect(isGithubRunnerAuth('pat')).toBe(false)
+    expect(isGithubRunnerAuth('github_app')).toBe(false)
   })
 })

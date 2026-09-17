@@ -1,30 +1,28 @@
-export type GitHubAuthType = 'github_app' | 'pat'
+import type { GitHubAuthPayload } from '@/services/workload/type'
+
+// 'registration_token' selects the GithubRunner kind rather than AutoscalingRunnerSet:
+// the runner registers itself with a short-lived token instead of letting ARC mint
+// credentials from an App or PAT. It carries the same single token field as 'pat'.
+export type GitHubAuthType = 'github_app' | 'pat' | 'registration_token'
 
 export interface GitHubAuthForm {
   githubAuthType: GitHubAuthType
   githubAppId: string
   githubAppInstallationId: string
   githubAppPrivateKey: string
-  githubPAT: string
+  githubToken: string
 }
-
-export type GitHubAuthPayload =
-  | {
-      type: 'github_app'
-      appId: string
-      installationId: string
-      privateKey: string
-    }
-  | {
-      type: 'pat'
-      token: string
-    }
 
 const clean = (value: string) => value.trim()
 
+const isTokenAuth = (type: GitHubAuthType): type is 'pat' | 'registration_token' =>
+  type === 'pat' || type === 'registration_token'
+
+export const isGithubRunnerAuth = (type: GitHubAuthType) => type === 'registration_token'
+
 export const validateGitHubAuthForm = (form: GitHubAuthForm): string[] => {
-  if (form.githubAuthType === 'pat') {
-    return clean(form.githubPAT) ? [] : ['Please input GitHub PAT']
+  if (isTokenAuth(form.githubAuthType)) {
+    return clean(form.githubToken) ? [] : ['Please input GitHub token']
   }
 
   const missing: string[] = []
@@ -35,10 +33,10 @@ export const validateGitHubAuthForm = (form: GitHubAuthForm): string[] => {
 }
 
 export const buildGitHubAuthPayload = (form: GitHubAuthForm): GitHubAuthPayload => {
-  if (form.githubAuthType === 'pat') {
+  if (isTokenAuth(form.githubAuthType)) {
     return {
-      type: 'pat',
-      token: clean(form.githubPAT),
+      type: form.githubAuthType,
+      token: clean(form.githubToken),
     }
   }
 

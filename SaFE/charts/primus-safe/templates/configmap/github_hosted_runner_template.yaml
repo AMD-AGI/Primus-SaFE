@@ -1,0 +1,180 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: github-hosted-runner-template
+  namespace: {{ .Release.Namespace }}
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: GithubRunner
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    # The main container name should match the configuration defined in the template below
+    primus-safe.main.container: runner
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+data:
+ template: |
+  apiVersion: apps/v1
+  kind: StatefulSet
+  spec:
+    podManagementPolicy: Parallel
+    template:
+      spec:
+        dnsPolicy: ClusterFirst
+        serviceAccountName: github-runner
+        initContainers:
+        # Copies /home/runner/externals into the shared volume before dind starts.
+        # Dispatcher overwrites this image with Spec.Images[0] so it stays aligned
+        # with the runner container when the workload pins a different tag.
+        - name: init-dind-externals
+          image: {{ default "ghcr.io/actions/actions-runner:2.328.0" (default .Values.cicd).github_runner_image }}
+          command: ["cp", "-r", "/home/runner/externals/.", "/home/runner/tmpDir/"]
+          volumeMounts:
+          - name: dind-externals
+            mountPath: /home/runner/tmpDir
+{{- if (default "" (default .Values.cicd).proxy_relay_image) }}
+        - name: proxy-relay
+          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.proxy_relay_image }}
+          imagePullPolicy: IfNotPresent
+          restartPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              : "${PROXY_UPSTREAM_HOST:?}" "${PROXY_UPSTREAM_PORT:?}"
+              percent_encode() {
+                LC_ALL=C od -A n -v -t x1 | tr -d '[:space:]' | sed 's/../%&/g'
+              }
+              login=""
+              if [ -s /etc/secrets/proxy/username ] && [ -s /etc/secrets/proxy/password ]; then
+                username=$(percent_encode </etc/secrets/proxy/username)
+                pw=$(percent_encode </etc/secrets/proxy/password)
+                login=" login=${username}:${pw}"
+              fi
+              cat >/tmp/squid.conf <<EOF
+              http_port ${PROXY_RELAY_PORT}
+              acl loopback src 127.0.0.1/32 ::1
+              acl CONNECT method CONNECT
+              http_access allow loopback
+              http_access deny all
+              cache_peer ${PROXY_UPSTREAM_HOST} parent ${PROXY_UPSTREAM_PORT} 0 no-query default${login} name=upstream
+              EOF
+              case "${PROXY_UPSTREAM_DOMAINS:-}" in
+                *[!A-Za-z0-9.*_\ -]*)
+                  echo "PROXY_UPSTREAM_DOMAINS: expected domain patterns separated by spaces" >&2
+                  exit 1
+                  ;;
+              esac
+              if [ -n "${PROXY_UPSTREAM_DOMAINS:-}" ]; then
+                cat >>/tmp/squid.conf <<EOF
+              acl upstream_domains dstdomain ${PROXY_UPSTREAM_DOMAINS}
+              cache_peer_access upstream allow upstream_domains
+              cache_peer_access upstream deny all
+              never_direct allow upstream_domains
+              always_direct deny upstream_domains
+              always_direct allow all
+              EOF
+              else
+                echo "relay: PROXY_UPSTREAM_DOMAINS is empty; ALL egress goes through" \
+                  "${PROXY_UPSTREAM_HOST}:${PROXY_UPSTREAM_PORT} with no direct fallback" >&2
+                cat >>/tmp/squid.conf <<EOF
+              never_direct allow all
+              EOF
+              fi
+              cat >>/tmp/squid.conf <<EOF
+              cache deny all
+              access_log none
+              cache_log stdio:/var/log/squid/cache.log
+              pid_filename none
+              EOF
+              exec squid -N -f /tmp/squid.conf
+          env:
+            - name: PROXY_RELAY_PORT
+              value: "{{ default 3129 (default .Values.cicd).proxy_relay_port }}"
+            - name: PROXY_UPSTREAM_DOMAINS
+              value: "{{ if kindIs "invalid" (default .Values.cicd).proxy_relay_upstream_domains }}.github.com .githubusercontent.com .ghcr.io{{ else }}{{ (default .Values.cicd).proxy_relay_upstream_domains }}{{ end }}"
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: proxy-credential
+              mountPath: /etc/secrets/proxy
+              readOnly: true
+{{- end }}
+        - name: dind
+          image: {{ default "docker:28.3.3-dind" (default .Values.cicd).github_runner_dind_image }}
+          restartPolicy: Always
+          args:
+          - dockerd
+          - --host=unix:///var/run/docker.sock
+          - --group=123
+          securityContext:
+            privileged: true
+            runAsGroup: 0
+            runAsUser: 0
+          startupProbe:
+            exec:
+              command: ["docker", "info"]
+            failureThreshold: 24
+            periodSeconds: 5
+          volumeMounts:
+          - name: work
+            mountPath: /home/runner/_work
+          - name: dind-sock
+            mountPath: /var/run
+          - name: dind-externals
+            mountPath: /home/runner/externals
+        containers:
+        - name: runner
+          image: {{ default "ghcr.io/actions/actions-runner:2.328.0" (default .Values.cicd).github_runner_image }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT
+              value: "1"
+            - name: DOCKER_HOST
+              value: unix:///var/run/docker.sock
+            - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+              value: "120"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsGroup: 123
+            runAsUser: 1001
+          volumeMounts:
+          - name: work
+            mountPath: /home/runner/_work
+          - name: dind-sock
+            mountPath: /var/run
+          - name: dind-externals
+            mountPath: /home/runner/externals
+          # Dispatcher injects preStop (config.sh remove) for scale-down and
+          # workload delete. Rolling restarts keep the ordinal and skip remove.
+        terminationGracePeriodSeconds: 180
+        restartPolicy: Always
+        schedulerName: kube-scheduler-plugins
+        volumes:
+        - name: work
+          emptyDir: {}
+        - name: dind-sock
+          emptyDir: {}
+        - name: dind-externals
+          emptyDir: {}
+{{- if (default "" (default .Values.cicd).proxy_relay_image) }}
+        - name: proxy-credential
+          secret:
+            optional: true
+            items:
+            - key: username
+              path: username
+            - key: password
+              path: password
+{{- end }}

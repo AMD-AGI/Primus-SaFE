@@ -263,6 +263,10 @@ func (r *WorkspaceReconciler) guaranteeDataPlaneResources(ctx context.Context, w
 		klog.ErrorS(err, "failed to create service account for cicd", "name", workspace.Name)
 		return err
 	}
+	if err := createGithubRunnerServiceAccount(ctx, workspace, clientSet); err != nil {
+		klog.ErrorS(err, "failed to create service account for github runner", "name", workspace.Name)
+		return err
+	}
 	if err := createMonarchServiceAccount(ctx, workspace, clientSet); err != nil {
 		klog.ErrorS(err, "failed to create service account for monarch", "name", workspace.Name)
 		return err
@@ -308,6 +312,9 @@ func (r *WorkspaceReconciler) deleteDataPlaneResources(ctx context.Context, work
 	}
 
 	if err = deleteCICDServiceAccount(ctx, workspace, clientSet); err != nil {
+		return err
+	}
+	if err = deleteGithubRunnerServiceAccount(ctx, workspace, clientSet); err != nil {
 		return err
 	}
 	if err = deleteMonarchServiceAccount(ctx, workspace, clientSet); err != nil {

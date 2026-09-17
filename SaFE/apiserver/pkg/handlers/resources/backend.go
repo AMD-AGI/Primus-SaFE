@@ -8,6 +8,7 @@ package resources
 import (
 	"github.com/gin-gonic/gin"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -21,13 +22,14 @@ func (h *Handler) GetEnvs(c *gin.Context) {
 // getEnvs lists the environment variables supported by the backend.
 func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 	resp := view.GetEnvResponse{
-		EnableLog:         commonconfig.IsOpenSearchEnable(),
-		EnableLogDownload: commonconfig.IsS3Enable(),
-		EnableSSH:         commonconfig.IsSSHEnable(),
-		SSHIP:             commonconfig.GetSSHServerIP(),
-		SSHPort:           commonconfig.GetSSHServerPort(),
-		SSOEnable:         commonconfig.IsSSOEnable(),
-		CDRequireApproval: commonconfig.IsCDRequireApproval(),
+		EnableLog:            commonconfig.IsOpenSearchEnable(),
+		EnableLogDownload:    commonconfig.IsS3Enable(),
+		EnableSSH:            commonconfig.IsSSHEnable(),
+		SSHIP:                commonconfig.GetSSHServerIP(),
+		SSHPort:              commonconfig.GetSSHServerPort(),
+		SSOEnable:            commonconfig.IsSSOEnable(),
+		CDRequireApproval:    commonconfig.IsCDRequireApproval(),
+		KubeSprayK8sVersions: v1.KubeSprayK8sVersions(),
 	}
 	if resp.SSOEnable {
 		inst := authority.SSOInstance()

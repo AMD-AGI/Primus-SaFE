@@ -7,6 +7,7 @@ package resource
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	testifyassert "github.com/stretchr/testify/assert"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/pointer"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -49,6 +51,56 @@ func TestGenerateWorkerPod(t *testing.T) {
 	assert.Len(t, pod.Spec.Containers, 1)
 	assert.Equal(t, "img:1", pod.Spec.Containers[0].Image)
 	assert.Len(t, pod.Spec.HostAliases, 1)
+}
+
+func TestGenerateUpgradeHostsIncludesManagedWorkers(t *testing.T) {
+	cluster, r := planeClusterWithNode(t)
+	worker := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "worker1",
+			Labels: map[string]string{v1.ClusterIdLabel: cluster.Name},
+		},
+		Spec: v1.NodeSpec{
+			Cluster:   pointer.String(cluster.Name),
+			PrivateIP: "10.0.0.2",
+		},
+		Status: v1.NodeStatus{
+			MachineStatus: v1.MachineStatus{Phase: v1.NodeReady, HostName: "worker1"},
+			ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged},
+		},
+	}
+	testifyassert.NoError(t, r.Create(context.Background(), worker))
+
+	hosts, err := r.generateUpgradeHosts(context.Background(), cluster, true)
+	testifyassert.NoError(t, err)
+	assert.Contains(t, hosts.NodeName, "worker1")
+	testifyassert.Contains(t, strings.Join(hosts.NodeAndIP, "\n"), "worker1")
+}
+
+func TestGenerateUpgradeHostsAllowsUnavailableWorkerDuringUpgrade(t *testing.T) {
+	cluster, r := planeClusterWithNode(t)
+	worker := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "worker1",
+			Labels: map[string]string{v1.ClusterIdLabel: cluster.Name},
+		},
+		Spec: v1.NodeSpec{
+			Cluster:   pointer.String(cluster.Name),
+			PrivateIP: "10.0.0.2",
+		},
+		Status: v1.NodeStatus{
+			MachineStatus: v1.MachineStatus{HostName: "worker1"},
+			ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged},
+		},
+	}
+	testifyassert.NoError(t, r.Create(context.Background(), worker))
+
+	_, err := r.generateUpgradeHosts(context.Background(), cluster, true)
+	testifyassert.Error(t, err)
+
+	hosts, err := r.generateUpgradeHosts(context.Background(), cluster, false)
+	testifyassert.NoError(t, err)
+	assert.Contains(t, hosts.NodeName, "worker1")
 }
 
 func TestGenerateScaleWorkerPod(t *testing.T) {
@@ -163,14 +215,63 @@ func TestGetKubeSprayEnv(t *testing.T) {
 	cluster := &v1.Cluster{}
 	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.28")
 	cluster.Spec.ControlPlane.KubeProxyMode = pointer.String("ipvs")
+	maxPods := uint32(250)
+	cluster.Spec.ControlPlane.KubeletMaxPods = &maxPods
 	env := getKubeSprayEnv(cluster)
 	testifyassert.Contains(t, env, "kube_version=1.28")
 	testifyassert.Contains(t, env, "conntrack_modules")
+	testifyassert.Contains(t, env, "kubelet_max_pods=250")
 	testifyassert.Contains(t, env, "auto_renew_certificates=true")
 }
 
 func TestGetKubeSprayResetCMD(t *testing.T) {
 	testifyassert.Contains(t, getKubeSprayResetCMD("root", ""), "reset.yml")
+}
+
+func TestGetKubeSprayUpgradeCMD(t *testing.T) {
+	cmd := getKubeSprayUpgradeCMD("root", "-e kube_version=1.33.0")
+	testifyassert.Contains(t, cmd, "upgrade-cluster.yml")
+	testifyassert.Contains(t, cmd, "-e kube_version=1.33.0")
+	testifyassert.Contains(t, cmd,
+		`"drain_pod_selector":"primus-safe.cluster.manage.action!=upgrade"`)
+
+	selector, err := labels.Parse(
+		v1.ClusterManageActionLabel + "!=" + string(v1.ClusterUpgradeAction))
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, selector.Matches(labels.Set{"app": "workload"}))
+	testifyassert.False(t, selector.Matches(labels.Set{
+		v1.ClusterManageActionLabel: string(v1.ClusterUpgradeAction),
+	}))
+}
+
+func TestNeedsClusterUpgrade(t *testing.T) {
+	cluster := &v1.Cluster{}
+	testifyassert.False(t, needsClusterUpgrade(cluster))
+
+	v1.SetAnnotation(cluster, v1.ClusterAppliedKubeVersionAnnotation, "1.32.5")
+	v1.SetAnnotation(cluster, v1.ClusterAppliedKubeSprayImageAnnotation, "img:old")
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("img:old")
+	testifyassert.False(t, needsClusterUpgrade(cluster))
+
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.0")
+	testifyassert.True(t, needsClusterUpgrade(cluster))
+
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
+	maxPods := uint32(250)
+	cluster.Spec.ControlPlane.KubeletMaxPods = &maxPods
+	testifyassert.True(t, needsClusterUpgrade(cluster))
+}
+
+func TestIsAllowedKubeVersionUpgrade(t *testing.T) {
+	testifyassert.True(t, isAllowedKubeVersionUpgrade("1.32.5", "1.32.5"))
+	testifyassert.True(t, isAllowedKubeVersionUpgrade("v1.32.5", "1.32.9"))
+	testifyassert.True(t, isAllowedKubeVersionUpgrade("1.32.5", "1.33.0"))
+	testifyassert.False(t, isAllowedKubeVersionUpgrade("1.32.5", "1.34.0"))
+	testifyassert.False(t, isAllowedKubeVersionUpgrade("1.32.5", "1.32.4"))
+	testifyassert.False(t, isAllowedKubeVersionUpgrade("1.32.5", ""))
+	testifyassert.False(t, isAllowedKubeVersionUpgrade("", "1.33.0"))
+	testifyassert.False(t, isAllowedKubeVersionUpgrade("1.32.5", "1.33.0; touch /tmp/unsafe"))
 }
 
 func TestGetKubesprayImage(t *testing.T) {

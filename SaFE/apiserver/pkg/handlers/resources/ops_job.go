@@ -929,7 +929,9 @@ func (h *Handler) getNodesOfWorkload(ctx context.Context, workloadId string) ([]
 		}
 		// Prefer the per-dispatch workload_dispatch_node table; fall back to the
 		// legacy mirrored Nodes column.
-		if rows, derr := h.dbClient.ListWorkloadDispatchNodes(ctx, workloadId); derr == nil && len(rows) > 0 {
+		if rows, derr := h.dbClient.ListWorkloadDispatchNodes(
+			ctx, workloadId, dbutils.ParseNullString(workload.WorkloadUId),
+		); derr == nil && len(rows) > 0 {
 			if nodes := dbclient.LatestDispatchNodes(rows); len(nodes) > 0 {
 				return nodes, workload.Workspace, nil
 			}

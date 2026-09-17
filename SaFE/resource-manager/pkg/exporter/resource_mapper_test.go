@@ -6,15 +6,22 @@
 package exporter
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
 )
@@ -288,4 +295,21 @@ func TestOpsJobMapperWithDeletion(t *testing.T) {
 	res := opsJobMapper(u)
 	assert.Assert(t, res != nil)
 	assert.Equal(t, res.JobId, "j2")
+}
+
+func TestFailedWorkloadMessage_ExportAndCleanup(t *testing.T) {
+	w := TestWorkloadData.DeepCopy()
+	w.Status.Phase = v1.WorkloadFailed
+	v1.SetLabel(w, v1.WorkloadDispatchCntLabel, "1")
+	w.Status.Message = "registration timed out ARC controller: proxy connection refused"
+	w.Status.Conditions = []metav1.Condition{{Type: string(v1.AdminFailed), Status: metav1.ConditionTrue, Reason: commonworkload.GenerateDispatchReason(1), Message: w.Status.Message, LastTransitionTime: metav1.Now()}}
+	cli := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(w).Build()
+	obj, err := unstructured.ConvertObjectToUnstructured(w)
+	assert.NilError(t, err)
+	row := workloadMapper(obj)
+	assert.NilError(t, cli.Delete(context.Background(), w))
+	assert.Assert(t, apierrors.IsNotFound(cli.Get(context.Background(), client.ObjectKeyFromObject(w), &v1.Workload{})))
+	var conditions []metav1.Condition
+	assert.NilError(t, json.Unmarshal([]byte(row.Conditions.String), &conditions))
+	assert.Equal(t, commonworkload.GetWorkloadFailureMessage(conditions, row.DispatchCount), w.Status.Message)
 }

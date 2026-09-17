@@ -35,9 +35,11 @@ const (
 	RequireNodeSpreadAnnotation = PrimusSafePrefix + "require.node.spread"
 
 	// cicd
-	CICDScaleSetIdAnnotation = "runner-scale-set-id"
-	CICDScaleRunnerIdLabel   = PrimusSafePrefix + "scale.runner.id"
-	GithubSecretIdAnnotation = PrimusSafePrefix + "github.secret.id"
+	CICDScaleSetIdAnnotation         = "runner-scale-set-id"
+	CICDProxyManagedAnnotation       = PrimusSafePrefix + "cicd.proxy.managed"
+	CICDScaleRunnerIdLabel           = PrimusSafePrefix + "scale.runner.id"
+	GithubSecretIdAnnotation         = PrimusSafePrefix + "github.secret.id"
+	GithubPreviousSecretIdAnnotation = PrimusSafePrefix + "github.previous.secret.id"
 
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."
@@ -87,6 +89,16 @@ const (
 	ClusterManageScaleDownLabel   = ClusterManagePrefix + "scale.down"
 	ClusterIdLabel                = ClusterPrefix + "id"
 	ClusterControlPlaneLabel      = ClusterPrefix + "control-plane"
+	// ClusterAppliedKubeVersionAnnotation records the kube_version last applied by kubespray.
+	ClusterAppliedKubeVersionAnnotation = ClusterPrefix + "applied.kube.version"
+	// ClusterAppliedKubeSprayImageAnnotation records the kubespray image last applied.
+	ClusterAppliedKubeSprayImageAnnotation = ClusterPrefix + "applied.kubespray.image"
+	// ClusterAppliedKubeletMaxPodsAnnotation records the kubelet_max_pods last applied.
+	ClusterAppliedKubeletMaxPodsAnnotation = ClusterPrefix + "applied.kubelet.max-pods"
+	// ClusterUpgradeRetryCountAnnotation records failed attempts for the current target.
+	ClusterUpgradeRetryCountAnnotation = ClusterPrefix + "upgrade.retry.count"
+	// ClusterUpgradeRetryTargetAnnotation records the target the retry count belongs to.
+	ClusterUpgradeRetryTargetAnnotation = ClusterPrefix + "upgrade.retry.target"
 
 	// storage
 	StoragePrefix              = PrimusSafePrefix + "storage."
@@ -125,6 +137,7 @@ const (
 	WorkloadFinalizer                 = PrimusSafeDomain + "workload.finalizer"
 	MonarchMeshFinalizer              = PrimusSafeDomain + "monarch.mesh.finalizer"
 	WorkloadIdLabel                   = WorkloadPrefix + "id"
+	WorkloadUidLabel                  = WorkloadPrefix + "uid"
 	WorkloadDispatchedAnnotation      = WorkloadPrefix + "dispatched"
 	WorkloadScheduledAnnotation       = WorkloadPrefix + "scheduled"
 	WorkloadPreemptedAnnotation       = WorkloadPrefix + "preempted"

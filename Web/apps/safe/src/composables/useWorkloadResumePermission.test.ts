@@ -1,7 +1,16 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ElMessage } from 'element-plus'
+import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
 import { useUserStore } from '@/stores/user'
-import { useWorkloadResumePermission } from './useWorkloadResumePermission'
+import {
+  useWorkloadResumePermission,
+  ensureResumeCooldownElapsed,
+  RESUME_COOLDOWN_SECONDS,
+} from './useWorkloadResumePermission'
+
+dayjs.extend(utc)
 
 vi.hoisted(() => {
   const storage = new Map<string, string>()
@@ -43,5 +52,24 @@ describe('useWorkloadResumePermission', () => {
     expect(canResumeWorkload(row)).toBe(true)
     expect(getResumeDisabled(row)).toBe(false)
     expect(getResumeTooltip(row)).toBe('Resume')
+  })
+})
+
+describe('ensureResumeCooldownElapsed', () => {
+  const utcEndTime = (secondsAgo: number) =>
+    dayjs.utc().subtract(secondsAgo, 'second').format('YYYY-MM-DD HH:mm:ss')
+
+  it('blocks and warns while the workload is still inside the cooldown window', () => {
+    const warning = vi.spyOn(ElMessage, 'warning').mockImplementation(() => undefined as never)
+
+    expect(ensureResumeCooldownElapsed(utcEndTime(RESUME_COOLDOWN_SECONDS - 5))).toBe(false)
+    expect(warning).toHaveBeenCalledTimes(1)
+
+    warning.mockRestore()
+  })
+
+  it('allows the resume once the cooldown elapsed or the workload never ended', () => {
+    expect(ensureResumeCooldownElapsed(utcEndTime(RESUME_COOLDOWN_SECONDS + 5))).toBe(true)
+    expect(ensureResumeCooldownElapsed(undefined)).toBe(true)
   })
 })

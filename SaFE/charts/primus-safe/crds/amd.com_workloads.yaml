@@ -91,8 +91,9 @@ spec:
                 description: |-
                   Group: An extension field that is not currently in use
                   Version: version of workload, default value is v1
-                  Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet, default PyTorchJob
+                  Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet/GithubRunner, default PyTorchJob
                   AutoscalingRunnerSet is a CI/CD configuration, and if enabled, it requires NFS storage support.
+                  GithubRunner is a persistent self-hosted GitHub Actions runner StatefulSet.
                 properties:
                   group:
                     type: string
@@ -362,7 +363,7 @@ spec:
                 format: date-time
                 type: string
               message:
-                description: Some status descriptions of the workload. only for pending
+                description: Scheduling explanations for Pending workloads and diagnostics for Failed workloads.
                 type: string
               nodeUsage:
                 description: |-

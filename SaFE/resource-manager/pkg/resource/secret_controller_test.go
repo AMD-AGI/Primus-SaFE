@@ -339,3 +339,38 @@ func TestUpdateClusterRefSecretFull(t *testing.T) {
 	testifyassert.NoError(t, r.updateClusterRefSecret(context.Background(), sec))
 	testifyassert.NoError(t, r.removeSecretFromCluster(context.Background(), sec))
 }
+
+func TestCICDProxySecret_WorkspaceReplication(t *testing.T) {
+	workspace := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	workspace.Spec.Cluster = "c1"
+	cluster := testCluster("c1")
+	source := boundSecret("proxy-auth")
+	source.Namespace = common.PrimusSafeNamespace
+	source.Labels = map[string]string{v1.SecretTypeLabel: string(v1.SecretGeneral)}
+	source.Data = map[string][]byte{"username": {1}, "password": {2}}
+	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "example-workload"}, Spec: v1.WorkloadSpec{Workspace: workspace.Name, Env: map[string]string{common.ProxyUrl: "http://proxy.example.com", common.ProxyCredentialSecret: source.Name}}}
+	cs := k8sfake.NewSimpleClientset(source)
+	r := newSecretReconcilerFull(t, cs, workspace, cluster, workload)
+	for _, password := range []byte{2, 3} {
+		source.Data["password"] = []byte{password}
+		_, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).Update(context.Background(), source, metav1.UpdateOptions{})
+		testifyassert.NoError(t, err)
+		_, err = r.processSecrets(context.Background(), source)
+		testifyassert.NoError(t, err)
+		mirror, err := cs.CoreV1().Secrets(workspace.Name).Get(context.Background(), source.Name, metav1.GetOptions{})
+		testifyassert.NoError(t, err)
+		testifyassert.Equal(t, source.Name, mirror.Name)
+		testifyassert.Equal(t, source.Type, mirror.Type)
+		testifyassert.Equal(t, source.Data, mirror.Data)
+	}
+	current := &v1.Workload{}
+	testifyassert.NoError(t, r.Get(context.Background(), ctrlclient.ObjectKeyFromObject(workload), current))
+	delete(current.Spec.Env, common.ProxyCredentialSecret)
+	testifyassert.NoError(t, r.Update(context.Background(), current))
+	testifyassert.NoError(t, r.Delete(context.Background(), current))
+	retained, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).Get(context.Background(), source.Name, metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	testifyassert.Empty(t, retained.OwnerReferences)
+	testifyassert.Empty(t, v1.GetLabel(retained, v1.OwnerLabel))
+	testifyassert.Equal(t, source.Data, retained.Data)
+}

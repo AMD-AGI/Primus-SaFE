@@ -61,6 +61,15 @@ type logRawProxyEnvelope struct {
 }
 
 func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, index, uri string, body []byte) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	return c.SearchByTimeRangeContext(ctx, sinceTime, untilTime, index, uri, body)
+}
+
+func (c *SearchClient) SearchByTimeRangeContext(ctx context.Context, sinceTime, untilTime time.Time, index, uri string, body []byte) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if c.searchFunc != nil {
 		return c.searchFunc(sinceTime, untilTime, index, uri, body)
 	}
@@ -85,10 +94,16 @@ func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, index, 
 		sep = "&"
 	}
 	uri = uri + sep + "ignore_unavailable=true&allow_no_indices=true"
-	return c.Request(indexPattern+uri, "POST", body)
+	return c.RequestContext(ctx, indexPattern+uri, "POST", body)
 }
 
 func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	return c.RequestContext(ctx, uri, httpMethod, body)
+}
+
+func (c *SearchClient) RequestContext(ctx context.Context, uri, httpMethod string, body []byte) ([]byte, error) {
 	if c.clusterClient == nil {
 		return nil, commonerrors.NewInternalError("opensearch client not initialized")
 	}
@@ -104,9 +119,6 @@ func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, err
 		Body:   json.RawMessage(body),
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-
 	rawResp, err := c.clusterClient.RawPost(ctx, "/api/v1/logs/raw", proxyReq)
 	if err != nil {
 		return nil, fmt.Errorf("robust-analyzer log proxy failed: %w", err)
@@ -114,14 +126,12 @@ func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, err
 
 	var envelope logRawProxyEnvelope
 	if err := json.Unmarshal(rawResp, &envelope); err != nil {
-		klog.Errorf("[opensearch] failed to parse robust-analyzer response (len=%d): %s",
-			len(rawResp), truncateForLog(rawResp, 1024))
-		return nil, fmt.Errorf("parse robust-analyzer response: %w (response prefix: %q)",
-			err, truncateForLog(rawResp, 200))
+		klog.Error("[opensearch] failed to parse robust-analyzer response")
+		return nil, fmt.Errorf("parse robust-analyzer response: %w", err)
 	}
 
 	if envelope.Meta.Code != 0 && envelope.Meta.Code != 2000 {
-		return nil, fmt.Errorf("robust-analyzer log proxy error %d: %s", envelope.Meta.Code, envelope.Meta.Message)
+		return nil, fmt.Errorf("robust-analyzer log proxy error %d: %s", envelope.Meta.Code, truncateForLog([]byte(envelope.Meta.Message), 1024))
 	}
 
 	if envelope.Data.StatusCode >= 400 {

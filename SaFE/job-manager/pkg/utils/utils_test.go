@@ -8,6 +8,7 @@ package utils
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -285,4 +286,20 @@ func TestGetLabels(t *testing.T) {
 	labels2, err := GetLabels(u2, v1.ResourceSpec{})
 	assert.NilError(t, err)
 	assert.Assert(t, labels2 == nil)
+}
+
+func TestSetWorkloadFailed_Message(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "example-workload"}}
+	cli := ctrlfake.NewClientBuilder().WithScheme(utilsScheme(t)).WithStatusSubresource(w).Build()
+	assert.NilError(t, cli.Create(context.Background(), w))
+	for _, message := range []string{"", "registration failed", "registration failed", " \n", "updated detail"} {
+		assert.NilError(t, SetWorkloadFailed(context.Background(), cli, w, message))
+		current := &v1.Workload{}
+		assert.NilError(t, cli.Get(context.Background(), ctrlClient.ObjectKeyFromObject(w), current))
+		assert.Equal(t, current.Status.Phase, v1.WorkloadFailed)
+		assert.Assert(t, current.Status.EndTime != nil)
+		assert.Equal(t, len(current.Status.Conditions), 1)
+		assert.Assert(t, strings.TrimSpace(current.Status.Message) != "")
+		assert.Equal(t, current.Status.Conditions[0].Message, current.Status.Message)
+	}
 }

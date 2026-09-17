@@ -6,12 +6,15 @@
 package config
 
 import (
+	"bytes"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/spf13/viper"
 	testifyassert "github.com/stretchr/testify/assert"
@@ -19,12 +22,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// chartPath is the chart that renders the config file the apiserver reads.
+// chartPath is the chart that renders the configuration consumed by SaFE services.
 const chartPath = "../../../charts/primus-safe"
 
-// renderApiserverConfig renders the chart and returns the apiserver's config.yaml.
-// It skips the test where helm is unavailable.
-func renderApiserverConfig(t *testing.T, values ...string) string {
+func renderConfigMapData(t *testing.T, name, key string, values ...string) string {
 	t.Helper()
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm is not installed")
@@ -34,9 +35,12 @@ func renderApiserverConfig(t *testing.T, values ...string) string {
 	}
 
 	args := append([]string{"template", chartPath}, values...)
-	out, err := exec.Command("helm", args...).CombinedOutput()
+	cmd := exec.Command("helm", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	// helm puts the reason on stderr, and nothing below can run without a render.
-	testifyrequire.NoErrorf(t, err, "helm template failed:\n%s", out)
+	testifyrequire.NoErrorf(t, err, "helm template failed:\n%s", stderr.String())
 
 	decoder := yaml.NewDecoder(strings.NewReader(string(out)))
 	for {
@@ -50,17 +54,22 @@ func renderApiserverConfig(t *testing.T, values ...string) string {
 		if err := decoder.Decode(&doc); err != nil {
 			// End of stream is the loop's exit; anything else means the chart
 			// rendered something that is not YAML, which is worth saying out loud.
-			testifyrequire.ErrorIsf(t, err, io.EOF, "rendered chart is not valid YAML: %v", err)
+			testifyrequire.ErrorIsf(t, err, io.EOF, "rendered chart is not valid YAML: %v\n%s", err, out)
 			break
 		}
-		if doc.Kind == "ConfigMap" && strings.Contains(doc.Metadata.Name, "apiserver") {
-			if cfg, ok := doc.Data["config.yaml"]; ok {
+		if doc.Kind == "ConfigMap" && strings.Contains(doc.Metadata.Name, name) {
+			if cfg, ok := doc.Data[key]; ok {
 				return cfg
 			}
 		}
 	}
-	t.Fatal("no apiserver config.yaml in the rendered chart")
+	t.Fatalf("no %s key in rendered ConfigMap %s", key, name)
 	return ""
+}
+
+func renderApiserverConfig(t *testing.T, values ...string) string {
+	t.Helper()
+	return renderConfigMapData(t, "apiserver", "config.yaml", values...)
 }
 
 // loadRendered writes the rendered config where LoadConfig can read it, so the
@@ -120,4 +129,205 @@ func TestChartRendersReverseForwardEnabledExplicitly(t *testing.T) {
 func TestChartRendersAnEmptyBindListAsEmpty(t *testing.T) {
 	loadRendered(t, renderApiserverConfig(t, "--set", "ssh.reverse_forward.bind_addresses={}"))
 	testifyassert.Empty(t, GetSSHReverseForwardBindAddresses())
+}
+
+func TestChartRendersCICDProxyRelayAsNativeSidecar(t *testing.T) {
+	type container struct {
+		Name          string `yaml:"name"`
+		RestartPolicy string `yaml:"restartPolicy"`
+		Resources     struct {
+			Limits   map[string]string `yaml:"limits"`
+			Requests map[string]string `yaml:"requests"`
+		} `yaml:"resources"`
+	}
+	var runner struct {
+		Spec struct {
+			Spec struct {
+				Containers     []container `yaml:"containers"`
+				InitContainers []container `yaml:"initContainers"`
+			} `yaml:"spec"`
+		} `yaml:"spec"`
+	}
+	rendered := renderConfigMapData(t, "github-runner-template", "template",
+		"--show-only", "templates/configmap/github_runner_template.yaml",
+		"--set", "cicd.proxy_relay_image=example/proxy-relay:latest")
+	testifyrequire.NoError(t, yaml.Unmarshal([]byte(rendered), &runner))
+
+	for _, current := range runner.Spec.Spec.Containers {
+		testifyassert.NotEqual(t, "proxy-relay", current.Name)
+	}
+	for _, current := range runner.Spec.Spec.InitContainers {
+		if current.Name != "proxy-relay" {
+			continue
+		}
+		testifyassert.Equal(t, "Always", current.RestartPolicy)
+		testifyassert.Equal(t, map[string]string{"cpu": "500m", "memory": "256Mi"}, current.Resources.Limits)
+		testifyassert.Empty(t, current.Resources.Requests)
+		testifyassert.NotContains(t, current.Resources.Limits, "amd.com/gpu")
+		return
+	}
+	t.Fatal("proxy-relay init container not found")
+}
+
+func TestChartRendersCICDProxyRelayUpstreamDomains(t *testing.T) {
+	// The relay exists to tunnel what GitHub's IP allow list gates. Defaulting the list
+	// to empty would instead force every destination upstream with no direct fallback,
+	// so package mirrors and internal registries would fail as opaque tunnel errors.
+	domains := func(t *testing.T, values ...string) string {
+		t.Helper()
+		rendered := renderConfigMapData(t, "github-runner-template", "template",
+			append([]string{"--show-only", "templates/configmap/github_runner_template.yaml",
+				"--set", "cicd.proxy_relay_image=example/proxy-relay:latest"}, values...)...)
+		var runner struct {
+			Spec struct {
+				Spec struct {
+					InitContainers []struct {
+						Name string `yaml:"name"`
+						Env  []struct {
+							Name  string `yaml:"name"`
+							Value string `yaml:"value"`
+						} `yaml:"env"`
+					} `yaml:"initContainers"`
+				} `yaml:"spec"`
+			} `yaml:"spec"`
+		}
+		testifyrequire.NoError(t, yaml.Unmarshal([]byte(rendered), &runner))
+		for _, current := range runner.Spec.Spec.InitContainers {
+			if current.Name != "proxy-relay" {
+				continue
+			}
+			for _, env := range current.Env {
+				if env.Name == "PROXY_UPSTREAM_DOMAINS" {
+					return env.Value
+				}
+			}
+			t.Fatal("PROXY_UPSTREAM_DOMAINS not found on the relay")
+		}
+		t.Fatal("proxy-relay init container not found")
+		return ""
+	}
+
+	testifyassert.Equal(t, ".github.com .githubusercontent.com .ghcr.io", domains(t))
+	testifyassert.Equal(t, ".corp.example",
+		domains(t, "--set", "cicd.proxy_relay_upstream_domains=.corp.example"))
+	// An explicit empty value stays the all-upstream escape hatch.
+	testifyassert.Equal(t, "", domains(t, "--set", "cicd.proxy_relay_upstream_domains="))
+}
+
+func TestChartRendersCICDProxyRelayCredentialEncoding(t *testing.T) {
+	type container struct {
+		Name string   `yaml:"name"`
+		Args []string `yaml:"args"`
+	}
+	var runner struct {
+		Spec struct {
+			Spec struct {
+				InitContainers []container `yaml:"initContainers"`
+			} `yaml:"spec"`
+		} `yaml:"spec"`
+	}
+	rendered := renderConfigMapData(t, "github-runner-template", "template",
+		"--show-only", "templates/configmap/github_runner_template.yaml",
+		"--set", "cicd.proxy_relay_image=example/proxy-relay:latest")
+	testifyrequire.NoError(t, yaml.Unmarshal([]byte(rendered), &runner))
+
+	var script string
+	for _, current := range runner.Spec.Spec.InitContainers {
+		if current.Name == "proxy-relay" {
+			testifyrequire.Len(t, current.Args, 1)
+			script = current.Args[0]
+			break
+		}
+	}
+	testifyrequire.NotEmpty(t, script)
+	testifyassert.Contains(t, script, "username=$(percent_encode </etc/secrets/proxy/username)")
+	testifyassert.Contains(t, script, "pw=$(percent_encode </etc/secrets/proxy/password)")
+	testifyassert.Contains(t, script, `login=" login=${username}:${pw}"`)
+
+	start := strings.Index(script, "percent_encode() {")
+	testifyrequire.NotEqual(t, -1, start)
+	end := strings.Index(script[start:], "\n}")
+	testifyrequire.NotEqual(t, -1, end)
+	encoder := script[start : start+end+2]
+	encode := func(t *testing.T, value string) string {
+		t.Helper()
+		cmd := exec.Command("/bin/sh", "-c", encoder+"\npercent_encode")
+		cmd.Stdin = strings.NewReader(value)
+		out, err := cmd.CombinedOutput()
+		testifyrequire.NoErrorf(t, err, "relay credential encoder failed: %s", out)
+		return string(out)
+	}
+
+	encodedUsername := encode(t, "proxy user%#")
+	testifyassert.Regexp(t, `^(%[0-9a-f]{2})+$`, encodedUsername)
+	for _, password := range []string{"p@ss w0rd", "p%40ss", "päss🔒"} {
+		t.Run(password, func(t *testing.T) {
+			encodedPassword := encode(t, password)
+			testifyassert.Regexp(t, `^(%[0-9a-f]{2})+$`, encodedPassword)
+			cachePeer := "cache_peer proxy.example parent 3128 0 no-query default login=" + encodedUsername + ":" + encodedPassword
+			fields := strings.Fields(cachePeer)
+			testifyrequire.Len(t, fields, 8)
+			testifyassert.Equal(t, "login="+encodedUsername+":"+encodedPassword, fields[7])
+			testifyassert.Equal(t, -1, strings.IndexFunc(fields[7], unicode.IsSpace))
+
+			credentials := strings.SplitN(strings.TrimPrefix(fields[7], "login="), ":", 2)
+			testifyrequire.Len(t, credentials, 2)
+			username, err := url.PathUnescape(credentials[0])
+			testifyrequire.NoError(t, err)
+			decodedPassword, err := url.PathUnescape(credentials[1])
+			testifyrequire.NoError(t, err)
+			testifyassert.Equal(t, "proxy user%#", username)
+			testifyassert.Equal(t, password, decodedPassword)
+		})
+	}
+}
+
+func TestChartRendersHostedRunnerRuntime(t *testing.T) {
+	type container struct {
+		Name            string   `yaml:"name"`
+		Image           string   `yaml:"image"`
+		RestartPolicy   string   `yaml:"restartPolicy"`
+		Args            []string `yaml:"args"`
+		SecurityContext struct {
+			Privileged bool `yaml:"privileged"`
+			RunAsUser  int  `yaml:"runAsUser"`
+		} `yaml:"securityContext"`
+	}
+	var runner struct {
+		Spec struct {
+			Template struct {
+				Spec struct {
+					DNSPolicy                     string      `yaml:"dnsPolicy"`
+					TerminationGracePeriodSeconds int         `yaml:"terminationGracePeriodSeconds"`
+					Containers                    []container `yaml:"containers"`
+					InitContainers                []container `yaml:"initContainers"`
+				} `yaml:"spec"`
+			} `yaml:"template"`
+		} `yaml:"spec"`
+	}
+	rendered := renderConfigMapData(t, "github-hosted-runner-template", "template",
+		"--show-only", "templates/configmap/github_hosted_runner_template.yaml")
+	testifyrequire.NoError(t, yaml.Unmarshal([]byte(rendered), &runner))
+
+	testifyassert.Equal(t, "ClusterFirst", runner.Spec.Template.Spec.DNSPolicy)
+	testifyassert.Equal(t, 180, runner.Spec.Template.Spec.TerminationGracePeriodSeconds)
+	testifyrequire.Len(t, runner.Spec.Template.Spec.Containers, 1)
+	testifyassert.Equal(t, "ghcr.io/actions/actions-runner:2.328.0",
+		runner.Spec.Template.Spec.Containers[0].Image)
+	testifyassert.False(t, runner.Spec.Template.Spec.Containers[0].SecurityContext.Privileged)
+	testifyassert.Equal(t, 1001, runner.Spec.Template.Spec.Containers[0].SecurityContext.RunAsUser)
+
+	names := map[string]container{}
+	for _, current := range runner.Spec.Template.Spec.InitContainers {
+		names[current.Name] = current
+	}
+	testifyassert.Equal(t, "ghcr.io/actions/actions-runner:2.328.0", names["init-dind-externals"].Image)
+	testifyassert.Equal(t, "docker:28.3.3-dind", names["dind"].Image)
+	testifyassert.Equal(t, "Always", names["dind"].RestartPolicy)
+	testifyassert.True(t, names["dind"].SecurityContext.Privileged)
+	testifyassert.Equal(t, []string{
+		"dockerd",
+		"--host=unix:///var/run/docker.sock",
+		"--group=123",
+	}, names["dind"].Args)
 }

@@ -129,6 +129,10 @@ func (c *KeyedController[T]) GetQueueSize() int {
 	return c.queue.Len()
 }
 
+func (c *KeyedController[T]) ShutDown() {
+	c.queue.ShutDown()
+}
+
 func (c *KeyedController[T]) processNext(ctx context.Context) bool {
 	key, shutdown := c.queue.Get()
 	if shutdown {

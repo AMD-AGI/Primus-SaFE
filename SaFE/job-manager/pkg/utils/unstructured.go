@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -58,12 +59,15 @@ func (s *K8sObjectStatus) IsPending() bool {
 // GetK8sObjectStatus retrieves the status of a Kubernetes resource based on its unstructured object and resource template.
 func GetK8sObjectStatus(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (*K8sObjectStatus, error) {
 	result := &K8sObjectStatus{}
+	if rt.SpecKind() == common.CICDScaleRunnerSetKind {
+		result.RunnerScaleSetId = v1.GetAnnotation(unstructuredObj, v1.CICDScaleSetIdAnnotation)
+	}
 	var err error
 	if result.SpecReplica, err = GetSpecReplica(unstructuredObj, rt); err != nil {
-		return nil, err
+		return result, err
 	}
 	if result.ActiveReplica, err = GetActiveReplica(unstructuredObj, rt); err != nil {
-		return nil, err
+		return result, err
 	}
 
 	switch rt.SpecKind() {
@@ -77,8 +81,6 @@ func GetK8sObjectStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Resou
 			result.Phase = string(v1.K8sRunning)
 			result.Message = "the job is running"
 		}
-	case common.CICDScaleRunnerSetKind:
-		result.RunnerScaleSetId = v1.GetAnnotation(unstructuredObj, v1.CICDScaleSetIdAnnotation)
 	default:
 		err = getK8sObjectStatusImpl(unstructuredObj, rt, result)
 	}
@@ -151,7 +153,7 @@ func getStatusByExpression(objects []map[string]interface{},
 			continue
 		}
 		result.Phase = expression.Phase
-		if msg := NestedStringSilently(obj, messagePaths); msg != "" {
+		if msg := NestedStringSilently(obj, messagePaths); strings.TrimSpace(msg) != "" {
 			result.Message = msg
 		} else {
 			result.Message = buildMessage(expression.Phase)

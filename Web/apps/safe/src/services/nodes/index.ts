@@ -123,9 +123,15 @@ export const relateNodeToWs = (id: string, data: NodeRelateData): Promise<any> =
 export const manageNodes = (data: ManageParams, id: string): Promise<any> =>
   request.post(`/clusters/${id}/nodes`, data)
 
-export const editClusterProtected = (
+export const patchCluster = (
   id: string,
-  data: { isProtected?: boolean; imageSecretId?: string },
+  data: {
+    isProtected?: boolean
+    imageSecretId?: string
+    kubeSprayImage?: string
+    kubernetesVersion?: string
+    kubeletMaxPods?: number
+  },
 ) => request.patch(`/clusters/${id}`, data)
 
 export const addCluster = (data: CreateClusterPayload): Promise<any> =>

@@ -56,6 +56,14 @@ type reverseForwardPolicy struct {
 // to wait it out.
 var forwardResolveTimeout = 15 * time.Second
 
+// forwardChannelOpenTimeout bounds opening the forwarded-tcpip channel that
+// carries one pod-side connection back to the client. The SSH client answers
+// channel opens itself, and a client that has stopped answering - suspended,
+// networked away, wedged - used to leave this waiting with no deadline at all,
+// which is one goroutine and one pod-side connection held for as long as the
+// session lives. It is a variable so tests do not have to wait it out.
+var forwardChannelOpenTimeout = 30 * time.Second
+
 // Defaults applied when the configured port range cannot be used.
 const (
 	defaultForwardPortMin = 1024
@@ -143,9 +151,9 @@ func (p reverseForwardPolicy) validate(addr string, port uint32) (string, error)
 		return "", fmt.Errorf("bind address %q is not a literal IP address", addr)
 	}
 	if ip.To4() == nil {
-		// The relay binds with socat's TCP-LISTEN, which is IPv4. Refusing here
-		// turns a config mistake into a clear answer instead of a listener that
-		// fails inside the pod.
+		// The pod-side listener binds an IPv4 socket. Refusing here turns a config
+		// mistake into a clear answer instead of a listener that fails inside the
+		// pod.
 		return "", fmt.Errorf("bind address %q is not IPv4, and the pod-side listener binds an IPv4 socket", addr)
 	}
 	allowed := false
@@ -206,6 +214,14 @@ type reverseForwardManager struct {
 	resolve     podTargetResolver
 	newListener podListenerFactory
 
+	// setupCtx is cancelled by closeAll before any live forward is touched, so a
+	// listener still being started cannot outlive the SSH session that asked for
+	// it. It is separate from the forward contexts because those are the parents
+	// of the running exec streams, which have to be closed in an orderly way
+	// rather than cancelled out from under themselves.
+	setupCtx    context.Context
+	setupCancel context.CancelFunc
+
 	mu       sync.Mutex
 	forwards map[string]*reverseForward
 	closed   bool
@@ -231,6 +247,7 @@ func (h *SshHandler) resolveForwardTarget(ctx context.Context, userInfo *UserInf
 
 // newReverseForwardManager creates a forward registry scoped to one SSH connection.
 func newReverseForwardManager(ctx context.Context, h *SshHandler, conn *ssh.ServerConn) *reverseForwardManager {
+	setupCtx, setupCancel := context.WithCancel(ctx)
 	return &reverseForwardManager{
 		conn:        conn,
 		ctx:         ctx,
@@ -238,6 +255,25 @@ func newReverseForwardManager(ctx context.Context, h *SshHandler, conn *ssh.Serv
 		resolve:     h.resolveForwardTarget,
 		newListener: newExecPodListener,
 		forwards:    map[string]*reverseForward{},
+		setupCtx:    setupCtx,
+		setupCancel: setupCancel,
+	}
+}
+
+// setupAborted reports when listener setup should be given up on. A manager built
+// without a setup context - as a test does when it drives one forward directly -
+// gets a nil channel, which never fires.
+func (m *reverseForwardManager) setupAborted() <-chan struct{} {
+	if m.setupCtx == nil {
+		return nil
+	}
+	return m.setupCtx.Done()
+}
+
+// abortSetups gives up on every listener still being started.
+func (m *reverseForwardManager) abortSetups() {
+	if m.setupCancel != nil {
+		m.setupCancel()
 	}
 }
 
@@ -299,7 +335,21 @@ func (m *reverseForwardManager) handleForward(req *ssh.Request) {
 	}
 
 	fwdCtx, cancel := context.WithCancel(m.ctx)
+	// Starting a listener installs and runs a program inside the pod, which takes
+	// long enough that the SSH session can end underneath it. Until it is
+	// activated, nothing else knows this forward exists, so this is what stops it
+	// from finishing - and leaving a listen socket in the pod - after the session
+	// it belonged to has gone.
+	setupDone := make(chan struct{})
+	go func() {
+		select {
+		case <-m.setupAborted():
+			cancel()
+		case <-setupDone:
+		}
+	}()
 	listener, err := m.newListener(fwdCtx, userInfo, k8sClients, bindAddr, payload.BindPort)
+	close(setupDone)
 	if err != nil {
 		cancel()
 		m.release(key)
@@ -461,6 +511,53 @@ func (m *reverseForwardManager) forget(fwd *reverseForward) {
 	closeForward(fwd, "listener stopped")
 }
 
+// opened is the answer to one forwarded-tcpip channel request.
+type opened struct {
+	ch   ssh.Channel
+	reqs <-chan *ssh.Request
+	err  error
+}
+
+// openChannel asks the client for a forwarded-tcpip channel, giving up if the
+// client does not answer or the forward is torn down while it is being asked.
+//
+// The reply is the client's to send, so without a bound here one unresponsive
+// client holds a goroutine and a pod-side connection for the twelve hours a
+// session may last.
+func (m *reverseForwardManager) openChannel(fwd *reverseForward, payload []byte) (ssh.Channel, <-chan *ssh.Request, error) {
+	// Buffered, so the goroutine finishes and is collected even when nobody is
+	// waiting for its answer any more.
+	result := make(chan opened, 1)
+	go func() {
+		ch, reqs, err := m.conn.OpenChannel(forwardedTCPIPChannel, payload)
+		result <- opened{ch: ch, reqs: reqs, err: err}
+	}()
+
+	timer := time.NewTimer(forwardChannelOpenTimeout)
+	defer timer.Stop()
+	select {
+	case r := <-result:
+		return r.ch, r.reqs, r.err
+	case <-fwd.ctx.Done():
+		go abandonChannel(result)
+		return nil, nil, fmt.Errorf("forward %s was torn down while opening a channel",
+			forwardKey(fwd.bindAddr, fwd.bindPort))
+	case <-timer.C:
+		go abandonChannel(result)
+		return nil, nil, fmt.Errorf("the ssh client did not answer a forwarded-tcpip channel within %s",
+			forwardChannelOpenTimeout)
+	}
+}
+
+// abandonChannel closes a channel whose opener has already given up on it, so a
+// late answer does not leave the client holding one this end will never use.
+func abandonChannel(result <-chan opened) {
+	if r := <-result; r.err == nil {
+		go ssh.DiscardRequests(r.reqs)
+		_ = r.ch.Close()
+	}
+}
+
 // bridge opens a forwarded-tcpip channel and copies bytes both ways.
 func (m *reverseForwardManager) bridge(fwd *reverseForward, pc podConn) {
 	payload := ssh.Marshal(forwardChannelData{
@@ -469,7 +566,7 @@ func (m *reverseForwardManager) bridge(fwd *reverseForward, pc podConn) {
 		OriginAddr: pc.OriginAddr(),
 		OriginPort: pc.OriginPort(),
 	})
-	ch, reqs, err := m.conn.OpenChannel(forwardedTCPIPChannel, payload)
+	ch, reqs, err := m.openChannel(fwd, payload)
 	if err != nil {
 		klog.ErrorS(err, "failed to open forwarded-tcpip channel")
 		_ = pc.Close()
@@ -555,8 +652,11 @@ func (m *reverseForwardManager) closeAll() {
 		}
 	}
 	m.mu.Unlock()
+	// Listeners still starting are abandoned rather than waited for: they are not
+	// in the snapshot above, and nothing else would stop them.
+	m.abortSetups()
 
-	// Closing a forward waits for its Pod-side relay to let go of the listen port,
+	// Closing a forward waits for its Pod-side listener to let go of the listen port,
 	// so closing them one after another would make a session's teardown cost the
 	// sum of those waits. They are independent; take them together.
 	var closing sync.WaitGroup

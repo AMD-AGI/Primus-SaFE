@@ -24,7 +24,7 @@ const (
 )
 
 var (
-	getWorkloadCmd       = fmt.Sprintf(`SELECT  * FROM %s WHERE workload_id = $1 LIMIT 1`, TWorkload)
+	getWorkloadCmd       = fmt.Sprintf(`SELECT id FROM %s WHERE workload_id = $1 LIMIT 1`, TWorkload)
 	insertWorkloadFormat = `INSERT INTO ` + TWorkload + ` (%s) VALUES (%s)`
 	updateWorkloadCmd    = fmt.Sprintf(`UPDATE %s 
 		SET priority = :priority,
@@ -72,15 +72,15 @@ func (c *Client) UpsertWorkload(ctx context.Context, workload *Workload) error {
 		return err
 	}
 	if len(workloads) > 0 && workloads[0] != nil {
-		_, err = db.NamedExecContext(ctx, updateWorkloadCmd, workload)
-		if err != nil {
+		if _, err = db.NamedExecContext(ctx, updateWorkloadCmd, workload); err != nil {
 			klog.ErrorS(err, "failed to upsert workload db", "id", workload.WorkloadId)
+			return err
 		}
-	} else {
-		_, err = db.NamedExecContext(ctx, generateCommand(*workload, insertWorkloadFormat, "id"), workload)
-		if err != nil {
-			klog.ErrorS(err, "failed to insert workload db", "id", workload.WorkloadId)
-		}
+		return nil
+	}
+	_, err = db.NamedExecContext(ctx, generateCommand(*workload, insertWorkloadFormat, "id"), workload)
+	if err != nil {
+		klog.ErrorS(err, "failed to insert workload db", "id", workload.WorkloadId)
 	}
 	return err
 }
@@ -122,7 +122,7 @@ func (c *Client) SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderB
 }
 
 // workloadListColumns are the columns the workload list endpoint renders. It
-// deliberately excludes the large TEXT columns (pods/nodes/ranks/conditions/env/
+// deliberately excludes the large TEXT columns (pods/nodes/ranks/env/
 // customer_labels/service/liveness/readiness/dependencies/cron_jobs/secrets/
 // images/entrypoints) that the list response never reads, so listing large
 // workloads does not pull megabyte-scale pod JSON per row.
@@ -133,6 +133,7 @@ var workloadListColumns = []string{
 	"is_tolerate_all", "priority", "max_retry", "queue_position",
 	"dispatch_count", "timeout", "description", "user_id",
 	"workload_uid", "scale_runner_set", "scale_runner_id",
+	"CASE WHEN phase = 'Failed' THEN conditions ELSE NULL END AS conditions",
 }
 
 // SelectWorkloadsForList is SelectWorkloads restricted to the columns the list

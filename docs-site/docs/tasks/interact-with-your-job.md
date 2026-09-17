@@ -119,11 +119,15 @@ Requirements and limits for `-R`:
 
 - It is on by default. A platform administrator can turn it off for a cluster with
   `ssh.reverse_forward.enable: false`, in which case `-R` is refused.
-- The pod-side listener is built from `socat`, `awk`, `cat`, `date`, `grep`, `mkdir`,
-  `readlink` and `sleep`. An Authoring pod installs `socat` for you at startup, the way
-  it installs the SSH server; the rest are in any base image. Other workload kinds run
-  your image untouched, so there `socat` has to be in the image. Whichever is missing is
-  reported by name rather than as a mysterious failure to listen.
+- Nothing has to be installed in your image. The platform copies a small listener into
+  your pod for the life of the forward and removes it again; it needs only `/bin/sh`,
+  `uname`, `cat` and a directory it can execute from, which every base image has. If a
+  pod has none — `/tmp`, `/dev/shm` and `/var/tmp` all mounted `noexec`, or an
+  architecture other than x86-64 and arm64 — you are told which, rather than left with a
+  mysterious failure to listen.
+- One forward carries up to 256 connections at a time. Past that a new connection is
+  refused immediately rather than queued, so a client fails where you can see it instead
+  of hanging.
 - The pod-side listener may only bind `127.0.0.1`, so no other workload can use your tunnel.
 - The listen port must fall inside the configured range (`1024`–`65535` by default, so that a
   forward cannot shadow a privileged service inside your pod), and a session may hold at most 8

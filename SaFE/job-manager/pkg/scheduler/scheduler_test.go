@@ -18,6 +18,7 @@ import (
 
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -30,6 +31,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
 func schedWorkload(name string) *v1.Workload {
@@ -495,4 +497,25 @@ func TestGetUnfinishedWorkloadsEmpty(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(scheduling), 0)
 	assert.Equal(t, len(scheduled), 0)
+}
+
+func TestSchedulerMessage_DoesNotEraseConcurrentFailure(t *testing.T) {
+	w := schedWorkload("example-workload")
+	w.Spec.Workspace = "test-workspace"
+	w.Status.Phase = v1.WorkloadPending
+	cli := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithStatusSubresource(w).Build()
+	assert.NilError(t, cli.Create(context.Background(), w))
+	stale := w.DeepCopy()
+	assert.NilError(t, jobutils.SetWorkloadFailed(context.Background(), cli, w, "registration failed"))
+	r := &SchedulerReconciler{Client: cli}
+	assert.Assert(t, apierrors.IsConflict(r.updateStatus(context.Background(), stale)))
+	r.updateUnScheduled(context.Background(), []*v1.Workload{stale}, map[string]string{w.Name: "capacity unavailable"}, &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: w.Spec.Workspace}})
+	fresh := &v1.Workload{}
+	assert.NilError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(w), fresh))
+	assert.Equal(t, fresh.Status.Phase, v1.WorkloadFailed)
+	assert.Equal(t, fresh.Status.Message, "registration failed")
+	assert.NilError(t, r.updateStatus(context.Background(), fresh))
+	r.updateUnScheduled(context.Background(), []*v1.Workload{fresh}, map[string]string{}, &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: w.Spec.Workspace}})
+	assert.NilError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(w), fresh))
+	assert.Equal(t, fresh.Status.Message, "registration failed")
 }

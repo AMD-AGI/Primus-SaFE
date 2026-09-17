@@ -814,12 +814,12 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 				return ctrlruntime.Result{}, err
 			}
 		}
-	if adminNode.Status.ClusterStatus.Phase != v1.NodeManaged {
-		rmmetrics.NodeManageTotal.WithLabelValues("managed").Inc()
-	}
-	adminNode.Status.ClusterStatus.Cluster = adminNode.Spec.Cluster
-	adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
-	klog.Infof("managed node %s", k8sNode.Name)
+		if adminNode.Status.ClusterStatus.Phase != v1.NodeManaged {
+			rmmetrics.NodeManageTotal.WithLabelValues("managed").Inc()
+		}
+		adminNode.Status.ClusterStatus.Cluster = adminNode.Spec.Cluster
+		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
+		klog.Infof("managed node %s", k8sNode.Name)
 		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeManageRebootLabel), v1.TrueStr) {
 			r.rebootNode(ctx, adminNode)
 			return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil
@@ -895,6 +895,39 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	return nil
 }
 
+// clusterAllowsNodeManagement reports whether scale operations may run.
+func clusterAllowsNodeManagement(cluster *v1.Cluster) bool {
+	if cluster == nil {
+		return false
+	}
+	phase := cluster.Status.ControlPlaneStatus.Phase
+	return phase == v1.ReadyPhase || phase == v1.UpgradeFailedPhase
+}
+
+// canStartNodeManagement prevents node operations from overlapping cluster-level KubeSpray runs.
+func (r *NodeReconciler) canStartNodeManagement(ctx context.Context, cluster *v1.Cluster) (bool, error) {
+	if !clusterAllowsNodeManagement(cluster) {
+		return false, nil
+	}
+	pods, err := r.listPod(ctx, cluster.Name, "", "")
+	if err != nil {
+		return false, err
+	}
+	for i := range pods {
+		pod := &pods[i]
+		action := v1.ClusterManageAction(pod.Labels[v1.ClusterManageActionLabel])
+		if action != v1.ClusterCreateAction && action != v1.ClusterResetAction &&
+			action != v1.ClusterUpgradeAction {
+			continue
+		}
+		if !pod.GetDeletionTimestamp().IsZero() ||
+			(pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // syncOrCreateScaleUpPod synchronizes or creates a scale-up Pod for the Node when managing.
 func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *v1.Node) (ctrlruntime.Result, error) {
 	pods, err := r.listPod(ctx, adminNode.GetSpecCluster(), adminNode.Name, string(v1.ClusterScaleUpAction))
@@ -902,14 +935,20 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 		return ctrlruntime.Result{}, err
 	}
 	if len(pods) == 0 {
-		if err = r.resetNode(ctx, adminNode); err != nil {
-			klog.ErrorS(err, "failed to reset node", "node", adminNode.Name)
-			return ctrlruntime.Result{}, err
-		}
-
 		cluster, err := getAdminCluster(ctx, r.Client, adminNode.GetSpecCluster())
 		if err != nil || cluster == nil {
 			return ctrlruntime.Result{RequeueAfter: time.Second}, err
+		}
+		allowed, err := r.canStartNodeManagement(ctx, cluster)
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if !allowed {
+			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
+		}
+		if err = r.resetNode(ctx, adminNode); err != nil {
+			klog.ErrorS(err, "failed to reset node", "node", adminNode.Name)
+			return ctrlruntime.Result{}, err
 		}
 		username, err := r.getUsername(ctx, adminNode, cluster)
 		if err != nil {
@@ -922,6 +961,19 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 		if _, err = r.guaranteeHostsConfigMapCreated(ctx, adminNode.Name,
 			genNodeOwnerReference(adminNode), hostsContent); err != nil {
 			return ctrlruntime.Result{}, err
+		}
+		cluster, err = getAdminCluster(ctx, r.Client, adminNode.GetSpecCluster())
+		if err != nil || cluster == nil {
+			return ctrlruntime.Result{RequeueAfter: time.Second}, err
+		}
+		allowed, err = r.canStartNodeManagement(ctx, cluster)
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if !allowed {
+			klog.InfoS("node scale-up is paused after reset", "node", adminNode.Name,
+				"cluster", cluster.Name, "phase", cluster.Status.ControlPlaneStatus.Phase)
+			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		}
 		cmd := getKubeSprayScaleUpCMD(username, adminNode.Name, getKubeSprayEnv(cluster))
 		pod := generateScaleWorkerPod(v1.ClusterScaleUpAction, cluster, adminNode, username,
@@ -1000,6 +1052,17 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 	// An empty clusterId is an internal error and cannot be resolved by retrying, so return directly.
 	if clusterId == "" {
 		return ctrlruntime.Result{}, nil
+	}
+	cluster, err := getAdminCluster(ctx, r.Client, clusterId)
+	if err != nil || cluster == nil {
+		return ctrlruntime.Result{RequeueAfter: time.Second}, err
+	}
+	allowed, err := r.canStartNodeManagement(ctx, cluster)
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	if !allowed {
+		return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 	}
 	// delete all scaleup pod when doing scaledown
 	if err := r.deletePods(ctx, clusterId, adminNode.Name, string(v1.ClusterScaleUpAction)); err != nil {
@@ -1154,6 +1217,13 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 
 	adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanaging
 	if len(pods) == 0 {
+		allowed, err := r.canStartNodeManagement(ctx, cluster)
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if !allowed {
+			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
+		}
 		username, err := r.getUsername(ctx, adminNode, cluster)
 		if err != nil {
 			return ctrlruntime.Result{}, err
@@ -1168,6 +1238,19 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 		if _, err = r.guaranteeHostsConfigMapCreated(ctx, adminNode.Name,
 			genNodeOwnerReference(adminNode), hostsContent); err != nil {
 			return ctrlruntime.Result{}, err
+		}
+		cluster, err = getAdminCluster(ctx, r.Client, clusterId)
+		if err != nil {
+			return ctrlruntime.Result{}, client.IgnoreNotFound(err)
+		}
+		allowed, err = r.canStartNodeManagement(ctx, cluster)
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if !allowed {
+			klog.InfoS("node scale-down is paused after preparation", "node", adminNode.Name,
+				"cluster", cluster.Name, "phase", cluster.Status.ControlPlaneStatus.Phase)
+			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		}
 		pod := generateScaleWorkerPod(v1.ClusterScaleDownAction, cluster, adminNode, username,
 			getKubeSprayScaleDownCMD(username, hostname, getKubeSprayEnv(cluster)),

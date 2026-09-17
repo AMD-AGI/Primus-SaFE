@@ -63,6 +63,9 @@ export interface EnvsResp {
   ssoAuthUrl?: string
   // cd
   cdRequireApproval?: boolean
+  // KubeSpray image tags mapped to the Kubernetes version each one installs. The pair is
+  // not free-form: picking an image determines the version, so the form derives it.
+  kubeSprayK8sVersions?: Record<string, string>
 }
 
 export interface UserSettings {

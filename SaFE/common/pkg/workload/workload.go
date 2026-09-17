@@ -383,7 +383,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 		return v1.InferScope
 	case common.AuthoringKind:
 		return v1.AuthoringScope
-	case common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind:
+	case common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind, common.CICDGithubRunnerKind:
 		return v1.CICDScope
 	case common.RayJobKind:
 		return v1.RayScope
@@ -402,7 +402,8 @@ func IsApplication(w *v1.Workload) bool {
 	if w.SpecKind() == common.DeploymentKind ||
 		w.SpecKind() == common.StatefulSetKind ||
 		w.SpecKind() == common.DynamoDeploymentKind ||
-		w.SpecKind() == common.InferaDeploymentKind {
+		w.SpecKind() == common.InferaDeploymentKind ||
+		w.SpecKind() == common.CICDGithubRunnerKind {
 		return true
 	}
 	return false
@@ -418,7 +419,8 @@ func IsAuthoring(w *v1.Workload) bool {
 
 // IsCICD returns true if workload is about cicd
 func IsCICD(w *v1.Workload) bool {
-	if w.SpecKind() == common.CICDScaleRunnerSetKind || w.SpecKind() == common.CICDEphemeralRunnerKind {
+	if w.SpecKind() == common.CICDScaleRunnerSetKind || w.SpecKind() == common.CICDEphemeralRunnerKind ||
+		w.SpecKind() == common.CICDGithubRunnerKind {
 		return true
 	}
 	return false
@@ -435,6 +437,14 @@ func IsCICDScalingRunnerSet(w *v1.Workload) bool {
 // IsCICDEphemeralRunner returns true if the workload is an EphemeralRunner type.
 func IsCICDEphemeralRunner(w *v1.Workload) bool {
 	if w.SpecKind() == common.CICDEphemeralRunnerKind {
+		return true
+	}
+	return false
+}
+
+// IsCICDGithubRunner returns true if the workload is a persistent GithubRunner type.
+func IsCICDGithubRunner(w *v1.Workload) bool {
+	if w.SpecKind() == common.CICDGithubRunnerKind {
 		return true
 	}
 	return false

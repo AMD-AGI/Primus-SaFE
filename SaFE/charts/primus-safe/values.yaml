@@ -109,7 +109,32 @@ cicd:
   enable: true
   role_name: "gha-rs-manager"
   controller_name: "gha-runner-scale-set-gha-rs-controller"
-  # cicd component image version. used for starting jobs for runner
+  github_runner_image: "ghcr.io/actions/actions-runner:2.328.0"
+  github_runner_dind_image: "docker:28.3.3-dind"
+  # Cluster-wide proxy bypass list merged into every CI/CD workload's proxy
+  # configuration, for hosts a workload cannot know about (package mirrors,
+  # internal registries). In-cluster targets are always bypassed.
+  no_proxy: ""
+  # Sidecar that fronts the cluster proxy for CI/CD jobs, for a proxy whose
+  # authentication the runner's own HTTP client cannot complete. Empty disables it.
+  # Relative to global.image_registry/primussafe/ (see github_*_runner_template).
+  proxy_relay_image: "cicd-proxy-relay:latest"
+  proxy_relay_port: 3129
+  # Budget for the OpenSearch lookup that appends the ARC controller error to a failed
+  # CI/CD workload. Enrichment is single-shot, so a lookup that times out leaves the
+  # workload with its generic failure message. Raise it on clusters where the log index
+  # is slow; it runs on a background queue and never delays the failure itself.
+  failure_enrich_timeout_seconds: 30
+  # Destinations the relay sends through the cluster proxy, as squid dstdomain patterns;
+  # a leading dot matches the domain and its subdomains. Everything else goes direct.
+  # The default covers what the IP allow list actually gates: git and the API
+  # (.github.com), raw/artifact/actions endpoints and ghcr blobs (.githubusercontent.com),
+  # and the container registry (.ghcr.io). Package mirrors and internal registries stay
+  # direct, which is what keeps them working when the proxy does not serve them.
+  # Setting this to "" forces EVERY destination upstream with no direct fallback: anything
+  # the proxy refuses then fails as an opaque tunnel error. Only do that when the proxy is
+  # a general-purpose forward proxy for all egress.
+  proxy_relay_upstream_domains: ".github.com .githubusercontent.com .ghcr.io"  # cicd component image version. used for starting jobs for runner
   runner: "cicd-runner-proxy:latest"
   unified_job: "cicd-unified-job-proxy:latest"
   # Max concurrent ephemeral runners per AutoscalingRunnerSet (CI concurrency).
@@ -163,8 +188,8 @@ ssh:
   server_ip: ""
   # Remote port forwarding (`ssh -R` / RemoteForward). The listen socket is opened
   # inside the user's target Pod, letting Pod processes reach a proxy running on
-  # the developer's machine. The pod-side listener is a `socat`, which an Authoring pod
-  # installs at startup; other workload kinds need it in the image.
+  # the developer's machine. The apiserver copies the pod-side listener into the
+  # container for the life of the forward, so nothing has to be in the workload image.
   reverse_forward:
     # On by default. Set to false where pod traffic must not be able to leave through
     # a developer's network; what keeps it contained otherwise is the rest of this

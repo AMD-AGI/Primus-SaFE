@@ -17,6 +17,8 @@ type CreateWorkloadRequest struct {
 	// GitHubAuth carries CICD runner authentication material. It is used to create
 	// the ARC githubConfigSecret and must not be persisted on the workload env.
 	GitHubAuth *GitHubAuthRequest `json:"githubAuth,omitempty"`
+	// ProxyAuth carries the egress proxy credential for a CICD runner.
+	ProxyAuth *ProxyAuthRequest `json:"proxyAuth,omitempty"`
 	// SpecifiedNodes defines the list of node names where the workload should run.
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
 	// NodesAffinity controls how strictly the workload adheres to SpecifiedNodes.
@@ -105,6 +107,14 @@ type GitHubAuthRequest struct {
 	PrivateKey     string `json:"privateKey,omitempty"`
 }
 
+// ProxyAuthRequest carries the credential for the egress proxy a CICD runner
+// registers through. It is written to the runner's Secret and never to the
+// workload, whose env only ever names that Secret.
+type ProxyAuthRequest struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
 func (req *CreateWorkloadRequest) GetNodesAffinity() string {
 	if req.NodesAffinity != nil {
 		return *req.NodesAffinity
@@ -128,7 +138,7 @@ type ListWorkloadRequest struct {
 	UserId string `form:"userId" binding:"omitempty,max=64"`
 	// Filter results by username (fuzzy match)
 	UserName string `form:"userName" binding:"omitempty"`
-	// Filter by workload kind: Deployment/PyTorchJob/StatefulSet/Authoring/AutoscalingRunnerSet(comma-separated)/Sandbox/MonarchJob
+	// Filter by workload kind: Deployment/PyTorchJob/StatefulSet/Authoring/AutoscalingRunnerSet/GithubRunner(comma-separated)/Sandbox/MonarchJob
 	Kind string `form:"kind" binding:"omitempty"`
 	// Filter by description (fuzzy match)
 	Description string `form:"description" binding:"omitempty"`
@@ -249,6 +259,9 @@ type GetWorkloadResponse struct {
 	Nodes [][]string `json:"nodes"`
 	// The rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above.
 	Ranks [][]string `json:"ranks"`
+	// The nodes used by earlier runs of this workload id, kept when a resume
+	// overwrote them. Oldest run first, up to the last 10 runs.
+	NodesHistory []WorkloadNodesHistoryItem `json:"nodesHistory,omitempty"`
 	// Workload will run on nodes with the user-specified labels.
 	// If multiple labels are specified, all of them must be satisfied.
 	CustomerLabels map[string]string `json:"customerLabels"`
@@ -276,6 +289,22 @@ type GetWorkloadResponse struct {
 	ForceHostNetwork bool `json:"forceHostNetwork"`
 }
 
+// WorkloadNodesHistoryItem describes one earlier run of the same workload id.
+type WorkloadNodesHistoryItem struct {
+	// Number of times the run was dispatched
+	DispatchCount int `json:"dispatchCount"`
+	// Phase the run ended in
+	Phase string `json:"phase,omitempty"`
+	// Time the run started
+	StartTime string `json:"startTime,omitempty"`
+	// Time the run ended
+	EndTime string `json:"endTime,omitempty"`
+	// The node used for each dispatch of the run
+	Nodes [][]string `json:"nodes"`
+	// The rank corresponding to each node of the run
+	Ranks [][]string `json:"ranks,omitempty"`
+}
+
 type WorkloadPodWrapper struct {
 	v1.WorkloadPod
 	// SSH command for direct login into the container
@@ -285,6 +314,8 @@ type WorkloadPodWrapper struct {
 type PatchWorkloadRequest struct {
 	// GitHubAuth carries updated CICD runner authentication material.
 	GitHubAuth *GitHubAuthRequest `json:"githubAuth,omitempty"`
+	// ProxyAuth carries an updated egress proxy credential.
+	ProxyAuth *ProxyAuthRequest `json:"proxyAuth,omitempty"`
 	// Workload scheduling Priority (0-2), default 0
 	Priority *int `json:"priority,omitempty"`
 	// Workload resource requirements

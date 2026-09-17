@@ -335,6 +335,11 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("cicd_cluster_role_binding").Inc()
 		return ctrlruntime.Result{}, err
 	}
+	if err = r.guaranteeGithubRunnerClusterRole(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to guarantee github runner cluster role", "cluster", cluster.Name)
+		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("github_runner_cluster_role").Inc()
+		return ctrlruntime.Result{}, err
+	}
 	// Sync Monarch ClusterRole from admin plane to data plane (if present)
 	if err = r.guaranteeMonarchClusterRole(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee monarch cluster role", "cluster", cluster.Name)
@@ -373,6 +378,10 @@ func (r *ClusterReconciler) cleanupClusterResources(ctx context.Context, cluster
 	}
 	if err := r.deleteCICDClusterRole(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to delete CICD ClusterRole")
+		return err
+	}
+	if err := r.deleteGithubRunnerClusterRole(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to delete github runner ClusterRole")
 		return err
 	}
 	if err := r.deleteMonarchClusterRole(ctx, cluster); err != nil {
@@ -915,6 +924,22 @@ func (r *ClusterReconciler) getClusterEndpoint(ctx context.Context, cluster *v1.
 		return nil, fmt.Errorf("no endpoint addresses found for cluster %s", name)
 	}
 	return addresses, nil
+}
+
+// guaranteeGithubRunnerClusterRole copies the hosted-runner ClusterRole to the data plane.
+func (r *ClusterReconciler) guaranteeGithubRunnerClusterRole(ctx context.Context, cluster *v1.Cluster) error {
+	if !commonconfig.IsCICDEnable() {
+		return nil
+	}
+	return r.guaranteeDataPlaneClusterRole(ctx, cluster, common.GithubRunnerServiceAccount)
+}
+
+// deleteGithubRunnerClusterRole removes the hosted-runner ClusterRole from the data plane.
+func (r *ClusterReconciler) deleteGithubRunnerClusterRole(ctx context.Context, cluster *v1.Cluster) error {
+	if !commonconfig.IsCICDEnable() {
+		return nil
+	}
+	return r.deleteDataPlaneClusterRole(ctx, cluster, common.GithubRunnerServiceAccount)
 }
 
 // guaranteeMonarchClusterRole ensures a specific monarch ClusterRole from admin plane is synchronized to the data plane cluster.

@@ -9,7 +9,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	stderrors "errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -47,6 +49,9 @@ const (
 	controlPlaneProbeBatchTimeout  = 15 * time.Second
 	deprecatedDefaultNginxTemplate = "nginx.22.3.2"
 	deprecatedDefaultNginxRelease  = "nginx"
+	maxClusterUpgradeAttempts      = 3
+	clusterUpgradeTimeout          = 6 * time.Hour
+	upgradePodAttemptAnnotation    = v1.ClusterPrefix + "upgrade.attempt"
 )
 
 // guaranteeClusterControlPlane ensures the cluster control plane is in the desired state.
@@ -70,6 +75,9 @@ func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cl
 
 	if guaranteeControllerPlane(cluster) {
 		return r.handleControlPlaneCreation(ctx, cluster)
+	}
+	if err := r.guaranteeClusterUpgrade(ctx, cluster); err != nil {
+		return err
 	}
 
 	return r.clearPods(ctx, cluster)
@@ -346,6 +354,368 @@ func (r *ClusterReconciler) createResetPod(ctx context.Context, cluster *v1.Clus
 	return pod, nil
 }
 
+// guaranteeClusterUpgrade runs upgrade-cluster.yml when the desired pair differs from the applied pair.
+func (r *ClusterReconciler) guaranteeClusterUpgrade(ctx context.Context, cluster *v1.Cluster) error {
+	if !cluster.DeletionTimestamp.IsZero() {
+		return nil
+	}
+	phase := cluster.Status.ControlPlaneStatus.Phase
+	if phase != v1.ReadyPhase && phase != v1.UpgradingPhase && phase != v1.UpgradeFailedPhase {
+		return nil
+	}
+
+	if phase == v1.ReadyPhase {
+		if err := r.ensureAppliedKubeSprayRecorded(ctx, cluster); err != nil {
+			return err
+		}
+	}
+
+	// Failures only count against the target they were recorded for.
+	if clusterUpgradeRetryCount(cluster) > 0 && !retryCountBelongsToTarget(cluster) {
+		if err := r.persistUpgradeRetryCount(ctx, cluster, 0); err != nil {
+			return err
+		}
+	}
+
+	podName := fmt.Sprintf("%s-%s", cluster.Name, v1.ClusterUpgradeAction)
+	pod := new(corev1.Pod)
+	err := r.Get(ctx, types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: podName}, pod)
+	podExists := err == nil
+	if err != nil && !errors.IsNotFound(err) {
+		return err
+	}
+
+	if podExists && pod.Status.Phase == corev1.PodSucceeded {
+		return r.reconcileExistingUpgradePod(ctx, cluster, pod)
+	}
+
+	if !needsClusterUpgrade(cluster) {
+		if podExists {
+			return r.deleteUpgradePod(ctx, pod)
+		}
+		if phase == v1.UpgradeFailedPhase || phase == v1.UpgradingPhase {
+			return r.patchControlPlanePhase(ctx, cluster, v1.ReadyPhase)
+		}
+		return nil
+	}
+	if podExists {
+		return r.reconcileExistingUpgradePod(ctx, cluster, pod)
+	}
+	if clusterUpgradeRetryCount(cluster) >= maxClusterUpgradeAttempts {
+		klog.InfoS("cluster upgrade exhausted its retry budget for the desired target",
+			"cluster", cluster.Name, "target", clusterUpgradeTarget(cluster),
+			"attempts", maxClusterUpgradeAttempts)
+		return r.patchControlPlanePhase(ctx, cluster, v1.UpgradeFailedPhase)
+	}
+	targetVersion := controlPlaneString(cluster.Spec.ControlPlane.KubeVersion)
+	targetImage := controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
+	versionOrImageChanged := appliedKubeVersion(cluster) != targetVersion ||
+		appliedKubeSprayImage(cluster) != targetImage
+	if versionOrImageChanged && (!isSupportedKubeSprayPair(targetImage, targetVersion) ||
+		!isAllowedKubeVersionUpgrade(appliedKubeVersion(cluster), targetVersion)) {
+		klog.Errorf("cluster %s has invalid kubespray upgrade target %s with %s",
+			cluster.Name, targetVersion, targetImage)
+		return r.patchControlPlanePhase(ctx, cluster, v1.ReadyPhase)
+	}
+	if maxPods := cluster.Spec.ControlPlane.KubeletMaxPods; maxPods != nil {
+		limit := v1.KubeletMaxPodsLimit(cluster.Spec.ControlPlane.KubeNetworkNodePrefix)
+		if *maxPods == 0 || *maxPods > limit {
+			klog.Errorf("cluster %s has invalid kubeletMaxPods %d, limit is %d",
+				cluster.Name, *maxPods, limit)
+			return r.patchControlPlanePhase(ctx, cluster, v1.ReadyPhase)
+		}
+	}
+	active, err := r.hasActiveScalePod(ctx, cluster.Name)
+	if err != nil {
+		return err
+	}
+	if active {
+		return nil
+	}
+
+	hostsContent, err := r.generateUpgradeHosts(ctx, cluster, true)
+	if err != nil {
+		if stderrors.Is(err, errUpgradeWorkerNotReady) {
+			klog.InfoS("cluster upgrade is waiting for ready workers", "cluster", cluster.Name, "error", err)
+			return nil
+		}
+		return err
+	}
+	if err = r.patchControlPlanePhase(ctx, cluster, v1.UpgradingPhase); err != nil {
+		return err
+	}
+	active, err = r.hasActiveScalePod(ctx, cluster.Name)
+	if err != nil {
+		return err
+	}
+	if active {
+		return r.patchControlPlanePhase(ctx, cluster, v1.ReadyPhase)
+	}
+	upgradePod, err := r.createUpgradeWorkerPod(ctx, cluster, hostsContent)
+	if err != nil {
+		return err
+	}
+	return r.updateUpgradePodStatus(ctx, cluster, upgradePod)
+}
+
+// reconcileExistingUpgradePod updates cluster phase from an in-flight upgrade pod.
+func (r *ClusterReconciler) reconcileExistingUpgradePod(ctx context.Context, cluster *v1.Cluster, pod *corev1.Pod) error {
+	if !upgradePodOwnedByCluster(cluster, pod) {
+		return r.deleteUpgradePod(ctx, pod)
+	}
+	if pod.Status.Phase == corev1.PodSucceeded {
+		if err := r.persistAppliedClusterConfig(ctx, cluster, upgradePodTargetVersion(pod),
+			upgradePodTargetImage(pod), upgradePodTargetMaxPods(pod)); err != nil {
+			return err
+		}
+		if !upgradePodMatchesSpec(cluster, pod) {
+			return r.deleteUpgradePod(ctx, pod)
+		}
+		return r.patchControlPlanePhase(ctx, cluster, v1.ReadyPhase)
+	}
+	if pod.Status.Phase == corev1.PodFailed || upgradePodTimedOut(pod, time.Now()) {
+		if !upgradePodMatchesSpec(cluster, pod) {
+			if err := r.persistUpgradeRetryCount(ctx, cluster, 0); err != nil {
+				return err
+			}
+			return r.deleteUpgradePod(ctx, pod)
+		}
+		attempt := upgradePodAttempt(pod)
+		retryCount := clusterUpgradeRetryCount(cluster)
+		if retryCount < attempt-1 {
+			return r.deleteUpgradePod(ctx, pod)
+		}
+		if err := r.persistUpgradeRetryCount(ctx, cluster, attempt); err != nil {
+			return err
+		}
+		return r.deleteUpgradePod(ctx, pod)
+	}
+	hostsContent, err := r.generateUpgradeHosts(ctx, cluster, false)
+	if err != nil {
+		return err
+	}
+	if _, err = r.guaranteeHostsConfigMapCreated(ctx, cluster.Name,
+		createKubernetesClusterOwnerReference(cluster), hostsContent); err != nil {
+		return err
+	}
+	return r.updateUpgradePodStatus(ctx, cluster, pod)
+}
+
+// deleteUpgradePod requests deletion and waits for a later reconcile to advance the phase.
+func (r *ClusterReconciler) deleteUpgradePod(ctx context.Context, pod *corev1.Pod) error {
+	if !pod.GetDeletionTimestamp().IsZero() {
+		return nil
+	}
+	return r.Delete(ctx, pod)
+}
+
+// upgradePodTimedOut reports whether a nonterminal upgrade pod exceeded its deadline.
+func upgradePodTimedOut(pod *corev1.Pod, now time.Time) bool {
+	if pod == nil || pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+		return false
+	}
+	startedAt := pod.CreationTimestamp.Time
+	if pod.Status.StartTime != nil {
+		startedAt = pod.Status.StartTime.Time
+	}
+	return !startedAt.IsZero() && !now.Before(startedAt.Add(clusterUpgradeTimeout))
+}
+
+// createUpgradeWorkerPod creates the kubespray upgrade-cluster.yml worker pod.
+func (r *ClusterReconciler) createUpgradeWorkerPod(ctx context.Context, cluster *v1.Cluster, hostsContent *HostTemplateContent) (*corev1.Pod, error) {
+	username, err := r.getUsername(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+	cmd := getKubeSprayUpgradeCMD(username, getKubeSprayEnv(cluster))
+	pod := generateWorkerPod(v1.ClusterUpgradeAction, cluster, username, cmd, getKubesprayImage(cluster), cluster.Name, hostsContent)
+	if pod.Annotations == nil {
+		pod.Annotations = map[string]string{}
+	}
+	pod.Annotations[v1.ClusterAppliedKubeVersionAnnotation] = controlPlaneString(cluster.Spec.ControlPlane.KubeVersion)
+	pod.Annotations[v1.ClusterAppliedKubeSprayImageAnnotation] = controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
+	pod.Annotations[v1.ClusterAppliedKubeletMaxPodsAnnotation] = desiredKubeletMaxPods(cluster)
+	pod.Annotations[upgradePodAttemptAnnotation] = strconv.Itoa(clusterUpgradeRetryCount(cluster) + 1)
+	pod.Spec.ActiveDeadlineSeconds = pointer.Int64(int64(clusterUpgradeTimeout / time.Second))
+	r.addOwnerReferences(pod, hostsContent)
+	if _, err = r.guaranteeHostsConfigMapCreated(ctx, cluster.Name,
+		createKubernetesClusterOwnerReference(cluster), hostsContent); err != nil {
+		return nil, err
+	}
+	if err = r.Create(ctx, pod); err != nil {
+		return nil, err
+	}
+	return pod, nil
+}
+
+// updateUpgradePodStatus sets Upgrading / UpgradeFailed from the worker pod phase.
+func (r *ClusterReconciler) updateUpgradePodStatus(ctx context.Context, cluster *v1.Cluster, pod *corev1.Pod) error {
+	phase := v1.UpgradingPhase
+	if pod.Status.Phase == corev1.PodFailed {
+		phase = v1.UpgradeFailedPhase
+	} else if pod.Status.Phase == corev1.PodSucceeded {
+		if err := r.persistAppliedClusterConfig(ctx, cluster, upgradePodTargetVersion(pod),
+			upgradePodTargetImage(pod), upgradePodTargetMaxPods(pod)); err != nil {
+			return err
+		}
+		phase = v1.ReadyPhase
+	}
+	return r.patchControlPlanePhase(ctx, cluster, phase)
+}
+
+func (r *ClusterReconciler) patchControlPlanePhase(ctx context.Context, cluster *v1.Cluster, phase v1.ClusterPhase) error {
+	if cluster.Status.ControlPlaneStatus.Phase == phase {
+		return nil
+	}
+	originalCluster := client.MergeFrom(cluster.DeepCopy())
+	cluster.Status.ControlPlaneStatus.Phase = phase
+	return r.Status().Patch(ctx, cluster, originalCluster)
+}
+
+func (r *ClusterReconciler) ensureAppliedKubeSprayRecorded(ctx context.Context, cluster *v1.Cluster) error {
+	if hasAppliedKubeSprayRecord(cluster) {
+		return nil
+	}
+	image := controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
+	version := controlPlaneString(cluster.Spec.ControlPlane.KubeVersion)
+	if _, _, _, ok := v1.ParseKubeVersion(version); !ok {
+		klog.Infof("cluster %s upgrade baseline is not available", cluster.Name)
+		return nil
+	}
+	return r.persistAppliedClusterConfig(ctx, cluster, version, image, desiredKubeletMaxPods(cluster))
+}
+
+func (r *ClusterReconciler) persistAppliedClusterConfig(ctx context.Context, cluster *v1.Cluster,
+	version, image, maxPods string) error {
+	latest := &v1.Cluster{}
+	if err := r.Get(ctx, types.NamespacedName{Name: cluster.Name}, latest); err != nil {
+		return err
+	}
+	verChanged := v1.SetAnnotation(latest, v1.ClusterAppliedKubeVersionAnnotation, version)
+	imgChanged := v1.SetAnnotation(latest, v1.ClusterAppliedKubeSprayImageAnnotation, image)
+	maxPodsChanged := setOptionalAnnotation(latest, v1.ClusterAppliedKubeletMaxPodsAnnotation, maxPods)
+	retryChanged := v1.SetAnnotation(latest, v1.ClusterUpgradeRetryCountAnnotation, "0")
+	targetChanged := v1.RemoveAnnotation(latest, v1.ClusterUpgradeRetryTargetAnnotation)
+	if !verChanged && !imgChanged && !maxPodsChanged && !retryChanged && !targetChanged {
+		cluster.SetAnnotations(latest.GetAnnotations())
+		return nil
+	}
+	if err := r.Update(ctx, latest); err != nil {
+		return err
+	}
+	cluster.SetAnnotations(latest.GetAnnotations())
+	cluster.SetResourceVersion(latest.GetResourceVersion())
+	return nil
+}
+
+// setOptionalAnnotation stores non-empty values and removes empty values.
+func setOptionalAnnotation(object metav1.Object, key, value string) bool {
+	if value == "" {
+		return v1.RemoveAnnotation(object, key)
+	}
+	return v1.SetAnnotation(object, key, value)
+}
+
+// persistUpgradeRetryCount records completed failures together with the target they belong to.
+func (r *ClusterReconciler) persistUpgradeRetryCount(ctx context.Context, cluster *v1.Cluster, count int) error {
+	latest := new(v1.Cluster)
+	if err := r.Get(ctx, types.NamespacedName{Name: cluster.Name}, latest); err != nil {
+		return err
+	}
+	countChanged := v1.SetAnnotation(latest, v1.ClusterUpgradeRetryCountAnnotation, strconv.Itoa(count))
+	targetChanged := false
+	if count > 0 {
+		targetChanged = v1.SetAnnotation(latest, v1.ClusterUpgradeRetryTargetAnnotation, clusterUpgradeTarget(cluster))
+	} else {
+		targetChanged = v1.RemoveAnnotation(latest, v1.ClusterUpgradeRetryTargetAnnotation)
+	}
+	if !countChanged && !targetChanged {
+		cluster.SetAnnotations(latest.GetAnnotations())
+		return nil
+	}
+	if err := r.Update(ctx, latest); err != nil {
+		return err
+	}
+	cluster.SetAnnotations(latest.GetAnnotations())
+	cluster.SetResourceVersion(latest.GetResourceVersion())
+	return nil
+}
+
+// hasActiveScalePod reports whether a scale operation is still running.
+func (r *ClusterReconciler) hasActiveScalePod(ctx context.Context, clusterName string) (bool, error) {
+	pods := new(corev1.PodList)
+	if err := r.List(ctx, pods, client.InNamespace(common.PrimusSafeNamespace),
+		client.MatchingLabels{v1.ClusterManageClusterLabel: clusterName}); err != nil {
+		return false, err
+	}
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		action := pod.Labels[v1.ClusterManageActionLabel]
+		if action != string(v1.ClusterScaleUpAction) && action != string(v1.ClusterScaleDownAction) {
+			continue
+		}
+		if pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func upgradePodOwnedByCluster(cluster *v1.Cluster, pod *corev1.Pod) bool {
+	for _, owner := range pod.OwnerReferences {
+		if owner.Kind == cluster.Kind && owner.UID == cluster.UID {
+			return true
+		}
+	}
+	return false
+}
+
+func upgradePodMatchesSpec(cluster *v1.Cluster, pod *corev1.Pod) bool {
+	return upgradePodTargetVersion(pod) == controlPlaneString(cluster.Spec.ControlPlane.KubeVersion) &&
+		upgradePodTargetImage(pod) == controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage) &&
+		upgradePodTargetMaxPods(pod) == desiredKubeletMaxPods(cluster)
+}
+
+func upgradePodTargetVersion(pod *corev1.Pod) string {
+	return v1.GetAnnotation(pod, v1.ClusterAppliedKubeVersionAnnotation)
+}
+
+func upgradePodTargetImage(pod *corev1.Pod) string {
+	return v1.GetAnnotation(pod, v1.ClusterAppliedKubeSprayImageAnnotation)
+}
+
+func upgradePodTargetMaxPods(pod *corev1.Pod) string {
+	return v1.GetAnnotation(pod, v1.ClusterAppliedKubeletMaxPodsAnnotation)
+}
+
+func upgradePodAttempt(pod *corev1.Pod) int {
+	attempt, _ := strconv.Atoi(v1.GetAnnotation(pod, upgradePodAttemptAnnotation))
+	if attempt < 1 {
+		return 1
+	}
+	return attempt
+}
+
+func clusterUpgradeRetryCount(cluster *v1.Cluster) int {
+	count, _ := strconv.Atoi(v1.GetAnnotation(cluster, v1.ClusterUpgradeRetryCountAnnotation))
+	if count < 0 {
+		return 0
+	}
+	return count
+}
+
+// clusterUpgradeTarget identifies the desired image, version, and kubelet capacity.
+func clusterUpgradeTarget(cluster *v1.Cluster) string {
+	return controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage) + "|" +
+		controlPlaneString(cluster.Spec.ControlPlane.KubeVersion) + "|" +
+		desiredKubeletMaxPods(cluster)
+}
+
+// retryCountBelongsToTarget reports whether the recorded failures apply to the desired target.
+func retryCountBelongsToTarget(cluster *v1.Cluster) bool {
+	return v1.GetAnnotation(cluster, v1.ClusterUpgradeRetryTargetAnnotation) == clusterUpgradeTarget(cluster)
+}
+
 // getControllerPlaneNodes retrieves all control plane nodes for the cluster.
 func (r *ClusterReconciler) getControllerPlaneNodes(ctx context.Context, cluster *v1.Cluster) ([]*v1.Node, error) {
 	nodes := make([]*v1.Node, 0, len(cluster.Spec.ControlPlane.Nodes))
@@ -464,8 +834,19 @@ func (r *ClusterReconciler) updateClusterKubeConfig(ctx context.Context, cluster
 		return nil
 	}
 
-	originalCluster := client.MergeFrom(cluster.DeepCopy())
+	image := controlPlaneString(cluster.Spec.ControlPlane.KubeSprayImage)
+	version := controlPlaneString(cluster.Spec.ControlPlane.KubeVersion)
+	if _, _, _, ok := v1.ParseKubeVersion(version); !ok {
+		version, _ = v1.KubeVersionForKubeSprayImage(image)
+	}
+	if version != "" {
+		if err := r.persistAppliedClusterConfig(ctx, cluster, version, image,
+			desiredKubeletMaxPods(cluster)); err != nil {
+			return err
+		}
+	}
 
+	originalCluster := client.MergeFrom(cluster.DeepCopy())
 	cluster.Status.ControlPlaneStatus.CertData = base64.StdEncoding.EncodeToString(restConfig.CertData)
 	cluster.Status.ControlPlaneStatus.CAData = base64.StdEncoding.EncodeToString(restConfig.CAData)
 	cluster.Status.ControlPlaneStatus.KeyData = base64.StdEncoding.EncodeToString(restConfig.KeyData)
@@ -481,7 +862,6 @@ func (r *ClusterReconciler) updateClusterKubeConfig(ctx context.Context, cluster
 	if err := r.Status().Patch(ctx, cluster, originalCluster); err != nil {
 		return fmt.Errorf("failed load config %+v", err)
 	}
-
 	return nil
 }
 
@@ -615,7 +995,7 @@ func (r *ClusterReconciler) clearPods(ctx context.Context, cluster *v1.Cluster) 
 
 // guaranteeService creates the Kubernetes service and endpoints for the cluster.
 func (r *ClusterReconciler) guaranteeService(ctx context.Context, cluster *v1.Cluster) error {
-	if cluster.Status.ControlPlaneStatus.Phase != v1.ReadyPhase && cluster.Status.ControlPlaneStatus.Phase != v1.CreatedPhase {
+	if !cluster.IsReady() && cluster.Status.ControlPlaneStatus.Phase != v1.CreatedPhase {
 		return nil
 	}
 

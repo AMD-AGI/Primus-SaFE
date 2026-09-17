@@ -23,6 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -154,6 +155,12 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 
 	mainWorkload, err := h.generateWorkload(ctx, req, body, requestUser)
 	if err != nil {
+		if status, typed := err.(apierrors.APIStatus); typed &&
+			(strings.Contains(status.Status().Message, "env.PROXY_") ||
+				strings.Contains(status.Status().Message, "env.NO_PROXY:") ||
+				strings.Contains(status.Status().Message, "workloadId:")) {
+			return nil, err
+		}
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 	var preheatWorkloads []*v1.Workload
@@ -203,6 +210,13 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 // Handles authorization checks, workload creation in etcd, and initial phase setting.
 func (h *Handler) createWorkloadImpl(c *gin.Context,
 	workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) (*view.CreateWorkloadResponse, error) {
+	return h.createWorkloadImplWithHook(c, workload, requestUser, roles, nil)
+}
+
+// createWorkloadImplWithHook validates, authorizes, and creates the workload,
+// then calls afterCreate before publishing the Pending phase.
+func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Workload,
+	requestUser *v1.User, roles []*v1.Role, afterCreate func(context.Context) error) (*view.CreateWorkloadResponse, error) {
 	var err error
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		klog.ErrorS(err, "failed to auth workload", "workload", workload.Name,
@@ -241,6 +255,11 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 	}
 	if err = h.Create(c.Request.Context(), workload); err != nil {
 		return nil, err
+	}
+	if afterCreate != nil {
+		if err = afterCreate(c.Request.Context()); err != nil {
+			klog.ErrorS(err, "post-create workload cleanup failed", "workload", workload.Name)
+		}
 	}
 	if err = h.updateWorkloadPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
 		return nil, err
@@ -600,15 +619,19 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 // updateWorkload updates the workload in the system and handles CICD auth secret updates.
 func (h *Handler) updateWorkload(ctx context.Context,
 	adminWorkload *v1.Workload, requestUser *v1.User, req *view.PatchWorkloadRequest) error {
+	if err := h.validateCICDProxyReference(ctx, adminWorkload, requestUser); err != nil {
+		return err
+	}
 	err := h.Update(ctx, adminWorkload)
 	if err != nil {
 		return err
 	}
 
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		if auth := normalizeCICDGitHubAuth(req.GitHubAuth, requestEnv(req)); auth != nil {
+		auth := normalizeCICDGitHubAuth(req.GitHubAuth, requestEnv(req))
+		if auth != nil || req.ProxyAuth != nil {
 			patch := client.MergeFrom(adminWorkload.DeepCopy())
-			rotation, secretErr := h.updateCICDSecret(ctx, adminWorkload, requestUser, auth)
+			rotation, secretErr := h.updateCICDSecret(ctx, adminWorkload, requestUser, auth, req.ProxyAuth)
 			if secretErr != nil {
 				klog.ErrorS(secretErr, "failed to update cicd secret")
 				return secretErr
@@ -623,6 +646,26 @@ func (h *Handler) updateWorkload(ctx context.Context,
 				return err
 			}
 			h.deleteSupersededCICDSecret(ctx, rotation, requestUser)
+		}
+	}
+	if commonworkload.IsCICDGithubRunner(adminWorkload) {
+		auth := githubRunnerAuthFromPatch(req)
+		proxyAuth := req.ProxyAuth
+		if auth != nil || proxyAuth != nil {
+			patch := client.MergeFrom(adminWorkload.DeepCopy())
+			rotation, secretErr := h.updateGithubRunnerSecret(
+				ctx, adminWorkload, requestUser, auth, proxyAuth)
+			if secretErr != nil {
+				klog.ErrorS(secretErr, "failed to update github runner secret")
+				return secretErr
+			}
+			if err = h.Patch(ctx, adminWorkload, patch); err != nil {
+				klog.ErrorS(err, "failed to patch workload")
+				h.discardRolledBackCICDSecret(ctx, adminWorkload, rotation, requestUser)
+				return err
+			}
+			// Dispatcher prunes historical credentials only after the data-plane
+			// StatefulSet references the replacement Secret.
 		}
 	}
 	return nil
@@ -797,6 +840,21 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 	return nil
 }
 
+// validateWorkloadId checks a caller-chosen id against every constraint it has
+// to satisfy downstream. Without this the first thing to reject it is the owner
+// label on a Secret the caller never named, which reports the caller's id as an
+// invalid label on an object they did not ask for.
+func validateWorkloadId(id string) error {
+	if errs := validation.IsDNS1123Subdomain(id); len(errs) != 0 {
+		return commonerrors.NewBadRequest(fmt.Sprintf("workloadId: %s", strings.Join(errs, "; ")))
+	}
+	// The id becomes an owner label, whose values are shorter than object names.
+	if errs := validation.IsValidLabelValue(id); len(errs) != 0 {
+		return commonerrors.NewBadRequest(fmt.Sprintf("workloadId: %s", strings.Join(errs, "; ")))
+	}
+	return nil
+}
+
 // generateWorkload creates a new workload object based on the creation request.
 // Populates workload metadata, specifications, and customer labels.
 func (h *Handler) generateWorkload(ctx context.Context,
@@ -813,6 +871,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		},
 	}
 	if req.WorkloadId != "" {
+		if err := validateWorkloadId(req.WorkloadId); err != nil {
+			return nil, err
+		}
 		workload.Name = req.WorkloadId
 	}
 	var err error
@@ -851,7 +912,12 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		}
 	}
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser, req.GitHubAuth); err != nil {
+		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser, req.GitHubAuth, req.ProxyAuth); err != nil {
+			return nil, err
+		}
+	}
+	if commonworkload.IsCICDGithubRunner(workload) {
+		if err = h.generateGithubRunner(ctx, workload, requestUser, req.GitHubAuth, req.ProxyAuth); err != nil {
 			return nil, err
 		}
 	}
@@ -1306,7 +1372,7 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 		adminWorkload.Spec.Timeout = pointer.Int(*req.Timeout)
 	}
 	if req.Env != nil {
-		adminWorkload.Spec.Env = maputil.Copy(*req.Env, GithubPAT)
+		adminWorkload.Spec.Env = maputil.Copy(*req.Env, GithubPAT, common.RunnerToken)
 	}
 	if req.MaxRetry != nil {
 		adminWorkload.Spec.MaxRetry = *req.MaxRetry
@@ -1338,8 +1404,13 @@ func sanitizePatchWorkloadRequestForLog(req *view.PatchWorkloadRequest) view.Pat
 		auth.PrivateKey = ""
 		sanitized.GitHubAuth = &auth
 	}
+	if sanitized.ProxyAuth != nil {
+		auth := *sanitized.ProxyAuth
+		auth.Password = ""
+		sanitized.ProxyAuth = &auth
+	}
 	if sanitized.Env != nil {
-		env := maputil.Copy(*sanitized.Env, GithubPAT)
+		env := maputil.Copy(*sanitized.Env, GithubPAT, common.RunnerToken)
 		sanitized.Env = &env
 	}
 	return sanitized
@@ -1406,7 +1477,21 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, dbWorkload *d
 			result.Message = adminWorkload.Status.Message
 		}
 	}
+	if result.Phase == string(v1.WorkloadFailed) {
+		result.Message = failedDBWorkloadMessage(dbWorkload)
+	}
 	return result
+}
+
+func failedDBWorkloadMessage(workload *dbclient.Workload) string {
+	var conditions []metav1.Condition
+	if workload.Conditions.Valid && workload.Conditions.String != "" {
+		if err := json.Unmarshal([]byte(workload.Conditions.String), &conditions); err != nil {
+			klog.Error("failed to decode stored workload failure conditions")
+			return "Workload failed; stored failure details could not be read."
+		}
+	}
+	return commonworkload.GetWorkloadFailureMessage(conditions, workload.DispatchCount)
 }
 
 // cvtDBWorkloadToGetResponse converts a database workload record to a detailed response format.
@@ -1434,7 +1519,8 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	}
 	// Pods: prefer the workload_pod table (status offload), fall back to the
 	// legacy pods column so pre-offload workloads still render.
-	if pods := h.listOffloadedPods(ctx, dbWorkload.WorkloadId); len(pods) > 0 {
+	if pods := h.listOffloadedPods(ctx, dbWorkload.WorkloadId,
+		dbutils.ParseNullString(dbWorkload.WorkloadUId)); len(pods) > 0 {
 		result.Pods = pods
 	} else if str := dbutils.ParseNullString(dbWorkload.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
@@ -1444,7 +1530,8 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 			&result.Pods[i].WorkloadPod, user.Name, result.WorkspaceId, result.GroupVersionKind)
 	}
 	// Nodes/Ranks: prefer the workload_dispatch_node table, fall back to columns.
-	if rows := h.listOffloadedDispatchNodes(ctx, dbWorkload.WorkloadId); len(rows) > 0 {
+	if rows := h.listOffloadedDispatchNodes(ctx, dbWorkload.WorkloadId,
+		dbutils.ParseNullString(dbWorkload.WorkloadUId)); len(rows) > 0 {
 		result.Nodes = dbclient.DispatchNodesToV1(rows)
 		result.Ranks = dbclient.DispatchRanksToV1(rows)
 	} else {
@@ -1456,6 +1543,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		}
 	}
 	result.Nodes, result.Ranks = compactDispatchNodeHistory(result.Nodes, result.Ranks)
+	result.NodesHistory = cvtToWorkloadNodesHistory(dbutils.ParseNullString(dbWorkload.NodesHistory))
 	if str := dbutils.ParseNullString(dbWorkload.CustomerLabels); str != "" {
 		var customerLabels map[string]string
 		json.Unmarshal([]byte(str), &customerLabels)
@@ -1507,11 +1595,13 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 // listOffloadedPods returns a workload's pods from the workload_pod table as
 // response wrappers, or nil when the DB is unavailable, errors, or has no rows
 // so the caller can fall back to the legacy pods column without erroring.
-func (h *Handler) listOffloadedPods(ctx context.Context, workloadId string) []view.WorkloadPodWrapper {
+func (h *Handler) listOffloadedPods(
+	ctx context.Context, workloadId, workloadUid string,
+) []view.WorkloadPodWrapper {
 	if h.dbClient == nil {
 		return nil
 	}
-	rows, err := h.dbClient.ListWorkloadPods(ctx, workloadId)
+	rows, err := h.dbClient.ListWorkloadPods(ctx, workloadId, workloadUid)
 	if err != nil || len(rows) == 0 {
 		return nil
 	}
@@ -1525,15 +1615,39 @@ func (h *Handler) listOffloadedPods(ctx context.Context, workloadId string) []vi
 
 // listOffloadedDispatchNodes returns a workload's dispatch rows, or nil when the
 // DB is unavailable or errors so the caller can fall back to legacy columns.
-func (h *Handler) listOffloadedDispatchNodes(ctx context.Context, workloadId string) []*dbclient.WorkloadDispatchNode {
+func (h *Handler) listOffloadedDispatchNodes(
+	ctx context.Context, workloadId, workloadUid string,
+) []*dbclient.WorkloadDispatchNode {
 	if h.dbClient == nil {
 		return nil
 	}
-	rows, err := h.dbClient.ListWorkloadDispatchNodes(ctx, workloadId)
+	rows, err := h.dbClient.ListWorkloadDispatchNodes(ctx, workloadId, workloadUid)
 	if err != nil {
 		return nil
 	}
 	return rows
+}
+
+// cvtToWorkloadNodesHistory renders the archived node assignment of the runs
+// that earlier shared this workload id.
+func cvtToWorkloadNodesHistory(raw string) []view.WorkloadNodesHistoryItem {
+	entries := dbclient.DecodeWorkloadNodesHistory(raw)
+	if len(entries) == 0 {
+		return nil
+	}
+	items := make([]view.WorkloadNodesHistoryItem, 0, len(entries))
+	for _, entry := range entries {
+		nodes, ranks := compactDispatchNodeHistory(entry.Nodes, entry.Ranks)
+		items = append(items, view.WorkloadNodesHistoryItem{
+			DispatchCount: entry.DispatchCount,
+			Phase:         entry.Phase,
+			StartTime:     entry.StartTime,
+			EndTime:       entry.EndTime,
+			Nodes:         nodes,
+			Ranks:         ranks,
+		})
+	}
+	return items
 }
 
 func compactDispatchNodesAndRanks(nodes, ranks []string) ([]string, []string) {
@@ -1725,8 +1839,16 @@ func (h *Handler) resumeWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
+	previousUid := dbutils.ParseNullString(dbWorkload.WorkloadUId)
+	dispatchRows, snapshotErr := h.dbClient.ListWorkloadDispatchNodes(ctx, workloadId, previousUid)
+	if snapshotErr != nil {
+		klog.ErrorS(snapshotErr, "failed to snapshot previous workload nodes", "workload", workloadId)
+	}
 	roles := h.accessController.GetRoles(ctx, requestUser)
-	return h.createWorkloadImpl(c, adminWorkload, requestUser, roles)
+	return h.createWorkloadImplWithHook(c, adminWorkload, requestUser, roles, func(ctx context.Context) error {
+		return h.dbClient.ArchiveWorkloadNodesForResume(
+			ctx, dbWorkload, string(adminWorkload.UID), dispatchRows)
+	})
 }
 
 func cvtToWorkloadResources(dbWorkload *dbclient.Workload, kind string) []v1.WorkloadResource {

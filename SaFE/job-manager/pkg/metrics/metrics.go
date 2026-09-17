@@ -9,6 +9,8 @@
 package metrics
 
 import (
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 )
@@ -77,7 +79,26 @@ var (
 		Name: "safe_workload_reschedule_total",
 		Help: "Total workload reschedules triggered by the syncer.",
 	})
+
+	// CICDFailureEnrichmentDuration measures the OpenSearch lookup that enriches a
+	// failed CI/CD workload with the ARC controller error. A timeout drops the
+	// enrichment silently, so the failure result is the only signal it happened.
+	CICDFailureEnrichmentDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "safe_cicd_failure_enrichment_duration_seconds",
+		Help:    "Duration of the ARC controller log lookup for CI/CD failure enrichment, by result.",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"result"})
 )
+
+// ObserveCICDFailureEnrichment records one enrichment lookup. It matches the
+// cicdlog.SearchOptions.Observe signature so it can be passed straight through.
+func ObserveCICDFailureEnrichment(start time.Time, err *error) {
+	result := "success"
+	if err != nil && *err != nil {
+		result = "error"
+	}
+	CICDFailureEnrichmentDuration.WithLabelValues(result).Observe(time.Since(start).Seconds())
+}
 
 func init() {
 	ctrlmetrics.Registry.MustRegister(
@@ -90,5 +111,6 @@ func init() {
 		DispatchDuration,
 		WorkloadPhaseTotal,
 		WorkloadRescheduleTotal,
+		CICDFailureEnrichmentDuration,
 	)
 }

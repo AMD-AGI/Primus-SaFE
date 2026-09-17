@@ -9,11 +9,11 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os/exec"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -169,74 +169,9 @@ func TestReverseForwardDefaultPortRange(t *testing.T) {
 
 // --- pod listener plumbing ------------------------------------------------
 
-func TestParseConnAnnouncement(t *testing.T) {
-	conn, ok := parseConnAnnouncement("SAFE-RFWD-CONN 4242 127.0.0.1 51234")
-	testifyassert.True(t, ok)
-	testifyassert.Equal(t, "4242", conn.id)
-	testifyassert.Equal(t, "127.0.0.1", conn.peerAddr)
-	testifyassert.Equal(t, uint32(51234), conn.peerPort)
-
-	for _, line := range []string{
-		"",
-		"SAFE-RFWD-CONN",
-		"SAFE-RFWD-CONN 4242 127.0.0.1",
-		"SAFE-RFWD-CONN 4242 127.0.0.1 51234 extra",
-		"SAFE-RFWD-CONN ../../etc/passwd 127.0.0.1 51234",
-		"SAFE-RFWD-CONN 42;rm 127.0.0.1 51234",
-		"SAFE-RFWD-CONN 4242 127.0.0.1 notaport",
-		"SAFE-RFWD-CONN 4242 127.0.0.1 70000",
-		// An overlong id would still be digits-only, so the length bound is what
-		// keeps it from becoming an unbounded path component.
-		"SAFE-RFWD-CONN 123456789012345678901234567890123 127.0.0.1 51234",
-		"SAFE-RFWD-READY",
-	} {
-		_, ok := parseConnAnnouncement(line)
-		testifyassert.Falsef(t, ok, "expected %q to be rejected", line)
-	}
-}
-
-func TestAcceptorScript(t *testing.T) {
-	script := acceptorScript("/tmp/.safe-rfwd-abcd", "127.0.0.1", 10001, 12)
-	testifyassert.Contains(t, script, "TCP-LISTEN:10001,bind=127.0.0.1,reuseaddr,fork")
-	// Every relay socat needs the half-close grace: the default folds one direction
-	// ending into closing the whole connection half a second later.
-	testifyassert.Equal(t, 2, strings.Count(script, "socat -t 120"))
-	testifyassert.Contains(t, script, rfwdReadyMarker)
-	testifyassert.Contains(t, script, rfwdConnMarker)
-	testifyassert.Contains(t, script, rfwdErrMarker)
-	// The listener must be cleaned up when the exec stream goes away, by all three
-	// routes: the trap, the stdin watcher, and the watcher that outlives a SIGKILL.
-	testifyassert.Contains(t, script, `trap 'kill "$SPID" "$WPID" 2>/dev/null || true; rm -rf "$D"' EXIT INT TERM`)
-	testifyassert.Contains(t, script, `( cat <&3 >/dev/null 2>&1; kill "$SPID" 2>/dev/null )`)
-	testifyassert.Contains(t, script, `while [ -e "/proc/$MPID" ] && [ -e "/proc/$SPID" ]`)
-	// Both cleanup routes kill processes that have usually exited already, and the
-	// script runs under set -e: without the || true that failed kill would end the
-	// route before it removes the rendezvous directory.
-	testifyassert.Equal(t, 2, strings.Count(script, `kill "$SPID" "$WPID" 2>/dev/null || true`))
-
-	// Both scripts hand their own stdin to a background socat: a shell would
-	// otherwise give it /dev/null, and the relay would carry an instant EOF.
-	testifyassert.Contains(t, script, "socat -t 120 - UNIX-LISTEN:\"$S\" <&3 &")
-	testifyassert.Equal(t, 2, strings.Count(script, "exec 3<&0"))
-
-	// socat splits address strings on commas, so a comma anywhere in the SYSTEM:
-	// command truncates it into an unparsable address.
-	start := strings.Index(script, "SYSTEM:'")
-	testifyassert.NotEqual(t, -1, start)
-	command := script[start+len("SYSTEM:'"):]
-	command = command[:strings.Index(command, "'")]
-	testifyassert.NotContains(t, command, ",")
-}
-
-func TestConnectScript(t *testing.T) {
-	testifyassert.Equal(t,
-		"exec socat -t 120 - UNIX-CONNECT:/tmp/.safe-rfwd-abcd/4242/s,retry=100,interval=0.1",
-		connectScript("/tmp/.safe-rfwd-abcd", "4242"))
-}
-
 // --- fakes ----------------------------------------------------------------
 
-// fakePodListener stands in for a socat relay running inside a Pod.
+// fakePodListener stands in for the multiplexer running inside a Pod.
 type fakePodListener struct {
 	conns      chan podConn
 	closed     chan struct{}
@@ -554,7 +489,7 @@ func TestReverseForwardListenerStartFailureReleasesPort(t *testing.T) {
 	enableReverseForward(t, nil)
 	rig := newForwardTestRig(t)
 
-	rig.factoryErr = errSSH("socat is not installed in the container")
+	rig.factoryErr = errSSH("the multiplexer could not run in this container")
 	_, err := rig.client.ListenTCP(&net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 10001})
 	testifyassert.Error(t, err)
 
@@ -645,9 +580,9 @@ func waitFor(t *testing.T, cond func() bool, what string) {
 
 // --- whole stack, real relay scripts ---------------------------------------
 
-// localRelayExec runs a relay script as a local process. It stands in for the
-// Kubernetes exec transport so the scripts, socat and the shell that the apiserver
-// actually depends on are exercised end to end.
+// localRelayExec runs a pod-side script as a local process. It stands in for the
+// Kubernetes exec transport so the scripts, the shell and the multiplexer binary
+// the apiserver actually depends on are exercised end to end.
 type localRelayExec struct{ script string }
 
 func (e *localRelayExec) Stream(opts remotecommand.StreamOptions) error {
@@ -657,19 +592,19 @@ func (e *localRelayExec) Stream(opts remotecommand.StreamOptions) error {
 func (e *localRelayExec) StreamWithContext(ctx context.Context, opts remotecommand.StreamOptions) error {
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", e.script)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = opts.Stdin, opts.Stdout, opts.Stderr
-	// The relay is killed by tearing its stream down, so it must not outlive ctx.
+	// The multiplexer is stopped by tearing its stream down, so it must not
+	// outlive ctx.
 	cmd.WaitDelay = time.Second
 	return cmd.Run()
 }
 
 // TestReverseForwardThroughRealRelay drives the whole feature: a real SSH client
-// asks for `-R`, the real relay scripts open the listen socket, and an HTTP request
-// made against that socket is served by the client side of the SSH connection.
-// Only the Kubernetes exec transport is replaced.
+// asks for `-R`, the real scripts install and run the real multiplexer, that
+// multiplexer opens the listen socket, and an HTTP request made against the socket
+// is served by the client side of the SSH connection. Only the Kubernetes exec
+// transport is replaced.
 func TestReverseForwardThroughRealRelay(t *testing.T) {
-	if _, err := exec.LookPath("socat"); err != nil {
-		t.Skip("socat is not installed")
-	}
+	injectHostMux(t)
 
 	// The policy is a port range, so pin it to one port that is free right now.
 	port := freeTCPPort(t)
@@ -718,9 +653,86 @@ func TestReverseForwardThroughRealRelay(t *testing.T) {
 	waitForPortFree(t, port)
 }
 
+// TestReverseForwardBurstThroughRealRelay is the load the single-exec design
+// exists for: many short connections through one forward, where the old path took
+// an exec apiece, ran out at thirty-two, and left the listener accepting
+// connections it never answered.
+func TestReverseForwardBurstThroughRealRelay(t *testing.T) {
+	injectHostMux(t)
+
+	port := freeTCPPort(t)
+	enableReverseForward(t, map[string]any{
+		sshReverseForwardPortMinKey: int(port),
+		sshReverseForwardPortMaxKey: int(port),
+	})
+
+	previous := newPodExecutor
+	newPodExecutor = func(_ *execPodListener, script string, _ bool) (remotecommand.Executor, error) {
+		return &localRelayExec{script: script}, nil
+	}
+	t.Cleanup(func() { newPodExecutor = previous })
+
+	rig := newForwardTestRigWith(t, func(m *reverseForwardManager) {
+		m.resolve = func(context.Context, *UserInfo) (*commonclient.ClientFactory, error) { return nil, nil }
+		m.newListener = newExecPodListener
+	})
+
+	listener, err := rig.client.ListenTCP(&net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: int(port)})
+	testifyassert.NoError(t, err)
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, r.URL.Path)
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+
+	// No keepalive: every request is its own connection, which is what makes this a
+	// burst of connections rather than a burst of requests.
+	client := &http.Client{
+		Timeout:   60 * time.Second,
+		Transport: &http.Transport{DisableKeepAlives: true},
+	}
+	const requests = 120
+	var failures atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < requests; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			resp, getErr := client.Get(fmt.Sprintf("http://%s/%d",
+				net.JoinHostPort("127.0.0.1", itoa(port)), i))
+			if getErr != nil {
+				failures.Add(1)
+				return
+			}
+			defer resp.Body.Close()
+			body, readErr := io.ReadAll(resp.Body)
+			if readErr != nil || string(body) != fmt.Sprintf("/%d", i) {
+				failures.Add(1)
+			}
+		}(i)
+	}
+	wg.Wait()
+	testifyassert.Zero(t, failures.Load(), "connections were lost across one forward")
+
+	// And the forward is left carrying nothing, rather than holding what it served.
+	rig.manager.mu.Lock()
+	fwd := rig.manager.forwards[forwardKey("127.0.0.1", port)]
+	rig.manager.mu.Unlock()
+	testifyassert.NotNil(t, fwd)
+	if fwd == nil {
+		return
+	}
+	l, ok := fwd.listener.(*execPodListener)
+	testifyassert.True(t, ok)
+	waitFor(t, func() bool { return l.session.NumStreams() == 0 }, "every stream to be released")
+
+	rig.closeConn()
+	waitForPortFree(t, port)
+}
+
 // TestReverseForwardSessionClosingDuringSetupClosesListener covers the race where the
 // SSH connection ends while the Pod-side listener is still starting: the listener is
-// already running by then, so failing to close it would leak a socat in the Pod.
+// already running by then, so failing to close it would leave a listener in the Pod.
 func TestReverseForwardSessionClosingDuringSetupClosesListener(t *testing.T) {
 	enableReverseForward(t, nil)
 
@@ -855,6 +867,13 @@ func (c *halfClosedPodConn) Close() error {
 	c.closed = true
 	c.mu.Unlock()
 	return nil
+}
+
+// isClosed reports whether the bridge released this connection.
+func (c *halfClosedPodConn) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
 }
 
 func (c *halfClosedPodConn) OriginAddr() string { return "127.0.0.1" }
@@ -1399,4 +1418,106 @@ func TestReverseForwardRefusesWhenNoForwardsArePermitted(t *testing.T) {
 	testifyassert.Error(t, err)
 	testifyassert.Contains(t, err.Error(), "no forwards")
 	testifyassert.Empty(t, m.forwards)
+}
+
+// blockingSSHConn never answers a channel open, which is what an SSH client that
+// has been suspended or networked away looks like from this end.
+type blockingSSHConn struct {
+	ssh.Conn
+	user    string
+	opening chan struct{}
+	release chan struct{}
+}
+
+func (c *blockingSSHConn) User() string { return c.user }
+
+func (c *blockingSSHConn) OpenChannel(string, []byte) (ssh.Channel, <-chan *ssh.Request, error) {
+	select {
+	case c.opening <- struct{}{}:
+	default:
+	}
+	<-c.release
+	return nil, nil, fmt.Errorf("connection gone")
+}
+
+// TestBridgeGivesUpOnAClientThatWillNotAnswer pins the deadline on opening a
+// forwarded-tcpip channel. Without it one unresponsive client holds a goroutine and
+// a pod-side connection for the twelve hours a session may last, and the pod-side
+// process waits on a reply that is never coming.
+func TestBridgeGivesUpOnAClientThatWillNotAnswer(t *testing.T) {
+	previous := forwardChannelOpenTimeout
+	forwardChannelOpenTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { forwardChannelOpenTimeout = previous })
+
+	conn := &blockingSSHConn{user: testForwardUser, opening: make(chan struct{}, 1), release: make(chan struct{})}
+	t.Cleanup(func() { close(conn.release) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := &reverseForwardManager{
+		conn:     &ssh.ServerConn{Conn: conn},
+		ctx:      ctx,
+		policy:   loadReverseForwardPolicy(),
+		forwards: map[string]*reverseForward{},
+	}
+	fwd := &reverseForward{bindAddr: "127.0.0.1", bindPort: 10001, ctx: ctx, cancel: cancel,
+		userInfo: &UserInfo{}, listener: newFakePodListener()}
+	pc := newHalfClosedPodConn()
+
+	done := make(chan struct{})
+	go func() { defer close(done); m.bridge(fwd, pc) }()
+
+	select {
+	case <-conn.opening:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the bridge never asked for a channel")
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the bridge waited on a client that never answered")
+	}
+	// The pod-side connection is released rather than left holding a stream.
+	waitFor(t, pc.isClosed, "the pod-side connection to be closed")
+}
+
+// TestCloseAllAbortsAListenerStillStarting covers the session ending while a
+// listener is being installed: without it the setup runs to completion and leaves
+// a listen socket in a pod whose session has gone.
+func TestCloseAllAbortsAListenerStillStarting(t *testing.T) {
+	enableReverseForward(t, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := newReverseForwardManager(ctx, &SshHandler{}, &ssh.ServerConn{Conn: fakeSSHConn{user: testForwardUser}})
+	m.resolve = func(context.Context, *UserInfo) (*commonclient.ClientFactory, error) { return nil, nil }
+
+	starting := make(chan struct{})
+	aborted := make(chan error, 1)
+	m.newListener = func(listenerCtx context.Context, _ *UserInfo, _ *commonclient.ClientFactory,
+		_ string, _ uint32) (podListener, error) {
+		close(starting)
+		<-listenerCtx.Done()
+		aborted <- listenerCtx.Err()
+		return nil, listenerCtx.Err()
+	}
+
+	go m.handleForward(&ssh.Request{
+		Type:    tcpipForwardRequest,
+		Payload: ssh.Marshal(tcpipForwardPayload{BindAddr: "127.0.0.1", BindPort: 10001}),
+	})
+
+	select {
+	case <-starting:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the listener never started")
+	}
+	m.closeAll()
+
+	select {
+	case err := <-aborted:
+		testifyassert.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("a listener still starting outlived the session that asked for it")
+	}
 }
