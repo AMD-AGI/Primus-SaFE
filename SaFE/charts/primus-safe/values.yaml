@@ -342,7 +342,7 @@ sandbox:
   secret: "envd-router-identity"
   # EnvD injector initContainer image (repo path under harbor, no proxy/ prefix).
   # Must include GET /api/jobs for Brain idle sandbox reclaim.
-  envd_injector_image: "primussafe/agent-sandbox-envd-injector:a554861-09171604"
+  envd_injector_image: "primussafe/agent-sandbox-envd-injector:7df1268-09182219"
 mcp:
   enabled: true
   base_path: "/api/v1/safe-mcp/mcp"
