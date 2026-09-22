@@ -7,7 +7,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1"
 )
 
@@ -103,15 +103,15 @@ func TestLess(t *testing.T) {
 			name: "pods with different priorities",
 			pod1: &corev1.Pod{
 				Spec: corev1.PodSpec{
-					Priority: pointer.Int32(10),
+					Priority: ptr.To(int32(10)),
 				},
 			},
 			pod2: &corev1.Pod{
 				Spec: corev1.PodSpec{
-					Priority: pointer.Int32(5),
+					Priority: ptr.To(int32(5)),
 				},
 			},
-			want: pointer.Bool(true), // higher priority should come first
+			want: ptr.To(true), // higher priority should come first
 		},
 		{
 			name: "pods with same priority, different pod groups",
@@ -122,7 +122,7 @@ func TestLess(t *testing.T) {
 					},
 				},
 				Spec: corev1.PodSpec{
-					Priority: pointer.Int32(5),
+					Priority: ptr.To(int32(5)),
 				},
 			},
 			pod2: &corev1.Pod{
@@ -132,7 +132,7 @@ func TestLess(t *testing.T) {
 					},
 				},
 				Spec: corev1.PodSpec{
-					Priority: pointer.Int32(5),
+					Priority: ptr.To(int32(5)),
 				},
 			},
 			want: nil, // should return nil when pod groups are different
@@ -147,7 +147,7 @@ func TestLess(t *testing.T) {
 					},
 				},
 				Spec: corev1.PodSpec{
-					Priority: pointer.Int32(5),
+					Priority: ptr.To(int32(5)),
 				},
 			},
 			pod2: &corev1.Pod{
@@ -158,10 +158,10 @@ func TestLess(t *testing.T) {
 					},
 				},
 				Spec: corev1.PodSpec{
-					Priority: pointer.Int32(5),
+					Priority: ptr.To(int32(5)),
 				},
 			},
-			want: pointer.Bool(true), // master should come before worker
+			want: ptr.To(true), // master should come before worker
 		},
 	}
 
