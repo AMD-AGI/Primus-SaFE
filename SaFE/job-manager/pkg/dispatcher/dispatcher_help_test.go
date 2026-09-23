@@ -2841,3 +2841,39 @@ func TestInferaRolloutSurgeCreateAndSyncAgree(t *testing.T) {
 		})
 	}
 }
+
+// Turning on surge and changing the image in ONE patch has to land in one
+// reconcile, or the upgrade is not actually non-disruptive: if the new image
+// reached the object first, the Deployment would start rolling under the old
+// surge-free strategy and take the service down before surge was ever enabled.
+// updateReplica (which syncs the rollout mode) and updateContainers run in the
+// same loop over ResourceSpecs, which is what makes the single-step upgrade
+// safe -- this pins that.
+func TestSurgeAndImageLandInTheSameReconcile(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
+	for range roles {
+		workload.Spec.EntryPoints = append(workload.Spec.EntryPoints,
+			stringutil.Base64Encode("serve --model /models/m"))
+	}
+	obj := inferaObject(nil, nil, nil)
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+	// One patch: surge on, and a new image.
+	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, "prefill,decode")
+	workload.Spec.Images = []string{"repo/infera:new", "repo/infera:new", "repo/infera:new"}
+
+	// One reconcile pass, in the order applyWorkloadSpecToObject uses.
+	for id := 0; id < 3; id++ {
+		assert.NilError(t, updateReplica(workload, obj, inferaResourceSpec(id), id))
+		assert.NilError(t, updateContainers(workload, obj, inferaResourceSpec(id), id))
+	}
+
+	for _, id := range []int{1, 2} {
+		surge, skip := slotFields(t, obj, id)
+		assert.Equal(t, surge, true, "role%d must surge in the same pass", id)
+		assert.Equal(t, skip, nil, "role%d must regain its probe in the same pass", id)
+		assert.Equal(t, inferaMainContainer(t, obj, id)["image"], "repo/infera:new",
+			"role%d image must change in the same pass", id)
+	}
+}
