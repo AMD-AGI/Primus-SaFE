@@ -2877,3 +2877,35 @@ func TestSurgeAndImageLandInTheSameReconcile(t *testing.T) {
 			"role%d image must change in the same pass", id)
 	}
 }
+
+// The sync path only runs when some isXxxChanged reports drift. Toggling the
+// surge annotation changes nothing those detectors look at, so without a
+// detector of its own the annotation is accepted by the API and then silently
+// ignored -- and turning surge back OFF, which carries no other change, could
+// never take effect at all.
+func TestInferaRolloutSurgeIsDetectedAsDrift(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	rt := inferaResourceTemplate(3)
+	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
+	obj := inferaObject(nil, nil, nil)
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+	assert.Equal(t, isInferaRolloutSurgeChanged(workload, obj, rt), false,
+		"a freshly rendered object must not look drifted")
+
+	// Turned on: the object still has the old rollout mode, so this is drift.
+	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, "prefill,decode")
+	assert.Equal(t, isInferaRolloutSurgeChanged(workload, obj, rt), true,
+		"enabling surge must trigger a sync, or the annotation is silently ignored")
+
+	for id := 1; id <= 2; id++ {
+		assert.NilError(t, updateInferaRolloutSurge(workload, obj, inferaResourceSpec(id), id))
+	}
+	assert.Equal(t, isInferaRolloutSurgeChanged(workload, obj, rt), false,
+		"after the write the object must settle, or it resyncs every reconcile")
+
+	// And turned back off, which carries no other change whatsoever.
+	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, "")
+	assert.Equal(t, isInferaRolloutSurgeChanged(workload, obj, rt), true,
+		"disabling surge must trigger a sync too")
+}

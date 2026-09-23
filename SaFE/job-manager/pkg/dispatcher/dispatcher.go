@@ -611,6 +611,7 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
 		isResourceChanged, isImagesChanged, isEntrypointChanged, isSharedMemoryChanged,
 		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged,
+		isInferaRolloutSurgeChanged,
 	}
 	source, err := commonworkload.ResolveCICDProxySource(ctx, r.Client, adminWorkload)
 	if err != nil {
@@ -702,6 +703,41 @@ func isImagesChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured,
 		return false
 	}
 	return !reflect.DeepEqual(adminWorkload.Spec.Images, images)
+}
+
+// isInferaRolloutSurgeChanged reports whether a worker's rollout mode no
+// longer matches the rollout-surge-roles annotation.
+//
+// The sync path runs only when one of these detectors reports drift, and the
+// surge annotation touches nothing the others inspect: no image, entrypoint,
+// env or resource changes when it is toggled. Without this the annotation
+// would be accepted by the API and then silently ignored until some unrelated
+// edit happened to trigger a sync -- and turning surge back off, which carries
+// no other change at all, could never take effect.
+func isInferaRolloutSurgeChanged(adminWorkload *v1.Workload,
+	obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
+	if !commonworkload.IsInferaDeployment(adminWorkload) {
+		return false
+	}
+	roles := commonworkload.GetInferaServiceRoles(adminWorkload)
+	for id, resourceSpec := range rt.Spec.ResourceSpecs {
+		if id >= len(adminWorkload.Spec.Resources) || id >= len(roles) {
+			break
+		}
+		if roles[id] == common.DynamoRoleFrontend {
+			continue
+		}
+		want := commonworkload.IsInferaRolloutSurgeRole(adminWorkload, roles[id])
+		got, found, err := jobutils.NestedBool(obj.Object, resourceSpec.Path(inferaRolloutSurgeField))
+		if err != nil {
+			klog.ErrorS(err, "failed to read rolloutSurge", "obj", obj.GetName())
+			return false
+		}
+		if want != (found && got) {
+			return true
+		}
+	}
+	return false
 }
 
 // isEntrypointChanged checks if the entry point/command of the workload has changed.
