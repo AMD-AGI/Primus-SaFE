@@ -971,6 +971,13 @@ func applyInferaOptions(workload *v1.Workload, opts *view.DynamoOptions) {
 		v1.SetAnnotation(workload, v1.InferaMultinodeRolesAnnotation,
 			strings.Join(opts.MultinodeRoles, ","))
 	}
+	// Written even when empty, unlike the fields above: this one is toggled on
+	// an existing workload to turn a surge rollout on and back off, and an
+	// omitted-means-unchanged field could never express the off direction.
+	if opts.RolloutSurgeRoles != nil {
+		v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation,
+			strings.Join(opts.RolloutSurgeRoles, ","))
+	}
 }
 
 // applyDynamoOptions translates the structured DynamoOptions API field into
@@ -1383,6 +1390,10 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 	if req.Service != nil {
 		adminWorkload.Spec.Service = req.Service
 	}
+	// Same translation as on create, and the only way to reach the
+	// primus-safe.infera.* annotations: the freeform Annotations map rejects
+	// that prefix, and PatchWorkloadRequest does not carry one at all.
+	applyInferaOptions(adminWorkload, req.InferaOptions)
 	return nil
 }
 

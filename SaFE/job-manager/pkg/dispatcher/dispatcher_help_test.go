@@ -2756,3 +2756,88 @@ func TestConstrainCICDListener_PinsListenerToTheWorkspace(t *testing.T) {
 	assert.Equal(t, len(reconciledTerms), len(terms), "reconciling the listener twice must not grow its affinity")
 	assert.DeepEqual(t, reconciledTerms, terms)
 }
+
+// slotFields reads a role slot's rollout fields out of a rendered IDEP.
+func slotFields(t *testing.T, obj *unstructured.Unstructured, id int) (surge, skip interface{}) {
+	t.Helper()
+	slot, found, err := jobutils.NestedMap(obj.Object,
+		[]string{"spec", "services", "role" + strconv.Itoa(id)})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	return slot[inferaRolloutSurgeField], slot[inferaSkipReadinessField]
+}
+
+// applyInferaRoleFields writes the rollout fields on create only, but the
+// surge mode is exactly what gets toggled on a workload already running -- on
+// to upgrade without dropping traffic, off afterwards to return the spare GPU.
+// Without this sync the annotation would only ever take effect on a workload
+// recreated from scratch.
+func TestUpdateInferaRolloutSurgeTogglesBothWays(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
+	obj := inferaObject(nil, nil, nil)
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+	// Created without the annotation: the historical shape.
+	surge, skip := slotFields(t, obj, 2)
+	assert.Equal(t, surge, nil)
+	assert.Equal(t, skip, true)
+
+	// Turned on for decode only.
+	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, common.DynamoRoleDecode)
+	assert.NilError(t, updateInferaRolloutSurge(workload, obj, inferaResourceSpec(2), 2))
+	surge, skip = slotFields(t, obj, 2)
+	assert.Equal(t, surge, true)
+	assert.Equal(t, skip, nil, "the probe must come back, or the surge retires the old pod early")
+
+	// Prefill was not listed, so it is untouched.
+	assert.NilError(t, updateInferaRolloutSurge(workload, obj, inferaResourceSpec(1), 1))
+	surge, skip = slotFields(t, obj, 1)
+	assert.Equal(t, surge, nil)
+	assert.Equal(t, skip, true)
+
+	// And turned back off, returning to exactly the created shape.
+	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, "")
+	assert.NilError(t, updateInferaRolloutSurge(workload, obj, inferaResourceSpec(2), 2))
+	surge, skip = slotFields(t, obj, 2)
+	assert.Equal(t, surge, nil)
+	assert.Equal(t, skip, true)
+}
+
+// The server has no rollout mode, and writing skipReadinessProbe onto it would
+// drop the readiness the router's Service depends on.
+func TestUpdateInferaRolloutSurgeSkipsTheFrontend(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
+	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, common.DynamoRoleDecode)
+	obj := inferaObject(nil, nil, nil)
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+	assert.NilError(t, updateInferaRolloutSurge(workload, obj, inferaResourceSpec(0), 0))
+	surge, skip := slotFields(t, obj, 0)
+	assert.Equal(t, surge, nil)
+	assert.Equal(t, skip, nil)
+}
+
+// The create and sync paths must agree, or a steady-state workload resyncs on
+// every reconcile: normalizeInferaIDEP writes the fields at create and
+// updateInferaRolloutSurge rewrites them on every pass afterwards.
+func TestInferaRolloutSurgeCreateAndSyncAgree(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	for _, surgeRoles := range []string{"", "decode", "prefill,decode"} {
+		t.Run("surge="+surgeRoles, func(t *testing.T) {
+			workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
+			v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, surgeRoles)
+			obj := inferaObject(nil, nil, nil)
+			assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+			for id := 1; id <= 2; id++ {
+				wantSurge, wantSkip := slotFields(t, obj, id)
+				assert.NilError(t, updateInferaRolloutSurge(workload, obj, inferaResourceSpec(id), id))
+				gotSurge, gotSkip := slotFields(t, obj, id)
+				assert.Equal(t, gotSurge, wantSurge, "role%d rolloutSurge drifted", id)
+				assert.Equal(t, gotSkip, wantSkip, "role%d skipReadinessProbe drifted", id)
+			}
+		})
+	}
+}

@@ -50,6 +50,11 @@ const (
 	// count of a multi-node role's LeaderWorkerSet group. Written by
 	// normalizeInferaIDEP on create and by updateInferaNodeCount on sync.
 	inferaNodeCountField = "numberOfNodes"
+	// inferaRolloutSurgeField and inferaSkipReadinessField are the IDEP
+	// ServiceSpec fields selecting a worker's rollout mode. Written by
+	// applyInferaRoleFields on create and by updateInferaRolloutSurge on sync.
+	inferaRolloutSurgeField  = "rolloutSurge"
+	inferaSkipReadinessField = "skipReadinessProbe"
 )
 
 // initializeObject modifies various aspects of a Kubernetes object during workload creation.
@@ -1202,6 +1207,9 @@ func updateReplica(adminWorkload *v1.Workload,
 	if err := updateInferaNodeCount(adminWorkload, obj, resourceSpec, id); err != nil {
 		return err
 	}
+	if err := updateInferaRolloutSurge(adminWorkload, obj, resourceSpec, id); err != nil {
+		return err
+	}
 	if len(resourceSpec.ReplicasPaths) == 0 {
 		return nil
 	}
@@ -1244,6 +1252,47 @@ func updateInferaNodeCount(adminWorkload *v1.Workload,
 		return jobutils.RemoveNestedField(obj.Object, path)
 	}
 	return jobutils.SetNestedField(obj.Object, int64(n), path)
+}
+
+// updateInferaRolloutSurge keeps an IDEP worker slot's rollout mode in step
+// with the rollout-surge-roles annotation.
+//
+// applyInferaRoleFields writes these fields on create only, but the rollout
+// mode is precisely the thing that gets toggled on a workload already running:
+// it is turned on to upgrade without dropping traffic, and off afterwards to
+// give the spare GPU back. Without this the annotation would only ever take
+// effect on a workload recreated from scratch.
+//
+// The two fields move together, exactly as they do on create. A surge rollout
+// retires the old pod once the replacement reports Ready, so with the probe
+// skipped the old pod would go while the replacement is still loading weights.
+// The operator refuses that pair outright, so setting one without clearing the
+// other would wedge the deployment instead of upgrading it.
+func updateInferaRolloutSurge(adminWorkload *v1.Workload,
+	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
+	if !commonworkload.IsInferaDeployment(adminWorkload) || id >= len(adminWorkload.Spec.Resources) {
+		return nil
+	}
+	roles := commonworkload.GetInferaServiceRoles(adminWorkload)
+	if id >= len(roles) {
+		return nil
+	}
+	// The server carries neither field; only workers have a rollout mode.
+	if roles[id] == common.DynamoRoleFrontend {
+		return nil
+	}
+	surgePath := resourceSpec.Path(inferaRolloutSurgeField)
+	skipPath := resourceSpec.Path(inferaSkipReadinessField)
+	if commonworkload.IsInferaRolloutSurgeRole(adminWorkload, roles[id]) {
+		if err := jobutils.RemoveNestedField(obj.Object, skipPath); err != nil {
+			return err
+		}
+		return jobutils.SetNestedField(obj.Object, true, surgePath)
+	}
+	if err := jobutils.RemoveNestedField(obj.Object, surgePath); err != nil {
+		return err
+	}
+	return jobutils.SetNestedField(obj.Object, true, skipPath)
 }
 
 // updateMaxReplicas updates the max-replicas in the unstructured object. only for ray-job

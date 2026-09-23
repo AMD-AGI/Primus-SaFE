@@ -2418,3 +2418,43 @@ func TestParseGetPodLogQuery(t *testing.T) {
 	assert.Equal(t, "side", q2.Container)
 	assert.Equal(t, int64(50), q2.TailLines)
 }
+
+// The surge roles reach the workload through inferaOptions on the patch, which
+// is the only route available: the freeform Annotations map rejects the
+// primus-safe. prefix and PatchWorkloadRequest carries no annotations at all.
+func TestApplyWorkloadPatchSetsInferaRolloutSurgeRoles(t *testing.T) {
+	workload := &v1.Workload{}
+	req := &view.PatchWorkloadRequest{
+		InferaOptions: &view.DynamoOptions{
+			RolloutSurgeRoles: []string{"prefill", "decode"},
+		},
+	}
+
+	assert.NilError(t, applyWorkloadPatch(workload, req))
+	assert.Equal(t,
+		v1.GetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation), "prefill,decode")
+}
+
+// Turning surge back off after an upgrade has to be expressible. An empty
+// slice is a request to clear, distinct from omitting inferaOptions entirely.
+func TestApplyWorkloadPatchClearsInferaRolloutSurgeRoles(t *testing.T) {
+	workload := &v1.Workload{}
+	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, "prefill,decode")
+
+	req := &view.PatchWorkloadRequest{
+		InferaOptions: &view.DynamoOptions{RolloutSurgeRoles: []string{}},
+	}
+	assert.NilError(t, applyWorkloadPatch(workload, req))
+	assert.Equal(t, v1.GetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation), "")
+}
+
+// A patch that does not mention inferaOptions must not disturb it -- an image
+// upgrade is sent that way and would otherwise silently cancel the surge.
+func TestApplyWorkloadPatchLeavesInferaOptionsAloneWhenAbsent(t *testing.T) {
+	workload := &v1.Workload{}
+	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, "decode")
+
+	images := []string{"repo/infera:new"}
+	assert.NilError(t, applyWorkloadPatch(workload, &view.PatchWorkloadRequest{Images: &images}))
+	assert.Equal(t, v1.GetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation), "decode")
+}

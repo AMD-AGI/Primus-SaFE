@@ -97,6 +97,14 @@ type DynamoOptions struct {
 	// a plain Deployment replica count (independent scale-out). Each listed role
 	// must also appear in ServiceRoles. Example: ["worker"] or ["prefill","decode"].
 	MultinodeRoles []string `json:"multinodeRoles,omitempty"`
+
+	// RolloutSurgeRoles lists the roles that roll by starting the replacement
+	// before retiring the old pod, so the role keeps serving across an image
+	// or entrypoint change. Each listed role needs a spare GPU for the pod
+	// being rolled; with none free the replacement stays Pending and the
+	// rollout waits, the old pod still serving. Each listed role must also
+	// appear in ServiceRoles. Infera only. Example: ["prefill","decode"].
+	RolloutSurgeRoles []string `json:"rolloutSurgeRoles,omitempty"`
 }
 
 type GitHubAuthRequest struct {
@@ -336,6 +344,11 @@ type PatchWorkloadRequest struct {
 	CronJobs *[]v1.CronJob `json:"cronJobs,omitempty"`
 	// Service configuration
 	Service *v1.Service `json:"service,omitempty"`
+	// InferaOptions updates the InferaDeployment-specific configuration. Only
+	// the fields set on it are changed. This is the sanctioned way to reach
+	// the primus-safe.infera.* annotations, which the freeform Annotations map
+	// rejects.
+	InferaOptions *DynamoOptions `json:"inferaOptions,omitempty"`
 }
 
 type GetPodLogRequest struct {

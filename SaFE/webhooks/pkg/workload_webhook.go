@@ -628,6 +628,19 @@ func (v *WorkloadValidator) validateInferaDeployment(workload *v1.Workload) erro
 		}
 	}
 
+	for _, role := range commonworkload.GetInferaRolloutSurgeRoles(workload) {
+		if roleCounts[role] == 0 {
+			errs = append(errs, fmt.Errorf(
+				"rollout-surge-roles references undeclared role %q (not in service-roles)", role))
+		}
+		// The frontend is CPU-only and already surges by default; naming it
+		// would suggest the setting does something there.
+		if role == common.DynamoRoleFrontend {
+			errs = append(errs, fmt.Errorf(
+				"rollout-surge-roles cannot name %q: it applies to workers only", role))
+		}
+	}
+
 	return utilerrors.NewAggregate(errs)
 }
 

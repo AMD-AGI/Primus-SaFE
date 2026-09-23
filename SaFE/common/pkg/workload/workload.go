@@ -646,6 +646,12 @@ func IsInferaMultinodeRole(w *v1.Workload, role string) bool {
 	return inferaRoleListHas(w, v1.InferaMultinodeRolesAnnotation, role)
 }
 
+// GetInferaRolloutSurgeRoles returns the roles that roll by starting the
+// replacement before retiring the old pod.
+func GetInferaRolloutSurgeRoles(w *v1.Workload) []string {
+	return inferaRoleList(w, v1.InferaRolloutSurgeRolesAnnotation)
+}
+
 // IsInferaRolloutSurgeRole reports whether the given role rolls by starting
 // its replacement before retiring the old pod.
 func IsInferaRolloutSurgeRole(w *v1.Workload, role string) bool {
