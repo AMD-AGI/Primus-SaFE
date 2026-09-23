@@ -2741,14 +2741,14 @@ func TestCICDEphemeralRunnerWithoutProxy_DoesNotRequireOwner(t *testing.T) {
 	}
 }
 
-// A surge role that is not a declared service role would silently do nothing,
+// An idle role that is not a declared service role would silently do nothing,
 // and naming the frontend suggests the setting applies there when it does not.
-func TestWorkloadValidateInferaRolloutSurgeRoles(t *testing.T) {
+func TestWorkloadValidateInferaIdleRoles(t *testing.T) {
 	v := &WorkloadValidator{}
-	pd := func(surge string) *v1.Workload {
+	pd := func(idle string) *v1.Workload {
 		w := dynamoWorkload(common.InferaDeploymentKind, "sglang", common.DynamoKVBackendNixl,
 			"frontend,prefill,decode", 3)
-		v1.SetAnnotation(w, v1.InferaRolloutSurgeRolesAnnotation, surge)
+		v1.SetAnnotation(w, v1.InferaIdleRolesAnnotation, idle)
 		return w
 	}
 
@@ -2757,5 +2757,5 @@ func TestWorkloadValidateInferaRolloutSurgeRoles(t *testing.T) {
 	assert.Assert(t, v.validateInferaDeployment(pd("worker")) != nil,
 		"a role outside service-roles must be rejected, not silently ignored")
 	assert.Assert(t, v.validateInferaDeployment(pd("frontend")) != nil,
-		"the frontend has no worker rollout mode")
+		"the frontend gets no readiness probe injected anyway")
 }

@@ -646,16 +646,16 @@ func IsInferaMultinodeRole(w *v1.Workload, role string) bool {
 	return inferaRoleListHas(w, v1.InferaMultinodeRolesAnnotation, role)
 }
 
-// GetInferaRolloutSurgeRoles returns the roles that roll by starting the
-// replacement before retiring the old pod.
-func GetInferaRolloutSurgeRoles(w *v1.Workload) []string {
-	return inferaRoleList(w, v1.InferaRolloutSurgeRolesAnnotation)
+// GetInferaIdleRoles returns the roles whose pods deploy idle, with the engine
+// launched out-of-band.
+func GetInferaIdleRoles(w *v1.Workload) []string {
+	return inferaRoleList(w, v1.InferaIdleRolesAnnotation)
 }
 
-// IsInferaRolloutSurgeRole reports whether the given role rolls by starting
-// its replacement before retiring the old pod.
-func IsInferaRolloutSurgeRole(w *v1.Workload, role string) bool {
-	return inferaRoleListHas(w, v1.InferaRolloutSurgeRolesAnnotation, role)
+// IsInferaIdleRole reports whether the given role deploys idle. Such a worker
+// never registers, so it never becomes Ready and has to skip the probe.
+func IsInferaIdleRole(w *v1.Workload, role string) bool {
+	return inferaRoleListHas(w, v1.InferaIdleRolesAnnotation, role)
 }
 
 // GetInferaBackendFramework returns the chosen backend framework

@@ -971,12 +971,12 @@ func applyInferaOptions(workload *v1.Workload, opts *view.DynamoOptions) {
 		v1.SetAnnotation(workload, v1.InferaMultinodeRolesAnnotation,
 			strings.Join(opts.MultinodeRoles, ","))
 	}
-	// Written even when empty, unlike the fields above: this one is toggled on
-	// an existing workload to turn a surge rollout on and back off, and an
-	// omitted-means-unchanged field could never express the off direction.
-	if opts.RolloutSurgeRoles != nil {
-		v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation,
-			strings.Join(opts.RolloutSurgeRoles, ","))
+	// Written even when empty, unlike the fields above: correcting a role that
+	// was wrongly marked idle means clearing it, and an
+	// omitted-means-unchanged field could never express that.
+	if opts.IdleRoles != nil {
+		v1.SetAnnotation(workload, v1.InferaIdleRolesAnnotation,
+			strings.Join(opts.IdleRoles, ","))
 	}
 }
 

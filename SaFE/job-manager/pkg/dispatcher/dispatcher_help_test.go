@@ -1622,45 +1622,40 @@ func TestApplyInferaRoleFields(t *testing.T) {
 	assert.Equal(t, worker["role"], "mixed")
 }
 
-// Without the surge annotation nothing about a worker changes, including the
-// readiness skip. Every deployment that predates rolloutSurge -- notably the
-// idle create-infera ones, whose /health cannot answer at deploy time -- must
-// render exactly as before.
-func TestInferaWorkersKeepTheReadinessSkipWithoutSurge(t *testing.T) {
+// A serving worker must keep its readiness probe. Workers roll surge-first,
+// so the probe is what holds the rollout back until the replacement has
+// registered; without it every pod is Ready the moment it is Running and the
+// rollout retires the pod that is still serving.
+func TestInferaServingWorkersKeepTheirReadinessProbe(t *testing.T) {
 	for _, role := range []string{
 		common.DynamoRoleWorker, common.DynamoRolePrefill, common.DynamoRoleDecode,
 	} {
 		slot := map[string]interface{}{}
 		applyInferaRoleFields(slot, role, "nixl", false)
-		assert.Equal(t, slot["skipReadinessProbe"], true, "role %s", role)
-		_, hasSurge := slot["rolloutSurge"]
-		assert.Equal(t, hasSurge, false, "role %s", role)
+		_, skipped := slot[inferaSkipReadinessField]
+		assert.Equal(t, skipped, false,
+			"role %s: without a probe the rollout retires the old pod early", role)
 	}
 }
 
-// Surge and the readiness probe are one decision. A surge rollout retires the
-// old pod once the replacement reports Ready, so skipping the probe would make
-// every pod Ready while still loading weights and the old pod would go too
-// early -- the outage surge exists to avoid.
-func TestInferaSurgeRolesKeepTheirReadinessProbe(t *testing.T) {
+// An idle worker is the one case that must skip it: its engine is launched
+// out-of-band afterwards, so it never registers, never opens its readiness
+// port, and would sit NotReady forever.
+func TestInferaIdleWorkersSkipTheReadinessProbe(t *testing.T) {
 	for _, role := range []string{
 		common.DynamoRoleWorker, common.DynamoRolePrefill, common.DynamoRoleDecode,
 	} {
 		slot := map[string]interface{}{}
 		applyInferaRoleFields(slot, role, "nixl", true)
-		assert.Equal(t, slot["rolloutSurge"], true, "role %s", role)
-		_, skipped := slot["skipReadinessProbe"]
-		assert.Equal(t, skipped, false,
-			"role %s: a surge rollout without a probe retires the old pod early", role)
+		assert.Equal(t, slot[inferaSkipReadinessField], true, "role %s", role)
 	}
 }
 
-// The annotation names roles, so it must reach exactly the roles it lists and
-// leave the rest rendering as they did before.
-func TestNormalizeInferaIDEPAppliesSurgePerRole(t *testing.T) {
+// The annotation names roles, so it must reach exactly the roles it lists.
+func TestNormalizeInferaIDEPAppliesIdlePerRole(t *testing.T) {
 	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
 	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
-	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, common.DynamoRoleDecode)
+	v1.SetAnnotation(workload, v1.InferaIdleRolesAnnotation, common.DynamoRoleDecode)
 	obj := inferaObject(nil, nil, nil)
 
 	assert.NilError(t, normalizeInferaIDEP(obj, workload))
@@ -1671,13 +1666,9 @@ func TestNormalizeInferaIDEPAppliesSurgePerRole(t *testing.T) {
 	prefill := services["role1"].(map[string]interface{})
 	decode := services["role2"].(map[string]interface{})
 
-	_, prefillSurges := prefill["rolloutSurge"]
-	assert.Equal(t, prefillSurges, false, "prefill was not listed")
-	assert.Equal(t, prefill["skipReadinessProbe"], true, "prefill keeps the old behaviour")
-
-	assert.Equal(t, decode["rolloutSurge"], true)
-	_, decodeSkipped := decode["skipReadinessProbe"]
-	assert.Equal(t, decodeSkipped, false)
+	_, prefillSkipped := prefill[inferaSkipReadinessField]
+	assert.Equal(t, prefillSkipped, false, "prefill serves, so it keeps the probe")
+	assert.Equal(t, decode[inferaSkipReadinessField], true, "decode was listed as idle")
 }
 
 func TestBuildRequiredMatchExpression(t *testing.T) {
@@ -2757,155 +2748,104 @@ func TestConstrainCICDListener_PinsListenerToTheWorkspace(t *testing.T) {
 	assert.DeepEqual(t, reconciledTerms, terms)
 }
 
-// slotFields reads a role slot's rollout fields out of a rendered IDEP.
-func slotFields(t *testing.T, obj *unstructured.Unstructured, id int) (surge, skip interface{}) {
+// skipOf reads a role slot's readiness-skip field out of a rendered IDEP.
+func skipOf(t *testing.T, obj *unstructured.Unstructured, id int) interface{} {
 	t.Helper()
 	slot, found, err := jobutils.NestedMap(obj.Object,
 		[]string{"spec", "services", "role" + strconv.Itoa(id)})
 	assert.NilError(t, err)
 	assert.Assert(t, found)
-	return slot[inferaRolloutSurgeField], slot[inferaSkipReadinessField]
+	return slot[inferaSkipReadinessField]
 }
 
-// applyInferaRoleFields writes the rollout fields on create only, but the
-// surge mode is exactly what gets toggled on a workload already running -- on
-// to upgrade without dropping traffic, off afterwards to return the spare GPU.
-// Without this sync the annotation would only ever take effect on a workload
-// recreated from scratch.
-func TestUpdateInferaRolloutSurgeTogglesBothWays(t *testing.T) {
+// applyInferaRoleFields writes the field on create only, but a role wrongly
+// marked idle has to be correctable on a running workload: with workers
+// rolling surge-first, a serving role left without a probe makes every pod
+// Ready the moment it is Running, and the rollout retires the pod that is
+// still serving.
+func TestUpdateInferaReadinessSkipTogglesBothWays(t *testing.T) {
 	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
 	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
 	obj := inferaObject(nil, nil, nil)
 	assert.NilError(t, normalizeInferaIDEP(obj, workload))
 
-	// Created without the annotation: the historical shape.
-	surge, skip := slotFields(t, obj, 2)
-	assert.Equal(t, surge, nil)
-	assert.Equal(t, skip, true)
+	// Created without the annotation: a serving worker, so it keeps the probe.
+	assert.Equal(t, skipOf(t, obj, 2), nil)
 
-	// Turned on for decode only.
-	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, common.DynamoRoleDecode)
-	assert.NilError(t, updateInferaRolloutSurge(workload, obj, inferaResourceSpec(2), 2))
-	surge, skip = slotFields(t, obj, 2)
-	assert.Equal(t, surge, true)
-	assert.Equal(t, skip, nil, "the probe must come back, or the surge retires the old pod early")
+	// Marked idle.
+	v1.SetAnnotation(workload, v1.InferaIdleRolesAnnotation, common.DynamoRoleDecode)
+	assert.NilError(t, updateInferaReadinessSkip(workload, obj, inferaResourceSpec(2), 2))
+	assert.Equal(t, skipOf(t, obj, 2), true)
 
 	// Prefill was not listed, so it is untouched.
-	assert.NilError(t, updateInferaRolloutSurge(workload, obj, inferaResourceSpec(1), 1))
-	surge, skip = slotFields(t, obj, 1)
-	assert.Equal(t, surge, nil)
-	assert.Equal(t, skip, true)
+	assert.NilError(t, updateInferaReadinessSkip(workload, obj, inferaResourceSpec(1), 1))
+	assert.Equal(t, skipOf(t, obj, 1), nil)
 
-	// And turned back off, returning to exactly the created shape.
-	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, "")
-	assert.NilError(t, updateInferaRolloutSurge(workload, obj, inferaResourceSpec(2), 2))
-	surge, skip = slotFields(t, obj, 2)
-	assert.Equal(t, surge, nil)
-	assert.Equal(t, skip, true)
+	// And corrected back, returning to exactly the created shape.
+	v1.SetAnnotation(workload, v1.InferaIdleRolesAnnotation, "")
+	assert.NilError(t, updateInferaReadinessSkip(workload, obj, inferaResourceSpec(2), 2))
+	assert.Equal(t, skipOf(t, obj, 2), nil)
 }
 
-// The server has no rollout mode, and writing skipReadinessProbe onto it would
-// drop the readiness the router's Service depends on.
-func TestUpdateInferaRolloutSurgeSkipsTheFrontend(t *testing.T) {
+// The server gets no probe injected in the first place, so the field has no
+// meaning there and writing it would only add drift.
+func TestUpdateInferaReadinessSkipSkipsTheFrontend(t *testing.T) {
 	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
 	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
-	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, common.DynamoRoleDecode)
+	v1.SetAnnotation(workload, v1.InferaIdleRolesAnnotation, common.DynamoRoleFrontend)
 	obj := inferaObject(nil, nil, nil)
 	assert.NilError(t, normalizeInferaIDEP(obj, workload))
 
-	assert.NilError(t, updateInferaRolloutSurge(workload, obj, inferaResourceSpec(0), 0))
-	surge, skip := slotFields(t, obj, 0)
-	assert.Equal(t, surge, nil)
-	assert.Equal(t, skip, nil)
+	assert.NilError(t, updateInferaReadinessSkip(workload, obj, inferaResourceSpec(0), 0))
+	assert.Equal(t, skipOf(t, obj, 0), nil)
 }
 
 // The create and sync paths must agree, or a steady-state workload resyncs on
-// every reconcile: normalizeInferaIDEP writes the fields at create and
-// updateInferaRolloutSurge rewrites them on every pass afterwards.
-func TestInferaRolloutSurgeCreateAndSyncAgree(t *testing.T) {
+// every reconcile: normalizeInferaIDEP writes the field at create and
+// updateInferaReadinessSkip rewrites it on every pass afterwards.
+func TestInferaReadinessSkipCreateAndSyncAgree(t *testing.T) {
 	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
-	for _, surgeRoles := range []string{"", "decode", "prefill,decode"} {
-		t.Run("surge="+surgeRoles, func(t *testing.T) {
+	for _, idleRoles := range []string{"", "decode", "prefill,decode"} {
+		t.Run("idle="+idleRoles, func(t *testing.T) {
 			workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
-			v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, surgeRoles)
+			v1.SetAnnotation(workload, v1.InferaIdleRolesAnnotation, idleRoles)
 			obj := inferaObject(nil, nil, nil)
 			assert.NilError(t, normalizeInferaIDEP(obj, workload))
 
 			for id := 1; id <= 2; id++ {
-				wantSurge, wantSkip := slotFields(t, obj, id)
-				assert.NilError(t, updateInferaRolloutSurge(workload, obj, inferaResourceSpec(id), id))
-				gotSurge, gotSkip := slotFields(t, obj, id)
-				assert.Equal(t, gotSurge, wantSurge, "role%d rolloutSurge drifted", id)
-				assert.Equal(t, gotSkip, wantSkip, "role%d skipReadinessProbe drifted", id)
+				want := skipOf(t, obj, id)
+				assert.NilError(t, updateInferaReadinessSkip(workload, obj, inferaResourceSpec(id), id))
+				assert.Equal(t, skipOf(t, obj, id), want, "role%d drifted", id)
 			}
 		})
 	}
 }
 
-// Turning on surge and changing the image in ONE patch has to land in one
-// reconcile, or the upgrade is not actually non-disruptive: if the new image
-// reached the object first, the Deployment would start rolling under the old
-// surge-free strategy and take the service down before surge was ever enabled.
-// updateReplica (which syncs the rollout mode) and updateContainers run in the
-// same loop over ResourceSpecs, which is what makes the single-step upgrade
-// safe -- this pins that.
-func TestSurgeAndImageLandInTheSameReconcile(t *testing.T) {
-	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
-	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
-	for range roles {
-		workload.Spec.EntryPoints = append(workload.Spec.EntryPoints,
-			stringutil.Base64Encode("serve --model /models/m"))
-	}
-	obj := inferaObject(nil, nil, nil)
-	assert.NilError(t, normalizeInferaIDEP(obj, workload))
-
-	// One patch: surge on, and a new image.
-	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, "prefill,decode")
-	workload.Spec.Images = []string{"repo/infera:new", "repo/infera:new", "repo/infera:new"}
-
-	// One reconcile pass, in the order applyWorkloadSpecToObject uses.
-	for id := 0; id < 3; id++ {
-		assert.NilError(t, updateReplica(workload, obj, inferaResourceSpec(id), id))
-		assert.NilError(t, updateContainers(workload, obj, inferaResourceSpec(id), id))
-	}
-
-	for _, id := range []int{1, 2} {
-		surge, skip := slotFields(t, obj, id)
-		assert.Equal(t, surge, true, "role%d must surge in the same pass", id)
-		assert.Equal(t, skip, nil, "role%d must regain its probe in the same pass", id)
-		assert.Equal(t, inferaMainContainer(t, obj, id)["image"], "repo/infera:new",
-			"role%d image must change in the same pass", id)
-	}
-}
-
-// The sync path only runs when some isXxxChanged reports drift. Toggling the
-// surge annotation changes nothing those detectors look at, so without a
+// The sync path runs only when some isXxxChanged reports drift. Toggling the
+// idle annotation changes nothing those detectors look at, so without a
 // detector of its own the annotation is accepted by the API and then silently
-// ignored -- and turning surge back OFF, which carries no other change, could
-// never take effect at all.
-func TestInferaRolloutSurgeIsDetectedAsDrift(t *testing.T) {
+// ignored.
+func TestInferaReadinessSkipIsDetectedAsDrift(t *testing.T) {
 	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
 	rt := inferaResourceTemplate(3)
 	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
 	obj := inferaObject(nil, nil, nil)
 	assert.NilError(t, normalizeInferaIDEP(obj, workload))
 
-	assert.Equal(t, isInferaRolloutSurgeChanged(workload, obj, rt), false,
+	assert.Equal(t, isInferaReadinessSkipChanged(workload, obj, rt), false,
 		"a freshly rendered object must not look drifted")
 
-	// Turned on: the object still has the old rollout mode, so this is drift.
-	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, "prefill,decode")
-	assert.Equal(t, isInferaRolloutSurgeChanged(workload, obj, rt), true,
-		"enabling surge must trigger a sync, or the annotation is silently ignored")
+	v1.SetAnnotation(workload, v1.InferaIdleRolesAnnotation, "prefill,decode")
+	assert.Equal(t, isInferaReadinessSkipChanged(workload, obj, rt), true,
+		"marking a role idle must trigger a sync, or the annotation is ignored")
 
 	for id := 1; id <= 2; id++ {
-		assert.NilError(t, updateInferaRolloutSurge(workload, obj, inferaResourceSpec(id), id))
+		assert.NilError(t, updateInferaReadinessSkip(workload, obj, inferaResourceSpec(id), id))
 	}
-	assert.Equal(t, isInferaRolloutSurgeChanged(workload, obj, rt), false,
+	assert.Equal(t, isInferaReadinessSkipChanged(workload, obj, rt), false,
 		"after the write the object must settle, or it resyncs every reconcile")
 
-	// And turned back off, which carries no other change whatsoever.
-	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, "")
-	assert.Equal(t, isInferaRolloutSurgeChanged(workload, obj, rt), true,
-		"disabling surge must trigger a sync too")
+	v1.SetAnnotation(workload, v1.InferaIdleRolesAnnotation, "")
+	assert.Equal(t, isInferaReadinessSkipChanged(workload, obj, rt), true,
+		"clearing it must trigger a sync too")
 }

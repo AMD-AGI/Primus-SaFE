@@ -50,10 +50,9 @@ const (
 	// count of a multi-node role's LeaderWorkerSet group. Written by
 	// normalizeInferaIDEP on create and by updateInferaNodeCount on sync.
 	inferaNodeCountField = "numberOfNodes"
-	// inferaRolloutSurgeField and inferaSkipReadinessField are the IDEP
-	// ServiceSpec fields selecting a worker's rollout mode. Written by
-	// applyInferaRoleFields on create and by updateInferaRolloutSurge on sync.
-	inferaRolloutSurgeField  = "rolloutSurge"
+	// inferaSkipReadinessField is the IDEP ServiceSpec field that suppresses
+	// the operator's readiness probe. Written by applyInferaRoleFields on
+	// create and by updateInferaReadinessSkip on sync.
 	inferaSkipReadinessField = "skipReadinessProbe"
 )
 
@@ -1207,7 +1206,7 @@ func updateReplica(adminWorkload *v1.Workload,
 	if err := updateInferaNodeCount(adminWorkload, obj, resourceSpec, id); err != nil {
 		return err
 	}
-	if err := updateInferaRolloutSurge(adminWorkload, obj, resourceSpec, id); err != nil {
+	if err := updateInferaReadinessSkip(adminWorkload, obj, resourceSpec, id); err != nil {
 		return err
 	}
 	if len(resourceSpec.ReplicasPaths) == 0 {
@@ -1254,21 +1253,16 @@ func updateInferaNodeCount(adminWorkload *v1.Workload,
 	return jobutils.SetNestedField(obj.Object, int64(n), path)
 }
 
-// updateInferaRolloutSurge keeps an IDEP worker slot's rollout mode in step
-// with the rollout-surge-roles annotation.
+// updateInferaReadinessSkip keeps an IDEP worker slot's readiness handling in
+// step with the idle-roles annotation.
 //
-// applyInferaRoleFields writes these fields on create only, but the rollout
-// mode is precisely the thing that gets toggled on a workload already running:
-// it is turned on to upgrade without dropping traffic, and off afterwards to
-// give the spare GPU back. Without this the annotation would only ever take
-// effect on a workload recreated from scratch.
-//
-// The two fields move together, exactly as they do on create. A surge rollout
-// retires the old pod once the replacement reports Ready, so with the probe
-// skipped the old pod would go while the replacement is still loading weights.
-// The operator refuses that pair outright, so setting one without clearing the
-// other would wedge the deployment instead of upgrading it.
-func updateInferaRolloutSurge(adminWorkload *v1.Workload,
+// applyInferaRoleFields writes the field on create only, but whether a role
+// deploys idle can be corrected on a workload already running, and the field
+// decides whether the pod is ever Ready. Since workers roll surge-first,
+// leaving a serving role marked idle means it has no probe, every pod counts
+// as Ready the moment it is Running, and the rollout retires the pod that is
+// still serving in favour of one that is still loading weights.
+func updateInferaReadinessSkip(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
 	if !commonworkload.IsInferaDeployment(adminWorkload) || id >= len(adminWorkload.Spec.Resources) {
 		return nil
@@ -1277,22 +1271,15 @@ func updateInferaRolloutSurge(adminWorkload *v1.Workload,
 	if id >= len(roles) {
 		return nil
 	}
-	// The server carries neither field; only workers have a rollout mode.
+	// The server never carries the field; only workers get a probe injected.
 	if roles[id] == common.DynamoRoleFrontend {
 		return nil
 	}
-	surgePath := resourceSpec.Path(inferaRolloutSurgeField)
-	skipPath := resourceSpec.Path(inferaSkipReadinessField)
-	if commonworkload.IsInferaRolloutSurgeRole(adminWorkload, roles[id]) {
-		if err := jobutils.RemoveNestedField(obj.Object, skipPath); err != nil {
-			return err
-		}
-		return jobutils.SetNestedField(obj.Object, true, surgePath)
+	path := resourceSpec.Path(inferaSkipReadinessField)
+	if commonworkload.IsInferaIdleRole(adminWorkload, roles[id]) {
+		return jobutils.SetNestedField(obj.Object, true, path)
 	}
-	if err := jobutils.RemoveNestedField(obj.Object, surgePath); err != nil {
-		return err
-	}
-	return jobutils.SetNestedField(obj.Object, true, skipPath)
+	return jobutils.RemoveNestedField(obj.Object, path)
 }
 
 // updateMaxReplicas updates the max-replicas in the unstructured object. only for ray-job
@@ -2179,7 +2166,7 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 		slot["podLabels"] = labels
 
 		applyInferaRoleFields(slot, role, kvBackend,
-			commonworkload.IsInferaRolloutSurgeRole(adminWorkload, role))
+			commonworkload.IsInferaIdleRole(adminWorkload, role))
 
 		// Multi-node: node count is Resources[i].Replica, carried by the flat
 		// numberOfNodes field; force replicas=1 (one LeaderWorkerSet group).
@@ -2206,7 +2193,7 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 // sglang disaggregation flags for prefill/decode (reusing the dynamo helper,
 // which operates on extraPodSpec.containers[main] — the same pre-fold shape the
 // IDEP operator consumes).
-func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string, surge bool) {
+func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string, idle bool) {
 	switch role {
 	case common.DynamoRoleFrontend:
 		slot["componentType"] = "server"
@@ -2214,36 +2201,32 @@ func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string, 
 	case common.DynamoRoleWorker:
 		slot["componentType"] = "worker"
 		slot["role"] = "mixed"
-		applyInferaWorkerRollout(slot, surge)
+		applyInferaWorkerRollout(slot, idle)
 	case common.DynamoRolePrefill:
 		slot["componentType"] = "worker"
 		slot["role"] = "prefill"
 		appendSglangDisaggArgs(slot, "prefill", kvBackend)
-		applyInferaWorkerRollout(slot, surge)
+		applyInferaWorkerRollout(slot, idle)
 	case common.DynamoRoleDecode:
 		slot["componentType"] = "worker"
 		slot["role"] = "decode"
 		appendSglangDisaggArgs(slot, "decode", kvBackend)
-		applyInferaWorkerRollout(slot, surge)
+		applyInferaWorkerRollout(slot, idle)
 	}
 }
 
-// applyInferaWorkerRollout picks a worker's rollout mode, and with it whether
-// the operator's readiness probe is skipped.
+// applyInferaWorkerRollout decides whether the operator's readiness probe is
+// skipped for this worker.
 //
-// The two are one decision, not two settings. A surge rollout retires the old
-// pod once the replacement reports Ready, so without a probe every pod counts
-// as Ready the moment it is Running -- the old pod would go while the
-// replacement is still loading weights, which is the outage surge exists to
-// avoid. Default (non-surge) workers keep the historical skip: they roll old
-// pod first regardless, and their serving readiness is tracked by Infera's own
-// registration rather than k8s Service readiness.
-func applyInferaWorkerRollout(slot map[string]interface{}, surge bool) {
-	if surge {
-		slot["rolloutSurge"] = true
-		return
+// Workers roll surge-first, which retires the old pod once the replacement
+// reports Ready, so the probe is what holds the rollout back until the
+// replacement can serve. A serving worker must keep it. Only an idle-deployed
+// worker skips it: its engine is launched out-of-band afterwards, so it never
+// registers, never opens its readiness port, and would sit NotReady forever.
+func applyInferaWorkerRollout(slot map[string]interface{}, idle bool) {
+	if idle {
+		setInferaWorkerReadinessSkip(slot)
 	}
-	setInferaWorkerReadinessSkip(slot)
 }
 
 // setInferaWorkerReadinessSkip tells the Infera operator NOT to inject its

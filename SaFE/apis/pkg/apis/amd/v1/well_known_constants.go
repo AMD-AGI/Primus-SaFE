@@ -246,12 +246,13 @@ const (
 	InferaMultinodeRolesAnnotation = InferaPrefix + "multinode-roles"
 	// backend-framework: sglang|vllm; default sglang.
 	InferaBackendFrameworkAnnotation = InferaPrefix + "backend-framework"
-	// rollout-surge-roles: comma-separated roles that roll by starting the
-	// replacement before retiring the old pod, keeping the role serving across
-	// an upgrade. Requires a spare GPU per rolling pod. Such a role also keeps
-	// the operator's readiness probe, which is what tells the rollout the
-	// replacement can serve before the old pod is retired.
-	InferaRolloutSurgeRolesAnnotation = InferaPrefix + "rollout-surge-roles"
+	// idle-roles: comma-separated roles whose pods deploy idle, with the engine
+	// launched out-of-band over SSH afterwards. Such a worker never registers,
+	// so it never opens its readiness port and would sit NotReady forever;
+	// the operator's readiness probe is therefore skipped for it. Every other
+	// role keeps the probe, which is what holds a surge rollout back until the
+	// replacement can actually serve.
+	InferaIdleRolesAnnotation = InferaPrefix + "idle-roles"
 )
 
 type SecretType string

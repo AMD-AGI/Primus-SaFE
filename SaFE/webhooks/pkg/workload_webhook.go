@@ -628,16 +628,16 @@ func (v *WorkloadValidator) validateInferaDeployment(workload *v1.Workload) erro
 		}
 	}
 
-	for _, role := range commonworkload.GetInferaRolloutSurgeRoles(workload) {
+	for _, role := range commonworkload.GetInferaIdleRoles(workload) {
 		if roleCounts[role] == 0 {
 			errs = append(errs, fmt.Errorf(
-				"rollout-surge-roles references undeclared role %q (not in service-roles)", role))
+				"idle-roles references undeclared role %q (not in service-roles)", role))
 		}
-		// The frontend is CPU-only and already surges by default; naming it
-		// would suggest the setting does something there.
+		// The frontend gets no readiness probe injected in the first place,
+		// so naming it would suggest the setting does something there.
 		if role == common.DynamoRoleFrontend {
 			errs = append(errs, fmt.Errorf(
-				"rollout-surge-roles cannot name %q: it applies to workers only", role))
+				"idle-roles cannot name %q: it applies to workers only", role))
 		}
 	}
 

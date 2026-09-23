@@ -98,13 +98,13 @@ type DynamoOptions struct {
 	// must also appear in ServiceRoles. Example: ["worker"] or ["prefill","decode"].
 	MultinodeRoles []string `json:"multinodeRoles,omitempty"`
 
-	// RolloutSurgeRoles lists the roles that roll by starting the replacement
-	// before retiring the old pod, so the role keeps serving across an image
-	// or entrypoint change. Each listed role needs a spare GPU for the pod
-	// being rolled; with none free the replacement stays Pending and the
-	// rollout waits, the old pod still serving. Each listed role must also
-	// appear in ServiceRoles. Infera only. Example: ["prefill","decode"].
-	RolloutSurgeRoles []string `json:"rolloutSurgeRoles,omitempty"`
+	// IdleRoles lists the roles whose pods deploy idle, with the engine
+	// launched out-of-band over SSH afterwards. Such a worker never registers
+	// and would sit NotReady forever, so its readiness probe is skipped. A
+	// role that actually serves must NOT be listed: workers roll surge-first,
+	// and without a probe the rollout retires the pod that is still serving.
+	// Each listed role must also appear in ServiceRoles. Infera only.
+	IdleRoles []string `json:"idleRoles,omitempty"`
 }
 
 type GitHubAuthRequest struct {
