@@ -1386,6 +1386,59 @@ func TestNewLLMProxy_InvalidEndpoint(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// A buffering nginx hop accumulates SSE events and hands the client silence
+// while the model is streaming normally. FlushInterval only gets the bytes as
+// far as that hop, so the response has to say it must not be buffered.
+func TestNewLLMProxy_StreamingReplyOptsOutOfProxyBuffering(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+		want        string
+	}{
+		{"sse", eventStreamContentType, "no"},
+		{"sse with charset", eventStreamContentType + "; charset=utf-8", "no"},
+		{"unary json stays buffered", "application/json", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", tt.contentType)
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer backend.Close()
+
+			proxy, err := newLLMProxy(backend.URL)
+			assert.NoError(t, err)
+
+			router := gin.New()
+			router.Any("/api/v1/llm-proxy/*proxyPath", func(c *gin.Context) {
+				proxy.ServeHTTP(c.Writer, c.Request)
+			})
+			server := httptest.NewServer(router)
+			defer server.Close()
+
+			resp, err := http.Get(server.URL + "/api/v1/llm-proxy/v1/messages")
+			assert.NoError(t, err)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.want, resp.Header.Get(accelBufferingHeader))
+		})
+	}
+}
+
+// A bare &http.Transport{} keeps none of DefaultTransport's bounds, leaving
+// this hop without a dial or TLS handshake timeout and holding idle
+// connections forever.
+func TestClonedDefaultTransport_KeepsDefaultBounds(t *testing.T) {
+	transport := clonedDefaultTransport()
+
+	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify)
+	assert.NotZero(t, transport.TLSHandshakeTimeout)
+	assert.NotZero(t, transport.IdleConnTimeout)
+	assert.NotNil(t, transport.DialContext)
+}
+
 // ── LiteLLMClient tests ──────────────────────────────────────────────────
 
 func TestCreateUser_AutoCreateKeyFalse(t *testing.T) {
