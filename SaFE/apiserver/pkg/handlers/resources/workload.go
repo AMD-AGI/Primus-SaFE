@@ -1390,10 +1390,16 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 	if req.Service != nil {
 		adminWorkload.Spec.Service = req.Service
 	}
-	// Same translation as on create, and the only way to reach the
-	// primus-safe.infera.* annotations: the freeform Annotations map rejects
-	// that prefix, and PatchWorkloadRequest does not carry one at all.
-	applyInferaOptions(adminWorkload, req.InferaOptions)
+	// Only idleRoles is mutable after dispatch. The rest of InferaOptions is
+	// consumed by normalizeInferaIDEP, which runs on create only: changing
+	// serviceRoles here would pass the webhook and leave each slot's
+	// componentType/role at its original value while expectedCommands
+	// rewrote the launcher for the new role, so the rendered object and the
+	// workload would disagree with nothing to reconcile them.
+	if req.InferaOptions != nil && req.InferaOptions.IdleRoles != nil {
+		v1.SetAnnotation(adminWorkload, v1.InferaIdleRolesAnnotation,
+			strings.Join(req.InferaOptions.IdleRoles, ","))
+	}
 	return nil
 }
 

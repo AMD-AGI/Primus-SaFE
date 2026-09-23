@@ -2458,3 +2458,47 @@ func TestApplyWorkloadPatchLeavesInferaOptionsAloneWhenAbsent(t *testing.T) {
 	assert.NilError(t, applyWorkloadPatch(workload, &view.PatchWorkloadRequest{Images: &images}))
 	assert.Equal(t, v1.GetAnnotation(workload, v1.InferaIdleRolesAnnotation), "decode")
 }
+
+// Only idleRoles is mutable after dispatch. normalizeInferaIDEP consumes the
+// rest on create only, so accepting a new serviceRoles here would pass the
+// webhook and then leave each slot's componentType/role at its original value
+// while expectedCommands rewrote the launcher for the new role -- a rendered
+// object that disagrees with its workload and nothing to reconcile them.
+func TestApplyWorkloadPatchIgnoresCreateOnlyInferaOptions(t *testing.T) {
+	workload := &v1.Workload{}
+	v1.SetAnnotation(workload, v1.InferaServiceRolesAnnotation, "frontend,prefill,decode")
+	v1.SetAnnotation(workload, v1.InferaBackendFrameworkAnnotation, "sglang")
+	v1.SetAnnotation(workload, v1.InferaKVTransferBackendAnnotation, "mooncake")
+
+	req := &view.PatchWorkloadRequest{
+		InferaOptions: &view.DynamoOptions{
+			ServiceRoles:      []string{"frontend", "decode", "prefill"},
+			BackendFramework:  "vllm",
+			KVTransferBackend: "nixl",
+			MultinodeRoles:    []string{"decode"},
+			IdleRoles:         []string{"decode"},
+		},
+	}
+	assert.NilError(t, applyWorkloadPatch(workload, req))
+
+	assert.Equal(t, v1.GetAnnotation(workload, v1.InferaIdleRolesAnnotation), "decode")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.InferaServiceRolesAnnotation),
+		"frontend,prefill,decode", "service roles are create-only")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.InferaBackendFrameworkAnnotation), "sglang")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.InferaKVTransferBackendAnnotation), "mooncake")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.InferaMultinodeRolesAnnotation), "")
+}
+
+// An empty IdleRoles has to survive marshalling as a present key, or "clear"
+// reaches the server as "unchanged".
+func TestIdleRolesEmptySliceMarshalsAsAPresentKey(t *testing.T) {
+	raw, err := json.Marshal(view.DynamoOptions{IdleRoles: []string{}})
+	assert.NilError(t, err)
+	assert.Assert(t, strings.Contains(string(raw), `"idleRoles":[]`),
+		"empty slice must emit the key, got %s", raw)
+
+	var back view.DynamoOptions
+	assert.NilError(t, json.Unmarshal(raw, &back))
+	assert.Assert(t, back.IdleRoles != nil, "an empty list must decode as non-nil")
+	assert.Equal(t, len(back.IdleRoles), 0)
+}

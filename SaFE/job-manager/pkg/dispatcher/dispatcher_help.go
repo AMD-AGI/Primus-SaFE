@@ -1253,6 +1253,21 @@ func updateInferaNodeCount(adminWorkload *v1.Workload,
 	return jobutils.SetNestedField(obj.Object, int64(n), path)
 }
 
+// inferaIdleRolesDeclared reports whether the workload states anything about
+// idle roles at all.
+//
+// An absent annotation is not the same as an empty one. A workload created
+// before this field became annotation-driven carries skipReadinessProbe: true
+// on every worker and no annotation; reading that absence as "no role is idle"
+// would strip the field from every such workload on its next reconcile, which
+// mutates the pod template and rolls every worker -- and for the idle
+// SSH-launched fleets the skip exists for, the injected probe never passes, so
+// the deployment would sit in pending. Absent therefore means "not managed
+// here"; an explicitly empty annotation still means "no role is idle".
+func inferaIdleRolesDeclared(adminWorkload *v1.Workload) bool {
+	return v1.HasAnnotation(adminWorkload, v1.InferaIdleRolesAnnotation)
+}
+
 // updateInferaReadinessSkip keeps an IDEP worker slot's readiness handling in
 // step with the idle-roles annotation.
 //
@@ -1265,6 +1280,9 @@ func updateInferaNodeCount(adminWorkload *v1.Workload,
 func updateInferaReadinessSkip(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
 	if !commonworkload.IsInferaDeployment(adminWorkload) || id >= len(adminWorkload.Spec.Resources) {
+		return nil
+	}
+	if !inferaIdleRolesDeclared(adminWorkload) {
 		return nil
 	}
 	roles := commonworkload.GetInferaServiceRoles(adminWorkload)
@@ -2230,15 +2248,18 @@ func applyInferaWorkerRollout(slot map[string]interface{}, idle bool) {
 }
 
 // setInferaWorkerReadinessSkip tells the Infera operator NOT to inject its
-// default /health readiness probe on a worker ServiceSpec. Infera workers deploy
-// IDLE (mn-idle.sh) and only start the engine when restart-server SSH-launches
-// it out-of-band, so a /health:port probe never passes at deploy time — leaving
+// readiness probe on a worker ServiceSpec. Applied only to a role named by
+// idle-roles: such a worker deploys IDLE (mn-idle.sh) and its engine is
+// SSH-launched out-of-band by restart-server afterwards, so it never
+// registers and never opens the readiness port the probe targets — leaving
 // readyReplicas=0 and the InferaDeployment stuck in "pending" (which blocks
-// create-infera's wait-for-Running). Worker serving-readiness is tracked by
-// Infera's own NATS/Pod-annotation registration, not k8s Service readiness, so
-// skipping the probe is safe.
+// create-infera's wait-for-Running).
+//
+// A worker that does serve must not get this: workers roll surge-first, and
+// with no probe every pod counts as Ready the moment it is Running, so the
+// rollout retires the pod that is still serving.
 func setInferaWorkerReadinessSkip(slot map[string]interface{}) {
-	slot["skipReadinessProbe"] = true
+	slot[inferaSkipReadinessField] = true
 }
 
 // dynamoServiceKey maps the SaFE role string to the conventional DGD service

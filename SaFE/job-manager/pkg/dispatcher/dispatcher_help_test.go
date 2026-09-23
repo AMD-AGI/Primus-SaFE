@@ -2849,3 +2849,59 @@ func TestInferaReadinessSkipIsDetectedAsDrift(t *testing.T) {
 	assert.Equal(t, isInferaReadinessSkipChanged(workload, obj, rt), true,
 		"clearing it must trigger a sync too")
 }
+
+// A workload created before the field became annotation-driven carries
+// whatever the old dispatcher wrote -- skipReadinessProbe: true on every
+// worker -- and no idle-roles annotation. Treating that absence as "not idle"
+// strips the field from every such workload on the next reconcile, which
+// mutates the pod template and rolls every worker; for the idle SSH-launched
+// fleets the skip existed for, the probe then never passes and the deployment
+// sits in pending forever.
+//
+// An absent annotation therefore means "not managed here", distinct from an
+// empty one, which is an explicit "no role is idle".
+func TestAbsentIdleAnnotationLeavesAnExistingSkipAlone(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	rt := inferaResourceTemplate(3)
+	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
+	// The annotation newInferaWorkload sets for multinode is empty; remove any
+	// idle key so this is genuinely "absent".
+	delete(workload.Annotations, v1.InferaIdleRolesAnnotation)
+
+	// Shape a pre-PR object: the old dispatcher skipped the probe everywhere.
+	obj := inferaObject(nil, nil, nil)
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+	for id := 1; id <= 2; id++ {
+		spec := inferaResourceSpec(id)
+		assert.NilError(t, jobutils.SetNestedField(obj.Object, true,
+			spec.Path(inferaSkipReadinessField)))
+	}
+
+	assert.Equal(t, isInferaReadinessSkipChanged(workload, obj, rt), false,
+		"an unannotated workload must not look drifted, or every worker rolls")
+
+	for id := 1; id <= 2; id++ {
+		assert.NilError(t, updateInferaReadinessSkip(workload, obj, inferaResourceSpec(id), id))
+		assert.Equal(t, skipOf(t, obj, id), true,
+			"role%d: the existing skip must survive an unannotated sync", id)
+	}
+}
+
+// An explicitly empty annotation is a statement, not an absence: it says no
+// role is idle, so a stale skip has to go.
+func TestEmptyIdleAnnotationClearsAnExistingSkip(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	rt := inferaResourceTemplate(3)
+	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
+	v1.SetAnnotation(workload, v1.InferaIdleRolesAnnotation, "")
+
+	obj := inferaObject(nil, nil, nil)
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+	spec2 := inferaResourceSpec(2)
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, true,
+		spec2.Path(inferaSkipReadinessField)))
+
+	assert.Equal(t, isInferaReadinessSkipChanged(workload, obj, rt), true)
+	assert.NilError(t, updateInferaReadinessSkip(workload, obj, inferaResourceSpec(2), 2))
+	assert.Equal(t, skipOf(t, obj, 2), nil)
+}

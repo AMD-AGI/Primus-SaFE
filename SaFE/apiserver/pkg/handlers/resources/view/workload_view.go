@@ -104,7 +104,12 @@ type DynamoOptions struct {
 	// role that actually serves must NOT be listed: workers roll surge-first,
 	// and without a probe the rollout retires the pod that is still serving.
 	// Each listed role must also appear in ServiceRoles. Infera only.
-	IdleRoles []string `json:"idleRoles,omitempty"`
+	//
+	// No omitempty: an empty list is a request to clear, distinct from the
+	// field being absent, which leaves the setting untouched. With omitempty a
+	// client marshalling an empty slice would emit no key at all, so "clear"
+	// would arrive as "unchanged".
+	IdleRoles []string `json:"idleRoles"`
 }
 
 type GitHubAuthRequest struct {

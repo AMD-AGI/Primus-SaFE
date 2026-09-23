@@ -715,7 +715,7 @@ func isImagesChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured,
 // edit happened to trigger a sync.
 func isInferaReadinessSkipChanged(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	if !commonworkload.IsInferaDeployment(adminWorkload) {
+	if !commonworkload.IsInferaDeployment(adminWorkload) || !inferaIdleRolesDeclared(adminWorkload) {
 		return false
 	}
 	roles := commonworkload.GetInferaServiceRoles(adminWorkload)
@@ -729,8 +729,12 @@ func isInferaReadinessSkipChanged(adminWorkload *v1.Workload,
 		want := commonworkload.IsInferaIdleRole(adminWorkload, roles[id])
 		got, found, err := jobutils.NestedBool(obj.Object, resourceSpec.Path(inferaSkipReadinessField))
 		if err != nil {
-			klog.ErrorS(err, "failed to read skipReadinessProbe", "obj", obj.GetName())
-			return false
+			// Keep checking the other roles: one unreadable slot must not hide
+			// drift on the rest, which would leave the annotation silently
+			// ignored for the whole workload.
+			klog.ErrorS(err, "failed to read skipReadinessProbe",
+				"obj", obj.GetName(), "role", roles[id])
+			continue
 		}
 		if want != (found && got) {
 			return true
