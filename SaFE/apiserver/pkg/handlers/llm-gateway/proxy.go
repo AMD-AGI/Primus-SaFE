@@ -30,6 +30,16 @@ const upstreamUserHeader = "USER-NTID"
 // chain, so it must hold exactly one address.
 const forwardedForHeader = "X-Forwarded-For"
 
+// accelBufferingHeader tells an nginx hop to stream a response rather than
+// buffer it. It is per-response and overrides a location's proxy_buffering,
+// which is what FlushInterval alone cannot reach: flushing here only gets the
+// bytes as far as the next hop, and a buffering one accumulates them and hands
+// the client silence while the model is streaming normally.
+const accelBufferingHeader = "X-Accel-Buffering"
+
+// eventStreamContentType marks the SSE responses the header above applies to.
+const eventStreamContentType = "text/event-stream"
+
 // newLLMProxy creates a reverse proxy targeting the LiteLLM endpoint.
 // It strips the /api/v1/llm-proxy prefix and prepends the target's base path, so that
 // /api/v1/llm-proxy/v1/chat/completions → <endpoint>/v1/chat/completions.
@@ -71,9 +81,21 @@ func newLLMProxy(endpoint string) (*httputil.ReverseProxy, error) {
 			klog.Infof("LLM Proxy: %s -> %s", pr.Out.Method, pr.Out.URL.String())
 		},
 
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // nolint:gosec
+		// Only streaming replies get the header, so a buffering hop still gets
+		// to batch the unary ones.
+		ModifyResponse: func(resp *http.Response) error {
+			if strings.HasPrefix(resp.Header.Get("Content-Type"), eventStreamContentType) {
+				resp.Header.Set(accelBufferingHeader, "no")
+			}
+			return nil
 		},
+
+		// Cloned rather than built fresh: a bare &http.Transport{} keeps none
+		// of DefaultTransport's bounds, so this hop would have no dial or TLS
+		// handshake timeout and would hold idle connections forever -- which
+		// reuses one the peer has already closed, and a POST with a body is
+		// not retried.
+		Transport: clonedDefaultTransport(),
 
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			klog.ErrorS(err, "LLM Proxy error", "url", r.URL.String())
@@ -83,6 +105,20 @@ func newLLMProxy(endpoint string) (*httputil.ReverseProxy, error) {
 	}
 
 	return proxy, nil
+}
+
+// clonedDefaultTransport keeps DefaultTransport's timeouts and connection
+// bounds while skipping upstream certificate verification.
+func clonedDefaultTransport() *http.Transport {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // nolint:gosec
+		}
+	}
+	cloned := transport.Clone()
+	cloned.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // nolint:gosec
+	return cloned
 }
 
 // ProxyLLMRequest handles /llm-gateway/v1/* requests.
@@ -144,10 +180,19 @@ func applyUpstreamUserHeader(c *gin.Context, ntid string) {
 	c.Request.Header.Set(upstreamUserHeader, ntid)
 }
 
+// recoverReverseProxyAbort absorbs the panic ReverseProxy raises when it can no
+// longer copy a response body.
+//
+// The cause is not observable here: net/http raises the same ErrAbortHandler
+// whether the client went away or the upstream read failed mid-body. Naming
+// only the client would attribute a LiteLLM failure to the caller, and at V(4)
+// neither cause is recorded at all -- which is why a stalled stream could only
+// be diagnosed from the caller's own timeout.
 func recoverReverseProxyAbort(c *gin.Context) {
 	if r := recover(); r != nil {
 		if r == http.ErrAbortHandler {
-			klog.V(4).InfoS("LLM Proxy: client aborted response stream", "path", c.Request.URL.Path)
+			klog.InfoS("LLM Proxy: response stream aborted (client disconnect or upstream failure)",
+				"path", c.Request.URL.Path, "status", c.Writer.Status())
 			c.Abort()
 			return
 		}
