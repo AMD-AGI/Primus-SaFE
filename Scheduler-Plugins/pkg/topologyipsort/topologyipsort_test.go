@@ -6,6 +6,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	fwk "k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1"
@@ -21,12 +22,12 @@ func TestTopologyIPSort_Name(t *testing.T) {
 func TestGetIPIndex(t *testing.T) {
 	tests := []struct {
 		name     string
-		nodeInfo *framework.NodeInfo
+		nodeInfo fwk.NodeInfo
 		want     int
 	}{
 		{
 			name: "node with valid internal IP",
-			nodeInfo: func() *framework.NodeInfo {
+			nodeInfo: func() fwk.NodeInfo {
 				nodeInfo := framework.NewNodeInfo()
 				node := &corev1.Node{
 					Status: corev1.NodeStatus{
@@ -45,7 +46,7 @@ func TestGetIPIndex(t *testing.T) {
 		},
 		{
 			name: "node without internal IP",
-			nodeInfo: func() *framework.NodeInfo {
+			nodeInfo: func() fwk.NodeInfo {
 				nodeInfo := framework.NewNodeInfo()
 				node := &corev1.Node{
 					Status: corev1.NodeStatus{
@@ -64,7 +65,7 @@ func TestGetIPIndex(t *testing.T) {
 		},
 		{
 			name: "node with invalid IP format",
-			nodeInfo: func() *framework.NodeInfo {
+			nodeInfo: func() fwk.NodeInfo {
 				nodeInfo := framework.NewNodeInfo()
 				node := &corev1.Node{
 					Status: corev1.NodeStatus{
