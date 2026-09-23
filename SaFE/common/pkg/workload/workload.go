@@ -607,10 +607,11 @@ func GetInferaKVTransferBackend(w *v1.Workload) string {
 	return val
 }
 
-// GetInferaMultinodeRoles returns the roles that run as a multi-node
-// LeaderWorkerSet (node count = that role's Resources[i].Replica).
-func GetInferaMultinodeRoles(w *v1.Workload) []string {
-	val := v1.GetAnnotation(w, v1.InferaMultinodeRolesAnnotation)
+// inferaRoleList parses a comma-separated role annotation into a slice.
+// Shared by every infera.*-roles annotation so they agree on separators and
+// whitespace.
+func inferaRoleList(w *v1.Workload, annotation string) []string {
+	val := v1.GetAnnotation(w, annotation)
 	if val == "" {
 		return nil
 	}
@@ -623,15 +624,32 @@ func GetInferaMultinodeRoles(w *v1.Workload) []string {
 	return roles
 }
 
-// IsInferaMultinodeRole reports whether the given role runs as a multi-node
-// LeaderWorkerSet.
-func IsInferaMultinodeRole(w *v1.Workload, role string) bool {
-	for _, r := range GetInferaMultinodeRoles(w) {
+// inferaRoleListHas reports whether a role is named by the given annotation.
+func inferaRoleListHas(w *v1.Workload, annotation, role string) bool {
+	for _, r := range inferaRoleList(w, annotation) {
 		if r == role {
 			return true
 		}
 	}
 	return false
+}
+
+// GetInferaMultinodeRoles returns the roles that run as a multi-node
+// LeaderWorkerSet (node count = that role's Resources[i].Replica).
+func GetInferaMultinodeRoles(w *v1.Workload) []string {
+	return inferaRoleList(w, v1.InferaMultinodeRolesAnnotation)
+}
+
+// IsInferaMultinodeRole reports whether the given role runs as a multi-node
+// LeaderWorkerSet.
+func IsInferaMultinodeRole(w *v1.Workload, role string) bool {
+	return inferaRoleListHas(w, v1.InferaMultinodeRolesAnnotation, role)
+}
+
+// IsInferaRolloutSurgeRole reports whether the given role rolls by starting
+// its replacement before retiring the old pod.
+func IsInferaRolloutSurgeRole(w *v1.Workload, role string) bool {
+	return inferaRoleListHas(w, v1.InferaRolloutSurgeRolesAnnotation, role)
 }
 
 // GetInferaBackendFramework returns the chosen backend framework

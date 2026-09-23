@@ -2129,7 +2129,8 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 		}
 		slot["podLabels"] = labels
 
-		applyInferaRoleFields(slot, role, kvBackend)
+		applyInferaRoleFields(slot, role, kvBackend,
+			commonworkload.IsInferaRolloutSurgeRole(adminWorkload, role))
 
 		// Multi-node: node count is Resources[i].Replica, carried by the flat
 		// numberOfNodes field; force replicas=1 (one LeaderWorkerSet group).
@@ -2156,7 +2157,7 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 // sglang disaggregation flags for prefill/decode (reusing the dynamo helper,
 // which operates on extraPodSpec.containers[main] — the same pre-fold shape the
 // IDEP operator consumes).
-func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string) {
+func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string, surge bool) {
 	switch role {
 	case common.DynamoRoleFrontend:
 		slot["componentType"] = "server"
@@ -2164,18 +2165,36 @@ func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string) 
 	case common.DynamoRoleWorker:
 		slot["componentType"] = "worker"
 		slot["role"] = "mixed"
-		setInferaWorkerReadinessSkip(slot)
+		applyInferaWorkerRollout(slot, surge)
 	case common.DynamoRolePrefill:
 		slot["componentType"] = "worker"
 		slot["role"] = "prefill"
 		appendSglangDisaggArgs(slot, "prefill", kvBackend)
-		setInferaWorkerReadinessSkip(slot)
+		applyInferaWorkerRollout(slot, surge)
 	case common.DynamoRoleDecode:
 		slot["componentType"] = "worker"
 		slot["role"] = "decode"
 		appendSglangDisaggArgs(slot, "decode", kvBackend)
-		setInferaWorkerReadinessSkip(slot)
+		applyInferaWorkerRollout(slot, surge)
 	}
+}
+
+// applyInferaWorkerRollout picks a worker's rollout mode, and with it whether
+// the operator's readiness probe is skipped.
+//
+// The two are one decision, not two settings. A surge rollout retires the old
+// pod once the replacement reports Ready, so without a probe every pod counts
+// as Ready the moment it is Running -- the old pod would go while the
+// replacement is still loading weights, which is the outage surge exists to
+// avoid. Default (non-surge) workers keep the historical skip: they roll old
+// pod first regardless, and their serving readiness is tracked by Infera's own
+// registration rather than k8s Service readiness.
+func applyInferaWorkerRollout(slot map[string]interface{}, surge bool) {
+	if surge {
+		slot["rolloutSurge"] = true
+		return
+	}
+	setInferaWorkerReadinessSkip(slot)
 }
 
 // setInferaWorkerReadinessSkip tells the Infera operator NOT to inject its

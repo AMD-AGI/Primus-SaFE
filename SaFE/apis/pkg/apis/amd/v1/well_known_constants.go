@@ -246,6 +246,12 @@ const (
 	InferaMultinodeRolesAnnotation = InferaPrefix + "multinode-roles"
 	// backend-framework: sglang|vllm; default sglang.
 	InferaBackendFrameworkAnnotation = InferaPrefix + "backend-framework"
+	// rollout-surge-roles: comma-separated roles that roll by starting the
+	// replacement before retiring the old pod, keeping the role serving across
+	// an upgrade. Requires a spare GPU per rolling pod. Such a role also keeps
+	// the operator's readiness probe, which is what tells the rollout the
+	// replacement can serve before the old pod is retired.
+	InferaRolloutSurgeRolesAnnotation = InferaPrefix + "rollout-surge-roles"
 )
 
 type SecretType string

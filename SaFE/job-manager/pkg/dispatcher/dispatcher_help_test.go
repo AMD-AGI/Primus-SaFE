@@ -1610,16 +1610,74 @@ func TestBuildSecretVolume(t *testing.T) {
 func TestApplyInferaRoleFields(t *testing.T) {
 	// Frontend -> server component, role removed.
 	frontend := map[string]interface{}{"role": "old"}
-	applyInferaRoleFields(frontend, common.DynamoRoleFrontend, "nixl")
+	applyInferaRoleFields(frontend, common.DynamoRoleFrontend, "nixl", false)
 	assert.Equal(t, frontend["componentType"], "server")
 	_, hasRole := frontend["role"]
 	assert.Equal(t, hasRole, false)
 
 	// Worker -> worker component with mixed role.
 	worker := map[string]interface{}{}
-	applyInferaRoleFields(worker, common.DynamoRoleWorker, "nixl")
+	applyInferaRoleFields(worker, common.DynamoRoleWorker, "nixl", false)
 	assert.Equal(t, worker["componentType"], "worker")
 	assert.Equal(t, worker["role"], "mixed")
+}
+
+// Without the surge annotation nothing about a worker changes, including the
+// readiness skip. Every deployment that predates rolloutSurge -- notably the
+// idle create-infera ones, whose /health cannot answer at deploy time -- must
+// render exactly as before.
+func TestInferaWorkersKeepTheReadinessSkipWithoutSurge(t *testing.T) {
+	for _, role := range []string{
+		common.DynamoRoleWorker, common.DynamoRolePrefill, common.DynamoRoleDecode,
+	} {
+		slot := map[string]interface{}{}
+		applyInferaRoleFields(slot, role, "nixl", false)
+		assert.Equal(t, slot["skipReadinessProbe"], true, "role %s", role)
+		_, hasSurge := slot["rolloutSurge"]
+		assert.Equal(t, hasSurge, false, "role %s", role)
+	}
+}
+
+// Surge and the readiness probe are one decision. A surge rollout retires the
+// old pod once the replacement reports Ready, so skipping the probe would make
+// every pod Ready while still loading weights and the old pod would go too
+// early -- the outage surge exists to avoid.
+func TestInferaSurgeRolesKeepTheirReadinessProbe(t *testing.T) {
+	for _, role := range []string{
+		common.DynamoRoleWorker, common.DynamoRolePrefill, common.DynamoRoleDecode,
+	} {
+		slot := map[string]interface{}{}
+		applyInferaRoleFields(slot, role, "nixl", true)
+		assert.Equal(t, slot["rolloutSurge"], true, "role %s", role)
+		_, skipped := slot["skipReadinessProbe"]
+		assert.Equal(t, skipped, false,
+			"role %s: a surge rollout without a probe retires the old pod early", role)
+	}
+}
+
+// The annotation names roles, so it must reach exactly the roles it lists and
+// leave the rest rendering as they did before.
+func TestNormalizeInferaIDEPAppliesSurgePerRole(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
+	v1.SetAnnotation(workload, v1.InferaRolloutSurgeRolesAnnotation, common.DynamoRoleDecode)
+	obj := inferaObject(nil, nil, nil)
+
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+	services, found, err := jobutils.NestedMap(obj.Object, []string{"spec", "services"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	prefill := services["role1"].(map[string]interface{})
+	decode := services["role2"].(map[string]interface{})
+
+	_, prefillSurges := prefill["rolloutSurge"]
+	assert.Equal(t, prefillSurges, false, "prefill was not listed")
+	assert.Equal(t, prefill["skipReadinessProbe"], true, "prefill keeps the old behaviour")
+
+	assert.Equal(t, decode["rolloutSurge"], true)
+	_, decodeSkipped := decode["skipReadinessProbe"]
+	assert.Equal(t, decodeSkipped, false)
 }
 
 func TestBuildRequiredMatchExpression(t *testing.T) {
