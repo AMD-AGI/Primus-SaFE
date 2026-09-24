@@ -2095,6 +2095,10 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 	}
 	kvBackend := commonworkload.GetInferaKVTransferBackend(adminWorkload)
 	backendFramework := commonworkload.GetInferaBackendFramework(adminWorkload)
+	readinessPorts, err := commonworkload.GetInferaReadinessPorts(adminWorkload)
+	if err != nil {
+		return err
+	}
 
 	if err := jobutils.SetNestedField(obj.Object, backendFramework,
 		[]string{"spec", "backendFramework"}); err != nil {
@@ -2135,6 +2139,9 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 
 		applyInferaRoleFields(slot, role, kvBackend,
 			commonworkload.IsInferaIdleRole(adminWorkload, role))
+		if port, ok := readinessPorts[role]; ok && role != common.DynamoRoleFrontend {
+			setInferaReadinessPort(slot, port)
+		}
 
 		// Multi-node: node count is Resources[i].Replica, carried by the flat
 		// numberOfNodes field; force replicas=1 (one LeaderWorkerSet group).
@@ -2196,6 +2203,30 @@ func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string, 
 // rollout retires the pod that is still serving.
 func setInferaWorkerReadinessSkip(slot map[string]interface{}) {
 	slot[inferaSkipReadinessField] = true
+}
+
+// setInferaReadinessPort sets INFERA_READINESS_PORT on a slot's main container.
+// The worker binds that port and the operator probes it, so roles sharing a
+// hostNetwork node can each use their own.
+func setInferaReadinessPort(slot map[string]interface{}, port int) {
+	extra, _ := slot["extraPodSpec"].(map[string]interface{})
+	if extra == nil {
+		return
+	}
+	containers, _ := extra["containers"].([]interface{})
+	for i, c := range containers {
+		m, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if name, _ := m["name"].(string); name != "main" {
+			continue
+		}
+		updateContainerEnv(map[string]string{common.InferaReadinessPortEnv: strconv.Itoa(port)}, m, nil)
+		containers[i] = m
+	}
+	extra["containers"] = containers
+	slot["extraPodSpec"] = extra
 }
 
 // dynamoServiceKey maps the SaFE role string to the conventional DGD service

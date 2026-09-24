@@ -641,6 +641,29 @@ func (v *WorkloadValidator) validateInferaDeployment(workload *v1.Workload) erro
 		}
 	}
 
+	readinessPorts, err := commonworkload.GetInferaReadinessPorts(workload)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	for role := range readinessPorts {
+		if roleCounts[role] == 0 {
+			errs = append(errs, fmt.Errorf(
+				"readiness-ports references undeclared role %q (not in service-roles)", role))
+		}
+		if role == common.DynamoRoleFrontend {
+			errs = append(errs, fmt.Errorf(
+				"readiness-ports cannot name %q: it applies to workers only", role))
+		}
+	}
+	// The sync path rewrites every container from the shared env, which would
+	// replace the per-role ports with one value.
+	if len(readinessPorts) > 0 {
+		if _, ok := workload.Spec.Env[common.InferaReadinessPortEnv]; ok {
+			errs = append(errs, fmt.Errorf(
+				"env %s cannot be combined with readiness-ports", common.InferaReadinessPortEnv))
+		}
+	}
+
 	return utilerrors.NewAggregate(errs)
 }
 
@@ -1756,6 +1779,10 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 	if v1.GetAnnotation(newWorkload, v1.InferaIdleRolesAnnotation) !=
 		v1.GetAnnotation(oldWorkload, v1.InferaIdleRolesAnnotation) {
 		return field.Forbidden(field.NewPath("annotations").Key(v1.InferaIdleRolesAnnotation), "immutable")
+	}
+	if v1.GetAnnotation(newWorkload, v1.InferaReadinessPortsAnnotation) !=
+		v1.GetAnnotation(oldWorkload, v1.InferaReadinessPortsAnnotation) {
+		return field.Forbidden(field.NewPath("annotations").Key(v1.InferaReadinessPortsAnnotation), "immutable")
 	}
 	if commonworkload.IsCICDScalingRunnerSet(newWorkload) {
 		val1, _ := oldWorkload.Spec.Env[common.UnifiedJobEnable]

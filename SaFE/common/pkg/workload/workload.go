@@ -650,6 +650,36 @@ func GetInferaIdleRoles(w *v1.Workload) []string {
 	return roles
 }
 
+// GetInferaReadinessPorts parses the readiness-ports annotation ("role=port,...")
+// into a role -> port map. It returns nil when the annotation is absent and an
+// error for a malformed entry, an out-of-range port, or a repeated role.
+func GetInferaReadinessPorts(w *v1.Workload) (map[string]int, error) {
+	val := v1.GetAnnotation(w, v1.InferaReadinessPortsAnnotation)
+	if val == "" {
+		return nil, nil
+	}
+	ports := make(map[string]int)
+	for _, pair := range strings.Split(val, ",") {
+		if pair = strings.TrimSpace(pair); pair == "" {
+			continue
+		}
+		role, raw, ok := strings.Cut(pair, "=")
+		role = strings.TrimSpace(role)
+		if !ok || role == "" {
+			return nil, fmt.Errorf("readiness-ports entry %q is not role=port", pair)
+		}
+		port, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil || port <= 0 || port >= 65536 {
+			return nil, fmt.Errorf("readiness-ports entry %q has an invalid port", pair)
+		}
+		if _, dup := ports[role]; dup {
+			return nil, fmt.Errorf("readiness-ports names role %q twice", role)
+		}
+		ports[role] = port
+	}
+	return ports, nil
+}
+
 // IsInferaIdleRole reports whether the given role deploys idle.
 func IsInferaIdleRole(w *v1.Workload, role string) bool {
 	for _, r := range GetInferaIdleRoles(w) {

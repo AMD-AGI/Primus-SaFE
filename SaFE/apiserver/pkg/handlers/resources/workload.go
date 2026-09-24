@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -974,6 +975,14 @@ func applyInferaOptions(workload *v1.Workload, opts *view.DynamoOptions) {
 	if len(opts.IdleRoles) > 0 {
 		v1.SetAnnotation(workload, v1.InferaIdleRolesAnnotation,
 			strings.Join(opts.IdleRoles, ","))
+	}
+	if len(opts.ReadinessPorts) > 0 {
+		pairs := make([]string, 0, len(opts.ReadinessPorts))
+		for role, port := range opts.ReadinessPorts {
+			pairs = append(pairs, role+"="+strconv.Itoa(port))
+		}
+		sort.Strings(pairs)
+		v1.SetAnnotation(workload, v1.InferaReadinessPortsAnnotation, strings.Join(pairs, ","))
 	}
 }
 

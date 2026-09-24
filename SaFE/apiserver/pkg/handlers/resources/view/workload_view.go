@@ -106,6 +106,12 @@ type DynamoOptions struct {
 	// Each listed role must also appear in ServiceRoles. Infera only; applied
 	// at create.
 	IdleRoles []string `json:"idleRoles,omitempty"`
+
+	// ReadinessPorts maps a worker role to the port its pods open for the
+	// readiness probe, e.g. {"prefill": 31090, "decode": 31100}. Set distinct
+	// ports when roles can share a hostNetwork node. Unlisted roles use the
+	// default. Infera only; applied at create.
+	ReadinessPorts map[string]int `json:"readinessPorts,omitempty"`
 }
 
 type GitHubAuthRequest struct {

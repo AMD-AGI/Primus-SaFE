@@ -1671,6 +1671,58 @@ func TestNormalizeInferaIDEPAppliesIdlePerRole(t *testing.T) {
 	assert.Equal(t, decode[inferaSkipReadinessField], true, "decode was listed as idle")
 }
 
+// slotEnv returns the main container's env of a rendered IDEP slot as a map.
+func slotEnv(t *testing.T, obj *unstructured.Unstructured, slot string) map[string]string {
+	t.Helper()
+	containers, found, err := jobutils.NestedSlice(obj.Object,
+		[]string{"spec", "services", slot, "extraPodSpec", "containers"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	out := map[string]string{}
+	for _, c := range containers {
+		m := c.(map[string]interface{})
+		if m["name"] != "main" {
+			continue
+		}
+		env, _ := m["env"].([]interface{})
+		for _, e := range env {
+			kv := e.(map[string]interface{})
+			out[kv["name"].(string)] = fmt.Sprint(kv["value"])
+		}
+	}
+	return out
+}
+
+// Each role gets the readiness port its creator chose, so co-located prefill
+// and decode pods on one hostNetwork node do not fight over one port. The
+// operator probes whatever INFERA_READINESS_PORT the container carries.
+func TestNormalizeInferaIDEPSetsReadinessPortPerRole(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
+	v1.SetAnnotation(workload, v1.InferaReadinessPortsAnnotation, "prefill=31090,decode=31100")
+	obj := inferaObject(nil, nil, nil)
+
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+	_, frontendHasPort := slotEnv(t, obj, "role0")[common.InferaReadinessPortEnv]
+	assert.Equal(t, frontendHasPort, false, "the frontend opens no readiness port")
+	assert.Equal(t, slotEnv(t, obj, "role1")[common.InferaReadinessPortEnv], "31090")
+	assert.Equal(t, slotEnv(t, obj, "role2")[common.InferaReadinessPortEnv], "31100")
+}
+
+// Without the annotation the container carries no port and the worker and
+// operator fall back to their shared default.
+func TestNormalizeInferaIDEPLeavesReadinessPortUnsetByDefault(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRoleWorker}
+	workload := newInferaWorkload(roles, nil, []int{1, 1})
+	obj := inferaObject(nil, nil)
+
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+	_, set := slotEnv(t, obj, "role1")[common.InferaReadinessPortEnv]
+	assert.Equal(t, set, false)
+}
+
 func TestBuildRequiredMatchExpression(t *testing.T) {
 	// Non-default workspace contributes a workspace match expression.
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}

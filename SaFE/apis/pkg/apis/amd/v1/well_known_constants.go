@@ -253,6 +253,11 @@ const (
 	// role keeps the probe, which is what holds a surge rollout back until the
 	// replacement can actually serve.
 	InferaIdleRolesAnnotation = InferaPrefix + "idle-roles"
+	// readiness-ports: comma-separated role=port pairs, e.g.
+	// "prefill=31090,decode=31100". Each listed worker role runs with
+	// INFERA_READINESS_PORT set to its port, which the worker binds and the
+	// operator probes. Unlisted roles use the shared default.
+	InferaReadinessPortsAnnotation = InferaPrefix + "readiness-ports"
 )
 
 type SecretType string
