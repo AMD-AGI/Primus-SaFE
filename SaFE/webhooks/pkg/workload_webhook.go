@@ -641,18 +641,37 @@ func (v *WorkloadValidator) validateInferaDeployment(workload *v1.Workload) erro
 		}
 	}
 
-	// A readiness port in the shared env reaches every worker slot, so two
-	// slots co-located on one hostNetwork node would contend for it. Without
-	// it, the dispatcher gives each slot its own port.
-	if _, ok := workload.Spec.Env[common.InferaReadinessPortEnv]; ok {
-		if workers := len(roles) - roleCounts[common.DynamoRoleFrontend]; workers > 1 {
-			errs = append(errs, fmt.Errorf(
-				"env %s would be shared by %d worker slots; leave it unset so each slot gets its own port",
-				common.InferaReadinessPortEnv, workers))
+	return utilerrors.NewAggregate(errs)
+}
+
+// validateInferaSharedReadinessPort rejects an INFERA_READINESS_PORT set in the
+// shared env when several worker slots would bind it in one node's port space.
+// A readiness port in the shared env reaches every worker slot; without it the
+// dispatcher gives each slot its own port. Only hostNetwork workloads share the
+// node's ports, and an update that keeps the value unchanged is allowed so an
+// existing workload stays updatable.
+func validateInferaSharedReadinessPort(newWorkload, oldWorkload *v1.Workload) error {
+	port, ok := newWorkload.Spec.Env[common.InferaReadinessPortEnv]
+	if !ok || !newWorkload.HasHostNetwork() {
+		return nil
+	}
+	if oldWorkload != nil {
+		if oldPort, had := oldWorkload.Spec.Env[common.InferaReadinessPortEnv]; had && oldPort == port {
+			return nil
 		}
 	}
-
-	return utilerrors.NewAggregate(errs)
+	workers := 0
+	for _, role := range commonworkload.GetInferaServiceRoles(newWorkload) {
+		if role != common.DynamoRoleFrontend {
+			workers++
+		}
+	}
+	if workers > 1 {
+		return commonerrors.NewBadRequest(fmt.Sprintf(
+			"env %s would be shared by %d hostNetwork worker slots; leave it unset so each slot gets its own port",
+			common.InferaReadinessPortEnv, workers))
+	}
+	return nil
 }
 
 // mutateImages handles image assignment for workload resources.
@@ -1014,6 +1033,9 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		err = v.validateDynamoDeployment(newWorkload)
 	case common.InferaDeploymentKind:
 		err = v.validateInferaDeployment(newWorkload)
+		if err == nil {
+			err = validateInferaSharedReadinessPort(newWorkload, oldWorkload)
+		}
 	}
 	if err != nil {
 		return err

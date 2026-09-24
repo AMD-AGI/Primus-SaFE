@@ -2775,15 +2775,28 @@ func TestWorkloadValidateInferaIdleRoles(t *testing.T) {
 // A readiness port in the shared env reaches every worker, so two worker slots
 // co-located on one hostNetwork node would contend for it.
 func TestWorkloadValidateInferaSharedReadinessPort(t *testing.T) {
-	v := &WorkloadValidator{}
-	withEnv := func(roles string, n int) *v1.Workload {
+	withEnv := func(roles string, n int, port string, hostNetwork bool) *v1.Workload {
 		w := dynamoWorkload(common.InferaDeploymentKind, "sglang", common.DynamoKVBackendNixl, roles, n)
-		w.Spec.Env = map[string]string{common.InferaReadinessPortEnv: "31000"}
+		w.Spec.Env = map[string]string{common.InferaReadinessPortEnv: port}
+		if hostNetwork {
+			for i := range w.Spec.Resources {
+				w.Spec.Resources[i].RdmaResource = "1"
+			}
+		}
 		return w
 	}
+	pd := func(port string, hostNetwork bool) *v1.Workload {
+		return withEnv("frontend,prefill,decode", 3, port, hostNetwork)
+	}
 
-	assert.NilError(t, v.validateInferaDeployment(withEnv("frontend,worker", 2)),
+	assert.NilError(t, validateInferaSharedReadinessPort(withEnv("frontend,worker", 2, "31000", true), nil),
 		"a single worker slot may take a shared port")
-	assert.Assert(t, v.validateInferaDeployment(withEnv("frontend,prefill,decode", 3)) != nil,
-		"prefill and decode would share one port")
+	assert.Assert(t, validateInferaSharedReadinessPort(pd("31000", true), nil) != nil,
+		"prefill and decode on hostNetwork would share one node port")
+	assert.NilError(t, validateInferaSharedReadinessPort(pd("31000", false), nil),
+		"pods with their own network namespace do not contend for the port")
+	assert.NilError(t, validateInferaSharedReadinessPort(pd("31000", true), pd("31000", true)),
+		"an update that keeps the value leaves an existing workload updatable")
+	assert.Assert(t, validateInferaSharedReadinessPort(pd("32000", true), pd("31000", true)) != nil,
+		"changing the value is checked like a create")
 }
