@@ -27,6 +27,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/execution"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -129,6 +130,15 @@ func initializeObject(obj *unstructured.Unstructured,
 		path = podSpecPath(workload, resourceSpec, "automountServiceAccountToken")
 		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
 			return fmt.Errorf("failed to disable service account token: %v", err.Error())
+		}
+		if err = applyExternalContainerSecurity(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalNodePin(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = validateExternalPodShape(obj, workload, *resourceSpec); err != nil {
+			return err
 		}
 	}
 	if commonworkload.IsApplication(workload) {
@@ -903,6 +913,9 @@ func buildObjectAnnotations(workload *v1.Workload) map[string]interface{} {
 func buildPodLabels(workload *v1.Workload) map[string]interface{} {
 	result := buildObjectLabels(workload)
 	result[v1.K8sObjectIdLabel] = workload.Name
+	if isExternalWorkload(workload) {
+		result[v1.ExternalExecutionLabel] = v1.TrueStr
+	}
 	return result
 }
 
@@ -1110,6 +1123,8 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 	// Confine the pod to the virtual nodes the provider approved for this claim. Required
 	// affinity rather than spec.nodeName: the execution cluster scheduler must still do the
 	// binding, and the provider verifies that actual binding before it starts the task.
+	// Hostname matchExpressions are still written for native tooling; the provider's VK
+	// admission pins on matchFields metadata.name (applied in applyExternalNodePin).
 	if nodes := externalApprovedNodes(workload); len(nodes) > 0 {
 		values := make([]interface{}, 0, len(nodes))
 		for i := range nodes {
@@ -2635,6 +2650,18 @@ func updateContainers(adminWorkload *v1.Workload,
 	for key, val := range resourceList {
 		resources[string(key)] = val.String()
 	}
+	// The reservation was granted against the provider's approved vector. Using the
+	// workload request instead would let a rounded or padded Spec disagree with the
+	// claim, and VK admission refuses anything that is not an exact match.
+	if isExternalWorkload(adminWorkload) {
+		approved, approvedErr := externalApprovedResourceMap(adminWorkload, v1.ExternalSingleUnitKey)
+		if approvedErr != nil {
+			return approvedErr
+		}
+		if approved != nil {
+			resources = approved
+		}
+	}
 
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
@@ -2839,6 +2866,140 @@ func getContainers(adminWorkload *v1.Workload, obj *unstructured.Unstructured, r
 		return nil, nil, fmt.Errorf("failed to find container with path: %v", path)
 	}
 	return containers, path, nil
+}
+
+// validateExternalPodShape refuses pod templates the provider's VK cannot admit:
+// exactly one container and no init or ephemeral containers.
+func validateExternalPodShape(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	containers, _, err := getContainers(workload, obj, resourceSpec)
+	if err != nil {
+		return err
+	}
+	if len(containers) != 1 {
+		return fmt.Errorf("external capacity supports a single container; template declares %d",
+			len(containers))
+	}
+	initPath := podSpecPath(workload, &resourceSpec, "initContainers")
+	if inits, found, _ := jobutils.NestedSlice(obj.Object, initPath); found && len(inits) > 0 {
+		return fmt.Errorf("external capacity does not support init containers")
+	}
+	ephemeralPath := podSpecPath(workload, &resourceSpec, "ephemeralContainers")
+	if eps, found, _ := jobutils.NestedSlice(obj.Object, ephemeralPath); found && len(eps) > 0 {
+		return fmt.Errorf("external capacity does not support ephemeral containers")
+	}
+	return nil
+}
+
+// applyExternalContainerSecurity forces the privilege posture the provider measures
+// under: no privilege escalation, no privileged bit, no added capabilities.
+func applyExternalContainerSecurity(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	containers, path, err := getContainers(workload, obj, resourceSpec)
+	if err != nil {
+		return err
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		sc, _ := container["securityContext"].(map[string]interface{})
+		if sc == nil {
+			sc = map[string]interface{}{}
+		}
+		sc["allowPrivilegeEscalation"] = false
+		sc["privileged"] = false
+		if caps, _ := sc["capabilities"].(map[string]interface{}); caps != nil {
+			delete(caps, "add")
+			if len(caps) == 0 {
+				delete(sc, "capabilities")
+			} else {
+				sc["capabilities"] = caps
+			}
+		}
+		container["securityContext"] = sc
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+// applyExternalNodePin writes required matchFields metadata.name so the provider's
+// VK can verify the unit is constrained to the approved virtual node.
+func applyExternalNodePin(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	nodes := externalApprovedNodes(workload)
+	if len(nodes) == 0 {
+		return nil
+	}
+	values := make([]interface{}, 0, len(nodes))
+	for i := range nodes {
+		values = append(values, nodes[i])
+	}
+	path := podSpecPath(workload, &resourceSpec, "affinity", "nodeAffinity",
+		"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	terms, _, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	field := map[string]interface{}{
+		"key":      "metadata.name",
+		"operator": "In",
+		"values":   values,
+	}
+	if len(terms) == 0 {
+		terms = []interface{}{map[string]interface{}{
+			"matchFields": []interface{}{field},
+		}}
+	} else {
+		term, ok := terms[0].(map[string]interface{})
+		if !ok {
+			term = map[string]interface{}{}
+			terms[0] = term
+		}
+		term["matchFields"] = []interface{}{field}
+	}
+	return jobutils.SetNestedField(obj.Object, terms, path)
+}
+
+// externalApprovedResourceMap turns the claim's approved ResourceVector into the
+// requests=limits map written onto the pod. Only resources the claim named appear.
+func externalApprovedResourceMap(workload *v1.Workload, unitKey string) (map[string]interface{}, error) {
+	state := workload.Status.ExternalExecution
+	if state == nil || state.ClaimId == "" {
+		return nil, fmt.Errorf("workload %s has no external claim for resource binding", workload.Name)
+	}
+	client, err := execution.Shared()
+	if err != nil {
+		return nil, err
+	}
+	claim, err := client.GetClaim(context.Background(), state.ClaimId)
+	if err != nil {
+		return nil, err
+	}
+	var vector *execution.ResourceVector
+	for i := range claim.Placements {
+		if claim.Placements[i].UnitKey == unitKey {
+			vector = &claim.Placements[i].Resources
+			break
+		}
+	}
+	if vector == nil {
+		return nil, fmt.Errorf("claim %s has no placement for unit %s", state.ClaimId, unitKey)
+	}
+	resources := map[string]interface{}{}
+	if vector.CPUMillis > 0 {
+		resources[string(corev1.ResourceCPU)] = fmt.Sprintf("%dm", vector.CPUMillis)
+	}
+	if vector.MemoryBytes > 0 {
+		resources[string(corev1.ResourceMemory)] = fmt.Sprintf("%d", vector.MemoryBytes)
+	}
+	if vector.ScratchBytes > 0 {
+		resources[string(corev1.ResourceEphemeralStorage)] = fmt.Sprintf("%d", vector.ScratchBytes)
+	}
+	if vector.GPUCount > 0 && vector.GPUResource != "" {
+		resources[vector.GPUResource] = strconv.Itoa(int(vector.GPUCount))
+	}
+	return resources, nil
 }
 
 // getNfsPathFromWorkspace retrieves the NFS path from the workspace's volumes.

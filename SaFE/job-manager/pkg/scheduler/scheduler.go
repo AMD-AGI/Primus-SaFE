@@ -32,6 +32,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/execution"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
@@ -504,7 +505,8 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 // stall admission for every workload in the workspace.
 //
 // The error is recorded and turned into a wait, so this workload retries on the next pass
-// and the queue keeps moving.
+// and the queue keeps moving. Rate-limited and unavailable answers also re-stage the
+// workspace after the provider's Retry-After so the next pass does not hammer the write.
 func (r *SchedulerReconciler) externalOutcome(workload *v1.Workload,
 	ok bool, reason string, err error) (bool, string, error) {
 	if err == nil {
@@ -513,6 +515,12 @@ func (r *SchedulerReconciler) externalOutcome(workload *v1.Workload,
 	klog.ErrorS(err, "external capacity exchange failed", "workload", workload.Name)
 	if reason == "" {
 		reason = ExternalUnavailableReason
+	}
+	if d := execution.RetryAfterOf(err); d > 0 {
+		r.AddAfter(&SchedulerMessage{
+			WorkspaceId: workload.Spec.Workspace,
+			ClusterId:   v1.GetClusterId(workload),
+		}, d)
 	}
 	return false, reason, nil
 }

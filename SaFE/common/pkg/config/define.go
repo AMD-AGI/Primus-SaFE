@@ -213,6 +213,7 @@ const (
 	externalExecutionTimeout           = externalExecutionPrefix + "controller_timeout_seconds"
 	externalExecutionProfileID         = externalExecutionPrefix + "profile_id"
 	externalExecutionProfileRevision   = externalExecutionPrefix + "profile_revision"
+	externalExecutionPIDLimit          = externalExecutionPrefix + "pid_limit"
 
 	// model_optimization (hyperloom via primus-claw)
 	modelOptimizationPrefix       = "model_optimization."

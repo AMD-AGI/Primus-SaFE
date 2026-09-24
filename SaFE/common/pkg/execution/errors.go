@@ -66,6 +66,25 @@ func (e *APIError) RetryAfter() time.Duration {
 	return time.Duration(e.RetryAfterS) * time.Second
 }
 
+// RetryAfterOf returns the backoff carried by a contract error. Rate-limited and
+// unavailable answers without an explicit delay still get a short default so the
+// caller does not immediately reissue the same write.
+func RetryAfterOf(err error) time.Duration {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return 0
+	}
+	if d := apiErr.RetryAfter(); d > 0 {
+		return d
+	}
+	switch apiErr.Code {
+	case CodeRateLimited, CodeUnavailable:
+		return 10 * time.Second
+	default:
+		return 0
+	}
+}
+
 // CodeOf returns the contract code carried by err, or the empty string when err did not
 // come from the capacity controller. A transport failure has no code by design: it is not
 // a decision, and must not be read as one.

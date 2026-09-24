@@ -8,6 +8,7 @@ package scheduler
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"testing"
@@ -23,7 +24,9 @@ func gpuWorkload() *v1.Workload {
 		ObjectMeta: metav1.ObjectMeta{Name: "train-1", UID: "11111111-1111-1111-1111-111111111111"},
 		Spec: v1.WorkloadSpec{
 			Workspace: "ws-external",
-			Images:    []string{"registry.example.invalid/train:v1"},
+			Images: []string{
+				"registry.example.invalid/train@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			},
 			Resources: []v1.WorkloadResource{{
 				Replica: 1,
 				CPU:     "8",
@@ -66,6 +69,12 @@ func TestBuildDemandUnitsProducesOneUnitPerPod(t *testing.T) {
 	}
 	if unit.ConstraintsDigest == "" {
 		t.Fatal("constraints digest must accompany the constraints themselves")
+	}
+	if unit.PIDLimit <= 0 {
+		t.Fatal("pid_limit must be declared non-zero; Prepare refuses an empty budget")
+	}
+	if !strings.HasPrefix(unit.ImageDigest, "sha256:") {
+		t.Fatalf("image_digest = %q, want sha256:…", unit.ImageDigest)
 	}
 }
 
@@ -114,6 +123,12 @@ func TestBuildDemandUnitsRejectsUnsupportedShapes(t *testing.T) {
 	noImage.Spec.Images = nil
 	if _, err := buildDemandUnits(noImage, externalWorkspace()); err == nil {
 		t.Fatal("expected a workload without an image to be rejected")
+	}
+
+	unpinned := gpuWorkload()
+	unpinned.Spec.Images = []string{"registry.example.invalid/train:v1"}
+	if _, err := buildDemandUnits(unpinned, externalWorkspace()); err == nil {
+		t.Fatal("expected a tag image to be rejected")
 	}
 }
 
@@ -285,6 +300,7 @@ func TestWaitingReasonsSeparateShortageFromOtherRefusals(t *testing.T) {
 		execution.CodeImagePreparing:          ExternalImageReason,
 		execution.CodeProfileUnvalidated:      ExternalProfileReason,
 		execution.CodeConstraintUnsatisfiable: ExternalConstraintReason,
+		execution.CodeRateLimited:             ExternalRateLimitedReason,
 	}
 	for code, want := range cases {
 		got := externalWaitingReason(&execution.APIError{Code: code})

@@ -91,6 +91,7 @@ data:
       controller_timeout_seconds: {{ default 10 (default .Values.external_execution).controller_timeout_seconds }}
       profile_id: "{{ default "" (default .Values.external_execution).profile_id }}"
       profile_revision: {{ default 1 (default .Values.external_execution).profile_revision }}
+      pid_limit: {{ default 256 (default .Values.external_execution).pid_limit }}
       observation_max_age_seconds: {{ default 120 (default .Values.external_execution).observation_max_age_seconds }}
       workspace_resync_seconds: {{ default 30 (default .Values.external_execution).workspace_resync_seconds }}
 kind: ConfigMap

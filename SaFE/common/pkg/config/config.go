@@ -721,6 +721,16 @@ func GetExternalExecutionProfile() (profileID string, revision int) {
 	return getString(externalExecutionProfileID, ""), getInt(externalExecutionProfileRevision, 1)
 }
 
+// GetExternalPIDLimit is the per-task process budget declared on every demand unit.
+// Zero is refused at Prepare by the provider, so the deployment default is non-zero.
+func GetExternalPIDLimit() int32 {
+	v := getInt(externalExecutionPIDLimit, 256)
+	if v <= 0 {
+		return 256
+	}
+	return int32(v)
+}
+
 // GetExternalControllerTLS reads the mTLS material from the mounted secret directory.
 // Returning empty slices is not an error here; the caller refuses to build a client
 // without them rather than silently connecting unverified.

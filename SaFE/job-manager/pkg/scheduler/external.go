@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,6 +38,7 @@ const (
 	ExternalConstraintReason  = "Rejected - constraints cannot be satisfied by external capacity"
 	ExternalUnsupportedReason = "Rejected - workload shape is not supported by external capacity"
 	ExternalUnavailableReason = "In queue - external capacity service is unavailable"
+	ExternalRateLimitedReason = "In queue - external capacity controller rate limited"
 )
 
 // demandExpiry bounds how long an unconsumed demand stays actionable. It is the admission
@@ -175,7 +177,9 @@ func (r *SchedulerReconciler) requestExternalCapacity(ctx context.Context, workl
 				"workload", workload.Name)
 			return false, ExternalUnsupportedReason, nil
 		}
-		return false, externalWaitingReason(err), nil
+		// Preserve rate-limit / unavailable errors so the workspace is requeued after
+		// the backoff the provider asked for, rather than hammering the same write.
+		return false, externalWaitingReason(err), err
 	}
 	return false, ExternalCapacityReason, nil
 }
@@ -198,11 +202,19 @@ func (r *SchedulerReconciler) handleReservationRefusal(ctx context.Context, work
 	workspace *v1.Workspace, cause error) (bool, string, error) {
 	reason := externalWaitingReason(cause)
 	if !execution.IsCode(cause, execution.CodeCapacityUnavailable) {
+		// Rate-limited / unavailable answers carry a backoff; keep the error so
+		// externalOutcome can re-stage the workspace after Retry-After.
+		if execution.RetryAfterOf(cause) > 0 {
+			return false, reason, cause
+		}
 		return false, reason, nil
 	}
 	if err := r.ensureExternalDemand(ctx, workload, workspace); err != nil {
 		klog.ErrorS(err, "failed to state capacity need after a refused reservation",
 			"workload", workload.Name)
+		if execution.RetryAfterOf(err) > 0 {
+			return false, externalWaitingReason(err), err
+		}
 	}
 	return false, reason, nil
 }
@@ -403,7 +415,7 @@ func (r *SchedulerReconciler) reserveExternalCapacity(ctx context.Context, workl
 			return r.acceptClaim(ctx, workload, state, existing)
 		}
 		if !execution.IsCode(getErr, execution.CodeNotFound) {
-			return false, externalWaitingReason(getErr), nil
+			return false, externalWaitingReason(getErr), getErr
 		}
 	}
 
@@ -414,7 +426,7 @@ func (r *SchedulerReconciler) reserveExternalCapacity(ctx context.Context, workl
 		if errors.As(err, &unsupported) {
 			return false, ExternalUnsupportedReason, nil
 		}
-		return false, externalWaitingReason(err), nil
+		return false, externalWaitingReason(err), err
 	}
 	state = workload.Status.ExternalExecution
 
@@ -575,8 +587,14 @@ func buildDemandUnits(workload *v1.Workload, workspace *v1.Workspace) ([]executi
 	if err != nil {
 		return nil, err
 	}
-	if len(workload.Spec.Images) == 0 || workload.Spec.Images[0] == "" {
-		return nil, &unsupportedShapeError{"external capacity requires an image reference"}
+	if len(workload.Spec.Images) != 1 || workload.Spec.Images[0] == "" {
+		return nil, &unsupportedShapeError{
+			"external capacity supports a single digest-pinned image only"}
+	}
+	imageRef := workload.Spec.Images[0]
+	if !isDigestPinnedImage(imageRef) {
+		return nil, &unsupportedShapeError{
+			"external capacity requires an image reference pinned with @sha256:"}
 	}
 
 	constraints := execution.PlacementConstraints{
@@ -591,16 +609,25 @@ func buildDemandUnits(workload *v1.Workload, workspace *v1.Workspace) ([]executi
 	if workload.Spec.Timeout != nil && *workload.Spec.Timeout > 0 {
 		runtimeSeconds = int32(*workload.Spec.Timeout)
 	}
+	imageDigest := imageRef[strings.LastIndex(imageRef, "@sha256:")+1:]
 	return []execution.DemandUnit{{
 		UnitKey:           "master/0",
 		Replicas:          1,
 		Resources:         resources,
 		Ports:             []execution.Port{},
 		RequiredRuntimeS:  runtimeSeconds,
-		ImageRef:          workload.Spec.Images[0],
+		PIDLimit:          commonconfig.GetExternalPIDLimit(),
+		ImageRef:          imageRef,
+		ImageDigest:       imageDigest,
 		Constraints:       constraints,
 		ConstraintsDigest: digest,
 	}}, nil
+}
+
+// isDigestPinnedImage reports whether the reference names immutable content.
+func isDigestPinnedImage(image string) bool {
+	at := strings.LastIndex(image, "@sha256:")
+	return at > 0 && len(image) == at+len("@sha256:")+64
 }
 
 // toResourceVector converts a workload resource request into the contract's units:
@@ -672,6 +699,8 @@ func externalWaitingReason(err error) string {
 		return ExternalProfileReason
 	case execution.CodeConstraintUnsatisfiable:
 		return ExternalConstraintReason
+	case execution.CodeRateLimited:
+		return ExternalRateLimitedReason
 	default:
 		return ExternalUnavailableReason
 	}

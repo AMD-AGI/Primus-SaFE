@@ -354,6 +354,9 @@ external_execution:
   # the validation state; naming an unvalidated profile is refused by the provider.
   profile_id: ""
   profile_revision: 1
+  # Per-task process budget declared on every demand unit. The provider records it
+  # on the hold and refuses Prepare when it is zero.
+  pid_limit: 256
   # Caps how long a provider observation stays usable once the provider stops reporting.
   observation_max_age_seconds: 120
   # Bounds how long an external workspace goes without a reconcile, so a stale observation

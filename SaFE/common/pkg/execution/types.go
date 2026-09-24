@@ -86,6 +86,10 @@ type DemandUnit struct {
 	Resources         ResourceVector       `json:"resources"`
 	Ports             []Port               `json:"ports"`
 	RequiredRuntimeS  int32                `json:"required_runtime_s"`
+	// PIDLimit is the per-task process budget. It is not a ResourceVector field:
+	// the provider records it on the hold and enforces it at Prepare. Zero means
+	// "declared none" and is refused at Prepare, so the field is always sent.
+	PIDLimit          int32                `json:"pid_limit"`
 	ImageRef          string               `json:"image_ref"`
 	ImageDigest       string               `json:"image_digest,omitempty"`
 	Constraints       PlacementConstraints `json:"constraints"`
@@ -137,6 +141,8 @@ type ClaimPlacement struct {
 	ImageRef                   string         `json:"image_ref"`
 	ImageDigest                string         `json:"image_digest"`
 	Resources                  ResourceVector `json:"resources"`
+	// PIDLimit is copied from the demand unit through the plan onto the hold.
+	PIDLimit                   int32          `json:"pid_limit"`
 	DeviceIDs                  []string       `json:"device_ids"`
 	Ports                      []Port         `json:"ports"`
 }
