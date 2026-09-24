@@ -2122,7 +2122,7 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 	// A creator-set port reaches every container through the shared env and is
 	// what sync keeps writing, so it takes precedence over a random one.
 	_, creatorReadinessPort := adminWorkload.Spec.Env[common.InferaReadinessPortEnv]
-	usedReadinessPorts := map[int]struct{}{}
+	usedReadinessPorts := inferaReservedHostPorts()
 
 	for i, role := range roles {
 		slotKey := "role" + strconv.Itoa(i)
@@ -2218,6 +2218,19 @@ func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string, 
 // rollout retires the pod that is still serving.
 func setInferaWorkerReadinessSkip(slot map[string]interface{}) {
 	slot[inferaSkipReadinessField] = true
+}
+
+// inferaReservedHostPorts returns SaFE's fixed host ports, which other
+// hostNetwork workloads bind on the node, as the initial set of ports a
+// readiness port must avoid.
+func inferaReservedHostPorts() map[int]struct{} {
+	return map[int]struct{}{
+		common.RayJobGcsServerPort: {},
+		common.RayJobDashboardPort: {},
+		common.RayJobMetricsPort:   {},
+		common.MonarchMeshPortNum:  {},
+		common.DynamoFrontendPort:  {},
+	}
 }
 
 // randomInferaReadinessPort picks a port in [inferaReadinessPortMin,
