@@ -56,10 +56,14 @@ const (
 	// create.
 	inferaSkipReadinessField = "skipReadinessProbe"
 	// inferaReadinessPortMin/Max bound the random readiness port given to each
-	// worker slot. The range stays clear of the NodePort range and the
-	// engine's default ports, which share the node's port space on hostNetwork.
-	inferaReadinessPortMin = 40000
-	inferaReadinessPortMax = 60000
+	// worker slot. On hostNetwork it shares the node's port space, so the range
+	// sits below the kernel's ephemeral range and clear of the kubelet ports,
+	// the NodePort range, the engine's defaults and the [20000,30000) band
+	// generateRandomPort draws job ports from.
+	inferaReadinessPortMin = 12000
+	inferaReadinessPortMax = 20000
+	// inferaReadinessPortRetries caps the draws for one free port.
+	inferaReadinessPortRetries = 200
 )
 
 // initializeObject modifies various aspects of a Kubernetes object during workload creation.
@@ -2147,7 +2151,11 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 		applyInferaRoleFields(slot, role, kvBackend,
 			commonworkload.IsInferaIdleRole(adminWorkload, role))
 		if role != common.DynamoRoleFrontend && !creatorReadinessPort {
-			setInferaReadinessPort(slot, randomInferaReadinessPort(usedReadinessPorts))
+			port, err := randomInferaReadinessPort(usedReadinessPorts)
+			if err != nil {
+				return err
+			}
+			setInferaReadinessPort(slot, slotKey, port)
 		}
 
 		// Multi-node: node count is Resources[i].Replica, carried by the flat
@@ -2213,25 +2221,25 @@ func setInferaWorkerReadinessSkip(slot map[string]interface{}) {
 }
 
 // randomInferaReadinessPort picks a port in [inferaReadinessPortMin,
-// inferaReadinessPortMax) not yet in used, and records it there.
-func randomInferaReadinessPort(used map[int]struct{}) int {
-	for {
+// inferaReadinessPortMax) not yet in used, and records it there. It gives up
+// after inferaReadinessPortRetries draws.
+func randomInferaReadinessPort(used map[int]struct{}) (int, error) {
+	for i := 0; i < inferaReadinessPortRetries; i++ {
 		port := inferaReadinessPortMin + rand.Intn(inferaReadinessPortMax-inferaReadinessPortMin)
 		if _, taken := used[port]; !taken {
 			used[port] = struct{}{}
-			return port
+			return port, nil
 		}
 	}
+	return 0, fmt.Errorf("no free infera readiness port after %d attempts", inferaReadinessPortRetries)
 }
 
 // setInferaReadinessPort sets INFERA_READINESS_PORT on a slot's main container.
 // The worker binds that port and the operator probes it.
-func setInferaReadinessPort(slot map[string]interface{}, port int) {
+func setInferaReadinessPort(slot map[string]interface{}, slotKey string, port int) {
 	extra, _ := slot["extraPodSpec"].(map[string]interface{})
-	if extra == nil {
-		return
-	}
 	containers, _ := extra["containers"].([]interface{})
+	found := false
 	for i, c := range containers {
 		m, ok := c.(map[string]interface{})
 		if !ok {
@@ -2242,6 +2250,11 @@ func setInferaReadinessPort(slot map[string]interface{}, port int) {
 		}
 		updateContainerEnv(map[string]string{common.InferaReadinessPortEnv: strconv.Itoa(port)}, m, nil)
 		containers[i] = m
+		found = true
+	}
+	if !found {
+		klog.Warningf("infera slot %s has no main container; readiness port %d not set", slotKey, port)
+		return
 	}
 	extra["containers"] = containers
 	slot["extraPodSpec"] = extra

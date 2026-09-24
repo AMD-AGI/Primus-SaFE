@@ -1732,6 +1732,22 @@ func TestNormalizeInferaIDEPKeepsACreatorReadinessPort(t *testing.T) {
 	assert.Equal(t, set, false, "normalize must leave the creator's env value in charge")
 }
 
+// A range with no free port is an error, not an endless loop in reconcile.
+func TestRandomInferaReadinessPortFailsWhenTheRangeIsFull(t *testing.T) {
+	used := map[int]struct{}{}
+	for p := inferaReadinessPortMin; p < inferaReadinessPortMax; p++ {
+		used[p] = struct{}{}
+	}
+	_, err := randomInferaReadinessPort(used)
+	assert.Assert(t, err != nil)
+
+	delete(used, inferaReadinessPortMin)
+	port, err := randomInferaReadinessPort(used)
+	if err == nil {
+		assert.Equal(t, port, inferaReadinessPortMin, "only one port was free")
+	}
+}
+
 func TestBuildRequiredMatchExpression(t *testing.T) {
 	// Non-default workspace contributes a workspace match expression.
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}

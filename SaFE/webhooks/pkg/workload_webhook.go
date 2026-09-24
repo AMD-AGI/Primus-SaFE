@@ -641,6 +641,17 @@ func (v *WorkloadValidator) validateInferaDeployment(workload *v1.Workload) erro
 		}
 	}
 
+	// A readiness port in the shared env reaches every worker slot, so two
+	// slots co-located on one hostNetwork node would contend for it. Without
+	// it, the dispatcher gives each slot its own port.
+	if _, ok := workload.Spec.Env[common.InferaReadinessPortEnv]; ok {
+		if workers := len(roles) - roleCounts[common.DynamoRoleFrontend]; workers > 1 {
+			errs = append(errs, fmt.Errorf(
+				"env %s would be shared by %d worker slots; leave it unset so each slot gets its own port",
+				common.InferaReadinessPortEnv, workers))
+		}
+	}
+
 	return utilerrors.NewAggregate(errs)
 }
 

@@ -2771,3 +2771,19 @@ func TestWorkloadValidateInferaIdleRoles(t *testing.T) {
 	assert.Assert(t, v.validateInferaDeployment(pd("frontend")) != nil,
 		"the frontend gets no readiness probe injected anyway")
 }
+
+// A readiness port in the shared env reaches every worker, so two worker slots
+// co-located on one hostNetwork node would contend for it.
+func TestWorkloadValidateInferaSharedReadinessPort(t *testing.T) {
+	v := &WorkloadValidator{}
+	withEnv := func(roles string, n int) *v1.Workload {
+		w := dynamoWorkload(common.InferaDeploymentKind, "sglang", common.DynamoKVBackendNixl, roles, n)
+		w.Spec.Env = map[string]string{common.InferaReadinessPortEnv: "31000"}
+		return w
+	}
+
+	assert.NilError(t, v.validateInferaDeployment(withEnv("frontend,worker", 2)),
+		"a single worker slot may take a shared port")
+	assert.Assert(t, v.validateInferaDeployment(withEnv("frontend,prefill,decode", 3)) != nil,
+		"prefill and decode would share one port")
+}
