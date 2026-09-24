@@ -1732,6 +1732,25 @@ func TestNormalizeInferaIDEPKeepsACreatorReadinessPort(t *testing.T) {
 	assert.Equal(t, set, false, "normalize must leave the creator's env value in charge")
 }
 
+// A slot with no main container has nowhere to carry the port; it is left
+// untouched instead of gaining a container or failing the render.
+func TestSetInferaReadinessPortSkipsASlotWithoutAMainContainer(t *testing.T) {
+	sidecar := map[string]interface{}{"name": "sidecar"}
+	slot := map[string]interface{}{
+		"extraPodSpec": map[string]interface{}{
+			"containers": []interface{}{"not-a-container", sidecar},
+		},
+	}
+	setInferaReadinessPort(slot, "role1", 12345)
+	_, hasEnv := sidecar["env"]
+	assert.Equal(t, hasEnv, false)
+
+	bare := map[string]interface{}{}
+	setInferaReadinessPort(bare, "role2", 12345)
+	_, hasExtra := bare["extraPodSpec"]
+	assert.Equal(t, hasExtra, false)
+}
+
 // A range with no free port is an error, not an endless loop in reconcile.
 func TestRandomInferaReadinessPortFailsWhenTheRangeIsFull(t *testing.T) {
 	used := map[int]struct{}{}

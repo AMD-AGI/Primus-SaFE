@@ -2418,3 +2418,15 @@ func TestParseGetPodLogQuery(t *testing.T) {
 	assert.Equal(t, "side", q2.Container)
 	assert.Equal(t, int64(50), q2.TailLines)
 }
+
+// idleRoles reaches the workload as the idle-roles annotation; an empty list
+// writes nothing, so the workload keeps the default of probing every worker.
+func TestApplyInferaOptionsWritesIdleRoles(t *testing.T) {
+	workload := &v1.Workload{}
+	applyInferaOptions(workload, &view.DynamoOptions{IdleRoles: []string{"prefill", "decode"}})
+	assert.Equal(t, v1.GetAnnotation(workload, v1.InferaIdleRolesAnnotation), "prefill,decode")
+
+	empty := &v1.Workload{}
+	applyInferaOptions(empty, &view.DynamoOptions{IdleRoles: []string{}})
+	assert.Equal(t, v1.HasAnnotation(empty, v1.InferaIdleRolesAnnotation), false)
+}
