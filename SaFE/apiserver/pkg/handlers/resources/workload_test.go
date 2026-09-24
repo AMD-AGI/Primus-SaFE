@@ -2418,14 +2418,3 @@ func TestParseGetPodLogQuery(t *testing.T) {
 	assert.Equal(t, "side", q2.Container)
 	assert.Equal(t, int64(50), q2.TailLines)
 }
-
-// Readiness ports reach the workload as a role=port annotation in a stable
-// order, so the same request always renders the same annotation.
-func TestApplyInferaOptionsWritesReadinessPorts(t *testing.T) {
-	workload := &v1.Workload{}
-	applyInferaOptions(workload, &view.DynamoOptions{
-		ReadinessPorts: map[string]int{"prefill": 31090, "decode": 31100},
-	})
-	assert.Equal(t, v1.GetAnnotation(workload, v1.InferaReadinessPortsAnnotation),
-		"decode=31100,prefill=31090")
-}

@@ -1693,34 +1693,43 @@ func slotEnv(t *testing.T, obj *unstructured.Unstructured, slot string) map[stri
 	return out
 }
 
-// Each role gets the readiness port its creator chose, so co-located prefill
-// and decode pods on one hostNetwork node do not fight over one port. The
-// operator probes whatever INFERA_READINESS_PORT the container carries.
-func TestNormalizeInferaIDEPSetsReadinessPortPerRole(t *testing.T) {
-	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
-	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
-	v1.SetAnnotation(workload, v1.InferaReadinessPortsAnnotation, "prefill=31090,decode=31100")
-	obj := inferaObject(nil, nil, nil)
+// Every worker slot gets its own readiness port, so prefill and decode pods
+// sharing a hostNetwork node do not contend for one port. The operator probes
+// whatever INFERA_READINESS_PORT the container carries.
+func TestNormalizeInferaIDEPAssignsDistinctReadinessPorts(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill,
+		common.DynamoRoleDecode, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, nil, []int{1, 1, 1, 1, 1})
+	obj := inferaObject(nil, nil, nil, nil, nil)
 
 	assert.NilError(t, normalizeInferaIDEP(obj, workload))
 
 	_, frontendHasPort := slotEnv(t, obj, "role0")[common.InferaReadinessPortEnv]
 	assert.Equal(t, frontendHasPort, false, "the frontend opens no readiness port")
-	assert.Equal(t, slotEnv(t, obj, "role1")[common.InferaReadinessPortEnv], "31090")
-	assert.Equal(t, slotEnv(t, obj, "role2")[common.InferaReadinessPortEnv], "31100")
+	seen := map[int]bool{}
+	for i := 1; i < len(roles); i++ {
+		raw := slotEnv(t, obj, "role"+strconv.Itoa(i))[common.InferaReadinessPortEnv]
+		port, err := strconv.Atoi(raw)
+		assert.NilError(t, err, "role%d port %q", i, raw)
+		assert.Assert(t, port >= inferaReadinessPortMin && port < inferaReadinessPortMax,
+			"role%d port %d outside the range", i, port)
+		assert.Assert(t, !seen[port], "role%d reuses port %d", i, port)
+		seen[port] = true
+	}
 }
 
-// Without the annotation the container carries no port and the worker and
-// operator fall back to their shared default.
-func TestNormalizeInferaIDEPLeavesReadinessPortUnsetByDefault(t *testing.T) {
+// A port the creator set through env applies to every container and is what
+// sync keeps writing, so a random port must not replace it.
+func TestNormalizeInferaIDEPKeepsACreatorReadinessPort(t *testing.T) {
 	roles := []string{common.DynamoRoleFrontend, common.DynamoRoleWorker}
 	workload := newInferaWorkload(roles, nil, []int{1, 1})
+	workload.Spec.Env = map[string]string{common.InferaReadinessPortEnv: "31000"}
 	obj := inferaObject(nil, nil)
 
 	assert.NilError(t, normalizeInferaIDEP(obj, workload))
 
 	_, set := slotEnv(t, obj, "role1")[common.InferaReadinessPortEnv]
-	assert.Equal(t, set, false)
+	assert.Equal(t, set, false, "normalize must leave the creator's env value in charge")
 }
 
 func TestBuildRequiredMatchExpression(t *testing.T) {

@@ -679,13 +679,6 @@ func TestWorkloadValidateImmutableFields(t *testing.T) {
 	assert.Assert(t, v.validateImmutableFields(idleChanged, idleOld) != nil)
 	assert.Assert(t, v.validateImmutableFields(validWorkload(), idleOld) != nil,
 		"removing idle-roles is a change too")
-
-	// readiness-ports is applied at create only.
-	portsOld := validWorkload()
-	v1.SetAnnotation(portsOld, v1.InferaReadinessPortsAnnotation, "decode=31100")
-	portsChanged := validWorkload()
-	v1.SetAnnotation(portsChanged, v1.InferaReadinessPortsAnnotation, "decode=31200")
-	assert.Assert(t, v.validateImmutableFields(portsChanged, portsOld) != nil)
 }
 
 // TestWorkloadValidateScope verifies scope validation.
@@ -2777,35 +2770,4 @@ func TestWorkloadValidateInferaIdleRoles(t *testing.T) {
 		"a role outside service-roles must be rejected, not silently ignored")
 	assert.Assert(t, v.validateInferaDeployment(pd("frontend")) != nil,
 		"the frontend gets no readiness probe injected anyway")
-}
-
-// Readiness ports are per worker role and must parse, name a declared role,
-// and stay clear of the shared env key the sync path would overwrite them with.
-func TestWorkloadValidateInferaReadinessPorts(t *testing.T) {
-	v := &WorkloadValidator{}
-	pd := func(ports string) *v1.Workload {
-		w := dynamoWorkload(common.InferaDeploymentKind, "sglang", common.DynamoKVBackendNixl,
-			"frontend,prefill,decode", 3)
-		v1.SetAnnotation(w, v1.InferaReadinessPortsAnnotation, ports)
-		return w
-	}
-
-	assert.NilError(t, v.validateInferaDeployment(pd("prefill=31090,decode=31100")))
-	assert.NilError(t, v.validateInferaDeployment(pd("")))
-	for _, bad := range []string{
-		"worker=31090",        // not a declared role
-		"frontend=31090",      // the server opens no readiness port
-		"prefill=0",           // out of range
-		"prefill=70000",       // out of range
-		"prefill=abc",         // not a number
-		"prefill",             // missing port
-		"prefill=1,prefill=2", // duplicate role
-	} {
-		assert.Assert(t, v.validateInferaDeployment(pd(bad)) != nil, "%q must be rejected", bad)
-	}
-
-	withEnv := pd("prefill=31090,decode=31100")
-	withEnv.Spec.Env = map[string]string{common.InferaReadinessPortEnv: "31000"}
-	assert.Assert(t, v.validateInferaDeployment(withEnv) != nil,
-		"a shared env value would overwrite the per-role ports on sync")
 }

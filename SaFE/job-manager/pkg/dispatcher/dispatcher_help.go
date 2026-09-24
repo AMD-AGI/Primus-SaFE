@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"sort"
 	"strconv"
 	"strings"
@@ -54,6 +55,11 @@ const (
 	// the operator's readiness probe. Written by applyInferaRoleFields on
 	// create.
 	inferaSkipReadinessField = "skipReadinessProbe"
+	// inferaReadinessPortMin/Max bound the random readiness port given to each
+	// worker slot. The range stays clear of the NodePort range and the
+	// engine's default ports, which share the node's port space on hostNetwork.
+	inferaReadinessPortMin = 40000
+	inferaReadinessPortMax = 60000
 )
 
 // initializeObject modifies various aspects of a Kubernetes object during workload creation.
@@ -2095,10 +2101,6 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 	}
 	kvBackend := commonworkload.GetInferaKVTransferBackend(adminWorkload)
 	backendFramework := commonworkload.GetInferaBackendFramework(adminWorkload)
-	readinessPorts, err := commonworkload.GetInferaReadinessPorts(adminWorkload)
-	if err != nil {
-		return err
-	}
 
 	if err := jobutils.SetNestedField(obj.Object, backendFramework,
 		[]string{"spec", "backendFramework"}); err != nil {
@@ -2112,6 +2114,11 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 	if !found {
 		return fmt.Errorf("spec.services not found in rendered IDEP %s", adminWorkload.Name)
 	}
+
+	// A creator-set port reaches every container through the shared env and is
+	// what sync keeps writing, so it takes precedence over a random one.
+	_, creatorReadinessPort := adminWorkload.Spec.Env[common.InferaReadinessPortEnv]
+	usedReadinessPorts := map[int]struct{}{}
 
 	for i, role := range roles {
 		slotKey := "role" + strconv.Itoa(i)
@@ -2139,8 +2146,8 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 
 		applyInferaRoleFields(slot, role, kvBackend,
 			commonworkload.IsInferaIdleRole(adminWorkload, role))
-		if port, ok := readinessPorts[role]; ok && role != common.DynamoRoleFrontend {
-			setInferaReadinessPort(slot, port)
+		if role != common.DynamoRoleFrontend && !creatorReadinessPort {
+			setInferaReadinessPort(slot, randomInferaReadinessPort(usedReadinessPorts))
 		}
 
 		// Multi-node: node count is Resources[i].Replica, carried by the flat
@@ -2205,9 +2212,20 @@ func setInferaWorkerReadinessSkip(slot map[string]interface{}) {
 	slot[inferaSkipReadinessField] = true
 }
 
+// randomInferaReadinessPort picks a port in [inferaReadinessPortMin,
+// inferaReadinessPortMax) not yet in used, and records it there.
+func randomInferaReadinessPort(used map[int]struct{}) int {
+	for {
+		port := inferaReadinessPortMin + rand.Intn(inferaReadinessPortMax-inferaReadinessPortMin)
+		if _, taken := used[port]; !taken {
+			used[port] = struct{}{}
+			return port
+		}
+	}
+}
+
 // setInferaReadinessPort sets INFERA_READINESS_PORT on a slot's main container.
-// The worker binds that port and the operator probes it, so roles sharing a
-// hostNetwork node can each use their own.
+// The worker binds that port and the operator probes it.
 func setInferaReadinessPort(slot map[string]interface{}, port int) {
 	extra, _ := slot["extraPodSpec"].(map[string]interface{})
 	if extra == nil {
