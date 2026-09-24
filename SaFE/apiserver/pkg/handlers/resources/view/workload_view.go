@@ -97,6 +97,15 @@ type DynamoOptions struct {
 	// a plain Deployment replica count (independent scale-out). Each listed role
 	// must also appear in ServiceRoles. Example: ["worker"] or ["prefill","decode"].
 	MultinodeRoles []string `json:"multinodeRoles,omitempty"`
+
+	// IdleRoles lists the roles whose pods deploy idle, with the engine
+	// launched out-of-band over SSH afterwards. Such a worker never registers
+	// and would sit NotReady forever, so its readiness probe is skipped. A
+	// role that actually serves must NOT be listed: workers roll surge-first,
+	// and without a probe the rollout retires the pod that is still serving.
+	// Each listed role must also appear in ServiceRoles. Infera only; applied
+	// at create.
+	IdleRoles []string `json:"idleRoles,omitempty"`
 }
 
 type GitHubAuthRequest struct {

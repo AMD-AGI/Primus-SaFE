@@ -1610,16 +1610,178 @@ func TestBuildSecretVolume(t *testing.T) {
 func TestApplyInferaRoleFields(t *testing.T) {
 	// Frontend -> server component, role removed.
 	frontend := map[string]interface{}{"role": "old"}
-	applyInferaRoleFields(frontend, common.DynamoRoleFrontend, "nixl")
+	applyInferaRoleFields(frontend, common.DynamoRoleFrontend, "nixl", false)
 	assert.Equal(t, frontend["componentType"], "server")
 	_, hasRole := frontend["role"]
 	assert.Equal(t, hasRole, false)
 
 	// Worker -> worker component with mixed role.
 	worker := map[string]interface{}{}
-	applyInferaRoleFields(worker, common.DynamoRoleWorker, "nixl")
+	applyInferaRoleFields(worker, common.DynamoRoleWorker, "nixl", false)
 	assert.Equal(t, worker["componentType"], "worker")
 	assert.Equal(t, worker["role"], "mixed")
+}
+
+// A serving worker must keep its readiness probe. Workers roll surge-first,
+// so the probe is what holds the rollout back until the replacement has
+// registered; without it every pod is Ready the moment it is Running and the
+// rollout retires the pod that is still serving.
+func TestInferaServingWorkersKeepTheirReadinessProbe(t *testing.T) {
+	for _, role := range []string{
+		common.DynamoRoleWorker, common.DynamoRolePrefill, common.DynamoRoleDecode,
+	} {
+		slot := map[string]interface{}{}
+		applyInferaRoleFields(slot, role, "nixl", false)
+		_, skipped := slot[inferaSkipReadinessField]
+		assert.Equal(t, skipped, false,
+			"role %s: without a probe the rollout retires the old pod early", role)
+	}
+}
+
+// An idle worker is the one case that must skip it: its engine is launched
+// out-of-band afterwards, so it never registers, never opens its readiness
+// port, and would sit NotReady forever.
+func TestInferaIdleWorkersSkipTheReadinessProbe(t *testing.T) {
+	for _, role := range []string{
+		common.DynamoRoleWorker, common.DynamoRolePrefill, common.DynamoRoleDecode,
+	} {
+		slot := map[string]interface{}{}
+		applyInferaRoleFields(slot, role, "nixl", true)
+		assert.Equal(t, slot[inferaSkipReadinessField], true, "role %s", role)
+	}
+}
+
+// The annotation names roles, so it must reach exactly the roles it lists.
+func TestNormalizeInferaIDEPAppliesIdlePerRole(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, nil, []int{1, 1, 1})
+	v1.SetAnnotation(workload, v1.InferaIdleRolesAnnotation, common.DynamoRoleDecode)
+	obj := inferaObject(nil, nil, nil)
+
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+	services, found, err := jobutils.NestedMap(obj.Object, []string{"spec", "services"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	prefill := services["role1"].(map[string]interface{})
+	decode := services["role2"].(map[string]interface{})
+
+	_, prefillSkipped := prefill[inferaSkipReadinessField]
+	assert.Equal(t, prefillSkipped, false, "prefill serves, so it keeps the probe")
+	assert.Equal(t, decode[inferaSkipReadinessField], true, "decode was listed as idle")
+}
+
+// slotEnv returns the main container's env of a rendered IDEP slot as a map.
+func slotEnv(t *testing.T, obj *unstructured.Unstructured, slot string) map[string]string {
+	t.Helper()
+	containers, found, err := jobutils.NestedSlice(obj.Object,
+		[]string{"spec", "services", slot, "extraPodSpec", "containers"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	out := map[string]string{}
+	for _, c := range containers {
+		m := c.(map[string]interface{})
+		if m["name"] != "main" {
+			continue
+		}
+		env, _ := m["env"].([]interface{})
+		for _, e := range env {
+			kv := e.(map[string]interface{})
+			out[kv["name"].(string)] = fmt.Sprint(kv["value"])
+		}
+	}
+	return out
+}
+
+// Every worker slot gets its own readiness port, so prefill and decode pods
+// sharing a hostNetwork node do not contend for one port. The operator probes
+// whatever INFERA_READINESS_PORT the container carries.
+func TestNormalizeInferaIDEPAssignsDistinctReadinessPorts(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill,
+		common.DynamoRoleDecode, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, nil, []int{1, 1, 1, 1, 1})
+	obj := inferaObject(nil, nil, nil, nil, nil)
+
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+	_, frontendHasPort := slotEnv(t, obj, "role0")[common.InferaReadinessPortEnv]
+	assert.Equal(t, frontendHasPort, false, "the frontend opens no readiness port")
+	seen := map[int]bool{}
+	for i := 1; i < len(roles); i++ {
+		raw := slotEnv(t, obj, "role"+strconv.Itoa(i))[common.InferaReadinessPortEnv]
+		port, err := strconv.Atoi(raw)
+		assert.NilError(t, err, "role%d port %q", i, raw)
+		assert.Assert(t, port >= inferaReadinessPortMin && port < inferaReadinessPortMax,
+			"role%d port %d outside the range", i, port)
+		assert.Assert(t, !seen[port], "role%d reuses port %d", i, port)
+		seen[port] = true
+	}
+}
+
+// A port the creator set through env applies to every container and is what
+// sync keeps writing, so a random port must not replace it.
+func TestNormalizeInferaIDEPKeepsACreatorReadinessPort(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRoleWorker}
+	workload := newInferaWorkload(roles, nil, []int{1, 1})
+	workload.Spec.Env = map[string]string{common.InferaReadinessPortEnv: "31000"}
+	obj := inferaObject(nil, nil)
+
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+	_, set := slotEnv(t, obj, "role1")[common.InferaReadinessPortEnv]
+	assert.Equal(t, set, false, "normalize must leave the creator's env value in charge")
+}
+
+// A slot with no main container has nowhere to carry the port; it is left
+// untouched instead of gaining a container or failing the render.
+func TestSetInferaReadinessPortSkipsASlotWithoutAMainContainer(t *testing.T) {
+	sidecar := map[string]interface{}{"name": "sidecar"}
+	slot := map[string]interface{}{
+		"extraPodSpec": map[string]interface{}{
+			"containers": []interface{}{"not-a-container", sidecar},
+		},
+	}
+	setInferaReadinessPort(slot, "role1", 12345)
+	_, hasEnv := sidecar["env"]
+	assert.Equal(t, hasEnv, false)
+
+	bare := map[string]interface{}{}
+	setInferaReadinessPort(bare, "role2", 12345)
+	_, hasExtra := bare["extraPodSpec"]
+	assert.Equal(t, hasExtra, false)
+}
+
+// SaFE's fixed host ports (e.g. the RayJob metrics port 18080, inside the
+// readiness range) are held by other hostNetwork workloads on the node, so a
+// random readiness port must never land on one.
+func TestInferaReadinessPortsStartWithSaFEFixedHostPorts(t *testing.T) {
+	used := inferaReservedHostPorts()
+	_, reserved := used[common.RayJobMetricsPort]
+	assert.Assert(t, reserved, "the RayJob metrics port must be reserved")
+
+	for p := inferaReadinessPortMin; p < inferaReadinessPortMax; p++ {
+		if p != common.RayJobMetricsPort {
+			used[p] = struct{}{}
+		}
+	}
+	_, err := randomInferaReadinessPort(used)
+	assert.Assert(t, err != nil, "the only free port left is a reserved one")
+}
+
+// A range with no free port is an error, not an endless loop in reconcile.
+func TestRandomInferaReadinessPortFailsWhenTheRangeIsFull(t *testing.T) {
+	used := map[int]struct{}{}
+	for p := inferaReadinessPortMin; p < inferaReadinessPortMax; p++ {
+		used[p] = struct{}{}
+	}
+	_, err := randomInferaReadinessPort(used)
+	assert.Assert(t, err != nil)
+
+	delete(used, inferaReadinessPortMin)
+	port, err := randomInferaReadinessPort(used)
+	if err == nil {
+		assert.Equal(t, port, inferaReadinessPortMin, "only one port was free")
+	}
 }
 
 func TestBuildRequiredMatchExpression(t *testing.T) {

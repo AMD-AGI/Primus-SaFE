@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"sort"
 	"strconv"
 	"strings"
@@ -51,6 +52,19 @@ const (
 	// count of a multi-node role's LeaderWorkerSet group. Written by
 	// normalizeInferaIDEP on create and by updateInferaNodeCount on sync.
 	inferaNodeCountField = "numberOfNodes"
+	// inferaSkipReadinessField is the IDEP ServiceSpec field that suppresses
+	// the operator's readiness probe. Written by applyInferaRoleFields on
+	// create.
+	inferaSkipReadinessField = "skipReadinessProbe"
+	// inferaReadinessPortMin/Max bound the random readiness port given to each
+	// worker slot. On hostNetwork it shares the node's port space, so the range
+	// sits below the kernel's ephemeral range and clear of the kubelet ports,
+	// the NodePort range, the engine's defaults and the [20000,30000) band
+	// generateRandomPort draws job ports from.
+	inferaReadinessPortMin = 12000
+	inferaReadinessPortMax = 20000
+	// inferaReadinessPortRetries caps the draws for one free port.
+	inferaReadinessPortRetries = 200
 )
 
 // initializeObject modifies various aspects of a Kubernetes object during workload creation.
@@ -2148,6 +2162,11 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 		return fmt.Errorf("spec.services not found in rendered IDEP %s", adminWorkload.Name)
 	}
 
+	// A creator-set port reaches every container through the shared env and is
+	// what sync keeps writing, so it takes precedence over a random one.
+	_, creatorReadinessPort := adminWorkload.Spec.Env[common.InferaReadinessPortEnv]
+	usedReadinessPorts := inferaReservedHostPorts()
+
 	for i, role := range roles {
 		slotKey := "role" + strconv.Itoa(i)
 		slot, ok := services[slotKey].(map[string]interface{})
@@ -2172,7 +2191,15 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 		}
 		slot["podLabels"] = labels
 
-		applyInferaRoleFields(slot, role, kvBackend)
+		applyInferaRoleFields(slot, role, kvBackend,
+			commonworkload.IsInferaIdleRole(adminWorkload, role))
+		if role != common.DynamoRoleFrontend && !creatorReadinessPort {
+			port, err := randomInferaReadinessPort(usedReadinessPorts)
+			if err != nil {
+				return err
+			}
+			setInferaReadinessPort(slot, slotKey, port)
+		}
 
 		// Multi-node: node count is Resources[i].Replica, carried by the flat
 		// numberOfNodes field; force replicas=1 (one LeaderWorkerSet group).
@@ -2199,7 +2226,7 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 // sglang disaggregation flags for prefill/decode (reusing the dynamo helper,
 // which operates on extraPodSpec.containers[main] — the same pre-fold shape the
 // IDEP operator consumes).
-func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string) {
+func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string, idle bool) {
 	switch role {
 	case common.DynamoRoleFrontend:
 		slot["componentType"] = "server"
@@ -2207,30 +2234,86 @@ func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string) 
 	case common.DynamoRoleWorker:
 		slot["componentType"] = "worker"
 		slot["role"] = "mixed"
-		setInferaWorkerReadinessSkip(slot)
 	case common.DynamoRolePrefill:
 		slot["componentType"] = "worker"
 		slot["role"] = "prefill"
 		appendSglangDisaggArgs(slot, "prefill", kvBackend)
-		setInferaWorkerReadinessSkip(slot)
 	case common.DynamoRoleDecode:
 		slot["componentType"] = "worker"
 		slot["role"] = "decode"
 		appendSglangDisaggArgs(slot, "decode", kvBackend)
+	}
+	if idle && slot["componentType"] == "worker" {
 		setInferaWorkerReadinessSkip(slot)
 	}
 }
 
 // setInferaWorkerReadinessSkip tells the Infera operator NOT to inject its
-// default /health readiness probe on a worker ServiceSpec. Infera workers deploy
-// IDLE (mn-idle.sh) and only start the engine when restart-server SSH-launches
-// it out-of-band, so a /health:port probe never passes at deploy time — leaving
+// readiness probe on a worker ServiceSpec. Applied only to a role named by
+// idle-roles: such a worker deploys IDLE (mn-idle.sh) and its engine is
+// SSH-launched out-of-band by restart-server afterwards, so it never
+// registers and never opens the readiness port the probe targets — leaving
 // readyReplicas=0 and the InferaDeployment stuck in "pending" (which blocks
-// create-infera's wait-for-Running). Worker serving-readiness is tracked by
-// Infera's own NATS/Pod-annotation registration, not k8s Service readiness, so
-// skipping the probe is safe.
+// create-infera's wait-for-Running).
+//
+// A worker that does serve must not get this: workers roll surge-first, and
+// with no probe every pod counts as Ready the moment it is Running, so the
+// rollout retires the pod that is still serving.
 func setInferaWorkerReadinessSkip(slot map[string]interface{}) {
-	slot["skipReadinessProbe"] = true
+	slot[inferaSkipReadinessField] = true
+}
+
+// inferaReservedHostPorts returns SaFE's fixed host ports, which other
+// hostNetwork workloads bind on the node, as the initial set of ports a
+// readiness port must avoid.
+func inferaReservedHostPorts() map[int]struct{} {
+	return map[int]struct{}{
+		common.RayJobGcsServerPort: {},
+		common.RayJobDashboardPort: {},
+		common.RayJobMetricsPort:   {},
+		common.MonarchMeshPortNum:  {},
+		common.DynamoFrontendPort:  {},
+	}
+}
+
+// randomInferaReadinessPort picks a port in [inferaReadinessPortMin,
+// inferaReadinessPortMax) not yet in used, and records it there. It gives up
+// after inferaReadinessPortRetries draws.
+func randomInferaReadinessPort(used map[int]struct{}) (int, error) {
+	for i := 0; i < inferaReadinessPortRetries; i++ {
+		port := inferaReadinessPortMin + rand.Intn(inferaReadinessPortMax-inferaReadinessPortMin)
+		if _, taken := used[port]; !taken {
+			used[port] = struct{}{}
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("no free infera readiness port after %d attempts", inferaReadinessPortRetries)
+}
+
+// setInferaReadinessPort sets INFERA_READINESS_PORT on a slot's main container.
+// The worker binds that port and the operator probes it.
+func setInferaReadinessPort(slot map[string]interface{}, slotKey string, port int) {
+	extra, _ := slot["extraPodSpec"].(map[string]interface{})
+	containers, _ := extra["containers"].([]interface{})
+	found := false
+	for i, c := range containers {
+		m, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if name, _ := m["name"].(string); name != "main" {
+			continue
+		}
+		updateContainerEnv(map[string]string{common.InferaReadinessPortEnv: strconv.Itoa(port)}, m, nil)
+		containers[i] = m
+		found = true
+	}
+	if !found {
+		klog.Warningf("infera slot %s has no main container; readiness port %d not set", slotKey, port)
+		return
+	}
+	extra["containers"] = containers
+	slot["extraPodSpec"] = extra
 }
 
 // dynamoServiceKey maps the SaFE role string to the conventional DGD service

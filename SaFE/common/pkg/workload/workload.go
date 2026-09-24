@@ -634,6 +634,32 @@ func IsInferaMultinodeRole(w *v1.Workload, role string) bool {
 	return false
 }
 
+// GetInferaIdleRoles returns the roles whose pods deploy idle, with the engine
+// launched out-of-band; their readiness probe is skipped.
+func GetInferaIdleRoles(w *v1.Workload) []string {
+	val := v1.GetAnnotation(w, v1.InferaIdleRolesAnnotation)
+	if val == "" {
+		return nil
+	}
+	roles := make([]string, 0, 2)
+	for _, r := range strings.Split(val, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			roles = append(roles, r)
+		}
+	}
+	return roles
+}
+
+// IsInferaIdleRole reports whether the given role deploys idle.
+func IsInferaIdleRole(w *v1.Workload, role string) bool {
+	for _, r := range GetInferaIdleRoles(w) {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
 // GetInferaBackendFramework returns the chosen backend framework
 // (sglang/vllm); default sglang when annotation absent.
 func GetInferaBackendFramework(w *v1.Workload) string {

@@ -812,3 +812,16 @@ func TestShippedResourceTemplatesDeclarePodSpecPaths(t *testing.T) {
 	// produced nothing must not read as a pass.
 	assert.Assert(t, checked > 10)
 }
+
+// Idle roles are read from a comma-separated annotation; blanks and spaces are
+// ignored, and an absent annotation names no role.
+func TestGetInferaIdleRoles(t *testing.T) {
+	w := &v1.Workload{}
+	assert.Equal(t, len(GetInferaIdleRoles(w)), 0)
+	assert.Equal(t, IsInferaIdleRole(w, common.DynamoRoleDecode), false)
+
+	v1.SetAnnotation(w, v1.InferaIdleRolesAnnotation, " prefill , ,decode")
+	assert.DeepEqual(t, GetInferaIdleRoles(w), []string{"prefill", "decode"})
+	assert.Equal(t, IsInferaIdleRole(w, common.DynamoRoleDecode), true)
+	assert.Equal(t, IsInferaIdleRole(w, common.DynamoRoleWorker), false)
+}
