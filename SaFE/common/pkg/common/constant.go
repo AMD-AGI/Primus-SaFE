@@ -211,6 +211,9 @@ const (
 	InferaFrontendPort            = DynamoFrontendPort
 	InferaDefaultKVBackend        = DynamoKVBackendNixl
 	InferaDefaultBackendFramework = "sglang"
+	// InferaReadinessPortEnv is the port an Infera worker opens once it has
+	// registered; the operator probes it for readiness.
+	InferaReadinessPortEnv = "INFERA_READINESS_PORT"
 
 	// Cluster-wide infrastructure addresses installed by the Phase 1 SaFE
 	// addon. The dispatcher and webhook inject these into every dynamo pod

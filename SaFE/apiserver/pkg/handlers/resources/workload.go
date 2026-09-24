@@ -971,6 +971,10 @@ func applyInferaOptions(workload *v1.Workload, opts *view.DynamoOptions) {
 		v1.SetAnnotation(workload, v1.InferaMultinodeRolesAnnotation,
 			strings.Join(opts.MultinodeRoles, ","))
 	}
+	if len(opts.IdleRoles) > 0 {
+		v1.SetAnnotation(workload, v1.InferaIdleRolesAnnotation,
+			strings.Join(opts.IdleRoles, ","))
+	}
 }
 
 // applyDynamoOptions translates the structured DynamoOptions API field into

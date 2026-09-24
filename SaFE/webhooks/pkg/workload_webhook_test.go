@@ -667,6 +667,18 @@ func TestWorkloadValidateImmutableFields(t *testing.T) {
 	changed := validWorkload()
 	changed.Spec.Workspace = "other"
 	assert.Assert(t, v.validateImmutableFields(changed, oldW) != nil)
+
+	// idle-roles is applied at create only.
+	idleOld := validWorkload()
+	v1.SetAnnotation(idleOld, v1.InferaIdleRolesAnnotation, "decode")
+	idleSame := validWorkload()
+	v1.SetAnnotation(idleSame, v1.InferaIdleRolesAnnotation, "decode")
+	assert.NilError(t, v.validateImmutableFields(idleSame, idleOld))
+	idleChanged := validWorkload()
+	v1.SetAnnotation(idleChanged, v1.InferaIdleRolesAnnotation, "prefill,decode")
+	assert.Assert(t, v.validateImmutableFields(idleChanged, idleOld) != nil)
+	assert.Assert(t, v.validateImmutableFields(validWorkload(), idleOld) != nil,
+		"removing idle-roles is a change too")
 }
 
 // TestWorkloadValidateScope verifies scope validation.
@@ -2739,4 +2751,52 @@ func TestCICDEphemeralRunnerWithoutProxy_DoesNotRequireOwner(t *testing.T) {
 		}
 		assert.NilError(t, validateCICDProxyAdmission(context.Background(), cli, cli, child, nil))
 	}
+}
+
+// An idle role that is not a declared service role would silently do nothing,
+// and naming the frontend suggests the setting applies there when it does not.
+func TestWorkloadValidateInferaIdleRoles(t *testing.T) {
+	v := &WorkloadValidator{}
+	pd := func(idle string) *v1.Workload {
+		w := dynamoWorkload(common.InferaDeploymentKind, "sglang", common.DynamoKVBackendNixl,
+			"frontend,prefill,decode", 3)
+		v1.SetAnnotation(w, v1.InferaIdleRolesAnnotation, idle)
+		return w
+	}
+
+	assert.NilError(t, v.validateInferaDeployment(pd("prefill,decode")))
+	assert.NilError(t, v.validateInferaDeployment(pd("")))
+	assert.Assert(t, v.validateInferaDeployment(pd("worker")) != nil,
+		"a role outside service-roles must be rejected, not silently ignored")
+	assert.Assert(t, v.validateInferaDeployment(pd("frontend")) != nil,
+		"the frontend gets no readiness probe injected anyway")
+}
+
+// A readiness port in the shared env reaches every worker, so two worker slots
+// co-located on one hostNetwork node would contend for it.
+func TestWorkloadValidateInferaSharedReadinessPort(t *testing.T) {
+	withEnv := func(roles string, n int, port string, hostNetwork bool) *v1.Workload {
+		w := dynamoWorkload(common.InferaDeploymentKind, "sglang", common.DynamoKVBackendNixl, roles, n)
+		w.Spec.Env = map[string]string{common.InferaReadinessPortEnv: port}
+		if hostNetwork {
+			for i := range w.Spec.Resources {
+				w.Spec.Resources[i].RdmaResource = "1"
+			}
+		}
+		return w
+	}
+	pd := func(port string, hostNetwork bool) *v1.Workload {
+		return withEnv("frontend,prefill,decode", 3, port, hostNetwork)
+	}
+
+	assert.NilError(t, validateInferaSharedReadinessPort(withEnv("frontend,worker", 2, "31000", true), nil),
+		"a single worker slot may take a shared port")
+	assert.Assert(t, validateInferaSharedReadinessPort(pd("31000", true), nil) != nil,
+		"prefill and decode on hostNetwork would share one node port")
+	assert.NilError(t, validateInferaSharedReadinessPort(pd("31000", false), nil),
+		"pods with their own network namespace do not contend for the port")
+	assert.NilError(t, validateInferaSharedReadinessPort(pd("31000", true), pd("31000", true)),
+		"an update that keeps the value leaves an existing workload updatable")
+	assert.Assert(t, validateInferaSharedReadinessPort(pd("32000", true), pd("31000", true)) != nil,
+		"changing the value is checked like a create")
 }
