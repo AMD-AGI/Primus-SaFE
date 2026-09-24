@@ -607,11 +607,10 @@ func GetInferaKVTransferBackend(w *v1.Workload) string {
 	return val
 }
 
-// inferaRoleList parses a comma-separated role annotation into a slice.
-// Shared by every infera.*-roles annotation so they agree on separators and
-// whitespace.
-func inferaRoleList(w *v1.Workload, annotation string) []string {
-	val := v1.GetAnnotation(w, annotation)
+// GetInferaMultinodeRoles returns the roles that run as a multi-node
+// LeaderWorkerSet (node count = that role's Resources[i].Replica).
+func GetInferaMultinodeRoles(w *v1.Workload) []string {
+	val := v1.GetAnnotation(w, v1.InferaMultinodeRolesAnnotation)
 	if val == "" {
 		return nil
 	}
@@ -624,9 +623,10 @@ func inferaRoleList(w *v1.Workload, annotation string) []string {
 	return roles
 }
 
-// inferaRoleListHas reports whether a role is named by the given annotation.
-func inferaRoleListHas(w *v1.Workload, annotation, role string) bool {
-	for _, r := range inferaRoleList(w, annotation) {
+// IsInferaMultinodeRole reports whether the given role runs as a multi-node
+// LeaderWorkerSet.
+func IsInferaMultinodeRole(w *v1.Workload, role string) bool {
+	for _, r := range GetInferaMultinodeRoles(w) {
 		if r == role {
 			return true
 		}
@@ -634,28 +634,30 @@ func inferaRoleListHas(w *v1.Workload, annotation, role string) bool {
 	return false
 }
 
-// GetInferaMultinodeRoles returns the roles that run as a multi-node
-// LeaderWorkerSet (node count = that role's Resources[i].Replica).
-func GetInferaMultinodeRoles(w *v1.Workload) []string {
-	return inferaRoleList(w, v1.InferaMultinodeRolesAnnotation)
-}
-
-// IsInferaMultinodeRole reports whether the given role runs as a multi-node
-// LeaderWorkerSet.
-func IsInferaMultinodeRole(w *v1.Workload, role string) bool {
-	return inferaRoleListHas(w, v1.InferaMultinodeRolesAnnotation, role)
-}
-
 // GetInferaIdleRoles returns the roles whose pods deploy idle, with the engine
-// launched out-of-band.
+// launched out-of-band; their readiness probe is skipped.
 func GetInferaIdleRoles(w *v1.Workload) []string {
-	return inferaRoleList(w, v1.InferaIdleRolesAnnotation)
+	val := v1.GetAnnotation(w, v1.InferaIdleRolesAnnotation)
+	if val == "" {
+		return nil
+	}
+	roles := make([]string, 0, 2)
+	for _, r := range strings.Split(val, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			roles = append(roles, r)
+		}
+	}
+	return roles
 }
 
-// IsInferaIdleRole reports whether the given role deploys idle. Such a worker
-// never registers, so it never becomes Ready and has to skip the probe.
+// IsInferaIdleRole reports whether the given role deploys idle.
 func IsInferaIdleRole(w *v1.Workload, role string) bool {
-	return inferaRoleListHas(w, v1.InferaIdleRolesAnnotation, role)
+	for _, r := range GetInferaIdleRoles(w) {
+		if r == role {
+			return true
+		}
+	}
+	return false
 }
 
 // GetInferaBackendFramework returns the chosen backend framework

@@ -611,7 +611,6 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
 		isResourceChanged, isImagesChanged, isEntrypointChanged, isSharedMemoryChanged,
 		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged,
-		isInferaReadinessSkipChanged,
 	}
 	source, err := commonworkload.ResolveCICDProxySource(ctx, r.Client, adminWorkload)
 	if err != nil {
@@ -703,44 +702,6 @@ func isImagesChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured,
 		return false
 	}
 	return !reflect.DeepEqual(adminWorkload.Spec.Images, images)
-}
-
-// isInferaReadinessSkipChanged reports whether a worker's readiness handling
-// no longer matches the idle-roles annotation.
-//
-// The sync path runs only when one of these detectors reports drift, and the
-// idle annotation touches nothing the others inspect: no image, entrypoint,
-// env or resource changes when it is toggled. Without this the annotation
-// would be accepted by the API and then silently ignored until some unrelated
-// edit happened to trigger a sync.
-func isInferaReadinessSkipChanged(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	if !commonworkload.IsInferaDeployment(adminWorkload) || !inferaIdleRolesDeclared(adminWorkload) {
-		return false
-	}
-	roles := commonworkload.GetInferaServiceRoles(adminWorkload)
-	for id, resourceSpec := range rt.Spec.ResourceSpecs {
-		if id >= len(adminWorkload.Spec.Resources) || id >= len(roles) {
-			break
-		}
-		if roles[id] == common.DynamoRoleFrontend {
-			continue
-		}
-		want := commonworkload.IsInferaIdleRole(adminWorkload, roles[id])
-		got, found, err := jobutils.NestedBool(obj.Object, resourceSpec.Path(inferaSkipReadinessField))
-		if err != nil {
-			// Keep checking the other roles: one unreadable slot must not hide
-			// drift on the rest, which would leave the annotation silently
-			// ignored for the whole workload.
-			klog.ErrorS(err, "failed to read skipReadinessProbe",
-				"obj", obj.GetName(), "role", roles[id])
-			continue
-		}
-		if want != (found && got) {
-			return true
-		}
-	}
-	return false
 }
 
 // isEntrypointChanged checks if the entry point/command of the workload has changed.

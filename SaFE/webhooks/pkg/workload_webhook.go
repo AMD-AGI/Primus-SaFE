@@ -1753,6 +1753,10 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 	if newWorkload.GetOwnerWorkloadId() != oldWorkload.GetOwnerWorkloadId() {
 		return field.Forbidden(field.NewPath("labels").Key(v1.OwnerLabel), "immutable")
 	}
+	if v1.GetAnnotation(newWorkload, v1.InferaIdleRolesAnnotation) !=
+		v1.GetAnnotation(oldWorkload, v1.InferaIdleRolesAnnotation) {
+		return field.Forbidden(field.NewPath("annotations").Key(v1.InferaIdleRolesAnnotation), "immutable")
+	}
 	if commonworkload.IsCICDScalingRunnerSet(newWorkload) {
 		val1, _ := oldWorkload.Spec.Env[common.UnifiedJobEnable]
 		val2, _ := newWorkload.Spec.Env[common.UnifiedJobEnable]

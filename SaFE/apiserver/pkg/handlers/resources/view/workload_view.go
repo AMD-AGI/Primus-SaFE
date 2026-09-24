@@ -103,13 +103,9 @@ type DynamoOptions struct {
 	// and would sit NotReady forever, so its readiness probe is skipped. A
 	// role that actually serves must NOT be listed: workers roll surge-first,
 	// and without a probe the rollout retires the pod that is still serving.
-	// Each listed role must also appear in ServiceRoles. Infera only.
-	//
-	// No omitempty: an empty list is a request to clear, distinct from the
-	// field being absent, which leaves the setting untouched. With omitempty a
-	// client marshalling an empty slice would emit no key at all, so "clear"
-	// would arrive as "unchanged".
-	IdleRoles []string `json:"idleRoles"`
+	// Each listed role must also appear in ServiceRoles. Infera only; applied
+	// at create.
+	IdleRoles []string `json:"idleRoles,omitempty"`
 }
 
 type GitHubAuthRequest struct {
@@ -349,11 +345,6 @@ type PatchWorkloadRequest struct {
 	CronJobs *[]v1.CronJob `json:"cronJobs,omitempty"`
 	// Service configuration
 	Service *v1.Service `json:"service,omitempty"`
-	// InferaOptions updates the InferaDeployment-specific configuration. Only
-	// the fields set on it are changed. This is the sanctioned way to reach
-	// the primus-safe.infera.* annotations, which the freeform Annotations map
-	// rejects.
-	InferaOptions *DynamoOptions `json:"inferaOptions,omitempty"`
 }
 
 type GetPodLogRequest struct {

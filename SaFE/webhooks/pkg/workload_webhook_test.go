@@ -667,6 +667,18 @@ func TestWorkloadValidateImmutableFields(t *testing.T) {
 	changed := validWorkload()
 	changed.Spec.Workspace = "other"
 	assert.Assert(t, v.validateImmutableFields(changed, oldW) != nil)
+
+	// idle-roles is applied at create only.
+	idleOld := validWorkload()
+	v1.SetAnnotation(idleOld, v1.InferaIdleRolesAnnotation, "decode")
+	idleSame := validWorkload()
+	v1.SetAnnotation(idleSame, v1.InferaIdleRolesAnnotation, "decode")
+	assert.NilError(t, v.validateImmutableFields(idleSame, idleOld))
+	idleChanged := validWorkload()
+	v1.SetAnnotation(idleChanged, v1.InferaIdleRolesAnnotation, "prefill,decode")
+	assert.Assert(t, v.validateImmutableFields(idleChanged, idleOld) != nil)
+	assert.Assert(t, v.validateImmutableFields(validWorkload(), idleOld) != nil,
+		"removing idle-roles is a change too")
 }
 
 // TestWorkloadValidateScope verifies scope validation.

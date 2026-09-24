@@ -971,10 +971,7 @@ func applyInferaOptions(workload *v1.Workload, opts *view.DynamoOptions) {
 		v1.SetAnnotation(workload, v1.InferaMultinodeRolesAnnotation,
 			strings.Join(opts.MultinodeRoles, ","))
 	}
-	// Written even when empty, unlike the fields above: correcting a role that
-	// was wrongly marked idle means clearing it, and an
-	// omitted-means-unchanged field could never express that.
-	if opts.IdleRoles != nil {
+	if len(opts.IdleRoles) > 0 {
 		v1.SetAnnotation(workload, v1.InferaIdleRolesAnnotation,
 			strings.Join(opts.IdleRoles, ","))
 	}
@@ -1389,16 +1386,6 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 	}
 	if req.Service != nil {
 		adminWorkload.Spec.Service = req.Service
-	}
-	// Only idleRoles is mutable after dispatch. The rest of InferaOptions is
-	// consumed by normalizeInferaIDEP, which runs on create only: changing
-	// serviceRoles here would pass the webhook and leave each slot's
-	// componentType/role at its original value while expectedCommands
-	// rewrote the launcher for the new role, so the rendered object and the
-	// workload would disagree with nothing to reconcile them.
-	if req.InferaOptions != nil && req.InferaOptions.IdleRoles != nil {
-		v1.SetAnnotation(adminWorkload, v1.InferaIdleRolesAnnotation,
-			strings.Join(req.InferaOptions.IdleRoles, ","))
 	}
 	return nil
 }

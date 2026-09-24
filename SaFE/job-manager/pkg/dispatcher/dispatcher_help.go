@@ -52,7 +52,7 @@ const (
 	inferaNodeCountField = "numberOfNodes"
 	// inferaSkipReadinessField is the IDEP ServiceSpec field that suppresses
 	// the operator's readiness probe. Written by applyInferaRoleFields on
-	// create and by updateInferaReadinessSkip on sync.
+	// create.
 	inferaSkipReadinessField = "skipReadinessProbe"
 )
 
@@ -1206,9 +1206,6 @@ func updateReplica(adminWorkload *v1.Workload,
 	if err := updateInferaNodeCount(adminWorkload, obj, resourceSpec, id); err != nil {
 		return err
 	}
-	if err := updateInferaReadinessSkip(adminWorkload, obj, resourceSpec, id); err != nil {
-		return err
-	}
 	if len(resourceSpec.ReplicasPaths) == 0 {
 		return nil
 	}
@@ -1251,53 +1248,6 @@ func updateInferaNodeCount(adminWorkload *v1.Workload,
 		return jobutils.RemoveNestedField(obj.Object, path)
 	}
 	return jobutils.SetNestedField(obj.Object, int64(n), path)
-}
-
-// inferaIdleRolesDeclared reports whether the workload states anything about
-// idle roles at all.
-//
-// An absent annotation is not the same as an empty one. A workload created
-// before this field became annotation-driven carries skipReadinessProbe: true
-// on every worker and no annotation; reading that absence as "no role is idle"
-// would strip the field from every such workload on its next reconcile, which
-// mutates the pod template and rolls every worker -- and for the idle
-// SSH-launched fleets the skip exists for, the injected probe never passes, so
-// the deployment would sit in pending. Absent therefore means "not managed
-// here"; an explicitly empty annotation still means "no role is idle".
-func inferaIdleRolesDeclared(adminWorkload *v1.Workload) bool {
-	return v1.HasAnnotation(adminWorkload, v1.InferaIdleRolesAnnotation)
-}
-
-// updateInferaReadinessSkip keeps an IDEP worker slot's readiness handling in
-// step with the idle-roles annotation.
-//
-// applyInferaRoleFields writes the field on create only, but whether a role
-// deploys idle can be corrected on a workload already running, and the field
-// decides whether the pod is ever Ready. Since workers roll surge-first,
-// leaving a serving role marked idle means it has no probe, every pod counts
-// as Ready the moment it is Running, and the rollout retires the pod that is
-// still serving in favour of one that is still loading weights.
-func updateInferaReadinessSkip(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
-	if !commonworkload.IsInferaDeployment(adminWorkload) || id >= len(adminWorkload.Spec.Resources) {
-		return nil
-	}
-	if !inferaIdleRolesDeclared(adminWorkload) {
-		return nil
-	}
-	roles := commonworkload.GetInferaServiceRoles(adminWorkload)
-	if id >= len(roles) {
-		return nil
-	}
-	// The server never carries the field; only workers get a probe injected.
-	if roles[id] == common.DynamoRoleFrontend {
-		return nil
-	}
-	path := resourceSpec.Path(inferaSkipReadinessField)
-	if commonworkload.IsInferaIdleRole(adminWorkload, roles[id]) {
-		return jobutils.SetNestedField(obj.Object, true, path)
-	}
-	return jobutils.RemoveNestedField(obj.Object, path)
 }
 
 // updateMaxReplicas updates the max-replicas in the unstructured object. only for ray-job
@@ -2219,30 +2169,16 @@ func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string, 
 	case common.DynamoRoleWorker:
 		slot["componentType"] = "worker"
 		slot["role"] = "mixed"
-		applyInferaWorkerRollout(slot, idle)
 	case common.DynamoRolePrefill:
 		slot["componentType"] = "worker"
 		slot["role"] = "prefill"
 		appendSglangDisaggArgs(slot, "prefill", kvBackend)
-		applyInferaWorkerRollout(slot, idle)
 	case common.DynamoRoleDecode:
 		slot["componentType"] = "worker"
 		slot["role"] = "decode"
 		appendSglangDisaggArgs(slot, "decode", kvBackend)
-		applyInferaWorkerRollout(slot, idle)
 	}
-}
-
-// applyInferaWorkerRollout decides whether the operator's readiness probe is
-// skipped for this worker.
-//
-// Workers roll surge-first, which retires the old pod once the replacement
-// reports Ready, so the probe is what holds the rollout back until the
-// replacement can serve. A serving worker must keep it. Only an idle-deployed
-// worker skips it: its engine is launched out-of-band afterwards, so it never
-// registers, never opens its readiness port, and would sit NotReady forever.
-func applyInferaWorkerRollout(slot map[string]interface{}, idle bool) {
-	if idle {
+	if idle && slot["componentType"] == "worker" {
 		setInferaWorkerReadinessSkip(slot)
 	}
 }
