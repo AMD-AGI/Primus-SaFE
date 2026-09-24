@@ -230,7 +230,9 @@ func dispatchNodesAt(workload *v1.Workload, idx int) []string {
 		if db := dbclient.NewClient(); db != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), dispatchNodeReadTimeout)
 			defer cancel()
-			if rows, err := db.ListWorkloadDispatchNodes(ctx, workload.Name); err == nil && len(rows) > 0 {
+			if rows, err := db.ListWorkloadDispatchNodes(
+				ctx, workload.Name, string(workload.UID),
+			); err == nil && len(rows) > 0 {
 				all := dbclient.DispatchNodesToV1(rows)
 				if idx < len(all) {
 					return all[idx]
@@ -868,6 +870,9 @@ func buildObjectLabels(workload *v1.Workload) map[string]interface{} {
 	result := map[string]interface{}{
 		v1.WorkloadIdLabel:          getRootWorkloadId(workload),
 		v1.WorkloadDispatchCntLabel: buildDispatchCount(workload),
+	}
+	if workload.UID != "" {
+		result[v1.WorkloadUidLabel] = string(workload.UID)
 	}
 	for key, value := range workload.Labels {
 		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {

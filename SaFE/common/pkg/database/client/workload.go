@@ -24,7 +24,7 @@ const (
 )
 
 var (
-	getWorkloadCmd       = fmt.Sprintf(`SELECT  * FROM %s WHERE workload_id = $1 LIMIT 1`, TWorkload)
+	getWorkloadCmd       = fmt.Sprintf(`SELECT id FROM %s WHERE workload_id = $1 LIMIT 1`, TWorkload)
 	insertWorkloadFormat = `INSERT INTO ` + TWorkload + ` (%s) VALUES (%s)`
 	updateWorkloadCmd    = fmt.Sprintf(`UPDATE %s 
 		SET priority = :priority,
@@ -72,15 +72,15 @@ func (c *Client) UpsertWorkload(ctx context.Context, workload *Workload) error {
 		return err
 	}
 	if len(workloads) > 0 && workloads[0] != nil {
-		_, err = db.NamedExecContext(ctx, updateWorkloadCmd, workload)
-		if err != nil {
+		if _, err = db.NamedExecContext(ctx, updateWorkloadCmd, workload); err != nil {
 			klog.ErrorS(err, "failed to upsert workload db", "id", workload.WorkloadId)
+			return err
 		}
-	} else {
-		_, err = db.NamedExecContext(ctx, generateCommand(*workload, insertWorkloadFormat, "id"), workload)
-		if err != nil {
-			klog.ErrorS(err, "failed to insert workload db", "id", workload.WorkloadId)
-		}
+		return nil
+	}
+	_, err = db.NamedExecContext(ctx, generateCommand(*workload, insertWorkloadFormat, "id"), workload)
+	if err != nil {
+		klog.ErrorS(err, "failed to insert workload db", "id", workload.WorkloadId)
 	}
 	return err
 }

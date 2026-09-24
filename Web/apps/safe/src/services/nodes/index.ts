@@ -130,6 +130,7 @@ export const patchCluster = (
     imageSecretId?: string
     kubeSprayImage?: string
     kubernetesVersion?: string
+    kubeletMaxPods?: number
   },
 ) => request.patch(`/clusters/${id}`, data)
 

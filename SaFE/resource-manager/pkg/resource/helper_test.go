@@ -6,13 +6,34 @@
 package resource
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"net"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
+
+func resWorkQueue() v1.RequestWorkQueue {
+	return workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+}
+
+type genericEventHandler interface {
+	Create(context.Context, event.CreateEvent, v1.RequestWorkQueue)
+	Update(context.Context, event.UpdateEvent, v1.RequestWorkQueue)
+}
+
+func reconcileRequest(name string) ctrlruntime.Request {
+	return ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: name}}
+}
 
 // startInMemorySSHServer launches a minimal SSH server that accepts any auth and
 // answers every "exec" request with a successful empty result.

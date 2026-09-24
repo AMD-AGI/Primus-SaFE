@@ -494,6 +494,11 @@ func (in *ControlPlane) DeepCopyInto(out *ControlPlane) {
 			(*out)[key] = val
 		}
 	}
+	if in.KubeletMaxPods != nil {
+		in, out := &in.KubeletMaxPods, &out.KubeletMaxPods
+		*out = new(uint32)
+		**out = **in
+	}
 	if in.KubeletLogFilesMaxSize != nil {
 		in, out := &in.KubeletLogFilesMaxSize, &out.KubeletLogFilesMaxSize
 		x := (*in).DeepCopy()

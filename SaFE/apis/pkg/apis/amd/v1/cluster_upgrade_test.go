@@ -58,3 +58,17 @@ func TestClusterIsReadyDuringUpgradeLifecycle(t *testing.T) {
 		t.Fatal("expected creating cluster not to be ready")
 	}
 }
+
+func TestKubeletMaxPodsLimit(t *testing.T) {
+	if limit := KubeletMaxPodsLimit(nil); limit != 254 {
+		t.Fatalf("expected default /24 limit 254, got %d", limit)
+	}
+	prefix := uint32(25)
+	if limit := KubeletMaxPodsLimit(&prefix); limit != 126 {
+		t.Fatalf("expected /25 limit 126, got %d", limit)
+	}
+	prefix = 31
+	if limit := KubeletMaxPodsLimit(&prefix); limit != 0 {
+		t.Fatalf("expected /31 to have no pod capacity, got %d", limit)
+	}
+}

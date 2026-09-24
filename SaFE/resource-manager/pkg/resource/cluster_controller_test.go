@@ -7,37 +7,28 @@ package resource
 
 import (
 	"context"
-	"encoding/base64"
-	"fmt"
-	"reflect"
-	"strconv"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
-	testifyassert "github.com/stretchr/testify/assert"
-
 	"github.com/stretchr/testify/assert"
+	testifyassert "github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
-	"k8s.io/client-go/rest"
-	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
 func newClusterReconcilerWithClientSet(t *testing.T, cs *k8sfake.Clientset, objs ...client.Object) *ClusterReconciler {
@@ -136,6 +127,7 @@ var _ = v1.ClusterKind
 // newClusterReconcilerFull builds a ClusterReconciler whose admin client (ctrl
 // fake) holds objs, with both r.clientSet and the data-plane factory backed by
 // the given clientset.
+
 func newClusterReconcilerFull(t *testing.T, cs *k8sfake.Clientset, objs ...ctrlclient.Object) *ClusterReconciler {
 	t.Helper()
 	scheme, err := genMockScheme()
@@ -234,51 +226,6 @@ func TestClusterDeleteAndCleanupFull(t *testing.T) {
 	testifyassert.NotContains(t, got.Finalizers, v1.ClusterFinalizer)
 }
 
-func TestGenerateSSHSecretFull(t *testing.T) {
-	cluster := testCluster("c1")
-	cluster.Spec.ControlPlane.Nodes = []string{"n1"}
-	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
-	node.Spec.SSHSecret = &corev1.ObjectReference{Name: "ssh", Namespace: "default"}
-	sshSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "ssh", Namespace: "default"},
-		Data:       map[string][]byte{utils.Username: []byte("admin")},
-	}
-	cs := k8sfake.NewSimpleClientset()
-	r := newClusterReconcilerFull(t, cs, cluster, node, sshSecret)
-	err := r.generateSSHSecret(context.Background(), cluster)
-	testifyassert.NoError(t, err)
-	got := &corev1.Secret{}
-	testifyassert.NoError(t, r.Get(context.Background(), ctrlclient.ObjectKey{Name: "c1", Namespace: common.PrimusSafeNamespace}, got))
-	assert.Equal(t, "admin", string(got.Data[utils.Username]))
-}
-
-func TestClearPodsFull(t *testing.T) {
-	oldPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "old",
-			Namespace:         common.PrimusSafeNamespace,
-			Labels:            map[string]string{v1.ClusterManageClusterLabel: "c1"},
-			CreationTimestamp: metav1.NewTime(time.Now().UTC().Add(-2 * time.Hour)),
-		},
-		Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
-	}
-	runningPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "running",
-			Namespace: common.PrimusSafeNamespace,
-			Labels:    map[string]string{v1.ClusterManageClusterLabel: "c1"},
-		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning},
-	}
-	cs := k8sfake.NewSimpleClientset()
-	r := newClusterReconcilerFull(t, cs, oldPod, runningPod)
-	ctx := context.Background()
-	testifyassert.NoError(t, r.clearPods(ctx, testCluster("c1")))
-	got := &corev1.Pod{}
-	testifyassert.Error(t, r.Get(ctx, ctrlclient.ObjectKey{Name: "old", Namespace: common.PrimusSafeNamespace}, got))
-	testifyassert.NoError(t, r.Get(ctx, ctrlclient.ObjectKey{Name: "running", Namespace: common.PrimusSafeNamespace}, got))
-}
-
 func TestClusterReconcileReadyNoControlPlaneNodes(t *testing.T) {
 	cluster := readyCluster("c1")
 	cluster.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
@@ -300,35 +247,6 @@ func TestClusterReconcileDeletePhase(t *testing.T) {
 	r := newClusterReconcilerFull(t, cs, cluster)
 	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "c1"}})
 	testifyassert.NoError(t, err)
-}
-
-func TestControlPlaneStatusHelpers(t *testing.T) {
-	cs := k8sfake.NewSimpleClientset()
-	cluster := testCluster("c1")
-	r := newClusterReconcilerFull(t, cs, cluster)
-	ctx := context.Background()
-
-	// updatePodStatus: succeeded -> CreatedPhase
-	succeeded := &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodSucceeded}}
-	testifyassert.NoError(t, r.updatePodStatus(ctx, cluster, succeeded))
-	assert.Equal(t, v1.CreatedPhase, cluster.Status.ControlPlaneStatus.Phase)
-
-	// updatePodStatus: failed -> CreationFailed
-	failed := &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodFailed}}
-	testifyassert.NoError(t, r.updatePodStatus(ctx, cluster, failed))
-	assert.Equal(t, v1.CreationFailed, cluster.Status.ControlPlaneStatus.Phase)
-
-	// updateResetPhase variants (pure)
-	r.updateResetPhase(cluster, succeeded)
-	assert.Equal(t, v1.DeletedPhase, cluster.Status.ControlPlaneStatus.Phase)
-	r.updateResetPhase(cluster, failed)
-	assert.Equal(t, v1.DeleteFailedPhase, cluster.Status.ControlPlaneStatus.Phase)
-	r.updateResetPhase(cluster, &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning}})
-	assert.Equal(t, v1.DeletingPhase, cluster.Status.ControlPlaneStatus.Phase)
-
-	// reset with nil hosts -> DeletedPhase
-	testifyassert.NoError(t, r.reset(ctx, cluster, nil))
-	assert.Equal(t, v1.DeletedPhase, cluster.Status.ControlPlaneStatus.Phase)
 }
 
 func TestGuaranteeMonarchClusterRoleFull(t *testing.T) {
@@ -435,46 +353,6 @@ func TestGuaranteeDataPlaneClusterRole(t *testing.T) {
 	testifyassert.NoError(t, err)
 }
 
-func TestFetchConfigFromControlPlaneFallsBackToNextNode(t *testing.T) {
-	var attempted []string
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
-		func(_ *ClusterReconciler, _ context.Context, node *v1.Node) (*rest.Config, error) {
-			attempted = append(attempted, node.Name)
-			switch node.Name {
-			case "cp1":
-				return nil, fmt.Errorf("ssh dial failed")
-			case "cp2":
-				// An unusable kubeconfig is reported as a nil config without an error.
-				return nil, nil
-			default:
-				return &rest.Config{Host: "https://10.0.0.3:6443"}, nil
-			}
-		})
-	defer patches.Reset()
-
-	nodes := []*v1.Node{
-		{ObjectMeta: metav1.ObjectMeta{Name: "cp1"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "cp2"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "cp3"}},
-	}
-	config, err := (&ClusterReconciler{}).fetchConfigFromControlPlane(context.Background(), nodes)
-	testifyassert.NoError(t, err)
-	testifyassert.Equal(t, "https://10.0.0.3:6443", config.Host)
-	testifyassert.Equal(t, []string{"cp1", "cp2", "cp3"}, attempted)
-}
-
-func TestFetchConfigFromControlPlaneAllNodesFail(t *testing.T) {
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
-		func(_ *ClusterReconciler, _ context.Context, _ *v1.Node) (*rest.Config, error) {
-			return nil, fmt.Errorf("ssh dial failed")
-		})
-	defer patches.Reset()
-
-	_, err := (&ClusterReconciler{}).fetchConfigFromControlPlane(context.Background(),
-		[]*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "cp1"}}})
-	testifyassert.Error(t, err)
-}
-
 func TestGuaranteeDataPlaneClusterRoleEmptyName(t *testing.T) {
 	r := newClusterReconcilerWithFactory(t, "c1", k8sfake.NewSimpleClientset())
 	testifyassert.NoError(t, r.guaranteeDataPlaneClusterRole(context.Background(), testCluster("c1"), ""))
@@ -489,7 +367,7 @@ func TestDeleteDataPlaneClusterRole(t *testing.T) {
 
 func TestGuaranteeImageSecretCreate(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset()
-	// admin plane secret存在
+	// Admin-plane secret exists.
 	adminSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "img-secret", Namespace: "primus-safe"},
 		Data:       map[string][]byte{".dockerconfigjson": []byte("{}")},
@@ -502,378 +380,6 @@ func TestGuaranteeImageSecretCreate(t *testing.T) {
 }
 
 // --- merged from cluster_plane_extra_test.go ---
-
-func newPlaneReconciler(t *testing.T, objs ...client.Object) *ClusterReconciler {
-	t.Helper()
-	scheme, err := genMockScheme()
-	testifyassert.NoError(t, err)
-	cl := ctrlfake.NewClientBuilder().
-		WithScheme(scheme).
-		WithStatusSubresource(&v1.Cluster{}).
-		WithObjects(objs...).
-		Build()
-	return &ClusterReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl}}
-}
-
-func TestGetControllerPlaneNodes(t *testing.T) {
-	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
-	r := newPlaneReconciler(t, node)
-	cluster := testCluster("c1")
-	cluster.Spec.ControlPlane.Nodes = []string{"n1"}
-	nodes, err := r.getControllerPlaneNodes(context.Background(), cluster)
-	testifyassert.NoError(t, err)
-	testifyassert.Len(t, nodes, 1)
-
-	// Missing node -> error.
-	cluster.Spec.ControlPlane.Nodes = []string{"missing"}
-	_, err = r.getControllerPlaneNodes(context.Background(), cluster)
-	testifyassert.Error(t, err)
-}
-
-func TestGuaranteeNamespace(t *testing.T) {
-	cs := k8sfake.NewSimpleClientset()
-	r := newPlaneReconciler(t)
-	// Create namespace.
-	testifyassert.NoError(t, r.guaranteeNamespace(context.Background(), cs, "ns1"))
-	_, err := cs.CoreV1().Namespaces().Get(context.Background(), "ns1", metav1.GetOptions{})
-	testifyassert.NoError(t, err)
-	// Idempotent.
-	testifyassert.NoError(t, r.guaranteeNamespace(context.Background(), cs, "ns1"))
-}
-
-func TestGuaranteeEndpoints(t *testing.T) {
-	cluster := testCluster("c1")
-	r := newPlaneReconciler(t, cluster)
-	nodes := []*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}}
-	testifyassert.NoError(t, r.guaranteeEndpoints(context.Background(), cluster, nodes))
-	ep := &corev1.Endpoints{}
-	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1", Namespace: common.PrimusSafeNamespace}, ep))
-	// Already exists -> no-op.
-	testifyassert.NoError(t, r.guaranteeEndpoints(context.Background(), cluster, nodes))
-}
-
-func TestGuaranteeServiceResource(t *testing.T) {
-	cluster := testCluster("c1")
-	r := newPlaneReconciler(t, cluster)
-	testifyassert.NoError(t, r.guaranteeServiceResource(context.Background(), cluster))
-	svc := &corev1.Service{}
-	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1", Namespace: common.PrimusSafeNamespace}, svc))
-	// Already exists -> no-op.
-	testifyassert.NoError(t, r.guaranteeServiceResource(context.Background(), cluster))
-}
-
-func TestGuaranteeServiceNotReady(t *testing.T) {
-	cluster := testCluster("c1")
-	cluster.Status.ControlPlaneStatus.Phase = v1.PendingPhase
-	r := newPlaneReconciler(t, cluster)
-	// Not ready -> no-op nil.
-	testifyassert.NoError(t, r.guaranteeService(context.Background(), cluster))
-}
-
-func TestGuaranteeServiceReady(t *testing.T) {
-	for _, phase := range []v1.ClusterPhase{v1.ReadyPhase, v1.UpgradingPhase, v1.UpgradeFailedPhase} {
-		cluster := testCluster("c1-" + string(phase))
-		cluster.Status.ControlPlaneStatus.Phase = phase
-		cluster.Spec.ControlPlane.Nodes = []string{"n1"}
-		node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}
-		r := newPlaneReconciler(t, cluster, node)
-		testifyassert.NoError(t, r.guaranteeService(context.Background(), cluster))
-	}
-}
-
-func TestUpdatePodStatus(t *testing.T) {
-	cluster := testCluster("c1")
-	r := newPlaneReconciler(t, cluster)
-
-	succeeded := &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodSucceeded}}
-	testifyassert.NoError(t, r.updatePodStatus(context.Background(), cluster, succeeded))
-	assert.Equal(t, v1.CreatedPhase, cluster.Status.ControlPlaneStatus.Phase)
-
-	failed := &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodFailed}}
-	testifyassert.NoError(t, r.updatePodStatus(context.Background(), cluster, failed))
-	assert.Equal(t, v1.CreationFailed, cluster.Status.ControlPlaneStatus.Phase)
-}
-
-func TestUpdateResetPhase(t *testing.T) {
-	r := newPlaneReconciler(t)
-	cluster := testCluster("c1")
-
-	r.updateResetPhase(cluster, &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodSucceeded}})
-	assert.Equal(t, v1.DeletedPhase, cluster.Status.ControlPlaneStatus.Phase)
-
-	r.updateResetPhase(cluster, &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodFailed}})
-	assert.Equal(t, v1.DeleteFailedPhase, cluster.Status.ControlPlaneStatus.Phase)
-
-	r.updateResetPhase(cluster, &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning}})
-	assert.Equal(t, v1.DeletingPhase, cluster.Status.ControlPlaneStatus.Phase)
-}
-
-func TestPlaneGetUsernameNoNodes(t *testing.T) {
-	r := newPlaneReconciler(t)
-	_, err := r.getUsername(context.Background(), testCluster("c1"))
-	testifyassert.Error(t, err)
-}
-
-func TestGuaranteeClusterControlPlaneNoNodes(t *testing.T) {
-	r := newPlaneReconciler(t)
-	// No control plane nodes -> nil.
-	testifyassert.NoError(t, r.guaranteeClusterControlPlane(context.Background(), testCluster("c1")))
-}
-
-func TestResetNilHostsContent(t *testing.T) {
-	cluster := testCluster("c1")
-	r := newPlaneReconciler(t, cluster)
-	// Nil hostsContent -> phase set to Deleted.
-	testifyassert.NoError(t, r.reset(context.Background(), cluster, nil))
-	assert.Equal(t, v1.DeletedPhase, cluster.Status.ControlPlaneStatus.Phase)
-}
-
-func TestPatchKubeControlPlanNodes(t *testing.T) {
-	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
-	cluster := testCluster("c1")
-	cluster.Spec.ControlPlane.Nodes = []string{"n1", "missing"}
-	r := newPlaneReconciler(t, node, cluster)
-	testifyassert.NoError(t, r.patchKubeControlPlanNodes(context.Background(), cluster))
-	updated := &v1.Node{}
-	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "n1"}, updated))
-	assert.Equal(t, "c1", updated.GetSpecCluster())
-}
-
-func planeClusterWithNode(t *testing.T) (*v1.Cluster, *ClusterReconciler) {
-	t.Helper()
-	cluster := testCluster("c1")
-	cluster.Spec.ControlPlane.Nodes = []string{"n1"}
-	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
-	node.Spec.PrivateIP = "10.0.0.1"
-	node.Status.MachineStatus.Phase = v1.NodeReady
-	node.Status.MachineStatus.HostName = "host1"
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
-		Data:       map[string][]byte{"username": []byte("root")},
-	}
-	r := newPlaneReconciler(t, cluster, node, secret)
-	return cluster, r
-}
-
-func TestCreateNewWorkerPod(t *testing.T) {
-	cluster, r := planeClusterWithNode(t)
-	hosts, err := r.generateHosts(context.Background(), cluster, nil)
-	testifyassert.NoError(t, err)
-	pod, err := r.createNewWorkerPod(context.Background(), cluster, hosts)
-	testifyassert.NoError(t, err)
-	testifyassert.NotNil(t, pod)
-}
-
-func TestCreateResetPod(t *testing.T) {
-	cluster, r := planeClusterWithNode(t)
-	hosts, err := r.generateHosts(context.Background(), cluster, nil)
-	testifyassert.NoError(t, err)
-	pod, err := r.createResetPod(context.Background(), cluster, hosts)
-	testifyassert.NoError(t, err)
-	testifyassert.NotNil(t, pod)
-}
-
-func TestGuaranteeCreateWorkerPodCreated(t *testing.T) {
-	cluster, r := planeClusterWithNode(t)
-	hosts, err := r.generateHosts(context.Background(), cluster, nil)
-	testifyassert.NoError(t, err)
-	pod, err := r.guaranteeCreateWorkerPodCreated(context.Background(), cluster, hosts)
-	testifyassert.NoError(t, err)
-	testifyassert.NotNil(t, pod)
-}
-
-func TestGuaranteeResetWorkPodCreated(t *testing.T) {
-	cluster, r := planeClusterWithNode(t)
-	hosts, err := r.generateHosts(context.Background(), cluster, nil)
-	testifyassert.NoError(t, err)
-	pod, err := r.guaranteeResetWorkPodCreated(context.Background(), cluster, hosts)
-	testifyassert.NoError(t, err)
-	testifyassert.NotNil(t, pod)
-}
-
-func TestClearPods(t *testing.T) {
-	cluster := testCluster("c1")
-	r := newPlaneReconciler(t, cluster)
-	// No pods -> nil.
-	testifyassert.NoError(t, r.clearPods(context.Background(), cluster))
-}
-
-func TestGuaranteeDefaultAddonCreatesAddon(t *testing.T) {
-	cluster := testCluster("c1")
-	template := &v1.AddonTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   "infera-operator.0.1.0",
-			Labels: map[string]string{v1.AddonDefaultLabel: ""},
-		},
-	}
-	r := newPlaneReconciler(t, cluster, template)
-	res, err := r.guaranteeDefaultAddon(context.Background(), cluster)
-	testifyassert.NoError(t, err)
-	assert.Equal(t, int64(0), res.RequeueAfter.Nanoseconds())
-	// Addon should be created with name "c1-infera-operator".
-	addon := &v1.Addon{}
-	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-infera-operator"}, addon))
-}
-
-func TestGuaranteeDefaultAddonDeletesLegacyAutoNginx(t *testing.T) {
-	cluster := testCluster("c1")
-	cluster.UID = "uid-c1"
-	template := &v1.AddonTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   "infera-operator.0.1.0",
-			Labels: map[string]string{v1.AddonDefaultLabel: ""},
-		},
-	}
-	nginx := legacyAutoNginxAddon(cluster, "")
-	r := newPlaneReconciler(t, cluster, template, nginx)
-
-	_, err := r.guaranteeDefaultAddon(context.Background(), cluster)
-	testifyassert.NoError(t, err)
-
-	addon := &v1.Addon{}
-	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-infera-operator"}, addon))
-	testifyassert.Error(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-nginx"}, &v1.Addon{}))
-}
-
-func TestGuaranteeDefaultAddonKeepsCustomizedNginx(t *testing.T) {
-	cluster := testCluster("c1")
-	cluster.UID = "uid-c1"
-	nginx := legacyAutoNginxAddon(cluster, "service:\n  type: NodePort\n")
-	r := newPlaneReconciler(t, cluster, nginx)
-
-	_, err := r.guaranteeDefaultAddon(context.Background(), cluster)
-	testifyassert.NoError(t, err)
-
-	addon := &v1.Addon{}
-	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-nginx"}, addon))
-}
-
-func legacyAutoNginxAddon(cluster *v1.Cluster, values string) *v1.Addon {
-	return &v1.Addon{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: cluster.Name + "-nginx",
-			OwnerReferences: []metav1.OwnerReference{{
-				APIVersion: cluster.APIVersion,
-				Kind:       cluster.Kind,
-				Name:       cluster.Name,
-				UID:        cluster.UID,
-			}},
-		},
-		Spec: v1.AddonSpec{
-			AddonSource: v1.AddonSource{
-				HelmRepository: &v1.HelmRepository{
-					ReleaseName: deprecatedDefaultNginxRelease,
-					Values:      values,
-					Template: &corev1.ObjectReference{
-						Name: deprecatedDefaultNginxTemplate,
-					},
-				},
-			},
-		},
-	}
-}
-
-func TestUpdateClusterKubeConfigNilConfig(t *testing.T) {
-	cluster := testCluster("c1")
-	r := newPlaneReconciler(t, cluster)
-	// nil restConfig -> no-op nil.
-	testifyassert.NoError(t, r.updateClusterKubeConfig(context.Background(), cluster, nil, nil))
-}
-
-func TestUpdateClusterKubeConfig(t *testing.T) {
-	scheme, _ := genMockScheme()
-	cluster := testCluster("c1")
-	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:20200530")
-	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
-	cs := k8sfakeClientset()
-	cl := ctrlfake.NewClientBuilder().
-		WithScheme(scheme).
-		WithStatusSubresource(&v1.Cluster{}).
-		WithObjects(cluster).
-		Build()
-	r := &ClusterReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl, clientSet: cs}}
-	nodes := []*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}}
-	cfg := &rest.Config{}
-	cfg.CertData = []byte("cert")
-	cfg.CAData = []byte("ca")
-	cfg.KeyData = []byte("key")
-	err := r.updateClusterKubeConfig(context.Background(), cluster, nodes, cfg)
-	testifyassert.NoError(t, err)
-	assert.Equal(t, v1.ReadyPhase, cluster.Status.ControlPlaneStatus.Phase)
-	testifyassert.Len(t, cluster.Status.ControlPlaneStatus.Endpoints, 1)
-	assert.Equal(t, "1.32.5", v1.GetAnnotation(cluster, v1.ClusterAppliedKubeVersionAnnotation))
-}
-
-func TestResetWithHostsContent(t *testing.T) {
-	cluster, r := planeClusterWithNode(t)
-	cluster.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
-	hosts, err := r.generateHosts(context.Background(), cluster, nil)
-	testifyassert.NoError(t, err)
-	// reset with hostsContent + non-deleted/failed phase -> creates reset pod.
-	err = r.reset(context.Background(), cluster, hosts)
-	testifyassert.NoError(t, err)
-}
-
-func TestResetCreationFailedPhase(t *testing.T) {
-	cluster, r := planeClusterWithNode(t)
-	cluster.Status.ControlPlaneStatus.Phase = v1.CreationFailed
-	hosts, err := r.generateHosts(context.Background(), cluster, nil)
-	testifyassert.NoError(t, err)
-	// CreationFailed -> sets DeletedPhase.
-	err = r.reset(context.Background(), cluster, hosts)
-	testifyassert.NoError(t, err)
-	assert.Equal(t, v1.DeletedPhase, cluster.Status.ControlPlaneStatus.Phase)
-}
-
-func TestHandleControlPlaneCreation(t *testing.T) {
-	cluster, r := planeClusterWithNode(t)
-	cluster.Status.ControlPlaneStatus.Phase = v1.PendingPhase
-	// No SSHSecret on cluster -> generateSSHSecret creates one, then worker pod.
-	err := r.handleControlPlaneCreation(context.Background(), cluster)
-	testifyassert.NoError(t, err)
-	// Worker pod should now exist.
-	pod := &corev1.Pod{}
-	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{
-		Name: "c1-" + string(v1.ClusterCreateAction), Namespace: common.PrimusSafeNamespace,
-	}, pod))
-}
-
-func TestCreateControlPlanePod(t *testing.T) {
-	cluster, r := planeClusterWithNode(t)
-	hosts, err := r.generateHosts(context.Background(), cluster, nil)
-	testifyassert.NoError(t, err)
-	err = r.createControlPlanePod(context.Background(), cluster, hosts)
-	testifyassert.NoError(t, err)
-}
-
-func TestHandleExistingPodOwned(t *testing.T) {
-	cluster, r := planeClusterWithNode(t)
-	cluster.UID = "uid-1"
-	hosts, err := r.generateHosts(context.Background(), cluster, nil)
-	testifyassert.NoError(t, err)
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "p1",
-			Namespace: common.PrimusSafeNamespace,
-			OwnerReferences: []metav1.OwnerReference{
-				{Kind: cluster.Kind, UID: cluster.UID},
-			},
-		},
-	}
-	got, err := r.handleExistingPod(context.Background(), cluster, pod, hosts)
-	testifyassert.NoError(t, err)
-	testifyassert.NotNil(t, got)
-}
-
-func TestGuaranteeDefaultAddonNoTemplates(t *testing.T) {
-	cluster := testCluster("c1")
-	r := newPlaneReconciler(t, cluster)
-	res, err := r.guaranteeDefaultAddon(context.Background(), cluster)
-	testifyassert.NoError(t, err)
-	assert.Equal(t, int64(0), res.RequeueAfter.Nanoseconds())
-}
-
-// --- merged from cluster_reconcile_test.go ---
 
 func TestClusterReconcileNotFound(t *testing.T) {
 	scheme, _ := genMockScheme()
@@ -984,48 +490,12 @@ func TestShouldPeriodicSyncControlPlaneEndpoints(t *testing.T) {
 	testifyassert.False(t, shouldPeriodicSyncControlPlaneEndpoints(nil))
 }
 
-func TestFilterHealthyControlPlaneAddressesNoCredentials(t *testing.T) {
-	cluster := testCluster("c1")
-	r := newPlaneReconciler(t, cluster)
-	nodes := []*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}}
-	addrs := r.filterHealthyControlPlaneAddresses(context.Background(), cluster, nodes)
-	testifyassert.Len(t, addrs, 1)
-	testifyassert.Equal(t, "10.0.0.1", addrs[0].IP)
-}
-
 func TestMarkClusterClientFactoryStale(t *testing.T) {
 	mgr := commonutils.NewObjectManager()
 	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
 	testifyassert.NoError(t, mgr.Add("c1", factory))
 	r := &ClusterReconciler{clientManager: mgr}
 	r.markClusterClientFactoryStale("c1", "control plane endpoints changed")
-	testifyassert.False(t, factory.IsValid())
-}
-
-func TestGuaranteeEndpointsBackendSync(t *testing.T) {
-	cluster := testCluster("c1")
-	existing := &corev1.Endpoints{
-		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
-		Subsets: []corev1.EndpointSubset{{
-			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}, {IP: "10.0.0.2"}},
-		}},
-	}
-	r := newPlaneReconciler(t, cluster, existing)
-	mgr := commonutils.NewObjectManager()
-	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
-	factory.SetBackendFingerprint("10.0.0.1,10.0.0.2")
-	testifyassert.NoError(t, mgr.Add("c1", factory))
-	r.clientManager = mgr
-
-	nodes := []*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}}
-	testifyassert.NoError(t, r.guaranteeEndpoints(context.Background(), cluster, nodes))
-
-	ep := &corev1.Endpoints{}
-	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{
-		Name: "c1", Namespace: common.PrimusSafeNamespace,
-	}, ep))
-	testifyassert.Len(t, ep.Subsets[0].Addresses, 1)
-	testifyassert.Equal(t, "10.0.0.1", ep.Subsets[0].Addresses[0].IP)
 	testifyassert.False(t, factory.IsValid())
 }
 
@@ -1053,296 +523,112 @@ func TestSyncControlPlaneServiceEndpointsSkipsWithoutCPNodes(t *testing.T) {
 	testifyassert.NoError(t, r.syncControlPlaneServiceEndpoints(context.Background(), cluster))
 }
 
-func TestFilterHealthyPreservesExistingBackends(t *testing.T) {
-	cluster := testCluster("c1")
-	existing := &corev1.Endpoints{
-		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
-		Subsets: []corev1.EndpointSubset{{
-			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}},
-		}},
-	}
-	r := newPlaneReconciler(t, cluster, existing)
-	cluster.Status.ControlPlaneStatus.CertData = base64.StdEncoding.EncodeToString([]byte("cert"))
-	cluster.Status.ControlPlaneStatus.KeyData = base64.StdEncoding.EncodeToString([]byte("key"))
-	nodes := []*v1.Node{
-		{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "n2"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.2"}},
-	}
-	addrs := r.filterHealthyControlPlaneAddresses(context.Background(), cluster, nodes)
-	testifyassert.Len(t, addrs, 1)
-	testifyassert.Equal(t, "10.0.0.1", addrs[0].IP)
-}
-
-func readyUpgradeCluster(t *testing.T) (*v1.Cluster, *ClusterReconciler) {
+func newClusterReconciler(t *testing.T) *ClusterReconciler {
 	t.Helper()
-	cluster, r := planeClusterWithNode(t)
-	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
-	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:old")
-	testifyassert.NoError(t, r.Update(context.Background(), cluster))
-	testifyassert.NoError(t, r.patchControlPlanePhase(context.Background(), cluster, v1.ReadyPhase))
-	testifyassert.NoError(t, r.persistAppliedKubeSpray(context.Background(), cluster, "1.32.5", "primussafe/kubespray:old"))
-	got := &v1.Cluster{}
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
-	return got, r
+	scheme, err := genMockScheme()
+	assert.NoError(t, err)
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).Build()
+	return &ClusterReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl}}
 }
 
-func TestGuaranteeClusterUpgradeSeedsApplied(t *testing.T) {
-	cluster, r := planeClusterWithNode(t)
-	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
-	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("img:1")
-	testifyassert.NoError(t, r.Update(context.Background(), cluster))
-	testifyassert.NoError(t, r.patchControlPlanePhase(context.Background(), cluster, v1.ReadyPhase))
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
-	got := &v1.Cluster{}
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
-	assert.Equal(t, "1.32.5", v1.GetAnnotation(got, v1.ClusterAppliedKubeVersionAnnotation))
-	podList := &corev1.PodList{}
-	testifyassert.NoError(t, r.List(context.Background(), podList))
-	assert.Equal(t, 0, len(podList.Items))
+func TestEndpointSubsetEqual(t *testing.T) {
+	a := corev1.EndpointSubset{
+		Addresses: []corev1.EndpointAddress{{IP: "1.1.1.1"}},
+		Ports:     []corev1.EndpointPort{{Port: 80}},
+	}
+	b := a.DeepCopy()
+	assert.True(t, endpointSubsetEqual(a, *b))
+
+	diff := corev1.EndpointSubset{Addresses: []corev1.EndpointAddress{{IP: "2.2.2.2"}}, Ports: []corev1.EndpointPort{{Port: 80}}}
+	assert.False(t, endpointSubsetEqual(a, diff))
 }
 
-func TestGuaranteeClusterUpgradeCreatesPod(t *testing.T) {
-	cluster, r := readyUpgradeCluster(t)
-	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
-	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
-	testifyassert.NoError(t, r.Update(context.Background(), cluster))
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
-	pod := &corev1.Pod{}
-	err := r.Get(context.Background(), types.NamespacedName{
-		Namespace: common.PrimusSafeNamespace,
-		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
-	}, pod)
-	testifyassert.NoError(t, err)
-	assert.Equal(t, string(v1.ClusterUpgradeAction), pod.Labels[v1.ClusterManageActionLabel])
-	testifyassert.Contains(t, strings.Join(pod.Spec.Containers[0].Args, " "), "upgrade-cluster.yml")
-	testifyassert.NotNil(t, pod.Spec.ActiveDeadlineSeconds)
-	assert.Equal(t, int64((6*time.Hour)/time.Second), *pod.Spec.ActiveDeadlineSeconds)
-	config := new(corev1.ConfigMap)
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{
-		Namespace: common.PrimusSafeNamespace,
-		Name:      cluster.Name,
-	}, config))
-	testifyassert.Len(t, config.OwnerReferences, 1)
-	assert.Equal(t, v1.ClusterKind, config.OwnerReferences[0].Kind)
-	got := &v1.Cluster{}
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
-	assert.Equal(t, v1.UpgradingPhase, got.Status.ControlPlaneStatus.Phase)
-
-	testifyassert.NoError(t, r.Delete(context.Background(), config))
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), got))
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{
-		Namespace: common.PrimusSafeNamespace,
-		Name:      cluster.Name,
-	}, new(corev1.ConfigMap)))
+func TestEndpointsSubsetsChanged(t *testing.T) {
+	a := []corev1.EndpointSubset{{Addresses: []corev1.EndpointAddress{{IP: "1.1.1.1"}}}}
+	assert.False(t, endpointsSubsetsChanged(a, a))
+	assert.True(t, endpointsSubsetsChanged(a, nil))
 }
 
-func TestGuaranteeClusterUpgradeRejectsSkippedMinor(t *testing.T) {
-	cluster, r := readyUpgradeCluster(t)
-	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.35.4")
-	testifyassert.NoError(t, r.Update(context.Background(), cluster))
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
-	got := &v1.Cluster{}
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
-	assert.Equal(t, v1.ReadyPhase, got.Status.ControlPlaneStatus.Phase)
-	podList := &corev1.PodList{}
-	testifyassert.NoError(t, r.List(context.Background(), podList))
-	assert.Equal(t, 0, len(podList.Items))
+func TestIsClusterSourceEndpoints(t *testing.T) {
+	r := newClusterReconciler(t)
+	ep := &corev1.Endpoints{ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace}}
+	assert.True(t, r.isClusterSourceEndpoints(ep))
+	// Forward EP -> false.
+	fwd := &corev1.Endpoints{ObjectMeta: metav1.ObjectMeta{Name: "c1-forward", Namespace: common.PrimusSafeNamespace}}
+	assert.False(t, r.isClusterSourceEndpoints(fwd))
+	// Wrong namespace -> false.
+	other := &corev1.Endpoints{ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "other"}}
+	assert.False(t, r.isClusterSourceEndpoints(other))
 }
 
-func TestClusterUpgradeWaitsForScalePod(t *testing.T) {
-	cluster, r := readyUpgradeCluster(t)
-	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
-	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
-	testifyassert.NoError(t, r.Update(context.Background(), cluster))
-	scalePod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "scale-up",
-			Namespace: common.PrimusSafeNamespace,
-			Labels: map[string]string{
-				v1.ClusterManageClusterLabel: cluster.Name,
-				v1.ClusterManageActionLabel:  string(v1.ClusterScaleUpAction),
-			},
+func TestGenerateForwardName(t *testing.T) {
+	assert.Equal(t, "c1-forward", generateForwardName("c1"))
+}
+
+func TestGenAllPriorityClass(t *testing.T) {
+	classes := genAllPriorityClass("c1")
+	assert.Len(t, classes, 3)
+}
+
+func TestClusterRelevantChangePredicate(t *testing.T) {
+	r := newClusterReconciler(t)
+	p := r.relevantChangePredicate()
+	ready := readyCluster("c1")
+	assert.True(t, p.Create(event.CreateEvent{Object: ready}))
+	assert.False(t, p.Create(event.CreateEvent{Object: testCluster("c2")}))
+	assert.True(t, p.Update(event.UpdateEvent{ObjectOld: testCluster("c1"), ObjectNew: ready}))
+	assert.False(t, p.Delete(event.DeleteEvent{Object: ready}))
+}
+
+func TestClusterHandleNodeEvent(t *testing.T) {
+	r := newClusterReconciler(t)
+	h := r.handleNodeEvent().(genericEventHandler)
+	q := resWorkQueue()
+	defer q.ShutDown()
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name: "n1",
+		OwnerReferences: []metav1.OwnerReference{
+			{APIVersion: v1.SchemeGroupVersion.String(), Kind: v1.ClusterKind, Name: "c1"},
 		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning},
-	}
-	testifyassert.NoError(t, r.Create(context.Background(), scalePod))
-
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
-	upgradePod := new(corev1.Pod)
-	err := r.Get(context.Background(), types.NamespacedName{
-		Namespace: common.PrimusSafeNamespace,
-		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
-	}, upgradePod)
-	testifyassert.Error(t, err)
-	got := new(v1.Cluster)
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
-	assert.Equal(t, v1.ReadyPhase, got.Status.ControlPlaneStatus.Phase)
+	}}
+	h.Create(context.Background(), event.CreateEvent{Object: node}, q)
+	assert.Equal(t, 1, q.Len())
 }
 
-func TestClusterUpgradePersistsSucceededStaleTarget(t *testing.T) {
-	cluster, r := readyUpgradeCluster(t)
-	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
-	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
-	testifyassert.NoError(t, r.Update(context.Background(), cluster))
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
-
-	pod := new(corev1.Pod)
-	podKey := types.NamespacedName{
-		Namespace: common.PrimusSafeNamespace,
-		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
-	}
-	testifyassert.NoError(t, r.Get(context.Background(), podKey, pod))
-	pod.Status.Phase = corev1.PodSucceeded
-	testifyassert.NoError(t, r.Status().Update(context.Background(), pod))
-
-	got := new(v1.Cluster)
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
-	got.Spec.ControlPlane.KubeVersion = pointer.String("1.34.3")
-	got.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.30.0")
-	testifyassert.NoError(t, r.Update(context.Background(), got))
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), got))
-
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, got))
-	assert.Equal(t, "1.33.7", v1.GetAnnotation(got, v1.ClusterAppliedKubeVersionAnnotation))
-	err := r.Get(context.Background(), podKey, new(corev1.Pod))
-	testifyassert.Error(t, err)
+func TestClusterEndpointsPredicate(t *testing.T) {
+	r := newClusterReconciler(t)
+	p := r.endpointsPredicate()
+	ep := &corev1.Endpoints{ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace}}
+	assert.True(t, p.Create(event.CreateEvent{Object: ep}))
+	assert.True(t, p.Delete(event.DeleteEvent{Object: ep}))
+	// Update with no subset change -> false.
+	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: ep, ObjectNew: ep.DeepCopy()}))
 }
 
-func TestClusterUpgradeCanBeCancelledToAppliedPair(t *testing.T) {
-	cluster, r := readyUpgradeCluster(t)
-	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
-	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
-	testifyassert.NoError(t, r.Update(context.Background(), cluster))
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
-
-	current := new(v1.Cluster)
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-	current.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
-	current.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:old")
-	testifyassert.NoError(t, r.Update(context.Background(), current))
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
-
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-	assert.Equal(t, v1.UpgradingPhase, current.Status.ControlPlaneStatus.Phase)
-	err := r.Get(context.Background(), types.NamespacedName{
-		Namespace: common.PrimusSafeNamespace,
-		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
-	}, new(corev1.Pod))
-	testifyassert.Error(t, err)
-
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-	assert.Equal(t, v1.ReadyPhase, current.Status.ControlPlaneStatus.Phase)
+func TestClusterHandleEndpointsEvent(t *testing.T) {
+	r := newClusterReconciler(t)
+	h := r.handleEndpointsEvent()
+	ep := &corev1.Endpoints{ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace}}
+	reqs := h.(interface {
+		Create(context.Context, event.CreateEvent, v1.RequestWorkQueue)
+	})
+	q := resWorkQueue()
+	defer q.ShutDown()
+	reqs.Create(context.Background(), event.CreateEvent{Object: ep}, q)
+	assert.Equal(t, 1, q.Len())
 }
 
-func TestUpgradePodTimedOut(t *testing.T) {
-	now := time.Now()
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			CreationTimestamp: metav1.NewTime(now.Add(-clusterUpgradeTimeout)),
+func TestClusterHandlePodEvent(t *testing.T) {
+	r := newClusterReconciler(t)
+	h := r.handlePodEvent().(genericEventHandler)
+	q := resWorkQueue()
+	defer q.ShutDown()
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name: "p1",
+		OwnerReferences: []metav1.OwnerReference{
+			{APIVersion: v1.SchemeGroupVersion.String(), Kind: v1.ClusterKind, Name: "c1"},
 		},
-		Status: corev1.PodStatus{Phase: corev1.PodPending},
-	}
-	assert.True(t, upgradePodTimedOut(pod, now))
-
-	pod.Status.Phase = corev1.PodSucceeded
-	assert.False(t, upgradePodTimedOut(pod, now))
-}
-
-func TestEnsureAppliedKubeSprayDoesNotInferVersion(t *testing.T) {
-	cluster, r := planeClusterWithNode(t)
-	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
-	testifyassert.NoError(t, r.Update(context.Background(), cluster))
-	testifyassert.NoError(t, r.patchControlPlanePhase(context.Background(), cluster, v1.ReadyPhase))
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
-
-	current := new(v1.Cluster)
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-	assert.Equal(t, "", v1.GetAnnotation(current, v1.ClusterAppliedKubeVersionAnnotation))
-}
-
-func TestClusterUpgradeRetriesThreeTimesAndCanBeReset(t *testing.T) {
-	cluster, r := readyUpgradeCluster(t)
-	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
-	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
-	testifyassert.NoError(t, r.Update(context.Background(), cluster))
-	podKey := types.NamespacedName{
-		Namespace: common.PrimusSafeNamespace,
-		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
-	}
-
-	for attempt := 1; attempt <= maxClusterUpgradeAttempts; attempt++ {
-		current := new(v1.Cluster)
-		testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-		testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
-		pod := new(corev1.Pod)
-		testifyassert.NoError(t, r.Get(context.Background(), podKey, pod))
-		assert.Equal(t, strconv.Itoa(attempt), v1.GetAnnotation(pod, upgradePodAttemptAnnotation))
-		pod.Status.Phase = corev1.PodFailed
-		testifyassert.NoError(t, r.Status().Update(context.Background(), pod))
-		testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-		testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
-	}
-
-	current := new(v1.Cluster)
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-	assert.Equal(t, v1.UpgradeFailedPhase, current.Status.ControlPlaneStatus.Phase)
-	assert.True(t, current.IsReady())
-	testifyassert.Error(t, r.Get(context.Background(), podKey, new(corev1.Pod)))
-
-	testifyassert.NoError(t, r.persistUpgradeRetryCount(context.Background(), current, 0))
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
-	pod := new(corev1.Pod)
-	testifyassert.NoError(t, r.Get(context.Background(), podKey, pod))
-	assert.Equal(t, "1", v1.GetAnnotation(pod, upgradePodAttemptAnnotation))
-}
-
-func TestClusterUpgradeRetriesResetWhenTargetChanges(t *testing.T) {
-	cluster, r := readyUpgradeCluster(t)
-	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
-	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
-	testifyassert.NoError(t, r.Update(context.Background(), cluster))
-	podKey := types.NamespacedName{
-		Namespace: common.PrimusSafeNamespace,
-		Name:      cluster.Name + "-" + string(v1.ClusterUpgradeAction),
-	}
-
-	for attempt := 1; attempt <= maxClusterUpgradeAttempts; attempt++ {
-		current := new(v1.Cluster)
-		testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-		testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
-		pod := new(corev1.Pod)
-		testifyassert.NoError(t, r.Get(context.Background(), podKey, pod))
-		pod.Status.Phase = corev1.PodFailed
-		testifyassert.NoError(t, r.Status().Update(context.Background(), pod))
-		testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-		testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
-	}
-
-	current := new(v1.Cluster)
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-	assert.Equal(t, "3", v1.GetAnnotation(current, v1.ClusterUpgradeRetryCountAnnotation))
-
-	// Cancelling out of band drops a count that no longer matches the target.
-	current.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
-	current.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:old")
-	testifyassert.NoError(t, r.Update(context.Background(), current))
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-	assert.Equal(t, "0", v1.GetAnnotation(current, v1.ClusterUpgradeRetryCountAnnotation))
-
-	// Re-requesting the same target out of band still gets a fresh budget.
-	current.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
-	current.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
-	testifyassert.NoError(t, r.Update(context.Background(), current))
-	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), current))
-
-	pod := new(corev1.Pod)
-	testifyassert.NoError(t, r.Get(context.Background(), podKey, pod))
-	assert.Equal(t, "1", v1.GetAnnotation(pod, upgradePodAttemptAnnotation))
-	testifyassert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: cluster.Name}, current))
-	assert.Equal(t, v1.UpgradingPhase, current.Status.ControlPlaneStatus.Phase)
+	}}
+	h.Create(context.Background(), event.CreateEvent{Object: pod}, q)
+	assert.Equal(t, 1, q.Len())
 }

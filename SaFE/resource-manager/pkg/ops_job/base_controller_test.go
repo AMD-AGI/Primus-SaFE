@@ -13,12 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
@@ -26,25 +24,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
-
-func opsScheme(t *testing.T) *runtime.Scheme {
-	t.Helper()
-	s := runtime.NewScheme()
-	if err := v1.AddToScheme(s); err != nil {
-		t.Fatal(err)
-	}
-	return s
-}
-
-func newBaseReconciler(t *testing.T, objs ...client.Object) *OpsJobBaseReconciler {
-	t.Helper()
-	cl := ctrlfake.NewClientBuilder().
-		WithScheme(opsScheme(t)).
-		WithStatusSubresource(&v1.OpsJob{}).
-		WithObjects(objs...).
-		Build()
-	return &OpsJobBaseReconciler{Client: cl}
-}
 
 type stubComponent struct {
 	filterResult bool
@@ -60,13 +39,6 @@ func (s *stubComponent) observe(_ context.Context, _ *v1.OpsJob) (bool, error) {
 func (s *stubComponent) filter(_ context.Context, _ *v1.OpsJob) bool { return s.filterResult }
 func (s *stubComponent) handle(_ context.Context, _ *v1.OpsJob) (ctrlruntime.Result, error) {
 	return s.handleResult, s.handleErr
-}
-
-func newTestOpsJob(name string) *v1.OpsJob {
-	return &v1.OpsJob{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Finalizers: []string{v1.OpsJobFinalizer}},
-		Spec:       v1.OpsJobSpec{Type: v1.OpsJobRebootType},
-	}
 }
 
 func TestReconcileNotFound(t *testing.T) {
@@ -252,4 +224,20 @@ func TestUpdateCondition(t *testing.T) {
 	r := newBaseReconciler(t, job)
 	cond := &metav1.Condition{Type: "Test", Status: metav1.ConditionTrue, Reason: "ok", Message: "m"}
 	assert.NoError(t, r.updateCondition(context.Background(), job, cond))
+}
+
+func TestBaseHandleWorkloadEventImpl(t *testing.T) {
+	job := newTestOpsJob("j1")
+	r := newBaseWithObjs(t, job)
+	wl := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "wl1",
+			Labels: map[string]string{v1.OpsJobIdLabel: "j1"},
+		},
+		Status: v1.WorkloadStatus{Phase: v1.WorkloadRunning},
+	}
+	// Running workload -> sets job phase running. Should not panic.
+	r.handleWorkloadEventImpl(context.Background(), wl)
+	updated := &v1.OpsJob{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "j1"}, updated))
 }

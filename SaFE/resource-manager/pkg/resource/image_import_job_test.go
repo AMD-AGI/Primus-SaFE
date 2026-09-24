@@ -12,6 +12,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -34,6 +35,12 @@ func newImageImportReconciler(t *testing.T, db *mockclient.MockInterface, objs .
 		ClusterBaseReconciler: &ClusterBaseReconciler{Client: builder.Build()},
 		dbClient:              db,
 	}
+}
+
+func TestFilterImageImportJob(t *testing.T) {
+	withLabel := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"image-import": "x"}}}
+	assert.True(t, filterImageImportJob(withLabel))
+	assert.False(t, filterImageImportJob(&corev1.Pod{}))
 }
 
 func TestImageImportReconcileNotFound(t *testing.T) {

@@ -14,8 +14,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
@@ -387,4 +390,65 @@ func TestGeneratePreflightWorkload(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "CUSTOM_GPU", wl.Spec.Env[common.GPU_PRODUCT])
 	})
+}
+
+func TestPreflightObserveFilter(t *testing.T) {
+	r := &PreflightJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobPreflightType}}
+	quit, err := r.observe(context.Background(), job)
+	assert.NoError(t, err)
+	assert.False(t, quit)
+	assert.False(t, r.filter(context.Background(), job))
+	assert.True(t, r.filter(context.Background(), &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobCDType}}))
+}
+
+func TestPreflightHandleSetsPending(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1"},
+		Spec:       v1.OpsJobSpec{Type: v1.OpsJobPreflightType},
+	}
+	r := &PreflightJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	_, err := r.handle(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, v1.OpsJobPending, job.Status.Phase)
+}
+
+func TestPreflightHandleWorkloadExists(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}, Spec: v1.OpsJobSpec{Type: v1.OpsJobPreflightType}}
+	job.Status.Phase = v1.OpsJobPending
+	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	r := &PreflightJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, wl)}
+	_, err := r.handle(context.Background(), job)
+	assert.NoError(t, err)
+}
+
+func TestPreflightGenerateWorkloadNoResource(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	r := &PreflightJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	_, err := r.generatePreflightWorkload(context.Background(), job)
+	assert.Error(t, err)
+}
+
+func TestPreflightHandleWorkloadEvent(t *testing.T) {
+	job := newTestOpsJob("j1")
+	r := &PreflightJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	h := r.handleWorkloadEvent().(interface {
+		Create(context.Context, event.CreateEvent, v1.RequestWorkQueue)
+		Update(context.Context, event.UpdateEvent, v1.RequestWorkQueue)
+	})
+	runWorkloadEventHandler(t, h, endedWorkload(v1.OpsJobPreflightType))
+	assert.NotNil(t, r)
+}
+
+func TestPreflightReconcileEntry(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}, Spec: v1.OpsJobSpec{Type: v1.OpsJobPreflightType}}
+	r := &PreflightJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
+	assert.NoError(t, err)
+}
+
+func TestPreflightCleanupJobRelatedInfo(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	r := &PreflightJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	assert.NoError(t, r.cleanupJobRelatedInfo(context.Background(), job))
 }

@@ -15,10 +15,13 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	rmutils "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
@@ -28,6 +31,50 @@ func timeNow() time.Time { return time.Now() }
 
 func newPrewarmFactory(cs *k8sfake.Clientset) *commonclient.ClientFactory {
 	return commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs)
+}
+
+func TestSetOutputParam(t *testing.T) {
+	out := setOutputParam(nil, "a", "1")
+	assert.Len(t, out, 1)
+	out = setOutputParam(out, "a", "2")
+	assert.Len(t, out, 1)
+	assert.Equal(t, "2", out[0].Value)
+}
+
+func TestBuildJobOutputs(t *testing.T) {
+	r := &PrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	outputs := r.buildJobOutputs("done", "msg", 2, 4)
+	assert.Len(t, outputs, 5)
+	var progress string
+	for _, o := range outputs {
+		if o.Name == "prewarm_progress" {
+			progress = o.Value
+		}
+	}
+	assert.Equal(t, "50%", progress)
+}
+
+func TestPrewarmObserveFilter(t *testing.T) {
+	r := &PrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobPrewarmType}}
+	quit, err := r.observe(context.Background(), job)
+	assert.NoError(t, err)
+	assert.False(t, quit)
+	assert.False(t, r.filter(context.Background(), job))
+	assert.True(t, r.filter(context.Background(), &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobRebootType}}))
+}
+
+func TestPrewarmHandlePending(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1"},
+		Spec:       v1.OpsJobSpec{Type: v1.OpsJobPrewarmType},
+	}
+	r := &PrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	r.Controller = commonctrl.NewController[string](nil, 1)
+	res, err := r.handle(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, v1.OpsJobRunning, job.Status.Phase)
+	assert.True(t, res.RequeueAfter > 0)
 }
 
 func TestPrewarmCreateDaemonSet(t *testing.T) {
@@ -55,6 +102,20 @@ func TestPrewarmDeleteDaemonSet(t *testing.T) {
 	r := &PrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
 	factory := newPrewarmFactory(cs)
 	assert.NoError(t, r.deleteDaemonSet(context.Background(), factory, "ds1"))
+}
+
+func TestPrewarmCleanupDaemonSet(t *testing.T) {
+	ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: common.PrimusSafeNamespace}}
+	cs := k8sfake.NewSimpleClientset(ds)
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1", Labels: map[string]string{v1.ClusterIdLabel: "c1"}}}
+	r := &PrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+
+	patches := gomonkey.ApplyFunc(rmutils.GetK8sClientFactory,
+		func(_ *commonutils.ObjectManager, _ string) (*commonclient.ClientFactory, error) {
+			return newPrewarmFactory(cs), nil
+		})
+	defer patches.Reset()
+	assert.NoError(t, r.cleanupDaemonSet(context.Background(), job))
 }
 
 func TestPrewarmGetFailedPodsInfo(t *testing.T) {
@@ -119,6 +180,20 @@ func TestPrewarmDoCreatesDaemonSet(t *testing.T) {
 	assert.NoError(t, err)
 	_, err = cs.AppsV1().DaemonSets(common.PrimusSafeNamespace).Get(context.Background(), "j1", metav1.GetOptions{})
 	assert.NoError(t, err)
+}
+
+func TestPrewarmDoMissingParams(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1", Labels: map[string]string{v1.ClusterIdLabel: "c1"}},
+		Spec:       v1.OpsJobSpec{Type: v1.OpsJobPrewarmType},
+		Status:     v1.OpsJobStatus{Phase: v1.OpsJobRunning},
+	}
+	r := &PrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	_, err := r.Do(context.Background(), "j1")
+	assert.NoError(t, err)
+	updated := &v1.OpsJob{}
+	assert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: "j1"}, updated))
+	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
 }
 
 func TestPrewarmCheckAndUpdateJobStatusCompleted(t *testing.T) {
@@ -191,10 +266,26 @@ func TestPrewarmCheckAndUpdateJobStatusProgress(t *testing.T) {
 	assert.True(t, res.RequeueAfter > 0)
 }
 
-func TestSetOutputParam(t *testing.T) {
-	out := setOutputParam(nil, "a", "1")
-	assert.Len(t, out, 1)
-	out = setOutputParam(out, "a", "2")
-	assert.Len(t, out, 1)
-	assert.Equal(t, "2", out[0].Value)
+func TestPrewarmUpdatePrewarmProgress(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	r := &PrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	err := r.updatePrewarmProgress(context.Background(), "j1", 50, 1, 2)
+	assert.NoError(t, err)
+}
+
+func TestPrewarmReconcileEntry(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1", Finalizers: []string{v1.OpsJobFinalizer}},
+		Spec:       v1.OpsJobSpec{Type: v1.OpsJobPrewarmType},
+	}
+	r := &PrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	r.Controller = commonctrl.NewController[string](nil, 1)
+	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
+	assert.NoError(t, err)
+}
+
+func TestPrewarmQueueControllerStarts(t *testing.T) {
+	pw := &PrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	pw.Controller = commonctrl.NewController[string](pw, 0)
+	pw.start(context.Background())
 }

@@ -119,6 +119,12 @@ spec:
                     - type: string
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
+                  kubeletMaxPods:
+                    description: Maximum number of pods scheduled on each node
+                    format: int32
+                    maximum: 2147483647
+                    minimum: 1
+                    type: integer
                   kubernetesVersion:
                     description: Kubernetes version
                     type: string

@@ -77,21 +77,55 @@
         </template>
       </el-table-column>
     </el-table>
+    <div v-else class="text-sm text-gray-400 px-1 py-2">No pods</div>
+    <div v-if="historyRows.length" class="mt-2 px-1">
+      <el-button type="text" @click="historyVisible = !historyVisible">
+        {{ historyVisible ? 'Hide history' : `View history (${historyRows.length})` }}
+      </el-button>
+      <el-table v-if="historyVisible" class="mt-2" :data="historyRows">
+        <el-table-column prop="phase" label="Phase" min-width="120">
+          <template #default="{ row }">
+            <el-tag :type="WorkloadPhaseButtonType[row.phase]?.type || 'info'">
+              {{ row.phase }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="dispatchCount" label="Dispatch Count" min-width="140" />
+        <el-table-column prop="startTime" label="StartTime" min-width="160">
+          <template #default="{ row }">
+            {{ formatTimeStr(row.startTime) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="endTime" label="EndTime" min-width="160">
+          <template #default="{ row }">
+            {{ formatTimeStr(row.endTime) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="nodes" label="Nodes" min-width="240" show-overflow-tooltip />
+      </el-table>
+    </div>
   </el-card>
 </template>
 
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { WorkloadPhaseButtonType } from '@/services'
 import { formatTimeStr } from '@/utils'
+import type { WorkloadNodesHistoryItem } from '@/services/workload/type'
+import { toNodesHistoryRows } from './nodesHistory'
 
 const props = defineProps<{
   pods?: any[]
+  nodesHistory?: WorkloadNodesHistoryItem[]
   workloadPhase?: string
   showSsh?: boolean
   refreshLoading?: boolean
   disableSsh?: boolean
 }>()
+
+const historyRows = computed(() => toNodesHistoryRows(props.nodesHistory))
+const historyVisible = ref(false)
 
 const emit = defineEmits<{
   (e: 'openLog', podId: string): void

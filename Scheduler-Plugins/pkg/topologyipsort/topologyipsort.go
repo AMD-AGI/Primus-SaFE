@@ -18,8 +18,8 @@ import (
 	clientscheme "k8s.io/client-go/kubernetes/scheme"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
-	"k8s.io/utils/pointer"
+	fwk "k8s.io/kube-scheduler/framework"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-plugins/apis/scheduling"
 	"sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1"
@@ -47,7 +47,7 @@ type nodeCache struct {
 }
 
 type TopologyIPSort struct {
-	handle framework.Handle
+	handle fwk.Handle
 	client client.Client
 	logger klog.Logger
 	cache  *nodeCache
@@ -65,13 +65,13 @@ const (
 	ReplicaMaster     = "master"
 )
 
-var _ framework.ScorePlugin = &TopologyIPSort{}
-var _ framework.QueueSortPlugin = &TopologyIPSort{}
-var _ framework.PermitPlugin = &TopologyIPSort{}
-var _ framework.PostFilterPlugin = &TopologyIPSort{}
+var _ fwk.ScorePlugin = &TopologyIPSort{}
+var _ fwk.QueueSortPlugin = &TopologyIPSort{}
+var _ fwk.PermitPlugin = &TopologyIPSort{}
+var _ fwk.PostFilterPlugin = &TopologyIPSort{}
 
 // New initializes a new plugin and returns it.
-func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (framework.Plugin, error) {
+func New(ctx context.Context, obj runtime.Object, handle fwk.Handle) (fwk.Plugin, error) {
 	lh := klog.FromContext(ctx).WithValues("plugin", Name)
 	lh.V(5).Info("creating new topologt ip sort plugin")
 	scheme := runtime.NewScheme()
@@ -95,7 +95,7 @@ func (t *TopologyIPSort) Name() string {
 	return Name
 }
 
-func (t *TopologyIPSort) rackNodeCache(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, pods []*corev1.Pod, lh klog.Logger) (*nodeCache, error) {
+func (t *TopologyIPSort) rackNodeCache(ctx context.Context, state fwk.CycleState, pod *corev1.Pod, pods []*corev1.Pod, lh klog.Logger) (*nodeCache, error) {
 	podGroup := util.GetPodGroupLabel(pod)
 	nodes, err := t.handle.SnapshotSharedLister().NodeInfos().List()
 	if err != nil {
@@ -154,14 +154,15 @@ func (t *TopologyIPSort) rackNodeCache(ctx context.Context, state *framework.Cyc
 	}, nil
 }
 
-func (t *TopologyIPSort) Score(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) (int64, *framework.Status) {
+func (t *TopologyIPSort) Score(ctx context.Context, state fwk.CycleState, pod *corev1.Pod, nodeInfo fwk.NodeInfo) (int64, *fwk.Status) {
 	lh := klog.FromContext(klog.NewContext(ctx, t.logger)).WithValues("ExtensionPoint", "Score")
+	nodeName := nodeInfo.Node().Name
 	pg := util.GetPodGroupLabel(pod)
 	pods, err := t.handle.SharedInformerFactory().Core().V1().Pods().Lister().Pods(pod.Namespace).List(labels.SelectorFromSet(map[string]string{
 		v1alpha1.PodGroupLabel: pg,
 	}))
 	if err != nil {
-		return framework.MinNodeScore, framework.NewStatus(framework.Error, err.Error())
+		return fwk.MinNodeScore, fwk.NewStatus(fwk.Error, err.Error())
 	}
 	sort.Slice(pods, func(i, j int) bool {
 		if l := less(pods[i], pods[j]); l != nil {
@@ -173,7 +174,7 @@ func (t *TopologyIPSort) Score(ctx context.Context, state *framework.CycleState,
 	if t.cache.namespace != pod.Namespace || t.cache.podGroup != pg || (len(pods) > 0 && pods[0].Name == pod.Name) {
 		c, err := t.rackNodeCache(ctx, state, pod, pods, lh)
 		if err != nil {
-			return framework.MinNodeScore, framework.NewStatus(framework.Error, err.Error())
+			return fwk.MinNodeScore, fwk.NewStatus(fwk.Error, err.Error())
 		}
 		lh.Info("RackNodeCache", "rackNodesCache", fmt.Sprintf("%+v score pod name %s", c, pod.Name))
 		t.cache = c
@@ -181,10 +182,10 @@ func (t *TopologyIPSort) Score(ctx context.Context, state *framework.CycleState,
 
 	for _, n := range t.cache.nodes {
 		if n.name == nodeName && n.pod == pod.Name {
-			return framework.MaxNodeScore, framework.NewStatus(framework.Success, "success")
+			return fwk.MaxNodeScore, fwk.NewStatus(fwk.Success, "success")
 		}
 	}
-	return framework.MinNodeScore, framework.NewStatus(framework.Success, "success")
+	return fwk.MinNodeScore, fwk.NewStatus(fwk.Success, "success")
 }
 
 func filter(rackNodes []rackNode, unit int, count int) []node {
@@ -230,57 +231,59 @@ func filter(rackNodes []rackNode, unit int, count int) []node {
 	return filters
 }
 
-func (t *TopologyIPSort) ScoreExtensions() framework.ScoreExtensions {
+func (t *TopologyIPSort) ScoreExtensions() fwk.ScoreExtensions {
 	return t
 }
 
-func (t *TopologyIPSort) NormalizeScore(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, scores framework.NodeScoreList) *framework.Status {
+func (t *TopologyIPSort) NormalizeScore(ctx context.Context, state fwk.CycleState, pod *corev1.Pod, scores fwk.NodeScoreList) *fwk.Status {
 	return nil
 }
 
-func (t *TopologyIPSort) Less(podInfo1, podInfo2 *framework.QueuedPodInfo) bool {
-	if l := less(podInfo1.Pod, podInfo2.Pod); l != nil {
+func (t *TopologyIPSort) Less(podInfo1, podInfo2 fwk.QueuedPodInfo) bool {
+	pod1 := podInfo1.GetPodInfo().GetPod()
+	pod2 := podInfo2.GetPodInfo().GetPod()
+	if l := less(pod1, pod2); l != nil {
 		return *l
 	}
 	pg1 := new(v1alpha1.PodGroup)
-	err := t.client.Get(context.TODO(), types.NamespacedName{Name: util.GetPodGroupLabel(podInfo1.Pod), Namespace: podInfo1.Pod.Namespace}, pg1)
+	err := t.client.Get(context.TODO(), types.NamespacedName{Name: util.GetPodGroupLabel(pod1), Namespace: pod1.Namespace}, pg1)
 	if err != nil {
 		return true
 	}
 	pg2 := new(v1alpha1.PodGroup)
-	err = t.client.Get(context.TODO(), types.NamespacedName{Name: util.GetPodGroupLabel(podInfo2.Pod), Namespace: podInfo2.Pod.Namespace}, pg2)
+	err = t.client.Get(context.TODO(), types.NamespacedName{Name: util.GetPodGroupLabel(pod2), Namespace: pod2.Namespace}, pg2)
 	if err != nil {
 		return true
 	}
 	creationTime1 := pg1.CreationTimestamp.Time
 	creationTime2 := pg2.CreationTimestamp.Time
 	if creationTime1.Equal(creationTime2) {
-		return core.GetNamespacedName(podInfo1.Pod) < core.GetNamespacedName(podInfo2.Pod)
+		return core.GetNamespacedName(pod1) < core.GetNamespacedName(pod2)
 	}
 	return creationTime1.Before(creationTime2)
 }
 
-func (t *TopologyIPSort) Permit(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) (*framework.Status, time.Duration) {
+func (t *TopologyIPSort) Permit(ctx context.Context, state fwk.CycleState, pod *corev1.Pod, nodeName string) (*fwk.Status, time.Duration) {
 	lh := klog.FromContext(klog.NewContext(ctx, t.logger)).WithValues("ExtensionPoint", "Permit")
 	pg := util.GetPodGroupLabel(pod)
 	if pg == "" {
-		return framework.NewStatus(framework.Success, "SUCCESSED"), 0
+		return fwk.NewStatus(fwk.Success, "SUCCESSED"), 0
 	}
 
 	pods, err := t.handle.SharedInformerFactory().Core().V1().Pods().Lister().Pods(pod.Namespace).List(labels.SelectorFromSet(map[string]string{
 		v1alpha1.PodGroupLabel: pg,
 	}))
 	if err != nil {
-		return framework.NewStatus(framework.Unschedulable, "SCHEDULE FAILED at plugin TopologyIPSort"), 0
+		return fwk.NewStatus(fwk.Unschedulable, "SCHEDULE FAILED at plugin TopologyIPSort"), 0
 	}
 	for _, p := range pods {
 		if !p.DeletionTimestamp.IsZero() {
-			return framework.NewStatus(framework.Unschedulable, "SCHEDULE FAILED at plugin TopologyIPSort"), 0
+			return fwk.NewStatus(fwk.Unschedulable, "SCHEDULE FAILED at plugin TopologyIPSort"), 0
 		}
 	}
 	nodes, err := t.handle.SnapshotSharedLister().NodeInfos().List()
 	if err != nil {
-		return framework.NewStatus(framework.Unschedulable, "SCHEDULE FAILED at plugin TopologyIPSort"), 0
+		return fwk.NewStatus(fwk.Unschedulable, "SCHEDULE FAILED at plugin TopologyIPSort"), 0
 	}
 
 	scheduled := func(pre *corev1.Pod) bool {
@@ -288,8 +291,8 @@ func (t *TopologyIPSort) Permit(ctx context.Context, state *framework.CycleState
 			return true
 		}
 		for _, n := range nodes {
-			for _, p := range n.Pods {
-				if p.Pod.UID == pre.UID {
+			for _, p := range n.GetPods() {
+				if p.GetPod().UID == pre.UID {
 					return true
 				}
 			}
@@ -306,7 +309,7 @@ func (t *TopologyIPSort) Permit(ctx context.Context, state *framework.CycleState
 		prePod := pods[i-1]
 		if pods[i].Name == pod.Name && !scheduled(prePod) {
 			lh.V(4).Info("PreviousPodUnscheduled", "Previous", prePod.Name, "Present", pod.Name)
-			return framework.NewStatus(framework.Pending, "SCHEDULE FAILED at plugin TopologyIPSort, Previous pod Unscheduled"), 0
+			return fwk.NewStatus(fwk.Pending, "SCHEDULE FAILED at plugin TopologyIPSort, Previous pod Unscheduled"), 0
 		}
 	}
 	allocate := map[string]struct{}{
@@ -317,18 +320,18 @@ func (t *TopologyIPSort) Permit(ctx context.Context, state *framework.CycleState
 			continue
 		}
 		for _, n := range nodes {
-			for _, pp := range n.Pods {
-				if util.GetPodGroupLabel(pp.Pod) == pg {
-					allocate[n.GetName()] = struct{}{}
+			for _, pp := range n.GetPods() {
+				if util.GetPodGroupLabel(pp.GetPod()) == pg {
+					allocate[n.Node().Name] = struct{}{}
 				}
 			}
-			_, ok := allocate[n.GetName()]
+			_, ok := allocate[n.Node().Name]
 			if ok {
 				continue
 			}
 			s := t.handle.RunFilterPlugins(ctx, state, p, n)
 			if s.IsSuccess() {
-				allocate[n.GetName()] = struct{}{}
+				allocate[n.Node().Name] = struct{}{}
 				break
 			}
 		}
@@ -336,7 +339,7 @@ func (t *TopologyIPSort) Permit(ctx context.Context, state *framework.CycleState
 	podGroup := new(v1alpha1.PodGroup)
 	err = t.client.Get(ctx, types.NamespacedName{Name: pg, Namespace: pod.Namespace}, podGroup)
 	if err != nil {
-		return framework.NewStatus(framework.Error, fmt.Sprintf("TopologyIPSort Coscheduler Failed %s", err.Error())), 0
+		return fwk.NewStatus(fwk.Error, fmt.Sprintf("TopologyIPSort Coscheduler Failed %s", err.Error())), 0
 	}
 	if int(podGroup.Spec.MinMember) > len(allocate) {
 		schedulNodes := []string{}
@@ -346,19 +349,19 @@ func (t *TopologyIPSort) Permit(ctx context.Context, state *framework.CycleState
 		sort.Slice(schedulNodes, func(i, j int) bool {
 			return schedulNodes[i] < schedulNodes[j]
 		})
-		return framework.NewStatus(framework.Unschedulable, fmt.Sprintf("TopologyIPSort Coscheduler Failed %+v", schedulNodes)), 0
+		return fwk.NewStatus(fwk.Unschedulable, fmt.Sprintf("TopologyIPSort Coscheduler Failed %+v", schedulNodes)), 0
 	}
 
 	lh.Info("TopologyIPSort Scheduled", "Pod", pod.Name, "NodeName", nodeName)
-	return framework.NewStatus(framework.Success, "SUCCESSED"), 0
+	return fwk.NewStatus(fwk.Success, "SUCCESSED"), 0
 }
 
-func (t *TopologyIPSort) PostFilter(ctx context.Context, state *framework.CycleState, pod *corev1.Pod,
-	filteredNodeStatusReader framework.NodeToStatusReader) (*framework.PostFilterResult, *framework.Status) {
+func (t *TopologyIPSort) PostFilter(ctx context.Context, state fwk.CycleState, pod *corev1.Pod,
+	filteredNodeStatusReader fwk.NodeToStatusReader) (*fwk.PostFilterResult, *fwk.Status) {
 	lh := klog.FromContext(klog.NewContext(ctx, t.logger)).WithValues("ExtensionPoint", "PostFilter")
 	pg := util.GetPodGroupLabel(pod)
 	if pg == "" {
-		return &framework.PostFilterResult{}, framework.NewStatus(framework.Unschedulable, "dose not exits pod group")
+		return &fwk.PostFilterResult{}, fwk.NewStatus(fwk.Unschedulable, "dose not exits pod group")
 	}
 	nodes, err := t.handle.SnapshotSharedLister().NodeInfos().List()
 	schedulNodes := []string{}
@@ -367,20 +370,20 @@ func (t *TopologyIPSort) PostFilter(ctx context.Context, state *framework.CycleS
 	}
 	for _, node := range nodes {
 		s := t.handle.RunFilterPlugins(ctx, state, pod, node)
-		if s.Code() != framework.Success {
+		if s.Code() != fwk.Success {
 			continue
 		}
-		schedulNodes = append(schedulNodes, node.GetName())
+		schedulNodes = append(schedulNodes, node.Node().Name)
 	}
 	sort.Slice(schedulNodes, func(i, j int) bool {
 		return schedulNodes[i] < schedulNodes[j]
 	})
 	reason := fmt.Sprintf("podgroup %s, %d nodes can be scheduled%+v.", pg, len(schedulNodes), schedulNodes)
 	lh.Info(reason)
-	return &framework.PostFilterResult{}, framework.NewStatus(framework.Pending, reason).WithPlugin(t.Name())
+	return &fwk.PostFilterResult{}, fwk.NewStatus(fwk.Pending, reason).WithPlugin(t.Name())
 }
 
-func getIPIndex(node *framework.NodeInfo) int {
+func getIPIndex(node fwk.NodeInfo) int {
 	for _, v := range node.Node().Status.Addresses {
 		if v.Type == corev1.NodeInternalIP {
 			ips := strings.Split(v.Address, ".")
@@ -406,7 +409,7 @@ func less(pod1, pod2 *corev1.Pod) *bool {
 	prio1 := corev1helpers.PodPriority(pod1)
 	prio2 := corev1helpers.PodPriority(pod2)
 	if prio1 != prio2 {
-		return pointer.Bool(prio1 > prio2)
+		return ptr.To(prio1 > prio2)
 	}
 
 	pg1 := util.GetPodGroupLabel(pod1)
@@ -417,13 +420,13 @@ func less(pod1, pod2 *corev1.Pod) *bool {
 		if replicaType1 == replicaType2 {
 			replicaIndex1 := atoi(pod1.Labels[ReplicaIndexLabel])
 			replicaIndex2 := atoi(pod2.Labels[ReplicaIndexLabel])
-			return pointer.Bool(replicaIndex1 < replicaIndex2)
+			return ptr.To(replicaIndex1 < replicaIndex2)
 
 		}
 		if replicaType1 == ReplicaMaster {
-			return pointer.Bool(true)
+			return ptr.To(true)
 		}
-		return pointer.Bool(false)
+		return ptr.To(false)
 	}
 	return nil
 }

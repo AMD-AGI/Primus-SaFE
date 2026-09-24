@@ -91,16 +91,47 @@ func TestValidateClusterUpgradeUpdate(t *testing.T) {
 	newCluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
 	assert.NilError(t, validateClusterUpgradeUpdate(newCluster, oldCluster))
 
+	maxPods := uint32(250)
+	maxPodsCluster := oldCluster.DeepCopy()
+	maxPodsCluster.Spec.ControlPlane.KubeletMaxPods = &maxPods
+	assert.NilError(t, validateClusterUpgradeUpdate(maxPodsCluster, oldCluster))
+
+	tooManyPods := uint32(255)
+	maxPodsCluster.Spec.ControlPlane.KubeletMaxPods = &tooManyPods
+	assert.Assert(t, validateClusterUpgradeUpdate(maxPodsCluster, oldCluster) != nil)
+
+	noBaseline := oldCluster.DeepCopy()
+	noBaseline.SetAnnotations(nil)
+	noBaselineMaxPods := noBaseline.DeepCopy()
+	noBaselineMaxPods.Spec.ControlPlane.KubeletMaxPods = &maxPods
+	assert.Assert(t, validateClusterUpgradeUpdate(noBaselineMaxPods, noBaseline) != nil)
+
+	customImage := oldCluster.DeepCopy()
+	customImage.Spec.ControlPlane.KubeSprayImage = pointer.String("custom/kubespray:installed")
+	customImage.Spec.ControlPlane.KubeVersion = pointer.String("1.31.9")
+	customMaxPods := customImage.DeepCopy()
+	customMaxPods.Spec.ControlPlane.KubeletMaxPods = &maxPods
+	assert.NilError(t, validateClusterUpgradeUpdate(customMaxPods, customImage))
+
+	zero := uint32(0)
+	maxPodsCluster.Spec.ControlPlane.KubeletMaxPods = &zero
+	assert.Assert(t, validateClusterUpgradeUpdate(maxPodsCluster, oldCluster) != nil)
+
 	newCluster.Spec.ControlPlane.KubeVersion = pointer.String("1.35.4")
 	assert.Assert(t, validateClusterUpgradeUpdate(newCluster, oldCluster) != nil)
 
 	newCluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7; touch /tmp/unsafe")
 	assert.Assert(t, validateClusterUpgradeUpdate(newCluster, oldCluster) != nil)
 
-	v1.SetAnnotation(oldCluster, v1.ClusterAppliedKubeSprayImageAnnotation, "custom/kubespray:installed")
-	v1.SetAnnotation(oldCluster, v1.ClusterAppliedKubeVersionAnnotation, "1.31.9")
-	newCluster.Spec.ControlPlane.KubeSprayImage = pointer.String("custom/kubespray:installed")
-	newCluster.Spec.ControlPlane.KubeVersion = pointer.String("1.31.9")
+	oldCluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	oldCluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	v1.SetAnnotation(oldCluster, v1.ClusterAppliedKubeSprayImageAnnotation,
+		"primussafe/kubespray:20200530")
+	v1.SetAnnotation(oldCluster, v1.ClusterAppliedKubeVersionAnnotation, "1.32.5")
+	newCluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:20200530")
+	newCluster.Spec.ControlPlane.KubeVersion = pointer.String("1.32.5")
+	invalidCurrentMaxPods := uint32(500)
+	newCluster.Spec.ControlPlane.KubeletMaxPods = &invalidCurrentMaxPods
 	assert.NilError(t, validateClusterUpgradeUpdate(newCluster, oldCluster))
 
 	oldCluster.SetAnnotations(nil)

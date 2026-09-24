@@ -97,8 +97,9 @@ func TestPersistWorkloadStatus_Offload(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
 	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
-	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", []string{"p1"}).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", gomock.Any(), []string{"p1"}).Return(nil)
 	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadDispatchNodesNotIn(gomock.Any(), "w1", gomock.Any(), []int{0}).Return(nil)
 
 	w := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -130,6 +131,203 @@ func TestPersistWorkloadStatus_Offload(t *testing.T) {
 	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, got))
 	assert.Empty(t, got.Status.Pods)
 	assert.NotEmpty(t, got.Status.NodeUsage)
+}
+
+// TestPersistWorkloadStatus_OffloadRebuildsEmptyDispatchNodes covers a resume
+// that archived the previous dispatch rows: pods are present, Nodes is empty,
+// and the persist path must still write the current assignment.
+func TestPersistWorkloadStatus_OffloadRebuildsEmptyDispatchNodes(t *testing.T) {
+	viper.Reset()
+	viper.Set("db.enable", true)
+	defer viper.Reset()
+
+	ctrl := gomock.NewController(t)
+	mockDB := mockclient.NewMockInterface(ctrl)
+	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", gomock.Any(), []string{"p1"}).Return(nil)
+	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, dn *dbclient.WorkloadDispatchNode) error {
+			require.NotNil(t, dn)
+			assert.Equal(t, "w1", dn.WorkloadId)
+			assert.Equal(t, 0, dn.DispatchIndex)
+			require.True(t, dn.Nodes.Valid)
+			assert.Contains(t, dn.Nodes.String, "n1")
+			return nil
+		})
+	mockDB.EXPECT().DeleteWorkloadDispatchNodesNotIn(gomock.Any(), "w1", gomock.Any(), []int{0}).Return(nil)
+
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "w1",
+			Labels:      map[string]string{v1.WorkloadDispatchCntLabel: "1"},
+			Annotations: map[string]string{v1.WorkloadStatusOffloadAnnotation: v1.TrueStr},
+		},
+		Spec: v1.WorkloadSpec{
+			Resources: []v1.WorkloadResource{{Replica: 1, CPU: "1", GPU: "1", Memory: "1Gi"}},
+		},
+		Status: v1.WorkloadStatus{
+			Pods: []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning, AdminNodeName: "n1", Rank: "0", ResourceId: 0}},
+		},
+	}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w.DeepCopy()).WithStatusSubresource(w).Build()
+	r := &SyncerReconciler{Client: cl, dbClient: mockDB}
+
+	fresh := &v1.Workload{}
+	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, fresh))
+	fresh.Status = w.Status
+	fresh.Labels = w.Labels
+	fresh.Annotations = w.Annotations
+	require.NoError(t, r.persistWorkloadStatus(context.Background(), fresh))
+}
+
+// TestPersistWorkloadStatus_OffloadRebuildsCurrentDispatchOnly covers a
+// resumed workload whose dispatch count is already >1: empty Nodes must not be
+// written as dispatch_index 0 (that would invent earlier scheduling history).
+func TestPersistWorkloadStatus_OffloadRebuildsCurrentDispatchOnly(t *testing.T) {
+	viper.Reset()
+	viper.Set("db.enable", true)
+	defer viper.Reset()
+
+	ctrl := gomock.NewController(t)
+	mockDB := mockclient.NewMockInterface(ctrl)
+	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", gomock.Any(), []string{"p1"}).Return(nil)
+	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).Times(2).DoAndReturn(
+		func(_ context.Context, dn *dbclient.WorkloadDispatchNode) error {
+			require.NotNil(t, dn)
+			if dn.DispatchIndex == 1 {
+				require.True(t, dn.Nodes.Valid)
+				assert.Contains(t, dn.Nodes.String, "n1")
+			}
+			return nil
+		})
+	mockDB.EXPECT().DeleteWorkloadDispatchNodesNotIn(
+		gomock.Any(), "w1", gomock.Any(), []int{0, 1}).Return(nil)
+
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "w1",
+			Labels:      map[string]string{v1.WorkloadDispatchCntLabel: "2"},
+			Annotations: map[string]string{v1.WorkloadStatusOffloadAnnotation: v1.TrueStr},
+		},
+		Spec: v1.WorkloadSpec{
+			Resources: []v1.WorkloadResource{{Replica: 1, CPU: "1", GPU: "1", Memory: "1Gi"}},
+		},
+		Status: v1.WorkloadStatus{
+			Pods: []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning, AdminNodeName: "n1", Rank: "0", ResourceId: 0}},
+		},
+	}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w.DeepCopy()).WithStatusSubresource(w).Build()
+	r := &SyncerReconciler{Client: cl, dbClient: mockDB}
+
+	fresh := &v1.Workload{}
+	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, fresh))
+	fresh.Status = w.Status
+	fresh.Labels = w.Labels
+	fresh.Annotations = w.Annotations
+	require.NoError(t, r.persistWorkloadStatus(context.Background(), fresh))
+}
+
+// TestWriteWorkloadStatusToDBWritesEmptyCurrentDispatch ensures scale-to-zero
+// replaces a stale DB node assignment with [] while padding slots stay skipped.
+func TestWriteWorkloadStatusToDBWritesEmptyCurrentDispatch(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mockclient.NewMockInterface(ctrl)
+	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", "uid-1", []string{}).Return(nil)
+	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).Times(2).DoAndReturn(
+		func(_ context.Context, dn *dbclient.WorkloadDispatchNode) error {
+			require.NotNil(t, dn)
+			assert.Equal(t, "uid-1", dn.WorkloadUid)
+			if dn.DispatchIndex == 1 {
+				assert.Equal(t, "[]", dn.Nodes.String)
+			}
+			return nil
+		})
+	mockDB.EXPECT().DeleteWorkloadDispatchNodesNotIn(
+		gomock.Any(), "w1", "uid-1", []int{0, 1}).Return(nil)
+
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "w1",
+			UID:    "uid-1",
+			Labels: map[string]string{v1.WorkloadDispatchCntLabel: "2"},
+		},
+		Status: v1.WorkloadStatus{Nodes: [][]string{nil, []string{}}},
+	}
+	r := &SyncerReconciler{dbClient: mockDB}
+	require.NoError(t, r.writeWorkloadStatusToDB(context.Background(), w))
+}
+
+func TestWriteWorkloadStatusToDBDeletesStaleDispatchIndexes(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mockclient.NewMockInterface(ctrl)
+	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", gomock.Any(), []string{"p1"}).Return(nil)
+	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadDispatchNodesNotIn(gomock.Any(), "w1", gomock.Any(), []int{0}).Return(nil)
+
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "w1",
+			Labels: map[string]string{v1.WorkloadDispatchCntLabel: "1"},
+		},
+		Status: v1.WorkloadStatus{
+			Pods:  []v1.WorkloadPod{{PodId: "p1", AdminNodeName: "n1"}},
+			Nodes: [][]string{{"n1"}},
+		},
+	}
+	r := &SyncerReconciler{dbClient: mockDB}
+	require.NoError(t, r.writeWorkloadStatusToDB(context.Background(), w))
+}
+
+func TestWriteWorkloadStatusToDBEmptyDispatchSnapshotIsNoOp(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mockclient.NewMockInterface(ctrl)
+	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", "uid-1", []string{}).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadDispatchNodesNotIn(gomock.Any(), "w1", "uid-1", []int{}).Return(nil)
+
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "w1",
+			UID:    "uid-1",
+			Labels: map[string]string{v1.WorkloadDispatchCntLabel: "1"},
+		},
+	}
+	r := &SyncerReconciler{dbClient: mockDB}
+	require.NoError(t, r.writeWorkloadStatusToDB(context.Background(), w))
+}
+
+// TestCurrentDispatchNodesNeedRepair covers current dispatch repair conditions.
+func TestCurrentDispatchNodesNeedRepair(t *testing.T) {
+	tests := []struct {
+		name          string
+		dispatchCount string
+		nodes         [][]string
+		pods          []v1.WorkloadPod
+		want          bool
+	}{
+		{name: "missing dispatch label", nodes: nil, want: false},
+		{name: "first dispatch missing without pods", dispatchCount: "1", nodes: nil, want: false},
+		{name: "current slot missing with pod", dispatchCount: "2", nodes: [][]string{{"old"}},
+			pods: []v1.WorkloadPod{{AdminNodeName: "current"}}, want: true},
+		{name: "current slot empty without assigned pod", dispatchCount: "2", nodes: [][]string{{"old"}, {}}, want: false},
+		{name: "current slot empty with assigned pod", dispatchCount: "2", nodes: [][]string{{"old"}, {}},
+			pods: []v1.WorkloadPod{{AdminNodeName: "current"}}, want: true},
+		{name: "current slot assigned", dispatchCount: "2", nodes: [][]string{{"old"}, {"current"}}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{}}}
+			if tt.dispatchCount != "" {
+				w.Labels[v1.WorkloadDispatchCntLabel] = tt.dispatchCount
+			}
+			w.Status.Nodes = tt.nodes
+			w.Status.Pods = tt.pods
+			assert.Equal(t, tt.want, currentDispatchNodesNeedRepair(w))
+		})
+	}
 }
 
 // TestPatchWorkloadPodStatus_PreservesPhase verifies the field-scoped merge
@@ -199,8 +397,9 @@ func TestPatchWorkloadPodStatus_Offload(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
 	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
-	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", []string{"p1"}).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", gomock.Any(), []string{"p1"}).Return(nil)
 	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadDispatchNodesNotIn(gomock.Any(), "w1", gomock.Any(), []int{0}).Return(nil)
 
 	w := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -241,10 +440,10 @@ func TestHydrateWorkloadStatusFromDB(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1").Return([]*dbclient.WorkloadPod{
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1", gomock.Any()).Return([]*dbclient.WorkloadPod{
 		{WorkloadId: "w1", PodId: "p1", ResourceId: 0},
 	}, nil)
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w1").Return([]*dbclient.WorkloadDispatchNode{
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w1", gomock.Any()).Return([]*dbclient.WorkloadDispatchNode{
 		{WorkloadId: "w1", DispatchIndex: 0},
 	}, nil)
 
@@ -273,7 +472,7 @@ func TestGetAdminWorkload_HydratePodsError(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1").Return(nil, fmt.Errorf("db down"))
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1", gomock.Any()).Return(nil, fmt.Errorf("db down"))
 
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
 		Name:        "w1",
@@ -297,10 +496,10 @@ func TestHydrateWorkloadStatusFromDB_DispatchErrorKeepsEtcdSnapshot(t *testing.T
 
 	ctrl := gomock.NewController(t)
 	mockDB := mockclient.NewMockInterface(ctrl)
-	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1").Return([]*dbclient.WorkloadPod{
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), "w1", gomock.Any()).Return([]*dbclient.WorkloadPod{
 		{WorkloadId: "w1", PodId: "from-db", ResourceId: 0},
 	}, nil)
-	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w1").Return(nil, fmt.Errorf("db down"))
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "w1", gomock.Any()).Return(nil, fmt.Errorf("db down"))
 
 	w := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{

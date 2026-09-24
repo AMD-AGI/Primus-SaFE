@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -18,8 +19,10 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 )
 
@@ -149,3 +152,35 @@ func TestFaultRetry(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, ctrlruntime.Result{}, res)
 }
+
+func TestFaultHandleNodeEvent(t *testing.T) {
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
+	node.Spec.Cluster = pointerStr("c1")
+	r := newFaultReconciler(t, node)
+	h := r.handleNodeEvent().(genericEventHandler)
+	q := resWorkQueue()
+	defer q.ShutDown()
+	h.Create(context.Background(), event.CreateEvent{Object: node}, q)
+	// Update: node loses cluster -> delete faults path.
+	newNode := node.DeepCopy()
+	newNode.Spec.Cluster = nil
+	h.Update(context.Background(), event.UpdateEvent{ObjectOld: node, ObjectNew: newNode}, q)
+}
+
+func TestFaultHandleConfigmapEvent(t *testing.T) {
+	r := newFaultReconciler(t)
+	h := r.handleConfigmapEvent()
+	q := resWorkQueue()
+	defer q.ShutDown()
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: common.PrimusFault, Namespace: common.PrimusSafeNamespace}}
+	gh := h.(interface {
+		Create(context.Context, event.CreateEvent, v1.RequestWorkQueue)
+		Update(context.Context, event.UpdateEvent, v1.RequestWorkQueue)
+		Delete(context.Context, event.DeleteEvent, v1.RequestWorkQueue)
+	})
+	gh.Create(context.Background(), event.CreateEvent{Object: cm}, q)
+	gh.Update(context.Background(), event.UpdateEvent{ObjectOld: cm, ObjectNew: cm.DeepCopy()}, q)
+	gh.Delete(context.Background(), event.DeleteEvent{Object: cm}, q)
+}
+
+func pointerStr(s string) *string { return &s }

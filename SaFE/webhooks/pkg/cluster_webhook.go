@@ -146,6 +146,10 @@ func (v *ClusterValidator) validateControlPlane(ctx context.Context, cluster *v1
 	if cluster.Spec.ControlPlane.KubeSprayImage == nil || *cluster.Spec.ControlPlane.KubeSprayImage == "" {
 		return fmt.Errorf("the KubeSprayImage of spec is empty")
 	}
+	if err := validateKubeletMaxPods(cluster.Spec.ControlPlane.KubeletMaxPods,
+		cluster.Spec.ControlPlane.KubeNetworkNodePrefix); err != nil {
+		return err
+	}
 	if cluster.Spec.ControlPlane.KubeVersion != nil {
 		if _, _, _, ok := v1.ParseKubeVersion(*cluster.Spec.ControlPlane.KubeVersion); !ok {
 			return fmt.Errorf("the KubernetesVersion must use x.y.z format")
@@ -208,13 +212,27 @@ func validateClusterUpgradeUpdate(newCluster, oldCluster *v1.Cluster) error {
 	oldImage := pointerValue(oldCluster.Spec.ControlPlane.KubeSprayImage)
 	newVersion := pointerValue(newCluster.Spec.ControlPlane.KubeVersion)
 	oldVersion := pointerValue(oldCluster.Spec.ControlPlane.KubeVersion)
-	if newImage == oldImage && newVersion == oldVersion {
+	newMaxPods := uint32PointerValue(newCluster.Spec.ControlPlane.KubeletMaxPods)
+	oldMaxPods := uint32PointerValue(oldCluster.Spec.ControlPlane.KubeletMaxPods)
+	if newImage == oldImage && newVersion == oldVersion && newMaxPods == oldMaxPods {
 		return nil
 	}
 	annotations := oldCluster.GetAnnotations()
 	appliedImage, hasImage := annotations[v1.ClusterAppliedKubeSprayImageAnnotation]
 	appliedVersion, hasVersion := annotations[v1.ClusterAppliedKubeVersionAnnotation]
-	if hasImage && hasVersion && newImage == appliedImage && newVersion == appliedVersion {
+	imageOrVersionChanged := newImage != oldImage || newVersion != oldVersion
+	if imageOrVersionChanged && hasImage && hasVersion &&
+		newImage == appliedImage && newVersion == appliedVersion {
+		return nil
+	}
+	if err := validateKubeletMaxPods(newCluster.Spec.ControlPlane.KubeletMaxPods,
+		newCluster.Spec.ControlPlane.KubeNetworkNodePrefix); err != nil {
+		return err
+	}
+	if !hasImage || !hasVersion {
+		return fmt.Errorf("the cluster upgrade baseline is not initialized")
+	}
+	if !imageOrVersionChanged {
 		return nil
 	}
 	expectedVersion, ok := v1.KubeVersionForKubeSprayImage(newImage)
@@ -227,12 +245,35 @@ func validateClusterUpgradeUpdate(newCluster, oldCluster *v1.Cluster) error {
 	return nil
 }
 
+// validateKubeletMaxPods checks kubelet capacity against the per-node IPv4 CIDR.
+func validateKubeletMaxPods(maxPods, nodePrefix *uint32) error {
+	if maxPods == nil {
+		return nil
+	}
+	if *maxPods == 0 {
+		return fmt.Errorf("the KubeletMaxPods must be greater than zero")
+	}
+	limit := v1.KubeletMaxPodsLimit(nodePrefix)
+	if *maxPods > limit {
+		return fmt.Errorf("the KubeletMaxPods must not exceed the per-node Pod CIDR capacity (%d)", limit)
+	}
+	return nil
+}
+
 // pointerValue returns an empty string for an unset string pointer.
 func pointerValue(value *string) string {
 	if value == nil {
 		return ""
 	}
 	return *value
+}
+
+// uint32PointerValue returns an empty string for an unset uint32 pointer.
+func uint32PointerValue(value *uint32) string {
+	if value == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d", *value)
 }
 
 // validateImmutableFields ensures control plane nodes cannot be modified.

@@ -7,32 +7,23 @@ package ops_job
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 )
 
 type commons3iface = commons3.Interface
-
-func TestDumpLogDoSearch(t *testing.T) {
-	respBody := `{"hits":{"total":{"value":1},"hits":[{"_id":"1","_source":{"@timestamp":"t1","message":"hello"}}]}}`
-	sc := commonsearch.NewTestSearchClient(func(_, _ time.Time, _, _ string, _ []byte) ([]byte, error) {
-		return []byte(respBody), nil
-	})
-	r := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	job := &v1.OpsJob{Spec: v1.OpsJobSpec{}}
-	wl := &workloadInfo{workloadId: "wl1", startTime: time.Now().Add(-time.Hour), endTime: time.Now()}
-	res, err := r.doSearch(sc, job, wl)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, res.Hits.Total.Value)
-}
 
 // stubS3 implements s3.Interface; only the methods used by the dumplog
 // single-upload path are functional, the rest are inherited as no-ops via
@@ -48,6 +39,96 @@ func (stubS3) GeneratePresignedURL(_ context.Context, key string, _ int32) (stri
 	return "http://download/" + key, nil
 }
 func (stubS3) DeleteObject(_ context.Context, _ string, _ int64) error { return nil }
+
+func TestBuildLogName(t *testing.T) {
+	assert.Equal(t, "wl1.log", buildLogName("wl1"))
+}
+
+func TestBuildSearchBody(t *testing.T) {
+	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Inputs: []v1.Parameter{
+		{Name: v1.ParameterNode, Value: "node1"},
+	}}}
+	wl := &workloadInfo{
+		workloadId: "wl1",
+		startTime:  time.Now().Add(-time.Hour),
+		endTime:    time.Now(),
+	}
+	body := buildSearchBody(job, wl)
+	assert.NotEmpty(t, body)
+	assert.Contains(t, string(body), "wl1")
+}
+
+func TestSerializeSearchResponse(t *testing.T) {
+	raw := `{"hits":{"total":{"value":1},"hits":[{"_id":"1","_source":{"@timestamp":"t1","message":"hello"}}]}}`
+	resp := &commonsearch.OpenSearchLogResponse{}
+	assert.NoError(t, json.Unmarshal([]byte(raw), resp))
+	out := serializeSearchResponse(resp)
+	assert.Contains(t, out, "t1")
+	assert.Contains(t, out, "hello")
+}
+
+func TestDumpLogObserveFilter(t *testing.T) {
+	r := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobDumpLogType}}
+	quit, err := r.observe(context.Background(), job)
+	assert.NoError(t, err)
+	assert.False(t, quit)
+	assert.False(t, r.filter(context.Background(), job))
+	assert.True(t, r.filter(context.Background(), &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobRebootType}}))
+}
+
+func TestDumpLogHandlePending(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1"},
+		Spec:       v1.OpsJobSpec{Type: v1.OpsJobDumpLogType},
+	}
+	r := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	r.Controller = commonctrl.NewController[string](nil, 1)
+	_, err := r.handle(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, v1.OpsJobRunning, job.Status.Phase)
+}
+
+func TestDumpLogGetInputWorkloadNoParam(t *testing.T) {
+	r := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	_, err := r.getInputWorkload(context.Background(), &v1.OpsJob{})
+	assert.Error(t, err)
+}
+
+func TestDumpLogGetInputWorkloadFromK8s(t *testing.T) {
+	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl1", Labels: map[string]string{v1.ClusterIdLabel: "c1"}}}
+	r := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, wl)}
+	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Inputs: []v1.Parameter{{Name: v1.ParameterWorkload, Value: "wl1"}}}}
+	info, err := r.getInputWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, "wl1", info.workloadId)
+	assert.Equal(t, "c1", info.cluster)
+	assert.False(t, info.endTime.IsZero())
+}
+
+func TestDumpLogDoSearch(t *testing.T) {
+	respBody := `{"hits":{"total":{"value":1},"hits":[{"_id":"1","_source":{"@timestamp":"t1","message":"hello"}}]}}`
+	sc := commonsearch.NewTestSearchClient(func(_, _ time.Time, _, _ string, _ []byte) ([]byte, error) {
+		return []byte(respBody), nil
+	})
+	r := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	job := &v1.OpsJob{Spec: v1.OpsJobSpec{}}
+	wl := &workloadInfo{workloadId: "wl1", startTime: time.Now().Add(-time.Hour), endTime: time.Now()}
+	res, err := r.doSearch(sc, job, wl)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, res.Hits.Total.Value)
+}
+
+func TestDumpLogDoSearchEmpty(t *testing.T) {
+	sc := commonsearch.NewTestSearchClient(func(_, _ time.Time, _, _ string, _ []byte) ([]byte, error) {
+		return []byte(`{"hits":{"total":{"value":0},"hits":[]}}`), nil
+	})
+	r := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	job := &v1.OpsJob{Spec: v1.OpsJobSpec{}}
+	wl := &workloadInfo{workloadId: "wl1"}
+	_, err := r.doSearch(sc, job, wl)
+	assert.Error(t, err) // not found
+}
 
 func TestDumpLogProcessSingleUpload(t *testing.T) {
 	respBody := `{"hits":{"total":{"value":1},"hits":[{"_id":"1","_source":{"@timestamp":"t1","message":"hello"}}]}}`
@@ -133,13 +214,19 @@ func TestDumpLogClearScroll(t *testing.T) {
 	r.clearScroll(sc, "scroll-1")
 }
 
-func TestDumpLogDoSearchEmpty(t *testing.T) {
-	sc := commonsearch.NewTestSearchClient(func(_, _ time.Time, _, _ string, _ []byte) ([]byte, error) {
-		return []byte(`{"hits":{"total":{"value":0},"hits":[]}}`), nil
-	})
-	r := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	job := &v1.OpsJob{Spec: v1.OpsJobSpec{}}
-	wl := &workloadInfo{workloadId: "wl1"}
-	_, err := r.doSearch(sc, job, wl)
-	assert.Error(t, err) // not found
+func TestDumpLogReconcileEntry(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1", Finalizers: []string{v1.OpsJobFinalizer}},
+		Spec:       v1.OpsJobSpec{Type: v1.OpsJobDumpLogType},
+	}
+	r := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	r.Controller = commonctrl.NewController[string](nil, 1)
+	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "j1"}})
+	assert.NoError(t, err)
+}
+
+func TestDumpLogQueueControllerStarts(t *testing.T) {
+	dl := &DumpLogJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
+	dl.Controller = commonctrl.NewController[string](dl, 0)
+	dl.start(context.Background())
 }

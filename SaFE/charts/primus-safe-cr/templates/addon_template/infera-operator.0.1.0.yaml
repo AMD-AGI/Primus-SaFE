@@ -11,20 +11,18 @@
 # direct-mode frontend sidecar into worker pods, and creates an InferencePool +
 # HTTPRoute attaching to a Kubernetes Inference Gateway (kgateway).
 #
-# 0.1.0: the Infera project now publishes the operator itself, so this addon
-# consumes the upstream artefacts under rocm/ rather than a primussafe/ copy
-# ops had to mirror by hand. The version line restarts at 0.1.0 to track
-# upstream's; both earlier fixes are present in it (verified against the
-# sources, not assumed):
+# 0.1.0: consumes the operator chart and image under primussafe/, same layout
+# as the other default addons. The version line tracks the operator release.
+# Both earlier worker-probe and deletion-timestamp fixes are in this build.
 #
-#   chart  oci://<helm_registry>/rocm/infera-operator:0.1.0
-#   image  <proxy_image_registry>/rocm/infera:operator-v0.1.0
+#   chart  oci://<helm_registry>/primussafe/infera-operator:0.1.0
+#   image  <proxy_image_registry>/primussafe/infera:operator-v0.1.0
 #
-# The image is a tag of the shared rocm/infera repo, alongside the engine
-# images; the chart is a separate OCI repo, so an image tag and a chart version
-# cannot overwrite each other. Both registries default to registry-1.docker.io,
-# so a stock install pulls straight from Docker Hub — install.sh / upgrade.sh
-# repoint them at the Harbor proxy-cache when deploying against Harbor.
+# The image is a tag of primussafe/infera, alongside the engine images; the
+# chart is a separate OCI repo, so an image tag and a chart version cannot
+# overwrite each other. Both registries default to registry-1.docker.io, so a
+# stock install pulls from Docker Hub — install.sh / upgrade.sh repoint them
+# at the Harbor proxy-cache when deploying against Harbor.
 #
 # Carried forward from the mirrored builds this replaces:
 #   0.1.2: ServiceSpec.skipReadinessProbe — the operator no longer injects its
@@ -63,9 +61,8 @@ metadata:
 spec:
   category: plugin
   description: Infera Kubernetes operator. Reconciles InferaDeployment (infera.amd.com/v1alpha1) into Deployments / LeaderWorkerSets for aggregated and disaggregated (prefill/decode) LLM serving on AMD MI300X. Underlying resource for the InferaDeployment workload kind. Self-contained — does not require the NVIDIA dynamo operator; reuses the cluster NATS (nats.1.3.2) and, for multi-node, the LWS controller (lws.0.8.0). Includes Gateway API Inference Extension (GAIE) integration.
-  # Published upstream by the Infera project; no primussafe mirror to maintain.
-  # Upstream source path: deploy/operator/helm/infera-operator
-  url: oci://{{ .Values.global.helm_registry }}/rocm/infera-operator
+  # Chart source path: deploy/operator/helm/infera-operator
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/infera-operator
   version: 0.1.0
   type: helm
   helmDefaultNamespace: infera-system
@@ -73,7 +70,7 @@ spec:
     replicaCount: 1
 
     image:
-      repository: {{ .Values.global.proxy_image_registry }}/rocm/infera
+      repository: {{ .Values.global.proxy_image_registry }}/primussafe/infera
       tag: "operator-v0.1.0"
       pullPolicy: IfNotPresent
 
