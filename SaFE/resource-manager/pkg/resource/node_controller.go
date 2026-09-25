@@ -172,7 +172,7 @@ func (r *NodeReconciler) delete(ctx context.Context, adminNode *v1.Node) (ctrlru
 	// part of releasing the allocation. Deleting that node object here would evict pods
 	// whose tasks the provider has not finished stopping, and the deletion would race the
 	// provider's own cleanup rather than replace it.
-	if !adminNode.IsExternal() {
+	if !adminNode.DeclaresExternalLifecycle() {
 		result, err := r.deleteK8sNode(ctx, adminNode)
 		if err != nil || result.RequeueAfter > 0 {
 			return result, err
@@ -290,7 +290,9 @@ func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node, k
 
 // processNode handles the main processing logic for a Node.
 func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
-	if adminNode.IsExternal() {
+	// Branch on the declared mode before any SSH, template, IP or host side effect. A
+	// half-built external object must not fall through to manage/unmanage.
+	if adminNode.DeclaresExternalLifecycle() {
 		return r.processExternalNode(adminNode)
 	}
 	if result, err := r.updateK8sNode(ctx, adminNode, k8sNode); err != nil || result.RequeueAfter > 0 {
@@ -322,10 +324,9 @@ func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8
 // processExternalNode reconciles a node owned by an external execution provider.
 //
 // It performs no host operation: no SSH, no hostname or DNS change, no addon install, no
-// kubespray, no kubeadm reset and no reboot. There is no machine to manage. The provider
-// creates the node, registers the matching node in the execution cluster and keeps
-// status.external current; those facts reach SaFE through node_k8s_controller, which syncs
-// from the execution cluster and never touches a host.
+// kubespray, no kubeadm reset and no reboot. There is no machine to manage. SaFE admits the
+// matching admin Node when it sees the virtual node in the execution cluster; status and
+// capacity are synced from that virtual node's allocatable by node_k8s_controller.
 //
 // Taints and labels are not pushed outward either. The virtual node belongs to the
 // provider, and writing to it from here would contend with the provider's own updates.
@@ -1483,7 +1484,7 @@ func (r *NodeReconciler) executeSSHCommand(sshClient *ssh.Client, command string
 func shouldSyncMachineStatus(adminNode *v1.Node) bool {
 	// An external node has no machine to probe. Its MachineStatus is never written, so the
 	// update time below is always zero and every caller would read this as overdue.
-	if adminNode.IsExternal() {
+	if adminNode.DeclaresExternalLifecycle() {
 		return false
 	}
 	if !adminNode.IsMachineReady() {

@@ -390,9 +390,9 @@ func (v *NodeValidator) validateExternalNodeSpec(node *v1.Node) error {
 	if ref == nil {
 		return commonerrors.NewBadRequest("externalRef is required when lifecycleMode is external")
 	}
-	if ref.Provider == "" || ref.AllocationId == "" || ref.HostKey == "" || ref.Generation <= 0 {
+	if ref.Provider == "" || ref.AllocationId == "" || ref.Generation <= 0 {
 		return commonerrors.NewBadRequest(
-			"externalRef requires provider, allocationId, hostKey and a positive generation")
+			"externalRef requires provider, allocationId and a positive generation")
 	}
 	// mutateMeta derives the object name from the hostname, and node_k8s_controller matches
 	// the admin node to the execution cluster node by that name. Without it the node exists
@@ -481,8 +481,9 @@ func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error
 		return field.Forbidden(field.NewPath("spec").Key("lifecycleMode"), "immutable")
 	}
 	// The reference identifies which allocation generation this node's capacity came from.
-	// Repointing it would silently reattach the node, and every reservation already made
-	// against it, to different hardware.
+	// Repointing provider/allocationId/generation would silently reattach the node to
+	// different hardware. hostKey may appear after the provider freezes the first
+	// observation, so an empty-to-set transition is allowed; clearing or changing it is not.
 	if !equalExternalRef(oldNode.Spec.ExternalRef, newNode.Spec.ExternalRef) {
 		return field.Forbidden(field.NewPath("spec").Key("externalRef"), "immutable")
 	}
@@ -490,12 +491,20 @@ func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error
 }
 
 // equalExternalRef compares two provider allocation references, treating absent as equal
-// to absent so that native nodes pass unchanged.
+// to absent so that native nodes pass unchanged. hostKey may transition from empty to set.
 func equalExternalRef(oldRef, newRef *v1.NodeExternalRef) bool {
 	if oldRef == nil || newRef == nil {
 		return oldRef == nil && newRef == nil
 	}
-	return *oldRef == *newRef
+	if oldRef.Provider != newRef.Provider ||
+		oldRef.AllocationId != newRef.AllocationId ||
+		oldRef.Generation != newRef.Generation {
+		return false
+	}
+	if oldRef.HostKey == newRef.HostKey {
+		return true
+	}
+	return oldRef.HostKey == "" && newRef.HostKey != ""
 }
 
 // validateNodeMigrationReservation keeps a node released for a migration for the workspace it

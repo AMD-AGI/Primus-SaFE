@@ -27,8 +27,6 @@ type NodeStatusApplyConfiguration struct {
 	Resources *corev1.ResourceList `json:"resources,omitempty"`
 	// Node condition, automatically synchronized from the Kubernetes node
 	Conditions []corev1.NodeCondition `json:"conditions,omitempty"`
-	// Provider facts for external nodes, written by the capacity controller
-	External *NodeExternalStatusApplyConfiguration `json:"external,omitempty"`
 }
 
 // NodeStatusApplyConfiguration constructs a declarative configuration of the NodeStatus type for use with
@@ -86,13 +84,5 @@ func (b *NodeStatusApplyConfiguration) WithConditions(values ...corev1.NodeCondi
 	for i := range values {
 		b.Conditions = append(b.Conditions, values[i])
 	}
-	return b
-}
-
-// WithExternal sets the External field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the External field is set to the value of the last call.
-func (b *NodeStatusApplyConfiguration) WithExternal(value *NodeExternalStatusApplyConfiguration) *NodeStatusApplyConfiguration {
-	b.External = value
 	return b
 }

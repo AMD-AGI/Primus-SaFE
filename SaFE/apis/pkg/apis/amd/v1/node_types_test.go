@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -21,7 +22,7 @@ func fixedNow(t *testing.T, now time.Time) {
 	t.Cleanup(func() { nowFunc = previous })
 }
 
-func externalNode(observedAt, validUntil *metav1.Time) *Node {
+func externalNode(observedAt, validUntil *metav1.Time, ready bool) *Node {
 	node := &Node{
 		Spec: NodeSpec{
 			LifecycleMode: NodeLifecycleExternal,
@@ -34,11 +35,19 @@ func externalNode(observedAt, validUntil *metav1.Time) *Node {
 		},
 	}
 	SetLabel(node, ClusterIdLabel, "crusoe")
-	if observedAt != nil || validUntil != nil {
-		node.Status.External = &NodeExternalStatus{
-			ObservedAt: observedAt,
-			ValidUntil: validUntil,
-		}
+	status := corev1.ConditionFalse
+	if ready {
+		status = corev1.ConditionTrue
+	}
+	node.Status.Conditions = []corev1.NodeCondition{{
+		Type:   corev1.NodeReady,
+		Status: status,
+	}}
+	if observedAt != nil {
+		SetAnnotation(node, ExternalObservedAtAnnotation, observedAt.UTC().Format(time.RFC3339Nano))
+	}
+	if validUntil != nil {
+		SetAnnotation(node, ExternalValidUntilAnnotation, validUntil.UTC().Format(time.RFC3339Nano))
 	}
 	return node
 }
@@ -55,18 +64,20 @@ func TestExternalNodeReadinessTracksObservationFreshness(t *testing.T) {
 		name       string
 		observedAt *metav1.Time
 		validUntil *metav1.Time
+		ready      bool
 		wantReady  bool
 	}{
-		{"fresh observation with room left", stamp(-10 * time.Second), stamp(time.Minute), true},
-		{"validity just expired", stamp(-10 * time.Second), stamp(-time.Second), false},
-		{"observation older than the backstop", stamp(-DefaultExternalObservationMaxAge - time.Second), stamp(time.Hour), false},
-		{"observation exactly at the backstop", stamp(-DefaultExternalObservationMaxAge), stamp(time.Hour), false},
-		{"provider has not reported at all", nil, nil, false},
-		{"validity without an observation time", nil, stamp(time.Hour), false},
+		{"fresh observation with room left", stamp(-10 * time.Second), stamp(time.Minute), true, true},
+		{"validity just expired", stamp(-10 * time.Second), stamp(-time.Second), true, false},
+		{"observation older than the backstop", stamp(-DefaultExternalObservationMaxAge - time.Second), stamp(time.Hour), true, false},
+		{"observation exactly at the backstop", stamp(-DefaultExternalObservationMaxAge), stamp(time.Hour), true, false},
+		{"provider has not reported at all", nil, nil, true, false},
+		{"validity without an observation time", nil, stamp(time.Hour), true, false},
+		{"fresh but Ready condition false", stamp(-10 * time.Second), stamp(time.Minute), false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			node := externalNode(tc.observedAt, tc.validUntil)
+			node := externalNode(tc.observedAt, tc.validUntil, tc.ready)
 			if got := node.IsMachineReady(); got != tc.wantReady {
 				t.Fatalf("IsMachineReady() = %t, want %t", got, tc.wantReady)
 			}
@@ -82,7 +93,7 @@ func TestExternalObservationBackstopOverridesLongValidity(t *testing.T) {
 	fixedNow(t, now)
 	observed := metav1.NewTime(now.Add(-time.Hour))
 	valid := metav1.NewTime(now.Add(24 * time.Hour))
-	node := externalNode(&observed, &valid)
+	node := externalNode(&observed, &valid, true)
 	if node.IsMachineReady() {
 		t.Fatal("a node whose provider stopped reporting an hour ago must not be ready")
 	}
@@ -91,9 +102,7 @@ func TestExternalObservationBackstopOverridesLongValidity(t *testing.T) {
 func TestExternalNodeManagedOnlyNeedsClusterOwnership(t *testing.T) {
 	observed := metav1.NewTime(time.Now())
 	valid := metav1.NewTime(time.Now().Add(time.Minute))
-	node := externalNode(&observed, &valid)
-	// ClusterStatus is never written for a virtual node, because it never joins through
-	// kubespray. Ownership of a cluster is all it can report.
+	node := externalNode(&observed, &valid, true)
 	if !node.IsManaged() {
 		t.Fatal("expected an external node labelled with a cluster to be managed")
 	}
@@ -114,35 +123,25 @@ func TestNativeNodePredicatesAreUnchanged(t *testing.T) {
 	if !node.IsMachineReady() || !node.IsManaged() {
 		t.Fatal("expected the native predicates to keep reading the status phases")
 	}
-	// Freshness must play no part on the native path: a physical node reports through
-	// MachineStatus and has no provider observation at all.
-	node.Status.External = nil
-	if !node.IsMachineReady() {
-		t.Fatal("a native node must stay ready without a provider observation")
-	}
 }
 
 func TestExternalNodePhaseReportsStaleRatherThanEmpty(t *testing.T) {
 	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	fixedNow(t, now)
 	expired := metav1.NewTime(now.Add(-time.Hour))
-	node := externalNode(&expired, &expired)
+	node := externalNode(&expired, &expired, true)
 	if got := node.GetPhase(); got != NodeExternalStale {
 		t.Fatalf("GetPhase() = %q, want %q", got, NodeExternalStale)
 	}
 
 	observed := metav1.NewTime(now)
 	valid := metav1.NewTime(now.Add(time.Minute))
-	fresh := externalNode(&observed, &valid)
+	fresh := externalNode(&observed, &valid, true)
 	if got := fresh.GetPhase(); got != NodeReady {
 		t.Fatalf("GetPhase() = %q, want %q", got, NodeReady)
 	}
 }
 
-// A node asking for the external lifecycle without the reference that must accompany it is
-// not external. Callers read the reference straight off the back of this predicate, and
-// such an object does reach them -- a request body being validated has not been through
-// admission yet.
 func TestExternalPredicateRequiresTheAllocationReference(t *testing.T) {
 	incomplete := &Node{Spec: NodeSpec{LifecycleMode: NodeLifecycleExternal}}
 	if incomplete.IsExternal() {
@@ -152,7 +151,7 @@ func TestExternalPredicateRequiresTheAllocationReference(t *testing.T) {
 		t.Fatal("the declared mode must still be visible so admission can report what is missing")
 	}
 
-	complete := externalNode(nil, nil)
+	complete := externalNode(nil, nil, false)
 	if !complete.IsExternal() {
 		t.Fatal("a node with mode and reference is external")
 	}
@@ -168,15 +167,37 @@ func TestExternalNodeIsUnavailableWhenObservationGoesStale(t *testing.T) {
 	fixedNow(t, now)
 	observed := metav1.NewTime(now)
 	valid := metav1.NewTime(now.Add(time.Minute))
-	node := externalNode(&observed, &valid)
+	node := externalNode(&observed, &valid, true)
 	if ok, reason := node.CheckAvailable(false); !ok {
 		t.Fatalf("expected a freshly observed node to be available, got %q", reason)
 	}
 
-	// Everything else about the node is unchanged; only the clock moved. Capacity has to
-	// leave the aggregate on that alone, because an unreachable provider produces no event.
 	fixedNow(t, now.Add(2*time.Minute))
 	if ok, _ := node.CheckAvailable(false); ok {
 		t.Fatal("expected the node to become unavailable once its observation expired")
+	}
+}
+
+func TestProviderIdentityTaintDoesNotBlockAvailability(t *testing.T) {
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	fixedNow(t, now)
+	observed := metav1.NewTime(now)
+	valid := metav1.NewTime(now.Add(time.Minute))
+	node := externalNode(&observed, &valid, true)
+	node.Status.Taints = []corev1.Taint{{
+		Key:    ExternalVirtualKubeletTaint,
+		Value:  "ws-1",
+		Effect: corev1.TaintEffectNoSchedule,
+	}}
+	if ok, reason := node.CheckAvailable(false); !ok {
+		t.Fatalf("provider identity taint must not block availability, got %q", reason)
+	}
+
+	node.Status.Taints = append(node.Status.Taints, corev1.Taint{
+		Key:    corev1.TaintNodeUnreachable,
+		Effect: corev1.TaintEffectNoSchedule,
+	})
+	if ok, _ := node.CheckAvailable(false); ok {
+		t.Fatal("health taints must still block availability")
 	}
 }

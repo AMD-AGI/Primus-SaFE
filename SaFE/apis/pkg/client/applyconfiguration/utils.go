@@ -100,8 +100,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.NodeClusterStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("NodeExternalRef"):
 		return &amdv1.NodeExternalRefApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("NodeExternalStatus"):
-		return &amdv1.NodeExternalStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("NodeFlavor"):
 		return &amdv1.NodeFlavorApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("NodeFlavorSpec"):

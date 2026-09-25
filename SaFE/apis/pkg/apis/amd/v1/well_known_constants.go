@@ -148,6 +148,21 @@ const (
 	ExternalProfileIdAnnotation    = ExternalExecutionPrefix + "profile-id"
 	ExternalProfileRevAnnotation   = ExternalExecutionPrefix + "profile-revision"
 	ExternalAllocationIdAnnotation = ExternalExecutionPrefix + "allocation-id"
+	// Identity the provider stamps on virtual Nodes in the execution cluster. SaFE admits
+	// those Nodes into the admin plane; the provider never writes the SaFE Node CR.
+	VirtualKubeletTypeLabelValue     = "virtual-kubelet"
+	VirtualKubeletTypeLabelKey       = "type"
+	ExternalWorkspaceLabel           = ExternalExecutionPrefix + "w"
+	ExternalProviderLabel            = ExternalExecutionPrefix + "provider"
+	ExternalAllocationIdLabel        = ExternalExecutionPrefix + "allocation-id"
+	ExternalGenerationLabel          = ExternalExecutionPrefix + "generation"
+	ExternalHostKeyAnnotation        = ExternalExecutionPrefix + "host-key"
+	ExternalObservedAtAnnotation     = ExternalExecutionPrefix + "observed-at"
+	ExternalValidUntilAnnotation     = ExternalExecutionPrefix + "valid-until"
+	ExternalAllocationPhaseAnnotation = ExternalExecutionPrefix + "allocation-phase"
+	// ExternalVirtualKubeletTaint is the provider identity taint. It selects pods onto the
+	// virtual node and must not by itself make the node unavailable for capacity accounting.
+	ExternalVirtualKubeletTaint = ExternalExecutionPrefix + "virtual-kubelet"
 	// ExternalSingleUnitKey is the unit key of a single-replica workload, the only shape
 	// the first release admits. Multi-replica support needs a stable role and index per
 	// child pod, which the operators creating those pods do not provide.

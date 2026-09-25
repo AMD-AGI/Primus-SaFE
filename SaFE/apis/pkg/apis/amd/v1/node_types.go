@@ -106,7 +106,8 @@ type NodeSpec struct {
 	// Lifecycle mode of the node. Empty keeps the managed physical-host lifecycle.
 	LifecycleMode NodeLifecycleMode `json:"lifecycleMode,omitempty"`
 	// Provider allocation backing this node. Required and immutable when lifecycleMode
-	// is external, and rejected otherwise.
+	// is external, and rejected otherwise. Filled by SaFE when admitting a virtual node;
+	// the provider never writes this object.
 	ExternalRef *NodeExternalRef `json:"externalRef,omitempty"`
 }
 
@@ -118,35 +119,9 @@ type NodeExternalRef struct {
 	AllocationId string `json:"allocationId"`
 	// Distinguishes reuses of the same allocation id
 	Generation int64 `json:"generation"`
-	// Identifies the verified physical host behind the allocation
-	HostKey string `json:"hostKey"`
-}
-
-// NodeExternalStatus carries provider facts for a virtual node. The capacity controller is
-// the only writer.
-//
-// Only ObservedAt and ValidUntil are consumed today: together they decide whether the node
-// is ready, since there is no host to probe. The rest is recorded for audit and for the
-// cross-checks that are not implemented yet -- resources in particular is the provider's
-// own account of the node, while the number that reaches scheduling comes from the
-// allocatable the execution cluster reports.
-type NodeExternalStatus struct {
-	// The provider view of the allocation backing this node
-	Phase string `json:"phase,omitempty"`
-	// When the provider last confirmed the facts below
-	ObservedAt *metav1.Time `json:"observedAt,omitempty"`
-	// How long the provider vouches for this observation
-	ValidUntil *metav1.Time `json:"validUntil,omitempty"`
-	// When the underlying allocation expires
-	AllocationDeadline *metav1.Time `json:"allocationDeadline,omitempty"`
-	// The execution profile revision this node was admitted under
-	ProfileRevision string `json:"profileRevision,omitempty"`
-	// Binds the node to the capability evidence that validated it
-	ValidationFingerprint string `json:"validationFingerprint,omitempty"`
-	// The node name registered in the execution cluster
-	NodeName string `json:"nodeName,omitempty"`
-	// The verified usable total reported by the provider
-	Resources corev1.ResourceList `json:"resources,omitempty"`
+	// Identifies the verified physical host behind the allocation. Empty until the
+	// provider freezes the first observation; omitted rather than written as "".
+	HostKey string `json:"hostKey,omitempty"`
 }
 
 type NodeClusterStatus struct {
@@ -186,8 +161,6 @@ type NodeStatus struct {
 	Resources corev1.ResourceList `json:"resources,omitempty"`
 	// Node condition, automatically synchronized from the Kubernetes node
 	Conditions []corev1.NodeCondition `json:"conditions,omitempty"`
-	// Provider facts for external nodes, written by the capacity controller
-	External *NodeExternalStatus `json:"external,omitempty"`
 }
 
 // +genclient
@@ -246,8 +219,7 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 	if !ignoreTaint && len(n.Status.Taints) > 0 {
 		var taints []string
 		for _, t := range n.Status.Taints {
-			id := GetIdByTaintKey(t.Key)
-			if id == StickyNodesMonitorId {
+			if isIgnorableAvailabilityTaint(t.Key) {
 				continue
 			}
 			taints = append(taints, fmt.Sprintf("%s=%s", t.Key, t.Value))
@@ -258,6 +230,15 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 		}
 	}
 	return true, ""
+}
+
+// isIgnorableAvailabilityTaint reports taints that select pods but do not mean the node is
+// unhealthy. Provider identity taints and the sticky-nodes monitor are in this set.
+func isIgnorableAvailabilityTaint(key string) bool {
+	if key == ExternalVirtualKubeletTaint {
+		return true
+	}
+	return GetIdByTaintKey(key) == StickyNodesMonitorId
 }
 
 // IsExternal reports whether the node is owned by an external execution provider.
@@ -278,27 +259,55 @@ func (n *Node) DeclaresExternalLifecycle() bool {
 }
 
 // IsMachineReady returns true if the underlying machine is ready. An external node has no
-// machine to probe over SSH, so its readiness is the freshness of the provider observation.
+// machine to probe over SSH: readiness is the Ready condition synced from the virtual node
+// plus freshness of the provider observation annotations on that node.
 func (n *Node) IsMachineReady() bool {
 	if n == nil {
 		return false
 	}
 	if n.IsExternal() {
-		return n.hasFreshExternalObservation()
+		return n.hasReadyCondition() && n.hasFreshExternalObservation()
 	}
 	return n.Status.MachineStatus.Phase == NodeReady
 }
 
-// hasFreshExternalObservation reports whether the provider observation still holds. Both
-// bounds must pass: ValidUntil is the provider's own claim, and the max age caps how long
-// that claim survives once the provider stops reporting. A missing observation is stale.
+// hasReadyCondition reports whether the synced Ready condition is True.
+func (n *Node) hasReadyCondition() bool {
+	for _, c := range n.Status.Conditions {
+		if c.Type == corev1.NodeReady {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+// hasFreshExternalObservation reports whether the provider observation annotations still
+// hold. Both bounds must pass when present: ValidUntil is the provider's own claim, and the
+// max age caps how long that claim survives once the provider stops reporting. Missing
+// observation annotations are treated as stale so capacity is not counted before the
+// provider has published freshness.
 func (n *Node) hasFreshExternalObservation() bool {
-	ext := n.Status.External
-	if ext == nil || ext.ObservedAt == nil || ext.ValidUntil == nil {
+	observedRaw := GetAnnotation(n, ExternalObservedAtAnnotation)
+	validRaw := GetAnnotation(n, ExternalValidUntilAnnotation)
+	if observedRaw == "" || validRaw == "" {
 		return false
 	}
+	observedAt, err := time.Parse(time.RFC3339Nano, observedRaw)
+	if err != nil {
+		observedAt, err = time.Parse(time.RFC3339, observedRaw)
+		if err != nil {
+			return false
+		}
+	}
+	validUntil, err := time.Parse(time.RFC3339Nano, validRaw)
+	if err != nil {
+		validUntil, err = time.Parse(time.RFC3339, validRaw)
+		if err != nil {
+			return false
+		}
+	}
 	now := nowFunc()
-	return now.Before(ext.ValidUntil.Time) && now.Sub(ext.ObservedAt.Time) < externalObservationMaxAge
+	return now.Before(validUntil) && now.Sub(observedAt) < externalObservationMaxAge
 }
 
 // IsManaged returns true if the node is managed by the system. An external node never joins
@@ -337,7 +346,7 @@ func (n *Node) GetSpecHostName() string {
 	return *n.Spec.Hostname
 }
 
-// GetSpecNodeFlavor returns the node flavor specified in the node spec.
+// GetSpecNodeFlavor returns the node flavor name.
 func (n *Node) GetSpecNodeFlavor() string {
 	if n == nil || n.Spec.NodeFlavor == nil {
 		return ""
