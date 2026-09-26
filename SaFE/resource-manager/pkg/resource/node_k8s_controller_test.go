@@ -181,6 +181,42 @@ func TestSyncK8sMetadata(t *testing.T) {
 	assert.Equal(t, "c1", v1.GetClusterId(adminNode))
 }
 
+// Virtual kubelets never carry SaFE workspace/cluster labels. Sync must not strip the
+// admit-time binding from the admin node when those keys are absent on the data plane.
+func TestSyncK8sMetadataKeepsExternalWorkspaceLabels(t *testing.T) {
+	ws := "crusoe-spur-vk"
+	adminNode := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "vk-1",
+			Labels: map[string]string{
+				v1.ClusterIdLabel:    "crusoe",
+				v1.WorkspaceIdLabel:  ws,
+				v1.NodeIdLabel:       "vk-1",
+				v1.NodeFlavorIdLabel: "vk-mi355x",
+			},
+		},
+		Spec: v1.NodeSpec{
+			LifecycleMode: v1.NodeLifecycleExternal,
+			Workspace:     &ws,
+			ExternalRef: &v1.NodeExternalRef{
+				Provider: "spur", AllocationId: "a1", Generation: 1,
+			},
+		},
+	}
+	r := newNodeK8sReconciler(t, adminNode)
+	k8sNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name: "vk-1",
+		Labels: map[string]string{
+			"type":                "virtual-kubelet",
+			v1.ExternalWorkspaceLabel: ws,
+		},
+	}}
+	err := r.syncK8sMetadata(context.Background(), adminNode, k8sNode)
+	assert.NoError(t, err)
+	assert.Equal(t, "crusoe", v1.GetClusterId(adminNode))
+	assert.Equal(t, ws, v1.GetWorkspaceId(adminNode))
+}
+
 func TestSyncK8sStatus(t *testing.T) {
 	adminNode := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
 	r := newNodeK8sReconciler(t, adminNode)

@@ -509,6 +509,12 @@ func (r *NodeK8sReconciler) syncK8sMetadata(ctx context.Context, adminNode *v1.N
 				v, k8sNode.Name, adminNode.GetSpecWorkspace())
 			continue
 		}
+		// External virtual nodes never carry SaFE workspace/cluster labels. Those are set at
+		// admit time and are the index GetNodesOfWorkspaces uses; mirroring a missing data-
+		// plane key would strip the binding from the admin plane on every sync.
+		if !ok && adminNode.IsExternal() && (k == v1.WorkspaceIdLabel || k == v1.ClusterIdLabel) {
+			continue
+		}
 		if ok {
 			if v1.SetLabel(adminNode, k, v) {
 				shouldUpdate = true
