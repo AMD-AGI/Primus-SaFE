@@ -238,6 +238,62 @@ type WorkloadStatus struct {
 	// Pods/Nodes/Ranks above are retained for backward compatibility and are read
 	// as a fallback when NodeUsage is empty.
 	NodeUsage []NodePodUsage `json:"nodeUsage,omitempty"`
+	// Bookkeeping for workloads admitted through an external capacity provider. Absent on
+	// the native path.
+	ExternalExecution *WorkloadExternalExecution `json:"externalExecution,omitempty"`
+}
+
+// WorkloadExternalExecution records what a workload needs to resume its own demand and
+// claim after a restart or a lost reply.
+//
+// Every identifier here is written before the request it belongs to is sent. A request
+// whose response never arrived can only be reconciled by replaying the same id with the
+// same body: allocating a fresh one would ask the provider for a second reservation while
+// the first may already exist, and nothing afterwards would notice the surplus.
+type WorkloadExternalExecution struct {
+	// The dispatch generation these identifiers belong to
+	DispatchGeneration int32 `json:"dispatchGeneration,omitempty"`
+	// Demand identity and the revision last published
+	DemandId        string `json:"demandId,omitempty"`
+	DemandRevision  int32  `json:"demandRevision,omitempty"`
+	DemandRequestId string `json:"demandRequestId,omitempty"`
+	// Observation and expiry of the current demand revision. They are stored rather than
+	// recomputed because the contract refuses a revision whose body changed, and both
+	// timestamps are part of that body: taking the clock again on every pass would turn an
+	// intended replay into a conflict.
+	DemandObservedAt *metav1.Time `json:"demandObservedAt,omitempty"`
+	DemandExpiresAt  *metav1.Time `json:"demandExpiresAt,omitempty"`
+	// Set once the demand has been withdrawn, so the withdrawal is published exactly once.
+	// Repeating it would reuse a revision number under a changed body, which the contract
+	// refuses, and would eventually collide with a revision issued for the opposite meaning.
+	DemandWithdrawn bool `json:"demandWithdrawn,omitempty"`
+	// Claim identity, the request id that created it and the phase last observed
+	ClaimId        string `json:"claimId,omitempty"`
+	ClaimRequestId string `json:"claimRequestId,omitempty"`
+	ClaimRevision  int32  `json:"claimRevision,omitempty"`
+	ClaimPhase     string `json:"claimPhase,omitempty"`
+	// Placements approved by the provider, kept so the dispatcher builds the pod from the
+	// reservation that was granted rather than asking for a new plan
+	Placements []WorkloadExternalPlacement `json:"placements,omitempty"`
+	// Set once the workload is finished but the provider has not confirmed release. The
+	// resources stay charged to the workspace while it is true.
+	Reclaiming bool `json:"reclaiming,omitempty"`
+}
+
+// WorkloadExternalPlacement is one unit's approved seat in the provider's inventory.
+type WorkloadExternalPlacement struct {
+	// Stable role/index key identifying which pod this seat belongs to
+	UnitKey string `json:"unitKey"`
+	// Virtual node the pod must be bound to
+	NodeName string `json:"nodeName"`
+	// Image reference and digest frozen by the provider at claim time
+	ImageRef    string `json:"imageRef"`
+	ImageDigest string `json:"imageDigest"`
+	// Allocation backing the seat
+	AllocationId         string `json:"allocationId"`
+	AllocationGeneration int32  `json:"allocationGeneration"`
+	// Devices reserved for this unit
+	DeviceIds []string `json:"deviceIds,omitempty"`
 }
 
 // NodePodUsage aggregates a workload's pods on a single admin node, bucketed by

@@ -844,6 +844,38 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	if err = r.syncWorkspace(ctx, workspace); err != nil {
 		return ctrlruntime.Result{}, err
 	}
+	if v1.IsExternalWorkspace(workspace) {
+		// Capacity for an external workspace is decided by the provider's pool, not by
+		// spec.Replica. Running the scaling switch below would read the virtual nodes the
+		// provider just published as a surplus over a replica count that is deliberately
+		// left unset, and scale down would answer by clearing spec.workspace on them --
+		// taking away the capacity that was just delivered.
+		//
+		// The short requeue is what makes the observation freshness check effective. The
+		// controller's own backstop is fifteen minutes, and the events that would otherwise
+		// drive a reconcile stop arriving in exactly the case freshness exists to catch:
+		// the execution cluster becoming unreachable.
+		// Phase still has to advance. The switch below is the only place that sets it, and
+		// returning before it would leave an external workspace on whatever phase it was
+		// created with -- never Running once capacity arrives, never Abnormal when it goes
+		// away, and no way for a user to tell the difference.
+		phase := v1.WorkspaceRunning
+		if workspace.Status.AvailableReplica == 0 {
+			phase = v1.WorkspaceAbnormal
+		}
+		if phase != workspace.Status.Phase {
+			if err = r.updatePhase(ctx, workspace, phase); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+		}
+		result := actionResult
+		if resync := commonconfig.GetExternalWorkspaceResync(); resync > 0 &&
+			(result.RequeueAfter == 0 || resync < result.RequeueAfter) {
+			result.RequeueAfter = resync
+		}
+		return result, nil
+	}
+
 	if workspace.Spec.NodeFlavor == "" {
 		// A workspace with no flavor does no scaling, but it can still be in the middle of
 		// handing a node over -- it is what a workspace looks like before its first node
@@ -992,6 +1024,12 @@ func isNodeEligibleForScalingUp(node *v1.Node, workspace *v1.Workspace) bool {
 	if !node.IsMachineReady() || !node.IsManaged() {
 		return false
 	}
+	// A virtual node satisfies both predicates above while it is idle, and a native
+	// workspace short of a replica would otherwise pick it up. Its capacity belongs to the
+	// provider's pool and is handed out through claims, not by binding it to a workspace.
+	if node.IsExternal() {
+		return false
+	}
 	if node.GetSpecWorkspace() != "" || v1.GetWorkspaceId(node) != "" {
 		return false
 	}
@@ -1093,7 +1131,14 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 			availResources = quantity.AddResource(availResources, node.Status.Resources)
 			availReplica++
 		} else {
-			abnormalResources = quantity.AddResource(abnormalResources, nf.ToResourceList(commonconfig.GetRdmaName()))
+			// A physical node that is unhealthy still exists, and charging the flavor's
+			// full resources reflects hardware the workspace continues to hold. A stale
+			// virtual node is different: the allocation behind it may already be gone, so
+			// the same accounting would advertise capacity that nobody holds.
+			if !node.IsExternal() {
+				abnormalResources = quantity.AddResource(abnormalResources,
+					nf.ToResourceList(commonconfig.GetRdmaName()))
+			}
 			abnormalReplica++
 		}
 	}

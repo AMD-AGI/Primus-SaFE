@@ -8,12 +8,42 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type NodePhase string
+
+// NodeLifecycleMode selects how a node is provisioned and reclaimed.
+type NodeLifecycleMode string
+
+const (
+	// NodeLifecycleExternal marks a node backed by an external execution provider. There is
+	// no physical host to manage: no SSH, no hostname or DNS change, no addon install, no
+	// kubespray, no kubeadm reset and no reboot. An empty value keeps the managed lifecycle.
+	NodeLifecycleExternal NodeLifecycleMode = "external"
+)
+
+// DefaultExternalObservationMaxAge caps how long a provider observation stays usable after
+// the provider stops reporting. It backstops ValidUntil, which the provider itself chooses.
+const DefaultExternalObservationMaxAge = 120 * time.Second
+
+var (
+	// nowFunc is replaced in tests to exercise the freshness boundaries.
+	nowFunc = time.Now
+	// externalObservationMaxAge is the effective backstop for provider observations.
+	externalObservationMaxAge = DefaultExternalObservationMaxAge
+)
+
+// SetExternalObservationMaxAge tightens the freshness backstop to match the provider
+// reporting interval. Non-positive values are ignored.
+func SetExternalObservationMaxAge(d time.Duration) {
+	if d > 0 {
+		externalObservationMaxAge = d
+	}
+}
 
 const (
 	NodeKind = "Node"
@@ -30,6 +60,9 @@ const (
 	NodeReady          NodePhase = "Ready"
 	NodeSSHFailed      NodePhase = "SSHFailed"
 	NodeHostnameFailed NodePhase = "HostnameFailed"
+
+	// the phase reported for an external node whose provider observation went stale
+	NodeExternalStale NodePhase = "ExternalStale"
 )
 
 type CommandPhase string
@@ -70,6 +103,25 @@ type NodeSpec struct {
 	Taints []corev1.Taint `json:"taints,omitempty"`
 	// Secret for ssh
 	SSHSecret *corev1.ObjectReference `json:"secret"`
+	// Lifecycle mode of the node. Empty keeps the managed physical-host lifecycle.
+	LifecycleMode NodeLifecycleMode `json:"lifecycleMode,omitempty"`
+	// Provider allocation backing this node. Required and immutable when lifecycleMode
+	// is external, and rejected otherwise. Filled by SaFE when admitting a virtual node;
+	// the provider never writes this object.
+	ExternalRef *NodeExternalRef `json:"externalRef,omitempty"`
+}
+
+// NodeExternalRef identifies the provider allocation backing a virtual node.
+type NodeExternalRef struct {
+	// The external execution provider that owns the allocation
+	Provider string `json:"provider"`
+	// The provider-side allocation holding the host
+	AllocationId string `json:"allocationId"`
+	// Distinguishes reuses of the same allocation id
+	Generation int64 `json:"generation"`
+	// Identifies the verified physical host behind the allocation. Empty until the
+	// provider freezes the first observation; omitted rather than written as "".
+	HostKey string `json:"hostKey,omitempty"`
 }
 
 type NodeClusterStatus struct {
@@ -167,8 +219,7 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 	if !ignoreTaint && len(n.Status.Taints) > 0 {
 		var taints []string
 		for _, t := range n.Status.Taints {
-			id := GetIdByTaintKey(t.Key)
-			if id == StickyNodesMonitorId {
+			if isIgnorableAvailabilityTaint(t.Key) {
 				continue
 			}
 			taints = append(taints, fmt.Sprintf("%s=%s", t.Key, t.Value))
@@ -181,14 +232,94 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 	return true, ""
 }
 
-// IsMachineReady returns true if the underlying machine is ready.
-func (n *Node) IsMachineReady() bool {
-	return n != nil && n.Status.MachineStatus.Phase == NodeReady
+// isIgnorableAvailabilityTaint reports taints that select pods but do not mean the node is
+// unhealthy. Provider identity taints and the sticky-nodes monitor are in this set.
+func isIgnorableAvailabilityTaint(key string) bool {
+	if key == ExternalVirtualKubeletTaint {
+		return true
+	}
+	return GetIdByTaintKey(key) == StickyNodesMonitorId
 }
 
-// IsManaged returns true if the node is managed by the system.
+// IsExternal reports whether the node is owned by an external execution provider.
+//
+// Both halves are required. Admission rejects an external node without a reference, but
+// this predicate also runs on objects that never reached admission -- a request body being
+// validated, a decoded payload -- and callers read the reference straight off the back of
+// it. Treating a half-built object as external would hand them a nil pointer.
+func (n *Node) IsExternal() bool {
+	return n != nil && n.Spec.LifecycleMode == NodeLifecycleExternal && n.Spec.ExternalRef != nil
+}
+
+// DeclaresExternalLifecycle reports the requested mode alone, before the reference that has
+// to accompany it is known to be there. Admission uses it to tell "external but incomplete"
+// apart from "not external", which IsExternal deliberately cannot distinguish.
+func (n *Node) DeclaresExternalLifecycle() bool {
+	return n != nil && n.Spec.LifecycleMode == NodeLifecycleExternal
+}
+
+// IsMachineReady returns true if the underlying machine is ready. An external node has no
+// machine to probe over SSH: readiness is the Ready condition synced from the virtual node
+// plus freshness of the provider observation annotations on that node.
+func (n *Node) IsMachineReady() bool {
+	if n == nil {
+		return false
+	}
+	if n.IsExternal() {
+		return n.hasReadyCondition() && n.hasFreshExternalObservation()
+	}
+	return n.Status.MachineStatus.Phase == NodeReady
+}
+
+// hasReadyCondition reports whether the synced Ready condition is True.
+func (n *Node) hasReadyCondition() bool {
+	for _, c := range n.Status.Conditions {
+		if c.Type == corev1.NodeReady {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+// hasFreshExternalObservation reports whether the provider observation annotations still
+// hold. Both bounds must pass when present: ValidUntil is the provider's own claim, and the
+// max age caps how long that claim survives once the provider stops reporting. Missing
+// observation annotations are treated as stale so capacity is not counted before the
+// provider has published freshness.
+func (n *Node) hasFreshExternalObservation() bool {
+	observedRaw := GetAnnotation(n, ExternalObservedAtAnnotation)
+	validRaw := GetAnnotation(n, ExternalValidUntilAnnotation)
+	if observedRaw == "" || validRaw == "" {
+		return false
+	}
+	observedAt, err := time.Parse(time.RFC3339Nano, observedRaw)
+	if err != nil {
+		observedAt, err = time.Parse(time.RFC3339, observedRaw)
+		if err != nil {
+			return false
+		}
+	}
+	validUntil, err := time.Parse(time.RFC3339Nano, validRaw)
+	if err != nil {
+		validUntil, err = time.Parse(time.RFC3339, validRaw)
+		if err != nil {
+			return false
+		}
+	}
+	now := nowFunc()
+	return now.Before(validUntil) && now.Sub(observedAt) < externalObservationMaxAge
+}
+
+// IsManaged returns true if the node is managed by the system. An external node never joins
+// through kubespray, so cluster ownership is the only condition it can satisfy.
 func (n *Node) IsManaged() bool {
-	return n != nil && n.Status.ClusterStatus.Phase == NodeManaged && GetClusterId(n) != ""
+	if n == nil {
+		return false
+	}
+	if n.IsExternal() {
+		return GetClusterId(n) != ""
+	}
+	return n.Status.ClusterStatus.Phase == NodeManaged && GetClusterId(n) != ""
 }
 
 // GetSpecCluster returns the cluster ID specified in the node spec.
@@ -215,7 +346,7 @@ func (n *Node) GetSpecHostName() string {
 	return *n.Spec.Hostname
 }
 
-// GetSpecNodeFlavor returns the node flavor specified in the node spec.
+// GetSpecNodeFlavor returns the node flavor name.
 func (n *Node) GetSpecNodeFlavor() string {
 	if n == nil || n.Spec.NodeFlavor == nil {
 		return ""
@@ -249,6 +380,14 @@ func (n *Node) GetK8sNodeName() string {
 func (n *Node) GetPhase() NodePhase {
 	if n == nil {
 		return ""
+	}
+	if n.IsExternal() {
+		// MachineStatus is never written for external nodes, so reporting it would show an
+		// empty phase. Freshness of the provider observation is what decides availability.
+		if n.IsMachineReady() {
+			return NodeReady
+		}
+		return NodeExternalStale
 	}
 	if !n.IsMachineReady() {
 		return n.Status.MachineStatus.Phase

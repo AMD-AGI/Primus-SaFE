@@ -5,7 +5,7 @@
  * See LICENSE for license information.
  */
 
-package integration
+package dispatcher
 
 import (
 	"bytes"

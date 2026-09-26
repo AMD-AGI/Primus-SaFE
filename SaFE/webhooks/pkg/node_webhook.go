@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -132,6 +133,16 @@ func (m *NodeMutator) mutateOnUpdate(ctx context.Context, newNode, oldNode *v1.N
 
 // mutateSpec normalizes hostname, private IP and default SSH port.
 func (m *NodeMutator) mutateSpec(_ context.Context, node *v1.Node) {
+	if node.DeclaresExternalLifecycle() {
+		// A virtual node has no address to reach and no SSH endpoint, so neither the
+		// private IP nor the port default applies. The hostname is still normalised
+		// because mutateMeta derives the object name from it, and that name has to match
+		// the node the provider registers in the execution cluster.
+		if node.Spec.Hostname != nil {
+			node.Spec.Hostname = pointer.String(strings.Trim(*node.Spec.Hostname, " "))
+		}
+		return
+	}
 	node.Spec.PrivateIP = strings.Trim(node.Spec.PrivateIP, " ")
 	if node.GetSpecHostName() == "" {
 		node.Spec.Hostname = pointer.String(node.Spec.PrivateIP)
@@ -339,8 +350,19 @@ func (v *NodeValidator) validateNodeSpec(ctx context.Context, node *v1.Node) err
 	if err := v.validateNodeWorkspace(ctx, node); err != nil {
 		return err
 	}
+	// The flavor check stays on both paths. For an external node it is the only remaining
+	// bound on request shape, since the workspace quota check does not apply there.
 	if err := v.validateNodeFlavor(ctx, node); err != nil {
 		return err
+	}
+	// Branch on the declared mode, not on IsExternal: a node asking for the external
+	// lifecycle without a reference has to reach validateExternalNodeSpec and be told what
+	// is missing, rather than fall through to the native checks and be told it has no IP.
+	if node.DeclaresExternalLifecycle() {
+		return v.validateExternalNodeSpec(node)
+	}
+	if node.Spec.ExternalRef != nil {
+		return commonerrors.NewBadRequest("externalRef requires lifecycleMode external")
 	}
 	if err := v.validateNodeSSH(ctx, node); err != nil {
 		return err
@@ -355,6 +377,30 @@ func (v *NodeValidator) validateNodeSpec(ctx context.Context, node *v1.Node) err
 		return err
 	}
 	return nil
+}
+
+// validateExternalNodeSpec checks what an external node can be held to. There is no host to
+// reach, so the private IP, SSH secret and port are replaced by the provider allocation
+// reference that identifies the capacity standing behind this node.
+func (v *NodeValidator) validateExternalNodeSpec(node *v1.Node) error {
+	if !commonconfig.IsExternalExecutionEnable() {
+		return commonerrors.NewForbidden("external execution is not enabled in this deployment")
+	}
+	ref := node.Spec.ExternalRef
+	if ref == nil {
+		return commonerrors.NewBadRequest("externalRef is required when lifecycleMode is external")
+	}
+	if ref.Provider == "" || ref.AllocationId == "" || ref.Generation <= 0 {
+		return commonerrors.NewBadRequest(
+			"externalRef requires provider, allocationId and a positive generation")
+	}
+	// mutateMeta derives the object name from the hostname, and node_k8s_controller matches
+	// the admin node to the execution cluster node by that name. Without it the node exists
+	// but never receives any status.
+	if node.GetSpecHostName() == "" {
+		return commonerrors.NewBadRequest("hostname is required when lifecycleMode is external")
+	}
+	return v.validateNodeTaints(node)
 }
 
 // validateNodeWorkspace ensures the workspace exists.
@@ -429,7 +475,36 @@ func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error
 	if oldNode.Spec.PrivateIP != newNode.Spec.PrivateIP && v1.IsControlPlane(newNode) {
 		return field.Forbidden(field.NewPath("spec").Key("privateIP"), "immutable")
 	}
+	// Switching the lifecycle mode would move a live node between two reconcile paths that
+	// make opposite assumptions about whether a host exists behind it.
+	if oldNode.Spec.LifecycleMode != newNode.Spec.LifecycleMode {
+		return field.Forbidden(field.NewPath("spec").Key("lifecycleMode"), "immutable")
+	}
+	// The reference identifies which allocation generation this node's capacity came from.
+	// Repointing provider/allocationId/generation would silently reattach the node to
+	// different hardware. hostKey may appear after the provider freezes the first
+	// observation, so an empty-to-set transition is allowed; clearing or changing it is not.
+	if !equalExternalRef(oldNode.Spec.ExternalRef, newNode.Spec.ExternalRef) {
+		return field.Forbidden(field.NewPath("spec").Key("externalRef"), "immutable")
+	}
 	return nil
+}
+
+// equalExternalRef compares two provider allocation references, treating absent as equal
+// to absent so that native nodes pass unchanged. hostKey may transition from empty to set.
+func equalExternalRef(oldRef, newRef *v1.NodeExternalRef) bool {
+	if oldRef == nil || newRef == nil {
+		return oldRef == nil && newRef == nil
+	}
+	if oldRef.Provider != newRef.Provider ||
+		oldRef.AllocationId != newRef.AllocationId ||
+		oldRef.Generation != newRef.Generation {
+		return false
+	}
+	if oldRef.HostKey == newRef.HostKey {
+		return true
+	}
+	return oldRef.HostKey == "" && newRef.HostKey != ""
 }
 
 // validateNodeMigrationReservation keeps a node released for a migration for the workspace it

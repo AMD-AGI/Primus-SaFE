@@ -62,6 +62,11 @@ spec:
             - name: server-config
               mountPath: /opt/primus-safe/job-manager/config
               readOnly: true
+            {{- if and (default .Values.external_execution).enabled (default .Values.external_execution).controller_secret }}
+            - name: external-execution-secret
+              mountPath: {{ default "/etc/secrets/external-execution" (default .Values.external_execution).controller_secret_path }}
+              readOnly: true
+            {{- end }}
             {{- if .Values.ssh.enable }}
             - name: ssh-proxy
               mountPath: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
@@ -112,6 +117,11 @@ spec:
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-job-manager
+        {{- if and (default .Values.external_execution).enabled (default .Values.external_execution).controller_secret }}
+        - name: external-execution-secret
+          secret:
+            secretName: {{ (default .Values.external_execution).controller_secret }}
+        {{- end }}
         {{- if .Values.ssh.enable }}
         - name: ssh-proxy
           secret:

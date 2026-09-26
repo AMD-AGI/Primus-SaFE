@@ -32,6 +32,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/execution"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
@@ -190,6 +191,17 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if !workload.GetDeletionTimestamp().IsZero() {
+		// Give the reservation back before the finalizer goes. Once the object is gone
+		// there is nothing left to retry a failed release from, and nothing to carry the
+		// Revoking to Released confirmation -- the provider would hold those devices with
+		// no record on this side that they were ever owed back.
+		stillHolding, err := r.reconcileExternalRelease(ctx, workload)
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if stillHolding {
+			return ctrlruntime.Result{RequeueAfter: externalReleaseRetry}, nil
+		}
 		if result, err := r.delete(ctx, workload); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
@@ -202,11 +214,22 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 		return ctrlruntime.Result{}, err
 	}
 
+	// Withdraw the reservation once the workload is finished. The resources stay charged
+	// to the workspace until the provider confirms the release, so this has to keep asking
+	// rather than assume the first call settled it.
+	stillReclaiming, err := r.reconcileExternalRelease(ctx, workload)
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+
 	msg := &SchedulerMessage{
 		ClusterId:   v1.GetClusterId(workload),
 		WorkspaceId: workload.Spec.Workspace,
 	}
 	r.Add(msg)
+	if stillReclaiming {
+		return ctrlruntime.Result{RequeueAfter: externalReleaseRetry}, nil
+	}
 	return ctrlruntime.Result{}, nil
 }
 
@@ -435,19 +458,71 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	}
 
 	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
+	isExternal := v1.IsExternalWorkspace(workspace)
 	isPreemptable := false
 	if !hasEnoughQuota {
 		reason = fmt.Sprintf("%s, no %s available", InsufficientReason, formatResourceName(key))
-		isPreemptable, err = r.preempt(ctx, requestWorkload, scheduledWorkloads, leftResources)
+		// Preemption is not attempted on the external path. Marking a victim preempted
+		// records an intent, not a release: the devices return only once the provider has
+		// stopped the task and verified cleanup, so the capacity a preemptor was admitted
+		// against would not exist yet. The workload webhook already withholds the preempt
+		// mark there, and skipping the call keeps the two from depending on each other.
+		if !isExternal {
+			isPreemptable, err = r.preempt(ctx, requestWorkload, scheduledWorkloads, leftResources)
+		}
 	}
 	if !hasEnoughQuota && !isPreemptable {
 		klog.Infof("the workload(%s) is not scheduled, reason: %s, request.resource: %s, left.resource: %s",
 			requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
 			string(jsonutils.MarshalSilently(leftResources)))
 		jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonInsufficient).Inc()
+		// The shortage is measured against capacity the provider has already published, so
+		// closing it means acquiring more. This is the point where the provider is asked.
+		// Everything that is waiting for something other than capacity -- a dependency, a
+		// start time, a pause -- returned earlier and never reaches here.
+		if isExternal {
+			admitted, waitReason, capacityErr := r.requestExternalCapacity(ctx, requestWorkload, workspace)
+			return r.externalOutcome(requestWorkload, admitted, waitReason, capacityErr)
+		}
 		return false, reason, nil
 	}
+	// The workspace has room, which on the external path means the provider has published
+	// nodes this workload could sit on. No acquisition is needed, but the seat still has to
+	// be granted: the provider owns the devices and decides which ones this claim gets.
+	if isExternal {
+		admitted, waitReason, reserveErr := r.reserveExternalCapacity(ctx, requestWorkload, workspace)
+		return r.externalOutcome(requestWorkload, admitted, waitReason, reserveErr)
+	}
 	return true, "", nil
+}
+
+// externalOutcome keeps one workload's failure from stopping the whole workspace.
+//
+// scheduleWorkloads abandons the pass on any error, which is right for a failure to read
+// the queue but wrong for the external exchange: a lost connection to the provider, or a
+// stale cached object losing the resourceVersion test, says nothing about the workloads
+// behind this one. Left to propagate, one workload that cannot reach the provider would
+// stall admission for every workload in the workspace.
+//
+// The error is recorded and turned into a wait, so this workload retries on the next pass
+// and the queue keeps moving. Rate-limited and unavailable answers also re-stage the
+// workspace after the provider's Retry-After so the next pass does not hammer the write.
+func (r *SchedulerReconciler) externalOutcome(workload *v1.Workload,
+	ok bool, reason string, err error) (bool, string, error) {
+	if err == nil {
+		return ok, reason, nil
+	}
+	klog.ErrorS(err, "external capacity exchange failed", "workload", workload.Name)
+	if reason == "" {
+		reason = ExternalUnavailableReason
+	}
+	if d := execution.RetryAfterOf(err); d > 0 {
+		r.AddAfter(&SchedulerMessage{
+			WorkspaceId: workload.Spec.Workspace,
+			ClusterId:   v1.GetClusterId(workload),
+		}, d)
+	}
+	return false, reason, nil
 }
 
 // checkWorkloadDependencies checks whether all dependencies of the workload are satisfied.
@@ -504,6 +579,13 @@ func (r *SchedulerReconciler) getWorkspace(ctx context.Context, workspaceId stri
 func (r *SchedulerReconciler) getUnfinishedWorkloads(ctx context.Context,
 	workspace *v1.Workspace) ([]*v1.Workload, []*v1.Workload, error) {
 	filterFunc := func(w *v1.Workload) bool {
+		// A finished workload whose external reservation has not been confirmed released
+		// still holds devices on the provider side. Dropping it from the accounting here
+		// would offer the next workload capacity that is not free yet, and the claim
+		// transaction would refuse it -- after this side had already admitted it.
+		if w.IsEnd() && isExternalReclaiming(w) {
+			return false
+		}
 		return w.IsEnd()
 	}
 	workloads, err := commonworkload.GetWorkloadsOfWorkspace(ctx, r.Client,
@@ -513,11 +595,15 @@ func (r *SchedulerReconciler) getUnfinishedWorkloads(ctx context.Context,
 	}
 	var schedulingWorkloads, scheduledWorkloads []*v1.Workload
 	for i, w := range workloads {
-		if !v1.IsWorkloadScheduled(w) {
-			schedulingWorkloads = append(schedulingWorkloads, workloads[i])
-		} else {
+		// A finished workload is only here to keep holding its resources until the provider
+		// confirms the release, so it belongs in the accounting and nowhere else. Letting it
+		// reach the scheduling list would request capacity for work that already ended and
+		// then mark the terminated workload scheduled again.
+		if w.IsEnd() || v1.IsWorkloadScheduled(w) {
 			scheduledWorkloads = append(scheduledWorkloads, workloads[i].DeepCopy())
+			continue
 		}
+		schedulingWorkloads = append(schedulingWorkloads, workloads[i])
 	}
 	if len(schedulingWorkloads) > 0 {
 		sort.Sort(WorkloadList(schedulingWorkloads))

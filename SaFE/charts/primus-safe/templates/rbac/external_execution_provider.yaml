@@ -1,0 +1,54 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Identity reserved for optional provider-side tooling in the SaFE management cluster.
+#
+# The provider no longer creates or updates SaFE Node objects: SaFE admits virtual kubelets
+# from the execution cluster itself. This role therefore grants read access only, for
+# diagnostics and for matching workspace or flavor names. Rendered only when external
+# execution is enabled.
+{{- if (default .Values.external_execution).enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-external-capacity-provider
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-external-capacity-provider
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: ["amd.com"]
+    resources: ["nodes", "workspaces", "nodeflavors"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-external-capacity-provider
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-external-capacity-provider
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-external-capacity-provider
+    namespace: {{ .Release.Namespace }}
+{{- end }}
