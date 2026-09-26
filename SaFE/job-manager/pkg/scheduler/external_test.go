@@ -102,6 +102,29 @@ func TestConstraintsDigestIsStable(t *testing.T) {
 	}
 }
 
+// Empty constraints must hash to the contract example so a demand with no selector is
+// accepted by the provider without a digest mismatch.
+func TestEmptyConstraintsDigestMatchesContract(t *testing.T) {
+	const want = "sha256:d1314adedd59a8b7864131976db90a8e261b2f18adfa9ea3cfd18f6137e2c472"
+	got, err := constraintsDigest(&execution.PlacementConstraints{
+		NodeSelector:     map[string]string{},
+		AllowedNodeNames: []string{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != want {
+		t.Fatalf("empty digest = %s, want %s", got, want)
+	}
+	nilMaps, err := constraintsDigest(&execution.PlacementConstraints{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if nilMaps != want {
+		t.Fatalf("nil-map digest = %s, want %s", nilMaps, want)
+	}
+}
+
 // Multi-replica workloads are declined rather than guessed at: every child pod would need a
 // stable role and index for the provider to bind a reservation to, and the operators that
 // create them do not supply one.

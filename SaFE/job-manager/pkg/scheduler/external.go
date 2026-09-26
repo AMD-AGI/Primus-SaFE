@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -657,13 +658,70 @@ func toResourceVector(res *v1.WorkloadResource, workspace *v1.Workspace) (execut
 // constraintsDigest is the sha256 over the canonical encoding of the supported constraint
 // object: keys sorted, no whitespace, UTF-8. The provider recomputes it and compares, so
 // the digest cannot stand in for the constraints themselves.
+//
+// encoding/json cannot be used here: it emits struct fields in declaration order and
+// escapes U+2028/U+2029 differently from the contract's reference encoder
+// (json.dumps(sort_keys=True, separators=(',', ':'), ensure_ascii=False)).
 func constraintsDigest(constraints *execution.PlacementConstraints) (string, error) {
-	encoded, err := json.Marshal(constraints)
-	if err != nil {
-		return "", err
+	if constraints == nil {
+		constraints = &execution.PlacementConstraints{}
 	}
-	sum := sha256.Sum256(encoded)
+	sum := sha256.Sum256(encodeConstraints(*constraints))
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// encodeConstraints matches spur's protocol.encodeConstraints byte for byte.
+func encodeConstraints(pc execution.PlacementConstraints) []byte {
+	b := []byte(`{"allowed_node_names":[`)
+	for i, name := range pc.AllowedNodeNames {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		b = appendReferenceString(b, name)
+	}
+	b = append(b, `],"node_selector":{`...)
+	keys := make([]string, 0, len(pc.NodeSelector))
+	for k := range pc.NodeSelector {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for i, k := range keys {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		b = appendReferenceString(b, k)
+		b = append(b, ':')
+		b = appendReferenceString(b, pc.NodeSelector[k])
+	}
+	return append(b, '}', '}')
+}
+
+const lowerHex = "0123456789abcdef"
+
+// appendReferenceString escapes only what the contract reference encoder escapes.
+func appendReferenceString(b []byte, s string) []byte {
+	b = append(b, '"')
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case c == '"' || c == '\\':
+			b = append(b, '\\', c)
+		case c == '\b':
+			b = append(b, '\\', 'b')
+		case c == '\f':
+			b = append(b, '\\', 'f')
+		case c == '\n':
+			b = append(b, '\\', 'n')
+		case c == '\r':
+			b = append(b, '\\', 'r')
+		case c == '\t':
+			b = append(b, '\\', 't')
+		case c < 0x20:
+			b = append(b, '\\', 'u', '0', '0', lowerHex[c>>4], lowerHex[c&0xf])
+		default:
+			b = append(b, c)
+		}
+	}
+	return append(b, '"')
 }
 
 // toStatusPlacements narrows the approved placements to what the dispatcher needs, keeping
