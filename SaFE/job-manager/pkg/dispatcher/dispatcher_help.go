@@ -3009,15 +3009,13 @@ func validateExternalPodShape(obj *unstructured.Unstructured, workload *v1.Workl
 }
 
 // applyExternalContainerSecurity forces the privilege posture the provider measures
-// under on every container (main and init): no privilege escalation, no privileged bit,
-// no added capabilities. Container-level runAsUser/runAsGroup are cleared so the pod
-// identity from applyExternalPodRunAs is not overridden (including template runAsUser: 0).
+// under on main containers: no privilege escalation, no privileged bit, no added
+// capabilities. Container-level runAsUser/runAsGroup are cleared so the pod identity
+// from applyExternalPodRunAs is not overridden (including template runAsUser: 0).
+// Init containers are left unchanged: the provider does not constrain them.
 func applyExternalContainerSecurity(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
-	if err := stripExternalContainerPrivileges(obj, workload, resourceSpec, "containers"); err != nil {
-		return err
-	}
-	return stripExternalContainerPrivileges(obj, workload, resourceSpec, "initContainers")
+	return stripExternalContainerPrivileges(obj, workload, resourceSpec, "containers")
 }
 
 // applyExternalPodRunAs sets pod securityContext.runAsUser/runAsGroup from the workload's

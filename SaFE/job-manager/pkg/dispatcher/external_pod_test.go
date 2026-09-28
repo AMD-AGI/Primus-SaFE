@@ -160,8 +160,11 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 
 	inits, _ := podSpec["initContainers"].([]interface{})
 	initSC := inits[0].(map[string]interface{})["securityContext"].(map[string]interface{})
-	_, initCaps := initSC["capabilities"]
-	assert.Assert(t, !initCaps, "init capabilities.add should be cleared")
+	initCaps, _ := initSC["capabilities"].(map[string]interface{})
+	assert.Assert(t, initCaps != nil, "init securityContext should stay as templated")
+	add, _ := initCaps["add"].([]interface{})
+	assert.Equal(t, len(add), 1)
+	assert.Equal(t, add[0], "IPC_LOCK")
 
 	volumes, _ := podSpec["volumes"].([]interface{})
 	varlog := volumes[0].(map[string]interface{})
