@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -428,18 +429,50 @@ func (l *execPodListener) Close() error {
 	} else if l.stdinW != nil {
 		_ = l.stdinW.Close()
 	}
-	// Wait for the multiplexer to actually exit before reporting the listener gone.
 	// A client that reconnects asks for the same port straight away, and reuseaddr
-	// does not cover a socket another live process is still listening on - so
-	// returning early turns a reconnect into "the port you just released is busy".
-	// Bounded, because a stuck exec must not hold up the rest of the teardown.
-	select {
-	case <-l.streamDone:
-	case <-time.After(listenerShutdownGrace):
-		klog.Warningf("pod listener on %s:%d did not exit within %s", l.bindAddr, l.bindPort, listenerShutdownGrace)
+	// does not cover a socket another live process is still listening on. Stdin
+	// closing is the first signal; if the process is still there after the grace,
+	// signal the multiplexer itself. Returning while it still holds the port is
+	// what turns the reconnect into "remote port forwarding failed".
+	if !l.streamEnded(listenerShutdownGrace) {
+		l.reap()
+		if !l.streamEnded(listenerShutdownGrace) {
+			klog.Warningf("pod listener on %s:%d still held the port after signaling it",
+				l.bindAddr, l.bindPort)
+			l.cancel()
+			return fmt.Errorf("pod listener on %s:%d still held the port", l.bindAddr, l.bindPort)
+		}
 	}
 	l.cancel()
 	return nil
+}
+
+// streamEnded reports whether the run exec has exited within d.
+func (l *execPodListener) streamEnded(d time.Duration) bool {
+	select {
+	case <-l.streamDone:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+// reap signals a multiplexer still listening on this forward's port. The binary
+// in the pod has already been unlinked, so this is a separate exec that can
+// only see the container's own /proc.
+func (l *execPodListener) reap() {
+	script, err := reapScript(l.bindAddr, l.bindPort)
+	if err != nil {
+		klog.Warningf("pod %s reverse forward on %s:%d: %v",
+			l.userInfo.Pod, l.bindAddr, l.bindPort, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), installCleanupTimeout)
+	defer cancel()
+	if _, stderr, err := l.runSetup(ctx, script, nil); err != nil {
+		klog.Warningf("could not signal the listener on %s:%d in pod %s/%s: %v%s",
+			l.bindAddr, l.bindPort, l.userInfo.Namespace, l.userInfo.Pod, err, reportedReason(stderr))
+	}
 }
 
 // fail records the first terminal error and releases everyone blocked on the listener.
@@ -534,13 +567,73 @@ fi
 
 // runScript runs the multiplexer with the exec's stdin and stdout as its session.
 //
-// The multiplexer removes its own directory once the port is bound, so the trap is
-// only for the paths where it never got that far.
+// exec replaces the shell, so the process a runtime signals to stop the exec is
+// the listener. A shell left in front that traps TERM runs the trap and keeps
+// waiting, and the child holds the port after the session has gone. The trap
+// remains for the path where exec itself fails, before the multiplexer is running
+// and able to remove its own directory.
 func runScript(dir, bindAddr string, bindPort uint32) string {
 	return fmt.Sprintf(`D=%[1]s
-trap 'rm -rf "$D"' EXIT INT TERM
-"$D/mux" listen -max-streams %[4]d -remove-dir "$D" %[2]s %[3]d
+trap 'rm -rf "$D"' EXIT
+exec "$D/mux" listen -max-streams %[4]d -remove-dir "$D" %[2]s %[3]d
 `, dir, bindAddr, bindPort, muxMaxStreams)
+}
+
+// reapScript signals a multiplexer still listening on addr:port in the container.
+// addr is a literal IPv4 address this process chose, and port is a number, so
+// neither needs shell quoting. The command check is the same one the multiplexer
+// applies when it reclaims the port itself: basename mux, subcommand listen, and
+// the address as the last two arguments, plus the listen socket in /proc/net/tcp.
+func reapScript(addr string, port uint32) (string, error) {
+	ip := net.ParseIP(addr).To4()
+	if ip == nil || port == 0 || port > 65535 {
+		return "", fmt.Errorf("refusing to signal a listener on %s:%d", addr, port)
+	}
+	return fmt.Sprintf(`# safe-rfwd-reap
+want=$(printf '%%02X%%02X%%02X%%02X:%%04X' %[1]d %[2]d %[3]d %[4]d %[5]d)
+addr=%[6]s
+port=%[5]d
+inodes=
+while read -r _ hexaddr _ st _ _ _ _ _ inode _; do
+  hexaddr=$(printf '%%s' "$hexaddr" | tr 'a-f' 'A-F')
+  [ "$st" = "0A" ] || continue
+  [ "$hexaddr" = "$want" ] || continue
+  inodes="$inodes $inode"
+done < /proc/net/tcp
+[ -n "${inodes# }" ] || exit 0
+for proc in /proc/[0-9]*; do
+  pid=${proc##*/}
+  cmd=$(tr '\0' ' ' < "$proc/cmdline" 2>/dev/null) || continue
+  cmd=${cmd%%" "}
+  set -f
+  set -- $cmd
+  set +f
+  [ $# -ge 4 ] || continue
+  base=${1##*/}
+  [ "$base" = "mux" ] && [ "$2" = "listen" ] || continue
+  prev=
+  last=
+  for arg in "$@"; do
+    prev=$last
+    last=$arg
+  done
+  [ "$prev" = "$addr" ] && [ "$last" = "$port" ] || continue
+  matched=
+  for fd in "$proc"/fd/*; do
+    target=$(readlink "$fd" 2>/dev/null) || continue
+    for inode in $inodes; do
+      if [ "$target" = "socket:[$inode]" ]; then
+        matched=1
+        break
+      fi
+    done
+    [ -n "$matched" ] && break
+  done
+  [ -n "$matched" ] || continue
+  kill -TERM "$pid" 2>/dev/null || true
+done
+exit 0
+`, ip[3], ip[2], ip[1], ip[0], port, addr), nil
 }
 
 // parseProbe reads the architecture and install directory out of the probe's output.

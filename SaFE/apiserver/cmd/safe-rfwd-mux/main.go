@@ -92,10 +92,11 @@ func listen(args []string) error {
 
 	// Bind before anything else is announced: a forward that cannot have its port
 	// must fail here, where the reason is still known, rather than as a connection
-	// that quietly goes nowhere.
-	ln, err := net.Listen("tcp4", net.JoinHostPort(addr, strconv.FormatUint(port, 10)))
+	// that quietly goes nowhere. A previous multiplexer that survived its session
+	// is signaled once and the bind is retried; anything else still fails here.
+	ln, err := bindListener(addr, uint16(port))
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s:%d: %v", addr, port, err)
+		return err
 	}
 	defer ln.Close()
 
@@ -119,7 +120,7 @@ func listen(args []string) error {
 	// goes through here: the apiserver ending the exec's stdin, the session idling
 	// out, or the container runtime signalling us.
 	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
 		select {
 		case <-session.Done():
@@ -142,6 +143,41 @@ func listen(args []string) error {
 	_ = session.Close()
 	<-session.Done()
 	return nil
+}
+
+// bindListener binds addr:port, signaling one of our own multiplexers first when
+// the port is still held by a session that has already gone.
+func bindListener(addr string, port uint16) (net.Listener, error) {
+	network := net.JoinHostPort(addr, strconv.Itoa(int(port)))
+	ln, err := net.Listen("tcp4", network)
+	if err == nil {
+		return ln, nil
+	}
+	if !errors.Is(err, syscall.EADDRINUSE) {
+		return nil, fmt.Errorf("failed to listen on %s:%d: %v", addr, port, err)
+	}
+	bindErr := err
+	signaled, reapErr := rfwdmux.ReapStaleListener(addr, port)
+	if reapErr != nil {
+		diagf("reaping a listener on %s:%d: %v", addr, port, reapErr)
+	}
+	// Nothing of ours held the port. Retrying would only delay the failure the
+	// client is waiting on.
+	if !signaled {
+		return nil, fmt.Errorf("failed to listen on %s:%d: %v", addr, port, bindErr)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		ln, err = net.Listen("tcp4", network)
+		if err == nil || !errors.Is(err, syscall.EADDRINUSE) || !time.Now().Before(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen on %s:%d: %v", addr, port, err)
+	}
+	return ln, nil
 }
 
 // serve hands every accepted connection to a stream, or refuses it.
