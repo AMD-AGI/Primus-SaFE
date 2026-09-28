@@ -161,10 +161,10 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
 			return fmt.Errorf("failed to disable host IPC for external: %v", err.Error())
 		}
-		path = podSpecPath(workload, resourceSpec, "preemptionPolicy")
-		if err = jobutils.SetNestedField(obj.Object, "Never", path); err != nil {
-			return fmt.Errorf("failed to set preemptionPolicy for external: %v", err.Error())
-		}
+		// Do not set podSpec.preemptionPolicy. The PriorityClass admission controller
+		// derives PreemptLowerPriority from the class name and refuses an explicit Never
+		// ("must not be provided in pod spec"). External workloads already skip preemption
+		// in the scheduler; leaving the field unset is enough for admission.
 		if err = applyExternalVirtualKubeletToleration(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
