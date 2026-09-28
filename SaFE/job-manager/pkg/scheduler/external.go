@@ -576,27 +576,23 @@ func (r *SchedulerReconciler) patchExternalState(ctx context.Context, workload *
 // stable role and index on every child pod, and the operators that create those pods do not
 // expose one that this side can bind a reservation to. Declining is the contract's own
 // instruction for that case: the alternative is every replica claiming the same unit key.
+//
+// CPU-only units and tag image references are allowed: the provider accepts GPUCount 0 and
+// resolves a tag to a digest at claim time. Spec.Images[0] is the main-container image; a
+// per-container image list (init + main) is a later contract extension.
 func buildDemandUnits(workload *v1.Workload, workspace *v1.Workspace) ([]execution.DemandUnit, error) {
 	if len(workload.Spec.Resources) != 1 || workload.Spec.Resources[0].Replica != 1 {
 		return nil, &unsupportedShapeError{"external capacity supports single replica workloads only"}
 	}
 	res := &workload.Spec.Resources[0]
-	if !res.HasGpu() {
-		return nil, &unsupportedShapeError{"external capacity requires a gpu request"}
-	}
 	resources, err := toResourceVector(res, workspace)
 	if err != nil {
 		return nil, err
 	}
-	if len(workload.Spec.Images) != 1 || workload.Spec.Images[0] == "" {
-		return nil, &unsupportedShapeError{
-			"external capacity supports a single digest-pinned image only"}
+	if len(workload.Spec.Images) == 0 || workload.Spec.Images[0] == "" {
+		return nil, &unsupportedShapeError{"external capacity requires an image reference"}
 	}
 	imageRef := workload.Spec.Images[0]
-	if !isDigestPinnedImage(imageRef) {
-		return nil, &unsupportedShapeError{
-			"external capacity requires an image reference pinned with @sha256:"}
-	}
 
 	constraints := execution.PlacementConstraints{
 		NodeSelector:     map[string]string{},
@@ -610,7 +606,10 @@ func buildDemandUnits(workload *v1.Workload, workspace *v1.Workspace) ([]executi
 	if workload.Spec.Timeout != nil && *workload.Spec.Timeout > 0 {
 		runtimeSeconds = int32(*workload.Spec.Timeout)
 	}
-	imageDigest := imageRef[strings.LastIndex(imageRef, "@sha256:")+1:]
+	imageDigest := ""
+	if isDigestPinnedImage(imageRef) {
+		imageDigest = imageRef[strings.LastIndex(imageRef, "@sha256:")+1:]
+	}
 	return []execution.DemandUnit{{
 		UnitKey:           "master/0",
 		Replicas:          1,
@@ -642,16 +641,24 @@ func toResourceVector(res *v1.WorkloadResource, workspace *v1.Workspace) (execut
 	cpu := list.Cpu()
 	memory := list.Memory()
 	scratch := list.StorageEphemeral()
-	gpu := list[corev1.ResourceName(res.GPUName)]
+	gpuCount := int32(0)
+	gpuResource := ""
+	if res.GPUName != "" {
+		gpu := list[corev1.ResourceName(res.GPUName)]
+		gpuCount = int32(gpu.Value())
+		if gpuCount > 0 {
+			gpuResource = res.GPUName
+		}
+	}
 	return execution.ResourceVector{
 		CPUMillis:    cpu.MilliValue(),
 		MemoryBytes:  memory.Value(),
 		ScratchBytes: scratch.Value(),
-		GPUResource:  res.GPUName,
+		GPUResource:  gpuResource,
 		// The flavor identifies the machine type the workspace draws from, which is the
 		// closest thing SaFE knows to a GPU model without a per-node lookup.
 		GPUModel: workspace.Spec.NodeFlavor,
-		GPUCount: int32(gpu.Value()),
+		GPUCount: gpuCount,
 	}, nil
 }
 

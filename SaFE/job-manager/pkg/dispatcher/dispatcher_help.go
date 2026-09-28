@@ -145,7 +145,34 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
 			return fmt.Errorf("failed to disable service account token: %v", err.Error())
 		}
+		// Host network / host namespaces are node privileges the provider refuses. Force
+		// them off here so earlier modifyHostNetwork (and later modifyHostPid) cannot leak.
+		path = podSpecPath(workload, resourceSpec, "hostNetwork")
+		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
+			return fmt.Errorf("failed to disable host network for external: %v", err.Error())
+		}
+		path = podSpecPath(workload, resourceSpec, "hostPID")
+		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
+			return fmt.Errorf("failed to disable host PID for external: %v", err.Error())
+		}
+		path = podSpecPath(workload, resourceSpec, "hostIPC")
+		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
+			return fmt.Errorf("failed to disable host IPC for external: %v", err.Error())
+		}
+		path = podSpecPath(workload, resourceSpec, "preemptionPolicy")
+		if err = jobutils.SetNestedField(obj.Object, "Never", path); err != nil {
+			return fmt.Errorf("failed to set preemptionPolicy for external: %v", err.Error())
+		}
+		if err = applyExternalVirtualKubeletToleration(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
 		if err = applyExternalContainerSecurity(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalVolumePolicy(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalEnvRewrite(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
 		if err = applyExternalNodePin(obj, workload, *resourceSpec); err != nil {
@@ -165,8 +192,12 @@ func initializeObject(obj *unstructured.Unstructured,
 			return fmt.Errorf("failed to modify selector: %v", err.Error())
 		}
 	}
-	if err = modifyHostPid(obj, workload, resourceSpec); err != nil {
-		return fmt.Errorf("failed to modify by opsjob: %v", err.Error())
+	// External pods must not gain hostPID/hostIPC from privileged workloads; the
+	// external block already forced both false above.
+	if !isExternalWorkload(workload) {
+		if err = modifyHostPid(obj, workload, resourceSpec); err != nil {
+			return fmt.Errorf("failed to modify by opsjob: %v", err.Error())
+		}
 	}
 	return nil
 }
@@ -470,8 +501,11 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 				maxId = vol.Id
 			}
 			if vol.MountPath != "" {
+				// External pods mount the approved root without subPath; USER_DATA_PATH
+				// still points at the per-user directory for the program.
+				enableUserDir := vol.EnableUserDir && !isExternalWorkload(workload)
 				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath,
-					v1.GetUserId(workload), readonly, vol.EnableUserDir)
+					v1.GetUserId(workload), readonly, enableUserDir)
 				volumeMounts = append(volumeMounts, volumeMount)
 			}
 		}
@@ -2951,21 +2985,16 @@ func getContainers(adminWorkload *v1.Workload, obj *unstructured.Unstructured, r
 	return containers, path, nil
 }
 
-// validateExternalPodShape refuses pod templates the provider's VK cannot admit:
-// exactly one container and no init or ephemeral containers.
+// validateExternalPodShape refuses pod shapes the provider's VK cannot admit.
+// Init containers are allowed (run in order before main); ephemeral containers are not.
 func validateExternalPodShape(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
 	containers, _, err := getContainers(workload, obj, resourceSpec)
 	if err != nil {
 		return err
 	}
-	if len(containers) != 1 {
-		return fmt.Errorf("external capacity supports a single container; template declares %d",
-			len(containers))
-	}
-	initPath := podSpecPath(workload, &resourceSpec, "initContainers")
-	if inits, found, _ := jobutils.NestedSlice(obj.Object, initPath); found && len(inits) > 0 {
-		return fmt.Errorf("external capacity does not support init containers")
+	if len(containers) == 0 {
+		return fmt.Errorf("external capacity requires at least one container")
 	}
 	ephemeralPath := podSpecPath(workload, &resourceSpec, "ephemeralContainers")
 	if eps, found, _ := jobutils.NestedSlice(obj.Object, ephemeralPath); found && len(eps) > 0 {
@@ -2975,12 +3004,27 @@ func validateExternalPodShape(obj *unstructured.Unstructured, workload *v1.Workl
 }
 
 // applyExternalContainerSecurity forces the privilege posture the provider measures
-// under: no privilege escalation, no privileged bit, no added capabilities.
+// under on every container (main and init): no privilege escalation, no privileged bit,
+// no added capabilities.
 func applyExternalContainerSecurity(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
-	containers, path, err := getContainers(workload, obj, resourceSpec)
+	if err := stripExternalContainerPrivileges(obj, workload, resourceSpec, "containers"); err != nil {
+		return err
+	}
+	return stripExternalContainerPrivileges(obj, workload, resourceSpec, "initContainers")
+}
+
+// stripExternalContainerPrivileges clears privileged bits and added capabilities on the
+// named container list. Missing lists are a no-op.
+func stripExternalContainerPrivileges(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec, field string) error {
+	path := podSpecPath(workload, &resourceSpec, field)
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
+	}
+	if !found || len(containers) == 0 {
+		return nil
 	}
 	for i := range containers {
 		container, ok := containers[i].(map[string]interface{})
@@ -2993,6 +3037,8 @@ func applyExternalContainerSecurity(obj *unstructured.Unstructured, workload *v1
 		}
 		sc["allowPrivilegeEscalation"] = false
 		sc["privileged"] = false
+		delete(sc, "runAsUser")
+		delete(sc, "runAsGroup")
 		if caps, _ := sc["capabilities"].(map[string]interface{}); caps != nil {
 			delete(caps, "add")
 			if len(caps) == 0 {
@@ -3004,6 +3050,194 @@ func applyExternalContainerSecurity(obj *unstructured.Unstructured, workload *v1
 		container["securityContext"] = sc
 	}
 	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+// applyExternalVirtualKubeletToleration adds a toleration for the provider's virtual-node
+// taint so kube-scheduler can place the pod on an external VK.
+func applyExternalVirtualKubeletToleration(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	path := podSpecPath(workload, &resourceSpec, "tolerations")
+	tolerations, _, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	for _, raw := range tolerations {
+		t, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t["key"] == v1.ExternalVirtualKubeletTaint {
+			return nil
+		}
+	}
+	tolerations = append(tolerations, map[string]interface{}{
+		"key":      v1.ExternalVirtualKubeletTaint,
+		"operator": "Exists",
+		"effect":   "NoSchedule",
+	})
+	return jobutils.SetNestedField(obj.Object, tolerations, path)
+}
+
+// applyExternalVolumePolicy rewrites volumes/mounts the provider refuses without changing
+// stock templates: /var/log hostPath becomes emptyDir, and enableUserDir subPath mounts
+// are flattened to the volume root (USER_DATA_PATH still points at the user directory).
+func applyExternalVolumePolicy(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	volPath := podSpecPath(workload, &resourceSpec, "volumes")
+	volumes, found, err := jobutils.NestedSlice(obj.Object, volPath)
+	if err != nil {
+		return err
+	}
+	hostPathByName := map[string]string{}
+	if found {
+		for i := range volumes {
+			vol, ok := volumes[i].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, _ := vol["name"].(string)
+			if hp, _ := vol["hostPath"].(map[string]interface{}); hp != nil {
+				p, _ := hp["path"].(string)
+				if p == "/var/log" || strings.HasPrefix(p, "/var/log/") {
+					delete(vol, "hostPath")
+					vol["emptyDir"] = map[string]interface{}{}
+					continue
+				}
+				if name != "" {
+					hostPathByName[name] = p
+				}
+			}
+		}
+		if err = jobutils.SetNestedField(obj.Object, volumes, volPath); err != nil {
+			return err
+		}
+	}
+	if err = stripExternalVolumeMountSubPaths(obj, workload, resourceSpec, "containers", hostPathByName); err != nil {
+		return err
+	}
+	return stripExternalVolumeMountSubPaths(obj, workload, resourceSpec, "initContainers", hostPathByName)
+}
+
+// stripExternalVolumeMountSubPaths removes subPath/subPathExpr the provider refuses on
+// approved roots. When a mount used enableUserDir (mountPath ended under the host root),
+// the mountPath is reset to that hostPath root.
+func stripExternalVolumeMountSubPaths(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec, field string, hostPathByName map[string]string) error {
+	path := podSpecPath(workload, &resourceSpec, field)
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	if !found || len(containers) == 0 {
+		return nil
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		mounts, _ := container["volumeMounts"].([]interface{})
+		if len(mounts) == 0 {
+			continue
+		}
+		for j := range mounts {
+			m, ok := mounts[j].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if _, has := m["subPath"]; !has {
+				if _, hasExpr := m["subPathExpr"]; !hasExpr {
+					continue
+				}
+			}
+			delete(m, "subPath")
+			delete(m, "subPathExpr")
+			name, _ := m["name"].(string)
+			if root := hostPathByName[name]; root != "" {
+				m["mountPath"] = root
+			}
+		}
+		container["volumeMounts"] = mounts
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+// applyExternalEnvRewrite replaces control-plane Service DNS names that cannot resolve
+// on the cluster hosting virtual nodes. WORKLOAD_MANAGER_URL is rewritten to the public
+// control-plane base when global.domain is configured; other *.svc.cluster.local values
+// have their host swapped to the same base.
+func applyExternalEnvRewrite(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	base := externalControlPlaneBaseURL()
+	if base == "" {
+		return nil
+	}
+	if err := rewriteExternalContainerEnvs(obj, workload, resourceSpec, "containers", base); err != nil {
+		return err
+	}
+	return rewriteExternalContainerEnvs(obj, workload, resourceSpec, "initContainers", base)
+}
+
+// externalControlPlaneBaseURL builds https://<sub_domain>.<domain> from global config.
+func externalControlPlaneBaseURL() string {
+	host := strings.TrimSpace(commonconfig.GetSystemHost())
+	if host == "" {
+		return ""
+	}
+	return "https://" + host
+}
+
+// rewriteExternalContainerEnvs rewrites in-cluster Service URLs on the named container list.
+func rewriteExternalContainerEnvs(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec, field, base string) error {
+	path := podSpecPath(workload, &resourceSpec, field)
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	if !found || len(containers) == 0 {
+		return nil
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		envs, _ := container["env"].([]interface{})
+		if len(envs) == 0 {
+			continue
+		}
+		for j := range envs {
+			env, ok := envs[j].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, _ := env["name"].(string)
+			val, _ := env["value"].(string)
+			if val == "" || !strings.Contains(val, ".svc.cluster.local") {
+				continue
+			}
+			if name == "WORKLOAD_MANAGER_URL" {
+				env["value"] = base
+				continue
+			}
+			env["value"] = rewriteClusterLocalURL(val, base)
+		}
+		container["env"] = envs
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+// rewriteClusterLocalURL swaps the host of an in-cluster Service URL for the public base.
+func rewriteClusterLocalURL(raw, base string) string {
+	// Keep path/query when present; drop the internal Service host and port.
+	if idx := strings.Index(raw, "://"); idx >= 0 {
+		rest := raw[idx+3:]
+		if slash := strings.Index(rest, "/"); slash >= 0 {
+			return strings.TrimRight(base, "/") + rest[slash:]
+		}
+	}
+	return base
 }
 
 // applyExternalNodePin writes required matchFields metadata.name so the provider's

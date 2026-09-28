@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/viper"
 	"gotest.tools/assert"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -2508,6 +2509,38 @@ func TestWorkloadValidateWorkspaceQuotaOk(t *testing.T) {
 	w := validWorkload()
 	w.Spec.Resources = []v1.WorkloadResource{{Replica: 1, CPU: "1", Memory: "2Gi", EphemeralStorage: "3Gi"}}
 	assert.NilError(t, v.validateWorkspace(context.Background(), w))
+}
+
+// TestWorkloadValidateExternalRefusesPrivileges rejects privileged / force-host-network
+// submissions against an external workspace when the feature is enabled.
+func TestWorkloadValidateExternalRefusesPrivileges(t *testing.T) {
+	scheme := newScheme(t)
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "ws-ext",
+			Labels: map[string]string{v1.WorkspaceExternalLabel: "true"},
+		},
+		Spec: v1.WorkspaceSpec{Replica: 1, Cluster: "crusoe"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ws).Build()
+	v := &WorkloadValidator{Client: c}
+
+	viper.Set("external_execution.enabled", true)
+	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
+
+	ok := validWorkload()
+	ok.Spec.Workspace = "ws-ext"
+	assert.NilError(t, v.validateWorkspace(context.Background(), ok))
+
+	priv := validWorkload()
+	priv.Spec.Workspace = "ws-ext"
+	v1.SetAnnotation(priv, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
+	assert.Assert(t, v.validateWorkspace(context.Background(), priv) != nil)
+
+	hostNet := validWorkload()
+	hostNet.Spec.Workspace = "ws-ext"
+	v1.SetAnnotation(hostNet, v1.ForceHostNetworkAnnotation, v1.TrueStr)
+	assert.Assert(t, v.validateWorkspace(context.Background(), hostNet) != nil)
 }
 
 func proxyAdmissionWorkload() *v1.Workload {

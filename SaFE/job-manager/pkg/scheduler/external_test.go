@@ -135,23 +135,34 @@ func TestBuildDemandUnitsRejectsUnsupportedShapes(t *testing.T) {
 		t.Fatal("expected a multi replica workload to be rejected")
 	}
 
-	cpuOnly := gpuWorkload()
-	cpuOnly.Spec.Resources[0].GPU = ""
-	cpuOnly.Spec.Resources[0].GPUName = ""
-	if _, err := buildDemandUnits(cpuOnly, externalWorkspace()); err == nil {
-		t.Fatal("expected a workload without a gpu request to be rejected")
-	}
-
 	noImage := gpuWorkload()
 	noImage.Spec.Images = nil
 	if _, err := buildDemandUnits(noImage, externalWorkspace()); err == nil {
 		t.Fatal("expected a workload without an image to be rejected")
 	}
+}
 
-	unpinned := gpuWorkload()
-	unpinned.Spec.Images = []string{"registry.example.invalid/train:v1"}
-	if _, err := buildDemandUnits(unpinned, externalWorkspace()); err == nil {
-		t.Fatal("expected a tag image to be rejected")
+// CPU-only units and tag image refs are valid on the provider; digest is filled at claim.
+func TestBuildDemandUnitsAllowsCPUOnlyAndTagImage(t *testing.T) {
+	cpuOnly := gpuWorkload()
+	cpuOnly.Spec.Resources[0].GPU = ""
+	cpuOnly.Spec.Resources[0].GPUName = ""
+	cpuOnly.Spec.Images = []string{"registry.example.invalid/sandbox:v1"}
+	units, err := buildDemandUnits(cpuOnly, externalWorkspace())
+	if err != nil {
+		t.Fatalf("cpu-only tag image should be accepted: %v", err)
+	}
+	if len(units) != 1 {
+		t.Fatalf("got %d units, want 1", len(units))
+	}
+	if units[0].Resources.GPUCount != 0 || units[0].Resources.GPUResource != "" {
+		t.Fatalf("unexpected gpu vector: %+v", units[0].Resources)
+	}
+	if units[0].ImageRef != "registry.example.invalid/sandbox:v1" {
+		t.Fatalf("image_ref = %q", units[0].ImageRef)
+	}
+	if units[0].ImageDigest != "" {
+		t.Fatalf("tag image must leave image_digest empty, got %q", units[0].ImageDigest)
 	}
 }
 

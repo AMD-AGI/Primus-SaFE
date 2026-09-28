@@ -1697,6 +1697,17 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 			return commonerrors.NewForbidden(
 				"external execution is not enabled in this deployment")
 		}
+		// Privileged / host-network pods ask for node privileges the provider refuses.
+		// Reject at submission so the user sees a clear reason instead of a bind-time
+		// refusal after capacity has already been claimed.
+		if v1.IsPrivileged(workload) {
+			return commonerrors.NewBadRequest(
+				"external workloads cannot run as privileged")
+		}
+		if v1.IsForceHostNetwork(workload) {
+			return commonerrors.NewBadRequest(
+				"external workloads cannot force host network")
+		}
 		// An external workspace has no local capacity to measure a request against. Its
 		// status.totalResources is empty until the provider publishes a node, and the
 		// budget is arbitrated by the provider when the claim is made, so applying the
