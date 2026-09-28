@@ -36,6 +36,8 @@ func externalAuthoringPod() (*unstructured.Unstructured, *v1.Workload, v1.Resour
 									},
 									"securityContext": map[string]interface{}{
 										"privileged": true,
+										"runAsUser":  int64(0),
+										"runAsGroup": int64(0),
 										"capabilities": map[string]interface{}{
 											"add": []interface{}{"IPC_LOCK", "SYS_PTRACE"},
 										},
@@ -86,7 +88,12 @@ func externalAuthoringPod() (*unstructured.Unstructured, *v1.Workload, v1.Resour
 		},
 	}}
 	workload := &v1.Workload{
-		ObjectMeta: metav1.ObjectMeta{Name: "ext-1"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ext-1",
+			Labels: map[string]string{
+				v1.UserIdLabel: "a1b2c3d4e5f6789012345678abcdef01",
+			},
+		},
 		Spec: v1.WorkloadSpec{
 			Workspace:        "ws-ext",
 			GroupVersionKind: v1.GroupVersionKind{Kind: common.AuthoringKind, Version: "v1"},
@@ -114,6 +121,7 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 
 	assert.NilError(t, applyExternalVirtualKubeletToleration(obj, workload, spec))
 	assert.NilError(t, applyExternalContainerSecurity(obj, workload, spec))
+	assert.NilError(t, applyExternalPodRunAs(obj, workload, spec))
 	assert.NilError(t, applyExternalVolumePolicy(obj, workload, spec))
 	assert.NilError(t, applyExternalEnvRewrite(obj, workload, spec))
 	assert.NilError(t, validateExternalPodShape(obj, workload, spec))
@@ -121,6 +129,12 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 	podSpec, _, err := unstructured.NestedMap(obj.Object,
 		"spec", "pytorchReplicaSpecs", "Master", "template", "spec")
 	assert.NilError(t, err)
+
+	wantUID, wantGID, ok := posixIDsFromUserID(v1.GetUserId(workload))
+	assert.Assert(t, ok)
+	podSC := podSpec["securityContext"].(map[string]interface{})
+	assert.Equal(t, podSC["runAsUser"], wantUID)
+	assert.Equal(t, podSC["runAsGroup"], wantGID)
 
 	tolerations, _ := podSpec["tolerations"].([]interface{})
 	foundTaint := false
@@ -140,6 +154,9 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 	assert.Equal(t, sc["privileged"], false)
 	_, hasCaps := sc["capabilities"]
 	assert.Assert(t, !hasCaps, "main capabilities.add should be cleared")
+	_, hasRunAsUser := sc["runAsUser"]
+	_, hasRunAsGroup := sc["runAsGroup"]
+	assert.Assert(t, !hasRunAsUser && !hasRunAsGroup, "container runAs* should be cleared")
 
 	inits, _ := podSpec["initContainers"].([]interface{})
 	initSC := inits[0].(map[string]interface{})["securityContext"].(map[string]interface{})
@@ -161,4 +178,24 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 	envs, _ := main["env"].([]interface{})
 	assert.Equal(t, envs[0].(map[string]interface{})["value"],
 		"https://global.primus-safe.amd.com")
+}
+
+func TestPosixIDsFromUserID(t *testing.T) {
+	uid, gid, ok := posixIDsFromUserID("2001")
+	assert.Assert(t, ok)
+	assert.Equal(t, uid, int64(2001))
+	assert.Equal(t, gid, int64(2001))
+
+	uid, gid, ok = posixIDsFromUserID("a1b2c3d4e5f6789012345678abcdef01")
+	assert.Assert(t, ok)
+	assert.Equal(t, uid, int64(0xa1b2c3d4))
+	assert.Equal(t, gid, uid)
+
+	_, _, ok = posixIDsFromUserID("")
+	assert.Assert(t, !ok)
+
+	uid, gid, ok = posixIDsFromUserID("000000ab")
+	assert.Assert(t, ok)
+	assert.Equal(t, uid, int64(1000+0xab))
+	assert.Equal(t, gid, uid)
 }

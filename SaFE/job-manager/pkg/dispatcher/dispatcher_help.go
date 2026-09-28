@@ -7,7 +7,9 @@ package dispatcher
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -167,6 +169,9 @@ func initializeObject(obj *unstructured.Unstructured,
 			return err
 		}
 		if err = applyExternalContainerSecurity(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalPodRunAs(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
 		if err = applyExternalVolumePolicy(obj, workload, *resourceSpec); err != nil {
@@ -3005,13 +3010,72 @@ func validateExternalPodShape(obj *unstructured.Unstructured, workload *v1.Workl
 
 // applyExternalContainerSecurity forces the privilege posture the provider measures
 // under on every container (main and init): no privilege escalation, no privileged bit,
-// no added capabilities.
+// no added capabilities. Container-level runAsUser/runAsGroup are cleared so the pod
+// identity from applyExternalPodRunAs is not overridden (including template runAsUser: 0).
 func applyExternalContainerSecurity(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
 	if err := stripExternalContainerPrivileges(obj, workload, resourceSpec, "containers"); err != nil {
 		return err
 	}
 	return stripExternalContainerPrivileges(obj, workload, resourceSpec, "initContainers")
+}
+
+// applyExternalPodRunAs sets pod securityContext.runAsUser/runAsGroup from the workload's
+// primus-safe.user.id label. Shared-filesystem writes on the provider follow that identity.
+func applyExternalPodRunAs(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	uid, gid, ok := posixIDsFromUserID(v1.GetUserId(workload))
+	if !ok {
+		return nil
+	}
+	path := podSpecPath(workload, &resourceSpec, "securityContext")
+	sc, _, err := unstructured.NestedMap(obj.Object, path...)
+	if err != nil {
+		return err
+	}
+	if sc == nil {
+		sc = map[string]interface{}{}
+	}
+	sc["runAsUser"] = uid
+	sc["runAsGroup"] = gid
+	return jobutils.SetNestedField(obj.Object, sc, path)
+}
+
+// posixIDsFromUserID maps the SaFE user id label to a non-root POSIX uid/gid.
+// Numeric labels pass through; opaque ids (md5 hex) use a stable hex-derived value.
+func posixIDsFromUserID(userID string) (uid, gid int64, ok bool) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return 0, 0, false
+	}
+	if n, err := strconv.ParseInt(userID, 10, 64); err == nil && n > 0 {
+		return n, n, true
+	}
+	var b strings.Builder
+	for i := 0; i < len(userID); i++ {
+		c := userID[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			b.WriteByte(c)
+		}
+	}
+	hexID := b.String()
+	if hexID == "" {
+		sum := sha256.Sum256([]byte(userID))
+		hexID = hex.EncodeToString(sum[:])
+	}
+	if len(hexID) < 8 {
+		hexID = hexID + strings.Repeat("0", 8-len(hexID))
+	}
+	u, err := strconv.ParseUint(hexID[:8], 16, 32)
+	if err != nil {
+		return 0, 0, false
+	}
+	uid = int64(u)
+	// Keep the identity out of the system/reserved range used by root and host services.
+	if uid < 1000 {
+		uid += 1000
+	}
+	return uid, uid, true
 }
 
 // stripExternalContainerPrivileges clears privileged bits and added capabilities on the

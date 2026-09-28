@@ -19,6 +19,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
 // isVirtualKubeletNode reports whether the execution-cluster node is a provider virtual node.
@@ -50,6 +52,10 @@ func adminNodeNameForK8sNode(node *corev1.Node) string {
 func (r *NodeK8sReconciler) admitVirtualKubelet(ctx context.Context, clusterName string,
 	k8sNode *corev1.Node) (string, error) {
 	if !isVirtualKubeletNode(k8sNode) {
+		return "", nil
+	}
+	if !commonconfig.IsExternalExecutionEnable() {
+		klog.V(4).Infof("skip virtual kubelet %s: external execution disabled", k8sNode.Name)
 		return "", nil
 	}
 	workspaceID := k8sNode.Labels[v1.ExternalWorkspaceLabel]
@@ -102,6 +108,12 @@ func (r *NodeK8sReconciler) admitVirtualKubelet(ctx context.Context, clusterName
 			Workspace:     pointer.String(workspaceID),
 			Hostname:      pointer.String(k8sNode.Name),
 			LifecycleMode: v1.NodeLifecycleExternal,
+			// The CRD still requires these object fields on every Node. External capacity
+			// has no nodeTemplate to clone and no SSH secret; empty references satisfy
+			// OpenAPI without enabling the native bootstrap path (webhook skips SSH/IP
+			// checks when lifecycleMode is external).
+			NodeTemplate: &corev1.ObjectReference{},
+			SSHSecret:    &corev1.ObjectReference{},
 			NodeFlavor: &corev1.ObjectReference{
 				APIVersion: v1.SchemeGroupVersion.String(),
 				Kind:       v1.NodeFlavorKind,
@@ -162,4 +174,46 @@ func (r *NodeK8sReconciler) patchAdmittedExternalNode(ctx context.Context, exist
 		return nil
 	}
 	return r.Patch(ctx, existing, patch)
+}
+
+// gcOrphanedExternalAdminNodes deletes SaFE Nodes whose matching virtual kubelet is gone.
+// Event-driven delete covers the steady state; this pass recovers from missed Delete events
+// after an informer reconnect or a controller restart.
+func (r *NodeK8sReconciler) gcOrphanedExternalAdminNodes(ctx context.Context, clusterName string) error {
+	if clusterName == "" || !commonconfig.IsExternalExecutionEnable() {
+		return nil
+	}
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterName)
+	if err != nil || !k8sClients.IsValid() {
+		return fmt.Errorf("the cluster(%s) clients is not ready", clusterName)
+	}
+	list := &v1.NodeList{}
+	if err = r.List(ctx, list); err != nil {
+		return err
+	}
+	for i := range list.Items {
+		admin := &list.Items[i]
+		if !admin.IsExternal() || admin.GetSpecCluster() != clusterName {
+			continue
+		}
+		if !admin.GetDeletionTimestamp().IsZero() {
+			continue
+		}
+		_, err = getNodeByInformer(ctx, k8sClients, admin.Name)
+		if err == nil {
+			continue
+		}
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		if err = r.Delete(ctx, admin); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		klog.Infof("deleted orphaned external adminNode %s: virtual kubelet missing in cluster %s",
+			admin.Name, clusterName)
+	}
+	return nil
 }
