@@ -38,15 +38,8 @@ func gpuWorkload() *v1.Workload {
 	}
 }
 
-func externalWorkspace() *v1.Workspace {
-	return &v1.Workspace{
-		ObjectMeta: metav1.ObjectMeta{Name: "ws-external"},
-		Spec:       v1.WorkspaceSpec{Cluster: "crusoe", NodeFlavor: "mi355x-8"},
-	}
-}
-
 func TestBuildDemandUnitsProducesOneUnitPerPod(t *testing.T) {
-	units, err := buildDemandUnits(gpuWorkload(), externalWorkspace())
+	units, err := buildDemandUnits(gpuWorkload(), "MI355X")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -64,7 +57,8 @@ func TestBuildDemandUnitsProducesOneUnitPerPod(t *testing.T) {
 	if unit.Resources.CPUMillis != 8000 {
 		t.Fatalf("cpu = %d millis, want 8000", unit.Resources.CPUMillis)
 	}
-	if unit.Resources.GPUCount != 1 || unit.Resources.GPUResource != "amd.com/gpu" {
+	if unit.Resources.GPUCount != 1 || unit.Resources.GPUResource != "amd.com/gpu" ||
+		unit.Resources.GPUModel != "MI355X" {
 		t.Fatalf("unexpected gpu request: %+v", unit.Resources)
 	}
 	if unit.ConstraintsDigest == "" {
@@ -131,13 +125,13 @@ func TestEmptyConstraintsDigestMatchesContract(t *testing.T) {
 func TestBuildDemandUnitsRejectsUnsupportedShapes(t *testing.T) {
 	multiReplica := gpuWorkload()
 	multiReplica.Spec.Resources[0].Replica = 4
-	if _, err := buildDemandUnits(multiReplica, externalWorkspace()); err == nil {
+	if _, err := buildDemandUnits(multiReplica, "MI355X"); err == nil {
 		t.Fatal("expected a multi replica workload to be rejected")
 	}
 
 	noImage := gpuWorkload()
 	noImage.Spec.Images = nil
-	if _, err := buildDemandUnits(noImage, externalWorkspace()); err == nil {
+	if _, err := buildDemandUnits(noImage, "MI355X"); err == nil {
 		t.Fatal("expected a workload without an image to be rejected")
 	}
 }
@@ -148,7 +142,7 @@ func TestBuildDemandUnitsAllowsCPUOnlyAndTagImage(t *testing.T) {
 	cpuOnly.Spec.Resources[0].GPU = ""
 	cpuOnly.Spec.Resources[0].GPUName = ""
 	cpuOnly.Spec.Images = []string{"registry.example.invalid/sandbox:v1"}
-	units, err := buildDemandUnits(cpuOnly, externalWorkspace())
+	units, err := buildDemandUnits(cpuOnly, "")
 	if err != nil {
 		t.Fatalf("cpu-only tag image should be accepted: %v", err)
 	}
@@ -248,7 +242,7 @@ func TestDemandRefreshesOnlyWhenAbsentOrExpiring(t *testing.T) {
 func TestUnsupportedShapeIsDistinguishableFromAWait(t *testing.T) {
 	multiReplica := gpuWorkload()
 	multiReplica.Spec.Resources[0].Replica = 4
-	_, err := buildDemandUnits(multiReplica, externalWorkspace())
+	_, err := buildDemandUnits(multiReplica, "MI355X")
 	if err == nil {
 		t.Fatal("expected an error")
 	}

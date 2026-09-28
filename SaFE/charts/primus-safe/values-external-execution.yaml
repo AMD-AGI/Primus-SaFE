@@ -1,0 +1,21 @@
+# Overlay: enable external execution only. Apply after the release values:
+#   helm upgrade primus-safe <chart> -n primus-safe --reuse-values \
+#     -f values-external-execution.yaml
+#
+# Does not change images, replicas, or unrelated components.
+# Requires Secret safe-exec-controller-client (ca.crt, tls.crt, tls.key) in the
+# release namespace before job-manager can dial the controller.
+# job-manager also needs a hostAlias for controller.spur-serverless.svc ->
+# 10.255.36.114 (chart has no hostAliases field; patch the Deployment after upgrade).
+
+external_execution:
+  enabled: true
+  controller_url: "https://controller.spur-serverless.svc:31844"
+  controller_secret: "safe-exec-controller-client"
+  controller_secret_path: "/etc/secrets/external-execution"
+  controller_timeout_seconds: 10
+  profile_id: "e2e4-lab-profile"
+  profile_revision: 2
+  pid_limit: 256
+  observation_max_age_seconds: 120
+  workspace_resync_seconds: 30

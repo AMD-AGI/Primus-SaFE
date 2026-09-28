@@ -97,7 +97,7 @@ func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 	state := workload.Status.ExternalExecution
 	claim, err := client.ReleaseClaim(ctx, state.ClaimId, &execution.ReleaseRequest{
 		RequestID:          uuid.NewString(),
-		ExpectedRevision:   state.ClaimRevision,
+		ExpectedRevision:   claimExpectedRevision(state),
 		DispatchGeneration: state.DispatchGeneration,
 		Reason:             string(workload.Status.Phase),
 	})
@@ -140,7 +140,7 @@ func (r *SchedulerReconciler) releaseSupersededClaim(ctx context.Context, worklo
 	}
 	_, err = client.ReleaseClaim(ctx, state.ClaimId, &execution.ReleaseRequest{
 		RequestID:          uuid.NewString(),
-		ExpectedRevision:   state.ClaimRevision,
+		ExpectedRevision:   claimExpectedRevision(state),
 		DispatchGeneration: state.DispatchGeneration,
 		Reason:             "superseded by a new dispatch generation",
 	})
@@ -159,6 +159,15 @@ func (r *SchedulerReconciler) markClaimReleased(ctx context.Context, workload *v
 	updated.ClaimPhase = execution.ClaimPhaseReleased
 	updated.Reclaiming = false
 	return r.patchExternalState(ctx, workload, updated)
+}
+
+// claimExpectedRevision returns the revision the provider requires on release. A claim that
+// never got an accepted CreateClaim keeps ClaimRevision at zero, which the contract rejects.
+func claimExpectedRevision(state *v1.WorkloadExternalExecution) int32 {
+	if state == nil || state.ClaimRevision < 1 {
+		return 1
+	}
+	return state.ClaimRevision
 }
 
 // requestExternalCapacity asks the provider to acquire nodes for a workload the workspace
@@ -228,7 +237,11 @@ func (r *SchedulerReconciler) handleReservationRefusal(ctx context.Context, work
 // conflict or make the revision climb without end.
 func (r *SchedulerReconciler) ensureExternalDemand(ctx context.Context, workload *v1.Workload,
 	workspace *v1.Workspace) error {
-	units, err := buildDemandUnits(workload, workspace)
+	gpuModel, err := r.nodeFlavorGPUModel(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	units, err := buildDemandUnits(workload, gpuModel)
 	if err != nil {
 		return err
 	}
@@ -334,7 +347,11 @@ func (r *SchedulerReconciler) withdrawExternalDemand(ctx context.Context, worklo
 	if state == nil || state.DemandId == "" || state.DemandWithdrawn {
 		return nil
 	}
-	units, err := buildDemandUnits(workload, workspace)
+	gpuModel, err := r.nodeFlavorGPUModel(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	units, err := buildDemandUnits(workload, gpuModel)
 	if err != nil {
 		return err
 	}
@@ -580,12 +597,14 @@ func (r *SchedulerReconciler) patchExternalState(ctx context.Context, workload *
 // CPU-only units and tag image references are allowed: the provider accepts GPUCount 0 and
 // resolves a tag to a digest at claim time. Spec.Images[0] is the main-container image; a
 // per-container image list (init + main) is a later contract extension.
-func buildDemandUnits(workload *v1.Workload, workspace *v1.Workspace) ([]execution.DemandUnit, error) {
+//
+// gpuModel is NodeFlavor.spec.gpu.product; the provider indexes free devices by that value.
+func buildDemandUnits(workload *v1.Workload, gpuModel string) ([]execution.DemandUnit, error) {
 	if len(workload.Spec.Resources) != 1 || workload.Spec.Resources[0].Replica != 1 {
 		return nil, &unsupportedShapeError{"external capacity supports single replica workloads only"}
 	}
 	res := &workload.Spec.Resources[0]
-	resources, err := toResourceVector(res, workspace)
+	resources, err := toResourceVector(res, gpuModel)
 	if err != nil {
 		return nil, err
 	}
@@ -630,9 +649,27 @@ func isDigestPinnedImage(image string) bool {
 	return at > 0 && len(image) == at+len("@sha256:")+64
 }
 
+// nodeFlavorGPUModel returns NodeFlavor.spec.gpu.product for the workspace flavor.
+// An empty string means the flavor has no GPU product (CPU-only capacity).
+func (r *SchedulerReconciler) nodeFlavorGPUModel(ctx context.Context, workspace *v1.Workspace) (string, error) {
+	if workspace.Spec.NodeFlavor == "" {
+		return "", &unsupportedShapeError{"external capacity requires a workspace node flavor"}
+	}
+	nf := &v1.NodeFlavor{}
+	if err := r.Get(ctx, client.ObjectKey{Name: workspace.Spec.NodeFlavor}, nf); err != nil {
+		return "", err
+	}
+	if nf.Spec.Gpu == nil || nf.Spec.Gpu.Product == "" {
+		return "", nil
+	}
+	return string(nf.Spec.Gpu.Product), nil
+}
+
 // toResourceVector converts a workload resource request into the contract's units:
 // millicores, bytes and whole devices.
-func toResourceVector(res *v1.WorkloadResource, workspace *v1.Workspace) (execution.ResourceVector, error) {
+//
+// gpuModel is NodeFlavor.spec.gpu.product and must match the provider's device inventory.
+func toResourceVector(res *v1.WorkloadResource, gpuModel string) (execution.ResourceVector, error) {
 	list, err := commonquantity.CvtToResourceList(res.CPU, res.Memory, res.GPU, res.GPUName,
 		res.EphemeralStorage, res.RdmaResource, 1)
 	if err != nil {
@@ -650,15 +687,18 @@ func toResourceVector(res *v1.WorkloadResource, workspace *v1.Workspace) (execut
 			gpuResource = res.GPUName
 		}
 	}
+	if gpuCount > 0 && gpuModel == "" {
+		return execution.ResourceVector{}, &unsupportedShapeError{
+			"external capacity requires NodeFlavor gpu.product when requesting GPUs",
+		}
+	}
 	return execution.ResourceVector{
 		CPUMillis:    cpu.MilliValue(),
 		MemoryBytes:  memory.Value(),
 		ScratchBytes: scratch.Value(),
 		GPUResource:  gpuResource,
-		// The flavor identifies the machine type the workspace draws from, which is the
-		// closest thing SaFE knows to a GPU model without a per-node lookup.
-		GPUModel: workspace.Spec.NodeFlavor,
-		GPUCount: gpuCount,
+		GPUModel:     gpuModel,
+		GPUCount:     gpuCount,
 	}, nil
 }
 
