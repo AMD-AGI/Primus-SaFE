@@ -28,7 +28,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/execution"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -3287,41 +3286,35 @@ func applyExternalNodePin(obj *unstructured.Unstructured, workload *v1.Workload,
 
 // externalApprovedResourceMap turns the claim's approved ResourceVector into the
 // requests=limits map written onto the pod. Only resources the claim named appear.
+// Values come from status placements persisted at acceptClaim time so dispatch does
+// not re-fetch the claim after verifyExternalClaim.
 func externalApprovedResourceMap(workload *v1.Workload, unitKey string) (map[string]interface{}, error) {
 	state := workload.Status.ExternalExecution
-	if state == nil || state.ClaimId == "" {
+	if state == nil {
 		return nil, fmt.Errorf("workload %s has no external claim for resource binding", workload.Name)
 	}
-	client, err := execution.Shared()
-	if err != nil {
-		return nil, err
-	}
-	claim, err := client.GetClaim(context.Background(), state.ClaimId)
-	if err != nil {
-		return nil, err
-	}
-	var vector *execution.ResourceVector
-	for i := range claim.Placements {
-		if claim.Placements[i].UnitKey == unitKey {
-			vector = &claim.Placements[i].Resources
+	var placement *v1.WorkloadExternalPlacement
+	for i := range state.Placements {
+		if state.Placements[i].UnitKey == unitKey {
+			placement = &state.Placements[i]
 			break
 		}
 	}
-	if vector == nil {
-		return nil, fmt.Errorf("claim %s has no placement for unit %s", state.ClaimId, unitKey)
+	if placement == nil {
+		return nil, fmt.Errorf("workload %s has no external placement for unit %s", workload.Name, unitKey)
 	}
 	resources := map[string]interface{}{}
-	if vector.CPUMillis > 0 {
-		resources[string(corev1.ResourceCPU)] = fmt.Sprintf("%dm", vector.CPUMillis)
+	if placement.CPUMillis > 0 {
+		resources[string(corev1.ResourceCPU)] = fmt.Sprintf("%dm", placement.CPUMillis)
 	}
-	if vector.MemoryBytes > 0 {
-		resources[string(corev1.ResourceMemory)] = fmt.Sprintf("%d", vector.MemoryBytes)
+	if placement.MemoryBytes > 0 {
+		resources[string(corev1.ResourceMemory)] = fmt.Sprintf("%d", placement.MemoryBytes)
 	}
-	if vector.ScratchBytes > 0 {
-		resources[string(corev1.ResourceEphemeralStorage)] = fmt.Sprintf("%d", vector.ScratchBytes)
+	if placement.ScratchBytes > 0 {
+		resources[string(corev1.ResourceEphemeralStorage)] = fmt.Sprintf("%d", placement.ScratchBytes)
 	}
-	if vector.GPUCount > 0 && vector.GPUResource != "" {
-		resources[vector.GPUResource] = strconv.Itoa(int(vector.GPUCount))
+	if placement.GPUCount > 0 && placement.GPUResource != "" {
+		resources[placement.GPUResource] = strconv.Itoa(int(placement.GPUCount))
 	}
 	return resources, nil
 }

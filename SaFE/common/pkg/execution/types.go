@@ -81,11 +81,11 @@ type PlacementConstraints struct {
 // DemandUnit is one Pod worth of demand. Replicas is fixed at one by the schema: a
 // multi-replica workload expands into distinct units with distinct keys.
 type DemandUnit struct {
-	UnitKey           string               `json:"unit_key"`
-	Replicas          int32                `json:"replicas"`
-	Resources         ResourceVector       `json:"resources"`
-	Ports             []Port               `json:"ports"`
-	RequiredRuntimeS  int32                `json:"required_runtime_s"`
+	UnitKey          string         `json:"unit_key"`
+	Replicas         int32          `json:"replicas"`
+	Resources        ResourceVector `json:"resources"`
+	Ports            []Port         `json:"ports"`
+	RequiredRuntimeS int32          `json:"required_runtime_s"`
 	// PIDLimit is the per-task process budget. It is not a ResourceVector field:
 	// the provider records it on the hold and enforces it at Prepare. Zero means
 	// "declared none" and is refused at Prepare, so the field is always sent.
@@ -148,12 +148,12 @@ type ClaimPlacement struct {
 	ImageDigest                string         `json:"image_digest"`
 	Resources                  ResourceVector `json:"resources"`
 	// PIDLimit is copied from the demand unit through the plan onto the hold.
-	PIDLimit                   int32          `json:"pid_limit"`
-	DeviceIDs                  []string       `json:"device_ids"`
-	Ports                      []Port         `json:"ports"`
+	PIDLimit  int32    `json:"pid_limit"`
+	DeviceIDs []string `json:"device_ids"`
+	Ports     []Port   `json:"ports"`
 	// NodeAddresses carries InternalIP (and similar) for the placed node. Required on the
 	// wire once the provider publishes it; unknown fields are refused by the decoder.
-	NodeAddresses              []NodeAddress  `json:"node_addresses,omitempty"`
+	NodeAddresses []NodeAddress `json:"node_addresses,omitempty"`
 }
 
 // PlacementPlanRequest asks for candidate placements. The plan reserves nothing.

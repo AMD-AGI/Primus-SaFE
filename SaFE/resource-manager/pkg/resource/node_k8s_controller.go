@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
@@ -389,7 +390,13 @@ func (r *NodeK8sReconciler) start(ctx context.Context) error {
 func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (ctrlruntime.Result, error) {
 	if message.action == NodeAdd || message.action == NodeUpdate || message.action == NodeManaged {
 		if err := r.ensureVirtualKubeletAdmitted(ctx, message); err != nil {
-			return ctrlruntime.Result{}, err
+			klog.ErrorS(err, "failed to admit virtual kubelet", "clusterName", message.clusterName,
+				"k8sNodeName", message.k8sNodeName, "action", message.action)
+			if commonerrors.IsNonRetryableError(err) {
+				err = nil
+			} else {
+				return ctrlruntime.Result{}, err
+			}
 		}
 	}
 	if message.adminNodeName == "" {
@@ -426,6 +433,9 @@ func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (
 // Native (non-VK) nodes are ignored here: the control plane never auto-creates nodes.amd.com
 // for them; they keep the existing label-driven sync against an already-managed admin Node.
 func (r *NodeK8sReconciler) ensureVirtualKubeletAdmitted(ctx context.Context, message *nodeQueueMessage) error {
+	if !commonconfig.IsExternalExecutionEnable() {
+		return nil
+	}
 	if message.clusterName == "" || message.k8sNodeName == "" {
 		return nil
 	}

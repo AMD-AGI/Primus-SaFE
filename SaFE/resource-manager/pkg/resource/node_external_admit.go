@@ -20,6 +20,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
@@ -76,7 +77,7 @@ func (r *NodeK8sReconciler) admitVirtualKubelet(ctx context.Context, clusterName
 		return "", nil
 	}
 	if workspace.Spec.NodeFlavor == "" {
-		return "", fmt.Errorf("external workspace %s has no nodeFlavor", workspaceID)
+		return "", commonerrors.NewBadRequest(fmt.Sprintf("external workspace %s has no nodeFlavor", workspaceID))
 	}
 
 	provider := k8sNode.Labels[v1.ExternalProviderLabel]
@@ -88,7 +89,7 @@ func (r *NodeK8sReconciler) admitVirtualKubelet(ctx context.Context, clusterName
 	}
 	generation, err := strconv.ParseInt(generationRaw, 10, 64)
 	if err != nil || generation <= 0 {
-		return "", fmt.Errorf("virtual kubelet %s has invalid generation %q", k8sNode.Name, generationRaw)
+		return "", commonerrors.NewBadRequest(fmt.Sprintf("virtual kubelet %s has invalid generation %q", k8sNode.Name, generationRaw))
 	}
 	hostKey := k8sNode.Annotations[v1.ExternalHostKeyAnnotation]
 
@@ -142,7 +143,7 @@ func (r *NodeK8sReconciler) admitVirtualKubelet(ctx context.Context, clusterName
 		return "", err
 	}
 	if !existing.IsExternal() {
-		return "", fmt.Errorf("node %s exists but is not lifecycleMode external", existing.Name)
+		return "", commonerrors.NewBadRequest(fmt.Sprintf("node %s exists but is not lifecycleMode external", existing.Name))
 	}
 	if err = r.patchAdmittedExternalNode(ctx, existing, desired); err != nil {
 		return "", err

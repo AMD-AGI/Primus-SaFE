@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -55,6 +56,14 @@ const demandRefreshMargin = time.Minute
 // the provider has stopped the task and verified its cleanup.
 const externalReleaseRetry = 15 * time.Second
 
+// externalExchangeRetry re-stages the workspace schedule after a failed demand/claim
+// exchange that carried no Retry-After (for example a stale status patch).
+const externalExchangeRetry = 10 * time.Second
+
+// externalStatePatchAttempts covers create-time races where another writer bumps
+// resourceVersion between the cached read and the JSON-patch test.
+const externalStatePatchAttempts = 5
+
 // isExternalReclaiming reports whether a workload still holds provider capacity. It stays
 // true from the moment a claim is created until the provider reports it released, which is
 // what keeps the resources charged to the workspace across the workload's own end.
@@ -91,10 +100,11 @@ func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 				"error", wdErr)
 		}
 	}
-	// Re-read after the withdrawal, which rewrote the stored state. Working from the copy
-	// captured before it would patch the withdrawal back out, and the next pass would
-	// republish the same revision under a changed body forever.
 	state := workload.Status.ExternalExecution
+	state, err = r.ensureReleaseRequestId(ctx, workload, state)
+	if err != nil {
+		return false, err
+	}
 	claim, err := client.ReleaseClaim(ctx, state.ClaimId, releaseRequest(state, workload.Status.Phase))
 	if err != nil {
 		// A reservation the provider no longer knows about cannot be holding anything. Any
@@ -115,6 +125,9 @@ func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 	updated.ClaimPhase = claim.Phase
 	updated.ClaimRevision = claim.Revision
 	updated.Reclaiming = claim.Phase != execution.ClaimPhaseReleased
+	if !updated.Reclaiming {
+		updated.ReleaseRequestId = ""
+	}
 	if err = r.patchExternalState(ctx, workload, updated); err != nil {
 		return false, err
 	}
@@ -169,6 +182,9 @@ func (r *SchedulerReconciler) reconcileStaleRelease(ctx context.Context, client 
 	updated.ClaimPhase = claim.Phase
 	updated.ClaimRevision = claim.Revision
 	updated.Reclaiming = claim.Phase != execution.ClaimPhaseReleased
+	if !updated.Reclaiming {
+		updated.ReleaseRequestId = ""
+	}
 	if err = r.patchExternalState(ctx, workload, updated); err != nil {
 		return false, err
 	}
@@ -201,11 +217,25 @@ func observeStaleClaim(localRevision int32, claim *execution.ClaimResponse) stal
 // releaseRequest builds the withdrawal for the revision currently stored on the workload.
 func releaseRequest(state *v1.WorkloadExternalExecution, phase v1.WorkloadPhase) *execution.ReleaseRequest {
 	return &execution.ReleaseRequest{
-		RequestID:          uuid.NewString(),
+		RequestID:          state.ReleaseRequestId,
 		ExpectedRevision:   claimExpectedRevision(state),
 		DispatchGeneration: state.DispatchGeneration,
 		Reason:             string(phase),
 	}
+}
+
+// ensureReleaseRequestId persists the ReleaseClaim idempotency key before the call.
+func (r *SchedulerReconciler) ensureReleaseRequestId(ctx context.Context, workload *v1.Workload,
+	state *v1.WorkloadExternalExecution) (*v1.WorkloadExternalExecution, error) {
+	if state.ReleaseRequestId != "" {
+		return state, nil
+	}
+	next := state.DeepCopy()
+	next.ReleaseRequestId = uuid.NewString()
+	if err := r.patchExternalState(ctx, workload, next); err != nil {
+		return nil, err
+	}
+	return next, nil
 }
 
 // releaseSupersededClaim gives back a reservation left over from an earlier dispatch
@@ -218,12 +248,16 @@ func releaseRequest(state *v1.WorkloadExternalExecution, phase v1.WorkloadPhase)
 // overwritten.
 func (r *SchedulerReconciler) releaseSupersededClaim(ctx context.Context, workload *v1.Workload,
 	state *v1.WorkloadExternalExecution) error {
+	state, err := r.ensureReleaseRequestId(ctx, workload, state)
+	if err != nil {
+		return err
+	}
 	client, err := execution.Shared()
 	if err != nil {
 		return err
 	}
 	_, err = client.ReleaseClaim(ctx, state.ClaimId, &execution.ReleaseRequest{
-		RequestID:          uuid.NewString(),
+		RequestID:          state.ReleaseRequestId,
 		ExpectedRevision:   claimExpectedRevision(state),
 		DispatchGeneration: state.DispatchGeneration,
 		Reason:             "superseded by a new dispatch generation",
@@ -242,6 +276,7 @@ func (r *SchedulerReconciler) markClaimReleased(ctx context.Context, workload *v
 	updated := state.DeepCopy()
 	updated.ClaimPhase = execution.ClaimPhaseReleased
 	updated.Reclaiming = false
+	updated.ReleaseRequestId = ""
 	return r.patchExternalState(ctx, workload, updated)
 }
 
@@ -431,6 +466,11 @@ func (r *SchedulerReconciler) withdrawExternalDemand(ctx context.Context, worklo
 	if state == nil || state.DemandId == "" || state.DemandWithdrawn {
 		return nil
 	}
+	// A demand that was never published has no provider-side statement to stop.
+	// DemandObservedAt is also unset in that case; proceeding would panic on it.
+	if state.DemandRevision == 0 {
+		return nil
+	}
 	gpuModel, err := r.nodeFlavorGPUModel(ctx, workspace)
 	if err != nil {
 		return err
@@ -444,24 +484,23 @@ func (r *SchedulerReconciler) withdrawExternalDemand(ctx context.Context, worklo
 		return err
 	}
 
-	// Same two steps as publishing a need: the revision is fixed before the call so a retry
-	// resends an identical body, and the outcome is recorded only once the provider has
-	// taken it. Marking the withdrawal upfront would make a failed call permanent, since
-	// the guard above then skips it forever.
+	// A withdrawal always changes Eligible and Reason, so the contract requires a new
+	// revision — reusing the eligible revision under a withdrawn body is refused.
+	// Persist the bumped revision and fixed observation before the call. DemandWithdrawn
+	// is set only after acceptance so a failed call is not skipped forever. Retries open
+	// a further revision; that remains a valid new statement until one is accepted.
 	next := state.DeepCopy()
-	if next.DemandExpiresAt != nil {
-		observedAt := metav1.NewTime(time.Now().UTC())
-		next.DemandRevision++
-		next.DemandRequestId = uuid.NewString()
-		next.DemandObservedAt = &observedAt
-	}
+	observedAt := metav1.NewTime(time.Now().UTC())
+	next.DemandRevision++
+	next.DemandRequestId = uuid.NewString()
+	next.DemandObservedAt = &observedAt
 	next.DemandExpiresAt = nil
 	if err = r.patchExternalState(ctx, workload, next); err != nil {
 		return err
 	}
 
-	observedAt := next.DemandObservedAt.Time.UTC()
-	expiresAt := observedAt.Add(demandExpiry)
+	observedAtTime := next.DemandObservedAt.Time.UTC()
+	expiresAt := observedAtTime.Add(demandExpiry)
 	profileID, profileRevision := commonconfig.GetExternalExecutionProfile()
 	if _, err = client.PublishDemand(ctx, &execution.CapacityDemand{
 		RequestID:                next.DemandRequestId,
@@ -478,7 +517,7 @@ func (r *SchedulerReconciler) withdrawExternalDemand(ctx context.Context, worklo
 		Eligible:                 false,
 		Reason:                   execution.ReasonWithdrawn,
 		Units:                    units,
-		ObservedAt:               execution.NewTimestamp(observedAt),
+		ObservedAt:               execution.NewTimestamp(observedAtTime),
 		ExpiresAt:                execution.NewTimestamp(expiresAt),
 	}); err != nil {
 		return err
@@ -579,8 +618,12 @@ func (r *SchedulerReconciler) acceptClaim(ctx context.Context, workload *v1.Work
 	state *v1.WorkloadExternalExecution, claim *execution.ClaimResponse) (bool, string, error) {
 	// Identity is rechecked rather than assumed. A reply that belongs to a different
 	// workload or an older generation would otherwise authorise a dispatch that nothing
-	// reserved capacity for.
+	// reserved capacity for. Release the mismatched hold so it does not leak.
 	if claim.WorkloadUID != string(workload.UID) || claim.DispatchGeneration != state.DispatchGeneration {
+		if relErr := r.releaseMismatchedClaim(ctx, workload, claim); relErr != nil {
+			klog.ErrorS(relErr, "failed to release mismatched claim",
+				"workload", workload.Name, "claim", claim.ClaimID)
+		}
 		return false, ExternalCapacityReason, fmt.Errorf(
 			"claim %s belongs to workload %s generation %d, expected %s generation %d",
 			claim.ClaimID, claim.WorkloadUID, claim.DispatchGeneration,
@@ -604,6 +647,32 @@ func (r *SchedulerReconciler) acceptClaim(ctx context.Context, workload *v1.Work
 	return true, "", nil
 }
 
+// releaseMismatchedClaim returns a reservation whose identity does not match this workload.
+func (r *SchedulerReconciler) releaseMismatchedClaim(ctx context.Context, workload *v1.Workload,
+	claim *execution.ClaimResponse) error {
+	client, err := execution.Shared()
+	if err != nil {
+		return err
+	}
+	revision := claim.Revision
+	if revision < 1 {
+		revision = 1
+	}
+	_, err = client.ReleaseClaim(ctx, claim.ClaimID, &execution.ReleaseRequest{
+		RequestID:          uuid.NewString(),
+		ExpectedRevision:   revision,
+		DispatchGeneration: claim.DispatchGeneration,
+		Reason:             "claim identity mismatch",
+	})
+	if err != nil && !execution.IsCode(err, execution.CodeNotFound) {
+		return err
+	}
+	klog.V(2).InfoS("released mismatched external claim",
+		"workload", workload.Name, "claim", claim.ClaimID,
+		"claimWorkload", claim.WorkloadUID, "claimGeneration", claim.DispatchGeneration)
+	return nil
+}
+
 // ensureExternalState allocates and persists the identifiers before any request uses them.
 //
 // The order matters more than it looks. If the ids were generated per call, a reply lost in
@@ -625,6 +694,7 @@ func (r *SchedulerReconciler) ensureExternalState(ctx context.Context,
 		state.ClaimRequestId = uuid.NewString()
 		state.ClaimPhase = ""
 		state.ClaimRevision = 0
+		state.ReleaseRequestId = ""
 		state.Placements = nil
 		if err := r.patchExternalState(ctx, workload, state); err != nil {
 			return nil, err
@@ -668,23 +738,40 @@ func (r *SchedulerReconciler) ensureExternalState(ctx context.Context,
 // would then plan against a demand id the provider has never seen.
 //
 // The test operation gives the same optimistic concurrency the merge path had through
-// metadata.resourceVersion.
+// metadata.resourceVersion. A failed test returns 422 Invalid (not Conflict); concurrent
+// status writers return Conflict. Both are retried after a fresh Get.
 func (r *SchedulerReconciler) patchExternalState(ctx context.Context, workload *v1.Workload,
 	state *v1.WorkloadExternalExecution) error {
-	patch := []map[string]any{
-		{"op": "test", "path": "/metadata/resourceVersion", "value": workload.ResourceVersion},
-		{"op": "add", "path": "/status/externalExecution", "value": state},
+	var err error
+	for attempt := 0; attempt < externalStatePatchAttempts; attempt++ {
+		if attempt > 0 {
+			if getErr := r.Get(ctx, client.ObjectKey{Name: workload.Name}, workload); getErr != nil {
+				return getErr
+			}
+		}
+		patch := []map[string]any{
+			{"op": "test", "path": "/metadata/resourceVersion", "value": workload.ResourceVersion},
+			{"op": "add", "path": "/status/externalExecution", "value": state},
+		}
+		var raw []byte
+		raw, err = json.Marshal(patch)
+		if err != nil {
+			return err
+		}
+		err = r.Status().Patch(ctx, workload, client.RawPatch(apitypes.JSONPatchType, raw))
+		if err == nil {
+			workload.Status.ExternalExecution = state
+			return nil
+		}
+		if !apierrors.IsConflict(err) && !apierrors.IsInvalid(err) {
+			klog.ErrorS(err, "failed to patch external execution state", "workload", workload.Name)
+			return err
+		}
+		klog.V(2).InfoS("retrying external execution state patch",
+			"workload", workload.Name, "attempt", attempt+1, "err", err)
 	}
-	raw, err := json.Marshal(patch)
-	if err != nil {
-		return err
-	}
-	if err = r.Status().Patch(ctx, workload, client.RawPatch(apitypes.JSONPatchType, raw)); err != nil {
-		klog.ErrorS(err, "failed to patch external execution state", "workload", workload.Name)
-		return err
-	}
-	workload.Status.ExternalExecution = state
-	return nil
+	klog.ErrorS(err, "failed to patch external execution state", "workload", workload.Name)
+	return err
 }
 
 // buildDemandUnits expands a workload into the contract's units.
@@ -885,6 +972,11 @@ func toStatusPlacements(placements []execution.ClaimPlacement) []v1.WorkloadExte
 			AllocationId:         p.AllocationID,
 			AllocationGeneration: p.AllocationGeneration,
 			DeviceIds:            p.DeviceIDs,
+			CPUMillis:            p.Resources.CPUMillis,
+			MemoryBytes:          p.Resources.MemoryBytes,
+			ScratchBytes:         p.Resources.ScratchBytes,
+			GPUResource:          p.Resources.GPUResource,
+			GPUCount:             p.Resources.GPUCount,
 		})
 	}
 	return result

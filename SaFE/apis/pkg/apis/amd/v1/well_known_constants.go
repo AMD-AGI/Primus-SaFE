@@ -150,15 +150,15 @@ const (
 	ExternalAllocationIdAnnotation = ExternalExecutionPrefix + "allocation-id"
 	// Identity the provider stamps on virtual Nodes in the execution cluster. SaFE admits
 	// those Nodes into the admin plane; the provider never writes the SaFE Node CR.
-	VirtualKubeletTypeLabelValue     = "virtual-kubelet"
-	VirtualKubeletTypeLabelKey       = "type"
-	ExternalWorkspaceLabel           = ExternalExecutionPrefix + "w"
-	ExternalProviderLabel            = ExternalExecutionPrefix + "provider"
-	ExternalAllocationIdLabel        = ExternalExecutionPrefix + "allocation-id"
-	ExternalGenerationLabel          = ExternalExecutionPrefix + "generation"
-	ExternalHostKeyAnnotation        = ExternalExecutionPrefix + "host-key"
-	ExternalObservedAtAnnotation     = ExternalExecutionPrefix + "observed-at"
-	ExternalValidUntilAnnotation     = ExternalExecutionPrefix + "valid-until"
+	VirtualKubeletTypeLabelValue      = "virtual-kubelet"
+	VirtualKubeletTypeLabelKey        = "type"
+	ExternalWorkspaceLabel            = ExternalExecutionPrefix + "w"
+	ExternalProviderLabel             = ExternalExecutionPrefix + "provider"
+	ExternalAllocationIdLabel         = ExternalExecutionPrefix + "allocation-id"
+	ExternalGenerationLabel           = ExternalExecutionPrefix + "generation"
+	ExternalHostKeyAnnotation         = ExternalExecutionPrefix + "host-key"
+	ExternalObservedAtAnnotation      = ExternalExecutionPrefix + "observed-at"
+	ExternalValidUntilAnnotation      = ExternalExecutionPrefix + "valid-until"
 	ExternalAllocationPhaseAnnotation = ExternalExecutionPrefix + "allocation-phase"
 	// ExternalVirtualKubeletTaint is the provider identity taint. It selects pods onto the
 	// virtual node and must not by itself make the node unavailable for capacity accounting.
@@ -208,15 +208,15 @@ const (
 	NodesAffinityAnnotation        = PrimusSafePrefix + "nodes.affinity"
 
 	// user
-	UserPrefix                       = PrimusSafePrefix + "user."
-	UserIdLabel                      = UserPrefix + "id"
-	UserNameAnnotation               = UserPrefix + "name"
-	UserNameMd5Label                 = UserPrefix + "name.md5"
-	UserEmailAnnotation              = UserPrefix + "email"
-	UserEmailMd5Label                = UserPrefix + "email.md5"
-	UserAvatarUrlAnnotation          = UserPrefix + "avatar.url"
-	UserTypeLabel                    = UserPrefix + "type"
-	UserPreferredNameAnnotation      = UserPrefix + "preferred.name"
+	UserPrefix                  = PrimusSafePrefix + "user."
+	UserIdLabel                 = UserPrefix + "id"
+	UserNameAnnotation          = UserPrefix + "name"
+	UserNameMd5Label            = UserPrefix + "name.md5"
+	UserEmailAnnotation         = UserPrefix + "email"
+	UserEmailMd5Label           = UserPrefix + "email.md5"
+	UserAvatarUrlAnnotation     = UserPrefix + "avatar.url"
+	UserTypeLabel               = UserPrefix + "type"
+	UserPreferredNameAnnotation = UserPrefix + "preferred.name"
 	// UserAccountAnnotation carries the submitter's NTID (local part of preferred name).
 	// External execution uses it as the workload identity for container runAs mapping.
 	UserAccountAnnotation            = UserPrefix + "account"

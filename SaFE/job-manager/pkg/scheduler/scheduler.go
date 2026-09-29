@@ -505,8 +505,9 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 // stall admission for every workload in the workspace.
 //
 // The error is recorded and turned into a wait, so this workload retries on the next pass
-// and the queue keeps moving. Rate-limited and unavailable answers also re-stage the
-// workspace after the provider's Retry-After so the next pass does not hammer the write.
+// and the queue keeps moving. Provider rate-limits carry Retry-After; other exchange
+// failures (including a stale status patch) get a short default so the workspace is
+// re-staged without waiting on an unrelated event.
 func (r *SchedulerReconciler) externalOutcome(workload *v1.Workload,
 	ok bool, reason string, err error) (bool, string, error) {
 	if err == nil {
@@ -516,12 +517,17 @@ func (r *SchedulerReconciler) externalOutcome(workload *v1.Workload,
 	if reason == "" {
 		reason = ExternalUnavailableReason
 	}
-	if d := execution.RetryAfterOf(err); d > 0 {
-		r.AddAfter(&SchedulerMessage{
-			WorkspaceId: workload.Spec.Workspace,
-			ClusterId:   v1.GetClusterId(workload),
-		}, d)
+	// Provider answers carry Retry-After; k8s write races (status patch Invalid/Conflict)
+	// do not. Without a wake-up the workload stays Pending until an unrelated workspace
+	// event, so a short default re-stages the schedule pass.
+	d := execution.RetryAfterOf(err)
+	if d == 0 {
+		d = externalExchangeRetry
 	}
+	r.AddAfter(&SchedulerMessage{
+		WorkspaceId: workload.Spec.Workspace,
+		ClusterId:   v1.GetClusterId(workload),
+	}, d)
 	return false, reason, nil
 }
 

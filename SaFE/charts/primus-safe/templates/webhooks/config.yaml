@@ -45,7 +45,8 @@ data:
       timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
     external_execution:
       # Off by default; external objects are refused at admission while it is false.
-      enabled: {{ default false (default .Values.external_execution).enabled }}
+      enabled: {{ default false (default dict .Values.external_execution).enabled }}
+      observation_max_age_seconds: {{ default 120 (default dict .Values.external_execution).observation_max_age_seconds }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-webhooks

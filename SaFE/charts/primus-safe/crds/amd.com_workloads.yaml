@@ -378,6 +378,10 @@ spec:
                   claimRevision:
                     format: int32
                     type: integer
+                  releaseRequestId:
+                    description: Persisted before ReleaseClaim so a lost reply replays
+                      the same idempotency key.
+                    type: string
                   demandExpiresAt:
                     format: date-time
                     type: string
@@ -427,6 +431,20 @@ spec:
                           items:
                             type: string
                           type: array
+                        cpuMillis:
+                          format: int64
+                          type: integer
+                        memoryBytes:
+                          format: int64
+                          type: integer
+                        scratchBytes:
+                          format: int64
+                          type: integer
+                        gpuResource:
+                          type: string
+                        gpuCount:
+                          format: int32
+                          type: integer
                         imageDigest:
                           type: string
                         imageRef:

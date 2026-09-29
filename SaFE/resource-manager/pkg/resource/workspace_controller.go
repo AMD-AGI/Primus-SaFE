@@ -857,12 +857,11 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		// the execution cluster becoming unreachable.
 		// Phase still has to advance. The switch below is the only place that sets it, and
 		// returning before it would leave an external workspace on whatever phase it was
-		// created with -- never Running once capacity arrives, never Abnormal when it goes
-		// away, and no way for a user to tell the difference.
+		// created with -- never Running once capacity arrives, and no way for a user to
+		// tell the difference. Idle at zero available replicas stays Running.
 		phase := v1.WorkspaceRunning
-		if workspace.Status.AvailableReplica == 0 {
-			phase = v1.WorkspaceAbnormal
-		}
+		// External workspaces may sit at zero available replicas while idle; that is not
+		// abnormal and must not flip the phase every time capacity drains.
 		if phase != workspace.Status.Phase {
 			if err = r.updatePhase(ctx, workspace, phase); err != nil {
 				return ctrlruntime.Result{}, err

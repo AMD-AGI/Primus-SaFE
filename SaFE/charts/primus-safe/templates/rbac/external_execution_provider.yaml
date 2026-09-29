@@ -8,7 +8,7 @@
 # from the execution cluster itself. This role therefore grants read access only, for
 # diagnostics and for matching workspace or flavor names. Rendered only when external
 # execution is enabled.
-{{- if (default .Values.external_execution).enabled }}
+{{- if (default dict .Values.external_execution).enabled }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:

@@ -272,6 +272,9 @@ type WorkloadExternalExecution struct {
 	ClaimRequestId string `json:"claimRequestId,omitempty"`
 	ClaimRevision  int32  `json:"claimRevision,omitempty"`
 	ClaimPhase     string `json:"claimPhase,omitempty"`
+	// ReleaseRequestId is persisted before ReleaseClaim so a lost reply is retried with
+	// the same idempotency key rather than a new one.
+	ReleaseRequestId string `json:"releaseRequestId,omitempty"`
 	// Placements approved by the provider, kept so the dispatcher builds the pod from the
 	// reservation that was granted rather than asking for a new plan
 	Placements []WorkloadExternalPlacement `json:"placements,omitempty"`
@@ -294,6 +297,13 @@ type WorkloadExternalPlacement struct {
 	AllocationGeneration int32  `json:"allocationGeneration"`
 	// Devices reserved for this unit
 	DeviceIds []string `json:"deviceIds,omitempty"`
+	// Approved resource vector, kept so dispatch can bind requests=limits without a
+	// second GetClaim after verifyExternalClaim.
+	CPUMillis    int64  `json:"cpuMillis,omitempty"`
+	MemoryBytes  int64  `json:"memoryBytes,omitempty"`
+	ScratchBytes int64  `json:"scratchBytes,omitempty"`
+	GPUResource  string `json:"gpuResource,omitempty"`
+	GPUCount     int32  `json:"gpuCount,omitempty"`
 }
 
 // NodePodUsage aggregates a workload's pods on a single admin node, bucketed by
