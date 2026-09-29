@@ -2012,6 +2012,42 @@ func TestApplyGithubRunnerPodSecurityContextSkipsNonPFSWorkspace(t *testing.T) {
 	assert.Assert(t, !found)
 }
 
+func TestExternalMatchExpressionDropsUserNodeConstraints(t *testing.T) {
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "w"},
+		Status: v1.WorkloadStatus{
+			ExternalExecution: &v1.WorkloadExternalExecution{
+				ClaimId: "claim-1",
+				Placements: []v1.WorkloadExternalPlacement{{
+					NodeName: "vk-approved",
+				}},
+			},
+		},
+	}
+	w.Spec.Workspace = "ws-1"
+	w.Spec.CustomerLabels = map[string]string{
+		common.SpecifiedNodes: "node-a node-b",
+		common.ExcludedNodes:  "node-c",
+		"team":                "ml",
+	}
+	exprs := buildRequiredMatchExpression(w)
+	hostnameIn := 0
+	sawTeam := false
+	for _, raw := range exprs {
+		m := raw.(map[string]interface{})
+		switch m["key"] {
+		case v1.K8sHostName:
+			hostnameIn++
+			assert.Equal(t, m["operator"], "In")
+			assert.DeepEqual(t, m["values"], []interface{}{"vk-approved"})
+		case "team":
+			sawTeam = true
+		}
+	}
+	assert.Equal(t, hostnameIn, 1)
+	assert.Assert(t, sawTeam)
+}
+
 func TestBuildRequiredMatchExpressionExcludedNodes(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
 	w.Spec.Workspace = corev1.NamespaceDefault

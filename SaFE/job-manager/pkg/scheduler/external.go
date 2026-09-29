@@ -547,7 +547,9 @@ func (r *SchedulerReconciler) reserveExternalCapacity(ctx context.Context, workl
 	workspace *v1.Workspace) (bool, string, error) {
 	client, err := execution.Shared()
 	if err != nil {
-		return false, ExternalUnavailableReason, nil
+		// Returned, not dropped. externalOutcome logs it and re-stages the workspace;
+		// a nil error here leaves the workload waiting with no wake-up.
+		return false, ExternalUnavailableReason, err
 	}
 	state, err := r.ensureExternalState(ctx, workload)
 	if err != nil {

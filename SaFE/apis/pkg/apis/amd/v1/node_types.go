@@ -219,7 +219,7 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 	if !ignoreTaint && len(n.Status.Taints) > 0 {
 		var taints []string
 		for _, t := range n.Status.Taints {
-			if isIgnorableAvailabilityTaint(t.Key) {
+			if isIgnorableAvailabilityTaint(n, t.Key) {
 				continue
 			}
 			taints = append(taints, fmt.Sprintf("%s=%s", t.Key, t.Value))
@@ -233,9 +233,10 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 }
 
 // isIgnorableAvailabilityTaint reports taints that select pods but do not mean the node is
-// unhealthy. Provider identity taints and the sticky-nodes monitor are in this set.
-func isIgnorableAvailabilityTaint(key string) bool {
-	if key == ExternalVirtualKubeletTaint {
+// unhealthy. The provider identity taint is ignored only on an external node. The
+// sticky-nodes monitor is ignored on every node.
+func isIgnorableAvailabilityTaint(n *Node, key string) bool {
+	if key == ExternalVirtualKubeletTaint && n.IsExternal() {
 		return true
 	}
 	return GetIdByTaintKey(key) == StickyNodesMonitorId

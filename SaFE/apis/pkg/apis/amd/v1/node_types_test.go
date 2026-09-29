@@ -6,6 +6,7 @@
 package v1
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -199,5 +200,20 @@ func TestProviderIdentityTaintDoesNotBlockAvailability(t *testing.T) {
 	})
 	if ok, _ := node.CheckAvailable(false); ok {
 		t.Fatal("health taints must still block availability")
+	}
+}
+
+func TestProviderIdentityTaintBlocksNativeNodes(t *testing.T) {
+	node := &Node{}
+	SetLabel(node, ClusterIdLabel, "global")
+	node.Status.MachineStatus.Phase = NodeReady
+	node.Status.ClusterStatus.Phase = NodeManaged
+	node.Status.Taints = []corev1.Taint{{
+		Key:    ExternalVirtualKubeletTaint,
+		Effect: corev1.TaintEffectNoSchedule,
+	}}
+	ok, reason := node.CheckAvailable(false)
+	if ok || !strings.Contains(reason, ExternalVirtualKubeletTaint) {
+		t.Fatalf("native node with the provider taint = available:%t reason:%q", ok, reason)
 	}
 }

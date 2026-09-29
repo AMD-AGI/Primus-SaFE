@@ -6,6 +6,7 @@
 package scheduler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -379,3 +380,13 @@ func TestWaitingReasonsSeparateShortageFromOtherRefusals(t *testing.T) {
 type errNoConnection struct{}
 
 func (errNoConnection) Error() string { return "connection refused" }
+
+// A missing execution client has to come back as an error. Dropping it leaves the
+// workload waiting with no log and no requeue.
+func TestReserveExternalCapacitySurfacesClientSetupFailure(t *testing.T) {
+	r := &SchedulerReconciler{}
+	_, _, err := r.reserveExternalCapacity(context.Background(), &v1.Workload{}, &v1.Workspace{})
+	if err == nil {
+		t.Fatal("client setup failure must be returned")
+	}
+}

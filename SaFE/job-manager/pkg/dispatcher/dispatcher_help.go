@@ -1148,6 +1148,13 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 		})
 	}
 	for key, val := range workload.Spec.CustomerLabels {
+		// User node names AND the provider-approved hostname in one term. The intersection
+		// is empty whenever the user did not name the virtual node, and the pod then stays
+		// Pending while the claim keeps charging. The approved set below is the only
+		// hostname constraint an external pod may carry.
+		if isExternalWorkload(workload) && isHostNodeConstraint(key) {
+			continue
+		}
 		var values []interface{}
 		parts := strings.Fields(val)
 		for i := range parts {
@@ -1173,8 +1180,9 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 	// Confine the pod to the virtual nodes the provider approved for this claim. Required
 	// affinity rather than spec.nodeName: the execution cluster scheduler must still do the
 	// binding, and the provider verifies that actual binding before it starts the task.
-	// Hostname matchExpressions are still written for native tooling; the provider's VK
-	// admission pins on matchFields metadata.name (applied in applyExternalNodePin).
+	// User hostname constraints are omitted above so they cannot AND with this set.
+	// The provider's VK admission also pins on matchFields metadata.name
+	// (applied in applyExternalNodePin).
 	if nodes := externalApprovedNodes(workload); len(nodes) > 0 {
 		values := make([]interface{}, 0, len(nodes))
 		for i := range nodes {
@@ -1187,6 +1195,11 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 		})
 	}
 	return result
+}
+
+// isHostNodeConstraint reports customer labels that select or exclude nodes by hostname.
+func isHostNodeConstraint(key string) bool {
+	return key == common.ExcludedNodes || key == v1.K8sHostName || key == common.SpecifiedNodes
 }
 
 // buildSharedMemoryVolume creates an emptyDir volume with memory medium for shared memory.
