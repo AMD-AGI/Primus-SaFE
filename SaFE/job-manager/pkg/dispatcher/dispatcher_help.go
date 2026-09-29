@@ -174,6 +174,9 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = applyExternalEnvRewrite(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
+		if err = applyExternalHome(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
 		if err = applyExternalNodePin(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
@@ -3205,6 +3208,39 @@ func applyExternalEnvRewrite(obj *unstructured.Unstructured, workload *v1.Worklo
 		return err
 	}
 	return rewriteExternalContainerEnvs(obj, workload, resourceSpec, "initContainers", base)
+}
+
+// externalHomeDir is the HOME given to external main containers. They run as the
+// submitter's uid, which the image does not know, so the runtime falls back to "/",
+// which that uid cannot write.
+const externalHomeDir = "/tmp"
+
+// applyExternalHome sets HOME on the main containers unless one is already set.
+func applyExternalHome(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	path := podSpecPath(workload, &resourceSpec, "containers")
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil || !found {
+		return err
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		envs, _ := container["env"].([]interface{})
+		hasHome := false
+		for _, item := range envs {
+			if env, ok := item.(map[string]interface{}); ok && env["name"] == "HOME" {
+				hasHome = true
+				break
+			}
+		}
+		if !hasHome {
+			container["env"] = append(envs, map[string]interface{}{"name": "HOME", "value": externalHomeDir})
+		}
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
 }
 
 // externalControlPlaneBaseURL builds https://<sub_domain>.<domain> from global config.
