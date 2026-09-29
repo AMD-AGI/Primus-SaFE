@@ -54,3 +54,44 @@ func TestClaimPlacementDecodesNodeAddresses(t *testing.T) {
 		t.Fatalf("node_addresses = %+v", addr)
 	}
 }
+
+// Placements may carry the per-container image approvals; a reply that names them must
+// still decode.
+func TestClaimPlacementDecodesImages(t *testing.T) {
+	const body = `{
+		"unit_key":"master/0",
+		"allocation_id":"44444444-4444-4444-4444-444444444444",
+		"allocation_generation":1,
+		"expected_allocation_revision":1,
+		"node_name":"vk-1",
+		"image_ref":"docker.io/team/app:v1@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"image_digest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"resources":{"cpu_millis":1000,"memory_bytes":1,"scratch_bytes":0,"gpu_resource":"amd.com/gpu","gpu_model":"MI355X","gpu_count":1},
+		"pid_limit":256,
+		"device_ids":[],
+		"ports":[],
+		"images":[{
+			"name":"pytorch",
+			"image_ref":"docker.io/team/app:v1@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			"image_digest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		}]
+	}`
+	var placement ClaimPlacement
+	dec := json.NewDecoder(strings.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&placement); err != nil {
+		t.Fatalf("decode placement: %v", err)
+	}
+	if len(placement.Images) != 1 || placement.Images[0].Name != "pytorch" {
+		t.Fatalf("images = %+v", placement.Images)
+	}
+	// The field is replayed from the plan into the claim, so an absent one must stay absent.
+	placement.Images = nil
+	raw, err := json.Marshal(placement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"images"`) {
+		t.Fatalf("empty images must be omitted: %s", raw)
+	}
+}

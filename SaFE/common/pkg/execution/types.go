@@ -151,9 +151,19 @@ type ClaimPlacement struct {
 	PIDLimit  int32    `json:"pid_limit"`
 	DeviceIDs []string `json:"device_ids"`
 	Ports     []Port   `json:"ports"`
+	// Images are the per-container image approvals, when the provider sends them. Absent
+	// means the singular image_ref/image_digest pair is the whole approval.
+	Images []UnitImage `json:"images,omitempty"`
 	// NodeAddresses carries InternalIP (and similar) for the placed node. Required on the
 	// wire once the provider publishes it; unknown fields are refused by the decoder.
 	NodeAddresses []NodeAddress `json:"node_addresses,omitempty"`
+}
+
+// UnitImage is one approved image bound to the container name it is approved for.
+type UnitImage struct {
+	Name        string `json:"name"`
+	ImageRef    string `json:"image_ref"`
+	ImageDigest string `json:"image_digest"`
 }
 
 // PlacementPlanRequest asks for candidate placements. The plan reserves nothing.
