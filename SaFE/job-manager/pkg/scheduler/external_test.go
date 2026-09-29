@@ -301,6 +301,39 @@ func TestUnconfirmedDemandIsRetriedRatherThanWaitedOut(t *testing.T) {
 	}
 }
 
+// A release refused for a stale revision is resolved by one re-read. Released ends the
+// hold even when the local revision never moved. A newer Active revision is released
+// once. The same revision is not retried.
+func TestObserveStaleClaim(t *testing.T) {
+	released := observeStaleClaim(1, &execution.ClaimResponse{
+		Phase: execution.ClaimPhaseReleased, Revision: 3,
+	})
+	if !released.released {
+		t.Fatal("a Released claim must clear the local hold")
+	}
+
+	active := observeStaleClaim(1, &execution.ClaimResponse{
+		Phase: execution.ClaimPhaseActive, Revision: 3,
+	})
+	if active.released || !active.changed || !active.retry {
+		t.Fatalf("newer Active claim = %+v, want one release at the new revision", active)
+	}
+
+	revoking := observeStaleClaim(1, &execution.ClaimResponse{
+		Phase: execution.ClaimPhaseRevoking, Revision: 2,
+	})
+	if revoking.released || !revoking.changed || revoking.retry {
+		t.Fatalf("newer Revoking claim = %+v, want the revision stored without another release", revoking)
+	}
+
+	same := observeStaleClaim(3, &execution.ClaimResponse{
+		Phase: execution.ClaimPhaseActive, Revision: 3,
+	})
+	if same.released || same.changed || same.retry {
+		t.Fatalf("same revision = %+v, want no retry", same)
+	}
+}
+
 // A workload under deletion has to reach the release path while its finalizer still holds
 // the object in place. Once the finalizer is dropped there is nothing left to retry a
 // failed release from, and nothing to carry the Revoking to Released confirmation.

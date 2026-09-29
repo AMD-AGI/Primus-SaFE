@@ -95,17 +95,18 @@ func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 	// captured before it would patch the withdrawal back out, and the next pass would
 	// republish the same revision under a changed body forever.
 	state := workload.Status.ExternalExecution
-	claim, err := client.ReleaseClaim(ctx, state.ClaimId, &execution.ReleaseRequest{
-		RequestID:          uuid.NewString(),
-		ExpectedRevision:   claimExpectedRevision(state),
-		DispatchGeneration: state.DispatchGeneration,
-		Reason:             string(workload.Status.Phase),
-	})
+	claim, err := client.ReleaseClaim(ctx, state.ClaimId, releaseRequest(state, workload.Status.Phase))
 	if err != nil {
 		// A reservation the provider no longer knows about cannot be holding anything. Any
 		// other failure leaves the state alone, so the resources stay charged.
 		if execution.IsCode(err, execution.CodeNotFound) {
 			return false, r.markClaimReleased(ctx, workload, state)
+		}
+		// A stale expected_revision is not evidence the devices are still held. Re-read
+		// once: Released finishes the local bookkeeping, a newer revision is what the
+		// next release has to name.
+		if execution.IsCode(err, execution.CodeConflict) {
+			return r.reconcileStaleRelease(ctx, client, workload, state, err)
 		}
 		return false, err
 	}
@@ -122,6 +123,89 @@ func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 			"claim", state.ClaimId, "phase", claim.Phase)
 	}
 	return updated.Reclaiming, nil
+}
+
+// reconcileStaleRelease re-reads a claim after ReleaseClaim was rejected for a stale
+// revision. One read only: Released clears the local hold, a newer Active revision is
+// released once, and Revoking just stores the revision the provider already accepted.
+func (r *SchedulerReconciler) reconcileStaleRelease(ctx context.Context, client *execution.Client,
+	workload *v1.Workload, state *v1.WorkloadExternalExecution, releaseErr error) (bool, error) {
+	observed, err := client.GetClaim(ctx, state.ClaimId)
+	if err != nil {
+		if execution.IsCode(err, execution.CodeNotFound) {
+			return false, r.markClaimReleased(ctx, workload, state)
+		}
+		return false, releaseErr
+	}
+	decision := observeStaleClaim(state.ClaimRevision, observed)
+	if decision.released {
+		updated := state.DeepCopy()
+		updated.ClaimRevision = observed.Revision
+		return false, r.markClaimReleased(ctx, workload, updated)
+	}
+	if !decision.changed {
+		return false, releaseErr
+	}
+	updated := state.DeepCopy()
+	updated.ClaimPhase = observed.Phase
+	updated.ClaimRevision = observed.Revision
+	updated.Reclaiming = true
+	if err = r.patchExternalState(ctx, workload, updated); err != nil {
+		return false, err
+	}
+	if !decision.retry {
+		klog.V(2).InfoS("external claim is not released yet", "workload", workload.Name,
+			"claim", state.ClaimId, "phase", observed.Phase, "revision", observed.Revision)
+		return true, nil
+	}
+	claim, err := client.ReleaseClaim(ctx, updated.ClaimId, releaseRequest(updated, workload.Status.Phase))
+	if err != nil {
+		if execution.IsCode(err, execution.CodeNotFound) {
+			return false, r.markClaimReleased(ctx, workload, updated)
+		}
+		return false, err
+	}
+	updated = updated.DeepCopy()
+	updated.ClaimPhase = claim.Phase
+	updated.ClaimRevision = claim.Revision
+	updated.Reclaiming = claim.Phase != execution.ClaimPhaseReleased
+	if err = r.patchExternalState(ctx, workload, updated); err != nil {
+		return false, err
+	}
+	return updated.Reclaiming, nil
+}
+
+// staleClaimObservation is the follow-up after a release was refused for a stale revision.
+type staleClaimObservation struct {
+	released bool
+	changed  bool
+	retry    bool
+}
+
+// observeStaleClaim decides what a re-read claim means relative to the revision we sent.
+// Released ends the hold. A newer Active revision can be released once. The same revision
+// is left untouched so a conflict that is not staleness is not retried in a loop.
+func observeStaleClaim(localRevision int32, claim *execution.ClaimResponse) staleClaimObservation {
+	if claim == nil {
+		return staleClaimObservation{}
+	}
+	if claim.Phase == execution.ClaimPhaseReleased {
+		return staleClaimObservation{released: true, changed: claim.Revision != localRevision}
+	}
+	return staleClaimObservation{
+		changed: claim.Revision != localRevision,
+		retry:   claim.Revision != localRevision && claim.Phase == execution.ClaimPhaseActive,
+	}
+}
+
+// releaseRequest builds the withdrawal for the revision currently stored on the workload.
+func releaseRequest(state *v1.WorkloadExternalExecution, phase v1.WorkloadPhase) *execution.ReleaseRequest {
+	return &execution.ReleaseRequest{
+		RequestID:          uuid.NewString(),
+		ExpectedRevision:   claimExpectedRevision(state),
+		DispatchGeneration: state.DispatchGeneration,
+		Reason:             string(phase),
+	}
 }
 
 // releaseSupersededClaim gives back a reservation left over from an earlier dispatch
