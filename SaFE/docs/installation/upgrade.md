@@ -39,6 +39,11 @@ For additional upgrade-specific behavior, you may add these optional keys to `.e
 | `helm_registry` | Helm chart registry for addons (e.g. `registry-1.docker.io`) |
 | `cd_require_approval` | CD deployment approval: `true` or `false` |
 | `optimize_max_concurrent` | Per-workspace cap on concurrently running optimization tasks (integer, e.g. `1024`). Defaults to chart value `1024` when unset. Synced into both `values.yaml` and the live apiserver ConfigMap. |
+| `external_enable` | Enable external execution (`true`/`false`). Synced into helm values and the live job-manager ConfigMap. |
+| `external_execution_controller_url` | Capacity controller URL (e.g. `https://controller.example.svc:31844`). Synced into helm values and the live job-manager ConfigMap. |
+| `external_execution_controller_secret` | Existing Secret name with `ca.crt`/`tls.crt`/`tls.key` for mTLS to the controller (mounted into job-manager when set). |
+| `external_execution_profile_id` | Execution profile id requested on every demand. |
+| `external_execution_profile_revision` | Execution profile revision (integer). |
 | `tracing_enable` | Enable OpenTelemetry tracing: `true` or `false` |
 | `tracing_mode` | Tracing mode: `all` or `error_only` |
 | `tracing_sampling_ratio` | Sampling ratio (e.g. `1.0`) |
