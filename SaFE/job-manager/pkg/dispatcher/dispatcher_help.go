@@ -7,9 +7,7 @@ package dispatcher
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -169,9 +167,6 @@ func initializeObject(obj *unstructured.Unstructured,
 			return err
 		}
 		if err = applyExternalContainerSecurity(obj, workload, *resourceSpec); err != nil {
-			return err
-		}
-		if err = applyExternalMainContainerRunAs(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
 		if err = applyExternalVolumePolicy(obj, workload, *resourceSpec); err != nil {
@@ -3014,8 +3009,8 @@ func validateExternalPodShape(obj *unstructured.Unstructured, workload *v1.Workl
 // applyExternalContainerSecurity forces the privilege posture the provider measures
 // under: no privilege escalation, no privileged bit, no added capabilities. Applied to
 // main and init containers on the external path only. Container-level runAsUser/runAsGroup
-// are cleared here; applyExternalMainContainerRunAs then sets runAs on main containers
-// only so init (preprocess) is not forced off root.
+// are cleared so the provider can fill identity from primus-safe.user.account; init
+// keeps no runAs so preprocess stays on its image default user.
 // Init capabilities must still be stripped: IPC_LOCK on init is refused as
 // UnapprovedPodShape.
 func applyExternalContainerSecurity(obj *unstructured.Unstructured, workload *v1.Workload,
@@ -3024,75 +3019,6 @@ func applyExternalContainerSecurity(obj *unstructured.Unstructured, workload *v1
 		return err
 	}
 	return stripExternalContainerPrivileges(obj, workload, resourceSpec, "initContainers")
-}
-
-// applyExternalMainContainerRunAs sets runAsUser/runAsGroup on main containers only,
-// from the workload NTID annotation. Pod-level runAs is cleared so initContainers are
-// not inherited off root (preprocess must copy /preprocess as root).
-func applyExternalMainContainerRunAs(obj *unstructured.Unstructured, workload *v1.Workload,
-	resourceSpec v1.ResourceSpec) error {
-	ntid := v1.GetUserAccount(workload)
-	uid, gid, ok := posixIDsFromNtid(ntid)
-	if !ok {
-		return fmt.Errorf("external workload %s missing %s annotation", workload.Name, v1.UserAccountAnnotation)
-	}
-	podSCPath := podSpecPath(workload, &resourceSpec, "securityContext")
-	podSC, _, err := unstructured.NestedMap(obj.Object, podSCPath...)
-	if err != nil {
-		return err
-	}
-	if podSC != nil {
-		delete(podSC, "runAsUser")
-		delete(podSC, "runAsGroup")
-		if err = jobutils.SetNestedField(obj.Object, podSC, podSCPath); err != nil {
-			return err
-		}
-	}
-	path := podSpecPath(workload, &resourceSpec, "containers")
-	containers, found, err := jobutils.NestedSlice(obj.Object, path)
-	if err != nil {
-		return err
-	}
-	if !found || len(containers) == 0 {
-		return nil
-	}
-	for i := range containers {
-		container, ok := containers[i].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		sc, _ := container["securityContext"].(map[string]interface{})
-		if sc == nil {
-			sc = map[string]interface{}{}
-		}
-		sc["runAsUser"] = uid
-		sc["runAsGroup"] = gid
-		container["securityContext"] = sc
-	}
-	return jobutils.SetNestedField(obj.Object, containers, path)
-}
-
-// posixIDsFromNtid maps the submitter NTID to a non-root POSIX uid/gid for container
-// runAs. Numeric NTIDs pass through; opaque NTIDs use a stable digest-derived value.
-func posixIDsFromNtid(ntid string) (uid, gid int64, ok bool) {
-	ntid = strings.TrimSpace(ntid)
-	if ntid == "" {
-		return 0, 0, false
-	}
-	if n, err := strconv.ParseInt(ntid, 10, 64); err == nil && n > 0 {
-		return n, n, true
-	}
-	sum := sha256.Sum256([]byte(ntid))
-	hexID := hex.EncodeToString(sum[:])
-	u, err := strconv.ParseUint(hexID[:8], 16, 32)
-	if err != nil {
-		return 0, 0, false
-	}
-	uid = int64(u)
-	if uid < 1000 {
-		uid += 1000
-	}
-	return uid, uid, true
 }
 
 // stripExternalContainerPrivileges clears privileged bits and added capabilities on the
@@ -3244,9 +3170,9 @@ func stripExternalVolumeMountSubPaths(obj *unstructured.Unstructured, workload *
 }
 
 // applyExternalEnvRewrite replaces control-plane Service DNS names that cannot resolve
-// on the cluster hosting virtual nodes. WORKLOAD_MANAGER_URL is rewritten to the public
-// control-plane base when global.domain is configured; other *.svc.cluster.local values
-// have their host swapped to the same base.
+// on the cluster hosting virtual nodes. In-cluster URLs keep their path/query; the host
+// is swapped to the public control-plane base. WORKLOAD_MANAGER_URL is left unchanged:
+// agent-sandbox runs on the execution cluster, so its Service DNS must stay local.
 func applyExternalEnvRewrite(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
 	base := externalControlPlaneBaseURL()
@@ -3298,8 +3224,8 @@ func rewriteExternalContainerEnvs(obj *unstructured.Unstructured, workload *v1.W
 			if val == "" || !strings.Contains(val, ".svc.cluster.local") {
 				continue
 			}
+			// Sandbox talks to the workload manager in the execution cluster.
 			if name == "WORKLOAD_MANAGER_URL" {
-				env["value"] = base
 				continue
 			}
 			env["value"] = rewriteClusterLocalURL(val, base)

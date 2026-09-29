@@ -345,11 +345,11 @@ model_optimization:
   # upgrade.sh and into the live apiserver ConfigMap by cd-deploy.sh).
   max_concurrent: 1024
 external_execution:
-  # Whether capacity from an external execution provider is admitted. On by default on
-  # this branch so VK admit, demand/claim, and external webhooks are active after deploy.
-  # Set controller_url, controller_secret, and profile_id per site (values overlay or
-  # --set); leave them empty until the provider endpoint and mTLS secret exist.
-  enabled: true
+  # Whether capacity from an external execution provider is admitted. Off by default:
+  # with it off, external objects are rejected at admission and no capacity demand is
+  # published, so a half-deployed integration cannot dispatch work. Enable per site via
+  # values-external-execution.yaml or --set, together with controller_url / secret / profile.
+  enabled: false
   # Capacity controller endpoint. One deployment talks to one controller, which is also
   # the single active mutator of the execution ledger.
   # Example: "https://controller.example.svc:31844"

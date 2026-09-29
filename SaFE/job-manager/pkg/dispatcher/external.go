@@ -134,7 +134,7 @@ func externalPodAnnotations(workload *v1.Workload, unitKey string) map[string]in
 		return nil
 	}
 	profileID, profileRevision := commonconfig.GetExternalExecutionProfile()
-	result := map[string]interface{}{
+	return map[string]interface{}{
 		v1.ExternalWorkloadUIDAnnotation: string(workload.UID),
 		v1.ExternalDispatchGenAnnotation: strconv.Itoa(int(state.DispatchGeneration)),
 		v1.ExternalClaimIdAnnotation:     state.ClaimId,
@@ -143,10 +143,6 @@ func externalPodAnnotations(workload *v1.Workload, unitKey string) map[string]in
 		v1.ExternalProfileIdAnnotation:   profileID,
 		v1.ExternalProfileRevAnnotation:  strconv.Itoa(profileRevision),
 	}
-	if placement := findPlacement(state, unitKey); placement != nil {
-		result[v1.ExternalAllocationIdAnnotation] = placement.AllocationId
-	}
-	return result
 }
 
 // findPlacement returns the approved seat for one unit.

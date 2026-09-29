@@ -680,6 +680,15 @@ func TestWorkloadValidateImmutableFields(t *testing.T) {
 	assert.Assert(t, v.validateImmutableFields(idleChanged, idleOld) != nil)
 	assert.Assert(t, v.validateImmutableFields(validWorkload(), idleOld) != nil,
 		"removing idle-roles is a change too")
+
+	accountOld := validWorkload()
+	v1.SetAnnotation(accountOld, v1.UserAccountAnnotation, "jdoe")
+	accountSame := validWorkload()
+	v1.SetAnnotation(accountSame, v1.UserAccountAnnotation, "jdoe")
+	assert.NilError(t, v.validateImmutableFields(accountSame, accountOld))
+	accountChanged := validWorkload()
+	v1.SetAnnotation(accountChanged, v1.UserAccountAnnotation, "other")
+	assert.Assert(t, v.validateImmutableFields(accountChanged, accountOld) != nil)
 }
 
 // TestWorkloadValidateScope verifies scope validation.
@@ -2530,7 +2539,7 @@ func TestWorkloadValidateExternalRefusesPrivileges(t *testing.T) {
 
 	missingNtid := validWorkload()
 	missingNtid.Spec.Workspace = "ws-ext"
-	assert.ErrorContains(t, v.validateWorkspace(context.Background(), missingNtid), "user account")
+	assert.ErrorContains(t, v.validateWorkspace(context.Background(), missingNtid), "log in via SSO")
 
 	ok := validWorkload()
 	ok.Spec.Workspace = "ws-ext"

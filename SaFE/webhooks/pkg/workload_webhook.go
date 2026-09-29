@@ -227,21 +227,23 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
 
-// mutateUserAccount stamps the submitter NTID from the User CR preferred name when known.
+// mutateUserAccount stamps the submitter account from the User CR preferred name.
+// Client-supplied values are overwritten or cleared so the annotation always
+// reflects the authenticated user, never user input.
 func (m *WorkloadMutator) mutateUserAccount(ctx context.Context, workload *v1.Workload) {
-	if v1.GetUserAccount(workload) != "" {
-		return
-	}
 	userId := v1.GetUserId(workload)
 	if userId == "" {
+		v1.RemoveAnnotation(workload, v1.UserAccountAnnotation)
 		return
 	}
 	user := &v1.User{}
 	if err := m.Get(ctx, types.NamespacedName{Name: userId}, user); err != nil {
+		v1.RemoveAnnotation(workload, v1.UserAccountAnnotation)
 		return
 	}
 	ntid := v1.NtidFromPreferredName(v1.GetAnnotation(user, v1.UserPreferredNameAnnotation))
 	if ntid == "" {
+		v1.RemoveAnnotation(workload, v1.UserAccountAnnotation)
 		return
 	}
 	v1.SetAnnotation(workload, v1.UserAccountAnnotation, ntid)
@@ -1729,11 +1731,11 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 			return commonerrors.NewBadRequest(
 				"external workloads cannot force host network")
 		}
-		// External pods run as the submitter NTID identity. Without it the dispatcher
-		// cannot set main-container runAs, so refuse at admission.
+		// The provider resolves run-as identity from primus-safe.user.account.
+		// Without an SSO preferred name there is no account to stamp.
 		if v1.GetUserAccount(workload) == "" {
 			return commonerrors.NewBadRequest(
-				"external workloads require a user account (SSO preferred name / NTID)")
+				"external workloads require a user account; log in via SSO once")
 		}
 		// An external workspace has no local capacity to measure a request against. Its
 		// status.totalResources is empty until the provider publishes a node, and the
@@ -1845,6 +1847,9 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 	if v1.GetAnnotation(newWorkload, v1.InferaIdleRolesAnnotation) !=
 		v1.GetAnnotation(oldWorkload, v1.InferaIdleRolesAnnotation) {
 		return field.Forbidden(field.NewPath("annotations").Key(v1.InferaIdleRolesAnnotation), "immutable")
+	}
+	if v1.GetUserAccount(newWorkload) != v1.GetUserAccount(oldWorkload) {
+		return field.Forbidden(field.NewPath("annotations").Key(v1.UserAccountAnnotation), "immutable")
 	}
 	if commonworkload.IsCICDScalingRunnerSet(newWorkload) {
 		val1, _ := oldWorkload.Spec.Env[common.UnifiedJobEnable]

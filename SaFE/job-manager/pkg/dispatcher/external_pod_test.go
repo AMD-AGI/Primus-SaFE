@@ -33,6 +33,10 @@ func externalAuthoringPod() (*unstructured.Unstructured, *v1.Workload, v1.Resour
 											"name":  "WORKLOAD_MANAGER_URL",
 											"value": "http://workloadmanager.agent-sandbox-system.svc.cluster.local:8080",
 										},
+										map[string]interface{}{
+											"name":  "OTHER_SVC",
+											"value": "http://apiserver.primus-safe.svc.cluster.local:8080/api/v1",
+										},
 									},
 									"securityContext": map[string]interface{}{
 										"privileged": true,
@@ -124,7 +128,6 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 
 	assert.NilError(t, applyExternalVirtualKubeletToleration(obj, workload, spec))
 	assert.NilError(t, applyExternalContainerSecurity(obj, workload, spec))
-	assert.NilError(t, applyExternalMainContainerRunAs(obj, workload, spec))
 	assert.NilError(t, applyExternalVolumePolicy(obj, workload, spec))
 	assert.NilError(t, applyExternalEnvRewrite(obj, workload, spec))
 	assert.NilError(t, validateExternalPodShape(obj, workload, spec))
@@ -133,8 +136,6 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 		"spec", "pytorchReplicaSpecs", "Master", "template", "spec")
 	assert.NilError(t, err)
 
-	wantUID, wantGID, ok := posixIDsFromNtid(v1.GetUserAccount(workload))
-	assert.Assert(t, ok)
 	_, hasPodSC := podSpec["securityContext"]
 	if hasPodSC {
 		podSC := podSpec["securityContext"].(map[string]interface{})
@@ -161,8 +162,10 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 	assert.Equal(t, sc["privileged"], false)
 	_, hasCaps := sc["capabilities"]
 	assert.Assert(t, !hasCaps, "main capabilities.add should be cleared")
-	assert.Equal(t, sc["runAsUser"], wantUID)
-	assert.Equal(t, sc["runAsGroup"], wantGID)
+	_, hasRunAsUser := sc["runAsUser"]
+	_, hasRunAsGroup := sc["runAsGroup"]
+	assert.Assert(t, !hasRunAsUser && !hasRunAsGroup,
+		"dispatcher must not set runAs; provider fills identity from account annotation")
 
 	inits, _ := podSpec["initContainers"].([]interface{})
 	initSC := inits[0].(map[string]interface{})["securityContext"].(map[string]interface{})
@@ -188,31 +191,14 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 
 	envs, _ := main["env"].([]interface{})
 	assert.Equal(t, envs[0].(map[string]interface{})["value"],
-		"https://global.primus-safe.amd.com")
+		"http://workloadmanager.agent-sandbox-system.svc.cluster.local:8080",
+		"WORKLOAD_MANAGER_URL must stay on the execution-cluster Service")
+	assert.Equal(t, envs[1].(map[string]interface{})["value"],
+		"https://global.primus-safe.amd.com/api/v1")
 }
 
-func TestPosixIDsFromNtid(t *testing.T) {
-	uid, gid, ok := posixIDsFromNtid("2001")
-	assert.Assert(t, ok)
-	assert.Equal(t, uid, int64(2001))
-	assert.Equal(t, gid, int64(2001))
-
-	uid, gid, ok = posixIDsFromNtid("jdoe")
-	assert.Assert(t, ok)
-	assert.Assert(t, uid >= 1000)
-	assert.Equal(t, gid, uid)
-
-	_, _, ok = posixIDsFromNtid("")
-	assert.Assert(t, !ok)
-
-	uid2, _, ok := posixIDsFromNtid("jdoe")
-	assert.Assert(t, ok)
-	assert.Equal(t, uid, uid2)
-}
-
-func TestApplyExternalMainContainerRunAsRequiresNtid(t *testing.T) {
-	obj, workload, spec := externalAuthoringPod()
-	delete(workload.Annotations, v1.UserAccountAnnotation)
-	err := applyExternalMainContainerRunAs(obj, workload, spec)
-	assert.ErrorContains(t, err, v1.UserAccountAnnotation)
+func TestBuildObjectAnnotationsIncludesUserAccount(t *testing.T) {
+	_, workload, _ := externalAuthoringPod()
+	annos := buildObjectAnnotations(workload)
+	assert.Equal(t, annos[v1.UserAccountAnnotation], "jdoe")
 }
