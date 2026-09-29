@@ -130,6 +130,12 @@ type CapacityDemand struct {
 	ExpiresAt                Timestamp    `json:"expires_at"`
 }
 
+// NodeAddress is a routable address the provider publishes for a placed node.
+type NodeAddress struct {
+	Type    string `json:"type"`
+	Address string `json:"address"`
+}
+
 // ClaimPlacement is one unit's approved seat: which allocation, which node and which
 // devices. SaFE passes these back verbatim and never edits them.
 type ClaimPlacement struct {
@@ -145,6 +151,9 @@ type ClaimPlacement struct {
 	PIDLimit                   int32          `json:"pid_limit"`
 	DeviceIDs                  []string       `json:"device_ids"`
 	Ports                      []Port         `json:"ports"`
+	// NodeAddresses carries InternalIP (and similar) for the placed node. Required on the
+	// wire once the provider publishes it; unknown fields are refused by the decoder.
+	NodeAddresses              []NodeAddress  `json:"node_addresses,omitempty"`
 }
 
 // PlacementPlanRequest asks for candidate placements. The plan reserves nothing.

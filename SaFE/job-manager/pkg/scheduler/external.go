@@ -514,6 +514,8 @@ func (r *SchedulerReconciler) reserveExternalCapacity(ctx context.Context, workl
 	if state.ClaimId != "" {
 		existing, getErr := client.GetClaim(ctx, state.ClaimId)
 		if getErr == nil {
+			// Active claims cover this dispatch. Released/Revoking are persisted so the
+			// next ensureExternalState can mint a new claim id; they must not admit.
 			return r.acceptClaim(ctx, workload, state, existing)
 		}
 		if !execution.IsCode(getErr, execution.CodeNotFound) {
@@ -613,7 +615,21 @@ func (r *SchedulerReconciler) ensureExternalState(ctx context.Context,
 	current := workload.Status.ExternalExecution
 	if current != nil && current.DispatchGeneration == generation &&
 		current.DemandId != "" && current.ClaimId != "" {
-		return current.DeepCopy(), nil
+		if current.ClaimPhase != execution.ClaimPhaseReleased {
+			return current.DeepCopy(), nil
+		}
+		// Still queued for this dispatch, but the prior claim is gone. Keep the demand id
+		// so ensureExternalDemand can refresh it; mint a new claim id for CreateClaim.
+		state := current.DeepCopy()
+		state.ClaimId = uuid.NewString()
+		state.ClaimRequestId = uuid.NewString()
+		state.ClaimPhase = ""
+		state.ClaimRevision = 0
+		state.Placements = nil
+		if err := r.patchExternalState(ctx, workload, state); err != nil {
+			return nil, err
+		}
+		return state, nil
 	}
 
 	// A new dispatch generation is a new attempt and gets its own identifiers. Reusing the
