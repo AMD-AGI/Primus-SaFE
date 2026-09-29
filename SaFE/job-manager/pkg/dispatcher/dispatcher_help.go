@@ -1142,8 +1142,15 @@ func buildSecretVolume(secretName string) interface{} {
 func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 	var result []interface{}
 	if workload.Spec.Workspace != corev1.NamespaceDefault {
+		// Native nodes carry primus-safe.workspace.id. Provider virtual kubelets stamp
+		// safe-exec.amd.com/w instead; matching the SaFE label leaves every external pod
+		// Unschedulable on an otherwise Ready VK.
+		workspaceKey := v1.WorkspaceIdLabel
+		if isExternalWorkload(workload) {
+			workspaceKey = v1.ExternalWorkspaceLabel
+		}
 		result = append(result, map[string]interface{}{
-			"key":      v1.WorkspaceIdLabel,
+			"key":      workspaceKey,
 			"operator": "In",
 			"values":   []interface{}{workload.Spec.Workspace},
 		})
