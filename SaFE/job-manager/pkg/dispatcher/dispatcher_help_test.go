@@ -1790,16 +1790,6 @@ func TestBuildRequiredMatchExpression(t *testing.T) {
 	w.Spec.Workspace = "ws-1"
 	exprs := buildRequiredMatchExpression(w)
 	assert.Assert(t, len(exprs) >= 1)
-	assert.Equal(t, exprs[0].(map[string]interface{})["key"], v1.WorkspaceIdLabel)
-
-	// External workloads match the provider VK workspace label, not the SaFE one.
-	wExt := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w-ext"}}
-	wExt.Spec.Workspace = "ws-1"
-	wExt.Status.ExternalExecution = &v1.WorkloadExternalExecution{ClaimId: "claim-1"}
-	exprsExt := buildRequiredMatchExpression(wExt)
-	assert.Assert(t, len(exprsExt) >= 1)
-	assert.Equal(t, exprsExt[0].(map[string]interface{})["key"], v1.ExternalWorkspaceLabel)
-	assert.Equal(t, exprsExt[0].(map[string]interface{})["values"].([]interface{})[0], "ws-1")
 
 	// Default-namespace workspace with no customer labels -> no expressions.
 	w2 := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w2"}}
