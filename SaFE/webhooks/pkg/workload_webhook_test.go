@@ -2528,17 +2528,24 @@ func TestWorkloadValidateExternalRefusesPrivileges(t *testing.T) {
 	viper.Set("external_execution.enabled", true)
 	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
 
+	missingNtid := validWorkload()
+	missingNtid.Spec.Workspace = "ws-ext"
+	assert.ErrorContains(t, v.validateWorkspace(context.Background(), missingNtid), "user account")
+
 	ok := validWorkload()
 	ok.Spec.Workspace = "ws-ext"
+	v1.SetAnnotation(ok, v1.UserAccountAnnotation, "jdoe")
 	assert.NilError(t, v.validateWorkspace(context.Background(), ok))
 
 	priv := validWorkload()
 	priv.Spec.Workspace = "ws-ext"
+	v1.SetAnnotation(priv, v1.UserAccountAnnotation, "jdoe")
 	v1.SetAnnotation(priv, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
 	assert.Assert(t, v.validateWorkspace(context.Background(), priv) != nil)
 
 	hostNet := validWorkload()
 	hostNet.Spec.Workspace = "ws-ext"
+	v1.SetAnnotation(hostNet, v1.UserAccountAnnotation, "jdoe")
 	v1.SetAnnotation(hostNet, v1.ForceHostNetworkAnnotation, v1.TrueStr)
 	assert.Assert(t, v.validateWorkspace(context.Background(), hostNet) != nil)
 }

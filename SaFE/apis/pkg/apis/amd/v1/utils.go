@@ -308,6 +308,23 @@ func GetUserEmail(obj metav1.Object) string {
 	return GetAnnotation(obj, UserEmailAnnotation)
 }
 
+// GetUserAccount retrieves the submitter account (NTID) annotation from a resource.
+func GetUserAccount(obj metav1.Object) string {
+	return GetAnnotation(obj, UserAccountAnnotation)
+}
+
+// NtidFromPreferredName takes the local part of a preferred name. "<ntid>@<domain>"
+// yields the NTID; a value with no domain is already one. Interior whitespace
+// disqualifies it so a display name is not treated as an NTID.
+func NtidFromPreferredName(preferredName string) string {
+	ntid, _, _ := strings.Cut(preferredName, "@")
+	ntid = strings.TrimSpace(ntid)
+	if ntid == "" || strings.ContainsAny(ntid, " \t\r\n\v\f") {
+		return ""
+	}
+	return ntid
+}
+
 // GetUserAvatarUrl retrieves the user avatar URL from annotations.
 func GetUserAvatarUrl(obj metav1.Object) string {
 	return GetAnnotation(obj, UserAvatarUrlAnnotation)

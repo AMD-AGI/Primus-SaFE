@@ -75,6 +75,14 @@ job_manager:
   memory: 4Gi
   # Port for Prometheus metrics endpoint
   metrics_port: 8000
+  # Optional hostAliases for the job-manager Pod (e.g. map the external capacity
+  # controller Service name to a reachable IP when cluster DNS cannot resolve it).
+  # Example:
+  #   hostAliases:
+  #     - ip: "10.0.0.1"
+  #       hostnames:
+  #         - controller.example.svc
+  hostAliases: []
 webhooks:
   # Webhooks component image version
   image: "webhooks:latest"
@@ -337,20 +345,25 @@ model_optimization:
   # upgrade.sh and into the live apiserver ConfigMap by cd-deploy.sh).
   max_concurrent: 1024
 external_execution:
-  # Site defaults for this release: VK admit, demand/claim, and external webhooks stay on
-  # across helm upgrades without a separate overlay. Point controller_url at the capacity
-  # controller; one deployment talks to one controller (the ledger's single active mutator).
+  # Whether capacity from an external execution provider is admitted. On by default on
+  # this branch so VK admit, demand/claim, and external webhooks are active after deploy.
+  # Set controller_url, controller_secret, and profile_id per site (values overlay or
+  # --set); leave them empty until the provider endpoint and mTLS secret exist.
   enabled: true
-  controller_url: "https://controller.spur-serverless.svc:31844"
-  # Secret with ca.crt, tls.crt and tls.key for mTLS to the controller. Mounted into
-  # job-manager when enabled; the client refuses to build without the material.
-  controller_secret: "safe-exec-controller-client"
+  # Capacity controller endpoint. One deployment talks to one controller, which is also
+  # the single active mutator of the execution ledger.
+  # Example: "https://controller.example.svc:31844"
+  controller_url: ""
+  # Existing secret holding ca.crt, tls.crt and tls.key for service mTLS to the controller.
+  # Mounted into job-manager when both this and enabled are set; the client refuses to
+  # build without the material rather than connecting unverified.
+  controller_secret: ""
   controller_secret_path: "/etc/secrets/external-execution"
   controller_timeout_seconds: 10
   # Execution profile capacity is requested under. The provider owns the definition and
   # validation state; naming an unvalidated profile is refused by the provider.
-  profile_id: "e2e4-lab-profile"
-  profile_revision: 2
+  profile_id: ""
+  profile_revision: 1
   # Per-task process budget declared on every demand unit. The provider records it
   # on the hold and refuses Prepare when it is zero.
   pid_limit: 256

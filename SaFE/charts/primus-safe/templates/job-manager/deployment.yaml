@@ -141,6 +141,10 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.global.image_pull_secret }}
       {{- end }}
+      {{- with (default .Values.job_manager).hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       terminationGracePeriodSeconds: 10
       priorityClassName: system-cluster-critical
       restartPolicy: Always

@@ -171,7 +171,7 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = applyExternalContainerSecurity(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
-		if err = applyExternalPodRunAs(obj, workload, *resourceSpec); err != nil {
+		if err = applyExternalMainContainerRunAs(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
 		if err = applyExternalVolumePolicy(obj, workload, *resourceSpec); err != nil {
@@ -958,6 +958,9 @@ func buildObjectAnnotations(workload *v1.Workload) map[string]interface{} {
 	}
 	if v1.GetUserName(workload) != "" {
 		result[v1.UserNameAnnotation] = v1.GetUserName(workload)
+	}
+	if account := v1.GetUserAccount(workload); account != "" {
+		result[v1.UserAccountAnnotation] = account
 	}
 	return result
 }
@@ -3011,9 +3014,10 @@ func validateExternalPodShape(obj *unstructured.Unstructured, workload *v1.Workl
 // applyExternalContainerSecurity forces the privilege posture the provider measures
 // under: no privilege escalation, no privileged bit, no added capabilities. Applied to
 // main and init containers on the external path only. Container-level runAsUser/runAsGroup
-// are cleared so the pod identity from applyExternalPodRunAs is not overridden.
-// Init must be stripped too: with pod runAsUser set, an init that still adds IPC_LOCK is
-// refused by the provider as capabilities over the node (UnapprovedPodShape).
+// are cleared here; applyExternalMainContainerRunAs then sets runAs on main containers
+// only so init (preprocess) is not forced off root.
+// Init capabilities must still be stripped: IPC_LOCK on init is refused as
+// UnapprovedPodShape.
 func applyExternalContainerSecurity(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
 	if err := stripExternalContainerPrivileges(obj, workload, resourceSpec, "containers"); err != nil {
@@ -3022,58 +3026,69 @@ func applyExternalContainerSecurity(obj *unstructured.Unstructured, workload *v1
 	return stripExternalContainerPrivileges(obj, workload, resourceSpec, "initContainers")
 }
 
-// applyExternalPodRunAs sets pod securityContext.runAsUser/runAsGroup from the workload's
-// primus-safe.user.id label. Shared-filesystem writes on the provider follow that identity.
-func applyExternalPodRunAs(obj *unstructured.Unstructured, workload *v1.Workload,
+// applyExternalMainContainerRunAs sets runAsUser/runAsGroup on main containers only,
+// from the workload NTID annotation. Pod-level runAs is cleared so initContainers are
+// not inherited off root (preprocess must copy /preprocess as root).
+func applyExternalMainContainerRunAs(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
-	uid, gid, ok := posixIDsFromUserID(v1.GetUserId(workload))
+	ntid := v1.GetUserAccount(workload)
+	uid, gid, ok := posixIDsFromNtid(ntid)
 	if !ok {
-		return nil
+		return fmt.Errorf("external workload %s missing %s annotation", workload.Name, v1.UserAccountAnnotation)
 	}
-	path := podSpecPath(workload, &resourceSpec, "securityContext")
-	sc, _, err := unstructured.NestedMap(obj.Object, path...)
+	podSCPath := podSpecPath(workload, &resourceSpec, "securityContext")
+	podSC, _, err := unstructured.NestedMap(obj.Object, podSCPath...)
 	if err != nil {
 		return err
 	}
-	if sc == nil {
-		sc = map[string]interface{}{}
-	}
-	sc["runAsUser"] = uid
-	sc["runAsGroup"] = gid
-	return jobutils.SetNestedField(obj.Object, sc, path)
-}
-
-// posixIDsFromUserID maps the SaFE user id label to a non-root POSIX uid/gid.
-// Numeric labels pass through; opaque ids (md5 hex) use a stable hex-derived value.
-func posixIDsFromUserID(userID string) (uid, gid int64, ok bool) {
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
-		return 0, 0, false
-	}
-	if n, err := strconv.ParseInt(userID, 10, 64); err == nil && n > 0 {
-		return n, n, true
-	}
-	var b strings.Builder
-	for i := 0; i < len(userID); i++ {
-		c := userID[i]
-		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
-			b.WriteByte(c)
+	if podSC != nil {
+		delete(podSC, "runAsUser")
+		delete(podSC, "runAsGroup")
+		if err = jobutils.SetNestedField(obj.Object, podSC, podSCPath); err != nil {
+			return err
 		}
 	}
-	hexID := b.String()
-	if hexID == "" {
-		sum := sha256.Sum256([]byte(userID))
-		hexID = hex.EncodeToString(sum[:])
+	path := podSpecPath(workload, &resourceSpec, "containers")
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
 	}
-	if len(hexID) < 8 {
-		hexID = hexID + strings.Repeat("0", 8-len(hexID))
+	if !found || len(containers) == 0 {
+		return nil
 	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		sc, _ := container["securityContext"].(map[string]interface{})
+		if sc == nil {
+			sc = map[string]interface{}{}
+		}
+		sc["runAsUser"] = uid
+		sc["runAsGroup"] = gid
+		container["securityContext"] = sc
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+// posixIDsFromNtid maps the submitter NTID to a non-root POSIX uid/gid for container
+// runAs. Numeric NTIDs pass through; opaque NTIDs use a stable digest-derived value.
+func posixIDsFromNtid(ntid string) (uid, gid int64, ok bool) {
+	ntid = strings.TrimSpace(ntid)
+	if ntid == "" {
+		return 0, 0, false
+	}
+	if n, err := strconv.ParseInt(ntid, 10, 64); err == nil && n > 0 {
+		return n, n, true
+	}
+	sum := sha256.Sum256([]byte(ntid))
+	hexID := hex.EncodeToString(sum[:])
 	u, err := strconv.ParseUint(hexID[:8], 16, 32)
 	if err != nil {
 		return 0, 0, false
 	}
 	uid = int64(u)
-	// Keep the identity out of the system/reserved range used by root and host services.
 	if uid < 1000 {
 		uid += 1000
 	}

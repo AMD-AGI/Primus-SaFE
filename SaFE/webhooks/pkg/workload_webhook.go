@@ -218,12 +218,33 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	if v1.GetUserName(workload) == "" {
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserId(workload))
 	}
+	m.mutateUserAccount(ctx, workload)
 	if !v1.HasAnnotation(workload, v1.UseWorkspaceStorageAnnotation) {
 		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
 	}
 	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	commonworkload.SetMainContainerViaTemplate(ctx, m.Client, workload)
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
+}
+
+// mutateUserAccount stamps the submitter NTID from the User CR preferred name when known.
+func (m *WorkloadMutator) mutateUserAccount(ctx context.Context, workload *v1.Workload) {
+	if v1.GetUserAccount(workload) != "" {
+		return
+	}
+	userId := v1.GetUserId(workload)
+	if userId == "" {
+		return
+	}
+	user := &v1.User{}
+	if err := m.Get(ctx, types.NamespacedName{Name: userId}, user); err != nil {
+		return
+	}
+	ntid := v1.NtidFromPreferredName(v1.GetAnnotation(user, v1.UserPreferredNameAnnotation))
+	if ntid == "" {
+		return
+	}
+	v1.SetAnnotation(workload, v1.UserAccountAnnotation, ntid)
 }
 
 func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
@@ -1707,6 +1728,12 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 		if v1.IsForceHostNetwork(workload) {
 			return commonerrors.NewBadRequest(
 				"external workloads cannot force host network")
+		}
+		// External pods run as the submitter NTID identity. Without it the dispatcher
+		// cannot set main-container runAs, so refuse at admission.
+		if v1.GetUserAccount(workload) == "" {
+			return commonerrors.NewBadRequest(
+				"external workloads require a user account (SSO preferred name / NTID)")
 		}
 		// An external workspace has no local capacity to measure a request against. Its
 		// status.totalResources is empty until the provider publishes a node, and the

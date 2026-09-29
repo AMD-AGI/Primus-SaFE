@@ -217,6 +217,9 @@ const (
 	UserAvatarUrlAnnotation          = UserPrefix + "avatar.url"
 	UserTypeLabel                    = UserPrefix + "type"
 	UserPreferredNameAnnotation      = UserPrefix + "preferred.name"
+	// UserAccountAnnotation carries the submitter's NTID (local part of preferred name).
+	// External execution uses it as the workload identity for container runAs mapping.
+	UserAccountAnnotation            = UserPrefix + "account"
 	UserEnableNotificationAnnotation = UserPrefix + "enable.notification"
 
 	// secret
