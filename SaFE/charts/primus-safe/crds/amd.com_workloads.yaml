@@ -382,6 +382,8 @@ spec:
                     description: Persisted before ReleaseClaim so a lost reply replays
                       the same idempotency key.
                     type: string
+                  demandCapacitySnapshot:
+                    type: string
                   demandExpiresAt:
                     format: date-time
                     type: string
@@ -395,6 +397,11 @@ spec:
                       timestamps are part of that body: taking the clock again on every pass would turn an
                       intended replay into a conflict.
                     format: date-time
+                    type: string
+                  demandQueueSnapshot:
+                    description: |-
+                      Queue and capacity snapshot revisions sent with the current demand revision. They
+                      are part of the body and fixed with the revision for the same reason.
                     type: string
                   demandRequestId:
                     type: string

@@ -382,6 +382,14 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 			if w.IsEnd() {
 				continue
 			}
+			// No retry changes these answers. Waiting on them would hold the queue
+			// behind a workload that can never be admitted.
+			if isTerminalExternalReason(reason) {
+				if failErr := jobutils.SetWorkloadFailed(ctx, r.Client, w, reason); failErr != nil {
+					klog.ErrorS(failErr, "failed to mark external workload failed", "workload", w.Name)
+				}
+				continue
+			}
 			unScheduledReasons[w.Name] = reason
 			// Process scheduling workloads based on priority and policy
 			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads
@@ -510,25 +518,40 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 // re-staged without waiting on an unrelated event.
 func (r *SchedulerReconciler) externalOutcome(workload *v1.Workload,
 	ok bool, reason string, err error) (bool, string, error) {
-	if err == nil {
-		return ok, reason, nil
+	if err == nil && ok {
+		return true, reason, nil
 	}
-	klog.ErrorS(err, "external capacity exchange failed", "workload", workload.Name)
-	if reason == "" {
-		reason = ExternalUnavailableReason
+	if err != nil {
+		klog.ErrorS(err, "external capacity exchange failed", "workload", workload.Name)
+		if reason == "" {
+			reason = ExternalUnavailableReason
+		}
 	}
-	// Provider answers carry Retry-After; k8s write races (status patch Invalid/Conflict)
-	// do not. Without a wake-up the workload stays Pending until an unrelated workspace
-	// event, so a short default re-stages the schedule pass.
-	d := execution.RetryAfterOf(err)
-	if d == 0 {
-		d = externalExchangeRetry
+	if d, retry := externalRetryDelay(reason, err); retry {
+		r.AddAfter(&SchedulerMessage{
+			WorkspaceId: workload.Spec.Workspace,
+			ClusterId:   v1.GetClusterId(workload),
+		}, d)
 	}
-	r.AddAfter(&SchedulerMessage{
-		WorkspaceId: workload.Spec.Workspace,
-		ClusterId:   v1.GetClusterId(workload),
-	}, d)
 	return false, reason, nil
+}
+
+// externalRetryDelay decides when a workload that was not admitted is looked at again.
+// Nothing else wakes it: its status writes do not trigger a pass, and the workspace only
+// does when its available resources change, so without a retry the demand would lapse
+// unrenewed. Provider answers carry Retry-After; k8s write races (status patch
+// Invalid/Conflict) take the short default. Terminal reasons are not retried.
+func externalRetryDelay(reason string, err error) (time.Duration, bool) {
+	if isTerminalExternalReason(reason) {
+		return 0, false
+	}
+	if err == nil {
+		return externalWaitRetry, true
+	}
+	if d := execution.RetryAfterOf(err); d > 0 {
+		return d, true
+	}
+	return externalExchangeRetry, true
 }
 
 // checkWorkloadDependencies checks whether all dependencies of the workload are satisfied.

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -59,6 +60,16 @@ const externalReleaseRetry = 15 * time.Second
 // externalExchangeRetry re-stages the workspace schedule after a failed demand/claim
 // exchange that carried no Retry-After (for example a stale status patch).
 const externalExchangeRetry = 10 * time.Second
+
+// externalWaitRetry re-stages the workspace schedule while a workload waits on the provider
+// without an error, so its demand is renewed before it lapses.
+const externalWaitRetry = 30 * time.Second
+
+// isTerminalExternalReason reports whether a provider answer rules the workload out for
+// good, as opposed to asking it to wait.
+func isTerminalExternalReason(reason string) bool {
+	return reason == ExternalUnsupportedReason || reason == ExternalConstraintReason
+}
 
 // externalStatePatchAttempts covers create-time races where another writer bumps
 // resourceVersion between the cached read and the JSON-patch test.
@@ -386,18 +397,8 @@ func (r *SchedulerReconciler) ensureExternalDemand(ctx context.Context, workload
 	// demandNeedsRefresh reads to decide the demand is current. Recording it upfront would
 	// make a failed publish look like a live demand and suppress every retry until the
 	// window ran out, leaving the provider with no statement of need at all.
-	next := state.DeepCopy()
-	if next.DemandRevision == 0 || next.DemandExpiresAt != nil {
-		// Either nothing has been published, or the last revision was accepted. Both mean
-		// this is a new statement and needs its own revision and observation time.
-		observedAt := metav1.NewTime(time.Now().UTC())
-		next.DemandRevision++
-		next.DemandRequestId = uuid.NewString()
-		next.DemandObservedAt = &observedAt
-	}
-	// A retry of an unconfirmed publish keeps the revision, the request id and the
-	// observation time, so the body is byte for byte what the first attempt sent.
-	next.DemandExpiresAt = nil
+	next := prepareDemandStatement(state, workload.ResourceVersion, workspace.ResourceVersion,
+		time.Now())
 	if err = r.patchExternalState(ctx, workload, next); err != nil {
 		return err
 	}
@@ -419,14 +420,24 @@ func (r *SchedulerReconciler) ensureExternalDemand(ctx context.Context, workload
 		WorkspaceID:              workspace.Name,
 		ProfileID:                profileID,
 		ProfileRevision:          int32(profileRevision),
-		QueueSnapshotRevision:    workload.ResourceVersion,
-		CapacitySnapshotRevision: workspace.ResourceVersion,
+		QueueSnapshotRevision:    next.DemandQueueSnapshot,
+		CapacitySnapshotRevision: next.DemandCapacitySnapshot,
 		Eligible:                 true,
 		Reason:                   execution.ReasonInsufficientCapacity,
 		Units:                    units,
 		ObservedAt:               execution.NewTimestamp(observedAt),
 		ExpiresAt:                execution.NewTimestamp(expiresAt),
 	}); err != nil {
+		// A refused replay means the provider holds a different body under this revision.
+		// Clearing the request id makes the next pass open a new revision.
+		if execution.IsCode(err, execution.CodeConflict) {
+			abandoned := next.DeepCopy()
+			abandoned.DemandRequestId = ""
+			if patchErr := r.patchExternalState(ctx, workload, abandoned); patchErr != nil {
+				klog.ErrorS(patchErr, "failed to abandon refused demand revision",
+					"workload", workload.Name, "revision", next.DemandRevision)
+			}
+		}
 		return err
 	}
 
@@ -439,6 +450,25 @@ func (r *SchedulerReconciler) ensureExternalDemand(ctx context.Context, workload
 	klog.V(2).InfoS("published external capacity demand", "workload", workload.Name,
 		"demand", accepted.DemandId, "revision", accepted.DemandRevision)
 	return nil
+}
+
+// prepareDemandStatement returns the state for the next eligible publish. A retry of an
+// unconfirmed revision keeps its request id, observation time and snapshots, so the body
+// is byte for byte what the first attempt sent. Anything else opens a new revision.
+func prepareDemandStatement(state *v1.WorkloadExternalExecution, queueSnapshot, capacitySnapshot string,
+	now time.Time) *v1.WorkloadExternalExecution {
+	next := state.DeepCopy()
+	if next.DemandRevision == 0 || next.DemandExpiresAt != nil || next.DemandRequestId == "" ||
+		next.DemandObservedAt == nil || next.DemandQueueSnapshot == "" || next.DemandCapacitySnapshot == "" {
+		observedAt := metav1.NewTime(now.UTC())
+		next.DemandRevision++
+		next.DemandRequestId = uuid.NewString()
+		next.DemandObservedAt = &observedAt
+		next.DemandQueueSnapshot = queueSnapshot
+		next.DemandCapacitySnapshot = capacitySnapshot
+	}
+	next.DemandExpiresAt = nil
+	return next
 }
 
 // demandNeedsRefresh reports whether the provider needs a statement of need published.
@@ -501,6 +531,8 @@ func (r *SchedulerReconciler) withdrawExternalDemand(ctx context.Context, worklo
 	next.DemandRevision++
 	next.DemandRequestId = uuid.NewString()
 	next.DemandObservedAt = &observedAt
+	next.DemandQueueSnapshot = workload.ResourceVersion
+	next.DemandCapacitySnapshot = workspace.ResourceVersion
 	next.DemandExpiresAt = nil
 	if err = r.patchExternalState(ctx, workload, next); err != nil {
 		return err
@@ -519,8 +551,8 @@ func (r *SchedulerReconciler) withdrawExternalDemand(ctx context.Context, worklo
 		WorkspaceID:              workspace.Name,
 		ProfileID:                profileID,
 		ProfileRevision:          int32(profileRevision),
-		QueueSnapshotRevision:    workload.ResourceVersion,
-		CapacitySnapshotRevision: workspace.ResourceVersion,
+		QueueSnapshotRevision:    next.DemandQueueSnapshot,
+		CapacitySnapshotRevision: next.DemandCapacitySnapshot,
 		Eligible:                 false,
 		Reason:                   execution.ReasonWithdrawn,
 		Units:                    units,
@@ -633,16 +665,42 @@ func (r *SchedulerReconciler) acceptClaim(ctx context.Context, workload *v1.Work
 	state *v1.WorkloadExternalExecution, claim *execution.ClaimResponse) (bool, string, error) {
 	// Identity is rechecked rather than assumed. A reply that belongs to a different
 	// workload or an older generation would otherwise authorise a dispatch that nothing
-	// reserved capacity for. Release the mismatched hold so it does not leak.
+	// reserved capacity for. The claim id is replaced so the next pass creates a new
+	// reservation instead of reading the same one again.
 	if claim.WorkloadUID != string(workload.UID) || claim.DispatchGeneration != state.DispatchGeneration {
-		if relErr := r.releaseMismatchedClaim(ctx, workload, claim); relErr != nil {
-			klog.ErrorS(relErr, "failed to release mismatched claim",
-				"workload", workload.Name, "claim", claim.ClaimID)
+		// A claim of this workload from another generation is ours to return. One naming
+		// another workload is not, and releasing it would stop that workload's task.
+		if claim.WorkloadUID == string(workload.UID) {
+			if relErr := r.releaseUnusableClaim(ctx, workload, claim, "claim identity mismatch"); relErr != nil {
+				klog.ErrorS(relErr, "failed to release mismatched claim",
+					"workload", workload.Name, "claim", claim.ClaimID)
+			}
+		}
+		if _, err := r.remintClaim(ctx, workload, state); err != nil {
+			return false, "", err
 		}
 		return false, ExternalCapacityReason, fmt.Errorf(
 			"claim %s belongs to workload %s generation %d, expected %s generation %d",
 			claim.ClaimID, claim.WorkloadUID, claim.DispatchGeneration,
 			workload.UID, state.DispatchGeneration)
+	}
+
+	// The dispatcher refuses the same shapes. Checking them here returns the claim and
+	// tries again after a delay, instead of admitting a workload the dispatcher then
+	// sends straight back.
+	if claim.IsActive() {
+		if problem := claimDispatchProblem(claim); problem != "" {
+			klog.ErrorS(nil, "external claim cannot back a dispatch", "workload", workload.Name,
+				"claim", claim.ClaimID, "problem", problem)
+			if relErr := r.releaseUnusableClaim(ctx, workload, claim, problem); relErr != nil {
+				klog.ErrorS(relErr, "failed to release unusable claim",
+					"workload", workload.Name, "claim", claim.ClaimID)
+			}
+			if _, err := r.remintClaim(ctx, workload, state); err != nil {
+				return false, "", err
+			}
+			return false, ExternalCapacityReason, nil
+		}
 	}
 
 	state.ClaimRevision = claim.Revision
@@ -662,9 +720,35 @@ func (r *SchedulerReconciler) acceptClaim(ctx context.Context, workload *v1.Work
 	return true, "", nil
 }
 
-// releaseMismatchedClaim returns a reservation whose identity does not match this workload.
-func (r *SchedulerReconciler) releaseMismatchedClaim(ctx context.Context, workload *v1.Workload,
-	claim *execution.ClaimResponse) error {
+// claimDispatchProblem reports why an Active claim cannot back a dispatch, or "" when it
+// can: it must approve at least one node and pin the unit's image to a digest.
+func claimDispatchProblem(claim *execution.ClaimResponse) string {
+	hasNode := false
+	for i := range claim.Placements {
+		if claim.Placements[i].NodeName != "" {
+			hasNode = true
+			break
+		}
+	}
+	if !hasNode {
+		return "claim approved no nodes"
+	}
+	for i := range claim.Placements {
+		p := &claim.Placements[i]
+		if p.UnitKey != v1.ExternalSingleUnitKey {
+			continue
+		}
+		if !isDigestPinnedImage(p.ImageRef) {
+			return fmt.Sprintf("claim approved image %q is not digest pinned", p.ImageRef)
+		}
+		return ""
+	}
+	return "claim has no placement for unit " + v1.ExternalSingleUnitKey
+}
+
+// releaseUnusableClaim returns a reservation of this workload that cannot back a dispatch.
+func (r *SchedulerReconciler) releaseUnusableClaim(ctx context.Context, workload *v1.Workload,
+	claim *execution.ClaimResponse, reason string) error {
 	client, err := execution.Shared()
 	if err != nil {
 		return err
@@ -677,13 +761,13 @@ func (r *SchedulerReconciler) releaseMismatchedClaim(ctx context.Context, worklo
 		RequestID:          uuid.NewString(),
 		ExpectedRevision:   revision,
 		DispatchGeneration: claim.DispatchGeneration,
-		Reason:             "claim identity mismatch",
+		Reason:             reason,
 	})
 	if err != nil && !execution.IsCode(err, execution.CodeNotFound) {
 		return err
 	}
-	klog.V(2).InfoS("released mismatched external claim",
-		"workload", workload.Name, "claim", claim.ClaimID,
+	klog.V(2).InfoS("released unusable external claim",
+		"workload", workload.Name, "claim", claim.ClaimID, "reason", reason,
 		"claimWorkload", claim.WorkloadUID, "claimGeneration", claim.DispatchGeneration)
 	return nil
 }
@@ -771,12 +855,8 @@ func (r *SchedulerReconciler) patchExternalState(ctx context.Context, workload *
 				return getErr
 			}
 		}
-		patch := []map[string]any{
-			{"op": "test", "path": "/metadata/resourceVersion", "value": workload.ResourceVersion},
-			{"op": "add", "path": "/status/externalExecution", "value": state},
-		}
 		var raw []byte
-		raw, err = json.Marshal(patch)
+		raw, err = json.Marshal(externalStatePatch(workload, state))
 		if err != nil {
 			return err
 		}
@@ -796,6 +876,19 @@ func (r *SchedulerReconciler) patchExternalState(ctx context.Context, workload *
 	return err
 }
 
+// externalStatePatch builds the JSON patch for patchExternalState. A workload whose status
+// has never been written has no /status object for an add to land in, so the whole status
+// is added instead; with nothing stored there, that replaces nothing.
+func externalStatePatch(workload *v1.Workload, state *v1.WorkloadExternalExecution) []map[string]any {
+	test := map[string]any{"op": "test", "path": "/metadata/resourceVersion", "value": workload.ResourceVersion}
+	if reflect.DeepEqual(workload.Status, v1.WorkloadStatus{}) {
+		return []map[string]any{test,
+			{"op": "add", "path": "/status", "value": map[string]any{"externalExecution": state}}}
+	}
+	return []map[string]any{test,
+		{"op": "add", "path": "/status/externalExecution", "value": state}}
+}
+
 // buildDemandUnits expands a workload into the contract's units.
 //
 // The first release supports single-pod workloads only. A multi-replica workload needs a
@@ -813,6 +906,11 @@ func buildDemandUnits(workload *v1.Workload, gpuModel string) ([]execution.Deman
 		return nil, &unsupportedShapeError{"external capacity supports single replica workloads only"}
 	}
 	res := &workload.Spec.Resources[0]
+	// The contract's resource vector has no RDMA field, so a request for it could only
+	// be dropped and the task would start without the devices it asked for.
+	if res.RdmaResource != "" && res.RdmaResource != "0" {
+		return nil, &unsupportedShapeError{"external capacity does not support RDMA resources"}
+	}
 	resources, err := toResourceVector(res, gpuModel)
 	if err != nil {
 		return nil, err

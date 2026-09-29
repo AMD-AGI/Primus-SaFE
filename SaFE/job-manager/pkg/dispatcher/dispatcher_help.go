@@ -217,14 +217,22 @@ func modifyRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wor
 		expressions["matchExpressions"] = expression
 		nodeSelectorTerms = append(nodeSelectorTerms, expressions)
 	} else {
-		matchExpressions := nodeSelectorTerms[0].(map[string]interface{})
-		objs, ok := matchExpressions["matchExpressions"]
-		if ok {
-			expressions := objs.([]interface{})
-			expressions = append(expressions, expression...)
-			matchExpressions["matchExpressions"] = expressions
-		} else {
-			matchExpressions["matchExpressions"] = []interface{}{expression}
+		// Terms are ORed. External workloads must satisfy the constraint in every term,
+		// or a template term without it would reach nodes outside the reservation.
+		last := 0
+		if isExternalWorkload(workload) {
+			last = len(nodeSelectorTerms) - 1
+		}
+		for i := 0; i <= last; i++ {
+			matchExpressions := nodeSelectorTerms[i].(map[string]interface{})
+			objs, ok := matchExpressions["matchExpressions"]
+			if ok {
+				expressions := objs.([]interface{})
+				expressions = append(expressions, expression...)
+				matchExpressions["matchExpressions"] = expressions
+			} else {
+				matchExpressions["matchExpressions"] = append([]interface{}{}, expression...)
+			}
 		}
 	}
 	if err = jobutils.SetNestedField(obj.Object, nodeSelectorTerms, path); err != nil {
@@ -3008,8 +3016,10 @@ func validateExternalPodShape(obj *unstructured.Unstructured, workload *v1.Workl
 	if err != nil {
 		return err
 	}
-	if len(containers) == 0 {
-		return fmt.Errorf("external capacity requires at least one container")
+	// The claim approves one resource vector for the unit, and devices cannot be split
+	// across containers, so only the main container can carry it.
+	if len(containers) != 1 {
+		return fmt.Errorf("external capacity requires exactly one container, got %d", len(containers))
 	}
 	ephemeralPath := podSpecPath(workload, &resourceSpec, "ephemeralContainers")
 	if eps, found, _ := jobutils.NestedSlice(obj.Object, ephemeralPath); found && len(eps) > 0 {
@@ -3282,17 +3292,20 @@ func applyExternalNodePin(obj *unstructured.Unstructured, workload *v1.Workload,
 		"operator": "In",
 		"values":   values,
 	}
+	// Terms are ORed, so the pin has to be in every one of them; a single unpinned term
+	// would let the pod land on any node it matches. Existing matchFields are kept and
+	// ANDed with the pin.
 	if len(terms) == 0 {
-		terms = []interface{}{map[string]interface{}{
-			"matchFields": []interface{}{field},
-		}}
-	} else {
-		term, ok := terms[0].(map[string]interface{})
+		terms = []interface{}{map[string]interface{}{}}
+	}
+	for i := range terms {
+		term, ok := terms[i].(map[string]interface{})
 		if !ok {
 			term = map[string]interface{}{}
-			terms[0] = term
+			terms[i] = term
 		}
-		term["matchFields"] = []interface{}{field}
+		fields, _ := term["matchFields"].([]interface{})
+		term["matchFields"] = append(fields, field)
 	}
 	return jobutils.SetNestedField(obj.Object, terms, path)
 }

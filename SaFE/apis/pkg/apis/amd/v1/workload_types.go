@@ -263,6 +263,10 @@ type WorkloadExternalExecution struct {
 	// intended replay into a conflict.
 	DemandObservedAt *metav1.Time `json:"demandObservedAt,omitempty"`
 	DemandExpiresAt  *metav1.Time `json:"demandExpiresAt,omitempty"`
+	// Queue and capacity snapshot revisions sent with the current demand revision. They
+	// are part of the body and fixed with the revision for the same reason.
+	DemandQueueSnapshot    string `json:"demandQueueSnapshot,omitempty"`
+	DemandCapacitySnapshot string `json:"demandCapacitySnapshot,omitempty"`
 	// Set once the demand has been withdrawn, so the withdrawal is published exactly once.
 	// Repeating it would reuse a revision number under a changed body, which the contract
 	// refuses, and would eventually collide with a revision issued for the opposite meaning.
