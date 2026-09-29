@@ -25,8 +25,11 @@ import (
 )
 
 // isVirtualKubeletNode reports whether the execution-cluster node is a provider virtual node.
+// type=virtual-kubelet alone is shared by third-party virtual kubelets, so the provider
+// identity label is required as well.
 func isVirtualKubeletNode(node *corev1.Node) bool {
-	return node != nil && node.Labels[v1.VirtualKubeletTypeLabelKey] == v1.VirtualKubeletTypeLabelValue
+	return node != nil && node.Labels[v1.VirtualKubeletTypeLabelKey] == v1.VirtualKubeletTypeLabelValue &&
+		node.Labels[v1.ExternalProviderLabel] != ""
 }
 
 // adminNodeNameForK8sNode resolves the SaFE Node name for an execution-cluster node.

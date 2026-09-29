@@ -115,8 +115,8 @@ const (
 	WorkspaceFinalizer = PrimusSafeDomain + "workspace.finalizer"
 	WorkspaceIdLabel   = WorkspacePrefix + "id"
 	// WorkspaceExternalLabel marks a workspace whose capacity is supplied by an external
-	// execution provider rather than by managed physical nodes. Presence alone selects the
-	// external path; the value is ignored. It is immutable after creation, because flipping
+	// execution provider rather than by managed physical nodes. The value "true" selects the
+	// external path; any other value is native. It is immutable after creation, because flipping
 	// it would change queue admission, scaling and node lifecycle under running workloads.
 	WorkspaceExternalLabel = WorkspacePrefix + "external"
 	WorkspaceNodesAction   = WorkspacePrefix + "nodes.action"

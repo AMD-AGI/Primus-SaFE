@@ -30,12 +30,22 @@ func TestIsVirtualKubeletNode(t *testing.T) {
 	if isVirtualKubeletNode(native) {
 		t.Fatal("unlabelled node is not a virtual kubelet")
 	}
-	vk := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
-		Name:   "vk-1",
+	thirdParty := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name:   "vk-aci",
 		Labels: map[string]string{v1.VirtualKubeletTypeLabelKey: v1.VirtualKubeletTypeLabelValue},
 	}}
+	if isVirtualKubeletNode(thirdParty) {
+		t.Fatal("type=virtual-kubelet without provider identity must not match")
+	}
+	vk := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name: "vk-1",
+		Labels: map[string]string{
+			v1.VirtualKubeletTypeLabelKey: v1.VirtualKubeletTypeLabelValue,
+			v1.ExternalProviderLabel:      "spur",
+		},
+	}}
 	if !isVirtualKubeletNode(vk) {
-		t.Fatal("expected type=virtual-kubelet to match")
+		t.Fatal("expected provider virtual kubelet to match")
 	}
 }
 
@@ -48,8 +58,11 @@ func TestAdminNodeNameForK8sNode(t *testing.T) {
 		t.Fatalf("got %q, want admin-a", got)
 	}
 	vk := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
-		Name:   "vk-xyz",
-		Labels: map[string]string{v1.VirtualKubeletTypeLabelKey: v1.VirtualKubeletTypeLabelValue},
+		Name: "vk-xyz",
+		Labels: map[string]string{
+			v1.VirtualKubeletTypeLabelKey: v1.VirtualKubeletTypeLabelValue,
+			v1.ExternalProviderLabel:      "spur",
+		},
 	}}
 	if got := adminNodeNameForK8sNode(vk); got != "vk-xyz" {
 		t.Fatalf("got %q, want vk-xyz", got)

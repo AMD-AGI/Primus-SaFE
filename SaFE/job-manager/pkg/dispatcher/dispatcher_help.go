@@ -3316,6 +3316,10 @@ func externalApprovedResourceMap(workload *v1.Workload, unitKey string) (map[str
 	if placement.GPUCount > 0 && placement.GPUResource != "" {
 		resources[placement.GPUResource] = strconv.Itoa(int(placement.GPUCount))
 	}
+	if len(resources) == 0 {
+		return nil, fmt.Errorf("workload %s placement for unit %s approved no resources",
+			workload.Name, unitKey)
+	}
 	return resources, nil
 }
 

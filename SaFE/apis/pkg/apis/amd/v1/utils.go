@@ -293,9 +293,9 @@ func IsProtected(obj metav1.Object) bool {
 }
 
 // IsExternalWorkspace reports whether the workspace draws capacity from an external
-// execution provider. Presence of the label is the sole condition.
+// execution provider. The label must be set to "true"; any other value is native.
 func IsExternalWorkspace(obj metav1.Object) bool {
-	return HasLabel(obj, WorkspaceExternalLabel)
+	return GetLabel(obj, WorkspaceExternalLabel) == TrueStr
 }
 
 // GetUserName retrieves the username annotation from a resource.

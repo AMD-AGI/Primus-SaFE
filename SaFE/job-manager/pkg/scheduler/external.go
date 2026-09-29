@@ -88,6 +88,13 @@ func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 	}
 	client, err := execution.Shared()
 	if err != nil {
+		// No client can be built (feature off, endpoint or mTLS missing), so no retry can
+		// release anything. On deletion the hold is abandoned so the finalizer can go.
+		if !workload.GetDeletionTimestamp().IsZero() {
+			klog.ErrorS(err, "abandoning external claim release for deleted workload",
+				"workload", workload.Name, "claim", workload.Status.ExternalExecution.ClaimId)
+			return false, nil
+		}
 		return false, err
 	}
 	// Stop the acquisition first. The demand would lapse on its own at expires_at, but that
@@ -553,11 +560,17 @@ func (r *SchedulerReconciler) reserveExternalCapacity(ctx context.Context, workl
 	if state.ClaimId != "" {
 		existing, getErr := client.GetClaim(ctx, state.ClaimId)
 		if getErr == nil {
-			// Active claims cover this dispatch. Released/Revoking are persisted so the
-			// next ensureExternalState can mint a new claim id; they must not admit.
-			return r.acceptClaim(ctx, workload, state, existing)
-		}
-		if !execution.IsCode(getErr, execution.CodeNotFound) {
+			identityMatches := existing.WorkloadUID == string(workload.UID) &&
+				existing.DispatchGeneration == state.DispatchGeneration
+			if existing.IsActive() || !identityMatches {
+				return r.acceptClaim(ctx, workload, state, existing)
+			}
+			// Revoking or Released cannot back this dispatch and will not become Active
+			// again. A new claim id lets the same generation reserve fresh capacity.
+			if state, err = r.remintClaim(ctx, workload, state); err != nil {
+				return false, "", err
+			}
+		} else if !execution.IsCode(getErr, execution.CodeNotFound) {
 			return false, externalWaitingReason(getErr), getErr
 		}
 	}
@@ -689,17 +702,7 @@ func (r *SchedulerReconciler) ensureExternalState(ctx context.Context,
 		}
 		// Still queued for this dispatch, but the prior claim is gone. Keep the demand id
 		// so ensureExternalDemand can refresh it; mint a new claim id for CreateClaim.
-		state := current.DeepCopy()
-		state.ClaimId = uuid.NewString()
-		state.ClaimRequestId = uuid.NewString()
-		state.ClaimPhase = ""
-		state.ClaimRevision = 0
-		state.ReleaseRequestId = ""
-		state.Placements = nil
-		if err := r.patchExternalState(ctx, workload, state); err != nil {
-			return nil, err
-		}
-		return state, nil
+		return r.remintClaim(ctx, workload, current)
 	}
 
 	// A new dispatch generation is a new attempt and gets its own identifiers. Reusing the
@@ -722,6 +725,23 @@ func (r *SchedulerReconciler) ensureExternalState(ctx context.Context,
 		ClaimId:            uuid.NewString(),
 		ClaimRequestId:     uuid.NewString(),
 	}
+	if err := r.patchExternalState(ctx, workload, state); err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+// remintClaim replaces the claim identity within the current dispatch generation, keeping
+// the demand, so the next CreateClaim reserves fresh capacity.
+func (r *SchedulerReconciler) remintClaim(ctx context.Context, workload *v1.Workload,
+	current *v1.WorkloadExternalExecution) (*v1.WorkloadExternalExecution, error) {
+	state := current.DeepCopy()
+	state.ClaimId = uuid.NewString()
+	state.ClaimRequestId = uuid.NewString()
+	state.ClaimPhase = ""
+	state.ClaimRevision = 0
+	state.ReleaseRequestId = ""
+	state.Placements = nil
 	if err := r.patchExternalState(ctx, workload, state); err != nil {
 		return nil, err
 	}

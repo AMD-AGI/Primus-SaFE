@@ -207,7 +207,7 @@ func TestSyncK8sMetadataKeepsExternalWorkspaceLabels(t *testing.T) {
 	k8sNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
 		Name: "vk-1",
 		Labels: map[string]string{
-			"type":                "virtual-kubelet",
+			"type":                    "virtual-kubelet",
 			v1.ExternalWorkspaceLabel: ws,
 		},
 	}}

@@ -90,8 +90,8 @@ func (r *DispatcherReconciler) verifyExternalClaim(ctx context.Context,
 	// Matching the identity is the point of the recheck. An HTTP 200 only says the claim
 	// exists; it does not say it belongs to this workload or to this attempt.
 	if claim.WorkloadUID != string(workload.UID) {
-		return fmt.Errorf("claim %s belongs to workload %s, not %s",
-			state.ClaimId, claim.WorkloadUID, workload.UID)
+		return &claimGoneError{fmt.Sprintf("claim %s belongs to workload %s, not %s",
+			state.ClaimId, claim.WorkloadUID, workload.UID)}
 	}
 	if claim.DispatchGeneration != state.DispatchGeneration {
 		return &claimGoneError{fmt.Sprintf("claim %s is for dispatch generation %d, current is %d",
@@ -109,13 +109,15 @@ func (r *DispatcherReconciler) verifyExternalClaim(ctx context.Context,
 	// anything -- it would let the execution cluster schedule it wherever it liked, on
 	// capacity no claim covers.
 	if len(externalApprovedNodes(workload)) == 0 {
-		return fmt.Errorf("claim %s approved no nodes for workload %s", state.ClaimId, workload.Name)
+		return &claimGoneError{fmt.Sprintf("claim %s approved no nodes for workload %s",
+			state.ClaimId, workload.Name)}
 	}
 	if image := externalApprovedImage(workload, v1.ExternalSingleUnitKey); !isDigestPinned(image) {
 		// The contract pins image_ref to a digest. Anything else means the pod would run
 		// content the reservation was not granted against, and a tag can be moved after
 		// the fact.
-		return fmt.Errorf("claim %s approved image %q is not digest pinned", state.ClaimId, image)
+		return &claimGoneError{fmt.Sprintf("claim %s approved image %q is not digest pinned",
+			state.ClaimId, image)}
 	}
 	return nil
 }
