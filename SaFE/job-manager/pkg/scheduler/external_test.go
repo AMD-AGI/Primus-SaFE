@@ -302,39 +302,6 @@ func TestUnconfirmedDemandIsRetriedRatherThanWaitedOut(t *testing.T) {
 	}
 }
 
-// A release refused for a stale revision is resolved by one re-read. Released ends the
-// hold even when the local revision never moved. A newer Active revision is released
-// once. The same revision is not retried.
-func TestObserveStaleClaim(t *testing.T) {
-	released := observeStaleClaim(1, &execution.ClaimResponse{
-		Phase: execution.ClaimPhaseReleased, Revision: 3,
-	})
-	if !released.released {
-		t.Fatal("a Released claim must clear the local hold")
-	}
-
-	active := observeStaleClaim(1, &execution.ClaimResponse{
-		Phase: execution.ClaimPhaseActive, Revision: 3,
-	})
-	if active.released || !active.changed || !active.retry {
-		t.Fatalf("newer Active claim = %+v, want one release at the new revision", active)
-	}
-
-	revoking := observeStaleClaim(1, &execution.ClaimResponse{
-		Phase: execution.ClaimPhaseRevoking, Revision: 2,
-	})
-	if revoking.released || !revoking.changed || revoking.retry {
-		t.Fatalf("newer Revoking claim = %+v, want the revision stored without another release", revoking)
-	}
-
-	same := observeStaleClaim(3, &execution.ClaimResponse{
-		Phase: execution.ClaimPhaseActive, Revision: 3,
-	})
-	if same.released || same.changed || same.retry {
-		t.Fatalf("same revision = %+v, want no retry", same)
-	}
-}
-
 // A workload under deletion has to reach the release path while its finalizer still holds
 // the object in place. Once the finalizer is dropped there is nothing left to retry a
 // failed release from, and nothing to carry the Revoking to Released confirmation.
@@ -374,6 +341,28 @@ func TestWaitingReasonsSeparateShortageFromOtherRefusals(t *testing.T) {
 	// would make the provider acquire nodes for what is only a connectivity problem.
 	if got := externalWaitingReason(errNoConnection{}); got != ExternalUnavailableReason {
 		t.Fatalf("transport failure mapped to %q, want %q", got, ExternalUnavailableReason)
+	}
+}
+
+// A refused request is terminal and names the provider's message; an auth refusal waits
+// under its own reason; a constraint refusal carries the message too.
+func TestWaitingReasonsCarryProviderRefusals(t *testing.T) {
+	invalid := externalWaitingReason(&execution.APIError{Code: execution.CodeInvalidRequest,
+		Message: "image cannot be resolved"})
+	if !isTerminalExternalReason(invalid) || !strings.Contains(invalid, "image cannot be resolved") {
+		t.Fatalf("InvalidRequest mapped to %q, want a terminal reason with the message", invalid)
+	}
+	for _, code := range []string{execution.CodeUnauthorized, execution.CodeForbidden} {
+		got := externalWaitingReason(&execution.APIError{Code: code, Message: "client not allowed"})
+		if !strings.HasPrefix(got, ExternalAuthReason) || isTerminalExternalReason(got) ||
+			!strings.Contains(got, "client not allowed") {
+			t.Fatalf("%s mapped to %q, want a waiting auth reason with the message", code, got)
+		}
+	}
+	constraint := externalWaitingReason(&execution.APIError{Code: execution.CodeConstraintUnsatisfiable,
+		Message: "gang size above limit"})
+	if !isTerminalExternalReason(constraint) || !strings.Contains(constraint, "gang size above limit") {
+		t.Fatalf("ConstraintUnsatisfiable mapped to %q, want a terminal reason with the message", constraint)
 	}
 }
 

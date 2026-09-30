@@ -279,6 +279,10 @@ type WorkloadExternalExecution struct {
 	// ReleaseRequestId is persisted before ReleaseClaim so a lost reply is retried with
 	// the same idempotency key rather than a new one.
 	ReleaseRequestId string `json:"releaseRequestId,omitempty"`
+	// Expected revision and reason sent with ReleaseRequestId. They are fixed with the id
+	// because the provider binds a request id to the body it first carried.
+	ReleaseExpectedRevision int32  `json:"releaseExpectedRevision,omitempty"`
+	ReleaseReason           string `json:"releaseReason,omitempty"`
 	// Placements approved by the provider, kept so the dispatcher builds the pod from the
 	// reservation that was granted rather than asking for a new plan
 	Placements []WorkloadExternalPlacement `json:"placements,omitempty"`

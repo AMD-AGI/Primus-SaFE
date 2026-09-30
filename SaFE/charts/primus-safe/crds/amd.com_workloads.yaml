@@ -382,6 +382,13 @@ spec:
                     description: Persisted before ReleaseClaim so a lost reply replays
                       the same idempotency key.
                     type: string
+                  releaseExpectedRevision:
+                    description: Expected revision sent with releaseRequestId.
+                    format: int32
+                    type: integer
+                  releaseReason:
+                    description: Reason sent with releaseRequestId.
+                    type: string
                   demandCapacitySnapshot:
                     type: string
                   demandExpiresAt:

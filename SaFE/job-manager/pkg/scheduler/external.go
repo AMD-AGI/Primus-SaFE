@@ -40,8 +40,10 @@ const (
 	ExternalProfileReason     = "In queue - execution profile is not validated"
 	ExternalConstraintReason  = "Rejected - constraints cannot be satisfied by external capacity"
 	ExternalUnsupportedReason = "Rejected - workload shape is not supported by external capacity"
+	ExternalInvalidReason     = "Rejected - request refused by external capacity"
 	ExternalUnavailableReason = "In queue - external capacity service is unavailable"
 	ExternalRateLimitedReason = "In queue - external capacity controller rate limited"
+	ExternalAuthReason        = "In queue - not authorized by external capacity"
 )
 
 // demandExpiry bounds how long an unconsumed demand stays actionable. It is the admission
@@ -67,8 +69,14 @@ const externalWaitRetry = 30 * time.Second
 
 // isTerminalExternalReason reports whether a provider answer rules the workload out for
 // good, as opposed to asking it to wait.
+// Terminal reasons may carry the provider's message after the prefix.
 func isTerminalExternalReason(reason string) bool {
-	return reason == ExternalUnsupportedReason || reason == ExternalConstraintReason
+	for _, prefix := range []string{ExternalUnsupportedReason, ExternalConstraintReason, ExternalInvalidReason} {
+		if strings.HasPrefix(reason, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // externalStatePatchAttempts covers create-time races where another writer bumps
@@ -119,46 +127,78 @@ func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 		}
 	}
 	state := workload.Status.ExternalExecution
-	state, err = r.ensureReleaseRequestId(ctx, workload, state)
+	// An accepted release is not repeated: the provider is already stopping the task, and
+	// only a read can tell when it has verified the cleanup.
+	if state.ClaimPhase == execution.ClaimPhaseRevoking {
+		return r.pollRevokingClaim(ctx, client, workload, state)
+	}
+	state, err = r.ensureReleaseRequest(ctx, workload, state, releaseReason(workload))
 	if err != nil {
 		return false, err
 	}
-	claim, err := client.ReleaseClaim(ctx, state.ClaimId, releaseRequest(state, workload.Status.Phase))
+	claim, err := client.ReleaseClaim(ctx, state.ClaimId, releaseRequest(state))
 	if err != nil {
 		// A reservation the provider no longer knows about cannot be holding anything. Any
 		// other failure leaves the state alone, so the resources stay charged.
 		if execution.IsCode(err, execution.CodeNotFound) {
 			return false, r.markClaimReleased(ctx, workload, state)
 		}
-		// A stale expected_revision is not evidence the devices are still held. Re-read
-		// once: Released finishes the local bookkeeping, a newer revision is what the
-		// next release has to name.
+		// A conflict is either a stale expected_revision or a body the provider does not
+		// accept under this id. Neither is evidence the devices are still held; a read
+		// decides what the next release has to carry.
 		if execution.IsCode(err, execution.CodeConflict) {
 			return r.reconcileStaleRelease(ctx, client, workload, state, err)
 		}
 		return false, err
 	}
+	return r.recordClaimObservation(ctx, workload, state, claim)
+}
 
+// pollRevokingClaim reads a claim whose release was accepted and reports whether it is
+// still held. Read failures keep the hold and wait for the next pass.
+func (r *SchedulerReconciler) pollRevokingClaim(ctx context.Context, client *execution.Client,
+	workload *v1.Workload, state *v1.WorkloadExternalExecution) (bool, error) {
+	claim, err := client.GetClaim(ctx, state.ClaimId)
+	if err != nil {
+		if execution.IsCode(err, execution.CodeNotFound) {
+			return false, r.markClaimReleased(ctx, workload, state)
+		}
+		klog.V(2).InfoS("failed to read revoking external claim", "workload", workload.Name,
+			"claim", state.ClaimId, "error", err)
+		return true, nil
+	}
+	return r.recordClaimObservation(ctx, workload, state, claim)
+}
+
+// recordClaimObservation stores the phase and revision the provider reported and reports
+// whether the claim is still held. A claim seen Active again drops the frozen release so
+// the next pass releases the revision it now carries.
+func (r *SchedulerReconciler) recordClaimObservation(ctx context.Context, workload *v1.Workload,
+	state *v1.WorkloadExternalExecution, claim *execution.ClaimResponse) (bool, error) {
+	if claim.Phase == execution.ClaimPhaseReleased {
+		updated := state.DeepCopy()
+		updated.ClaimRevision = claim.Revision
+		return false, r.markClaimReleased(ctx, workload, updated)
+	}
 	updated := state.DeepCopy()
 	updated.ClaimPhase = claim.Phase
 	updated.ClaimRevision = claim.Revision
-	updated.Reclaiming = claim.Phase != execution.ClaimPhaseReleased
-	if !updated.Reclaiming {
-		updated.ReleaseRequestId = ""
+	updated.Reclaiming = true
+	if claim.Phase == execution.ClaimPhaseActive {
+		clearReleaseRequest(updated)
 	}
-	if err = r.patchExternalState(ctx, workload, updated); err != nil {
+	if err := r.patchExternalState(ctx, workload, updated); err != nil {
 		return false, err
 	}
-	if updated.Reclaiming {
-		klog.V(2).InfoS("external claim is not released yet", "workload", workload.Name,
-			"claim", state.ClaimId, "phase", claim.Phase)
-	}
-	return updated.Reclaiming, nil
+	klog.V(2).InfoS("external claim is not released yet", "workload", workload.Name,
+		"claim", state.ClaimId, "phase", claim.Phase, "revision", claim.Revision)
+	return true, nil
 }
 
-// reconcileStaleRelease re-reads a claim after ReleaseClaim was rejected for a stale
-// revision. One read only: Released clears the local hold, a newer Active revision is
-// released once, and Revoking just stores the revision the provider already accepted.
+// reconcileStaleRelease re-reads a claim after ReleaseClaim answered Conflict and reports
+// whether it is still held. Released and Revoking are recorded. A claim still Active was
+// not released by the refused request, so its frozen body is dropped and the next pass
+// sends the observed revision under a new id.
 func (r *SchedulerReconciler) reconcileStaleRelease(ctx context.Context, client *execution.Client,
 	workload *v1.Workload, state *v1.WorkloadExternalExecution, releaseErr error) (bool, error) {
 	observed, err := client.GetClaim(ctx, state.ClaimId)
@@ -168,92 +208,57 @@ func (r *SchedulerReconciler) reconcileStaleRelease(ctx context.Context, client 
 		}
 		return false, releaseErr
 	}
-	decision := observeStaleClaim(state.ClaimRevision, observed)
-	if decision.released {
-		updated := state.DeepCopy()
-		updated.ClaimRevision = observed.Revision
-		return false, r.markClaimReleased(ctx, workload, updated)
-	}
-	if !decision.changed {
-		return false, releaseErr
-	}
-	updated := state.DeepCopy()
-	updated.ClaimPhase = observed.Phase
-	updated.ClaimRevision = observed.Revision
-	updated.Reclaiming = true
-	if err = r.patchExternalState(ctx, workload, updated); err != nil {
-		return false, err
-	}
-	if !decision.retry {
-		klog.V(2).InfoS("external claim is not released yet", "workload", workload.Name,
-			"claim", state.ClaimId, "phase", observed.Phase, "revision", observed.Revision)
-		return true, nil
-	}
-	claim, err := client.ReleaseClaim(ctx, updated.ClaimId, releaseRequest(updated, workload.Status.Phase))
-	if err != nil {
-		if execution.IsCode(err, execution.CodeNotFound) {
-			return false, r.markClaimReleased(ctx, workload, updated)
-		}
-		return false, err
-	}
-	updated = updated.DeepCopy()
-	updated.ClaimPhase = claim.Phase
-	updated.ClaimRevision = claim.Revision
-	updated.Reclaiming = claim.Phase != execution.ClaimPhaseReleased
-	if !updated.Reclaiming {
-		updated.ReleaseRequestId = ""
-	}
-	if err = r.patchExternalState(ctx, workload, updated); err != nil {
-		return false, err
-	}
-	return updated.Reclaiming, nil
+	klog.V(2).InfoS("external claim release was refused, re-read the claim", "workload", workload.Name,
+		"claim", state.ClaimId, "phase", observed.Phase, "revision", observed.Revision, "error", releaseErr)
+	return r.recordClaimObservation(ctx, workload, state, observed)
 }
 
-// staleClaimObservation is the follow-up after a release was refused for a stale revision.
-type staleClaimObservation struct {
-	released bool
-	changed  bool
-	retry    bool
+// releaseReason names why a claim is released. The provider refuses an empty reason, and a
+// workload deleted outside the API has no phase.
+func releaseReason(workload *v1.Workload) string {
+	if workload.Status.Phase != "" {
+		return string(workload.Status.Phase)
+	}
+	if !workload.GetDeletionTimestamp().IsZero() {
+		return "Deleted"
+	}
+	return "Finished"
 }
 
-// observeStaleClaim decides what a re-read claim means relative to the revision we sent.
-// Released ends the hold. A newer Active revision can be released once. The same revision
-// is left untouched so a conflict that is not staleness is not retried in a loop.
-func observeStaleClaim(localRevision int32, claim *execution.ClaimResponse) staleClaimObservation {
-	if claim == nil {
-		return staleClaimObservation{}
-	}
-	if claim.Phase == execution.ClaimPhaseReleased {
-		return staleClaimObservation{released: true, changed: claim.Revision != localRevision}
-	}
-	return staleClaimObservation{
-		changed: claim.Revision != localRevision,
-		retry:   claim.Revision != localRevision && claim.Phase == execution.ClaimPhaseActive,
-	}
-}
-
-// releaseRequest builds the withdrawal for the revision currently stored on the workload.
-func releaseRequest(state *v1.WorkloadExternalExecution, phase v1.WorkloadPhase) *execution.ReleaseRequest {
+// releaseRequest builds the withdrawal from the body frozen with its request id.
+func releaseRequest(state *v1.WorkloadExternalExecution) *execution.ReleaseRequest {
 	return &execution.ReleaseRequest{
 		RequestID:          state.ReleaseRequestId,
-		ExpectedRevision:   claimExpectedRevision(state),
+		ExpectedRevision:   state.ReleaseExpectedRevision,
 		DispatchGeneration: state.DispatchGeneration,
-		Reason:             string(phase),
+		Reason:             state.ReleaseReason,
 	}
 }
 
-// ensureReleaseRequestId persists the ReleaseClaim idempotency key before the call.
-func (r *SchedulerReconciler) ensureReleaseRequestId(ctx context.Context, workload *v1.Workload,
-	state *v1.WorkloadExternalExecution) (*v1.WorkloadExternalExecution, error) {
-	if state.ReleaseRequestId != "" {
+// ensureReleaseRequest persists the ReleaseClaim idempotency key together with the body it
+// is sent with, so a replay under the same id carries the same body.
+func (r *SchedulerReconciler) ensureReleaseRequest(ctx context.Context, workload *v1.Workload,
+	state *v1.WorkloadExternalExecution, reason string) (*v1.WorkloadExternalExecution, error) {
+	if state.ReleaseRequestId != "" && state.ReleaseExpectedRevision > 0 && state.ReleaseReason != "" {
 		return state, nil
 	}
 	next := state.DeepCopy()
-	next.ReleaseRequestId = uuid.NewString()
+	if next.ReleaseRequestId == "" {
+		next.ReleaseRequestId = uuid.NewString()
+	}
+	next.ReleaseExpectedRevision = claimExpectedRevision(state)
+	next.ReleaseReason = reason
 	if err := r.patchExternalState(ctx, workload, next); err != nil {
 		return nil, err
 	}
 	return next, nil
+}
+
+// clearReleaseRequest drops the release id and the body frozen with it.
+func clearReleaseRequest(state *v1.WorkloadExternalExecution) {
+	state.ReleaseRequestId = ""
+	state.ReleaseExpectedRevision = 0
+	state.ReleaseReason = ""
 }
 
 // releaseSupersededClaim gives back a reservation left over from an earlier dispatch
@@ -266,7 +271,7 @@ func (r *SchedulerReconciler) ensureReleaseRequestId(ctx context.Context, worklo
 // overwritten.
 func (r *SchedulerReconciler) releaseSupersededClaim(ctx context.Context, workload *v1.Workload,
 	state *v1.WorkloadExternalExecution) error {
-	state, err := r.ensureReleaseRequestId(ctx, workload, state)
+	state, err := r.ensureReleaseRequest(ctx, workload, state, "superseded by a new dispatch generation")
 	if err != nil {
 		return err
 	}
@@ -274,12 +279,7 @@ func (r *SchedulerReconciler) releaseSupersededClaim(ctx context.Context, worklo
 	if err != nil {
 		return err
 	}
-	_, err = client.ReleaseClaim(ctx, state.ClaimId, &execution.ReleaseRequest{
-		RequestID:          state.ReleaseRequestId,
-		ExpectedRevision:   claimExpectedRevision(state),
-		DispatchGeneration: state.DispatchGeneration,
-		Reason:             "superseded by a new dispatch generation",
-	})
+	_, err = client.ReleaseClaim(ctx, state.ClaimId, releaseRequest(state))
 	if err != nil && !execution.IsCode(err, execution.CodeNotFound) {
 		return err
 	}
@@ -294,7 +294,7 @@ func (r *SchedulerReconciler) markClaimReleased(ctx context.Context, workload *v
 	updated := state.DeepCopy()
 	updated.ClaimPhase = execution.ClaimPhaseReleased
 	updated.Reclaiming = false
-	updated.ReleaseRequestId = ""
+	clearReleaseRequest(updated)
 	return r.patchExternalState(ctx, workload, updated)
 }
 
@@ -826,7 +826,7 @@ func (r *SchedulerReconciler) remintClaim(ctx context.Context, workload *v1.Work
 	state.ClaimRequestId = uuid.NewString()
 	state.ClaimPhase = ""
 	state.ClaimRevision = 0
-	state.ReleaseRequestId = ""
+	clearReleaseRequest(state)
 	state.Placements = nil
 	if err := r.patchExternalState(ctx, workload, state); err != nil {
 		return nil, err
@@ -1115,10 +1115,31 @@ func externalWaitingReason(err error) string {
 	case execution.CodeProfileUnvalidated:
 		return ExternalProfileReason
 	case execution.CodeConstraintUnsatisfiable:
-		return ExternalConstraintReason
+		return withProviderMessage(ExternalConstraintReason, err)
+	case execution.CodeInvalidRequest:
+		return withProviderMessage(ExternalInvalidReason, err)
+	case execution.CodeUnauthorized, execution.CodeForbidden:
+		return withProviderMessage(ExternalAuthReason, err)
 	case execution.CodeRateLimited:
 		return ExternalRateLimitedReason
 	default:
 		return ExternalUnavailableReason
 	}
+}
+
+// externalMessageLimit bounds the provider message copied into a workload status reason.
+const externalMessageLimit = 512
+
+// withProviderMessage appends the provider's refusal message to reason, so the user sees
+// why the request was refused rather than only a category.
+func withProviderMessage(reason string, err error) string {
+	var apiErr *execution.APIError
+	if !errors.As(err, &apiErr) || strings.TrimSpace(apiErr.Message) == "" {
+		return reason
+	}
+	message := strings.TrimSpace(apiErr.Message)
+	if len(message) > externalMessageLimit {
+		message = message[:externalMessageLimit]
+	}
+	return reason + ": " + message
 }
