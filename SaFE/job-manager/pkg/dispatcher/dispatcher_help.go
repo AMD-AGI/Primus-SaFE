@@ -1023,7 +1023,9 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resources[resourceId].GPU)
 	}
 
-	if workload.Spec.IsSupervised {
+	// The hang check reads the kubelet pod log layout under /var/log, which external pods
+	// do not have; supervising them would report healthy jobs as hung.
+	if workload.Spec.IsSupervised && !isExternalWorkload(workload) {
 		result = addEnvVar(result, workload, "ENABLE_SUPERVISE", v1.TrueStr)
 		if commonconfig.GetWorkloadHangCheckInterval() > 0 {
 			result = addEnvVar(result, workload, "HANG_CHECK_INTERVAL",
@@ -1158,7 +1160,9 @@ func buildSecretVolume(secretName string) interface{} {
 // buildRequiredMatchExpression creates node selector match expressions based on workload specifications.
 func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 	var result []interface{}
-	if workload.Spec.Workspace != corev1.NamespaceDefault {
+	// Virtual nodes do not carry the SaFE workspace label; external pods are confined by
+	// the provider-approved hostnames below.
+	if workload.Spec.Workspace != corev1.NamespaceDefault && !isExternalWorkload(workload) {
 		result = append(result, map[string]interface{}{
 			"key":      v1.WorkspaceIdLabel,
 			"operator": "In",

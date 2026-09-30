@@ -1464,6 +1464,22 @@ func TestBuildEnvironmentGpuAndSupervised(t *testing.T) {
 	assert.Assert(t, len(envs) > 5)
 }
 
+// External pods have no kubelet log layout for the hang check to read, so supervision
+// env is not rendered for them.
+func TestBuildEnvironmentSkipsSupervisionForExternal(t *testing.T) {
+	commonconfig.SetValue("workload.hang_check_interval", "1200")
+	defer commonconfig.SetValue("workload.hang_check_interval", "")
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = "ws"
+	w.Spec.IsSupervised = true
+	w.Status.ExternalExecution = &v1.WorkloadExternalExecution{ClaimId: "claim-1"}
+	for _, raw := range buildEnvironment(w, nil, -1) {
+		name := raw.(map[string]interface{})["name"]
+		assert.Assert(t, name != "ENABLE_SUPERVISE" && name != "HANG_CHECK_INTERVAL",
+			"external pod rendered %v", name)
+	}
+}
+
 // --- merged from dispatcher_help_platform_key_test.go ---
 
 func TestPlatformKeyForUser(t *testing.T) {
@@ -2053,6 +2069,30 @@ func TestExternalMatchExpressionDropsUserNodeConstraints(t *testing.T) {
 	}
 	assert.Equal(t, hostnameIn, 1)
 	assert.Assert(t, sawTeam)
+}
+
+// Virtual nodes carry no SaFE workspace label, so external pods are confined by the
+// approved hostnames alone; native pods keep the workspace label.
+func TestExternalMatchExpressionOmitsWorkspaceLabel(t *testing.T) {
+	hasWorkspaceKey := func(exprs []interface{}) bool {
+		for _, raw := range exprs {
+			if raw.(map[string]interface{})["key"] == v1.WorkspaceIdLabel {
+				return true
+			}
+		}
+		return false
+	}
+	external := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"},
+		Status: v1.WorkloadStatus{ExternalExecution: &v1.WorkloadExternalExecution{
+			ClaimId:    "claim-1",
+			Placements: []v1.WorkloadExternalPlacement{{NodeName: "vk-approved"}},
+		}}}
+	external.Spec.Workspace = "ws-1"
+	assert.Assert(t, !hasWorkspaceKey(buildRequiredMatchExpression(external)))
+
+	native := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "n"}}
+	native.Spec.Workspace = "ws-1"
+	assert.Assert(t, hasWorkspaceKey(buildRequiredMatchExpression(native)))
 }
 
 func TestBuildRequiredMatchExpressionExcludedNodes(t *testing.T) {
