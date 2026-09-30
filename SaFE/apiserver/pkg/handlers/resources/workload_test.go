@@ -356,6 +356,26 @@ func Test_updateWorkloadPhase_PendingKeepsAdvancedPhase(t *testing.T) {
 	assert.Equal(t, current.Status.Phase, v1.WorkloadFailed)
 }
 
+// Test_updateWorkloadPhase_EndedPhaseIsFinal verifies that an ended phase is never moved back to Pending.
+func Test_updateWorkloadPhase_EndedPhaseIsFinal(t *testing.T) {
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Status.Phase = v1.WorkloadFailed
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload).
+		WithScheme(scheme.Scheme).
+		WithStatusSubresource(workload).
+		Build()
+	h := Handler{Client: fakeCtrlClient}
+
+	current := &v1.Workload{}
+	assert.NilError(t, fakeCtrlClient.Get(ctx, client.ObjectKey{Name: workload.Name}, current))
+	assert.NilError(t, h.updateWorkloadPhase(ctx, current, v1.WorkloadPending, nil))
+
+	assert.NilError(t, fakeCtrlClient.Get(ctx, client.ObjectKey{Name: workload.Name}, current))
+	assert.Equal(t, current.Status.Phase, v1.WorkloadFailed)
+}
+
 // Test_updateWorkloadPhase_WithCondition tests updating workload phase with condition
 func Test_updateWorkloadPhase_WithCondition(t *testing.T) {
 	ctx := context.Background()

@@ -722,6 +722,10 @@ func (h *Handler) updateWorkloadPhase(ctx context.Context,
 		if phase == workload.Status.Phase && !shouldUpdateConditions(workload, cond) {
 			return nil
 		}
+		// An ended phase is final and never moves back to a non-ended phase.
+		if v1.IsWorkloadPhaseEnded(workload.Status.Phase) && !v1.IsWorkloadPhaseEnded(phase) {
+			return nil
+		}
 		// Build a minimal JSON merge patch for status sub-resource with RV precondition
 		statusPatch := map[string]any{}
 		if phase != workload.Status.Phase {
