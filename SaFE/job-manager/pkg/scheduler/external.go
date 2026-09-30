@@ -1222,7 +1222,7 @@ func externalWaitingReason(err error) string {
 	case execution.CodeCapacityUnavailable, execution.CodeConflict:
 		return ExternalCapacityReason
 	case execution.CodeImagePreparing:
-		return ExternalImageReason
+		return withProviderMessage(ExternalImageReason, err)
 	case execution.CodeProfileUnvalidated:
 		return ExternalProfileReason
 	case execution.CodeConstraintUnsatisfiable:

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -176,6 +177,9 @@ func initializeObject(obj *unstructured.Unstructured,
 			return err
 		}
 		if err = applyExternalHome(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalCommEnv(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
 		if err = applyExternalNodePin(obj, workload, *resourceSpec, resourceId); err != nil {
@@ -3229,6 +3233,57 @@ func applyExternalEnvRewrite(obj *unstructured.Unstructured, workload *v1.Worklo
 		return err
 	}
 	return rewriteExternalContainerEnvs(obj, workload, resourceSpec, "initContainers", base)
+}
+
+// externalSiteCommEnvs are fabric settings a gang member takes from the node's site
+// configuration rather than from the SaFE templates.
+var externalSiteCommEnvs = []string{
+	"NCCL_SOCKET_IFNAME", "GLOO_SOCKET_IFNAME", "NCCL_IB_HCA", "NCCL_IB_GID_INDEX",
+	"NCCL_IB_QPS_PER_CONNECTION", "NCCL_CROSS_NIC", "NCCL_IB_SL",
+}
+
+// externalMSCCLEnv disables MSCCL, whose default algorithms fail all_reduce on external nodes.
+const externalMSCCLEnv = "RCCL_MSCCL_ENABLE"
+
+// applyExternalCommEnv sets the collective communication env of external main containers:
+// a gang drops externalSiteCommEnvs, and every pod gets MSCCL disabled unless already set.
+// Env from the workload spec is applied afterwards and still takes effect.
+func applyExternalCommEnv(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	if !isExternalWorkload(workload) {
+		return nil
+	}
+	path := podSpecPath(workload, &resourceSpec, "containers")
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil || !found {
+		return err
+	}
+	gang := isExternalGang(workload)
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		envs, _ := container["env"].([]interface{})
+		kept := make([]interface{}, 0, len(envs)+1)
+		hasMSCCL := false
+		for _, raw := range envs {
+			env, _ := raw.(map[string]interface{})
+			name, _ := env["name"].(string)
+			if gang && slices.Contains(externalSiteCommEnvs, name) {
+				continue
+			}
+			if name == externalMSCCLEnv {
+				hasMSCCL = true
+			}
+			kept = append(kept, raw)
+		}
+		if !hasMSCCL {
+			kept = append(kept, map[string]interface{}{"name": externalMSCCLEnv, "value": "0"})
+		}
+		container["env"] = kept
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
 }
 
 // externalHomeDir is the HOME given to external main containers. They run as the

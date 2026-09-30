@@ -127,3 +127,11 @@ func TestEnsureExternalJobPortRefusesStaleCopy(t *testing.T) {
 		t.Fatalf("err = %v, want conflict", err)
 	}
 }
+
+// The provider's image-preparation detail is shown to the user.
+func TestExternalWaitingReasonKeepsImagePreparingMessage(t *testing.T) {
+	got := externalWaitingReason(&execution.APIError{Code: execution.CodeImagePreparing, Message: "layer 3/9 importing"})
+	if got != ExternalImageReason+": layer 3/9 importing" {
+		t.Fatalf("reason = %q", got)
+	}
+}

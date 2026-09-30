@@ -123,3 +123,59 @@ func TestVerifyExternalClaimChecksEveryGangUnit(t *testing.T) {
 	useClaimServer(t, claimBody("Active", string(good.UID), 1, "2099-01-01T00:00:00.000Z"), http.StatusOK)
 	assert.NilError(t, r.verifyExternalClaim(context.Background(), good))
 }
+
+// externalEnvObject returns a pod object whose main container carries the given env names.
+func externalEnvObject(names ...string) *unstructured.Unstructured {
+	envs := make([]interface{}, 0, len(names))
+	for _, n := range names {
+		envs = append(envs, map[string]interface{}{"name": n, "value": "site"})
+	}
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
+			"containers": []interface{}{map[string]interface{}{"name": "main", "env": envs}},
+		}}},
+	}}
+}
+
+// envValues maps the main container env names to their values.
+func envValues(t *testing.T, obj *unstructured.Unstructured) map[string]string {
+	containers, _, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+	assert.NilError(t, err)
+	result := map[string]string{}
+	for _, raw := range containers[0].(map[string]interface{})["env"].([]interface{}) {
+		m := raw.(map[string]interface{})
+		result[m["name"].(string)], _ = m["value"].(string)
+	}
+	return result
+}
+
+// A gang leaves fabric settings to the node's site configuration and disables MSCCL.
+func TestApplyExternalCommEnvGang(t *testing.T) {
+	obj := externalEnvObject(append(append([]string{}, externalSiteCommEnvs...), "NCCL_DEBUG")...)
+	assert.NilError(t, applyExternalCommEnv(obj, externalGangWorkload(), externalShapeSpec()))
+	envs := envValues(t, obj)
+	for _, name := range externalSiteCommEnvs {
+		_, found := envs[name]
+		assert.Assert(t, !found, "%s must be left to the site", name)
+	}
+	assert.Equal(t, envs["NCCL_DEBUG"], "site")
+	assert.Equal(t, envs["RCCL_MSCCL_ENABLE"], "0")
+}
+
+// A single-unit pod keeps its env; a value already set for MSCCL is kept.
+func TestApplyExternalCommEnvSingleUnit(t *testing.T) {
+	obj := externalEnvObject("NCCL_IB_HCA", "RCCL_MSCCL_ENABLE")
+	assert.NilError(t, applyExternalCommEnv(obj, claimWorkload(), externalShapeSpec()))
+	envs := envValues(t, obj)
+	assert.Equal(t, envs["NCCL_IB_HCA"], "site")
+	assert.Equal(t, envs["RCCL_MSCCL_ENABLE"], "site")
+}
+
+// A workload outside external capacity is left untouched.
+func TestApplyExternalCommEnvSkipsNativeWorkload(t *testing.T) {
+	native := externalGangWorkload()
+	native.Status.ExternalExecution = nil
+	obj := externalEnvObject("NCCL_IB_HCA")
+	assert.NilError(t, applyExternalCommEnv(obj, native, externalShapeSpec()))
+	assert.DeepEqual(t, envValues(t, obj), map[string]string{"NCCL_IB_HCA": "site"})
+}

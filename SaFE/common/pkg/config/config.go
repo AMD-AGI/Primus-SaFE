@@ -721,12 +721,15 @@ func GetExternalExecutionProfile() (profileID string, revision int) {
 	return getString(externalExecutionProfileID, ""), getInt(externalExecutionProfileRevision, 1)
 }
 
+// defaultExternalPIDLimit is the per-task process budget used when none is configured.
+const defaultExternalPIDLimit = 1048576
+
 // GetExternalPIDLimit is the per-task process budget declared on every demand unit.
 // Zero is refused at Prepare by the provider, so the deployment default is non-zero.
 func GetExternalPIDLimit() int32 {
-	v := getInt(externalExecutionPIDLimit, 256)
+	v := getInt(externalExecutionPIDLimit, defaultExternalPIDLimit)
 	if v <= 0 {
-		return 256
+		return defaultExternalPIDLimit
 	}
 	return int32(v)
 }

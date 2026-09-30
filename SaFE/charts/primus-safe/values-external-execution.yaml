@@ -19,7 +19,7 @@ external_execution:
   # Example: "site-execution-profile"
   profile_id: ""
   profile_revision: 1
-  pid_limit: 256
+  pid_limit: 1048576
   observation_max_age_seconds: 120
   workspace_resync_seconds: 30
 

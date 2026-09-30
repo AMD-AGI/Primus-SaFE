@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -277,7 +278,7 @@ func TestHandleReservationRefusalRestatesCapacityAndWaitsOnImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	ok, reason, err = r.reserveExternalCapacity(context.Background(), stored, ws)
-	if ok || err != nil || reason != ExternalImageReason {
+	if ok || err != nil || !strings.HasPrefix(reason, ExternalImageReason) {
 		t.Fatalf("image refusal: ok=%v reason=%q err=%v", ok, reason, err)
 	}
 }
