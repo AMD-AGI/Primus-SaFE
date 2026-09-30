@@ -9,10 +9,25 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The provider may add placement fields; DisallowUnknownFields rejects the whole reply
 // unless the client struct names them. node_addresses is required for claim decode today.
+func TestTimestampRoundTrip(t *testing.T) {
+	raw, err := NewTimestamp(time.Date(2026, 9, 29, 12, 0, 0, 123456789, time.FixedZone("X", 3600))).MarshalJSON()
+	if err != nil || string(raw) != `"2026-09-29T11:00:00.123Z"` {
+		t.Fatalf("marshal %s %v", raw, err)
+	}
+	var got Timestamp
+	if err = got.UnmarshalJSON([]byte(`""`)); err != nil || !got.IsZero() {
+		t.Fatalf("empty: %v %v", err, got)
+	}
+	if err = got.UnmarshalJSON([]byte(`"not-a-time"`)); err == nil {
+		t.Fatal("bad timestamp")
+	}
+}
+
 func TestClaimPlacementDecodesNodeAddresses(t *testing.T) {
 	const body = `{
 		"api_version":"safe-exec/v1alpha1",

@@ -9,6 +9,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/spf13/viper"
 	"gotest.tools/assert"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -322,4 +323,23 @@ func TestNodeMutatorHandleDecodeError(t *testing.T) {
 	m := &NodeMutator{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), decoder: newDecoder(t)}
 	resp := m.Handle(context.Background(), newRequest(t, admissionv1.Create, nil, nil))
 	assert.Assert(t, !resp.Allowed)
+}
+
+func TestValidateExternalNodeSpec(t *testing.T) {
+	v := &NodeValidator{}
+	node := &v1.Node{Spec: v1.NodeSpec{LifecycleMode: v1.NodeLifecycleExternal}}
+	assert.Assert(t, v.validateExternalNodeSpec(node) != nil)
+
+	viper.Set("external_execution.enabled", true)
+	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
+	assert.Assert(t, v.validateExternalNodeSpec(node) != nil)
+
+	node.Spec.ExternalRef = &v1.NodeExternalRef{Provider: "spur", AllocationId: "a", Generation: 1}
+	assert.Assert(t, v.validateExternalNodeSpec(node) != nil)
+
+	node.Spec.Hostname = pointer.String("vk-1")
+	assert.NilError(t, v.validateExternalNodeSpec(node))
+
+	node.Spec.Taints = []corev1.Taint{{Key: "k", Effect: "NotAnEffect"}}
+	assert.Assert(t, v.validateExternalNodeSpec(node) != nil)
 }

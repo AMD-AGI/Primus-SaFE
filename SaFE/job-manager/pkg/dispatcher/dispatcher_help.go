@@ -251,24 +251,31 @@ const dispatchNodeReadTimeout = 5 * time.Second
 // platformKeyReadTimeout bounds the best-effort DB read for user platform keys.
 const platformKeyReadTimeout = 5 * time.Second
 
+// platformKeyDeps are the DB reads used by platformKeyForUser. Tests replace them by assignment.
+var (
+	platformDBEnabled = commonconfig.IsDBEnable
+	platformDBClient  = dbclient.NewClient
+	platformKeyLookup = apikey.GetOrCreatePlatformKey
+)
+
 // platformKeyForUser returns the plaintext platform API key for the workload owner.
 // Best-effort: returns empty string when DB is disabled, the client is unavailable,
 // or lookup/creation fails.
 func platformKeyForUser(workload *v1.Workload) string {
-	if !commonconfig.IsDBEnable() {
+	if !platformDBEnabled() {
 		return ""
 	}
 	userId := v1.GetUserId(workload)
 	if userId == "" {
 		return ""
 	}
-	db := dbclient.NewClient()
+	db := platformDBClient()
 	if db == nil {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), platformKeyReadTimeout)
 	defer cancel()
-	key, err := apikey.GetOrCreatePlatformKey(ctx, db, userId, v1.GetUserName(workload))
+	key, err := platformKeyLookup(ctx, db, userId, v1.GetUserName(workload))
 	if err != nil {
 		klog.ErrorS(err, "failed to get/create platform key for workload env",
 			"userId", userId, "workload", workload.Name)

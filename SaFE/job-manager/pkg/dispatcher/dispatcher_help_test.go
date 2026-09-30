@@ -13,10 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
-	"github.com/agiledragon/gomonkey/v2"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1482,54 +1480,63 @@ func TestPlatformKeyForUser(t *testing.T) {
 	}
 
 	t.Run("db disabled", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return false })
-
+		stubPlatformKeyDeps(t, func() bool { return false }, nil, nil)
 		assert.Equal(t, "", platformKeyForUser(workload))
 	})
 
 	t.Run("empty user id", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-
+		stubPlatformKeyDeps(t, func() bool { return true }, nil, nil)
 		assert.Equal(t, "", platformKeyForUser(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}))
 	})
 
 	t.Run("db client unavailable", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return nil })
-
+		stubPlatformKeyDeps(t, func() bool { return true }, func() *dbclient.Client { return nil }, nil)
 		assert.Equal(t, "", platformKeyForUser(workload))
 	})
 
 	t.Run("lookup error", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
-		patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(context.Context, dbclient.Interface, string, string) (string, error) {
-			return "", fmt.Errorf("lookup failed")
-		})
-
+		stubPlatformKeyDeps(t,
+			func() bool { return true },
+			func() *dbclient.Client { return &dbclient.Client{} },
+			func(context.Context, dbclient.Interface, string, string) (string, error) {
+				return "", fmt.Errorf("lookup failed")
+			})
 		assert.Equal(t, "", platformKeyForUser(workload))
 	})
 
 	t.Run("success", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
-		patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(_ context.Context, _ dbclient.Interface, userId, userName string) (string, error) {
-			assert.Equal(t, "user-1", userId)
-			assert.Equal(t, "alice", userName)
-			return "platform-token-for-user", nil
-		})
-
+		stubPlatformKeyDeps(t,
+			func() bool { return true },
+			func() *dbclient.Client { return &dbclient.Client{} },
+			func(_ context.Context, _ dbclient.Interface, userId, userName string) (string, error) {
+				assert.Equal(t, "user-1", userId)
+				assert.Equal(t, "alice", userName)
+				return "platform-token-for-user", nil
+			})
 		assert.Equal(t, "platform-token-for-user", platformKeyForUser(workload))
+	})
+}
+
+// stubPlatformKeyDeps replaces the DB reads used by platformKeyForUser and restores them after the test.
+func stubPlatformKeyDeps(
+	t *testing.T,
+	enabled func() bool,
+	client func() *dbclient.Client,
+	lookup func(context.Context, dbclient.Interface, string, string) (string, error),
+) {
+	t.Helper()
+	origEnabled, origClient, origLookup := platformDBEnabled, platformDBClient, platformKeyLookup
+	if enabled != nil {
+		platformDBEnabled = enabled
+	}
+	if client != nil {
+		platformDBClient = client
+	}
+	if lookup != nil {
+		platformKeyLookup = lookup
+	}
+	t.Cleanup(func() {
+		platformDBEnabled, platformDBClient, platformKeyLookup = origEnabled, origClient, origLookup
 	})
 }
 

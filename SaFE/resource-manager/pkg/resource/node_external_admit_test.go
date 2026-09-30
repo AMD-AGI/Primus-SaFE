@@ -236,6 +236,46 @@ func TestAdmitVirtualKubeletCreatesExternalOnly(t *testing.T) {
 	}
 }
 
+func TestAdmitVirtualKubeletSkipsIncompleteIdentity(t *testing.T) {
+	viper.Set("external_execution.enabled", false)
+	r := newNodeK8sReconciler(t)
+	vk := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name: "vk-1",
+		Labels: map[string]string{
+			v1.VirtualKubeletTypeLabelKey: v1.VirtualKubeletTypeLabelValue,
+			v1.ExternalProviderLabel:      "spur",
+		},
+	}}
+	if name, err := r.admitVirtualKubelet(context.Background(), "crusoe", vk); err != nil || name != "" {
+		t.Fatalf("disabled: name=%q err=%v", name, err)
+	}
+	viper.Set("external_execution.enabled", true)
+	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
+	if name, err := r.admitVirtualKubelet(context.Background(), "crusoe", vk); err != nil || name != "" {
+		t.Fatalf("missing workspace: name=%q err=%v", name, err)
+	}
+	vk.Labels[v1.ExternalWorkspaceLabel] = "missing"
+	if name, err := r.admitVirtualKubelet(context.Background(), "crusoe", vk); err != nil || name != "" {
+		t.Fatalf("unknown workspace: name=%q err=%v", name, err)
+	}
+
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{
+		Name: "ws-ext", Labels: map[string]string{v1.WorkspaceExternalLabel: "true"},
+	}}
+	r = newNodeK8sReconciler(t, ws)
+	vk.Labels[v1.ExternalWorkspaceLabel] = "ws-ext"
+	if _, err := r.admitVirtualKubelet(context.Background(), "crusoe", vk); err == nil {
+		t.Fatal("workspace without a node flavor must fail")
+	}
+	ws.Spec.NodeFlavor = "flavor"
+	r = newNodeK8sReconciler(t, ws)
+	vk.Labels[v1.ExternalGenerationLabel] = "nope"
+	vk.Labels[v1.ExternalAllocationIdLabel] = "alloc"
+	if _, err := r.admitVirtualKubelet(context.Background(), "crusoe", vk); err == nil {
+		t.Fatal("invalid generation must fail")
+	}
+}
+
 func TestAdmitVirtualKubeletSkipsNonVirtualKubelet(t *testing.T) {
 	r := newNodeK8sReconciler(t)
 	name, err := r.admitVirtualKubelet(context.Background(), "crusoe", &corev1.Node{

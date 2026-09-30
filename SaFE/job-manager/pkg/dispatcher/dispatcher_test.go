@@ -2577,10 +2577,8 @@ func proxyDynamicClient(t *testing.T, initial *unstructured.Unstructured,
 	mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{initial.GroupVersionKind().GroupVersion()})
 	mapper.Add(initial.GroupVersionKind(), meta.RESTScopeNamespace)
 	factory := commonclient.NewClientFactoryForTest("test-cluster", server.URL)
-	patches := gomonkey.NewPatches()
-	t.Cleanup(patches.Reset)
-	patches.ApplyMethod(reflect.TypeOf(factory), "DynamicClient", func(*commonclient.ClientFactory) *dynamic.DynamicClient { return dynamicClient })
-	patches.ApplyMethod(reflect.TypeOf(factory), "Mapper", func(*commonclient.ClientFactory) meta.RESTMapper { return mapper })
+	factory.AttachDynamicClientForTest(dynamicClient)
+	factory.AttachMapperForTest(mapper)
 	cs := &syncer.ClusterClientSets{}
 	cs.SetClientFactory(factory)
 	return cs, func() (*unstructured.Unstructured, int) {
