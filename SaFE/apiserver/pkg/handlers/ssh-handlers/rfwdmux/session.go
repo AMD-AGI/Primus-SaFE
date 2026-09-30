@@ -125,8 +125,12 @@ type Session struct {
 	err          error
 
 	lastActivity atomic.Int64
-	dropped      atomic.Uint64
-	opened       atomic.Uint64
+	// writeBusy is the unix-nano start of an in-flight write, or 0 when none is.
+	// Inbound keepalives must not keep a session up whose outbound write is stuck:
+	// that is a listener which still accepts and never answers.
+	writeBusy atomic.Int64
+	dropped   atomic.Uint64
+	opened    atomic.Uint64
 }
 
 // NewSession starts multiplexing over conn. The session owns conn from here on and
@@ -287,11 +291,33 @@ func (s *Session) writeFrame(h header, payload []byte) error {
 		return s.Err()
 	default:
 	}
+	s.beginWrite()
+	defer s.endWrite()
 	if err := writeFrame(s.conn, s.writeBuf, h, payload); err != nil {
 		s.shutdown(fmt.Errorf("rfwdmux: write failed: %w", err))
 		return err
 	}
 	return nil
+}
+
+// beginWrite marks a write as in flight so a stuck one can end the session.
+func (s *Session) beginWrite() { s.writeBusy.Store(time.Now().UnixNano()) }
+
+// endWrite clears the in-flight mark. A later write stores a new timestamp, so a
+// check that sampled the previous one does not fire after this write finished.
+func (s *Session) endWrite() { s.writeBusy.Store(0) }
+
+// writeStalled reports that the write which was in flight at the start of the
+// check is still the one in flight, and has been for longer than the idle limit.
+func (s *Session) writeStalled() bool {
+	if s.cfg.IdleTimeout <= 0 {
+		return false
+	}
+	start := s.writeBusy.Load()
+	if start == 0 || time.Since(time.Unix(0, start)) <= s.cfg.IdleTimeout {
+		return false
+	}
+	return s.writeBusy.Load() == start
 }
 
 // enqueueCtrl hands a best-effort frame to the writer without waiting. Pings and
@@ -361,6 +387,10 @@ func (s *Session) healthLoop() {
 		case <-s.done:
 			return
 		case <-ticker.C:
+			if s.writeStalled() {
+				s.shutdown(fmt.Errorf("rfwdmux: write blocked for %s", s.cfg.IdleTimeout))
+				return
+			}
 			idle := time.Since(time.Unix(0, s.lastActivity.Load()))
 			if s.cfg.IdleTimeout > 0 && idle > s.cfg.IdleTimeout {
 				s.shutdown(fmt.Errorf("rfwdmux: no frame from the peer for %s", idle.Truncate(time.Second)))
