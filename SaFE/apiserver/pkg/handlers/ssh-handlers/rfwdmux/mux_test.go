@@ -342,15 +342,28 @@ func TestIdleTimeoutStopsAnAbandonedSession(t *testing.T) {
 // alive while never reading. Idle alone would not fire, and the listen port
 // would stay taken.
 func TestStalledWriteEndsTheSession(t *testing.T) {
+	const idle = 200 * time.Millisecond
 	a, b := net.Pipe()
 	t.Cleanup(func() { _ = b.Close() })
-	s := NewSession(a, Config{Initiator: true, IdleTimeout: 200 * time.Millisecond})
+	s := NewSession(a, Config{Initiator: true, IdleTimeout: idle})
 	t.Cleanup(func() { _ = s.Close() })
+
+	// The peer pings well inside the idle limit and never reads, so the only
+	// thing that can end this session is the write it never takes.
+	go func() {
+		buf := frameBuffer()
+		for {
+			if writeFrame(b, buf, header{typ: framePing}, nil) != nil {
+				return
+			}
+			time.Sleep(idle / 10)
+		}
+	}()
 	go func() { _, _ = s.Open("127.0.0.1", 9) }()
 
 	select {
 	case <-s.Done():
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("a write the peer never read did not end the session")
 	}
 	testifyassert.ErrorContains(t, s.Err(), "write blocked")

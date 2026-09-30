@@ -7,14 +7,12 @@ package ssh_handlers
 
 import (
 	"bufio"
-	"fmt"
+	"bytes"
 	"io"
 	"net"
-	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
-	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -22,116 +20,113 @@ import (
 	testifyassert "github.com/stretchr/testify/assert"
 )
 
-func TestMain(m *testing.M) {
-	if os.Getenv("SAFE_RFWD_REAP_HELPER") == "1" {
-		os.Exit(reapScriptHelper())
-	}
-	os.Exit(m.Run())
+// runningMux is a real multiplexer started by the production run script, standing
+// in for one forward's run exec.
+type runningMux struct {
+	cmd    *exec.Cmd
+	token  string
+	port   uint32
+	exited chan error
 }
 
-// reapScriptHelper stands in for a pod-side mux so the reap shell can be run
-// against a real listen socket. Tests copy this binary onto a path named mux.
-func reapScriptHelper() int {
-	if len(os.Args) < 4 {
-		fmt.Fprintln(os.Stderr, "usage: mux listen <addr> <port>")
-		return 2
-	}
-	ln, err := net.Listen("tcp4", net.JoinHostPort(os.Args[len(os.Args)-2], os.Args[len(os.Args)-1]))
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
-	}
-	fmt.Println("ready")
-	_ = os.Stdout.Sync()
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGTERM)
-	<-sig
-	_ = ln.Close()
-	return 0
-}
-
-func TestReapScriptSignalsOnlyOurListener(t *testing.T) {
-	port := freeListenPort(t)
-	ours := startReapHelper(t, "mux", "127.0.0.1", port)
-	otherPort := freeListenPort(t)
-	other := startReapHelper(t, "other", "127.0.0.1", otherPort)
-
-	script, err := reapScript("127.0.0.1", uint32(port))
-	testifyassert.NoError(t, err)
-	cmd := exec.Command("/bin/sh", "-c", script)
-	out, err := cmd.CombinedOutput()
-	testifyassert.NoError(t, err, string(out))
-
-	waitHelper(t, ours)
-	testifyassert.NoError(t, other.Process.Signal(syscall.Signal(0)))
-}
-
-func TestReapScriptRejectsANonLiteralAddress(t *testing.T) {
-	_, err := reapScript("localhost", 7890)
-	testifyassert.Error(t, err)
-	_, err = reapScript("127.0.0.1", 0)
-	testifyassert.Error(t, err)
-}
-
-func freeListenPort(t *testing.T) int {
+// startRunningMux installs and runs the real multiplexer the way a forward does,
+// with a stdin that stays open, which is what a run exec whose peer has gone
+// quiet looks like from inside the pod.
+func startRunningMux(t *testing.T) *runningMux {
 	t.Helper()
-	ln, err := net.Listen("tcp4", "127.0.0.1:0")
-	testifyassert.NoError(t, err)
-	port := ln.Addr().(*net.TCPAddr).Port
-	testifyassert.NoError(t, ln.Close())
-	return port
-}
+	binary := hostMuxBinary(t)
+	token := testToken(t)
+	dir := filepath.Join(t.TempDir(), ".safe-rfwd-"+token)
+	_, stderr, err := runScriptLocally(t, installScript(dir), bytes.NewReader(binary))
+	testifyassert.NoError(t, err, stderr)
 
-func startReapHelper(t *testing.T, name, addr string, port int) *exec.Cmd {
-	t.Helper()
-	exe, err := os.Executable()
+	port := freeTCPPort(t)
+	cmd := exec.Command("/bin/sh", "-c", runScript(dir, "127.0.0.1", port))
+	stdin, err := cmd.StdinPipe()
 	testifyassert.NoError(t, err)
-	bin := filepath.Join(t.TempDir(), name)
-	src, err := os.Open(exe)
+	cmd.Stdout = io.Discard
+	stderrPipe, err := cmd.StderrPipe()
 	testifyassert.NoError(t, err)
-	defer src.Close()
-	dst, err := os.OpenFile(bin, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o700)
-	testifyassert.NoError(t, err)
-	_, err = io.Copy(dst, src)
-	testifyassert.NoError(t, dst.Close())
-	testifyassert.NoError(t, err)
-
-	cmd := exec.Command(bin, "listen", addr, strconv.Itoa(port))
-	cmd.Env = append(os.Environ(), "SAFE_RFWD_REAP_HELPER=1")
-	stdout, err := cmd.StdoutPipe()
-	testifyassert.NoError(t, err)
-	cmd.Stderr = os.Stderr
 	testifyassert.NoError(t, cmd.Start())
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	})
-	ready := make(chan string, 1)
+
+	m := &runningMux{cmd: cmd, token: token, port: port, exited: make(chan error, 1)}
+	ready := make(chan bool, 1)
 	go func() {
-		scanner := bufio.NewScanner(stdout)
-		if scanner.Scan() {
-			ready <- scanner.Text()
-			return
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			if strings.TrimSpace(scanner.Text()) == rfwdReadyMarker {
+				ready <- true
+			}
 		}
-		ready <- ""
+		close(ready)
+		m.exited <- cmd.Wait()
 	}()
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = cmd.Process.Kill()
+	})
 	select {
-	case got := <-ready:
-		testifyassert.Equal(t, "ready", got)
+	case ok := <-ready:
+		testifyassert.True(t, ok, "the multiplexer exited before binding")
 	case <-time.After(30 * time.Second):
-		t.Fatal("listener did not become ready")
+		t.Fatal("the multiplexer never reported the port bound")
 	}
-	return cmd
+	return m
 }
 
-func waitHelper(t *testing.T, cmd *exec.Cmd) {
+func (m *runningMux) waitExited(t *testing.T) {
 	t.Helper()
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
 	select {
-	case err := <-done:
-		testifyassert.NoError(t, err)
+	case <-m.exited:
 	case <-time.After(10 * time.Second):
-		t.Fatal("reap script did not stop the listener")
+		t.Fatal("the multiplexer is still running")
 	}
+	waitForPortFree(t, m.port)
+}
+
+// portHeld reports whether something is listening on the loopback port.
+func portHeld(port uint32) bool {
+	ln, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", itoa(port)))
+	if err != nil {
+		return true
+	}
+	_ = ln.Close()
+	return false
+}
+
+func (m *runningMux) stillRunning(t *testing.T) {
+	t.Helper()
+	select {
+	case err := <-m.exited:
+		t.Fatalf("the multiplexer exited: %v", err)
+	default:
+	}
+	testifyassert.True(t, portHeld(m.port), "the multiplexer let go of its port")
+}
+
+// TestRunScriptLetsASignalReachTheListener is why the run script execs: a shell
+// in front that traps TERM would run the trap and keep waiting on its child, and
+// the child would keep the port.
+func TestRunScriptLetsASignalReachTheListener(t *testing.T) {
+	m := startRunningMux(t)
+	testifyassert.NoError(t, m.cmd.Process.Signal(syscall.SIGTERM))
+	m.waitExited(t)
+}
+
+// TestReapScriptStopsOnlyItsOwnMultiplexer covers Close's fallback. Another
+// session's forward on the same pod has its own token and must survive, even when
+// it now holds the port the reaping forward used to.
+func TestReapScriptStopsOnlyItsOwnMultiplexer(t *testing.T) {
+	ours := startRunningMux(t)
+	other := startRunningMux(t)
+
+	_, stderr, err := runScriptLocally(t, reapScript(testToken(t)), nil)
+	testifyassert.NoError(t, err, stderr)
+	ours.stillRunning(t)
+	other.stillRunning(t)
+
+	_, stderr, err = runScriptLocally(t, reapScript(ours.token), nil)
+	testifyassert.NoError(t, err, stderr)
+	ours.waitExited(t)
+	other.stillRunning(t)
 }

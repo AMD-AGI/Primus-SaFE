@@ -13,7 +13,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"net"
 	"strings"
 	"sync"
 	"time"
@@ -457,19 +456,12 @@ func (l *execPodListener) streamEnded(d time.Duration) bool {
 	}
 }
 
-// reap signals a multiplexer still listening on this forward's port. The binary
-// in the pod has already been unlinked, so this is a separate exec that can
-// only see the container's own /proc.
+// reap signals this forward's multiplexer inside the container. Its binary has
+// already been unlinked, so this is a separate exec.
 func (l *execPodListener) reap() {
-	script, err := reapScript(l.bindAddr, l.bindPort)
-	if err != nil {
-		klog.Warningf("pod %s reverse forward on %s:%d: %v",
-			l.userInfo.Pod, l.bindAddr, l.bindPort, err)
-		return
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), installCleanupTimeout)
 	defer cancel()
-	if _, stderr, err := l.runSetup(ctx, script, nil); err != nil {
+	if _, stderr, err := l.runSetup(ctx, reapScript(l.token), nil); err != nil {
 		klog.Warningf("could not signal the listener on %s:%d in pod %s/%s: %v%s",
 			l.bindAddr, l.bindPort, l.userInfo.Namespace, l.userInfo.Pod, err, reportedReason(stderr))
 	}
@@ -567,11 +559,10 @@ fi
 
 // runScript runs the multiplexer with the exec's stdin and stdout as its session.
 //
-// exec replaces the shell, so the process a runtime signals to stop the exec is
-// the listener. A shell left in front that traps TERM runs the trap and keeps
-// waiting, and the child holds the port after the session has gone. The trap
-// remains for the path where exec itself fails, before the multiplexer is running
-// and able to remove its own directory.
+// exec replaces the shell, so a signal sent to the exec'd process reaches the
+// listener. A shell left in front that traps TERM runs the trap and goes on
+// waiting for its child, which keeps the port. The trap remains for the path
+// where exec itself fails.
 func runScript(dir, bindAddr string, bindPort uint32) string {
 	return fmt.Sprintf(`D=%[1]s
 trap 'rm -rf "$D"' EXIT
@@ -579,61 +570,24 @@ exec "$D/mux" listen -max-streams %[4]d -remove-dir "$D" %[2]s %[3]d
 `, dir, bindAddr, bindPort, muxMaxStreams)
 }
 
-// reapScript signals a multiplexer still listening on addr:port in the container.
-// addr is a literal IPv4 address this process chose, and port is a number, so
-// neither needs shell quoting. The command check is the same one the multiplexer
-// applies when it reclaims the port itself: basename mux, subcommand listen, and
-// the address as the last two arguments, plus the listen socket in /proc/net/tcp.
-func reapScript(addr string, port uint32) (string, error) {
-	ip := net.ParseIP(addr).To4()
-	if ip == nil || port == 0 || port > 65535 {
-		return "", fmt.Errorf("refusing to signal a listener on %s:%d", addr, port)
-	}
-	return fmt.Sprintf(`# safe-rfwd-reap
-want=$(printf '%%02X%%02X%%02X%%02X:%%04X' %[1]d %[2]d %[3]d %[4]d %[5]d)
-addr=%[6]s
-port=%[5]d
-inodes=
-while read -r _ hexaddr _ st _ _ _ _ _ inode _; do
-  hexaddr=$(printf '%%s' "$hexaddr" | tr 'a-f' 'A-F')
-  [ "$st" = "0A" ] || continue
-  [ "$hexaddr" = "$want" ] || continue
-  inodes="$inodes $inode"
-done < /proc/net/tcp
-[ -n "${inodes# }" ] || exit 0
-for proc in /proc/[0-9]*; do
-  pid=${proc##*/}
-  cmd=$(tr '\0' ' ' < "$proc/cmdline" 2>/dev/null) || continue
-  cmd=${cmd%%" "}
+// reapScript signals only the `mux listen` whose -remove-dir carries this token, so
+// another session's forward on the same port is left alone. token is hex from
+// randomToken and needs no quoting; this script's own shell never matches argv[0].
+func reapScript(token string) string {
+	return fmt.Sprintf(`T=%s
+for P in /proc/[0-9]*; do
   set -f
-  set -- $cmd
+  set -- $(tr '\0' ' ' < "$P/cmdline" 2>/dev/null)
   set +f
-  [ $# -ge 4 ] || continue
-  base=${1##*/}
-  [ "$base" = "mux" ] && [ "$2" = "listen" ] || continue
-  prev=
-  last=
-  for arg in "$@"; do
-    prev=$last
-    last=$arg
+  [ "${1##*/}" = mux ] && [ "$2" = listen ] || continue
+  for A in "$@"; do
+    case $A in
+      */.safe-rfwd-"$T") kill -TERM "${P#/proc/}" 2>/dev/null; break ;;
+    esac
   done
-  [ "$prev" = "$addr" ] && [ "$last" = "$port" ] || continue
-  matched=
-  for fd in "$proc"/fd/*; do
-    target=$(readlink "$fd" 2>/dev/null) || continue
-    for inode in $inodes; do
-      if [ "$target" = "socket:[$inode]" ]; then
-        matched=1
-        break
-      fi
-    done
-    [ -n "$matched" ] && break
-  done
-  [ -n "$matched" ] || continue
-  kill -TERM "$pid" 2>/dev/null || true
 done
 exit 0
-`, ip[3], ip[2], ip[1], ip[0], port, addr), nil
+`, token)
 }
 
 // parseProbe reads the architecture and install directory out of the probe's output.

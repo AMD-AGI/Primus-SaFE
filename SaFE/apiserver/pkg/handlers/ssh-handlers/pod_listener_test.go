@@ -249,7 +249,7 @@ func classify(script string) podScript {
 		return installExec
 	case strings.HasPrefix(script, "rm -rf "):
 		return cleanupExec
-	case strings.Contains(script, "safe-rfwd-reap"):
+	case strings.Contains(script, "kill -TERM"):
 		return reapExec
 	default:
 		return runExec
@@ -590,10 +590,12 @@ func TestCloseReapsAListenerThatSurvivesStdinClosing(t *testing.T) {
 	testifyassert.NoError(t, err)
 
 	testifyassert.NoError(t, listener.Close())
-	script := pod.script(reapExec)
-	testifyassert.Contains(t, script, "safe-rfwd-reap")
-	testifyassert.Contains(t, script, "127.0.0.1")
-	testifyassert.Contains(t, script, "10001")
+	l, ok := listener.(*execPodListener)
+	testifyassert.True(t, ok)
+	if ok {
+		testifyassert.Contains(t, pod.script(reapExec), "T="+l.token+"\n",
+			"the reap must be scoped to this listener's own install")
+	}
 }
 
 // TestExecPodListenerCloseIsPromptWithABacklog covers teardown while connections
