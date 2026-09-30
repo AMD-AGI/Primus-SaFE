@@ -128,6 +128,8 @@ type CapacityDemand struct {
 	Units                    []DemandUnit `json:"units"`
 	ObservedAt               Timestamp    `json:"observed_at"`
 	ExpiresAt                Timestamp    `json:"expires_at"`
+	// RDMA asks for every unit to run as one host-network whole-node gang.
+	RDMA bool `json:"rdma,omitempty"`
 }
 
 // NodeAddress is a routable address the provider publishes for a placed node.

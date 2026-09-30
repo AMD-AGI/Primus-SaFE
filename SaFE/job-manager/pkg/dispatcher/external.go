@@ -33,6 +33,12 @@ func isExternalWorkload(workload *v1.Workload) bool {
 		workload.Status.ExternalExecution.ClaimId != ""
 }
 
+// isExternalGang reports whether the claim reserved more than one unit. The scheduler asks
+// for that only for a host-network RDMA gang.
+func isExternalGang(workload *v1.Workload) bool {
+	return isExternalWorkload(workload) && len(workload.Status.ExternalExecution.Placements) > 1
+}
+
 // claimGoneError marks a reservation that is definitively not coming back, as opposed to
 // one this process merely failed to read. Only the first justifies sending the workload
 // back through admission; the second is retried against the same reservation.
@@ -130,21 +136,28 @@ func isDigestPinned(image string) bool {
 
 // externalPodAnnotations are the identifiers the provider rechecks after the pod binds.
 // They are derived from the approved workload and its claim, never from user input.
+// Gang members share one pod template per role, so they name the gang instead of a unit and
+// the provider binds each to the claim's unit on its node.
 func externalPodAnnotations(workload *v1.Workload, unitKey string) map[string]interface{} {
 	state := workload.Status.ExternalExecution
 	if state == nil {
 		return nil
 	}
 	profileID, profileRevision := commonconfig.GetExternalExecutionProfile()
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		v1.ExternalWorkloadUIDAnnotation: string(workload.UID),
 		v1.ExternalDispatchGenAnnotation: strconv.Itoa(int(state.DispatchGeneration)),
 		v1.ExternalClaimIdAnnotation:     state.ClaimId,
 		v1.ExternalClaimRevAnnotation:    strconv.Itoa(int(state.ClaimRevision)),
-		v1.ExternalUnitKeyAnnotation:     unitKey,
 		v1.ExternalProfileIdAnnotation:   profileID,
 		v1.ExternalProfileRevAnnotation:  strconv.Itoa(profileRevision),
 	}
+	if isExternalGang(workload) {
+		result[v1.ExternalGangKeyAnnotation] = string(workload.UID)
+	} else {
+		result[v1.ExternalUnitKeyAnnotation] = unitKey
+	}
+	return result
 }
 
 // findPlacement returns the approved seat for one unit.

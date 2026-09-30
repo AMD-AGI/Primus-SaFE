@@ -144,10 +144,11 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
 			return fmt.Errorf("failed to disable service account token: %v", err.Error())
 		}
-		// Host network / host namespaces are node privileges the provider refuses. Force
-		// them off here so earlier modifyHostNetwork (and later modifyHostPid) cannot leak.
+		// Host namespaces are node privileges the provider refuses, except the host network
+		// of a whole-node RDMA gang member. Set them here so earlier modifyHostNetwork (and
+		// later modifyHostPid) cannot leak.
 		path = podSpecPath(workload, resourceSpec, "hostNetwork")
-		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
+		if err = jobutils.SetNestedField(obj.Object, isExternalGang(workload), path); err != nil {
 			return fmt.Errorf("failed to disable host network for external: %v", err.Error())
 		}
 		path = podSpecPath(workload, resourceSpec, "hostPID")
@@ -2814,6 +2815,11 @@ func updateContainers(adminWorkload *v1.Workload,
 		}
 		if approved != nil {
 			resources = approved
+		}
+		// The approved vector has no RDMA field; a gang member receives the node's RDMA
+		// devices by requesting them.
+		if name := commonconfig.GetRdmaName(); name != "" && isExternalGang(adminWorkload) && res.RdmaResource != "" {
+			resources[name] = res.RdmaResource
 		}
 	}
 

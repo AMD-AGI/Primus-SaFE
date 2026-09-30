@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"reflect"
 	"sort"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/execution"
 	commonquantity "github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
@@ -378,6 +380,9 @@ func (r *SchedulerReconciler) ensureExternalDemand(ctx context.Context, workload
 	if err != nil {
 		return err
 	}
+	if err = r.ensureExternalJobPort(ctx, workload); err != nil {
+		return err
+	}
 	units, err := buildDemandUnits(workload, gpuModel)
 	if err != nil {
 		return err
@@ -427,6 +432,7 @@ func (r *SchedulerReconciler) ensureExternalDemand(ctx context.Context, workload
 		Units:                    units,
 		ObservedAt:               execution.NewTimestamp(observedAt),
 		ExpiresAt:                execution.NewTimestamp(expiresAt),
+		RDMA:                     len(units) > 1,
 	}); err != nil {
 		// A refused replay means the provider holds a different body under this revision.
 		// Clearing the request id makes the next pass open a new revision.
@@ -558,6 +564,7 @@ func (r *SchedulerReconciler) withdrawExternalDemand(ctx context.Context, worklo
 		Units:                    units,
 		ObservedAt:               execution.NewTimestamp(observedAtTime),
 		ExpiresAt:                execution.NewTimestamp(expiresAt),
+		RDMA:                     len(units) > 1,
 	}); err != nil {
 		return err
 	}
@@ -721,8 +728,20 @@ func (r *SchedulerReconciler) acceptClaim(ctx context.Context, workload *v1.Work
 }
 
 // claimDispatchProblem reports why an Active claim cannot back a dispatch, or "" when it
-// can: it must approve at least one node and pin the unit's image to a digest.
+// can: it must approve at least one node and pin the unit's image to a digest. Every unit of
+// a gang must carry both, since each member binds whichever unit sits on its node.
 func claimDispatchProblem(claim *execution.ClaimResponse) string {
+	if len(claim.Placements) > 1 {
+		for i := range claim.Placements {
+			p := &claim.Placements[i]
+			if p.NodeName == "" {
+				return "claim approved no node for unit " + p.UnitKey
+			}
+			if !isDigestPinnedImage(p.ImageRef) {
+				return fmt.Sprintf("claim approved image %q for unit %s is not digest pinned", p.ImageRef, p.UnitKey)
+			}
+		}
+	}
 	hasNode := false
 	for i := range claim.Placements {
 		if claim.Placements[i].NodeName != "" {
@@ -891,10 +910,10 @@ func externalStatePatch(workload *v1.Workload, state *v1.WorkloadExternalExecuti
 
 // buildDemandUnits expands a workload into the contract's units.
 //
-// The first release supports single-pod workloads only. A multi-replica workload needs a
-// stable role and index on every child pod, and the operators that create those pods do not
-// expose one that this side can bind a reservation to. Declining is the contract's own
-// instruction for that case: the alternative is every replica claiming the same unit key.
+// A single-pod workload is one unit "master/0". A multi-node RDMA PyTorchJob is a
+// host-network whole-node gang: "master/0" plus "worker/<i>" for each worker, all with
+// the same vector, image and job port, because the provider binds a keyless member to
+// whichever unit sits on its node. Any other multi-replica or RDMA shape is declined.
 //
 // CPU-only units and tag image references are allowed: the provider accepts GPUCount 0 and
 // resolves a tag to a digest at claim time. Spec.Images[0] is the main-container image; a
@@ -902,15 +921,18 @@ func externalStatePatch(workload *v1.Workload, state *v1.WorkloadExternalExecuti
 //
 // gpuModel is NodeFlavor.spec.gpu.product; the provider indexes free devices by that value.
 func buildDemandUnits(workload *v1.Workload, gpuModel string) ([]execution.DemandUnit, error) {
-	if len(workload.Spec.Resources) != 1 || workload.Spec.Resources[0].Replica != 1 {
-		return nil, &unsupportedShapeError{"external capacity supports single replica workloads only"}
+	gang := isExternalRDMAGang(workload)
+	if !gang {
+		if len(workload.Spec.Resources) != 1 || workload.Spec.Resources[0].Replica != 1 {
+			return nil, &unsupportedShapeError{"external capacity supports single replica workloads only"}
+		}
+		// The contract's resource vector has no RDMA field, and a single node gets no RDMA
+		// devices outside a host-network gang.
+		if hasRDMAResource(&workload.Spec.Resources[0]) {
+			return nil, &unsupportedShapeError{"external capacity does not support RDMA resources"}
+		}
 	}
 	res := &workload.Spec.Resources[0]
-	// The contract's resource vector has no RDMA field, so a request for it could only
-	// be dropped and the task would start without the devices it asked for.
-	if res.RdmaResource != "" && res.RdmaResource != "0" {
-		return nil, &unsupportedShapeError{"external capacity does not support RDMA resources"}
-	}
 	resources, err := toResourceVector(res, gpuModel)
 	if err != nil {
 		return nil, err
@@ -919,6 +941,21 @@ func buildDemandUnits(workload *v1.Workload, gpuModel string) ([]execution.Deman
 		return nil, &unsupportedShapeError{"external capacity requires an image reference"}
 	}
 	imageRef := workload.Spec.Images[0]
+	if gang {
+		workerResources, err := toResourceVector(&workload.Spec.Resources[1], gpuModel)
+		if err != nil {
+			return nil, err
+		}
+		if workerResources != resources {
+			return nil, &unsupportedShapeError{"external RDMA gang requires identical master and worker resources"}
+		}
+		if len(workload.Spec.Images) > 1 && workload.Spec.Images[1] != "" && workload.Spec.Images[1] != imageRef {
+			return nil, &unsupportedShapeError{"external RDMA gang requires identical master and worker images"}
+		}
+		if workload.Spec.JobPort <= 0 {
+			return nil, fmt.Errorf("workload %s has no job port for its RDMA gang", workload.Name)
+		}
+	}
 
 	constraints := execution.PlacementConstraints{
 		NodeSelector:     map[string]string{},
@@ -936,8 +973,8 @@ func buildDemandUnits(workload *v1.Workload, gpuModel string) ([]execution.Deman
 	if isDigestPinnedImage(imageRef) {
 		imageDigest = imageRef[strings.LastIndex(imageRef, "@sha256:")+1:]
 	}
-	return []execution.DemandUnit{{
-		UnitKey:           "master/0",
+	unit := execution.DemandUnit{
+		UnitKey:           v1.ExternalSingleUnitKey,
 		Replicas:          1,
 		Resources:         resources,
 		Ports:             []execution.Port{},
@@ -947,7 +984,60 @@ func buildDemandUnits(workload *v1.Workload, gpuModel string) ([]execution.Deman
 		ImageDigest:       imageDigest,
 		Constraints:       constraints,
 		ConstraintsDigest: digest,
-	}}, nil
+	}
+	if !gang {
+		return []execution.DemandUnit{unit}, nil
+	}
+	// A host-network member may bind only the ports its unit reserved.
+	unit.Ports = []execution.Port{{Protocol: "TCP", Port: int32(workload.Spec.JobPort)}}
+	workers := int(workload.Spec.Resources[1].Replica)
+	units := make([]execution.DemandUnit, 0, 1+workers)
+	units = append(units, unit)
+	for i := 0; i < workers; i++ {
+		worker := unit
+		worker.UnitKey = fmt.Sprintf("%s%d", v1.ExternalWorkerUnitKeyPrefix, i)
+		units = append(units, worker)
+	}
+	return units, nil
+}
+
+// isExternalRDMAGang reports whether the workload runs on external capacity as a
+// host-network whole-node gang: an RDMA PyTorchJob with one master and at least one worker.
+func isExternalRDMAGang(workload *v1.Workload) bool {
+	if workload.SpecKind() != common.PytorchJobKind {
+		return false
+	}
+	res := workload.Spec.Resources
+	if len(res) != 2 || res[0].Replica != 1 || res[1].Replica < 1 {
+		return false
+	}
+	return hasRDMAResource(&res[0]) && hasRDMAResource(&res[1])
+}
+
+// hasRDMAResource reports whether a resource requests RDMA devices.
+func hasRDMAResource(res *v1.WorkloadResource) bool {
+	return res.RdmaResource != "" && res.RdmaResource != "0"
+}
+
+// externalGangPortMin and externalGangPortSpan bound the job port chosen for an RDMA gang.
+const (
+	externalGangPortMin  = 20000
+	externalGangPortSpan = 10000
+)
+
+// ensureExternalJobPort fixes the job port of an RDMA gang before its demand is published.
+// Every unit reserves that port, and a demand body must not change under its request id.
+func (r *SchedulerReconciler) ensureExternalJobPort(ctx context.Context, workload *v1.Workload) error {
+	if workload.Spec.JobPort > 0 || !isExternalRDMAGang(workload) {
+		return nil
+	}
+	port := externalGangPortMin + rand.Intn(externalGangPortSpan)
+	if workload.Spec.Service != nil && workload.Spec.Service.TargetPort > 0 {
+		port = workload.Spec.Service.TargetPort
+	}
+	patch := client.MergeFrom(workload.DeepCopy())
+	workload.Spec.JobPort = port
+	return r.Patch(ctx, workload, patch)
 }
 
 // isDigestPinnedImage reports whether the reference names immutable content.

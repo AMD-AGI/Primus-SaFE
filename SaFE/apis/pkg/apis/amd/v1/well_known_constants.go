@@ -145,6 +145,7 @@ const (
 	ExternalClaimIdAnnotation      = ExternalExecutionPrefix + "claim-id"
 	ExternalClaimRevAnnotation     = ExternalExecutionPrefix + "claim-revision"
 	ExternalUnitKeyAnnotation      = ExternalExecutionPrefix + "unit-key"
+	ExternalGangKeyAnnotation      = ExternalExecutionPrefix + "gang-key"
 	ExternalProfileIdAnnotation    = ExternalExecutionPrefix + "profile-id"
 	ExternalProfileRevAnnotation   = ExternalExecutionPrefix + "profile-revision"
 	ExternalAllocationIdAnnotation = ExternalExecutionPrefix + "allocation-id"
@@ -163,10 +164,11 @@ const (
 	// ExternalVirtualKubeletTaint is the provider identity taint. It selects pods onto the
 	// virtual node and must not by itself make the node unavailable for capacity accounting.
 	ExternalVirtualKubeletTaint = ExternalExecutionPrefix + "virtual-kubelet"
-	// ExternalSingleUnitKey is the unit key of a single-replica workload, the only shape
-	// the first release admits. Multi-replica support needs a stable role and index per
-	// child pod, which the operators creating those pods do not provide.
+	// ExternalSingleUnitKey is the unit key of a single-replica workload and of the master
+	// unit of an RDMA gang, whose units all carry the same approved vector and image.
 	ExternalSingleUnitKey = "master/0"
+	// ExternalWorkerUnitKeyPrefix prefixes the unit key of each worker of an RDMA gang.
+	ExternalWorkerUnitKeyPrefix = "worker/"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."

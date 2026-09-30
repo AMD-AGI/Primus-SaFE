@@ -416,6 +416,10 @@ func (r *DispatcherReconciler) generateJobPort(ctx context.Context, workload *v1
 	if v1.IsWorkloadDispatched(workload) {
 		return nil
 	}
+	// An external gang's units reserved this port at demand time.
+	if isExternalGang(workload) && workload.Spec.JobPort > 0 {
+		return nil
+	}
 	kind := workload.SpecKind()
 	// only for workload which use pytorch job
 	if kind != common.PytorchJobKind && kind != common.AuthoringKind &&
