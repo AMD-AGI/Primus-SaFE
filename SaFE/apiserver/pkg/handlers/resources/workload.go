@@ -747,6 +747,10 @@ func (h *Handler) updateWorkloadPhase(ctx context.Context,
 				if workload, _ = h.getAdminWorkload(ctx, name); workload == nil {
 					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("The workload %s is not found", name))
 				}
+				// Pending is only an initial phase; never overwrite a phase set by a controller.
+				if phase == v1.WorkloadPending && workload.Status.Phase != "" {
+					return nil
+				}
 			}
 			return innerError
 		}

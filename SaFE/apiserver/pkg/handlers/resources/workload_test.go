@@ -315,6 +315,47 @@ func Test_updateWorkloadPhase(t *testing.T) {
 	assert.Equal(t, workload.Status.Phase, v1.WorkloadSucceeded)
 }
 
+// Test_updateWorkloadPhase_PendingKeepsAdvancedPhase verifies that setting Pending on a stale
+// copy does not overwrite a phase already written by a controller.
+func Test_updateWorkloadPhase_PendingKeepsAdvancedPhase(t *testing.T) {
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Status.Phase = ""
+	conflicted := false
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload).
+		WithScheme(scheme.Scheme).
+		WithStatusSubresource(workload).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string,
+				obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+				if conflicted {
+					return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+				}
+				conflicted = true
+				failed := &v1.Workload{}
+				if err := c.Get(ctx, client.ObjectKey{Name: obj.GetName()}, failed); err != nil {
+					return err
+				}
+				failed.Status.Phase = v1.WorkloadFailed
+				if err := c.Status().Update(ctx, failed); err != nil {
+					return err
+				}
+				return apierrors.NewConflict(schema.GroupResource{Resource: "workloads"}, obj.GetName(), nil)
+			},
+		}).
+		Build()
+	h := Handler{Client: fakeCtrlClient}
+
+	stale := &v1.Workload{}
+	assert.NilError(t, fakeCtrlClient.Get(ctx, client.ObjectKey{Name: workload.Name}, stale))
+	assert.NilError(t, h.updateWorkloadPhase(ctx, stale, v1.WorkloadPending, nil))
+
+	current := &v1.Workload{}
+	assert.NilError(t, fakeCtrlClient.Get(ctx, client.ObjectKey{Name: workload.Name}, current))
+	assert.Equal(t, current.Status.Phase, v1.WorkloadFailed)
+}
+
 // Test_updateWorkloadPhase_WithCondition tests updating workload phase with condition
 func Test_updateWorkloadPhase_WithCondition(t *testing.T) {
 	ctx := context.Background()
