@@ -622,6 +622,11 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 	if commonworkload.IsDynamoDeployment(adminWorkload) {
 		return nil
 	}
+	// An external object runs the image and vector its claim approved, which differ from
+	// the spec by design. A spec change needs a new claim, so it is not synced in place.
+	if isExternalWorkload(adminWorkload) {
+		return nil
+	}
 
 	// InferaDeployment syncs image, env, resources, shared memory, replicas and
 	// the launcher command through the generic flow below. The command is

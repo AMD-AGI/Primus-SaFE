@@ -148,10 +148,30 @@ func (r *NodeK8sReconciler) admitVirtualKubelet(ctx context.Context, clusterName
 	if !existing.IsExternal() {
 		return "", commonerrors.NewBadRequest(fmt.Sprintf("node %s exists but is not lifecycleMode external", existing.Name))
 	}
+	// The allocation identity is immutable, so an admin Node left from a retired allocation
+	// is deleted and admitted afresh on a later pass.
+	if !sameAllocation(existing.Spec.ExternalRef, desired.Spec.ExternalRef) {
+		if existing.GetDeletionTimestamp().IsZero() {
+			if err = r.Delete(ctx, existing); err != nil && !apierrors.IsNotFound(err) {
+				return "", err
+			}
+			klog.Infof("deleted admin node %s of retired allocation %s; virtual kubelet now holds %s",
+				existing.Name, existing.Spec.ExternalRef.AllocationId, allocationID)
+		}
+		return "", fmt.Errorf("admin node %s is being replaced for allocation %s", existing.Name, allocationID)
+	}
 	if err = r.patchAdmittedExternalNode(ctx, existing, desired); err != nil {
 		return "", err
 	}
 	return existing.Name, nil
+}
+
+// sameAllocation reports whether two references name the same provider allocation generation.
+func sameAllocation(a, b *v1.NodeExternalRef) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Provider == b.Provider && a.AllocationId == b.AllocationId && a.Generation == b.Generation
 }
 
 // patchAdmittedExternalNode updates mutable admission fields after create. lifecycleMode and

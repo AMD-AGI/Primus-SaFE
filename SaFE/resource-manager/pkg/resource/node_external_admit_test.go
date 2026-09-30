@@ -236,6 +236,45 @@ func TestAdmitVirtualKubeletCreatesExternalOnly(t *testing.T) {
 	}
 }
 
+// A virtual kubelet recreated under the same name for a new allocation replaces the admin
+// Node that still points at the retired one.
+func TestAdmitVirtualKubeletReplacesStaleAllocation(t *testing.T) {
+	viper.Set("external_execution.enabled", true)
+	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws-ext", Labels: map[string]string{v1.WorkspaceExternalLabel: "true"}},
+		Spec:       v1.WorkspaceSpec{Cluster: "crusoe", NodeFlavor: "vk-mi355x"},
+	}
+	r := newNodeK8sReconciler(t, ws)
+	vk := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name: "vk-013",
+		Labels: map[string]string{
+			v1.VirtualKubeletTypeLabelKey: v1.VirtualKubeletTypeLabelValue,
+			v1.ExternalWorkspaceLabel:     "ws-ext",
+			v1.ExternalProviderLabel:      "spur",
+			v1.ExternalAllocationIdLabel:  "alloc-old",
+			v1.ExternalGenerationLabel:    "1",
+		},
+	}}
+	if _, err := r.admitVirtualKubelet(context.Background(), "crusoe", vk); err != nil {
+		t.Fatalf("admit old allocation: %v", err)
+	}
+	vk.Labels[v1.ExternalAllocationIdLabel] = "alloc-new"
+	if _, err := r.admitVirtualKubelet(context.Background(), "crusoe", vk); err == nil {
+		t.Fatal("a stale admin Node must be replaced, not kept")
+	}
+	if name, err := r.admitVirtualKubelet(context.Background(), "crusoe", vk); err != nil || name != "vk-013" {
+		t.Fatalf("readmit: name=%q err=%v", name, err)
+	}
+	node := &v1.Node{}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "vk-013"}, node); err != nil {
+		t.Fatal(err)
+	}
+	if node.Spec.ExternalRef.AllocationId != "alloc-new" {
+		t.Fatalf("allocation = %q, want alloc-new", node.Spec.ExternalRef.AllocationId)
+	}
+}
+
 func TestAdmitVirtualKubeletSkipsIncompleteIdentity(t *testing.T) {
 	viper.Set("external_execution.enabled", false)
 	r := newNodeK8sReconciler(t)

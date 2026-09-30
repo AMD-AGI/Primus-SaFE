@@ -142,6 +142,41 @@ func TestRevokingClaimIsPolledNotReleasedAgain(t *testing.T) {
 	}
 }
 
+// A release that keeps failing holds the finalizer only within the deletion grace period.
+func TestFailingReleaseIsAbandonedAfterDeletionGrace(t *testing.T) {
+	useExecutionServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"code":"Unavailable","message":"controller down","request_id":"r"}`))
+	}))
+	for _, tc := range []struct {
+		name      string
+		deletedAt time.Time
+		wantErr   bool
+	}{
+		{"within grace", time.Now(), true},
+		{"past grace", time.Now().Add(-externalReleaseAbandonAfter - time.Minute), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w, state := recoveryWorkload()
+			deleted := metav1.NewTime(tc.deletedAt)
+			w.DeletionTimestamp = &deleted
+			w.Finalizers = []string{"test/hold"}
+			state.ClaimPhase = execution.ClaimPhaseActive
+			state.ClaimRevision = 3
+			w.Status.ExternalExecution = state
+			r, _ := exchangeFixture(t, w)
+			stored := &v1.Workload{}
+			if err := r.Get(context.Background(), client.ObjectKey{Name: w.Name}, stored); err != nil {
+				t.Fatal(err)
+			}
+			holding, err := r.releaseBeforeDelete(context.Background(), stored)
+			if (err != nil) != tc.wantErr || holding {
+				t.Fatalf("holding=%v err=%v, want err=%v", holding, err, tc.wantErr)
+			}
+		})
+	}
+}
+
 // A workload deleted outside the API has no phase; the release still carries a reason.
 func TestReleaseOfDeletedWorkloadCarriesAReason(t *testing.T) {
 	p := &releaseProvider{revision: 3, phase: execution.ClaimPhaseActive, seen: map[string]string{}}

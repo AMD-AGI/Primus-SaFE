@@ -195,7 +195,7 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 		// there is nothing left to retry a failed release from, and nothing to carry the
 		// Revoking to Released confirmation -- the provider would hold those devices with
 		// no record on this side that they were ever owed back.
-		stillHolding, err := r.reconcileExternalRelease(ctx, workload)
+		stillHolding, err := r.releaseBeforeDelete(ctx, workload)
 		if err != nil {
 			return ctrlruntime.Result{}, err
 		}

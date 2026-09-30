@@ -93,6 +93,30 @@ func isExternalReclaiming(workload *v1.Workload) bool {
 	return state != nil && state.ClaimId != "" && state.ClaimPhase != execution.ClaimPhaseReleased
 }
 
+// externalReleaseAbandonAfter bounds how long a deleted workload keeps its finalizer while
+// the release call fails. A provider that answers is waited on without this bound.
+const externalReleaseAbandonAfter = 30 * time.Minute
+
+// releaseBeforeDelete returns the reservation of a deleted workload before its finalizer is
+// dropped. A release still failing past externalReleaseAbandonAfter is abandoned, so an
+// unreachable provider cannot keep the workload terminating and charging its workspace.
+func (r *SchedulerReconciler) releaseBeforeDelete(ctx context.Context, workload *v1.Workload) (bool, error) {
+	stillHolding, err := r.reconcileExternalRelease(ctx, workload)
+	if err == nil {
+		return stillHolding, nil
+	}
+	if time.Since(workload.GetDeletionTimestamp().Time) < externalReleaseAbandonAfter {
+		return false, err
+	}
+	claimID := ""
+	if state := workload.Status.ExternalExecution; state != nil {
+		claimID = state.ClaimId
+	}
+	klog.ErrorS(err, "abandoning external claim release after the deletion grace period",
+		"workload", workload.Name, "claim", claimID)
+	return false, nil
+}
+
 // reconcileExternalRelease withdraws the reservation of a finished workload and reports
 // whether the provider has yet to confirm it.
 //
