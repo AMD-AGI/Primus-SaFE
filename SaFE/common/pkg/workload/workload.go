@@ -913,6 +913,24 @@ func GetSpecifiedNodes(workload *v1.Workload) []string {
 	return nil
 }
 
+// IsExternalRDMAGang reports whether the workload has the shape external capacity runs as a
+// host-network whole-node gang: an RDMA PyTorchJob with one master and at least one worker.
+func IsExternalRDMAGang(workload *v1.Workload) bool {
+	if workload.SpecKind() != common.PytorchJobKind {
+		return false
+	}
+	res := workload.Spec.Resources
+	if len(res) != 2 || res[0].Replica != 1 || res[1].Replica < 1 {
+		return false
+	}
+	return HasRDMAResource(&res[0]) && HasRDMAResource(&res[1])
+}
+
+// HasRDMAResource reports whether a resource requests RDMA devices.
+func HasRDMAResource(res *v1.WorkloadResource) bool {
+	return res.RdmaResource != "" && res.RdmaResource != "0"
+}
+
 func IsEnabledHostNetwork(workload *v1.Workload, resourceId int) bool {
 	if v1.IsForceHostNetwork(workload) {
 		return true

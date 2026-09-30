@@ -178,7 +178,7 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = applyExternalHome(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
-		if err = applyExternalNodePin(obj, workload, *resourceSpec); err != nil {
+		if err = applyExternalNodePin(obj, workload, *resourceSpec, resourceId); err != nil {
 			return err
 		}
 		if err = validateExternalPodShape(obj, workload, *resourceSpec); err != nil {
@@ -2809,7 +2809,7 @@ func updateContainers(adminWorkload *v1.Workload,
 	// workload request instead would let a rounded or padded Spec disagree with the
 	// claim, and VK admission refuses anything that is not an exact match.
 	if isExternalWorkload(adminWorkload) {
-		approved, approvedErr := externalApprovedResourceMap(adminWorkload, v1.ExternalSingleUnitKey)
+		approved, approvedErr := externalApprovedResourceMap(adminWorkload, externalRoleUnitKey(adminWorkload, id))
 		if approvedErr != nil {
 			return approvedErr
 		}
@@ -2839,7 +2839,7 @@ func updateContainers(adminWorkload *v1.Workload,
 			// time, not against the tag the user submitted. Using the tag here would let a
 			// moved tag run content nothing was admitted for, and the provider would refuse
 			// the task after the pod had already bound.
-			if approved := externalApprovedImage(adminWorkload, v1.ExternalSingleUnitKey); approved != "" {
+			if approved := externalApprovedImage(adminWorkload, externalRoleUnitKey(adminWorkload, id)); approved != "" {
 				container["image"] = approved
 			}
 			// expectedCommands, not buildCommands: an IDEP command carries the
@@ -3004,6 +3004,10 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, resourceId int) error {
 	path := podSpecPath(adminWorkload, &resourceSpec, "hostNetwork")
+	if isExternalWorkload(adminWorkload) {
+		// Only a gang member may use the host network on external capacity.
+		return jobutils.SetNestedField(obj.Object, isExternalGang(adminWorkload), path)
+	}
 	return modifyHostNetwork(obj, adminWorkload, path, resourceId)
 }
 
@@ -3323,16 +3327,12 @@ func rewriteClusterLocalURL(raw, base string) string {
 }
 
 // applyExternalNodePin writes required matchFields metadata.name so the provider's
-// VK can verify the unit is constrained to the approved virtual node.
+// VK can verify the unit is constrained to the approved virtual node of its role.
 func applyExternalNodePin(obj *unstructured.Unstructured, workload *v1.Workload,
-	resourceSpec v1.ResourceSpec) error {
-	nodes := externalApprovedNodes(workload)
+	resourceSpec v1.ResourceSpec, resourceId int) error {
+	nodes := externalRoleNodes(workload, resourceId)
 	if len(nodes) == 0 {
 		return nil
-	}
-	values := make([]interface{}, 0, len(nodes))
-	for i := range nodes {
-		values = append(values, nodes[i])
 	}
 	path := podSpecPath(workload, &resourceSpec, "affinity", "nodeAffinity",
 		"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
@@ -3340,27 +3340,34 @@ func applyExternalNodePin(obj *unstructured.Unstructured, workload *v1.Workload,
 	if err != nil {
 		return err
 	}
-	field := map[string]interface{}{
-		"key":      "metadata.name",
-		"operator": "In",
-		"values":   values,
-	}
 	// Terms are ORed, so the pin has to be in every one of them; a single unpinned term
 	// would let the pod land on any node it matches. Existing matchFields are kept and
-	// ANDed with the pin.
+	// ANDed with the pin. A metadata.name selector takes exactly one value, so each
+	// approved node gets its own copy of every term.
 	if len(terms) == 0 {
 		terms = []interface{}{map[string]interface{}{}}
 	}
+	pinned := make([]interface{}, 0, len(terms)*len(nodes))
 	for i := range terms {
 		term, ok := terms[i].(map[string]interface{})
 		if !ok {
 			term = map[string]interface{}{}
-			terms[i] = term
 		}
 		fields, _ := term["matchFields"].([]interface{})
-		term["matchFields"] = append(fields, field)
+		for _, node := range nodes {
+			copied := make(map[string]interface{}, len(term)+1)
+			for k, v := range term {
+				copied[k] = v
+			}
+			copied["matchFields"] = append(append([]interface{}{}, fields...), map[string]interface{}{
+				"key":      "metadata.name",
+				"operator": "In",
+				"values":   []interface{}{node},
+			})
+			pinned = append(pinned, copied)
+		}
 	}
-	return jobutils.SetNestedField(obj.Object, terms, path)
+	return jobutils.SetNestedField(obj.Object, pinned, path)
 }
 
 // externalApprovedResourceMap turns the claim's approved ResourceVector into the

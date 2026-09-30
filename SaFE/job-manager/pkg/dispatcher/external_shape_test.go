@@ -89,7 +89,7 @@ func TestApplyExternalNodePinCoversEveryTerm(t *testing.T) {
 			}},
 		}}},
 	}}
-	assert.NilError(t, applyExternalNodePin(obj, externalShapeWorkload(), externalShapeSpec()))
+	assert.NilError(t, applyExternalNodePin(obj, externalShapeWorkload(), externalShapeSpec(), 0))
 	terms, _, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "affinity",
 		"nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	assert.NilError(t, err)

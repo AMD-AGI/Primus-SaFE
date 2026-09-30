@@ -19,6 +19,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/execution"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
 // externalClaimRecheckDelay spaces out retries when the reservation cannot be confirmed.
@@ -33,10 +34,66 @@ func isExternalWorkload(workload *v1.Workload) bool {
 		workload.Status.ExternalExecution.ClaimId != ""
 }
 
-// isExternalGang reports whether the claim reserved more than one unit. The scheduler asks
-// for that only for a host-network RDMA gang.
+// isExternalGang reports whether an admitted external workload has the host-network RDMA
+// gang shape.
 func isExternalGang(workload *v1.Workload) bool {
-	return isExternalWorkload(workload) && len(workload.Status.ExternalExecution.Placements) > 1
+	return isExternalWorkload(workload) && commonworkload.IsExternalRDMAGang(workload)
+}
+
+// externalRoleUnitKey returns the unit whose approval a role's pod template carries. Gang
+// workers share one template, and the scheduler admits them only with identical approvals.
+func externalRoleUnitKey(workload *v1.Workload, resourceId int) string {
+	if resourceId > 0 && isExternalGang(workload) {
+		return v1.ExternalWorkerUnitKeyPrefix + "0"
+	}
+	return v1.ExternalSingleUnitKey
+}
+
+// externalRoleNodes lists the approved nodes the pods of one role may bind to.
+func externalRoleNodes(workload *v1.Workload, resourceId int) []string {
+	if !isExternalGang(workload) {
+		return externalApprovedNodes(workload)
+	}
+	wantWorker := resourceId > 0
+	var names []string
+	for _, p := range workload.Status.ExternalExecution.Placements {
+		if p.NodeName != "" && strings.HasPrefix(p.UnitKey, v1.ExternalWorkerUnitKeyPrefix) == wantWorker {
+			names = append(names, p.NodeName)
+		}
+	}
+	return names
+}
+
+// externalGangProblem reports why the stored placements cannot back a gang dispatch, or ""
+// when they can: one placement per unit, each on its own node, all with one vector and image.
+func externalGangProblem(workload *v1.Workload) string {
+	placements := workload.Status.ExternalExecution.Placements
+	expected := 1 + workload.Spec.Resources[1].Replica
+	if len(placements) != expected {
+		return fmt.Sprintf("claim approved %d units, the gang has %d", len(placements), expected)
+	}
+	keys := make(map[string]struct{}, expected)
+	keys[v1.ExternalSingleUnitKey] = struct{}{}
+	for i := 0; i < expected-1; i++ {
+		keys[fmt.Sprintf("%s%d", v1.ExternalWorkerUnitKeyPrefix, i)] = struct{}{}
+	}
+	nodes := make(map[string]struct{}, expected)
+	first := placements[0]
+	for _, p := range placements {
+		if _, ok := keys[p.UnitKey]; !ok {
+			return "claim approved unexpected or repeated unit " + p.UnitKey
+		}
+		delete(keys, p.UnitKey)
+		if _, ok := nodes[p.NodeName]; ok || p.NodeName == "" {
+			return fmt.Sprintf("claim approved node %q for unit %s, which is empty or shared", p.NodeName, p.UnitKey)
+		}
+		nodes[p.NodeName] = struct{}{}
+		if p.ImageRef != first.ImageRef || p.CPUMillis != first.CPUMillis || p.MemoryBytes != first.MemoryBytes ||
+			p.ScratchBytes != first.ScratchBytes || p.GPUResource != first.GPUResource || p.GPUCount != first.GPUCount {
+			return "claim approved unit " + p.UnitKey + " differently from unit " + first.UnitKey
+		}
+	}
+	return ""
 }
 
 // claimGoneError marks a reservation that is definitively not coming back, as opposed to
@@ -118,12 +175,23 @@ func (r *DispatcherReconciler) verifyExternalClaim(ctx context.Context,
 		return &claimGoneError{fmt.Sprintf("claim %s approved no nodes for workload %s",
 			state.ClaimId, workload.Name)}
 	}
-	if image := externalApprovedImage(workload, v1.ExternalSingleUnitKey); !isDigestPinned(image) {
-		// The contract pins image_ref to a digest. Anything else means the pod would run
-		// content the reservation was not granted against, and a tag can be moved after
-		// the fact.
-		return &claimGoneError{fmt.Sprintf("claim %s approved image %q is not digest pinned",
-			state.ClaimId, image)}
+	if isExternalGang(workload) {
+		if problem := externalGangProblem(workload); problem != "" {
+			return &claimGoneError{fmt.Sprintf("claim %s: %s", state.ClaimId, problem)}
+		}
+	}
+	if findPlacement(state, v1.ExternalSingleUnitKey) == nil {
+		return &claimGoneError{fmt.Sprintf("claim %s has no placement for unit %s",
+			state.ClaimId, v1.ExternalSingleUnitKey)}
+	}
+	for _, p := range state.Placements {
+		if !isDigestPinned(p.ImageRef) {
+			// The contract pins image_ref to a digest. Anything else means the pod would run
+			// content the reservation was not granted against, and a tag can be moved after
+			// the fact.
+			return &claimGoneError{fmt.Sprintf("claim %s approved image %q for unit %s is not digest pinned",
+				state.ClaimId, p.ImageRef, p.UnitKey)}
+		}
 	}
 	return nil
 }

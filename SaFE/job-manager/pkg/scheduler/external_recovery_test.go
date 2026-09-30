@@ -74,7 +74,7 @@ func TestExternalStatePatchAddsWholeStatusWhenAbsent(t *testing.T) {
 func TestClaimDispatchProblem(t *testing.T) {
 	good := &execution.ClaimResponse{Placements: []execution.ClaimPlacement{{
 		UnitKey: v1.ExternalSingleUnitKey, NodeName: "vk-1", ImageRef: pinnedImage}}}
-	if p := claimDispatchProblem(good); p != "" {
+	if p := claimDispatchProblem(gpuWorkload(), good); p != "" {
 		t.Fatalf("usable claim reported %q", p)
 	}
 	cases := map[string]*execution.ClaimResponse{
@@ -87,7 +87,7 @@ func TestClaimDispatchProblem(t *testing.T) {
 			UnitKey: "worker/0", NodeName: "vk-1", ImageRef: pinnedImage}}},
 	}
 	for name, claim := range cases {
-		if claimDispatchProblem(claim) == "" {
+		if claimDispatchProblem(gpuWorkload(), claim) == "" {
 			t.Errorf("%s: expected a problem", name)
 		}
 	}
