@@ -1051,6 +1051,34 @@ func TestBuildWorkloadPodInfo(t *testing.T) {
 	assert.Equal(t, info.HostIp, "1.2.3.4")
 }
 
+// TestBuildWorkloadPodInfoVirtualKubeletNode verifies a provider virtual node without the
+// SaFE node id label resolves to its own name, which is the admin Node name.
+func TestBuildWorkloadPodInfoVirtualKubeletNode(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(buildPodTerminatedInfo,
+		func(context.Context, kubernetes.Interface, *v1.Workload, *corev1.Pod, *v1.WorkloadPod, string) {})
+
+	r := &SyncerReconciler{}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p1"}}
+	vk := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "vk-1", Labels: map[string]string{
+		v1.VirtualKubeletTypeLabelKey: v1.VirtualKubeletTypeLabelValue,
+		v1.ExternalProviderLabel:      "spur",
+	}}}
+	assert.Equal(t, r.buildWorkloadPodInfo(context.Background(), monkeyClientSets(), w, pod, vk).AdminNodeName, "vk-1")
+
+	thirdParty := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "vk-2", Labels: map[string]string{
+		v1.VirtualKubeletTypeLabelKey: v1.VirtualKubeletTypeLabelValue,
+	}}}
+	assert.Equal(t, r.buildWorkloadPodInfo(context.Background(), monkeyClientSets(), w, pod, thirdParty).AdminNodeName, "")
+
+	managed := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "host-1", Labels: map[string]string{
+		v1.NodeIdLabel: "admin-1",
+	}}}
+	assert.Equal(t, r.buildWorkloadPodInfo(context.Background(), monkeyClientSets(), w, pod, managed).AdminNodeName, "admin-1")
+}
+
 // TestGetMainContainerRank tests extraction of RANK environment variable
 func TestGetMainContainerRank(t *testing.T) {
 	tests := []struct {

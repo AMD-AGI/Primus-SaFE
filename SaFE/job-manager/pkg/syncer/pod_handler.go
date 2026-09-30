@@ -400,7 +400,7 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 			continue
 		}
 		id = i
-		if p.Phase == pod.Status.Phase && p.AdminNodeName == v1.GetNodeId(k8sNode) &&
+		if p.Phase == pod.Status.Phase && p.AdminNodeName == adminNodeNameOf(k8sNode) &&
 			p.StartTime != "" && p.HostIp == pod.Status.HostIP &&
 			!currentDispatchNodesNeedRepair(adminWorkload) {
 			// Return early if no critical changes detected
@@ -441,6 +441,22 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 
 }
 
+// adminNodeNameOf resolves the admin Node name for a data-plane node. Managed nodes carry
+// the SaFE node id label; provider virtual kubelets are admitted under their own name.
+func adminNodeNameOf(node *corev1.Node) string {
+	if node == nil {
+		return ""
+	}
+	if id := v1.GetNodeId(node); id != "" {
+		return id
+	}
+	if node.Labels[v1.VirtualKubeletTypeLabelKey] == v1.VirtualKubeletTypeLabelValue &&
+		node.Labels[v1.ExternalProviderLabel] != "" {
+		return node.Name
+	}
+	return ""
+}
+
 func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets *ClusterClientSets,
 	adminWorkload *v1.Workload, pod *corev1.Pod, k8sNode *corev1.Node) v1.WorkloadPod {
 	resourceId, _ := v1.GetResourceId(pod)
@@ -456,7 +472,7 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 	workloadPod := v1.WorkloadPod{
 		PodId:         pod.Name,
 		ResourceId:    int8(resourceId),
-		AdminNodeName: v1.GetNodeId(k8sNode),
+		AdminNodeName: adminNodeNameOf(k8sNode),
 		Phase:         pod.Status.Phase,
 		HostIp:        pod.Status.HostIP,
 		PodIp:         pod.Status.PodIP,
