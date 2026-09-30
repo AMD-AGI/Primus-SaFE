@@ -71,66 +71,6 @@ func TestApplyExternalHome(t *testing.T) {
 	assert.Equal(t, envs[0].(map[string]interface{})["value"], "/work")
 }
 
-func identityPod() *unstructured.Unstructured {
-	return &unstructured.Unstructured{Object: map[string]interface{}{
-		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
-			"initContainers": []interface{}{map[string]interface{}{
-				"name":    externalPreprocessInit,
-				"command": []interface{}{"/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"},
-				"volumeMounts": []interface{}{
-					map[string]interface{}{"name": externalSharedVolume, "mountPath": "/shared-data"}},
-			}},
-			"containers": []interface{}{map[string]interface{}{"name": "main"}},
-			"volumes": []interface{}{
-				map[string]interface{}{"name": externalSharedVolume, "emptyDir": map[string]interface{}{}}},
-		}}},
-	}}
-}
-
-// The uid the provider assigns has no passwd entry in the image. The preprocess init
-// renders one from the pod annotations and the main container mounts it over /etc.
-func TestApplyExternalIdentityMountsGeneratedFiles(t *testing.T) {
-	obj := identityPod()
-	assert.NilError(t, applyExternalIdentity(obj, externalShapeWorkload(), externalShapeSpec()))
-	// Applying twice must not duplicate anything.
-	assert.NilError(t, applyExternalIdentity(obj, externalShapeWorkload(), externalShapeSpec()))
-	spec := obj.Object["spec"].(map[string]interface{})["template"].(map[string]interface{})["spec"].(map[string]interface{})
-
-	volumes := spec["volumes"].([]interface{})
-	assert.Equal(t, len(volumes), 2)
-	identity := volumes[1].(map[string]interface{})
-	assert.Equal(t, identity["name"], externalIdentityVolume)
-	items := identity["downwardAPI"].(map[string]interface{})["items"].([]interface{})
-	assert.Equal(t, len(items), len(externalIdentityFiles))
-	assert.DeepEqual(t, items[0], map[string]interface{}{"path": "uid", "fieldRef": map[string]interface{}{
-		"fieldPath": "metadata.annotations['safe-exec.amd.com/submit-uid']"}})
-
-	init := spec["initContainers"].([]interface{})[0].(map[string]interface{})
-	assert.Equal(t, init["command"].([]interface{})[2],
-		"cp -r /preprocess/* /shared-data/ && /bin/sh "+externalIdentityScript)
-	assert.Equal(t, len(init["volumeMounts"].([]interface{})), 2)
-
-	mounts := spec["containers"].([]interface{})[0].(map[string]interface{})["volumeMounts"].([]interface{})
-	assert.DeepEqual(t, mounts, []interface{}{
-		map[string]interface{}{"name": externalSharedVolume, "mountPath": "/etc/passwd",
-			"subPath": "etc/passwd", "readOnly": true},
-		map[string]interface{}{"name": externalSharedVolume, "mountPath": "/etc/group",
-			"subPath": "etc/group", "readOnly": true},
-	})
-}
-
-// Without the preprocess init nothing would write the files, and a subPath mount of a
-// missing file would bind an empty directory over /etc/passwd.
-func TestApplyExternalIdentitySkipsPodsWithoutPreprocess(t *testing.T) {
-	obj := identityPod()
-	spec := obj.Object["spec"].(map[string]interface{})["template"].(map[string]interface{})["spec"].(map[string]interface{})
-	spec["initContainers"] = []interface{}{map[string]interface{}{"name": "other"}}
-	assert.NilError(t, applyExternalIdentity(obj, externalShapeWorkload(), externalShapeSpec()))
-	_, hasMounts := spec["containers"].([]interface{})[0].(map[string]interface{})["volumeMounts"]
-	assert.Assert(t, !hasMounts)
-	assert.Equal(t, len(spec["volumes"].([]interface{})), 1)
-}
-
 // Node selector terms are ORed, so every term has to carry the pin, and a term's own
 // matchFields must be kept rather than overwritten.
 func TestApplyExternalNodePinCoversEveryTerm(t *testing.T) {

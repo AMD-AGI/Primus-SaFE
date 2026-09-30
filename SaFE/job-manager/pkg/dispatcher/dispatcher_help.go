@@ -177,9 +177,6 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = applyExternalHome(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
-		if err = applyExternalIdentity(obj, workload, *resourceSpec); err != nil {
-			return err
-		}
 		if err = applyExternalNodePin(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
@@ -3244,126 +3241,6 @@ func applyExternalHome(obj *unstructured.Unstructured, workload *v1.Workload,
 		}
 	}
 	return jobutils.SetNestedField(obj.Object, containers, path)
-}
-
-const (
-	// externalIdentityVolume renders the provider-assigned identity for the init container.
-	externalIdentityVolume = "external-identity"
-	externalIdentityDir    = "/etc/external-identity"
-	// externalIdentityScript is copied into the shared volume by the preprocess init.
-	externalIdentityScript = "/shared-data/external_identity.sh"
-	externalSharedVolume   = "shared-data"
-	externalPreprocessInit = "preprocess"
-)
-
-// externalIdentityFiles maps the rendered file names to the pod annotations they read.
-// The provider writes the submit-* annotations when it admits the pod.
-var externalIdentityFiles = [][2]string{
-	{"uid", v1.ExternalExecutionPrefix + "submit-uid"},
-	{"gid", v1.ExternalExecutionPrefix + "submit-gid"},
-	{"groups", v1.ExternalExecutionPrefix + "submit-groups"},
-	{"account", v1.UserAccountAnnotation},
-}
-
-// applyExternalIdentity makes the provider-assigned uid resolvable in the main containers.
-// The preprocess init renders passwd and group files that include that uid into the
-// shared volume, and the main containers mount them over /etc/passwd and /etc/group.
-// Pods without the preprocess init or the shared volume are left unchanged.
-func applyExternalIdentity(obj *unstructured.Unstructured, workload *v1.Workload,
-	resourceSpec v1.ResourceSpec) error {
-	initPath := podSpecPath(workload, &resourceSpec, "initContainers")
-	inits, found, err := jobutils.NestedSlice(obj.Object, initPath)
-	if err != nil || !found {
-		return err
-	}
-	var preprocess map[string]interface{}
-	for i := range inits {
-		if c, ok := inits[i].(map[string]interface{}); ok && c["name"] == externalPreprocessInit {
-			preprocess = c
-			break
-		}
-	}
-	if preprocess == nil {
-		return nil
-	}
-	command, _ := preprocess["command"].([]interface{})
-	if len(command) != 3 || command[1] != "-c" {
-		return nil
-	}
-	script, _ := command[2].(string)
-
-	volPath := podSpecPath(workload, &resourceSpec, "volumes")
-	volumes, _, err := jobutils.NestedSlice(obj.Object, volPath)
-	if err != nil {
-		return err
-	}
-	hasShared, hasIdentity := false, false
-	for i := range volumes {
-		if v, ok := volumes[i].(map[string]interface{}); ok {
-			hasShared = hasShared || v["name"] == externalSharedVolume
-			hasIdentity = hasIdentity || v["name"] == externalIdentityVolume
-		}
-	}
-	if !hasShared {
-		return nil
-	}
-	if !hasIdentity {
-		items := make([]interface{}, 0, len(externalIdentityFiles))
-		for _, f := range externalIdentityFiles {
-			items = append(items, map[string]interface{}{
-				"path":     f[0],
-				"fieldRef": map[string]interface{}{"fieldPath": "metadata.annotations['" + f[1] + "']"},
-			})
-		}
-		volumes = append(volumes, map[string]interface{}{
-			"name":        externalIdentityVolume,
-			"downwardAPI": map[string]interface{}{"items": items},
-		})
-		if err = jobutils.SetNestedField(obj.Object, volumes, volPath); err != nil {
-			return err
-		}
-	}
-
-	if !strings.Contains(script, externalIdentityScript) {
-		command[2] = script + " && /bin/sh " + externalIdentityScript
-		preprocess["command"] = command
-	}
-	preprocess["volumeMounts"] = appendMountOnce(preprocess["volumeMounts"], map[string]interface{}{
-		"name": externalIdentityVolume, "mountPath": externalIdentityDir, "readOnly": true,
-	})
-	if err = jobutils.SetNestedField(obj.Object, inits, initPath); err != nil {
-		return err
-	}
-
-	mainPath := podSpecPath(workload, &resourceSpec, "containers")
-	containers, found, err := jobutils.NestedSlice(obj.Object, mainPath)
-	if err != nil || !found {
-		return err
-	}
-	for i := range containers {
-		c, ok := containers[i].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		for _, file := range []string{"passwd", "group"} {
-			c["volumeMounts"] = appendMountOnce(c["volumeMounts"], map[string]interface{}{
-				"name": externalSharedVolume, "mountPath": "/etc/" + file,
-				"subPath": "etc/" + file, "readOnly": true,
-			})
-		}
-	}
-	return jobutils.SetNestedField(obj.Object, containers, mainPath)
-}
-
-// appendMountOnce appends mount unless a mount at the same mountPath already exists.
-func appendMountOnce(existing interface{}, mount map[string]interface{}) []interface{} {
-	mounts, _ := existing.([]interface{})
-	for _, m := range mounts {
-		if mm, ok := m.(map[string]interface{}); ok && mm["mountPath"] == mount["mountPath"] {
-			return mounts
-		}
-	}
-	return append(mounts, mount)
 }
 
 // externalControlPlaneBaseURL builds https://<sub_domain>.<domain> from global config.
