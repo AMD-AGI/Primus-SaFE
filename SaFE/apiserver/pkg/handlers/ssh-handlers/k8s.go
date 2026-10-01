@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
@@ -25,6 +24,7 @@ import (
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/client-go/transport/spdy"
+	k8sexec "k8s.io/client-go/util/exec"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -37,28 +37,28 @@ import (
 )
 
 // SessionConn establishes an SSH session to a Kubernetes pod and records the session.
-func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) error {
+// The returned code is the remote process exit status (or 1 when the stream fails without one).
+func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) (uint32, error) {
 	workload, k8sClients, err := h.getWorkloadAndClients(ctx, sessionInfo.userInfo)
 	if err != nil {
-		return err
+		return 1, err
 	}
 	if err = h.authUser(ctx, sessionInfo.userInfo, workload); err != nil {
-		return err
+		return 1, err
 	}
 
 	rawCmd := sessionInfo.userConn.RawCommand()
 	isInteractive := sessionInfo.isPty || IsShellCommand(rawCmd)
-	// SCP needs stdin for data transfer but should execute as a command
-	isScp := strings.HasPrefix(rawCmd, "scp ")
-	needStdin := isInteractive || isScp
 
 	execOptions := &corev1.PodExecOptions{
 		Container: sessionInfo.userInfo.Container,
 		Command:   []string{sessionInfo.userInfo.CMD},
-		Stdin:     needStdin,
-		Stdout:    true,
-		Stderr:    true,
-		TTY:       sessionInfo.isPty,
+		// Every exec attaches stdin so clients that stream a body (rsync, tar, cat >file)
+		// are not silently truncated to zero bytes.
+		Stdin:  true,
+		Stdout: true,
+		Stderr: true,
+		TTY:    sessionInfo.isPty,
 	}
 	if !isInteractive {
 		execOptions.Command = append(execOptions.Command, "-c", rawCmd)
@@ -74,7 +74,7 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 
 	executor, err := remotecommand.NewSPDYExecutor(k8sClients.RestConfig(), "POST", req.URL())
 	if err != nil {
-		return fmt.Errorf("failed to create SPDY executor: %v", err)
+		return 1, fmt.Errorf("failed to create SPDY executor: %v", err)
 	}
 	sessionInfo.size <- &remotecommand.TerminalSize{
 		Width:  uint16(sessionInfo.cols),
@@ -95,7 +95,7 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		CreateTime:    nowTime,
 	})
 	if err != nil {
-		return fmt.Errorf("create ssh session record err: %v", err)
+		return 1, fmt.Errorf("create ssh session record err: %v", err)
 	}
 	defer func() {
 		if err := h.dbClient.SetSshDisconnect(context.Background(), recordId, sessionInfo.userConn.ExitReason()); err != nil {
@@ -103,62 +103,96 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		}
 	}()
 
-	errCh := make(chan struct{})
-	go func(errCh chan struct{}) {
-		defer close(errCh)
+	stderr := io.Writer(sessionInfo.userConn)
+	if sw, ok := sessionInfo.userConn.(interface{ Stderr() io.Writer }); ok && !sessionInfo.isPty {
+		stderr = sw.Stderr()
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
 		options := remotecommand.StreamOptions{
 			Stdin:             sessionInfo.userConn,
 			Stdout:            sessionInfo.userConn,
-			Stderr:            sessionInfo.userConn,
+			Stderr:            stderr,
 			TerminalSizeQueue: sessionInfo,
 			Tty:               sessionInfo.isPty,
 		}
-		if !needStdin {
-			options.Stdin = nil
+		if sessionInfo.isPty {
+			// With a TTY the kubelet merges stderr into the stdout stream.
+			options.Stderr = nil
 		}
 		if !isInteractive {
 			options.TerminalSizeQueue = nil
 		}
-		err = executor.StreamWithContext(ctx, options)
+		errCh <- executor.StreamWithContext(ctx, options)
+	}()
+
+	var streamErr error
+	select {
+	case <-ctx.Done():
+		streamErr = ctx.Err()
+		sessionInfo.userConn.SetExitReason(fmt.Sprintf("\r\n[INFO] Connection idle timed out (%s)", h.timeout))
+	case streamErr = <-errCh:
 		message := "The underlying connection is disconnected normally"
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				message = fmt.Sprintf("\r\n[INFO] Connection timed out (%f hour)", h.timeout.Hours())
+		if streamErr != nil {
+			if errors.Is(streamErr, context.DeadlineExceeded) || errors.Is(streamErr, context.Canceled) {
+				message = fmt.Sprintf("\r\n[INFO] Connection idle timed out (%s)", h.timeout)
+			} else if _, ok := streamExitError(streamErr); ok {
+				message = "The underlying connection is disconnected normally"
 			} else {
-				message = fmt.Sprintf("The underlying connection is abnormally disconnected：%s", err.Error())
+				message = fmt.Sprintf("The underlying connection is abnormally disconnected：%s", streamErr.Error())
 			}
 		}
 		sessionInfo.userConn.SetExitReason(message)
-	}(errCh)
-
-	select {
-	case <-ctx.Done():
-		sessionInfo.userConn.SetExitReason(fmt.Sprintf("\r\n[INFO] Connection timed out (%f hour)", h.timeout.Hours()))
-	case <-errCh:
 	case <-sessionInfo.userConn.ClosedChan():
 	}
 
-	klog.Infof("Connection to the Pod(%s/%s) has ended, reason: %s", workload.Spec.Workspace,
-		sessionInfo.userInfo.Pod, sessionInfo.userConn.ExitReason())
-	return nil
+	code := streamExitCode(streamErr)
+	klog.Infof("Connection to the Pod(%s/%s) has ended, reason: %s, exit: %d", workload.Spec.Workspace,
+		sessionInfo.userInfo.Pod, sessionInfo.userConn.ExitReason(), code)
+	return code, nil
+}
+
+// streamExitError reports whether err carries a remote process exit status.
+func streamExitError(err error) (k8sexec.CodeExitError, bool) {
+	var exitErr k8sexec.CodeExitError
+	if err == nil || !errors.As(err, &exitErr) {
+		return k8sexec.CodeExitError{}, false
+	}
+	return exitErr, true
+}
+
+// streamExitCode returns the remote process exit status, or 1 when the stream failed
+// without one. A nil error is exit 0.
+func streamExitCode(err error) uint32 {
+	if err == nil {
+		return 0
+	}
+	if exitErr, ok := streamExitError(err); ok {
+		if exitErr.Code < 0 {
+			return 1
+		}
+		return uint32(exitErr.Code)
+	}
+	return 1
 }
 
 // handleSftp handles SFTP requests over SSH for a Kubernetes pod.
-func (h *SshHandler) handleSftp(s Session) {
+func (h *SshHandler) handleSftp(s Session) uint32 {
 	userInfo, ok := ParseUserInfo(s.User())
 	if !ok {
 		klog.Errorf("failed to parse ssh info, user: %s", s.User())
-		return
+		return 1
 	}
 
 	workload, k8sClients, err := h.getWorkloadAndClients(s.Context(), userInfo)
 	if err != nil {
 		klog.Error(err)
-		return
+		return 1
 	}
 	if err = h.authUser(s.Context(), userInfo, workload); err != nil {
 		klog.Error(err)
-		return
+		return 1
 	}
 	req := k8sClients.ClientSet().CoreV1().RESTClient().
 		Post().
@@ -178,7 +212,7 @@ func (h *SshHandler) handleSftp(s Session) {
 	exec, err := remotecommand.NewSPDYExecutor(k8sClients.RestConfig(), "POST", req.URL())
 	if err != nil {
 		klog.ErrorS(err, "failed to create SFTP executor")
-		return
+		return 1
 	}
 
 	err = exec.StreamWithContext(s.Context(), remotecommand.StreamOptions{
@@ -189,8 +223,9 @@ func (h *SshHandler) handleSftp(s Session) {
 	})
 	if err != nil {
 		klog.Error(err, "failed to stream SFTP command")
-		return
+		return streamExitCode(err)
 	}
+	return 0
 }
 
 // handleDirectIp handles direct IP forwarding requests over SSH.
@@ -270,16 +305,17 @@ func (h *SshHandler) forward(ctx context.Context, dialer httpstream.Dialer,
 			go ssh.DiscardRequests(reqs)
 
 			doneCtx, doneCancel := context.WithCancel(ctx)
+			idle := idleFromContext(ctx)
 			go func() {
 				defer ch.Close()
 				defer destConn.Close()
-				_, _ = io.Copy(ch, destConn)
+				_, _ = io.Copy(touchingWriter{w: ch, idle: idle}, touchingReader{r: destConn, idle: idle})
 				doneCancel()
 			}()
 			go func() {
 				defer ch.Close()
 				defer destConn.Close()
-				_, _ = io.Copy(destConn, ch)
+				_, _ = io.Copy(touchingWriter{w: destConn, idle: idle}, touchingReader{r: ch, idle: idle})
 				doneCancel()
 			}()
 			select {

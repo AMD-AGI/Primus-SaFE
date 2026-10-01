@@ -12,7 +12,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -92,7 +91,7 @@ func NewSshHandler(ctx context.Context, mgr ctrlruntime.Manager) (*SshHandler, e
 			clientManager:    commonutils.NewObjectManagerSingleton(),
 			config:           config,
 			accessController: authority.NewAccessController(mgr.GetClient()),
-			timeout:          time.Hour * 12,
+			timeout:          sshIdleTimeout,
 			upgrader: &websocket.Upgrader{
 				HandshakeTimeout: 3 * time.Second,
 				ReadBufferSize:   4096,
@@ -143,6 +142,10 @@ func (h *SshHandler) publicCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*
 
 // HandleConnection handles an incoming SSH connection.
 func (h *SshHandler) HandleConnection(conn net.Conn) {
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.SetKeepAlive(true)
+		_ = tcp.SetKeepAlivePeriod(sshKeepAlivePeriod)
+	}
 	sshConn, newChannel, reqs, err := ssh.NewServerConn(conn, h.config)
 	if err != nil {
 		klog.ErrorS(err, "failed to handshake")
@@ -152,11 +155,14 @@ func (h *SshHandler) HandleConnection(conn net.Conn) {
 
 	klog.Infof("ssh connection started, user:%s, from: %s", sshConn.User(), conn.RemoteAddr())
 
-	ctx, cancel := context.WithTimeout(h.ctx, h.timeout)
-	defer cancel()
-
+	idle := newIdleTracker(h.timeout)
+	ctx, cancel := idle.watch(h.ctx)
+	ctx = withIdleTracker(ctx, idle)
 	var wg sync.WaitGroup
-	defer wg.Wait()
+	defer func() {
+		cancel()
+		wg.Wait()
+	}()
 
 	// Remote forwards outlive the request that created them, so they are torn
 	// down before we wait on the request loop.
@@ -167,6 +173,12 @@ func (h *SshHandler) HandleConnection(conn net.Conn) {
 	go func() {
 		defer wg.Done()
 		forwards.handleGlobalRequests(reqs)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		runSSHKeepAlive(ctx, sshConn)
 	}()
 
 	for ch := range newChannel {
@@ -202,19 +214,24 @@ func (h *SshHandler) startSessionHandler(ctx context.Context, conn *ssh.ServerCo
 	s.handleRequests(reqs)
 }
 
-// handleSession processes a session request for a user.
-func (h *SshHandler) handleSession(s Session) {
+// handleSession processes a session request for a user and returns the exit status.
+func (h *SshHandler) handleSession(s Session) uint32 {
 	userInfo, ok := ParseUserInfo(s.User())
 	if !ok {
 		sendError(s, fmt.Sprintf("Invalid user %v", s.User()))
-		return
+		return 1
 	}
 
 	_, _, isPty := s.Pty()
 	sessionInfo := h.NewSessionInfo(userInfo, newSSHConn(s), 1800, 40, SSH, isPty)
-	if err := h.SessionConn(s.Context(), sessionInfo); err != nil {
+	code, err := h.SessionConn(s.Context(), sessionInfo)
+	if err != nil {
 		sendError(s, err.Error())
+		if code == 0 {
+			return 1
+		}
 	}
+	return code
 }
 
 // ParseUserInfo parses the user string into a UserInfo struct.
@@ -230,6 +247,7 @@ type SSHConn struct {
 	exitReason string
 	closeCh    chan struct{}
 	once       sync.Once
+	idle       *idleTracker
 }
 
 // newSSHConn creates a new SSHConn from a Session.
@@ -237,6 +255,7 @@ func newSSHConn(s Session) Conn {
 	return &SSHConn{
 		s:       s,
 		closeCh: make(chan struct{}),
+		idle:    idleFromContext(s.Context()),
 	}
 }
 
@@ -248,20 +267,12 @@ func (conn *SSHConn) Read(p []byte) (n int, err error) {
 	default:
 	}
 	n, err = conn.s.Read(p)
+	if n > 0 {
+		conn.idle.Touch()
+	}
 	if err != nil && err == io.EOF {
-		// Only SCP needs immediate close to avoid blocking
-		// Other commands should wait to ensure all output is flushed
-		rawCmd := conn.s.RawCommand()
-		if strings.HasPrefix(rawCmd, "scp ") {
-			// SCP completed, close immediately
-			conn.SetExitReason("SCP transfer completed")
-			_ = conn.Close()
-		} else {
-			// Other commands, wait before closing
-			time.Sleep(60 * time.Second)
-			conn.SetExitReason("User actively disconnected")
-			_ = conn.Close()
-		}
+		conn.SetExitReason("client closed stdin")
+		_ = conn.Close()
 	}
 	return n, err
 }
@@ -273,7 +284,16 @@ func (conn *SSHConn) Write(p []byte) (n int, err error) {
 		return 0, fmt.Errorf("ssh session closed")
 	default:
 	}
-	return conn.s.Write(p)
+	n, err = conn.s.Write(p)
+	if n > 0 {
+		conn.idle.Touch()
+	}
+	return n, err
+}
+
+// Stderr returns the SSH channel stderr stream for non-TTY exec output.
+func (conn *SSHConn) Stderr() io.Writer {
+	return conn.s.Stderr()
 }
 
 // Close closes the SSH session.

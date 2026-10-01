@@ -164,7 +164,7 @@ func TestHandleSftpWorkspaceNotFound(t *testing.T) {
 func TestSessionConnWorkspaceNotFound(t *testing.T) {
 	cl := ctrlfake.NewClientBuilder().WithScheme(sshScheme(t)).Build()
 	h := &SshHandler{Client: cl}
-	err := h.SessionConn(context.Background(), &SessionInfo{
+	_, err := h.SessionConn(context.Background(), &SessionInfo{
 		userInfo: &UserInfo{Namespace: "ns", Pod: "p"},
 	})
 	testifyassert.Error(t, err)

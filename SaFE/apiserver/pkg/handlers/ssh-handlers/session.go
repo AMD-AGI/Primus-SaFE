@@ -35,11 +35,11 @@ type Pty struct {
 // Signal represents an SSH signal name.
 type Signal string
 
-// SubsystemHandler defines the function type for handling SSH subsystem requests.
-type SubsystemHandler func(Session)
+// SubsystemHandler handles an SSH subsystem request and returns the process exit status.
+type SubsystemHandler func(Session) uint32
 
-// Handler defines the function type for handling SSH sessions.
-type Handler func(Session)
+// Handler handles an SSH session and returns the process exit status reported to the client.
+type Handler func(Session) uint32
 
 // ===========================
 // ======== Constants ========
@@ -228,8 +228,7 @@ func (s *session) handleShellOrExecRequest(req *ssh.Request) {
 	_ = req.Reply(true, nil)
 
 	go func() {
-		s.handler(s)
-		_ = s.Exit(0)
+		_ = s.Exit(s.handler(s))
 	}()
 }
 
@@ -259,8 +258,7 @@ func (s *session) handleSubsystemRequest(req *ssh.Request) {
 	_ = req.Reply(true, nil)
 
 	go func() {
-		handler(s)
-		_ = s.Exit(0)
+		_ = s.Exit(handler(s))
 	}()
 }
 
