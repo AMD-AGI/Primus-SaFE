@@ -720,10 +720,28 @@ func GenerateDispatchReason(count int) string {
 }
 
 // GeneratePriorityClass generates priority class name for a workload.
+// External workloads use the provider-installed Never classes on the virtual-kubelet
+// cluster; native workloads keep the per-cluster names created by resource-manager.
 func GeneratePriorityClass(workload *v1.Workload) string {
-	clusterId := v1.GetClusterId(workload)
 	strPriority := GeneratePriority(workload.Spec.Priority)
+	if workload != nil && workload.Status.ExternalExecution != nil {
+		return ExternalPriorityClass(strPriority)
+	}
+	clusterId := v1.GetClusterId(workload)
 	return commonutils.GenerateClusterPriorityClass(clusterId, strPriority)
+}
+
+// ExternalPriorityClass maps SaFE priority to the fixed PriorityClass names on the
+// virtual-kubelet cluster.
+func ExternalPriorityClass(priority string) string {
+	switch priority {
+	case common.HighPriority:
+		return v1.ExternalPriorityClassHigh
+	case common.MedPriority:
+		return v1.ExternalPriorityClassMed
+	default:
+		return v1.ExternalPriorityClassLow
+	}
 }
 
 // GeneratePriority converts integer priority to string representation.

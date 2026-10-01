@@ -169,6 +169,12 @@ const (
 	ExternalSingleUnitKey = "master/0"
 	// ExternalWorkerUnitKeyPrefix prefixes the unit key of each worker of an RDMA gang.
 	ExternalWorkerUnitKeyPrefix = "worker/"
+	// External PriorityClasses are installed by the capacity provider on the virtual-kubelet
+	// cluster. All three use preemptionPolicy=Never. SaFE references them by these fixed
+	// names and does not create or mutate the PriorityClass objects.
+	ExternalPriorityClassHigh = "safe-exec-external-high-priority"
+	ExternalPriorityClassMed  = "safe-exec-external-med-priority"
+	ExternalPriorityClassLow  = "safe-exec-external-low-priority"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
