@@ -16,24 +16,11 @@ data:
     # Compose all plugins in one profile
     - schedulerName: {{ .Values.scheduler.name }}
       plugins:
-        multiPoint:
-          enabled:
-          - name: Coscheduling
-          - name: TopologyIPSort
-        queueSort:
-          enabled:
-          - name: TopologyIPSort
-          disabled:
-          - name: "*"
-        score:
-          enabled:
-          - name: TopologyIPSort
-          disabled:
-          - name: "*"
+        {{- toYaml .Values.profile.plugins | nindent 8 }}
+      {{- with .Values.pluginConfig }}
       pluginConfig:
-      - name: Coscheduling
-        args:
-          permitWaitingTimeSeconds: 10
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
 
   {{- /* TODO: wire CRD installation with enabled plugins. */}}
 {{- end }}

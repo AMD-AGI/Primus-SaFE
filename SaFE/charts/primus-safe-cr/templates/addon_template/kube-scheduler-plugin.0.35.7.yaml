@@ -1,0 +1,27 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "kube-scheduler-plugins.0.35.7"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: kube-scheduler-plugins.0.35.7
+spec:
+  category: plugin
+  description: Kubernetes scheduler plugin framework. 
+  url: oci://registry-1.docker.io/primussafe/scheduler-plugins
+  version: 0.35.7
+  type: helm
+  helmDefaultNamespace: kube-system
+  # Not labelled as a default addon: clusters keep installing 0.31.8 by default,
+  # and this version is installed or upgraded to explicitly. The chart's default
+  # profile is unchanged (TopologyIPSort); override profile.plugins and
+  # pluginConfig to change it, see the chart's values.yaml.
+
