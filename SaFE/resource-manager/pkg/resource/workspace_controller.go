@@ -845,36 +845,8 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		return ctrlruntime.Result{}, err
 	}
 	if v1.IsExternalWorkspace(workspace) {
-		// Capacity for an external workspace is decided by the provider's pool, not by
-		// spec.Replica. Running the scaling switch below would read the virtual nodes the
-		// provider just published as a surplus over a replica count that is deliberately
-		// left unset, and scale down would answer by clearing spec.workspace on them --
-		// taking away the capacity that was just delivered.
-		//
-		// The short requeue is what makes the observation freshness check effective. The
-		// controller's own backstop is fifteen minutes, and the events that would otherwise
-		// drive a reconcile stop arriving in exactly the case freshness exists to catch:
-		// the execution cluster becoming unreachable.
-		// Phase still has to advance. The switch below is the only place that sets it, and
-		// returning before it would leave an external workspace on whatever phase it was
-		// created with -- never Running once capacity arrives, and no way for a user to
-		// tell the difference. Idle at zero available replicas stays Running.
-		phase := v1.WorkspaceRunning
-		// External workspaces may sit at zero available replicas while idle; that is not
-		// abnormal and must not flip the phase every time capacity drains.
-		if phase != workspace.Status.Phase {
-			if err = r.updatePhase(ctx, workspace, phase); err != nil {
-				return ctrlruntime.Result{}, err
-			}
-		}
-		result := actionResult
-		if resync := commonconfig.GetExternalWorkspaceResync(); resync > 0 &&
-			(result.RequeueAfter == 0 || resync < result.RequeueAfter) {
-			result.RequeueAfter = resync
-		}
-		return result, nil
+		return r.finishExternalWorkspace(ctx, workspace, actionResult)
 	}
-
 	if workspace.Spec.NodeFlavor == "" {
 		// A workspace with no flavor does no scaling, but it can still be in the middle of
 		// handing a node over -- it is what a workspace looks like before its first node
@@ -1093,6 +1065,9 @@ func sortNodesForScalingUp(k8sNodes []*corev1.Node) {
 
 // syncWorkspace synchronizes the status of a Workspace with its bound nodes.
 func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.Workspace) error {
+	if v1.IsExternalWorkspace(workspace) {
+		return r.syncExternalWorkspace(ctx, workspace)
+	}
 	if workspace.Spec.NodeFlavor == "" {
 		if isChanged := resetWorkspaceStatus(workspace); isChanged {
 			workspace.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}

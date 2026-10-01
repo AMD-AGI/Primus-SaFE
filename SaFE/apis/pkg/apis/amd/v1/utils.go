@@ -287,15 +287,15 @@ func IsControlPlane(obj metav1.Object) bool {
 	return HasLabel(obj, KubernetesControlPlane)
 }
 
-// IsProtected checks if a resource is protected from deletion.
-func IsProtected(obj metav1.Object) bool {
-	return HasLabel(obj, ProtectLabel)
-}
-
 // IsExternalWorkspace reports whether the workspace draws capacity from an external
 // execution provider. The label must be set to "true"; any other value is native.
 func IsExternalWorkspace(obj metav1.Object) bool {
 	return GetLabel(obj, WorkspaceExternalLabel) == TrueStr
+}
+
+// IsProtected checks if a resource is protected from deletion.
+func IsProtected(obj metav1.Object) bool {
+	return HasLabel(obj, ProtectLabel)
 }
 
 // GetUserName retrieves the username annotation from a resource.
