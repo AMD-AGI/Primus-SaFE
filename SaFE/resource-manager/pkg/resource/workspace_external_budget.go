@@ -38,7 +38,7 @@ const (
 )
 
 // syncExternalWorkspace sets the capacity of an external workspace from the ResourceQuota
-// named v1.WorkspaceBudgetQuotaName in the workspace's namespace on its data-plane cluster.
+// named v1.ExternalBudgetQuotaName in the workspace's namespace on its data-plane cluster.
 //
 // An external workspace has no nodes of its own to add up: its capacity is supplied on demand,
 // so a sum over the nodes it holds is zero whenever nothing is running, and the queue would
@@ -65,7 +65,7 @@ func (r *WorkspaceReconciler) syncExternalWorkspace(ctx context.Context, workspa
 	if budget == nil {
 		message := fmt.Sprintf("no ResourceQuota %q in namespace %q on cluster %q; "+
 			"the workspace budget is treated as zero and nothing will be dispatched",
-			v1.WorkspaceBudgetQuotaName, workspace.Name, workspace.Spec.Cluster)
+			v1.ExternalBudgetQuotaName, workspace.Name, workspace.Spec.Cluster)
 		klog.Warningf("workspace %s: %s", workspace.Name, message)
 		if r.recorder != nil {
 			r.recorder.Event(workspace, corev1.EventTypeWarning, ExternalBudgetMissingReason, message)
@@ -105,12 +105,12 @@ func (r *WorkspaceReconciler) syncExternalWorkspace(ctx context.Context, workspa
 // readExternalBudget returns the budget quota's spec.hard as workspace resource names, or nil
 // when the quota does not exist.
 func readExternalBudget(ctx context.Context, clientSet kubernetes.Interface, namespace string) (corev1.ResourceList, error) {
-	quota, err := clientSet.CoreV1().ResourceQuotas(namespace).Get(ctx, v1.WorkspaceBudgetQuotaName, metav1.GetOptions{})
+	quota, err := clientSet.CoreV1().ResourceQuotas(namespace).Get(ctx, v1.ExternalBudgetQuotaName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to read ResourceQuota %s/%s: %w", namespace, v1.WorkspaceBudgetQuotaName, err)
+		return nil, fmt.Errorf("failed to read ResourceQuota %s/%s: %w", namespace, v1.ExternalBudgetQuotaName, err)
 	}
 	return quotaHardToResources(quota.Spec.Hard), nil
 }

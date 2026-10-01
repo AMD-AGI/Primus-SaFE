@@ -42,7 +42,7 @@ func qty(list corev1.ResourceList, name corev1.ResourceName) string {
 
 func budgetQuota(namespace string, hard, used corev1.ResourceList) *corev1.ResourceQuota {
 	return &corev1.ResourceQuota{
-		ObjectMeta: metav1.ObjectMeta{Name: v1.WorkspaceBudgetQuotaName, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: v1.ExternalBudgetQuotaName, Namespace: namespace},
 		Spec:       corev1.ResourceQuotaSpec{Hard: hard},
 		Status:     corev1.ResourceQuotaStatus{Hard: hard, Used: used},
 	}
@@ -73,6 +73,12 @@ func newExternalReconciler(t *testing.T, cluster string, dataPlane *k8sfake.Clie
 		context.Background(), cluster, dataPlane))
 	t.Cleanup(func() { _ = r.clientManager.Delete(cluster) })
 	return &r, cli, recorder
+}
+
+// The quota name is a contract with the capacity supplier, which knows namespaces but not
+// workspaces. Pinned as a literal so a rename of the constant cannot pass unnoticed.
+func TestExternalBudgetQuotaName(t *testing.T) {
+	assert.Equal(t, v1.ExternalBudgetQuotaName, "external-budget")
 }
 
 func TestIsExternalWorkspace(t *testing.T) {
@@ -174,7 +180,7 @@ func TestSyncExternalWorkspaceWithoutQuotaIsZero(t *testing.T) {
 	assert.Equal(t, len(recorder.Events), 1)
 	event := <-recorder.Events
 	assert.Assert(t, strings.Contains(event, ExternalBudgetMissingReason), event)
-	assert.Assert(t, strings.Contains(event, v1.WorkspaceBudgetQuotaName), event)
+	assert.Assert(t, strings.Contains(event, v1.ExternalBudgetQuotaName), event)
 	assert.Assert(t, strings.Contains(event, workspace.Name), event)
 }
 
@@ -189,7 +195,7 @@ func TestSyncExternalWorkspaceReadErrorKeepsStatus(t *testing.T) {
 	dataPlane.PrependReactor("get", "resourcequotas",
 		func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, nil, apierrors.NewForbidden(
-				schema.GroupResource{Resource: "resourcequotas"}, v1.WorkspaceBudgetQuotaName, nil)
+				schema.GroupResource{Resource: "resourcequotas"}, v1.ExternalBudgetQuotaName, nil)
 		})
 	r, cli, recorder := newExternalReconciler(t, cluster, dataPlane, workspace)
 
