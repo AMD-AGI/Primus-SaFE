@@ -844,6 +844,9 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	if err = r.syncWorkspace(ctx, workspace); err != nil {
 		return ctrlruntime.Result{}, err
 	}
+	if v1.IsExternalWorkspace(workspace) {
+		return r.finishExternalWorkspace(ctx, workspace, actionResult)
+	}
 	if workspace.Spec.NodeFlavor == "" {
 		// A workspace with no flavor does no scaling, but it can still be in the middle of
 		// handing a node over -- it is what a workspace looks like before its first node
@@ -1056,6 +1059,9 @@ func sortNodesForScalingUp(k8sNodes []*corev1.Node) {
 
 // syncWorkspace synchronizes the status of a Workspace with its bound nodes.
 func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.Workspace) error {
+	if v1.IsExternalWorkspace(workspace) {
+		return r.syncExternalWorkspace(ctx, workspace)
+	}
 	if workspace.Spec.NodeFlavor == "" {
 		if isChanged := resetWorkspaceStatus(workspace); isChanged {
 			workspace.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}

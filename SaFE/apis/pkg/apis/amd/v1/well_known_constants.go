@@ -111,11 +111,19 @@ const (
 	NodeFlavorIdLabel = NodeFlavorPrefix + "id"
 
 	// workspace
-	WorkspacePrefix       = PrimusSafePrefix + "workspace."
-	WorkspaceFinalizer    = PrimusSafeDomain + "workspace.finalizer"
-	WorkspaceIdLabel      = WorkspacePrefix + "id"
-	WorkspaceNodesAction  = WorkspacePrefix + "nodes.action"
-	WorkspaceForcedAction = WorkspacePrefix + "forced.action"
+	WorkspacePrefix    = PrimusSafePrefix + "workspace."
+	WorkspaceFinalizer = PrimusSafeDomain + "workspace.finalizer"
+	WorkspaceIdLabel   = WorkspacePrefix + "id"
+	// WorkspaceExternalLabel marks a workspace whose capacity is supplied by an external
+	// execution provider rather than by managed physical nodes. The value "true" selects the
+	// external path; any other value is native.
+	WorkspaceExternalLabel = WorkspacePrefix + "external"
+	// WorkspaceBudgetQuotaName is the ResourceQuota, in the workspace's own namespace on its
+	// data-plane cluster, whose spec.hard is the capacity budget of an external workspace. It
+	// is maintained by whoever supplies the capacity; SaFE only reads it.
+	WorkspaceBudgetQuotaName = "workspace-budget"
+	WorkspaceNodesAction     = WorkspacePrefix + "nodes.action"
+	WorkspaceForcedAction    = WorkspacePrefix + "forced.action"
 	// WorkspaceNodesActionError carries why entries of a nodes.action request were
 	// dropped instead of applied. Written by the controller when it gives up on a request that
 	// cannot succeed on a retry, cleared by the mutating webhook when the next request is
