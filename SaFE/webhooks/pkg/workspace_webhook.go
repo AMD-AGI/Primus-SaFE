@@ -29,6 +29,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
@@ -644,9 +645,13 @@ func (m *WorkspaceMutator) mutateWorkloadsOfWorkspace(ctx context.Context, works
 	if err != nil {
 		return err
 	}
+	// Same rule as on workload admission: an external workspace never carries the mark, so
+	// turning the setting on later cannot start preempting work whose capacity the provider
+	// has not confirmed released.
+	enablePreempt := workspace.Spec.EnablePreempt && !v1.IsExternalWorkspace(workspace)
 	for _, w := range workloads {
 		isChanged := false
-		if workspace.Spec.EnablePreempt {
+		if enablePreempt {
 			if v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr) {
 				isChanged = true
 			}
@@ -800,6 +805,9 @@ func (v *WorkspaceValidator) Handle(ctx context.Context, req admission.Request) 
 
 // validateOnCreation validates workspace required params, volumes and related resources on creation.
 func (v *WorkspaceValidator) validateOnCreation(ctx context.Context, workspace *v1.Workspace) error {
+	if v1.IsExternalWorkspace(workspace) && !commonconfig.IsExternalExecutionEnable() {
+		return commonerrors.NewForbidden("external execution is not enabled in this deployment")
+	}
 	if err := v.validateCommon(ctx, workspace, nil); err != nil {
 		return err
 	}
@@ -986,6 +994,13 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 func (v *WorkspaceValidator) validateImmutableFields(newWorkspace, oldWorkspace *v1.Workspace) error {
 	if newWorkspace.Spec.Cluster != "" && newWorkspace.Spec.Cluster != oldWorkspace.Spec.Cluster {
 		return field.Forbidden(field.NewPath("spec").Key("cluster"), "immutable")
+	}
+	// The label decides queue admission, scaling and node lifecycle. Flipping it under a
+	// live workspace would change all three at once for workloads already admitted under
+	// the old semantics, and would strand nodes bound by the mode being left behind.
+	if v1.IsExternalWorkspace(newWorkspace) != v1.IsExternalWorkspace(oldWorkspace) {
+		return field.Forbidden(field.NewPath("metadata").Key("labels").
+			Key(v1.WorkspaceExternalLabel), "immutable")
 	}
 	return nil
 }

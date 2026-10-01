@@ -148,6 +148,17 @@ spec:
       priorityClassName: system-cluster-critical
       restartPolicy: Always
       schedulerName: default-scheduler
+      # External virtual kubelets have no host to probe. hostPID/privileged mounts would
+      # target the VK pod's view, not a machine, so never schedule the agent there.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: type
+                    operator: NotIn
+                    values:
+                      - virtual-kubelet
       tolerations:
         - effect: NoSchedule
           operator: Exists

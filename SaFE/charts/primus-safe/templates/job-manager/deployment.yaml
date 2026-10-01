@@ -62,6 +62,11 @@ spec:
             - name: server-config
               mountPath: /opt/primus-safe/job-manager/config
               readOnly: true
+            {{- if and (default dict .Values.external_execution).enabled (default dict .Values.external_execution).controller_secret }}
+            - name: external-execution-secret
+              mountPath: {{ default "/etc/secrets/external-execution" (default dict .Values.external_execution).controller_secret_path }}
+              readOnly: true
+            {{- end }}
             {{- if .Values.ssh.enable }}
             - name: ssh-proxy
               mountPath: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
@@ -112,6 +117,11 @@ spec:
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-job-manager
+        {{- if and (default dict .Values.external_execution).enabled (default dict .Values.external_execution).controller_secret }}
+        - name: external-execution-secret
+          secret:
+            secretName: {{ (default dict .Values.external_execution).controller_secret }}
+        {{- end }}
         {{- if .Values.ssh.enable }}
         - name: ssh-proxy
           secret:
@@ -130,6 +140,10 @@ spec:
       {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:
         - name: {{ .Values.global.image_pull_secret }}
+      {{- end }}
+      {{- with (default .Values.job_manager).hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
       {{- end }}
       terminationGracePeriodSeconds: 10
       priorityClassName: system-cluster-critical

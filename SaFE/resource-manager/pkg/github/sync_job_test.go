@@ -15,8 +15,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	corev1 "k8s.io/api/core/v1"
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	corev1 "k8s.io/api/core/v1"
 )
 
 func TestNewSyncJobDefaults(t *testing.T) {

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -136,6 +137,55 @@ func initializeObject(obj *unstructured.Unstructured,
 	if err = modifyTolerations(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
+	if isExternalWorkload(workload) {
+		// The task runs on hardware the provider owns, reached over a protocol that carries
+		// its own identity. A projected service account token would put a credential for
+		// the execution cluster inside it for no purpose the task has.
+		path = podSpecPath(workload, resourceSpec, "automountServiceAccountToken")
+		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
+			return fmt.Errorf("failed to disable service account token: %v", err.Error())
+		}
+		// Host namespaces are node privileges the provider refuses, except the host network
+		// of a whole-node RDMA gang member. Set them here so earlier modifyHostNetwork (and
+		// later modifyHostPid) cannot leak.
+		path = podSpecPath(workload, resourceSpec, "hostNetwork")
+		if err = jobutils.SetNestedField(obj.Object, isExternalGang(workload), path); err != nil {
+			return fmt.Errorf("failed to disable host network for external: %v", err.Error())
+		}
+		path = podSpecPath(workload, resourceSpec, "hostPID")
+		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
+			return fmt.Errorf("failed to disable host PID for external: %v", err.Error())
+		}
+		path = podSpecPath(workload, resourceSpec, "hostIPC")
+		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
+			return fmt.Errorf("failed to disable host IPC for external: %v", err.Error())
+		}
+		// Do not set podSpec.preemptionPolicy. The PriorityClass admission controller
+		// derives PreemptLowerPriority from the class name and refuses an explicit Never
+		// ("must not be provided in pod spec"). External workloads already skip preemption
+		// in the scheduler; leaving the field unset is enough for admission.
+		if err = applyExternalVirtualKubeletToleration(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalContainerSecurity(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalVolumePolicy(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalEnvRewrite(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalCommEnv(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalNodePin(obj, workload, *resourceSpec, resourceId); err != nil {
+			return err
+		}
+		if err = validateExternalPodShape(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+	}
 	if commonworkload.IsApplication(workload) {
 		path = []string{"spec", "strategy"}
 		if err = modifyStrategy(obj, workload, path); err != nil {
@@ -146,8 +196,12 @@ func initializeObject(obj *unstructured.Unstructured,
 			return fmt.Errorf("failed to modify selector: %v", err.Error())
 		}
 	}
-	if err = modifyHostPid(obj, workload, resourceSpec); err != nil {
-		return fmt.Errorf("failed to modify by opsjob: %v", err.Error())
+	// External pods must not gain hostPID/hostIPC from privileged workloads; the
+	// external block already forced both false above.
+	if !isExternalWorkload(workload) {
+		if err = modifyHostPid(obj, workload, resourceSpec); err != nil {
+			return fmt.Errorf("failed to modify by opsjob: %v", err.Error())
+		}
 	}
 	return nil
 }
@@ -168,14 +222,22 @@ func modifyRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wor
 		expressions["matchExpressions"] = expression
 		nodeSelectorTerms = append(nodeSelectorTerms, expressions)
 	} else {
-		matchExpressions := nodeSelectorTerms[0].(map[string]interface{})
-		objs, ok := matchExpressions["matchExpressions"]
-		if ok {
-			expressions := objs.([]interface{})
-			expressions = append(expressions, expression...)
-			matchExpressions["matchExpressions"] = expressions
-		} else {
-			matchExpressions["matchExpressions"] = []interface{}{expression}
+		// Terms are ORed. External workloads must satisfy the constraint in every term,
+		// or a template term without it would reach nodes outside the reservation.
+		last := 0
+		if isExternalWorkload(workload) {
+			last = len(nodeSelectorTerms) - 1
+		}
+		for i := 0; i <= last; i++ {
+			matchExpressions := nodeSelectorTerms[i].(map[string]interface{})
+			objs, ok := matchExpressions["matchExpressions"]
+			if ok {
+				expressions := objs.([]interface{})
+				expressions = append(expressions, expression...)
+				matchExpressions["matchExpressions"] = expressions
+			} else {
+				matchExpressions["matchExpressions"] = append([]interface{}{}, expression...)
+			}
 		}
 	}
 	if err = jobutils.SetNestedField(obj.Object, nodeSelectorTerms, path); err != nil {
@@ -191,24 +253,31 @@ const dispatchNodeReadTimeout = 5 * time.Second
 // platformKeyReadTimeout bounds the best-effort DB read for user platform keys.
 const platformKeyReadTimeout = 5 * time.Second
 
+// platformKeyDeps are the DB reads used by platformKeyForUser. Tests replace them by assignment.
+var (
+	platformDBEnabled = commonconfig.IsDBEnable
+	platformDBClient  = dbclient.NewClient
+	platformKeyLookup = apikey.GetOrCreatePlatformKey
+)
+
 // platformKeyForUser returns the plaintext platform API key for the workload owner.
 // Best-effort: returns empty string when DB is disabled, the client is unavailable,
 // or lookup/creation fails.
 func platformKeyForUser(workload *v1.Workload) string {
-	if !commonconfig.IsDBEnable() {
+	if !platformDBEnabled() {
 		return ""
 	}
 	userId := v1.GetUserId(workload)
 	if userId == "" {
 		return ""
 	}
-	db := dbclient.NewClient()
+	db := platformDBClient()
 	if db == nil {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), platformKeyReadTimeout)
 	defer cancel()
-	key, err := apikey.GetOrCreatePlatformKey(ctx, db, userId, v1.GetUserName(workload))
+	key, err := platformKeyLookup(ctx, db, userId, v1.GetUserName(workload))
 	if err != nil {
 		klog.ErrorS(err, "failed to get/create platform key for workload env",
 			"userId", userId, "workload", workload.Name)
@@ -451,8 +520,11 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 				maxId = vol.Id
 			}
 			if vol.MountPath != "" {
+				// External pods mount the approved root without subPath; USER_DATA_PATH
+				// still points at the per-user directory for the program.
+				enableUserDir := vol.EnableUserDir && !isExternalWorkload(workload)
 				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath,
-					v1.GetUserId(workload), readonly, vol.EnableUserDir)
+					v1.GetUserId(workload), readonly, enableUserDir)
 				volumeMounts = append(volumeMounts, volumeMount)
 			}
 		}
@@ -901,6 +973,9 @@ func buildObjectAnnotations(workload *v1.Workload) map[string]interface{} {
 	if v1.GetUserName(workload) != "" {
 		result[v1.UserNameAnnotation] = v1.GetUserName(workload)
 	}
+	if account := v1.GetUserAccount(workload); account != "" {
+		result[v1.UserAccountAnnotation] = account
+	}
 	return result
 }
 
@@ -908,6 +983,9 @@ func buildObjectAnnotations(workload *v1.Workload) map[string]interface{} {
 func buildPodLabels(workload *v1.Workload) map[string]interface{} {
 	result := buildObjectLabels(workload)
 	result[v1.K8sObjectIdLabel] = workload.Name
+	if isExternalWorkload(workload) {
+		result[v1.ExternalExecutionLabel] = v1.TrueStr
+	}
 	return result
 }
 
@@ -918,6 +996,11 @@ func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]inter
 	mainContainerName := commonworkload.GetMainContainer(workload, workload.SpecKind(), resourceId)
 	if mainContainerName != "" {
 		result[v1.MainContainerAnnotation] = mainContainerName
+	}
+	// Carries the claim identity to the execution cluster, where the provider rechecks it
+	// against the reservation after the pod binds.
+	for key, value := range externalPodAnnotations(workload, v1.ExternalSingleUnitKey) {
+		result[key] = value
 	}
 	return result
 }
@@ -942,7 +1025,9 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resources[resourceId].GPU)
 	}
 
-	if workload.Spec.IsSupervised {
+	// The hang check reads the kubelet pod log layout under /var/log, which external pods
+	// do not have; supervising them would report healthy jobs as hung.
+	if workload.Spec.IsSupervised && !isExternalWorkload(workload) {
 		result = addEnvVar(result, workload, "ENABLE_SUPERVISE", v1.TrueStr)
 		if commonconfig.GetWorkloadHangCheckInterval() > 0 {
 			result = addEnvVar(result, workload, "HANG_CHECK_INTERVAL",
@@ -1077,7 +1162,9 @@ func buildSecretVolume(secretName string) interface{} {
 // buildRequiredMatchExpression creates node selector match expressions based on workload specifications.
 func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 	var result []interface{}
-	if workload.Spec.Workspace != corev1.NamespaceDefault {
+	// Virtual nodes do not carry the SaFE workspace label; external pods are confined by
+	// the provider-approved hostnames below.
+	if workload.Spec.Workspace != corev1.NamespaceDefault && !isExternalWorkload(workload) {
 		result = append(result, map[string]interface{}{
 			"key":      v1.WorkspaceIdLabel,
 			"operator": "In",
@@ -1085,6 +1172,13 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 		})
 	}
 	for key, val := range workload.Spec.CustomerLabels {
+		// User node names AND the provider-approved hostname in one term. The intersection
+		// is empty whenever the user did not name the virtual node, and the pod then stays
+		// Pending while the claim keeps charging. The approved set below is the only
+		// hostname constraint an external pod may carry.
+		if isExternalWorkload(workload) && isHostNodeConstraint(key) {
+			continue
+		}
 		var values []interface{}
 		parts := strings.Fields(val)
 		for i := range parts {
@@ -1107,7 +1201,29 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 			"values":   values,
 		})
 	}
+	// Confine the pod to the virtual nodes the provider approved for this claim. Required
+	// affinity rather than spec.nodeName: the execution cluster scheduler must still do the
+	// binding, and the provider verifies that actual binding before it starts the task.
+	// User hostname constraints are omitted above so they cannot AND with this set.
+	// The provider's VK admission also pins on matchFields metadata.name
+	// (applied in applyExternalNodePin).
+	if nodes := externalApprovedNodes(workload); len(nodes) > 0 {
+		values := make([]interface{}, 0, len(nodes))
+		for i := range nodes {
+			values = append(values, nodes[i])
+		}
+		result = append(result, map[string]interface{}{
+			"key":      v1.K8sHostName,
+			"operator": "In",
+			"values":   values,
+		})
+	}
 	return result
+}
+
+// isHostNodeConstraint reports customer labels that select or exclude nodes by hostname.
+func isHostNodeConstraint(key string) bool {
+	return key == common.ExcludedNodes || key == v1.K8sHostName || key == common.SpecifiedNodes
 }
 
 // buildSharedMemoryVolume creates an emptyDir volume with memory medium for shared memory.
@@ -2690,6 +2806,23 @@ func updateContainers(adminWorkload *v1.Workload,
 	for key, val := range resourceList {
 		resources[string(key)] = val.String()
 	}
+	// The reservation was granted against the provider's approved vector. Using the
+	// workload request instead would let a rounded or padded Spec disagree with the
+	// claim, and VK admission refuses anything that is not an exact match.
+	if isExternalWorkload(adminWorkload) {
+		approved, approvedErr := externalApprovedResourceMap(adminWorkload, externalRoleUnitKey(adminWorkload, id))
+		if approvedErr != nil {
+			return approvedErr
+		}
+		if approved != nil {
+			resources = approved
+		}
+		// The approved vector has no RDMA field; a gang member receives the node's RDMA
+		// devices by requesting them.
+		if name := commonconfig.GetRdmaName(); name != "" && isExternalGang(adminWorkload) && res.RdmaResource != "" {
+			resources[name] = res.RdmaResource
+		}
+	}
 
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
@@ -2702,6 +2835,13 @@ func updateContainers(adminWorkload *v1.Workload,
 		if name == mainContainerName {
 			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
 				container["image"] = adminWorkload.Spec.Images[id]
+			}
+			// The reservation was granted against the digest the provider resolved at claim
+			// time, not against the tag the user submitted. Using the tag here would let a
+			// moved tag run content nothing was admitted for, and the provider would refuse
+			// the task after the pod had already bound.
+			if approved := externalApprovedImage(adminWorkload, externalRoleUnitKey(adminWorkload, id)); approved != "" {
+				container["image"] = approved
 			}
 			// expectedCommands, not buildCommands: an IDEP command carries the
 			// disaggregation and multi-node flags normalizeInferaIDEP grafts on
@@ -2865,6 +3005,10 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, resourceId int) error {
 	path := podSpecPath(adminWorkload, &resourceSpec, "hostNetwork")
+	if isExternalWorkload(adminWorkload) {
+		// Only a gang member may use the host network on external capacity.
+		return jobutils.SetNestedField(obj.Object, isExternalGang(adminWorkload), path)
+	}
 	return modifyHostNetwork(obj, adminWorkload, path, resourceId)
 }
 
@@ -2887,6 +3031,410 @@ func getContainers(adminWorkload *v1.Workload, obj *unstructured.Unstructured, r
 		return nil, nil, fmt.Errorf("failed to find container with path: %v", path)
 	}
 	return containers, path, nil
+}
+
+// validateExternalPodShape refuses pod shapes the provider's VK cannot admit.
+// Init containers are allowed (run in order before main); ephemeral containers are not.
+func validateExternalPodShape(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	containers, _, err := getContainers(workload, obj, resourceSpec)
+	if err != nil {
+		return err
+	}
+	// The claim approves one resource vector for the unit, and devices cannot be split
+	// across containers, so only the main container can carry it.
+	if len(containers) != 1 {
+		return fmt.Errorf("external capacity requires exactly one container, got %d", len(containers))
+	}
+	ephemeralPath := podSpecPath(workload, &resourceSpec, "ephemeralContainers")
+	if eps, found, _ := jobutils.NestedSlice(obj.Object, ephemeralPath); found && len(eps) > 0 {
+		return fmt.Errorf("external capacity does not support ephemeral containers")
+	}
+	return nil
+}
+
+// applyExternalContainerSecurity forces the privilege posture the provider measures
+// under: no privilege escalation, no privileged bit, no added capabilities. Applied to
+// main and init containers on the external path only. Container-level runAsUser/runAsGroup
+// are cleared so the provider can fill identity from primus-safe.user.account; init
+// keeps no runAs so preprocess stays on its image default user.
+// Init capabilities must still be stripped: IPC_LOCK on init is refused as
+// UnapprovedPodShape.
+func applyExternalContainerSecurity(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	if err := stripExternalContainerPrivileges(obj, workload, resourceSpec, "containers"); err != nil {
+		return err
+	}
+	return stripExternalContainerPrivileges(obj, workload, resourceSpec, "initContainers")
+}
+
+// stripExternalContainerPrivileges clears privileged bits and added capabilities on the
+// named container list. Missing lists are a no-op.
+func stripExternalContainerPrivileges(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec, field string) error {
+	path := podSpecPath(workload, &resourceSpec, field)
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	if !found || len(containers) == 0 {
+		return nil
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		sc, _ := container["securityContext"].(map[string]interface{})
+		if sc == nil {
+			sc = map[string]interface{}{}
+		}
+		sc["allowPrivilegeEscalation"] = false
+		sc["privileged"] = false
+		delete(sc, "runAsUser")
+		delete(sc, "runAsGroup")
+		if caps, _ := sc["capabilities"].(map[string]interface{}); caps != nil {
+			delete(caps, "add")
+			if len(caps) == 0 {
+				delete(sc, "capabilities")
+			} else {
+				sc["capabilities"] = caps
+			}
+		}
+		container["securityContext"] = sc
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+// applyExternalVirtualKubeletToleration adds a toleration for the provider's virtual-node
+// taint so kube-scheduler can place the pod on an external VK.
+func applyExternalVirtualKubeletToleration(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	path := podSpecPath(workload, &resourceSpec, "tolerations")
+	tolerations, _, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	for _, raw := range tolerations {
+		t, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t["key"] == v1.ExternalVirtualKubeletTaint {
+			return nil
+		}
+	}
+	tolerations = append(tolerations, map[string]interface{}{
+		"key":      v1.ExternalVirtualKubeletTaint,
+		"operator": "Exists",
+		"effect":   "NoSchedule",
+	})
+	return jobutils.SetNestedField(obj.Object, tolerations, path)
+}
+
+// applyExternalVolumePolicy rewrites volumes/mounts the provider refuses without changing
+// stock templates: /var/log hostPath becomes emptyDir, and enableUserDir subPath mounts
+// are flattened to the volume root (USER_DATA_PATH still points at the user directory).
+func applyExternalVolumePolicy(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	volPath := podSpecPath(workload, &resourceSpec, "volumes")
+	volumes, found, err := jobutils.NestedSlice(obj.Object, volPath)
+	if err != nil {
+		return err
+	}
+	hostPathByName := map[string]string{}
+	if found {
+		for i := range volumes {
+			vol, ok := volumes[i].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, _ := vol["name"].(string)
+			if hp, _ := vol["hostPath"].(map[string]interface{}); hp != nil {
+				p, _ := hp["path"].(string)
+				if p == "/var/log" || strings.HasPrefix(p, "/var/log/") {
+					delete(vol, "hostPath")
+					vol["emptyDir"] = map[string]interface{}{}
+					continue
+				}
+				if name != "" {
+					hostPathByName[name] = p
+				}
+			}
+		}
+		if err = jobutils.SetNestedField(obj.Object, volumes, volPath); err != nil {
+			return err
+		}
+	}
+	if err = stripExternalVolumeMountSubPaths(obj, workload, resourceSpec, "containers", hostPathByName); err != nil {
+		return err
+	}
+	return stripExternalVolumeMountSubPaths(obj, workload, resourceSpec, "initContainers", hostPathByName)
+}
+
+// stripExternalVolumeMountSubPaths removes subPath/subPathExpr the provider refuses on
+// approved roots. When a mount used enableUserDir (mountPath ended under the host root),
+// the mountPath is reset to that hostPath root.
+func stripExternalVolumeMountSubPaths(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec, field string, hostPathByName map[string]string) error {
+	path := podSpecPath(workload, &resourceSpec, field)
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	if !found || len(containers) == 0 {
+		return nil
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		mounts, _ := container["volumeMounts"].([]interface{})
+		if len(mounts) == 0 {
+			continue
+		}
+		for j := range mounts {
+			m, ok := mounts[j].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if _, has := m["subPath"]; !has {
+				if _, hasExpr := m["subPathExpr"]; !hasExpr {
+					continue
+				}
+			}
+			delete(m, "subPath")
+			delete(m, "subPathExpr")
+			name, _ := m["name"].(string)
+			if root := hostPathByName[name]; root != "" {
+				m["mountPath"] = root
+			}
+		}
+		container["volumeMounts"] = mounts
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+// applyExternalEnvRewrite replaces control-plane Service DNS names that cannot resolve
+// on the cluster hosting virtual nodes. In-cluster URLs keep their path/query; the host
+// is swapped to the public control-plane base. WORKLOAD_MANAGER_URL is left unchanged:
+// agent-sandbox runs on the execution cluster, so its Service DNS must stay local.
+func applyExternalEnvRewrite(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	base := externalControlPlaneBaseURL()
+	if base == "" {
+		return nil
+	}
+	if err := rewriteExternalContainerEnvs(obj, workload, resourceSpec, "containers", base); err != nil {
+		return err
+	}
+	return rewriteExternalContainerEnvs(obj, workload, resourceSpec, "initContainers", base)
+}
+
+// externalSiteCommEnvs are fabric settings a gang member takes from the node's site
+// configuration rather than from the SaFE templates.
+var externalSiteCommEnvs = []string{
+	"NCCL_SOCKET_IFNAME", "GLOO_SOCKET_IFNAME", "NCCL_IB_HCA", "NCCL_IB_GID_INDEX",
+	"NCCL_IB_QPS_PER_CONNECTION", "NCCL_CROSS_NIC", "NCCL_IB_SL",
+}
+
+// applyExternalCommEnv adjusts collective-communication env on external main containers:
+// a gang drops externalSiteCommEnvs so the node's site configuration applies, and every
+// external pod gets a permissive git safe.directory. Env from the workload spec is applied
+// afterwards and still takes effect.
+func applyExternalCommEnv(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	if !isExternalWorkload(workload) {
+		return nil
+	}
+	path := podSpecPath(workload, &resourceSpec, "containers")
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil || !found {
+		return err
+	}
+	gang := isExternalGang(workload)
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		envs, _ := container["env"].([]interface{})
+		kept := make([]interface{}, 0, len(envs)+3)
+		hasGitCount, hasGitKey, hasGitValue := false, false, false
+		for _, raw := range envs {
+			env, _ := raw.(map[string]interface{})
+			name, _ := env["name"].(string)
+			if gang && slices.Contains(externalSiteCommEnvs, name) {
+				continue
+			}
+			switch name {
+			case "GIT_CONFIG_COUNT":
+				hasGitCount = true
+			case "GIT_CONFIG_KEY_0":
+				hasGitKey = true
+			case "GIT_CONFIG_VALUE_0":
+				hasGitValue = true
+			}
+			kept = append(kept, raw)
+		}
+		if !hasGitCount {
+			kept = append(kept, map[string]interface{}{"name": "GIT_CONFIG_COUNT", "value": "1"})
+		}
+		if !hasGitKey {
+			kept = append(kept, map[string]interface{}{"name": "GIT_CONFIG_KEY_0", "value": "safe.directory"})
+		}
+		if !hasGitValue {
+			kept = append(kept, map[string]interface{}{"name": "GIT_CONFIG_VALUE_0", "value": "*"})
+		}
+		container["env"] = kept
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+// externalControlPlaneBaseURL builds https://<sub_domain>.<domain> from global config.
+func externalControlPlaneBaseURL() string {
+	host := strings.TrimSpace(commonconfig.GetSystemHost())
+	if host == "" {
+		return ""
+	}
+	return "https://" + host
+}
+
+// rewriteExternalContainerEnvs rewrites in-cluster Service URLs on the named container list.
+func rewriteExternalContainerEnvs(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec, field, base string) error {
+	path := podSpecPath(workload, &resourceSpec, field)
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	if !found || len(containers) == 0 {
+		return nil
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		envs, _ := container["env"].([]interface{})
+		if len(envs) == 0 {
+			continue
+		}
+		for j := range envs {
+			env, ok := envs[j].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, _ := env["name"].(string)
+			val, _ := env["value"].(string)
+			if val == "" || !strings.Contains(val, ".svc.cluster.local") {
+				continue
+			}
+			// Sandbox talks to the workload manager in the execution cluster.
+			if name == "WORKLOAD_MANAGER_URL" {
+				continue
+			}
+			env["value"] = rewriteClusterLocalURL(val, base)
+		}
+		container["env"] = envs
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+// rewriteClusterLocalURL swaps the host of an in-cluster Service URL for the public base.
+func rewriteClusterLocalURL(raw, base string) string {
+	// Keep path/query when present; drop the internal Service host and port.
+	if idx := strings.Index(raw, "://"); idx >= 0 {
+		rest := raw[idx+3:]
+		if slash := strings.Index(rest, "/"); slash >= 0 {
+			return strings.TrimRight(base, "/") + rest[slash:]
+		}
+	}
+	return base
+}
+
+// applyExternalNodePin writes required matchFields metadata.name so the provider's
+// VK can verify the unit is constrained to the approved virtual node of its role.
+func applyExternalNodePin(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec, resourceId int) error {
+	nodes := externalRoleNodes(workload, resourceId)
+	if len(nodes) == 0 {
+		return nil
+	}
+	path := podSpecPath(workload, &resourceSpec, "affinity", "nodeAffinity",
+		"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	terms, _, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	// Terms are ORed, so the pin has to be in every one of them; a single unpinned term
+	// would let the pod land on any node it matches. Existing matchFields are kept and
+	// ANDed with the pin. A metadata.name selector takes exactly one value, so each
+	// approved node gets its own copy of every term.
+	if len(terms) == 0 {
+		terms = []interface{}{map[string]interface{}{}}
+	}
+	pinned := make([]interface{}, 0, len(terms)*len(nodes))
+	for i := range terms {
+		term, ok := terms[i].(map[string]interface{})
+		if !ok {
+			term = map[string]interface{}{}
+		}
+		fields, _ := term["matchFields"].([]interface{})
+		for _, node := range nodes {
+			copied := make(map[string]interface{}, len(term)+1)
+			for k, v := range term {
+				copied[k] = v
+			}
+			copied["matchFields"] = append(append([]interface{}{}, fields...), map[string]interface{}{
+				"key":      "metadata.name",
+				"operator": "In",
+				"values":   []interface{}{node},
+			})
+			pinned = append(pinned, copied)
+		}
+	}
+	return jobutils.SetNestedField(obj.Object, pinned, path)
+}
+
+// externalApprovedResourceMap turns the claim's approved ResourceVector into the
+// requests=limits map written onto the pod. Only resources the claim named appear.
+// Values come from status placements persisted at acceptClaim time so dispatch does
+// not re-fetch the claim after verifyExternalClaim.
+func externalApprovedResourceMap(workload *v1.Workload, unitKey string) (map[string]interface{}, error) {
+	state := workload.Status.ExternalExecution
+	if state == nil {
+		return nil, fmt.Errorf("workload %s has no external claim for resource binding", workload.Name)
+	}
+	var placement *v1.WorkloadExternalPlacement
+	for i := range state.Placements {
+		if state.Placements[i].UnitKey == unitKey {
+			placement = &state.Placements[i]
+			break
+		}
+	}
+	if placement == nil {
+		return nil, fmt.Errorf("workload %s has no external placement for unit %s", workload.Name, unitKey)
+	}
+	resources := map[string]interface{}{}
+	if placement.CPUMillis > 0 {
+		resources[string(corev1.ResourceCPU)] = fmt.Sprintf("%dm", placement.CPUMillis)
+	}
+	if placement.MemoryBytes > 0 {
+		resources[string(corev1.ResourceMemory)] = fmt.Sprintf("%d", placement.MemoryBytes)
+	}
+	if placement.ScratchBytes > 0 {
+		resources[string(corev1.ResourceEphemeralStorage)] = fmt.Sprintf("%d", placement.ScratchBytes)
+	}
+	if placement.GPUCount > 0 && placement.GPUResource != "" {
+		resources[placement.GPUResource] = strconv.Itoa(int(placement.GPUCount))
+	}
+	if len(resources) == 0 {
+		return nil, fmt.Errorf("workload %s placement for unit %s approved no resources",
+			workload.Name, unitKey)
+	}
+	return resources, nil
 }
 
 // getNfsPathFromWorkspace retrieves the NFS path from the workspace's volumes.

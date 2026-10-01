@@ -13,10 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
-	"github.com/agiledragon/gomonkey/v2"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1466,6 +1464,22 @@ func TestBuildEnvironmentGpuAndSupervised(t *testing.T) {
 	assert.Assert(t, len(envs) > 5)
 }
 
+// External pods have no kubelet log layout for the hang check to read, so supervision
+// env is not rendered for them.
+func TestBuildEnvironmentSkipsSupervisionForExternal(t *testing.T) {
+	commonconfig.SetValue("workload.hang_check_interval", "1200")
+	defer commonconfig.SetValue("workload.hang_check_interval", "")
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = "ws"
+	w.Spec.IsSupervised = true
+	w.Status.ExternalExecution = &v1.WorkloadExternalExecution{ClaimId: "claim-1"}
+	for _, raw := range buildEnvironment(w, nil, -1) {
+		name := raw.(map[string]interface{})["name"]
+		assert.Assert(t, name != "ENABLE_SUPERVISE" && name != "HANG_CHECK_INTERVAL",
+			"external pod rendered %v", name)
+	}
+}
+
 // --- merged from dispatcher_help_platform_key_test.go ---
 
 func TestPlatformKeyForUser(t *testing.T) {
@@ -1482,54 +1496,63 @@ func TestPlatformKeyForUser(t *testing.T) {
 	}
 
 	t.Run("db disabled", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return false })
-
+		stubPlatformKeyDeps(t, func() bool { return false }, nil, nil)
 		assert.Equal(t, "", platformKeyForUser(workload))
 	})
 
 	t.Run("empty user id", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-
+		stubPlatformKeyDeps(t, func() bool { return true }, nil, nil)
 		assert.Equal(t, "", platformKeyForUser(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}))
 	})
 
 	t.Run("db client unavailable", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return nil })
-
+		stubPlatformKeyDeps(t, func() bool { return true }, func() *dbclient.Client { return nil }, nil)
 		assert.Equal(t, "", platformKeyForUser(workload))
 	})
 
 	t.Run("lookup error", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
-		patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(context.Context, dbclient.Interface, string, string) (string, error) {
-			return "", fmt.Errorf("lookup failed")
-		})
-
+		stubPlatformKeyDeps(t,
+			func() bool { return true },
+			func() *dbclient.Client { return &dbclient.Client{} },
+			func(context.Context, dbclient.Interface, string, string) (string, error) {
+				return "", fmt.Errorf("lookup failed")
+			})
 		assert.Equal(t, "", platformKeyForUser(workload))
 	})
 
 	t.Run("success", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
-		patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(_ context.Context, _ dbclient.Interface, userId, userName string) (string, error) {
-			assert.Equal(t, "user-1", userId)
-			assert.Equal(t, "alice", userName)
-			return "platform-token-for-user", nil
-		})
-
+		stubPlatformKeyDeps(t,
+			func() bool { return true },
+			func() *dbclient.Client { return &dbclient.Client{} },
+			func(_ context.Context, _ dbclient.Interface, userId, userName string) (string, error) {
+				assert.Equal(t, "user-1", userId)
+				assert.Equal(t, "alice", userName)
+				return "platform-token-for-user", nil
+			})
 		assert.Equal(t, "platform-token-for-user", platformKeyForUser(workload))
+	})
+}
+
+// stubPlatformKeyDeps replaces the DB reads used by platformKeyForUser and restores them after the test.
+func stubPlatformKeyDeps(
+	t *testing.T,
+	enabled func() bool,
+	client func() *dbclient.Client,
+	lookup func(context.Context, dbclient.Interface, string, string) (string, error),
+) {
+	t.Helper()
+	origEnabled, origClient, origLookup := platformDBEnabled, platformDBClient, platformKeyLookup
+	if enabled != nil {
+		platformDBEnabled = enabled
+	}
+	if client != nil {
+		platformDBClient = client
+	}
+	if lookup != nil {
+		platformKeyLookup = lookup
+	}
+	t.Cleanup(func() {
+		platformDBEnabled, platformDBClient, platformKeyLookup = origEnabled, origClient, origLookup
 	})
 }
 
@@ -2010,6 +2033,66 @@ func TestApplyGithubRunnerPodSecurityContextSkipsNonPFSWorkspace(t *testing.T) {
 	_, found, err := unstructured.NestedInt64(obj.Object, "spec", "template", "spec", "securityContext", "fsGroup")
 	assert.NilError(t, err)
 	assert.Assert(t, !found)
+}
+
+func TestExternalMatchExpressionDropsUserNodeConstraints(t *testing.T) {
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "w"},
+		Status: v1.WorkloadStatus{
+			ExternalExecution: &v1.WorkloadExternalExecution{
+				ClaimId: "claim-1",
+				Placements: []v1.WorkloadExternalPlacement{{
+					NodeName: "vk-approved",
+				}},
+			},
+		},
+	}
+	w.Spec.Workspace = "ws-1"
+	w.Spec.CustomerLabels = map[string]string{
+		common.SpecifiedNodes: "node-a node-b",
+		common.ExcludedNodes:  "node-c",
+		"team":                "ml",
+	}
+	exprs := buildRequiredMatchExpression(w)
+	hostnameIn := 0
+	sawTeam := false
+	for _, raw := range exprs {
+		m := raw.(map[string]interface{})
+		switch m["key"] {
+		case v1.K8sHostName:
+			hostnameIn++
+			assert.Equal(t, m["operator"], "In")
+			assert.DeepEqual(t, m["values"], []interface{}{"vk-approved"})
+		case "team":
+			sawTeam = true
+		}
+	}
+	assert.Equal(t, hostnameIn, 1)
+	assert.Assert(t, sawTeam)
+}
+
+// Virtual nodes carry no SaFE workspace label, so external pods are confined by the
+// approved hostnames alone; native pods keep the workspace label.
+func TestExternalMatchExpressionOmitsWorkspaceLabel(t *testing.T) {
+	hasWorkspaceKey := func(exprs []interface{}) bool {
+		for _, raw := range exprs {
+			if raw.(map[string]interface{})["key"] == v1.WorkspaceIdLabel {
+				return true
+			}
+		}
+		return false
+	}
+	external := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"},
+		Status: v1.WorkloadStatus{ExternalExecution: &v1.WorkloadExternalExecution{
+			ClaimId:    "claim-1",
+			Placements: []v1.WorkloadExternalPlacement{{NodeName: "vk-approved"}},
+		}}}
+	external.Spec.Workspace = "ws-1"
+	assert.Assert(t, !hasWorkspaceKey(buildRequiredMatchExpression(external)))
+
+	native := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "n"}}
+	native.Spec.Workspace = "ws-1"
+	assert.Assert(t, hasWorkspaceKey(buildRequiredMatchExpression(native)))
 }
 
 func TestBuildRequiredMatchExpressionExcludedNodes(t *testing.T) {

@@ -23,7 +23,7 @@ type WorkloadStatusApplyConfiguration struct {
 	Conditions []applyconfigurationsmetav1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	// The status of workload, e.g. Pending, Running, Succeeded, Failed, Stopped, Updating
 	Phase *amdv1.WorkloadPhase `json:"phase,omitempty"`
-	// Some status descriptions of the workload. only for pending
+	// Scheduling explanations for Pending workloads and diagnostics for Failed workloads.
 	Message *string `json:"message,omitempty"`
 	// The current position of the workload in the queue, only for pending
 	QueuePosition *int `json:"queuePosition,omitempty"`
@@ -60,6 +60,9 @@ type WorkloadStatusApplyConfiguration struct {
 	// Pods/Nodes/Ranks above are retained for backward compatibility and are read
 	// as a fallback when NodeUsage is empty.
 	NodeUsage []NodePodUsageApplyConfiguration `json:"nodeUsage,omitempty"`
+	// Bookkeeping for workloads admitted through an external capacity provider. Absent on
+	// the native path.
+	ExternalExecution *WorkloadExternalExecutionApplyConfiguration `json:"externalExecution,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -200,5 +203,13 @@ func (b *WorkloadStatusApplyConfiguration) WithNodeUsage(values ...*NodePodUsage
 		}
 		b.NodeUsage = append(b.NodeUsage, *values[i])
 	}
+	return b
+}
+
+// WithExternalExecution sets the ExternalExecution field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ExternalExecution field is set to the value of the last call.
+func (b *WorkloadStatusApplyConfiguration) WithExternalExecution(value *WorkloadExternalExecutionApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	b.ExternalExecution = value
 	return b
 }

@@ -709,7 +709,7 @@ func (h *Handler) getUserIdentity(c *gin.Context) (email string, ntid string) {
 				"userId", userId)
 		} else {
 			email = v1.GetUserEmail(user)
-			ntid = ntidFromPreferredName(v1.GetAnnotation(user, v1.UserPreferredNameAnnotation))
+			ntid = v1.NtidFromPreferredName(v1.GetAnnotation(user, v1.UserPreferredNameAnnotation))
 		}
 	}
 	if email != "" {
@@ -742,22 +742,6 @@ func (h *Handler) getRequestUserWithRetry(ctx context.Context, userId string) (*
 		return nil, err
 	}
 	return user, nil
-}
-
-// ntidFromPreferredName takes the local part of a preferred name, which carries
-// the NTID ahead of a domain: "<ntid>@<domain>" yields the NTID. A value with no
-// domain is already one.
-//
-// Interior whitespace disqualifies it. An NTID has none, so what arrives with
-// any is a display name rather than the identifier -- and this value reaches an
-// outbound header, where a newline is a request-splitting vector.
-func ntidFromPreferredName(preferredName string) string {
-	ntid, _, _ := strings.Cut(preferredName, "@")
-	ntid = strings.TrimSpace(ntid)
-	if ntid == "" || strings.ContainsAny(ntid, " \t\r\n\v\f") {
-		return ""
-	}
-	return ntid
 }
 
 // maskKey returns a masked version of a key, showing the first 4 and last 4 characters.

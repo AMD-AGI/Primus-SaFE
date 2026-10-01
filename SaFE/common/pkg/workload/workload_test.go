@@ -584,6 +584,26 @@ func TestGeneratePriorityAndReason(t *testing.T) {
 	assert.Assert(t, GeneratePriorityClass(wlKind(common.JobKind)) != "")
 }
 
+func TestGeneratePriorityClassExternal(t *testing.T) {
+	assert.Equal(t, ExternalPriorityClass(common.HighPriority), v1.ExternalPriorityClassHigh)
+	assert.Equal(t, ExternalPriorityClass(common.MedPriority), v1.ExternalPriorityClassMed)
+	assert.Equal(t, ExternalPriorityClass(common.LowPriority), v1.ExternalPriorityClassLow)
+
+	native := wlKind(common.JobKind)
+	v1.SetLabel(native, v1.ClusterIdLabel, "crusoe")
+	native.Spec.Priority = common.HighPriorityInt
+	assert.Equal(t, GeneratePriorityClass(native), "crusoe-high-priority")
+
+	external := native.DeepCopy()
+	external.Status.ExternalExecution = &v1.WorkloadExternalExecution{ClaimId: "c1"}
+	assert.Equal(t, GeneratePriorityClass(external), v1.ExternalPriorityClassHigh)
+
+	external.Spec.Priority = common.MedPriorityInt
+	assert.Equal(t, GeneratePriorityClass(external), v1.ExternalPriorityClassMed)
+	external.Spec.Priority = common.LowPriorityInt
+	assert.Equal(t, GeneratePriorityClass(external), v1.ExternalPriorityClassLow)
+}
+
 // TestPodSpecSegmentAgreesAcrossKindNamespaces is the regression guard for the
 // asymmetry PodSpecSegment exists to prevent.
 //

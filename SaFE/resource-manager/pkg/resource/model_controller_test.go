@@ -7,10 +7,12 @@ package resource
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
+	"github.com/spf13/viper"
 	testifyassert "github.com/stretchr/testify/assert"
 
 	"gotest.tools/assert"
@@ -27,7 +29,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
 // newMockModelReconciler creates a mock ModelReconciler for testing
@@ -1074,23 +1075,45 @@ func TestLocalPathStatusConstants(t *testing.T) {
 
 // --- merged from model_gomonkey_test.go ---
 
-// patchS3Config patches the S3-related config getters so the construct* helpers succeed.
-func patchS3Config(t *testing.T) *gomonkey.Patches {
+// patchS3Config writes S3 config that the construct* helpers read.
+func patchS3Config(t *testing.T) {
 	t.Helper()
-	p := gomonkey.NewPatches()
-	p.ApplyFunc(commonconfig.IsS3Enable, func() bool { return true })
-	p.ApplyFunc(commonconfig.GetS3Endpoint, func() string { return "https://minio:9000" })
-	p.ApplyFunc(commonconfig.GetS3AccessKey, func() string { return "ak" })
-	p.ApplyFunc(commonconfig.GetS3SecretKey, func() string { return "sk" })
-	p.ApplyFunc(commonconfig.GetS3Bucket, func() string { return "bucket" })
-	p.ApplyFunc(commonconfig.GetModelDownloaderImage, func() string { return "downloader:1" })
-	p.ApplyFunc(commonconfig.GetDownloadJoImage, func() string { return "download:1" })
-	return p
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"endpoint":   "https://minio:9000",
+		"access_key": "ak",
+		"secret_key": "sk",
+		"bucket":     "bucket",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatalf("write s3 secret %s: %v", name, err)
+		}
+	}
+	setViper(t, map[string]any{
+		"s3.enable":              true,
+		"s3.secret_path":         dir,
+		"model.downloader_image": "downloader:1",
+		"ops_job.download_image": "download:1",
+	})
+}
+
+// setViper applies config overrides for the test and restores the previous values.
+func setViper(t *testing.T, values map[string]any) {
+	t.Helper()
+	prev := make(map[string]any, len(values))
+	for key, value := range values {
+		prev[key] = viper.Get(key)
+		viper.Set(key, value)
+	}
+	t.Cleanup(func() {
+		for key, value := range prev {
+			viper.Set(key, value)
+		}
+	})
 }
 
 func TestConstructDownloadJobFull(t *testing.T) {
-	patches := patchS3Config(t)
-	defer patches.Reset()
+	patchS3Config(t)
 
 	model := genMockModel("m1", v1.AccessModeLocal, "ws1")
 	model.Spec.Source.URL = "hf://org/repo"
@@ -1102,8 +1125,7 @@ func TestConstructDownloadJobFull(t *testing.T) {
 }
 
 func TestConstructCleanupJobFull(t *testing.T) {
-	patches := patchS3Config(t)
-	defer patches.Reset()
+	patchS3Config(t)
 
 	model := genMockModel("m1", v1.AccessModeLocal, "ws1")
 	r := newMockModelReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
@@ -1114,8 +1136,7 @@ func TestConstructCleanupJobFull(t *testing.T) {
 }
 
 func TestConstructLocalDownloadOpsJob(t *testing.T) {
-	patches := patchS3Config(t)
-	defer patches.Reset()
+	patchS3Config(t)
 
 	model := genMockModel("m1", v1.AccessModeLocal, "ws1")
 	model.Status.S3Path = "models/m1"
@@ -1133,8 +1154,7 @@ func TestConstructLocalDownloadOpsJob(t *testing.T) {
 }
 
 func TestModelHandleDeleteCreatesCleanupJob(t *testing.T) {
-	patches := patchS3Config(t)
-	defer patches.Reset()
+	patchS3Config(t)
 
 	model := genMockModel("m-del", v1.AccessModeLocal, "ws1")
 	now := metav1.Now()
@@ -1155,8 +1175,7 @@ func TestModelHandleDeleteCreatesCleanupJob(t *testing.T) {
 }
 
 func TestModelHandlePendingCreatesJob(t *testing.T) {
-	patches := patchS3Config(t)
-	defer patches.Reset()
+	patchS3Config(t)
 
 	model := genMockModel("m-pend", v1.AccessModeLocal, "ws1")
 	model.Spec.Source.URL = "hf://org/repo"
@@ -1241,8 +1260,7 @@ func TestModelHandleUploadingFailed(t *testing.T) {
 }
 
 func TestModelHandleDownloadingCreatesOpsJob(t *testing.T) {
-	patches := patchS3Config(t)
-	defer patches.Reset()
+	patchS3Config(t)
 
 	model := genMockModel("m-dl", v1.AccessModeLocal, "ws1")
 	model.Status.Phase = v1.ModelPhaseDownloading
@@ -1293,8 +1311,7 @@ func TestModelHandleDeleteNoFinalizer(t *testing.T) {
 }
 
 func TestConstructLocalDownloadOpsJobNoCluster(t *testing.T) {
-	patches := patchS3Config(t)
-	defer patches.Reset()
+	patchS3Config(t)
 
 	model := genMockModel("m1", v1.AccessModeLocal, "ws1")
 	workspace := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}

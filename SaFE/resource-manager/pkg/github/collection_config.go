@@ -16,15 +16,15 @@ import (
 )
 
 type CollectionConfig struct {
-	ID               int64    `db:"id" json:"id"`
-	Name             string   `db:"name" json:"name"`
-	GithubOwner      string   `db:"github_owner" json:"github_owner"`
-	GithubRepo       string   `db:"github_repo" json:"github_repo"`
-	WorkflowPatterns []string `json:"workflow_patterns"`
-	BranchPatterns   []string `json:"branch_patterns"`
-	FilePatterns     []string `json:"file_patterns"`
-	Enabled          bool     `db:"enabled" json:"enabled"`
-	CreatedBy        string   `db:"created_by" json:"created_by"`
+	ID               int64     `db:"id" json:"id"`
+	Name             string    `db:"name" json:"name"`
+	GithubOwner      string    `db:"github_owner" json:"github_owner"`
+	GithubRepo       string    `db:"github_repo" json:"github_repo"`
+	WorkflowPatterns []string  `json:"workflow_patterns"`
+	BranchPatterns   []string  `json:"branch_patterns"`
+	FilePatterns     []string  `json:"file_patterns"`
+	Enabled          bool      `db:"enabled" json:"enabled"`
+	CreatedBy        string    `db:"created_by" json:"created_by"`
 	CreatedAt        time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt        time.Time `db:"updated_at" json:"updated_at"`
 }

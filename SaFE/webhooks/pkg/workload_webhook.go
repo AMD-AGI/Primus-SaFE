@@ -199,7 +199,12 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	if workspace != nil {
 		v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)
 		v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
-		if workspace.Spec.EnablePreempt {
+		// Preemption stays off on the external path regardless of the workspace setting.
+		// Marking a victim preempted only records an intent here; the devices come back
+		// when the provider has stopped the task and verified its cleanup, so the freed
+		// capacity the preemptor was admitted against would not exist yet. It can be
+		// enabled once stop and cleanup are closed end to end with the provider.
+		if workspace.Spec.EnablePreempt && !v1.IsExternalWorkspace(workspace) {
 			v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr)
 		}
 	}
@@ -213,12 +218,35 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	if v1.GetUserName(workload) == "" {
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserId(workload))
 	}
+	m.mutateUserAccount(ctx, workload)
 	if !v1.HasAnnotation(workload, v1.UseWorkspaceStorageAnnotation) {
 		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
 	}
 	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	commonworkload.SetMainContainerViaTemplate(ctx, m.Client, workload)
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
+}
+
+// mutateUserAccount stamps the submitter account from the User CR preferred name.
+// Client-supplied values are overwritten or cleared so the annotation always
+// reflects the authenticated user, never user input.
+func (m *WorkloadMutator) mutateUserAccount(ctx context.Context, workload *v1.Workload) {
+	userId := v1.GetUserId(workload)
+	if userId == "" {
+		v1.RemoveAnnotation(workload, v1.UserAccountAnnotation)
+		return
+	}
+	user := &v1.User{}
+	if err := m.Get(ctx, types.NamespacedName{Name: userId}, user); err != nil {
+		v1.RemoveAnnotation(workload, v1.UserAccountAnnotation)
+		return
+	}
+	ntid := v1.NtidFromPreferredName(v1.GetAnnotation(user, v1.UserPreferredNameAnnotation))
+	if ntid == "" {
+		v1.RemoveAnnotation(workload, v1.UserAccountAnnotation)
+		return
+	}
+	v1.SetAnnotation(workload, v1.UserAccountAnnotation, ntid)
 }
 
 func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
@@ -1687,6 +1715,36 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 		}
 		return nil
 	}
+	if v1.IsExternalWorkspace(workspace) {
+		if !commonconfig.IsExternalExecutionEnable() {
+			return commonerrors.NewForbidden(
+				"external execution is not enabled in this deployment")
+		}
+		// Privileged / host-network pods ask for node privileges the provider refuses.
+		// Reject at submission so the user sees a clear reason instead of a bind-time
+		// refusal after capacity has already been claimed.
+		if v1.IsPrivileged(workload) {
+			return commonerrors.NewBadRequest(
+				"external workloads cannot run as privileged")
+		}
+		if v1.IsForceHostNetwork(workload) {
+			return commonerrors.NewBadRequest(
+				"external workloads cannot force host network")
+		}
+		// The provider resolves run-as identity from primus-safe.user.account.
+		// Without an SSO preferred name there is no account to stamp.
+		if v1.GetUserAccount(workload) == "" {
+			return commonerrors.NewBadRequest(
+				"external workloads require a user account; log in via SSO once")
+		}
+		// An external workspace has no local capacity to measure a request against. Its
+		// status.totalResources is empty until the provider publishes a node, and the
+		// budget is arbitrated by the provider when the claim is made, so applying the
+		// quota check here would reject every submission while the workspace is idle --
+		// exactly the scale-from-zero case it exists to serve. Request shape is still
+		// bounded by validateResourceEnough against the node flavor.
+		return nil
+	}
 	if commonworkload.GetTotalReplica(workload) > workspace.Spec.Replica {
 		requestResources, err := commonworkload.GetTotalResourceList(workload)
 		if err != nil {
@@ -1789,6 +1847,9 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 	if v1.GetAnnotation(newWorkload, v1.InferaIdleRolesAnnotation) !=
 		v1.GetAnnotation(oldWorkload, v1.InferaIdleRolesAnnotation) {
 		return field.Forbidden(field.NewPath("annotations").Key(v1.InferaIdleRolesAnnotation), "immutable")
+	}
+	if v1.GetUserAccount(newWorkload) != v1.GetUserAccount(oldWorkload) {
+		return field.Forbidden(field.NewPath("annotations").Key(v1.UserAccountAnnotation), "immutable")
 	}
 	if commonworkload.IsCICDScalingRunnerSet(newWorkload) {
 		val1, _ := oldWorkload.Spec.Env[common.UnifiedJobEnable]

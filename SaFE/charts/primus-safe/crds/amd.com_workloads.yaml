@@ -362,8 +362,134 @@ spec:
                 description: Workload end time
                 format: date-time
                 type: string
+              externalExecution:
+                description: |-
+                  Bookkeeping for workloads admitted through an external capacity provider. Absent on
+                  the native path.
+                properties:
+                  claimId:
+                    description: Claim identity, the request id that created it and
+                      the phase last observed
+                    type: string
+                  claimPhase:
+                    type: string
+                  claimRequestId:
+                    type: string
+                  claimRevision:
+                    format: int32
+                    type: integer
+                  releaseRequestId:
+                    description: Persisted before ReleaseClaim so a lost reply replays
+                      the same idempotency key.
+                    type: string
+                  releaseExpectedRevision:
+                    description: Expected revision sent with releaseRequestId.
+                    format: int32
+                    type: integer
+                  releaseReason:
+                    description: Reason sent with releaseRequestId.
+                    type: string
+                  demandCapacitySnapshot:
+                    type: string
+                  demandExpiresAt:
+                    format: date-time
+                    type: string
+                  demandId:
+                    description: Demand identity and the revision last published
+                    type: string
+                  demandObservedAt:
+                    description: |-
+                      Observation and expiry of the current demand revision. They are stored rather than
+                      recomputed because the contract refuses a revision whose body changed, and both
+                      timestamps are part of that body: taking the clock again on every pass would turn an
+                      intended replay into a conflict.
+                    format: date-time
+                    type: string
+                  demandQueueSnapshot:
+                    description: |-
+                      Queue and capacity snapshot revisions sent with the current demand revision. They
+                      are part of the body and fixed with the revision for the same reason.
+                    type: string
+                  demandRequestId:
+                    type: string
+                  demandRevision:
+                    format: int32
+                    type: integer
+                  demandWithdrawn:
+                    description: |-
+                      Set once the demand has been withdrawn, so the withdrawal is published exactly once.
+                      Repeating it would reuse a revision number under a changed body, which the contract
+                      refuses, and would eventually collide with a revision issued for the opposite meaning.
+                    type: boolean
+                  dispatchGeneration:
+                    description: The dispatch generation these identifiers belong
+                      to
+                    format: int32
+                    type: integer
+                  placements:
+                    description: |-
+                      Placements approved by the provider, kept so the dispatcher builds the pod from the
+                      reservation that was granted rather than asking for a new plan
+                    items:
+                      description: WorkloadExternalPlacement is one unit's approved
+                        seat in the provider's inventory.
+                      properties:
+                        allocationGeneration:
+                          format: int32
+                          type: integer
+                        allocationId:
+                          description: Allocation backing the seat
+                          type: string
+                        deviceIds:
+                          description: Devices reserved for this unit
+                          items:
+                            type: string
+                          type: array
+                        cpuMillis:
+                          format: int64
+                          type: integer
+                        memoryBytes:
+                          format: int64
+                          type: integer
+                        scratchBytes:
+                          format: int64
+                          type: integer
+                        gpuResource:
+                          type: string
+                        gpuCount:
+                          format: int32
+                          type: integer
+                        imageDigest:
+                          type: string
+                        imageRef:
+                          description: Image reference and digest frozen by the provider
+                            at claim time
+                          type: string
+                        nodeName:
+                          description: Virtual node the pod must be bound to
+                          type: string
+                        unitKey:
+                          description: Stable role/index key identifying which pod
+                            this seat belongs to
+                          type: string
+                      required:
+                      - allocationGeneration
+                      - allocationId
+                      - imageDigest
+                      - imageRef
+                      - nodeName
+                      - unitKey
+                      type: object
+                    type: array
+                  reclaiming:
+                    description: |-
+                      Set once the workload is finished but the provider has not confirmed release. The
+                      resources stay charged to the workspace while it is true.
+                    type: boolean
+                type: object
               message:
-                description: Scheduling explanations for Pending workloads and diagnostics for Failed workloads.
+                description: Scheduling explanations for Pending workloads and diagnostics
+                  for Failed workloads.
                 type: string
               nodeUsage:
                 description: |-

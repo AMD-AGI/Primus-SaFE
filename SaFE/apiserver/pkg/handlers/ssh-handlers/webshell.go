@@ -93,7 +93,7 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 			}
 		}
 	}()
-	if err := h.SessionConn(c.Request.Context(), sessionInfo); err != nil {
+	if _, err := h.SessionConn(c.Request.Context(), sessionInfo); err != nil {
 		klog.Errorf("session conn err: %v", err)
 	}
 

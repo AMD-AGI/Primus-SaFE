@@ -20,14 +20,14 @@ ARG AINIC_DRIVER_PATH=
 ARG RCCL_PATH=
 ARG AMD_ANP_PATH=
 
-RUN mkdir -p ${APP_HOME} && mkdir -p ${APP_HOME}/scripts && mkdir -p ${APP_HOME}/drivers && mkdir -p ${APP_HOME}/apps && chmod -R 750 ${APP_HOME}
+# 0755 so a non-root init (PSA restricted / external provider identity) can
+# traverse ${APP_HOME} and copy its contents to the shared volume.
+RUN mkdir -p ${APP_HOME}/scripts ${APP_HOME}/drivers ${APP_HOME}/apps \
+    && chmod 0755 ${APP_HOME} ${APP_HOME}/scripts ${APP_HOME}/drivers ${APP_HOME}/apps
 
 COPY ./SaFE/docker/preprocess/*.sh ${APP_HOME}/
 COPY ./SaFE/docker/preprocess/*.py ${APP_HOME}/
 COPY ./SaFE/docker/preprocess/scripts/*.sh ${APP_HOME}/scripts/
-
-# +x so ./launcher.sh works; exec /bin/sh /path/launcher.sh does not require +x on the script.
-RUN find "${APP_HOME}" -type f -name '*.sh' -exec chmod +x {} +
 
 # Copy bnxt driver if path is specified
 # Use shell with heredoc to handle conditional copy
@@ -65,3 +65,13 @@ RUN --mount=type=bind,source=.,target=/build_context \
     else \
         echo "AMD_ANP_PATH not specified or directory not found, skipping."; \
     fi
+
+# World-readable tree: dirs 0755, files 0644, scripts 0755. Default process user is
+# non-root so the init matches PSA restricted / OpenShift SCC expectations.
+RUN find "${APP_HOME}" -type d -exec chmod 0755 {} + \
+    && find "${APP_HOME}" -type f -exec chmod 0644 {} + \
+    && find "${APP_HOME}" -type f -name '*.sh' -exec chmod 0755 {} + \
+    && useradd --uid 65532 --user-group --no-create-home --shell /usr/sbin/nologin preprocess \
+    && chown -R preprocess:preprocess "${APP_HOME}"
+
+USER 65532:65532

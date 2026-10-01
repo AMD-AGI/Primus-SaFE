@@ -722,6 +722,10 @@ func (h *Handler) updateWorkloadPhase(ctx context.Context,
 		if phase == workload.Status.Phase && !shouldUpdateConditions(workload, cond) {
 			return nil
 		}
+		// An ended phase is final and never moves back to a non-ended phase.
+		if v1.IsWorkloadPhaseEnded(workload.Status.Phase) && !v1.IsWorkloadPhaseEnded(phase) {
+			return nil
+		}
 		// Build a minimal JSON merge patch for status sub-resource with RV precondition
 		statusPatch := map[string]any{}
 		if phase != workload.Status.Phase {
@@ -746,6 +750,10 @@ func (h *Handler) updateWorkloadPhase(ctx context.Context,
 			if apierrors.IsConflict(innerError) {
 				if workload, _ = h.getAdminWorkload(ctx, name); workload == nil {
 					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("The workload %s is not found", name))
+				}
+				// Pending is only an initial phase; never overwrite a phase set by a controller.
+				if phase == v1.WorkloadPending && workload.Status.Phase != "" {
+					return nil
 				}
 			}
 			return innerError

@@ -225,7 +225,7 @@ func GetWorkloadHangCheckInterval() int {
 
 // GetWorkloadTTLSecond returns the TTL in seconds for completed workloads.
 func GetWorkloadTTLSecond() int {
-	return getInt(workloadTTLSecond, 60)
+	return getInt(workloadTTLSecond, 3600)
 }
 
 // IsOpenSearchEnable returns whether OpenSearch is enabled.
@@ -678,6 +678,69 @@ func GetSandboxNamespace() string {
 
 func GetSandboxSecret() string {
 	return getString(sandboxSecret, "")
+}
+
+// ── External execution capacity ─────────────────────────────────────────
+
+// IsExternalExecutionEnable reports whether external execution capacity is admitted.
+// Disabled by default: with the flag off, external objects are rejected at admission and
+// no capacity demand is published, so a half-deployed integration cannot dispatch work.
+func IsExternalExecutionEnable() bool {
+	return getBool(externalExecutionEnabled, false)
+}
+
+// GetExternalObservationMaxAge caps how long a provider observation stays usable once the
+// provider stops reporting, backstopping the validUntil the provider sets for itself.
+func GetExternalObservationMaxAge() time.Duration {
+	return time.Duration(getInt(externalExecutionObservationMaxAge, 120)) * time.Second
+}
+
+// GetExternalWorkspaceResync bounds how long an external workspace goes without a
+// reconcile. The controller's own fifteen minute backstop would let a stale provider
+// observation stay counted as available capacity for that long.
+func GetExternalWorkspaceResync() time.Duration {
+	return time.Duration(getInt(externalExecutionWorkspaceResync, 30)) * time.Second
+}
+
+// GetExternalControllerURL is the capacity controller endpoint. A single deployment talks
+// to one controller, which is also the single active mutator of the execution ledger, so
+// the address is deployment configuration rather than a per-cluster field.
+func GetExternalControllerURL() string {
+	return getString(externalExecutionControllerURL, "")
+}
+
+// GetExternalControllerTimeout bounds one call to the capacity controller.
+func GetExternalControllerTimeout() time.Duration {
+	return time.Duration(getInt(externalExecutionTimeout, 10)) * time.Second
+}
+
+// GetExternalExecutionProfile identifies the execution profile capacity is requested
+// under. The provider owns the profile definition and its validation state; SaFE only
+// names it, and a request naming an unvalidated profile is refused by the provider.
+func GetExternalExecutionProfile() (profileID string, revision int) {
+	return getString(externalExecutionProfileID, ""), getInt(externalExecutionProfileRevision, 1)
+}
+
+// defaultExternalPIDLimit is the per-task process budget used when none is configured.
+const defaultExternalPIDLimit = 1048576
+
+// GetExternalPIDLimit is the per-task process budget declared on every demand unit.
+// Zero is refused at Prepare by the provider, so the deployment default is non-zero.
+func GetExternalPIDLimit() int32 {
+	v := getInt(externalExecutionPIDLimit, defaultExternalPIDLimit)
+	if v <= 0 {
+		return defaultExternalPIDLimit
+	}
+	return int32(v)
+}
+
+// GetExternalControllerTLS reads the mTLS material from the mounted secret directory.
+// Returning empty slices is not an error here; the caller refuses to build a client
+// without them rather than silently connecting unverified.
+func GetExternalControllerTLS() (caCert, clientCert, clientKey []byte) {
+	return []byte(getFromFile(externalExecutionSecretPath, "ca.crt")),
+		[]byte(getFromFile(externalExecutionSecretPath, "tls.crt")),
+		[]byte(getFromFile(externalExecutionSecretPath, "tls.key"))
 }
 
 // ── MCP (Model Context Protocol) ────────────────────────────────────────

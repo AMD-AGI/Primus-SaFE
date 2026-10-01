@@ -720,10 +720,28 @@ func GenerateDispatchReason(count int) string {
 }
 
 // GeneratePriorityClass generates priority class name for a workload.
+// External workloads use the provider-installed Never classes on the virtual-kubelet
+// cluster; native workloads keep the per-cluster names created by resource-manager.
 func GeneratePriorityClass(workload *v1.Workload) string {
-	clusterId := v1.GetClusterId(workload)
 	strPriority := GeneratePriority(workload.Spec.Priority)
+	if workload != nil && workload.Status.ExternalExecution != nil {
+		return ExternalPriorityClass(strPriority)
+	}
+	clusterId := v1.GetClusterId(workload)
 	return commonutils.GenerateClusterPriorityClass(clusterId, strPriority)
+}
+
+// ExternalPriorityClass maps SaFE priority to the fixed PriorityClass names on the
+// virtual-kubelet cluster.
+func ExternalPriorityClass(priority string) string {
+	switch priority {
+	case common.HighPriority:
+		return v1.ExternalPriorityClassHigh
+	case common.MedPriority:
+		return v1.ExternalPriorityClassMed
+	default:
+		return v1.ExternalPriorityClassLow
+	}
 }
 
 // GeneratePriority converts integer priority to string representation.
@@ -911,6 +929,24 @@ func GetSpecifiedNodes(workload *v1.Workload) []string {
 		}
 	}
 	return nil
+}
+
+// IsExternalRDMAGang reports whether the workload has the shape external capacity runs as a
+// host-network whole-node gang: an RDMA PyTorchJob with one master and at least one worker.
+func IsExternalRDMAGang(workload *v1.Workload) bool {
+	if workload.SpecKind() != common.PytorchJobKind {
+		return false
+	}
+	res := workload.Spec.Resources
+	if len(res) != 2 || res[0].Replica != 1 || res[1].Replica < 1 {
+		return false
+	}
+	return HasRDMAResource(&res[0]) && HasRDMAResource(&res[1])
+}
+
+// HasRDMAResource reports whether a resource requests RDMA devices.
+func HasRDMAResource(res *v1.WorkloadResource) bool {
+	return res.RdmaResource != "" && res.RdmaResource != "0"
 }
 
 func IsEnabledHostNetwork(workload *v1.Workload, resourceId int) bool {

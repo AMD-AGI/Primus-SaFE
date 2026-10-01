@@ -236,6 +236,9 @@ func FindFailedCondition(workload *v1.Workload) bool {
 
 // ConvertGVKToGVR converts a GroupVersionKind to GroupVersionResource using the REST mapper.
 func ConvertGVKToGVR(mapper meta.RESTMapper, gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+	if mapper == nil {
+		return schema.GroupVersionResource{}, fmt.Errorf("rest mapper is nil")
+	}
 	m, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		klog.ErrorS(err, "failed to RESTMapping")

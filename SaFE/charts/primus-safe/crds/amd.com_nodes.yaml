@@ -48,8 +48,38 @@ spec:
                   If a value is set, it indicates that the node should be managed within the specified cluster,
                   Otherwise, if set to an empty value, it indicates that the node should be unmanaged from the cluster.
                 type: string
+              externalRef:
+                description: |-
+                  Provider allocation backing this node. Required and immutable when lifecycleMode
+                  is external, and rejected otherwise. Filled by SaFE when admitting a virtual node;
+                  the provider never writes this object.
+                properties:
+                  allocationId:
+                    description: The provider-side allocation holding the host
+                    type: string
+                  generation:
+                    description: Distinguishes reuses of the same allocation id
+                    format: int64
+                    type: integer
+                  hostKey:
+                    description: |-
+                      Identifies the verified physical host behind the allocation. Empty until the
+                      provider freezes the first observation; omitted rather than written as "".
+                    type: string
+                  provider:
+                    description: The external execution provider that owns the allocation
+                    type: string
+                required:
+                - allocationId
+                - generation
+                - provider
+                type: object
               hostname:
                 description: Node hostname
+                type: string
+              lifecycleMode:
+                description: Lifecycle mode of the node. Empty keeps the managed physical-host
+                  lifecycle.
                 type: string
               nodeFlavor:
                 description: Node flavor reference, required

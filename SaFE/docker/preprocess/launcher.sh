@@ -50,14 +50,23 @@ if [ -z "$input" ]; then
     exit 0
 fi
 
-echo "$input" |base64 -d > ".run.sh"
-chmod +x ".run.sh"
+# The entry point is written to the working directory. A container running as a non-root
+# user may not be able to write there, so a temporary file is used instead.
+run_file=".run.sh"
+if ! ( : > "$run_file" ) 2>/dev/null; then
+    run_file=$(mktemp "${TMPDIR:-/tmp}/run.XXXXXX" 2>/dev/null) || run_file="${TMPDIR:-/tmp}/.run.$$.sh"
+fi
+if ! echo "$input" | base64 -d > "$run_file"; then
+    echo "ERROR: LAUNCHER: cannot write the entry point to $run_file (uid=$(id -u), cwd=$(pwd))" >&2
+    exit 1
+fi
+chmod +x "$run_file"
 if [ -x /usr/bin/bash ]; then
-    /usr/bin/bash -o pipefail ".run.sh" &
+    /usr/bin/bash -o pipefail "$run_file" &
 elif [ -x /bin/bash ]; then
-    /bin/bash -o pipefail ".run.sh" &
+    /bin/bash -o pipefail "$run_file" &
 else
-    /bin/sh ".run.sh" &
+    /bin/sh "$run_file" &
 fi
 pid1=$!
 

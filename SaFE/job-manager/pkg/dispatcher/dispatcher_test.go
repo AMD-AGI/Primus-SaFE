@@ -2577,10 +2577,8 @@ func proxyDynamicClient(t *testing.T, initial *unstructured.Unstructured,
 	mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{initial.GroupVersionKind().GroupVersion()})
 	mapper.Add(initial.GroupVersionKind(), meta.RESTScopeNamespace)
 	factory := commonclient.NewClientFactoryForTest("test-cluster", server.URL)
-	patches := gomonkey.NewPatches()
-	t.Cleanup(patches.Reset)
-	patches.ApplyMethod(reflect.TypeOf(factory), "DynamicClient", func(*commonclient.ClientFactory) *dynamic.DynamicClient { return dynamicClient })
-	patches.ApplyMethod(reflect.TypeOf(factory), "Mapper", func(*commonclient.ClientFactory) meta.RESTMapper { return mapper })
+	factory.AttachDynamicClientForTest(dynamicClient)
+	factory.AttachMapperForTest(mapper)
 	cs := &syncer.ClusterClientSets{}
 	cs.SetClientFactory(factory)
 	return cs, func() (*unstructured.Unstructured, int) {
@@ -2618,6 +2616,43 @@ func TestSyncCICDProxy_Drift(t *testing.T) {
 			assert.Equal(t, endpoint, parent.Spec.Env[common.ProxyUrl])
 		})
 	}
+}
+
+// replaceImage rewrites every "image" field equal to from, at any depth.
+func replaceImage(node interface{}, from, to string) {
+	switch v := node.(type) {
+	case map[string]interface{}:
+		for key, child := range v {
+			if s, ok := child.(string); ok && key == "image" && s == from {
+				v[key] = to
+				continue
+			}
+			replaceImage(child, from, to)
+		}
+	case []interface{}:
+		for i := range v {
+			replaceImage(v[i], from, to)
+		}
+	}
+}
+
+// An external object carries the approved digest, not the spec tag; sync must not rewrite it.
+func TestSyncSkipsExternalWorkload(t *testing.T) {
+	r, w, _, _ := proxyDispatcherFixture(t, common.CICDScaleRunnerSetKind, false)
+	obj, err := r.generateK8sObject(context.Background(), w, nil)
+	assert.NilError(t, err)
+	approved := w.Spec.Images[0] + "@sha256:" + strings.Repeat("a", 64)
+	replaceImage(obj.Object, w.Spec.Images[0], approved)
+	w.Status.ExternalExecution = &v1.WorkloadExternalExecution{
+		ClaimId:    "claim-1",
+		Placements: []v1.WorkloadExternalPlacement{{UnitKey: v1.ExternalSingleUnitKey, NodeName: "vk-1",
+			ImageRef: approved, CPUMillis: 1000, MemoryBytes: 1 << 30}},
+	}
+	cs, read := proxyDynamicClient(t, obj)
+	current, _ := read()
+	assert.NilError(t, r.syncWorkloadToObject(context.Background(), w, cs, current))
+	_, count := read()
+	assert.Equal(t, count, 0)
 }
 
 func TestSyncCICDProxy_Idempotent(t *testing.T) {

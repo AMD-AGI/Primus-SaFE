@@ -111,11 +111,16 @@ const (
 	NodeFlavorIdLabel = NodeFlavorPrefix + "id"
 
 	// workspace
-	WorkspacePrefix       = PrimusSafePrefix + "workspace."
-	WorkspaceFinalizer    = PrimusSafeDomain + "workspace.finalizer"
-	WorkspaceIdLabel      = WorkspacePrefix + "id"
-	WorkspaceNodesAction  = WorkspacePrefix + "nodes.action"
-	WorkspaceForcedAction = WorkspacePrefix + "forced.action"
+	WorkspacePrefix    = PrimusSafePrefix + "workspace."
+	WorkspaceFinalizer = PrimusSafeDomain + "workspace.finalizer"
+	WorkspaceIdLabel   = WorkspacePrefix + "id"
+	// WorkspaceExternalLabel marks a workspace whose capacity is supplied by an external
+	// execution provider rather than by managed physical nodes. The value "true" selects the
+	// external path; any other value is native. It is immutable after creation, because flipping
+	// it would change queue admission, scaling and node lifecycle under running workloads.
+	WorkspaceExternalLabel = WorkspacePrefix + "external"
+	WorkspaceNodesAction   = WorkspacePrefix + "nodes.action"
+	WorkspaceForcedAction  = WorkspacePrefix + "forced.action"
 	// WorkspaceNodesActionError carries why entries of a nodes.action request were
 	// dropped instead of applied. Written by the controller when it gives up on a request that
 	// cannot succeed on a retry, cleared by the mutating webhook when the next request is
@@ -126,6 +131,50 @@ const (
 	WorkspaceNodesActionError = WorkspacePrefix + "nodes.action.error"
 	WorkspaceIdsAnnotation    = WorkspacePrefix + "ids"
 	SourceWorkloadIdLabel     = "source.workload.id"
+
+	// external execution
+	//
+	// These reach the execution cluster on the pod itself and are what the provider
+	// rechecks after binding. They are derived from the approved workload and claim, never
+	// copied from user input: an annotation a user could write by hand would otherwise be
+	// an authorisation.
+	ExternalExecutionPrefix        = "safe-exec.amd.com/"
+	ExternalExecutionLabel         = ExternalExecutionPrefix + "external"
+	ExternalWorkloadUIDAnnotation  = ExternalExecutionPrefix + "workload-uid"
+	ExternalDispatchGenAnnotation  = ExternalExecutionPrefix + "dispatch-generation"
+	ExternalClaimIdAnnotation      = ExternalExecutionPrefix + "claim-id"
+	ExternalClaimRevAnnotation     = ExternalExecutionPrefix + "claim-revision"
+	ExternalUnitKeyAnnotation      = ExternalExecutionPrefix + "unit-key"
+	ExternalGangKeyAnnotation      = ExternalExecutionPrefix + "gang-key"
+	ExternalProfileIdAnnotation    = ExternalExecutionPrefix + "profile-id"
+	ExternalProfileRevAnnotation   = ExternalExecutionPrefix + "profile-revision"
+	ExternalAllocationIdAnnotation = ExternalExecutionPrefix + "allocation-id"
+	// Identity the provider stamps on virtual Nodes in the execution cluster. SaFE admits
+	// those Nodes into the admin plane; the provider never writes the SaFE Node CR.
+	VirtualKubeletTypeLabelValue      = "virtual-kubelet"
+	VirtualKubeletTypeLabelKey        = "type"
+	ExternalWorkspaceLabel            = ExternalExecutionPrefix + "w"
+	ExternalProviderLabel             = ExternalExecutionPrefix + "provider"
+	ExternalAllocationIdLabel         = ExternalExecutionPrefix + "allocation-id"
+	ExternalGenerationLabel           = ExternalExecutionPrefix + "generation"
+	ExternalHostKeyAnnotation         = ExternalExecutionPrefix + "host-key"
+	ExternalObservedAtAnnotation      = ExternalExecutionPrefix + "observed-at"
+	ExternalValidUntilAnnotation      = ExternalExecutionPrefix + "valid-until"
+	ExternalAllocationPhaseAnnotation = ExternalExecutionPrefix + "allocation-phase"
+	// ExternalVirtualKubeletTaint is the provider identity taint. It selects pods onto the
+	// virtual node and must not by itself make the node unavailable for capacity accounting.
+	ExternalVirtualKubeletTaint = ExternalExecutionPrefix + "virtual-kubelet"
+	// ExternalSingleUnitKey is the unit key of a single-replica workload and of the master
+	// unit of an RDMA gang, whose units all carry the same approved vector and image.
+	ExternalSingleUnitKey = "master/0"
+	// ExternalWorkerUnitKeyPrefix prefixes the unit key of each worker of an RDMA gang.
+	ExternalWorkerUnitKeyPrefix = "worker/"
+	// External PriorityClasses are installed by the capacity provider on the virtual-kubelet
+	// cluster. All three use preemptionPolicy=Never. SaFE references them by these fixed
+	// names and does not create or mutate the PriorityClass objects.
+	ExternalPriorityClassHigh = "safe-exec-external-high-priority"
+	ExternalPriorityClassMed  = "safe-exec-external-med-priority"
+	ExternalPriorityClassLow  = "safe-exec-external-low-priority"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
@@ -167,15 +216,18 @@ const (
 	NodesAffinityAnnotation        = PrimusSafePrefix + "nodes.affinity"
 
 	// user
-	UserPrefix                       = PrimusSafePrefix + "user."
-	UserIdLabel                      = UserPrefix + "id"
-	UserNameAnnotation               = UserPrefix + "name"
-	UserNameMd5Label                 = UserPrefix + "name.md5"
-	UserEmailAnnotation              = UserPrefix + "email"
-	UserEmailMd5Label                = UserPrefix + "email.md5"
-	UserAvatarUrlAnnotation          = UserPrefix + "avatar.url"
-	UserTypeLabel                    = UserPrefix + "type"
-	UserPreferredNameAnnotation      = UserPrefix + "preferred.name"
+	UserPrefix                  = PrimusSafePrefix + "user."
+	UserIdLabel                 = UserPrefix + "id"
+	UserNameAnnotation          = UserPrefix + "name"
+	UserNameMd5Label            = UserPrefix + "name.md5"
+	UserEmailAnnotation         = UserPrefix + "email"
+	UserEmailMd5Label           = UserPrefix + "email.md5"
+	UserAvatarUrlAnnotation     = UserPrefix + "avatar.url"
+	UserTypeLabel               = UserPrefix + "type"
+	UserPreferredNameAnnotation = UserPrefix + "preferred.name"
+	// UserAccountAnnotation carries the submitter's NTID (local part of preferred name).
+	// External execution uses it as the workload identity for container runAs mapping.
+	UserAccountAnnotation            = UserPrefix + "account"
 	UserEnableNotificationAnnotation = UserPrefix + "enable.notification"
 
 	// secret

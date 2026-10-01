@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
@@ -55,7 +56,14 @@ const (
 var (
 	concernedK8sLabelKeys = []string{v1.WorkspaceIdLabel, v1.ClusterIdLabel,
 		v1.NodeStartupTimeLabel, v1.KubernetesControlPlane}
-	concernedK8sAnnotationKeys = []string{}
+	// Provider freshness and identity annotations are copied onto the admin node so
+	// readiness can be decided without a separate status.external subtree.
+	concernedK8sAnnotationKeys = []string{
+		v1.ExternalObservedAtAnnotation,
+		v1.ExternalValidUntilAnnotation,
+		v1.ExternalHostKeyAnnotation,
+		v1.ExternalAllocationPhaseAnnotation,
+	}
 )
 
 type nodeQueueMessage struct {
@@ -69,8 +77,8 @@ type nodeQueueMessage struct {
 type NodeK8sReconciler struct {
 	ctx context.Context
 	*ClusterBaseReconciler
-	clientManager        *commonutils.ObjectManager
-	queue                NodeQueue
+	clientManager *commonutils.ObjectManager
+	queue         NodeQueue
 	*commonctrl.Controller[*nodeQueueMessage]
 	nodeInformerMu       sync.Mutex
 	startedNodeInformers map[string]*commonclient.ClientFactory
@@ -215,6 +223,9 @@ func (r *NodeK8sReconciler) attachNodeInformer(ctx context.Context, cluster *v1.
 	if waitSync {
 		if k8sClients.WaitForCacheSync(time.Minute * 10) {
 			klog.Infof("add k8s node informer successfully. cluster: %s", cluster.Name)
+			if err = r.gcOrphanedExternalAdminNodes(ctx, cluster.Name); err != nil {
+				klog.ErrorS(err, "failed to gc orphaned external admin nodes", "cluster", cluster.Name)
+			}
 		} else {
 			klog.Errorf("failed to sync cache for k8s node informer. cluster: %s", cluster.Name)
 		}
@@ -227,6 +238,9 @@ func (r *NodeK8sReconciler) attachNodeInformer(ctx context.Context, cluster *v1.
 		}
 		if k8sClients.WaitForCacheSync(time.Minute * 10) {
 			klog.Infof("node informer cache synced after client rebuild, cluster: %s", cluster.Name)
+			if err = r.gcOrphanedExternalAdminNodes(ctx, cluster.Name); err != nil {
+				klog.ErrorS(err, "failed to gc orphaned external admin nodes", "cluster", cluster.Name)
+			}
 		} else {
 			klog.Errorf("failed to sync node informer cache after client rebuild, cluster: %s", cluster.Name)
 		}
@@ -243,7 +257,7 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 		}
 		item := &nodeQueueMessage{
 			k8sNodeName:   node.Name,
-			adminNodeName: v1.GetNodeId(node),
+			adminNodeName: adminNodeNameForK8sNode(node),
 			clusterName:   k8sClients.Name(),
 			action:        action,
 		}
@@ -256,8 +270,20 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 	}
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			node, ok := obj.(*corev1.Node)
-			if !ok || !node.GetDeletionTimestamp().IsZero() || v1.GetClusterId(node) != k8sClients.Name() {
+			node, ok := k8sNodeFromInformerObj(obj)
+			if !ok || !node.GetDeletionTimestamp().IsZero() {
+				return
+			}
+			// Virtual kubelets are admitted by SaFE from the execution cluster. They do not
+			// carry the SaFE cluster label until after admission, so the managed-node gate
+			// below would miss them entirely.
+			if isVirtualKubeletNode(node) {
+				klog.Infof("cluster %s watch add-event of virtual kubelet %s, workspace %s",
+					k8sClients.Name(), node.Name, node.Labels[v1.ExternalWorkspaceLabel])
+				enqueue(nil, node, NodeAdd)
+				return
+			}
+			if v1.GetClusterId(node) != k8sClients.Name() {
 				return
 			}
 			klog.Infof("cluster %s watch add-event of node %s, workspace %s",
@@ -265,9 +291,22 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 			enqueue(nil, node, NodeAdd)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			oldNode, ok1 := oldObj.(*corev1.Node)
-			newNode, ok2 := newObj.(*corev1.Node)
+			oldNode, ok1 := k8sNodeFromInformerObj(oldObj)
+			newNode, ok2 := k8sNodeFromInformerObj(newObj)
 			if !ok1 || !ok2 || !newNode.GetDeletionTimestamp().IsZero() {
+				return
+			}
+			if isVirtualKubeletNode(newNode) || isVirtualKubeletNode(oldNode) {
+				if r.isRelevantFieldChanged(oldNode, newNode) ||
+					oldNode.Labels[v1.ExternalWorkspaceLabel] != newNode.Labels[v1.ExternalWorkspaceLabel] ||
+					oldNode.Labels[v1.ExternalAllocationIdLabel] != newNode.Labels[v1.ExternalAllocationIdLabel] ||
+					oldNode.Annotations[v1.ExternalObservedAtAnnotation] != newNode.Annotations[v1.ExternalObservedAtAnnotation] ||
+					oldNode.Annotations[v1.ExternalValidUntilAnnotation] != newNode.Annotations[v1.ExternalValidUntilAnnotation] ||
+					oldNode.Annotations[v1.ExternalHostKeyAnnotation] != newNode.Annotations[v1.ExternalHostKeyAnnotation] {
+					klog.Infof("cluster %s watch virtual kubelet %s update, workspace %s",
+						k8sClients.Name(), newNode.Name, newNode.Labels[v1.ExternalWorkspaceLabel])
+					enqueue(oldNode, newNode, NodeUpdate)
+				}
 				return
 			}
 			oldClusterId := v1.GetClusterId(oldNode)
@@ -288,8 +327,18 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
-			node, ok := obj.(*corev1.Node)
-			if !ok || v1.GetClusterId(node) != k8sClients.Name() {
+			// Relist-driven deletes arrive as DeletedFinalStateUnknown tombstones.
+			node, ok := k8sNodeFromInformerObj(obj)
+			if !ok {
+				return
+			}
+			if isVirtualKubeletNode(node) {
+				klog.Infof("cluster %s watch delete-event of virtual kubelet %s",
+					k8sClients.Name(), node.Name)
+				enqueue(node, nil, NodeDelete)
+				return
+			}
+			if v1.GetClusterId(node) != k8sClients.Name() {
 				return
 			}
 			klog.Infof("cluster %s watch delete-event of node %s, workspace %s",
@@ -297,6 +346,18 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 			enqueue(node, nil, NodeDelete)
 		},
 	}
+}
+
+// k8sNodeFromInformerObj unwraps a Node from an informer event, including tombstones.
+func k8sNodeFromInformerObj(obj interface{}) (*corev1.Node, bool) {
+	if obj == nil {
+		return nil, false
+	}
+	if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		obj = tombstone.Obj
+	}
+	node, ok := obj.(*corev1.Node)
+	return node, ok
 }
 
 // isRelevantFieldChanged checks if any watched fields in the Kubernetes Node have changed.
@@ -327,6 +388,21 @@ func (r *NodeK8sReconciler) start(ctx context.Context) error {
 
 // Do processes node queue messages and synchronizes node status between Kubernetes and admin nodes.
 func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (ctrlruntime.Result, error) {
+	if message.action == NodeAdd || message.action == NodeUpdate || message.action == NodeManaged {
+		if err := r.ensureVirtualKubeletAdmitted(ctx, message); err != nil {
+			klog.ErrorS(err, "failed to admit virtual kubelet", "clusterName", message.clusterName,
+				"k8sNodeName", message.k8sNodeName, "action", message.action)
+			if commonerrors.IsNonRetryableError(err) {
+				err = nil
+			} else {
+				return ctrlruntime.Result{}, err
+			}
+		}
+	}
+	if message.adminNodeName == "" {
+		return ctrlruntime.Result{}, nil
+	}
+
 	adminNode := new(v1.Node)
 	err := r.Get(ctx, apitypes.NamespacedName{Name: message.adminNodeName}, adminNode)
 	if err != nil {
@@ -353,8 +429,55 @@ func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (
 	return ctrlruntime.Result{}, nil
 }
 
+// ensureVirtualKubeletAdmitted creates or updates the SaFE Node for a virtual kubelet event.
+// Native (non-VK) nodes are ignored here: the control plane never auto-creates nodes.amd.com
+// for them; they keep the existing label-driven sync against an already-managed admin Node.
+func (r *NodeK8sReconciler) ensureVirtualKubeletAdmitted(ctx context.Context, message *nodeQueueMessage) error {
+	if !commonconfig.IsExternalExecutionEnable() {
+		return nil
+	}
+	if message.clusterName == "" || message.k8sNodeName == "" {
+		return nil
+	}
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, message.clusterName)
+	if err != nil || !k8sClients.IsValid() {
+		return fmt.Errorf("the cluster(%s) clients is not ready", message.clusterName)
+	}
+	k8sNode, err := getNodeByInformer(ctx, k8sClients, message.k8sNodeName)
+	if err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if !isVirtualKubeletNode(k8sNode) {
+		return nil
+	}
+	name, err := r.admitVirtualKubelet(ctx, message.clusterName, k8sNode)
+	if err != nil {
+		return err
+	}
+	if name != "" {
+		message.adminNodeName = name
+	} else {
+		// Ineligible VK (missing identity or non-external workspace): do not fall through
+		// to sync against a non-existent admin Node named after the kubelet.
+		message.adminNodeName = ""
+	}
+	return nil
+}
+
 // handleNodeUnmanaged handles node unmanaged or deletion events by resetting admin node metadata and status.
 func (r *NodeK8sReconciler) handleNodeUnmanaged(ctx context.Context, message *nodeQueueMessage, adminNode *v1.Node) error {
+	// A virtual kubelet that disappears retires the allocation. The matching SaFE Node was
+	// admitted from it and has no other host: delete the object rather than leave a stale
+	// external node counted against the workspace.
+	if adminNode.IsExternal() && message.action == NodeDelete {
+		if err := r.Delete(ctx, adminNode); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		klog.Infof("deleted external adminNode %s after virtual kubelet removal in cluster %s",
+			adminNode.Name, message.clusterName)
+		return nil
+	}
+
 	clusterName := message.clusterName
 	workspaceId := v1.GetWorkspaceId(adminNode)
 	if deleteConcernedMeta(adminNode) {
@@ -421,6 +544,12 @@ func (r *NodeK8sReconciler) syncK8sMetadata(ctx context.Context, adminNode *v1.N
 				v, k8sNode.Name, adminNode.GetSpecWorkspace())
 			continue
 		}
+		// External virtual nodes never carry SaFE workspace/cluster labels. Those are set at
+		// admit time and are the index GetNodesOfWorkspaces uses; mirroring a missing data-
+		// plane key would strip the binding from the admin plane on every sync.
+		if !ok && adminNode.IsExternal() && (k == v1.WorkspaceIdLabel || k == v1.ClusterIdLabel) {
+			continue
+		}
 		if ok {
 			if v1.SetLabel(adminNode, k, v) {
 				shouldUpdate = true
@@ -456,12 +585,18 @@ func (r *NodeK8sReconciler) syncK8sStatus(ctx context.Context, adminNode *v1.Nod
 	adminNode.Status.Unschedulable = k8sNode.Spec.Unschedulable
 	adminNode.Status.Taints = k8sNode.Spec.Taints
 	adminNode.Status.Conditions = k8sNode.Status.Conditions
+	// Allocatable is the sole capacity authority for external nodes: the provider already
+	// subtracted Supervisor reserve there. Do not recompute from capacity or flavor.
 	adminNode.Status.Resources = quantity.GetConcernedResources(k8sNode.Status.Allocatable)
-	if !reflect.DeepEqual(originalNode.Status, adminNode.Status) {
-		if err := r.Status().Update(ctx, adminNode); err != nil {
-			klog.ErrorS(err, "failed to update node status", "name", adminNode.Name)
-			return err
-		}
+	if reflect.DeepEqual(originalNode.Status, adminNode.Status) {
+		return nil
+	}
+	// Full status update: resources is a map, and a merge patch would union keys so a device
+	// that left allocatable would stay advertised. There is no provider-owned status subtree
+	// to preserve on this object anymore.
+	if err := r.Status().Update(ctx, adminNode); err != nil {
+		klog.ErrorS(err, "failed to update node status", "name", adminNode.Name)
+		return err
 	}
 	return nil
 }

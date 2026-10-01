@@ -186,9 +186,9 @@ func newTestSession(ch *fakeChannel) *session {
 	return &session{
 		Channel: ch,
 		ctx:     context.Background(),
-		handler: func(Session) {},
+		handler: func(Session) uint32 { return 0 },
 		subsystemHandlers: map[string]SubsystemHandler{
-			"sftp": func(Session) {},
+			"sftp": func(Session) uint32 { return 0 },
 		},
 	}
 }
@@ -338,7 +338,7 @@ func TestSessionHandleShellOrExecRequest(t *testing.T) {
 	ch := &fakeChannel{reqOK: true}
 	done := make(chan struct{})
 	s2 := newTestSession(ch)
-	s2.handler = func(Session) { close(done) }
+	s2.handler = func(Session) uint32 { close(done); return 0 }
 	var p struct{ Value string }
 	p.Value = "ls"
 	s2.handleShellOrExecRequest(&ssh.Request{Type: sshReqExec, Payload: ssh.Marshal(&p)})
@@ -418,8 +418,11 @@ func TestSSHConnReadEOFScp(t *testing.T) {
 	buf := make([]byte, 4)
 	_, err := conn.Read(buf)
 	assert.Equal(t, io.EOF, err)
-	assert.Equal(t, "SCP transfer completed", conn.ExitReason())
 	assert.Equal(t, "scp -t /tmp", conn.RawCommand())
+	// Stdin EOF must not tear down the channel; scp still needs to write status.
+	n, err := conn.Write([]byte("ok"))
+	testifyassert.NoError(t, err)
+	assert.Equal(t, 2, n)
 }
 
 func TestSSHConnWindowNotify(t *testing.T) {

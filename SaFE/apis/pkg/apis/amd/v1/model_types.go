@@ -39,9 +39,9 @@ const (
 	ModelPhaseFailed      ModelPhase = "Failed"
 
 	// Access Mode Types
-	AccessModeRemoteAPI  AccessMode = "remote_api"  // Call external API directly
-	AccessModeLocal      AccessMode = "local"       // Download model and run locally
-	AccessModeLocalPath  AccessMode = "local_path"  // Model already exists on NFS/PFS (SFT output)
+	AccessModeRemoteAPI AccessMode = "remote_api" // Call external API directly
+	AccessModeLocal     AccessMode = "local"      // Download model and run locally
+	AccessModeLocalPath AccessMode = "local_path" // Model already exists on NFS/PFS (SFT output)
 
 	// Local Path Status
 	LocalPathStatusPending     LocalPathStatus = "Pending"

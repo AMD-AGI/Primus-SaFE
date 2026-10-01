@@ -44,7 +44,7 @@ apiserver:
   # Apiserver component image version
   image: "apiserver:latest"
   # Number of replicas for apiserver deployment
-  replicas: 1
+  replicas: 2
   # CPU resources allocated to apiserver
   cpu: 2000m
   # Memory resources allocated to apiserver
@@ -75,6 +75,14 @@ job_manager:
   memory: 4Gi
   # Port for Prometheus metrics endpoint
   metrics_port: 8000
+  # Optional hostAliases for the job-manager Pod (e.g. map the external capacity
+  # controller Service name to a reachable IP when cluster DNS cannot resolve it).
+  # Example:
+  #   hostAliases:
+  #     - ip: "10.0.0.1"
+  #       hostnames:
+  #         - controller.example.svc
+  hostAliases: []
 webhooks:
   # Webhooks component image version
   image: "webhooks:latest"
@@ -336,13 +344,47 @@ model_optimization:
   # per-deploy via .env `optimize_max_concurrent` (synced into values.yaml by
   # upgrade.sh and into the live apiserver ConfigMap by cd-deploy.sh).
   max_concurrent: 1024
+external_execution:
+  # Off by default: with it off, external objects are rejected at admission and no
+  # capacity demand is published. Enable per site via .env (upgrade.sh / cd-deploy.sh):
+  #   external_enable=true
+  #   external_execution_controller_url=https://controller.example.svc:31844
+  #   external_execution_controller_secret=safe-exec-controller-client
+  #   external_execution_profile_id=site-execution-profile
+  #   external_execution_profile_revision=2
+  enabled: false
+  # Capacity controller endpoint. One deployment talks to one controller, which is also
+  # the single active mutator of the execution ledger.
+  # Example: "https://controller.example.svc:31844"
+  controller_url: ""
+  # Existing secret holding ca.crt, tls.crt and tls.key for service mTLS to the controller.
+  # Mounted into job-manager when both this and enabled are set; the client refuses to
+  # build without the material rather than connecting unverified.
+  controller_secret: ""
+  controller_secret_path: "/etc/secrets/external-execution"
+  controller_timeout_seconds: 10
+  # Execution profile capacity is requested under. The provider owns the definition and
+  # validation state; naming an unvalidated profile is refused by the provider.
+  profile_id: ""
+  profile_revision: 1
+  # Per-task process budget declared on every demand unit. The provider records it
+  # on the hold and refuses Prepare when it is zero.
+  pid_limit: 1048576
+  # Caps how long a provider observation stays usable once the provider stops reporting.
+  observation_max_age_seconds: 120
+  # Bounds how long an external workspace goes without a reconcile, so a stale observation
+  # is noticed well before the controller's own fifteen minute backstop.
+  workspace_resync_seconds: 30
+workload:
+  # Seconds to keep a finished workload before TTL deletion.
+  ttl_second: 3600
 sandbox:
   enable: true
   namespace: "agent-sandbox-system"
   secret: "envd-router-identity"
-  # EnvD injector initContainer image (repo path under harbor, no proxy/ prefix).
+  # EnvD injector initContainer image. Repo path only; the template adds harbor.<sub_domain>.<domain>/proxy/.
   # Must include GET /api/jobs for Brain idle sandbox reclaim.
-  envd_injector_image: "primussafe/agent-sandbox-envd-injector:92e5155-09231918"
+  envd_injector_image: "primussafe/agent-sandbox-envd-injector@sha256:e2f3dbe22558c37c2777f71c2f4e65516deb1831087233f1d43be04753ad106e"
 mcp:
   enabled: true
   base_path: "/api/v1/safe-mcp/mcp"

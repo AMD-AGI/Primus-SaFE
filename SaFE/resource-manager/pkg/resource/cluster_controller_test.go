@@ -143,11 +143,11 @@ func newClusterReconcilerFull(t *testing.T, cs *k8sfake.Clientset, objs ...ctrlc
 }
 
 func TestGuaranteeCICDClusterRoleBindingFull(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	patches.ApplyFunc(commonconfig.IsCICDEnable, func() bool { return true })
-	patches.ApplyFunc(commonconfig.GetCICDRoleName, func() string { return "cicd-role" })
-	patches.ApplyFunc(commonconfig.GetCICDControllerName, func() string { return "cicd-sa" })
-	defer patches.Reset()
+	setViper(t, map[string]any{
+		"cicd.enable":          true,
+		"cicd.role_name":       "cicd-role",
+		"cicd.controller_name": "cicd-sa",
+	})
 
 	cs := k8sfake.NewSimpleClientset()
 	r := newClusterReconcilerFull(t, cs)
@@ -174,10 +174,11 @@ func TestGuaranteeAllImageSecretsFull(t *testing.T) {
 }
 
 func TestGuaranteeForwardIngressFull(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	patches.ApplyFunc(commonconfig.GetIngress, func() string { return common.HigressClassname })
-	patches.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
-	defer patches.Reset()
+	setViper(t, map[string]any{
+		"net.ingress":       common.HigressClassname,
+		"global.sub_domain": "safe",
+		"global.domain":     "local",
+	})
 
 	srcEp := &corev1.Endpoints{
 		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},

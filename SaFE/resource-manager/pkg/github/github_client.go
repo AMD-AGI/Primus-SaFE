@@ -53,15 +53,15 @@ type GitHubRun struct {
 }
 
 type GitHubJob struct {
-	ID            int64      `json:"id"`
-	Name          string     `json:"name"`
-	Status        string     `json:"status"`
-	Conclusion    string     `json:"conclusion"`
-	StartedAt     *time.Time `json:"started_at"`
-	CompletedAt   *time.Time `json:"completed_at"`
-	RunnerName    string     `json:"runner_name"`
-	RunnerGroupName string  `json:"runner_group_name"`
-	Steps         []GitHubStep `json:"steps"`
+	ID              int64        `json:"id"`
+	Name            string       `json:"name"`
+	Status          string       `json:"status"`
+	Conclusion      string       `json:"conclusion"`
+	StartedAt       *time.Time   `json:"started_at"`
+	CompletedAt     *time.Time   `json:"completed_at"`
+	RunnerName      string       `json:"runner_name"`
+	RunnerGroupName string       `json:"runner_group_name"`
+	Steps           []GitHubStep `json:"steps"`
 }
 
 type GitHubStep struct {
@@ -74,8 +74,8 @@ type GitHubStep struct {
 }
 
 type GitHubCommit struct {
-	SHA     string `json:"sha"`
-	Commit  struct {
+	SHA    string `json:"sha"`
+	Commit struct {
 		Message string `json:"message"`
 		Author  struct {
 			Name  string     `json:"name"`

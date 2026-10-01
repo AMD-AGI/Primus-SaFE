@@ -296,8 +296,8 @@ func TestGeneratePreflightWorkload(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "pj-cpu",
 				Labels: map[string]string{
-					v1.ClusterIdLabel:  "c1",
-					v1.UserIdLabel:     "u1",
+					v1.ClusterIdLabel:   "c1",
+					v1.UserIdLabel:      "u1",
 					v1.WorkspaceIdLabel: "",
 				},
 				Annotations: map[string]string{

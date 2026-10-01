@@ -85,7 +85,7 @@ data:
               ln -sf ld-musl-x86_64.so.1 /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true
               ( cp /amd-root-ca.crt /amd-issuing-ca.crt /amd-bundle.pem /setup-amd-ca.sh /shared/bin/ \
                 && chmod +x /shared/bin/setup-amd-ca.sh ) 2>/dev/null || true
-            image: harbor.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/{{ .Values.sandbox.envd_injector_image }}
+            image: harbor.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/proxy/{{ .Values.sandbox.envd_injector_image }}
             imagePullPolicy: IfNotPresent
             name: envd-injector
             resources: {}

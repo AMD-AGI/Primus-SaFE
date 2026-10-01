@@ -39,8 +39,8 @@ import (
 // AddonController manages Helm addon installations and updates for clusters.
 type AddonController struct {
 	client.Client
-	clustersGetter  *ClustersGetter
-	grafanaSyncer   *GrafanaDatasourceSyncer
+	clustersGetter *ClustersGetter
+	grafanaSyncer  *GrafanaDatasourceSyncer
 }
 
 // SetupAddonController initializes and registers the AddonController with the controller manager.

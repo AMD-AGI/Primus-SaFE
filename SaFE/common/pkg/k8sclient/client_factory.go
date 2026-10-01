@@ -34,12 +34,12 @@ const (
 type ClientFactory struct {
 	ctx context.Context
 	// Factory name, typically refers to cluster name
-	name          string
-	endpoint      string
+	name               string
+	endpoint           string
 	backendFingerprint string
-	clientSet     kubernetes.Interface
-	restConfig    *rest.Config
-	dynamicClient *dynamic.DynamicClient
+	clientSet          kubernetes.Interface
+	restConfig         *rest.Config
+	dynamicClient      *dynamic.DynamicClient
 	// Used by dynamicSharedInformerFactory
 	mapper meta.RESTMapper
 	// SharedInformerFactory and DynamicSharedInformerFactory do not coexist
@@ -139,6 +139,16 @@ func NewClientFactoryForTest(name, endpoint string) *ClientFactory {
 // AttachRestConfigForTest sets REST config on a test factory.
 func (f *ClientFactory) AttachRestConfigForTest(cfg *rest.Config) {
 	f.restConfig = cfg
+}
+
+// AttachDynamicClientForTest sets the dynamic client on a test factory.
+func (f *ClientFactory) AttachDynamicClientForTest(client *dynamic.DynamicClient) {
+	f.dynamicClient = client
+}
+
+// AttachMapperForTest sets the REST mapper on a test factory.
+func (f *ClientFactory) AttachMapperForTest(mapper meta.RESTMapper) {
+	f.mapper = mapper
 }
 
 // NewClientFactoryForTestWithInformer builds a factory backed by the given clientset and a live
