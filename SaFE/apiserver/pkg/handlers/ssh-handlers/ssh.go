@@ -46,6 +46,18 @@ var (
 	sshHandler *SshHandler
 )
 
+// keepaliveRequest is the global request OpenSSH servers send to probe a client.
+// Every conforming client answers it, with a failure reply if it does not know it.
+const keepaliveRequest = "keepalive@openssh.com"
+
+// clientAliveInterval and clientAliveCountMax mirror OpenSSH's options of the same
+// names. Without them a client that vanished behind NAT or a proxy that keeps its
+// side open is never noticed, and its remote forwards keep their pod ports.
+var (
+	clientAliveInterval = 30 * time.Second
+	clientAliveCountMax = 3
+)
+
 // NewSshHandler creates and initializes a new SshHandler singleton.
 func NewSshHandler(ctx context.Context, mgr ctrlruntime.Manager) (*SshHandler, error) {
 	var err error
@@ -158,6 +170,7 @@ func (h *SshHandler) HandleConnection(conn net.Conn) {
 	idle := newIdleTracker(h.timeout)
 	ctx, cancel := idle.watch(h.ctx)
 	ctx = withIdleTracker(ctx, idle)
+	go keepClientAlive(ctx, sshConn, clientAliveInterval, clientAliveCountMax)
 	var wg sync.WaitGroup
 	defer func() {
 		cancel()
@@ -193,6 +206,45 @@ func (h *SshHandler) HandleConnection(conn net.Conn) {
 		}
 	}
 	klog.Infof("ssh connection closed, user: %s, from %s", sshConn.User(), conn.RemoteAddr())
+}
+
+// keepClientAlive probes the client every interval and closes the connection once
+// maxMissed intervals pass without an answer to an outstanding probe. It returns
+// when ctx ends or the connection does.
+func keepClientAlive(ctx context.Context, conn ssh.Conn, interval time.Duration, maxMissed int) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	var reply chan error
+	missed := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case err := <-reply:
+			if err != nil {
+				return
+			}
+			reply, missed = nil, 0
+			continue
+		case <-ticker.C:
+		}
+		// At most one probe is outstanding: a connection whose writes are stuck
+		// would otherwise gain a blocked goroutine every interval.
+		if reply != nil {
+			if missed++; missed >= maxMissed {
+				klog.Warningf("ssh client %s did not answer a keepalive for %s, closing the connection",
+					conn.RemoteAddr(), time.Duration(missed)*interval)
+				_ = conn.Close()
+				return
+			}
+			continue
+		}
+		reply = make(chan error, 1)
+		go func(reply chan<- error) {
+			_, _, err := conn.SendRequest(keepaliveRequest, true, nil)
+			reply <- err
+		}(reply)
+	}
 }
 
 // startSessionHandler starts a session handler for an SSH channel.

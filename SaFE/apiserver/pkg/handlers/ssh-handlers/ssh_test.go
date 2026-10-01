@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -359,6 +360,125 @@ func TestHandleConnectionHandshakeFailure(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("HandleConnection did not return on handshake failure")
+	}
+}
+
+// blackholeRelay carries a connection until cut, then swallows whatever either end
+// sends without closing either side: a client that vanished behind NAT.
+type blackholeRelay struct {
+	addr string
+	cut  atomic.Bool
+}
+
+func startBlackholeRelay(t *testing.T, target string) *blackholeRelay {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	testifyassert.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	r := &blackholeRelay{addr: ln.Addr().String()}
+	go func() {
+		for {
+			in, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			out, err := net.Dial("tcp", target)
+			if err != nil {
+				_ = in.Close()
+				return
+			}
+			t.Cleanup(func() {
+				_ = in.Close()
+				_ = out.Close()
+			})
+			go r.copy(out, in)
+			go r.copy(in, out)
+		}
+	}()
+	return r
+}
+
+func (r *blackholeRelay) copy(dst, src net.Conn) {
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := src.Read(buf)
+		if err != nil {
+			return
+		}
+		if r.cut.Load() {
+			continue
+		}
+		if _, err = dst.Write(buf[:n]); err != nil {
+			return
+		}
+	}
+}
+
+func shortenClientAlive(t *testing.T, interval time.Duration, countMax int) {
+	t.Helper()
+	previousInterval, previousCount := clientAliveInterval, clientAliveCountMax
+	clientAliveInterval, clientAliveCountMax = interval, countMax
+	t.Cleanup(func() { clientAliveInterval, clientAliveCountMax = previousInterval, previousCount })
+}
+
+// serveOneConnection runs HandleConnection for one client reached through a relay
+// the test can cut. The returned channel closes when HandleConnection returns.
+func serveOneConnection(t *testing.T) (*blackholeRelay, <-chan struct{}) {
+	t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	testifyassert.NoError(t, err)
+	signer, err := ssh.NewSignerFromSigner(priv)
+	testifyassert.NoError(t, err)
+	cfg := &ssh.ServerConfig{NoClientAuth: true}
+	cfg.AddHostKey(signer)
+	h := &SshHandler{ctx: context.Background(), config: cfg, timeout: time.Minute}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	testifyassert.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if conn, acceptErr := ln.Accept(); acceptErr == nil {
+			h.HandleConnection(conn)
+		}
+	}()
+
+	relay := startBlackholeRelay(t, ln.Addr().String())
+	client, err := ssh.Dial("tcp", relay.addr, &ssh.ClientConfig{
+		User:            "root.pod-0.main.bash.ns",
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
+	})
+	testifyassert.NoError(t, err)
+	if err != nil {
+		t.FailNow()
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	return relay, done
+}
+
+func TestHandleConnectionKeepsAClientThatAnswersKeepalives(t *testing.T) {
+	shortenClientAlive(t, 100*time.Millisecond, 3)
+	_, done := serveOneConnection(t)
+	select {
+	case <-done:
+		t.Fatal("closed a connection whose client was answering keepalives")
+	case <-time.After(15 * clientAliveInterval):
+	}
+}
+
+// TestHandleConnectionClosesAClientThatVanished is the connection a remote forward
+// outlived by hours: nothing arrives, nothing is closed, and only a probe that goes
+// unanswered shows the client is gone.
+func TestHandleConnectionClosesAClientThatVanished(t *testing.T) {
+	shortenClientAlive(t, 100*time.Millisecond, 3)
+	relay, done := serveOneConnection(t)
+	relay.cut.Store(true)
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("kept a connection whose client stopped answering keepalives")
 	}
 }
 

@@ -428,18 +428,43 @@ func (l *execPodListener) Close() error {
 	} else if l.stdinW != nil {
 		_ = l.stdinW.Close()
 	}
-	// Wait for the multiplexer to actually exit before reporting the listener gone.
 	// A client that reconnects asks for the same port straight away, and reuseaddr
-	// does not cover a socket another live process is still listening on - so
-	// returning early turns a reconnect into "the port you just released is busy".
-	// Bounded, because a stuck exec must not hold up the rest of the teardown.
-	select {
-	case <-l.streamDone:
-	case <-time.After(listenerShutdownGrace):
-		klog.Warningf("pod listener on %s:%d did not exit within %s", l.bindAddr, l.bindPort, listenerShutdownGrace)
+	// does not cover a socket another live process is still listening on. Stdin
+	// closing is the first signal; if the process is still there after the grace,
+	// signal the multiplexer itself. Returning while it still holds the port is
+	// what turns the reconnect into "remote port forwarding failed".
+	if !l.streamEnded(listenerShutdownGrace) {
+		l.reap()
+		if !l.streamEnded(listenerShutdownGrace) {
+			klog.Warningf("pod listener on %s:%d still held the port after signaling it",
+				l.bindAddr, l.bindPort)
+			l.cancel()
+			return fmt.Errorf("pod listener on %s:%d still held the port", l.bindAddr, l.bindPort)
+		}
 	}
 	l.cancel()
 	return nil
+}
+
+// streamEnded reports whether the run exec has exited within d.
+func (l *execPodListener) streamEnded(d time.Duration) bool {
+	select {
+	case <-l.streamDone:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+// reap signals this forward's multiplexer inside the container. Its binary has
+// already been unlinked, so this is a separate exec.
+func (l *execPodListener) reap() {
+	ctx, cancel := context.WithTimeout(context.Background(), installCleanupTimeout)
+	defer cancel()
+	if _, stderr, err := l.runSetup(ctx, reapScript(l.token), nil); err != nil {
+		klog.Warningf("could not signal the listener on %s:%d in pod %s/%s: %v%s",
+			l.bindAddr, l.bindPort, l.userInfo.Namespace, l.userInfo.Pod, err, reportedReason(stderr))
+	}
 }
 
 // fail records the first terminal error and releases everyone blocked on the listener.
@@ -534,13 +559,35 @@ fi
 
 // runScript runs the multiplexer with the exec's stdin and stdout as its session.
 //
-// The multiplexer removes its own directory once the port is bound, so the trap is
-// only for the paths where it never got that far.
+// exec replaces the shell, so a signal sent to the exec'd process reaches the
+// listener. A shell left in front that traps TERM runs the trap and goes on
+// waiting for its child, which keeps the port. The trap remains for the path
+// where exec itself fails.
 func runScript(dir, bindAddr string, bindPort uint32) string {
 	return fmt.Sprintf(`D=%[1]s
-trap 'rm -rf "$D"' EXIT INT TERM
-"$D/mux" listen -max-streams %[4]d -remove-dir "$D" %[2]s %[3]d
+trap 'rm -rf "$D"' EXIT
+exec "$D/mux" listen -max-streams %[4]d -remove-dir "$D" %[2]s %[3]d
 `, dir, bindAddr, bindPort, muxMaxStreams)
+}
+
+// reapScript signals only the `mux listen` whose -remove-dir carries this token, so
+// another session's forward on the same port is left alone. token is hex from
+// randomToken and needs no quoting; this script's own shell never matches argv[0].
+func reapScript(token string) string {
+	return fmt.Sprintf(`T=%s
+for P in /proc/[0-9]*; do
+  set -f
+  set -- $(tr '\0' ' ' < "$P/cmdline" 2>/dev/null)
+  set +f
+  [ "${1##*/}" = mux ] && [ "$2" = listen ] || continue
+  for A in "$@"; do
+    case $A in
+      */.safe-rfwd-"$T") kill -TERM "${P#/proc/}" 2>/dev/null; break ;;
+    esac
+  done
+done
+exit 0
+`, token)
 }
 
 // parseProbe reads the architecture and install directory out of the probe's output.

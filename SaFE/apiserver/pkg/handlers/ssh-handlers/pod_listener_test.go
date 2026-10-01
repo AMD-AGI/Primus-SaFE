@@ -138,10 +138,11 @@ func TestInstallScriptRejectsABinaryThatCannotRun(t *testing.T) {
 func TestRunScriptStartsTheInstalledMultiplexer(t *testing.T) {
 	script := runScript("/tmp/.safe-rfwd-abcd", "127.0.0.1", 10001)
 	testifyassert.Contains(t, script,
-		fmt.Sprintf(`"$D/mux" listen -max-streams %d -remove-dir "$D" 127.0.0.1 10001`, muxMaxStreams))
-	// The multiplexer removes its own files once the port is bound; the trap is for
-	// the paths where it never got that far.
-	testifyassert.Contains(t, script, `trap 'rm -rf "$D"' EXIT INT TERM`)
+		fmt.Sprintf(`exec "$D/mux" listen -max-streams %d -remove-dir "$D" 127.0.0.1 10001`, muxMaxStreams))
+	// The trap covers exec failing before the multiplexer is running. It must not
+	// catch the signal that stops the listener, or the shell would swallow it.
+	testifyassert.Contains(t, script, `trap 'rm -rf "$D"' EXIT`)
+	testifyassert.NotContains(t, script, "INT TERM")
 	testifyassert.Contains(t, script, "D=/tmp/.safe-rfwd-abcd")
 }
 
@@ -236,6 +237,7 @@ const (
 	installExec
 	runExec
 	cleanupExec
+	reapExec
 )
 
 // classify tells the scripts apart the way a reader of the exec log would.
@@ -247,6 +249,8 @@ func classify(script string) podScript {
 		return installExec
 	case strings.HasPrefix(script, "rm -rf "):
 		return cleanupExec
+	case strings.Contains(script, "kill -TERM"):
+		return reapExec
 	default:
 		return runExec
 	}
@@ -268,6 +272,9 @@ type fakePodBehaviour struct {
 	// linger models a run exec that keeps going after its stdin ends, which is what
 	// a runtime that leaves the exec'd process running looks like.
 	linger bool
+	// ignoreReap keeps that process running even after the reap exec, which is a
+	// listener that survived both stdin closing and a signal.
+	ignoreReap bool
 }
 
 // fakePod stands in for one target container across the three execs a forward takes.
@@ -275,6 +282,7 @@ type fakePod struct {
 	t         *testing.T
 	behave    fakePodBehaviour
 	release   chan struct{}
+	reaped    chan struct{}
 	installed chan []byte
 	cleaned   chan string
 
@@ -316,6 +324,7 @@ func stubPod(t *testing.T, behave fakePodBehaviour) *fakePod {
 		t:         t,
 		behave:    behave,
 		release:   make(chan struct{}),
+		reaped:    make(chan struct{}, 1),
 		installed: make(chan []byte, 1),
 		cleaned:   make(chan string, 4),
 		scripts:   map[podScript]string{},
@@ -406,6 +415,14 @@ func (f *fakeExec) StreamWithContext(ctx context.Context, opts remotecommand.Str
 			_, _ = io.WriteString(opts.Stderr, b.installStderr+"\n")
 		}
 		return b.installErr
+	case reapExec:
+		if !b.ignoreReap {
+			select {
+			case f.pod.reaped <- struct{}{}:
+			default:
+			}
+		}
+		return nil
 	default:
 		return f.runStream(ctx, opts)
 	}
@@ -435,10 +452,16 @@ func (f *fakeExec) runStream(ctx context.Context, opts remotecommand.StreamOptio
 	select {
 	case <-session.Done():
 		if b.linger {
-			// The stream is gone but the process is not; only tearing the exec down
-			// ends it.
-			<-ctx.Done()
-			return ctx.Err()
+			// The stream is gone but the process is not. Closing the exec context
+			// or signaling the listener is what ends it.
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-f.pod.reaped:
+				return nil
+			case <-f.pod.release:
+				return nil
+			}
 		}
 		return nil
 	case <-ctx.Done():
@@ -543,14 +566,36 @@ func TestExecPodListenerCloseGivesUpOnAStuckRun(t *testing.T) {
 	listenerShutdownGrace = 200 * time.Millisecond
 	t.Cleanup(func() { listenerShutdownGrace = previous })
 
-	stubPod(t, fakePodBehaviour{linger: true})
+	stubPod(t, fakePodBehaviour{linger: true, ignoreReap: true})
 	listener, err := newExecPodListener(context.Background(),
 		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
 	testifyassert.NoError(t, err)
 
 	start := time.Now()
-	testifyassert.NoError(t, listener.Close())
+	testifyassert.Error(t, listener.Close())
 	testifyassert.Less(t, time.Since(start), 5*time.Second)
+}
+
+// TestCloseReapsAListenerThatSurvivesStdinClosing is the reconnect path: stdin
+// ending did not make the process exit, so Close signals the multiplexer and
+// waits for the port to come back before it reports the forward gone.
+func TestCloseReapsAListenerThatSurvivesStdinClosing(t *testing.T) {
+	previous := listenerShutdownGrace
+	listenerShutdownGrace = 200 * time.Millisecond
+	t.Cleanup(func() { listenerShutdownGrace = previous })
+
+	pod := stubPod(t, fakePodBehaviour{linger: true})
+	listener, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.NoError(t, err)
+
+	testifyassert.NoError(t, listener.Close())
+	l, ok := listener.(*execPodListener)
+	testifyassert.True(t, ok)
+	if ok {
+		testifyassert.Contains(t, pod.script(reapExec), "T="+l.token+"\n",
+			"the reap must be scoped to this listener's own install")
+	}
 }
 
 // TestExecPodListenerCloseIsPromptWithABacklog covers teardown while connections
