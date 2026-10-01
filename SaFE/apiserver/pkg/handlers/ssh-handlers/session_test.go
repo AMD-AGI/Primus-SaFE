@@ -418,8 +418,11 @@ func TestSSHConnReadEOFScp(t *testing.T) {
 	buf := make([]byte, 4)
 	_, err := conn.Read(buf)
 	assert.Equal(t, io.EOF, err)
-	assert.Equal(t, "client closed stdin", conn.ExitReason())
 	assert.Equal(t, "scp -t /tmp", conn.RawCommand())
+	// Stdin EOF must not tear down the channel; scp still needs to write status.
+	n, err := conn.Write([]byte("ok"))
+	testifyassert.NoError(t, err)
+	assert.Equal(t, 2, n)
 }
 
 func TestSSHConnWindowNotify(t *testing.T) {

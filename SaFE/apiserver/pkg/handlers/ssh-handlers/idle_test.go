@@ -49,12 +49,14 @@ func TestStreamExitCode(t *testing.T) {
 	assert.Equal(t, uint32(42), streamExitCode(k8sexec.CodeExitError{Err: errors.New("x"), Code: 42}))
 }
 
-func TestSSHConnReadEOFClosesImmediately(t *testing.T) {
-	fs := &fakeSession{fakeChannel: &fakeChannel{readErr: io.EOF}, rawCmd: "cat > /tmp/x"}
+func TestSSHConnReadEOFKeepsChannelOpen(t *testing.T) {
+	fs := &fakeSession{fakeChannel: &fakeChannel{readErr: io.EOF}, rawCmd: "bash --login -c bash"}
 	conn := newSSHConn(fs)
 	start := time.Now()
 	_, err := conn.Read(make([]byte, 1))
 	assert.Equal(t, io.EOF, err)
 	assert.Assert(t, time.Since(start) < time.Second, "EOF must not sleep")
-	assert.Equal(t, "client closed stdin", conn.ExitReason())
+	n, err := conn.Write([]byte("still-open"))
+	assert.NilError(t, err)
+	assert.Equal(t, 10, n)
 }

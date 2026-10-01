@@ -270,10 +270,9 @@ func (conn *SSHConn) Read(p []byte) (n int, err error) {
 	if n > 0 {
 		conn.idle.Touch()
 	}
-	if err != nil && err == io.EOF {
-		conn.SetExitReason("client closed stdin")
-		_ = conn.Close()
-	}
+	// Return EOF to the exec stream so container stdin closes, but keep the SSH
+	// channel open. Clients such as Cursor Remote SSH pipe an install script and
+	// then half-close stdin while the remote shell must keep writing.
 	return n, err
 }
 
