@@ -44,6 +44,7 @@ data:
               value: https://{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/api/v1/llm-proxy/v1
             - name: WORKLOAD_MANAGER_URL
               value: http://workloadmanager.agent-sandbox-system.svc.cluster.local:8080
+{{- if .Values.sandbox.extra_ca_secret }}
             - name: SSL_CERT_FILE
               value: /shared/bin/ca-bundle.pem
             - name: REQUESTS_CA_BUNDLE
@@ -52,6 +53,7 @@ data:
               value: /shared/bin/ca-bundle.pem
             - name: NODE_EXTRA_CA_CERTS
               value: /shared/bin/ca-bundle.pem
+{{- end }}
             imagePullPolicy: IfNotPresent
             name: codeinterpreter
             readinessProbe:
@@ -69,6 +71,11 @@ data:
             - mountPath: /var/run/agent-sandbox/session
               name: envd-session-identity
               readOnly: true
+{{- if .Values.sandbox.extra_ca_secret }}
+            - mountPath: /etc/claw/extra-ca
+              name: extra-ca
+              readOnly: true
+{{- end }}
           initContainers:
           - command:
             - sh
@@ -96,6 +103,11 @@ data:
           volumes:
           - emptyDir: {}
             name: envd-bin
+{{- if .Values.sandbox.extra_ca_secret }}
+          - name: extra-ca
+            secret:
+              secretName: {{ .Values.sandbox.extra_ca_secret }}
+{{- end }}
           - name: envd-session-identity
             downwardAPI:
               items:

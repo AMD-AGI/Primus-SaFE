@@ -382,9 +382,15 @@ sandbox:
   enable: true
   namespace: "agent-sandbox-system"
   secret: "envd-router-identity"
-  # EnvD injector initContainer image. Repo path only; the template adds harbor.<sub_domain>.<domain>/proxy/.
-  # Must include GET /api/jobs for Brain idle sandbox reclaim.
-  envd_injector_image: "primussafe/agent-sandbox-envd-injector@sha256:e2f3dbe22558c37c2777f71c2f4e65516deb1831087233f1d43be04753ad106e"
+  # EnvD injector initContainer image. Repo path only; the template adds harbor.<sub_domain>.<domain>/proxy/,
+  # so the digest has to exist on Docker Hub. Must include GET /api/jobs for Brain idle sandbox reclaim.
+  envd_injector_image: "primussafe/agent-sandbox-envd-injector@sha256:e52a74caff74d716458f336c6fb2da3954c8236e5a13ccd6d1d34d12b5031888"
+  # Secret holding extra CA certificates (PEM, any key name) that sandboxes must trust. Create it in the
+  # primus-safe namespace with the primus-safe.workspace.ids annotation listing the workspaces that run
+  # sandboxes; resource-manager mirrors it into each workspace namespace. When set, it is mounted at
+  # /etc/claw/extra-ca, merged into /shared/bin/ca-bundle.pem, and the sandbox's CA variables point
+  # there; a sandbox then refuses to start if no certificate is found. Empty keeps the image's own trust.
+  extra_ca_secret: ""
 mcp:
   enabled: true
   base_path: "/api/v1/safe-mcp/mcp"
