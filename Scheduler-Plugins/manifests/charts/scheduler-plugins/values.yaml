@@ -4,7 +4,7 @@
 
 scheduler:
   name: kube-scheduler-plugins
-  image: primussafe/kube-scheduler:202509051543
+  image: primussafe/kube-scheduler:202609221234
   command:
   - /bin/kube-scheduler
   replicaCount: 1
@@ -17,7 +17,7 @@ scheduler:
 
 controller:
   name: kube-scheduler-plugins-controller
-  image: registry.k8s.io/scheduler-plugins/controller:v0.31.8
+  image: registry.k8s.io/scheduler-plugins/controller:v0.35.7
   replicaCount: 1
   leaderElect: false
   priorityClassName: ""
@@ -33,6 +33,62 @@ plugins:
   enabled: ["Coscheduling","CapacityScheduling","NodeResourceTopologyMatch","NodeResourcesAllocatable"]
   disabled: ["PrioritySort"] # only in-tree plugins need to be defined here
 
+# Plugins of the single profile served under scheduler.name, rendered verbatim
+# into KubeSchedulerConfiguration.profiles[0].plugins.
+# The default sorts the queue and scores nodes with TopologyIPSort and gates
+# gangs with Coscheduling.
+profile:
+  plugins:
+    multiPoint:
+      enabled:
+      - name: Coscheduling
+      - name: TopologyIPSort
+    queueSort:
+      enabled:
+      - name: TopologyIPSort
+      disabled:
+      - name: "*"
+    score:
+      enabled:
+      - name: TopologyIPSort
+      disabled:
+      - name: "*"
+# To bin-pack instead (Coscheduling orders the queue and gates gangs, nodes are
+# scored by NodeResourcesFit MostAllocated, TopologyIPSort is off), override
+# profile.plugins and pluginConfig with:
+#
+# profile:
+#   plugins:
+#     multiPoint:
+#       enabled:
+#       - name: Coscheduling
+#     queueSort:
+#       enabled:
+#       - name: Coscheduling
+#       disabled:
+#       - name: "*"
+#     score:
+#       enabled:
+#       - name: NodeResourcesFit
+#       disabled:
+#       - name: "*"
+# pluginConfig:
+# - name: Coscheduling
+#   args:
+#     permitWaitingTimeSeconds: 10
+# - name: NodeResourcesFit
+#   args:
+#     scoringStrategy:
+#       type: MostAllocated
+#       resources:
+#       - name: amd.com/gpu
+#         weight: 5
+#       - name: cpu
+#         weight: 1
+#       - name: memory
+#         weight: 1
+
+# Profile-level pluginConfig, rendered verbatim into profiles[0].pluginConfig.
 # Customize the enabled plugins' config.
 # Refer to the "pluginConfig" section of manifests/<plugin>/scheduler-config.yaml.
 # For example, for Coscheduling plugin, you want to customize the permit waiting timeout to 10 seconds:
