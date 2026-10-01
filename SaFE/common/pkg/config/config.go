@@ -225,7 +225,7 @@ func GetWorkloadHangCheckInterval() int {
 
 // GetWorkloadTTLSecond returns the TTL in seconds for completed workloads.
 func GetWorkloadTTLSecond() int {
-	return getInt(workloadTTLSecond, 60)
+	return getInt(workloadTTLSecond, 3600)
 }
 
 // IsOpenSearchEnable returns whether OpenSearch is enabled.

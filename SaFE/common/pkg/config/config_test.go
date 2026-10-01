@@ -62,7 +62,7 @@ func TestGettersDefaults(t *testing.T) {
 	testifyassert.Equal(t, float64(0), GetEphemeralStoreReservePercent())
 	testifyassert.Equal(t, float64(0), GetMaxEphemeralStorePercent())
 	testifyassert.Equal(t, 0, GetWorkloadHangCheckInterval())
-	testifyassert.Equal(t, 60, GetWorkloadTTLSecond())
+	testifyassert.Equal(t, 3600, GetWorkloadTTLSecond())
 	testifyassert.False(t, IsOpenSearchEnable())
 	testifyassert.Equal(t, "", GetOpenSearchEndpoint())
 	testifyassert.Equal(t, "", GetOpenSearchIndexPrefix())

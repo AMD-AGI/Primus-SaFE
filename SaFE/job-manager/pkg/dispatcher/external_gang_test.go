@@ -159,16 +159,18 @@ func TestApplyExternalCommEnvGang(t *testing.T) {
 		assert.Assert(t, !found, "%s must be left to the site", name)
 	}
 	assert.Equal(t, envs["NCCL_DEBUG"], "site")
-	assert.Equal(t, envs["RCCL_MSCCL_ENABLE"], "0")
+	assert.Equal(t, envs["GIT_CONFIG_COUNT"], "1")
+	assert.Equal(t, envs["GIT_CONFIG_KEY_0"], "safe.directory")
+	assert.Equal(t, envs["GIT_CONFIG_VALUE_0"], "*")
 }
 
 // A single-unit pod keeps its env; a value already set for MSCCL is kept.
 func TestApplyExternalCommEnvSingleUnit(t *testing.T) {
-	obj := externalEnvObject("NCCL_IB_HCA", "RCCL_MSCCL_ENABLE")
+	obj := externalEnvObject("NCCL_IB_HCA")
 	assert.NilError(t, applyExternalCommEnv(obj, claimWorkload(), externalShapeSpec()))
 	envs := envValues(t, obj)
 	assert.Equal(t, envs["NCCL_IB_HCA"], "site")
-	assert.Equal(t, envs["RCCL_MSCCL_ENABLE"], "site")
+	assert.Equal(t, envs["GIT_CONFIG_COUNT"], "1")
 }
 
 // A workload outside external capacity is left untouched.

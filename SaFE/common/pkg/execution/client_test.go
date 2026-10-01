@@ -199,8 +199,8 @@ func TestClientDecodesRefusalsAndRefusesTheMock(t *testing.T) {
 	if err = client.do(context.Background(), http.MethodGet, "/mock", nil, &ClaimResponse{}); err == nil || !strings.Contains(err.Error(), "contract mock") {
 		t.Fatalf("mock: %v", err)
 	}
-	if err = client.do(context.Background(), http.MethodGet, "/unknown", nil, &ClaimResponse{}); err == nil {
-		t.Fatal("unknown field must fail")
+	if err = client.do(context.Background(), http.MethodGet, "/unknown", nil, &ClaimResponse{}); err != nil {
+		t.Fatalf("unknown field must be ignored: %v", err)
 	}
 	if err = client.do(context.Background(), http.MethodGet, "/redirect", nil, nil); err == nil {
 		t.Fatal("redirect must not be followed as success")
@@ -230,5 +230,21 @@ func TestClientTransportFailures(t *testing.T) {
 
 	if err := client.do(context.Background(), http.MethodPost, "/x", make(chan int), nil); err == nil {
 		t.Fatal("unmarshalable body must fail")
+	}
+}
+
+func TestDecodeResponseAcceptsUnknownFields(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1alpha1/capacity-demands/", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"api_version":"safe-exec/v1alpha1","request_id":"r","demand_id":"d","revision":1,"eligible":true,"reason":"InsufficientCapacity","units":[],"observed_at":"2026-09-29T12:00:00.000Z","expires_at":"2026-09-29T12:05:00.000Z","gang":true}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	client, err := NewClient(Config{BaseURL: srv.URL, AllowMockServer: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.PublishDemand(context.Background(), &CapacityDemand{DemandID: "d", RequestID: "r"}); err != nil {
+		t.Fatalf("unknown field must not fail decode: %v", err)
 	}
 }

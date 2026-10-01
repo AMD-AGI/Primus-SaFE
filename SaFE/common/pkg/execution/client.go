@@ -237,9 +237,8 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(payload))
-	// An unknown field means the peer speaks a contract this build does not implement.
-	// Ignoring it would let a profile this client cannot honour look like a supported one.
-	decoder.DisallowUnknownFields()
+	// Accept fields this build does not name so a newer provider can add response keys
+	// (for example "gang") without breaking an otherwise valid reply.
 	if err := decoder.Decode(out); err != nil {
 		return fmt.Errorf("external execution: decode response: %w", err)
 	}

@@ -459,8 +459,11 @@ func (r *SchedulerReconciler) ensureExternalDemand(ctx context.Context, workload
 		RDMA:                     len(units) > 1,
 	}); err != nil {
 		// A refused replay means the provider holds a different body under this revision.
-		// Clearing the request id makes the next pass open a new revision.
-		if execution.IsCode(err, execution.CodeConflict) {
+		// Clearing the request id makes the next pass open a new revision. The same
+		// abandonment applies when the reply cannot be decoded: the provider may already
+		// have accepted this request_id, and retrying a different body under it conflicts.
+		if execution.IsCode(err, execution.CodeConflict) ||
+			strings.Contains(err.Error(), "decode response") {
 			abandoned := next.DeepCopy()
 			abandoned.DemandRequestId = ""
 			if patchErr := r.patchExternalState(ctx, workload, abandoned); patchErr != nil {
@@ -996,7 +999,7 @@ func buildDemandUnits(workload *v1.Workload, gpuModel string) ([]execution.Deman
 	if err != nil {
 		return nil, err
 	}
-	runtimeSeconds := int32(3600)
+	runtimeSeconds := int32(0)
 	if workload.Spec.Timeout != nil && *workload.Spec.Timeout > 0 {
 		runtimeSeconds = int32(*workload.Spec.Timeout)
 	}

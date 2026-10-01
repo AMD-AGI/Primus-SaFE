@@ -45,32 +45,6 @@ func TestValidateExternalPodShapeRejectsSidecars(t *testing.T) {
 		"exactly one container")
 }
 
-// The submitter's uid has no passwd entry, so the runtime leaves HOME at "/". A HOME the
-// user set is kept.
-func TestApplyExternalHome(t *testing.T) {
-	obj := &unstructured.Unstructured{Object: map[string]interface{}{
-		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
-			"containers": []interface{}{map[string]interface{}{"name": "main"}},
-		}}},
-	}}
-	assert.NilError(t, applyExternalHome(obj, externalShapeWorkload(), externalShapeSpec()))
-	containers, _, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
-	envs := containers[0].(map[string]interface{})["env"].([]interface{})
-	assert.DeepEqual(t, envs, []interface{}{map[string]interface{}{"name": "HOME", "value": externalHomeDir}})
-
-	custom := &unstructured.Unstructured{Object: map[string]interface{}{
-		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
-			"containers": []interface{}{map[string]interface{}{"name": "main", "env": []interface{}{
-				map[string]interface{}{"name": "HOME", "value": "/work"}}}},
-		}}},
-	}}
-	assert.NilError(t, applyExternalHome(custom, externalShapeWorkload(), externalShapeSpec()))
-	containers, _, _ = unstructured.NestedSlice(custom.Object, "spec", "template", "spec", "containers")
-	envs = containers[0].(map[string]interface{})["env"].([]interface{})
-	assert.Equal(t, len(envs), 1)
-	assert.Equal(t, envs[0].(map[string]interface{})["value"], "/work")
-}
-
 // Node selector terms are ORed, so every term has to carry the pin, and a term's own
 // matchFields must be kept rather than overwritten.
 func TestApplyExternalNodePinCoversEveryTerm(t *testing.T) {

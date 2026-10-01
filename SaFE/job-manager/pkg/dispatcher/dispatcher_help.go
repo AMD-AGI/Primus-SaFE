@@ -176,9 +176,6 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = applyExternalEnvRewrite(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
-		if err = applyExternalHome(obj, workload, *resourceSpec); err != nil {
-			return err
-		}
 		if err = applyExternalCommEnv(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
@@ -3242,12 +3239,10 @@ var externalSiteCommEnvs = []string{
 	"NCCL_IB_QPS_PER_CONNECTION", "NCCL_CROSS_NIC", "NCCL_IB_SL",
 }
 
-// externalMSCCLEnv disables MSCCL, whose default algorithms fail all_reduce on external nodes.
-const externalMSCCLEnv = "RCCL_MSCCL_ENABLE"
-
-// applyExternalCommEnv sets the collective communication env of external main containers:
-// a gang drops externalSiteCommEnvs, and every pod gets MSCCL disabled unless already set.
-// Env from the workload spec is applied afterwards and still takes effect.
+// applyExternalCommEnv adjusts collective-communication env on external main containers:
+// a gang drops externalSiteCommEnvs so the node's site configuration applies, and every
+// external pod gets a permissive git safe.directory. Env from the workload spec is applied
+// afterwards and still takes effect.
 func applyExternalCommEnv(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
 	if !isExternalWorkload(workload) {
@@ -3265,56 +3260,34 @@ func applyExternalCommEnv(obj *unstructured.Unstructured, workload *v1.Workload,
 			continue
 		}
 		envs, _ := container["env"].([]interface{})
-		kept := make([]interface{}, 0, len(envs)+1)
-		hasMSCCL := false
+		kept := make([]interface{}, 0, len(envs)+3)
+		hasGitCount, hasGitKey, hasGitValue := false, false, false
 		for _, raw := range envs {
 			env, _ := raw.(map[string]interface{})
 			name, _ := env["name"].(string)
 			if gang && slices.Contains(externalSiteCommEnvs, name) {
 				continue
 			}
-			if name == externalMSCCLEnv {
-				hasMSCCL = true
+			switch name {
+			case "GIT_CONFIG_COUNT":
+				hasGitCount = true
+			case "GIT_CONFIG_KEY_0":
+				hasGitKey = true
+			case "GIT_CONFIG_VALUE_0":
+				hasGitValue = true
 			}
 			kept = append(kept, raw)
 		}
-		if !hasMSCCL {
-			kept = append(kept, map[string]interface{}{"name": externalMSCCLEnv, "value": "0"})
+		if !hasGitCount {
+			kept = append(kept, map[string]interface{}{"name": "GIT_CONFIG_COUNT", "value": "1"})
+		}
+		if !hasGitKey {
+			kept = append(kept, map[string]interface{}{"name": "GIT_CONFIG_KEY_0", "value": "safe.directory"})
+		}
+		if !hasGitValue {
+			kept = append(kept, map[string]interface{}{"name": "GIT_CONFIG_VALUE_0", "value": "*"})
 		}
 		container["env"] = kept
-	}
-	return jobutils.SetNestedField(obj.Object, containers, path)
-}
-
-// externalHomeDir is the HOME given to external main containers. They run as the
-// submitter's uid, which the image does not know, so the runtime falls back to "/",
-// which that uid cannot write.
-const externalHomeDir = "/tmp"
-
-// applyExternalHome sets HOME on the main containers unless one is already set.
-func applyExternalHome(obj *unstructured.Unstructured, workload *v1.Workload,
-	resourceSpec v1.ResourceSpec) error {
-	path := podSpecPath(workload, &resourceSpec, "containers")
-	containers, found, err := jobutils.NestedSlice(obj.Object, path)
-	if err != nil || !found {
-		return err
-	}
-	for i := range containers {
-		container, ok := containers[i].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		envs, _ := container["env"].([]interface{})
-		hasHome := false
-		for _, item := range envs {
-			if env, ok := item.(map[string]interface{}); ok && env["name"] == "HOME" {
-				hasHome = true
-				break
-			}
-		}
-		if !hasHome {
-			container["env"] = append(envs, map[string]interface{}{"name": "HOME", "value": externalHomeDir})
-		}
 	}
 	return jobutils.SetNestedField(obj.Object, containers, path)
 }

@@ -1365,10 +1365,14 @@ func cvtToGetNodeResponse(n *v1.Node, usedResource *resourceInfo, contributesAva
 // Returns basic node information including ID, name, internal IP, availability status, and message.
 func convertToNodeBriefResponse(node *v1.Node) view.NodeBriefResponseItem {
 	isAvailable, message := node.CheckAvailable(false)
+	internalIP := node.Spec.PrivateIP
+	if internalIP == "" {
+		internalIP = node.Status.MachineStatus.PrivateIP
+	}
 	return view.NodeBriefResponseItem{
 		NodeId:     node.Name,
 		NodeName:   v1.GetDisplayName(node),
-		InternalIP: node.Spec.PrivateIP,
+		InternalIP: internalIP,
 		Available:  isAvailable,
 		Message:    message,
 	}

@@ -44,7 +44,7 @@ apiserver:
   # Apiserver component image version
   image: "apiserver:latest"
   # Number of replicas for apiserver deployment
-  replicas: 1
+  replicas: 2
   # CPU resources allocated to apiserver
   cpu: 2000m
   # Memory resources allocated to apiserver
@@ -375,13 +375,16 @@ external_execution:
   # Bounds how long an external workspace goes without a reconcile, so a stale observation
   # is noticed well before the controller's own fifteen minute backstop.
   workspace_resync_seconds: 30
+workload:
+  # Seconds to keep a finished workload before TTL deletion.
+  ttl_second: 3600
 sandbox:
   enable: true
   namespace: "agent-sandbox-system"
   secret: "envd-router-identity"
   # EnvD injector initContainer image (repo path under harbor, no proxy/ prefix).
   # Must include GET /api/jobs for Brain idle sandbox reclaim.
-  envd_injector_image: "primussafe/agent-sandbox-envd-injector:92e5155-09231918"
+  envd_injector_image: "primussafe/agent-sandbox-envd-injector@sha256:e2f3dbe22558c37c2777f71c2f4e65516deb1831087233f1d43be04753ad106e"
 mcp:
   enabled: true
   base_path: "/api/v1/safe-mcp/mcp"

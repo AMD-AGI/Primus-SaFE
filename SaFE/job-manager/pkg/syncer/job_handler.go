@@ -374,6 +374,11 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 	if !adminWorkload.IsPending() && adminWorkload.Status.StartTime == nil {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
 	}
+	if adminWorkload.Status.Phase == v1.WorkloadRunning {
+		// Admission failures from an earlier attempt must not stay on a running workload.
+		adminWorkload.Status.Conditions = dropConditionType(adminWorkload.Status.Conditions, string(v1.AdminFailed))
+		adminWorkload.Status.EndTime = nil
+	}
 	if adminWorkload.IsEnd() && adminWorkload.Status.EndTime == nil {
 		adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
 	}
@@ -391,12 +396,14 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 	if adminWorkload.Status.Phase == v1.WorkloadFailed {
 		statusFields["message"] = adminWorkload.Status.Message
 	}
-	// A merge patch deletes a key sent as null, and these three only ever go from
-	// unset to set, so an unset one is omitted rather than cleared.
+	// A merge patch deletes a key sent as null. StartTime only goes from unset to set;
+	// EndTime is cleared when a previously failed attempt reaches Running.
 	if adminWorkload.Status.StartTime != nil {
 		statusFields["startTime"] = adminWorkload.Status.StartTime
 	}
-	if adminWorkload.Status.EndTime != nil {
+	if adminWorkload.Status.Phase == v1.WorkloadRunning {
+		statusFields["endTime"] = nil
+	} else if adminWorkload.Status.EndTime != nil {
 		statusFields["endTime"] = adminWorkload.Status.EndTime
 	}
 	if adminWorkload.Status.TorchFTPhase != nil {
@@ -529,6 +536,21 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 	klog.Infof("reSchedule workload, name: %s, dispatchCount: %d", workload.Name, count)
 	jmmetrics.WorkloadRescheduleTotal.Inc()
 	return nil
+}
+
+// dropConditionType removes every condition whose Type matches typeName.
+func dropConditionType(conditions []metav1.Condition, typeName string) []metav1.Condition {
+	if len(conditions) == 0 {
+		return conditions
+	}
+	kept := make([]metav1.Condition, 0, len(conditions))
+	for i := range conditions {
+		if conditions[i].Type == typeName {
+			continue
+		}
+		kept = append(kept, conditions[i])
+	}
+	return kept
 }
 
 // updateWorkloadCondition updates workload conditions based on resource status.
