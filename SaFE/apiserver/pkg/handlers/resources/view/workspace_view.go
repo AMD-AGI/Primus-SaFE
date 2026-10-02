@@ -45,7 +45,8 @@ type CreateWorkspaceRequest struct {
 	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
 	// only for sandbox workload
 	IdleTime map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`
-	// User-defined labels, Keys cannot start with "primus-safe."
+	// User-defined labels. Keys starting with "primus-safe." are ignored unless the
+	// caller is a system admin (used for reserved labels such as external / kube-scheduler).
 	Labels map[string]string `json:"labels,omitempty"`
 }
 

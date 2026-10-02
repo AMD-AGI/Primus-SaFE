@@ -83,6 +83,32 @@ func TestGenerateWorkspace(t *testing.T) {
 	testifyassert.NotEmpty(t, ws.Spec.Scopes)
 }
 
+func TestGenerateWorkspaceReservedLabelsRequireSystemAdmin(t *testing.T) {
+	h, admin := newAdminHandlerWithObjects()
+	req := &view.CreateWorkspaceRequest{
+		Name:      "ext",
+		ClusterId: "c1",
+		Labels: map[string]string{
+			v1.WorkspaceExternalLabel:      v1.TrueStr,
+			v1.WorkspaceKubeSchedulerLabel: v1.TrueStr,
+			"team":                         "ml",
+		},
+	}
+	ws, err := h.generateWorkspace(context.Background(), admin, req)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, v1.TrueStr, ws.Labels[v1.WorkspaceExternalLabel])
+	assert.Equal(t, v1.TrueStr, ws.Labels[v1.WorkspaceKubeSchedulerLabel])
+	assert.Equal(t, "ml", ws.Labels["team"])
+
+	nonAdmin := admin.DeepCopy()
+	nonAdmin.Spec.Roles = []v1.UserRole{v1.DefaultRole}
+	ws, err = h.generateWorkspace(context.Background(), nonAdmin, req)
+	testifyassert.NoError(t, err)
+	_, hasExternal := ws.Labels[v1.WorkspaceExternalLabel]
+	testifyassert.False(t, hasExternal)
+	assert.Equal(t, "ml", ws.Labels["team"])
+}
+
 func TestCreateWorkspaceHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h, user := newAdminHandlerWithObjects()

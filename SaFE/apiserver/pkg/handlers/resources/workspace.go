@@ -544,8 +544,11 @@ func (h *Handler) generateWorkspace(ctx context.Context,
 	if len(workspace.Spec.Scopes) == 0 {
 		workspace.Spec.Scopes = []v1.WorkspaceScope{v1.TrainScope, v1.InferScope, v1.AuthoringScope}
 	}
+	// Reserved primus-safe.* labels are stripped for normal users. System admins may set
+	// them on create (for example WorkspaceExternalLabel / WorkspaceKubeSchedulerLabel).
+	allowReservedLabels := requestUser != nil && requestUser.IsSystemAdmin()
 	for key, val := range req.Labels {
-		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+		if allowReservedLabels || !strings.HasPrefix(key, v1.PrimusSafePrefix) {
 			workspace.Labels[key] = val
 		}
 	}
