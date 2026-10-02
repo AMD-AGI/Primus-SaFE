@@ -404,6 +404,7 @@ sandbox:
   # sandboxes; resource-manager mirrors it into each workspace namespace. When set, it is mounted at
   # /etc/claw/extra-ca, merged into /shared/bin/ca-bundle.pem, and the sandbox's CA variables point
   # there; a sandbox then refuses to start if no certificate is found. Empty keeps the image's own trust.
+  # Set per deploy via .env `sandbox_extra_ca_secret` (synced into values.yaml by upgrade.sh).
   extra_ca_secret: ""
 mcp:
   enabled: true

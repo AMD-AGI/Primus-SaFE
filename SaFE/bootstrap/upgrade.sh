@@ -141,6 +141,13 @@ if [[ -n "${optimize_max_concurrent:-}" ]]; then
   sed -i '/^model_optimization:/,/^[a-z]/ s/max_concurrent: .*/max_concurrent: '"$optimize_max_concurrent"'/' "$values_yaml"
 fi
 
+# Secret of extra CA certificates sandboxes must trust. Only set when
+# sandbox_extra_ca_secret is in .env, so a site without it keeps the chart
+# default and renders no extra CA.
+if [[ -n "${sandbox_extra_ca_secret:-}" ]]; then
+  sed -i '/^sandbox:/,/^[a-z]/ s/extra_ca_secret: .*/extra_ca_secret: "'"$sandbox_extra_ca_secret"'"/' "$values_yaml"
+fi
+
 # CICD runner concurrency (maxRunners per AutoscalingRunnerSet). Only override
 # the chart default when cicd_max_runners is explicitly set in .env so a missing
 # key leaves the chart default untouched. Takes effect for AutoscalingRunnerSets
