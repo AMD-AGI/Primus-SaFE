@@ -162,7 +162,7 @@ func initializeObject(obj *unstructured.Unstructured,
 			return fmt.Errorf("failed to disable host IPC for external: %v", err.Error())
 		}
 		// Do not set podSpec.preemptionPolicy. The PriorityClass admission controller
-		// fills Never from the SaFE-installed external PriorityClass onto the Pod.
+		// fills Never from the provider-installed external PriorityClass onto the Pod.
 		if err = applyExternalVirtualKubeletToleration(obj, workload, *resourceSpec); err != nil {
 			return err
 		}

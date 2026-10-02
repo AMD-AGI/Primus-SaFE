@@ -183,9 +183,8 @@ const (
 	ExternalSingleUnitKey = "master/0"
 	// ExternalWorkerUnitKeyPrefix prefixes the unit key of each worker of an RDMA gang.
 	ExternalWorkerUnitKeyPrefix = "worker/"
-	// External PriorityClasses are created by SaFE on the virtual-kubelet cluster
-	// (preemptionPolicy=Never). The capacity provider reads Pod.spec.preemptionPolicy and does
-	// not care about these names.
+	// External PriorityClasses are installed by the capacity provider (preemptionPolicy=Never).
+	// SaFE only sets Pod.spec.priorityClassName to these names.
 	ExternalPriorityClassHigh = "safe-exec-external-high-priority"
 	ExternalPriorityClassMed  = "safe-exec-external-med-priority"
 	ExternalPriorityClassLow  = "safe-exec-external-low-priority"

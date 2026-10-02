@@ -320,7 +320,7 @@ func TestGuaranteePriorityClassReady(t *testing.T) {
 	// Priority classes should now exist.
 	list, err := cs.SchedulingV1().PriorityClasses().List(context.Background(), metav1.ListOptions{})
 	testifyassert.NoError(t, err)
-	testifyassert.Len(t, list.Items, 6)
+	testifyassert.Len(t, list.Items, 3)
 }
 
 func TestDeletePriorityClass(t *testing.T) {
@@ -459,7 +459,7 @@ func TestClusterReconcileReadyHappyPath(t *testing.T) {
 	// Priority classes created in data plane.
 	list, err := cs.SchedulingV1().PriorityClasses().List(context.Background(), metav1.ListOptions{})
 	testifyassert.NoError(t, err)
-	testifyassert.Len(t, list.Items, 6)
+	testifyassert.Len(t, list.Items, 3)
 }
 
 func TestGuaranteeClientFactoryNotReady(t *testing.T) {
@@ -569,11 +569,6 @@ func TestGenerateForwardName(t *testing.T) {
 func TestGenAllPriorityClass(t *testing.T) {
 	classes := genAllPriorityClass("c1")
 	assert.Len(t, classes, 3)
-	external := genExternalPriorityClass()
-	assert.Len(t, external, 3)
-	assert.Equal(t, external[0].name, v1.ExternalPriorityClassHigh)
-	assert.NotNil(t, external[0].preemptionPolicy)
-	assert.Equal(t, *external[0].preemptionPolicy, corev1.PreemptNever)
 }
 
 func TestClusterRelevantChangePredicate(t *testing.T) {
