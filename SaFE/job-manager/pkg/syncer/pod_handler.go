@@ -171,6 +171,15 @@ func (r *SyncerReconciler) updateAdminWorkloadByPod(ctx context.Context, clientS
 		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
 		extraStatusFields = map[string]any{"phase": adminWorkload.Status.Phase}
 	}
+	// On the kube-scheduler path a Pending/Unschedulable pod means B should scale up;
+	// surface the scheduler message on the workload for the UI (R11).
+	if msg := externalUnschedulableMessage(adminWorkload, pod); msg != "" {
+		if extraStatusFields == nil {
+			extraStatusFields = map[string]any{}
+		}
+		adminWorkload.Status.Message = msg
+		extraStatusFields["message"] = msg
+	}
 	if err = r.patchWorkloadPodStatus(ctx, adminWorkload, extraStatusFields); err != nil {
 		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
 		return ctrlruntime.Result{}, err
@@ -1467,6 +1476,37 @@ func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 		mainContainerName = commonworkload.GetMainContainer(adminWorkload, adminWorkload.SpecKind(), resourceId)
 	}
 	return mainContainerName
+}
+
+// externalUnschedulableMessage builds the waiting-for-scale-up reason for kube-scheduler
+// external pods that kube-scheduler left Unschedulable (R11).
+func externalUnschedulableMessage(workload *v1.Workload, pod *corev1.Pod) string {
+	if workload == nil || pod == nil || workload.IsEnd() {
+		return ""
+	}
+	state := workload.Status.ExternalExecution
+	if state == nil || state.PlacementMode != v1.ExternalPlacementKubeScheduler {
+		return ""
+	}
+	if pod.Status.Phase != corev1.PodPending {
+		return ""
+	}
+	const waitingScaleUp = "In queue - waiting for scale-up"
+	for i := range pod.Status.Conditions {
+		c := &pod.Status.Conditions[i]
+		if c.Type != corev1.PodScheduled || c.Status != corev1.ConditionFalse {
+			continue
+		}
+		if c.Reason != corev1.PodReasonUnschedulable {
+			continue
+		}
+		msg := strings.TrimSpace(c.Message)
+		if msg == "" {
+			return waitingScaleUp
+		}
+		return waitingScaleUp + " - " + msg
+	}
+	return ""
 }
 
 // isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase

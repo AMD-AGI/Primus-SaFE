@@ -18,6 +18,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/klog/v2"
@@ -783,6 +784,10 @@ func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path 
 
 // modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled or tolerate sticky node taints
 func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	// External pods must not carry a keyless Exists toleration (R4); webhook also rejects it.
+	if isExternalWorkload(workload) && workload.Spec.IsTolerateAll {
+		return fmt.Errorf("external workloads cannot set isTolerateAll")
+	}
 	if !workload.Spec.IsTolerateAll && !v1.IsRetryingOnOriginal(workload) {
 		return nil
 	}
@@ -2849,6 +2854,8 @@ func updateContainers(adminWorkload *v1.Workload,
 				if approved := externalApprovedImage(adminWorkload, externalRoleUnitKey(adminWorkload, id)); approved != "" {
 					container["image"] = approved
 				}
+			} else if pinned := externalResolvedImage(adminWorkload, id); pinned != "" {
+				container["image"] = pinned
 			}
 			// expectedCommands, not buildCommands: an IDEP command carries the
 			// disaggregation and multi-node flags normalizeInferaIDEP grafts on
@@ -3056,6 +3063,54 @@ func validateExternalPodShape(obj *unstructured.Unstructured, workload *v1.Workl
 	ephemeralPath := podSpecPath(workload, &resourceSpec, "ephemeralContainers")
 	if eps, found, _ := jobutils.NestedSlice(obj.Object, ephemeralPath); found && len(eps) > 0 {
 		return fmt.Errorf("external capacity does not support ephemeral containers")
+	}
+	if err = validateExternalIntegerRequests(containers[0]); err != nil {
+		return err
+	}
+	if isKubeSchedulerPlacement(workload) {
+		image, _ := containers[0].(map[string]interface{})["image"].(string)
+		if image != "" && !isDigestPinned(image) {
+			return fmt.Errorf("external kube-scheduler path requires digest-pinned image, got %q", image)
+		}
+	}
+	return nil
+}
+
+// validateExternalIntegerRequests requires whole-core CPU and whole-MiB memory on the
+// main container (requests and limits already equal from modifyResources).
+func validateExternalIntegerRequests(container interface{}) error {
+	c, ok := container.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	resources, _ := c["resources"].(map[string]interface{})
+	if resources == nil {
+		return nil
+	}
+	requests, _ := resources["requests"].(map[string]interface{})
+	if requests == nil {
+		return nil
+	}
+	const mib int64 = 1024 * 1024
+	if raw, ok := requests[string(corev1.ResourceCPU)]; ok {
+		s := fmt.Sprint(raw)
+		q, err := resource.ParseQuantity(s)
+		if err != nil {
+			return fmt.Errorf("cpu request %q: %w", s, err)
+		}
+		if q.MilliValue()%1000 != 0 {
+			return fmt.Errorf("external capacity requires whole-core CPU, got %q", s)
+		}
+	}
+	if raw, ok := requests[string(corev1.ResourceMemory)]; ok {
+		s := fmt.Sprint(raw)
+		q, err := resource.ParseQuantity(s)
+		if err != nil {
+			return fmt.Errorf("memory request %q: %w", s, err)
+		}
+		if q.Value()%mib != 0 {
+			return fmt.Errorf("external capacity requires whole-MiB memory, got %q", s)
+		}
 	}
 	return nil
 }
@@ -3477,6 +3532,10 @@ func rewriteClusterLocalURL(raw, base string) string {
 // VK can verify the unit is constrained to the approved virtual node of its role.
 func applyExternalNodePin(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec, resourceId int) error {
+	// Kube-scheduler path uses w + lease-end affinity instead of claim host pins (R3).
+	if isKubeSchedulerPlacement(workload) {
+		return nil
+	}
 	nodes := externalRoleNodes(workload, resourceId)
 	if len(nodes) == 0 {
 		return nil

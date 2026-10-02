@@ -1731,11 +1731,20 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 			return commonerrors.NewBadRequest(
 				"external workloads cannot force host network")
 		}
+		// A Exists-without-key toleration would admit unhealthy / booking / out-of-service
+		// nodes; the provider's VK nodes must stay selective (R4).
+		if workload.Spec.IsTolerateAll {
+			return commonerrors.NewBadRequest(
+				"external workloads cannot set isTolerateAll")
+		}
 		// The provider resolves run-as identity from primus-safe.user.account.
 		// Without an SSO preferred name there is no account to stamp.
 		if v1.GetUserAccount(workload) == "" {
 			return commonerrors.NewBadRequest(
 				"external workloads require a user account; log in via SSO once")
+		}
+		if err := validateExternalIntegerResources(workload); err != nil {
+			return commonerrors.NewBadRequest(err.Error())
 		}
 		// An external workspace has no local capacity to measure a request against. Its
 		// status.totalResources is empty until the provider publishes a node, and the
@@ -1755,6 +1764,33 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 			return commonerrors.NewQuotaInsufficient(
 				fmt.Sprintf("Insufficient resource: request: %v, total: %v",
 					requestResources, workspace.Status.TotalResources))
+		}
+	}
+	return nil
+}
+
+// validateExternalIntegerResources requires whole-core CPU and whole-MiB memory so the
+// provider's ResourceQuota accounting matches the Pod requests (R5).
+func validateExternalIntegerResources(workload *v1.Workload) error {
+	const mib int64 = 1024 * 1024
+	for i, res := range workload.Spec.Resources {
+		if res.CPU != "" {
+			q, err := resource.ParseQuantity(res.CPU)
+			if err != nil {
+				return fmt.Errorf("resources[%d].cpu: %w", i, err)
+			}
+			if q.MilliValue()%1000 != 0 {
+				return fmt.Errorf("external workloads require whole-core CPU, got %q", res.CPU)
+			}
+		}
+		if res.Memory != "" {
+			q, err := resource.ParseQuantity(res.Memory)
+			if err != nil {
+				return fmt.Errorf("resources[%d].memory: %w", i, err)
+			}
+			if q.Value()%mib != 0 {
+				return fmt.Errorf("external workloads require whole-MiB memory, got %q", res.Memory)
+			}
 		}
 	}
 	return nil

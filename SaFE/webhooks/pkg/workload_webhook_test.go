@@ -2557,6 +2557,18 @@ func TestWorkloadValidateExternalRefusesPrivileges(t *testing.T) {
 	v1.SetAnnotation(hostNet, v1.UserAccountAnnotation, "jdoe")
 	v1.SetAnnotation(hostNet, v1.ForceHostNetworkAnnotation, v1.TrueStr)
 	assert.Assert(t, v.validateWorkspace(context.Background(), hostNet) != nil)
+
+	tolerateAll := validWorkload()
+	tolerateAll.Spec.Workspace = "ws-ext"
+	tolerateAll.Spec.IsTolerateAll = true
+	v1.SetAnnotation(tolerateAll, v1.UserAccountAnnotation, "jdoe")
+	assert.ErrorContains(t, v.validateWorkspace(context.Background(), tolerateAll), "isTolerateAll")
+
+	fracCPU := validWorkload()
+	fracCPU.Spec.Workspace = "ws-ext"
+	fracCPU.Spec.Resources[0].CPU = "1500m"
+	v1.SetAnnotation(fracCPU, v1.UserAccountAnnotation, "jdoe")
+	assert.ErrorContains(t, v.validateWorkspace(context.Background(), fracCPU), "whole-core")
 }
 
 func proxyAdmissionWorkload() *v1.Workload {

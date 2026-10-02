@@ -288,3 +288,12 @@ func externalApprovedImage(workload *v1.Workload, unitKey string) string {
 	}
 	return ""
 }
+
+// externalResolvedImage returns the digest-pinned image resolved on the kube-scheduler path.
+func externalResolvedImage(workload *v1.Workload, resourceId int) string {
+	state := workload.Status.ExternalExecution
+	if state == nil || resourceId < 0 || resourceId >= len(state.ResolvedImages) {
+		return ""
+	}
+	return state.ResolvedImages[resourceId]
+}

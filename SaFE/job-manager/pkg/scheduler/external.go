@@ -74,7 +74,8 @@ const externalWaitRetry = 30 * time.Second
 // Terminal reasons may carry the provider's message after the prefix.
 func isTerminalExternalReason(reason string) bool {
 	for _, prefix := range []string{
-		ExternalUnsupportedReason, ExternalConstraintReason, ExternalInvalidReason, ExternalPRFailedReason,
+		ExternalUnsupportedReason, ExternalConstraintReason, ExternalInvalidReason,
+		ExternalPRFailedReason, ExternalImageResolveReason,
 	} {
 		if strings.HasPrefix(reason, prefix) {
 			return true

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -21,9 +22,23 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/imagedigest"
 )
 
+func stubImageResolve(t *testing.T) {
+	t.Helper()
+	prev := imagedigest.ResolveFunc
+	imagedigest.ResolveFunc = func(_ context.Context, image string, _ authn.Keychain) (string, error) {
+		if imagedigest.IsPinned(image) {
+			return image, nil
+		}
+		return image + "@sha256:" + strings.Repeat("b", 64), nil
+	}
+	t.Cleanup(func() { imagedigest.ResolveFunc = prev })
+}
+
 func TestAdmitExternalViaSchedulerSingle(t *testing.T) {
+	stubImageResolve(t)
 	sch := runtime.NewScheme()
 	_ = v1.AddToScheme(sch)
 
@@ -31,6 +46,7 @@ func TestAdmitExternalViaSchedulerSingle(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "w1", Namespace: "default", UID: types.UID("abcd1234-uuid")},
 		Spec: v1.WorkloadSpec{
 			Workspace: "ws-ext",
+			Images:    []string{"harbor.example/app:v1"},
 			Resources: []v1.WorkloadResource{{Replica: 1}},
 		},
 	}
@@ -61,6 +77,10 @@ func TestAdmitExternalViaSchedulerSingle(t *testing.T) {
 	if stored.Status.ExternalExecution == nil ||
 		stored.Status.ExternalExecution.PlacementMode != v1.ExternalPlacementKubeScheduler {
 		t.Fatalf("placement mode not set: %+v", stored.Status.ExternalExecution)
+	}
+	if len(stored.Status.ExternalExecution.ResolvedImages) != 1 ||
+		!imagedigest.IsPinned(stored.Status.ExternalExecution.ResolvedImages[0]) {
+		t.Fatalf("resolved images: %+v", stored.Status.ExternalExecution.ResolvedImages)
 	}
 }
 
@@ -114,12 +134,19 @@ func TestInterpretProvisioningRequest(t *testing.T) {
 			},
 		},
 	}}
-	if got := interpretProvisioningRequest(pr); got.action != prWait {
-		t.Fatalf("want wait, got %+v", got)
+	if got := interpretProvisioningRequest(pr); got.action != prWait ||
+		!strings.HasPrefix(got.reason, ExternalCapacityUnavailableReason) {
+		t.Fatalf("want capacity-unavailable wait, got %+v", got)
+	}
+
+	if got := interpretProvisioningRequest(&unstructured.Unstructured{Object: map[string]interface{}{}}); got.action != prWait ||
+		got.reason != ExternalWaitingPRAcceptReason {
+		t.Fatalf("want accept wait, got %+v", got)
 	}
 }
 
 func TestEnsureExternalProvisioningProvisioned(t *testing.T) {
+	stubImageResolve(t)
 	sch := runtime.NewScheme()
 	_ = v1.AddToScheme(sch)
 

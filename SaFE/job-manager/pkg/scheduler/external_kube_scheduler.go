@@ -24,18 +24,25 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/imagedigest"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 )
 
 const (
 	// ExternalWaitingScaleUpReason is shown while a single Pod waits for B to provision.
 	ExternalWaitingScaleUpReason = "In queue - waiting for scale-up"
+	// ExternalWaitingPRAcceptReason is shown when the PR has no conditions yet.
+	ExternalWaitingPRAcceptReason = "In queue - waiting for capacity service to accept"
 	// ExternalWaitingPRReason is shown while a gang waits for Provisioned=True.
 	ExternalWaitingPRReason = "In queue - waiting for capacity service"
+	// ExternalCapacityUnavailableReason is shown for Provisioned=False/CapacityUnavailable.
+	ExternalCapacityUnavailableReason = "In queue - external capacity unavailable"
 	// ExternalPRFailedReason prefixes a terminal PR Failed condition.
 	ExternalPRFailedReason = "Rejected - provisioning request failed"
 	// ExternalPRExpiredReason is shown briefly while a booking is rebuilt.
 	ExternalPRExpiredReason = "In queue - capacity reservation expired, retrying"
+	// ExternalImageResolveReason prefixes a failed digest resolve (terminal).
+	ExternalImageResolveReason = "Rejected - image cannot be resolved"
 
 	externalLeaseOverheadSec int64 = 600
 )
@@ -62,6 +69,10 @@ func (r *SchedulerReconciler) admitExternalViaScheduler(ctx context.Context,
 	if err != nil {
 		return false, "", err
 	}
+	state, err = r.ensureExternalResolvedImages(ctx, workload, state)
+	if err != nil {
+		return false, ExternalImageResolveReason + " - " + err.Error(), nil
+	}
 	if commonworkload.IsExternalRDMAGang(workload) {
 		return r.ensureExternalProvisioning(ctx, workload, workspace, state)
 	}
@@ -69,6 +80,36 @@ func (r *SchedulerReconciler) admitExternalViaScheduler(ctx context.Context,
 		"workload", workload.Name, "workspace", workspace.Name,
 		"generation", state.DispatchGeneration)
 	return true, "", nil
+}
+
+// ensureExternalResolvedImages pins Spec.Images to digests and stores them on status (R5).
+func (r *SchedulerReconciler) ensureExternalResolvedImages(ctx context.Context,
+	workload *v1.Workload, state *v1.WorkloadExternalExecution) (*v1.WorkloadExternalExecution, error) {
+	if state == nil {
+		return nil, fmt.Errorf("nil external execution state")
+	}
+	if len(state.ResolvedImages) == len(workload.Spec.Images) && len(state.ResolvedImages) > 0 {
+		allPinned := true
+		for _, img := range state.ResolvedImages {
+			if !imagedigest.IsPinned(img) {
+				allPinned = false
+				break
+			}
+		}
+		if allPinned {
+			return state, nil
+		}
+	}
+	resolved, err := imagedigest.ResolveWorkloadImages(ctx, r.Client, workload)
+	if err != nil {
+		return nil, err
+	}
+	updated := state.DeepCopy()
+	updated.ResolvedImages = resolved
+	if err = r.patchExternalState(ctx, workload, updated); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 // ensureExternalSchedulerState persists PlacementMode=kube-scheduler and a dispatch
@@ -90,6 +131,7 @@ func (r *SchedulerReconciler) ensureExternalSchedulerState(ctx context.Context,
 		state.ProvisioningRequest = current.ProvisioningRequest
 		state.ProvisioningAttempt = current.ProvisioningAttempt
 		state.ProvisioningCondition = current.ProvisioningCondition
+		state.ResolvedImages = append([]string{}, current.ResolvedImages...)
 	}
 	if err := r.patchExternalState(ctx, workload, state); err != nil {
 		return nil, err
@@ -194,13 +236,14 @@ type prOutcome struct {
 	condition string
 }
 
-// interpretProvisioningRequest maps PR conditions to admit / wait / fail / rebuild.
+// interpretProvisioningRequest maps PR conditions to admit / wait / fail / rebuild (R11).
 func interpretProvisioningRequest(pr *unstructured.Unstructured) prOutcome {
 	if pr == nil {
-		return prOutcome{action: prWait, reason: ExternalWaitingPRReason}
+		return prOutcome{action: prWait, reason: ExternalWaitingPRAcceptReason}
 	}
 	conditions, _, _ := unstructured.NestedSlice(pr.Object, "status", "conditions")
 	var provisioned, failed, bookingExpired, capacityRevoked *metav1.Condition
+	var unknown *metav1.Condition
 	for i := range conditions {
 		c, ok := conditions[i].(map[string]interface{})
 		if !ok {
@@ -216,11 +259,16 @@ func interpretProvisioningRequest(pr *unstructured.Unstructured) prOutcome {
 			bookingExpired = &cond
 		case "CapacityRevoked":
 			capacityRevoked = &cond
+		default:
+			if unknown == nil && cond.Status == metav1.ConditionTrue {
+				copied := cond
+				unknown = &copied
+			}
 		}
 	}
 	if failed != nil && failed.Status == metav1.ConditionTrue {
-		msg := strings.TrimSpace(failed.Reason + ": " + failed.Message)
-		if msg == ":" || msg == "" {
+		msg := conditionDetail(failed)
+		if msg == "" {
 			msg = "ProvisioningRequest Failed"
 		}
 		return prOutcome{
@@ -238,15 +286,34 @@ func interpretProvisioningRequest(pr *unstructured.Unstructured) prOutcome {
 	if provisioned != nil && provisioned.Status == metav1.ConditionTrue {
 		return prOutcome{action: prAdmit, condition: formatCondition(provisioned)}
 	}
-	reason := ExternalWaitingPRReason
 	if provisioned != nil {
-		msg := strings.TrimSpace(provisioned.Reason + ": " + provisioned.Message)
-		if msg != ":" && msg != "" {
-			reason = ExternalWaitingPRReason + " - " + msg
+		detail := conditionDetail(provisioned)
+		reason := ExternalWaitingPRReason
+		if provisioned.Reason == "CapacityUnavailable" {
+			reason = ExternalCapacityUnavailableReason
+		}
+		if detail != "" {
+			reason = reason + " - " + detail
 		}
 		return prOutcome{action: prWait, reason: reason, condition: formatCondition(provisioned)}
 	}
-	return prOutcome{action: prWait, reason: reason, condition: "Accepted/pending"}
+	if unknown != nil {
+		detail := conditionDetail(unknown)
+		reason := ExternalWaitingPRReason
+		if detail != "" {
+			reason = reason + " - " + detail
+		}
+		return prOutcome{action: prWait, reason: reason, condition: formatCondition(unknown)}
+	}
+	return prOutcome{action: prWait, reason: ExternalWaitingPRAcceptReason, condition: "pending"}
+}
+
+// conditionDetail joins reason and message for UI, omitting empty parts.
+func conditionDetail(c *metav1.Condition) string {
+	if c == nil {
+		return ""
+	}
+	return strings.TrimSpace(strings.Trim(c.Reason+": "+c.Message, ": "))
 }
 
 func mapToCondition(c map[string]interface{}) metav1.Condition {
@@ -374,7 +441,9 @@ func buildGangPodTemplate(workload *v1.Workload, ns, name, prName string) (*unst
 		requests[rdma] = res.RdmaResource
 	}
 	image := ""
-	if len(workload.Spec.Images) > 0 {
+	if state := workload.Status.ExternalExecution; state != nil && len(state.ResolvedImages) > 0 {
+		image = state.ResolvedImages[0]
+	} else if len(workload.Spec.Images) > 0 {
 		image = workload.Spec.Images[0]
 	}
 	leaseDeadline := strconv.FormatInt(time.Now().UTC().Unix()+

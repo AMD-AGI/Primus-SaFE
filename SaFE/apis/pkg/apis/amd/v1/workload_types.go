@@ -262,6 +262,9 @@ type WorkloadExternalExecution struct {
 	ProvisioningAttempt int32 `json:"provisioningAttempt,omitempty"`
 	// ProvisioningCondition is the last observed PR condition type/reason/message for UI.
 	ProvisioningCondition string `json:"provisioningCondition,omitempty"`
+	// ResolvedImages are Spec.Images pinned to digest before Pod/PodTemplate create on the
+	// kube-scheduler path. Empty on the claim path (provider freezes digest at claim time).
+	ResolvedImages []string `json:"resolvedImages,omitempty"`
 	// The dispatch generation these identifiers belong to
 	DispatchGeneration int32 `json:"dispatchGeneration,omitempty"`
 	// Demand identity and the revision last published
