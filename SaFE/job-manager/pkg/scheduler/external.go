@@ -73,7 +73,9 @@ const externalWaitRetry = 30 * time.Second
 // good, as opposed to asking it to wait.
 // Terminal reasons may carry the provider's message after the prefix.
 func isTerminalExternalReason(reason string) bool {
-	for _, prefix := range []string{ExternalUnsupportedReason, ExternalConstraintReason, ExternalInvalidReason} {
+	for _, prefix := range []string{
+		ExternalUnsupportedReason, ExternalConstraintReason, ExternalInvalidReason, ExternalPRFailedReason,
+	} {
 		if strings.HasPrefix(reason, prefix) {
 			return true
 		}
@@ -90,7 +92,15 @@ const externalStatePatchAttempts = 5
 // what keeps the resources charged to the workspace across the workload's own end.
 func isExternalReclaiming(workload *v1.Workload) bool {
 	state := workload.Status.ExternalExecution
-	return state != nil && state.ClaimId != "" && state.ClaimPhase != execution.ClaimPhaseReleased
+	if state == nil {
+		return false
+	}
+	// Kube-scheduler path does not wait on claim Released; PR/PodTemplate are deleted
+	// synchronously on workload deletion.
+	if state.PlacementMode == v1.ExternalPlacementKubeScheduler {
+		return false
+	}
+	return state.ClaimId != "" && state.ClaimPhase != execution.ClaimPhaseReleased
 }
 
 // externalReleaseAbandonAfter bounds how long a deleted workload keeps its finalizer while

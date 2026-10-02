@@ -257,6 +257,11 @@ type WorkloadExternalExecution struct {
 	// ProvisioningRequest is the name of the autoscaling ProvisioningRequest for a gang on
 	// the kube-scheduler path. Empty for single-pod workloads.
 	ProvisioningRequest string `json:"provisioningRequest,omitempty"`
+	// ProvisioningAttempt counts BookingExpired/CapacityRevoked rebuilds within one
+	// dispatch generation so PR/PodTemplate names stay unique without bumping dispatch-count.
+	ProvisioningAttempt int32 `json:"provisioningAttempt,omitempty"`
+	// ProvisioningCondition is the last observed PR condition type/reason/message for UI.
+	ProvisioningCondition string `json:"provisioningCondition,omitempty"`
 	// The dispatch generation these identifiers belong to
 	DispatchGeneration int32 `json:"dispatchGeneration,omitempty"`
 	// Demand identity and the revision last published

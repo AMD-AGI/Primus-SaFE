@@ -168,6 +168,12 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = applyExternalSchedulerAffinity(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
+		if err = applyExternalBookingToleration(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalConsumeProvisioningRequest(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
 		if err = applyExternalContainerSecurity(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
@@ -3172,6 +3178,67 @@ func applyExternalSchedulerAffinity(obj *unstructured.Unstructured, workload *v1
 		}
 	}
 	return jobutils.SetNestedField(obj.Object, terms, path)
+}
+
+// applyExternalBookingToleration adds the ProvisioningRequest booking toleration for gangs.
+func applyExternalBookingToleration(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	if !isKubeSchedulerPlacement(workload) || !isExternalGang(workload) {
+		return nil
+	}
+	prName := workload.Status.ExternalExecution.ProvisioningRequest
+	if prName == "" {
+		return fmt.Errorf("workload %s missing provisioningRequest for booking toleration", workload.Name)
+	}
+	bookingValue := workload.Spec.Workspace + "." + prName
+	path := podSpecPath(workload, &resourceSpec, "tolerations")
+	tolerations, _, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	for _, raw := range tolerations {
+		t, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t["key"] == v1.ExternalProvisioningRequestTaint && t["value"] == bookingValue {
+			return nil
+		}
+	}
+	tolerations = append(tolerations, map[string]interface{}{
+		"key":      v1.ExternalProvisioningRequestTaint,
+		"operator": "Equal",
+		"value":    bookingValue,
+		"effect":   "NoSchedule",
+	})
+	// Use canonical Equal spelling.
+	if t, ok := tolerations[len(tolerations)-1].(map[string]interface{}); ok {
+		t["operator"] = "Equal"
+		t["operator"] = string(corev1.TolerationOpEqual)
+	}
+	return jobutils.SetNestedField(obj.Object, tolerations, path)
+}
+
+// applyExternalConsumeProvisioningRequest annotates gang pods with the PR they consume.
+func applyExternalConsumeProvisioningRequest(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	if !isKubeSchedulerPlacement(workload) || !isExternalGang(workload) {
+		return nil
+	}
+	prName := workload.Status.ExternalExecution.ProvisioningRequest
+	if prName == "" {
+		return fmt.Errorf("workload %s missing provisioningRequest for consume annotation", workload.Name)
+	}
+	annoPath := append(resourceSpec.TemplatePath(), "metadata", "annotations")
+	existingAnno, _, err := jobutils.NestedMap(obj.Object, annoPath)
+	if err != nil {
+		return err
+	}
+	if existingAnno == nil {
+		existingAnno = make(map[string]interface{})
+	}
+	existingAnno[v1.ConsumeProvisioningRequestAnnotation] = prName
+	return jobutils.SetNestedField(obj.Object, existingAnno, annoPath)
 }
 
 // externalLeaseDeadlineUnix is now + declared runtime + 10m overhead, in unix seconds.

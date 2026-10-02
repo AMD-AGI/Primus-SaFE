@@ -195,6 +195,13 @@ const (
 	// ExternalPlacementKubeScheduler places via kube-scheduler and ProvisioningRequest.
 	ExternalPlacementKubeScheduler = "kube-scheduler"
 
+	// ProvisioningRequestClassName is the upstream class for atomic gang scale-up.
+	ProvisioningRequestClassName = "best-effort-atomic-scale-up.autoscaling.x-k8s.io"
+	// ConsumeProvisioningRequestAnnotation marks a Pod as consuming a ProvisioningRequest.
+	ConsumeProvisioningRequestAnnotation = "autoscaling.x-k8s.io/consume-provisioning-request"
+	// ExternalSchedulerName is the scheduler used on the virtual-kubelet cluster.
+	ExternalSchedulerName = "kube-scheduler-plugins"
+
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
 	FaultFinalizer = PrimusSafeDomain + "fault.finalizer"

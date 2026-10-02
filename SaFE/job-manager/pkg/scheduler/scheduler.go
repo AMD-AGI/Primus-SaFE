@@ -18,6 +18,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -57,6 +58,8 @@ type SchedulerReconciler struct {
 	// cronManager manages all cron jobs for workload scheduling
 	cronManager *CronJobManager
 	*controller.KeyedController[*SchedulerMessage]
+	// dataPlaneDynamicOverride is used by unit tests to inject a fake dynamic client.
+	dataPlaneDynamicOverride dynamic.Interface
 }
 
 type SchedulerMessage struct {
@@ -247,6 +250,9 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 	if err != nil {
 		klog.Errorf("failed to get cluster clientSets, clusterId: %s, workspaceId: %s, workloadId: %s",
 			v1.GetClusterId(adminWorkload), adminWorkload.Spec.Workspace, adminWorkload.Name)
+		return ctrlruntime.Result{}, err
+	}
+	if err = r.deleteExternalProvisioningObjects(ctx, adminWorkload); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	if hasFound, err := jobutils.DeleteObjectsByWorkload(ctx, r.Client, clientSets.ClientFactory(), adminWorkload); err != nil {

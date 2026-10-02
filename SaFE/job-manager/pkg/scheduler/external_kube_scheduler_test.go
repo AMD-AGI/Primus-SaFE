@@ -7,11 +7,15 @@ package scheduler
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -35,8 +39,8 @@ func TestAdmitExternalViaSchedulerSingle(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "ws-ext",
 			Labels: map[string]string{
-				v1.WorkspaceExternalLabel:       "true",
-				v1.WorkspaceKubeSchedulerLabel:  "true",
+				v1.WorkspaceExternalLabel:      "true",
+				v1.WorkspaceKubeSchedulerLabel: "true",
 			},
 		},
 	}
@@ -60,34 +64,143 @@ func TestAdmitExternalViaSchedulerSingle(t *testing.T) {
 	}
 }
 
-func TestAdmitExternalViaSchedulerGangWaits(t *testing.T) {
+func TestInterpretProvisioningRequest(t *testing.T) {
+	pr := &unstructured.Unstructured{Object: map[string]interface{}{
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type": "Provisioned", "status": "True", "reason": "CapacityIsProvisioned",
+				},
+			},
+		},
+	}}
+	if got := interpretProvisioningRequest(pr); got.action != prAdmit {
+		t.Fatalf("want admit, got %+v", got)
+	}
+
+	pr = &unstructured.Unstructured{Object: map[string]interface{}{
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type": "Failed", "status": "True", "reason": "CapacityExceedsLimit", "message": "too big",
+				},
+			},
+		},
+	}}
+	if got := interpretProvisioningRequest(pr); got.action != prFail ||
+		!strings.HasPrefix(got.reason, ExternalPRFailedReason) {
+		t.Fatalf("want fail, got %+v", got)
+	}
+
+	pr = &unstructured.Unstructured{Object: map[string]interface{}{
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type": "BookingExpired", "status": "True", "reason": "CapacityReservationTimeExpired",
+				},
+			},
+		},
+	}}
+	if got := interpretProvisioningRequest(pr); got.action != prRebuild {
+		t.Fatalf("want rebuild, got %+v", got)
+	}
+
+	pr = &unstructured.Unstructured{Object: map[string]interface{}{
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type": "Provisioned", "status": "False", "reason": "CapacityUnavailable", "message": "busy",
+				},
+			},
+		},
+	}}
+	if got := interpretProvisioningRequest(pr); got.action != prWait {
+		t.Fatalf("want wait, got %+v", got)
+	}
+}
+
+func TestEnsureExternalProvisioningProvisioned(t *testing.T) {
 	sch := runtime.NewScheme()
 	_ = v1.AddToScheme(sch)
 
-	w := &v1.Workload{
-		ObjectMeta: metav1.ObjectMeta{Name: "gang", Namespace: "default", UID: types.UID("ganguid1-uuid")},
-		Spec: v1.WorkloadSpec{
-			Workspace: "ws-ext",
-			Resources: []v1.WorkloadResource{
-				{Replica: 1, GPU: "8", RdmaResource: "1"},
-				{Replica: 1, GPU: "8", RdmaResource: "1"},
-			},
-			JobPort: 29400,
-		},
-	}
-	w.Spec.GroupVersionKind.Kind = common.PytorchJobKind
+	w := gangWorkload()
+	w.UID = types.UID("ganguid1-uuid")
+	w.Spec.Workspace = "ws-ext"
+	w.Spec.Images = []string{"harbor.example/app:v1"}
+	w.Spec.Resources[0].CPU = "12"
+	w.Spec.Resources[0].Memory = "64Gi"
+	w.Spec.Resources[0].GPU = "8"
+	w.Spec.Resources[1].CPU = "12"
+	w.Spec.Resources[1].Memory = "64Gi"
+	w.Spec.Resources[1].GPU = "8"
+	v1.SetLabel(w, v1.ClusterIdLabel, "crusoe")
+
 	cli := fake.NewClientBuilder().WithScheme(sch).WithStatusSubresource(w).WithObjects(w).Build()
-	r := &SchedulerReconciler{Client: cli}
+	listKinds := map[schema.GroupVersionResource]string{
+		podTemplateGVR:         "PodTemplateList",
+		provisioningRequestGVR: "ProvisioningRequestList",
+	}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds)
+	r := &SchedulerReconciler{Client: cli, dataPlaneDynamicOverride: dyn}
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-ext"}}
 
 	ok, reason, err := r.admitExternalViaScheduler(context.Background(), w, ws)
 	if err != nil {
-		t.Fatalf("admit: %v", err)
+		t.Fatalf("first admit: %v", err)
 	}
 	if ok {
-		t.Fatalf("gang should wait for PR")
+		t.Fatalf("want wait before Provisioned, got admitted reason=%q", reason)
 	}
-	if reason != ExternalWaitingPRReason {
-		t.Fatalf("reason=%q", reason)
+
+	stored := &v1.Workload{}
+	if err := cli.Get(context.Background(), client.ObjectKeyFromObject(w), stored); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	prName := stored.Status.ExternalExecution.ProvisioningRequest
+	if prName == "" {
+		t.Fatal("missing PR name")
+	}
+	got, err := dyn.Resource(provisioningRequestGVR).Namespace("ws-ext").Get(
+		context.Background(), prName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get pr: %v", err)
+	}
+	_ = unstructured.SetNestedSlice(got.Object, []interface{}{
+		map[string]interface{}{"type": "Provisioned", "status": "True", "reason": "CapacityIsProvisioned"},
+	}, "status", "conditions")
+	if _, err = dyn.Resource(provisioningRequestGVR).Namespace("ws-ext").Update(
+		context.Background(), got, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("update pr: %v", err)
+	}
+
+	ok, reason, err = r.admitExternalViaScheduler(context.Background(), stored, ws)
+	if err != nil {
+		t.Fatalf("second admit: %v", err)
+	}
+	if !ok || reason != "" {
+		t.Fatalf("want admitted after Provisioned, got ok=%v reason=%q", ok, reason)
+	}
+}
+
+func TestBuildGangPodTemplate(t *testing.T) {
+	w := gangWorkload()
+	w.UID = types.UID("abcd1234")
+	w.Spec.Workspace = "ws-ext"
+	w.Spec.Images = []string{"harbor.example/app:v1"}
+	w.Spec.Priority = common.HighPriorityInt
+	w.Spec.Resources[0].CPU = "12"
+	w.Spec.Resources[0].Memory = "64Gi"
+	w.Spec.Resources[0].GPU = "8"
+	pt, err := buildGangPodTemplate(w, "ws-ext", "pt-1", "pr-1")
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	spec, _, _ := unstructured.NestedMap(pt.Object, "template", "spec")
+	if spec["priorityClassName"] != v1.ExternalPriorityClassHigh {
+		t.Fatalf("priorityClassName=%v", spec["priorityClassName"])
+	}
+	tols, _, _ := unstructured.NestedSlice(spec, "tolerations")
+	if len(tols) < 2 {
+		t.Fatalf("want VK + booking tolerations, got %d", len(tols))
 	}
 }
