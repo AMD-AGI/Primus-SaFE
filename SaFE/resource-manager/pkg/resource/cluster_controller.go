@@ -513,11 +513,15 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 	clientSet := k8sClients.ClientSet()
-	// External PriorityClasses (safe-exec-external-*) are installed by the capacity
-	// provider; SaFE only references them on Pods.
-	for _, pc := range genAllPriorityClass(cluster.Name) {
+	allPriorityClass := genAllPriorityClass(cluster.Name)
+	// External Never PriorityClasses are created only when external execution is enabled.
+	if commonconfig.IsExternalExecutionEnable() {
+		allPriorityClass = append(allPriorityClass, genExternalPriorityClass()...)
+	}
+	for _, pc := range allPriorityClass {
 		_, err = clientSet.SchedulingV1().PriorityClasses().Get(ctx, pc.name, metav1.GetOptions{})
 		if err == nil {
+			// Existing objects are left unchanged.
 			continue
 		} else if !apierrors.IsNotFound(err) {
 			return ctrlruntime.Result{}, err
@@ -527,8 +531,9 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 			ObjectMeta: metav1.ObjectMeta{
 				Name: pc.name,
 			},
-			Value:       pc.value,
-			Description: pc.description,
+			Value:            pc.value,
+			Description:      pc.description,
+			PreemptionPolicy: pc.preemptionPolicy,
 		}
 		if _, err = clientSet.SchedulingV1().PriorityClasses().Create(
 			ctx, priorityClass, metav1.CreateOptions{}); err != nil {
@@ -547,7 +552,11 @@ func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1
 		return nil
 	}
 	clientSet := k8sClients.ClientSet()
-	for _, pc := range genAllPriorityClass(cluster.Name) {
+	allPriorityClass := genAllPriorityClass(cluster.Name)
+	if commonconfig.IsExternalExecutionEnable() {
+		allPriorityClass = append(allPriorityClass, genExternalPriorityClass()...)
+	}
+	for _, pc := range allPriorityClass {
 		if err = clientSet.SchedulingV1().PriorityClasses().Delete(ctx, pc.name, metav1.DeleteOptions{}); err != nil {
 			if !apierrors.IsNotFound(err) {
 				return err
@@ -560,9 +569,10 @@ func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1
 
 // PriorityClass represents a Kubernetes priority class configuration
 type PriorityClass struct {
-	name        string
-	value       int32
-	description string
+	name             string
+	value            int32
+	description      string
+	preemptionPolicy *corev1.PreemptionPolicy
 }
 
 // genAllPriorityClass generates native per-cluster priority classes.
@@ -583,6 +593,17 @@ func genAllPriorityClass(clusterId string) []PriorityClass {
 			value:       -10000,
 			description: "This priority class should be used for primus-safe job only.",
 		},
+	}
+}
+
+// genExternalPriorityClass generates Never PriorityClasses for external/VK workloads.
+func genExternalPriorityClass() []PriorityClass {
+	never := corev1.PreemptNever
+	desc := "External execution PriorityClass with preemptionPolicy Never."
+	return []PriorityClass{
+		{name: v1.ExternalPriorityClassHigh, value: 10000, description: desc, preemptionPolicy: &never},
+		{name: v1.ExternalPriorityClassMed, value: 0, description: desc, preemptionPolicy: &never},
+		{name: v1.ExternalPriorityClassLow, value: -10000, description: desc, preemptionPolicy: &never},
 	}
 }
 

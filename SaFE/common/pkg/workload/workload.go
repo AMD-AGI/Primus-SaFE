@@ -720,8 +720,8 @@ func GenerateDispatchReason(count int) string {
 }
 
 // GeneratePriorityClass generates priority class name for a workload.
-// External workloads use provider-installed Never classes; native workloads keep the
-// per-cluster names created by resource-manager.
+// External workloads use Never classes ensured by cluster-controller; native workloads keep
+// the per-cluster names also created by resource-manager.
 func GeneratePriorityClass(workload *v1.Workload) string {
 	strPriority := GeneratePriority(workload.Spec.Priority)
 	if workload != nil && workload.Status.ExternalExecution != nil {
@@ -731,7 +731,7 @@ func GeneratePriorityClass(workload *v1.Workload) string {
 	return commonutils.GenerateClusterPriorityClass(clusterId, strPriority)
 }
 
-// ExternalPriorityClass maps SaFE priority to the provider-installed external PriorityClass names.
+// ExternalPriorityClass maps SaFE priority to the external PriorityClass names.
 func ExternalPriorityClass(priority string) string {
 	switch priority {
 	case common.HighPriority:
