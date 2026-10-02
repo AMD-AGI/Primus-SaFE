@@ -135,6 +135,25 @@ func TestWorkspaceMutateOnCreation(t *testing.T) {
 	assert.NilError(t, m.mutateOnCreation(context.Background(), validWorkspace("ws1")))
 }
 
+// TestMutateExternalDefaultsKubeScheduler verifies new external workspaces default to
+// kube-scheduler placement, while an explicit label (including false) is preserved.
+func TestMutateExternalDefaultsKubeScheduler(t *testing.T) {
+	native := validWorkspace("ws-native")
+	mutateExternalDefaults(native)
+	assert.Equal(t, v1.GetLabel(native, v1.WorkspaceKubeSchedulerLabel), "")
+
+	ext := validWorkspace("ws-ext")
+	v1.SetLabel(ext, v1.WorkspaceExternalLabel, v1.TrueStr)
+	mutateExternalDefaults(ext)
+	assert.Equal(t, v1.GetLabel(ext, v1.WorkspaceKubeSchedulerLabel), v1.TrueStr)
+
+	claim := validWorkspace("ws-claim")
+	v1.SetLabel(claim, v1.WorkspaceExternalLabel, v1.TrueStr)
+	v1.SetLabel(claim, v1.WorkspaceKubeSchedulerLabel, "false")
+	mutateExternalDefaults(claim)
+	assert.Equal(t, v1.GetLabel(claim, v1.WorkspaceKubeSchedulerLabel), "false")
+}
+
 // TestWorkspaceMutatorHandle verifies the workspace mutator admission handler.
 func TestWorkspaceMutatorHandle(t *testing.T) {
 	scheme := newScheme(t)
