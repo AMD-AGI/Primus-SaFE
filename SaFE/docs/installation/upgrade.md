@@ -39,6 +39,7 @@ For additional upgrade-specific behavior, you may add these optional keys to `.e
 | `helm_registry` | Helm chart registry for addons (e.g. `registry-1.docker.io`) |
 | `cd_require_approval` | CD deployment approval: `true` or `false` |
 | `optimize_max_concurrent` | Per-workspace cap on concurrently running optimization tasks (integer, e.g. `1024`). Defaults to chart value `1024` when unset. Synced into both `values.yaml` and the live apiserver ConfigMap. |
+| `sandbox_extra_ca_secret` | Name of a Secret in `primus-safe` holding extra CA certificates that sandboxes must trust (annotate it with `primus-safe.workspace.ids`). Sets `sandbox.extra_ca_secret`; unset renders no extra CA. |
 | `external_enable` | Enable external execution (`true`/`false`). Synced into helm values and the live job-manager ConfigMap. |
 | `external_execution_controller_url` | Capacity controller URL (e.g. `https://controller.example.svc:31844`). Synced into helm values and the live job-manager ConfigMap. |
 | `external_execution_controller_secret` | Existing Secret name with `ca.crt`/`tls.crt`/`tls.key` for mTLS to the controller (mounted into job-manager when set). |
@@ -73,6 +74,7 @@ The script performs the following steps:
      - `sso.enable` and `sso.secret` when SSO is enabled
      - `cd.require_approval` from `cd_require_approval`
      - `model_optimization.max_concurrent` from `optimize_max_concurrent` (when set)
+     - `sandbox.extra_ca_secret` from `sandbox_extra_ca_secret` (when set)
      - Tracing config when `tracing_enable=true`
      - `proxy.services` when `proxy_services` is set
    - If `primus-safe` is already installed: replaces CRDs, RBAC role, and webhooks manifests
