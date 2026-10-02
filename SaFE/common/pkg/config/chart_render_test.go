@@ -331,3 +331,103 @@ func TestChartRendersHostedRunnerRuntime(t *testing.T) {
 		"--group=123",
 	}, names["dind"].Args)
 }
+
+// sandboxPod is the part of the rendered sandbox template the extra CA touches.
+type sandboxPod struct {
+	Spec struct {
+		PodTemplate struct {
+			Spec struct {
+				Containers []struct {
+					Name string `yaml:"name"`
+					Env  []struct {
+						Name  string `yaml:"name"`
+						Value string `yaml:"value"`
+					} `yaml:"env"`
+					VolumeMounts []struct {
+						Name      string `yaml:"name"`
+						MountPath string `yaml:"mountPath"`
+						ReadOnly  bool   `yaml:"readOnly"`
+					} `yaml:"volumeMounts"`
+				} `yaml:"containers"`
+				InitContainers []struct {
+					Name  string `yaml:"name"`
+					Image string `yaml:"image"`
+				} `yaml:"initContainers"`
+				Volumes []struct {
+					Name   string `yaml:"name"`
+					Secret *struct {
+						SecretName string `yaml:"secretName"`
+					} `yaml:"secret"`
+				} `yaml:"volumes"`
+			} `yaml:"spec"`
+		} `yaml:"podTemplate"`
+	} `yaml:"spec"`
+}
+
+func renderSandboxPod(t *testing.T, values ...string) sandboxPod {
+	t.Helper()
+	args := append([]string{"--show-only", "templates/configmap/sandbox_template.yaml"}, values...)
+	rendered := renderConfigMapData(t, "sandbox-template", "template", args...)
+	var pod sandboxPod
+	testifyrequire.NoError(t, yaml.Unmarshal([]byte(rendered), &pod))
+	testifyrequire.Len(t, pod.Spec.PodTemplate.Spec.Containers, 1)
+	return pod
+}
+
+var sandboxCAVariables = []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS"}
+
+func TestChartRendersTheSandboxWithoutAnExtraCAByDefault(t *testing.T) {
+	// The injector's setup script refuses to start a sandbox whose CA variables point
+	// at the merged bundle when no certificate was found. Pointing them there with no
+	// CA configured would stop every sandbox on a deployment that needs none.
+	pod := renderSandboxPod(t)
+	main := pod.Spec.PodTemplate.Spec.Containers[0]
+	for _, current := range main.Env {
+		testifyassert.NotContains(t, sandboxCAVariables, current.Name)
+	}
+	for _, current := range main.VolumeMounts {
+		testifyassert.NotEqual(t, "extra-ca", current.Name)
+	}
+	for _, current := range pod.Spec.PodTemplate.Spec.Volumes {
+		testifyassert.NotEqual(t, "extra-ca", current.Name)
+	}
+}
+
+func TestChartMountsTheSandboxExtraCASecret(t *testing.T) {
+	pod := renderSandboxPod(t, "--set", "sandbox.extra_ca_secret=sandbox-extra-ca")
+	main := pod.Spec.PodTemplate.Spec.Containers[0]
+
+	env := map[string]string{}
+	for _, current := range main.Env {
+		env[current.Name] = current.Value
+	}
+	for _, name := range sandboxCAVariables {
+		testifyassert.Equal(t, "/shared/bin/ca-bundle.pem", env[name], name)
+	}
+
+	mounted := false
+	for _, current := range main.VolumeMounts {
+		if current.Name == "extra-ca" {
+			mounted = true
+			testifyassert.Equal(t, "/etc/claw/extra-ca", current.MountPath)
+			testifyassert.True(t, current.ReadOnly)
+		}
+	}
+	testifyassert.True(t, mounted, "extra-ca is not mounted in the main container")
+
+	for _, current := range pod.Spec.PodTemplate.Spec.Volumes {
+		if current.Name == "extra-ca" {
+			testifyrequire.NotNil(t, current.Secret)
+			testifyassert.Equal(t, "sandbox-extra-ca", current.Secret.SecretName)
+			return
+		}
+	}
+	t.Fatal("extra-ca volume not found")
+}
+
+func TestChartPullsTheEnvdInjectorThroughTheSiteProxy(t *testing.T) {
+	pod := renderSandboxPod(t, "--set", "global.sub_domain=site", "--set", "global.domain=example.com")
+	testifyrequire.Len(t, pod.Spec.PodTemplate.Spec.InitContainers, 1)
+	testifyassert.True(t, strings.HasPrefix(pod.Spec.PodTemplate.Spec.InitContainers[0].Image,
+		"harbor.site.example.com/proxy/primussafe/agent-sandbox-envd-injector@sha256:"))
+}
