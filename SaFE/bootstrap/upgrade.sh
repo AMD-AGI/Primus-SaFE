@@ -168,6 +168,18 @@ fi
 if [[ -n "${external_enable:-${external_execution_enabled:-}}" ]]; then
   sed -i '/^external_execution:/,/^[a-z]/ s/enabled: .*/enabled: '"${external_enable:-$external_execution_enabled}"'/' "$values_yaml"
 fi
+if [[ -n "${external_execution_registry_ca_secret:-}" ]]; then
+  sed -i '/^external_execution:/,/^[a-z]/ s#registry_ca_secret: .*#registry_ca_secret: "'"$external_execution_registry_ca_secret"'"#' "$values_yaml"
+fi
+if [[ -n "${external_execution_registry_ca_secret_key:-}" ]]; then
+  sed -i '/^external_execution:/,/^[a-z]/ s#registry_ca_secret_key: .*#registry_ca_secret_key: "'"$external_execution_registry_ca_secret_key"'"#' "$values_yaml"
+fi
+if [[ -n "${external_execution_registry_ca_path:-}" ]]; then
+  sed -i '/^external_execution:/,/^[a-z]/ s#registry_ca_path: .*#registry_ca_path: "'"$external_execution_registry_ca_path"'"#' "$values_yaml"
+fi
+if [[ -n "${external_execution_registry_insecure_skip_verify:-}" ]]; then
+  sed -i '/^external_execution:/,/^[a-z]/ s/registry_insecure_skip_verify: .*/registry_insecure_skip_verify: '"$external_execution_registry_insecure_skip_verify"'/' "$values_yaml"
+fi
 
 # Configure metrics port if defined in .env
 if [[ -n "${metrics_port:-}" ]]; then

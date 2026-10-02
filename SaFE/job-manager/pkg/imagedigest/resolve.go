@@ -7,15 +7,21 @@ package imagedigest
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	corev1 "k8s.io/api/core/v1"
+
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
 // ResolveFunc resolves a container image reference to a digest-pinned form.
@@ -40,6 +46,13 @@ func Resolve(ctx context.Context, image string, keychain authn.Keychain) (string
 	if keychain != nil {
 		opts = append(opts, remote.WithAuthFromKeychain(keychain))
 	}
+	tr, err := registryTransport()
+	if err != nil {
+		return "", err
+	}
+	if tr != nil {
+		opts = append(opts, remote.WithTransport(tr))
+	}
 	digest, err := resolveDigest(ref, opts...)
 	if err != nil {
 		return "", fmt.Errorf("resolve digest for %q: %w", image, err)
@@ -59,6 +72,43 @@ func resolveDigest(ref name.Reference, opts ...remote.Option) (string, error) {
 		return "", err
 	}
 	return got.Digest.String(), nil
+}
+
+// registryTransport builds an HTTP transport for registry TLS. nil means use
+// go-containerregistry defaults (process system roots).
+func registryTransport() (*http.Transport, error) {
+	skipVerify := commonconfig.IsExternalRegistryInsecureSkipVerify()
+	caPath := strings.TrimSpace(commonconfig.GetExternalRegistryCAPath())
+	if !skipVerify && caPath == "" {
+		return nil, nil
+	}
+
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12} //nolint:gosec // MinVersion set
+	if skipVerify {
+		tlsConfig.InsecureSkipVerify = true //nolint:gosec // explicit deployment escape hatch
+	}
+	if caPath != "" {
+		pem, err := os.ReadFile(caPath)
+		if err != nil {
+			return nil, fmt.Errorf("read registry CA %q: %w", caPath, err)
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("registry CA %q: no certificates parsed", caPath)
+		}
+		tlsConfig.RootCAs = pool
+	}
+
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok || base == nil {
+		return &http.Transport{TLSClientConfig: tlsConfig, Proxy: http.ProxyFromEnvironment}, nil
+	}
+	tr := base.Clone()
+	tr.TLSClientConfig = tlsConfig
+	return tr, nil
 }
 
 // IsPinned reports whether a reference already names immutable content.

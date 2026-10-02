@@ -67,6 +67,11 @@ spec:
               mountPath: {{ default "/etc/secrets/external-execution" (default dict .Values.external_execution).controller_secret_path }}
               readOnly: true
             {{- end }}
+            {{- if (default dict .Values.external_execution).registry_ca_secret }}
+            - name: registry-ca
+              mountPath: {{ dir (default "/etc/secrets/registry-ca/ca.crt" (default dict .Values.external_execution).registry_ca_path) }}
+              readOnly: true
+            {{- end }}
             {{- if .Values.ssh.enable }}
             - name: ssh-proxy
               mountPath: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
@@ -121,6 +126,14 @@ spec:
         - name: external-execution-secret
           secret:
             secretName: {{ (default dict .Values.external_execution).controller_secret }}
+        {{- end }}
+        {{- if (default dict .Values.external_execution).registry_ca_secret }}
+        - name: registry-ca
+          secret:
+            secretName: {{ (default dict .Values.external_execution).registry_ca_secret }}
+            items:
+              - key: {{ default "ca.crt" (default dict .Values.external_execution).registry_ca_secret_key }}
+                path: {{ base (default "/etc/secrets/registry-ca/ca.crt" (default dict .Values.external_execution).registry_ca_path) }}
         {{- end }}
         {{- if .Values.ssh.enable }}
         - name: ssh-proxy

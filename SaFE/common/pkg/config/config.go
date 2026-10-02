@@ -743,6 +743,18 @@ func GetExternalControllerTLS() (caCert, clientCert, clientKey []byte) {
 		[]byte(getFromFile(externalExecutionSecretPath, "tls.key"))
 }
 
+// GetExternalRegistryCAPath is the PEM file appended to the system trust store when
+// resolving image digests (kube-scheduler placement). Empty keeps the process default roots.
+func GetExternalRegistryCAPath() string {
+	return getString(externalExecutionRegistryCAPath, "")
+}
+
+// IsExternalRegistryInsecureSkipVerify reports whether registry digest resolve skips TLS
+// verification. Prefer GetExternalRegistryCAPath; this is an explicit escape hatch only.
+func IsExternalRegistryInsecureSkipVerify() bool {
+	return getBool(externalExecutionRegistryInsecure, false)
+}
+
 // ── MCP (Model Context Protocol) ────────────────────────────────────────
 
 func IsMCPEnable() bool {

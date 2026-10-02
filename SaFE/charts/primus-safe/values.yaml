@@ -352,6 +352,9 @@ external_execution:
   #   external_execution_controller_secret=safe-exec-controller-client
   #   external_execution_profile_id=site-execution-profile
   #   external_execution_profile_revision=2
+  #   external_execution_registry_ca_secret=sandbox-extra-ca
+  #   external_execution_registry_ca_secret_key=amd-ca.pem
+  #   external_execution_registry_insecure_skip_verify=true   # escape hatch only
   enabled: false
   # Capacity controller endpoint. One deployment talks to one controller, which is also
   # the single active mutator of the execution ledger.
@@ -375,6 +378,16 @@ external_execution:
   # Bounds how long an external workspace goes without a reconcile, so a stale observation
   # is noticed well before the controller's own fifteen minute backstop.
   workspace_resync_seconds: 30
+  # Optional Secret (in the release namespace) with a PEM CA for registry digest resolve.
+  # Mounted into job-manager; set registry_ca_secret_key when the key is not ca.crt
+  # (for example amd-ca.pem). Prefer this over registry_insecure_skip_verify.
+  registry_ca_secret: ""
+  registry_ca_secret_key: "ca.crt"
+  # Absolute path inside the job-manager container. Leave empty unless mounting a CA
+  # (chart sets /etc/secrets/registry-ca/ca.crt when registry_ca_secret is set).
+  registry_ca_path: ""
+  # Escape hatch only: skip TLS verify when resolving image digests. Default false.
+  registry_insecure_skip_verify: false
 workload:
   # Seconds to keep a finished workload before TTL deletion.
   ttl_second: 3600

@@ -214,6 +214,10 @@ const (
 	externalExecutionProfileID         = externalExecutionPrefix + "profile_id"
 	externalExecutionProfileRevision   = externalExecutionPrefix + "profile_revision"
 	externalExecutionPIDLimit          = externalExecutionPrefix + "pid_limit"
+	// PEM file job-manager uses when resolving image digests against a private registry.
+	externalExecutionRegistryCAPath = externalExecutionPrefix + "registry_ca_path"
+	// Skip TLS verify for registry digest resolve. Off by default; prefer registry_ca_path.
+	externalExecutionRegistryInsecure = externalExecutionPrefix + "registry_insecure_skip_verify"
 
 	// model_optimization (hyperloom via primus-claw)
 	modelOptimizationPrefix       = "model_optimization."

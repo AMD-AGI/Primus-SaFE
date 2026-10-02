@@ -164,7 +164,10 @@ if [ -n "${external_execution_controller_url:-}" ] \
    || [ -n "${external_execution_profile_id:-}" ] \
    || [ -n "${external_execution_profile_revision:-}" ] \
    || [ -n "${external_enable:-}" ] \
-   || [ -n "${external_execution_enabled:-}" ]; then
+   || [ -n "${external_execution_enabled:-}" ] \
+   || [ -n "${external_execution_registry_ca_secret:-}" ] \
+   || [ -n "${external_execution_registry_ca_path:-}" ] \
+   || [ -n "${external_execution_registry_insecure_skip_verify:-}" ]; then
     echo "Syncing .env external_execution values to ConfigMap $JOB_MANAGER_CM..."
     CURRENT_CONFIG=$(kubectl get configmap "$JOB_MANAGER_CM" -n "$NAMESPACE" \
         -o jsonpath='{.data.config\.yaml}' 2>/dev/null || echo "")
@@ -188,6 +191,29 @@ if [ -n "${external_execution_controller_url:-}" ] \
         fi
         if [ -n "${external_execution_profile_revision:-}" ]; then
             sed -i '/^external_execution:/,/^[a-z]/ s/profile_revision: .*/profile_revision: '"${external_execution_profile_revision}"'/' "$CM_TMP"
+        fi
+        if [ -n "${external_execution_registry_ca_secret:-}" ]; then
+            # Secret name is a Deployment volume (upgrade.sh / helm). Point the
+            # ConfigMap at the default mount path when the secret is requested.
+            REGISTRY_CA_PATH_VALUE="${external_execution_registry_ca_path:-/etc/secrets/registry-ca/ca.crt}"
+            if grep -q 'registry_ca_path:' "$CM_TMP"; then
+                sed -i '/^external_execution:/,/^[a-z]/ s#registry_ca_path: .*#registry_ca_path: "'"${REGISTRY_CA_PATH_VALUE}"'"#' "$CM_TMP"
+            else
+                sed -i '/^external_execution:/a\      registry_ca_path: "'"${REGISTRY_CA_PATH_VALUE}"'"' "$CM_TMP"
+            fi
+        elif [ -n "${external_execution_registry_ca_path:-}" ]; then
+            if grep -q 'registry_ca_path:' "$CM_TMP"; then
+                sed -i '/^external_execution:/,/^[a-z]/ s#registry_ca_path: .*#registry_ca_path: "'"${external_execution_registry_ca_path}"'"#' "$CM_TMP"
+            else
+                sed -i '/^external_execution:/a\      registry_ca_path: "'"${external_execution_registry_ca_path}"'"' "$CM_TMP"
+            fi
+        fi
+        if [ -n "${external_execution_registry_insecure_skip_verify:-}" ]; then
+            if grep -q 'registry_insecure_skip_verify:' "$CM_TMP"; then
+                sed -i '/^external_execution:/,/^[a-z]/ s/registry_insecure_skip_verify: .*/registry_insecure_skip_verify: '"${external_execution_registry_insecure_skip_verify}"'/' "$CM_TMP"
+            else
+                sed -i '/^external_execution:/a\      registry_insecure_skip_verify: '"${external_execution_registry_insecure_skip_verify}" "$CM_TMP"
+            fi
         fi
         NEW_CONFIG_JSON=$(jq -Rs . < "$CM_TMP")
         rm -f "$CM_TMP"

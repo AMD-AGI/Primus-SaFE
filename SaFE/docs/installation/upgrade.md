@@ -44,6 +44,10 @@ For additional upgrade-specific behavior, you may add these optional keys to `.e
 | `external_execution_controller_secret` | Existing Secret name with `ca.crt`/`tls.crt`/`tls.key` for mTLS to the controller (mounted into job-manager when set). |
 | `external_execution_profile_id` | Execution profile id requested on every demand. |
 | `external_execution_profile_revision` | Execution profile revision (integer). |
+| `external_execution_registry_ca_secret` | Secret in the release namespace with a PEM CA for registry digest resolve (mounted into job-manager). Prefer over insecure skip. |
+| `external_execution_registry_ca_secret_key` | Key inside that Secret (default `ca.crt`; e.g. `amd-ca.pem`). |
+| `external_execution_registry_ca_path` | Optional absolute path inside job-manager for the CA file; defaults to `/etc/secrets/registry-ca/ca.crt` when the secret is set. |
+| `external_execution_registry_insecure_skip_verify` | Skip TLS verify for registry digest resolve (`true`/`false`). Escape hatch only; synced into helm values and the live job-manager ConfigMap. |
 | `tracing_enable` | Enable OpenTelemetry tracing: `true` or `false` |
 | `tracing_mode` | Tracing mode: `all` or `error_only` |
 | `tracing_sampling_ratio` | Sampling ratio (e.g. `1.0`) |
