@@ -21,6 +21,20 @@ import (
 // same body: allocating a fresh one would ask the provider for a second reservation while
 // the first may already exist, and nothing afterwards would notice the surplus.
 type WorkloadExternalExecutionApplyConfiguration struct {
+	// PlacementMode selects capacity acquisition. Empty or "claim" is the legacy HTTP path;
+	// "kube-scheduler" uses Pod/PodTemplate/ProvisioningRequest and keeps claim fields empty.
+	PlacementMode *string `json:"placementMode,omitempty"`
+	// ProvisioningRequest is the name of the autoscaling ProvisioningRequest for a gang on
+	// the kube-scheduler path. Empty for single-pod workloads.
+	ProvisioningRequest *string `json:"provisioningRequest,omitempty"`
+	// ProvisioningAttempt counts BookingExpired/CapacityRevoked rebuilds within one
+	// dispatch generation so PR/PodTemplate names stay unique without bumping dispatch-count.
+	ProvisioningAttempt *int32 `json:"provisioningAttempt,omitempty"`
+	// ProvisioningCondition is the last observed PR condition type/reason/message for UI.
+	ProvisioningCondition *string `json:"provisioningCondition,omitempty"`
+	// ResolvedImages are Spec.Images pinned to digest before Pod/PodTemplate create on the
+	// kube-scheduler path. Empty on the claim path (provider freezes digest at claim time).
+	ResolvedImages []string `json:"resolvedImages,omitempty"`
 	// The dispatch generation these identifiers belong to
 	DispatchGeneration *int32 `json:"dispatchGeneration,omitempty"`
 	// Demand identity and the revision last published
@@ -33,6 +47,10 @@ type WorkloadExternalExecutionApplyConfiguration struct {
 	// intended replay into a conflict.
 	DemandObservedAt *metav1.Time `json:"demandObservedAt,omitempty"`
 	DemandExpiresAt  *metav1.Time `json:"demandExpiresAt,omitempty"`
+	// Queue and capacity snapshot revisions sent with the current demand revision. They
+	// are part of the body and fixed with the revision for the same reason.
+	DemandQueueSnapshot    *string `json:"demandQueueSnapshot,omitempty"`
+	DemandCapacitySnapshot *string `json:"demandCapacitySnapshot,omitempty"`
 	// Set once the demand has been withdrawn, so the withdrawal is published exactly once.
 	// Repeating it would reuse a revision number under a changed body, which the contract
 	// refuses, and would eventually collide with a revision issued for the opposite meaning.
@@ -42,6 +60,13 @@ type WorkloadExternalExecutionApplyConfiguration struct {
 	ClaimRequestId *string `json:"claimRequestId,omitempty"`
 	ClaimRevision  *int32  `json:"claimRevision,omitempty"`
 	ClaimPhase     *string `json:"claimPhase,omitempty"`
+	// ReleaseRequestId is persisted before ReleaseClaim so a lost reply is retried with
+	// the same idempotency key rather than a new one.
+	ReleaseRequestId *string `json:"releaseRequestId,omitempty"`
+	// Expected revision and reason sent with ReleaseRequestId. They are fixed with the id
+	// because the provider binds a request id to the body it first carried.
+	ReleaseExpectedRevision *int32  `json:"releaseExpectedRevision,omitempty"`
+	ReleaseReason           *string `json:"releaseReason,omitempty"`
 	// Placements approved by the provider, kept so the dispatcher builds the pod from the
 	// reservation that was granted rather than asking for a new plan
 	Placements []WorkloadExternalPlacementApplyConfiguration `json:"placements,omitempty"`
@@ -54,6 +79,48 @@ type WorkloadExternalExecutionApplyConfiguration struct {
 // apply.
 func WorkloadExternalExecution() *WorkloadExternalExecutionApplyConfiguration {
 	return &WorkloadExternalExecutionApplyConfiguration{}
+}
+
+// WithPlacementMode sets the PlacementMode field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PlacementMode field is set to the value of the last call.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithPlacementMode(value string) *WorkloadExternalExecutionApplyConfiguration {
+	b.PlacementMode = &value
+	return b
+}
+
+// WithProvisioningRequest sets the ProvisioningRequest field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ProvisioningRequest field is set to the value of the last call.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithProvisioningRequest(value string) *WorkloadExternalExecutionApplyConfiguration {
+	b.ProvisioningRequest = &value
+	return b
+}
+
+// WithProvisioningAttempt sets the ProvisioningAttempt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ProvisioningAttempt field is set to the value of the last call.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithProvisioningAttempt(value int32) *WorkloadExternalExecutionApplyConfiguration {
+	b.ProvisioningAttempt = &value
+	return b
+}
+
+// WithProvisioningCondition sets the ProvisioningCondition field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ProvisioningCondition field is set to the value of the last call.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithProvisioningCondition(value string) *WorkloadExternalExecutionApplyConfiguration {
+	b.ProvisioningCondition = &value
+	return b
+}
+
+// WithResolvedImages adds the given value to the ResolvedImages field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the ResolvedImages field.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithResolvedImages(values ...string) *WorkloadExternalExecutionApplyConfiguration {
+	for i := range values {
+		b.ResolvedImages = append(b.ResolvedImages, values[i])
+	}
+	return b
 }
 
 // WithDispatchGeneration sets the DispatchGeneration field in the declarative configuration to the given value
@@ -104,6 +171,22 @@ func (b *WorkloadExternalExecutionApplyConfiguration) WithDemandExpiresAt(value 
 	return b
 }
 
+// WithDemandQueueSnapshot sets the DemandQueueSnapshot field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DemandQueueSnapshot field is set to the value of the last call.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithDemandQueueSnapshot(value string) *WorkloadExternalExecutionApplyConfiguration {
+	b.DemandQueueSnapshot = &value
+	return b
+}
+
+// WithDemandCapacitySnapshot sets the DemandCapacitySnapshot field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DemandCapacitySnapshot field is set to the value of the last call.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithDemandCapacitySnapshot(value string) *WorkloadExternalExecutionApplyConfiguration {
+	b.DemandCapacitySnapshot = &value
+	return b
+}
+
 // WithDemandWithdrawn sets the DemandWithdrawn field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DemandWithdrawn field is set to the value of the last call.
@@ -141,6 +224,30 @@ func (b *WorkloadExternalExecutionApplyConfiguration) WithClaimRevision(value in
 // If called multiple times, the ClaimPhase field is set to the value of the last call.
 func (b *WorkloadExternalExecutionApplyConfiguration) WithClaimPhase(value string) *WorkloadExternalExecutionApplyConfiguration {
 	b.ClaimPhase = &value
+	return b
+}
+
+// WithReleaseRequestId sets the ReleaseRequestId field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ReleaseRequestId field is set to the value of the last call.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithReleaseRequestId(value string) *WorkloadExternalExecutionApplyConfiguration {
+	b.ReleaseRequestId = &value
+	return b
+}
+
+// WithReleaseExpectedRevision sets the ReleaseExpectedRevision field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ReleaseExpectedRevision field is set to the value of the last call.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithReleaseExpectedRevision(value int32) *WorkloadExternalExecutionApplyConfiguration {
+	b.ReleaseExpectedRevision = &value
+	return b
+}
+
+// WithReleaseReason sets the ReleaseReason field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ReleaseReason field is set to the value of the last call.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithReleaseReason(value string) *WorkloadExternalExecutionApplyConfiguration {
+	b.ReleaseReason = &value
 	return b
 }
 
