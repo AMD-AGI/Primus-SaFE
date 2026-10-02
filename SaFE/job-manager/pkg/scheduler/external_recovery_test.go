@@ -8,6 +8,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -122,6 +123,29 @@ func TestExternalRetryDelay(t *testing.T) {
 		if !isTerminalExternalReason(reason) {
 			t.Fatalf("%q must be terminal", reason)
 		}
+	}
+}
+
+func TestPersistExternalTerminalFailure(t *testing.T) {
+	w, _ := recoveryWorkload()
+	r := newRecoveryReconciler(t, w)
+	reason := ExternalImageResolveReason + " - tls: unknown authority"
+	if err := r.persistExternalTerminalFailure(context.Background(), w, reason); err != nil {
+		t.Fatal(err)
+	}
+	stored := &v1.Workload{}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: w.Name}, stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status.Phase != v1.WorkloadFailed {
+		t.Fatalf("phase=%s", stored.Status.Phase)
+	}
+	if !strings.Contains(stored.Status.Message, "image cannot be resolved") {
+		t.Fatalf("message=%q", stored.Status.Message)
+	}
+	// Already Failed: second persist is a no-op.
+	if err := r.persistExternalTerminalFailure(context.Background(), stored, reason); err != nil {
+		t.Fatal(err)
 	}
 }
 

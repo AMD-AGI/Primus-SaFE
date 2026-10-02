@@ -99,7 +99,12 @@ data:
       {{- else }}
       registry_ca_path: {{ default "" (default dict .Values.external_execution).registry_ca_path | quote }}
       {{- end }}
-      registry_insecure_skip_verify: {{ default false (default dict .Values.external_execution).registry_insecure_skip_verify }}
+      {{- /* bool default true: sprig "default" treats false as empty, so key presence is checked */ -}}
+      {{- if hasKey (default dict .Values.external_execution) "registry_insecure_skip_verify" }}
+      registry_insecure_skip_verify: {{ index (default dict .Values.external_execution) "registry_insecure_skip_verify" }}
+      {{- else }}
+      registry_insecure_skip_verify: true
+      {{- end }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-job-manager

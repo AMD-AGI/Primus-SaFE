@@ -750,9 +750,10 @@ func GetExternalRegistryCAPath() string {
 }
 
 // IsExternalRegistryInsecureSkipVerify reports whether registry digest resolve skips TLS
-// verification. Prefer GetExternalRegistryCAPath; this is an explicit escape hatch only.
+// verification. Default true: workloads may pull from many registries whose CAs are not
+// mounted into job-manager; prefer skip over failing admission on private PKI.
 func IsExternalRegistryInsecureSkipVerify() bool {
-	return getBool(externalExecutionRegistryInsecure, false)
+	return getBool(externalExecutionRegistryInsecure, true)
 }
 
 // ── MCP (Model Context Protocol) ────────────────────────────────────────

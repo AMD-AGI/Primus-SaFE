@@ -216,7 +216,8 @@ const (
 	externalExecutionPIDLimit          = externalExecutionPrefix + "pid_limit"
 	// PEM file job-manager uses when resolving image digests against a private registry.
 	externalExecutionRegistryCAPath = externalExecutionPrefix + "registry_ca_path"
-	// Skip TLS verify for registry digest resolve. Off by default; prefer registry_ca_path.
+	// Skip TLS verify for registry digest resolve. Default on: image registries vary by
+	// site and mounting every CA is impractical. Set false when registry_ca_path is set.
 	externalExecutionRegistryInsecure = externalExecutionPrefix + "registry_insecure_skip_verify"
 
 	// model_optimization (hyperloom via primus-claw)

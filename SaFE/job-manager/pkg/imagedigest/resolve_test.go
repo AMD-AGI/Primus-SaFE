@@ -47,6 +47,23 @@ func TestKeychainFromDockerConfigJSON(t *testing.T) {
 }
 
 func TestRegistryTransportDefault(t *testing.T) {
+	// Default skip-verify is true when the key is unset.
+	viper.Set("external_execution.registry_ca_path", "")
+	viper.Set("external_execution.registry_insecure_skip_verify", true)
+	t.Cleanup(func() {
+		viper.Set("external_execution.registry_ca_path", "")
+		viper.Set("external_execution.registry_insecure_skip_verify", false)
+	})
+	tr, err := registryTransport()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr == nil || tr.TLSClientConfig == nil || !tr.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("expected default insecure transport")
+	}
+}
+
+func TestRegistryTransportStrictNoCA(t *testing.T) {
 	viper.Set("external_execution.registry_ca_path", "")
 	viper.Set("external_execution.registry_insecure_skip_verify", false)
 	t.Cleanup(func() {
@@ -58,7 +75,7 @@ func TestRegistryTransportDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	if tr != nil {
-		t.Fatal("expected nil transport when TLS overrides are unset")
+		t.Fatal("expected nil transport when verify is on and no CA path is set")
 	}
 }
 

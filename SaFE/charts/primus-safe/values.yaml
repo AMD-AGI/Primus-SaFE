@@ -354,7 +354,7 @@ external_execution:
   #   external_execution_profile_revision=2
   #   external_execution_registry_ca_secret=sandbox-extra-ca
   #   external_execution_registry_ca_secret_key=amd-ca.pem
-  #   external_execution_registry_insecure_skip_verify=true   # escape hatch only
+  #   external_execution_registry_insecure_skip_verify=false  # only when a site CA is mounted
   enabled: false
   # Capacity controller endpoint. One deployment talks to one controller, which is also
   # the single active mutator of the execution ledger.
@@ -386,8 +386,9 @@ external_execution:
   # Absolute path inside the job-manager container. Leave empty unless mounting a CA
   # (chart sets /etc/secrets/registry-ca/ca.crt when registry_ca_secret is set).
   registry_ca_path: ""
-  # Escape hatch only: skip TLS verify when resolving image digests. Default false.
-  registry_insecure_skip_verify: false
+  # Skip TLS verify when resolving image digests. Default true because workloads may use
+  # many registries; set false together with registry_ca_secret when a site CA is available.
+  registry_insecure_skip_verify: true
 workload:
   # Seconds to keep a finished workload before TTL deletion.
   ttl_second: 3600

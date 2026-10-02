@@ -388,11 +388,19 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 			if w.IsEnd() {
 				continue
 			}
-			// No retry changes these answers. Waiting on them would hold the queue
-			// behind a workload that can never be admitted.
+			// Terminal admission answers do not need re-evaluation. Persisting Failed can
+			// still lose a resourceVersion race against another status writer; that write
+			// must be retried or the workload stays Pending forever with no wake-up.
 			if isTerminalExternalReason(reason) {
-				if failErr := jobutils.SetWorkloadFailed(ctx, r.Client, w, reason); failErr != nil {
-					klog.ErrorS(failErr, "failed to mark external workload failed", "workload", w.Name)
+				klog.InfoS("external workload rejected with terminal reason",
+					"workload", w.Name, "reason", reason)
+				if failErr := r.persistExternalTerminalFailure(ctx, w, reason); failErr != nil {
+					klog.ErrorS(failErr, "failed to mark external workload failed",
+						"workload", w.Name, "reason", reason)
+					r.AddAfter(&SchedulerMessage{
+						WorkspaceId: w.Spec.Workspace,
+						ClusterId:   v1.GetClusterId(w),
+					}, externalExchangeRetry)
 				}
 				continue
 			}
@@ -555,7 +563,10 @@ func (r *SchedulerReconciler) externalOutcome(workload *v1.Workload,
 // Nothing else wakes it: its status writes do not trigger a pass, and the workspace only
 // does when its available resources change, so without a retry the demand would lapse
 // unrenewed. Provider answers carry Retry-After; k8s write races (status patch
-// Invalid/Conflict) take the short default. Terminal reasons are not retried.
+// Invalid/Conflict) take the short default.
+//
+// Terminal admission reasons are not re-evaluated here. A failed attempt to *persist*
+// Failed for those reasons is requeued separately in scheduleWorkloads.
 func externalRetryDelay(reason string, err error) (time.Duration, bool) {
 	if isTerminalExternalReason(reason) {
 		return 0, false
@@ -567,6 +578,24 @@ func externalRetryDelay(reason string, err error) (time.Duration, bool) {
 		return d, true
 	}
 	return externalExchangeRetry, true
+}
+
+// persistExternalTerminalFailure writes Failed for a terminal external admission reason.
+// Reloads the workload first so a stale resourceVersion from the queue snapshot is less
+// likely to Conflict against a concurrent status writer.
+func (r *SchedulerReconciler) persistExternalTerminalFailure(ctx context.Context,
+	workload *v1.Workload, reason string) error {
+	if workload == nil {
+		return fmt.Errorf("nil workload")
+	}
+	current := &v1.Workload{}
+	if err := r.Get(ctx, client.ObjectKey{Name: workload.Name}, current); err != nil {
+		return err
+	}
+	if current.IsEnd() {
+		return nil
+	}
+	return jobutils.SetWorkloadFailed(ctx, r.Client, current, reason)
 }
 
 // checkWorkloadDependencies checks whether all dependencies of the workload are satisfied.
