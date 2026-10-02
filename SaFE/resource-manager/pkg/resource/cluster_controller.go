@@ -513,7 +513,7 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 	clientSet := k8sClients.ClientSet()
-	allPriorityClass := genAllPriorityClass(cluster.Name)
+	allPriorityClass := append(genAllPriorityClass(cluster.Name), genExternalPriorityClass()...)
 	for _, pc := range allPriorityClass {
 		_, err = clientSet.SchedulingV1().PriorityClasses().Get(ctx, pc.name, metav1.GetOptions{})
 		if err == nil {
@@ -526,8 +526,9 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 			ObjectMeta: metav1.ObjectMeta{
 				Name: pc.name,
 			},
-			Value:       pc.value,
-			Description: "This priority class should be used for primus-safe job only.",
+			Value:            pc.value,
+			Description:      pc.description,
+			PreemptionPolicy: pc.preemptionPolicy,
 		}
 		if _, err = clientSet.SchedulingV1().PriorityClasses().Create(
 			ctx, priorityClass, metav1.CreateOptions{}); err != nil {
@@ -546,7 +547,7 @@ func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1
 		return nil
 	}
 	clientSet := k8sClients.ClientSet()
-	allPriorityClass := genAllPriorityClass(cluster.Name)
+	allPriorityClass := append(genAllPriorityClass(cluster.Name), genExternalPriorityClass()...)
 	for _, pc := range allPriorityClass {
 		if err = clientSet.SchedulingV1().PriorityClasses().Delete(ctx, pc.name, metav1.DeleteOptions{}); err != nil {
 			if !apierrors.IsNotFound(err) {
@@ -560,16 +561,41 @@ func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1
 
 // PriorityClass represents a Kubernetes priority class configuration
 type PriorityClass struct {
-	name  string
-	value int32
+	name             string
+	value            int32
+	description      string
+	preemptionPolicy *corev1.PreemptionPolicy
 }
 
-// genAllPriorityClass generates all required priority classes for a cluster.
+// genAllPriorityClass generates native per-cluster priority classes.
 func genAllPriorityClass(clusterId string) []PriorityClass {
 	return []PriorityClass{
-		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.HighPriority), value: 10000},
-		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.MedPriority), value: 0},
-		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.LowPriority), value: -10000},
+		{
+			name:        commonutils.GenerateClusterPriorityClass(clusterId, common.HighPriority),
+			value:       10000,
+			description: "This priority class should be used for primus-safe job only.",
+		},
+		{
+			name:        commonutils.GenerateClusterPriorityClass(clusterId, common.MedPriority),
+			value:       0,
+			description: "This priority class should be used for primus-safe job only.",
+		},
+		{
+			name:        commonutils.GenerateClusterPriorityClass(clusterId, common.LowPriority),
+			value:       -10000,
+			description: "This priority class should be used for primus-safe job only.",
+		},
+	}
+}
+
+// genExternalPriorityClass generates Never PriorityClasses for external/VK workloads.
+func genExternalPriorityClass() []PriorityClass {
+	never := corev1.PreemptNever
+	desc := "External execution PriorityClass with preemptionPolicy Never."
+	return []PriorityClass{
+		{name: v1.ExternalPriorityClassHigh, value: 10000, description: desc, preemptionPolicy: &never},
+		{name: v1.ExternalPriorityClassMed, value: 0, description: desc, preemptionPolicy: &never},
+		{name: v1.ExternalPriorityClassLow, value: -10000, description: desc, preemptionPolicy: &never},
 	}
 }
 

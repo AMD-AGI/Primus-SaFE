@@ -293,6 +293,12 @@ func IsExternalWorkspace(obj metav1.Object) bool {
 	return GetLabel(obj, WorkspaceExternalLabel) == TrueStr
 }
 
+// IsKubeSchedulerPlacement reports whether an external workspace places via kube-scheduler
+// rather than the legacy claim/demand HTTP path.
+func IsKubeSchedulerPlacement(obj metav1.Object) bool {
+	return GetLabel(obj, WorkspaceKubeSchedulerLabel) == TrueStr
+}
+
 // IsProtected checks if a resource is protected from deletion.
 func IsProtected(obj metav1.Object) bool {
 	return HasLabel(obj, ProtectLabel)

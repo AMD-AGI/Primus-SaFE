@@ -467,6 +467,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 
 	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
 	isExternal := v1.IsExternalWorkspace(workspace)
+	useKubeScheduler := isExternal && v1.IsKubeSchedulerPlacement(workspace)
 	isPreemptable := false
 	if !hasEnoughQuota {
 		reason = fmt.Sprintf("%s, no %s available", InsufficientReason, formatResourceName(key))
@@ -484,6 +485,11 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 			requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
 			string(jsonutils.MarshalSilently(leftResources)))
 		jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonInsufficient).Inc()
+		// On the kube-scheduler path the ResourceQuota budget is the hard ceiling: stay
+		// queued until hard rises or running work finishes. Do not ask the provider.
+		if useKubeScheduler {
+			return false, reason, nil
+		}
 		// The shortage is measured against capacity the provider has already published, so
 		// closing it means acquiring more. This is the point where the provider is asked.
 		// Everything that is waiting for something other than capacity -- a dependency, a
@@ -494,9 +500,12 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		}
 		return false, reason, nil
 	}
-	// The workspace has room, which on the external path means the provider has published
-	// nodes this workload could sit on. No acquisition is needed, but the seat still has to
-	// be granted: the provider owns the devices and decides which ones this claim gets.
+	// The workspace has room. On the kube-scheduler path the Pod (or PR) is created next;
+	// on the claim path the provider still has to grant a seat.
+	if useKubeScheduler {
+		admitted, waitReason, admitErr := r.admitExternalViaScheduler(ctx, requestWorkload, workspace)
+		return r.externalOutcome(requestWorkload, admitted, waitReason, admitErr)
+	}
 	if isExternal {
 		admitted, waitReason, reserveErr := r.reserveExternalCapacity(ctx, requestWorkload, workspace)
 		return r.externalOutcome(requestWorkload, admitted, waitReason, reserveErr)

@@ -119,6 +119,11 @@ const (
 	// external path; any other value is native. It is immutable after creation, because flipping
 	// it would change queue admission, scaling and node lifecycle under running workloads.
 	WorkspaceExternalLabel = WorkspacePrefix + "external"
+	// WorkspaceKubeSchedulerLabel selects the kube-scheduler placement path for an external
+	// workspace. Value "true" means Pod/PodTemplate/ProvisioningRequest; any other value keeps
+	// the legacy claim/demand HTTP path. Flip only while the workspace has no in-flight claim
+	// pods (see the per-namespace cutover steps).
+	WorkspaceKubeSchedulerLabel = WorkspacePrefix + "kube-scheduler"
 	// ExternalBudgetQuotaName is the ResourceQuota, in the workspace's own namespace on its
 	// data-plane cluster, whose spec.hard is the capacity budget of an external workspace. It
 	// is maintained by whoever supplies the capacity; SaFE only reads it.
@@ -161,6 +166,11 @@ const (
 	ExternalProviderLabel             = ExternalExecutionPrefix + "provider"
 	ExternalAllocationIdLabel         = ExternalExecutionPrefix + "allocation-id"
 	ExternalGenerationLabel           = ExternalExecutionPrefix + "generation"
+	// ExternalLeaseEndLabel is the unix-seconds lease end stamped on VK nodes. Pods require
+	// lease-end Gt <now+runtime+overhead> so they only land on nodes with enough remaining lease.
+	ExternalLeaseEndLabel = ExternalExecutionPrefix + "lease-end"
+	// ExternalProvisioningRequestTaint is the booking taint key for ProvisioningRequest nodes.
+	ExternalProvisioningRequestTaint = ExternalExecutionPrefix + "provisioning-request"
 	ExternalHostKeyAnnotation         = ExternalExecutionPrefix + "host-key"
 	ExternalObservedAtAnnotation      = ExternalExecutionPrefix + "observed-at"
 	ExternalValidUntilAnnotation      = ExternalExecutionPrefix + "valid-until"
@@ -173,12 +183,17 @@ const (
 	ExternalSingleUnitKey = "master/0"
 	// ExternalWorkerUnitKeyPrefix prefixes the unit key of each worker of an RDMA gang.
 	ExternalWorkerUnitKeyPrefix = "worker/"
-	// External PriorityClasses are installed by the capacity provider on the virtual-kubelet
-	// cluster. All three use preemptionPolicy=Never. SaFE references them by these fixed
-	// names and does not create or mutate the PriorityClass objects.
+	// External PriorityClasses are created by SaFE on the virtual-kubelet cluster
+	// (preemptionPolicy=Never). The capacity provider reads Pod.spec.preemptionPolicy and does
+	// not care about these names.
 	ExternalPriorityClassHigh = "safe-exec-external-high-priority"
 	ExternalPriorityClassMed  = "safe-exec-external-med-priority"
 	ExternalPriorityClassLow  = "safe-exec-external-low-priority"
+
+	// ExternalPlacementClaim is the legacy HTTP demand/claim path.
+	ExternalPlacementClaim = "claim"
+	// ExternalPlacementKubeScheduler places via kube-scheduler and ProvisioningRequest.
+	ExternalPlacementKubeScheduler = "kube-scheduler"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."

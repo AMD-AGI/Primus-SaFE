@@ -320,7 +320,7 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 		// Recheck the reservation before creating anything. The scheduler verified it, but
 		// time passes before the pods are built, and a claim revoked or expired inside that
 		// window would otherwise place a pod on devices the provider is reclaiming.
-		if isExternalWorkload(adminWorkload) {
+		if isExternalWorkload(adminWorkload) && !isKubeSchedulerPlacement(adminWorkload) {
 			if verifyErr := r.verifyExternalClaim(ctx, adminWorkload); verifyErr != nil {
 				// A reservation that is gone will not come back by waiting. Send the
 				// workload through admission again rather than rechecking a dead claim

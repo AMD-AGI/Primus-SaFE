@@ -30,8 +30,20 @@ const externalClaimRecheckDelay = 10 * time.Second
 
 // isExternalWorkload reports whether a workload was admitted against external capacity.
 func isExternalWorkload(workload *v1.Workload) bool {
+	if workload == nil || workload.Status.ExternalExecution == nil {
+		return false
+	}
+	state := workload.Status.ExternalExecution
+	if state.PlacementMode == v1.ExternalPlacementKubeScheduler {
+		return true
+	}
+	return state.ClaimId != ""
+}
+
+// isKubeSchedulerPlacement reports whether the workload uses the kube-scheduler path.
+func isKubeSchedulerPlacement(workload *v1.Workload) bool {
 	return workload != nil && workload.Status.ExternalExecution != nil &&
-		workload.Status.ExternalExecution.ClaimId != ""
+		workload.Status.ExternalExecution.PlacementMode == v1.ExternalPlacementKubeScheduler
 }
 
 // isExternalGang reports whether an admitted external workload has the host-network RDMA

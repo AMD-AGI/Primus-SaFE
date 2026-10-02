@@ -161,10 +161,11 @@ func initializeObject(obj *unstructured.Unstructured,
 			return fmt.Errorf("failed to disable host IPC for external: %v", err.Error())
 		}
 		// Do not set podSpec.preemptionPolicy. The PriorityClass admission controller
-		// derives PreemptLowerPriority from the class name and refuses an explicit Never
-		// ("must not be provided in pod spec"). External workloads already skip preemption
-		// in the scheduler; leaving the field unset is enough for admission.
+		// fills Never from the SaFE-installed external PriorityClass onto the Pod.
 		if err = applyExternalVirtualKubeletToleration(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalSchedulerAffinity(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
 		if err = applyExternalContainerSecurity(obj, workload, *resourceSpec); err != nil {
@@ -1172,11 +1173,9 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 		})
 	}
 	for key, val := range workload.Spec.CustomerLabels {
-		// User node names AND the provider-approved hostname in one term. The intersection
-		// is empty whenever the user did not name the virtual node, and the pod then stays
-		// Pending while the claim keeps charging. The approved set below is the only
-		// hostname constraint an external pod may carry.
-		if isExternalWorkload(workload) && isHostNodeConstraint(key) {
+		// On the claim path, user hostname constraints are dropped so they cannot AND with
+		// the provider-approved set. On the kube-scheduler path they are kept (R3).
+		if isExternalWorkload(workload) && !isKubeSchedulerPlacement(workload) && isHostNodeConstraint(key) {
 			continue
 		}
 		var values []interface{}
@@ -2809,7 +2808,7 @@ func updateContainers(adminWorkload *v1.Workload,
 	// The reservation was granted against the provider's approved vector. Using the
 	// workload request instead would let a rounded or padded Spec disagree with the
 	// claim, and VK admission refuses anything that is not an exact match.
-	if isExternalWorkload(adminWorkload) {
+	if isExternalWorkload(adminWorkload) && !isKubeSchedulerPlacement(adminWorkload) {
 		approved, approvedErr := externalApprovedResourceMap(adminWorkload, externalRoleUnitKey(adminWorkload, id))
 		if approvedErr != nil {
 			return approvedErr
@@ -2840,8 +2839,10 @@ func updateContainers(adminWorkload *v1.Workload,
 			// time, not against the tag the user submitted. Using the tag here would let a
 			// moved tag run content nothing was admitted for, and the provider would refuse
 			// the task after the pod had already bound.
-			if approved := externalApprovedImage(adminWorkload, externalRoleUnitKey(adminWorkload, id)); approved != "" {
-				container["image"] = approved
+			if !isKubeSchedulerPlacement(adminWorkload) {
+				if approved := externalApprovedImage(adminWorkload, externalRoleUnitKey(adminWorkload, id)); approved != "" {
+					container["image"] = approved
+				}
 			}
 			// expectedCommands, not buildCommands: an IDEP command carries the
 			// disaggregation and multi-node flags normalizeInferaIDEP grafts on
@@ -3130,6 +3131,57 @@ func applyExternalVirtualKubeletToleration(obj *unstructured.Unstructured, workl
 		"effect":   "NoSchedule",
 	})
 	return jobutils.SetNestedField(obj.Object, tolerations, path)
+}
+
+// applyExternalSchedulerAffinity writes w In and lease-end Gt for the kube-scheduler path.
+// Claim-path pods skip this and keep the provider-approved hostname pin instead.
+func applyExternalSchedulerAffinity(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	if !isKubeSchedulerPlacement(workload) {
+		return nil
+	}
+	path := podSpecPath(workload, &resourceSpec, "affinity", "nodeAffinity",
+		"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	terms, _, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	leaseDeadline := strconv.FormatInt(externalLeaseDeadlineUnix(workload), 10)
+	exprs := []interface{}{
+		map[string]interface{}{
+			"key":      v1.ExternalWorkspaceLabel,
+			"operator": "In",
+			"values":   []interface{}{workload.Spec.Workspace},
+		},
+		map[string]interface{}{
+			"key":      v1.ExternalLeaseEndLabel,
+			"operator": "Gt",
+			"values":   []interface{}{leaseDeadline},
+		},
+	}
+	if len(terms) == 0 {
+		terms = []interface{}{map[string]interface{}{"matchExpressions": exprs}}
+	} else {
+		for i := range terms {
+			term, ok := terms[i].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			existing, _ := term["matchExpressions"].([]interface{})
+			term["matchExpressions"] = append(existing, exprs...)
+		}
+	}
+	return jobutils.SetNestedField(obj.Object, terms, path)
+}
+
+// externalLeaseDeadlineUnix is now + declared runtime + 10m overhead, in unix seconds.
+func externalLeaseDeadlineUnix(workload *v1.Workload) int64 {
+	const overheadSec int64 = 600
+	runtimeSec := int64(0)
+	if workload != nil && workload.Spec.Timeout != nil && *workload.Spec.Timeout > 0 {
+		runtimeSec = int64(*workload.Spec.Timeout)
+	}
+	return time.Now().UTC().Unix() + runtimeSec + overheadSec
 }
 
 // applyExternalVolumePolicy rewrites volumes/mounts the provider refuses without changing
