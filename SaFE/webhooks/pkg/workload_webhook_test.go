@@ -2562,13 +2562,32 @@ func TestWorkloadValidateExternalRefusesPrivileges(t *testing.T) {
 	tolerateAll.Spec.Workspace = "ws-ext"
 	tolerateAll.Spec.IsTolerateAll = true
 	v1.SetAnnotation(tolerateAll, v1.UserAccountAnnotation, "jdoe")
-	assert.ErrorContains(t, v.validateWorkspace(context.Background(), tolerateAll), "isTolerateAll")
+	assert.NilError(t, v.validateWorkspace(context.Background(), tolerateAll))
 
 	fracCPU := validWorkload()
 	fracCPU.Spec.Workspace = "ws-ext"
 	fracCPU.Spec.Resources[0].CPU = "1500m"
 	v1.SetAnnotation(fracCPU, v1.UserAccountAnnotation, "jdoe")
 	assert.ErrorContains(t, v.validateWorkspace(context.Background(), fracCPU), "whole-core")
+}
+
+func TestWorkloadMutateExternalClearsTolerateAll(t *testing.T) {
+	scheme := newScheme(t)
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "ws-ext",
+			Labels: map[string]string{v1.WorkspaceExternalLabel: "true"},
+		},
+		Spec: v1.WorkspaceSpec{Replica: 1, Cluster: "crusoe"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ws).Build()
+	m := &WorkloadMutator{Client: c}
+
+	w := validWorkload()
+	w.Spec.Workspace = "ws-ext"
+	w.Spec.IsTolerateAll = true
+	assert.NilError(t, m.mutateCommon(context.Background(), nil, w, ws))
+	assert.Equal(t, w.Spec.IsTolerateAll, false)
 }
 
 func proxyAdmissionWorkload() *v1.Workload {

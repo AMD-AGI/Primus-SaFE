@@ -186,7 +186,20 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	m.mutateService(oldWorkload, newWorkload)
 	m.mutateSecrets(ctx, newWorkload, workspace)
 	m.mutateStickNodes(ctx, newWorkload, workspace)
+	m.mutateExternalTolerateAll(newWorkload, workspace)
 	return nil
+}
+
+// mutateExternalTolerateAll clears isTolerateAll on external workspaces. A Exists-without-key
+// toleration would admit unhealthy / booking / out-of-service nodes on the provider's VK path;
+// the request is accepted and forced false rather than rejected (R4).
+func (m *WorkloadMutator) mutateExternalTolerateAll(workload *v1.Workload, workspace *v1.Workspace) {
+	if workspace == nil || !v1.IsExternalWorkspace(workspace) {
+		return
+	}
+	if workload.Spec.IsTolerateAll {
+		workload.Spec.IsTolerateAll = false
+	}
 }
 
 // mutateMeta sets normalized name, ownership, labels, main container and finalizer.
@@ -1730,12 +1743,6 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 		if v1.IsForceHostNetwork(workload) {
 			return commonerrors.NewBadRequest(
 				"external workloads cannot force host network")
-		}
-		// A Exists-without-key toleration would admit unhealthy / booking / out-of-service
-		// nodes; the provider's VK nodes must stay selective (R4).
-		if workload.Spec.IsTolerateAll {
-			return commonerrors.NewBadRequest(
-				"external workloads cannot set isTolerateAll")
 		}
 		// The provider resolves run-as identity from primus-safe.user.account.
 		// Without an SSO preferred name there is no account to stamp.
