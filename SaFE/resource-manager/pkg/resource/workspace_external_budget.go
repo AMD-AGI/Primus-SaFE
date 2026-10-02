@@ -140,10 +140,11 @@ func quotaHardToResources(hard corev1.ResourceList) corev1.ResourceList {
 }
 
 // finishExternalWorkspace ends a reconcile of an external workspace in place of the scaling
-// switch. Its capacity is the budget quota, not spec.Replica, so there is nothing to scale:
-// running the switch would read the replica count as a target and bind or release nodes
-// against it. The phase still has to advance, because the switch is the only other place
-// that sets it, and an external workspace at zero running workloads is not abnormal.
+// switch. Its capacity is the budget quota, not Spec.Replica, so there is nothing to scale:
+// running the switch would compare Spec.Replica to AvailableReplica+AbnormalReplica and bind
+// or release nodes against it. Explicit nodes-action binding is also skipped earlier in
+// reconcileWorkspace. The phase still has to advance, because the switch is the only other
+// place that sets it, and an external workspace at zero running workloads is not abnormal.
 //
 // The requeue is what picks up a change to the quota, which no event here reports.
 func (r *WorkspaceReconciler) finishExternalWorkspace(ctx context.Context,

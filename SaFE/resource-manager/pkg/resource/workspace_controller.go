@@ -828,9 +828,17 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 	r.pruneExpectations(workspace.Name)
 	var actionResult ctrlruntime.Result
 	if v1.GetWorkspaceNodesAction(workspace) != "" {
-		var isUpdated bool
-		if actionResult, isUpdated, err = r.processNodesAction(ctx, workspace); err != nil || isUpdated {
-			return actionResult, err
+		if v1.IsExternalWorkspace(workspace) {
+			// External workspaces do not bind or unbind nodes. Drop any nodes-action so it
+			// cannot stick and freeze later reconciles behind a request that will never apply.
+			if err = r.removeNodesAction(ctx, workspace); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+		} else {
+			var isUpdated bool
+			if actionResult, isUpdated, err = r.processNodesAction(ctx, workspace); err != nil || isUpdated {
+				return actionResult, err
+			}
 		}
 	}
 	if !r.meetExpectations(workspace.Name) {
@@ -845,6 +853,8 @@ func (r *WorkspaceReconciler) reconcileWorkspace(ctx context.Context, workspace 
 		return ctrlruntime.Result{}, err
 	}
 	if v1.IsExternalWorkspace(workspace) {
+		// Skips the replica scaleUp/scaleDown switch: external capacity is the budget quota,
+		// not Spec.Replica versus AvailableReplica/AbnormalReplica.
 		return r.finishExternalWorkspace(ctx, workspace, actionResult)
 	}
 	if workspace.Spec.NodeFlavor == "" {
