@@ -474,6 +474,11 @@ func buildGangPodTemplate(workload *v1.Workload, ns, name, prName string) (*unst
 				"effect":   string(corev1.TaintEffectNoSchedule),
 			},
 			map[string]interface{}{
+				"key":      v1.ExternalVirtualKubeletTaintLegacy,
+				"operator": string(corev1.TolerationOpExists),
+				"effect":   string(corev1.TaintEffectNoSchedule),
+			},
+			map[string]interface{}{
 				"key":      v1.ExternalProvisioningRequestTaint,
 				"operator": string(corev1.TolerationOpEqual),
 				"value":    bookingValue,

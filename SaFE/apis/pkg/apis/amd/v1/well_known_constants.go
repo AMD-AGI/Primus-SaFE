@@ -175,9 +175,13 @@ const (
 	ExternalObservedAtAnnotation      = ExternalExecutionPrefix + "observed-at"
 	ExternalValidUntilAnnotation      = ExternalExecutionPrefix + "valid-until"
 	ExternalAllocationPhaseAnnotation = ExternalExecutionPrefix + "allocation-phase"
-	// ExternalVirtualKubeletTaint is the provider identity taint. It selects pods onto the
-	// virtual node and must not by itself make the node unavailable for capacity accounting.
-	ExternalVirtualKubeletTaint = ExternalExecutionPrefix + "virtual-kubelet"
+	// ExternalVirtualKubeletTaint is the community-standard provider identity taint.
+	// It selects pods onto the virtual node and must not by itself make the node
+	// unavailable for capacity accounting.
+	ExternalVirtualKubeletTaint = "virtual-kubelet.io/provider"
+	// ExternalVirtualKubeletTaintLegacy is the pre-migration SaFE-scoped taint key.
+	// Kept during the dual-key transition so pods still schedule while Autopilot flips.
+	ExternalVirtualKubeletTaintLegacy = ExternalExecutionPrefix + "virtual-kubelet"
 	// ExternalSingleUnitKey is the unit key of a single-replica workload and of the master
 	// unit of an RDMA gang, whose units all carry the same approved vector and image.
 	ExternalSingleUnitKey = "master/0"

@@ -3168,8 +3168,9 @@ func stripExternalContainerPrivileges(obj *unstructured.Unstructured, workload *
 	return jobutils.SetNestedField(obj.Object, containers, path)
 }
 
-// applyExternalVirtualKubeletToleration adds a toleration for the provider's virtual-node
-// taint so kube-scheduler can place the pod on an external VK.
+// applyExternalVirtualKubeletToleration adds tolerations for the provider's virtual-node
+// taints so kube-scheduler can place the pod on an external VK. Both the community
+// key and the legacy SaFE key are added during the dual-key transition.
 func applyExternalVirtualKubeletToleration(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
 	path := podSpecPath(workload, &resourceSpec, "tolerations")
@@ -3177,20 +3178,26 @@ func applyExternalVirtualKubeletToleration(obj *unstructured.Unstructured, workl
 	if err != nil {
 		return err
 	}
+	have := map[string]bool{}
 	for _, raw := range tolerations {
 		t, ok := raw.(map[string]interface{})
 		if !ok {
 			continue
 		}
-		if t["key"] == v1.ExternalVirtualKubeletTaint {
-			return nil
+		if key, _ := t["key"].(string); key != "" {
+			have[key] = true
 		}
 	}
-	tolerations = append(tolerations, map[string]interface{}{
-		"key":      v1.ExternalVirtualKubeletTaint,
-		"operator": "Exists",
-		"effect":   "NoSchedule",
-	})
+	for _, key := range []string{v1.ExternalVirtualKubeletTaint, v1.ExternalVirtualKubeletTaintLegacy} {
+		if have[key] {
+			continue
+		}
+		tolerations = append(tolerations, map[string]interface{}{
+			"key":      key,
+			"operator": "Exists",
+			"effect":   "NoSchedule",
+		})
+	}
 	return jobutils.SetNestedField(obj.Object, tolerations, path)
 }
 

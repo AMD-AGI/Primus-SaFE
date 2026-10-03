@@ -185,19 +185,22 @@ func TestProviderIdentityTaintDoesNotBlockAvailability(t *testing.T) {
 	observed := metav1.NewTime(now)
 	valid := metav1.NewTime(now.Add(time.Minute))
 	node := externalNode(&observed, &valid, true)
-	node.Status.Taints = []corev1.Taint{{
-		Key:    ExternalVirtualKubeletTaint,
-		Value:  "ws-1",
-		Effect: corev1.TaintEffectNoSchedule,
-	}}
-	if ok, reason := node.CheckAvailable(false); !ok {
-		t.Fatalf("provider identity taint must not block availability, got %q", reason)
+	for _, key := range []string{ExternalVirtualKubeletTaint, ExternalVirtualKubeletTaintLegacy} {
+		node.Status.Taints = []corev1.Taint{{
+			Key:    key,
+			Value:  "ws-1",
+			Effect: corev1.TaintEffectNoSchedule,
+		}}
+		if ok, reason := node.CheckAvailable(false); !ok {
+			t.Fatalf("provider identity taint %q must not block availability, got %q", key, reason)
+		}
 	}
 
-	node.Status.Taints = append(node.Status.Taints, corev1.Taint{
-		Key:    corev1.TaintNodeUnreachable,
-		Effect: corev1.TaintEffectNoSchedule,
-	})
+	node.Status.Taints = []corev1.Taint{
+		{Key: ExternalVirtualKubeletTaint, Effect: corev1.TaintEffectNoSchedule},
+		{Key: ExternalVirtualKubeletTaintLegacy, Effect: corev1.TaintEffectNoSchedule},
+		{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoSchedule},
+	}
 	if ok, _ := node.CheckAvailable(false); ok {
 		t.Fatal("health taints must still block availability")
 	}
