@@ -602,6 +602,7 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 		MaxRuntime:        w.Spec.MaxRuntime,
 		IdleTime:          w.Spec.IdleTime,
 		GpuProduct:        v1.GetAnnotation(w, v1.GpuProductAnnotation),
+		External:          v1.IsExternalWorkspace(w),
 	}
 	for _, m := range w.Spec.Managers {
 		user, err := h.getAdminUser(ctx, m)

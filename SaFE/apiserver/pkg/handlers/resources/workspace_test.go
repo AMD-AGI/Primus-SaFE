@@ -127,7 +127,10 @@ func TestListWorkspaceHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h, user := newAdminHandlerWithObjects(
 		&v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-b"}},
-		&v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-a"}},
+		&v1.Workspace{ObjectMeta: metav1.ObjectMeta{
+			Name:   "ws-a",
+			Labels: map[string]string{v1.WorkspaceExternalLabel: v1.TrueStr},
+		}},
 	)
 
 	rsp := httptest.NewRecorder()
@@ -140,6 +143,12 @@ func TestListWorkspaceHandler(t *testing.T) {
 	var resp view.ListWorkspaceResponse
 	testifyassert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &resp))
 	assert.Equal(t, 2, resp.TotalCount)
+	byID := map[string]view.WorkspaceResponseItem{}
+	for _, item := range resp.Items {
+		byID[item.WorkspaceId] = item
+	}
+	testifyassert.True(t, byID["ws-a"].External)
+	testifyassert.False(t, byID["ws-b"].External)
 }
 
 func TestDeleteWorkspaceHandler(t *testing.T) {

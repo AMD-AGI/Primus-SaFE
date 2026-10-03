@@ -109,6 +109,8 @@ type WorkspaceResponseItem struct {
 	IdleTime map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`
 	// GPU product for this workspace (e.g. "MI300X", "MI325X"). The default is empty.
 	GpuProduct string `json:"gpuProduct,omitempty"`
+	// External is true when the workspace is labeled primus-safe.workspace.external=true.
+	External bool `json:"external"`
 }
 
 type GetWorkspaceResponse struct {

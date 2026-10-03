@@ -618,6 +618,11 @@ async function getDetail() {
 
 async function fetchGPUData() {
   if (!dateRange.value || !store.currentWorkspaceId || !clusterStore.currentClusterId) return
+  if (store.isCurrentWorkspaceExternal) {
+    gpuData.value = []
+    await renderGpuChart()
+    return
+  }
 
   gpuLoading.value = true
   try {
@@ -665,6 +670,13 @@ watch(
     fetchGPUData()
   },
   { immediate: true },
+)
+
+watch(
+  () => store.isCurrentWorkspaceExternal,
+  (external) => {
+    if (external) fetchGPUData()
+  },
 )
 
 watch([() => store.currentWorkspaceId, () => userStore.userId], fetchMyWorkloads, {
