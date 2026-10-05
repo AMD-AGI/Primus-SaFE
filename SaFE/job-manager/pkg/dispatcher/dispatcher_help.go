@@ -2274,6 +2274,20 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 		}
 		slot["podLabels"] = labels
 
+		// ExtraPodSpec has no metadata. Carry pod annotations (site account,
+		// resource id, external claim keys) on ServiceSpec.podAnnotations so
+		// the operator can merge them onto the rendered pod template.
+		annos := map[string]interface{}{}
+		if existing, ok := slot["podAnnotations"].(map[string]interface{}); ok {
+			for k, v := range existing {
+				annos[k] = v
+			}
+		}
+		for k, v := range buildPodAnnotations(adminWorkload, i) {
+			annos[k] = v
+		}
+		slot["podAnnotations"] = annos
+
 		applyInferaRoleFields(slot, role, kvBackend,
 			commonworkload.IsInferaIdleRole(adminWorkload, role))
 		if role != common.DynamoRoleFrontend && !creatorReadinessPort {
@@ -2753,8 +2767,8 @@ func updateMetadata(adminWorkload *v1.Workload,
 	}
 	// IDEP's extraPodSpec is a bare corev1.PodSpec with no metadata field; the
 	// CRD schema prunes anything written to extraPodSpec.metadata.
-	// normalizeInferaIDEP carries these labels on the slot's podLabels field
-	// instead, at create time.
+	// normalizeInferaIDEP carries labels and annotations on the slot's
+	// podLabels and podAnnotations fields instead, at create time.
 	if commonworkload.IsInferaDeployment(adminWorkload) {
 		return nil
 	}
