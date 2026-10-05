@@ -6,27 +6,13 @@
 package dispatcher
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
-
-	"k8s.io/klog/v2"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/execution"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
-
-// externalClaimRecheckDelay spaces out retries when the reservation cannot be confirmed.
-// The workload stays scheduled meanwhile: the reservation may still be valid and the
-// failure transport-only, and dropping the schedule would send it back through admission
-// for capacity it may already hold.
-const externalClaimRecheckDelay = 10 * time.Second
 
 // isExternalWorkload reports whether a workload was admitted against external capacity.
 func isExternalWorkload(workload *v1.Workload) bool {
@@ -108,129 +94,23 @@ func externalGangProblem(workload *v1.Workload) string {
 	return ""
 }
 
-// claimGoneError marks a reservation that is definitively not coming back, as opposed to
-// one this process merely failed to read. Only the first justifies sending the workload
-// back through admission; the second is retried against the same reservation.
-type claimGoneError struct{ reason string }
-
-func (e *claimGoneError) Error() string { return e.reason }
-
-// isClaimGone reports whether the reservation is beyond recovery.
-func isClaimGone(err error) bool {
-	var gone *claimGoneError
-	return errors.As(err, &gone)
-}
-
-// returnToQueue sends a workload back through admission after its reservation turned out to
-// be unusable.
-//
-// Without this the dispatcher would recheck the same dead claim every ten seconds forever,
-// and the workload would sit in Pending holding its share of the workspace while no path
-// existed to obtain a new reservation. Dropping the scheduled mark puts it back in front of
-// the scheduler, which will plan and claim again.
-func (r *DispatcherReconciler) returnToQueue(ctx context.Context, workload *v1.Workload,
-	cause error) error {
-	klog.InfoS("external reservation is gone, returning workload to the queue",
-		"workload", workload.Name, "reason", cause.Error())
-	patch := client.MergeFrom(workload.DeepCopy())
-	v1.RemoveAnnotation(workload, v1.WorkloadScheduledAnnotation)
-	return r.Patch(ctx, workload, patch)
-}
-
-// verifyExternalClaim rechecks the reservation immediately before the execution object is
-// created.
-//
-// The scheduler already checked it, but time passes between marking a workload scheduled
-// and building its pods, and the reservation can be revoked or expire inside that window.
-// Dispatching against a claim that is no longer Active would place a pod on devices the
-// provider has started reclaiming, and the pod would look legitimate to everything
-// downstream.
-func (r *DispatcherReconciler) verifyExternalClaim(ctx context.Context,
-	workload *v1.Workload) error {
-	state := workload.Status.ExternalExecution
-	if state == nil || state.ClaimId == "" {
-		return fmt.Errorf("workload %s has no external claim recorded", workload.Name)
-	}
-	client, err := execution.Shared()
-	if err != nil {
-		return err
-	}
-	claim, err := client.GetClaim(ctx, state.ClaimId)
-	if err != nil {
-		if execution.IsCode(err, execution.CodeNotFound) {
-			return &claimGoneError{fmt.Sprintf("claim %s no longer exists", state.ClaimId)}
-		}
-		return err
-	}
-	// Matching the identity is the point of the recheck. An HTTP 200 only says the claim
-	// exists; it does not say it belongs to this workload or to this attempt.
-	if claim.WorkloadUID != string(workload.UID) {
-		return &claimGoneError{fmt.Sprintf("claim %s belongs to workload %s, not %s",
-			state.ClaimId, claim.WorkloadUID, workload.UID)}
-	}
-	if claim.DispatchGeneration != state.DispatchGeneration {
-		return &claimGoneError{fmt.Sprintf("claim %s is for dispatch generation %d, current is %d",
-			state.ClaimId, claim.DispatchGeneration, state.DispatchGeneration)}
-	}
-	if !claim.IsActive() {
-		return &claimGoneError{fmt.Sprintf("claim %s is %s", state.ClaimId, claim.Phase)}
-	}
-	if !claim.ExpiresAt.IsZero() && time.Now().UTC().After(claim.ExpiresAt.Time) {
-		return &claimGoneError{fmt.Sprintf("claim %s admission expired at %s",
-			state.ClaimId, claim.ExpiresAt.Time)}
-	}
-	// Refuse rather than dispatch unconstrained. The node restriction is expressed as
-	// affinity built from these placements, so an empty set would not narrow the pod to
-	// anything -- it would let the execution cluster schedule it wherever it liked, on
-	// capacity no claim covers.
-	if len(externalApprovedNodes(workload)) == 0 {
-		return &claimGoneError{fmt.Sprintf("claim %s approved no nodes for workload %s",
-			state.ClaimId, workload.Name)}
-	}
-	if isExternalGang(workload) {
-		if problem := externalGangProblem(workload); problem != "" {
-			return &claimGoneError{fmt.Sprintf("claim %s: %s", state.ClaimId, problem)}
-		}
-	}
-	if findPlacement(state, v1.ExternalSingleUnitKey) == nil {
-		return &claimGoneError{fmt.Sprintf("claim %s has no placement for unit %s",
-			state.ClaimId, v1.ExternalSingleUnitKey)}
-	}
-	for _, p := range state.Placements {
-		if !isDigestPinned(p.ImageRef) {
-			// The contract pins image_ref to a digest. Anything else means the pod would run
-			// content the reservation was not granted against, and a tag can be moved after
-			// the fact.
-			return &claimGoneError{fmt.Sprintf("claim %s approved image %q for unit %s is not digest pinned",
-				state.ClaimId, p.ImageRef, p.UnitKey)}
-		}
-	}
-	return nil
-}
-
 // isDigestPinned reports whether a reference names immutable content.
 func isDigestPinned(image string) bool {
 	at := strings.LastIndex(image, "@sha256:")
 	return at > 0 && len(image) == at+len("@sha256:")+64
 }
 
-// externalPodAnnotations are the identifiers the provider rechecks after the pod binds.
-// They are derived from the approved workload and its claim, never from user input.
-// Gang members share one pod template per role, so they name the gang instead of a unit and
-// the provider binds each to the claim's unit on its node.
+// externalPodAnnotations are identifiers written onto the execution object.
 func externalPodAnnotations(workload *v1.Workload, unitKey string) map[string]interface{} {
 	state := workload.Status.ExternalExecution
 	if state == nil {
 		return nil
 	}
-	profileID, profileRevision := commonconfig.GetExternalExecutionProfile()
 	result := map[string]interface{}{
 		v1.ExternalWorkloadUIDAnnotation: string(workload.UID),
 		v1.ExternalDispatchGenAnnotation: strconv.Itoa(int(state.DispatchGeneration)),
 		v1.ExternalClaimIdAnnotation:     state.ClaimId,
 		v1.ExternalClaimRevAnnotation:    strconv.Itoa(int(state.ClaimRevision)),
-		v1.ExternalProfileIdAnnotation:   profileID,
-		v1.ExternalProfileRevAnnotation:  strconv.Itoa(profileRevision),
 	}
 	if isExternalGang(workload) {
 		result[v1.ExternalGangKeyAnnotation] = string(workload.UID)
@@ -250,9 +130,7 @@ func findPlacement(state *v1.WorkloadExternalExecution, unitKey string) *v1.Work
 	return nil
 }
 
-// externalApprovedNodes lists the virtual nodes a workload's pods may bind to. The pod is
-// restricted to them through required node affinity, so the execution cluster scheduler
-// still performs the binding rather than having it forced with spec.nodeName.
+// externalApprovedNodes lists the virtual nodes a workload's pods may bind to.
 func externalApprovedNodes(workload *v1.Workload) []string {
 	state := workload.Status.ExternalExecution
 	if state == nil {
@@ -274,10 +152,7 @@ func externalApprovedNodes(workload *v1.Workload) []string {
 	return names
 }
 
-// externalApprovedImage returns the image the provider froze at claim time. The contract
-// requires this reference to name a digest, and verifyExternalClaim refuses the dispatch
-// when it does not; the tag the user submitted is never used, because it can be moved to
-// different content after the reservation was granted.
+// externalApprovedImage returns the image frozen on the stored placement, if any.
 func externalApprovedImage(workload *v1.Workload, unitKey string) string {
 	state := workload.Status.ExternalExecution
 	if state == nil {

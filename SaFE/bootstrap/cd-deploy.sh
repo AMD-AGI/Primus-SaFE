@@ -156,14 +156,9 @@ if [ -n "${cd_require_approval:-}" ] || [ -n "${optimize_max_concurrent:-}" ]; t
     fi
 fi
 
-# Sync external-execution .env keys into the job-manager ConfigMap so a chart
-# default of empty controller_url cannot wipe a site endpoint after helm upgrade.
+# Sync external-execution .env keys into the job-manager ConfigMap.
 JOB_MANAGER_CM="primus-safe-job-manager"
-if [ -n "${external_execution_controller_url:-}" ] \
-   || [ -n "${external_execution_controller_secret:-}" ] \
-   || [ -n "${external_execution_profile_id:-}" ] \
-   || [ -n "${external_execution_profile_revision:-}" ] \
-   || [ -n "${external_enable:-}" ] \
+if [ -n "${external_enable:-}" ] \
    || [ -n "${external_execution_enabled:-}" ] \
    || [ -n "${external_execution_registry_ca_secret:-}" ] \
    || [ -n "${external_execution_registry_ca_path:-}" ] \
@@ -177,20 +172,6 @@ if [ -n "${external_execution_controller_url:-}" ] \
         EXTERNAL_ENABLE_VALUE="${external_enable:-${external_execution_enabled:-}}"
         if [ -n "${EXTERNAL_ENABLE_VALUE}" ]; then
             sed -i '/^external_execution:/,/^[a-z]/ s/enabled: .*/enabled: '"${EXTERNAL_ENABLE_VALUE}"'/' "$CM_TMP"
-        fi
-        if [ -n "${external_execution_controller_url:-}" ]; then
-            sed -i '/^external_execution:/,/^[a-z]/ s#controller_url: .*#controller_url: "'"${external_execution_controller_url}"'"#' "$CM_TMP"
-        fi
-        if [ -n "${external_execution_controller_secret:-}" ]; then
-            # ConfigMap only stores the mount path; secret name is a Deployment
-            # volume reference and is applied through helm values in upgrade.sh.
-            :
-        fi
-        if [ -n "${external_execution_profile_id:-}" ]; then
-            sed -i '/^external_execution:/,/^[a-z]/ s#profile_id: .*#profile_id: "'"${external_execution_profile_id}"'"#' "$CM_TMP"
-        fi
-        if [ -n "${external_execution_profile_revision:-}" ]; then
-            sed -i '/^external_execution:/,/^[a-z]/ s/profile_revision: .*/profile_revision: '"${external_execution_profile_revision}"'/' "$CM_TMP"
         fi
         if [ -n "${external_execution_registry_ca_secret:-}" ]; then
             # Secret name is a Deployment volume (upgrade.sh / helm). Point the

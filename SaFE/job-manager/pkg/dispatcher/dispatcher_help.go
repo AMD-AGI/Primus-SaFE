@@ -3585,8 +3585,7 @@ func applyExternalNodePin(obj *unstructured.Unstructured, workload *v1.Workload,
 
 // externalApprovedResourceMap turns the claim's approved ResourceVector into the
 // requests=limits map written onto the pod. Only resources the claim named appear.
-// Values come from status placements persisted at acceptClaim time so dispatch does
-// not re-fetch the claim after verifyExternalClaim.
+// Values come from status placements so dispatch can bind requests=limits.
 func externalApprovedResourceMap(workload *v1.Workload, unitKey string) (map[string]interface{}, error) {
 	state := workload.Status.ExternalExecution
 	if state == nil {

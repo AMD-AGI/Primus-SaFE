@@ -208,12 +208,6 @@ const (
 	externalExecutionEnabled           = externalExecutionPrefix + "enabled"
 	externalExecutionObservationMaxAge = externalExecutionPrefix + "observation_max_age_seconds"
 	externalExecutionWorkspaceResync   = externalExecutionPrefix + "workspace_resync_seconds"
-	externalExecutionControllerURL     = externalExecutionPrefix + "controller_url"
-	externalExecutionSecretPath        = externalExecutionPrefix + "controller_secret_path"
-	externalExecutionTimeout           = externalExecutionPrefix + "controller_timeout_seconds"
-	externalExecutionProfileID         = externalExecutionPrefix + "profile_id"
-	externalExecutionProfileRevision   = externalExecutionPrefix + "profile_revision"
-	externalExecutionPIDLimit          = externalExecutionPrefix + "pid_limit"
 	// PEM file job-manager uses when resolving image digests against a private registry.
 	externalExecutionRegistryCAPath = externalExecutionPrefix + "registry_ca_path"
 	// Skip TLS verify for registry digest resolve. Default on: image registries vary by

@@ -25,6 +25,17 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/imagedigest"
 )
 
+func gangWorkload() *v1.Workload {
+	w := gpuWorkload()
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Kind: common.PytorchJobKind, Version: "v1"}
+	w.Spec.Resources[0].RdmaResource = "1k"
+	worker := w.Spec.Resources[0]
+	worker.Replica = 2
+	w.Spec.Resources = append(w.Spec.Resources, worker)
+	w.Spec.JobPort = 23456
+	return w
+}
+
 func stubImageResolve(t *testing.T) {
 	t.Helper()
 	prev := imagedigest.ResolveFunc
@@ -206,6 +217,35 @@ func TestEnsureExternalProvisioningProvisioned(t *testing.T) {
 	}
 	if !ok || reason != "" {
 		t.Fatalf("want admitted after Provisioned, got ok=%v reason=%q", ok, reason)
+	}
+}
+
+func TestValidateExternalShapeForScheduler(t *testing.T) {
+	single := &v1.Workload{Spec: v1.WorkloadSpec{Resources: []v1.WorkloadResource{{Replica: 1}}}}
+	single.Spec.GroupVersionKind.Kind = common.AuthoringKind
+	if err := validateExternalShapeForScheduler(single); err != nil {
+		t.Fatalf("single replica: %v", err)
+	}
+
+	gang := gangWorkload()
+	if err := validateExternalShapeForScheduler(gang); err != nil {
+		t.Fatalf("rdma gang: %v", err)
+	}
+
+	infera := &v1.Workload{Spec: v1.WorkloadSpec{
+		Resources: []v1.WorkloadResource{{Replica: 1}, {Replica: 1, GPU: "8"}, {Replica: 1, GPU: "8"}},
+	}}
+	infera.Spec.GroupVersionKind.Kind = common.InferaDeploymentKind
+	if err := validateExternalShapeForScheduler(infera); err != nil {
+		t.Fatalf("infera 1p1d: %v", err)
+	}
+
+	multi := &v1.Workload{Spec: v1.WorkloadSpec{
+		Resources: []v1.WorkloadResource{{Replica: 1}, {Replica: 1}},
+	}}
+	multi.Spec.GroupVersionKind.Kind = common.PytorchJobKind
+	if err := validateExternalShapeForScheduler(multi); err == nil {
+		t.Fatal("want error for non-rdma multi replica pytorch")
 	}
 }
 

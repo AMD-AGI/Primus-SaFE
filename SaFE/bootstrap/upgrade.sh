@@ -157,20 +157,6 @@ if [[ -n "${cicd_max_runners:-}" ]]; then
   sed -i '/^cicd:/,/^[a-z]/ s/max_runners: .*/max_runners: '"$cicd_max_runners"'/' "$values_yaml"
 fi
 
-# External execution controller endpoint and profile. Only override chart
-# placeholders when set in .env so a missing key leaves the empty default.
-if [[ -n "${external_execution_controller_url:-}" ]]; then
-  sed -i '/^external_execution:/,/^[a-z]/ s#controller_url: .*#controller_url: "'"$external_execution_controller_url"'"#' "$values_yaml"
-fi
-if [[ -n "${external_execution_controller_secret:-}" ]]; then
-  sed -i '/^external_execution:/,/^[a-z]/ s#controller_secret: .*#controller_secret: "'"$external_execution_controller_secret"'"#' "$values_yaml"
-fi
-if [[ -n "${external_execution_profile_id:-}" ]]; then
-  sed -i '/^external_execution:/,/^[a-z]/ s#profile_id: .*#profile_id: "'"$external_execution_profile_id"'"#' "$values_yaml"
-fi
-if [[ -n "${external_execution_profile_revision:-}" ]]; then
-  sed -i '/^external_execution:/,/^[a-z]/ s/profile_revision: .*/profile_revision: '"$external_execution_profile_revision"'/' "$values_yaml"
-fi
 # Prefer external_enable; keep external_execution_enabled as an alias.
 if [[ -n "${external_enable:-${external_execution_enabled:-}}" ]]; then
   sed -i '/^external_execution:/,/^[a-z]/ s/enabled: .*/enabled: '"${external_enable:-$external_execution_enabled}"'/' "$values_yaml"

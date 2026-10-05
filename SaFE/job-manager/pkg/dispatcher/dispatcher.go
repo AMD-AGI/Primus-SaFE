@@ -313,27 +313,11 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 	obj, err := jobutils.GetObject(ctx,
 		clientSets.ClientFactory(), adminWorkload.Name, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
 
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return ctrlruntime.Result{}, err
-		}
-		// Recheck the reservation before creating anything. The scheduler verified it, but
-		// time passes before the pods are built, and a claim revoked or expired inside that
-		// window would otherwise place a pod on devices the provider is reclaiming.
-		if isExternalWorkload(adminWorkload) && !isKubeSchedulerPlacement(adminWorkload) {
-			if verifyErr := r.verifyExternalClaim(ctx, adminWorkload); verifyErr != nil {
-				// A reservation that is gone will not come back by waiting. Send the
-				// workload through admission again rather than rechecking a dead claim
-				// forever while it holds its share of the workspace.
-				if isClaimGone(verifyErr) {
-					return ctrlruntime.Result{}, r.returnToQueue(ctx, adminWorkload, verifyErr)
-				}
-				klog.ErrorS(verifyErr, "external claim recheck failed, not dispatching",
-					"workload", adminWorkload.Name)
-				return ctrlruntime.Result{RequeueAfter: externalClaimRecheckDelay}, nil
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				return ctrlruntime.Result{}, err
 			}
-		}
-		if result, err := r.dispatch(ctx, adminWorkload, clientSets); err != nil || result.RequeueAfter > 0 {
+			if result, err := r.dispatch(ctx, adminWorkload, clientSets); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
 		if err = r.markAsDispatched(ctx, adminWorkload); err != nil {

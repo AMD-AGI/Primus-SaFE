@@ -557,13 +557,17 @@ func shortUID(workload *v1.Workload) string {
 	return strings.ToLower(uid)
 }
 
-// validateExternalShapeForScheduler keeps the same shape gate the claim path used.
+// validateExternalShapeForScheduler keeps the same shape gate the claim path used,
+// plus InferaDeployment: frontend/prefill/decode are heterogeneous roles, not an
+// RDMA gang. They admit immediately; unschedulable GPU pods trigger scale-up.
 func validateExternalShapeForScheduler(workload *v1.Workload) error {
 	if workload == nil {
 		return fmt.Errorf("nil workload")
 	}
-	if commonworkload.IsExternalRDMAGang(workload) || commonworkload.GetTotalReplica(workload) == 1 {
+	if commonworkload.IsExternalRDMAGang(workload) ||
+		commonworkload.GetTotalReplica(workload) == 1 ||
+		commonworkload.IsInferaDeployment(workload) {
 		return nil
 	}
-	return fmt.Errorf("external kube-scheduler path supports one replica or an RDMA gang")
+	return fmt.Errorf("external kube-scheduler path supports one replica, an RDMA gang, or InferaDeployment")
 }

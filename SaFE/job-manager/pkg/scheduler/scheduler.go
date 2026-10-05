@@ -33,7 +33,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/execution"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
@@ -217,9 +216,7 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 		return ctrlruntime.Result{}, err
 	}
 
-	// Withdraw the reservation once the workload is finished. The resources stay charged
-	// to the workspace until the provider confirms the release, so this has to keep asking
-	// rather than assume the first call settled it.
+	// Kube-scheduler objects are cleaned up on deletion; this is a no-op for running work.
 	stillReclaiming, err := r.reconcileExternalRelease(ctx, workload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
@@ -494,35 +491,22 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 			isPreemptable, err = r.preempt(ctx, requestWorkload, scheduledWorkloads, leftResources)
 		}
 	}
+	if isExternal && !useKubeScheduler {
+		return r.externalOutcome(requestWorkload, false, ExternalUnsupportedReason,
+			fmt.Errorf("external workspaces require kube-scheduler placement"))
+	}
 	if !hasEnoughQuota && !isPreemptable {
 		klog.Infof("the workload(%s) is not scheduled, reason: %s, request.resource: %s, left.resource: %s",
 			requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
 			string(jsonutils.MarshalSilently(leftResources)))
 		jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonInsufficient).Inc()
 		// On the kube-scheduler path the ResourceQuota budget is the hard ceiling: stay
-		// queued until hard rises or running work finishes. Do not ask the provider.
-		if useKubeScheduler {
-			return false, reason, nil
-		}
-		// The shortage is measured against capacity the provider has already published, so
-		// closing it means acquiring more. This is the point where the provider is asked.
-		// Everything that is waiting for something other than capacity -- a dependency, a
-		// start time, a pause -- returned earlier and never reaches here.
-		if isExternal {
-			admitted, waitReason, capacityErr := r.requestExternalCapacity(ctx, requestWorkload, workspace)
-			return r.externalOutcome(requestWorkload, admitted, waitReason, capacityErr)
-		}
+		// queued until hard rises or running work finishes.
 		return false, reason, nil
 	}
-	// The workspace has room. On the kube-scheduler path the Pod (or PR) is created next;
-	// on the claim path the provider still has to grant a seat.
 	if useKubeScheduler {
 		admitted, waitReason, admitErr := r.admitExternalViaScheduler(ctx, requestWorkload, workspace)
 		return r.externalOutcome(requestWorkload, admitted, waitReason, admitErr)
-	}
-	if isExternal {
-		admitted, waitReason, reserveErr := r.reserveExternalCapacity(ctx, requestWorkload, workspace)
-		return r.externalOutcome(requestWorkload, admitted, waitReason, reserveErr)
 	}
 	return true, "", nil
 }
@@ -573,9 +557,6 @@ func externalRetryDelay(reason string, err error) (time.Duration, bool) {
 	}
 	if err == nil {
 		return externalWaitRetry, true
-	}
-	if d := execution.RetryAfterOf(err); d > 0 {
-		return d, true
 	}
 	return externalExchangeRetry, true
 }

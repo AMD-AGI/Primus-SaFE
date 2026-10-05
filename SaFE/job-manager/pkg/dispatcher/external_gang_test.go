@@ -6,11 +6,10 @@
 package dispatcher
 
 import (
-	"context"
-	"net/http"
 	"testing"
 
 	"gotest.tools/v3/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -18,6 +17,19 @@ import (
 )
 
 const workerDispatchImage = "docker.io/team/app@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+const pinnedDispatchImage = "docker.io/team/app@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+func claimWorkload() *v1.Workload {
+	return &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "train-1", UID: "11111111-1111-1111-1111-111111111111"},
+		Status: v1.WorkloadStatus{ExternalExecution: &v1.WorkloadExternalExecution{
+			ClaimId: "c1", DispatchGeneration: 1,
+			Placements: []v1.WorkloadExternalPlacement{{
+				UnitKey: v1.ExternalSingleUnitKey, NodeName: "vk-1", ImageRef: pinnedDispatchImage,
+			}},
+		}},
+	}
+}
 
 // externalGangWorkload returns an admitted RDMA PyTorchJob with one master and two workers.
 func externalGangWorkload() *v1.Workload {
@@ -104,9 +116,7 @@ func TestExternalRoleUnitKey(t *testing.T) {
 	assert.Equal(t, externalRoleUnitKey(claimWorkload(), 0), v1.ExternalSingleUnitKey)
 }
 
-// The dispatch recheck covers every unit of a gang, not only master/0.
-func TestVerifyExternalClaimChecksEveryGangUnit(t *testing.T) {
-	r := &DispatcherReconciler{}
+func TestExternalGangProblem(t *testing.T) {
 	tagged := externalGangWorkload()
 	tagged.Status.ExternalExecution.Placements[2].ImageRef = "docker.io/team/app:v1"
 	missing := externalGangWorkload()
@@ -114,14 +124,13 @@ func TestVerifyExternalClaimChecksEveryGangUnit(t *testing.T) {
 	shared := externalGangWorkload()
 	shared.Status.ExternalExecution.Placements[2].NodeName = "vk-b"
 	for name, w := range map[string]*v1.Workload{"tag image": tagged, "missing unit": missing, "shared node": shared} {
-		useClaimServer(t, claimBody("Active", string(w.UID), 1, "2099-01-01T00:00:00.000Z"), http.StatusOK)
-		if err := r.verifyExternalClaim(context.Background(), w); !isClaimGone(err) {
-			t.Errorf("%s: err = %v, want claim gone", name, err)
+		if problem := externalGangProblem(w); problem == "" {
+			t.Errorf("%s: expected a gang problem", name)
 		}
 	}
-	good := externalGangWorkload()
-	useClaimServer(t, claimBody("Active", string(good.UID), 1, "2099-01-01T00:00:00.000Z"), http.StatusOK)
-	assert.NilError(t, r.verifyExternalClaim(context.Background(), good))
+	if problem := externalGangProblem(externalGangWorkload()); problem != "" {
+		t.Fatalf("good gang reported %q", problem)
+	}
 }
 
 // externalEnvObject returns a pod object whose main container carries the given env names.
