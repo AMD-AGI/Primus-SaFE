@@ -144,19 +144,14 @@ const (
 	// external execution
 	//
 	// These reach the execution cluster on the pod itself and are what the provider
-	// rechecks after binding. They are derived from the approved workload and claim, never
+	// rechecks after binding. They are derived from the approved workload, never
 	// copied from user input: an annotation a user could write by hand would otherwise be
 	// an authorisation.
-	ExternalExecutionPrefix        = "safe-exec.amd.com/"
+	ExternalExecutionPrefix        = "autopilot.amd.com/"
 	ExternalExecutionLabel         = ExternalExecutionPrefix + "external"
 	ExternalWorkloadUIDAnnotation  = ExternalExecutionPrefix + "workload-uid"
 	ExternalDispatchGenAnnotation  = ExternalExecutionPrefix + "dispatch-generation"
-	ExternalClaimIdAnnotation      = ExternalExecutionPrefix + "claim-id"
-	ExternalClaimRevAnnotation     = ExternalExecutionPrefix + "claim-revision"
-	ExternalUnitKeyAnnotation      = ExternalExecutionPrefix + "unit-key"
 	ExternalGangKeyAnnotation      = ExternalExecutionPrefix + "gang-key"
-	ExternalProfileIdAnnotation    = ExternalExecutionPrefix + "profile-id"
-	ExternalProfileRevAnnotation   = ExternalExecutionPrefix + "profile-revision"
 	ExternalAllocationIdAnnotation = ExternalExecutionPrefix + "allocation-id"
 	// Identity the provider stamps on virtual Nodes in the execution cluster. SaFE admits
 	// those Nodes into the admin plane; the provider never writes the SaFE Node CR.

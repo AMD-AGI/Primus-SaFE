@@ -101,7 +101,7 @@ func isDigestPinned(image string) bool {
 }
 
 // externalPodAnnotations are identifiers written onto the execution object.
-func externalPodAnnotations(workload *v1.Workload, unitKey string) map[string]interface{} {
+func externalPodAnnotations(workload *v1.Workload) map[string]interface{} {
 	state := workload.Status.ExternalExecution
 	if state == nil {
 		return nil
@@ -109,13 +109,9 @@ func externalPodAnnotations(workload *v1.Workload, unitKey string) map[string]in
 	result := map[string]interface{}{
 		v1.ExternalWorkloadUIDAnnotation: string(workload.UID),
 		v1.ExternalDispatchGenAnnotation: strconv.Itoa(int(state.DispatchGeneration)),
-		v1.ExternalClaimIdAnnotation:     state.ClaimId,
-		v1.ExternalClaimRevAnnotation:    strconv.Itoa(int(state.ClaimRevision)),
 	}
 	if isExternalGang(workload) {
 		result[v1.ExternalGangKeyAnnotation] = string(workload.UID)
-	} else {
-		result[v1.ExternalUnitKeyAnnotation] = unitKey
 	}
 	return result
 }

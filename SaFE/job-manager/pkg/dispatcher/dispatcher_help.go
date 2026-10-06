@@ -1009,9 +1009,8 @@ func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]inter
 	if mainContainerName != "" {
 		result[v1.MainContainerAnnotation] = mainContainerName
 	}
-	// Carries the claim identity to the execution cluster, where the provider rechecks it
-	// against the reservation after the pod binds.
-	for key, value := range externalPodAnnotations(workload, v1.ExternalSingleUnitKey) {
+	// Carries Autopilot identifiers onto the execution pod for post-bind recheck.
+	for key, value := range externalPodAnnotations(workload) {
 		result[key] = value
 	}
 	return result
