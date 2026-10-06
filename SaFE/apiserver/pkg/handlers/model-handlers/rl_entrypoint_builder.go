@@ -296,7 +296,7 @@ export HYDRA_FULL_ERROR=1
 # from workspace metadata.
 if ls /sys/class/infiniband/ionic_* >/dev/null 2>&1 || ip link show | grep -q 'ionic_'; then
   export NCCL_IB_HCA=$(ip link show | grep -oP 'ionic_\d+' | sort -u | paste -sd, -)
-  export NCCL_IB_GID_INDEX=1
+  export NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-1}"
   export USING_AINIC=1
   export NCCL_DMABUF_ENABLE=0
   export NCCL_MAX_P2P_CHANNELS=56
