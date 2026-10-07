@@ -838,11 +838,11 @@ func githubRunnerForLabelTest(name, runnerLabels string) *v1.Workload {
 
 func TestGithubRunnerPoolLabelsRejectsDuplicates(t *testing.T) {
 	scheme := newScheme(t)
-	existing := githubRunnerForLabelTest("runner-a", "spur-autopilot-hosted")
+	existing := githubRunnerForLabelTest("runner-a", "autopilot-hosted")
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
 	v := &WorkloadValidator{Client: c}
 
-	dup := githubRunnerForLabelTest("runner-b", "spur-autopilot-hosted")
+	dup := githubRunnerForLabelTest("runner-b", "autopilot-hosted")
 	err := v.validateGithubRunner(context.Background(), dup, nil)
 	assert.Assert(t, err != nil)
 	assert.Assert(t, commonerrors.IsAlreadyExist(err))

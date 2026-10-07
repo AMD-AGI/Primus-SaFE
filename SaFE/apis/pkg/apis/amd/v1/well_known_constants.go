@@ -184,9 +184,9 @@ const (
 	ExternalWorkerUnitKeyPrefix = "worker/"
 	// External PriorityClasses (preemptionPolicy=Never) are ensured by resource-manager
 	// cluster-controller when external_execution.enabled is true. Pods only reference the names.
-	ExternalPriorityClassHigh = "safe-exec-external-high-priority"
-	ExternalPriorityClassMed  = "safe-exec-external-med-priority"
-	ExternalPriorityClassLow  = "safe-exec-external-low-priority"
+	ExternalPriorityClassHigh = "autopilot-external-high-priority"
+	ExternalPriorityClassMed  = "autopilot-external-med-priority"
+	ExternalPriorityClassLow  = "autopilot-external-low-priority"
 
 	// ExternalPlacementClaim is the legacy HTTP demand/claim path.
 	ExternalPlacementClaim = "claim"

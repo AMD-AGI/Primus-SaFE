@@ -13,12 +13,12 @@ import {
 const PROXY = 'http://wstunnel-client.github-proxy.svc.cluster.local:3128'
 
 const baseForm = (overrides: Partial<GithubRunnerForm> = {}): GithubRunnerForm => ({
-  displayName: 'spur-autopilot-hosted',
+  displayName: 'autopilot-hosted',
   description: '',
   priority: 1,
   maxRetry: 50,
   image: 'ghcr.io/actions/actions-runner:latest',
-  githubConfigUrl: 'https://github.com/AMD-BRAIN-Internal/spur-autopilot',
+  githubConfigUrl: 'https://github.com/AMD-BRAIN-Internal/autopilot',
   proxyUrl: '',
   proxyUsername: 'github',
   proxyPassword: '',
@@ -39,8 +39,8 @@ const baseForm = (overrides: Partial<GithubRunnerForm> = {}): GithubRunnerForm =
 describe('GithubRunner env', () => {
   it('derives the runner label from the workload name', () => {
     expect(buildGithubRunnerEnv(baseForm())).toEqual({
-      GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/spur-autopilot',
-      RUNNER_LABELS: 'spur-autopilot-hosted',
+      GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/autopilot',
+      RUNNER_LABELS: 'autopilot-hosted',
     })
   })
 
@@ -48,8 +48,8 @@ describe('GithubRunner env', () => {
     expect(
       buildGithubRunnerEnv(baseForm({ proxyUrl: ` ${PROXY} `, proxyPassword: ' b339b3c ' })),
     ).toEqual({
-      GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/spur-autopilot',
-      RUNNER_LABELS: 'spur-autopilot-hosted',
+      GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/autopilot',
+      RUNNER_LABELS: 'autopilot-hosted',
       PROXY_URL: PROXY,
     })
   })
@@ -58,17 +58,17 @@ describe('GithubRunner env', () => {
     expect(
       mergeGithubRunnerEnv(
         {
-          GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/spur-autopilot',
-          RUNNER_LABELS: 'spur-autopilot-hosted',
+          GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/autopilot',
+          RUNNER_LABELS: 'autopilot-hosted',
           PROXY_URL: 'http://proxy:3128',
-          PROXY_CREDENTIAL_SECRET: 'spur-autopilot-hosted-abc123',
+          PROXY_CREDENTIAL_SECRET: 'autopilot-hosted-abc123',
           UNRELATED: 'keep-me',
         },
         baseForm(),
       ),
     ).toEqual({
-      GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/spur-autopilot',
-      RUNNER_LABELS: 'spur-autopilot-hosted',
+      GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/autopilot',
+      RUNNER_LABELS: 'autopilot-hosted',
       UNRELATED: 'keep-me',
     })
   })
@@ -168,15 +168,15 @@ describe('GithubRunner create payload', () => {
     )
 
     expect(payload).toEqual({
-      displayName: 'spur-autopilot-hosted',
+      displayName: 'autopilot-hosted',
       groupVersionKind: { kind: 'GithubRunner', version: 'v1' },
       workspace: 'control-plan-hyperloom',
       useWorkspaceStorage: true,
       images: ['ghcr.io/actions/actions-runner:latest'],
       resources: [{ replica: 1, cpu: '2', memory: '4Gi', ephemeralStorage: '20Gi' }],
       env: {
-        GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/spur-autopilot',
-        RUNNER_LABELS: 'spur-autopilot-hosted',
+        GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/autopilot',
+        RUNNER_LABELS: 'autopilot-hosted',
         PROXY_URL: PROXY,
       },
       githubAuth: { type: 'registration_token', token: 'CLOJQCKV5GDWX2W7MTRQNVLKT7ERY' },
@@ -228,8 +228,8 @@ describe('GithubRunner edit payload', () => {
       resources: [{ replica: 1, cpu: '2', memory: '4Gi', ephemeralStorage: '20Gi' }],
       env: {
         UNRELATED: 'keep-me',
-        GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/spur-autopilot',
-        RUNNER_LABELS: 'spur-autopilot-hosted',
+        GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/autopilot',
+        RUNNER_LABELS: 'autopilot-hosted',
       },
     })
   })
