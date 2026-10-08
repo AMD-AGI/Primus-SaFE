@@ -116,6 +116,9 @@ OpsJob(operations job) performs specific administrative tasks in the system. Com
 **Notes**:
 - The system will automatically retrieve the workload's image and add it to inputs as `{ "name": "image", "value": "..." }`.
 - The `label` parameter is optional and will be displayed as "remark" in the exported image list (`GET /api/v1/images/custom`).
+- The caller needs update permission on the workload (its owner, or a role that grants update); seeing the workload is not enough.
+- The workload's main container must be running, as root. The export reads it through the Kubernetes exec API, so it works the same on every node type. The new image is the image the container was started from plus one layer with what changed since: files the platform's launcher installed before handing over to the user's entry point, SSH host keys, volumes and other mounts, and runtime files such as `/etc/hosts` are left out, and deleted files are recorded as whiteouts.
+- On success the job outputs `target` (`<default registry>/custom/<namespace>/<repository>:<YYYYMMDDHHMMSS>-<random>`) and `digest` (the pushed manifest digest).
 
 **Request Example (prewarm)**:
 ```json
@@ -203,7 +206,7 @@ Notes:
 - For dumplog, inputs must include a workload selector.
 - For addon, typically include `addon.template` or `node.template` or `script` and one of node/workload/workspace/cluster.
 - For preflight, inputs must include one of node/workload/workspace/cluster/node.host.
-- For exportimage, inputs must include a workload selector. The job will export the workload's image to Harbor registry.
+- For exportimage, inputs must include a workload selector. The job saves the workload's running main container as a new image in the default registry.
 - For preheat, inputs must include both `image` and `workspace`. The job will pre-pull the image to all nodes in the workspace.
 - For download, inputs must include both `secret`(for s3), `workspace`, `dest.path`(download path) and `endpoint`(input url).
 

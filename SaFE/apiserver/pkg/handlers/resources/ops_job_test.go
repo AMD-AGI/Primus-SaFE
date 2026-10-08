@@ -469,6 +469,54 @@ func TestGenerateExportImageJob(t *testing.T) {
 	testifyassert.Error(t, err)
 }
 
+// Saving a workload's container publishes everything in it. The owner may do it, and so
+// may anyone granted update on the workload; a workspace member who can only see the
+// workload may not. The role mirrors the shipped default role's workload rules.
+func TestGenerateExportImageJobNeedsUpdateOnTheWorkload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	defaultRole := &v1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: string(v1.DefaultRole)},
+		Rules: []v1.PolicyRule{{
+			Resources:    []string{"workload"},
+			Verbs:        []v1.RoleVerb{v1.GetVerb, v1.ListVerb, v1.UpdateVerb, v1.DeleteVerb},
+			GrantedUsers: []string{authority.GrantedOwner},
+		}, {
+			Resources:    []string{"workload"},
+			Verbs:        []v1.RoleVerb{v1.CreateVerb, v1.GetVerb, v1.ListVerb},
+			GrantedUsers: []string{authority.GrantedWorkspaceUser},
+		}},
+	}
+	member := func(id string) *v1.User {
+		return &v1.User{
+			ObjectMeta: metav1.ObjectMeta{Name: id, Labels: map[string]string{v1.UserIdLabel: id}},
+			Spec: v1.UserSpec{
+				Type:      v1.DefaultUserType,
+				Roles:     []v1.UserRole{v1.DefaultRole},
+				Resources: map[string][]string{common.UserWorkspaces: {"ws-1"}},
+			},
+		}
+	}
+	wl := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-1", Labels: map[string]string{v1.UserIdLabel: "owner"}},
+		Spec:       v1.WorkloadSpec{Workspace: "ws-1", Images: []string{"repo/img:tag"}},
+	}
+	scheme := runtime.NewScheme()
+	testifyassert.NoError(t, v1.AddToScheme(scheme))
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(defaultRole, member("owner"), member("colleague"), wl).Build()
+	h := &Handler{Client: fakeClient, accessController: &authority.AccessController{Client: fakeClient}}
+
+	body := `{"name":"export","type":"exportimage","inputs":[{"name":"workload","value":"wl-1"}]}`
+	c, _ := newOpsJobCtx("owner", body)
+	job, err := h.generateExportImageJob(c, []byte(body))
+	testifyassert.NoError(t, err, "the owner may save their workload")
+	testifyassert.NotNil(t, job)
+
+	c, _ = newOpsJobCtx("colleague", body)
+	_, err = h.generateExportImageJob(c, []byte(body))
+	testifyassert.Error(t, err, "a workspace member who can only see the workload may not save it")
+}
+
 func TestGeneratePrewarmImageJob(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ws := &v1.Workspace{

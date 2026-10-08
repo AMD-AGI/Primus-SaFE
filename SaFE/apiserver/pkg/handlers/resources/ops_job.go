@@ -485,14 +485,9 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 		return nil, err
 	}
 
-	// Check authorization
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:    ctx,
-		Resource:   workload,
-		Verb:       v1.GetVerb,
-		Workspaces: []string{workload.Spec.Workspace},
-		User:       requestUser,
-	}); err != nil {
+	// Saving a workload's container publishes everything in it, so it takes the right to
+	// change the workload (its owner, or someone granted update), not merely to see it.
+	if err = h.authWorkloadAction(c, workload, v1.UpdateVerb, v1.WorkloadKind, requestUser, nil); err != nil {
 		return nil, err
 	}
 

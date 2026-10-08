@@ -8,12 +8,14 @@ package ops_job
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
-	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -24,8 +26,11 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
+	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/ops_job/exportimage"
 	rmutils "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
@@ -42,20 +47,6 @@ func exportJob(name, workloadId, image string) *v1.OpsJob {
 		Status: v1.OpsJobStatus{Phase: v1.OpsJobRunning},
 	}
 	return job
-}
-
-func TestGenerateTargetImageName(t *testing.T) {
-	out, err := generateTargetImageName("rocm/7.0-preview:tag")
-	assert.NoError(t, err)
-	assert.Contains(t, out, "rocm/7.0-preview")
-
-	out, err = generateTargetImageName("nginx")
-	assert.NoError(t, err)
-	assert.Contains(t, out, "library/nginx")
-
-	out, err = generateTargetImageName("docker.io/library/nginx:1.0")
-	assert.NoError(t, err)
-	assert.Contains(t, out, "library/nginx")
 }
 
 func TestGetWorkloadIdAndSourceImageFromJob(t *testing.T) {
@@ -136,79 +127,6 @@ func TestExportImageDoMissingWorkloadId(t *testing.T) {
 	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
 }
 
-func TestExportImageGetHarborCredentials(t *testing.T) {
-	authStr := base64.StdEncoding.EncodeToString([]byte("admin:secret"))
-	configJSON := `{"auths":{"harbor.local":{"auth":"` + authStr + `"}}}`
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: common.ImageImportSecretName, Namespace: common.PrimusSafeNamespace},
-		Data:       map[string][]byte{"config.json": []byte(configJSON)},
-	}
-	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, secret)}
-	user, pass, err := r.getHarborCredentials(context.Background(), "harbor.local")
-	assert.NoError(t, err)
-	assert.Equal(t, "admin", user)
-	assert.Equal(t, "secret", pass)
-}
-
-func TestExportImageGetHarborCredentialsNoSecret(t *testing.T) {
-	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	_, _, err := r.getHarborCredentials(context.Background(), "harbor.local")
-	assert.Error(t, err)
-}
-
-func TestExportImageGetContainerIDFromPod(t *testing.T) {
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ws1"},
-		Status: corev1.PodStatus{
-			ContainerStatuses: []corev1.ContainerStatus{
-				{ContainerID: "containerd://abc123"},
-			},
-		},
-	}
-	cs := k8sfake.NewSimpleClientset(pod)
-	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	patches := gomonkey.ApplyFunc(rmutils.GetK8sClientFactory,
-		func(_ *commonutils.ObjectManager, _ string) (*commonclient.ClientFactory, error) {
-			return commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs), nil
-		})
-	defer patches.Reset()
-	id, err := r.getContainerIDFromPod(context.Background(), "p1", "c1", "ws1")
-	assert.NoError(t, err)
-	assert.Equal(t, "abc123", id)
-}
-
-func TestExportImageCommitAndPushViaSSH(t *testing.T) {
-	sshClient, cleanup := startInMemorySSHServer(t)
-	defer cleanup()
-	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	assert.NoError(t, r.commitContainerToImage(sshClient, "cid", "img:1"))
-	assert.NoError(t, r.pushImage(sshClient, "img:1"))
-}
-
-func TestExportImageLoginHarborAndDelete(t *testing.T) {
-	sshClient, cleanup := startInMemorySSHServer(t)
-	defer cleanup()
-	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	// loginHarbor: server replies with empty output -> "unexpected output" error path.
-	_ = r.loginHarbor(sshClient, "harbor.local", "u", "p")
-	// deleteImage: best-effort, server returns success.
-	_ = r.deleteImage(context.Background(), sshClient, "img:1")
-}
-
-func TestExportImageViaSSHCommitOnly(t *testing.T) {
-	sshClient, cleanup := startInMemorySSHServer(t)
-	defer cleanup()
-	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
-	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, node)}
-	patches := gomonkey.ApplyFunc(rmutils.GetSSHClient,
-		func(_ context.Context, _ client.Client, _ *v1.Node) (*ssh.Client, error) {
-			return sshClient, nil
-		})
-	defer patches.Reset()
-	// commit succeeds, login fails on empty output -> returns error; exercises the SSH path.
-	_ = r.exportImageViaSSH(context.Background(), node, "img:1", "cid", "harbor.local", "u", "p")
-}
-
 func TestExportImageDoWorkloadNotFound(t *testing.T) {
 	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{Name: "j1"},
@@ -254,11 +172,11 @@ func TestExportImageDoWorkloadBranches(t *testing.T) {
 		assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
 	})
 
-	// workload pod scheduled to no node -> failed
-	t.Run("pod empty node", func(t *testing.T) {
+	// workload pod without a name -> failed
+	t.Run("pod without a name", func(t *testing.T) {
 		job := exportJob("e3", "wl3", "img:1")
 		wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl3"}}
-		wl.Status.Pods = []v1.WorkloadPod{{AdminNodeName: ""}}
+		wl.Status.Pods = []v1.WorkloadPod{{AdminNodeName: "n1"}}
 		r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, wl)}
 		_, err := r.Do(ctx, "e3")
 		assert.NoError(t, err)
@@ -266,19 +184,156 @@ func TestExportImageDoWorkloadBranches(t *testing.T) {
 		assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e3"}, updated))
 		assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
 	})
+}
 
-	// admin node missing -> failed
-	t.Run("node missing", func(t *testing.T) {
-		job := exportJob("e4", "wl4", "img:1")
-		wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl4"}}
-		wl.Status.Pods = []v1.WorkloadPod{{AdminNodeName: "n-missing"}}
-		r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, wl)}
-		_, err := r.Do(ctx, "e4")
-		assert.NoError(t, err)
-		updated := &v1.OpsJob{}
-		assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e4"}, updated))
-		assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
-	})
+func TestGenerateTargetImageName(t *testing.T) {
+	now := time.Date(2026, 10, 8, 18, 4, 5, 0, time.UTC)
+	for src, want := range map[string]string{
+		"rocm/7.0-preview:tag":        "custom/rocm/7.0-preview:20261008180405-a1b2c3",
+		"nginx":                       "custom/library/nginx:20261008180405-a1b2c3",
+		"docker.io/library/nginx:1.0": "custom/library/nginx:20261008180405-a1b2c3",
+		"reg.example.com:5000/proxy/Library/Python:3.12-slim":                    "custom/library/python:20261008180405-a1b2c3",
+		"reg.example.com/proxy/library/python@sha256:" + strings.Repeat("a", 64): "custom/library/python:20261008180405-a1b2c3",
+	} {
+		got, err := generateTargetImageName(src, now, "a1b2c3")
+		assert.NoError(t, err, src)
+		assert.Equal(t, want, got, src)
+	}
+	_, err := generateTargetImageName("Not A Reference", now, "a1b2c3")
+	assert.Error(t, err)
+
+	// Two exports of one image in the same second never share a tag.
+	a, _ := generateTargetImageName("nginx", now, randomSuffix())
+	b, _ := generateTargetImageName("nginx", now, randomSuffix())
+	assert.NotEqual(t, a, b)
+	assert.Regexp(t, `^[0-9a-f]{6}$`, randomSuffix())
+}
+
+func TestPickExportPod(t *testing.T) {
+	assert.Equal(t, "", pickExportPod(nil))
+	assert.Equal(t, "p1", pickExportPod([]v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodPending}}))
+	assert.Equal(t, "p2", pickExportPod([]v1.WorkloadPod{
+		{PodId: "p1", Phase: corev1.PodFailed}, {PodId: "p2", Phase: corev1.PodRunning}}))
+}
+
+func runningStatus(name string) corev1.ContainerStatus {
+	return corev1.ContainerStatus{
+		Name:    name,
+		ImageID: "reg/x@sha256:" + strings.Repeat("a", 64),
+		State:   corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: metav1.Unix(100, 0)}},
+	}
+}
+
+func TestExportContainer(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "p1"},
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "sidecar"}, {Name: "main"}}},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+			runningStatus("sidecar"), runningStatus("main")}},
+	}
+	name, st, err := exportContainer(pod, "main")
+	assert.NoError(t, err)
+	assert.Equal(t, "main", name)
+	assert.Equal(t, "main", st.Name)
+
+	name, _, err = exportContainer(pod, "")
+	assert.NoError(t, err)
+	assert.Equal(t, "sidecar", name, "without a main container annotation, the first container")
+
+	_, _, err = exportContainer(pod, "missing")
+	assert.Error(t, err)
+
+	pod.Status.ContainerStatuses[1].State = corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{}}
+	_, _, err = exportContainer(pod, "main")
+	assert.Error(t, err, "a container that is not running cannot be read")
+}
+
+// exportFixture is a workload with one running pod, the registry settings, and an export
+// function that records its request.
+func exportFixture(t *testing.T, exportErr error) (*ExportImageJobReconciler, *exportimage.Request, func()) {
+	t.Helper()
+	job := exportJob("e1", "wl1", "harbor.local/proxy/library/python:3.12")
+	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name: "wl1",
+		Labels: map[string]string{
+			v1.WorkspaceIdLabel: "ws1", v1.ClusterIdLabel: "c1",
+		},
+		Annotations: map[string]string{v1.MainContainerAnnotation: "main"},
+	}}
+	wl.Status.Pods = []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}}
+	authStr := base64.StdEncoding.EncodeToString([]byte("admin:secret"))
+	cred := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: common.ImageImportSecretName, Namespace: common.PrimusSafeNamespace},
+		Data:       map[string][]byte{"config.json": []byte(`{"auths":{"harbor.local":{"auth":"` + authStr + `"}}}`)},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ws1"},
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "main"}}},
+		Status:     corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{runningStatus("main")}},
+	}
+
+	ctrl := gomock.NewController(t)
+	db := mockclient.NewMockInterface(ctrl)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), "wl1", gomock.Any()).Return(nil, nil).AnyTimes()
+	db.EXPECT().GetDefaultRegistryInfo(gomock.Any()).Return(&model.RegistryInfo{URL: "harbor.local"}, nil).AnyTimes()
+
+	cs := k8sfake.NewSimpleClientset(pod)
+	patches := gomonkey.ApplyFunc(rmutils.GetK8sClientFactory,
+		func(_ *commonutils.ObjectManager, _ string) (*commonclient.ClientFactory, error) {
+			return commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs), nil
+		})
+
+	got := &exportimage.Request{}
+	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, wl, cred), dbClient: db}
+	r.export = func(_ context.Context, req exportimage.Request) (*exportimage.Result, error) {
+		*got = req
+		if exportErr != nil {
+			return nil, exportErr
+		}
+		return &exportimage.Result{Digest: "sha256:" + strings.Repeat("d", 64)}, nil
+	}
+	return r, got, func() { patches.Reset(); ctrl.Finish() }
+}
+
+func TestExportImageDoSucceeds(t *testing.T) {
+	r, req, cleanup := exportFixture(t, nil)
+	defer cleanup()
+	ctx := context.Background()
+	_, err := r.Do(ctx, "e1")
+	assert.NoError(t, err)
+
+	updated := &v1.OpsJob{}
+	assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e1"}, updated))
+	assert.Equal(t, v1.OpsJobSucceeded, updated.Status.Phase)
+	outputs := map[string]string{}
+	for _, p := range updated.Status.Outputs {
+		outputs[p.Name] = p.Value
+	}
+	assert.Equal(t, "sha256:"+strings.Repeat("d", 64), outputs["digest"])
+	assert.Regexp(t, `^harbor\.local/custom/library/python:[0-9]{14}-[0-9a-f]{6}$`, outputs["target"])
+	assert.Equal(t, outputs["target"], req.Target.String())
+
+	// The export reads the main container of the running pod, from the digest it runs.
+	pe, ok := req.Exec.(*exportimage.PodExecer)
+	assert.True(t, ok)
+	assert.Equal(t, "ws1", pe.Namespace)
+	assert.Equal(t, "p1", pe.Pod)
+	assert.Equal(t, "main", pe.Container)
+	assert.Equal(t, "reg/x@sha256:"+strings.Repeat("a", 64), req.ImageID)
+	assert.Equal(t, int64(100), req.StartedAt.Unix())
+}
+
+func TestExportImageDoFailsForANonRootContainer(t *testing.T) {
+	r, _, cleanup := exportFixture(t, fmt.Errorf("%w (uid 1000): exporting it would leave out the files it cannot read", exportimage.ErrNotRoot))
+	defer cleanup()
+	ctx := context.Background()
+	_, err := r.Do(ctx, "e1")
+	assert.NoError(t, err)
+	updated := &v1.OpsJob{}
+	assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e1"}, updated))
+	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
+	assert.Empty(t, updated.Status.Outputs, "a failed export names no image")
+	assert.Contains(t, updated.Status.Conditions[0].Message, "does not run as root")
 }
 
 func TestExportImageReconcileEntry(t *testing.T) {

@@ -14,7 +14,9 @@ const (
 	DefaultVersion             = "v1"
 	PrimusRouterCustomRootPath = "api/" + DefaultVersion
 	ImageImportSecretName      = "primus-safe-image-import-reg-cred"
-	SecretPath                 = "/etc/secrets"
+	// ExportImageProject is the registry project that saved workload images are pushed to.
+	ExportImageProject = "custom"
+	SecretPath         = "/etc/secrets"
 
 	AuthoringKind           = "Authoring"
 	PytorchJobKind          = "PyTorchJob"
