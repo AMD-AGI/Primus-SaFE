@@ -50,4 +50,9 @@ func TestExternalUnschedulableMessage(t *testing.T) {
 	if externalUnschedulableMessage(w, running) != "" {
 		t.Fatal("running pod must not set scale-up message")
 	}
+
+	w.Status.Message = externalWaitingScaleUpPrefix + " - 0/2 nodes are available"
+	if !shouldClearExternalScaleUpMessage(w, running) {
+		t.Fatal("running pod must clear stale scale-up message")
+	}
 }

@@ -172,13 +172,20 @@ func (r *SyncerReconciler) updateAdminWorkloadByPod(ctx context.Context, clientS
 		extraStatusFields = map[string]any{"phase": adminWorkload.Status.Phase}
 	}
 	// On the kube-scheduler path a Pending/Unschedulable pod means B should scale up;
-	// surface the scheduler message on the workload for the UI (R11).
+	// surface the scheduler message on the workload for the UI (R11). Clear it once
+	// pods are no longer waiting so Running work does not keep a stale queue reason.
 	if msg := externalUnschedulableMessage(adminWorkload, pod); msg != "" {
 		if extraStatusFields == nil {
 			extraStatusFields = map[string]any{}
 		}
 		adminWorkload.Status.Message = msg
 		extraStatusFields["message"] = msg
+	} else if shouldClearExternalScaleUpMessage(adminWorkload, pod) {
+		if extraStatusFields == nil {
+			extraStatusFields = map[string]any{}
+		}
+		adminWorkload.Status.Message = ""
+		extraStatusFields["message"] = ""
 	}
 	if err = r.patchWorkloadPodStatus(ctx, adminWorkload, extraStatusFields); err != nil {
 		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
@@ -1478,6 +1485,8 @@ func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 	return mainContainerName
 }
 
+const externalWaitingScaleUpPrefix = "In queue - waiting for scale-up"
+
 // externalUnschedulableMessage builds the waiting-for-scale-up reason for kube-scheduler
 // external pods that kube-scheduler left Unschedulable (R11).
 func externalUnschedulableMessage(workload *v1.Workload, pod *corev1.Pod) string {
@@ -1491,7 +1500,6 @@ func externalUnschedulableMessage(workload *v1.Workload, pod *corev1.Pod) string
 	if pod.Status.Phase != corev1.PodPending {
 		return ""
 	}
-	const waitingScaleUp = "In queue - waiting for scale-up"
 	for i := range pod.Status.Conditions {
 		c := &pod.Status.Conditions[i]
 		if c.Type != corev1.PodScheduled || c.Status != corev1.ConditionFalse {
@@ -1502,11 +1510,36 @@ func externalUnschedulableMessage(workload *v1.Workload, pod *corev1.Pod) string
 		}
 		msg := strings.TrimSpace(c.Message)
 		if msg == "" {
-			return waitingScaleUp
+			return externalWaitingScaleUpPrefix
 		}
-		return waitingScaleUp + " - " + msg
+		return externalWaitingScaleUpPrefix + " - " + msg
 	}
 	return ""
+}
+
+// shouldClearExternalScaleUpMessage reports that a stale waiting-for-scale-up status
+// message should be cleared because this pod is scheduled or already running.
+func shouldClearExternalScaleUpMessage(workload *v1.Workload, pod *corev1.Pod) bool {
+	if workload == nil || pod == nil {
+		return false
+	}
+	state := workload.Status.ExternalExecution
+	if state == nil || state.PlacementMode != v1.ExternalPlacementKubeScheduler {
+		return false
+	}
+	if !strings.HasPrefix(workload.Status.Message, externalWaitingScaleUpPrefix) {
+		return false
+	}
+	if pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodSucceeded {
+		return true
+	}
+	for i := range pod.Status.Conditions {
+		c := &pod.Status.Conditions[i]
+		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
 
 // isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase

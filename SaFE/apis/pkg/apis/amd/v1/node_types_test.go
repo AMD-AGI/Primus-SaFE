@@ -185,7 +185,7 @@ func TestProviderIdentityTaintDoesNotBlockAvailability(t *testing.T) {
 	observed := metav1.NewTime(now)
 	valid := metav1.NewTime(now.Add(time.Minute))
 	node := externalNode(&observed, &valid, true)
-	for _, key := range []string{ExternalVirtualKubeletTaint, ExternalVirtualKubeletTaintLegacy} {
+	for _, key := range ExternalVirtualKubeletTaintKeys() {
 		node.Status.Taints = []corev1.Taint{{
 			Key:    key,
 			Value:  "ws-1",

@@ -156,13 +156,16 @@ const (
 	ExternalAllocationIdAnnotation = ExternalExecutionPrefix + "allocation-id"
 	// Identity the provider stamps on virtual Nodes in the execution cluster. SaFE admits
 	// those Nodes into the admin plane; the provider never writes the SaFE Node CR.
-	VirtualKubeletTypeLabelValue = "virtual-kubelet"
-	VirtualKubeletTypeLabelKey   = "type"
-	ExternalWorkspaceLabel       = ExternalExecutionPrefix + "w"
-	ExternalWorkspaceLabelLegacy = ExternalExecutionPrefixLegacy + "w"
-	ExternalProviderLabel        = ExternalExecutionPrefix + "provider"
-	ExternalAllocationIdLabel    = ExternalExecutionPrefix + "allocation-id"
-	ExternalGenerationLabel      = ExternalExecutionPrefix + "generation"
+	VirtualKubeletTypeLabelValue    = "virtual-kubelet"
+	VirtualKubeletTypeLabelKey      = "type"
+	ExternalWorkspaceLabel          = ExternalExecutionPrefix + "w"
+	ExternalWorkspaceLabelLegacy    = ExternalExecutionPrefixLegacy + "w"
+	ExternalProviderLabel           = ExternalExecutionPrefix + "provider"
+	ExternalProviderLabelLegacy     = ExternalExecutionPrefixLegacy + "provider"
+	ExternalAllocationIdLabel       = ExternalExecutionPrefix + "allocation-id"
+	ExternalAllocationIdLabelLegacy = ExternalExecutionPrefixLegacy + "allocation-id"
+	ExternalGenerationLabel         = ExternalExecutionPrefix + "generation"
+	ExternalGenerationLabelLegacy   = ExternalExecutionPrefixLegacy + "generation"
 	// ExternalLeaseEndLabel is the unix-seconds lease end stamped on VK nodes. Pods require
 	// lease-end Gt <now+runtime+overhead> so they only land on nodes with enough remaining lease.
 	ExternalLeaseEndLabel       = ExternalExecutionPrefix + "lease-end"
@@ -170,6 +173,7 @@ const (
 	// ExternalProvisioningRequestTaint is the booking taint key for ProvisioningRequest nodes.
 	ExternalProvisioningRequestTaint  = ExternalExecutionPrefix + "provisioning-request"
 	ExternalHostKeyAnnotation         = ExternalExecutionPrefix + "host-key"
+	ExternalHostKeyAnnotationLegacy   = ExternalExecutionPrefixLegacy + "host-key"
 	ExternalObservedAtAnnotation      = ExternalExecutionPrefix + "observed-at"
 	ExternalValidUntilAnnotation      = ExternalExecutionPrefix + "valid-until"
 	ExternalAllocationPhaseAnnotation = ExternalExecutionPrefix + "allocation-phase"
@@ -177,9 +181,10 @@ const (
 	// It selects pods onto the virtual node and must not by itself make the node
 	// unavailable for capacity accounting.
 	ExternalVirtualKubeletTaint = "virtual-kubelet.io/provider"
-	// ExternalVirtualKubeletTaintLegacy is the pre-migration SaFE-scoped taint key.
-	// Kept during the dual-key transition so pods still schedule while Autopilot flips.
-	ExternalVirtualKubeletTaintLegacy = ExternalExecutionPrefix + "virtual-kubelet"
+	// ExternalVirtualKubeletTaintScoped is the Autopilot-scoped identity taint.
+	ExternalVirtualKubeletTaintScoped = ExternalExecutionPrefix + "virtual-kubelet"
+	// ExternalVirtualKubeletTaintLegacy is the pre-rename SaFE-scoped taint key.
+	ExternalVirtualKubeletTaintLegacy = ExternalExecutionPrefixLegacy + "virtual-kubelet"
 	// ExternalSingleUnitKey is the unit key of a single-replica workload and of the master
 	// unit of an RDMA gang, whose units all carry the same approved vector and image.
 	ExternalSingleUnitKey = "master/0"

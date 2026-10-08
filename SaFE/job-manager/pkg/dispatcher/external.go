@@ -161,10 +161,14 @@ func externalApprovedImage(workload *v1.Workload, unitKey string) string {
 }
 
 // externalResolvedImage returns the digest-pinned image resolved on the kube-scheduler path.
+// Roles without a per-role Spec.Images entry fall back to the primary pinned image.
 func externalResolvedImage(workload *v1.Workload, resourceId int) string {
 	state := workload.Status.ExternalExecution
-	if state == nil || resourceId < 0 || resourceId >= len(state.ResolvedImages) {
+	if state == nil || len(state.ResolvedImages) == 0 {
 		return ""
 	}
-	return state.ResolvedImages[resourceId]
+	if resourceId >= 0 && resourceId < len(state.ResolvedImages) {
+		return state.ResolvedImages[resourceId]
+	}
+	return state.ResolvedImages[0]
 }

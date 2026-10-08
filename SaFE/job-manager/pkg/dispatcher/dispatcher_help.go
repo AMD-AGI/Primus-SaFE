@@ -3201,7 +3201,7 @@ func applyExternalVirtualKubeletToleration(obj *unstructured.Unstructured, workl
 			have[key] = true
 		}
 	}
-	for _, key := range []string{v1.ExternalVirtualKubeletTaint, v1.ExternalVirtualKubeletTaintLegacy} {
+	for _, key := range v1.ExternalVirtualKubeletTaintKeys() {
 		if have[key] {
 			continue
 		}
@@ -3238,13 +3238,20 @@ func applyExternalSchedulerAffinity(obj *unstructured.Unstructured, workload *v1
 }
 
 // externalWorkspaceAffinityTerms builds OR nodeSelectorTerms for autopilot and legacy keys.
+// Gang pods that already hold a ProvisioningRequest omit lease-end: recomputing it at
+// dispatch is stricter than the PodTemplate booking and can leave pods Unschedulable on
+// the nodes that just scaled up for the PR.
 func externalWorkspaceAffinityTerms(workload *v1.Workload) []interface{} {
 	ws := ""
 	if workload != nil {
 		ws = workload.Spec.Workspace
 	}
 	var leaseDeadline string
-	if workload != nil && workload.Spec.Timeout != nil && *workload.Spec.Timeout > 0 {
+	useLease := workload != nil &&
+		workload.Spec.Timeout != nil && *workload.Spec.Timeout > 0 &&
+		!(isExternalGang(workload) && workload.Status.ExternalExecution != nil &&
+			workload.Status.ExternalExecution.ProvisioningRequest != "")
+	if useLease {
 		leaseDeadline = strconv.FormatInt(externalLeaseDeadlineUnix(workload), 10)
 	}
 	prefixes := []struct{ w, lease string }{

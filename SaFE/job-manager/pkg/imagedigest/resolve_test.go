@@ -132,6 +132,30 @@ func TestRegistryTransportInsecure(t *testing.T) {
 	}
 }
 
+func TestRegistryTransportCAWinsOverInsecureSkip(t *testing.T) {
+	dir := t.TempDir()
+	caPath := filepath.Join(dir, "ca.crt")
+	if err := os.WriteFile(caPath, mustTestCAPEM(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	viper.Set("external_execution.registry_ca_path", caPath)
+	viper.Set("external_execution.registry_insecure_skip_verify", true)
+	t.Cleanup(func() {
+		viper.Set("external_execution.registry_ca_path", "")
+		viper.Set("external_execution.registry_insecure_skip_verify", false)
+	})
+	tr, err := registryTransport()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr == nil || tr.TLSClientConfig == nil || tr.TLSClientConfig.RootCAs == nil {
+		t.Fatal("expected transport with custom RootCAs")
+	}
+	if tr.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("configured CA must not be overridden by insecure skip")
+	}
+}
+
 func mustTestCAPEM(t *testing.T) []byte {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

@@ -302,13 +302,48 @@ func IsKubeSchedulerPlacement(obj metav1.Object) bool {
 // ExternalWorkspaceIDFromLabels returns the workspace id stamped on a VK node,
 // accepting both the current and legacy provider label keys.
 func ExternalWorkspaceIDFromLabels(labels map[string]string) string {
-	if labels == nil {
+	return firstLabel(labels, ExternalWorkspaceLabel, ExternalWorkspaceLabelLegacy)
+}
+
+// ExternalProviderFromLabels returns the provider id from current or legacy keys.
+func ExternalProviderFromLabels(labels map[string]string) string {
+	return firstLabel(labels, ExternalProviderLabel, ExternalProviderLabelLegacy)
+}
+
+// ExternalAllocationIDFromLabels returns the allocation id from current or legacy keys.
+func ExternalAllocationIDFromLabels(labels map[string]string) string {
+	return firstLabel(labels, ExternalAllocationIdLabel, ExternalAllocationIdLabelLegacy)
+}
+
+// ExternalGenerationFromLabels returns the generation label from current or legacy keys.
+func ExternalGenerationFromLabels(labels map[string]string) string {
+	return firstLabel(labels, ExternalGenerationLabel, ExternalGenerationLabelLegacy)
+}
+
+// ExternalHostKeyFromAnnotations returns the host key from current or legacy keys.
+func ExternalHostKeyFromAnnotations(annotations map[string]string) string {
+	return firstLabel(annotations, ExternalHostKeyAnnotation, ExternalHostKeyAnnotationLegacy)
+}
+
+func firstLabel(m map[string]string, keys ...string) string {
+	if m == nil {
 		return ""
 	}
-	if id := labels[ExternalWorkspaceLabel]; id != "" {
-		return id
+	for _, k := range keys {
+		if v := m[k]; v != "" {
+			return v
+		}
 	}
-	return labels[ExternalWorkspaceLabelLegacy]
+	return ""
+}
+
+// ExternalVirtualKubeletTaintKeys are identity taints pods must tolerate on VK nodes.
+func ExternalVirtualKubeletTaintKeys() []string {
+	return []string{
+		ExternalVirtualKubeletTaint,
+		ExternalVirtualKubeletTaintScoped,
+		ExternalVirtualKubeletTaintLegacy,
+	}
 }
 
 // IsProtected checks if a resource is protected from deletion.

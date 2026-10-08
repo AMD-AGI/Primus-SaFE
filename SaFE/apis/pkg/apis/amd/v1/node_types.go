@@ -236,8 +236,12 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 // unhealthy. Provider identity taints (current and legacy) are ignored only on an
 // external node. The sticky-nodes monitor is ignored on every node.
 func isIgnorableAvailabilityTaint(n *Node, key string) bool {
-	if n.IsExternal() && (key == ExternalVirtualKubeletTaint || key == ExternalVirtualKubeletTaintLegacy) {
-		return true
+	if n.IsExternal() {
+		for _, k := range ExternalVirtualKubeletTaintKeys() {
+			if key == k {
+				return true
+			}
+		}
 	}
 	return GetIdByTaintKey(key) == StickyNodesMonitorId
 }

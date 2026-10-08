@@ -520,24 +520,14 @@ func buildGangPodTemplate(workload *v1.Workload, ns, name, prName string) (*unst
 				},
 			},
 		},
-		"tolerations": []interface{}{
-			map[string]interface{}{
-				"key":      v1.ExternalVirtualKubeletTaint,
-				"operator": string(corev1.TolerationOpExists),
-				"effect":   string(corev1.TaintEffectNoSchedule),
-			},
-			map[string]interface{}{
-				"key":      v1.ExternalVirtualKubeletTaintLegacy,
-				"operator": string(corev1.TolerationOpExists),
-				"effect":   string(corev1.TaintEffectNoSchedule),
-			},
+		"tolerations": append(externalVKTolerations(),
 			map[string]interface{}{
 				"key":      v1.ExternalProvisioningRequestTaint,
 				"operator": string(corev1.TolerationOpEqual),
 				"value":    bookingValue,
 				"effect":   string(corev1.TaintEffectNoSchedule),
 			},
-		},
+		),
 		"affinity": map[string]interface{}{
 			"nodeAffinity": map[string]interface{}{
 				"requiredDuringSchedulingIgnoredDuringExecution": map[string]interface{}{
@@ -558,6 +548,18 @@ func buildGangPodTemplate(workload *v1.Workload, ns, name, prName string) (*unst
 		v1.WorkloadIdLabel: workload.Name,
 	}, "template", "metadata", "labels")
 	return pt, nil
+}
+
+func externalVKTolerations() []interface{} {
+	out := make([]interface{}, 0, len(v1.ExternalVirtualKubeletTaintKeys()))
+	for _, key := range v1.ExternalVirtualKubeletTaintKeys() {
+		out = append(out, map[string]interface{}{
+			"key":      key,
+			"operator": string(corev1.TolerationOpExists),
+			"effect":   string(corev1.TaintEffectNoSchedule),
+		})
+	}
+	return out
 }
 
 // maxGangBookingResource takes the per-field max across roles so the PR reserves

@@ -326,14 +326,17 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 	for _, raw := range tolerations {
 		tMap := raw.(map[string]interface{})
 		key, _ := tMap["key"].(string)
-		if key == v1.ExternalVirtualKubeletTaint || key == v1.ExternalVirtualKubeletTaintLegacy {
-			found[key] = true
-			assert.Equal(t, tMap["operator"], "Exists")
-			assert.Equal(t, tMap["effect"], "NoSchedule")
+		for _, want := range v1.ExternalVirtualKubeletTaintKeys() {
+			if key == want {
+				found[key] = true
+				assert.Equal(t, tMap["operator"], "Exists")
+				assert.Equal(t, tMap["effect"], "NoSchedule")
+			}
 		}
 	}
-	assert.Assert(t, found[v1.ExternalVirtualKubeletTaint], "missing community VK toleration")
-	assert.Assert(t, found[v1.ExternalVirtualKubeletTaintLegacy], "missing legacy VK toleration")
+	for _, want := range v1.ExternalVirtualKubeletTaintKeys() {
+		assert.Assert(t, found[want], "missing VK toleration %s", want)
+	}
 
 	containers, _ := podSpec["containers"].([]interface{})
 	main := containers[0].(map[string]interface{})

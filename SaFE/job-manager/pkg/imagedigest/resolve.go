@@ -84,10 +84,8 @@ func registryTransport() (*http.Transport, error) {
 	}
 
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12} //nolint:gosec // MinVersion set
-	if skipVerify {
-		tlsConfig.InsecureSkipVerify = true //nolint:gosec // explicit deployment escape hatch
-	}
 	if caPath != "" {
+		// A configured CA is the site trust source; do not disable verify over it.
 		pem, err := os.ReadFile(caPath)
 		if err != nil {
 			return nil, fmt.Errorf("read registry CA %q: %w", caPath, err)
@@ -100,6 +98,8 @@ func registryTransport() (*http.Transport, error) {
 			return nil, fmt.Errorf("registry CA %q: no certificates parsed", caPath)
 		}
 		tlsConfig.RootCAs = pool
+	} else if skipVerify {
+		tlsConfig.InsecureSkipVerify = true //nolint:gosec // explicit deployment escape hatch
 	}
 
 	base, ok := http.DefaultTransport.(*http.Transport)
