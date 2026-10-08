@@ -19,8 +19,6 @@ import (
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
 type HealthComponent struct {
@@ -71,13 +69,8 @@ func (h *ImageHandler) initHarbor(ctx context.Context) error {
 		return nil
 	}
 	username := "admin"
-	if err := h.ensureHarborProject(ctx, endpoint, username, password, SyncImageProject, true); err != nil {
+	if err := h.ensureHarborProject(ctx, endpoint, username, password, SyncImageProject); err != nil {
 		return fmt.Errorf("failed to ensure harbor project: %w", err)
-	}
-	// Saved workload images are pushed here. Created public like the import project so
-	// that workloads can pull them, but an administrator's later choice is left alone.
-	if err := h.ensureHarborProject(ctx, endpoint, username, password, common.ExportImageProject, false); err != nil {
-		return fmt.Errorf("failed to ensure harbor project %s: %w", common.ExportImageProject, err)
 	}
 	err = h.setDefaultImageRegistry(ctx, harborHost, username, password)
 	if err != nil {
@@ -180,9 +173,8 @@ func (h *ImageHandler) GetHarborCredentials(ctx context.Context) (domain, endpoi
 	return domain, fmt.Sprintf("%s.%s.svc.cluster.local", serviceName, namespace), password, nil
 }
 
-// ensureHarborProject creates the project as public if it is missing. With forcePublic it
-// also makes an existing private project public.
-func (h *ImageHandler) ensureHarborProject(ctx context.Context, harborHost, username, password, projectName string, forcePublic bool) error {
+// ensureHarborProject ensures HarborProject is properly configured.
+func (h *ImageHandler) ensureHarborProject(ctx context.Context, harborHost, username, password, projectName string) error {
 	var project struct {
 		Name      string            `json:"name"`
 		Metadata  map[string]string `json:"metadata"`
@@ -205,7 +197,7 @@ func (h *ImageHandler) ensureHarborProject(ctx context.Context, harborHost, user
 		return fmt.Errorf("failed to check project: %w", err)
 	}
 
-	if forcePublic && !project.Public {
+	if !project.Public {
 		updatePayload := map[string]any{
 			"metadata": map[string]string{
 				"public": "true",

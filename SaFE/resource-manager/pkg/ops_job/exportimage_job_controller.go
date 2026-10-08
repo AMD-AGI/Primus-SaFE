@@ -21,6 +21,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -220,6 +221,10 @@ func (r *ExportImageJobReconciler) exportJob(ctx context.Context, job *v1.OpsJob
 	if err != nil {
 		return nil, err
 	}
+	// The base image may come from a registry only the workload's own pull secrets open.
+	// They are consulted after the platform's credential, so they never decide how the
+	// target registry is written to.
+	keychain = authn.NewMultiKeychain(keychain, podPullKeychain(ctx, k8sClients.ClientSet(), pod))
 
 	klog.Infof("Starting image export: workload=%s, pod=%s/%s, container=%s, target=%s",
 		workloadId, namespace, podName, containerName, fullTargetImage)
@@ -323,6 +328,31 @@ func (r *ExportImageJobReconciler) registryAccess(ctx context.Context) (authn.Ke
 		return nil, nil, err
 	}
 	return keychain, transport, nil
+}
+
+// podPullKeychain reads the pod's image pull secrets. One that cannot be read or parsed
+// is skipped: it only matters if the base image is not readable otherwise, and that
+// failure is reported when the base is read.
+func podPullKeychain(ctx context.Context, cs kubernetes.Interface, pod *corev1.Pod) authn.Keychain {
+	var chains []authn.Keychain
+	for _, ref := range pod.Spec.ImagePullSecrets {
+		secret, err := cs.CoreV1().Secrets(pod.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			klog.Warningf("export: cannot read image pull secret %s/%s: %v", pod.Namespace, ref.Name, err)
+			continue
+		}
+		data, ok := secret.Data[corev1.DockerConfigJsonKey]
+		if !ok {
+			continue
+		}
+		kc, err := exportimage.NewConfigKeychain(data)
+		if err != nil {
+			klog.Warningf("export: cannot parse image pull secret %s/%s: %v", pod.Namespace, ref.Name, err)
+			continue
+		}
+		chains = append(chains, kc)
+	}
+	return authn.NewMultiKeychain(chains...)
 }
 
 // generateTargetImageName returns the target image without the registry host:

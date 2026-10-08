@@ -15,6 +15,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
+	gcrname "github.com/google/go-containerregistry/pkg/name"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -321,6 +322,48 @@ func TestExportImageDoSucceeds(t *testing.T) {
 	assert.Equal(t, "main", pe.Container)
 	assert.Equal(t, "reg/x@sha256:"+strings.Repeat("a", 64), req.ImageID)
 	assert.Equal(t, int64(100), req.StartedAt.Unix())
+}
+
+// The workload's own pull secrets open the base image's registry, but the platform's
+// credential decides how the target registry is written to.
+func TestExportImageKeychainOrder(t *testing.T) {
+	r, req, cleanup := exportFixture(t, nil)
+	defer cleanup()
+	pull := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "pull", Namespace: "ws1"},
+		Type:       corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{corev1.DockerConfigJsonKey: []byte(`{"auths":{` +
+			`"private.example.com":{"auth":"` + base64.StdEncoding.EncodeToString([]byte("user:pull")) + `"},` +
+			`"harbor.local":{"auth":"` + base64.StdEncoding.EncodeToString([]byte("user:mine")) + `"}}}`)},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ws1"},
+		Spec: corev1.PodSpec{
+			Containers:       []corev1.Container{{Name: "main"}},
+			ImagePullSecrets: []corev1.LocalObjectReference{{Name: "pull"}, {Name: "missing"}},
+		},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{runningStatus("main")}},
+	}
+	cs := k8sfake.NewSimpleClientset(pod, pull)
+	patches := gomonkey.ApplyFunc(rmutils.GetK8sClientFactory,
+		func(_ *commonutils.ObjectManager, _ string) (*commonclient.ClientFactory, error) {
+			return commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs), nil
+		})
+	defer patches.Reset()
+
+	_, err := r.Do(context.Background(), "e1")
+	assert.NoError(t, err)
+	authFor := func(host string) string {
+		reg, err := gcrname.NewRegistry(host)
+		assert.NoError(t, err)
+		a, err := req.Keychain.Resolve(reg)
+		assert.NoError(t, err)
+		cfg, err := a.Authorization()
+		assert.NoError(t, err)
+		return cfg.Auth
+	}
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("user:pull")), authFor("private.example.com"))
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("admin:secret")), authFor("harbor.local"))
 }
 
 func TestExportImageDoFailsForANonRootContainer(t *testing.T) {

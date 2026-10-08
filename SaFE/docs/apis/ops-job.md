@@ -119,6 +119,7 @@ OpsJob(operations job) performs specific administrative tasks in the system. Com
 - The caller needs update permission on the workload (its owner, or a role that grants update); seeing the workload is not enough.
 - The workload's main container must be running, as root. The export reads it through the Kubernetes exec API, so it works the same on every node type. The new image is the image the container was started from plus one layer with what changed since: files the platform's launcher installed before handing over to the user's entry point, SSH host keys, volumes and other mounts, and runtime files such as `/etc/hosts` are left out, and deleted files are recorded as whiteouts.
 - On success the job outputs `target` (`<default registry>/custom/<namespace>/<repository>:<YYYYMMDDHHMMSS>-<random>`) and `digest` (the pushed manifest digest).
+- With the built-in Harbor, the `custom` project is created private when it is missing. A workload that runs a saved image needs an image pull secret for that registry in its workspace.
 
 **Request Example (prewarm)**:
 ```json

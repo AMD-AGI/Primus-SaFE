@@ -109,7 +109,7 @@ func TestEnsureHarborProjectExistsPublic(t *testing.T) {
 	defer ts.Close()
 
 	h := &ImageHandler{}
-	err := h.ensureHarborProject(context.Background(), hostFromServer(ts), "admin", "pw", "p", true)
+	err := h.ensureHarborProject(context.Background(), hostFromServer(ts), "admin", "pw", "p")
 	assert.NoError(t, err)
 }
 
@@ -125,32 +125,8 @@ func TestEnsureHarborProjectCreatesWhenMissing(t *testing.T) {
 	defer ts.Close()
 
 	h := &ImageHandler{}
-	err := h.ensureHarborProject(context.Background(), hostFromServer(ts), "admin", "pw", "p", true)
+	err := h.ensureHarborProject(context.Background(), hostFromServer(ts), "admin", "pw", "p")
 	assert.NoError(t, err)
-}
-
-// An existing private project is made public only when asked to: the export project is
-// created public, but an administrator who later made it private is not overridden.
-func TestEnsureHarborProjectLeavesAPrivateProjectAlone(t *testing.T) {
-	for _, forcePublic := range []bool{false, true} {
-		var methods []string
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			methods = append(methods, r.Method)
-			w.WriteHeader(http.StatusOK)
-			if r.Method == http.MethodGet {
-				_, _ = w.Write([]byte(`{"name":"p","public":false,"project_id":1}`))
-			}
-		}))
-		h := &ImageHandler{}
-		err := h.ensureHarborProject(context.Background(), hostFromServer(ts), "admin", "pw", "p", forcePublic)
-		ts.Close()
-		assert.NoError(t, err)
-		if forcePublic {
-			assert.Equal(t, []string{http.MethodGet, http.MethodPut}, methods)
-		} else {
-			assert.Equal(t, []string{http.MethodGet}, methods)
-		}
-	}
 }
 
 // TestGetHarborCredentialsSuccess verifies credentials are read from configmap+secret.
