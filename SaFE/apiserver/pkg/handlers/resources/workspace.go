@@ -293,8 +293,11 @@ func (h *Handler) applyWorkspacePatch(ctx context.Context,
 	if req.FlavorId != nil {
 		workspace.Spec.NodeFlavor = *req.FlavorId
 	}
-	if req.Replica != nil {
+	if req.Replica != nil && !v1.IsExternalWorkspace(workspace) {
 		workspace.Spec.Replica = *req.Replica
+	}
+	if v1.IsExternalWorkspace(workspace) {
+		workspace.Spec.Replica = 0
 	}
 	if req.QueuePolicy != nil {
 		workspace.Spec.QueuePolicy = *req.QueuePolicy
@@ -544,6 +547,12 @@ func (h *Handler) generateWorkspace(ctx context.Context,
 	if len(workspace.Spec.Scopes) == 0 {
 		workspace.Spec.Scopes = []v1.WorkspaceScope{v1.TrainScope, v1.InferScope, v1.AuthoringScope}
 	}
+	// External is a first-class create flag. It stamps the reserved label and pins
+	// Spec.Replica at 0 so the resource-manager scale path has nothing to bind.
+	if req.External {
+		v1.SetLabel(workspace, v1.WorkspaceExternalLabel, v1.TrueStr)
+		workspace.Spec.Replica = 0
+	}
 	// Reserved primus-safe.* labels are stripped for normal users. System admins may set
 	// them on create (for example WorkspaceExternalLabel / WorkspaceKubeSchedulerLabel).
 	allowReservedLabels := requestUser != nil && requestUser.IsSystemAdmin()
@@ -551,6 +560,11 @@ func (h *Handler) generateWorkspace(ctx context.Context,
 		if allowReservedLabels || !strings.HasPrefix(key, v1.PrimusSafePrefix) {
 			workspace.Labels[key] = val
 		}
+	}
+	// Keep Spec.Replica at 0 when the workspace is external, including when an admin
+	// stamped the label through Labels rather than the External field.
+	if v1.IsExternalWorkspace(workspace) {
+		workspace.Spec.Replica = 0
 	}
 	err := h.updateWorkspaceImageSecrets(ctx, workspace, requestUser, req.ImageSecretIds)
 	if err != nil {
@@ -588,7 +602,7 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 		ClusterId:         w.Spec.Cluster,
 		FlavorId:          w.Spec.NodeFlavor,
 		UserId:            v1.GetUserId(w),
-		TargetNodeCount:   w.Spec.Replica,
+		TargetNodeCount:   h.workspaceTargetNodeCount(ctx, w),
 		CurrentNodeCount:  w.CurrentReplica(),
 		AbnormalNodeCount: w.Status.AbnormalReplica,
 		Phase:             string(w.Status.Phase),
@@ -696,6 +710,42 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 		}
 	}
 	return usedQuota, len(nodeSet), nil
+}
+
+// defaultExternalGPUsPerNode is used when an external workspace has no flavor
+// GPU count. Matches the common MI355X / budget-pools unit size.
+const defaultExternalGPUsPerNode = 8
+
+// workspaceTargetNodeCount returns the node count shown in API responses.
+// For normal workspaces this is Spec.Replica. For external workspaces Spec.Replica
+// stays at 0 and the count is derived from the budget quota: gpu_hard / gpus_per_node
+// (NodeFlavor GPU quantity, or defaultExternalGPUsPerNode when unset).
+func (h *Handler) workspaceTargetNodeCount(ctx context.Context, w *v1.Workspace) int {
+	if !v1.IsExternalWorkspace(w) {
+		return w.Spec.Replica
+	}
+	gpuName := v1.GetGpuResourceName(w)
+	gpusPerNode := 0
+	if w.Spec.NodeFlavor != "" {
+		nf := &v1.NodeFlavor{}
+		if err := h.Get(ctx, client.ObjectKey{Name: w.Spec.NodeFlavor}, nf); err == nil && nf.HasGpu() {
+			gpusPerNode = nf.GetGpuCount()
+			if nf.Spec.Gpu.ResourceName != "" {
+				gpuName = nf.Spec.Gpu.ResourceName
+			}
+		}
+	}
+	if gpuName == "" {
+		gpuName = common.AmdGpu
+	}
+	if gpusPerNode <= 0 {
+		gpusPerNode = defaultExternalGPUsPerNode
+	}
+	qty, ok := w.Status.TotalResources[corev1.ResourceName(gpuName)]
+	if !ok || qty.IsZero() {
+		return 0
+	}
+	return int(qty.Value()) / gpusPerNode
 }
 
 // getWorkspaceAvailQuota computes the workspace available quota as the sum of

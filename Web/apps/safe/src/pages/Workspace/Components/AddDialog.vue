@@ -165,7 +165,11 @@
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="Replica" prop="replica">
-                <el-input v-model.number="form.replica" />
+                <el-input
+                  v-model.number="form.replica"
+                  :disabled="form.external"
+                  :placeholder="form.external ? '0 (external budget)' : ''"
+                />
               </el-form-item>
             </el-col>
             <el-col :span="12">
@@ -181,12 +185,24 @@
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="Preemption" label-width="150px">
-                <el-switch v-model="form.enablePreempt" />
+                <el-switch v-model="form.enablePreempt" :disabled="form.external" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="Default Accessible" label-width="150px">
                 <el-switch v-model="form.isDefault" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="External" label-width="150px">
+                <el-switch
+                  v-model="form.external"
+                  :disabled="isEdit"
+                  @change="onExternalChange"
+                />
               </el-form-item>
             </el-col>
           </el-row>
@@ -391,6 +407,7 @@ const initialForm = reactive({
   replica: undefined,
   queuePolicy: 'fifo' as QueuePolicy,
   enablePreempt: false,
+  external: false,
   isDefault: false,
   managers: [],
   volumes: [] as Volume[],
@@ -400,6 +417,12 @@ const initialForm = reactive({
 })
 
 const form = reactive({ ...initialForm })
+
+const onExternalChange = (on: boolean) => {
+  if (!on) return
+  form.replica = 0
+  form.enablePreempt = false
+}
 
 const ruleFormRef = ref<FormInstance>()
 const rules = reactive<FormRules>({
@@ -563,6 +586,7 @@ const setInitialFormValues = async () => {
   form.replica = res.targetNodeCount
   form.queuePolicy = res.queuePolicy
   form.enablePreempt = res.enablePreempt
+  form.external = !!res.external
   form.isDefault = res.isDefault
   form.managers = res.managers?.map((v: any) => v.id)
   form.maxRuntime = res.maxRuntime ?? {}

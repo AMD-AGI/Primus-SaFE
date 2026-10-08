@@ -36,6 +36,9 @@ type CreateWorkspaceRequest struct {
 	Volumes []v1.WorkspaceVolume `json:"volumes,omitempty"`
 	// Whether preemption is enabled. If enabled, higher-priority workload will preempt the lower-priority one
 	EnablePreempt bool `json:"enablePreempt"`
+	// External marks a VK / capacity-supplier workspace. Mapped to
+	// primus-safe.workspace.external=true; Spec.Replica is forced to 0.
+	External bool `json:"external"`
 	// Set the workspace as the default workspace (i.e., all users can access it)
 	IsDefault bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images

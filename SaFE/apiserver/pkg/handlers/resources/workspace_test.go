@@ -16,6 +16,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	testifyassert "github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -81,6 +83,50 @@ func TestGenerateWorkspace(t *testing.T) {
 	assert.Equal(t, "c1", ws.Spec.Cluster)
 	// Default scopes applied.
 	testifyassert.NotEmpty(t, ws.Spec.Scopes)
+}
+
+func TestGenerateWorkspaceExternalForcesReplicaZero(t *testing.T) {
+	h, user := newAdminHandlerWithObjects()
+	req := &view.CreateWorkspaceRequest{
+		Name:      "vkws",
+		ClusterId: "c1",
+		FlavorId:  "vk-mi355x",
+		Replica:   7,
+		External:  true,
+	}
+	ws, err := h.generateWorkspace(context.Background(), user, req)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, v1.TrueStr, ws.Labels[v1.WorkspaceExternalLabel])
+	assert.Equal(t, 0, ws.Spec.Replica)
+}
+
+func TestWorkspaceTargetNodeCountExternalFromBudget(t *testing.T) {
+	flavor := &v1.NodeFlavor{
+		ObjectMeta: metav1.ObjectMeta{Name: "vk-mi355x"},
+		Spec: v1.NodeFlavorSpec{
+			Gpu: &v1.GpuChip{
+				ResourceName: common.AmdGpu,
+				Quantity:     resource.MustParse("8"),
+			},
+		},
+	}
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "crusoe-spur-vk",
+			Labels: map[string]string{v1.WorkspaceExternalLabel: v1.TrueStr},
+		},
+		Spec: v1.WorkspaceSpec{NodeFlavor: "vk-mi355x", Replica: 0},
+		Status: v1.WorkspaceStatus{
+			TotalResources: corev1.ResourceList{
+				common.AmdGpu: resource.MustParse("56"),
+			},
+		},
+	}
+	h, _ := newAdminHandlerWithObjects(flavor, ws)
+	assert.Equal(t, 7, h.workspaceTargetNodeCount(context.Background(), ws))
+	assert.Equal(t, 3, h.workspaceTargetNodeCount(context.Background(), &v1.Workspace{
+		Spec: v1.WorkspaceSpec{Replica: 3},
+	}))
 }
 
 func TestGenerateWorkspaceReservedLabelsRequireSystemAdmin(t *testing.T) {
