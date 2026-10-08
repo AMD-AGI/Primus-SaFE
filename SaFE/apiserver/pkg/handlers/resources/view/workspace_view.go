@@ -49,7 +49,7 @@ type CreateWorkspaceRequest struct {
 	// only for sandbox workload
 	IdleTime map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`
 	// User-defined labels. Keys starting with "primus-safe." are ignored unless the
-	// caller is a system admin (used for reserved labels such as external / kube-scheduler).
+	// caller is a system admin (used for reserved labels such as external).
 	Labels map[string]string `json:"labels,omitempty"`
 }
 

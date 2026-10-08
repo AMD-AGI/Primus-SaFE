@@ -3214,8 +3214,9 @@ func applyExternalVirtualKubeletToleration(obj *unstructured.Unstructured, workl
 	return jobutils.SetNestedField(obj.Object, tolerations, path)
 }
 
-// applyExternalSchedulerAffinity writes w In and lease-end Gt for the kube-scheduler path.
-// Claim-path pods skip this and keep the provider-approved hostname pin instead.
+// applyExternalSchedulerAffinity writes w In (and lease-end Gt when Timeout is set)
+// for the kube-scheduler path. Current and legacy provider label keys are OR'd so
+// pods still match VK nodes during the Autopilot rename window.
 func applyExternalSchedulerAffinity(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
 	if !isKubeSchedulerPlacement(workload) {
@@ -3227,32 +3228,48 @@ func applyExternalSchedulerAffinity(obj *unstructured.Unstructured, workload *v1
 	if err != nil {
 		return err
 	}
-	leaseDeadline := strconv.FormatInt(externalLeaseDeadlineUnix(workload), 10)
-	exprs := []interface{}{
-		map[string]interface{}{
-			"key":      v1.ExternalWorkspaceLabel,
-			"operator": "In",
-			"values":   []interface{}{workload.Spec.Workspace},
-		},
-		map[string]interface{}{
-			"key":      v1.ExternalLeaseEndLabel,
-			"operator": "Gt",
-			"values":   []interface{}{leaseDeadline},
-		},
-	}
+	selectorTerms := externalWorkspaceAffinityTerms(workload)
 	if len(terms) == 0 {
-		terms = []interface{}{map[string]interface{}{"matchExpressions": exprs}}
+		terms = selectorTerms
 	} else {
-		for i := range terms {
-			term, ok := terms[i].(map[string]interface{})
-			if !ok {
-				continue
-			}
-			existing, _ := term["matchExpressions"].([]interface{})
-			term["matchExpressions"] = append(existing, exprs...)
-		}
+		terms = append(terms, selectorTerms...)
 	}
 	return jobutils.SetNestedField(obj.Object, terms, path)
+}
+
+// externalWorkspaceAffinityTerms builds OR nodeSelectorTerms for autopilot and legacy keys.
+func externalWorkspaceAffinityTerms(workload *v1.Workload) []interface{} {
+	ws := ""
+	if workload != nil {
+		ws = workload.Spec.Workspace
+	}
+	var leaseDeadline string
+	if workload != nil && workload.Spec.Timeout != nil && *workload.Spec.Timeout > 0 {
+		leaseDeadline = strconv.FormatInt(externalLeaseDeadlineUnix(workload), 10)
+	}
+	prefixes := []struct{ w, lease string }{
+		{v1.ExternalWorkspaceLabel, v1.ExternalLeaseEndLabel},
+		{v1.ExternalWorkspaceLabelLegacy, v1.ExternalLeaseEndLabelLegacy},
+	}
+	terms := make([]interface{}, 0, len(prefixes))
+	for _, p := range prefixes {
+		exprs := []interface{}{
+			map[string]interface{}{
+				"key":      p.w,
+				"operator": "In",
+				"values":   []interface{}{ws},
+			},
+		}
+		if leaseDeadline != "" {
+			exprs = append(exprs, map[string]interface{}{
+				"key":      p.lease,
+				"operator": "Gt",
+				"values":   []interface{}{leaseDeadline},
+			})
+		}
+		terms = append(terms, map[string]interface{}{"matchExpressions": exprs})
+	}
+	return terms
 }
 
 // applyExternalBookingToleration adds the ProvisioningRequest booking toleration for gangs.
@@ -3282,15 +3299,10 @@ func applyExternalBookingToleration(obj *unstructured.Unstructured, workload *v1
 	}
 	tolerations = append(tolerations, map[string]interface{}{
 		"key":      v1.ExternalProvisioningRequestTaint,
-		"operator": "Equal",
+		"operator": string(corev1.TolerationOpEqual),
 		"value":    bookingValue,
 		"effect":   "NoSchedule",
 	})
-	// Use canonical Equal spelling.
-	if t, ok := tolerations[len(tolerations)-1].(map[string]interface{}); ok {
-		t["operator"] = "Equal"
-		t["operator"] = string(corev1.TolerationOpEqual)
-	}
 	return jobutils.SetNestedField(obj.Object, tolerations, path)
 }
 
@@ -3317,6 +3329,7 @@ func applyExternalConsumeProvisioningRequest(obj *unstructured.Unstructured, wor
 }
 
 // externalLeaseDeadlineUnix is now + declared runtime + 10m overhead, in unix seconds.
+// Callers must only use this when Spec.Timeout is set; unset Timeout means no lease-end pin.
 func externalLeaseDeadlineUnix(workload *v1.Workload) int64 {
 	const overheadSec int64 = 600
 	runtimeSec := int64(0)

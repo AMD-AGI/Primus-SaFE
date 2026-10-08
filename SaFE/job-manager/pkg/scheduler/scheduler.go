@@ -216,7 +216,7 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 		return ctrlruntime.Result{}, err
 	}
 
-	// Kube-scheduler objects are cleaned up on deletion; this is a no-op for running work.
+	// Release ProvisioningRequest/PodTemplate when the workload has ended.
 	stillReclaiming, err := r.reconcileExternalRelease(ctx, workload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
@@ -478,7 +478,6 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 
 	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
 	isExternal := v1.IsExternalWorkspace(workspace)
-	useKubeScheduler := isExternal && v1.IsKubeSchedulerPlacement(workspace)
 	isPreemptable := false
 	if !hasEnoughQuota {
 		reason = fmt.Sprintf("%s, no %s available", InsufficientReason, formatResourceName(key))
@@ -491,10 +490,6 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 			isPreemptable, err = r.preempt(ctx, requestWorkload, scheduledWorkloads, leftResources)
 		}
 	}
-	if isExternal && !useKubeScheduler {
-		return r.externalOutcome(requestWorkload, false, ExternalUnsupportedReason,
-			fmt.Errorf("external workspaces require kube-scheduler placement"))
-	}
 	if !hasEnoughQuota && !isPreemptable {
 		klog.Infof("the workload(%s) is not scheduled, reason: %s, request.resource: %s, left.resource: %s",
 			requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
@@ -504,7 +499,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		// queued until hard rises or running work finishes.
 		return false, reason, nil
 	}
-	if useKubeScheduler {
+	if isExternal {
 		admitted, waitReason, admitErr := r.admitExternalViaScheduler(ctx, requestWorkload, workspace)
 		return r.externalOutcome(requestWorkload, admitted, waitReason, admitErr)
 	}

@@ -180,20 +180,20 @@ if [ -n "${external_enable:-}" ] \
             if grep -q 'registry_ca_path:' "$CM_TMP"; then
                 sed -i '/^external_execution:/,/^[a-z]/ s#registry_ca_path: .*#registry_ca_path: "'"${REGISTRY_CA_PATH_VALUE}"'"#' "$CM_TMP"
             else
-                sed -i '/^external_execution:/a\      registry_ca_path: "'"${REGISTRY_CA_PATH_VALUE}"'"' "$CM_TMP"
+                sed -i '/^external_execution:/a\  registry_ca_path: "'"${REGISTRY_CA_PATH_VALUE}"'"' "$CM_TMP"
             fi
         elif [ -n "${external_execution_registry_ca_path:-}" ]; then
             if grep -q 'registry_ca_path:' "$CM_TMP"; then
                 sed -i '/^external_execution:/,/^[a-z]/ s#registry_ca_path: .*#registry_ca_path: "'"${external_execution_registry_ca_path}"'"#' "$CM_TMP"
             else
-                sed -i '/^external_execution:/a\      registry_ca_path: "'"${external_execution_registry_ca_path}"'"' "$CM_TMP"
+                sed -i '/^external_execution:/a\  registry_ca_path: "'"${external_execution_registry_ca_path}"'"' "$CM_TMP"
             fi
         fi
         if [ -n "${external_execution_registry_insecure_skip_verify:-}" ]; then
             if grep -q 'registry_insecure_skip_verify:' "$CM_TMP"; then
                 sed -i '/^external_execution:/,/^[a-z]/ s/registry_insecure_skip_verify: .*/registry_insecure_skip_verify: '"${external_execution_registry_insecure_skip_verify}"'/' "$CM_TMP"
             else
-                sed -i '/^external_execution:/a\      registry_insecure_skip_verify: '"${external_execution_registry_insecure_skip_verify}" "$CM_TMP"
+                sed -i '/^external_execution:/a\  registry_insecure_skip_verify: '"${external_execution_registry_insecure_skip_verify}" "$CM_TMP"
             fi
         fi
         NEW_CONFIG_JSON=$(jq -Rs . < "$CM_TMP")

@@ -7,6 +7,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -255,9 +256,12 @@ func TestBuildGangPodTemplate(t *testing.T) {
 	w.Spec.Workspace = "ws-ext"
 	w.Spec.Images = []string{"harbor.example/app:v1"}
 	w.Spec.Priority = common.HighPriorityInt
-	w.Spec.Resources[0].CPU = "12"
-	w.Spec.Resources[0].Memory = "64Gi"
-	w.Spec.Resources[0].GPU = "8"
+	w.Spec.Resources[0].CPU = "4"
+	w.Spec.Resources[0].Memory = "32Gi"
+	w.Spec.Resources[0].GPU = "4"
+	w.Spec.Resources[1].CPU = "12"
+	w.Spec.Resources[1].Memory = "64Gi"
+	w.Spec.Resources[1].GPU = "8"
 	pt, err := buildGangPodTemplate(w, "ws-ext", "pt-1", "pr-1")
 	if err != nil {
 		t.Fatalf("build: %v", err)
@@ -269,5 +273,36 @@ func TestBuildGangPodTemplate(t *testing.T) {
 	tols, _, _ := unstructured.NestedSlice(spec, "tolerations")
 	if len(tols) < 2 {
 		t.Fatalf("want VK + booking tolerations, got %d", len(tols))
+	}
+	containers, _, _ := unstructured.NestedSlice(spec, "containers")
+	c0, _ := containers[0].(map[string]interface{})
+	reqs, _, _ := unstructured.NestedMap(c0, "resources", "requests")
+	if fmt.Sprint(reqs["cpu"]) != "12" || fmt.Sprint(reqs["memory"]) != "64Gi" {
+		t.Fatalf("want max of roles in booking template, got %v", reqs)
+	}
+	terms, _, _ := unstructured.NestedSlice(spec, "affinity", "nodeAffinity",
+		"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	if len(terms) != 2 {
+		t.Fatalf("want current+legacy workspace terms, got %d", len(terms))
+	}
+}
+
+func TestIsRetryableImageResolveError(t *testing.T) {
+	if !isRetryableImageResolveError(fmt.Errorf("resolve digest: dial tcp: i/o timeout")) {
+		t.Fatal("timeout must be retryable")
+	}
+	if isRetryableImageResolveError(fmt.Errorf("tls: unknown authority")) {
+		t.Fatal("unknown authority must stay terminal")
+	}
+}
+
+func TestExternalObjectKeyStableAndDistinct(t *testing.T) {
+	a := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w1", UID: "11111111-1111-1111-1111-111111111111"}}
+	b := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w2", UID: "11111111-1111-1111-1111-111111111111"}}
+	if externalObjectKey(a) == externalObjectKey(b) {
+		t.Fatal("same UID different name must not collide")
+	}
+	if externalObjectKey(a) != externalObjectKey(a) {
+		t.Fatal("key must be stable")
 	}
 }

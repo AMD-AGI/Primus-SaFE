@@ -293,10 +293,22 @@ func IsExternalWorkspace(obj metav1.Object) bool {
 	return GetLabel(obj, WorkspaceExternalLabel) == TrueStr
 }
 
-// IsKubeSchedulerPlacement reports whether an external workspace places via kube-scheduler
-// rather than the legacy claim/demand HTTP path.
+// IsKubeSchedulerPlacement reports whether a workspace places via kube-scheduler.
+// External workspaces always use that path; the legacy label switch is ignored.
 func IsKubeSchedulerPlacement(obj metav1.Object) bool {
-	return GetLabel(obj, WorkspaceKubeSchedulerLabel) == TrueStr
+	return IsExternalWorkspace(obj)
+}
+
+// ExternalWorkspaceIDFromLabels returns the workspace id stamped on a VK node,
+// accepting both the current and legacy provider label keys.
+func ExternalWorkspaceIDFromLabels(labels map[string]string) string {
+	if labels == nil {
+		return ""
+	}
+	if id := labels[ExternalWorkspaceLabel]; id != "" {
+		return id
+	}
+	return labels[ExternalWorkspaceLabelLegacy]
 }
 
 // IsProtected checks if a resource is protected from deletion.

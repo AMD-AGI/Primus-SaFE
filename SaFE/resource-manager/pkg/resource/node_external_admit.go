@@ -62,9 +62,10 @@ func (r *NodeK8sReconciler) admitVirtualKubelet(ctx context.Context, clusterName
 		klog.V(4).Infof("skip virtual kubelet %s: external execution disabled", k8sNode.Name)
 		return "", nil
 	}
-	workspaceID := k8sNode.Labels[v1.ExternalWorkspaceLabel]
+	workspaceID := v1.ExternalWorkspaceIDFromLabels(k8sNode.Labels)
 	if workspaceID == "" {
-		klog.V(4).Infof("skip virtual kubelet %s: missing %s", k8sNode.Name, v1.ExternalWorkspaceLabel)
+		klog.V(4).Infof("skip virtual kubelet %s: missing %s (or legacy %s)",
+			k8sNode.Name, v1.ExternalWorkspaceLabel, v1.ExternalWorkspaceLabelLegacy)
 		return "", nil
 	}
 	workspace := &v1.Workspace{}

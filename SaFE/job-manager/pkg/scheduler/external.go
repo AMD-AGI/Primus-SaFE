@@ -76,10 +76,19 @@ func (r *SchedulerReconciler) releaseBeforeDelete(ctx context.Context, workload 
 	return false, nil
 }
 
-// reconcileExternalRelease used to withdraw an HTTP reservation. It is a no-op
-// on the kube-scheduler path.
+// reconcileExternalRelease deletes ProvisioningRequest/PodTemplate once a workload
+// has ended or is being deleted so bookings do not linger after the job finishes.
 func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 	workload *v1.Workload) (bool, error) {
+	if workload == nil || workload.Status.ExternalExecution == nil {
+		return false, nil
+	}
+	if !workload.IsEnd() && workload.DeletionTimestamp.IsZero() {
+		return false, nil
+	}
+	if err := r.deleteExternalProvisioningObjects(ctx, workload); err != nil {
+		return true, err
+	}
 	return false, nil
 }
 

@@ -7,6 +7,8 @@ package scheduler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,6 +16,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -69,9 +72,12 @@ func (r *SchedulerReconciler) admitExternalViaScheduler(ctx context.Context,
 	if err != nil {
 		return false, "", err
 	}
-	state, err = r.ensureExternalResolvedImages(ctx, workload, state)
+	state, waitReason, err := r.ensureExternalResolvedImages(ctx, workload, state)
 	if err != nil {
-		return false, ExternalImageResolveReason + " - " + err.Error(), nil
+		return false, "", err
+	}
+	if waitReason != "" {
+		return false, waitReason, nil
 	}
 	if commonworkload.IsExternalRDMAGang(workload) {
 		return r.ensureExternalProvisioning(ctx, workload, workspace, state)
@@ -83,10 +89,12 @@ func (r *SchedulerReconciler) admitExternalViaScheduler(ctx context.Context,
 }
 
 // ensureExternalResolvedImages pins Spec.Images to digests and stores them on status (R5).
+// Retryable registry failures return an In-queue reason; permanent resolve failures return
+// a terminal Rejected reason. Status patch errors are returned as err for requeue.
 func (r *SchedulerReconciler) ensureExternalResolvedImages(ctx context.Context,
-	workload *v1.Workload, state *v1.WorkloadExternalExecution) (*v1.WorkloadExternalExecution, error) {
+	workload *v1.Workload, state *v1.WorkloadExternalExecution) (*v1.WorkloadExternalExecution, string, error) {
 	if state == nil {
-		return nil, fmt.Errorf("nil external execution state")
+		return nil, "", fmt.Errorf("nil external execution state")
 	}
 	if len(state.ResolvedImages) == len(workload.Spec.Images) && len(state.ResolvedImages) > 0 {
 		allPinned := true
@@ -97,19 +105,42 @@ func (r *SchedulerReconciler) ensureExternalResolvedImages(ctx context.Context,
 			}
 		}
 		if allPinned {
-			return state, nil
+			return state, "", nil
 		}
 	}
 	resolved, err := imagedigest.ResolveWorkloadImages(ctx, r.Client, workload)
 	if err != nil {
-		return nil, err
+		detail := err.Error()
+		if isRetryableImageResolveError(err) {
+			return nil, ExternalImageReason + " - " + detail, nil
+		}
+		return nil, ExternalImageResolveReason + " - " + detail, nil
 	}
 	updated := state.DeepCopy()
 	updated.ResolvedImages = resolved
 	if err = r.patchExternalState(ctx, workload, updated); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return updated, nil
+	return updated, "", nil
+}
+
+// isRetryableImageResolveError reports transient registry / network failures that should
+// leave the workload queued instead of permanently rejected.
+func isRetryableImageResolveError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, needle := range []string{
+		"timeout", "temporarily", "connection refused", "connection reset",
+		"i/o timeout", "tls handshake timeout", "broken pipe", "reset by peer",
+		"eof", "429", "502", "503", "504", "unavailable", "dial tcp",
+	} {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // ensureExternalSchedulerState persists PlacementMode=kube-scheduler and a dispatch
@@ -123,14 +154,27 @@ func (r *SchedulerReconciler) ensureExternalSchedulerState(ctx context.Context,
 		current.DispatchGeneration == generation {
 		return current.DeepCopy(), nil
 	}
+	// Drop bookings from a prior dispatch generation so retries do not leak PRs.
+	if current != nil &&
+		current.PlacementMode == v1.ExternalPlacementKubeScheduler &&
+		current.DispatchGeneration != 0 &&
+		current.DispatchGeneration != generation {
+		if err := r.deleteExternalProvisioningObjects(ctx, workload); err != nil {
+			return nil, err
+		}
+	}
 	state := &v1.WorkloadExternalExecution{
 		PlacementMode:      v1.ExternalPlacementKubeScheduler,
 		DispatchGeneration: generation,
 	}
-	if current != nil && current.PlacementMode == v1.ExternalPlacementKubeScheduler {
+	if current != nil &&
+		current.PlacementMode == v1.ExternalPlacementKubeScheduler &&
+		current.DispatchGeneration == generation {
 		state.ProvisioningRequest = current.ProvisioningRequest
 		state.ProvisioningAttempt = current.ProvisioningAttempt
 		state.ProvisioningCondition = current.ProvisioningCondition
+		state.ResolvedImages = append([]string{}, current.ResolvedImages...)
+	} else if current != nil && current.PlacementMode == v1.ExternalPlacementKubeScheduler {
 		state.ResolvedImages = append([]string{}, current.ResolvedImages...)
 	}
 	if err := r.patchExternalState(ctx, workload, state); err != nil {
@@ -170,11 +214,11 @@ func (r *SchedulerReconciler) ensureExternalProvisioning(ctx context.Context,
 	if err != nil {
 		return false, ExternalUnsupportedReason, err
 	}
-	if err = ensureUnstructured(ctx, dyn, podTemplateGVR, ns, template); err != nil {
+	if err = ensureUnstructured(ctx, dyn, podTemplateGVR, ns, template, workload.Name); err != nil {
 		return false, "", err
 	}
-	pr := buildProvisioningRequest(ns, prName, ptName, count)
-	if err = ensureUnstructured(ctx, dyn, provisioningRequestGVR, ns, pr); err != nil {
+	pr := buildProvisioningRequest(ns, prName, ptName, count, workload.Name)
+	if err = ensureUnstructured(ctx, dyn, provisioningRequestGVR, ns, pr, workload.Name); err != nil {
 		return false, "", err
 	}
 
@@ -394,21 +438,32 @@ func deleteProvisioningObjects(ctx context.Context, dyn dynamic.Interface,
 }
 
 func ensureUnstructured(ctx context.Context, dyn dynamic.Interface, gvr schema.GroupVersionResource,
-	ns string, obj *unstructured.Unstructured) error {
+	ns string, obj *unstructured.Unstructured, ownerWorkload string) error {
 	_, err := dyn.Resource(gvr).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{})
-	if err == nil || !apierrors.IsAlreadyExists(err) {
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	_, err = dyn.Resource(gvr).Namespace(ns).Get(ctx, obj.GetName(), metav1.GetOptions{})
-	return err
+	got, err := dyn.Resource(gvr).Namespace(ns).Get(ctx, obj.GetName(), metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	if owner := got.GetLabels()[v1.WorkloadIdLabel]; owner != "" && owner != ownerWorkload {
+		return fmt.Errorf("%s/%s already owned by workload %s", gvr.Resource, obj.GetName(), owner)
+	}
+	return nil
 }
 
-func buildProvisioningRequest(ns, name, templateName string, count int64) *unstructured.Unstructured {
+func buildProvisioningRequest(ns, name, templateName string, count int64,
+	ownerWorkload string) *unstructured.Unstructured {
 	pr := &unstructured.Unstructured{}
 	pr.SetAPIVersion("autoscaling.x-k8s.io/v1")
 	pr.SetKind("ProvisioningRequest")
 	pr.SetNamespace(ns)
 	pr.SetName(name)
+	pr.SetLabels(map[string]string{v1.WorkloadIdLabel: ownerWorkload})
 	_ = unstructured.SetNestedField(pr.Object, v1.ProvisioningRequestClassName,
 		"spec", "provisioningClassName")
 	podSets := []interface{}{
@@ -424,10 +479,10 @@ func buildProvisioningRequest(ns, name, templateName string, count int64) *unstr
 }
 
 func buildGangPodTemplate(workload *v1.Workload, ns, name, prName string) (*unstructured.Unstructured, error) {
-	if len(workload.Spec.Resources) == 0 {
-		return nil, fmt.Errorf("workload %s has no resources", workload.Name)
+	res, err := maxGangBookingResource(workload)
+	if err != nil {
+		return nil, err
 	}
-	res := &workload.Spec.Resources[0]
 	resourceList, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
 		res.GPUName, res.EphemeralStorage, res.RdmaResource, 1)
 	if err != nil {
@@ -446,8 +501,6 @@ func buildGangPodTemplate(workload *v1.Workload, ns, name, prName string) (*unst
 	} else if len(workload.Spec.Images) > 0 {
 		image = workload.Spec.Images[0]
 	}
-	leaseDeadline := strconv.FormatInt(time.Now().UTC().Unix()+
-		externalRuntimeSeconds(workload)+externalLeaseOverheadSec, 10)
 	bookingValue := ns + "." + prName
 	priorityClass := commonworkload.ExternalPriorityClass(
 		commonworkload.GeneratePriority(workload.Spec.Priority))
@@ -488,22 +541,7 @@ func buildGangPodTemplate(workload *v1.Workload, ns, name, prName string) (*unst
 		"affinity": map[string]interface{}{
 			"nodeAffinity": map[string]interface{}{
 				"requiredDuringSchedulingIgnoredDuringExecution": map[string]interface{}{
-					"nodeSelectorTerms": []interface{}{
-						map[string]interface{}{
-							"matchExpressions": []interface{}{
-								map[string]interface{}{
-									"key":      v1.ExternalWorkspaceLabel,
-									"operator": "In",
-									"values":   []interface{}{workload.Spec.Workspace},
-								},
-								map[string]interface{}{
-									"key":      v1.ExternalLeaseEndLabel,
-									"operator": "Gt",
-									"values":   []interface{}{leaseDeadline},
-								},
-							},
-						},
-					},
+					"nodeSelectorTerms": externalWorkspaceNodeSelectorTerms(workload),
 				},
 			},
 		},
@@ -514,11 +552,90 @@ func buildGangPodTemplate(workload *v1.Workload, ns, name, prName string) (*unst
 	pt.SetKind("PodTemplate")
 	pt.SetNamespace(ns)
 	pt.SetName(name)
+	pt.SetLabels(map[string]string{v1.WorkloadIdLabel: workload.Name})
 	_ = unstructured.SetNestedMap(pt.Object, podSpec, "template", "spec")
 	_ = unstructured.SetNestedStringMap(pt.Object, map[string]string{
 		v1.WorkloadIdLabel: workload.Name,
 	}, "template", "metadata", "labels")
 	return pt, nil
+}
+
+// maxGangBookingResource takes the per-field max across roles so the PR reserves
+// enough capacity when workers are larger than the master.
+func maxGangBookingResource(workload *v1.Workload) (*v1.WorkloadResource, error) {
+	if workload == nil || len(workload.Spec.Resources) == 0 {
+		return nil, fmt.Errorf("workload has no resources")
+	}
+	out := workload.Spec.Resources[0]
+	for i := 1; i < len(workload.Spec.Resources); i++ {
+		r := workload.Spec.Resources[i]
+		out.CPU = maxQuantityString(out.CPU, r.CPU)
+		out.Memory = maxQuantityString(out.Memory, r.Memory)
+		out.GPU = maxQuantityString(out.GPU, r.GPU)
+		out.EphemeralStorage = maxQuantityString(out.EphemeralStorage, r.EphemeralStorage)
+		out.RdmaResource = maxQuantityString(out.RdmaResource, r.RdmaResource)
+		if out.GPUName == "" {
+			out.GPUName = r.GPUName
+		}
+	}
+	return &out, nil
+}
+
+func maxQuantityString(a, b string) string {
+	if strings.TrimSpace(a) == "" {
+		return b
+	}
+	if strings.TrimSpace(b) == "" {
+		return a
+	}
+	qa, errA := resource.ParseQuantity(a)
+	qb, errB := resource.ParseQuantity(b)
+	if errA != nil {
+		return b
+	}
+	if errB != nil {
+		return a
+	}
+	if qa.Cmp(qb) >= 0 {
+		return a
+	}
+	return b
+}
+
+// externalWorkspaceNodeSelectorTerms builds OR terms for current and legacy w/lease-end keys.
+// When Spec.Timeout is unset, lease-end is omitted so long jobs are not capped at now+600s.
+func externalWorkspaceNodeSelectorTerms(workload *v1.Workload) []interface{} {
+	ws := ""
+	if workload != nil {
+		ws = workload.Spec.Workspace
+	}
+	prefixes := []struct{ w, lease string }{
+		{v1.ExternalWorkspaceLabel, v1.ExternalLeaseEndLabel},
+		{v1.ExternalWorkspaceLabelLegacy, v1.ExternalLeaseEndLabelLegacy},
+	}
+	var leaseDeadline string
+	if runtimeSec := externalRuntimeSeconds(workload); runtimeSec > 0 {
+		leaseDeadline = strconv.FormatInt(time.Now().UTC().Unix()+runtimeSec+externalLeaseOverheadSec, 10)
+	}
+	terms := make([]interface{}, 0, len(prefixes))
+	for _, p := range prefixes {
+		exprs := []interface{}{
+			map[string]interface{}{
+				"key":      p.w,
+				"operator": "In",
+				"values":   []interface{}{ws},
+			},
+		}
+		if leaseDeadline != "" {
+			exprs = append(exprs, map[string]interface{}{
+				"key":      p.lease,
+				"operator": "Gt",
+				"values":   []interface{}{leaseDeadline},
+			})
+		}
+		terms = append(terms, map[string]interface{}{"matchExpressions": exprs})
+	}
+	return terms
 }
 
 func externalRuntimeSeconds(workload *v1.Workload) int64 {
@@ -536,25 +653,23 @@ func externalGangMemberCount(workload *v1.Workload) int64 {
 }
 
 func externalProvisioningRequestName(workload *v1.Workload, generation, attempt int32) string {
-	return fmt.Sprintf("pr-%s-%d-%d", shortUID(workload), generation, attempt)
+	return fmt.Sprintf("pr-%s-%d-%d", externalObjectKey(workload), generation, attempt)
 }
 
 func externalPodTemplateName(workload *v1.Workload, generation, attempt int32) string {
-	return fmt.Sprintf("pt-%s-%d-%d", shortUID(workload), generation, attempt)
+	return fmt.Sprintf("pt-%s-%d-%d", externalObjectKey(workload), generation, attempt)
 }
 
-func shortUID(workload *v1.Workload) string {
-	uid := string(workload.UID)
-	if len(uid) > 8 {
-		uid = uid[:8]
+// externalObjectKey hashes UID+name so PR/PodTemplate names stay unique under DNS-1123.
+func externalObjectKey(workload *v1.Workload) string {
+	raw := string(workload.UID)
+	if raw == "" {
+		raw = workload.Name
+	} else {
+		raw = raw + "/" + workload.Name
 	}
-	if uid == "" {
-		uid = workload.Name
-		if len(uid) > 8 {
-			uid = uid[:8]
-		}
-	}
-	return strings.ToLower(uid)
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:8])
 }
 
 // validateExternalShapeForScheduler keeps the same shape gate the claim path used,

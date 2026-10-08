@@ -98,25 +98,10 @@ func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.W
 	if err := m.mutateMeta(ctx, workspace); err != nil {
 		return err
 	}
-	mutateExternalDefaults(workspace)
 	if err := m.mutateCommon(ctx, nil, workspace); err != nil {
 		return err
 	}
 	return nil
-}
-
-// mutateExternalDefaults stamps create-time defaults for external workspaces.
-// New external workspaces use kube-scheduler placement unless the label is already set
-// (including an explicit "false" to keep the claim path). Existing workspaces are not
-// touched: this runs only on create.
-func mutateExternalDefaults(workspace *v1.Workspace) {
-	if workspace == nil || !v1.IsExternalWorkspace(workspace) {
-		return
-	}
-	if v1.GetLabel(workspace, v1.WorkspaceKubeSchedulerLabel) != "" {
-		return
-	}
-	v1.SetLabel(workspace, v1.WorkspaceKubeSchedulerLabel, v1.TrueStr)
 }
 
 // mutateOnUpdate applies mutations during updates.

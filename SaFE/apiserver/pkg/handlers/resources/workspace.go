@@ -554,7 +554,7 @@ func (h *Handler) generateWorkspace(ctx context.Context,
 		workspace.Spec.Replica = 0
 	}
 	// Reserved primus-safe.* labels are stripped for normal users. System admins may set
-	// them on create (for example WorkspaceExternalLabel / WorkspaceKubeSchedulerLabel).
+	// them on create (for example WorkspaceExternalLabel).
 	allowReservedLabels := requestUser != nil && requestUser.IsSystemAdmin()
 	for key, val := range req.Labels {
 		if allowReservedLabels || !strings.HasPrefix(key, v1.PrimusSafePrefix) {

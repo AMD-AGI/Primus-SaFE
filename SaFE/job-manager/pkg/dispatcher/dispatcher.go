@@ -313,11 +313,11 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 	obj, err := jobutils.GetObject(ctx,
 		clientSets.ClientFactory(), adminWorkload.Name, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
 
-		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return ctrlruntime.Result{}, err
-			}
-			if result, err := r.dispatch(ctx, adminWorkload, clientSets); err != nil || result.RequeueAfter > 0 {
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return ctrlruntime.Result{}, err
+		}
+		if result, err := r.dispatch(ctx, adminWorkload, clientSets); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
 		if err = r.markAsDispatched(ctx, adminWorkload); err != nil {

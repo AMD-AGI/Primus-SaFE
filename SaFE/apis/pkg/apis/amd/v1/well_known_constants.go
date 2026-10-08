@@ -119,10 +119,8 @@ const (
 	// external path; any other value is native. It is immutable after creation, because flipping
 	// it would change queue admission, scaling and node lifecycle under running workloads.
 	WorkspaceExternalLabel = WorkspacePrefix + "external"
-	// WorkspaceKubeSchedulerLabel selects the kube-scheduler placement path for an external
-	// workspace. Value "true" means Pod/PodTemplate/ProvisioningRequest; any other value keeps
-	// the legacy claim/demand HTTP path. Flip only while the workspace has no in-flight claim
-	// pods (see the per-namespace cutover steps).
+	// WorkspaceKubeSchedulerLabel is retained for compatibility with older objects that still
+	// carry it. External workspaces always place via kube-scheduler; the label is ignored.
 	WorkspaceKubeSchedulerLabel = WorkspacePrefix + "kube-scheduler"
 	// ExternalBudgetQuotaName is the ResourceQuota, in the workspace's own namespace on its
 	// data-plane cluster, whose spec.hard is the capacity budget of an external workspace. It
@@ -147,7 +145,10 @@ const (
 	// rechecks after binding. They are derived from the approved workload, never
 	// copied from user input: an annotation a user could write by hand would otherwise be
 	// an authorisation.
-	ExternalExecutionPrefix        = "autopilot.amd.com/"
+	ExternalExecutionPrefix = "autopilot.amd.com/"
+	// ExternalExecutionPrefixLegacy is the pre-rename provider prefix. Read paths accept both
+	// prefixes while Autopilot finishes flipping node labels.
+	ExternalExecutionPrefixLegacy  = "safe-exec.amd.com/"
 	ExternalExecutionLabel         = ExternalExecutionPrefix + "external"
 	ExternalWorkloadUIDAnnotation  = ExternalExecutionPrefix + "workload-uid"
 	ExternalDispatchGenAnnotation  = ExternalExecutionPrefix + "dispatch-generation"
@@ -155,17 +156,19 @@ const (
 	ExternalAllocationIdAnnotation = ExternalExecutionPrefix + "allocation-id"
 	// Identity the provider stamps on virtual Nodes in the execution cluster. SaFE admits
 	// those Nodes into the admin plane; the provider never writes the SaFE Node CR.
-	VirtualKubeletTypeLabelValue      = "virtual-kubelet"
-	VirtualKubeletTypeLabelKey        = "type"
-	ExternalWorkspaceLabel            = ExternalExecutionPrefix + "w"
-	ExternalProviderLabel             = ExternalExecutionPrefix + "provider"
-	ExternalAllocationIdLabel         = ExternalExecutionPrefix + "allocation-id"
-	ExternalGenerationLabel           = ExternalExecutionPrefix + "generation"
+	VirtualKubeletTypeLabelValue = "virtual-kubelet"
+	VirtualKubeletTypeLabelKey   = "type"
+	ExternalWorkspaceLabel       = ExternalExecutionPrefix + "w"
+	ExternalWorkspaceLabelLegacy = ExternalExecutionPrefixLegacy + "w"
+	ExternalProviderLabel        = ExternalExecutionPrefix + "provider"
+	ExternalAllocationIdLabel    = ExternalExecutionPrefix + "allocation-id"
+	ExternalGenerationLabel      = ExternalExecutionPrefix + "generation"
 	// ExternalLeaseEndLabel is the unix-seconds lease end stamped on VK nodes. Pods require
 	// lease-end Gt <now+runtime+overhead> so they only land on nodes with enough remaining lease.
-	ExternalLeaseEndLabel = ExternalExecutionPrefix + "lease-end"
+	ExternalLeaseEndLabel       = ExternalExecutionPrefix + "lease-end"
+	ExternalLeaseEndLabelLegacy = ExternalExecutionPrefixLegacy + "lease-end"
 	// ExternalProvisioningRequestTaint is the booking taint key for ProvisioningRequest nodes.
-	ExternalProvisioningRequestTaint = ExternalExecutionPrefix + "provisioning-request"
+	ExternalProvisioningRequestTaint  = ExternalExecutionPrefix + "provisioning-request"
 	ExternalHostKeyAnnotation         = ExternalExecutionPrefix + "host-key"
 	ExternalObservedAtAnnotation      = ExternalExecutionPrefix + "observed-at"
 	ExternalValidUntilAnnotation      = ExternalExecutionPrefix + "valid-until"
