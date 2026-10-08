@@ -530,6 +530,9 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 		priorityClass := &schedulingv1.PriorityClass{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: pc.name,
+				Labels: map[string]string{
+					v1.PriorityClassManagedLabel: v1.TrueStr,
+				},
 			},
 			Value:            pc.value,
 			Description:      pc.description,
@@ -544,7 +547,9 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 	return ctrlruntime.Result{}, nil
 }
 
-// deletePriorityClass deletes priority classes from the cluster.
+// deletePriorityClass deletes SaFE-managed priority classes from the cluster.
+// Objects without PriorityClassManagedLabel are skipped so shared names created
+// outside SaFE are not removed when a Cluster CR is deleted.
 func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1.Cluster) error {
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
@@ -557,6 +562,17 @@ func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1
 		allPriorityClass = append(allPriorityClass, genExternalPriorityClass()...)
 	}
 	for _, pc := range allPriorityClass {
+		got, getErr := clientSet.SchedulingV1().PriorityClasses().Get(ctx, pc.name, metav1.GetOptions{})
+		if apierrors.IsNotFound(getErr) {
+			continue
+		}
+		if getErr != nil {
+			return getErr
+		}
+		if got.Labels[v1.PriorityClassManagedLabel] != v1.TrueStr {
+			klog.Infof("skip delete PriorityClass %s: missing %s", pc.name, v1.PriorityClassManagedLabel)
+			continue
+		}
 		if err = clientSet.SchedulingV1().PriorityClasses().Delete(ctx, pc.name, metav1.DeleteOptions{}); err != nil {
 			if !apierrors.IsNotFound(err) {
 				return err

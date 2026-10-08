@@ -195,6 +195,9 @@ const (
 	ExternalPriorityClassHigh = "autopilot-external-high-priority"
 	ExternalPriorityClassMed  = "autopilot-external-med-priority"
 	ExternalPriorityClassLow  = "autopilot-external-low-priority"
+	// PriorityClassManagedLabel marks PriorityClass objects created by SaFE. Cluster cleanup
+	// deletes only objects that carry this label so pre-existing shared names are left alone.
+	PriorityClassManagedLabel = PrimusSafePrefix + "priority-class.managed"
 
 	// ExternalPlacementClaim is the legacy HTTP demand/claim path.
 	ExternalPlacementClaim = "claim"

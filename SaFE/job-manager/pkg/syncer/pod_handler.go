@@ -467,7 +467,7 @@ func adminNodeNameOf(node *corev1.Node) string {
 		return id
 	}
 	if node.Labels[v1.VirtualKubeletTypeLabelKey] == v1.VirtualKubeletTypeLabelValue &&
-		node.Labels[v1.ExternalProviderLabel] != "" {
+		v1.ExternalProviderFromLabels(node.Labels) != "" {
 		return node.Name
 	}
 	return ""

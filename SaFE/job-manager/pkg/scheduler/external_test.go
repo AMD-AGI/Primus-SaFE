@@ -32,17 +32,28 @@ func gpuWorkload() *v1.Workload {
 	}
 }
 
-func TestReclaimingIsUnusedWithoutHTTPClaimPath(t *testing.T) {
+func TestReclaimingTracksProvisioningRequest(t *testing.T) {
 	workload := gpuWorkload()
 	if isExternalReclaiming(workload) {
-		t.Fatal("kube-scheduler path holds no HTTP claim")
+		t.Fatal("nil external state is not reclaiming")
 	}
 	workload.Status.ExternalExecution = &v1.WorkloadExternalExecution{
 		ClaimId:    "claim-1",
 		ClaimPhase: "Active",
 	}
 	if isExternalReclaiming(workload) {
-		t.Fatal("HTTP claim path is removed; leftover claim ids must not block deletion")
+		t.Fatal("HTTP claim leftovers must not count as reclaiming")
+	}
+	workload.Status.ExternalExecution = &v1.WorkloadExternalExecution{
+		PlacementMode:       v1.ExternalPlacementKubeScheduler,
+		ProvisioningRequest: "pr-1",
+	}
+	if !isExternalReclaiming(workload) {
+		t.Fatal("open ProvisioningRequest must count as reclaiming")
+	}
+	workload.Status.ExternalExecution.ProvisioningRequest = ""
+	if isExternalReclaiming(workload) {
+		t.Fatal("cleared ProvisioningRequest must not reclaim")
 	}
 }
 

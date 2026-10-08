@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -125,12 +126,22 @@ func (r *SchedulerReconciler) ensureExternalResolvedImages(ctx context.Context,
 }
 
 // isRetryableImageResolveError reports transient registry / network failures that should
-// leave the workload queued instead of permanently rejected.
+// leave the workload queued instead of permanently rejected. Only the unwrapped leaf
+// message is matched so image references that happen to contain "502"/"eof" cannot
+// reclassify a permanent MANIFEST_UNKNOWN / UNAUTHORIZED failure as retryable.
 func isRetryableImageResolveError(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := strings.ToLower(err.Error())
+	leaf := err
+	for {
+		next := errors.Unwrap(leaf)
+		if next == nil {
+			break
+		}
+		leaf = next
+	}
+	msg := strings.ToLower(leaf.Error())
 	for _, needle := range []string{
 		"timeout", "temporarily", "connection refused", "connection reset",
 		"i/o timeout", "tls handshake timeout", "broken pipe", "reset by peer",
@@ -167,14 +178,9 @@ func (r *SchedulerReconciler) ensureExternalSchedulerState(ctx context.Context,
 		PlacementMode:      v1.ExternalPlacementKubeScheduler,
 		DispatchGeneration: generation,
 	}
-	if current != nil &&
-		current.PlacementMode == v1.ExternalPlacementKubeScheduler &&
-		current.DispatchGeneration == generation {
-		state.ProvisioningRequest = current.ProvisioningRequest
-		state.ProvisioningAttempt = current.ProvisioningAttempt
-		state.ProvisioningCondition = current.ProvisioningCondition
-		state.ResolvedImages = append([]string{}, current.ResolvedImages...)
-	} else if current != nil && current.PlacementMode == v1.ExternalPlacementKubeScheduler {
+	// Same-generation state returns above. Across generations keep only ResolvedImages;
+	// PR name/attempt are rebuilt for the new generation after old objects are deleted.
+	if current != nil && current.PlacementMode == v1.ExternalPlacementKubeScheduler {
 		state.ResolvedImages = append([]string{}, current.ResolvedImages...)
 	}
 	if err := r.patchExternalState(ctx, workload, state); err != nil {

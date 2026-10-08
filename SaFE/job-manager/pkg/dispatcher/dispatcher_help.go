@@ -3413,6 +3413,12 @@ func stripExternalVolumeMountSubPaths(obj *unstructured.Unstructured, workload *
 			if !ok {
 				continue
 			}
+			name, _ := m["name"].(string)
+			root := hostPathByName[name]
+			if root == "" {
+				// PVC/NFS and other non-hostPath mounts keep subPath isolation.
+				continue
+			}
 			if _, has := m["subPath"]; !has {
 				if _, hasExpr := m["subPathExpr"]; !hasExpr {
 					continue
@@ -3420,10 +3426,7 @@ func stripExternalVolumeMountSubPaths(obj *unstructured.Unstructured, workload *
 			}
 			delete(m, "subPath")
 			delete(m, "subPathExpr")
-			name, _ := m["name"].(string)
-			if root := hostPathByName[name]; root != "" {
-				m["mountPath"] = root
-			}
+			m["mountPath"] = root
 		}
 		container["volumeMounts"] = mounts
 	}

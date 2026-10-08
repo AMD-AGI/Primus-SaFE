@@ -554,12 +554,16 @@ func (h *Handler) generateWorkspace(ctx context.Context,
 		workspace.Spec.Replica = 0
 	}
 	// Reserved primus-safe.* labels are stripped for normal users. System admins may set
-	// them on create (for example WorkspaceExternalLabel).
+	// any label, but keys already stamped above (for example user.id) are not overwritten.
 	allowReservedLabels := requestUser != nil && requestUser.IsSystemAdmin()
 	for key, val := range req.Labels {
-		if allowReservedLabels || !strings.HasPrefix(key, v1.PrimusSafePrefix) {
-			workspace.Labels[key] = val
+		if !allowReservedLabels && strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			continue
 		}
+		if _, exists := workspace.Labels[key]; exists {
+			continue
+		}
+		workspace.Labels[key] = val
 	}
 	// Keep Spec.Replica at 0 when the workspace is external, including when an admin
 	// stamped the label through Labels rather than the External field.

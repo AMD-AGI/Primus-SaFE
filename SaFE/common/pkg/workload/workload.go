@@ -721,14 +721,25 @@ func GenerateDispatchReason(count int) string {
 
 // GeneratePriorityClass generates priority class name for a workload.
 // External workloads use Never classes ensured by cluster-controller; native workloads keep
-// the per-cluster names also created by resource-manager.
+// the per-cluster names also created by resource-manager. The external check matches the
+// dispatcher: PlacementMode kube-scheduler or a non-empty ClaimId.
 func GeneratePriorityClass(workload *v1.Workload) string {
 	strPriority := GeneratePriority(workload.Spec.Priority)
-	if workload != nil && workload.Status.ExternalExecution != nil {
+	if usesExternalPriorityClass(workload) {
 		return ExternalPriorityClass(strPriority)
 	}
 	clusterId := v1.GetClusterId(workload)
 	return commonutils.GenerateClusterPriorityClass(clusterId, strPriority)
+}
+
+// usesExternalPriorityClass reports whether the workload should reference the shared
+// autopilot-external-* PriorityClasses.
+func usesExternalPriorityClass(workload *v1.Workload) bool {
+	if workload == nil || workload.Status.ExternalExecution == nil {
+		return false
+	}
+	state := workload.Status.ExternalExecution
+	return state.PlacementMode == v1.ExternalPlacementKubeScheduler || state.ClaimId != ""
 }
 
 // ExternalPriorityClass maps SaFE priority to the external PriorityClass names.

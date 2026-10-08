@@ -294,6 +294,17 @@ func TestIsRetryableImageResolveError(t *testing.T) {
 	if isRetryableImageResolveError(fmt.Errorf("tls: unknown authority")) {
 		t.Fatal("unknown authority must stay terminal")
 	}
+	// Image ref may contain retry needles; only the unwrapped leaf is classified.
+	wrapped := fmt.Errorf("image %q: %w", "registry.example/app:tag-502-eof",
+		fmt.Errorf("MANIFEST_UNKNOWN: manifest unknown"))
+	if isRetryableImageResolveError(wrapped) {
+		t.Fatal("permanent registry error must stay terminal despite image tag substring")
+	}
+	retryWrapped := fmt.Errorf("image %q: %w", "registry.example/app:latest",
+		fmt.Errorf("Get https://registry: dial tcp: i/o timeout"))
+	if !isRetryableImageResolveError(retryWrapped) {
+		t.Fatal("wrapped timeout must remain retryable")
+	}
 }
 
 func TestExternalObjectKeyStableAndDistinct(t *testing.T) {

@@ -63,11 +63,15 @@ func isTerminalExternalReason(reason string) bool {
 // resourceVersion between the cached read and the JSON-patch test.
 const externalStatePatchAttempts = 5
 
-// isExternalReclaiming reports whether a workload still holds provider capacity
-// that must be released over HTTP. The HTTP claim path is gone; kube-scheduler
-// work deletes ProvisioningRequest objects synchronously on deletion.
+// isExternalReclaiming reports whether a finished workload still holds a
+// ProvisioningRequest booking that must count against workspace quota until deleted.
 func isExternalReclaiming(workload *v1.Workload) bool {
-	return false
+	if workload == nil || workload.Status.ExternalExecution == nil {
+		return false
+	}
+	state := workload.Status.ExternalExecution
+	return state.PlacementMode == v1.ExternalPlacementKubeScheduler &&
+		state.ProvisioningRequest != ""
 }
 
 // releaseBeforeDelete used to wait for an HTTP claim release. Kube-scheduler
@@ -86,7 +90,19 @@ func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 	if !workload.IsEnd() && workload.DeletionTimestamp.IsZero() {
 		return false, nil
 	}
+	state := workload.Status.ExternalExecution
+	if state.PlacementMode != v1.ExternalPlacementKubeScheduler ||
+		(state.ProvisioningRequest == "" && state.DispatchGeneration == 0) {
+		return false, nil
+	}
 	if err := r.deleteExternalProvisioningObjects(ctx, workload); err != nil {
+		return true, err
+	}
+	updated := state.DeepCopy()
+	updated.ProvisioningRequest = ""
+	updated.ProvisioningAttempt = 0
+	updated.ProvisioningCondition = ""
+	if err := r.patchExternalState(ctx, workload, updated); err != nil {
 		return true, err
 	}
 	return false, nil

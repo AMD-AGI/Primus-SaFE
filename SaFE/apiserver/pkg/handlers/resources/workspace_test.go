@@ -137,6 +137,7 @@ func TestGenerateWorkspaceReservedLabelsRequireSystemAdmin(t *testing.T) {
 		Labels: map[string]string{
 			v1.WorkspaceExternalLabel:      v1.TrueStr,
 			v1.WorkspaceKubeSchedulerLabel: v1.TrueStr,
+			v1.UserIdLabel:                 "forged-user",
 			"team":                         "ml",
 		},
 	}
@@ -144,6 +145,7 @@ func TestGenerateWorkspaceReservedLabelsRequireSystemAdmin(t *testing.T) {
 	testifyassert.NoError(t, err)
 	assert.Equal(t, v1.TrueStr, ws.Labels[v1.WorkspaceExternalLabel])
 	assert.Equal(t, v1.TrueStr, ws.Labels[v1.WorkspaceKubeSchedulerLabel])
+	assert.Equal(t, admin.Name, ws.Labels[v1.UserIdLabel], "system-stamped user.id must not be overwritten")
 	assert.Equal(t, "ml", ws.Labels["team"])
 
 	nonAdmin := admin.DeepCopy()
