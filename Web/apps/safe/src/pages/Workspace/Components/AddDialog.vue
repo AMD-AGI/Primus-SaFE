@@ -404,7 +404,7 @@ const initialForm = reactive({
   clusterId: '',
   imageSecretIds: [],
   flavorId: '',
-  replica: undefined,
+  replica: undefined as number | undefined,
   queuePolicy: 'fifo' as QueuePolicy,
   enablePreempt: false,
   external: false,
