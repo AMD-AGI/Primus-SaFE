@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// The export project is created private when it is missing, and an existing one is never
+// The export project is created public when it is missing, and an existing one is never
 // modified: an administrator's choice of visibility stands.
 func TestEnsureProjectExists(t *testing.T) {
 	for _, tc := range []struct {
@@ -25,7 +25,7 @@ func TestEnsureProjectExists(t *testing.T) {
 		created string
 	}{
 		{name: "missing", get: http.StatusNotFound, calls: []string{"GET", "POST"},
-			created: `{"metadata":{"public":"false"},"project_name":"custom"}`},
+			created: `{"metadata":{"public":"true"},"project_name":"custom"}`},
 		{name: "exists private", get: http.StatusOK, calls: []string{"GET"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

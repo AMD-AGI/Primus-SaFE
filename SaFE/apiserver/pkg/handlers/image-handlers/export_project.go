@@ -14,10 +14,10 @@ import (
 )
 
 // ensureExportImageProject creates the project that saved workload images are pushed to,
-// in the built-in Harbor, when it is missing. It is created private: a saved image is a
-// snapshot of someone's container, with whatever they kept in it, and a public project
-// would let anyone who can reach the registry pull it. A project that already exists is
-// left as it is, so an administrator's choice of visibility stands.
+// in the built-in Harbor, when it is missing. It is created public like the import
+// project, so that workloads can pull saved images without a pull credential; a saved
+// image is therefore readable by anyone who can reach the registry. A project that
+// already exists is left as it is, so an administrator's choice of visibility stands.
 func (h *ImageHandler) ensureExportImageProject(ctx context.Context) error {
 	harborHost, endpoint, pw, err := h.GetHarborCredentials(ctx)
 	if err != nil {
@@ -43,6 +43,6 @@ func (h *ImageHandler) ensureProjectExists(ctx context.Context, harborHost, user
 	}
 	return h.harborPost(ctx, harborHost, "/api/v2.0/projects", username, pw, map[string]any{
 		"project_name": projectName,
-		"metadata":     map[string]string{"public": "false"},
+		"metadata":     map[string]string{"public": "true"},
 	})
 }
