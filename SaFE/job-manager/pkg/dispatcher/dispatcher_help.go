@@ -213,7 +213,8 @@ func modifyRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wor
 	if err != nil {
 		return err
 	}
-	expression := buildRequiredMatchExpression(workload)
+	workspaceExpr, customerExprs, approvedExpr := buildRequiredMatchExpressionParts(workload)
+	expression := joinMatchExpressions(workspaceExpr, customerExprs, approvedExpr)
 	if len(expression) == 0 {
 		return nil
 	}
@@ -228,16 +229,23 @@ func modifyRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wor
 		if isExternalWorkload(workload) {
 			last = len(nodeSelectorTerms) - 1
 		}
-		for i := 0; i <= last; i++ {
-			matchExpressions := nodeSelectorTerms[i].(map[string]interface{})
-			objs, ok := matchExpressions["matchExpressions"]
-			if ok {
-				expressions := objs.([]interface{})
-				expressions = append(expressions, expression...)
-				matchExpressions["matchExpressions"] = expressions
-			} else {
-				matchExpressions["matchExpressions"] = append([]interface{}{}, expression...)
+		for i := range nodeSelectorTerms {
+			// The first term (every term for external workloads) gets the full set.
+			// Customer labels are ANDed into every other term as well: a term without
+			// them would match any node, so the user's node selection would not hold.
+			added := expression
+			if i > last {
+				added = customerExprs
 			}
+			if len(added) == 0 {
+				continue
+			}
+			term, ok := nodeSelectorTerms[i].(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("nodeSelectorTerms[%d]: expected an object", i)
+			}
+			existing, _ := term["matchExpressions"].([]interface{})
+			term["matchExpressions"] = append(append([]interface{}{}, existing...), added...)
 		}
 	}
 	if err = jobutils.SetNestedField(obj.Object, nodeSelectorTerms, path); err != nil {
@@ -1161,11 +1169,26 @@ func buildSecretVolume(secretName string) interface{} {
 
 // buildRequiredMatchExpression creates node selector match expressions based on workload specifications.
 func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
+	return joinMatchExpressions(buildRequiredMatchExpressionParts(workload))
+}
+
+// joinMatchExpressions concatenates match expression groups in order.
+func joinMatchExpressions(groups ...[]interface{}) []interface{} {
 	var result []interface{}
+	for _, group := range groups {
+		result = append(result, group...)
+	}
+	return result
+}
+
+// buildRequiredMatchExpressionParts returns the required match expressions in three groups:
+// the workspace confinement, the expressions derived from the workload's customer labels,
+// and the provider-approved hostnames of an external workload.
+func buildRequiredMatchExpressionParts(workload *v1.Workload) (workspaceExpr, customerExprs, approvedExpr []interface{}) {
 	// Virtual nodes do not carry the SaFE workspace label; external pods are confined by
 	// the provider-approved hostnames below.
 	if workload.Spec.Workspace != corev1.NamespaceDefault && !isExternalWorkload(workload) {
-		result = append(result, map[string]interface{}{
+		workspaceExpr = append(workspaceExpr, map[string]interface{}{
 			"key":      v1.WorkspaceIdLabel,
 			"operator": "In",
 			"values":   []interface{}{workload.Spec.Workspace},
@@ -1195,7 +1218,7 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 			}
 			key = v1.K8sHostName
 		}
-		result = append(result, map[string]interface{}{
+		customerExprs = append(customerExprs, map[string]interface{}{
 			"key":      key,
 			"operator": operator,
 			"values":   values,
@@ -1212,13 +1235,13 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 		for i := range nodes {
 			values = append(values, nodes[i])
 		}
-		result = append(result, map[string]interface{}{
+		approvedExpr = append(approvedExpr, map[string]interface{}{
 			"key":      v1.K8sHostName,
 			"operator": "In",
 			"values":   values,
 		})
 	}
-	return result
+	return workspaceExpr, customerExprs, approvedExpr
 }
 
 // isHostNodeConstraint reports customer labels that select or exclude nodes by hostname.
