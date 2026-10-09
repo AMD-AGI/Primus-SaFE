@@ -7,8 +7,15 @@ package ops_job
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +23,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	gcrname "github.com/google/go-containerregistry/pkg/name"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -196,16 +204,16 @@ func TestGenerateTargetImageName(t *testing.T) {
 		"reg.example.com:5000/proxy/Library/Python:3.12-slim":                    "custom/library/python:20261008180405-a1b2c3",
 		"reg.example.com/proxy/library/python@sha256:" + strings.Repeat("a", 64): "custom/library/python:20261008180405-a1b2c3",
 	} {
-		got, err := generateTargetImageName(src, now, "a1b2c3")
+		got, err := generateTargetImageName("custom", src, now, "a1b2c3")
 		assert.NoError(t, err, src)
 		assert.Equal(t, want, got, src)
 	}
-	_, err := generateTargetImageName("Not A Reference", now, "a1b2c3")
+	_, err := generateTargetImageName("custom", "Not A Reference", now, "a1b2c3")
 	assert.Error(t, err)
 
 	// Two exports of one image in the same second never share a tag.
-	a, _ := generateTargetImageName("nginx", now, randomSuffix())
-	b, _ := generateTargetImageName("nginx", now, randomSuffix())
+	a, _ := generateTargetImageName("custom", "nginx", now, randomSuffix())
+	b, _ := generateTargetImageName("custom", "nginx", now, randomSuffix())
 	assert.NotEqual(t, a, b)
 	assert.Regexp(t, `^[0-9a-f]{6}$`, randomSuffix())
 }
@@ -321,53 +329,78 @@ func TestExportImageDoSucceeds(t *testing.T) {
 	assert.Equal(t, "p1", pe.Pod)
 	assert.Equal(t, "main", pe.Container)
 	assert.Equal(t, "reg/x@sha256:"+strings.Repeat("a", 64), req.ImageID)
-	assert.Equal(t, int64(100), req.StartedAt.Unix())
+	// Without settings for the cluster, the image is staged and published in the default
+	// registry, and each export gets a staging repository of its own.
+	assert.Equal(t, "harbor.local/save-staging/e1", req.Staging.String())
+	assert.Equal(t, req.Target, req.Assembly)
 }
 
-// The workload's own pull secrets open the base image's registry, but the platform's
-// credential decides how the target registry is written to.
-func TestExportImageKeychainOrder(t *testing.T) {
+// A cluster whose containers cannot reach the target registry stages in a registry they
+// can reach, and the image is put together there under the target's path.
+func TestExportImageClusterDestination(t *testing.T) {
 	r, req, cleanup := exportFixture(t, nil)
 	defer cleanup()
-	pull := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "pull", Namespace: "ws1"},
-		Type:       corev1.SecretTypeDockerConfigJson,
-		Data: map[string][]byte{corev1.DockerConfigJsonKey: []byte(`{"auths":{` +
-			`"private.example.com":{"auth":"` + base64.StdEncoding.EncodeToString([]byte("user:pull")) + `"},` +
-			`"harbor.local":{"auth":"` + base64.StdEncoding.EncodeToString([]byte("user:mine")) + `"}}}`)},
+	viper.Set("save_image.clusters", []map[string]any{{
+		"cluster": "c1", "target_registry": "central.example.com", "target_project": "saved",
+		"staging_registry": "edge.example.com", "staging_project": "stage",
+		"staging_ca_secret": "harbor/edge-ca", "replication_timeout_second": 120,
+	}})
+	defer viper.Reset()
+	testCA := selfSignedPEM(t)
+	ca := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "edge-ca", Namespace: "harbor"},
+		Data:       map[string][]byte{"ca.crt": []byte(testCA)},
 	}
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ws1"},
-		Spec: corev1.PodSpec{
-			Containers:       []corev1.Container{{Name: "main"}},
-			ImagePullSecrets: []corev1.LocalObjectReference{{Name: "pull"}, {Name: "missing"}},
-		},
-		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{runningStatus("main")}},
-	}
-	cs := k8sfake.NewSimpleClientset(pod, pull)
-	patches := gomonkey.ApplyFunc(rmutils.GetK8sClientFactory,
-		func(_ *commonutils.ObjectManager, _ string) (*commonclient.ClientFactory, error) {
-			return commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs), nil
-		})
-	defer patches.Reset()
+	assert.NoError(t, r.Create(context.Background(), ca))
 
 	_, err := r.Do(context.Background(), "e1")
 	assert.NoError(t, err)
-	authFor := func(host string) string {
-		reg, err := gcrname.NewRegistry(host)
-		assert.NoError(t, err)
-		a, err := req.Keychain.Resolve(reg)
-		assert.NoError(t, err)
-		cfg, err := a.Authorization()
-		assert.NoError(t, err)
-		return cfg.Auth
+	assert.Regexp(t, `^central\.example\.com/saved/library/python:[0-9]{14}-[0-9a-f]{6}$`, req.Target.String())
+	assert.Equal(t, "edge.example.com/"+req.Target.RepositoryStr()+":"+req.Target.TagStr(), req.Assembly.String())
+	assert.Equal(t, "edge.example.com/stage/e1", req.Staging.String())
+	assert.Equal(t, 120*time.Second, req.ReplicationTimeout)
+	assert.Equal(t, testCA, string(req.CA), "the container checks the staging registry against its CA")
+
+	// Only the platform's credential is used: it is the one every registry is written with.
+	reg, err := gcrname.NewRegistry("harbor.local")
+	assert.NoError(t, err)
+	a, err := req.Keychain.Resolve(reg)
+	assert.NoError(t, err)
+	cfg, err := a.Authorization()
+	assert.NoError(t, err)
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("admin:secret")), cfg.Auth)
+}
+
+func selfSignedPEM(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	assert.NoError(t, err)
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "edge"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
 	}
-	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("user:pull")), authFor("private.example.com"))
-	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("admin:secret")), authFor("harbor.local"))
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	assert.NoError(t, err)
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}
+
+func TestExportImageClusterDestinationRefusesAMissingCA(t *testing.T) {
+	r, _, cleanup := exportFixture(t, nil)
+	defer cleanup()
+	viper.Set("save_image.clusters", []map[string]any{{"cluster": "c1", "staging_ca_secret": "harbor/missing"}})
+	defer viper.Reset()
+	ctx := context.Background()
+	_, err := r.Do(ctx, "e1")
+	assert.NoError(t, err)
+	updated := &v1.OpsJob{}
+	assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e1"}, updated))
+	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
+	assert.Contains(t, updated.Status.Conditions[0].Message, "harbor/missing")
 }
 
 func TestExportImageDoFailsForANonRootContainer(t *testing.T) {
-	r, _, cleanup := exportFixture(t, fmt.Errorf("%w (uid 1000): exporting it would leave out the files it cannot read", exportimage.ErrNotRoot))
+	r, _, cleanup := exportFixture(t, fmt.Errorf("%w (uid 1000): saving it would leave out the files it cannot read", exportimage.ErrNotRoot))
 	defer cleanup()
 	ctx := context.Background()
 	_, err := r.Do(ctx, "e1")

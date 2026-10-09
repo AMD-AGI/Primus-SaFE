@@ -3,21 +3,29 @@
  * See LICENSE for license information.
  */
 
-// Package exportimage saves a running container as a new image without touching the node.
+// Package exportimage saves a running container as a new image without moving its data
+// through the control plane.
 //
-// Everything it needs from the container comes through pods/exec: a listing of the root
-// file system and a tar of the paths that changed. The layer is assembled in this process,
-// put on top of the image the container was started from (read from the registry by the
-// digest the runtime reported), and pushed with credentials that never enter the
-// container. A container on a kubelet and one on a virtual kubelet take the same path.
+// The container does the heavy part itself. A static program the platform puts on the
+// Pod's shared volume (see package agent) finds what changed since the launcher handed
+// over to the user, measures deletions against the list of files the launcher recorded
+// when the container started, and uploads that as one layer blob to a staging repository
+// made for this export, with a short-lived token that can push there and nowhere else.
+// This package issues that token, starts the program through pods/exec (the token
+// travels on its standard input), and then puts the image together in the registry
+// itself: the base image's layers and the staged layer are mounted, and only the config
+// and manifest are written. Nothing the container reports is trusted beyond where to
+// find its layer: the base is the digest the runtime reported, and what is published is
+// what the registry holds. A container on a kubelet and one on a virtual kubelet take the
+// same path.
 package exportimage
 
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -26,108 +34,73 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/google/go-containerregistry/pkg/v1/stream"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
+
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/ops_job/exportimage/agent"
 )
 
-// ErrNotRoot is returned for a container that does not run as root. Such a process cannot
-// read every file of its own root file system, so the export would silently miss some.
-var ErrNotRoot = errors.New("the container does not run as root")
+var (
+	// ErrNotRoot is returned for a container that does not run as root.
+	ErrNotRoot = agent.ErrNotRoot
+	// ErrPredatesSaveImage is returned for a container started before the platform
+	// recorded its files and installed the export program.
+	ErrPredatesSaveImage = errors.New("the container was started before it could be saved as an image; " +
+		"restart the workload, then save it again")
+)
 
-// LauncherRunFile is where the platform launcher writes the user's entry point, relative to
-// the container's working directory, once its own bootstrap (driver builds, sshd, socat,
-// certificates) is done and immediately before it starts the entry point. Its change time
-// is the boundary between what the platform wrote and what the user did.
-const LauncherRunFile = ".run.sh"
+const (
+	// maxLayerSize bounds the layer a container may stage.
+	maxLayerSize = 500 << 30
+	// tokenMargin is how long before its token expires the agent stops.
+	tokenMargin = time.Minute
+	// maxResponse bounds what the agent may print.
+	maxResponse = 64 << 10
+)
 
-const launcherScript = "/shared-data/launcher.sh"
-
-const mountinfoMarker = "--- mountinfo"
-
-// probeScript reports what the export depends on. It runs in the container's working
-// directory, which is where the launcher wrote its entry point.
+// probeScript reports what the export depends on.
 var probeScript = `echo "uid=$(id -u)"
-if find --version 2>/dev/null | head -n 1 | grep -q GNU; then echo gnufind=1; fi
-if tar --version 2>/dev/null | head -n 1 | grep -q GNU; then echo gnutar=1; fi
-if [ -e ` + launcherScript + ` ]; then echo launcher=1; fi
-if [ -e ./` + LauncherRunFile + ` ]; then find ./` + LauncherRunFile + ` -maxdepth 0 -printf 'runfile=%C@\n'; fi
-echo "` + mountinfoMarker + `"
-cat /proc/self/mountinfo
+if [ -x ` + agent.BinaryPath + ` ]; then echo agent=1; fi
+if [ -s ` + agent.BaselinePath + ` ]; then echo baseline=1; fi
 `
 
 // Probe is what the container reported about itself.
 type Probe struct {
-	UID         int
-	GNUFind     bool
-	GNUTar      bool
-	Launcher    bool
-	RunFile     *Timestamp
-	MountPoints []string
+	UID      int
+	Agent    bool
+	Baseline bool
 }
 
 // ParseProbe parses probeScript's output.
-func ParseProbe(out string) (Probe, error) {
+func ParseProbe(out string) Probe {
 	p := Probe{UID: -1}
-	head, mountinfo, ok := strings.Cut(out, mountinfoMarker+"\n")
-	if !ok {
-		return p, fmt.Errorf("the container did not report its mount table")
-	}
-	for _, line := range strings.Split(head, "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		k, v, _ := strings.Cut(strings.TrimSpace(line), "=")
 		switch k {
 		case "uid":
 			if n, err := strconv.Atoi(v); err == nil {
 				p.UID = n
 			}
-		case "gnufind":
-			p.GNUFind = true
-		case "gnutar":
-			p.GNUTar = true
-		case "launcher":
-			p.Launcher = true
-		case "runfile":
-			ts, err := ParseTimestamp(v)
-			if err != nil {
-				return p, err
-			}
-			p.RunFile = &ts
+		case "agent":
+			p.Agent = true
+		case "baseline":
+			p.Baseline = true
 		}
 	}
-	p.MountPoints = ParseMountPoints(mountinfo)
-	return p, nil
+	return p
 }
 
-// Check refuses a container the export cannot read completely.
+// Check refuses a container the export cannot save.
 func (p Probe) Check() error {
 	switch {
+	case !p.Agent || !p.Baseline:
+		return ErrPredatesSaveImage
 	case p.UID < 0:
 		return fmt.Errorf("cannot determine the container's user id")
 	case p.UID != 0:
-		return fmt.Errorf("%w (uid %d): exporting it would leave out the files it cannot read", ErrNotRoot, p.UID)
-	case !p.GNUFind || !p.GNUTar:
-		return fmt.Errorf("the container has no GNU find and GNU tar, which the export runs inside it")
+		return fmt.Errorf("%w (uid %d): saving it would leave out the files it cannot read", ErrNotRoot, p.UID)
 	}
 	return nil
-}
-
-// Threshold returns the change time after which a file belongs to the user. In a container
-// the launcher started, that is when the launcher handed over to the user's entry point:
-// everything it installed before then (a few thousand files, SSH host keys among them) is
-// platform state, not part of the user's image. A container without the launcher has only
-// the runtime's start time.
-func (p Probe) Threshold(startedAt time.Time) (Timestamp, string, error) {
-	if p.Launcher {
-		if p.RunFile == nil {
-			return Timestamp{}, "", fmt.Errorf("the platform launcher ran in this container but its %s is not "+
-				"in the working directory, so what the launcher installed cannot be told apart from the user's changes", LauncherRunFile)
-		}
-		return *p.RunFile, "launcher hand-over", nil
-	}
-	if startedAt.IsZero() {
-		return Timestamp{}, "", fmt.Errorf("the container has no start time")
-	}
-	return Timestamp{Sec: startedAt.Unix()}, "container start", nil
 }
 
 // Request is one export.
@@ -135,25 +108,34 @@ type Request struct {
 	Exec Execer
 	// ImageID is the container status imageID: the digest the container was started from.
 	ImageID string
-	// StartedAt is the container's start time.
-	StartedAt time.Time
-	Target    name.Tag
+	// Staging is the repository, made for this export alone, that the container uploads
+	// its layer to.
+	Staging name.Repository
+	// Assembly is where the image is put together; it is in the staging registry.
+	Assembly name.Tag
+	// Target is where the saved image is published. When it is in another registry than
+	// Assembly, that registry's replication carries the image there, and Export waits up
+	// to ReplicationTimeout for it to arrive.
+	Target             name.Tag
+	ReplicationTimeout time.Duration
+	// PollInterval is how often the target is checked while waiting for replication.
+	PollInterval time.Duration
+	// Keychain and Transport are this process's access to the registries.
 	Keychain  authn.Keychain
 	Transport http.RoundTripper
-	Platform  v1.Platform
-	Logf      func(format string, args ...any)
+	// CA is the PEM bundle the container checks the staging registry's certificate
+	// against; empty for a registry its system roots trust.
+	CA       []byte
+	Platform v1.Platform
+	Logf     func(format string, args ...any)
 }
 
-// Result describes a pushed image.
+// Result describes a published image.
 type Result struct {
-	// Digest is the manifest digest of the pushed image.
-	Digest    string
-	Base      string
-	Threshold string
-	Changed   int
-	Deleted   int
-	Skipped   int
-	Layer     LayerStats
+	// Digest is the manifest digest the target registry reports.
+	Digest string
+	Base   string
+	Layer  agent.Response
 }
 
 // Export saves the container as Target.
@@ -162,25 +144,13 @@ func Export(ctx context.Context, req Request) (*Result, error) {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	var probeOut bytes.Buffer
-	if err := runCaptured(ctx, req.Exec, []string{"sh", "-c", probeScript}, nil, &probeOut); err != nil {
+	if err := runCaptured(ctx, req.Exec, []string{"sh", "-c", probeScript}, &probeOut); err != nil {
 		return nil, fmt.Errorf("probing the container: %w", err)
 	}
-	probe, err := ParseProbe(probeOut.String())
-	if err != nil {
+	if err := ParseProbe(probeOut.String()).Check(); err != nil {
 		return nil, err
 	}
-	if err := probe.Check(); err != nil {
-		return nil, err
-	}
-	since, sinceSource, err := probe.Threshold(req.StartedAt)
-	if err != nil {
-		return nil, err
-	}
-	logf("export threshold %d.%09d (%s), %d mount points excluded", since.Sec, since.Nsec, sinceSource, len(probe.MountPoints))
 
 	baseRef, err := ParseImageID(req.ImageID)
 	if err != nil {
@@ -192,148 +162,161 @@ func Export(ctx context.Context, req Request) (*Result, error) {
 		remote.WithTransport(req.Transport),
 		remote.WithPlatform(req.Platform),
 	}
-	base, baseUsed, err := ResolveBase(ctx, BaseCandidates(baseRef, req.Target.RegistryStr()), opts...)
+	base, baseUsed, err := ResolveBase(ctx, BaseCandidates(baseRef, req.Assembly.RegistryStr()), opts...)
 	if err != nil {
 		return nil, err
 	}
-	start := time.Now()
-	baseFiles, err := BaseFileSet(base)
-	if err != nil {
-		return nil, fmt.Errorf("listing %s: %w", baseUsed, err)
-	}
-	logf("base %s: %d paths (%s)", baseUsed, len(baseFiles), time.Since(start).Round(time.Millisecond))
 
-	current, err := listContainer(ctx, req.Exec)
+	auth, err := req.Keychain.Resolve(req.Staging)
 	if err != nil {
 		return nil, err
 	}
-	changes := ComputeChanges(baseFiles, current, since, NewFilter(probe.MountPoints))
-	logf("container: %d paths, %d changed, %d deleted, %d skipped", len(current), len(changes.Changed), len(changes.Deleted), changes.Skipped)
+	token, err := IssuePushToken(ctx, req.Staging, auth, req.Transport)
+	if err != nil {
+		return nil, err
+	}
+	deadline := token.Expiry.Add(-tokenMargin)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	if !deadline.After(time.Now()) {
+		return nil, fmt.Errorf("the registry's push token expires too soon (%s)", token.Expiry.UTC().Format(time.RFC3339))
+	}
+	logf("base %s; container uploads to %s until %s", baseUsed, req.Staging, deadline.UTC().Format(time.RFC3339))
 
-	stats, digest, err := pushLayer(ctx, req, base, baseFiles, changes, opts)
+	staged, resp, err := runAgent(ctx, req, token, deadline)
 	if err != nil {
 		return nil, err
 	}
-	if len(stats.DroppedPackages) > 0 {
-		logf("dpkg records left out (their files are not in the image): %s", strings.Join(stats.DroppedPackages, " "))
+	logf("container: %d changed, %d deleted, %d skipped, %d vanished, %d resized; layer %s, %d bytes",
+		resp.Changed, resp.Deleted, resp.Skipped, resp.Vanished, resp.Resized, staged.Digest, staged.Size)
+	if len(resp.DroppedPackages) > 0 {
+		logf("dpkg records left out (their files are not in the image): %s", strings.Join(resp.DroppedPackages, " "))
 	}
-	return &Result{
-		Digest:    digest,
-		Base:      baseUsed.String(),
-		Threshold: sinceSource,
-		Changed:   len(changes.Changed),
-		Deleted:   len(changes.Deleted),
-		Skipped:   changes.Skipped,
-		Layer:     stats,
-	}, nil
+
+	// The layer is located by the container's report, and checked against the registry.
+	c, err := newRegistryClient(ctx, req.Staging.Registry, auth, req.Transport, req.Staging.Scope(transport.PullScope))
+	if err != nil {
+		return nil, err
+	}
+	size, ok, err := c.BlobSize(ctx, req.Staging, staged.Digest)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("checking the uploaded layer: %w", err)
+	case !ok:
+		return nil, fmt.Errorf("the container reported layer %s, which is not in %s", staged.Digest, req.Staging)
+	case size != staged.Size:
+		return nil, fmt.Errorf("layer %s in %s has %d bytes, not the %d the container reported", staged.Digest, req.Staging, size, staged.Size)
+	case size > maxLayerSize:
+		return nil, fmt.Errorf("the layer has %d bytes, more than the %d a saved image may add", size, int64(maxLayerSize))
+	}
+
+	digest, err := Assemble(ctx, base, baseUsed.Context(), req.Staging, staged, req.Assembly, auth, req.Transport)
+	if err != nil {
+		return nil, err
+	}
+	logf("put together %s@%s", req.Assembly, digest)
+	if req.Target.RegistryStr() != req.Assembly.RegistryStr() || req.Target.RepositoryStr() != req.Assembly.RepositoryStr() {
+		if err := waitForImage(ctx, req.Target, digest, req.ReplicationTimeout, req.PollInterval, opts); err != nil {
+			return nil, err
+		}
+		logf("replicated to %s", req.Target)
+	}
+	return &Result{Digest: digest.String(), Base: baseUsed.String(), Layer: *resp}, nil
 }
 
-func listContainer(ctx context.Context, ex Execer) ([]Entry, error) {
-	pr, pw := io.Pipe()
-	stderr := &limitedBuffer{max: 4096}
-	done := make(chan error, 1)
-	go func() {
-		err := ex.Exec(ctx, listCommand, nil, pw, stderr)
-		pw.CloseWithError(err)
-		done <- err
-	}()
-	entries, perr := ParseListing(pr)
-	pr.CloseWithError(errors.New("listing parser stopped"))
-	if err := <-done; err != nil {
-		return nil, fmt.Errorf("listing the container's files: %w: %s", err, stderr.String())
-	}
-	if perr != nil {
-		return nil, perr
-	}
-	return entries, nil
-}
-
-func pushLayer(ctx context.Context, req Request, base v1.Image, baseFiles map[string]bool, ch Changes, opts []remote.Option) (LayerStats, string, error) {
-	inImage := ImageContains(baseFiles, ch)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	layerR, layerW := io.Pipe()
-	type built struct {
-		stats LayerStats
-		err   error
-	}
-	builtCh := make(chan built, 1)
-	go func() {
-		archR, archW := io.Pipe()
-		stderr := &limitedBuffer{max: 4096}
-		execErr := make(chan error, 1)
-		go func() {
-			err := req.Exec.Exec(ctx, []string{"sh", "-c", tarScript}, TarInput(ch.Changed), archW, stderr)
-			archW.CloseWithError(err)
-			execErr <- err
-		}()
-		st, err := WriteLayer(layerW, archR, ch.Changed, ch.Deleted, inImage)
-		if err == nil {
-			// The archive ends with padding the tar reader does not consume.
-			_, err = io.Copy(io.Discard, archR)
-		}
-		archR.CloseWithError(errors.New("layer writer stopped"))
-		if e := <-execErr; e != nil && err == nil {
-			err = fmt.Errorf("archiving the changed files in the container: %w: %s", e, stderr.String())
-		}
-		layerW.CloseWithError(err)
-		builtCh <- built{st, err}
-	}()
-
-	img, err := mutate.Append(base, mutate.Addendum{
-		Layer: stream.NewLayer(layerR),
-		History: v1.History{
-			Created:   v1.Time{Time: time.Now().UTC()},
-			CreatedBy: "primus-safe exportimage",
-			Comment:   "files changed in the running container",
-		},
+func runAgent(ctx context.Context, req Request, token *PushToken, deadline time.Time) (StagedLayer, *agent.Response, error) {
+	in, err := json.Marshal(agent.Request{
+		Registry:   req.Staging.RegistryStr(),
+		Repository: req.Staging.RepositoryStr(),
+		Token:      token.Value,
+		CA:         string(req.CA),
+		Deadline:   deadline,
 	})
-	if err == nil {
-		err = remote.Write(req.Target, img, opts...)
-	}
 	if err != nil {
-		layerR.CloseWithError(err)
-		cancel()
-		b := <-builtCh
-		if b.err != nil {
-			return b.stats, "", fmt.Errorf("pushing %s: %w (layer: %v)", req.Target, err, b.err)
-		}
-		return b.stats, "", fmt.Errorf("pushing %s: %w", req.Target, err)
+		return StagedLayer{}, nil, err
 	}
-	b := <-builtCh
-	if b.err != nil {
-		return b.stats, "", b.err
-	}
-	d, err := img.Digest()
+	// The agent stops at the deadline on its own; this only bounds the wait for it.
+	ctx, cancel := context.WithDeadline(ctx, deadline.Add(tokenMargin/2))
+	defer cancel()
+	stdout := &limitedBuffer{max: maxResponse}
+	stderr := &limitedBuffer{max: 4096}
+	err = req.Exec.Exec(ctx, []string{agent.BinaryPath, "export"}, bytes.NewReader(in), stdout, stderr)
+	msg := strings.ReplaceAll(stderr.String(), token.Value, "<token>")
 	if err != nil {
-		return b.stats, "", err
+		return StagedLayer{}, nil, fmt.Errorf("saving in the container: %w: %s", err, msg)
 	}
-	return b.stats, d.String(), nil
+	var resp agent.Response
+	if err := json.Unmarshal(stdout.buf.Bytes(), &resp); err != nil || stdout.overflow {
+		return StagedLayer{}, nil, fmt.Errorf("the container's answer cannot be read")
+	}
+	d, err := v1.NewHash(resp.Digest)
+	if err != nil {
+		return StagedLayer{}, nil, fmt.Errorf("the container reported an invalid layer digest")
+	}
+	diffID, err := v1.NewHash(resp.DiffID)
+	if err != nil {
+		return StagedLayer{}, nil, fmt.Errorf("the container reported an invalid layer diff ID")
+	}
+	return StagedLayer{Digest: d, DiffID: diffID, Size: resp.Size}, &resp, nil
 }
 
-func runCaptured(ctx context.Context, ex Execer, cmd []string, stdin io.Reader, stdout io.Writer) error {
+// waitForImage waits for target to hold the manifest digest.
+func waitForImage(ctx context.Context, target name.Tag, digest v1.Hash, timeout, interval time.Duration, opts []remote.Option) error {
+	if timeout <= 0 {
+		return fmt.Errorf("%s is in another registry than the one the image was put together in, and no replication wait is configured", target)
+	}
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	opts = append(append([]remote.Option{}, opts...), remote.WithContext(ctx))
+	last := "not there yet"
+	for {
+		desc, err := remote.Head(target, opts...)
+		switch {
+		case err != nil:
+			last = err.Error()
+		case desc.Digest == digest:
+			return nil
+		default:
+			last = fmt.Sprintf("it holds %s", desc.Digest)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("the saved image %s@%s did not arrive at %s within %s (check the registry's replication rule): %s",
+				target.Context(), digest, target, timeout, last)
+		case <-time.After(interval):
+		}
+	}
+}
+
+func runCaptured(ctx context.Context, ex Execer, cmd []string, stdout *bytes.Buffer) error {
 	stderr := &limitedBuffer{max: 4096}
-	if err := ex.Exec(ctx, cmd, stdin, stdout, stderr); err != nil {
+	if err := ex.Exec(ctx, cmd, nil, stdout, stderr); err != nil {
 		return fmt.Errorf("%w: %s", err, stderr.String())
 	}
 	return nil
 }
 
-// limitedBuffer keeps the first max bytes written to it, for error messages.
+// limitedBuffer keeps the first max bytes written to it.
 type limitedBuffer struct {
-	buf bytes.Buffer
-	max int
+	buf      bytes.Buffer
+	max      int
+	overflow bool
 }
 
 func (l *limitedBuffer) Write(p []byte) (int, error) {
-	if room := l.max - l.buf.Len(); room > 0 {
-		if len(p) > room {
+	room := l.max - l.buf.Len()
+	if len(p) > room {
+		l.overflow = true
+		if room > 0 {
 			l.buf.Write(p[:room])
-		} else {
-			l.buf.Write(p)
 		}
+		return len(p), nil
 	}
+	l.buf.Write(p)
 	return len(p), nil
 }
 

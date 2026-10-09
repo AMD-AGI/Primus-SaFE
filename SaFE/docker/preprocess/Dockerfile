@@ -1,4 +1,14 @@
 ARG REGISTRY=docker.io
+ARG GO_VERSION=1.25.5
+
+# save-image runs inside workload containers (see resource-manager/cmd/save-image): a
+# static binary, so it runs on any image.
+FROM ${REGISTRY}/library/golang:${GO_VERSION} AS save-image
+ARG GOPROXY
+ENV GOPROXY=${GOPROXY} CGO_ENABLED=0 GOOS=linux GOARCH=amd64
+COPY ./SaFE /src
+WORKDIR /src
+RUN go build -trimpath -ldflags='-s -w' -o /out/save-image ./resource-manager/cmd/save-image
 
 FROM ${REGISTRY}/library/ubuntu:22.04
 
@@ -28,6 +38,7 @@ RUN mkdir -p ${APP_HOME}/scripts ${APP_HOME}/drivers ${APP_HOME}/apps \
 COPY ./SaFE/docker/preprocess/*.sh ${APP_HOME}/
 COPY ./SaFE/docker/preprocess/*.py ${APP_HOME}/
 COPY ./SaFE/docker/preprocess/scripts/*.sh ${APP_HOME}/scripts/
+COPY --from=save-image /out/save-image ${APP_HOME}/save-image
 
 # Copy bnxt driver if path is specified
 # Use shell with heredoc to handle conditional copy
@@ -71,6 +82,7 @@ RUN --mount=type=bind,source=.,target=/build_context \
 RUN find "${APP_HOME}" -type d -exec chmod 0755 {} + \
     && find "${APP_HOME}" -type f -exec chmod 0644 {} + \
     && find "${APP_HOME}" -type f -name '*.sh' -exec chmod 0755 {} + \
+    && chmod 0755 "${APP_HOME}/save-image" \
     && useradd --uid 65532 --user-group --no-create-home --shell /usr/sbin/nologin preprocess \
     && chown -R preprocess:preprocess "${APP_HOME}"
 

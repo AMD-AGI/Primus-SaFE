@@ -21,6 +21,13 @@ fi
 
 input="$1"
 
+# Record the files the container started with, before anything below changes them. Saving
+# the container as an image measures deletions against this record. It goes to the shared
+# volume, which is never part of a saved image. A failure only disables saving.
+if [ -x /shared-data/save-image ]; then
+  /shared-data/save-image record || echo "WARN: LAUNCHER: cannot record the image's files; this container cannot be saved as an image" >&2
+fi
+
 export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"
 export NNODES="${PET_NNODES:-${NNODES}}"
 

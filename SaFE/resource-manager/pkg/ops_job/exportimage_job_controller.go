@@ -21,7 +21,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -48,11 +47,20 @@ const (
 	// The registry's CA, for a registry signed by a private CA. Optional.
 	harborTLSNamespace  = "harbor"
 	harborTLSSecretName = "harbor-tls"
+
+	// defaultStagingProject is the registry project the containers' layers are staged in,
+	// one repository per export. It must exist, private, before images are saved.
+	defaultStagingProject = "save-staging"
+	// defaultReplicationTimeout bounds the wait for an image to be replicated to a target
+	// registry other than the staging one.
+	defaultReplicationTimeout = 30 * time.Minute
 )
 
-// ExportImageJobReconciler saves a workload's running container as an image. It reads the
-// container through pods/exec and pushes from this process, so it works the same on every
-// kind of node and the registry credential never enters the user's container.
+// ExportImageJobReconciler saves a workload's running container as an image. The
+// container computes and uploads its own layer, with a token that can write one staging
+// repository; this process only starts it through pods/exec and puts the image together
+// in the registry, so no image data passes through it or the API server, and it works the
+// same on every kind of node.
 type ExportImageJobReconciler struct {
 	*OpsJobBaseReconciler
 	dbClient dbclient.Interface
@@ -187,24 +195,31 @@ func (r *ExportImageJobReconciler) exportJob(ctx context.Context, job *v1.OpsJob
 		return nil, commonerrors.NewBadRequest("workload has no pods")
 	}
 
-	defaultRegistry, err := r.dbClient.GetDefaultRegistryInfo(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get default registry: %w", err)
-	}
-	if defaultRegistry == nil || defaultRegistry.URL == "" {
-		return nil, commonerrors.NewBadRequest("default push registry not exist, please contact your administrator")
-	}
-	targetImage, err := generateTargetImageName(sourceImage, time.Now(), randomSuffix())
+	clusterID := v1.GetClusterId(workload)
+	dest, err := r.destination(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
-	fullTargetImage := fmt.Sprintf("%s/%s", defaultRegistry.URL, targetImage)
+	targetPath, err := generateTargetImageName(dest.targetProject, sourceImage, time.Now(), randomSuffix())
+	if err != nil {
+		return nil, err
+	}
+	fullTargetImage := fmt.Sprintf("%s/%s", dest.targetRegistry, targetPath)
 	target, err := name.NewTag(fullTargetImage)
 	if err != nil {
 		return nil, fmt.Errorf("invalid target image %s: %w", fullTargetImage, err)
 	}
+	assembly, err := name.NewTag(fmt.Sprintf("%s/%s", dest.stagingRegistry, targetPath))
+	if err != nil {
+		return nil, fmt.Errorf("invalid image %s/%s: %w", dest.stagingRegistry, targetPath, err)
+	}
+	// One repository per export: the token the container gets can write this one alone.
+	staging, err := name.NewRepository(fmt.Sprintf("%s/%s/%s", dest.stagingRegistry, dest.stagingProject, job.Name))
+	if err != nil {
+		return nil, fmt.Errorf("invalid staging repository: %w", err)
+	}
 
-	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, v1.GetClusterId(workload))
+	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -217,17 +232,12 @@ func (r *ExportImageJobReconciler) exportJob(ctx context.Context, job *v1.OpsJob
 	if err != nil {
 		return nil, err
 	}
-	keychain, transport, err := r.registryAccess(ctx)
+	access, err := r.registryAccess(ctx, dest.stagingCASecret)
 	if err != nil {
 		return nil, err
 	}
-	// The base image may come from a registry only the workload's own pull secrets open.
-	// They are consulted after the platform's credential, so they never decide how the
-	// target registry is written to.
-	keychain = authn.NewMultiKeychain(keychain, podPullKeychain(ctx, k8sClients.ClientSet(), pod))
-
-	klog.Infof("Starting image export: workload=%s, pod=%s/%s, container=%s, target=%s",
-		workloadId, namespace, podName, containerName, fullTargetImage)
+	klog.Infof("Starting image export: workload=%s, pod=%s/%s, container=%s, staging=%s, target=%s",
+		workloadId, namespace, podName, containerName, staging, fullTargetImage)
 	res, err := r.export(ctx, exportimage.Request{
 		Exec: &exportimage.PodExecer{
 			Config:    k8sClients.RestConfig(),
@@ -236,12 +246,15 @@ func (r *ExportImageJobReconciler) exportJob(ctx context.Context, job *v1.OpsJob
 			Pod:       podName,
 			Container: containerName,
 		},
-		ImageID:   status.ImageID,
-		StartedAt: status.State.Running.StartedAt.Time,
-		Target:    target,
-		Keychain:  keychain,
-		Transport: transport,
-		Platform:  gcrv1.Platform{OS: "linux", Architecture: "amd64"},
+		ImageID:            status.ImageID,
+		Staging:            staging,
+		Assembly:           assembly,
+		Target:             target,
+		ReplicationTimeout: dest.replicationTimeout,
+		Keychain:           access.keychain,
+		Transport:          access.transport,
+		CA:                 access.stagingCA,
+		Platform:           gcrv1.Platform{OS: "linux", Architecture: "amd64"},
 		Logf: func(format string, args ...any) {
 			klog.Infof("export %s: "+format, append([]any{job.Name}, args...)...)
 		},
@@ -250,7 +263,7 @@ func (r *ExportImageJobReconciler) exportJob(ctx context.Context, job *v1.OpsJob
 		return nil, err
 	}
 	klog.Infof("Exported image: workload=%s, target=%s, digest=%s, base=%s, changed=%d, deleted=%d",
-		workloadId, fullTargetImage, res.Digest, res.Base, res.Changed, res.Deleted)
+		workloadId, fullTargetImage, res.Digest, res.Base, res.Layer.Changed, res.Layer.Deleted)
 	return []v1.Parameter{
 		{Name: "status", Value: "Completed"},
 		{Name: "target", Value: fullTargetImage},
@@ -295,71 +308,120 @@ func exportContainer(pod *corev1.Pod, mainContainer string) (string, *corev1.Con
 	return "", nil, fmt.Errorf("pod %s has no status for container %s", pod.Name, containerName)
 }
 
-// registryAccess returns the credentials and trust the push uses: the platform's image
-// import credential and, if present, the registry's private CA. Both stay in this process.
-func (r *ExportImageJobReconciler) registryAccess(ctx context.Context) (authn.Keychain, http.RoundTripper, error) {
+// exportDestination is where one cluster's saved images go.
+type exportDestination struct {
+	targetRegistry     string
+	targetProject      string
+	stagingRegistry    string
+	stagingProject     string
+	stagingCASecret    string
+	replicationTimeout time.Duration
+}
+
+// destination reads where a cluster's saved images go. A cluster without settings saves
+// to the default registry, staged in the same registry.
+func (r *ExportImageJobReconciler) destination(ctx context.Context, clusterID string) (*exportDestination, error) {
+	cfg, _, err := commonconfig.GetSaveImageCluster(clusterID)
+	if err != nil {
+		return nil, err
+	}
+	d := &exportDestination{
+		targetRegistry:     cfg.TargetRegistry,
+		targetProject:      cfg.TargetProject,
+		stagingRegistry:    cfg.StagingRegistry,
+		stagingProject:     cfg.StagingProject,
+		stagingCASecret:    cfg.StagingCASecret,
+		replicationTimeout: time.Duration(cfg.ReplicationTimeoutSecond) * time.Second,
+	}
+	if d.targetRegistry == "" {
+		defaultRegistry, err := r.dbClient.GetDefaultRegistryInfo(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get default registry: %w", err)
+		}
+		if defaultRegistry == nil || defaultRegistry.URL == "" {
+			return nil, commonerrors.NewBadRequest("default push registry not exist, please contact your administrator")
+		}
+		d.targetRegistry = defaultRegistry.URL
+	}
+	if d.targetProject == "" {
+		d.targetProject = common.ExportImageProject
+	}
+	if d.stagingRegistry == "" {
+		d.stagingRegistry = d.targetRegistry
+	}
+	if d.stagingProject == "" {
+		d.stagingProject = defaultStagingProject
+	}
+	if d.replicationTimeout <= 0 {
+		d.replicationTimeout = defaultReplicationTimeout
+	}
+	return d, nil
+}
+
+// registryCredentials is this process's access to the registries.
+type registryCredentials struct {
+	keychain  authn.Keychain
+	transport http.RoundTripper
+	// stagingCA is the CA the container checks the staging registry against.
+	stagingCA []byte
+}
+
+// registryAccess returns the credentials and trust the export uses: the platform's image
+// import credential, the built-in registry's private CA if there is one, and the staging
+// registry's CA if one is configured ("<namespace>/<name>", key ca.crt). The credential
+// stays in this process; only the staging CA goes to the container.
+func (r *ExportImageJobReconciler) registryAccess(ctx context.Context, stagingCASecret string) (*registryCredentials, error) {
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, apitypes.NamespacedName{
 		Name:      common.ImageImportSecretName,
 		Namespace: common.PrimusSafeNamespace,
 	}, secret); err != nil {
-		return nil, nil, fmt.Errorf("failed to get secret %s: %w", common.ImageImportSecretName, err)
+		return nil, fmt.Errorf("failed to get secret %s: %w", common.ImageImportSecretName, err)
 	}
 	configData, ok := secret.Data["config.json"]
 	if !ok {
-		return nil, nil, fmt.Errorf("config.json not found in secret %s", common.ImageImportSecretName)
+		return nil, fmt.Errorf("config.json not found in secret %s", common.ImageImportSecretName)
 	}
 	keychain, err := exportimage.NewConfigKeychain(configData)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	var ca []byte
+	var builtinCA []byte
 	caSecret := &corev1.Secret{}
 	err = r.Get(ctx, apitypes.NamespacedName{Namespace: harborTLSNamespace, Name: harborTLSSecretName}, caSecret)
 	switch {
 	case err == nil:
-		ca = caSecret.Data["ca.crt"]
+		builtinCA = caSecret.Data["ca.crt"]
 	case !apierrors.IsNotFound(err):
-		return nil, nil, fmt.Errorf("failed to get secret %s/%s: %w", harborTLSNamespace, harborTLSSecretName, err)
+		return nil, fmt.Errorf("failed to get secret %s/%s: %w", harborTLSNamespace, harborTLSSecretName, err)
 	}
-	transport, err := exportimage.NewTransport(ca)
+	stagingCA := builtinCA
+	if stagingCASecret != "" {
+		ns, n, ok := strings.Cut(stagingCASecret, "/")
+		if !ok || ns == "" || n == "" {
+			return nil, fmt.Errorf("the staging CA secret %q is not <namespace>/<name>", stagingCASecret)
+		}
+		s := &corev1.Secret{}
+		if err := r.Get(ctx, apitypes.NamespacedName{Namespace: ns, Name: n}, s); err != nil {
+			return nil, fmt.Errorf("failed to get secret %s: %w", stagingCASecret, err)
+		}
+		if stagingCA = s.Data["ca.crt"]; len(stagingCA) == 0 {
+			return nil, fmt.Errorf("secret %s has no ca.crt", stagingCASecret)
+		}
+	}
+	transport, err := exportimage.NewTransport(builtinCA, stagingCA)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return keychain, transport, nil
-}
-
-// podPullKeychain reads the pod's image pull secrets. One that cannot be read or parsed
-// is skipped: it only matters if the base image is not readable otherwise, and that
-// failure is reported when the base is read.
-func podPullKeychain(ctx context.Context, cs kubernetes.Interface, pod *corev1.Pod) authn.Keychain {
-	var chains []authn.Keychain
-	for _, ref := range pod.Spec.ImagePullSecrets {
-		secret, err := cs.CoreV1().Secrets(pod.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
-		if err != nil {
-			klog.Warningf("export: cannot read image pull secret %s/%s: %v", pod.Namespace, ref.Name, err)
-			continue
-		}
-		data, ok := secret.Data[corev1.DockerConfigJsonKey]
-		if !ok {
-			continue
-		}
-		kc, err := exportimage.NewConfigKeychain(data)
-		if err != nil {
-			klog.Warningf("export: cannot parse image pull secret %s/%s: %v", pod.Namespace, ref.Name, err)
-			continue
-		}
-		chains = append(chains, kc)
-	}
-	return authn.NewMultiKeychain(chains...)
+	return &registryCredentials{keychain: keychain, transport: transport, stagingCA: stagingCA}, nil
 }
 
 // generateTargetImageName returns the target image without the registry host:
-// custom/<namespace>/<repository>:<YYYYMMDDHHMMSS>-<suffix>. Two exports of the same
+// <project>/<namespace>/<repository>:<YYYYMMDDHHMMSS>-<suffix>. Two exports of the same
 // image in the same second still get different tags, so no export overwrites another.
 // Example: "harbor.example.com/proxy/rocm/7.0-preview:tag" -> "custom/rocm/7.0-preview:20250112093000-1a2b3c"
-func generateTargetImageName(sourceImage string, now time.Time, suffix string) (string, error) {
+func generateTargetImageName(project, sourceImage string, now time.Time, suffix string) (string, error) {
 	// Harbor requires lowercase repository names, and only the repository is kept.
 	ref, err := name.ParseReference(strings.ToLower(sourceImage))
 	if err != nil {
@@ -372,7 +434,7 @@ func generateTargetImageName(sourceImage string, now time.Time, suffix string) (
 		namespace = parts[len(parts)-2]
 	}
 	return fmt.Sprintf("%s/%s/%s:%s-%s",
-		common.ExportImageProject,
+		project,
 		namespace,
 		repository,
 		now.UTC().Format("20060102150405"),

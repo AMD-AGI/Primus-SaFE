@@ -117,8 +117,11 @@ OpsJob(operations job) performs specific administrative tasks in the system. Com
 - The system will automatically retrieve the workload's image and add it to inputs as `{ "name": "image", "value": "..." }`.
 - The `label` parameter is optional and will be displayed as "remark" in the exported image list (`GET /api/v1/images/custom`).
 - The caller needs update permission on the workload (its owner, or a role that grants update); seeing the workload is not enough.
-- The workload's main container must be running, as root. The export reads it through the Kubernetes exec API, so it works the same on every node type. The new image is the image the container was started from plus one layer with what changed since: files the platform's launcher installed before handing over to the user's entry point, SSH host keys, volumes and other mounts, and runtime files such as `/etc/hosts` are left out, and deleted files are recorded as whiteouts.
-- On success the job outputs `target` (`<default registry>/custom/<namespace>/<repository>:<YYYYMMDDHHMMSS>-<random>`) and `digest` (the pushed manifest digest).
+- The workload's main container must be running, as root, and must have been started by a platform version that supports saving: the launcher records the image's files when the container starts. An older container is refused with a request to restart it.
+- No image data passes through the control plane. A program the platform puts on the Pod's shared volume computes, inside the container, what changed since the launcher handed over to the user's entry point, and uploads it as one layer to a staging repository made for this job, with a short-lived token that can write that repository only (sent on the program's standard input). The resource manager then puts the image together in the registry by mounting the base image's layers and the new layer, and writes only the config and manifest. Left out of the layer: files the launcher installed before the hand-over, SSH host keys, volumes and other mounts, and runtime files such as `/etc/hosts`; deleted files are recorded as whiteouts.
+- The image the container was started from (its runtime image ID digest) must be in the staging registry; otherwise the job fails rather than copying it.
+- Where images are staged and published is set per cluster (`save_image.clusters` in the chart values). When the staging registry is not the target registry, the registry's own replication must carry the target project across; the job waits for the image to arrive and fails with a message naming the replication rule when it does not.
+- On success the job outputs `target` (`<target registry>/custom/<namespace>/<repository>:<YYYYMMDDHHMMSS>-<random>`) and `digest` (the manifest digest the target registry reports).
 - With the built-in Harbor, the `custom` project is created public when it is missing, so workloads can pull saved images without a pull secret. A saved image is readable by anyone who can reach the registry: do not keep credentials in a container you save.
 
 **Request Example (prewarm)**:
@@ -207,7 +210,7 @@ Notes:
 - For dumplog, inputs must include a workload selector.
 - For addon, typically include `addon.template` or `node.template` or `script` and one of node/workload/workspace/cluster.
 - For preflight, inputs must include one of node/workload/workspace/cluster/node.host.
-- For exportimage, inputs must include a workload selector. The job saves the workload's running main container as a new image in the default registry.
+- For exportimage, inputs must include a workload selector. The job saves the workload's running main container as a new image in the cluster's target registry (the default registry unless configured).
 - For preheat, inputs must include both `image` and `workspace`. The job will pre-pull the image to all nodes in the workspace.
 - For download, inputs must include both `secret`(for s3), `workspace`, `dest.path`(download path) and `endpoint`(input url).
 

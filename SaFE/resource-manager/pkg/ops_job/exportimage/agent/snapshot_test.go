@@ -3,34 +3,13 @@
  * See LICENSE for license information.
  */
 
-package exportimage
+package agent
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
-
-func TestParseTimestamp(t *testing.T) {
-	ts, err := ParseTimestamp("1791483545.5881364110")
-	require.NoError(t, err)
-	assert.Equal(t, Timestamp{Sec: 1791483545, Nsec: 588136411}, ts)
-
-	ts, err = ParseTimestamp("1791483545.5")
-	require.NoError(t, err)
-	assert.Equal(t, Timestamp{Sec: 1791483545, Nsec: 500000000}, ts)
-
-	ts, err = ParseTimestamp("17")
-	require.NoError(t, err)
-	assert.Equal(t, Timestamp{Sec: 17}, ts)
-
-	for _, bad := range []string{"", "x", "1.2x", "1.-2"} {
-		_, err := ParseTimestamp(bad)
-		assert.Error(t, err, bad)
-	}
-}
 
 // The comparison is made below a microsecond: a file the launcher wrote in the same
 // second as its hand-over, but earlier, must not count as the user's.
@@ -41,22 +20,6 @@ func TestTimestampAfterComparesNanoseconds(t *testing.T) {
 	assert.True(t, Timestamp{Sec: 100, Nsec: 588136412}.After(handover))
 	assert.True(t, Timestamp{Sec: 101}.After(handover))
 	assert.False(t, Timestamp{Sec: 99, Nsec: 999999999}.After(handover))
-}
-
-func TestParseListing(t *testing.T) {
-	out := "d 1.0000000000 /\x00f 2.5000000000 /etc/a b\x00l 3.0 /usr/bin/x\nwith-newline\x00"
-	entries, err := ParseListing(strings.NewReader(out))
-	require.NoError(t, err)
-	assert.Equal(t, []Entry{
-		{Path: "/", Type: 'd', Ctime: Timestamp{Sec: 1}},
-		{Path: "/etc/a b", Type: 'f', Ctime: Timestamp{Sec: 2, Nsec: 500000000}},
-		{Path: "/usr/bin/x\nwith-newline", Type: 'l', Ctime: Timestamp{Sec: 3}},
-	}, entries)
-
-	_, err = ParseListing(strings.NewReader("f 1.0 /a\x00f 1.0 /b"))
-	assert.Error(t, err, "a listing cut short must not parse as complete")
-	_, err = ParseListing(strings.NewReader("garbage\x00"))
-	assert.Error(t, err)
 }
 
 func TestParseMountPoints(t *testing.T) {

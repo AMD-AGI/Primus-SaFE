@@ -3,13 +3,9 @@
  * See LICENSE for license information.
  */
 
-package exportimage
+package agent
 
 import (
-	"bufio"
-	"bytes"
-	"fmt"
-	"io"
 	"path"
 	"sort"
 	"strconv"
@@ -32,82 +28,14 @@ func (t Timestamp) After(o Timestamp) bool {
 	return t.Nsec > o.Nsec
 }
 
-// ParseTimestamp parses the "%C@" form printed by GNU find: seconds, optionally followed
-// by a fraction of up to ten digits ("1759946294.1234567890").
-func ParseTimestamp(s string) (Timestamp, error) {
-	secPart, fracPart, _ := strings.Cut(strings.TrimSpace(s), ".")
-	sec, err := strconv.ParseInt(secPart, 10, 64)
-	if err != nil {
-		return Timestamp{}, fmt.Errorf("invalid timestamp %q", s)
-	}
-	if len(fracPart) > 9 {
-		fracPart = fracPart[:9]
-	}
-	var nsec int64
-	if fracPart != "" {
-		for _, c := range fracPart {
-			if c < '0' || c > '9' {
-				return Timestamp{}, fmt.Errorf("invalid timestamp %q", s)
-			}
-		}
-		fracPart += strings.Repeat("0", 9-len(fracPart))
-		if nsec, err = strconv.ParseInt(fracPart, 10, 64); err != nil {
-			return Timestamp{}, fmt.Errorf("invalid timestamp %q", s)
-		}
-	}
-	return Timestamp{Sec: sec, Nsec: nsec}, nil
-}
-
-// Entry is one path of the container's root filesystem as listed inside the container.
+// Entry is one path of the container's root file system.
 type Entry struct {
 	// Path is absolute and clean, e.g. "/usr/bin/python3".
 	Path string
-	// Type is the GNU find %y letter: f, d, l, b, c, p or s.
+	// Type is one letter, as GNU find's %y prints it: f, d, l, b, c, p or s.
 	Type byte
 	// Ctime is the inode's last status change.
 	Ctime Timestamp
-}
-
-// listCommand lists the root filesystem without crossing into other filesystems. Each
-// record is "<type> <ctime> <path>" terminated by NUL, so any byte but NUL may appear in a
-// path. -ignore_readdir_race keeps a file that disappears mid-walk from failing the
-// listing; every other error (an unreadable directory above all) fails it, because a
-// directory that could not be read would otherwise look like one whose files were deleted.
-var listCommand = []string{"find", "/", "-xdev", "-ignore_readdir_race", "-printf", `%y %C@ %p\0`}
-
-// ParseListing parses the output of listCommand.
-func ParseListing(r io.Reader) ([]Entry, error) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64*1024), 1024*1024)
-	sc.Split(splitNUL)
-	var out []Entry
-	for sc.Scan() {
-		rec := sc.Text()
-		typ, rest, ok1 := strings.Cut(rec, " ")
-		ts, p, ok2 := strings.Cut(rest, " ")
-		if !ok1 || !ok2 || len(typ) != 1 || !strings.HasPrefix(p, "/") {
-			return nil, fmt.Errorf("malformed listing record %q", rec)
-		}
-		ctime, err := ParseTimestamp(ts)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, Entry{Path: path.Clean(p), Type: typ[0], Ctime: ctime})
-	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("reading listing: %w", err)
-	}
-	return out, nil
-}
-
-func splitNUL(data []byte, atEOF bool) (int, []byte, error) {
-	if i := bytes.IndexByte(data, 0); i >= 0 {
-		return i + 1, data[:i], nil
-	}
-	if atEOF && len(data) > 0 {
-		return 0, nil, fmt.Errorf("listing ends without a NUL terminator")
-	}
-	return 0, nil, nil
 }
 
 // ParseMountPoints returns the mount points (field 5) of a /proc/<pid>/mountinfo, except
@@ -212,9 +140,9 @@ type Changes struct {
 
 const whiteoutPrefix = ".wh."
 
-// ComputeChanges compares the container's current listing with the base image's file set.
+// ComputeChanges compares the container's current listing with the files it started with.
 // A path is changed when its status-change time is later than since; it is deleted when
-// the base image has it and the container does not.
+// the container started with it and no longer has it.
 func ComputeChanges(base map[string]bool, current []Entry, since Timestamp, f Filter) Changes {
 	var ch Changes
 	types := make(map[string]byte, len(current))

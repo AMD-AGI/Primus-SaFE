@@ -3,7 +3,7 @@
  * See LICENSE for license information.
  */
 
-package exportimage
+package agent
 
 import (
 	"bytes"

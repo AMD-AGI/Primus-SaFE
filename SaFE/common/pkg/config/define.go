@@ -224,4 +224,7 @@ const (
 	modelOptimizationDefaultWS    = modelOptimizationPrefix + "default_workspace"
 	modelOptimizationConcurrency  = modelOptimizationPrefix + "max_concurrent"
 	modelOptimizationClawPluginID = modelOptimizationPrefix + "claw_plugin_id"
+
+	// save_image: where a saved workload image is staged and published, per cluster
+	saveImageClusters = "save_image.clusters"
 )

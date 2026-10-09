@@ -344,6 +344,21 @@ model_optimization:
   # per-deploy via .env `optimize_max_concurrent` (synced into values.yaml by
   # upgrade.sh and into the live apiserver ConfigMap by cd-deploy.sh).
   max_concurrent: 1024
+# Save Image: where a cluster's saved workload images are staged and published. A cluster
+# without an entry stages and publishes in the default registry. Each entry:
+#   cluster: <cluster id>
+#   target_registry: registry the saved image is published in (default: the default registry)
+#   target_project: project in it (default: custom)
+#   staging_registry: registry the container uploads its layer to; it must reach it, and it
+#     must already hold the image the container was started from (default: target_registry)
+#   staging_project: private project, one repository per export (default: save-staging)
+#   staging_ca_secret: <namespace>/<name> of a Secret whose ca.crt signs staging_registry
+#   replication_timeout_second: when staging_registry is not target_registry, how long to
+#     wait for the registry's replication rule to carry the image across (default: 1800)
+#   host_aliases: [{ip: ..., hostnames: [...]}] added to every Pod of the cluster
+save_image:
+  clusters: []
+
 external_execution:
   # Off by default: with it off, external objects are rejected at admission and no
   # capacity demand is published. Enable per site via .env (upgrade.sh / cd-deploy.sh):

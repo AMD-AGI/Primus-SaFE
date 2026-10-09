@@ -7,16 +7,22 @@ package exportimage
 
 import (
 	"archive/tar"
-	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"net/http/httptest"
+	"os"
 	"path"
-	"sort"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,244 +36,494 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/ops_job/exportimage/agent"
 )
 
-type fakeFile struct {
-	typ   byte
-	ctime int64
-	data  string
-	link  string
+// fakeHarbor is a registry with a token service, blobs kept per repository and
+// cross-repository mounts, which counts the bytes each token moves.
+type fakeHarbor struct {
+	host  string // name:port
+	addr  string
+	srv   *httptest.Server
+	inner http.Handler
+
+	mu         sync.Mutex
+	blobs      map[string]map[string]bool
+	tokens     map[string]string // jti -> requested scopes
+	moved      map[string]int64  // jti -> request and response body bytes
+	issued     int
+	noMount    bool
+	extraGrant string
+	onManifest func(repo, ref string)
 }
 
-// fakeContainer answers the three commands the export runs, the way a container with GNU
-// find and GNU tar would.
-type fakeContainer struct {
-	uid        int
-	gnu        bool
-	launcher   bool
-	runfile    int64 // 0: no .run.sh
-	mounts     []string
-	files      map[string]fakeFile
-	tarErr     error
-	tarExtra   string // a member the tar step adds without being asked
-	ranTar     bool
-	ranListing bool
-}
+const platformUser, platformPassword = "platform", "secret"
 
-func (c *fakeContainer) Exec(_ context.Context, cmd []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	switch {
-	case len(cmd) == 3 && cmd[2] == probeScript:
-		fmt.Fprintf(stdout, "uid=%d\n", c.uid)
-		if c.gnu {
-			fmt.Fprint(stdout, "gnufind=1\ngnutar=1\n")
-		}
-		if c.launcher {
-			fmt.Fprint(stdout, "launcher=1\n")
-		}
-		if c.runfile != 0 {
-			fmt.Fprintf(stdout, "runfile=%d.0000000000\n", c.runfile)
-		}
-		fmt.Fprintln(stdout, mountinfoMarker)
-		fmt.Fprintln(stdout, "1 0 0:1 / / rw - overlay overlay rw")
-		for i, m := range c.mounts {
-			fmt.Fprintf(stdout, "%d 1 0:%d / %s rw - tmpfs tmpfs rw\n", i+2, i+2, m)
-		}
-		return nil
-	case len(cmd) > 0 && cmd[0] == "find":
-		c.ranListing = true
-		for _, p := range c.sorted() {
-			if c.underMount(p) {
-				continue
-			}
-			f := c.files[p]
-			fmt.Fprintf(stdout, "%c %d.0000000000 %s\x00", f.typ, f.ctime, p)
-		}
-		return nil
-	case len(cmd) == 3 && cmd[2] == tarScript:
-		c.ranTar = true
-		all, err := io.ReadAll(stdin)
-		if err != nil {
-			return err
-		}
-		tw := tar.NewWriter(stdout)
-		for _, n := range strings.Split(strings.TrimSuffix(string(all), "\x00"), "\x00") {
-			if n == "" {
-				continue
-			}
-			p := path.Clean("/" + n)
-			f, ok := c.files[p]
-			if !ok {
-				continue // vanished
-			}
-			writeFakeMember(tw, n, f)
-		}
-		if c.tarExtra != "" {
-			writeFakeMember(tw, c.tarExtra, fakeFile{typ: 'f', data: "x"})
-		}
-		_ = tw.Close()
-		return c.tarErr
+func newFakeHarbor(t *testing.T, hostname string) *fakeHarbor {
+	t.Helper()
+	h := &fakeHarbor{
+		inner:  registry.New(registry.Logger(nopLogger())),
+		blobs:  map[string]map[string]bool{},
+		tokens: map[string]string{},
+		moved:  map[string]int64{},
 	}
-	return fmt.Errorf("unexpected command %q", cmd)
+	h.srv = httptest.NewTLSServer(h)
+	t.Cleanup(h.srv.Close)
+	h.addr = h.srv.Listener.Addr().String()
+	_, port, _ := net.SplitHostPort(h.addr)
+	h.host = hostname + ":" + port
+	return h
 }
 
-func writeFakeMember(tw *tar.Writer, n string, f fakeFile) {
-	hdr := &tar.Header{Name: n, Mode: 0o644, Uid: 0, Gid: 0, Uname: "root", ModTime: time.Unix(f.ctime, 0)}
-	switch f.typ {
-	case 'd':
-		hdr.Typeflag, hdr.Name, hdr.Mode = tar.TypeDir, strings.TrimSuffix(n, "/")+"/", 0o755
-	case 'l':
-		hdr.Typeflag, hdr.Linkname = tar.TypeSymlink, f.link
-	default:
-		hdr.Typeflag, hdr.Size = tar.TypeReg, int64(len(f.data))
+type grant struct {
+	Type    string   `json:"type"`
+	Name    string   `json:"name"`
+	Actions []string `json:"actions"`
+}
+
+type claims struct {
+	JTI    string  `json:"jti"`
+	Exp    int64   `json:"exp"`
+	Access []grant `json:"access"`
+}
+
+func encodeJWT(c claims) string {
+	b, _ := json.Marshal(c)
+	enc := base64.RawURLEncoding
+	return enc.EncodeToString([]byte(`{"alg":"none"}`)) + "." + enc.EncodeToString(b) + ".sig"
+}
+
+func (h *fakeHarbor) issue(w http.ResponseWriter, r *http.Request) {
+	user, pass, ok := r.BasicAuth()
+	if !ok || user != platformUser || pass != platformPassword {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
 	}
-	_ = tw.WriteHeader(hdr)
-	_, _ = tw.Write([]byte(f.data))
-}
-
-func (c *fakeContainer) sorted() []string {
-	var out []string
-	for p := range c.files {
-		out = append(out, p)
+	c := claims{Exp: time.Now().Add(30 * time.Minute).Unix()}
+	scopes := r.URL.Query()["scope"]
+	for _, s := range scopes {
+		parts := strings.Split(s, ":")
+		if len(parts) != 3 {
+			continue
+		}
+		c.Access = append(c.Access, grant{Type: parts[0], Name: parts[1], Actions: strings.Split(parts[2], ",")})
 	}
-	sort.Strings(out)
-	return out
+	h.mu.Lock()
+	h.issued++
+	c.JTI = fmt.Sprint(h.issued)
+	h.tokens[c.JTI] = strings.Join(scopes, " ")
+	if h.extraGrant != "" {
+		c.Access = append(c.Access, grant{Type: "repository", Name: h.extraGrant, Actions: []string{"pull", "push"}})
+	}
+	h.mu.Unlock()
+	_ = json.NewEncoder(w).Encode(map[string]any{"token": encodeJWT(c), "expires_in": 1800})
 }
 
-func (c *fakeContainer) underMount(p string) bool {
-	for _, m := range c.mounts {
-		if strings.HasPrefix(p, m+"/") {
-			return true
+func (h *fakeHarbor) bearer(r *http.Request) (*claims, bool) {
+	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok {
+		return nil, false
+	}
+	parts := strings.Split(tok, ".")
+	if len(parts) != 3 {
+		return nil, false
+	}
+	b, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, false
+	}
+	var c claims
+	return &c, json.Unmarshal(b, &c) == nil
+}
+
+func (c *claims) allows(repo, action string) bool {
+	for _, a := range c.Access {
+		if a.Name == repo {
+			for _, act := range a.Actions {
+				if act == action {
+					return true
+				}
+			}
 		}
 	}
 	return false
 }
 
-type world struct {
-	host    string
-	baseID  string
-	target  name.Tag
-	request Request
+// splitPath returns the repository and the rest of a /v2/ path.
+func splitPath(p string) (repo, kind, rest string) {
+	p = strings.TrimPrefix(p, "/v2/")
+	for _, k := range []string{"/blobs/uploads/", "/blobs/", "/manifests/"} {
+		if i := strings.LastIndex(p, k); i >= 0 {
+			return p[:i], strings.Trim(k, "/"), p[i+len(k):]
+		}
+	}
+	return "", "", p
 }
 
-// newWorld pushes a base image to an in-memory registry and returns a request that exports
-// a container started from it.
+type countingResponse struct {
+	http.ResponseWriter
+	status int
+	n      int64
+}
+
+func (c *countingResponse) WriteHeader(s int) { c.status = s; c.ResponseWriter.WriteHeader(s) }
+func (c *countingResponse) Write(b []byte) (int, error) {
+	if c.status == 0 {
+		c.status = http.StatusOK
+	}
+	n, err := c.ResponseWriter.Write(b)
+	c.n += int64(n)
+	return n, err
+}
+
+type countingBody struct {
+	io.ReadCloser
+	n *int64
+}
+
+func (c countingBody) Read(b []byte) (int, error) {
+	n, err := c.ReadCloser.Read(b)
+	*c.n += int64(n)
+	return n, err
+}
+
+func (h *fakeHarbor) has(repo, d string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.blobs[repo][d]
+}
+
+func (h *fakeHarbor) add(repo, d string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.blobs[repo] == nil {
+		h.blobs[repo] = map[string]bool{}
+	}
+	h.blobs[repo][d] = true
+}
+
+func (h *fakeHarbor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/service/token" {
+		h.issue(w, r)
+		return
+	}
+	c, ok := h.bearer(r)
+	if !ok {
+		w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer realm="https://%s/service/token",service="harbor-registry"`, h.host))
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	if r.URL.Path == "/v2/" || r.URL.Path == "/v2" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	repo, kind, rest := splitPath(r.URL.Path)
+	action := "pull"
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		action = "push"
+	}
+	if !c.allows(repo, action) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	var in int64
+	if r.Body != nil {
+		r.Body = countingBody{r.Body, &in}
+	}
+	cw := &countingResponse{ResponseWriter: w}
+	defer func() {
+		h.mu.Lock()
+		h.moved[c.JTI] += in + cw.n
+		h.mu.Unlock()
+	}()
+
+	switch {
+	case kind == "blobs/uploads" && r.Method == http.MethodPost && r.URL.Query().Get("mount") != "":
+		d, from := r.URL.Query().Get("mount"), r.URL.Query().Get("from")
+		if !h.noMount && c.allows(from, "pull") && h.has(from, d) {
+			h.add(repo, d)
+			cw.Header().Set("Location", "/v2/"+repo+"/blobs/"+d)
+			cw.WriteHeader(http.StatusCreated)
+			return
+		}
+		q := r.URL.Query()
+		q.Del("mount")
+		q.Del("from")
+		r.URL.RawQuery = q.Encode()
+	case kind == "blobs" && !h.has(repo, rest):
+		cw.WriteHeader(http.StatusNotFound)
+		_, _ = cw.Write([]byte(`{"errors":[{"code":"BLOB_UNKNOWN","message":"blob unknown"}]}`))
+		return
+	case kind == "manifests" && r.Method == http.MethodPut:
+		body, _ := io.ReadAll(r.Body)
+		var m v1.Manifest
+		if err := json.Unmarshal(body, &m); err != nil {
+			cw.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		for _, d := range append([]v1.Descriptor{m.Config}, m.Layers...) {
+			if !h.has(repo, d.Digest.String()) {
+				cw.WriteHeader(http.StatusBadRequest)
+				_, _ = cw.Write([]byte(`{"errors":[{"code":"BLOB_UNKNOWN","message":"blob unknown to registry"}]}`))
+				return
+			}
+		}
+		r.Body = io.NopCloser(strings.NewReader(string(body)))
+		h.inner.ServeHTTP(cw, r)
+		if h.onManifest != nil && cw.status == http.StatusCreated {
+			h.onManifest(repo, rest)
+		}
+		return
+	}
+	h.inner.ServeHTTP(cw, r)
+	if kind == "blobs/uploads" && r.Method == http.MethodPut && cw.status == http.StatusCreated {
+		h.add(repo, r.URL.Query().Get("digest"))
+	}
+}
+
+// movedBy sums the bytes moved with tokens whose requested scopes satisfy pick.
+func (h *fakeHarbor) movedBy(pick func(scopes string) bool) int64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var n int64
+	for jti, b := range h.moved {
+		if pick(h.tokens[jti]) {
+			n += b
+		}
+	}
+	return n
+}
+
+// network reaches the fake registries by name and trusts their certificate.
+type network struct {
+	addrs map[string]string // host:port -> listener
+	ca    []byte
+}
+
+func (n *network) dial(ctx context.Context, netw, addr string) (net.Conn, error) {
+	if a, ok := n.addrs[addr]; ok {
+		addr = a
+	}
+	return (&net.Dialer{}).DialContext(ctx, netw, addr)
+}
+
+func (n *network) transport() http.RoundTripper {
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(n.ca)
+	t := remote.DefaultTransport.(*http.Transport).Clone()
+	t.TLSClientConfig.RootCAs = pool
+	t.DialContext = n.dial
+	return t
+}
+
+func (n *network) keychain(t *testing.T) authn.Keychain {
+	auth := base64.StdEncoding.EncodeToString([]byte(platformUser + ":" + platformPassword))
+	auths := map[string]any{}
+	for host := range n.addrs {
+		auths[host] = map[string]string{"auth": auth}
+	}
+	b, _ := json.Marshal(map[string]any{"auths": auths})
+	kc, err := NewConfigKeychain(b)
+	require.NoError(t, err)
+	return kc
+}
+
+// fakeContainer answers the probe and runs the agent in this process, on a directory that
+// stands for the container's root file system.
+type fakeContainer struct {
+	env        agent.Env
+	uid        int
+	noAgent    bool
+	noBaseline bool
+	tamper     func(*agent.Response)
+	echoToken  bool
+	ran        []string
+	request    agent.Request
+}
+
+func (c *fakeContainer) Exec(ctx context.Context, cmd []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	switch {
+	case len(cmd) == 3 && cmd[0] == "sh" && cmd[2] == probeScript:
+		c.ran = append(c.ran, "probe")
+		fmt.Fprintf(stdout, "uid=%d\n", c.uid)
+		if !c.noAgent {
+			fmt.Fprintln(stdout, "agent=1")
+		}
+		if !c.noBaseline {
+			fmt.Fprintln(stdout, "baseline=1")
+		}
+		return nil
+	case len(cmd) == 2 && cmd[0] == agent.BinaryPath && cmd[1] == "export":
+		c.ran = append(c.ran, "export")
+		if err := json.NewDecoder(stdin).Decode(&c.request); err != nil {
+			return err
+		}
+		if c.echoToken {
+			fmt.Fprintf(stderr, "save-image: failed with token %s\n", c.request.Token)
+			return errors.New("command terminated with exit code 1")
+		}
+		resp, err := agent.Export(ctx, c.request, c.env)
+		if err != nil {
+			fmt.Fprintln(stderr, "save-image:", err)
+			return errors.New("command terminated with exit code 1")
+		}
+		if c.tamper != nil {
+			c.tamper(resp)
+		}
+		return json.NewEncoder(stdout).Encode(resp)
+	}
+	return fmt.Errorf("unexpected command %q", cmd)
+}
+
+const dpkgStatusBase = "Package: base-files\nStatus: install ok installed\nArchitecture: amd64\n\n"
+
+const dpkgStatusAfterApt = dpkgStatusBase +
+	"Package: openssh-server\nStatus: install ok installed\nArchitecture: amd64\n\n" +
+	"Package: jq\nStatus: install ok installed\nArchitecture: amd64\n\n"
+
+var baseFiles = map[string]string{
+	"etc/debian_version":                "12\n",
+	"etc/issue":                         "Debian\n",
+	"usr/share/doc/tar/README":          "tar",
+	"usr/share/doc/gzip/README":         "gzip",
+	"data/vol/inner":                    "in the image, hidden by a volume",
+	"var/lib/dpkg/status":               dpkgStatusBase,
+	"var/lib/dpkg/info/base-files.list": "/etc/issue\n",
+}
+
+const testMountinfo = "1 0 0:1 / / rw - overlay overlay rw\n" +
+	"2 1 0:2 / /shared-data rw - tmpfs tmpfs rw\n" +
+	"3 1 0:3 / /data/vol rw - tmpfs tmpfs rw\n" +
+	"4 1 0:4 / /etc/hosts rw - ext4 /dev/sda rw\n"
+
+func writeFile(t *testing.T, root, p, data string) {
+	t.Helper()
+	full := filepath.Join(root, p)
+	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+	require.NoError(t, os.WriteFile(full, []byte(data), 0o644))
+}
+
+// tick waits past the file system's timestamp granularity.
+func tick() { time.Sleep(30 * time.Millisecond) }
+
+// newContainer is a root container started from the base image: the launcher recorded its
+// files, installed sshd and handed over, and then the user worked in it.
+func newContainer(t *testing.T, bigFile int) *fakeContainer {
+	t.Helper()
+	root := t.TempDir()
+	for p, data := range baseFiles {
+		writeFile(t, root, p, data)
+	}
+	// At start the volume is already mounted over /data/vol, and /etc/hosts is the runtime's.
+	require.NoError(t, os.Remove(filepath.Join(root, "data/vol/inner")))
+	writeFile(t, root, "data/vol/scratch", "volume data")
+	writeFile(t, root, "etc/hosts", "10.0.0.1 me\n")
+	writeFile(t, root, "shared-data/launcher.sh", "#!/bin/sh")
+	baseline := filepath.Join(root, "shared-data/save-image.base")
+	_, err := agent.Record(baseline, root, testMountinfo)
+	require.NoError(t, err)
+
+	tick()
+	writeFile(t, root, "usr/sbin/sshd", "launcher-installed")
+	writeFile(t, root, "var/lib/dpkg/info/openssh-server.list", "/usr/sbin/sshd\n")
+	writeFile(t, root, "etc/ssh/ssh_host_rsa_key", "PRIVATE")
+	writeFile(t, root, ".run.sh", "sleep infinity")
+	tick()
+	writeFile(t, root, "etc/issue", "Debian, changed\n")
+	writeFile(t, root, "root/hello.txt", "hello")
+	require.NoError(t, os.Symlink("/root/hello.txt", filepath.Join(root, "root/link")))
+	writeFile(t, root, "etc/ssh/ssh_host_ecdsa_key", "PRIVATE, regenerated by the user")
+	writeFile(t, root, "var/lib/dpkg/status", dpkgStatusAfterApt)
+	writeFile(t, root, "var/lib/dpkg/info/jq.list", "/usr/bin/jq\n")
+	require.NoError(t, os.Remove(filepath.Join(root, "etc/debian_version")))
+	require.NoError(t, os.RemoveAll(filepath.Join(root, "usr/share/doc/tar")))
+	if bigFile > 0 {
+		b := make([]byte, bigFile)
+		_, _ = rand.Read(b)
+		writeFile(t, root, "root/model.bin", string(b))
+	}
+	return &fakeContainer{env: agent.Env{
+		Root:      root,
+		Baseline:  baseline,
+		RunFile:   filepath.Join(root, ".run.sh"),
+		Mountinfo: testMountinfo,
+	}}
+}
+
+type world struct {
+	staging *fakeHarbor
+	central *fakeHarbor
+	net     *network
+	baseID  string
+	request Request
+	c       *fakeContainer
+}
+
+// newWorld pushes the base image to the staging registry, under the repository the node
+// pulled it from, and returns a request that saves c into the same registry.
 func newWorld(t *testing.T, c *fakeContainer) *world {
 	t.Helper()
-	srv := httptest.NewServer(registry.New(registry.Logger(nopLogger())))
-	t.Cleanup(srv.Close)
-	host := strings.TrimPrefix(srv.URL, "http://")
+	staging := newFakeHarbor(t, "staging.example.com")
+	central := newFakeHarbor(t, "central.example.com")
+	n := &network{
+		addrs: map[string]string{staging.host: staging.addr, central.host: central.addr},
+		ca:    []byte(certPEM(staging.srv)),
+	}
+	c.env.Dial = n.dial
 
-	layer, err := crane.Layer(map[string][]byte{
-		"etc/debian_version":                []byte("12\n"),
-		"etc/issue":                         []byte("Debian\n"),
-		"usr/share/doc/tar/README":          []byte("tar"),
-		"usr/share/doc/gzip/README":         []byte("gzip"),
-		"data/vol/inner":                    []byte("in the image, hidden by a volume"),
-		"var/lib/dpkg/status":               []byte(dpkgStatusBase),
-		"var/lib/dpkg/info/base-files.list": []byte("/etc/issue\n"),
-	})
+	layer, err := crane.Layer(func() map[string][]byte {
+		m := map[string][]byte{}
+		for p, d := range baseFiles {
+			m[p] = []byte(d)
+		}
+		return m
+	}())
 	require.NoError(t, err)
 	base, err := mutate.AppendLayers(empty.Image, layer)
 	require.NoError(t, err)
-	baseTag, err := name.NewTag(host + "/proxy/library/python:3.12")
+	baseTag, err := name.NewTag(staging.host + "/proxy/library/python:3.12")
 	require.NoError(t, err)
-	require.NoError(t, remote.Write(baseTag, base))
+	require.NoError(t, remote.Write(baseTag, base, remote.WithTransport(n.transport()),
+		remote.WithAuth(&authn.Basic{Username: platformUser, Password: platformPassword})))
 	d, err := base.Digest()
 	require.NoError(t, err)
 
-	target, err := name.NewTag(host + "/custom/library/python:20261008000000-abcdef")
+	staged, err := name.NewRepository(staging.host + "/save-staging/export-1")
 	require.NoError(t, err)
-	tr, err := NewTransport()
+	assembly, err := name.NewTag(staging.host + "/custom/library/python:20261008000000-abcdef")
 	require.NoError(t, err)
 	return &world{
-		host:   host,
-		baseID: baseTag.Context().Digest(d.String()).String(),
-		target: target,
+		staging: staging,
+		central: central,
+		net:     n,
+		baseID:  baseTag.Context().Digest(d.String()).String(),
+		c:       c,
 		request: Request{
 			Exec:      c,
 			ImageID:   "docker-pullable://" + baseTag.Context().Digest(d.String()).String(),
-			StartedAt: time.Unix(50, 0),
-			Target:    target,
-			Keychain:  authn.NewMultiKeychain(),
-			Transport: tr,
+			Staging:   staged,
+			Assembly:  assembly,
+			Target:    assembly,
+			Keychain:  n.keychain(t),
+			Transport: n.transport(),
+			CA:        n.ca,
 			Platform:  v1.Platform{OS: "linux", Architecture: "amd64"},
 		},
 	}
 }
 
-// containerFromBase is a root container started from newWorld's base, whose launcher
-// handed over at 200 after installing sshd, and in which the user then worked.
-func containerFromBase() *fakeContainer {
-	return &fakeContainer{
-		uid: 0, gnu: true, launcher: true, runfile: 200,
-		mounts: []string{"/shared-data", "/data/vol", "/etc/hosts"},
-		files: map[string]fakeFile{
-			"/":                           {typ: 'd', ctime: 300},
-			"/etc":                        {typ: 'd', ctime: 300},
-			"/etc/issue":                  {typ: 'f', ctime: 300, data: "Debian, changed\n"},
-			"/etc/hosts":                  {typ: 'f', ctime: 300, data: "10.0.0.1 me\n"},
-			"/etc/ssh":                    {typ: 'd', ctime: 150},
-			"/etc/ssh/ssh_host_rsa_key":   {typ: 'f', ctime: 150, data: "PRIVATE"},
-			"/etc/ssh/ssh_host_ecdsa_key": {typ: 'f', ctime: 300, data: "PRIVATE, regenerated by the user"},
-			"/usr":                        {typ: 'd', ctime: 10},
-			"/usr/sbin":                   {typ: 'd', ctime: 150},
-			"/usr/sbin/sshd":              {typ: 'f', ctime: 150, data: "launcher-installed"},
-			"/usr/share":                  {typ: 'd', ctime: 10},
-			"/usr/share/doc":              {typ: 'd', ctime: 300},
-			"/usr/share/doc/gzip":         {typ: 'd', ctime: 10},
-			"/usr/share/doc/gzip/README":  {typ: 'f', ctime: 10, data: "gzip"},
-			"/data":                       {typ: 'd', ctime: 10},
-			"/data/vol":                   {typ: 'd', ctime: 300},
-			"/data/vol/scratch":           {typ: 'f', ctime: 300, data: "volume data"},
-			"/shared-data":                {typ: 'd', ctime: 300},
-			"/shared-data/launcher.sh":    {typ: 'f', ctime: 300, data: "#!/bin/sh"},
-			"/.run.sh":                    {typ: 'f', ctime: 200, data: "sleep"},
-			"/root":                       {typ: 'd', ctime: 300},
-			"/root/hello.txt":             {typ: 'f', ctime: 300, data: "hello"},
-			"/root/link":                  {typ: 'l', ctime: 300, link: "/root/hello.txt"},
-			// The user ran apt after the launcher had: the status file records both.
-			"/var":                                   {typ: 'd', ctime: 10},
-			"/var/lib":                               {typ: 'd', ctime: 10},
-			"/var/lib/dpkg":                          {typ: 'd', ctime: 300},
-			"/var/lib/dpkg/status":                   {typ: 'f', ctime: 300, data: dpkgStatusAfterApt},
-			"/var/lib/dpkg/info":                     {typ: 'd', ctime: 300},
-			"/var/lib/dpkg/info/base-files.list":     {typ: 'f', ctime: 10, data: "/etc/issue\n"},
-			"/var/lib/dpkg/info/openssh-server.list": {typ: 'f', ctime: 150, data: "/usr/sbin/sshd\n"},
-			"/var/lib/dpkg/info/libc6:amd64.list":    {typ: 'f', ctime: 150, data: "/lib\n"},
-			"/var/lib/dpkg/info/jq.list":             {typ: 'f', ctime: 300, data: "/usr/bin/jq\n"},
-		},
-	}
+func certPEM(srv *httptest.Server) string {
+	return "-----BEGIN CERTIFICATE-----\n" + base64.StdEncoding.EncodeToString(srv.Certificate().Raw) + "\n-----END CERTIFICATE-----\n"
 }
 
-const dpkgStatusBase = `Package: base-files
-Status: install ok installed
-Architecture: amd64
+func (w *world) options() []remote.Option {
+	return []remote.Option{remote.WithTransport(w.net.transport()), remote.WithAuthFromKeychain(w.request.Keychain)}
+}
 
-`
-
-const dpkgStatusAfterApt = `Package: base-files
-Status: install ok installed
-Architecture: amd64
-
-Package: openssh-server
-Status: install ok installed
-Architecture: amd64
-Description: secure shell server
- Package: not-a-field
-
-Package: libc6
-Status: install ok installed
-Architecture: amd64
-Multi-Arch: same
-
-Package: jq
-Status: install ok installed
-Architecture: amd64
-`
-
-func flatten(t *testing.T, ref name.Reference) map[string]string {
+func (w *world) flatten(t *testing.T, ref name.Reference) map[string]string {
 	t.Helper()
-	img, err := remote.Image(ref)
+	img, err := remote.Image(ref, w.options()...)
 	require.NoError(t, err)
 	rc := mutate.Extract(img)
 	defer rc.Close()
@@ -289,24 +545,35 @@ func flatten(t *testing.T, ref name.Reference) map[string]string {
 	}
 }
 
-func TestExportEndToEnd(t *testing.T) {
-	c := containerFromBase()
-	w := newWorld(t, c)
+// stagingPush picks the token the container got: the one asked for the staging
+// repository's push scope alone.
+func (w *world) stagingPush(scopes string) bool {
+	return scopes == w.request.Staging.Scope("push,pull")
+}
 
+func TestExportEndToEnd(t *testing.T) {
+	const big = 2 << 20
+	w := newWorld(t, newContainer(t, big))
 	res, err := Export(context.Background(), w.request)
 	require.NoError(t, err)
 	assert.Equal(t, w.baseID, res.Base)
-	assert.Equal(t, "launcher hand-over", res.Threshold)
+	assert.Equal(t, []string{"probe", "export"}, w.c.ran)
 
-	pushed, err := remote.Head(w.target)
+	// The layer went from the container to the registry; this process moved kilobytes.
+	assert.Greater(t, w.staging.movedBy(w.stagingPush), int64(big), "the container uploaded the layer")
+	controller := w.staging.movedBy(func(s string) bool { return !w.stagingPush(s) && !strings.Contains(s, "python:push") })
+	assert.Less(t, controller, int64(64<<10), "the controller moves no image data")
+
+	pushed, err := remote.Head(w.request.Target, w.options()...)
 	require.NoError(t, err)
-	assert.Equal(t, pushed.Digest.String(), res.Digest, "the reported digest is the pushed manifest's")
+	assert.Equal(t, pushed.Digest.String(), res.Digest, "the result is the registry's digest")
 
-	fs := flatten(t, w.target)
+	fs := w.flatten(t, w.request.Target)
 	// Added and modified.
 	assert.Equal(t, "hello", fs["/root/hello.txt"])
 	assert.Equal(t, "-> /root/hello.txt", fs["/root/link"])
 	assert.Equal(t, "Debian, changed\n", fs["/etc/issue"])
+	assert.Len(t, fs["/root/model.bin"], big)
 	// Deleted.
 	assert.NotContains(t, fs, "/etc/debian_version")
 	assert.NotContains(t, fs, "/usr/share/doc/tar/README")
@@ -319,133 +586,194 @@ func TestExportEndToEnd(t *testing.T) {
 	assert.NotContains(t, fs, "/etc/ssh/ssh_host_rsa_key")
 	assert.NotContains(t, fs, "/etc/ssh/ssh_host_ecdsa_key")
 	assert.NotContains(t, fs, "/etc/hosts")
-	assert.NotContains(t, fs, "/shared-data/launcher.sh")
+	assert.NotContains(t, fs, "/shared-data/save-image.base")
 	assert.NotContains(t, fs, "/.run.sh")
 	// The package database describes the files the image holds.
-	assert.Equal(t, "Package: base-files\nStatus: install ok installed\nArchitecture: amd64\n\n"+
-		"Package: jq\nStatus: install ok installed\nArchitecture: amd64\n\n", fs["/var/lib/dpkg/status"])
+	assert.Equal(t, dpkgStatusBase+"Package: jq\nStatus: install ok installed\nArchitecture: amd64\n\n", fs["/var/lib/dpkg/status"])
 	assert.Contains(t, fs, "/var/lib/dpkg/info/jq.list")
 	assert.NotContains(t, fs, "/var/lib/dpkg/info/openssh-server.list")
+	// The token went in on standard input, with the CA, and can push to staging alone.
+	assert.Equal(t, w.request.Staging.RepositoryStr(), w.c.request.Repository)
+	assert.Equal(t, string(w.net.ca), w.c.request.CA)
+	assert.True(t, w.c.request.Deadline.After(time.Now()))
 }
 
-func TestReconcileDpkgStatus(t *testing.T) {
-	in := map[string]bool{
-		"/var/lib/dpkg/info/a.list":       true,
-		"/var/lib/dpkg/info/b:amd64.list": true,
+// A layer the container stages can only go where its token allows: the staging
+// repository, never the target or the base.
+func TestTheContainersTokenCannotWriteElsewhere(t *testing.T) {
+	w := newWorld(t, newContainer(t, 0))
+	_, err := Export(context.Background(), w.request)
+	require.NoError(t, err)
+	tok := w.c.request.Token
+	for _, repo := range []string{"custom/library/python", "proxy/library/python"} {
+		ref, err := name.NewTag(w.staging.host + "/" + repo + ":evil")
+		require.NoError(t, err)
+		img, err := mutate.AppendLayers(empty.Image)
+		require.NoError(t, err)
+		err = remote.Write(ref, img, remote.WithTransport(w.net.transport()),
+			remote.WithAuth(authn.FromConfig(authn.AuthConfig{RegistryToken: tok})))
+		assert.Error(t, err, repo)
 	}
-	status := "Package: a\nStatus: install ok installed\nArchitecture: amd64\n\n" +
-		"Package: b\nStatus: install ok installed\nArchitecture: amd64\nMulti-Arch: same\n\n" +
-		"Package: c\nStatus: install ok installed\nArchitecture: all\n\n" +
-		"Package: d\nStatus: deinstall ok config-files\nArchitecture: amd64\n"
-	out, dropped := ReconcileDpkgStatus([]byte(status), func(p string) bool { return in[p] })
-	assert.Equal(t, []string{"c"}, dropped)
-	assert.Equal(t, "Package: a\nStatus: install ok installed\nArchitecture: amd64\n\n"+
-		"Package: b\nStatus: install ok installed\nArchitecture: amd64\nMulti-Arch: same\n\n"+
-		"Package: d\nStatus: deinstall ok config-files\nArchitecture: amd64\n\n", string(out))
+}
+
+// The registry's replication carries the image from the staging registry to the target;
+// the export waits until the target holds the digest it put together.
+func TestExportWaitsForReplication(t *testing.T) {
+	w := newWorld(t, newContainer(t, 0))
+	target, err := name.NewTag(w.central.host + "/custom/library/python:20261008000000-abcdef")
+	require.NoError(t, err)
+	w.request.Target = target
+	w.request.ReplicationTimeout = 10 * time.Second
+	w.request.PollInterval = 20 * time.Millisecond
+	w.staging.onManifest = func(repo, ref string) {
+		if repo != w.request.Assembly.RepositoryStr() {
+			return
+		}
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			opts := []crane.Option{crane.WithTransport(w.net.transport()),
+				crane.WithAuth(&authn.Basic{Username: platformUser, Password: platformPassword})}
+			if err := crane.Copy(w.request.Assembly.String(), target.String(), opts...); err != nil {
+				t.Errorf("replicating: %v", err)
+			}
+		}()
+	}
+	res, err := Export(context.Background(), w.request)
+	require.NoError(t, err)
+	got, err := remote.Head(target, w.options()...)
+	require.NoError(t, err)
+	assert.Equal(t, got.Digest.String(), res.Digest)
+	assert.Equal(t, "hello", w.flatten(t, target)["/root/hello.txt"])
+}
+
+func TestExportFailsWhenReplicationNeverArrives(t *testing.T) {
+	w := newWorld(t, newContainer(t, 0))
+	target, err := name.NewTag(w.central.host + "/custom/library/python:20261008000000-abcdef")
+	require.NoError(t, err)
+	w.request.Target = target
+	w.request.ReplicationTimeout = 300 * time.Millisecond
+	w.request.PollInterval = 20 * time.Millisecond
+	_, err = Export(context.Background(), w.request)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did not arrive")
+	assert.Contains(t, err.Error(), "replication")
+}
+
+func TestExportRefusesAContainerThatPredatesSaveImage(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*fakeContainer)
+	}{
+		{"no record of its files", func(c *fakeContainer) { c.noBaseline = true }},
+		{"no export program", func(c *fakeContainer) { c.noAgent = true }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newContainer(t, 0)
+			tc.change(c)
+			w := newWorld(t, c)
+			_, err := Export(context.Background(), w.request)
+			require.ErrorIs(t, err, ErrPredatesSaveImage)
+			assert.Contains(t, err.Error(), "restart")
+			assert.Equal(t, []string{"probe"}, c.ran)
+			assert.Zero(t, w.staging.movedBy(w.stagingPush), "no token is issued")
+		})
+	}
 }
 
 func TestExportRefusesNonRoot(t *testing.T) {
-	c := containerFromBase()
+	c := newContainer(t, 0)
 	c.uid = 1000
 	w := newWorld(t, c)
+	_, err := Export(context.Background(), w.request)
+	require.ErrorIs(t, err, ErrNotRoot)
+	assert.Equal(t, []string{"probe"}, c.ran)
+}
 
+// The image is put together by mounting the base's layers; a base the staging registry
+// does not hold is refused rather than copied.
+func TestExportRefusesABaseNotInTheStagingRegistry(t *testing.T) {
+	w := newWorld(t, newContainer(t, 0))
+	w.request.ImageID = "elsewhere.example.com/proxy/library/python@sha256:" + strings.Repeat("a", 64)
+	_, err := Export(context.Background(), w.request)
+	require.ErrorIs(t, err, ErrBaseNotInRegistry)
+	assert.Equal(t, []string{"probe"}, w.c.ran)
+}
+
+func TestExportRefusesATokenThatGrantsMore(t *testing.T) {
+	w := newWorld(t, newContainer(t, 0))
+	w.staging.extraGrant = "custom/library/python"
 	_, err := Export(context.Background(), w.request)
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrNotRoot), err.Error())
-	assert.False(t, c.ranListing || c.ranTar, "nothing is read from a container that cannot be read completely")
-	_, err = remote.Head(w.target)
-	assert.Error(t, err, "no image is pushed")
+	assert.Contains(t, err.Error(), "not only")
+	assert.Equal(t, []string{"probe"}, w.c.ran, "the token never reaches the container")
 }
 
-func TestExportRefusesUnknownLauncherHandover(t *testing.T) {
-	c := containerFromBase()
-	c.runfile = 0
-	w := newWorld(t, c)
-	_, err := Export(context.Background(), w.request)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), LauncherRunFile)
-	assert.False(t, c.ranTar)
-}
-
-func TestExportWithoutLauncherUsesContainerStart(t *testing.T) {
-	c := containerFromBase()
-	c.launcher, c.runfile = false, 0
-	w := newWorld(t, c)
-	w.request.StartedAt = time.Unix(100, 0)
-	res, err := Export(context.Background(), w.request)
-	require.NoError(t, err)
-	assert.Equal(t, "container start", res.Threshold)
-	fs := flatten(t, w.target)
-	assert.Contains(t, fs, "/usr/sbin/sshd", "without a launcher, everything after the start is the user's")
-	assert.NotContains(t, fs, "/etc/ssh/ssh_host_rsa_key", "host keys never are")
-}
-
-func TestExportFailsWhenTarFails(t *testing.T) {
-	c := containerFromBase()
-	c.tarErr = errors.New("command terminated with exit code 2")
-	w := newWorld(t, c)
-	_, err := Export(context.Background(), w.request)
-	require.Error(t, err)
-	_, err = remote.Head(w.target)
-	assert.Error(t, err, "a partial archive is never pushed")
-}
-
-func TestExportRejectsUnrequestedMember(t *testing.T) {
-	c := containerFromBase()
-	c.tarExtra = "./etc/shadow"
-	w := newWorld(t, c)
-	_, err := Export(context.Background(), w.request)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not requested")
-	_, err = remote.Head(w.target)
-	assert.Error(t, err)
-}
-
-func TestExportNeedsGNUTools(t *testing.T) {
-	c := containerFromBase()
-	c.gnu = false
-	w := newWorld(t, c)
-	_, err := Export(context.Background(), w.request)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "GNU")
-}
-
-func TestWriteLayerWhiteoutsAndHeaders(t *testing.T) {
-	var in bytes.Buffer
-	tw := tar.NewWriter(&in)
-	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "./etc/", Typeflag: tar.TypeDir, Mode: 0o755, Uname: "root"}))
-	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "./etc/a", Typeflag: tar.TypeReg, Size: 1, Mode: 0o600,
-		Uid: 7, Gid: 8, Uname: "seven", PAXRecords: map[string]string{
-			"SCHILY.xattr.security.capability": "cap", "LIBARCHIVE.creationtime": "1"}}))
-	_, _ = tw.Write([]byte("a"))
-	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "./etc/b", Typeflag: tar.TypeLink, Linkname: "./etc/a"}))
-	require.NoError(t, tw.Close())
-
-	var out bytes.Buffer
-	st, err := WriteLayer(&out, &in, []string{"/etc", "/etc/a", "/etc/b"}, []string{"/usr/share/doc/tar", "/x"}, nil)
-	require.NoError(t, err)
-	assert.Equal(t, LayerStats{Entries: 3, Whiteouts: 2, Bytes: int64(out.Len())}, st)
-
-	var got []string
-	tr := tar.NewReader(&out)
-	for {
-		hdr, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		require.NoError(t, err)
-		got = append(got, fmt.Sprintf("%s|%c|%s|%d:%d|%s", hdr.Name, hdr.Typeflag, hdr.Linkname, hdr.Uid, hdr.Gid, hdr.Uname))
-		if hdr.Name == "etc/a" {
-			assert.Equal(t, map[string]string{"SCHILY.xattr.security.capability": "cap"}, hdr.PAXRecords)
-		}
+// What the container reports locates its layer; the registry decides whether it is there.
+func TestExportChecksTheLayerAgainstTheRegistry(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		tamper func(*agent.Response)
+		want   string
+	}{
+		{"wrong size", func(r *agent.Response) { r.Size++ }, "not the"},
+		{"layer not uploaded", func(r *agent.Response) { r.Digest = "sha256:" + strings.Repeat("c", 64) }, "not in"},
+		{"garbage digest", func(r *agent.Response) { r.Digest = "x" }, "invalid layer digest"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newContainer(t, 0)
+			c.tamper = tc.tamper
+			w := newWorld(t, c)
+			_, err := Export(context.Background(), w.request)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+			_, err = remote.Head(w.request.Target, w.options()...)
+			assert.Error(t, err, "nothing is published")
+		})
 	}
-	assert.Equal(t, []string{
-		"etc/|5||0:0|",
-		"etc/a|0||7:8|",
-		"etc/b|1|etc/a|0:0|",
-		"usr/share/doc/.wh.tar|0||0:0|",
-		".wh.x|0||0:0|",
-	}, got)
+}
+
+// A registry that will not mount gets no copy instead: that would move the data through
+// this process.
+func TestExportNeverCopiesWhenTheRegistryWillNotMount(t *testing.T) {
+	w := newWorld(t, newContainer(t, 1<<20))
+	w.staging.noMount = true
+	_, err := Export(context.Background(), w.request)
+	require.ErrorIs(t, err, ErrNotMounted)
+	_, err = remote.Head(w.request.Target, w.options()...)
+	assert.Error(t, err)
+	controller := w.staging.movedBy(func(s string) bool { return !w.stagingPush(s) && !strings.Contains(s, "python:push") })
+	assert.Less(t, controller, int64(64<<10))
+}
+
+func TestExportKeepsTheTokenOutOfErrors(t *testing.T) {
+	c := newContainer(t, 0)
+	c.echoToken = true
+	w := newWorld(t, c)
+	_, err := Export(context.Background(), w.request)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), c.request.Token)
+	assert.Contains(t, err.Error(), "<token>")
+}
+
+func TestTokenGrantCheck(t *testing.T) {
+	ok := &tokenClaims{}
+	require.NoError(t, json.Unmarshal([]byte(`{"access":[{"type":"repository","name":"s/1","actions":["pull","push"]}]}`), ok))
+	assert.NoError(t, ok.grantsOnlyPushTo("s/1"))
+	assert.Error(t, ok.grantsOnlyPushTo("s/2"))
+
+	for _, bad := range []string{
+		`{"access":[]}`,
+		`{"access":[{"type":"repository","name":"s/1","actions":["pull"]}]}`,
+		`{"access":[{"type":"repository","name":"s/1","actions":["push","delete"]}]}`,
+		`{"access":[{"type":"repository","name":"s/1","actions":["push"]},{"type":"repository","name":"t","actions":["pull"]}]}`,
+		`{"access":[{"type":"registry","name":"catalog","actions":["*"]}]}`,
+	} {
+		c := &tokenClaims{}
+		require.NoError(t, json.Unmarshal([]byte(bad), c))
+		assert.Error(t, c.grantsOnlyPushTo("s/1"), bad)
+	}
+	_, err := parseTokenClaims("opaque-token")
+	assert.Error(t, err)
 }
 
 func TestParseImageID(t *testing.T) {
@@ -462,26 +790,12 @@ func TestBaseCandidates(t *testing.T) {
 	d, err := name.NewDigest("node-registry.example.com/proxy/library/python@sha256:" + strings.Repeat("b", 64))
 	require.NoError(t, err)
 	var got []string
-	for _, c := range BaseCandidates(d, "push-registry.example.com") {
+	for _, c := range BaseCandidates(d, "staging.example.com") {
 		got = append(got, c.String())
 	}
-	assert.Equal(t, []string{
-		"push-registry.example.com/proxy/library/python@sha256:" + strings.Repeat("b", 64),
-		"node-registry.example.com/proxy/library/python@sha256:" + strings.Repeat("b", 64),
-	}, got)
-	assert.Len(t, BaseCandidates(d, "node-registry.example.com"), 1)
-}
-
-// The base image is read from the push registry when the node's registry is unusable,
-// and the push then reuses it.
-func TestExportFallsBackToTheTargetRegistryForTheBase(t *testing.T) {
-	c := containerFromBase()
-	w := newWorld(t, c)
-	// The node pulled from a registry this process cannot reach.
-	w.request.ImageID = strings.Replace(w.baseID, w.host, "unreachable.invalid", 1)
-	res, err := Export(context.Background(), w.request)
-	require.NoError(t, err)
-	assert.Equal(t, w.baseID, res.Base)
+	assert.Equal(t, []string{"staging.example.com/proxy/library/python@sha256:" + strings.Repeat("b", 64)}, got,
+		"only the staging registry's copy can be mounted")
+	assert.Equal(t, []name.Digest{d}, BaseCandidates(d, "node-registry.example.com"))
 }
 
 func TestConfigKeychain(t *testing.T) {
@@ -509,14 +823,4 @@ func TestNewTransportRejectsAnUnusableCA(t *testing.T) {
 	assert.Error(t, err)
 	_, err = NewTransport(nil)
 	assert.NoError(t, err)
-}
-
-func TestFileSetFromTarAddsParents(t *testing.T) {
-	var b bytes.Buffer
-	tw := tar.NewWriter(&b)
-	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "./a/b/c", Typeflag: tar.TypeReg}))
-	require.NoError(t, tw.Close())
-	set, err := fileSetFromTar(&b)
-	require.NoError(t, err)
-	assert.Equal(t, map[string]bool{"/a": true, "/a/b": true, "/a/b/c": true}, set)
 }
