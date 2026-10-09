@@ -139,12 +139,14 @@ func initializeObject(obj *unstructured.Unstructured,
 		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
 	if isExternalWorkload(workload) {
-		// The task runs on hardware the provider owns, reached over a protocol that carries
-		// its own identity. A projected service account token would put a credential for
-		// the execution cluster inside it for no purpose the task has.
+		// External tasks normally need no execution-cluster credential. Infera's
+		// kubernetes discovery is the exception: workers patch their Pod annotation and
+		// the router list/watches Pods via the in-cluster API, which requires the
+		// projected ServiceAccount token (operator provisions <idep>-disc).
 		path = podSpecPath(workload, resourceSpec, "automountServiceAccountToken")
-		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
-			return fmt.Errorf("failed to disable service account token: %v", err.Error())
+		automount := inferaUsesK8sDiscovery(workload, obj)
+		if err = jobutils.SetNestedField(obj.Object, automount, path); err != nil {
+			return fmt.Errorf("failed to set service account token automount: %v", err.Error())
 		}
 		// Host namespaces are node privileges the provider refuses, except the host network
 		// of a whole-node RDMA gang member. Set them here so earlier modifyHostNetwork (and

@@ -12,6 +12,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // isExternalWorkload reports whether a workload was admitted against external capacity.
@@ -30,6 +31,22 @@ func isExternalWorkload(workload *v1.Workload) bool {
 func isKubeSchedulerPlacement(workload *v1.Workload) bool {
 	return workload != nil && workload.Status.ExternalExecution != nil &&
 		workload.Status.ExternalExecution.PlacementMode == v1.ExternalPlacementKubeScheduler
+}
+
+// inferaUsesK8sDiscovery reports whether an InferaDeployment registers workers
+// through the Kubernetes API (needs a projected ServiceAccount token). Matches
+// the operator: any discoveryBackend other than "etcd" (including unset).
+func inferaUsesK8sDiscovery(workload *v1.Workload, obj *unstructured.Unstructured) bool {
+	if workload == nil || !commonworkload.IsInferaDeployment(workload) {
+		return false
+	}
+	if obj != nil {
+		backend, found, err := unstructured.NestedString(obj.Object, "spec", "discoveryBackend")
+		if err == nil && found && backend == "etcd" {
+			return false
+		}
+	}
+	return true
 }
 
 // isExternalGang reports whether an admitted external workload has the host-network RDMA

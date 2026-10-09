@@ -6,19 +6,133 @@
 package dispatcher
 
 import (
+	"testing"
+
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/spf13/viper"
 	"gotest.tools/v3/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"testing"
 )
 
 // --- from external_gang_test.go ---
 
 const workerDispatchImage = "docker.io/team/app@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 const pinnedDispatchImage = "docker.io/team/app@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+func TestInferaUsesK8sDiscovery(t *testing.T) {
+	infera := &v1.Workload{
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.InferaDeploymentKind, Version: "v1"},
+		},
+	}
+	pytorch := &v1.Workload{
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind, Version: "v1"},
+		},
+	}
+	cases := []struct {
+		name string
+		w    *v1.Workload
+		obj  *unstructured.Unstructured
+		want bool
+	}{
+		{name: "nil workload", want: false},
+		{name: "non-infera", w: pytorch, want: false},
+		{name: "infera default when field unset", w: infera, want: true},
+		{
+			name: "infera kubernetes",
+			w:    infera,
+			obj: &unstructured.Unstructured{Object: map[string]interface{}{
+				"spec": map[string]interface{}{"discoveryBackend": "kubernetes"},
+			}},
+			want: true,
+		},
+		{
+			name: "infera etcd",
+			w:    infera,
+			obj: &unstructured.Unstructured{Object: map[string]interface{}{
+				"spec": map[string]interface{}{"discoveryBackend": "etcd"},
+			}},
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, inferaUsesK8sDiscovery(tc.w, tc.obj), tc.want)
+		})
+	}
+}
+
+// External Infera pods with kubernetes discovery must keep the projected SA
+// token; other external pods keep automount disabled.
+func TestExternalAutomountServiceAccountToken(t *testing.T) {
+	viper.Set("global.domain", "primus-safe.amd.com")
+	viper.Set("global.sub_domain", "global")
+	t.Cleanup(func() {
+		viper.Set("global.domain", "")
+		viper.Set("global.sub_domain", "")
+	})
+
+	inferaSpec := v1.ResourceSpec{
+		PrePaths:      []string{"spec", "services", "role0"},
+		PodSpecPaths:  []string{"extraPodSpec"},
+		TemplatePaths: []string{"extraPodSpec"},
+	}
+	inferaObj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"discoveryBackend": "kubernetes",
+			"services": map[string]interface{}{
+				"role0": map[string]interface{}{
+					"extraPodSpec": map[string]interface{}{
+						"containers": []interface{}{
+							map[string]interface{}{"name": "main"},
+						},
+					},
+				},
+			},
+		},
+	}}
+	inferaWL := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "idep-ext",
+			UID:  "22222222-2222-2222-2222-222222222222",
+			Annotations: map[string]string{
+				v1.MainContainerAnnotation:      "main",
+				v1.InferaServiceRolesAnnotation: "frontend",
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.InferaDeploymentKind, Version: "v1"},
+			Resources:        []v1.WorkloadResource{{Replica: 1, CPU: "1", Memory: "1Gi"}},
+		},
+		Status: v1.WorkloadStatus{ExternalExecution: &v1.WorkloadExternalExecution{
+			ClaimId: "c-infera", DispatchGeneration: 1,
+			Placements: []v1.WorkloadExternalPlacement{{
+				UnitKey: v1.ExternalSingleUnitKey, NodeName: "vk-1", ImageRef: pinnedDispatchImage,
+			}},
+		}},
+	}
+	assert.NilError(t, initializeObject(inferaObj, inferaWL, nil, &inferaSpec, 0))
+	automount, found, err := unstructured.NestedBool(inferaObj.Object,
+		"spec", "services", "role0", "extraPodSpec", "automountServiceAccountToken")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Assert(t, automount, "Infera kubernetes discovery needs the SA token")
+
+	etcdObj := inferaObj.DeepCopy()
+	assert.NilError(t, unstructured.SetNestedField(etcdObj.Object, "etcd", "spec", "discoveryBackend"))
+	// Re-apply only the automount decision against an etcd backend.
+	path := podSpecPath(inferaWL, &inferaSpec, "automountServiceAccountToken")
+	assert.NilError(t, jobutils.SetNestedField(etcdObj.Object, inferaUsesK8sDiscovery(inferaWL, etcdObj), path))
+	etcdAutomount, etcdFound, err := unstructured.NestedBool(etcdObj.Object,
+		"spec", "services", "role0", "extraPodSpec", "automountServiceAccountToken")
+	assert.NilError(t, err)
+	assert.Assert(t, etcdFound)
+	assert.Assert(t, !etcdAutomount, "etcd discovery does not need the SA token")
+}
 
 func claimWorkload() *v1.Workload {
 	return &v1.Workload{
