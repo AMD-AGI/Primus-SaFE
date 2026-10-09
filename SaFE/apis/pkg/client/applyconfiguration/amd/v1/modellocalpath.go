@@ -23,6 +23,9 @@ type ModelLocalPathApplyConfiguration struct {
 	Status *amdv1.LocalPathStatus `json:"status,omitempty"`
 	// Message contains additional status information
 	Message *string `json:"message,omitempty"`
+	// SizeBytes is the on-disk size of the downloaded files, reported by the download
+	// job when it finishes. Zero means the size was not reported.
+	SizeBytes *int64 `json:"sizeBytes,omitempty"`
 }
 
 // ModelLocalPathApplyConfiguration constructs a declarative configuration of the ModelLocalPath type for use with
@@ -60,5 +63,13 @@ func (b *ModelLocalPathApplyConfiguration) WithStatus(value amdv1.LocalPathStatu
 // If called multiple times, the Message field is set to the value of the last call.
 func (b *ModelLocalPathApplyConfiguration) WithMessage(value string) *ModelLocalPathApplyConfiguration {
 	b.Message = &value
+	return b
+}
+
+// WithSizeBytes sets the SizeBytes field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SizeBytes field is set to the value of the last call.
+func (b *ModelLocalPathApplyConfiguration) WithSizeBytes(value int64) *ModelLocalPathApplyConfiguration {
+	b.SizeBytes = &value
 	return b
 }

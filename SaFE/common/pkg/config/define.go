@@ -145,6 +145,8 @@ const (
 	modelPrefix          = "model."
 	modelDownloaderImage = modelPrefix + "downloader_image"
 	modelCleanupImage    = modelPrefix + "cleanup_image"
+	modelMaxDownloads    = modelPrefix + "max_concurrent_downloads"
+	modelDownloadTimeout = modelPrefix + "download_timeout_second"
 
 	// proxy
 	proxyPrefix = "proxy."

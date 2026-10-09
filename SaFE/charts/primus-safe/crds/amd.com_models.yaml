@@ -162,8 +162,10 @@ spec:
                 type: array
               targetSubpath:
                 description: |-
-                  TargetSubpath is an optional sub-directory under "<volume>/models/<safe-name>"
-                  to keep multiple imports of the same model separated. Empty = default layout.
+                  TargetSubpath is an optional sub-directory of the volume that holds the model
+                  directory. The layout is "<volume>/<subpath>/models/<dir>", or
+                  "<volume>/<subpath>/<dir>" when the subpath already contains a "models"
+                  segment. Empty = "<volume>/models/<dir>".
                 type: string
               targetVolume:
                 description: |-
@@ -198,6 +200,12 @@ spec:
                       description: Path is the local file system path where the model
                         is stored
                       type: string
+                    sizeBytes:
+                      description: |-
+                        SizeBytes is the on-disk size of the downloaded files, reported by the download
+                        job when it finishes. Zero means the size was not reported.
+                      format: int64
+                      type: integer
                     status:
                       description: Status is the download status for this workspace
                       type: string

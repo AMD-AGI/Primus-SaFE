@@ -296,6 +296,7 @@ type ModelLocalPathDB struct {
 	Path      string `json:"path"`
 	Status    string `json:"status"`
 	Message   string `json:"message,omitempty"`
+	SizeBytes int64  `json:"sizeBytes,omitempty"`
 }
 
 // Model represents the model entity in database

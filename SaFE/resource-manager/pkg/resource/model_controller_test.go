@@ -1147,16 +1147,22 @@ func TestConstructLocalDownloadOpsJob(t *testing.T) {
 	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(workspace).Build()
 	r := newMockModelReconciler(cl)
 
-	lp := &v1.ModelLocalPath{Workspace: "ws1", Path: "models/m1"}
+	lp := &v1.ModelLocalPath{Workspace: "ws1", Path: "/data/models/m1"}
 	job, err := r.constructLocalDownloadOpsJob(context.Background(), model, lp)
 	testifyassert.NoError(t, err)
 	assert.Equal(t, v1.OpsJobDownloadType, job.Spec.Type)
+	assert.Equal(t, "/data/models/m1", job.GetParameter(v1.ParameterDestPath).Value)
+
+	// A relative path is never sent: the job must write where status says.
+	_, err = r.constructLocalDownloadOpsJob(context.Background(), model, &v1.ModelLocalPath{Workspace: "ws1", Path: "models/m1"})
+	testifyassert.Error(t, err)
 }
 
 func TestModelHandleDeleteCreatesCleanupJob(t *testing.T) {
 	patchS3Config(t)
 
 	model := genMockModel("m-del", v1.AccessModeLocal, "ws1")
+	model.Status.S3Path = "models/m-del"
 	now := metav1.Now()
 	model.DeletionTimestamp = &now
 	model.Finalizers = []string{ModelFinalizer}
@@ -1336,8 +1342,9 @@ func TestHandlePendingLocalModelFull(t *testing.T) {
 
 	_, err = r.handlePending(context.Background(), model)
 	testifyassert.NoError(t, err)
-	// Local model either starts uploading or fails when the download job can't be built.
-	testifyassert.Contains(t, []v1.ModelPhase{v1.ModelPhaseUploading, v1.ModelPhaseFailed}, model.Status.Phase)
+	// S3 is disabled: the model goes straight to the per-workspace download.
+	assert.Equal(t, v1.ModelPhaseDownloading, model.Status.Phase)
+	assert.Equal(t, "", model.Status.S3Path)
 }
 
 func TestHandleDeleteLocalModelFull(t *testing.T) {
@@ -1356,8 +1363,9 @@ func TestHandleDeleteLocalModelFull(t *testing.T) {
 
 func TestModelFailoverHelpers(t *testing.T) {
 	r := &ModelReconciler{}
-	assert.Equal(t, "/wekafs", r.extractBasePath("/wekafs/models/llama"))
-	assert.Equal(t, "", r.extractBasePath("/no-models-here"))
+	ws := genMockWorkspaceForModel("ws1", "c1", "/wekafs")
+	assert.Equal(t, "/wekafs", volumeRootOf(ws, "/wekafs/models/llama"))
+	assert.Equal(t, "", volumeRootOf(ws, "/no-models-here"))
 
 	model := genMockLocalModel("m-tried", "")
 	// initially empty
@@ -1500,14 +1508,8 @@ func TestModelReconcileLocalPathMode(t *testing.T) {
 	testifyassert.Len(t, updated.Status.LocalPaths, 1)
 }
 
-func TestModelExtractBasePath(t *testing.T) {
-	r := newMockModelReconciler(nil)
-	assert.Equal(t, "/wekafs", r.extractBasePath("/wekafs/models/llama"))
-	assert.Equal(t, "", r.extractBasePath("/nomatch"))
-}
-
 func TestModelTryFailoverNoBasePath(t *testing.T) {
-	r := newMockModelReconciler(nil)
+	r := newMockModelReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
 	model := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m1"}}
 	lp := &v1.ModelLocalPath{Workspace: "ws1", Path: "/nobase"}
 	testifyassert.False(t, r.tryFailover(context.Background(), model, lp))

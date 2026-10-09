@@ -19,6 +19,9 @@ type ListModelQuery struct {
 	Search     string `form:"search" binding:"omitempty"`     // Fuzzy search by displayName (case-insensitive)
 	Phase      string `form:"phase" binding:"omitempty"`      // Filter by phase: "Pending", "Uploading", "Downloading", "Ready", "Failed" (case-insensitive)
 	Sort       string `form:"sort" binding:"omitempty"`       // Sort order: "name"/"-name" (by displayName), "createdAt"/"-createdAt". Empty keeps default created_at DESC.
+	// IncludeDeleting also returns models whose deletion is still cleaning up files
+	// (isDeleted=true, deletionTime set); by default they are hidden.
+	IncludeDeleting bool `form:"includeDeleting" binding:"omitempty"`
 }
 
 // ChatRequest represents the unified request to chat with a model or workload.
@@ -212,6 +215,8 @@ type LocalPathInfo struct {
 	Path      string `json:"path"`
 	Status    string `json:"status"`
 	Message   string `json:"message,omitempty"`
+	// SizeBytes is the on-disk size reported by the download, 0 when not reported.
+	SizeBytes int64 `json:"sizeBytes,omitempty"`
 }
 
 // ListModelResponse represents the response for listing models.

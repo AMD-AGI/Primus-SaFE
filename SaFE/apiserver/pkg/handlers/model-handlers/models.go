@@ -219,6 +219,18 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolume); err != nil {
 		return nil, err
 	}
+	if req.Source.AccessMode == string(v1.AccessModeLocal) {
+		candidate := &v1.Model{Spec: v1.ModelSpec{
+			DisplayName:   displayName,
+			Workspace:     req.Workspace,
+			TargetVolume:  targetVolume,
+			TargetSubpath: targetSubpath,
+			Source:        v1.ModelSource{URL: normalizedURL, AccessMode: v1.AccessModeLocal},
+		}}
+		if err := h.rejectTargetBeingDeleted(ctx, candidate); err != nil {
+			return nil, err
+		}
+	}
 
 	// Pre-create Secrets BEFORE creating Model to avoid concurrent update conflicts
 	// This way we can reference them directly in the Model spec during creation
@@ -953,6 +965,10 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	user := h.readVisibilityUser(ctx, c.GetString(common.UserId))
 
+	var (
+		items      []ModelInfo
+		listedFrom bool
+	)
 	// 1. Try to list from database first (if available)
 	if h.dbClient != nil {
 		dbOrigin := queryArgs.Origin
@@ -961,7 +977,7 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 		}
 		dbModels, err := h.dbClient.ListModels(ctx, queryArgs.AccessMode, queryArgs.Workspace, false, dbOrigin)
 		if err == nil && len(dbModels) > 0 {
-			var items []ModelInfo
+			listedFrom = true
 			for _, dbModel := range dbModels {
 				if !canViewModel(user, dbModel.UserId, dbModel.Workspace) {
 					continue
@@ -978,74 +994,40 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 				}
 				items = append(items, info)
 			}
-
-			// Optional sort before pagination (e.g. sort=name for alphabetical)
-			sortModelItems(items, queryArgs.Sort)
-
-			// Apply pagination (limit=0 means return all)
-			total := int64(len(items))
-			start := queryArgs.Offset
-			if start > int(total) {
-				start = int(total)
-			}
-			end := int(total)
-			if queryArgs.Limit > 0 {
-				end = queryArgs.Offset + queryArgs.Limit
-				if end > int(total) {
-					end = int(total)
-				}
-			}
-
-			paged := items[start:end]
-			enrichInferenceXInfo(paged)
-			return &ListModelResponse{
-				Total: total,
-				Items: paged,
-			}, nil
 		}
 		// If error or empty, fall through to K8s
 	}
 
-	// 2. Fallback to K8s
-	k8sModelList := &v1.ModelList{}
-	if err := h.k8sClient.List(ctx, k8sModelList); err != nil {
-		return nil, commonerrors.NewInternalError("failed to list models from K8s: " + err.Error())
-	}
-
-	// Filter and convert models
-	var items []ModelInfo
-	for _, k8sModel := range k8sModelList.Items {
-		// Skip deleted models
-		if k8sModel.DeletionTimestamp != nil {
-			continue
+	// 2. Fallback to K8s. Models being deleted are read from K8s as well: their CR is
+	// what still exists while the finalizer cleans up their files.
+	if !listedFrom || queryArgs.IncludeDeleting {
+		k8sModelList := &v1.ModelList{}
+		if err := h.k8sClient.List(ctx, k8sModelList); err != nil {
+			return nil, commonerrors.NewInternalError("failed to list models from K8s: " + err.Error())
 		}
-
-		if !canViewModel(user, v1.GetUserId(&k8sModel), k8sModel.Spec.Workspace) {
-			continue
+		listed := make(map[string]bool, len(items))
+		for _, item := range items {
+			listed[item.ID] = true
 		}
-
-		// Apply filters (s3_sync is API-only; cluster stores s3 imports as local + label)
-		if queryArgs.AccessMode != "" && !modelMatchesK8sAccessModeFilter(&k8sModel, queryArgs.AccessMode) {
-			continue
-		}
-		if queryArgs.Workspace != "" {
-			// For workspace filter: include public models (empty workspace) + specific workspace models
-			if k8sModel.Spec.Workspace != "" && k8sModel.Spec.Workspace != queryArgs.Workspace {
+		for i := range k8sModelList.Items {
+			k8sModel := &k8sModelList.Items[i]
+			deleting := k8sModel.DeletionTimestamp != nil
+			if deleting && !queryArgs.IncludeDeleting {
 				continue
 			}
+			// Live models already come from the database.
+			if listed[k8sModel.Name] || (listedFrom && !deleting) {
+				continue
+			}
+			if !k8sModelMatchesQuery(k8sModel, queryArgs, user) {
+				continue
+			}
+			info := h.convertK8sModelToInfo(k8sModel)
+			if queryArgs.Search != "" && !strings.Contains(strings.ToLower(info.DisplayName), strings.ToLower(queryArgs.Search)) {
+				continue
+			}
+			items = append(items, info)
 		}
-		if queryArgs.Origin != "" && !matchModelOrigin(normalizeModelOrigin(k8sModel.Spec.Origin), queryArgs.Origin) {
-			continue
-		}
-		if queryArgs.Phase != "" && !strings.EqualFold(string(k8sModel.Status.Phase), queryArgs.Phase) {
-			continue
-		}
-
-		info := h.convertK8sModelToInfo(&k8sModel)
-		if queryArgs.Search != "" && !strings.Contains(strings.ToLower(info.DisplayName), strings.ToLower(queryArgs.Search)) {
-			continue
-		}
-		items = append(items, info)
 	}
 
 	// Optional sort before pagination (e.g. sort=name for alphabetical)
@@ -1073,6 +1055,28 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+// k8sModelMatchesQuery applies the visibility and list filters to a Model CR.
+func k8sModelMatchesQuery(k8sModel *v1.Model, queryArgs *ListModelQuery, user *v1.User) bool {
+	if !canViewModel(user, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace) {
+		return false
+	}
+	// Apply filters (s3_sync is API-only; cluster stores s3 imports as local + label)
+	if queryArgs.AccessMode != "" && !modelMatchesK8sAccessModeFilter(k8sModel, queryArgs.AccessMode) {
+		return false
+	}
+	// For workspace filter: include public models (empty workspace) + specific workspace models
+	if queryArgs.Workspace != "" && k8sModel.Spec.Workspace != "" && k8sModel.Spec.Workspace != queryArgs.Workspace {
+		return false
+	}
+	if queryArgs.Origin != "" && !matchModelOrigin(normalizeModelOrigin(k8sModel.Spec.Origin), queryArgs.Origin) {
+		return false
+	}
+	if queryArgs.Phase != "" && !strings.EqualFold(string(k8sModel.Status.Phase), queryArgs.Phase) {
+		return false
+	}
+	return true
+}
+
 // convertK8sModelToInfo converts a K8s Model CR to ModelInfo response format
 func (h *Handler) convertK8sModelToInfo(k8sModel *v1.Model) ModelInfo {
 	// Convert local paths
@@ -1083,6 +1087,7 @@ func (h *Handler) convertK8sModelToInfo(k8sModel *v1.Model) ModelInfo {
 			Path:      lp.Path,
 			Status:    string(lp.Status),
 			Message:   lp.Message,
+			SizeBytes: lp.SizeBytes,
 		})
 	}
 
@@ -1634,6 +1639,60 @@ func (h *Handler) findModelBySourceURL(ctx context.Context, sourceURL string, wo
 	return nil, nil
 }
 
+// rejectTargetBeingDeleted refuses a local model whose directory is still being
+// removed by the deletion of another model: the new download would race that cleanup
+// and lose its files. The caller can retry once the deletion has finished.
+func (h *Handler) rejectTargetBeingDeleted(ctx context.Context, candidate *v1.Model) error {
+	modelList := &v1.ModelList{}
+	if err := h.k8sClient.List(ctx, modelList); err != nil {
+		return commonerrors.NewInternalError("failed to list models for path check: " + err.Error())
+	}
+	deleting := map[string]string{}
+	for i := range modelList.Items {
+		m := &modelList.Items[i]
+		if m.DeletionTimestamp == nil {
+			continue
+		}
+		for _, lp := range m.Status.LocalPaths {
+			deleting[lp.Path] = m.Name
+		}
+	}
+	if len(deleting) == 0 {
+		return nil
+	}
+
+	var workspaces []v1.Workspace
+	if candidate.Spec.Workspace != "" {
+		ws := &v1.Workspace{}
+		if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: candidate.Spec.Workspace}, ws); err != nil {
+			if errors.IsNotFound(err) {
+				return nil
+			}
+			return commonerrors.NewInternalError("failed to get workspace for path check: " + err.Error())
+		}
+		workspaces = append(workspaces, *ws)
+	} else {
+		wsList := &v1.WorkspaceList{}
+		if err := h.k8sClient.List(ctx, wsList); err != nil {
+			return commonerrors.NewInternalError("failed to list workspaces for path check: " + err.Error())
+		}
+		workspaces = wsList.Items
+	}
+	dir := candidate.GetLocalDirName()
+	for i := range workspaces {
+		root := commonworkspace.ResolveDownloadRoot(&workspaces[i], candidate.Spec.TargetVolume)
+		if root == "" {
+			continue
+		}
+		target := v1.BuildModelLocalPath(root, candidate.Spec.TargetSubpath, dir)
+		if owner, ok := deleting[target]; ok {
+			return commonerrors.NewResourceProcessing(fmt.Sprintf(
+				"path %s is still being cleaned up by the deletion of model %s, please retry later", target, owner))
+		}
+	}
+	return nil
+}
+
 // isFullURL checks if the input is a full URL (starts with http:// or https://)
 func isFullURL(input string) bool {
 	return len(input) > 7 && (input[:7] == "http://" || input[:8] == "https://")
@@ -1654,6 +1713,7 @@ func cvtDBModelToInfo(dbModel *dbclient.Model) ModelInfo {
 					Path:      lp.Path,
 					Status:    lp.Status,
 					Message:   lp.Message,
+					SizeBytes: lp.SizeBytes,
 				})
 			}
 		}

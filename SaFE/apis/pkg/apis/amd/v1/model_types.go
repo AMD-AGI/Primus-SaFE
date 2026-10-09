@@ -6,6 +6,7 @@
 package v1
 
 import (
+	"path"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -109,8 +110,10 @@ type (
 		// MountPath (or HostPath when MountPath is empty). If empty, the controller uses
 		// the workspace's first PFS volume (or first volume).
 		TargetVolume string `json:"targetVolume,omitempty"`
-		// TargetSubpath is an optional sub-directory under "<volume>/models/<safe-name>"
-		// to keep multiple imports of the same model separated. Empty = default layout.
+		// TargetSubpath is an optional sub-directory of the volume that holds the model
+		// directory. The layout is "<volume>/<subpath>/models/<dir>", or
+		// "<volume>/<subpath>/<dir>" when the subpath already contains a "models"
+		// segment. Empty = "<volume>/models/<dir>".
 		TargetSubpath string `json:"targetSubpath,omitempty"`
 	}
 
@@ -147,6 +150,9 @@ type (
 		Status LocalPathStatus `json:"status"`
 		// Message contains additional status information
 		Message string `json:"message,omitempty"`
+		// SizeBytes is the on-disk size of the downloaded files, reported by the download
+		// job when it finishes. Zero means the size was not reported.
+		SizeBytes int64 `json:"sizeBytes,omitempty"`
 	}
 
 	// ModelStatus defines the observed state of Model
@@ -276,4 +282,66 @@ func (m *Model) GetReadyWorkspaces() []string {
 		}
 	}
 	return workspaces
+}
+
+// GetHFRepoID returns the "owner/name" HuggingFace repository ID of a local model, or
+// "" when the source URL is not a HuggingFace repository reference.
+func (m *Model) GetHFRepoID() string {
+	url := strings.TrimSuffix(strings.TrimSpace(m.Spec.Source.URL), "/")
+	if idx := strings.Index(url, "huggingface.co/"); idx >= 0 {
+		url = url[idx+len("huggingface.co/"):]
+	} else if strings.Contains(url, "://") {
+		return ""
+	}
+	parts := strings.Split(url, "/")
+	if len(parts) != 2 || !isHFRepoSegment(parts[0]) || !isHFRepoSegment(parts[1]) {
+		return ""
+	}
+	return parts[0] + "/" + parts[1]
+}
+
+// isHFRepoSegment reports whether s is a valid owner or name segment of a HuggingFace
+// repository ID. HuggingFace forbids "--" and ".." inside a segment, which is what makes
+// "<owner>--<name>" an unambiguous directory name.
+func isHFRepoSegment(s string) bool {
+	if s == "" || len(s) > 96 || strings.Contains(s, "--") || strings.Contains(s, "..") {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '-' || r == '_' || r == '.':
+		default:
+			return false
+		}
+	}
+	return s[0] != '.' && s[0] != '-'
+}
+
+// GetLocalDirName returns the directory name a local model is stored under.
+// HuggingFace models use "<owner>--<name>", which cannot collide between two
+// different repositories; other sources fall back to the sanitized display name.
+func (m *Model) GetLocalDirName() string {
+	if repo := m.GetHFRepoID(); repo != "" {
+		return strings.Replace(repo, "/", "--", 1)
+	}
+	return m.GetSafeDisplayName()
+}
+
+// BuildModelLocalPath assembles the local directory of a model under a volume root:
+// "<root>/[subpath/]models/<dir>", or "<root>/<subpath>/<dir>" when the subpath already
+// contains a "models" segment. Every model directory therefore sits below a "models"
+// segment, which the cleanup path checks rely on.
+func BuildModelLocalPath(root, subpath, dir string) string {
+	root = strings.TrimRight(root, "/")
+	subpath = strings.Trim(path.Clean("/"+subpath), "/")
+	if subpath == "" {
+		return root + "/models/" + dir
+	}
+	for _, seg := range strings.Split(subpath, "/") {
+		if seg == "models" {
+			return root + "/" + subpath + "/" + dir
+		}
+	}
+	return root + "/" + subpath + "/models/" + dir
 }

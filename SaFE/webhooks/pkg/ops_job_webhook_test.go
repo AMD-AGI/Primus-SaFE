@@ -744,3 +744,49 @@ func TestOpsJobListRelatedRunningJobsFilter(t *testing.T) {
 	gtassert.NilError(t, err)
 	gtassert.Equal(t, len(jobs), 0)
 }
+
+// TestOpsJobValidateDownloadWithoutSecret: a public model is downloaded without a secret.
+func TestOpsJobValidateDownloadWithoutSecret(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	v := &OpsJobValidator{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobDownloadType, Inputs: []v1.Parameter{
+		{Name: v1.ParameterEndpoint, Value: "https://huggingface.co/org/repo"},
+		{Name: v1.ParameterDestPath, Value: "/data/models/org--repo"},
+		{Name: v1.ParameterWorkspace, Value: "ws1"},
+	}}}
+	assert.NoError(t, v.validateDownload(context.Background(), job))
+}
+
+// TestOpsJobValidateModelCleanup only accepts model directories and refuses to run
+// while a download or another cleanup on the same path is still running.
+func TestOpsJobValidateModelCleanup(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	cleanup := func(name, p string) *v1.OpsJob {
+		return &v1.OpsJob{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{
+				v1.ClusterIdLabel: "c1", v1.OpsJobTypeLabel: string(v1.OpsJobModelCleanupType)}},
+			Spec: v1.OpsJobSpec{Type: v1.OpsJobModelCleanupType, Inputs: []v1.Parameter{
+				{Name: v1.ParameterDestPath, Value: p},
+				{Name: v1.ParameterWorkspace, Value: "ws1"},
+			}},
+		}
+	}
+	v := &OpsJobValidator{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	assert.NoError(t, v.validateModelCleanup(context.Background(), cleanup("j1", "/data/team/models/hf/org--repo")))
+	for _, p := range []string{"/data", "/data/models", "/data/other", "data/models/x", "/data/models/../x", "/data/models/x/"} {
+		assert.Error(t, v.validateModelCleanup(context.Background(), cleanup("j1", p)), p)
+	}
+
+	running := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "download-1", Labels: map[string]string{
+			v1.ClusterIdLabel: "c1", v1.OpsJobTypeLabel: string(v1.OpsJobDownloadType)}},
+		Spec: v1.OpsJobSpec{Type: v1.OpsJobDownloadType, Inputs: []v1.Parameter{
+			{Name: v1.ParameterDestPath, Value: "/data/models/org--repo"}}},
+	}
+	v = &OpsJobValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(running).Build()}
+	assert.Error(t, v.validateModelCleanup(context.Background(), cleanup("j1", "/data/models/org--repo")),
+		"a cleanup must not run while a download writes into the same directory")
+	assert.NoError(t, v.validateModelCleanup(context.Background(), cleanup("j1", "/data/models/other")))
+}
