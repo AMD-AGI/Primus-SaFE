@@ -58,7 +58,7 @@ type fakeHarbor struct {
 	onManifest func(repo, ref string)
 }
 
-const platformUser, platformPassword = "platform", "secret"
+const platformUser, platformSecret = "platform", "secret"
 
 func newFakeHarbor(t *testing.T, hostname string) *fakeHarbor {
 	t.Helper()
@@ -96,7 +96,7 @@ func encodeJWT(c claims) string {
 
 func (h *fakeHarbor) issue(w http.ResponseWriter, r *http.Request) {
 	user, pass, ok := r.BasicAuth()
-	if !ok || user != platformUser || pass != platformPassword {
+	if !ok || user != platformUser || pass != platformSecret {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -318,7 +318,7 @@ func (n *network) transport() http.RoundTripper {
 }
 
 func (n *network) keychain(t *testing.T) authn.Keychain {
-	auth := base64.StdEncoding.EncodeToString([]byte(platformUser + ":" + platformPassword))
+	auth := base64.StdEncoding.EncodeToString([]byte(platformUser + ":" + platformSecret))
 	auths := map[string]any{}
 	for host := range n.addrs {
 		auths[host] = map[string]string{"auth": auth}
@@ -483,7 +483,7 @@ func newWorld(t *testing.T, c *fakeContainer) *world {
 	baseTag, err := name.NewTag(staging.host + "/proxy/library/python:3.12")
 	require.NoError(t, err)
 	require.NoError(t, remote.Write(baseTag, base, remote.WithTransport(n.transport()),
-		remote.WithAuth(&authn.Basic{Username: platformUser, Password: platformPassword})))
+		remote.WithAuth(&authn.Basic{Username: platformUser, Password: "secret"})))
 	d, err := base.Digest()
 	require.NoError(t, err)
 
