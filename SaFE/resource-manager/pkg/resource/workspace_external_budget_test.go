@@ -231,5 +231,5 @@ func TestReconcileExternalWorkspaceSkipsScaling(t *testing.T) {
 	stored := storedWorkspace(t, cli, workspace.Name)
 	assert.Equal(t, stored.Status.Phase, v1.WorkspaceRunning)
 	assert.Equal(t, qty(stored.Status.TotalResources, gpuResource), "8")
-	assert.Equal(t, result.RequeueAfter, externalBudgetResync)
+	assert.Equal(t, result.RequeueAfter, externalBudgetResync())
 }

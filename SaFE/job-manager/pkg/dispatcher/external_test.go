@@ -531,6 +531,42 @@ func TestValidateExternalPodShapeRejectsSidecars(t *testing.T) {
 		"exactly one container")
 }
 
+// Workspace affinity is ANDed into every existing term so user constraints cannot be
+// bypassed by an OR-appended workspace-only term.
+func TestApplyExternalSchedulerAffinityAndsIntoEveryTerm(t *testing.T) {
+	w := claimWorkload()
+	w.Spec.Workspace = "crusoe-spur-vk"
+	w.Status.ExternalExecution.PlacementMode = v1.ExternalPlacementKubeScheduler
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
+			"affinity": map[string]interface{}{"nodeAffinity": map[string]interface{}{
+				"requiredDuringSchedulingIgnoredDuringExecution": map[string]interface{}{
+					"nodeSelectorTerms": []interface{}{
+						map[string]interface{}{"matchExpressions": []interface{}{
+							map[string]interface{}{"key": "gpu", "operator": "Exists"},
+						}},
+					},
+				},
+			}},
+		}}},
+	}}
+	assert.NilError(t, applyExternalSchedulerAffinity(obj, w, externalShapeSpec()))
+	terms, _, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "affinity",
+		"nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	assert.NilError(t, err)
+	assert.Equal(t, len(terms), 2, "current+legacy workspace keys expand each user term")
+	for i, raw := range terms {
+		exprs := raw.(map[string]interface{})["matchExpressions"].([]interface{})
+		keys := map[string]bool{}
+		for _, e := range exprs {
+			keys[e.(map[string]interface{})["key"].(string)] = true
+		}
+		assert.Assert(t, keys["gpu"], "term %d dropped the user constraint", i)
+		assert.Assert(t, keys[v1.ExternalWorkspaceLabel] || keys[v1.ExternalWorkspaceLabelLegacy],
+			"term %d missing workspace constraint", i)
+	}
+}
+
 // Node selector terms are ORed, so every term has to carry the pin, and a term's own
 // matchFields must be kept rather than overwritten.
 func TestApplyExternalNodePinCoversEveryTerm(t *testing.T) {

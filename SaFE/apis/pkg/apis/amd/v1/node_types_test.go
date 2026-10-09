@@ -86,6 +86,17 @@ func TestExternalNodeReadinessTracksObservationFreshness(t *testing.T) {
 	}
 }
 
+func TestExternalObservationAcceptsLegacyAnnotationPrefix(t *testing.T) {
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	fixedNow(t, now)
+	node := externalNode(nil, nil, true)
+	SetAnnotation(node, ExternalObservedAtAnnotationLegacy, now.Add(-10*time.Second).UTC().Format(time.RFC3339Nano))
+	SetAnnotation(node, ExternalValidUntilAnnotationLegacy, now.Add(time.Minute).UTC().Format(time.RFC3339Nano))
+	if !node.IsMachineReady() {
+		t.Fatal("legacy observed-at/valid-until annotations must count as fresh")
+	}
+}
+
 // A far future validUntil must not keep a node alive once the provider goes quiet: that is
 // the case the backstop exists for, and it is how a crashed provider would otherwise leave
 // its nodes advertised indefinitely.

@@ -24,22 +24,22 @@ install_if_not_exists() {
       echo "=== apt-get update ==="
       if ! apt-get update; then
         echo "Error: apt-get update failed"
-        exit 1
+        return 1
       fi
       echo "=== apt-get install -y$missing_packages ==="
       if ! apt-get install -y $missing_packages; then
         echo "Error: apt-get install failed for:$missing_packages"
-        exit 1
+        return 1
       fi
     elif command -v yum >/dev/null 2>&1; then
       echo "=== yum install -y$missing_packages ==="
       if ! yum install -y $missing_packages; then
         echo "Error: yum install failed for:$missing_packages"
-        exit 1
+        return 1
       fi
     else
       echo "Unsupported package manager. Neither apt-get nor yum found."
-      exit 1
+      return 1
     fi
   fi
 }

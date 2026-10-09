@@ -20,22 +20,25 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
 const (
-	// externalBudgetResync is how often an external workspace re-reads its budget quota.
-	// The quota lives on the data-plane cluster, which this controller does not watch, so a
-	// change to spec.hard is picked up on the next resync rather than on an event.
-	externalBudgetResync = 30 * time.Second
-
 	// ExternalBudgetMissingReason is the event reason recorded on an external workspace whose
 	// namespace has no budget quota.
 	ExternalBudgetMissingReason = "ExternalBudgetMissing"
 
 	quotaRequestsPrefix = "requests."
 )
+
+// externalBudgetResync is how often an external workspace re-reads its budget quota.
+// The quota lives on the data-plane cluster, which this controller does not watch, so a
+// change to spec.hard is picked up on the next resync rather than on an event.
+func externalBudgetResync() time.Duration {
+	return commonconfig.GetExternalWorkspaceResync()
+}
 
 // syncExternalWorkspace sets the capacity of an external workspace from the ResourceQuota
 // named v1.ExternalBudgetQuotaName in the workspace's namespace on its data-plane cluster.
@@ -155,8 +158,9 @@ func (r *WorkspaceReconciler) finishExternalWorkspace(ctx context.Context,
 		}
 	}
 	result := actionResult
-	if result.RequeueAfter == 0 || result.RequeueAfter > externalBudgetResync {
-		result.RequeueAfter = externalBudgetResync
+	resync := externalBudgetResync()
+	if result.RequeueAfter == 0 || result.RequeueAfter > resync {
+		result.RequeueAfter = resync
 	}
 	return result, nil
 }

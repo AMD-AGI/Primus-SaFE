@@ -3217,8 +3217,10 @@ func applyExternalVirtualKubeletToleration(obj *unstructured.Unstructured, workl
 }
 
 // applyExternalSchedulerAffinity writes w In (and lease-end Gt when Timeout is set)
-// for the kube-scheduler path. Current and legacy provider label keys are OR'd so
-// pods still match VK nodes during the Autopilot rename window.
+// for the kube-scheduler path. Current and legacy provider label keys stay OR'd so
+// pods still match VK nodes during the Autopilot rename window. When the template
+// already has nodeSelectorTerms, workspace constraints are ANDed into every term
+// so user specified_nodes / excluded_nodes / custom labels cannot be bypassed.
 func applyExternalSchedulerAffinity(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
 	if !isKubeSchedulerPlacement(workload) {
@@ -3234,9 +3236,73 @@ func applyExternalSchedulerAffinity(obj *unstructured.Unstructured, workload *v1
 	if len(terms) == 0 {
 		terms = selectorTerms
 	} else {
-		terms = append(terms, selectorTerms...)
+		terms = mergeExternalWorkspaceAffinity(terms, selectorTerms)
 	}
 	return jobutils.SetNestedField(obj.Object, terms, path)
+}
+
+// mergeExternalWorkspaceAffinity ANDs each workspace term into every existing term.
+// Existing terms are ORed with each other; current and legacy workspace keys remain
+// separate OR expansions so a node stamped with either prefix still matches.
+func mergeExternalWorkspaceAffinity(existing, workspaceTerms []interface{}) []interface{} {
+	managed := externalWorkspaceAffinityKeys()
+	out := make([]interface{}, 0, len(existing)*len(workspaceTerms))
+	for _, raw := range existing {
+		base, ok := raw.(map[string]interface{})
+		if !ok {
+			base = map[string]interface{}{}
+		}
+		baseExprs := stripManagedMatchExpressions(base["matchExpressions"], managed)
+		baseFields, hasFields := base["matchFields"]
+		for _, wsRaw := range workspaceTerms {
+			ws, ok := wsRaw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			wsExprs, _ := ws["matchExpressions"].([]interface{})
+			merged := map[string]interface{}{
+				"matchExpressions": append(append([]interface{}{}, baseExprs...), wsExprs...),
+			}
+			if hasFields {
+				merged["matchFields"] = baseFields
+			}
+			out = append(out, merged)
+		}
+	}
+	return out
+}
+
+// externalWorkspaceAffinityKeys are matchExpression keys owned by applyExternalSchedulerAffinity.
+func externalWorkspaceAffinityKeys() map[string]struct{} {
+	return map[string]struct{}{
+		v1.ExternalWorkspaceLabel:       {},
+		v1.ExternalWorkspaceLabelLegacy: {},
+		v1.ExternalLeaseEndLabel:        {},
+		v1.ExternalLeaseEndLabelLegacy:  {},
+	}
+}
+
+// stripManagedMatchExpressions drops expressions whose keys are platform-managed so
+// a second apply does not duplicate workspace / lease-end constraints.
+func stripManagedMatchExpressions(raw interface{}, managed map[string]struct{}) []interface{} {
+	exprs, ok := raw.([]interface{})
+	if !ok || len(exprs) == 0 {
+		return nil
+	}
+	out := make([]interface{}, 0, len(exprs))
+	for _, entry := range exprs {
+		expr, ok := entry.(map[string]interface{})
+		if !ok {
+			out = append(out, entry)
+			continue
+		}
+		key, _ := expr["key"].(string)
+		if _, drop := managed[key]; drop {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // externalWorkspaceAffinityTerms builds OR nodeSelectorTerms for autopilot and legacy keys.

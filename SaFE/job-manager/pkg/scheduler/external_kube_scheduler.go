@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -133,6 +134,10 @@ func isRetryableImageResolveError(err error) bool {
 	if err == nil {
 		return false
 	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
 	leaf := err
 	for {
 		next := errors.Unwrap(leaf)
@@ -146,6 +151,7 @@ func isRetryableImageResolveError(err error) bool {
 		"timeout", "temporarily", "connection refused", "connection reset",
 		"i/o timeout", "tls handshake timeout", "broken pipe", "reset by peer",
 		"eof", "429", "502", "503", "504", "unavailable", "dial tcp",
+		"no such host", "server misbehaving", "lookup ",
 	} {
 		if strings.Contains(msg, needle) {
 			return true
@@ -661,7 +667,13 @@ func externalGangMemberCount(workload *v1.Workload) int64 {
 }
 
 func externalProvisioningRequestName(workload *v1.Workload, generation, attempt int32) string {
-	return fmt.Sprintf("pr-%s-%d-%d", externalObjectKey(workload), generation, attempt)
+	base := fmt.Sprintf("pr-%s-%d-%d", externalObjectKey(workload), generation, attempt)
+	ns := ""
+	if workload != nil {
+		ns = workload.Spec.Workspace
+	}
+	// Autopilot ledger.BookingKey is namespace+"."+prName and refuses values over 63.
+	return v1.FitExternalBookingName(ns, base)
 }
 
 func externalPodTemplateName(workload *v1.Workload, generation, attempt int32) string {

@@ -8,6 +8,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 
@@ -304,6 +305,13 @@ func TestIsRetryableImageResolveError(t *testing.T) {
 		fmt.Errorf("Get https://registry: dial tcp: i/o timeout"))
 	if !isRetryableImageResolveError(retryWrapped) {
 		t.Fatal("wrapped timeout must remain retryable")
+	}
+	dnsErr := &net.DNSError{Err: "no such host", Name: "registry.example", IsNotFound: true}
+	if !isRetryableImageResolveError(fmt.Errorf("resolve digest: %w", dnsErr)) {
+		t.Fatal("DNSError must be retryable")
+	}
+	if !isRetryableImageResolveError(fmt.Errorf("lookup registry.example: server misbehaving")) {
+		t.Fatal("DNS misbehaving must be retryable")
 	}
 }
 

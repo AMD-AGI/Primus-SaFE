@@ -6,6 +6,8 @@
 package v1
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -323,6 +325,36 @@ func ExternalGenerationFromLabels(labels map[string]string) string {
 // ExternalHostKeyFromAnnotations returns the host key from current or legacy keys.
 func ExternalHostKeyFromAnnotations(annotations map[string]string) string {
 	return firstLabel(annotations, ExternalHostKeyAnnotation, ExternalHostKeyAnnotationLegacy)
+}
+
+// FitExternalBookingName shortens a ProvisioningRequest name so
+// namespace+"."+name stays within ExternalBookingKeyMaxLen. Autopilot's
+// ledger.BookingKey and the booking taint value use that pair verbatim.
+func FitExternalBookingName(namespace, name string) string {
+	maxName := ExternalBookingKeyMaxLen - len(namespace) - 1
+	if maxName > 63 {
+		maxName = 63
+	}
+	if maxName < 1 {
+		maxName = 1
+	}
+	if len(name) <= maxName {
+		return name
+	}
+	sum := sha256.Sum256([]byte(name))
+	digest := hex.EncodeToString(sum[:8])
+	if maxName <= len(digest) {
+		return digest[:maxName]
+	}
+	prefixLen := maxName - len(digest) - 1
+	if prefixLen < 1 {
+		return digest[:maxName]
+	}
+	prefix := strings.TrimRight(name[:prefixLen], "-")
+	if prefix == "" {
+		return digest[:maxName]
+	}
+	return prefix + "-" + digest
 }
 
 func firstLabel(m map[string]string, keys ...string) string {

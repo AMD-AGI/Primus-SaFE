@@ -88,6 +88,19 @@ func TestGetNodeMigrateInfoRejectsUnusableValues(t *testing.T) {
 	}
 }
 
+func TestFitExternalBookingNameKeepsPairWithinLimit(t *testing.T) {
+	ns := "very-long-workspace-name-for-booking"
+	base := "pr-0123456789abcdef-1-1"
+	fitted := FitExternalBookingName(ns, base)
+	if len(ns)+1+len(fitted) > ExternalBookingKeyMaxLen {
+		t.Fatalf("booking key %q.%q length %d exceeds %d",
+			ns, fitted, len(ns)+1+len(fitted), ExternalBookingKeyMaxLen)
+	}
+	if FitExternalBookingName("ws", "pr-short-1-1") != "pr-short-1-1" {
+		t.Fatal("short names must stay unchanged")
+	}
+}
+
 func TestNodeMigrationPredicates(t *testing.T) {
 	node := &Node{}
 	SetNodeMigrateInfo(node, &NodeMigrateInfo{From: "ws-a", Target: "ws-b"})

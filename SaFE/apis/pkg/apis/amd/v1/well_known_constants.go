@@ -171,12 +171,17 @@ const (
 	ExternalLeaseEndLabel       = ExternalExecutionPrefix + "lease-end"
 	ExternalLeaseEndLabelLegacy = ExternalExecutionPrefixLegacy + "lease-end"
 	// ExternalProvisioningRequestTaint is the booking taint key for ProvisioningRequest nodes.
-	ExternalProvisioningRequestTaint  = ExternalExecutionPrefix + "provisioning-request"
-	ExternalHostKeyAnnotation         = ExternalExecutionPrefix + "host-key"
-	ExternalHostKeyAnnotationLegacy   = ExternalExecutionPrefixLegacy + "host-key"
-	ExternalObservedAtAnnotation      = ExternalExecutionPrefix + "observed-at"
-	ExternalValidUntilAnnotation      = ExternalExecutionPrefix + "valid-until"
-	ExternalAllocationPhaseAnnotation = ExternalExecutionPrefix + "allocation-phase"
+	ExternalProvisioningRequestTaint   = ExternalExecutionPrefix + "provisioning-request"
+	ExternalHostKeyAnnotation          = ExternalExecutionPrefix + "host-key"
+	ExternalHostKeyAnnotationLegacy    = ExternalExecutionPrefixLegacy + "host-key"
+	ExternalObservedAtAnnotation       = ExternalExecutionPrefix + "observed-at"
+	ExternalObservedAtAnnotationLegacy = ExternalExecutionPrefixLegacy + "observed-at"
+	ExternalValidUntilAnnotation       = ExternalExecutionPrefix + "valid-until"
+	ExternalValidUntilAnnotationLegacy = ExternalExecutionPrefixLegacy + "valid-until"
+	ExternalAllocationPhaseAnnotation  = ExternalExecutionPrefix + "allocation-phase"
+	// ExternalBookingKeyMaxLen is the Kubernetes label/taint value limit. Autopilot
+	// ledger.BookingKey refuses longer <namespace>.<prName> pairs.
+	ExternalBookingKeyMaxLen = 63
 	// ExternalVirtualKubeletTaint is the community-standard provider identity taint.
 	// It selects pods onto the virtual node and must not by itself make the node
 	// unavailable for capacity accounting.

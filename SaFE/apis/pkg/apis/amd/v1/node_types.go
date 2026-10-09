@@ -292,8 +292,11 @@ func (n *Node) hasReadyCondition() bool {
 // observation annotations are treated as stale so capacity is not counted before the
 // provider has published freshness.
 func (n *Node) hasFreshExternalObservation() bool {
-	observedRaw := GetAnnotation(n, ExternalObservedAtAnnotation)
-	validRaw := GetAnnotation(n, ExternalValidUntilAnnotation)
+	// Accept current and legacy annotation prefixes during the Autopilot rename window.
+	observedRaw := firstLabel(n.GetAnnotations(),
+		ExternalObservedAtAnnotation, ExternalObservedAtAnnotationLegacy)
+	validRaw := firstLabel(n.GetAnnotations(),
+		ExternalValidUntilAnnotation, ExternalValidUntilAnnotationLegacy)
 	if observedRaw == "" || validRaw == "" {
 		return false
 	}

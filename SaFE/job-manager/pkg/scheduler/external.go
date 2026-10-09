@@ -96,14 +96,22 @@ func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 		return false, nil
 	}
 	if err := r.deleteExternalProvisioningObjects(ctx, workload); err != nil {
-		return true, err
+		// Return (true, nil) so the caller requeues after externalReleaseRetry instead
+		// of treating the error as an immediate reconcile failure that skips pacing.
+		klog.ErrorS(err, "failed to delete external provisioning objects",
+			"workload", workload.Name)
+		return true, nil
 	}
 	updated := state.DeepCopy()
 	updated.ProvisioningRequest = ""
 	updated.ProvisioningAttempt = 0
 	updated.ProvisioningCondition = ""
+	// Clear DispatchGeneration so an ended workload becomes a no-op on the next pass.
+	updated.DispatchGeneration = 0
 	if err := r.patchExternalState(ctx, workload, updated); err != nil {
-		return true, err
+		klog.ErrorS(err, "failed to clear external execution after release",
+			"workload", workload.Name)
+		return true, nil
 	}
 	return false, nil
 }
