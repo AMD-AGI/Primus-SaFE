@@ -236,7 +236,8 @@ func otherCA(t *testing.T) string {
 }
 
 // The token is only ever sent over TLS: a registry that answers in plain HTTP is not
-// retried insecurely.
+// retried insecurely. The client library itself falls back to HTTP for a registry named
+// by a loopback or private address, which is the case this covers.
 func TestExportNeverFallsBackToPlainHTTP(t *testing.T) {
 	plain := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
 	defer plain.Close()
@@ -247,10 +248,11 @@ func TestExportNeverFallsBackToPlainHTTP(t *testing.T) {
 		return (&net.Dialer{}).DialContext(ctx, network, addr)
 	}
 	_, err := Export(context.Background(), Request{
-		Registry: "registry.example.com:" + port, Repository: "save-staging/job-1",
+		Registry: "127.0.0.1:" + port, Repository: "save-staging/job-1",
 		Token: "t", Deadline: time.Now().Add(time.Minute),
 	}, env)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refusing to reach the registry over http")
 }
 
 func TestBaselineRoundTrip(t *testing.T) {
