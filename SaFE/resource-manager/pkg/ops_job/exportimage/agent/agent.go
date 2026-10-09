@@ -5,8 +5,8 @@
 
 // Package agent is what runs inside the container being saved. It finds what changed
 // since the platform launcher handed over to the user, writes that as one layer and
-// uploads the layer to a staging repository with a short-lived token that can write
-// nothing else. The image itself is put together by the controller, from what the
+// uploads the layer to a staging repository with a short-lived token minted with a
+// credential limited to the staging project. The image itself is put together by the controller, from what the
 // registry holds; nothing this package reports is trusted beyond locating the layer.
 package agent
 
@@ -57,11 +57,11 @@ var errUploadStopped = errors.New("upload stopped")
 // Request is what the controller sends on the agent's standard input. It never appears
 // in the command line, the environment or the Pod spec.
 type Request struct {
-	// Registry is the host (and port) of the staging registry.
+	// Registry is the host (and port) of the registry.
 	Registry string `json:"registry"`
 	// Repository is the staging repository, without the registry.
 	Repository string `json:"repository"`
-	// Token is a registry bearer token that can push to Repository only.
+	// Token is a short-lived registry bearer token for Repository.
 	Token string `json:"token"`
 	// CA is the PEM bundle the registry's certificate is checked against. When empty,
 	// the container's system roots are used.

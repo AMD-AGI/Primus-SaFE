@@ -17,7 +17,7 @@ import (
 )
 
 // ErrBaseNotInRegistry is returned when the image the container was started from is not
-// in the staging registry.
+// in the registry the saved image is put together in.
 var ErrBaseNotInRegistry = errors.New("the image the container was started from is not in the registry the saved image is put together in")
 
 // ParseImageID turns a container status imageID into a digest reference. Runtimes report
@@ -33,7 +33,7 @@ func ParseImageID(imageID string) (name.Digest, error) {
 	return name.NewDigest(imageID)
 }
 
-// BaseCandidates lists where the base image may be read in the staging registry: the
+// BaseCandidates lists where the base image may be read in the export registry: the
 // image ID itself when the node pulled from that registry, else the same repository path
 // and digest there. The digest pins the content, so a copy found there is the same image.
 // The image is put together in that registry by mounting the base's layers, so a base

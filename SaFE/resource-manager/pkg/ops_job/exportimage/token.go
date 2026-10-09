@@ -34,10 +34,12 @@ type tokenClaims struct {
 	} `json:"access"`
 }
 
-// IssuePushToken asks the registry's token service, with this process's credential, for a
-// token that can push to repo and nothing else. The token goes into the user's container,
-// so its grant is read back and refused unless it names repo alone, with no action but
-// push and pull. It cannot be revoked; it expires when the registry says.
+// IssuePushToken asks the registry's token service, with auth, for a token scoped to push
+// to repo. The token goes into the user's container, so its grant is read back and
+// refused unless it names repo alone. Harbor does not hold a token to the repository it
+// names, though: a token carries the power of the account that minted it, which is why
+// auth must be an account limited to the staging project. A token cannot be revoked; it
+// expires when the registry says.
 func IssuePushToken(ctx context.Context, repo name.Repository, auth authn.Authenticator, tr http.RoundTripper) (*PushToken, error) {
 	challenge, err := transport.Ping(ctx, repo.Registry, tr)
 	if err != nil {
@@ -82,6 +84,9 @@ func parseTokenClaims(token string) (*tokenClaims, error) {
 	return &c, nil
 }
 
+// grantsOnlyPushTo checks that the token can push to repo and reaches no other repository
+// or resource. Whatever it may do within repo (Harbor adds delete to an administrator's
+// push grant) is bounded by repo, which holds nothing but this export's layer.
 func (c *tokenClaims) grantsOnlyPushTo(repo string) error {
 	push := false
 	for _, a := range c.Access {
@@ -89,12 +94,8 @@ func (c *tokenClaims) grantsOnlyPushTo(repo string) error {
 			return fmt.Errorf("the registry's token grants access to %s %q, not only to %s", a.Type, a.Name, repo)
 		}
 		for _, act := range a.Actions {
-			switch act {
-			case "push":
+			if act == "push" || act == "*" {
 				push = true
-			case "pull":
-			default:
-				return fmt.Errorf("the registry's token grants %q on %s", act, repo)
 			}
 		}
 	}

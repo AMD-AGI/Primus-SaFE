@@ -14,6 +14,12 @@ const (
 	DefaultVersion             = "v1"
 	PrimusRouterCustomRootPath = "api/" + DefaultVersion
 	ImageImportSecretName      = "primus-safe-image-import-reg-cred"
+	// SaveImageStagingSecretName holds the registry credential Save Image mints a workload
+	// container's upload token with. It must be an account that can push to the staging
+	// project alone (a Harbor robot account of that project, say), never the platform's
+	// own: Harbor honours a token with the power of the account that minted it, whatever
+	// repository the token names.
+	SaveImageStagingSecretName = "primus-safe-save-image-staging-cred"
 	// ExportImageProject is the registry project that saved workload images are pushed to.
 	ExportImageProject = "custom"
 	SecretPath         = "/etc/secrets"

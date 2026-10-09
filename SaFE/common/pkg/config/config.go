@@ -571,21 +571,22 @@ type HostAlias struct {
 
 // SaveImageCluster says where a workload of one cluster is saved as an image.
 //
-// The container uploads its changes to StagingRegistry, which it must be able to reach;
-// the image is put together there, in TargetProject, by mounting blobs. When
-// TargetRegistry is another registry, that registry's replication (configured by its
-// administrator, not by the platform) carries the image across, and the export waits up
-// to ReplicationTimeoutSecond for it. HostAliases resolve registry names inside the
-// cluster's Pods where its DNS does not.
+// Registry is where the saved image is published; the cluster's containers must reach it,
+// because each uploads its own changes there, to a repository of StagingProject made for
+// that export, and the image is then put together in TargetProject by mounting blobs. It
+// must hold the images the containers were started from. StagingPushSecret
+// ("<namespace>/<name>") holds a credential limited to StagingProject, which the
+// container's upload token is minted with; CASecret ("<namespace>/<name>", key ca.crt)
+// signs Registry. HostAliases resolve registry names inside the cluster's Pods where its
+// DNS does not.
 type SaveImageCluster struct {
-	Cluster                  string      `json:"cluster" yaml:"cluster" mapstructure:"cluster"`
-	TargetRegistry           string      `json:"target_registry" yaml:"target_registry" mapstructure:"target_registry"`
-	TargetProject            string      `json:"target_project" yaml:"target_project" mapstructure:"target_project"`
-	StagingRegistry          string      `json:"staging_registry" yaml:"staging_registry" mapstructure:"staging_registry"`
-	StagingProject           string      `json:"staging_project" yaml:"staging_project" mapstructure:"staging_project"`
-	StagingCASecret          string      `json:"staging_ca_secret" yaml:"staging_ca_secret" mapstructure:"staging_ca_secret"`
-	ReplicationTimeoutSecond int         `json:"replication_timeout_second" yaml:"replication_timeout_second" mapstructure:"replication_timeout_second"`
-	HostAliases              []HostAlias `json:"host_aliases" yaml:"host_aliases" mapstructure:"host_aliases"`
+	Cluster           string      `json:"cluster" yaml:"cluster" mapstructure:"cluster"`
+	Registry          string      `json:"registry" yaml:"registry" mapstructure:"registry"`
+	TargetProject     string      `json:"target_project" yaml:"target_project" mapstructure:"target_project"`
+	StagingProject    string      `json:"staging_project" yaml:"staging_project" mapstructure:"staging_project"`
+	CASecret          string      `json:"ca_secret" yaml:"ca_secret" mapstructure:"ca_secret"`
+	StagingPushSecret string      `json:"staging_push_secret" yaml:"staging_push_secret" mapstructure:"staging_push_secret"`
+	HostAliases       []HostAlias `json:"host_aliases" yaml:"host_aliases" mapstructure:"host_aliases"`
 }
 
 // GetSaveImageCluster returns the save-image settings of a cluster, and whether it has

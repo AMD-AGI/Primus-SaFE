@@ -22,17 +22,16 @@ func TestGetSaveImageCluster(t *testing.T) {
 	require.NoError(t, os.WriteFile(file, []byte(`save_image:
   clusters:
   - cluster: edge
-    target_registry: central.example.com
+    registry: edge.example.com
     target_project: custom
-    staging_registry: edge.example.com
     staging_project: save-staging
-    staging_ca_secret: harbor/edge-ca
-    replication_timeout_second: 600
+    ca_secret: harbor/edge-ca
+    staging_push_secret: primus-safe/edge-staging
     host_aliases:
     - ip: 10.0.0.5
       hostnames: [edge.example.com]
   - cluster: Central
-    target_registry: central.example.com
+    registry: central.example.com
 `), 0o600))
 	require.NoError(t, LoadConfig(file))
 
@@ -40,10 +39,9 @@ func TestGetSaveImageCluster(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, SaveImageCluster{
-		Cluster: "edge", TargetRegistry: "central.example.com", TargetProject: "custom",
-		StagingRegistry: "edge.example.com", StagingProject: "save-staging", StagingCASecret: "harbor/edge-ca",
-		ReplicationTimeoutSecond: 600,
-		HostAliases:              []HostAlias{{IP: "10.0.0.5", Hostnames: []string{"edge.example.com"}}},
+		Cluster: "edge", Registry: "edge.example.com", TargetProject: "custom",
+		StagingProject: "save-staging", CASecret: "harbor/edge-ca", StagingPushSecret: "primus-safe/edge-staging",
+		HostAliases: []HostAlias{{IP: "10.0.0.5", Hostnames: []string{"edge.example.com"}}},
 	}, c)
 
 	// Cluster IDs are matched exactly; they are values, not keys viper folds to lower case.
@@ -66,9 +64,8 @@ func TestChartRendersSaveImageClusters(t *testing.T) {
 	require.NoError(t, os.WriteFile(values, []byte(`save_image:
   clusters:
   - cluster: edge
-    target_registry: central.example.com
-    staging_registry: edge.example.com
-    replication_timeout_second: 900
+    registry: edge.example.com
+    staging_project: stage
     host_aliases:
     - ip: 10.0.0.5
       hostnames: [edge.example.com]
@@ -78,8 +75,8 @@ func TestChartRendersSaveImageClusters(t *testing.T) {
 		c, ok, err := GetSaveImageCluster("edge")
 		require.NoError(t, err, component)
 		require.True(t, ok, component)
-		assert.Equal(t, "edge.example.com", c.StagingRegistry, component)
-		assert.Equal(t, 900, c.ReplicationTimeoutSecond, component)
+		assert.Equal(t, "edge.example.com", c.Registry, component)
+		assert.Equal(t, "stage", c.StagingProject, component)
 		assert.Equal(t, []HostAlias{{IP: "10.0.0.5", Hostnames: []string{"edge.example.com"}}}, c.HostAliases, component)
 	}
 	loadRendered(t, renderConfigMapData(t, "job-manager", "config.yaml"))

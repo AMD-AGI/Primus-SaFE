@@ -22,6 +22,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
+	"github.com/google/go-containerregistry/pkg/authn"
 	gcrname "github.com/google/go-containerregistry/pkg/name"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -275,6 +276,11 @@ func exportFixture(t *testing.T, exportErr error) (*ExportImageJobReconciler, *e
 		ObjectMeta: metav1.ObjectMeta{Name: common.ImageImportSecretName, Namespace: common.PrimusSafeNamespace},
 		Data:       map[string][]byte{"config.json": []byte(`{"auths":{"harbor.local":{"auth":"` + authStr + `"}}}`)},
 	}
+	staging := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: common.SaveImageStagingSecretName, Namespace: common.PrimusSafeNamespace},
+		Data: map[string][]byte{corev1.DockerConfigJsonKey: []byte(`{"auths":{"harbor.local":{"auth":"` +
+			base64.StdEncoding.EncodeToString([]byte("robot:staging")) + `"}}}`)},
+	}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ws1"},
 		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "main"}}},
@@ -293,7 +299,7 @@ func exportFixture(t *testing.T, exportErr error) (*ExportImageJobReconciler, *e
 		})
 
 	got := &exportimage.Request{}
-	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, wl, cred), dbClient: db}
+	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, wl, cred, staging), dbClient: db}
 	r.export = func(_ context.Context, req exportimage.Request) (*exportimage.Result, error) {
 		*got = req
 		if exportErr != nil {
@@ -329,21 +335,52 @@ func TestExportImageDoSucceeds(t *testing.T) {
 	assert.Equal(t, "p1", pe.Pod)
 	assert.Equal(t, "main", pe.Container)
 	assert.Equal(t, "reg/x@sha256:"+strings.Repeat("a", 64), req.ImageID)
-	// Without settings for the cluster, the image is staged and published in the default
-	// registry, and each export gets a staging repository of its own.
+	// Without settings for the cluster, the image is published in the default registry,
+	// and each export gets a staging repository of its own there.
 	assert.Equal(t, "harbor.local/save-staging/e1", req.Staging.String())
-	assert.Equal(t, req.Target, req.Assembly)
+
+	// The container's token is minted with the staging-only account, everything else
+	// with the platform's.
+	auth := func(kc interface {
+		Resolve(authn.Resource) (authn.Authenticator, error)
+	}) string {
+		reg, err := gcrname.NewRegistry("harbor.local")
+		assert.NoError(t, err)
+		a, err := kc.Resolve(reg)
+		assert.NoError(t, err)
+		cfg, err := a.Authorization()
+		assert.NoError(t, err)
+		return cfg.Auth
+	}
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("robot:staging")), auth(req.StagingKeychain))
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("admin:secret")), auth(req.Keychain))
 }
 
-// A cluster whose containers cannot reach the target registry stages in a registry they
-// can reach, and the image is put together there under the target's path.
+// Without a staging-only credential the export is refused: the platform's own credential
+// would give the user's container the platform's power over the registry.
+func TestExportImageRefusesWithoutAStagingCredential(t *testing.T) {
+	r, _, cleanup := exportFixture(t, nil)
+	defer cleanup()
+	ctx := context.Background()
+	s := &corev1.Secret{}
+	assert.NoError(t, r.Get(ctx, types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: common.SaveImageStagingSecretName}, s))
+	assert.NoError(t, r.Delete(ctx, s))
+	_, err := r.Do(ctx, "e1")
+	assert.NoError(t, err)
+	updated := &v1.OpsJob{}
+	assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e1"}, updated))
+	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
+	assert.Contains(t, updated.Status.Conditions[0].Message, "never handed to a container")
+}
+
+// A cluster's settings choose the registry (where its containers upload and the image is
+// published), the projects and the registry's CA.
 func TestExportImageClusterDestination(t *testing.T) {
 	r, req, cleanup := exportFixture(t, nil)
 	defer cleanup()
 	viper.Set("save_image.clusters", []map[string]any{{
-		"cluster": "c1", "target_registry": "central.example.com", "target_project": "saved",
-		"staging_registry": "edge.example.com", "staging_project": "stage",
-		"staging_ca_secret": "harbor/edge-ca", "replication_timeout_second": 120,
+		"cluster": "c1", "registry": "edge.example.com", "target_project": "saved",
+		"staging_project": "stage", "ca_secret": "harbor/edge-ca",
 	}})
 	defer viper.Reset()
 	testCA := selfSignedPEM(t)
@@ -355,20 +392,9 @@ func TestExportImageClusterDestination(t *testing.T) {
 
 	_, err := r.Do(context.Background(), "e1")
 	assert.NoError(t, err)
-	assert.Regexp(t, `^central\.example\.com/saved/library/python:[0-9]{14}-[0-9a-f]{6}$`, req.Target.String())
-	assert.Equal(t, "edge.example.com/"+req.Target.RepositoryStr()+":"+req.Target.TagStr(), req.Assembly.String())
+	assert.Regexp(t, `^edge\.example\.com/saved/library/python:[0-9]{14}-[0-9a-f]{6}$`, req.Target.String())
 	assert.Equal(t, "edge.example.com/stage/e1", req.Staging.String())
-	assert.Equal(t, 120*time.Second, req.ReplicationTimeout)
-	assert.Equal(t, testCA, string(req.CA), "the container checks the staging registry against its CA")
-
-	// Only the platform's credential is used: it is the one every registry is written with.
-	reg, err := gcrname.NewRegistry("harbor.local")
-	assert.NoError(t, err)
-	a, err := req.Keychain.Resolve(reg)
-	assert.NoError(t, err)
-	cfg, err := a.Authorization()
-	assert.NoError(t, err)
-	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("admin:secret")), cfg.Auth)
+	assert.Equal(t, testCA, string(req.CA), "the container checks the registry against its CA")
 }
 
 func selfSignedPEM(t *testing.T) string {
@@ -388,7 +414,7 @@ func selfSignedPEM(t *testing.T) string {
 func TestExportImageClusterDestinationRefusesAMissingCA(t *testing.T) {
 	r, _, cleanup := exportFixture(t, nil)
 	defer cleanup()
-	viper.Set("save_image.clusters", []map[string]any{{"cluster": "c1", "staging_ca_secret": "harbor/missing"}})
+	viper.Set("save_image.clusters", []map[string]any{{"cluster": "c1", "ca_secret": "harbor/missing"}})
 	defer viper.Reset()
 	ctx := context.Background()
 	_, err := r.Do(ctx, "e1")

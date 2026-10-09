@@ -10,7 +10,8 @@
 // Pod's shared volume (see package agent) finds what changed since the launcher handed
 // over to the user, measures deletions against the list of files the launcher recorded
 // when the container started, and uploads that as one layer blob to a staging repository
-// made for this export, with a short-lived token that can push there and nowhere else.
+// made for this export, with a short-lived token minted with a credential limited to the
+// staging project (never the platform's own).
 // This package issues that token, starts the program through pods/exec (the token
 // travels on its standard input), and then puts the image together in the registry
 // itself: the base image's layers and the staged layer are mounted, and only the config
@@ -43,6 +44,10 @@ import (
 var (
 	// ErrNotRoot is returned for a container that does not run as root.
 	ErrNotRoot = agent.ErrNotRoot
+	// ErrNoStagingCredential is returned when no credential limited to the staging
+	// project is configured for the registry.
+	ErrNoStagingCredential = errors.New("no registry credential limited to the staging project is configured, " +
+		"and the platform's own credential is never handed to a container")
 	// ErrPredatesSaveImage is returned for a container started before the platform
 	// recorded its files and installed the export program.
 	ErrPredatesSaveImage = errors.New("the container was started before it could be saved as an image; " +
@@ -111,20 +116,19 @@ type Request struct {
 	// Staging is the repository, made for this export alone, that the container uploads
 	// its layer to.
 	Staging name.Repository
-	// Assembly is where the image is put together; it is in the staging registry.
-	Assembly name.Tag
-	// Target is where the saved image is published. When it is in another registry than
-	// Assembly, that registry's replication carries the image there, and Export waits up
-	// to ReplicationTimeout for it to arrive.
-	Target             name.Tag
-	ReplicationTimeout time.Duration
-	// PollInterval is how often the target is checked while waiting for replication.
-	PollInterval time.Duration
+	// Target is where the saved image is published, in the same registry as Staging: the
+	// image is put together there by mounting blobs, which works within one registry only.
+	Target name.Tag
 	// Keychain and Transport are this process's access to the registries.
-	Keychain  authn.Keychain
-	Transport http.RoundTripper
-	// CA is the PEM bundle the container checks the staging registry's certificate
-	// against; empty for a registry its system roots trust.
+	Keychain authn.Keychain
+	// StagingKeychain holds the credential the container's upload token is minted with.
+	// The registry gives a token the power of the account that minted it, whatever
+	// repository it names, so this must be an account that can push to the staging
+	// project alone; it is never Keychain's.
+	StagingKeychain authn.Keychain
+	Transport       http.RoundTripper
+	// CA is the PEM bundle the container checks the registry's certificate against; empty
+	// for a registry its system roots trust.
 	CA       []byte
 	Platform v1.Platform
 	Logf     func(format string, args ...any)
@@ -132,7 +136,7 @@ type Request struct {
 
 // Result describes a published image.
 type Result struct {
-	// Digest is the manifest digest the target registry reports.
+	// Digest is the manifest digest the registry reports.
 	Digest string
 	Base   string
 	Layer  agent.Response
@@ -143,6 +147,9 @@ func Export(ctx context.Context, req Request) (*Result, error) {
 	logf := req.Logf
 	if logf == nil {
 		logf = func(string, ...any) {}
+	}
+	if req.Staging.RegistryStr() != req.Target.RegistryStr() {
+		return nil, fmt.Errorf("the staging repository %s and the image %s are not in one registry", req.Staging, req.Target)
 	}
 	var probeOut bytes.Buffer
 	if err := runCaptured(ctx, req.Exec, []string{"sh", "-c", probeScript}, &probeOut); err != nil {
@@ -162,7 +169,7 @@ func Export(ctx context.Context, req Request) (*Result, error) {
 		remote.WithTransport(req.Transport),
 		remote.WithPlatform(req.Platform),
 	}
-	base, baseUsed, err := ResolveBase(ctx, BaseCandidates(baseRef, req.Assembly.RegistryStr()), opts...)
+	base, baseUsed, err := ResolveBase(ctx, BaseCandidates(baseRef, req.Target.RegistryStr()), opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +178,17 @@ func Export(ctx context.Context, req Request) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	token, err := IssuePushToken(ctx, req.Staging, auth, req.Transport)
+	if req.StagingKeychain == nil {
+		return nil, ErrNoStagingCredential
+	}
+	stagingAuth, err := req.StagingKeychain.Resolve(req.Staging)
+	if err != nil {
+		return nil, err
+	}
+	if stagingAuth == authn.Anonymous {
+		return nil, ErrNoStagingCredential
+	}
+	token, err := IssuePushToken(ctx, req.Staging, stagingAuth, req.Transport)
 	if err != nil {
 		return nil, err
 	}
@@ -211,17 +228,11 @@ func Export(ctx context.Context, req Request) (*Result, error) {
 		return nil, fmt.Errorf("the layer has %d bytes, more than the %d a saved image may add", size, int64(maxLayerSize))
 	}
 
-	digest, err := Assemble(ctx, base, baseUsed.Context(), req.Staging, staged, req.Assembly, auth, req.Transport)
+	digest, err := Assemble(ctx, base, baseUsed.Context(), req.Staging, staged, req.Target, auth, req.Transport)
 	if err != nil {
 		return nil, err
 	}
-	logf("put together %s@%s", req.Assembly, digest)
-	if req.Target.RegistryStr() != req.Assembly.RegistryStr() || req.Target.RepositoryStr() != req.Assembly.RepositoryStr() {
-		if err := waitForImage(ctx, req.Target, digest, req.ReplicationTimeout, req.PollInterval, opts); err != nil {
-			return nil, err
-		}
-		logf("replicated to %s", req.Target)
-	}
+	logf("put together %s@%s", req.Target, digest)
 	return &Result{Digest: digest.String(), Base: baseUsed.String(), Layer: *resp}, nil
 }
 
@@ -259,37 +270,6 @@ func runAgent(ctx context.Context, req Request, token *PushToken, deadline time.
 		return StagedLayer{}, nil, fmt.Errorf("the container reported an invalid layer diff ID")
 	}
 	return StagedLayer{Digest: d, DiffID: diffID, Size: resp.Size}, &resp, nil
-}
-
-// waitForImage waits for target to hold the manifest digest.
-func waitForImage(ctx context.Context, target name.Tag, digest v1.Hash, timeout, interval time.Duration, opts []remote.Option) error {
-	if timeout <= 0 {
-		return fmt.Errorf("%s is in another registry than the one the image was put together in, and no replication wait is configured", target)
-	}
-	if interval <= 0 {
-		interval = 10 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	opts = append(append([]remote.Option{}, opts...), remote.WithContext(ctx))
-	last := "not there yet"
-	for {
-		desc, err := remote.Head(target, opts...)
-		switch {
-		case err != nil:
-			last = err.Error()
-		case desc.Digest == digest:
-			return nil
-		default:
-			last = fmt.Sprintf("it holds %s", desc.Digest)
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("the saved image %s@%s did not arrive at %s within %s (check the registry's replication rule): %s",
-				target.Context(), digest, target, timeout, last)
-		case <-time.After(interval):
-		}
-	}
 }
 
 func runCaptured(ctx context.Context, ex Execer, cmd []string, stdout *bytes.Buffer) error {

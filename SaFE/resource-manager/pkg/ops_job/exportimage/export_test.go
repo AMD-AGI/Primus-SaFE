@@ -453,21 +453,19 @@ func newContainer(t *testing.T, bigFile int) *fakeContainer {
 
 type world struct {
 	staging *fakeHarbor
-	central *fakeHarbor
 	net     *network
 	baseID  string
 	request Request
 	c       *fakeContainer
 }
 
-// newWorld pushes the base image to the staging registry, under the repository the node
+// newWorld pushes the base image to the registry, under the repository the node
 // pulled it from, and returns a request that saves c into the same registry.
 func newWorld(t *testing.T, c *fakeContainer) *world {
 	t.Helper()
-	staging := newFakeHarbor(t, "staging.example.com")
-	central := newFakeHarbor(t, "central.example.com")
+	staging := newFakeHarbor(t, "registry.example.com")
 	n := &network{
-		addrs: map[string]string{staging.host: staging.addr, central.host: central.addr},
+		addrs: map[string]string{staging.host: staging.addr},
 		ca:    []byte(certPEM(staging.srv)),
 	}
 	c.env.Dial = n.dial
@@ -491,24 +489,23 @@ func newWorld(t *testing.T, c *fakeContainer) *world {
 
 	staged, err := name.NewRepository(staging.host + "/save-staging/export-1")
 	require.NoError(t, err)
-	assembly, err := name.NewTag(staging.host + "/custom/library/python:20261008000000-abcdef")
+	target, err := name.NewTag(staging.host + "/custom/library/python:20261008000000-abcdef")
 	require.NoError(t, err)
 	return &world{
 		staging: staging,
-		central: central,
 		net:     n,
 		baseID:  baseTag.Context().Digest(d.String()).String(),
 		c:       c,
 		request: Request{
-			Exec:      c,
-			ImageID:   "docker-pullable://" + baseTag.Context().Digest(d.String()).String(),
-			Staging:   staged,
-			Assembly:  assembly,
-			Target:    assembly,
-			Keychain:  n.keychain(t),
-			Transport: n.transport(),
-			CA:        n.ca,
-			Platform:  v1.Platform{OS: "linux", Architecture: "amd64"},
+			Exec:            c,
+			ImageID:         "docker-pullable://" + baseTag.Context().Digest(d.String()).String(),
+			Staging:         staged,
+			Target:          target,
+			Keychain:        n.keychain(t),
+			StagingKeychain: n.keychain(t),
+			Transport:       n.transport(),
+			CA:              n.ca,
+			Platform:        v1.Platform{OS: "linux", Architecture: "amd64"},
 		},
 	}
 }
@@ -592,14 +589,15 @@ func TestExportEndToEnd(t *testing.T) {
 	assert.Equal(t, dpkgStatusBase+"Package: jq\nStatus: install ok installed\nArchitecture: amd64\n\n", fs["/var/lib/dpkg/status"])
 	assert.Contains(t, fs, "/var/lib/dpkg/info/jq.list")
 	assert.NotContains(t, fs, "/var/lib/dpkg/info/openssh-server.list")
-	// The token went in on standard input, with the CA, and can push to staging alone.
+	// The token went in on standard input, with the CA.
 	assert.Equal(t, w.request.Staging.RepositoryStr(), w.c.request.Repository)
 	assert.Equal(t, string(w.net.ca), w.c.request.CA)
 	assert.True(t, w.c.request.Deadline.After(time.Now()))
 }
 
-// A layer the container stages can only go where its token allows: the staging
-// repository, never the target or the base.
+// A registry that enforces the token's grant keeps the container's layer in the staging
+// repository. (Harbor does not: it gives a token its minting account's power, which is
+// why the token is minted with an account limited to the staging project.)
 func TestTheContainersTokenCannotWriteElsewhere(t *testing.T) {
 	w := newWorld(t, newContainer(t, 0))
 	_, err := Export(context.Background(), w.request)
@@ -616,47 +614,15 @@ func TestTheContainersTokenCannotWriteElsewhere(t *testing.T) {
 	}
 }
 
-// The registry's replication carries the image from the staging registry to the target;
-// the export waits until the target holds the digest it put together.
-func TestExportWaitsForReplication(t *testing.T) {
+func TestExportRefusesAStagingRepositoryInAnotherRegistry(t *testing.T) {
 	w := newWorld(t, newContainer(t, 0))
-	target, err := name.NewTag(w.central.host + "/custom/library/python:20261008000000-abcdef")
+	other, err := name.NewRepository("elsewhere.example.com/save-staging/export-1")
 	require.NoError(t, err)
-	w.request.Target = target
-	w.request.ReplicationTimeout = 10 * time.Second
-	w.request.PollInterval = 20 * time.Millisecond
-	w.staging.onManifest = func(repo, ref string) {
-		if repo != w.request.Assembly.RepositoryStr() {
-			return
-		}
-		go func() {
-			time.Sleep(100 * time.Millisecond)
-			opts := []crane.Option{crane.WithTransport(w.net.transport()),
-				crane.WithAuth(&authn.Basic{Username: platformUser, Password: platformPassword})}
-			if err := crane.Copy(w.request.Assembly.String(), target.String(), opts...); err != nil {
-				t.Errorf("replicating: %v", err)
-			}
-		}()
-	}
-	res, err := Export(context.Background(), w.request)
-	require.NoError(t, err)
-	got, err := remote.Head(target, w.options()...)
-	require.NoError(t, err)
-	assert.Equal(t, got.Digest.String(), res.Digest)
-	assert.Equal(t, "hello", w.flatten(t, target)["/root/hello.txt"])
-}
-
-func TestExportFailsWhenReplicationNeverArrives(t *testing.T) {
-	w := newWorld(t, newContainer(t, 0))
-	target, err := name.NewTag(w.central.host + "/custom/library/python:20261008000000-abcdef")
-	require.NoError(t, err)
-	w.request.Target = target
-	w.request.ReplicationTimeout = 300 * time.Millisecond
-	w.request.PollInterval = 20 * time.Millisecond
+	w.request.Staging = other
 	_, err = Export(context.Background(), w.request)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "did not arrive")
-	assert.Contains(t, err.Error(), "replication")
+	assert.Contains(t, err.Error(), "not in one registry")
+	assert.Empty(t, w.c.ran)
 }
 
 func TestExportRefusesAContainerThatPredatesSaveImage(t *testing.T) {
@@ -689,14 +655,24 @@ func TestExportRefusesNonRoot(t *testing.T) {
 	assert.Equal(t, []string{"probe"}, c.ran)
 }
 
-// The image is put together by mounting the base's layers; a base the staging registry
+// The image is put together by mounting the base's layers; a base the registry
 // does not hold is refused rather than copied.
-func TestExportRefusesABaseNotInTheStagingRegistry(t *testing.T) {
+func TestExportRefusesABaseNotInTheRegistry(t *testing.T) {
 	w := newWorld(t, newContainer(t, 0))
 	w.request.ImageID = "elsewhere.example.com/proxy/library/python@sha256:" + strings.Repeat("a", 64)
 	_, err := Export(context.Background(), w.request)
 	require.ErrorIs(t, err, ErrBaseNotInRegistry)
 	assert.Equal(t, []string{"probe"}, w.c.ran)
+}
+
+func TestExportRefusesWithoutAStagingCredential(t *testing.T) {
+	for _, kc := range []authn.Keychain{nil, authn.NewMultiKeychain()} {
+		w := newWorld(t, newContainer(t, 0))
+		w.request.StagingKeychain = kc
+		_, err := Export(context.Background(), w.request)
+		require.ErrorIs(t, err, ErrNoStagingCredential)
+		assert.Equal(t, []string{"probe"}, w.c.ran)
+	}
 }
 
 func TestExportRefusesATokenThatGrantsMore(t *testing.T) {
@@ -759,12 +735,15 @@ func TestTokenGrantCheck(t *testing.T) {
 	ok := &tokenClaims{}
 	require.NoError(t, json.Unmarshal([]byte(`{"access":[{"type":"repository","name":"s/1","actions":["pull","push"]}]}`), ok))
 	assert.NoError(t, ok.grantsOnlyPushTo("s/1"))
+	// Harbor adds delete to an administrator's push grant; it reaches nothing but s/1.
+	withDelete := &tokenClaims{}
+	require.NoError(t, json.Unmarshal([]byte(`{"access":[{"type":"repository","name":"s/1","actions":["delete","pull","push"]}]}`), withDelete))
+	assert.NoError(t, withDelete.grantsOnlyPushTo("s/1"))
 	assert.Error(t, ok.grantsOnlyPushTo("s/2"))
 
 	for _, bad := range []string{
 		`{"access":[]}`,
 		`{"access":[{"type":"repository","name":"s/1","actions":["pull"]}]}`,
-		`{"access":[{"type":"repository","name":"s/1","actions":["push","delete"]}]}`,
 		`{"access":[{"type":"repository","name":"s/1","actions":["push"]},{"type":"repository","name":"t","actions":["pull"]}]}`,
 		`{"access":[{"type":"registry","name":"catalog","actions":["*"]}]}`,
 	} {
@@ -794,7 +773,7 @@ func TestBaseCandidates(t *testing.T) {
 		got = append(got, c.String())
 	}
 	assert.Equal(t, []string{"staging.example.com/proxy/library/python@sha256:" + strings.Repeat("b", 64)}, got,
-		"only the staging registry's copy can be mounted")
+		"only the export registry's copy can be mounted")
 	assert.Equal(t, []name.Digest{d}, BaseCandidates(d, "node-registry.example.com"))
 }
 
