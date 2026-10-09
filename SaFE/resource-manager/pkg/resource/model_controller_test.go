@@ -1526,7 +1526,7 @@ func TestModelTryFailoverNoCandidates(t *testing.T) {
 }
 
 func TestModelInitializeLocalPathsPrivate(t *testing.T) {
-	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	ws := genMockWorkspaceForModel("ws1", "c1", "/data")
 	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(ws).Build()
 	r := newMockModelReconciler(cl)
 	model := genMockModel("m1", v1.AccessModeLocal, "ws1")

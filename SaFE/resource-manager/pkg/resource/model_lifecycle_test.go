@@ -218,7 +218,7 @@ func TestModelDeleteCleanupFailureKeepsFinalizer(t *testing.T) {
 	r := newMockModelReconciler(cl)
 
 	reconcileModel(t, r, "m1")
-	jobName := cleanupJobName(model, lifecyclePath)
+	jobName := cleanupJobName(model, "ws1", lifecyclePath)
 	setOpsJobPhase(t, cl, jobName, v1.OpsJobFailed)
 
 	res, err := r.Reconcile(context.Background(), reconcileReq("m1"))
@@ -432,4 +432,53 @@ func TestJobDisplayName(t *testing.T) {
 		assert.LessOrEqual(t, len(name), 41)
 		assert.Regexp(t, `^[a-z][-a-z0-9]*[a-z0-9]$`, name)
 	}
+}
+
+// TestModelPrivateWorkspaceWithoutVolume: no storage means no download target, the
+// model fails instead of downloading into the container's own filesystem.
+func TestModelPrivateWorkspaceWithoutVolume(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+	cl := lifecycleClient(t, ws)
+	r := newMockModelReconciler(cl)
+	assert.Empty(t, r.initializeLocalPaths(context.Background(), lifecycleModel("m1")))
+}
+
+// TestModelPublicDownloadPerCluster: the same mount path on two clusters is two
+// filesystems, so a public model is downloaded once per cluster.
+func TestModelPublicDownloadPerCluster(t *testing.T) {
+	cl := lifecycleClient(t,
+		lifecycleWorkspace("ws-a1", "a", lifecycleRoot),
+		lifecycleWorkspace("ws-a2", "a", lifecycleRoot),
+		lifecycleWorkspace("ws-b1", "b", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+	model := lifecycleModel("m1")
+	model.Spec.Workspace = ""
+	paths := r.initializeLocalPaths(context.Background(), model)
+	require.Len(t, paths, 2)
+	clusters := map[string]bool{}
+	for _, lp := range paths {
+		assert.Equal(t, lifecyclePath, lp.Path)
+		ws := &v1.Workspace{}
+		require.NoError(t, cl.Get(context.Background(), client.ObjectKey{Name: lp.Workspace}, ws))
+		clusters[ws.Spec.Cluster] = true
+	}
+	assert.Equal(t, map[string]bool{"a": true, "b": true}, clusters)
+	assert.NotEqual(t, cleanupJobName(model, paths[0].Workspace, lifecyclePath),
+		cleanupJobName(model, paths[1].Workspace, lifecyclePath))
+}
+
+// TestModelDeleteRefusedPathKeepsFinalizer: a recorded path that no longer passes the
+// guard (here the workspace volume moved) is neither removed nor released.
+func TestModelDeleteRefusedPathKeepsFinalizer(t *testing.T) {
+	model := deletingModel(t, "m1", v1.ModelLocalPath{Workspace: "ws1", Path: lifecyclePath})
+	cl := lifecycleClient(t, model, lifecycleWorkspace("ws1", "c1", "/elsewhere"))
+	r := newMockModelReconciler(cl)
+
+	reconcileModel(t, r, "m1")
+	reconcileModel(t, r, "m1")
+	assert.Empty(t, listOpsJobs(t, cl, v1.OpsJobModelCleanupType))
+	m := getModel(t, cl, "m1")
+	assert.True(t, controllerutil.ContainsFinalizer(m, ModelFinalizer))
+	require.Len(t, m.Status.LocalPaths, 1)
+	assert.Contains(t, m.Status.Message, "refusing to clean")
 }

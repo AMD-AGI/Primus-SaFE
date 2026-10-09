@@ -114,7 +114,7 @@ func TestModelLifecycleEnvtest(t *testing.T) {
 
 	// Delete: a failed cleanup keeps the model, a successful one releases it.
 	require.NoError(t, cl.Delete(ctx, m))
-	cleanupName := cleanupJobName(m, lifecyclePath)
+	cleanupName := cleanupJobName(m, "ws1", lifecyclePath)
 	eventually("cleanup job", func() bool {
 		return cl.Get(ctx, client.ObjectKey{Name: cleanupName}, &v1.OpsJob{}) == nil
 	})

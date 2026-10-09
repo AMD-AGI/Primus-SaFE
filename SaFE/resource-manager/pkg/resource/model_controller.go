@@ -377,12 +377,17 @@ func (r *ModelReconciler) cleanupLocalPaths(ctx context.Context, model *v1.Model
 			continue
 		}
 		if err := validateCleanupPath(workspace, lp.Path); err != nil {
-			// Never delete a path that does not look like a model directory of this workspace.
+			// Never delete a path that does not look like a model directory of this
+			// workspace, and never release the model with it either: an administrator
+			// has to decide what happens to those files.
 			klog.ErrorS(err, "Refusing to clean up model path", "model", model.Name, "path", lp.Path)
+			remaining = append(remaining, lp)
+			messages = append(messages, fmt.Sprintf("refusing to clean %s: %v", lp.Path, err))
+			requeue = 5 * time.Minute
 			continue
 		}
 
-		jobName := cleanupJobName(model, lp.Path)
+		jobName := cleanupJobName(model, lp.Workspace, lp.Path)
 		job := &v1.OpsJob{}
 		err := r.Get(ctx, client.ObjectKey{Name: jobName}, job)
 		switch {
@@ -490,8 +495,8 @@ func validateCleanupPath(workspace *v1.Workspace, p string) error {
 }
 
 // cleanupJobName is the name of the job that removes one local directory of a model.
-func cleanupJobName(model *v1.Model, p string) string {
-	sum := sha256.Sum256([]byte(p))
+func cleanupJobName(model *v1.Model, workspace, p string) string {
+	sum := sha256.Sum256([]byte(workspace + "\x00" + p))
 	return stringutil.NormalizeForDNS(fmt.Sprintf("%s%s-%s", CleanupJobPrefix, model.Name, hex.EncodeToString(sum[:])[:8]))
 }
 
@@ -587,7 +592,7 @@ func (r *ModelReconciler) constructModelCleanupOpsJob(model *v1.Model, workspace
 	userId, userName := modelOwner(model)
 	image := commonconfig.GetModelCleanupImage()
 	entryPoint := base64.StdEncoding.EncodeToString([]byte(modelCleanupScript))
-	jobName := cleanupJobName(model, p)
+	jobName := cleanupJobName(model, workspace.Name, p)
 	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: jobName,
@@ -1074,13 +1079,17 @@ func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Mo
 				klog.InfoS("Skipping workspace without storage volume", "model", model.Name, "workspace", ws.ID)
 				continue
 			}
+			// The same mount path on another cluster is a different filesystem, so
+			// workspaces only share a download within one cluster.
 			pfsPath := buildLocalModelPath(ws.PFSPath, subpath, modelDir)
-			seenPaths[pfsPath] = append(seenPaths[pfsPath], ws.ID)
+			key := ws.Cluster + "\x00" + pfsPath
+			seenPaths[key] = append(seenPaths[key], ws.ID)
 		}
 
-		// Create one LocalPath entry per unique path
+		// Create one LocalPath entry per unique (cluster, path)
 		// Use the first workspace ID as the "primary" for this path
-		for pfsPath, wsIDs := range seenPaths {
+		for key, wsIDs := range seenPaths {
+			pfsPath := key[strings.Index(key, "\x00")+1:]
 			paths = append(paths, v1.ModelLocalPath{
 				Workspace: wsIDs[0], // Use first workspace as primary
 				Path:      pfsPath,
@@ -1096,6 +1105,11 @@ func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Mo
 		ws, err := r.getWorkspace(ctx, model.Spec.Workspace, prefer)
 		if err != nil {
 			klog.ErrorS(err, "Failed to get workspace for model", "model", model.Name, "workspace", model.Spec.Workspace)
+			return paths
+		}
+		if ws.PFSPath == "" {
+			// Without a volume there is no workspace storage to download into.
+			klog.InfoS("Workspace has no storage volume", "model", model.Name, "workspace", ws.ID)
 			return paths
 		}
 
@@ -1118,6 +1132,7 @@ func buildLocalModelPath(root, subpath, modelDir string) string {
 // WorkspaceInfo represents basic workspace information
 type WorkspaceInfo struct {
 	ID      string
+	Cluster string
 	PFSPath string
 }
 
@@ -1135,6 +1150,7 @@ func (r *ModelReconciler) listWorkspaces(ctx context.Context, preferVolume strin
 		pfsPath := commonworkspace.ResolveDownloadRoot(&ws, preferVolume)
 		workspaces = append(workspaces, WorkspaceInfo{
 			ID:      ws.Name,
+			Cluster: ws.Spec.Cluster,
 			PFSPath: pfsPath,
 		})
 	}
@@ -1153,6 +1169,7 @@ func (r *ModelReconciler) getWorkspace(ctx context.Context, workspaceID, preferV
 
 	return &WorkspaceInfo{
 		ID:      ws.Name,
+		Cluster: ws.Spec.Cluster,
 		PFSPath: pfsPath,
 	}, nil
 }
