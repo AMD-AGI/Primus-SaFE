@@ -43,7 +43,14 @@ echo "fetch $repo:$inc" >> "$STUB_LOG"
 for f in $STUB_FILES; do
   for p in $inc; do
     case "$f" in
-      $p) mkdir -p "$dir/$(dirname "$f")"; printf '%s' "$f" > "$dir/$f"; break ;;
+      $p) mkdir -p "$dir/$(dirname "$f")"
+          if [ "${STUB_LINK:-}" = 1 ]; then
+            blob="$dir/.cache/blobs/$(echo "$f" | tr / _)"
+            mkdir -p "$dir/.cache/blobs"; printf '%s' "$f" > "$blob"; ln -sf "$blob" "$dir/$f"
+          else
+            printf '%s' "$f" > "$dir/$f"
+          fi
+          break ;;
     esac
   done
 done
@@ -59,7 +66,7 @@ type scriptRun struct {
 
 // runHFDownloadScript runs hfDownloadScript with the stub CLI installed as cli against
 // a repository holding files.
-func runHFDownloadScript(t *testing.T, cli string, files []string, fail bool) scriptRun {
+func runHFDownloadScript(t *testing.T, cli string, files []string, fail bool, env ...string) scriptRun {
 	t.Helper()
 	for _, name := range []string{"hf", "huggingface-cli"} {
 		if p, err := exec.LookPath(name); err == nil {
@@ -81,6 +88,7 @@ func runHFDownloadScript(t *testing.T, cli string, files []string, fail bool) sc
 	if fail {
 		cmd.Env = append(cmd.Env, "STUB_FAIL=1")
 	}
+	cmd.Env = append(cmd.Env, env...)
 	out, err := cmd.CombinedOutput()
 	fetched, _ := os.ReadFile(log)
 	return scriptRun{out: string(out), ok: err == nil, dest: dest, fetch: string(fetched)}
@@ -142,6 +150,21 @@ func TestHFDownloadScriptWeights(t *testing.T) {
 			assert.NoFileExists(t, filepath.Join(run.dest, "model-q4_k_m.gguf"), "GGUF quantizations are not fetched")
 		})
 	}
+}
+
+// TestHFDownloadScriptSymlinkedWeights: a CLI that lays out --local-dir as symbolic
+// links into its cache still produces a downloaded model, not a missing-weights failure.
+func TestHFDownloadScriptSymlinkedWeights(t *testing.T) {
+	run := runHFDownloadScript(t, "hf", []string{"model.safetensors", "config.json"}, false, "STUB_LINK=1")
+	require.True(t, run.ok, run.out)
+	fi, err := os.Lstat(filepath.Join(run.dest, "model.safetensors"))
+	require.NoError(t, err)
+	require.NotZero(t, fi.Mode()&os.ModeSymlink, "the stub laid the weights out as a link")
+	assert.Equal(t, 1, strings.Count(run.fetch, "fetch "), run.fetch)
+
+	run = runHFDownloadScript(t, "hf", []string{"pytorch_model.bin", "config.json"}, false, "STUB_LINK=1")
+	require.True(t, run.ok, run.out)
+	assert.Contains(t, run.fetch, "*.bin")
 }
 
 // TestHFDownloadScriptSizeReachesModel follows the size from the real script's log,

@@ -34,6 +34,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonopsjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 const (
@@ -938,7 +939,7 @@ func TestModelStopDownloadsAcrossWorkspaces(t *testing.T) {
 	model := deletingModel(t, "m1", v1.ModelLocalPath{Workspace: "ws2", Path: lifecyclePath})
 	labelled := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "download-elsewhere", Labels: map[string]string{
 		v1.OpsJobTypeLabel: string(v1.OpsJobDownloadType), v1.ModelIdLabel: "m1"}}}
-	legacy := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: downloadJobName(model, "ws1"), Labels: map[string]string{
+	legacy := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: legacyDownloadJobName(model, "ws1"), Labels: map[string]string{
 		v1.OpsJobTypeLabel: string(v1.OpsJobDownloadType)}}}
 	cl := lifecycleClient(t, model, labelled, legacy,
 		lifecycleWorkspace("ws1", "c1", lifecycleRoot),
@@ -1334,4 +1335,24 @@ func TestModelFailoverTriedIsSaved(t *testing.T) {
 	assert.Equal(t, v1.LocalPathStatusFailed, m.Status.LocalPaths[0].Status, "ws1 was tried already: no way back")
 	assert.Equal(t, v1.ModelPhaseFailed, m.Status.Phase)
 	assert.Equal(t, []string{"ws1", "ws2"}, r.getTriedWorkspaces(m, lifecycleRoot))
+}
+
+// TestModelJobNamesStayDistinctForLongNames: a long model name (common for HuggingFace
+// repositories) does not push the part that tells two workspaces or two directories
+// apart out of the job name.
+func TestModelJobNamesStayDistinctForLongNames(t *testing.T) {
+	model := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "meta-llama-llama-3-1-405b-instruct-fp8-dynamic-abcdef"}}
+	ws1 := downloadJobName(model, "workspace-one")
+	ws2 := downloadJobName(model, "workspace-two")
+	assert.NotEqual(t, ws1, ws2)
+	assert.Equal(t, ws1, downloadJobName(model, "workspace-one"), "the name is stable")
+	c1 := cleanupJobName(model, "ws1", "/mnt/a/models/org--repo")
+	c2 := cleanupJobName(model, "ws1", "/mnt/b/models/org--repo")
+	assert.NotEqual(t, c1, c2)
+	for _, n := range []string{ws1, ws2, c1, c2} {
+		assert.LessOrEqual(t, len(n), 45, n)
+		assert.Equal(t, stringutil.NormalizeForDNS(n), n, "a valid name")
+	}
+	assert.True(t, strings.HasPrefix(ws1, "download-"), ws1)
+	assert.True(t, strings.HasPrefix(c1, "cleanup-"), c1)
 }

@@ -542,7 +542,7 @@ func TestHandleDownloading_OpsJobSucceeded(t *testing.T) {
 		},
 	}
 
-	opsJob := genMockOpsJob("download-test-local-model-ws1", v1.OpsJobSucceeded)
+	opsJob := genMockOpsJob(downloadJobName(model, "ws1"), v1.OpsJobSucceeded)
 
 	adminClient := fake.NewClientBuilder().
 		WithObjects(model, opsJob).
@@ -570,7 +570,7 @@ func TestHandleDownloading_OpsJobFailed(t *testing.T) {
 		},
 	}
 
-	opsJob := genMockOpsJob("download-test-local-model-ws1", v1.OpsJobFailed)
+	opsJob := genMockOpsJob(downloadJobName(model, "ws1"), v1.OpsJobFailed)
 	opsJob.Status.Conditions = []metav1.Condition{
 		{
 			Type:    "Failed",

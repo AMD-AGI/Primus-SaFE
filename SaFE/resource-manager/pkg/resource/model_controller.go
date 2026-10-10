@@ -373,6 +373,7 @@ func (r *ModelReconciler) downloadWorkloads(ctx context.Context, model *v1.Model
 	names := map[string]bool{}
 	for _, lp := range model.Status.LocalPaths {
 		names[downloadJobName(model, lp.Workspace)] = true
+		names[legacyDownloadJobName(model, lp.Workspace)] = true
 	}
 	workspaces := &v1.WorkspaceList{}
 	if err := r.List(ctx, workspaces); err != nil {
@@ -380,6 +381,7 @@ func (r *ModelReconciler) downloadWorkloads(ctx context.Context, model *v1.Model
 	}
 	for i := range workspaces.Items {
 		names[downloadJobName(model, workspaces.Items[i].Name)] = true
+		names[legacyDownloadJobName(model, workspaces.Items[i].Name)] = true
 	}
 	list := &v1.WorkloadList{}
 	if err := r.List(ctx, list, client.MatchingLabels{v1.OpsJobTypeLabel: string(v1.OpsJobDownloadType)}); err != nil {
@@ -783,13 +785,31 @@ func validateCleanupPath(workspace *v1.Workspace, p string) error {
 
 // cleanupJobName is the name of the job that removes one local directory of a model.
 func cleanupJobName(model *v1.Model, workspace, p string) string {
-	sum := sha256.Sum256([]byte(workspace + "\x00" + p))
-	return stringutil.NormalizeForDNS(fmt.Sprintf("%s%s-%s", CleanupJobPrefix, model.Name, hex.EncodeToString(sum[:])[:8]))
+	return hashedJobName(CleanupJobPrefix+model.Name, workspace+"\x00"+p)
 }
 
 // downloadJobName is the name of the job that downloads a model into one workspace.
 func downloadJobName(model *v1.Model, workspace string) string {
+	return hashedJobName(DownloadJobPrefix+model.Name, model.Name+"\x00"+workspace)
+}
+
+// legacyDownloadJobName is the download job name used before downloadJobName carried a
+// hash; it only matches unlabelled workloads created by an earlier release.
+func legacyDownloadJobName(model *v1.Model, workspace string) string {
 	return stringutil.NormalizeForDNS(fmt.Sprintf("%s-%s-%s", DownloadJobPrefix, model.Name, workspace))
+}
+
+// hashedJobName is a readable prefix, shortened as needed, followed by a 16-digit hash of
+// key, so that the hash survives the 45-character limit of NormalizeForDNS and two keys
+// never share a name however long the prefix is.
+func hashedJobName(prefix, key string) string {
+	const hashLen, maxLen = 16, 45
+	sum := sha256.Sum256([]byte(key))
+	base := stringutil.NormalizeForDNS(prefix)
+	if limit := maxLen - hashLen - 1; len(base) > limit {
+		base = strings.TrimRight(base[:limit], "-")
+	}
+	return base + "-" + hex.EncodeToString(sum[:])[:hashLen]
 }
 
 // constructCleanupJob creates a Job that deletes the S3 copy of a model.
@@ -1982,10 +2002,11 @@ fetch() {
   fi
 }
 
-# has_files reports whether $DEST_PATH holds a file matching one of the name patterns.
+# has_files reports whether $DEST_PATH holds a file (or a link to one, as a CLI that
+# links --local-dir into its cache leaves) matching one of the name patterns.
 has_files() {
   for p in "$@"; do
-    if [ -n "$(find "$DEST_PATH" -path "$DEST_PATH/.cache" -prune -o -type f -name "$p" -print | head -n 1)" ]; then
+    if [ -n "$(find "$DEST_PATH" -path "$DEST_PATH/.cache" -prune -o \( -type f -o -type l \) -name "$p" -print | head -n 1)" ]; then
       return 0
     fi
   done

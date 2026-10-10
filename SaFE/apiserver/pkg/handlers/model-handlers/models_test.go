@@ -558,6 +558,33 @@ func TestGetWorkloadConfig_PublicModelNotInWorkspace(t *testing.T) {
 	assert.ErrorContains(t, err, "not available in workspace ws2", "got config %+v", result)
 }
 
+// TestGetWorkloadConfig_PublicModelWithoutRecordedPaths: a Ready public model that
+// predates status.localPaths keeps the directory it was always deployed from, so an
+// upgrade does not make existing public models undeployable.
+func TestGetWorkloadConfig_PublicModelWithoutRecordedPaths(t *testing.T) {
+	model := genMockLocalK8sModel("model-1", "")
+	model.Status.Phase = v1.ModelPhaseReady
+	model.Status.LocalPaths = nil
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model).
+		WithScheme(scheme.Scheme).
+		Build()
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "model-1"}}
+	c.Request, _ = http.NewRequest("GET", "/models/model-1/workload-config?workspace=ws2", nil)
+	c.Set(common.UserId, adminModelUserID)
+
+	result, err := h.getWorkloadConfig(c)
+	assert.NilError(t, err)
+	config := result.(WorkloadConfigResponse)
+	assert.Equal(t, config.ModelPath, legacyPublicModelPath(model))
+	assert.Assert(t, config.ModelPath != "")
+}
+
 // TestGetWorkloadConfig_RemoteAPIModel tests workload config for remote API model
 func TestGetWorkloadConfig_RemoteAPIModel(t *testing.T) {
 	model := genMockRemoteAPIK8sModel("remote-model")

@@ -1567,8 +1567,12 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 		modelPath = k8sModel.Spec.Source.LocalPath
 	}
 
-	// Only a recorded Ready directory holds the model; a path guessed from the name
-	// may not exist, public model or not.
+	// A public model created before status.localPaths was recorded keeps the path it
+	// was always deployed from. Otherwise only a recorded Ready directory holds the
+	// model; a path guessed from the name may not exist.
+	if modelPath == "" && k8sModel.IsPublic() && len(k8sModel.Status.LocalPaths) == 0 {
+		modelPath = legacyPublicModelPath(k8sModel)
+	}
 	if modelPath == "" {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("model is not available in workspace %s", workspace))
 	}
@@ -1981,4 +1985,10 @@ func enrichInferenceXInfo(items []ModelInfo) {
 			items[i].InferenceXModel = infxModel
 		}
 	}
+}
+
+// legacyPublicModelPath is where a public model created before status.localPaths was
+// recorded was deployed from: the path earlier releases derived from its display name.
+func legacyPublicModelPath(m *v1.Model) string {
+	return fmt.Sprintf("/wekafs/models/%s", m.GetSafeDisplayName())
 }
