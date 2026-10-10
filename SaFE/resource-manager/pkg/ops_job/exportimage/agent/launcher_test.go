@@ -34,8 +34,8 @@ func TestLauncherRecordsAfterItsBootstrap(t *testing.T) {
 while [ ! -e "`+dir+`/record" ] && [ $i -lt 20 ]; do sleep 0.1; i=$((i+1)); done
 : > "`+dir+`/bootstrapped"
 `)
-	write("save-image", `[ "$1" = record ] || exit 0
-if [ -e "`+dir+`/bootstrapped" ]; then echo after > "`+dir+`/record"; else echo before > "`+dir+`/record"; fi
+	write("save-image", `case "$1" in record|packages) ;; *) exit 0 ;; esac
+if [ -e "`+dir+`/bootstrapped" ]; then echo after > "`+dir+`/$1"; else echo before > "`+dir+`/$1"; fi
 `)
 	launcher := filepath.Join(dir, "launcher.sh")
 	require.NoError(t, os.WriteFile(launcher, []byte(strings.ReplaceAll(string(src), "/shared-data", dir)), 0o755))
@@ -48,4 +48,31 @@ if [ -e "`+dir+`/bootstrapped" ]; then echo after > "`+dir+`/record"; else echo 
 		return err == nil
 	}, 10*time.Second, 50*time.Millisecond, "the record never ran")
 	require.Equal(t, "after\n", string(got))
+	// The packages the image holds are listed before the bootstrap installs its own.
+	got, err = os.ReadFile(filepath.Join(dir, "packages"))
+	require.NoError(t, err)
+	require.Equal(t, "before\n", string(got))
+}
+
+// A launcher that cannot list the image's packages records nothing, so that saving the
+// container is refused rather than keeping the launcher's packages in a saved status file.
+func TestLauncherSkipsTheRecordWithoutThePackages(t *testing.T) {
+	src, err := os.ReadFile("../../../../../docker/preprocess/launcher.sh")
+	require.NoError(t, err)
+	dir := t.TempDir()
+	write := func(name, body string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+body), 0o755))
+	}
+	write("build_bnxt.sh", "")
+	write("build_authoring.sh", "")
+	write("save-image", `case "$1" in packages) exit 1 ;; record) : > "`+dir+`/record" ;; esac
+`)
+	launcher := filepath.Join(dir, "launcher.sh")
+	require.NoError(t, os.WriteFile(launcher, []byte(strings.ReplaceAll(string(src), "/shared-data", dir)), 0o755))
+	out, err := exec.Command("/bin/sh", launcher).CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.Contains(t, string(out), "cannot list the image's packages")
+	time.Sleep(300 * time.Millisecond)
+	require.NoFileExists(t, filepath.Join(dir, "record"))
+	require.NoFileExists(t, filepath.Join(dir, "save-image.base.partial"))
 }

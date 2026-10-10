@@ -28,18 +28,26 @@ input="$1"
 # recording". The record itself starts after this launcher's bootstrap below: the
 # bootstrap deletes and rewrites files of the image (apt-get does), and a record that
 # listed them first would make saving delete them from the saved image as if the user had.
+# The packages the image holds are listed now, before the bootstrap (one directory read):
+# the record, made after it, also holds what the bootstrap installs, and saving drops those
+# packages from a dpkg status file the user rewrote, since their files are not saved.
 # A failure only disables saving. A workload that sets SAFE_SAVE_IMAGE_RECORD=0 skips the
 # record, and cannot be saved; that is noted, so that saving it says why.
 record_base=""
 if [ -x /shared-data/save-image ]; then
-  rm -f /shared-data/save-image.base /shared-data/save-image.run /shared-data/save-image.norecord
+  rm -f /shared-data/save-image.base /shared-data/save-image.run /shared-data/save-image.norecord \
+    /shared-data/save-image.packages
   case "${SAFE_SAVE_IMAGE_RECORD:-1}" in
     0|false|off)
       : > /shared-data/save-image.norecord
       ;;
     *)
-      : > /shared-data/save-image.base.partial
-      record_base=1
+      if /shared-data/save-image packages; then
+        : > /shared-data/save-image.base.partial
+        record_base=1
+      else
+        echo "WARN: LAUNCHER: cannot list the image's packages; this container cannot be saved as an image" >&2
+      fi
       ;;
   esac
 fi

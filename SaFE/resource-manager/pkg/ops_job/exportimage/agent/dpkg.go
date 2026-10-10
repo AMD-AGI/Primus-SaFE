@@ -7,6 +7,10 @@ package agent
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -80,4 +84,57 @@ func stanzaFields(stanza []byte) (pkg, arch string, installed bool) {
 		}
 	}
 	return pkg, arch, installed
+}
+
+// PackagesPath is where the launcher lists, before its own bootstrap, the dpkg file lists
+// the image holds (RecordPackages). The record of the image's files is made after the
+// bootstrap, so it also lists the packages the launcher installs, whose files are never
+// saved; this list is what tells the image's packages apart from those.
+const PackagesPath = "/shared-data/save-image.packages"
+
+// RecordPackages writes to file the dpkg file lists (/var/lib/dpkg/info/*.list) under
+// root, one path per line; none for an image without dpkg. It replaces file whole.
+func RecordPackages(file, root string) error {
+	ents, err := os.ReadDir(filepath.Join(root, dpkgInfoDir))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	var b strings.Builder
+	for _, e := range ents {
+		if strings.HasSuffix(e.Name(), ".list") {
+			b.WriteString(dpkgInfoDir + e.Name() + "\n")
+		}
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(file), filepath.Base(file)+".*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(b.String()); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), file)
+}
+
+// readPackages reads what RecordPackages wrote; nil, without an error, when there is no
+// such file (a container started by a launcher that did not list them).
+func readPackages(file string) (map[string]bool, error) {
+	b, err := os.ReadFile(file)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading the image's packages: %w", err)
+	}
+	out := map[string]bool{}
+	for _, l := range strings.Split(string(b), "\n") {
+		if l != "" {
+			out[l] = true
+		}
+	}
+	return out, nil
 }

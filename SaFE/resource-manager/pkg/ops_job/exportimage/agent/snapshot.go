@@ -141,8 +141,10 @@ type Changes struct {
 	// deleted from such a directory before it was listed is not known to have been in the
 	// image, and stays in the saved image.
 	Unsettled int
-	// basePackageLists are the dpkg file lists the container started with: the only
-	// base-image paths ImageContains is asked about.
+	// basePackageLists are the dpkg file lists of the base image: the only base-image
+	// paths ImageContains is asked about. ComputeChanges takes them from the record;
+	// Export replaces them with the launcher's list from before its bootstrap
+	// (PackagesPath), since the record, made after it, also holds the launcher's.
 	basePackageLists map[string]bool
 }
 

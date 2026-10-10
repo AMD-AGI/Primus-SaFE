@@ -4,8 +4,9 @@
  */
 
 // Command save-image runs inside a workload's container. The platform launcher starts
-// "save-image record" in the background, at low priority, before anything else, to record
-// the files the container started with. The resource manager runs "save-image export"
+// "save-image packages" before its bootstrap, to list the dpkg packages the image holds,
+// and "save-image record" after it, in the background, at low priority, to record the
+// files the container started with. The resource manager runs "save-image export"
 // through pods/exec when the user saves the container as an image; it exchanges JSON
 // lines with it on standard input and output (see agent.Serve). "save-image protocol"
 // prints the version of that exchange. "save-image mark <file>" is run by the launcher
@@ -32,12 +33,14 @@ func main() {
 		fail(agent.MarkRun(agent.RunMarkerPath, os.Args[2]))
 	}
 	if len(os.Args) != 2 {
-		fail(fmt.Errorf("usage: %s record|export|protocol|mark <entry point file>", os.Args[0]))
+		fail(fmt.Errorf("usage: %s packages|record|export|protocol|mark <entry point file>", os.Args[0]))
 	}
 	switch os.Args[1] {
 	case "protocol":
 		fmt.Println(agent.ProtocolVersion)
 		os.Exit(0)
+	case "packages":
+		fail(agent.RecordPackages(agent.PackagesPath, "/"))
 	case "record":
 		fail(record())
 	case "export":

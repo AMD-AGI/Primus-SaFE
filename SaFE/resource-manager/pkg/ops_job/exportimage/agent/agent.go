@@ -234,7 +234,7 @@ func (l *lineTokens) Renew(ctx context.Context) (string, time.Time, error) {
 		case r.err != nil:
 			return "", time.Time{}, r.err
 		case r.g.Error != "":
-			return "", time.Time{}, errors.New(r.g.Error)
+			return "", time.Time{}, refusedGrant(r.g.Error)
 		case r.g.Token == "":
 			return "", time.Time{}, errors.New("no token was granted")
 		}
@@ -297,6 +297,13 @@ func Export(ctx context.Context, req Request, env Env, tokens TokenSource) (*Res
 		}
 	}
 
+	// The packages the image held before the launcher's bootstrap; a container started
+	// by a launcher that did not list them falls back to those in the record.
+	pkgs, err := readPackages(filepath.Join(filepath.Dir(env.Baseline), filepath.Base(PackagesPath)))
+	if err != nil {
+		return nil, err
+	}
+
 	filter := NewFilter(ParseMountPoints(env.Mountinfo))
 	changes, err := ComputeChanges(base, func(visit func(Entry) error) error {
 		return Walk(env.Root, filter, visit)
@@ -305,6 +312,9 @@ func Export(ctx context.Context, req Request, env Env, tokens TokenSource) (*Res
 		return nil, err
 	}
 	bf.Close()
+	if pkgs != nil {
+		changes.basePackageLists = pkgs
+	}
 
 	backoffFn := env.Backoff
 	if backoffFn == nil {
