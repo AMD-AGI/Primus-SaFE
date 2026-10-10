@@ -80,6 +80,11 @@ export const useWorkspaceStore = defineStore('workspace', {
     currentScopes(state): ScopesKeys[] | undefined {
       return state.items?.find((item) => item.workspaceId === state.currentWorkspaceId)?.scopes
     },
+    isCurrentWorkspaceExternal(state): boolean {
+      return (
+        state.items?.find((item) => item.workspaceId === state.currentWorkspaceId)?.external === true
+      )
+    },
     totalNodeNum(state): number | undefined {
       return state.items?.find((item) => item.workspaceId === state.currentWorkspaceId)
         ?.currentNodeCount

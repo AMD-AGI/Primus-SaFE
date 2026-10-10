@@ -186,7 +186,20 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	m.mutateService(oldWorkload, newWorkload)
 	m.mutateSecrets(ctx, newWorkload, workspace)
 	m.mutateStickNodes(ctx, newWorkload, workspace)
+	m.mutateExternalTolerateAll(newWorkload, workspace)
 	return nil
+}
+
+// mutateExternalTolerateAll clears isTolerateAll on external workspaces. A Exists-without-key
+// toleration would admit unhealthy / booking / out-of-service nodes on the provider's VK path;
+// the request is accepted and forced false rather than rejected (R4).
+func (m *WorkloadMutator) mutateExternalTolerateAll(workload *v1.Workload, workspace *v1.Workspace) {
+	if workspace == nil || !v1.IsExternalWorkspace(workspace) {
+		return
+	}
+	if workload.Spec.IsTolerateAll {
+		workload.Spec.IsTolerateAll = false
+	}
 }
 
 // mutateMeta sets normalized name, ownership, labels, main container and finalizer.
@@ -1737,6 +1750,9 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 			return commonerrors.NewBadRequest(
 				"external workloads require a user account; log in via SSO once")
 		}
+		if err := validateExternalIntegerResources(workload); err != nil {
+			return commonerrors.NewBadRequest(err.Error())
+		}
 		// An external workspace has no local capacity to measure a request against. Its
 		// status.totalResources is empty until the provider publishes a node, and the
 		// budget is arbitrated by the provider when the claim is made, so applying the
@@ -1755,6 +1771,33 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 			return commonerrors.NewQuotaInsufficient(
 				fmt.Sprintf("Insufficient resource: request: %v, total: %v",
 					requestResources, workspace.Status.TotalResources))
+		}
+	}
+	return nil
+}
+
+// validateExternalIntegerResources requires whole-core CPU and whole-MiB memory so the
+// provider's ResourceQuota accounting matches the Pod requests (R5).
+func validateExternalIntegerResources(workload *v1.Workload) error {
+	const mib int64 = 1024 * 1024
+	for i, res := range workload.Spec.Resources {
+		if res.CPU != "" {
+			q, err := resource.ParseQuantity(res.CPU)
+			if err != nil {
+				return fmt.Errorf("resources[%d].cpu: %w", i, err)
+			}
+			if q.MilliValue()%1000 != 0 {
+				return fmt.Errorf("external workloads require whole-core CPU, got %q", res.CPU)
+			}
+		}
+		if res.Memory != "" {
+			q, err := resource.ParseQuantity(res.Memory)
+			if err != nil {
+				return fmt.Errorf("resources[%d].memory: %w", i, err)
+			}
+			if q.Value()%mib != 0 {
+				return fmt.Errorf("external workloads require whole-MiB memory, got %q", res.Memory)
+			}
 		}
 	}
 	return nil

@@ -23,6 +23,13 @@ type WorkloadExternalPlacementApplyConfiguration struct {
 	AllocationGeneration *int32  `json:"allocationGeneration,omitempty"`
 	// Devices reserved for this unit
 	DeviceIds []string `json:"deviceIds,omitempty"`
+	// Approved resource vector, kept so dispatch can bind requests=limits without a
+	// second GetClaim after verifyExternalClaim.
+	CPUMillis    *int64  `json:"cpuMillis,omitempty"`
+	MemoryBytes  *int64  `json:"memoryBytes,omitempty"`
+	ScratchBytes *int64  `json:"scratchBytes,omitempty"`
+	GPUResource  *string `json:"gpuResource,omitempty"`
+	GPUCount     *int32  `json:"gpuCount,omitempty"`
 }
 
 // WorkloadExternalPlacementApplyConfiguration constructs a declarative configuration of the WorkloadExternalPlacement type for use with
@@ -86,5 +93,45 @@ func (b *WorkloadExternalPlacementApplyConfiguration) WithDeviceIds(values ...st
 	for i := range values {
 		b.DeviceIds = append(b.DeviceIds, values[i])
 	}
+	return b
+}
+
+// WithCPUMillis sets the CPUMillis field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CPUMillis field is set to the value of the last call.
+func (b *WorkloadExternalPlacementApplyConfiguration) WithCPUMillis(value int64) *WorkloadExternalPlacementApplyConfiguration {
+	b.CPUMillis = &value
+	return b
+}
+
+// WithMemoryBytes sets the MemoryBytes field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MemoryBytes field is set to the value of the last call.
+func (b *WorkloadExternalPlacementApplyConfiguration) WithMemoryBytes(value int64) *WorkloadExternalPlacementApplyConfiguration {
+	b.MemoryBytes = &value
+	return b
+}
+
+// WithScratchBytes sets the ScratchBytes field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ScratchBytes field is set to the value of the last call.
+func (b *WorkloadExternalPlacementApplyConfiguration) WithScratchBytes(value int64) *WorkloadExternalPlacementApplyConfiguration {
+	b.ScratchBytes = &value
+	return b
+}
+
+// WithGPUResource sets the GPUResource field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GPUResource field is set to the value of the last call.
+func (b *WorkloadExternalPlacementApplyConfiguration) WithGPUResource(value string) *WorkloadExternalPlacementApplyConfiguration {
+	b.GPUResource = &value
+	return b
+}
+
+// WithGPUCount sets the GPUCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GPUCount field is set to the value of the last call.
+func (b *WorkloadExternalPlacementApplyConfiguration) WithGPUCount(value int32) *WorkloadExternalPlacementApplyConfiguration {
+	b.GPUCount = &value
 	return b
 }

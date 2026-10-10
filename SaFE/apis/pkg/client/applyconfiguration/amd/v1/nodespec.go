@@ -40,7 +40,8 @@ type NodeSpecApplyConfiguration struct {
 	// Lifecycle mode of the node. Empty keeps the managed physical-host lifecycle.
 	LifecycleMode *amdv1.NodeLifecycleMode `json:"lifecycleMode,omitempty"`
 	// Provider allocation backing this node. Required and immutable when lifecycleMode
-	// is external, and rejected otherwise.
+	// is external, and rejected otherwise. Filled by SaFE when admitting a virtual node;
+	// the provider never writes this object.
 	ExternalRef *NodeExternalRefApplyConfiguration `json:"externalRef,omitempty"`
 }
 

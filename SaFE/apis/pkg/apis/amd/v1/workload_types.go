@@ -251,6 +251,22 @@ type WorkloadStatus struct {
 // same body: allocating a fresh one would ask the provider for a second reservation while
 // the first may already exist, and nothing afterwards would notice the surplus.
 type WorkloadExternalExecution struct {
+	// PlacementMode selects capacity acquisition. Empty or "claim" is the legacy HTTP path;
+	// "kube-scheduler" uses Pod/PodTemplate/ProvisioningRequest and keeps claim fields empty.
+	PlacementMode string `json:"placementMode,omitempty"`
+	// ProvisioningRequest is the name of the autoscaling ProvisioningRequest for a gang on
+	// the kube-scheduler path. Empty for single-pod workloads.
+	ProvisioningRequest string `json:"provisioningRequest,omitempty"`
+	// ProvisioningAttempt counts BookingExpired/CapacityRevoked rebuilds within one
+	// dispatch generation so PR/PodTemplate names stay unique without bumping dispatch-count.
+	ProvisioningAttempt int32 `json:"provisioningAttempt,omitempty"`
+	// ProvisioningCondition is the last observed PR condition type/reason/message for UI.
+	ProvisioningCondition string `json:"provisioningCondition,omitempty"`
+	// ResolvedImages is unused: Autopilot VK pins digests at bind. Kept omitempty for
+	// compatibility with stored status from older job-manager builds.
+	ResolvedImages []string `json:"resolvedImages,omitempty"`
+	// ResolvedImageSources is unused; kept omitempty for compatibility with older status.
+	ResolvedImageSources []string `json:"resolvedImageSources,omitempty"`
 	// The dispatch generation these identifiers belong to
 	DispatchGeneration int32 `json:"dispatchGeneration,omitempty"`
 	// Demand identity and the revision last published

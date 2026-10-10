@@ -22,6 +22,7 @@ export interface WorkspaceItem {
   clusterId?: string
   gpuProduct?: string
   volumes?: WorkspaceVolume[]
+  external?: boolean
 }
 
 export const SCOPES_KEYS = ['Train', 'Infer', 'Authoring', 'CICD', 'Ray', 'Sandbox'] as const

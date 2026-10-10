@@ -233,11 +233,15 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 }
 
 // isIgnorableAvailabilityTaint reports taints that select pods but do not mean the node is
-// unhealthy. The provider identity taint is ignored only on an external node. The
-// sticky-nodes monitor is ignored on every node.
+// unhealthy. Provider identity taints (current and legacy) are ignored only on an
+// external node. The sticky-nodes monitor is ignored on every node.
 func isIgnorableAvailabilityTaint(n *Node, key string) bool {
-	if key == ExternalVirtualKubeletTaint && n.IsExternal() {
-		return true
+	if n.IsExternal() {
+		for _, k := range ExternalVirtualKubeletTaintKeys() {
+			if key == k {
+				return true
+			}
+		}
 	}
 	return GetIdByTaintKey(key) == StickyNodesMonitorId
 }
@@ -288,8 +292,11 @@ func (n *Node) hasReadyCondition() bool {
 // observation annotations are treated as stale so capacity is not counted before the
 // provider has published freshness.
 func (n *Node) hasFreshExternalObservation() bool {
-	observedRaw := GetAnnotation(n, ExternalObservedAtAnnotation)
-	validRaw := GetAnnotation(n, ExternalValidUntilAnnotation)
+	// Accept current and legacy annotation prefixes during the Autopilot rename window.
+	observedRaw := firstLabel(n.GetAnnotations(),
+		ExternalObservedAtAnnotation, ExternalObservedAtAnnotationLegacy)
+	validRaw := firstLabel(n.GetAnnotations(),
+		ExternalValidUntilAnnotation, ExternalValidUntilAnnotationLegacy)
 	if observedRaw == "" || validRaw == "" {
 		return false
 	}

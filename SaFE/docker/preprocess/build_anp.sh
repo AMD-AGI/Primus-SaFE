@@ -177,14 +177,13 @@ echo "Adding AMD AINIC pensando repository for driver version ${AINIC_DRIVER_VER
 echo "deb [arch=amd64 trusted=yes] https://repo.radeon.com/amdainic/pensando/ubuntu/${AINIC_DRIVER_VERSION} jammy main" \
     > /etc/apt/sources.list.d/amdainic-pensando.list
 
-apt-get update >/dev/null 2>&1
-if [ $? -ne 0 ]; then
+echo "=== apt-get update (ainic pensando repo) uid=$(id -u) ==="
+if ! apt-get update; then
   echo "Warning: apt-get update had issues, continuing anyway..."
 fi
 
-echo "Installing libionic-dev=${LIBIONIC_VERSION}..."
-apt-get install -y --allow-unauthenticated libionic-dev=${LIBIONIC_VERSION} >/dev/null 2>&1
-if [ $? -ne 0 ]; then
+echo "=== apt-get install libionic-dev=${LIBIONIC_VERSION} ==="
+if ! apt-get install -y --allow-unauthenticated "libionic-dev=${LIBIONIC_VERSION}"; then
   echo "Error: Failed to install libionic-dev=${LIBIONIC_VERSION}."
   exit 1
 fi

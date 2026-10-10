@@ -6,7 +6,10 @@
 package v1
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -287,15 +290,99 @@ func IsControlPlane(obj metav1.Object) bool {
 	return HasLabel(obj, KubernetesControlPlane)
 }
 
-// IsProtected checks if a resource is protected from deletion.
-func IsProtected(obj metav1.Object) bool {
-	return HasLabel(obj, ProtectLabel)
-}
-
 // IsExternalWorkspace reports whether the workspace draws capacity from an external
 // execution provider. The label must be set to "true"; any other value is native.
 func IsExternalWorkspace(obj metav1.Object) bool {
 	return GetLabel(obj, WorkspaceExternalLabel) == TrueStr
+}
+
+// IsKubeSchedulerPlacement reports whether a workspace places via kube-scheduler.
+// External workspaces always use that path; the legacy label switch is ignored.
+func IsKubeSchedulerPlacement(obj metav1.Object) bool {
+	return IsExternalWorkspace(obj)
+}
+
+// ExternalWorkspaceIDFromLabels returns the workspace id stamped on a VK node,
+// accepting both the current and legacy provider label keys.
+func ExternalWorkspaceIDFromLabels(labels map[string]string) string {
+	return firstLabel(labels, ExternalWorkspaceLabel, ExternalWorkspaceLabelLegacy)
+}
+
+// ExternalProviderFromLabels returns the provider id from current or legacy keys.
+func ExternalProviderFromLabels(labels map[string]string) string {
+	return firstLabel(labels, ExternalProviderLabel, ExternalProviderLabelLegacy)
+}
+
+// ExternalAllocationIDFromLabels returns the allocation id from current or legacy keys.
+func ExternalAllocationIDFromLabels(labels map[string]string) string {
+	return firstLabel(labels, ExternalAllocationIdLabel, ExternalAllocationIdLabelLegacy)
+}
+
+// ExternalGenerationFromLabels returns the generation label from current or legacy keys.
+func ExternalGenerationFromLabels(labels map[string]string) string {
+	return firstLabel(labels, ExternalGenerationLabel, ExternalGenerationLabelLegacy)
+}
+
+// ExternalHostKeyFromAnnotations returns the host key from current or legacy keys.
+func ExternalHostKeyFromAnnotations(annotations map[string]string) string {
+	return firstLabel(annotations, ExternalHostKeyAnnotation, ExternalHostKeyAnnotationLegacy)
+}
+
+// FitExternalBookingName shortens a ProvisioningRequest name so
+// namespace+"."+name stays within ExternalBookingKeyMaxLen. Autopilot's
+// ledger.BookingKey and the booking taint value use that pair verbatim.
+// Returns an error when the namespace alone leaves no room for a name.
+func FitExternalBookingName(namespace, name string) (string, error) {
+	// ExternalBookingKeyMaxLen is 63, so maxName is always <= 62.
+	maxName := ExternalBookingKeyMaxLen - len(namespace) - 1
+	if maxName < 1 {
+		return "", fmt.Errorf("namespace %q leaves no room for booking name within %d chars",
+			namespace, ExternalBookingKeyMaxLen)
+	}
+	if len(name) <= maxName {
+		return name, nil
+	}
+	sum := sha256.Sum256([]byte(name))
+	digest := hex.EncodeToString(sum[:8]) // 16 hex chars
+	if maxName <= len(digest) {
+		return digest[:maxName], nil
+	}
+	prefixLen := maxName - len(digest) - 1
+	if prefixLen < 1 {
+		// Room for the digest only (no hyphen+prefix). Never slice past len(digest).
+		return digest, nil
+	}
+	prefix := strings.TrimRight(name[:prefixLen], "-")
+	if prefix == "" {
+		return digest, nil
+	}
+	return prefix + "-" + digest, nil
+}
+
+func firstLabel(m map[string]string, keys ...string) string {
+	if m == nil {
+		return ""
+	}
+	for _, k := range keys {
+		if v := m[k]; v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// ExternalVirtualKubeletTaintKeys are identity taints pods must tolerate on VK nodes.
+func ExternalVirtualKubeletTaintKeys() []string {
+	return []string{
+		ExternalVirtualKubeletTaint,
+		ExternalVirtualKubeletTaintScoped,
+		ExternalVirtualKubeletTaintLegacy,
+	}
+}
+
+// IsProtected checks if a resource is protected from deletion.
+func IsProtected(obj metav1.Object) bool {
+	return HasLabel(obj, ProtectLabel)
 }
 
 // GetUserName retrieves the username annotation from a resource.

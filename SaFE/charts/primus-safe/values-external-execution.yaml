@@ -1,32 +1,10 @@
-# Example overlay for external execution. Copy and fill site-specific values;
-# do not commit real endpoints, IPs, or profile ids into the public chart.
+# Example overlay for external execution (kube-scheduler placement).
+# Copy and fill site-specific values; do not commit real endpoints into the public chart.
 #
 #   helm upgrade primus-safe <chart> -n primus-safe --reuse-values \
 #     -f values-external-execution.yaml
-#
-# Requires Secret <controller_secret> (ca.crt, tls.crt, tls.key) in the release
-# namespace before job-manager can dial the controller. If cluster DNS cannot
-# resolve controller_url's host, set job_manager.hostAliases below.
 
 external_execution:
   enabled: true
-  # Example: "https://controller.example.svc:31844"
-  controller_url: ""
-  # Example: "safe-exec-controller-client"
-  controller_secret: ""
-  controller_secret_path: "/etc/secrets/external-execution"
-  controller_timeout_seconds: 10
-  # Example: "site-execution-profile"
-  profile_id: ""
-  profile_revision: 1
-  pid_limit: 1048576
   observation_max_age_seconds: 120
   workspace_resync_seconds: 30
-
-job_manager:
-  # Example:
-  #   hostAliases:
-  #     - ip: "10.0.0.1"
-  #       hostnames:
-  #         - controller.example.svc
-  hostAliases: []
