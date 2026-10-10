@@ -43,6 +43,7 @@ import (
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -451,6 +452,24 @@ func (h *Handler) generateRebootJob(c *gin.Context, body []byte) (*v1.OpsJob, er
 	return genDefaultOpsJob(req, requestUser), nil
 }
 
+// exportImageWorkloadIdParam is the other name an export request may give its workload by.
+const exportImageWorkloadIdParam = "workloadId"
+
+// isExportImageParam reports whether a request parameter is one of names as the job will
+// carry it. The OpsJob webhook rewrites every input name with stringutil.NormalizeName
+// before the controller reads it, so "Image", " IMAGE " and "image" all reach the
+// controller as "image"; comparing the raw name would let such a variant past this
+// handler and be read as the one it set.
+func isExportImageParam(name string, names ...string) bool {
+	normalized := stringutil.NormalizeName(name)
+	for _, n := range names {
+		if normalized == stringutil.NormalizeName(n) {
+			return true
+		}
+	}
+	return false
+}
+
 // generateExportImageJob creates an export-image-type ops job.
 // It parses the workload ID from request body, retrieves workload information,
 // and generates a job object to export the workload image to Harbor.
@@ -466,13 +485,19 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 		return nil, commonerrors.NewBadRequest("failed to parse request body: " + err.Error())
 	}
 
-	// Extract workload ID from inputs
+	// Extract workload ID from inputs. The workload authorized here must be the one the
+	// controller saves, and the controller reads only "workload": every name the request
+	// may give it by has to agree, or a second parameter would pick another workload. An
+	// empty value names no workload.
 	var workloadId string
 	for _, param := range req.Inputs {
-		if param.Name == v1.ParameterWorkload || param.Name == "workloadId" {
-			workloadId = param.Value
-			break
+		if param.Value == "" || !isExportImageParam(param.Name, v1.ParameterWorkload, exportImageWorkloadIdParam) {
+			continue
 		}
+		if workloadId != "" && param.Value != workloadId {
+			return nil, commonerrors.NewBadRequest("the inputs name more than one workload")
+		}
+		workloadId = param.Value
 	}
 	if workloadId == "" {
 		return nil, commonerrors.NewBadRequest("workload ID is required in inputs")
@@ -485,14 +510,9 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 		return nil, err
 	}
 
-	// Check authorization
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:    ctx,
-		Resource:   workload,
-		Verb:       v1.GetVerb,
-		Workspaces: []string{workload.Spec.Workspace},
-		User:       requestUser,
-	}); err != nil {
+	// Saving a workload's container publishes everything in it, so it takes the right to
+	// change the workload (its owner, or someone granted update), not merely to see it.
+	if err = h.authWorkloadAction(c, workload, v1.UpdateVerb, v1.WorkloadKind, requestUser, nil); err != nil {
 		return nil, err
 	}
 
@@ -510,18 +530,28 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 	// Build BaseOpsJobRequest for genDefaultOpsJob
 	jobName := fmt.Sprintf("custom-%s", workloadId)
 
-	// Preserve user's original inputs (including label if provided)
-	newInputs := make([]v1.Parameter, 0, len(req.Inputs)+1)
-	newInputs = append(newInputs, req.Inputs...) // Keep original inputs (workload, label, etc.)
+	// The workload and image parameters are the ones authorized and read here, never the
+	// request's; the user's other inputs (label, etc.) are kept.
+	newInputs := make([]v1.Parameter, 0, len(req.Inputs)+2)
+	newInputs = append(newInputs, v1.Parameter{Name: v1.ParameterWorkload, Value: workloadId})
+	for _, param := range req.Inputs {
+		if isExportImageParam(param.Name, v1.ParameterWorkload, exportImageWorkloadIdParam, v1.ParameterImage) {
+			continue
+		}
+		newInputs = append(newInputs, param)
+	}
+	newInputs = append(newInputs, v1.Parameter{Name: v1.ParameterImage, Value: adminWorkload.Spec.Images[0]})
 
-	// Add image parameter (system-generated)
-	newInputs = append(newInputs, v1.Parameter{Name: "image", Value: adminWorkload.Spec.Images[0]})
-
+	// An export has its own default timeout: it may take hours, unlike other ops jobs.
+	timeoutSecond := req.TimeoutSecond
+	if timeoutSecond <= 0 {
+		timeoutSecond = commonconfig.GetExportImageTimeoutSecond()
+	}
 	jobReq := &view.BaseOpsJobRequest{
 		Name:                    jobName,
 		Type:                    v1.OpsJobExportImageType,
 		Inputs:                  newInputs, // Use merged inputs
-		TimeoutSecond:           commonconfig.GetOpsJobTimeoutSecond(),
+		TimeoutSecond:           timeoutSecond,
 		TTLSecondsAfterFinished: commonconfig.GetOpsJobTTLSecond(),
 	}
 

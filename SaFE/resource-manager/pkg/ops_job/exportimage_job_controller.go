@@ -7,16 +7,22 @@ package ops_job
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"net/http"
 	"strings"
+	"sync"
 	"time"
 
-	"golang.org/x/crypto/ssh"
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	gcrv1 "github.com/google/go-containerregistry/pkg/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -32,45 +38,74 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/ops_job/exportimage"
 	rmutils "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
 const (
 	// Default concurrent workers for image export
 	exportImageDefaultConcurrent = 3
+	// exportsPerUser is how many of those workers one user's exports may hold at once: an
+	// export runs as long as the user's container keeps uploading, so without it one user
+	// could hold every worker. Another export of theirs waits, retried every
+	// exportWaitRetry, until one ends or its own deadline passes.
+	exportsPerUser  = 1
+	exportWaitRetry = 15 * time.Second
 
-	// Registry project name
-	registryProject = "Custom"
+	// The built-in Harbor: its external endpoint, and its CA when a private CA signs it.
+	harborNamespace     = "harbor"
+	harborTLSSecretName = "harbor-tls"
+	harborCoreConfigMap = "harbor-core"
+	harborEndpointKey   = "EXT_ENDPOINT"
 
-	// emptyHostsDir is used as --hosts-dir for nerdctl login/push/rmi to
-	// bypass /etc/containerd/certs.d/*/hosts.toml. On clusters that configure
-	// a Dragonfly (or similar) image-pull mirror there, nerdctl's login
-	// authorizer hits known host/port resolution bugs (see
-	// https://github.com/containerd/nerdctl/issues/3047,
-	// https://github.com/containerd/nerdctl/issues/3245) and fails with
-	// `rh.Authorizer.AddResponses: expected acArg to be "<host>:443", got
-	// "<host>"`. Pointing nerdctl at an empty hosts-dir avoids the problem
-	// for these registry-auth operations without affecting containerd's
-	// own pull path (kubelet + containerd still read the default hosts-dir,
-	// so Dragonfly P2P pull acceleration is preserved).
-	emptyHostsDir = "/opt/primus-safe-nerdctl-empty-hosts"
+	// defaultStagingProject is the registry project the containers' layers are staged in,
+	// one repository per export. It must exist, private, before images are saved. Nothing
+	// here deletes a staging repository: it holds blobs only, and Harbor records a
+	// repository only when a manifest is pushed, so its API has none to delete. A layer
+	// nothing references is deleted by the registry's garbage collection.
+	defaultStagingProject = "save-staging"
 )
 
-// RegistryAuth represents Docker registry authentication structure
-type RegistryAuth struct {
-	Auths map[string]RegistryAuthItem `json:"auths"`
-}
-
-// RegistryAuthItem represents authentication item for a registry
-type RegistryAuthItem struct {
-	Auth string `json:"auth"`
-}
-
-// ExportImageJobReconciler reconciles image export jobs using SSH + nerdctl
+// ExportImageJobReconciler saves a workload's running container as an image. The
+// container computes and uploads its own layer, with a token that can write one staging
+// repository; this process only starts it through pods/exec and puts the image together
+// in the registry, so no image data passes through it or the API server, and it works the
+// same on every kind of node.
 type ExportImageJobReconciler struct {
 	*OpsJobBaseReconciler
 	dbClient dbclient.Interface
 	*controller.Controller[string]
+	// export is exportimage.Export; tests replace it.
+	export func(ctx context.Context, req exportimage.Request) (*exportimage.Result, error)
+
+	// running counts the exports each user has running (exportsPerUser).
+	mu      sync.Mutex
+	running map[string]int
+}
+
+// claim takes one of user's export slots, and reports whether there was one free.
+func (r *ExportImageJobReconciler) claim(user string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.running[user] >= exportsPerUser {
+		return false
+	}
+	if r.running == nil {
+		r.running = map[string]int{}
+	}
+	r.running[user]++
+	return true
+}
+
+// release gives back a slot claim took.
+func (r *ExportImageJobReconciler) release(user string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.running[user] <= 1 {
+		delete(r.running, user)
+		return
+	}
+	r.running[user]--
 }
 
 // SetupExportImageJobController initializes and registers ExportImageJobReconciler with the controller manager
@@ -88,6 +123,7 @@ func SetupExportImageJobController(ctx context.Context, mgr manager.Manager) err
 			clientManager: utils.NewObjectManagerSingleton(),
 		},
 		dbClient: dbclient.NewClient(),
+		export:   exportimage.Export,
 	}
 
 	// Verify database client initialization
@@ -155,415 +191,421 @@ func (r *ExportImageJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (
 	return ctrlruntime.Result{}, nil
 }
 
-// Do processes the export job by SSH to node and using nerdctl
+// Do exports the workload's main container.
 func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrlruntime.Result, error) {
-	// Get the OpsJob
 	job := &v1.OpsJob{}
 	if err := r.Get(ctx, client.ObjectKey{Name: jobName}, job); err != nil {
 		klog.ErrorS(err, "failed to get OpsJob", "jobName", jobName)
 		return ctrlruntime.Result{}, err
 	}
-
-	// Skip if job is already completed
 	if job.IsEnd() {
 		return ctrlruntime.Result{}, nil
 	}
+	// An export that waited past its deadline is not started: it would run without one.
+	if job.IsTimeout() {
+		statusCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusWriteTimeout)
+		defer cancel()
+		return ctrlruntime.Result{}, r.setJobCompleted(statusCtx, job, v1.OpsJobFailed,
+			"the job timed out before the export could start", nil)
+	}
+	user := v1.GetUserId(job)
+	if !r.claim(user) {
+		return ctrlruntime.Result{RequeueAfter: exportWaitRetry}, nil
+	}
+	defer r.release(user)
+	exportCtx := ctx
+	if left := job.GetLeftTime(); left > 0 {
+		var cancel context.CancelFunc
+		exportCtx, cancel = context.WithTimeout(ctx, time.Duration(left)*time.Second)
+		defer cancel()
+	}
+	outputs, err := r.exportJob(exportCtx, job)
+	// The outcome is written even when the export ran out of time: its reason is what the
+	// user needs to see, not the timeout that would otherwise be recorded later.
+	statusCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusWriteTimeout)
+	defer cancel()
+	if err != nil {
+		klog.ErrorS(err, "failed to export image", "job", job.Name)
+		return ctrlruntime.Result{}, r.setJobCompleted(statusCtx, job, v1.OpsJobFailed, err.Error(), nil)
+	}
+	return ctrlruntime.Result{}, r.setJobCompleted(statusCtx, job, v1.OpsJobSucceeded, "Image exported successfully", outputs)
+}
 
-	// Extract workload ID and source image
+// statusWriteTimeout bounds writing an export's outcome.
+const statusWriteTimeout = 30 * time.Second
+
+// exportJob runs one export and returns the job's outputs. Every error it returns is the
+// job's failure message.
+func (r *ExportImageJobReconciler) exportJob(ctx context.Context, job *v1.OpsJob) ([]v1.Parameter, error) {
 	workloadId := getWorkloadIdFromJob(job)
 	if workloadId == "" {
-		err := commonerrors.NewBadRequest("workload ID is empty")
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
+		return nil, commonerrors.NewBadRequest("workload ID is empty")
 	}
-
+	// The apiserver labels the job with the workload it authorized; a job whose
+	// parameters name another one was not authorized for that one.
+	if authorized := v1.GetLabel(job, v1.WorkloadIdLabel); authorized != "" && authorized != workloadId {
+		return nil, commonerrors.NewForbidden(fmt.Sprintf("the job names workload %s but was authorized for %s", workloadId, authorized))
+	}
+	if len(job.GetParameters(v1.ParameterWorkload)) > 1 {
+		return nil, commonerrors.NewBadRequest("the job names more than one workload")
+	}
+	// The image is the one the apiserver read from the authorized workload; a second one
+	// came from somewhere else, and taking either would be a guess.
+	if len(job.GetParameters(v1.ParameterImage)) > 1 {
+		return nil, commonerrors.NewBadRequest("the job names more than one source image")
+	}
 	sourceImage := getSourceImageFromJob(job)
 	if sourceImage == "" {
-		err := commonerrors.NewBadRequest("source image is empty")
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
+		return nil, commonerrors.NewBadRequest("source image is empty")
 	}
-
-	// Get workload to find the node
 	workload := &v1.Workload{}
 	if err := r.Get(ctx, client.ObjectKey{Name: workloadId}, workload); err != nil {
-		klog.ErrorS(err, "failed to get workload", "workloadId", workloadId)
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, "failed to get workload", nil)
+		return nil, fmt.Errorf("failed to get workload: %w", err)
 	}
-
-	// Get node information from workload pods. Prefer the DB workload_pod table,
-	// falling back to the etcd Status.Pods.
-	pods := commonworkload.PodsOf(ctx, r.dbClient, workload)
-	if len(pods) == 0 {
-		err := commonerrors.NewBadRequest("workload has no pods")
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
-	}
-
-	// Use the first pod's admin node name
-	adminNodeName := pods[0].AdminNodeName
-	if adminNodeName == "" {
-		err := commonerrors.NewBadRequest("workload pod is not scheduled to any node")
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
-	}
-
-	node := &v1.Node{}
-	if err := r.Get(ctx, client.ObjectKey{Name: adminNodeName}, node); err != nil {
-		klog.ErrorS(err, "failed to get node", "nodeName", adminNodeName)
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, "failed to get node", nil)
-	}
-
-	// Query default Harbor registry
-	defaultRegistry, err := r.dbClient.GetDefaultRegistryInfo(ctx)
-	if err != nil {
-		klog.ErrorS(err, "failed to get default registry info")
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, "failed to get default registry", nil)
-	}
-	if defaultRegistry == nil {
-		err := commonerrors.NewBadRequest("default push registry not exist, please contact your administrator")
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
-	}
-
-	// Generate target image name (without registry host)
-	targetImage, err := generateTargetImageName(sourceImage)
-	if err != nil {
-		klog.ErrorS(err, "failed to generate target image name")
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
-	}
-
-	klog.Infof("Starting image export: workload=%s, source=%s, target=%s, node=%s",
-		workloadId, sourceImage, targetImage, node.Name)
-
-	// Get Harbor credentials from Secret
-	harborUsername, harborPassword, err := r.getHarborCredentials(ctx, defaultRegistry.URL)
-	if err != nil {
-		klog.ErrorS(err, "failed to get Harbor credentials")
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
-	}
-
-	// Get Pod name and namespace from workload
-	podName := pods[0].PodId
+	podName := pickExportPod(commonworkload.PodsOf(ctx, r.dbClient, workload))
 	if podName == "" {
-		err := commonerrors.NewBadRequest("workload pod name is empty")
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
+		return nil, commonerrors.NewBadRequest("workload has no pods")
 	}
 
-	namespace := v1.GetWorkspaceId(workload) // Pod namespace is the workspace ID
-	cluster := v1.GetClusterId(workload)
-
-	// Get container ID from Pod
-	containerID, err := r.getContainerIDFromPod(ctx, podName, cluster, namespace)
+	clusterID := v1.GetClusterId(workload)
+	dest, err := r.destination(ctx, clusterID)
 	if err != nil {
-		klog.ErrorS(err, "failed to get container ID", "pod", podName, "namespace", namespace)
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, fmt.Sprintf("failed to get container ID: %v", err), nil)
+		return nil, err
+	}
+	targetPath, err := generateTargetImageName(dest.targetProject, sourceImage, time.Now(), randomSuffix())
+	if err != nil {
+		return nil, err
+	}
+	// Strict parsing: a registry named without a dot or a port ("myregistry") would
+	// otherwise be read as Docker Hub, and the credentials below sent there.
+	fullTargetImage := fmt.Sprintf("%s/%s", dest.registry, targetPath)
+	target, err := name.NewTag(fullTargetImage, name.StrictValidation)
+	if err != nil {
+		return nil, fmt.Errorf("invalid target image %s: %w", fullTargetImage, err)
+	}
+	// One repository per export, for the container's layer.
+	staging, err := name.NewRepository(fmt.Sprintf("%s/%s/%s", dest.registry, dest.stagingProject, job.Name), name.StrictValidation)
+	if err != nil {
+		return nil, fmt.Errorf("invalid staging repository: %w", err)
+	}
+	if target.RegistryStr() != dest.registry || staging.RegistryStr() != dest.registry {
+		return nil, fmt.Errorf("the registry %q is read as %q; name it with its domain or port", dest.registry, target.RegistryStr())
 	}
 
-	// Execute image export via SSH
-	if err := r.exportImageViaSSH(ctx, node, targetImage, containerID, defaultRegistry.URL, harborUsername, harborPassword); err != nil {
-		klog.ErrorS(err, "failed to export image", "source", sourceImage, "target", targetImage)
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
+	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, clusterID)
+	if err != nil {
+		return nil, err
 	}
-
-	// Construct full target image path (with registry) for outputs
-	fullTargetImage := fmt.Sprintf("%s/%s", defaultRegistry.URL, targetImage)
-
-	klog.Infof("Successfully exported image: workload=%s, target=%s", workloadId, fullTargetImage)
-
-	// Update OpsJob status to succeeded with full image path
-	outputs := []v1.Parameter{
+	namespace := v1.GetWorkspaceId(workload)
+	pod, err := k8sClients.ClientSet().CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pod %s/%s: %w", namespace, podName, err)
+	}
+	containerName, status, err := exportContainer(pod, commonworkload.GetMainContainerByPod(workload, workload.SpecKind(), podName))
+	if err != nil {
+		return nil, err
+	}
+	platform, err := nodePlatform(ctx, k8sClients.ClientSet(), pod)
+	if err != nil {
+		return nil, err
+	}
+	access, err := r.registryAccess(ctx, dest)
+	if err != nil {
+		return nil, err
+	}
+	klog.Infof("Starting image export: workload=%s, pod=%s/%s, container=%s, staging=%s, target=%s",
+		workloadId, namespace, podName, containerName, staging, fullTargetImage)
+	res, err := r.export(ctx, exportimage.Request{
+		Exec: &exportimage.PodExecer{
+			Config:    k8sClients.RestConfig(),
+			Client:    k8sClients.ClientSet(),
+			Namespace: namespace,
+			Pod:       podName,
+			Container: containerName,
+		},
+		Registry:        dest.registry,
+		ImageID:         status.ImageID,
+		Staging:         staging,
+		Target:          target,
+		Keychain:        access.keychain,
+		StagingKeychain: access.stagingKeychain,
+		Transport:       access.transport,
+		CA:              access.ca,
+		Platform:        platform,
+		Logf: func(format string, args ...any) {
+			klog.Infof("export %s: "+format, append([]any{job.Name}, args...)...)
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	klog.Infof("Exported image: workload=%s, target=%s, digest=%s, base=%s, changed=%d, deleted=%d",
+		workloadId, fullTargetImage, res.Digest, res.Base, res.Layer.Changed, res.Layer.Deleted)
+	return []v1.Parameter{
 		{Name: "status", Value: "Completed"},
-		{Name: "target", Value: fullTargetImage}, // Store full path with registry
+		{Name: "target", Value: fullTargetImage},
+		{Name: "digest", Value: res.Digest},
 		{Name: "message", Value: "Image exported successfully"},
-	}
-	return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, "Image exported successfully", outputs)
+	}, nil
 }
 
-// getContainerIDFromPod retrieves the container ID from a Kubernetes Pod
-// Returns the container ID without the runtime prefix (e.g., removes "containerd://")
-func (r *ExportImageJobReconciler) getContainerIDFromPod(ctx context.Context, podName, cluster, namespace string) (string, error) {
-	// Get Pod from Kubernetes
-	pod := &corev1.Pod{}
-	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, cluster)
-	if err != nil {
-		return "", err
-	}
-	pod, err = k8sClients.ClientSet().CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to get Pod %s/%s: %w", namespace, podName, err)
-	}
-
-	// Check if Pod has container statuses
-	if len(pod.Status.ContainerStatuses) == 0 {
-		return "", fmt.Errorf("pod %s has no container statuses", podName)
-	}
-
-	// Get the first container's ID
-	containerID := pod.Status.ContainerStatuses[0].ContainerID
-	if containerID == "" {
-		return "", fmt.Errorf("container ID is empty for Pod %s", podName)
-	}
-
-	// Remove runtime prefix (e.g., "containerd://6bf0a2bc63a5...")
-	if strings.Contains(containerID, "://") {
-		parts := strings.SplitN(containerID, "://", 2)
-		if len(parts) == 2 {
-			containerID = parts[1]
+// pickExportPod returns the first running pod, or the first pod at all.
+func pickExportPod(pods []v1.WorkloadPod) string {
+	for _, p := range pods {
+		if p.PodId != "" && p.Phase == corev1.PodRunning {
+			return p.PodId
 		}
 	}
-
-	klog.V(4).Infof("Retrieved container ID for Pod %s: %s", podName, containerID)
-	return containerID, nil
+	if len(pods) > 0 {
+		return pods[0].PodId
+	}
+	return ""
 }
 
-// getHarborCredentials retrieves Harbor username and password from Secret
-// This function reads the same Secret format as used in image.go (ImageImportSecretName)
-// Secret structure: {"auths": {"registry_url": {"auth": "base64(username:password)"}}}
-// Returns decoded username and password for nerdctl login
-func (r *ExportImageJobReconciler) getHarborCredentials(ctx context.Context, registryURL string) (username, password string, err error) {
-	// Get Secret
+// exportContainer returns the container to export (the main container, else the first)
+// and its status, which must be running.
+func exportContainer(pod *corev1.Pod, mainContainer string) (string, *corev1.ContainerStatus, error) {
+	containerName := mainContainer
+	if containerName == "" {
+		if len(pod.Spec.Containers) == 0 {
+			return "", nil, fmt.Errorf("pod %s has no containers", pod.Name)
+		}
+		containerName = pod.Spec.Containers[0].Name
+	}
+	for i := range pod.Status.ContainerStatuses {
+		st := &pod.Status.ContainerStatuses[i]
+		if st.Name != containerName {
+			continue
+		}
+		if st.State.Running == nil {
+			return "", nil, commonerrors.NewBadRequest(fmt.Sprintf("container %s of pod %s is not running", containerName, pod.Name))
+		}
+		return containerName, st, nil
+	}
+	return "", nil, fmt.Errorf("pod %s has no status for container %s", pod.Name, containerName)
+}
+
+// nodePlatform is the platform of the node the pod runs on: the one of a multi-platform
+// base image the container was started from.
+func nodePlatform(ctx context.Context, cs kubernetes.Interface, pod *corev1.Pod) (gcrv1.Platform, error) {
+	if pod.Spec.NodeName == "" {
+		return gcrv1.Platform{}, fmt.Errorf("pod %s is not on a node", pod.Name)
+	}
+	node, err := cs.CoreV1().Nodes().Get(ctx, pod.Spec.NodeName, metav1.GetOptions{})
+	if err != nil {
+		return gcrv1.Platform{}, fmt.Errorf("failed to get node %s: %w", pod.Spec.NodeName, err)
+	}
+	p := gcrv1.Platform{OS: node.Status.NodeInfo.OperatingSystem, Architecture: node.Status.NodeInfo.Architecture}
+	if p.OS == "" {
+		p.OS = node.Labels[corev1.LabelOSStable]
+	}
+	if p.Architecture == "" {
+		p.Architecture = node.Labels[corev1.LabelArchStable]
+	}
+	if p.OS == "" || p.Architecture == "" {
+		return gcrv1.Platform{}, fmt.Errorf("node %s reports no operating system or architecture", node.Name)
+	}
+	return p, nil
+}
+
+// exportDestination is where one cluster's saved images go.
+type exportDestination struct {
+	registry          string
+	targetProject     string
+	stagingProject    string
+	caSecret          string
+	stagingPushSecret string
+}
+
+// destination reads where a cluster's saved images go. A cluster without settings saves
+// to the default registry.
+func (r *ExportImageJobReconciler) destination(ctx context.Context, clusterID string) (*exportDestination, error) {
+	cfg, _, err := commonconfig.GetSaveImageCluster(clusterID)
+	if err != nil {
+		return nil, err
+	}
+	d := &exportDestination{
+		registry:          cfg.Registry,
+		targetProject:     cfg.TargetProject,
+		stagingProject:    cfg.StagingProject,
+		caSecret:          cfg.CASecret,
+		stagingPushSecret: cfg.StagingPushSecret,
+	}
+	if d.registry == "" {
+		defaultRegistry, err := r.dbClient.GetDefaultRegistryInfo(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get default registry: %w", err)
+		}
+		if defaultRegistry == nil || defaultRegistry.URL == "" {
+			return nil, commonerrors.NewBadRequest("default push registry not exist, please contact your administrator")
+		}
+		d.registry = defaultRegistry.URL
+	}
+	d.registry = registryHost(d.registry)
+	if d.targetProject == "" {
+		d.targetProject = common.ExportImageProject
+	}
+	if d.stagingProject == "" {
+		d.stagingProject = defaultStagingProject
+	}
+	if d.stagingPushSecret == "" {
+		d.stagingPushSecret = common.PrimusSafeNamespace + "/" + common.SaveImageStagingSecretName
+	}
+	return d, nil
+}
+
+// registryCredentials is this process's access to the registries.
+type registryCredentials struct {
+	keychain authn.Keychain
+	// stagingKeychain mints the container's upload token; see exportimage.Request.
+	stagingKeychain authn.Keychain
+	transport       http.RoundTripper
+	// ca is the CA the container checks the registry against.
+	ca []byte
+}
+
+// registryHost is a registry's host (and port), however it was written.
+func registryHost(s string) string {
+	s = strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(s), "https://"), "http://")
+	return strings.TrimSuffix(s, "/")
+}
+
+// registryAccess returns the credentials and trust the export uses: the platform's image
+// import credential, the built-in registry's private CA if there is one, the configured
+// registry CA ("<namespace>/<name>", key ca.crt) if there is one, and the staging-only
+// credential. The platform's credential stays in this process; only a CA and a token
+// minted with the staging-only credential go to the container. The container trusts its
+// own roots and, on top of them, the configured CA, or the built-in Harbor's CA when the
+// registry is the built-in Harbor; any other registry is checked against its roots alone.
+func (r *ExportImageJobReconciler) registryAccess(ctx context.Context, dest *exportDestination) (*registryCredentials, error) {
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, apitypes.NamespacedName{
 		Name:      common.ImageImportSecretName,
 		Namespace: common.PrimusSafeNamespace,
 	}, secret); err != nil {
-		return "", "", fmt.Errorf("failed to get secret %s: %w", common.ImageImportSecretName, err)
+		return nil, fmt.Errorf("failed to get secret %s: %w", common.ImageImportSecretName, err)
 	}
-
-	// Parse config.json
 	configData, ok := secret.Data["config.json"]
 	if !ok {
-		return "", "", fmt.Errorf("config.json not found in secret")
+		return nil, fmt.Errorf("config.json not found in secret %s", common.ImageImportSecretName)
+	}
+	keychain, err := exportimage.NewConfigKeychain(configData)
+	if err != nil {
+		return nil, err
 	}
 
-	var registryAuth RegistryAuth
-	if err := json.Unmarshal(configData, &registryAuth); err != nil {
-		return "", "", fmt.Errorf("failed to parse registry auth: %w", err)
+	var builtinCA []byte
+	tlsSecret := &corev1.Secret{}
+	err = r.Get(ctx, apitypes.NamespacedName{Namespace: harborNamespace, Name: harborTLSSecretName}, tlsSecret)
+	switch {
+	case err == nil:
+		builtinCA = tlsSecret.Data["ca.crt"]
+	case !apierrors.IsNotFound(err):
+		return nil, fmt.Errorf("failed to get secret %s/%s: %w", harborNamespace, harborTLSSecretName, err)
 	}
+	var ca []byte
+	if dest.caSecret != "" {
+		ns, n, ok := strings.Cut(dest.caSecret, "/")
+		if !ok || ns == "" || n == "" {
+			return nil, fmt.Errorf("the registry CA secret %q is not <namespace>/<name>", dest.caSecret)
+		}
+		s := &corev1.Secret{}
+		if err := r.Get(ctx, apitypes.NamespacedName{Namespace: ns, Name: n}, s); err != nil {
+			return nil, fmt.Errorf("failed to get secret %s: %w", dest.caSecret, err)
+		}
+		if ca = s.Data["ca.crt"]; len(ca) == 0 {
+			return nil, fmt.Errorf("secret %s has no ca.crt", dest.caSecret)
+		}
+	} else if len(builtinCA) > 0 {
+		builtin, err := r.builtinHarborHost(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if builtin != "" && builtin == dest.registry {
+			ca = builtinCA
+		}
+	}
+	transport, err := exportimage.NewTransport(builtinCA, ca)
+	if err != nil {
+		return nil, err
+	}
+	stagingKeychain, err := r.stagingKeychain(ctx, dest.stagingPushSecret)
+	if err != nil {
+		return nil, err
+	}
+	return &registryCredentials{keychain: keychain, stagingKeychain: stagingKeychain, transport: transport, ca: ca}, nil
+}
 
-	// Find auth for the registry
-	authItem, ok := registryAuth.Auths[registryURL]
+// builtinHarborHost is the built-in Harbor's external host, or "" without one.
+func (r *ExportImageJobReconciler) builtinHarborHost(ctx context.Context) (string, error) {
+	cm := &corev1.ConfigMap{}
+	err := r.Get(ctx, apitypes.NamespacedName{Namespace: harborNamespace, Name: harborCoreConfigMap}, cm)
+	if apierrors.IsNotFound(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get configmap %s/%s: %w", harborNamespace, harborCoreConfigMap, err)
+	}
+	return registryHost(cm.Data[harborEndpointKey]), nil
+}
+
+// stagingKeychain reads the credential limited to the staging project
+// ("<namespace>/<name>", a Docker config under config.json or .dockerconfigjson).
+func (r *ExportImageJobReconciler) stagingKeychain(ctx context.Context, ref string) (authn.Keychain, error) {
+	ns, n, ok := strings.Cut(ref, "/")
+	if !ok || ns == "" || n == "" {
+		return nil, fmt.Errorf("the staging push secret %q is not <namespace>/<name>", ref)
+	}
+	s := &corev1.Secret{}
+	if err := r.Get(ctx, apitypes.NamespacedName{Namespace: ns, Name: n}, s); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("%v (secret %s not found). For the built-in Harbor the "+
+				"apiserver creates it at start-up, with the %s project and a robot account limited to it; check the "+
+				"apiserver log for why it could not, or configure save_image.clusters[].staging_push_secret",
+				exportimage.ErrNoStagingCredential, ref, defaultStagingProject))
+		}
+		return nil, fmt.Errorf("failed to get secret %s: %w", ref, err)
+	}
+	data, ok := s.Data["config.json"]
 	if !ok {
-		return "", "", fmt.Errorf("no authentication found for registry %s", registryURL)
+		data, ok = s.Data[corev1.DockerConfigJsonKey]
 	}
-
-	// Decode base64 auth to get username:password
-	// auth is base64 encoded string: base64("username:password")
-	authDecoded, err := base64.StdEncoding.DecodeString(authItem.Auth)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to decode auth for registry %s: %w", registryURL, err)
+	if !ok {
+		return nil, fmt.Errorf("secret %s has neither config.json nor %s", ref, corev1.DockerConfigJsonKey)
 	}
-
-	// Split username:password
-	credentials := string(authDecoded)
-	parts := strings.SplitN(credentials, ":", 2)
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid auth format for registry %s, expected username:password", registryURL)
-	}
-
-	klog.V(4).Infof("Retrieved credentials for registry %s, username: %s", registryURL, parts[0])
-	return parts[0], parts[1], nil
+	return exportimage.NewConfigKeychain(data)
 }
 
-// exportImageViaSSH exports image using SSH connection and nerdctl commands
-func (r *ExportImageJobReconciler) exportImageViaSSH(
-	ctx context.Context,
-	node *v1.Node,
-	targetImage string,
-	containerID string,
-	registry string,
-	harborUsername string,
-	harborPassword string,
-) error {
-	// Establish SSH connection
-	sshClient, err := rmutils.GetSSHClient(ctx, r.Client, node)
+// generateTargetImageName returns the target image without the registry host:
+// <project>/<namespace>/<repository>:<YYYYMMDDHHMMSS>-<suffix>. Two exports of the same
+// image in the same second still get different tags, so no export overwrites another.
+// Example: "harbor.example.com/proxy/rocm/7.0-preview:tag" -> "custom/rocm/7.0-preview:20250112093000-1a2b3c"
+func generateTargetImageName(project, sourceImage string, now time.Time, suffix string) (string, error) {
+	// Harbor requires lowercase repository names, and only the repository is kept.
+	ref, err := name.ParseReference(strings.ToLower(sourceImage))
 	if err != nil {
-		return fmt.Errorf("failed to create SSH client: %w", err)
-	}
-	defer sshClient.Close()
-
-	klog.Infof("SSH connected to node %s", node.Name)
-
-	// Construct full image path with registry
-	fullTargetImage := fmt.Sprintf("%s/%s", registry, targetImage)
-
-	// Step 1: Commit container to image (creates image directly with target name)
-	if err := r.commitContainerToImage(sshClient, containerID, fullTargetImage); err != nil {
-		return fmt.Errorf("failed to commit container: %w", err)
-	}
-
-	// Step 2: Login to Harbor
-	if err := r.loginHarbor(sshClient, registry, harborUsername, harborPassword); err != nil {
-		return fmt.Errorf("failed to login Harbor: %w", err)
-	}
-
-	// Step 3: Push image
-	if err := r.pushImage(sshClient, fullTargetImage); err != nil {
-		return fmt.Errorf("failed to push image: %w", err)
-	}
-
-	// Step 4: Clean up local image (optional, to save node storage)
-	if err := r.deleteImage(ctx, sshClient, fullTargetImage); err != nil {
-		// Log warning but don't fail the job if cleanup fails
-		klog.Warningf("Failed to delete local image %s: %v ", fullTargetImage, err)
-	}
-
-	klog.Infof("Successfully pushed image %s to registry %s", targetImage, registry)
-	return nil
-}
-
-// commitContainerToImage commits a container to an image by container ID
-// Uses the real container ID obtained from Kubernetes Pod status
-func (r *ExportImageJobReconciler) commitContainerToImage(sshClient *ssh.Client, containerID, targetImage string) error {
-	session, err := sshClient.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create SSH session: %w", err)
-	}
-	defer session.Close()
-
-	klog.Infof("Committing container %s to image %s", containerID, targetImage)
-
-	// Use nerdctl commit with container ID
-	// containerID should already have the runtime prefix removed (e.g., "6bf0a2bc63a5...")
-	commitCmd := fmt.Sprintf("sudo nerdctl commit %s %s", containerID, targetImage)
-	klog.V(4).Infof("Executing: %s", commitCmd)
-
-	output, err := session.CombinedOutput(commitCmd)
-	if err != nil {
-		return fmt.Errorf("commit failed: %s, error: %w", string(output), err)
-	}
-
-	klog.Infof("Successfully committed container %s to image %s", containerID, targetImage)
-	return nil
-}
-
-// loginHarbor logs into Harbor registry using nerdctl login command
-func (r *ExportImageJobReconciler) loginHarbor(sshClient *ssh.Client, registry, username, password string) error {
-	session, err := sshClient.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create SSH session: %w", err)
-	}
-	defer session.Close()
-
-	klog.Infof("Logging into Harbor registry %s as user %s", registry, username)
-
-	// Use nerdctl login with password stdin for security
-	// Password won't appear in process list or command history.
-	// --hosts-dir points at an empty dir (created on-demand) to bypass the
-	// system hosts.toml which may break nerdctl's login authorizer on
-	// clusters with Dragonfly/mirror configured. See emptyHostsDir doc.
-	cmd := fmt.Sprintf(
-		"sudo mkdir -p %s && echo '%s' | sudo nerdctl --hosts-dir %s login %s -u %s --password-stdin",
-		emptyHostsDir, password, emptyHostsDir, registry, username)
-
-	klog.V(4).Infof("Executing nerdctl login for registry %s", registry)
-
-	output, err := session.CombinedOutput(cmd)
-	outputStr := string(output)
-
-	if err != nil {
-		return fmt.Errorf("nerdctl login failed: %s, error: %w", outputStr, err)
-	}
-
-	// Check if login succeeded
-	if !strings.Contains(strings.ToLower(outputStr), "login succeeded") &&
-		!strings.Contains(strings.ToLower(outputStr), "logged in") {
-		return fmt.Errorf("nerdctl login returned unexpected output: %s", outputStr)
-	}
-
-	klog.Infof("Successfully logged into Harbor registry %s", registry)
-	return nil
-}
-
-// pushImage pushes the image to registry using nerdctl
-func (r *ExportImageJobReconciler) pushImage(sshClient *ssh.Client, imageName string) error {
-	session, err := sshClient.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create SSH session: %w", err)
-	}
-	defer session.Close()
-
-	cmd := fmt.Sprintf("sudo nerdctl --hosts-dir %s push %s", emptyHostsDir, imageName)
-	klog.V(4).Infof("Pushing image: %s", imageName)
-
-	output, err := session.CombinedOutput(cmd)
-	if err != nil {
-		return fmt.Errorf("push failed: %s, error: %w", string(output), err)
-	}
-
-	klog.Infof("Successfully pushed image %s", imageName)
-	return nil
-}
-
-// deleteImage deletes an image from the node using nerdctl rmi
-func (r *ExportImageJobReconciler) deleteImage(ctx context.Context, sshClient *ssh.Client, imageName string) error {
-	session, err := sshClient.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create SSH session: %w", err)
-	}
-	defer session.Close()
-
-	klog.Infof("Deleting image: %s", imageName)
-
-	// Use nerdctl rmi to remove image (same --hosts-dir workaround as login/push
-	// so that rmi does not trigger host.toml resolver bugs either).
-	cmd := fmt.Sprintf("sudo nerdctl --hosts-dir %s rmi %s", emptyHostsDir, imageName)
-	klog.V(4).Infof("Executing: %s", cmd)
-
-	output, err := session.CombinedOutput(cmd)
-	if err != nil {
-		return fmt.Errorf("delete image failed: %s, error: %w", string(output), err)
-	}
-
-	klog.Infof("Successfully deleted image %s", imageName)
-	return nil
-}
-
-// generateTargetImageName generates the target image name without registry host
-// Format: Custom/namespace/repository:YYYYMMDD
-// Example: "rocm/7.0-preview:tag" -> "Custom/rocm/7.0-preview:20250112"
-func generateTargetImageName(sourceImage string) (string, error) {
-	// Remove tag from source image
-	imageWithoutTag := sourceImage
-	if colonIndex := strings.LastIndex(sourceImage, ":"); colonIndex != -1 {
-		imageWithoutTag = sourceImage[:colonIndex]
-	}
-
-	// Split by "/" to extract namespace/repository structure
-	// Examples:
-	//   "rocm/7.0-preview" -> ["rocm", "7.0-preview"]
-	//   "docker.io/library/nginx" -> ["docker.io", "library", "nginx"]
-	//   "nginx" -> ["nginx"]
-	parts := strings.Split(imageWithoutTag, "/")
-	if len(parts) == 0 {
 		return "", fmt.Errorf("invalid source image format: %s", sourceImage)
 	}
-
-	var namespace, repository string
-
-	if len(parts) == 1 {
-		// Single part: "nginx" -> Custom/library/nginx
-		namespace = "library"
-		repository = parts[0]
-	} else if len(parts) == 2 {
-		// Two parts: "rocm/7.0-preview" -> Custom/rocm/7.0-preview
-		namespace = parts[0]
-		repository = parts[1]
-	} else {
-		// Three or more parts: "docker.io/library/nginx" -> Custom/library/nginx
-		// Skip the registry host (first part), use the rest
+	parts := strings.Split(ref.Context().RepositoryStr(), "/")
+	repository := parts[len(parts)-1]
+	namespace := "library"
+	if len(parts) >= 2 {
 		namespace = parts[len(parts)-2]
-		repository = parts[len(parts)-1]
 	}
+	return fmt.Sprintf("%s/%s/%s:%s-%s",
+		project,
+		namespace,
+		repository,
+		now.UTC().Format("20060102150405"),
+		suffix), nil
+}
 
-	// Generate timestamp tag (YYYYMMDDHHmmss format - precise to seconds)
-	timestamp := time.Now().Format("200601021504")
-
-	// Create target image path: custom/namespace/repository:YYYYMMDDHHmmss
-	// Convert to lowercase as Harbor requires lowercase repository names
-	targetImage := fmt.Sprintf("%s/%s/%s:%s",
-		strings.ToLower(registryProject), // "custom" (lowercase)
-		strings.ToLower(namespace),
-		strings.ToLower(repository),
-		timestamp)
-
-	return targetImage, nil
+func randomSuffix() string {
+	b := make([]byte, 3)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%06x", time.Now().UnixNano()&0xffffff)
+	}
+	return hex.EncodeToString(b)
 }
 
 // getWorkloadIdFromJob extracts workload ID from OpsJob parameters

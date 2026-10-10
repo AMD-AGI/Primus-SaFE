@@ -43,6 +43,9 @@ data:
       ttl_second: {{ default 60 (default .Values.ops_job).ttl_second }}
       # The timeout of the opsjob, in seconds. Default is 3600.
       timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
+      export_image:
+        # The default timeout for saving a workload as an image, in seconds. Default is 43200 (12 h).
+        timeout_second: {{ default 43200 (default dict (default dict .Values.ops_job).export_image).timeout_second }}
     external_execution:
       # Off by default; external objects are refused at admission while it is false.
       enabled: {{ default false (default dict .Values.external_execution).enabled }}

@@ -21,6 +21,37 @@ fi
 
 input="$1"
 
+# Record the files the container started with. Saving the container as an image measures
+# deletions against this record; it goes to the shared volume, which is never part of a
+# saved image. An earlier container's record is removed here, before anything else, and the
+# record is marked as in progress, so that saving meanwhile is refused as "still
+# recording". The record itself starts after this launcher's bootstrap below: the
+# bootstrap deletes and rewrites files of the image (apt-get does), and a record that
+# listed them first would make saving delete them from the saved image as if the user had.
+# The packages the image holds are listed now, before the bootstrap (one directory read):
+# the record, made after it, also holds what the bootstrap installs, and saving drops those
+# packages from a dpkg status file the user rewrote, since their files are not saved.
+# A failure only disables saving. A workload that sets SAFE_SAVE_IMAGE_RECORD=0 skips the
+# record, and cannot be saved; that is noted, so that saving it says why.
+record_base=""
+if [ -x /shared-data/save-image ]; then
+  rm -f /shared-data/save-image.base /shared-data/save-image.run /shared-data/save-image.norecord \
+    /shared-data/save-image.packages
+  case "${SAFE_SAVE_IMAGE_RECORD:-1}" in
+    0|false|off)
+      : > /shared-data/save-image.norecord
+      ;;
+    *)
+      if /shared-data/save-image packages; then
+        : > /shared-data/save-image.base.partial
+        record_base=1
+      else
+        echo "WARN: LAUNCHER: cannot list the image's packages; this container cannot be saved as an image" >&2
+      fi
+      ;;
+  esac
+fi
+
 export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"
 export NNODES="${PET_NNODES:-${NNODES}}"
 
@@ -46,6 +77,20 @@ fi
 /bin/sh /shared-data/build_bnxt.sh
 /bin/sh /shared-data/build_authoring.sh
 
+# The record of the image's files (see above) runs in the background at the lowest CPU and
+# I/O priority, so that nothing below waits for it, and writes the paths as it lists them,
+# so its memory does not grow with the image. What the user changes is told apart by the
+# time the entry point file is written below, not by when the record ran.
+if [ -n "$record_base" ]; then
+  (
+    low=""
+    if command -v nice >/dev/null 2>&1; then low="nice -n 19"; fi
+    if command -v ionice >/dev/null 2>&1 && ionice -c 2 -n 7 true 2>/dev/null; then low="$low ionice -c 2 -n 7"; fi
+    GOMAXPROCS=1 $low /shared-data/save-image record ||
+      echo "WARN: LAUNCHER: cannot record the image's files; this container cannot be saved as an image" >&2
+  ) &
+fi
+
 if [ -z "$input" ]; then
     exit 0
 fi
@@ -61,6 +106,17 @@ if ! echo "$input" | base64 -d > "$run_file"; then
     exit 1
 fi
 chmod +x "$run_file"
+# Saving the container as an image needs this file's change time as of now: record it,
+# with where the file is, since it is not always the working directory's .run.sh. Its
+# change time later is not the boundary: a chmod or chown of it by the user moves it.
+if [ -x /shared-data/save-image ]; then
+    case "$run_file" in
+        /*) run_path="$run_file" ;;
+        *) run_path="$(pwd)/$run_file" ;;
+    esac
+    /shared-data/save-image mark "$run_path" ||
+        echo "WARN: LAUNCHER: cannot record where the entry point is; this container cannot be saved as an image" >&2
+fi
 if [ -x /usr/bin/bash ]; then
     /usr/bin/bash -o pipefail "$run_file" &
 elif [ -x /bin/bash ]; then

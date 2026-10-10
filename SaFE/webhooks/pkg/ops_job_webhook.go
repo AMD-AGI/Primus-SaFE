@@ -120,6 +120,8 @@ func (m *OpsJobMutator) mutateJobSpec(ctx context.Context, job *v1.OpsJob) {
 		switch job.Spec.Type {
 		case v1.OpsJobModelPrewarmType:
 			job.Spec.TimeoutSecond = commonconfig.GetModelPrewarmTimeoutSecond()
+		case v1.OpsJobExportImageType:
+			job.Spec.TimeoutSecond = commonconfig.GetExportImageTimeoutSecond()
 		default:
 			job.Spec.TimeoutSecond = commonconfig.GetOpsJobTimeoutSecond()
 		}

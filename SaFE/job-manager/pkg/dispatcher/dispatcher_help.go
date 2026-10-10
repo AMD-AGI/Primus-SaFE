@@ -139,6 +139,10 @@ func initializeObject(obj *unstructured.Unstructured,
 	if err = modifyTolerations(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
+	path = podSpecPath(workload, resourceSpec, "hostAliases")
+	if err = modifyHostAliases(obj, workload, path); err != nil {
+		return fmt.Errorf("failed to modify host aliases: %v", err.Error())
+	}
 	path = podSpecPath(workload, resourceSpec, "activeDeadlineSeconds")
 	if err = modifyActiveDeadline(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify activeDeadlineSeconds: %v", err.Error())
@@ -771,6 +775,35 @@ func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path 
 		return err
 	}
 	return nil
+}
+
+// modifyHostAliases adds the cluster's configured /etc/hosts entries, which let a
+// container resolve a registry its cluster's DNS does not (Save Image uploads from inside
+// the container). hostAliases is a Pod field every node type honours, a kubelet's and a
+// virtual kubelet's alike. Entries the template already has are kept.
+func modifyHostAliases(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	cfg, ok, err := commonconfig.GetSaveImageCluster(v1.GetClusterId(workload))
+	if err != nil {
+		return err
+	}
+	if !ok || len(cfg.HostAliases) == 0 {
+		return nil
+	}
+	aliases, _, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	for _, a := range cfg.HostAliases {
+		if a.IP == "" || len(a.Hostnames) == 0 {
+			continue
+		}
+		hostnames := make([]interface{}, 0, len(a.Hostnames))
+		for _, h := range a.Hostnames {
+			hostnames = append(hostnames, h)
+		}
+		aliases = append(aliases, map[string]interface{}{"ip": a.IP, "hostnames": hostnames})
+	}
+	return jobutils.SetNestedField(obj.Object, aliases, path)
 }
 
 // runsToCompletion reports whether the pods a workload of this kind renders
