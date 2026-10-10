@@ -207,15 +207,54 @@ func TestIsExternalGangFollowsWorkloadShape(t *testing.T) {
 	assert.Assert(t, !isExternalGang(single))
 }
 
-// A later host-network pass must not re-enable the host network on a single-unit external pod.
-func TestUpdateHostNetworkKeepsExternalDecision(t *testing.T) {
+// ForceHostNetwork enables hostNetwork on external capacity for every role.
+func TestUpdateHostNetworkHonorsForceOnExternal(t *testing.T) {
 	w := claimWorkload()
 	w.Spec.Resources = []v1.WorkloadResource{{Replica: 1}}
 	w.Annotations = map[string]string{v1.ForceHostNetworkAnnotation: v1.TrueStr}
 	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
 	assert.NilError(t, updateHostNetwork(w, obj, externalShapeSpec(), 0))
-	enabled, _, _ := unstructured.NestedBool(obj.Object, "spec", "template", "spec", "hostNetwork")
-	assert.Assert(t, !enabled)
+	enabled, found, err := unstructured.NestedBool(obj.Object, "spec", "template", "spec", "hostNetwork")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Assert(t, enabled)
+}
+
+// External Infera 1P1D with RDMA on workers enables hostNetwork on every role,
+// including the frontend that itself has no RdmaResource.
+func TestExternalHostNetworkInferaRDMA(t *testing.T) {
+	w := claimWorkload()
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Kind: common.InferaDeploymentKind, Version: "v1"}
+	w.Spec.Resources = []v1.WorkloadResource{
+		{Replica: 1, CPU: "4", Memory: "8Gi"},
+		{Replica: 1, CPU: "32", Memory: "400Gi", GPU: "8", GPUName: "amd.com/gpu", RdmaResource: "1k"},
+		{Replica: 1, CPU: "32", Memory: "400Gi", GPU: "8", GPUName: "amd.com/gpu", RdmaResource: "1k"},
+	}
+	assert.Assert(t, !isExternalGang(w))
+	for _, id := range []int{0, 1, 2} {
+		obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+		assert.NilError(t, updateHostNetwork(w, obj, externalShapeSpec(), id))
+		enabled, found, err := unstructured.NestedBool(obj.Object, "spec", "template", "spec", "hostNetwork")
+		assert.NilError(t, err)
+		assert.Assert(t, found)
+		assert.Assert(t, enabled, "resourceId=%d", id)
+	}
+}
+
+// External Infera without RDMA stays on the pod network when ForceHostNetwork is unset.
+func TestExternalHostNetworkInferaNoRDMA(t *testing.T) {
+	w := claimWorkload()
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Kind: common.InferaDeploymentKind, Version: "v1"}
+	w.Spec.Resources = []v1.WorkloadResource{
+		{Replica: 1, CPU: "4", Memory: "8Gi"},
+		{Replica: 1, CPU: "32", Memory: "400Gi", GPU: "8", GPUName: "amd.com/gpu"},
+	}
+	for _, id := range []int{0, 1} {
+		obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+		assert.NilError(t, updateHostNetwork(w, obj, externalShapeSpec(), id))
+		enabled, _, _ := unstructured.NestedBool(obj.Object, "spec", "template", "spec", "hostNetwork")
+		assert.Assert(t, !enabled, "resourceId=%d", id)
+	}
 }
 
 // A worker template carries the worker unit's approval, not the master's.

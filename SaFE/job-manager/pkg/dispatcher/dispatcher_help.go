@@ -148,12 +148,13 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = jobutils.SetNestedField(obj.Object, automount, path); err != nil {
 			return fmt.Errorf("failed to set service account token automount: %v", err.Error())
 		}
-		// Host namespaces are node privileges the provider refuses, except the host network
-		// of a whole-node RDMA gang member. Set them here so earlier modifyHostNetwork (and
-		// later modifyHostPid) cannot leak.
+		// Host namespaces are node privileges the provider refuses, except hostNetwork
+		// when ForceHostNetwork is set, for whole-node RDMA gangs, or for external
+		// Infera/Dynamo roles that request RDMA. Set them here so earlier
+		// modifyHostNetwork (and later modifyHostPid) cannot leak hostPID/hostIPC.
 		path = podSpecPath(workload, resourceSpec, "hostNetwork")
-		if err = jobutils.SetNestedField(obj.Object, isExternalGang(workload), path); err != nil {
-			return fmt.Errorf("failed to disable host network for external: %v", err.Error())
+		if err = jobutils.SetNestedField(obj.Object, externalHostNetworkEnabled(workload, resourceId), path); err != nil {
+			return fmt.Errorf("failed to set host network for external: %v", err.Error())
 		}
 		path = podSpecPath(workload, resourceSpec, "hostPID")
 		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
@@ -3035,8 +3036,8 @@ func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, resourceId int) error {
 	path := podSpecPath(adminWorkload, &resourceSpec, "hostNetwork")
 	if isExternalWorkload(adminWorkload) {
-		// Only a gang member may use the host network on external capacity.
-		return jobutils.SetNestedField(obj.Object, isExternalGang(adminWorkload), path)
+		// External: RDMA gang, or Infera/Dynamo roles with RDMA (see externalHostNetworkEnabled).
+		return jobutils.SetNestedField(obj.Object, externalHostNetworkEnabled(adminWorkload, resourceId), path)
 	}
 	return modifyHostNetwork(obj, adminWorkload, path, resourceId)
 }

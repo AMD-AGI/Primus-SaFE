@@ -55,6 +55,37 @@ func isExternalGang(workload *v1.Workload) bool {
 	return isExternalWorkload(workload) && commonworkload.IsExternalRDMAGang(workload)
 }
 
+// externalHostNetworkEnabled reports whether an external pod template may use
+// hostNetwork. ForceHostNetwork always wins. Otherwise whole-node RDMA gangs
+// keep the privilege, and external Infera/Dynamo roles follow the same RDMA
+// rules as IsEnabledHostNetwork.
+func externalHostNetworkEnabled(workload *v1.Workload, resourceId int) bool {
+	if workload != nil && v1.IsForceHostNetwork(workload) {
+		return true
+	}
+	if isExternalGang(workload) {
+		return true
+	}
+	if workload == nil || !isExternalWorkload(workload) {
+		return false
+	}
+	if !commonworkload.IsInferaDeployment(workload) && !commonworkload.IsDynamoDeployment(workload) {
+		return false
+	}
+	if resourceId < 0 || resourceId >= len(workload.Spec.Resources) {
+		return false
+	}
+	// Frontend/role0 shares hostNetwork when any worker requests RDMA.
+	if resourceId == 0 && len(workload.Spec.Resources) > 1 {
+		for i := 1; i < len(workload.Spec.Resources); i++ {
+			if workload.Spec.Resources[i].RdmaResource != "" {
+				return true
+			}
+		}
+	}
+	return workload.Spec.Resources[resourceId].RdmaResource != ""
+}
+
 // externalRoleUnitKey returns the unit whose approval a role's pod template carries. Gang
 // workers share one template, and the scheduler admits them only with identical approvals.
 func externalRoleUnitKey(workload *v1.Workload, resourceId int) string {
