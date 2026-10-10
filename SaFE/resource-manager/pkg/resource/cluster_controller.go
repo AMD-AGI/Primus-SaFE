@@ -569,8 +569,16 @@ func ensurePriorityClassMatches(ctx context.Context, clientSet kubernetes.Interf
 			needUpdate = true
 		}
 	}
-	if existing.Value != desired.value {
+	if existing.Description != desired.description {
 		needUpdate = true
+	}
+	if existing.Labels[v1.PriorityClassManagedLabel] != v1.TrueStr {
+		needUpdate = true
+	}
+	// PriorityClass.value is immutable; never attempt to change it.
+	if existing.Value != desired.value {
+		klog.Infof("PriorityClass %s value %d differs from desired %d; leaving value unchanged",
+			desired.name, existing.Value, desired.value)
 	}
 	if !needUpdate {
 		return nil
@@ -580,13 +588,12 @@ func ensurePriorityClassMatches(ctx context.Context, clientSet kubernetes.Interf
 		updated.Labels = map[string]string{}
 	}
 	updated.Labels[v1.PriorityClassManagedLabel] = v1.TrueStr
-	updated.Value = desired.value
 	updated.Description = desired.description
 	updated.PreemptionPolicy = desired.preemptionPolicy
 	if _, err := clientSet.SchedulingV1().PriorityClasses().Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
 		return err
 	}
-	klog.Infof("update PriorityClass, name: %s, value: %d", desired.name, desired.value)
+	klog.Infof("update PriorityClass, name: %s (preemptionPolicy/labels)", desired.name)
 	return nil
 }
 

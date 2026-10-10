@@ -62,6 +62,25 @@ func isTerminalExternalReason(reason string) bool {
 	return false
 }
 
+// holdsExternalBudgetWhileWaiting reports waits that already consume budget for this
+// schedule pass (image resolve in flight, open ProvisioningRequest, scale-up).
+func holdsExternalBudgetWhileWaiting(reason string) bool {
+	for _, prefix := range []string{
+		ExternalImageReason,
+		ExternalWaitingScaleUpReason,
+		ExternalWaitingPRAcceptReason,
+		ExternalWaitingPRReason,
+		ExternalCapacityUnavailableReason,
+		ExternalPRExpiredReason,
+		ExternalCapacityReason,
+	} {
+		if strings.HasPrefix(reason, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // externalStatePatchAttempts covers create-time races where another writer bumps
 // resourceVersion between the cached read and the JSON-patch test.
 const externalStatePatchAttempts = 5

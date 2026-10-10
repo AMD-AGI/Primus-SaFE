@@ -518,6 +518,13 @@ spec:
                     items:
                       type: string
                     type: array
+                  resolvedImageSources:
+                    description: |-
+                      ResolvedImageSources is Spec.Images at the time digests were resolved. A mismatch with
+                      the current Spec.Images forces re-resolve so a tag change cannot reuse a stale digest.
+                    items:
+                      type: string
+                    type: array
                 type: object
               message:
                 description: Scheduling explanations for Pending workloads and diagnostics

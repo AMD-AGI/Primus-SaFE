@@ -128,6 +128,9 @@ func isRetryableImageResolveError(err error) bool {
 	if err == nil {
 		return false
 	}
+	if apierrors.IsNotFound(err) {
+		return true
+	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		return true

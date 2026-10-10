@@ -119,12 +119,22 @@ func IsPinned(image string) bool {
 
 // ResolvedImagesCurrent reports whether cached digests still match Spec.Images.
 // sources must be the Spec.Images snapshot taken when digests were resolved.
+// Empty Spec slots stay empty in resolved (template-default roles).
 func ResolvedImagesCurrent(spec, resolved, sources []string) bool {
 	if len(spec) == 0 || len(resolved) != len(spec) || len(sources) != len(spec) {
 		return false
 	}
 	for i := range spec {
-		if spec[i] != sources[i] || !IsPinned(resolved[i]) {
+		if spec[i] != sources[i] {
+			return false
+		}
+		if spec[i] == "" {
+			if resolved[i] != "" {
+				return false
+			}
+			continue
+		}
+		if !IsPinned(resolved[i]) {
 			return false
 		}
 	}

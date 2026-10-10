@@ -50,6 +50,10 @@ func TestResolvedImagesCurrent(t *testing.T) {
 	if ResolvedImagesCurrent(spec, []string{"repo/img:tag"}, []string{"repo/img:v1"}) {
 		t.Fatal("unpinned resolved must miss")
 	}
+	empty := []string{"repo/img:v1", ""}
+	if !ResolvedImagesCurrent(empty, []string{digest, ""}, []string{"repo/img:v1", ""}) {
+		t.Fatal("empty Spec slot must stay empty in the cache")
+	}
 }
 
 func TestKeychainFromDockerConfigJSON(t *testing.T) {

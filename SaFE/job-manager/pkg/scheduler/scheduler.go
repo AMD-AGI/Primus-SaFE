@@ -402,6 +402,13 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 				continue
 			}
 			unScheduledReasons[w.Name] = reason
+			// External waits that have already reserved against the budget (image pin,
+			// ProvisioningRequest, scale-up) must reduce this pass's leftover so later
+			// non-FIFO peers do not open a second booking for the same quota.
+			if v1.IsExternalWorkspace(workspace) && holdsExternalBudgetWhileWaiting(reason) {
+				leftAvailResources = quantity.SubResource(leftAvailResources, requestResources)
+				leftTotalResources = quantity.SubResource(leftTotalResources, requestResources)
+			}
 			// Process scheduling workloads based on priority and policy
 			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads
 			// (excluding the workload which specified node), then break out of the queue directly and continue waiting.
@@ -481,13 +488,15 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	isPreemptable := false
 	if !hasEnoughQuota {
 		reason = fmt.Sprintf("%s, no %s available", InsufficientReason, formatResourceName(key))
-		// A resource the budget never declares cannot become available by waiting.
-		if isExternal {
-			if _, inBudget := leftResources[corev1.ResourceName(key)]; !inBudget {
+		// Reject only when the budget hard quota itself omits the key. An empty or
+		// fully consumed leftResources list is a wait, not a missing-budget error
+		// (SubResource returns nil when available equals used).
+		if isExternal && len(workspace.Status.TotalResources) > 0 {
+			if _, inHard := workspace.Status.TotalResources[corev1.ResourceName(key)]; !inHard {
 				reason = ExternalBudgetMissingReason + " - " + formatResourceName(key)
-				klog.Infof("the workload(%s) is rejected, reason: %s, request.resource: %s, left.resource: %s",
+				klog.Infof("the workload(%s) is rejected, reason: %s, request.resource: %s, budget: %s",
 					requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
-					string(jsonutils.MarshalSilently(leftResources)))
+					string(jsonutils.MarshalSilently(workspace.Status.TotalResources)))
 				jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonInsufficient).Inc()
 				return false, reason, nil
 			}

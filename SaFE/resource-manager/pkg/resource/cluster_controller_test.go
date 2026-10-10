@@ -369,7 +369,8 @@ func TestGuaranteePriorityClassExternalCorrectsPreemptionPolicy(t *testing.T) {
 	got, err := cs.SchedulingV1().PriorityClasses().Get(
 		context.Background(), v1.ExternalPriorityClassHigh, metav1.GetOptions{})
 	testifyassert.NoError(t, err)
-	testifyassert.Equal(t, int32(10000), got.Value)
+	// value is immutable; leave the provider-created value alone.
+	testifyassert.Equal(t, int32(42), got.Value)
 	testifyassert.NotNil(t, got.PreemptionPolicy)
 	testifyassert.Equal(t, corev1.PreemptNever, *got.PreemptionPolicy)
 	testifyassert.Equal(t, v1.TrueStr, got.Labels[v1.PriorityClassManagedLabel])

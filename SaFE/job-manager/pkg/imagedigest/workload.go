@@ -33,8 +33,10 @@ func ResolveWorkloadImages(ctx context.Context, cli client.Client, workload *v1.
 	}
 	out := make([]string, len(workload.Spec.Images))
 	for i, image := range workload.Spec.Images {
+		// An empty Spec.Images slot means the role keeps the template default image.
 		if image == "" {
-			return nil, fmt.Errorf("workload %s image[%d] is empty", workload.Name, i)
+			out[i] = ""
+			continue
 		}
 		pinned, resolveErr := ResolveFunc(ctx, image, kc)
 		if resolveErr != nil {
@@ -57,8 +59,10 @@ func keychainForWorkload(ctx context.Context, cli client.Client, workload *v1.Wo
 		secret := &corev1.Secret{}
 		err := cli.Get(ctx, client.ObjectKey{Namespace: common.PrimusSafeNamespace, Name: s.Id}, secret)
 		if err != nil {
+			// A declared pull secret that is not synced yet must not fall through to
+			// anonymous resolve (which surfaces as a permanent 401/UNAUTHORIZED).
 			if apierrors.IsNotFound(err) {
-				continue
+				return nil, fmt.Errorf("image pull secret %q not found: %w", s.Id, err)
 			}
 			return nil, err
 		}
