@@ -115,6 +115,9 @@ data:
     ops_job:
       # Opsjob download image version. used for download file
       download_image: "{{ .Values.global.image_registry }}/primussafe/{{ .Values.ops_job.download_image }}"
+      export_image:
+        # The default timeout for saving a workload as an image, in seconds. Default is 43200 (12 h).
+        timeout_second: {{ default 43200 (default dict (default dict .Values.ops_job).export_image).timeout_second }}
     cd:
       # Whether deployment requests require approval from another user
       require_approval: {{ default false (default .Values.cd).require_approval }}

@@ -105,6 +105,8 @@ const (
 	modelPrewarmPrefix        = opsJobPrefix + "model_prewarm."
 	modelPrewarmTimeoutSecond = modelPrewarmPrefix + "timeout_second"
 
+	exportImageTimeoutSecond = opsJobPrefix + "export_image.timeout_second"
+
 	// s3
 	s3Prefix     = "s3."
 	s3Enable     = s3Prefix + "enable"

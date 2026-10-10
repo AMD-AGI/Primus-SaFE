@@ -113,6 +113,10 @@ ops_job:
   download_image: "s3-downloader:latest"
   # Opsjob evalscope image version. used for model evaluation
   evalscope_image: "evalscope:latest"
+  export_image:
+    # Default timeout for saving a workload as an image, in seconds (12 h); a request's own
+    # timeoutSecond stands.
+    timeout_second: 43200
 cicd:
   enable: true
   role_name: "gha-rs-manager"

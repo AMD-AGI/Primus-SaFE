@@ -34,6 +34,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -469,6 +470,28 @@ func TestGenerateExportImageJob(t *testing.T) {
 	c2, _ := newOpsJobCtx(user.Name, body2)
 	_, err = h.generateExportImageJob(c2, []byte(body2))
 	testifyassert.Error(t, err)
+}
+
+// An export has its own default timeout, as long as one is designed to take (12 hours,
+// with the general ops job timeout set to an hour), and a timeout the user gives stands.
+func TestGenerateExportImageJobTimeout(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	commonconfig.SetValue("ops_job.timeout_second", "3600")
+	defer commonconfig.SetValue("ops_job.timeout_second", "")
+	wl := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-1"},
+		Spec:       v1.WorkloadSpec{Workspace: "ws-1", Images: []string{"repo/img:tag"}},
+	}
+	h, user := newAdminHandlerWithObjects(wl)
+	for body, want := range map[string]int{
+		`{"name":"export","type":"exportImage","inputs":[{"name":"workload","value":"wl-1"}]}`:                     43200,
+		`{"name":"export","type":"exportImage","timeoutSecond":600,"inputs":[{"name":"workload","value":"wl-1"}]}`: 600,
+	} {
+		c, _ := newOpsJobCtx(user.Name, body)
+		job, err := h.generateExportImageJob(c, []byte(body))
+		testifyassert.NoError(t, err)
+		assert.Equal(t, want, job.Spec.TimeoutSecond, body)
+	}
 }
 
 // Whether the inputs name one workload does not depend on their order: an empty value

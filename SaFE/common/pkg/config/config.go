@@ -375,6 +375,13 @@ func GetPrewarmWorkerConcurrent() int {
 	return getInt(prewarmWorkerConcurrent, 10)
 }
 
+// GetExportImageTimeoutSecond returns the default timeout in seconds for saving a workload
+// as an image: an export is designed to take up to 12 hours (a layer of up to 500 GiB), far
+// longer than other ops jobs.
+func GetExportImageTimeoutSecond() int {
+	return getInt(exportImageTimeoutSecond, 43200)
+}
+
 // GetModelPrewarmTimeoutSecond returns the timeout in seconds for model prewarm jobs.
 func GetModelPrewarmTimeoutSecond() int {
 	return getInt(modelPrewarmTimeoutSecond, 7200)

@@ -542,11 +542,16 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 	}
 	newInputs = append(newInputs, v1.Parameter{Name: v1.ParameterImage, Value: adminWorkload.Spec.Images[0]})
 
+	// An export has its own default timeout: it may take hours, unlike other ops jobs.
+	timeoutSecond := req.TimeoutSecond
+	if timeoutSecond <= 0 {
+		timeoutSecond = commonconfig.GetExportImageTimeoutSecond()
+	}
 	jobReq := &view.BaseOpsJobRequest{
 		Name:                    jobName,
 		Type:                    v1.OpsJobExportImageType,
 		Inputs:                  newInputs, // Use merged inputs
-		TimeoutSecond:           commonconfig.GetOpsJobTimeoutSecond(),
+		TimeoutSecond:           timeoutSecond,
 		TTLSecondsAfterFinished: commonconfig.GetOpsJobTTLSecond(),
 	}
 
