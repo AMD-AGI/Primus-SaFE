@@ -201,6 +201,13 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 	if job.IsEnd() {
 		return ctrlruntime.Result{}, nil
 	}
+	// An export that waited past its deadline is not started: it would run without one.
+	if job.IsTimeout() {
+		statusCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusWriteTimeout)
+		defer cancel()
+		return ctrlruntime.Result{}, r.setJobCompleted(statusCtx, job, v1.OpsJobFailed,
+			"the job timed out before the export could start", nil)
+	}
 	user := v1.GetUserId(job)
 	if !r.claim(user) {
 		return ctrlruntime.Result{RequeueAfter: exportWaitRetry}, nil

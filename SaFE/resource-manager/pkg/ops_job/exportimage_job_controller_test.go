@@ -464,6 +464,34 @@ func TestExportImageHoldsOneWorkerPerUser(t *testing.T) {
 	mu.Unlock()
 }
 
+// An export that waited for its user's earlier one past its own deadline is not started,
+// since it would then run without a deadline; it fails, saying so.
+func TestExportImageDoesNotStartPastItsDeadline(t *testing.T) {
+	r, _, cleanup := exportFixture(t, nil)
+	defer cleanup()
+	ctx := context.Background()
+	job := &v1.OpsJob{}
+	require.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e1"}, job))
+	job.CreationTimestamp = metav1.NewTime(time.Now().Add(-2 * time.Hour))
+	job.Spec.TimeoutSecond = 3600
+	require.NoError(t, r.Delete(ctx, job))
+	job.ResourceVersion = ""
+	require.NoError(t, r.Create(ctx, job))
+	called := false
+	r.export = func(context.Context, exportimage.Request) (*exportimage.Result, error) {
+		called = true
+		return &exportimage.Result{Digest: "sha256:" + strings.Repeat("d", 64)}, nil
+	}
+	_, err := r.Do(ctx, "e1")
+	require.NoError(t, err)
+	assert.False(t, called, "the export is not started")
+	updated := &v1.OpsJob{}
+	require.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e1"}, updated))
+	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
+	require.NotEmpty(t, updated.Status.Conditions)
+	assert.Contains(t, updated.Status.Conditions[0].Message, "timed out before the export could start")
+}
+
 // Without a staging-only credential the export is refused: the platform's own credential
 // would give the user's container the platform's power over the registry.
 func TestExportImageRefusesWithoutAStagingCredential(t *testing.T) {
