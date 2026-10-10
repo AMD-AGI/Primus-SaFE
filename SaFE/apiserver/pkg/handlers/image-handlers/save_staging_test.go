@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
@@ -245,4 +247,43 @@ func TestEnsureStagingCreatesTheExportProjectOnceHarborIsUp(t *testing.T) {
 func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// A built-in Harbor that is not installed yet when the apiserver starts looks, at that
+// moment, exactly like none at all: its ConfigMap is missing. The step is retried in both
+// cases, so the staging project, robot and Secret are made once Harbor comes up, without
+// restarting the apiserver.
+func TestKeepEnsuringStagingRetriesWhileHarborIsMissing(t *testing.T) {
+	defer func(w time.Duration) { saveStagingFirstWait = w }(saveStagingFirstWait)
+	saveStagingFirstWait = time.Millisecond
+	var mu sync.Mutex
+	lookups := 0
+	cl := ctrlfake.NewClientBuilder().WithScheme(coreScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if key.Namespace == "harbor" && key.Name == "harbor-core" {
+				if _, ok := obj.(*corev1.ConfigMap); ok {
+					mu.Lock()
+					lookups++
+					mu.Unlock()
+				}
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}).Build()
+	h := &ImageHandler{Client: cl}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { h.keepEnsuringSaveImageStaging(ctx); close(done) }()
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return lookups >= 3
+	}, 5*time.Second, time.Millisecond, "Harbor is looked for again after it was missing")
+	select {
+	case <-done:
+		t.Fatal("the loop gave up while Harbor was missing")
+	default:
+	}
+	cancel()
+	<-done
 }

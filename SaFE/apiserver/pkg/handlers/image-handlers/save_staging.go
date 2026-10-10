@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,17 +38,35 @@ const (
 	saveImageStagingRobot = "save-image-staging"
 )
 
+// saveStagingFirstWait is how long keepEnsuringSaveImageStaging first waits to retry.
+var saveStagingFirstWait = time.Minute
+
+// errNoBuiltinHarbor says the built-in Harbor's ConfigMap is missing. Nothing tells a
+// built-in Harbor that is not installed yet from none at all, so it is retried like any
+// other failure, only more quietly.
+var errNoBuiltinHarbor = errors.New("the built-in Harbor is not installed")
+
 // keepEnsuringSaveImageStaging runs ensureSaveImageStaging until it succeeds: Harbor may
-// come up after the apiserver.
+// come up after the apiserver. Without a built-in Harbor it keeps looking for one, every
+// ten minutes at most, which costs one read of a ConfigMap.
 func (h *ImageHandler) keepEnsuringSaveImageStaging(ctx context.Context) {
-	wait := time.Minute
+	wait := saveStagingFirstWait
+	reportedMissing := false
 	for {
 		err := h.ensureSaveImageStaging(ctx)
 		if err == nil {
 			return
 		}
-		klog.Warningf("cannot prepare saving workloads as images in the built-in Harbor (retrying in %s): %v; "+
-			"until this succeeds, saving an image is refused", wait, err)
+		if errors.Is(err, errNoBuiltinHarbor) {
+			if !reportedMissing {
+				klog.Infof("no built-in Harbor yet; saving workloads as images on a cluster that "+
+					"uses it is refused until it is installed (looking again every %s at most)", 10*time.Minute)
+				reportedMissing = true
+			}
+		} else {
+			klog.Warningf("cannot prepare saving workloads as images in the built-in Harbor (retrying in %s): %v; "+
+				"until this succeeds, saving an image is refused", wait, err)
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -62,8 +81,8 @@ func (h *ImageHandler) keepEnsuringSaveImageStaging(ctx context.Context) {
 // to, the private staging project, a robot account limited to it, and the Secret holding
 // that account's credential, which the resource manager mints the containers' upload
 // tokens with. A Secret that exists is never
-// changed: it may be an administrator's. Without a built-in Harbor it does nothing; a
-// cluster that saves elsewhere configures its own (save_image.clusters).
+// changed: it may be an administrator's. Without a built-in Harbor it returns
+// errNoBuiltinHarbor; a cluster that saves elsewhere configures its own (save_image.clusters).
 //
 // The staging repositories hold layer blobs only, never an artifact, so a Harbor
 // retention policy (which selects artifacts) has nothing to act on there: a layer whose
@@ -74,7 +93,7 @@ func (h *ImageHandler) ensureSaveImageStaging(ctx context.Context) error {
 		return fmt.Errorf("failed to get harbor credentials: %w", err)
 	}
 	if registry == "" {
-		return nil
+		return errNoBuiltinHarbor
 	}
 	return h.ensureStaging(ctx, registry, endpoint, "admin", pw)
 }
