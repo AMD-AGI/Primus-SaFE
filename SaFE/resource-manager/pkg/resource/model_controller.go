@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"path"
 	"regexp"
@@ -1261,6 +1262,9 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 	// activeDownloads is counted once, on the first download this pass wants to start.
 	activeDownloads := -1
 	waitingForSlot := false
+	// retryErr is returned once the status is saved, so that a download whose job could
+	// not be created for a passing reason is retried with the controller's backoff.
+	var retryErr error
 	for i := range model.Status.LocalPaths {
 		lp := &model.Status.LocalPaths[i]
 		if lp.Status == v1.LocalPathStatusReady {
@@ -1301,6 +1305,14 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 
 			if err := r.Create(ctx, opsJob); err != nil {
 				klog.ErrorS(err, "Failed to create local download OpsJob", "model", model.Name, "workspace", lp.Workspace)
+				if isRetryableCreateError(err) {
+					// E.g. a cleanup of the same directory is still running: the
+					// download starts once it is done.
+					lp.Status = v1.LocalPathStatusPending
+					lp.Message = fmt.Sprintf("Download cannot start yet, retrying: %v", err)
+					retryErr = fmt.Errorf("download of model %s into %s cannot start yet: %w", model.Name, lp.Path, err)
+					continue
+				}
 				lp.Status = v1.LocalPathStatusFailed
 				lp.Message = fmt.Sprintf("Failed to create OpsJob: %v", err)
 				continue
@@ -1410,6 +1422,9 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 	if err := r.Status().Update(ctx, model); err != nil {
 		return ctrl.Result{}, err
 	}
+	if retryErr != nil {
+		return ctrl.Result{}, retryErr
+	}
 
 	// Continue monitoring if there are still downloads in progress
 	if waitingForSlot {
@@ -1420,6 +1435,21 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// isRetryableCreateError reports whether creating a job failed for a reason that passes:
+// a conflict (including the OpsJob webhook's "another job on the same path is running",
+// ResourceProcessing), an existing job, a timeout, throttling, a server error, or no
+// answer at all. A request the API server refuses as such (invalid, forbidden, ...)
+// fails the same way every time.
+func isRetryableCreateError(err error) bool {
+	var status errors.APIStatus
+	if !stderrors.As(err, &status) {
+		return true
+	}
+	code := status.Status().Code
+	return errors.IsConflict(err) || errors.IsAlreadyExists(err) || errors.IsTimeout(err) ||
+		errors.IsServerTimeout(err) || errors.IsTooManyRequests(err) || code == 0 || code >= 500
 }
 
 // failedPathReasons joins the distinct messages of the failed entries of paths.

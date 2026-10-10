@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"encoding/base64"
+	stderrors "errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,10 +26,12 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonopsjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
 )
@@ -1025,4 +1028,62 @@ func TestModelDeleteCleansVolumeAtRoot(t *testing.T) {
 	removed, err := os.ReadFile(log)
 	require.NoError(t, err)
 	assert.Equal(t, "rm -rf -- /models/org--repo\n", string(removed))
+}
+
+// TestModelDownloadCreateRetriesPassingRefusal: the OpsJob webhook refuses a download
+// while a cleanup of the same directory still runs (ResourceProcessing, a 409). That
+// passes, so the directory waits and the download starts on a later pass; a refusal
+// that will never pass (an invalid job) fails the directory.
+func TestModelDownloadCreateRetriesPassingRefusal(t *testing.T) {
+	setViper(t, map[string]any{"s3.enable": false})
+	model := lifecycleModel("m1")
+	model.Finalizers = []string{ModelFinalizer}
+	model.Status.Phase = v1.ModelPhaseDownloading
+	model.Status.LocalPaths = []v1.ModelLocalPath{{Workspace: "ws1", Path: lifecyclePath, Status: v1.LocalPathStatusPending}}
+	var refuse error
+	cl := fake.NewClientBuilder().WithScheme(lifecycleScheme(t)).
+		WithStatusSubresource(&v1.Model{}, &v1.OpsJob{}).
+		WithObjects(model, lifecycleWorkspace("ws1", "c1", lifecycleRoot)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if _, ok := obj.(*v1.OpsJob); ok && refuse != nil {
+					return refuse
+				}
+				return c.Create(ctx, obj, opts...)
+			},
+		}).Build()
+	r := newMockModelReconciler(cl)
+
+	for _, passing := range []error{
+		commonerrors.NewResourceProcessing("another ops job (cleanup-m0-1234) with the same input is processing"),
+		errors.NewServiceUnavailable("etcd leader changed"),
+		errors.NewTimeoutError("create", 1),
+		stderrors.New("connection reset by peer"),
+	} {
+		refuse = passing
+		_, err := r.Reconcile(context.Background(), reconcileReq("m1"))
+		require.Error(t, err, "the refusal is retried with backoff: %v", passing)
+		m := getModel(t, cl, "m1")
+		assert.Equal(t, v1.ModelPhaseDownloading, m.Status.Phase)
+		assert.Equal(t, v1.LocalPathStatusPending, m.Status.LocalPaths[0].Status, "%v", passing)
+		assert.Contains(t, m.Status.LocalPaths[0].Message, "retrying")
+	}
+
+	refuse = nil
+	reconcileModel(t, r, "m1")
+	m := getModel(t, cl, "m1")
+	assert.Equal(t, v1.LocalPathStatusDownloading, m.Status.LocalPaths[0].Status, m.Status.LocalPaths[0].Message)
+	require.Len(t, listOpsJobs(t, cl, v1.OpsJobDownloadType), 1)
+
+	// A refusal that does not pass fails the directory.
+	model2 := model.DeepCopy()
+	model2.ResourceVersion = ""
+	model2.Name = "m2"
+	require.NoError(t, cl.Create(context.Background(), model2))
+	refuse = commonerrors.NewBadRequest("DEST_PATH must be an absolute path")
+	_, err := r.Reconcile(context.Background(), reconcileReq("m2"))
+	require.NoError(t, err)
+	m = getModel(t, cl, "m2")
+	assert.Equal(t, v1.LocalPathStatusFailed, m.Status.LocalPaths[0].Status)
+	assert.Equal(t, v1.ModelPhaseFailed, m.Status.Phase)
 }
