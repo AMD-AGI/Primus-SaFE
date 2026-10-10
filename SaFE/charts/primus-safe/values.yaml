@@ -352,13 +352,16 @@ model_optimization:
 #     (see host_aliases), and it must hold the images they were started from.
 #   target_project: project of the saved images (default: custom)
 #   staging_project: private project, one repository per export (default: save-staging)
-#   ca_secret: <namespace>/<name> of a Secret whose ca.crt signs the registry
-#     (default: the built-in Harbor's CA)
+#   ca_secret: <namespace>/<name> of a Secret whose ca.crt signs the registry, trusted on
+#     top of the container's system roots (default: the built-in Harbor's CA when the
+#     registry is the built-in Harbor; none otherwise)
 #   staging_push_secret: <namespace>/<name> of a Docker config Secret for an account that can
 #     push to staging_project alone (e.g. a Harbor robot account of that project). The
 #     container's upload token is minted with it; Harbor gives a token the power of the
 #     account that minted it, so it must never be an administrator.
-#     (default: primus-safe/primus-safe-save-image-staging-cred; saving is refused without it)
+#     (default: primus-safe/primus-safe-save-image-staging-cred, which the apiserver creates
+#     with save-staging and its robot account in the built-in Harbor; saving is refused
+#     without it)
 #   host_aliases: [{ip: ..., hostnames: [...]}] added to every Pod of the cluster
 save_image:
   clusters: []
