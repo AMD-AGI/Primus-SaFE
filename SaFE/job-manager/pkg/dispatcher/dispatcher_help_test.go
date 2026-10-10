@@ -2943,3 +2943,35 @@ func TestConstrainCICDListener_PinsListenerToTheWorkspace(t *testing.T) {
 	assert.Equal(t, len(reconciledTerms), len(terms), "reconciling the listener twice must not grow its affinity")
 	assert.DeepEqual(t, reconciledTerms, terms)
 }
+
+func TestConstrainCICDListener_ConfinesEveryTemplateTerm(t *testing.T) {
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Workspace = "ws-1"
+	workload.Spec.CustomerLabels = nil
+	path := []string{"spec", "listenerTemplate", "spec",
+		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms"}
+	// A listenerTemplate that already carries several ORed terms, one of them naming
+	// another workspace.
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, []interface{}{
+		term(expr("example.com/pool", "In", "pool-0")),
+		term(expr("example.com/pool", "In", "pool-1"), expr(v1.WorkspaceIdLabel, "In", "ws-2")),
+	}, path))
+	assert.NilError(t, constrainCICDListener(obj, workload))
+	terms, _, err := jobutils.NestedSlice(obj.Object, path)
+	assert.NilError(t, err)
+	assert.Equal(t, len(terms), 2)
+	for pool := 0; pool < 2; pool++ {
+		p := "pool-" + strconv.Itoa(pool)
+		labels := map[string]string{"example.com/pool": p}
+		assert.Assert(t, !schedulable(t, terms, labels), "%s without workspace", p)
+		labels[v1.WorkspaceIdLabel] = "ws-2"
+		assert.Assert(t, !schedulable(t, terms, labels), "%s in ws-2", p)
+		labels[v1.WorkspaceIdLabel] = "ws-1"
+		assert.Assert(t, schedulable(t, terms, labels), "%s in ws-1", p)
+	}
+	// Reconciling again neither grows nor changes the terms.
+	before := obj.DeepCopy()
+	assert.NilError(t, constrainCICDListener(obj, workload))
+	assert.DeepEqual(t, obj.Object, before.Object)
+}
