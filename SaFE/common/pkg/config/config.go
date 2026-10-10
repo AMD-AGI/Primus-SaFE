@@ -555,7 +555,7 @@ func GetModelCleanupImage() string {
 }
 
 // GetModelMaxConcurrentDownloads returns how many model download jobs may run at the
-// same time across all workspaces. A value <= 0 means no limit.
+// same time across all workspaces: 4 when unset; 0 or a negative value means no limit.
 func GetModelMaxConcurrentDownloads() int {
 	return getInt(modelMaxDownloads, 4)
 }

@@ -1161,3 +1161,28 @@ func TestModelDownloadCreateRetriesPassingRefusal(t *testing.T) {
 	assert.Equal(t, v1.LocalPathStatusFailed, m.Status.LocalPaths[0].Status)
 	assert.Equal(t, v1.ModelPhaseFailed, m.Status.Phase)
 }
+
+// TestModelDownloadNoLimit: max_concurrent_downloads of 0 or below means no limit, so a
+// download starts however many others run.
+func TestModelDownloadNoLimit(t *testing.T) {
+	for _, limit := range []int{0, -1} {
+		setViper(t, map[string]any{"s3.enable": false, "model.max_concurrent_downloads": limit})
+		running := &v1.OpsJob{
+			ObjectMeta: metav1.ObjectMeta{Name: "download--other-ws1", Labels: map[string]string{
+				v1.ModelIdLabel: "other", v1.OpsJobTypeLabel: string(v1.OpsJobDownloadType)}},
+			Spec:   v1.OpsJobSpec{Type: v1.OpsJobDownloadType},
+			Status: v1.OpsJobStatus{Phase: v1.OpsJobRunning},
+		}
+		model := lifecycleModel("m1")
+		model.Status.Phase = v1.ModelPhaseDownloading
+		model.Status.LocalPaths = []v1.ModelLocalPath{{Workspace: "ws1", Path: lifecyclePath, Status: v1.LocalPathStatusPending}}
+		cl := lifecycleClient(t, running, model, lifecycleWorkspace("ws1", "c1", lifecycleRoot))
+		r := newMockModelReconciler(cl)
+		r.apiReader = cl
+
+		_, err := r.handleDownloading(context.Background(), getModel(t, cl, "m1"))
+		require.NoError(t, err)
+		assert.Equal(t, v1.LocalPathStatusDownloading, getModel(t, cl, "m1").Status.LocalPaths[0].Status, "limit %d", limit)
+		assert.Len(t, listOpsJobs(t, cl, v1.OpsJobDownloadType), 2, "limit %d", limit)
+	}
+}
