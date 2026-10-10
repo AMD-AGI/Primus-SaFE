@@ -365,8 +365,12 @@ sandbox:
   # so the digest has to exist on Docker Hub. Must include GET /api/jobs for Brain idle sandbox reclaim.
   envd_injector_image: "primussafe/agent-sandbox-envd-injector@sha256:6dfd5d667073b2fe2b986a7648650a3011720e9bf078302d332c8d45d2d0ed15"
   # Secret holding extra CA certificates (PEM, any key name) that sandboxes must trust. Create it in the
-  # primus-safe namespace with the primus-safe.workspace.ids annotation listing the workspaces that run
-  # sandboxes; resource-manager mirrors it into each workspace namespace. When set, it is mounted at
+  # primus-safe namespace with the annotation
+  #   primus-safe.workspace.selector: "primus-safe.workspace.scope.sandbox=true"
+  # and resource-manager mirrors it into the namespace of every workspace that accepts Sandbox workloads,
+  # including ones created later; the label is derived from the workspace's scopes. A
+  # primus-safe.workspace.ids list (JSON array of workspace ids) still works and adds to the selector.
+  # When set, it is mounted at
   # /etc/claw/extra-ca, merged into /shared/bin/ca-bundle.pem, and the sandbox's CA variables point
   # there; a sandbox then refuses to start if no certificate is found. Empty keeps the image's own trust.
   # Set per deploy via .env `sandbox_extra_ca_secret` (synced into values.yaml by upgrade.sh).

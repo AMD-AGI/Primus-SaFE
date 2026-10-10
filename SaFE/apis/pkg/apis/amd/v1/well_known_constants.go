@@ -139,6 +139,18 @@ const (
 	WorkspaceIdsAnnotation    = WorkspacePrefix + "ids"
 	SourceWorkloadIdLabel     = "source.workload.id"
 
+	// WorkspaceSelectorAnnotation, on a Secret in the primus-safe namespace, is a label
+	// selector in kubectl -l syntax over Workspace labels. resource-manager mirrors the Secret
+	// into the namespace of every Workspace it matches, in addition to those listed in
+	// WorkspaceIdsAnnotation, and removes the copies it made once a Workspace stops matching.
+	// An empty or unparsable value selects nothing. Unlike the ids list it grants nothing:
+	// checks that read WorkspaceIdsAnnotation as an authorisation do not read this.
+	WorkspaceSelectorAnnotation = WorkspacePrefix + "selector"
+	// WorkspaceSandboxScopeLabel is derived by the workspace webhook from Spec.Scopes: "true"
+	// when the workspace accepts Sandbox workloads (no scopes, or Sandbox among them), absent
+	// otherwise. It exists so a selector can name "every workspace that runs sandboxes".
+	WorkspaceSandboxScopeLabel = WorkspacePrefix + "scope.sandbox"
+
 	// external execution
 	//
 	// These reach the execution cluster on the pod itself and are what the provider
