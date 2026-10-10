@@ -92,9 +92,15 @@ func (e *registryError) Error() string {
 	return fmt.Sprintf("the registry answered %d: %s", e.status, e.body)
 }
 
-// renewalError is a failure to get a new token. It is not retried: the controller has
-// already retried what it could.
+// renewalError is a failure to get a new token. Only a grant the controller refused is
+// retried: it may have been asked too soon after the last one, or the registry may have
+// failed to mint one for a moment. A broken exchange with the controller is not.
 type renewalError struct{ err error }
+
+// refusedGrant is the reason the controller gave for granting no token.
+type refusedGrant string
+
+func (r refusedGrant) Error() string { return string(r) }
 
 func (e *renewalError) Error() string { return "renewing the upload token: " + e.err.Error() }
 func (e *renewalError) Unwrap() error { return e.err }
@@ -106,9 +112,13 @@ func transient(err error) bool {
 		return re.status == http.StatusRequestTimeout || re.status == http.StatusTooManyRequests ||
 			re.status >= 500
 	}
-	var re2 *renewalError
-	if err == nil || errors.As(err, &re2) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
+	}
+	var re2 *renewalError
+	if errors.As(err, &re2) {
+		var refused refusedGrant
+		return errors.As(re2.err, &refused)
 	}
 	// A registry this side does not trust, or one that does not speak TLS, will not change
 	// its mind.

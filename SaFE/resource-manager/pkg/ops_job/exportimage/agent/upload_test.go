@@ -320,16 +320,37 @@ func TestServeExchangesTokensOverStandardInputAndOutput(t *testing.T) {
 	assert.Equal(t, 1, msgs[1].Result.Renewals)
 }
 
+// A grant the controller refuses (it was asked too soon, or the registry did not mint one)
+// is asked for again after a wait, a bounded number of times, and then reported.
 func TestServeReportsARefusedGrant(t *testing.T) {
 	env := container(t)
 	r := newTLSRegistry(t)
-	env.Dial = r.dial
+	env.Dial, env.Backoff = r.dial, noWait
 	req := r.request()
 	req.TokenExpiry = time.Now()
 	b, _ := json.Marshal(req)
 	g, _ := json.Marshal(Grant{Error: "too many renewals"})
+	in := string(b) + "\n" + strings.Repeat(string(g)+"\n", maxAttempts)
 	var out bytes.Buffer
-	err := Serve(context.Background(), strings.NewReader(string(b)+"\n"+string(g)+"\n"), &out, env)
+	err := Serve(context.Background(), strings.NewReader(in), &out, env)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "too many renewals")
+	assert.Equal(t, maxAttempts, strings.Count(out.String(), `"renew":true`))
+}
+
+// One refused renewal does not fail an export that may have run for hours: the agent
+// asks again after a wait and goes on with the token it then gets.
+func TestServeRetriesARefusedGrant(t *testing.T) {
+	env := container(t)
+	r := newTLSRegistry(t)
+	env.Dial, env.Backoff = r.dial, noWait
+	req := r.request()
+	req.TokenExpiry = time.Now()
+	b, _ := json.Marshal(req)
+	refused, _ := json.Marshal(Grant{Error: "a new token was granted 3s ago"})
+	granted, _ := json.Marshal(Grant{Token: "granted", Expiry: time.Now().Add(time.Hour)})
+	var out bytes.Buffer
+	err := Serve(context.Background(), strings.NewReader(string(b)+"\n"+string(refused)+"\n"+string(granted)+"\n"), &out, env)
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), `"result"`)
 }
