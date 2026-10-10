@@ -218,6 +218,30 @@ func TestEnsureStagingReportsAnUnreachableHarbor(t *testing.T) {
 	assert.Contains(t, err.Error(), "503")
 }
 
+// The project saved images are pushed to is made by the same retried step as the staging
+// project: a Harbor that is down when the apiserver starts gets it on a later attempt.
+func TestEnsureStagingCreatesTheExportProjectOnceHarborIsUp(t *testing.T) {
+	api := newFakeHarborAPI()
+	down := true
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if down {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	defer ts.Close()
+	cl := ctrlfake.NewClientBuilder().WithScheme(coreScheme(t)).Build()
+	h := &ImageHandler{Client: cl}
+	ctx := context.Background()
+
+	require.Error(t, h.ensureStaging(ctx, "harbor.example.com", hostFromServer(ts), "admin", "pw"))
+	down = false
+	require.NoError(t, h.ensureStaging(ctx, "harbor.example.com", hostFromServer(ts), "admin", "pw"))
+	require.Contains(t, api.projects, common.ExportImageProject)
+	assert.Equal(t, map[string]any{"public": "true"}, api.projects[common.ExportImageProject]["metadata"])
+}
+
 func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)

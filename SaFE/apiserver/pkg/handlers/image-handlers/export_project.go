@@ -9,27 +9,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
-// ensureExportImageProject creates the project that saved workload images are pushed to,
-// in the built-in Harbor, when it is missing. It is created public like the import
-// project, so that workloads can pull saved images without a pull credential; a saved
-// image is therefore readable by anyone who can reach the registry. A project that
-// already exists is left as it is, so an administrator's choice of visibility stands.
-func (h *ImageHandler) ensureExportImageProject(ctx context.Context) error {
-	harborHost, endpoint, pw, err := h.GetHarborCredentials(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get harbor credentials: %w", err)
-	}
-	if harborHost == "" {
-		// No built-in Harbor.
-		return nil
-	}
-	return h.ensureProjectExists(ctx, endpoint, "admin", pw, common.ExportImageProject)
-}
-
+// ensureProjectExists creates projectName, public, when it is missing.
 func (h *ImageHandler) ensureProjectExists(ctx context.Context, harborHost, username, pw, projectName string) error {
 	var project struct {
 		Name string `json:"name"`

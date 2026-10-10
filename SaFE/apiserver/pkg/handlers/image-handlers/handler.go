@@ -52,9 +52,6 @@ func NewImageHandler(mgr ctrlruntime.Manager) (*ImageHandler, error) {
 	if err != nil {
 		klog.Warningf("failed to init harbor: %v", err)
 	}
-	if err = h.ensureExportImageProject(context.Background()); err != nil {
-		klog.Warningf("failed to ensure the export image project: %v", err)
-	}
 	go h.keepEnsuringSaveImageStaging(context.Background())
 	return h, nil
 }

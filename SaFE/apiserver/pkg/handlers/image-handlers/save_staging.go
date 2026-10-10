@@ -58,9 +58,10 @@ func (h *ImageHandler) keepEnsuringSaveImageStaging(ctx context.Context) {
 }
 
 // ensureSaveImageStaging makes what saving a workload as an image needs in the built-in
-// Harbor, so that no administrator has to: the private staging project, a robot account
-// limited to it, and the Secret holding that account's credential, which the resource
-// manager mints the containers' upload tokens with. A Secret that exists is never
+// Harbor, so that no administrator has to: the public project saved images are pushed
+// to, the private staging project, a robot account limited to it, and the Secret holding
+// that account's credential, which the resource manager mints the containers' upload
+// tokens with. A Secret that exists is never
 // changed: it may be an administrator's. Without a built-in Harbor it does nothing; a
 // cluster that saves elsewhere configures its own (save_image.clusters).
 //
@@ -79,6 +80,13 @@ func (h *ImageHandler) ensureSaveImageStaging(ctx context.Context) error {
 }
 
 func (h *ImageHandler) ensureStaging(ctx context.Context, registry, endpoint, user, pw string) error {
+	// The project saved images are pushed to. It is created public like the import
+	// project, so that workloads can pull saved images without a pull credential; a saved
+	// image is therefore readable by anyone who can reach the registry. A project that
+	// already exists is left as it is, so an administrator's choice of visibility stands.
+	if err := h.ensureProjectExists(ctx, endpoint, user, pw, common.ExportImageProject); err != nil {
+		return err
+	}
 	hc := &harborClient{endpoint: endpoint, user: user, password: pw}
 	projectID, err := hc.ensurePrivateProject(ctx, SaveImageStagingProject)
 	if err != nil {
