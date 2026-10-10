@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -141,6 +142,10 @@ func initializeObject(obj *unstructured.Unstructured,
 	if err = modifyHostAliases(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify host aliases: %v", err.Error())
 	}
+	path = podSpecPath(workload, resourceSpec, "activeDeadlineSeconds")
+	if err = modifyActiveDeadline(obj, workload, path); err != nil {
+		return fmt.Errorf("failed to modify activeDeadlineSeconds: %v", err.Error())
+	}
 	if isExternalWorkload(workload) {
 		// The task runs on hardware the provider owns, reached over a protocol that carries
 		// its own identity. A projected service account token would put a credential for
@@ -221,28 +226,11 @@ func modifyRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wor
 	if len(expression) == 0 {
 		return nil
 	}
-	if len(nodeSelectorTerms) == 0 {
-		expressions := make(map[string]interface{})
-		expressions["matchExpressions"] = expression
-		nodeSelectorTerms = append(nodeSelectorTerms, expressions)
-	} else {
-		// Terms are ORed. External workloads must satisfy the constraint in every term,
-		// or a template term without it would reach nodes outside the reservation.
-		last := 0
-		if isExternalWorkload(workload) {
-			last = len(nodeSelectorTerms) - 1
-		}
-		for i := 0; i <= last; i++ {
-			matchExpressions := nodeSelectorTerms[i].(map[string]interface{})
-			objs, ok := matchExpressions["matchExpressions"]
-			if ok {
-				expressions := objs.([]interface{})
-				expressions = append(expressions, expression...)
-				matchExpressions["matchExpressions"] = expressions
-			} else {
-				matchExpressions["matchExpressions"] = append([]interface{}{}, expression...)
-			}
-		}
+	// Terms are ORed, so every platform constraint (workspace confinement, customer
+	// labels, provider-approved hostnames) is ANDed into every term: a term without
+	// one would match nodes outside it, e.g. another workspace's nodes.
+	if nodeSelectorTerms, err = andIntoEveryTerm(nodeSelectorTerms, expression, nil); err != nil {
+		return err
 	}
 	if err = jobutils.SetNestedField(obj.Object, nodeSelectorTerms, path); err != nil {
 		return err
@@ -805,6 +793,75 @@ func modifyHostAliases(obj *unstructured.Unstructured, workload *v1.Workload, pa
 		aliases = append(aliases, map[string]interface{}{"ip": a.IP, "hostnames": hostnames})
 	}
 	return jobutils.SetNestedField(obj.Object, aliases, path)
+}
+
+// runsToCompletion reports whether the pods a workload of this kind renders
+// are meant to finish. Only those carry the workload timeout as a pod
+// activeDeadlineSeconds.
+//
+// Excluded on purpose:
+//   - Deployment, StatefulSet, GithubRunner (a StatefulSet): the API server
+//     refuses activeDeadlineSeconds in their pod templates, and their pods are
+//     long-running services that the controller would only recreate.
+//   - DynamoDeployment, InferaDeployment, MonarchMesh: serving pods owned by an
+//     operator; a pod deadline would kill a replica that is meant to stay up.
+//   - AutoscalingRunnerSet, EphemeralRunner: the runner controller owns the pod
+//     lifecycle.
+//   - RayJob: KubeRay recreates head and worker pods that fail, and RayJob has
+//     its own spec.activeDeadlineSeconds.
+func runsToCompletion(workload *v1.Workload) bool {
+	switch workload.SpecKind() {
+	case common.AuthoringKind, common.PytorchJobKind, common.UnifiedJobKind, common.TorchFTKind,
+		common.JobKind, common.MonarchClient, common.SandboxKind:
+		return true
+	}
+	return false
+}
+
+// modifyActiveDeadline declares the workload timeout on the pod spec as
+// activeDeadlineSeconds, so the pod states how long it needs to run and
+// anything scheduling it can account for that.
+//
+// The value is the workload timeout as written, on every dispatch including
+// failover: the workload timeout itself is fixed and counted from the first
+// start, so a redispatched pod never runs past it; the pod value is an upper
+// bound, never shorter than the time left. A smaller value already present in
+// the template is kept, because the pod cannot run longer than either.
+// For a batch Job this is the pod template field, not Job.spec.activeDeadlineSeconds:
+// only the pod field is visible on the pod.
+func modifyActiveDeadline(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	if !runsToCompletion(workload) {
+		return nil
+	}
+	timeout := int64(workload.GetTimeout())
+	if timeout <= 0 {
+		return nil
+	}
+	if existing, found, _ := jobutils.NestedField(obj.Object, path); found {
+		if v, ok := toPositiveInt64(existing); ok && v <= timeout {
+			return nil
+		}
+	}
+	return jobutils.SetNestedField(obj.Object, timeout, path)
+}
+
+// toPositiveInt64 converts a number decoded from a template into int64,
+// reporting false for non-numbers and values that are not positive.
+func toPositiveInt64(v interface{}) (int64, bool) {
+	var n int64
+	switch x := v.(type) {
+	case int:
+		n = int64(x)
+	case int32:
+		n = int64(x)
+	case int64:
+		n = x
+	case float64:
+		n = int64(x)
+	default:
+		return 0, false
+	}
+	return n, n > 0
 }
 
 // modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled or tolerate sticky node taints
@@ -1497,15 +1554,6 @@ func replaceRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wo
 	if err != nil {
 		return err
 	}
-	if len(terms) == 0 {
-		return jobutils.SetNestedField(obj.Object, []interface{}{
-			map[string]interface{}{"matchExpressions": desired},
-		}, path)
-	}
-	term, ok := terms[0].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("nodeSelectorTerms: expected an object")
-	}
 	managedKeys := make(map[string]struct{}, len(desired))
 	for _, entry := range desired {
 		expression, ok := entry.(map[string]interface{})
@@ -1516,22 +1564,46 @@ func replaceRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wo
 			managedKeys[key] = struct{}{}
 		}
 	}
-	existing, _ := term["matchExpressions"].([]interface{})
-	expressions := make([]interface{}, 0, len(existing)+len(desired))
-	for _, entry := range existing {
-		expression, ok := entry.(map[string]interface{})
-		if !ok {
-			expressions = append(expressions, entry)
-			continue
-		}
-		key, _ := expression["key"].(string)
-		if _, managed := managedKeys[key]; !managed {
-			expressions = append(expressions, entry)
-		}
+	// Reconciled repeatedly, so the managed keys are replaced rather than appended; and
+	// like the pod path, in every term, since one term without them lets the listener
+	// onto any node it matches.
+	if terms, err = andIntoEveryTerm(terms, desired, managedKeys); err != nil {
+		return err
 	}
-	term["matchExpressions"] = append(expressions, desired...)
-	terms[0] = term
 	return jobutils.SetNestedField(obj.Object, terms, path)
+}
+
+// andIntoEveryTerm ANDs exprs into every required node selector term. Terms are ORed,
+// so a constraint present in only some of them does not hold. Expressions whose key is
+// in replaceKeys are dropped from each term first. With no terms, the result is a single
+// term holding exprs.
+func andIntoEveryTerm(terms, exprs []interface{}, replaceKeys map[string]struct{}) ([]interface{}, error) {
+	if len(terms) == 0 {
+		terms = []interface{}{map[string]interface{}{}}
+	}
+	for i := range terms {
+		term, ok := terms[i].(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("nodeSelectorTerms[%d]: expected an object", i)
+		}
+		existing, _ := term["matchExpressions"].([]interface{})
+		expressions := make([]interface{}, 0, len(existing)+len(exprs))
+		for _, entry := range existing {
+			if expression, ok := entry.(map[string]interface{}); ok {
+				key, _ := expression["key"].(string)
+				if _, replaced := replaceKeys[key]; replaced {
+					continue
+				}
+			}
+			expressions = append(expressions, entry)
+		}
+		for _, entry := range exprs {
+			expressions = append(expressions, runtime.DeepCopyJSONValue(entry))
+		}
+		term["matchExpressions"] = expressions
+		terms[i] = term
+	}
+	return terms, nil
 }
 
 // updateCICDEphemeralRunner updates the CICD ephemeral runner configuration
