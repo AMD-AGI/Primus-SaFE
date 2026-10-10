@@ -200,27 +200,38 @@ func TestExportImageDoWorkloadBranches(t *testing.T) {
 	})
 }
 
-// The apiserver authorizes the workload it labels the job with. A job whose parameters
-// name another workload, or more than one, is refused before any pod is touched.
+// The apiserver authorizes the workload it labels the job with and sets the image it read
+// from that workload. A job whose parameters name another workload, or more than one
+// workload or image, is refused before any pod is touched.
 func TestExportImageRefusesAWorkloadOtherThanTheAuthorizedOne(t *testing.T) {
 	ctx := context.Background()
 	// The victim has no pods: an export that went past the check fails on that instead.
 	victim := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "victim"}}
-	cases := map[string]func() *v1.OpsJob{
-		"label names another workload": func() *v1.OpsJob {
+	cases := map[string]struct {
+		job  func() *v1.OpsJob
+		want string
+	}{
+		"label names another workload": {func() *v1.OpsJob {
 			job := exportJob("x1", "victim", "img:1")
 			job.Labels = map[string]string{v1.WorkloadIdLabel: "mine"}
 			return job
-		},
-		"two workload parameters": func() *v1.OpsJob {
+		}, "authorized for mine"},
+		"two workload parameters": {func() *v1.OpsJob {
 			job := exportJob("x1", "victim", "img:1")
 			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterWorkload, Value: "mine"})
 			return job
-		},
+		}, "more than one workload"},
+		// A request's own image, ahead of the one the apiserver set: the controller
+		// would otherwise take the first.
+		"two image parameters": {func() *v1.OpsJob {
+			job := exportJob("x1", "victim", "img:1")
+			job.Spec.Inputs = append([]v1.Parameter{{Name: v1.ParameterImage, Value: "smuggled:1"}}, job.Spec.Inputs...)
+			return job
+		}, "more than one source image"},
 	}
-	for name, mk := range cases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			job := mk()
+			job := tc.job()
 			r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, victim.DeepCopy())}
 			_, err := r.Do(ctx, "x1")
 			require.NoError(t, err)
@@ -228,7 +239,7 @@ func TestExportImageRefusesAWorkloadOtherThanTheAuthorizedOne(t *testing.T) {
 			require.NoError(t, r.Get(ctx, types.NamespacedName{Name: "x1"}, updated))
 			assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
 			require.NotEmpty(t, updated.Status.Conditions)
-			assert.Regexp(t, "authorized for mine|more than one workload", updated.Status.Conditions[0].Message)
+			assert.Contains(t, updated.Status.Conditions[0].Message, tc.want)
 		})
 	}
 }

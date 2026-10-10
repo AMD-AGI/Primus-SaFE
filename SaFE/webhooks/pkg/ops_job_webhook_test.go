@@ -245,6 +245,23 @@ func TestOpsJobMutateJobSpec(t *testing.T) {
 	assert.True(t, job.Spec.TTLSecondsAfterFinished > 0)
 }
 
+// The apiserver strips the export's workload and image parameters by the names this
+// webhook gives them; every spelling it strips must land on exactly that name here.
+func TestOpsJobMutateJobSpecNormalizesExportParameterNames(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	m := &OpsJobMutator{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	for name, want := range map[string]string{
+		"Image": v1.ParameterImage, "IMAGE": v1.ParameterImage, " image ": v1.ParameterImage,
+		"ima\r\nge": v1.ParameterImage, "Workload": v1.ParameterWorkload, " WORKLOAD ": v1.ParameterWorkload,
+		"WorkloadId": "workloadid", "Work_load": "work-load",
+	} {
+		job := &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobExportImageType, Inputs: []v1.Parameter{{Name: name, Value: "x"}}}}
+		m.mutateJobSpec(context.Background(), job)
+		assert.Equal(t, want, job.Spec.Inputs[0].Name, "%q", name)
+	}
+}
+
 // TestOpsJobGenerateAddonTemplates verifies addon templates appended from node template.
 func TestOpsJobGenerateAddonTemplates(t *testing.T) {
 	scheme := runtime.NewScheme()

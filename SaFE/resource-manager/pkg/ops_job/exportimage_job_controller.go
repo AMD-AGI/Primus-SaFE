@@ -249,6 +249,11 @@ func (r *ExportImageJobReconciler) exportJob(ctx context.Context, job *v1.OpsJob
 	if len(job.GetParameters(v1.ParameterWorkload)) > 1 {
 		return nil, commonerrors.NewBadRequest("the job names more than one workload")
 	}
+	// The image is the one the apiserver read from the authorized workload; a second one
+	// came from somewhere else, and taking either would be a guess.
+	if len(job.GetParameters(v1.ParameterImage)) > 1 {
+		return nil, commonerrors.NewBadRequest("the job names more than one source image")
+	}
 	sourceImage := getSourceImageFromJob(job)
 	if sourceImage == "" {
 		return nil, commonerrors.NewBadRequest("source image is empty")

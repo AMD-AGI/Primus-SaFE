@@ -43,6 +43,7 @@ import (
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -454,6 +455,21 @@ func (h *Handler) generateRebootJob(c *gin.Context, body []byte) (*v1.OpsJob, er
 // exportImageWorkloadIdParam is the other name an export request may give its workload by.
 const exportImageWorkloadIdParam = "workloadId"
 
+// isExportImageParam reports whether a request parameter is one of names as the job will
+// carry it. The OpsJob webhook rewrites every input name with stringutil.NormalizeName
+// before the controller reads it, so "Image", " IMAGE " and "image" all reach the
+// controller as "image"; comparing the raw name would let such a variant past this
+// handler and be read as the one it set.
+func isExportImageParam(name string, names ...string) bool {
+	normalized := stringutil.NormalizeName(name)
+	for _, n := range names {
+		if normalized == stringutil.NormalizeName(n) {
+			return true
+		}
+	}
+	return false
+}
+
 // generateExportImageJob creates an export-image-type ops job.
 // It parses the workload ID from request body, retrieves workload information,
 // and generates a job object to export the workload image to Harbor.
@@ -474,7 +490,7 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 	// may give it by has to agree, or a second parameter would pick another workload.
 	var workloadId string
 	for _, param := range req.Inputs {
-		if param.Name != v1.ParameterWorkload && param.Name != exportImageWorkloadIdParam {
+		if !isExportImageParam(param.Name, v1.ParameterWorkload, exportImageWorkloadIdParam) {
 			continue
 		}
 		if workloadId != "" && param.Value != workloadId {
@@ -518,8 +534,7 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 	newInputs := make([]v1.Parameter, 0, len(req.Inputs)+2)
 	newInputs = append(newInputs, v1.Parameter{Name: v1.ParameterWorkload, Value: workloadId})
 	for _, param := range req.Inputs {
-		switch param.Name {
-		case v1.ParameterWorkload, exportImageWorkloadIdParam, v1.ParameterImage:
+		if isExportImageParam(param.Name, v1.ParameterWorkload, exportImageWorkloadIdParam, v1.ParameterImage) {
 			continue
 		}
 		newInputs = append(newInputs, param)

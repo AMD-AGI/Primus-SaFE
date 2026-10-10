@@ -36,6 +36,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 // TestCvtToOpsJobResponseItem tests conversion from database OpsJob to response item
@@ -581,6 +582,105 @@ func TestGenerateExportImageJobSavesTheWorkloadItAuthorized(t *testing.T) {
 	testifyassert.Equal(t, "repo/mine:tag", images[0].Value)
 	testifyassert.Equal(t, "v1", job.GetParameter("label").Value)
 	testifyassert.Equal(t, "mine", job.Labels[v1.WorkloadIdLabel])
+}
+
+// The OpsJob webhook rewrites every input name with stringutil.NormalizeName before the
+// controller reads the job, so a parameter the handler strips must be stripped in every
+// spelling that normalizes to its name. Otherwise {"name":"Image"} survives the handler,
+// becomes a second "image" ahead of the one the handler set, and the controller exports
+// under the request's name; and {"name":"Workload"} names a workload the handler never
+// authorized.
+func TestGenerateExportImageJobStripsEveryNormalizedSpelling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	defaultRole := &v1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: string(v1.DefaultRole)},
+		Rules: []v1.PolicyRule{{
+			Resources:    []string{"workload"},
+			Verbs:        []v1.RoleVerb{v1.GetVerb, v1.ListVerb, v1.UpdateVerb, v1.DeleteVerb},
+			GrantedUsers: []string{authority.GrantedOwner},
+		}},
+	}
+	member := func(id, ws string) *v1.User {
+		return &v1.User{
+			ObjectMeta: metav1.ObjectMeta{Name: id, Labels: map[string]string{v1.UserIdLabel: id}},
+			Spec: v1.UserSpec{
+				Type:      v1.DefaultUserType,
+				Roles:     []v1.UserRole{v1.DefaultRole},
+				Resources: map[string][]string{common.UserWorkspaces: {ws}},
+			},
+		}
+	}
+	mine := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "mine", Labels: map[string]string{v1.UserIdLabel: "attacker"}},
+		Spec:       v1.WorkloadSpec{Workspace: "ws-a", Images: []string{"repo/mine:tag"}},
+	}
+	victim := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "victim", Labels: map[string]string{v1.UserIdLabel: "other"}},
+		Spec:       v1.WorkloadSpec{Workspace: "ws-b", Images: []string{"repo/secret:tag"}},
+	}
+	scheme := runtime.NewScheme()
+	testifyassert.NoError(t, v1.AddToScheme(scheme))
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(defaultRole, member("attacker", "ws-a"), member("other", "ws-b"), mine, victim).Build()
+	h := &Handler{Client: fakeClient, accessController: &authority.AccessController{Client: fakeClient}}
+
+	// webhookInputs is the job's inputs as the controller reads them, after the
+	// webhook's rename.
+	webhookInputs := func(job *v1.OpsJob) *v1.OpsJob {
+		out := job.DeepCopy()
+		for i := range out.Spec.Inputs {
+			out.Spec.Inputs[i].Name = stringutil.NormalizeName(out.Spec.Inputs[i].Name)
+		}
+		return out
+	}
+
+	request := func(inputs ...v1.Parameter) string {
+		b, err := json.Marshal(view.BaseOpsJobRequest{Name: "export", Type: v1.OpsJobExportImageType, Inputs: inputs})
+		testifyassert.NoError(t, err)
+		return string(b)
+	}
+
+	for _, name := range []string{"Image", "IMAGE", " image ", "image\n", "ima\r\nge", "Workload", "WORKLOAD", " workload ", "WorkloadID", "workloadid"} {
+		t.Run(name, func(t *testing.T) {
+			// The smuggled parameter comes first: the controller takes the first image.
+			smuggled := v1.Parameter{Name: name, Value: "mine"}
+			if stringutil.NormalizeName(name) == v1.ParameterImage {
+				smuggled.Value = "repo/secret:tag"
+			}
+			body := request(smuggled, v1.Parameter{Name: "workload", Value: "mine"}, v1.Parameter{Name: "label", Value: "v1"})
+			c, _ := newOpsJobCtx("attacker", body)
+			job, err := h.generateExportImageJob(c, []byte(body))
+			testifyassert.NoError(t, err, body)
+			if !testifyassert.NotNil(t, job) {
+				return
+			}
+			got := webhookInputs(job)
+			testifyassert.Len(t, got.GetParameters(v1.ParameterImage), 1, "inputs reaching the controller: %v", got.Spec.Inputs)
+			testifyassert.Equal(t, "repo/mine:tag", got.GetParameter(v1.ParameterImage).Value,
+				"the image the controller adopts is the workload's own")
+			testifyassert.Len(t, got.GetParameters(v1.ParameterWorkload), 1, "inputs reaching the controller: %v", got.Spec.Inputs)
+			testifyassert.Equal(t, "mine", got.GetParameter(v1.ParameterWorkload).Value)
+			testifyassert.Nil(t, got.GetParameter(stringutil.NormalizeName("workloadId")))
+			testifyassert.Equal(t, "v1", got.GetParameter("label").Value)
+			testifyassert.Len(t, got.Spec.Inputs, 3, "inputs reaching the controller: %v", got.Spec.Inputs)
+		})
+	}
+
+	// A workload named under another spelling is a second workload: it must agree with
+	// the one authorized, not slip past the check and reach the controller.
+	for _, name := range []string{"Workload", " WORKLOAD ", "WorkloadId"} {
+		body := request(v1.Parameter{Name: "workload", Value: "mine"}, v1.Parameter{Name: name, Value: "victim"})
+		c, _ := newOpsJobCtx("attacker", body)
+		job, err := h.generateExportImageJob(c, []byte(body))
+		testifyassert.Error(t, err, body)
+		testifyassert.Nil(t, job, body)
+	}
+	// Named only under another spelling, the workload is still the one authorized.
+	body := request(v1.Parameter{Name: "WORKLOAD", Value: "victim"})
+	c, _ := newOpsJobCtx("attacker", body)
+	job, err := h.generateExportImageJob(c, []byte(body))
+	testifyassert.Error(t, err, "the attacker may not save the victim's workload by spelling its parameter differently")
+	testifyassert.Nil(t, job)
 }
 
 func TestGeneratePrewarmImageJob(t *testing.T) {
