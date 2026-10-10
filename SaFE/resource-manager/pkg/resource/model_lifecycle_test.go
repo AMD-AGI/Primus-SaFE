@@ -1186,3 +1186,36 @@ func TestModelDownloadNoLimit(t *testing.T) {
 		assert.Len(t, listOpsJobs(t, cl, v1.OpsJobDownloadType), 2, "limit %d", limit)
 	}
 }
+
+// TestModelFailoverTriedIsSaved: the workspaces a failover has tried are saved on the
+// model, so a download that fails in every workspace of the volume stops after each was
+// tried once instead of moving between them for ever.
+func TestModelFailoverTriedIsSaved(t *testing.T) {
+	setViper(t, map[string]any{"s3.enable": false})
+	model := lifecycleModel("m1")
+	model.Finalizers = []string{ModelFinalizer}
+	model.Status.Phase = v1.ModelPhaseDownloading
+	model.Status.LocalPaths = []v1.ModelLocalPath{{Workspace: "ws1", Path: lifecyclePath, Status: v1.LocalPathStatusPending}}
+	cl := lifecycleClient(t, model,
+		lifecycleWorkspace("ws1", "c1", lifecycleRoot), lifecycleWorkspace("ws2", "c1", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+
+	fail := func() {
+		t.Helper()
+		reconcileModel(t, r, "m1") // download job
+		jobs := listOpsJobs(t, cl, v1.OpsJobDownloadType)
+		require.Len(t, jobs, 1)
+		setOpsJobPhase(t, cl, jobs[0].Name, v1.OpsJobFailed)
+		reconcileModel(t, r, "m1") // failed: fail over, or give up
+	}
+	fail()
+	m := getModel(t, cl, "m1")
+	assert.Equal(t, "ws2", m.Status.LocalPaths[0].Workspace)
+	assert.Equal(t, []string{"ws1"}, r.getTriedWorkspaces(m, lifecycleRoot), "the tried workspace is saved")
+
+	fail()
+	m = getModel(t, cl, "m1")
+	assert.Equal(t, v1.LocalPathStatusFailed, m.Status.LocalPaths[0].Status, "ws1 was tried already: no way back")
+	assert.Equal(t, v1.ModelPhaseFailed, m.Status.Phase)
+	assert.Equal(t, []string{"ws1", "ws2"}, r.getTriedWorkspaces(m, lifecycleRoot))
+}

@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -1278,6 +1279,9 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 	// retryErr is returned once the status is saved, so that a download whose job could
 	// not be created for a passing reason is retried with the controller's backoff.
 	var retryErr error
+	// tryFailover records the workspaces it tried in an annotation, which the status
+	// update does not save.
+	triedBefore := model.GetAnnotations()[FailoverTriedAnnotation]
 	for i := range model.Status.LocalPaths {
 		lp := &model.Status.LocalPaths[i]
 		if lp.Status == v1.LocalPathStatusReady {
@@ -1443,8 +1447,19 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 	}
 	// else: still downloading, keep phase as Downloading
 
+	triedAfter := model.GetAnnotations()[FailoverTriedAnnotation]
 	if err := r.Status().Update(ctx, model); err != nil {
 		return ctrl.Result{}, err
+	}
+	if triedAfter != triedBefore {
+		patch, err := json.Marshal(map[string]any{"metadata": map[string]any{
+			"annotations": map[string]string{FailoverTriedAnnotation: triedAfter}}})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if err = r.Patch(ctx, model, client.RawPatch(types.MergePatchType, patch)); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 	if retryErr != nil {
 		return ctrl.Result{}, retryErr
