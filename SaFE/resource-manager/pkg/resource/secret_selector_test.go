@@ -28,14 +28,18 @@ import (
 
 const sandboxSelector = v1.WorkspaceSandboxScopeLabel + "=true"
 
+// selectorWorkspace is a workspace that does not accept Sandbox workloads.
 func selectorWorkspace(name string, lbls map[string]string) *v1.Workspace {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: lbls}}
 	ws.Spec.Cluster = "c1"
+	ws.Spec.Scopes = []v1.WorkspaceScope{v1.TrainScope}
 	return ws
 }
 
 func sandboxWorkspace(name string) *v1.Workspace {
-	return selectorWorkspace(name, map[string]string{v1.WorkspaceSandboxScopeLabel: v1.TrueStr})
+	ws := selectorWorkspace(name, map[string]string{v1.WorkspaceSandboxScopeLabel: v1.TrueStr})
+	ws.Spec.Scopes = []v1.WorkspaceScope{v1.SandboxScope}
+	return ws
 }
 
 func selectorSecret(name, selector string, ids string) *corev1.Secret {
@@ -141,7 +145,7 @@ func TestIdsListedWorkspaceCreatedLaterIsEnqueued(t *testing.T) {
 	assert.True(t, mirrored(t, cs, "ws1", listed.Name))
 }
 
-func TestSelectorLabelRemovedRemovesOnlyOwnCopy(t *testing.T) {
+func TestSelectorScopeRemovedRemovesOnlyOwnCopy(t *testing.T) {
 	handMade := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "extra-ca", Namespace: "ws-own"},
 		Data: map[string][]byte{"mine": []byte("x")}}
 	cs := k8sfake.NewSimpleClientset(handMade)
@@ -154,6 +158,8 @@ func TestSelectorLabelRemovedRemovesOnlyOwnCopy(t *testing.T) {
 	current := &v1.Workspace{}
 	require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(ws), current))
 	old := current.DeepCopy()
+	// Sandbox dropped from the scopes; the webhook removes the label with it.
+	current.Spec.Scopes = []v1.WorkspaceScope{v1.TrainScope}
 	v1.RemoveLabel(current, v1.WorkspaceSandboxScopeLabel)
 	require.NoError(t, r.Update(context.Background(), current))
 	assert.True(t, workspaceMembershipPredicate{}.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: current}))
@@ -269,4 +275,50 @@ func TestSecretPredicatesSeeSelector(t *testing.T) {
 	delete(removed.Annotations, v1.WorkspaceSelectorAnnotation)
 	assert.True(t, relevantChangePredicate{}.Update(event.UpdateEvent{ObjectOld: sec, ObjectNew: removed}))
 	assert.False(t, relevantChangePredicate{}.Update(event.UpdateEvent{ObjectOld: sec, ObjectNew: sec.DeepCopy()}))
+}
+
+// A workspace written before the scope label existed carries none. The selector must still
+// reach it, and must not delete the copy its sandboxes already mount; a hand-set label that
+// its scopes contradict must not reach it either.
+func TestSelectorReachesSandboxWorkspaceWithoutTheLabel(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-existing"))
+	sec := selectorSecret("extra-ca", sandboxSelector, "")
+	existing := sandboxWorkspace("ws-existing")
+	existing.Labels = nil
+	allScopes := selectorWorkspace("ws-all-scopes", nil)
+	allScopes.Spec.Scopes = nil
+	forged := selectorWorkspace("ws-forged", map[string]string{v1.WorkspaceSandboxScopeLabel: v1.TrueStr})
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, existing, allScopes, forged)
+	reconcileSecret(t, r, sec.Name)
+
+	assert.True(t, mirrored(t, cs, "ws-existing", sec.Name), "the copy already there is kept")
+	assert.True(t, mirrored(t, cs, "ws-all-scopes", sec.Name), "no scopes means every scope")
+	assert.False(t, mirrored(t, cs, "ws-forged", sec.Name), "the label follows the scopes")
+}
+
+func TestWorkspaceScopeChangeEnqueues(t *testing.T) {
+	old := selectorWorkspace("ws-a", nil)
+	changed := old.DeepCopy()
+	changed.Spec.Scopes = append(changed.Spec.Scopes, v1.SandboxScope)
+	assert.True(t, workspaceMembershipPredicate{}.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: changed}))
+	other := old.DeepCopy()
+	other.Spec.Scopes = append(other.Spec.Scopes, v1.InferScope)
+	assert.False(t, workspaceMembershipPredicate{}.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: other}))
+}
+
+// Deleting a Secret that names its workspaces only by selector removes the copies it made.
+func TestDeleteSelectorOnlySecretRemovesCopies(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	sec := selectorSecret("extra-ca", sandboxSelector, "")
+	sec.Finalizers = []string{v1.SecretFinalizer}
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"))
+	reconcileSecret(t, r, sec.Name)
+	require.True(t, mirrored(t, cs, "ws-a", sec.Name))
+
+	require.NoError(t, r.Delete(context.Background(), sec))
+	reconcileSecret(t, r, sec.Name)
+	assert.False(t, mirrored(t, cs, "ws-a", sec.Name))
+	gone := &corev1.Secret{}
+	assert.True(t, apierrors.IsNotFound(r.Get(context.Background(), client.ObjectKeyFromObject(sec), gone)),
+		"the finalizer is released")
 }

@@ -59,6 +59,7 @@ func TestSetupResourceControllersProbe(t *testing.T) {
 	run("addon", func() error { return SetupAddonController(mgr) })
 	run("addontemplate", func() error { return SetupAddonTemplateController(mgr) })
 	run("imageimport", func() error { return SetupImageImportJobReconciler(mgr) })
+	run("workspaceScopeLabel", func() error { return SetupWorkspaceScopeLabelController(mgr) })
 	run("secret", func() error { return SetupSecretController(mgr) })
 	run("model", func() error { return SetupModelController(mgr) })
 	run("github", func() error { return SetupGitHubWorkflowController(mgr) })

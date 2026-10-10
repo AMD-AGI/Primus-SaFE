@@ -272,26 +272,46 @@ func parseWorkspaceSelector(secret *corev1.Secret) (labels.Selector, error) {
 // selectWorkspaces returns the workspaces, not being deleted, whose labels match the Secret's
 // selector. It returns nothing when the Secret has no selector, and an invalidSelectorError
 // when the selector cannot be parsed.
+//
+// The labels matched are the workspace's own with WorkspaceSandboxScopeLabel taken from its
+// scopes rather than from metadata: a workspace written before the label existed, or by a path
+// that skips the webhook, may not carry it yet, and a missing label here would delete the copy
+// its sandboxes mount. The scope label controller writes it back, so kubectl -l agrees.
 func (r *SecretReconciler) selectWorkspaces(ctx context.Context, secret *corev1.Secret) ([]v1.Workspace, error) {
 	selector, err := parseWorkspaceSelector(secret)
 	if err != nil || selector == nil {
 		return nil, err
 	}
 	wsList := &v1.WorkspaceList{}
-	if err = r.List(ctx, wsList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
+	if err = r.List(ctx, wsList); err != nil {
 		return nil, err
 	}
 	result := make([]v1.Workspace, 0, len(wsList.Items))
 	for _, ws := range wsList.Items {
-		if ws.GetDeletionTimestamp().IsZero() && selector.Matches(labels.Set(ws.Labels)) {
+		if ws.GetDeletionTimestamp().IsZero() && selector.Matches(derivedWorkspaceLabels(&ws)) {
 			result = append(result, ws)
 		}
 	}
 	return result, nil
 }
 
+// derivedWorkspaceLabels returns the workspace's labels with WorkspaceSandboxScopeLabel set as
+// the webhook would set it from Spec.Scopes.
+func derivedWorkspaceLabels(ws *v1.Workspace) labels.Set {
+	set := make(labels.Set, len(ws.Labels)+1)
+	for k, v := range ws.Labels {
+		set[k] = v
+	}
+	delete(set, v1.WorkspaceSandboxScopeLabel)
+	if value := ws.SandboxScopeLabelValue(); value != "" {
+		set[v1.WorkspaceSandboxScopeLabel] = value
+	}
+	return set
+}
+
 // workspaceMembershipPredicate passes the Workspace events that can change which workspaces a
-// Secret is mirrored into: creation, deletion, the start of deletion, and a change of labels.
+// Secret is mirrored into: creation, deletion, the start of deletion, a change of labels, and a
+// change of scopes (which the sandbox scope label is derived from).
 type workspaceMembershipPredicate struct {
 	predicate.Funcs
 }
@@ -309,7 +329,12 @@ func (workspaceMembershipPredicate) Update(e event.UpdateEvent) bool {
 	if e.ObjectOld.GetDeletionTimestamp().IsZero() != e.ObjectNew.GetDeletionTimestamp().IsZero() {
 		return true
 	}
-	return !labels.Equals(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels())
+	if !labels.Equals(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels()) {
+		return true
+	}
+	oldWs, ok1 := e.ObjectOld.(*v1.Workspace)
+	newWs, ok2 := e.ObjectNew.(*v1.Workspace)
+	return ok1 && ok2 && oldWs.AcceptsSandbox() != newWs.AcceptsSandbox()
 }
 
 // secretsForWorkspace maps a Workspace event to the Secrets whose mirror set it may change:

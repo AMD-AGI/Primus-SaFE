@@ -56,6 +56,9 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupImageImportJobReconciler(mgr); err != nil {
 		return fmt.Errorf("failed to set up image import job controller: %v", err)
 	}
+	if err := SetupWorkspaceScopeLabelController(mgr); err != nil {
+		return fmt.Errorf("failed to set up workspace scope label controller: %v", err)
+	}
 	if err := SetupSecretController(mgr); err != nil {
 		return fmt.Errorf("failed to set up secret controller: %v", err)
 	}

@@ -368,8 +368,10 @@ sandbox:
   # primus-safe namespace with the annotation
   #   primus-safe.workspace.selector: "primus-safe.workspace.scope.sandbox=true"
   # and resource-manager mirrors it into the namespace of every workspace that accepts Sandbox workloads,
-  # including ones created later; the label is derived from the workspace's scopes. A
-  # primus-safe.workspace.ids list (JSON array of workspace ids) still works and adds to the selector.
+  # including existing ones and ones created later; the label is derived from the workspace's scopes
+  # and resource-manager sets it on existing workspaces. Select only on primus-safe.* labels: others
+  # can be set by whoever creates a workspace. A primus-safe.workspace.ids list (JSON array of
+  # workspace ids) still works and adds to the selector.
   # When set, it is mounted at
   # /etc/claw/extra-ca, merged into /shared/bin/ca-bundle.pem, and the sandbox's CA variables point
   # there; a sandbox then refuses to start if no certificate is found. Empty keeps the image's own trust.

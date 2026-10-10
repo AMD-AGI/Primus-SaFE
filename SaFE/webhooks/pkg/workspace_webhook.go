@@ -281,7 +281,7 @@ func isMaxRuntimeEqual(old, new map[v1.WorkspaceScope]int) bool {
 // validateScope applies to a workload: no scopes means every scope. It is recomputed on every
 // write, so a value set by hand does not survive and a scope change moves the label with it.
 func mutateSandboxScopeLabel(workspace *v1.Workspace) {
-	if len(workspace.Spec.Scopes) == 0 || workspace.HasScope(v1.SandboxScope) {
+	if workspace.AcceptsSandbox() {
 		v1.SetLabel(workspace, v1.WorkspaceSandboxScopeLabel, v1.TrueStr)
 	} else {
 		v1.RemoveLabel(workspace, v1.WorkspaceSandboxScopeLabel)
