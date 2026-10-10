@@ -7,6 +7,7 @@ package agent
 
 import (
 	"archive/tar"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // LayerStats describes a written layer.
@@ -65,13 +68,16 @@ func WriteLayer(w io.Writer, root string, changed []string, deleted []string, in
 		if err != nil {
 			return st, err
 		}
+		// A second name of an inode already in the layer is a hard link to the first. The
+		// first name is only recorded once its contents are written: a name that vanished
+		// is not in the layer, and a link to it could not be unpacked.
+		var key *inode
 		if hdr.Typeflag == tar.TypeReg {
 			if sys, ok := info.Sys().(*syscall.Stat_t); ok && sys.Nlink > 1 {
-				key := inode{uint64(sys.Dev), uint64(sys.Ino)}
-				if first, seen := links[key]; seen {
+				key = &inode{uint64(sys.Dev), uint64(sys.Ino)}
+				if first, seen := links[*key]; seen {
 					hdr.Typeflag, hdr.Linkname, hdr.Size = tar.TypeLink, first, 0
-				} else {
-					links[key] = hdr.Name
+					hdr.PAXRecords = nil
 				}
 			}
 		}
@@ -89,6 +95,9 @@ func WriteLayer(w io.Writer, root string, changed []string, deleted []string, in
 		if vanished {
 			st.Vanished++
 			continue
+		}
+		if key != nil {
+			links[*key] = hdr.Name
 		}
 		st.Entries++
 	}
@@ -146,7 +155,101 @@ func headerFor(abs, full string, info fs.FileInfo) (*tar.Header, error) {
 	if out.Typeflag == tar.TypeDir {
 		out.Name += "/"
 	}
+	xattrs, err := readXattrs(full)
+	if err != nil {
+		return nil, fmt.Errorf("reading the extended attributes of %s: %w", abs, err)
+	}
+	for k, v := range xattrs {
+		if out.PAXRecords == nil {
+			out.PAXRecords = map[string]string{}
+		}
+		out.PAXRecords[paxXattr+k] = v
+	}
 	return out, nil
+}
+
+// paxXattr prefixes an extended attribute in a PAX header, as GNU tar, containerd and
+// Docker write and read it.
+const paxXattr = "SCHILY.xattr."
+
+// readXattrs returns the extended attributes of a path (not of what a symbolic link
+// names) that belong in an image: file capabilities (security.capability, which a tool
+// such as ping needs to run without root), ACLs and user attributes. The SELinux label
+// describes the machine the container ran on, and overlay's own attributes describe its
+// layers; neither is kept. Tests replace it.
+var readXattrs = func(full string) (map[string]string, error) {
+	names, err := listXattrs(full)
+	if err != nil || len(names) == 0 {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, n := range names {
+		if !keepXattr(n) {
+			continue
+		}
+		v, err := getXattr(full, n)
+		if errors.Is(err, unix.ENODATA) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out[n] = string(v)
+	}
+	return out, nil
+}
+
+func keepXattr(name string) bool {
+	switch {
+	case name == "security.selinux",
+		strings.HasPrefix(name, "trusted.overlay."),
+		strings.HasPrefix(name, "user.overlay."):
+		return false
+	}
+	return true
+}
+
+// listXattrs lists a path's attribute names. A file system without extended attributes
+// has none.
+func listXattrs(full string) ([]string, error) {
+	buf := make([]byte, 1024)
+	for {
+		n, err := unix.Llistxattr(full, buf)
+		switch {
+		case errors.Is(err, unix.ENOTSUP):
+			return nil, nil
+		case errors.Is(err, unix.ERANGE):
+			buf = make([]byte, len(buf)*4)
+			if len(buf) > 1<<20 {
+				return nil, err
+			}
+			continue
+		case err != nil:
+			return nil, err
+		}
+		var names []string
+		for _, b := range bytes.Split(buf[:n], []byte{0}) {
+			if len(b) > 0 {
+				names = append(names, string(b))
+			}
+		}
+		return names, nil
+	}
+}
+
+func getXattr(full, name string) ([]byte, error) {
+	buf := make([]byte, 256)
+	for {
+		n, err := unix.Lgetxattr(full, name, buf)
+		if errors.Is(err, unix.ERANGE) && len(buf) < 1<<20 {
+			buf = make([]byte, len(buf)*4)
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		return buf[:n], nil
+	}
 }
 
 // writeFile archives a regular file's contents. A file that shrank while it was read is
@@ -155,7 +258,7 @@ func headerFor(abs, full string, info fs.FileInfo) (*tar.Header, error) {
 func writeFile(tw *tar.Writer, st *LayerStats, abs, full string, hdr *tar.Header, inImage func(string) bool) (bool, error) {
 	// O_NOFOLLOW: a path that was a file when it was listed and is a symbolic link now
 	// must not be followed to whatever it names.
-	f, err := os.OpenFile(full, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := openFile(full, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return true, nil
 	}
@@ -197,6 +300,9 @@ func writeFile(tw *tar.Writer, st *LayerStats, abs, full string, hdr *tar.Header
 	}
 	return false, nil
 }
+
+// openFile opens a file to archive; tests replace it.
+var openFile = os.OpenFile
 
 type zeros struct{}
 
