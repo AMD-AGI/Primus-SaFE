@@ -171,10 +171,10 @@ func TestHFDownloadScriptFailureReachesModel(t *testing.T) {
 }
 
 // runCleanupScript runs modelCleanupScript on dest; a non-empty rmStub replaces rm.
-func runCleanupScript(t *testing.T, dest, rmStub string) (string, bool) {
+func runCleanupScript(t *testing.T, root, dest, rmStub string) (string, bool) {
 	t.Helper()
 	cmd := exec.Command("sh", "-c", modelCleanupScript)
-	cmd.Env = append(os.Environ(), "DEST_PATH="+dest)
+	cmd.Env = append(os.Environ(), "DEST_PATH="+dest, "VOLUME_ROOT="+root)
 	if rmStub != "" {
 		bin := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(bin, "rm"), []byte("#!/bin/sh\n"+rmStub), 0o755))
@@ -195,24 +195,92 @@ func TestModelCleanupScriptFailureReachesModel(t *testing.T) {
 		return r.extractOpsJobFailureReason(job)
 	}
 
-	dest := filepath.Join(t.TempDir(), "models", "org--repo")
+	root := t.TempDir()
+	dest := filepath.Join(root, "models", "org--repo")
 	require.NoError(t, os.MkdirAll(filepath.Join(dest, "sub"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dest, "sub", "w.safetensors"), []byte("x"), 0o644))
-	out, ok := runCleanupScript(t, dest, "")
+	out, ok := runCleanupScript(t, root, dest, "")
 	require.True(t, ok, out)
 	assert.NoDirExists(t, dest)
 
-	out, ok = runCleanupScript(t, t.TempDir(), "")
+	out, ok = runCleanupScript(t, root, filepath.Join(root, "data"), "")
 	require.False(t, ok, out)
 	assert.Contains(t, reason(out), "not a model directory")
 
 	require.NoError(t, os.MkdirAll(dest, 0o755))
-	out, ok = runCleanupScript(t, dest, `echo "rm: cannot remove '$3/w': Permission denied" >&2; exit 1`)
+	out, ok = runCleanupScript(t, root, dest, `echo "rm: cannot remove '$3/w': Permission denied" >&2; exit 1`)
 	require.False(t, ok, out)
 	assert.Contains(t, reason(out), "Permission denied")
 	assert.Contains(t, reason(out), "removing "+dest+" failed")
 
-	out, ok = runCleanupScript(t, dest, "exit 0")
+	out, ok = runCleanupScript(t, root, dest, "exit 0")
 	require.False(t, ok, out)
 	assert.Contains(t, reason(out), "still exists after removal")
+}
+
+// TestModelCleanupScriptAgreesWithController: the script repeats the controller's path
+// check against the volume root the controller found, so the two accept exactly the same
+// directories, a volume mounted at "/" included. rm is a stub that only records what it
+// was asked to remove; nothing on the host is touched.
+func TestModelCleanupScriptAgreesWithController(t *testing.T) {
+	cases := []struct {
+		mount, path string
+		ok          bool
+	}{
+		{"/", "/models/rv-cleanup-x", true},
+		{"/", "/team/models/hf/rv-cleanup-x", true},
+		{"/", "/", false},
+		{"/", "/models", false},
+		{"/data", "/data/models/rv-cleanup-x", true},
+		{"/data/", "/data/models/rv-cleanup-x", true},
+		{"/data", "/data/team/models/hf/rv-cleanup-x", true},
+		{"/data", "/data", false},
+		{"/data", "/data/models", false},
+		{"/data", "/data/rv-cleanup-x", false},
+		{"/data", "/other/models/rv-cleanup-x", false},
+		{"/data", "/datax/models/rv-cleanup-x", false},
+		{"/data", "/data/models/../rv-cleanup-x", false},
+		{"/data", "/data/models/./rv-cleanup-x", false},
+		{"/data", "/data//models/rv-cleanup-x", false},
+		{"/data", "/data/models/rv-cleanup-x/", false},
+		{"/data", "/data/models/..", false},
+		{"/data", "data/models/rv-cleanup-x", false},
+		{"/models", "/models/rv-cleanup-x", true},
+	}
+	for _, tc := range cases {
+		ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+			Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{{MountPath: tc.mount}}}}
+		goErr := validateCleanupPath(ws, tc.path)
+		assert.Equal(t, tc.ok, goErr == nil, "controller on %s in %s: %v", tc.path, tc.mount, goErr)
+
+		bin := t.TempDir()
+		log := filepath.Join(bin, "rm.log")
+		require.NoError(t, os.WriteFile(filepath.Join(bin, "rm"),
+			[]byte("#!/bin/sh\necho \"$@\" >> "+log+"\n"), 0o755))
+		cmd := exec.Command("sh", "-c", modelCleanupScript)
+		cmd.Env = append(os.Environ(), "DEST_PATH="+tc.path, "VOLUME_ROOT="+volumeRootOf(ws, tc.path),
+			"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		out, err := cmd.CombinedOutput()
+		assert.Equal(t, tc.ok, err == nil, "script on %s in %s: %s", tc.path, tc.mount, out)
+		removed, _ := os.ReadFile(log)
+		if tc.ok {
+			assert.Equal(t, "-rf -- "+tc.path+"\n", string(removed))
+		} else {
+			assert.Empty(t, string(removed), "nothing is removed for %s", tc.path)
+			assert.Contains(t, commonopsjob.FilterResultLog(out), "refusing to remove")
+		}
+	}
+
+	// The script checks the volume itself, not only what the controller passed.
+	for _, env := range [][]string{
+		{"DEST_PATH=/other/models/rv-cleanup-x", "VOLUME_ROOT=/data"},
+		{"DEST_PATH=/data/models/rv-cleanup-x"},
+		{"DEST_PATH=/data", "VOLUME_ROOT=/data"},
+	} {
+		cmd := exec.Command("sh", "-c", "rm() { echo removed; }\n"+modelCleanupScript)
+		cmd.Env = append(os.Environ(), env...)
+		out, err := cmd.CombinedOutput()
+		assert.Error(t, err, "%v: %s", env, out)
+		assert.NotContains(t, string(out), "removed")
+	}
 }

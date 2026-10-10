@@ -8,6 +8,9 @@ package resource
 import (
 	"context"
 	"encoding/base64"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -186,6 +189,7 @@ func TestModelLifecycleWithoutS3(t *testing.T) {
 	assert.Equal(t, "ws1", cleanup.GetParameter(v1.ParameterWorkspace).Value)
 	assert.Equal(t, "alice", v1.GetUserId(&cleanup))
 	assert.Equal(t, "cleanup:1", *cleanup.Spec.Image)
+	assert.Equal(t, lifecycleRoot, cleanup.Spec.Env["VOLUME_ROOT"], "the script checks the path against this volume")
 	assert.True(t, controllerutil.ContainsFinalizer(getModel(t, cl, "m1"), ModelFinalizer))
 
 	setOpsJobPhase(t, cl, cleanup.Name, v1.OpsJobSucceeded)
@@ -993,4 +997,32 @@ func TestModelUnsafeDirNameFails(t *testing.T) {
 	m = getModel(t, cl, "m2")
 	require.Len(t, m.Status.LocalPaths, 1, m.Status.Message)
 	assert.Equal(t, lifecycleRoot+"/models/my-model", m.Status.LocalPaths[0].Path)
+}
+
+// TestModelDeleteCleansVolumeAtRoot: a workspace volume mounted at "/" holds its models
+// at /models/<dir>. The controller accepts that path, and the cleanup job it creates
+// is accepted by the script it runs, so the model is released once the files are gone.
+func TestModelDeleteCleansVolumeAtRoot(t *testing.T) {
+	model := deletingModel(t, "m1", v1.ModelLocalPath{Workspace: "ws1", Path: "/models/org--repo", Status: v1.LocalPathStatusReady})
+	cl := lifecycleClient(t, model, lifecycleWorkspace("ws1", "c1", "/"))
+	r := newMockModelReconciler(cl)
+
+	reconcileModel(t, r, "m1")
+	cleanups := listOpsJobs(t, cl, v1.OpsJobModelCleanupType)
+	require.Len(t, cleanups, 1, getModel(t, cl, "m1").Status.Message)
+	job := cleanups[0]
+	assert.Equal(t, "/", job.Spec.Env["VOLUME_ROOT"])
+
+	// What the workload runs: the job's own script with the job's environment.
+	script, err := base64.StdEncoding.DecodeString(*job.Spec.EntryPoint)
+	require.NoError(t, err)
+	log := filepath.Join(t.TempDir(), "rm.log")
+	cmd := exec.Command("sh", "-c", `rm() { echo "rm $*" >> "$RM_LOG"; }`+"\n"+string(script))
+	cmd.Env = append(os.Environ(), "DEST_PATH="+job.GetParameter(v1.ParameterDestPath).Value,
+		"VOLUME_ROOT="+job.Spec.Env["VOLUME_ROOT"], "RM_LOG="+log)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "the script refuses what the controller accepted: %s", out)
+	removed, err := os.ReadFile(log)
+	require.NoError(t, err)
+	assert.Equal(t, "rm -rf -- /models/org--repo\n", string(removed))
 }

@@ -861,6 +861,9 @@ func (r *ModelReconciler) constructModelCleanupOpsJob(model *v1.Model, workspace
 	if workspace.Spec.Cluster == "" {
 		return nil, fmt.Errorf("workspace %s has no cluster configured", workspace.Name)
 	}
+	if err := validateCleanupPath(workspace, p); err != nil {
+		return nil, err
+	}
 	userId, userName := modelOwner(model)
 	image := commonconfig.GetModelCleanupImage()
 	entryPoint := base64.StdEncoding.EncodeToString([]byte(modelCleanupScript))
@@ -881,9 +884,11 @@ func (r *ModelReconciler) constructModelCleanupOpsJob(model *v1.Model, workspace
 			},
 		},
 		Spec: v1.OpsJobSpec{
-			Type:                    v1.OpsJobModelCleanupType,
-			Image:                   &image,
-			EntryPoint:              &entryPoint,
+			Type:       v1.OpsJobModelCleanupType,
+			Image:      &image,
+			EntryPoint: &entryPoint,
+			// The volume root validateCleanupPath found, which the script checks against.
+			Env:                     map[string]string{"VOLUME_ROOT": volumeRootOf(workspace, p)},
 			TimeoutSecond:           3600,
 			TTLSecondsAfterFinished: 600,
 			Inputs: []v1.Parameter{
@@ -901,10 +906,24 @@ func (r *ModelReconciler) constructModelCleanupOpsJob(model *v1.Model, workspace
 // modelCleanupScript removes $DEST_PATH and fails unless it is gone afterwards. Every
 // failure is reported on an "[ERROR]" line: only those lines reach the job's failure
 // message, which the model shows while the cleanup is retried.
+//
+// Before removing anything it repeats the rule validateCleanupPath applied, against the
+// volume root ($VOLUME_ROOT) that check found: an absolute, clean path strictly inside
+// that volume with something below a "models" segment. A volume mounted at "/" is a
+// volume like any other.
 const modelCleanupScript = `set -u
 fail() { echo "[ERROR] $*"; exit 1; }
+[ -n "${VOLUME_ROOT:-}" ] || fail "refusing to remove $DEST_PATH: no volume root given"
+root="${VOLUME_ROOT%/}"
 case "$DEST_PATH" in
-  /*/models/?*) ;;
+  "$root"/?*) ;;
+  *) fail "refusing to remove $DEST_PATH: not inside the volume $VOLUME_ROOT" ;;
+esac
+case "$DEST_PATH" in
+  *//*|*/./*|*/../*|*/.|*/..|*/) fail "refusing to remove $DEST_PATH: not a clean path" ;;
+esac
+case "$DEST_PATH" in
+  */models/?*) ;;
   *) fail "refusing to remove $DEST_PATH: not a model directory" ;;
 esac
 echo "Removing model directory $DEST_PATH"
