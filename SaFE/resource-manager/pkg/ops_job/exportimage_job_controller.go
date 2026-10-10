@@ -52,7 +52,10 @@ const (
 	harborEndpointKey   = "EXT_ENDPOINT"
 
 	// defaultStagingProject is the registry project the containers' layers are staged in,
-	// one repository per export. It must exist, private, before images are saved.
+	// one repository per export. It must exist, private, before images are saved. Nothing
+	// here deletes a staging repository: it holds blobs only, and Harbor records a
+	// repository only when a manifest is pushed, so its API has none to delete. A layer
+	// nothing references is deleted by the registry's garbage collection.
 	defaultStagingProject = "save-staging"
 )
 
