@@ -49,6 +49,8 @@ var (
 	// ErrNoRunFile is returned when the file the launcher started the entry point from is
 	// gone.
 	ErrNoRunFile = agent.ErrNoRunFile
+	// ErrRecordDisabled is returned for a container whose workload turned the record off.
+	ErrRecordDisabled = agent.ErrRecordDisabled
 	// ErrNoStagingCredential is returned when no credential limited to the staging
 	// project is configured for the registry.
 	ErrNoStagingCredential = errors.New("no registry credential limited to the staging project is configured, " +
@@ -79,9 +81,9 @@ const (
 
 // probeScript reports what the export depends on. It runs where the agent runs, in the
 // container's working directory, so a relative entry point file is found the same way.
-var probeScript = probeScriptFor(agent.BinaryPath, agent.BaselinePath, agent.RunMarkerPath)
+var probeScript = probeScriptFor(agent.BinaryPath, agent.BaselinePath, agent.RunMarkerPath, agent.NoRecordPath)
 
-func probeScriptFor(binary, baseline, runMarker string) string {
+func probeScriptFor(binary, baseline, runMarker, noRecord string) string {
 	return `echo "uid=$(id -u)"
 if [ -x ` + binary + ` ]; then
   echo agent=1
@@ -89,6 +91,7 @@ if [ -x ` + binary + ` ]; then
 fi
 if [ -s ` + baseline + ` ]; then echo baseline=1; fi
 if [ -e ` + baseline + agent.RecordingSuffix + ` ]; then echo recording=1; fi
+if [ -e ` + noRecord + ` ]; then echo norecord=1; fi
 f=` + agent.LauncherRunFile + `
 if [ -s ` + runMarker + ` ]; then f=$(head -n 1 ` + runMarker + `); fi
 echo "runpath=$f"
@@ -103,6 +106,8 @@ type Probe struct {
 	Protocol  int
 	Baseline  bool
 	Recording bool
+	// NoRecord is whether the workload turned the record off.
+	NoRecord bool
 	// RunFile is whether the file the launcher started the entry point from is there, and
 	// RunPath where it was looked for.
 	RunFile bool
@@ -127,6 +132,8 @@ func ParseProbe(out string) Probe {
 			p.Baseline = true
 		case "recording":
 			p.Recording = true
+		case "norecord":
+			p.NoRecord = true
 		case "runpath":
 			p.RunPath = v
 		case "runfile":
@@ -143,6 +150,8 @@ func (p Probe) Check() error {
 		return ErrPredatesSaveImage
 	case !p.Baseline && p.Recording:
 		return agent.ErrRecording
+	case !p.Baseline && p.NoRecord:
+		return ErrRecordDisabled
 	case !p.Baseline:
 		return ErrPredatesSaveImage
 	case p.UID < 0:

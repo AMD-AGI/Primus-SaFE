@@ -52,6 +52,10 @@ const (
 	// the entry point from: LauncherRunFile, or a temporary file when the working directory
 	// cannot be written. It is on the shared volume, so it is never part of an export.
 	RunMarkerPath = "/shared-data/save-image.run"
+	// RecordEnv is the environment variable a workload sets to 0 to skip the record, and
+	// NoRecordPath is where the launcher notes that it did.
+	RecordEnv    = "SAFE_SAVE_IMAGE_RECORD"
+	NoRecordPath = "/shared-data/save-image.norecord"
 )
 
 var (
@@ -65,6 +69,10 @@ var (
 )
 
 var errUploadStopped = errors.New("upload stopped")
+
+// ErrRecordDisabled is returned for a container whose workload turned the record off.
+var ErrRecordDisabled = errors.New("this workload was started without the record of its image's files that saving " +
+	"it as an image needs (" + RecordEnv + "=0); remove that setting, restart the workload, then save it again")
 
 // ErrNoRunFile is returned when the file the launcher started the entry point from is
 // gone: its change time is the boundary between what the platform wrote and what the user
@@ -256,6 +264,9 @@ func Export(ctx context.Context, req Request, env Env, tokens TokenSource) (*Res
 	if errors.Is(err, os.ErrNotExist) {
 		if _, perr := os.Lstat(env.Baseline + RecordingSuffix); perr == nil {
 			return nil, ErrRecording
+		}
+		if _, perr := os.Lstat(filepath.Join(filepath.Dir(env.Baseline), filepath.Base(NoRecordPath))); perr == nil {
+			return nil, ErrRecordDisabled
 		}
 		return nil, ErrNoBaseline
 	}

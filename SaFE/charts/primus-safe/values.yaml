@@ -363,6 +363,12 @@ model_optimization:
 #     with save-staging and its robot account in the built-in Harbor; saving is refused
 #     without it)
 #   host_aliases: [{ip: ..., hostnames: [...]}] added to every Pod of the cluster
+# Saving needs a record of the files a container started with, which can only be made when
+# it starts, so every container's launcher makes it, in the background at the lowest CPU
+# and I/O priority, without delaying the entry point. Measured on a root file system of
+# 905k paths: 6.8 s, about 7 CPU-seconds on one core, 98 MB written to the Pod's shared
+# volume, 10 MiB of memory. A workload that sets SAFE_SAVE_IMAGE_RECORD=0 in its
+# environment skips it, and saving it is then refused with that reason.
 save_image:
   clusters: []
 

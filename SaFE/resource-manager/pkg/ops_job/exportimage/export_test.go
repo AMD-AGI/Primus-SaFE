@@ -363,6 +363,7 @@ type fakeContainer struct {
 	protocol   int
 	noBaseline bool
 	recording  bool
+	noRecord   bool
 	probeExtra string
 	tamper     func(*agent.Response)
 	echoToken  bool
@@ -389,6 +390,9 @@ func (c *fakeContainer) Exec(ctx context.Context, cmd []string, stdin io.Reader,
 		}
 		if c.recording {
 			fmt.Fprintln(stdout, "recording=1")
+		}
+		if c.noRecord {
+			fmt.Fprintln(stdout, "norecord=1")
 		}
 		// The entry point file is looked for the way the agent looks for it.
 		if f, err := agent.RunFileOf(c.env); err == nil {
@@ -1063,7 +1067,7 @@ func TestProbeScriptFindsTheEntryPointFile(t *testing.T) {
 	baseline := filepath.Join(shared, "save-image.base")
 	require.NoError(t, os.WriteFile(baseline, []byte("x"), 0o644))
 	marker := filepath.Join(shared, "save-image.run")
-	script := probeScriptFor(binary, baseline, marker)
+	script := probeScriptFor(binary, baseline, marker, filepath.Join(shared, "save-image.norecord"))
 	probe := func() Probe {
 		cmd := exec.Command("sh", "-c", script)
 		cmd.Dir = cwd
@@ -1088,4 +1092,40 @@ func TestProbeScriptFindsTheEntryPointFile(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(fallback), 0o755))
 	require.NoError(t, os.WriteFile(fallback, nil, 0o700))
 	assert.NoError(t, probe().Check())
+}
+
+// A workload that turned the record off is told so, before any token is issued.
+func TestExportRefusesAWorkloadThatTurnedTheRecordOff(t *testing.T) {
+	c := newContainer(t, 0)
+	c.noBaseline, c.noRecord = true, true
+	w := newWorld(t, c)
+	_, err := Export(context.Background(), w.request)
+	require.ErrorIs(t, err, ErrRecordDisabled)
+	assert.Contains(t, err.Error(), "SAFE_SAVE_IMAGE_RECORD=0")
+	assert.Equal(t, []string{"probe"}, c.ran)
+	assert.Zero(t, w.stagingTokens(), "no token is issued")
+}
+
+func TestProbeScriptReportsTheRecordTurnedOff(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "save-image")
+	require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf("#!/bin/sh\necho %d\n", agent.ProtocolVersion)), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".run.sh"), nil, 0o755))
+	noRecord := filepath.Join(dir, "save-image.norecord")
+	probe := func() Probe {
+		cmd := exec.Command("sh", "-c", probeScriptFor(binary, filepath.Join(dir, "save-image.base"),
+			filepath.Join(dir, "save-image.run"), noRecord))
+		cmd.Dir = dir
+		out, err := cmd.Output()
+		require.NoError(t, err)
+		p := ParseProbe(string(out))
+		p.UID = 0
+		return p
+	}
+	assert.ErrorIs(t, probe().Check(), ErrPredatesSaveImage)
+	require.NoError(t, os.WriteFile(noRecord, nil, 0o644))
+	assert.ErrorIs(t, probe().Check(), ErrRecordDisabled)
 }

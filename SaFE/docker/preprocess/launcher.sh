@@ -28,17 +28,26 @@ input="$1"
 # not grow with the image. An earlier container's record is removed first and the record
 # is marked as in progress, so that saving meanwhile is refused as "still recording". What
 # the user changes is told apart by the time the entry point file is written below, not by
-# when the record ran. A failure only disables saving.
+# when the record ran. A failure only disables saving. A workload that sets
+# SAFE_SAVE_IMAGE_RECORD=0 skips the record, and cannot be saved; that is noted, so that
+# saving it says why.
 if [ -x /shared-data/save-image ]; then
-  rm -f /shared-data/save-image.base /shared-data/save-image.run
-  : > /shared-data/save-image.base.partial
-  (
-    low=""
-    if command -v nice >/dev/null 2>&1; then low="nice -n 19"; fi
-    if command -v ionice >/dev/null 2>&1 && ionice -c 2 -n 7 true 2>/dev/null; then low="$low ionice -c 2 -n 7"; fi
-    GOMAXPROCS=1 $low /shared-data/save-image record ||
-      echo "WARN: LAUNCHER: cannot record the image's files; this container cannot be saved as an image" >&2
-  ) &
+  rm -f /shared-data/save-image.base /shared-data/save-image.run /shared-data/save-image.norecord
+  case "${SAFE_SAVE_IMAGE_RECORD:-1}" in
+    0|false|off)
+      : > /shared-data/save-image.norecord
+      ;;
+    *)
+      : > /shared-data/save-image.base.partial
+      (
+        low=""
+        if command -v nice >/dev/null 2>&1; then low="nice -n 19"; fi
+        if command -v ionice >/dev/null 2>&1 && ionice -c 2 -n 7 true 2>/dev/null; then low="$low ionice -c 2 -n 7"; fi
+        GOMAXPROCS=1 $low /shared-data/save-image record ||
+          echo "WARN: LAUNCHER: cannot record the image's files; this container cannot be saved as an image" >&2
+      ) &
+      ;;
+  esac
 fi
 
 export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"

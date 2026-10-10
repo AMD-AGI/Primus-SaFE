@@ -200,6 +200,10 @@ func TestExportRefusals(t *testing.T) {
 	}{
 		{name: "not root", change: func(e *Env, _ *Request) { e.UID = 1000 }, is: ErrNotRoot},
 		{name: "no baseline", change: func(e *Env, _ *Request) { require.NoError(t, os.Remove(e.Baseline)) }, is: ErrNoBaseline},
+		{name: "record turned off", change: func(e *Env, _ *Request) {
+			require.NoError(t, os.Remove(e.Baseline))
+			require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(e.Baseline), "save-image.norecord"), nil, 0o644))
+		}, is: ErrRecordDisabled},
 		{name: "still recording", change: func(e *Env, _ *Request) {
 			require.NoError(t, os.Rename(e.Baseline, e.Baseline+RecordingSuffix))
 		}, is: ErrRecording},
