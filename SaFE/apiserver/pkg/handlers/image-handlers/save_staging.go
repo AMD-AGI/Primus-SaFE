@@ -52,14 +52,19 @@ var errNoBuiltinHarbor = errors.New("the built-in Harbor is not installed")
 // after the apiserver. Without a built-in Harbor it keeps looking for one, every ten
 // minutes at most, which costs a read of its ConfigMap.
 func (h *ImageHandler) keepEnsuringSaveImageStaging(ctx context.Context) {
+	keepSettingUpHarbor(ctx, h.initHarbor, h.ensureSaveImageStaging)
+}
+
+// keepSettingUpHarbor runs register, then staging, until both succeed.
+func keepSettingUpHarbor(ctx context.Context, register, staging func(context.Context) error) {
 	wait := saveStagingFirstWait
 	reportedMissing := false
 	for {
-		err := h.initHarbor(ctx)
+		err := register(ctx)
 		if err != nil {
 			err = fmt.Errorf("failed to init harbor: %w", err)
 		} else {
-			err = h.ensureSaveImageStaging(ctx)
+			err = staging(ctx)
 		}
 		if err == nil {
 			return

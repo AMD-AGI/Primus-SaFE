@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -283,15 +282,10 @@ func (h *ImageHandler) harborRequest(ctx context.Context, harborHost, path, user
 	return json.NewDecoder(resp.Body).Decode(result)
 }
 
-// harborDialContext, when set, replaces the dialer of the requests to Harbor's API; tests
-// point it at a fake Harbor.
-var harborDialContext func(ctx context.Context, network, addr string) (net.Conn, error)
-
 func newHTTPClientSkipTLS() *http.Client {
 	return &http.Client{
 		Timeout: 8 * time.Second,
 		Transport: &http.Transport{
-			DialContext: harborDialContext,
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},

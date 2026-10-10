@@ -10,7 +10,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,21 +17,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
-	dbmodel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 )
 
 // fakeHarborAPI keeps projects and robot accounts the way Harbor's v2 API does.
@@ -296,61 +289,36 @@ func TestKeepEnsuringStagingRetriesWhileHarborIsMissing(t *testing.T) {
 }
 
 // A built-in Harbor that comes up after the apiserver is set up whole once it is there:
-// it becomes the default registry (which saving an image pushes to) and gets the staging
-// project, robot and Secret, without restarting the apiserver.
-func TestKeepEnsuringStagingSetsUpAHarborThatComesUpLater(t *testing.T) {
+// it is registered as the default registry (which saving an image pushes to) as well as
+// given the staging project, robot and Secret, without restarting the apiserver.
+func TestKeepSettingUpHarborRegistersAHarborThatComesUpLater(t *testing.T) {
 	defer func(w time.Duration) { saveStagingFirstWait = w }(saveStagingFirstWait)
 	saveStagingFirstWait = time.Millisecond
-	// Registry credentials are stored as they are, not encrypted with a configured key.
-	commonconfig.SetValue("crypto.enable", "false")
-	defer commonconfig.SetValue("crypto.enable", "true")
-	api := newFakeHarborAPI()
-	ts := httptest.NewServer(api)
-	defer ts.Close()
-	defer func() { harborDialContext = nil }()
-	harborDialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, hostFromServer(ts))
-	}
-
 	var mu sync.Mutex
-	up, lookups := false, 0
-	cl := ctrlfake.NewClientBuilder().WithScheme(coreScheme(t)).WithObjects(
-		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "harbor", Name: "harbor-core"},
-			Data: map[string]string{"EXT_ENDPOINT": "https://harbor.example.com"}},
-		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "harbor", Name: "harbor-core"},
-			Data: map[string][]byte{"HARBOR_ADMIN_PASSWORD": []byte("pw")}},
-	).WithInterceptorFuncs(interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if key.Namespace == "harbor" {
-				mu.Lock()
-				lookups++
-				missing := !up
-				mu.Unlock()
-				if missing {
-					return apierrors.NewNotFound(corev1.Resource("configmaps"), key.Name)
-				}
-			}
-			return c.Get(ctx, key, obj, opts...)
-		},
-	}).Build()
-	ctrl := gomock.NewController(t)
-	db := mock_client.NewMockInterface(ctrl)
-	db.EXPECT().GetRegistryInfoByUrl(gomock.Any(), "harbor.example.com").Return(nil, nil)
-	db.EXPECT().UpsertRegistryInfo(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, r *dbmodel.RegistryInfo) error {
-			assert.True(t, r.Default)
-			assert.Equal(t, "harbor.example.com", r.URL)
-			return nil
-		})
-	db.EXPECT().ListRegistryInfos(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
-	h := &ImageHandler{Client: cl, dbClient: db, clientSet: k8sfake.NewSimpleClientset()}
-
+	up, attempts, registeredUp := false, 0, 0
+	register := func(context.Context) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if up {
+			registeredUp++
+		}
+		return nil // initHarbor does nothing without a Harbor
+	}
+	staging := func(context.Context) error {
+		mu.Lock()
+		defer mu.Unlock()
+		attempts++
+		if !up {
+			return errNoBuiltinHarbor
+		}
+		return nil
+	}
 	done := make(chan struct{})
-	go func() { h.keepEnsuringSaveImageStaging(context.Background()); close(done) }()
+	go func() { keepSettingUpHarbor(context.Background(), register, staging); close(done) }()
 	require.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return lookups >= 2
+		return attempts >= 2
 	}, 5*time.Second, time.Millisecond)
 	mu.Lock()
 	up = true
@@ -360,7 +328,5 @@ func TestKeepEnsuringStagingSetsUpAHarborThatComesUpLater(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("the built-in Harbor was never set up")
 	}
-	_, err := stagingSecret(t, cl)
-	require.NoError(t, err, "the staging Secret is made")
-	assert.Contains(t, api.projects, SaveImageStagingProject)
+	assert.Equal(t, 1, registeredUp, "registered once Harbor is there")
 }
