@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -48,9 +49,10 @@ const (
 	// entry point. Its change time is the boundary between what the platform wrote and
 	// what the user did.
 	LauncherRunFile = ".run.sh"
-	// RunMarkerPath is where the launcher writes the absolute path of the file it started
-	// the entry point from: LauncherRunFile, or a temporary file when the working directory
-	// cannot be written. It is on the shared volume, so it is never part of an export.
+	// RunMarkerPath is where the launcher writes (MarkRun) the absolute path of the file it
+	// started the entry point from (LauncherRunFile, or a temporary file when the working
+	// directory cannot be written) and that file's change time as it handed over. It is on
+	// the shared volume, so it is never part of an export.
 	RunMarkerPath = "/shared-data/save-image.run"
 	// RecordEnv is the environment variable a workload sets to 0 to skip the record, and
 	// NoRecordPath is where the launcher notes that it did.
@@ -278,7 +280,7 @@ func Export(ctx context.Context, req Request, env Env, tokens TokenSource) (*Res
 	if err != nil {
 		return nil, err
 	}
-	runFile, err := RunFileOf(env)
+	runFile, since, recorded, err := runMarkOf(env)
 	if err != nil {
 		return nil, err
 	}
@@ -286,9 +288,13 @@ func Export(ctx context.Context, req Request, env Env, tokens TokenSource) (*Res
 	if err != nil {
 		return nil, fmt.Errorf("%w (%s: %v)", ErrNoRunFile, runFile, err)
 	}
-	since, ok := ctimeOf(run)
-	if !ok {
-		return nil, fmt.Errorf("cannot read the change time of %s", runFile)
+	// The change time the launcher recorded is the boundary. The file's change time now
+	// is not: the user's own chmod or chown of it moves it past their earlier changes.
+	if !recorded {
+		var ok bool
+		if since, ok = ctimeOf(run); !ok {
+			return nil, fmt.Errorf("cannot read the change time of %s", runFile)
+		}
 	}
 
 	filter := NewFilter(ParseMountPoints(env.Mountinfo))
@@ -344,21 +350,93 @@ func Export(ctx context.Context, req Request, env Env, tokens TokenSource) (*Res
 // RunFileOf returns the file the launcher started the entry point from: the path it
 // recorded in env.RunMarker, read under env.Root, or env.RunFile when it recorded none.
 func RunFileOf(env Env) (string, error) {
+	p, _, _, err := runMarkOf(env)
+	return p, err
+}
+
+// runMarkOf returns the file the launcher started the entry point from (see RunFileOf)
+// and, when the launcher recorded it (MarkRun), that file's change time as it handed
+// over.
+func runMarkOf(env Env) (string, Timestamp, bool, error) {
 	if env.RunMarker == "" {
-		return env.RunFile, nil
+		return env.RunFile, Timestamp{}, false, nil
 	}
 	b, err := os.ReadFile(env.RunMarker)
 	if errors.Is(err, os.ErrNotExist) {
-		return env.RunFile, nil
+		return env.RunFile, Timestamp{}, false, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("reading where the launcher wrote the entry point: %w", err)
+		return "", Timestamp{}, false, fmt.Errorf("reading where the launcher wrote the entry point: %w", err)
 	}
-	p, _, _ := strings.Cut(string(b), "\n")
+	p, rest, _ := strings.Cut(string(b), "\n")
 	if !filepath.IsAbs(p) {
-		return "", fmt.Errorf("the launcher recorded %q as its entry point file, which is not an absolute path", p)
+		return "", Timestamp{}, false, fmt.Errorf("the launcher recorded %q as its entry point file, which is not an absolute path", p)
 	}
-	return filepath.Join(env.Root, p), nil
+	line, _, _ := strings.Cut(rest, "\n")
+	if line == "" {
+		return filepath.Join(env.Root, p), Timestamp{}, false, nil
+	}
+	ts, err := parseRunCtime(line)
+	if err != nil {
+		return "", Timestamp{}, false, fmt.Errorf("the launcher recorded %q as the change time of its entry point file: %w", line, err)
+	}
+	return filepath.Join(env.Root, p), ts, true, nil
+}
+
+// MarkRun records, in marker, the entry point file the launcher starts and that file's
+// change time now: the boundary between what the platform wrote and what the user did.
+// The record replaces marker whole, so it is never read half written.
+func MarkRun(marker, runFile string) error {
+	return markRun(marker, "/", runFile)
+}
+
+// markRun is MarkRun for a container whose root file system is at root.
+func markRun(marker, root, runFile string) error {
+	if !filepath.IsAbs(runFile) {
+		return fmt.Errorf("the entry point file %q is not an absolute path", runFile)
+	}
+	info, err := os.Lstat(filepath.Join(root, runFile))
+	if err != nil {
+		return err
+	}
+	ts, ok := ctimeOf(info)
+	if !ok {
+		return fmt.Errorf("cannot read the change time of %s", runFile)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(marker), filepath.Base(marker)+".*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := fmt.Fprintf(tmp, "%s\n%d.%09d\n", runFile, ts.Sec, ts.Nsec); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), marker)
+}
+
+// parseRunCtime parses the "seconds.nanoseconds" MarkRun writes.
+func parseRunCtime(s string) (Timestamp, error) {
+	sec, nsec, ok := strings.Cut(s, ".")
+	if !ok || len(nsec) != 9 {
+		return Timestamp{}, fmt.Errorf("not seconds.nanoseconds")
+	}
+	a, err := strconv.ParseInt(sec, 10, 64)
+	if err != nil {
+		return Timestamp{}, err
+	}
+	b, err := strconv.ParseInt(nsec, 10, 64)
+	if err != nil || b < 0 {
+		return Timestamp{}, fmt.Errorf("not seconds.nanoseconds")
+	}
+	return Timestamp{Sec: a, Nsec: b}, nil
 }
 
 type uploadedLayer struct {

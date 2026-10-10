@@ -243,6 +243,70 @@ func TestExportRefusals(t *testing.T) {
 	}
 }
 
+// The boundary between the launcher's files and the user's is the run file's change time
+// as the launcher handed over, which it records. The user's own chmod or chown of the run
+// file later moves its change time past their earlier changes; those are still saved.
+func TestExportKeepsTheBoundaryTheLauncherRecorded(t *testing.T) {
+	r := newTLSRegistry(t)
+	for _, tc := range []struct {
+		name  string
+		touch func(t *testing.T, runFile string)
+	}{
+		{name: "chmod", touch: func(t *testing.T, f string) { require.NoError(t, os.Chmod(f, 0o755)) }},
+		{name: "chown to the same owner", touch: func(t *testing.T, f string) {
+			require.NoError(t, os.Lchown(f, os.Getuid(), os.Getgid()))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := container(t)
+			env.Dial = r.dial
+			env.RunMarker = filepath.Join(env.Root, "shared-data/save-image.run")
+			// container() made the user's changes after the run file was written; record the
+			// run file's change time as of then, which is what the launcher does.
+			info, err := os.Lstat(env.RunFile)
+			require.NoError(t, err)
+			ts, ok := ctimeOf(info)
+			require.True(t, ok)
+			require.NoError(t, os.WriteFile(env.RunMarker, []byte(fmt.Sprintf("/.run.sh\n%d.%09d\n", ts.Sec, ts.Nsec)), 0o644))
+			tick()
+			tc.touch(t, env.RunFile)
+			resp, err := Export(context.Background(), r.request(), env, noRenewal{})
+			require.NoError(t, err)
+			got := layerMembers(t, r, resp)
+			assert.Equal(t, "Debian, changed\n", got["etc/issue"], "a change made before the chmod is saved")
+			assert.Equal(t, "hello", got["root/hard"])
+			assert.NotContains(t, got, "usr/sbin/sshd", "the launcher's files stay out")
+		})
+	}
+}
+
+// MarkRun records the run file and its change time; what it records is what Export reads.
+func TestMarkRunRecordsTheChangeTime(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, ".run.sh", "sleep infinity")
+	write(t, root, "shared-data/.keep", "")
+	marker := filepath.Join(root, "shared-data/save-image.run")
+	require.NoError(t, markRun(marker, root, "/.run.sh"))
+	info, err := os.Lstat(filepath.Join(root, ".run.sh"))
+	require.NoError(t, err)
+	want, _ := ctimeOf(info)
+
+	tick()
+	require.NoError(t, os.Chmod(filepath.Join(root, ".run.sh"), 0o755))
+	p, got, recorded, err := runMarkOf(Env{Root: root, RunMarker: marker})
+	require.NoError(t, err)
+	assert.True(t, recorded)
+	assert.Equal(t, want, got, "the change time as marked, not as it is now")
+	assert.Equal(t, filepath.Join(root, ".run.sh"), p)
+
+	assert.Error(t, markRun(marker, root, ".run.sh"), "a relative path is refused")
+	for _, bad := range []string{"/.run.sh\nyesterday\n", "/.run.sh\n12.34\n", "/.run.sh\n12.-00000001\n"} {
+		require.NoError(t, os.WriteFile(marker, []byte(bad), 0o644))
+		_, _, _, err := runMarkOf(Env{Root: root, RunMarker: marker})
+		assert.ErrorContains(t, err, "change time", bad)
+	}
+}
+
 // otherCA is a CA that did not sign the registry's certificate.
 func otherCA(t *testing.T) string {
 	t.Helper()

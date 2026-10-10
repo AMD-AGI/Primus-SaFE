@@ -8,7 +8,8 @@
 // the files the container started with. The resource manager runs "save-image export"
 // through pods/exec when the user saves the container as an image; it exchanges JSON
 // lines with it on standard input and output (see agent.Serve). "save-image protocol"
-// prints the version of that exchange.
+// prints the version of that exchange. "save-image mark <file>" is run by the launcher
+// as it hands over to the entry point file: it records that file and its change time.
 package main
 
 import (
@@ -27,8 +28,11 @@ func main() {
 	if os.Getenv("GOMEMLIMIT") == "" {
 		debug.SetMemoryLimit(256 << 20)
 	}
+	if len(os.Args) == 3 && os.Args[1] == "mark" {
+		fail(agent.MarkRun(agent.RunMarkerPath, os.Args[2]))
+	}
 	if len(os.Args) != 2 {
-		fail(fmt.Errorf("usage: %s record|export|protocol", os.Args[0]))
+		fail(fmt.Errorf("usage: %s record|export|protocol|mark <entry point file>", os.Args[0]))
 	}
 	switch os.Args[1] {
 	case "protocol":

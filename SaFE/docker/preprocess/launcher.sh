@@ -90,14 +90,15 @@ if ! echo "$input" | base64 -d > "$run_file"; then
     exit 1
 fi
 chmod +x "$run_file"
-# Saving the container as an image needs this file's change time; record where it is,
-# since it is not always the working directory's .run.sh.
+# Saving the container as an image needs this file's change time as of now: record it,
+# with where the file is, since it is not always the working directory's .run.sh. Its
+# change time later is not the boundary: a chmod or chown of it by the user moves it.
 if [ -x /shared-data/save-image ]; then
     case "$run_file" in
         /*) run_path="$run_file" ;;
         *) run_path="$(pwd)/$run_file" ;;
     esac
-    printf '%s\n' "$run_path" > /shared-data/save-image.run ||
+    /shared-data/save-image mark "$run_path" ||
         echo "WARN: LAUNCHER: cannot record where the entry point is; this container cannot be saved as an image" >&2
 fi
 if [ -x /usr/bin/bash ]; then
