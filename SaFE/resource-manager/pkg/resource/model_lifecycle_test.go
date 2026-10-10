@@ -955,3 +955,42 @@ func TestModelDeleteS3PathNotHeldWithoutUpload(t *testing.T) {
 	assert.Equal(t, "models/org-repo", m.Status.S3Path, "the path is kept until its cleanup succeeds")
 	assert.True(t, controllerutil.ContainsFinalizer(m, ModelFinalizer))
 }
+
+// TestModelUnsafeDirNameFails: an S3 import is stored under its display name; one that is
+// not a safe directory name ("..") would put the files at the volume root, which no
+// cleanup removes. The model fails before any directory is planned or written.
+func TestModelUnsafeDirNameFails(t *testing.T) {
+	setViper(t, map[string]any{"s3.enable": false})
+	model := lifecycleModel("m1")
+	model.Labels[v1.ModelS3ImportLabel] = v1.TrueStr
+	model.Spec.DisplayName = ".."
+	model.Spec.TargetSubpath = ""
+	model.Spec.Source.URL = "s3://bucket/prefix"
+	cl := lifecycleClient(t, model, lifecycleWorkspace("ws1", "c1", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+
+	reconcileModel(t, r, "m1") // finalizer
+	reconcileModel(t, r, "m1") // Pending
+	reconcileModel(t, r, "m1")
+	m := getModel(t, cl, "m1")
+	assert.Equal(t, v1.ModelPhaseFailed, m.Status.Phase)
+	assert.Contains(t, m.Status.Message, "cannot be used as the model directory name")
+	assert.Empty(t, m.Status.LocalPaths)
+	reconcileModel(t, r, "m1")
+	assert.Empty(t, listOpsJobs(t, cl, v1.OpsJobDownloadType), "nothing is downloaded")
+
+	// The same model with a usable name is planned below the models directory.
+	model = lifecycleModel("m2")
+	model.Labels[v1.ModelS3ImportLabel] = v1.TrueStr
+	model.Spec.DisplayName = "my model"
+	model.Spec.TargetSubpath = ""
+	model.Spec.Source.URL = "s3://bucket/prefix"
+	cl = lifecycleClient(t, model, lifecycleWorkspace("ws1", "c1", lifecycleRoot))
+	r = newMockModelReconciler(cl)
+	for i := 0; i < 3; i++ {
+		reconcileModel(t, r, "m2")
+	}
+	m = getModel(t, cl, "m2")
+	require.Len(t, m.Status.LocalPaths, 1, m.Status.Message)
+	assert.Equal(t, lifecycleRoot+"/models/my-model", m.Status.LocalPaths[0].Path)
+}

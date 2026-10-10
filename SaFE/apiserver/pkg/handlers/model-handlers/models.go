@@ -643,6 +643,18 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolumeS3); err != nil {
 		return nil, err
 	}
+	// An import is a local model like any other: its directory is checked by the same
+	// rule before anything is created.
+	candidate := &v1.Model{Spec: v1.ModelSpec{
+		DisplayName:   req.DisplayName,
+		Workspace:     req.Workspace,
+		TargetVolume:  targetVolumeS3,
+		TargetSubpath: targetSubpathS3,
+		Source:        v1.ModelSource{URL: uri, AccessMode: v1.AccessModeLocal},
+	}}
+	if err := h.checkTargetPaths(ctx, candidate); err != nil {
+		return nil, err
+	}
 
 	name := commonutils.GenerateName("model")
 	var s3SrcSecretName string
@@ -1358,6 +1370,12 @@ func (h *Handler) patchModel(c *gin.Context) (interface{}, error) {
 	}
 	if req.DisplayName != nil {
 		k8sModel.Spec.DisplayName = *req.DisplayName
+		// A model stored under its display name must keep a usable directory name.
+		if k8sModel.Spec.Source.AccessMode == v1.AccessModeLocal {
+			if err := validateLocalDirName(k8sModel); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if req.Description != nil {
 		k8sModel.Spec.Description = *req.Description
@@ -1652,6 +1670,9 @@ func (h *Handler) findModelBySourceURL(ctx context.Context, sourceURL string, wo
 //     directories is taken; otherwise the controller skips the taken ones and
 //     downloads the rest.
 func (h *Handler) checkTargetPaths(ctx context.Context, candidate *v1.Model) error {
+	if err := validateLocalDirName(candidate); err != nil {
+		return err
+	}
 	modelList := &v1.ModelList{}
 	if err := h.k8sClient.List(ctx, modelList); err != nil {
 		return commonerrors.NewInternalError("failed to list models for path check: " + err.Error())
@@ -1705,6 +1726,19 @@ func (h *Handler) checkTargetPaths(ctx context.Context, candidate *v1.Model) err
 			strings.Join(held, ", ")))
 	}
 	return nil
+}
+
+// validateLocalDirName refuses a local model that has no safe directory name. A model
+// that is not a HuggingFace repository (an S3 import) is stored under its display name,
+// which must then be one path segment of letters, digits, '.', '-' and '_' (spaces, '/',
+// ':' and '\' become '-'), and neither "." nor "..".
+func validateLocalDirName(m *v1.Model) error {
+	if m.GetLocalDirName() != "" {
+		return nil
+	}
+	return commonerrors.NewBadRequest(fmt.Sprintf(
+		"displayName %q cannot be used as the model directory name: use letters, digits, "+
+			"'.', '-', '_', spaces, '/' or ':' only, and not \".\" or \"..\"", m.Spec.DisplayName))
 }
 
 // modelOnPath returns a local model that records path on cluster in its status, and

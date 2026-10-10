@@ -951,6 +951,11 @@ func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (c
 		return ctrl.Result{}, r.Status().Update(ctx, model)
 	}
 
+	// A model whose name gives no safe directory has nowhere to be downloaded to.
+	if message := localDirNameFailure(model); message != "" {
+		return ctrl.Result{}, r.failModel(ctx, model, message)
+	}
+
 	// A directory that another model is still being deleted from, or that another
 	// model owns, cannot be used: the download would race the cleanup, or two models
 	// would share one set of files. Such a directory is given up on its own; the
@@ -1130,6 +1135,26 @@ func (r *ModelReconciler) planTargetPaths(ctx context.Context, model *v1.Model) 
 	return paths, 0, nil
 }
 
+// localDirNameFailure returns why the model has no local directory name, or "" when it
+// has one. The apiserver refuses such names; this catches a model created or renamed
+// another way, which would otherwise download outside its models directory.
+func localDirNameFailure(model *v1.Model) string {
+	if model.GetLocalDirName() != "" {
+		return ""
+	}
+	return fmt.Sprintf("display name %q cannot be used as the model directory name: "+
+		"use only letters, digits, '.', '-', '_', ' ', '/' or ':', and not \".\" or \"..\"", model.Spec.DisplayName)
+}
+
+// failModel moves the model to Failed with message.
+func (r *ModelReconciler) failModel(ctx context.Context, model *v1.Model, message string) error {
+	klog.InfoS("Model failed", "model", model.Name, "reason", message)
+	model.Status.Phase = v1.ModelPhaseFailed
+	model.Status.Message = message
+	model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
+	return r.Status().Update(ctx, model)
+}
+
 // allPathsFailed returns why a model has nothing left to download when every one of
 // paths has failed, or "" when at least one can still be downloaded.
 func allPathsFailed(paths []v1.ModelLocalPath) string {
@@ -1162,6 +1187,10 @@ func (r *ModelReconciler) handleUploading(ctx context.Context, model *v1.Model) 
 
 	// Success case
 	if job.Status.Succeeded > 0 {
+		// The display name may have changed since the model left Pending.
+		if message := localDirNameFailure(model); message != "" {
+			return ctrl.Result{}, r.failModel(ctx, model, message)
+		}
 		// Initialize local paths based on workspace configuration; a directory held by
 		// another model is given up on its own, or waited for while it is being deleted.
 		paths, waitFor, err := r.planTargetPaths(ctx, model)
@@ -1431,6 +1460,10 @@ func reportedModelSize(job *v1.OpsJob) int64 {
 func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Model) []v1.ModelLocalPath {
 	var paths []v1.ModelLocalPath
 	modelDir := model.GetLocalDirName()
+	if modelDir == "" {
+		klog.InfoS("Model has no safe directory name, no local path", "model", model.Name)
+		return paths
+	}
 	subpath := strings.TrimSpace(model.Spec.TargetSubpath)
 
 	// Track unique paths to avoid duplicate downloads

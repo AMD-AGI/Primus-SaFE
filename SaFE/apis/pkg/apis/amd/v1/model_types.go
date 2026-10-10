@@ -8,6 +8,7 @@ package v1
 import (
 	"path"
 	"strings"
+	"unicode"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -345,12 +346,36 @@ func isHFRepoSegment(s string) bool {
 // HuggingFace models use "<owner>--<name>" for "owner/name" and the bare name for a
 // single-segment canonical repository ("gpt2"). Neither can collide with another
 // repository: a segment never contains "--", so a single-segment name is never equal
-// to an "<owner>--<name>" one. Other sources fall back to the sanitized display name.
+// to an "<owner>--<name>" one. Other sources fall back to the sanitized display name,
+// and get "" when that is not a safe directory name (see IsSafeLocalDirName): such a
+// model has no directory and must not be downloaded.
 func (m *Model) GetLocalDirName() string {
 	if repo := m.GetHFRepoID(); repo != "" {
 		return strings.Replace(repo, "/", "--", 1)
 	}
-	return m.GetSafeDisplayName()
+	if name := m.GetSafeDisplayName(); IsSafeLocalDirName(name) {
+		return name
+	}
+	return ""
+}
+
+// maxLocalDirNameBytes is the longest directory name most filesystems accept.
+const maxLocalDirNameBytes = 255
+
+// IsSafeLocalDirName reports whether name can be used as a model directory name: one
+// path segment of letters, digits, '.', '-' and '_', that is neither "." nor "..".
+// Anything else could escape the models directory (".." puts the files at the volume
+// root, where the cleanup refuses to remove them) or reach a shell unquoted.
+func IsSafeLocalDirName(name string) bool {
+	if name == "" || name == "." || name == ".." || len(name) > maxLocalDirNameBytes {
+		return false
+	}
+	for _, r := range name {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '.' && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // BuildModelLocalPath assembles the local directory of a model under a volume root:

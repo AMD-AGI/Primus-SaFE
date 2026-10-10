@@ -9,13 +9,17 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -174,4 +178,110 @@ func TestListModelsIncludeDeleting(t *testing.T) {
 	require.Len(t, deleting.LocalPaths, 1)
 	assert.Equal(t, "/data/models/org--repo", deleting.LocalPaths[0].Path)
 	assert.Equal(t, int64(42), deleting.LocalPaths[0].SizeBytes)
+}
+
+// TestCreateModelFromS3SyncChecksTargetPaths: an S3 import is a local model, so it goes
+// through the same directory check as a HuggingFace model: a directory another model
+// holds or is still cleaning up refuses it, before any secret or model is created.
+func TestCreateModelFromS3SyncChecksTargetPaths(t *testing.T) {
+	ctx := context.Background()
+	ws := genMockWorkspace("ws1", "/data")
+	req := func() *CreateModelRequest {
+		return &CreateModelRequest{
+			DisplayName: "my model",
+			Workspace:   "ws1",
+			S3Source: &S3SourceReq{URI: "s3://my-bucket/prefix", AccessKeyID: "ak", SecretAccessKey: "sk",
+				Endpoint: "https://s3.example.com"},
+		}
+	}
+	holder := genMockLocalK8sModel("holder", "ws1")
+	holder.Status.LocalPaths = []v1.ModelLocalPath{{Workspace: "ws1", Path: "/data/models/my-model", Status: v1.LocalPathStatusReady}}
+	cl := fake.NewClientBuilder().WithScheme(importScheme(t)).WithObjects(ws, holder).Build()
+	h := newMockModelHandler(cl)
+	_, err := h.createModelFromS3Sync(ctx, req(), "uid", "uname")
+	require.Error(t, err)
+	assert.Equal(t, commonerrors.AlreadyExist, string(apierrors.ReasonForError(err)), "got %v", err)
+	assert.Contains(t, err.Error(), "holder")
+	assertNothingCreated(t, cl, "holder")
+
+	deleting := deletingK8sModel("old", "ws1", "/data/models/my-model")
+	cl = fake.NewClientBuilder().WithScheme(importScheme(t)).WithObjects(ws, deleting).Build()
+	h = newMockModelHandler(cl)
+	_, err = h.createModelFromS3Sync(ctx, req(), "uid", "uname")
+	require.Error(t, err)
+	assert.Equal(t, commonerrors.ResourceProcessing, string(apierrors.ReasonForError(err)), "got %v", err)
+	assertNothingCreated(t, cl, "old")
+
+	// A free directory is accepted.
+	cl = fake.NewClientBuilder().WithScheme(importScheme(t)).WithObjects(ws).Build()
+	h = newMockModelHandler(cl)
+	_, err = h.createModelFromS3Sync(ctx, req(), "uid", "uname")
+	require.NoError(t, err)
+}
+
+// TestModelUnsafeDisplayNameRefused: an S3 import is stored under its display name, so
+// one that is not a safe directory name is refused on creation and on rename, with the
+// reason; a HuggingFace model's directory comes from its repository and is unaffected.
+func TestModelUnsafeDisplayNameRefused(t *testing.T) {
+	ctx := context.Background()
+	ws := genMockWorkspace("ws1", "/data")
+	for _, name := range []string{"..", ".", "a;b", "$(id)"} {
+		cl := fake.NewClientBuilder().WithScheme(importScheme(t)).WithObjects(ws).Build()
+		h := newMockModelHandler(cl)
+		_, err := h.createModelFromS3Sync(ctx, &CreateModelRequest{DisplayName: name, Workspace: "ws1",
+			S3Source: &S3SourceReq{URI: "s3://my-bucket/prefix"}}, "uid", "uname")
+		require.Error(t, err, name)
+		assert.True(t, apierrors.IsBadRequest(err), "%q: %v", name, err)
+		assert.Contains(t, err.Error(), "cannot be used as the model directory name")
+		assertNothingCreated(t, cl)
+	}
+
+	// Renaming an import to ".." is refused; renaming a HuggingFace model is not.
+	imported := genMockLocalK8sModel("imported", "ws1")
+	imported.Spec.Source.URL = "s3://my-bucket/prefix"
+	hf := genMockLocalK8sModel("hf", "ws1")
+	cl := fake.NewClientBuilder().WithScheme(importScheme(t)).WithObjects(ws, imported, hf).Build()
+	h := newMockModelHandler(cl)
+	patch := func(id string) error {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request, _ = http.NewRequest(http.MethodPatch, "/models/"+id, strings.NewReader(`{"displayName":".."}`))
+		c.Request.Header.Set("Content-Type", "application/json")
+		c.Params = gin.Params{{Key: "id", Value: id}}
+		c.Set(common.UserId, adminModelUserID)
+		_, err := h.patchModel(c)
+		return err
+	}
+	err := patch("imported")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be used as the model directory name")
+	got := &v1.Model{}
+	require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKey{Name: "imported"}, got))
+	assert.NotEqual(t, "..", got.Spec.DisplayName)
+	assert.NoError(t, patch("hf"))
+}
+
+// assertNothingCreated checks that the only models left are the given ones and that no
+// secret was created.
+func assertNothingCreated(t *testing.T, cl ctrlclient.Client, models ...string) {
+	t.Helper()
+	list := &v1.ModelList{}
+	require.NoError(t, cl.List(context.Background(), list))
+	var names []string
+	for _, m := range list.Items {
+		names = append(names, m.Name)
+	}
+	assert.ElementsMatch(t, models, names)
+	secrets := &corev1.SecretList{}
+	require.NoError(t, cl.List(context.Background(), secrets))
+	assert.Empty(t, secrets.Items)
+}
+
+// importScheme knows models, workspaces and secrets.
+func importScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	s := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(s))
+	require.NoError(t, corev1.AddToScheme(s))
+	return s
 }
