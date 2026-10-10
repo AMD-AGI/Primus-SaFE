@@ -144,13 +144,16 @@ func TestRequiredAffinityWithoutCustomerLabelsIsUnchanged(t *testing.T) {
 		term(expr(v1.WorkspaceIdLabel, "In", "ws-1")),
 	})
 
-	// Several template terms: only the first gains the workspace confinement, as before.
+	// Several template terms: every term gains the workspace confinement, since the
+	// terms are ORed and one without it would reach any workspace's nodes.
 	obj = affinityObject(injectedTerms(3))
 	assert.NilError(t, modifyRequiredNodeAffinity(obj, affinityWorkload("ws-1", nil), affinityTestPath))
 	want := injectedTerms(3)
-	first := want[0].(map[string]interface{})
-	first["matchExpressions"] = append(first["matchExpressions"].([]interface{}),
-		expr(v1.WorkspaceIdLabel, "In", "ws-1"))
+	for i := range want {
+		m := want[i].(map[string]interface{})
+		m["matchExpressions"] = append(m["matchExpressions"].([]interface{}),
+			expr(v1.WorkspaceIdLabel, "In", "ws-1"))
+	}
 	assert.DeepEqual(t, renderedTerms(t, obj), want)
 
 	// Default workspace and no labels: nothing to add, the template is left alone.
@@ -188,11 +191,8 @@ func TestRequiredAffinityCustomerLabelsWithSeveralInjectedTerms(t *testing.T) {
 	want := injectedTerms(3)
 	for i := range want {
 		m := want[i].(map[string]interface{})
-		exprs := m["matchExpressions"].([]interface{})
-		if i == 0 {
-			exprs = append(exprs, expr(v1.WorkspaceIdLabel, "In", "ws-1"))
-		}
-		m["matchExpressions"] = append(exprs, expr("example.com/gpu-model", "In", "model-a"))
+		m["matchExpressions"] = append(m["matchExpressions"].([]interface{}),
+			expr(v1.WorkspaceIdLabel, "In", "ws-1"), expr("example.com/gpu-model", "In", "model-a"))
 	}
 	assert.DeepEqual(t, terms, want)
 
@@ -201,8 +201,8 @@ func TestRequiredAffinityCustomerLabelsWithSeveralInjectedTerms(t *testing.T) {
 	same := map[string]string{"example.com/gpu-model": "model-a"}
 	for pool := 1; pool < 3; pool++ {
 		p := "pool-" + strconv.Itoa(pool)
-		assert.Assert(t, !schedulable(t, terms, node("node-x", "", p, "200", other)), p)
-		assert.Assert(t, schedulable(t, terms, node("node-x", "", p, "200", same)), p)
+		assert.Assert(t, !schedulable(t, terms, node("node-x", "ws-1", p, "200", other)), p)
+		assert.Assert(t, schedulable(t, terms, node("node-x", "ws-1", p, "200", same)), p)
 	}
 }
 
@@ -217,9 +217,13 @@ func TestRequiredAffinityHostnamePinHoldsAcrossInjectedTerms(t *testing.T) {
 		p := "pool-" + strconv.Itoa(pool)
 		assert.Assert(t, !schedulable(t, terms, node("node-a", "ws-1", p, "200", nil)), p)
 	}
-	// node-b still schedules through any injected pool (term 0 also needs the workspace).
-	assert.Assert(t, schedulable(t, terms, node("node-b", "ws-1", "pool-0", "200", nil)))
-	assert.Assert(t, schedulable(t, terms, node("node-b", "", "pool-2", "200", nil)))
+	// node-b still schedules through any injected pool, inside the workspace only.
+	for pool := 0; pool < 3; pool++ {
+		p := "pool-" + strconv.Itoa(pool)
+		assert.Assert(t, schedulable(t, terms, node("node-b", "ws-1", p, "200", nil)), p)
+		assert.Assert(t, !schedulable(t, terms, node("node-b", "", p, "200", nil)), p)
+		assert.Assert(t, !schedulable(t, terms, node("node-b", "ws-2", p, "200", nil)), p)
+	}
 	// The injected constraints still hold for the pinned node.
 	assert.Assert(t, !schedulable(t, terms, node("node-b", "ws-1", "pool-9", "200", nil)))
 	assert.Assert(t, !schedulable(t, terms, node("node-b", "ws-1", "pool-1", "50", nil)))
@@ -238,4 +242,22 @@ func TestRequiredAffinityHostnamePinHoldsAcrossInjectedTerms(t *testing.T) {
 	w.Annotations[v1.NodesAffinityAnnotation] = common.NodesAffinityPreferred
 	assert.NilError(t, modifyRequiredNodeAffinity(obj, w, affinityTestPath))
 	assert.DeepEqual(t, renderedTerms(t, obj), injectedTerms(2))
+}
+
+func TestRequiredAffinityWorkspaceHoldsAcrossInjectedTerms(t *testing.T) {
+	for _, labels := range []map[string]string{nil, {"example.com/gpu-model": "model-a"}} {
+		obj := affinityObject(injectedTerms(3))
+		assert.NilError(t, modifyRequiredNodeAffinity(obj, affinityWorkload("ws-1", labels), affinityTestPath))
+		terms := renderedTerms(t, obj)
+		assert.Equal(t, len(terms), 3)
+		// Whichever injected term a node matches, it must be in ws-1: a node without the
+		// workspace label or in another workspace is rejected.
+		for pool := 0; pool < 3; pool++ {
+			p := "pool-" + strconv.Itoa(pool)
+			extra := map[string]string{"example.com/gpu-model": "model-a"}
+			assert.Assert(t, schedulable(t, terms, node("node-a", "ws-1", p, "200", extra)), p)
+			assert.Assert(t, !schedulable(t, terms, node("node-a", "", p, "200", extra)), p)
+			assert.Assert(t, !schedulable(t, terms, node("node-a", "ws-2", p, "200", extra)), p)
+		}
+	}
 }
