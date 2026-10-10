@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -217,28 +218,11 @@ func modifyRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wor
 	if len(expression) == 0 {
 		return nil
 	}
-	if len(nodeSelectorTerms) == 0 {
-		expressions := make(map[string]interface{})
-		expressions["matchExpressions"] = expression
-		nodeSelectorTerms = append(nodeSelectorTerms, expressions)
-	} else {
-		// Terms are ORed. External workloads must satisfy the constraint in every term,
-		// or a template term without it would reach nodes outside the reservation.
-		last := 0
-		if isExternalWorkload(workload) {
-			last = len(nodeSelectorTerms) - 1
-		}
-		for i := 0; i <= last; i++ {
-			matchExpressions := nodeSelectorTerms[i].(map[string]interface{})
-			objs, ok := matchExpressions["matchExpressions"]
-			if ok {
-				expressions := objs.([]interface{})
-				expressions = append(expressions, expression...)
-				matchExpressions["matchExpressions"] = expressions
-			} else {
-				matchExpressions["matchExpressions"] = append([]interface{}{}, expression...)
-			}
-		}
+	// Terms are ORed, so every platform constraint (workspace confinement, customer
+	// labels, provider-approved hostnames) is ANDed into every term: a term without
+	// one would match nodes outside it, e.g. another workspace's nodes.
+	if nodeSelectorTerms, err = andIntoEveryTerm(nodeSelectorTerms, expression, nil); err != nil {
+		return err
 	}
 	if err = jobutils.SetNestedField(obj.Object, nodeSelectorTerms, path); err != nil {
 		return err
@@ -1464,15 +1448,6 @@ func replaceRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wo
 	if err != nil {
 		return err
 	}
-	if len(terms) == 0 {
-		return jobutils.SetNestedField(obj.Object, []interface{}{
-			map[string]interface{}{"matchExpressions": desired},
-		}, path)
-	}
-	term, ok := terms[0].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("nodeSelectorTerms: expected an object")
-	}
 	managedKeys := make(map[string]struct{}, len(desired))
 	for _, entry := range desired {
 		expression, ok := entry.(map[string]interface{})
@@ -1483,22 +1458,46 @@ func replaceRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wo
 			managedKeys[key] = struct{}{}
 		}
 	}
-	existing, _ := term["matchExpressions"].([]interface{})
-	expressions := make([]interface{}, 0, len(existing)+len(desired))
-	for _, entry := range existing {
-		expression, ok := entry.(map[string]interface{})
-		if !ok {
-			expressions = append(expressions, entry)
-			continue
-		}
-		key, _ := expression["key"].(string)
-		if _, managed := managedKeys[key]; !managed {
-			expressions = append(expressions, entry)
-		}
+	// Reconciled repeatedly, so the managed keys are replaced rather than appended; and
+	// like the pod path, in every term, since one term without them lets the listener
+	// onto any node it matches.
+	if terms, err = andIntoEveryTerm(terms, desired, managedKeys); err != nil {
+		return err
 	}
-	term["matchExpressions"] = append(expressions, desired...)
-	terms[0] = term
 	return jobutils.SetNestedField(obj.Object, terms, path)
+}
+
+// andIntoEveryTerm ANDs exprs into every required node selector term. Terms are ORed,
+// so a constraint present in only some of them does not hold. Expressions whose key is
+// in replaceKeys are dropped from each term first. With no terms, the result is a single
+// term holding exprs.
+func andIntoEveryTerm(terms, exprs []interface{}, replaceKeys map[string]struct{}) ([]interface{}, error) {
+	if len(terms) == 0 {
+		terms = []interface{}{map[string]interface{}{}}
+	}
+	for i := range terms {
+		term, ok := terms[i].(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("nodeSelectorTerms[%d]: expected an object", i)
+		}
+		existing, _ := term["matchExpressions"].([]interface{})
+		expressions := make([]interface{}, 0, len(existing)+len(exprs))
+		for _, entry := range existing {
+			if expression, ok := entry.(map[string]interface{}); ok {
+				key, _ := expression["key"].(string)
+				if _, replaced := replaceKeys[key]; replaced {
+					continue
+				}
+			}
+			expressions = append(expressions, entry)
+		}
+		for _, entry := range exprs {
+			expressions = append(expressions, runtime.DeepCopyJSONValue(entry))
+		}
+		term["matchExpressions"] = expressions
+		terms[i] = term
+	}
+	return terms, nil
 }
 
 // updateCICDEphemeralRunner updates the CICD ephemeral runner configuration
