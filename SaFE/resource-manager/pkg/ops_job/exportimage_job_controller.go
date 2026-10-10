@@ -193,6 +193,14 @@ func (r *ExportImageJobReconciler) exportJob(ctx context.Context, job *v1.OpsJob
 	if workloadId == "" {
 		return nil, commonerrors.NewBadRequest("workload ID is empty")
 	}
+	// The apiserver labels the job with the workload it authorized; a job whose
+	// parameters name another one was not authorized for that one.
+	if authorized := v1.GetLabel(job, v1.WorkloadIdLabel); authorized != "" && authorized != workloadId {
+		return nil, commonerrors.NewForbidden(fmt.Sprintf("the job names workload %s but was authorized for %s", workloadId, authorized))
+	}
+	if len(job.GetParameters(v1.ParameterWorkload)) > 1 {
+		return nil, commonerrors.NewBadRequest("the job names more than one workload")
+	}
 	sourceImage := getSourceImageFromJob(job)
 	if sourceImage == "" {
 		return nil, commonerrors.NewBadRequest("source image is empty")

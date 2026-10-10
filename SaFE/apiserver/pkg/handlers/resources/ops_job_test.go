@@ -517,6 +517,72 @@ func TestGenerateExportImageJobNeedsUpdateOnTheWorkload(t *testing.T) {
 	testifyassert.Error(t, err, "a workspace member who can only see the workload may not save it")
 }
 
+// The workload authorized is the workload saved: a request cannot authorize one name and
+// hand the controller another, and the image the controller names the result after is the
+// workload's own, not the request's.
+func TestGenerateExportImageJobSavesTheWorkloadItAuthorized(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	defaultRole := &v1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: string(v1.DefaultRole)},
+		Rules: []v1.PolicyRule{{
+			Resources:    []string{"workload"},
+			Verbs:        []v1.RoleVerb{v1.GetVerb, v1.ListVerb, v1.UpdateVerb, v1.DeleteVerb},
+			GrantedUsers: []string{authority.GrantedOwner},
+		}},
+	}
+	member := func(id, ws string) *v1.User {
+		return &v1.User{
+			ObjectMeta: metav1.ObjectMeta{Name: id, Labels: map[string]string{v1.UserIdLabel: id}},
+			Spec: v1.UserSpec{
+				Type:      v1.DefaultUserType,
+				Roles:     []v1.UserRole{v1.DefaultRole},
+				Resources: map[string][]string{common.UserWorkspaces: {ws}},
+			},
+		}
+	}
+	mine := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "mine", Labels: map[string]string{v1.UserIdLabel: "attacker"}},
+		Spec:       v1.WorkloadSpec{Workspace: "ws-a", Images: []string{"repo/mine:tag"}},
+	}
+	victim := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "victim", Labels: map[string]string{v1.UserIdLabel: "other"}},
+		Spec:       v1.WorkloadSpec{Workspace: "ws-b", Images: []string{"repo/secret:tag"}},
+	}
+	scheme := runtime.NewScheme()
+	testifyassert.NoError(t, v1.AddToScheme(scheme))
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(defaultRole, member("attacker", "ws-a"), member("other", "ws-b"), mine, victim).Build()
+	h := &Handler{Client: fakeClient, accessController: &authority.AccessController{Client: fakeClient}}
+
+	for _, body := range []string{
+		`{"name":"export","type":"exportimage","inputs":[{"name":"workloadId","value":"mine"},{"name":"workload","value":"victim"}]}`,
+		`{"name":"export","type":"exportimage","inputs":[{"name":"workload","value":"mine"},{"name":"workload","value":"victim"}]}`,
+		`{"name":"export","type":"exportimage","inputs":[{"name":"workload","value":"mine"},{"name":"workloadId","value":"victim"}]}`,
+	} {
+		c, _ := newOpsJobCtx("attacker", body)
+		job, err := h.generateExportImageJob(c, []byte(body))
+		testifyassert.Error(t, err, body)
+		testifyassert.Nil(t, job, body)
+	}
+
+	// Agreeing names, a label and a smuggled image: one workload parameter, the
+	// authorized one, and the workload's own image.
+	body := `{"name":"export","type":"exportimage","inputs":[{"name":"workloadId","value":"mine"},` +
+		`{"name":"workload","value":"mine"},{"name":"image","value":"repo/secret:tag"},{"name":"label","value":"v1"}]}`
+	c, _ := newOpsJobCtx("attacker", body)
+	job, err := h.generateExportImageJob(c, []byte(body))
+	testifyassert.NoError(t, err)
+	workloads := job.GetParameters(v1.ParameterWorkload)
+	testifyassert.Len(t, workloads, 1)
+	testifyassert.Equal(t, "mine", workloads[0].Value)
+	testifyassert.Nil(t, job.GetParameter("workloadId"))
+	images := job.GetParameters(v1.ParameterImage)
+	testifyassert.Len(t, images, 1)
+	testifyassert.Equal(t, "repo/mine:tag", images[0].Value)
+	testifyassert.Equal(t, "v1", job.GetParameter("label").Value)
+	testifyassert.Equal(t, "mine", job.Labels[v1.WorkloadIdLabel])
+}
+
 func TestGeneratePrewarmImageJob(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ws := &v1.Workspace{

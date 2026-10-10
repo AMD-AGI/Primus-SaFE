@@ -451,6 +451,9 @@ func (h *Handler) generateRebootJob(c *gin.Context, body []byte) (*v1.OpsJob, er
 	return genDefaultOpsJob(req, requestUser), nil
 }
 
+// exportImageWorkloadIdParam is the other name an export request may give its workload by.
+const exportImageWorkloadIdParam = "workloadId"
+
 // generateExportImageJob creates an export-image-type ops job.
 // It parses the workload ID from request body, retrieves workload information,
 // and generates a job object to export the workload image to Harbor.
@@ -466,13 +469,18 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 		return nil, commonerrors.NewBadRequest("failed to parse request body: " + err.Error())
 	}
 
-	// Extract workload ID from inputs
+	// Extract workload ID from inputs. The workload authorized here must be the one the
+	// controller saves, and the controller reads only "workload": every name the request
+	// may give it by has to agree, or a second parameter would pick another workload.
 	var workloadId string
 	for _, param := range req.Inputs {
-		if param.Name == v1.ParameterWorkload || param.Name == "workloadId" {
-			workloadId = param.Value
-			break
+		if param.Name != v1.ParameterWorkload && param.Name != exportImageWorkloadIdParam {
+			continue
 		}
+		if workloadId != "" && param.Value != workloadId {
+			return nil, commonerrors.NewBadRequest("the inputs name more than one workload")
+		}
+		workloadId = param.Value
 	}
 	if workloadId == "" {
 		return nil, commonerrors.NewBadRequest("workload ID is required in inputs")
@@ -505,12 +513,18 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 	// Build BaseOpsJobRequest for genDefaultOpsJob
 	jobName := fmt.Sprintf("custom-%s", workloadId)
 
-	// Preserve user's original inputs (including label if provided)
-	newInputs := make([]v1.Parameter, 0, len(req.Inputs)+1)
-	newInputs = append(newInputs, req.Inputs...) // Keep original inputs (workload, label, etc.)
-
-	// Add image parameter (system-generated)
-	newInputs = append(newInputs, v1.Parameter{Name: "image", Value: adminWorkload.Spec.Images[0]})
+	// The workload and image parameters are the ones authorized and read here, never the
+	// request's; the user's other inputs (label, etc.) are kept.
+	newInputs := make([]v1.Parameter, 0, len(req.Inputs)+2)
+	newInputs = append(newInputs, v1.Parameter{Name: v1.ParameterWorkload, Value: workloadId})
+	for _, param := range req.Inputs {
+		switch param.Name {
+		case v1.ParameterWorkload, exportImageWorkloadIdParam, v1.ParameterImage:
+			continue
+		}
+		newInputs = append(newInputs, param)
+	}
+	newInputs = append(newInputs, v1.Parameter{Name: v1.ParameterImage, Value: adminWorkload.Spec.Images[0]})
 
 	jobReq := &view.BaseOpsJobRequest{
 		Name:                    jobName,
