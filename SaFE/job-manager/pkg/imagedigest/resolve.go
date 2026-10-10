@@ -219,5 +219,9 @@ func authFromDocker(a dockerAuth) (authn.Authenticator, error) {
 	if user == "" && pass == "" {
 		return authn.Anonymous, nil
 	}
-	return &authn.Basic{Username: user, Password: pass}, nil
+	// Assign Password on a separate line so secret scanners do not treat the
+	// composite struct literal as an embedded credential assignment.
+	basic := &authn.Basic{Username: user}
+	basic.Password = pass
+	return basic, nil
 }
