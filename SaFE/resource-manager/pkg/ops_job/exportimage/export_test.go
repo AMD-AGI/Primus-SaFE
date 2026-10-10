@@ -54,6 +54,7 @@ type fakeHarbor struct {
 	mu         sync.Mutex
 	blobs      map[string]map[string]bool
 	tokens     map[string]string // jti -> requested scopes
+	minters    map[string]string // jti -> the account that asked for it
 	moved      map[string]int64  // jti -> request and response body bytes
 	issued     int
 	noMount    bool
@@ -68,13 +69,18 @@ type fakeHarbor struct {
 
 const platformUser, platformSecret = "platform", "secret"
 
+// stagingUser is the account limited to the staging project: the container's tokens are
+// minted with it, and nothing else is.
+const stagingUser, stagingSecret = "staging-robot", "staging-secret"
+
 func newFakeHarbor(t *testing.T, hostname string) *fakeHarbor {
 	t.Helper()
 	h := &fakeHarbor{
-		inner:  registry.New(registry.Logger(nopLogger())),
-		blobs:  map[string]map[string]bool{},
-		tokens: map[string]string{},
-		moved:  map[string]int64{},
+		inner:   registry.New(registry.Logger(nopLogger())),
+		blobs:   map[string]map[string]bool{},
+		tokens:  map[string]string{},
+		minters: map[string]string{},
+		moved:   map[string]int64{},
 	}
 	h.srv = httptest.NewTLSServer(h)
 	t.Cleanup(h.srv.Close)
@@ -104,7 +110,7 @@ func encodeJWT(c claims) string {
 
 func (h *fakeHarbor) issue(w http.ResponseWriter, r *http.Request) {
 	user, pass, ok := r.BasicAuth()
-	if !ok || user != platformUser || pass != platformSecret {
+	if !ok || !(user == platformUser && pass == platformSecret || user == stagingUser && pass == stagingSecret) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -121,6 +127,7 @@ func (h *fakeHarbor) issue(w http.ResponseWriter, r *http.Request) {
 	h.issued++
 	c.JTI = fmt.Sprint(h.issued)
 	h.tokens[c.JTI] = strings.Join(scopes, " ")
+	h.minters[c.JTI] = user
 	if h.extraGrant != "" {
 		c.Access = append(c.Access, grant{Type: "repository", Name: h.extraGrant, Actions: []string{"pull", "push"}})
 	}
@@ -344,7 +351,11 @@ func (n *network) transport() http.RoundTripper {
 }
 
 func (n *network) keychain(t *testing.T) authn.Keychain {
-	auth := base64.StdEncoding.EncodeToString([]byte(platformUser + ":" + platformSecret))
+	return n.keychainOf(t, platformUser, platformSecret)
+}
+
+func (n *network) keychainOf(t *testing.T, user, secret string) authn.Keychain {
+	auth := base64.StdEncoding.EncodeToString([]byte(user + ":" + secret))
 	auths := map[string]any{}
 	for host := range n.addrs {
 		auths[host] = map[string]string{"auth": auth}
@@ -548,6 +559,8 @@ type world struct {
 	baseID  string
 	request Request
 	c       *fakeContainer
+	// setupTokens is how many tokens were issued to set the registry up, before the export.
+	setupTokens int
 }
 
 // newWorld pushes the base image to the registry, under the repository the node
@@ -582,11 +595,15 @@ func newWorld(t *testing.T, c *fakeContainer) *world {
 	require.NoError(t, err)
 	target, err := name.NewTag(staging.host + "/custom/library/python:20261008000000-abcdef")
 	require.NoError(t, err)
+	staging.mu.Lock()
+	setupTokens := staging.issued
+	staging.mu.Unlock()
 	return &world{
-		staging: staging,
-		net:     n,
-		baseID:  baseTag.Context().Digest(d.String()).String(),
-		c:       c,
+		staging:     staging,
+		net:         n,
+		baseID:      baseTag.Context().Digest(d.String()).String(),
+		c:           c,
+		setupTokens: setupTokens,
 		request: Request{
 			Exec:            c,
 			Registry:        staging.host,
@@ -594,7 +611,7 @@ func newWorld(t *testing.T, c *fakeContainer) *world {
 			Staging:         staged,
 			Target:          target,
 			Keychain:        n.keychain(t),
-			StagingKeychain: n.keychain(t),
+			StagingKeychain: n.keychainOf(t, stagingUser, stagingSecret),
 			Transport:       n.transport(),
 			CA:              n.ca,
 			Platform:        v1.Platform{OS: "linux", Architecture: "amd64"},
@@ -650,7 +667,7 @@ func TestExportEndToEnd(t *testing.T) {
 
 	// The layer went from the container to the registry; this process moved kilobytes.
 	assert.Greater(t, w.staging.movedBy(w.stagingPush), int64(big), "the container uploaded the layer")
-	controller := w.staging.movedBy(func(s string) bool { return !w.stagingPush(s) && !strings.Contains(s, "python:push") })
+	controller := w.controllerMoved()
 	assert.Less(t, controller, int64(64<<10), "the controller moves no image data")
 
 	pushed, err := remote.Head(w.request.Target, w.options()...)
@@ -687,6 +704,11 @@ func TestExportEndToEnd(t *testing.T) {
 	assert.True(t, w.c.request.Deadline.After(time.Now()))
 	assert.True(t, w.c.request.TokenExpiry.After(time.Now()))
 	assert.Equal(t, int64(maxLayerSize), w.c.request.MaxSize)
+	// The container's token is minted with the account limited to the staging project,
+	// and no other token is.
+	staging, other := w.minters()
+	assert.Equal(t, map[string]bool{stagingUser: true}, staging)
+	assert.Equal(t, map[string]bool{platformUser: true}, other)
 }
 
 // A registry that enforces the token's grant keeps the container's layer in the staging
@@ -763,9 +785,45 @@ func TestExportRenewsTheContainersToken(t *testing.T) {
 	}
 	assert.Equal(t, 1, renewals)
 	assert.Equal(t, 2, w.stagingTokens(), "the renewal is a token for the staging repository alone")
+	staging, other := w.minters()
+	assert.Equal(t, map[string]bool{stagingUser: true}, staging, "the renewal is minted with the staging account")
+	assert.NotContains(t, other, stagingUser)
 	assert.Greater(t, w.staging.patches, 10)
 	fs := w.flatten(t, w.request.Target)
 	assert.Len(t, fs["/root/model.bin"], 1<<20)
+}
+
+// minters returns the accounts the staging push tokens were minted with, and those the
+// other tokens were.
+func (w *world) minters() (staging, other map[string]bool) {
+	w.staging.mu.Lock()
+	defer w.staging.mu.Unlock()
+	staging, other = map[string]bool{}, map[string]bool{}
+	for jti, scopes := range w.staging.tokens {
+		if w.stagingPush(scopes) {
+			staging[w.staging.minters[jti]] = true
+		} else {
+			other[w.staging.minters[jti]] = true
+		}
+	}
+	return staging, other
+}
+
+// controllerMoved is the bytes moved with the tokens the export asked for, other than the
+// container's: everything the controller sent or read, putting the image together
+// included. The tokens that set the registry up are not counted.
+func (w *world) controllerMoved() int64 {
+	w.staging.mu.Lock()
+	defer w.staging.mu.Unlock()
+	var n int64
+	for jti, b := range w.staging.moved {
+		i, err := strconv.Atoi(jti)
+		if err != nil || i <= w.setupTokens || w.stagingPush(w.staging.tokens[jti]) {
+			continue
+		}
+		n += b
+	}
+	return n
 }
 
 func (w *world) stagingTokens() int {
@@ -929,7 +987,7 @@ func TestExportNeverCopiesWhenTheRegistryWillNotMount(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotMounted)
 	_, err = remote.Head(w.request.Target, w.options()...)
 	assert.Error(t, err)
-	controller := w.staging.movedBy(func(s string) bool { return !w.stagingPush(s) && !strings.Contains(s, "python:push") })
+	controller := w.controllerMoved()
 	assert.Less(t, controller, int64(64<<10))
 }
 
