@@ -82,6 +82,9 @@ func TestRegistryTransportDefault(t *testing.T) {
 	if tr == nil || tr.TLSClientConfig == nil || !tr.TLSClientConfig.InsecureSkipVerify {
 		t.Fatal("expected default insecure transport")
 	}
+	if tr.ResponseHeaderTimeout != defaultRegistryResolveTimeout {
+		t.Fatalf("ResponseHeaderTimeout=%v want %v", tr.ResponseHeaderTimeout, defaultRegistryResolveTimeout)
+	}
 }
 
 func TestRegistryTransportStrictNoCA(t *testing.T) {
@@ -95,8 +98,18 @@ func TestRegistryTransportStrictNoCA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tr != nil {
-		t.Fatal("expected nil transport when verify is on and no CA path is set")
+	// Always return a transport so ResponseHeaderTimeout applies; no custom TLS.
+	if tr == nil {
+		t.Fatal("expected non-nil transport when verify is on and no CA path")
+	}
+	if tr.TLSClientConfig != nil && tr.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("InsecureSkipVerify must stay false when verify is on")
+	}
+	if tr.TLSClientConfig != nil && tr.TLSClientConfig.RootCAs != nil {
+		t.Fatal("RootCAs must stay unset when no CA path is configured")
+	}
+	if tr.ResponseHeaderTimeout != defaultRegistryResolveTimeout {
+		t.Fatalf("ResponseHeaderTimeout=%v want %v", tr.ResponseHeaderTimeout, defaultRegistryResolveTimeout)
 	}
 }
 

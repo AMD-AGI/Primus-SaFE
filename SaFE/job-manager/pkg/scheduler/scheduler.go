@@ -399,6 +399,8 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 						ClusterId:   v1.GetClusterId(w),
 					}, externalExchangeRetry)
 				}
+				// persist reloads a fresh object; keep the in-loop snapshot ended so
+				// updateUnScheduled does not overwrite the rejection message.
 				continue
 			}
 			unScheduledReasons[w.Name] = reason
@@ -578,7 +580,8 @@ func externalRetryDelay(reason string, err error) (time.Duration, bool) {
 
 // persistExternalTerminalFailure writes Failed for a terminal external admission reason.
 // Reloads the workload first so a stale resourceVersion from the queue snapshot is less
-// likely to Conflict against a concurrent status writer.
+// likely to Conflict against a concurrent status writer. On success the caller's
+// workload snapshot is updated so later in-loop helpers (updateUnScheduled) see IsEnd.
 func (r *SchedulerReconciler) persistExternalTerminalFailure(ctx context.Context,
 	workload *v1.Workload, reason string) error {
 	if workload == nil {
@@ -589,9 +592,19 @@ func (r *SchedulerReconciler) persistExternalTerminalFailure(ctx context.Context
 		return err
 	}
 	if current.IsEnd() {
+		workload.Status.Phase = current.Status.Phase
+		workload.Status.Message = current.Status.Message
+		workload.Status.EndTime = current.Status.EndTime
 		return nil
 	}
-	return jobutils.SetWorkloadFailed(ctx, r.Client, current, reason)
+	if err := jobutils.SetWorkloadFailed(ctx, r.Client, current, reason); err != nil {
+		return err
+	}
+	workload.Status.Phase = current.Status.Phase
+	workload.Status.Message = current.Status.Message
+	workload.Status.EndTime = current.Status.EndTime
+	workload.Status.Conditions = current.Status.Conditions
+	return nil
 }
 
 // checkWorkloadDependencies checks whether all dependencies of the workload are satisfied.

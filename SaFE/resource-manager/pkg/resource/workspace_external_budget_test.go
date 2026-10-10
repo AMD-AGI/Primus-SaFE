@@ -9,7 +9,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/spf13/viper"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -20,6 +22,7 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/record"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -232,4 +235,19 @@ func TestReconcileExternalWorkspaceSkipsScaling(t *testing.T) {
 	assert.Equal(t, stored.Status.Phase, v1.WorkspaceRunning)
 	assert.Equal(t, qty(stored.Status.TotalResources, gpuResource), "8")
 	assert.Equal(t, result.RequeueAfter, externalBudgetResync())
+}
+
+// resync==0 means budget polling is disabled; keep the caller's RequeueAfter.
+func TestFinishExternalWorkspacePreservesActionWhenResyncDisabled(t *testing.T) {
+	viper.Set("external_execution.workspace_resync_seconds", 0)
+	t.Cleanup(func() { viper.Set("external_execution.workspace_resync_seconds", 30) })
+
+	workspace := externalWorkspace("ext-budget-noresync", "flavor", 1)
+	workspace.Status.Phase = v1.WorkspaceRunning
+	r := &WorkspaceReconciler{}
+	want := 45 * time.Second
+	got, err := r.finishExternalWorkspace(context.Background(), workspace,
+		ctrlruntime.Result{RequeueAfter: want})
+	assert.NilError(t, err)
+	assert.Equal(t, got.RequeueAfter, want)
 }

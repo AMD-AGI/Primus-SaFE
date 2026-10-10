@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -23,6 +24,10 @@ import (
 
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
+
+// defaultRegistryResolveTimeout bounds a single digest lookup so a hung registry
+// cannot stall the workspace schedule loop. Matches the former HTTP claim client.
+const defaultRegistryResolveTimeout = 10 * time.Second
 
 // ResolveFunc resolves a container image reference to a digest-pinned form.
 // Tests replace it to avoid network access.
@@ -38,6 +43,11 @@ func Resolve(ctx context.Context, image string, keychain authn.Keychain) (string
 	if IsPinned(image) {
 		return image, nil
 	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultRegistryResolveTimeout)
+		defer cancel()
+	}
 	ref, err := name.ParseReference(image)
 	if err != nil {
 		return "", fmt.Errorf("parse image %q: %w", image, err)
@@ -50,9 +60,7 @@ func Resolve(ctx context.Context, image string, keychain authn.Keychain) (string
 	if err != nil {
 		return "", err
 	}
-	if tr != nil {
-		opts = append(opts, remote.WithTransport(tr))
-	}
+	opts = append(opts, remote.WithTransport(tr))
 	digest, err := resolveDigest(ref, opts...)
 	if err != nil {
 		return "", fmt.Errorf("resolve digest for %q: %w", image, err)
@@ -74,13 +82,23 @@ func resolveDigest(ref name.Reference, opts ...remote.Option) (string, error) {
 	return got.Digest.String(), nil
 }
 
-// registryTransport builds an HTTP transport for registry TLS. nil means use
-// go-containerregistry defaults (process system roots).
+// registryTransport builds an HTTP transport for registry TLS with a response
+// header timeout so a connected-but-silent registry cannot hang forever.
 func registryTransport() (*http.Transport, error) {
 	skipVerify := commonconfig.IsExternalRegistryInsecureSkipVerify()
 	caPath := strings.TrimSpace(commonconfig.GetExternalRegistryCAPath())
+
+	base, ok := http.DefaultTransport.(*http.Transport)
+	var tr *http.Transport
+	if ok && base != nil {
+		tr = base.Clone()
+	} else {
+		tr = &http.Transport{Proxy: http.ProxyFromEnvironment}
+	}
+	tr.ResponseHeaderTimeout = defaultRegistryResolveTimeout
+
 	if !skipVerify && caPath == "" {
-		return nil, nil
+		return tr, nil
 	}
 
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12} //nolint:gosec // MinVersion set
@@ -101,12 +119,6 @@ func registryTransport() (*http.Transport, error) {
 	} else if skipVerify {
 		tlsConfig.InsecureSkipVerify = true //nolint:gosec // explicit deployment escape hatch
 	}
-
-	base, ok := http.DefaultTransport.(*http.Transport)
-	if !ok || base == nil {
-		return &http.Transport{TLSClientConfig: tlsConfig, Proxy: http.ProxyFromEnvironment}, nil
-	}
-	tr := base.Clone()
 	tr.TLSClientConfig = tlsConfig
 	return tr, nil
 }

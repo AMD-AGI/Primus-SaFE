@@ -563,6 +563,24 @@ func ensurePriorityClassMatches(ctx context.Context, clientSet kubernetes.Interf
 	if !managed && !external {
 		return nil
 	}
+	// Provider-owned external classes: fix preemptionPolicy only. Never stamp
+	// PriorityClassManagedLabel or rewrite Description, or Cluster delete would
+	// remove a shared object SaFE did not create.
+	if !managed && external {
+		if desired.preemptionPolicy == nil {
+			return nil
+		}
+		if existing.PreemptionPolicy != nil && *existing.PreemptionPolicy == *desired.preemptionPolicy {
+			return nil
+		}
+		updated := existing.DeepCopy()
+		updated.PreemptionPolicy = desired.preemptionPolicy
+		if _, err := clientSet.SchedulingV1().PriorityClasses().Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
+			return err
+		}
+		klog.Infof("update PriorityClass %s preemptionPolicy only (provider-owned)", desired.name)
+		return nil
+	}
 	needUpdate := false
 	if desired.preemptionPolicy != nil {
 		if existing.PreemptionPolicy == nil || *existing.PreemptionPolicy != *desired.preemptionPolicy {
@@ -570,9 +588,6 @@ func ensurePriorityClassMatches(ctx context.Context, clientSet kubernetes.Interf
 		}
 	}
 	if existing.Description != desired.description {
-		needUpdate = true
-	}
-	if existing.Labels[v1.PriorityClassManagedLabel] != v1.TrueStr {
 		needUpdate = true
 	}
 	// PriorityClass.value is immutable; never attempt to change it.
@@ -584,16 +599,12 @@ func ensurePriorityClassMatches(ctx context.Context, clientSet kubernetes.Interf
 		return nil
 	}
 	updated := existing.DeepCopy()
-	if updated.Labels == nil {
-		updated.Labels = map[string]string{}
-	}
-	updated.Labels[v1.PriorityClassManagedLabel] = v1.TrueStr
 	updated.Description = desired.description
 	updated.PreemptionPolicy = desired.preemptionPolicy
 	if _, err := clientSet.SchedulingV1().PriorityClasses().Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
 		return err
 	}
-	klog.Infof("update PriorityClass, name: %s (preemptionPolicy/labels)", desired.name)
+	klog.Infof("update PriorityClass, name: %s (preemptionPolicy/description)", desired.name)
 	return nil
 }
 

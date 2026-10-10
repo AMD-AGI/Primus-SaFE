@@ -373,7 +373,8 @@ func TestGuaranteePriorityClassExternalCorrectsPreemptionPolicy(t *testing.T) {
 	testifyassert.Equal(t, int32(42), got.Value)
 	testifyassert.NotNil(t, got.PreemptionPolicy)
 	testifyassert.Equal(t, corev1.PreemptNever, *got.PreemptionPolicy)
-	testifyassert.Equal(t, v1.TrueStr, got.Labels[v1.PriorityClassManagedLabel])
+	_, hasManaged := got.Labels[v1.PriorityClassManagedLabel]
+	testifyassert.False(t, hasManaged, "provider-owned PriorityClass must not gain managed label")
 }
 
 func TestDeletePriorityClass(t *testing.T) {

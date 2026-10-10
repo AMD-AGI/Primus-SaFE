@@ -43,6 +43,10 @@ func TestPersistExternalTerminalFailure(t *testing.T) {
 	if err := r.persistExternalTerminalFailure(context.Background(), w, reason); err != nil {
 		t.Fatal(err)
 	}
+	// Caller snapshot must mirror Failed so updateUnScheduled does not overwrite.
+	if w.Status.Phase != v1.WorkloadFailed {
+		t.Fatalf("caller phase=%s want Failed", w.Status.Phase)
+	}
 	stored := &v1.Workload{}
 	if err := r.Get(context.Background(), client.ObjectKey{Name: w.Name}, stored); err != nil {
 		t.Fatal(err)

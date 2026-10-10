@@ -108,6 +108,15 @@ func TestFitExternalBookingNameKeepsPairWithinLimit(t *testing.T) {
 	if _, err := FitExternalBookingName(longNS, "pr-1"); err == nil {
 		t.Fatal("namespace that fills the booking key must error")
 	}
+	// maxName==17 (ns len 45) used to panic on digest[:17] with a 16-char digest.
+	ns45 := strings.Repeat("n", 45)
+	fitted, err = FitExternalBookingName(ns45, "pr-0123456789abcdef-1-1-longer-than-seventeen")
+	if err != nil {
+		t.Fatalf("ns len 45: %v", err)
+	}
+	if len(ns45)+1+len(fitted) > ExternalBookingKeyMaxLen {
+		t.Fatalf("ns45 booking key too long: %q.%q", ns45, fitted)
+	}
 }
 
 func TestNodeMigrationPredicates(t *testing.T) {

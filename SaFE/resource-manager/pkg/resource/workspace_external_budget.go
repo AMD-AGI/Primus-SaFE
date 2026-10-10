@@ -159,7 +159,8 @@ func (r *WorkspaceReconciler) finishExternalWorkspace(ctx context.Context,
 	}
 	result := actionResult
 	resync := externalBudgetResync()
-	if result.RequeueAfter == 0 || result.RequeueAfter > resync {
+	// resync==0 means the site disabled budget polling; keep actionResult as-is.
+	if resync > 0 && (result.RequeueAfter == 0 || result.RequeueAfter > resync) {
 		result.RequeueAfter = resync
 	}
 	return result, nil

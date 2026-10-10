@@ -6,9 +6,12 @@
 package scheduler
 
 import (
+	"context"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
@@ -70,5 +73,32 @@ func TestWaitingReasonsAreTerminal(t *testing.T) {
 	}
 	if isTerminalExternalReason(ExternalCapacityReason) {
 		t.Fatal("capacity wait must not be terminal")
+	}
+}
+
+// Single-pod kube-scheduler work never creates a ProvisioningRequest. Release must
+// clear DispatchGeneration without synthesizing a DELETE against a guessed name.
+func TestReconcileExternalReleaseSkipsDeleteWithoutPR(t *testing.T) {
+	w := gpuWorkload()
+	w.Status.Phase = v1.WorkloadSucceeded
+	w.Status.ExternalExecution = &v1.WorkloadExternalExecution{
+		PlacementMode:      v1.ExternalPlacementKubeScheduler,
+		DispatchGeneration: 3,
+	}
+	r := &SchedulerReconciler{Client: ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).
+		WithObjects(w).WithStatusSubresource(&v1.Workload{}).Build()}
+	still, err := r.reconcileExternalRelease(context.Background(), w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if still {
+		t.Fatal("empty ProvisioningRequest must not keep reclaiming")
+	}
+	stored := &v1.Workload{}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: w.Name}, stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status.ExternalExecution.DispatchGeneration != 0 {
+		t.Fatalf("DispatchGeneration=%d want 0", stored.Status.ExternalExecution.DispatchGeneration)
 	}
 }

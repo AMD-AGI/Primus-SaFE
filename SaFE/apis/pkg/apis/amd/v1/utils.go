@@ -333,10 +333,8 @@ func ExternalHostKeyFromAnnotations(annotations map[string]string) string {
 // ledger.BookingKey and the booking taint value use that pair verbatim.
 // Returns an error when the namespace alone leaves no room for a name.
 func FitExternalBookingName(namespace, name string) (string, error) {
+	// ExternalBookingKeyMaxLen is 63, so maxName is always <= 62.
 	maxName := ExternalBookingKeyMaxLen - len(namespace) - 1
-	if maxName > 63 {
-		maxName = 63
-	}
 	if maxName < 1 {
 		return "", fmt.Errorf("namespace %q leaves no room for booking name within %d chars",
 			namespace, ExternalBookingKeyMaxLen)
@@ -345,17 +343,18 @@ func FitExternalBookingName(namespace, name string) (string, error) {
 		return name, nil
 	}
 	sum := sha256.Sum256([]byte(name))
-	digest := hex.EncodeToString(sum[:8])
+	digest := hex.EncodeToString(sum[:8]) // 16 hex chars
 	if maxName <= len(digest) {
 		return digest[:maxName], nil
 	}
 	prefixLen := maxName - len(digest) - 1
 	if prefixLen < 1 {
-		return digest[:maxName], nil
+		// Room for the digest only (no hyphen+prefix). Never slice past len(digest).
+		return digest, nil
 	}
 	prefix := strings.TrimRight(name[:prefixLen], "-")
 	if prefix == "" {
-		return digest[:maxName], nil
+		return digest, nil
 	}
 	return prefix + "-" + digest, nil
 }

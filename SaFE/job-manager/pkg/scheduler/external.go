@@ -113,8 +113,22 @@ func (r *SchedulerReconciler) reconcileExternalRelease(ctx context.Context,
 		return false, nil
 	}
 	state := workload.Status.ExternalExecution
-	if state.PlacementMode != v1.ExternalPlacementKubeScheduler ||
-		(state.ProvisioningRequest == "" && state.DispatchGeneration == 0) {
+	if state.PlacementMode != v1.ExternalPlacementKubeScheduler {
+		return false, nil
+	}
+	// Single-pod workloads never create a ProvisioningRequest. Only clear
+	// DispatchGeneration so ended work does not DELETE a synthetic name forever.
+	if state.ProvisioningRequest == "" {
+		if state.DispatchGeneration == 0 {
+			return false, nil
+		}
+		updated := state.DeepCopy()
+		updated.DispatchGeneration = 0
+		if err := r.patchExternalState(ctx, workload, updated); err != nil {
+			klog.ErrorS(err, "failed to clear dispatch generation after release",
+				"workload", workload.Name)
+			return true, nil
+		}
 		return false, nil
 	}
 	if err := r.deleteExternalProvisioningObjects(ctx, workload); err != nil {
