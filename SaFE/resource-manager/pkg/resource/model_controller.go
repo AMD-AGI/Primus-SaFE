@@ -785,7 +785,7 @@ func validateCleanupPath(workspace *v1.Workspace, p string) error {
 
 // cleanupJobName is the name of the job that removes one local directory of a model.
 func cleanupJobName(model *v1.Model, workspace, p string) string {
-	return hashedJobName(CleanupJobPrefix+model.Name, workspace+"\x00"+p)
+	return hashedJobName(CleanupJobPrefix+model.Name, model.Name+"\x00"+workspace+"\x00"+p)
 }
 
 // downloadJobName is the name of the job that downloads a model into one workspace.

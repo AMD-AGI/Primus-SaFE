@@ -1349,6 +1349,8 @@ func TestModelJobNamesStayDistinctForLongNames(t *testing.T) {
 	c1 := cleanupJobName(model, "ws1", "/mnt/a/models/org--repo")
 	c2 := cleanupJobName(model, "ws1", "/mnt/b/models/org--repo")
 	assert.NotEqual(t, c1, c2)
+	other := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "meta-llama-llama-3-1-405b-instruct-fp8-dynamic-zzzzzz"}}
+	assert.NotEqual(t, c1, cleanupJobName(other, "ws1", "/mnt/a/models/org--repo"), "another model's cleanup of the same directory")
 	for _, n := range []string{ws1, ws2, c1, c2} {
 		assert.LessOrEqual(t, len(n), 45, n)
 		assert.Equal(t, stringutil.NormalizeForDNS(n), n, "a valid name")
