@@ -65,6 +65,29 @@ func NewCondition(conditionType, message, reason string) *metav1.Condition {
 	}
 }
 
+// SyncAdminSchedulingCondition upserts AdminScheduling for the next dispatch reason.
+// Returns true when Conditions was mutated. LastTransitionTime is set only on create so
+// refreshing the wait message does not reorder the timeline entry.
+func SyncAdminSchedulingCondition(workload *v1.Workload, message string) bool {
+	if workload == nil || workload.IsEnd() {
+		return false
+	}
+	reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload) + 1)
+	probe := &metav1.Condition{Type: string(v1.AdminScheduling), Reason: reason}
+	current := FindCondition(workload, probe)
+	if current == nil {
+		workload.Status.Conditions = append(workload.Status.Conditions, *NewCondition(
+			string(v1.AdminScheduling), message, reason))
+		return true
+	}
+	if current.Message == message && current.Status == metav1.ConditionTrue {
+		return false
+	}
+	current.Message = message
+	current.Status = metav1.ConditionTrue
+	return true
+}
+
 // SetWorkloadFailed sets the workload to failed state and updates its status.
 // It adds a failure condition and sets the end time if not already set.
 func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Workload, message string) error {

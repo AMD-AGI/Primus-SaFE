@@ -70,6 +70,7 @@
       <el-descriptions-item label="enablePreempt">{{
         detailData.enablePreempt
       }}</el-descriptions-item>
+      <el-descriptions-item label="external">{{ detailData.external }}</el-descriptions-item>
 
       <el-descriptions-item :span="3">
         <template #label>

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -147,19 +148,22 @@ func initializeObject(obj *unstructured.Unstructured,
 		return fmt.Errorf("failed to modify activeDeadlineSeconds: %v", err.Error())
 	}
 	if isExternalWorkload(workload) {
-		// The task runs on hardware the provider owns, reached over a protocol that carries
-		// its own identity. A projected service account token would put a credential for
-		// the execution cluster inside it for no purpose the task has.
+		// External tasks normally need no execution-cluster credential. Infera's
+		// kubernetes discovery is the exception: workers patch their Pod annotation and
+		// the router list/watches Pods via the in-cluster API, which requires the
+		// projected ServiceAccount token (operator provisions <idep>-disc).
 		path = podSpecPath(workload, resourceSpec, "automountServiceAccountToken")
-		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
-			return fmt.Errorf("failed to disable service account token: %v", err.Error())
+		automount := inferaUsesK8sDiscovery(workload, obj)
+		if err = jobutils.SetNestedField(obj.Object, automount, path); err != nil {
+			return fmt.Errorf("failed to set service account token automount: %v", err.Error())
 		}
-		// Host namespaces are node privileges the provider refuses, except the host network
-		// of a whole-node RDMA gang member. Set them here so earlier modifyHostNetwork (and
-		// later modifyHostPid) cannot leak.
+		// Host namespaces are node privileges the provider refuses, except hostNetwork
+		// when ForceHostNetwork is set, for whole-node RDMA gangs, or for external
+		// Infera/Dynamo roles that request RDMA. Set them here so earlier
+		// modifyHostNetwork (and later modifyHostPid) cannot leak hostPID/hostIPC.
 		path = podSpecPath(workload, resourceSpec, "hostNetwork")
-		if err = jobutils.SetNestedField(obj.Object, isExternalGang(workload), path); err != nil {
-			return fmt.Errorf("failed to disable host network for external: %v", err.Error())
+		if err = jobutils.SetNestedField(obj.Object, externalHostNetworkEnabled(workload, resourceId), path); err != nil {
+			return fmt.Errorf("failed to set host network for external: %v", err.Error())
 		}
 		path = podSpecPath(workload, resourceSpec, "hostPID")
 		if err = jobutils.SetNestedField(obj.Object, false, path); err != nil {
@@ -170,10 +174,17 @@ func initializeObject(obj *unstructured.Unstructured,
 			return fmt.Errorf("failed to disable host IPC for external: %v", err.Error())
 		}
 		// Do not set podSpec.preemptionPolicy. The PriorityClass admission controller
-		// derives PreemptLowerPriority from the class name and refuses an explicit Never
-		// ("must not be provided in pod spec"). External workloads already skip preemption
-		// in the scheduler; leaving the field unset is enough for admission.
+		// fills Never from the external PriorityClass onto the Pod.
 		if err = applyExternalVirtualKubeletToleration(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalSchedulerAffinity(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalBookingToleration(obj, workload, *resourceSpec); err != nil {
+			return err
+		}
+		if err = applyExternalConsumeProvisioningRequest(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
 		if err = applyExternalContainerSecurity(obj, workload, *resourceSpec); err != nil {
@@ -866,6 +877,12 @@ func toPositiveInt64(v interface{}) (int64, bool) {
 
 // modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled or tolerate sticky node taints
 func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	// External pods must not carry a keyless Exists toleration (R4). Match the webhook:
+	// clear the flag and continue so stock objects (or workspaces labeled external later)
+	// still dispatch.
+	if isExternalWorkload(workload) && workload.Spec.IsTolerateAll {
+		workload.Spec.IsTolerateAll = false
+	}
 	if !workload.Spec.IsTolerateAll && !v1.IsRetryingOnOriginal(workload) {
 		return nil
 	}
@@ -1087,9 +1104,8 @@ func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]inter
 	if mainContainerName != "" {
 		result[v1.MainContainerAnnotation] = mainContainerName
 	}
-	// Carries the claim identity to the execution cluster, where the provider rechecks it
-	// against the reservation after the pod binds.
-	for key, value := range externalPodAnnotations(workload, v1.ExternalSingleUnitKey) {
+	// Carries Autopilot identifiers onto the execution pod for post-bind recheck.
+	for key, value := range externalPodAnnotations(workload) {
 		result[key] = value
 	}
 	return result
@@ -1262,11 +1278,9 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 		})
 	}
 	for key, val := range workload.Spec.CustomerLabels {
-		// User node names AND the provider-approved hostname in one term. The intersection
-		// is empty whenever the user did not name the virtual node, and the pod then stays
-		// Pending while the claim keeps charging. The approved set below is the only
-		// hostname constraint an external pod may carry.
-		if isExternalWorkload(workload) && isHostNodeConstraint(key) {
+		// On the claim path, user hostname constraints are dropped so they cannot AND with
+		// the provider-approved set. On the kube-scheduler path they are kept (R3).
+		if isExternalWorkload(workload) && !isKubeSchedulerPlacement(workload) && isHostNodeConstraint(key) {
 			continue
 		}
 		var values []interface{}
@@ -2369,6 +2383,20 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 		}
 		slot["podLabels"] = labels
 
+		// ExtraPodSpec has no metadata. Carry pod annotations (site account,
+		// resource id, external claim keys) on ServiceSpec.podAnnotations so
+		// the operator can merge them onto the rendered pod template.
+		annos := map[string]interface{}{}
+		if existing, ok := slot["podAnnotations"].(map[string]interface{}); ok {
+			for k, v := range existing {
+				annos[k] = v
+			}
+		}
+		for k, v := range buildPodAnnotations(adminWorkload, i) {
+			annos[k] = v
+		}
+		slot["podAnnotations"] = annos
+
 		applyInferaRoleFields(slot, role, kvBackend,
 			commonworkload.IsInferaIdleRole(adminWorkload, role))
 		if role != common.DynamoRoleFrontend && !creatorReadinessPort {
@@ -2848,8 +2876,8 @@ func updateMetadata(adminWorkload *v1.Workload,
 	}
 	// IDEP's extraPodSpec is a bare corev1.PodSpec with no metadata field; the
 	// CRD schema prunes anything written to extraPodSpec.metadata.
-	// normalizeInferaIDEP carries these labels on the slot's podLabels field
-	// instead, at create time.
+	// normalizeInferaIDEP carries labels and annotations on the slot's
+	// podLabels and podAnnotations fields instead, at create time.
 	if commonworkload.IsInferaDeployment(adminWorkload) {
 		return nil
 	}
@@ -2914,7 +2942,7 @@ func updateContainers(adminWorkload *v1.Workload,
 	// The reservation was granted against the provider's approved vector. Using the
 	// workload request instead would let a rounded or padded Spec disagree with the
 	// claim, and VK admission refuses anything that is not an exact match.
-	if isExternalWorkload(adminWorkload) {
+	if isExternalWorkload(adminWorkload) && !isKubeSchedulerPlacement(adminWorkload) {
 		approved, approvedErr := externalApprovedResourceMap(adminWorkload, externalRoleUnitKey(adminWorkload, id))
 		if approvedErr != nil {
 			return approvedErr
@@ -2941,12 +2969,12 @@ func updateContainers(adminWorkload *v1.Workload,
 			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
 				container["image"] = adminWorkload.Spec.Images[id]
 			}
-			// The reservation was granted against the digest the provider resolved at claim
-			// time, not against the tag the user submitted. Using the tag here would let a
-			// moved tag run content nothing was admitted for, and the provider would refuse
-			// the task after the pod had already bound.
-			if approved := externalApprovedImage(adminWorkload, externalRoleUnitKey(adminWorkload, id)); approved != "" {
-				container["image"] = approved
+			// Claim path: use the digest the provider resolved at claim time.
+			// Kube-scheduler path: Autopilot VK pins tags at bind (schedCheckImage).
+			if !isKubeSchedulerPlacement(adminWorkload) {
+				if approved := externalApprovedImage(adminWorkload, externalRoleUnitKey(adminWorkload, id)); approved != "" {
+					container["image"] = approved
+				}
 			}
 			// expectedCommands, not buildCommands: an IDEP command carries the
 			// disaggregation and multi-node flags normalizeInferaIDEP grafts on
@@ -3111,8 +3139,8 @@ func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, resourceId int) error {
 	path := podSpecPath(adminWorkload, &resourceSpec, "hostNetwork")
 	if isExternalWorkload(adminWorkload) {
-		// Only a gang member may use the host network on external capacity.
-		return jobutils.SetNestedField(obj.Object, isExternalGang(adminWorkload), path)
+		// External: RDMA gang, or Infera/Dynamo roles with RDMA (see externalHostNetworkEnabled).
+		return jobutils.SetNestedField(obj.Object, externalHostNetworkEnabled(adminWorkload, resourceId), path)
 	}
 	return modifyHostNetwork(obj, adminWorkload, path, resourceId)
 }
@@ -3154,6 +3182,49 @@ func validateExternalPodShape(obj *unstructured.Unstructured, workload *v1.Workl
 	ephemeralPath := podSpecPath(workload, &resourceSpec, "ephemeralContainers")
 	if eps, found, _ := jobutils.NestedSlice(obj.Object, ephemeralPath); found && len(eps) > 0 {
 		return fmt.Errorf("external capacity does not support ephemeral containers")
+	}
+	if err = validateExternalIntegerRequests(containers[0]); err != nil {
+		return err
+	}
+	// Image digests are pinned by Autopilot VK at bind (schedCheckImage); SaFE accepts tags.
+	return nil
+}
+
+// validateExternalIntegerRequests requires whole-core CPU and whole-MiB memory on the
+// main container (requests and limits already equal from modifyResources).
+func validateExternalIntegerRequests(container interface{}) error {
+	c, ok := container.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	resources, _ := c["resources"].(map[string]interface{})
+	if resources == nil {
+		return nil
+	}
+	requests, _ := resources["requests"].(map[string]interface{})
+	if requests == nil {
+		return nil
+	}
+	const mib int64 = 1024 * 1024
+	if raw, ok := requests[string(corev1.ResourceCPU)]; ok {
+		s := fmt.Sprint(raw)
+		q, err := resource.ParseQuantity(s)
+		if err != nil {
+			return fmt.Errorf("cpu request %q: %w", s, err)
+		}
+		if q.MilliValue()%1000 != 0 {
+			return fmt.Errorf("external capacity requires whole-core CPU, got %q", s)
+		}
+	}
+	if raw, ok := requests[string(corev1.ResourceMemory)]; ok {
+		s := fmt.Sprint(raw)
+		q, err := resource.ParseQuantity(s)
+		if err != nil {
+			return fmt.Errorf("memory request %q: %w", s, err)
+		}
+		if q.Value()%mib != 0 {
+			return fmt.Errorf("external capacity requires whole-MiB memory, got %q", s)
+		}
 	}
 	return nil
 }
@@ -3211,10 +3282,80 @@ func stripExternalContainerPrivileges(obj *unstructured.Unstructured, workload *
 	return jobutils.SetNestedField(obj.Object, containers, path)
 }
 
-// applyExternalVirtualKubeletToleration adds a toleration for the provider's virtual-node
-// taint so kube-scheduler can place the pod on an external VK.
+// applyExternalVirtualKubeletToleration adds tolerations for the provider's virtual-node
+// taints so kube-scheduler can place the pod on an external VK. Both the community
+// key and the legacy SaFE key are added during the dual-key transition.
 func applyExternalVirtualKubeletToleration(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
+	path := podSpecPath(workload, &resourceSpec, "tolerations")
+	tolerations, _, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for _, raw := range tolerations {
+		t, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if key, _ := t["key"].(string); key != "" {
+			have[key] = true
+		}
+	}
+	for _, key := range v1.ExternalVirtualKubeletTaintKeys() {
+		if have[key] {
+			continue
+		}
+		tolerations = append(tolerations, map[string]interface{}{
+			"key":      key,
+			"operator": "Exists",
+			"effect":   "NoSchedule",
+		})
+	}
+	return jobutils.SetNestedField(obj.Object, tolerations, path)
+}
+
+// applyExternalSchedulerAffinity writes workspace In for the kube-scheduler path.
+// Current and legacy provider label keys stay OR'd so pods still match VK nodes
+// during the Autopilot rename window. Lease remaining is expressed via
+// activeDeadlineSeconds (Autopilot), not absolute lease-end affinity. When the
+// template already has nodeSelectorTerms, workspace constraints are ANDed into
+// every term so user specified_nodes / excluded_nodes / custom labels cannot be bypassed.
+func applyExternalSchedulerAffinity(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	if !isKubeSchedulerPlacement(workload) {
+		return nil
+	}
+	path := podSpecPath(workload, &resourceSpec, "affinity", "nodeAffinity",
+		"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	terms, _, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	ws := ""
+	if workload != nil {
+		ws = workload.Spec.Workspace
+	}
+	selectorTerms := commonworkload.ExternalWorkspaceAffinityTerms(ws)
+	if len(terms) == 0 {
+		terms = selectorTerms
+	} else {
+		terms = commonworkload.MergeExternalWorkspaceAffinity(terms, selectorTerms)
+	}
+	return jobutils.SetNestedField(obj.Object, terms, path)
+}
+
+// applyExternalBookingToleration adds the ProvisioningRequest booking toleration for gangs.
+func applyExternalBookingToleration(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	if !isKubeSchedulerPlacement(workload) || !isExternalGang(workload) {
+		return nil
+	}
+	prName := workload.Status.ExternalExecution.ProvisioningRequest
+	if prName == "" {
+		return fmt.Errorf("workload %s missing provisioningRequest for booking toleration", workload.Name)
+	}
+	bookingValue := workload.Spec.Workspace + "." + prName
 	path := podSpecPath(workload, &resourceSpec, "tolerations")
 	tolerations, _, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
@@ -3225,16 +3366,39 @@ func applyExternalVirtualKubeletToleration(obj *unstructured.Unstructured, workl
 		if !ok {
 			continue
 		}
-		if t["key"] == v1.ExternalVirtualKubeletTaint {
+		if t["key"] == v1.ExternalProvisioningRequestTaint && t["value"] == bookingValue {
 			return nil
 		}
 	}
 	tolerations = append(tolerations, map[string]interface{}{
-		"key":      v1.ExternalVirtualKubeletTaint,
-		"operator": "Exists",
+		"key":      v1.ExternalProvisioningRequestTaint,
+		"operator": string(corev1.TolerationOpEqual),
+		"value":    bookingValue,
 		"effect":   "NoSchedule",
 	})
 	return jobutils.SetNestedField(obj.Object, tolerations, path)
+}
+
+// applyExternalConsumeProvisioningRequest annotates gang pods with the PR they consume.
+func applyExternalConsumeProvisioningRequest(obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec v1.ResourceSpec) error {
+	if !isKubeSchedulerPlacement(workload) || !isExternalGang(workload) {
+		return nil
+	}
+	prName := workload.Status.ExternalExecution.ProvisioningRequest
+	if prName == "" {
+		return fmt.Errorf("workload %s missing provisioningRequest for consume annotation", workload.Name)
+	}
+	annoPath := append(resourceSpec.TemplatePath(), "metadata", "annotations")
+	existingAnno, _, err := jobutils.NestedMap(obj.Object, annoPath)
+	if err != nil {
+		return err
+	}
+	if existingAnno == nil {
+		existingAnno = make(map[string]interface{})
+	}
+	existingAnno[v1.ConsumeProvisioningRequestAnnotation] = prName
+	return jobutils.SetNestedField(obj.Object, existingAnno, annoPath)
 }
 
 // applyExternalVolumePolicy rewrites volumes/mounts the provider refuses without changing
@@ -3304,6 +3468,12 @@ func stripExternalVolumeMountSubPaths(obj *unstructured.Unstructured, workload *
 			if !ok {
 				continue
 			}
+			name, _ := m["name"].(string)
+			root := hostPathByName[name]
+			if root == "" {
+				// PVC/NFS and other non-hostPath mounts keep subPath isolation.
+				continue
+			}
 			if _, has := m["subPath"]; !has {
 				if _, hasExpr := m["subPathExpr"]; !hasExpr {
 					continue
@@ -3311,10 +3481,7 @@ func stripExternalVolumeMountSubPaths(obj *unstructured.Unstructured, workload *
 			}
 			delete(m, "subPath")
 			delete(m, "subPathExpr")
-			name, _ := m["name"].(string)
-			if root := hostPathByName[name]; root != "" {
-				m["mountPath"] = root
-			}
+			m["mountPath"] = root
 		}
 		container["volumeMounts"] = mounts
 	}
@@ -3463,6 +3630,10 @@ func rewriteClusterLocalURL(raw, base string) string {
 // VK can verify the unit is constrained to the approved virtual node of its role.
 func applyExternalNodePin(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec, resourceId int) error {
+	// Kube-scheduler path uses workspace affinity instead of claim host pins (R3).
+	if isKubeSchedulerPlacement(workload) {
+		return nil
+	}
 	nodes := externalRoleNodes(workload, resourceId)
 	if len(nodes) == 0 {
 		return nil
@@ -3505,8 +3676,7 @@ func applyExternalNodePin(obj *unstructured.Unstructured, workload *v1.Workload,
 
 // externalApprovedResourceMap turns the claim's approved ResourceVector into the
 // requests=limits map written onto the pod. Only resources the claim named appear.
-// Values come from status placements persisted at acceptClaim time so dispatch does
-// not re-fetch the claim after verifyExternalClaim.
+// Values come from status placements so dispatch can bind requests=limits.
 func externalApprovedResourceMap(workload *v1.Workload, unitKey string) (map[string]interface{}, error) {
 	state := workload.Status.ExternalExecution
 	if state == nil {

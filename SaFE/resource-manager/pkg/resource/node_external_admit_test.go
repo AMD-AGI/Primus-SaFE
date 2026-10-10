@@ -324,3 +324,33 @@ func TestAdmitVirtualKubeletSkipsNonVirtualKubelet(t *testing.T) {
 		t.Fatalf("native node must be skipped, name=%q err=%v", name, err)
 	}
 }
+
+func TestAdmitVirtualKubeletAcceptsLegacyWorkspaceLabel(t *testing.T) {
+	viper.Set("external_execution.enabled", true)
+	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "ws-ext",
+			Labels: map[string]string{v1.WorkspaceExternalLabel: "true"},
+		},
+		Spec: v1.WorkspaceSpec{Cluster: "crusoe", NodeFlavor: "vk-mi355x"},
+	}
+	r := newNodeK8sReconciler(t, ws)
+	vk := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name: "vk-legacy",
+		Labels: map[string]string{
+			v1.VirtualKubeletTypeLabelKey: v1.VirtualKubeletTypeLabelValue,
+			v1.ExternalWorkspaceLabelLegacy: "ws-ext",
+			v1.ExternalProviderLabel:         "spur",
+			v1.ExternalAllocationIdLabel:    "alloc-1",
+			v1.ExternalGenerationLabel:      "1",
+		},
+	}}
+	name, err := r.admitVirtualKubelet(context.Background(), "crusoe", vk)
+	if err != nil {
+		t.Fatalf("admit: %v", err)
+	}
+	if name != "vk-legacy" {
+		t.Fatalf("name=%q", name)
+	}
+}

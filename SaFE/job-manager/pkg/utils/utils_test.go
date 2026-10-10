@@ -130,6 +130,23 @@ func TestFindConditionAndNewCondition(t *testing.T) {
 	assert.Assert(t, FindCondition(w, other) == nil)
 }
 
+func TestSyncAdminSchedulingCondition(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	assert.Assert(t, SyncAdminSchedulingCondition(w, ""))
+	assert.Equal(t, len(w.Status.Conditions), 1)
+	assert.Equal(t, w.Status.Conditions[0].Type, string(v1.AdminScheduling))
+	assert.Equal(t, w.Status.Conditions[0].Message, "")
+	firstTime := w.Status.Conditions[0].LastTransitionTime
+
+	assert.Assert(t, !SyncAdminSchedulingCondition(w, ""))
+	assert.Assert(t, SyncAdminSchedulingCondition(w, "In queue - waiting"))
+	assert.Equal(t, w.Status.Conditions[0].Message, "In queue - waiting")
+	assert.Equal(t, w.Status.Conditions[0].LastTransitionTime, firstTime)
+
+	w.Status.Phase = v1.WorkloadFailed
+	assert.Assert(t, !SyncAdminSchedulingCondition(w, "ignored"))
+}
+
 func TestSetWorkloadFailed(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
 	cl := ctrlfake.NewClientBuilder().

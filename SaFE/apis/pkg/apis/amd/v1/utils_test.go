@@ -6,6 +6,7 @@
 package v1
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -85,6 +86,36 @@ func TestGetNodeMigrateInfoRejectsUnusableValues(t *testing.T) {
 				t.Fatalf("GetNodeMigrateInfo(%q) = %+v, want nil", tc.val, info)
 			}
 		})
+	}
+}
+
+func TestFitExternalBookingNameKeepsPairWithinLimit(t *testing.T) {
+	ns := "very-long-workspace-name-for-booking"
+	base := "pr-0123456789abcdef-1-1"
+	fitted, err := FitExternalBookingName(ns, base)
+	if err != nil {
+		t.Fatalf("FitExternalBookingName: %v", err)
+	}
+	if len(ns)+1+len(fitted) > ExternalBookingKeyMaxLen {
+		t.Fatalf("booking key %q.%q length %d exceeds %d",
+			ns, fitted, len(ns)+1+len(fitted), ExternalBookingKeyMaxLen)
+	}
+	short, err := FitExternalBookingName("ws", "pr-short-1-1")
+	if err != nil || short != "pr-short-1-1" {
+		t.Fatalf("short names must stay unchanged, got %q err=%v", short, err)
+	}
+	longNS := strings.Repeat("n", ExternalBookingKeyMaxLen)
+	if _, err := FitExternalBookingName(longNS, "pr-1"); err == nil {
+		t.Fatal("namespace that fills the booking key must error")
+	}
+	// maxName==17 (ns len 45) used to panic on digest[:17] with a 16-char digest.
+	ns45 := strings.Repeat("n", 45)
+	fitted, err = FitExternalBookingName(ns45, "pr-0123456789abcdef-1-1-longer-than-seventeen")
+	if err != nil {
+		t.Fatalf("ns len 45: %v", err)
+	}
+	if len(ns45)+1+len(fitted) > ExternalBookingKeyMaxLen {
+		t.Fatalf("ns45 booking key too long: %q.%q", ns45, fitted)
 	}
 }
 

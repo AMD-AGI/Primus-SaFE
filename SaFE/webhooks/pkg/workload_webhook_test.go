@@ -838,11 +838,11 @@ func githubRunnerForLabelTest(name, runnerLabels string) *v1.Workload {
 
 func TestGithubRunnerPoolLabelsRejectsDuplicates(t *testing.T) {
 	scheme := newScheme(t)
-	existing := githubRunnerForLabelTest("runner-a", "spur-autopilot-hosted")
+	existing := githubRunnerForLabelTest("runner-a", "autopilot-hosted")
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
 	v := &WorkloadValidator{Client: c}
 
-	dup := githubRunnerForLabelTest("runner-b", "spur-autopilot-hosted")
+	dup := githubRunnerForLabelTest("runner-b", "autopilot-hosted")
 	err := v.validateGithubRunner(context.Background(), dup, nil)
 	assert.Assert(t, err != nil)
 	assert.Assert(t, commonerrors.IsAlreadyExist(err))
@@ -2557,6 +2557,37 @@ func TestWorkloadValidateExternalRefusesPrivileges(t *testing.T) {
 	v1.SetAnnotation(hostNet, v1.UserAccountAnnotation, "jdoe")
 	v1.SetAnnotation(hostNet, v1.ForceHostNetworkAnnotation, v1.TrueStr)
 	assert.Assert(t, v.validateWorkspace(context.Background(), hostNet) != nil)
+
+	tolerateAll := validWorkload()
+	tolerateAll.Spec.Workspace = "ws-ext"
+	tolerateAll.Spec.IsTolerateAll = true
+	v1.SetAnnotation(tolerateAll, v1.UserAccountAnnotation, "jdoe")
+	assert.NilError(t, v.validateWorkspace(context.Background(), tolerateAll))
+
+	fracCPU := validWorkload()
+	fracCPU.Spec.Workspace = "ws-ext"
+	fracCPU.Spec.Resources[0].CPU = "1500m"
+	v1.SetAnnotation(fracCPU, v1.UserAccountAnnotation, "jdoe")
+	assert.ErrorContains(t, v.validateWorkspace(context.Background(), fracCPU), "whole-core")
+}
+
+func TestWorkloadMutateExternalClearsTolerateAll(t *testing.T) {
+	scheme := newScheme(t)
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "ws-ext",
+			Labels: map[string]string{v1.WorkspaceExternalLabel: "true"},
+		},
+		Spec: v1.WorkspaceSpec{Replica: 1, Cluster: "crusoe"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ws).Build()
+	m := &WorkloadMutator{Client: c}
+
+	w := validWorkload()
+	w.Spec.Workspace = "ws-ext"
+	w.Spec.IsTolerateAll = true
+	assert.NilError(t, m.mutateCommon(context.Background(), nil, w, ws))
+	assert.Equal(t, w.Spec.IsTolerateAll, false)
 }
 
 func proxyAdmissionWorkload() *v1.Workload {

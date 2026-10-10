@@ -10,10 +10,12 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	testifyassert "github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -312,23 +314,107 @@ func TestGuaranteePriorityClassNotReady(t *testing.T) {
 }
 
 func TestGuaranteePriorityClassReady(t *testing.T) {
+	viper.Set("external_execution.enabled", false)
+	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
+
 	cs := k8sfake.NewSimpleClientset()
 	cluster := readyCluster("c1")
 	r := newClusterReconcilerWithFactory(t, "c1", cs)
 	_, err := r.guaranteePriorityClass(context.Background(), cluster)
 	testifyassert.NoError(t, err)
-	// Priority classes should now exist.
+	// Native priority classes only while external execution is disabled.
 	list, err := cs.SchedulingV1().PriorityClasses().List(context.Background(), metav1.ListOptions{})
 	testifyassert.NoError(t, err)
 	testifyassert.Len(t, list.Items, 3)
 }
 
+func TestGuaranteePriorityClassExternalEnabled(t *testing.T) {
+	viper.Set("external_execution.enabled", true)
+	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
+
+	cs := k8sfake.NewSimpleClientset()
+	cluster := readyCluster("c1")
+	r := newClusterReconcilerWithFactory(t, "c1", cs)
+	_, err := r.guaranteePriorityClass(context.Background(), cluster)
+	testifyassert.NoError(t, err)
+	list, err := cs.SchedulingV1().PriorityClasses().List(context.Background(), metav1.ListOptions{})
+	testifyassert.NoError(t, err)
+	testifyassert.Len(t, list.Items, 6)
+
+	high, err := cs.SchedulingV1().PriorityClasses().Get(
+		context.Background(), v1.ExternalPriorityClassHigh, metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, int32(10000), high.Value)
+	testifyassert.NotNil(t, high.PreemptionPolicy)
+	testifyassert.Equal(t, corev1.PreemptNever, *high.PreemptionPolicy)
+	testifyassert.Equal(t, v1.TrueStr, high.Labels[v1.PriorityClassManagedLabel])
+}
+
+func TestGuaranteePriorityClassExternalLeavesProviderPreemptionPolicy(t *testing.T) {
+	viper.Set("external_execution.enabled", true)
+	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
+
+	existingPolicy := corev1.PreemptLowerPriority
+	existing := &schedulingv1.PriorityClass{
+		ObjectMeta:       metav1.ObjectMeta{Name: v1.ExternalPriorityClassHigh},
+		Value:            42,
+		PreemptionPolicy: &existingPolicy,
+		Description:      "provider-owned",
+	}
+	cs := k8sfake.NewSimpleClientset(existing)
+	cluster := readyCluster("c1")
+	r := newClusterReconcilerWithFactory(t, "c1", cs)
+	_, err := r.guaranteePriorityClass(context.Background(), cluster)
+	testifyassert.NoError(t, err)
+
+	got, err := cs.SchedulingV1().PriorityClasses().Get(
+		context.Background(), v1.ExternalPriorityClassHigh, metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	// preemptionPolicy and value are immutable; provider-owned objects must not be Updated.
+	testifyassert.Equal(t, int32(42), got.Value)
+	testifyassert.NotNil(t, got.PreemptionPolicy)
+	testifyassert.Equal(t, corev1.PreemptLowerPriority, *got.PreemptionPolicy)
+	testifyassert.Equal(t, "provider-owned", got.Description)
+	_, hasManaged := got.Labels[v1.PriorityClassManagedLabel]
+	testifyassert.False(t, hasManaged, "provider-owned PriorityClass must not gain managed label")
+	actions := cs.Actions()
+	for _, a := range actions {
+		if a.GetVerb() == "update" && a.GetResource().Resource == "priorityclasses" {
+			t.Fatal("provider-owned PriorityClass must not be Updated")
+		}
+	}
+}
+
 func TestDeletePriorityClass(t *testing.T) {
+	viper.Set("external_execution.enabled", true)
+	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
+
 	cs := k8sfake.NewSimpleClientset()
 	cluster := readyCluster("c1")
 	r := newClusterReconcilerWithFactory(t, "c1", cs)
 	_, _ = r.guaranteePriorityClass(context.Background(), cluster)
 	testifyassert.NoError(t, r.deletePriorityClass(context.Background(), cluster))
+	list, err := cs.SchedulingV1().PriorityClasses().List(context.Background(), metav1.ListOptions{})
+	testifyassert.NoError(t, err)
+	testifyassert.Empty(t, list.Items)
+}
+
+func TestDeletePriorityClassSkipsUnlabeled(t *testing.T) {
+	viper.Set("external_execution.enabled", true)
+	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
+
+	existing := &schedulingv1.PriorityClass{
+		ObjectMeta: metav1.ObjectMeta{Name: v1.ExternalPriorityClassHigh},
+		Value:      42,
+	}
+	cs := k8sfake.NewSimpleClientset(existing)
+	cluster := readyCluster("c1")
+	r := newClusterReconcilerWithFactory(t, "c1", cs)
+	testifyassert.NoError(t, r.deletePriorityClass(context.Background(), cluster))
+	got, err := cs.SchedulingV1().PriorityClasses().Get(
+		context.Background(), v1.ExternalPriorityClassHigh, metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, int32(42), got.Value)
 }
 
 func TestGetAdminImageSecretNotFound(t *testing.T) {
@@ -569,6 +655,14 @@ func TestGenerateForwardName(t *testing.T) {
 func TestGenAllPriorityClass(t *testing.T) {
 	classes := genAllPriorityClass("c1")
 	assert.Len(t, classes, 3)
+	external := genExternalPriorityClass()
+	assert.Len(t, external, 3)
+	assert.Equal(t, external[0].name, v1.ExternalPriorityClassHigh)
+	assert.Equal(t, int32(10000), external[0].value)
+	assert.Equal(t, int32(0), external[1].value)
+	assert.Equal(t, int32(-10000), external[2].value)
+	assert.NotNil(t, external[0].preemptionPolicy)
+	assert.Equal(t, *external[0].preemptionPolicy, corev1.PreemptNever)
 }
 
 func TestClusterRelevantChangePredicate(t *testing.T) {

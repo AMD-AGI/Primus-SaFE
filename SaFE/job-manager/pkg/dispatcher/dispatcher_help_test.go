@@ -2777,8 +2777,8 @@ func TestAppendLauncherFlagsKeepsQuoting(t *testing.T) {
 
 // TestUpdateMetadataSkipsInfera pins the early return: the IDEP extraPodSpec is
 // a bare core/v1 PodSpec, so a metadata block written there is pruned by the
-// CRD schema. normalizeInferaIDEP carries the same labels on the slot's
-// podLabels field instead.
+// CRD schema. normalizeInferaIDEP carries labels and annotations on the slot's
+// podLabels and podAnnotations fields instead.
 func TestUpdateMetadataSkipsInfera(t *testing.T) {
 	workload := newInferaWorkload([]string{common.DynamoRoleFrontend}, nil, []int{1})
 	obj := inferaObject(nil)
@@ -2807,6 +2807,26 @@ func TestUpdateMetadataSkipsInfera(t *testing.T) {
 	_, found, err = jobutils.NestedMap(pytObj.Object, []string{"spec", "template", "metadata", "labels"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
+}
+
+func TestNormalizeInferaIDEPCarriesUserAccountOnPodAnnotations(t *testing.T) {
+	workload := newInferaWorkload([]string{common.DynamoRoleFrontend, common.DynamoRolePrefill}, nil, []int{1, 1})
+	v1.SetAnnotation(workload, v1.UserAccountAnnotation, "leiwei12")
+	v1.SetAnnotation(workload, v1.UserNameAnnotation, "Wei, Lei")
+	obj := inferaObject(nil, nil)
+
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+	services, found, err := jobutils.NestedMap(obj.Object, []string{"spec", "services"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	for _, slotKey := range []string{"role0", "role1"} {
+		slot := services[slotKey].(map[string]interface{})
+		annos, ok := slot["podAnnotations"].(map[string]interface{})
+		assert.Assert(t, ok, slotKey)
+		assert.Equal(t, annos[v1.UserAccountAnnotation], "leiwei12", slotKey)
+		assert.Equal(t, annos[v1.UserNameAnnotation], "Wei, Lei", slotKey)
+	}
 }
 
 func TestUpdateCICDProxy_AddChangeRemove(t *testing.T) {

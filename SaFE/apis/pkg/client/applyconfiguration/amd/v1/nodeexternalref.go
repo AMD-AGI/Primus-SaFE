@@ -17,7 +17,8 @@ type NodeExternalRefApplyConfiguration struct {
 	AllocationId *string `json:"allocationId,omitempty"`
 	// Distinguishes reuses of the same allocation id
 	Generation *int64 `json:"generation,omitempty"`
-	// Identifies the verified physical host behind the allocation
+	// Identifies the verified physical host behind the allocation. Empty until the
+	// provider freezes the first observation; omitted rather than written as "".
 	HostKey *string `json:"hostKey,omitempty"`
 }
 

@@ -60,9 +60,13 @@ var (
 	// readiness can be decided without a separate status.external subtree.
 	concernedK8sAnnotationKeys = []string{
 		v1.ExternalObservedAtAnnotation,
+		v1.ExternalObservedAtAnnotationLegacy,
 		v1.ExternalValidUntilAnnotation,
+		v1.ExternalValidUntilAnnotationLegacy,
 		v1.ExternalHostKeyAnnotation,
+		v1.ExternalHostKeyAnnotationLegacy,
 		v1.ExternalAllocationPhaseAnnotation,
+		v1.ExternalAllocationPhaseAnnotationLegacy,
 	}
 )
 
@@ -299,10 +303,17 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 			if isVirtualKubeletNode(newNode) || isVirtualKubeletNode(oldNode) {
 				if r.isRelevantFieldChanged(oldNode, newNode) ||
 					oldNode.Labels[v1.ExternalWorkspaceLabel] != newNode.Labels[v1.ExternalWorkspaceLabel] ||
+					oldNode.Labels[v1.ExternalWorkspaceLabelLegacy] != newNode.Labels[v1.ExternalWorkspaceLabelLegacy] ||
 					oldNode.Labels[v1.ExternalAllocationIdLabel] != newNode.Labels[v1.ExternalAllocationIdLabel] ||
+					oldNode.Labels[v1.ExternalAllocationIdLabelLegacy] != newNode.Labels[v1.ExternalAllocationIdLabelLegacy] ||
 					oldNode.Annotations[v1.ExternalObservedAtAnnotation] != newNode.Annotations[v1.ExternalObservedAtAnnotation] ||
+					oldNode.Annotations[v1.ExternalObservedAtAnnotationLegacy] != newNode.Annotations[v1.ExternalObservedAtAnnotationLegacy] ||
 					oldNode.Annotations[v1.ExternalValidUntilAnnotation] != newNode.Annotations[v1.ExternalValidUntilAnnotation] ||
-					oldNode.Annotations[v1.ExternalHostKeyAnnotation] != newNode.Annotations[v1.ExternalHostKeyAnnotation] {
+					oldNode.Annotations[v1.ExternalValidUntilAnnotationLegacy] != newNode.Annotations[v1.ExternalValidUntilAnnotationLegacy] ||
+					oldNode.Annotations[v1.ExternalHostKeyAnnotation] != newNode.Annotations[v1.ExternalHostKeyAnnotation] ||
+					oldNode.Annotations[v1.ExternalHostKeyAnnotationLegacy] != newNode.Annotations[v1.ExternalHostKeyAnnotationLegacy] ||
+					oldNode.Annotations[v1.ExternalAllocationPhaseAnnotation] != newNode.Annotations[v1.ExternalAllocationPhaseAnnotation] ||
+					oldNode.Annotations[v1.ExternalAllocationPhaseAnnotationLegacy] != newNode.Annotations[v1.ExternalAllocationPhaseAnnotationLegacy] {
 					klog.Infof("cluster %s watch virtual kubelet %s update, workspace %s",
 						k8sClients.Name(), newNode.Name, newNode.Labels[v1.ExternalWorkspaceLabel])
 					enqueue(oldNode, newNode, NodeUpdate)
