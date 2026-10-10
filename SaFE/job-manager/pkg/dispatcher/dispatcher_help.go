@@ -3153,12 +3153,7 @@ func validateExternalPodShape(obj *unstructured.Unstructured, workload *v1.Workl
 	if err = validateExternalIntegerRequests(containers[0]); err != nil {
 		return err
 	}
-	if isKubeSchedulerPlacement(workload) {
-		image, _ := containers[0].(map[string]interface{})["image"].(string)
-		if image != "" && !isDigestPinned(image) {
-			return fmt.Errorf("external kube-scheduler path requires digest-pinned image, got %q", image)
-		}
-	}
+	// Image digests are pinned by Autopilot VK at bind (schedCheckImage); SaFE accepts tags.
 	return nil
 }
 

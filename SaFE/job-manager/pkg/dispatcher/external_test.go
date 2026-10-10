@@ -570,6 +570,25 @@ func TestValidateExternalPodShapeRejectsSidecars(t *testing.T) {
 		"exactly one container")
 }
 
+// Autopilot VK pins digests at bind; kube-scheduler path must accept tag images.
+func TestValidateExternalPodShapeAllowsTagImageOnKubeScheduler(t *testing.T) {
+	w := externalShapeWorkload()
+	w.Status.ExternalExecution = &v1.WorkloadExternalExecution{
+		PlacementMode: v1.ExternalPlacementKubeScheduler,
+	}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
+			"containers": []interface{}{
+				map[string]interface{}{
+					"name":  "main",
+					"image": "harbor.example/team/app:v1",
+				},
+			},
+		}}},
+	}}
+	assert.NilError(t, validateExternalPodShape(obj, w, externalShapeSpec()))
+}
+
 // Workspace affinity is ANDed into every existing term so user constraints cannot be
 // bypassed by an OR-appended workspace-only term.
 func TestApplyExternalSchedulerAffinityAndsIntoEveryTerm(t *testing.T) {

@@ -142,12 +142,6 @@ func externalGangProblem(workload *v1.Workload) string {
 	return ""
 }
 
-// isDigestPinned reports whether a reference names immutable content.
-func isDigestPinned(image string) bool {
-	at := strings.LastIndex(image, "@sha256:")
-	return at > 0 && len(image) == at+len("@sha256:")+64
-}
-
 // externalPodAnnotations are identifiers written onto the execution object.
 func externalPodAnnotations(workload *v1.Workload) map[string]interface{} {
 	state := workload.Status.ExternalExecution
