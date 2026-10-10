@@ -202,24 +202,98 @@ func TestModelLifecycleWithoutS3(t *testing.T) {
 	assert.True(t, errors.IsNotFound(err), "model should be gone once its files are, got %v", err)
 }
 
-// TestModelHFDownloadWithToken mounts the token secret and shares it with the workspace.
+// TestModelHFDownloadWithToken: the download mounts a copy of the owner's token made for
+// that one download, never the owner's secret. The copy is shared with the download's
+// workspace only, carries no user (so no workspace member can attach it to a workload),
+// is owned by the model and is deleted, through the secret finalizer that removes the
+// mirrored copy, as soon as the download has finished. A token secret an earlier version
+// shared with the workspace is taken back.
 func TestModelHFDownloadWithToken(t *testing.T) {
 	setViper(t, map[string]any{"s3.enable": false})
+	ctx := context.Background()
 	model := lifecycleModel("m1")
 	model.Spec.Source.Token = &corev1.LocalObjectReference{Name: "m1-token"}
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "m1-token", Namespace: common.PrimusSafeNamespace}}
-	cl := lifecycleClient(t, model, secret, lifecycleWorkspace("ws1", "c1", lifecycleRoot))
+	owned := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "m1-token", Namespace: common.PrimusSafeNamespace,
+			Labels:      map[string]string{v1.ModelIdLabel: "m1"},
+			Annotations: map[string]string{v1.WorkspaceIdsAnnotation: `["ws1"]`}},
+		Data: map[string][]byte{"token": []byte("hf_secret")},
+	}
+	cl := lifecycleClient(t, model, owned, lifecycleWorkspace("ws1", "c1", lifecycleRoot))
 	r := newMockModelReconciler(cl)
 
-	lp := &v1.ModelLocalPath{Workspace: "ws1", Path: lifecyclePath}
-	job, err := r.constructLocalDownloadOpsJob(context.Background(), model, lp)
-	require.NoError(t, err)
-	require.NotNil(t, job.GetParameter(v1.ParameterSecret))
-	assert.Equal(t, "m1-token", job.GetParameter(v1.ParameterSecret).Value)
-
+	reconcileModel(t, r, "m1") // finalizer; the earlier sharing is taken back
 	got := &corev1.Secret{}
-	require.NoError(t, cl.Get(context.Background(), client.ObjectKey{Name: "m1-token", Namespace: common.PrimusSafeNamespace}, got))
-	assert.Equal(t, []string{"ws1"}, commonsecret.GetSecretWorkspaces(got))
+	require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "m1-token", Namespace: common.PrimusSafeNamespace}, got))
+	assert.Empty(t, commonsecret.GetSecretWorkspaces(got), "the owner's secret is not shared with any workspace")
+
+	reconcileModel(t, r, "m1") // Pending
+	reconcileModel(t, r, "m1") // Downloading
+	reconcileModel(t, r, "m1") // download job
+	downloads := listOpsJobs(t, cl, v1.OpsJobDownloadType)
+	require.Len(t, downloads, 1)
+	param := downloads[0].GetParameter(v1.ParameterSecret)
+	require.NotNil(t, param)
+	require.NotEqual(t, "m1-token", param.Value, "the download never mounts the owner's secret")
+	assert.LessOrEqual(t, len(param.Value), 63, "the secret is mounted as a volume named after it")
+
+	copied := &corev1.Secret{}
+	require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: param.Value, Namespace: common.PrimusSafeNamespace}, copied))
+	assert.Equal(t, map[string][]byte{"token": []byte("hf_secret")}, copied.Data, "the copy holds the token only")
+	assert.Equal(t, []string{"ws1"}, commonsecret.GetSecretWorkspaces(copied), "mirrored to the download's workspace only")
+	assert.Empty(t, v1.GetUserId(copied), "no user owns the copy, so no member can attach it")
+	assert.Contains(t, copied.Finalizers, v1.SecretFinalizer, "the secret controller removes the mirror first")
+	require.NotNil(t, metav1.GetControllerOf(copied))
+	assert.Equal(t, "m1", metav1.GetControllerOf(copied).Name)
+	require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "m1-token", Namespace: common.PrimusSafeNamespace}, got))
+	assert.Empty(t, commonsecret.GetSecretWorkspaces(got))
+
+	// The download finishes: the copy goes.
+	setOpsJobPhase(t, cl, downloads[0].Name, v1.OpsJobSucceeded)
+	reconcileModel(t, r, "m1")
+	assert.Equal(t, v1.ModelPhaseReady, getModel(t, cl, "m1").Status.Phase)
+	assertSecretGoing(t, cl, param.Value)
+}
+
+// TestModelDeleteRemovesDownloadToken: deleting a model whose download still runs stops
+// the download and deletes the token copy with it.
+func TestModelDeleteRemovesDownloadToken(t *testing.T) {
+	setViper(t, map[string]any{"s3.enable": false})
+	ctx := context.Background()
+	model := lifecycleModel("m1")
+	model.Spec.Source.Token = &corev1.LocalObjectReference{Name: "m1-token"}
+	owned := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "m1-token", Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{v1.ModelIdLabel: "m1"}},
+		Data: map[string][]byte{"token": []byte("hf_secret")},
+	}
+	cl := lifecycleClient(t, model, owned, lifecycleWorkspace("ws1", "c1", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+	for i := 0; i < 4; i++ {
+		reconcileModel(t, r, "m1")
+	}
+	downloads := listOpsJobs(t, cl, v1.OpsJobDownloadType)
+	require.Len(t, downloads, 1)
+	name := downloads[0].GetParameter(v1.ParameterSecret).Value
+	require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: name, Namespace: common.PrimusSafeNamespace}, &corev1.Secret{}))
+
+	require.NoError(t, cl.Delete(ctx, getModel(t, cl, "m1")))
+	reconcileModel(t, r, "m1") // stops the download
+	reconcileModel(t, r, "m1") // download gone: the copy goes
+	assertSecretGoing(t, cl, name)
+}
+
+// assertSecretGoing checks that the secret is deleted or, held by its finalizer until the
+// secret controller removed the mirrored copies, being deleted.
+func assertSecretGoing(t *testing.T, cl client.Client, name string) {
+	t.Helper()
+	secret := &corev1.Secret{}
+	err := cl.Get(context.Background(), client.ObjectKey{Name: name, Namespace: common.PrimusSafeNamespace}, secret)
+	if errors.IsNotFound(err) {
+		return
+	}
+	require.NoError(t, err)
+	assert.False(t, secret.GetDeletionTimestamp().IsZero(), "the token copy %s outlives its download", name)
 }
 
 func deletingModel(t *testing.T, name string, lps ...v1.ModelLocalPath) *v1.Model {

@@ -33,7 +33,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -57,6 +56,10 @@ const (
 	// (and the S3 copy) are left where they are. It is the way out of a cleanup that keeps
 	// failing.
 	AbandonCleanupAnnotation = "model.amd.com/abandon-cleanup"
+
+	// DownloadTokenLabel marks a copy of a model's HuggingFace token made for the
+	// downloads of that model into one workspace.
+	DownloadTokenLabel = "model.amd.com/download-token"
 
 	// modelSizeMarker prefixes the value with which the download job reports the size of
 	// the files it left on disk. The job prints it on a "[SUCCESS]" line, the only kind of
@@ -118,6 +121,12 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	model := &v1.Model{}
 	if err := r.Get(ctx, req.NamespacedName, model); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// An earlier version of this controller shared the owner's token secret with the
+	// download workspaces; take that back.
+	if err := r.unshareModelToken(ctx, model); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// 2. Handle deletion
@@ -263,6 +272,10 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 				"%s=true on the model to release it and leave the files on disk", AbandonCleanupAnnotation)
 		}
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, r.setDeletingMessage(ctx, model, message)
+	}
+	// No download runs any more, so no copy of the token is needed.
+	if err = r.pruneDownloadTokens(ctx, model, nil); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// 2. The S3 copy (only when the model was staged through S3).
@@ -1365,6 +1378,17 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 		}
 	}
 
+	// A token copy is kept only for the workspaces a download still waits for or runs in.
+	keep := map[string]bool{}
+	for _, lp := range model.Status.LocalPaths {
+		if lp.Status == v1.LocalPathStatusPending || lp.Status == v1.LocalPathStatusDownloading {
+			keep[lp.Workspace] = true
+		}
+	}
+	if err := r.pruneDownloadTokens(ctx, model, keep); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// Update status
 	model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 
@@ -1661,8 +1685,8 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 			return nil, fmt.Errorf("source %q is not a HuggingFace repository", model.Spec.Source.URL)
 		}
 		if model.Spec.Source.Token != nil && model.Spec.Source.Token.Name != "" {
-			secretName = model.Spec.Source.Token.Name
-			if err := r.shareSecretWithWorkspace(ctx, secretName, lp.Workspace); err != nil {
+			var err error
+			if secretName, err = r.ensureDownloadToken(ctx, model, lp.Workspace); err != nil {
 				return nil, err
 			}
 		}
@@ -1767,25 +1791,132 @@ func s3DownloadSource(model *v1.Model) (string, string, error) {
 	return fmt.Sprintf("%s/%s/%s/", s3Endpoint, commonconfig.GetS3Bucket(), model.Status.S3Path), "primus-safe-s3", nil
 }
 
-// shareSecretWithWorkspace makes the secret available in the workspace, where the secret
-// controller mirrors it to, so the download workload can mount it.
-func (r *ModelReconciler) shareSecretWithWorkspace(ctx context.Context, name, workspace string) error {
-	secret := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: common.PrimusSafeNamespace}, secret); err != nil {
-		return fmt.Errorf("failed to get token secret %s: %w", name, err)
+// downloadTokenName is the name of the copy of a model's token made for its downloads
+// into workspace. The secret is mounted as a pod volume under this name, so it is a DNS
+// label: at most 63 characters.
+func downloadTokenName(model *v1.Model, workspace string) string {
+	sum := sha256.Sum256([]byte(workspace))
+	base := stringutil.NormalizeForDNS(model.Name)
+	if len(base) > 40 {
+		base = strings.Trim(base[:40], "-")
 	}
-	workspaces := commonsecret.GetSecretWorkspaces(secret)
-	for _, ws := range workspaces {
-		if ws == workspace {
-			return nil
+	return fmt.Sprintf("%s-hf-token-%s", base, hex.EncodeToString(sum[:])[:8])
+}
+
+// ensureDownloadToken makes the copy of the model owner's HuggingFace token that the
+// download into workspace mounts, and returns its name. The download workload runs in the
+// workspace, so the token has to be mirrored there; the owner's own secret is never
+// shared. The copy:
+//   - holds only the token, and is shared with that one workspace;
+//   - carries no user, so no one but an administrator can attach it to a workload through
+//     the API (attaching needs "get" on the secret, which only its owner has);
+//   - exists only while that download runs: pruneDownloadTokens deletes it once the
+//     download has finished, failed or moved to another workspace, and when the model is
+//     deleted. The secret finalizer makes the secret controller remove the mirrored copy
+//     from the workspace before the secret goes; the model owns the secret, so it never
+//     outlives the model.
+func (r *ModelReconciler) ensureDownloadToken(ctx context.Context, model *v1.Model, workspace string) (string, error) {
+	source := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Name: model.Spec.Source.Token.Name, Namespace: common.PrimusSafeNamespace}, source); err != nil {
+		return "", fmt.Errorf("failed to get token secret %s: %w", model.Spec.Source.Token.Name, err)
+	}
+	token := source.Data["token"]
+	if len(token) == 0 {
+		return "", fmt.Errorf("token secret %s has no token", source.Name)
+	}
+	workspaces, err := json.Marshal([]string{workspace})
+	if err != nil {
+		return "", err
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      downloadTokenName(model, workspace),
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				v1.ModelIdLabel:     model.Name,
+				v1.WorkspaceIdLabel: workspace,
+				DownloadTokenLabel:  v1.TrueStr,
+			},
+			Annotations: map[string]string{v1.WorkspaceIdsAnnotation: string(workspaces)},
+			Finalizers:  []string{v1.SecretFinalizer},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{"token": token},
+	}
+	if err = controllerutil.SetControllerReference(model, secret, r.Scheme()); err != nil {
+		return "", err
+	}
+	err = r.Create(ctx, secret)
+	if errors.IsAlreadyExists(err) {
+		existing := &corev1.Secret{}
+		if err = r.Get(ctx, client.ObjectKeyFromObject(secret), existing); err != nil {
+			return "", err
+		}
+		if !existing.GetDeletionTimestamp().IsZero() {
+			return "", fmt.Errorf("token copy %s is still being deleted", existing.Name)
+		}
+		if string(existing.Data["token"]) != string(token) {
+			existing.Data = secret.Data
+			err = r.Update(ctx, existing)
 		}
 	}
-	data, err := json.Marshal(append(workspaces, workspace))
 	if err != nil {
+		return "", err
+	}
+	return secret.Name, nil
+}
+
+// pruneDownloadTokens deletes the token copies of the model whose workspace is not in
+// keep, i.e. has no download waiting or running. Only a model with a token has copies.
+func (r *ModelReconciler) pruneDownloadTokens(ctx context.Context, model *v1.Model, keep map[string]bool) error {
+	if model.Spec.Source.Token == nil || model.Spec.Source.Token.Name == "" {
+		return nil
+	}
+	secrets := &corev1.SecretList{}
+	if err := r.List(ctx, secrets, client.InNamespace(common.PrimusSafeNamespace),
+		client.MatchingLabels{v1.ModelIdLabel: model.Name, DownloadTokenLabel: v1.TrueStr}); err != nil {
 		return err
 	}
-	v1.SetAnnotation(secret, v1.WorkspaceIdsAnnotation, string(data))
-	return r.Update(ctx, secret)
+	for i := range secrets.Items {
+		secret := &secrets.Items[i]
+		if keep[secret.Labels[v1.WorkspaceIdLabel]] || !secret.GetDeletionTimestamp().IsZero() {
+			continue
+		}
+		if err := r.Delete(ctx, secret); err != nil && !errors.IsNotFound(err) {
+			return err
+		}
+		klog.InfoS("Deleted the token copy of a finished download", "model", model.Name, "secret", secret.Name)
+	}
+	return nil
+}
+
+// unshareModelToken takes the model's own token secret back from the workspaces an
+// earlier version of this controller shared it with; the secret controller then removes
+// the mirrored copies. Only a token secret the apiserver made for this model (labelled
+// with it) is touched.
+func (r *ModelReconciler) unshareModelToken(ctx context.Context, model *v1.Model) error {
+	if model.Spec.Source.Token == nil || model.Spec.Source.Token.Name == "" {
+		return nil
+	}
+	secret := &corev1.Secret{}
+	err := r.Get(ctx, client.ObjectKey{Name: model.Spec.Source.Token.Name, Namespace: common.PrimusSafeNamespace}, secret)
+	if errors.IsNotFound(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if secret.Labels[v1.ModelIdLabel] != model.Name || secret.Labels[DownloadTokenLabel] != "" {
+		return nil
+	}
+	if _, shared := secret.Annotations[v1.WorkspaceIdsAnnotation]; !shared {
+		return nil
+	}
+	delete(secret.Annotations, v1.WorkspaceIdsAnnotation)
+	if err = r.Update(ctx, secret); err != nil {
+		return err
+	}
+	klog.InfoS("Stopped sharing the model's token secret with workspaces", "model", model.Name, "secret", secret.Name)
+	return nil
 }
 
 // hfDownloadScript downloads $HF_REPO_ID into $DEST_PATH. Only the files needed to load
