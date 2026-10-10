@@ -9,13 +9,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -204,6 +204,11 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 			targets = append(targets, &selected[i])
 		}
 	}
+	// One target failing (a new workspace's data plane namespace may not exist yet) must not
+	// starve the others, so errors are collected and returned together at the end. A target
+	// that failed stays in the keep list below: its copy's state is unknown, so cleanup must
+	// not delete it.
+	var errs []error
 	for _, ws := range targets {
 		// Ensure the mirrored secret exists/updated in target namespace on data plane
 		clientSet, err := r.getClientSetOfDataplane(ctx, ws.Spec.Cluster)
@@ -211,7 +216,8 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 			if apierrors.IsNotFound(err) {
 				continue
 			}
-			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+			errs = append(errs, fmt.Errorf("workspace %s: %w", ws.Name, err))
+			continue
 		}
 		if clientSet == nil {
 			continue
@@ -221,17 +227,18 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 		// overwriting, and later deleting, a Secret someone made by hand is not something a
 		// label match should be able to do.
 		if err = r.syncSecretToWorkspace(ctx, clientSet, secret, ws, explicit.Has(ws.Name)); err != nil {
-			return ctrlruntime.Result{}, err
+			errs = append(errs, fmt.Errorf("workspace %s: %w", ws.Name, err))
+			continue
 		}
 		if err = r.updateWorkspaceRefSecret(ctx, secret, ws); err != nil {
-			return ctrlruntime.Result{}, err
+			errs = append(errs, fmt.Errorf("workspace %s: %w", ws.Name, err))
 		}
 	}
 	if err := r.updateClusterRefSecret(ctx, secret); err != nil {
-		return ctrlruntime.Result{}, err
+		errs = append(errs, err)
 	}
 	if selectorErr != nil {
-		return ctrlruntime.Result{}, nil
+		return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
 	}
 	// Cleanup any mirrored copies in other workspaces
 	keep := append([]string{}, workspaceIds...)
@@ -239,9 +246,9 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 		keep = append(keep, selected[i].Name)
 	}
 	if err := r.cleanupMirroredSecrets(ctx, secret.Name, keep); err != nil {
-		return ctrlruntime.Result{}, err
+		errs = append(errs, err)
 	}
-	return ctrlruntime.Result{}, nil
+	return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
 }
 
 type invalidSelectorError struct{ err error }
@@ -265,6 +272,16 @@ func parseWorkspaceSelector(secret *corev1.Secret) (labels.Selector, error) {
 	if err != nil {
 		return nil, &invalidSelectorError{fmt.Errorf("annotation %s=%q is not a valid label selector: %v",
 			v1.WorkspaceSelectorAnnotation, raw, err)}
+	}
+	// A workspace creator may set any label outside the reserved prefix, so a selector on one
+	// would hand the Secret to whoever sets it. Only reserved labels, which the apiserver
+	// strips from non-admin requests, may be selected on.
+	reqs, _ := selector.Requirements()
+	for _, req := range reqs {
+		if !strings.HasPrefix(req.Key(), v1.PrimusSafePrefix) {
+			return nil, &invalidSelectorError{fmt.Errorf("annotation %s=%q selects on label %q, which is not under %s",
+				v1.WorkspaceSelectorAnnotation, raw, req.Key(), v1.PrimusSafePrefix)}
+		}
 	}
 	return selector, nil
 }

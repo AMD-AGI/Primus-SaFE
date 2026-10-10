@@ -15,8 +15,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/record"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -321,4 +323,70 @@ func TestDeleteSelectorOnlySecretRemovesCopies(t *testing.T) {
 	gone := &corev1.Secret{}
 	assert.True(t, apierrors.IsNotFound(r.Get(context.Background(), client.ObjectKeyFromObject(sec), gone)),
 		"the finalizer is released")
+}
+
+func TestSelectorOnUnreservedLabelIsRejected(t *testing.T) {
+	// A workspace creator can set any label outside the primus-safe. prefix, so a selector on
+	// one would hand the Secret to whoever sets it.
+	for _, selector := range []string{
+		"team=infra",
+		"team in (infra)",
+		"!team",
+		v1.WorkspaceSandboxScopeLabel + "=true,team=infra",
+	} {
+		t.Run(selector, func(t *testing.T) {
+			cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-old"))
+			sec := selectorSecret("extra-ca", selector, `["ws-listed"]`)
+			recorder := record.NewFakeRecorder(10)
+			r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec,
+				sandboxWorkspace("ws-sandbox"),
+				selectorWorkspace("ws-team", map[string]string{"team": "infra"}),
+				selectorWorkspace("ws-old", nil), selectorWorkspace("ws-listed", nil))
+			r.recorder = recorder
+			reconcileSecret(t, r, sec.Name)
+
+			assert.False(t, mirrored(t, cs, "ws-team", sec.Name))
+			assert.False(t, mirrored(t, cs, "ws-sandbox", sec.Name))
+			assert.True(t, mirrored(t, cs, "ws-listed", sec.Name), "the ids list still applies")
+			assert.True(t, mirrored(t, cs, "ws-old", sec.Name), "nothing is removed while the selector is rejected")
+			require.Len(t, recorder.Events, 1)
+			assert.Contains(t, <-recorder.Events, "InvalidWorkspaceSelector")
+		})
+	}
+}
+
+func TestOneTargetFailingDoesNotStarveOthersOrCleanup(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-a-bad"), managedCopy("extra-ca", "ws-stale"))
+	// ws-a-bad stands for a workspace whose namespace is not there yet.
+	cs.PrependReactor("*", "secrets", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetNamespace() == "ws-a-bad" && action.GetVerb() != "get" {
+			return true, nil, apierrors.NewNotFound(corev1.Resource("namespaces"), "ws-a-bad")
+		}
+		return false, nil, nil
+	})
+	sec := selectorSecret("extra-ca", sandboxSelector, "")
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec,
+		sandboxWorkspace("ws-a-bad"), sandboxWorkspace("ws-b-ok"), selectorWorkspace("ws-stale", nil))
+	res, err := r.Reconcile(context.Background(), ctrlruntime.Request{
+		NamespacedName: types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: sec.Name}})
+
+	assert.Error(t, err, "the failure is returned so the default backoff applies")
+	assert.Equal(t, ctrlruntime.Result{}, res)
+	assert.True(t, mirrored(t, cs, "ws-b-ok", sec.Name), "a later workspace is still served")
+	assert.False(t, mirrored(t, cs, "ws-stale", sec.Name), "cleanup still runs for workspaces no longer selected")
+	assert.True(t, mirrored(t, cs, "ws-a-bad", sec.Name), "a copy whose state is unknown is kept")
+}
+
+func TestClusterNotReadyIsBackedOffNotHotLooped(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	sec := selectorSecret("extra-ca", sandboxSelector, "")
+	notReady := sandboxWorkspace("ws-a-lost")
+	notReady.Spec.Cluster = "c2"
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), testCluster("c2"), sec, notReady, sandboxWorkspace("ws-b-ok"))
+	res, err := r.Reconcile(context.Background(), ctrlruntime.Request{
+		NamespacedName: types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: sec.Name}})
+
+	assert.Error(t, err)
+	assert.Zero(t, res.RequeueAfter)
+	assert.True(t, mirrored(t, cs, "ws-b-ok", sec.Name))
 }
