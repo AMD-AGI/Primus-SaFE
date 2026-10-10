@@ -609,7 +609,8 @@ func TestInitializeLocalPaths_PublicModel(t *testing.T) {
 
 	r := newMockModelReconciler(adminClient)
 
-	paths := r.initializeLocalPaths(context.Background(), model)
+	paths, err := r.initializeLocalPaths(context.Background(), model)
+	assert.NilError(t, err)
 	assert.Equal(t, len(paths), 2)
 }
 
@@ -628,7 +629,8 @@ func TestInitializeLocalPaths_PrivateModel(t *testing.T) {
 
 	r := newMockModelReconciler(adminClient)
 
-	paths := r.initializeLocalPaths(context.Background(), model)
+	paths, err := r.initializeLocalPaths(context.Background(), model)
+	assert.NilError(t, err)
 	assert.Equal(t, len(paths), 1)
 	assert.Equal(t, paths[0].Workspace, "ws1")
 }
@@ -650,7 +652,8 @@ func TestInitializeLocalPaths_DeduplicatePaths(t *testing.T) {
 
 	r := newMockModelReconciler(adminClient)
 
-	paths := r.initializeLocalPaths(context.Background(), model)
+	paths, err := r.initializeLocalPaths(context.Background(), model)
+	assert.NilError(t, err)
 	// Should deduplicate to 1 path since both workspaces share the same PFS
 	assert.Equal(t, len(paths), 1)
 }
@@ -1530,7 +1533,8 @@ func TestModelInitializeLocalPathsPrivate(t *testing.T) {
 	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(ws).Build()
 	r := newMockModelReconciler(cl)
 	model := genMockModel("m1", v1.AccessModeLocal, "ws1")
-	paths := r.initializeLocalPaths(context.Background(), model)
+	paths, err := r.initializeLocalPaths(context.Background(), model)
+	assert.NilError(t, err)
 	testifyassert.Len(t, paths, 1)
 	assert.Equal(t, "ws1", paths[0].Workspace)
 }

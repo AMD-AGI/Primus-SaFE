@@ -1567,14 +1567,10 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 		modelPath = k8sModel.Spec.Source.LocalPath
 	}
 
+	// Only a recorded Ready directory holds the model; a path guessed from the name
+	// may not exist, public model or not.
 	if modelPath == "" {
-		// Check if model is public (should be available in all workspaces)
-		if k8sModel.IsPublic() {
-			// For public models, construct the expected path
-			modelPath = fmt.Sprintf("/wekafs/models/%s", k8sModel.GetSafeDisplayName())
-		} else {
-			return nil, commonerrors.NewBadRequest(fmt.Sprintf("model is not available in workspace %s", workspace))
-		}
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("model is not available in workspace %s", workspace))
 	}
 
 	// Generate workload configuration

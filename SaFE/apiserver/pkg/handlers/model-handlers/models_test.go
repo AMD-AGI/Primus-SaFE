@@ -530,6 +530,34 @@ func TestGetWorkloadConfig(t *testing.T) {
 	assert.Assert(t, config.Env["PRIMUS_SOURCE_MODEL"] != "")
 }
 
+// TestGetWorkloadConfig_PublicModelNotInWorkspace: a public model with no Ready
+// directory the workspace can reach is refused; a path guessed from the name may not
+// exist (the directory name and volume come from the download, not the display name).
+func TestGetWorkloadConfig_PublicModelNotInWorkspace(t *testing.T) {
+	model := genMockLocalK8sModel("model-1", "")
+	model.Status.Phase = v1.ModelPhaseReady
+	model.Status.LocalPaths = []v1.ModelLocalPath{{
+		Workspace: "ws1",
+		Path:      "/apps/models/test-model",
+		Status:    v1.LocalPathStatusFailed,
+	}}
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model).
+		WithScheme(scheme.Scheme).
+		Build()
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "model-1"}}
+	c.Request, _ = http.NewRequest("GET", "/models/model-1/workload-config?workspace=ws2", nil)
+	c.Set(common.UserId, adminModelUserID)
+
+	result, err := h.getWorkloadConfig(c)
+	assert.ErrorContains(t, err, "not available in workspace ws2", "got config %+v", result)
+}
+
 // TestGetWorkloadConfig_RemoteAPIModel tests workload config for remote API model
 func TestGetWorkloadConfig_RemoteAPIModel(t *testing.T) {
 	model := genMockRemoteAPIK8sModel("remote-model")

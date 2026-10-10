@@ -545,11 +545,120 @@ func TestReportedModelSize(t *testing.T) {
 }
 
 func TestJobDisplayName(t *testing.T) {
-	for _, in := range []string{"Org--Repo_V1.5", "0abc", "cleanup-a-very-long-model-name-that-goes-beyond-the-limit"} {
+	// A single-character display name, such as "a", gives a one-character name that the
+	// OpsJob webhook refuses: its rule takes at least two characters.
+	for _, in := range []string{"Org--Repo_V1.5", "0abc", "cleanup-a-very-long-model-name-that-goes-beyond-the-limit", "a", "A", "_"} {
 		name := jobDisplayName(in)
-		assert.LessOrEqual(t, len(name), 41)
-		assert.Regexp(t, `^[a-z][-a-z0-9]*[a-z0-9]$`, name)
+		assert.LessOrEqual(t, len(name), 46)
+		assert.Regexp(t, `^[a-z][-a-z0-9.]{0,44}[a-z0-9]$`, name, "input %q", in)
 	}
+}
+
+// TestModelPendingSingleCharacterDisplayName: a model named "a" gets a download job the
+// webhook's display name rule accepts.
+func TestModelPendingSingleCharacterDisplayName(t *testing.T) {
+	setViper(t, map[string]any{"s3.enable": false})
+	model := lifecycleModel("m1")
+	model.Spec.DisplayName = "a"
+	model.Finalizers = []string{ModelFinalizer}
+	model.Status.Phase = v1.ModelPhasePending
+	cl := lifecycleClient(t, model, lifecycleWorkspace("ws1", "c1", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+
+	reconcileModel(t, r, "m1")
+	reconcileModel(t, r, "m1")
+	downloads := listOpsJobs(t, cl, v1.OpsJobDownloadType)
+	require.Len(t, downloads, 1)
+	assert.Regexp(t, `^[a-z][-a-z0-9.]{0,44}[a-z0-9]$`, v1.GetDisplayName(&downloads[0]))
+}
+
+// TestModelPendingRetriesWorkspaceReadError: a failure to read the workspaces is
+// retried, it is not taken for "no storage" and the model is not failed.
+func TestModelPendingRetriesWorkspaceReadError(t *testing.T) {
+	setViper(t, map[string]any{"s3.enable": false})
+	for _, public := range []bool{false, true} {
+		model := lifecycleModel("m1")
+		if public {
+			model.Spec.Workspace = ""
+		}
+		model.Status.Phase = v1.ModelPhasePending
+		fail := true
+		cl := fake.NewClientBuilder().WithScheme(lifecycleScheme(t)).
+			WithStatusSubresource(&v1.Model{}, &v1.OpsJob{}).
+			WithObjects(model, lifecycleWorkspace("ws1", "c1", lifecycleRoot)).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*v1.Workspace); ok && fail {
+						return errors.NewServiceUnavailable("etcd leader changed")
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+				List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+					if _, ok := list.(*v1.WorkspaceList); ok && fail {
+						return errors.NewServiceUnavailable("etcd leader changed")
+					}
+					return c.List(ctx, list, opts...)
+				},
+			}).Build()
+		r := newMockModelReconciler(cl)
+
+		_, err := r.handlePending(context.Background(), getModel(t, cl, "m1"))
+		require.Error(t, err, "public=%v: the read error is retried with backoff", public)
+		m := getModel(t, cl, "m1")
+		assert.Equal(t, v1.ModelPhasePending, m.Status.Phase, "public=%v: %s", public, m.Status.Message)
+
+		fail = false
+		_, err = r.handlePending(context.Background(), getModel(t, cl, "m1"))
+		require.NoError(t, err)
+		m = getModel(t, cl, "m1")
+		assert.Equal(t, v1.ModelPhaseDownloading, m.Status.Phase, "public=%v: %s", public, m.Status.Message)
+		require.Len(t, m.Status.LocalPaths, 1)
+	}
+}
+
+// TestModelPendingNoVolumeFailsWithReason: a model with no workspace storage to
+// download into fails at once, and says why.
+func TestModelPendingNoVolumeFailsWithReason(t *testing.T) {
+	setViper(t, map[string]any{"s3.enable": false})
+	noVolume := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+	for _, public := range []bool{false, true} {
+		model := lifecycleModel("m1")
+		if public {
+			model.Spec.Workspace = ""
+		}
+		model.Status.Phase = v1.ModelPhasePending
+		cl := lifecycleClient(t, model, noVolume.DeepCopy())
+		r := newMockModelReconciler(cl)
+
+		_, err := r.handlePending(context.Background(), getModel(t, cl, "m1"))
+		require.NoError(t, err)
+		m := getModel(t, cl, "m1")
+		assert.Equal(t, v1.ModelPhaseFailed, m.Status.Phase, "public=%v", public)
+		assert.Contains(t, m.Status.Message, "storage volume", "public=%v", public)
+	}
+}
+
+// TestModelUploadJobOutlivesPathWait: a succeeded upload job waits up to
+// deletingPathWaitTimeout for another model's cleanup and reads its result from the
+// job meanwhile, so the job must not be reaped by its TTL before that wait ends.
+func TestModelUploadJobOutlivesPathWait(t *testing.T) {
+	patchS3Config(t)
+	model := lifecycleModel("m1")
+	model.Status.Phase = v1.ModelPhaseUploading
+	job, err := newMockModelReconciler(lifecycleClient(t)).constructDownloadJob(model)
+	require.NoError(t, err)
+	job.Status.Succeeded = 1
+	old := deletingModel(t, "old", v1.ModelLocalPath{Workspace: "ws1", Path: lifecyclePath, Status: v1.LocalPathStatusReady})
+	cl := lifecycleClient(t, model, old, job, lifecycleWorkspace("ws1", "c1", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+
+	res, err := r.handleUploading(context.Background(), getModel(t, cl, "m1"))
+	require.NoError(t, err)
+	require.Positive(t, res.RequeueAfter, "the model waits for the cleanup")
+	assert.Equal(t, v1.ModelPhaseUploading, getModel(t, cl, "m1").Status.Phase)
+	require.NotNil(t, job.Spec.TTLSecondsAfterFinished)
+	ttl := time.Duration(*job.Spec.TTLSecondsAfterFinished) * time.Second
+	assert.Greater(t, ttl, deletingPathWaitTimeout, "the job outlives the wait it is read during")
 }
 
 // TestModelPrivateWorkspaceWithoutVolume: no storage means no download target, the
@@ -558,7 +667,9 @@ func TestModelPrivateWorkspaceWithoutVolume(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
 	cl := lifecycleClient(t, ws)
 	r := newMockModelReconciler(cl)
-	assert.Empty(t, r.initializeLocalPaths(context.Background(), lifecycleModel("m1")))
+	paths, err := r.initializeLocalPaths(context.Background(), lifecycleModel("m1"))
+	require.NoError(t, err)
+	assert.Empty(t, paths)
 }
 
 // TestModelPublicDownloadPerCluster: the same mount path on two clusters is two
@@ -571,7 +682,8 @@ func TestModelPublicDownloadPerCluster(t *testing.T) {
 	r := newMockModelReconciler(cl)
 	model := lifecycleModel("m1")
 	model.Spec.Workspace = ""
-	paths := r.initializeLocalPaths(context.Background(), model)
+	paths, err := r.initializeLocalPaths(context.Background(), model)
+	require.NoError(t, err)
 	require.Len(t, paths, 2)
 	clusters := map[string]bool{}
 	for _, lp := range paths {

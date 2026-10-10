@@ -83,6 +83,8 @@ const (
 	// deletingPathWaitTimeout is how long a pending model waits for another model's
 	// deletion to clean up a directory it wants; after that the directory is given up.
 	deletingPathWaitTimeout = 30 * time.Minute
+	// uploadJobTTL is how long a finished HuggingFace -> S3 upload job is kept.
+	uploadJobTTL = deletingPathWaitTimeout + 10*time.Minute
 )
 
 // ModelReconciler reconciles a Model object
@@ -974,6 +976,10 @@ func jobDisplayName(s string) string {
 	if name == "" || name[0] < 'a' || name[0] > 'z' {
 		name = "m" + name
 	}
+	// The webhook takes at least two characters.
+	if len(name) < 2 {
+		name += "-model"
+	}
 	return name
 }
 
@@ -998,7 +1004,7 @@ func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (c
 	if err != nil || waitFor > 0 {
 		return ctrl.Result{RequeueAfter: waitFor}, err
 	}
-	if message := allPathsFailed(paths); message != "" {
+	if message := allPathsFailed(model, paths); message != "" {
 		model.Status.Phase = v1.ModelPhaseFailed
 		model.Status.Message = message
 		model.Status.LocalPaths = paths
@@ -1090,9 +1096,9 @@ func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (c
 // have the same path on the same cluster; the same mount path on another cluster is a
 // different filesystem.
 func (r *ModelReconciler) planTargetPaths(ctx context.Context, model *v1.Model) ([]v1.ModelLocalPath, time.Duration, error) {
-	paths := r.initializeLocalPaths(ctx, model)
-	if len(paths) == 0 {
-		return paths, 0, nil
+	paths, err := r.initializeLocalPaths(ctx, model)
+	if err != nil || len(paths) == 0 {
+		return paths, 0, err
 	}
 	models := &v1.ModelList{}
 	if err := r.List(ctx, models); err != nil {
@@ -1189,11 +1195,15 @@ func (r *ModelReconciler) failModel(ctx context.Context, model *v1.Model, messag
 	return r.Status().Update(ctx, model)
 }
 
-// allPathsFailed returns why a model has nothing left to download when every one of
-// paths has failed, or "" when at least one can still be downloaded.
-func allPathsFailed(paths []v1.ModelLocalPath) string {
+// allPathsFailed returns why a model has nothing left to download when paths is empty
+// or every one of paths has failed, or "" when at least one can still be downloaded.
+func allPathsFailed(model *v1.Model, paths []v1.ModelLocalPath) string {
 	if len(paths) == 0 {
-		return ""
+		if model.IsPublic() {
+			return "No target directory: no workspace has a storage volume to download the model into"
+		}
+		return fmt.Sprintf("No target directory: workspace %s does not exist or has no storage volume "+
+			"to download the model into", model.Spec.Workspace)
 	}
 	reasons := make([]string, 0, len(paths))
 	for _, lp := range paths {
@@ -1237,7 +1247,7 @@ func (r *ModelReconciler) handleUploading(ctx context.Context, model *v1.Model) 
 		model.Status.Message = "S3 upload completed, starting local download"
 		model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 		model.Status.LocalPaths = paths
-		if message := allPathsFailed(paths); message != "" {
+		if message := allPathsFailed(model, paths); message != "" {
 			model.Status.Phase = v1.ModelPhaseFailed
 			model.Status.Message = message
 		}
@@ -1545,12 +1555,14 @@ func reportedModelSize(job *v1.OpsJob) int64 {
 
 // initializeLocalPaths initializes the local paths based on workspace configuration
 // It deduplicates paths - if multiple workspaces share the same PFS path, only one download is needed
-func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Model) []v1.ModelLocalPath {
+// A failure to read the workspaces is returned, so the caller retries instead of
+// taking it for "no storage".
+func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Model) ([]v1.ModelLocalPath, error) {
 	var paths []v1.ModelLocalPath
 	modelDir := model.GetLocalDirName()
 	if modelDir == "" {
 		klog.InfoS("Model has no safe directory name, no local path", "model", model.Name)
-		return paths
+		return paths, nil
 	}
 	subpath := strings.TrimSpace(model.Spec.TargetSubpath)
 
@@ -1565,8 +1577,7 @@ func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Mo
 		// Note: TargetVolume only takes effect for workspaces that actually expose that volume.
 		workspaces, err := r.listWorkspaces(ctx, prefer)
 		if err != nil {
-			klog.ErrorS(err, "Failed to list workspaces for public model", "model", model.Name)
-			return paths
+			return nil, fmt.Errorf("list workspaces for public model %s: %w", model.Name, err)
 		}
 
 		for _, ws := range workspaces {
@@ -1599,14 +1610,17 @@ func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Mo
 	} else {
 		// Private model: download only to specified workspace
 		ws, err := r.getWorkspace(ctx, model.Spec.Workspace, prefer)
+		if errors.IsNotFound(err) {
+			klog.InfoS("Workspace of model not found", "model", model.Name, "workspace", model.Spec.Workspace)
+			return paths, nil
+		}
 		if err != nil {
-			klog.ErrorS(err, "Failed to get workspace for model", "model", model.Name, "workspace", model.Spec.Workspace)
-			return paths
+			return nil, fmt.Errorf("get workspace %s for model %s: %w", model.Spec.Workspace, model.Name, err)
 		}
 		if ws.PFSPath == "" {
 			// Without a volume there is no workspace storage to download into.
 			klog.InfoS("Workspace has no storage volume", "model", model.Name, "workspace", ws.ID)
-			return paths
+			return paths, nil
 		}
 
 		pfsPath := buildLocalModelPath(ws.PFSPath, subpath, modelDir)
@@ -1617,7 +1631,7 @@ func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Mo
 		})
 	}
 
-	return paths
+	return paths, nil
 }
 
 // buildLocalModelPath assembles the model directory under a volume root.
@@ -2134,7 +2148,10 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 	}
 
 	backoffLimit := int32(3)
-	ttlSeconds := int32(60)
+	// The controller deletes the job once it has acted on the result. The TTL only
+	// reaps a job left behind, and must outlast a succeeded job's wait for another
+	// model's cleanup (see planTargetPaths): handleUploading reads the result from it.
+	ttlSeconds := int32(uploadJobTTL / time.Second)
 	jobName := stringutil.NormalizeForDNS(model.Name)
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
