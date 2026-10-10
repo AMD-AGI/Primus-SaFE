@@ -144,8 +144,9 @@ func (c *registryClient) Upload(ctx context.Context, repo name.Repository, d v1.
 	if err != nil {
 		return err
 	}
+	err = transport.CheckError(resp, http.StatusAccepted)
 	resp.Body.Close()
-	if err := transport.CheckError(resp, http.StatusAccepted); err != nil {
+	if err != nil {
 		return err
 	}
 	loc, err := resp.Request.URL.Parse(resp.Header.Get("Location"))
@@ -170,16 +171,18 @@ func (c *registryClient) PutManifest(ctx context.Context, tag name.Tag, mt types
 	if err != nil {
 		return v1.Hash{}, err
 	}
+	err = transport.CheckError(resp, http.StatusCreated, http.StatusOK)
 	resp.Body.Close()
-	if err := transport.CheckError(resp, http.StatusCreated, http.StatusOK); err != nil {
+	if err != nil {
 		return v1.Hash{}, err
 	}
 	resp, err = c.do(ctx, http.MethodHead, repoURL(repo, "manifests/"+tag.TagStr()), nil, http.Header{"Accept": {string(mt)}})
 	if err != nil {
 		return v1.Hash{}, err
 	}
+	err = transport.CheckError(resp, http.StatusOK)
 	resp.Body.Close()
-	if err := transport.CheckError(resp, http.StatusOK); err != nil {
+	if err != nil {
 		return v1.Hash{}, err
 	}
 	return v1.NewHash(resp.Header.Get("Docker-Content-Digest"))
