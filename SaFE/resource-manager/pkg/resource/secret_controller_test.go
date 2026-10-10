@@ -112,7 +112,7 @@ func TestSyncSecretToWorkspaceCreate(t *testing.T) {
 	r := newSecretReconciler(t)
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s1"}, Data: map[string][]byte{"k": []byte("v")}}
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
-	err := r.syncSecretToWorkspace(context.Background(), cs, secret, ws)
+	err := r.syncSecretToWorkspace(context.Background(), cs, secret, ws, true)
 	assert.NoError(t, err)
 	_, err = cs.CoreV1().Secrets("ws1").Get(context.Background(), "s1", metav1.GetOptions{})
 	assert.NoError(t, err)
@@ -127,7 +127,7 @@ func TestSyncSecretToWorkspaceUpdate(t *testing.T) {
 	r := newSecretReconciler(t)
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s1"}, Data: map[string][]byte{"k": []byte("new")}}
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
-	err := r.syncSecretToWorkspace(context.Background(), cs, secret, ws)
+	err := r.syncSecretToWorkspace(context.Background(), cs, secret, ws, true)
 	assert.NoError(t, err)
 	updated, _ := cs.CoreV1().Secrets("ws1").Get(context.Background(), "s1", metav1.GetOptions{})
 	assert.Equal(t, "new", string(updated.Data["k"]))
