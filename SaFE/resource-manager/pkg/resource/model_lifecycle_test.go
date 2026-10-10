@@ -930,3 +930,28 @@ func TestModelDeleteS3SharedPath(t *testing.T) {
 	}
 	assert.True(t, strings.HasSuffix(s3Path, "/models/org-repo/"), "aws s3 rm --recursive matches key prefixes: %q", s3Path)
 }
+
+// TestModelDeleteS3PathNotHeldWithoutUpload: a live model that never uploaded to S3 (its
+// status records no S3 path) does not hold the S3 copy of a model being deleted, even
+// when both derive the same path from one HuggingFace repository. Were it taken as the
+// holder, the deleted model would skip its cleanup and forget its path, and since the
+// other model has no path to clean either, models/<name> would stay in the bucket.
+func TestModelDeleteS3PathNotHeldWithoutUpload(t *testing.T) {
+	patchS3Config(t)
+	model := deletingModel(t, "m1")
+	model.Status.S3Path = "models/org-repo"
+	other := lifecycleModel("m2")
+	other.Status.Phase = v1.ModelPhaseFailed
+	require.Equal(t, "models/org-repo", other.GetS3Path(), "both models derive the same S3 path")
+	cl := lifecycleClient(t, model, other)
+	r := newMockModelReconciler(cl)
+	ctx := context.Background()
+
+	reconcileModel(t, r, "m1")
+	job := &batchv1.Job{}
+	require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "cleanup-m1", Namespace: common.PrimusSafeNamespace}, job),
+		"the S3 copy is removed: m2 never uploaded and holds nothing")
+	m := getModel(t, cl, "m1")
+	assert.Equal(t, "models/org-repo", m.Status.S3Path, "the path is kept until its cleanup succeeds")
+	assert.True(t, controllerutil.ContainsFinalizer(m, ModelFinalizer))
+}

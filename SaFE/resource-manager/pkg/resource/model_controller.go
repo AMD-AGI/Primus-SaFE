@@ -446,7 +446,10 @@ func (r *ModelReconciler) cleanupS3(ctx context.Context, model *v1.Model) (ctrl.
 }
 
 // liveModelOnS3Path returns a model other than model, not being deleted, that stages its
-// files at the same platform S3 path, or "" when there is none.
+// files at the same platform S3 path, or "" when there is none. Only a path recorded in
+// the other model's status counts: a model that never uploaded (S3 disabled when it was
+// created, or failed before the upload) holds no S3 copy, even though GetS3Path would
+// derive the same path from its display name.
 func (r *ModelReconciler) liveModelOnS3Path(ctx context.Context, model *v1.Model) (string, error) {
 	models := &v1.ModelList{}
 	if err := r.List(ctx, models); err != nil {
@@ -458,7 +461,7 @@ func (r *ModelReconciler) liveModelOnS3Path(ctx context.Context, model *v1.Model
 		if m.Name == model.Name || !m.GetDeletionTimestamp().IsZero() || !m.IsLocal() || isS3ImportModel(m) {
 			continue
 		}
-		if s3Prefix(m.GetS3Path()) == self {
+		if m.Status.S3Path != "" && s3Prefix(m.Status.S3Path) == self {
 			return m.Name, nil
 		}
 	}
