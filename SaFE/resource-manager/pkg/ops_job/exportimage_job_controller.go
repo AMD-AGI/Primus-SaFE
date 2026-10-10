@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -44,6 +45,12 @@ import (
 const (
 	// Default concurrent workers for image export
 	exportImageDefaultConcurrent = 3
+	// exportsPerUser is how many of those workers one user's exports may hold at once: an
+	// export runs as long as the user's container keeps uploading, so without it one user
+	// could hold every worker. Another export of theirs waits, retried every
+	// exportWaitRetry, until one ends or its own deadline passes.
+	exportsPerUser  = 1
+	exportWaitRetry = 15 * time.Second
 
 	// The built-in Harbor: its external endpoint, and its CA when a private CA signs it.
 	harborNamespace     = "harbor"
@@ -70,6 +77,35 @@ type ExportImageJobReconciler struct {
 	*controller.Controller[string]
 	// export is exportimage.Export; tests replace it.
 	export func(ctx context.Context, req exportimage.Request) (*exportimage.Result, error)
+
+	// running counts the exports each user has running (exportsPerUser).
+	mu      sync.Mutex
+	running map[string]int
+}
+
+// claim takes one of user's export slots, and reports whether there was one free.
+func (r *ExportImageJobReconciler) claim(user string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.running[user] >= exportsPerUser {
+		return false
+	}
+	if r.running == nil {
+		r.running = map[string]int{}
+	}
+	r.running[user]++
+	return true
+}
+
+// release gives back a slot claim took.
+func (r *ExportImageJobReconciler) release(user string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.running[user] <= 1 {
+		delete(r.running, user)
+		return
+	}
+	r.running[user]--
 }
 
 // SetupExportImageJobController initializes and registers ExportImageJobReconciler with the controller manager
@@ -165,6 +201,11 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 	if job.IsEnd() {
 		return ctrlruntime.Result{}, nil
 	}
+	user := v1.GetUserId(job)
+	if !r.claim(user) {
+		return ctrlruntime.Result{RequeueAfter: exportWaitRetry}, nil
+	}
+	defer r.release(user)
 	exportCtx := ctx
 	if left := job.GetLeftTime(); left > 0 {
 		var cancel context.CancelFunc

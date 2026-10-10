@@ -16,7 +16,9 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"path"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -391,6 +393,75 @@ func TestExportImageDoSucceeds(t *testing.T) {
 	}
 	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("robot:staging")), auth(req.StagingKeychain))
 	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("admin:secret")), auth(req.Keychain))
+}
+
+// One user's exports hold at most exportsPerUser of the workers: an export runs as long as
+// the user's container keeps uploading, so another of theirs waits, while another user's
+// runs.
+func TestExportImageHoldsOneWorkerPerUser(t *testing.T) {
+	r, _, cleanup := exportFixture(t, nil)
+	defer cleanup()
+	ctx := context.Background()
+	setUser := func(name, user string) {
+		job := &v1.OpsJob{}
+		if err := r.Get(ctx, types.NamespacedName{Name: name}, job); err != nil {
+			job = exportJob(name, "wl1", "harbor.local/proxy/library/python:3.12")
+			job.Labels = map[string]string{v1.UserIdLabel: user}
+			require.NoError(t, r.Create(ctx, job))
+			return
+		}
+		job.Labels = map[string]string{v1.UserIdLabel: user}
+		require.NoError(t, r.Update(ctx, job))
+	}
+	setUser("e1", "u1")
+	setUser("e2", "u1")
+	setUser("e3", "u2")
+
+	started, finish := make(chan struct{}), make(chan struct{})
+	var mu sync.Mutex
+	var exported []string
+	r.export = func(_ context.Context, req exportimage.Request) (*exportimage.Result, error) {
+		job := path.Base(req.Staging.RepositoryStr())
+		mu.Lock()
+		exported = append(exported, job)
+		mu.Unlock()
+		if job == "e1" {
+			close(started)
+			<-finish
+		}
+		return &exportimage.Result{Digest: "sha256:" + strings.Repeat("d", 64)}, nil
+	}
+	phase := func(name string) v1.OpsJobPhase {
+		job := &v1.OpsJob{}
+		require.NoError(t, r.Get(ctx, types.NamespacedName{Name: name}, job))
+		return job.Status.Phase
+	}
+
+	done := make(chan error)
+	go func() {
+		_, err := r.Do(ctx, "e1")
+		done <- err
+	}()
+	<-started
+
+	res, err := r.Do(ctx, "e2")
+	require.NoError(t, err)
+	assert.Equal(t, exportWaitRetry, res.RequeueAfter, "u1's second export waits")
+	assert.Equal(t, v1.OpsJobRunning, phase("e2"))
+
+	_, err = r.Do(ctx, "e3")
+	require.NoError(t, err)
+	assert.Equal(t, v1.OpsJobSucceeded, phase("e3"), "another user's export runs")
+
+	close(finish)
+	require.NoError(t, <-done)
+	res, err = r.Do(ctx, "e2")
+	require.NoError(t, err)
+	assert.Zero(t, res.RequeueAfter)
+	assert.Equal(t, v1.OpsJobSucceeded, phase("e2"), "it runs once the first has ended")
+	mu.Lock()
+	assert.Equal(t, []string{"e1", "e3", "e2"}, exported)
+	mu.Unlock()
 }
 
 // Without a staging-only credential the export is refused: the platform's own credential
