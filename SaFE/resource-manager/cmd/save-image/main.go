@@ -69,7 +69,8 @@ func record() error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "save-image: recorded %d paths in %s\n", n, time.Since(start).Round(time.Millisecond))
+	fmt.Fprintf(os.Stderr, "save-image: recorded %d paths in %s, peak memory %d MiB\n",
+		n, time.Since(start).Round(time.Millisecond), agent.PeakMemory()>>20)
 	return nil
 }
 

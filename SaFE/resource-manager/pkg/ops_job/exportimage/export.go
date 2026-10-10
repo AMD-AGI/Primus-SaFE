@@ -241,9 +241,9 @@ func Export(ctx context.Context, req Request) (*Result, error) {
 		return nil, err
 	}
 	logf("container: %d changed, %d deleted, %d skipped, %d vanished, %d resized; layer %s, %d bytes; "+
-		"%d token renewals, %d retried requests",
+		"%d token renewals, %d retried requests; peak memory %d MiB",
 		resp.Changed, resp.Deleted, resp.Skipped, resp.Vanished, resp.Resized, staged.Digest, staged.Size,
-		resp.Renewals, resp.Retries)
+		resp.Renewals, resp.Retries, resp.PeakMemory>>20)
 	if resp.Unsettled > 0 {
 		logf("%d directories had changed before the container recorded them; "+
 			"files deleted from them before then are still in the image", resp.Unsettled)

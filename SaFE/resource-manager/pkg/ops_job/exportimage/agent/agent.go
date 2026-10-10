@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
@@ -104,17 +105,19 @@ type Message struct {
 // Response is what the agent reports on success.
 type Response struct {
 	// Digest, DiffID and Size describe the uploaded layer blob.
-	Digest          string   `json:"digest"`
-	DiffID          string   `json:"diffID"`
-	Size            int64    `json:"size"`
-	Changed         int      `json:"changed"`
-	Deleted         int      `json:"deleted"`
-	Skipped         int      `json:"skipped"`
-	Vanished        int      `json:"vanished"`
-	Resized         int      `json:"resized"`
-	Unsettled       int      `json:"unsettled,omitempty"`
-	Renewals        int      `json:"renewals,omitempty"`
-	Retries         int      `json:"retries,omitempty"`
+	Digest    string `json:"digest"`
+	DiffID    string `json:"diffID"`
+	Size      int64  `json:"size"`
+	Changed   int    `json:"changed"`
+	Deleted   int    `json:"deleted"`
+	Skipped   int    `json:"skipped"`
+	Vanished  int    `json:"vanished"`
+	Resized   int    `json:"resized"`
+	Unsettled int    `json:"unsettled,omitempty"`
+	Renewals  int    `json:"renewals,omitempty"`
+	Retries   int    `json:"retries,omitempty"`
+	// PeakMemory is the most memory the agent held, in bytes.
+	PeakMemory      int64    `json:"peakMemory,omitempty"`
 	DroppedPackages []string `json:"droppedPackages,omitempty"`
 }
 
@@ -157,6 +160,7 @@ func Serve(ctx context.Context, in io.Reader, out io.Writer, env Env) error {
 	if err != nil {
 		return err
 	}
+	resp.PeakMemory = PeakMemory()
 	return enc.Encode(Message{Result: resp})
 }
 
@@ -444,6 +448,15 @@ func httpsOnlyTransport(caPEM string, dial func(ctx context.Context, network, ad
 		t.DialContext = dial
 	}
 	return httpsOnly{t}, nil
+}
+
+// PeakMemory is the most resident memory this process has held, in bytes.
+func PeakMemory() int64 {
+	var ru syscall.Rusage
+	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err != nil {
+		return 0
+	}
+	return ru.Maxrss << 10
 }
 
 // systemRoots returns the container's trusted roots; tests replace it.
