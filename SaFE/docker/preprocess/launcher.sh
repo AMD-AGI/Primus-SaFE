@@ -27,10 +27,10 @@ input="$1"
 # nothing below waits for it, and writes the paths as it lists them, so its memory does
 # not grow with the image. An earlier container's record is removed first and the record
 # is marked as in progress, so that saving meanwhile is refused as "still recording". What
-# the user changes is told apart by the time .run.sh is written below, not by when the
-# record ran. A failure only disables saving.
+# the user changes is told apart by the time the entry point file is written below, not by
+# when the record ran. A failure only disables saving.
 if [ -x /shared-data/save-image ]; then
-  rm -f /shared-data/save-image.base
+  rm -f /shared-data/save-image.base /shared-data/save-image.run
   : > /shared-data/save-image.base.partial
   (
     low=""
@@ -81,6 +81,16 @@ if ! echo "$input" | base64 -d > "$run_file"; then
     exit 1
 fi
 chmod +x "$run_file"
+# Saving the container as an image needs this file's change time; record where it is,
+# since it is not always the working directory's .run.sh.
+if [ -x /shared-data/save-image ]; then
+    case "$run_file" in
+        /*) run_path="$run_file" ;;
+        *) run_path="$(pwd)/$run_file" ;;
+    esac
+    printf '%s\n' "$run_path" > /shared-data/save-image.run ||
+        echo "WARN: LAUNCHER: cannot record where the entry point is; this container cannot be saved as an image" >&2
+fi
 if [ -x /usr/bin/bash ]; then
     /usr/bin/bash -o pipefail "$run_file" &
 elif [ -x /bin/bash ]; then

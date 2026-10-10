@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -389,6 +390,13 @@ func (c *fakeContainer) Exec(ctx context.Context, cmd []string, stdin io.Reader,
 		if c.recording {
 			fmt.Fprintln(stdout, "recording=1")
 		}
+		// The entry point file is looked for the way the agent looks for it.
+		if f, err := agent.RunFileOf(c.env); err == nil {
+			fmt.Fprintf(stdout, "runpath=%s\n", f)
+			if _, err := os.Lstat(f); err == nil {
+				fmt.Fprintln(stdout, "runfile=1")
+			}
+		}
 		fmt.Fprint(stdout, c.probeExtra)
 		return nil
 	case len(cmd) == 2 && cmd[0] == agent.BinaryPath && cmd[1] == "export":
@@ -473,6 +481,14 @@ func tick() { time.Sleep(30 * time.Millisecond) }
 // files, installed sshd and handed over, and then the user worked in it.
 func newContainer(t *testing.T, bigFile int) *fakeContainer {
 	t.Helper()
+	return newContainerRunningFrom(t, bigFile, "")
+}
+
+// newContainerRunningFrom is newContainer whose launcher wrote the entry point to runFile
+// (a path in the container) and recorded where, as it does when the working directory
+// cannot be written; "" for the working directory's .run.sh, recorded nowhere.
+func newContainerRunningFrom(t *testing.T, bigFile int, runFile string) *fakeContainer {
+	t.Helper()
 	root := t.TempDir()
 	for p, data := range baseFiles {
 		writeFile(t, root, p, data)
@@ -490,7 +506,14 @@ func newContainer(t *testing.T, bigFile int) *fakeContainer {
 	writeFile(t, root, "usr/sbin/sshd", "launcher-installed")
 	writeFile(t, root, "var/lib/dpkg/info/openssh-server.list", "/usr/sbin/sshd\n")
 	writeFile(t, root, "etc/ssh/ssh_host_rsa_key", "PRIVATE")
-	writeFile(t, root, ".run.sh", "sleep infinity")
+	marker := ""
+	if runFile == "" {
+		writeFile(t, root, ".run.sh", "sleep infinity")
+	} else {
+		writeFile(t, root, runFile, "sleep infinity")
+		marker = filepath.Join(root, "shared-data/save-image.run")
+		writeFile(t, root, "shared-data/save-image.run", runFile+"\n")
+	}
 	tick()
 	writeFile(t, root, "etc/issue", "Debian, changed\n")
 	writeFile(t, root, "root/hello.txt", "hello")
@@ -509,6 +532,7 @@ func newContainer(t *testing.T, bigFile int) *fakeContainer {
 		Root:      root,
 		Baseline:  baseline,
 		RunFile:   filepath.Join(root, ".run.sh"),
+		RunMarker: marker,
 		Mountinfo: testMountinfo,
 	}}
 }
@@ -985,4 +1009,83 @@ func TestNewTransportRejectsAnUnusableCA(t *testing.T) {
 	assert.Error(t, err)
 	_, err = NewTransport(nil)
 	assert.NoError(t, err)
+}
+
+// A launcher that cannot write the working directory starts the entry point from a
+// temporary file, and records where: its change time still separates what the launcher
+// installed from what the user did.
+func TestExportFindsTheEntryPointFileTheLauncherFellBackTo(t *testing.T) {
+	w := newWorld(t, newContainerRunningFrom(t, 0, "/tmp/run.Ab12Cd"))
+	_, err := Export(context.Background(), w.request)
+	require.NoError(t, err)
+	fs := w.flatten(t, w.request.Target)
+	assert.Equal(t, "hello", fs["/root/hello.txt"])
+	assert.Equal(t, "Debian, changed\n", fs["/etc/issue"])
+	assert.NotContains(t, fs, "/etc/debian_version")
+	assert.NotContains(t, fs, "/usr/sbin/sshd", "what the launcher installed stays out")
+	assert.NotContains(t, fs, "/tmp/run.Ab12Cd")
+}
+
+// Without the entry point file, the export is refused before any token is issued.
+func TestExportRefusesAContainerWithoutItsEntryPointFile(t *testing.T) {
+	for _, tc := range []struct {
+		name, runFile, missing string
+	}{
+		{"in the working directory", "", ".run.sh"},
+		{"where the launcher fell back to", "/tmp/run.Ab12Cd", "tmp/run.Ab12Cd"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newContainerRunningFrom(t, 0, tc.runFile)
+			require.NoError(t, os.Remove(filepath.Join(c.env.Root, tc.missing)))
+			w := newWorld(t, c)
+			_, err := Export(context.Background(), w.request)
+			require.ErrorIs(t, err, ErrNoRunFile)
+			assert.Contains(t, err.Error(), "restart the workload")
+			assert.Contains(t, err.Error(), tc.missing)
+			assert.Equal(t, []string{"probe"}, c.ran)
+			assert.Zero(t, w.stagingTokens(), "no token is issued")
+		})
+	}
+}
+
+// The probe is a shell script; run it, as the container would, against files laid out
+// the way the launcher leaves them.
+func TestProbeScriptFindsTheEntryPointFile(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	dir := t.TempDir()
+	shared, cwd := filepath.Join(dir, "shared-data"), filepath.Join(dir, "work")
+	require.NoError(t, os.MkdirAll(shared, 0o755))
+	require.NoError(t, os.MkdirAll(cwd, 0o755))
+	binary := filepath.Join(shared, "save-image")
+	require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf("#!/bin/sh\necho %d\n", agent.ProtocolVersion)), 0o755))
+	baseline := filepath.Join(shared, "save-image.base")
+	require.NoError(t, os.WriteFile(baseline, []byte("x"), 0o644))
+	marker := filepath.Join(shared, "save-image.run")
+	script := probeScriptFor(binary, baseline, marker)
+	probe := func() Probe {
+		cmd := exec.Command("sh", "-c", script)
+		cmd.Dir = cwd
+		out, err := cmd.Output()
+		require.NoError(t, err)
+		p := ParseProbe(string(out))
+		p.UID = 0 // the user the test runs as is not what is tested here
+		return p
+	}
+
+	// No record of where: the working directory's .run.sh.
+	assert.ErrorIs(t, probe().Check(), ErrNoRunFile)
+	require.NoError(t, os.WriteFile(filepath.Join(cwd, ".run.sh"), nil, 0o755))
+	assert.NoError(t, probe().Check())
+
+	// The launcher fell back to a temporary file and recorded it.
+	fallback := filepath.Join(dir, "tmp", "run.Ab12Cd")
+	require.NoError(t, os.WriteFile(marker, []byte(fallback+"\n"), 0o644))
+	p := probe()
+	assert.Equal(t, fallback, p.RunPath)
+	assert.ErrorIs(t, p.Check(), ErrNoRunFile, "the working directory's file is not the one recorded")
+	require.NoError(t, os.MkdirAll(filepath.Dir(fallback), 0o755))
+	require.NoError(t, os.WriteFile(fallback, nil, 0o700))
+	assert.NoError(t, probe().Check())
 }

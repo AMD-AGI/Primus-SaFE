@@ -84,6 +84,7 @@ func export() error {
 		Root:      "/",
 		Baseline:  agent.BaselinePath,
 		RunFile:   agent.LauncherRunFile,
+		RunMarker: agent.RunMarkerPath,
 		Mountinfo: mi,
 		UID:       os.Getuid(),
 		SpoolDir:  filepath.Dir(agent.BaselinePath),

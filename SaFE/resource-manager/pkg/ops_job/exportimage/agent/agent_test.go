@@ -211,7 +211,15 @@ func TestExportRefusals(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(e.Baseline, b[:len(b)/2], 0o600))
 		}, want: "incomplete"},
-		{name: "no run file", change: func(e *Env, _ *Request) { require.NoError(t, os.Remove(e.RunFile)) }, want: LauncherRunFile},
+		{name: "no run file", change: func(e *Env, _ *Request) { require.NoError(t, os.Remove(e.RunFile)) }, want: LauncherRunFile, is: ErrNoRunFile},
+		{name: "no run file where the launcher recorded it", change: func(e *Env, _ *Request) {
+			e.RunMarker = filepath.Join(e.Root, "shared-data/save-image.run")
+			require.NoError(t, os.WriteFile(e.RunMarker, []byte("/tmp/run.Ab12Cd\n"), 0o644))
+		}, want: "run.Ab12Cd", is: ErrNoRunFile},
+		{name: "a run file recorded as a relative path", change: func(e *Env, _ *Request) {
+			e.RunMarker = filepath.Join(e.Root, "shared-data/save-image.run")
+			require.NoError(t, os.WriteFile(e.RunMarker, []byte(".run.sh\n"), 0o644))
+		}, want: "not an absolute path"},
 		{name: "no token", change: func(_ *Env, q *Request) { q.Token = "" }, want: "token"},
 		{name: "another CA", change: func(_ *Env, q *Request) { q.CA = otherCA(t) }, want: "certificate"},
 	} {

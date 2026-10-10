@@ -46,6 +46,9 @@ import (
 var (
 	// ErrNotRoot is returned for a container that does not run as root.
 	ErrNotRoot = agent.ErrNotRoot
+	// ErrNoRunFile is returned when the file the launcher started the entry point from is
+	// gone.
+	ErrNoRunFile = agent.ErrNoRunFile
 	// ErrNoStagingCredential is returned when no credential limited to the staging
 	// project is configured for the registry.
 	ErrNoStagingCredential = errors.New("no registry credential limited to the staging project is configured, " +
@@ -74,15 +77,24 @@ const (
 	minRenewInterval = 20 * time.Second
 )
 
-// probeScript reports what the export depends on.
-var probeScript = `echo "uid=$(id -u)"
-if [ -x ` + agent.BinaryPath + ` ]; then
+// probeScript reports what the export depends on. It runs where the agent runs, in the
+// container's working directory, so a relative entry point file is found the same way.
+var probeScript = probeScriptFor(agent.BinaryPath, agent.BaselinePath, agent.RunMarkerPath)
+
+func probeScriptFor(binary, baseline, runMarker string) string {
+	return `echo "uid=$(id -u)"
+if [ -x ` + binary + ` ]; then
   echo agent=1
-  p=$(` + agent.BinaryPath + ` protocol 2>/dev/null) && echo "protocol=$p"
+  p=$(` + binary + ` protocol 2>/dev/null) && echo "protocol=$p"
 fi
-if [ -s ` + agent.BaselinePath + ` ]; then echo baseline=1; fi
-if [ -e ` + agent.BaselinePath + agent.RecordingSuffix + ` ]; then echo recording=1; fi
+if [ -s ` + baseline + ` ]; then echo baseline=1; fi
+if [ -e ` + baseline + agent.RecordingSuffix + ` ]; then echo recording=1; fi
+f=` + agent.LauncherRunFile + `
+if [ -s ` + runMarker + ` ]; then f=$(head -n 1 ` + runMarker + `); fi
+echo "runpath=$f"
+if [ -e "$f" ]; then echo runfile=1; fi
 `
+}
 
 // Probe is what the container reported about itself.
 type Probe struct {
@@ -91,6 +103,10 @@ type Probe struct {
 	Protocol  int
 	Baseline  bool
 	Recording bool
+	// RunFile is whether the file the launcher started the entry point from is there, and
+	// RunPath where it was looked for.
+	RunFile bool
+	RunPath string
 }
 
 // ParseProbe parses probeScript's output.
@@ -111,6 +127,10 @@ func ParseProbe(out string) Probe {
 			p.Baseline = true
 		case "recording":
 			p.Recording = true
+		case "runpath":
+			p.RunPath = v
+		case "runfile":
+			p.RunFile = true
 		}
 	}
 	return p
@@ -129,6 +149,8 @@ func (p Probe) Check() error {
 		return fmt.Errorf("cannot determine the container's user id")
 	case p.UID != 0:
 		return fmt.Errorf("%w (uid %d): saving it would leave out the files it cannot read", ErrNotRoot, p.UID)
+	case !p.RunFile:
+		return fmt.Errorf("%w (looked for %s)", agent.ErrNoRunFile, p.RunPath)
 	}
 	return nil
 }

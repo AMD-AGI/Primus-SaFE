@@ -48,6 +48,10 @@ const (
 	// entry point. Its change time is the boundary between what the platform wrote and
 	// what the user did.
 	LauncherRunFile = ".run.sh"
+	// RunMarkerPath is where the launcher writes the absolute path of the file it started
+	// the entry point from: LauncherRunFile, or a temporary file when the working directory
+	// cannot be written. It is on the shared volume, so it is never part of an export.
+	RunMarkerPath = "/shared-data/save-image.run"
 )
 
 var (
@@ -61,6 +65,13 @@ var (
 )
 
 var errUploadStopped = errors.New("upload stopped")
+
+// ErrNoRunFile is returned when the file the launcher started the entry point from is
+// gone: its change time is the boundary between what the platform wrote and what the user
+// did, and without it the two cannot be told apart.
+var ErrNoRunFile = errors.New("the file the platform launcher started the entry point from is gone, so what the " +
+	"launcher installed cannot be told apart from the user's changes; restart the workload, leave that file in " +
+	"place, then save it again")
 
 // ErrRecording is returned while the record of the files the container started with is
 // still being made.
@@ -130,8 +141,11 @@ type Env struct {
 	Root string
 	// Baseline is the launcher's record of the files the container started with.
 	Baseline string
-	// RunFile is the launcher's entry point file.
+	// RunFile is the launcher's entry point file when RunMarker names none.
 	RunFile string
+	// RunMarker is where the launcher wrote the path of the entry point file it used
+	// (RunMarkerPath); that path is read under Root.
+	RunMarker string
 	// Mountinfo is the container's mount table (/proc/self/mountinfo).
 	Mountinfo string
 	UID       int
@@ -253,14 +267,17 @@ func Export(ctx context.Context, req Request, env Env, tokens TokenSource) (*Res
 	if err != nil {
 		return nil, err
 	}
-	run, err := os.Lstat(env.RunFile)
+	runFile, err := RunFileOf(env)
 	if err != nil {
-		return nil, fmt.Errorf("the platform launcher's %s is not in the working directory, so what the launcher "+
-			"installed cannot be told apart from the user's changes: %w", LauncherRunFile, err)
+		return nil, err
+	}
+	run, err := os.Lstat(runFile)
+	if err != nil {
+		return nil, fmt.Errorf("%w (%s: %v)", ErrNoRunFile, runFile, err)
 	}
 	since, ok := ctimeOf(run)
 	if !ok {
-		return nil, fmt.Errorf("cannot read the change time of %s", LauncherRunFile)
+		return nil, fmt.Errorf("cannot read the change time of %s", runFile)
 	}
 
 	filter := NewFilter(ParseMountPoints(env.Mountinfo))
@@ -311,6 +328,26 @@ func Export(ctx context.Context, req Request, env Env, tokens TokenSource) (*Res
 		Retries:         up.Retries,
 		DroppedPackages: st.DroppedPackages,
 	}, nil
+}
+
+// RunFileOf returns the file the launcher started the entry point from: the path it
+// recorded in env.RunMarker, read under env.Root, or env.RunFile when it recorded none.
+func RunFileOf(env Env) (string, error) {
+	if env.RunMarker == "" {
+		return env.RunFile, nil
+	}
+	b, err := os.ReadFile(env.RunMarker)
+	if errors.Is(err, os.ErrNotExist) {
+		return env.RunFile, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading where the launcher wrote the entry point: %w", err)
+	}
+	p, _, _ := strings.Cut(string(b), "\n")
+	if !filepath.IsAbs(p) {
+		return "", fmt.Errorf("the launcher recorded %q as its entry point file, which is not an absolute path", p)
+	}
+	return filepath.Join(env.Root, p), nil
 }
 
 type uploadedLayer struct {
