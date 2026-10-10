@@ -559,6 +559,10 @@ func TestJobDisplayName(t *testing.T) {
 func TestModelPendingSingleCharacterDisplayName(t *testing.T) {
 	setViper(t, map[string]any{"s3.enable": false})
 	model := lifecycleModel("m1")
+	// Not a HuggingFace repo: the directory, and so the job, is named after the display name.
+	model.Labels[v1.ModelS3ImportLabel] = v1.TrueStr
+	model.Annotations[v1.ModelS3SourceEndpointAnn] = "http://minio:9000"
+	model.Spec.Source.URL = "s3://bucket/a"
 	model.Spec.DisplayName = "a"
 	model.Finalizers = []string{ModelFinalizer}
 	model.Status.Phase = v1.ModelPhasePending
