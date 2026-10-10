@@ -46,14 +46,21 @@ var saveStagingFirstWait = time.Minute
 // other failure, only more quietly.
 var errNoBuiltinHarbor = errors.New("the built-in Harbor is not installed")
 
-// keepEnsuringSaveImageStaging runs ensureSaveImageStaging until it succeeds: Harbor may
-// come up after the apiserver. Without a built-in Harbor it keeps looking for one, every
-// ten minutes at most, which costs one read of a ConfigMap.
+// keepEnsuringSaveImageStaging sets up the built-in Harbor (initHarbor: the default
+// registry, which saved images are pushed to) and what saving images needs in it
+// (ensureSaveImageStaging), and runs both again until they succeed: Harbor may come up
+// after the apiserver. Without a built-in Harbor it keeps looking for one, every ten
+// minutes at most, which costs a read of its ConfigMap.
 func (h *ImageHandler) keepEnsuringSaveImageStaging(ctx context.Context) {
 	wait := saveStagingFirstWait
 	reportedMissing := false
 	for {
-		err := h.ensureSaveImageStaging(ctx)
+		err := h.initHarbor(ctx)
+		if err != nil {
+			err = fmt.Errorf("failed to init harbor: %w", err)
+		} else {
+			err = h.ensureSaveImageStaging(ctx)
+		}
 		if err == nil {
 			return
 		}

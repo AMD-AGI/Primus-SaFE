@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -47,10 +46,6 @@ func NewImageHandler(mgr ctrlruntime.Manager) (*ImageHandler, error) {
 		httpClient:       httpclient.NewClient(),
 		accessController: authority.NewAccessController(mgr.GetClient()),
 		clientManager:    commonutils.NewObjectManagerSingleton(),
-	}
-	err = h.initHarbor(context.Background())
-	if err != nil {
-		klog.Warningf("failed to init harbor: %v", err)
 	}
 	go h.keepEnsuringSaveImageStaging(context.Background())
 	return h, nil
