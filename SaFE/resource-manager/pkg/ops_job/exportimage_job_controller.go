@@ -44,9 +44,11 @@ const (
 	// Default concurrent workers for image export
 	exportImageDefaultConcurrent = 3
 
-	// The registry's CA, for a registry signed by a private CA. Optional.
-	harborTLSNamespace  = "harbor"
+	// The built-in Harbor: its external endpoint, and its CA when a private CA signs it.
+	harborNamespace     = "harbor"
 	harborTLSSecretName = "harbor-tls"
+	harborCoreConfigMap = "harbor-core"
+	harborEndpointKey   = "EXT_ENDPOINT"
 
 	// defaultStagingProject is the registry project the containers' layers are staged in,
 	// one repository per export. It must exist, private, before images are saved.
@@ -159,18 +161,26 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 	if job.IsEnd() {
 		return ctrlruntime.Result{}, nil
 	}
+	exportCtx := ctx
 	if left := job.GetLeftTime(); left > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(left)*time.Second)
+		exportCtx, cancel = context.WithTimeout(ctx, time.Duration(left)*time.Second)
 		defer cancel()
 	}
-	outputs, err := r.exportJob(ctx, job)
+	outputs, err := r.exportJob(exportCtx, job)
+	// The outcome is written even when the export ran out of time: its reason is what the
+	// user needs to see, not the timeout that would otherwise be recorded later.
+	statusCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusWriteTimeout)
+	defer cancel()
 	if err != nil {
 		klog.ErrorS(err, "failed to export image", "job", job.Name)
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
+		return ctrlruntime.Result{}, r.setJobCompleted(statusCtx, job, v1.OpsJobFailed, err.Error(), nil)
 	}
-	return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, "Image exported successfully", outputs)
+	return ctrlruntime.Result{}, r.setJobCompleted(statusCtx, job, v1.OpsJobSucceeded, "Image exported successfully", outputs)
 }
+
+// statusWriteTimeout bounds writing an export's outcome.
+const statusWriteTimeout = 30 * time.Second
 
 // exportJob runs one export and returns the job's outputs. Every error it returns is the
 // job's failure message.
@@ -201,15 +211,20 @@ func (r *ExportImageJobReconciler) exportJob(ctx context.Context, job *v1.OpsJob
 	if err != nil {
 		return nil, err
 	}
+	// Strict parsing: a registry named without a dot or a port ("myregistry") would
+	// otherwise be read as Docker Hub, and the credentials below sent there.
 	fullTargetImage := fmt.Sprintf("%s/%s", dest.registry, targetPath)
-	target, err := name.NewTag(fullTargetImage)
+	target, err := name.NewTag(fullTargetImage, name.StrictValidation)
 	if err != nil {
 		return nil, fmt.Errorf("invalid target image %s: %w", fullTargetImage, err)
 	}
 	// One repository per export, for the container's layer.
-	staging, err := name.NewRepository(fmt.Sprintf("%s/%s/%s", dest.registry, dest.stagingProject, job.Name))
+	staging, err := name.NewRepository(fmt.Sprintf("%s/%s/%s", dest.registry, dest.stagingProject, job.Name), name.StrictValidation)
 	if err != nil {
 		return nil, fmt.Errorf("invalid staging repository: %w", err)
+	}
+	if target.RegistryStr() != dest.registry || staging.RegistryStr() != dest.registry {
+		return nil, fmt.Errorf("the registry %q is read as %q; name it with its domain or port", dest.registry, target.RegistryStr())
 	}
 
 	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, clusterID)
@@ -225,7 +240,7 @@ func (r *ExportImageJobReconciler) exportJob(ctx context.Context, job *v1.OpsJob
 	if err != nil {
 		return nil, err
 	}
-	access, err := r.registryAccess(ctx, dest.caSecret, dest.stagingPushSecret)
+	access, err := r.registryAccess(ctx, dest)
 	if err != nil {
 		return nil, err
 	}
@@ -239,6 +254,7 @@ func (r *ExportImageJobReconciler) exportJob(ctx context.Context, job *v1.OpsJob
 			Pod:       podName,
 			Container: containerName,
 		},
+		Registry:        dest.registry,
 		ImageID:         status.ImageID,
 		Staging:         staging,
 		Target:          target,
@@ -333,6 +349,7 @@ func (r *ExportImageJobReconciler) destination(ctx context.Context, clusterID st
 		}
 		d.registry = defaultRegistry.URL
 	}
+	d.registry = registryHost(d.registry)
 	if d.targetProject == "" {
 		d.targetProject = common.ExportImageProject
 	}
@@ -355,12 +372,20 @@ type registryCredentials struct {
 	ca []byte
 }
 
+// registryHost is a registry's host (and port), however it was written.
+func registryHost(s string) string {
+	s = strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(s), "https://"), "http://")
+	return strings.TrimSuffix(s, "/")
+}
+
 // registryAccess returns the credentials and trust the export uses: the platform's image
 // import credential, the built-in registry's private CA if there is one, the configured
 // registry CA ("<namespace>/<name>", key ca.crt) if there is one, and the staging-only
-// credential. The platform's credential stays in this process; only the CA and a token
-// minted with the staging-only credential go to the container.
-func (r *ExportImageJobReconciler) registryAccess(ctx context.Context, caSecret, stagingPushSecret string) (*registryCredentials, error) {
+// credential. The platform's credential stays in this process; only a CA and a token
+// minted with the staging-only credential go to the container. The container trusts its
+// own roots and, on top of them, the configured CA, or the built-in Harbor's CA when the
+// registry is the built-in Harbor; any other registry is checked against its roots alone.
+func (r *ExportImageJobReconciler) registryAccess(ctx context.Context, dest *exportDestination) (*registryCredentials, error) {
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, apitypes.NamespacedName{
 		Name:      common.ImageImportSecretName,
@@ -379,36 +404,57 @@ func (r *ExportImageJobReconciler) registryAccess(ctx context.Context, caSecret,
 
 	var builtinCA []byte
 	tlsSecret := &corev1.Secret{}
-	err = r.Get(ctx, apitypes.NamespacedName{Namespace: harborTLSNamespace, Name: harborTLSSecretName}, tlsSecret)
+	err = r.Get(ctx, apitypes.NamespacedName{Namespace: harborNamespace, Name: harborTLSSecretName}, tlsSecret)
 	switch {
 	case err == nil:
 		builtinCA = tlsSecret.Data["ca.crt"]
 	case !apierrors.IsNotFound(err):
-		return nil, fmt.Errorf("failed to get secret %s/%s: %w", harborTLSNamespace, harborTLSSecretName, err)
+		return nil, fmt.Errorf("failed to get secret %s/%s: %w", harborNamespace, harborTLSSecretName, err)
 	}
-	ca := builtinCA
-	if caSecret != "" {
-		ns, n, ok := strings.Cut(caSecret, "/")
+	var ca []byte
+	if dest.caSecret != "" {
+		ns, n, ok := strings.Cut(dest.caSecret, "/")
 		if !ok || ns == "" || n == "" {
-			return nil, fmt.Errorf("the registry CA secret %q is not <namespace>/<name>", caSecret)
+			return nil, fmt.Errorf("the registry CA secret %q is not <namespace>/<name>", dest.caSecret)
 		}
 		s := &corev1.Secret{}
 		if err := r.Get(ctx, apitypes.NamespacedName{Namespace: ns, Name: n}, s); err != nil {
-			return nil, fmt.Errorf("failed to get secret %s: %w", caSecret, err)
+			return nil, fmt.Errorf("failed to get secret %s: %w", dest.caSecret, err)
 		}
 		if ca = s.Data["ca.crt"]; len(ca) == 0 {
-			return nil, fmt.Errorf("secret %s has no ca.crt", caSecret)
+			return nil, fmt.Errorf("secret %s has no ca.crt", dest.caSecret)
+		}
+	} else if len(builtinCA) > 0 {
+		builtin, err := r.builtinHarborHost(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if builtin != "" && builtin == dest.registry {
+			ca = builtinCA
 		}
 	}
 	transport, err := exportimage.NewTransport(builtinCA, ca)
 	if err != nil {
 		return nil, err
 	}
-	stagingKeychain, err := r.stagingKeychain(ctx, stagingPushSecret)
+	stagingKeychain, err := r.stagingKeychain(ctx, dest.stagingPushSecret)
 	if err != nil {
 		return nil, err
 	}
 	return &registryCredentials{keychain: keychain, stagingKeychain: stagingKeychain, transport: transport, ca: ca}, nil
+}
+
+// builtinHarborHost is the built-in Harbor's external host, or "" without one.
+func (r *ExportImageJobReconciler) builtinHarborHost(ctx context.Context) (string, error) {
+	cm := &corev1.ConfigMap{}
+	err := r.Get(ctx, apitypes.NamespacedName{Namespace: harborNamespace, Name: harborCoreConfigMap}, cm)
+	if apierrors.IsNotFound(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get configmap %s/%s: %w", harborNamespace, harborCoreConfigMap, err)
+	}
+	return registryHost(cm.Data[harborEndpointKey]), nil
 }
 
 // stagingKeychain reads the credential limited to the staging project
@@ -421,8 +467,10 @@ func (r *ExportImageJobReconciler) stagingKeychain(ctx context.Context, ref stri
 	s := &corev1.Secret{}
 	if err := r.Get(ctx, apitypes.NamespacedName{Namespace: ns, Name: n}, s); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, commonerrors.NewBadRequest(fmt.Sprintf("%v (secret %s not found); please contact your administrator",
-				exportimage.ErrNoStagingCredential, ref))
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("%v (secret %s not found). For the built-in Harbor the "+
+				"apiserver creates it at start-up, with the %s project and a robot account limited to it; check the "+
+				"apiserver log for why it could not, or configure save_image.clusters[].staging_push_secret",
+				exportimage.ErrNoStagingCredential, ref, defaultStagingProject))
 		}
 		return nil, fmt.Errorf("failed to get secret %s: %w", ref, err)
 	}

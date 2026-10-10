@@ -454,3 +454,106 @@ func TestExportImageQueueControllerStarts(t *testing.T) {
 	ei.Controller = commonctrl.NewController[string](ei, 0)
 	ei.start(context.Background())
 }
+
+// builtinHarbor adds the built-in Harbor's external endpoint and private CA.
+func builtinHarbor(t *testing.T, r *ExportImageJobReconciler, endpoint string) string {
+	t.Helper()
+	ca := selfSignedPEM(t)
+	ctx := context.Background()
+	assert.NoError(t, r.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: harborTLSSecretName, Namespace: harborNamespace},
+		Data:       map[string][]byte{"ca.crt": []byte(ca)},
+	}))
+	assert.NoError(t, r.Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: harborCoreConfigMap, Namespace: harborNamespace},
+		Data:       map[string]string{harborEndpointKey: endpoint},
+	}))
+	return ca
+}
+
+// The built-in Harbor's private CA goes to the container only when it uploads to the
+// built-in Harbor; another registry is checked against the container's own roots.
+func TestExportImageSendsTheBuiltinCAOnlyForTheBuiltinHarbor(t *testing.T) {
+	t.Run("built-in Harbor", func(t *testing.T) {
+		r, req, cleanup := exportFixture(t, nil)
+		defer cleanup()
+		ca := builtinHarbor(t, r, "https://harbor.local")
+		_, err := r.Do(context.Background(), "e1")
+		assert.NoError(t, err)
+		assert.Equal(t, ca, string(req.CA))
+		assert.Equal(t, "harbor.local", req.Registry)
+	})
+	t.Run("another registry, no CA configured", func(t *testing.T) {
+		r, req, cleanup := exportFixture(t, nil)
+		defer cleanup()
+		builtinHarbor(t, r, "https://harbor.local")
+		viper.Set("save_image.clusters", []map[string]any{{"cluster": "c1", "registry": "edge.example.com"}})
+		defer viper.Reset()
+		_, err := r.Do(context.Background(), "e1")
+		assert.NoError(t, err)
+		assert.Equal(t, "edge.example.com", req.Registry)
+		assert.Empty(t, req.CA, "a publicly trusted registry needs no CA, and the built-in one does not sign it")
+	})
+}
+
+// A registry named without a dot or a port reads as Docker Hub to the registry client;
+// the export is refused before any credential is looked up.
+func TestExportImageRefusesARegistryNameReadAsDockerHub(t *testing.T) {
+	r, req, cleanup := exportFixture(t, nil)
+	defer cleanup()
+	viper.Set("save_image.clusters", []map[string]any{{"cluster": "c1", "registry": "myregistry"}})
+	defer viper.Reset()
+	ctx := context.Background()
+	_, err := r.Do(ctx, "e1")
+	assert.NoError(t, err)
+	assert.Nil(t, req.Exec, "the export never started")
+	updated := &v1.OpsJob{}
+	assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e1"}, updated))
+	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
+	assert.Contains(t, updated.Status.Conditions[0].Message, "myregistry")
+}
+
+// ctxClient fails a call made with a context that is done, as a real API client does.
+type ctxClient struct{ client.Client }
+
+func (c ctxClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return c.Client.Get(ctx, key, obj, opts...)
+}
+
+func (c ctxClient) Status() client.SubResourceWriter { return ctxStatus{c.Client.Status()} }
+
+type ctxStatus struct{ client.SubResourceWriter }
+
+func (s ctxStatus) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.SubResourceWriter.Update(ctx, obj, opts...)
+}
+
+// An export that runs out of time records why it failed: the job's context is over by
+// then, and the outcome is written with one of its own.
+func TestExportImageRecordsWhyItRanOutOfTime(t *testing.T) {
+	r, _, cleanup := exportFixture(t, nil)
+	defer cleanup()
+	ctx := context.Background()
+	job := &v1.OpsJob{}
+	assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e1"}, job))
+	job.CreationTimestamp = metav1.Now()
+	job.Spec.TimeoutSecond = 1
+	assert.NoError(t, r.Update(ctx, job))
+	r.Client = ctxClient{r.Client}
+	r.export = func(ctx context.Context, _ exportimage.Request) (*exportimage.Result, error) {
+		<-ctx.Done()
+		return nil, fmt.Errorf("uploading the layer at byte 4096: %w", ctx.Err())
+	}
+	_, err := r.Do(ctx, "e1")
+	assert.NoError(t, err)
+	updated := &v1.OpsJob{}
+	assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e1"}, updated))
+	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
+	assert.Contains(t, updated.Status.Conditions[0].Message, "uploading the layer at byte 4096")
+}
