@@ -1139,7 +1139,7 @@ func TestExportUsesTheBaseForTheNodesPlatform(t *testing.T) {
 			w := newWorld(t, newContainer(t, 0))
 			baseID, err := ParseImageID(w.request.ImageID)
 			require.NoError(t, err)
-			auth := remote.WithAuth(&authn.Basic{Username: platformUser, Password: platformSecret})
+			auth := remote.WithAuth(&authn.Basic{Username: platformUser, Password: "secret"})
 			base, err := remote.Image(baseID, remote.WithTransport(w.net.transport()), auth)
 			require.NoError(t, err)
 			idx := v1.ImageIndex(empty.Index)
