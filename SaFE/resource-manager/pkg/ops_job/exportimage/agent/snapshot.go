@@ -6,8 +6,8 @@
 package agent
 
 import (
+	"fmt"
 	"path"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -126,79 +126,139 @@ func isHostKey(p string) bool {
 
 // Changes is what the new layer has to carry.
 type Changes struct {
-	// Changed are the paths, absolute and sorted, whose inode changed after the threshold.
-	// Directories are carried as metadata only.
+	// Changed are the paths, absolute and in walk order, whose inode changed after the
+	// threshold. Directories are carried as metadata only.
 	Changed []string
-	// Deleted are base-image paths that no longer exist, sorted, with every path whose
-	// ancestor is already deleted left out (a whiteout of the directory covers it).
+	// Deleted are base-image paths that no longer exist, in walk order, with every path
+	// whose ancestor is already deleted left out (a whiteout of the directory covers it).
 	Deleted []string
 	// Skipped counts changed paths that cannot be carried: sockets, which tar cannot
 	// archive, and names that start with the whiteout prefix, which a layer cannot hold
 	// as ordinary files.
 	Skipped int
+	// Unsettled counts directories the user had already changed when the record of the
+	// image's files listed them. The record is made in the background, so a file the user
+	// deleted from such a directory before it was listed is not known to have been in the
+	// image, and stays in the saved image.
+	Unsettled int
+	// basePackageLists are the dpkg file lists the container started with: the only
+	// base-image paths ImageContains is asked about.
+	basePackageLists map[string]bool
 }
 
 const whiteoutPrefix = ".wh."
 
+// BaseSource yields the entries the container started with, in walk order.
+type BaseSource interface {
+	Next() (Entry, bool, error)
+}
+
 // ComputeChanges compares the container's current listing with the files it started with.
 // A path is changed when its status-change time is later than since; it is deleted when
-// the container started with it and no longer has it.
-func ComputeChanges(base map[string]bool, current []Entry, since Timestamp, f Filter) Changes {
-	var ch Changes
-	types := make(map[string]byte, len(current))
-	for _, e := range current {
-		types[e.Path] = e.Type
-		if f.Excluded(e.Path) || !e.Ctime.After(since) {
-			continue
-		}
-		if e.Type == 's' || strings.HasPrefix(path.Base(e.Path), whiteoutPrefix) {
-			ch.Skipped++
-			continue
-		}
-		ch.Changed = append(ch.Changed, e.Path)
+// the container started with it and no longer has it. Both lists are read once, in walk
+// order and side by side, so only the changes are kept in memory. walk calls its argument
+// for each current entry, in walk order (see Walk).
+func ComputeChanges(base BaseSource, walk func(visit func(Entry) error) error, since Timestamp, f Filter) (Changes, error) {
+	m := &merge{base: base, since: since, f: f, ch: Changes{basePackageLists: map[string]bool{}}}
+	if err := m.advance(); err != nil {
+		return Changes{}, err
 	}
-
-	gone := map[string]bool{}
-	for p := range base {
-		if f.Excluded(p) {
-			continue
-		}
-		if _, ok := types[p]; !ok {
-			gone[p] = true
+	if err := walk(m.visit); err != nil {
+		return Changes{}, err
+	}
+	for m.has {
+		m.gone(m.next)
+		if err := m.advance(); err != nil {
+			return Changes{}, err
 		}
 	}
-	for p := range gone {
-		if coveredByAncestor(p, gone, types) {
-			continue
-		}
-		ch.Deleted = append(ch.Deleted, p)
-	}
-	sort.Strings(ch.Changed)
-	sort.Strings(ch.Deleted)
-	return ch
+	return m.ch, nil
 }
 
-// coveredByAncestor reports whether a deleted path needs no whiteout of its own: an
-// ancestor is itself deleted, or an ancestor is now something other than a directory (the
-// new entry replaces the whole subtree, and a whiteout under a file cannot be applied).
-func coveredByAncestor(p string, gone map[string]bool, types map[string]byte) bool {
-	for dir := path.Dir(p); dir != "/" && dir != "."; dir = path.Dir(dir) {
-		if gone[dir] {
-			return true
-		}
-		if t, ok := types[dir]; ok && t != 'd' {
-			return true
-		}
-	}
-	return false
+type merge struct {
+	base  BaseSource
+	since Timestamp
+	f     Filter
+	ch    Changes
+	next  Entry // the next base entry, when has
+	has   bool
+	// cover is a path whose whole base subtree needs no whiteout of its own: it is itself
+	// deleted, or it is now something other than a directory (the new entry replaces the
+	// subtree, and a whiteout under a file cannot be applied). In walk order a subtree
+	// follows its root directly, so one path is enough.
+	cover string
+	last  string
 }
 
-// ImageContains returns whether a path is in the saved image: carried by the new layer, or
-// in the base image and not deleted.
-func ImageContains(base map[string]bool, ch Changes) func(string) bool {
-	changed := make(map[string]bool, len(ch.Changed))
+func (m *merge) advance() error {
+	e, ok, err := m.base.Next()
+	if err != nil {
+		return err
+	}
+	m.next, m.has = e, ok
+	return nil
+}
+
+func (m *merge) visit(e Entry) error {
+	if m.last != "" && ComparePaths(m.last, e.Path) >= 0 {
+		return fmt.Errorf("the listing is out of order at %q", e.Path)
+	}
+	m.last = e.Path
+	for m.has && ComparePaths(m.next.Path, e.Path) < 0 {
+		m.gone(m.next)
+		if err := m.advance(); err != nil {
+			return err
+		}
+	}
+	if m.has && m.next.Path == e.Path {
+		if m.next.Type == 'd' && m.next.Ctime.After(m.since) && !m.f.Excluded(e.Path) {
+			m.ch.Unsettled++
+		}
+		m.seenInBase(m.next.Path)
+		if err := m.advance(); err != nil {
+			return err
+		}
+	}
+	if e.Type != 'd' {
+		m.cover = e.Path
+	}
+	if m.f.Excluded(e.Path) || !e.Ctime.After(m.since) {
+		return nil
+	}
+	if e.Type == 's' || strings.HasPrefix(path.Base(e.Path), whiteoutPrefix) {
+		m.ch.Skipped++
+		return nil
+	}
+	m.ch.Changed = append(m.ch.Changed, e.Path)
+	return nil
+}
+
+func (m *merge) gone(b Entry) {
+	m.seenInBase(b.Path)
+	if m.f.Excluded(b.Path) {
+		return
+	}
+	if m.cover != "" && strings.HasPrefix(b.Path, m.cover+"/") {
+		return
+	}
+	m.ch.Deleted = append(m.ch.Deleted, b.Path)
+	m.cover = b.Path
+}
+
+func (m *merge) seenInBase(p string) {
+	if strings.HasPrefix(p, dpkgInfoDir) {
+		m.ch.basePackageLists[p] = true
+	}
+}
+
+// ImageContains returns whether a dpkg file list (a path under /var/lib/dpkg/info/) is in
+// the saved image: carried by the new layer, or in the base image and not deleted.
+func ImageContains(ch Changes) func(string) bool {
+	changed := make(map[string]bool)
 	for _, p := range ch.Changed {
-		changed[p] = true
+		if strings.HasPrefix(p, dpkgInfoDir) {
+			changed[p] = true
+		}
 	}
 	deleted := make(map[string]bool, len(ch.Deleted))
 	for _, p := range ch.Deleted {
@@ -208,7 +268,7 @@ func ImageContains(base map[string]bool, ch Changes) func(string) bool {
 		if changed[p] {
 			return true
 		}
-		if !base[p] {
+		if !ch.basePackageLists[p] {
 			return false
 		}
 		for q := p; q != "/" && q != "."; q = path.Dir(q) {

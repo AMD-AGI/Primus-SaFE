@@ -11,21 +11,25 @@
 package agent
 
 import (
+	"bufio"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
-	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/google/go-containerregistry/pkg/v1/stream"
+	"github.com/klauspost/compress/gzip"
 )
 
 const (
@@ -54,23 +58,50 @@ var (
 
 var errUploadStopped = errors.New("upload stopped")
 
-// Request is what the controller sends on the agent's standard input. It never appears
-// in the command line, the environment or the Pod spec.
+// ErrRecording is returned while the record of the files the container started with is
+// still being made.
+var ErrRecording = errors.New("this container is still recording the files its image held; save it again in a minute")
+
+// ProtocolVersion is what "save-image protocol" prints: the controller only talks to an
+// agent that speaks this version of the exchange on its standard input and output.
+const ProtocolVersion = 2
+
+// Request is the first line the controller sends on the agent's standard input. It never
+// appears in the command line, the environment or the Pod spec.
 type Request struct {
 	// Registry is the host (and port) of the registry.
 	Registry string `json:"registry"`
 	// Repository is the staging repository, without the registry.
 	Repository string `json:"repository"`
-	// Token is a short-lived registry bearer token for Repository.
-	Token string `json:"token"`
-	// CA is the PEM bundle the registry's certificate is checked against. When empty,
-	// the container's system roots are used.
+	// Token is a short-lived registry bearer token for Repository, and TokenExpiry when it
+	// expires. The agent asks for a new one before then (see Grant).
+	Token       string    `json:"token"`
+	TokenExpiry time.Time `json:"tokenExpiry"`
+	// CA is a PEM bundle the registry's certificate may also be signed by, on top of the
+	// container's system roots; empty for a registry those roots trust.
 	CA string `json:"ca,omitempty"`
-	// Deadline is when the token expires; the agent gives up then.
+	// Deadline is when the agent gives up.
 	Deadline time.Time `json:"deadline"`
+	// MaxSize bounds the compressed layer; zero for no bound.
+	MaxSize int64 `json:"maxSize,omitempty"`
 }
 
-// Response is what the agent prints on success.
+// Grant is each later line on the agent's standard input: the answer to a Message that
+// asks for a new token.
+type Grant struct {
+	Token  string    `json:"token,omitempty"`
+	Expiry time.Time `json:"expiry,omitempty"`
+	Error  string    `json:"error,omitempty"`
+}
+
+// Message is one line the agent prints on its standard output: a request for a new token,
+// or, last, the result.
+type Message struct {
+	Renew  bool      `json:"renew,omitempty"`
+	Result *Response `json:"result,omitempty"`
+}
+
+// Response is what the agent reports on success.
 type Response struct {
 	// Digest, DiffID and Size describe the uploaded layer blob.
 	Digest          string   `json:"digest"`
@@ -81,6 +112,9 @@ type Response struct {
 	Skipped         int      `json:"skipped"`
 	Vanished        int      `json:"vanished"`
 	Resized         int      `json:"resized"`
+	Unsettled       int      `json:"unsettled,omitempty"`
+	Renewals        int      `json:"renewals,omitempty"`
+	Retries         int      `json:"retries,omitempty"`
 	DroppedPackages []string `json:"droppedPackages,omitempty"`
 }
 
@@ -97,10 +131,84 @@ type Env struct {
 	UID       int
 	// Dial replaces the network dialer; tests use it to reach a registry by name.
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// ChunkSize replaces DefaultChunkSize.
+	ChunkSize int
+	// Backoff replaces the wait between attempts of a failed request.
+	Backoff func(ctx context.Context, attempt int) error
 }
 
-// Export computes the layer and uploads it.
-func Export(ctx context.Context, req Request, env Env) (*Response, error) {
+// maxLine bounds one line of the exchange on standard input.
+const maxLine = 1 << 20
+
+// Serve runs one export the way the controller drives it: the Request is the first line
+// of in, each Grant a later one, and every Message a line of out.
+func Serve(ctx context.Context, in io.Reader, out io.Writer, env Env) error {
+	lines := bufio.NewScanner(in)
+	lines.Buffer(make([]byte, 64<<10), maxLine)
+	if !lines.Scan() {
+		return fmt.Errorf("reading the request: %v", errOr(lines.Err(), io.ErrUnexpectedEOF))
+	}
+	var req Request
+	if err := json.Unmarshal(lines.Bytes(), &req); err != nil {
+		return fmt.Errorf("reading the request: %w", err)
+	}
+	enc := json.NewEncoder(out)
+	resp, err := Export(ctx, req, env, &lineTokens{lines: lines, enc: enc})
+	if err != nil {
+		return err
+	}
+	return enc.Encode(Message{Result: resp})
+}
+
+func errOr(err, def error) error {
+	if err != nil {
+		return err
+	}
+	return def
+}
+
+// lineTokens asks the controller for tokens over standard input and output.
+type lineTokens struct {
+	lines *bufio.Scanner
+	enc   *json.Encoder
+}
+
+func (l *lineTokens) Renew(ctx context.Context) (string, time.Time, error) {
+	if err := l.enc.Encode(Message{Renew: true}); err != nil {
+		return "", time.Time{}, err
+	}
+	type line struct {
+		g   Grant
+		err error
+	}
+	got := make(chan line, 1)
+	go func() {
+		if !l.lines.Scan() {
+			got <- line{err: errOr(l.lines.Err(), io.ErrUnexpectedEOF)}
+			return
+		}
+		var g Grant
+		err := json.Unmarshal(l.lines.Bytes(), &g)
+		got <- line{g: g, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		return "", time.Time{}, ctx.Err()
+	case r := <-got:
+		switch {
+		case r.err != nil:
+			return "", time.Time{}, r.err
+		case r.g.Error != "":
+			return "", time.Time{}, errors.New(r.g.Error)
+		case r.g.Token == "":
+			return "", time.Time{}, errors.New("no token was granted")
+		}
+		return r.g.Token, r.g.Expiry, nil
+	}
+}
+
+// Export computes the layer and uploads it, asking tokens for new tokens as they expire.
+func Export(ctx context.Context, req Request, env Env, tokens TokenSource) (*Response, error) {
 	if env.UID != 0 {
 		return nil, fmt.Errorf("%w (uid %d): saving it would leave out the files it cannot read", ErrNotRoot, env.UID)
 	}
@@ -110,15 +218,27 @@ func Export(ctx context.Context, req Request, env Env) (*Response, error) {
 	ctx, cancel := context.WithDeadline(ctx, req.Deadline)
 	defer cancel()
 
+	repo, err := name.NewRepository(req.Registry+"/"+req.Repository, name.StrictValidation)
+	if err != nil {
+		return nil, fmt.Errorf("invalid staging repository: %w", err)
+	}
+	tr, err := httpsOnlyTransport(req.CA, env.Dial)
+	if err != nil {
+		return nil, err
+	}
+
 	bf, err := os.Open(env.Baseline)
 	if errors.Is(err, os.ErrNotExist) {
+		if _, perr := os.Lstat(env.Baseline + RecordingSuffix); perr == nil {
+			return nil, ErrRecording
+		}
 		return nil, ErrNoBaseline
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading the record of the image's files: %w", err)
 	}
-	base, err := ReadBaseline(bf)
-	bf.Close()
+	defer bf.Close()
+	base, err := NewBaselineReader(bf)
 	if err != nil {
 		return nil, err
 	}
@@ -133,81 +253,190 @@ func Export(ctx context.Context, req Request, env Env) (*Response, error) {
 	}
 
 	filter := NewFilter(ParseMountPoints(env.Mountinfo))
-	current, err := Walk(env.Root, filter)
+	changes, err := ComputeChanges(base, func(visit func(Entry) error) error {
+		return Walk(env.Root, filter, visit)
+	}, since, filter)
 	if err != nil {
 		return nil, err
 	}
-	changes := ComputeChanges(base, current, since, filter)
+	bf.Close()
 
-	repo, err := name.NewRepository(req.Registry+"/"+req.Repository, name.StrictValidation)
-	if err != nil {
-		return nil, fmt.Errorf("invalid staging repository: %w", err)
+	backoffFn := env.Backoff
+	if backoffFn == nil {
+		backoffFn = backoff
 	}
-	tr, err := httpsOnlyTransport(req.CA, env.Dial)
+	up := &uploader{
+		client: &http.Client{Transport: tr},
+		base:   &url.URL{Scheme: "https", Host: repo.RegistryStr()},
+		repo:   repo.RepositoryStr(),
+		tokens: tokens,
+		token:  req.Token,
+		expiry: req.TokenExpiry,
+		// The first token's life is not known: it may have been minted a while ago.
+		sleep: backoffFn,
+	}
+	chunkSize := env.ChunkSize
+	if chunkSize <= 0 {
+		chunkSize = DefaultChunkSize
+	}
+	st, layer, err := upload(ctx, up, chunkSize, req.MaxSize, func(w io.Writer) (LayerStats, error) {
+		return WriteLayer(w, env.Root, changes.Changed, changes.Deleted, ImageContains(changes))
+	})
 	if err != nil {
 		return nil, err
+	}
+	return &Response{
+		Digest:          layer.digest,
+		DiffID:          layer.diffID,
+		Size:            layer.size,
+		Changed:         len(changes.Changed),
+		Deleted:         len(changes.Deleted),
+		Skipped:         changes.Skipped,
+		Vanished:        st.Vanished,
+		Resized:         st.Resized,
+		Unsettled:       changes.Unsettled,
+		Renewals:        up.Renewals,
+		Retries:         up.Retries,
+		DroppedPackages: st.DroppedPackages,
+	}, nil
+}
+
+type uploadedLayer struct {
+	digest, diffID string
+	size           int64
+}
+
+// upload writes the layer through gzip into the registry, chunk by chunk, while it is
+// being produced. Two chunks are in memory: one being filled, one being sent.
+func upload(ctx context.Context, up *uploader, chunkSize int, maxSize int64, produce func(io.Writer) (LayerStats, error)) (LayerStats, uploadedLayer, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if err := up.start(ctx); err != nil {
+		return LayerStats{}, uploadedLayer{}, err
 	}
 
 	pr, pw := io.Pipe()
+	diffID, digest := sha256.New(), sha256.New()
+	compressed := &countingWriter{w: io.MultiWriter(pw, digest)}
 	type built struct {
 		stats LayerStats
 		err   error
 	}
 	done := make(chan built, 1)
 	go func() {
-		st, err := WriteLayer(pw, env.Root, changes.Changed, changes.Deleted, ImageContains(base, changes))
+		zw, _ := gzip.NewWriterLevel(&limitWriter{w: compressed, max: maxSize}, gzip.BestSpeed)
+		st, err := produce(io.MultiWriter(zw, diffID))
+		if err == nil {
+			err = zw.Close()
+		}
 		pw.CloseWithError(err)
 		done <- built{st, err}
 	}()
-	layer := stream.NewLayer(pr)
-	err = remote.WriteLayer(repo, layer,
-		remote.WithContext(ctx),
-		remote.WithAuth(authn.FromConfig(authn.AuthConfig{RegistryToken: req.Token})),
-		remote.WithTransport(tr))
-	pr.CloseWithError(errUploadStopped)
+
+	chunks := make(chan []byte)
+	free := make(chan []byte, 2)
+	free <- make([]byte, chunkSize)
+	free <- make([]byte, chunkSize)
+	readErr := make(chan error, 1)
+	go func() {
+		defer close(chunks)
+		for {
+			var buf []byte
+			select {
+			case buf = <-free:
+			case <-ctx.Done():
+				readErr <- ctx.Err()
+				return
+			}
+			n, err := io.ReadFull(pr, buf)
+			if n > 0 {
+				select {
+				case chunks <- buf[:n]:
+				case <-ctx.Done():
+					readErr <- ctx.Err()
+					return
+				}
+			}
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				readErr <- nil
+				return
+			}
+			if err != nil {
+				readErr <- err
+				return
+			}
+		}
+	}()
+
+	var off int64
+	var upErr error
+	for c := range chunks {
+		if upErr != nil {
+			continue
+		}
+		if upErr = up.write(ctx, c, off); upErr != nil {
+			cancel()
+			pr.CloseWithError(errUploadStopped)
+			continue
+		}
+		off += int64(len(c))
+		free <- c[:cap(c)]
+	}
+	rerr := <-readErr
 	b := <-done
 	if b.err != nil && !errors.Is(b.err, errUploadStopped) {
-		// The upload failed because the layer could not be written.
-		return nil, fmt.Errorf("writing the layer: %w", b.err)
+		// The upload stopped because the layer could not be written.
+		return b.stats, uploadedLayer{}, fmt.Errorf("writing the layer: %w", b.err)
 	}
-	if err != nil {
-		return nil, fmt.Errorf("uploading the layer: %w", err)
+	if upErr != nil {
+		return b.stats, uploadedLayer{}, upErr
 	}
-	digest, err := layer.Digest()
-	if err != nil {
-		return nil, err
+	if rerr != nil {
+		return b.stats, uploadedLayer{}, rerr
 	}
-	diffID, err := layer.DiffID()
-	if err != nil {
-		return nil, err
+	l := uploadedLayer{
+		digest: "sha256:" + hex.EncodeToString(digest.Sum(nil)),
+		diffID: "sha256:" + hex.EncodeToString(diffID.Sum(nil)),
+		size:   compressed.n,
 	}
-	size, err := layer.Size()
-	if err != nil {
-		return nil, err
+	if off != l.size {
+		return b.stats, uploadedLayer{}, fmt.Errorf("uploaded %d bytes of a %d-byte layer", off, l.size)
 	}
-	return &Response{
-		Digest:          digest.String(),
-		DiffID:          diffID.String(),
-		Size:            size,
-		Changed:         len(changes.Changed),
-		Deleted:         len(changes.Deleted),
-		Skipped:         changes.Skipped,
-		Vanished:        b.stats.Vanished,
-		Resized:         b.stats.Resized,
-		DroppedPackages: b.stats.DroppedPackages,
-	}, nil
+	if err := up.finish(ctx, l.digest); err != nil {
+		return b.stats, uploadedLayer{}, err
+	}
+	return b.stats, l, nil
 }
 
-// httpsOnlyTransport trusts only the given CA (or the system roots when there is none)
-// and refuses to send anything over plain HTTP, so the token never leaves unencrypted
-// and an unreachable registry is never retried insecurely.
+// ErrTooLarge is returned for a layer larger than the request allows.
+var ErrTooLarge = errors.New("the changes are larger than a saved image may add")
+
+type limitWriter struct {
+	w   io.Writer
+	max int64
+	n   int64
+}
+
+func (l *limitWriter) Write(p []byte) (int, error) {
+	if l.max > 0 && l.n+int64(len(p)) > l.max {
+		return 0, fmt.Errorf("%w (%d bytes)", ErrTooLarge, l.max)
+	}
+	n, err := l.w.Write(p)
+	l.n += int64(n)
+	return n, err
+}
+
+// httpsOnlyTransport trusts the container's system roots and, on top of them, the given
+// CA (a registry signed by a private CA), and refuses to send anything over plain HTTP,
+// so the token never leaves unencrypted and an unreachable registry is never retried
+// insecurely.
 func httpsOnlyTransport(caPEM string, dial func(ctx context.Context, network, addr string) (net.Conn, error)) (http.RoundTripper, error) {
-	var pool *x509.CertPool
-	if caPEM != "" {
+	pool, err := systemRoots()
+	if err != nil || pool == nil {
 		pool = x509.NewCertPool()
-		if !pool.AppendCertsFromPEM([]byte(caPEM)) {
-			return nil, fmt.Errorf("the registry CA holds no usable certificate")
-		}
+	}
+	if caPEM != "" && !pool.AppendCertsFromPEM([]byte(caPEM)) {
+		return nil, fmt.Errorf("the registry CA holds no usable certificate")
 	}
 	t := remote.DefaultTransport.(*http.Transport).Clone()
 	t.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
@@ -216,6 +445,9 @@ func httpsOnlyTransport(caPEM string, dial func(ctx context.Context, network, ad
 	}
 	return httpsOnly{t}, nil
 }
+
+// systemRoots returns the container's trusted roots; tests replace it.
+var systemRoots = x509.SystemCertPool
 
 type httpsOnly struct{ inner http.RoundTripper }
 

@@ -14,21 +14,23 @@ import (
 	"syscall"
 )
 
-// Walk lists the file system rooted at root, as the image sees it: paths are absolute
-// within root ("/usr/bin/python3"), excluded paths are left out and not descended into,
-// and no other file system is entered. A file that disappears during the walk is skipped;
-// any other error fails the walk, because a directory that could not be read would look
-// like one whose files were all deleted.
-func Walk(root string, f Filter) ([]Entry, error) {
+// Walk lists the file system rooted at root, as the image sees it, calling visit for each
+// path in walk order (see ComparePaths): paths are absolute within root
+// ("/usr/bin/python3"), excluded paths are left out and not descended into, and no other
+// file system is entered. Nothing is kept in memory beyond the directory being read. A
+// file that disappears during the walk is skipped; any other error fails the walk,
+// because a directory that could not be read would look like one whose files were all
+// deleted. An error visit returns stops the walk and is returned.
+func Walk(root string, f Filter, visit func(Entry) error) error {
 	rootInfo, err := os.Lstat(root)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	rootDev, ok := deviceOf(rootInfo)
 	if !ok {
-		return nil, fmt.Errorf("cannot read the device of %s", root)
+		return fmt.Errorf("cannot read the device of %s", root)
 	}
-	var out []Entry
+	var visitErr error
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -62,17 +64,53 @@ func Walk(root string, f Filter) ([]Entry, error) {
 			// part of the image.
 			return filepath.SkipDir
 		}
-		out = append(out, Entry{
+		if err := visit(Entry{
 			Path:  abs,
 			Type:  typeLetter(info.Mode()),
 			Ctime: Timestamp{Sec: int64(st.Ctim.Sec), Nsec: int64(st.Ctim.Nsec)},
-		})
+		}); err != nil {
+			visitErr = err
+			return err
+		}
 		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("listing the container's files: %w", err)
+	if visitErr != nil {
+		return visitErr
 	}
-	return out, nil
+	if err != nil {
+		return fmt.Errorf("listing the container's files: %w", err)
+	}
+	return nil
+}
+
+// ComparePaths orders absolute paths the way Walk visits them: a directory, then its
+// whole subtree, then its next sibling. That is byte order with the separator below every
+// other byte, so "/a/b" comes before "/a-c" ("-" sorts below "/" in plain byte order).
+func ComparePaths(a, b string) int {
+	n := min(len(a), len(b))
+	for i := 0; i < n; i++ {
+		x, y := a[i], b[i]
+		if x == y {
+			continue
+		}
+		switch {
+		case x == '/':
+			return -1
+		case y == '/':
+			return 1
+		case x < y:
+			return -1
+		default:
+			return 1
+		}
+	}
+	switch {
+	case len(a) < len(b):
+		return -1
+	case len(a) > len(b):
+		return 1
+	}
+	return 0
 }
 
 func absPath(root, p string) (string, error) {

@@ -7,6 +7,7 @@ package exportimage
 
 import (
 	"archive/tar"
+	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/x509"
@@ -21,6 +22,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -55,6 +57,11 @@ type fakeHarbor struct {
 	issued     int
 	noMount    bool
 	extraGrant string
+	// expireAt is the PATCH request from which every token issued before it is refused,
+	// as if it had expired.
+	expireAt   int
+	patches    int
+	cutoff     int
 	onManifest func(repo, ref string)
 }
 
@@ -218,6 +225,23 @@ func (h *fakeHarbor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	h.mu.Lock()
+	if r.Method == http.MethodPatch {
+		h.patches++
+		if h.patches == h.expireAt {
+			h.cutoff = h.issued
+		}
+	}
+	jti, _ := strconv.Atoi(c.JTI)
+	expired := jti <= h.cutoff
+	h.mu.Unlock()
+	if expired {
+		// As a registry answers an expired token: with the challenge, so that a client
+		// that can get a new token does.
+		w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer realm="https://%s/service/token",service="harbor-registry",error="invalid_token"`, h.host))
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
 	repo, kind, rest := splitPath(r.URL.Path)
 	action := "pull"
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -335,11 +359,15 @@ type fakeContainer struct {
 	env        agent.Env
 	uid        int
 	noAgent    bool
+	protocol   int
 	noBaseline bool
+	recording  bool
+	probeExtra string
 	tamper     func(*agent.Response)
 	echoToken  bool
 	ran        []string
 	request    agent.Request
+	messages   []agent.Message
 }
 
 func (c *fakeContainer) Exec(ctx context.Context, cmd []string, stdin io.Reader, stdout, stderr io.Writer) error {
@@ -349,31 +377,65 @@ func (c *fakeContainer) Exec(ctx context.Context, cmd []string, stdin io.Reader,
 		fmt.Fprintf(stdout, "uid=%d\n", c.uid)
 		if !c.noAgent {
 			fmt.Fprintln(stdout, "agent=1")
+			p := c.protocol
+			if p == 0 {
+				p = agent.ProtocolVersion
+			}
+			fmt.Fprintf(stdout, "protocol=%d\n", p)
 		}
 		if !c.noBaseline {
 			fmt.Fprintln(stdout, "baseline=1")
 		}
+		if c.recording {
+			fmt.Fprintln(stdout, "recording=1")
+		}
+		fmt.Fprint(stdout, c.probeExtra)
 		return nil
 	case len(cmd) == 2 && cmd[0] == agent.BinaryPath && cmd[1] == "export":
 		c.ran = append(c.ran, "export")
-		if err := json.NewDecoder(stdin).Decode(&c.request); err != nil {
+		in := bufio.NewReader(stdin)
+		first, err := in.ReadString('\n')
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal([]byte(first), &c.request); err != nil {
 			return err
 		}
 		if c.echoToken {
 			fmt.Fprintf(stderr, "save-image: failed with token %s\n", c.request.Token)
 			return errors.New("command terminated with exit code 1")
 		}
-		resp, err := agent.Export(ctx, c.request, c.env)
+		err = agent.Serve(ctx, io.MultiReader(strings.NewReader(first), in), &messageTap{c: c, w: stdout}, c.env)
 		if err != nil {
 			fmt.Fprintln(stderr, "save-image:", err)
 			return errors.New("command terminated with exit code 1")
 		}
-		if c.tamper != nil {
-			c.tamper(resp)
-		}
-		return json.NewEncoder(stdout).Encode(resp)
+		return nil
 	}
 	return fmt.Errorf("unexpected command %q", cmd)
+}
+
+// messageTap records, and may change, what the agent prints: each message is one write.
+type messageTap struct {
+	c *fakeContainer
+	w io.Writer
+}
+
+func (m *messageTap) Write(p []byte) (int, error) {
+	var msg agent.Message
+	if err := json.Unmarshal(p, &msg); err == nil {
+		if msg.Result != nil && m.c.tamper != nil {
+			m.c.tamper(msg.Result)
+			b, _ := json.Marshal(msg)
+			if _, err := m.w.Write(append(b, '\n')); err != nil {
+				return 0, err
+			}
+			m.c.messages = append(m.c.messages, msg)
+			return len(p), nil
+		}
+		m.c.messages = append(m.c.messages, msg)
+	}
+	return m.w.Write(p)
 }
 
 const dpkgStatusBase = "Package: base-files\nStatus: install ok installed\nArchitecture: amd64\n\n"
@@ -498,6 +560,7 @@ func newWorld(t *testing.T, c *fakeContainer) *world {
 		c:       c,
 		request: Request{
 			Exec:            c,
+			Registry:        staging.host,
 			ImageID:         "docker-pullable://" + baseTag.Context().Digest(d.String()).String(),
 			Staging:         staged,
 			Target:          target,
@@ -593,6 +656,8 @@ func TestExportEndToEnd(t *testing.T) {
 	assert.Equal(t, w.request.Staging.RepositoryStr(), w.c.request.Repository)
 	assert.Equal(t, string(w.net.ca), w.c.request.CA)
 	assert.True(t, w.c.request.Deadline.After(time.Now()))
+	assert.True(t, w.c.request.TokenExpiry.After(time.Now()))
+	assert.Equal(t, int64(maxLayerSize), w.c.request.MaxSize)
 }
 
 // A registry that enforces the token's grant keeps the container's layer in the staging
@@ -621,8 +686,125 @@ func TestExportRefusesAStagingRepositoryInAnotherRegistry(t *testing.T) {
 	w.request.Staging = other
 	_, err = Export(context.Background(), w.request)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not in one registry")
+	assert.Contains(t, err.Error(), "not both in the configured registry")
 	assert.Empty(t, w.c.ran)
+}
+
+// A name the registry client reads as Docker Hub ("myregistry/save-staging/x" without a
+// dot or port) is not the configured registry: no credential goes there.
+func TestExportUsesNoCredentialOutsideTheConfiguredRegistry(t *testing.T) {
+	w := newWorld(t, newContainer(t, 0))
+	hub, err := name.NewRepository("myregistry/save-staging/export-1")
+	require.NoError(t, err)
+	require.Equal(t, "index.docker.io", hub.RegistryStr())
+	hubTag, err := name.NewTag("myregistry/custom/library/python:x")
+	require.NoError(t, err)
+	w.request.Registry = "myregistry"
+	w.request.Staging, w.request.Target = hub, hubTag
+	used := false
+	w.request.StagingKeychain = keychainFunc(func(authn.Resource) (authn.Authenticator, error) {
+		used = true
+		return authn.Anonymous, nil
+	})
+	_, err = Export(context.Background(), w.request)
+	require.Error(t, err)
+	assert.False(t, used, "the staging credential was not even looked up")
+	assert.Empty(t, w.c.ran)
+}
+
+type keychainFunc func(authn.Resource) (authn.Authenticator, error)
+
+func (k keychainFunc) Resolve(r authn.Resource) (authn.Authenticator, error) { return k(r) }
+
+// The layer outlives the registry's tokens: the container asks for new ones and gets
+// them, minted the same way.
+func TestExportRenewsTheContainersToken(t *testing.T) {
+	c := newContainer(t, 1<<20)
+	c.env.ChunkSize = 64 << 10
+	w := newWorld(t, c)
+	w.staging.expireAt = 3
+	res, err := Export(context.Background(), w.request)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.Layer.Renewals)
+	var renewals int
+	for _, m := range w.c.messages {
+		if m.Renew {
+			renewals++
+		}
+	}
+	assert.Equal(t, 1, renewals)
+	assert.Equal(t, 2, w.stagingTokens(), "the renewal is a token for the staging repository alone")
+	assert.Greater(t, w.staging.patches, 10)
+	fs := w.flatten(t, w.request.Target)
+	assert.Len(t, fs["/root/model.bin"], 1<<20)
+}
+
+func (w *world) stagingTokens() int {
+	w.staging.mu.Lock()
+	defer w.staging.mu.Unlock()
+	n := 0
+	for _, scopes := range w.staging.tokens {
+		if w.stagingPush(scopes) {
+			n++
+		}
+	}
+	return n
+}
+
+// A container asking for tokens in a loop is not uploading; it is refused.
+func TestExportLimitsHowOftenTheContainerGetsATokenOut(t *testing.T) {
+	c := newContainer(t, 0)
+	w := newWorld(t, c)
+	inR, inW := io.Pipe()
+	defer inW.Close()
+	w.request.Exec = execFunc(func(ctx context.Context, cmd []string, stdin io.Reader, stdout, stderr io.Writer) error {
+		if cmd[0] == "sh" {
+			return c.Exec(ctx, cmd, stdin, stdout, stderr)
+		}
+		go func() { _, _ = io.Copy(inW, stdin) }()
+		lines := bufio.NewScanner(inR)
+		lines.Scan() // the request
+		var errs []string
+		for i := 0; i < 3; i++ {
+			fmt.Fprintln(stdout, `{"renew":true}`)
+			lines.Scan()
+			var g agent.Grant
+			_ = json.Unmarshal(lines.Bytes(), &g)
+			errs = append(errs, g.Error)
+		}
+		fmt.Fprintln(stderr, strings.Join(errs, "|"))
+		return errors.New("command terminated with exit code 1")
+	})
+	_, err := Export(context.Background(), w.request)
+	require.Error(t, err)
+	assert.Equal(t, 2, w.stagingTokens(), "the first token and one renewal")
+	assert.Contains(t, err.Error(), "|a new token was granted")
+}
+
+type execFunc func(ctx context.Context, cmd []string, stdin io.Reader, stdout, stderr io.Writer) error
+
+func (f execFunc) Exec(ctx context.Context, cmd []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	return f(ctx, cmd, stdin, stdout, stderr)
+}
+
+// The probe's output is the container's, and is bounded like the agent's.
+func TestExportBoundsWhatTheProbePrints(t *testing.T) {
+	c := newContainer(t, 0)
+	c.probeExtra = strings.Repeat("x", 2*maxProbe)
+	w := newWorld(t, c)
+	_, err := Export(context.Background(), w.request)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "printed more than")
+	assert.Equal(t, []string{"probe"}, c.ran)
+}
+
+func TestExportWaitsForTheRecord(t *testing.T) {
+	c := newContainer(t, 0)
+	c.noBaseline, c.recording = true, true
+	w := newWorld(t, c)
+	_, err := Export(context.Background(), w.request)
+	require.ErrorIs(t, err, agent.ErrRecording)
+	assert.Equal(t, []string{"probe"}, c.ran)
 }
 
 func TestExportRefusesAContainerThatPredatesSaveImage(t *testing.T) {
@@ -632,6 +814,7 @@ func TestExportRefusesAContainerThatPredatesSaveImage(t *testing.T) {
 	}{
 		{"no record of its files", func(c *fakeContainer) { c.noBaseline = true }},
 		{"no export program", func(c *fakeContainer) { c.noAgent = true }},
+		{"an export program of another protocol", func(c *fakeContainer) { c.protocol = 1 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := newContainer(t, 0)

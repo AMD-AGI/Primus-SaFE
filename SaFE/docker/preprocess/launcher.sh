@@ -21,11 +21,24 @@ fi
 
 input="$1"
 
-# Record the files the container started with, before anything below changes them. Saving
-# the container as an image measures deletions against this record. It goes to the shared
-# volume, which is never part of a saved image. A failure only disables saving.
+# Record the files the container started with. Saving the container as an image measures
+# deletions against this record; it goes to the shared volume, which is never part of a
+# saved image. It runs in the background at the lowest CPU and I/O priority, so that
+# nothing below waits for it, and writes the paths as it lists them, so its memory does
+# not grow with the image. An earlier container's record is removed first and the record
+# is marked as in progress, so that saving meanwhile is refused as "still recording". What
+# the user changes is told apart by the time .run.sh is written below, not by when the
+# record ran. A failure only disables saving.
 if [ -x /shared-data/save-image ]; then
-  /shared-data/save-image record || echo "WARN: LAUNCHER: cannot record the image's files; this container cannot be saved as an image" >&2
+  rm -f /shared-data/save-image.base
+  : > /shared-data/save-image.base.partial
+  (
+    low=""
+    if command -v nice >/dev/null 2>&1; then low="nice -n 19"; fi
+    if command -v ionice >/dev/null 2>&1 && ionice -c 2 -n 7 true 2>/dev/null; then low="$low ionice -c 2 -n 7"; fi
+    GOMAXPROCS=1 $low /shared-data/save-image record ||
+      echo "WARN: LAUNCHER: cannot record the image's files; this container cannot be saved as an image" >&2
+  ) &
 fi
 
 export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"

@@ -25,7 +25,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -68,11 +67,9 @@ func container(t *testing.T) Env {
 	} {
 		write(t, root, p, data)
 	}
-	f := NewFilter(ParseMountPoints(testMountinfo))
-	entries, err := Walk(root, f)
-	require.NoError(t, err)
 	baseline := filepath.Join(root, "shared-data/save-image.base")
-	require.NoError(t, WriteBaseline(baseline, entries))
+	_, err := Record(baseline, root, testMountinfo)
+	require.NoError(t, err)
 
 	tick()
 	write(t, root, "usr/sbin/sshd", "installed by the launcher")
@@ -119,12 +116,20 @@ func newTLSRegistry(t *testing.T) *tlsRegistry {
 
 func (r *tlsRegistry) request() Request {
 	return Request{
-		Registry:   r.host,
-		Repository: "save-staging/job-1",
-		Token:      "not-checked-by-this-registry",
-		CA:         r.ca,
-		Deadline:   time.Now().Add(time.Minute),
+		Registry:    r.host,
+		Repository:  "save-staging/job-1",
+		Token:       "not-checked-by-this-registry",
+		TokenExpiry: time.Now().Add(30 * time.Minute),
+		CA:          r.ca,
+		Deadline:    time.Now().Add(time.Minute),
 	}
+}
+
+// noRenewal is a token source for a registry that never asks for a new token.
+type noRenewal struct{}
+
+func (noRenewal) Renew(context.Context) (string, time.Time, error) {
+	return "", time.Time{}, errors.New("no renewal expected")
 }
 
 func layerMembers(t *testing.T, r *tlsRegistry, resp *Response) map[string]string {
@@ -165,7 +170,7 @@ func TestExportUploadsTheChanges(t *testing.T) {
 	env := container(t)
 	r := newTLSRegistry(t)
 	env.Dial = r.dial
-	resp, err := Export(context.Background(), r.request(), env)
+	resp, err := Export(context.Background(), r.request(), env, noRenewal{})
 	require.NoError(t, err)
 
 	got := layerMembers(t, r, resp)
@@ -195,6 +200,12 @@ func TestExportRefusals(t *testing.T) {
 	}{
 		{name: "not root", change: func(e *Env, _ *Request) { e.UID = 1000 }, is: ErrNotRoot},
 		{name: "no baseline", change: func(e *Env, _ *Request) { require.NoError(t, os.Remove(e.Baseline)) }, is: ErrNoBaseline},
+		{name: "still recording", change: func(e *Env, _ *Request) {
+			require.NoError(t, os.Rename(e.Baseline, e.Baseline+RecordingSuffix))
+		}, is: ErrRecording},
+		{name: "baseline of another format", change: func(e *Env, _ *Request) {
+			require.NoError(t, os.WriteFile(e.Baseline, []byte("primus-safe save-image baseline v1\n/etc\x00\x00end\x00"), 0o600))
+		}, want: "unknown format"},
 		{name: "truncated baseline", change: func(e *Env, _ *Request) {
 			b, err := os.ReadFile(e.Baseline)
 			require.NoError(t, err)
@@ -209,7 +220,7 @@ func TestExportRefusals(t *testing.T) {
 			env.Dial = r.dial
 			req := r.request()
 			tc.change(&env, &req)
-			_, err := Export(context.Background(), req, env)
+			_, err := Export(context.Background(), req, env, noRenewal{})
 			require.Error(t, err)
 			if tc.is != nil {
 				assert.ErrorIs(t, err, tc.is)
@@ -236,8 +247,8 @@ func otherCA(t *testing.T) string {
 }
 
 // The token is only ever sent over TLS: a registry that answers in plain HTTP is not
-// retried insecurely. The client library itself falls back to HTTP for a registry named
-// by a loopback or private address, which is the case this covers.
+// retried insecurely, even when it is named by a loopback or private address (for which
+// the registry client library would fall back to HTTP).
 func TestExportNeverFallsBackToPlainHTTP(t *testing.T) {
 	plain := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
 	defer plain.Close()
@@ -249,26 +260,64 @@ func TestExportNeverFallsBackToPlainHTTP(t *testing.T) {
 	}
 	_, err := Export(context.Background(), Request{
 		Registry: "127.0.0.1:" + port, Repository: "save-staging/job-1",
-		Token: "t", Deadline: time.Now().Add(time.Minute),
-	}, env)
+		Token: "t", TokenExpiry: time.Now().Add(time.Hour), Deadline: time.Now().Add(time.Minute),
+	}, env, noRenewal{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "refusing to reach the registry over http")
+	assert.Contains(t, err.Error(), "HTTP response to HTTPS client")
+
+	tr, err := httpsOnlyTransport("", nil)
+	require.NoError(t, err)
+	_, err = tr.RoundTrip(httptest.NewRequest("GET", "http://"+addr+"/v2/", nil))
+	assert.ErrorContains(t, err, "refusing to reach the registry over http")
+}
+
+func readAll(t *testing.T, file string) ([]Entry, error) {
+	t.Helper()
+	f, err := os.Open(file)
+	require.NoError(t, err)
+	defer f.Close()
+	r, err := NewBaselineReader(f)
+	if err != nil {
+		return nil, err
+	}
+	var out []Entry
+	for {
+		e, ok, err := r.Next()
+		if err != nil || !ok {
+			return out, err
+		}
+		out = append(out, e)
+	}
 }
 
 func TestBaselineRoundTrip(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "base")
-	require.NoError(t, WriteBaseline(file, []Entry{{Path: "/"}, {Path: "/etc"}, {Path: "/etc/a b\nc"}}))
-	f, err := os.Open(file)
+	in := []Entry{
+		{Path: "/", Type: 'd', Ctime: Timestamp{Sec: 1, Nsec: 2}},
+		{Path: "/etc", Type: 'd', Ctime: Timestamp{Sec: 3}},
+		{Path: "/etc/a b\nc", Type: 'f', Ctime: Timestamp{Sec: 1700000000, Nsec: 999999999}},
+	}
+	require.NoError(t, WriteBaseline(file, in))
+	got, err := readAll(t, file)
 	require.NoError(t, err)
-	defer f.Close()
-	set, err := ReadBaseline(f)
-	require.NoError(t, err)
-	assert.Equal(t, map[string]bool{"/": true, "/etc": true, "/etc/a b\nc": true}, set)
+	assert.Equal(t, in, got)
 
-	for _, bad := range []string{"", baselineHeader, "x" + baselineTrailer, baselineHeader + "etc\x00" + baselineTrailer} {
-		_, err := ReadBaseline(strings.NewReader(bad))
+	full, err := os.ReadFile(file)
+	require.NoError(t, err)
+	for _, bad := range []string{
+		"", baselineHeader, "x" + string(full[1:]),
+		string(full[:len(full)-1]),                      // truncated
+		string(full) + "f1.0 /z\x00",                    // past the end
+		baselineHeader + "f1.0 etc\x00E1\x00",           // relative
+		baselineHeader + "f1.0 /b\x00f1.0 /a\x00E2\x00", // out of order
+		baselineHeader + "f1.0 /a\x00E2\x00",            // wrong count
+	} {
+		f := filepath.Join(t.TempDir(), "bad")
+		require.NoError(t, os.WriteFile(f, []byte(bad), 0o600))
+		_, err := readAll(t, f)
 		assert.Error(t, err, fmt.Sprintf("%q", bad))
 	}
+	assert.Error(t, WriteBaseline(file, []Entry{{Path: "/b"}, {Path: "/a"}}), "entries out of walk order")
 }
 
 // A record that fails leaves none behind, rather than an earlier container's.
@@ -286,6 +335,8 @@ func TestRecordRemovesTheOldRecordFirst(t *testing.T) {
 	require.Error(t, err)
 	_, err = os.Stat(file)
 	assert.True(t, os.IsNotExist(err), "the earlier record is gone")
+	_, err = os.Stat(file + RecordingSuffix)
+	assert.True(t, os.IsNotExist(err), "a failed record leaves nothing that reads as in progress")
 }
 
 func TestWalkSkipsExcludedAndOtherFileSystems(t *testing.T) {
@@ -293,12 +344,11 @@ func TestWalkSkipsExcludedAndOtherFileSystems(t *testing.T) {
 	write(t, root, "a/b", "x")
 	write(t, root, "data/vol/inner", "x")
 	write(t, root, "proc/1/status", "x")
-	entries, err := Walk(root, NewFilter([]string{"/data/vol"}))
-	require.NoError(t, err)
 	var got []string
-	for _, e := range entries {
+	require.NoError(t, Walk(root, NewFilter([]string{"/data/vol"}), func(e Entry) error {
 		got = append(got, fmt.Sprintf("%c %s", e.Type, e.Path))
-	}
+		return nil
+	}))
 	assert.Equal(t, []string{"d /", "d /a", "f /a/b", "d /data"}, got)
 }
 

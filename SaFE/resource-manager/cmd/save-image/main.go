@@ -3,18 +3,17 @@
  * See LICENSE for license information.
  */
 
-// Command save-image runs inside a workload's container. The platform launcher runs
-// "save-image record" before anything else, to record the files the container started
-// with. The resource manager runs "save-image export" through pods/exec when the user
-// saves the container as an image; it reads its request from standard input and prints
-// its response on standard output.
+// Command save-image runs inside a workload's container. The platform launcher starts
+// "save-image record" in the background, at low priority, before anything else, to record
+// the files the container started with. The resource manager runs "save-image export"
+// through pods/exec when the user saves the container as an image; it exchanges JSON
+// lines with it on standard input and output (see agent.Serve). "save-image protocol"
+// prints the version of that exchange.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"runtime/debug"
 	"time"
@@ -22,18 +21,18 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/ops_job/exportimage/agent"
 )
 
-// maxRequest bounds what is read from standard input: a token and a CA bundle.
-const maxRequest = 1 << 20
-
 func main() {
 	// The agent shares the container's memory limit with the user's processes.
 	if os.Getenv("GOMEMLIMIT") == "" {
 		debug.SetMemoryLimit(256 << 20)
 	}
 	if len(os.Args) != 2 {
-		fail(fmt.Errorf("usage: %s record|export", os.Args[0]))
+		fail(fmt.Errorf("usage: %s record|export|protocol", os.Args[0]))
 	}
 	switch os.Args[1] {
+	case "protocol":
+		fmt.Println(agent.ProtocolVersion)
+		os.Exit(0)
 	case "record":
 		fail(record())
 	case "export":
@@ -75,23 +74,15 @@ func record() error {
 }
 
 func export() error {
-	var req agent.Request
-	if err := json.NewDecoder(io.LimitReader(os.Stdin, maxRequest)).Decode(&req); err != nil {
-		return fmt.Errorf("reading the request: %w", err)
-	}
 	mi, err := mountinfo()
 	if err != nil {
 		return err
 	}
-	resp, err := agent.Export(context.Background(), req, agent.Env{
+	return agent.Serve(context.Background(), os.Stdin, os.Stdout, agent.Env{
 		Root:      "/",
 		Baseline:  agent.BaselinePath,
 		RunFile:   agent.LauncherRunFile,
 		Mountinfo: mi,
 		UID:       os.Getuid(),
 	})
-	if err != nil {
-		return err
-	}
-	return json.NewEncoder(os.Stdout).Encode(resp)
 }
