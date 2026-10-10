@@ -287,8 +287,9 @@ func (h *fakeHarbor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			cw.WriteHeader(http.StatusBadRequest)
 			return
 		}
+		// An index names manifests, which the inner registry checks itself.
 		for _, d := range append([]v1.Descriptor{m.Config}, m.Layers...) {
-			if !h.has(repo, d.Digest.String()) {
+			if !m.MediaType.IsIndex() && !h.has(repo, d.Digest.String()) {
 				cw.WriteHeader(http.StatusBadRequest)
 				_, _ = cw.Write([]byte(`{"errors":[{"code":"BLOB_UNKNOWN","message":"blob unknown to registry"}]}`))
 				return
@@ -1128,4 +1129,42 @@ func TestProbeScriptReportsTheRecordTurnedOff(t *testing.T) {
 	assert.ErrorIs(t, probe().Check(), ErrPredatesSaveImage)
 	require.NoError(t, os.WriteFile(noRecord, nil, 0o644))
 	assert.ErrorIs(t, probe().Check(), ErrRecordDisabled)
+}
+
+// A container started from a multi-platform image runs the node's platform's image; the
+// saved image is put together on that one.
+func TestExportUsesTheBaseForTheNodesPlatform(t *testing.T) {
+	for _, arch := range []string{"amd64", "arm64"} {
+		t.Run(arch, func(t *testing.T) {
+			w := newWorld(t, newContainer(t, 0))
+			baseID, err := ParseImageID(w.request.ImageID)
+			require.NoError(t, err)
+			auth := remote.WithAuth(&authn.Basic{Username: platformUser, Password: platformSecret})
+			base, err := remote.Image(baseID, remote.WithTransport(w.net.transport()), auth)
+			require.NoError(t, err)
+			idx := v1.ImageIndex(empty.Index)
+			for _, a := range []string{"amd64", "arm64"} {
+				layer, err := crane.Layer(map[string][]byte{"etc/arch": []byte(a)})
+				require.NoError(t, err)
+				img, err := mutate.AppendLayers(base, layer)
+				require.NoError(t, err)
+				require.NoError(t, remote.Write(baseID.Context().Tag(a), img, remote.WithTransport(w.net.transport()), auth))
+				idx = mutate.AppendManifests(idx, mutate.IndexAddendum{Add: img, Descriptor: v1.Descriptor{
+					Platform: &v1.Platform{OS: "linux", Architecture: a},
+				}})
+			}
+			tag := baseID.Context().Tag("multi")
+			require.NoError(t, remote.WriteIndex(tag, idx, remote.WithTransport(w.net.transport()), auth))
+			d, err := idx.Digest()
+			require.NoError(t, err)
+			w.request.ImageID = baseID.Context().Digest(d.String()).String()
+			w.request.Platform = v1.Platform{OS: "linux", Architecture: arch}
+
+			_, err = Export(context.Background(), w.request)
+			require.NoError(t, err)
+			fs := w.flatten(t, w.request.Target)
+			assert.Equal(t, arch, fs["/etc/arch"])
+			assert.Equal(t, "hello", fs["/root/hello.txt"])
+		})
+	}
 }

@@ -2,10 +2,11 @@ ARG REGISTRY=docker.io
 ARG GO_VERSION=1.25.5
 
 # save-image runs inside workload containers (see resource-manager/cmd/save-image): a
-# static binary, so it runs on any image.
+# static binary, so it runs on any image of the platform this image is built for.
 FROM ${REGISTRY}/library/golang:${GO_VERSION} AS save-image
 ARG GOPROXY
-ENV GOPROXY=${GOPROXY} CGO_ENABLED=0 GOOS=linux GOARCH=amd64
+ARG TARGETARCH
+ENV GOPROXY=${GOPROXY} CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64}
 COPY ./SaFE /src
 WORKDIR /src
 RUN go build -trimpath -ldflags='-s -w' -o /out/save-image ./resource-manager/cmd/save-image

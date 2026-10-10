@@ -24,8 +24,10 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/google/go-containerregistry/pkg/authn"
 	gcrname "github.com/google/go-containerregistry/pkg/name"
+	gcrv1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -283,16 +285,18 @@ func exportFixture(t *testing.T, exportErr error) (*ExportImageJobReconciler, *e
 	}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ws1"},
-		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "main"}}},
+		Spec:       corev1.PodSpec{NodeName: "n1", Containers: []corev1.Container{{Name: "main"}}},
 		Status:     corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{runningStatus("main")}},
 	}
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
+	node.Status.NodeInfo.OperatingSystem, node.Status.NodeInfo.Architecture = "linux", "amd64"
 
 	ctrl := gomock.NewController(t)
 	db := mockclient.NewMockInterface(ctrl)
 	db.EXPECT().ListWorkloadPods(gomock.Any(), "wl1", gomock.Any()).Return(nil, nil).AnyTimes()
 	db.EXPECT().GetDefaultRegistryInfo(gomock.Any()).Return(&model.RegistryInfo{URL: "harbor.local"}, nil).AnyTimes()
 
-	cs := k8sfake.NewSimpleClientset(pod)
+	cs := k8sfake.NewSimpleClientset(pod, node)
 	patches := gomonkey.ApplyFunc(rmutils.GetK8sClientFactory,
 		func(_ *commonutils.ObjectManager, _ string) (*commonclient.ClientFactory, error) {
 			return commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs), nil
@@ -556,4 +560,50 @@ func TestExportImageRecordsWhyItRanOutOfTime(t *testing.T) {
 	assert.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e1"}, updated))
 	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
 	assert.Contains(t, updated.Status.Conditions[0].Message, "uploading the layer at byte 4096")
+}
+
+// The base image is read for the platform of the pod's node, which is what the runtime
+// pulled from a multi-platform image.
+func TestExportImageReadsTheBaseForTheNodesPlatform(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		node   func(*corev1.Node)
+		want   gcrv1.Platform
+		errMsg string
+	}{
+		{name: "amd64", node: func(*corev1.Node) {}, want: gcrv1.Platform{OS: "linux", Architecture: "amd64"}},
+		{name: "arm64", node: func(n *corev1.Node) { n.Status.NodeInfo.Architecture = "arm64" },
+			want: gcrv1.Platform{OS: "linux", Architecture: "arm64"}},
+		{name: "from the labels", node: func(n *corev1.Node) {
+			n.Status.NodeInfo = corev1.NodeSystemInfo{}
+			n.Labels = map[string]string{corev1.LabelOSStable: "linux", corev1.LabelArchStable: "arm64"}
+		}, want: gcrv1.Platform{OS: "linux", Architecture: "arm64"}},
+		{name: "unknown", node: func(n *corev1.Node) { n.Status.NodeInfo = corev1.NodeSystemInfo{} },
+			errMsg: "reports no operating system or architecture"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, req, cleanup := exportFixture(t, nil)
+			defer cleanup()
+			ctx := context.Background()
+			cs, err := rmutils.GetK8sClientFactory(nil, "c1")
+			require.NoError(t, err)
+			n, err := cs.ClientSet().CoreV1().Nodes().Get(ctx, "n1", metav1.GetOptions{})
+			require.NoError(t, err)
+			tc.node(n)
+			_, err = cs.ClientSet().CoreV1().Nodes().Update(ctx, n, metav1.UpdateOptions{})
+			require.NoError(t, err)
+
+			_, err = r.Do(ctx, "e1")
+			require.NoError(t, err)
+			updated := &v1.OpsJob{}
+			require.NoError(t, r.Get(ctx, types.NamespacedName{Name: "e1"}, updated))
+			if tc.errMsg != "" {
+				assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
+				assert.Contains(t, updated.Status.Conditions[0].Message, tc.errMsg)
+				return
+			}
+			assert.Equal(t, v1.OpsJobSucceeded, updated.Status.Phase)
+			assert.Equal(t, tc.want, req.Platform)
+		})
+	}
 }

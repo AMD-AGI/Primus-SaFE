@@ -21,6 +21,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -240,6 +241,10 @@ func (r *ExportImageJobReconciler) exportJob(ctx context.Context, job *v1.OpsJob
 	if err != nil {
 		return nil, err
 	}
+	platform, err := nodePlatform(ctx, k8sClients.ClientSet(), pod)
+	if err != nil {
+		return nil, err
+	}
 	access, err := r.registryAccess(ctx, dest)
 	if err != nil {
 		return nil, err
@@ -262,7 +267,7 @@ func (r *ExportImageJobReconciler) exportJob(ctx context.Context, job *v1.OpsJob
 		StagingKeychain: access.stagingKeychain,
 		Transport:       access.transport,
 		CA:              access.ca,
-		Platform:        gcrv1.Platform{OS: "linux", Architecture: "amd64"},
+		Platform:        platform,
 		Logf: func(format string, args ...any) {
 			klog.Infof("export %s: "+format, append([]any{job.Name}, args...)...)
 		},
@@ -314,6 +319,29 @@ func exportContainer(pod *corev1.Pod, mainContainer string) (string, *corev1.Con
 		return containerName, st, nil
 	}
 	return "", nil, fmt.Errorf("pod %s has no status for container %s", pod.Name, containerName)
+}
+
+// nodePlatform is the platform of the node the pod runs on: the one of a multi-platform
+// base image the container was started from.
+func nodePlatform(ctx context.Context, cs kubernetes.Interface, pod *corev1.Pod) (gcrv1.Platform, error) {
+	if pod.Spec.NodeName == "" {
+		return gcrv1.Platform{}, fmt.Errorf("pod %s is not on a node", pod.Name)
+	}
+	node, err := cs.CoreV1().Nodes().Get(ctx, pod.Spec.NodeName, metav1.GetOptions{})
+	if err != nil {
+		return gcrv1.Platform{}, fmt.Errorf("failed to get node %s: %w", pod.Spec.NodeName, err)
+	}
+	p := gcrv1.Platform{OS: node.Status.NodeInfo.OperatingSystem, Architecture: node.Status.NodeInfo.Architecture}
+	if p.OS == "" {
+		p.OS = node.Labels[corev1.LabelOSStable]
+	}
+	if p.Architecture == "" {
+		p.Architecture = node.Labels[corev1.LabelArchStable]
+	}
+	if p.OS == "" || p.Architecture == "" {
+		return gcrv1.Platform{}, fmt.Errorf("node %s reports no operating system or architecture", node.Name)
+	}
+	return p, nil
 }
 
 // exportDestination is where one cluster's saved images go.
