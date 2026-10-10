@@ -481,6 +481,17 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	isPreemptable := false
 	if !hasEnoughQuota {
 		reason = fmt.Sprintf("%s, no %s available", InsufficientReason, formatResourceName(key))
+		// A resource the budget never declares cannot become available by waiting.
+		if isExternal {
+			if _, inBudget := leftResources[corev1.ResourceName(key)]; !inBudget {
+				reason = ExternalBudgetMissingReason + " - " + formatResourceName(key)
+				klog.Infof("the workload(%s) is rejected, reason: %s, request.resource: %s, left.resource: %s",
+					requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
+					string(jsonutils.MarshalSilently(leftResources)))
+				jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonInsufficient).Inc()
+				return false, reason, nil
+			}
+		}
 		// Preemption is not attempted on the external path. Marking a victim preempted
 		// records an intent, not a release: the devices return only once the provider has
 		// stopped the task and verified cleanup, so the capacity a preemptor was admitted

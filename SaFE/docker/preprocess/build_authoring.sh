@@ -14,6 +14,7 @@ if [ $? -eq 0 ]; then
   echo "openssh-server installation succeeded"
 else
   echo "openssh-server installation failed"
+  exit 1
 fi
 
 # socat backs the Pod-side listener for `ssh -R`: the apiserver execs a

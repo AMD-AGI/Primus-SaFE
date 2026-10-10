@@ -350,15 +350,14 @@ func TestGuaranteePriorityClassExternalEnabled(t *testing.T) {
 	testifyassert.Equal(t, v1.TrueStr, high.Labels[v1.PriorityClassManagedLabel])
 }
 
-func TestGuaranteePriorityClassExternalDoesNotOverwrite(t *testing.T) {
+func TestGuaranteePriorityClassExternalCorrectsPreemptionPolicy(t *testing.T) {
 	viper.Set("external_execution.enabled", true)
 	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
 
-	existingValue := int32(42)
 	existingPolicy := corev1.PreemptLowerPriority
 	existing := &schedulingv1.PriorityClass{
 		ObjectMeta:       metav1.ObjectMeta{Name: v1.ExternalPriorityClassHigh},
-		Value:            existingValue,
+		Value:            42,
 		PreemptionPolicy: &existingPolicy,
 	}
 	cs := k8sfake.NewSimpleClientset(existing)
@@ -370,9 +369,10 @@ func TestGuaranteePriorityClassExternalDoesNotOverwrite(t *testing.T) {
 	got, err := cs.SchedulingV1().PriorityClasses().Get(
 		context.Background(), v1.ExternalPriorityClassHigh, metav1.GetOptions{})
 	testifyassert.NoError(t, err)
-	testifyassert.Equal(t, existingValue, got.Value)
+	testifyassert.Equal(t, int32(10000), got.Value)
 	testifyassert.NotNil(t, got.PreemptionPolicy)
-	testifyassert.Equal(t, corev1.PreemptLowerPriority, *got.PreemptionPolicy)
+	testifyassert.Equal(t, corev1.PreemptNever, *got.PreemptionPolicy)
+	testifyassert.Equal(t, v1.TrueStr, got.Labels[v1.PriorityClassManagedLabel])
 }
 
 func TestDeletePriorityClass(t *testing.T) {

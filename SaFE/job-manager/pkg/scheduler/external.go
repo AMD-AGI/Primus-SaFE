@@ -28,7 +28,10 @@ const (
 	ExternalConstraintReason  = "Rejected - constraints cannot be satisfied by external capacity"
 	ExternalUnsupportedReason = "Rejected - workload shape is not supported by external capacity"
 	ExternalInvalidReason     = "Rejected - request refused by external capacity"
-	ExternalUnavailableReason = "In queue - external capacity service is unavailable"
+	// ExternalBudgetMissingReason is terminal when the request names a resource the
+	// external-budget quota does not declare (for example rdma/hca or ephemeral-storage).
+	ExternalBudgetMissingReason = "Rejected - external budget does not include required resource"
+	ExternalUnavailableReason   = "In queue - external capacity service is unavailable"
 	ExternalRateLimitedReason = "In queue - external capacity controller rate limited"
 	ExternalAuthReason        = "In queue - not authorized by external capacity"
 )
@@ -50,7 +53,7 @@ const externalWaitRetry = 30 * time.Second
 func isTerminalExternalReason(reason string) bool {
 	for _, prefix := range []string{
 		ExternalUnsupportedReason, ExternalConstraintReason, ExternalInvalidReason,
-		ExternalPRFailedReason, ExternalImageResolveReason,
+		ExternalBudgetMissingReason, ExternalPRFailedReason, ExternalImageResolveReason,
 	} {
 		if strings.HasPrefix(reason, prefix) {
 			return true

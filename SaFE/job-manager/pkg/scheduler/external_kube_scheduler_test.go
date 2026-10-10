@@ -9,10 +9,12 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -354,6 +356,24 @@ func TestIsRetryableImageResolveError(t *testing.T) {
 	}
 	if !isRetryableImageResolveError(fmt.Errorf("lookup registry.example: server misbehaving")) {
 		t.Fatal("DNS misbehaving must be retryable")
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, "https://registry.example/v2/app/eof-502/manifests/latest", nil)
+	permanent := &transport.Error{
+		StatusCode: http.StatusNotFound,
+		Request:    req,
+		Errors: []transport.Diagnostic{{
+			Code:    transport.ManifestUnknownErrorCode,
+			Message: "manifest unknown",
+		}},
+	}
+	if isRetryableImageResolveError(fmt.Errorf("resolve digest for %q: %w",
+		"registry.example/app/eof-502:latest", permanent)) {
+		t.Fatal("transport MANIFEST_UNKNOWN must stay terminal despite eof/502 in the URL")
+	}
+	retryable := &transport.Error{StatusCode: http.StatusBadGateway, Request: req}
+	if !isRetryableImageResolveError(fmt.Errorf("resolve: %w", retryable)) {
+		t.Fatal("transport 502 must be retryable")
 	}
 }
 

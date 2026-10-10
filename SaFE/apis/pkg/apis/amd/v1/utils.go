@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -330,31 +331,33 @@ func ExternalHostKeyFromAnnotations(annotations map[string]string) string {
 // FitExternalBookingName shortens a ProvisioningRequest name so
 // namespace+"."+name stays within ExternalBookingKeyMaxLen. Autopilot's
 // ledger.BookingKey and the booking taint value use that pair verbatim.
-func FitExternalBookingName(namespace, name string) string {
+// Returns an error when the namespace alone leaves no room for a name.
+func FitExternalBookingName(namespace, name string) (string, error) {
 	maxName := ExternalBookingKeyMaxLen - len(namespace) - 1
 	if maxName > 63 {
 		maxName = 63
 	}
 	if maxName < 1 {
-		maxName = 1
+		return "", fmt.Errorf("namespace %q leaves no room for booking name within %d chars",
+			namespace, ExternalBookingKeyMaxLen)
 	}
 	if len(name) <= maxName {
-		return name
+		return name, nil
 	}
 	sum := sha256.Sum256([]byte(name))
 	digest := hex.EncodeToString(sum[:8])
 	if maxName <= len(digest) {
-		return digest[:maxName]
+		return digest[:maxName], nil
 	}
 	prefixLen := maxName - len(digest) - 1
 	if prefixLen < 1 {
-		return digest[:maxName]
+		return digest[:maxName], nil
 	}
 	prefix := strings.TrimRight(name[:prefixLen], "-")
 	if prefix == "" {
-		return digest[:maxName]
+		return digest[:maxName], nil
 	}
-	return prefix + "-" + digest
+	return prefix + "-" + digest, nil
 }
 
 func firstLabel(m map[string]string, keys ...string) string {

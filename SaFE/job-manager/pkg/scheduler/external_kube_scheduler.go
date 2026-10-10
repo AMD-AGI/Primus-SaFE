@@ -29,6 +29,8 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
+
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/imagedigest"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 )
@@ -119,15 +121,23 @@ func (r *SchedulerReconciler) ensureExternalResolvedImages(ctx context.Context,
 }
 
 // isRetryableImageResolveError reports transient registry / network failures that should
-// leave the workload queued instead of permanently rejected. Only the unwrapped leaf
-// message is matched so image references that happen to contain "502"/"eof" cannot
-// reclassify a permanent MANIFEST_UNKNOWN / UNAUTHORIZED failure as retryable.
+// leave the workload queued instead of permanently rejected. transport.Error is classified
+// by Temporary() so a registry URL whose path contains "eof"/"502" cannot turn
+// MANIFEST_UNKNOWN / UNAUTHORIZED into a retryable wait.
 func isRetryableImageResolveError(err error) bool {
 	if err == nil {
 		return false
 	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
+		return true
+	}
+	var te *transport.Error
+	if errors.As(err, &te) {
+		return te.Temporary()
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
 	}
 	leaf := err
@@ -198,7 +208,10 @@ func (r *SchedulerReconciler) ensureExternalProvisioning(ctx context.Context,
 	if attempt < 1 {
 		attempt = 1
 	}
-	prName := externalProvisioningRequestName(workload, state.DispatchGeneration, attempt)
+	prName, nameErr := externalProvisioningRequestName(workload, state.DispatchGeneration, attempt)
+	if nameErr != nil {
+		return false, ExternalInvalidReason + " - " + nameErr.Error(), nil
+	}
 	ptName := externalPodTemplateName(workload, state.DispatchGeneration, attempt)
 	if state.ProvisioningRequest != prName || state.ProvisioningAttempt != attempt {
 		updated := state.DeepCopy()
@@ -420,7 +433,12 @@ func (r *SchedulerReconciler) deleteExternalProvisioningObjects(ctx context.Cont
 	}
 	prName := state.ProvisioningRequest
 	if prName == "" {
-		prName = externalProvisioningRequestName(workload, state.DispatchGeneration, attempt)
+		var nameErr error
+		prName, nameErr = externalProvisioningRequestName(workload, state.DispatchGeneration, attempt)
+		if nameErr != nil {
+			// Nothing addressable to delete when the booking key cannot be formed.
+			return nil
+		}
 	}
 	ptName := externalPodTemplateName(workload, state.DispatchGeneration, attempt)
 	return deleteProvisioningObjects(ctx, dyn, ns, prName, ptName)
@@ -660,7 +678,7 @@ func externalGangMemberCount(workload *v1.Workload) int64 {
 	return int64(1 + workload.Spec.Resources[1].Replica)
 }
 
-func externalProvisioningRequestName(workload *v1.Workload, generation, attempt int32) string {
+func externalProvisioningRequestName(workload *v1.Workload, generation, attempt int32) (string, error) {
 	base := fmt.Sprintf("pr-%s-%d-%d", externalObjectKey(workload), generation, attempt)
 	ns := ""
 	if workload != nil {

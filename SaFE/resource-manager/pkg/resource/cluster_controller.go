@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -519,12 +520,14 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 		allPriorityClass = append(allPriorityClass, genExternalPriorityClass()...)
 	}
 	for _, pc := range allPriorityClass {
-		_, err = clientSet.SchedulingV1().PriorityClasses().Get(ctx, pc.name, metav1.GetOptions{})
-		if err == nil {
-			// Existing objects are left unchanged.
+		existing, getErr := clientSet.SchedulingV1().PriorityClasses().Get(ctx, pc.name, metav1.GetOptions{})
+		if getErr == nil {
+			if err = ensurePriorityClassMatches(ctx, clientSet, existing, pc); err != nil {
+				return ctrlruntime.Result{}, err
+			}
 			continue
-		} else if !apierrors.IsNotFound(err) {
-			return ctrlruntime.Result{}, err
+		} else if !apierrors.IsNotFound(getErr) {
+			return ctrlruntime.Result{}, getErr
 		}
 
 		priorityClass := &schedulingv1.PriorityClass{
@@ -545,6 +548,52 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 		klog.Infof("create PriorityClass, name: %s, value: %d", pc.name, pc.value)
 	}
 	return ctrlruntime.Result{}, nil
+}
+
+// ensurePriorityClassMatches updates a managed or external PriorityClass when its
+// preemptionPolicy (or other desired fields) drift from what SaFE requires.
+func ensurePriorityClassMatches(ctx context.Context, clientSet kubernetes.Interface,
+	existing *schedulingv1.PriorityClass, desired PriorityClass) error {
+	if existing == nil {
+		return nil
+	}
+	managed := existing.Labels[v1.PriorityClassManagedLabel] == v1.TrueStr
+	external := isExternalPriorityClassName(desired.name)
+	// Native per-cluster classes created outside SaFE are left alone.
+	if !managed && !external {
+		return nil
+	}
+	needUpdate := false
+	if desired.preemptionPolicy != nil {
+		if existing.PreemptionPolicy == nil || *existing.PreemptionPolicy != *desired.preemptionPolicy {
+			needUpdate = true
+		}
+	}
+	if existing.Value != desired.value {
+		needUpdate = true
+	}
+	if !needUpdate {
+		return nil
+	}
+	updated := existing.DeepCopy()
+	if updated.Labels == nil {
+		updated.Labels = map[string]string{}
+	}
+	updated.Labels[v1.PriorityClassManagedLabel] = v1.TrueStr
+	updated.Value = desired.value
+	updated.Description = desired.description
+	updated.PreemptionPolicy = desired.preemptionPolicy
+	if _, err := clientSet.SchedulingV1().PriorityClasses().Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
+		return err
+	}
+	klog.Infof("update PriorityClass, name: %s, value: %d", desired.name, desired.value)
+	return nil
+}
+
+func isExternalPriorityClassName(name string) bool {
+	return name == v1.ExternalPriorityClassHigh ||
+		name == v1.ExternalPriorityClassMed ||
+		name == v1.ExternalPriorityClassLow
 }
 
 // deletePriorityClass deletes SaFE-managed priority classes from the cluster.

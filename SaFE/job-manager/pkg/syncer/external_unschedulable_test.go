@@ -52,7 +52,16 @@ func TestExternalUnschedulableMessage(t *testing.T) {
 	}
 
 	w.Status.Message = externalWaitingScaleUpPrefix + " - 0/2 nodes are available"
+	w.Spec.Resources = []v1.WorkloadResource{{Replica: 2}}
+	w.Status.Pods = []v1.WorkloadPod{
+		{PodId: "p0", Phase: corev1.PodRunning, AdminNodeName: "n0"},
+		{PodId: "p1", Phase: corev1.PodPending, AdminNodeName: ""},
+	}
+	if shouldClearExternalScaleUpMessage(w, running) {
+		t.Fatal("must not clear scale-up message while a sibling is still unscheduled")
+	}
+	w.Status.Pods[1] = v1.WorkloadPod{PodId: "p1", Phase: corev1.PodRunning, AdminNodeName: "n1"}
 	if !shouldClearExternalScaleUpMessage(w, running) {
-		t.Fatal("running pod must clear stale scale-up message")
+		t.Fatal("all assigned pods must clear stale scale-up message")
 	}
 }

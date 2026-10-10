@@ -1518,7 +1518,8 @@ func externalUnschedulableMessage(workload *v1.Workload, pod *corev1.Pod) string
 }
 
 // shouldClearExternalScaleUpMessage reports that a stale waiting-for-scale-up status
-// message should be cleared because this pod is scheduled or already running.
+// message should be cleared because every expected pod is scheduled or finished.
+// Clearing on the first scheduled member would flicker the UI while siblings wait.
 func shouldClearExternalScaleUpMessage(workload *v1.Workload, pod *corev1.Pod) bool {
 	if workload == nil || pod == nil {
 		return false
@@ -1530,16 +1531,7 @@ func shouldClearExternalScaleUpMessage(workload *v1.Workload, pod *corev1.Pod) b
 	if !strings.HasPrefix(workload.Status.Message, externalWaitingScaleUpPrefix) {
 		return false
 	}
-	if pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodSucceeded {
-		return true
-	}
-	for i := range pod.Status.Conditions {
-		c := &pod.Status.Conditions[i]
-		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionTrue {
-			return true
-		}
-	}
-	return false
+	return isAllPodsAssigned(workload)
 }
 
 // isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase

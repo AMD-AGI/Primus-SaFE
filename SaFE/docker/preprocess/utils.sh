@@ -39,7 +39,7 @@ install_if_not_exists() {
       fi
     else
       echo "Unsupported package manager. Neither apt-get nor yum found."
-      return 1
+      exit 1
     fi
   fi
 }

@@ -6,6 +6,7 @@
 package v1
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -91,13 +92,21 @@ func TestGetNodeMigrateInfoRejectsUnusableValues(t *testing.T) {
 func TestFitExternalBookingNameKeepsPairWithinLimit(t *testing.T) {
 	ns := "very-long-workspace-name-for-booking"
 	base := "pr-0123456789abcdef-1-1"
-	fitted := FitExternalBookingName(ns, base)
+	fitted, err := FitExternalBookingName(ns, base)
+	if err != nil {
+		t.Fatalf("FitExternalBookingName: %v", err)
+	}
 	if len(ns)+1+len(fitted) > ExternalBookingKeyMaxLen {
 		t.Fatalf("booking key %q.%q length %d exceeds %d",
 			ns, fitted, len(ns)+1+len(fitted), ExternalBookingKeyMaxLen)
 	}
-	if FitExternalBookingName("ws", "pr-short-1-1") != "pr-short-1-1" {
-		t.Fatal("short names must stay unchanged")
+	short, err := FitExternalBookingName("ws", "pr-short-1-1")
+	if err != nil || short != "pr-short-1-1" {
+		t.Fatalf("short names must stay unchanged, got %q err=%v", short, err)
+	}
+	longNS := strings.Repeat("n", ExternalBookingKeyMaxLen)
+	if _, err := FitExternalBookingName(longNS, "pr-1"); err == nil {
+		t.Fatal("namespace that fills the booking key must error")
 	}
 }
 

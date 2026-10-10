@@ -60,8 +60,9 @@ func TestReclaimingTracksProvisioningRequest(t *testing.T) {
 func TestWaitingReasonsAreTerminal(t *testing.T) {
 	for _, reason := range []string{
 		ExternalUnsupportedReason, ExternalConstraintReason, ExternalInvalidReason,
-		ExternalPRFailedReason, ExternalImageResolveReason,
+		ExternalBudgetMissingReason, ExternalPRFailedReason, ExternalImageResolveReason,
 		ExternalImageResolveReason + " - tls: unknown authority",
+		ExternalBudgetMissingReason + " - rdma/hca",
 	} {
 		if !isTerminalExternalReason(reason) {
 			t.Fatalf("%q must be terminal", reason)

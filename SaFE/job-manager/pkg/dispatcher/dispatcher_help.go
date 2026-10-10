@@ -2907,6 +2907,12 @@ func syncGithubRunnerExternalsImage(adminWorkload *v1.Workload, obj *unstructure
 		return nil
 	}
 	image := adminWorkload.Spec.Images[id]
+	// Keep init-dind-externals on the same digest as the main runner container.
+	if isKubeSchedulerPlacement(adminWorkload) {
+		if pinned := externalResolvedImage(adminWorkload, id); pinned != "" {
+			image = pinned
+		}
+	}
 	path := podSpecPath(adminWorkload, &resourceSpec, "initContainers")
 	initContainers, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
