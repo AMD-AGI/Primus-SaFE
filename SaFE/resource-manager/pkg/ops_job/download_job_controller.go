@@ -207,6 +207,11 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 			Env:       job.Spec.Env,
 		},
 	}
+	// The model a job works for is carried onto its workload, so the model can find
+	// every workload that may still write into its directories, in any workspace.
+	if modelId := job.GetLabels()[v1.ModelIdLabel]; modelId != "" {
+		workload.Labels[v1.ModelIdLabel] = modelId
+	}
 	if err = controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
 		return nil, err
 	}

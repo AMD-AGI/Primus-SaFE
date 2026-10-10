@@ -18,6 +18,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -25,6 +26,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonopsjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 )
 
 // TestModelLifecycleEnvtest runs the Model controller against a real API server with the
@@ -62,9 +64,32 @@ func TestModelLifecycleEnvtest(t *testing.T) {
 			time.Sleep(200 * time.Millisecond)
 		}
 	}
-	getModel := func() (*v1.Model, error) {
+	getModelNamed := func(name string) (*v1.Model, error) {
 		m := &v1.Model{}
-		return m, cl.Get(ctx, client.ObjectKey{Name: "m1"}, m)
+		return m, cl.Get(ctx, client.ObjectKey{Name: name}, m)
+	}
+	getModel := func() (*v1.Model, error) { return getModelNamed("m1") }
+	// ageCleanupFailures moves the last cleanup failure of a model back past any backoff.
+	ageCleanupFailures := func(name string) {
+		t.Helper()
+		require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			m, err := getModelNamed(name)
+			if err != nil {
+				return err
+			}
+			for i := range m.Status.LocalPaths {
+				if at := m.Status.LocalPaths[i].LastCleanupFailureTime; at != nil {
+					m.Status.LocalPaths[i].LastCleanupFailureTime = &metav1.Time{Time: at.Add(-cleanupMaxRetryInterval)}
+				}
+			}
+			return cl.Status().Update(ctx, m)
+		}))
+	}
+	gone := func(name string) func() bool {
+		return func() bool {
+			_, err := getModelNamed(name)
+			return apierrors.IsNotFound(err)
+		}
 	}
 	setPhase := func(name string, phase v1.OpsJobPhase, out string) {
 		t.Helper()
@@ -104,7 +129,9 @@ func TestModelLifecycleEnvtest(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, v1.ModelPhaseDownloading, m.Status.Phase)
 
-	setPhase(download.Name, v1.OpsJobSucceeded, "done\n"+modelSizeMarker+"12345\n")
+	// What the job-manager keeps of the download log: the marked lines, as a JSON array.
+	setPhase(download.Name, v1.OpsJobSucceeded, commonopsjob.FilterResultLog([]byte(
+		"Downloading org/repo\n[SUCCESS] "+modelSizeMarker+"12345\n")))
 	eventually("Ready", func() bool {
 		m, err = getModel()
 		return err == nil && m.Status.Phase == v1.ModelPhaseReady
@@ -121,6 +148,13 @@ func TestModelLifecycleEnvtest(t *testing.T) {
 	first := &v1.OpsJob{}
 	require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: cleanupName}, first))
 	setPhase(cleanupName, v1.OpsJobFailed, "")
+	eventually("failure recorded", func() bool {
+		m, err = getModel()
+		return err == nil && len(m.Status.LocalPaths) == 1 && m.Status.LocalPaths[0].CleanupFailures == 1
+	})
+	require.NotNil(t, m.Status.LocalPaths[0].LastCleanupFailureTime, "the failure time must survive the CRD schema")
+	require.Contains(t, m.Status.Message, "retrying in")
+	ageCleanupFailures("m1")
 	eventually("failed cleanup replaced", func() bool {
 		job := &v1.OpsJob{}
 		err := cl.Get(ctx, client.ObjectKey{Name: cleanupName}, job)
@@ -132,8 +166,49 @@ func TestModelLifecycleEnvtest(t *testing.T) {
 	require.Len(t, m.Status.LocalPaths, 1)
 
 	setPhase(cleanupName, v1.OpsJobSucceeded, "")
-	eventually("model gone", func() bool {
-		_, err := getModel()
-		return apierrors.IsNotFound(err)
+	eventually("model gone", gone("m1"))
+
+	// A model whose directory nobody can reach any more is released.
+	createReady := func(name, workspace string) *v1.Model {
+		t.Helper()
+		m := lifecycleModel(name)
+		require.NoError(t, cl.Create(ctx, m))
+		eventually(name+" downloading", func() bool {
+			m, err = getModelNamed(name)
+			return err == nil && m.Status.Phase == v1.ModelPhaseDownloading
+		})
+		require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if m, err = getModelNamed(name); err != nil {
+				return err
+			}
+			m.Status.Phase = v1.ModelPhaseReady
+			m.Status.LocalPaths = []v1.ModelLocalPath{{Workspace: workspace, Path: lifecyclePath, Status: v1.LocalPathStatusReady}}
+			return cl.Status().Update(ctx, m)
+		}))
+		return m
+	}
+	m2 := createReady("m2", "ws-gone")
+	require.NoError(t, cl.Delete(ctx, m2))
+	eventually("model with unreachable directory gone", gone("m2"))
+
+	// A cleanup that keeps failing holds the model until an administrator abandons it.
+	m3 := createReady("m3", "ws1")
+	require.NoError(t, cl.Delete(ctx, m3))
+	cleanup3 := cleanupJobName(m3, "ws1", lifecyclePath)
+	eventually("m3 cleanup job", func() bool {
+		return cl.Get(ctx, client.ObjectKey{Name: cleanup3}, &v1.OpsJob{}) == nil
 	})
+	setPhase(cleanup3, v1.OpsJobFailed, "")
+	eventually("m3 failure recorded", func() bool {
+		m, err = getModelNamed("m3")
+		return err == nil && len(m.Status.LocalPaths) == 1 && m.Status.LocalPaths[0].CleanupFailures == 1
+	})
+	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if m, err = getModelNamed("m3"); err != nil {
+			return err
+		}
+		m.Annotations[AbandonCleanupAnnotation] = v1.TrueStr
+		return cl.Update(ctx, m)
+	}))
+	eventually("abandoned model gone", gone("m3"))
 }

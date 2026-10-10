@@ -193,6 +193,18 @@ spec:
                   description: ModelLocalPath represents the download status of a
                     model in a specific workspace
                   properties:
+                    cleanupFailures:
+                      description: |-
+                        CleanupFailures counts the failed attempts to remove this directory while the
+                        model is being deleted. It drives the retry backoff and, past a threshold,
+                        the request for an administrator to step in.
+                      format: int32
+                      type: integer
+                    lastCleanupFailureTime:
+                      description: LastCleanupFailureTime is when the last attempt
+                        to remove this directory failed.
+                      format: date-time
+                      type: string
                     message:
                       description: Message contains additional status information
                       type: string

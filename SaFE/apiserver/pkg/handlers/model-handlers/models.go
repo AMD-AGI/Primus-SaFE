@@ -227,7 +227,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 			TargetSubpath: targetSubpath,
 			Source:        v1.ModelSource{URL: normalizedURL, AccessMode: v1.AccessModeLocal},
 		}}
-		if err := h.rejectTargetBeingDeleted(ctx, candidate); err != nil {
+		if err := h.checkTargetPaths(ctx, candidate); err != nil {
 			return nil, err
 		}
 	}
@@ -1639,58 +1639,98 @@ func (h *Handler) findModelBySourceURL(ctx context.Context, sourceURL string, wo
 	return nil, nil
 }
 
-// rejectTargetBeingDeleted refuses a local model whose directory is still being
-// removed by the deletion of another model: the new download would race that cleanup
-// and lose its files. The caller can retry once the deletion has finished.
-func (h *Handler) rejectTargetBeingDeleted(ctx context.Context, candidate *v1.Model) error {
+// checkTargetPaths refuses a local model whose directories are taken by other models,
+// using the same rule as the Model controller: a model directory is named after the
+// HuggingFace repository alone (not the workspace), and two directories are the same
+// when they have the same path on the same cluster.
+//   - A directory still being removed by the deletion of another model refuses the
+//     model for now: the download would race that cleanup. The caller can retry once
+//     the deletion has finished.
+//   - A directory a live model holds is not shared: a private model whose directory is
+//     taken is refused, naming the model that holds it, since the existing model can
+//     be used instead. A public model is refused only when every one of its
+//     directories is taken; otherwise the controller skips the taken ones and
+//     downloads the rest.
+func (h *Handler) checkTargetPaths(ctx context.Context, candidate *v1.Model) error {
 	modelList := &v1.ModelList{}
 	if err := h.k8sClient.List(ctx, modelList); err != nil {
 		return commonerrors.NewInternalError("failed to list models for path check: " + err.Error())
 	}
-	deleting := map[string]string{}
-	for i := range modelList.Items {
-		m := &modelList.Items[i]
-		if m.DeletionTimestamp == nil {
-			continue
-		}
-		for _, lp := range m.Status.LocalPaths {
-			deleting[lp.Path] = m.Name
-		}
+	wsList := &v1.WorkspaceList{}
+	if err := h.k8sClient.List(ctx, wsList); err != nil {
+		return commonerrors.NewInternalError("failed to list workspaces for path check: " + err.Error())
 	}
-	if len(deleting) == 0 {
-		return nil
+	clusterOf := make(map[string]string, len(wsList.Items))
+	for i := range wsList.Items {
+		clusterOf[wsList.Items[i].Name] = wsList.Items[i].Spec.Cluster
 	}
 
 	var workspaces []v1.Workspace
-	if candidate.Spec.Workspace != "" {
-		ws := &v1.Workspace{}
-		if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: candidate.Spec.Workspace}, ws); err != nil {
-			if errors.IsNotFound(err) {
-				return nil
-			}
-			return commonerrors.NewInternalError("failed to get workspace for path check: " + err.Error())
+	for i := range wsList.Items {
+		if candidate.Spec.Workspace == "" || wsList.Items[i].Name == candidate.Spec.Workspace {
+			workspaces = append(workspaces, wsList.Items[i])
 		}
-		workspaces = append(workspaces, *ws)
-	} else {
-		wsList := &v1.WorkspaceList{}
-		if err := h.k8sClient.List(ctx, wsList); err != nil {
-			return commonerrors.NewInternalError("failed to list workspaces for path check: " + err.Error())
-		}
-		workspaces = wsList.Items
 	}
 	dir := candidate.GetLocalDirName()
+	targets, taken := 0, 0
+	var held []string
+	seen := map[string]bool{}
 	for i := range workspaces {
-		root := commonworkspace.ResolveDownloadRoot(&workspaces[i], candidate.Spec.TargetVolume)
+		ws := &workspaces[i]
+		root := commonworkspace.ResolveDownloadRoot(ws, candidate.Spec.TargetVolume)
 		if root == "" {
 			continue
 		}
 		target := v1.BuildModelLocalPath(root, candidate.Spec.TargetSubpath, dir)
-		if owner, ok := deleting[target]; ok {
+		key := ws.Spec.Cluster + "\x00" + target
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		targets++
+		owner, deleting := modelOnPath(modelList.Items, clusterOf, ws.Spec.Cluster, target)
+		switch {
+		case owner == "":
+		case deleting:
 			return commonerrors.NewResourceProcessing(fmt.Sprintf(
 				"path %s is still being cleaned up by the deletion of model %s, please retry later", target, owner))
+		default:
+			taken++
+			held = append(held, fmt.Sprintf("%s (model %s)", target, owner))
 		}
 	}
+	if taken > 0 && taken == targets {
+		return commonerrors.NewAlreadyExist(fmt.Sprintf(
+			"the model directory is already used by another model: %s; use that model, or choose another target subpath",
+			strings.Join(held, ", ")))
+	}
 	return nil
+}
+
+// modelOnPath returns a local model that records path on cluster in its status, and
+// whether that model is being deleted; a live model wins over one being deleted. A
+// recorded entry whose workspace is gone has no known cluster and matches any cluster.
+func modelOnPath(models []v1.Model, clusterOf map[string]string, cluster, path string) (string, bool) {
+	owner, deleting := "", false
+	for i := range models {
+		m := &models[i]
+		if m.Spec.Source.AccessMode != v1.AccessModeLocal {
+			continue
+		}
+		for _, lp := range m.Status.LocalPaths {
+			if lp.Path != path {
+				continue
+			}
+			if c, ok := clusterOf[lp.Workspace]; ok && c != cluster {
+				continue
+			}
+			if m.DeletionTimestamp == nil {
+				return m.Name, false
+			}
+			owner, deleting = m.Name, true
+		}
+	}
+	return owner, deleting
 }
 
 // isFullURL checks if the input is a full URL (starts with http:// or https://)

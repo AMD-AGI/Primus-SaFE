@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,14 +51,33 @@ const (
 	// Value format: JSON map[string][]string where key is base PFS path and value is list of tried workspace names
 	FailoverTriedAnnotation = "model.amd.com/failover-tried"
 
-	// modelSizeMarker prefixes the line in which the download job reports the size of the
-	// files it left on disk. The job output carries the tail of its log.
+	// AbandonCleanupAnnotation, set to "true" by an administrator on a model that is being
+	// deleted, releases the model without removing its files: the remaining directories
+	// (and the S3 copy) are left where they are. It is the way out of a cleanup that keeps
+	// failing.
+	AbandonCleanupAnnotation = "model.amd.com/abandon-cleanup"
+
+	// modelSizeMarker prefixes the value with which the download job reports the size of
+	// the files it left on disk. The job prints it on a "[SUCCESS]" line, the only kind of
+	// line besides "[ERROR]" that reaches the job outputs.
 	modelSizeMarker = "MODEL_SIZE_BYTES="
 
 	// cleanupRetryInterval is how long a failed cleanup waits before it runs again.
 	cleanupRetryInterval = 30 * time.Second
+	// cleanupMaxRetryInterval caps the backoff between failed cleanups of one directory.
+	cleanupMaxRetryInterval = 10 * time.Minute
+	// cleanupFailureAlertThreshold is the number of failed cleanups of one directory after
+	// which the model asks for an administrator.
+	cleanupFailureAlertThreshold = 5
+	// opsJobCompletedCondition and opsJobFailedReason are the condition the OpsJob
+	// controller completes a job with, and its reason when the job failed.
+	opsJobCompletedCondition = "JobCompleted"
+	opsJobFailedReason       = "JobFailed"
 	// downloadSlotWaitInterval is how long a download waits for a free slot.
 	downloadSlotWaitInterval = 15 * time.Second
+	// deletingPathWaitTimeout is how long a pending model waits for another model's
+	// deletion to clean up a directory it wants; after that the directory is given up.
+	deletingPathWaitTimeout = 30 * time.Minute
 )
 
 // ModelReconciler reconciles a Model object
@@ -66,6 +86,8 @@ type ModelReconciler struct {
 	// apiReader reads straight from the API server. The global download limit counts
 	// jobs with it, so a job created a moment ago is never missed by a stale cache.
 	apiReader client.Reader
+	// recorder reports what happens to a model's files when they cannot be removed.
+	recorder record.EventRecorder
 }
 
 // SetupModelController sets up the controller with the Manager.
@@ -75,6 +97,7 @@ func SetupModelController(mgr manager.Manager) error {
 			Client: mgr.GetClient(),
 		},
 		apiReader: mgr.GetAPIReader(),
+		recorder:  mgr.GetEventRecorderFor("model-controller"),
 	}
 	err := ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Model{}).
@@ -192,6 +215,22 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 		return r.releaseModel(ctx, model)
 	}
 
+	// An administrator gave up on the cleanup: release the model, leave the files.
+	if model.GetAnnotations()[AbandonCleanupAnnotation] == v1.TrueStr {
+		left := make([]string, 0, len(model.Status.LocalPaths)+1)
+		for _, lp := range model.Status.LocalPaths {
+			left = append(left, lp.Path)
+		}
+		if model.Status.S3Path != "" && !isS3ImportModel(model) {
+			left = append(left, "s3:"+model.Status.S3Path)
+		}
+		message := fmt.Sprintf("Cleanup abandoned by %s, files left in place: %s",
+			AbandonCleanupAnnotation, strings.Join(left, ", "))
+		klog.InfoS(message, "model", model.Name)
+		r.event(model, corev1.EventTypeWarning, "CleanupAbandoned", message)
+		return r.releaseModel(ctx, model)
+	}
+
 	// 1. A download still writing into the directory would refill it after the cleanup.
 	stopped, err := r.stopDownloads(ctx, model)
 	if err != nil {
@@ -199,7 +238,12 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 	}
 	if !stopped {
 		klog.InfoS("Waiting for model downloads to stop before cleanup", "model", model.Name)
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		message := "Waiting for the model's downloads to stop before removing its files"
+		if time.Since(model.GetDeletionTimestamp().Time) > deletingPathWaitTimeout {
+			message += fmt.Sprintf("; this is taking long: check the model's download workloads, or set the annotation "+
+				"%s=true on the model to release it and leave the files on disk", AbandonCleanupAnnotation)
+		}
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, r.setDeletingMessage(ctx, model, message)
 	}
 
 	// 2. The S3 copy (only when the model was staged through S3).
@@ -225,7 +269,9 @@ func (r *ModelReconciler) releaseModel(ctx context.Context, model *v1.Model) (ct
 }
 
 // stopDownloads deletes every download job of the model and reports whether they are
-// all gone, including the workloads that ran them.
+// all gone, including the workloads that ran them. Workloads are looked up in every
+// workspace, not only the ones status.localPaths names now: after a failover the
+// workload of the earlier workspace may still be terminating and writing.
 func (r *ModelReconciler) stopDownloads(ctx context.Context, model *v1.Model) (bool, error) {
 	stopped := true
 
@@ -265,22 +311,54 @@ func (r *ModelReconciler) stopDownloads(ctx context.Context, model *v1.Model) (b
 	}
 
 	// The OpsJob can be gone while its workload is still terminating.
-	for _, lp := range model.Status.LocalPaths {
-		wl := &v1.Workload{}
-		err = r.Get(ctx, client.ObjectKey{Name: downloadJobName(model, lp.Workspace)}, wl)
-		if err == nil {
-			if wl.GetDeletionTimestamp().IsZero() {
-				if err = r.Delete(ctx, wl); err != nil && !errors.IsNotFound(err) {
-					return false, err
-				}
+	workloads, err := r.downloadWorkloads(ctx, model)
+	if err != nil {
+		return false, err
+	}
+	for i := range workloads {
+		wl := &workloads[i]
+		// Only a workload labelled with this model is certainly its own; one matched by
+		// name alone may belong to another model whose name and workspace join to the
+		// same job name, so it is waited for but never deleted.
+		if wl.GetLabels()[v1.ModelIdLabel] == model.Name && wl.GetDeletionTimestamp().IsZero() {
+			if err = r.Delete(ctx, wl); err != nil && !errors.IsNotFound(err) {
+				return false, err
 			}
-			return false, nil
 		}
-		if !errors.IsNotFound(err) {
-			return false, err
+		klog.InfoS("Waiting for model download workload to terminate", "model", model.Name,
+			"workload", wl.Name, "workspace", wl.Spec.Workspace)
+	}
+	return len(workloads) == 0, nil
+}
+
+// downloadWorkloads returns the download workloads of the model in any workspace: those
+// labelled with the model id, and, for workloads created before that label existed,
+// unlabelled ones named after the model's download job in some workspace.
+func (r *ModelReconciler) downloadWorkloads(ctx context.Context, model *v1.Model) ([]v1.Workload, error) {
+	names := map[string]bool{}
+	for _, lp := range model.Status.LocalPaths {
+		names[downloadJobName(model, lp.Workspace)] = true
+	}
+	workspaces := &v1.WorkspaceList{}
+	if err := r.List(ctx, workspaces); err != nil {
+		return nil, err
+	}
+	for i := range workspaces.Items {
+		names[downloadJobName(model, workspaces.Items[i].Name)] = true
+	}
+	list := &v1.WorkloadList{}
+	if err := r.List(ctx, list, client.MatchingLabels{v1.OpsJobTypeLabel: string(v1.OpsJobDownloadType)}); err != nil {
+		return nil, err
+	}
+	var out []v1.Workload
+	for i := range list.Items {
+		wl := &list.Items[i]
+		owner := wl.GetLabels()[v1.ModelIdLabel]
+		if owner == model.Name || (owner == "" && names[wl.Name]) {
+			out = append(out, *wl)
 		}
 	}
-	return true, nil
+	return out, nil
 }
 
 // cleanupS3 removes the S3 copy of a model that was staged through S3. Success clears
@@ -332,15 +410,23 @@ func (r *ModelReconciler) cleanupS3(ctx context.Context, model *v1.Model) (ctrl.
 			return ctrl.Result{}, false, err
 		}
 		return ctrl.Result{RequeueAfter: cleanupRetryInterval}, false, r.setDeletingMessage(ctx, model,
-			fmt.Sprintf("S3 cleanup failed, retrying: %s", reason))
+			fmt.Sprintf("S3 cleanup failed, retrying: %s (to give up and leave the S3 copy, set the annotation %s=true on the model)",
+				reason, AbandonCleanupAnnotation))
 	}
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, false, nil
 }
 
 // cleanupLocalPaths removes the local directory of every entry in status.localPaths with
-// a cleanup job that runs in the entry's workspace, where the volume is mounted. An entry
+// a cleanup job that runs in a workspace where the directory's volume is mounted. An entry
 // leaves status.localPaths once its directory is gone, so the remaining entries are
 // exactly what is still on disk. A directory another model still points at is kept.
+//
+// A directory no workspace can reach any more (its workspace and every other workspace
+// of the cluster lost the volume, or the workspace itself is gone) can neither be removed
+// nor written to by this platform: it is left on disk with a warning event and the model
+// is not held for it. A cleanup that fails is retried with a backoff; after
+// cleanupFailureAlertThreshold failures the model says that it needs an administrator,
+// who fixes the cause or sets AbandonCleanupAnnotation.
 func (r *ModelReconciler) cleanupLocalPaths(ctx context.Context, model *v1.Model) (ctrl.Result, bool, error) {
 	if len(model.Status.LocalPaths) == 0 {
 		return ctrl.Result{}, true, nil
@@ -353,82 +439,100 @@ func (r *ModelReconciler) cleanupLocalPaths(ctx context.Context, model *v1.Model
 	var (
 		remaining []v1.ModelLocalPath
 		messages  []string
-		requeue   = 5 * time.Second
+		changed   bool
+		requeue   time.Duration
 	)
+	// wait asks for the next pass after d at the latest.
+	wait := func(d time.Duration) {
+		if d > 0 && (requeue == 0 || d < requeue) {
+			requeue = d
+		}
+	}
+	now := time.Now().UTC()
 	for _, lp := range model.Status.LocalPaths {
 		if lp.Path == "" {
+			changed = true
 			continue
 		}
 		if owner := liveModelOnPath(models.Items, model.Name, lp.Path); owner != "" {
 			klog.InfoS("Keeping model directory, another model points at it",
 				"model", model.Name, "path", lp.Path, "otherModel", owner)
+			changed = true
 			continue
 		}
-		workspace := &v1.Workspace{}
-		if err := r.Get(ctx, client.ObjectKey{Name: lp.Workspace}, workspace); err != nil {
-			if !errors.IsNotFound(err) {
-				return ctrl.Result{}, false, err
-			}
-			// The directory cannot be reached without its workspace. Keep the finalizer so
-			// the files are not silently orphaned; an administrator has to decide.
-			remaining = append(remaining, lp)
-			messages = append(messages, fmt.Sprintf("cannot clean %s: workspace %s not found", lp.Path, lp.Workspace))
-			requeue = 5 * time.Minute
-			continue
+		workspace, unreachable, err := r.cleanupWorkspace(ctx, lp)
+		if err != nil {
+			return ctrl.Result{}, false, err
 		}
-		if err := validateCleanupPath(workspace, lp.Path); err != nil {
-			// Never delete a path that does not look like a model directory of this
-			// workspace, and never release the model with it either: an administrator
-			// has to decide what happens to those files.
-			klog.ErrorS(err, "Refusing to clean up model path", "model", model.Name, "path", lp.Path)
-			remaining = append(remaining, lp)
-			messages = append(messages, fmt.Sprintf("refusing to clean %s: %v", lp.Path, err))
-			requeue = 5 * time.Minute
+		if workspace == nil {
+			message := fmt.Sprintf("Leaving %s on disk: %s", lp.Path, unreachable)
+			klog.InfoS(message, "model", model.Name)
+			r.event(model, corev1.EventTypeWarning, "CleanupSkipped", message)
+			changed = true
 			continue
 		}
 
-		jobName := cleanupJobName(model, lp.Workspace, lp.Path)
+		jobName := cleanupJobName(model, workspace.Name, lp.Path)
 		job := &v1.OpsJob{}
-		err := r.Get(ctx, client.ObjectKey{Name: jobName}, job)
+		err = r.Get(ctx, client.ObjectKey{Name: jobName}, job)
+		failure := ""
 		switch {
 		case errors.IsNotFound(err):
+			if delay := cleanupBackoff(&lp, now); delay > 0 {
+				messages = append(messages, cleanupFailureMessage(&lp, delay))
+				wait(delay)
+				break
+			}
 			job, err = r.constructModelCleanupOpsJob(model, workspace, lp.Path)
 			if err == nil {
 				err = r.Create(ctx, job)
 			}
 			if err != nil {
 				klog.ErrorS(err, "Failed to create model cleanup job, will retry", "model", model.Name, "path", lp.Path)
-				messages = append(messages, fmt.Sprintf("cleanup of %s cannot start: %v", lp.Path, err))
-				requeue = cleanupRetryInterval
+				failure = fmt.Sprintf("cleanup of %s cannot start: %v", lp.Path, err)
 			} else {
-				klog.InfoS("Model cleanup job created", "model", model.Name, "job", jobName, "path", lp.Path)
+				klog.InfoS("Model cleanup job created", "model", model.Name, "job", jobName,
+					"path", lp.Path, "workspace", workspace.Name)
+				wait(5 * time.Second)
 			}
-			remaining = append(remaining, lp)
 		case err != nil:
 			return ctrl.Result{}, false, err
 		case !job.GetDeletionTimestamp().IsZero():
-			remaining = append(remaining, lp)
+			wait(5 * time.Second)
 		case job.Status.Phase == v1.OpsJobSucceeded:
 			klog.InfoS("Model directory removed", "model", model.Name, "path", lp.Path)
 			if err = r.Delete(ctx, job); err != nil && !errors.IsNotFound(err) {
 				klog.ErrorS(err, "Failed to delete finished cleanup job", "job", jobName)
 			}
+			changed = true
+			continue
 		case job.Status.Phase == v1.OpsJobFailed:
 			reason := r.extractOpsJobFailureReason(job)
 			klog.ErrorS(nil, "Model cleanup job failed, will retry", "model", model.Name, "path", lp.Path, "reason", reason)
 			if err = r.Delete(ctx, job); err != nil && !errors.IsNotFound(err) {
 				return ctrl.Result{}, false, err
 			}
-			remaining = append(remaining, lp)
-			messages = append(messages, fmt.Sprintf("cleanup of %s failed, retrying: %s", lp.Path, reason))
-			requeue = cleanupRetryInterval
+			failure = fmt.Sprintf("cleanup of %s failed: %s", lp.Path, reason)
 		default:
-			remaining = append(remaining, lp)
+			wait(5 * time.Second)
 		}
+		if failure != "" {
+			lp.CleanupFailures++
+			lp.LastCleanupFailureTime = &metav1.Time{Time: now}
+			lp.Message = failure
+			changed = true
+			delay := cleanupBackoff(&lp, now)
+			messages = append(messages, cleanupFailureMessage(&lp, delay))
+			wait(delay)
+			if lp.CleanupFailures == cleanupFailureAlertThreshold {
+				r.event(model, corev1.EventTypeWarning, "CleanupStuck", cleanupFailureMessage(&lp, delay))
+			}
+		}
+		remaining = append(remaining, lp)
 	}
 
 	message := strings.Join(messages, "; ")
-	if len(remaining) != len(model.Status.LocalPaths) || (message != "" && message != model.Status.Message) {
+	if changed || (message != "" && message != model.Status.Message) {
 		model.Status.LocalPaths = remaining
 		if message != "" {
 			model.Status.Message = message
@@ -441,7 +545,84 @@ func (r *ModelReconciler) cleanupLocalPaths(ctx context.Context, model *v1.Model
 	if len(remaining) == 0 {
 		return ctrl.Result{}, true, nil
 	}
+	if requeue == 0 {
+		requeue = 5 * time.Second
+	}
 	return ctrl.Result{RequeueAfter: requeue}, false, nil
+}
+
+// cleanupWorkspace returns the workspace a cleanup of lp runs in: the workspace recorded
+// for it, or, when that workspace no longer mounts the directory, another workspace of
+// the same cluster that does. When there is none it returns nil and the reason; the
+// directory is then out of reach of every job this platform can run.
+func (r *ModelReconciler) cleanupWorkspace(ctx context.Context, lp v1.ModelLocalPath) (*v1.Workspace, string, error) {
+	workspace := &v1.Workspace{}
+	if err := r.Get(ctx, client.ObjectKey{Name: lp.Workspace}, workspace); err != nil {
+		if errors.IsNotFound(err) {
+			return nil, fmt.Sprintf("workspace %s no longer exists", lp.Workspace), nil
+		}
+		return nil, "", err
+	}
+	pathErr := validateCleanupPath(workspace, lp.Path)
+	if pathErr == nil {
+		return workspace, "", nil
+	}
+	if workspace.Spec.Cluster != "" {
+		workspaces := &v1.WorkspaceList{}
+		if err := r.List(ctx, workspaces); err != nil {
+			return nil, "", err
+		}
+		for i := range workspaces.Items {
+			ws := &workspaces.Items[i]
+			if ws.Name != workspace.Name && ws.Spec.Cluster == workspace.Spec.Cluster &&
+				ws.GetDeletionTimestamp().IsZero() && validateCleanupPath(ws, lp.Path) == nil {
+				return ws, "", nil
+			}
+		}
+	}
+	return nil, fmt.Sprintf("no workspace can remove it: %v", pathErr), nil
+}
+
+// cleanupBackoff returns how much longer the next cleanup of lp has to wait after its
+// last failure: cleanupRetryInterval after the first, doubling with every further
+// failure up to cleanupMaxRetryInterval.
+func cleanupBackoff(lp *v1.ModelLocalPath, now time.Time) time.Duration {
+	if lp.CleanupFailures <= 0 || lp.LastCleanupFailureTime == nil {
+		return 0
+	}
+	delay := cleanupRetryInterval
+	for i := int32(1); i < lp.CleanupFailures && delay < cleanupMaxRetryInterval; i++ {
+		delay *= 2
+	}
+	if delay > cleanupMaxRetryInterval {
+		delay = cleanupMaxRetryInterval
+	}
+	if left := lp.LastCleanupFailureTime.Add(delay).Sub(now); left > 0 {
+		return left
+	}
+	return 0
+}
+
+// cleanupFailureMessage describes a failing cleanup of lp, and once it has failed
+// cleanupFailureAlertThreshold times, what an administrator can do about it.
+func cleanupFailureMessage(lp *v1.ModelLocalPath, delay time.Duration) string {
+	retry := "retrying"
+	if delay > 0 {
+		retry = fmt.Sprintf("retrying in %s", delay.Round(time.Second))
+	}
+	message := fmt.Sprintf("%s (failure %d), %s", lp.Message, lp.CleanupFailures, retry)
+	if lp.CleanupFailures >= cleanupFailureAlertThreshold {
+		message += fmt.Sprintf("; needs an administrator: fix the cause, or set the annotation %s=true "+
+			"on the model to release it and leave the files on disk", AbandonCleanupAnnotation)
+	}
+	return message
+}
+
+// event records an event on the model when the controller has a recorder.
+func (r *ModelReconciler) event(model *v1.Model, eventType, reason, message string) {
+	if r.recorder != nil {
+		r.recorder.Event(model, eventType, reason, message)
+	}
 }
 
 // setDeletingMessage records why a deletion is still in progress.
@@ -679,9 +860,18 @@ func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (c
 
 	// A directory that another model is still being deleted from, or that another
 	// model owns, cannot be used: the download would race the cleanup, or two models
-	// would share one set of files.
-	if result, blocked, err := r.checkTargetPaths(ctx, model); err != nil || blocked {
-		return result, err
+	// would share one set of files. Such a directory is given up on its own; the
+	// model's other directories are downloaded as usual.
+	paths, waitFor, err := r.planTargetPaths(ctx, model)
+	if err != nil || waitFor > 0 {
+		return ctrl.Result{RequeueAfter: waitFor}, err
+	}
+	if message := allPathsFailed(paths); message != "" {
+		model.Status.Phase = v1.ModelPhaseFailed
+		model.Status.Message = message
+		model.Status.LocalPaths = paths
+		model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
+		return ctrl.Result{}, r.Status().Update(ctx, model)
 	}
 
 	// Without S3 the model is downloaded from HuggingFace straight into the workspace
@@ -691,7 +881,7 @@ func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (c
 		model.Status.Message = "Starting download into workspace storage"
 		model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 		model.Status.S3Path = ""
-		model.Status.LocalPaths = r.initializeLocalPaths(ctx, model)
+		model.Status.LocalPaths = paths
 		klog.InfoS("Model download goes straight to workspace storage", "model", model.Name, "url", model.Spec.Source.URL)
 		return ctrl.Result{}, r.Status().Update(ctx, model)
 	}
@@ -704,7 +894,7 @@ func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (c
 		model.Status.Message = "S3 import: starting per-workspace download"
 		model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 		// Don't set Status.S3Path; downloads target user S3 directly.
-		model.Status.LocalPaths = r.initializeLocalPaths(ctx, model)
+		model.Status.LocalPaths = paths
 		klog.InfoS("S3 import model: skipped Uploading phase", "model", model.Name, "url", model.Spec.Source.URL)
 		return ctrl.Result{}, r.Status().Update(ctx, model)
 	}
@@ -712,7 +902,7 @@ func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (c
 	// For local models, start the upload job to S3
 	jobName := stringutil.NormalizeForDNS(model.Name)
 	job := &batchv1.Job{}
-	err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: common.PrimusSafeNamespace}, job)
+	err = r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: common.PrimusSafeNamespace}, job)
 
 	if errors.IsNotFound(err) {
 		// Construct download/upload job
@@ -756,44 +946,119 @@ func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (c
 	return ctrl.Result{}, r.Status().Update(ctx, model)
 }
 
-// checkTargetPaths keeps a pending model from starting while one of the directories it
-// would download into is held by another model. A model being deleted from that
-// directory makes this one wait; a live model owning it fails this one.
-func (r *ModelReconciler) checkTargetPaths(ctx context.Context, model *v1.Model) (ctrl.Result, bool, error) {
+// planTargetPaths returns the directories a model downloads into, one per (cluster,
+// volume root). A directory held by another model is decided on its own:
+//   - a live model records it: the entry is Failed with the owner named, the model
+//     never writes into another model's files;
+//   - a model being deleted records it: the model waits (waitFor > 0, status message
+//     set) for that cleanup to finish, at most deletingPathWaitTimeout from the start
+//     of that deletion, after which the entry is Failed with the reason.
+//
+// The other entries are returned Pending. Two directories are the same only when they
+// have the same path on the same cluster; the same mount path on another cluster is a
+// different filesystem.
+func (r *ModelReconciler) planTargetPaths(ctx context.Context, model *v1.Model) ([]v1.ModelLocalPath, time.Duration, error) {
+	paths := r.initializeLocalPaths(ctx, model)
+	if len(paths) == 0 {
+		return paths, 0, nil
+	}
 	models := &v1.ModelList{}
 	if err := r.List(ctx, models); err != nil {
-		return ctrl.Result{}, false, err
+		return nil, 0, err
 	}
-	for _, lp := range r.initializeLocalPaths(ctx, model) {
-		for i := range models.Items {
-			other := &models.Items[i]
+	workspaces := &v1.WorkspaceList{}
+	if err := r.List(ctx, workspaces); err != nil {
+		return nil, 0, err
+	}
+	clusterOf := make(map[string]string, len(workspaces.Items))
+	for i := range workspaces.Items {
+		clusterOf[workspaces.Items[i].Name] = workspaces.Items[i].Spec.Cluster
+	}
+	// sameDir reports whether two entries name one directory. An entry whose workspace
+	// is gone has no known cluster and is taken to be on any cluster.
+	sameDir := func(a, b v1.ModelLocalPath) bool {
+		if a.Path != b.Path {
+			return false
+		}
+		ca, okA := clusterOf[a.Workspace]
+		cb, okB := clusterOf[b.Workspace]
+		return !okA || !okB || ca == cb
+	}
+
+	var (
+		waiting  []string
+		waitFor  time.Duration
+		now      = time.Now().UTC()
+		failures int
+	)
+	for i := range paths {
+		lp := &paths[i]
+	others:
+		for j := range models.Items {
+			other := &models.Items[j]
 			if other.Name == model.Name || !other.IsLocal() {
 				continue
 			}
 			for _, olp := range other.Status.LocalPaths {
-				if olp.Path != lp.Path {
+				if !sameDir(*lp, olp) {
 					continue
 				}
-				if !other.GetDeletionTimestamp().IsZero() {
-					message := fmt.Sprintf("Waiting for model %s to finish deleting %s", other.Name, lp.Path)
-					klog.InfoS(message, "model", model.Name)
-					if model.Status.Message != message {
-						model.Status.Message = message
-						model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
-						if err := r.Status().Update(ctx, model); err != nil {
-							return ctrl.Result{}, true, err
-						}
+				if deleting := other.GetDeletionTimestamp(); !deleting.IsZero() {
+					deadline := deleting.Add(deletingPathWaitTimeout)
+					if now.Before(deadline) {
+						waiting = append(waiting, fmt.Sprintf("model %s to finish deleting %s", other.Name, lp.Path))
+						waitFor = 10 * time.Second
+						break others
 					}
-					return ctrl.Result{RequeueAfter: 10 * time.Second}, true, nil
+					lp.Status = v1.LocalPathStatusFailed
+					lp.Message = fmt.Sprintf("%s is still being cleaned up by the deletion of model %s, started %s ago; "+
+						"see that model's status, then retry this model",
+						lp.Path, other.Name, now.Sub(deleting.Time).Round(time.Minute))
+				} else {
+					lp.Status = v1.LocalPathStatusFailed
+					lp.Message = fmt.Sprintf("%s is already used by model %s", lp.Path, other.Name)
 				}
-				model.Status.Phase = v1.ModelPhaseFailed
-				model.Status.Message = fmt.Sprintf("Path %s is already used by model %s", lp.Path, other.Name)
-				model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
-				return ctrl.Result{}, true, r.Status().Update(ctx, model)
+				failures++
+				klog.InfoS("Model directory is held by another model", "model", model.Name,
+					"path", lp.Path, "workspace", lp.Workspace, "reason", lp.Message)
+				break others
 			}
 		}
 	}
-	return ctrl.Result{}, false, nil
+
+	if len(waiting) > 0 {
+		message := "Waiting for " + strings.Join(waiting, ", ")
+		klog.InfoS(message, "model", model.Name)
+		if model.Status.Message != message {
+			model.Status.Message = message
+			model.Status.UpdateTime = &metav1.Time{Time: now}
+			if err := r.Status().Update(ctx, model); err != nil {
+				return nil, 0, err
+			}
+		}
+		return nil, waitFor, nil
+	}
+	if failures > 0 && failures < len(paths) {
+		r.event(model, corev1.EventTypeWarning, "PathSkipped",
+			fmt.Sprintf("%d of %d target directories are held by other models and are skipped", failures, len(paths)))
+	}
+	return paths, 0, nil
+}
+
+// allPathsFailed returns why a model has nothing left to download when every one of
+// paths has failed, or "" when at least one can still be downloaded.
+func allPathsFailed(paths []v1.ModelLocalPath) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	reasons := make([]string, 0, len(paths))
+	for _, lp := range paths {
+		if lp.Status != v1.LocalPathStatusFailed {
+			return ""
+		}
+		reasons = append(reasons, lp.Message)
+	}
+	return "No target directory can be used: " + strings.Join(reasons, "; ")
 }
 
 // handleUploading handles the Uploading phase (downloading from HuggingFace to S3)
@@ -812,13 +1077,22 @@ func (r *ModelReconciler) handleUploading(ctx context.Context, model *v1.Model) 
 
 	// Success case
 	if job.Status.Succeeded > 0 {
+		// Initialize local paths based on workspace configuration; a directory held by
+		// another model is given up on its own, or waited for while it is being deleted.
+		paths, waitFor, err := r.planTargetPaths(ctx, model)
+		if err != nil || waitFor > 0 {
+			return ctrl.Result{RequeueAfter: waitFor}, err
+		}
+
 		// S3 upload completed, now start downloading to local PFS
 		model.Status.Phase = v1.ModelPhaseDownloading
 		model.Status.Message = "S3 upload completed, starting local download"
 		model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
-
-		// Initialize local paths based on workspace configuration
-		model.Status.LocalPaths = r.initializeLocalPaths(ctx, model)
+		model.Status.LocalPaths = paths
+		if message := allPathsFailed(paths); message != "" {
+			model.Status.Phase = v1.ModelPhaseFailed
+			model.Status.Message = message
+		}
 
 		klog.InfoS("Model S3 upload completed, starting local download", "model", model.Name, "s3Path", model.Status.S3Path)
 
@@ -994,6 +1268,9 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 		// All failed
 		model.Status.Phase = v1.ModelPhaseFailed
 		model.Status.Message = "All local downloads failed"
+		if reasons := failedPathReasons(model.Status.LocalPaths); reasons != "" {
+			model.Status.Message += ": " + reasons
+		}
 	}
 	// else: still downloading, keep phase as Downloading
 
@@ -1010,6 +1287,19 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// failedPathReasons joins the distinct messages of the failed entries of paths.
+func failedPathReasons(paths []v1.ModelLocalPath) string {
+	var reasons []string
+	seen := map[string]bool{}
+	for _, lp := range paths {
+		if lp.Status == v1.LocalPathStatusFailed && lp.Message != "" && !seen[lp.Message] {
+			seen[lp.Message] = true
+			reasons = append(reasons, lp.Message)
+		}
+	}
+	return strings.Join(reasons, "; ")
 }
 
 // countActiveDownloads counts the model download jobs that have not finished, across all
@@ -1332,11 +1622,17 @@ func (r *ModelReconciler) shareSecretWithWorkspace(ctx context.Context, name, wo
 }
 
 // hfDownloadScript downloads $HF_REPO_ID into $DEST_PATH. Only the files needed to load
-// the model are fetched: weights in safetensors, configs, tokenizer and remote code.
+// the model are fetched: configs, tokenizer, remote code and one format of weights. The
+// weights are safetensors when the repository has them, otherwise PyTorch checkpoints
+// (*.bin, *.pth, *.pt); GGUF and TensorFlow/Flax weights are never fetched, since what
+// serves these models loads neither, and a GGUF repository holds many quantizations of
+// which all would be fetched. A download that leaves no weights fails with the reason.
 // The HuggingFace cache lives inside $DEST_PATH, so a large model does not fill the
 // container's ephemeral storage, and a retry resumes from what is already there.
 // Nothing is removed on failure: the model deletion cleans the directory up.
+// Only "[ERROR]" and "[SUCCESS]" lines reach the job's outputs and failure message.
 const hfDownloadScript = `set -eu
+set -f
 mkdir -p "$DEST_PATH"
 export HF_HOME="$DEST_PATH/.cache/hf-home"
 export HF_HUB_DISABLE_TELEMETRY=1
@@ -1344,28 +1640,62 @@ if [ -n "${SECRET_PATH:-}" ] && [ -f "$SECRET_PATH/token" ]; then
   HF_TOKEN="$(cat "$SECRET_PATH/token")"
   export HF_TOKEN
 fi
+SUPPORT='*.json tokenizer* *.model *.tiktoken *.txt *.py *.jinja'
+
+# fetch downloads the support files and the weights matching the given patterns.
+fetch() {
+  if command -v huggingface-cli >/dev/null 2>&1; then
+    huggingface-cli download "$HF_REPO_ID" --local-dir "$DEST_PATH" \
+      --include "$@" $SUPPORT --exclude 'original/*'
+  else
+    n=$#
+    for p in "$@" $SUPPORT; do set -- "$@" --include "$p"; done
+    shift "$n"
+    hf download "$HF_REPO_ID" --local-dir "$DEST_PATH" "$@" --exclude 'original/*'
+  fi
+}
+
+# has_files reports whether $DEST_PATH holds a file matching one of the name patterns.
+has_files() {
+  for p in "$@"; do
+    if [ -n "$(find "$DEST_PATH" -path "$DEST_PATH/.cache" -prune -o -type f -name "$p" -print | head -n 1)" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 echo "Downloading $HF_REPO_ID into $DEST_PATH"
-if command -v huggingface-cli >/dev/null 2>&1; then
-  huggingface-cli download "$HF_REPO_ID" --local-dir "$DEST_PATH" \
-    --include '*.safetensors' '*.json' 'tokenizer*' '*.model' '*.tiktoken' '*.txt' '*.py' '*.jinja' \
-    --exclude 'original/*'
-else
-  hf download "$HF_REPO_ID" --local-dir "$DEST_PATH" \
-    --include '*.safetensors' --include '*.json' --include 'tokenizer*' --include '*.model' \
-    --include '*.tiktoken' --include '*.txt' --include '*.py' --include '*.jinja' \
-    --exclude 'original/*'
+if ! fetch '*.safetensors'; then
+  echo "[ERROR] downloading $HF_REPO_ID failed"
+  exit 1
+fi
+if ! has_files '*.safetensors'; then
+  echo "No safetensors weights in $HF_REPO_ID, fetching PyTorch weights"
+  if ! fetch '*.bin' '*.pth' '*.pt'; then
+    echo "[ERROR] downloading $HF_REPO_ID failed"
+    exit 1
+  fi
+fi
+if ! has_files '*.safetensors' '*.bin' '*.pth' '*.pt'; then
+  echo "[ERROR] $HF_REPO_ID has no safetensors or PyTorch (.bin, .pth, .pt) weights; GGUF and TensorFlow/Flax weights are not downloaded"
+  exit 1
 fi
 size="$(du -sb --exclude=.cache "$DEST_PATH" | cut -f1)"
-echo "` + modelSizeMarker + `$size"
+echo "[SUCCESS] ` + modelSizeMarker + `$size"
 `
 
-// extractOpsJobFailureReason extracts detailed failure information from OpsJob
+// extractOpsJobFailureReason extracts detailed failure information from OpsJob. The
+// OpsJob controller completes a failed job with a "JobCompleted" condition whose reason
+// is "JobFailed" and whose message carries the workload's "[ERROR]" log lines; a
+// "Failed" condition is accepted as well.
 func (r *ModelReconciler) extractOpsJobFailureReason(opsJob *v1.OpsJob) string {
 	for _, condition := range opsJob.Status.Conditions {
-		if condition.Type == "Failed" && condition.Status == metav1.ConditionTrue {
-			if condition.Reason != "" {
-				return fmt.Sprintf("%s: %s", condition.Reason, condition.Message)
-			}
+		switch {
+		case condition.Type == "Failed" && condition.Status == metav1.ConditionTrue && condition.Reason != "":
+			return fmt.Sprintf("%s: %s", condition.Reason, condition.Message)
+		case condition.Type == opsJobCompletedCondition && condition.Reason == opsJobFailedReason && condition.Message != "":
+			return condition.Message
 		}
 	}
 	return "Unknown error during download"

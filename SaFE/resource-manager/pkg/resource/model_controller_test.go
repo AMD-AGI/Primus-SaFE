@@ -526,7 +526,7 @@ func TestHandleDownloading_AllFailed(t *testing.T) {
 	assert.NilError(t, err)
 	// When all paths fail, model status is Failed
 	assert.Equal(t, model.Status.Phase, v1.ModelPhaseFailed)
-	assert.Equal(t, model.Status.Message, "All local downloads failed")
+	assert.Equal(t, model.Status.Message, "All local downloads failed: Download failed")
 }
 
 // TestHandleDownloading_OpsJobSucceeded tests handleDownloading when OpsJob succeeds

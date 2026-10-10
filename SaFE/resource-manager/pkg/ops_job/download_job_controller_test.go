@@ -192,3 +192,21 @@ func TestModelCleanupJobWorkload(t *testing.T) {
 	assert.Equal(t, string(v1.OpsJobModelCleanupType), wl.Labels[v1.OpsJobTypeLabel])
 	assert.True(t, isDownloadWorkload(wl))
 }
+
+// TestDownloadWorkloadCarriesModelId: a model finds the workloads of its downloads by
+// its own id, whichever workspace they run in.
+func TestDownloadWorkloadCarriesModelId(t *testing.T) {
+	job := downloadJob("j1")
+	job.Labels[v1.ModelIdLabel] = "m1"
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	r := &DownloadJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, ws)}
+	wl, err := r.generateDownloadWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, "m1", wl.Labels[v1.ModelIdLabel])
+
+	delete(job.Labels, v1.ModelIdLabel)
+	wl, err = r.generateDownloadWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	_, ok := wl.Labels[v1.ModelIdLabel]
+	assert.False(t, ok, "a job of no model labels no model")
+}

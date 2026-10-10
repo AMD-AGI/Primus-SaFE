@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -227,14 +229,34 @@ func TestModelDeleteCleanupFailureKeepsFinalizer(t *testing.T) {
 	m := getModel(t, cl, "m1")
 	assert.True(t, controllerutil.ContainsFinalizer(m, ModelFinalizer), "a failed cleanup must not release the model")
 	require.Len(t, m.Status.LocalPaths, 1, "the path is still on disk")
-	assert.Contains(t, m.Status.Message, "failed, retrying")
+	assert.Contains(t, m.Status.Message, "failed: Error: boom (failure 1), retrying in 30s")
+	assert.Equal(t, int32(1), m.Status.LocalPaths[0].CleanupFailures)
 	// The failed job is removed so the next pass runs a fresh one.
 	err = cl.Get(context.Background(), client.ObjectKey{Name: jobName}, &v1.OpsJob{})
 	assert.True(t, errors.IsNotFound(err))
 
+	// The next attempt waits for the backoff, however often the model is reconciled.
+	res, err = r.Reconcile(context.Background(), reconcileReq("m1"))
+	require.NoError(t, err)
+	assert.Empty(t, listOpsJobs(t, cl, v1.OpsJobModelCleanupType), "no retry before the backoff")
+	assert.True(t, res.RequeueAfter > 0 && res.RequeueAfter <= cleanupRetryInterval, "requeue %s", res.RequeueAfter)
+
+	ageCleanupFailure(t, cl, "m1", cleanupRetryInterval)
 	reconcileModel(t, r, "m1")
 	require.Len(t, listOpsJobs(t, cl, v1.OpsJobModelCleanupType), 1, "cleanup is retried")
 	assert.True(t, controllerutil.ContainsFinalizer(getModel(t, cl, "m1"), ModelFinalizer))
+}
+
+// ageCleanupFailure moves the last cleanup failure of every path of a model back by d.
+func ageCleanupFailure(t *testing.T, cl client.Client, name string, d time.Duration) {
+	t.Helper()
+	m := getModel(t, cl, name)
+	for i := range m.Status.LocalPaths {
+		if at := m.Status.LocalPaths[i].LastCleanupFailureTime; at != nil {
+			m.Status.LocalPaths[i].LastCleanupFailureTime = &metav1.Time{Time: at.Add(-d)}
+		}
+	}
+	require.NoError(t, cl.Status().Update(context.Background(), m))
 }
 
 // TestModelDeleteCleanupCreateFailureKeepsFinalizer: a cleanup that cannot even be
@@ -294,7 +316,8 @@ func TestModelDeleteStopsDownloadFirst(t *testing.T) {
 	assert.Empty(t, listOpsJobs(t, cl, v1.OpsJobModelCleanupType), "no cleanup while the download may still write")
 
 	// Its workload is still terminating: keep waiting.
-	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: download.Name}}
+	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: download.Name, Labels: map[string]string{
+		v1.ModelIdLabel: "m1", v1.OpsJobTypeLabel: string(v1.OpsJobDownloadType)}}}
 	require.NoError(t, cl.Create(context.Background(), wl))
 	reconcileModel(t, r, "m1")
 	assert.Empty(t, listOpsJobs(t, cl, v1.OpsJobModelCleanupType))
@@ -467,18 +490,263 @@ func TestModelPublicDownloadPerCluster(t *testing.T) {
 		cleanupJobName(model, paths[1].Workspace, lifecyclePath))
 }
 
-// TestModelDeleteRefusedPathKeepsFinalizer: a recorded path that no longer passes the
-// guard (here the workspace volume moved) is neither removed nor released.
-func TestModelDeleteRefusedPathKeepsFinalizer(t *testing.T) {
+// TestModelDeleteUnreachablePathReleases: a recorded path that no workspace mounts any
+// more cannot be removed, and nothing can write into it either. It is never handed to a
+// cleanup job, and the model is released with a warning instead of staying stuck.
+func TestModelDeleteUnreachablePathReleases(t *testing.T) {
 	model := deletingModel(t, "m1", v1.ModelLocalPath{Workspace: "ws1", Path: lifecyclePath})
-	cl := lifecycleClient(t, model, lifecycleWorkspace("ws1", "c1", "/elsewhere"))
+	cl := lifecycleClient(t, model, lifecycleWorkspace("ws1", "c1", "/elsewhere"),
+		lifecycleWorkspace("ws-other-cluster", "c2", lifecycleRoot))
 	r := newMockModelReconciler(cl)
+	events := record.NewFakeRecorder(8)
+	r.recorder = events
 
 	reconcileModel(t, r, "m1")
 	reconcileModel(t, r, "m1")
 	assert.Empty(t, listOpsJobs(t, cl, v1.OpsJobModelCleanupType))
+	err := cl.Get(context.Background(), client.ObjectKey{Name: "m1"}, &v1.Model{})
+	assert.True(t, errors.IsNotFound(err), "the model is released, got %v", err)
+	require.Len(t, events.Events, 1)
+	event := <-events.Events
+	assert.Contains(t, event, "CleanupSkipped")
+	assert.Contains(t, event, "Leaving "+lifecyclePath+" on disk")
+	assert.Contains(t, event, "not inside a volume")
+}
+
+// TestModelDeleteWorkspaceGoneReleases: without its workspace the directory cannot be
+// reached; the model is released with a warning.
+func TestModelDeleteWorkspaceGoneReleases(t *testing.T) {
+	model := deletingModel(t, "m1", v1.ModelLocalPath{Workspace: "gone", Path: lifecyclePath})
+	cl := lifecycleClient(t, model, lifecycleWorkspace("ws1", "c1", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+	events := record.NewFakeRecorder(8)
+	r.recorder = events
+
+	reconcileModel(t, r, "m1")
+	reconcileModel(t, r, "m1")
+	assert.Empty(t, listOpsJobs(t, cl, v1.OpsJobModelCleanupType))
+	err := cl.Get(context.Background(), client.ObjectKey{Name: "m1"}, &v1.Model{})
+	assert.True(t, errors.IsNotFound(err), "the model is released, got %v", err)
+	require.Len(t, events.Events, 1)
+	assert.Contains(t, <-events.Events, "workspace gone no longer exists")
+}
+
+// TestModelDeleteCleansFromAnotherWorkspace: when the recorded workspace no longer
+// mounts the directory, another workspace of the same cluster that does runs the cleanup.
+func TestModelDeleteCleansFromAnotherWorkspace(t *testing.T) {
+	model := deletingModel(t, "m1", v1.ModelLocalPath{Workspace: "ws1", Path: lifecyclePath})
+	cl := lifecycleClient(t, model,
+		lifecycleWorkspace("ws1", "c1", "/elsewhere"),
+		lifecycleWorkspace("ws-other-cluster", "c2", lifecycleRoot),
+		lifecycleWorkspace("ws2", "c1", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+
+	reconcileModel(t, r, "m1")
+	cleanups := listOpsJobs(t, cl, v1.OpsJobModelCleanupType)
+	require.Len(t, cleanups, 1)
+	assert.Equal(t, "ws2", cleanups[0].GetParameter(v1.ParameterWorkspace).Value)
+	assert.Equal(t, "c1", v1.GetClusterId(&cleanups[0]))
+	assert.True(t, controllerutil.ContainsFinalizer(getModel(t, cl, "m1"), ModelFinalizer))
+}
+
+// TestModelDeleteCleanupKeepsFailing: failures back off, and from the threshold on the
+// model says that it needs an administrator and how to release it. The abandon
+// annotation releases it and leaves the files.
+func TestModelDeleteCleanupKeepsFailing(t *testing.T) {
+	model := deletingModel(t, "m1", v1.ModelLocalPath{Workspace: "ws1", Path: lifecyclePath})
+	cl := lifecycleClient(t, model, lifecycleWorkspace("ws1", "", lifecycleRoot)) // no cluster: cannot start
+	r := newMockModelReconciler(cl)
+	events := record.NewFakeRecorder(16)
+	r.recorder = events
+
+	var delays []time.Duration
+	for i := 1; i <= cleanupFailureAlertThreshold; i++ {
+		res, err := r.Reconcile(context.Background(), reconcileReq("m1"))
+		require.NoError(t, err)
+		delays = append(delays, res.RequeueAfter)
+		m := getModel(t, cl, "m1")
+		require.Equal(t, int32(i), m.Status.LocalPaths[0].CleanupFailures)
+		// Reconciling again before the backoff has passed does not count a failure.
+		reconcileModel(t, r, "m1")
+		require.Equal(t, int32(i), getModel(t, cl, "m1").Status.LocalPaths[0].CleanupFailures)
+		ageCleanupFailure(t, cl, "m1", cleanupMaxRetryInterval)
+	}
+	assert.Equal(t, []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute}, delays)
 	m := getModel(t, cl, "m1")
+	assert.Contains(t, m.Status.Message, "needs an administrator")
+	assert.Contains(t, m.Status.Message, AbandonCleanupAnnotation+"=true")
 	assert.True(t, controllerutil.ContainsFinalizer(m, ModelFinalizer))
-	require.Len(t, m.Status.LocalPaths, 1)
-	assert.Contains(t, m.Status.Message, "refusing to clean")
+	require.Len(t, events.Events, 1)
+	assert.Contains(t, <-events.Events, "CleanupStuck")
+
+	// The backoff is capped.
+	for i := 0; i < 3; i++ {
+		res, err := r.Reconcile(context.Background(), reconcileReq("m1"))
+		require.NoError(t, err)
+		assert.LessOrEqual(t, res.RequeueAfter, cleanupMaxRetryInterval)
+		ageCleanupFailure(t, cl, "m1", cleanupMaxRetryInterval)
+	}
+
+	m = getModel(t, cl, "m1")
+	m.Annotations[AbandonCleanupAnnotation] = v1.TrueStr
+	require.NoError(t, cl.Update(context.Background(), m))
+	reconcileModel(t, r, "m1")
+	err := cl.Get(context.Background(), client.ObjectKey{Name: "m1"}, &v1.Model{})
+	assert.True(t, errors.IsNotFound(err), "the abandon annotation releases the model, got %v", err)
+	assert.Empty(t, listOpsJobs(t, cl, v1.OpsJobModelCleanupType))
+	require.Len(t, events.Events, 1)
+	assert.Contains(t, <-events.Events, "CleanupAbandoned")
+}
+
+// TestModelPublicSkipsHeldPath: a public model gives up only the directory another
+// live model holds; its other directories are downloaded. The same mount path on
+// another cluster is another directory.
+func TestModelPublicSkipsHeldPath(t *testing.T) {
+	setViper(t, map[string]any{"s3.enable": false})
+	model := lifecycleModel("m1")
+	model.Spec.Workspace = ""
+	model.Finalizers = []string{ModelFinalizer}
+	model.Status.Phase = v1.ModelPhasePending
+	holder := lifecycleModel("m2")
+	holder.Status.Phase = v1.ModelPhaseReady
+	holder.Status.LocalPaths = []v1.ModelLocalPath{{Workspace: "ws-a", Path: lifecyclePath, Status: v1.LocalPathStatusReady}}
+	cl := lifecycleClient(t, model, holder,
+		lifecycleWorkspace("ws-a", "a", lifecycleRoot),
+		lifecycleWorkspace("ws-b", "b", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+
+	_, err := r.handlePending(context.Background(), getModel(t, cl, "m1"))
+	require.NoError(t, err)
+	m := getModel(t, cl, "m1")
+	assert.Equal(t, v1.ModelPhaseDownloading, m.Status.Phase)
+	require.Len(t, m.Status.LocalPaths, 2)
+	byWorkspace := map[string]v1.ModelLocalPath{}
+	for _, lp := range m.Status.LocalPaths {
+		byWorkspace[lp.Workspace] = lp
+	}
+	assert.Equal(t, v1.LocalPathStatusFailed, byWorkspace["ws-a"].Status)
+	assert.Contains(t, byWorkspace["ws-a"].Message, "already used by model m2")
+	assert.Equal(t, v1.LocalPathStatusPending, byWorkspace["ws-b"].Status, "the other cluster is downloaded")
+
+	reconcileModel(t, r, "m1")
+	downloads := listOpsJobs(t, cl, v1.OpsJobDownloadType)
+	require.Len(t, downloads, 1)
+	assert.Equal(t, "ws-b", v1.GetWorkspaceId(&downloads[0]))
+}
+
+// TestModelPrivateHeldPathFails: a private model whose only directory is held fails
+// with the owner named.
+func TestModelPrivateHeldPathFails(t *testing.T) {
+	setViper(t, map[string]any{"s3.enable": false})
+	model := lifecycleModel("m1")
+	model.Status.Phase = v1.ModelPhasePending
+	holder := lifecycleModel("m2")
+	holder.Spec.Workspace = "ws2"
+	holder.Status.LocalPaths = []v1.ModelLocalPath{{Workspace: "ws2", Path: lifecyclePath, Status: v1.LocalPathStatusReady}}
+	cl := lifecycleClient(t, model, holder,
+		lifecycleWorkspace("ws1", "c1", lifecycleRoot),
+		lifecycleWorkspace("ws2", "c1", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+
+	_, err := r.handlePending(context.Background(), getModel(t, cl, "m1"))
+	require.NoError(t, err)
+	m := getModel(t, cl, "m1")
+	assert.Equal(t, v1.ModelPhaseFailed, m.Status.Phase)
+	assert.Contains(t, m.Status.Message, lifecyclePath+" is already used by model m2")
+	assert.Empty(t, listOpsJobs(t, cl, v1.OpsJobDownloadType))
+}
+
+// TestModelPendingGivesUpOnStuckDeletion: a deletion that has not freed the directory
+// after deletingPathWaitTimeout no longer holds the new model; the directory fails
+// with the reason and what to do.
+func TestModelPendingGivesUpOnStuckDeletion(t *testing.T) {
+	setViper(t, map[string]any{"s3.enable": false})
+	old := deletingModel(t, "old", v1.ModelLocalPath{Workspace: "ws1", Path: lifecyclePath})
+	old.DeletionTimestamp = &metav1.Time{Time: time.Now().Add(-deletingPathWaitTimeout - time.Minute)}
+	model := lifecycleModel("m1")
+	model.Status.Phase = v1.ModelPhasePending
+	cl := lifecycleClient(t, old, model, lifecycleWorkspace("ws1", "c1", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+
+	res, err := r.handlePending(context.Background(), getModel(t, cl, "m1"))
+	require.NoError(t, err)
+	assert.Zero(t, res.RequeueAfter)
+	m := getModel(t, cl, "m1")
+	assert.Equal(t, v1.ModelPhaseFailed, m.Status.Phase)
+	assert.Contains(t, m.Status.Message, "still being cleaned up by the deletion of model old")
+	assert.Contains(t, m.Status.Message, "retry this model")
+}
+
+// TestModelDeleteWaitsForFailedOverDownload: after a failover the download workload of
+// the earlier workspace may still be terminating; no cleanup runs until it is gone.
+func TestModelDeleteWaitsForFailedOverDownload(t *testing.T) {
+	model := deletingModel(t, "m1", v1.ModelLocalPath{Workspace: "ws2", Path: lifecyclePath, Status: v1.LocalPathStatusFailed})
+	downloadLabels := func(modelId string) map[string]string {
+		l := map[string]string{v1.OpsJobTypeLabel: string(v1.OpsJobDownloadType)}
+		if modelId != "" {
+			l[v1.ModelIdLabel] = modelId
+		}
+		return l
+	}
+	now := metav1.Now()
+	terminating := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: downloadJobName(model, "ws1"),
+		Labels: downloadLabels("m1"), DeletionTimestamp: &now, Finalizers: []string{"test"}},
+		Spec: v1.WorkloadSpec{Workspace: "ws1"}}
+	unrelated := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "download--other-ws1", Labels: downloadLabels("")}}
+	cl := lifecycleClient(t, model, terminating, unrelated,
+		lifecycleWorkspace("ws1", "c1", lifecycleRoot),
+		lifecycleWorkspace("ws2", "c1", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+
+	reconcileModel(t, r, "m1")
+	reconcileModel(t, r, "m1")
+	assert.Empty(t, listOpsJobs(t, cl, v1.OpsJobModelCleanupType), "no cleanup while the earlier workspace's download terminates")
+	assert.Equal(t, "Waiting for the model's downloads to stop before removing its files", getModel(t, cl, "m1").Status.Message)
+
+	// A deletion stuck on it for long says what an administrator can do.
+	stale := getModel(t, cl, "m1")
+	stale.DeletionTimestamp = &metav1.Time{Time: time.Now().Add(-deletingPathWaitTimeout - time.Minute)}
+	_, err := r.handleDelete(context.Background(), stale)
+	require.NoError(t, err)
+	assert.Contains(t, getModel(t, cl, "m1").Status.Message, AbandonCleanupAnnotation+"=true")
+
+	// It terminates: the cleanup starts. The unrelated workload never held it up.
+	wl := &v1.Workload{}
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKey{Name: terminating.Name}, wl))
+	wl.Finalizers = nil
+	require.NoError(t, cl.Update(context.Background(), wl))
+	reconcileModel(t, r, "m1")
+	assert.Len(t, listOpsJobs(t, cl, v1.OpsJobModelCleanupType), 1)
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKey{Name: unrelated.Name}, &v1.Workload{}))
+}
+
+// TestModelStopDownloadsAcrossWorkspaces: a live labelled download workload in another
+// workspace is deleted; an unlabelled one matched by name only (created before the
+// label existed, or another model's) is waited for but never deleted.
+func TestModelStopDownloadsAcrossWorkspaces(t *testing.T) {
+	model := deletingModel(t, "m1", v1.ModelLocalPath{Workspace: "ws2", Path: lifecyclePath})
+	labelled := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "download-elsewhere", Labels: map[string]string{
+		v1.OpsJobTypeLabel: string(v1.OpsJobDownloadType), v1.ModelIdLabel: "m1"}}}
+	legacy := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: downloadJobName(model, "ws1"), Labels: map[string]string{
+		v1.OpsJobTypeLabel: string(v1.OpsJobDownloadType)}}}
+	cl := lifecycleClient(t, model, labelled, legacy,
+		lifecycleWorkspace("ws1", "c1", lifecycleRoot),
+		lifecycleWorkspace("ws2", "c1", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+
+	stopped, err := r.stopDownloads(context.Background(), getModel(t, cl, "m1"))
+	require.NoError(t, err)
+	assert.False(t, stopped)
+	err = cl.Get(context.Background(), client.ObjectKey{Name: labelled.Name}, &v1.Workload{})
+	assert.True(t, errors.IsNotFound(err), "the model's own workload is stopped")
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKey{Name: legacy.Name}, &v1.Workload{}),
+		"a workload matched by name only is not deleted")
+	stopped, err = r.stopDownloads(context.Background(), getModel(t, cl, "m1"))
+	require.NoError(t, err)
+	assert.False(t, stopped, "the unlabelled workload of the earlier workspace is waited for")
+
+	require.NoError(t, cl.Delete(context.Background(), legacy))
+	stopped, err = r.stopDownloads(context.Background(), getModel(t, cl, "m1"))
+	require.NoError(t, err)
+	assert.True(t, stopped)
 }
