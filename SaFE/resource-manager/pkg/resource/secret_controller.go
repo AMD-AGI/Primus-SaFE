@@ -266,9 +266,6 @@ func parseWorkspaceSelector(secret *corev1.Secret) (labels.Selector, error) {
 		return nil, &invalidSelectorError{fmt.Errorf("annotation %s=%q is not a valid label selector: %v",
 			v1.WorkspaceSelectorAnnotation, raw, err)}
 	}
-	if selector.Empty() {
-		return nil, nil
-	}
 	return selector, nil
 }
 
