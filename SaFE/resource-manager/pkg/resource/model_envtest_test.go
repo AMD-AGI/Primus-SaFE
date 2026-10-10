@@ -100,8 +100,9 @@ func TestModelLifecycleEnvtest(t *testing.T) {
 			job.Status.Outputs = []v1.Parameter{{Name: "result", Value: out}}
 		}
 		if phase == v1.OpsJobFailed {
-			job.Status.Conditions = []metav1.Condition{{Type: "Failed", Status: metav1.ConditionTrue, Reason: "Error",
-				Message: "rm failed", LastTransitionTime: metav1.Now()}}
+			failed := failedJobCondition("[ERROR] rm failed\n")
+			failed.LastTransitionTime = metav1.Now()
+			job.Status.Conditions = []metav1.Condition{failed}
 		}
 		require.NoError(t, cl.Status().Update(ctx, job))
 	}

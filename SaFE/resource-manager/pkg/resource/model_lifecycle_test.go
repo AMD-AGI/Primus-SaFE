@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonopsjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
 )
 
@@ -99,9 +101,21 @@ func setOpsJobPhase(t *testing.T, cl client.Client, name string, phase v1.OpsJob
 	job.Status.Phase = phase
 	job.Status.Outputs = outputs
 	if phase == v1.OpsJobFailed {
-		job.Status.Conditions = []metav1.Condition{{Type: "Failed", Status: metav1.ConditionTrue, Reason: "Error", Message: "boom"}}
+		job.Status.Conditions = []metav1.Condition{failedJobCondition("[ERROR] boom\n")}
 	}
 	require.NoError(t, cl.Status().Update(context.Background(), job))
+}
+
+// failedJobCondition is the condition the OpsJob controller writes when a job fails
+// after its workload printed log: the job-manager keeps the marked lines of the log, and
+// a job that kept none says "unknown". The literals are the platform's, not the
+// controller's constants, so a drift between the two shows up here.
+func failedJobCondition(log string) metav1.Condition {
+	message := commonopsjob.FilterResultLog([]byte(log))
+	if message == "" {
+		message = "unknown"
+	}
+	return metav1.Condition{Type: "JobCompleted", Status: metav1.ConditionFalse, Reason: "JobFailed", Message: message}
 }
 
 func listOpsJobs(t *testing.T, cl client.Client, jobType v1.OpsJobType) []v1.OpsJob {
@@ -229,7 +243,7 @@ func TestModelDeleteCleanupFailureKeepsFinalizer(t *testing.T) {
 	m := getModel(t, cl, "m1")
 	assert.True(t, controllerutil.ContainsFinalizer(m, ModelFinalizer), "a failed cleanup must not release the model")
 	require.Len(t, m.Status.LocalPaths, 1, "the path is still on disk")
-	assert.Contains(t, m.Status.Message, "failed: Error: boom (failure 1), retrying in 30s")
+	assert.Contains(t, m.Status.Message, `failed: ["[ERROR] boom"] (failure 1), retrying in 30s`)
 	assert.Equal(t, int32(1), m.Status.LocalPaths[0].CleanupFailures)
 	// The failed job is removed so the next pass runs a fresh one.
 	err = cl.Get(context.Background(), client.ObjectKey{Name: jobName}, &v1.OpsJob{})
@@ -749,4 +763,170 @@ func TestModelStopDownloadsAcrossWorkspaces(t *testing.T) {
 	stopped, err = r.stopDownloads(context.Background(), getModel(t, cl, "m1"))
 	require.NoError(t, err)
 	assert.True(t, stopped)
+}
+
+// TestModelReadyDrivesWaitingPaths: a model is Ready once one directory is; a directory
+// that was still waiting for a download slot then gets its download when a slot frees.
+func TestModelReadyDrivesWaitingPaths(t *testing.T) {
+	setViper(t, map[string]any{"s3.enable": false, "model.max_concurrent_downloads": 1})
+	model := lifecycleModel("m1")
+	model.Spec.Workspace = ""
+	model.Finalizers = []string{ModelFinalizer}
+	model.Status.Phase = v1.ModelPhaseDownloading
+	model.Status.LocalPaths = []v1.ModelLocalPath{
+		{Workspace: "ws-a", Path: lifecyclePath, Status: v1.LocalPathStatusPending},
+		{Workspace: "ws-b", Path: lifecyclePath, Status: v1.LocalPathStatusPending},
+	}
+	cl := lifecycleClient(t, model, lifecycleWorkspace("ws-a", "a", lifecycleRoot), lifecycleWorkspace("ws-b", "b", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+	r.apiReader = cl
+	ctx := context.Background()
+
+	reconcileModel(t, r, "m1")
+	jobs := listOpsJobs(t, cl, v1.OpsJobDownloadType)
+	require.Len(t, jobs, 1, "one slot: ws-b waits")
+
+	// Another model's download takes the slot as ws-a's finishes.
+	other := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "download--other-ws1", Labels: map[string]string{
+		v1.ModelIdLabel: "other", v1.OpsJobTypeLabel: string(v1.OpsJobDownloadType)}},
+		Spec: v1.OpsJobSpec{Type: v1.OpsJobDownloadType}}
+	require.NoError(t, cl.Create(ctx, other))
+	setOpsJobPhase(t, cl, other.Name, v1.OpsJobRunning)
+	setOpsJobPhase(t, cl, jobs[0].Name, v1.OpsJobSucceeded)
+	res, err := r.Reconcile(ctx, reconcileReq("m1"))
+	require.NoError(t, err)
+	m := getModel(t, cl, "m1")
+	require.Equal(t, v1.ModelPhaseReady, m.Status.Phase)
+	require.Equal(t, v1.LocalPathStatusPending, m.Status.LocalPaths[1].Status)
+	assert.Equal(t, downloadSlotWaitInterval, res.RequeueAfter, "a Ready model with a waiting directory is requeued")
+
+	// The slot frees: the Ready model's waiting directory is downloaded.
+	setOpsJobPhase(t, cl, other.Name, v1.OpsJobSucceeded)
+	reconcileModel(t, r, "m1")
+	var mine []v1.OpsJob
+	for _, j := range listOpsJobs(t, cl, v1.OpsJobDownloadType) {
+		if j.Labels[v1.ModelIdLabel] == "m1" {
+			mine = append(mine, j)
+		}
+	}
+	require.Len(t, mine, 1, "ws-b's download starts once a slot is free")
+	assert.Equal(t, "ws-b", v1.GetWorkspaceId(&mine[0]))
+	assert.Equal(t, v1.LocalPathStatusDownloading, getModel(t, cl, "m1").Status.LocalPaths[1].Status)
+
+	setOpsJobPhase(t, cl, mine[0].Name, v1.OpsJobSucceeded)
+	reconcileModel(t, r, "m1")
+	m = getModel(t, cl, "m1")
+	assert.Equal(t, v1.LocalPathStatusReady, m.Status.LocalPaths[1].Status)
+	assert.Equal(t, "Model is ready in 2 workspaces", m.Status.Message)
+
+	// A fully Ready model is left alone.
+	res, err = r.Reconcile(ctx, reconcileReq("m1"))
+	require.NoError(t, err)
+	assert.Zero(t, res.RequeueAfter)
+}
+
+// TestModelDeleteSamePathOtherCluster: the same mount path on another cluster is
+// another directory; it does not keep this model's directory on disk.
+func TestModelDeleteSamePathOtherCluster(t *testing.T) {
+	model := deletingModel(t, "m1", v1.ModelLocalPath{Workspace: "ws1", Path: lifecyclePath, Status: v1.LocalPathStatusReady})
+	other := lifecycleModel("m2")
+	other.Spec.Workspace = "ws2"
+	other.Status.Phase = v1.ModelPhaseReady
+	other.Status.LocalPaths = []v1.ModelLocalPath{{Workspace: "ws2", Path: lifecyclePath, Status: v1.LocalPathStatusReady}}
+	cl := lifecycleClient(t, model, other, lifecycleWorkspace("ws1", "c1", lifecycleRoot), lifecycleWorkspace("ws2", "c2", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+
+	reconcileModel(t, r, "m1")
+	cleanups := listOpsJobs(t, cl, v1.OpsJobModelCleanupType)
+	require.Len(t, cleanups, 1, "the directory on c1 is removed")
+	assert.Equal(t, "ws1", cleanups[0].GetParameter(v1.ParameterWorkspace).Value)
+	assert.True(t, controllerutil.ContainsFinalizer(getModel(t, cl, "m1"), ModelFinalizer))
+}
+
+// TestModelDeleteIgnoresFailedEntry: a Failed entry of another model (here the one
+// saying the directory is already used by the model being deleted) does not hold the
+// directory, which is removed.
+func TestModelDeleteIgnoresFailedEntry(t *testing.T) {
+	model := deletingModel(t, "m2", v1.ModelLocalPath{Workspace: "ws1", Path: lifecyclePath, Status: v1.LocalPathStatusReady})
+	other := lifecycleModel("m1")
+	other.Spec.Workspace = ""
+	other.Status.Phase = v1.ModelPhaseReady
+	other.Status.LocalPaths = []v1.ModelLocalPath{
+		{Workspace: "ws1", Path: lifecyclePath, Status: v1.LocalPathStatusFailed, Message: lifecyclePath + " is already used by model m2"},
+		{Workspace: "ws2", Path: lifecyclePath, Status: v1.LocalPathStatusReady},
+	}
+	cl := lifecycleClient(t, model, other, lifecycleWorkspace("ws1", "c1", lifecycleRoot), lifecycleWorkspace("ws2", "c2", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+
+	reconcileModel(t, r, "m2")
+	require.Len(t, listOpsJobs(t, cl, v1.OpsJobModelCleanupType), 1, "m2's directory is removed")
+	assert.True(t, controllerutil.ContainsFinalizer(getModel(t, cl, "m2"), ModelFinalizer))
+}
+
+// TestModelPendingIgnoresLiveFailedEntry: a live model's Failed entry does not make the
+// directory taken; a deleting model's Failed entry is still waited for, its cleanup
+// removes that directory.
+func TestModelPendingIgnoresLiveFailedEntry(t *testing.T) {
+	setViper(t, map[string]any{"s3.enable": false})
+	failed := []v1.ModelLocalPath{{Workspace: "ws1", Path: lifecyclePath, Status: v1.LocalPathStatusFailed, Message: "download failed"}}
+
+	live := lifecycleModel("old")
+	live.Status.Phase = v1.ModelPhaseFailed
+	live.Status.LocalPaths = failed
+	model := lifecycleModel("m1")
+	model.Status.Phase = v1.ModelPhasePending
+	cl := lifecycleClient(t, live, model, lifecycleWorkspace("ws1", "c1", lifecycleRoot))
+	r := newMockModelReconciler(cl)
+	paths, waitFor, err := r.planTargetPaths(context.Background(), getModel(t, cl, "m1"))
+	require.NoError(t, err)
+	assert.Zero(t, waitFor)
+	require.Len(t, paths, 1)
+	assert.Equal(t, v1.LocalPathStatusPending, paths[0].Status, paths[0].Message)
+
+	deleting := deletingModel(t, "old", failed...)
+	cl = lifecycleClient(t, deleting, model, lifecycleWorkspace("ws1", "c1", lifecycleRoot))
+	r = newMockModelReconciler(cl)
+	_, waitFor, err = r.planTargetPaths(context.Background(), getModel(t, cl, "m1"))
+	require.NoError(t, err)
+	assert.Positive(t, waitFor, "the deleting model's cleanup still removes the directory")
+}
+
+// TestModelDeleteS3SharedPath: the S3 path is derived from the display name, so two
+// models can share it; the copy another live model uses is left in place.
+func TestModelDeleteS3SharedPath(t *testing.T) {
+	patchS3Config(t)
+	model := deletingModel(t, "m1")
+	model.Status.S3Path = "models/org-repo"
+	other := lifecycleModel("m2")
+	other.Status.Phase = v1.ModelPhaseReady
+	other.Status.S3Path = "models/org-repo"
+	cl := lifecycleClient(t, model, other)
+	r := newMockModelReconciler(cl)
+	ctx := context.Background()
+
+	reconcileModel(t, r, "m1")
+	err := cl.Get(ctx, client.ObjectKey{Name: "cleanup-m1", Namespace: common.PrimusSafeNamespace}, &batchv1.Job{})
+	assert.True(t, errors.IsNotFound(err), "no S3 cleanup of a copy m2 uses")
+	reconcileModel(t, r, "m1")
+	err = cl.Get(ctx, client.ObjectKey{Name: "m1"}, &v1.Model{})
+	assert.True(t, errors.IsNotFound(err), "the model is released, got %v", err)
+
+	// Not shared: the cleanup runs, and only below the model's own prefix.
+	model = deletingModel(t, "m1")
+	model.Status.S3Path = "models/org-repo"
+	other = lifecycleModel("m2")
+	other.Spec.DisplayName = "org/repo-instruct"
+	other.Status.S3Path = "models/org-repo-instruct"
+	cl = lifecycleClient(t, model, other)
+	r = newMockModelReconciler(cl)
+	reconcileModel(t, r, "m1")
+	job := &batchv1.Job{}
+	require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "cleanup-m1", Namespace: common.PrimusSafeNamespace}, job))
+	var s3Path string
+	for _, env := range job.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == "S3_PATH" {
+			s3Path = env.Value
+		}
+	}
+	assert.True(t, strings.HasSuffix(s3Path, "/models/org-repo/"), "aws s3 rm --recursive matches key prefixes: %q", s3Path)
 }

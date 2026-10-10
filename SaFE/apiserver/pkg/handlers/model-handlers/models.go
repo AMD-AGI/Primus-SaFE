@@ -1710,6 +1710,8 @@ func (h *Handler) checkTargetPaths(ctx context.Context, candidate *v1.Model) err
 // modelOnPath returns a local model that records path on cluster in its status, and
 // whether that model is being deleted; a live model wins over one being deleted. A
 // recorded entry whose workspace is gone has no known cluster and matches any cluster.
+// A live model's Failed entry does not hold the directory (it was never downloaded
+// there, or gave up on it); a deleting model's does, its cleanup removes the directory.
 func modelOnPath(models []v1.Model, clusterOf map[string]string, cluster, path string) (string, bool) {
 	owner, deleting := "", false
 	for i := range models {
@@ -1725,6 +1727,9 @@ func modelOnPath(models []v1.Model, clusterOf map[string]string, cluster, path s
 				continue
 			}
 			if m.DeletionTimestamp == nil {
+				if lp.Status == v1.LocalPathStatusFailed {
+					continue
+				}
 				return m.Name, false
 			}
 			owner, deleting = m.Name, true

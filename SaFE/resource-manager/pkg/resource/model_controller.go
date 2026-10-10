@@ -188,11 +188,29 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return r.handleUploading(ctx, model)
 	case v1.ModelPhaseDownloading:
 		return r.handleDownloading(ctx, model)
-	case v1.ModelPhaseReady, v1.ModelPhaseFailed:
+	case v1.ModelPhaseReady:
+		// A model is Ready as soon as one directory is, while its other directories
+		// may still be downloading or waiting for a download slot; they are driven on.
+		if model.IsLocal() && hasUnfinishedLocalPath(model) {
+			return r.handleDownloading(ctx, model)
+		}
+		return ctrl.Result{}, nil
+	case v1.ModelPhaseFailed:
 		return ctrl.Result{}, nil
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// hasUnfinishedLocalPath reports whether a directory of the model is still waiting for
+// or running its download.
+func hasUnfinishedLocalPath(model *v1.Model) bool {
+	for _, lp := range model.Status.LocalPaths {
+		if lp.Status == v1.LocalPathStatusPending || lp.Status == v1.LocalPathStatusDownloading {
+			return true
+		}
+	}
+	return false
 }
 
 // needsCleanup checks if the model needs cleanup on deletion (only Local type needs cleanup)
@@ -377,6 +395,17 @@ func (r *ModelReconciler) cleanupS3(ctx context.Context, model *v1.Model) (ctrl.
 	job := &batchv1.Job{}
 	err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: common.PrimusSafeNamespace}, job)
 	if errors.IsNotFound(err) {
+		// The S3 path is derived from the display name, so another model can share it.
+		if owner, err := r.liveModelOnS3Path(ctx, model); err != nil {
+			return ctrl.Result{}, false, err
+		} else if owner != "" {
+			message := fmt.Sprintf("Leaving the S3 copy %s in place, model %s uses it", model.Status.S3Path, owner)
+			klog.InfoS(message, "model", model.Name)
+			r.event(model, corev1.EventTypeNormal, "CleanupSkipped", message)
+			model.Status.S3Path = ""
+			model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
+			return ctrl.Result{Requeue: true}, false, r.Status().Update(ctx, model)
+		}
 		if job, err = r.constructCleanupJob(model); err != nil {
 			klog.ErrorS(err, "Failed to construct S3 cleanup job, will retry", "model", model.Name)
 			return ctrl.Result{RequeueAfter: cleanupRetryInterval}, false, r.setDeletingMessage(ctx, model,
@@ -416,6 +445,32 @@ func (r *ModelReconciler) cleanupS3(ctx context.Context, model *v1.Model) (ctrl.
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, false, nil
 }
 
+// liveModelOnS3Path returns a model other than model, not being deleted, that stages its
+// files at the same platform S3 path, or "" when there is none.
+func (r *ModelReconciler) liveModelOnS3Path(ctx context.Context, model *v1.Model) (string, error) {
+	models := &v1.ModelList{}
+	if err := r.List(ctx, models); err != nil {
+		return "", err
+	}
+	self := s3Prefix(model.Status.S3Path)
+	for i := range models.Items {
+		m := &models.Items[i]
+		if m.Name == model.Name || !m.GetDeletionTimestamp().IsZero() || !m.IsLocal() || isS3ImportModel(m) {
+			continue
+		}
+		if s3Prefix(m.GetS3Path()) == self {
+			return m.Name, nil
+		}
+	}
+	return "", nil
+}
+
+// s3Prefix is the key prefix of the objects below an S3 path: the path with exactly one
+// trailing "/", so that "models/a" never matches the objects of "models/a-b".
+func s3Prefix(p string) string {
+	return strings.TrimRight(p, "/") + "/"
+}
+
 // cleanupLocalPaths removes the local directory of every entry in status.localPaths with
 // a cleanup job that runs in a workspace where the directory's volume is mounted. An entry
 // leaves status.localPaths once its directory is gone, so the remaining entries are
@@ -433,6 +488,10 @@ func (r *ModelReconciler) cleanupLocalPaths(ctx context.Context, model *v1.Model
 	}
 	models := &v1.ModelList{}
 	if err := r.List(ctx, models); err != nil {
+		return ctrl.Result{}, false, err
+	}
+	clusterOf, err := r.workspaceClusters(ctx)
+	if err != nil {
 		return ctrl.Result{}, false, err
 	}
 
@@ -454,7 +513,7 @@ func (r *ModelReconciler) cleanupLocalPaths(ctx context.Context, model *v1.Model
 			changed = true
 			continue
 		}
-		if owner := liveModelOnPath(models.Items, model.Name, lp.Path); owner != "" {
+		if owner := liveModelOnPath(models.Items, clusterOf, model.Name, lp); owner != "" {
 			klog.InfoS("Keeping model directory, another model points at it",
 				"model", model.Name, "path", lp.Path, "otherModel", owner)
 			changed = true
@@ -636,20 +695,47 @@ func (r *ModelReconciler) setDeletingMessage(ctx context.Context, model *v1.Mode
 }
 
 // liveModelOnPath returns the name of a model other than self that is not being deleted
-// and records path in status.localPaths, or "" when there is none.
-func liveModelOnPath(models []v1.Model, self, path string) string {
+// and holds the directory of target, or "" when there is none. Only an entry that is not
+// Failed holds a directory: a Failed entry was never downloaded there, or gave up on it
+// (e.g. "already used by model X"), and must not keep that directory on disk for ever.
+func liveModelOnPath(models []v1.Model, clusterOf map[string]string, self string, target v1.ModelLocalPath) string {
 	for i := range models {
 		m := &models[i]
 		if m.Name == self || !m.GetDeletionTimestamp().IsZero() {
 			continue
 		}
 		for _, lp := range m.Status.LocalPaths {
-			if lp.Path == path {
+			if lp.Status != v1.LocalPathStatusFailed && sameDirectory(clusterOf, lp, target) {
 				return m.Name
 			}
 		}
 	}
 	return ""
+}
+
+// sameDirectory reports whether two entries name one directory: the same path on the
+// same cluster. An entry whose workspace is gone has no known cluster and is taken to
+// be on any cluster.
+func sameDirectory(clusterOf map[string]string, a, b v1.ModelLocalPath) bool {
+	if a.Path != b.Path {
+		return false
+	}
+	ca, okA := clusterOf[a.Workspace]
+	cb, okB := clusterOf[b.Workspace]
+	return !okA || !okB || ca == cb
+}
+
+// workspaceClusters maps every workspace to its cluster.
+func (r *ModelReconciler) workspaceClusters(ctx context.Context) (map[string]string, error) {
+	workspaces := &v1.WorkspaceList{}
+	if err := r.List(ctx, workspaces); err != nil {
+		return nil, err
+	}
+	clusterOf := make(map[string]string, len(workspaces.Items))
+	for i := range workspaces.Items {
+		clusterOf[workspaces.Items[i].Name] = workspaces.Items[i].Spec.Cluster
+	}
+	return clusterOf, nil
 }
 
 // validateCleanupPath accepts only an absolute, clean path below a "models" segment that
@@ -704,7 +790,9 @@ func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, er
 	if s3Path == "" {
 		s3Path = model.GetS3Path()
 	}
-	fullS3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, s3Path)
+	// The trailing "/" keeps "aws s3 rm --recursive" to this model's objects: without it
+	// the key prefix "models/a" also matches the objects of "models/a-b".
+	fullS3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, s3Prefix(s3Path))
 
 	// Use the model downloader image from config
 	image := commonconfig.GetModelDownloaderImage()
@@ -807,18 +895,20 @@ func (r *ModelReconciler) constructModelCleanupOpsJob(model *v1.Model, workspace
 	return job, nil
 }
 
-// modelCleanupScript removes $DEST_PATH and fails unless it is gone afterwards.
-const modelCleanupScript = `set -eu
+// modelCleanupScript removes $DEST_PATH and fails unless it is gone afterwards. Every
+// failure is reported on an "[ERROR]" line: only those lines reach the job's failure
+// message, which the model shows while the cleanup is retried.
+const modelCleanupScript = `set -u
+fail() { echo "[ERROR] $*"; exit 1; }
 case "$DEST_PATH" in
   /*/models/?*) ;;
-  *) echo "refusing to remove $DEST_PATH: not a model directory" >&2; exit 2 ;;
+  *) fail "refusing to remove $DEST_PATH: not a model directory" ;;
 esac
 echo "Removing model directory $DEST_PATH"
-rm -rf -- "$DEST_PATH"
-if [ -e "$DEST_PATH" ]; then
-  echo "$DEST_PATH still exists after removal" >&2
-  exit 1
+if ! out=$(rm -rf -- "$DEST_PATH" 2>&1); then
+  fail "removing $DEST_PATH failed: $(printf '%s\n' "$out" | tail -n 3 | tr '\n' ' ')"
 fi
+[ ! -e "$DEST_PATH" ] || fail "$DEST_PATH still exists after removal"
 echo "Removed $DEST_PATH"
 `
 
@@ -948,8 +1038,8 @@ func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (c
 
 // planTargetPaths returns the directories a model downloads into, one per (cluster,
 // volume root). A directory held by another model is decided on its own:
-//   - a live model records it: the entry is Failed with the owner named, the model
-//     never writes into another model's files;
+//   - a live model records it in an entry that is not Failed: the entry is Failed with
+//     the owner named, the model never writes into another model's files;
 //   - a model being deleted records it: the model waits (waitFor > 0, status message
 //     set) for that cleanup to finish, at most deletingPathWaitTimeout from the start
 //     of that deletion, after which the entry is Failed with the reason.
@@ -966,23 +1056,9 @@ func (r *ModelReconciler) planTargetPaths(ctx context.Context, model *v1.Model) 
 	if err := r.List(ctx, models); err != nil {
 		return nil, 0, err
 	}
-	workspaces := &v1.WorkspaceList{}
-	if err := r.List(ctx, workspaces); err != nil {
+	clusterOf, err := r.workspaceClusters(ctx)
+	if err != nil {
 		return nil, 0, err
-	}
-	clusterOf := make(map[string]string, len(workspaces.Items))
-	for i := range workspaces.Items {
-		clusterOf[workspaces.Items[i].Name] = workspaces.Items[i].Spec.Cluster
-	}
-	// sameDir reports whether two entries name one directory. An entry whose workspace
-	// is gone has no known cluster and is taken to be on any cluster.
-	sameDir := func(a, b v1.ModelLocalPath) bool {
-		if a.Path != b.Path {
-			return false
-		}
-		ca, okA := clusterOf[a.Workspace]
-		cb, okB := clusterOf[b.Workspace]
-		return !okA || !okB || ca == cb
 	}
 
 	var (
@@ -1000,10 +1076,16 @@ func (r *ModelReconciler) planTargetPaths(ctx context.Context, model *v1.Model) 
 				continue
 			}
 			for _, olp := range other.Status.LocalPaths {
-				if !sameDir(*lp, olp) {
+				if !sameDirectory(clusterOf, *lp, olp) {
 					continue
 				}
-				if deleting := other.GetDeletionTimestamp(); !deleting.IsZero() {
+				deleting := other.GetDeletionTimestamp()
+				// A live model's Failed entry does not hold the directory (see
+				// liveModelOnPath); a deleting model's does, its cleanup removes it.
+				if deleting.IsZero() && olp.Status == v1.LocalPathStatusFailed {
+					continue
+				}
+				if !deleting.IsZero() {
 					deadline := deleting.Add(deletingPathWaitTimeout)
 					if now.Before(deadline) {
 						waiting = append(waiting, fmt.Sprintf("model %s to finish deleting %s", other.Name, lp.Path))

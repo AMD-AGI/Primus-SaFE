@@ -112,6 +112,32 @@ func TestCheckTargetPathsHeld(t *testing.T) {
 	assert.Error(t, h.checkTargetPaths(ctx, public), "every directory of the public model is held")
 }
 
+// TestCheckTargetPathsFailedEntry: a live model's Failed entry (here: it found the
+// directory already used) does not hold the directory; a deleting model's Failed entry
+// is still being cleaned up.
+func TestCheckTargetPathsFailedEntry(t *testing.T) {
+	ctx := context.Background()
+	ws := genMockWorkspace("ws1", "/data")
+	path := "/data/team/models/hf/org--repo"
+	candidate := &v1.Model{Spec: v1.ModelSpec{
+		Workspace:     "ws1",
+		TargetSubpath: "team/models/hf",
+		Source:        v1.ModelSource{URL: "https://huggingface.co/org/repo", AccessMode: v1.AccessModeLocal},
+	}}
+	failed := genMockLocalK8sModel("failed", "ws1")
+	failed.Status.LocalPaths = []v1.ModelLocalPath{{Workspace: "ws1", Path: path, Status: v1.LocalPathStatusFailed,
+		Message: path + " is already used by model gone"}}
+	h := newMockModelHandler(fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(ws, failed).Build())
+	assert.NoError(t, h.checkTargetPaths(ctx, candidate))
+
+	deleting := deletingK8sModel("deleting", "ws1", path)
+	deleting.Status.LocalPaths[0].Status = v1.LocalPathStatusFailed
+	h = newMockModelHandler(fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(ws, deleting).Build())
+	err := h.checkTargetPaths(ctx, candidate)
+	require.Error(t, err)
+	assert.Equal(t, commonerrors.ResourceProcessing, string(apierrors.ReasonForError(err)), "got %v", err)
+}
+
 // TestListModelsIncludeDeleting: a model whose files are still being removed is hidden
 // by default and listed, marked deleted, on request.
 func TestListModelsIncludeDeleting(t *testing.T) {

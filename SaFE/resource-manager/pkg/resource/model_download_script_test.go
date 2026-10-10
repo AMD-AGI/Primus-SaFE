@@ -169,3 +169,50 @@ func TestHFDownloadScriptFailureReachesModel(t *testing.T) {
 	require.False(t, run.ok)
 	assert.Contains(t, r.extractOpsJobFailureReason(downloadOutputs(run.out, false)), "downloading org/repo failed")
 }
+
+// runCleanupScript runs modelCleanupScript on dest; a non-empty rmStub replaces rm.
+func runCleanupScript(t *testing.T, dest, rmStub string) (string, bool) {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", modelCleanupScript)
+	cmd.Env = append(os.Environ(), "DEST_PATH="+dest)
+	if rmStub != "" {
+		bin := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(bin, "rm"), []byte("#!/bin/sh\n"+rmStub), 0o755))
+		cmd.Env = append(cmd.Env, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	out, err := cmd.CombinedOutput()
+	return string(out), err == nil
+}
+
+// TestModelCleanupScriptFailureReachesModel runs the real cleanup script and follows why
+// it failed through the job-manager log filter and the OpsJob failure condition into the
+// reason the model shows: every failure carries its cause, never "unknown".
+func TestModelCleanupScriptFailureReachesModel(t *testing.T) {
+	r := newMockModelReconciler(nil)
+	reason := func(log string) string {
+		job := &v1.OpsJob{Status: v1.OpsJobStatus{Phase: v1.OpsJobFailed,
+			Conditions: []metav1.Condition{failedJobCondition(log)}}}
+		return r.extractOpsJobFailureReason(job)
+	}
+
+	dest := filepath.Join(t.TempDir(), "models", "org--repo")
+	require.NoError(t, os.MkdirAll(filepath.Join(dest, "sub"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dest, "sub", "w.safetensors"), []byte("x"), 0o644))
+	out, ok := runCleanupScript(t, dest, "")
+	require.True(t, ok, out)
+	assert.NoDirExists(t, dest)
+
+	out, ok = runCleanupScript(t, t.TempDir(), "")
+	require.False(t, ok, out)
+	assert.Contains(t, reason(out), "not a model directory")
+
+	require.NoError(t, os.MkdirAll(dest, 0o755))
+	out, ok = runCleanupScript(t, dest, `echo "rm: cannot remove '$3/w': Permission denied" >&2; exit 1`)
+	require.False(t, ok, out)
+	assert.Contains(t, reason(out), "Permission denied")
+	assert.Contains(t, reason(out), "removing "+dest+" failed")
+
+	out, ok = runCleanupScript(t, dest, "exit 0")
+	require.False(t, ok, out)
+	assert.Contains(t, reason(out), "still exists after removal")
+}
