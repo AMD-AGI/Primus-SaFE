@@ -520,6 +520,42 @@ func TestSchedulerMessage_DoesNotEraseConcurrentFailure(t *testing.T) {
 	assert.Equal(t, fresh.Status.Message, "registration failed")
 }
 
+func TestUpdateUnScheduledWritesAdminScheduling(t *testing.T) {
+	w := schedWorkload("pending-wl")
+	w.Spec.Workspace = "ws-q"
+	w.Status.Phase = v1.WorkloadPending
+	cli := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithStatusSubresource(w).WithObjects(w).Build()
+	r := &SchedulerReconciler{Client: cli}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-q"}}
+
+	r.updateUnScheduled(context.Background(), []*v1.Workload{w},
+		map[string]string{w.Name: "In queue - waiting for external capacity"}, ws)
+	stored := &v1.Workload{}
+	assert.NilError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(w), stored))
+	assert.Equal(t, stored.Status.Message, "In queue - waiting for external capacity")
+	assert.Equal(t, stored.Status.QueuePosition, 1)
+	found := false
+	for _, c := range stored.Status.Conditions {
+		if c.Type == string(v1.AdminScheduling) {
+			found = true
+			assert.Equal(t, c.Message, "In queue - waiting for external capacity")
+		}
+	}
+	assert.Assert(t, found, "AdminScheduling condition required before AdminScheduled")
+
+	// Idempotent: same inputs must not invent a second AdminScheduling entry.
+	r.updateUnScheduled(context.Background(), []*v1.Workload{stored},
+		map[string]string{w.Name: "In queue - waiting for external capacity"}, ws)
+	assert.NilError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(w), stored))
+	count := 0
+	for _, c := range stored.Status.Conditions {
+		if c.Type == string(v1.AdminScheduling) {
+			count++
+		}
+	}
+	assert.Equal(t, count, 1)
+}
+
 func TestCanScheduleWorkloadEnoughQuota(t *testing.T) {
 	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).Build()
 	r := &SchedulerReconciler{Client: cl}

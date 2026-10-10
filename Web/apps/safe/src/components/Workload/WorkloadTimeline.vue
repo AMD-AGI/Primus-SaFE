@@ -35,6 +35,8 @@ defineProps<{
 
 type StatusConf = { color: string; icon: Component }
 const STATUS_MAP: Record<string, StatusConf> = {
+  AdminScheduling: { color: '#9ca3af', icon: Clock },
+  AdminScheduled: { color: '#9ca3af', icon: InfoFilled },
   K8sRunning: { color: '#f59e0b', icon: Clock },
   K8sFailed: { color: '#ef4444', icon: CircleClose },
   K8sSucceeded: { color: '#22c55e', icon: CircleCheck },

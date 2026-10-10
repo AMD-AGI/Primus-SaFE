@@ -67,6 +67,7 @@ export interface BaseSubmitWsData {
   replica?: number
   queuePolicy?: QueuePolicy
   enablePreempt?: boolean
+  external?: boolean
   isDefault?: boolean
   managers?: string[]
   volumes?: Volume[]

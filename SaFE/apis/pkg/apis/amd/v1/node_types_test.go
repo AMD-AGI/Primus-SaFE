@@ -86,6 +86,17 @@ func TestExternalNodeReadinessTracksObservationFreshness(t *testing.T) {
 	}
 }
 
+func TestExternalObservationAcceptsLegacyAnnotationPrefix(t *testing.T) {
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	fixedNow(t, now)
+	node := externalNode(nil, nil, true)
+	SetAnnotation(node, ExternalObservedAtAnnotationLegacy, now.Add(-10*time.Second).UTC().Format(time.RFC3339Nano))
+	SetAnnotation(node, ExternalValidUntilAnnotationLegacy, now.Add(time.Minute).UTC().Format(time.RFC3339Nano))
+	if !node.IsMachineReady() {
+		t.Fatal("legacy observed-at/valid-until annotations must count as fresh")
+	}
+}
+
 // A far future validUntil must not keep a node alive once the provider goes quiet: that is
 // the case the backstop exists for, and it is how a crashed provider would otherwise leave
 // its nodes advertised indefinitely.
@@ -185,19 +196,22 @@ func TestProviderIdentityTaintDoesNotBlockAvailability(t *testing.T) {
 	observed := metav1.NewTime(now)
 	valid := metav1.NewTime(now.Add(time.Minute))
 	node := externalNode(&observed, &valid, true)
-	node.Status.Taints = []corev1.Taint{{
-		Key:    ExternalVirtualKubeletTaint,
-		Value:  "ws-1",
-		Effect: corev1.TaintEffectNoSchedule,
-	}}
-	if ok, reason := node.CheckAvailable(false); !ok {
-		t.Fatalf("provider identity taint must not block availability, got %q", reason)
+	for _, key := range ExternalVirtualKubeletTaintKeys() {
+		node.Status.Taints = []corev1.Taint{{
+			Key:    key,
+			Value:  "ws-1",
+			Effect: corev1.TaintEffectNoSchedule,
+		}}
+		if ok, reason := node.CheckAvailable(false); !ok {
+			t.Fatalf("provider identity taint %q must not block availability, got %q", key, reason)
+		}
 	}
 
-	node.Status.Taints = append(node.Status.Taints, corev1.Taint{
-		Key:    corev1.TaintNodeUnreachable,
-		Effect: corev1.TaintEffectNoSchedule,
-	})
+	node.Status.Taints = []corev1.Taint{
+		{Key: ExternalVirtualKubeletTaint, Effect: corev1.TaintEffectNoSchedule},
+		{Key: ExternalVirtualKubeletTaintLegacy, Effect: corev1.TaintEffectNoSchedule},
+		{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoSchedule},
+	}
 	if ok, _ := node.CheckAvailable(false); ok {
 		t.Fatal("health taints must still block availability")
 	}

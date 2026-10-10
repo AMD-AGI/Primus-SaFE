@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -514,20 +515,31 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 	}
 	clientSet := k8sClients.ClientSet()
 	allPriorityClass := genAllPriorityClass(cluster.Name)
+	// External Never PriorityClasses are created only when external execution is enabled.
+	if commonconfig.IsExternalExecutionEnable() {
+		allPriorityClass = append(allPriorityClass, genExternalPriorityClass()...)
+	}
 	for _, pc := range allPriorityClass {
-		_, err = clientSet.SchedulingV1().PriorityClasses().Get(ctx, pc.name, metav1.GetOptions{})
-		if err == nil {
+		existing, getErr := clientSet.SchedulingV1().PriorityClasses().Get(ctx, pc.name, metav1.GetOptions{})
+		if getErr == nil {
+			if err = ensurePriorityClassMatches(ctx, clientSet, existing, pc); err != nil {
+				return ctrlruntime.Result{}, err
+			}
 			continue
-		} else if !apierrors.IsNotFound(err) {
-			return ctrlruntime.Result{}, err
+		} else if !apierrors.IsNotFound(getErr) {
+			return ctrlruntime.Result{}, getErr
 		}
 
 		priorityClass := &schedulingv1.PriorityClass{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: pc.name,
+				Labels: map[string]string{
+					v1.PriorityClassManagedLabel: v1.TrueStr,
+				},
 			},
-			Value:       pc.value,
-			Description: "This priority class should be used for primus-safe job only.",
+			Value:            pc.value,
+			Description:      pc.description,
+			PreemptionPolicy: pc.preemptionPolicy,
 		}
 		if _, err = clientSet.SchedulingV1().PriorityClasses().Create(
 			ctx, priorityClass, metav1.CreateOptions{}); err != nil {
@@ -538,7 +550,58 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 	return ctrlruntime.Result{}, nil
 }
 
-// deletePriorityClass deletes priority classes from the cluster.
+// ensurePriorityClassMatches updates mutable fields on a SaFE-managed PriorityClass.
+// PriorityClass.value and preemptionPolicy are immutable after create; drift is logged
+// only. Provider-owned external classes (no managed label) are never updated.
+func ensurePriorityClassMatches(ctx context.Context, clientSet kubernetes.Interface,
+	existing *schedulingv1.PriorityClass, desired PriorityClass) error {
+	if existing == nil {
+		return nil
+	}
+	managed := existing.Labels[v1.PriorityClassManagedLabel] == v1.TrueStr
+	external := isExternalPriorityClassName(desired.name)
+	// Native per-cluster classes and provider-owned external classes are left alone.
+	if !managed {
+		if external && desired.preemptionPolicy != nil {
+			if existing.PreemptionPolicy == nil || *existing.PreemptionPolicy != *desired.preemptionPolicy {
+				klog.Infof("PriorityClass %s preemptionPolicy differs from desired; leaving unchanged (immutable)",
+					desired.name)
+			}
+		}
+		return nil
+	}
+	if desired.preemptionPolicy != nil {
+		if existing.PreemptionPolicy == nil || *existing.PreemptionPolicy != *desired.preemptionPolicy {
+			klog.Infof("PriorityClass %s preemptionPolicy differs from desired; leaving unchanged (immutable)",
+				desired.name)
+		}
+	}
+	// PriorityClass.value is immutable; never attempt to change it.
+	if existing.Value != desired.value {
+		klog.Infof("PriorityClass %s value %d differs from desired %d; leaving value unchanged",
+			desired.name, existing.Value, desired.value)
+	}
+	if existing.Description == desired.description {
+		return nil
+	}
+	updated := existing.DeepCopy()
+	updated.Description = desired.description
+	if _, err := clientSet.SchedulingV1().PriorityClasses().Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
+		return err
+	}
+	klog.Infof("update PriorityClass, name: %s (description)", desired.name)
+	return nil
+}
+
+func isExternalPriorityClassName(name string) bool {
+	return name == v1.ExternalPriorityClassHigh ||
+		name == v1.ExternalPriorityClassMed ||
+		name == v1.ExternalPriorityClassLow
+}
+
+// deletePriorityClass deletes SaFE-managed priority classes from the cluster.
+// Objects without PriorityClassManagedLabel are skipped so shared names created
+// outside SaFE are not removed when a Cluster CR is deleted.
 func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1.Cluster) error {
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
@@ -547,7 +610,21 @@ func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1
 	}
 	clientSet := k8sClients.ClientSet()
 	allPriorityClass := genAllPriorityClass(cluster.Name)
+	if commonconfig.IsExternalExecutionEnable() {
+		allPriorityClass = append(allPriorityClass, genExternalPriorityClass()...)
+	}
 	for _, pc := range allPriorityClass {
+		got, getErr := clientSet.SchedulingV1().PriorityClasses().Get(ctx, pc.name, metav1.GetOptions{})
+		if apierrors.IsNotFound(getErr) {
+			continue
+		}
+		if getErr != nil {
+			return getErr
+		}
+		if got.Labels[v1.PriorityClassManagedLabel] != v1.TrueStr {
+			klog.Infof("skip delete PriorityClass %s: missing %s", pc.name, v1.PriorityClassManagedLabel)
+			continue
+		}
 		if err = clientSet.SchedulingV1().PriorityClasses().Delete(ctx, pc.name, metav1.DeleteOptions{}); err != nil {
 			if !apierrors.IsNotFound(err) {
 				return err
@@ -560,16 +637,41 @@ func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1
 
 // PriorityClass represents a Kubernetes priority class configuration
 type PriorityClass struct {
-	name  string
-	value int32
+	name             string
+	value            int32
+	description      string
+	preemptionPolicy *corev1.PreemptionPolicy
 }
 
-// genAllPriorityClass generates all required priority classes for a cluster.
+// genAllPriorityClass generates native per-cluster priority classes.
 func genAllPriorityClass(clusterId string) []PriorityClass {
 	return []PriorityClass{
-		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.HighPriority), value: 10000},
-		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.MedPriority), value: 0},
-		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.LowPriority), value: -10000},
+		{
+			name:        commonutils.GenerateClusterPriorityClass(clusterId, common.HighPriority),
+			value:       10000,
+			description: "This priority class should be used for primus-safe job only.",
+		},
+		{
+			name:        commonutils.GenerateClusterPriorityClass(clusterId, common.MedPriority),
+			value:       0,
+			description: "This priority class should be used for primus-safe job only.",
+		},
+		{
+			name:        commonutils.GenerateClusterPriorityClass(clusterId, common.LowPriority),
+			value:       -10000,
+			description: "This priority class should be used for primus-safe job only.",
+		},
+	}
+}
+
+// genExternalPriorityClass generates Never PriorityClasses for external/VK workloads.
+func genExternalPriorityClass() []PriorityClass {
+	never := corev1.PreemptNever
+	desc := "External execution PriorityClass with preemptionPolicy Never."
+	return []PriorityClass{
+		{name: v1.ExternalPriorityClassHigh, value: 10000, description: desc, preemptionPolicy: &never},
+		{name: v1.ExternalPriorityClassMed, value: 0, description: desc, preemptionPolicy: &never},
+		{name: v1.ExternalPriorityClassLow, value: -10000, description: desc, preemptionPolicy: &never},
 	}
 }
 

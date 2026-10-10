@@ -29,7 +29,7 @@ import (
 // identity label is required as well.
 func isVirtualKubeletNode(node *corev1.Node) bool {
 	return node != nil && node.Labels[v1.VirtualKubeletTypeLabelKey] == v1.VirtualKubeletTypeLabelValue &&
-		node.Labels[v1.ExternalProviderLabel] != ""
+		v1.ExternalProviderFromLabels(node.Labels) != ""
 }
 
 // adminNodeNameForK8sNode resolves the SaFE Node name for an execution-cluster node.
@@ -62,9 +62,10 @@ func (r *NodeK8sReconciler) admitVirtualKubelet(ctx context.Context, clusterName
 		klog.V(4).Infof("skip virtual kubelet %s: external execution disabled", k8sNode.Name)
 		return "", nil
 	}
-	workspaceID := k8sNode.Labels[v1.ExternalWorkspaceLabel]
+	workspaceID := v1.ExternalWorkspaceIDFromLabels(k8sNode.Labels)
 	if workspaceID == "" {
-		klog.V(4).Infof("skip virtual kubelet %s: missing %s", k8sNode.Name, v1.ExternalWorkspaceLabel)
+		klog.V(4).Infof("skip virtual kubelet %s: missing %s (or legacy %s)",
+			k8sNode.Name, v1.ExternalWorkspaceLabel, v1.ExternalWorkspaceLabelLegacy)
 		return "", nil
 	}
 	workspace := &v1.Workspace{}
@@ -83,9 +84,9 @@ func (r *NodeK8sReconciler) admitVirtualKubelet(ctx context.Context, clusterName
 		return "", commonerrors.NewBadRequest(fmt.Sprintf("external workspace %s has no nodeFlavor", workspaceID))
 	}
 
-	provider := k8sNode.Labels[v1.ExternalProviderLabel]
-	allocationID := k8sNode.Labels[v1.ExternalAllocationIdLabel]
-	generationRaw := k8sNode.Labels[v1.ExternalGenerationLabel]
+	provider := v1.ExternalProviderFromLabels(k8sNode.Labels)
+	allocationID := v1.ExternalAllocationIDFromLabels(k8sNode.Labels)
+	generationRaw := v1.ExternalGenerationFromLabels(k8sNode.Labels)
 	if provider == "" || allocationID == "" || generationRaw == "" {
 		klog.V(4).Infof("skip virtual kubelet %s: incomplete allocation identity", k8sNode.Name)
 		return "", nil
@@ -94,7 +95,7 @@ func (r *NodeK8sReconciler) admitVirtualKubelet(ctx context.Context, clusterName
 	if err != nil || generation <= 0 {
 		return "", commonerrors.NewBadRequest(fmt.Sprintf("virtual kubelet %s has invalid generation %q", k8sNode.Name, generationRaw))
 	}
-	hostKey := k8sNode.Annotations[v1.ExternalHostKeyAnnotation]
+	hostKey := v1.ExternalHostKeyFromAnnotations(k8sNode.Annotations)
 
 	desired := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{

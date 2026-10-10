@@ -18,6 +18,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -32,7 +33,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/execution"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
@@ -57,6 +57,8 @@ type SchedulerReconciler struct {
 	// cronManager manages all cron jobs for workload scheduling
 	cronManager *CronJobManager
 	*controller.KeyedController[*SchedulerMessage]
+	// dataPlaneDynamicOverride is used by unit tests to inject a fake dynamic client.
+	dataPlaneDynamicOverride dynamic.Interface
 }
 
 type SchedulerMessage struct {
@@ -214,9 +216,7 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 		return ctrlruntime.Result{}, err
 	}
 
-	// Withdraw the reservation once the workload is finished. The resources stay charged
-	// to the workspace until the provider confirms the release, so this has to keep asking
-	// rather than assume the first call settled it.
+	// Release ProvisioningRequest/PodTemplate when the workload has ended.
 	stillReclaiming, err := r.reconcileExternalRelease(ctx, workload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
@@ -247,6 +247,9 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 	if err != nil {
 		klog.Errorf("failed to get cluster clientSets, clusterId: %s, workspaceId: %s, workloadId: %s",
 			v1.GetClusterId(adminWorkload), adminWorkload.Spec.Workspace, adminWorkload.Name)
+		return ctrlruntime.Result{}, err
+	}
+	if err = r.deleteExternalProvisioningObjects(ctx, adminWorkload); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	if hasFound, err := jobutils.DeleteObjectsByWorkload(ctx, r.Client, clientSets.ClientFactory(), adminWorkload); err != nil {
@@ -382,15 +385,32 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 			if w.IsEnd() {
 				continue
 			}
-			// No retry changes these answers. Waiting on them would hold the queue
-			// behind a workload that can never be admitted.
+			// Terminal admission answers do not need re-evaluation. Persisting Failed can
+			// still lose a resourceVersion race against another status writer; that write
+			// must be retried or the workload stays Pending forever with no wake-up.
 			if isTerminalExternalReason(reason) {
-				if failErr := jobutils.SetWorkloadFailed(ctx, r.Client, w, reason); failErr != nil {
-					klog.ErrorS(failErr, "failed to mark external workload failed", "workload", w.Name)
+				klog.InfoS("external workload rejected with terminal reason",
+					"workload", w.Name, "reason", reason)
+				if failErr := r.persistExternalTerminalFailure(ctx, w, reason); failErr != nil {
+					klog.ErrorS(failErr, "failed to mark external workload failed",
+						"workload", w.Name, "reason", reason)
+					r.AddAfter(&SchedulerMessage{
+						WorkspaceId: w.Spec.Workspace,
+						ClusterId:   v1.GetClusterId(w),
+					}, externalExchangeRetry)
 				}
+				// persist reloads a fresh object; keep the in-loop snapshot ended so
+				// updateUnScheduled does not overwrite the rejection message.
 				continue
 			}
 			unScheduledReasons[w.Name] = reason
+			// External waits that have already reserved against the budget (
+			// ProvisioningRequest, scale-up) must reduce this pass's leftover so later
+			// non-FIFO peers do not open a second booking for the same quota.
+			if v1.IsExternalWorkspace(workspace) && holdsExternalBudgetWhileWaiting(reason) {
+				leftAvailResources = quantity.SubResource(leftAvailResources, requestResources)
+				leftTotalResources = quantity.SubResource(leftTotalResources, requestResources)
+			}
 			// Process scheduling workloads based on priority and policy
 			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads
 			// (excluding the workload which specified node), then break out of the queue directly and continue waiting.
@@ -470,6 +490,19 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	isPreemptable := false
 	if !hasEnoughQuota {
 		reason = fmt.Sprintf("%s, no %s available", InsufficientReason, formatResourceName(key))
+		// Reject only when the budget hard quota itself omits the key. An empty or
+		// fully consumed leftResources list is a wait, not a missing-budget error
+		// (SubResource returns nil when available equals used).
+		if isExternal && len(workspace.Status.TotalResources) > 0 {
+			if _, inHard := workspace.Status.TotalResources[corev1.ResourceName(key)]; !inHard {
+				reason = ExternalBudgetMissingReason + " - " + formatResourceName(key)
+				klog.Infof("the workload(%s) is rejected, reason: %s, request.resource: %s, budget: %s",
+					requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
+					string(jsonutils.MarshalSilently(workspace.Status.TotalResources)))
+				jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonInsufficient).Inc()
+				return false, reason, nil
+			}
+		}
 		// Preemption is not attempted on the external path. Marking a victim preempted
 		// records an intent, not a release: the devices return only once the provider has
 		// stopped the task and verified cleanup, so the capacity a preemptor was admitted
@@ -484,22 +517,13 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 			requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
 			string(jsonutils.MarshalSilently(leftResources)))
 		jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonInsufficient).Inc()
-		// The shortage is measured against capacity the provider has already published, so
-		// closing it means acquiring more. This is the point where the provider is asked.
-		// Everything that is waiting for something other than capacity -- a dependency, a
-		// start time, a pause -- returned earlier and never reaches here.
-		if isExternal {
-			admitted, waitReason, capacityErr := r.requestExternalCapacity(ctx, requestWorkload, workspace)
-			return r.externalOutcome(requestWorkload, admitted, waitReason, capacityErr)
-		}
+		// On the kube-scheduler path the ResourceQuota budget is the hard ceiling: stay
+		// queued until hard rises or running work finishes.
 		return false, reason, nil
 	}
-	// The workspace has room, which on the external path means the provider has published
-	// nodes this workload could sit on. No acquisition is needed, but the seat still has to
-	// be granted: the provider owns the devices and decides which ones this claim gets.
 	if isExternal {
-		admitted, waitReason, reserveErr := r.reserveExternalCapacity(ctx, requestWorkload, workspace)
-		return r.externalOutcome(requestWorkload, admitted, waitReason, reserveErr)
+		admitted, waitReason, admitErr := r.admitExternalViaScheduler(ctx, requestWorkload, workspace)
+		return r.externalOutcome(requestWorkload, admitted, waitReason, admitErr)
 	}
 	return true, "", nil
 }
@@ -540,7 +564,10 @@ func (r *SchedulerReconciler) externalOutcome(workload *v1.Workload,
 // Nothing else wakes it: its status writes do not trigger a pass, and the workspace only
 // does when its available resources change, so without a retry the demand would lapse
 // unrenewed. Provider answers carry Retry-After; k8s write races (status patch
-// Invalid/Conflict) take the short default. Terminal reasons are not retried.
+// Invalid/Conflict) take the short default.
+//
+// Terminal admission reasons are not re-evaluated here. A failed attempt to *persist*
+// Failed for those reasons is requeued separately in scheduleWorkloads.
 func externalRetryDelay(reason string, err error) (time.Duration, bool) {
 	if isTerminalExternalReason(reason) {
 		return 0, false
@@ -548,10 +575,36 @@ func externalRetryDelay(reason string, err error) (time.Duration, bool) {
 	if err == nil {
 		return externalWaitRetry, true
 	}
-	if d := execution.RetryAfterOf(err); d > 0 {
-		return d, true
-	}
 	return externalExchangeRetry, true
+}
+
+// persistExternalTerminalFailure writes Failed for a terminal external admission reason.
+// Reloads the workload first so a stale resourceVersion from the queue snapshot is less
+// likely to Conflict against a concurrent status writer. On success the caller's
+// workload snapshot is updated so later in-loop helpers (updateUnScheduled) see IsEnd.
+func (r *SchedulerReconciler) persistExternalTerminalFailure(ctx context.Context,
+	workload *v1.Workload, reason string) error {
+	if workload == nil {
+		return fmt.Errorf("nil workload")
+	}
+	current := &v1.Workload{}
+	if err := r.Get(ctx, client.ObjectKey{Name: workload.Name}, current); err != nil {
+		return err
+	}
+	if current.IsEnd() {
+		workload.Status.Phase = current.Status.Phase
+		workload.Status.Message = current.Status.Message
+		workload.Status.EndTime = current.Status.EndTime
+		return nil
+	}
+	if err := jobutils.SetWorkloadFailed(ctx, r.Client, current, reason); err != nil {
+		return err
+	}
+	workload.Status.Phase = current.Status.Phase
+	workload.Status.Message = current.Status.Message
+	workload.Status.EndTime = current.Status.EndTime
+	workload.Status.Conditions = current.Status.Conditions
+	return nil
 }
 
 // checkWorkloadDependencies checks whether all dependencies of the workload are satisfied.
@@ -742,6 +795,9 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 }
 
 // updateUnScheduled updates the status of unscheduled workloads with ordering and reasons.
+// Status-only patches here do not re-enter this controller: relevantChangePredicate ignores
+// them and generation is unchanged. Only write when queuePosition, message, or the
+// AdminScheduling condition actually differs.
 func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 	workloads []*v1.Workload, unScheduledReasons map[string]string, workspace *v1.Workspace) {
 	position := 1
@@ -774,10 +830,17 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 			workloads[i].Status.Message = reason
 			isChanged = true
 		}
+		// Timeline shows AdminScheduling before AdminScheduled; message may be empty.
+		if jobutils.SyncAdminSchedulingCondition(workloads[i], reason) {
+			isChanged = true
+		}
 		if isChanged {
-			if err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, workloads[i], map[string]any{
-				"queuePosition": workloads[i].Status.QueuePosition, "message": workloads[i].Status.Message,
-			}); err != nil {
+			fields := map[string]any{
+				"queuePosition": workloads[i].Status.QueuePosition,
+				"message":       workloads[i].Status.Message,
+				"conditions":    workloads[i].Status.Conditions,
+			}
+			if err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, workloads[i], fields); err != nil {
 				klog.ErrorS(err, "failed to patch workload status", "name", workloads[i].Name)
 			}
 		}

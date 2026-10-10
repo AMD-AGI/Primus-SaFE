@@ -602,6 +602,17 @@ func TestGeneratePriorityClassExternal(t *testing.T) {
 	assert.Equal(t, GeneratePriorityClass(external), v1.ExternalPriorityClassMed)
 	external.Spec.Priority = common.LowPriorityInt
 	assert.Equal(t, GeneratePriorityClass(external), v1.ExternalPriorityClassLow)
+
+	empty := native.DeepCopy()
+	empty.Status.ExternalExecution = &v1.WorkloadExternalExecution{}
+	assert.Equal(t, GeneratePriorityClass(empty), "crusoe-high-priority",
+		"empty ExternalExecution must not select external PriorityClass")
+
+	kube := native.DeepCopy()
+	kube.Status.ExternalExecution = &v1.WorkloadExternalExecution{
+		PlacementMode: v1.ExternalPlacementKubeScheduler,
+	}
+	assert.Equal(t, GeneratePriorityClass(kube), v1.ExternalPriorityClassHigh)
 }
 
 // TestPodSpecSegmentAgreesAcrossKindNamespaces is the regression guard for the

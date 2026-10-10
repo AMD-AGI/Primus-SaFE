@@ -7,17 +7,15 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
-	"time"
-
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/execution"
 )
 
 func gpuWorkload() *v1.Workload {
@@ -39,343 +37,114 @@ func gpuWorkload() *v1.Workload {
 	}
 }
 
-func TestBuildDemandUnitsProducesOneUnitPerPod(t *testing.T) {
-	units, err := buildDemandUnits(gpuWorkload(), "MI355X")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(units) != 1 {
-		t.Fatalf("got %d units, want 1", len(units))
-	}
-	unit := units[0]
-	if unit.UnitKey != v1.ExternalSingleUnitKey {
-		t.Fatalf("unit key = %q, want %q", unit.UnitKey, v1.ExternalSingleUnitKey)
-	}
-	if unit.Replicas != 1 {
-		t.Fatalf("replicas = %d, want 1: the contract expands a workload into one unit per pod",
-			unit.Replicas)
-	}
-	if unit.Resources.CPUMillis != 8000 {
-		t.Fatalf("cpu = %d millis, want 8000", unit.Resources.CPUMillis)
-	}
-	if unit.Resources.GPUCount != 1 || unit.Resources.GPUResource != "amd.com/gpu" ||
-		unit.Resources.GPUModel != "MI355X" {
-		t.Fatalf("unexpected gpu request: %+v", unit.Resources)
-	}
-	if unit.ConstraintsDigest == "" {
-		t.Fatal("constraints digest must accompany the constraints themselves")
-	}
-	if unit.PIDLimit <= 0 {
-		t.Fatal("pid_limit must be declared non-zero; Prepare refuses an empty budget")
-	}
-	if !strings.HasPrefix(unit.ImageDigest, "sha256:") {
-		t.Fatalf("image_digest = %q, want sha256:…", unit.ImageDigest)
-	}
-}
-
-// The digest is recomputed by the provider and compared, so the same constraints have to
-// encode identically on every call.
-func TestConstraintsDigestIsStable(t *testing.T) {
-	constraints := execution.PlacementConstraints{
-		NodeSelector:     map[string]string{"b": "2", "a": "1"},
-		AllowedNodeNames: []string{"vk-1", "vk-2"},
-	}
-	first, err := constraintsDigest(&constraints)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	reordered := execution.PlacementConstraints{
-		NodeSelector:     map[string]string{"a": "1", "b": "2"},
-		AllowedNodeNames: []string{"vk-1", "vk-2"},
-	}
-	second, err := constraintsDigest(&reordered)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if first != second {
-		t.Fatalf("digest changed with map ordering: %s vs %s", first, second)
-	}
-}
-
-// Empty constraints must hash to the contract example so a demand with no selector is
-// accepted by the provider without a digest mismatch.
-func TestEmptyConstraintsDigestMatchesContract(t *testing.T) {
-	const want = "sha256:d1314adedd59a8b7864131976db90a8e261b2f18adfa9ea3cfd18f6137e2c472"
-	got, err := constraintsDigest(&execution.PlacementConstraints{
-		NodeSelector:     map[string]string{},
-		AllowedNodeNames: []string{},
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != want {
-		t.Fatalf("empty digest = %s, want %s", got, want)
-	}
-	nilMaps, err := constraintsDigest(&execution.PlacementConstraints{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if nilMaps != want {
-		t.Fatalf("nil-map digest = %s, want %s", nilMaps, want)
-	}
-}
-
-// Multi-replica workloads are declined rather than guessed at: every child pod would need a
-// stable role and index for the provider to bind a reservation to, and the operators that
-// create them do not supply one.
-func TestBuildDemandUnitsRejectsUnsupportedShapes(t *testing.T) {
-	multiReplica := gpuWorkload()
-	multiReplica.Spec.Resources[0].Replica = 4
-	if _, err := buildDemandUnits(multiReplica, "MI355X"); err == nil {
-		t.Fatal("expected a multi replica workload to be rejected")
-	}
-
-	noImage := gpuWorkload()
-	noImage.Spec.Images = nil
-	if _, err := buildDemandUnits(noImage, "MI355X"); err == nil {
-		t.Fatal("expected a workload without an image to be rejected")
-	}
-}
-
-// CPU-only units and tag image refs are valid on the provider; digest is filled at claim.
-func TestBuildDemandUnitsAllowsCPUOnlyAndTagImage(t *testing.T) {
-	cpuOnly := gpuWorkload()
-	cpuOnly.Spec.Resources[0].GPU = ""
-	cpuOnly.Spec.Resources[0].GPUName = ""
-	cpuOnly.Spec.Images = []string{"registry.example.invalid/sandbox:v1"}
-	units, err := buildDemandUnits(cpuOnly, "")
-	if err != nil {
-		t.Fatalf("cpu-only tag image should be accepted: %v", err)
-	}
-	if len(units) != 1 {
-		t.Fatalf("got %d units, want 1", len(units))
-	}
-	if units[0].Resources.GPUCount != 0 || units[0].Resources.GPUResource != "" {
-		t.Fatalf("unexpected gpu vector: %+v", units[0].Resources)
-	}
-	if units[0].ImageRef != "registry.example.invalid/sandbox:v1" {
-		t.Fatalf("image_ref = %q", units[0].ImageRef)
-	}
-	if units[0].ImageDigest != "" {
-		t.Fatalf("tag image must leave image_digest empty, got %q", units[0].ImageDigest)
-	}
-}
-
-func TestReclaimingHoldsCapacityUntilReleaseIsConfirmed(t *testing.T) {
+func TestReclaimingTracksProvisioningRequest(t *testing.T) {
 	workload := gpuWorkload()
 	if isExternalReclaiming(workload) {
-		t.Fatal("a workload with no claim holds nothing")
+		t.Fatal("nil external state is not reclaiming")
 	}
-
 	workload.Status.ExternalExecution = &v1.WorkloadExternalExecution{
 		ClaimId:    "claim-1",
-		ClaimPhase: execution.ClaimPhaseActive,
+		ClaimPhase: "Active",
 	}
-	if !isExternalReclaiming(workload) {
-		t.Fatal("an active claim holds capacity")
-	}
-
-	// Revoking records that the withdrawal was accepted. The devices are not back until
-	// the provider has stopped the task and verified its cleanup, so the workload keeps
-	// counting against the workspace.
-	workload.Status.ExternalExecution.ClaimPhase = execution.ClaimPhaseRevoking
-	if !isExternalReclaiming(workload) {
-		t.Fatal("a revoking claim still holds capacity")
-	}
-
-	workload.Status.ExternalExecution.ClaimPhase = execution.ClaimPhaseReleased
 	if isExternalReclaiming(workload) {
-		t.Fatal("a released claim holds nothing")
+		t.Fatal("HTTP claim leftovers must not count as reclaiming")
+	}
+	workload.Status.ExternalExecution = &v1.WorkloadExternalExecution{
+		PlacementMode:       v1.ExternalPlacementKubeScheduler,
+		ProvisioningRequest: "pr-1",
+	}
+	if !isExternalReclaiming(workload) {
+		t.Fatal("open ProvisioningRequest must count as reclaiming")
+	}
+	workload.Status.ExternalExecution.ProvisioningRequest = ""
+	if isExternalReclaiming(workload) {
+		t.Fatal("cleared ProvisioningRequest must not reclaim")
 	}
 }
 
-// A demand is republished only when there is none or the current one is close to lapsing.
-// Re-sending on every pass would either conflict with the stored revision, whose body
-// carries a fixed observation time, or make the revision climb without end.
-func TestDemandRefreshesOnlyWhenAbsentOrExpiring(t *testing.T) {
-	now := time.Now().UTC()
-	stamp := func(d time.Duration) *metav1.Time {
-		value := metav1.NewTime(now.Add(d))
-		return &value
+func TestWaitingReasonsAreTerminal(t *testing.T) {
+	for _, reason := range []string{
+		ExternalUnsupportedReason, ExternalConstraintReason, ExternalInvalidReason,
+		ExternalBudgetMissingReason, ExternalPRFailedReason,
+		ExternalBudgetMissingReason + " - rdma/hca",
+	} {
+		if !isTerminalExternalReason(reason) {
+			t.Fatalf("%q must be terminal", reason)
+		}
 	}
-
-	cases := []struct {
-		name  string
-		state *v1.WorkloadExternalExecution
-		want  bool
-	}{
-		{"never published", &v1.WorkloadExternalExecution{}, true},
-		{
-			"published but no window recorded",
-			&v1.WorkloadExternalExecution{DemandRevision: 1},
-			true,
-		},
-		{
-			"window has room left",
-			&v1.WorkloadExternalExecution{DemandRevision: 1, DemandExpiresAt: stamp(demandExpiry)},
-			false,
-		},
-		{
-			"inside the refresh margin",
-			&v1.WorkloadExternalExecution{
-				DemandRevision:  1,
-				DemandExpiresAt: stamp(demandRefreshMargin / 2),
-			},
-			true,
-		},
-		{
-			"already lapsed",
-			&v1.WorkloadExternalExecution{DemandRevision: 3, DemandExpiresAt: stamp(-time.Minute)},
-			true,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := demandNeedsRefresh(tc.state); got != tc.want {
-				t.Fatalf("demandNeedsRefresh() = %t, want %t", got, tc.want)
-			}
-		})
+	if isTerminalExternalReason(ExternalCapacityReason) {
+		t.Fatal("capacity wait must not be terminal")
 	}
 }
 
-// An unsupported shape must not be reported as a wait. A wait implies more capacity would
-// eventually help; here no amount of it would, so the workload is rejected instead.
-func TestUnsupportedShapeIsDistinguishableFromAWait(t *testing.T) {
-	multiReplica := gpuWorkload()
-	multiReplica.Spec.Resources[0].Replica = 4
-	_, err := buildDemandUnits(multiReplica, "MI355X")
-	if err == nil {
-		t.Fatal("expected an error")
+// Single-pod kube-scheduler work never creates a ProvisioningRequest. Release must
+// clear DispatchGeneration without synthesizing a DELETE against a guessed name.
+func TestReconcileExternalReleaseSkipsDeleteWithoutPR(t *testing.T) {
+	w := gpuWorkload()
+	w.Status.Phase = v1.WorkloadSucceeded
+	w.Status.ExternalExecution = &v1.WorkloadExternalExecution{
+		PlacementMode:      v1.ExternalPlacementKubeScheduler,
+		DispatchGeneration: 3,
 	}
-	var unsupported *unsupportedShapeError
-	if !errors.As(err, &unsupported) {
-		t.Fatalf("expected an unsupportedShapeError, got %T", err)
-	}
-}
-
-// The stored state is written with a JSON patch precisely so a field can go back to its
-// zero value. Under merge semantics every field here is omitempty, so a false or an empty
-// list would drop out of the payload and the previous value would survive -- which would
-// make Reclaiming a one-way flag and carry one generation's demand into the next.
-func TestExternalStateMustBeExpressibleAtItsZeroValue(t *testing.T) {
-	encoded, err := json.Marshal(&v1.WorkloadExternalExecution{
-		DispatchGeneration: 2,
-		DemandId:           "d",
-		ClaimId:            "c",
-	})
+	r := &SchedulerReconciler{Client: ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).
+		WithObjects(w).WithStatusSubresource(&v1.Workload{}).Build()}
+	still, err := r.reconcileExternalRelease(context.Background(), w)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatal(err)
 	}
-	var decoded map[string]any
-	if err = json.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if still {
+		t.Fatal("empty ProvisioningRequest must not keep reclaiming")
 	}
-	for _, field := range []string{"reclaiming", "demandRevision", "placements", "demandExpiresAt"} {
-		if _, present := decoded[field]; present {
-			t.Fatalf("field %q survived at its zero value; a merge patch could then never clear it", field)
+	stored := &v1.Workload{}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: w.Name}, stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status.ExternalExecution.DispatchGeneration != 0 {
+		t.Fatalf("DispatchGeneration=%d want 0", stored.Status.ExternalExecution.DispatchGeneration)
+	}
+}
+
+func TestExternalRetryDelay(t *testing.T) {
+	if d, ok := externalRetryDelay(ExternalCapacityReason, nil); !ok || d != externalWaitRetry {
+		t.Fatalf("plain wait = %v %v", d, ok)
+	}
+	if d, ok := externalRetryDelay(ExternalCapacityReason, errors.New("boom")); !ok || d != externalExchangeRetry {
+		t.Fatalf("error without Retry-After = %v %v", d, ok)
+	}
+	for _, reason := range []string{ExternalUnsupportedReason, ExternalConstraintReason} {
+		if _, ok := externalRetryDelay(reason, nil); ok {
+			t.Fatalf("%q must not be retried", reason)
+		}
+		if !isTerminalExternalReason(reason) {
+			t.Fatalf("%q must be terminal", reason)
 		}
 	}
 }
 
-// A demand whose publish was never confirmed must be retried, not waited out. Recording the
-// expiry before the provider accepted it would make a failed call look like a live demand
-// and suppress every retry for the length of the window.
-func TestUnconfirmedDemandIsRetriedRatherThanWaitedOut(t *testing.T) {
-	observed := metav1.NewTime(time.Now().UTC())
-	unconfirmed := &v1.WorkloadExternalExecution{
-		DemandRevision:   3,
-		DemandObservedAt: &observed,
-		DemandExpiresAt:  nil,
+func TestPersistExternalTerminalFailure(t *testing.T) {
+	w := gpuWorkload()
+	w.Status.Phase = v1.WorkloadPending
+	r := &SchedulerReconciler{Client: ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).
+		WithObjects(w).WithStatusSubresource(&v1.Workload{}).Build()}
+	reason := ExternalPRFailedReason + " - capacity revoked permanently"
+	if err := r.persistExternalTerminalFailure(context.Background(), w, reason); err != nil {
+		t.Fatal(err)
 	}
-	if !demandNeedsRefresh(unconfirmed) {
-		t.Fatal("a demand with no confirmed expiry has to be retried")
+	// Caller snapshot must mirror Failed so updateUnScheduled does not overwrite.
+	if w.Status.Phase != v1.WorkloadFailed {
+		t.Fatalf("caller phase=%s want Failed", w.Status.Phase)
 	}
-
-	future := metav1.NewTime(time.Now().UTC().Add(demandExpiry))
-	confirmed := &v1.WorkloadExternalExecution{
-		DemandRevision:   3,
-		DemandObservedAt: &observed,
-		DemandExpiresAt:  &future,
+	stored := &v1.Workload{}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: w.Name}, stored); err != nil {
+		t.Fatal(err)
 	}
-	if demandNeedsRefresh(confirmed) {
-		t.Fatal("a confirmed demand with room left must not be republished")
+	if stored.Status.Phase != v1.WorkloadFailed {
+		t.Fatalf("phase=%s", stored.Status.Phase)
 	}
-}
-
-// A workload under deletion has to reach the release path while its finalizer still holds
-// the object in place. Once the finalizer is dropped there is nothing left to retry a
-// failed release from, and nothing to carry the Revoking to Released confirmation.
-func TestDeletionReachesTheReleasePath(t *testing.T) {
-	deleting := gpuWorkload()
-	now := metav1.NewTime(time.Now())
-	deleting.DeletionTimestamp = &now
-	deleting.Status.ExternalExecution = &v1.WorkloadExternalExecution{
-		ClaimId:    "claim-1",
-		ClaimPhase: execution.ClaimPhaseActive,
+	if !strings.Contains(stored.Status.Message, "provisioning request failed") {
+		t.Fatalf("message=%q", stored.Status.Message)
 	}
-	// Both conditions the release path gates on.
-	if !deleting.IsEnd() {
-		t.Fatal("deletion has to satisfy IsEnd, otherwise the release never runs")
-	}
-	if !isExternalReclaiming(deleting) {
-		t.Fatal("a workload being deleted still holds its reservation")
-	}
-}
-
-func TestWaitingReasonsSeparateShortageFromOtherRefusals(t *testing.T) {
-	cases := map[string]string{
-		execution.CodeCapacityUnavailable:     ExternalCapacityReason,
-		execution.CodeConflict:                ExternalCapacityReason,
-		execution.CodeImagePreparing:          ExternalImageReason,
-		execution.CodeProfileUnvalidated:      ExternalProfileReason,
-		execution.CodeConstraintUnsatisfiable: ExternalConstraintReason,
-		execution.CodeRateLimited:             ExternalRateLimitedReason,
-	}
-	for code, want := range cases {
-		got := externalWaitingReason(&execution.APIError{Code: code})
-		if got != want {
-			t.Fatalf("code %s mapped to %q, want %q", code, got, want)
-		}
-	}
-	// A transport failure carries no contract code. Reporting it as a capacity shortage
-	// would make the provider acquire nodes for what is only a connectivity problem.
-	if got := externalWaitingReason(errNoConnection{}); got != ExternalUnavailableReason {
-		t.Fatalf("transport failure mapped to %q, want %q", got, ExternalUnavailableReason)
-	}
-}
-
-// A refused request is terminal and names the provider's message; an auth refusal waits
-// under its own reason; a constraint refusal carries the message too.
-func TestWaitingReasonsCarryProviderRefusals(t *testing.T) {
-	invalid := externalWaitingReason(&execution.APIError{Code: execution.CodeInvalidRequest,
-		Message: "image cannot be resolved"})
-	if !isTerminalExternalReason(invalid) || !strings.Contains(invalid, "image cannot be resolved") {
-		t.Fatalf("InvalidRequest mapped to %q, want a terminal reason with the message", invalid)
-	}
-	for _, code := range []string{execution.CodeUnauthorized, execution.CodeForbidden} {
-		got := externalWaitingReason(&execution.APIError{Code: code, Message: "client not allowed"})
-		if !strings.HasPrefix(got, ExternalAuthReason) || isTerminalExternalReason(got) ||
-			!strings.Contains(got, "client not allowed") {
-			t.Fatalf("%s mapped to %q, want a waiting auth reason with the message", code, got)
-		}
-	}
-	constraint := externalWaitingReason(&execution.APIError{Code: execution.CodeConstraintUnsatisfiable,
-		Message: "gang size above limit"})
-	if !isTerminalExternalReason(constraint) || !strings.Contains(constraint, "gang size above limit") {
-		t.Fatalf("ConstraintUnsatisfiable mapped to %q, want a terminal reason with the message", constraint)
-	}
-}
-
-type errNoConnection struct{}
-
-func (errNoConnection) Error() string { return "connection refused" }
-
-// A missing execution client has to come back as an error. Dropping it leaves the
-// workload waiting with no log and no requeue.
-func TestReserveExternalCapacitySurfacesClientSetupFailure(t *testing.T) {
-	r := &SchedulerReconciler{}
-	_, _, err := r.reserveExternalCapacity(context.Background(), &v1.Workload{}, &v1.Workspace{})
-	if err == nil {
-		t.Fatal("client setup failure must be returned")
+	if err := r.persistExternalTerminalFailure(context.Background(), stored, reason); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -119,8 +119,15 @@ const (
 	// external path; any other value is native. It is immutable after creation, because flipping
 	// it would change queue admission, scaling and node lifecycle under running workloads.
 	WorkspaceExternalLabel = WorkspacePrefix + "external"
-	WorkspaceNodesAction   = WorkspacePrefix + "nodes.action"
-	WorkspaceForcedAction  = WorkspacePrefix + "forced.action"
+	// WorkspaceKubeSchedulerLabel is retained for compatibility with older objects that still
+	// carry it. External workspaces always place via kube-scheduler; the label is ignored.
+	WorkspaceKubeSchedulerLabel = WorkspacePrefix + "kube-scheduler"
+	// ExternalBudgetQuotaName is the ResourceQuota, in the workspace's own namespace on its
+	// data-plane cluster, whose spec.hard is the capacity budget of an external workspace. It
+	// is maintained by whoever supplies the capacity; SaFE only reads it.
+	ExternalBudgetQuotaName = "external-budget"
+	WorkspaceNodesAction    = WorkspacePrefix + "nodes.action"
+	WorkspaceForcedAction   = WorkspacePrefix + "forced.action"
 	// WorkspaceNodesActionError carries why entries of a nodes.action request were
 	// dropped instead of applied. Written by the controller when it gives up on a request that
 	// cannot succeed on a retry, cleared by the mutating webhook when the next request is
@@ -135,46 +142,80 @@ const (
 	// external execution
 	//
 	// These reach the execution cluster on the pod itself and are what the provider
-	// rechecks after binding. They are derived from the approved workload and claim, never
+	// rechecks after binding. They are derived from the approved workload, never
 	// copied from user input: an annotation a user could write by hand would otherwise be
 	// an authorisation.
-	ExternalExecutionPrefix        = "safe-exec.amd.com/"
+	ExternalExecutionPrefix = "autopilot.amd.com/"
+	// ExternalExecutionPrefixLegacy is the pre-rename provider prefix. Read paths accept both
+	// prefixes while Autopilot finishes flipping node labels.
+	ExternalExecutionPrefixLegacy  = "safe-exec.amd.com/"
 	ExternalExecutionLabel         = ExternalExecutionPrefix + "external"
 	ExternalWorkloadUIDAnnotation  = ExternalExecutionPrefix + "workload-uid"
 	ExternalDispatchGenAnnotation  = ExternalExecutionPrefix + "dispatch-generation"
-	ExternalClaimIdAnnotation      = ExternalExecutionPrefix + "claim-id"
-	ExternalClaimRevAnnotation     = ExternalExecutionPrefix + "claim-revision"
-	ExternalUnitKeyAnnotation      = ExternalExecutionPrefix + "unit-key"
 	ExternalGangKeyAnnotation      = ExternalExecutionPrefix + "gang-key"
-	ExternalProfileIdAnnotation    = ExternalExecutionPrefix + "profile-id"
-	ExternalProfileRevAnnotation   = ExternalExecutionPrefix + "profile-revision"
 	ExternalAllocationIdAnnotation = ExternalExecutionPrefix + "allocation-id"
 	// Identity the provider stamps on virtual Nodes in the execution cluster. SaFE admits
 	// those Nodes into the admin plane; the provider never writes the SaFE Node CR.
-	VirtualKubeletTypeLabelValue      = "virtual-kubelet"
-	VirtualKubeletTypeLabelKey        = "type"
-	ExternalWorkspaceLabel            = ExternalExecutionPrefix + "w"
-	ExternalProviderLabel             = ExternalExecutionPrefix + "provider"
-	ExternalAllocationIdLabel         = ExternalExecutionPrefix + "allocation-id"
-	ExternalGenerationLabel           = ExternalExecutionPrefix + "generation"
-	ExternalHostKeyAnnotation         = ExternalExecutionPrefix + "host-key"
-	ExternalObservedAtAnnotation      = ExternalExecutionPrefix + "observed-at"
-	ExternalValidUntilAnnotation      = ExternalExecutionPrefix + "valid-until"
-	ExternalAllocationPhaseAnnotation = ExternalExecutionPrefix + "allocation-phase"
-	// ExternalVirtualKubeletTaint is the provider identity taint. It selects pods onto the
-	// virtual node and must not by itself make the node unavailable for capacity accounting.
-	ExternalVirtualKubeletTaint = ExternalExecutionPrefix + "virtual-kubelet"
+	VirtualKubeletTypeLabelValue    = "virtual-kubelet"
+	VirtualKubeletTypeLabelKey      = "type"
+	ExternalWorkspaceLabel          = ExternalExecutionPrefix + "w"
+	ExternalWorkspaceLabelLegacy    = ExternalExecutionPrefixLegacy + "w"
+	ExternalProviderLabel           = ExternalExecutionPrefix + "provider"
+	ExternalProviderLabelLegacy     = ExternalExecutionPrefixLegacy + "provider"
+	ExternalAllocationIdLabel       = ExternalExecutionPrefix + "allocation-id"
+	ExternalAllocationIdLabelLegacy = ExternalExecutionPrefixLegacy + "allocation-id"
+	ExternalGenerationLabel         = ExternalExecutionPrefix + "generation"
+	ExternalGenerationLabelLegacy   = ExternalExecutionPrefixLegacy + "generation"
+	// ExternalLeaseEndLabel is the unix-seconds lease end stamped on VK nodes. Pods require
+	// lease-end Gt <now+runtime+overhead> so they only land on nodes with enough remaining lease.
+	ExternalLeaseEndLabel       = ExternalExecutionPrefix + "lease-end"
+	ExternalLeaseEndLabelLegacy = ExternalExecutionPrefixLegacy + "lease-end"
+	// ExternalProvisioningRequestTaint is the booking taint key for ProvisioningRequest nodes.
+	ExternalProvisioningRequestTaint   = ExternalExecutionPrefix + "provisioning-request"
+	ExternalHostKeyAnnotation          = ExternalExecutionPrefix + "host-key"
+	ExternalHostKeyAnnotationLegacy    = ExternalExecutionPrefixLegacy + "host-key"
+	ExternalObservedAtAnnotation       = ExternalExecutionPrefix + "observed-at"
+	ExternalObservedAtAnnotationLegacy = ExternalExecutionPrefixLegacy + "observed-at"
+	ExternalValidUntilAnnotation       = ExternalExecutionPrefix + "valid-until"
+	ExternalValidUntilAnnotationLegacy = ExternalExecutionPrefixLegacy + "valid-until"
+	ExternalAllocationPhaseAnnotation       = ExternalExecutionPrefix + "allocation-phase"
+	ExternalAllocationPhaseAnnotationLegacy = ExternalExecutionPrefixLegacy + "allocation-phase"
+	// ExternalBookingKeyMaxLen is the Kubernetes label/taint value limit. Autopilot
+	// ledger.BookingKey refuses longer <namespace>.<prName> pairs.
+	ExternalBookingKeyMaxLen = 63
+	// ExternalVirtualKubeletTaint is the community-standard provider identity taint.
+	// It selects pods onto the virtual node and must not by itself make the node
+	// unavailable for capacity accounting.
+	ExternalVirtualKubeletTaint = "virtual-kubelet.io/provider"
+	// ExternalVirtualKubeletTaintScoped is the Autopilot-scoped identity taint.
+	ExternalVirtualKubeletTaintScoped = ExternalExecutionPrefix + "virtual-kubelet"
+	// ExternalVirtualKubeletTaintLegacy is the pre-rename SaFE-scoped taint key.
+	ExternalVirtualKubeletTaintLegacy = ExternalExecutionPrefixLegacy + "virtual-kubelet"
 	// ExternalSingleUnitKey is the unit key of a single-replica workload and of the master
 	// unit of an RDMA gang, whose units all carry the same approved vector and image.
 	ExternalSingleUnitKey = "master/0"
 	// ExternalWorkerUnitKeyPrefix prefixes the unit key of each worker of an RDMA gang.
 	ExternalWorkerUnitKeyPrefix = "worker/"
-	// External PriorityClasses are installed by the capacity provider on the virtual-kubelet
-	// cluster. All three use preemptionPolicy=Never. SaFE references them by these fixed
-	// names and does not create or mutate the PriorityClass objects.
-	ExternalPriorityClassHigh = "safe-exec-external-high-priority"
-	ExternalPriorityClassMed  = "safe-exec-external-med-priority"
-	ExternalPriorityClassLow  = "safe-exec-external-low-priority"
+	// External PriorityClasses (preemptionPolicy=Never) are ensured by resource-manager
+	// cluster-controller when external_execution.enabled is true. Pods only reference the names.
+	ExternalPriorityClassHigh = "autopilot-external-high-priority"
+	ExternalPriorityClassMed  = "autopilot-external-med-priority"
+	ExternalPriorityClassLow  = "autopilot-external-low-priority"
+	// PriorityClassManagedLabel marks PriorityClass objects created by SaFE. Cluster cleanup
+	// deletes only objects that carry this label so pre-existing shared names are left alone.
+	PriorityClassManagedLabel = PrimusSafePrefix + "priority-class.managed"
+
+	// ExternalPlacementClaim is the legacy HTTP demand/claim path.
+	ExternalPlacementClaim = "claim"
+	// ExternalPlacementKubeScheduler places via kube-scheduler and ProvisioningRequest.
+	ExternalPlacementKubeScheduler = "kube-scheduler"
+
+	// ProvisioningRequestClassName is the upstream class for atomic gang scale-up.
+	ProvisioningRequestClassName = "best-effort-atomic-scale-up.autoscaling.x-k8s.io"
+	// ConsumeProvisioningRequestAnnotation marks a Pod as consuming a ProvisioningRequest.
+	ConsumeProvisioningRequestAnnotation = "autoscaling.x-k8s.io/consume-provisioning-request"
+	// ExternalSchedulerName is the scheduler used on the virtual-kubelet cluster.
+	ExternalSchedulerName = "kube-scheduler-plugins"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
