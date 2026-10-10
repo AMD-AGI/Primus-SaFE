@@ -471,6 +471,38 @@ func TestGenerateExportImageJob(t *testing.T) {
 	testifyassert.Error(t, err)
 }
 
+// Whether the inputs name one workload does not depend on their order: an empty value
+// names none, and two different values are refused whichever comes first.
+func TestGenerateExportImageJobInputOrderDoesNotMatter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	wl := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-1"},
+		Spec:       v1.WorkloadSpec{Workspace: "ws-1", Images: []string{"repo/img:tag"}},
+	}
+	h, user := newAdminHandlerWithObjects(wl)
+	for _, tc := range []struct {
+		inputs string
+		ok     bool
+	}{
+		{`{"name":"workload","value":""},{"name":"workloadId","value":"wl-1"}`, true},
+		{`{"name":"workloadId","value":"wl-1"},{"name":"workload","value":""}`, true},
+		{`{"name":"workload","value":"wl-2"},{"name":"workloadId","value":"wl-1"}`, false},
+		{`{"name":"workloadId","value":"wl-1"},{"name":"workload","value":"wl-2"}`, false},
+		{`{"name":"workload","value":""},{"name":"workloadId","value":""}`, false},
+	} {
+		body := `{"name":"export","type":"exportImage","inputs":[` + tc.inputs + `]}`
+		c, _ := newOpsJobCtx(user.Name, body)
+		job, err := h.generateExportImageJob(c, []byte(body))
+		if tc.ok {
+			if testifyassert.NoError(t, err, body) {
+				testifyassert.Equal(t, "wl-1", job.GetParameter(v1.ParameterWorkload).Value, body)
+			}
+		} else {
+			testifyassert.Error(t, err, body)
+		}
+	}
+}
+
 // Saving a workload's container publishes everything in it. The owner may do it, and so
 // may anyone granted update on the workload; a workspace member who can only see the
 // workload may not. The role mirrors the shipped default role's workload rules.

@@ -487,10 +487,11 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 
 	// Extract workload ID from inputs. The workload authorized here must be the one the
 	// controller saves, and the controller reads only "workload": every name the request
-	// may give it by has to agree, or a second parameter would pick another workload.
+	// may give it by has to agree, or a second parameter would pick another workload. An
+	// empty value names no workload.
 	var workloadId string
 	for _, param := range req.Inputs {
-		if !isExportImageParam(param.Name, v1.ParameterWorkload, exportImageWorkloadIdParam) {
+		if param.Value == "" || !isExportImageParam(param.Name, v1.ParameterWorkload, exportImageWorkloadIdParam) {
 			continue
 		}
 		if workloadId != "" && param.Value != workloadId {
