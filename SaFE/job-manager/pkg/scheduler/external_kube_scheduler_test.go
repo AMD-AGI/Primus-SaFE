@@ -95,6 +95,48 @@ func TestAdmitExternalViaSchedulerSingle(t *testing.T) {
 		!imagedigest.IsPinned(stored.Status.ExternalExecution.ResolvedImages[0]) {
 		t.Fatalf("resolved images: %+v", stored.Status.ExternalExecution.ResolvedImages)
 	}
+	if len(stored.Status.ExternalExecution.ResolvedImageSources) != 1 ||
+		stored.Status.ExternalExecution.ResolvedImageSources[0] != "harbor.example/app:v1" {
+		t.Fatalf("resolved image sources: %+v", stored.Status.ExternalExecution.ResolvedImageSources)
+	}
+}
+
+func TestEnsureExternalResolvedImagesReResolvesOnTagChange(t *testing.T) {
+	stubImageResolve(t)
+	sch := runtime.NewScheme()
+	_ = v1.AddToScheme(sch)
+
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "w-img", Namespace: "default"},
+		Spec: v1.WorkloadSpec{
+			Images: []string{"harbor.example/app:v1"},
+		},
+		Status: v1.WorkloadStatus{
+			ExternalExecution: &v1.WorkloadExternalExecution{
+				PlacementMode: v1.ExternalPlacementKubeScheduler,
+			},
+		},
+	}
+	cli := fake.NewClientBuilder().WithScheme(sch).WithStatusSubresource(w).WithObjects(w).Build()
+	r := &SchedulerReconciler{Client: cli}
+
+	state, reason, err := r.ensureExternalResolvedImages(context.Background(), w, w.Status.ExternalExecution)
+	if err != nil || reason != "" {
+		t.Fatalf("first resolve: err=%v reason=%q", err, reason)
+	}
+	first := state.ResolvedImages[0]
+
+	w.Spec.Images[0] = "harbor.example/app:v2"
+	state, reason, err = r.ensureExternalResolvedImages(context.Background(), w, state)
+	if err != nil || reason != "" {
+		t.Fatalf("second resolve: err=%v reason=%q", err, reason)
+	}
+	if state.ResolvedImages[0] == first {
+		t.Fatalf("tag change must produce a new digest, got %q", state.ResolvedImages[0])
+	}
+	if state.ResolvedImageSources[0] != "harbor.example/app:v2" {
+		t.Fatalf("sources not updated: %+v", state.ResolvedImageSources)
+	}
 }
 
 func TestInterpretProvisioningRequest(t *testing.T) {

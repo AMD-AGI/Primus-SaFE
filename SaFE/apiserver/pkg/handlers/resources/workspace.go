@@ -547,15 +547,15 @@ func (h *Handler) generateWorkspace(ctx context.Context,
 	if len(workspace.Spec.Scopes) == 0 {
 		workspace.Spec.Scopes = []v1.WorkspaceScope{v1.TrainScope, v1.InferScope, v1.AuthoringScope}
 	}
-	// External is a first-class create flag. It stamps the reserved label and pins
-	// Spec.Replica at 0 so the resource-manager scale path has nothing to bind.
-	if req.External {
-		v1.SetLabel(workspace, v1.WorkspaceExternalLabel, v1.TrueStr)
-		workspace.Spec.Replica = 0
-	}
 	// Reserved primus-safe.* labels are stripped for normal users. System admins may set
 	// any label, but keys already stamped above (for example user.id) are not overwritten.
 	allowReservedLabels := requestUser != nil && requestUser.IsSystemAdmin()
+	// External stamps the same reserved workspace.external label as Labels would. Only
+	// system admins may set it; non-admins cannot bypass the gate via the bool field.
+	if req.External && allowReservedLabels {
+		v1.SetLabel(workspace, v1.WorkspaceExternalLabel, v1.TrueStr)
+		workspace.Spec.Replica = 0
+	}
 	for key, val := range req.Labels {
 		if !allowReservedLabels && strings.HasPrefix(key, v1.PrimusSafePrefix) {
 			continue

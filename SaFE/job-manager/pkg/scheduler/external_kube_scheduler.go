@@ -98,17 +98,8 @@ func (r *SchedulerReconciler) ensureExternalResolvedImages(ctx context.Context,
 	if state == nil {
 		return nil, "", fmt.Errorf("nil external execution state")
 	}
-	if len(state.ResolvedImages) == len(workload.Spec.Images) && len(state.ResolvedImages) > 0 {
-		allPinned := true
-		for _, img := range state.ResolvedImages {
-			if !imagedigest.IsPinned(img) {
-				allPinned = false
-				break
-			}
-		}
-		if allPinned {
-			return state, "", nil
-		}
+	if imagedigest.ResolvedImagesCurrent(workload.Spec.Images, state.ResolvedImages, state.ResolvedImageSources) {
+		return state, "", nil
 	}
 	resolved, err := imagedigest.ResolveWorkloadImages(ctx, r.Client, workload)
 	if err != nil {
@@ -120,6 +111,7 @@ func (r *SchedulerReconciler) ensureExternalResolvedImages(ctx context.Context,
 	}
 	updated := state.DeepCopy()
 	updated.ResolvedImages = resolved
+	updated.ResolvedImageSources = append([]string{}, workload.Spec.Images...)
 	if err = r.patchExternalState(ctx, workload, updated); err != nil {
 		return nil, "", err
 	}
@@ -184,10 +176,12 @@ func (r *SchedulerReconciler) ensureExternalSchedulerState(ctx context.Context,
 		PlacementMode:      v1.ExternalPlacementKubeScheduler,
 		DispatchGeneration: generation,
 	}
-	// Same-generation state returns above. Across generations keep only ResolvedImages;
-	// PR name/attempt are rebuilt for the new generation after old objects are deleted.
-	if current != nil && current.PlacementMode == v1.ExternalPlacementKubeScheduler {
+	// Same-generation state returns above. Across generations keep digests only when
+	// Spec.Images is unchanged; PR name/attempt are rebuilt after old objects are deleted.
+	if current != nil && current.PlacementMode == v1.ExternalPlacementKubeScheduler &&
+		imagedigest.ResolvedImagesCurrent(workload.Spec.Images, current.ResolvedImages, current.ResolvedImageSources) {
 		state.ResolvedImages = append([]string{}, current.ResolvedImages...)
+		state.ResolvedImageSources = append([]string{}, current.ResolvedImageSources...)
 	}
 	if err := r.patchExternalState(ctx, workload, state); err != nil {
 		return nil, err

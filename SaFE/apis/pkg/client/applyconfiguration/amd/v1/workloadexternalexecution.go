@@ -35,6 +35,8 @@ type WorkloadExternalExecutionApplyConfiguration struct {
 	// ResolvedImages are Spec.Images pinned to digest before Pod/PodTemplate create on the
 	// kube-scheduler path. Empty on the claim path (provider freezes digest at claim time).
 	ResolvedImages []string `json:"resolvedImages,omitempty"`
+	// ResolvedImageSources is Spec.Images at the time digests were resolved.
+	ResolvedImageSources []string `json:"resolvedImageSources,omitempty"`
 	// The dispatch generation these identifiers belong to
 	DispatchGeneration *int32 `json:"dispatchGeneration,omitempty"`
 	// Demand identity and the revision last published
@@ -119,6 +121,16 @@ func (b *WorkloadExternalExecutionApplyConfiguration) WithProvisioningCondition(
 func (b *WorkloadExternalExecutionApplyConfiguration) WithResolvedImages(values ...string) *WorkloadExternalExecutionApplyConfiguration {
 	for i := range values {
 		b.ResolvedImages = append(b.ResolvedImages, values[i])
+	}
+	return b
+}
+
+// WithResolvedImageSources adds the given value to the ResolvedImageSources field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the ResolvedImageSources field.
+func (b *WorkloadExternalExecutionApplyConfiguration) WithResolvedImageSources(values ...string) *WorkloadExternalExecutionApplyConfiguration {
+	for i := range values {
+		b.ResolvedImageSources = append(b.ResolvedImageSources, values[i])
 	}
 	return b
 }

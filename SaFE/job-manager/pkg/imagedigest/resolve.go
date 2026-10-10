@@ -117,6 +117,20 @@ func IsPinned(image string) bool {
 	return at > 0 && len(image) == at+len("@sha256:")+64
 }
 
+// ResolvedImagesCurrent reports whether cached digests still match Spec.Images.
+// sources must be the Spec.Images snapshot taken when digests were resolved.
+func ResolvedImagesCurrent(spec, resolved, sources []string) bool {
+	if len(spec) == 0 || len(resolved) != len(spec) || len(sources) != len(spec) {
+		return false
+	}
+	for i := range spec {
+		if spec[i] != sources[i] || !IsPinned(resolved[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 // KeychainFromDockerConfigJSON builds a keychain from a .dockerconfigjson secret payload.
 func KeychainFromDockerConfigJSON(data []byte) (authn.Keychain, error) {
 	if len(data) == 0 {

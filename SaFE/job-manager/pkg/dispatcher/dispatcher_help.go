@@ -787,9 +787,11 @@ func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path 
 
 // modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled or tolerate sticky node taints
 func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	// External pods must not carry a keyless Exists toleration (R4); webhook also rejects it.
+	// External pods must not carry a keyless Exists toleration (R4). Match the webhook:
+	// clear the flag and continue so stock objects (or workspaces labeled external later)
+	// still dispatch.
 	if isExternalWorkload(workload) && workload.Spec.IsTolerateAll {
-		return fmt.Errorf("external workloads cannot set isTolerateAll")
+		workload.Spec.IsTolerateAll = false
 	}
 	if !workload.Spec.IsTolerateAll && !v1.IsRetryingOnOriginal(workload) {
 		return nil

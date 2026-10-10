@@ -644,3 +644,19 @@ func TestApplyExternalNodePinCoversEveryTerm(t *testing.T) {
 	first := terms[0].(map[string]interface{})["matchFields"].([]interface{})
 	assert.Equal(t, len(first), 2, "user matchFields must be kept")
 }
+
+// External isTolerateAll is cleared like the webhook so stock objects still dispatch.
+func TestModifyTolerationsClearsExternalTolerateAll(t *testing.T) {
+	w := claimWorkload()
+	w.Spec.IsTolerateAll = true
+	w.Status.ExternalExecution.PlacementMode = v1.ExternalPlacementKubeScheduler
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{}}},
+	}}
+	path := []string{"spec", "template", "spec", "tolerations"}
+	assert.NilError(t, modifyTolerations(obj, w, path))
+	assert.Equal(t, w.Spec.IsTolerateAll, false)
+	_, found, err := unstructured.NestedSlice(obj.Object, path...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, false)
+}

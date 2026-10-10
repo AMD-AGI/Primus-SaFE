@@ -35,6 +35,23 @@ func TestIsPinned(t *testing.T) {
 	}
 }
 
+func TestResolvedImagesCurrent(t *testing.T) {
+	digest := "repo/img@sha256:" + strings.Repeat("a", 64)
+	spec := []string{"repo/img:v1"}
+	if !ResolvedImagesCurrent(spec, []string{digest}, []string{"repo/img:v1"}) {
+		t.Fatal("matching sources must hit")
+	}
+	if ResolvedImagesCurrent(spec, []string{digest}, []string{"repo/img:v2"}) {
+		t.Fatal("tag change must miss")
+	}
+	if ResolvedImagesCurrent(spec, []string{digest}, nil) {
+		t.Fatal("missing sources must miss")
+	}
+	if ResolvedImagesCurrent(spec, []string{"repo/img:tag"}, []string{"repo/img:v1"}) {
+		t.Fatal("unpinned resolved must miss")
+	}
+}
+
 func TestKeychainFromDockerConfigJSON(t *testing.T) {
 	raw := []byte(`{"auths":{"example.com":{"username":"u","password":"p"}}}`)
 	kc, err := KeychainFromDockerConfigJSON(raw)

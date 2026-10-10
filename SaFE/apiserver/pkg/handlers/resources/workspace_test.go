@@ -157,6 +157,28 @@ func TestGenerateWorkspaceReservedLabelsRequireSystemAdmin(t *testing.T) {
 	assert.Equal(t, "ml", ws.Labels["team"])
 }
 
+func TestGenerateWorkspaceExternalBoolRequiresSystemAdmin(t *testing.T) {
+	h, admin := newAdminHandlerWithObjects()
+	req := &view.CreateWorkspaceRequest{
+		Name:     "vkws",
+		ClusterId: "c1",
+		External: true,
+		Replica:  3,
+	}
+	ws, err := h.generateWorkspace(context.Background(), admin, req)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, v1.TrueStr, ws.Labels[v1.WorkspaceExternalLabel])
+	assert.Equal(t, 0, ws.Spec.Replica)
+
+	nonAdmin := admin.DeepCopy()
+	nonAdmin.Spec.Roles = []v1.UserRole{v1.DefaultRole}
+	ws, err = h.generateWorkspace(context.Background(), nonAdmin, req)
+	testifyassert.NoError(t, err)
+	_, hasExternal := ws.Labels[v1.WorkspaceExternalLabel]
+	testifyassert.False(t, hasExternal, "non-admin must not stamp external via bool")
+	assert.Equal(t, 3, ws.Spec.Replica)
+}
+
 func TestCreateWorkspaceHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h, user := newAdminHandlerWithObjects()

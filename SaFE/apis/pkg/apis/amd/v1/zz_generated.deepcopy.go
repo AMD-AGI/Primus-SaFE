@@ -2236,6 +2236,11 @@ func (in *WorkloadExternalExecution) DeepCopyInto(out *WorkloadExternalExecution
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.ResolvedImageSources != nil {
+		in, out := &in.ResolvedImageSources, &out.ResolvedImageSources
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.DemandObservedAt != nil {
 		in, out := &in.DemandObservedAt, &out.DemandObservedAt
 		*out = (*in).DeepCopy()

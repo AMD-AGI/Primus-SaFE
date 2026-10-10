@@ -178,7 +178,8 @@ const (
 	ExternalObservedAtAnnotationLegacy = ExternalExecutionPrefixLegacy + "observed-at"
 	ExternalValidUntilAnnotation       = ExternalExecutionPrefix + "valid-until"
 	ExternalValidUntilAnnotationLegacy = ExternalExecutionPrefixLegacy + "valid-until"
-	ExternalAllocationPhaseAnnotation  = ExternalExecutionPrefix + "allocation-phase"
+	ExternalAllocationPhaseAnnotation       = ExternalExecutionPrefix + "allocation-phase"
+	ExternalAllocationPhaseAnnotationLegacy = ExternalExecutionPrefixLegacy + "allocation-phase"
 	// ExternalBookingKeyMaxLen is the Kubernetes label/taint value limit. Autopilot
 	// ledger.BookingKey refuses longer <namespace>.<prName> pairs.
 	ExternalBookingKeyMaxLen = 63
