@@ -139,6 +139,10 @@ func initializeObject(obj *unstructured.Unstructured,
 	if err = modifyTolerations(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
+	path = podSpecPath(workload, resourceSpec, "activeDeadlineSeconds")
+	if err = modifyActiveDeadline(obj, workload, path); err != nil {
+		return fmt.Errorf("failed to modify activeDeadlineSeconds: %v", err.Error())
+	}
 	if isExternalWorkload(workload) {
 		// External tasks normally need no execution-cluster credential. Infera's
 		// kubernetes discovery is the exception: workers patch their Pod annotation and
@@ -767,6 +771,75 @@ func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path 
 		return err
 	}
 	return nil
+}
+
+// runsToCompletion reports whether the pods a workload of this kind renders
+// are meant to finish. Only those carry the workload timeout as a pod
+// activeDeadlineSeconds.
+//
+// Excluded on purpose:
+//   - Deployment, StatefulSet, GithubRunner (a StatefulSet): the API server
+//     refuses activeDeadlineSeconds in their pod templates, and their pods are
+//     long-running services that the controller would only recreate.
+//   - DynamoDeployment, InferaDeployment, MonarchMesh: serving pods owned by an
+//     operator; a pod deadline would kill a replica that is meant to stay up.
+//   - AutoscalingRunnerSet, EphemeralRunner: the runner controller owns the pod
+//     lifecycle.
+//   - RayJob: KubeRay recreates head and worker pods that fail, and RayJob has
+//     its own spec.activeDeadlineSeconds.
+func runsToCompletion(workload *v1.Workload) bool {
+	switch workload.SpecKind() {
+	case common.AuthoringKind, common.PytorchJobKind, common.UnifiedJobKind, common.TorchFTKind,
+		common.JobKind, common.MonarchClient, common.SandboxKind:
+		return true
+	}
+	return false
+}
+
+// modifyActiveDeadline declares the workload timeout on the pod spec as
+// activeDeadlineSeconds, so the pod states how long it needs to run and
+// anything scheduling it can account for that.
+//
+// The value is the workload timeout as written, on every dispatch including
+// failover: the workload timeout itself is fixed and counted from the first
+// start, so a redispatched pod never runs past it; the pod value is an upper
+// bound, never shorter than the time left. A smaller value already present in
+// the template is kept, because the pod cannot run longer than either.
+// For a batch Job this is the pod template field, not Job.spec.activeDeadlineSeconds:
+// only the pod field is visible on the pod.
+func modifyActiveDeadline(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	if !runsToCompletion(workload) {
+		return nil
+	}
+	timeout := int64(workload.GetTimeout())
+	if timeout <= 0 {
+		return nil
+	}
+	if existing, found, _ := jobutils.NestedField(obj.Object, path); found {
+		if v, ok := toPositiveInt64(existing); ok && v <= timeout {
+			return nil
+		}
+	}
+	return jobutils.SetNestedField(obj.Object, timeout, path)
+}
+
+// toPositiveInt64 converts a number decoded from a template into int64,
+// reporting false for non-numbers and values that are not positive.
+func toPositiveInt64(v interface{}) (int64, bool) {
+	var n int64
+	switch x := v.(type) {
+	case int:
+		n = int64(x)
+	case int32:
+		n = int64(x)
+	case int64:
+		n = x
+	case float64:
+		n = int64(x)
+	default:
+		return 0, false
+	}
+	return n, n > 0
 }
 
 // modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled or tolerate sticky node taints
