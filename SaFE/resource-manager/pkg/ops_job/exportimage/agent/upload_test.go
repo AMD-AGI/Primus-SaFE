@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -147,29 +148,72 @@ func noWait(context.Context, int) error { return nil }
 
 // A layer far larger than one request is uploaded in chunks; the token expiring, the
 // registry being briefly unavailable, a connection dropped mid-chunk and an answer lost
-// after the registry took the chunk all cost a retry, not the export.
+// after the registry took the chunk all cost a retry, not the export. The chunks are held
+// in files on a volume the export leaves out, or in memory without one.
 func TestExportUploadsInChunksThroughExpiryAndFaults(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		spool func(root string) string
+	}{
+		{"in memory", func(string) string { return "" }},
+		{"in files on the shared volume", func(root string) string { return filepath.Join(root, "shared-data") }},
+		{"in memory, the spool being part of the image", func(root string) string { return filepath.Join(root, "root") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := container(t)
+			big := make([]byte, 600<<10)
+			_, _ = rand.Read(big)
+			write(t, env.Root, "root/model.bin", string(big))
+			r, f := newFlakyTLSRegistry(t)
+			env.Dial, env.ChunkSize, env.Backoff = r.dial, 32<<10, noWait
+			env.SpoolDir = tc.spool(env.Root)
+			f.unavailable[3], f.reset[5], f.lost[7] = true, true, true
+			f.revokeAt = 9
+
+			req := r.request()
+			req.Token = "first"
+			req.TokenExpiry = time.Now().Add(time.Hour)
+			resp, err := Export(context.Background(), req, env, &grants{f: f, expiry: time.Hour})
+			require.NoError(t, err)
+			assert.Greater(t, f.patches, 18, "the layer went in many chunks")
+			assert.Equal(t, 1, resp.Renewals, "the revoked token was replaced once")
+			assert.Equal(t, 3, resp.Retries, "each fault cost one retry")
+
+			got := layerMembers(t, r, resp)
+			assert.Equal(t, string(big), got["root/model.bin"], "the registry holds the layer, byte for byte")
+			assert.Equal(t, "Debian, changed\n", got["etc/issue"])
+			assert.NotContains(t, got, "root/save-image-chunk", "a chunk file is never part of the layer")
+			if env.SpoolDir != "" {
+				left, err := filepath.Glob(filepath.Join(env.SpoolDir, "save-image-chunk-*"))
+				require.NoError(t, err)
+				assert.Empty(t, left, "the chunk files are removed")
+			}
+		})
+	}
+}
+
+// Chunks go to files only on a volume the export leaves out.
+func TestChunkBuffersUseFilesOnlyOutsideTheExport(t *testing.T) {
 	env := container(t)
-	big := make([]byte, 600<<10)
-	_, _ = rand.Read(big)
-	write(t, env.Root, "root/model.bin", string(big))
-	r, f := newFlakyTLSRegistry(t)
-	env.Dial, env.ChunkSize, env.Backoff = r.dial, 32<<10, noWait
-	f.unavailable[3], f.reset[5], f.lost[7] = true, true, true
-	f.revokeAt = 9
-
-	req := r.request()
-	req.Token = "first"
-	req.TokenExpiry = time.Now().Add(time.Hour)
-	resp, err := Export(context.Background(), req, env, &grants{f: f, expiry: time.Hour})
-	require.NoError(t, err)
-	assert.Greater(t, f.patches, 18, "the layer went in many chunks")
-	assert.Equal(t, 1, resp.Renewals, "the revoked token was replaced once")
-	assert.Equal(t, 3, resp.Retries, "each fault cost one retry")
-
-	got := layerMembers(t, r, resp)
-	assert.Equal(t, string(big), got["root/model.bin"], "the registry holds the layer, byte for byte")
-	assert.Equal(t, "Debian, changed\n", got["etc/issue"])
+	filter := NewFilter(ParseMountPoints(env.Mountinfo))
+	for dir, files := range map[string]bool{
+		filepath.Join(env.Root, "shared-data"): true,
+		filepath.Join(env.Root, "root"):        false,
+		"":                                     false,
+		filepath.Join(env.Root, "missing"):     false,
+	} {
+		env.SpoolDir = dir
+		set, err := chunkBuffers(env, filter)
+		require.NoError(t, err)
+		_, isFile := set.bufs[0].(*fileChunk)
+		assert.Equal(t, files, isFile, dir)
+		if files {
+			assert.Equal(t, int64(DefaultSpoolChunkSize), set.size)
+		} else {
+			assert.Equal(t, int64(DefaultChunkSize), set.size)
+		}
+		set.close()
+	}
 }
 
 // A token about to expire is replaced before it is used, rather than after a refusal.

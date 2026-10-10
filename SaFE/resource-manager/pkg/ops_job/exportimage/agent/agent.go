@@ -12,6 +12,7 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -25,6 +26,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -134,7 +137,11 @@ type Env struct {
 	UID       int
 	// Dial replaces the network dialer; tests use it to reach a registry by name.
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
-	// ChunkSize replaces DefaultChunkSize.
+	// SpoolDir is where the chunks being uploaded are held: a directory the export leaves
+	// out (the Pod's shared volume). Without one, or when it is part of the export, they
+	// are held in memory.
+	SpoolDir string
+	// ChunkSize replaces DefaultChunkSize, or DefaultSpoolChunkSize with a SpoolDir.
 	ChunkSize int
 	// Backoff replaces the wait between attempts of a failed request.
 	Backoff func(ctx context.Context, attempt int) error
@@ -279,11 +286,12 @@ func Export(ctx context.Context, req Request, env Env, tokens TokenSource) (*Res
 		// The first token's life is not known: it may have been minted a while ago.
 		sleep: backoffFn,
 	}
-	chunkSize := env.ChunkSize
-	if chunkSize <= 0 {
-		chunkSize = DefaultChunkSize
+	bufs, err := chunkBuffers(env, filter)
+	if err != nil {
+		return nil, err
 	}
-	st, layer, err := upload(ctx, up, chunkSize, req.MaxSize, func(w io.Writer) (LayerStats, error) {
+	defer bufs.close()
+	st, layer, err := upload(ctx, up, bufs, req.MaxSize, func(w io.Writer) (LayerStats, error) {
 		return WriteLayer(w, env.Root, changes.Changed, changes.Deleted, ImageContains(changes))
 	})
 	if err != nil {
@@ -310,9 +318,100 @@ type uploadedLayer struct {
 	size           int64
 }
 
+// chunkSet is the two buffers the layer is uploaded through.
+type chunkSet struct {
+	bufs  [2]chunkBuffer
+	size  int64
+	close func()
+}
+
+// chunkBuffer holds one chunk.
+type chunkBuffer interface {
+	io.ReaderAt
+	// fill replaces the contents with up to n bytes of r, and returns how many it read.
+	fill(r io.Reader, n int64) (int64, error)
+}
+
+type memChunk struct{ b []byte }
+
+func (m *memChunk) ReadAt(p []byte, off int64) (int, error) {
+	return bytes.NewReader(m.b).ReadAt(p, off)
+}
+
+func (m *memChunk) fill(r io.Reader, n int64) (int64, error) {
+	m.b = m.b[:n]
+	k, err := io.ReadFull(r, m.b)
+	m.b = m.b[:k]
+	return int64(k), err
+}
+
+type fileChunk struct{ f *os.File }
+
+func (c *fileChunk) ReadAt(p []byte, off int64) (int, error) { return c.f.ReadAt(p, off) }
+
+func (c *fileChunk) fill(r io.Reader, n int64) (int64, error) {
+	if err := c.f.Truncate(0); err != nil {
+		return 0, err
+	}
+	k, err := io.Copy(io.NewOffsetWriter(c.f, 0), io.LimitReader(r, n))
+	if err == nil && k < n {
+		err = io.EOF
+	}
+	return k, err
+}
+
+// chunkBuffers returns the chunk buffers: two files in env.SpoolDir when it is a place the
+// export leaves out, two buffers in memory otherwise.
+func chunkBuffers(env Env, filter Filter) (*chunkSet, error) {
+	if env.SpoolDir != "" && filter.Excluded(spoolPath(env)) {
+		set := &chunkSet{size: int64(DefaultSpoolChunkSize)}
+		var files []*os.File
+		set.close = func() {
+			for _, f := range files {
+				f.Close()
+				os.Remove(f.Name())
+			}
+		}
+		for i := range set.bufs {
+			f, err := os.CreateTemp(env.SpoolDir, "save-image-chunk-*")
+			if err != nil {
+				set.close()
+				files = nil
+				break
+			}
+			files = append(files, f)
+			set.bufs[i] = &fileChunk{f: f}
+		}
+		if len(files) == len(set.bufs) {
+			if env.ChunkSize > 0 {
+				set.size = int64(env.ChunkSize)
+			}
+			return set, nil
+		}
+	}
+	set := &chunkSet{size: int64(DefaultChunkSize), close: func() {}}
+	if env.ChunkSize > 0 {
+		set.size = int64(env.ChunkSize)
+	}
+	for i := range set.bufs {
+		set.bufs[i] = &memChunk{b: make([]byte, 0, set.size)}
+	}
+	return set, nil
+}
+
+// spoolPath is env.SpoolDir as the container's root file system names it.
+func spoolPath(env Env) string {
+	rel, err := filepath.Rel(env.Root, env.SpoolDir)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		// Outside the root being saved altogether (tests): never part of the export.
+		return "/proc"
+	}
+	return "/" + filepath.ToSlash(rel)
+}
+
 // upload writes the layer through gzip into the registry, chunk by chunk, while it is
-// being produced. Two chunks are in memory: one being filled, one being sent.
-func upload(ctx context.Context, up *uploader, chunkSize int, maxSize int64, produce func(io.Writer) (LayerStats, error)) (LayerStats, uploadedLayer, error) {
+// being produced: one chunk is filled while the other is sent.
+func upload(ctx context.Context, up *uploader, bufs *chunkSet, maxSize int64, produce func(io.Writer) (LayerStats, error)) (LayerStats, uploadedLayer, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if err := up.start(ctx); err != nil {
@@ -337,25 +436,30 @@ func upload(ctx context.Context, up *uploader, chunkSize int, maxSize int64, pro
 		done <- built{st, err}
 	}()
 
-	chunks := make(chan []byte)
-	free := make(chan []byte, 2)
-	free <- make([]byte, chunkSize)
-	free <- make([]byte, chunkSize)
+	type filled struct {
+		buf chunkBuffer
+		n   int64
+	}
+	chunks := make(chan filled)
+	free := make(chan chunkBuffer, len(bufs.bufs))
+	for _, b := range bufs.bufs {
+		free <- b
+	}
 	readErr := make(chan error, 1)
 	go func() {
 		defer close(chunks)
 		for {
-			var buf []byte
+			var buf chunkBuffer
 			select {
 			case buf = <-free:
 			case <-ctx.Done():
 				readErr <- ctx.Err()
 				return
 			}
-			n, err := io.ReadFull(pr, buf)
+			n, err := buf.fill(pr, bufs.size)
 			if n > 0 {
 				select {
-				case chunks <- buf[:n]:
+				case chunks <- filled{buf, n}:
 				case <-ctx.Done():
 					readErr <- ctx.Err()
 					return
@@ -378,13 +482,13 @@ func upload(ctx context.Context, up *uploader, chunkSize int, maxSize int64, pro
 		if upErr != nil {
 			continue
 		}
-		if upErr = up.write(ctx, c, off); upErr != nil {
+		if upErr = up.write(ctx, c.buf, c.n, off); upErr != nil {
 			cancel()
 			pr.CloseWithError(errUploadStopped)
 			continue
 		}
-		off += int64(len(c))
-		free <- c[:cap(c)]
+		off += c.n
+		free <- c.buf
 	}
 	rerr := <-readErr
 	b := <-done

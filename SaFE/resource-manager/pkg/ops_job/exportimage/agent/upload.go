@@ -6,7 +6,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -20,10 +19,16 @@ import (
 	"time"
 )
 
-// DefaultChunkSize is how much of the layer one request carries. Each chunk is held in
-// memory until the registry has it, so that it can be sent again after a failure; two
-// are held at once, one being filled while the other is sent.
-const DefaultChunkSize = 16 << 20
+// A chunk is how much of the layer one request carries. Each is held until the registry
+// has it, so that it can be sent again after a failure, and two are held at once, one
+// being filled while the other is sent. They are held in files on the Pod's shared volume
+// (DefaultSpoolChunkSize), which the export leaves out; a registry takes a fraction of a
+// second for each request, so fewer, larger chunks upload faster. Without a place for
+// them they are held in memory (DefaultChunkSize).
+const (
+	DefaultChunkSize      = 16 << 20
+	DefaultSpoolChunkSize = 512 << 20
+)
 
 const (
 	// renewBefore is how long before the token expires a new one is asked for.
@@ -127,7 +132,14 @@ func unauthorized(err error) bool {
 
 // do sends one request with the current token, renewing it first when it is about to
 // expire and once more when the registry refuses it.
-func (u *uploader) do(ctx context.Context, method string, target *url.URL, body []byte, header http.Header, want ...int) (*http.Response, error) {
+// payload is a request body that can be read again for each attempt.
+type payload struct {
+	r   io.ReaderAt
+	off int64
+	n   int64
+}
+
+func (u *uploader) do(ctx context.Context, method string, target *url.URL, body *payload, header http.Header, want ...int) (*http.Response, error) {
 	if time.Until(u.expiry) < u.renewMargin() {
 		if err := u.renew(ctx); err != nil {
 			return nil, err
@@ -165,10 +177,10 @@ func (u *uploader) renewMargin() time.Duration {
 	return renewBefore
 }
 
-func (u *uploader) send(ctx context.Context, method string, target *url.URL, body []byte, header http.Header, want []int) (*http.Response, error) {
+func (u *uploader) send(ctx context.Context, method string, target *url.URL, body *payload, header http.Header, want []int) (*http.Response, error) {
 	var rd io.Reader
 	if body != nil {
-		rd = bytes.NewReader(body)
+		rd = io.NewSectionReader(body.r, body.off, body.n)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, target.String(), rd)
 	if err != nil {
@@ -177,9 +189,10 @@ func (u *uploader) send(ctx context.Context, method string, target *url.URL, bod
 	for k, v := range header {
 		req.Header[k] = v
 	}
-	req.ContentLength = int64(len(body))
 	if body == nil {
 		req.Body = http.NoBody
+	} else {
+		req.ContentLength = body.n
 	}
 	req.Header.Set("Authorization", "Bearer "+u.token)
 	resp, err := u.client.Do(req)
@@ -264,21 +277,22 @@ func (u *uploader) retry(ctx context.Context, fn func() error, recover func() er
 	return err
 }
 
-// write appends one chunk, which starts at offset start of the blob.
-func (u *uploader) write(ctx context.Context, chunk []byte, start int64) error {
-	end := start + int64(len(chunk))
+// write appends one chunk of n bytes, which starts at offset start of the blob.
+func (u *uploader) write(ctx context.Context, chunk io.ReaderAt, n, start int64) error {
+	end := start + n
 	send := func() error {
 		sent := u.offset - start
-		if sent < 0 || sent > int64(len(chunk)) {
+		if sent < 0 || sent > n {
 			return fmt.Errorf("the registry holds %d bytes of the layer, outside the chunk at %d", u.offset, start)
 		}
-		if sent == int64(len(chunk)) {
+		if sent == n {
 			return nil
 		}
 		h := http.Header{}
 		h.Set("Content-Type", "application/octet-stream")
 		h.Set("Content-Range", fmt.Sprintf("%d-%d", u.offset, end-1))
-		resp, err := u.do(ctx, http.MethodPatch, u.location, chunk[sent:], h, http.StatusAccepted, http.StatusNoContent)
+		resp, err := u.do(ctx, http.MethodPatch, u.location, &payload{r: chunk, off: sent, n: n - sent}, h,
+			http.StatusAccepted, http.StatusNoContent)
 		if err != nil {
 			var re *registryError
 			if errors.As(err, &re) && re.status == http.StatusRequestedRangeNotSatisfiable {

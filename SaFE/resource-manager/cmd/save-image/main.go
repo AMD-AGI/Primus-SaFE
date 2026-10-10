@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"time"
 
@@ -85,5 +86,6 @@ func export() error {
 		RunFile:   agent.LauncherRunFile,
 		Mountinfo: mi,
 		UID:       os.Getuid(),
+		SpoolDir:  filepath.Dir(agent.BaselinePath),
 	})
 }
