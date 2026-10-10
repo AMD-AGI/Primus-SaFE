@@ -364,7 +364,7 @@ func TestHandleUploading_JobSucceeded(t *testing.T) {
 	assert.NilError(t, err)
 
 	adminClient := fake.NewClientBuilder().
-		WithObjects(model, job).
+		WithObjects(model, job, genMockWorkspaceForModel("ws1", "cluster1", "/apps")).
 		WithStatusSubresource(model).
 		WithScheme(mockScheme).
 		Build()
@@ -1195,7 +1195,7 @@ func TestModelHandlePendingCreatesJob(t *testing.T) {
 	cl := fake.NewClientBuilder().
 		WithScheme(s).
 		WithStatusSubresource(model).
-		WithObjects(model).
+		WithObjects(model, genMockWorkspaceForModel("ws1", "c1", "/apps")).
 		Build()
 	r := newMockModelReconciler(cl)
 	_, err := r.handlePending(context.Background(), model)
@@ -1207,7 +1207,7 @@ func TestModelHandlePendingS3Import(t *testing.T) {
 	model := genMockModel("m-s3", v1.AccessModeLocal, "ws1")
 	model.Labels = map[string]string{v1.ModelS3ImportLabel: v1.TrueStr}
 	model.Status.Phase = v1.ModelPhasePending
-	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	ws := genMockWorkspaceForModel("ws1", "c1", "/apps")
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme.Scheme).
 		WithStatusSubresource(model).
@@ -1240,7 +1240,7 @@ func TestModelHandleUploadingSucceeded(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "m-up3", Namespace: "primus-safe"},
 		Status:     batchv1.JobStatus{Succeeded: 1},
 	}
-	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	ws := genMockWorkspaceForModel("ws1", "c1", "/apps")
 	s := runtime.NewScheme()
 	testifyassert.NoError(t, v1.AddToScheme(s))
 	testifyassert.NoError(t, batchv1.AddToScheme(s))
@@ -1340,7 +1340,8 @@ func TestHandlePendingLocalModelFull(t *testing.T) {
 	mockScheme, err := genMockScheme()
 	testifyassert.NoError(t, err)
 	testifyassert.NoError(t, batchv1.AddToScheme(mockScheme))
-	cl := fake.NewClientBuilder().WithObjects(model).WithStatusSubresource(model).WithScheme(mockScheme).Build()
+	cl := fake.NewClientBuilder().WithObjects(model, genMockWorkspaceForModel("ws1", "c1", "/apps")).
+		WithStatusSubresource(model).WithScheme(mockScheme).Build()
 	r := newMockModelReconciler(cl)
 
 	_, err = r.handlePending(context.Background(), model)
