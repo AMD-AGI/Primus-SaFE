@@ -36,6 +36,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -675,11 +676,19 @@ func TestGenerateExportImageJobStripsEveryNormalizedSpelling(t *testing.T) {
 		testifyassert.Error(t, err, body)
 		testifyassert.Nil(t, job, body)
 	}
-	// Named only under another spelling, the workload is still the one authorized.
-	body := request(v1.Parameter{Name: "WORKLOAD", Value: "victim"})
+	// Named only under another spelling, the workload is still the one authorized: the
+	// attacker's own is saved, the victim's is refused for want of the right to it.
+	body := request(v1.Parameter{Name: "WORKLOAD", Value: "mine"})
 	c, _ := newOpsJobCtx("attacker", body)
 	job, err := h.generateExportImageJob(c, []byte(body))
-	testifyassert.Error(t, err, "the attacker may not save the victim's workload by spelling its parameter differently")
+	testifyassert.NoError(t, err)
+	if testifyassert.NotNil(t, job) {
+		testifyassert.Equal(t, "mine", webhookInputs(job).GetParameter(v1.ParameterWorkload).Value)
+	}
+	body = request(v1.Parameter{Name: "WORKLOAD", Value: "victim"})
+	c, _ = newOpsJobCtx("attacker", body)
+	job, err = h.generateExportImageJob(c, []byte(body))
+	testifyassert.True(t, commonerrors.IsForbidden(err), "the victim's workload is refused for authorization: %v", err)
 	testifyassert.Nil(t, job)
 }
 
