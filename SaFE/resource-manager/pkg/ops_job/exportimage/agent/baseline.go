@@ -32,7 +32,7 @@ const baselineEnd = 'E'
 const RecordingSuffix = ".partial"
 
 // Record lists the file system under root and records it in file. The platform launcher
-// starts it before its own bootstrap, in the background and at low priority: the export
+// starts it after its own bootstrap, in the background and at low priority: the export
 // measures deletions against it, instead of reading every layer of the image from the
 // registry. Paths are written as they are listed, so its memory does not grow with the
 // image. Any earlier record is removed first, so a record that fails leaves none rather
