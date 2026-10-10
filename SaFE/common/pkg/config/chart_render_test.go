@@ -431,3 +431,20 @@ func TestChartPullsTheEnvdInjectorThroughTheSiteProxy(t *testing.T) {
 	testifyassert.True(t, strings.HasPrefix(pod.Spec.PodTemplate.Spec.InitContainers[0].Image,
 		"harbor.site.example.com/proxy/primussafe/agent-sandbox-envd-injector@sha256:"))
 }
+
+// TestChartRendersModelMaxConcurrentDownloads pins what an operator's value means: unset
+// is 4, and 0 (which Helm's `default` used to replace with 4) as well as a negative
+// value reach the getter as "no limit".
+func TestChartRendersModelMaxConcurrentDownloads(t *testing.T) {
+	render := func(values ...string) {
+		loadRendered(t, renderConfigMapData(t, "resource-manager", "config.yaml", values...))
+	}
+	render()
+	testifyassert.Equal(t, 4, GetModelMaxConcurrentDownloads())
+	render("--set", "model.max_concurrent_downloads=2")
+	testifyassert.Equal(t, 2, GetModelMaxConcurrentDownloads())
+	render("--set", "model.max_concurrent_downloads=0")
+	testifyassert.Equal(t, 0, GetModelMaxConcurrentDownloads())
+	render("--set", "model.max_concurrent_downloads=-1")
+	testifyassert.Equal(t, -1, GetModelMaxConcurrentDownloads())
+}

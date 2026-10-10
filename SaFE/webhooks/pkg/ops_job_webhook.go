@@ -229,7 +229,7 @@ func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob
 }
 
 func (m *OpsJobMutator) generateDestPath(ctx context.Context, job *v1.OpsJob) error {
-	if job.Spec.Type != v1.OpsJobDownloadType {
+	if job.Spec.Type != v1.OpsJobDownloadType && job.Spec.Type != v1.OpsJobModelCleanupType {
 		return nil
 	}
 	destParam := job.GetParameter(v1.ParameterDestPath)
@@ -307,6 +307,8 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 		err = v.validateDumpling(ctx, job)
 	case v1.OpsJobDownloadType:
 		err = v.validateDownload(ctx, job)
+	case v1.OpsJobModelCleanupType:
+		err = v.validateModelCleanup(ctx, job)
 	case v1.OpsJobModelPrewarmType:
 		err = v.validateModelPrewarm(ctx, job)
 	default:
@@ -489,6 +491,7 @@ func (v *OpsJobValidator) validateModelPrewarm(ctx context.Context, job *v1.OpsJ
 }
 
 // validateDownload checks if another download job is already running on the same input.
+// SECRET is optional: a public HuggingFace model needs no credential.
 func (v *OpsJobValidator) validateDownload(ctx context.Context, job *v1.OpsJob) error {
 	if _, err := commonjob.GetRequiredParameter(job, v1.ParameterEndpoint); err != nil {
 		return err
@@ -496,13 +499,50 @@ func (v *OpsJobValidator) validateDownload(ctx context.Context, job *v1.OpsJob) 
 	if _, err := commonjob.GetRequiredParameter(job, v1.ParameterDestPath); err != nil {
 		return err
 	}
-	if _, err := commonjob.GetRequiredParameter(job, v1.ParameterSecret); err != nil {
-		return err
-	}
 	if _, err := commonjob.GetRequiredParameter(job, v1.ParameterWorkspace); err != nil {
 		return err
 	}
-	currentJobs, err := v.listRelatedRunningJobs(ctx, v1.GetClusterId(job), []string{string(v1.OpsJobDownloadType)})
+	return v.validateNoJobOnSameDestPath(ctx, job)
+}
+
+// validateModelCleanup only accepts a cleanup of a model directory: an absolute, clean
+// path with something below a "models" segment. It must not overlap a download or
+// cleanup that is still running on the same path.
+func (v *OpsJobValidator) validateModelCleanup(ctx context.Context, job *v1.OpsJob) error {
+	destParam, err := commonjob.GetRequiredParameter(job, v1.ParameterDestPath)
+	if err != nil {
+		return err
+	}
+	if _, err = commonjob.GetRequiredParameter(job, v1.ParameterWorkspace); err != nil {
+		return err
+	}
+	if !isModelDirPath(destParam.Value) {
+		return commonerrors.NewBadRequest(fmt.Sprintf(
+			"%s must be an absolute path below a models directory", v1.ParameterDestPath))
+	}
+	return v.validateNoJobOnSameDestPath(ctx, job)
+}
+
+// isModelDirPath reports whether p is an absolute, clean path with at least one
+// segment below a "models" segment, e.g. "/data/models/org--name".
+func isModelDirPath(p string) bool {
+	if !strings.HasPrefix(p, "/") || path.Clean(p) != p {
+		return false
+	}
+	segs := strings.Split(strings.TrimPrefix(p, "/"), "/")
+	for i, seg := range segs {
+		if seg == "models" && i < len(segs)-1 {
+			return true
+		}
+	}
+	return false
+}
+
+// validateNoJobOnSameDestPath rejects the job while another download or model cleanup
+// with the same destination path is still running in the cluster.
+func (v *OpsJobValidator) validateNoJobOnSameDestPath(ctx context.Context, job *v1.OpsJob) error {
+	currentJobs, err := v.listRelatedRunningJobs(ctx, v1.GetClusterId(job),
+		[]string{string(v1.OpsJobDownloadType), string(v1.OpsJobModelCleanupType)})
 	if err != nil {
 		return err
 	}

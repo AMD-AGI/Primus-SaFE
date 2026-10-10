@@ -35,6 +35,9 @@ const (
 	OpsJobDownloadType     OpsJobType = "download"
 	OpsJobCDType           OpsJobType = "cd"         // CD deployment job (supports both Safe and Lens via deploy.type parameter)
 	OpsJobEvaluationType   OpsJobType = "evaluation" // Model evaluation job
+	// OpsJobModelCleanupType removes a downloaded model directory from workspace storage.
+	// It is created only by the Model controller and is not exposed through the API.
+	OpsJobModelCleanupType OpsJobType = "model-cleanup"
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"

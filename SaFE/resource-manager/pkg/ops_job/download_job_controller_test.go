@@ -130,3 +130,83 @@ func TestDownloadCleanupJobRelatedInfo(t *testing.T) {
 	r := &DownloadJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
 	assert.NoError(t, r.cleanupJobRelatedInfo(context.Background(), job))
 }
+
+func TestDownloadGenerateWorkloadWithoutSecret(t *testing.T) {
+	job := downloadJob("j1")
+	job.Spec.Inputs = []v1.Parameter{
+		{Name: v1.ParameterEndpoint, Value: "https://huggingface.co/org/repo"},
+		{Name: v1.ParameterDestPath, Value: "/data/models/org--repo"},
+	}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	r := &DownloadJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, ws)}
+	wl, err := r.generateDownloadWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Empty(t, wl.Spec.Secrets, "a public model mounts no secret")
+	_, ok := wl.Spec.Env["SECRET_PATH"]
+	assert.False(t, ok)
+	assert.Equal(t, "/data/models/org--repo", wl.Spec.Env["DEST_PATH"])
+
+	job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterSecret, Value: "tok"})
+	wl, err = r.generateDownloadWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, []v1.SecretEntity{{Id: "tok", Type: v1.SecretGeneral}}, wl.Spec.Secrets)
+}
+
+func TestDownloadGenerateWorkloadEntryPointOnlyForModels(t *testing.T) {
+	job := downloadJob("j1")
+	job.Spec.EntryPoint = pointer.String("ZWNobyBoaQ==")
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	r := &DownloadJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, ws)}
+	_, err := r.generateDownloadWorkload(context.Background(), job)
+	assert.Error(t, err, "a job not created by a model cannot pick its own command")
+
+	job.OwnerReferences = []metav1.OwnerReference{{APIVersion: "amd.com/v1", Kind: v1.ModelKind, Name: "m1", UID: "u1", Controller: pointer.Bool(true)}}
+	wl, err := r.generateDownloadWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"ZWNobyBoaQ=="}, wl.Spec.EntryPoints)
+}
+
+func TestModelCleanupJobWorkload(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "cleanup-m1-abc",
+			Labels:          map[string]string{v1.WorkspaceIdLabel: "ws1", v1.ClusterIdLabel: "c1"},
+			OwnerReferences: []metav1.OwnerReference{{APIVersion: "amd.com/v1", Kind: v1.ModelKind, Name: "m1", UID: "u1", Controller: pointer.Bool(true)}},
+		},
+		Spec: v1.OpsJobSpec{
+			Type:       v1.OpsJobModelCleanupType,
+			Image:      pointer.String("alpine"),
+			EntryPoint: pointer.String("cm0="),
+			Inputs:     []v1.Parameter{{Name: v1.ParameterDestPath, Value: "/data/models/org--repo"}},
+		},
+	}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	r := &DownloadJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, ws)}
+	assert.False(t, r.filter(context.Background(), job), "the download controller runs model cleanups")
+	wl, err := r.generateDownloadWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, "ws1", wl.Spec.Workspace, "the cleanup runs where the volume is mounted")
+	assert.Equal(t, "/data/models/org--repo", wl.Spec.Env["DEST_PATH"])
+	_, ok := wl.Spec.Env["INPUT_URL"]
+	assert.False(t, ok)
+	assert.Equal(t, string(v1.OpsJobModelCleanupType), wl.Labels[v1.OpsJobTypeLabel])
+	assert.True(t, isDownloadWorkload(wl))
+}
+
+// TestDownloadWorkloadCarriesModelId: a model finds the workloads of its downloads by
+// its own id, whichever workspace they run in.
+func TestDownloadWorkloadCarriesModelId(t *testing.T) {
+	job := downloadJob("j1")
+	job.Labels[v1.ModelIdLabel] = "m1"
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	r := &DownloadJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, ws)}
+	wl, err := r.generateDownloadWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, "m1", wl.Labels[v1.ModelIdLabel])
+
+	delete(job.Labels, v1.ModelIdLabel)
+	wl, err = r.generateDownloadWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	_, ok := wl.Labels[v1.ModelIdLabel]
+	assert.False(t, ok, "a job of no model labels no model")
+}

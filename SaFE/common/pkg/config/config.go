@@ -554,6 +554,17 @@ func GetModelCleanupImage() string {
 	return getString(modelCleanupImage, "docker.io/library/alpine:3.18")
 }
 
+// GetModelMaxConcurrentDownloads returns how many model download jobs may run at the
+// same time across all workspaces: 4 when unset; 0 or a negative value means no limit.
+func GetModelMaxConcurrentDownloads() int {
+	return getInt(modelMaxDownloads, 4)
+}
+
+// GetModelDownloadTimeoutSecond returns the timeout of a single model download job.
+func GetModelDownloadTimeoutSecond() int {
+	return getInt(modelDownloadTimeout, 10800)
+}
+
 // GetProxyServices returns the list of configured proxy services.
 func GetProxyServices() []ProxyService {
 	var services []ProxyService
