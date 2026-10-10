@@ -404,7 +404,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 				continue
 			}
 			unScheduledReasons[w.Name] = reason
-			// External waits that have already reserved against the budget (image pin,
+			// External waits that have already reserved against the budget (
 			// ProvisioningRequest, scale-up) must reduce this pass's leftover so later
 			// non-FIFO peers do not open a second booking for the same quota.
 			if v1.IsExternalWorkspace(workspace) && holdsExternalBudgetWhileWaiting(reason) {
@@ -795,6 +795,9 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 }
 
 // updateUnScheduled updates the status of unscheduled workloads with ordering and reasons.
+// Status-only patches here do not re-enter this controller: relevantChangePredicate ignores
+// them and generation is unchanged. Only write when queuePosition, message, or the
+// AdminScheduling condition actually differs.
 func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 	workloads []*v1.Workload, unScheduledReasons map[string]string, workspace *v1.Workspace) {
 	position := 1
@@ -827,10 +830,17 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 			workloads[i].Status.Message = reason
 			isChanged = true
 		}
+		// Timeline shows AdminScheduling before AdminScheduled; message may be empty.
+		if jobutils.SyncAdminSchedulingCondition(workloads[i], reason) {
+			isChanged = true
+		}
 		if isChanged {
-			if err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, workloads[i], map[string]any{
-				"queuePosition": workloads[i].Status.QueuePosition, "message": workloads[i].Status.Message,
-			}); err != nil {
+			fields := map[string]any{
+				"queuePosition": workloads[i].Status.QueuePosition,
+				"message":       workloads[i].Status.Message,
+				"conditions":    workloads[i].Status.Conditions,
+			}
+			if err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, workloads[i], fields); err != nil {
 				klog.ErrorS(err, "failed to patch workload status", "name", workloads[i].Name)
 			}
 		}

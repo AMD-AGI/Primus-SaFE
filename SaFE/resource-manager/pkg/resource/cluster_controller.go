@@ -550,8 +550,9 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 	return ctrlruntime.Result{}, nil
 }
 
-// ensurePriorityClassMatches updates a managed or external PriorityClass when its
-// preemptionPolicy (or other desired fields) drift from what SaFE requires.
+// ensurePriorityClassMatches updates mutable fields on a SaFE-managed PriorityClass.
+// PriorityClass.value and preemptionPolicy are immutable after create; drift is logged
+// only. Provider-owned external classes (no managed label) are never updated.
 func ensurePriorityClassMatches(ctx context.Context, clientSet kubernetes.Interface,
 	existing *schedulingv1.PriorityClass, desired PriorityClass) error {
 	if existing == nil {
@@ -559,52 +560,36 @@ func ensurePriorityClassMatches(ctx context.Context, clientSet kubernetes.Interf
 	}
 	managed := existing.Labels[v1.PriorityClassManagedLabel] == v1.TrueStr
 	external := isExternalPriorityClassName(desired.name)
-	// Native per-cluster classes created outside SaFE are left alone.
-	if !managed && !external {
+	// Native per-cluster classes and provider-owned external classes are left alone.
+	if !managed {
+		if external && desired.preemptionPolicy != nil {
+			if existing.PreemptionPolicy == nil || *existing.PreemptionPolicy != *desired.preemptionPolicy {
+				klog.Infof("PriorityClass %s preemptionPolicy differs from desired; leaving unchanged (immutable)",
+					desired.name)
+			}
+		}
 		return nil
 	}
-	// Provider-owned external classes: fix preemptionPolicy only. Never stamp
-	// PriorityClassManagedLabel or rewrite Description, or Cluster delete would
-	// remove a shared object SaFE did not create.
-	if !managed && external {
-		if desired.preemptionPolicy == nil {
-			return nil
-		}
-		if existing.PreemptionPolicy != nil && *existing.PreemptionPolicy == *desired.preemptionPolicy {
-			return nil
-		}
-		updated := existing.DeepCopy()
-		updated.PreemptionPolicy = desired.preemptionPolicy
-		if _, err := clientSet.SchedulingV1().PriorityClasses().Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
-			return err
-		}
-		klog.Infof("update PriorityClass %s preemptionPolicy only (provider-owned)", desired.name)
-		return nil
-	}
-	needUpdate := false
 	if desired.preemptionPolicy != nil {
 		if existing.PreemptionPolicy == nil || *existing.PreemptionPolicy != *desired.preemptionPolicy {
-			needUpdate = true
+			klog.Infof("PriorityClass %s preemptionPolicy differs from desired; leaving unchanged (immutable)",
+				desired.name)
 		}
-	}
-	if existing.Description != desired.description {
-		needUpdate = true
 	}
 	// PriorityClass.value is immutable; never attempt to change it.
 	if existing.Value != desired.value {
 		klog.Infof("PriorityClass %s value %d differs from desired %d; leaving value unchanged",
 			desired.name, existing.Value, desired.value)
 	}
-	if !needUpdate {
+	if existing.Description == desired.description {
 		return nil
 	}
 	updated := existing.DeepCopy()
 	updated.Description = desired.description
-	updated.PreemptionPolicy = desired.preemptionPolicy
 	if _, err := clientSet.SchedulingV1().PriorityClasses().Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
 		return err
 	}
-	klog.Infof("update PriorityClass, name: %s (preemptionPolicy/description)", desired.name)
+	klog.Infof("update PriorityClass, name: %s (description)", desired.name)
 	return nil
 }
 

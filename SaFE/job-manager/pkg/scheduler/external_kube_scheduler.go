@@ -9,12 +9,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"net"
-	"strconv"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -29,9 +25,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
-	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 
-	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/imagedigest"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 )
 
@@ -48,10 +42,6 @@ const (
 	ExternalPRFailedReason = "Rejected - provisioning request failed"
 	// ExternalPRExpiredReason is shown briefly while a booking is rebuilt.
 	ExternalPRExpiredReason = "In queue - capacity reservation expired, retrying"
-	// ExternalImageResolveReason prefixes a failed digest resolve (terminal).
-	ExternalImageResolveReason = "Rejected - image cannot be resolved"
-
-	externalLeaseOverheadSec int64 = 600
 )
 
 var (
@@ -76,13 +66,6 @@ func (r *SchedulerReconciler) admitExternalViaScheduler(ctx context.Context,
 	if err != nil {
 		return false, "", err
 	}
-	state, waitReason, err := r.ensureExternalResolvedImages(ctx, workload, state)
-	if err != nil {
-		return false, "", err
-	}
-	if waitReason != "" {
-		return false, waitReason, nil
-	}
 	if commonworkload.IsExternalRDMAGang(workload) {
 		return r.ensureExternalProvisioning(ctx, workload, workspace, state)
 	}
@@ -92,81 +75,9 @@ func (r *SchedulerReconciler) admitExternalViaScheduler(ctx context.Context,
 	return true, "", nil
 }
 
-// ensureExternalResolvedImages pins Spec.Images to digests and stores them on status (R5).
-// Retryable registry failures return an In-queue reason; permanent resolve failures return
-// a terminal Rejected reason. Status patch errors are returned as err for requeue.
-func (r *SchedulerReconciler) ensureExternalResolvedImages(ctx context.Context,
-	workload *v1.Workload, state *v1.WorkloadExternalExecution) (*v1.WorkloadExternalExecution, string, error) {
-	if state == nil {
-		return nil, "", fmt.Errorf("nil external execution state")
-	}
-	if imagedigest.ResolvedImagesCurrent(workload.Spec.Images, state.ResolvedImages, state.ResolvedImageSources) {
-		return state, "", nil
-	}
-	resolved, err := imagedigest.ResolveWorkloadImages(ctx, r.Client, workload)
-	if err != nil {
-		detail := err.Error()
-		if isRetryableImageResolveError(err) {
-			return nil, ExternalImageReason + " - " + detail, nil
-		}
-		return nil, ExternalImageResolveReason + " - " + detail, nil
-	}
-	updated := state.DeepCopy()
-	updated.ResolvedImages = resolved
-	updated.ResolvedImageSources = append([]string{}, workload.Spec.Images...)
-	if err = r.patchExternalState(ctx, workload, updated); err != nil {
-		return nil, "", err
-	}
-	return updated, "", nil
-}
-
-// isRetryableImageResolveError reports transient registry / network failures that should
-// leave the workload queued instead of permanently rejected. transport.Error is classified
-// by Temporary() so a registry URL whose path contains "eof"/"502" cannot turn
-// MANIFEST_UNKNOWN / UNAUTHORIZED into a retryable wait.
-func isRetryableImageResolveError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if apierrors.IsNotFound(err) {
-		return true
-	}
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return true
-	}
-	var te *transport.Error
-	if errors.As(err, &te) {
-		return te.Temporary()
-	}
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return true
-	}
-	leaf := err
-	for {
-		next := errors.Unwrap(leaf)
-		if next == nil {
-			break
-		}
-		leaf = next
-	}
-	msg := strings.ToLower(leaf.Error())
-	for _, needle := range []string{
-		"timeout", "temporarily", "connection refused", "connection reset",
-		"i/o timeout", "tls handshake timeout", "broken pipe", "reset by peer",
-		"eof", "429", "502", "503", "504", "unavailable", "dial tcp",
-		"no such host", "server misbehaving", "lookup ",
-	} {
-		if strings.Contains(msg, needle) {
-			return true
-		}
-	}
-	return false
-}
-
 // ensureExternalSchedulerState persists PlacementMode=kube-scheduler and a dispatch
-// generation before any Pod or ProvisioningRequest is created.
+// generation before any Pod or ProvisioningRequest is created. Image digests are left
+// to Autopilot VK admission (schedCheckImage); SaFE does not pin them here.
 func (r *SchedulerReconciler) ensureExternalSchedulerState(ctx context.Context,
 	workload *v1.Workload) (*v1.WorkloadExternalExecution, error) {
 	generation := int32(v1.GetWorkloadDispatchCnt(workload) + 1)
@@ -188,13 +99,6 @@ func (r *SchedulerReconciler) ensureExternalSchedulerState(ctx context.Context,
 	state := &v1.WorkloadExternalExecution{
 		PlacementMode:      v1.ExternalPlacementKubeScheduler,
 		DispatchGeneration: generation,
-	}
-	// Same-generation state returns above. Across generations keep digests only when
-	// Spec.Images is unchanged; PR name/attempt are rebuilt after old objects are deleted.
-	if current != nil && current.PlacementMode == v1.ExternalPlacementKubeScheduler &&
-		imagedigest.ResolvedImagesCurrent(workload.Spec.Images, current.ResolvedImages, current.ResolvedImageSources) {
-		state.ResolvedImages = append([]string{}, current.ResolvedImages...)
-		state.ResolvedImageSources = append([]string{}, current.ResolvedImageSources...)
 	}
 	if err := r.patchExternalState(ctx, workload, state); err != nil {
 		return nil, err
@@ -523,9 +427,7 @@ func buildGangPodTemplate(workload *v1.Workload, ns, name, prName string) (*unst
 		requests[rdma] = res.RdmaResource
 	}
 	image := ""
-	if state := workload.Status.ExternalExecution; state != nil && len(state.ResolvedImages) > 0 {
-		image = state.ResolvedImages[0]
-	} else if len(workload.Spec.Images) > 0 {
+	if len(workload.Spec.Images) > 0 {
 		image = workload.Spec.Images[0]
 	}
 	bookingValue := ns + "." + prName
@@ -555,13 +457,17 @@ func buildGangPodTemplate(workload *v1.Workload, ns, name, prName string) (*unst
 				"effect":   string(corev1.TaintEffectNoSchedule),
 			},
 		),
+		// Same workspace + customerLabel affinity the dispatcher applies to real pods.
 		"affinity": map[string]interface{}{
 			"nodeAffinity": map[string]interface{}{
 				"requiredDuringSchedulingIgnoredDuringExecution": map[string]interface{}{
-					"nodeSelectorTerms": externalWorkspaceNodeSelectorTerms(workload),
+					"nodeSelectorTerms": commonworkload.ExternalGangNodeSelectorTerms(workload),
 				},
 			},
 		},
+	}
+	if deadline, ok := commonworkload.ExternalActiveDeadlineSeconds(workload); ok {
+		podSpec["activeDeadlineSeconds"] = deadline
 	}
 
 	pt := &unstructured.Unstructured{}
@@ -629,49 +535,6 @@ func maxQuantityString(a, b string) string {
 		return a
 	}
 	return b
-}
-
-// externalWorkspaceNodeSelectorTerms builds OR terms for current and legacy w/lease-end keys.
-// When Spec.Timeout is unset, lease-end is omitted so long jobs are not capped at now+600s.
-func externalWorkspaceNodeSelectorTerms(workload *v1.Workload) []interface{} {
-	ws := ""
-	if workload != nil {
-		ws = workload.Spec.Workspace
-	}
-	prefixes := []struct{ w, lease string }{
-		{v1.ExternalWorkspaceLabel, v1.ExternalLeaseEndLabel},
-		{v1.ExternalWorkspaceLabelLegacy, v1.ExternalLeaseEndLabelLegacy},
-	}
-	var leaseDeadline string
-	if runtimeSec := externalRuntimeSeconds(workload); runtimeSec > 0 {
-		leaseDeadline = strconv.FormatInt(time.Now().UTC().Unix()+runtimeSec+externalLeaseOverheadSec, 10)
-	}
-	terms := make([]interface{}, 0, len(prefixes))
-	for _, p := range prefixes {
-		exprs := []interface{}{
-			map[string]interface{}{
-				"key":      p.w,
-				"operator": "In",
-				"values":   []interface{}{ws},
-			},
-		}
-		if leaseDeadline != "" {
-			exprs = append(exprs, map[string]interface{}{
-				"key":      p.lease,
-				"operator": "Gt",
-				"values":   []interface{}{leaseDeadline},
-			})
-		}
-		terms = append(terms, map[string]interface{}{"matchExpressions": exprs})
-	}
-	return terms
-}
-
-func externalRuntimeSeconds(workload *v1.Workload) int64 {
-	if workload != nil && workload.Spec.Timeout != nil && *workload.Spec.Timeout > 0 {
-		return int64(*workload.Spec.Timeout)
-	}
-	return 0
 }
 
 func externalGangMemberCount(workload *v1.Workload) int64 {

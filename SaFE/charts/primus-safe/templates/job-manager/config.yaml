@@ -88,17 +88,6 @@ data:
       enabled: {{ default false (default dict .Values.external_execution).enabled }}
       observation_max_age_seconds: {{ default 120 (default dict .Values.external_execution).observation_max_age_seconds }}
       workspace_resync_seconds: {{ default 30 (default dict .Values.external_execution).workspace_resync_seconds }}
-      {{- if (default dict .Values.external_execution).registry_ca_secret }}
-      registry_ca_path: {{ default "/etc/secrets/registry-ca/ca.crt" (default dict .Values.external_execution).registry_ca_path | quote }}
-      {{- else }}
-      registry_ca_path: {{ default "" (default dict .Values.external_execution).registry_ca_path | quote }}
-      {{- end }}
-      {{- /* bool default true: sprig "default" treats false as empty, so key presence is checked */ -}}
-      {{- if hasKey (default dict .Values.external_execution) "registry_insecure_skip_verify" }}
-      registry_insecure_skip_verify: {{ index (default dict .Values.external_execution) "registry_insecure_skip_verify" }}
-      {{- else }}
-      registry_insecure_skip_verify: true
-      {{- end }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-job-manager

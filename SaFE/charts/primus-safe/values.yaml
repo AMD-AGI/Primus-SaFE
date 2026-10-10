@@ -348,26 +348,12 @@ external_execution:
   # Off by default: with it off, external objects are rejected at admission.
   # Enable per site via .env (upgrade.sh / cd-deploy.sh):
   #   external_enable=true
-  #   external_execution_registry_ca_secret=sandbox-extra-ca
-  #   external_execution_registry_ca_secret_key=amd-ca.pem
-  #   external_execution_registry_insecure_skip_verify=false  # only when a site CA is mounted
   enabled: false
   # Caps how long a provider observation stays usable once the provider stops reporting.
   observation_max_age_seconds: 120
   # Bounds how long an external workspace goes without a reconcile, so a stale observation
   # is noticed well before the controller's own fifteen minute backstop.
   workspace_resync_seconds: 30
-  # Optional Secret (in the release namespace) with a PEM CA for registry digest resolve.
-  # Mounted into job-manager; set registry_ca_secret_key when the key is not ca.crt
-  # (for example amd-ca.pem). Prefer this over registry_insecure_skip_verify.
-  registry_ca_secret: ""
-  registry_ca_secret_key: "ca.crt"
-  # Absolute path inside the job-manager container. Leave empty unless mounting a CA
-  # (chart sets /etc/secrets/registry-ca/ca.crt when registry_ca_secret is set).
-  registry_ca_path: ""
-  # Skip TLS verify when resolving image digests. Default true because workloads may use
-  # many registries; set false together with registry_ca_secret when a site CA is available.
-  registry_insecure_skip_verify: true
 workload:
   # Seconds to keep a finished workload before TTL deletion.
   ttl_second: 3600

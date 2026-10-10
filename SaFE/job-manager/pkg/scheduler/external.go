@@ -23,7 +23,6 @@ import (
 // Waiting reasons surfaced for workloads in an external workspace.
 const (
 	ExternalCapacityReason    = "In queue - waiting for external capacity"
-	ExternalImageReason       = "In queue - external image is being prepared"
 	ExternalProfileReason     = "In queue - execution profile is not validated"
 	ExternalConstraintReason  = "Rejected - constraints cannot be satisfied by external capacity"
 	ExternalUnsupportedReason = "Rejected - workload shape is not supported by external capacity"
@@ -53,7 +52,7 @@ const externalWaitRetry = 30 * time.Second
 func isTerminalExternalReason(reason string) bool {
 	for _, prefix := range []string{
 		ExternalUnsupportedReason, ExternalConstraintReason, ExternalInvalidReason,
-		ExternalBudgetMissingReason, ExternalPRFailedReason, ExternalImageResolveReason,
+		ExternalBudgetMissingReason, ExternalPRFailedReason,
 	} {
 		if strings.HasPrefix(reason, prefix) {
 			return true
@@ -63,10 +62,9 @@ func isTerminalExternalReason(reason string) bool {
 }
 
 // holdsExternalBudgetWhileWaiting reports waits that already consume budget for this
-// schedule pass (image resolve in flight, open ProvisioningRequest, scale-up).
+// schedule pass (open ProvisioningRequest or scale-up).
 func holdsExternalBudgetWhileWaiting(reason string) bool {
 	for _, prefix := range []string{
-		ExternalImageReason,
 		ExternalWaitingScaleUpReason,
 		ExternalWaitingPRAcceptReason,
 		ExternalWaitingPRReason,

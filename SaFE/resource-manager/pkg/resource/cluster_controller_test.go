@@ -350,7 +350,7 @@ func TestGuaranteePriorityClassExternalEnabled(t *testing.T) {
 	testifyassert.Equal(t, v1.TrueStr, high.Labels[v1.PriorityClassManagedLabel])
 }
 
-func TestGuaranteePriorityClassExternalCorrectsPreemptionPolicy(t *testing.T) {
+func TestGuaranteePriorityClassExternalLeavesProviderPreemptionPolicy(t *testing.T) {
 	viper.Set("external_execution.enabled", true)
 	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
 
@@ -359,6 +359,7 @@ func TestGuaranteePriorityClassExternalCorrectsPreemptionPolicy(t *testing.T) {
 		ObjectMeta:       metav1.ObjectMeta{Name: v1.ExternalPriorityClassHigh},
 		Value:            42,
 		PreemptionPolicy: &existingPolicy,
+		Description:      "provider-owned",
 	}
 	cs := k8sfake.NewSimpleClientset(existing)
 	cluster := readyCluster("c1")
@@ -369,12 +370,19 @@ func TestGuaranteePriorityClassExternalCorrectsPreemptionPolicy(t *testing.T) {
 	got, err := cs.SchedulingV1().PriorityClasses().Get(
 		context.Background(), v1.ExternalPriorityClassHigh, metav1.GetOptions{})
 	testifyassert.NoError(t, err)
-	// value is immutable; leave the provider-created value alone.
+	// preemptionPolicy and value are immutable; provider-owned objects must not be Updated.
 	testifyassert.Equal(t, int32(42), got.Value)
 	testifyassert.NotNil(t, got.PreemptionPolicy)
-	testifyassert.Equal(t, corev1.PreemptNever, *got.PreemptionPolicy)
+	testifyassert.Equal(t, corev1.PreemptLowerPriority, *got.PreemptionPolicy)
+	testifyassert.Equal(t, "provider-owned", got.Description)
 	_, hasManaged := got.Labels[v1.PriorityClassManagedLabel]
 	testifyassert.False(t, hasManaged, "provider-owned PriorityClass must not gain managed label")
+	actions := cs.Actions()
+	for _, a := range actions {
+		if a.GetVerb() == "update" && a.GetResource().Resource == "priorityclasses" {
+			t.Fatal("provider-owned PriorityClass must not be Updated")
+		}
+	}
 }
 
 func TestDeletePriorityClass(t *testing.T) {

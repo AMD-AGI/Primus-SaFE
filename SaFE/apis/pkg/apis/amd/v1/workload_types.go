@@ -262,11 +262,10 @@ type WorkloadExternalExecution struct {
 	ProvisioningAttempt int32 `json:"provisioningAttempt,omitempty"`
 	// ProvisioningCondition is the last observed PR condition type/reason/message for UI.
 	ProvisioningCondition string `json:"provisioningCondition,omitempty"`
-	// ResolvedImages are Spec.Images pinned to digest before Pod/PodTemplate create on the
-	// kube-scheduler path. Empty on the claim path (provider freezes digest at claim time).
+	// ResolvedImages is unused: Autopilot VK pins digests at bind. Kept omitempty for
+	// compatibility with stored status from older job-manager builds.
 	ResolvedImages []string `json:"resolvedImages,omitempty"`
-	// ResolvedImageSources is Spec.Images at the time digests were resolved. A mismatch with
-	// the current Spec.Images forces re-resolve so a tag change cannot reuse a stale digest.
+	// ResolvedImageSources is unused; kept omitempty for compatibility with older status.
 	ResolvedImageSources []string `json:"resolvedImageSources,omitempty"`
 	// The dispatch generation these identifiers belong to
 	DispatchGeneration int32 `json:"dispatchGeneration,omitempty"`

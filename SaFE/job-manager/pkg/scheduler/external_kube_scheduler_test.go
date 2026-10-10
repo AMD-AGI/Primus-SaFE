@@ -8,13 +8,9 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
 	"strings"
 	"testing"
 
-	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -26,7 +22,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/imagedigest"
 )
 
 func gangWorkload() *v1.Workload {
@@ -40,20 +35,7 @@ func gangWorkload() *v1.Workload {
 	return w
 }
 
-func stubImageResolve(t *testing.T) {
-	t.Helper()
-	prev := imagedigest.ResolveFunc
-	imagedigest.ResolveFunc = func(_ context.Context, image string, _ authn.Keychain) (string, error) {
-		if imagedigest.IsPinned(image) {
-			return image, nil
-		}
-		return image + "@sha256:" + strings.Repeat("b", 64), nil
-	}
-	t.Cleanup(func() { imagedigest.ResolveFunc = prev })
-}
-
 func TestAdmitExternalViaSchedulerSingle(t *testing.T) {
-	stubImageResolve(t)
 	sch := runtime.NewScheme()
 	_ = v1.AddToScheme(sch)
 
@@ -92,52 +74,6 @@ func TestAdmitExternalViaSchedulerSingle(t *testing.T) {
 	if stored.Status.ExternalExecution == nil ||
 		stored.Status.ExternalExecution.PlacementMode != v1.ExternalPlacementKubeScheduler {
 		t.Fatalf("placement mode not set: %+v", stored.Status.ExternalExecution)
-	}
-	if len(stored.Status.ExternalExecution.ResolvedImages) != 1 ||
-		!imagedigest.IsPinned(stored.Status.ExternalExecution.ResolvedImages[0]) {
-		t.Fatalf("resolved images: %+v", stored.Status.ExternalExecution.ResolvedImages)
-	}
-	if len(stored.Status.ExternalExecution.ResolvedImageSources) != 1 ||
-		stored.Status.ExternalExecution.ResolvedImageSources[0] != "harbor.example/app:v1" {
-		t.Fatalf("resolved image sources: %+v", stored.Status.ExternalExecution.ResolvedImageSources)
-	}
-}
-
-func TestEnsureExternalResolvedImagesReResolvesOnTagChange(t *testing.T) {
-	stubImageResolve(t)
-	sch := runtime.NewScheme()
-	_ = v1.AddToScheme(sch)
-
-	w := &v1.Workload{
-		ObjectMeta: metav1.ObjectMeta{Name: "w-img", Namespace: "default"},
-		Spec: v1.WorkloadSpec{
-			Images: []string{"harbor.example/app:v1"},
-		},
-		Status: v1.WorkloadStatus{
-			ExternalExecution: &v1.WorkloadExternalExecution{
-				PlacementMode: v1.ExternalPlacementKubeScheduler,
-			},
-		},
-	}
-	cli := fake.NewClientBuilder().WithScheme(sch).WithStatusSubresource(w).WithObjects(w).Build()
-	r := &SchedulerReconciler{Client: cli}
-
-	state, reason, err := r.ensureExternalResolvedImages(context.Background(), w, w.Status.ExternalExecution)
-	if err != nil || reason != "" {
-		t.Fatalf("first resolve: err=%v reason=%q", err, reason)
-	}
-	first := state.ResolvedImages[0]
-
-	w.Spec.Images[0] = "harbor.example/app:v2"
-	state, reason, err = r.ensureExternalResolvedImages(context.Background(), w, state)
-	if err != nil || reason != "" {
-		t.Fatalf("second resolve: err=%v reason=%q", err, reason)
-	}
-	if state.ResolvedImages[0] == first {
-		t.Fatalf("tag change must produce a new digest, got %q", state.ResolvedImages[0])
-	}
-	if state.ResolvedImageSources[0] != "harbor.example/app:v2" {
-		t.Fatalf("sources not updated: %+v", state.ResolvedImageSources)
 	}
 }
 
@@ -203,7 +139,6 @@ func TestInterpretProvisioningRequest(t *testing.T) {
 }
 
 func TestEnsureExternalProvisioningProvisioned(t *testing.T) {
-	stubImageResolve(t)
 	sch := runtime.NewScheme()
 	_ = v1.AddToScheme(sch)
 
@@ -301,6 +236,9 @@ func TestBuildGangPodTemplate(t *testing.T) {
 	w.Spec.Workspace = "ws-ext"
 	w.Spec.Images = []string{"harbor.example/app:v1"}
 	w.Spec.Priority = common.HighPriorityInt
+	timeout := 3600
+	w.Spec.Timeout = &timeout
+	w.Spec.CustomerLabels = map[string]string{common.SpecifiedNodes: "node-a node-b"}
 	w.Spec.Resources[0].CPU = "4"
 	w.Spec.Resources[0].Memory = "32Gi"
 	w.Spec.Resources[0].GPU = "4"
@@ -314,6 +252,9 @@ func TestBuildGangPodTemplate(t *testing.T) {
 	spec, _, _ := unstructured.NestedMap(pt.Object, "template", "spec")
 	if spec["priorityClassName"] != v1.ExternalPriorityClassHigh {
 		t.Fatalf("priorityClassName=%v", spec["priorityClassName"])
+	}
+	if spec["activeDeadlineSeconds"] != int64(3600) {
+		t.Fatalf("activeDeadlineSeconds=%v want 3600", spec["activeDeadlineSeconds"])
 	}
 	tols, _, _ := unstructured.NestedSlice(spec, "tolerations")
 	if len(tols) < 2 {
@@ -330,50 +271,21 @@ func TestBuildGangPodTemplate(t *testing.T) {
 	if len(terms) != 2 {
 		t.Fatalf("want current+legacy workspace terms, got %d", len(terms))
 	}
-}
-
-func TestIsRetryableImageResolveError(t *testing.T) {
-	if !isRetryableImageResolveError(fmt.Errorf("resolve digest: dial tcp: i/o timeout")) {
-		t.Fatal("timeout must be retryable")
-	}
-	if isRetryableImageResolveError(fmt.Errorf("tls: unknown authority")) {
-		t.Fatal("unknown authority must stay terminal")
-	}
-	// Image ref may contain retry needles; only the unwrapped leaf is classified.
-	wrapped := fmt.Errorf("image %q: %w", "registry.example/app:tag-502-eof",
-		fmt.Errorf("MANIFEST_UNKNOWN: manifest unknown"))
-	if isRetryableImageResolveError(wrapped) {
-		t.Fatal("permanent registry error must stay terminal despite image tag substring")
-	}
-	retryWrapped := fmt.Errorf("image %q: %w", "registry.example/app:latest",
-		fmt.Errorf("Get https://registry: dial tcp: i/o timeout"))
-	if !isRetryableImageResolveError(retryWrapped) {
-		t.Fatal("wrapped timeout must remain retryable")
-	}
-	dnsErr := &net.DNSError{Err: "no such host", Name: "registry.example", IsNotFound: true}
-	if !isRetryableImageResolveError(fmt.Errorf("resolve digest: %w", dnsErr)) {
-		t.Fatal("DNSError must be retryable")
-	}
-	if !isRetryableImageResolveError(fmt.Errorf("lookup registry.example: server misbehaving")) {
-		t.Fatal("DNS misbehaving must be retryable")
-	}
-
-	req, _ := http.NewRequest(http.MethodGet, "https://registry.example/v2/app/eof-502/manifests/latest", nil)
-	permanent := &transport.Error{
-		StatusCode: http.StatusNotFound,
-		Request:    req,
-		Errors: []transport.Diagnostic{{
-			Code:    transport.ManifestUnknownErrorCode,
-			Message: "manifest unknown",
-		}},
-	}
-	if isRetryableImageResolveError(fmt.Errorf("resolve digest for %q: %w",
-		"registry.example/app/eof-502:latest", permanent)) {
-		t.Fatal("transport MANIFEST_UNKNOWN must stay terminal despite eof/502 in the URL")
-	}
-	retryable := &transport.Error{StatusCode: http.StatusBadGateway, Request: req}
-	if !isRetryableImageResolveError(fmt.Errorf("resolve: %w", retryable)) {
-		t.Fatal("transport 502 must be retryable")
+	for i, raw := range terms {
+		exprs := raw.(map[string]interface{})["matchExpressions"].([]interface{})
+		keys := map[string]bool{}
+		for _, e := range exprs {
+			keys[e.(map[string]interface{})["key"].(string)] = true
+		}
+		if keys[v1.ExternalLeaseEndLabel] || keys[v1.ExternalLeaseEndLabelLegacy] {
+			t.Fatalf("term %d must not carry lease-end", i)
+		}
+		if !keys[v1.K8sHostName] {
+			t.Fatalf("term %d missing specified_nodes hostname", i)
+		}
+		if !(keys[v1.ExternalWorkspaceLabel] || keys[v1.ExternalWorkspaceLabelLegacy]) {
+			t.Fatalf("term %d missing workspace", i)
+		}
 	}
 }
 

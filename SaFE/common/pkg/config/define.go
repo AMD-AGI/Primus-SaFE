@@ -207,12 +207,7 @@ const (
 	externalExecutionPrefix            = "external_execution."
 	externalExecutionEnabled           = externalExecutionPrefix + "enabled"
 	externalExecutionObservationMaxAge = externalExecutionPrefix + "observation_max_age_seconds"
-	externalExecutionWorkspaceResync   = externalExecutionPrefix + "workspace_resync_seconds"
-	// PEM file job-manager uses when resolving image digests against a private registry.
-	externalExecutionRegistryCAPath = externalExecutionPrefix + "registry_ca_path"
-	// Skip TLS verify for registry digest resolve. Default on: image registries vary by
-	// site and mounting every CA is impractical. Set false when registry_ca_path is set.
-	externalExecutionRegistryInsecure = externalExecutionPrefix + "registry_insecure_skip_verify"
+	externalExecutionWorkspaceResync = externalExecutionPrefix + "workspace_resync_seconds"
 
 	// model_optimization (hyperloom via primus-claw)
 	modelOptimizationPrefix       = "model_optimization."

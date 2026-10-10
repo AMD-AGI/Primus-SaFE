@@ -702,19 +702,6 @@ func GetExternalWorkspaceResync() time.Duration {
 	return time.Duration(getInt(externalExecutionWorkspaceResync, 30)) * time.Second
 }
 
-// GetExternalRegistryCAPath is the PEM file appended to the system trust store when
-// resolving image digests (kube-scheduler placement). Empty keeps the process default roots.
-func GetExternalRegistryCAPath() string {
-	return getString(externalExecutionRegistryCAPath, "")
-}
-
-// IsExternalRegistryInsecureSkipVerify reports whether registry digest resolve skips TLS
-// verification. Default true: workloads may pull from many registries whose CAs are not
-// mounted into job-manager; prefer skip over failing admission on private PKI.
-func IsExternalRegistryInsecureSkipVerify() bool {
-	return getBool(externalExecutionRegistryInsecure, true)
-}
-
 // ── MCP (Model Context Protocol) ────────────────────────────────────────
 
 func IsMCPEnable() bool {

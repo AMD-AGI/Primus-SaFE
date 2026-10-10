@@ -7,7 +7,6 @@ require (
 	github.com/AMD-AIG-AIMA/SAFE/common v0.0.0
 	github.com/AMD-AIG-AIMA/SAFE/utils v0.0.0
 	github.com/golang/mock v1.7.0-rc.1
-	github.com/google/go-containerregistry v0.20.7
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.11.1
 	gotest.tools v2.2.0+incompatible
@@ -23,10 +22,6 @@ require (
 require (
 	filippo.io/edwards25519 v1.1.1 // indirect
 	github.com/Masterminds/squirrel v1.5.4 // indirect
-	github.com/containerd/stargz-snapshotter/estargz v0.18.1 // indirect
-	github.com/docker/cli v29.0.3+incompatible // indirect
-	github.com/docker/distribution v2.8.3+incompatible // indirect
-	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/go-sql-driver/mysql v1.9.2 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -35,15 +30,9 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/jmoiron/sqlx v1.4.0 // indirect
-	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
 	github.com/lib/pq v1.11.2 // indirect
-	github.com/mitchellh/go-homedir v1.1.0 // indirect
-	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/image-spec v1.1.1 // indirect
-	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/vbatts/tar-split v0.12.2 // indirect
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
 	gorm.io/datatypes v1.2.4 // indirect
@@ -84,7 +73,7 @@ require (
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/uuid v1.6.0
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect

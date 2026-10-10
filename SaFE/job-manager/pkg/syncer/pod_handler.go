@@ -172,14 +172,18 @@ func (r *SyncerReconciler) updateAdminWorkloadByPod(ctx context.Context, clientS
 		extraStatusFields = map[string]any{"phase": adminWorkload.Status.Phase}
 	}
 	// On the kube-scheduler path a Pending/Unschedulable pod means B should scale up;
-	// surface the scheduler message on the workload for the UI (R11). Clear it once
-	// pods are no longer waiting so Running work does not keep a stale queue reason.
-	if msg := externalUnschedulableMessage(adminWorkload, pod); msg != "" {
+	// surface PodScheduled + recent Events on Status.Message and AdminScheduling for the
+	// timeline. Clear Status.Message once pods are scheduled; keep AdminScheduling text
+	// as the last wait reason so the timeline entry stays informative.
+	if msg := externalWaitingMessage(ctx, clientSets, adminWorkload, pod); msg != "" {
 		if extraStatusFields == nil {
 			extraStatusFields = map[string]any{}
 		}
 		adminWorkload.Status.Message = msg
 		extraStatusFields["message"] = msg
+		if jobutils.SyncAdminSchedulingCondition(adminWorkload, msg) {
+			extraStatusFields["conditions"] = adminWorkload.Status.Conditions
+		}
 	} else if shouldClearExternalScaleUpMessage(adminWorkload, pod) {
 		if extraStatusFields == nil {
 			extraStatusFields = map[string]any{}
@@ -1487,6 +1491,24 @@ func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 
 const externalWaitingScaleUpPrefix = "In queue - waiting for scale-up"
 
+// externalWaitingMessage builds the UI wait reason from PodScheduled plus the newest
+// scheduling-related Event (TriggeredScaleUp / NotTriggerScaleUp / lease / pool / …).
+func externalWaitingMessage(ctx context.Context, clusterClientSets *ClusterClientSets,
+	workload *v1.Workload, pod *corev1.Pod) string {
+	base := externalUnschedulableMessage(workload, pod)
+	if base == "" {
+		return ""
+	}
+	var cs kubernetes.Interface
+	if clusterClientSets != nil && clusterClientSets.ClientFactory() != nil {
+		cs = clusterClientSets.ClientFactory().ClientSet()
+	}
+	if hint := latestPodSchedulingEvent(ctx, cs, pod); hint != "" && !strings.Contains(base, hint) {
+		return base + " - " + hint
+	}
+	return base
+}
+
 // externalUnschedulableMessage builds the waiting-for-scale-up reason for kube-scheduler
 // external pods that kube-scheduler left Unschedulable (R11).
 func externalUnschedulableMessage(workload *v1.Workload, pod *corev1.Pod) string {
@@ -1515,6 +1537,77 @@ func externalUnschedulableMessage(workload *v1.Workload, pod *corev1.Pod) string
 		return externalWaitingScaleUpPrefix + " - " + msg
 	}
 	return ""
+}
+
+// latestPodSchedulingEvent returns "reason: message" for the newest Event on the pod that
+// looks like a scheduling / scale-up signal. Best-effort: empty on any list failure.
+func latestPodSchedulingEvent(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod) string {
+	if clientSet == nil || pod == nil || pod.Name == "" || pod.Namespace == "" {
+		return ""
+	}
+	list, err := clientSet.CoreV1().Events(pod.Namespace).List(ctx, metav1.ListOptions{
+		FieldSelector: "involvedObject.name=" + pod.Name + ",involvedObject.kind=Pod",
+		Limit:         30,
+	})
+	if err != nil || list == nil || len(list.Items) == 0 {
+		return ""
+	}
+	var best *corev1.Event
+	for i := range list.Items {
+		ev := &list.Items[i]
+		if !isSchedulingRelatedEvent(ev) {
+			continue
+		}
+		if best == nil || eventTime(ev).After(eventTime(best)) {
+			best = ev
+		}
+	}
+	if best == nil {
+		return ""
+	}
+	reason := strings.TrimSpace(best.Reason)
+	msg := strings.TrimSpace(best.Message)
+	switch {
+	case reason != "" && msg != "":
+		return reason + ": " + msg
+	case reason != "":
+		return reason
+	default:
+		return msg
+	}
+}
+
+func isSchedulingRelatedEvent(ev *corev1.Event) bool {
+	if ev == nil {
+		return false
+	}
+	reason := strings.ToLower(ev.Reason)
+	msg := strings.ToLower(ev.Message)
+	for _, needle := range []string{
+		"triggeredscaleup", "nottriggerscaleup", "failedscheduling", "nominated",
+		"scale", "lease", "pool", "quota", "backoff", "unschedulable", "preempt",
+	} {
+		if strings.Contains(reason, needle) || strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return ev.Type == corev1.EventTypeWarning
+}
+
+func eventTime(ev *corev1.Event) time.Time {
+	if ev == nil {
+		return time.Time{}
+	}
+	if !ev.LastTimestamp.IsZero() {
+		return ev.LastTimestamp.Time
+	}
+	if !ev.EventTime.IsZero() {
+		return ev.EventTime.Time
+	}
+	if !ev.FirstTimestamp.IsZero() {
+		return ev.FirstTimestamp.Time
+	}
+	return ev.CreationTimestamp.Time
 }
 
 // shouldClearExternalScaleUpMessage reports that a stale waiting-for-scale-up status

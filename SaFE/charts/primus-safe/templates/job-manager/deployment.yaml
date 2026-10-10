@@ -62,11 +62,6 @@ spec:
             - name: server-config
               mountPath: /opt/primus-safe/job-manager/config
               readOnly: true
-            {{- if (default dict .Values.external_execution).registry_ca_secret }}
-            - name: registry-ca
-              mountPath: {{ dir (default "/etc/secrets/registry-ca/ca.crt" (default dict .Values.external_execution).registry_ca_path) }}
-              readOnly: true
-            {{- end }}
             {{- if .Values.ssh.enable }}
             - name: ssh-proxy
               mountPath: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
@@ -117,14 +112,6 @@ spec:
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-job-manager
-        {{- if (default dict .Values.external_execution).registry_ca_secret }}
-        - name: registry-ca
-          secret:
-            secretName: {{ (default dict .Values.external_execution).registry_ca_secret }}
-            items:
-              - key: {{ default "ca.crt" (default dict .Values.external_execution).registry_ca_secret_key }}
-                path: {{ base (default "/etc/secrets/registry-ca/ca.crt" (default dict .Values.external_execution).registry_ca_path) }}
-        {{- end }}
         {{- if .Values.ssh.enable }}
         - name: ssh-proxy
           secret:

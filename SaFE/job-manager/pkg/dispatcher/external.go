@@ -207,19 +207,3 @@ func externalApprovedImage(workload *v1.Workload, unitKey string) string {
 	}
 	return ""
 }
-
-// externalResolvedImage returns the digest-pinned image resolved on the kube-scheduler path.
-// Empty Spec.Images slots and out-of-range roles return "" so the template default is kept.
-func externalResolvedImage(workload *v1.Workload, resourceId int) string {
-	state := workload.Status.ExternalExecution
-	if state == nil || len(state.ResolvedImages) == 0 {
-		return ""
-	}
-	if resourceId < 0 || resourceId >= len(state.ResolvedImages) {
-		return ""
-	}
-	if resourceId < len(workload.Spec.Images) && workload.Spec.Images[resourceId] == "" {
-		return ""
-	}
-	return state.ResolvedImages[resourceId]
-}

@@ -2936,16 +2936,12 @@ func updateContainers(adminWorkload *v1.Workload,
 			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
 				container["image"] = adminWorkload.Spec.Images[id]
 			}
-			// The reservation was granted against the digest the provider resolved at claim
-			// time, not against the tag the user submitted. Using the tag here would let a
-			// moved tag run content nothing was admitted for, and the provider would refuse
-			// the task after the pod had already bound.
+			// Claim path: use the digest the provider resolved at claim time.
+			// Kube-scheduler path: Autopilot VK pins tags at bind (schedCheckImage).
 			if !isKubeSchedulerPlacement(adminWorkload) {
 				if approved := externalApprovedImage(adminWorkload, externalRoleUnitKey(adminWorkload, id)); approved != "" {
 					container["image"] = approved
 				}
-			} else if pinned := externalResolvedImage(adminWorkload, id); pinned != "" {
-				container["image"] = pinned
 			}
 			// expectedCommands, not buildCommands: an IDEP command carries the
 			// disaggregation and multi-node flags normalizeInferaIDEP grafts on
@@ -2980,12 +2976,6 @@ func syncGithubRunnerExternalsImage(adminWorkload *v1.Workload, obj *unstructure
 		return nil
 	}
 	image := adminWorkload.Spec.Images[id]
-	// Keep init-dind-externals on the same digest as the main runner container.
-	if isKubeSchedulerPlacement(adminWorkload) {
-		if pinned := externalResolvedImage(adminWorkload, id); pinned != "" {
-			image = pinned
-		}
-	}
 	path := podSpecPath(adminWorkload, &resourceSpec, "initContainers")
 	initContainers, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
@@ -3297,11 +3287,12 @@ func applyExternalVirtualKubeletToleration(obj *unstructured.Unstructured, workl
 	return jobutils.SetNestedField(obj.Object, tolerations, path)
 }
 
-// applyExternalSchedulerAffinity writes w In (and lease-end Gt when Timeout is set)
-// for the kube-scheduler path. Current and legacy provider label keys stay OR'd so
-// pods still match VK nodes during the Autopilot rename window. When the template
-// already has nodeSelectorTerms, workspace constraints are ANDed into every term
-// so user specified_nodes / excluded_nodes / custom labels cannot be bypassed.
+// applyExternalSchedulerAffinity writes workspace In for the kube-scheduler path.
+// Current and legacy provider label keys stay OR'd so pods still match VK nodes
+// during the Autopilot rename window. Lease remaining is expressed via
+// activeDeadlineSeconds (Autopilot), not absolute lease-end affinity. When the
+// template already has nodeSelectorTerms, workspace constraints are ANDed into
+// every term so user specified_nodes / excluded_nodes / custom labels cannot be bypassed.
 func applyExternalSchedulerAffinity(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
 	if !isKubeSchedulerPlacement(workload) {
@@ -3313,119 +3304,17 @@ func applyExternalSchedulerAffinity(obj *unstructured.Unstructured, workload *v1
 	if err != nil {
 		return err
 	}
-	selectorTerms := externalWorkspaceAffinityTerms(workload)
-	if len(terms) == 0 {
-		terms = selectorTerms
-	} else {
-		terms = mergeExternalWorkspaceAffinity(terms, selectorTerms)
-	}
-	return jobutils.SetNestedField(obj.Object, terms, path)
-}
-
-// mergeExternalWorkspaceAffinity ANDs each workspace term into every existing term.
-// Existing terms are ORed with each other; current and legacy workspace keys remain
-// separate OR expansions so a node stamped with either prefix still matches.
-func mergeExternalWorkspaceAffinity(existing, workspaceTerms []interface{}) []interface{} {
-	managed := externalWorkspaceAffinityKeys()
-	out := make([]interface{}, 0, len(existing)*len(workspaceTerms))
-	for _, raw := range existing {
-		base, ok := raw.(map[string]interface{})
-		if !ok {
-			base = map[string]interface{}{}
-		}
-		baseExprs := stripManagedMatchExpressions(base["matchExpressions"], managed)
-		baseFields, hasFields := base["matchFields"]
-		for _, wsRaw := range workspaceTerms {
-			ws, ok := wsRaw.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			wsExprs, _ := ws["matchExpressions"].([]interface{})
-			merged := map[string]interface{}{
-				"matchExpressions": append(append([]interface{}{}, baseExprs...), wsExprs...),
-			}
-			if hasFields {
-				merged["matchFields"] = baseFields
-			}
-			out = append(out, merged)
-		}
-	}
-	return out
-}
-
-// externalWorkspaceAffinityKeys are matchExpression keys owned by applyExternalSchedulerAffinity.
-func externalWorkspaceAffinityKeys() map[string]struct{} {
-	return map[string]struct{}{
-		v1.ExternalWorkspaceLabel:       {},
-		v1.ExternalWorkspaceLabelLegacy: {},
-		v1.ExternalLeaseEndLabel:        {},
-		v1.ExternalLeaseEndLabelLegacy:  {},
-	}
-}
-
-// stripManagedMatchExpressions drops expressions whose keys are platform-managed so
-// a second apply does not duplicate workspace / lease-end constraints.
-func stripManagedMatchExpressions(raw interface{}, managed map[string]struct{}) []interface{} {
-	exprs, ok := raw.([]interface{})
-	if !ok || len(exprs) == 0 {
-		return nil
-	}
-	out := make([]interface{}, 0, len(exprs))
-	for _, entry := range exprs {
-		expr, ok := entry.(map[string]interface{})
-		if !ok {
-			out = append(out, entry)
-			continue
-		}
-		key, _ := expr["key"].(string)
-		if _, drop := managed[key]; drop {
-			continue
-		}
-		out = append(out, entry)
-	}
-	return out
-}
-
-// externalWorkspaceAffinityTerms builds OR nodeSelectorTerms for autopilot and legacy keys.
-// Gang pods that already hold a ProvisioningRequest omit lease-end: recomputing it at
-// dispatch is stricter than the PodTemplate booking and can leave pods Unschedulable on
-// the nodes that just scaled up for the PR.
-func externalWorkspaceAffinityTerms(workload *v1.Workload) []interface{} {
 	ws := ""
 	if workload != nil {
 		ws = workload.Spec.Workspace
 	}
-	var leaseDeadline string
-	useLease := workload != nil &&
-		workload.Spec.Timeout != nil && *workload.Spec.Timeout > 0 &&
-		!(isExternalGang(workload) && workload.Status.ExternalExecution != nil &&
-			workload.Status.ExternalExecution.ProvisioningRequest != "")
-	if useLease {
-		leaseDeadline = strconv.FormatInt(externalLeaseDeadlineUnix(workload), 10)
+	selectorTerms := commonworkload.ExternalWorkspaceAffinityTerms(ws)
+	if len(terms) == 0 {
+		terms = selectorTerms
+	} else {
+		terms = commonworkload.MergeExternalWorkspaceAffinity(terms, selectorTerms)
 	}
-	prefixes := []struct{ w, lease string }{
-		{v1.ExternalWorkspaceLabel, v1.ExternalLeaseEndLabel},
-		{v1.ExternalWorkspaceLabelLegacy, v1.ExternalLeaseEndLabelLegacy},
-	}
-	terms := make([]interface{}, 0, len(prefixes))
-	for _, p := range prefixes {
-		exprs := []interface{}{
-			map[string]interface{}{
-				"key":      p.w,
-				"operator": "In",
-				"values":   []interface{}{ws},
-			},
-		}
-		if leaseDeadline != "" {
-			exprs = append(exprs, map[string]interface{}{
-				"key":      p.lease,
-				"operator": "Gt",
-				"values":   []interface{}{leaseDeadline},
-			})
-		}
-		terms = append(terms, map[string]interface{}{"matchExpressions": exprs})
-	}
-	return terms
+	return jobutils.SetNestedField(obj.Object, terms, path)
 }
 
 // applyExternalBookingToleration adds the ProvisioningRequest booking toleration for gangs.
@@ -3482,17 +3371,6 @@ func applyExternalConsumeProvisioningRequest(obj *unstructured.Unstructured, wor
 	}
 	existingAnno[v1.ConsumeProvisioningRequestAnnotation] = prName
 	return jobutils.SetNestedField(obj.Object, existingAnno, annoPath)
-}
-
-// externalLeaseDeadlineUnix is now + declared runtime + 10m overhead, in unix seconds.
-// Callers must only use this when Spec.Timeout is set; unset Timeout means no lease-end pin.
-func externalLeaseDeadlineUnix(workload *v1.Workload) int64 {
-	const overheadSec int64 = 600
-	runtimeSec := int64(0)
-	if workload != nil && workload.Spec.Timeout != nil && *workload.Spec.Timeout > 0 {
-		runtimeSec = int64(*workload.Spec.Timeout)
-	}
-	return time.Now().UTC().Unix() + runtimeSec + overheadSec
 }
 
 // applyExternalVolumePolicy rewrites volumes/mounts the provider refuses without changing
@@ -3724,7 +3602,7 @@ func rewriteClusterLocalURL(raw, base string) string {
 // VK can verify the unit is constrained to the approved virtual node of its role.
 func applyExternalNodePin(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec, resourceId int) error {
-	// Kube-scheduler path uses w + lease-end affinity instead of claim host pins (R3).
+	// Kube-scheduler path uses workspace affinity instead of claim host pins (R3).
 	if isKubeSchedulerPlacement(workload) {
 		return nil
 	}

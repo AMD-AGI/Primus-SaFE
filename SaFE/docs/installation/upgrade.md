@@ -41,10 +41,6 @@ For additional upgrade-specific behavior, you may add these optional keys to `.e
 | `optimize_max_concurrent` | Per-workspace cap on concurrently running optimization tasks (integer, e.g. `1024`). Defaults to chart value `1024` when unset. Synced into both `values.yaml` and the live apiserver ConfigMap. |
 | `sandbox_extra_ca_secret` | Name of a Secret in `primus-safe` holding extra CA certificates that sandboxes must trust (annotate it with `primus-safe.workspace.ids`). Sets `sandbox.extra_ca_secret`; unset renders no extra CA. |
 | `external_enable` | Enable external execution (`true`/`false`). Synced into helm values and the live job-manager ConfigMap. |
-| `external_execution_registry_ca_secret` | Secret in the release namespace with a PEM CA for registry digest resolve (mounted into job-manager). Prefer over insecure skip. |
-| `external_execution_registry_ca_secret_key` | Key inside that Secret (default `ca.crt`; e.g. `amd-ca.pem`). |
-| `external_execution_registry_ca_path` | Optional absolute path inside job-manager for the CA file; defaults to `/etc/secrets/registry-ca/ca.crt` when the secret is set. |
-| `external_execution_registry_insecure_skip_verify` | Skip TLS verify for registry digest resolve (`true`/`false`). Defaults to `true` in chart because workloads may use many registries; set `false` with a CA secret when a site CA is available. Synced into helm values and the live job-manager ConfigMap. |
 | `tracing_enable` | Enable OpenTelemetry tracing: `true` or `false` |
 | `tracing_mode` | Tracing mode: `all` or `error_only` |
 | `tracing_sampling_ratio` | Sampling ratio (e.g. `1.0`) |
