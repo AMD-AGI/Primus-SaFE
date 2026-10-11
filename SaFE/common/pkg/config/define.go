@@ -105,6 +105,8 @@ const (
 	modelPrewarmPrefix        = opsJobPrefix + "model_prewarm."
 	modelPrewarmTimeoutSecond = modelPrewarmPrefix + "timeout_second"
 
+	exportImageTimeoutSecond = opsJobPrefix + "export_image.timeout_second"
+
 	// s3
 	s3Prefix     = "s3."
 	s3Enable     = s3Prefix + "enable"
@@ -218,4 +220,7 @@ const (
 	modelOptimizationDefaultWS    = modelOptimizationPrefix + "default_workspace"
 	modelOptimizationConcurrency  = modelOptimizationPrefix + "max_concurrent"
 	modelOptimizationClawPluginID = modelOptimizationPrefix + "claw_plugin_id"
+
+	// save_image: where a saved workload image is staged and published, per cluster
+	saveImageClusters = "save_image.clusters"
 )

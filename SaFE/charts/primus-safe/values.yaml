@@ -113,6 +113,10 @@ ops_job:
   download_image: "s3-downloader:latest"
   # Opsjob evalscope image version. used for model evaluation
   evalscope_image: "evalscope:latest"
+  export_image:
+    # Default timeout for saving a workload as an image, in seconds (12 h); a request's own
+    # timeoutSecond stands.
+    timeout_second: 43200
 cicd:
   enable: true
   role_name: "gha-rs-manager"
@@ -344,6 +348,41 @@ model_optimization:
   # per-deploy via .env `optimize_max_concurrent` (synced into values.yaml by
   # upgrade.sh and into the live apiserver ConfigMap by cd-deploy.sh).
   max_concurrent: 1024
+# Save Image: where a cluster's saved workload images go. A cluster without an entry uses
+# the default registry. Each entry:
+#   cluster: <cluster id>
+#   registry: registry the saved image is published in (default: the default registry).
+#     The cluster's containers upload their changes to it directly, so they must reach it
+#     (see host_aliases), and it must hold the images they were started from.
+#   target_project: project of the saved images (default: custom)
+#   staging_project: private project, one repository per export (default: save-staging).
+#     It only ever holds layer blobs. Harbor records a repository only when a manifest is
+#     pushed, so these have none to delete, and retention policies (which select
+#     artifacts) do not apply; the layer of a saved image lives on in the image it was
+#     mounted into, and the layer of an export that failed is referenced by nothing.
+#     Harbor's garbage collection deletes such blobs once they are older than its time
+#     window (2 hours by default): schedule it (Administration > Clean Up), or they
+#     accumulate. Another registry needs its own garbage collection for the same reason.
+#   ca_secret: <namespace>/<name> of a Secret whose ca.crt signs the registry, trusted on
+#     top of the container's system roots (default: the built-in Harbor's CA when the
+#     registry is the built-in Harbor; none otherwise)
+#   staging_push_secret: <namespace>/<name> of a Docker config Secret for an account that can
+#     push to staging_project alone (e.g. a Harbor robot account of that project). The
+#     container's upload token is minted with it; Harbor gives a token the power of the
+#     account that minted it, so it must never be an administrator.
+#     (default: primus-safe/primus-safe-save-image-staging-cred, which the apiserver creates
+#     with save-staging and its robot account in the built-in Harbor; saving is refused
+#     without it)
+#   host_aliases: [{ip: ..., hostnames: [...]}] added to every Pod of the cluster
+# Saving needs a record of the files a container started with, which can only be made when
+# it starts, so every container's launcher makes it, in the background at the lowest CPU
+# and I/O priority, without delaying the entry point. Measured on a root file system of
+# 905k paths: 6.8 s, about 7 CPU-seconds on one core, 98 MB written to the Pod's shared
+# volume, 10 MiB of memory. A workload that sets SAFE_SAVE_IMAGE_RECORD=0 in its
+# environment skips it, and saving it is then refused with that reason.
+save_image:
+  clusters: []
+
 external_execution:
   # Off by default: with it off, external objects are rejected at admission.
   # Enable per site via .env (upgrade.sh / cd-deploy.sh):

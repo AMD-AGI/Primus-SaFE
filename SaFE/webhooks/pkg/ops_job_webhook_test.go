@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
 func TestGenerateDestPath(t *testing.T) {
@@ -243,6 +244,41 @@ func TestOpsJobMutateJobSpec(t *testing.T) {
 	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Inputs: []v1.Parameter{{Name: "Foo"}}}}
 	m.mutateJobSpec(context.Background(), job)
 	assert.True(t, job.Spec.TTLSecondsAfterFinished > 0)
+}
+
+// An export without a timeout gets the export's own default, not the general ops job one.
+func TestOpsJobMutateJobSpecExportTimeout(t *testing.T) {
+	commonconfig.SetValue("ops_job.timeout_second", "3600")
+	defer commonconfig.SetValue("ops_job.timeout_second", "")
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	m := &OpsJobMutator{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	job := &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobExportImageType}}
+	m.mutateJobSpec(context.Background(), job)
+	assert.Equal(t, 43200, job.Spec.TimeoutSecond)
+	job = &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobExportImageType, TimeoutSecond: 600}}
+	m.mutateJobSpec(context.Background(), job)
+	assert.Equal(t, 600, job.Spec.TimeoutSecond)
+	job = &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobPreflightType}}
+	m.mutateJobSpec(context.Background(), job)
+	assert.Equal(t, 3600, job.Spec.TimeoutSecond)
+}
+
+// The apiserver strips the export's workload and image parameters by the names this
+// webhook gives them; every spelling it strips must land on exactly that name here.
+func TestOpsJobMutateJobSpecNormalizesExportParameterNames(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	m := &OpsJobMutator{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	for name, want := range map[string]string{
+		"Image": v1.ParameterImage, "IMAGE": v1.ParameterImage, " image ": v1.ParameterImage,
+		"ima\r\nge": v1.ParameterImage, "Workload": v1.ParameterWorkload, " WORKLOAD ": v1.ParameterWorkload,
+		"WorkloadId": "workloadid", "Work_load": "work-load",
+	} {
+		job := &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobExportImageType, Inputs: []v1.Parameter{{Name: name, Value: "x"}}}}
+		m.mutateJobSpec(context.Background(), job)
+		assert.Equal(t, want, job.Spec.Inputs[0].Name, "%q", name)
+	}
 }
 
 // TestOpsJobGenerateAddonTemplates verifies addon templates appended from node template.

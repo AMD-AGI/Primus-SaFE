@@ -375,6 +375,13 @@ func GetPrewarmWorkerConcurrent() int {
 	return getInt(prewarmWorkerConcurrent, 10)
 }
 
+// GetExportImageTimeoutSecond returns the default timeout in seconds for saving a workload
+// as an image: an export is designed to take up to 12 hours (a layer of up to 500 GiB), far
+// longer than other ops jobs.
+func GetExportImageTimeoutSecond() int {
+	return getInt(exportImageTimeoutSecond, 43200)
+}
+
 // GetModelPrewarmTimeoutSecond returns the timeout in seconds for model prewarm jobs.
 func GetModelPrewarmTimeoutSecond() int {
 	return getInt(modelPrewarmTimeoutSecond, 7200)
@@ -561,6 +568,47 @@ func GetProxyServices() []ProxyService {
 		return []ProxyService{}
 	}
 	return services
+}
+
+// HostAlias is one /etc/hosts entry put into every Pod of a cluster.
+type HostAlias struct {
+	IP        string   `json:"ip" yaml:"ip" mapstructure:"ip"`
+	Hostnames []string `json:"hostnames" yaml:"hostnames" mapstructure:"hostnames"`
+}
+
+// SaveImageCluster says where a workload of one cluster is saved as an image.
+//
+// Registry is where the saved image is published; the cluster's containers must reach it,
+// because each uploads its own changes there, to a repository of StagingProject made for
+// that export, and the image is then put together in TargetProject by mounting blobs. It
+// must hold the images the containers were started from. StagingPushSecret
+// ("<namespace>/<name>") holds a credential limited to StagingProject, which the
+// container's upload token is minted with; CASecret ("<namespace>/<name>", key ca.crt)
+// signs Registry. HostAliases resolve registry names inside the cluster's Pods where its
+// DNS does not.
+type SaveImageCluster struct {
+	Cluster           string      `json:"cluster" yaml:"cluster" mapstructure:"cluster"`
+	Registry          string      `json:"registry" yaml:"registry" mapstructure:"registry"`
+	TargetProject     string      `json:"target_project" yaml:"target_project" mapstructure:"target_project"`
+	StagingProject    string      `json:"staging_project" yaml:"staging_project" mapstructure:"staging_project"`
+	CASecret          string      `json:"ca_secret" yaml:"ca_secret" mapstructure:"ca_secret"`
+	StagingPushSecret string      `json:"staging_push_secret" yaml:"staging_push_secret" mapstructure:"staging_push_secret"`
+	HostAliases       []HostAlias `json:"host_aliases" yaml:"host_aliases" mapstructure:"host_aliases"`
+}
+
+// GetSaveImageCluster returns the save-image settings of a cluster, and whether it has
+// any. Settings that cannot be read are an error, not an absence.
+func GetSaveImageCluster(clusterID string) (SaveImageCluster, bool, error) {
+	var clusters []SaveImageCluster
+	if err := viper.UnmarshalKey(saveImageClusters, &clusters); err != nil {
+		return SaveImageCluster{}, false, fmt.Errorf("reading %s: %w", saveImageClusters, err)
+	}
+	for _, c := range clusters {
+		if c.Cluster == clusterID {
+			return c, true, nil
+		}
+	}
+	return SaveImageCluster{}, false, nil
 }
 
 // GetComponents returns the list of deployable components.

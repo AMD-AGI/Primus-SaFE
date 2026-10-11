@@ -106,8 +106,9 @@ jobs:
           echo "job_manager_changed=false" >> $GITHUB_OUTPUT
         fi
         
-        # preprocess: SaFE/docker/preprocess/**
-        if echo "$CHANGED_FILES" | grep -qE '^SaFE/docker/preprocess/'; then
+        # preprocess: SaFE/docker/preprocess/**, and the save-image binary it carries
+        # (its sources and the module files that pin its dependencies)
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/(docker/preprocess|resource-manager/cmd/save-image|resource-manager/pkg/ops_job/exportimage/agent)/|^SaFE/resource-manager/go\.(mod|sum)$'; then
           echo "preprocess_changed=true" >> $GITHUB_OUTPUT
         else
           echo "preprocess_changed=false" >> $GITHUB_OUTPUT

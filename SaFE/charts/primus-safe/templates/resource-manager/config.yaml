@@ -101,6 +101,9 @@ data:
     addon:
 {{ toYaml .Values.addon | indent 6 }}
 {{- end }}
+    save_image:
+      clusters:
+{{ toYaml (default list (default dict .Values.save_image).clusters) | indent 8 }}
     external_execution:
       # Off by default; external objects are refused at admission while it is false.
       enabled: {{ default false (default dict .Values.external_execution).enabled }}
