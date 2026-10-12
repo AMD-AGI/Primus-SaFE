@@ -251,7 +251,7 @@ func TestEmptySelectorMatchesNothing(t *testing.T) {
 	}
 }
 
-func TestInvalidSelectorMirrorsNothingAndRemovesNothing(t *testing.T) {
+func TestUnparsableSelectorMirrorsNothingAndReclaims(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-a"))
 	sec := selectorSecret("extra-ca", v1.WorkspaceSandboxScopeLabel+" in (true", `["ws-listed"]`)
 	recorder := record.NewFakeRecorder(10)
@@ -262,7 +262,7 @@ func TestInvalidSelectorMirrorsNothingAndRemovesNothing(t *testing.T) {
 
 	assert.True(t, mirrored(t, cs, "ws-listed", sec.Name), "the ids list still applies")
 	assert.False(t, mirrored(t, cs, "ws-b", sec.Name), "an invalid selector selects nothing")
-	assert.True(t, mirrored(t, cs, "ws-a", sec.Name), "nothing is removed while the selector is invalid")
+	assert.False(t, mirrored(t, cs, "ws-a", sec.Name), "an invalid selector reclaims like an empty one")
 	require.Len(t, recorder.Events, 1)
 	assert.True(t, strings.Contains(<-recorder.Events, "InvalidWorkspaceSelector"))
 }
@@ -325,32 +325,67 @@ func TestDeleteSelectorOnlySecretRemovesCopies(t *testing.T) {
 		"the finalizer is released")
 }
 
-func TestSelectorOnUnreservedLabelIsRejected(t *testing.T) {
+func TestInvalidSelectorIsRejectedAndReclaimed(t *testing.T) {
 	// A workspace creator can set any label outside the primus-safe. prefix, so a selector on
-	// one would hand the Secret to whoever sets it.
+	// one would hand the Secret to whoever sets it. A negative operator is true of a workspace
+	// that lacks the label, so a misspelt reserved key would select every workspace.
 	for _, selector := range []string{
 		"team=infra",
 		"team in (infra)",
 		"!team",
 		v1.WorkspaceSandboxScopeLabel + "=true,team=infra",
+		"!primus-safe.workspace.scope.sandbxo",
+		v1.WorkspaceSandboxScopeLabel + "!=false",
+		v1.WorkspaceSandboxScopeLabel + " notin (false)",
+		"!" + v1.WorkspaceSandboxScopeLabel,
+		"(((",
 	} {
 		t.Run(selector, func(t *testing.T) {
-			cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-old"))
+			cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-old"), managedCopy("extra-ca", "ws-sandbox"))
 			sec := selectorSecret("extra-ca", selector, `["ws-listed"]`)
 			recorder := record.NewFakeRecorder(10)
 			r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec,
 				sandboxWorkspace("ws-sandbox"),
 				selectorWorkspace("ws-team", map[string]string{"team": "infra"}),
+				selectorWorkspace("ws-other", nil),
 				selectorWorkspace("ws-old", nil), selectorWorkspace("ws-listed", nil))
 			r.recorder = recorder
 			reconcileSecret(t, r, sec.Name)
 
 			assert.False(t, mirrored(t, cs, "ws-team", sec.Name))
-			assert.False(t, mirrored(t, cs, "ws-sandbox", sec.Name))
+			assert.False(t, mirrored(t, cs, "ws-other", sec.Name))
+			assert.False(t, mirrored(t, cs, "ws-sandbox", sec.Name), "copies the selector made are reclaimed")
+			assert.False(t, mirrored(t, cs, "ws-old", sec.Name), "copies the selector made are reclaimed")
 			assert.True(t, mirrored(t, cs, "ws-listed", sec.Name), "the ids list still applies")
-			assert.True(t, mirrored(t, cs, "ws-old", sec.Name), "nothing is removed while the selector is rejected")
 			require.Len(t, recorder.Events, 1)
 			assert.Contains(t, <-recorder.Events, "InvalidWorkspaceSelector")
+			got := &corev1.Secret{}
+			require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(sec), got))
+			assert.NotEmpty(t, got.Annotations[v1.WorkspaceSelectorErrorAnnotation], "the reason is visible on the Secret")
+		})
+	}
+}
+
+// Fixing the selector clears the error annotation and mirrors again; positive operators pass.
+func TestValidSelectorClearsErrorAnnotation(t *testing.T) {
+	for _, selector := range []string{
+		sandboxSelector,
+		v1.WorkspaceSandboxScopeLabel + "==true",
+		v1.WorkspaceSandboxScopeLabel + " in (true)",
+		v1.WorkspaceSandboxScopeLabel,
+	} {
+		t.Run(selector, func(t *testing.T) {
+			cs := k8sfake.NewSimpleClientset()
+			sec := selectorSecret("extra-ca", selector, "")
+			sec.Annotations[v1.WorkspaceSelectorErrorAnnotation] = "stale"
+			r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"))
+			reconcileSecret(t, r, sec.Name)
+
+			assert.True(t, mirrored(t, cs, "ws-a", sec.Name))
+			got := &corev1.Secret{}
+			require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(sec), got))
+			_, has := got.Annotations[v1.WorkspaceSelectorErrorAnnotation]
+			assert.False(t, has)
 		})
 	}
 }

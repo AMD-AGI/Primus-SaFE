@@ -14,6 +14,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/kubernetes"
@@ -168,21 +169,29 @@ func (r *SecretReconciler) delete(ctx context.Context, secret *corev1.Secret) er
 func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Secret) (ctrlruntime.Result, error) {
 	workspaceIds := commonsecret.GetSecretWorkspaces(secret)
 	selected, selectorErr := r.selectWorkspaces(ctx, secret)
+	if selectorErr != nil && !isInvalidSelector(selectorErr) {
+		return ctrlruntime.Result{}, selectorErr
+	}
+	// An invalid selector selects nothing, exactly as an empty one does: the copies it made
+	// are reclaimed, because a selector that cannot be read must never keep a grant alive.
+	// The reason is written on the Secret, where the operator who edited it will look, and
+	// cleared once the selector is valid again.
+	var errs []error
+	if err := r.recordSelectorError(ctx, secret, selectorErr); err != nil {
+		errs = append(errs, err)
+	}
 	if selectorErr != nil {
-		if !isInvalidSelector(selectorErr) {
-			return ctrlruntime.Result{}, selectorErr
-		}
-		// Mirror nothing beyond the ids, and remove nothing either: until the selector is
-		// fixed there is no telling which of the copies it made are still wanted. Not an
-		// error, so not retried; editing the annotation brings the Secret back.
 		klog.ErrorS(selectorErr, "ignoring workspace selector", "secret", secret.Name)
 		if r.recorder != nil {
 			r.recorder.Event(secret, corev1.EventTypeWarning, "InvalidWorkspaceSelector", selectorErr.Error())
 		}
 	}
 	// If this secret is not bound to any workspace, remove mirrored copies (by label) in data planes
-	if len(workspaceIds) == 0 && len(selected) == 0 && selectorErr == nil {
-		return ctrlruntime.Result{}, r.cleanupMirroredSecrets(ctx, secret.Name, nil)
+	if len(workspaceIds) == 0 && len(selected) == 0 {
+		if err := r.cleanupMirroredSecrets(ctx, secret.Name, nil); err != nil {
+			errs = append(errs, err)
+		}
+		return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
 	}
 
 	explicit := sets.NewSetByKeys(workspaceIds...)
@@ -208,7 +217,6 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	// starve the others, so errors are collected and returned together at the end. A target
 	// that failed stays in the keep list below: its copy's state is unknown, so cleanup must
 	// not delete it.
-	var errs []error
 	for _, ws := range targets {
 		// Ensure the mirrored secret exists/updated in target namespace on data plane
 		clientSet, err := r.getClientSetOfDataplane(ctx, ws.Spec.Cluster)
@@ -237,9 +245,6 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	if err := r.updateClusterRefSecret(ctx, secret); err != nil {
 		errs = append(errs, err)
 	}
-	if selectorErr != nil {
-		return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
-	}
 	// Cleanup any mirrored copies in other workspaces
 	keep := append([]string{}, workspaceIds...)
 	for i := range selected {
@@ -249,6 +254,33 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 		errs = append(errs, err)
 	}
 	return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
+}
+
+// recordSelectorError writes the reason the Secret's selector was rejected into
+// WorkspaceSelectorErrorAnnotation, or removes the annotation when the selector is fine. A
+// write that changes nothing is skipped. The annotation is not one the predicates watch, so
+// writing it does not queue another reconcile.
+func (r *SecretReconciler) recordSelectorError(ctx context.Context, secret *corev1.Secret, selectorErr error) error {
+	want := ""
+	if selectorErr != nil {
+		want = selectorErr.Error()
+	}
+	if v1.GetAnnotation(secret, v1.WorkspaceSelectorErrorAnnotation) == want {
+		return nil
+	}
+	patch := client.MergeFrom(secret.DeepCopy())
+	if want == "" {
+		delete(secret.Annotations, v1.WorkspaceSelectorErrorAnnotation)
+	} else {
+		if secret.Annotations == nil {
+			secret.Annotations = map[string]string{}
+		}
+		secret.Annotations[v1.WorkspaceSelectorErrorAnnotation] = want
+	}
+	if err := r.Patch(ctx, secret, patch); err != nil {
+		return fmt.Errorf("record selector error on secret %s: %w", secret.Name, err)
+	}
+	return nil
 }
 
 type invalidSelectorError struct{ err error }
@@ -276,8 +308,16 @@ func parseWorkspaceSelector(secret *corev1.Secret) (labels.Selector, error) {
 	// A workspace creator may set any label outside the reserved prefix, so a selector on one
 	// would hand the Secret to whoever sets it. Only reserved labels, which the apiserver
 	// strips from non-admin requests, may be selected on.
+	// Only positive conditions are allowed: a negative one (!=, notin, !key) is true of a
+	// workspace that lacks the label, so a misspelt reserved key would select every workspace.
 	reqs, _ := selector.Requirements()
 	for _, req := range reqs {
+		switch req.Operator() {
+		case selection.Equals, selection.DoubleEquals, selection.In, selection.Exists:
+		default:
+			return nil, &invalidSelectorError{fmt.Errorf("annotation %s=%q uses operator %q on label %q; only =, ==, in and exists are allowed",
+				v1.WorkspaceSelectorAnnotation, raw, req.Operator(), req.Key())}
+		}
 		if !strings.HasPrefix(req.Key(), v1.PrimusSafePrefix) {
 			return nil, &invalidSelectorError{fmt.Errorf("annotation %s=%q selects on label %q, which is not under %s",
 				v1.WorkspaceSelectorAnnotation, raw, req.Key(), v1.PrimusSafePrefix)}

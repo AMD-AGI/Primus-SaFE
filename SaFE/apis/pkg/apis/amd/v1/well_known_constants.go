@@ -143,11 +143,16 @@ const (
 	// selector in kubectl -l syntax over Workspace labels. resource-manager mirrors the Secret
 	// into the namespace of every Workspace it matches, in addition to those listed in
 	// WorkspaceIdsAnnotation, and removes the copies it made once a Workspace stops matching.
-	// An empty or unparsable value selects nothing. Unlike the ids list it grants nothing:
+	// An empty value selects nothing. So does an invalid one (unparsable, a label outside
+	// PrimusSafePrefix, or a negative operator such as !=, notin or !key): the copies the
+	// selector made are removed, and WorkspaceSelectorErrorAnnotation records why. Unlike the ids list it grants nothing:
 	// checks that read WorkspaceIdsAnnotation as an authorisation do not read this.
 	// Select only on labels under PrimusSafePrefix: a workspace creator may set any other
 	// label, and so could pull the Secret into their own namespace.
 	WorkspaceSelectorAnnotation = WorkspacePrefix + "selector"
+	// WorkspaceSelectorErrorAnnotation is written by resource-manager on a Secret whose
+	// selector was rejected, with the reason, and removed once the selector is valid again.
+	WorkspaceSelectorErrorAnnotation = WorkspacePrefix + "selector.error"
 	// WorkspaceSandboxScopeLabel is derived from Spec.Scopes: "true" when the workspace accepts
 	// Sandbox workloads (no scopes, or Sandbox among them), absent otherwise. The workspace
 	// webhook sets it on each write and resource-manager sets it on workspaces that lack it,
@@ -187,13 +192,13 @@ const (
 	ExternalLeaseEndLabel       = ExternalExecutionPrefix + "lease-end"
 	ExternalLeaseEndLabelLegacy = ExternalExecutionPrefixLegacy + "lease-end"
 	// ExternalProvisioningRequestTaint is the booking taint key for ProvisioningRequest nodes.
-	ExternalProvisioningRequestTaint   = ExternalExecutionPrefix + "provisioning-request"
-	ExternalHostKeyAnnotation          = ExternalExecutionPrefix + "host-key"
-	ExternalHostKeyAnnotationLegacy    = ExternalExecutionPrefixLegacy + "host-key"
-	ExternalObservedAtAnnotation       = ExternalExecutionPrefix + "observed-at"
-	ExternalObservedAtAnnotationLegacy = ExternalExecutionPrefixLegacy + "observed-at"
-	ExternalValidUntilAnnotation       = ExternalExecutionPrefix + "valid-until"
-	ExternalValidUntilAnnotationLegacy = ExternalExecutionPrefixLegacy + "valid-until"
+	ExternalProvisioningRequestTaint        = ExternalExecutionPrefix + "provisioning-request"
+	ExternalHostKeyAnnotation               = ExternalExecutionPrefix + "host-key"
+	ExternalHostKeyAnnotationLegacy         = ExternalExecutionPrefixLegacy + "host-key"
+	ExternalObservedAtAnnotation            = ExternalExecutionPrefix + "observed-at"
+	ExternalObservedAtAnnotationLegacy      = ExternalExecutionPrefixLegacy + "observed-at"
+	ExternalValidUntilAnnotation            = ExternalExecutionPrefix + "valid-until"
+	ExternalValidUntilAnnotationLegacy      = ExternalExecutionPrefixLegacy + "valid-until"
 	ExternalAllocationPhaseAnnotation       = ExternalExecutionPrefix + "allocation-phase"
 	ExternalAllocationPhaseAnnotationLegacy = ExternalExecutionPrefixLegacy + "allocation-phase"
 	// ExternalBookingKeyMaxLen is the Kubernetes label/taint value limit. Autopilot
