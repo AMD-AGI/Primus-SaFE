@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -297,5 +299,93 @@ func TestExternalObjectKeyStableAndDistinct(t *testing.T) {
 	}
 	if externalObjectKey(a) != externalObjectKey(a) {
 		t.Fatal("key must be stable")
+	}
+}
+
+// opsJobDownloadWorkload has the shape the model download OpsJob gives its workload.
+func opsJobDownloadWorkload(scheduled bool) *v1.Workload {
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "download-m1",
+			Labels: map[string]string{
+				v1.ClusterIdLabel:   "c1",
+				v1.WorkspaceIdLabel: "ws-ext",
+				v1.OpsJobIdLabel:    "download-m1",
+				v1.OpsJobTypeLabel:  string(v1.OpsJobDownloadType),
+			},
+			Annotations: map[string]string{v1.DescriptionAnnotation: v1.OpsJobKind},
+		},
+		Spec: v1.WorkloadSpec{
+			Workspace: "ws-ext",
+			Images:    []string{"registry.example/downloader:v1"},
+			Resources: []v1.WorkloadResource{{
+				Replica: 1, CPU: "6", Memory: "8Gi", EphemeralStorage: "50Gi",
+			}},
+			GroupVersionKind: v1.GroupVersionKind{Version: common.DefaultVersion, Kind: common.JobKind},
+		},
+	}
+	if scheduled {
+		w.Annotations[v1.WorkloadScheduledAnnotation] = "2026-01-01T00:00:00Z"
+	}
+	return w
+}
+
+// TestScheduleOpsJobWorkloadOnExternalWorkspace: an OpsJob workload in an external
+// workspace gets its external execution state from the scheduler, the field the dispatcher
+// keys the virtual-kubelet toleration on. A workload created already scheduled is never
+// admitted, so it never gets that state.
+func TestScheduleOpsJobWorkloadOnExternalWorkspace(t *testing.T) {
+	budget := corev1.ResourceList{
+		corev1.ResourceCPU:              resource.MustParse("100"),
+		corev1.ResourceMemory:           resource.MustParse("100Gi"),
+		corev1.ResourceEphemeralStorage: resource.MustParse("1Ti"),
+	}
+	for _, tc := range []struct {
+		name      string
+		scheduled bool
+		wantState bool
+	}{
+		{name: "queued", scheduled: false, wantState: true},
+		{name: "created scheduled", scheduled: true, wantState: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := &v1.Workspace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "ws-ext",
+					Labels: map[string]string{v1.WorkspaceExternalLabel: v1.TrueStr},
+				},
+				Spec:   v1.WorkspaceSpec{Cluster: "c1"},
+				Status: v1.WorkspaceStatus{TotalResources: budget, AvailableResources: budget.DeepCopy()},
+			}
+			w := opsJobDownloadWorkload(tc.scheduled)
+			sch := runtime.NewScheme()
+			_ = v1.AddToScheme(sch)
+			cli := fake.NewClientBuilder().WithScheme(sch).
+				WithStatusSubresource(&v1.Workload{}, &v1.Workspace{}).WithObjects(ws, w).Build()
+			r := &SchedulerReconciler{Client: cli}
+
+			if err := r.scheduleWorkloads(context.Background(), &SchedulerMessage{
+				ClusterId: "c1", WorkspaceId: "ws-ext"}); err != nil {
+				t.Fatalf("schedule: %v", err)
+			}
+			stored := &v1.Workload{}
+			if err := cli.Get(context.Background(), client.ObjectKeyFromObject(w), stored); err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			state := stored.Status.ExternalExecution
+			if !tc.wantState {
+				if state != nil {
+					t.Fatalf("a workload created scheduled is not admitted, got %+v", state)
+				}
+				return
+			}
+			if state == nil || state.PlacementMode != v1.ExternalPlacementKubeScheduler ||
+				state.DispatchGeneration != 1 {
+				t.Fatalf("want kube-scheduler placement at generation 1, got %+v", state)
+			}
+			if !v1.IsWorkloadScheduled(stored) {
+				t.Fatal("admitted workload is not marked scheduled")
+			}
+		})
 	}
 }

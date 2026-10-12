@@ -210,3 +210,39 @@ func TestDownloadWorkloadCarriesModelId(t *testing.T) {
 	_, ok := wl.Labels[v1.ModelIdLabel]
 	assert.False(t, ok, "a job of no model labels no model")
 }
+
+// TestDownloadWorkloadQueuesOnExternalWorkspace: on an external workspace the download and
+// the cleanup workloads are left unscheduled, so the scheduler admits them on the external
+// path like any other workload there. On a native workspace they still skip the queue.
+func TestDownloadWorkloadQueuesOnExternalWorkspace(t *testing.T) {
+	cleanup := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "cleanup-m1-abc",
+			Labels: map[string]string{v1.WorkspaceIdLabel: "ws1", v1.ClusterIdLabel: "c1"},
+		},
+		Spec: v1.OpsJobSpec{
+			Type:   v1.OpsJobModelCleanupType,
+			Image:  pointer.String("alpine"),
+			Inputs: []v1.Parameter{{Name: v1.ParameterDestPath, Value: "/data/models/org--repo"}},
+		},
+	}
+	for _, job := range []*v1.OpsJob{downloadJob("j1"), cleanup} {
+		t.Run(string(job.Spec.Type), func(t *testing.T) {
+			external := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{
+				Name:   "ws1",
+				Labels: map[string]string{v1.WorkspaceExternalLabel: v1.TrueStr},
+			}}
+			r := &DownloadJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, external)}
+			wl, err := r.generateDownloadWorkload(context.Background(), job)
+			assert.NoError(t, err)
+			assert.False(t, v1.IsWorkloadScheduled(wl),
+				"an external workload must reach the scheduler, which records its external execution")
+
+			native := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+			r = &DownloadJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, native)}
+			wl, err = r.generateDownloadWorkload(context.Background(), job)
+			assert.NoError(t, err)
+			assert.True(t, v1.IsWorkloadScheduled(wl), "a native workload still skips the queue")
+		})
+	}
+}
