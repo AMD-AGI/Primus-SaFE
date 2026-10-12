@@ -23,7 +23,16 @@ higress-core:
     # Enable host network mode
     # Allows the gateway to bind directly to the host's network interface
     hostNetwork: true
-  
+
+    # CPU and memory for the gateway container. Requests match limits.
+    resources:
+      requests:
+        cpu: 2000m
+        memory: 16Gi
+      limits:
+        cpu: 2000m
+        memory: 16Gi
+
     # Service configuration
     service:
       # List of exposed ports
