@@ -1307,7 +1307,10 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 	activeDownloads := -1
 	waitingForSlot := false
 	// retryErr is returned once the status is saved, so that a download whose job could
-	// not be created for a passing reason is retried with the controller's backoff.
+	// not be created for a passing reason is retried with the controller's backoff. Every
+	// error after a job may have been deleted goes here: a finished job is deleted in this
+	// pass and its result lives only in the status, so returning before the status is
+	// saved would start the download again.
 	var retryErr error
 	// tryFailover records the workspaces it tried in an annotation, which the status
 	// update does not save.
@@ -1331,7 +1334,11 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 			if limit := commonconfig.GetModelMaxConcurrentDownloads(); limit > 0 {
 				if activeDownloads < 0 {
 					if activeDownloads, err = r.countActiveDownloads(ctx); err != nil {
-						return ctrl.Result{}, err
+						// Not returned at once: a job deleted earlier in this pass has
+						// its result only in the status, which must still be saved.
+						activeDownloads = -1
+						retryErr = stderrors.Join(retryErr, fmt.Errorf("count active downloads: %w", err))
+						continue
 					}
 				}
 				if activeDownloads >= limit {
@@ -1420,7 +1427,8 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 		}
 	}
 	if err := r.pruneDownloadTokens(ctx, model, keep); err != nil {
-		return ctrl.Result{}, err
+		// Returned once the status is saved, for the same reason.
+		retryErr = stderrors.Join(retryErr, err)
 	}
 
 	// Update status

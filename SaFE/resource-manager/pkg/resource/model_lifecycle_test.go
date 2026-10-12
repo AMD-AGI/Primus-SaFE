@@ -1358,3 +1358,75 @@ func TestModelJobNamesStayDistinctForLongNames(t *testing.T) {
 	assert.True(t, strings.HasPrefix(ws1, "download-"), ws1)
 	assert.True(t, strings.HasPrefix(c1, "cleanup-"), c1)
 }
+
+// TestModelDownloadSavesFinishedJobOnLaterError: a finished download job is deleted in
+// the pass that sees it finish, so its result lives only in the status. An error later
+// in the same pass (counting the running downloads, pruning the token copies) must not
+// lose that status, or the next pass finds no job and downloads the model again.
+func TestModelDownloadSavesFinishedJobOnLaterError(t *testing.T) {
+	ctx := context.Background()
+	for _, step := range []string{"count", "prune"} {
+		setViper(t, map[string]any{"s3.enable": false, "model.max_concurrent_downloads": 1})
+		model := lifecycleModel("m1")
+		model.Finalizers = []string{ModelFinalizer}
+		model.Spec.Source.Token = &corev1.LocalObjectReference{Name: "m1-token"}
+		model.Status.Phase = v1.ModelPhaseDownloading
+		model.Status.LocalPaths = []v1.ModelLocalPath{{Workspace: "ws1", Path: lifecyclePath, Status: v1.LocalPathStatusPending}}
+		if step == "count" {
+			// A second directory waits for a slot, so the pass that sees ws1 finish
+			// counts the running downloads.
+			model.Status.LocalPaths = append(model.Status.LocalPaths,
+				v1.ModelLocalPath{Workspace: "ws2", Path: "/other/models/org--repo", Status: v1.LocalPathStatusPending})
+		}
+		owned := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "m1-token", Namespace: common.PrimusSafeNamespace,
+				Labels: map[string]string{v1.ModelIdLabel: "m1"}},
+			Data: map[string][]byte{"token": []byte("hf_secret")},
+		}
+		fail := false
+		cl := fake.NewClientBuilder().WithScheme(lifecycleScheme(t)).
+			WithStatusSubresource(&v1.Model{}, &v1.OpsJob{}).
+			WithObjects(model, owned, lifecycleWorkspace("ws1", "c1", lifecycleRoot), lifecycleWorkspace("ws2", "c1", "/other")).
+			WithInterceptorFuncs(interceptor.Funcs{
+				List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+					if fail {
+						switch list.(type) {
+						case *v1.OpsJobList:
+							if step == "count" {
+								return errors.NewServiceUnavailable("etcd leader changed")
+							}
+						case *corev1.SecretList:
+							if step == "prune" {
+								return errors.NewServiceUnavailable("etcd leader changed")
+							}
+						}
+					}
+					return c.List(ctx, list, opts...)
+				},
+			}).Build()
+		r := newMockModelReconciler(cl)
+		r.apiReader = cl
+
+		reconcileModel(t, r, "m1") // ws1 starts; ws2, if any, waits for the slot
+		downloads := listOpsJobs(t, cl, v1.OpsJobDownloadType)
+		require.Len(t, downloads, 1, step)
+		require.Equal(t, downloadJobName(model, "ws1"), downloads[0].Name, step)
+		setOpsJobPhase(t, cl, downloads[0].Name, v1.OpsJobSucceeded)
+
+		fail = true
+		_, err := r.Reconcile(ctx, reconcileReq("m1"))
+		require.Error(t, err, "%s: the error is retried with backoff", step)
+		fail = false
+		require.Empty(t, listOpsJobs(t, cl, v1.OpsJobDownloadType), "%s: the finished job is deleted", step)
+		m := getModel(t, cl, "m1")
+		assert.Equal(t, v1.LocalPathStatusReady, m.Status.LocalPaths[0].Status, "%s: %s", step, m.Status.LocalPaths[0].Message)
+		assert.Equal(t, v1.ModelPhaseReady, m.Status.Phase, step)
+
+		// The retry does not download ws1 again.
+		_, _ = r.Reconcile(ctx, reconcileReq("m1"))
+		for _, job := range listOpsJobs(t, cl, v1.OpsJobDownloadType) {
+			assert.NotEqual(t, downloadJobName(model, "ws1"), job.Name, "%s: ws1 is downloaded again", step)
+		}
+		assert.Equal(t, v1.LocalPathStatusReady, getModel(t, cl, "m1").Status.LocalPaths[0].Status, step)
+	}
+}
