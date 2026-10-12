@@ -6,8 +6,6 @@
 package syncer
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"sort"
@@ -34,6 +32,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	commonopsjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -1272,7 +1271,7 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 }
 
 // getPodLog retrieves and filters logs from a pod's main container.
-// Extracts lines containing ERROR or SUCCESS markers for OpsJob workloads.
+// Keeps only the lines carrying the [ERROR] or [SUCCESS] markers, see FilterResultLog.
 func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod, mainContainerName string) string {
 	var tailLine int64 = LogTailLines
 	opt := &corev1.PodLogOptions{
@@ -1285,22 +1284,7 @@ func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.
 		return ""
 	}
 
-	// Scanner and bytes.Reader do not require explicit closing
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	var lines []string
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.Contains(line, "[ERROR]") || strings.Contains(line, "[SUCCESS]") {
-			lines = append(lines, line)
-		}
-	}
-	if err = scanner.Err(); err != nil {
-		klog.ErrorS(err, "failed to read pod log lines")
-	}
-	if len(lines) == 0 {
-		return ""
-	}
-	return string(jsonutils.MarshalSilently(lines))
+	return commonopsjob.FilterResultLog(data)
 }
 
 // sortWorkloadPods sorts workload pods by host IP and pod ID to maintain consistent ordering.

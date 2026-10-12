@@ -6,7 +6,9 @@
 package v1
 
 import (
+	"path"
 	"strings"
+	"unicode"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -109,8 +111,10 @@ type (
 		// MountPath (or HostPath when MountPath is empty). If empty, the controller uses
 		// the workspace's first PFS volume (or first volume).
 		TargetVolume string `json:"targetVolume,omitempty"`
-		// TargetSubpath is an optional sub-directory under "<volume>/models/<safe-name>"
-		// to keep multiple imports of the same model separated. Empty = default layout.
+		// TargetSubpath is an optional sub-directory of the volume that holds the model
+		// directory. The layout is "<volume>/<subpath>/models/<dir>", or
+		// "<volume>/<subpath>/<dir>" when the subpath already contains a "models"
+		// segment. Empty = "<volume>/models/<dir>".
 		TargetSubpath string `json:"targetSubpath,omitempty"`
 	}
 
@@ -147,6 +151,15 @@ type (
 		Status LocalPathStatus `json:"status"`
 		// Message contains additional status information
 		Message string `json:"message,omitempty"`
+		// SizeBytes is the on-disk size of the downloaded files, reported by the download
+		// job when it finishes. Zero means the size was not reported.
+		SizeBytes int64 `json:"sizeBytes,omitempty"`
+		// CleanupFailures counts the failed attempts to remove this directory while the
+		// model is being deleted. It drives the retry backoff and, past a threshold,
+		// the request for an administrator to step in.
+		CleanupFailures int32 `json:"cleanupFailures,omitempty"`
+		// LastCleanupFailureTime is when the last attempt to remove this directory failed.
+		LastCleanupFailureTime *metav1.Time `json:"lastCleanupFailureTime,omitempty"`
 	}
 
 	// ModelStatus defines the observed state of Model
@@ -276,4 +289,109 @@ func (m *Model) GetReadyWorkspaces() []string {
 		}
 	}
 	return workspaces
+}
+
+// GetHFRepoID returns the HuggingFace repository ID of a local model, "owner/name" or a
+// single-segment canonical ID such as "gpt2", or "" when the source URL is not a
+// HuggingFace model repository reference.
+func (m *Model) GetHFRepoID() string {
+	url := strings.TrimSuffix(strings.TrimSpace(m.Spec.Source.URL), "/")
+	if idx := strings.Index(url, "huggingface.co/"); idx >= 0 {
+		url = url[idx+len("huggingface.co/"):]
+	} else if strings.Contains(url, "://") {
+		return ""
+	}
+	parts := strings.Split(url, "/")
+	for _, part := range parts {
+		if !isHFRepoSegment(part) {
+			return ""
+		}
+	}
+	switch {
+	case len(parts) == 1 && !hfReservedPaths[strings.ToLower(parts[0])]:
+		return parts[0]
+	case len(parts) == 2 && !hfReservedPaths[strings.ToLower(parts[0])]:
+		return parts[0] + "/" + parts[1]
+	}
+	return ""
+}
+
+// hfReservedPaths are top-level HuggingFace URL paths that are not model owners or
+// canonical models: "huggingface.co/datasets/x/y" is a dataset, not a model of "datasets".
+var hfReservedPaths = map[string]bool{
+	"datasets": true, "spaces": true, "models": true, "docs": true, "api": true,
+	"organizations": true, "settings": true, "collections": true, "papers": true,
+	"blog": true, "learn": true, "join": true, "login": true, "new": true,
+}
+
+// isHFRepoSegment reports whether s is a valid owner or name segment of a HuggingFace
+// repository ID. HuggingFace forbids "--" and ".." inside a segment, which is what makes
+// "<owner>--<name>" an unambiguous directory name.
+func isHFRepoSegment(s string) bool {
+	if s == "" || len(s) > 96 || strings.Contains(s, "--") || strings.Contains(s, "..") {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '-' || r == '_' || r == '.':
+		default:
+			return false
+		}
+	}
+	return s[0] != '.' && s[0] != '-'
+}
+
+// GetLocalDirName returns the directory name a local model is stored under.
+// HuggingFace models use "<owner>--<name>" for "owner/name" and the bare name for a
+// single-segment canonical repository ("gpt2"). Neither can collide with another
+// repository: a segment never contains "--", so a single-segment name is never equal
+// to an "<owner>--<name>" one. Other sources fall back to the sanitized display name,
+// and get "" when that is not a safe directory name (see IsSafeLocalDirName): such a
+// model has no directory and must not be downloaded.
+func (m *Model) GetLocalDirName() string {
+	if repo := m.GetHFRepoID(); repo != "" {
+		return strings.Replace(repo, "/", "--", 1)
+	}
+	if name := m.GetSafeDisplayName(); IsSafeLocalDirName(name) {
+		return name
+	}
+	return ""
+}
+
+// maxLocalDirNameBytes is the longest directory name most filesystems accept.
+const maxLocalDirNameBytes = 255
+
+// IsSafeLocalDirName reports whether name can be used as a model directory name: one
+// path segment of letters, digits, '.', '-' and '_', that is neither "." nor "..".
+// Anything else could escape the models directory (".." puts the files at the volume
+// root, where the cleanup refuses to remove them) or reach a shell unquoted.
+func IsSafeLocalDirName(name string) bool {
+	if name == "" || name == "." || name == ".." || len(name) > maxLocalDirNameBytes {
+		return false
+	}
+	for _, r := range name {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '.' && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// BuildModelLocalPath assembles the local directory of a model under a volume root:
+// "<root>/[subpath/]models/<dir>", or "<root>/<subpath>/<dir>" when the subpath already
+// contains a "models" segment. Every model directory therefore sits below a "models"
+// segment, which the cleanup path checks rely on.
+func BuildModelLocalPath(root, subpath, dir string) string {
+	root = strings.TrimRight(root, "/")
+	subpath = strings.Trim(path.Clean("/"+subpath), "/")
+	if subpath == "" {
+		return root + "/models/" + dir
+	}
+	for _, seg := range strings.Split(subpath, "/") {
+		if seg == "models" {
+			return root + "/" + subpath + "/" + dir
+		}
+	}
+	return root + "/" + subpath + "/models/" + dir
 }

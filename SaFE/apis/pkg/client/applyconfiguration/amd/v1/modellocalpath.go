@@ -8,6 +8,7 @@ package v1
 
 import (
 	amdv1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ModelLocalPathApplyConfiguration represents a declarative configuration of the ModelLocalPath type for use
@@ -23,6 +24,15 @@ type ModelLocalPathApplyConfiguration struct {
 	Status *amdv1.LocalPathStatus `json:"status,omitempty"`
 	// Message contains additional status information
 	Message *string `json:"message,omitempty"`
+	// SizeBytes is the on-disk size of the downloaded files, reported by the download
+	// job when it finishes. Zero means the size was not reported.
+	SizeBytes *int64 `json:"sizeBytes,omitempty"`
+	// CleanupFailures counts the failed attempts to remove this directory while the
+	// model is being deleted. It drives the retry backoff and, past a threshold,
+	// the request for an administrator to step in.
+	CleanupFailures *int32 `json:"cleanupFailures,omitempty"`
+	// LastCleanupFailureTime is when the last attempt to remove this directory failed.
+	LastCleanupFailureTime *metav1.Time `json:"lastCleanupFailureTime,omitempty"`
 }
 
 // ModelLocalPathApplyConfiguration constructs a declarative configuration of the ModelLocalPath type for use with
@@ -60,5 +70,29 @@ func (b *ModelLocalPathApplyConfiguration) WithStatus(value amdv1.LocalPathStatu
 // If called multiple times, the Message field is set to the value of the last call.
 func (b *ModelLocalPathApplyConfiguration) WithMessage(value string) *ModelLocalPathApplyConfiguration {
 	b.Message = &value
+	return b
+}
+
+// WithSizeBytes sets the SizeBytes field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SizeBytes field is set to the value of the last call.
+func (b *ModelLocalPathApplyConfiguration) WithSizeBytes(value int64) *ModelLocalPathApplyConfiguration {
+	b.SizeBytes = &value
+	return b
+}
+
+// WithCleanupFailures sets the CleanupFailures field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CleanupFailures field is set to the value of the last call.
+func (b *ModelLocalPathApplyConfiguration) WithCleanupFailures(value int32) *ModelLocalPathApplyConfiguration {
+	b.CleanupFailures = &value
+	return b
+}
+
+// WithLastCleanupFailureTime sets the LastCleanupFailureTime field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LastCleanupFailureTime field is set to the value of the last call.
+func (b *ModelLocalPathApplyConfiguration) WithLastCleanupFailureTime(value metav1.Time) *ModelLocalPathApplyConfiguration {
+	b.LastCleanupFailureTime = &value
 	return b
 }

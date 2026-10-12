@@ -1,0 +1,309 @@
+/*
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
+package resource
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonopsjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
+)
+
+// stubHFCLI stands in for the HuggingFace CLI. It "downloads" every file of the
+// repository listed in $STUB_FILES that matches one of the --include patterns, writing
+// the file's own name as its content, and logs the patterns it was asked for. It reads
+// both the huggingface-cli form (--include a b c) and the hf form (--include a --include b).
+const stubHFCLI = `#!/bin/sh
+set -f
+shift
+repo=$1; shift
+inc=""; mode=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --local-dir) dir=$2; mode=""; shift 2 ;;
+    --include) mode=inc; shift ;;
+    --exclude) mode=exc; shift ;;
+    *) [ "$mode" = inc ] && inc="$inc $1"; shift ;;
+  esac
+done
+echo "fetch $repo:$inc" >> "$STUB_LOG"
+[ "${STUB_FAIL:-}" = 1 ] && exit 7
+for f in $STUB_FILES; do
+  for p in $inc; do
+    case "$f" in
+      $p) mkdir -p "$dir/$(dirname "$f")"
+          if [ "${STUB_LINK:-}" = 1 ]; then
+            blob="$dir/.cache/blobs/$(echo "$f" | tr / _)"
+            mkdir -p "$dir/.cache/blobs"; printf '%s' "$f" > "$blob"; ln -sf "$blob" "$dir/$f"
+          else
+            printf '%s' "$f" > "$dir/$f"
+          fi
+          break ;;
+    esac
+  done
+done
+exit 0
+`
+
+type scriptRun struct {
+	out   string
+	ok    bool
+	dest  string
+	fetch string
+}
+
+// runHFDownloadScript runs hfDownloadScript with the stub CLI installed as cli against
+// a repository holding files.
+func runHFDownloadScript(t *testing.T, cli string, files []string, fail bool, env ...string) scriptRun {
+	t.Helper()
+	for _, name := range []string{"hf", "huggingface-cli"} {
+		if p, err := exec.LookPath(name); err == nil {
+			t.Skipf("a real %s is installed at %s", name, p)
+		}
+	}
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "bin")
+	require.NoError(t, os.MkdirAll(bin, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bin, cli), []byte(stubHFCLI), 0o755))
+	dest := filepath.Join(tmp, "models", "org--repo")
+	log := filepath.Join(tmp, "fetch.log")
+
+	cmd := exec.Command("sh", "-c", hfDownloadScript)
+	cmd.Env = append(os.Environ(),
+		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"HF_REPO_ID=org/repo", "DEST_PATH="+dest, "STUB_LOG="+log,
+		"STUB_FILES="+strings.Join(files, " "))
+	if fail {
+		cmd.Env = append(cmd.Env, "STUB_FAIL=1")
+	}
+	cmd.Env = append(cmd.Env, env...)
+	out, err := cmd.CombinedOutput()
+	fetched, _ := os.ReadFile(log)
+	return scriptRun{out: string(out), ok: err == nil, dest: dest, fetch: string(fetched)}
+}
+
+// downloadOutputs turns what the download printed into the outputs of its OpsJob the
+// way the platform does: the job-manager keeps the marked lines of the pod log, and the
+// OpsJob controller stores them as the "result" output and the completion message.
+func downloadOutputs(log string, succeeded bool) *v1.OpsJob {
+	kept := commonopsjob.FilterResultLog([]byte(log))
+	job := &v1.OpsJob{Status: v1.OpsJobStatus{Phase: v1.OpsJobSucceeded}}
+	if kept != "" {
+		job.Status.Outputs = []v1.Parameter{{Name: "result", Value: kept}}
+	}
+	if !succeeded {
+		job.Status.Phase = v1.OpsJobFailed
+		job.Status.Conditions = []metav1.Condition{{Type: opsJobCompletedCondition, Status: metav1.ConditionFalse,
+			Reason: opsJobFailedReason, Message: kept}}
+	}
+	return job
+}
+
+func dirSize(t *testing.T, root string) int64 {
+	t.Helper()
+	out, err := exec.Command("du", "-sb", "--exclude=.cache", root).Output()
+	require.NoError(t, err)
+	size, err := strconv.ParseInt(strings.Fields(string(out))[0], 10, 64)
+	require.NoError(t, err)
+	return size
+}
+
+// TestHFDownloadScriptWeights runs the real download script: safetensors are preferred,
+// a repository without them gets its PyTorch weights, and one with neither fails with
+// the reason instead of reporting a model without weights as downloaded.
+func TestHFDownloadScriptWeights(t *testing.T) {
+	support := []string{"config.json", "tokenizer.json", "tokenizer_config.json"}
+	for _, cli := range []string{"hf", "huggingface-cli"} {
+		t.Run(cli+"/safetensors", func(t *testing.T) {
+			run := runHFDownloadScript(t, cli, append([]string{"model.safetensors", "pytorch_model.bin", "tf_model.h5"}, support...), false)
+			require.True(t, run.ok, run.out)
+			assert.FileExists(t, filepath.Join(run.dest, "model.safetensors"))
+			assert.FileExists(t, filepath.Join(run.dest, "config.json"))
+			assert.NoFileExists(t, filepath.Join(run.dest, "pytorch_model.bin"), "a second copy of the weights is not fetched")
+			assert.NoFileExists(t, filepath.Join(run.dest, "tf_model.h5"))
+			assert.Equal(t, 1, strings.Count(run.fetch, "fetch "), run.fetch)
+		})
+		t.Run(cli+"/pytorch-only", func(t *testing.T) {
+			// e.g. EleutherAI/gpt-j-6b: PyTorch and TensorFlow weights, no safetensors.
+			run := runHFDownloadScript(t, cli, append([]string{"pytorch_model.bin", "tf_model.h5", "flax_model.msgpack"}, support...), false)
+			require.True(t, run.ok, run.out)
+			assert.FileExists(t, filepath.Join(run.dest, "pytorch_model.bin"))
+			assert.FileExists(t, filepath.Join(run.dest, "config.json"))
+			assert.NoFileExists(t, filepath.Join(run.dest, "tf_model.h5"))
+			assert.Contains(t, run.fetch, "*.bin")
+		})
+		t.Run(cli+"/no-weights", func(t *testing.T) {
+			run := runHFDownloadScript(t, cli, append([]string{"model-q4_k_m.gguf", "tf_model.h5"}, support...), false)
+			require.False(t, run.ok, "a download without weights must fail: %s", run.out)
+			assert.NoFileExists(t, filepath.Join(run.dest, "model-q4_k_m.gguf"), "GGUF quantizations are not fetched")
+		})
+	}
+}
+
+// TestHFDownloadScriptSymlinkedWeights: a CLI that lays out --local-dir as symbolic
+// links into its cache still produces a downloaded model, not a missing-weights failure.
+func TestHFDownloadScriptSymlinkedWeights(t *testing.T) {
+	run := runHFDownloadScript(t, "hf", []string{"model.safetensors", "config.json"}, false, "STUB_LINK=1")
+	require.True(t, run.ok, run.out)
+	fi, err := os.Lstat(filepath.Join(run.dest, "model.safetensors"))
+	require.NoError(t, err)
+	require.NotZero(t, fi.Mode()&os.ModeSymlink, "the stub laid the weights out as a link")
+	assert.Equal(t, 1, strings.Count(run.fetch, "fetch "), run.fetch)
+
+	run = runHFDownloadScript(t, "hf", []string{"pytorch_model.bin", "config.json"}, false, "STUB_LINK=1")
+	require.True(t, run.ok, run.out)
+	assert.Contains(t, run.fetch, "*.bin")
+}
+
+// TestHFDownloadScriptSizeReachesModel follows the size from the real script's log,
+// through the job-manager log filter, into the OpsJob outputs and the model's sizeBytes.
+func TestHFDownloadScriptSizeReachesModel(t *testing.T) {
+	run := runHFDownloadScript(t, "hf", []string{"model.safetensors", "config.json"}, false)
+	require.True(t, run.ok, run.out)
+	want := dirSize(t, run.dest)
+	require.Positive(t, want)
+	job := downloadOutputs(run.out, true)
+	assert.Equal(t, want, reportedModelSize(job), "log: %s", run.out)
+}
+
+// TestHFDownloadScriptFailureReachesModel: why a download failed reaches the model.
+func TestHFDownloadScriptFailureReachesModel(t *testing.T) {
+	r := newMockModelReconciler(nil)
+
+	run := runHFDownloadScript(t, "hf", []string{"model-q4_k_m.gguf", "config.json"}, false)
+	require.False(t, run.ok)
+	reason := r.extractOpsJobFailureReason(downloadOutputs(run.out, false))
+	assert.Contains(t, reason, "has no safetensors or PyTorch")
+	assert.Contains(t, reason, "org/repo")
+
+	run = runHFDownloadScript(t, "hf", []string{"model.safetensors"}, true)
+	require.False(t, run.ok)
+	assert.Contains(t, r.extractOpsJobFailureReason(downloadOutputs(run.out, false)), "downloading org/repo failed")
+}
+
+// runCleanupScript runs modelCleanupScript on dest; a non-empty rmStub replaces rm.
+func runCleanupScript(t *testing.T, root, dest, rmStub string) (string, bool) {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", modelCleanupScript)
+	cmd.Env = append(os.Environ(), "DEST_PATH="+dest, "VOLUME_ROOT="+root)
+	if rmStub != "" {
+		bin := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(bin, "rm"), []byte("#!/bin/sh\n"+rmStub), 0o755))
+		cmd.Env = append(cmd.Env, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	out, err := cmd.CombinedOutput()
+	return string(out), err == nil
+}
+
+// TestModelCleanupScriptFailureReachesModel runs the real cleanup script and follows why
+// it failed through the job-manager log filter and the OpsJob failure condition into the
+// reason the model shows: every failure carries its cause, never "unknown".
+func TestModelCleanupScriptFailureReachesModel(t *testing.T) {
+	r := newMockModelReconciler(nil)
+	reason := func(log string) string {
+		job := &v1.OpsJob{Status: v1.OpsJobStatus{Phase: v1.OpsJobFailed,
+			Conditions: []metav1.Condition{failedJobCondition(log)}}}
+		return r.extractOpsJobFailureReason(job)
+	}
+
+	root := t.TempDir()
+	dest := filepath.Join(root, "models", "org--repo")
+	require.NoError(t, os.MkdirAll(filepath.Join(dest, "sub"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dest, "sub", "w.safetensors"), []byte("x"), 0o644))
+	out, ok := runCleanupScript(t, root, dest, "")
+	require.True(t, ok, out)
+	assert.NoDirExists(t, dest)
+
+	out, ok = runCleanupScript(t, root, filepath.Join(root, "data"), "")
+	require.False(t, ok, out)
+	assert.Contains(t, reason(out), "not a model directory")
+
+	require.NoError(t, os.MkdirAll(dest, 0o755))
+	out, ok = runCleanupScript(t, root, dest, `echo "rm: cannot remove '$3/w': Permission denied" >&2; exit 1`)
+	require.False(t, ok, out)
+	assert.Contains(t, reason(out), "Permission denied")
+	assert.Contains(t, reason(out), "removing "+dest+" failed")
+
+	out, ok = runCleanupScript(t, root, dest, "exit 0")
+	require.False(t, ok, out)
+	assert.Contains(t, reason(out), "still exists after removal")
+}
+
+// TestModelCleanupScriptAgreesWithController: the script repeats the controller's path
+// check against the volume root the controller found, so the two accept exactly the same
+// directories, a volume mounted at "/" included. rm is a stub that only records what it
+// was asked to remove; nothing on the host is touched.
+func TestModelCleanupScriptAgreesWithController(t *testing.T) {
+	cases := []struct {
+		mount, path string
+		ok          bool
+	}{
+		{"/", "/models/rv-cleanup-x", true},
+		{"/", "/team/models/hf/rv-cleanup-x", true},
+		{"/", "/", false},
+		{"/", "/models", false},
+		{"/data", "/data/models/rv-cleanup-x", true},
+		{"/data/", "/data/models/rv-cleanup-x", true},
+		{"/data", "/data/team/models/hf/rv-cleanup-x", true},
+		{"/data", "/data", false},
+		{"/data", "/data/models", false},
+		{"/data", "/data/rv-cleanup-x", false},
+		{"/data", "/other/models/rv-cleanup-x", false},
+		{"/data", "/datax/models/rv-cleanup-x", false},
+		{"/data", "/data/models/../rv-cleanup-x", false},
+		{"/data", "/data/models/./rv-cleanup-x", false},
+		{"/data", "/data//models/rv-cleanup-x", false},
+		{"/data", "/data/models/rv-cleanup-x/", false},
+		{"/data", "/data/models/..", false},
+		{"/data", "data/models/rv-cleanup-x", false},
+		{"/models", "/models/rv-cleanup-x", true},
+	}
+	for _, tc := range cases {
+		ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+			Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{{MountPath: tc.mount}}}}
+		goErr := validateCleanupPath(ws, tc.path)
+		assert.Equal(t, tc.ok, goErr == nil, "controller on %s in %s: %v", tc.path, tc.mount, goErr)
+
+		bin := t.TempDir()
+		log := filepath.Join(bin, "rm.log")
+		require.NoError(t, os.WriteFile(filepath.Join(bin, "rm"),
+			[]byte("#!/bin/sh\necho \"$@\" >> "+log+"\n"), 0o755))
+		cmd := exec.Command("sh", "-c", modelCleanupScript)
+		cmd.Env = append(os.Environ(), "DEST_PATH="+tc.path, "VOLUME_ROOT="+volumeRootOf(ws, tc.path),
+			"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		out, err := cmd.CombinedOutput()
+		assert.Equal(t, tc.ok, err == nil, "script on %s in %s: %s", tc.path, tc.mount, out)
+		removed, _ := os.ReadFile(log)
+		if tc.ok {
+			assert.Equal(t, "-rf -- "+tc.path+"\n", string(removed))
+		} else {
+			assert.Empty(t, string(removed), "nothing is removed for %s", tc.path)
+			assert.Contains(t, commonopsjob.FilterResultLog(out), "refusing to remove")
+		}
+	}
+
+	// The script checks the volume itself, not only what the controller passed.
+	for _, env := range [][]string{
+		{"DEST_PATH=/other/models/rv-cleanup-x", "VOLUME_ROOT=/data"},
+		{"DEST_PATH=/data/models/rv-cleanup-x"},
+		{"DEST_PATH=/data", "VOLUME_ROOT=/data"},
+	} {
+		cmd := exec.Command("sh", "-c", "rm() { echo removed; }\n"+modelCleanupScript)
+		cmd.Env = append(os.Environ(), env...)
+		out, err := cmd.CombinedOutput()
+		assert.Error(t, err, "%v: %s", env, out)
+		assert.NotContains(t, string(out), "removed")
+	}
+}

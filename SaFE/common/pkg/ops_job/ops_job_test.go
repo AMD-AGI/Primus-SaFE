@@ -46,3 +46,10 @@ func TestGetRequiredParameter(t *testing.T) {
 	_, err = GetRequiredParameter(job, "missing")
 	assert.Error(t, err)
 }
+
+func TestFilterResultLog(t *testing.T) {
+	log := "Downloading org/repo\nprogress 50%\n[SUCCESS] MODEL_SIZE_BYTES=42\n[ERROR] something\n"
+	assert.Equal(t, `["[SUCCESS] MODEL_SIZE_BYTES=42","[ERROR] something"]`, FilterResultLog([]byte(log)))
+	assert.Equal(t, "", FilterResultLog([]byte("MODEL_SIZE_BYTES=42\n")), "unmarked lines are dropped")
+	assert.Equal(t, "", FilterResultLog(nil))
+}

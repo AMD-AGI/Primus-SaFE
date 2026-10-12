@@ -77,13 +77,21 @@ func (r *DownloadJobReconciler) handleWorkloadEvent() handler.EventHandler {
 	}
 }
 
-// isDownloadWorkload checks if a workload is a download job workload.
+// isDownloadWorkload checks if a workload belongs to a download or model-cleanup job.
 func isDownloadWorkload(workload *v1.Workload) bool {
-	if v1.GetOpsJobId(workload) != "" &&
-		v1.GetOpsJobType(workload) == string(v1.OpsJobDownloadType) {
-		return true
+	if v1.GetOpsJobId(workload) == "" {
+		return false
 	}
-	return false
+	jobType := v1.GetOpsJobType(workload)
+	return jobType == string(v1.OpsJobDownloadType) || jobType == string(v1.OpsJobModelCleanupType)
+}
+
+// isModelOwned reports whether the job is controlled by a Model. Only those jobs may
+// carry their own entry point; jobs created through the API always run the image's
+// default command.
+func isModelOwned(job *v1.OpsJob) bool {
+	owner := metav1.GetControllerOf(job)
+	return owner != nil && owner.Kind == v1.ModelKind
 }
 
 // Reconcile is the main control loop for DownloadJob resources.
@@ -104,7 +112,7 @@ func (r *DownloadJobReconciler) observe(_ context.Context, job *v1.OpsJob) (bool
 
 // filter determines if the job should be processed by this download job reconciler.
 func (r *DownloadJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
-	return job.Spec.Type != v1.OpsJobDownloadType
+	return job.Spec.Type != v1.OpsJobDownloadType && job.Spec.Type != v1.OpsJobModelCleanupType
 }
 
 // handle processes the download job by creating a corresponding workload.
@@ -135,7 +143,8 @@ func (r *DownloadJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctr
 	return ctrlruntime.Result{}, nil
 }
 
-// generateDownloadWorkload generates a download workload based on the job specification.
+// generateDownloadWorkload generates the workload of a download or model-cleanup job.
+// The workload runs in the job's workspace, so the workspace volumes are mounted.
 func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, job *v1.OpsJob) (*v1.Workload, error) {
 	workspaceId := v1.GetWorkspaceId(job)
 	if workspaceId == "" {
@@ -145,17 +154,30 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 	if err := r.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err != nil {
 		return nil, err
 	}
-	secretParam, err := commonjob.GetRequiredParameter(job, v1.ParameterSecret)
-	if err != nil {
-		return nil, err
-	}
-	inputUrl, err := commonjob.GetRequiredParameter(job, v1.ParameterEndpoint)
-	if err != nil {
-		return nil, err
-	}
 	destPath, err := commonjob.GetRequiredParameter(job, v1.ParameterDestPath)
 	if err != nil {
 		return nil, err
+	}
+	// INPUT_URL is what a download fetches; a cleanup has nothing to fetch.
+	var inputUrl *v1.Parameter
+	if job.Spec.Type == v1.OpsJobDownloadType {
+		if inputUrl, err = commonjob.GetRequiredParameter(job, v1.ParameterEndpoint); err != nil {
+			return nil, err
+		}
+	}
+	// SECRET is optional: a public HuggingFace model needs no credential.
+	secretParam := job.GetParameter(v1.ParameterSecret)
+	if secretParam != nil && secretParam.Value == "" {
+		secretParam = nil
+	}
+	resource := v1.WorkloadResource{
+		Replica:          1,
+		CPU:              "6",
+		Memory:           "8Gi",
+		EphemeralStorage: "50Gi",
+	}
+	if job.Spec.Type == v1.OpsJobModelCleanupType {
+		resource = v1.WorkloadResource{Replica: 1, CPU: "1", Memory: "1Gi", EphemeralStorage: "1Gi"}
 	}
 
 	workload := &v1.Workload{
@@ -175,12 +197,7 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Resources: []v1.WorkloadResource{{
-				Replica:          1,
-				CPU:              "6",
-				Memory:           "8Gi",
-				EphemeralStorage: "50Gi",
-			}},
+			Resources: []v1.WorkloadResource{resource},
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: common.DefaultVersion,
 				Kind:    common.JobKind,
@@ -189,6 +206,11 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 			Images:    []string{*job.Spec.Image},
 			Env:       job.Spec.Env,
 		},
+	}
+	// The model a job works for is carried onto its workload, so the model can find
+	// every workload that may still write into its directories, in any workspace.
+	if modelId := job.GetLabels()[v1.ModelIdLabel]; modelId != "" {
+		workload.Labels[v1.ModelIdLabel] = modelId
 	}
 	if err = controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
 		return nil, err
@@ -202,15 +224,22 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 	if len(workload.Spec.Env) == 0 {
 		workload.Spec.Env = make(map[string]string)
 	}
-	workload.Spec.Env["INPUT_URL"] = inputUrl.Value
+	if inputUrl != nil {
+		workload.Spec.Env["INPUT_URL"] = inputUrl.Value
+	}
 	workload.Spec.Env["DEST_PATH"] = destPath.Value
-	workload.Spec.Env["SECRET_PATH"] = common.SecretPath + "/" + secretParam.Value
-	// #region agent log - Hypothesis B/C: Check final env vars for download workload
-	klog.InfoS("[DEBUG] download_job_controller: Workload env vars set", "jobName", job.Name, "INPUT_URL", inputUrl.Value, "DEST_PATH", workload.Spec.Env["DEST_PATH"], "SECRET_PATH", workload.Spec.Env["SECRET_PATH"], "hypothesisId", "B/C")
-	// #endregion
-	workload.Spec.Secrets = []v1.SecretEntity{{
-		Id:   secretParam.Value,
-		Type: v1.SecretGeneral,
-	}}
+	if secretParam != nil {
+		workload.Spec.Env["SECRET_PATH"] = common.SecretPath + "/" + secretParam.Value
+		workload.Spec.Secrets = []v1.SecretEntity{{
+			Id:   secretParam.Value,
+			Type: v1.SecretGeneral,
+		}}
+	}
+	if job.Spec.EntryPoint != nil && *job.Spec.EntryPoint != "" {
+		if !isModelOwned(job) {
+			return nil, commonerrors.NewBadRequest("only jobs created by a model may set an entry point")
+		}
+		workload.Spec.EntryPoints = []string{*job.Spec.EntryPoint}
+	}
 	return workload, nil
 }
