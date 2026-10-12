@@ -87,10 +87,14 @@ func (relevantChangePredicate) Create(e event.CreateEvent) bool {
 	if !ok {
 		return false
 	}
-	if secret.Namespace != common.PrimusSafeNamespace || !hasMirrorTargets(secret) {
+	if secret.Namespace != common.PrimusSafeNamespace {
 		return false
 	}
-	return true
+	// A Secret carrying our finalizer, or already being deleted, needs a reconcile even with no
+	// annotation left (they were removed while the controller was down): it is what removes the
+	// copies and releases the finalizer.
+	return hasMirrorTargets(secret) || controllerutil.ContainsFinalizer(secret, v1.SecretFinalizer) ||
+		!secret.GetDeletionTimestamp().IsZero()
 }
 
 // hasMirrorTargets reports whether the Secret names any workspace to mirror into, by id or by
@@ -269,9 +273,10 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	if selectorErr != nil {
 		// Frozen: the copies the selector made stay, those from the ids list are managed as
 		// usual. Which copies the selector made is what it last selected, recorded when it was
-		// valid; with no record, nothing can be told apart and nothing is removed.
+		// valid. No record means it never mirrored anything, so only the ids list counts; a
+		// record that cannot be read leaves nothing to tell them apart, and nothing is removed.
 		var applied []string
-		if raw := v1.GetAnnotation(secret, v1.WorkspaceSelectorAppliedAnnotation); raw == "" || json.Unmarshal([]byte(raw), &applied) != nil {
+		if raw := v1.GetAnnotation(secret, v1.WorkspaceSelectorAppliedAnnotation); raw != "" && json.Unmarshal([]byte(raw), &applied) != nil {
 			return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
 		}
 		keep = append(keep, applied...)

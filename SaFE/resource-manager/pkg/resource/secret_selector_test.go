@@ -254,6 +254,7 @@ func TestEmptySelectorMatchesNothing(t *testing.T) {
 func TestUnparsableSelectorMirrorsNothingAndFreezes(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-a"))
 	sec := selectorSecret("extra-ca", v1.WorkspaceSandboxScopeLabel+" in (true", `["ws-listed"]`)
+	sec.Annotations[v1.WorkspaceSelectorAppliedAnnotation] = `["ws-a"]` // it was valid once
 	recorder := record.NewFakeRecorder(10)
 	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec,
 		sandboxWorkspace("ws-a"), selectorWorkspace("ws-b", nil), selectorWorkspace("ws-listed", nil))
@@ -277,6 +278,16 @@ func TestSecretPredicatesSeeSelector(t *testing.T) {
 	delete(removed.Annotations, v1.WorkspaceSelectorAnnotation)
 	assert.True(t, relevantChangePredicate{}.Update(event.UpdateEvent{ObjectOld: sec, ObjectNew: removed}))
 	assert.False(t, relevantChangePredicate{}.Update(event.UpdateEvent{ObjectOld: sec, ObjectNew: sec.DeepCopy()}))
+	// A Secret with no annotation left but our finalizer, or being deleted, must still be seen.
+	bare := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: common.PrimusSafeNamespace}}
+	assert.False(t, relevantChangePredicate{}.Create(event.CreateEvent{Object: bare}))
+	withFinalizer := bare.DeepCopy()
+	withFinalizer.Finalizers = []string{v1.SecretFinalizer}
+	assert.True(t, relevantChangePredicate{}.Create(event.CreateEvent{Object: withFinalizer}))
+	deleting := bare.DeepCopy()
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+	assert.True(t, relevantChangePredicate{}.Create(event.CreateEvent{Object: deleting}))
 	// An operator who adds the broadcast mark after a freeze must get the Secret reconciled.
 	unmarked := sec.DeepCopy()
 	delete(unmarked.Annotations, v1.SecretBroadcastAnnotation)
@@ -349,6 +360,7 @@ func TestInvalidSelectorIsRejectedAndFrozen(t *testing.T) {
 		t.Run(selector, func(t *testing.T) {
 			cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-old"), managedCopy("extra-ca", "ws-sandbox"))
 			sec := selectorSecret("extra-ca", selector, `["ws-listed"]`)
+			sec.Annotations[v1.WorkspaceSelectorAppliedAnnotation] = `["ws-old","ws-sandbox"]` // it was valid once
 			recorder := record.NewFakeRecorder(10)
 			r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec,
 				sandboxWorkspace("ws-sandbox"),
@@ -438,6 +450,7 @@ func TestSelectorWithoutBroadcastMarkIsFrozen(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-a"))
 	sec := selectorSecret("extra-ca", sandboxSelector, "")
 	delete(sec.Annotations, v1.SecretBroadcastAnnotation)
+	sec.Annotations[v1.WorkspaceSelectorAppliedAnnotation] = `["ws-a"]` // it was valid once
 	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"), sandboxWorkspace("ws-b"))
 	reconcileSecret(t, r, sec.Name)
 
@@ -492,4 +505,34 @@ func TestFrozenSelectorStillHonoursIdsRemoval(t *testing.T) {
 	got := &v1.Workspace{}
 	require.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "ws-b"}, got))
 	assert.Empty(t, got.Spec.ImageSecrets, "and the reference")
+}
+
+// A selector that was never valid mirrored nothing, so only the ids list is in play, and
+// removing a workspace from it still reclaims its copy and reference.
+func TestNeverValidSelectorDoesNotFreezeIdsRemoval(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	sec := selectorSecret("extra-ca", "", `["ws-b","ws-c"]`)
+	delete(sec.Annotations, v1.WorkspaceSelectorAnnotation)
+	wsB := selectorWorkspace("ws-b", nil)
+	wsB.Spec.ImageSecrets = []corev1.ObjectReference{{Name: "extra-ca"}}
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, wsB, selectorWorkspace("ws-c", nil))
+	reconcileSecret(t, r, sec.Name)
+	require.True(t, mirrored(t, cs, "ws-b", sec.Name))
+
+	live := &corev1.Secret{}
+	require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(sec), live))
+	live.Annotations[v1.WorkspaceSelectorAnnotation] = "team=infra"
+	require.NoError(t, r.Update(context.Background(), live))
+	reconcileSecret(t, r, sec.Name)
+	require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(sec), live))
+	require.Contains(t, live.Annotations, v1.WorkspaceSelectorErrorAnnotation)
+	live.Annotations[v1.WorkspaceIdsAnnotation] = `["ws-c"]`
+	require.NoError(t, r.Update(context.Background(), live))
+	reconcileSecret(t, r, sec.Name)
+
+	assert.True(t, mirrored(t, cs, "ws-c", sec.Name))
+	assert.False(t, mirrored(t, cs, "ws-b", sec.Name), "removed from ids: copy reclaimed")
+	got := &v1.Workspace{}
+	require.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "ws-b"}, got))
+	assert.Empty(t, got.Spec.ImageSecrets)
 }

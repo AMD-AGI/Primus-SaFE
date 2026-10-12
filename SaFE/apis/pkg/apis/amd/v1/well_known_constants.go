@@ -161,6 +161,8 @@ const (
 	// even a reserved label such as the sandbox scope is derived from Spec.Scopes, which the
 	// people with update rights on a workspace can change, so they could pull a credential
 	// into their own namespace. Do not set it on credentials; a CA bundle is the intended use.
+	// Removing it, or setting it to anything but "true", freezes the selector: copies already
+	// made stay and nothing new is mirrored. To stop mirroring, remove WorkspaceSelectorAnnotation.
 	SecretBroadcastAnnotation = PrimusSafePrefix + "secret.broadcast"
 	// WorkspaceSelectorErrorAnnotation is written by resource-manager on a Secret whose
 	// selector was rejected, with the reason, and removed once the selector is valid again.
