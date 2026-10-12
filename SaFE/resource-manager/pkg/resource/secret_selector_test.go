@@ -536,3 +536,88 @@ func TestNeverValidSelectorDoesNotFreezeIdsRemoval(t *testing.T) {
 	require.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "ws-b"}, got))
 	assert.Empty(t, got.Spec.ImageSecrets)
 }
+
+func liveSecret(t *testing.T, r *SecretReconciler, name string) *corev1.Secret {
+	t.Helper()
+	got := &corev1.Secret{}
+	require.NoError(t, r.Get(context.Background(), client.ObjectKey{Namespace: common.PrimusSafeNamespace, Name: name}, got))
+	return got
+}
+
+// Removing the selector annotation, as the docs say to stop mirroring, removes the copies and
+// releases the finalizer added for them.
+func TestRemovingSelectorReleasesFinalizer(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	sec := selectorSecret("extra-ca", sandboxSelector, "")
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"))
+	reconcileSecret(t, r, sec.Name)
+	live := liveSecret(t, r, sec.Name)
+	require.Contains(t, live.Finalizers, v1.SecretFinalizer)
+	require.True(t, mirrored(t, cs, "ws-a", sec.Name))
+
+	delete(live.Annotations, v1.WorkspaceSelectorAnnotation)
+	require.NoError(t, r.Update(context.Background(), live))
+	reconcileSecret(t, r, sec.Name)
+
+	assert.False(t, mirrored(t, cs, "ws-a", sec.Name))
+	assert.NotContains(t, liveSecret(t, r, sec.Name).Finalizers, v1.SecretFinalizer)
+}
+
+// A Secret a cluster still references keeps its finalizer, which clears that reference.
+func TestFinalizerKeptWhileClusterReferencesSecret(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	sec := selectorSecret("extra-ca", "", "")
+	delete(sec.Annotations, v1.WorkspaceSelectorAnnotation)
+	sec.Finalizers = []string{v1.SecretFinalizer}
+	c1 := testCluster("c1")
+	c1.Spec.ControlPlane.ImageSecret = &corev1.ObjectReference{Name: "extra-ca"}
+	r := newSecretReconcilerFull(t, cs, c1, sec)
+	reconcileSecret(t, r, sec.Name)
+	assert.Contains(t, liveSecret(t, r, sec.Name).Finalizers, v1.SecretFinalizer)
+}
+
+// One workspace on an unreachable cluster must not stop the others being reclaimed.
+func TestCleanupSurvivesAnUnreachableCluster(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-stale"))
+	sec := selectorSecret("extra-ca", "", `["ws-keep"]`)
+	delete(sec.Annotations, v1.WorkspaceSelectorAnnotation)
+	bad := selectorWorkspace("ws-a-bad", nil)
+	bad.Spec.Cluster = "c2" // registered, but its client is not ready
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), testCluster("c2"), sec,
+		bad, selectorWorkspace("ws-keep", nil), selectorWorkspace("ws-stale", nil))
+	res, err := r.Reconcile(context.Background(), ctrlruntime.Request{
+		NamespacedName: types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: sec.Name}})
+
+	assert.Error(t, err, "the unreachable cluster is reported for retry")
+	assert.Equal(t, ctrlruntime.Result{}, res)
+	assert.False(t, mirrored(t, cs, "ws-stale", sec.Name), "the reachable workspace is still reclaimed")
+}
+
+// A frozen selector keeps syncing the copies it made, so a rotated CA reaches them, but adds
+// and removes none.
+func TestFrozenSelectorStillSyncsAppliedCopies(t *testing.T) {
+	old := managedCopy("extra-ca", "ws-a")
+	old.Data = map[string][]byte{"ca.crt": []byte("old")}
+	cs := k8sfake.NewSimpleClientset(old)
+	sec := selectorSecret("extra-ca", "team=infra", "")
+	sec.Annotations[v1.WorkspaceSelectorAppliedAnnotation] = `["ws-a"]`
+	sec.Data = map[string][]byte{"ca.crt": []byte("new")}
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"), sandboxWorkspace("ws-new"))
+	reconcileSecret(t, r, sec.Name)
+
+	got, err := cs.CoreV1().Secrets("ws-a").Get(context.Background(), "extra-ca", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []byte("new"), got.Data["ca.crt"], "content stays in sync")
+	assert.False(t, mirrored(t, cs, "ws-new", sec.Name), "nothing new is added")
+}
+
+// A workspace that already holds someone else's Secret is not recorded as mirrored into.
+func TestConflictingTargetIsNotRecordedAsApplied(t *testing.T) {
+	handMade := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "extra-ca", Namespace: "ws-a"}}
+	cs := k8sfake.NewSimpleClientset(handMade)
+	sec := selectorSecret("extra-ca", sandboxSelector, "")
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"), sandboxWorkspace("ws-b"))
+	reconcileSecret(t, r, sec.Name)
+
+	assert.JSONEq(t, `["ws-b"]`, liveSecret(t, r, sec.Name).Annotations[v1.WorkspaceSelectorAppliedAnnotation])
+}

@@ -193,29 +193,46 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	}
 	// An invalid selector freezes the selector half of the Secret: nothing new is mirrored by
 	// it and no existing copy is removed, because there is no telling which copies it made are
-	// still wanted, and a vanished copy stops every sandbox that mounts it. The ids list still
-	// applies. The reason is written on the Secret and raised as a Warning event; the
-	// annotation is cleared once the selector is valid again.
+	// still wanted, and a vanished copy stops every sandbox that mounts it. The copies it made
+	// (WorkspaceSelectorAppliedAnnotation, recorded while it was valid) keep being synced, so
+	// a rotated CA still reaches them. The ids list applies as usual. The reason is written on
+	// the Secret and raised as a Warning event; the annotation is cleared once the selector is
+	// valid again.
 	var errs []error
-	if err := r.recordSelectorState(ctx, secret, selectorErr, selected); err != nil {
-		errs = append(errs, err)
-	}
+	var applied []string
+	appliedReadable := true
 	if selectorErr != nil {
 		klog.ErrorS(selectorErr, "ignoring workspace selector", "secret", secret.Name)
 		if r.recorder != nil {
 			r.recorder.Event(secret, corev1.EventTypeWarning, "InvalidWorkspaceSelector", selectorErr.Error())
 		}
+		// No record means the selector never mirrored anything, so only the ids list counts; a
+		// record that cannot be read leaves nothing to tell them apart.
+		if raw := v1.GetAnnotation(secret, v1.WorkspaceSelectorAppliedAnnotation); raw != "" &&
+			json.Unmarshal([]byte(raw), &applied) != nil {
+			appliedReadable = false
+			applied = nil
+		}
 	}
 	// If this secret is not bound to any workspace, remove mirrored copies (by label) in data planes
 	if len(workspaceIds) == 0 && len(selected) == 0 && selectorErr == nil {
+		if err := r.recordSelectorState(ctx, secret, selectorErr, selected); err != nil {
+			errs = append(errs, err)
+		}
 		if err := r.cleanupMirroredSecrets(ctx, secret.Name, nil); err != nil {
 			errs = append(errs, err)
+		} else if len(errs) == 0 {
+			// Nothing left to mirror and nothing left mirrored: release the finalizer that was
+			// added for the copies, or the Secret could not be deleted with the controller gone.
+			if err := r.releaseFinalizerIfUnused(ctx, secret); err != nil {
+				errs = append(errs, err)
+			}
 		}
 		return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
 	}
 
 	explicit := sets.NewSetByKeys(workspaceIds...)
-	targets := make([]*v1.Workspace, 0, len(workspaceIds)+len(selected))
+	targets := make([]*v1.Workspace, 0, len(workspaceIds)+len(selected)+len(applied))
 	for _, id := range workspaceIds {
 		// Get the workspace to determine target cluster/namespace
 		ws := &v1.Workspace{}
@@ -233,10 +250,27 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 			targets = append(targets, &selected[i])
 		}
 	}
+	for _, name := range applied {
+		if explicit.Has(name) {
+			continue
+		}
+		ws := &v1.Workspace{}
+		if err := r.Get(ctx, client.ObjectKey{Name: name}, ws); err != nil {
+			if !apierrors.IsNotFound(err) {
+				errs = append(errs, fmt.Errorf("workspace %s: %w", name, err))
+			}
+			continue
+		}
+		if ws.GetDeletionTimestamp().IsZero() {
+			targets = append(targets, ws)
+		}
+	}
 	// One target failing (a new workspace's data plane namespace may not exist yet) must not
 	// starve the others, so errors are collected and returned together at the end. A target
 	// that failed stays in the keep list below: its copy's state is unknown, so cleanup must
-	// not delete it.
+	// not delete it. A target whose namespace holds a Secret we did not make is left alone and
+	// is not recorded as mirrored.
+	conflicts := sets.NewSet()
 	for _, ws := range targets {
 		// Ensure the mirrored secret exists/updated in target namespace on data plane
 		clientSet, err := r.getClientSetOfDataplane(ctx, ws.Spec.Cluster)
@@ -255,12 +289,27 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 		// overwriting, and later deleting, a Secret someone made by hand is not something a
 		// label match should be able to do.
 		if err = r.syncSecretToWorkspace(ctx, clientSet, secret, ws, explicit.Has(ws.Name)); err != nil {
+			if errors.Is(err, errMirrorConflict) {
+				conflicts.Insert(ws.Name)
+				continue
+			}
 			errs = append(errs, fmt.Errorf("workspace %s: %w", ws.Name, err))
 			continue
 		}
 		if err = r.updateWorkspaceRefSecret(ctx, secret, ws); err != nil {
 			errs = append(errs, fmt.Errorf("workspace %s: %w", ws.Name, err))
 		}
+	}
+	// Recorded after the loop, so a workspace that turned out to hold someone else's Secret is
+	// not listed as one the selector mirrored into.
+	recorded := make([]v1.Workspace, 0, len(selected))
+	for i := range selected {
+		if !conflicts.Has(selected[i].Name) {
+			recorded = append(recorded, selected[i])
+		}
+	}
+	if err := r.recordSelectorState(ctx, secret, selectorErr, recorded); err != nil {
+		errs = append(errs, err)
 	}
 	if err := r.updateClusterRefSecret(ctx, secret); err != nil {
 		errs = append(errs, err)
@@ -271,12 +320,7 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 		keep = append(keep, selected[i].Name)
 	}
 	if selectorErr != nil {
-		// Frozen: the copies the selector made stay, those from the ids list are managed as
-		// usual. Which copies the selector made is what it last selected, recorded when it was
-		// valid. No record means it never mirrored anything, so only the ids list counts; a
-		// record that cannot be read leaves nothing to tell them apart, and nothing is removed.
-		var applied []string
-		if raw := v1.GetAnnotation(secret, v1.WorkspaceSelectorAppliedAnnotation); raw != "" && json.Unmarshal([]byte(raw), &applied) != nil {
+		if !appliedReadable {
 			return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
 		}
 		keep = append(keep, applied...)
@@ -494,6 +538,10 @@ func (r *SecretReconciler) getClientSetOfDataplane(ctx context.Context, clusterI
 	return k8sClients.ClientSet(), nil
 }
 
+// errMirrorConflict is returned by syncSecretToWorkspace when the namespace already holds a
+// Secret that was not made by resource-manager and may not be taken over.
+var errMirrorConflict = errors.New("a Secret not made by resource-manager is already there")
+
 // syncSecretToWorkspace ensures a mirrored secret exists/updated in the target namespace on data plane.
 // An existing Secret without the mirror label is taken over only when adopt is set.
 func (r *SecretReconciler) syncSecretToWorkspace(ctx context.Context, clientSet kubernetes.Interface,
@@ -516,7 +564,7 @@ func (r *SecretReconciler) syncSecretToWorkspace(ctx context.Context, clientSet 
 				"workspace %s already has a Secret %s not made by resource-manager; left as is",
 				workspace.Name, adminPlaneSecret.Name)
 		}
-		return nil
+		return errMirrorConflict
 	}
 	needUpdate := false
 	// ensure marker label
@@ -555,41 +603,72 @@ func (r *SecretReconciler) cleanupMirroredSecrets(ctx context.Context, secretNam
 		return err
 	}
 	keepNamespaceSet := sets.NewSetByKeys(keepNamespaces...)
-	for _, item := range wsList.Items {
+	// One workspace that cannot be reached (its cluster is gone, or its data plane client is not
+	// ready) must not stop the others from being cleaned, so errors are collected.
+	var errs []error
+	for i := range wsList.Items {
+		item := &wsList.Items[i]
 		if keepNamespaceSet.Has(item.Name) {
 			continue
 		}
-		clientSet, err := r.getClientSetOfDataplane(ctx, item.Spec.Cluster)
-		if err != nil {
-			return err
-		}
-		if clientSet == nil {
-			continue
-		}
-		// remove the secret reference from the corresponding workspace if it exists
-		if err = r.removeSecretFromWorkspace(ctx, secretName, &item); err != nil {
-			return err
-		}
-
-		sec, err := clientSet.CoreV1().Secrets(item.Name).Get(ctx, secretName, metav1.GetOptions{})
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
-			}
-			return err
-		}
-		if sec.Labels == nil || sec.Labels[managedSecretLabelKey] != managedSecretLabelVal {
-			continue
-		}
-		if err = clientSet.CoreV1().Secrets(item.Name).Delete(ctx, secretName, metav1.DeleteOptions{}); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return err
-			}
-		} else {
-			klog.Infof("delete secret: %s/%s for data plane", item.Name, secretName)
+		if err := r.cleanupMirroredSecretIn(ctx, secretName, item); err != nil {
+			errs = append(errs, fmt.Errorf("workspace %s: %w", item.Name, err))
 		}
 	}
+	return utilerrors.NewAggregate(errs)
+}
+
+func (r *SecretReconciler) cleanupMirroredSecretIn(ctx context.Context, secretName string, item *v1.Workspace) error {
+	clientSet, err := r.getClientSetOfDataplane(ctx, item.Spec.Cluster)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if clientSet == nil {
+		return nil
+	}
+	// remove the secret reference from the corresponding workspace if it exists
+	if err = r.removeSecretFromWorkspace(ctx, secretName, item); err != nil {
+		return err
+	}
+	sec, err := clientSet.CoreV1().Secrets(item.Name).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if sec.Labels == nil || sec.Labels[managedSecretLabelKey] != managedSecretLabelVal {
+		return nil
+	}
+	if err = clientSet.CoreV1().Secrets(item.Name).Delete(ctx, secretName, metav1.DeleteOptions{}); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+	} else {
+		klog.Infof("delete secret: %s/%s for data plane", item.Name, secretName)
+	}
 	return nil
+}
+
+// releaseFinalizerIfUnused removes SecretFinalizer from a Secret that no longer has mirror
+// targets and that no cluster references: the finalizer exists to clean those up on deletion.
+func (r *SecretReconciler) releaseFinalizerIfUnused(ctx context.Context, secret *corev1.Secret) error {
+	if hasMirrorTargets(secret) || !controllerutil.ContainsFinalizer(secret, v1.SecretFinalizer) {
+		return nil
+	}
+	clusterList := &v1.ClusterList{}
+	if err := r.List(ctx, clusterList, &client.ListOptions{}); err != nil {
+		return err
+	}
+	for _, cluster := range clusterList.Items {
+		if ref := cluster.Spec.ControlPlane.ImageSecret; ref != nil && ref.Name == secret.Name {
+			return nil
+		}
+	}
+	return utils.RemoveFinalizer(ctx, r.Client, secret, v1.SecretFinalizer)
 }
 
 // removeSecretFromCluster removes secret references from cluster.

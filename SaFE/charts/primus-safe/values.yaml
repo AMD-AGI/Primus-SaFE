@@ -378,7 +378,8 @@ sandbox:
   # in the primus-safe.workspace.selector.error annotation. Do not roll resource-manager back to a
   # release without the selector: it would drop copies reached only by it; add the workspaces to
   # primus-safe.workspace.ids first. Removing the broadcast annotation freezes the selector, it does
-  # not remove copies; to stop mirroring, remove the primus-safe.workspace.selector annotation.
+  # not remove copies (their content stays in sync, nothing new is added; the list of them lives in an
+  # annotation, which caps the scale at about a thousand workspaces); to stop mirroring, remove the primus-safe.workspace.selector annotation.
   # When set, it is mounted at
   # /etc/claw/extra-ca, merged into /shared/bin/ca-bundle.pem, and the sandbox's CA variables point
   # there; a sandbox then refuses to start if no certificate is found. Empty keeps the image's own trust.
