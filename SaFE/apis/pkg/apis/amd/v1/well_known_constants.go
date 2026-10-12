@@ -143,13 +143,20 @@ const (
 	// selector in kubectl -l syntax over Workspace labels. resource-manager mirrors the Secret
 	// into the namespace of every Workspace it matches, in addition to those listed in
 	// WorkspaceIdsAnnotation, and removes the copies it made once a Workspace stops matching.
-	// An empty value selects nothing. So does an invalid one (unparsable, a label outside
-	// PrimusSafePrefix, or a negative operator such as !=, notin or !key): the copies the
-	// selector made are removed, and WorkspaceSelectorErrorAnnotation records why. Unlike the ids list it grants nothing:
+	// An empty value selects nothing. An invalid one (unparsable, a label outside
+	// PrimusSafePrefix, a negative operator such as !=, notin or !key, or a Secret not marked
+	// with SecretBroadcastAnnotation) freezes the selector: nothing new is mirrored by it and
+	// no copy is removed, and WorkspaceSelectorErrorAnnotation records why. Unlike the ids list it grants nothing:
 	// checks that read WorkspaceIdsAnnotation as an authorisation do not read this.
 	// Select only on labels under PrimusSafePrefix: a workspace creator may set any other
 	// label, and so could pull the Secret into their own namespace.
 	WorkspaceSelectorAnnotation = WorkspacePrefix + "selector"
+	// SecretBroadcastAnnotation, set to "true" on a Secret, marks it as safe to copy into every
+	// workspace a selector matches. A selector is only honoured on a Secret that carries it:
+	// even a reserved label such as the sandbox scope is derived from Spec.Scopes, which the
+	// people with update rights on a workspace can change, so they could pull a credential
+	// into their own namespace. Do not set it on credentials; a CA bundle is the intended use.
+	SecretBroadcastAnnotation = PrimusSafePrefix + "secret.broadcast"
 	// WorkspaceSelectorErrorAnnotation is written by resource-manager on a Secret whose
 	// selector was rejected, with the reason, and removed once the selector is valid again.
 	WorkspaceSelectorErrorAnnotation = WorkspacePrefix + "selector.error"

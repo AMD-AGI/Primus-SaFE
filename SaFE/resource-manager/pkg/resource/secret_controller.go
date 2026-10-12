@@ -7,6 +7,7 @@ package resource
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -23,6 +24,7 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -145,6 +147,14 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reques
 	if !secret.GetDeletionTimestamp().IsZero() {
 		return ctrlruntime.Result{}, r.delete(ctx, secret)
 	}
+	// Mirrored copies need a finalizer on the source, or a hard delete leaves them behind.
+	// Secrets made with kubectl do not get one from the apiserver.
+	if hasMirrorTargets(secret) && !controllerutil.ContainsFinalizer(secret, v1.SecretFinalizer) {
+		controllerutil.AddFinalizer(secret, v1.SecretFinalizer)
+		if err := commonutils.PatchObjectFinalizer(ctx, r.Client, secret); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+	}
 	return r.processSecrets(ctx, secret)
 }
 
@@ -172,10 +182,11 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	if selectorErr != nil && !isInvalidSelector(selectorErr) {
 		return ctrlruntime.Result{}, selectorErr
 	}
-	// An invalid selector selects nothing, exactly as an empty one does: the copies it made
-	// are reclaimed, because a selector that cannot be read must never keep a grant alive.
-	// The reason is written on the Secret, where the operator who edited it will look, and
-	// cleared once the selector is valid again.
+	// An invalid selector freezes the selector half of the Secret: nothing new is mirrored by
+	// it and no existing copy is removed, because there is no telling which copies it made are
+	// still wanted, and a vanished copy stops every sandbox that mounts it. The ids list still
+	// applies. The reason is written on the Secret and raised as a Warning event; the
+	// annotation is cleared once the selector is valid again.
 	var errs []error
 	if err := r.recordSelectorError(ctx, secret, selectorErr); err != nil {
 		errs = append(errs, err)
@@ -187,7 +198,7 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 		}
 	}
 	// If this secret is not bound to any workspace, remove mirrored copies (by label) in data planes
-	if len(workspaceIds) == 0 && len(selected) == 0 {
+	if len(workspaceIds) == 0 && len(selected) == 0 && selectorErr == nil {
 		if err := r.cleanupMirroredSecrets(ctx, secret.Name, nil); err != nil {
 			errs = append(errs, err)
 		}
@@ -245,6 +256,9 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	if err := r.updateClusterRefSecret(ctx, secret); err != nil {
 		errs = append(errs, err)
 	}
+	if selectorErr != nil {
+		return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
+	}
 	// Cleanup any mirrored copies in other workspaces
 	keep := append([]string{}, workspaceIds...)
 	for i := range selected {
@@ -288,8 +302,8 @@ type invalidSelectorError struct{ err error }
 func (e *invalidSelectorError) Error() string { return e.err.Error() }
 
 func isInvalidSelector(err error) bool {
-	_, ok := err.(*invalidSelectorError)
-	return ok
+	var target *invalidSelectorError
+	return errors.As(err, &target)
 }
 
 // parseWorkspaceSelector parses the Secret's WorkspaceSelectorAnnotation. A missing or blank
@@ -299,6 +313,10 @@ func parseWorkspaceSelector(secret *corev1.Secret) (labels.Selector, error) {
 	raw := strings.TrimSpace(v1.GetAnnotation(secret, v1.WorkspaceSelectorAnnotation))
 	if raw == "" {
 		return nil, nil
+	}
+	if v1.GetAnnotation(secret, v1.SecretBroadcastAnnotation) != v1.TrueStr {
+		return nil, &invalidSelectorError{fmt.Errorf("annotation %s is set but %s is not %q: a selector copies the Secret into every workspace it matches, so the Secret must be marked as safe to broadcast",
+			v1.WorkspaceSelectorAnnotation, v1.SecretBroadcastAnnotation, v1.TrueStr)}
 	}
 	selector, err := labels.Parse(raw)
 	if err != nil {

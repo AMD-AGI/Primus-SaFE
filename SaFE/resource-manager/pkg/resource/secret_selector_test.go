@@ -49,7 +49,7 @@ func selectorSecret(name, selector string, ids string) *corev1.Secret {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   common.PrimusSafeNamespace,
-			Annotations: map[string]string{v1.WorkspaceSelectorAnnotation: selector},
+			Annotations: map[string]string{v1.WorkspaceSelectorAnnotation: selector, v1.SecretBroadcastAnnotation: v1.TrueStr},
 		},
 		Data: map[string][]byte{"ca.crt": []byte("pem")},
 		Type: corev1.SecretTypeOpaque,
@@ -251,7 +251,7 @@ func TestEmptySelectorMatchesNothing(t *testing.T) {
 	}
 }
 
-func TestUnparsableSelectorMirrorsNothingAndReclaims(t *testing.T) {
+func TestUnparsableSelectorMirrorsNothingAndFreezes(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-a"))
 	sec := selectorSecret("extra-ca", v1.WorkspaceSandboxScopeLabel+" in (true", `["ws-listed"]`)
 	recorder := record.NewFakeRecorder(10)
@@ -262,7 +262,7 @@ func TestUnparsableSelectorMirrorsNothingAndReclaims(t *testing.T) {
 
 	assert.True(t, mirrored(t, cs, "ws-listed", sec.Name), "the ids list still applies")
 	assert.False(t, mirrored(t, cs, "ws-b", sec.Name), "an invalid selector selects nothing")
-	assert.False(t, mirrored(t, cs, "ws-a", sec.Name), "an invalid selector reclaims like an empty one")
+	assert.True(t, mirrored(t, cs, "ws-a", sec.Name), "an invalid selector removes nothing")
 	require.Len(t, recorder.Events, 1)
 	assert.True(t, strings.Contains(<-recorder.Events, "InvalidWorkspaceSelector"))
 }
@@ -325,7 +325,7 @@ func TestDeleteSelectorOnlySecretRemovesCopies(t *testing.T) {
 		"the finalizer is released")
 }
 
-func TestInvalidSelectorIsRejectedAndReclaimed(t *testing.T) {
+func TestInvalidSelectorIsRejectedAndFrozen(t *testing.T) {
 	// A workspace creator can set any label outside the primus-safe. prefix, so a selector on
 	// one would hand the Secret to whoever sets it. A negative operator is true of a workspace
 	// that lacks the label, so a misspelt reserved key would select every workspace.
@@ -354,8 +354,8 @@ func TestInvalidSelectorIsRejectedAndReclaimed(t *testing.T) {
 
 			assert.False(t, mirrored(t, cs, "ws-team", sec.Name))
 			assert.False(t, mirrored(t, cs, "ws-other", sec.Name))
-			assert.False(t, mirrored(t, cs, "ws-sandbox", sec.Name), "copies the selector made are reclaimed")
-			assert.False(t, mirrored(t, cs, "ws-old", sec.Name), "copies the selector made are reclaimed")
+			assert.True(t, mirrored(t, cs, "ws-sandbox", sec.Name), "an invalid selector removes nothing")
+			assert.True(t, mirrored(t, cs, "ws-old", sec.Name), "an invalid selector removes nothing")
 			assert.True(t, mirrored(t, cs, "ws-listed", sec.Name), "the ids list still applies")
 			require.Len(t, recorder.Events, 1)
 			assert.Contains(t, <-recorder.Events, "InvalidWorkspaceSelector")
@@ -424,4 +424,38 @@ func TestClusterNotReadyIsBackedOffNotHotLooped(t *testing.T) {
 	assert.Error(t, err)
 	assert.Zero(t, res.RequeueAfter)
 	assert.True(t, mirrored(t, cs, "ws-b-ok", sec.Name))
+}
+
+// A selector is honoured only on a Secret marked as safe to broadcast: scope.sandbox follows
+// Spec.Scopes, which a workspace's editors can change.
+func TestSelectorWithoutBroadcastMarkIsFrozen(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-a"))
+	sec := selectorSecret("extra-ca", sandboxSelector, "")
+	delete(sec.Annotations, v1.SecretBroadcastAnnotation)
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"), sandboxWorkspace("ws-b"))
+	reconcileSecret(t, r, sec.Name)
+
+	assert.False(t, mirrored(t, cs, "ws-b", sec.Name), "no new copy without the mark")
+	assert.True(t, mirrored(t, cs, "ws-a", sec.Name), "existing copies stay")
+	got := &corev1.Secret{}
+	require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(sec), got))
+	assert.Contains(t, got.Annotations[v1.WorkspaceSelectorErrorAnnotation], v1.SecretBroadcastAnnotation)
+}
+
+// A Secret made with kubectl has no finalizer; the reconcile adds one, so deleting it still
+// removes the copies.
+func TestDeleteKubectlCreatedSecretRemovesCopies(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	sec := selectorSecret("extra-ca", sandboxSelector, "")
+	require.Empty(t, sec.Finalizers)
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"))
+	reconcileSecret(t, r, sec.Name)
+	require.True(t, mirrored(t, cs, "ws-a", sec.Name))
+
+	live := &corev1.Secret{}
+	require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(sec), live))
+	require.Contains(t, live.Finalizers, v1.SecretFinalizer)
+	require.NoError(t, r.Delete(context.Background(), live))
+	reconcileSecret(t, r, sec.Name)
+	assert.False(t, mirrored(t, cs, "ws-a", sec.Name))
 }
