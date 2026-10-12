@@ -169,8 +169,9 @@ const (
 	WorkspaceSelectorErrorAnnotation = WorkspacePrefix + "selector.error"
 	// WorkspaceSandboxScopeLabel is derived from Spec.Scopes: "true" when the workspace accepts
 	// Sandbox workloads (no scopes, or Sandbox among them), absent otherwise. The workspace
-	// webhook sets it on each write and resource-manager sets it on workspaces that lack it,
-	// and the Secret mirror matches selectors against the derived value. It exists so a
+	// webhook sets it on each write; a workspace not written since the label existed may lack it,
+	// so the Secret mirror matches selectors against the value derived from Spec.Scopes, and
+	// kubectl -l can disagree for such a workspace until its next update. It exists so a
 	// selector can name "every workspace that runs sandboxes".
 	WorkspaceSandboxScopeLabel = WorkspacePrefix + "scope.sandbox"
 

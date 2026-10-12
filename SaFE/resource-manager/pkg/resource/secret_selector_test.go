@@ -243,7 +243,7 @@ func TestEmptySelectorMatchesNothing(t *testing.T) {
 			sec := selectorSecret("extra-ca", selector, "")
 			r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec,
 				sandboxWorkspace("ws-a"), selectorWorkspace("ws-b", nil))
-			assert.True(t, relevantChangePredicate{}.Create(event.CreateEvent{Object: sec}))
+			assert.False(t, hasMirrorTargets(sec), "a blank selector is no target")
 			reconcileSecret(t, r, sec.Name)
 			assert.False(t, mirrored(t, cs, "ws-a", sec.Name))
 			assert.False(t, mirrored(t, cs, "ws-b", sec.Name))
@@ -620,4 +620,64 @@ func TestConflictingTargetIsNotRecordedAsApplied(t *testing.T) {
 	reconcileSecret(t, r, sec.Name)
 
 	assert.JSONEq(t, `["ws-b"]`, liveSecret(t, r, sec.Name).Annotations[v1.WorkspaceSelectorAppliedAnnotation])
+}
+
+// A blank selector left behind must not hold the finalizer for ever.
+func TestBlankSelectorReleasesFinalizer(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	sec := selectorSecret("extra-ca", "  ", "")
+	sec.Finalizers = []string{v1.SecretFinalizer}
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"))
+	reconcileSecret(t, r, sec.Name)
+	assert.NotContains(t, liveSecret(t, r, sec.Name).Finalizers, v1.SecretFinalizer)
+}
+
+// Annotations removed just before the delete (or while the controller was down) must not skip
+// the cleanup of the copies.
+func TestDeleteAfterAnnotationsRemovedStillRemovesCopies(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	sec := selectorSecret("extra-ca", sandboxSelector, "")
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"))
+	reconcileSecret(t, r, sec.Name)
+	require.True(t, mirrored(t, cs, "ws-a", sec.Name))
+
+	live := liveSecret(t, r, sec.Name)
+	live.Annotations = nil
+	require.NoError(t, r.Update(context.Background(), live))
+	require.NoError(t, r.Delete(context.Background(), live))
+	reconcileSecret(t, r, sec.Name)
+	assert.False(t, mirrored(t, cs, "ws-a", sec.Name))
+}
+
+// The record is widened to old-plus-new before any data plane is touched, so a process killed
+// mid-loop still leaves a record that covers every copy that may exist.
+func TestAppliedRecordWidenedBeforeMirrorLoop(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-old"))
+	cs.PrependReactor("create", "secrets", func(k8stesting.Action) (bool, runtime.Object, error) {
+		panic("killed mid-loop")
+	})
+	sec := selectorSecret("extra-ca", sandboxSelector, "")
+	sec.Annotations[v1.WorkspaceSelectorAppliedAnnotation] = `["ws-old"]`
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"), selectorWorkspace("ws-old", nil))
+	func() {
+		defer func() { _ = recover() }()
+		reconcileSecret(t, r, sec.Name)
+	}()
+	assert.JSONEq(t, `["ws-a","ws-old"]`, liveSecret(t, r, sec.Name).Annotations[v1.WorkspaceSelectorAppliedAnnotation])
+}
+
+// A Secret that appears between our Get and Create belongs to someone else unless it carries
+// the mirror label.
+func TestCopyRaceOnForeignSecretIsAConflict(t *testing.T) {
+	foreign := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "extra-ca", Namespace: "ws-a"}}
+	cs := k8sfake.NewSimpleClientset()
+	cs.PrependReactor("create", "secrets", func(k8stesting.Action) (bool, runtime.Object, error) {
+		_ = cs.Tracker().Add(foreign)
+		return true, nil, apierrors.NewAlreadyExists(corev1.Resource("secrets"), "extra-ca")
+	})
+	err := copySecret(context.Background(), cs, selectorSecret("extra-ca", sandboxSelector, ""), "ws-a")
+	assert.ErrorIs(t, err, errMirrorConflict)
+
+	cs2 := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-a"))
+	assert.NoError(t, copySecret(context.Background(), cs2, selectorSecret("extra-ca", sandboxSelector, ""), "ws-a"))
 }

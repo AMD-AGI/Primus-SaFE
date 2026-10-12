@@ -368,12 +368,16 @@ sandbox:
   # primus-safe namespace with the annotation
   #   primus-safe.workspace.selector: "primus-safe.workspace.scope.sandbox=true"
   #   primus-safe.secret.broadcast: "true"
-  # (the second marks it as safe to copy into every matching workspace; never put it on a credential)
+  # (the second marks it as safe to copy into every matching workspace)
+  # SECURITY: anyone who can edit a workspace's scopes can make it match this selector, so the only
+  # protection is never putting primus-safe.secret.broadcast on a Secret that holds a credential.
   # and resource-manager mirrors it into the namespace of every workspace that accepts Sandbox workloads,
   # including existing ones and ones created later; the label is derived from the workspace's scopes
-  # and resource-manager sets it on existing workspaces. Only that label may be selected on: others
+  # (workspaces not updated since the label existed may lack it on the object; kubectl -l can then
+  # disagree, the mirror does not). Only that label may be selected on: others
   # take their value from what whoever creates a workspace submits. A primus-safe.workspace.ids list (JSON array of
-  # workspace ids) still works and adds to the selector. A selector that is invalid, or lacks the
+  # workspace ids) still works and adds to the selector. If the primus-safe.workspace.selector.applied annotation is damaged, the whole Secret is frozen, ids
+  # removals included, until an operator deletes that annotation. A selector that is invalid, or lacks the
   # broadcast annotation, is frozen: nothing new is mirrored and no copy is removed; the reason is
   # in the primus-safe.workspace.selector.error annotation. Do not roll resource-manager back to a
   # release without the selector: it would drop copies reached only by it; add the workspaces to

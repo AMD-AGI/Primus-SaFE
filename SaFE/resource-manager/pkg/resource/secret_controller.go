@@ -98,11 +98,11 @@ func (relevantChangePredicate) Create(e event.CreateEvent) bool {
 }
 
 // hasMirrorTargets reports whether the Secret names any workspace to mirror into, by id or by
-// selector. A selector annotation that is set but empty or invalid still counts: the
-// reconcile is what reports it.
+// selector. A selector that is invalid still counts: the reconcile is what reports it. A blank
+// one selects nothing, as the constant's comment says.
 func hasMirrorTargets(secret *corev1.Secret) bool {
 	return v1.GetAnnotation(secret, v1.WorkspaceIdsAnnotation) != "" ||
-		v1.HasAnnotation(secret, v1.WorkspaceSelectorAnnotation)
+		strings.TrimSpace(v1.GetAnnotation(secret, v1.WorkspaceSelectorAnnotation)) != ""
 }
 
 func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
@@ -175,12 +175,11 @@ func (r *SecretReconciler) delete(ctx context.Context, secret *corev1.Secret) er
 	if err := r.removeSecretFromWorkspaces(ctx, secret); err != nil {
 		return err
 	}
-	if hasMirrorTargets(secret) {
-		// If deleting, try to cleanup mirrored copies
-		if err := r.cleanupMirroredSecrets(ctx, secret.Name, nil); err != nil {
-			klog.ErrorS(err, "failed to cleanup mirrored secrets on delete", "name", secret.Name)
-			return err
-		}
+	// Always clean up, whatever annotations are left: they may have been removed just before the
+	// delete, or while the controller was down. Only copies carrying the mirror label go.
+	if err := r.cleanupMirroredSecrets(ctx, secret.Name, nil); err != nil {
+		klog.ErrorS(err, "failed to cleanup mirrored secrets on delete", "name", secret.Name)
+		return err
 	}
 	return utils.RemoveFinalizer(ctx, r.Client, secret, v1.SecretFinalizer)
 }
@@ -208,15 +207,16 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 		}
 		// No record means the selector never mirrored anything, so only the ids list counts; a
 		// record that cannot be read leaves nothing to tell them apart.
-		if raw := v1.GetAnnotation(secret, v1.WorkspaceSelectorAppliedAnnotation); raw != "" &&
-			json.Unmarshal([]byte(raw), &applied) != nil {
-			appliedReadable = false
-			applied = nil
+		if raw := v1.GetAnnotation(secret, v1.WorkspaceSelectorAppliedAnnotation); raw != "" {
+			if err := json.Unmarshal([]byte(raw), &applied); err != nil {
+				appliedReadable = false
+				applied = nil
+			}
 		}
 	}
 	// If this secret is not bound to any workspace, remove mirrored copies (by label) in data planes
 	if len(workspaceIds) == 0 && len(selected) == 0 && selectorErr == nil {
-		if err := r.recordSelectorState(ctx, secret, selectorErr, selected); err != nil {
+		if err := r.recordSelectorState(ctx, secret, selectorErr, nil); err != nil {
 			errs = append(errs, err)
 		}
 		if err := r.cleanupMirroredSecrets(ctx, secret.Name, nil); err != nil {
@@ -270,6 +270,24 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	// that failed stays in the keep list below: its copy's state is unknown, so cleanup must
 	// not delete it. A target whose namespace holds a Secret we did not make is left alone and
 	// is not recorded as mirrored.
+	// Before touching any data plane, widen the record to the old one plus this selection: if
+	// the process dies mid-loop and the selector is then broken, the freeze must still cover
+	// every copy that may exist. The exact value is written after the loop.
+	if selectorErr == nil && strings.TrimSpace(v1.GetAnnotation(secret, v1.WorkspaceSelectorAnnotation)) != "" {
+		var previous []string
+		if raw := v1.GetAnnotation(secret, v1.WorkspaceSelectorAppliedAnnotation); raw != "" {
+			if err := json.Unmarshal([]byte(raw), &previous); err != nil {
+				previous = nil
+			}
+		}
+		superset := sets.NewSetByKeys(previous...)
+		for i := range selected {
+			superset.Insert(selected[i].Name)
+		}
+		if err := r.recordSelectorState(ctx, secret, nil, superset.UnsortedList()); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	conflicts := sets.NewSet()
 	for _, ws := range targets {
 		// Ensure the mirrored secret exists/updated in target namespace on data plane
@@ -302,10 +320,10 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	}
 	// Recorded after the loop, so a workspace that turned out to hold someone else's Secret is
 	// not listed as one the selector mirrored into.
-	recorded := make([]v1.Workspace, 0, len(selected))
+	recorded := make([]string, 0, len(selected))
 	for i := range selected {
 		if !conflicts.Has(selected[i].Name) {
-			recorded = append(recorded, selected[i])
+			recorded = append(recorded, selected[i].Name)
 		}
 	}
 	if err := r.recordSelectorState(ctx, secret, selectorErr, recorded); err != nil {
@@ -338,15 +356,12 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 // while the selector is invalid. Writes that change nothing are skipped; neither annotation is
 // one the predicates watch, so writing them queues no further reconcile.
 func (r *SecretReconciler) recordSelectorState(ctx context.Context, secret *corev1.Secret,
-	selectorErr error, selected []v1.Workspace) error {
+	selectorErr error, selected []string) error {
 	want := map[string]string{}
 	if selectorErr != nil {
 		want[v1.WorkspaceSelectorErrorAnnotation] = selectorErr.Error()
 	} else if strings.TrimSpace(v1.GetAnnotation(secret, v1.WorkspaceSelectorAnnotation)) != "" {
-		names := make([]string, 0, len(selected))
-		for i := range selected {
-			names = append(names, selected[i].Name)
-		}
+		names := append([]string{}, selected...)
 		sort.Strings(names)
 		raw, err := json.Marshal(names)
 		if err != nil {
@@ -438,7 +453,8 @@ func parseWorkspaceSelector(secret *corev1.Secret) (labels.Selector, error) {
 // The labels matched are the workspace's own with WorkspaceSandboxScopeLabel taken from its
 // scopes rather than from metadata: a workspace written before the label existed, or by a path
 // that skips the webhook, may not carry it yet, and a missing label here would delete the copy
-// its sandboxes mount. The scope label controller writes it back, so kubectl -l agrees.
+// its sandboxes mount. Nothing writes the label back onto such a workspace, so kubectl -l may
+// disagree with the selector for one until its next update through the webhook.
 func (r *SecretReconciler) selectWorkspaces(ctx context.Context, secret *corev1.Secret) ([]v1.Workspace, error) {
 	selector, err := parseWorkspaceSelector(secret)
 	if err != nil || selector == nil {
@@ -788,7 +804,18 @@ func copySecret(ctx context.Context, clientSet kubernetes.Interface,
 	}
 	_, err := clientSet.CoreV1().Secrets(targetNamespace).Create(ctx, dataPlaneSecret, metav1.CreateOptions{})
 	if err != nil {
-		return client.IgnoreAlreadyExists(err)
+		if !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		// Created by someone between our Get and Create: ours only if it carries the mirror label.
+		existing, getErr := clientSet.CoreV1().Secrets(targetNamespace).Get(ctx, adminPlaneSecret.Name, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+		if existing.Labels[managedSecretLabelKey] != managedSecretLabelVal {
+			return errMirrorConflict
+		}
+		return nil
 	}
 	klog.Infof("create secret: %s/%s for data plane", targetNamespace, adminPlaneSecret.Name)
 	return nil
