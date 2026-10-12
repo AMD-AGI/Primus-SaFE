@@ -107,7 +107,6 @@ data:
           - name: extra-ca
             secret:
               secretName: {{ .Values.sandbox.extra_ca_secret }}
-              optional: true
 {{- end }}
           - name: envd-session-identity
             downwardAPI:

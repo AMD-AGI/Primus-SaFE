@@ -7,8 +7,10 @@ package resource
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -115,6 +117,9 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 		v1.GetAnnotation(oldSecret, v1.WorkspaceSelectorAnnotation) != v1.GetAnnotation(newSecret, v1.WorkspaceSelectorAnnotation) {
 		return true
 	}
+	if v1.GetAnnotation(oldSecret, v1.SecretBroadcastAnnotation) != v1.GetAnnotation(newSecret, v1.SecretBroadcastAnnotation) {
+		return true
+	}
 	if !compareSecretData(oldSecret.Data, newSecret.Data) {
 		return true
 	}
@@ -188,7 +193,7 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	// applies. The reason is written on the Secret and raised as a Warning event; the
 	// annotation is cleared once the selector is valid again.
 	var errs []error
-	if err := r.recordSelectorError(ctx, secret, selectorErr); err != nil {
+	if err := r.recordSelectorState(ctx, secret, selectorErr, selected); err != nil {
 		errs = append(errs, err)
 	}
 	if selectorErr != nil {
@@ -256,13 +261,20 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	if err := r.updateClusterRefSecret(ctx, secret); err != nil {
 		errs = append(errs, err)
 	}
-	if selectorErr != nil {
-		return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
-	}
 	// Cleanup any mirrored copies in other workspaces
 	keep := append([]string{}, workspaceIds...)
 	for i := range selected {
 		keep = append(keep, selected[i].Name)
+	}
+	if selectorErr != nil {
+		// Frozen: the copies the selector made stay, those from the ids list are managed as
+		// usual. Which copies the selector made is what it last selected, recorded when it was
+		// valid; with no record, nothing can be told apart and nothing is removed.
+		var applied []string
+		if raw := v1.GetAnnotation(secret, v1.WorkspaceSelectorAppliedAnnotation); raw == "" || json.Unmarshal([]byte(raw), &applied) != nil {
+			return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
+		}
+		keep = append(keep, applied...)
 	}
 	if err := r.cleanupMirroredSecrets(ctx, secret.Name, keep); err != nil {
 		errs = append(errs, err)
@@ -270,32 +282,58 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
 }
 
-// recordSelectorError writes the reason the Secret's selector was rejected into
-// WorkspaceSelectorErrorAnnotation, or removes the annotation when the selector is fine. A
-// write that changes nothing is skipped. The annotation is not one the predicates watch, so
-// writing it does not queue another reconcile.
-func (r *SecretReconciler) recordSelectorError(ctx context.Context, secret *corev1.Secret, selectorErr error) error {
-	want := ""
+// recordSelectorState writes the reason the Secret's selector was rejected into
+// WorkspaceSelectorErrorAnnotation (removed when the selector is fine), and, while the selector
+// is valid, the workspaces it selected into WorkspaceSelectorAppliedAnnotation. The second is
+// what lets an invalid selector freeze only the copies the selector made: it is left as it was
+// while the selector is invalid. Writes that change nothing are skipped; neither annotation is
+// one the predicates watch, so writing them queues no further reconcile.
+func (r *SecretReconciler) recordSelectorState(ctx context.Context, secret *corev1.Secret,
+	selectorErr error, selected []v1.Workspace) error {
+	want := map[string]string{}
 	if selectorErr != nil {
-		want = selectorErr.Error()
-	}
-	if v1.GetAnnotation(secret, v1.WorkspaceSelectorErrorAnnotation) == want {
-		return nil
+		want[v1.WorkspaceSelectorErrorAnnotation] = selectorErr.Error()
+	} else if strings.TrimSpace(v1.GetAnnotation(secret, v1.WorkspaceSelectorAnnotation)) != "" {
+		names := make([]string, 0, len(selected))
+		for i := range selected {
+			names = append(names, selected[i].Name)
+		}
+		sort.Strings(names)
+		raw, err := json.Marshal(names)
+		if err != nil {
+			return err
+		}
+		want[v1.WorkspaceSelectorAppliedAnnotation] = string(raw)
 	}
 	patch := client.MergeFrom(secret.DeepCopy())
-	if want == "" {
-		delete(secret.Annotations, v1.WorkspaceSelectorErrorAnnotation)
-	} else {
-		if secret.Annotations == nil {
-			secret.Annotations = map[string]string{}
+	changed := false
+	for _, key := range []string{v1.WorkspaceSelectorErrorAnnotation, v1.WorkspaceSelectorAppliedAnnotation} {
+		value, ok := want[key]
+		_, has := secret.Annotations[key]
+		switch {
+		case ok && secret.Annotations[key] != value:
+			if secret.Annotations == nil {
+				secret.Annotations = map[string]string{}
+			}
+			secret.Annotations[key] = value
+			changed = true
+		case !ok && has && !(selectorErr != nil && key == v1.WorkspaceSelectorAppliedAnnotation):
+			delete(secret.Annotations, key)
+			changed = true
 		}
-		secret.Annotations[v1.WorkspaceSelectorErrorAnnotation] = want
+	}
+	if !changed {
+		return nil
 	}
 	if err := r.Patch(ctx, secret, patch); err != nil {
-		return fmt.Errorf("record selector error on secret %s: %w", secret.Name, err)
+		return fmt.Errorf("record selector state on secret %s: %w", secret.Name, err)
 	}
 	return nil
 }
+
+// selectableLabels are the workspace labels a selector may use: those derived from the
+// workspace's spec by derivedWorkspaceLabels rather than taken from what a user wrote.
+var selectableLabels = sets.NewSetByKeys(v1.WorkspaceSandboxScopeLabel)
 
 type invalidSelectorError struct{ err error }
 
@@ -323,9 +361,9 @@ func parseWorkspaceSelector(secret *corev1.Secret) (labels.Selector, error) {
 		return nil, &invalidSelectorError{fmt.Errorf("annotation %s=%q is not a valid label selector: %v",
 			v1.WorkspaceSelectorAnnotation, raw, err)}
 	}
-	// A workspace creator may set any label outside the reserved prefix, so a selector on one
-	// would hand the Secret to whoever sets it. Only reserved labels, which the apiserver
-	// strips from non-admin requests, may be selected on.
+	// A workspace creator may set labels, and some reserved ones take their value from what the
+	// creator submits (the display name), so only labels the system derives itself may be
+	// selected on: see selectableLabels.
 	// Only positive conditions are allowed: a negative one (!=, notin, !key) is true of a
 	// workspace that lacks the label, so a misspelt reserved key would select every workspace.
 	reqs, _ := selector.Requirements()
@@ -336,9 +374,9 @@ func parseWorkspaceSelector(secret *corev1.Secret) (labels.Selector, error) {
 			return nil, &invalidSelectorError{fmt.Errorf("annotation %s=%q uses operator %q on label %q; only =, ==, in and exists are allowed",
 				v1.WorkspaceSelectorAnnotation, raw, req.Operator(), req.Key())}
 		}
-		if !strings.HasPrefix(req.Key(), v1.PrimusSafePrefix) {
-			return nil, &invalidSelectorError{fmt.Errorf("annotation %s=%q selects on label %q, which is not under %s",
-				v1.WorkspaceSelectorAnnotation, raw, req.Key(), v1.PrimusSafePrefix)}
+		if !selectableLabels.Has(req.Key()) {
+			return nil, &invalidSelectorError{fmt.Errorf("annotation %s=%q selects on label %q, which is not one of the system-derived labels a selector may use",
+				v1.WorkspaceSelectorAnnotation, raw, req.Key())}
 		}
 	}
 	return selector, nil

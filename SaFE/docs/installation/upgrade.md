@@ -39,13 +39,15 @@ For additional upgrade-specific behavior, you may add these optional keys to `.e
 | `helm_registry` | Helm chart registry for addons (e.g. `registry-1.docker.io`) |
 | `cd_require_approval` | CD deployment approval: `true` or `false` |
 | `optimize_max_concurrent` | Per-workspace cap on concurrently running optimization tasks (integer, e.g. `1024`). Defaults to chart value `1024` when unset. Synced into both `values.yaml` and the live apiserver ConfigMap. |
-| `sandbox_extra_ca_secret` | Name of a Secret in `primus-safe` holding extra CA certificates that sandboxes must trust (annotate it with `primus-safe.workspace.selector: primus-safe.workspace.scope.sandbox=true` and `primus-safe.secret.broadcast: "true"` (never on a credential) to reach every workspace that runs sandboxes, existing ones included, since the label is derived from each workspace's scopes; select only on `primus-safe.*` labels; a `primus-safe.workspace.ids` list still works alongside; an invalid selector freezes mirroring instead of removing copies and is reported in `primus-safe.workspace.selector.error`). Rolling resource-manager back to a release without selector support is not safe: it clears copies reached only by the selector, so add the workspaces to `primus-safe.workspace.ids` first. Sets `sandbox.extra_ca_secret`; unset renders no extra CA. |
+| `sandbox_extra_ca_secret` | Name of a Secret in `primus-safe` holding extra CA certificates that sandboxes must trust (annotate it with `primus-safe.workspace.selector: primus-safe.workspace.scope.sandbox=true` and `primus-safe.secret.broadcast: "true"` (never on a credential) to reach every workspace that runs sandboxes, existing ones included, since the label is derived from each workspace's scopes; only that label may be selected on; a `primus-safe.workspace.ids` list still works alongside; an invalid selector freezes mirroring instead of removing copies and is reported in `primus-safe.workspace.selector.error`). Rolling resource-manager back to a release without selector support is not safe: it clears copies reached only by the selector, so add the workspaces to `primus-safe.workspace.ids` first. Sets `sandbox.extra_ca_secret`; unset renders no extra CA. |
 | `external_enable` | Enable external execution (`true`/`false`). Synced into helm values and the live job-manager ConfigMap. |
 | `tracing_enable` | Enable OpenTelemetry tracing: `true` or `false` |
 | `tracing_mode` | Tracing mode: `all` or `error_only` |
 | `tracing_sampling_ratio` | Sampling ratio (e.g. `1.0`) |
 | `tracing_otlp_endpoint` | OTLP collector endpoint |
 | `proxy_services` | YAML list for proxy services configuration |
+
+> resource-manager now adds a finalizer to every Secret that has workspace mirror targets, including ones made by hand with `kubectl`. Delete those Secrets (or remove the finalizer by hand) before `helm uninstall` and deleting the `primus-safe` namespace, or the namespace stays in `Terminating`.
 
 ### 🚀 Upgrade Process
 
