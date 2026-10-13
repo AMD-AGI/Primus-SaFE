@@ -2409,3 +2409,28 @@ func TestNodesActionRefusesMigratingADepartingNode(t *testing.T) {
 	removal := withNodesAction(source.DeepCopy(), map[string]string{"node1": v1.NodeActionRemove})
 	assert.NilError(t, validator.validateNodesAction(context.Background(), removal, source, false))
 }
+
+// The sandbox scope label is derived from Spec.Scopes on every write, by the same rule the
+// workload webhook admits a Sandbox by: no scopes means every scope.
+func TestWorkspaceMutateSandboxScopeLabel(t *testing.T) {
+	m := &WorkspaceMutator{Client: fake.NewClientBuilder().WithScheme(newScheme(t)).Build()}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	assert.NilError(t, m.mutateCommon(context.Background(), nil, ws))
+	assert.Equal(t, v1.GetLabel(ws, v1.WorkspaceSandboxScopeLabel), v1.TrueStr)
+
+	oldWs := ws.DeepCopy()
+	ws.Spec.Scopes = []v1.WorkspaceScope{v1.TrainScope, v1.InferScope}
+	assert.NilError(t, m.mutateOnUpdate(context.Background(), oldWs, ws))
+	assert.Assert(t, !v1.HasLabel(ws, v1.WorkspaceSandboxScopeLabel))
+
+	// Set by hand without the scope: not kept.
+	oldWs = ws.DeepCopy()
+	v1.SetLabel(ws, v1.WorkspaceSandboxScopeLabel, v1.TrueStr)
+	assert.NilError(t, m.mutateOnUpdate(context.Background(), oldWs, ws))
+	assert.Assert(t, !v1.HasLabel(ws, v1.WorkspaceSandboxScopeLabel))
+
+	oldWs = ws.DeepCopy()
+	ws.Spec.Scopes = append(ws.Spec.Scopes, v1.SandboxScope)
+	assert.NilError(t, m.mutateOnUpdate(context.Background(), oldWs, ws))
+	assert.Equal(t, v1.GetLabel(ws, v1.WorkspaceSandboxScopeLabel), v1.TrueStr)
+}

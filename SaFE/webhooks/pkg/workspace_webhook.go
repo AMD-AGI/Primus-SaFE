@@ -245,6 +245,7 @@ func (m *WorkspaceMutator) mutateCommon(ctx context.Context, oldWorkspace, newWo
 	}
 	m.mutateVolumes(newWorkspace)
 	m.mutateQueuePolicy(newWorkspace)
+	mutateSandboxScopeLabel(newWorkspace)
 	if oldWorkspace != nil && (oldWorkspace.Spec.EnablePreempt != newWorkspace.Spec.EnablePreempt ||
 		!isMaxRuntimeEqual(oldWorkspace.Spec.MaxRuntime, newWorkspace.Spec.MaxRuntime)) {
 		if err := m.mutateWorkloadsOfWorkspace(ctx, newWorkspace); err != nil {
@@ -273,6 +274,18 @@ func isMaxRuntimeEqual(old, new map[v1.WorkspaceScope]int) bool {
 		}
 	}
 	return true
+}
+
+// mutateSandboxScopeLabel derives WorkspaceSandboxScopeLabel from Spec.Scopes, so that a label
+// selector can pick out the workspaces that accept Sandbox workloads. The rule is the one
+// validateScope applies to a workload: no scopes means every scope. It is recomputed on every
+// write, so a value set by hand does not survive and a scope change moves the label with it.
+func mutateSandboxScopeLabel(workspace *v1.Workspace) {
+	if workspace.AcceptsSandbox() {
+		v1.SetLabel(workspace, v1.WorkspaceSandboxScopeLabel, v1.TrueStr)
+	} else {
+		v1.RemoveLabel(workspace, v1.WorkspaceSandboxScopeLabel)
+	}
 }
 
 // mutateMeta sets workspace name, labels, finalizer and owner references.
