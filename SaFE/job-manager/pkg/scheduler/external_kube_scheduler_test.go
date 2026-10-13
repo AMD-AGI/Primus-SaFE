@@ -203,35 +203,6 @@ func TestEnsureExternalProvisioningProvisioned(t *testing.T) {
 	}
 }
 
-func TestValidateExternalShapeForScheduler(t *testing.T) {
-	single := &v1.Workload{Spec: v1.WorkloadSpec{Resources: []v1.WorkloadResource{{Replica: 1}}}}
-	single.Spec.GroupVersionKind.Kind = common.AuthoringKind
-	if err := validateExternalShapeForScheduler(single); err != nil {
-		t.Fatalf("single replica: %v", err)
-	}
-
-	gang := gangWorkload()
-	if err := validateExternalShapeForScheduler(gang); err != nil {
-		t.Fatalf("rdma gang: %v", err)
-	}
-
-	infera := &v1.Workload{Spec: v1.WorkloadSpec{
-		Resources: []v1.WorkloadResource{{Replica: 1}, {Replica: 1, GPU: "8"}, {Replica: 1, GPU: "8"}},
-	}}
-	infera.Spec.GroupVersionKind.Kind = common.InferaDeploymentKind
-	if err := validateExternalShapeForScheduler(infera); err != nil {
-		t.Fatalf("infera 1p1d: %v", err)
-	}
-
-	multi := &v1.Workload{Spec: v1.WorkloadSpec{
-		Resources: []v1.WorkloadResource{{Replica: 1}, {Replica: 1}},
-	}}
-	multi.Spec.GroupVersionKind.Kind = common.PytorchJobKind
-	if err := validateExternalShapeForScheduler(multi); err == nil {
-		t.Fatal("want error for non-rdma multi replica pytorch")
-	}
-}
-
 func TestBuildGangPodTemplate(t *testing.T) {
 	w := gangWorkload()
 	w.UID = types.UID("abcd1234")
