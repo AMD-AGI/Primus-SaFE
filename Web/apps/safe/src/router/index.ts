@@ -121,6 +121,11 @@ const router = createRouter({
           component: () => import('../pages/Infera/index.vue'),
         },
         {
+          path: '/atom',
+          name: 'Atom',
+          component: () => import('../pages/Atom/index.vue'),
+        },
+        {
           path: '/cicd/detail',
           name: 'CICDDetail',
           component: () => import('../pages/CICD/CICDDetail.vue'),
@@ -179,6 +184,11 @@ const router = createRouter({
           path: '/infera/detail',
           name: 'InferaDetail',
           component: () => import('../pages/Infera/InferaDetail.vue'),
+        },
+        {
+          path: '/atom/detail',
+          name: 'AtomDetail',
+          component: () => import('../pages/Atom/AtomDetail.vue'),
         },
         {
           path: '/workspace',
