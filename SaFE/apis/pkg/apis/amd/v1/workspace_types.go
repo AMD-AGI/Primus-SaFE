@@ -212,6 +212,20 @@ func (w *Workspace) HasScope(scope WorkspaceScope) bool {
 	return false
 }
 
+// AcceptsSandbox reports whether the workspace admits Sandbox workloads: no scopes means every
+// scope, the rule the workload webhook applies. It is what WorkspaceSandboxScopeLabel records.
+func (w *Workspace) AcceptsSandbox() bool {
+	return len(w.Spec.Scopes) == 0 || w.HasScope(SandboxScope)
+}
+
+// SandboxScopeLabelValue is the value WorkspaceSandboxScopeLabel must carry, "" meaning absent.
+func (w *Workspace) SandboxScopeLabelValue() string {
+	if w.AcceptsSandbox() {
+		return TrueStr
+	}
+	return ""
+}
+
 // GetMaxRunTime Return the maximum allowed runtime(unit second) for specified workload under the workspace.
 // If no configuration is found, return 0, indicating no limit.
 func (w *Workspace) GetMaxRunTime(scope WorkspaceScope) int {

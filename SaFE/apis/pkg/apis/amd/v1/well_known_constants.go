@@ -139,6 +139,43 @@ const (
 	WorkspaceIdsAnnotation    = WorkspacePrefix + "ids"
 	SourceWorkloadIdLabel     = "source.workload.id"
 
+	// WorkspaceSelectorAnnotation, on a Secret in the primus-safe namespace, is a label
+	// selector in kubectl -l syntax over Workspace labels. resource-manager mirrors the Secret
+	// into the namespace of every Workspace it matches, in addition to those listed in
+	// WorkspaceIdsAnnotation, and removes the copies it made once a Workspace stops matching.
+	// An empty value selects nothing. An invalid one (unparsable, a label outside
+	// PrimusSafePrefix, a negative operator such as !=, notin or !key, a label other than the system-derived
+	// WorkspaceSandboxScopeLabel, or a Secret not marked
+	// with SecretBroadcastAnnotation) freezes the selector: nothing new is mirrored by it and
+	// no copy is removed, and WorkspaceSelectorErrorAnnotation records why. Unlike the ids list it grants nothing:
+	// checks that read WorkspaceIdsAnnotation as an authorisation do not read this.
+	// Only WorkspaceSandboxScopeLabel may be selected on: other labels take their value from
+	// what a workspace's creator submits, and so could pull the Secret into their namespace.
+	WorkspaceSelectorAnnotation = WorkspacePrefix + "selector"
+	// WorkspaceSelectorAppliedAnnotation is written by resource-manager: the workspaces a valid
+	// selector last selected (a JSON array). While the selector is invalid it marks which
+	// copies are the selector's, so only those are frozen. A missing or unreadable record is
+	// unknown: every existing copy is left as it is until the selector is valid again or removed.
+	WorkspaceSelectorAppliedAnnotation = WorkspacePrefix + "selector.applied"
+	// SecretBroadcastAnnotation, set to "true" on a Secret, marks it as safe to copy into every
+	// workspace a selector matches. A selector is only honoured on a Secret that carries it:
+	// even a reserved label such as the sandbox scope is derived from Spec.Scopes, which the
+	// people with update rights on a workspace can change, so they could pull a credential
+	// into their own namespace. Do not set it on credentials; a CA bundle is the intended use.
+	// Removing it, or setting it to anything but "true", freezes the selector: copies already
+	// made stay and nothing new is mirrored. To stop mirroring, remove WorkspaceSelectorAnnotation.
+	SecretBroadcastAnnotation = PrimusSafePrefix + "secret.broadcast"
+	// WorkspaceSelectorErrorAnnotation is written by resource-manager on a Secret whose
+	// selector was rejected, with the reason, and removed once the selector is valid again.
+	WorkspaceSelectorErrorAnnotation = WorkspacePrefix + "selector.error"
+	// WorkspaceSandboxScopeLabel is derived from Spec.Scopes: "true" when the workspace accepts
+	// Sandbox workloads (no scopes, or Sandbox among them), absent otherwise. The workspace
+	// webhook sets it on each write; a workspace not written since the label existed may lack it,
+	// so the Secret mirror matches selectors against the value derived from Spec.Scopes, and
+	// kubectl -l can disagree for such a workspace until its next update. It exists so a
+	// selector can name "every workspace that runs sandboxes".
+	WorkspaceSandboxScopeLabel = WorkspacePrefix + "scope.sandbox"
+
 	// external execution
 	//
 	// These reach the execution cluster on the pod itself and are what the provider
@@ -171,13 +208,13 @@ const (
 	ExternalLeaseEndLabel       = ExternalExecutionPrefix + "lease-end"
 	ExternalLeaseEndLabelLegacy = ExternalExecutionPrefixLegacy + "lease-end"
 	// ExternalProvisioningRequestTaint is the booking taint key for ProvisioningRequest nodes.
-	ExternalProvisioningRequestTaint   = ExternalExecutionPrefix + "provisioning-request"
-	ExternalHostKeyAnnotation          = ExternalExecutionPrefix + "host-key"
-	ExternalHostKeyAnnotationLegacy    = ExternalExecutionPrefixLegacy + "host-key"
-	ExternalObservedAtAnnotation       = ExternalExecutionPrefix + "observed-at"
-	ExternalObservedAtAnnotationLegacy = ExternalExecutionPrefixLegacy + "observed-at"
-	ExternalValidUntilAnnotation       = ExternalExecutionPrefix + "valid-until"
-	ExternalValidUntilAnnotationLegacy = ExternalExecutionPrefixLegacy + "valid-until"
+	ExternalProvisioningRequestTaint        = ExternalExecutionPrefix + "provisioning-request"
+	ExternalHostKeyAnnotation               = ExternalExecutionPrefix + "host-key"
+	ExternalHostKeyAnnotationLegacy         = ExternalExecutionPrefixLegacy + "host-key"
+	ExternalObservedAtAnnotation            = ExternalExecutionPrefix + "observed-at"
+	ExternalObservedAtAnnotationLegacy      = ExternalExecutionPrefixLegacy + "observed-at"
+	ExternalValidUntilAnnotation            = ExternalExecutionPrefix + "valid-until"
+	ExternalValidUntilAnnotationLegacy      = ExternalExecutionPrefixLegacy + "valid-until"
 	ExternalAllocationPhaseAnnotation       = ExternalExecutionPrefix + "allocation-phase"
 	ExternalAllocationPhaseAnnotationLegacy = ExternalExecutionPrefixLegacy + "allocation-phase"
 	// ExternalBookingKeyMaxLen is the Kubernetes label/taint value limit. Autopilot
