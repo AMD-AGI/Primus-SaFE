@@ -456,12 +456,50 @@ func TestChartInjectsTheSandboxEnvSecret(t *testing.T) {
 	testifyassert.Equal(t, "sandbox-env", GetSandboxEnvSecret())
 }
 
-// A Secret name helm reads as a number stays a string, in the template and the apiserver config.
+// A Secret name helm reads as a number or a boolean stays that name, in the template and the
+// apiserver config; 0 and false are not "unset".
 func TestChartQuotesTheSandboxEnvSecretName(t *testing.T) {
-	pod := renderSandboxPod(t, "--set", "sandbox.env_secret=123")
-	testifyassert.Equal(t, "123", pod.Spec.PodTemplate.Spec.Containers[0].EnvFrom[0]["secretRef"].(map[string]interface{})["name"])
-	loadRendered(t, renderApiserverConfig(t, "--set", "sandbox.env_secret=123"))
-	testifyassert.Equal(t, "123", GetSandboxEnvSecret())
+	for _, name := range []string{"123", "0", "false"} {
+		pod := renderSandboxPod(t, "--set", "sandbox.env_secret="+name)
+		testifyrequire.Len(t, pod.Spec.PodTemplate.Spec.Containers[0].EnvFrom, 1, name)
+		testifyassert.Equal(t, name, pod.Spec.PodTemplate.Spec.Containers[0].EnvFrom[0]["secretRef"].(map[string]interface{})["name"])
+		loadRendered(t, renderApiserverConfig(t, "--set", "sandbox.env_secret="+name))
+		testifyassert.Equal(t, name, GetSandboxEnvSecret())
+	}
+}
+
+func apiserverPodAnnotations(t *testing.T, values ...string) map[string]string {
+	t.Helper()
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+	args := append([]string{"template", chartPath, "--show-only", "templates/apiserver/deployment.yaml"}, values...)
+	var stderr bytes.Buffer
+	cmd := exec.Command("helm", args...)
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	testifyrequire.NoErrorf(t, err, "helm template failed:\n%s", stderr.String())
+	var deployment struct {
+		Spec struct {
+			Template struct {
+				Metadata struct {
+					Annotations map[string]string `yaml:"annotations"`
+				} `yaml:"metadata"`
+			} `yaml:"template"`
+		} `yaml:"spec"`
+	}
+	testifyrequire.NoError(t, yaml.Unmarshal(out, &deployment))
+	return deployment.Spec.Template.Metadata.Annotations
+}
+
+// The apiserver reads the name once at start-up, so changing it must roll the apiserver;
+// otherwise running pods would guard no name while sandboxes already read the Secret.
+func TestChartRollsTheApiserverWhenTheSandboxEnvSecretChanges(t *testing.T) {
+	testifyassert.NotContains(t, apiserverPodAnnotations(t), "primus-safe.sandbox.env-secret")
+	testifyassert.Equal(t, "sandbox-env",
+		apiserverPodAnnotations(t, "--set", "sandbox.env_secret=sandbox-env")["primus-safe.sandbox.env-secret"])
+	testifyassert.Equal(t, "other",
+		apiserverPodAnnotations(t, "--set", "sandbox.env_secret=other")["primus-safe.sandbox.env-secret"])
 }
 
 func TestChartRefusesAnInvalidSandboxEnvSecretName(t *testing.T) {

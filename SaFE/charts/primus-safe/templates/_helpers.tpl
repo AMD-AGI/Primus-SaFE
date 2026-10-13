@@ -23,3 +23,12 @@ condition this non-obvious drift apart.
 "read-write"
 {{- end -}}
 {{- end -}}
+
+{{/*
+The Secret sandboxes receive environment variables from (sandbox.env_secret), as a string; ""
+when unset. Not `default`: a name helm parses as a number or boolean (0, false) is still a name.
+*/}}
+{{- define "primus-safe.sandboxEnvSecret" -}}
+{{- $raw := (default dict .Values.sandbox).env_secret -}}
+{{- if not (kindIs "invalid" $raw) -}}{{- toString $raw -}}{{- end -}}
+{{- end -}}
