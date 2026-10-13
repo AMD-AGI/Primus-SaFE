@@ -96,16 +96,45 @@ func TestExportImageHandlePending(t *testing.T) {
 	assert.Equal(t, v1.OpsJobRunning, job.Status.Phase)
 }
 
-func TestExportImageHandleNonPending(t *testing.T) {
+func TestExportImageHandleResumesRunningJobAfterRestart(t *testing.T) {
 	job := &v1.OpsJob{
-		ObjectMeta: metav1.ObjectMeta{Name: "j1"},
-		Spec:       v1.OpsJobSpec{Type: v1.OpsJobExportImageType},
+		ObjectMeta: metav1.ObjectMeta{Name: "j1", CreationTimestamp: metav1.Now()},
+		Spec:       v1.OpsJobSpec{Type: v1.OpsJobExportImageType, TimeoutSecond: 1800},
 		Status:     v1.OpsJobStatus{Phase: v1.OpsJobRunning, StartedAt: &metav1.Time{Time: time.Now()}},
 	}
 	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	r.Controller = commonctrl.NewController[string](nil, 1)
+
 	res, err := r.handle(context.Background(), job)
 	assert.NoError(t, err)
-	assert.Equal(t, int64(0), res.RequeueAfter.Nanoseconds())
+	assert.Equal(t, 1, r.GetQueueSize())
+	assert.Greater(t, res.RequeueAfter, time.Duration(0))
+	assert.LessOrEqual(t, res.RequeueAfter, 1800*time.Second)
+
+	// The status update that follows the first enqueue reconciles the same Running job.
+	res, err = r.handle(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, r.GetQueueSize())
+	assert.Zero(t, res.RequeueAfter)
+}
+
+func TestExportImageHandlePendingIsQueuedOnce(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1", CreationTimestamp: metav1.Now()},
+		Spec:       v1.OpsJobSpec{Type: v1.OpsJobExportImageType, TimeoutSecond: 1800},
+	}
+	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	r.Controller = commonctrl.NewController[string](nil, 1)
+
+	_, err := r.handle(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, v1.OpsJobRunning, job.Status.Phase)
+	assert.Equal(t, 1, r.GetQueueSize())
+
+	res, err := r.handle(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, r.GetQueueSize())
+	assert.Zero(t, res.RequeueAfter)
 }
 
 func TestExportImageDoNoWorkloadId(t *testing.T) {
