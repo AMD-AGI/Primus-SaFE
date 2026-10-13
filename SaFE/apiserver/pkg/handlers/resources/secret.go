@@ -28,7 +28,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
@@ -252,7 +251,7 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 		}
 		return innerError
 	}, defaultRetryCount, defaultRetryDelay); err != nil {
-		klog.ErrorS(err, "failed to update secret", "name", secret.Name)
+		klog.ErrorS(err, "failed to update secret", "name", name)
 		return nil, err
 	}
 	return nil, nil
@@ -326,50 +325,62 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 
 // deleteSecretImpl implements secret deletion logic.
 func (h *Handler) deleteSecretImpl(ctx context.Context, name string, requestUser *v1.User) error {
-	secret, err := h.getAdminSecret(ctx, name)
+	reserved := name == commonsecret.SandboxEnvSecretName
+	var secret *corev1.Secret
+	err := backoff.ConflictRetry(func() error {
+		var innerError error
+		// Read and checked again on every attempt: a retry deletes the re-read Secret, whose
+		// bindings may have changed.
+		if secret, innerError = h.getAdminSecret(ctx, name); innerError != nil {
+			return innerError
+		}
+		if innerError = h.accessController.Authorize(authority.AccessInput{
+			Context:      ctx,
+			Resource:     secret,
+			ResourceKind: authority.SecretResourceKind,
+			Verb:         v1.DeleteVerb,
+			User:         requestUser,
+			Workspaces:   commonsecret.GetSecretWorkspaces(secret),
+		}); innerError != nil {
+			return innerError
+		}
+		if innerError = authorizeSandboxEnvSecret(requestUser, name, commonsecret.GetSecretWorkspaces(secret)); innerError != nil {
+			return innerError
+		}
+		options := metav1.DeleteOptions{}
+		if reserved {
+			// Delete the version whose bindings were just checked, not one rebound since.
+			options.Preconditions = &metav1.Preconditions{ResourceVersion: &secret.ResourceVersion}
+		}
+		return client.IgnoreNotFound(h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(ctx, name, options))
+	}, defaultRetryCount, defaultRetryDelay)
 	if err != nil {
+		if apierrors.IsConflict(err) {
+			return commonerrors.NewConflict(fmt.Sprintf("the secret %s kept changing while it was being deleted; "+
+				"try again", name))
+		}
 		return err
-	}
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:      ctx,
-		Resource:     secret,
-		ResourceKind: authority.SecretResourceKind,
-		Verb:         v1.DeleteVerb,
-		User:         requestUser,
-		Workspaces:   commonsecret.GetSecretWorkspaces(secret),
-	}); err != nil {
-		return err
-	}
-	if err = authorizeSandboxEnvSecret(requestUser, name, commonsecret.GetSecretWorkspaces(secret)); err != nil {
-		return err
-	}
-	options := metav1.DeleteOptions{}
-	if name == commonconfig.GetSandboxEnvSecret() {
-		// Delete the version whose bindings were just checked, not one rebound since.
-		options.Preconditions = &metav1.Preconditions{ResourceVersion: &secret.ResourceVersion}
-	}
-	if err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
-		ctx, name, options); err != nil {
-		return client.IgnoreNotFound(err)
 	}
 	klog.Infof("delete secret %s", name)
 	return nil
 }
 
 // authorizeSandboxEnvSecret refuses a write to the Secret whose keys sandboxes receive as
-// environment variables (sandbox.env_secret) unless the user is a system admin or administers
+// environment variables (commonsecret.SandboxEnvSecretName) unless the user is a system admin or administers
 // every workspace in workspaces. Every key of that Secret reaches every sandbox of the workspaces
 // it is bound to, so a member able to write it could set LD_PRELOAD or similar in a colleague's
 // sandbox; the ordinary role lets any member create a Secret bound to their workspace.
 func authorizeSandboxEnvSecret(user *v1.User, name string, workspaces []string) error {
-	reserved := commonconfig.GetSandboxEnvSecret()
-	if reserved == "" || name != reserved {
+	// Reserved whether or not the chart turns the feature on, so turning it on never opens a
+	// window in which an apiserver pod would let a member take the name.
+	if name != commonsecret.SandboxEnvSecretName {
 		return nil
 	}
-	if user.IsSystemAdmin() {
+	// No user (an internal caller) is not an admin.
+	if user != nil && user.IsSystemAdmin() {
 		return nil
 	}
-	if len(workspaces) > 0 && commonuser.HasWorkspaceManagedRight(user, workspaces...) {
+	if user != nil && len(workspaces) > 0 && commonuser.HasWorkspaceManagedRight(user, workspaces...) {
 		return nil
 	}
 	return commonerrors.NewForbidden(fmt.Sprintf("the secret %s is read by sandboxes as environment "+

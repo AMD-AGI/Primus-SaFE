@@ -13,6 +13,12 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
+// SandboxEnvSecretName is the Secret whose every key a sandbox's main container receives as an
+// environment variable when the chart's sandbox.env_secret is set. The name is fixed, and is
+// reserved whether or not the feature is on, so that no Secret of this name can be written by a
+// non-admin, or taken over by the mirror, before or while the sandbox template starts reading it.
+const SandboxEnvSecretName = "sandbox-env"
+
 // GetSecretWorkspaces extracts workspace IDs from a secret's annotations.
 // Returns nil if no workspace IDs are found or if Unmarshal fails.
 func GetSecretWorkspaces(secret *corev1.Secret) []string {

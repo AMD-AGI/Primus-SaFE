@@ -28,11 +28,6 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "{{ default 8000 (default .Values.job_manager).metrics_port }}"
         prometheus.io/path: "/metrics"
-{{- with include "primus-safe.sandboxEnvSecret" . }}
-        # The apiserver reads its config once at start-up; a change of this name must restart it
-        # so that the Secret it guards is the one sandboxes read.
-        primus-safe.sandbox.env-secret: {{ . | quote }}
-{{- end }}
     spec:
       affinity:
         podAntiAffinity:

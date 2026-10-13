@@ -56,8 +56,9 @@ data:
 {{- end }}
 {{- with include "primus-safe.sandboxEnvSecret" . }}
 {{- $name := . }}
-{{- if or (gt (len $name) 253) (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$" $name)) }}
-{{- fail (printf "sandbox.env_secret %q is not a valid Secret name" $name) }}
+{{- /* Only the name the apiserver and resource-manager always reserve; see values.yaml. */}}
+{{- if ne $name "sandbox-env" }}
+{{- fail (printf "sandbox.env_secret %q is not supported: set it to sandbox-env or leave it empty" $name) }}
 {{- end }}
             envFrom:
             - secretRef:

@@ -18,8 +18,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,13 +30,13 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 const (
-	sandboxEnvSecret = "sandbox-env"
+	sandboxEnvSecret = commonsecret.SandboxEnvSecretName
 	// sandboxEnvRefusal is the phrase only authorizeSandboxEnvSecret uses, so a refusal by the
 	// ordinary role check cannot pass for one by the guard.
 	sandboxEnvRefusal = "read by sandboxes as environment variables"
@@ -115,11 +115,6 @@ func newSandboxEnvHandlerWith(t *testing.T, funcs interceptor.Funcs, secrets ...
 		accessController: &authority.AccessController{Client: cli}}, users
 }
 
-func enableSandboxEnvSecret(t *testing.T, name string) {
-	commonconfig.SetValue("sandbox.env_secret", name)
-	t.Cleanup(func() { commonconfig.SetValue("sandbox.env_secret", "") })
-}
-
 func sandboxEnvCreate(name string, workspaces ...string) *view.CreateSecretRequest {
 	return &view.CreateSecretRequest{Name: name, Type: v1.SecretGeneral, WorkspaceIds: workspaces,
 		Params: []map[view.SecretParam]string{{view.SecretParam("LD_PRELOAD"): b64("/tmp/x.so")}}}
@@ -145,7 +140,6 @@ func assertGuardRefused(t *testing.T, err error) {
 }
 
 func TestMemberCannotCreateTheSandboxEnvSecret(t *testing.T) {
-	enableSandboxEnvSecret(t, sandboxEnvSecret)
 	h, users := newSandboxEnvHandler(t)
 	ctx := context.Background()
 
@@ -167,26 +161,37 @@ func TestMemberCannotCreateTheSandboxEnvSecret(t *testing.T) {
 }
 
 func TestSystemAdminCanCreateTheSandboxEnvSecret(t *testing.T) {
-	enableSandboxEnvSecret(t, sandboxEnvSecret)
 	h, users := newSandboxEnvHandler(t)
 	_, err := h.createSecretImpl(context.Background(), sandboxEnvCreate(sandboxEnvSecret, "ws-a", "ws-b"), users.sysAdmin)
 	testifyrequire.NoError(t, err)
 }
 
-// The name is whatever the chart configures, and nothing is reserved while it is empty.
-func TestSandboxEnvSecretNameFollowsTheConfig(t *testing.T) {
+// The name is reserved with no configuration at all: that is the state of an apiserver pod
+// still running while the chart turns the sandbox template on, so it must already refuse.
+func TestSandboxEnvSecretIsReservedWithoutAnyConfig(t *testing.T) {
+	testifyrequire.Equal(t, "sandbox-env", sandboxEnvSecret)
 	h, users := newSandboxEnvHandler(t)
 	ctx := context.Background()
-	_, err := h.createSecretImpl(ctx, sandboxEnvCreate(sandboxEnvSecret, "ws-a"), users.member)
+	_, err := h.createSecretImpl(ctx, sandboxEnvCreate("site-sandbox-vars", "ws-a"), users.member)
 	testifyrequire.NoError(t, err)
-
-	enableSandboxEnvSecret(t, "site-sandbox-vars")
-	_, err = h.createSecretImpl(ctx, sandboxEnvCreate("site-sandbox-vars", "ws-a"), users.member)
+	_, err = h.createSecretImpl(ctx, sandboxEnvCreate(sandboxEnvSecret, "ws-a"), users.member)
 	assertGuardRefused(t, err)
 }
 
+// An internal caller with no user is not an admin.
+func TestSandboxEnvSecretGuardRefusesANilUser(t *testing.T) {
+	assertGuardRefused(t, authorizeSandboxEnvSecret(nil, sandboxEnvSecret, []string{"ws-a"}))
+	testifyassert.NoError(t, authorizeSandboxEnvSecret(nil, "other-name", []string{"ws-a"}))
+	h, _ := newSandboxEnvHandler(t, func() *corev1.Secret {
+		s := ownedSecret(sandboxEnvSecret, "sys-admin", "ws-a")
+		s.Labels[v1.SecretTypeLabel] = string(v1.SecretImage)
+		return s
+	}())
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-b"}}
+	assertGuardRefused(t, h.updateWorkspaceImageSecrets(context.Background(), ws, nil, []string{sandboxEnvSecret}))
+}
+
 func TestMemberCannotUpdateTheSandboxEnvSecret(t *testing.T) {
-	enableSandboxEnvSecret(t, sandboxEnvSecret)
 	h, users := newSandboxEnvHandler(t,
 		ownedSecret(sandboxEnvSecret, "member", "ws-a"), ownedSecret("other-name", "member", "ws-a"))
 	params := []map[view.SecretParam]string{{view.SecretParam("LD_PRELOAD"): b64("/tmp/x.so")}}
@@ -218,7 +223,6 @@ func TestMemberCannotUpdateTheSandboxEnvSecret(t *testing.T) {
 }
 
 func TestMemberCannotDeleteTheSandboxEnvSecret(t *testing.T) {
-	enableSandboxEnvSecret(t, sandboxEnvSecret)
 	h, users := newSandboxEnvHandler(t,
 		ownedSecret(sandboxEnvSecret, "member", "ws-a"), ownedSecret("other-name", "member", "ws-a"))
 	ctx := context.Background()
@@ -234,7 +238,6 @@ func TestMemberCannotDeleteTheSandboxEnvSecret(t *testing.T) {
 // A patch that loses a conflict retries on a re-read Secret; if that Secret was meanwhile bound
 // to a workspace the caller does not administer, the retry is refused rather than written.
 func TestSandboxEnvSecretPatchRechecksAfterAConflict(t *testing.T) {
-	enableSandboxEnvSecret(t, sandboxEnvSecret)
 	var h *Handler
 	conflicted := false
 	h, users := newSandboxEnvHandlerWith(t, interceptor.Funcs{
@@ -261,7 +264,6 @@ func TestSandboxEnvSecretPatchRechecksAfterAConflict(t *testing.T) {
 
 // Binding an image Secret through the workspace API also changes which workspaces receive it.
 func TestWorkspaceImageSecretBindingHonoursTheSandboxEnvSecret(t *testing.T) {
-	enableSandboxEnvSecret(t, sandboxEnvSecret)
 	image := func(name string) *corev1.Secret {
 		s := ownedSecret(name, "sys-admin", "ws-a")
 		s.Labels[v1.SecretTypeLabel] = string(v1.SecretImage)
@@ -280,7 +282,6 @@ func TestWorkspaceImageSecretBindingHonoursTheSandboxEnvSecret(t *testing.T) {
 
 // The delete of the reserved Secret is pinned to the version whose bindings were checked.
 func TestSandboxEnvSecretDeleteIsPinnedToTheCheckedVersion(t *testing.T) {
-	enableSandboxEnvSecret(t, sandboxEnvSecret)
 	reserved := ownedSecret(sandboxEnvSecret, "member", "ws-a")
 	reserved.ResourceVersion = "7"
 	other := ownedSecret("other-name", "member", "ws-a")
@@ -300,4 +301,63 @@ func TestSandboxEnvSecretDeleteIsPinnedToTheCheckedVersion(t *testing.T) {
 	testifyrequire.NotNil(t, preconditions[sandboxEnvSecret])
 	testifyassert.Equal(t, "7", *preconditions[sandboxEnvSecret].ResourceVersion)
 	testifyassert.Nil(t, preconditions["other-name"])
+}
+
+// A delete that loses the resourceVersion precondition is retried on the re-read Secret, and
+// checked again: here it was rebound to ws-b, which the caller does not administer.
+func TestSandboxEnvSecretDeleteRetriesAndRechecksAfterAConflict(t *testing.T) {
+	reserved := ownedSecret(sandboxEnvSecret, "ws-admin", "ws-a")
+	reserved.ResourceVersion = "7"
+	h, users := newSandboxEnvHandler(t, reserved)
+	cs := h.clientSet.(*k8sfake.Clientset)
+	conflicts := 0
+	cs.PrependReactor("delete", "secrets", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if conflicts > 0 {
+			return false, nil, nil
+		}
+		conflicts++
+		// Someone rebinds it between the check and the delete.
+		rebound := ownedSecret(sandboxEnvSecret, "ws-admin", "ws-a", "ws-b")
+		rebound.ResourceVersion = "8"
+		testifyrequire.NoError(t, cs.Tracker().Update(corev1.SchemeGroupVersion.WithResource("secrets"),
+			rebound, common.PrimusSafeNamespace))
+		return true, nil, apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, sandboxEnvSecret, nil)
+	})
+	assertGuardRefused(t, h.deleteSecretImpl(context.Background(), sandboxEnvSecret, users.wsAdmin))
+	testifyassert.Equal(t, 1, conflicts)
+	_, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).Get(context.Background(), sandboxEnvSecret, metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+}
+
+// A delete that keeps losing the precondition ends in a message that says so, not a bare 409.
+func TestSandboxEnvSecretDeleteConflictIsExplained(t *testing.T) {
+	h, users := newSandboxEnvHandler(t, ownedSecret(sandboxEnvSecret, "ws-admin", "ws-a"))
+	h.clientSet.(*k8sfake.Clientset).PrependReactor("delete", "secrets",
+		func(action k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, sandboxEnvSecret, nil)
+		})
+	err := h.deleteSecretImpl(context.Background(), sandboxEnvSecret, users.wsAdmin)
+	testifyrequire.Error(t, err)
+	testifyassert.True(t, apierrors.IsConflict(err), "%v", err)
+	testifyassert.Contains(t, err.Error(), "kept changing while it was being deleted")
+}
+
+// A patch whose Secret is deleted after a lost conflict ends in a 404, not a nil dereference
+// while logging the failure.
+func TestSecretPatchOfASecretDeletedDuringAConflict(t *testing.T) {
+	var h *Handler
+	h, users := newSandboxEnvHandlerWith(t, interceptor.Funcs{
+		Update: func(ctx context.Context, cli client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			testifyrequire.NoError(t, h.clientSet.(*k8sfake.Clientset).Tracker().Delete(
+				corev1.SchemeGroupVersion.WithResource("secrets"), common.PrimusSafeNamespace, obj.GetName()))
+			return apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, obj.GetName(), nil)
+		},
+	}, ownedSecret("other-name", "member", "ws-a"))
+	params := []map[view.SecretParam]string{{view.SecretParam("K"): b64("v")}}
+	c := newPostCtx(jsonutils.MarshalSilently(view.PatchSecretRequest{Params: &params}))
+	c.Set(common.UserId, users.member.Name)
+	c.Set(common.Name, "other-name")
+	_, err := h.patchSecret(c)
+	testifyrequire.Error(t, err)
+	testifyassert.True(t, apierrors.IsNotFound(err), "%v", err)
 }

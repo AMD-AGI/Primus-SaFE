@@ -398,10 +398,11 @@ echo "TXlQYXNzd29yZA==" | base64 -d
 
 ## Sandbox Environment Secret
 
-When the chart value `sandbox.env_secret` names a Secret (conventionally `sandbox-env`; set it
-with `sandbox_env_secret` in `.env`), every sandbox receives each key of the Secret of that name
-in its own workspace namespace as an environment variable, through
-`envFrom: [{secretRef: {name: <name>, optional: true}}]` on the sandbox's main container.
+When the chart value `sandbox.env_secret` is `sandbox-env` (set it with `sandbox_env_secret` in
+`.env`; it is the only accepted name, empty turns the feature off), every sandbox receives each
+key of the Secret `sandbox-env` in its own workspace namespace as an environment variable,
+through `envFrom: [{secretRef: {name: sandbox-env, optional: true}}]` on the sandbox's main
+container.
 
 - **By reference**: values stay in the Secret. They are not in the Workload, its `env`, or the
   Pod spec.
@@ -410,38 +411,58 @@ in its own workspace namespace as an environment variable, through
 - **Optional**: a workspace without the Secret starts its sandboxes as before.
 - **Precedence**: a variable the sandbox template or the Workload's `env` sets explicitly keeps
   that value; the Secret only adds variables.
+- **Key names**: every key must be a valid environment variable name (letters, digits and `_`,
+  not starting with a digit). The kubelet silently skips any other key and only records an
+  `InvalidEnvironmentVariableNames` event on the Pod; the sandbox still starts, without it.
 - **Adding a variable** is adding a key to the Secret; no chart or code change. Running sandboxes
   keep the environment they started with; sandboxes created after a change see it.
 - **Admins only**: every key reaches every sandbox in the workspace, so through this API only a
   system admin, or an admin of every workspace the Secret is bound to, may create, update or
-  delete a Secret with this name, or bind it to a workspace through the workspace image-secret
-  API (others get 403). Binding by `primus-safe.workspace.ids` replaces a same-named Secret
-  already in the workspace namespace; a selector match does not.
+  delete a Secret named `sandbox-env`, or bind it to a workspace through the workspace
+  image-secret API (others get 403). The name is reserved whether or not the feature is on, so
+  turning it on opens no window in which a member could take it.
 
-Before turning the feature on, check that no Secret with that name already exists in the
-`primus-safe` namespace or in a workspace namespace unless an administrator made it. A
-workspace whose sandboxes run on an external (virtual) node needs that node to resolve
-`envFrom` from a Secret; verify it before creating the Secret there.
+Turn the feature on in an upgrade after the one that installs this version, so that every
+apiserver pod already reserves the name when the sandbox template starts reading it. Before
+turning it on, check that no Secret named `sandbox-env` already exists in the `primus-safe`
+namespace or in a workspace namespace unless an administrator made it. A workspace whose
+sandboxes run on an external (virtual) node needs that node to resolve `envFrom` from a Secret;
+verify it before creating the Secret there.
 
-One value per workspace (on the workspace's data-plane cluster; values are read from files, so
-they do not land in shell history):
+There are two ways to provide the Secret. Use one per workspace; do not mix them.
 
-```bash
-kubectl -n <workspace> create secret generic sandbox-env \
-  --from-file=HF_TOKEN=./hf-token --from-file=ANOTHER_VAR=./another-var
-# add or change a key later, keeping the others
-kubectl -n <workspace> create secret generic sandbox-env \
-  --from-file=HF_TOKEN=./hf-token --from-file=ANOTHER_VAR=./another-var --from-file=NEW_VAR=./new-var \
-  --dry-run=client -o yaml | kubectl apply -f -
-# list the variable names only
-kubectl -n <workspace> get secret sandbox-env -o go-template='{{range $k, $v := .data}}{{$k}}{{"\n"}}{{end}}'
-```
+1. **In the workspace namespace** (one value per workspace), by an administrator with direct
+   access to the workspace's data-plane cluster. Values are read from files, so they do not land
+   in shell history:
 
-One value shared by several workspaces: create a general Secret named `sandbox-env` through this
-API (as an admin) bound to those workspaces, or in the `primus-safe` namespace with the
-`primus-safe.workspace.ids` annotation; resource-manager mirrors it into each workspace
-namespace. Do not mix the two ways in one workspace, and do not use the workspace selector for
-it: it is a credential, and anyone who can edit a workspace's scopes can make it match.
+   ```bash
+   kubectl -n <workspace> create secret generic sandbox-env \
+     --from-file=HF_TOKEN=./hf-token --from-file=ANOTHER_VAR=./another-var
+   # add or change a key later, keeping the others
+   kubectl -n <workspace> create secret generic sandbox-env \
+     --from-file=HF_TOKEN=./hf-token --from-file=ANOTHER_VAR=./another-var --from-file=NEW_VAR=./new-var \
+     --dry-run=client -o yaml | kubectl apply -f -
+   # list the variable names only
+   kubectl -n <workspace> get secret sandbox-env -o go-template='{{range $k, $v := .data}}{{$k}}{{"\n"}}{{end}}'
+   ```
+
+2. **Through the mirror** (one value shared by several workspaces): create a general Secret named
+   `sandbox-env` through this API (as an admin) bound to those workspaces, or in the
+   `primus-safe` namespace with the `primus-safe.workspace.ids` annotation; resource-manager
+   copies it into each workspace namespace and keeps the copies in sync.
+
+If both are used for one workspace, whichever Secret is in the workspace namespace first wins:
+
+- A `sandbox-env` made in the workspace namespace (it lacks the mirror label
+  `primus-safe/secret-mirror: "true"`) is never taken over by the mirror, even for an explicit
+  `primus-safe.workspace.ids` grant, so it is neither overwritten nor deleted when that grant is
+  withdrawn. resource-manager leaves it as it is and records a `MirrorConflict` Warning event on
+  the mirrored Secret.
+- A copy the mirror made keeps being synced from the mirrored Secret, so a `kubectl apply` over it
+  in the workspace namespace is overwritten, and withdrawing the grant deletes it.
+
+Do not use the workspace selector for it: it is a credential, and anyone who can edit a
+workspace's scopes can make it match.
 
 ## Secret Update Strategy
 

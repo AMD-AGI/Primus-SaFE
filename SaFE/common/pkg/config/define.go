@@ -199,7 +199,6 @@ const (
 	sandboxEnable    = sandboxPrefix + "enable"
 	sandboxNamespace = sandboxPrefix + "namespace"
 	sandboxSecret    = sandboxPrefix + "secret"
-	sandboxEnvSecret = sandboxPrefix + "env_secret"
 
 	// mcp
 	mcpPrefix         = "mcp."

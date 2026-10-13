@@ -151,9 +151,10 @@ fi
 # Secret whose keys sandboxes receive as environment variables. Synced whenever
 # sandbox_env_secret is present in .env, so setting it empty turns the feature off.
 if [[ -n "${sandbox_env_secret+x}" ]]; then
-  if [[ -n "$sandbox_env_secret" &&
-    ! "$sandbox_env_secret" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$ ]]; then
-    echo "Error: sandbox_env_secret '$sandbox_env_secret' is not a valid Secret name" >&2
+  # The only accepted name is the one the apiserver and resource-manager always reserve (the
+  # chart refuses any other); checked here so values.yaml is never left holding one.
+  if [[ -n "$sandbox_env_secret" && "$sandbox_env_secret" != "sandbox-env" ]]; then
+    echo "Error: sandbox_env_secret '$sandbox_env_secret' is not supported: set it to sandbox-env or leave it empty" >&2
     exit 1
   fi
   sed -i '/^sandbox:/,/^[a-z]/ s/^  env_secret: .*/  env_secret: "'"$sandbox_env_secret"'"/' "$values_yaml"

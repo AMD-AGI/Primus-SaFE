@@ -434,8 +434,6 @@ func TestChartRendersNoSandboxEnvSecretByDefault(t *testing.T) {
 	for _, current := range main.Env {
 		testifyassert.Nil(t, current.ValueFrom, "%s reads from a reference", current.Name)
 	}
-	loadRendered(t, renderApiserverConfig(t))
-	testifyassert.Equal(t, "", GetSandboxEnvSecret())
 }
 
 func TestChartInjectsTheSandboxEnvSecret(t *testing.T) {
@@ -451,71 +449,43 @@ func TestChartInjectsTheSandboxEnvSecret(t *testing.T) {
 	// The explicit env is unchanged, and explicit env wins over envFrom in Kubernetes, so the
 	// Secret cannot replace PATH or the CA variables.
 	testifyassert.Equal(t, plain.Spec.PodTemplate.Spec.Containers[0].Env, main.Env)
-
-	loadRendered(t, renderApiserverConfig(t, "--set", "sandbox.env_secret=sandbox-env"))
-	testifyassert.Equal(t, "sandbox-env", GetSandboxEnvSecret())
 }
 
-// A Secret name helm reads as a number or a boolean stays that name, in the template and the
-// apiserver config; 0 and false are not "unset".
-func TestChartQuotesTheSandboxEnvSecretName(t *testing.T) {
-	for _, name := range []string{"123", "0", "false"} {
-		pod := renderSandboxPod(t, "--set", "sandbox.env_secret="+name)
-		testifyrequire.Len(t, pod.Spec.PodTemplate.Spec.Containers[0].EnvFrom, 1, name)
-		testifyassert.Equal(t, name, pod.Spec.PodTemplate.Spec.Containers[0].EnvFrom[0]["secretRef"].(map[string]interface{})["name"])
-		loadRendered(t, renderApiserverConfig(t, "--set", "sandbox.env_secret="+name))
-		testifyassert.Equal(t, name, GetSandboxEnvSecret())
-	}
-}
-
-func apiserverPodAnnotations(t *testing.T, values ...string) map[string]string {
-	t.Helper()
+// Only sandbox-env, the name the apiserver and resource-manager reserve whether or not the
+// feature is on, is accepted: any other name would be guarded only once the apiserver had
+// restarted with it, after the template already read it. A value helm parses as a number or a
+// boolean (0, false) is refused too, not read as unset.
+func TestChartRefusesAnySandboxEnvSecretNameButTheReservedOne(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm is not installed")
 	}
-	args := append([]string{"template", chartPath, "--show-only", "templates/apiserver/deployment.yaml"}, values...)
-	var stderr bytes.Buffer
-	cmd := exec.Command("helm", args...)
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	testifyrequire.NoErrorf(t, err, "helm template failed:\n%s", stderr.String())
-	var deployment struct {
-		Spec struct {
-			Template struct {
-				Metadata struct {
-					Annotations map[string]string `yaml:"annotations"`
-				} `yaml:"metadata"`
-			} `yaml:"template"`
-		} `yaml:"spec"`
-	}
-	testifyrequire.NoError(t, yaml.Unmarshal(out, &deployment))
-	return deployment.Spec.Template.Metadata.Annotations
-}
-
-// The apiserver reads the name once at start-up, so changing it must roll the apiserver;
-// otherwise running pods would guard no name while sandboxes already read the Secret.
-func TestChartRollsTheApiserverWhenTheSandboxEnvSecretChanges(t *testing.T) {
-	testifyassert.NotContains(t, apiserverPodAnnotations(t), "primus-safe.sandbox.env-secret")
-	testifyassert.Equal(t, "sandbox-env",
-		apiserverPodAnnotations(t, "--set", "sandbox.env_secret=sandbox-env")["primus-safe.sandbox.env-secret"])
-	testifyassert.Equal(t, "other",
-		apiserverPodAnnotations(t, "--set", "sandbox.env_secret=other")["primus-safe.sandbox.env-secret"])
-}
-
-func TestChartRefusesAnInvalidSandboxEnvSecretName(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
-	for _, name := range []string{"Not_A_Name", "a..b", strings.Repeat("a", 254), "a\n- name: x"} {
+	for _, name := range []string{"other", "sandbox-env2", "0", "false", "Not_A_Name", strings.Repeat("a", 254),
+		"a\n- name: x"} {
 		cmd := exec.Command("helm", "template", chartPath, "--show-only",
 			"templates/configmap/sandbox_template.yaml", "--set", "sandbox.env_secret="+name)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
 		testifyrequire.Error(t, err, name)
-		testifyassert.Contains(t, stderr.String(), "is not a valid Secret name", name)
+		testifyassert.Contains(t, stderr.String(), "set it to sandbox-env or leave it empty", name)
 		testifyassert.NotContains(t, string(out), "envFrom")
 	}
+}
+
+// The apiserver needs no configuration for the guard, so the chart gives it none and turning the
+// feature on does not restart it.
+func TestChartLeavesTheApiserverAloneForTheSandboxEnvSecret(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+	render := func(values ...string) string {
+		args := append([]string{"template", chartPath, "--show-only", "templates/apiserver/deployment.yaml",
+			"--show-only", "templates/apiserver/config.yaml"}, values...)
+		out, err := exec.Command("helm", args...).Output()
+		testifyrequire.NoError(t, err)
+		return string(out)
+	}
+	testifyassert.Equal(t, render(), render("--set", "sandbox.env_secret=sandbox-env"))
 }
 
 func TestChartPullsTheEnvdInjectorThroughTheSiteProxy(t *testing.T) {

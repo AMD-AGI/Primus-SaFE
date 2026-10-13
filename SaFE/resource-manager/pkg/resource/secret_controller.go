@@ -585,9 +585,16 @@ func (r *SecretReconciler) getClientSetOfDataplane(ctx context.Context, clusterI
 var errMirrorConflict = errors.New("a Secret not made by resource-manager is already there")
 
 // syncSecretToWorkspace ensures a mirrored secret exists/updated in the target namespace on data plane.
-// An existing Secret without the mirror label is taken over only when adopt is set.
+// An existing Secret without the mirror label is taken over only when adopt is set, and never
+// when it is the sandbox environment Secret (commonsecret.SandboxEnvSecretName).
 func (r *SecretReconciler) syncSecretToWorkspace(ctx context.Context, clientSet kubernetes.Interface,
 	adminPlaneSecret *corev1.Secret, workspace *v1.Workspace, adopt bool) error {
+	// A sandbox-env made in the workspace namespace (by an administrator with kubectl) wins over
+	// the mirrored one: an ids grant made through the API by a workspace admin must not replace
+	// it, nor, by labelling it as a copy, let a later unbind delete it.
+	if adminPlaneSecret.Name == commonsecret.SandboxEnvSecretName {
+		adopt = false
+	}
 	targetSecrets := clientSet.CoreV1().Secrets(workspace.Name)
 	existing, err := targetSecrets.Get(ctx, adminPlaneSecret.Name, metav1.GetOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {

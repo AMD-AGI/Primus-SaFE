@@ -26,7 +26,8 @@ condition this non-obvious drift apart.
 
 {{/*
 The Secret sandboxes receive environment variables from (sandbox.env_secret), as a string; ""
-when unset. Not `default`: a name helm parses as a number or boolean (0, false) is still a name.
+when unset. Not `default`: a value helm parses as a number or boolean (0, false) is still set,
+and is refused by the sandbox template rather than read as unset.
 */}}
 {{- define "primus-safe.sandboxEnvSecret" -}}
 {{- $raw := (default dict .Values.sandbox).env_secret -}}
