@@ -81,10 +81,11 @@ type ExportImageJobReconciler struct {
 	// running counts the exports each user has running (exportsPerUser).
 	mu      sync.Mutex
 	running map[string]int
-	// queued names exports this process has put on the worker queue. The queue
-	// itself is in memory, so a process that finds a job already Running must
-	// queue it again; the reconcile caused by that status write must not.
-	queued map[string]struct{}
+	// queued maps each export this process has on the worker queue to the job's UID.
+	// The queue itself is in memory, so a process that finds a job already Running
+	// must queue it again; the reconcile caused by that status write must not. An
+	// entry is removed once its export will not be processed again.
+	queued map[string]apitypes.UID
 }
 
 // claim takes one of user's export slots, and reports whether there was one free.
@@ -186,29 +187,39 @@ func (r *ExportImageJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (
 		if err := r.setJobPhase(ctx, job, v1.OpsJobRunning); err != nil {
 			return ctrlruntime.Result{}, fmt.Errorf("failed to set job phase to running: %w", err)
 		}
-		r.enqueueExport(job.Name)
+		r.enqueueExport(job)
 		return newRequeueAfterResult(job), nil
 	}
-	if job.Status.Phase == v1.OpsJobRunning && r.enqueueExport(job.Name) {
+	if job.Status.Phase == v1.OpsJobRunning && r.enqueueExport(job) {
 		return requeueUntilDeadline(job), nil
 	}
 	return ctrlruntime.Result{}, nil
 }
 
-// enqueueExport puts name on the worker queue the first time this process sees it.
-func (r *ExportImageJobReconciler) enqueueExport(name string) bool {
+// enqueueExport puts the job on the worker queue unless this process already queued
+// the same job (name and UID).
+func (r *ExportImageJobReconciler) enqueueExport(job *v1.OpsJob) bool {
 	r.mu.Lock()
 	if r.queued == nil {
-		r.queued = map[string]struct{}{}
+		r.queued = map[string]apitypes.UID{}
 	}
-	if _, ok := r.queued[name]; ok {
+	if uid, ok := r.queued[job.Name]; ok && uid == job.UID {
 		r.mu.Unlock()
 		return false
 	}
-	r.queued[name] = struct{}{}
+	r.queued[job.Name] = job.UID
 	r.mu.Unlock()
-	r.Add(name)
+	r.Add(job.Name)
 	return true
+}
+
+// dequeueExport forgets the queued export of name; an empty uid matches any job.
+func (r *ExportImageJobReconciler) dequeueExport(name string, uid apitypes.UID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if queued, ok := r.queued[name]; ok && (uid == "" || queued == uid) {
+		delete(r.queued, name)
+	}
 }
 
 // requeueUntilDeadline reconciles the job again when its timeout elapses.
@@ -223,13 +234,23 @@ func requeueUntilDeadline(job *v1.OpsJob) ctrlruntime.Result {
 	return ctrlruntime.Result{RequeueAfter: time.Duration(left) * time.Second}
 }
 
-// Do exports the workload's main container.
-func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrlruntime.Result, error) {
+// Do exports the workload's main container. The job's queued marker is kept while it
+// will be retried and removed once it will not.
+func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (result ctrlruntime.Result, err error) {
 	job := &v1.OpsJob{}
-	if err := r.Get(ctx, client.ObjectKey{Name: jobName}, job); err != nil {
-		klog.ErrorS(err, "failed to get OpsJob", "jobName", jobName)
-		return ctrlruntime.Result{}, err
+	if getErr := r.Get(ctx, client.ObjectKey{Name: jobName}, job); getErr != nil {
+		if apierrors.IsNotFound(getErr) {
+			r.dequeueExport(jobName, "")
+			return ctrlruntime.Result{}, nil
+		}
+		klog.ErrorS(getErr, "failed to get OpsJob", "jobName", jobName)
+		return ctrlruntime.Result{}, getErr
 	}
+	defer func() {
+		if err == nil && !result.Requeue && result.RequeueAfter == 0 {
+			r.dequeueExport(jobName, job.UID)
+		}
+	}()
 	if job.IsEnd() {
 		return ctrlruntime.Result{}, nil
 	}
