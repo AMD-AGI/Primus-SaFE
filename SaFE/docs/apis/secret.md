@@ -414,9 +414,9 @@ in its own workspace namespace as an environment variable, through
   keep the environment they started with; sandboxes created after a change see it.
 - **Admins only**: every key reaches every sandbox in the workspace, so through this API only a
   system admin, or an admin of every workspace the Secret is bound to, may create, update or
-  delete a Secret with this name (others get 403). resource-manager never overwrites a Secret in
-  a workspace namespace that it did not create, so a same-named Secret bound to the workspace
-  cannot replace one an administrator put there.
+  delete a Secret with this name, or bind it to a workspace through the workspace image-secret
+  API (others get 403). Binding by `primus-safe.workspace.ids` replaces a same-named Secret
+  already in the workspace namespace; a selector match does not.
 
 Before turning the feature on, check that no Secret with that name already exists in the
 `primus-safe` namespace or in a workspace namespace unless an administrator made it. A
@@ -440,7 +440,8 @@ kubectl -n <workspace> get secret sandbox-env -o go-template='{{range $k, $v := 
 One value shared by several workspaces: create a general Secret named `sandbox-env` through this
 API (as an admin) bound to those workspaces, or in the `primus-safe` namespace with the
 `primus-safe.workspace.ids` annotation; resource-manager mirrors it into each workspace
-namespace. Do not mix the two ways in one workspace.
+namespace. Do not mix the two ways in one workspace, and do not use the workspace selector for
+it: it is a credential, and anyone who can edit a workspace's scopes can make it match.
 
 ## Secret Update Strategy
 
