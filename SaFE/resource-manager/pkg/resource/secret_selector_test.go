@@ -22,6 +22,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -507,9 +508,10 @@ func TestFrozenSelectorStillHonoursIdsRemoval(t *testing.T) {
 	assert.Empty(t, got.Spec.ImageSecrets, "and the reference")
 }
 
-// A selector that was never valid mirrored nothing, so only the ids list is in play, and
-// removing a workspace from it still reclaims its copy and reference.
-func TestNeverValidSelectorDoesNotFreezeIdsRemoval(t *testing.T) {
+// A selector that is invalid and has no record could be one that never mirrored, or one whose
+// record was dropped; there is no telling them apart, so the copies there are are kept, an ids
+// removal included, until the selector is removed or fixed.
+func TestNeverValidSelectorFreezesIdsRemovalUntilRemoved(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset()
 	sec := selectorSecret("extra-ca", "", `["ws-b","ws-c"]`)
 	delete(sec.Annotations, v1.WorkspaceSelectorAnnotation)
@@ -519,19 +521,23 @@ func TestNeverValidSelectorDoesNotFreezeIdsRemoval(t *testing.T) {
 	reconcileSecret(t, r, sec.Name)
 	require.True(t, mirrored(t, cs, "ws-b", sec.Name))
 
-	live := &corev1.Secret{}
-	require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(sec), live))
+	live := liveSecret(t, r, sec.Name)
 	live.Annotations[v1.WorkspaceSelectorAnnotation] = "team=infra"
 	require.NoError(t, r.Update(context.Background(), live))
 	reconcileSecret(t, r, sec.Name)
-	require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(sec), live))
+	live = liveSecret(t, r, sec.Name)
 	require.Contains(t, live.Annotations, v1.WorkspaceSelectorErrorAnnotation)
 	live.Annotations[v1.WorkspaceIdsAnnotation] = `["ws-c"]`
 	require.NoError(t, r.Update(context.Background(), live))
 	reconcileSecret(t, r, sec.Name)
+	assert.True(t, mirrored(t, cs, "ws-b", sec.Name), "unknown record: nothing is removed")
 
+	live = liveSecret(t, r, sec.Name)
+	delete(live.Annotations, v1.WorkspaceSelectorAnnotation)
+	require.NoError(t, r.Update(context.Background(), live))
+	reconcileSecret(t, r, sec.Name)
 	assert.True(t, mirrored(t, cs, "ws-c", sec.Name))
-	assert.False(t, mirrored(t, cs, "ws-b", sec.Name), "removed from ids: copy reclaimed")
+	assert.False(t, mirrored(t, cs, "ws-b", sec.Name), "selector removed: the ids removal applies")
 	got := &v1.Workspace{}
 	require.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "ws-b"}, got))
 	assert.Empty(t, got.Spec.ImageSecrets)
@@ -632,7 +638,7 @@ func TestBlankSelectorReleasesFinalizer(t *testing.T) {
 	assert.NotContains(t, liveSecret(t, r, sec.Name).Finalizers, v1.SecretFinalizer)
 }
 
-// Annotations removed just before the delete (or while the controller was down) must not skip
+// The selector removed just before the delete (or while the controller was down) must not skip
 // the cleanup of the copies.
 func TestDeleteAfterAnnotationsRemovedStillRemovesCopies(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset()
@@ -641,8 +647,10 @@ func TestDeleteAfterAnnotationsRemovedStillRemovesCopies(t *testing.T) {
 	reconcileSecret(t, r, sec.Name)
 	require.True(t, mirrored(t, cs, "ws-a", sec.Name))
 
+	// The selector and the mark go, the controller's record stays: it still says copies exist.
 	live := liveSecret(t, r, sec.Name)
-	live.Annotations = nil
+	delete(live.Annotations, v1.WorkspaceSelectorAnnotation)
+	delete(live.Annotations, v1.SecretBroadcastAnnotation)
 	require.NoError(t, r.Update(context.Background(), live))
 	require.NoError(t, r.Delete(context.Background(), live))
 	reconcileSecret(t, r, sec.Name)
@@ -680,4 +688,148 @@ func TestCopyRaceOnForeignSecretIsAConflict(t *testing.T) {
 
 	cs2 := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-a"))
 	assert.NoError(t, copySecret(context.Background(), cs2, selectorSecret("extra-ca", sandboxSelector, ""), "ws-a"))
+}
+
+// The widened record is what the freeze relies on; if it cannot be written (the annotation is
+// too large, a conflict), no data plane is touched.
+func TestAppliedRecordWriteFailureStopsMirroring(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	sec := selectorSecret("extra-ca", sandboxSelector, "")
+	sec.Finalizers = []string{v1.SecretFinalizer}
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"))
+	r.Client = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			if _, ok := obj.(*corev1.Secret); ok {
+				return apierrors.NewRequestEntityTooLargeError("metadata.annotations: Too long")
+			}
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	})
+	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{
+		NamespacedName: types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: sec.Name}})
+
+	assert.Error(t, err)
+	assert.False(t, mirrored(t, cs, "ws-a", sec.Name), "no copy without a record of it")
+	for _, action := range cs.Actions() {
+		assert.Equal(t, "get", action.GetVerb(), "the data plane is only read")
+	}
+}
+
+// Workspace events requeue every Secret with a selector; the Warning is raised once per reason.
+func TestInvalidSelectorEventOnlyWhenReasonChanges(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	sec := selectorSecret("extra-ca", "team=infra", "")
+	recorder := record.NewFakeRecorder(10)
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"))
+	r.recorder = recorder
+	reconcileSecret(t, r, sec.Name)
+	reconcileSecret(t, r, sec.Name)
+	require.Len(t, recorder.Events, 1)
+
+	live := liveSecret(t, r, sec.Name)
+	live.Annotations[v1.WorkspaceSelectorAnnotation] = "team=other"
+	require.NoError(t, r.Update(context.Background(), live))
+	reconcileSecret(t, r, sec.Name)
+	reconcileSecret(t, r, sec.Name)
+	assert.Len(t, recorder.Events, 2, "a new reason is raised once more")
+}
+
+// A Secret that never named a workspace (an SSH key made through the API carries the finalizer
+// too) is deleted without reaching any data plane, so one that is offline does not hold it.
+func TestDeleteUnrelatedSecretIgnoresOfflineDataPlane(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ssh-key", Namespace: common.PrimusSafeNamespace,
+		Finalizers: []string{v1.SecretFinalizer}}, Data: map[string][]byte{"id_rsa": []byte("k")}}
+	offline := selectorWorkspace("ws-offline", nil)
+	offline.Spec.Cluster = "c2" // registered, but its client is not ready
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), testCluster("c2"), sec, offline)
+	require.NoError(t, r.Delete(context.Background(), sec))
+	reconcileSecret(t, r, sec.Name)
+
+	gone := &corev1.Secret{}
+	assert.True(t, apierrors.IsNotFound(r.Get(context.Background(), client.ObjectKeyFromObject(sec), gone)),
+		"the finalizer is released")
+	assert.Empty(t, cs.Actions(), "no data plane is reached")
+}
+
+// Cleanup finds the copies with one List per data plane cluster, not one Get per workspace.
+func TestCleanupListsOncePerCluster(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset(managedCopy("extra-ca", "ws-2"), managedCopy("other", "ws-3"),
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "extra-ca", Namespace: "ws-4"}})
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), selectorWorkspace("ws-1", nil),
+		selectorWorkspace("ws-2", nil), selectorWorkspace("ws-3", nil), selectorWorkspace("ws-4", nil))
+	require.NoError(t, r.cleanupMirroredSecrets(context.Background(), "extra-ca", []string{"ws-1"}))
+
+	verbs := map[string]int{}
+	for _, action := range cs.Actions() {
+		verbs[action.GetVerb()]++
+	}
+	assert.Equal(t, map[string]int{"list": 1, "delete": 1}, verbs)
+	assert.False(t, mirrored(t, cs, "ws-2", "extra-ca"))
+	assert.True(t, mirrored(t, cs, "ws-3", "other"), "another Secret's copy stays")
+	_, err := cs.CoreV1().Secrets("ws-4").Get(context.Background(), "extra-ca", metav1.GetOptions{})
+	assert.NoError(t, err, "a Secret the controller did not make stays")
+}
+
+// A record dropped by kubectl replace or by a forced server-side apply, or one that cannot be
+// read, is unknown: every copy there is is kept and synced, none is added or removed, and the
+// freeze lifts once the selector is valid again.
+func TestInvalidSelectorWithoutRecordFreezesAsUnknown(t *testing.T) {
+	for name, drop := range map[string]func(t *testing.T, r *SecretReconciler, live *corev1.Secret){
+		"kubectl replace": func(t *testing.T, r *SecretReconciler, live *corev1.Secret) {
+			replaced := live.DeepCopy()
+			replaced.Annotations = map[string]string{
+				v1.WorkspaceSelectorAnnotation: "team=infra",
+				v1.SecretBroadcastAnnotation:   v1.TrueStr,
+				v1.WorkspaceIdsAnnotation:      `["ws-c"]`,
+			}
+			replaced.Data = map[string][]byte{"ca.crt": []byte("rotated")}
+			require.NoError(t, r.Update(context.Background(), replaced))
+		},
+		"server-side apply --force-conflicts": func(t *testing.T, r *SecretReconciler, live *corev1.Secret) {
+			// The fake client has no apply; this is the object such an apply leaves.
+			patch := []byte(`{"metadata":{"annotations":{"` + v1.WorkspaceSelectorAnnotation + `":"team=infra","` +
+				v1.WorkspaceIdsAnnotation + `":"[\"ws-c\"]","` + v1.WorkspaceSelectorAppliedAnnotation +
+				`":null}},"data":{"ca.crt":"cm90YXRlZA=="}}`)
+			require.NoError(t, r.Patch(context.Background(), live, client.RawPatch(types.MergePatchType, patch)))
+		},
+		"damaged record": func(t *testing.T, r *SecretReconciler, live *corev1.Secret) {
+			live.Annotations[v1.WorkspaceSelectorAnnotation] = "team=infra"
+			live.Annotations[v1.WorkspaceIdsAnnotation] = `["ws-c"]`
+			live.Annotations[v1.WorkspaceSelectorAppliedAnnotation] = `["ws-a"`
+			live.Data = map[string][]byte{"ca.crt": []byte("rotated")}
+			require.NoError(t, r.Update(context.Background(), live))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cs := k8sfake.NewSimpleClientset()
+			sec := selectorSecret("extra-ca", sandboxSelector, `["ws-b","ws-c"]`)
+			r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"),
+				selectorWorkspace("ws-b", nil), selectorWorkspace("ws-c", nil))
+			reconcileSecret(t, r, sec.Name)
+			for _, ws := range []string{"ws-a", "ws-b", "ws-c"} {
+				require.True(t, mirrored(t, cs, ws, sec.Name), ws)
+			}
+
+			drop(t, r, liveSecret(t, r, sec.Name))
+			require.NoError(t, r.Create(context.Background(), sandboxWorkspace("ws-new")))
+			reconcileSecret(t, r, sec.Name)
+			for _, ws := range []string{"ws-a", "ws-b", "ws-c"} {
+				got, err := cs.CoreV1().Secrets(ws).Get(context.Background(), sec.Name, metav1.GetOptions{})
+				require.NoError(t, err, "%s: an unknown record removes nothing", ws)
+				assert.Equal(t, []byte("rotated"), got.Data["ca.crt"], "%s: and keeps it in sync", ws)
+			}
+			assert.False(t, mirrored(t, cs, "ws-new", sec.Name), "nothing new is added")
+
+			live := liveSecret(t, r, sec.Name)
+			live.Annotations[v1.WorkspaceSelectorAnnotation] = sandboxSelector
+			require.NoError(t, r.Update(context.Background(), live))
+			reconcileSecret(t, r, sec.Name)
+			assert.True(t, mirrored(t, cs, "ws-a", sec.Name))
+			assert.True(t, mirrored(t, cs, "ws-new", sec.Name))
+			assert.True(t, mirrored(t, cs, "ws-c", sec.Name))
+			assert.False(t, mirrored(t, cs, "ws-b", sec.Name), "fixed: the ids removal applies")
+			assert.JSONEq(t, `["ws-a","ws-new"]`, liveSecret(t, r, sec.Name).Annotations[v1.WorkspaceSelectorAppliedAnnotation])
+		})
+	}
 }
