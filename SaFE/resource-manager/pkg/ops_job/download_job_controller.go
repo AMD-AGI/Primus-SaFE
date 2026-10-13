@@ -191,9 +191,8 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 				v1.DisplayNameLabel: job.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation:          v1.GetUserName(job),
-				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
-				v1.DescriptionAnnotation:       v1.OpsJobKind,
+				v1.UserNameAnnotation:    v1.GetUserName(job),
+				v1.DescriptionAnnotation: v1.OpsJobKind,
 			},
 		},
 		Spec: v1.WorkloadSpec{
@@ -206,6 +205,13 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 			Images:    []string{*job.Spec.Image},
 			Env:       job.Spec.Env,
 		},
+	}
+	// On a native workspace the workload skips the queue. On an external workspace it must
+	// be admitted by the scheduler like any other workload there: admission records the
+	// external execution state, and without it the dispatcher builds a pod with none of the
+	// external settings (the virtual-kubelet toleration among them), so it never binds.
+	if !v1.IsExternalWorkspace(workspace) {
+		workload.Annotations[v1.WorkloadScheduledAnnotation] = timeutil.FormatRFC3339(time.Now().UTC())
 	}
 	// The model a job works for is carried onto its workload, so the model can find
 	// every workload that may still write into its directories, in any workspace.

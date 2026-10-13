@@ -679,3 +679,75 @@ func TestModifyTolerationsClearsExternalTolerateAll(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, found, false)
 }
+
+// TestOpsJobDownloadPodToleratesVirtualKubelet: the pod of a model download Job carries
+// the virtual-kubelet tolerations once the scheduler has recorded kube-scheduler placement,
+// and none without it, which is how a download created already scheduled stayed Pending.
+func TestOpsJobDownloadPodToleratesVirtualKubelet(t *testing.T) {
+	viper.Set("global.domain", "primus-safe.amd.com")
+	viper.Set("global.sub_domain", "global")
+	t.Cleanup(func() {
+		viper.Set("global.domain", "")
+		viper.Set("global.sub_domain", "")
+	})
+	spec := v1.ResourceSpec{PrePaths: []string{"spec", "template"}}
+	newPod := func() *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{"template": map[string]interface{}{
+				"spec": map[string]interface{}{
+					"containers": []interface{}{map[string]interface{}{"name": "job"}},
+				},
+			}},
+		}}
+	}
+	newWorkload := func(state *v1.WorkloadExternalExecution) *v1.Workload {
+		return &v1.Workload{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "download-m1",
+				Labels: map[string]string{
+					v1.UserIdLabel:     "a1b2c3d4e5f6789012345678abcdef01",
+					v1.OpsJobIdLabel:   "download-m1",
+					v1.OpsJobTypeLabel: string(v1.OpsJobDownloadType),
+				},
+				Annotations: map[string]string{
+					v1.UserAccountAnnotation:   "jdoe",
+					v1.MainContainerAnnotation: "job",
+				},
+			},
+			Spec: v1.WorkloadSpec{
+				Workspace:        "ws-ext",
+				GroupVersionKind: v1.GroupVersionKind{Kind: common.JobKind, Version: "v1"},
+				Resources:        []v1.WorkloadResource{{Replica: 1, CPU: "6", Memory: "8Gi"}},
+			},
+			Status: v1.WorkloadStatus{ExternalExecution: state},
+		}
+	}
+	vkTolerations := func(obj *unstructured.Unstructured) map[string]bool {
+		tolerations, _, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "tolerations")
+		assert.NilError(t, err)
+		found := map[string]bool{}
+		for _, raw := range tolerations {
+			tMap := raw.(map[string]interface{})
+			key, _ := tMap["key"].(string)
+			for _, want := range v1.ExternalVirtualKubeletTaintKeys() {
+				if key == want && tMap["operator"] == "Exists" && tMap["effect"] == "NoSchedule" {
+					found[key] = true
+				}
+			}
+		}
+		return found
+	}
+
+	admitted := newPod()
+	assert.NilError(t, initializeObject(admitted, newWorkload(&v1.WorkloadExternalExecution{
+		PlacementMode: v1.ExternalPlacementKubeScheduler, DispatchGeneration: 1,
+	}), nil, &spec, 0))
+	found := vkTolerations(admitted)
+	for _, want := range v1.ExternalVirtualKubeletTaintKeys() {
+		assert.Assert(t, found[want], "missing VK toleration %s", want)
+	}
+
+	notAdmitted := newPod()
+	assert.NilError(t, initializeObject(notAdmitted, newWorkload(nil), nil, &spec, 0))
+	assert.Equal(t, len(vkTolerations(notAdmitted)), 0)
+}
