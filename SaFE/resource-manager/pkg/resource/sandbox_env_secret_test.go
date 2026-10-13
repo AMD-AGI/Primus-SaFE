@@ -13,8 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -25,7 +27,7 @@ import (
 // Secret a system admin made with kubectl in ws-a: create a same-named Secret bound to ws-a,
 // reconcile, then unbind it and reconcile again. It returns the ws-a Secret after the bind and
 // whether it still exists after the unbind.
-func adoptionSequence(t *testing.T, name string) (afterBind *corev1.Secret, survivedUnbind bool, events []string) {
+func adoptionSequence(t *testing.T, name string) (afterBind *corev1.Secret, survivedUnbind bool, events []string, bindErr error) {
 	t.Helper()
 	ctx := context.Background()
 	kubectlMade := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ws-a"},
@@ -40,7 +42,8 @@ func adoptionSequence(t *testing.T, name string) (afterBind *corev1.Secret, surv
 	recorder := record.NewFakeRecorder(10)
 	r := newSecretReconcilerFull(t, cs, testCluster("c1"), apiMade, selectorWorkspace("ws-a", nil))
 	r.recorder = recorder
-	reconcileSecret(t, r, name)
+	_, bindErr = r.Reconcile(ctx, ctrlruntime.Request{
+		NamespacedName: types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: name}})
 
 	got, err := cs.CoreV1().Secrets("ws-a").Get(ctx, name, metav1.GetOptions{})
 	require.NoError(t, err)
@@ -53,13 +56,14 @@ func adoptionSequence(t *testing.T, name string) (afterBind *corev1.Secret, surv
 	for len(recorder.Events) > 0 {
 		events = append(events, <-recorder.Events)
 	}
-	return got, err == nil, events
+	return got, err == nil, events, bindErr
 }
 
 // A sandbox-env made in the workspace namespace is never taken over by an ids grant, nor deleted
 // when that grant is withdrawn: the one in the workspace namespace wins.
 func TestMirrorNeverAdoptsAHandMadeSandboxEnvSecret(t *testing.T) {
-	got, survived, events := adoptionSequence(t, commonsecret.SandboxEnvSecretName)
+	got, survived, events, bindErr := adoptionSequence(t, commonsecret.SandboxEnvSecretName)
+	assert.ErrorIs(t, bindErr, errMirrorConflict)
 	assert.Equal(t, map[string][]byte{"HF_TOKEN": []byte("admin-value")}, got.Data)
 	assert.Empty(t, got.Labels[managedSecretLabelKey])
 	assert.True(t, survived, "unbinding deleted the hand-made sandbox-env")
@@ -69,7 +73,8 @@ func TestMirrorNeverAdoptsAHandMadeSandboxEnvSecret(t *testing.T) {
 
 // Reverse proof: the same sequence with any other name still adopts, then deletes, as before.
 func TestMirrorStillAdoptsOtherNamesOnAnIdsGrant(t *testing.T) {
-	got, survived, _ := adoptionSequence(t, "image-pull")
+	got, survived, _, bindErr := adoptionSequence(t, "image-pull")
+	assert.NoError(t, bindErr)
 	assert.Equal(t, map[string][]byte{"LD_PRELOAD": []byte("/tmp/x.so")}, got.Data)
 	assert.Equal(t, managedSecretLabelVal, got.Labels[managedSecretLabelKey])
 	assert.False(t, survived)
@@ -103,4 +108,53 @@ func TestMirrorStillManagesItsOwnSandboxEnvCopy(t *testing.T) {
 	require.NoError(t, r.Update(ctx, live))
 	reconcileSecret(t, r, name)
 	assert.False(t, mirrored(t, cs, "ws-a", name))
+}
+
+// A sandbox-env that cannot reach a workspace it is bound to, because the namespace holds one
+// the mirror did not make, is not reported as synced: the reconcile fails (so it is retried with
+// backoff), the workspaces are recorded on the Secret, and a Warning event is raised. Once the
+// conflicting Secret is gone the copy is made and the record removed.
+func TestSandboxEnvMirrorConflictIsRecordedAndRetried(t *testing.T) {
+	ctx := context.Background()
+	name := commonsecret.SandboxEnvSecretName
+	cs := k8sfake.NewSimpleClientset(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ws-a"},
+		Data: map[string][]byte{"HF_TOKEN": []byte("admin-value")}})
+	source := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: common.PrimusSafeNamespace,
+			Annotations: map[string]string{v1.WorkspaceIdsAnnotation: `["ws-a","ws-b"]`}},
+		Data: map[string][]byte{"HF_TOKEN": []byte("shared")},
+		Type: corev1.SecretTypeOpaque,
+	}
+	recorder := record.NewFakeRecorder(10)
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), source,
+		selectorWorkspace("ws-a", nil), selectorWorkspace("ws-b", nil))
+	r.recorder = recorder
+	request := ctrlruntime.Request{NamespacedName: types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: name}}
+
+	_, err := r.Reconcile(ctx, request)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errMirrorConflict)
+	assert.Contains(t, err.Error(), "ws-a")
+	assert.Equal(t, `["ws-a"]`, liveSecret(t, r, name).Annotations[v1.WorkspaceMirrorConflictsAnnotation])
+	require.NotEmpty(t, recorder.Events)
+	assert.Contains(t, <-recorder.Events, "MirrorConflict")
+	assert.True(t, mirrored(t, cs, "ws-b", name), "the other workspace is still served")
+
+	require.NoError(t, cs.CoreV1().Secrets("ws-a").Delete(ctx, name, metav1.DeleteOptions{}))
+	_, err = r.Reconcile(ctx, request)
+	require.NoError(t, err)
+	assert.True(t, mirrored(t, cs, "ws-a", name))
+	assert.NotContains(t, liveSecret(t, r, name).Annotations, v1.WorkspaceMirrorConflictsAnnotation)
+}
+
+// Reverse proof: a conflict on any other name is recorded but, as before, does not fail the
+// reconcile: a hand-made Secret where a selector reaches is a supported state there.
+func TestOtherMirrorConflictIsRecordedButNotRetried(t *testing.T) {
+	handMade := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "extra-ca", Namespace: "ws-a"},
+		Data: map[string][]byte{"mine": []byte("x")}}
+	cs := k8sfake.NewSimpleClientset(handMade)
+	sec := selectorSecret("extra-ca", sandboxSelector, "")
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-a"))
+	reconcileSecret(t, r, sec.Name)
+	assert.Equal(t, `["ws-a"]`, liveSecret(t, r, sec.Name).Annotations[v1.WorkspaceMirrorConflictsAnnotation])
 }

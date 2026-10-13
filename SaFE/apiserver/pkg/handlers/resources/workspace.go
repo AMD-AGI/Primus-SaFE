@@ -357,22 +357,51 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context,
 
 	imageSecrets := make([]corev1.ObjectReference, 0, len(targetSecrets))
 	for _, secret := range targetSecrets {
-		workspaceIds := commonsecret.GetSecretWorkspaces(secret)
-		if !sliceutil.Contains(workspaceIds, workspace.Name) {
-			workspaceIds = append(workspaceIds, workspace.Name)
-			if err := authorizeSandboxEnvSecret(requestUser, secret.Name, workspaceIds); err != nil {
-				return err
-			}
-			patch := client.MergeFrom(secret.DeepCopy())
-			v1.SetAnnotation(secret, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(workspaceIds)))
-			if err := h.Patch(ctx, secret, patch); err != nil {
-				return fmt.Errorf("failed to update workspace annotation for secret %s: %w", secret.Name, err)
-			}
+		if err := h.bindSecretToWorkspace(ctx, secret, workspace.Name, requestUser); err != nil {
+			return err
 		}
 		imageSecrets = append(imageSecrets, *commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
 	}
 	workspace.Spec.ImageSecrets = imageSecrets
 	return nil
+}
+
+// bindSecretToWorkspace adds workspaceId to the Secret's workspace ids, if it is not there yet.
+// The sandbox environment Secret (commonsecret.SandboxEnvSecretName) is patched only at the version whose
+// bindings were checked; on a conflict it is read and checked again, as patchSecret does, so a
+// binding added meanwhile is neither lost nor let through unchecked. Other Secrets are patched
+// as before.
+func (h *Handler) bindSecretToWorkspace(ctx context.Context,
+	secret *corev1.Secret, workspaceId string, requestUser *v1.User) error {
+	reserved := secret.Name == commonsecret.SandboxEnvSecretName
+	err := backoff.ConflictRetry(func() error {
+		workspaceIds := commonsecret.GetSecretWorkspaces(secret)
+		if sliceutil.Contains(workspaceIds, workspaceId) {
+			return nil
+		}
+		workspaceIds = append(workspaceIds, workspaceId)
+		if err := authorizeSandboxEnvSecret(requestUser, secret.Name, workspaceIds, secret); err != nil {
+			return err
+		}
+		patch := client.MergeFrom(secret.DeepCopy())
+		if reserved {
+			patch = client.MergeFromWithOptions(secret.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		}
+		v1.SetAnnotation(secret, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(workspaceIds)))
+		err := h.Patch(ctx, secret, patch)
+		if err == nil {
+			return nil
+		}
+		if reserved && apierrors.IsConflict(err) {
+			reread, getErr := h.getAdminSecret(ctx, secret.Name)
+			if getErr != nil {
+				return getErr
+			}
+			*secret = *reread
+		}
+		return fmt.Errorf("failed to update workspace annotation for secret %s: %w", secret.Name, err)
+	}, defaultRetryCount, defaultRetryDelay)
+	return err
 }
 
 // getAdminWorkspace retrieves a workspace resource by ID from the system.

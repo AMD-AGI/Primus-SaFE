@@ -243,6 +243,9 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 		if err := r.recordSelectorState(ctx, secret, selectorErr, nil); err != nil {
 			errs = append(errs, err)
 		}
+		if err := r.recordMirrorConflicts(ctx, secret, nil); err != nil {
+			errs = append(errs, err)
+		}
 		if err := r.cleanupMirroredSecrets(ctx, secret.Name, nil); err != nil {
 			errs = append(errs, err)
 		} else if len(errs) == 0 {
@@ -335,6 +338,12 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 		if err = r.syncSecretToWorkspace(ctx, clientSet, secret, ws, explicit.Has(ws.Name)); err != nil {
 			if errors.Is(err, errMirrorConflict) {
 				conflicts.Insert(ws.Name)
+				// The sandbox env Secret not reaching a workspace it is bound to is a
+				// misconfiguration its sandboxes depend on: fail the reconcile so it is retried
+				// with backoff and logged, rather than reported as synced.
+				if secret.Name == commonsecret.SandboxEnvSecretName {
+					errs = append(errs, fmt.Errorf("workspace %s: %w", ws.Name, err))
+				}
 				continue
 			}
 			errs = append(errs, fmt.Errorf("workspace %s: %w", ws.Name, err))
@@ -355,6 +364,9 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	if err := r.recordSelectorState(ctx, secret, selectorErr, recorded); err != nil {
 		errs = append(errs, err)
 	}
+	if err := r.recordMirrorConflicts(ctx, secret, conflicts.UnsortedList()); err != nil {
+		errs = append(errs, err)
+	}
 	if err := r.updateClusterRefSecret(ctx, secret); err != nil {
 		errs = append(errs, err)
 	}
@@ -373,6 +385,37 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 		errs = append(errs, err)
 	}
 	return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
+}
+
+// recordMirrorConflicts writes the workspaces whose namespace holds a Secret of the same name
+// that the mirror did not make, and so did not get this one, into
+// WorkspaceMirrorConflictsAnnotation, and removes it when there are none. A write that changes
+// nothing is skipped; the predicates do not watch the annotation, so it queues no reconcile.
+func (r *SecretReconciler) recordMirrorConflicts(ctx context.Context, secret *corev1.Secret, workspaces []string) error {
+	want := ""
+	if len(workspaces) > 0 {
+		names := append([]string{}, workspaces...)
+		sort.Strings(names)
+		raw, err := json.Marshal(names)
+		if err != nil {
+			return err
+		}
+		want = string(raw)
+	}
+	current, has := secret.Annotations[v1.WorkspaceMirrorConflictsAnnotation]
+	if (want == "" && !has) || (want != "" && current == want) {
+		return nil
+	}
+	patch := client.MergeFrom(secret.DeepCopy())
+	if want == "" {
+		delete(secret.Annotations, v1.WorkspaceMirrorConflictsAnnotation)
+	} else {
+		v1.SetAnnotation(secret, v1.WorkspaceMirrorConflictsAnnotation, want)
+	}
+	if err := r.Patch(ctx, secret, patch); err != nil {
+		return fmt.Errorf("record mirror conflicts on secret %s: %w", secret.Name, err)
+	}
+	return nil
 }
 
 // recordSelectorState writes the reason the Secret's selector was rejected into

@@ -180,8 +180,8 @@ func TestSandboxEnvSecretIsReservedWithoutAnyConfig(t *testing.T) {
 
 // An internal caller with no user is not an admin.
 func TestSandboxEnvSecretGuardRefusesANilUser(t *testing.T) {
-	assertGuardRefused(t, authorizeSandboxEnvSecret(nil, sandboxEnvSecret, []string{"ws-a"}))
-	testifyassert.NoError(t, authorizeSandboxEnvSecret(nil, "other-name", []string{"ws-a"}))
+	assertGuardRefused(t, authorizeSandboxEnvSecret(nil, sandboxEnvSecret, []string{"ws-a"}, nil))
+	testifyassert.NoError(t, authorizeSandboxEnvSecret(nil, "other-name", []string{"ws-a"}, nil))
 	h, _ := newSandboxEnvHandler(t, func() *corev1.Secret {
 		s := ownedSecret(sandboxEnvSecret, "sys-admin", "ws-a")
 		s.Labels[v1.SecretTypeLabel] = string(v1.SecretImage)
@@ -269,7 +269,9 @@ func TestWorkspaceImageSecretBindingHonoursTheSandboxEnvSecret(t *testing.T) {
 		s.Labels[v1.SecretTypeLabel] = string(v1.SecretImage)
 		return s
 	}
-	h, _ := newSandboxEnvHandler(t, image(sandboxEnvSecret), image("other-name"))
+	reserved := image(sandboxEnvSecret)
+	reserved.ResourceVersion = "5"
+	h, _ := newSandboxEnvHandler(t, reserved, image("other-name"))
 	bAdmin := sandboxEnvUser("b-admin", []v1.UserRole{v1.DefaultRole}, []string{"ws-b"}, []string{"ws-b"})
 	ctx := context.Background()
 
@@ -360,4 +362,236 @@ func TestSecretPatchOfASecretDeletedDuringAConflict(t *testing.T) {
 	_, err := h.patchSecret(c)
 	testifyrequire.Error(t, err)
 	testifyassert.True(t, apierrors.IsNotFound(err), "%v", err)
+}
+
+func patchSecretAs(h *Handler, user *v1.User, name string, req view.PatchSecretRequest) error {
+	c := newPostCtx(jsonutils.MarshalSilently(req))
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, name)
+	_, err := h.patchSecret(c)
+	return err
+}
+
+// What docs/apis/secret.md says: an API PATCH with params replaces every key of a general Secret,
+// so adding one variable that way deletes the others.
+func TestSandboxEnvApiPatchReplacesEveryParam(t *testing.T) {
+	h, users := newSandboxEnvHandler(t, ownedSecret(sandboxEnvSecret, "sys-admin", "ws-a"))
+	params := []map[view.SecretParam]string{{view.SecretParam("NEW_VAR"): b64("new")}}
+	testifyrequire.NoError(t, patchSecretAs(h, users.sysAdmin, sandboxEnvSecret, view.PatchSecretRequest{Params: &params}))
+	got := &corev1.Secret{}
+	testifyrequire.NoError(t, h.Get(context.Background(),
+		client.ObjectKey{Namespace: common.PrimusSafeNamespace, Name: sandboxEnvSecret}, got))
+	testifyassert.Equal(t, map[string][]byte{"NEW_VAR": []byte("new")}, got.Data)
+}
+
+// selectorSandboxEnv is sandbox-env bound to ws-a by id, and also mirrored by a selector (or a
+// record of copies a selector made), which reaches workspaces the ids list does not name.
+func selectorSandboxEnv(key, value string) *corev1.Secret {
+	s := ownedSecret(sandboxEnvSecret, "ws-admin", "ws-a")
+	s.Annotations[key] = value
+	return s
+}
+
+// An admin of every workspace in the ids list may not change, delete or rebind a sandbox-env
+// that a selector mirrors: the selector reaches workspaces they do not administer.
+func TestOnlySystemAdminMayChangeASelectorMirroredSandboxEnv(t *testing.T) {
+	params := []map[view.SecretParam]string{{view.SecretParam("LD_PRELOAD"): b64("/tmp/x.so")}}
+	ctx := context.Background()
+	for _, tc := range []struct{ key, value string }{
+		{v1.WorkspaceSelectorAnnotation, "primus-safe.workspace.scope.sandbox=true"},
+		{v1.WorkspaceSelectorAnnotation, " "},
+		{v1.WorkspaceSelectorAppliedAnnotation, `["ws-c"]`},
+	} {
+		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
+			h, users := newSandboxEnvHandler(t, selectorSandboxEnv(tc.key, tc.value))
+			err := patchSecretAs(h, users.wsAdmin, sandboxEnvSecret, view.PatchSecretRequest{Params: &params})
+			assertGuardRefused(t, err)
+			testifyassert.Contains(t, err.Error(), "workspace selector")
+			assertGuardRefused(t, h.deleteSecretImpl(ctx, sandboxEnvSecret, users.wsAdmin))
+
+			image := selectorSandboxEnv(tc.key, tc.value)
+			image.Labels[v1.SecretTypeLabel] = string(v1.SecretImage)
+			hi, _ := newSandboxEnvHandler(t, image)
+			ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-a2"}}
+			wsAdmin2 := sandboxEnvUser("ws-admin2", []v1.UserRole{v1.DefaultRole},
+				[]string{"ws-a", "ws-a2"}, []string{"ws-a", "ws-a2"})
+			assertGuardRefused(t, hi.updateWorkspaceImageSecrets(ctx, ws, wsAdmin2, []string{sandboxEnvSecret}))
+
+			// A system admin may.
+			testifyrequire.NoError(t, patchSecretAs(h, users.sysAdmin, sandboxEnvSecret, view.PatchSecretRequest{Params: &params}))
+			testifyrequire.NoError(t, h.deleteSecretImpl(ctx, sandboxEnvSecret, users.sysAdmin))
+		})
+	}
+	// Reverse proof: without a selector the same admin is let through, and the selector check
+	// leaves every other name alone.
+	h, users := newSandboxEnvHandler(t, ownedSecret(sandboxEnvSecret, "ws-admin", "ws-a"))
+	testifyrequire.NoError(t, patchSecretAs(h, users.wsAdmin, sandboxEnvSecret, view.PatchSecretRequest{Params: &params}))
+	testifyassert.NoError(t, authorizeSandboxEnvSecret(users.wsAdmin, "other-name", []string{"ws-a"},
+		selectorSandboxEnv(v1.WorkspaceSelectorAnnotation, "primus-safe.workspace.scope.sandbox=true")))
+	// An empty record of selector copies reaches nothing.
+	testifyassert.NoError(t, authorizeSandboxEnvSecret(users.wsAdmin, sandboxEnvSecret, []string{"ws-a"},
+		selectorSandboxEnv(v1.WorkspaceSelectorAppliedAnnotation, "[]")))
+}
+
+// The refusal does not tell the caller which workspaces the Secret is bound to.
+func TestSandboxEnvRefusalDoesNotNameTheWorkspaces(t *testing.T) {
+	// Through the API: the owner passes the ordinary role check whatever the bindings, so the
+	// refusal is the guard's, over a Secret bound to a workspace the caller is not in.
+	h, users := newSandboxEnvHandler(t, ownedSecret(sandboxEnvSecret, "ws-admin", "ws-a", "ws-hidden"))
+	params := []map[view.SecretParam]string{{view.SecretParam("K"): b64("v")}}
+	err := patchSecretAs(h, users.wsAdmin, sandboxEnvSecret, view.PatchSecretRequest{Params: &params})
+	assertGuardRefused(t, err)
+	testifyassert.NotContains(t, err.Error(), "ws-hidden")
+	err = h.deleteSecretImpl(context.Background(), sandboxEnvSecret, users.wsAdmin)
+	assertGuardRefused(t, err)
+	testifyassert.NotContains(t, err.Error(), "ws-hidden")
+
+	err = authorizeSandboxEnvSecret(users.wsAdmin, sandboxEnvSecret, []string{"ws-a", "ws-hidden"}, nil)
+	assertGuardRefused(t, err)
+	testifyassert.NotContains(t, err.Error(), "ws-hidden")
+	testifyassert.NotContains(t, err.Error(), "ws-a")
+}
+
+// A delete of the reserved Secret whose retry finds it already deleted (by someone else, after
+// the precondition was lost) succeeds, as a delete of a missing Secret always has.
+func TestSandboxEnvSecretDeletedConcurrentlyDuringARetryIsSuccess(t *testing.T) {
+	reserved := ownedSecret(sandboxEnvSecret, "ws-admin", "ws-a")
+	reserved.ResourceVersion = "7"
+	h, users := newSandboxEnvHandler(t, reserved)
+	cs := h.clientSet.(*k8sfake.Clientset)
+	deletes := 0
+	cs.PrependReactor("delete", "secrets", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		deletes++
+		// Someone else deletes it between the check and our delete.
+		testifyrequire.NoError(t, cs.Tracker().Delete(corev1.SchemeGroupVersion.WithResource("secrets"),
+			common.PrimusSafeNamespace, sandboxEnvSecret))
+		return true, nil, apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, sandboxEnvSecret, nil)
+	})
+	testifyassert.NoError(t, h.deleteSecretImpl(context.Background(), sandboxEnvSecret, users.wsAdmin))
+	testifyassert.Equal(t, 1, deletes)
+
+	// Reverse proof: missing on the first read is still a 404, as on main.
+	err := h.deleteSecretImpl(context.Background(), sandboxEnvSecret, users.wsAdmin)
+	testifyassert.True(t, apierrors.IsNotFound(err), "%v", err)
+}
+
+// Any other name is deleted exactly as before the reserved name existed: one read, one delete
+// with no precondition, no retry, a conflict returned as it came, a missing Secret on delete
+// ignored.
+func TestNonReservedSecretDeleteIsUnchanged(t *testing.T) {
+	ctx := context.Background()
+	h, users := newSandboxEnvHandler(t, ownedSecret("other-name", "member", "ws-a"))
+	cs := h.clientSet.(*k8sfake.Clientset)
+	cs.PrependReactor("delete", "secrets", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, "other-name", nil)
+	})
+	err := h.deleteSecretImpl(ctx, "other-name", users.member)
+	testifyrequire.Error(t, err)
+	testifyassert.True(t, apierrors.IsConflict(err), "%v", err)
+	testifyassert.NotContains(t, err.Error(), "kept changing")
+	gets, deletes := 0, 0
+	for _, action := range cs.Actions() {
+		switch action.GetVerb() {
+		case "get":
+			gets++
+		case "delete":
+			deletes++
+			testifyassert.Nil(t, action.(k8stesting.DeleteAction).GetDeleteOptions().Preconditions)
+		}
+	}
+	testifyassert.Equal(t, 1, gets)
+	testifyassert.Equal(t, 1, deletes)
+
+	h, users = newSandboxEnvHandler(t, ownedSecret("other-name", "member", "ws-a"))
+	h.clientSet.(*k8sfake.Clientset).PrependReactor("delete", "secrets",
+		func(action k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "other-name")
+		})
+	testifyassert.NoError(t, h.deleteSecretImpl(ctx, "other-name", users.member))
+}
+
+// Binding the reserved Secret to a workspace through the image-secret API is patched at the
+// version whose bindings were checked. On a conflict it is read and checked again: here someone
+// bound it to ws-c meanwhile, which the caller does not administer, so the retry is refused.
+func TestSandboxEnvImageBindingRechecksAfterAConflict(t *testing.T) {
+	image := ownedSecret(sandboxEnvSecret, "sys-admin", "ws-a")
+	image.Labels[v1.SecretTypeLabel] = string(v1.SecretImage)
+	image.ResourceVersion = "5"
+	var h *Handler
+	var sent []string
+	h, _ = newSandboxEnvHandlerWith(t, interceptor.Funcs{
+		Patch: func(ctx context.Context, cli client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			data, err := patch.Data(obj)
+			testifyrequire.NoError(t, err)
+			sent = append(sent, string(data))
+			if len(sent) == 1 {
+				rebound := image.DeepCopy()
+				rebound.ResourceVersion = "6"
+				v1.SetAnnotation(rebound, v1.WorkspaceIdsAnnotation, `["ws-a","ws-c"]`)
+				testifyrequire.NoError(t, h.clientSet.(*k8sfake.Clientset).Tracker().Update(
+					corev1.SchemeGroupVersion.WithResource("secrets"), rebound, common.PrimusSafeNamespace))
+				return apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, obj.GetName(), nil)
+			}
+			return nil
+		},
+	}, image)
+	abAdmin := sandboxEnvUser("ab-admin", []v1.UserRole{v1.DefaultRole}, []string{"ws-a", "ws-b"}, []string{"ws-a", "ws-b"})
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-b"}}
+	assertGuardRefused(t, h.updateWorkspaceImageSecrets(context.Background(), ws, abAdmin, []string{sandboxEnvSecret}))
+	testifyrequire.Len(t, sent, 1, "the retry was written without a check")
+	testifyassert.Contains(t, sent[0], `"resourceVersion":"5"`)
+}
+
+// A conflict on a re-read Secret still bound only to workspaces the caller administers is
+// retried, at the new version, and keeps the binding added meanwhile.
+func TestSandboxEnvImageBindingRetriesKeepTheConcurrentBinding(t *testing.T) {
+	image := ownedSecret(sandboxEnvSecret, "sys-admin", "ws-a")
+	image.Labels[v1.SecretTypeLabel] = string(v1.SecretImage)
+	image.ResourceVersion = "5"
+	var h *Handler
+	var sent []string
+	h, _ = newSandboxEnvHandlerWith(t, interceptor.Funcs{
+		Patch: func(ctx context.Context, cli client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			data, err := patch.Data(obj)
+			testifyrequire.NoError(t, err)
+			sent = append(sent, string(data))
+			if len(sent) == 1 {
+				rebound := image.DeepCopy()
+				rebound.ResourceVersion = "6"
+				v1.SetAnnotation(rebound, v1.WorkspaceIdsAnnotation, `["ws-a","ws-c"]`)
+				testifyrequire.NoError(t, h.clientSet.(*k8sfake.Clientset).Tracker().Update(
+					corev1.SchemeGroupVersion.WithResource("secrets"), rebound, common.PrimusSafeNamespace))
+				return apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, obj.GetName(), nil)
+			}
+			return nil
+		},
+	}, image)
+	admin := sandboxEnvUser("abc-admin", []v1.UserRole{v1.DefaultRole},
+		[]string{"ws-a", "ws-b", "ws-c"}, []string{"ws-a", "ws-b", "ws-c"})
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-b"}}
+	testifyrequire.NoError(t, h.updateWorkspaceImageSecrets(context.Background(), ws, admin, []string{sandboxEnvSecret}))
+	testifyrequire.Len(t, sent, 2)
+	testifyassert.Contains(t, sent[1], `"resourceVersion":"6"`)
+	testifyassert.Contains(t, sent[1], `[\"ws-a\",\"ws-c\",\"ws-b\"]`)
+}
+
+// Reverse proof: any other image Secret is patched as before, with no resourceVersion.
+func TestOtherImageBindingIsPatchedAsBefore(t *testing.T) {
+	image := ownedSecret("other-name", "sys-admin", "ws-a")
+	image.Labels[v1.SecretTypeLabel] = string(v1.SecretImage)
+	image.ResourceVersion = "5"
+	var sent []string
+	h, _ := newSandboxEnvHandlerWith(t, interceptor.Funcs{
+		Patch: func(ctx context.Context, cli client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			data, err := patch.Data(obj)
+			testifyrequire.NoError(t, err)
+			sent = append(sent, string(data))
+			return nil
+		},
+	}, image)
+	bAdmin := sandboxEnvUser("b-admin", []v1.UserRole{v1.DefaultRole}, []string{"ws-b"}, []string{"ws-b"})
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-b"}}
+	testifyrequire.NoError(t, h.updateWorkspaceImageSecrets(context.Background(), ws, bAdmin, []string{"other-name"}))
+	testifyrequire.Len(t, sent, 1)
+	testifyassert.NotContains(t, sent[0], "resourceVersion")
 }
