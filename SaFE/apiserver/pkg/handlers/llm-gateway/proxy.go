@@ -6,12 +6,19 @@
 package llmgateway
 
 import (
+	"bytes"
 	"crypto/tls"
+	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
@@ -21,9 +28,21 @@ import (
 
 const llmProxyPrefix = "/api/v1/llm-proxy"
 
-// upstreamUserHeader carries the caller's NTID to APIM, which attributes the
-// request to it.
-const upstreamUserHeader = "USER-NTID"
+// apimKeyHeader selects the APIM subscription the upstream request is billed to.
+const apimKeyHeader = "Ocp-Apim-Subscription-Key"
+
+// upstreamUserHeader names the person APIM attributes the request to.
+const upstreamUserHeader = "user"
+
+// legacyUpstreamUserHeader is the header this proxy used to stamp the NTID in.
+// LiteLLM never forwarded it, so it only ever reached LiteLLM itself; it is
+// still deleted so a client cannot pass its own value through.
+const legacyUpstreamUserHeader = "USER-NTID"
+
+// extraHeadersField is the request body field LiteLLM sends to the provider as
+// HTTP headers. It does not forward the client's own HTTP headers under these
+// names, so this field is the only way to reach APIM through it.
+const extraHeadersField = "extra_headers"
 
 // forwardedForHeader carries the caller's address to LiteLLM, which persists it
 // verbatim as LiteLLM_SpendLogs.requester_ip_address without splitting the
@@ -153,31 +172,139 @@ func (h *Handler) ProxyLLMRequest(c *gin.Context) {
 		return
 	}
 
+	apimKey, err := h.crypto.Decrypt(binding.ApimKey)
+	if err != nil {
+		klog.ErrorS(err, "LLM Proxy: failed to decrypt APIM Key", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("internal error"))
+		return
+	}
+
 	applyProxyVirtualKeyHeader(c, virtualKey)
-	applyUpstreamUserHeader(c, ntid)
+	if err := applyUpstreamHeaders(c, apimKey, upstreamUser(binding.ApimKeyHash, ntid)); err != nil {
+		klog.ErrorS(err, "LLM Proxy: failed to read request body", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("failed to read request body"))
+		return
+	}
 	applyProxyClientIPHeader(c)
 
 	defer recoverReverseProxyAbort(c)
 	h.proxy.ServeHTTP(c.Writer, c.Request)
 }
 
-// applyUpstreamUserHeader stamps the caller's NTID for upstream APIM attribution.
+// upstreamUser picks who APIM attributes the request to. A shared APIM key is
+// attributed to the account configured for it, whoever made the call; any
+// other key to the caller's NTID.
+func upstreamUser(apimKeyHash, ntid string) string {
+	if apimKeyHash != "" && slices.Contains(commonconfig.GetLLMGatewaySharedApimKeyHashes(), apimKeyHash) {
+		if user := commonconfig.GetLLMGatewaySharedApimUser(); user != "" {
+			return user
+		}
+	}
+	return ntid
+}
+
+// applyUpstreamHeaders writes the APIM key and the upstream user into the JSON
+// body's extra_headers, which LiteLLM sends to APIM as HTTP headers.
 //
-// The delete is unconditional, and that is the point of the function: this is a
-// reverse proxy, so a client can send this header itself. Returning early
-// without it whenever the NTID is unresolved would forward the client's own
-// value upstream as though the gateway had established it.
-func applyUpstreamUserHeader(c *gin.Context, ntid string) {
-	c.Request.Header.Del(upstreamUserHeader)
-	if ntid == "" {
-		// Every way the NTID can go unresolved converges here, so this is the one
+// Both are replaced unconditionally, and that is the point of the function: this
+// is a reverse proxy, so a client can put these names into extra_headers itself.
+// Keeping the client's value whenever the gateway has none would forward it
+// upstream as though the gateway had established it. A body that is not a JSON
+// object carries no extra_headers LiteLLM could read, so it is forwarded as is.
+func applyUpstreamHeaders(c *gin.Context, apimKey, user string) error {
+	c.Request.Header.Del(legacyUpstreamUserHeader)
+	if user == "" {
+		// Every way the user can go unresolved converges here, so this is the one
 		// place that observes the outcome itself: the request is about to reach
 		// APIM with no identity to attribute it to.
 		klog.Warningf("LLM Proxy: no NTID resolved, forwarding %s without %s",
 			c.Request.URL.Path, upstreamUserHeader)
-		return
 	}
-	c.Request.Header.Set(upstreamUserHeader, ntid)
+
+	req := c.Request
+	if req.Body == nil || req.Body == http.NoBody || !isJSONContentType(req.Header.Get("Content-Type")) {
+		return nil
+	}
+	raw, err := io.ReadAll(req.Body)
+	_ = req.Body.Close()
+	if err != nil {
+		return err
+	}
+	body, err := withUpstreamHeaders(raw, map[string]string{apimKeyHeader: apimKey, upstreamUserHeader: user})
+	if err != nil {
+		body = raw
+	}
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
+	req.ContentLength = int64(len(body))
+	req.Header.Set("Content-Length", strconv.Itoa(len(body)))
+	return nil
+}
+
+// withUpstreamHeaders returns raw with extra_headers carrying headers, dropping
+// any entry the client put there under one of those names in any case. An empty
+// value removes the name without setting it. raw must be a JSON object.
+func withUpstreamHeaders(raw []byte, headers map[string]string) ([]byte, error) {
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &body); err != nil || body == nil {
+		return nil, errBodyNotJSONObject
+	}
+
+	extra := map[string]json.RawMessage{}
+	if existing, ok := body[extraHeadersField]; ok {
+		// A non-object extra_headers is replaced: LiteLLM could not send it anyway.
+		var parsed map[string]json.RawMessage
+		if json.Unmarshal(existing, &parsed) == nil && parsed != nil {
+			extra = parsed
+		}
+	}
+	for name := range extra {
+		for header := range headers {
+			if strings.EqualFold(name, header) {
+				delete(extra, name)
+			}
+		}
+	}
+	for header, value := range headers {
+		if value == "" {
+			continue
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		extra[header] = encoded
+	}
+
+	if len(extra) == 0 {
+		delete(body, extraHeadersField)
+	} else {
+		encoded, err := marshalJSON(extra)
+		if err != nil {
+			return nil, err
+		}
+		body[extraHeadersField] = encoded
+	}
+	return marshalJSON(body)
+}
+
+var errBodyNotJSONObject = errors.New("request body is not a JSON object")
+
+// marshalJSON encodes v without HTML escaping, so the strings the client sent
+// keep their characters rather than turning into \u escapes.
+func marshalJSON(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+}
+
+func isJSONContentType(contentType string) bool {
+	mediaType, _, _ := strings.Cut(contentType, ";")
+	return strings.EqualFold(strings.TrimSpace(mediaType), "application/json")
 }
 
 // recoverReverseProxyAbort absorbs the panic ReverseProxy raises when it can no
@@ -220,7 +347,7 @@ func applyProxyVirtualKeyHeader(c *gin.Context, virtualKey string) {
 // it the same way the apiserver access log already does. Collapsing the chain to
 // a single hop is what keeps requester_ip_address groupable.
 //
-// Unlike applyUpstreamUserHeader this cannot delete the header up front, because
+// Unlike applyUpstreamHeaders this cannot replace the value up front, because
 // gin derives the address from it; deleting first would degrade the result to the
 // immediate peer, which is the apiserver's own ingress.
 func applyProxyClientIPHeader(c *gin.Context) {

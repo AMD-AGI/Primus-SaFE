@@ -174,7 +174,8 @@ data:
     llm_gateway:
       # Whether to enable LLM Gateway (SaFE API Key -> LiteLLM Virtual Key binding)
       enabled: {{ default true (default dict .Values.llm_gateway).enabled }}
-      # Path to the secret directory containing litellm_admin_key, litellm_endpoint, litellm_team_id
+      # Path to the secret directory containing litellm_admin_key, litellm_endpoint, litellm_team_id,
+      # shared_apim_key_hashes and shared_apim_user
       secret_path: {{ default "/etc/secrets/llm-gateway" (default dict .Values.llm_gateway).secret_path }}
     model_optimization:
       # PrimusClaw HTTP v1 root: explicit URL, or secret file claw_base_url, or derived https://<sub>.<domain>/claw-api/v1.

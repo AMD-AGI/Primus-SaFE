@@ -186,7 +186,9 @@ if [[ -n "${llm_gateway_litellm_endpoint:-}" ]]; then
   sed -i "/^llm_gateway:/a\\
   litellm_endpoint: \"${llm_gateway_litellm_endpoint}\"\\
   litellm_admin_key: \"${llm_gateway_litellm_admin_key:-}\"\\
-  litellm_team_id: \"${llm_gateway_litellm_team_id:-}\"" "$values_yaml"
+  litellm_team_id: \"${llm_gateway_litellm_team_id:-}\"\\
+  shared_apim_key_hashes: \"${llm_gateway_shared_apim_key_hashes:-}\"\\
+  shared_apim_user: \"${llm_gateway_shared_apim_user:-}\"" "$values_yaml"
 fi
 
 # Configure Langfuse proxy if defined in .env

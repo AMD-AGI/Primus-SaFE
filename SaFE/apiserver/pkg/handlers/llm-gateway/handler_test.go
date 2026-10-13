@@ -9,8 +9,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1349,7 +1352,8 @@ func TestNewLLMProxy_PathRewrite(t *testing.T) {
 }
 
 // Rewrite drops the inbound X-Forwarded-* headers before it runs, so guard that
-// it carries over both stamps the handler applies rather than only the address.
+// the address the handler stamps still arrives, and that a client's own
+// USER-NTID does not.
 func TestNewLLMProxy_ForwardsStampedHeaders(t *testing.T) {
 	var received http.Header
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1363,7 +1367,7 @@ func TestNewLLMProxy_ForwardsStampedHeaders(t *testing.T) {
 
 	router := gin.New()
 	router.Any("/api/v1/llm-proxy/*proxyPath", func(c *gin.Context) {
-		applyUpstreamUserHeader(c, "ntid123")
+		assert.NoError(t, applyUpstreamHeaders(c, "apim-123", "ntid123"))
 		applyProxyClientIPHeader(c)
 		proxy.ServeHTTP(c.Writer, c.Request)
 	})
@@ -1373,12 +1377,190 @@ func TestNewLLMProxy_ForwardsStampedHeaders(t *testing.T) {
 
 	req, _ := http.NewRequest("GET", server.URL+"/api/v1/llm-proxy/v1/models", nil)
 	req.Header.Set("X-Forwarded-For", "10.1.2.3")
+	req.Header.Set(legacyUpstreamUserHeader, "spoofed")
 	resp, err := http.DefaultClient.Do(req)
 	assert.NoError(t, err)
 	defer resp.Body.Close()
 
-	assert.Equal(t, "ntid123", received.Get(upstreamUserHeader))
+	assert.Empty(t, received.Get(legacyUpstreamUserHeader))
 	assert.Equal(t, "10.1.2.3", received.Get(forwardedForHeader))
+}
+
+// LiteLLM forwards neither of these names when they arrive as HTTP headers, so
+// they must reach it inside extra_headers, and a client must not be able to
+// pick them itself.
+func TestProxyLLMRequest_InjectsApimHeadersIntoBody(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+
+	var receivedBody map[string]any
+	var receivedLength int64
+	var receivedRaw []byte
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedRaw, _ = io.ReadAll(r.Body)
+		receivedLength = r.ContentLength
+		_ = json.Unmarshal(receivedRaw, &receivedBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	handler := newTestHandler(t, mockDB, backend)
+
+	binding := &dbclient.LLMGatewayUserBinding{
+		UserEmail:         "test@amd.com",
+		ApimKey:           "apim-of-test",
+		ApimKeyHash:       dbclient.ComputeApimKeyHash("apim-of-test"),
+		LiteLLMVirtualKey: "virtual_key_test",
+		LiteLLMKeyHash:    "hash123",
+	}
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(binding, nil)
+
+	router := gin.New()
+	router.POST("/api/v1/llm-proxy/*proxyPath", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.ProxyLLMRequest(c)
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST", server.URL+"/api/v1/llm-proxy/v1/messages", strings.NewReader(
+		`{"model":"claude-opus-4-6","max_tokens":8,"messages":[{"role":"user","content":"<a> & b"}],`+
+			`"extra_headers":{"ocp-apim-subscription-key":"someone-else","USER":"spoofed","anthropic-beta":"x"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	assert.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	// The caller has no NTID here (no access controller), so no user is sent;
+	// the client's own value must still be gone.
+	assert.Equal(t, map[string]any{"Ocp-Apim-Subscription-Key": "apim-of-test", "anthropic-beta": "x"},
+		receivedBody["extra_headers"])
+	assert.Equal(t, "claude-opus-4-6", receivedBody["model"])
+	assert.Equal(t, int64(len(receivedRaw)), receivedLength)
+	assert.Contains(t, string(receivedRaw), `"<a> & b"`)
+}
+
+func TestProxyLLMRequest_ForwardsNonJSONBodyUnchanged(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+
+	var receivedRaw []byte
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedRaw, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	handler := newTestHandler(t, mockDB, backend)
+
+	binding := &dbclient.LLMGatewayUserBinding{
+		UserEmail:         "test@amd.com",
+		ApimKey:           "apim-of-test",
+		LiteLLMVirtualKey: "virtual_key_test",
+		LiteLLMKeyHash:    "hash123",
+	}
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(binding, nil).Times(2)
+
+	router := gin.New()
+	router.POST("/api/v1/llm-proxy/*proxyPath", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.ProxyLLMRequest(c)
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	for _, tc := range []struct{ contentType, body string }{
+		{"text/plain", `{"model":"gpt-4o"}`},
+		{"application/json", `[1,2,3]`},
+	} {
+		req, _ := http.NewRequest("POST", server.URL+"/api/v1/llm-proxy/v1/chat/completions", strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", tc.contentType)
+		resp, err := http.DefaultClient.Do(req)
+		assert.NoError(t, err)
+		resp.Body.Close()
+		assert.Equal(t, tc.body, string(receivedRaw))
+	}
+}
+
+func TestWithUpstreamHeaders(t *testing.T) {
+	headers := map[string]string{apimKeyHeader: "apim-1", upstreamUserHeader: "ntid1"}
+	tests := []struct {
+		name    string
+		body    string
+		headers map[string]string
+		want    map[string]any
+	}{
+		{
+			name: "adds both to a body without extra_headers",
+			body: `{"model":"m"}`,
+			want: map[string]any{"model": "m", "extra_headers": map[string]any{apimKeyHeader: "apim-1", upstreamUserHeader: "ntid1"}},
+		},
+		{
+			name: "null extra_headers is replaced",
+			body: `{"model":"m","extra_headers":null}`,
+			want: map[string]any{"model": "m", "extra_headers": map[string]any{apimKeyHeader: "apim-1", upstreamUserHeader: "ntid1"}},
+		},
+		{
+			name: "non-object extra_headers is replaced",
+			body: `{"model":"m","extra_headers":"x"}`,
+			want: map[string]any{"model": "m", "extra_headers": map[string]any{apimKeyHeader: "apim-1", upstreamUserHeader: "ntid1"}},
+		},
+		{
+			name:    "an empty value drops the client's entry without setting one",
+			body:    `{"model":"m","extra_headers":{"User":"spoofed","OCP-APIM-SUBSCRIPTION-KEY":"other"}}`,
+			headers: map[string]string{apimKeyHeader: "", upstreamUserHeader: ""},
+			want:    map[string]any{"model": "m"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := tt.headers
+			if h == nil {
+				h = headers
+			}
+			out, err := withUpstreamHeaders([]byte(tt.body), h)
+			assert.NoError(t, err)
+			var got map[string]any
+			assert.NoError(t, json.Unmarshal(out, &got))
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	_, err := withUpstreamHeaders([]byte(`null`), headers)
+	assert.ErrorIs(t, err, errBodyNotJSONObject)
+
+	out, err := withUpstreamHeaders([]byte(`{"n":12345678901234567890,"s":"<&>"}`), headers)
+	assert.NoError(t, err)
+	assert.Contains(t, string(out), `"n":12345678901234567890`)
+	assert.Contains(t, string(out), `"s":"<&>"`)
+}
+
+func TestUpstreamUser(t *testing.T) {
+	dir := t.TempDir()
+	viper.Set("llm_gateway.secret_path", dir)
+	defer viper.Set("llm_gateway.secret_path", "")
+
+	shared := dbclient.ComputeApimKeyHash("shared-key")
+	own := dbclient.ComputeApimKeyHash("own-key")
+
+	// Without configuration every key is attributed to the caller.
+	assert.Equal(t, "ntid1", upstreamUser(shared, "ntid1"))
+
+	assert.NoError(t, os.WriteFile(filepath.Join(dir, "shared_apim_key_hashes"), []byte("other, "+shared+"\n"), 0o600))
+	// A shared key without a configured user still falls back to the caller.
+	assert.Equal(t, "ntid1", upstreamUser(shared, "ntid1"))
+
+	assert.NoError(t, os.WriteFile(filepath.Join(dir, "shared_apim_user"), []byte("svc-user\n"), 0o600))
+	assert.Equal(t, "svc-user", upstreamUser(shared, "ntid1"))
+	assert.Equal(t, "svc-user", upstreamUser(shared, ""))
+	assert.Equal(t, "ntid1", upstreamUser(own, "ntid1"))
+	assert.Equal(t, "", upstreamUser(own, ""))
+	assert.Equal(t, "ntid1", upstreamUser("", "ntid1"))
 }
 
 func TestNewLLMProxy_InvalidEndpoint(t *testing.T) {
