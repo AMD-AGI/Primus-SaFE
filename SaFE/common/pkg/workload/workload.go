@@ -379,7 +379,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
 	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind, common.MonarchJob:
 		return v1.TrainScope
-	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind, common.InferaDeploymentKind:
+	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind, common.InferaDeploymentKind, common.AtomKind:
 		return v1.InferScope
 	case common.AuthoringKind:
 		return v1.AuthoringScope
@@ -403,6 +403,7 @@ func IsApplication(w *v1.Workload) bool {
 		w.SpecKind() == common.StatefulSetKind ||
 		w.SpecKind() == common.DynamoDeploymentKind ||
 		w.SpecKind() == common.InferaDeploymentKind ||
+		w.SpecKind() == common.AtomKind ||
 		w.SpecKind() == common.CICDGithubRunnerKind {
 		return true
 	}
@@ -566,6 +567,45 @@ func GetDynamoBackendFramework(w *v1.Workload) string {
 // DynamoDeployment). Roles/KV-backend/framework reuse the Dynamo constants.
 func IsInferaDeployment(w *v1.Workload) bool {
 	return w.SpecKind() == common.InferaDeploymentKind
+}
+
+// IsAtom reports whether the workload serves through atomesh, prefill and decode.
+func IsAtom(w *v1.Workload) bool {
+	return w.SpecKind() == common.AtomKind
+}
+
+// AtomDeploymentGVK is the Kubernetes object created for every Atom role.
+func AtomDeploymentGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group: "apps", Version: common.DefaultVersion, Kind: common.DeploymentKind,
+	}
+}
+
+// AtomRoleIndex returns the resource, image and entrypoint index of an Atom role.
+func AtomRoleIndex(role string) int {
+	switch role {
+	case common.AtomRoleRouter:
+		return 0
+	case common.AtomRolePrefill:
+		return 1
+	case common.AtomRoleDecode:
+		return 2
+	default:
+		return -1
+	}
+}
+
+// AtomRoleObjectName returns the Deployment and Service name for an Atom role.
+func AtomRoleObjectName(rootName, role string) string {
+	if role == common.AtomRoleRouter {
+		return rootName
+	}
+	return rootName + "-" + role
+}
+
+// AtomServiceEndpoint returns the in-cluster address of an Atom role Service.
+func AtomServiceEndpoint(name, namespace string, port int) string {
+	return fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", name, namespace, port)
 }
 
 // GetInferaServiceRoles returns the parsed service roles for an
@@ -869,6 +909,8 @@ func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
 			Group: "", Version: common.DefaultVersion, Kind: common.MonarchClient,
 		})
 		result = append(result, MonarchMeshWorkloadGVK())
+	} else if IsAtom(workload) {
+		result = append(result, AtomDeploymentGVK())
 	} else {
 		result = append(result, workload.ToSchemaGVK())
 	}

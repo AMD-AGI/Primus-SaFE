@@ -42,6 +42,7 @@ const (
 	SandboxKind             = "Sandbox"
 	DynamoDeploymentKind    = "DynamoDeployment"
 	InferaDeploymentKind    = "InferaDeployment"
+	AtomKind                = "Atom"
 	ConfigmapKind           = "ConfigMap"
 	ClusterRoleKind         = "ClusterRole"
 	ServiceAccountKind      = "ServiceAccount"
@@ -94,6 +95,25 @@ const (
 	MonarchMeshPortNum = 26600
 	MonarchPort        = "MONARCH_PORT"
 	MonarchMeshPrefix  = "MONARCH_MESH_PREFIX"
+
+	// Atom roles are fixed as [router, prefill, decode].
+	AtomRoleRouter  = "router"
+	AtomRolePrefill = "prefill"
+	AtomRoleDecode  = "decode"
+	AtomRouterPort  = 8000
+	AtomPrefillPort = 8010
+	AtomDecodePort  = 8020
+
+	AtomRoleEnv            = "ATOM_ROLE"
+	AtomServerPortEnv      = "ATOM_SERVER_PORT"
+	AtomPrefillEndpointEnv = "ATOM_PREFILL_ENDPOINT"
+	AtomDecodeEndpointEnv  = "ATOM_DECODE_ENDPOINT"
+	AtomHealthPath         = "/health"
+	AtomReadinessPath      = "/readiness"
+
+	AtomProbeInitialDelaySeconds = 5
+	AtomProbePeriodSeconds       = 5
+	AtomProbeFailureThreshold    = 3
 
 	DefaultBurst          = 1000
 	DefaultQPS            = 1000

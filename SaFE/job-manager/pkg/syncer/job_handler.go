@@ -196,7 +196,8 @@ func (r *SyncerReconciler) getK8sObjectStatus(ctx context.Context, message *reso
 	}
 
 	var rt *v1.ResourceTemplate
-	if commonworkload.IsTorchFT(adminWorkload) || commonworkload.IsMonarchJob(adminWorkload) {
+	if commonworkload.IsTorchFT(adminWorkload) || commonworkload.IsMonarchJob(adminWorkload) ||
+		commonworkload.IsAtom(adminWorkload) {
 		// For TorchFT or MonarchJob workloads, the GVK of the K8s object is not the workload GVK, but we can retrieve it via the object's own GVK.
 		rt, err = commonworkload.GetResourceTemplateByGVK(ctx, r.Client, message.gvk)
 	} else {
@@ -344,7 +345,13 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 	if originalWorkload.IsEnd() {
 		return originalWorkload, nil
 	}
-	status, statusErr := r.getK8sObjectStatus(ctx, message, clientSets, originalWorkload)
+	var status *jobutils.K8sObjectStatus
+	var statusErr error
+	if commonworkload.IsAtom(originalWorkload) {
+		status, statusErr = r.aggregateAtomStatus(ctx, clientSets, originalWorkload)
+	} else {
+		status, statusErr = r.getK8sObjectStatus(ctx, message, clientSets, originalWorkload)
+	}
 	if status == nil {
 		return originalWorkload, statusErr
 	}
@@ -423,6 +430,84 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 
 type cicdStatusExtractionError struct {
 	error
+}
+
+// aggregateAtomStatus folds the router, prefill and decode Deployments into one phase.
+// The workload is Running only after every role Deployment is Available.
+func (r *SyncerReconciler) aggregateAtomStatus(ctx context.Context, clientSets *ClusterClientSets,
+	adminWorkload *v1.Workload) (*jobutils.K8sObjectStatus, error) {
+	gvk := commonworkload.AtomDeploymentGVK()
+	rt, err := commonworkload.GetResourceTemplateByGVK(ctx, r.Client, gvk)
+	if err != nil {
+		return nil, err
+	}
+	objs, err := jobutils.ListObject(ctx, clientSets.ClientFactory(),
+		v1.WorkloadIdLabel+"="+adminWorkload.Name, adminWorkload.Spec.Workspace, gvk)
+	if err != nil {
+		return nil, err
+	}
+	phases := map[string]string{}
+	for i := range objs {
+		role := atomRoleFromObjectName(adminWorkload.Name, objs[i].GetName())
+		if role == "" {
+			continue
+		}
+		st, err := jobutils.GetK8sObjectStatus(&objs[i], rt)
+		if err != nil {
+			return nil, err
+		}
+		if st != nil {
+			phases[role] = st.Phase
+		}
+	}
+	return combineAtomRoleStatus(phases), nil
+}
+
+// atomRoleFromObjectName maps a derived Deployment name back to its Atom role.
+func atomRoleFromObjectName(rootName, objectName string) string {
+	switch objectName {
+	case commonworkload.AtomRoleObjectName(rootName, common.AtomRoleRouter):
+		return common.AtomRoleRouter
+	case commonworkload.AtomRoleObjectName(rootName, common.AtomRolePrefill):
+		return common.AtomRolePrefill
+	case commonworkload.AtomRoleObjectName(rootName, common.AtomRoleDecode):
+		return common.AtomRoleDecode
+	default:
+		return ""
+	}
+}
+
+// combineAtomRoleStatus returns Running only when router, prefill and decode are all running.
+func combineAtomRoleStatus(phases map[string]string) *jobutils.K8sObjectStatus {
+	roles := []string{common.AtomRoleRouter, common.AtomRolePrefill, common.AtomRoleDecode}
+	updating := false
+	var waiting []string
+	for _, role := range roles {
+		switch phases[role] {
+		case string(v1.K8sRunning):
+		case string(v1.K8sUpdating):
+			updating = true
+			waiting = append(waiting, role)
+		default:
+			waiting = append(waiting, role)
+		}
+	}
+	if len(waiting) == 0 {
+		return &jobutils.K8sObjectStatus{
+			Phase:   string(v1.K8sRunning),
+			Message: "atom router, prefill and decode are ready",
+		}
+	}
+	if updating {
+		return &jobutils.K8sObjectStatus{
+			Phase:   string(v1.K8sUpdating),
+			Message: "atom deployment is updating: " + strings.Join(waiting, ","),
+		}
+	}
+	return &jobutils.K8sObjectStatus{
+		Phase:   string(v1.K8sNotReady),
+		Message: "atom deployment is not ready: " + strings.Join(waiting, ","),
+	}
 }
 
 // updateAdminWorkloadPhase updates the workload phase based on k8s object status.

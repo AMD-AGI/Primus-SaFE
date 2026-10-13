@@ -180,6 +180,8 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 		result, err = r.processTorchFTWorkload(ctx, workload)
 	case commonworkload.IsMonarchJob(workload):
 		result, err = r.processMonarchWorkload(ctx, workload)
+	case commonworkload.IsAtom(workload):
+		result, err = r.processAtomWorkload(ctx, workload)
 	default:
 		result, err = r.processWorkload(ctx, workload)
 	}
@@ -292,6 +294,23 @@ func (r *DispatcherReconciler) processMonarchWorkload(ctx context.Context, rootW
 		return result, err
 	}
 	if err = r.markAsDispatched(ctx, rootWorkload); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	return ctrlruntime.Result{}, nil
+}
+
+// processAtomWorkload creates prefill, decode and router Deployments for an Atom workload.
+func (r *DispatcherReconciler) processAtomWorkload(ctx context.Context, rootWorkload *v1.Workload) (ctrlruntime.Result, error) {
+	for _, role := range []string{common.AtomRolePrefill, common.AtomRoleDecode, common.AtomRoleRouter} {
+		roleWorkload := r.generateAtomRoleWorkload(ctx, rootWorkload, role)
+		if roleWorkload == nil {
+			return ctrlruntime.Result{}, commonerrors.NewBadRequest("invalid atom workload shape")
+		}
+		if result, err := r.processWorkload(ctx, roleWorkload); err != nil || result.RequeueAfter > 0 {
+			return result, err
+		}
+	}
+	if err := r.markAsDispatched(ctx, rootWorkload); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	return ctrlruntime.Result{}, nil
@@ -1445,6 +1464,93 @@ func (r *DispatcherReconciler) generateMonarchMesh(ctx context.Context, rootWork
 	workload.Spec.Resources[0].Replica = nodePerGroup
 	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
 	return workload
+}
+
+// generateAtomRoleWorkload builds one Deployment workload for an Atom role.
+func (r *DispatcherReconciler) generateAtomRoleWorkload(ctx context.Context, rootWorkload *v1.Workload, role string) *v1.Workload {
+	index := commonworkload.AtomRoleIndex(role)
+	if rootWorkload == nil || index < 0 ||
+		index >= len(rootWorkload.Spec.Resources) ||
+		index >= len(rootWorkload.Spec.Images) ||
+		index >= len(rootWorkload.Spec.EntryPoints) {
+		return nil
+	}
+	port := atomRolePort(role)
+	workload := rootWorkload.DeepCopy()
+	workload.Name = commonworkload.AtomRoleObjectName(rootWorkload.Name, role)
+	workload.Spec.Kind = common.DeploymentKind
+	workload.Spec.Group = "apps"
+	workload.Spec.Version = common.DefaultVersion
+	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[index]}
+	workload.Spec.Images = []string{rootWorkload.Spec.Images[index]}
+	workload.Spec.EntryPoints = []string{rootWorkload.Spec.EntryPoints[index]}
+	workload.Spec.Liveness = nil
+	workload.Spec.Readiness = &v1.HealthCheck{
+		Path:                atomReadinessPath(role),
+		Port:                port,
+		InitialDelaySeconds: common.AtomProbeInitialDelaySeconds,
+		PeriodSeconds:       common.AtomProbePeriodSeconds,
+		FailureThreshold:    common.AtomProbeFailureThreshold,
+	}
+	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
+	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, strconv.Itoa(index))
+	if workload.Spec.Env == nil {
+		workload.Spec.Env = map[string]string{}
+	}
+	workload.Spec.Env[common.AtomRoleEnv] = role
+	workload.Spec.Env[common.AtomServerPortEnv] = strconv.Itoa(port)
+	workload.Spec.Env[common.AtomPrefillEndpointEnv] = commonworkload.AtomServiceEndpoint(
+		commonworkload.AtomRoleObjectName(rootWorkload.Name, common.AtomRolePrefill),
+		rootWorkload.Spec.Workspace, common.AtomPrefillPort)
+	workload.Spec.Env[common.AtomDecodeEndpointEnv] = commonworkload.AtomServiceEndpoint(
+		commonworkload.AtomRoleObjectName(rootWorkload.Name, common.AtomRoleDecode),
+		rootWorkload.Spec.Workspace, common.AtomDecodePort)
+	if role == common.AtomRoleRouter {
+		if workload.Spec.Service == nil {
+			workload.Spec.Service = atomClusterService(workload.Name, port)
+		}
+		workload.Spec.Service.TargetPort = common.AtomRouterPort
+	} else {
+		workload.Spec.Service = atomClusterService(workload.Name, port)
+		v1.SetLabel(workload, v1.ServiceNameLabel, workload.Name)
+	}
+	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
+	return workload
+}
+
+// atomRolePort returns the fixed listen port of an Atom role.
+func atomRolePort(role string) int {
+	switch role {
+	case common.AtomRolePrefill:
+		return common.AtomPrefillPort
+	case common.AtomRoleDecode:
+		return common.AtomDecodePort
+	default:
+		return common.AtomRouterPort
+	}
+}
+
+// atomReadinessPath returns the HTTP probe path of an Atom role.
+func atomReadinessPath(role string) string {
+	if role == common.AtomRoleRouter {
+		return common.AtomReadinessPath
+	}
+	return common.AtomHealthPath
+}
+
+// atomClusterService returns a ClusterIP Service for one Atom role.
+func atomClusterService(name string, port int) *v1.Service {
+	return &v1.Service{
+		Name:        name,
+		Protocol:    corev1.ProtocolTCP,
+		Port:        port,
+		TargetPort:  port,
+		ServiceType: corev1.ServiceTypeClusterIP,
+		Extends: map[string]string{
+			"maxUnavailable": common.DefaultMaxUnavailable,
+			"maxSurge":       common.DefaultMaxMaxSurge,
+		},
+	}
 }
 
 // generateMeshNamePrefix strips '-' and '_' from displayName to produce a valid

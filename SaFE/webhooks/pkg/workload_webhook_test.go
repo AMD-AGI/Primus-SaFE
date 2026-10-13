@@ -618,6 +618,32 @@ func TestWorkloadValidateDynamoDeployment(t *testing.T) {
 }
 
 // TestWorkloadValidateInferaDeployment verifies infera validation.
+func TestWorkloadMutateAndValidateAtom(t *testing.T) {
+	m := &WorkloadMutator{}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "atom1"}, Spec: v1.WorkloadSpec{
+		GroupVersionKind: v1.GroupVersionKind{Kind: common.AtomKind},
+		IsSupervised:     true,
+		MaxRetry:         3,
+	}}
+	m.mutateAtom(w)
+	assert.Equal(t, w.Spec.IsSupervised, false)
+	assert.Equal(t, w.Spec.MaxRetry, 0)
+	assert.Assert(t, w.Spec.Service != nil)
+	assert.Equal(t, w.Spec.Service.TargetPort, common.AtomRouterPort)
+	assert.Equal(t, w.Spec.Service.ServiceType, corev1.ServiceTypeClusterIP)
+
+	v := &WorkloadValidator{}
+	assert.Assert(t, v.validateAtom(w) != nil)
+	res := wlResource()
+	res.Replica = 2
+	w.Spec.Resources = []v1.WorkloadResource{res, res, res}
+	w.Spec.Images = []string{"router", "prefill", "decode"}
+	w.Spec.EntryPoints = []string{"r", "p", "d"}
+	assert.NilError(t, v.validateAtom(w))
+	w.Spec.Service.TargetPort = 9000
+	assert.Assert(t, v.validateAtom(w) != nil)
+}
+
 func TestWorkloadValidateInferaDeployment(t *testing.T) {
 	v := &WorkloadValidator{}
 	assert.Assert(t, v.validateInferaDeployment(&v1.Workload{}) != nil)
