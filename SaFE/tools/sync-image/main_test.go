@@ -342,6 +342,12 @@ func TestImageNewSystemContextSuccess(t *testing.T) {
 	if ctx.DockerBearerRegistryToken != "tok" {
 		t.Errorf("registry token not set")
 	}
+	if ctx.DockerInsecureSkipTLSVerify != types.OptionalBoolFalse {
+		t.Errorf("TLS verification enabled: DockerInsecureSkipTLSVerify = %v, want false", ctx.DockerInsecureSkipTLSVerify)
+	}
+	if ctx.DockerDaemonInsecureSkipTLSVerify {
+		t.Error("TLS verification enabled: DockerDaemonInsecureSkipTLSVerify = true")
+	}
 
 	// username + password
 	o = newImageOpts()
