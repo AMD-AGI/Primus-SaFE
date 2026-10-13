@@ -229,8 +229,16 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
 	if err = backoff.ConflictRetry(func() error {
 		var innerError error
+		// Again on every attempt: a retry works on a re-read Secret whose bindings may have changed.
+		if innerError = authorizeSandboxEnvSecretPatch(requestUser, secret, req); innerError != nil {
+			return innerError
+		}
 		if innerError = applySecretPatch(secret, req); innerError != nil {
 			return innerError
 		}
@@ -268,16 +276,6 @@ func (h *Handler) authSecretUpdate(c *gin.Context, req *view.PatchSecretRequest,
 		User:         requestUser,
 		Roles:        roles,
 	}); err != nil {
-		return err
-	}
-
-	// The bindings before and after the change: an admin of only the new workspaces must not
-	// change what the old ones receive, nor the other way round.
-	workspaces := commonsecret.GetSecretWorkspaces(secret)
-	if req.WorkspaceIds != nil {
-		workspaces = append(workspaces, sliceutil.Difference(*req.WorkspaceIds, workspaces)...)
-	}
-	if err = authorizeSandboxEnvSecret(requestUser, secret.Name, workspaces); err != nil {
 		return err
 	}
 
@@ -345,8 +343,13 @@ func (h *Handler) deleteSecretImpl(ctx context.Context, name string, requestUser
 	if err = authorizeSandboxEnvSecret(requestUser, name, commonsecret.GetSecretWorkspaces(secret)); err != nil {
 		return err
 	}
+	options := metav1.DeleteOptions{}
+	if name == commonconfig.GetSandboxEnvSecret() {
+		// Delete the version whose bindings were just checked, not one rebound since.
+		options.Preconditions = &metav1.Preconditions{ResourceVersion: &secret.ResourceVersion}
+	}
 	if err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
-		ctx, name, metav1.DeleteOptions{}); err != nil {
+		ctx, name, options); err != nil {
 		return client.IgnoreNotFound(err)
 	}
 	klog.Infof("delete secret %s", name)
@@ -371,6 +374,17 @@ func authorizeSandboxEnvSecret(user *v1.User, name string, workspaces []string) 
 	}
 	return commonerrors.NewForbidden(fmt.Sprintf("the secret %s is read by sandboxes as environment "+
 		"variables; only a system admin or an admin of all its workspaces (%v) may change it", name, workspaces))
+}
+
+// authorizeSandboxEnvSecretPatch applies authorizeSandboxEnvSecret to a patch, over the bindings
+// before and after it: an admin of only the new workspaces must not change what the old ones
+// receive, nor the other way round.
+func authorizeSandboxEnvSecretPatch(user *v1.User, secret *corev1.Secret, req *view.PatchSecretRequest) error {
+	workspaces := commonsecret.GetSecretWorkspaces(secret)
+	if req.WorkspaceIds != nil {
+		workspaces = append(workspaces, sliceutil.Difference(*req.WorkspaceIds, workspaces)...)
+	}
+	return authorizeSandboxEnvSecret(user, secret.Name, workspaces)
 }
 
 // getAdminSecret retrieves a secret resource by name without authorization.

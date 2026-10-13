@@ -360,6 +360,9 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context,
 		workspaceIds := commonsecret.GetSecretWorkspaces(secret)
 		if !sliceutil.Contains(workspaceIds, workspace.Name) {
 			workspaceIds = append(workspaceIds, workspace.Name)
+			if err := authorizeSandboxEnvSecret(requestUser, secret.Name, workspaceIds); err != nil {
+				return err
+			}
 			patch := client.MergeFrom(secret.DeepCopy())
 			v1.SetAnnotation(secret, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(workspaceIds)))
 			if err := h.Patch(ctx, secret, patch); err != nil {
