@@ -81,6 +81,10 @@ type ExportImageJobReconciler struct {
 	// running counts the exports each user has running (exportsPerUser).
 	mu      sync.Mutex
 	running map[string]int
+	// queued names exports this process has put on the worker queue. The queue
+	// itself is in memory, so a process that finds a job already Running must
+	// queue it again; the reconcile caused by that status write must not.
+	queued map[string]struct{}
 }
 
 // claim takes one of user's export slots, and reports whether there was one free.
@@ -174,21 +178,49 @@ func (r *ExportImageJobReconciler) filter(_ context.Context, job *v1.OpsJob) boo
 	return job.Spec.Type != v1.OpsJobExportImageType
 }
 
-// handle processes pending export jobs by adding them to worker queue
+// handle queues an export and arms a reconcile at its deadline.
+// A Running job is queued once per process: the worker queue does not survive a
+// restart, and the status write from Pending also reconciles the job.
 func (r *ExportImageJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	if job.IsPending() {
-		// Update job phase to running
 		if err := r.setJobPhase(ctx, job, v1.OpsJobRunning); err != nil {
 			return ctrlruntime.Result{}, fmt.Errorf("failed to set job phase to running: %w", err)
 		}
-
-		// Add to worker queue for async processing
-		r.Add(job.Name)
-
-		// Ensure job will be reconciled on timeout
+		r.enqueueExport(job.Name)
 		return newRequeueAfterResult(job), nil
 	}
+	if job.Status.Phase == v1.OpsJobRunning && r.enqueueExport(job.Name) {
+		return requeueUntilDeadline(job), nil
+	}
 	return ctrlruntime.Result{}, nil
+}
+
+// enqueueExport puts name on the worker queue the first time this process sees it.
+func (r *ExportImageJobReconciler) enqueueExport(name string) bool {
+	r.mu.Lock()
+	if r.queued == nil {
+		r.queued = map[string]struct{}{}
+	}
+	if _, ok := r.queued[name]; ok {
+		r.mu.Unlock()
+		return false
+	}
+	r.queued[name] = struct{}{}
+	r.mu.Unlock()
+	r.Add(name)
+	return true
+}
+
+// requeueUntilDeadline reconciles the job again when its timeout elapses.
+func requeueUntilDeadline(job *v1.OpsJob) ctrlruntime.Result {
+	if job.Spec.TimeoutSecond <= 0 {
+		return ctrlruntime.Result{}
+	}
+	left := job.GetLeftTime()
+	if left <= 0 {
+		return ctrlruntime.Result{Requeue: true}
+	}
+	return ctrlruntime.Result{RequeueAfter: time.Duration(left) * time.Second}
 }
 
 // Do exports the workload's main container.
