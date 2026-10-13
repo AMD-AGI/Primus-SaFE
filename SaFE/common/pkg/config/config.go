@@ -723,6 +723,24 @@ func GetLLMGatewayTeamID() string {
 	return getFromFile(llmGatewaySecretPath, "litellm_team_id")
 }
 
+// GetLLMGatewaySharedApimKeyHashes returns the ComputeApimKeyHash values of the
+// APIM keys that several bindings share (from secret file, comma-separated).
+func GetLLMGatewaySharedApimKeyHashes() []string {
+	var hashes []string
+	for _, hash := range strings.Split(getFromFile(llmGatewaySecretPath, "shared_apim_key_hashes"), ",") {
+		if hash = strings.TrimSpace(hash); hash != "" {
+			hashes = append(hashes, hash)
+		}
+	}
+	return hashes
+}
+
+// GetLLMGatewaySharedApimUser returns the upstream user that requests made with a
+// shared APIM key are attributed to (from secret file).
+func GetLLMGatewaySharedApimUser() string {
+	return strings.TrimSpace(getFromFile(llmGatewaySecretPath, "shared_apim_user"))
+}
+
 func IsMonarchEnable() bool {
 	return getBool(monarchEnable, false)
 }
