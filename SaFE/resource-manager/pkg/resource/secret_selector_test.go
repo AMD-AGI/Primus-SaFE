@@ -772,8 +772,8 @@ func TestCleanupListsOncePerCluster(t *testing.T) {
 }
 
 // A record dropped by kubectl replace or by a forced server-side apply, or one that cannot be
-// read, is unknown: every copy there is is kept and synced, none is added or removed, and the
-// freeze lifts once the selector is valid again.
+// read, is unknown: no copy is added or removed, only the ids list is synced, and the freeze
+// lifts once the selector is valid again.
 func TestInvalidSelectorWithoutRecordFreezesAsUnknown(t *testing.T) {
 	for name, drop := range map[string]func(t *testing.T, r *SecretReconciler, live *corev1.Secret){
 		"kubectl replace": func(t *testing.T, r *SecretReconciler, live *corev1.Secret) {
@@ -814,10 +814,10 @@ func TestInvalidSelectorWithoutRecordFreezesAsUnknown(t *testing.T) {
 			drop(t, r, liveSecret(t, r, sec.Name))
 			require.NoError(t, r.Create(context.Background(), sandboxWorkspace("ws-new")))
 			reconcileSecret(t, r, sec.Name)
-			for _, ws := range []string{"ws-a", "ws-b", "ws-c"} {
+			for ws, data := range map[string]string{"ws-a": "pem", "ws-b": "pem", "ws-c": "rotated"} {
 				got, err := cs.CoreV1().Secrets(ws).Get(context.Background(), sec.Name, metav1.GetOptions{})
 				require.NoError(t, err, "%s: an unknown record removes nothing", ws)
-				assert.Equal(t, []byte("rotated"), got.Data["ca.crt"], "%s: and keeps it in sync", ws)
+				assert.Equal(t, []byte(data), got.Data["ca.crt"], "%s: only the ids list is synced", ws)
 			}
 			assert.False(t, mirrored(t, cs, "ws-new", sec.Name), "nothing new is added")
 
@@ -832,4 +832,22 @@ func TestInvalidSelectorWithoutRecordFreezesAsUnknown(t *testing.T) {
 			assert.JSONEq(t, `["ws-a","ws-new"]`, liveSecret(t, r, sec.Name).Annotations[v1.WorkspaceSelectorAppliedAnnotation])
 		})
 	}
+}
+
+// With the record unknown, a Secret someone made in their own namespace with the mirror label
+// on it is not taken for a copy: the source is never written into a namespace it was not sent to.
+func TestUnknownRecordDoesNotTrustTheMirrorLabel(t *testing.T) {
+	forged := managedCopy("db-password", "ws-mine")
+	forged.Data = map[string][]byte{"x": []byte("forged")}
+	cs := k8sfake.NewSimpleClientset(forged)
+	sec := selectorSecret("db-password", sandboxSelector, "")
+	delete(sec.Annotations, v1.SecretBroadcastAnnotation) // a credential: never marked
+	sec.Data = map[string][]byte{"password": []byte("s3cret")}
+	sec.Finalizers = []string{v1.SecretFinalizer}
+	r := newSecretReconcilerFull(t, cs, testCluster("c1"), sec, sandboxWorkspace("ws-mine"))
+	reconcileSecret(t, r, sec.Name)
+
+	got, err := cs.CoreV1().Secrets("ws-mine").Get(context.Background(), sec.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, forged.Data, got.Data, "the source is not written into it")
 }

@@ -380,8 +380,9 @@ sandbox:
   # resource-manager in primus-safe.workspace.selector.applied (an annotation, which caps the scale at
   # about a thousand workspaces); while the selector is frozen they stay and their content stays in
   # sync. If that record is missing or damaged (for example after kubectl replace), every copy is
-  # kept, ids removals included; do not edit or delete the record by hand: fix the selector (resource-
-  # manager then rewrites the record) or remove primus-safe.workspace.selector to stop mirroring.
+  # kept as it is, ids removals included, and only the ids list is updated; do not edit or delete the
+  # record by hand: fix the selector (resource-manager then rewrites the record) or remove
+  # primus-safe.workspace.selector to stop mirroring.
   # Do not roll resource-manager back to a release without the selector: it would drop copies reached
   # only by it; add the workspaces to primus-safe.workspace.ids first. When set, it is mounted at
   # /etc/claw/extra-ca, merged into /shared/bin/ca-bundle.pem, and the sandbox's CA variables point

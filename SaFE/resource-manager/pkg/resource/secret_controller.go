@@ -213,7 +213,7 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	// still wanted, and a vanished copy stops every sandbox that mounts it. The copies it made
 	// (WorkspaceSelectorAppliedAnnotation, recorded while it was valid) keep being synced, so
 	// a rotated CA still reaches them. The ids list applies as usual, unless that record is
-	// missing or unreadable, in which case every copy is kept (see below). The reason is written on
+	// missing or unreadable, in which case every copy is kept as it is (see below). The reason is written on
 	// the Secret and raised as a Warning event; the annotation is cleared once the selector is
 	// valid again.
 	var errs []error
@@ -227,22 +227,15 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 			r.recorder.Event(secret, corev1.EventTypeWarning, "InvalidWorkspaceSelector", selectorErr.Error())
 		}
 		// A record that is missing or cannot be read is unknown, not empty: a kubectl replace
-		// or a forced apply can drop it from a Secret whose selector did mirror. Then every
-		// copy there is is the selector's as far as the freeze goes: it is kept in sync and
-		// none is removed, ids removals included, until the selector is valid again (which
-		// rewrites the record) or is removed.
+		// or a forced apply can drop it from a Secret whose selector did mirror. Then no copy
+		// is removed, ids removals included, until the selector is valid again (which rewrites
+		// the record) or is removed. Nor is any copy outside the ids list written: which
+		// namespaces hold one is only known from the data plane, where anyone who can create a
+		// Secret in their namespace can put the mirror label on it.
 		raw := v1.GetAnnotation(secret, v1.WorkspaceSelectorAppliedAnnotation)
 		if raw == "" || json.Unmarshal([]byte(raw), &applied) != nil {
 			appliedKnown = false
 			applied = nil
-			if err := r.forEachWorkspaceCopy(ctx, secret.Name, func(_ kubernetes.Interface, ws *v1.Workspace, hasCopy bool) error {
-				if hasCopy {
-					applied = append(applied, ws.Name)
-				}
-				return nil
-			}); err != nil {
-				errs = append(errs, err)
-			}
 		}
 	}
 	// If this secret is not bound to any workspace, remove mirrored copies (by label) in data planes

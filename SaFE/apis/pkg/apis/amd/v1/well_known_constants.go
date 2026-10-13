@@ -155,7 +155,7 @@ const (
 	// WorkspaceSelectorAppliedAnnotation is written by resource-manager: the workspaces a valid
 	// selector last selected (a JSON array). While the selector is invalid it marks which
 	// copies are the selector's, so only those are frozen. A missing or unreadable record is
-	// unknown: every existing copy is frozen until the selector is valid again or removed.
+	// unknown: every existing copy is left as it is until the selector is valid again or removed.
 	WorkspaceSelectorAppliedAnnotation = WorkspacePrefix + "selector.applied"
 	// SecretBroadcastAnnotation, set to "true" on a Secret, marks it as safe to copy into every
 	// workspace a selector matches. A selector is only honoured on a Secret that carries it:
