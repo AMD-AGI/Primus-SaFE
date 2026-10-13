@@ -254,7 +254,7 @@ func (h *Handler) createBindingLocked(ctx context.Context, email, apimKey string
 		return nil, commonerrors.NewInternalError("LLM service unavailable, please try again later")
 	}
 
-	litellmResp, err := h.createLiteLLMKeyWithRecovery(ctx, email, apimKey)
+	litellmResp, err := h.createLiteLLMKeyWithRecovery(ctx, email)
 	if err != nil {
 		klog.ErrorS(err, "CreateBinding: LiteLLM create key failed", "email", email)
 		if commonerrors.IsPrimus(err) {
@@ -295,8 +295,8 @@ func (h *Handler) createBindingLocked(ctx context.Context, email, apimKey string
 	}, nil
 }
 
-func (h *Handler) createLiteLLMKeyWithRecovery(ctx context.Context, email, apimKey string) (*CreateKeyResponse, error) {
-	resp, err := h.litellmClient.CreateKey(ctx, email, apimKey)
+func (h *Handler) createLiteLLMKeyWithRecovery(ctx context.Context, email string) (*CreateKeyResponse, error) {
+	resp, err := h.litellmClient.CreateKey(ctx, email)
 	if err == nil {
 		return resp, nil
 	}
@@ -320,7 +320,7 @@ func (h *Handler) createLiteLLMKeyWithRecovery(ctx context.Context, email, apimK
 		return nil, fmt.Errorf("failed to clean orphan LiteLLM key alias %s: %w (original error: %v)", email, cleanupErr, err)
 	}
 
-	return h.litellmClient.CreateKey(ctx, email, apimKey)
+	return h.litellmClient.CreateKey(ctx, email)
 }
 
 func (h *Handler) rollbackLiteLLMKeyByHash(tokenHash, email, reason string) {
@@ -367,32 +367,16 @@ func (h *Handler) UpdateBinding(c *gin.Context) {
 		return
 	}
 
-	newApimKeyHash := dbclient.ComputeApimKeyHash(req.ApimKey)
-
-	oldApimKey, _ := h.crypto.Decrypt(existing.ApimKey)
-
-	if err := h.litellmClient.UpdateKeyMetadata(c.Request.Context(), existing.LiteLLMKeyHash, req.ApimKey, email); err != nil {
-		klog.ErrorS(err, "UpdateBinding: LiteLLM update key failed", "email", email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("LLM service unavailable, please try again later"))
-		return
-	}
-
 	encryptedApimKey, err := h.crypto.Encrypt([]byte(req.ApimKey))
 	if err != nil {
 		klog.ErrorS(err, "UpdateBinding: failed to encrypt APIM Key", "email", email)
-		if oldApimKey != "" {
-			_ = h.litellmClient.UpdateKeyMetadata(c.Request.Context(), existing.LiteLLMKeyHash, oldApimKey, email)
-		}
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
 		return
 	}
 	existing.ApimKey = encryptedApimKey
-	existing.ApimKeyHash = newApimKeyHash
+	existing.ApimKeyHash = dbclient.ComputeApimKeyHash(req.ApimKey)
 	if err := h.dbClient.UpdateLLMBinding(c.Request.Context(), existing); err != nil {
-		klog.ErrorS(err, "UpdateBinding: DB save failed, rolling back LiteLLM key", "email", email)
-		if oldApimKey != "" {
-			_ = h.litellmClient.UpdateKeyMetadata(c.Request.Context(), existing.LiteLLMKeyHash, oldApimKey, email)
-		}
+		klog.ErrorS(err, "UpdateBinding: DB save failed", "email", email)
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to update binding, please try again later"))
 		return
 	}

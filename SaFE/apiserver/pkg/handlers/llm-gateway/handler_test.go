@@ -573,6 +573,92 @@ func TestUpdateBinding_RejectsAkSkPrefix(t *testing.T) {
 	}
 }
 
+func TestUpdateBinding_StoresKeyInSafeOnly(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("LiteLLM should not be called when the APIM key changes, got %s", r.URL.Path)
+	}))
+	defer litellm.Close()
+
+	handler := newTestHandler(t, mockDB, litellm)
+
+	existing := &dbclient.LLMGatewayUserBinding{
+		UserEmail:      "test@amd.com",
+		ApimKey:        "old-apim-key",
+		ApimKeyHash:    dbclient.ComputeApimKeyHash("old-apim-key"),
+		LiteLLMKeyHash: "hash123",
+		KeyAlias:       "test@amd.com",
+	}
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(existing, nil)
+	mockDB.EXPECT().UpdateLLMBinding(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, b *dbclient.LLMGatewayUserBinding) error {
+			assert.Equal(t, "new-apim-key", b.ApimKey)
+			assert.Equal(t, dbclient.ComputeApimKeyHash("new-apim-key"), b.ApimKeyHash)
+			assert.Equal(t, "hash123", b.LiteLLMKeyHash)
+			return nil
+		})
+
+	router := gin.New()
+	router.PUT("/binding", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.UpdateBinding(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/binding", strings.NewReader(`{"apim_key":"new-apim-key"}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestCreateBinding_KeepsApimKeyOutOfLiteLLM(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+
+	var generated CreateKeyRequest
+	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		assert.NotContains(t, string(raw), "secret-apim-key", "LiteLLM %s received the APIM key", r.URL.Path)
+		switch r.URL.Path {
+		case "/user/new":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"user_id":"test@amd.com"}`))
+		case "/key/generate":
+			assert.NoError(t, json.Unmarshal(raw, &generated))
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(CreateKeyResponse{Key: "virtual_key_test", TokenID: "hash123"})
+		default:
+			t.Fatalf("unexpected LiteLLM path: %s", r.URL.Path)
+		}
+	}))
+	defer litellm.Close()
+
+	handler := newTestHandler(t, mockDB, litellm)
+
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(nil, nil)
+	mockDB.EXPECT().CreateLLMBinding(gomock.Any(), gomock.Any()).Return(nil)
+
+	router := gin.New()
+	router.POST("/binding", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.CreateBinding(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/binding", strings.NewReader(`{"apim_key":"secret-apim-key"}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.Equal(t, map[string]string{"safe_user_id": "test@amd.com"}, generated.Metadata)
+}
+
 func TestCreateBinding_LiteLLMUserAlreadyExists(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
