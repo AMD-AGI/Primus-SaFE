@@ -595,3 +595,34 @@ func TestOtherImageBindingIsPatchedAsBefore(t *testing.T) {
 	testifyrequire.Len(t, sent, 1)
 	testifyassert.NotContains(t, sent[0], "resourceVersion")
 }
+
+// The ordinary role check's 403 names the workspaces it checked. For sandbox-env, whose name
+// everyone knows, it is replaced so that no caller learns which workspaces it is bound to.
+func TestSandboxEnvRoleRefusalDoesNotNameTheWorkspaces(t *testing.T) {
+	ctx := context.Background()
+	outsider := sandboxEnvUser("outsider", []v1.UserRole{v1.DefaultRole}, []string{"ws-a"}, nil)
+	params := []map[view.SecretParam]string{{view.SecretParam("K"): b64("v")}}
+	refusals := func(name string) []error {
+		h, _ := newSandboxEnvHandler(t, ownedSecret(name, "sys-admin", "ws-a", "ws-hidden"))
+		testifyrequire.NoError(t, h.Create(ctx, outsider.DeepCopy()))
+		getCtx := newPostCtx(nil)
+		getCtx.Set(common.UserId, outsider.Name)
+		getCtx.Set(common.Name, name)
+		_, getErr := h.getSecret(getCtx)
+		return []error{
+			patchSecretAs(h, outsider, name, view.PatchSecretRequest{Params: &params}),
+			h.deleteSecretImpl(ctx, name, outsider),
+			getErr,
+		}
+	}
+	for i, err := range refusals(sandboxEnvSecret) {
+		testifyrequire.Error(t, err, "call %d", i)
+		testifyassert.True(t, commonerrors.IsForbidden(err), "call %d: %v", i, err)
+		testifyassert.NotContains(t, err.Error(), "ws-hidden", "call %d", i)
+	}
+	// Reverse proof: any other name keeps the ordinary message, which names them.
+	for i, err := range refusals("other-name") {
+		testifyrequire.Error(t, err, "call %d", i)
+		testifyassert.Contains(t, err.Error(), "ws-hidden", "call %d", i)
+	}
+}

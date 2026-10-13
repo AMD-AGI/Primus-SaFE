@@ -273,7 +273,7 @@ func (h *Handler) authSecretUpdate(c *gin.Context, req *view.PatchSecretRequest,
 		User:         requestUser,
 		Roles:        roles,
 	}); err != nil {
-		return nil, err
+		return nil, redactSandboxEnvForbidden(secret.Name, requestUser, v1.UpdateVerb, err)
 	}
 
 	if req.WorkspaceIds != nil {
@@ -288,7 +288,7 @@ func (h *Handler) authSecretUpdate(c *gin.Context, req *view.PatchSecretRequest,
 				User:         requestUser,
 				Roles:        roles,
 			}); err != nil {
-				return nil, err
+				return nil, redactSandboxEnvForbidden(secret.Name, requestUser, v1.UpdateVerb, err)
 			}
 		}
 	}
@@ -372,7 +372,7 @@ func (h *Handler) deleteSandboxEnvSecret(ctx context.Context, requestUser *v1.Us
 			User:         requestUser,
 			Workspaces:   commonsecret.GetSecretWorkspaces(secret),
 		}); innerError != nil {
-			return innerError
+			return redactSandboxEnvForbidden(name, requestUser, v1.DeleteVerb, innerError)
 		}
 		if innerError = authorizeSandboxEnvSecret(requestUser, name, commonsecret.GetSecretWorkspaces(secret), secret); innerError != nil {
 			return innerError
@@ -427,6 +427,22 @@ func authorizeSandboxEnvSecret(user *v1.User, name string, workspaces []string, 
 	klog.InfoS("refused a change to the sandbox env secret", "user", userName, "workspaces", workspaces)
 	return commonerrors.NewForbidden(fmt.Sprintf("the secret %s is read by sandboxes as environment "+
 		"variables; only a system admin or an admin of every workspace it is bound to may change it", name))
+}
+
+// redactSandboxEnvForbidden replaces the ordinary role check's 403 for the sandbox environment
+// Secret (commonsecret.SandboxEnvSecretName) with one that does not name its workspaces: the name is
+// known to everyone, so the ordinary message would tell any user which workspaces it is bound
+// to. The role check has already logged them. Any other error, or any other name, is returned
+// as it is.
+func redactSandboxEnvForbidden(name string, user *v1.User, verb v1.RoleVerb, err error) error {
+	if name != commonsecret.SandboxEnvSecretName || !commonerrors.IsForbidden(err) {
+		return err
+	}
+	userName := ""
+	if user != nil {
+		userName = user.Name
+	}
+	return commonerrors.NewForbidden(fmt.Sprintf("The user(%s) is not allowed to %s the secret %s", userName, verb, name))
 }
 
 // hasWorkspaceSelector reports whether the Secret has a workspace selector (any value, even a
@@ -499,7 +515,7 @@ func (h *Handler) getAndAuthorizeSecret(ctx context.Context,
 		User:         requestUser,
 		Workspaces:   workspaceIds,
 	}); err != nil {
-		return nil, err
+		return nil, redactSandboxEnvForbidden(name, requestUser, verb, err)
 	}
 	return secret, nil
 }
