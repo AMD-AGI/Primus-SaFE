@@ -28,8 +28,10 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
+	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
@@ -105,6 +107,9 @@ func (h *Handler) createSecretImpl(ctx context.Context, req *view.CreateSecretRe
 		User:         requestUser,
 		Workspaces:   req.WorkspaceIds,
 	}); err != nil {
+		return nil, err
+	}
+	if err := authorizeSandboxEnvSecret(requestUser, req.Name, req.WorkspaceIds); err != nil {
 		return nil, err
 	}
 
@@ -266,6 +271,16 @@ func (h *Handler) authSecretUpdate(c *gin.Context, req *view.PatchSecretRequest,
 		return err
 	}
 
+	// The bindings before and after the change: an admin of only the new workspaces must not
+	// change what the old ones receive, nor the other way round.
+	workspaces := commonsecret.GetSecretWorkspaces(secret)
+	if req.WorkspaceIds != nil {
+		workspaces = append(workspaces, sliceutil.Difference(*req.WorkspaceIds, workspaces)...)
+	}
+	if err = authorizeSandboxEnvSecret(requestUser, secret.Name, workspaces); err != nil {
+		return err
+	}
+
 	if req.WorkspaceIds != nil {
 		currentWorkspaceIds := commonsecret.GetSecretWorkspaces(secret)
 		workspaceIdsToAdd := sliceutil.Difference(*req.WorkspaceIds, currentWorkspaceIds)
@@ -327,12 +342,35 @@ func (h *Handler) deleteSecretImpl(ctx context.Context, name string, requestUser
 	}); err != nil {
 		return err
 	}
+	if err = authorizeSandboxEnvSecret(requestUser, name, commonsecret.GetSecretWorkspaces(secret)); err != nil {
+		return err
+	}
 	if err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
 		ctx, name, metav1.DeleteOptions{}); err != nil {
 		return client.IgnoreNotFound(err)
 	}
 	klog.Infof("delete secret %s", name)
 	return nil
+}
+
+// authorizeSandboxEnvSecret refuses a write to the Secret whose keys sandboxes receive as
+// environment variables (sandbox.env_secret) unless the user is a system admin or administers
+// every workspace in workspaces. Every key of that Secret reaches every sandbox of the workspaces
+// it is bound to, so a member able to write it could set LD_PRELOAD or similar in a colleague's
+// sandbox; the ordinary role lets any member create a Secret bound to their workspace.
+func authorizeSandboxEnvSecret(user *v1.User, name string, workspaces []string) error {
+	reserved := commonconfig.GetSandboxEnvSecret()
+	if reserved == "" || name != reserved {
+		return nil
+	}
+	if user.IsSystemAdmin() {
+		return nil
+	}
+	if len(workspaces) > 0 && commonuser.HasWorkspaceManagedRight(user, workspaces...) {
+		return nil
+	}
+	return commonerrors.NewForbidden(fmt.Sprintf("the secret %s is read by sandboxes as environment "+
+		"variables; only a system admin or an admin of all its workspaces (%v) may change it", name, workspaces))
 }
 
 // getAdminSecret retrieves a secret resource by name without authorization.

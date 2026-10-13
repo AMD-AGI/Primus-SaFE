@@ -739,6 +739,12 @@ func GetSandboxSecret() string {
 	return getString(sandboxSecret, "")
 }
 
+// GetSandboxEnvSecret returns the name of the Secret whose keys sandboxes receive as
+// environment variables, or "" when sandboxes read none.
+func GetSandboxEnvSecret() string {
+	return getString(sandboxEnvSecret, "")
+}
+
 // ── External execution capacity ─────────────────────────────────────────
 
 // IsExternalExecutionEnable reports whether external execution capacity is admitted.

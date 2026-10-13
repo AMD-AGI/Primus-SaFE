@@ -54,6 +54,16 @@ data:
             - name: NODE_EXTRA_CA_CERTS
               value: /shared/bin/ca-bundle.pem
 {{- end }}
+{{- with .Values.sandbox.env_secret }}
+{{- $name := toString . }}
+{{- if or (gt (len $name) 253) (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$" $name)) }}
+{{- fail (printf "sandbox.env_secret %q is not a valid Secret name" $name) }}
+{{- end }}
+            envFrom:
+            - secretRef:
+                name: {{ $name | quote }}
+                optional: true
+{{- end }}
             imagePullPolicy: IfNotPresent
             name: codeinterpreter
             readinessProbe:

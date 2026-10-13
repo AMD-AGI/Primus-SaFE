@@ -340,9 +340,11 @@ type sandboxPod struct {
 				Containers []struct {
 					Name string `yaml:"name"`
 					Env  []struct {
-						Name  string `yaml:"name"`
-						Value string `yaml:"value"`
+						Name      string                 `yaml:"name"`
+						Value     string                 `yaml:"value"`
+						ValueFrom map[string]interface{} `yaml:"valueFrom"`
 					} `yaml:"env"`
+					EnvFrom      []map[string]interface{} `yaml:"envFrom"`
 					VolumeMounts []struct {
 						Name      string `yaml:"name"`
 						MountPath string `yaml:"mountPath"`
@@ -423,6 +425,59 @@ func TestChartMountsTheSandboxExtraCASecret(t *testing.T) {
 		}
 	}
 	t.Fatal("extra-ca volume not found")
+}
+
+func TestChartRendersNoSandboxEnvSecretByDefault(t *testing.T) {
+	pod := renderSandboxPod(t)
+	main := pod.Spec.PodTemplate.Spec.Containers[0]
+	testifyassert.Empty(t, main.EnvFrom)
+	for _, current := range main.Env {
+		testifyassert.Nil(t, current.ValueFrom, "%s reads from a reference", current.Name)
+	}
+	loadRendered(t, renderApiserverConfig(t))
+	testifyassert.Equal(t, "", GetSandboxEnvSecret())
+}
+
+func TestChartInjectsTheSandboxEnvSecret(t *testing.T) {
+	plain := renderSandboxPod(t, "--set", "sandbox.extra_ca_secret=sandbox-extra-ca")
+	pod := renderSandboxPod(t, "--set", "sandbox.env_secret=sandbox-env",
+		"--set", "sandbox.extra_ca_secret=sandbox-extra-ca")
+	main := pod.Spec.PodTemplate.Spec.Containers[0]
+	// The whole Secret, by reference, optional; SecretEnvSource has no namespace, so it is the
+	// Secret in the Pod's own (the workspace's) namespace.
+	testifyassert.Equal(t, []map[string]interface{}{
+		{"secretRef": map[string]interface{}{"name": "sandbox-env", "optional": true}},
+	}, main.EnvFrom)
+	// The explicit env is unchanged, and explicit env wins over envFrom in Kubernetes, so the
+	// Secret cannot replace PATH or the CA variables.
+	testifyassert.Equal(t, plain.Spec.PodTemplate.Spec.Containers[0].Env, main.Env)
+
+	loadRendered(t, renderApiserverConfig(t, "--set", "sandbox.env_secret=sandbox-env"))
+	testifyassert.Equal(t, "sandbox-env", GetSandboxEnvSecret())
+}
+
+// A Secret name helm reads as a number stays a string, in the template and the apiserver config.
+func TestChartQuotesTheSandboxEnvSecretName(t *testing.T) {
+	pod := renderSandboxPod(t, "--set", "sandbox.env_secret=123")
+	testifyassert.Equal(t, "123", pod.Spec.PodTemplate.Spec.Containers[0].EnvFrom[0]["secretRef"].(map[string]interface{})["name"])
+	loadRendered(t, renderApiserverConfig(t, "--set", "sandbox.env_secret=123"))
+	testifyassert.Equal(t, "123", GetSandboxEnvSecret())
+}
+
+func TestChartRefusesAnInvalidSandboxEnvSecretName(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+	for _, name := range []string{"Not_A_Name", "a..b", strings.Repeat("a", 254), "a\n- name: x"} {
+		cmd := exec.Command("helm", "template", chartPath, "--show-only",
+			"templates/configmap/sandbox_template.yaml", "--set", "sandbox.env_secret="+name)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		testifyrequire.Error(t, err, name)
+		testifyassert.Contains(t, stderr.String(), "is not a valid Secret name", name)
+		testifyassert.NotContains(t, string(out), "envFrom")
+	}
 }
 
 func TestChartPullsTheEnvdInjectorThroughTheSiteProxy(t *testing.T) {

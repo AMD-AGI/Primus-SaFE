@@ -430,6 +430,14 @@ sandbox:
   # SECURITY: anyone who can edit a workspace's scopes can make it match this selector, so the only
   # protection is never putting primus-safe.secret.broadcast on a Secret that holds a credential.
   extra_ca_secret: ""
+  # Name of a Secret in each workspace namespace whose every key a sandbox's main container receives
+  # as an environment variable (envFrom, optional): a workspace without the Secret starts its
+  # sandboxes without them. Values stay in the Secret; neither the Workload nor the Pod spec holds
+  # them. Variables the template or the Workload set themselves keep their own value. Through the
+  # SaFE API only a system admin, or an admin of every workspace it is bound to, may create, change
+  # or delete a Secret of this name. Empty (the default) renders nothing; the conventional name is
+  # sandbox-env. Set per deploy via .env `sandbox_env_secret` (synced into values.yaml by upgrade.sh).
+  env_secret: ""
 mcp:
   enabled: true
   base_path: "/api/v1/safe-mcp/mcp"

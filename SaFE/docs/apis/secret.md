@@ -396,6 +396,52 @@ echo -n "MyPassword" | base64
 echo "TXlQYXNzd29yZA==" | base64 -d
 ```
 
+## Sandbox Environment Secret
+
+When the chart value `sandbox.env_secret` names a Secret (conventionally `sandbox-env`; set it
+with `sandbox_env_secret` in `.env`), every sandbox receives each key of the Secret of that name
+in its own workspace namespace as an environment variable, through
+`envFrom: [{secretRef: {name: <name>, optional: true}}]` on the sandbox's main container.
+
+- **By reference**: values stay in the Secret. They are not in the Workload, its `env`, or the
+  Pod spec.
+- **Per workspace**: a Pod reads Secrets only from its own namespace, which is its workspace, so
+  one workspace's sandboxes never see another workspace's values.
+- **Optional**: a workspace without the Secret starts its sandboxes as before.
+- **Precedence**: a variable the sandbox template or the Workload's `env` sets explicitly keeps
+  that value; the Secret only adds variables.
+- **Adding a variable** is adding a key to the Secret; no chart or code change. Running sandboxes
+  keep the environment they started with; sandboxes created after a change see it.
+- **Admins only**: every key reaches every sandbox in the workspace, so through this API only a
+  system admin, or an admin of every workspace the Secret is bound to, may create, update or
+  delete a Secret with this name (others get 403). resource-manager never overwrites a Secret in
+  a workspace namespace that it did not create, so a same-named Secret bound to the workspace
+  cannot replace one an administrator put there.
+
+Before turning the feature on, check that no Secret with that name already exists in the
+`primus-safe` namespace or in a workspace namespace unless an administrator made it. A
+workspace whose sandboxes run on an external (virtual) node needs that node to resolve
+`envFrom` from a Secret; verify it before creating the Secret there.
+
+One value per workspace (on the workspace's data-plane cluster; values are read from files, so
+they do not land in shell history):
+
+```bash
+kubectl -n <workspace> create secret generic sandbox-env \
+  --from-file=HF_TOKEN=./hf-token --from-file=ANOTHER_VAR=./another-var
+# add or change a key later, keeping the others
+kubectl -n <workspace> create secret generic sandbox-env \
+  --from-file=HF_TOKEN=./hf-token --from-file=ANOTHER_VAR=./another-var --from-file=NEW_VAR=./new-var \
+  --dry-run=client -o yaml | kubectl apply -f -
+# list the variable names only
+kubectl -n <workspace> get secret sandbox-env -o go-template='{{range $k, $v := .data}}{{$k}}{{"\n"}}{{end}}'
+```
+
+One value shared by several workspaces: create a general Secret named `sandbox-env` through this
+API (as an admin) bound to those workspaces, or in the `primus-safe` namespace with the
+`primus-safe.workspace.ids` annotation; resource-manager mirrors it into each workspace
+namespace. Do not mix the two ways in one workspace.
+
 ## Secret Update Strategy
 
 When updating a secret, the system automatically:

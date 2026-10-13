@@ -127,6 +127,8 @@ data:
       secret_path: /etc/secrets/notification
     sandbox:
       enable: {{ .Values.sandbox.enable }}
+      # The Secret name sandboxes read environment variables from; only admins may write it.
+      env_secret: {{ default "" .Values.sandbox.env_secret | quote }}
     tracing:
       # Whether to enable OpenTelemetry tracing
       enable: {{ default true (default dict .Values.tracing).enable }}
