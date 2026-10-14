@@ -18,60 +18,56 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
-// disruptedSuccess returns the DisruptionTarget of a workload whose k8s object
-// reports success although no pod of it ended cleanly: every pod that ended
-// was taken away by a disruption. It returns "" otherwise.
+// disruptedSuccess returns the DisruptionTarget of a single-pod workload whose
+// object reports success because its pod, taken away by a disruption, ended
+// Succeeded. It returns "" otherwise.
 //
 // A pod whose containers exit 0 on the SIGTERM of an eviction, a preemption or
-// a node drain ends Succeeded, and an object that mirrors its pod's phase then
-// reports success. Kubernetes records the disruption on the pod itself as the
-// DisruptionTarget condition, set before the pod is terminated; SaFE carries
-// it into the pod's FailedMessage (see podDisruptionTarget). A pod that did
-// end Succeeded without one is a clean success, and then the object's success
-// stands: a Job whose evicted pod was replaced by one that completed did
-// succeed.
+// a node drain ends Succeeded, and an object that mirrors its pod's phase (a
+// Sandbox, for one) then reports success. Kubernetes records the disruption on
+// the pod itself as the DisruptionTarget condition, set before the pod is
+// terminated.
 //
-// The evidence is the workload's pod records, and the pods still in the
-// informer cache: the object may report success before the pod's last event
-// has been recorded.
+// Only a workload of one replica whose records and cache name one pod is read:
+// with more pods the object's success cannot be tied to the disrupted one. The
+// pod's current object in the informer cache decides, and must have ended
+// Succeeded with a True DisruptionTarget: a pod of the same name created later
+// that ended cleanly is a clean success, and a disrupted pod that ended Failed
+// was not what the object counted as success. Only when the cache no longer
+// holds the pod is its record read; the delete path records the condition there
+// (see removeWorkloadPod) but not the phase the pod ended in.
 func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *ClusterClientSets,
 	adminWorkload *v1.Workload) string {
-	if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICD(adminWorkload) {
+	if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICD(adminWorkload) ||
+		commonworkload.GetTotalReplica(adminWorkload) != 1 {
 		return ""
 	}
-	disrupted := map[string]string{}
-	succeeded := map[string]bool{}
+	names := map[string]struct{}{}
 	for i := range adminWorkload.Status.Pods {
-		p := &adminWorkload.Status.Pods[i]
-		if at := strings.Index(p.FailedMessage, disruptionTargetPrefix); at >= 0 {
-			disrupted[p.PodId] = p.FailedMessage[at:]
-		} else if p.Phase == corev1.PodSucceeded {
-			succeeded[p.PodId] = true
-		}
+		names[adminWorkload.Status.Pods[i].PodId] = struct{}{}
 	}
-	for _, obj := range r.cachedWorkloadPods(ctx, clientSets, adminWorkload) {
-		if disruption := disruptionTargetOf(obj); disruption != "" {
-			if _, ok := disrupted[obj.GetName()]; !ok {
-				disrupted[obj.GetName()] = disruption
-			}
-			continue
-		}
-		phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase")
-		if corev1.PodPhase(phase) == corev1.PodSucceeded {
-			succeeded[obj.GetName()] = true
-		}
+	cached := r.cachedWorkloadPods(ctx, clientSets, adminWorkload)
+	for _, obj := range cached {
+		names[obj.GetName()] = struct{}{}
 	}
-	first := ""
-	for name, disruption := range disrupted {
-		delete(succeeded, name)
-		if first == "" || disruption < first {
-			first = disruption
-		}
-	}
-	if len(succeeded) > 0 {
+	if len(names) != 1 {
 		return ""
 	}
-	return first
+	if len(cached) > 0 {
+		phase, _, _ := unstructured.NestedString(cached[0].Object, "status", "phase")
+		if corev1.PodPhase(phase) != corev1.PodSucceeded {
+			return ""
+		}
+		return disruptionTargetOf(cached[0])
+	}
+	if len(adminWorkload.Status.Pods) == 0 {
+		return ""
+	}
+	p := &adminWorkload.Status.Pods[0]
+	if at := strings.Index(p.FailedMessage, disruptionTargetPrefix); at >= 0 && v1.IsPodTerminated(p) {
+		return p.FailedMessage[at:]
+	}
+	return ""
 }
 
 // cachedWorkloadPods lists the workload's pods from the pod informer cache, or

@@ -78,7 +78,7 @@ func cachedPod(t *testing.T, name string, phase corev1.PodPhase, conditions ...c
 // runObjectSucceeded runs the job status path for an object that reports
 // K8sSucceeded, with the pod informer cache holding cached, and returns the
 // stored workload.
-func runObjectSucceeded(t *testing.T, records []v1.WorkloadPod, cached ...*unstructured.Unstructured) *v1.Workload {
+func runObjectSucceeded(t *testing.T, replicas int, records []v1.WorkloadPod, cached ...*unstructured.Unstructured) *v1.Workload {
 	t.Helper()
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
@@ -112,6 +112,7 @@ func runObjectSucceeded(t *testing.T, records []v1.WorkloadPod, cached ...*unstr
 		Labels: map[string]string{v1.ClusterIdLabel: "c"},
 	}}
 	w.Status.Phase = v1.WorkloadRunning
+	w.Spec.Resources = []v1.WorkloadResource{{Replica: replicas}}
 	cl := ctrlfake.NewClientBuilder().
 		WithScheme(syncerScheme(t)).
 		WithObjects(w).
@@ -151,61 +152,82 @@ func assertDisruptedFailed(t *testing.T, w *v1.Workload) {
 	assert.Assert(t, strings.Contains(w.Status.Message, wantEviction()), w.Status.Message)
 }
 
-// The Eviction API took the pod; its containers exited 0 on SIGTERM, so the pod
-// and then the object report Succeeded. The delete path had already recorded
-// the DisruptionTarget on the pod record: the workload failed.
-func TestDisruptedSuccessFromPodRecord(t *testing.T) {
-	w := runObjectSucceeded(t, []v1.WorkloadPod{{
-		PodId: "p1", Phase: corev1.PodPhase(v1.WorkloadStopped), FailedMessage: wantEviction(),
-	}})
-	assertDisruptedFailed(t, w)
+func evictedRecord() v1.WorkloadPod {
+	return v1.WorkloadPod{PodId: "p1", Phase: corev1.PodPhase(v1.WorkloadStopped), FailedMessage: wantEviction()}
 }
 
-// The object can report success before the pod's last event is recorded; the
-// pod in the informer cache carries the condition.
-func TestDisruptedSuccessFromInformerCache(t *testing.T) {
-	w := runObjectSucceeded(t, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
-		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition()))
-	assertDisruptedFailed(t, w)
-}
-
-// A pod that ended Succeeded with no DisruptionTarget is a clean success.
-func TestCleanSuccessStaysSucceeded(t *testing.T) {
-	notTrue := evictionCondition()
-	notTrue.Status = corev1.ConditionFalse
-	w := runObjectSucceeded(t, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded}},
-		cachedPod(t, "p1", corev1.PodSucceeded, notTrue))
+func assertSucceeded(t *testing.T, w *v1.Workload) {
+	t.Helper()
 	assert.Equal(t, w.Status.Phase, v1.WorkloadSucceeded)
 	assert.Assert(t, conditionOf(w, v1.K8sFailed) == nil)
 	assert.Equal(t, conditionOf(w, v1.K8sSucceeded).Message, objectSucceededMessage)
 }
 
-// One pod was evicted and another completed (a Job replaces an evicted pod):
-// the object's success stands, from either source of the clean pod.
-func TestSuccessAfterReplacedDisruptedPodStands(t *testing.T) {
-	evicted := v1.WorkloadPod{PodId: "p1", Phase: corev1.PodPhase(v1.WorkloadStopped), FailedMessage: wantEviction()}
-	w := runObjectSucceeded(t, []v1.WorkloadPod{evicted, {PodId: "p2", Phase: corev1.PodSucceeded}})
-	assert.Equal(t, w.Status.Phase, v1.WorkloadSucceeded)
-
-	w = runObjectSucceeded(t, []v1.WorkloadPod{evicted},
-		cachedPod(t, "p2", corev1.PodSucceeded))
-	assert.Equal(t, w.Status.Phase, v1.WorkloadSucceeded)
+// The Eviction API took the pod; its containers exited 0 on SIGTERM, so the pod
+// and then the object report Succeeded. The delete path has recorded the pod as
+// Stopped with the condition, and the cache still holds the Succeeded pod.
+func TestDisruptedSuccessFromInformerCache(t *testing.T) {
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()},
+		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
+	// The object can report success before the pod's delete event is recorded.
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
+		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
 }
 
-// A pod record that reads Succeeded is not a clean success when the same pod
-// in the cache carries the condition.
-func TestDisruptedSuccessCacheOverridesRecordOfSamePod(t *testing.T) {
-	w := runObjectSucceeded(t, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded}},
-		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition()))
-	assertDisruptedFailed(t, w)
+// The pod has left the cache; its record carries the condition.
+func TestDisruptedSuccessFromPodRecord(t *testing.T) {
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()}))
+	// A record that has not ended is not read.
+	running := evictedRecord()
+	running.Phase = corev1.PodRunning
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{running}))
+}
+
+// A pod that ended Succeeded with no True DisruptionTarget is a clean success.
+func TestCleanSuccessStaysSucceeded(t *testing.T) {
+	notTrue := evictionCondition()
+	notTrue.Status = corev1.ConditionFalse
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded}},
+		cachedPod(t, "p1", corev1.PodSucceeded, notTrue)))
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded}}))
+}
+
+// A later pod of the same name that completed cleanly is what the object
+// reports, though the earlier one's record carries the condition.
+func TestSameNameReplacementSuccessStands(t *testing.T) {
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()},
+		cachedPod(t, "p1", corev1.PodSucceeded)))
+	// Nor is the record read while the cache holds a later pod still running.
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()},
+		cachedPod(t, "p1", corev1.PodRunning)))
+}
+
+// A disrupted pod that ended Failed is not what the object counted as success:
+// a Job replaced it, and the replacement may not be in the cache yet.
+func TestDisruptedPodThatFailedIsNotTheSuccess(t *testing.T) {
+	failed := evictedRecord()
+	failed.Phase = corev1.PodFailed
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{failed},
+		cachedPod(t, "p1", corev1.PodFailed, evictionCondition())))
+}
+
+// With more than one pod the object's success cannot be tied to the disrupted
+// one: neither a second pod name nor more than one replica is read.
+func TestMultiPodWorkloadIsNotRead(t *testing.T) {
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()},
+		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition()),
+		cachedPod(t, "p2", corev1.PodRunning)))
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord(), {PodId: "p2", Phase: corev1.PodRunning}}))
+	assertSucceeded(t, runObjectSucceeded(t, 2, []v1.WorkloadPod{evictedRecord()},
+		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
 }
 
 // Once the workload has ended, a later pod of the same name (a controller
-// recreating it after the end) does not overwrite the record of how the
-// workload's pod ended.
+// recreating it after the end) does not overwrite the record saying the
+// workload's pod was taken away.
 func TestEndedPodRecordNotOverwrittenAfterWorkloadEnd(t *testing.T) {
-	record := v1.WorkloadPod{PodId: "p1", Phase: corev1.PodPhase(v1.WorkloadStopped),
-		StartTime: "2026-01-02T00:00:00", FailedMessage: wantEviction()}
+	record := evictedRecord()
+	record.StartTime = "2026-01-02T00:00:00"
 	replacement := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns"},
 		Status:     corev1.PodStatus{Phase: corev1.PodPending},
@@ -218,6 +240,14 @@ func TestEndedPodRecordNotOverwrittenAfterWorkloadEnd(t *testing.T) {
 	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), ended, replacement, nil)
 	assert.Equal(t, updated, false)
 	assert.DeepEqual(t, ended.Status.Pods, []v1.WorkloadPod{record})
+
+	// An ended record without the condition is updated as before.
+	plain := record
+	plain.FailedMessage = ""
+	ended.Status.Pods = []v1.WorkloadPod{plain}
+	_, _, updated = r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), ended, replacement, nil)
+	assert.Equal(t, updated, true)
+	assert.Equal(t, ended.Status.Pods[0].Phase, corev1.PodPending)
 
 	// While the workload runs, a pod restarted under the same name replaces
 	// the record as before.
