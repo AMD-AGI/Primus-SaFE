@@ -92,6 +92,8 @@ type HealthCheck struct {
 	PeriodSeconds int `json:"periodSeconds,omitempty"`
 	// Failure retry limit. default 3
 	FailureThreshold int `json:"failureThreshold,omitempty"`
+	// Probe timeout. When unset, the Kubernetes default of 1s is used.
+	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
 }
 
 type Service struct {

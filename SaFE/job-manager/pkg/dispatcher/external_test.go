@@ -532,6 +532,36 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 		"https://global.primus-safe.amd.com/api/v1")
 }
 
+func TestApplyExternalEnvRewriteKeepsAtomEndpoints(t *testing.T) {
+	viper.Set("global.domain", "primus-safe.amd.com")
+	viper.Set("global.sub_domain", "global")
+	t.Cleanup(func() {
+		viper.Set("global.domain", "")
+		viper.Set("global.sub_domain", "")
+	})
+	prefill := "http://atom1-prefill.ws.svc.cluster.local:8010"
+	decode := "http://atom1-decode.ws.svc.cluster.local:8020"
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
+			"containers": []interface{}{
+				map[string]interface{}{
+					"name": "main",
+					"env": []interface{}{
+						map[string]interface{}{"name": common.AtomPrefillEndpointEnv, "value": prefill},
+						map[string]interface{}{"name": common.AtomDecodeEndpointEnv, "value": decode},
+						map[string]interface{}{"name": "OTHER_URL", "value": "http://foo.ws.svc.cluster.local:9/api"},
+					},
+				},
+			},
+		}}},
+	}}
+	assert.NilError(t, applyExternalEnvRewrite(obj, claimWorkload(), externalShapeSpec()))
+	envs := envValues(t, obj)
+	assert.Equal(t, envs[common.AtomPrefillEndpointEnv], prefill)
+	assert.Equal(t, envs[common.AtomDecodeEndpointEnv], decode)
+	assert.Equal(t, envs["OTHER_URL"], "https://global.primus-safe.amd.com/api")
+}
+
 func TestBuildObjectAnnotationsIncludesUserAccount(t *testing.T) {
 	_, workload, _ := externalAuthoringPod()
 	annos := buildObjectAnnotations(workload)

@@ -1491,6 +1491,7 @@ func (r *DispatcherReconciler) generateAtomRoleWorkload(ctx context.Context, roo
 		InitialDelaySeconds: common.AtomProbeInitialDelaySeconds,
 		PeriodSeconds:       common.AtomProbePeriodSeconds,
 		FailureThreshold:    common.AtomProbeFailureThreshold,
+		TimeoutSeconds:      common.AtomProbeTimeoutSeconds,
 	}
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, strconv.Itoa(index))

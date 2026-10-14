@@ -1896,6 +1896,7 @@ func TestRenderAtomPrefill(t *testing.T) {
 	assert.Assert(t, probe != nil && probe.HTTPGet != nil)
 	assert.Equal(t, probe.HTTPGet.Path, common.AtomHealthPath)
 	assert.Equal(t, int(probe.HTTPGet.Port.IntVal), common.AtomPrefillPort)
+	assert.Equal(t, int(probe.TimeoutSeconds), common.AtomProbeTimeoutSeconds)
 	foundRole := false
 	for _, env := range deployment.Spec.Template.Spec.Containers[0].Env {
 		if env.Name == common.AtomRoleEnv && env.Value == common.AtomRolePrefill {

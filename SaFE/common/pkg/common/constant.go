@@ -114,6 +114,8 @@ const (
 	AtomProbeInitialDelaySeconds = 5
 	AtomProbePeriodSeconds       = 5
 	AtomProbeFailureThreshold    = 3
+	// SGLang /health often takes longer than the Kubernetes default of 1s.
+	AtomProbeTimeoutSeconds = 30
 
 	DefaultBurst          = 1000
 	DefaultQPS            = 1000
