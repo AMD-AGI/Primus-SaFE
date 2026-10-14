@@ -38,6 +38,14 @@ data:
               value: "{{ .Values.net.nccl_socket_ifname }}"
             - name: NCCL_IB_HCA
               value: "{{ .Values.net.nccl_ib_hca }}"
+            # Sandbox Pods are unprivileged and do not share the host IPC namespace. There the
+            # amdkfd legacy IPC import (AMDKFD_IOC_IPC_IMPORT_HANDLE) is refused with EPERM, so an
+            # image ENV of HSA_ENABLE_IPC_MODE_LEGACY=1 makes every hipIpcOpenMemHandle fail with
+            # "invalid device pointer" and multi-GPU RCCL cannot initialise. The default
+            # (DMA-BUF) IPC path works there. The Pod spec wins over the image ENV, and a
+            # workload's own env still wins over this value.
+            - name: HSA_ENABLE_IPC_MODE_LEGACY
+              value: "0"
             - name: PATH
               value: /shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin
             - name: OPENAI_BASE_URL
