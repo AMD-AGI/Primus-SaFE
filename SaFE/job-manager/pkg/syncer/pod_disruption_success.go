@@ -64,8 +64,10 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 		return ""
 	}
 	p := &adminWorkload.Status.Pods[0]
-	if at := strings.Index(p.FailedMessage, disruptionTargetPrefix); at >= 0 && v1.IsPodTerminated(p) {
-		return p.FailedMessage[at:]
+	// Only the pod's own condition: one carried from an earlier pod of the same
+	// name says nothing about how this pod ended.
+	if own, _ := podDisruptions(p.FailedMessage); own != "" && v1.IsPodTerminated(p) {
+		return own
 	}
 	return ""
 }

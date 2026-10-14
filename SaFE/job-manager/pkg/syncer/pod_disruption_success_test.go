@@ -250,12 +250,12 @@ func TestEndedPodRecordNotOverwrittenAfterWorkloadEnd(t *testing.T) {
 	assert.Equal(t, ended.Status.Pods[0].Phase, corev1.PodPending)
 
 	// While the workload runs, a pod restarted under the same name replaces
-	// the record as before.
+	// the record, which keeps the earlier pod's condition as the earlier one's.
 	running := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
 	running.Status.Phase = v1.WorkloadRunning
 	running.Status.Pods = []v1.WorkloadPod{record}
 	_, _, updated = r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), running, replacement, nil)
 	assert.Equal(t, updated, true)
 	assert.Equal(t, running.Status.Pods[0].Phase, corev1.PodPending)
-	assert.Equal(t, running.Status.Pods[0].FailedMessage, "")
+	assert.Equal(t, running.Status.Pods[0].FailedMessage, earlierPodPrefix+wantEviction())
 }
