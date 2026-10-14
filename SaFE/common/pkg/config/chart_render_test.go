@@ -511,13 +511,22 @@ func TestChartPinsTheSandboxToTheNonLegacyHIPIPCPath(t *testing.T) {
 	}
 }
 
-// sandboxPathEntries are the directories the sandbox runtime needs on PATH: the injected tools
-// in /shared/bin, the workspace user's `pip install --user` scripts, and the system directories
-// the startup command runs its own commands from. It was the whole fixed PATH the template set.
-var sandboxPathEntries = []string{"/shared/bin", "/home/sandbox/.local/bin", "/usr/local/bin", "/usr/bin", "/bin", "/sbin"}
+// sandboxPathSetupScript is the PATH setup the startup command opens with, byte for byte. It is
+// what pathSetupScript() in the PrimusClaw workload manager (sandbox/pkg/workloadmanager) returns
+// for the sandboxes it builds itself, so a SaFE sandbox and a PrimusClaw one start with the same
+// PATH from the same image. Change both together.
+//
+// It keeps the PATH the container starts with (the image's) first and in its order, drops entries
+// that are empty, relative or contain a ".." segment, and appends each runtime directory it lacks
+// once: the injected tools in /shared/bin, the workspace user's `pip install --user` scripts, and
+// the system directories the startup command runs its own commands from.
+const sandboxPathSetupScript = `__sandbox_path_rest="${PATH-}:"'/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin:'; __sandbox_path=; while [ -n "$__sandbox_path_rest" ]; do __sandbox_path_dir="${__sandbox_path_rest%%:*}"; __sandbox_path_rest="${__sandbox_path_rest#*:}"; case "$__sandbox_path_dir" in */../*|*/..) ;; /*) case ":$__sandbox_path:" in *":$__sandbox_path_dir:"*) ;; *) __sandbox_path="${__sandbox_path:+$__sandbox_path:}$__sandbox_path_dir" ;; esac ;; esac; done; PATH="$__sandbox_path"; export PATH; unset __sandbox_path_rest __sandbox_path_dir __sandbox_path; `
 
 // sandboxStartupTail is what the startup command runs once PATH is set up.
 const sandboxStartupTail = "mkdir -p /app && /shared/bin/setup-amd-ca.sh && exec /shared/bin/envd --port=8080 --workspace=/app"
+
+// sandboxRuntimePath is PATH when the container starts with none.
+const sandboxRuntimePath = "/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin"
 
 // A PATH env var on the container replaces the image's ENV PATH, so the template must set none,
 // whatever else is turned on.
@@ -533,25 +542,26 @@ func TestChartSetsNoPathOnTheSandbox(t *testing.T) {
 	}
 }
 
-// sandboxPathSetup renders the main container's startup command and returns the part that sets
-// up PATH, after checking the rest is the unchanged startup tail run by /bin/sh -c.
-func sandboxPathSetup(t *testing.T) string {
-	t.Helper()
-	main := renderSandboxPod(t).Spec.PodTemplate.Spec.Containers[0]
-	testifyrequire.Equal(t, []string{"/bin/sh", "-c"}, main.Command)
-	testifyrequire.Len(t, main.Args, 1)
-	setup, tail, found := strings.Cut(main.Args[0], "export PATH; ")
-	testifyrequire.True(t, found, "startup command does not export PATH: %s", main.Args[0])
-	testifyrequire.Equal(t, sandboxStartupTail, tail)
-	testifyrequire.True(t, strings.HasPrefix(setup, "for d in "+strings.Join(sandboxPathEntries, " ")+"; "), setup)
-	return setup + "export PATH; "
+// The rendered startup command is /bin/sh -c with exactly the PATH setup followed by the unchanged
+// startup tail, whatever else is turned on: the chart's YAML quoting must not alter one byte of it.
+func TestChartRendersTheSandboxPathSetupExactly(t *testing.T) {
+	for _, values := range [][]string{
+		nil,
+		{"--set", "sandbox.extra_ca_secret=sandbox-extra-ca", "--set", "sandbox.env_secret=sandbox-env"},
+	} {
+		main := renderSandboxPod(t, values...).Spec.PodTemplate.Spec.Containers[0]
+		testifyrequire.Equal(t, []string{"/bin/sh", "-c"}, main.Command, "values %v", values)
+		testifyrequire.Equal(t, []string{sandboxPathSetupScript + sandboxStartupTail}, main.Args, "values %v", values)
+	}
 }
 
-// The startup command keeps the PATH the container starts with (the image's) first and in its
-// order, and appends each runtime directory it lacks once. It runs under every POSIX shell on the
-// host, since /bin/sh in a sandbox image may be any of them.
+// The PATH setup, as rendered, runs under every POSIX shell on the host, since /bin/sh in a
+// sandbox image may be any of them.
 func TestChartSandboxStartupKeepsTheImagePath(t *testing.T) {
-	setup := sandboxPathSetup(t)
+	args := renderSandboxPod(t).Spec.PodTemplate.Spec.Containers[0].Args
+	testifyrequire.Len(t, args, 1)
+	setup, found := strings.CutSuffix(args[0], sandboxStartupTail)
+	testifyrequire.True(t, found, "startup command does not end in the startup tail: %s", args[0])
 	var shells []string
 	for _, name := range []string{"sh", "dash", "bash", "busybox"} {
 		if shell, err := exec.LookPath(name); err == nil {
@@ -559,26 +569,37 @@ func TestChartSandboxStartupKeepsTheImagePath(t *testing.T) {
 		}
 	}
 	testifyrequire.NotEmpty(t, shells, "no POSIX shell on the host")
-	runtimePath := strings.Join(sandboxPathEntries, ":")
 	cases := []struct {
 		name, start, want string
 	}{
 		{"image path first, missing entries appended",
 			"/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 			"/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/shared/bin:/home/sandbox/.local/bin"},
-		{"nothing duplicated when every entry is present", runtimePath, runtimePath},
+		{"nothing duplicated when every entry is present", sandboxRuntimePath, sandboxRuntimePath},
 		{"a directory only named as a prefix still counts as missing", "/shared/bin2:/bin/x",
-			"/shared/bin2:/bin/x:" + runtimePath},
-		{"an empty path becomes exactly the runtime entries", "", runtimePath},
+			"/shared/bin2:/bin/x:" + sandboxRuntimePath},
+		{"an empty path becomes exactly the runtime entries", "", sandboxRuntimePath},
+		{"a duplicate in the image path is kept once", "/opt/a:/opt/b:/opt/a", "/opt/a:/opt/b:" + sandboxRuntimePath},
+		{"relative and empty entries are dropped", "bin:/opt/a::.:~/bin:/opt/b:",
+			"/opt/a:/opt/b:" + sandboxRuntimePath},
+		{"entries with a .. segment are dropped", "..:/opt/../etc:/opt/a:/opt/b/..:/opt/..x:/..",
+			"/opt/a:/opt/..x:" + sandboxRuntimePath},
+		{"a directory with a space or a glob is kept literally", "/opt/my tools/bin:/opt/*:/opt/[a]",
+			"/opt/my tools/bin:/opt/*:/opt/[a]:" + sandboxRuntimePath},
 	}
 	for _, shell := range shells {
 		for _, current := range cases {
-			args := []string{shell}
-			if filepath.Base(shell) == "busybox" {
-				args = append(args, "sh")
+			command := []string{shell}
+			switch filepath.Base(shell) {
+			case "busybox":
+				command = append(command, "sh")
+			case "bash":
+				// No startup files: a host's bashrc may change PATH before the script runs.
+				command = append(command, "--norc", "--noprofile", "--posix")
 			}
-			args = append(args, "-c", setup+`printf '%s' "$PATH"`)
-			cmd := exec.Command(args[0], args[1:]...)
+			// The setup unsets its own variables; exit 7 marks one it left behind.
+			command = append(command, "-c", setup+`for v in __sandbox_path_rest __sandbox_path_dir __sandbox_path; do eval "[ -z \"\${$v+x}\" ]" || exit 7; done; printf '%s' "$PATH"`)
+			cmd := exec.Command(command[0], command[1:]...)
 			cmd.Env = []string{"PATH=" + current.start}
 			out, err := cmd.Output()
 			testifyrequire.NoError(t, err, "%s: %s", shell, current.name)
