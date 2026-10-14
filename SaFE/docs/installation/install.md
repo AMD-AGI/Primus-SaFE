@@ -92,6 +92,15 @@ The [install.sh](../../bootstrap/install.sh) script provides a one-click install
     - Whether to install the Primus‑SaFE data plane (node-agent) component (y/n, default: n)
     - When enabled, deploys the node-agent DaemonSet on the cluster
 
+#### Optional Settings From the Environment
+
+These have no prompt. Set them in the environment of `install.sh` (for example
+`sandbox_env_secret=sandbox-env ./install.sh`); they are written to `.env`, so later upgrades keep
+them. See [upgrade.md](upgrade.md) for what each does.
+
+- **sandbox_extra_ca_secret**: Secret of extra CA certificates that sandboxes trust (`sandbox.extra_ca_secret`)
+- **sandbox_env_secret**: `sandbox-env` or empty (`sandbox.env_secret`); any other value stops the install before anything is installed
+
 ### 🚀 Installation Process
 
 The script performs the following steps after configuration:
@@ -121,6 +130,7 @@ The script performs the following steps after configuration:
   - `lens_enable`, `s3_enable`, `sso_enable`
   - `ingress`, `sub_domain`
   - `install_node_agent`, `csi_volume_handle`
+  - `sandbox_extra_ca_secret`, `sandbox_env_secret`
 
 ### 🔄 Install Command
 

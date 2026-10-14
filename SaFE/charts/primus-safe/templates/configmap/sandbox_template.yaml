@@ -54,6 +54,17 @@ data:
             - name: NODE_EXTRA_CA_CERTS
               value: /shared/bin/ca-bundle.pem
 {{- end }}
+{{- with include "primus-safe.sandboxEnvSecret" . }}
+{{- $name := . }}
+{{- /* Only the name the apiserver and resource-manager always reserve; see values.yaml. */}}
+{{- if ne $name "sandbox-env" }}
+{{- fail (printf "sandbox.env_secret %q is not supported: set it to sandbox-env or leave it empty" $name) }}
+{{- end }}
+            envFrom:
+            - secretRef:
+                name: {{ $name | quote }}
+                optional: true
+{{- end }}
             imagePullPolicy: IfNotPresent
             name: codeinterpreter
             readinessProbe:

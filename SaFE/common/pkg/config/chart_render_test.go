@@ -340,9 +340,11 @@ type sandboxPod struct {
 				Containers []struct {
 					Name string `yaml:"name"`
 					Env  []struct {
-						Name  string `yaml:"name"`
-						Value string `yaml:"value"`
+						Name      string                 `yaml:"name"`
+						Value     string                 `yaml:"value"`
+						ValueFrom map[string]interface{} `yaml:"valueFrom"`
 					} `yaml:"env"`
+					EnvFrom      []map[string]interface{} `yaml:"envFrom"`
 					VolumeMounts []struct {
 						Name      string `yaml:"name"`
 						MountPath string `yaml:"mountPath"`
@@ -423,6 +425,67 @@ func TestChartMountsTheSandboxExtraCASecret(t *testing.T) {
 		}
 	}
 	t.Fatal("extra-ca volume not found")
+}
+
+func TestChartRendersNoSandboxEnvSecretByDefault(t *testing.T) {
+	pod := renderSandboxPod(t)
+	main := pod.Spec.PodTemplate.Spec.Containers[0]
+	testifyassert.Empty(t, main.EnvFrom)
+	for _, current := range main.Env {
+		testifyassert.Nil(t, current.ValueFrom, "%s reads from a reference", current.Name)
+	}
+}
+
+func TestChartInjectsTheSandboxEnvSecret(t *testing.T) {
+	plain := renderSandboxPod(t, "--set", "sandbox.extra_ca_secret=sandbox-extra-ca")
+	pod := renderSandboxPod(t, "--set", "sandbox.env_secret=sandbox-env",
+		"--set", "sandbox.extra_ca_secret=sandbox-extra-ca")
+	main := pod.Spec.PodTemplate.Spec.Containers[0]
+	// The whole Secret, by reference, optional; SecretEnvSource has no namespace, so it is the
+	// Secret in the Pod's own (the workspace's) namespace.
+	testifyassert.Equal(t, []map[string]interface{}{
+		{"secretRef": map[string]interface{}{"name": "sandbox-env", "optional": true}},
+	}, main.EnvFrom)
+	// The explicit env is unchanged, and explicit env wins over envFrom in Kubernetes, so the
+	// Secret cannot replace PATH or the CA variables.
+	testifyassert.Equal(t, plain.Spec.PodTemplate.Spec.Containers[0].Env, main.Env)
+}
+
+// Only sandbox-env, the name the apiserver and resource-manager reserve whether or not the
+// feature is on, is accepted: any other name would be guarded only once the apiserver had
+// restarted with it, after the template already read it. A value helm parses as a number or a
+// boolean (0, false) is refused too, not read as unset.
+func TestChartRefusesAnySandboxEnvSecretNameButTheReservedOne(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+	for _, name := range []string{"other", "sandbox-env2", "0", "false", "Not_A_Name", strings.Repeat("a", 254),
+		"a\n- name: x"} {
+		cmd := exec.Command("helm", "template", chartPath, "--show-only",
+			"templates/configmap/sandbox_template.yaml", "--set", "sandbox.env_secret="+name)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		testifyrequire.Error(t, err, name)
+		testifyassert.Contains(t, stderr.String(), "set it to sandbox-env or leave it empty", name)
+		testifyassert.NotContains(t, string(out), "envFrom")
+	}
+}
+
+// The apiserver needs no configuration for the guard, so the chart gives it none and turning the
+// feature on does not restart it.
+func TestChartLeavesTheApiserverAloneForTheSandboxEnvSecret(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+	render := func(values ...string) string {
+		args := append([]string{"template", chartPath, "--show-only", "templates/apiserver/deployment.yaml",
+			"--show-only", "templates/apiserver/config.yaml"}, values...)
+		out, err := exec.Command("helm", args...).Output()
+		testifyrequire.NoError(t, err)
+		return string(out)
+	}
+	testifyassert.Equal(t, render(), render("--set", "sandbox.env_secret=sandbox-env"))
 }
 
 func TestChartPullsTheEnvdInjectorThroughTheSiteProxy(t *testing.T) {
