@@ -1061,7 +1061,7 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: buildServiceSelector(adminWorkload, specService),
-			Ports:    generateServicePorts(specService),
+			Ports:    servicePortsForWorkload(adminWorkload, specService),
 			Type:     specService.ServiceType,
 		},
 	}
@@ -1161,7 +1161,7 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 		existing.Spec.Selector = newSelector
 		isChanged = true
 	}
-	newPorts := generateServicePorts(specService)
+	newPorts := servicePortsForWorkload(adminWorkload, specService)
 	if !reflect.DeepEqual(existing.Spec.Ports, newPorts) {
 		existing.Spec.Ports = newPorts
 		isChanged = true
@@ -1567,6 +1567,39 @@ func generateServicePorts(specService *v1.Service) []corev1.ServicePort {
 		Port:       int32(specService.Port),
 		TargetPort: intstr.IntOrString{IntVal: int32(specService.TargetPort)},
 	}}
+}
+
+// servicePortsForWorkload publishes the role port and, for Atom prefill and
+// decode, the Mooncake bootstrap port decode uses to reach prefill.
+func servicePortsForWorkload(workload *v1.Workload, specService *v1.Service) []corev1.ServicePort {
+	ports := generateServicePorts(specService)
+	bootstrap, ok := atomBootstrapPort(workload)
+	if !ok {
+		return ports
+	}
+	ports[0].Name = "http"
+	ports = append(ports, corev1.ServicePort{
+		Name:       "bootstrap",
+		Protocol:   corev1.ProtocolTCP,
+		Port:       int32(bootstrap),
+		TargetPort: intstr.FromInt(bootstrap),
+	})
+	return ports
+}
+
+// atomBootstrapPort returns the fixed Mooncake bootstrap port of an Atom engine role.
+func atomBootstrapPort(workload *v1.Workload) (int, bool) {
+	if workload == nil || workload.Spec.Env == nil {
+		return 0, false
+	}
+	switch workload.Spec.Env[common.AtomRoleEnv] {
+	case common.AtomRolePrefill:
+		return common.AtomPrefillBootstrapPort, true
+	case common.AtomRoleDecode:
+		return common.AtomDecodeBootstrapPort, true
+	default:
+		return 0, false
+	}
 }
 
 // checkK8sServiceOwner verifies that the workload owns the data-plane Service.

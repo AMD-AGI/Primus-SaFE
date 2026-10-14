@@ -103,6 +103,10 @@ const (
 	AtomRouterPort  = 8000
 	AtomPrefillPort = 8010
 	AtomDecodePort  = 8020
+	// Mooncake bootstrap ports from the ATOM single-node SGLang recipe.
+	// Decode reaches prefill on the prefill Service, so the port must be published.
+	AtomPrefillBootstrapPort = 8998
+	AtomDecodeBootstrapPort  = 9098
 
 	AtomRoleEnv            = "ATOM_ROLE"
 	AtomServerPortEnv      = "ATOM_SERVER_PORT"

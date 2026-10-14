@@ -2061,6 +2061,26 @@ func TestGenerateServicePorts(t *testing.T) {
 	assert.Equal(t, string(ports[0].Protocol), string(corev1.ProtocolTCP))
 }
 
+func TestAtomBootstrapServicePorts(t *testing.T) {
+	svc := &v1.Service{Protocol: corev1.ProtocolTCP, Port: common.AtomPrefillPort, TargetPort: common.AtomPrefillPort}
+	prefill := &v1.Workload{Spec: v1.WorkloadSpec{Env: map[string]string{common.AtomRoleEnv: common.AtomRolePrefill}}}
+	ports := servicePortsForWorkload(prefill, svc)
+	assert.Equal(t, len(ports), 2)
+	assert.Equal(t, ports[0].Name, "http")
+	assert.Equal(t, ports[1].Name, "bootstrap")
+	assert.Equal(t, ports[1].Port, int32(common.AtomPrefillBootstrapPort))
+	assert.Equal(t, ports[1].TargetPort.IntVal, int32(common.AtomPrefillBootstrapPort))
+
+	decode := prefill.DeepCopy()
+	decode.Spec.Env[common.AtomRoleEnv] = common.AtomRoleDecode
+	ports = servicePortsForWorkload(decode, svc)
+	assert.Equal(t, ports[1].Port, int32(common.AtomDecodeBootstrapPort))
+
+	router := prefill.DeepCopy()
+	router.Spec.Env[common.AtomRoleEnv] = common.AtomRoleRouter
+	assert.Equal(t, len(servicePortsForWorkload(router, svc)), 1)
+}
+
 func TestShouldDispatch(t *testing.T) {
 	// Scheduled but not dispatched -> true.
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{

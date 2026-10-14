@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -57,8 +58,8 @@ func isExternalGang(workload *v1.Workload) bool {
 
 // externalHostNetworkEnabled reports whether an external pod template may use
 // hostNetwork. ForceHostNetwork always wins. Otherwise whole-node RDMA gangs
-// keep the privilege, and external Infera/Dynamo roles follow the same RDMA
-// rules as IsEnabledHostNetwork.
+// keep the privilege, and external Infera/Dynamo/Atom engine roles follow the
+// same RDMA rules as IsEnabledHostNetwork.
 func externalHostNetworkEnabled(workload *v1.Workload, resourceId int) bool {
 	if workload != nil && v1.IsForceHostNetwork(workload) {
 		return true
@@ -68,6 +69,14 @@ func externalHostNetworkEnabled(workload *v1.Workload, resourceId int) bool {
 	}
 	if workload == nil || !isExternalWorkload(workload) {
 		return false
+	}
+	// Atom role objects are rendered as Deployments. The role env marks the
+	// prefill and decode engines, which need hostNetwork to see RDMA HCAs.
+	if isAtomEngineRole(workload) {
+		if resourceId < 0 || resourceId >= len(workload.Spec.Resources) {
+			return false
+		}
+		return workload.Spec.Resources[resourceId].RdmaResource != ""
 	}
 	if !commonworkload.IsInferaDeployment(workload) && !commonworkload.IsDynamoDeployment(workload) {
 		return false
@@ -84,6 +93,15 @@ func externalHostNetworkEnabled(workload *v1.Workload, resourceId int) bool {
 		}
 	}
 	return workload.Spec.Resources[resourceId].RdmaResource != ""
+}
+
+// isAtomEngineRole reports a rendered Atom prefill or decode workload.
+func isAtomEngineRole(workload *v1.Workload) bool {
+	if workload == nil || workload.Spec.Env == nil {
+		return false
+	}
+	role := workload.Spec.Env[common.AtomRoleEnv]
+	return role == common.AtomRolePrefill || role == common.AtomRoleDecode
 }
 
 // externalRoleUnitKey returns the unit whose approval a role's pod template carries. Gang

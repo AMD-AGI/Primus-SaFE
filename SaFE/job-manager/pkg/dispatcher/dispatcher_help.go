@@ -3143,7 +3143,7 @@ func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, resourceId int) error {
 	path := podSpecPath(adminWorkload, &resourceSpec, "hostNetwork")
 	if isExternalWorkload(adminWorkload) {
-		// External: RDMA gang, or Infera/Dynamo roles with RDMA (see externalHostNetworkEnabled).
+		// External: RDMA gang, or Infera/Dynamo/Atom engine roles with RDMA.
 		return jobutils.SetNestedField(obj.Object, externalHostNetworkEnabled(adminWorkload, resourceId), path)
 	}
 	return modifyHostNetwork(obj, adminWorkload, path, resourceId)
