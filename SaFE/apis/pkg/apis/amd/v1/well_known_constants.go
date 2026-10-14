@@ -168,6 +168,11 @@ const (
 	// WorkspaceSelectorErrorAnnotation is written by resource-manager on a Secret whose
 	// selector was rejected, with the reason, and removed once the selector is valid again.
 	WorkspaceSelectorErrorAnnotation = WorkspacePrefix + "selector.error"
+	// WorkspaceMirrorConflictsAnnotation is written by resource-manager on a Secret in the
+	// primus-safe namespace: the workspaces (a JSON array) whose namespace already holds a Secret
+	// of the same name that resource-manager did not make and will not take over, so the Secret
+	// was not mirrored there. Removed once there is no such workspace.
+	WorkspaceMirrorConflictsAnnotation = WorkspacePrefix + "mirror.conflicts"
 	// WorkspaceSandboxScopeLabel is derived from Spec.Scopes: "true" when the workspace accepts
 	// Sandbox workloads (no scopes, or Sandbox among them), absent otherwise. The workspace
 	// webhook sets it on each write; a workspace not written since the label existed may lack it,

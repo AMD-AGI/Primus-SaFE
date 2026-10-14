@@ -357,19 +357,60 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context,
 
 	imageSecrets := make([]corev1.ObjectReference, 0, len(targetSecrets))
 	for _, secret := range targetSecrets {
-		workspaceIds := commonsecret.GetSecretWorkspaces(secret)
-		if !sliceutil.Contains(workspaceIds, workspace.Name) {
-			workspaceIds = append(workspaceIds, workspace.Name)
-			patch := client.MergeFrom(secret.DeepCopy())
-			v1.SetAnnotation(secret, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(workspaceIds)))
-			if err := h.Patch(ctx, secret, patch); err != nil {
-				return fmt.Errorf("failed to update workspace annotation for secret %s: %w", secret.Name, err)
-			}
+		if err := h.bindSecretToWorkspace(ctx, secret, workspace.Name, requestUser); err != nil {
+			return err
 		}
 		imageSecrets = append(imageSecrets, *commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
 	}
 	workspace.Spec.ImageSecrets = imageSecrets
 	return nil
+}
+
+// bindSecretToWorkspace adds workspaceId to the Secret's workspace ids, if it is not there yet.
+// The ids are changed on a copy, and the Secret only once the write succeeded, so a failed write
+// never leaves it saying it is bound. On a conflict the Secret is read again, whatever its name,
+// and the retry works on the stored bindings: one added meanwhile is kept. The sandbox
+// environment Secret (commonsecret.SandboxEnvSecretName) is also patched only at the version
+// whose bindings were checked, and checked again on each retry, as patchSecret does, so a
+// binding added meanwhile is not let through unchecked. Other Secrets are patched without a
+// version, as before. A binding that keeps conflicting is a 409 that says to try again.
+func (h *Handler) bindSecretToWorkspace(ctx context.Context,
+	secret *corev1.Secret, workspaceId string, requestUser *v1.User) error {
+	reserved := secret.Name == commonsecret.SandboxEnvSecretName
+	err := backoff.ConflictRetry(func() error {
+		workspaceIds := commonsecret.GetSecretWorkspaces(secret)
+		if sliceutil.Contains(workspaceIds, workspaceId) {
+			return nil
+		}
+		workspaceIds = append(workspaceIds, workspaceId)
+		if err := authorizeSandboxEnvSecret(requestUser, secret.Name, workspaceIds, secret); err != nil {
+			return err
+		}
+		patch := client.MergeFrom(secret.DeepCopy())
+		if reserved {
+			patch = client.MergeFromWithOptions(secret.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		}
+		bound := secret.DeepCopy()
+		v1.SetAnnotation(bound, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(workspaceIds)))
+		err := h.Patch(ctx, bound, patch)
+		if err == nil {
+			*secret = *bound
+			return nil
+		}
+		if apierrors.IsConflict(err) {
+			reread, getErr := h.getAdminSecret(ctx, secret.Name)
+			if getErr != nil {
+				return getErr
+			}
+			*secret = *reread
+		}
+		return fmt.Errorf("failed to update workspace annotation for secret %s: %w", secret.Name, err)
+	}, defaultRetryCount, defaultRetryDelay)
+	if apierrors.IsConflict(err) {
+		return commonerrors.NewConflict(fmt.Sprintf("the secret %s kept changing while it was being bound to "+
+			"workspace %s; try again", secret.Name, workspaceId))
+	}
+	return err
 }
 
 // getAdminWorkspace retrieves a workspace resource by ID from the system.

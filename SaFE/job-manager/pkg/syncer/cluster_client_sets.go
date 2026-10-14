@@ -82,6 +82,10 @@ type resourceMessage struct {
 	// dispatch count for this message — note that messages can be redelivered due to failover
 	dispatchCount int
 	workloadUid   string
+	// disruption is a pod's DisruptionTarget condition as read from the event's
+	// object (see formatDisruptionTarget). A delete event is the last chance to
+	// read it: once the pod is gone the informer cache no longer has it.
+	disruption string
 }
 
 // newClusterClientSets creates and initializes a new ClusterClientSets instance.
@@ -283,6 +287,9 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 		}
 	}
 	msg.groupId = v1.GetGroupId(newUnstructured)
+	if msg.gvk.Kind == common.PodKind {
+		msg.disruption = disruptionTargetOf(newUnstructured)
+	}
 
 	switch msg.action {
 	case ResourceAdd:

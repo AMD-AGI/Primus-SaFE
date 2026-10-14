@@ -30,6 +30,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
+	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
@@ -105,6 +106,10 @@ func (h *Handler) createSecretImpl(ctx context.Context, req *view.CreateSecretRe
 		User:         requestUser,
 		Workspaces:   req.WorkspaceIds,
 	}); err != nil {
+		return nil, err
+	}
+	// A new Secret carries no selector: the request has no annotations.
+	if err := authorizeSandboxEnvSecret(requestUser, req.Name, req.WorkspaceIds, nil); err != nil {
 		return nil, err
 	}
 
@@ -220,12 +225,16 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.authSecretUpdate(c, req, secret); err != nil {
+	requestUser, err := h.authSecretUpdate(c, req, secret)
+	if err != nil {
 		return nil, err
 	}
-
 	if err = backoff.ConflictRetry(func() error {
 		var innerError error
+		// Again on every attempt: a retry works on a re-read Secret whose bindings may have changed.
+		if innerError = authorizeSandboxEnvSecretPatch(requestUser, secret, req); innerError != nil {
+			return innerError
+		}
 		if innerError = applySecretPatch(secret, req); innerError != nil {
 			return innerError
 		}
@@ -239,7 +248,7 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 		}
 		return innerError
 	}, defaultRetryCount, defaultRetryDelay); err != nil {
-		klog.ErrorS(err, "failed to update secret", "name", secret.Name)
+		klog.ErrorS(err, "failed to update secret", "name", name)
 		return nil, err
 	}
 	return nil, nil
@@ -247,10 +256,11 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 
 // authSecretUpdate validates user authorization for updating a secret.
 // Checks both update permission on the secret and create permission if workspace IDs are being modified.
-func (h *Handler) authSecretUpdate(c *gin.Context, req *view.PatchSecretRequest, secret *corev1.Secret) error {
+// It returns the user it resolved, so the caller does not resolve it again.
+func (h *Handler) authSecretUpdate(c *gin.Context, req *view.PatchSecretRequest, secret *corev1.Secret) (*v1.User, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
@@ -263,7 +273,7 @@ func (h *Handler) authSecretUpdate(c *gin.Context, req *view.PatchSecretRequest,
 		User:         requestUser,
 		Roles:        roles,
 	}); err != nil {
-		return err
+		return nil, redactSandboxEnvForbidden(secret.Name, requestUser, v1.UpdateVerb, err)
 	}
 
 	if req.WorkspaceIds != nil {
@@ -278,11 +288,11 @@ func (h *Handler) authSecretUpdate(c *gin.Context, req *view.PatchSecretRequest,
 				User:         requestUser,
 				Roles:        roles,
 			}); err != nil {
-				return err
+				return nil, redactSandboxEnvForbidden(secret.Name, requestUser, v1.UpdateVerb, err)
 			}
 		}
 	}
-	return nil
+	return requestUser, nil
 }
 
 // applySecretPatch applies updates to a secret based on the patch request.
@@ -313,6 +323,9 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 
 // deleteSecretImpl implements secret deletion logic.
 func (h *Handler) deleteSecretImpl(ctx context.Context, name string, requestUser *v1.User) error {
+	if name == commonsecret.SandboxEnvSecretName {
+		return h.deleteSandboxEnvSecret(ctx, requestUser)
+	}
 	secret, err := h.getAdminSecret(ctx, name)
 	if err != nil {
 		return err
@@ -333,6 +346,127 @@ func (h *Handler) deleteSecretImpl(ctx context.Context, name string, requestUser
 	}
 	klog.Infof("delete secret %s", name)
 	return nil
+}
+
+// deleteSandboxEnvSecret deletes the sandbox environment Secret (commonsecret.SandboxEnvSecretName).
+// The delete is pinned to the version whose bindings were checked, and on a lost precondition
+// the Secret is read and checked again: a retry deletes the re-read Secret, whose bindings may
+// have changed. A Secret already gone on a retry was deleted concurrently, which is success.
+func (h *Handler) deleteSandboxEnvSecret(ctx context.Context, requestUser *v1.User) error {
+	name := commonsecret.SandboxEnvSecretName
+	attempt := 0
+	err := backoff.ConflictRetry(func() error {
+		attempt++
+		secret, innerError := h.getAdminSecret(ctx, name)
+		if innerError != nil {
+			if attempt > 1 && apierrors.IsNotFound(innerError) {
+				return nil
+			}
+			return innerError
+		}
+		if innerError = h.accessController.Authorize(authority.AccessInput{
+			Context:      ctx,
+			Resource:     secret,
+			ResourceKind: authority.SecretResourceKind,
+			Verb:         v1.DeleteVerb,
+			User:         requestUser,
+			Workspaces:   commonsecret.GetSecretWorkspaces(secret),
+		}); innerError != nil {
+			return redactSandboxEnvForbidden(name, requestUser, v1.DeleteVerb, innerError)
+		}
+		if innerError = authorizeSandboxEnvSecret(requestUser, name, commonsecret.GetSecretWorkspaces(secret), secret); innerError != nil {
+			return innerError
+		}
+		options := metav1.DeleteOptions{Preconditions: &metav1.Preconditions{ResourceVersion: &secret.ResourceVersion}}
+		return client.IgnoreNotFound(h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(ctx, name, options))
+	}, defaultRetryCount, defaultRetryDelay)
+	if err != nil {
+		if apierrors.IsConflict(err) {
+			return commonerrors.NewConflict(fmt.Sprintf("the secret %s kept changing while it was being deleted; "+
+				"try again", name))
+		}
+		return err
+	}
+	klog.Infof("delete secret %s", name)
+	return nil
+}
+
+// authorizeSandboxEnvSecret refuses a write to the Secret whose keys sandboxes receive as
+// environment variables (commonsecret.SandboxEnvSecretName) unless the user is a system admin or administers
+// every workspace in workspaces. Every key of that Secret reaches every sandbox of the workspaces
+// it is bound to, so a member able to write it could set LD_PRELOAD or similar in a colleague's
+// sandbox; the ordinary role lets any member create a Secret bound to their workspace.
+// existing is the Secret as it is now (nil on create). One that carries a workspace selector, or
+// a record of copies a selector made, reaches workspaces the ids list does not name, so only a
+// system admin may change it.
+// The refusal does not name the workspaces: the caller may have no access to some of them. They
+// are logged instead.
+func authorizeSandboxEnvSecret(user *v1.User, name string, workspaces []string, existing *corev1.Secret) error {
+	// Reserved whether or not the chart turns the feature on, so turning it on never opens a
+	// window in which an apiserver pod would let a member take the name.
+	if name != commonsecret.SandboxEnvSecretName {
+		return nil
+	}
+	// No user (an internal caller) is not an admin.
+	if user != nil && user.IsSystemAdmin() {
+		return nil
+	}
+	userName := ""
+	if user != nil {
+		userName = user.Name
+	}
+	if hasWorkspaceSelector(existing) {
+		klog.InfoS("refused a change to the sandbox env secret mirrored by a workspace selector",
+			"user", userName, "selector", v1.GetAnnotation(existing, v1.WorkspaceSelectorAnnotation))
+		return commonerrors.NewForbidden(fmt.Sprintf("the secret %s is read by sandboxes as environment "+
+			"variables and is mirrored by a workspace selector; only a system admin may change it", name))
+	}
+	if user != nil && len(workspaces) > 0 && commonuser.HasWorkspaceManagedRight(user, workspaces...) {
+		return nil
+	}
+	klog.InfoS("refused a change to the sandbox env secret", "user", userName, "workspaces", workspaces)
+	return commonerrors.NewForbidden(fmt.Sprintf("the secret %s is read by sandboxes as environment "+
+		"variables; only a system admin or an admin of every workspace it is bound to may change it", name))
+}
+
+// redactSandboxEnvForbidden replaces the ordinary role check's 403 for the sandbox environment
+// Secret (commonsecret.SandboxEnvSecretName) with one that does not name its workspaces: the name is
+// known to everyone, so the ordinary message would tell any user which workspaces it is bound
+// to. The role check has already logged them. Any other error, or any other name, is returned
+// as it is.
+func redactSandboxEnvForbidden(name string, user *v1.User, verb v1.RoleVerb, err error) error {
+	if name != commonsecret.SandboxEnvSecretName || !commonerrors.IsForbidden(err) {
+		return err
+	}
+	userName := ""
+	if user != nil {
+		userName = user.Name
+	}
+	return commonerrors.NewForbidden(fmt.Sprintf("The user(%s) is not allowed to %s the secret %s", userName, verb, name))
+}
+
+// hasWorkspaceSelector reports whether the Secret has a workspace selector (any value, even a
+// blank or invalid one, which a later edit can make valid) or a record of copies one made.
+func hasWorkspaceSelector(secret *corev1.Secret) bool {
+	if secret == nil {
+		return false
+	}
+	if v1.HasAnnotation(secret, v1.WorkspaceSelectorAnnotation) {
+		return true
+	}
+	applied := strings.TrimSpace(v1.GetAnnotation(secret, v1.WorkspaceSelectorAppliedAnnotation))
+	return applied != "" && applied != "[]"
+}
+
+// authorizeSandboxEnvSecretPatch applies authorizeSandboxEnvSecret to a patch, over the bindings
+// before and after it: an admin of only the new workspaces must not change what the old ones
+// receive, nor the other way round.
+func authorizeSandboxEnvSecretPatch(user *v1.User, secret *corev1.Secret, req *view.PatchSecretRequest) error {
+	workspaces := commonsecret.GetSecretWorkspaces(secret)
+	if req.WorkspaceIds != nil {
+		workspaces = append(workspaces, sliceutil.Difference(*req.WorkspaceIds, workspaces)...)
+	}
+	return authorizeSandboxEnvSecret(user, secret.Name, workspaces, secret)
 }
 
 // getAdminSecret retrieves a secret resource by name without authorization.
@@ -381,7 +515,7 @@ func (h *Handler) getAndAuthorizeSecret(ctx context.Context,
 		User:         requestUser,
 		Workspaces:   workspaceIds,
 	}); err != nil {
-		return nil, err
+		return nil, redactSandboxEnvForbidden(name, requestUser, verb, err)
 	}
 	return secret, nil
 }

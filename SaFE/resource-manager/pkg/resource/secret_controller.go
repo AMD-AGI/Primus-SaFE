@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -243,6 +244,9 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 		if err := r.recordSelectorState(ctx, secret, selectorErr, nil); err != nil {
 			errs = append(errs, err)
 		}
+		if err := r.recordMirrorConflicts(ctx, secret, nil); err != nil {
+			errs = append(errs, err)
+		}
 		if err := r.cleanupMirroredSecrets(ctx, secret.Name, nil); err != nil {
 			errs = append(errs, err)
 		} else if len(errs) == 0 {
@@ -334,6 +338,9 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 		// label match should be able to do.
 		if err = r.syncSecretToWorkspace(ctx, clientSet, secret, ws, explicit.Has(ws.Name)); err != nil {
 			if errors.Is(err, errMirrorConflict) {
+				// Recorded, and raised once, by recordMirrorConflicts; not a failed reconcile:
+				// the Secret made in the namespace winning is a state the docs support, and a
+				// retry would not change it.
 				conflicts.Insert(ws.Name)
 				continue
 			}
@@ -355,6 +362,9 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	if err := r.recordSelectorState(ctx, secret, selectorErr, recorded); err != nil {
 		errs = append(errs, err)
 	}
+	if err := r.recordMirrorConflicts(ctx, secret, conflicts.UnsortedList()); err != nil {
+		errs = append(errs, err)
+	}
 	if err := r.updateClusterRefSecret(ctx, secret); err != nil {
 		errs = append(errs, err)
 	}
@@ -365,14 +375,83 @@ func (r *SecretReconciler) processSecrets(ctx context.Context, secret *corev1.Se
 	}
 	if selectorErr != nil {
 		if !appliedKnown {
-			return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
+			return mirrorResult(secret, conflicts, errs)
 		}
 		keep = append(keep, applied...)
 	}
 	if err := r.cleanupMirroredSecrets(ctx, secret.Name, keep); err != nil {
 		errs = append(errs, err)
 	}
-	return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
+	return mirrorResult(secret, conflicts, errs)
+}
+
+// sandboxEnvConflictRecheck is how long a sandbox env Secret that could not be mirrored into a
+// workspace, because its namespace holds one resource-manager did not make, waits before it is
+// checked again. Removing that one changes nothing the controller watches, and the workspace's
+// sandboxes read their environment from whichever Secret is there.
+const sandboxEnvConflictRecheck = 10 * time.Minute
+
+// mirrorResult ends a reconcile that collected errs. A mirror conflict is not one of them: it is
+// recorded on the Secret instead. Without errors, a sandbox env Secret with a conflict is checked
+// again after sandboxEnvConflictRecheck, so its copy is made once the namespace's own Secret is
+// removed; other names, as before, are mirrored there at their next reconcile.
+func mirrorResult(secret *corev1.Secret, conflicts sets.Set, errs []error) (ctrlruntime.Result, error) {
+	if len(errs) > 0 {
+		return ctrlruntime.Result{}, utilerrors.NewAggregate(errs)
+	}
+	if conflicts.Len() > 0 && secret.Name == commonsecret.SandboxEnvSecretName {
+		return ctrlruntime.Result{RequeueAfter: sandboxEnvConflictRecheck}, nil
+	}
+	return ctrlruntime.Result{}, nil
+}
+
+// recordMirrorConflicts writes the workspaces whose namespace holds a Secret of the same name
+// that the mirror did not make, and so did not get this one, into
+// WorkspaceMirrorConflictsAnnotation, and removes it when there are none. A workspace the record
+// does not list yet is logged and raises a MirrorConflict Warning event, once, not on every
+// reconcile: workspace events requeue every Secret with a selector, and the record already says
+// it. A write that changes nothing is skipped; the predicates do not watch the annotation, so it
+// queues no reconcile.
+func (r *SecretReconciler) recordMirrorConflicts(ctx context.Context, secret *corev1.Secret, workspaces []string) error {
+	names := append([]string{}, workspaces...)
+	sort.Strings(names)
+	// A record that cannot be read counts as empty: its conflicts are raised again.
+	var recorded []string
+	_ = json.Unmarshal([]byte(v1.GetAnnotation(secret, v1.WorkspaceMirrorConflictsAnnotation)), &recorded)
+	known := sets.NewSetByKeys(recorded...)
+	for _, ws := range names {
+		if known.Has(ws) {
+			continue
+		}
+		klog.Warningf("secret %s/%s exists and was not made by resource-manager; not mirroring over it",
+			ws, secret.Name)
+		if r.recorder != nil {
+			r.recorder.Eventf(secret, corev1.EventTypeWarning, "MirrorConflict",
+				"workspace %s already has a Secret %s not made by resource-manager; left as is", ws, secret.Name)
+		}
+	}
+	want := ""
+	if len(names) > 0 {
+		raw, err := json.Marshal(names)
+		if err != nil {
+			return err
+		}
+		want = string(raw)
+	}
+	current, has := secret.Annotations[v1.WorkspaceMirrorConflictsAnnotation]
+	if (want == "" && !has) || (want != "" && current == want) {
+		return nil
+	}
+	patch := client.MergeFrom(secret.DeepCopy())
+	if want == "" {
+		delete(secret.Annotations, v1.WorkspaceMirrorConflictsAnnotation)
+	} else {
+		v1.SetAnnotation(secret, v1.WorkspaceMirrorConflictsAnnotation, want)
+	}
+	if err := r.Patch(ctx, secret, patch); err != nil {
+		return fmt.Errorf("record mirror conflicts on secret %s: %w", secret.Name, err)
+	}
+	return nil
 }
 
 // recordSelectorState writes the reason the Secret's selector was rejected into
@@ -585,9 +664,17 @@ func (r *SecretReconciler) getClientSetOfDataplane(ctx context.Context, clusterI
 var errMirrorConflict = errors.New("a Secret not made by resource-manager is already there")
 
 // syncSecretToWorkspace ensures a mirrored secret exists/updated in the target namespace on data plane.
-// An existing Secret without the mirror label is taken over only when adopt is set.
+// An existing Secret without the mirror label is taken over only when adopt is set, and never
+// when it is the sandbox environment Secret (commonsecret.SandboxEnvSecretName); otherwise it is
+// left as it is and errMirrorConflict is returned, for the caller to record.
 func (r *SecretReconciler) syncSecretToWorkspace(ctx context.Context, clientSet kubernetes.Interface,
 	adminPlaneSecret *corev1.Secret, workspace *v1.Workspace, adopt bool) error {
+	// A sandbox-env made in the workspace namespace (by an administrator with kubectl) wins over
+	// the mirrored one: an ids grant made through the API by a workspace admin must not replace
+	// it, nor, by labelling it as a copy, let a later unbind delete it.
+	if adminPlaneSecret.Name == commonsecret.SandboxEnvSecretName {
+		adopt = false
+	}
 	targetSecrets := clientSet.CoreV1().Secrets(workspace.Name)
 	existing, err := targetSecrets.Get(ctx, adminPlaneSecret.Name, metav1.GetOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
@@ -599,13 +686,6 @@ func (r *SecretReconciler) syncSecretToWorkspace(ctx context.Context, clientSet 
 
 	// Update path
 	if !adopt && existing.Labels[managedSecretLabelKey] != managedSecretLabelVal {
-		klog.Warningf("secret %s/%s exists and was not made by resource-manager; not mirroring over it",
-			workspace.Name, adminPlaneSecret.Name)
-		if r.recorder != nil {
-			r.recorder.Eventf(adminPlaneSecret, corev1.EventTypeWarning, "MirrorConflict",
-				"workspace %s already has a Secret %s not made by resource-manager; left as is",
-				workspace.Name, adminPlaneSecret.Name)
-		}
 		return errMirrorConflict
 	}
 	needUpdate := false
