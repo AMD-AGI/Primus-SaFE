@@ -364,6 +364,16 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 		}
 	}
 	if statusErr == nil && status.Phase != "" {
+		if status.Phase == string(v1.K8sSucceeded) {
+			if disruption := r.disruptedSuccess(ctx, clientSets, adminWorkload); disruption != "" {
+				// The object reports success only because the disrupted pod's
+				// containers exited 0 on SIGTERM; the pod was taken away.
+				klog.Infof("workload %s: k8s object reports success but its pod was disrupted: %s",
+					adminWorkload.Name, disruption)
+				status.Phase = string(v1.K8sFailed)
+				status.Message = joinMessage(status.Message, disruption)
+			}
+		}
 		if status.Phase == string(v1.K8sFailed) && strings.TrimSpace(status.Message) == "" {
 			status.Message = commonworkload.GetWorkloadFailureMessage(adminWorkload.Status.Conditions, dispatchCount)
 		}

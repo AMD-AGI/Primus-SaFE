@@ -424,6 +424,12 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 			continue
 		}
 		id = i
+		if v1.IsWorkloadPhaseEnded(adminWorkload.Status.Phase) && v1.IsPodTerminated(&p) {
+			// The workload has ended and so has this record: it says how the
+			// workload's pod ended. A pod of the same name seen now is a later
+			// one, created after the end, and must not overwrite it.
+			return v1.WorkloadPod{}, "", false
+		}
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == adminNodeNameOf(k8sNode) &&
 			p.StartTime != "" && p.HostIp == pod.Status.HostIP &&
 			!currentDispatchNodesNeedRepair(adminWorkload) {
