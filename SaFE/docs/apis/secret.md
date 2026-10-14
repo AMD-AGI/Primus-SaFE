@@ -425,20 +425,39 @@ container.
   started with; sandboxes created after a change see it.
 - **Admins only**: every key reaches every sandbox in the workspace, so through this API only a
   system admin, or an admin of every workspace the Secret is bound to, may create, update or
-  delete a Secret named `sandbox-env`, or bind it to a workspace through the workspace
-  image-secret API (others get 403). Once the Secret has a workspace selector
+  delete a Secret named `sandbox-env` (others get 403). The workspace image-secret API
+  (`imageSecretIds`) binds image Secrets only, so it refuses a general `sandbox-env` with 400
+  before any role check; an image Secret of that name gets the same admin check there (403).
+  Once the Secret has a workspace selector
   (`primus-safe.workspace.selector`, or a `primus-safe.workspace.selector.applied` record of
   copies one made), only a system admin may change or delete it: the selector reaches workspaces
   the ids list does not name. The 403 does not name the Secret's workspaces. The name is
   reserved whether or not the feature is on, so turning it on opens no window in which a member
   could take it.
 
-Turn the feature on in an upgrade after the one that installs this version, so that every
-apiserver pod already reserves the name when the sandbox template starts reading it. Before
-turning it on, check that no Secret named `sandbox-env` already exists in the `primus-safe`
-namespace or in a workspace namespace unless an administrator made it. A workspace whose
-sandboxes run on an external (virtual) node needs that node to resolve `envFrom` from a Secret;
-verify it before creating the Secret there.
+On a site that already runs an older version, turn the feature on in an upgrade after the one
+that installs this version, so that every apiserver pod already reserves the name when the
+sandbox template starts reading it. A fresh install may turn it on from the start:
+`sandbox_env_secret=sandbox-env ./install.sh` (install.sh saves it to `.env` for later
+upgrades).
+
+Only writes from this version on are checked: a `sandbox-env` written before it, possibly by a
+member, is still mirrored, and its keys would reach every sandbox of the workspaces it is bound
+to. Before turning the feature on, check who made each one, and delete any an administrator did
+not make (an admin can then create it again):
+
+```bash
+# in the primus-safe namespace: the user who created it through the API (empty if made with
+# kubectl) and the workspaces it is bound to
+kubectl -n primus-safe get secret sandbox-env \
+  -o jsonpath='{.metadata.labels.primus-safe\.user\.id}{"\n"}{.metadata.annotations.primus-safe\.workspace\.ids}{"\n"}'
+# on each data-plane cluster: every sandbox-env in a workspace namespace; one without the mirror
+# label was made there directly, not copied from the primus-safe namespace
+kubectl get secrets -A --field-selector metadata.name=sandbox-env -L primus-safe/secret-mirror
+```
+
+A workspace whose sandboxes run on an external (virtual) node needs that node to resolve
+`envFrom` from a Secret; verify it before creating the Secret there.
 
 There are two ways to provide the Secret. Use one per workspace; do not mix them.
 
@@ -474,10 +493,12 @@ If both are used for one workspace, whichever Secret is in the workspace namespa
 - A `sandbox-env` made in the workspace namespace (it lacks the mirror label
   `primus-safe/secret-mirror: "true"`) is never taken over by the mirror, even for an explicit
   `primus-safe.workspace.ids` grant, so it is neither overwritten nor deleted when that grant is
-  withdrawn. resource-manager leaves it as it is, records a `MirrorConflict` Warning event on
-  the mirrored Secret, lists the workspaces in its `primus-safe.workspace.mirror.conflicts`
-  annotation, and retries with backoff until the conflict is resolved (the annotation is then
-  removed). The API call that bound the Secret has already succeeded; check the annotation:
+  withdrawn. resource-manager leaves it as it is, lists the workspace in the mirrored Secret's
+  `primus-safe.workspace.mirror.conflicts` annotation, raises a `MirrorConflict` Warning event
+  on it once (not on every reconcile), and checks again every 10 minutes: once the Secret in the
+  workspace namespace is removed, the copy is made there and the workspace leaves the
+  annotation (which is removed when none is left). This is not a reconcile error. The API call
+  that bound the Secret has already succeeded; check the annotation:
 
   ```bash
   kubectl -n primus-safe get secret sandbox-env \

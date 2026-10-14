@@ -16,6 +16,18 @@ if ! command -v kubectl &> /dev/null; then
   exit 1
 fi
 
+# Optional settings that have no prompt: read from the environment (for example
+# `sandbox_env_secret=sandbox-env ./install.sh`) and saved to .env, so upgrade.sh keeps them.
+# See docs/installation/upgrade.md for each.
+sandbox_extra_ca_secret="${sandbox_extra_ca_secret:-}"
+sandbox_env_secret="${sandbox_env_secret:-}"
+# The only accepted name is the one the apiserver and resource-manager always reserve (the chart
+# refuses any other); checked here, before anything is installed.
+if [[ -n "$sandbox_env_secret" && "$sandbox_env_secret" != "sandbox-env" ]]; then
+  echo "Error: sandbox_env_secret '$sandbox_env_secret' is not supported: set it to sandbox-env or leave it empty" >&2
+  exit 1
+fi
+
 # Do not modify the value of namespace
 NAMESPACE="primus-safe"
 
@@ -267,6 +279,8 @@ echo "✅ OpenSearch Secret: \"$opensearch_secret\""
 echo "✅ CSI Volume Handle: \"$csi_volume_handle\""
 echo "✅ Helm Registry: \"$helm_registry\""
 echo "✅ Image Registry: \"$proxy_image_registry\""
+echo "✅ Sandbox Extra CA Secret: \"$sandbox_extra_ca_secret\""
+echo "✅ Sandbox Env Secret: \"$sandbox_env_secret\""
 
 replicas=1
 cpu=2000m
@@ -397,6 +411,13 @@ sed -i '/sso:/,/^[a-z]/ s/enable: .*/enable: '"$sso_enable"'/' "$values_yaml"
 if [[ "$sso_enable" == "true" ]]; then
   sed -i '/^sso:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
 fi
+# The same as upgrade.sh, so a fresh install honours them too.
+if [[ -n "$sandbox_extra_ca_secret" ]]; then
+  sed -i '/^sandbox:/,/^[a-z]/ s/extra_ca_secret: .*/extra_ca_secret: "'"$sandbox_extra_ca_secret"'"/' "$values_yaml"
+fi
+if [[ -n "$sandbox_env_secret" ]]; then
+  sed -i '/^sandbox:/,/^[a-z]/ s/^  env_secret: .*/  env_secret: "'"$sandbox_env_secret"'"/' "$values_yaml"
+fi
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
 echo "⏳ Waiting for Postgres Operator pod..."
@@ -515,4 +536,6 @@ node_agent_toggle_net_ainic_devices_208=off
 node_agent_toggle_sys_csi_wekafs_309=off
 node_agent_resolv_search_domain=
 metrics_port=8000
+sandbox_extra_ca_secret=$sandbox_extra_ca_secret
+sandbox_env_secret=$sandbox_env_secret
 EOF

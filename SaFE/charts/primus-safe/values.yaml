@@ -426,7 +426,7 @@ sandbox:
   # only by it; add the workspaces to primus-safe.workspace.ids first. When set, it is mounted at
   # /etc/claw/extra-ca, merged into /shared/bin/ca-bundle.pem, and the sandbox's CA variables point
   # there; a sandbox then refuses to start if no certificate is found. Empty keeps the image's own trust.
-  # Set per deploy via .env `sandbox_extra_ca_secret` (synced into values.yaml by upgrade.sh).
+  # Set per deploy via `sandbox_extra_ca_secret` (in .env for upgrade.sh, in the environment for install.sh).
   # SECURITY: anyone who can edit a workspace's scopes can make it match this selector, so the only
   # protection is never putting primus-safe.secret.broadcast on a Secret that holds a credential.
   extra_ca_secret: ""
@@ -439,8 +439,9 @@ sandbox:
   # may write it through the SaFE API; the mirror never takes over one already in a workspace
   # namespace), so turning this on opens no window in which a member could take the name. The name
   # is fixed for that reason: a site-chosen one would be guarded only once the apiserver restarted.
-  # Empty (the default) renders nothing. Set per deploy via .env `sandbox_env_secret` (synced into
-  # values.yaml by upgrade.sh).
+  # Empty (the default) renders nothing. Set per deploy via `sandbox_env_secret` (in .env for
+  # upgrade.sh, in the environment for install.sh). Only writes from this version on are checked:
+  # before turning it on, look for a sandbox-env written earlier (docs/apis/secret.md).
   env_secret: ""
 mcp:
   enabled: true
