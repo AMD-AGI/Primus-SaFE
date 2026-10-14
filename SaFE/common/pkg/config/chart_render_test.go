@@ -338,8 +338,10 @@ type sandboxPod struct {
 		PodTemplate struct {
 			Spec struct {
 				Containers []struct {
-					Name string `yaml:"name"`
-					Env  []struct {
+					Name    string   `yaml:"name"`
+					Command []string `yaml:"command"`
+					Args    []string `yaml:"args"`
+					Env     []struct {
 						Name      string                 `yaml:"name"`
 						Value     string                 `yaml:"value"`
 						ValueFrom map[string]interface{} `yaml:"valueFrom"`
@@ -447,7 +449,7 @@ func TestChartInjectsTheSandboxEnvSecret(t *testing.T) {
 		{"secretRef": map[string]interface{}{"name": "sandbox-env", "optional": true}},
 	}, main.EnvFrom)
 	// The explicit env is unchanged, and explicit env wins over envFrom in Kubernetes, so the
-	// Secret cannot replace PATH or the CA variables.
+	// Secret cannot replace the CA variables.
 	testifyassert.Equal(t, plain.Spec.PodTemplate.Spec.Containers[0].Env, main.Env)
 }
 
@@ -486,6 +488,124 @@ func TestChartLeavesTheApiserverAloneForTheSandboxEnvSecret(t *testing.T) {
 		return string(out)
 	}
 	testifyassert.Equal(t, render(), render("--set", "sandbox.env_secret=sandbox-env"))
+}
+
+// An image may set HSA_ENABLE_IPC_MODE_LEGACY=1 (ROCm vLLM images do). In an unprivileged Pod
+// without host IPC the legacy amdkfd IPC import is refused, so every GPU-to-GPU IPC handle fails
+// to open. The sandbox pins the default IPC path in the Pod spec, which overrides the image ENV
+// for every process in the container, PID 1 included.
+func TestChartPinsTheSandboxToTheNonLegacyHIPIPCPath(t *testing.T) {
+	for _, values := range [][]string{nil, {"--set", "sandbox.extra_ca_secret=sandbox-extra-ca",
+		"--set", "sandbox.env_secret=sandbox-env"}} {
+		pod := renderSandboxPod(t, values...)
+		main := pod.Spec.PodTemplate.Spec.Containers[0]
+		found := 0
+		for _, current := range main.Env {
+			if current.Name == "HSA_ENABLE_IPC_MODE_LEGACY" {
+				found++
+				testifyassert.Equal(t, "0", current.Value, "values %v", values)
+				testifyassert.Nil(t, current.ValueFrom, "values %v", values)
+			}
+		}
+		testifyassert.Equal(t, 1, found, "HSA_ENABLE_IPC_MODE_LEGACY entries with values %v", values)
+	}
+}
+
+// sandboxPathSetupScript is the PATH setup the startup command opens with, byte for byte. It is
+// what pathSetupScript() in the PrimusClaw workload manager (sandbox/pkg/workloadmanager) returns
+// for the sandboxes it builds itself, so a SaFE sandbox and a PrimusClaw one start with the same
+// PATH from the same image. Change both together.
+//
+// It keeps the PATH the container starts with (the image's) first and in its order, drops entries
+// that are empty, relative or contain a ".." segment, and appends each runtime directory it lacks
+// once: the injected tools in /shared/bin, the workspace user's `pip install --user` scripts, and
+// the system directories the startup command runs its own commands from.
+const sandboxPathSetupScript = `__sandbox_path_rest="${PATH-}:"'/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin:'; __sandbox_path=; while [ -n "$__sandbox_path_rest" ]; do __sandbox_path_dir="${__sandbox_path_rest%%:*}"; __sandbox_path_rest="${__sandbox_path_rest#*:}"; case "$__sandbox_path_dir" in */../*|*/..) ;; /*) case ":$__sandbox_path:" in *":$__sandbox_path_dir:"*) ;; *) __sandbox_path="${__sandbox_path:+$__sandbox_path:}$__sandbox_path_dir" ;; esac ;; esac; done; PATH="$__sandbox_path"; export PATH; unset __sandbox_path_rest __sandbox_path_dir __sandbox_path; `
+
+// sandboxStartupTail is what the startup command runs once PATH is set up.
+const sandboxStartupTail = "mkdir -p /app && /shared/bin/setup-amd-ca.sh && exec /shared/bin/envd --port=8080 --workspace=/app"
+
+// sandboxRuntimePath is PATH when the container starts with none.
+const sandboxRuntimePath = "/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin"
+
+// A PATH env var on the container replaces the image's ENV PATH, so the template must set none,
+// whatever else is turned on.
+func TestChartSetsNoPathOnTheSandbox(t *testing.T) {
+	for _, values := range [][]string{
+		nil,
+		{"--set", "sandbox.extra_ca_secret=sandbox-extra-ca", "--set", "sandbox.env_secret=sandbox-env"},
+	} {
+		pod := renderSandboxPod(t, values...)
+		for _, current := range pod.Spec.PodTemplate.Spec.Containers[0].Env {
+			testifyassert.NotEqual(t, "PATH", current.Name, "values %v", values)
+		}
+	}
+}
+
+// The rendered startup command is /bin/sh -c with exactly the PATH setup followed by the unchanged
+// startup tail, whatever else is turned on: the chart's YAML quoting must not alter one byte of it.
+func TestChartRendersTheSandboxPathSetupExactly(t *testing.T) {
+	for _, values := range [][]string{
+		nil,
+		{"--set", "sandbox.extra_ca_secret=sandbox-extra-ca", "--set", "sandbox.env_secret=sandbox-env"},
+	} {
+		main := renderSandboxPod(t, values...).Spec.PodTemplate.Spec.Containers[0]
+		testifyrequire.Equal(t, []string{"/bin/sh", "-c"}, main.Command, "values %v", values)
+		testifyrequire.Equal(t, []string{sandboxPathSetupScript + sandboxStartupTail}, main.Args, "values %v", values)
+	}
+}
+
+// The PATH setup, as rendered, runs under every POSIX shell on the host, since /bin/sh in a
+// sandbox image may be any of them.
+func TestChartSandboxStartupKeepsTheImagePath(t *testing.T) {
+	args := renderSandboxPod(t).Spec.PodTemplate.Spec.Containers[0].Args
+	testifyrequire.Len(t, args, 1)
+	setup, found := strings.CutSuffix(args[0], sandboxStartupTail)
+	testifyrequire.True(t, found, "startup command does not end in the startup tail: %s", args[0])
+	var shells []string
+	for _, name := range []string{"sh", "dash", "bash", "busybox"} {
+		if shell, err := exec.LookPath(name); err == nil {
+			shells = append(shells, shell)
+		}
+	}
+	testifyrequire.NotEmpty(t, shells, "no POSIX shell on the host")
+	cases := []struct {
+		name, start, want string
+	}{
+		{"image path first, missing entries appended",
+			"/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+			"/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/shared/bin:/home/sandbox/.local/bin"},
+		{"nothing duplicated when every entry is present", sandboxRuntimePath, sandboxRuntimePath},
+		{"a directory only named as a prefix still counts as missing", "/shared/bin2:/bin/x",
+			"/shared/bin2:/bin/x:" + sandboxRuntimePath},
+		{"an empty path becomes exactly the runtime entries", "", sandboxRuntimePath},
+		{"a duplicate in the image path is kept once", "/opt/a:/opt/b:/opt/a", "/opt/a:/opt/b:" + sandboxRuntimePath},
+		{"relative and empty entries are dropped", "bin:/opt/a::.:~/bin:/opt/b:",
+			"/opt/a:/opt/b:" + sandboxRuntimePath},
+		{"entries with a .. segment are dropped", "..:/opt/../etc:/opt/a:/opt/b/..:/opt/..x:/..",
+			"/opt/a:/opt/..x:" + sandboxRuntimePath},
+		{"a directory with a space or a glob is kept literally", "/opt/my tools/bin:/opt/*:/opt/[a]",
+			"/opt/my tools/bin:/opt/*:/opt/[a]:" + sandboxRuntimePath},
+	}
+	for _, shell := range shells {
+		for _, current := range cases {
+			command := []string{shell}
+			switch filepath.Base(shell) {
+			case "busybox":
+				command = append(command, "sh")
+			case "bash":
+				// No startup files: a host's bashrc may change PATH before the script runs.
+				command = append(command, "--norc", "--noprofile", "--posix")
+			}
+			// The setup unsets its own variables; exit 7 marks one it left behind.
+			command = append(command, "-c", setup+`for v in __sandbox_path_rest __sandbox_path_dir __sandbox_path; do eval "[ -z \"\${$v+x}\" ]" || exit 7; done; printf '%s' "$PATH"`)
+			cmd := exec.Command(command[0], command[1:]...)
+			cmd.Env = []string{"PATH=" + current.start}
+			out, err := cmd.Output()
+			testifyrequire.NoError(t, err, "%s: %s", shell, current.name)
+			testifyassert.Equal(t, current.want, string(out), "%s: %s", shell, current.name)
+		}
+	}
 }
 
 func TestChartPullsTheEnvdInjectorThroughTheSiteProxy(t *testing.T) {
