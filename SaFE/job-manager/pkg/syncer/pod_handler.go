@@ -75,6 +75,11 @@ func (r *SyncerReconciler) handlePod(ctx context.Context,
 		if obj != nil && message.meshName == "" {
 			message.meshName = obj.GetLabels()[monarchMeshLabel]
 		}
+		if obj != nil {
+			if disruption := disruptionTargetOf(obj); disruption != "" {
+				message.disruption = disruption
+			}
+		}
 		if err = r.removeWorkloadPod(ctx, clusterClientSets, message); err != nil {
 			return ctrlruntime.Result{}, err
 		}
@@ -607,7 +612,13 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	}
 
 	id := indexOfPod(adminWorkload.Status.Pods, message.name)
-	if id < 0 || !r.applyPodGone(adminWorkload, id) {
+	noted := false
+	if id >= 0 && !commonworkload.IsApplication(adminWorkload) && !commonworkload.IsCICD(adminWorkload) {
+		// Record why the platform took the pod away before the entry is marked
+		// gone; kinds that drop the entry keep no per-pod history to record it in.
+		noted = appendPodDisruption(&adminWorkload.Status.Pods[id], message.disruption)
+	}
+	if id < 0 || (!r.applyPodGone(adminWorkload, id) && !noted) {
 		// A prior attempt may have written the DB (Stopped or dropped the row)
 		// and then lost the etcd CAS. Hydration already shows the pod gone, so
 		// there is no pod field to patch; the aggregate still needs publishing.
@@ -1235,6 +1246,7 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 	} else if pod.Status.Phase != corev1.PodSucceeded {
 		return
 	}
+	appendPodDisruption(workloadPod, podDisruptionTarget(pod.Status.Conditions))
 
 	var finishedTime *metav1.Time
 	for i, container := range pod.Status.ContainerStatuses {
@@ -1268,6 +1280,83 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 	} else {
 		workloadPod.EndTime = timeutil.FormatRFC3339(time.Now())
 	}
+}
+
+// disruptionTargetPrefix starts the part of WorkloadPod.FailedMessage that
+// carries a pod's DisruptionTarget condition.
+const disruptionTargetPrefix = "DisruptionTarget: "
+
+// podDisruptionTarget returns the pod's DisruptionTarget condition, when it is
+// True, formatted by formatDisruptionTarget; otherwise "".
+//
+// Kubernetes sets this condition on a pod that is about to be terminated
+// because of a disruption rather than its own exit: eviction by the taint
+// manager (DeletionByTaintManager), termination by the kubelet
+// (TerminationByKubelet), deletion by the pod garbage collector
+// (DeletionByPodGC), scheduler preemption (PreemptionByScheduler) or the
+// Eviction API (EvictionByEvictionAPI).
+func podDisruptionTarget(conditions []corev1.PodCondition) string {
+	for i := range conditions {
+		if conditions[i].Type == corev1.DisruptionTarget {
+			return formatDisruptionTarget(&conditions[i])
+		}
+	}
+	return ""
+}
+
+// disruptionTargetOf reads the DisruptionTarget condition from an unstructured
+// pod, see podDisruptionTarget.
+func disruptionTargetOf(obj *unstructured.Unstructured) string {
+	if obj == nil {
+		return ""
+	}
+	items, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	if err != nil || !found {
+		return ""
+	}
+	conditions := make([]corev1.PodCondition, 0, len(items))
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		var c corev1.PodCondition
+		if runtime.DefaultUnstructuredConverter.FromUnstructured(m, &c) != nil {
+			continue
+		}
+		conditions = append(conditions, c)
+	}
+	return podDisruptionTarget(conditions)
+}
+
+// formatDisruptionTarget renders a True DisruptionTarget condition as
+// "DisruptionTarget: <reason> (<lastTransitionTime>): <message>", omitting the
+// time when it is unset. The reason is a CamelCase token and the time is
+// RFC3339, so the first ": " after the reason starts the free-text message.
+func formatDisruptionTarget(c *corev1.PodCondition) string {
+	if c == nil || c.Type != corev1.DisruptionTarget || c.Status != corev1.ConditionTrue {
+		return ""
+	}
+	s := disruptionTargetPrefix + c.Reason
+	if !c.LastTransitionTime.IsZero() {
+		s += " (" + timeutil.FormatRFC3339(c.LastTransitionTime.Time) + ")"
+	}
+	return s + ": " + c.Message
+}
+
+// appendPodDisruption adds a formatted DisruptionTarget to the pod's
+// FailedMessage, keeping whatever the message already says, and reports
+// whether it changed. A message that already carries a DisruptionTarget is
+// left as is.
+func appendPodDisruption(workloadPod *v1.WorkloadPod, disruption string) bool {
+	if disruption == "" || strings.Contains(workloadPod.FailedMessage, disruptionTargetPrefix) {
+		return false
+	}
+	if workloadPod.FailedMessage != "" {
+		workloadPod.FailedMessage += "; "
+	}
+	workloadPod.FailedMessage += disruption
+	return true
 }
 
 // getPodLog retrieves and filters logs from a pod's main container.
