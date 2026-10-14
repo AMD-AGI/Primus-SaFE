@@ -8,10 +8,14 @@ package resources
 import (
 	"bytes"
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"regexp"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	testifyassert "github.com/stretchr/testify/assert"
 	testifyrequire "github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -29,6 +33,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
@@ -594,6 +599,124 @@ func TestOtherImageBindingIsPatchedAsBefore(t *testing.T) {
 	testifyrequire.NoError(t, h.updateWorkspaceImageSecrets(context.Background(), ws, bAdmin, []string{"other-name"}))
 	testifyrequire.Len(t, sent, 1)
 	testifyassert.NotContains(t, sent[0], "resourceVersion")
+}
+
+// readSecretsFromClient makes the handler's clientset read Secrets from its controller-runtime
+// client, so both see one cluster: what a Patch wrote is what a re-read returns.
+func readSecretsFromClient(h *Handler) {
+	h.clientSet.(*k8sfake.Clientset).PrependReactor("get", "secrets",
+		func(action k8stesting.Action) (bool, runtime.Object, error) {
+			got := &corev1.Secret{}
+			err := h.Get(context.Background(), client.ObjectKey{
+				Namespace: action.GetNamespace(), Name: action.(k8stesting.GetAction).GetName()}, got)
+			return true, got, err
+		})
+}
+
+// patchWorkspaceAs sends PATCH /workspaces/{workspace} through the HTTP handler.
+func patchWorkspaceAs(h *Handler, user *v1.User, workspace string, req view.PatchWorkspaceRequest) *httptest.ResponseRecorder {
+	gin.SetMode(gin.TestMode)
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/", bytes.NewReader(jsonutils.MarshalSilently(req)))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, workspace)
+	h.PatchWorkspace(c)
+	return rsp
+}
+
+// Binding an image Secret of any name to a workspace, when the first write of its workspace ids
+// loses a conflict, retries on the Secret as stored: the retry writes the binding, keeping one
+// added meanwhile, and the stored Secret names the workspace, so it is mirrored there. Before,
+// the retry found the workspace in its own unwritten copy, wrote nothing, and the API returned
+// 200 with the workspace listing a pull Secret that would never reach its namespace.
+func TestImageBindingAfterAConflictIsWritten(t *testing.T) {
+	ctx := context.Background()
+	image := ownedSecret("image-pull", "sys-admin", "ws-a")
+	image.Labels[v1.SecretTypeLabel] = string(v1.SecretImage)
+	var h *Handler
+	patches := 0
+	h, users := newSandboxEnvHandlerWith(t, interceptor.Funcs{
+		Patch: func(ctx context.Context, cli client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			if _, ok := obj.(*corev1.Secret); !ok {
+				return cli.Patch(ctx, obj, patch, opts...)
+			}
+			patches++
+			if patches == 1 {
+				// Someone binds it to ws-c between the read and the write, and ours is refused.
+				stored := &corev1.Secret{}
+				testifyrequire.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(obj), stored))
+				v1.SetAnnotation(stored, v1.WorkspaceIdsAnnotation, `["ws-a","ws-c"]`)
+				testifyrequire.NoError(t, cli.Update(ctx, stored))
+				return apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, obj.GetName(), nil)
+			}
+			return cli.Patch(ctx, obj, patch, opts...)
+		},
+	}, image)
+	readSecretsFromClient(h)
+	testifyrequire.NoError(t, h.Create(ctx, &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-b"}}))
+
+	ids := []string{"image-pull"}
+	rsp := patchWorkspaceAs(h, users.sysAdmin, "ws-b", view.PatchWorkspaceRequest{ImageSecretIds: &ids})
+	testifyrequire.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	testifyassert.Equal(t, 2, patches, "the binding was not written again after the conflict")
+	stored := &corev1.Secret{}
+	testifyrequire.NoError(t, h.Get(ctx, client.ObjectKey{Namespace: common.PrimusSafeNamespace, Name: "image-pull"}, stored))
+	testifyassert.Equal(t, []string{"ws-a", "ws-c", "ws-b"}, commonsecret.GetSecretWorkspaces(stored))
+	ws := &v1.Workspace{}
+	testifyrequire.NoError(t, h.Get(ctx, client.ObjectKey{Name: "ws-b"}, ws))
+	testifyrequire.Len(t, ws.Spec.ImageSecrets, 1)
+	testifyassert.Equal(t, "image-pull", ws.Spec.ImageSecrets[0].Name)
+}
+
+// A write that fails for any other reason leaves the caller's Secret as it was read: it does not
+// claim a binding that was never stored.
+func TestImageBindingFailureLeavesTheSecretUnbound(t *testing.T) {
+	image := ownedSecret("image-pull", "sys-admin", "ws-a")
+	image.Labels[v1.SecretTypeLabel] = string(v1.SecretImage)
+	h, users := newSandboxEnvHandlerWith(t, interceptor.Funcs{
+		Patch: func(ctx context.Context, cli client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			return apierrors.NewInternalError(errors.New("etcd is down"))
+		},
+	}, image)
+	secret := image.DeepCopy()
+	err := h.bindSecretToWorkspace(context.Background(), secret, "ws-b", users.sysAdmin)
+	testifyrequire.Error(t, err)
+	testifyassert.Equal(t, []string{"ws-a"}, commonsecret.GetSecretWorkspaces(secret))
+}
+
+// A binding that keeps conflicting ends in a 409 that says to try again, for the reserved name as
+// for any other, the same as a delete of the reserved Secret that keeps conflicting.
+func TestImageBindingConflictIsExplained(t *testing.T) {
+	for _, name := range []string{sandboxEnvSecret, "image-pull"} {
+		t.Run(name, func(t *testing.T) {
+			image := ownedSecret(name, "sys-admin", "ws-a")
+			image.Labels[v1.SecretTypeLabel] = string(v1.SecretImage)
+			patches := 0
+			h, users := newSandboxEnvHandlerWith(t, interceptor.Funcs{
+				Patch: func(ctx context.Context, cli client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+					patches++
+					return apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, obj.GetName(), nil)
+				},
+			}, image)
+			ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-b"}}
+			err := h.updateWorkspaceImageSecrets(context.Background(), ws, users.sysAdmin, []string{name})
+			testifyrequire.Error(t, err)
+			testifyassert.Equal(t, defaultRetryCount, patches)
+			testifyassert.True(t, apierrors.IsConflict(err), "%v", err)
+			testifyassert.Contains(t, err.Error(), "kept changing while it was being bound")
+
+			// What the HTTP layer answers with it.
+			gin.SetMode(gin.TestMode)
+			rsp := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rsp)
+			apiutils.AbortWithApiError(c, err)
+			testifyassert.Equal(t, http.StatusConflict, rsp.Code)
+			testifyassert.Contains(t, rsp.Body.String(), commonerrors.StatusConflict)
+			testifyassert.Contains(t, rsp.Body.String(), "try again")
+		})
+	}
 }
 
 // The ordinary role check's 403 names the workspaces it checked. For sandbox-env, whose name

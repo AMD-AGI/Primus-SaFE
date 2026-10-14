@@ -367,10 +367,13 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context,
 }
 
 // bindSecretToWorkspace adds workspaceId to the Secret's workspace ids, if it is not there yet.
-// The sandbox environment Secret (commonsecret.SandboxEnvSecretName) is patched only at the version whose
-// bindings were checked; on a conflict it is read and checked again, as patchSecret does, so a
-// binding added meanwhile is neither lost nor let through unchecked. Other Secrets are patched
-// as before.
+// The ids are changed on a copy, and the Secret only once the write succeeded, so a failed write
+// never leaves it saying it is bound. On a conflict the Secret is read again, whatever its name,
+// and the retry works on the stored bindings: one added meanwhile is kept. The sandbox
+// environment Secret (commonsecret.SandboxEnvSecretName) is also patched only at the version
+// whose bindings were checked, and checked again on each retry, as patchSecret does, so a
+// binding added meanwhile is not let through unchecked. Other Secrets are patched without a
+// version, as before. A binding that keeps conflicting is a 409 that says to try again.
 func (h *Handler) bindSecretToWorkspace(ctx context.Context,
 	secret *corev1.Secret, workspaceId string, requestUser *v1.User) error {
 	reserved := secret.Name == commonsecret.SandboxEnvSecretName
@@ -387,12 +390,14 @@ func (h *Handler) bindSecretToWorkspace(ctx context.Context,
 		if reserved {
 			patch = client.MergeFromWithOptions(secret.DeepCopy(), client.MergeFromWithOptimisticLock{})
 		}
-		v1.SetAnnotation(secret, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(workspaceIds)))
-		err := h.Patch(ctx, secret, patch)
+		bound := secret.DeepCopy()
+		v1.SetAnnotation(bound, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(workspaceIds)))
+		err := h.Patch(ctx, bound, patch)
 		if err == nil {
+			*secret = *bound
 			return nil
 		}
-		if reserved && apierrors.IsConflict(err) {
+		if apierrors.IsConflict(err) {
 			reread, getErr := h.getAdminSecret(ctx, secret.Name)
 			if getErr != nil {
 				return getErr
@@ -401,6 +406,10 @@ func (h *Handler) bindSecretToWorkspace(ctx context.Context,
 		}
 		return fmt.Errorf("failed to update workspace annotation for secret %s: %w", secret.Name, err)
 	}, defaultRetryCount, defaultRetryDelay)
+	if apierrors.IsConflict(err) {
+		return commonerrors.NewConflict(fmt.Sprintf("the secret %s kept changing while it was being bound to "+
+			"workspace %s; try again", secret.Name, workspaceId))
+	}
 	return err
 }
 
