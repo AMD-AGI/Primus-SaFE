@@ -879,7 +879,8 @@ func settledPodWorkload(usage []v1.NodePodUsage) (*v1.Workload, *corev1.Pod, *co
 	}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "p1"},
-		Status:     corev1.PodStatus{Phase: corev1.PodRunning, HostIP: "10.0.0.1"},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning, HostIP: "10.0.0.1",
+			StartTime: &metav1.Time{Time: time.Date(2026, 9, 2, 7, 50, 51, 0, time.UTC)}},
 	}
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
 		Labels: map[string]string{v1.NodeIdLabel: "n1"},
