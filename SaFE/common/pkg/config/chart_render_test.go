@@ -488,6 +488,27 @@ func TestChartLeavesTheApiserverAloneForTheSandboxEnvSecret(t *testing.T) {
 	testifyassert.Equal(t, render(), render("--set", "sandbox.env_secret=sandbox-env"))
 }
 
+// An image may set HSA_ENABLE_IPC_MODE_LEGACY=1 (ROCm vLLM images do). In an unprivileged Pod
+// without host IPC the legacy amdkfd IPC import is refused, so every GPU-to-GPU IPC handle fails
+// to open. The sandbox pins the default IPC path in the Pod spec, which overrides the image ENV
+// for every process in the container, PID 1 included.
+func TestChartPinsTheSandboxToTheNonLegacyHIPIPCPath(t *testing.T) {
+	for _, values := range [][]string{nil, {"--set", "sandbox.extra_ca_secret=sandbox-extra-ca",
+		"--set", "sandbox.env_secret=sandbox-env"}} {
+		pod := renderSandboxPod(t, values...)
+		main := pod.Spec.PodTemplate.Spec.Containers[0]
+		found := 0
+		for _, current := range main.Env {
+			if current.Name == "HSA_ENABLE_IPC_MODE_LEGACY" {
+				found++
+				testifyassert.Equal(t, "0", current.Value, "values %v", values)
+				testifyassert.Nil(t, current.ValueFrom, "values %v", values)
+			}
+		}
+		testifyassert.Equal(t, 1, found, "HSA_ENABLE_IPC_MODE_LEGACY entries with values %v", values)
+	}
+}
+
 func TestChartPullsTheEnvdInjectorThroughTheSiteProxy(t *testing.T) {
 	pod := renderSandboxPod(t, "--set", "global.sub_domain=site", "--set", "global.domain=example.com")
 	testifyrequire.Len(t, pod.Spec.PodTemplate.Spec.InitContainers, 1)
