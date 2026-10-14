@@ -338,8 +338,10 @@ type sandboxPod struct {
 		PodTemplate struct {
 			Spec struct {
 				Containers []struct {
-					Name string `yaml:"name"`
-					Env  []struct {
+					Name    string   `yaml:"name"`
+					Command []string `yaml:"command"`
+					Args    []string `yaml:"args"`
+					Env     []struct {
 						Name      string                 `yaml:"name"`
 						Value     string                 `yaml:"value"`
 						ValueFrom map[string]interface{} `yaml:"valueFrom"`
@@ -447,7 +449,7 @@ func TestChartInjectsTheSandboxEnvSecret(t *testing.T) {
 		{"secretRef": map[string]interface{}{"name": "sandbox-env", "optional": true}},
 	}, main.EnvFrom)
 	// The explicit env is unchanged, and explicit env wins over envFrom in Kubernetes, so the
-	// Secret cannot replace PATH or the CA variables.
+	// Secret cannot replace the CA variables.
 	testifyassert.Equal(t, plain.Spec.PodTemplate.Spec.Containers[0].Env, main.Env)
 }
 
@@ -506,6 +508,82 @@ func TestChartPinsTheSandboxToTheNonLegacyHIPIPCPath(t *testing.T) {
 			}
 		}
 		testifyassert.Equal(t, 1, found, "HSA_ENABLE_IPC_MODE_LEGACY entries with values %v", values)
+	}
+}
+
+// sandboxPathEntries are the directories the sandbox runtime needs on PATH: the injected tools
+// in /shared/bin, the workspace user's `pip install --user` scripts, and the system directories
+// the startup command runs its own commands from. It was the whole fixed PATH the template set.
+var sandboxPathEntries = []string{"/shared/bin", "/home/sandbox/.local/bin", "/usr/local/bin", "/usr/bin", "/bin", "/sbin"}
+
+// sandboxStartupTail is what the startup command runs once PATH is set up.
+const sandboxStartupTail = "mkdir -p /app && /shared/bin/setup-amd-ca.sh && exec /shared/bin/envd --port=8080 --workspace=/app"
+
+// A PATH env var on the container replaces the image's ENV PATH, so the template must set none,
+// whatever else is turned on.
+func TestChartSetsNoPathOnTheSandbox(t *testing.T) {
+	for _, values := range [][]string{
+		nil,
+		{"--set", "sandbox.extra_ca_secret=sandbox-extra-ca", "--set", "sandbox.env_secret=sandbox-env"},
+	} {
+		pod := renderSandboxPod(t, values...)
+		for _, current := range pod.Spec.PodTemplate.Spec.Containers[0].Env {
+			testifyassert.NotEqual(t, "PATH", current.Name, "values %v", values)
+		}
+	}
+}
+
+// sandboxPathSetup renders the main container's startup command and returns the part that sets
+// up PATH, after checking the rest is the unchanged startup tail run by /bin/sh -c.
+func sandboxPathSetup(t *testing.T) string {
+	t.Helper()
+	main := renderSandboxPod(t).Spec.PodTemplate.Spec.Containers[0]
+	testifyrequire.Equal(t, []string{"/bin/sh", "-c"}, main.Command)
+	testifyrequire.Len(t, main.Args, 1)
+	setup, tail, found := strings.Cut(main.Args[0], "export PATH; ")
+	testifyrequire.True(t, found, "startup command does not export PATH: %s", main.Args[0])
+	testifyrequire.Equal(t, sandboxStartupTail, tail)
+	testifyrequire.True(t, strings.HasPrefix(setup, "for d in "+strings.Join(sandboxPathEntries, " ")+"; "), setup)
+	return setup + "export PATH; "
+}
+
+// The startup command keeps the PATH the container starts with (the image's) first and in its
+// order, and appends each runtime directory it lacks once. It runs under every POSIX shell on the
+// host, since /bin/sh in a sandbox image may be any of them.
+func TestChartSandboxStartupKeepsTheImagePath(t *testing.T) {
+	setup := sandboxPathSetup(t)
+	var shells []string
+	for _, name := range []string{"sh", "dash", "bash", "busybox"} {
+		if shell, err := exec.LookPath(name); err == nil {
+			shells = append(shells, shell)
+		}
+	}
+	testifyrequire.NotEmpty(t, shells, "no POSIX shell on the host")
+	runtimePath := strings.Join(sandboxPathEntries, ":")
+	cases := []struct {
+		name, start, want string
+	}{
+		{"image path first, missing entries appended",
+			"/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+			"/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/shared/bin:/home/sandbox/.local/bin"},
+		{"nothing duplicated when every entry is present", runtimePath, runtimePath},
+		{"a directory only named as a prefix still counts as missing", "/shared/bin2:/bin/x",
+			"/shared/bin2:/bin/x:" + runtimePath},
+		{"an empty path becomes exactly the runtime entries", "", runtimePath},
+	}
+	for _, shell := range shells {
+		for _, current := range cases {
+			args := []string{shell}
+			if filepath.Base(shell) == "busybox" {
+				args = append(args, "sh")
+			}
+			args = append(args, "-c", setup+`printf '%s' "$PATH"`)
+			cmd := exec.Command(args[0], args[1:]...)
+			cmd.Env = []string{"PATH=" + current.start}
+			out, err := cmd.Output()
+			testifyrequire.NoError(t, err, "%s: %s", shell, current.name)
+			testifyassert.Equal(t, current.want, string(out), "%s: %s", shell, current.name)
+		}
 	}
 }
 

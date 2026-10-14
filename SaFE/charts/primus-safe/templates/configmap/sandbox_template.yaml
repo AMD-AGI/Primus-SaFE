@@ -26,8 +26,12 @@ data:
         spec:
           schedulerName: kube-scheduler-plugins
           containers:
+          # The container sets no PATH: a PATH env var replaces the image's own, so commands
+          # in the sandbox lost the image's directories (a venv, toolchains). The script keeps
+          # the PATH the container starts with, in its order, and appends each directory the
+          # runtime needs that it lacks, once; an empty PATH becomes exactly that list.
           - args:
-            - export PATH=/shared/bin:$PATH && mkdir -p /app && /shared/bin/setup-amd-ca.sh && exec /shared/bin/envd --port=8080 --workspace=/app
+            - for d in /shared/bin /home/sandbox/.local/bin /usr/local/bin /usr/bin /bin /sbin; do case ":${PATH}:" in *":${d}:"*) ;; *) PATH="${PATH:+${PATH}:}${d}" ;; esac; done; export PATH; mkdir -p /app && /shared/bin/setup-amd-ca.sh && exec /shared/bin/envd --port=8080 --workspace=/app
             command:
             - /bin/sh
             - -c
@@ -46,8 +50,6 @@ data:
             # workload's own env still wins over this value.
             - name: HSA_ENABLE_IPC_MODE_LEGACY
               value: "0"
-            - name: PATH
-              value: /shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin
             - name: OPENAI_BASE_URL
               value: https://{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/api/v1/llm-proxy/v1
             - name: WORKLOAD_MANAGER_URL
