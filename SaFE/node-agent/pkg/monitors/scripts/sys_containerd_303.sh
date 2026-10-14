@@ -19,15 +19,21 @@ SNAP_DIR="/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots"
 CONTAINERD_303_RECHECK_SLEEP="${CONTAINERD_303_RECHECK_SLEEP:-2}"
 # Reclaim pod file cache once resident usage crosses this many bytes.
 CGROUP_RECLAIM_ABOVE=$((128 * 1024 * 1024))
+# Captured before host() moves commands into init.scope.
+POD_CGROUP=$(cut -d: -f3 /proc/self/cgroup)
 
-host() { ${NSENTER} "$@"; }
+# ctr and the other host commands run in init.scope so their page cache is not
+# charged to this pod's memory cgroup.
+host() {
+  ${NSENTER} sh -c 'echo $$ >/sys/fs/cgroup/init.scope/cgroup.procs || exit 1; exec "$@"' host-sh "$@"
+}
 
 fail() { echo "Error: $1"; exit 1; }
 
-# Drop file cache charged to this pod. ctr stays in the pod cgroup, so snapshot
-# reads accumulate there until memory.reclaim runs from the host mount namespace.
+# Drop file cache still charged to the pod cgroup. host() itself runs in init.scope.
 reclaim_pod_cache() {
-  host sh -c 'cg=$(cut -d: -f3 /proc/self/cgroup); [ -z "$cg" ] && exit 0; cur=$(cat "/sys/fs/cgroup${cg}/memory.current" 2>/dev/null || echo 0); [ "$cur" -gt '"$CGROUP_RECLAIM_ABOVE"' ] && echo 128M > "/sys/fs/cgroup${cg}/memory.reclaim"' >/dev/null 2>&1 || true
+  [ -n "$POD_CGROUP" ] || return 0
+  host sh -c 'cur=$(cat "/sys/fs/cgroup'"$POD_CGROUP"'/memory.current" 2>/dev/null || echo 0); [ "$cur" -gt '"$CGROUP_RECLAIM_ABOVE"' ] && echo 128M > "/sys/fs/cgroup'"$POD_CGROUP"'/memory.reclaim"' >/dev/null 2>&1 || true
 }
 
 # Remove temporary snapshot views and the scratch mount left by an interrupted scan.
@@ -55,17 +61,8 @@ metadata_disk_missing_id() {
   META_IDS=$(mktemp)
   SNAP_LS=$(mktemp)
   trap "rm -f $META_IDS $SNAP_LS" EXIT
-  reclaim_if_high() {
-    cg=$(cut -d: -f3 /proc/self/cgroup)
-    [ -n "$cg" ] || return 0
-    cur=$(cat "/sys/fs/cgroup${cg}/memory.current" 2>/dev/null || echo 0)
-    if [ "$cur" -gt '"$CGROUP_RECLAIM_ABOVE"' ]; then
-      echo 128M > "/sys/fs/cgroup${cg}/memory.reclaim" 2>/dev/null || true
-    fi
-  }
 
   ctr -n k8s.io snapshots ls 2>/dev/null | tail -n +2 > "$SNAP_LS" || true
-  reclaim_if_high
   if [ ! -s "$SNAP_LS" ]; then
     exit 0
   fi
@@ -83,14 +80,13 @@ metadata_disk_missing_id() {
         | grep -oP "snapshots/\K[0-9]+" >> "$META_IDS"
     fi
     umount /tmp/_chk >/dev/null 2>&1 || true
-    reclaim_if_high
   done
 
   sort -un "$META_IDS" | while read -r id; do
     [ -z "$id" ] && continue
     [ ! -d "$SNAP_DIR/$id" ] && echo "$id" && break
   done
-  reclaim_if_high
+  true
 ' 2>/dev/null
 }
 
@@ -107,10 +103,10 @@ fi
 reclaim_pod_cache
 
 # 3. metadata vs disk: extract referenced snapshot IDs from ctr, compare with disk
-MISSING_ID=$(metadata_disk_missing_id)
+MISSING_ID=$(metadata_disk_missing_id) || fail "containerd snapshot scan failed"
 if [ -n "$MISSING_ID" ]; then
   sleep "$CONTAINERD_303_RECHECK_SLEEP"
-  MISSING_ID2=$(metadata_disk_missing_id)
+  MISSING_ID2=$(metadata_disk_missing_id) || fail "containerd snapshot scan failed"
   [ -n "$MISSING_ID2" ] && [ "$MISSING_ID" = "$MISSING_ID2" ] \
     && fail "snapshot $MISSING_ID referenced in metadata but missing on disk"
 fi
