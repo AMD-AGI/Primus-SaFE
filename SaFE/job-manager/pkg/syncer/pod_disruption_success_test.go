@@ -336,6 +336,11 @@ func TestEarlierDispatchPodDoesNotDecide(t *testing.T) {
 	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
 		records: []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
 		cached:  []*unstructured.Unstructured{current}}))
+	// A cache holding only an earlier dispatch's pod cannot tell whether the
+	// current pod has left it, and the record is not read.
+	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
+		records: []v1.WorkloadPod{evictedRecord()},
+		cached:  []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded)}}))
 }
 
 // A MonarchJob or TorchFT workload is not read: its mesh pods carry the
