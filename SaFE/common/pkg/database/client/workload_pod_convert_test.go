@@ -17,6 +17,7 @@ import (
 func TestWorkloadPodConvertRoundTrip(t *testing.T) {
 	in := v1.WorkloadPod{
 		PodId:         "pod-1",
+		PodUid:        "pod-uid-1",
 		ResourceId:    2,
 		AdminNodeName: "node-a",
 		Phase:         corev1.PodRunning,

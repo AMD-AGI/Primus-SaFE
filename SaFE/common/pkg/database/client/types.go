@@ -102,6 +102,7 @@ type WorkloadPod struct {
 	FailedMessage sql.NullString `db:"failed_message"`
 	Containers    sql.NullString `db:"containers"` // JSON-encoded []ContainerStatus
 	DispatchCount int            `db:"dispatch_count"`
+	PodUid        sql.NullString `db:"pod_uid"`
 	UpdatedAt     pq.NullTime    `db:"updated_at"`
 }
 

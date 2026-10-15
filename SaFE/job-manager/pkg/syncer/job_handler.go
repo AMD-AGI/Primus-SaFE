@@ -79,6 +79,13 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 	}
 
 	result, err := r.handleJobImpl(ctx, message, adminWorkload, clientSets)
+	if errors.Is(err, errSuccessVerdictPending) {
+		// The workload is left unended, and its object read again. Its pod
+		// records are not reconciled meanwhile: one whose pod has left the cache
+		// before its delete was recorded would be stopped with no disruption,
+		// and decide the success that waits for that delete.
+		return ctrlruntime.Result{RequeueAfter: successVerdictRetry}, nil
+	}
 	if jobutils.IsUnrecoverableError(err) && !adminWorkload.IsEnd() {
 		// Errors defined internally are fatal and lead to a terminal state without retry
 		err = jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, err.Error())
@@ -105,6 +112,9 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 	if !adminWorkload.IsEnd() {
 		var err error
 		adminWorkload, err = r.updateAdminWorkloadByJob(ctx, clientSets, adminWorkload, message)
+		if errors.Is(err, errSuccessVerdictPending) {
+			return ctrlruntime.Result{}, err
+		}
 		if err != nil {
 			klog.ErrorS(err, "failed to update admin workload status")
 			var extractionError *cicdStatusExtractionError
@@ -365,29 +375,45 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 	}
 	// The k8s status as the object reported it, when a disruption rewrote it.
 	reportedStatus := ""
-	if statusErr == nil && status.Phase != "" {
-		phaseMessage := message
-		if status.Phase == string(v1.K8sSucceeded) {
-			if disruption := r.disruptedSuccess(ctx, clientSets, adminWorkload); disruption != "" {
-				// The object reports success only because the disrupted pod's
-				// containers exited 0 on SIGTERM; the pod was taken away.
-				reportedStatus = string(jsonutils.MarshalSilently(status))
-				klog.Infof("workload %s: k8s object reports success but its pod was disrupted: %s",
-					adminWorkload.Name, disruption)
-				status.Phase = string(v1.K8sFailed)
-				status.Message = joinMessage(status.Message, disruption)
-				// A success ends the workload whatever dispatch its event carries,
-				// and the failure it becomes must too once failover will not act:
-				// failover counts the workload's dispatches, so the retry limit is
-				// judged on the same count. A late event of an earlier dispatch
-				// would otherwise leave the workload past its limit and not ended.
-				if message.dispatchCount < dispatchCount {
-					current := *message
-					current.dispatchCount = dispatchCount
-					phaseMessage = &current
-				}
+	// Whether the object's success is left unapplied, to be read again.
+	pending := false
+	phaseMessage := message
+	if statusErr == nil && status.Phase == string(v1.K8sSucceeded) {
+		pod, disruption, known := r.disruptedSuccess(ctx, clientSets, adminWorkload)
+		switch {
+		case known:
+		case r.awaitSuccessVerdict(adminWorkload, dispatchCount):
+			pending = true
+		default:
+			klog.Infof("workload %s: k8s object reports success, and after %s the pod cache and "+
+				"records still cannot tell whether its pod was disrupted; the success stands",
+				adminWorkload.Name, maxSuccessVerdictWait)
+		}
+		if disruption != "" {
+			// The object reports success only because the disrupted pod's
+			// containers exited 0 on SIGTERM; the pod was taken away.
+			reportedStatus = string(jsonutils.MarshalSilently(status))
+			status.Phase = string(v1.K8sFailed)
+			status.Message = disruptedSuccessMessage(pod, disruption, status.Message)
+			if failedPodInfo := getFailedPodInfo(adminWorkload); failedPodInfo != "" {
+				status.Message += ", details: " + failedPodInfo
+			}
+			// A success ends the workload whatever dispatch its event carries,
+			// and the failure it becomes must too once failover will not act:
+			// failover counts the workload's dispatches, so the retry limit is
+			// judged on the same count. A late event of an earlier dispatch
+			// would otherwise leave the workload past its limit and not ended.
+			if message.dispatchCount < dispatchCount {
+				current := *message
+				current.dispatchCount = dispatchCount
+				phaseMessage = &current
 			}
 		}
+	}
+	if !pending {
+		r.successVerdictWaits.Delete(adminWorkload.Name)
+	}
+	if statusErr == nil && status.Phase != "" && !pending {
 		if status.Phase == string(v1.K8sFailed) && strings.TrimSpace(status.Message) == "" {
 			status.Message = commonworkload.GetWorkloadFailureMessage(adminWorkload.Status.Conditions, dispatchCount)
 		}
@@ -412,6 +438,9 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 	}
 	if adminWorkload.IsEnd() && adminWorkload.Status.EndTime == nil {
 		adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
+	}
+	if pending {
+		statusErr = errSuccessVerdictPending
 	}
 	if reflect.DeepEqual(adminWorkload.Status, originalWorkload.Status) {
 		return originalWorkload, statusErr
@@ -444,13 +473,14 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
 		return nil, err
 	}
+	note := ""
 	if reportedStatus != "" {
-		klog.Infof("update workload status, name: %s, phase: %s, dispatchCount: %d, k8s.status: %s, k8s.status as reported: %s",
-			adminWorkload.Name, adminWorkload.Status.Phase, message.dispatchCount, jsonutils.MarshalSilently(status), reportedStatus)
-	} else {
-		klog.Infof("update workload status, name: %s, phase: %s, dispatchCount: %d, k8s.status: %s",
-			adminWorkload.Name, adminWorkload.Status.Phase, message.dispatchCount, jsonutils.MarshalSilently(status))
+		note = ", k8s.status as reported: " + reportedStatus
+	} else if pending {
+		note = ", not applied until it is known whether a disruption caused the success"
 	}
+	klog.Infof("update workload status, name: %s, phase: %s, dispatchCount: %d, k8s.status: %s%s",
+		adminWorkload.Name, adminWorkload.Status.Phase, message.dispatchCount, jsonutils.MarshalSilently(status), note)
 	if adminWorkload.Status.Phase == v1.WorkloadFailed && originalWorkload.Status.Phase != v1.WorkloadFailed {
 		r.enqueueCICDFailureEnrichment(adminWorkload)
 	}

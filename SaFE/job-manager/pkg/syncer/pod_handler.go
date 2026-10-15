@@ -424,17 +424,9 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 			continue
 		}
 		id = i
-		if own, _ := podDisruptions(p.FailedMessage); own != "" &&
-			v1.IsWorkloadPhaseEnded(adminWorkload.Status.Phase) && v1.IsPodTerminated(&p) {
-			// The workload has ended, and this record says its pod was taken
-			// away by a disruption. A pod of the same name seen now is a later
-			// one, created after the end, and must not overwrite that record.
-			// A disruption carried from an earlier pod does not freeze it: the
-			// later pod's record carries that one on.
-			return v1.WorkloadPod{}, "", false
-		}
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == adminNodeNameOf(k8sNode) &&
-			p.StartTime != "" && p.StartTime == podStartTime(pod) && p.HostIp == pod.Status.HostIP &&
+			p.StartTime != "" && p.StartTime == podStartTime(pod) && p.PodUid == string(pod.UID) &&
+			p.HostIp == pod.Status.HostIP &&
 			!currentDispatchNodesNeedRepair(adminWorkload) {
 			// Return early if no critical changes detected
 			return v1.WorkloadPod{}, "", false
@@ -505,6 +497,7 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 
 	workloadPod := v1.WorkloadPod{
 		PodId:         pod.Name,
+		PodUid:        string(pod.UID),
 		ResourceId:    int8(resourceId),
 		AdminNodeName: adminNodeNameOf(k8sNode),
 		Phase:         pod.Status.Phase,
@@ -522,7 +515,8 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 
 // podStartTime is the pod's start time as a pod record holds it, "" when unset.
 // A pod keeps the start time it was given, so a record whose start time differs
-// describes another pod of the same name.
+// describes another pod of the same name; one whose start time is the same, in
+// whole seconds, may too, and only its pod uid tells.
 func podStartTime(pod *corev1.Pod) string {
 	if pod.Status.StartTime == nil || pod.Status.StartTime.IsZero() {
 		return ""
@@ -630,6 +624,19 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	}
 
 	id := indexOfPod(adminWorkload.Status.Pods, message.name)
+	if id >= 0 && isOtherPodsDelete(&adminWorkload.Status.Pods[id], message) {
+		// The delete of an earlier pod of the same name, seen after its
+		// replacement's record was written: its end is not the replacement's,
+		// and its disruption is kept as the earlier pod's.
+		klog.V(4).InfoS("the delete of an earlier pod of the same name",
+			"workload", adminWorkload.Name, "pod", message.name,
+			"deletedUID", message.uid, "recordUID", adminWorkload.Status.Pods[id].PodUid)
+		if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICD(adminWorkload) ||
+			!setEarlierDisruption(&adminWorkload.Status.Pods[id], message.disruption) {
+			return nil
+		}
+		return r.patchWorkloadPodStatus(ctx, adminWorkload, nil)
+	}
 	noted := false
 	if id >= 0 && !commonworkload.IsApplication(adminWorkload) && !commonworkload.IsCICD(adminWorkload) {
 		// Record why the platform took the pod away before the entry is marked
@@ -649,6 +656,36 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 		return err
 	}
 	return nil
+}
+
+// isOtherPodsDelete reports whether a pod delete event is of another pod than
+// the one the record describes. A record written before records carried the
+// pod uid, or an event with none, is taken for the record's pod.
+func isOtherPodsDelete(p *v1.WorkloadPod, message *resourceMessage) bool {
+	return p.PodUid != "" && message.uid != "" && p.PodUid != string(message.uid)
+}
+
+// setEarlierDisruption records disruption, when set, as the one an earlier pod
+// of the same name carried, in place of any it held, and reports whether the
+// record changed.
+func setEarlierDisruption(p *v1.WorkloadPod, disruption string) bool {
+	_, earlier := podDisruptions(p.FailedMessage)
+	if disruption == "" || earlier == disruption {
+		return false
+	}
+	if earlier != "" {
+		part := earlierPodPrefix + earlier
+		if at := strings.Index(p.FailedMessage, partSeparator+part); at >= 0 {
+			p.FailedMessage = p.FailedMessage[:at] + p.FailedMessage[at+len(partSeparator+part):]
+		} else {
+			p.FailedMessage = strings.TrimPrefix(strings.TrimPrefix(p.FailedMessage, part), partSeparator)
+		}
+	}
+	if p.FailedMessage != "" {
+		p.FailedMessage += partSeparator
+	}
+	p.FailedMessage += earlierPodPrefix + disruption
+	return true
 }
 
 // handleMonarchMesh releases one mesh group's pod records after its pods are gone.
@@ -826,6 +863,7 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	// before this cleanup during the reconcile that first marks the workload failed.
 	if adminWorkload.IsEnd() {
 		r.forgetVanishedPodsCheck(adminWorkload.Name)
+		r.successVerdictWaits.Delete(adminWorkload.Name)
 		return nil
 	}
 	// Dispatch is a precondition rather than an assumption about the caller: its
@@ -861,6 +899,7 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	adminWorkload = fresh
 	if adminWorkload.IsEnd() {
 		r.forgetVanishedPodsCheck(adminWorkload.Name)
+		r.successVerdictWaits.Delete(adminWorkload.Name)
 		return nil
 	}
 
@@ -1276,7 +1315,7 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 	} else if pod.Status.Phase != corev1.PodSucceeded {
 		return
 	}
-	appendPodDisruption(workloadPod, podDisruptionTarget(pod.Status.Conditions))
+	appendPodDisruption(workloadPod, podDisruption(&pod.Status))
 
 	var finishedTime *metav1.Time
 	for i, container := range pod.Status.ContainerStatuses {
@@ -1316,8 +1355,9 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 // carries a pod's DisruptionTarget condition.
 const disruptionTargetPrefix = "DisruptionTarget: "
 
-// podDisruptionTarget returns the pod's DisruptionTarget condition, when it is
-// True, formatted by formatDisruptionTarget; otherwise "".
+// podDisruption returns the pod's DisruptionTarget condition, when it is True
+// and the pod had not ended before it, formatted by formatDisruptionTarget;
+// otherwise "".
 //
 // Kubernetes sets this condition on a pod that is about to be terminated
 // because of a disruption rather than its own exit: eviction by the taint
@@ -1325,38 +1365,75 @@ const disruptionTargetPrefix = "DisruptionTarget: "
 // (TerminationByKubelet), deletion by the pod garbage collector
 // (DeletionByPodGC), scheduler preemption (PreemptionByScheduler) or the
 // Eviction API (EvictionByEvictionAPI).
-func podDisruptionTarget(conditions []corev1.PodCondition) string {
-	for i := range conditions {
-		if conditions[i].Type == corev1.DisruptionTarget {
-			return formatDisruptionTarget(&conditions[i])
+//
+// The condition is set before the pod's containers are signalled, so a
+// disruption that ended the pod is never later than its containers' finish.
+// The taint manager and a drain also mark a pod that had already completed;
+// such a condition, set after every container had finished, did not end the
+// pod and is not returned. Both times have a resolution of one second, and a
+// condition set in the second a container finished is taken as the one that
+// ended it.
+func podDisruption(status *corev1.PodStatus) string {
+	for i := range status.Conditions {
+		c := &status.Conditions[i]
+		if c.Type != corev1.DisruptionTarget {
+			continue
 		}
+		if endedBefore(status.ContainerStatuses, c.LastTransitionTime) {
+			return ""
+		}
+		return formatDisruptionTarget(c)
 	}
 	return ""
 }
 
+// endedBefore reports whether every container had terminated before at. A
+// container still running, or a time that is unset, is not.
+func endedBefore(statuses []corev1.ContainerStatus, at metav1.Time) bool {
+	if at.IsZero() || len(statuses) == 0 {
+		return false
+	}
+	for i := range statuses {
+		terminated := statuses[i].State.Terminated
+		if terminated == nil || terminated.FinishedAt.IsZero() || !terminated.FinishedAt.Before(&at) {
+			return false
+		}
+	}
+	return true
+}
+
 // disruptionTargetOf reads the DisruptionTarget condition from an unstructured
-// pod, see podDisruptionTarget.
+// pod, see podDisruption.
 func disruptionTargetOf(obj *unstructured.Unstructured) string {
 	if obj == nil {
 		return ""
 	}
-	items, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	var status corev1.PodStatus
+	status.Conditions = podStatusItems[corev1.PodCondition](obj, "conditions")
+	status.ContainerStatuses = podStatusItems[corev1.ContainerStatus](obj, "containerStatuses")
+	return podDisruption(&status)
+}
+
+// podStatusItems decodes the list at status.<field> of an unstructured pod,
+// skipping an item that does not decode.
+func podStatusItems[T any](obj *unstructured.Unstructured, field string) []T {
+	items, found, err := unstructured.NestedSlice(obj.Object, "status", field)
 	if err != nil || !found {
-		return ""
+		return nil
 	}
-	conditions := make([]corev1.PodCondition, 0, len(items))
+	out := make([]T, 0, len(items))
 	for _, item := range items {
 		m, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		var c corev1.PodCondition
-		if runtime.DefaultUnstructuredConverter.FromUnstructured(m, &c) != nil {
+		var v T
+		if runtime.DefaultUnstructuredConverter.FromUnstructured(m, &v) != nil {
 			continue
 		}
-		conditions = append(conditions, c)
+		out = append(out, v)
 	}
-	return podDisruptionTarget(conditions)
+	return out
 }
 
 // formatDisruptionTarget renders a True DisruptionTarget condition as
@@ -1446,19 +1523,20 @@ const partSeparator = "; "
 // A controller that recreates a pod under the same name (a Sandbox, for one)
 // replaces the record of a pod a disruption took away. Without this the
 // workload, later stopped by its owner, ends with no record that its pod was
-// taken. The old record describes an earlier pod when it has ended and the new
-// pod has not, or when the two started at different times; otherwise it is the
-// same pod and only what it already carried is kept. An old record with no
-// start time describes a pod that never started, as one PodGC took while
-// Pending, and is taken for an earlier pod; when it was the same pod, the new
-// record already holds that disruption as its own and nothing is carried. Only
-// the latest earlier disruption is carried, marked by earlierPodPrefix so that
-// it is not read as the new pod's own.
+// taken. The old record describes an earlier pod when it has ended and holds
+// another pod uid (see isEarlierPod); otherwise it is the same pod, which
+// keeps its own disruption, as one the delete path recorded on a pod still
+// seen running. Only the latest earlier disruption is
+// carried, marked by earlierPodPrefix so that it is not read as the new pod's
+// own.
 func carryEarlierDisruption(old, cur *v1.WorkloadPod) {
 	own, earlier := podDisruptions(old.FailedMessage)
-	if own != "" && v1.IsPodTerminated(old) &&
-		(!v1.IsPodTerminated(cur) || old.StartTime == "" || old.StartTime != cur.StartTime) {
-		earlier = own
+	if own != "" && v1.IsPodTerminated(old) {
+		if isEarlierPod(old, cur) {
+			earlier = own
+		} else {
+			appendPodDisruption(cur, own)
+		}
 	}
 	if curOwn, _ := podDisruptions(cur.FailedMessage); earlier == "" || curOwn == earlier {
 		return
@@ -1467,6 +1545,21 @@ func carryEarlierDisruption(old, cur *v1.WorkloadPod) {
 		cur.FailedMessage += partSeparator
 	}
 	cur.FailedMessage += earlierPodPrefix + earlier
+}
+
+// isEarlierPod reports whether the old record, which has ended, describes an
+// earlier pod of the same name than cur. Records carry their pod's uid; one
+// written before they did is told by its start time: an earlier pod when the
+// new pod has not ended, or when the two started at different times. An old
+// record with no start time describes a pod that never started, as one PodGC
+// took while Pending, and is taken for an earlier pod; when it was the same
+// pod, the new record already holds that disruption as its own and nothing is
+// carried.
+func isEarlierPod(old, cur *v1.WorkloadPod) bool {
+	if old.PodUid != "" && cur.PodUid != "" {
+		return old.PodUid != cur.PodUid
+	}
+	return !v1.IsPodTerminated(cur) || old.StartTime == "" || old.StartTime != cur.StartTime
 }
 
 // getPodLog retrieves and filters logs from a pod's main container.

@@ -961,6 +961,7 @@ data:
         PRIMARY KEY (workload_id, pod_id)
     );
     alter table workload_pod add column if not exists workload_uid VARCHAR(36) NOT NULL DEFAULT '';
+    alter table workload_pod add column if not exists pod_uid VARCHAR(36);
     update workload_pod p
     set workload_uid = w.workload_uid
     from workload w

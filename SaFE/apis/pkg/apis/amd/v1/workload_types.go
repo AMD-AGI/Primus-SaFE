@@ -356,6 +356,8 @@ type NodePodUsage struct {
 type WorkloadPod struct {
 	// The podId
 	PodId string `json:"podId"`
+	// The uid of the pod. A pod of the same name created later has another.
+	PodUid string `json:"podUid,omitempty"`
 	// The id of workload resources that the pod is bound to.
 	// If the value is less than 0, it means the pod does not belong to any resource.
 	ResourceId int8 `json:"resourceId,omitempty"`
