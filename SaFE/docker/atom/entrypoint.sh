@@ -1,23 +1,26 @@
 #!/bin/bash
-# Starts atomesh or the ATOM OpenAI server.
-# Mode is the first argument, or ATOM_ROLE: router -> atomesh, prefill/decode -> atom.
-# Extra arguments replace the default flags.
+# Start sshd, then the container command.
+# No command and no ATOM_ROLE: tail -f /dev/null.
+# atomesh|atom, or ATOM_ROLE=router|prefill|decode, starts that service.
+# Any other arguments are executed as the user command.
 
 set -euo pipefail
 
-mode="${1:-}"
-if [[ "${mode}" == "atomesh" || "${mode}" == "atom" ]]; then
-    shift
-else
+/usr/local/bin/sshd-init.sh || echo "[entrypoint] sshd init failed (continuing)" >&2
+
+# The image CMD is tail -f /dev/null. Treat that the same as no arguments
+# so ATOM_ROLE can still select a service.
+if [[ $# -eq 0 || ( $# -eq 3 && "$1" == "tail" && "$2" == "-f" && "$3" == "/dev/null" ) ]]; then
     case "${ATOM_ROLE:-}" in
         router) mode="atomesh" ;;
         prefill|decode) mode="atom" ;;
-        *)
-            echo "usage: atom-entrypoint atomesh|atom [args...]" >&2
-            echo "or set ATOM_ROLE=router|prefill|decode" >&2
-            exit 2
-            ;;
+        *) exec tail -f /dev/null ;;
     esac
+elif [[ "$1" == "atomesh" || "$1" == "atom" ]]; then
+    mode="$1"
+    shift
+else
+    exec "$@"
 fi
 
 port="${ATOM_SERVER_PORT:-8000}"
