@@ -624,6 +624,15 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	}
 
 	id := indexOfPod(adminWorkload.Status.Pods, message.name)
+	if id >= 0 && isOtherPodsDelete(&adminWorkload.Status.Pods[id], message) {
+		// The delete of an earlier pod of the same name, seen after its
+		// replacement's record was written: neither its end nor its disruption
+		// is the replacement's.
+		klog.V(4).InfoS("ignore the delete of an earlier pod of the same name",
+			"workload", adminWorkload.Name, "pod", message.name,
+			"deletedUID", message.uid, "recordUID", adminWorkload.Status.Pods[id].PodUid)
+		return nil
+	}
 	noted := false
 	if id >= 0 && !commonworkload.IsApplication(adminWorkload) && !commonworkload.IsCICD(adminWorkload) {
 		// Record why the platform took the pod away before the entry is marked
@@ -643,6 +652,13 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 		return err
 	}
 	return nil
+}
+
+// isOtherPodsDelete reports whether a pod delete event is of another pod than
+// the one the record describes. A record written before records carried the
+// pod uid, or an event with none, is taken for the record's pod.
+func isOtherPodsDelete(p *v1.WorkloadPod, message *resourceMessage) bool {
+	return p.PodUid != "" && message.uid != "" && p.PodUid != string(message.uid)
 }
 
 // handleMonarchMesh releases one mesh group's pod records after its pods are gone.

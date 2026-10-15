@@ -311,3 +311,25 @@ func TestCarryTellsPodsByUid(t *testing.T) {
 	carryEarlierDisruption(old, cur)
 	assert.Equal(t, cur.FailedMessage, wantEviction())
 }
+
+// The delete of an earlier pod of the same name, processed after the record of
+// a clean replacement was written, neither stops the replacement's record nor
+// gives it the earlier pod's disruption.
+func TestEarlierPodsDeleteLeavesReplacementRecord(t *testing.T) {
+	cl := disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "replacement-uid", Phase: corev1.PodSucceeded,
+		StartTime: timeutil.FormatRFC3339(secondStart.Time)})
+	r := &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, eventMessage(t, disruptedPodObject(t, evictionCondition()), ResourceDel), nil)
+	pods := getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodSucceeded)
+	assert.Equal(t, pods[0].FailedMessage, "")
+
+	// The record's own pod's delete is applied.
+	cl = disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "pod-uid", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(secondStart.Time)})
+	r = &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, eventMessage(t, disruptedPodObject(t, evictionCondition()), ResourceDel), nil)
+	pods = getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+	assert.Equal(t, pods[0].FailedMessage, wantEviction())
+}
