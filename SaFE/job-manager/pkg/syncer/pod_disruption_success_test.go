@@ -890,3 +890,36 @@ func TestSucceededAttemptOutranksALaterStoppedOne(t *testing.T) {
 	evicted.StartTime = earlierInDispatch
 	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evicted, stopped}))
 }
+
+// An evicted pod is deleted before its containers exit: one that exits 0 on the
+// SIGTERM ends Succeeded while being deleted, and is recorded as it ended. A
+// Job counting that success deletes the replacement it had started, which is
+// stopped; the evicted attempt, seen to succeed, decides.
+func TestEvictedAttemptSeenSucceedingWhileDeletedDecides(t *testing.T) {
+	cl := disruptionWorkload(t,
+		v1.WorkloadPod{PodId: "p1", Phase: corev1.PodRunning, StartTime: earlierInDispatch},
+		v1.WorkloadPod{PodId: "p2", Phase: corev1.PodRunning, StartTime: recordStartTime})
+	r := &SyncerReconciler{Client: cl}
+	deleting := disruptedPodObject(t, evictionCondition())
+	deleting.SetDeletionTimestamp(&metav1.Time{Time: time.Now()})
+	assert.NilError(t, unstructured.SetNestedField(deleting.Object, string(corev1.PodSucceeded), "status", "phase"))
+	handlePodWithInformer(t, r, eventMessage(t, deleting, ResourceUpdate), deleting)
+	replacement := disruptedPodObject(t)
+	replacement.SetName("p2")
+	replacement.SetUID("p2-uid")
+	handlePodWithInformer(t, r, eventMessage(t, replacement, ResourceDel), nil)
+
+	pods := getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodSucceeded)
+	assert.Equal(t, pods[0].FailedMessage, wantEviction())
+	assert.Equal(t, pods[1].Phase, corev1.PodPhase(v1.WorkloadStopped))
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, pods))
+
+	// A deleted pod that had not ended is stopped, as before.
+	cl = disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", Phase: corev1.PodRunning})
+	r = &SyncerReconciler{Client: cl}
+	running := disruptedPodObject(t, evictionCondition())
+	running.SetDeletionTimestamp(&metav1.Time{Time: time.Now()})
+	handlePodWithInformer(t, r, eventMessage(t, running, ResourceUpdate), running)
+	assert.Equal(t, getWorkloadPods(t, cl)[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+}
