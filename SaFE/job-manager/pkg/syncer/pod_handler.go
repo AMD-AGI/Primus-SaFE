@@ -69,7 +69,14 @@ func (r *SyncerReconciler) handlePod(ctx context.Context,
 		klog.V(4).InfoS("ignore pod event for a replaced object",
 			"namespace", message.namespace, "pod", message.name,
 			"eventUID", message.uid, "currentUID", obj.GetUID())
-		return ctrlruntime.Result{}, nil
+		if message.disruption == "" {
+			return ctrlruntime.Result{}, nil
+		}
+		// The pod is gone, and another of its name is in the cache: a controller
+		// recreated it before this event was handled. The disruption that took
+		// the pod is still recorded, never on the replacement as its own, and
+		// the replacement is not deleted.
+		return ctrlruntime.Result{}, r.removeReplacedPod(ctx, clusterClientSets, message)
 	}
 	if obj == nil || !obj.GetDeletionTimestamp().IsZero() {
 		if obj != nil && message.meshName == "" {
@@ -424,8 +431,12 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 			continue
 		}
 		id = i
+		// A record with no pod uid is not rewritten for the uid alone: one
+		// written before records carried uids is told by its start time, and
+		// a Workload CRD that predates the field drops it from every write.
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == adminNodeNameOf(k8sNode) &&
-			p.StartTime != "" && p.StartTime == podStartTime(pod) && p.PodUid == string(pod.UID) &&
+			p.StartTime != "" && p.StartTime == podStartTime(pod) &&
+			(p.PodUid == "" || p.PodUid == string(pod.UID)) &&
 			p.HostIp == pod.Status.HostIP &&
 			!currentDispatchNodesNeedRepair(adminWorkload) {
 			// Return early if no critical changes detected
@@ -606,6 +617,20 @@ func getMainContainerRank(mainContainerName string, pod *corev1.Pod) string {
 // Called when a pod is deleted to clean up the workload's pod list.
 func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *ClusterClientSets,
 	message *resourceMessage) error {
+	return r.removePodOf(ctx, clientSets, message, false)
+}
+
+// removeReplacedPod is removeWorkloadPod for a pod that a pod of the same name,
+// in the informer cache, has replaced. A record that does not carry the
+// deleted pod's uid, one written before records carried uids included, is
+// taken for the replacement's.
+func (r *SyncerReconciler) removeReplacedPod(ctx context.Context, clientSets *ClusterClientSets,
+	message *resourceMessage) error {
+	return r.removePodOf(ctx, clientSets, message, true)
+}
+
+func (r *SyncerReconciler) removePodOf(ctx context.Context, clientSets *ClusterClientSets,
+	message *resourceMessage, replaced bool) error {
 	workloadID, err := r.resolvePodWorkloadID(ctx, clientSets, message)
 	if err != nil || workloadID == "" {
 		return err
@@ -624,7 +649,8 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	}
 
 	id := indexOfPod(adminWorkload.Status.Pods, message.name)
-	if id >= 0 && isOtherPodsDelete(&adminWorkload.Status.Pods[id], message) {
+	if id >= 0 && (isOtherPodsDelete(&adminWorkload.Status.Pods[id], message) ||
+		(replaced && adminWorkload.Status.Pods[id].PodUid != string(message.uid))) {
 		// The delete of an earlier pod of the same name, seen after its
 		// replacement's record was written: its end is not the replacement's,
 		// and its disruption is kept as the earlier pod's.

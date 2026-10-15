@@ -366,3 +366,78 @@ func TestSetEarlierDisruption(t *testing.T) {
 		assert.Equal(t, setEarlierDisruption(p, wantEviction()), false, tc.message)
 	}
 }
+
+// The delete of a disrupted pod, handled after the controller recreated it
+// under the same name and the replacement entered the informer cache, still
+// records the disruption: as the earlier pod's on the replacement's record, or
+// as its own on a record that still describes it. The replacement is neither
+// stopped nor given the disruption as its own.
+func TestReplacedPodsDeleteSeenWithReplacementCached(t *testing.T) {
+	replacement := disruptedPodObject(t)
+	replacement.SetUID("replacement-uid")
+	deleted := func() *resourceMessage {
+		return eventMessage(t, disruptedPodObject(t, evictionCondition()), ResourceDel)
+	}
+
+	cl := disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "replacement-uid", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(secondStart.Time)})
+	r := &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, deleted(), replacement)
+	pods := getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodRunning)
+	assert.Equal(t, pods[0].FailedMessage, earlierPodPrefix+wantEviction())
+
+	// A record written before records carried uids is taken for the
+	// replacement's.
+	cl = disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(secondStart.Time)})
+	r = &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, deleted(), replacement)
+	pods = getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodRunning)
+	assert.Equal(t, pods[0].FailedMessage, earlierPodPrefix+wantEviction())
+
+	// A record still of the deleted pod is stopped with its disruption, which
+	// the replacement's record then carries as the earlier pod's.
+	cl = disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "pod-uid", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(firstStart.Time)})
+	r = &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, deleted(), replacement)
+	pods = getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+	assert.Equal(t, pods[0].FailedMessage, wantEviction())
+	later := samePod(corev1.PodRunning, &secondStart)
+	later.UID = "replacement-uid"
+	seePod(t, r, cl, later)
+	pods = getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodRunning)
+	assert.Equal(t, pods[0].FailedMessage, earlierPodPrefix+wantEviction())
+
+	// A clean earlier pod's delete leaves the replacement's record as it is.
+	cl = disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "replacement-uid", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(secondStart.Time)})
+	r = &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, eventMessage(t, disruptedPodObject(t), ResourceDel), replacement)
+	pods = getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodRunning)
+	assert.Equal(t, pods[0].FailedMessage, "")
+}
+
+// A record with no pod uid, as a Workload CRD that predates the field leaves
+// every record, is not rewritten on each event of an unchanged pod.
+func TestRecordWithoutUidIsNotRewrittenForIt(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Status.Phase = v1.WorkloadRunning
+	w.Status.Pods = []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(firstStart.Time)}}
+	pod := samePod(corev1.PodRunning, &firstStart)
+	pod.UID = "u1"
+	r := &SyncerReconciler{}
+	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, nil)
+	assert.Equal(t, updated, false)
+	// A record of another pod is rewritten.
+	w.Status.Pods[0].PodUid = "u0"
+	_, _, updated = r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, nil)
+	assert.Equal(t, updated, true)
+	assert.Equal(t, w.Status.Pods[0].PodUid, "u1")
+}
