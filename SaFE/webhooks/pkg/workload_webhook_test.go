@@ -31,6 +31,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -642,6 +643,31 @@ func TestWorkloadMutateAndValidateAtom(t *testing.T) {
 	assert.NilError(t, v.validateAtom(w))
 	w.Spec.Service.TargetPort = 9000
 	assert.Assert(t, v.validateAtom(w) != nil)
+}
+
+// atomWorkloadNamed builds an Atom workload whose only variable is the object name.
+func atomWorkloadNamed(name string) *v1.Workload {
+	res := wlResource()
+	return &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.AtomKind},
+			Resources:        []v1.WorkloadResource{res, res, res},
+			Images:           []string{"router", "prefill", "decode"},
+			EntryPoints:      []string{"r", "p", "d"},
+		},
+	}
+}
+
+// TestValidateAtomNameLength verifies the prefill Deployment name keeps the pod-suffix margin.
+func TestValidateAtomNameLength(t *testing.T) {
+	v := &WorkloadValidator{}
+	roleSuffix := "-" + common.AtomRolePrefill
+	podSuffix := commonutils.MaxGeneratedNameLength - commonutils.MaxDeploymentNameLen
+	maxRoleName := commonutils.MaxNameLength - podSuffix
+	okName := strings.Repeat("a", maxRoleName-len(roleSuffix))
+	assert.NilError(t, v.validateAtom(atomWorkloadNamed(okName)))
+	assert.Assert(t, v.validateAtom(atomWorkloadNamed(okName+"b")) != nil)
 }
 
 func TestWorkloadValidateInferaDeployment(t *testing.T) {

@@ -3,6 +3,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getWorkloadDetail, deleteWorkload, stopWorkload, addWorkload } from '@/services'
 import { ensureResumeCooldownElapsed } from '@/composables/useWorkloadResumePermission'
+import { buildAtomResumePayload } from '@/pages/Atom/atomPayload'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 export interface UseWorkloadDetailOptions {
@@ -216,42 +217,7 @@ export function useWorkloadDetail(options: UseWorkloadDetailOptions) {
           ...(detail.useWorkspaceStorage !== undefined ? { useWorkspaceStorage: detail.useWorkspaceStorage } : {}),
         }
       } else if (kind === 'Atom') {
-        const resources = Array.isArray(detail.resources) ? detail.resources : []
-        const servicePayload = detail.service
-          ? {
-              service: {
-                ...(detail.service.name ? { name: detail.service.name } : {}),
-                protocol: detail.service.protocol || 'TCP',
-                port: detail.service.port,
-                targetPort: 8000,
-                serviceType: detail.service.serviceType || 'ClusterIP',
-              },
-            }
-          : {}
-        payload = {
-          workspace: wsStore.currentWorkspaceId!,
-          displayName: detail.displayName,
-          groupVersionKind: detail.groupVersionKind,
-          description: detail.description,
-          entryPoints: Array.isArray(detail.entryPoints) ? detail.entryPoints : [],
-          images: Array.isArray(detail.images) ? detail.images : [],
-          priority: detail.priority,
-          resources: resources.map((item: Record<string, unknown>) => ({
-            replica: item.replica || 1,
-            cpu: item.cpu,
-            gpu: item.gpu,
-            memory: item.memory,
-            ephemeralStorage: item.ephemeralStorage,
-            sharedMemory: item.sharedMemory,
-          })),
-          ...servicePayload,
-          ...(detail.timeout ? { timeout: detail.timeout } : {}),
-          ...(secrets.length > 0 ? { secrets } : {}),
-          workloadId: detail.workloadId,
-          ...(detail.useWorkspaceStorage !== undefined
-            ? { useWorkspaceStorage: detail.useWorkspaceStorage }
-            : {}),
-        }
+        payload = buildAtomResumePayload(detail, wsStore.currentWorkspaceId!, secrets)
       } else if (kind === 'Deployment' || kind === 'StatefulSet') {
         // Infer - Deployment/StatefulSet
         const resources = detail.resources || [detail.resource]

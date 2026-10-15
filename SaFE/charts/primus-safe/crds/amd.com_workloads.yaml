@@ -145,6 +145,10 @@ spec:
                   port:
                     description: Liveness probe port
                     type: integer
+                  timeoutSeconds:
+                    description: Probe timeout. When unset, the Kubernetes default
+                      of 1s is used.
+                    type: integer
                 required:
                 - path
                 - port
@@ -173,6 +177,10 @@ spec:
                     type: integer
                   port:
                     description: Liveness probe port
+                    type: integer
+                  timeoutSeconds:
+                    description: Probe timeout. When unset, the Kubernetes default
+                      of 1s is used.
                     type: integer
                 required:
                 - path

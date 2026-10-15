@@ -626,7 +626,7 @@ func (v *WorkloadValidator) validateAtom(workload *v1.Workload) error {
 	if workload.Spec.Service != nil && workload.Spec.Service.TargetPort != common.AtomRouterPort {
 		return fmt.Errorf("atom router targetPort must be %d", common.AtomRouterPort)
 	}
-	if len(commonworkload.AtomRoleObjectName(workload.Name, common.AtomRolePrefill)) > validation.DNS1123LabelMaxLength {
+	if len(commonworkload.AtomRoleObjectName(workload.Name, common.AtomRolePrefill)) > commonutils.MaxAtomRoleNameLen {
 		return fmt.Errorf("atom workload name is too long")
 	}
 	return nil

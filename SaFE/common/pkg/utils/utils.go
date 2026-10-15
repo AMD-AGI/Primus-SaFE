@@ -26,7 +26,12 @@ const (
 	// 13 is the fixed suffix length of pytorchjob pod.
 	MaxPytorchJobNameLen = MaxGeneratedNameLength - 13
 	// 17 is the fixed suffix length of deployment pod.
-	MaxDeploymentNameLen   = MaxGeneratedNameLength - 17
+	MaxDeploymentNameLen = MaxGeneratedNameLength - 17
+	// MaxAtomRoleNameLen is the maximum {workload}-prefill Deployment name.
+	// It keeps that pod suffix inside MaxNameLength.
+	MaxAtomRoleNameLen = MaxNameLength - (MaxGeneratedNameLength - MaxDeploymentNameLen)
+	// MaxAtomNameLen is the maximum Atom display name. "-prefill" is the longest role suffix.
+	MaxAtomNameLen         = MaxDeploymentNameLen - len("-prefill")
 	MaxCICDScaleSetNameLen = 39
 	// 4 is the fixed suffix length of internal torchft worker name.
 	MaxTorchFTNameLen = MaxDeploymentNameLen - 4

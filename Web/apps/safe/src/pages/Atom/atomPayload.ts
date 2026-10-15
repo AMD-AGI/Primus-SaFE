@@ -103,3 +103,80 @@ export function buildAtomWorkloadBody(form: AtomFormModel) {
     },
   }
 }
+
+export interface AtomResumeDetail {
+  displayName?: string
+  description?: string
+  groupVersionKind?: { group?: string; version?: string; kind?: string }
+  entryPoints?: string[]
+  images?: string[]
+  priority?: number
+  resources?: Array<Record<string, unknown>>
+  service?: {
+    name?: string
+    protocol?: string
+    port?: number
+    serviceType?: string
+  }
+  timeout?: number
+  env?: Record<string, string>
+  customerLabels?: Record<string, string>
+  workloadId?: string
+  useWorkspaceStorage?: boolean
+}
+
+/** Copy an Atom role resource, including GPU name and RDMA, for resume. */
+function atomResumeResource(item: Record<string, unknown>) {
+  return {
+    replica: item.replica || 1,
+    cpu: item.cpu,
+    gpu: item.gpu,
+    memory: item.memory,
+    ephemeralStorage: item.ephemeralStorage,
+    sharedMemory: item.sharedMemory,
+    ...(item.gpuName ? { gpuName: item.gpuName } : {}),
+    ...(item.rdmaResource ? { rdmaResource: item.rdmaResource } : {}),
+  }
+}
+
+/**
+ * Build the Atom resume body from a workload detail.
+ * Role resources stay in router, prefill, decode order.
+ */
+export function buildAtomResumePayload(
+  detail: AtomResumeDetail,
+  workspace: string,
+  secrets: { id: string }[],
+) {
+  const resources = Array.isArray(detail.resources) ? detail.resources : []
+  const servicePayload = detail.service
+    ? {
+        service: {
+          ...(detail.service.name ? { name: detail.service.name } : {}),
+          protocol: detail.service.protocol || 'TCP',
+          port: detail.service.port,
+          targetPort: ATOM_ROUTER_TARGET_PORT,
+          serviceType: detail.service.serviceType || 'ClusterIP',
+        },
+      }
+    : {}
+  return {
+    workspace,
+    displayName: detail.displayName,
+    groupVersionKind: detail.groupVersionKind,
+    description: detail.description,
+    entryPoints: Array.isArray(detail.entryPoints) ? detail.entryPoints : [],
+    images: Array.isArray(detail.images) ? detail.images : [],
+    priority: detail.priority,
+    resources: resources.map(atomResumeResource),
+    ...servicePayload,
+    ...(detail.env ? { env: detail.env } : {}),
+    ...(detail.customerLabels ? { customerLabels: detail.customerLabels } : {}),
+    ...(detail.timeout ? { timeout: detail.timeout } : {}),
+    ...(secrets.length > 0 ? { secrets } : {}),
+    workloadId: detail.workloadId,
+    ...(detail.useWorkspaceStorage !== undefined
+      ? { useWorkspaceStorage: detail.useWorkspaceStorage }
+      : {}),
+  }
+}
