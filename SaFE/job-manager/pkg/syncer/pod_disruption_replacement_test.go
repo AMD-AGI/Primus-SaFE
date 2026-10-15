@@ -487,3 +487,51 @@ func TestSeenSucceededCleanTellsThePodByUid(t *testing.T) {
 	assert.Equal(t, own2, "")
 	assert.Equal(t, earlier, wantTaintManager())
 }
+
+// A later pod of the same name all of whose events but its delete were
+// coalesced away: its delete is not taken for an earlier pod's, it replaces
+// the record of the earlier pod, and a disruption that took it is its own.
+func TestLaterPodsDeleteSupersedesTheRecord(t *testing.T) {
+	later := func(conditions ...corev1.PodCondition) *resourceMessage {
+		obj := disruptedPodObject(t, conditions...)
+		assert.NilError(t, unstructured.SetNestedField(obj.Object, secondStart.UTC().Format(time.RFC3339),
+			"status", "startTime"))
+		return eventMessage(t, obj, ResourceDel)
+	}
+	start := timeutil.FormatRFC3339(firstStart.Time)
+	laterStart := timeutil.FormatRFC3339(secondStart.Time)
+	for _, tc := range []struct {
+		record      v1.WorkloadPod
+		wantMessage string
+	}{
+		// The earlier pod succeeded clean.
+		{v1.WorkloadPod{PodId: "p1", PodUid: "u1", Phase: corev1.PodSucceeded, StartTime: start}, wantEviction()},
+		// A record written before records carried uids.
+		{v1.WorkloadPod{PodId: "p1", Phase: corev1.PodSucceeded, StartTime: start}, wantEviction()},
+		// The earlier pod's own disruption is kept as the earlier pod's.
+		{v1.WorkloadPod{PodId: "p1", PodUid: "u1", Phase: corev1.PodPhase(v1.WorkloadStopped), StartTime: start,
+			FailedMessage: wantTaintManager()}, earlierPodPrefix + wantTaintManager() + "; " + wantEviction()},
+	} {
+		cl := disruptionWorkload(t, tc.record)
+		r := &SyncerReconciler{Client: cl}
+		handlePodWithInformer(t, r, later(evictionCondition()), nil)
+		pods := getWorkloadPods(t, cl)
+		assert.Equal(t, pods[0].PodUid, "pod-uid")
+		assert.Equal(t, pods[0].StartTime, laterStart)
+		assert.Equal(t, pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+		assert.Equal(t, pods[0].FailedMessage, tc.wantMessage)
+	}
+
+	// An earlier pod's late delete leaves the record as it is.
+	cl := disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "u2", Phase: corev1.PodSucceeded,
+		StartTime: laterStart})
+	r := &SyncerReconciler{Client: cl}
+	obj := disruptedPodObject(t, evictionCondition())
+	assert.NilError(t, unstructured.SetNestedField(obj.Object, firstStart.UTC().Format(time.RFC3339),
+		"status", "startTime"))
+	handlePodWithInformer(t, r, eventMessage(t, obj, ResourceDel), nil)
+	pods := getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].PodUid, "u2")
+	assert.Equal(t, pods[0].Phase, corev1.PodSucceeded)
+	assert.Equal(t, pods[0].FailedMessage, earlierPodPrefix+wantEviction())
+}

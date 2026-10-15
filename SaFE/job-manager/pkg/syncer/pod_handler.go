@@ -528,6 +528,16 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 	return workloadPod
 }
 
+// podStartTimeOf is podStartTime of an unstructured pod.
+func podStartTimeOf(obj *unstructured.Unstructured) string {
+	raw, _, _ := unstructured.NestedString(obj.Object, "status", "startTime")
+	at, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return ""
+	}
+	return podStartTime(&corev1.Pod{Status: corev1.PodStatus{StartTime: &metav1.Time{Time: at}}})
+}
+
 // podStartTime is the pod's start time as a pod record holds it, "" when unset.
 // A pod keeps the start time it was given, so a record whose start time differs
 // describes another pod of the same name; one whose start time is the same, in
@@ -656,6 +666,15 @@ func (r *SyncerReconciler) removePodOf(ctx context.Context, clientSets *ClusterC
 	}
 
 	id := indexOfPod(adminWorkload.Status.Pods, message.name)
+	if id >= 0 && replacementStart == nil && isLaterPodsDelete(&adminWorkload.Status.Pods[id], message) {
+		// A later pod of the same name, none of whose events but its delete
+		// was handled: the record is made its, the earlier pod's disruption
+		// kept as the earlier pod's, and the delete is then applied to it.
+		klog.V(4).InfoS("the delete of a later pod of the same name",
+			"workload", adminWorkload.Name, "pod", message.name,
+			"deletedUID", message.uid, "recordUID", adminWorkload.Status.Pods[id].PodUid)
+		supersedeRecord(&adminWorkload.Status.Pods[id], message)
+	}
 	if id >= 0 && (isOtherPodsDelete(&adminWorkload.Status.Pods[id], message) ||
 		isReplacementsRecord(&adminWorkload.Status.Pods[id], replacementStart)) {
 		// The delete of an earlier pod of the same name, seen after its
@@ -693,6 +712,40 @@ func (r *SyncerReconciler) removePodOf(ctx context.Context, clientSets *ClusterC
 		return err
 	}
 	return nil
+}
+
+// isLaterPodsDelete reports whether a pod delete event is of a pod of the
+// record's name that started after the record's pod: another pod uid, or a
+// record with none, and a later start time.
+func isLaterPodsDelete(p *v1.WorkloadPod, message *resourceMessage) bool {
+	if message.uid == "" || p.PodUid == string(message.uid) || p.StartTime == "" || message.startTime == "" {
+		return false
+	}
+	recorded, err := time.ParseInLocation(timeutil.TimeRFC3339Short, p.StartTime, time.Local)
+	if err != nil {
+		return false
+	}
+	deleted, err := time.ParseInLocation(timeutil.TimeRFC3339Short, message.startTime, time.Local)
+	return err == nil && deleted.After(recorded)
+}
+
+// supersedeRecord makes the record describe the deleted later pod of its name:
+// its uid and start time, not yet ended, with the DisruptionTarget of the
+// earlier pod, its own or one it carried, kept as an earlier pod's.
+func supersedeRecord(p *v1.WorkloadPod, message *resourceMessage) {
+	own, earlier := podDisruptions(p.FailedMessage)
+	if own != "" {
+		earlier = own
+	}
+	p.PodUid = string(message.uid)
+	p.StartTime = message.startTime
+	p.EndTime = ""
+	p.Phase = ""
+	p.Containers = nil
+	p.FailedMessage = ""
+	if earlier != "" {
+		p.FailedMessage = earlierPodPrefix + earlier
+	}
 }
 
 // endedSucceededClean reports whether the record shows its pod ended Succeeded
