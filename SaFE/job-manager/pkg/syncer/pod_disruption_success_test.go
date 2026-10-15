@@ -250,6 +250,7 @@ func conditionOf(w *v1.Workload, condType v1.WorkloadConditionType) *metav1.Cond
 var (
 	dispatchedAt      = time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 	recordStartTime   = timeutil.FormatRFC3339(dispatchedAt.Add(time.Hour).Local())
+	earlierInDispatch = timeutil.FormatRFC3339(dispatchedAt.Add(time.Minute).Local())
 	earlierStartTime  = timeutil.FormatRFC3339(dispatchedAt.Add(-time.Hour).Local())
 	wantFailedMessage = "pod p1 was taken away by a disruption, " + wantEviction() +
 		"; the object reported success: " + objectSucceededMessage
@@ -358,8 +359,10 @@ func TestMultiPodWorkloadIsNotRead(t *testing.T) {
 	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()},
 		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition()),
 		cachedPod(t, "p2", corev1.PodRunning)))
-	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning},
-		{PodId: "p2", Phase: corev1.PodRunning}}))
+	// Nor two attempts ended in the same second, with no pod cached.
+	sameSecond := evictedRecord()
+	sameSecond.PodId = "p2"
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord(), sameSecond}))
 	assertSucceeded(t, runObjectSucceeded(t, 2, []v1.WorkloadPod{evictedRecord()},
 		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
 }
@@ -713,8 +716,9 @@ func TestFailedAttemptLeavesTheSucceededOneToDecide(t *testing.T) {
 	// With only the failed attempt seen, the one that succeeded is not seen
 	// yet, and may have been disrupted: the success waits.
 	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{failedAttempt}, cachedPod(t, "p0", corev1.PodFailed)))
-	// Two attempts that did not fail are not told apart.
-	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p0", Phase: corev1.PodSucceeded}},
+	// The cache holds the attempts that still exist: a record of another name
+	// is of one that is gone, and the cached attempt decides.
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p0", Phase: corev1.PodSucceeded}},
 		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
 }
 
@@ -792,4 +796,25 @@ func TestStoppedAttemptLeavesTheReplacementToDecide(t *testing.T) {
 	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{stopped, {PodId: "p1", Phase: corev1.PodRunning}}))
 	// With only the stopped pod, its record decides.
 	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()}))
+}
+
+// One replica's attempt whose delete is still queued keeps a Running record
+// after its controller replaced it under another name. The replacement, cached
+// or ended, decides; while a record of a pod that has left the cache has no
+// recorded end, the success waits for it.
+func TestStaleRecordOfAReplacedAttemptDoesNotDecide(t *testing.T) {
+	stale := v1.WorkloadPod{PodId: "p0", Phase: corev1.PodRunning, StartTime: earlierInDispatch}
+	// The replacement is cached.
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{stale},
+		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
+	// Its delete was recorded first: the stale record's end is awaited.
+	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{stale, evictedRecord()}))
+	// Then the attempt that started last decides.
+	ended := stale
+	ended.Phase = corev1.PodPhase(v1.WorkloadStopped)
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{ended, evictedRecord()}))
+	clean := evictedRecord()
+	clean.FailedMessage = ""
+	ended.FailedMessage = wantEviction()
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{ended, clean}))
 }
