@@ -359,10 +359,15 @@ func TestMultiPodWorkloadIsNotRead(t *testing.T) {
 	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()},
 		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition()),
 		cachedPod(t, "p2", corev1.PodRunning)))
-	// Nor two attempts ended in the same second, with no pod cached.
+	// Nor two attempts that started in the same second, with no pod cached,
+	// unless both were disrupted.
 	sameSecond := evictedRecord()
 	sameSecond.PodId = "p2"
-	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord(), sameSecond}))
+	clean := sameSecond
+	clean.FailedMessage = ""
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord(), clean}))
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{clean, evictedRecord()}))
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord(), sameSecond}))
 	assertSucceeded(t, runObjectSucceeded(t, 2, []v1.WorkloadPod{evictedRecord()},
 		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
 }

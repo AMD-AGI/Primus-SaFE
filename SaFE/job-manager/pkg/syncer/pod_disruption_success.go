@@ -40,7 +40,7 @@ import (
 // Only a workload of one replica is read, and only the attempt the object
 // counted as success: the one pod in the cache that has not failed, or, when
 // the cache holds none, the attempt whose record shows it started last and
-// ended other than Failed (see lastEndedAttempt). A failed pod was not what
+// ended other than Failed (see lastEndedAttempts). A failed pod was not what
 // the object counted as success; while the cache holds more pods the success
 // is not tied to one, and waits. A TorchFT or MonarchJob workload is never
 // read: it runs several objects, and a mesh pod carries the workload label
@@ -94,14 +94,18 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 	var record *v1.WorkloadPod
 	switch len(candidates) {
 	case 0:
-		var settled bool
-		if record, settled = lastEndedAttempt(adminWorkload); !settled {
+		latest, settled := lastEndedAttempts(adminWorkload)
+		if !settled {
 			return "", "", false
 		}
-		if record == nil {
-			// Two attempts ended in the same second: not told apart.
-			return "", "", true
+		// Attempts that started in the same second are not told apart: the
+		// success was a disrupted one's only when each of them was disrupted.
+		for _, p := range latest {
+			if recordedDisruption(p) == "" {
+				return "", "", true
+			}
 		}
+		record = latest[0]
 	case 1:
 		record = recordOf(adminWorkload, candidates[0].GetName())
 	default:
@@ -158,18 +162,18 @@ func seenSucceededClean(record *v1.WorkloadPod, pod *corev1.Pod) bool {
 	return record.StartTime != "" && record.StartTime == podStartTime(pod)
 }
 
-// lastEndedAttempt returns, when no pod is cached, the record of the attempt
-// of the current dispatch that started last among those that ended other than
-// Failed. settled is false while none has, or while an attempt that started
-// no earlier has no recorded end: the delete that ends its record may carry
-// the disruption. An attempt that started earlier and has no recorded end is
-// an older one whose delete was lost or is still queued; it does not hold the
-// verdict. A record left from an earlier dispatch, or of a pod that never
-// started, is not an attempt of this dispatch's success. The record is nil
-// when two attempts that ended started in the same second.
-func lastEndedAttempt(adminWorkload *v1.Workload) (record *v1.WorkloadPod, settled bool) {
+// lastEndedAttempts returns, when no pod is cached, the records of the
+// attempts of the current dispatch that started last among those that ended
+// other than Failed: one, or more that started in the same second. settled is
+// false while none has, or while an attempt that started no earlier has no
+// recorded end: the delete that ends its record may carry the disruption. An
+// attempt that started earlier and has no recorded end is an older one whose
+// delete was lost or is still queued; it does not hold the verdict. A record
+// left from an earlier dispatch, or of a pod that never started, is not an
+// attempt of this dispatch's success.
+func lastEndedAttempts(adminWorkload *v1.Workload) (records []*v1.WorkloadPod, settled bool) {
 	var latest, unended time.Time
-	tied, anyUnended := false, false
+	anyUnended := false
 	for i := range adminWorkload.Status.Pods {
 		p := &adminWorkload.Status.Pods[i]
 		if p.Phase == corev1.PodFailed || !startedInCurrentDispatch(adminWorkload, p) {
@@ -185,19 +189,25 @@ func lastEndedAttempt(adminWorkload *v1.Workload) (record *v1.WorkloadPod, settl
 				unended = started
 			}
 			anyUnended = true
-		case record == nil || started.After(latest):
-			record, latest, tied = p, started, false
+		case len(records) == 0 || started.After(latest):
+			records, latest = []*v1.WorkloadPod{p}, started
 		case started.Equal(latest):
-			tied = true
+			records = append(records, p)
 		}
 	}
-	if record == nil || (anyUnended && !unended.Before(latest)) {
+	if len(records) == 0 || (anyUnended && !unended.Before(latest)) {
 		return nil, false
 	}
-	if tied {
-		return nil, true
+	return records, true
+}
+
+// recordedDisruption returns the DisruptionTarget a pod record holds as its
+// pod's own, "" when none.
+func recordedDisruption(p *v1.WorkloadPod) string {
+	if at := strings.Index(p.FailedMessage, disruptionTargetPrefix); at >= 0 {
+		return p.FailedMessage[at:]
 	}
-	return record, true
+	return ""
 }
 
 // recordOf returns the workload's record of the named pod, nil when none.
