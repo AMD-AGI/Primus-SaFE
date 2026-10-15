@@ -12,9 +12,9 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 
@@ -47,8 +47,8 @@ import (
 // mesh pod carries the workload label only after its first sync, so the cache
 // cannot be asked for its pods.
 //
-// The pod's current object in the informer cache decides, once it is the pod
-// the API server holds, or the API server holds none (see cacheHoldsLivePod).
+// The pod's current object in the informer cache decides, once the API server
+// holds no other pod of the dispatch (see cacheHoldsLivePods).
 // One that carries the condition was disrupted, whether or not the cache has
 // seen it end. One that ended Succeeded without it is a clean success. One
 // that has not ended and carries no condition is a cache behind the object's,
@@ -107,13 +107,7 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 		// More than one pod: the success cannot be tied to the disrupted one.
 		return "", "", true
 	}
-	names := map[string]struct{}{}
-	if len(candidates) > 0 {
-		names[candidates[0].GetName()] = struct{}{}
-	} else {
-		names[record.PodId] = struct{}{}
-	}
-	if !r.cacheHoldsLivePod(ctx, clientSets, adminWorkload, names, candidates) {
+	if !r.cacheHoldsLivePods(ctx, clientSets, adminWorkload, candidates) {
 		return "", "", false
 	}
 	if len(candidates) > 0 {
@@ -214,57 +208,58 @@ func recordOf(adminWorkload *v1.Workload, name string) *v1.WorkloadPod {
 	return nil
 }
 
-// onlyName returns the one name names holds.
-func onlyName(names map[string]struct{}) string {
-	for name := range names {
-		return name
-	}
-	return ""
-}
-
-// cacheHoldsLivePod reports whether the pod informer cache holds the pod the
-// API server holds under the workload's one pod name, or neither holds one.
+// cacheHoldsLivePods reports whether the pod informer cache holds the pods the
+// API server holds for the workload's current dispatch, failed ones aside:
+// the one cached candidate, or none when none is cached.
 //
-// The object's status is read from the API server, and the pod's from the
-// cache, which can be behind it: a controller that recreated the pod under the
-// same name may have had the replacement run and succeed before the cache saw
-// it, and the cache, or the record, still describes the earlier pod. A pod the
-// API server holds that the cache does not, or holds as another pod, leaves the
-// verdict to wait for the cache. One the API server no longer holds is read
-// from the cache or its record, as the delete path left it.
-func (r *SyncerReconciler) cacheHoldsLivePod(ctx context.Context, clientSets *ClusterClientSets,
-	adminWorkload *v1.Workload, names map[string]struct{}, cached []*unstructured.Unstructured) bool {
+// The object's status is read from the API server, and the pods from the
+// cache, which can be behind it: an attempt its controller created (under the
+// same name or another) may have run and succeeded before the cache saw it,
+// and the cache, or a record, still describes the earlier attempt. A pod the
+// API server holds that the cache does not leaves the verdict to wait for the
+// cache; so does a list that fails. A pod the API server no longer holds is
+// read from the cache or its record, as the delete path left it.
+func (r *SyncerReconciler) cacheHoldsLivePods(ctx context.Context, clientSets *ClusterClientSets,
+	adminWorkload *v1.Workload, candidates []*unstructured.Unstructured) bool {
 	namespace := adminWorkload.Spec.Workspace
-	if len(cached) > 0 {
-		namespace = cached[0].GetNamespace()
+	if len(candidates) > 0 {
+		namespace = candidates[0].GetNamespace()
 	}
-	uid, ok := livePodUID(ctx, clientSets, namespace, onlyName(names))
-	switch {
-	case !ok:
+	live, ok := liveWorkloadPods(ctx, clientSets, namespace, adminWorkload.Name)
+	if !ok {
 		return false
-	case uid == "":
-		return true
-	default:
-		return len(cached) > 0 && cached[0].GetUID() == uid
 	}
+	dispatchCount := v1.GetWorkloadDispatchCnt(adminWorkload)
+	for i := range live {
+		pod := &live[i]
+		if pod.Status.Phase == corev1.PodFailed ||
+			isStaleWorkloadGeneration(adminWorkload, v1.GetLabel(pod, v1.WorkloadUidLabel)) ||
+			(dispatchCount > 0 && v1.GetWorkloadDispatchCnt(pod) != dispatchCount) {
+			continue
+		}
+		if len(candidates) == 0 || pod.UID != candidates[0].GetUID() {
+			return false
+		}
+	}
+	return true
 }
 
-// livePodUID returns the uid of the named pod as the API server holds it, ""
-// when it holds none, and whether it could be read.
-var livePodUID = func(ctx context.Context, clientSets *ClusterClientSets, namespace, name string) (types.UID, bool) {
+// liveWorkloadPods lists the workload's pods in the namespace as the API server
+// holds them, and reports whether they could be listed.
+var liveWorkloadPods = func(ctx context.Context, clientSets *ClusterClientSets,
+	namespace, workloadId string) ([]corev1.Pod, bool) {
 	if clientSets == nil || clientSets.ClientFactory() == nil || clientSets.ClientFactory().ClientSet() == nil {
-		return "", false
+		return nil, false
 	}
-	pod, err := clientSets.ClientFactory().ClientSet().CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
-	switch {
-	case apierrors.IsNotFound(err):
-		return "", true
-	case err != nil:
-		// Read again every retry while a success waits: not logged as an error.
-		klog.V(2).InfoS("failed to read pod", "namespace", namespace, "pod", name, "err", err)
-		return "", false
+	list, err := clientSets.ClientFactory().ClientSet().CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labels.Set{v1.WorkloadIdLabel: workloadId}).String(),
+	})
+	if err != nil {
+		// Listed again every retry while a success waits: not logged as an error.
+		klog.V(2).InfoS("failed to list pods", "namespace", namespace, "workload", workloadId, "err", err)
+		return nil, false
 	}
-	return pod.UID, true
+	return list.Items, true
 }
 
 // While the pod cache and records cannot tell whether a disruption caused an
