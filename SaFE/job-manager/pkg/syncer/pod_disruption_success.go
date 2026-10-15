@@ -77,15 +77,10 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 	}
 	// A pod that ended Failed was not what the object counted as success: one
 	// replica's earlier attempt, retried by its controller under another name,
-	// leaves the attempt that succeeded to decide.
+	// leaves the attempt that succeeded to decide. Nor was one deleted before
+	// it ended (a record the delete path stopped), when another attempt is
+	// cached or recorded: a pod evicted and replaced by its controller.
 	names := map[string]struct{}{}
-	var record *v1.WorkloadPod
-	for i := range adminWorkload.Status.Pods {
-		if p := &adminWorkload.Status.Pods[i]; p.Phase != corev1.PodFailed {
-			names[p.PodId] = struct{}{}
-			record = p
-		}
-	}
 	candidates := make([]*unstructured.Unstructured, 0, len(cached))
 	for _, obj := range cached {
 		if phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase"); corev1.PodPhase(phase) == corev1.PodFailed {
@@ -93,6 +88,22 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 		}
 		names[obj.GetName()] = struct{}{}
 		candidates = append(candidates, obj)
+	}
+	var record *v1.WorkloadPod
+	for _, stopped := range []bool{false, true} {
+		if stopped && len(names) > 0 {
+			break
+		}
+		for i := range adminWorkload.Status.Pods {
+			if p := &adminWorkload.Status.Pods[i]; p.Phase != corev1.PodFailed &&
+				(p.Phase == corev1.PodPhase(v1.WorkloadStopped)) == stopped {
+				names[p.PodId] = struct{}{}
+				record = p
+			}
+		}
+	}
+	if record == nil && len(names) == 1 {
+		record = recordOf(adminWorkload, onlyName(names))
 	}
 	switch {
 	case len(names) > 1:
@@ -155,6 +166,16 @@ func seenSucceededClean(record *v1.WorkloadPod, pod *corev1.Pod) bool {
 	return record.StartTime != "" && record.StartTime == podStartTime(pod)
 }
 
+// recordOf returns the workload's record of the named pod, nil when none.
+func recordOf(adminWorkload *v1.Workload, name string) *v1.WorkloadPod {
+	for i := range adminWorkload.Status.Pods {
+		if adminWorkload.Status.Pods[i].PodId == name {
+			return &adminWorkload.Status.Pods[i]
+		}
+	}
+	return nil
+}
+
 // onlyName returns the one name names holds.
 func onlyName(names map[string]struct{}) string {
 	for name := range names {
@@ -201,7 +222,8 @@ var livePodUID = func(ctx context.Context, clientSets *ClusterClientSets, namesp
 	case apierrors.IsNotFound(err):
 		return "", true
 	case err != nil:
-		klog.ErrorS(err, "failed to read pod", "namespace", namespace, "pod", name)
+		// Read again every retry while a success waits: not logged as an error.
+		klog.V(2).InfoS("failed to read pod", "namespace", namespace, "pod", name, "err", err)
 		return "", false
 	}
 	return pod.UID, true
