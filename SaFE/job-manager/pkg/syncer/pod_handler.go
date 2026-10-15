@@ -820,6 +820,7 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	// before this cleanup during the reconcile that first marks the workload failed.
 	if adminWorkload.IsEnd() {
 		r.forgetVanishedPodsCheck(adminWorkload.Name)
+		r.successVerdictWaits.Delete(adminWorkload.Name)
 		return nil
 	}
 	// Dispatch is a precondition rather than an assumption about the caller: its
@@ -855,6 +856,7 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	adminWorkload = fresh
 	if adminWorkload.IsEnd() {
 		r.forgetVanishedPodsCheck(adminWorkload.Name)
+		r.successVerdictWaits.Delete(adminWorkload.Name)
 		return nil
 	}
 
