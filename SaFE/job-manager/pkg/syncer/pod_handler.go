@@ -952,11 +952,15 @@ func (r *SyncerReconciler) applyPodGone(adminWorkload *v1.Workload, id int) bool
 // rather than Stopped, and reports whether the record changed. A pod evicted
 // is deleted before its containers exit: one that exited 0 on the SIGTERM ends
 // Succeeded while being deleted, and a controller may have counted that
-// success (see lastEndedAttempts). Kinds that drop the record, and records that
-// have ended, are left as they are.
+// success (see lastEndedAttempts). The deletion is seen first, while the pod
+// still runs, and stops the record; the pod's end is seen on a later event of
+// the same deletion. Kinds that drop the record, and records that ended
+// Succeeded or Failed, are left as they are.
 func markPodEnded(adminWorkload *v1.Workload, id int, phase corev1.PodPhase) bool {
+	p := &adminWorkload.Status.Pods[id]
 	if phase != corev1.PodSucceeded || commonworkload.IsApplication(adminWorkload) ||
-		commonworkload.IsCICD(adminWorkload) || v1.IsPodTerminated(&adminWorkload.Status.Pods[id]) {
+		commonworkload.IsCICD(adminWorkload) ||
+		(v1.IsPodTerminated(p) && p.Phase != corev1.PodPhase(v1.WorkloadStopped)) {
 		return false
 	}
 	adminWorkload.Status.Pods[id].Phase = corev1.PodSucceeded
