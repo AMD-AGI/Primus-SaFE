@@ -555,3 +555,12 @@ func TestDeleteStartTimeMatchesRecordInAnyZone(t *testing.T) {
 	assert.Equal(t, podStartTimeOf(obj), podStartTime(pod))
 	assert.Equal(t, podStartTimeOf(obj), "2026-01-02T11:05:00")
 }
+
+// Attempts that started in the same second fail a success only by their own
+// disruptions: one carried from an earlier pod of the same name is not.
+func TestTiedAttemptsReadOnlyTheirOwnDisruption(t *testing.T) {
+	carried := evictedRecord()
+	carried.PodId = "p2"
+	carried.FailedMessage = earlierPodPrefix + wantEviction()
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord(), carried}))
+}

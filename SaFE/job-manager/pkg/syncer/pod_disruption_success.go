@@ -136,7 +136,7 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 	}
 	// Only the pod's own condition: one carried from an earlier pod of the same
 	// name says nothing about how this pod ended.
-	own, _ := podDisruptions(p.FailedMessage)
+	own := recordedDisruption(p)
 	if own == "" {
 		return "", "", true
 	}
@@ -202,12 +202,11 @@ func lastEndedAttempts(adminWorkload *v1.Workload) (records []*v1.WorkloadPod, s
 }
 
 // recordedDisruption returns the DisruptionTarget a pod record holds as its
-// pod's own, "" when none.
+// pod's own, "" when none: one carried from an earlier pod of the same name is
+// not.
 func recordedDisruption(p *v1.WorkloadPod) string {
-	if at := strings.Index(p.FailedMessage, disruptionTargetPrefix); at >= 0 {
-		return p.FailedMessage[at:]
-	}
-	return ""
+	own, _ := podDisruptions(p.FailedMessage)
+	return own
 }
 
 // recordOf returns the workload's record of the named pod, nil when none.
