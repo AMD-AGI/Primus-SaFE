@@ -528,14 +528,16 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 	return workloadPod
 }
 
-// podStartTimeOf is podStartTime of an unstructured pod.
+// podStartTimeOf is podStartTime of an unstructured pod. The time is decoded as
+// metav1.Time decodes it, in this process's local zone, as the records' start
+// times are.
 func podStartTimeOf(obj *unstructured.Unstructured) string {
 	raw, _, _ := unstructured.NestedString(obj.Object, "status", "startTime")
-	at, err := time.Parse(time.RFC3339, raw)
-	if err != nil {
+	var at metav1.Time
+	if raw == "" || at.UnmarshalQueryParameter(raw) != nil {
 		return ""
 	}
-	return podStartTime(&corev1.Pod{Status: corev1.PodStatus{StartTime: &metav1.Time{Time: at}}})
+	return podStartTime(&corev1.Pod{Status: corev1.PodStatus{StartTime: &at}})
 }
 
 // podStartTime is the pod's start time as a pod record holds it, "" when unset.

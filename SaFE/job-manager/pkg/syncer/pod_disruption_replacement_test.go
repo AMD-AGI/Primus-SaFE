@@ -541,3 +541,17 @@ func TestLaterPodsDeleteSupersedesTheRecord(t *testing.T) {
 	assert.Equal(t, pods[0].Phase, corev1.PodSucceeded)
 	assert.Equal(t, pods[0].FailedMessage, earlierPodPrefix+wantEviction())
 }
+
+// A delete's start time and a record's are in the same zone: the one the pod's
+// own events give a record, this process's local zone.
+func TestDeleteStartTimeMatchesRecordInAnyZone(t *testing.T) {
+	saved := time.Local
+	time.Local = time.FixedZone("UTC+8", 8*3600)
+	t.Cleanup(func() { time.Local = saved })
+	obj := disruptedPodObject(t)
+	assert.NilError(t, unstructured.SetNestedField(obj.Object, "2026-01-02T03:05:00Z", "status", "startTime"))
+	pod := convertPodFromUnstructured(obj)
+	assert.Assert(t, pod != nil)
+	assert.Equal(t, podStartTimeOf(obj), podStartTime(pod))
+	assert.Equal(t, podStartTimeOf(obj), "2026-01-02T11:05:00")
+}
