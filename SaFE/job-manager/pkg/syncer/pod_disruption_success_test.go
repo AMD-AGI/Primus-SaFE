@@ -352,9 +352,11 @@ func TestDisruptedPodThatFailedIsNotTheSuccess(t *testing.T) {
 }
 
 // With more than one pod the object's success cannot be tied to the disrupted
-// one: neither a second pod name nor more than one replica is read.
+// one: more than one replica is not read, and while the cache holds two pods
+// of one replica (an attempt still terminating beside its replacement) the
+// success waits for one to go.
 func TestMultiPodWorkloadIsNotRead(t *testing.T) {
-	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()},
+	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()},
 		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition()),
 		cachedPod(t, "p2", corev1.PodRunning)))
 	// Nor two attempts ended in the same second, with no pod cached.
@@ -387,16 +389,23 @@ func TestSameNamePodAfterWorkloadEndIsRecorded(t *testing.T) {
 	}
 }
 
-// A pod cache that cannot answer is not a pod that left it: the record is not
-// read, and the success waits for the cache. After a restart the object's
-// informer can replay its success before the pod informer has synced, while
-// the pod, a later one of the same name, is still in the cluster.
+// A pod cache that cannot answer is not a pod that left it: after a restart the
+// object's informer can replay its success before the pod informer has synced,
+// while the pod, a later one of the same name, is still in the cluster. The
+// API server is asked: while it holds the pod, or cannot be asked, the success
+// waits; when it holds none, the record decides.
 func TestUnansweredPodCacheWaits(t *testing.T) {
 	records := []v1.WorkloadPod{evictedRecord()}
-	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records, unsynced: true,
-		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}}))
-	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records, unsynced: true}))
-	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records, noInformer: true}))
+	live := []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodRunning)}
+	for _, run := range []objectSucceededRun{{unsynced: true}, {noInformer: true}} {
+		run.replicas, run.records = 1, records
+		run.liveSet, run.live = true, live
+		assertPending(t, runObjectSucceededWith(t, run))
+		run.liveSet, run.live, run.liveUnread = false, nil, true
+		assertPending(t, runObjectSucceededWith(t, run))
+		run.liveUnread = false
+		assertDisruptedFailed(t, runObjectSucceededWith(t, run))
+	}
 	// The same record with a cache that has synced and holds no pod decides.
 	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records}))
 }
@@ -470,10 +479,23 @@ func TestEarlierDispatchPodDoesNotDecide(t *testing.T) {
 		records: []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
 		cached:  []*unstructured.Unstructured{current}}))
 	// A cache holding only an earlier dispatch's pod cannot tell whether the
-	// current pod has left it, and the record is not read.
+	// current pod has left it: the API server is asked, and while it holds the
+	// current pod the success waits; when it holds none, the record decides.
 	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
+		records: []v1.WorkloadPod{evictedRecord()}, liveSet: true, live: []*unstructured.Unstructured{current},
+		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded)}}))
+	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
 		records: []v1.WorkloadPod{evictedRecord()},
 		cached:  []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded)}}))
+}
+
+// A RayJob's success is its submitter's, not its head pod's: a head marked by
+// a drain after the job succeeded does not fail it.
+func TestRayJobIsNotRead(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(commonworkload.IsRayJob, func(*v1.Workload) bool { return true })
+	assertSucceeded(t, runObjectSucceeded(t, 1, nil, cachedPod(t, "head", corev1.PodRunning, evictionCondition())))
 }
 
 // A MonarchJob or TorchFT workload is not read: its mesh pods carry the
