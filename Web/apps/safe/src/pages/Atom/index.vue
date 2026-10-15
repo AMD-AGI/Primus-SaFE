@@ -258,6 +258,9 @@ type Action = {
   onClick: (row: AtomRow) => void | Promise<void>
 }
 
+/** Phases that still own live resources and can be stopped. */
+const STOPPABLE_PHASES = ['Running', 'Pending', 'NotReady']
+
 /** Inline Resume and Clone, with Stop and Delete under the more menu. */
 function getActions(_row: AtomRow): Action[] {
   return [
@@ -283,10 +286,10 @@ function getActions(_row: AtomRow): Action[] {
       label: 'Stop',
       icon: Close,
       btnClass: 'btn-danger-plain',
-      disabled: (row) => !canWrite.value || !['Running', 'Pending'].includes(row.phase || ''),
+      disabled: (row) => !canWrite.value || !STOPPABLE_PHASES.includes(row.phase || ''),
       tooltip: (row) => {
-        if (['Running', 'Pending'].includes(row.phase || '')) return 'Stop workload'
-        return 'Stop is only available for Running or Pending workloads'
+        if (STOPPABLE_PHASES.includes(row.phase || '')) return 'Stop workload'
+        return 'Stop is only available for Running, Pending, or NotReady workloads'
       },
       onClick: (row) => onStop(row),
     },
