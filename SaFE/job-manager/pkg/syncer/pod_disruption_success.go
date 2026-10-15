@@ -12,12 +12,15 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -34,81 +37,98 @@ import (
 // terminated; one set after the pod had already ended is not read (see
 // podDisruption).
 //
-// Only a workload of one replica whose records and cache name one pod is read:
-// with more pods the object's success cannot be tied to the disrupted one. A
-// TorchFT or MonarchJob workload is never read: it runs several objects, and a
-// mesh pod carries the workload label only after its first sync, so the cache
-// cannot be asked for its pods.
+// Only a workload of one replica is read, and only the attempt the object
+// counted as success: the one pod in the cache that has not failed, or, when
+// the cache holds none, the attempt whose record shows it started last and
+// ended other than Failed (see lastEndedAttempts). A failed pod was not what
+// the object counted as success; while the cache holds more pods the success
+// is not tied to one, and waits. A TorchFT or MonarchJob workload is never
+// read: it runs several objects, and a mesh pod carries the workload label
+// only after its first sync, so the cache cannot be asked for its pods. Nor
+// is a RayJob: its success is its submitter's, not its head pod's.
 //
-// The pod's current object in the informer cache decides. One that ended
-// Failed was not what the object counted as success. One that carries the
-// condition was disrupted, whether or not the cache has seen it end. One that
-// ended Succeeded without it is a clean success, a later pod of the same name
-// included. One that has not ended and carries no condition is a cache behind
-// the object's, which reports success only after its pod ended: the condition
-// may not have reached the cache yet.
+// The pod's current object in the informer cache decides, once the API server
+// holds no other pod of the dispatch (see cacheHoldsLivePods).
+// One that carries the condition was disrupted, whether or not the cache has
+// seen it end. One that ended Succeeded without it is a clean success. One
+// that has not ended and carries no condition is a cache behind the object's,
+// which reports success only after its pod ended: the condition may not have
+// reached the cache yet.
 //
-// The cached pod is taken for the one the object counted. Were the object's
-// success that of a later pod of the same name, the cache would hold that pod:
-// the informer keys pods by name, and pod records come from the same informer.
-// Only a pod informer that missed the later pod's whole life would show the
-// earlier one, and nothing this process holds knows that pod.
-//
-// Only when the cache holds no pod of the current dispatch is its record read;
+// Only when the cache holds no pod of the current dispatch is a record read;
 // the delete path records the condition there (see removeWorkloadPod) but not
 // the phase the pod ended in. The record must have started in the current
-// dispatch, as the cache's pods must carry its dispatch count, and must have
-// ended: a record left from an earlier dispatch, or one whose pod's delete has
-// not been recorded yet, does not say how the current pod ended.
+// dispatch, as the cache's pods must carry its dispatch count, and every
+// record must have ended: a record left from an earlier dispatch, or one whose
+// pod's delete has not been recorded yet, does not say how the current pod
+// ended.
 //
 // A cache that cannot answer (no informer yet, not synced, a failed list, only
-// pods of an earlier dispatch) is never read as "the pod is gone": the record
-// would then decide for a pod that may still be in the cluster, as after a
-// restart, when the object's informer replays its success before the pod
-// informer has synced.
+// pods of an earlier dispatch) is not read as "the pod is gone" on its own: the
+// record would then decide for a pod that may still be in the cluster, as
+// after a restart, when the object's informer replays its success before the
+// pod informer has synced. The API server is asked instead, and the records
+// decide only when it holds no pod of the dispatch.
 func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *ClusterClientSets,
 	adminWorkload *v1.Workload) (pod, disruption string, known bool) {
 	if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICD(adminWorkload) ||
 		commonworkload.IsTorchFT(adminWorkload) || commonworkload.IsMonarchJob(adminWorkload) ||
-		commonworkload.GetTotalReplica(adminWorkload) != 1 {
+		commonworkload.IsRayJob(adminWorkload) || commonworkload.GetTotalReplica(adminWorkload) != 1 {
 		return "", "", true
 	}
-	cached, ok := r.cachedWorkloadPods(ctx, clientSets, adminWorkload)
-	if !ok {
-		return "", "", false
-	}
-	names := map[string]struct{}{}
-	for i := range adminWorkload.Status.Pods {
-		names[adminWorkload.Status.Pods[i].PodId] = struct{}{}
-	}
+	// A cache that cannot answer is taken as holding no pod of the dispatch:
+	// the API server is then asked (see cacheHoldsLivePods), and only when it
+	// holds none either are the records read.
+	cached, _ := r.cachedWorkloadPods(ctx, clientSets, adminWorkload)
+	// The attempt the object counted as success. A pod that ended Failed was
+	// not: one replica's earlier attempt, retried by its controller under
+	// another name (a Job does), leaves the attempt that succeeded to decide.
+	// The cache holds the attempts that still exist; a record of another name
+	// is of an attempt that is gone, its delete recorded or not yet.
+	candidates := make([]*unstructured.Unstructured, 0, len(cached))
 	for _, obj := range cached {
-		names[obj.GetName()] = struct{}{}
+		if phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase"); corev1.PodPhase(phase) != corev1.PodFailed {
+			candidates = append(candidates, obj)
+		}
 	}
-	switch {
-	case len(names) > 1:
-		return "", "", true
-	case len(names) == 0:
-		// Nothing of the pod has been recorded or cached yet.
+	var record *v1.WorkloadPod
+	switch len(candidates) {
+	case 0:
+		latest, settled := lastEndedAttempts(adminWorkload)
+		if !settled {
+			return "", "", false
+		}
+		// Attempts that started in the same second are not told apart: the
+		// success was a disrupted one's only when each of them was disrupted.
+		for _, p := range latest {
+			if recordedDisruption(p) == "" {
+				return "", "", true
+			}
+		}
+		record = latest[0]
+	case 1:
+		record = recordOf(adminWorkload, candidates[0].GetName())
+	default:
+		// More than one pod, as an attempt still terminating beside its
+		// replacement: the success is not tied to either until one is gone.
 		return "", "", false
 	}
-	if len(cached) > 0 {
-		phase, _, _ := unstructured.NestedString(cached[0].Object, "status", "phase")
-		if corev1.PodPhase(phase) == corev1.PodFailed {
-			return "", "", true
-		}
-		if disruption = disruptionTargetOf(cached[0]); disruption != "" {
-			return cached[0].GetName(), disruption, true
+	if !r.cacheHoldsLivePods(ctx, clientSets, adminWorkload, candidates) {
+		return "", "", false
+	}
+	if len(candidates) > 0 {
+		phase, _, _ := unstructured.NestedString(candidates[0].Object, "status", "phase")
+		disruption = disruptionTargetOf(candidates[0])
+		if disruption != "" && !seenSucceededClean(record, convertPodFromUnstructured(candidates[0])) {
+			return candidates[0].GetName(), disruption, true
 		}
 		return "", "", corev1.PodPhase(phase) == corev1.PodSucceeded
 	}
-	p := &adminWorkload.Status.Pods[0]
+	p := record
 	if !startedInCurrentDispatch(adminWorkload, p) {
 		return "", "", false
 	}
 	switch p.Phase {
-	case corev1.PodFailed:
-		// Not what the object counted as success.
-		return "", "", true
 	case corev1.PodSucceeded, corev1.PodPhase(v1.WorkloadStopped):
 		// The delete path stops a record without seeing how its pod ended.
 	default:
@@ -116,11 +136,146 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 	}
 	// Only the pod's own condition: one carried from an earlier pod of the same
 	// name says nothing about how this pod ended.
-	own, _ := podDisruptions(p.FailedMessage)
+	own := recordedDisruption(p)
 	if own == "" {
 		return "", "", true
 	}
 	return p.PodId, own, true
+}
+
+// seenSucceededClean reports whether the record shows the pod ended Succeeded
+// with no DisruptionTarget: the pod was seen to succeed before any such
+// condition. A condition once set stays on the pod, and one that ends a pod is
+// set before its containers are signalled, so a condition seen only later was
+// set after the pod had ended (as the taint manager or a drain does to a
+// completed pod), whatever its time says to the second. The record must
+// describe the pod: the same name, and the same uid, or, for a record or pod
+// with none, the same start time. A disruption the record carries from an
+// earlier pod of the same name is not the pod's.
+func seenSucceededClean(record *v1.WorkloadPod, pod *corev1.Pod) bool {
+	if record == nil || pod == nil || record.PodId != pod.Name || !endedSucceededClean(record) {
+		return false
+	}
+	if record.PodUid != "" && pod.UID != "" {
+		return record.PodUid == string(pod.UID)
+	}
+	return record.StartTime != "" && record.StartTime == podStartTime(pod)
+}
+
+// lastEndedAttempts returns, when no pod is cached, the records of the
+// attempts of the current dispatch that started last among those that ended
+// other than Failed: one, or more that started in the same second. An attempt
+// seen to end Succeeded is preferred to one stopped by its delete: a
+// controller that counted one attempt's success deletes the others still
+// running (a Job does). settled is
+// false while none has, or while an attempt that started no earlier has no
+// recorded end: the delete that ends its record may carry the disruption. An
+// attempt that started earlier and has no recorded end is an older one whose
+// delete was lost or is still queued; it does not hold the verdict. A record
+// left from an earlier dispatch, or of a pod that never started, is not an
+// attempt of this dispatch's success.
+func lastEndedAttempts(adminWorkload *v1.Workload) (records []*v1.WorkloadPod, settled bool) {
+	var latest, unended time.Time
+	anyUnended, succeeded := false, false
+	for i := range adminWorkload.Status.Pods {
+		p := &adminWorkload.Status.Pods[i]
+		if p.Phase == corev1.PodFailed || !startedInCurrentDispatch(adminWorkload, p) {
+			continue
+		}
+		started, err := time.ParseInLocation(timeutil.TimeRFC3339Short, p.StartTime, time.Local)
+		if err != nil {
+			continue
+		}
+		switch {
+		case !v1.IsPodTerminated(p):
+			if !anyUnended || started.After(unended) {
+				unended = started
+			}
+			anyUnended = true
+		case succeeded && p.Phase != corev1.PodSucceeded:
+		case len(records) == 0 || started.After(latest) || (!succeeded && p.Phase == corev1.PodSucceeded):
+			records, latest = []*v1.WorkloadPod{p}, started
+			succeeded = p.Phase == corev1.PodSucceeded
+		case started.Equal(latest):
+			records = append(records, p)
+		}
+	}
+	if len(records) == 0 || (anyUnended && !unended.Before(latest)) {
+		return nil, false
+	}
+	return records, true
+}
+
+// recordedDisruption returns the DisruptionTarget a pod record holds as its
+// pod's own, "" when none: one carried from an earlier pod of the same name is
+// not.
+func recordedDisruption(p *v1.WorkloadPod) string {
+	own, _ := podDisruptions(p.FailedMessage)
+	return own
+}
+
+// recordOf returns the workload's record of the named pod, nil when none.
+func recordOf(adminWorkload *v1.Workload, name string) *v1.WorkloadPod {
+	for i := range adminWorkload.Status.Pods {
+		if adminWorkload.Status.Pods[i].PodId == name {
+			return &adminWorkload.Status.Pods[i]
+		}
+	}
+	return nil
+}
+
+// cacheHoldsLivePods reports whether the pod informer cache holds the pods the
+// API server holds for the workload's current dispatch, failed ones aside:
+// the one cached candidate, or none when none is cached.
+//
+// The object's status is read from the API server, and the pods from the
+// cache, which can be behind it: an attempt its controller created (under the
+// same name or another) may have run and succeeded before the cache saw it,
+// and the cache, or a record, still describes the earlier attempt. A pod the
+// API server holds that the cache does not leaves the verdict to wait for the
+// cache; so does a list that fails. A pod the API server no longer holds is
+// read from the cache or its record, as the delete path left it.
+func (r *SyncerReconciler) cacheHoldsLivePods(ctx context.Context, clientSets *ClusterClientSets,
+	adminWorkload *v1.Workload, candidates []*unstructured.Unstructured) bool {
+	namespace := adminWorkload.Spec.Workspace
+	if len(candidates) > 0 {
+		namespace = candidates[0].GetNamespace()
+	}
+	live, ok := liveWorkloadPods(ctx, clientSets, namespace, adminWorkload.Name)
+	if !ok {
+		return false
+	}
+	dispatchCount := v1.GetWorkloadDispatchCnt(adminWorkload)
+	for i := range live {
+		pod := &live[i]
+		if pod.Status.Phase == corev1.PodFailed ||
+			isStaleWorkloadGeneration(adminWorkload, v1.GetLabel(pod, v1.WorkloadUidLabel)) ||
+			(dispatchCount > 0 && v1.GetWorkloadDispatchCnt(pod) != dispatchCount) {
+			continue
+		}
+		if len(candidates) == 0 || pod.UID != candidates[0].GetUID() {
+			return false
+		}
+	}
+	return true
+}
+
+// liveWorkloadPods lists the workload's pods in the namespace as the API server
+// holds them, and reports whether they could be listed.
+var liveWorkloadPods = func(ctx context.Context, clientSets *ClusterClientSets,
+	namespace, workloadId string) ([]corev1.Pod, bool) {
+	if clientSets == nil || clientSets.ClientFactory() == nil || clientSets.ClientFactory().ClientSet() == nil {
+		return nil, false
+	}
+	list, err := clientSets.ClientFactory().ClientSet().CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labels.Set{v1.WorkloadIdLabel: workloadId}).String(),
+	})
+	if err != nil {
+		// Listed again every retry while a success waits: not logged as an error.
+		klog.V(2).InfoS("failed to list pods", "namespace", namespace, "workload", workloadId, "err", err)
+		return nil, false
+	}
+	return list.Items, true
 }
 
 // While the pod cache and records cannot tell whether a disruption caused an
@@ -141,27 +296,33 @@ var errSuccessVerdictPending = errors.New("whether a disruption caused the succe
 var successVerdictNow = time.Now
 
 // successVerdictWait is when this process began waiting to tell whether a
-// disruption caused the success of a workload's dispatch. The workload's uid
-// tells a workload recreated under the same name from the one that waited.
+// disruption caused the success of a workload's dispatch, and the success the
+// object reported. The workload's uid tells a workload recreated under the same
+// name from the one that waited, and the object's uid an object recreated
+// under the same name from the one that reported the success.
 type successVerdictWait struct {
 	uid      types.UID
 	dispatch int
 	since    time.Time
+	object   types.UID
+	reported jobutils.K8sObjectStatus
 }
 
-// awaitSuccessVerdict reports whether the success of the workload's dispatch
-// is still to wait for disruptedSuccess to tell, starting the wait on the
-// first call. It stops waiting after maxSuccessVerdictWait. The wait is
-// dropped once a job event of the workload no longer waits, and when the
-// workload has ended (see reconcileVanishedPods).
-func (r *SyncerReconciler) awaitSuccessVerdict(adminWorkload *v1.Workload, dispatch int) bool {
+// awaitSuccessVerdict reports whether the success the object reported for the
+// workload's dispatch is still to wait for disruptedSuccess to tell, starting
+// the wait on the first call. It stops waiting after maxSuccessVerdictWait.
+// The wait is dropped once a job event of the workload no longer waits, and
+// when the workload has ended (see reconcileVanishedPods).
+func (r *SyncerReconciler) awaitSuccessVerdict(adminWorkload *v1.Workload, dispatch int,
+	object types.UID, reported *jobutils.K8sObjectStatus) bool {
 	now := successVerdictNow()
-	started := successVerdictWait{uid: adminWorkload.UID, dispatch: dispatch, since: now}
+	started := successVerdictWait{uid: adminWorkload.UID, dispatch: dispatch, since: now,
+		object: object, reported: *reported}
 	v, loaded := r.successVerdictWaits.LoadOrStore(adminWorkload.Name, started)
 	if !loaded {
 		return true
 	}
-	if w := v.(successVerdictWait); w.uid != started.uid || w.dispatch != dispatch {
+	if w := v.(successVerdictWait); w.uid != started.uid || w.dispatch != dispatch || w.object != object {
 		r.successVerdictWaits.Store(adminWorkload.Name, started)
 		return true
 	} else if now.Sub(w.since) < maxSuccessVerdictWait {
@@ -169,6 +330,27 @@ func (r *SyncerReconciler) awaitSuccessVerdict(adminWorkload *v1.Workload, dispa
 	}
 	r.successVerdictWaits.Delete(adminWorkload.Name)
 	return false
+}
+
+// waitingSuccess returns the success the object reported for the workload's
+// dispatch while this process waits to tell whether a disruption caused it.
+// Only the object that reported it, by uid, has it.
+//
+// An object deleted during the wait (by its owner, or a user who saw it
+// succeed) has still ended in that success: its deletion must not stop the
+// workload, nor have it scheduled again as an object deleted while running.
+func (r *SyncerReconciler) waitingSuccess(adminWorkload *v1.Workload, dispatch int,
+	object types.UID) (*jobutils.K8sObjectStatus, bool) {
+	v, ok := r.successVerdictWaits.Load(adminWorkload.Name)
+	if !ok {
+		return nil, false
+	}
+	w := v.(successVerdictWait)
+	if w.uid != adminWorkload.UID || w.dispatch != dispatch || w.object != object {
+		return nil, false
+	}
+	reported := w.reported
+	return &reported, true
 }
 
 // startedInCurrentDispatch reports whether the pod record describes a pod that

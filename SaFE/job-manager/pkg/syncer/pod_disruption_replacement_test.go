@@ -13,6 +13,7 @@ import (
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -365,4 +366,201 @@ func TestSetEarlierDisruption(t *testing.T) {
 		assert.Equal(t, own, wantOwn, tc.message)
 		assert.Equal(t, setEarlierDisruption(p, wantEviction()), false, tc.message)
 	}
+}
+
+// The delete of a disrupted pod, handled after the controller recreated it
+// under the same name and the replacement entered the informer cache, still
+// records the disruption: as the earlier pod's on the replacement's record, or
+// as its own on a record that still describes it. The replacement is neither
+// stopped nor given the disruption as its own.
+func TestReplacedPodsDeleteSeenWithReplacementCached(t *testing.T) {
+	replacement := disruptedPodObject(t)
+	replacement.SetUID("replacement-uid")
+	assert.NilError(t, unstructured.SetNestedField(replacement.Object, secondStart.UTC().Format(time.RFC3339),
+		"status", "startTime"))
+	deleted := func() *resourceMessage {
+		return eventMessage(t, disruptedPodObject(t, evictionCondition()), ResourceDel)
+	}
+
+	cl := disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "replacement-uid", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(secondStart.Time)})
+	r := &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, deleted(), replacement)
+	pods := getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodRunning)
+	assert.Equal(t, pods[0].FailedMessage, earlierPodPrefix+wantEviction())
+
+	// A record written before records carried uids is the replacement's when
+	// it started when the replacement did.
+	cl = disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(secondStart.Time)})
+	r = &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, deleted(), replacement)
+	pods = getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodRunning)
+	assert.Equal(t, pods[0].FailedMessage, earlierPodPrefix+wantEviction())
+	// And the deleted pod's otherwise: it is stopped with its own disruption.
+	cl = disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(firstStart.Time)})
+	r = &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, deleted(), replacement)
+	pods = getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+	assert.Equal(t, pods[0].FailedMessage, wantEviction())
+
+	// A record still of the deleted pod is stopped with its disruption, which
+	// the replacement's record then carries as the earlier pod's.
+	cl = disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "pod-uid", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(firstStart.Time)})
+	r = &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, deleted(), replacement)
+	pods = getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+	assert.Equal(t, pods[0].FailedMessage, wantEviction())
+	later := samePod(corev1.PodRunning, &secondStart)
+	later.UID = "replacement-uid"
+	seePod(t, r, cl, later)
+	pods = getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodRunning)
+	assert.Equal(t, pods[0].FailedMessage, earlierPodPrefix+wantEviction())
+
+	// A clean earlier pod's delete leaves the replacement's record as it is.
+	cl = disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "replacement-uid", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(secondStart.Time)})
+	r = &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, eventMessage(t, disruptedPodObject(t), ResourceDel), replacement)
+	pods = getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodRunning)
+	assert.Equal(t, pods[0].FailedMessage, "")
+}
+
+// A record with no pod uid, as a Workload CRD that predates the field leaves
+// every record, is not rewritten on each event of an unchanged pod.
+func TestRecordWithoutUidIsNotRewrittenForIt(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Status.Phase = v1.WorkloadRunning
+	w.Status.Pods = []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(firstStart.Time)}}
+	pod := samePod(corev1.PodRunning, &firstStart)
+	pod.UID = "u1"
+	r := &SyncerReconciler{}
+	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, nil)
+	assert.Equal(t, updated, false)
+	// A record of another pod is rewritten.
+	w.Status.Pods[0].PodUid = "u0"
+	_, _, updated = r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, pod, nil)
+	assert.Equal(t, updated, true)
+	assert.Equal(t, w.Status.Pods[0].PodUid, "u1")
+}
+
+// A record seen to succeed clean is told from the pod by uid, and a
+// disruption it carries from an earlier pod of the same name is not its own.
+func TestSeenSucceededCleanTellsThePodByUid(t *testing.T) {
+	start := timeutil.FormatRFC3339(firstStart.Time)
+	pod := samePod(corev1.PodSucceeded, &firstStart)
+	pod.UID = "u1"
+	clean := &v1.WorkloadPod{PodId: "p1", PodUid: "u1", Phase: corev1.PodSucceeded, StartTime: start,
+		FailedMessage: earlierPodPrefix + wantEviction()}
+	assert.Equal(t, seenSucceededClean(clean, pod), true)
+	// Another pod of the same name, started in the same second.
+	other := *clean
+	other.PodUid = "u0"
+	assert.Equal(t, seenSucceededClean(&other, pod), false)
+	// The pod's own disruption.
+	own := *clean
+	own.FailedMessage = wantEviction()
+	assert.Equal(t, seenSucceededClean(&own, pod), false)
+	// A record with no uid is told by start time.
+	legacy := *clean
+	legacy.PodUid = ""
+	assert.Equal(t, seenSucceededClean(&legacy, pod), true)
+	legacy.StartTime = timeutil.FormatRFC3339(secondStart.Time)
+	assert.Equal(t, seenSucceededClean(&legacy, pod), false)
+
+	// The delete of a pod seen to succeed clean records no disruption on it,
+	// though its record carries an earlier pod's.
+	cl := disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "pod-uid", Phase: corev1.PodSucceeded,
+		StartTime: start, FailedMessage: earlierPodPrefix + wantTaintManager()})
+	r := &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, eventMessage(t, disruptedPodObject(t, evictionCondition()), ResourceDel), nil)
+	own2, earlier := podDisruptions(getWorkloadPods(t, cl)[0].FailedMessage)
+	assert.Equal(t, own2, "")
+	assert.Equal(t, earlier, wantTaintManager())
+}
+
+// A later pod of the same name all of whose events but its delete were
+// coalesced away: its delete is not taken for an earlier pod's, it replaces
+// the record of the earlier pod, and a disruption that took it is its own.
+func TestLaterPodsDeleteSupersedesTheRecord(t *testing.T) {
+	later := func(conditions ...corev1.PodCondition) *resourceMessage {
+		obj := disruptedPodObject(t, conditions...)
+		assert.NilError(t, unstructured.SetNestedField(obj.Object, secondStart.UTC().Format(time.RFC3339),
+			"status", "startTime"))
+		return eventMessage(t, obj, ResourceDel)
+	}
+	start := timeutil.FormatRFC3339(firstStart.Time)
+	laterStart := timeutil.FormatRFC3339(secondStart.Time)
+	for _, tc := range []struct {
+		record      v1.WorkloadPod
+		wantMessage string
+	}{
+		// The earlier pod succeeded clean, on a node the later pod's delete
+		// does not say it ran on.
+		{v1.WorkloadPod{PodId: "p1", PodUid: "u1", Phase: corev1.PodSucceeded, StartTime: start,
+			AdminNodeName: "node-a", HostIp: "10.0.0.1", PodIp: "192.0.2.1", Rank: "0", ResourceId: 1,
+			EndTime: start, Containers: []v1.Container{{Name: "main"}}}, wantEviction()},
+		// A record written before records carried uids.
+		{v1.WorkloadPod{PodId: "p1", Phase: corev1.PodSucceeded, StartTime: start}, wantEviction()},
+		// The earlier pod's own disruption is kept as the earlier pod's.
+		{v1.WorkloadPod{PodId: "p1", PodUid: "u1", Phase: corev1.PodPhase(v1.WorkloadStopped), StartTime: start,
+			FailedMessage: wantTaintManager()}, earlierPodPrefix + wantTaintManager() + "; " + wantEviction()},
+	} {
+		cl := disruptionWorkload(t, tc.record)
+		r := &SyncerReconciler{Client: cl}
+		handlePodWithInformer(t, r, later(evictionCondition()), nil)
+		pods := getWorkloadPods(t, cl)
+		assert.Equal(t, pods[0].PodUid, "pod-uid")
+		assert.Equal(t, pods[0].StartTime, laterStart)
+		assert.Equal(t, pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+		assert.Equal(t, pods[0].FailedMessage, tc.wantMessage)
+		// Nothing only the earlier pod's events told is given to the later pod.
+		assert.DeepEqual(t, pods[0], v1.WorkloadPod{PodId: "p1", PodUid: "pod-uid", ResourceId: tc.record.ResourceId,
+			Phase: corev1.PodPhase(v1.WorkloadStopped), StartTime: laterStart, FailedMessage: tc.wantMessage})
+	}
+
+	// An earlier pod's late delete leaves the record as it is.
+	cl := disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "u2", Phase: corev1.PodSucceeded,
+		StartTime: laterStart})
+	r := &SyncerReconciler{Client: cl}
+	obj := disruptedPodObject(t, evictionCondition())
+	assert.NilError(t, unstructured.SetNestedField(obj.Object, firstStart.UTC().Format(time.RFC3339),
+		"status", "startTime"))
+	handlePodWithInformer(t, r, eventMessage(t, obj, ResourceDel), nil)
+	pods := getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].PodUid, "u2")
+	assert.Equal(t, pods[0].Phase, corev1.PodSucceeded)
+	assert.Equal(t, pods[0].FailedMessage, earlierPodPrefix+wantEviction())
+}
+
+// A delete's start time and a record's are in the same zone: the one the pod's
+// own events give a record, this process's local zone.
+func TestDeleteStartTimeMatchesRecordInAnyZone(t *testing.T) {
+	saved := time.Local
+	time.Local = time.FixedZone("UTC+8", 8*3600)
+	t.Cleanup(func() { time.Local = saved })
+	obj := disruptedPodObject(t)
+	assert.NilError(t, unstructured.SetNestedField(obj.Object, "2026-01-02T03:05:00Z", "status", "startTime"))
+	pod := convertPodFromUnstructured(obj)
+	assert.Assert(t, pod != nil)
+	assert.Equal(t, podStartTimeOf(obj), podStartTime(pod))
+	assert.Equal(t, podStartTimeOf(obj), "2026-01-02T11:05:00")
+}
+
+// Attempts that started in the same second fail a success only by their own
+// disruptions: one carried from an earlier pod of the same name is not.
+func TestTiedAttemptsReadOnlyTheirOwnDisruption(t *testing.T) {
+	carried := evictedRecord()
+	carried.PodId = "p2"
+	carried.FailedMessage = earlierPodPrefix + wantEviction()
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord(), carried}))
 }

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"sync"
 
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -82,10 +83,17 @@ type resourceMessage struct {
 	// dispatch count for this message — note that messages can be redelivered due to failover
 	dispatchCount int
 	workloadUid   string
+	// phase is a pod's phase as read from the event's object: a pod deleted
+	// after it ended is recorded as it ended (see markPodEnded).
+	phase corev1.PodPhase
 	// disruption is a pod's DisruptionTarget condition as read from the event's
 	// object (see formatDisruptionTarget). A delete event is the last chance to
 	// read it: once the pod is gone the informer cache no longer has it.
 	disruption string
+	// startTime is a pod's start time as a pod record holds it (see
+	// podStartTime), "" when unset: a delete tells by it whether the pod is
+	// later than the one a record of its name describes.
+	startTime string
 }
 
 // newClusterClientSets creates and initializes a new ClusterClientSets instance.
@@ -288,7 +296,9 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 	}
 	msg.groupId = v1.GetGroupId(newUnstructured)
 	if msg.gvk.Kind == common.PodKind {
+		msg.phase = podPhaseOf(newUnstructured)
 		msg.disruption = disruptionTargetOf(newUnstructured)
+		msg.startTime = podStartTimeOf(newUnstructured)
 	}
 
 	switch msg.action {

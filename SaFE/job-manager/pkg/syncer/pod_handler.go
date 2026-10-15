@@ -69,7 +69,18 @@ func (r *SyncerReconciler) handlePod(ctx context.Context,
 		klog.V(4).InfoS("ignore pod event for a replaced object",
 			"namespace", message.namespace, "pod", message.name,
 			"eventUID", message.uid, "currentUID", obj.GetUID())
-		return ctrlruntime.Result{}, nil
+		if message.disruption == "" {
+			return ctrlruntime.Result{}, nil
+		}
+		// The pod is gone, and another of its name is in the cache: a controller
+		// recreated it before this event was handled. The disruption that took
+		// the pod is still recorded, never on the replacement as its own, and
+		// the replacement is not deleted.
+		replacementStart := ""
+		if replacement := convertPodFromUnstructured(obj); replacement != nil {
+			replacementStart = podStartTime(replacement)
+		}
+		return ctrlruntime.Result{}, r.removeReplacedPod(ctx, clusterClientSets, message, replacementStart)
 	}
 	if obj == nil || !obj.GetDeletionTimestamp().IsZero() {
 		if obj != nil && message.meshName == "" {
@@ -79,6 +90,7 @@ func (r *SyncerReconciler) handlePod(ctx context.Context,
 			if disruption := disruptionTargetOf(obj); disruption != "" {
 				message.disruption = disruption
 			}
+			message.phase = podPhaseOf(obj)
 		}
 		if err = r.removeWorkloadPod(ctx, clusterClientSets, message); err != nil {
 			return ctrlruntime.Result{}, err
@@ -424,8 +436,12 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 			continue
 		}
 		id = i
+		// A record with no pod uid is not rewritten for the uid alone: one
+		// written before records carried uids is told by its start time, and
+		// a Workload CRD that predates the field drops it from every write.
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == adminNodeNameOf(k8sNode) &&
-			p.StartTime != "" && p.StartTime == podStartTime(pod) && p.PodUid == string(pod.UID) &&
+			p.StartTime != "" && p.StartTime == podStartTime(pod) &&
+			(p.PodUid == "" || p.PodUid == string(pod.UID)) &&
 			p.HostIp == pod.Status.HostIP &&
 			!currentDispatchNodesNeedRepair(adminWorkload) {
 			// Return early if no critical changes detected
@@ -511,6 +527,18 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 		adminWorkload, pod, &workloadPod, mainContainerName)
 
 	return workloadPod
+}
+
+// podStartTimeOf is podStartTime of an unstructured pod. The time is decoded as
+// metav1.Time decodes it, in this process's local zone, as the records' start
+// times are.
+func podStartTimeOf(obj *unstructured.Unstructured) string {
+	raw, _, _ := unstructured.NestedString(obj.Object, "status", "startTime")
+	var at metav1.Time
+	if raw == "" || at.UnmarshalQueryParameter(raw) != nil {
+		return ""
+	}
+	return podStartTime(&corev1.Pod{Status: corev1.PodStatus{StartTime: &at}})
 }
 
 // podStartTime is the pod's start time as a pod record holds it, "" when unset.
@@ -606,6 +634,23 @@ func getMainContainerRank(mainContainerName string, pod *corev1.Pod) string {
 // Called when a pod is deleted to clean up the workload's pod list.
 func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *ClusterClientSets,
 	message *resourceMessage) error {
+	return r.removePodOf(ctx, clientSets, message, nil)
+}
+
+// removeReplacedPod is removeWorkloadPod for a pod that a pod of the same name,
+// in the informer cache and started at replacementStart, has replaced. A
+// record that carries another uid is the replacement's. One that carries none,
+// as one written before records carried uids, is the replacement's when it
+// started when the replacement did, and the deleted pod's otherwise.
+func (r *SyncerReconciler) removeReplacedPod(ctx context.Context, clientSets *ClusterClientSets,
+	message *resourceMessage, replacementStart string) error {
+	return r.removePodOf(ctx, clientSets, message, &replacementStart)
+}
+
+// removePodOf removes the record of the deleted pod; replacementStart is set
+// when a pod of the same name has replaced it, see removeReplacedPod.
+func (r *SyncerReconciler) removePodOf(ctx context.Context, clientSets *ClusterClientSets,
+	message *resourceMessage, replacementStart *string) error {
 	workloadID, err := r.resolvePodWorkloadID(ctx, clientSets, message)
 	if err != nil || workloadID == "" {
 		return err
@@ -624,7 +669,17 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	}
 
 	id := indexOfPod(adminWorkload.Status.Pods, message.name)
-	if id >= 0 && isOtherPodsDelete(&adminWorkload.Status.Pods[id], message) {
+	if id >= 0 && replacementStart == nil && isLaterPodsDelete(&adminWorkload.Status.Pods[id], message) {
+		// A later pod of the same name, none of whose events but its delete
+		// was handled: the record is made its, the earlier pod's disruption
+		// kept as the earlier pod's, and the delete is then applied to it.
+		klog.V(4).InfoS("the delete of a later pod of the same name",
+			"workload", adminWorkload.Name, "pod", message.name,
+			"deletedUID", message.uid, "recordUID", adminWorkload.Status.Pods[id].PodUid)
+		supersedeRecord(&adminWorkload.Status.Pods[id], message)
+	}
+	if id >= 0 && (isOtherPodsDelete(&adminWorkload.Status.Pods[id], message) ||
+		isReplacementsRecord(&adminWorkload.Status.Pods[id], replacementStart)) {
 		// The delete of an earlier pod of the same name, seen after its
 		// replacement's record was written: its end is not the replacement's,
 		// and its disruption is kept as the earlier pod's.
@@ -641,7 +696,14 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	if id >= 0 && !commonworkload.IsApplication(adminWorkload) && !commonworkload.IsCICD(adminWorkload) {
 		// Record why the platform took the pod away before the entry is marked
 		// gone; kinds that drop the entry keep no per-pod history to record it in.
-		noted = appendPodDisruption(&adminWorkload.Status.Pods[id], message.disruption)
+		// A pod seen to succeed before any disruption was not taken by one set
+		// later, as on a completed pod (see seenSucceededClean).
+		if p := &adminWorkload.Status.Pods[id]; !endedSucceededClean(p) {
+			noted = appendPodDisruption(p, message.disruption)
+		}
+	}
+	if id >= 0 && markPodEnded(adminWorkload, id, message.phase) {
+		noted = true
 	}
 	if id < 0 || (!r.applyPodGone(adminWorkload, id) && !noted) {
 		// A prior attempt may have written the DB (Stopped or dropped the row)
@@ -658,11 +720,65 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	return nil
 }
 
+// isLaterPodsDelete reports whether a pod delete event is of a pod of the
+// record's name that started after the record's pod: another pod uid, or a
+// record with none, and a later start time.
+func isLaterPodsDelete(p *v1.WorkloadPod, message *resourceMessage) bool {
+	if message.uid == "" || p.PodUid == string(message.uid) || p.StartTime == "" || message.startTime == "" {
+		return false
+	}
+	recorded, err := time.ParseInLocation(timeutil.TimeRFC3339Short, p.StartTime, time.Local)
+	if err != nil {
+		return false
+	}
+	deleted, err := time.ParseInLocation(timeutil.TimeRFC3339Short, message.startTime, time.Local)
+	return err == nil && deleted.After(recorded)
+}
+
+// supersedeRecord makes the record describe the deleted later pod of its name:
+// its uid and start time, not yet ended, with the DisruptionTarget of the
+// earlier pod, its own or one it carried, kept as an earlier pod's. What only
+// the earlier pod's events told (its node, addresses, rank, containers and
+// end) is cleared rather than attributed to the later pod; the pod's
+// workload resource and group are its name's.
+func supersedeRecord(p *v1.WorkloadPod, message *resourceMessage) {
+	own, earlier := podDisruptions(p.FailedMessage)
+	if own != "" {
+		earlier = own
+	}
+	*p = v1.WorkloadPod{
+		PodId:      p.PodId,
+		PodUid:     string(message.uid),
+		ResourceId: p.ResourceId,
+		GroupId:    p.GroupId,
+		StartTime:  message.startTime,
+	}
+	if earlier != "" {
+		p.FailedMessage = earlierPodPrefix + earlier
+	}
+}
+
+// endedSucceededClean reports whether the record shows its pod ended Succeeded
+// with no DisruptionTarget of its own.
+func endedSucceededClean(p *v1.WorkloadPod) bool {
+	own, _ := podDisruptions(p.FailedMessage)
+	return p.Phase == corev1.PodSucceeded && own == ""
+}
+
 // isOtherPodsDelete reports whether a pod delete event is of another pod than
 // the one the record describes. A record written before records carried the
 // pod uid, or an event with none, is taken for the record's pod.
 func isOtherPodsDelete(p *v1.WorkloadPod, message *resourceMessage) bool {
 	return p.PodUid != "" && message.uid != "" && p.PodUid != string(message.uid)
+}
+
+// isReplacementsRecord reports whether a record with no pod uid describes the
+// pod that replaced a deleted one of its name, started at replacementStart
+// (nil when no pod has replaced it): it does when it started when the
+// replacement did. A record that carries a uid is told by it, see
+// isOtherPodsDelete.
+func isReplacementsRecord(p *v1.WorkloadPod, replacementStart *string) bool {
+	return replacementStart != nil && p.PodUid == "" && p.StartTime == *replacementStart
 }
 
 // setEarlierDisruption records disruption, when set, as the one an earlier pod
@@ -830,6 +946,31 @@ func (r *SyncerReconciler) applyPodGone(adminWorkload *v1.Workload, id int) bool
 	}
 	p.Phase = corev1.PodPhase(v1.WorkloadStopped)
 	return true
+}
+
+// markPodEnded records a deleted pod seen to have ended Succeeded as it ended,
+// rather than Stopped, and reports whether the record changed. A pod evicted
+// is deleted before its containers exit: one that exited 0 on the SIGTERM ends
+// Succeeded while being deleted, and a controller may have counted that
+// success (see lastEndedAttempts). The deletion is seen first, while the pod
+// still runs, and stops the record; the pod's end is seen on a later event of
+// the same deletion. Kinds that drop the record, and records that ended
+// Succeeded or Failed, are left as they are.
+func markPodEnded(adminWorkload *v1.Workload, id int, phase corev1.PodPhase) bool {
+	p := &adminWorkload.Status.Pods[id]
+	if phase != corev1.PodSucceeded || commonworkload.IsApplication(adminWorkload) ||
+		commonworkload.IsCICD(adminWorkload) ||
+		(v1.IsPodTerminated(p) && p.Phase != corev1.PodPhase(v1.WorkloadStopped)) {
+		return false
+	}
+	adminWorkload.Status.Pods[id].Phase = corev1.PodSucceeded
+	return true
+}
+
+// podPhaseOf returns the phase of an unstructured pod, "" when unset.
+func podPhaseOf(obj *unstructured.Unstructured) corev1.PodPhase {
+	phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase")
+	return corev1.PodPhase(phase)
 }
 
 // podResourceGVK identifies the pod informer whose cache says which pods exist.
@@ -1370,8 +1511,10 @@ const disruptionTargetPrefix = "DisruptionTarget: "
 // disruption that ended the pod is never later than its containers' finish.
 // The taint manager and a drain also mark a pod that had already completed;
 // such a condition, set after every container had finished, did not end the
-// pod and is not returned. Both times have a resolution of one second, and a
-// condition set in the second a container finished is taken as the one that
+// pod and is not returned. Both times have a resolution of one second, and
+// come from different clocks: the condition's from the control plane, a
+// container's finish from its node's kubelet. A condition set less than
+// disruptionClockSkew after a container finished is taken as the one that
 // ended it.
 func podDisruption(status *corev1.PodStatus) string {
 	for i := range status.Conditions {
@@ -1387,15 +1530,24 @@ func podDisruption(status *corev1.PodStatus) string {
 	return ""
 }
 
-// endedBefore reports whether every container had terminated before at. A
-// container still running, or a time that is unset, is not.
+// disruptionClockSkew is how much later than a container's recorded finish a
+// DisruptionTarget condition may be recorded and still be taken as the one
+// that ended the container. Each time is truncated to the second, and a
+// kubelet clock a fraction of a second behind the control plane's records the
+// SIGTERM exit a second before the condition that caused it.
+const disruptionClockSkew = time.Second
+
+// endedBefore reports whether every container had terminated before at, by
+// more than disruptionClockSkew. A container still running, or a time that is
+// unset, is not.
 func endedBefore(statuses []corev1.ContainerStatus, at metav1.Time) bool {
 	if at.IsZero() || len(statuses) == 0 {
 		return false
 	}
 	for i := range statuses {
 		terminated := statuses[i].State.Terminated
-		if terminated == nil || terminated.FinishedAt.IsZero() || !terminated.FinishedAt.Before(&at) {
+		if terminated == nil || terminated.FinishedAt.IsZero() ||
+			!terminated.FinishedAt.Add(disruptionClockSkew).Before(at.Time) {
 			return false
 		}
 	}
