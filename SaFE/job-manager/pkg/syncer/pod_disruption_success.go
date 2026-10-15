@@ -11,7 +11,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -29,24 +28,40 @@ import (
 // terminated.
 //
 // Only a workload of one replica whose records and cache name one pod is read:
-// with more pods the object's success cannot be tied to the disrupted one. The
-// pod's current object in the informer cache decides, and must have ended
+// with more pods the object's success cannot be tied to the disrupted one. A
+// TorchFT or MonarchJob workload is never read: it runs several objects, and a
+// mesh pod carries the workload label only after its first sync, so the cache
+// cannot be asked for its pods.
+//
+// The pod's current object in the informer cache decides, and must have ended
 // Succeeded with a True DisruptionTarget: a pod of the same name created later
 // that ended cleanly is a clean success, and a disrupted pod that ended Failed
-// was not what the object counted as success. Only when the cache no longer
-// holds the pod is its record read; the delete path records the condition there
-// (see removeWorkloadPod) but not the phase the pod ended in.
+// was not what the object counted as success. Only when the cache holds no pod
+// of the current dispatch is its record read; the delete path records the
+// condition there (see removeWorkloadPod) but not the phase the pod ended in.
+//
+// A cache that cannot answer (no informer yet, not synced, a failed list) is
+// never read as "the pod is gone": the record would then decide for a pod that
+// may still be in the cluster, as after a restart, when the object's informer
+// replays its success before the pod informer has synced. The success then
+// stands as reported.
 func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *ClusterClientSets,
 	adminWorkload *v1.Workload) string {
 	if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICD(adminWorkload) ||
+		commonworkload.IsTorchFT(adminWorkload) || commonworkload.IsMonarchJob(adminWorkload) ||
 		commonworkload.GetTotalReplica(adminWorkload) != 1 {
+		return ""
+	}
+	cached, ok := r.cachedWorkloadPods(ctx, clientSets, adminWorkload)
+	if !ok {
+		klog.Infof("workload %s: k8s object reports success, and the pod cache cannot tell "+
+			"whether its pod was disrupted; the success stands", adminWorkload.Name)
 		return ""
 	}
 	names := map[string]struct{}{}
 	for i := range adminWorkload.Status.Pods {
 		names[adminWorkload.Status.Pods[i].PodId] = struct{}{}
 	}
-	cached := r.cachedWorkloadPods(ctx, clientSets, adminWorkload)
 	for _, obj := range cached {
 		names[obj.GetName()] = struct{}{}
 	}
@@ -64,38 +79,43 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 		return ""
 	}
 	p := &adminWorkload.Status.Pods[0]
-	if at := strings.Index(p.FailedMessage, disruptionTargetPrefix); at >= 0 && v1.IsPodTerminated(p) {
+	// A record that ended Failed is not what the object counted as success; one
+	// the delete path stopped did not see how its pod ended, and is the candidate
+	// with one that ended Succeeded.
+	if p.Phase != corev1.PodSucceeded && p.Phase != corev1.PodPhase(v1.WorkloadStopped) {
+		return ""
+	}
+	if at := strings.Index(p.FailedMessage, disruptionTargetPrefix); at >= 0 {
 		return p.FailedMessage[at:]
 	}
 	return ""
 }
 
-// cachedWorkloadPods lists the workload's pods from the pod informer cache, or
-// nothing when the cache cannot answer.
+// cachedWorkloadPods returns the workload's pods of its current dispatch from the
+// pod informer cache, and whether the cache could answer. Pods of an earlier
+// workload generation or an earlier dispatch are not the workload's current pod.
 func (r *SyncerReconciler) cachedWorkloadPods(ctx context.Context, clientSets *ClusterClientSets,
-	adminWorkload *v1.Workload) []*unstructured.Unstructured {
-	if clientSets == nil || v1.GetClusterId(adminWorkload) != clientSets.name {
-		return nil
+	adminWorkload *v1.Workload) ([]*unstructured.Unstructured, bool) {
+	objs, _, ok := listCachedWorkloadPods(ctx, clientSets, adminWorkload)
+	if !ok {
+		return nil, false
 	}
-	informer, err := clientSets.GetResourceInformer(ctx, podResourceGVK)
-	if err != nil || informer == nil || !informer.Informer().HasSynced() {
-		return nil
-	}
-	objs, err := informer.Lister().List(
-		labels.SelectorFromSet(labels.Set{v1.WorkloadIdLabel: adminWorkload.Name}))
-	if err != nil {
-		klog.ErrorS(err, "failed to list pods from informer cache", "name", adminWorkload.Name)
-		return nil
-	}
+	dispatchCount := v1.GetWorkloadDispatchCnt(adminWorkload)
 	pods := make([]*unstructured.Unstructured, 0, len(objs))
 	for _, obj := range objs {
 		pod, ok := obj.(*unstructured.Unstructured)
-		if !ok || isStaleWorkloadGeneration(adminWorkload, v1.GetLabel(pod, v1.WorkloadUidLabel)) {
+		if !ok {
+			klog.Errorf("unexpected object type %T in the pod informer cache of workload %s",
+				obj, adminWorkload.Name)
+			return nil, false
+		}
+		if isStaleWorkloadGeneration(adminWorkload, v1.GetLabel(pod, v1.WorkloadUidLabel)) ||
+			(dispatchCount > 0 && v1.GetWorkloadDispatchCnt(pod) != dispatchCount) {
 			continue
 		}
 		pods = append(pods, pod)
 	}
-	return pods
+	return pods, true
 }
 
 // joinMessage joins two status messages with "; ", dropping an empty one.

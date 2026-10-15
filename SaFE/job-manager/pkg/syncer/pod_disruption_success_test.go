@@ -7,7 +7,9 @@ package syncer
 
 import (
 	"context"
+	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -48,14 +50,23 @@ func wantEviction() string {
 		timeutil.FormatRFC3339(disruptionTime.Time) + "): Eviction API: evicting"
 }
 
-// syncedInformer is a pod informer whose cache holds exactly the given pods.
-type syncedInformer struct{ indexer cache.Indexer }
+// syncedInformer is a pod informer whose cache holds exactly the given pods,
+// and reports it has synced unless unsynced is set.
+type syncedInformer struct {
+	indexer  cache.Indexer
+	unsynced bool
+}
 
-type syncedSharedInformer struct{ cache.SharedIndexInformer }
+type syncedSharedInformer struct {
+	cache.SharedIndexInformer
+	synced bool
+}
 
-func (syncedSharedInformer) HasSynced() bool { return true }
+func (s syncedSharedInformer) HasSynced() bool { return s.synced }
 
-func (s syncedInformer) Informer() cache.SharedIndexInformer { return syncedSharedInformer{} }
+func (s syncedInformer) Informer() cache.SharedIndexInformer {
+	return syncedSharedInformer{synced: !s.unsynced}
+}
 func (s syncedInformer) Lister() cache.GenericLister {
 	return cache.NewGenericLister(s.indexer, schema.GroupResource{Resource: "pods"})
 }
@@ -66,7 +77,7 @@ func cachedPod(t *testing.T, name string, phase corev1.PodPhase, conditions ...c
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name, Namespace: "ns",
-			Labels: map[string]string{v1.WorkloadIdLabel: "w"},
+			Labels: map[string]string{v1.WorkloadIdLabel: "w", v1.WorkloadDispatchCntLabel: "1"},
 		},
 		Status: corev1.PodStatus{Phase: phase, Conditions: conditions},
 	}
@@ -75,11 +86,36 @@ func cachedPod(t *testing.T, name string, phase corev1.PodPhase, conditions ...c
 	return &unstructured.Unstructured{Object: m}
 }
 
+// objectSucceededRun describes one run of the job status path for an object
+// that reports K8sSucceeded.
+type objectSucceededRun struct {
+	replicas int
+	records  []v1.WorkloadPod
+	cached   []*unstructured.Unstructured
+	// The workload's dispatch count, 1 when unset, and the one the event carries,
+	// the workload's when unset.
+	dispatch, eventDispatch int
+	maxRetry                int
+	// The pod cache cannot answer: no informer, or one that has not synced.
+	noInformer, unsynced bool
+}
+
 // runObjectSucceeded runs the job status path for an object that reports
 // K8sSucceeded, with the pod informer cache holding cached, and returns the
 // stored workload.
 func runObjectSucceeded(t *testing.T, replicas int, records []v1.WorkloadPod, cached ...*unstructured.Unstructured) *v1.Workload {
 	t.Helper()
+	return runObjectSucceededWith(t, objectSucceededRun{replicas: replicas, records: records, cached: cached})
+}
+
+func runObjectSucceededWith(t *testing.T, run objectSucceededRun) *v1.Workload {
+	t.Helper()
+	if run.dispatch == 0 {
+		run.dispatch = 1
+	}
+	if run.eventDispatch == 0 {
+		run.eventDispatch = run.dispatch
+	}
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 	patches.ApplyFunc(jobutils.GetObject,
@@ -98,21 +134,26 @@ func runObjectSucceeded(t *testing.T, replicas int, records []v1.WorkloadPod, ca
 			return &jobutils.K8sObjectStatus{Phase: string(v1.K8sSucceeded), Message: objectSucceededMessage}, nil
 		})
 	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
-	for _, obj := range cached {
+	for _, obj := range run.cached {
 		assert.NilError(t, indexer.Add(obj))
 	}
 	patches.ApplyMethod(reflect.TypeOf(&ClusterClientSets{}), "GetResourceInformer",
 		func(_ *ClusterClientSets, _ context.Context, gvk schema.GroupVersionKind) (informers.GenericInformer, error) {
 			assert.Equal(t, gvk, podResourceGVK)
-			return syncedInformer{indexer: indexer}, nil
+			if run.noInformer {
+				return nil, errors.New("pod informer not started")
+			}
+			return syncedInformer{indexer: indexer, unsynced: run.unsynced}, nil
 		})
 
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
-		Name:   "w",
-		Labels: map[string]string{v1.ClusterIdLabel: "c"},
+		Name: "w",
+		Labels: map[string]string{v1.ClusterIdLabel: "c",
+			v1.WorkloadDispatchCntLabel: strconv.Itoa(run.dispatch)},
 	}}
 	w.Status.Phase = v1.WorkloadRunning
-	w.Spec.Resources = []v1.WorkloadResource{{Replica: replicas}}
+	w.Spec.Resources = []v1.WorkloadResource{{Replica: run.replicas}}
+	w.Spec.MaxRetry = run.maxRetry
 	cl := ctrlfake.NewClientBuilder().
 		WithScheme(syncerScheme(t)).
 		WithObjects(w).
@@ -121,12 +162,13 @@ func runObjectSucceeded(t *testing.T, replicas int, records []v1.WorkloadPod, ca
 	r := &SyncerReconciler{Client: cl}
 	hydrated := &v1.Workload{}
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, hydrated))
-	hydrated.Status.Pods = records
+	hydrated.Status.Pods = run.records
 
 	cs := monkeyClientSets()
 	cs.name = "c"
 	_, err := r.updateAdminWorkloadByJob(context.Background(), cs, hydrated,
-		&resourceMessage{name: "o", namespace: "ns", dispatchCount: 1, gvk: schema.GroupVersionKind{Kind: "Sandbox"}})
+		&resourceMessage{name: "o", namespace: "ns", dispatchCount: run.eventDispatch,
+			gvk: schema.GroupVersionKind{Kind: "Sandbox"}})
 	assert.NilError(t, err)
 	fresh := &v1.Workload{}
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, fresh))
@@ -209,6 +251,12 @@ func TestDisruptedPodThatFailedIsNotTheSuccess(t *testing.T) {
 	failed.Phase = corev1.PodFailed
 	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{failed},
 		cachedPod(t, "p1", corev1.PodFailed, evictionCondition())))
+	// Nor when the pod has left the cache and only its record says so.
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{failed}))
+	// A record that ended Succeeded with the condition is the candidate.
+	succeeded := evictedRecord()
+	succeeded.Phase = corev1.PodSucceeded
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{succeeded}))
 }
 
 // With more than one pod the object's success cannot be tied to the disrupted
@@ -258,4 +306,91 @@ func TestEndedPodRecordNotOverwrittenAfterWorkloadEnd(t *testing.T) {
 	assert.Equal(t, updated, true)
 	assert.Equal(t, running.Status.Pods[0].Phase, corev1.PodPending)
 	assert.Equal(t, running.Status.Pods[0].FailedMessage, "")
+}
+
+// A pod cache that cannot answer is not a pod that left it: the record is not
+// read, and the success stands. After a restart the object's informer can
+// replay its success before the pod informer has synced, while the pod, a
+// later one of the same name, is still in the cluster.
+func TestUnansweredPodCacheLeavesSuccess(t *testing.T) {
+	records := []v1.WorkloadPod{evictedRecord()}
+	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records, unsynced: true,
+		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}}))
+	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records, unsynced: true}))
+	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records, noInformer: true}))
+	// The same record with a cache that has synced and holds no pod decides.
+	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records}))
+}
+
+// A pod of an earlier dispatch still in the cache is not the current dispatch's
+// pod, and does not decide how the current one ended.
+func TestEarlierDispatchPodDoesNotDecide(t *testing.T) {
+	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
+		records: []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded}},
+		cached:  []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}}))
+	// The current dispatch's pod decides.
+	current := cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())
+	labels := current.GetLabels()
+	labels[v1.WorkloadDispatchCntLabel] = "2"
+	current.SetLabels(labels)
+	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
+		records: []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
+		cached:  []*unstructured.Unstructured{current}}))
+}
+
+// A MonarchJob or TorchFT workload is not read: its mesh pods carry the
+// workload label only after their first sync.
+func TestMeshWorkloadsAreNotRead(t *testing.T) {
+	disruptedSuccessOf := func(monarch, torchFT bool) string {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patches.ApplyFunc(commonworkload.IsTorchFT, func(*v1.Workload) bool { return torchFT })
+		patches.ApplyFunc(commonworkload.IsMonarchJob, func(*v1.Workload) bool { return monarch })
+		indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+		assert.NilError(t, indexer.Add(cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
+		patches.ApplyMethod(reflect.TypeOf(&ClusterClientSets{}), "GetResourceInformer",
+			func(*ClusterClientSets, context.Context, schema.GroupVersionKind) (informers.GenericInformer, error) {
+				return syncedInformer{indexer: indexer}, nil
+			})
+		w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w",
+			Labels: map[string]string{v1.ClusterIdLabel: "c", v1.WorkloadDispatchCntLabel: "1"}}}
+		w.Spec.Resources = []v1.WorkloadResource{{Replica: 1}}
+		w.Status.Pods = []v1.WorkloadPod{evictedRecord()}
+		cs := monkeyClientSets()
+		cs.name = "c"
+		return (&SyncerReconciler{}).disruptedSuccess(context.Background(), cs, w)
+	}
+	assert.Equal(t, disruptedSuccessOf(false, false), wantEviction())
+	assert.Equal(t, disruptedSuccessOf(true, false), "")
+	assert.Equal(t, disruptedSuccessOf(false, true), "")
+}
+
+// The failure a disrupted success becomes ends the workload once failover will
+// not act, whatever dispatch the event carries. Failover counts the workload's
+// dispatches: a late event of dispatch 1 arriving during dispatch 4 of a
+// workload allowed 3 retries must not leave it past its limit and running.
+func TestDisruptedSuccessOfLateEventEndsWorkloadPastRetryLimit(t *testing.T) {
+	current := cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())
+	labels := current.GetLabels()
+	labels[v1.WorkloadDispatchCntLabel] = "4"
+	current.SetLabels(labels)
+	w := runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 4, eventDispatch: 1, maxRetry: 3,
+		records: []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
+		cached:  []*unstructured.Unstructured{current}})
+	assertDisruptedFailed(t, w)
+
+	// Within the limit the workload is left to failover, which acts on the
+	// K8sFailed condition of its current dispatch.
+	current = cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())
+	labels = current.GetLabels()
+	labels[v1.WorkloadDispatchCntLabel] = "2"
+	current.SetLabels(labels)
+	w = runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2, eventDispatch: 1, maxRetry: 3,
+		records: []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
+		cached:  []*unstructured.Unstructured{current}})
+	assert.Equal(t, w.Status.Phase, v1.WorkloadRunning)
+	failed := conditionOf(w, v1.K8sFailed)
+	assert.Assert(t, failed != nil)
+	assert.Equal(t, failed.Reason, commonworkload.GenerateDispatchReason(2))
+	assert.Assert(t, jobutils.FindFailedCondition(w))
 }
