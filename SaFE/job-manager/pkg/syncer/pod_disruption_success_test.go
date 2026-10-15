@@ -898,8 +898,11 @@ func TestEvictedAttemptSeenSucceedingWhileDeletedDecides(t *testing.T) {
 		v1.WorkloadPod{PodId: "p1", Phase: corev1.PodRunning, StartTime: earlierInDispatch},
 		v1.WorkloadPod{PodId: "p2", Phase: corev1.PodRunning, StartTime: recordStartTime})
 	r := &SyncerReconciler{Client: cl}
+	// The deletion is seen while the pod still runs, then its end.
 	deleting := disruptedPodObject(t, evictionCondition())
 	deleting.SetDeletionTimestamp(&metav1.Time{Time: time.Now()})
+	handlePodWithInformer(t, r, eventMessage(t, deleting, ResourceUpdate), deleting)
+	assert.Equal(t, getWorkloadPods(t, cl)[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
 	assert.NilError(t, unstructured.SetNestedField(deleting.Object, string(corev1.PodSucceeded), "status", "phase"))
 	handlePodWithInformer(t, r, eventMessage(t, deleting, ResourceUpdate), deleting)
 	replacement := disruptedPodObject(t)
