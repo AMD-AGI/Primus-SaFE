@@ -504,8 +504,11 @@ func TestLaterPodsDeleteSupersedesTheRecord(t *testing.T) {
 		record      v1.WorkloadPod
 		wantMessage string
 	}{
-		// The earlier pod succeeded clean.
-		{v1.WorkloadPod{PodId: "p1", PodUid: "u1", Phase: corev1.PodSucceeded, StartTime: start}, wantEviction()},
+		// The earlier pod succeeded clean, on a node the later pod's delete
+		// does not say it ran on.
+		{v1.WorkloadPod{PodId: "p1", PodUid: "u1", Phase: corev1.PodSucceeded, StartTime: start,
+			AdminNodeName: "node-a", HostIp: "10.0.0.1", PodIp: "192.0.2.1", Rank: "0", ResourceId: 1,
+			EndTime: start, Containers: []v1.Container{{Name: "main"}}}, wantEviction()},
 		// A record written before records carried uids.
 		{v1.WorkloadPod{PodId: "p1", Phase: corev1.PodSucceeded, StartTime: start}, wantEviction()},
 		// The earlier pod's own disruption is kept as the earlier pod's.
@@ -520,6 +523,9 @@ func TestLaterPodsDeleteSupersedesTheRecord(t *testing.T) {
 		assert.Equal(t, pods[0].StartTime, laterStart)
 		assert.Equal(t, pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
 		assert.Equal(t, pods[0].FailedMessage, tc.wantMessage)
+		// Nothing only the earlier pod's events told is given to the later pod.
+		assert.DeepEqual(t, pods[0], v1.WorkloadPod{PodId: "p1", PodUid: "pod-uid", ResourceId: tc.record.ResourceId,
+			Phase: corev1.PodPhase(v1.WorkloadStopped), StartTime: laterStart, FailedMessage: tc.wantMessage})
 	}
 
 	// An earlier pod's late delete leaves the record as it is.

@@ -731,18 +731,22 @@ func isLaterPodsDelete(p *v1.WorkloadPod, message *resourceMessage) bool {
 
 // supersedeRecord makes the record describe the deleted later pod of its name:
 // its uid and start time, not yet ended, with the DisruptionTarget of the
-// earlier pod, its own or one it carried, kept as an earlier pod's.
+// earlier pod, its own or one it carried, kept as an earlier pod's. What only
+// the earlier pod's events told (its node, addresses, rank, containers and
+// end) is cleared rather than attributed to the later pod; the pod's
+// workload resource and group are its name's.
 func supersedeRecord(p *v1.WorkloadPod, message *resourceMessage) {
 	own, earlier := podDisruptions(p.FailedMessage)
 	if own != "" {
 		earlier = own
 	}
-	p.PodUid = string(message.uid)
-	p.StartTime = message.startTime
-	p.EndTime = ""
-	p.Phase = ""
-	p.Containers = nil
-	p.FailedMessage = ""
+	*p = v1.WorkloadPod{
+		PodId:      p.PodId,
+		PodUid:     string(message.uid),
+		ResourceId: p.ResourceId,
+		GroupId:    p.GroupId,
+		StartTime:  message.startTime,
+	}
 	if earlier != "" {
 		p.FailedMessage = earlierPodPrefix + earlier
 	}
