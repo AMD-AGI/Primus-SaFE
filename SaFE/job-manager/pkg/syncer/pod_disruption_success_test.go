@@ -106,7 +106,14 @@ type objectSucceededRun struct {
 	maxRetry                int
 	// The pod cache cannot answer: no informer, or one that has not synced.
 	noInformer, unsynced bool
+	// How long this process has waited to tell whether a disruption caused the
+	// success, when it has.
+	waited *time.Duration
 }
+
+// lastObjectSucceededErr is what updateAdminWorkloadByJob returned in the last
+// runObjectSucceededWith.
+var lastObjectSucceededErr error
 
 // runObjectSucceeded runs the job status path for an object that reports
 // K8sSucceeded, with the pod informer cache holding cached, and returns the
@@ -169,6 +176,9 @@ func runObjectSucceededWith(t *testing.T, run objectSucceededRun) *v1.Workload {
 		WithStatusSubresource(&v1.Workload{}).
 		Build()
 	r := &SyncerReconciler{Client: cl}
+	if run.waited != nil {
+		r.successVerdictWaits.Store("w", successVerdictWait{dispatch: run.dispatch, since: time.Now().Add(-*run.waited)})
+	}
 	hydrated := &v1.Workload{}
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, hydrated))
 	hydrated.Status.Pods = run.records
@@ -178,7 +188,12 @@ func runObjectSucceededWith(t *testing.T, run objectSucceededRun) *v1.Workload {
 	_, err := r.updateAdminWorkloadByJob(context.Background(), cs, hydrated,
 		&resourceMessage{name: "o", namespace: "ns", dispatchCount: run.eventDispatch,
 			gvk: schema.GroupVersionKind{Kind: "Sandbox"}})
-	assert.NilError(t, err)
+	lastObjectSucceededErr = err
+	if !errors.Is(err, errSuccessVerdictPending) {
+		assert.NilError(t, err)
+	}
+	_, waiting := r.successVerdictWaits.Load("w")
+	assert.Equal(t, waiting, errors.Is(err, errSuccessVerdictPending), "a wait is kept only while pending")
 	fresh := &v1.Workload{}
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, fresh))
 	return fresh
@@ -222,9 +237,20 @@ func evictedRecord() v1.WorkloadPod {
 
 func assertSucceeded(t *testing.T, w *v1.Workload) {
 	t.Helper()
+	assert.NilError(t, lastObjectSucceededErr)
 	assert.Equal(t, w.Status.Phase, v1.WorkloadSucceeded)
 	assert.Assert(t, conditionOf(w, v1.K8sFailed) == nil)
 	assert.Equal(t, conditionOf(w, v1.K8sSucceeded).Message, objectSucceededMessage)
+}
+
+// assertPending asserts the object's success was left unapplied, to be read
+// again: the workload has not ended, and holds no condition of the success.
+func assertPending(t *testing.T, w *v1.Workload) {
+	t.Helper()
+	assert.Assert(t, errors.Is(lastObjectSucceededErr, errSuccessVerdictPending), lastObjectSucceededErr)
+	assert.Equal(t, w.Status.Phase, v1.WorkloadRunning)
+	assert.Assert(t, conditionOf(w, v1.K8sSucceeded) == nil)
+	assert.Assert(t, conditionOf(w, v1.K8sFailed) == nil)
 }
 
 // The Eviction API took the pod; its containers exited 0 on SIGTERM, so the pod
@@ -241,10 +267,13 @@ func TestDisruptedSuccessFromInformerCache(t *testing.T) {
 // The pod has left the cache; its record carries the condition.
 func TestDisruptedSuccessFromPodRecord(t *testing.T) {
 	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()}))
-	// A record that has not ended is not read.
+	// A record that has not ended is a pod whose delete is not recorded yet: the
+	// success waits for it.
 	running := evictedRecord()
 	running.Phase = corev1.PodRunning
-	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{running}))
+	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{running}))
+	// As it does when nothing of the pod is recorded or cached yet.
+	assertPending(t, runObjectSucceeded(t, 1, nil))
 }
 
 // A pod that ended Succeeded with no True DisruptionTarget is a clean success.
@@ -253,7 +282,10 @@ func TestCleanSuccessStaysSucceeded(t *testing.T) {
 	notTrue.Status = corev1.ConditionFalse
 	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded}},
 		cachedPod(t, "p1", corev1.PodSucceeded, notTrue)))
-	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded}}))
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded,
+		StartTime: recordStartTime}}))
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1",
+		Phase: corev1.PodPhase(v1.WorkloadStopped), StartTime: recordStartTime}}))
 }
 
 // A later pod of the same name that completed cleanly is what the object
@@ -261,8 +293,9 @@ func TestCleanSuccessStaysSucceeded(t *testing.T) {
 func TestSameNameReplacementSuccessStands(t *testing.T) {
 	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()},
 		cachedPod(t, "p1", corev1.PodSucceeded)))
-	// Nor is the record read while the cache holds a later pod still running.
-	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()},
+	// Nor is the record read while the cache holds a later pod still running:
+	// the success waits for the cache.
+	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()},
 		cachedPod(t, "p1", corev1.PodRunning)))
 }
 
@@ -315,23 +348,39 @@ func TestSameNamePodAfterWorkloadEndIsRecorded(t *testing.T) {
 }
 
 // A pod cache that cannot answer is not a pod that left it: the record is not
-// read, and the success stands. After a restart the object's informer can
-// replay its success before the pod informer has synced, while the pod, a
-// later one of the same name, is still in the cluster.
-func TestUnansweredPodCacheLeavesSuccess(t *testing.T) {
+// read, and the success waits for the cache. After a restart the object's
+// informer can replay its success before the pod informer has synced, while
+// the pod, a later one of the same name, is still in the cluster.
+func TestUnansweredPodCacheWaits(t *testing.T) {
 	records := []v1.WorkloadPod{evictedRecord()}
-	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records, unsynced: true,
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records, unsynced: true,
 		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}}))
-	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records, unsynced: true}))
-	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records, noInformer: true}))
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records, unsynced: true}))
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records, noInformer: true}))
 	// The same record with a cache that has synced and holds no pod decides.
 	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, records: records}))
+}
+
+// The wait is bounded: past maxSuccessVerdictWait of the dispatch the success
+// stands as reported. A wait begun for an earlier dispatch starts over.
+func TestSuccessVerdictWaitIsBounded(t *testing.T) {
+	within, past := maxSuccessVerdictWait-time.Second, maxSuccessVerdictWait
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, unsynced: true, waited: &within}))
+	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, unsynced: true, waited: &past}))
+
+	r := &SyncerReconciler{}
+	r.successVerdictWaits.Store("w", successVerdictWait{dispatch: 1, since: time.Now().Add(-past)})
+	assert.Equal(t, r.awaitSuccessVerdict("w", 2), true)
+	assert.Equal(t, r.awaitSuccessVerdict("w", 2), true)
+	r.forgetWorkloadChecks("w")
+	_, waiting := r.successVerdictWaits.Load("w")
+	assert.Equal(t, waiting, false)
 }
 
 // A pod of an earlier dispatch still in the cache is not the current dispatch's
 // pod, and does not decide how the current one ended.
 func TestEarlierDispatchPodDoesNotDecide(t *testing.T) {
-	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
 		records: []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded}},
 		cached:  []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}}))
 	// The current dispatch's pod decides.
@@ -344,7 +393,7 @@ func TestEarlierDispatchPodDoesNotDecide(t *testing.T) {
 		cached:  []*unstructured.Unstructured{current}}))
 	// A cache holding only an earlier dispatch's pod cannot tell whether the
 	// current pod has left it, and the record is not read.
-	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
 		records: []v1.WorkloadPod{evictedRecord()},
 		cached:  []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded)}}))
 }
@@ -370,7 +419,7 @@ func TestMeshWorkloadsAreNotRead(t *testing.T) {
 		w.Status.Pods = []v1.WorkloadPod{evictedRecord()}
 		cs := monkeyClientSets()
 		cs.name = "c"
-		_, disruption := (&SyncerReconciler{}).disruptedSuccess(context.Background(), cs, w)
+		_, disruption, _ := (&SyncerReconciler{}).disruptedSuccess(context.Background(), cs, w)
 		return disruption
 	}
 	assert.Equal(t, disruptedSuccessOf(false, false), wantEviction())
@@ -416,9 +465,12 @@ func TestDisruptedPodNotYetEndedInCacheFailsSuccess(t *testing.T) {
 		assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
 			cachedPod(t, "p1", phase, evictionCondition())))
 	}
-	// Without the condition the cache cannot say the pod was disrupted.
-	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
-		cachedPod(t, "p1", corev1.PodRunning)))
+	// Without the condition the cache cannot say yet whether the pod was
+	// disrupted, and the success waits for it to see the pod end.
+	for _, phase := range []corev1.PodPhase{corev1.PodRunning, corev1.PodPending, ""} {
+		assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
+			cachedPod(t, "p1", phase)))
+	}
 }
 
 func terminatedAt(at time.Time) []corev1.ContainerStatus {
@@ -462,16 +514,56 @@ func TestDisruptionAfterPodEndedDoesNotFailSuccess(t *testing.T) {
 
 // A record is read only when it started in the current dispatch: one left from
 // an earlier dispatch, as the cache's pods of one are not read, does not say how
-// the current pod ended.
+// the current pod ended, and the success waits for the current pod's.
 func TestRecordOfEarlierDispatchDoesNotDecide(t *testing.T) {
 	earlier := evictedRecord()
 	earlier.StartTime = earlierStartTime
-	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
 		records: []v1.WorkloadPod{earlier}}))
+	failedEarlier := earlier
+	failedEarlier.Phase = corev1.PodFailed
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
+		records: []v1.WorkloadPod{failedEarlier}}))
 	neverStarted := evictedRecord()
 	neverStarted.StartTime = ""
-	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
 		records: []v1.WorkloadPod{neverStarted}}))
 	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
 		records: []v1.WorkloadPod{evictedRecord()}}))
+}
+
+// A record holds whole seconds: a pod that started in the second it was
+// dispatched in started in that dispatch.
+func TestRecordStartedInDispatchSecond(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+		v1.WorkloadDispatchedAnnotation: dispatchedAt.Add(700 * time.Millisecond).Format(timeutil.TimeRFC3339Milli)}}}
+	same := &v1.WorkloadPod{StartTime: timeutil.FormatRFC3339(dispatchedAt.Local())}
+	assert.Equal(t, startedInCurrentDispatch(w, same), true)
+	before := &v1.WorkloadPod{StartTime: timeutil.FormatRFC3339(dispatchedAt.Add(-time.Second).Local())}
+	assert.Equal(t, startedInCurrentDispatch(w, before), false)
+}
+
+// A success left unapplied is read again: the job event is requeued, and none
+// of what follows a status update runs on it.
+func TestPendingSuccessVerdictRequeuesTheEvent(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "updateAdminWorkloadByJob",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, w *v1.Workload,
+			_ *resourceMessage) (*v1.Workload, error) {
+			return w, errSuccessVerdictPending
+		})
+	rescheduled := false
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "shouldReSchedule",
+		func(*SyncerReconciler, context.Context, *v1.Workload, *resourceMessage, *ClusterClientSets) (bool, error) {
+			rescheduled = true
+			return false, nil
+		})
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Status.Phase = v1.WorkloadRunning
+	result, err := (&SyncerReconciler{}).handleJobImpl(context.Background(),
+		&resourceMessage{name: "o", namespace: "ns"}, w, monkeyClientSets())
+	assert.NilError(t, err)
+	assert.Equal(t, result.RequeueAfter, successVerdictRetry)
+	assert.Equal(t, rescheduled, false)
 }
