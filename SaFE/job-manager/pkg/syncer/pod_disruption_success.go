@@ -162,35 +162,40 @@ func seenSucceededClean(record *v1.WorkloadPod, pod *corev1.Pod) bool {
 	return record.StartTime != "" && record.StartTime == podStartTime(pod)
 }
 
-// lastEndedAttempt returns the record of the attempt that started last among
-// those that ended neither Failed nor never started, when no pod is cached.
-// settled is false while a record of a pod that has left the cache has not had
-// its end recorded, or none has ended: the delete that stops it may carry the
-// disruption. The record is nil when two such attempts started in the same
-// second.
+// lastEndedAttempt returns, when no pod is cached, the record of the attempt
+// of the current dispatch that started last among those that ended other than
+// Failed. settled is false while none has, or while an attempt that started
+// no earlier has no recorded end: the delete that ends its record may carry
+// the disruption. An attempt that started earlier and has no recorded end is
+// an older one whose delete was lost or is still queued; it does not hold the
+// verdict. A record left from an earlier dispatch, or of a pod that never
+// started, is not an attempt of this dispatch's success. The record is nil
+// when two attempts that ended started in the same second.
 func lastEndedAttempt(adminWorkload *v1.Workload) (record *v1.WorkloadPod, settled bool) {
-	var latest time.Time
-	tied := false
+	var latest, unended time.Time
+	tied, anyUnended := false, false
 	for i := range adminWorkload.Status.Pods {
 		p := &adminWorkload.Status.Pods[i]
-		switch {
-		case p.Phase == corev1.PodFailed:
+		if p.Phase == corev1.PodFailed || !startedInCurrentDispatch(adminWorkload, p) {
 			continue
-		case !v1.IsPodTerminated(p):
-			return nil, false
 		}
 		started, err := time.ParseInLocation(timeutil.TimeRFC3339Short, p.StartTime, time.Local)
-		switch {
-		case err != nil:
-			// Never started, as a pod PodGC took while Pending: not a success.
+		if err != nil {
 			continue
+		}
+		switch {
+		case !v1.IsPodTerminated(p):
+			if !anyUnended || started.After(unended) {
+				unended = started
+			}
+			anyUnended = true
 		case record == nil || started.After(latest):
 			record, latest, tied = p, started, false
 		case started.Equal(latest):
 			tied = true
 		}
 	}
-	if record == nil {
+	if record == nil || (anyUnended && !unended.Before(latest)) {
 		return nil, false
 	}
 	if tied {

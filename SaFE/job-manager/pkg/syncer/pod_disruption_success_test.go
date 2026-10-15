@@ -793,7 +793,8 @@ func TestStoppedAttemptLeavesTheReplacementToDecide(t *testing.T) {
 		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
 	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{stopped}, cachedPod(t, "p1", corev1.PodSucceeded)))
 	// The replacement recorded but not cached yet: the success waits for it.
-	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{stopped, {PodId: "p1", Phase: corev1.PodRunning}}))
+	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{stopped, {PodId: "p1", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(dispatchedAt.Add(2 * time.Hour).Local())}}))
 	// With only the stopped pod, its record decides.
 	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()}))
 }
@@ -807,9 +808,20 @@ func TestStaleRecordOfAReplacedAttemptDoesNotDecide(t *testing.T) {
 	// The replacement is cached.
 	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{stale},
 		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
-	// Its delete was recorded first: the stale record's end is awaited.
-	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{stale, evictedRecord()}))
-	// Then the attempt that started last decides.
+	// Its delete was recorded first, the stale record's delete still queued or
+	// lost (as across a restart): the attempt that started last decides.
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{stale, evictedRecord()}))
+	// One that started later with no recorded end is awaited: its delete may
+	// carry the disruption.
+	later := v1.WorkloadPod{PodId: "p2", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(dispatchedAt.Add(2 * time.Hour).Local())}
+	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord(), later}))
+	// A record of an earlier dispatch, as a delayed update of its pod rewrote,
+	// does not hold the verdict either.
+	earlierDispatch := stale
+	earlierDispatch.StartTime = earlierStartTime
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{earlierDispatch, evictedRecord()}))
+	// The attempt that started last decides.
 	ended := stale
 	ended.Phase = corev1.PodPhase(v1.WorkloadStopped)
 	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{ended, evictedRecord()}))
