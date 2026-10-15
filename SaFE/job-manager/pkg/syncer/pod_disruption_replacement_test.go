@@ -13,6 +13,7 @@ import (
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -375,6 +376,8 @@ func TestSetEarlierDisruption(t *testing.T) {
 func TestReplacedPodsDeleteSeenWithReplacementCached(t *testing.T) {
 	replacement := disruptedPodObject(t)
 	replacement.SetUID("replacement-uid")
+	assert.NilError(t, unstructured.SetNestedField(replacement.Object, secondStart.UTC().Format(time.RFC3339),
+		"status", "startTime"))
 	deleted := func() *resourceMessage {
 		return eventMessage(t, disruptedPodObject(t, evictionCondition()), ResourceDel)
 	}
@@ -387,8 +390,8 @@ func TestReplacedPodsDeleteSeenWithReplacementCached(t *testing.T) {
 	assert.Equal(t, pods[0].Phase, corev1.PodRunning)
 	assert.Equal(t, pods[0].FailedMessage, earlierPodPrefix+wantEviction())
 
-	// A record written before records carried uids is taken for the
-	// replacement's.
+	// A record written before records carried uids is the replacement's when
+	// it started when the replacement did.
 	cl = disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", Phase: corev1.PodRunning,
 		StartTime: timeutil.FormatRFC3339(secondStart.Time)})
 	r = &SyncerReconciler{Client: cl}
@@ -396,6 +399,14 @@ func TestReplacedPodsDeleteSeenWithReplacementCached(t *testing.T) {
 	pods = getWorkloadPods(t, cl)
 	assert.Equal(t, pods[0].Phase, corev1.PodRunning)
 	assert.Equal(t, pods[0].FailedMessage, earlierPodPrefix+wantEviction())
+	// And the deleted pod's otherwise: it is stopped with its own disruption.
+	cl = disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", Phase: corev1.PodRunning,
+		StartTime: timeutil.FormatRFC3339(firstStart.Time)})
+	r = &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, deleted(), replacement)
+	pods = getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+	assert.Equal(t, pods[0].FailedMessage, wantEviction())
 
 	// A record still of the deleted pod is stopped with its disruption, which
 	// the replacement's record then carries as the earlier pod's.

@@ -52,12 +52,6 @@ import (
 // which reports success only after its pod ended: the condition may not have
 // reached the cache yet.
 //
-// The cached pod is taken for the one the object counted. Were the object's
-// success that of a later pod of the same name, the cache would hold that pod:
-// the informer keys pods by name, and pod records come from the same informer.
-// Only a pod informer that missed the later pod's whole life would show the
-// earlier one, and nothing this process holds knows that pod.
-//
 // Only when the cache holds no pod of the current dispatch is its record read;
 // the delete path records the condition there (see removeWorkloadPod) but not
 // the phase the pod ended in. The record must have started in the current

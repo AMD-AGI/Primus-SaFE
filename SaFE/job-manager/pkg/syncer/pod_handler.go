@@ -76,7 +76,11 @@ func (r *SyncerReconciler) handlePod(ctx context.Context,
 		// recreated it before this event was handled. The disruption that took
 		// the pod is still recorded, never on the replacement as its own, and
 		// the replacement is not deleted.
-		return ctrlruntime.Result{}, r.removeReplacedPod(ctx, clusterClientSets, message)
+		replacementStart := ""
+		if replacement := convertPodFromUnstructured(obj); replacement != nil {
+			replacementStart = podStartTime(replacement)
+		}
+		return ctrlruntime.Result{}, r.removeReplacedPod(ctx, clusterClientSets, message, replacementStart)
 	}
 	if obj == nil || !obj.GetDeletionTimestamp().IsZero() {
 		if obj != nil && message.meshName == "" {
@@ -617,20 +621,23 @@ func getMainContainerRank(mainContainerName string, pod *corev1.Pod) string {
 // Called when a pod is deleted to clean up the workload's pod list.
 func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *ClusterClientSets,
 	message *resourceMessage) error {
-	return r.removePodOf(ctx, clientSets, message, false)
+	return r.removePodOf(ctx, clientSets, message, nil)
 }
 
 // removeReplacedPod is removeWorkloadPod for a pod that a pod of the same name,
-// in the informer cache, has replaced. A record that does not carry the
-// deleted pod's uid, one written before records carried uids included, is
-// taken for the replacement's.
+// in the informer cache and started at replacementStart, has replaced. A
+// record that carries another uid is the replacement's. One that carries none,
+// as one written before records carried uids, is the replacement's when it
+// started when the replacement did, and the deleted pod's otherwise.
 func (r *SyncerReconciler) removeReplacedPod(ctx context.Context, clientSets *ClusterClientSets,
-	message *resourceMessage) error {
-	return r.removePodOf(ctx, clientSets, message, true)
+	message *resourceMessage, replacementStart string) error {
+	return r.removePodOf(ctx, clientSets, message, &replacementStart)
 }
 
+// removePodOf removes the record of the deleted pod; replacementStart is set
+// when a pod of the same name has replaced it, see removeReplacedPod.
 func (r *SyncerReconciler) removePodOf(ctx context.Context, clientSets *ClusterClientSets,
-	message *resourceMessage, replaced bool) error {
+	message *resourceMessage, replacementStart *string) error {
 	workloadID, err := r.resolvePodWorkloadID(ctx, clientSets, message)
 	if err != nil || workloadID == "" {
 		return err
@@ -650,7 +657,7 @@ func (r *SyncerReconciler) removePodOf(ctx context.Context, clientSets *ClusterC
 
 	id := indexOfPod(adminWorkload.Status.Pods, message.name)
 	if id >= 0 && (isOtherPodsDelete(&adminWorkload.Status.Pods[id], message) ||
-		(replaced && adminWorkload.Status.Pods[id].PodUid != string(message.uid))) {
+		isReplacementsRecord(&adminWorkload.Status.Pods[id], replacementStart)) {
 		// The delete of an earlier pod of the same name, seen after its
 		// replacement's record was written: its end is not the replacement's,
 		// and its disruption is kept as the earlier pod's.
@@ -689,6 +696,15 @@ func (r *SyncerReconciler) removePodOf(ctx context.Context, clientSets *ClusterC
 // pod uid, or an event with none, is taken for the record's pod.
 func isOtherPodsDelete(p *v1.WorkloadPod, message *resourceMessage) bool {
 	return p.PodUid != "" && message.uid != "" && p.PodUid != string(message.uid)
+}
+
+// isReplacementsRecord reports whether a record with no pod uid describes the
+// pod that replaced a deleted one of its name, started at replacementStart
+// (nil when no pod has replaced it): it does when it started when the
+// replacement did. A record that carries a uid is told by it, see
+// isOtherPodsDelete.
+func isReplacementsRecord(p *v1.WorkloadPod, replacementStart *string) bool {
+	return replacementStart != nil && p.PodUid == "" && p.StartTime == *replacementStart
 }
 
 // setEarlierDisruption records disruption, when set, as the one an earlier pod
