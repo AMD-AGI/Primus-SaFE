@@ -913,22 +913,44 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 // unsynced cache reports empty rather than reporting nothing.
 func (r *SyncerReconciler) livePodNames(ctx context.Context, clientSets *ClusterClientSets,
 	adminWorkload *v1.Workload) (map[string]struct{}, bool) {
-	if clientSets == nil {
+	objs, lister, ok := listCachedWorkloadPods(ctx, clientSets, adminWorkload)
+	if !ok {
 		return nil, false
+	}
+	live := make(map[string]struct{}, len(objs))
+	if !addPodNames(objs, live, adminWorkload.Name) {
+		return nil, false
+	}
+	// A mesh pod gets the workload label after its first successful sync. Pods not
+	// yet observed by this process still need ownership resolved from the mesh.
+	if commonworkload.IsMonarchJob(adminWorkload) &&
+		!r.addMeshPodNames(ctx, clientSets, lister, adminWorkload, live) {
+		return nil, false
+	}
+	return live, true
+}
+
+// listCachedWorkloadPods lists the workload's pods from the pod informer cache, and
+// reports whether the cache could answer. False means the answer is unknown: an
+// unsynced cache lists nothing rather than reporting that it cannot answer.
+func listCachedWorkloadPods(ctx context.Context, clientSets *ClusterClientSets,
+	adminWorkload *v1.Workload) ([]runtime.Object, cache.GenericLister, bool) {
+	if clientSets == nil {
+		return nil, nil, false
 	}
 
 	if clusterId := v1.GetClusterId(adminWorkload); clusterId != clientSets.name {
-		klog.Errorf("workload %s belongs to cluster %q, not %q: not comparing its pods",
+		klog.Errorf("workload %s belongs to cluster %q, not %q: not reading its pods",
 			adminWorkload.Name, clusterId, clientSets.name)
-		return nil, false
+		return nil, nil, false
 	}
 	informer, err := clientSets.GetResourceInformer(ctx, podResourceGVK)
 	if err != nil {
-		klog.V(2).Infof("no pod informer to reconcile workload %s against: %v", adminWorkload.Name, err)
-		return nil, false
+		klog.V(2).Infof("no pod informer to read the pods of workload %s from: %v", adminWorkload.Name, err)
+		return nil, nil, false
 	}
 	if !informer.Informer().HasSynced() {
-		return nil, false
+		return nil, nil, false
 	}
 	// Selected by the workload id label, and across all namespaces. Both are load
 	// bearing and easy to undo by accident:
@@ -947,19 +969,9 @@ func (r *SyncerReconciler) livePodNames(ctx context.Context, clientSets *Cluster
 		labels.SelectorFromSet(labels.Set{v1.WorkloadIdLabel: adminWorkload.Name}))
 	if err != nil {
 		klog.ErrorS(err, "failed to list pods from informer cache", "name", adminWorkload.Name)
-		return nil, false
+		return nil, nil, false
 	}
-	live := make(map[string]struct{}, len(objs))
-	if !addPodNames(objs, live, adminWorkload.Name) {
-		return nil, false
-	}
-	// A mesh pod gets the workload label after its first successful sync. Pods not
-	// yet observed by this process still need ownership resolved from the mesh.
-	if commonworkload.IsMonarchJob(adminWorkload) &&
-		!r.addMeshPodNames(ctx, clientSets, informer.Lister(), adminWorkload, live) {
-		return nil, false
-	}
-	return live, true
+	return objs, informer.Lister(), true
 }
 
 // addPodNames adds the names of the given cache objects to live, and reports whether
