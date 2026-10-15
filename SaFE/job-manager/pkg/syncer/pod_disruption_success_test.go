@@ -339,12 +339,13 @@ func TestSameNameReplacementSuccessStands(t *testing.T) {
 // A disrupted pod that ended Failed is not what the object counted as success:
 // a Job replaced it, and the replacement may not be in the cache yet.
 func TestDisruptedPodThatFailedIsNotTheSuccess(t *testing.T) {
+	// The success is another attempt's, not recorded or cached yet: it waits.
 	failed := evictedRecord()
 	failed.Phase = corev1.PodFailed
-	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{failed},
+	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{failed},
 		cachedPod(t, "p1", corev1.PodFailed, evictionCondition())))
-	// Nor when the pod has left the cache and only its record says so.
-	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{failed}))
+	// Also when the pod has left the cache and only its record says so.
+	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{failed}))
 	// A record that ended Succeeded with the condition is the candidate.
 	succeeded := evictedRecord()
 	succeeded.Phase = corev1.PodSucceeded
@@ -708,8 +709,9 @@ func TestFailedAttemptLeavesTheSucceededOneToDecide(t *testing.T) {
 	assertFailedAfterAttempt(runObjectSucceeded(t, 1, []v1.WorkloadPod{failedAttempt, evictedRecord()}))
 	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{failedAttempt},
 		cachedPod(t, "p1", corev1.PodSucceeded)))
-	// With only the failed attempt, the success is not its.
-	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{failedAttempt}))
+	// With only the failed attempt seen, the one that succeeded is not seen
+	// yet, and may have been disrupted: the success waits.
+	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{failedAttempt}, cachedPod(t, "p0", corev1.PodFailed)))
 	// Two attempts that did not fail are not told apart.
 	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p0", Phase: corev1.PodSucceeded}},
 		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
@@ -740,4 +742,37 @@ func TestCacheBehindTheAPIServerWaits(t *testing.T) {
 		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}}))
 	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveUID: &gone,
 		records: []v1.WorkloadPod{evictedRecord()}}))
+}
+
+// A pod seen to succeed with no DisruptionTarget was not ended by one seen
+// later, whatever the condition's time says to the second: a condition that
+// ends a pod is set before its containers are signalled, and stays. The taint
+// manager marks a completed pod during a drain.
+func TestConditionSeenAfterCleanSuccessDoesNotFailIt(t *testing.T) {
+	started := metav1.NewTime(dispatchedAt.Add(time.Hour))
+	// Finished in the second before the condition: within the clock allowance.
+	finished := terminatedAt(disruptionTime.Add(-time.Second))
+	completed := func() *unstructured.Unstructured {
+		obj := cachedPodWith(t, "p1", corev1.PodSucceeded, finished, evictionCondition())
+		assert.NilError(t, unstructured.SetNestedField(obj.Object, started.UTC().Format(time.RFC3339),
+			"status", "startTime"))
+		return obj
+	}
+	start := podStartTime(&corev1.Pod{Status: corev1.PodStatus{StartTime: &started}})
+	assertSucceeded(t, runObjectSucceeded(t, 1,
+		[]v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded, StartTime: start}}, completed()))
+	// A record that is not the pod's, or did not see it succeed, does not tell.
+	for _, record := range []v1.WorkloadPod{
+		{PodId: "p1", Phase: corev1.PodSucceeded, StartTime: earlierStartTime},
+		{PodId: "p1", Phase: corev1.PodRunning, StartTime: start},
+	} {
+		assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{record}, completed()))
+	}
+
+	// Nor does the delete of such a pod record a disruption on it.
+	cl := disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", Phase: corev1.PodSucceeded, StartTime: start})
+	r := &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, eventMessage(t, disruptedPodObject(t, evictionCondition()), ResourceDel), nil)
+	pods := getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].FailedMessage, "")
 }

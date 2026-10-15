@@ -674,7 +674,12 @@ func (r *SyncerReconciler) removePodOf(ctx context.Context, clientSets *ClusterC
 	if id >= 0 && !commonworkload.IsApplication(adminWorkload) && !commonworkload.IsCICD(adminWorkload) {
 		// Record why the platform took the pod away before the entry is marked
 		// gone; kinds that drop the entry keep no per-pod history to record it in.
-		noted = appendPodDisruption(&adminWorkload.Status.Pods[id], message.disruption)
+		// A pod seen to succeed before any disruption was not taken by one set
+		// later, as on a completed pod (see seenSucceededClean).
+		if p := &adminWorkload.Status.Pods[id]; p.Phase != corev1.PodSucceeded ||
+			strings.Contains(p.FailedMessage, disruptionTargetPrefix) {
+			noted = appendPodDisruption(p, message.disruption)
+		}
 	}
 	if id < 0 || (!r.applyPodGone(adminWorkload, id) && !noted) {
 		// A prior attempt may have written the DB (Stopped or dropped the row)

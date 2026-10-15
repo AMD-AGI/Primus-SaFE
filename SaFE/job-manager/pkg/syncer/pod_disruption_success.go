@@ -79,14 +79,9 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 	// replica's earlier attempt, retried by its controller under another name,
 	// leaves the attempt that succeeded to decide.
 	names := map[string]struct{}{}
-	failed := false
 	var record *v1.WorkloadPod
 	for i := range adminWorkload.Status.Pods {
-		if p := &adminWorkload.Status.Pods[i]; p.Phase == corev1.PodFailed {
-			// A failed record left from an earlier dispatch says nothing of
-			// the current one, as the cache's pods of one are not read.
-			failed = failed || startedInCurrentDispatch(adminWorkload, p)
-		} else {
+		if p := &adminWorkload.Status.Pods[i]; p.Phase != corev1.PodFailed {
 			names[p.PodId] = struct{}{}
 			record = p
 		}
@@ -94,7 +89,6 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 	candidates := make([]*unstructured.Unstructured, 0, len(cached))
 	for _, obj := range cached {
 		if phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase"); corev1.PodPhase(phase) == corev1.PodFailed {
-			failed = true
 			continue
 		}
 		names[obj.GetName()] = struct{}{}
@@ -104,16 +98,17 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 	case len(names) > 1:
 		return "", "", true
 	case len(names) == 0:
-		// Only failed attempts, none of which the object counted as success; or
-		// nothing of the pod recorded or cached yet.
-		return "", "", failed
+		// The attempt the object counted as success has not been recorded or
+		// cached yet: only failed ones, or none, have.
+		return "", "", false
 	}
 	if !r.cacheHoldsLivePod(ctx, clientSets, adminWorkload, names, candidates) {
 		return "", "", false
 	}
 	if len(candidates) > 0 {
 		phase, _, _ := unstructured.NestedString(candidates[0].Object, "status", "phase")
-		if disruption = disruptionTargetOf(candidates[0]); disruption != "" {
+		disruption = disruptionTargetOf(candidates[0])
+		if disruption != "" && !seenSucceededClean(record, convertPodFromUnstructured(candidates[0])) {
 			return candidates[0].GetName(), disruption, true
 		}
 		return "", "", corev1.PodPhase(phase) == corev1.PodSucceeded
@@ -139,6 +134,19 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 		return "", "", true
 	}
 	return p.PodId, own, true
+}
+
+// seenSucceededClean reports whether the record shows the pod ended Succeeded
+// with no DisruptionTarget: the pod was seen to succeed before any such
+// condition. A condition once set stays on the pod, and one that ends a pod is
+// set before its containers are signalled, so a condition seen only later was
+// set after the pod had ended (as the taint manager or a drain does to a
+// completed pod), whatever its time says to the second. The record must
+// describe the pod: the same name and start time.
+func seenSucceededClean(record *v1.WorkloadPod, pod *corev1.Pod) bool {
+	return record != nil && pod != nil && record.PodId == pod.Name &&
+		record.Phase == corev1.PodSucceeded && !strings.Contains(record.FailedMessage, disruptionTargetPrefix) &&
+		record.StartTime != "" && record.StartTime == podStartTime(pod)
 }
 
 // onlyName returns the one name names holds.
