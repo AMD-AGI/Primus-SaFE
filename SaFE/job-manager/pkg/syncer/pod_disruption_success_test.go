@@ -21,7 +21,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -107,9 +106,10 @@ type objectSucceededRun struct {
 	maxRetry                int
 	// The pod cache cannot answer: no informer, or one that has not synced.
 	noInformer, unsynced bool
-	// The uid of the pod the API server holds under the cached or recorded
-	// name, when it is not the cached pod's; liveUnread when it cannot be read.
-	liveUID    *types.UID
+	// The workload's pods the API server holds, when they are not the cached
+	// ones (liveSet); liveUnread when they cannot be listed.
+	live       []*unstructured.Unstructured
+	liveSet    bool
 	liveUnread bool
 	// How long this process has waited to tell whether a disruption caused the
 	// success, when it has.
@@ -130,14 +130,21 @@ func runObjectSucceeded(t *testing.T, replicas int, records []v1.WorkloadPod, ca
 	return runObjectSucceededWith(t, objectSucceededRun{replicas: replicas, records: records, cached: cached})
 }
 
-// readLivePod has livePodUID answer with read for the rest of the test.
-func readLivePod(t *testing.T, read func(name string) (types.UID, bool)) {
+// readLivePods has liveWorkloadPods answer with live, unless unread, for the
+// rest of the test.
+func readLivePods(t *testing.T, live []*unstructured.Unstructured, unread bool) {
 	t.Helper()
-	saved := livePodUID
-	livePodUID = func(_ context.Context, _ *ClusterClientSets, _, name string) (types.UID, bool) {
-		return read(name)
+	pods := make([]corev1.Pod, 0, len(live))
+	for _, obj := range live {
+		pod := convertPodFromUnstructured(obj)
+		assert.Assert(t, pod != nil)
+		pods = append(pods, *pod)
 	}
-	t.Cleanup(func() { livePodUID = saved })
+	saved := liveWorkloadPods
+	liveWorkloadPods = func(context.Context, *ClusterClientSets, string, string) ([]corev1.Pod, bool) {
+		return pods, !unread
+	}
+	t.Cleanup(func() { liveWorkloadPods = saved })
 }
 
 func runObjectSucceededWith(t *testing.T, run objectSucceededRun) *v1.Workload {
@@ -169,21 +176,12 @@ func runObjectSucceededWith(t *testing.T, run objectSucceededRun) *v1.Workload {
 	for _, obj := range run.cached {
 		assert.NilError(t, indexer.Add(obj))
 	}
-	readLivePod(t, func(name string) (types.UID, bool) {
-		switch {
-		case run.liveUnread:
-			return "", false
-		case run.liveUID != nil:
-			return *run.liveUID, true
-		}
-		// By default the API server holds what the cache does.
-		for _, obj := range run.cached {
-			if obj.GetName() == name {
-				return obj.GetUID(), true
-			}
-		}
-		return "", true
-	})
+	// By default the API server holds what the cache does.
+	live := run.cached
+	if run.liveSet {
+		live = run.live
+	}
+	readLivePods(t, live, run.liveUnread)
 	patches.ApplyMethod(reflect.TypeOf(&ClusterClientSets{}), "GetResourceInformer",
 		func(_ *ClusterClientSets, _ context.Context, gvk schema.GroupVersionKind) (informers.GenericInformer, error) {
 			assert.Equal(t, gvk, podResourceGVK)
@@ -497,7 +495,7 @@ func TestMeshWorkloadsAreNotRead(t *testing.T) {
 		w.Status.Pods = []v1.WorkloadPod{evictedRecord()}
 		cs := monkeyClientSets()
 		cs.name = "c"
-		readLivePod(t, func(string) (types.UID, bool) { return "", true })
+		readLivePods(t, nil, false)
 		_, disruption, _ := (&SyncerReconciler{}).disruptedSuccess(context.Background(), cs, w)
 		return disruption
 	}
@@ -725,26 +723,45 @@ func TestFailedAttemptLeavesTheSucceededOneToDecide(t *testing.T) {
 // cache does not, or holds as another pod of the same name, leaves the verdict
 // to wait for the cache; so does a pod that cannot be read.
 func TestCacheBehindTheAPIServerWaits(t *testing.T) {
-	replacement := types.UID("replacement-uid")
-	// The cache still holds the earlier, clean pod; the API server a replacement.
-	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveUID: &replacement,
+	replacement := func(name string, phase corev1.PodPhase) []*unstructured.Unstructured {
+		obj := cachedPod(t, name, phase)
+		obj.SetUID("replacement-uid")
+		return []*unstructured.Unstructured{obj}
+	}
+	// The cache still holds the earlier, clean pod; the API server a
+	// replacement of the same name.
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1,
+		liveSet: true, live: replacement("p1", corev1.PodSucceeded),
 		records: []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded}},
 		cached:  []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded)}}))
 	// It holds the earlier, disrupted one.
-	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveUID: &replacement,
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1,
+		liveSet: true, live: replacement("p1", corev1.PodSucceeded),
 		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}}))
-	// It has seen the earlier pod deleted but not the replacement: the record
-	// is the earlier pod's.
-	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveUID: &replacement,
-		records: []v1.WorkloadPod{evictedRecord()}}))
+	// A replacement of another name, as a Job creates, the cache has not seen.
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1,
+		liveSet: true, live: replacement("p2", corev1.PodSucceeded),
+		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}}))
+	// The cache has seen the earlier pod deleted but not the replacement: the
+	// record is the earlier pod's.
+	for _, name := range []string{"p1", "p2"} {
+		assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1,
+			liveSet: true, live: replacement(name, corev1.PodSucceeded), records: []v1.WorkloadPod{evictedRecord()}}))
+	}
 	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveUnread: true,
 		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded)}}))
-	// A pod the API server no longer holds is read from the cache or its record.
-	gone := types.UID("")
-	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveUID: &gone,
-		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}}))
-	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveUID: &gone,
-		records: []v1.WorkloadPod{evictedRecord()}}))
+	// A pod the API server no longer holds is read from the cache or its
+	// record; a failed attempt it still holds, or one of an earlier dispatch,
+	// is not the success.
+	failed := replacement("p0", corev1.PodFailed)
+	earlier := replacement("p0", corev1.PodSucceeded)
+	earlier[0].SetLabels(map[string]string{v1.WorkloadIdLabel: "w", v1.WorkloadDispatchCntLabel: "0"})
+	for _, live := range [][]*unstructured.Unstructured{nil, failed, earlier} {
+		assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveSet: true, live: live,
+			cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}}))
+		assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveSet: true, live: live,
+			records: []v1.WorkloadPod{evictedRecord()}}))
+	}
 }
 
 // A pod seen to succeed with no DisruptionTarget was not ended by one seen
