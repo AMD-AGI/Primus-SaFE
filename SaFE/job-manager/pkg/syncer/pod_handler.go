@@ -503,13 +503,22 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 		Rank:          getMainContainerRank(mainContainerName, pod),
 		GroupId:       int8(groupId),
 	}
-	if pod.Status.StartTime != nil && !pod.Status.StartTime.IsZero() {
-		workloadPod.StartTime = timeutil.FormatRFC3339(pod.Status.StartTime.Time)
-	}
+	workloadPod.StartTime = podStartTime(pod)
 	buildPodTerminatedInfo(ctx, clientSets.dataClientFactory.ClientSet(),
 		adminWorkload, pod, &workloadPod, mainContainerName)
 
 	return workloadPod
+}
+
+// podStartTime is the pod's start time as a pod record holds it, "" when unset.
+// A pod keeps the start time it was given, so a record whose start time differs
+// describes another pod of the same name; one whose start time is the same, in
+// whole seconds, may too, and only its pod uid tells.
+func podStartTime(pod *corev1.Pod) string {
+	if pod.Status.StartTime == nil || pod.Status.StartTime.IsZero() {
+		return ""
+	}
+	return timeutil.FormatRFC3339(pod.Status.StartTime.Time)
 }
 
 // updateCICDScalingRunnerSetPhase updates the workload phase for CICD scaling runner sets
@@ -616,7 +625,12 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	if id >= 0 && !commonworkload.IsApplication(adminWorkload) && !commonworkload.IsCICD(adminWorkload) {
 		// Record why the platform took the pod away before the entry is marked
 		// gone; kinds that drop the entry keep no per-pod history to record it in.
-		noted = appendPodDisruption(&adminWorkload.Status.Pods[id], message.disruption)
+		// A pod seen to succeed before any disruption was not taken by one set
+		// later, as on a completed pod (see seenSucceededClean).
+		if p := &adminWorkload.Status.Pods[id]; p.Phase != corev1.PodSucceeded ||
+			strings.Contains(p.FailedMessage, disruptionTargetPrefix) {
+			noted = appendPodDisruption(p, message.disruption)
+		}
 	}
 	if id < 0 || (!r.applyPodGone(adminWorkload, id) && !noted) {
 		// A prior attempt may have written the DB (Stopped or dropped the row)
