@@ -1396,8 +1396,10 @@ const disruptionTargetPrefix = "DisruptionTarget: "
 // disruption that ended the pod is never later than its containers' finish.
 // The taint manager and a drain also mark a pod that had already completed;
 // such a condition, set after every container had finished, did not end the
-// pod and is not returned. Both times have a resolution of one second, and a
-// condition set in the second a container finished is taken as the one that
+// pod and is not returned. Both times have a resolution of one second, and
+// come from different clocks: the condition's from the control plane, a
+// container's finish from its node's kubelet. A condition set less than
+// disruptionClockSkew after a container finished is taken as the one that
 // ended it.
 func podDisruption(status *corev1.PodStatus) string {
 	for i := range status.Conditions {
@@ -1413,15 +1415,24 @@ func podDisruption(status *corev1.PodStatus) string {
 	return ""
 }
 
-// endedBefore reports whether every container had terminated before at. A
-// container still running, or a time that is unset, is not.
+// disruptionClockSkew is how much later than a container's recorded finish a
+// DisruptionTarget condition may be recorded and still be taken as the one
+// that ended the container. Each time is truncated to the second, and a
+// kubelet clock a fraction of a second behind the control plane's records the
+// SIGTERM exit a second before the condition that caused it.
+const disruptionClockSkew = time.Second
+
+// endedBefore reports whether every container had terminated before at, by
+// more than disruptionClockSkew. A container still running, or a time that is
+// unset, is not.
 func endedBefore(statuses []corev1.ContainerStatus, at metav1.Time) bool {
 	if at.IsZero() || len(statuses) == 0 {
 		return false
 	}
 	for i := range statuses {
 		terminated := statuses[i].State.Terminated
-		if terminated == nil || terminated.FinishedAt.IsZero() || !terminated.FinishedAt.Before(&at) {
+		if terminated == nil || terminated.FinishedAt.IsZero() ||
+			!terminated.FinishedAt.Add(disruptionClockSkew).Before(at.Time) {
 			return false
 		}
 	}

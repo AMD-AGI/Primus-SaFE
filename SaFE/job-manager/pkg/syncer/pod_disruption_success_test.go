@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -106,6 +107,10 @@ type objectSucceededRun struct {
 	maxRetry                int
 	// The pod cache cannot answer: no informer, or one that has not synced.
 	noInformer, unsynced bool
+	// The uid of the pod the API server holds under the cached or recorded
+	// name, when it is not the cached pod's; liveUnread when it cannot be read.
+	liveUID    *types.UID
+	liveUnread bool
 	// How long this process has waited to tell whether a disruption caused the
 	// success, when it has.
 	waited *time.Duration
@@ -123,6 +128,16 @@ var lastObjectSucceededErr error
 func runObjectSucceeded(t *testing.T, replicas int, records []v1.WorkloadPod, cached ...*unstructured.Unstructured) *v1.Workload {
 	t.Helper()
 	return runObjectSucceededWith(t, objectSucceededRun{replicas: replicas, records: records, cached: cached})
+}
+
+// readLivePod has livePodUID answer with read for the rest of the test.
+func readLivePod(t *testing.T, read func(name string) (types.UID, bool)) {
+	t.Helper()
+	saved := livePodUID
+	livePodUID = func(_ context.Context, _ *ClusterClientSets, _, name string) (types.UID, bool) {
+		return read(name)
+	}
+	t.Cleanup(func() { livePodUID = saved })
 }
 
 func runObjectSucceededWith(t *testing.T, run objectSucceededRun) *v1.Workload {
@@ -154,6 +169,21 @@ func runObjectSucceededWith(t *testing.T, run objectSucceededRun) *v1.Workload {
 	for _, obj := range run.cached {
 		assert.NilError(t, indexer.Add(obj))
 	}
+	readLivePod(t, func(name string) (types.UID, bool) {
+		switch {
+		case run.liveUnread:
+			return "", false
+		case run.liveUID != nil:
+			return *run.liveUID, true
+		}
+		// By default the API server holds what the cache does.
+		for _, obj := range run.cached {
+			if obj.GetName() == name {
+				return obj.GetUID(), true
+			}
+		}
+		return "", true
+	})
 	patches.ApplyMethod(reflect.TypeOf(&ClusterClientSets{}), "GetResourceInformer",
 		func(_ *ClusterClientSets, _ context.Context, gvk schema.GroupVersionKind) (informers.GenericInformer, error) {
 			assert.Equal(t, gvk, podResourceGVK)
@@ -379,13 +409,13 @@ func TestSuccessVerdictWaitIsBounded(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u1"}}
 	expired := successVerdictWait{uid: "u1", dispatch: 1, since: time.Now().Add(-past)}
 	r.successVerdictWaits.Store("w", expired)
-	assert.Equal(t, r.awaitSuccessVerdict(w, 2, &jobutils.K8sObjectStatus{}), true)
-	assert.Equal(t, r.awaitSuccessVerdict(w, 2, &jobutils.K8sObjectStatus{}), true)
+	assert.Equal(t, r.awaitSuccessVerdict(w, 2, "", &jobutils.K8sObjectStatus{}), true)
+	assert.Equal(t, r.awaitSuccessVerdict(w, 2, "", &jobutils.K8sObjectStatus{}), true)
 	// As does one begun for a workload of the same name since deleted.
 	r.successVerdictWaits.Store("w", expired)
 	recreated := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u2"}}
-	assert.Equal(t, r.awaitSuccessVerdict(recreated, 1, &jobutils.K8sObjectStatus{}), true)
-	assert.Equal(t, r.awaitSuccessVerdict(recreated, 1, &jobutils.K8sObjectStatus{}), true)
+	assert.Equal(t, r.awaitSuccessVerdict(recreated, 1, "", &jobutils.K8sObjectStatus{}), true)
+	assert.Equal(t, r.awaitSuccessVerdict(recreated, 1, "", &jobutils.K8sObjectStatus{}), true)
 
 	// A pod cache that cannot answer re-arms the vanished-pod check, not the
 	// wait, which would then never end.
@@ -464,6 +494,7 @@ func TestMeshWorkloadsAreNotRead(t *testing.T) {
 		w.Status.Pods = []v1.WorkloadPod{evictedRecord()}
 		cs := monkeyClientSets()
 		cs.name = "c"
+		readLivePod(t, func(string) (types.UID, bool) { return "", true })
 		_, disruption, _ := (&SyncerReconciler{}).disruptedSuccess(context.Background(), cs, w)
 		return disruption
 	}
@@ -534,7 +565,10 @@ func TestDisruptionAfterPodEndedDoesNotFailSuccess(t *testing.T) {
 	assert.Equal(t, disruptionTargetOf(cachedPodWith(t, "p1", corev1.PodSucceeded, finishedEarlier,
 		evictionCondition())), "")
 
-	for _, finished := range []time.Time{disruptionTime.Time, disruptionTime.Add(time.Second)} {
+	// A kubelet clock a fraction of a second behind records the SIGTERM exit
+	// in the second before the condition.
+	for _, finished := range []time.Time{disruptionTime.Add(-time.Second), disruptionTime.Time,
+		disruptionTime.Add(time.Second)} {
 		assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded}},
 			cachedPodWith(t, "p1", corev1.PodSucceeded, terminatedAt(finished), evictionCondition())))
 	}
@@ -642,11 +676,68 @@ func TestObjectDeletedWhileSuccessWaits(t *testing.T) {
 	// Nor is a success that waited for another dispatch, or another workload of
 	// the same name, judged.
 	r := &SyncerReconciler{}
-	r.successVerdictWaits.Store("w", successVerdictWait{uid: "u1", dispatch: 1, since: time.Now()})
-	_, ok := r.waitingSuccess(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u1"}}, 2)
+	r.successVerdictWaits.Store("w", successVerdictWait{uid: "u1", dispatch: 1, since: time.Now(), object: "o1"})
+	_, ok := r.waitingSuccess(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u1"}}, 2, "o1")
 	assert.Equal(t, ok, false)
-	_, ok = r.waitingSuccess(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u2"}}, 1)
+	_, ok = r.waitingSuccess(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u2"}}, 1, "o1")
 	assert.Equal(t, ok, false)
-	_, ok = r.waitingSuccess(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u1"}}, 1)
+	// Nor one another object of the same name reported.
+	_, ok = r.waitingSuccess(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u1"}}, 1, "o2")
+	assert.Equal(t, ok, false)
+	_, ok = r.waitingSuccess(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u1"}}, 1, "o1")
 	assert.Equal(t, ok, true)
+}
+
+// One replica's controller retries a failed attempt under another name (a Job
+// does): the failed attempt was not what the object counted as success, and
+// the attempt that succeeded decides.
+func TestFailedAttemptLeavesTheSucceededOneToDecide(t *testing.T) {
+	failedAttempt := v1.WorkloadPod{PodId: "p0", Phase: corev1.PodFailed, StartTime: recordStartTime}
+	// The failure names the disruption, then what the object reported, then
+	// the failed attempt's details.
+	assertFailedAfterAttempt := func(w *v1.Workload) {
+		t.Helper()
+		assert.Equal(t, w.Status.Phase, v1.WorkloadFailed)
+		failed := conditionOf(w, v1.K8sFailed)
+		assert.Assert(t, failed != nil)
+		assert.Assert(t, strings.HasPrefix(failed.Message, wantFailedMessage+", details: "), failed.Message)
+	}
+	assertFailedAfterAttempt(runObjectSucceeded(t, 1,
+		[]v1.WorkloadPod{failedAttempt, {PodId: "p1", Phase: corev1.PodRunning}},
+		cachedPod(t, "p0", corev1.PodFailed), cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
+	assertFailedAfterAttempt(runObjectSucceeded(t, 1, []v1.WorkloadPod{failedAttempt, evictedRecord()}))
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{failedAttempt},
+		cachedPod(t, "p1", corev1.PodSucceeded)))
+	// With only the failed attempt, the success is not its.
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{failedAttempt}))
+	// Two attempts that did not fail are not told apart.
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p0", Phase: corev1.PodSucceeded}},
+		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
+}
+
+// The object's status is read from the API server, and the pod's from the
+// informer cache, which can be behind it. A pod the API server holds that the
+// cache does not, or holds as another pod of the same name, leaves the verdict
+// to wait for the cache; so does a pod that cannot be read.
+func TestCacheBehindTheAPIServerWaits(t *testing.T) {
+	replacement := types.UID("replacement-uid")
+	// The cache still holds the earlier, clean pod; the API server a replacement.
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveUID: &replacement,
+		records: []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded}},
+		cached:  []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded)}}))
+	// It holds the earlier, disrupted one.
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveUID: &replacement,
+		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}}))
+	// It has seen the earlier pod deleted but not the replacement: the record
+	// is the earlier pod's.
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveUID: &replacement,
+		records: []v1.WorkloadPod{evictedRecord()}}))
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveUnread: true,
+		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded)}}))
+	// A pod the API server no longer holds is read from the cache or its record.
+	gone := types.UID("")
+	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveUID: &gone,
+		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}}))
+	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, liveUID: &gone,
+		records: []v1.WorkloadPod{evictedRecord()}}))
 }
