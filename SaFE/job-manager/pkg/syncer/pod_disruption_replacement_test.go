@@ -452,3 +452,38 @@ func TestRecordWithoutUidIsNotRewrittenForIt(t *testing.T) {
 	assert.Equal(t, updated, true)
 	assert.Equal(t, w.Status.Pods[0].PodUid, "u1")
 }
+
+// A record seen to succeed clean is told from the pod by uid, and a
+// disruption it carries from an earlier pod of the same name is not its own.
+func TestSeenSucceededCleanTellsThePodByUid(t *testing.T) {
+	start := timeutil.FormatRFC3339(firstStart.Time)
+	pod := samePod(corev1.PodSucceeded, &firstStart)
+	pod.UID = "u1"
+	clean := &v1.WorkloadPod{PodId: "p1", PodUid: "u1", Phase: corev1.PodSucceeded, StartTime: start,
+		FailedMessage: earlierPodPrefix + wantEviction()}
+	assert.Equal(t, seenSucceededClean(clean, pod), true)
+	// Another pod of the same name, started in the same second.
+	other := *clean
+	other.PodUid = "u0"
+	assert.Equal(t, seenSucceededClean(&other, pod), false)
+	// The pod's own disruption.
+	own := *clean
+	own.FailedMessage = wantEviction()
+	assert.Equal(t, seenSucceededClean(&own, pod), false)
+	// A record with no uid is told by start time.
+	legacy := *clean
+	legacy.PodUid = ""
+	assert.Equal(t, seenSucceededClean(&legacy, pod), true)
+	legacy.StartTime = timeutil.FormatRFC3339(secondStart.Time)
+	assert.Equal(t, seenSucceededClean(&legacy, pod), false)
+
+	// The delete of a pod seen to succeed clean records no disruption on it,
+	// though its record carries an earlier pod's.
+	cl := disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "pod-uid", Phase: corev1.PodSucceeded,
+		StartTime: start, FailedMessage: earlierPodPrefix + wantTaintManager()})
+	r := &SyncerReconciler{Client: cl}
+	handlePodWithInformer(t, r, eventMessage(t, disruptedPodObject(t, evictionCondition()), ResourceDel), nil)
+	own2, earlier := podDisruptions(getWorkloadPods(t, cl)[0].FailedMessage)
+	assert.Equal(t, own2, "")
+	assert.Equal(t, earlier, wantTaintManager())
+}

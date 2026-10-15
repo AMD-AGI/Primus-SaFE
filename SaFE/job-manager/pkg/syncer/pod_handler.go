@@ -676,8 +676,7 @@ func (r *SyncerReconciler) removePodOf(ctx context.Context, clientSets *ClusterC
 		// gone; kinds that drop the entry keep no per-pod history to record it in.
 		// A pod seen to succeed before any disruption was not taken by one set
 		// later, as on a completed pod (see seenSucceededClean).
-		if p := &adminWorkload.Status.Pods[id]; p.Phase != corev1.PodSucceeded ||
-			strings.Contains(p.FailedMessage, disruptionTargetPrefix) {
+		if p := &adminWorkload.Status.Pods[id]; !endedSucceededClean(p) {
 			noted = appendPodDisruption(p, message.disruption)
 		}
 	}
@@ -694,6 +693,13 @@ func (r *SyncerReconciler) removePodOf(ctx context.Context, clientSets *ClusterC
 		return err
 	}
 	return nil
+}
+
+// endedSucceededClean reports whether the record shows its pod ended Succeeded
+// with no DisruptionTarget of its own.
+func endedSucceededClean(p *v1.WorkloadPod) bool {
+	own, _ := podDisruptions(p.FailedMessage)
+	return p.Phase == corev1.PodSucceeded && own == ""
 }
 
 // isOtherPodsDelete reports whether a pod delete event is of another pod than

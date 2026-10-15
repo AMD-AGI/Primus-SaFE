@@ -142,11 +142,17 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 // set before its containers are signalled, so a condition seen only later was
 // set after the pod had ended (as the taint manager or a drain does to a
 // completed pod), whatever its time says to the second. The record must
-// describe the pod: the same name and start time.
+// describe the pod: the same name, and the same uid, or, for a record or pod
+// with none, the same start time. A disruption the record carries from an
+// earlier pod of the same name is not the pod's.
 func seenSucceededClean(record *v1.WorkloadPod, pod *corev1.Pod) bool {
-	return record != nil && pod != nil && record.PodId == pod.Name &&
-		record.Phase == corev1.PodSucceeded && !strings.Contains(record.FailedMessage, disruptionTargetPrefix) &&
-		record.StartTime != "" && record.StartTime == podStartTime(pod)
+	if record == nil || pod == nil || record.PodId != pod.Name || !endedSucceededClean(record) {
+		return false
+	}
+	if record.PodUid != "" && pod.UID != "" {
+		return record.PodUid == string(pod.UID)
+	}
+	return record.StartTime != "" && record.StartTime == podStartTime(pod)
 }
 
 // onlyName returns the one name names holds.
