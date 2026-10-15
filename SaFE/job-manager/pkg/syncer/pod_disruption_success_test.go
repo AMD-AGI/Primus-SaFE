@@ -872,3 +872,19 @@ func TestStaleRecordOfAReplacedAttemptDoesNotDecide(t *testing.T) {
 	ended.FailedMessage = wantEviction()
 	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{ended, clean}))
 }
+
+// A controller that counted one attempt's success deletes the others still
+// running (a Job does): an attempt seen to end Succeeded decides over a later
+// one its delete stopped.
+func TestSucceededAttemptOutranksALaterStoppedOne(t *testing.T) {
+	succeeded := evictedRecord()
+	succeeded.Phase = corev1.PodSucceeded
+	succeeded.StartTime = earlierInDispatch
+	stopped := v1.WorkloadPod{PodId: "p2", Phase: corev1.PodPhase(v1.WorkloadStopped), StartTime: recordStartTime}
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{succeeded, stopped}))
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{stopped, succeeded}))
+	// With no attempt seen to succeed, the one that started last decides.
+	evicted := evictedRecord()
+	evicted.StartTime = earlierInDispatch
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evicted, stopped}))
+}
