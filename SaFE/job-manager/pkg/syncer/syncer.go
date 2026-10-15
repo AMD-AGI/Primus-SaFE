@@ -44,6 +44,10 @@ type SyncerReconciler struct {
 	// already reconciled against the informer cache, and drops each one once its
 	// workload ends. See reconcileVanishedPods.
 	vanishedPodsChecked sync.Map
+	// successVerdictWaits holds the workloads whose object's success waits for
+	// the pod cache to tell whether a disruption caused it, see
+	// awaitSuccessVerdict.
+	successVerdictWaits sync.Map
 	podStatusLocks      [256]sync.Mutex
 	*controller.KeyedController[*resourceMessage]
 }
@@ -55,6 +59,7 @@ func (r *SyncerReconciler) forgetVanishedPodsCheck(name string) {
 func (r *SyncerReconciler) forgetWorkloadChecks(name string) {
 	r.forgetVanishedPodsCheck(name)
 	r.cicdFailureAttempts.Delete(name)
+	r.successVerdictWaits.Delete(name)
 }
 
 // syncerWorkers is the number of concurrent workers for the event queue. The
