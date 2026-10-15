@@ -79,6 +79,13 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 	}
 
 	result, err := r.handleJobImpl(ctx, message, adminWorkload, clientSets)
+	if errors.Is(err, errSuccessVerdictPending) {
+		// The workload is left unended, and its object read again. Its pod
+		// records are not reconciled meanwhile: one whose pod has left the cache
+		// before its delete was recorded would be stopped with no disruption,
+		// and decide the success that waits for that delete.
+		return ctrlruntime.Result{RequeueAfter: successVerdictRetry}, nil
+	}
 	if jobutils.IsUnrecoverableError(err) && !adminWorkload.IsEnd() {
 		// Errors defined internally are fatal and lead to a terminal state without retry
 		err = jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, err.Error())
@@ -106,8 +113,7 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 		var err error
 		adminWorkload, err = r.updateAdminWorkloadByJob(ctx, clientSets, adminWorkload, message)
 		if errors.Is(err, errSuccessVerdictPending) {
-			// The workload is left unended, and its object read again.
-			return ctrlruntime.Result{RequeueAfter: successVerdictRetry}, nil
+			return ctrlruntime.Result{}, err
 		}
 		if err != nil {
 			klog.ErrorS(err, "failed to update admin workload status")
@@ -369,8 +375,7 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 		pod, disruption, known := r.disruptedSuccess(ctx, clientSets, adminWorkload)
 		switch {
 		case known:
-			r.successVerdictWaits.Delete(adminWorkload.Name)
-		case r.awaitSuccessVerdict(adminWorkload.Name, dispatchCount):
+		case r.awaitSuccessVerdict(adminWorkload, dispatchCount):
 			pending = true
 		default:
 			klog.Infof("workload %s: k8s object reports success, and after %s the pod cache and "+
@@ -397,6 +402,9 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 				phaseMessage = &current
 			}
 		}
+	}
+	if !pending {
+		r.successVerdictWaits.Delete(adminWorkload.Name)
 	}
 	if statusErr == nil && status.Phase != "" && !pending {
 		if status.Phase == string(v1.K8sFailed) && strings.TrimSpace(status.Message) == "" {

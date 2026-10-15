@@ -59,7 +59,6 @@ func (r *SyncerReconciler) forgetVanishedPodsCheck(name string) {
 func (r *SyncerReconciler) forgetWorkloadChecks(name string) {
 	r.forgetVanishedPodsCheck(name)
 	r.cicdFailureAttempts.Delete(name)
-	r.successVerdictWaits.Delete(name)
 }
 
 // syncerWorkers is the number of concurrent workers for the event queue. The

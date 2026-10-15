@@ -177,7 +177,8 @@ func runObjectSucceededWith(t *testing.T, run objectSucceededRun) *v1.Workload {
 		Build()
 	r := &SyncerReconciler{Client: cl}
 	if run.waited != nil {
-		r.successVerdictWaits.Store("w", successVerdictWait{dispatch: run.dispatch, since: time.Now().Add(-*run.waited)})
+		r.successVerdictWaits.Store("w", successVerdictWait{uid: w.UID, dispatch: run.dispatch,
+			since: time.Now().Add(-*run.waited)})
 	}
 	hydrated := &v1.Workload{}
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, hydrated))
@@ -367,10 +368,48 @@ func TestSuccessVerdictWaitIsBounded(t *testing.T) {
 	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, unsynced: true, waited: &past}))
 
 	r := &SyncerReconciler{}
-	r.successVerdictWaits.Store("w", successVerdictWait{dispatch: 1, since: time.Now().Add(-past)})
-	assert.Equal(t, r.awaitSuccessVerdict("w", 2), true)
-	assert.Equal(t, r.awaitSuccessVerdict("w", 2), true)
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u1"}}
+	expired := successVerdictWait{uid: "u1", dispatch: 1, since: time.Now().Add(-past)}
+	r.successVerdictWaits.Store("w", expired)
+	assert.Equal(t, r.awaitSuccessVerdict(w, 2), true)
+	assert.Equal(t, r.awaitSuccessVerdict(w, 2), true)
+	// As does one begun for a workload of the same name since deleted.
+	r.successVerdictWaits.Store("w", expired)
+	recreated := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u2"}}
+	assert.Equal(t, r.awaitSuccessVerdict(recreated, 1), true)
+	assert.Equal(t, r.awaitSuccessVerdict(recreated, 1), true)
+
+	// A pod cache that cannot answer re-arms the vanished-pod check, not the
+	// wait, which would then never end.
 	r.forgetWorkloadChecks("w")
+	_, waiting := r.successVerdictWaits.Load("w")
+	assert.Equal(t, waiting, true)
+	// A workload that has ended does not wait.
+	ended := recreated.DeepCopy()
+	ended.Status.Phase = v1.WorkloadFailed
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), nil, ended, &resourceMessage{}))
+	_, waiting = r.successVerdictWaits.Load("w")
+	assert.Equal(t, waiting, false)
+}
+
+// A wait ends with any job event that does not wait, a failure included.
+func TestSuccessVerdictWaitEndsWithAnyOutcome(t *testing.T) {
+	r := &SyncerReconciler{}
+	r.successVerdictWaits.Store("w", successVerdictWait{dispatch: 1, since: time.Now()})
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getK8sObjectStatus",
+		func(*SyncerReconciler, context.Context, *resourceMessage, *ClusterClientSets,
+			*v1.Workload) (*jobutils.K8sObjectStatus, error) {
+			return &jobutils.K8sObjectStatus{Phase: string(v1.K8sFailed), Message: "boom"}, nil
+		})
+	patches.ApplyFunc(jobutils.PatchWorkloadStatusFields,
+		func(context.Context, ctrlclient.Client, *v1.Workload, map[string]any) error { return nil })
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Status.Phase = v1.WorkloadRunning
+	_, err := r.updateAdminWorkloadByJob(context.Background(), monkeyClientSets(), w,
+		&resourceMessage{name: "o", namespace: "ns", dispatchCount: 1})
+	assert.NilError(t, err)
 	_, waiting := r.successVerdictWaits.Load("w")
 	assert.Equal(t, waiting, false)
 }
@@ -542,8 +581,14 @@ func TestRecordStartedInDispatchSecond(t *testing.T) {
 }
 
 // A success left unapplied is read again: the job event is requeued, and none
-// of what follows a status update runs on it.
+// of what follows a status update runs on it, pod record reconciliation
+// included.
 func TestPendingSuccessVerdictRequeuesTheEvent(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = "ns"
+	v1.SetAnnotation(w, v1.WorkloadDispatchedAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).Build()
+	r := &SyncerReconciler{Client: cl}
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "updateAdminWorkloadByJob",
@@ -551,17 +596,21 @@ func TestPendingSuccessVerdictRequeuesTheEvent(t *testing.T) {
 			_ *resourceMessage) (*v1.Workload, error) {
 			return w, errSuccessVerdictPending
 		})
-	rescheduled := false
+	rescheduled, reconciled := false, false
 	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "shouldReSchedule",
 		func(*SyncerReconciler, context.Context, *v1.Workload, *resourceMessage, *ClusterClientSets) (bool, error) {
 			rescheduled = true
 			return false, nil
 		})
-	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
-	w.Status.Phase = v1.WorkloadRunning
-	result, err := (&SyncerReconciler{}).handleJobImpl(context.Background(),
-		&resourceMessage{name: "o", namespace: "ns"}, w, monkeyClientSets())
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "reconcileVanishedPods",
+		func(*SyncerReconciler, context.Context, *ClusterClientSets, *v1.Workload, *resourceMessage) error {
+			reconciled = true
+			return nil
+		})
+	result, err := r.handleJob(context.Background(),
+		&resourceMessage{workloadId: "w", name: "o", namespace: "ns"}, monkeyClientSets())
 	assert.NilError(t, err)
 	assert.Equal(t, result.RequeueAfter, successVerdictRetry)
 	assert.Equal(t, rescheduled, false)
+	assert.Equal(t, reconciled, false)
 }

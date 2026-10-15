@@ -13,6 +13,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -131,29 +132,33 @@ var errSuccessVerdictPending = errors.New("whether a disruption caused the succe
 var successVerdictNow = time.Now
 
 // successVerdictWait is when this process began waiting to tell whether a
-// disruption caused the success of a workload's dispatch.
+// disruption caused the success of a workload's dispatch. The workload's uid
+// tells a workload recreated under the same name from the one that waited.
 type successVerdictWait struct {
+	uid      types.UID
 	dispatch int
 	since    time.Time
 }
 
 // awaitSuccessVerdict reports whether the success of the workload's dispatch
 // is still to wait for disruptedSuccess to tell, starting the wait on the
-// first call. It stops waiting after maxSuccessVerdictWait.
-func (r *SyncerReconciler) awaitSuccessVerdict(name string, dispatch int) bool {
+// first call. It stops waiting after maxSuccessVerdictWait. The wait is
+// dropped once a job event of the workload no longer waits, and when the
+// workload has ended (see reconcileVanishedPods).
+func (r *SyncerReconciler) awaitSuccessVerdict(adminWorkload *v1.Workload, dispatch int) bool {
 	now := successVerdictNow()
-	started := successVerdictWait{dispatch: dispatch, since: now}
-	v, loaded := r.successVerdictWaits.LoadOrStore(name, started)
+	started := successVerdictWait{uid: adminWorkload.UID, dispatch: dispatch, since: now}
+	v, loaded := r.successVerdictWaits.LoadOrStore(adminWorkload.Name, started)
 	if !loaded {
 		return true
 	}
-	if w := v.(successVerdictWait); w.dispatch != dispatch {
-		r.successVerdictWaits.Store(name, started)
+	if w := v.(successVerdictWait); w.uid != started.uid || w.dispatch != dispatch {
+		r.successVerdictWaits.Store(adminWorkload.Name, started)
 		return true
 	} else if now.Sub(w.since) < maxSuccessVerdictWait {
 		return true
 	}
-	r.successVerdictWaits.Delete(name)
+	r.successVerdictWaits.Delete(adminWorkload.Name)
 	return false
 }
 
