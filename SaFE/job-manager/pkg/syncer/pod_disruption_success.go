@@ -93,7 +93,9 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 
 // cachedWorkloadPods returns the workload's pods of its current dispatch from the
 // pod informer cache, and whether the cache could answer. Pods of an earlier
-// workload generation or an earlier dispatch are not the workload's current pod.
+// workload generation or an earlier dispatch are not the workload's current pod;
+// when the cache holds only such pods it cannot tell whether the current pod has
+// left it, and the pod records may still describe the earlier pods.
 func (r *SyncerReconciler) cachedWorkloadPods(ctx context.Context, clientSets *ClusterClientSets,
 	adminWorkload *v1.Workload) ([]*unstructured.Unstructured, bool) {
 	objs, _, ok := listCachedWorkloadPods(ctx, clientSets, adminWorkload)
@@ -102,6 +104,7 @@ func (r *SyncerReconciler) cachedWorkloadPods(ctx context.Context, clientSets *C
 	}
 	dispatchCount := v1.GetWorkloadDispatchCnt(adminWorkload)
 	pods := make([]*unstructured.Unstructured, 0, len(objs))
+	skipped := false
 	for _, obj := range objs {
 		pod, ok := obj.(*unstructured.Unstructured)
 		if !ok {
@@ -111,9 +114,13 @@ func (r *SyncerReconciler) cachedWorkloadPods(ctx context.Context, clientSets *C
 		}
 		if isStaleWorkloadGeneration(adminWorkload, v1.GetLabel(pod, v1.WorkloadUidLabel)) ||
 			(dispatchCount > 0 && v1.GetWorkloadDispatchCnt(pod) != dispatchCount) {
+			skipped = true
 			continue
 		}
 		pods = append(pods, pod)
+	}
+	if skipped && len(pods) == 0 {
+		return nil, false
 	}
 	return pods, true
 }
