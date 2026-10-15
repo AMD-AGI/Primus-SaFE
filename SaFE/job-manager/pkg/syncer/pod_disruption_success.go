@@ -18,6 +18,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -132,22 +133,25 @@ var errSuccessVerdictPending = errors.New("whether a disruption caused the succe
 var successVerdictNow = time.Now
 
 // successVerdictWait is when this process began waiting to tell whether a
-// disruption caused the success of a workload's dispatch. The workload's uid
-// tells a workload recreated under the same name from the one that waited.
+// disruption caused the success of a workload's dispatch, and the success the
+// object reported. The workload's uid tells a workload recreated under the same
+// name from the one that waited.
 type successVerdictWait struct {
 	uid      types.UID
 	dispatch int
 	since    time.Time
+	reported jobutils.K8sObjectStatus
 }
 
-// awaitSuccessVerdict reports whether the success of the workload's dispatch
-// is still to wait for disruptedSuccess to tell, starting the wait on the
-// first call. It stops waiting after maxSuccessVerdictWait. The wait is
-// dropped once a job event of the workload no longer waits, and when the
-// workload has ended (see reconcileVanishedPods).
-func (r *SyncerReconciler) awaitSuccessVerdict(adminWorkload *v1.Workload, dispatch int) bool {
+// awaitSuccessVerdict reports whether the success the object reported for the
+// workload's dispatch is still to wait for disruptedSuccess to tell, starting
+// the wait on the first call. It stops waiting after maxSuccessVerdictWait.
+// The wait is dropped once a job event of the workload no longer waits, and
+// when the workload has ended (see reconcileVanishedPods).
+func (r *SyncerReconciler) awaitSuccessVerdict(adminWorkload *v1.Workload, dispatch int,
+	reported *jobutils.K8sObjectStatus) bool {
 	now := successVerdictNow()
-	started := successVerdictWait{uid: adminWorkload.UID, dispatch: dispatch, since: now}
+	started := successVerdictWait{uid: adminWorkload.UID, dispatch: dispatch, since: now, reported: *reported}
 	v, loaded := r.successVerdictWaits.LoadOrStore(adminWorkload.Name, started)
 	if !loaded {
 		return true
@@ -160,6 +164,25 @@ func (r *SyncerReconciler) awaitSuccessVerdict(adminWorkload *v1.Workload, dispa
 	}
 	r.successVerdictWaits.Delete(adminWorkload.Name)
 	return false
+}
+
+// waitingSuccess returns the success the object reported for the workload's
+// dispatch while this process waits to tell whether a disruption caused it.
+//
+// An object deleted during the wait (by its owner, or a user who saw it
+// succeed) has still ended in that success: its deletion must not stop the
+// workload, nor have it scheduled again as an object deleted while running.
+func (r *SyncerReconciler) waitingSuccess(adminWorkload *v1.Workload, dispatch int) (*jobutils.K8sObjectStatus, bool) {
+	v, ok := r.successVerdictWaits.Load(adminWorkload.Name)
+	if !ok {
+		return nil, false
+	}
+	w := v.(successVerdictWait)
+	if w.uid != adminWorkload.UID || w.dispatch != dispatch {
+		return nil, false
+	}
+	reported := w.reported
+	return &reported, true
 }
 
 // startedInCurrentDispatch reports whether the pod record describes a pod that
