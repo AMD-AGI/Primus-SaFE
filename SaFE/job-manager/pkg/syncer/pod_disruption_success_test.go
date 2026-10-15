@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"gotest.tools/assert"
@@ -73,13 +74,20 @@ func (s syncedInformer) Lister() cache.GenericLister {
 
 func cachedPod(t *testing.T, name string, phase corev1.PodPhase, conditions ...corev1.PodCondition) *unstructured.Unstructured {
 	t.Helper()
+	return cachedPodWith(t, name, phase, nil, conditions...)
+}
+
+// cachedPodWith is cachedPod with the given container statuses.
+func cachedPodWith(t *testing.T, name string, phase corev1.PodPhase, containers []corev1.ContainerStatus,
+	conditions ...corev1.PodCondition) *unstructured.Unstructured {
+	t.Helper()
 	pod := &corev1.Pod{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name, Namespace: "ns",
 			Labels: map[string]string{v1.WorkloadIdLabel: "w", v1.WorkloadDispatchCntLabel: "1"},
 		},
-		Status: corev1.PodStatus{Phase: phase, Conditions: conditions},
+		Status: corev1.PodStatus{Phase: phase, Conditions: conditions, ContainerStatuses: containers},
 	}
 	m, err := runtime.DefaultUnstructuredConverter.ToUnstructured(pod)
 	assert.NilError(t, err)
@@ -150,6 +158,7 @@ func runObjectSucceededWith(t *testing.T, run objectSucceededRun) *v1.Workload {
 		Name: "w",
 		Labels: map[string]string{v1.ClusterIdLabel: "c",
 			v1.WorkloadDispatchCntLabel: strconv.Itoa(run.dispatch)},
+		Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: timeutil.FormatRFC3339(dispatchedAt)},
 	}}
 	w.Status.Phase = v1.WorkloadRunning
 	w.Spec.Resources = []v1.WorkloadResource{{Replica: run.replicas}}
@@ -184,18 +193,31 @@ func conditionOf(w *v1.Workload, condType v1.WorkloadConditionType) *metav1.Cond
 	return nil
 }
 
+// The current dispatch's time, and a start time after it as a pod record holds
+// it: local wall time with no zone.
+var (
+	dispatchedAt      = time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	recordStartTime   = timeutil.FormatRFC3339(dispatchedAt.Add(time.Hour).Local())
+	earlierStartTime  = timeutil.FormatRFC3339(dispatchedAt.Add(-time.Hour).Local())
+	wantFailedMessage = "pod p1 was taken away by a disruption, " + wantEviction() +
+		"; the object reported success: " + objectSucceededMessage
+)
+
+// assertDisruptedFailed asserts the workload failed, its failure naming the
+// disruption first and then what the object reported.
 func assertDisruptedFailed(t *testing.T, w *v1.Workload) {
 	t.Helper()
 	assert.Equal(t, w.Status.Phase, v1.WorkloadFailed)
 	assert.Assert(t, conditionOf(w, v1.K8sSucceeded) == nil)
 	failed := conditionOf(w, v1.K8sFailed)
 	assert.Assert(t, failed != nil)
-	assert.Equal(t, failed.Message, objectSucceededMessage+"; "+wantEviction())
-	assert.Assert(t, strings.Contains(w.Status.Message, wantEviction()), w.Status.Message)
+	assert.Equal(t, failed.Message, wantFailedMessage)
+	assert.Assert(t, strings.Contains(w.Status.Message, wantFailedMessage), w.Status.Message)
 }
 
 func evictedRecord() v1.WorkloadPod {
-	return v1.WorkloadPod{PodId: "p1", Phase: corev1.PodPhase(v1.WorkloadStopped), FailedMessage: wantEviction()}
+	return v1.WorkloadPod{PodId: "p1", Phase: corev1.PodPhase(v1.WorkloadStopped), StartTime: recordStartTime,
+		FailedMessage: wantEviction()}
 }
 
 func assertSucceeded(t *testing.T, w *v1.Workload) {
@@ -271,41 +293,25 @@ func TestMultiPodWorkloadIsNotRead(t *testing.T) {
 }
 
 // Once the workload has ended, a later pod of the same name (a controller
-// recreating it after the end) does not overwrite the record saying the
-// workload's pod was taken away.
-func TestEndedPodRecordNotOverwrittenAfterWorkloadEnd(t *testing.T) {
+// recreating it before the object is deleted) is recorded like any other: its
+// node and devices are in use, whatever the record it replaces said.
+func TestSameNamePodAfterWorkloadEndIsRecorded(t *testing.T) {
 	record := evictedRecord()
-	record.StartTime = "2026-01-02T00:00:00"
 	replacement := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns"},
 		Status:     corev1.PodStatus{Phase: corev1.PodPending},
 	}
 	r := &SyncerReconciler{}
-
-	ended := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
-	ended.Status.Phase = v1.WorkloadFailed
-	ended.Status.Pods = []v1.WorkloadPod{record}
-	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), ended, replacement, nil)
-	assert.Equal(t, updated, false)
-	assert.DeepEqual(t, ended.Status.Pods, []v1.WorkloadPod{record})
-
-	// An ended record without the condition is updated as before.
-	plain := record
-	plain.FailedMessage = ""
-	ended.Status.Pods = []v1.WorkloadPod{plain}
-	_, _, updated = r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), ended, replacement, nil)
-	assert.Equal(t, updated, true)
-	assert.Equal(t, ended.Status.Pods[0].Phase, corev1.PodPending)
-
-	// While the workload runs, a pod restarted under the same name replaces
-	// the record, which keeps the earlier pod's condition as the earlier one's.
-	running := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
-	running.Status.Phase = v1.WorkloadRunning
-	running.Status.Pods = []v1.WorkloadPod{record}
-	_, _, updated = r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), running, replacement, nil)
-	assert.Equal(t, updated, true)
-	assert.Equal(t, running.Status.Pods[0].Phase, corev1.PodPending)
-	assert.Equal(t, running.Status.Pods[0].FailedMessage, earlierPodPrefix+wantEviction())
+	for _, phase := range []v1.WorkloadPhase{v1.WorkloadFailed, v1.WorkloadStopped, v1.WorkloadRunning} {
+		w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+		w.Status.Phase = phase
+		w.Status.Pods = []v1.WorkloadPod{record}
+		_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, replacement, nil)
+		assert.Equal(t, updated, true, phase)
+		assert.Equal(t, w.Status.Pods[0].Phase, corev1.PodPending, phase)
+		// The record keeps the earlier pod's condition as the earlier one's.
+		assert.Equal(t, w.Status.Pods[0].FailedMessage, earlierPodPrefix+wantEviction(), phase)
+	}
 }
 
 // A pod cache that cannot answer is not a pod that left it: the record is not
@@ -358,12 +364,14 @@ func TestMeshWorkloadsAreNotRead(t *testing.T) {
 				return syncedInformer{indexer: indexer}, nil
 			})
 		w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w",
-			Labels: map[string]string{v1.ClusterIdLabel: "c", v1.WorkloadDispatchCntLabel: "1"}}}
+			Labels:      map[string]string{v1.ClusterIdLabel: "c", v1.WorkloadDispatchCntLabel: "1"},
+			Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: timeutil.FormatRFC3339(dispatchedAt)}}}
 		w.Spec.Resources = []v1.WorkloadResource{{Replica: 1}}
 		w.Status.Pods = []v1.WorkloadPod{evictedRecord()}
 		cs := monkeyClientSets()
 		cs.name = "c"
-		return (&SyncerReconciler{}).disruptedSuccess(context.Background(), cs, w)
+		_, disruption := (&SyncerReconciler{}).disruptedSuccess(context.Background(), cs, w)
+		return disruption
 	}
 	assert.Equal(t, disruptedSuccessOf(false, false), wantEviction())
 	assert.Equal(t, disruptedSuccessOf(true, false), "")
@@ -398,4 +406,72 @@ func TestDisruptedSuccessOfLateEventEndsWorkloadPastRetryLimit(t *testing.T) {
 	assert.Assert(t, failed != nil)
 	assert.Equal(t, failed.Reason, commonworkload.GenerateDispatchReason(2))
 	assert.Assert(t, jobutils.FindFailedCondition(w))
+}
+
+// The object can report success before the pod cache has seen its pod end.
+// The pod's DisruptionTarget, set while it still ran, is the disruption that
+// ended it.
+func TestDisruptedPodNotYetEndedInCacheFailsSuccess(t *testing.T) {
+	for _, phase := range []corev1.PodPhase{corev1.PodRunning, corev1.PodPending, ""} {
+		assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
+			cachedPod(t, "p1", phase, evictionCondition())))
+	}
+	// Without the condition the cache cannot say the pod was disrupted.
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
+		cachedPod(t, "p1", corev1.PodRunning)))
+}
+
+func terminatedAt(at time.Time) []corev1.ContainerStatus {
+	return []corev1.ContainerStatus{{Name: "main", State: corev1.ContainerState{
+		Terminated: &corev1.ContainerStateTerminated{ExitCode: 0, Reason: "Completed",
+			FinishedAt: metav1.NewTime(at)}}}}
+}
+
+// The taint manager and a drain also mark a pod that had already completed. A
+// condition set after every container had finished did not end the pod, and
+// does not fail the success; one set before, or in the same second, did.
+func TestDisruptionAfterPodEndedDoesNotFailSuccess(t *testing.T) {
+	finishedEarlier := terminatedAt(disruptionTime.Add(-time.Minute))
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded}},
+		cachedPodWith(t, "p1", corev1.PodSucceeded, finishedEarlier, evictionCondition())))
+	assert.Equal(t, disruptionTargetOf(cachedPodWith(t, "p1", corev1.PodSucceeded, finishedEarlier,
+		evictionCondition())), "")
+
+	for _, finished := range []time.Time{disruptionTime.Time, disruptionTime.Add(time.Second)} {
+		assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded}},
+			cachedPodWith(t, "p1", corev1.PodSucceeded, terminatedAt(finished), evictionCondition())))
+	}
+	// A container still running had not ended.
+	running := append(terminatedAt(disruptionTime.Add(-time.Minute)), corev1.ContainerStatus{Name: "side",
+		State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}})
+	assert.Equal(t, disruptionTargetOf(cachedPodWith(t, "p1", corev1.PodRunning, running, evictionCondition())),
+		wantEviction())
+
+	// Nor is it recorded on the pod's record.
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p1"}, Status: corev1.PodStatus{
+		Phase: corev1.PodSucceeded, Conditions: []corev1.PodCondition{evictionCondition()},
+		ContainerStatuses: finishedEarlier}}
+	record := v1.WorkloadPod{}
+	buildPodTerminatedInfo(context.Background(), nil, &v1.Workload{}, pod, &record, "")
+	assert.Equal(t, record.FailedMessage, "")
+	pod.Status.ContainerStatuses = terminatedAt(disruptionTime.Time)
+	record = v1.WorkloadPod{}
+	buildPodTerminatedInfo(context.Background(), nil, &v1.Workload{}, pod, &record, "")
+	assert.Equal(t, record.FailedMessage, wantEviction())
+}
+
+// A record is read only when it started in the current dispatch: one left from
+// an earlier dispatch, as the cache's pods of one are not read, does not say how
+// the current pod ended.
+func TestRecordOfEarlierDispatchDoesNotDecide(t *testing.T) {
+	earlier := evictedRecord()
+	earlier.StartTime = earlierStartTime
+	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
+		records: []v1.WorkloadPod{earlier}}))
+	neverStarted := evictedRecord()
+	neverStarted.StartTime = ""
+	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
+		records: []v1.WorkloadPod{neverStarted}}))
+	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, dispatch: 2,
+		records: []v1.WorkloadPod{evictedRecord()}}))
 }

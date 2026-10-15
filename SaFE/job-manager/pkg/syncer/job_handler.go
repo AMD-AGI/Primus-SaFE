@@ -361,14 +361,15 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 	if statusErr == nil && status.Phase != "" {
 		phaseMessage := message
 		if status.Phase == string(v1.K8sSucceeded) {
-			if disruption := r.disruptedSuccess(ctx, clientSets, adminWorkload); disruption != "" {
+			if pod, disruption := r.disruptedSuccess(ctx, clientSets, adminWorkload); disruption != "" {
 				// The object reports success only because the disrupted pod's
 				// containers exited 0 on SIGTERM; the pod was taken away.
 				reportedStatus = string(jsonutils.MarshalSilently(status))
-				klog.Infof("workload %s: k8s object reports success but its pod was disrupted: %s",
-					adminWorkload.Name, disruption)
 				status.Phase = string(v1.K8sFailed)
-				status.Message = joinMessage(status.Message, disruption)
+				status.Message = disruptedSuccessMessage(pod, disruption, status.Message)
+				if failedPodInfo := getFailedPodInfo(adminWorkload); failedPodInfo != "" {
+					status.Message += ", details: " + failedPodInfo
+				}
 				// A success ends the workload whatever dispatch its event carries,
 				// and the failure it becomes must too once failover will not act:
 				// failover counts the workload's dispatches, so the retry limit is
@@ -437,13 +438,12 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
 		return nil, err
 	}
+	asReported := ""
 	if reportedStatus != "" {
-		klog.Infof("update workload status, name: %s, phase: %s, dispatchCount: %d, k8s.status: %s, k8s.status as reported: %s",
-			adminWorkload.Name, adminWorkload.Status.Phase, message.dispatchCount, jsonutils.MarshalSilently(status), reportedStatus)
-	} else {
-		klog.Infof("update workload status, name: %s, phase: %s, dispatchCount: %d, k8s.status: %s",
-			adminWorkload.Name, adminWorkload.Status.Phase, message.dispatchCount, jsonutils.MarshalSilently(status))
+		asReported = ", k8s.status as reported: " + reportedStatus
 	}
+	klog.Infof("update workload status, name: %s, phase: %s, dispatchCount: %d, k8s.status: %s%s",
+		adminWorkload.Name, adminWorkload.Status.Phase, message.dispatchCount, jsonutils.MarshalSilently(status), asReported)
 	if adminWorkload.Status.Phase == v1.WorkloadFailed && originalWorkload.Status.Phase != v1.WorkloadFailed {
 		r.enqueueCICDFailureEnrichment(adminWorkload)
 	}

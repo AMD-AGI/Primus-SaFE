@@ -165,10 +165,10 @@ func TestLaterPodInSamePhaseIsNotSkipped(t *testing.T) {
 // single-pod object reporting success from a record that carries only that is
 // a success.
 func TestEarlierPodDisruptionDoesNotFailASuccess(t *testing.T) {
-	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1",
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", StartTime: recordStartTime,
 		Phase: corev1.PodSucceeded, FailedMessage: earlierPodPrefix + wantEviction()}}))
 	// The record's own condition still decides.
-	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1",
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", StartTime: recordStartTime,
 		Phase:         corev1.PodPhase(v1.WorkloadStopped),
 		FailedMessage: earlierPodPrefix + wantTaintManager() + "; " + wantEviction()}}))
 }
@@ -213,13 +213,13 @@ func TestDisruptionMessageWithSeparatorIsKeptWhole(t *testing.T) {
 	carryEarlierDisruption(old, cur)
 	assert.Equal(t, cur.FailedMessage, earlierPodPrefix+wantSemicolon())
 
-	w := runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1",
+	w := runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", StartTime: recordStartTime,
 		Phase:         corev1.PodPhase(v1.WorkloadStopped),
 		FailedMessage: earlierPodPrefix + wantEviction() + "; " + wantSemicolon()}})
 	assert.Equal(t, w.Status.Phase, v1.WorkloadFailed)
 	failed := conditionOf(w, v1.K8sFailed)
 	assert.Assert(t, failed != nil)
-	assert.Equal(t, failed.Message, objectSucceededMessage+"; "+wantSemicolon())
+	assert.Equal(t, failed.Message, disruptedSuccessMessage("p1", wantSemicolon(), objectSucceededMessage))
 }
 
 // A pod that never started, as one PodGC took while Pending, leaves a record
@@ -245,10 +245,10 @@ func TestNeverStartedSamePodIsNotItsOwnEarlierPod(t *testing.T) {
 	assert.Equal(t, cur.FailedMessage, "Evicted; "+wantEviction())
 }
 
-// A record that carries only an earlier pod's disruption does not freeze once
-// the workload has ended: a pod seen later replaces it and carries that
-// disruption on. A record with its own disruption stays.
-func TestEndedWorkloadFreezesOnlyOwnDisruption(t *testing.T) {
+// Once the workload has ended, a later pod of the same name replaces the record
+// whatever disruption it carries, and carries that disruption on as the earlier
+// pod's.
+func TestEndedWorkloadRecordsLaterPodCarryingDisruption(t *testing.T) {
 	ended := func(message string) *v1.Workload {
 		w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
 		w.Status.Phase = v1.WorkloadStopped
@@ -267,6 +267,7 @@ func TestEndedWorkloadFreezesOnlyOwnDisruption(t *testing.T) {
 	w = ended(wantEviction())
 	_, _, updated = r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w,
 		samePod(corev1.PodRunning, &secondStart), nil)
-	assert.Equal(t, updated, false)
-	assert.Equal(t, w.Status.Pods[0].FailedMessage, wantEviction())
+	assert.Equal(t, updated, true)
+	assert.Equal(t, w.Status.Pods[0].Phase, corev1.PodRunning)
+	assert.Equal(t, w.Status.Pods[0].FailedMessage, earlierPodPrefix+wantEviction())
 }
