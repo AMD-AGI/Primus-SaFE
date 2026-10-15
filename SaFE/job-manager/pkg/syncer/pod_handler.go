@@ -424,11 +424,13 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 			continue
 		}
 		id = i
-		if v1.IsWorkloadPhaseEnded(adminWorkload.Status.Phase) && v1.IsPodTerminated(&p) &&
-			strings.Contains(p.FailedMessage, disruptionTargetPrefix) {
+		if own, _ := podDisruptions(p.FailedMessage); own != "" &&
+			v1.IsWorkloadPhaseEnded(adminWorkload.Status.Phase) && v1.IsPodTerminated(&p) {
 			// The workload has ended, and this record says its pod was taken
 			// away by a disruption. A pod of the same name seen now is a later
 			// one, created after the end, and must not overwrite that record.
+			// A disruption carried from an earlier pod does not freeze it: the
+			// later pod's record carries that one on.
 			return v1.WorkloadPod{}, "", false
 		}
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == adminNodeNameOf(k8sNode) &&
@@ -1381,7 +1383,7 @@ func appendPodDisruption(workloadPod *v1.WorkloadPod, disruption string) bool {
 		return false
 	}
 	if workloadPod.FailedMessage != "" {
-		workloadPod.FailedMessage += "; "
+		workloadPod.FailedMessage += partSeparator
 	}
 	workloadPod.FailedMessage += disruption
 	return true
@@ -1394,17 +1396,48 @@ const earlierPodPrefix = "earlier pod of this name: "
 // podDisruptions splits a pod record's FailedMessage into the DisruptionTarget
 // of the pod it describes and the one carried from an earlier pod of the same
 // name, each "" when absent.
+//
+// A part starts only at a known prefix, at the start of the message or after
+// "; ", and runs to the start of the next such part: a condition's message is
+// free text and may itself hold "; ".
 func podDisruptions(message string) (own, earlier string) {
-	for _, part := range strings.Split(message, "; ") {
+	type part struct {
+		start, body int
+		earlier     bool
+	}
+	var parts []part
+	for from := 0; from < len(message); {
+		at := strings.Index(message[from:], disruptionTargetPrefix)
+		if at < 0 {
+			break
+		}
+		at += from
+		from = at + len(disruptionTargetPrefix)
+		start, isEarlier := at, false
+		if strings.HasSuffix(message[:at], earlierPodPrefix) {
+			start, isEarlier = at-len(earlierPodPrefix), true
+		}
+		if start == 0 || strings.HasSuffix(message[:start], partSeparator) {
+			parts = append(parts, part{start: start, body: at, earlier: isEarlier})
+		}
+	}
+	for i, p := range parts {
+		end := len(message)
+		if i+1 < len(parts) {
+			end = parts[i+1].start - len(partSeparator)
+		}
 		switch {
-		case earlier == "" && strings.HasPrefix(part, earlierPodPrefix+disruptionTargetPrefix):
-			earlier = strings.TrimPrefix(part, earlierPodPrefix)
-		case own == "" && strings.HasPrefix(part, disruptionTargetPrefix):
-			own = part
+		case p.earlier && earlier == "":
+			earlier = message[p.body:end]
+		case !p.earlier && own == "":
+			own = message[p.body:end]
 		}
 	}
 	return own, earlier
 }
+
+// partSeparator separates the parts of a pod record's FailedMessage.
+const partSeparator = "; "
 
 // carryEarlierDisruption keeps, in the record built for a pod, the
 // DisruptionTarget of an earlier pod of the same name that the old record
@@ -1415,20 +1448,23 @@ func podDisruptions(message string) (own, earlier string) {
 // workload, later stopped by its owner, ends with no record that its pod was
 // taken. The old record describes an earlier pod when it has ended and the new
 // pod has not, or when the two started at different times; otherwise it is the
-// same pod and only what it already carried is kept. Only the latest earlier
-// disruption is carried, marked by earlierPodPrefix so that it is not read as
-// the new pod's own.
+// same pod and only what it already carried is kept. An old record with no
+// start time describes a pod that never started, as one PodGC took while
+// Pending, and is taken for an earlier pod; when it was the same pod, the new
+// record already holds that disruption as its own and nothing is carried. Only
+// the latest earlier disruption is carried, marked by earlierPodPrefix so that
+// it is not read as the new pod's own.
 func carryEarlierDisruption(old, cur *v1.WorkloadPod) {
 	own, earlier := podDisruptions(old.FailedMessage)
 	if own != "" && v1.IsPodTerminated(old) &&
-		(!v1.IsPodTerminated(cur) || (old.StartTime != "" && old.StartTime != cur.StartTime)) {
+		(!v1.IsPodTerminated(cur) || old.StartTime == "" || old.StartTime != cur.StartTime) {
 		earlier = own
 	}
-	if _, has := podDisruptions(cur.FailedMessage); earlier == "" || has != "" {
+	if curOwn, _ := podDisruptions(cur.FailedMessage); earlier == "" || curOwn == earlier {
 		return
 	}
 	if cur.FailedMessage != "" {
-		cur.FailedMessage += "; "
+		cur.FailedMessage += partSeparator
 	}
 	cur.FailedMessage += earlierPodPrefix + earlier
 }
