@@ -164,7 +164,10 @@ func seenSucceededClean(record *v1.WorkloadPod, pod *corev1.Pod) bool {
 
 // lastEndedAttempts returns, when no pod is cached, the records of the
 // attempts of the current dispatch that started last among those that ended
-// other than Failed: one, or more that started in the same second. settled is
+// other than Failed: one, or more that started in the same second. An attempt
+// seen to end Succeeded is preferred to one stopped by its delete: a
+// controller that counted one attempt's success deletes the others still
+// running (a Job does). settled is
 // false while none has, or while an attempt that started no earlier has no
 // recorded end: the delete that ends its record may carry the disruption. An
 // attempt that started earlier and has no recorded end is an older one whose
@@ -173,7 +176,7 @@ func seenSucceededClean(record *v1.WorkloadPod, pod *corev1.Pod) bool {
 // attempt of this dispatch's success.
 func lastEndedAttempts(adminWorkload *v1.Workload) (records []*v1.WorkloadPod, settled bool) {
 	var latest, unended time.Time
-	anyUnended := false
+	anyUnended, succeeded := false, false
 	for i := range adminWorkload.Status.Pods {
 		p := &adminWorkload.Status.Pods[i]
 		if p.Phase == corev1.PodFailed || !startedInCurrentDispatch(adminWorkload, p) {
@@ -189,8 +192,10 @@ func lastEndedAttempts(adminWorkload *v1.Workload) (records []*v1.WorkloadPod, s
 				unended = started
 			}
 			anyUnended = true
-		case len(records) == 0 || started.After(latest):
+		case succeeded && p.Phase != corev1.PodSucceeded:
+		case len(records) == 0 || started.After(latest) || (!succeeded && p.Phase == corev1.PodSucceeded):
 			records, latest = []*v1.WorkloadPod{p}, started
+			succeeded = p.Phase == corev1.PodSucceeded
 		case started.Equal(latest):
 			records = append(records, p)
 		}
