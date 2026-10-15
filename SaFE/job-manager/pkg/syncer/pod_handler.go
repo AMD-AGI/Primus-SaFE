@@ -425,7 +425,8 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 		}
 		id = i
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == adminNodeNameOf(k8sNode) &&
-			p.StartTime != "" && p.StartTime == podStartTime(pod) && p.HostIp == pod.Status.HostIP &&
+			p.StartTime != "" && p.StartTime == podStartTime(pod) && p.PodUid == string(pod.UID) &&
+			p.HostIp == pod.Status.HostIP &&
 			!currentDispatchNodesNeedRepair(adminWorkload) {
 			// Return early if no critical changes detected
 			return v1.WorkloadPod{}, "", false
@@ -496,6 +497,7 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 
 	workloadPod := v1.WorkloadPod{
 		PodId:         pod.Name,
+		PodUid:        string(pod.UID),
 		ResourceId:    int8(resourceId),
 		AdminNodeName: adminNodeNameOf(k8sNode),
 		Phase:         pod.Status.Phase,
@@ -513,7 +515,8 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 
 // podStartTime is the pod's start time as a pod record holds it, "" when unset.
 // A pod keeps the start time it was given, so a record whose start time differs
-// describes another pod of the same name.
+// describes another pod of the same name; one whose start time is the same, in
+// whole seconds, may too, and only its pod uid tells.
 func podStartTime(pod *corev1.Pod) string {
 	if pod.Status.StartTime == nil || pod.Status.StartTime.IsZero() {
 		return ""
@@ -1475,19 +1478,20 @@ const partSeparator = "; "
 // A controller that recreates a pod under the same name (a Sandbox, for one)
 // replaces the record of a pod a disruption took away. Without this the
 // workload, later stopped by its owner, ends with no record that its pod was
-// taken. The old record describes an earlier pod when it has ended and the new
-// pod has not, or when the two started at different times; otherwise it is the
-// same pod and only what it already carried is kept. An old record with no
-// start time describes a pod that never started, as one PodGC took while
-// Pending, and is taken for an earlier pod; when it was the same pod, the new
-// record already holds that disruption as its own and nothing is carried. Only
-// the latest earlier disruption is carried, marked by earlierPodPrefix so that
-// it is not read as the new pod's own.
+// taken. The old record describes an earlier pod when it has ended and holds
+// another pod uid (see isEarlierPod); otherwise it is the same pod, which
+// keeps its own disruption, as one the delete path recorded on a pod still
+// seen running. Only the latest earlier disruption is
+// carried, marked by earlierPodPrefix so that it is not read as the new pod's
+// own.
 func carryEarlierDisruption(old, cur *v1.WorkloadPod) {
 	own, earlier := podDisruptions(old.FailedMessage)
-	if own != "" && v1.IsPodTerminated(old) &&
-		(!v1.IsPodTerminated(cur) || old.StartTime == "" || old.StartTime != cur.StartTime) {
-		earlier = own
+	if own != "" && v1.IsPodTerminated(old) {
+		if isEarlierPod(old, cur) {
+			earlier = own
+		} else {
+			appendPodDisruption(cur, own)
+		}
 	}
 	if curOwn, _ := podDisruptions(cur.FailedMessage); earlier == "" || curOwn == earlier {
 		return
@@ -1496,6 +1500,21 @@ func carryEarlierDisruption(old, cur *v1.WorkloadPod) {
 		cur.FailedMessage += partSeparator
 	}
 	cur.FailedMessage += earlierPodPrefix + earlier
+}
+
+// isEarlierPod reports whether the old record, which has ended, describes an
+// earlier pod of the same name than cur. Records carry their pod's uid; one
+// written before they did is told by its start time: an earlier pod when the
+// new pod has not ended, or when the two started at different times. An old
+// record with no start time describes a pod that never started, as one PodGC
+// took while Pending, and is taken for an earlier pod; when it was the same
+// pod, the new record already holds that disruption as its own and nothing is
+// carried.
+func isEarlierPod(old, cur *v1.WorkloadPod) bool {
+	if old.PodUid != "" && cur.PodUid != "" {
+		return old.PodUid != cur.PodUid
+	}
+	return !v1.IsPodTerminated(cur) || old.StartTime == "" || old.StartTime != cur.StartTime
 }
 
 // getPodLog retrieves and filters logs from a pod's main container.

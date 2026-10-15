@@ -271,3 +271,43 @@ func TestEndedWorkloadRecordsLaterPodCarryingDisruption(t *testing.T) {
 	assert.Equal(t, w.Status.Pods[0].Phase, corev1.PodRunning)
 	assert.Equal(t, w.Status.Pods[0].FailedMessage, earlierPodPrefix+wantEviction())
 }
+
+// Two pods of the same name can start in the same second, which is all a
+// record's start time holds. The record carries the pod's uid, which tells
+// them apart.
+func TestSameSecondLaterPodIsToldByUid(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Status.Phase = v1.WorkloadRunning
+	w.Status.Pods = []v1.WorkloadPod{{PodId: "p1", PodUid: "u1", Phase: corev1.PodSucceeded,
+		StartTime: timeutil.FormatRFC3339(firstStart.Time), FailedMessage: wantEviction()}}
+	later := samePod(corev1.PodSucceeded, &firstStart)
+	later.UID = "u2"
+	r := &SyncerReconciler{}
+	_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, later, nil)
+	assert.Equal(t, updated, true)
+	assert.Equal(t, w.Status.Pods[0].PodUid, "u2")
+	assert.Equal(t, w.Status.Pods[0].FailedMessage, earlierPodPrefix+wantEviction())
+
+	// The same pod seen again is unchanged.
+	_, _, updated = r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, later, nil)
+	assert.Equal(t, updated, false)
+}
+
+// The uid decides which pod a record describes, whatever the start times and
+// phases say.
+func TestCarryTellsPodsByUid(t *testing.T) {
+	start := timeutil.FormatRFC3339(firstStart.Time)
+	old := &v1.WorkloadPod{PodId: "p1", PodUid: "u1", Phase: corev1.PodSucceeded, StartTime: start,
+		FailedMessage: wantEviction()}
+	cur := &v1.WorkloadPod{PodId: "p1", PodUid: "u2", Phase: corev1.PodSucceeded, StartTime: start}
+	carryEarlierDisruption(old, cur)
+	assert.Equal(t, cur.FailedMessage, earlierPodPrefix+wantEviction())
+
+	// The delete path stopped the record of a pod still seen running: the same
+	// pod, which keeps its condition as its own.
+	old = &v1.WorkloadPod{PodId: "p1", PodUid: "u1", Phase: corev1.PodPhase(v1.WorkloadStopped), StartTime: start,
+		FailedMessage: wantEviction()}
+	cur = &v1.WorkloadPod{PodId: "p1", PodUid: "u1", Phase: corev1.PodRunning, StartTime: start}
+	carryEarlierDisruption(old, cur)
+	assert.Equal(t, cur.FailedMessage, wantEviction())
+}

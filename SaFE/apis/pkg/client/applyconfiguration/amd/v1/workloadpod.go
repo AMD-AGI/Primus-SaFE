@@ -15,6 +15,8 @@ import (
 type WorkloadPodApplyConfiguration struct {
 	// The podId
 	PodId *string `json:"podId,omitempty"`
+	// The uid of the pod. A pod of the same name created later has another.
+	PodUid *string `json:"podUid,omitempty"`
 	// The id of workload resources that the pod is bound to.
 	// If the value is less than 0, it means the pod does not belong to any resource.
 	ResourceId *byte `json:"resourceId,omitempty"`
@@ -53,6 +55,14 @@ func WorkloadPod() *WorkloadPodApplyConfiguration {
 // If called multiple times, the PodId field is set to the value of the last call.
 func (b *WorkloadPodApplyConfiguration) WithPodId(value string) *WorkloadPodApplyConfiguration {
 	b.PodId = &value
+	return b
+}
+
+// WithPodUid sets the PodUid field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PodUid field is set to the value of the last call.
+func (b *WorkloadPodApplyConfiguration) WithPodUid(value string) *WorkloadPodApplyConfiguration {
+	b.PodUid = &value
 	return b
 }
 

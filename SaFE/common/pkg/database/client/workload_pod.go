@@ -27,11 +27,11 @@ var (
 	upsertWorkloadPodCmd = `INSERT INTO ` + TWorkloadPod + ` (
 		workload_id, workload_uid, pod_id, resource_id, admin_node_name, host_ip, pod_ip, rank,
 		group_id, phase, start_time, end_time, failed_message, containers,
-		dispatch_count, updated_at
+		dispatch_count, pod_uid, updated_at
 	) VALUES (
 		:workload_id, :workload_uid, :pod_id, :resource_id, :admin_node_name, :host_ip, :pod_ip, :rank,
 		:group_id, :phase, :start_time, :end_time, :failed_message, :containers,
-		:dispatch_count, :updated_at
+		:dispatch_count, :pod_uid, :updated_at
 	) ON CONFLICT (workload_id, pod_id) DO UPDATE SET
 		workload_uid = EXCLUDED.workload_uid,
 		resource_id = EXCLUDED.resource_id,
@@ -46,12 +46,13 @@ var (
 		failed_message = EXCLUDED.failed_message,
 		containers = EXCLUDED.containers,
 		dispatch_count = EXCLUDED.dispatch_count,
+		pod_uid = EXCLUDED.pod_uid,
 		updated_at = EXCLUDED.updated_at`
 
 	listWorkloadPodsCmd = fmt.Sprintf(`SELECT
 		workload_id, workload_uid, pod_id, resource_id, admin_node_name, host_ip, pod_ip, rank,
 		group_id, phase, start_time, end_time, failed_message, containers,
-		dispatch_count, updated_at
+		dispatch_count, pod_uid, updated_at
 		FROM %s WHERE workload_id = $1 AND workload_uid = $2 ORDER BY pod_id`, TWorkloadPod)
 )
 
