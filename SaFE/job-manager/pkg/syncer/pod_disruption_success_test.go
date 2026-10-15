@@ -358,7 +358,8 @@ func TestMultiPodWorkloadIsNotRead(t *testing.T) {
 	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()},
 		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition()),
 		cachedPod(t, "p2", corev1.PodRunning)))
-	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord(), {PodId: "p2", Phase: corev1.PodRunning}}))
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning},
+		{PodId: "p2", Phase: corev1.PodRunning}}))
 	assertSucceeded(t, runObjectSucceeded(t, 2, []v1.WorkloadPod{evictedRecord()},
 		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
 }
@@ -773,4 +774,20 @@ func TestConditionSeenAfterCleanSuccessDoesNotFailIt(t *testing.T) {
 	handlePodWithInformer(t, r, eventMessage(t, disruptedPodObject(t, evictionCondition()), ResourceDel), nil)
 	pods := getWorkloadPods(t, cl)
 	assert.Equal(t, pods[0].FailedMessage, "")
+}
+
+// A pod deleted before it ended, whose record the delete path stopped, was not
+// what the object counted as success when another attempt is cached or
+// recorded: one replica's pod evicted and replaced by its controller under
+// another name (a Job does). The replacement decides.
+func TestStoppedAttemptLeavesTheReplacementToDecide(t *testing.T) {
+	stopped := evictedRecord()
+	stopped.PodId = "p0"
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{stopped},
+		cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())))
+	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{stopped}, cachedPod(t, "p1", corev1.PodSucceeded)))
+	// The replacement recorded but not cached yet: the success waits for it.
+	assertPending(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{stopped, {PodId: "p1", Phase: corev1.PodRunning}}))
+	// With only the stopped pod, its record decides.
+	assertDisruptedFailed(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord()}))
 }
