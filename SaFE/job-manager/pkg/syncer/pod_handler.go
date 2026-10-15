@@ -424,13 +424,6 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 			continue
 		}
 		id = i
-		if v1.IsWorkloadPhaseEnded(adminWorkload.Status.Phase) && v1.IsPodTerminated(&p) &&
-			strings.Contains(p.FailedMessage, disruptionTargetPrefix) {
-			// The workload has ended, and this record says its pod was taken
-			// away by a disruption. A pod of the same name seen now is a later
-			// one, created after the end, and must not overwrite that record.
-			return v1.WorkloadPod{}, "", false
-		}
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == adminNodeNameOf(k8sNode) &&
 			p.StartTime != "" && p.HostIp == pod.Status.HostIP &&
 			!currentDispatchNodesNeedRepair(adminWorkload) {
@@ -1265,7 +1258,7 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 	} else if pod.Status.Phase != corev1.PodSucceeded {
 		return
 	}
-	appendPodDisruption(workloadPod, podDisruptionTarget(pod.Status.Conditions))
+	appendPodDisruption(workloadPod, podDisruption(&pod.Status))
 
 	var finishedTime *metav1.Time
 	for i, container := range pod.Status.ContainerStatuses {
@@ -1305,8 +1298,9 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 // carries a pod's DisruptionTarget condition.
 const disruptionTargetPrefix = "DisruptionTarget: "
 
-// podDisruptionTarget returns the pod's DisruptionTarget condition, when it is
-// True, formatted by formatDisruptionTarget; otherwise "".
+// podDisruption returns the pod's DisruptionTarget condition, when it is True
+// and the pod had not ended before it, formatted by formatDisruptionTarget;
+// otherwise "".
 //
 // Kubernetes sets this condition on a pod that is about to be terminated
 // because of a disruption rather than its own exit: eviction by the taint
@@ -1314,38 +1308,75 @@ const disruptionTargetPrefix = "DisruptionTarget: "
 // (TerminationByKubelet), deletion by the pod garbage collector
 // (DeletionByPodGC), scheduler preemption (PreemptionByScheduler) or the
 // Eviction API (EvictionByEvictionAPI).
-func podDisruptionTarget(conditions []corev1.PodCondition) string {
-	for i := range conditions {
-		if conditions[i].Type == corev1.DisruptionTarget {
-			return formatDisruptionTarget(&conditions[i])
+//
+// The condition is set before the pod's containers are signalled, so a
+// disruption that ended the pod is never later than its containers' finish.
+// The taint manager and a drain also mark a pod that had already completed;
+// such a condition, set after every container had finished, did not end the
+// pod and is not returned. Both times have a resolution of one second, and a
+// condition set in the second a container finished is taken as the one that
+// ended it.
+func podDisruption(status *corev1.PodStatus) string {
+	for i := range status.Conditions {
+		c := &status.Conditions[i]
+		if c.Type != corev1.DisruptionTarget {
+			continue
 		}
+		if endedBefore(status.ContainerStatuses, c.LastTransitionTime) {
+			return ""
+		}
+		return formatDisruptionTarget(c)
 	}
 	return ""
 }
 
+// endedBefore reports whether every container had terminated before at. A
+// container still running, or a time that is unset, is not.
+func endedBefore(statuses []corev1.ContainerStatus, at metav1.Time) bool {
+	if at.IsZero() || len(statuses) == 0 {
+		return false
+	}
+	for i := range statuses {
+		terminated := statuses[i].State.Terminated
+		if terminated == nil || terminated.FinishedAt.IsZero() || !terminated.FinishedAt.Before(&at) {
+			return false
+		}
+	}
+	return true
+}
+
 // disruptionTargetOf reads the DisruptionTarget condition from an unstructured
-// pod, see podDisruptionTarget.
+// pod, see podDisruption.
 func disruptionTargetOf(obj *unstructured.Unstructured) string {
 	if obj == nil {
 		return ""
 	}
-	items, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	var status corev1.PodStatus
+	status.Conditions = podStatusItems[corev1.PodCondition](obj, "conditions")
+	status.ContainerStatuses = podStatusItems[corev1.ContainerStatus](obj, "containerStatuses")
+	return podDisruption(&status)
+}
+
+// podStatusItems decodes the list at status.<field> of an unstructured pod,
+// skipping an item that does not decode.
+func podStatusItems[T any](obj *unstructured.Unstructured, field string) []T {
+	items, found, err := unstructured.NestedSlice(obj.Object, "status", field)
 	if err != nil || !found {
-		return ""
+		return nil
 	}
-	conditions := make([]corev1.PodCondition, 0, len(items))
+	out := make([]T, 0, len(items))
 	for _, item := range items {
 		m, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		var c corev1.PodCondition
-		if runtime.DefaultUnstructuredConverter.FromUnstructured(m, &c) != nil {
+		var v T
+		if runtime.DefaultUnstructuredConverter.FromUnstructured(m, &v) != nil {
 			continue
 		}
-		conditions = append(conditions, c)
+		out = append(out, v)
 	}
-	return podDisruptionTarget(conditions)
+	return out
 }
 
 // formatDisruptionTarget renders a True DisruptionTarget condition as

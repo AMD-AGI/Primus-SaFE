@@ -8,6 +8,7 @@ package syncer
 import (
 	"context"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -15,17 +16,19 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-// disruptedSuccess returns the DisruptionTarget of a single-pod workload whose
-// object reports success because its pod, taken away by a disruption, ended
-// Succeeded. It returns "" otherwise.
+// disruptedSuccess returns the pod and the DisruptionTarget of a single-pod
+// workload whose object reports success because its pod, taken away by a
+// disruption, ended Succeeded. It returns "" for both otherwise.
 //
 // A pod whose containers exit 0 on the SIGTERM of an eviction, a preemption or
 // a node drain ends Succeeded, and an object that mirrors its pod's phase (a
 // Sandbox, for one) then reports success. Kubernetes records the disruption on
 // the pod itself as the DisruptionTarget condition, set before the pod is
-// terminated.
+// terminated; one set after the pod had already ended is not read (see
+// podDisruption).
 //
 // Only a workload of one replica whose records and cache name one pod is read:
 // with more pods the object's success cannot be tied to the disrupted one. A
@@ -33,12 +36,17 @@ import (
 // mesh pod carries the workload label only after its first sync, so the cache
 // cannot be asked for its pods.
 //
-// The pod's current object in the informer cache decides, and must have ended
-// Succeeded with a True DisruptionTarget: a pod of the same name created later
-// that ended cleanly is a clean success, and a disrupted pod that ended Failed
-// was not what the object counted as success. Only when the cache holds no pod
-// of the current dispatch is its record read; the delete path records the
-// condition there (see removeWorkloadPod) but not the phase the pod ended in.
+// The pod's current object in the informer cache decides. One that ended
+// Failed was not what the object counted as success. One that has not ended
+// in the cache is a cache behind the object's: the object reports success only
+// after its pod ended, so the pod's DisruptionTarget, set while it ran, is the
+// disruption that ended it. A pod of the same name created later that ended
+// cleanly carries no condition and is a clean success. Only when the cache
+// holds no pod of the current dispatch is its record read; the delete path
+// records the condition there (see removeWorkloadPod) but not the phase the
+// pod ended in. The record must have started in the current dispatch, as the
+// cache's pods must carry its dispatch count: a record left from an earlier
+// dispatch does not say how the current pod ended.
 //
 // A cache that cannot answer (no informer yet, not synced, a failed list) is
 // never read as "the pod is gone": the record would then decide for a pod that
@@ -46,17 +54,17 @@ import (
 // replays its success before the pod informer has synced. The success then
 // stands as reported.
 func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *ClusterClientSets,
-	adminWorkload *v1.Workload) string {
+	adminWorkload *v1.Workload) (pod, disruption string) {
 	if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICD(adminWorkload) ||
 		commonworkload.IsTorchFT(adminWorkload) || commonworkload.IsMonarchJob(adminWorkload) ||
 		commonworkload.GetTotalReplica(adminWorkload) != 1 {
-		return ""
+		return "", ""
 	}
 	cached, ok := r.cachedWorkloadPods(ctx, clientSets, adminWorkload)
 	if !ok {
 		klog.Infof("workload %s: k8s object reports success, and the pod cache cannot tell "+
 			"whether its pod was disrupted; the success stands", adminWorkload.Name)
-		return ""
+		return "", ""
 	}
 	names := map[string]struct{}{}
 	for i := range adminWorkload.Status.Pods {
@@ -66,29 +74,66 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 		names[obj.GetName()] = struct{}{}
 	}
 	if len(names) != 1 {
-		return ""
+		return "", ""
 	}
 	if len(cached) > 0 {
 		phase, _, _ := unstructured.NestedString(cached[0].Object, "status", "phase")
-		if corev1.PodPhase(phase) != corev1.PodSucceeded {
-			return ""
+		if corev1.PodPhase(phase) == corev1.PodFailed {
+			return "", ""
 		}
-		return disruptionTargetOf(cached[0])
+		if disruption = disruptionTargetOf(cached[0]); disruption == "" {
+			return "", ""
+		}
+		return cached[0].GetName(), disruption
 	}
 	if len(adminWorkload.Status.Pods) == 0 {
-		return ""
+		return "", ""
 	}
 	p := &adminWorkload.Status.Pods[0]
 	// A record that ended Failed is not what the object counted as success; one
 	// the delete path stopped did not see how its pod ended, and is the candidate
 	// with one that ended Succeeded.
 	if p.Phase != corev1.PodSucceeded && p.Phase != corev1.PodPhase(v1.WorkloadStopped) {
-		return ""
+		return "", ""
+	}
+	if !startedInCurrentDispatch(adminWorkload, p) {
+		return "", ""
 	}
 	if at := strings.Index(p.FailedMessage, disruptionTargetPrefix); at >= 0 {
-		return p.FailedMessage[at:]
+		return p.PodId, p.FailedMessage[at:]
 	}
-	return ""
+	return "", ""
+}
+
+// startedInCurrentDispatch reports whether the pod record describes a pod that
+// started after the workload's current dispatch. A record with no start time,
+// or a workload with no dispatch time, does not.
+//
+// The dispatch time is written in UTC. A record's start time carries no zone,
+// and is the pod's start time as this process's local clock reads it (see
+// buildWorkloadPodInfo), so it is parsed as local time.
+func startedInCurrentDispatch(adminWorkload *v1.Workload, p *v1.WorkloadPod) bool {
+	dispatchedAt, err := timeutil.CvtStrToRFC3339Milli(
+		v1.GetAnnotation(adminWorkload, v1.WorkloadDispatchedAnnotation))
+	if err != nil {
+		return false
+	}
+	started, err := time.ParseInLocation(timeutil.TimeRFC3339Short, p.StartTime, time.Local)
+	if err != nil {
+		return false
+	}
+	return !started.Before(dispatchedAt)
+}
+
+// disruptedSuccessMessage is the failure message of an object that reported
+// success, reported, because its pod was taken away by a disruption: the
+// disruption first, then what the object reported.
+func disruptedSuccessMessage(pod, disruption, reported string) string {
+	message := "pod " + pod + " was taken away by a disruption, " + disruption
+	if strings.TrimSpace(reported) != "" {
+		message += "; the object reported success: " + reported
+	}
+	return message
 }
 
 // cachedWorkloadPods returns the workload's pods of its current dispatch from the
@@ -123,15 +168,4 @@ func (r *SyncerReconciler) cachedWorkloadPods(ctx context.Context, clientSets *C
 		return nil, false
 	}
 	return pods, true
-}
-
-// joinMessage joins two status messages with "; ", dropping an empty one.
-func joinMessage(a, b string) string {
-	switch {
-	case strings.TrimSpace(a) == "":
-		return b
-	case strings.TrimSpace(b) == "":
-		return a
-	}
-	return a + "; " + b
 }
