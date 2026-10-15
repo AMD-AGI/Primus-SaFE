@@ -626,12 +626,16 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	id := indexOfPod(adminWorkload.Status.Pods, message.name)
 	if id >= 0 && isOtherPodsDelete(&adminWorkload.Status.Pods[id], message) {
 		// The delete of an earlier pod of the same name, seen after its
-		// replacement's record was written: neither its end nor its disruption
-		// is the replacement's.
-		klog.V(4).InfoS("ignore the delete of an earlier pod of the same name",
+		// replacement's record was written: its end is not the replacement's,
+		// and its disruption is kept as the earlier pod's.
+		klog.V(4).InfoS("the delete of an earlier pod of the same name",
 			"workload", adminWorkload.Name, "pod", message.name,
 			"deletedUID", message.uid, "recordUID", adminWorkload.Status.Pods[id].PodUid)
-		return nil
+		if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICD(adminWorkload) ||
+			!setEarlierDisruption(&adminWorkload.Status.Pods[id], message.disruption) {
+			return nil
+		}
+		return r.patchWorkloadPodStatus(ctx, adminWorkload, nil)
 	}
 	noted := false
 	if id >= 0 && !commonworkload.IsApplication(adminWorkload) && !commonworkload.IsCICD(adminWorkload) {
@@ -659,6 +663,29 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 // pod uid, or an event with none, is taken for the record's pod.
 func isOtherPodsDelete(p *v1.WorkloadPod, message *resourceMessage) bool {
 	return p.PodUid != "" && message.uid != "" && p.PodUid != string(message.uid)
+}
+
+// setEarlierDisruption records disruption, when set, as the one an earlier pod
+// of the same name carried, in place of any it held, and reports whether the
+// record changed.
+func setEarlierDisruption(p *v1.WorkloadPod, disruption string) bool {
+	_, earlier := podDisruptions(p.FailedMessage)
+	if disruption == "" || earlier == disruption {
+		return false
+	}
+	if earlier != "" {
+		part := earlierPodPrefix + earlier
+		if at := strings.Index(p.FailedMessage, partSeparator+part); at >= 0 {
+			p.FailedMessage = p.FailedMessage[:at] + p.FailedMessage[at+len(partSeparator+part):]
+		} else {
+			p.FailedMessage = strings.TrimPrefix(strings.TrimPrefix(p.FailedMessage, part), partSeparator)
+		}
+	}
+	if p.FailedMessage != "" {
+		p.FailedMessage += partSeparator
+	}
+	p.FailedMessage += earlierPodPrefix + disruption
+	return true
 }
 
 // handleMonarchMesh releases one mesh group's pod records after its pods are gone.

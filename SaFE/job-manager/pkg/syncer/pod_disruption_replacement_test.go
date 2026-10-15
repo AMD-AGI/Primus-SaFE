@@ -314,7 +314,8 @@ func TestCarryTellsPodsByUid(t *testing.T) {
 
 // The delete of an earlier pod of the same name, processed after the record of
 // a clean replacement was written, neither stops the replacement's record nor
-// gives it the earlier pod's disruption.
+// gives it the earlier pod's disruption as its own: that is kept as the
+// earlier pod's.
 func TestEarlierPodsDeleteLeavesReplacementRecord(t *testing.T) {
 	cl := disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "replacement-uid", Phase: corev1.PodSucceeded,
 		StartTime: timeutil.FormatRFC3339(secondStart.Time)})
@@ -322,7 +323,20 @@ func TestEarlierPodsDeleteLeavesReplacementRecord(t *testing.T) {
 	handlePodWithInformer(t, r, eventMessage(t, disruptedPodObject(t, evictionCondition()), ResourceDel), nil)
 	pods := getWorkloadPods(t, cl)
 	assert.Equal(t, pods[0].Phase, corev1.PodSucceeded)
-	assert.Equal(t, pods[0].FailedMessage, "")
+	assert.Equal(t, pods[0].FailedMessage, earlierPodPrefix+wantEviction())
+	// It replaces an older earlier pod's, and is not repeated.
+	cl = disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "replacement-uid", Phase: corev1.PodRunning,
+		FailedMessage: "Error, exit 1; " + earlierPodPrefix + wantTaintManager()})
+	r = &SyncerReconciler{Client: cl}
+	for range 2 {
+		handlePodWithInformer(t, r, eventMessage(t, disruptedPodObject(t, evictionCondition()), ResourceDel), nil)
+	}
+	pods = getWorkloadPods(t, cl)
+	assert.Equal(t, pods[0].Phase, corev1.PodRunning)
+	assert.Equal(t, pods[0].FailedMessage, "Error, exit 1; "+earlierPodPrefix+wantEviction())
+	// A clean earlier pod's delete leaves it as it is.
+	handlePodWithInformer(t, r, eventMessage(t, disruptedPodObject(t), ResourceDel), nil)
+	assert.Equal(t, getWorkloadPods(t, cl)[0].FailedMessage, "Error, exit 1; "+earlierPodPrefix+wantEviction())
 
 	// The record's own pod's delete is applied.
 	cl = disruptionWorkload(t, v1.WorkloadPod{PodId: "p1", PodUid: "pod-uid", Phase: corev1.PodRunning,
@@ -332,4 +346,23 @@ func TestEarlierPodsDeleteLeavesReplacementRecord(t *testing.T) {
 	pods = getWorkloadPods(t, cl)
 	assert.Equal(t, pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
 	assert.Equal(t, pods[0].FailedMessage, wantEviction())
+}
+
+func TestSetEarlierDisruption(t *testing.T) {
+	for _, tc := range []struct{ message, want string }{
+		{"", earlierPodPrefix + wantEviction()},
+		{wantTaintManager(), wantTaintManager() + "; " + earlierPodPrefix + wantEviction()},
+		{earlierPodPrefix + wantTaintManager(), earlierPodPrefix + wantEviction()},
+		{earlierPodPrefix + wantTaintManager() + "; " + wantSemicolon(), wantSemicolon() + "; " + earlierPodPrefix + wantEviction()},
+		{wantSemicolon() + "; " + earlierPodPrefix + wantTaintManager(), wantSemicolon() + "; " + earlierPodPrefix + wantEviction()},
+	} {
+		p := &v1.WorkloadPod{FailedMessage: tc.message}
+		assert.Equal(t, setEarlierDisruption(p, wantEviction()), true, tc.message)
+		assert.Equal(t, p.FailedMessage, tc.want, tc.message)
+		own, earlier := podDisruptions(p.FailedMessage)
+		assert.Equal(t, earlier, wantEviction(), tc.message)
+		wantOwn, _ := podDisruptions(tc.message)
+		assert.Equal(t, own, wantOwn, tc.message)
+		assert.Equal(t, setEarlierDisruption(p, wantEviction()), false, tc.message)
+	}
 }
