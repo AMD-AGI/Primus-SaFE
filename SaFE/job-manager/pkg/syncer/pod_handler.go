@@ -79,6 +79,7 @@ func (r *SyncerReconciler) handlePod(ctx context.Context,
 			if disruption := disruptionTargetOf(obj); disruption != "" {
 				message.disruption = disruption
 			}
+			message.phase = podPhaseOf(obj)
 		}
 		if err = r.removeWorkloadPod(ctx, clusterClientSets, message); err != nil {
 			return ctrlruntime.Result{}, err
@@ -632,6 +633,9 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 			noted = appendPodDisruption(p, message.disruption)
 		}
 	}
+	if id >= 0 && markPodEnded(adminWorkload, id, message.phase) {
+		noted = true
+	}
 	if id < 0 || (!r.applyPodGone(adminWorkload, id) && !noted) {
 		// A prior attempt may have written the DB (Stopped or dropped the row)
 		// and then lost the etcd CAS. Hydration already shows the pod gone, so
@@ -789,6 +793,27 @@ func (r *SyncerReconciler) applyPodGone(adminWorkload *v1.Workload, id int) bool
 	}
 	p.Phase = corev1.PodPhase(v1.WorkloadStopped)
 	return true
+}
+
+// markPodEnded records a deleted pod seen to have ended Succeeded as it ended,
+// rather than Stopped, and reports whether the record changed. A pod evicted
+// is deleted before its containers exit: one that exited 0 on the SIGTERM ends
+// Succeeded while being deleted, and a controller may have counted that
+// success (see lastEndedAttempts). Kinds that drop the record, and records that
+// have ended, are left as they are.
+func markPodEnded(adminWorkload *v1.Workload, id int, phase corev1.PodPhase) bool {
+	if phase != corev1.PodSucceeded || commonworkload.IsApplication(adminWorkload) ||
+		commonworkload.IsCICD(adminWorkload) || v1.IsPodTerminated(&adminWorkload.Status.Pods[id]) {
+		return false
+	}
+	adminWorkload.Status.Pods[id].Phase = corev1.PodSucceeded
+	return true
+}
+
+// podPhaseOf returns the phase of an unstructured pod, "" when unset.
+func podPhaseOf(obj *unstructured.Unstructured) corev1.PodPhase {
+	phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase")
+	return corev1.PodPhase(phase)
 }
 
 // podResourceGVK identifies the pod informer whose cache says which pods exist.
