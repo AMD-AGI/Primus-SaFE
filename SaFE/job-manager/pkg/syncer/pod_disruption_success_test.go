@@ -109,6 +109,8 @@ type objectSucceededRun struct {
 	// How long this process has waited to tell whether a disruption caused the
 	// success, when it has.
 	waited *time.Duration
+	// The object has since been deleted: the event is its delete.
+	deleted bool
 }
 
 // lastObjectSucceededErr is what updateAdminWorkloadByJob returned in the last
@@ -178,7 +180,8 @@ func runObjectSucceededWith(t *testing.T, run objectSucceededRun) *v1.Workload {
 	r := &SyncerReconciler{Client: cl}
 	if run.waited != nil {
 		r.successVerdictWaits.Store("w", successVerdictWait{uid: w.UID, dispatch: run.dispatch,
-			since: time.Now().Add(-*run.waited)})
+			since: time.Now().Add(-*run.waited), reported: jobutils.K8sObjectStatus{
+				Phase: string(v1.K8sSucceeded), Message: objectSucceededMessage}})
 	}
 	hydrated := &v1.Workload{}
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, hydrated))
@@ -186,9 +189,12 @@ func runObjectSucceededWith(t *testing.T, run objectSucceededRun) *v1.Workload {
 
 	cs := monkeyClientSets()
 	cs.name = "c"
-	_, err := r.updateAdminWorkloadByJob(context.Background(), cs, hydrated,
-		&resourceMessage{name: "o", namespace: "ns", dispatchCount: run.eventDispatch,
-			gvk: schema.GroupVersionKind{Kind: "Sandbox"}})
+	message := &resourceMessage{name: "o", namespace: "ns", dispatchCount: run.eventDispatch,
+		gvk: schema.GroupVersionKind{Kind: "Sandbox"}}
+	if run.deleted {
+		message.action = ResourceDel
+	}
+	_, err := r.updateAdminWorkloadByJob(context.Background(), cs, hydrated, message)
 	lastObjectSucceededErr = err
 	if !errors.Is(err, errSuccessVerdictPending) {
 		assert.NilError(t, err)
@@ -373,13 +379,13 @@ func TestSuccessVerdictWaitIsBounded(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u1"}}
 	expired := successVerdictWait{uid: "u1", dispatch: 1, since: time.Now().Add(-past)}
 	r.successVerdictWaits.Store("w", expired)
-	assert.Equal(t, r.awaitSuccessVerdict(w, 2), true)
-	assert.Equal(t, r.awaitSuccessVerdict(w, 2), true)
+	assert.Equal(t, r.awaitSuccessVerdict(w, 2, &jobutils.K8sObjectStatus{}), true)
+	assert.Equal(t, r.awaitSuccessVerdict(w, 2, &jobutils.K8sObjectStatus{}), true)
 	// As does one begun for a workload of the same name since deleted.
 	r.successVerdictWaits.Store("w", expired)
 	recreated := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u2"}}
-	assert.Equal(t, r.awaitSuccessVerdict(recreated, 1), true)
-	assert.Equal(t, r.awaitSuccessVerdict(recreated, 1), true)
+	assert.Equal(t, r.awaitSuccessVerdict(recreated, 1, &jobutils.K8sObjectStatus{}), true)
+	assert.Equal(t, r.awaitSuccessVerdict(recreated, 1, &jobutils.K8sObjectStatus{}), true)
 
 	// A pod cache that cannot answer re-arms the vanished-pod check, not the
 	// wait, which would then never end.
@@ -615,4 +621,32 @@ func TestPendingSuccessVerdictRequeuesTheEvent(t *testing.T) {
 	assert.Equal(t, result.RequeueAfter, successVerdictRetry)
 	assert.Equal(t, rescheduled, false)
 	assert.Equal(t, reconciled, false)
+}
+
+// An object deleted while its success waits to be judged has still ended in
+// that success: the success is judged, and the deletion neither stops the
+// workload nor has it scheduled again.
+func TestObjectDeletedWhileSuccessWaits(t *testing.T) {
+	waited := 10 * time.Second
+	assertDisruptedFailed(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, deleted: true, waited: &waited,
+		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}}))
+	assertSucceeded(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, deleted: true, waited: &waited,
+		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded)}}))
+	// Still not known: the success keeps waiting.
+	assertPending(t, runObjectSucceededWith(t, objectSucceededRun{replicas: 1, deleted: true, waited: &waited,
+		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodRunning)}}))
+	// With no success waiting, a deletion stops the workload as before.
+	w := runObjectSucceededWith(t, objectSucceededRun{replicas: 1, deleted: true,
+		cached: []*unstructured.Unstructured{cachedPod(t, "p1", corev1.PodSucceeded, evictionCondition())}})
+	assert.Equal(t, w.Status.Phase, v1.WorkloadStopped)
+	// Nor is a success that waited for another dispatch, or another workload of
+	// the same name, judged.
+	r := &SyncerReconciler{}
+	r.successVerdictWaits.Store("w", successVerdictWait{uid: "u1", dispatch: 1, since: time.Now()})
+	_, ok := r.waitingSuccess(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u1"}}, 2)
+	assert.Equal(t, ok, false)
+	_, ok = r.waitingSuccess(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u2"}}, 1)
+	assert.Equal(t, ok, false)
+	_, ok = r.waitingSuccess(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", UID: "u1"}}, 1)
+	assert.Equal(t, ok, true)
 }

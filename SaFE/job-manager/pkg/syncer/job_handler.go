@@ -371,11 +371,18 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 	// Whether the object's success is left unapplied, to be read again.
 	pending := false
 	phaseMessage := message
+	if statusErr == nil && status.Phase == string(v1.K8sDeleted) {
+		if reported, ok := r.waitingSuccess(adminWorkload, dispatchCount); ok {
+			klog.Infof("workload %s: k8s object %s was deleted while its success waited to be judged; "+
+				"judging that success", adminWorkload.Name, message.name)
+			status = reported
+		}
+	}
 	if statusErr == nil && status.Phase == string(v1.K8sSucceeded) {
 		pod, disruption, known := r.disruptedSuccess(ctx, clientSets, adminWorkload)
 		switch {
 		case known:
-		case r.awaitSuccessVerdict(adminWorkload, dispatchCount):
+		case r.awaitSuccessVerdict(adminWorkload, dispatchCount, status):
 			pending = true
 		default:
 			klog.Infof("workload %s: k8s object reports success, and after %s the pod cache and "+
