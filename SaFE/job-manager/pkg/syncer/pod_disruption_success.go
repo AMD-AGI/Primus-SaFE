@@ -41,11 +41,11 @@ import (
 // counted as success: the one pod in the cache that has not failed, or, when
 // the cache holds none, the attempt whose record shows it started last and
 // ended other than Failed (see lastEndedAttempt). A failed pod was not what
-// the object counted as success; with more pods in the cache the success
-// cannot be tied to the disrupted one. A
-// TorchFT or MonarchJob workload is never read: it runs several objects, and a
-// mesh pod carries the workload label only after its first sync, so the cache
-// cannot be asked for its pods.
+// the object counted as success; while the cache holds more pods the success
+// is not tied to one, and waits. A TorchFT or MonarchJob workload is never
+// read: it runs several objects, and a mesh pod carries the workload label
+// only after its first sync, so the cache cannot be asked for its pods. Nor
+// is a RayJob: its success is its submitter's, not its head pod's.
 //
 // The pod's current object in the informer cache decides, once the API server
 // holds no other pod of the dispatch (see cacheHoldsLivePods).
@@ -64,21 +64,22 @@ import (
 // ended.
 //
 // A cache that cannot answer (no informer yet, not synced, a failed list, only
-// pods of an earlier dispatch) is never read as "the pod is gone": the record
-// would then decide for a pod that may still be in the cluster, as after a
-// restart, when the object's informer replays its success before the pod
-// informer has synced.
+// pods of an earlier dispatch) is not read as "the pod is gone" on its own: the
+// record would then decide for a pod that may still be in the cluster, as
+// after a restart, when the object's informer replays its success before the
+// pod informer has synced. The API server is asked instead, and the records
+// decide only when it holds no pod of the dispatch.
 func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *ClusterClientSets,
 	adminWorkload *v1.Workload) (pod, disruption string, known bool) {
 	if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICD(adminWorkload) ||
 		commonworkload.IsTorchFT(adminWorkload) || commonworkload.IsMonarchJob(adminWorkload) ||
-		commonworkload.GetTotalReplica(adminWorkload) != 1 {
+		commonworkload.IsRayJob(adminWorkload) || commonworkload.GetTotalReplica(adminWorkload) != 1 {
 		return "", "", true
 	}
-	cached, ok := r.cachedWorkloadPods(ctx, clientSets, adminWorkload)
-	if !ok {
-		return "", "", false
-	}
+	// A cache that cannot answer is taken as holding no pod of the dispatch:
+	// the API server is then asked (see cacheHoldsLivePods), and only when it
+	// holds none either are the records read.
+	cached, _ := r.cachedWorkloadPods(ctx, clientSets, adminWorkload)
 	// The attempt the object counted as success. A pod that ended Failed was
 	// not: one replica's earlier attempt, retried by its controller under
 	// another name (a Job does), leaves the attempt that succeeded to decide.
@@ -104,8 +105,9 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 	case 1:
 		record = recordOf(adminWorkload, candidates[0].GetName())
 	default:
-		// More than one pod: the success cannot be tied to the disrupted one.
-		return "", "", true
+		// More than one pod, as an attempt still terminating beside its
+		// replacement: the success is not tied to either until one is gone.
+		return "", "", false
 	}
 	if !r.cacheHoldsLivePods(ctx, clientSets, adminWorkload, candidates) {
 		return "", "", false
