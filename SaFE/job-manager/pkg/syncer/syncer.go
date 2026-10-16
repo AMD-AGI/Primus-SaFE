@@ -44,6 +44,10 @@ type SyncerReconciler struct {
 	// already reconciled against the informer cache, and drops each one once its
 	// workload ends. See reconcileVanishedPods.
 	vanishedPodsChecked sync.Map
+	// successVerdictWaits holds the workloads whose object's success waits for
+	// the pod cache to tell whether a disruption caused it, see
+	// awaitSuccessVerdict.
+	successVerdictWaits sync.Map
 	podStatusLocks      [256]sync.Mutex
 	*controller.KeyedController[*resourceMessage]
 }

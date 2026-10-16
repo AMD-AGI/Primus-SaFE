@@ -79,6 +79,7 @@ func (r *SyncerReconciler) handlePod(ctx context.Context,
 			if disruption := disruptionTargetOf(obj); disruption != "" {
 				message.disruption = disruption
 			}
+			message.phase = podPhaseOf(obj)
 		}
 		if err = r.removeWorkloadPod(ctx, clusterClientSets, message); err != nil {
 			return ctrlruntime.Result{}, err
@@ -503,13 +504,22 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 		Rank:          getMainContainerRank(mainContainerName, pod),
 		GroupId:       int8(groupId),
 	}
-	if pod.Status.StartTime != nil && !pod.Status.StartTime.IsZero() {
-		workloadPod.StartTime = timeutil.FormatRFC3339(pod.Status.StartTime.Time)
-	}
+	workloadPod.StartTime = podStartTime(pod)
 	buildPodTerminatedInfo(ctx, clientSets.dataClientFactory.ClientSet(),
 		adminWorkload, pod, &workloadPod, mainContainerName)
 
 	return workloadPod
+}
+
+// podStartTime is the pod's start time as a pod record holds it, "" when unset.
+// A pod keeps the start time it was given, so a record whose start time differs
+// describes another pod of the same name; one whose start time is the same, in
+// whole seconds, may too, and only its pod uid tells.
+func podStartTime(pod *corev1.Pod) string {
+	if pod.Status.StartTime == nil || pod.Status.StartTime.IsZero() {
+		return ""
+	}
+	return timeutil.FormatRFC3339(pod.Status.StartTime.Time)
 }
 
 // updateCICDScalingRunnerSetPhase updates the workload phase for CICD scaling runner sets
@@ -616,7 +626,15 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, clientSets *Cl
 	if id >= 0 && !commonworkload.IsApplication(adminWorkload) && !commonworkload.IsCICD(adminWorkload) {
 		// Record why the platform took the pod away before the entry is marked
 		// gone; kinds that drop the entry keep no per-pod history to record it in.
-		noted = appendPodDisruption(&adminWorkload.Status.Pods[id], message.disruption)
+		// A pod seen to succeed before any disruption was not taken by one set
+		// later, as on a completed pod (see seenSucceededClean).
+		if p := &adminWorkload.Status.Pods[id]; p.Phase != corev1.PodSucceeded ||
+			strings.Contains(p.FailedMessage, disruptionTargetPrefix) {
+			noted = appendPodDisruption(p, message.disruption)
+		}
+	}
+	if id >= 0 && markPodEnded(adminWorkload, id, message.phase) {
+		noted = true
 	}
 	if id < 0 || (!r.applyPodGone(adminWorkload, id) && !noted) {
 		// A prior attempt may have written the DB (Stopped or dropped the row)
@@ -777,6 +795,31 @@ func (r *SyncerReconciler) applyPodGone(adminWorkload *v1.Workload, id int) bool
 	return true
 }
 
+// markPodEnded records a deleted pod seen to have ended Succeeded as it ended,
+// rather than Stopped, and reports whether the record changed. A pod evicted
+// is deleted before its containers exit: one that exited 0 on the SIGTERM ends
+// Succeeded while being deleted, and a controller may have counted that
+// success (see lastEndedAttempts). The deletion is seen first, while the pod
+// still runs, and stops the record; the pod's end is seen on a later event of
+// the same deletion. Kinds that drop the record, and records that ended
+// Succeeded or Failed, are left as they are.
+func markPodEnded(adminWorkload *v1.Workload, id int, phase corev1.PodPhase) bool {
+	p := &adminWorkload.Status.Pods[id]
+	if phase != corev1.PodSucceeded || commonworkload.IsApplication(adminWorkload) ||
+		commonworkload.IsCICD(adminWorkload) ||
+		(v1.IsPodTerminated(p) && p.Phase != corev1.PodPhase(v1.WorkloadStopped)) {
+		return false
+	}
+	adminWorkload.Status.Pods[id].Phase = corev1.PodSucceeded
+	return true
+}
+
+// podPhaseOf returns the phase of an unstructured pod, "" when unset.
+func podPhaseOf(obj *unstructured.Unstructured) corev1.PodPhase {
+	phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase")
+	return corev1.PodPhase(phase)
+}
+
 // podResourceGVK identifies the pod informer whose cache says which pods exist.
 var podResourceGVK = schema.GroupVersionKind{Version: "v1", Kind: common.PodKind}
 
@@ -808,6 +851,7 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	// before this cleanup during the reconcile that first marks the workload failed.
 	if adminWorkload.IsEnd() {
 		r.forgetVanishedPodsCheck(adminWorkload.Name)
+		r.successVerdictWaits.Delete(adminWorkload.Name)
 		return nil
 	}
 	// Dispatch is a precondition rather than an assumption about the caller: its
@@ -843,6 +887,7 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	adminWorkload = fresh
 	if adminWorkload.IsEnd() {
 		r.forgetVanishedPodsCheck(adminWorkload.Name)
+		r.successVerdictWaits.Delete(adminWorkload.Name)
 		return nil
 	}
 
@@ -897,22 +942,44 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 // unsynced cache reports empty rather than reporting nothing.
 func (r *SyncerReconciler) livePodNames(ctx context.Context, clientSets *ClusterClientSets,
 	adminWorkload *v1.Workload) (map[string]struct{}, bool) {
-	if clientSets == nil {
+	objs, lister, ok := listCachedWorkloadPods(ctx, clientSets, adminWorkload)
+	if !ok {
 		return nil, false
+	}
+	live := make(map[string]struct{}, len(objs))
+	if !addPodNames(objs, live, adminWorkload.Name) {
+		return nil, false
+	}
+	// A mesh pod gets the workload label after its first successful sync. Pods not
+	// yet observed by this process still need ownership resolved from the mesh.
+	if commonworkload.IsMonarchJob(adminWorkload) &&
+		!r.addMeshPodNames(ctx, clientSets, lister, adminWorkload, live) {
+		return nil, false
+	}
+	return live, true
+}
+
+// listCachedWorkloadPods lists the workload's pods from the pod informer cache, and
+// reports whether the cache could answer. False means the answer is unknown: an
+// unsynced cache lists nothing rather than reporting that it cannot answer.
+func listCachedWorkloadPods(ctx context.Context, clientSets *ClusterClientSets,
+	adminWorkload *v1.Workload) ([]runtime.Object, cache.GenericLister, bool) {
+	if clientSets == nil {
+		return nil, nil, false
 	}
 
 	if clusterId := v1.GetClusterId(adminWorkload); clusterId != clientSets.name {
-		klog.Errorf("workload %s belongs to cluster %q, not %q: not comparing its pods",
+		klog.Errorf("workload %s belongs to cluster %q, not %q: not reading its pods",
 			adminWorkload.Name, clusterId, clientSets.name)
-		return nil, false
+		return nil, nil, false
 	}
 	informer, err := clientSets.GetResourceInformer(ctx, podResourceGVK)
 	if err != nil {
-		klog.V(2).Infof("no pod informer to reconcile workload %s against: %v", adminWorkload.Name, err)
-		return nil, false
+		klog.V(2).Infof("no pod informer to read the pods of workload %s from: %v", adminWorkload.Name, err)
+		return nil, nil, false
 	}
 	if !informer.Informer().HasSynced() {
-		return nil, false
+		return nil, nil, false
 	}
 	// Selected by the workload id label, and across all namespaces. Both are load
 	// bearing and easy to undo by accident:
@@ -931,19 +998,9 @@ func (r *SyncerReconciler) livePodNames(ctx context.Context, clientSets *Cluster
 		labels.SelectorFromSet(labels.Set{v1.WorkloadIdLabel: adminWorkload.Name}))
 	if err != nil {
 		klog.ErrorS(err, "failed to list pods from informer cache", "name", adminWorkload.Name)
-		return nil, false
+		return nil, nil, false
 	}
-	live := make(map[string]struct{}, len(objs))
-	if !addPodNames(objs, live, adminWorkload.Name) {
-		return nil, false
-	}
-	// A mesh pod gets the workload label after its first successful sync. Pods not
-	// yet observed by this process still need ownership resolved from the mesh.
-	if commonworkload.IsMonarchJob(adminWorkload) &&
-		!r.addMeshPodNames(ctx, clientSets, informer.Lister(), adminWorkload, live) {
-		return nil, false
-	}
-	return live, true
+	return objs, informer.Lister(), true
 }
 
 // addPodNames adds the names of the given cache objects to live, and reports whether
@@ -1246,7 +1303,7 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 	} else if pod.Status.Phase != corev1.PodSucceeded {
 		return
 	}
-	appendPodDisruption(workloadPod, podDisruptionTarget(pod.Status.Conditions))
+	appendPodDisruption(workloadPod, podDisruption(&pod.Status))
 
 	var finishedTime *metav1.Time
 	for i, container := range pod.Status.ContainerStatuses {
@@ -1286,8 +1343,9 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 // carries a pod's DisruptionTarget condition.
 const disruptionTargetPrefix = "DisruptionTarget: "
 
-// podDisruptionTarget returns the pod's DisruptionTarget condition, when it is
-// True, formatted by formatDisruptionTarget; otherwise "".
+// podDisruption returns the pod's DisruptionTarget condition, when it is True
+// and the pod had not ended before it, formatted by formatDisruptionTarget;
+// otherwise "".
 //
 // Kubernetes sets this condition on a pod that is about to be terminated
 // because of a disruption rather than its own exit: eviction by the taint
@@ -1295,38 +1353,86 @@ const disruptionTargetPrefix = "DisruptionTarget: "
 // (TerminationByKubelet), deletion by the pod garbage collector
 // (DeletionByPodGC), scheduler preemption (PreemptionByScheduler) or the
 // Eviction API (EvictionByEvictionAPI).
-func podDisruptionTarget(conditions []corev1.PodCondition) string {
-	for i := range conditions {
-		if conditions[i].Type == corev1.DisruptionTarget {
-			return formatDisruptionTarget(&conditions[i])
+//
+// The condition is set before the pod's containers are signalled, so a
+// disruption that ended the pod is never later than its containers' finish.
+// The taint manager and a drain also mark a pod that had already completed;
+// such a condition, set after every container had finished, did not end the
+// pod and is not returned. Both times have a resolution of one second, and
+// come from different clocks: the condition's from the control plane, a
+// container's finish from its node's kubelet. A condition set less than
+// disruptionClockSkew after a container finished is taken as the one that
+// ended it.
+func podDisruption(status *corev1.PodStatus) string {
+	for i := range status.Conditions {
+		c := &status.Conditions[i]
+		if c.Type != corev1.DisruptionTarget {
+			continue
 		}
+		if endedBefore(status.ContainerStatuses, c.LastTransitionTime) {
+			return ""
+		}
+		return formatDisruptionTarget(c)
 	}
 	return ""
 }
 
+// disruptionClockSkew is how much later than a container's recorded finish a
+// DisruptionTarget condition may be recorded and still be taken as the one
+// that ended the container. Each time is truncated to the second, and a
+// kubelet clock a fraction of a second behind the control plane's records the
+// SIGTERM exit a second before the condition that caused it.
+const disruptionClockSkew = time.Second
+
+// endedBefore reports whether every container had terminated before at, by
+// more than disruptionClockSkew. A container still running, or a time that is
+// unset, is not.
+func endedBefore(statuses []corev1.ContainerStatus, at metav1.Time) bool {
+	if at.IsZero() || len(statuses) == 0 {
+		return false
+	}
+	for i := range statuses {
+		terminated := statuses[i].State.Terminated
+		if terminated == nil || terminated.FinishedAt.IsZero() ||
+			!terminated.FinishedAt.Add(disruptionClockSkew).Before(at.Time) {
+			return false
+		}
+	}
+	return true
+}
+
 // disruptionTargetOf reads the DisruptionTarget condition from an unstructured
-// pod, see podDisruptionTarget.
+// pod, see podDisruption.
 func disruptionTargetOf(obj *unstructured.Unstructured) string {
 	if obj == nil {
 		return ""
 	}
-	items, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	var status corev1.PodStatus
+	status.Conditions = podStatusItems[corev1.PodCondition](obj, "conditions")
+	status.ContainerStatuses = podStatusItems[corev1.ContainerStatus](obj, "containerStatuses")
+	return podDisruption(&status)
+}
+
+// podStatusItems decodes the list at status.<field> of an unstructured pod,
+// skipping an item that does not decode.
+func podStatusItems[T any](obj *unstructured.Unstructured, field string) []T {
+	items, found, err := unstructured.NestedSlice(obj.Object, "status", field)
 	if err != nil || !found {
-		return ""
+		return nil
 	}
-	conditions := make([]corev1.PodCondition, 0, len(items))
+	out := make([]T, 0, len(items))
 	for _, item := range items {
 		m, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		var c corev1.PodCondition
-		if runtime.DefaultUnstructuredConverter.FromUnstructured(m, &c) != nil {
+		var v T
+		if runtime.DefaultUnstructuredConverter.FromUnstructured(m, &v) != nil {
 			continue
 		}
-		conditions = append(conditions, c)
+		out = append(out, v)
 	}
-	return podDisruptionTarget(conditions)
+	return out
 }
 
 // formatDisruptionTarget renders a True DisruptionTarget condition as
