@@ -1,0 +1,13 @@
+# Ceph user for the rbd StorageClass. ceph.sh waits for it to be Ready, then
+# copies its key into the storage-rbd Secret. The name is also set in ceph.sh,
+# and the pool in the caps must match the CephBlockPool in storageclass.yaml.
+apiVersion: ceph.rook.io/v1
+kind: CephClient
+metadata:
+  name: storage-rbd
+  namespace: rook-ceph
+spec:
+  caps:
+    mon: 'profile rbd'
+    osd: 'profile rbd pool=rbd'
+    mgr: 'profile rbd pool=rbd'

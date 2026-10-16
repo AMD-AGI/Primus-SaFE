@@ -43,8 +43,6 @@ then
   # Get the monitor endpoints from the Rook Ceph configmap
   MONITORS=$(echo $(kubectl get cm -n rook-ceph rook-ceph-mon-endpoints -o jsonpath='{.data.data}')| sed 's/[a-z0-9_-]\+=//g')
   MONITORS=$(echo $MONITORS | sed 's/\([^,]*\)/"\1"/g')
-  # Get the Ceph secret for the cluster
-  SECRET=$(kubectl get secret -n rook-ceph rook-ceph-mon -o jsonpath='{.data.ceph-secret}')
   # Prepare the CSI config JSON with the cluster ID and monitors
   sed -e "s/CLUSTERID/${CLUSTERID}/g" csi.template > temp
   sed -e "s/MONITORS/${MONITORS}/g" temp > ceph-csi.json
@@ -55,15 +53,54 @@ then
   sed -e "s/config.json: .*$/config.json: |/g"  ceph-csi-config.yaml > temp && mv temp ceph-csi-config.yaml
   # Replace the configmap in the cluster
   kubectl replace -f ceph-csi-config.yaml
-  # Update the storage class YAML with the cluster ID and secret
+  # Update the storage class YAML with the cluster ID
   sed -e "s/clusterID:.*$/clusterID: ${CLUSTERID}/g" storageclass.yaml > temp && mv temp storageclass.yaml
-  sed -e "s/userKey:.*$/userKey: ${SECRET}/g" storageclass.yaml > temp && mv temp storageclass.yaml
   # Delete and re-apply the storage class
-  kubectl delete sc storage-rbd
+  kubectl delete sc rbd --ignore-not-found
   kubectl apply -f storageclass.yaml
 fi
 # Clean up the temporary config file
 rm ceph-csi-config.yaml
+
+# Write the 'storage-rbd' Secret that the rbd StorageClass authenticates with.
+# By default it holds a dedicated Ceph user created through cephclient.yaml.
+# To use an existing user instead, export both CEPH_USER_ID (without the
+# 'client.' prefix) and CEPH_USER_KEY (the plain key from 'ceph auth get-key').
+if [ -n "${CEPH_USER_ID}" ] && [ -n "${CEPH_USER_KEY}" ]
+then
+  echo "Using Ceph user ${CEPH_USER_ID} from CEPH_USER_ID and CEPH_USER_KEY"
+elif [ -n "${CEPH_USER_ID}${CEPH_USER_KEY}" ]
+then
+  echo "Set both CEPH_USER_ID and CEPH_USER_KEY, or neither" >&2
+  exit 1
+else
+  CEPH_USER_ID=storage-rbd
+  kubectl apply -f cephclient.yaml || exit 1
+  for _ in $(seq 60)
+  do
+    phase=$(kubectl get cephclient -n rook-ceph "${CEPH_USER_ID}" -o jsonpath='{.status.phase}')
+    if [ "${phase}" == "Ready" ]
+    then
+      break
+    fi
+    sleep 5
+  done
+  if [ "${phase}" == "Ready" ]
+  then
+    # Rook stores the key under the client name. Decode it: kubectl encodes it again below.
+    KEY_SECRET=$(kubectl get cephclient -n rook-ceph "${CEPH_USER_ID}" -o jsonpath='{.status.info.secretName}')
+    CEPH_USER_KEY=$(kubectl get secret -n rook-ceph "${KEY_SECRET}" -o jsonpath="{.data.${CEPH_USER_ID}}" | base64 -d)
+  fi
+  if [ -z "${CEPH_USER_KEY}" ]
+  then
+    echo "No key for CephClient ${CEPH_USER_ID} (phase: ${phase:-unknown}); check the rook-ceph-operator logs" >&2
+    exit 1
+  fi
+fi
+# The key goes through a file descriptor so it never appears on a command line
+kubectl create secret generic storage-rbd --namespace default --type kubernetes.io/rbd \
+  --from-literal=userID="${CEPH_USER_ID}" --from-file=userKey=<(printf '%s' "${CEPH_USER_KEY}") \
+  --dry-run=client -o yaml | kubectl apply -f - || exit 1
 
 # Deploy the Ceph S3 object store user
 kubectl apply -f ceph-rgw.yaml
