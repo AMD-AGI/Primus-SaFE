@@ -1,0 +1,16 @@
+# Ansible inventory for harbor.sh. Copy it to hosts.yaml (gitignored) and list
+# every node that pulls from Harbor: harbor_ca_task.yaml installs the Harbor CA
+# on each of them and restarts containerd.
+all:
+  hosts:
+    node1:
+      ansible_host: 10.0.0.1
+    node2:
+      ansible_host: 10.0.0.2
+    node3:
+      ansible_host: 10.0.0.3
+  # Ansible connects as the user running harbor.sh, with the SSH key passed as
+  # its 4th argument. To connect as another non-root user, which needs
+  # passwordless sudo, uncomment:
+  # vars:
+  #   ansible_user: ubuntu

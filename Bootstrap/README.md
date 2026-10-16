@@ -23,9 +23,10 @@ SaFE-Bootstrap is an automation toolkit for deploying, configuring, and benchmar
 
 - **harbor/**  
   Scripts and configs for deploying a Harbor container registry with custom CA and integration with Higress.
-  - `harbor.sh`: Automates Harbor deployment, CA setup, and DNS integration.
+  - `harbor.sh`: Automates Harbor deployment, CA setup, and DNS integration, and creates the `primussafe`, `public` and `proxy` (Docker Hub pull-through cache) projects.
   - `values.yaml`: Harbor Helm values.
   - `harbor_ca_task.yaml`, `hosts_template`: Ansible and DNS templates.
+  - `hosts.yaml.example`: Sample Ansible inventory of the nodes that get the Harbor CA. Copy it to `hosts.yaml` (gitignored).
 
 - **benchmark/**  
   Tools and scripts for cluster performance benchmarking using kube-burner.
@@ -98,11 +99,30 @@ bash ceph.sh
 - Installs Rook-Ceph, configures CSI, and sets up storage classes and S3 object store.
 
 ### 4. Deploy Harbor Registry
+Before running `harbor.sh`:
+- The Higress gateway from step 2 must be Ready. `harbor.sh` waits for a ready `higress-gateway` replica and never times out.
+- Create `harbor/hosts.yaml` (gitignored): an Ansible inventory of every node that pulls from Harbor. `harbor.sh` installs the Harbor CA on these nodes and restarts containerd. Start from `harbor/hosts.yaml.example`.
+- Activate `kubespray-venv`, the virtualenv `bootstrap.sh` created, so `ansible-playbook` is on `PATH`.
+- Install `jq`, which `harbor.sh` uses to read Harbor API responses.
+
 ```bash
+source kubespray-venv/bin/activate
 cd harbor
-bash harbor.sh <HARBOR_ADMIN_PASSWORD> [HARBOR_DOMAIN] [SSH_KEY]
+cp hosts.yaml.example hosts.yaml   # then list your nodes
+bash harbor.sh <HARBOR_ADMIN_PASSWORD> [HARBOR_DOMAIN] [STORAGE_CLASS] [SSH_KEY]
 ```
-- Installs Harbor, sets up CA, integrates with Higress, and configures DNS.
+- `HARBOR_ADMIN_PASSWORD`: prompted for if omitted. Harbor only applies it on its first start.
+- `HARBOR_DOMAIN` (default `primus-safe.amd.com`): use `harbor.<cluster>.primus-safe.amd.com`, where `<cluster>` is the cluster name you give `SaFE/bootstrap/install.sh`. The installer only detects Harbor at that name, so `harbor.sh` warns about any other domain.
+- `STORAGE_CLASS` (default `rbd`): StorageClass for Harbor's volumes.
+- `SSH_KEY` (default `~/.ssh/id_ed25519`): private key Ansible uses to reach the nodes in `hosts.yaml`.
+- `harbor.sh` writes the domain, StorageClass and admin password into `values.yaml`; don't commit that file afterwards.
+
+What it sets up:
+- Harbor behind Higress, with a cert-manager CA that it installs on the nodes, and a NodeLocal DNS entry for the Harbor domain.
+- Public projects `primussafe` and `public`.
+- A `docker-hub` registry endpoint and a public proxy-cache project `proxy` on top of it. When `SaFE/bootstrap/install.sh` detects Harbor, it pulls addon charts and images through `harbor.<cluster>.primus-safe.amd.com/proxy`. For example, `busybox:1.36` is pulled as `harbor.<cluster>.primus-safe.amd.com/proxy/library/busybox:1.36`.
+  - The endpoint is anonymous, so Docker Hub's rate limit for anonymous pulls applies. To authenticate, export `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (a Docker Hub access token) before running `harbor.sh`. A re-run with them set updates an existing endpoint.
+  - Re-running `harbor.sh` keeps the existing endpoint and projects.
 
 ### 5. Run Benchmarks
 ```bash
