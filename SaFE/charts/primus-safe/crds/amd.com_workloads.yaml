@@ -668,6 +668,10 @@ scheduling). Terminated pods (Succeeded/Failed)
                     podId:
                       description: The podId
                       type: string
+                    podUid:
+                      description: The uid of the pod. A pod of the same name
+                        created later has another.
+                      type: string
                     rank:
                       description: The rank of pod, only for pytorch-job
                       type: string

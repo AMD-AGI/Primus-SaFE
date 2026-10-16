@@ -37,6 +37,7 @@ func WorkloadPodFromV1(workloadId, workloadUid string, dispatchCount int, p *v1.
 		EndTime:       dbutils.NullString(p.EndTime),
 		FailedMessage: dbutils.NullString(p.FailedMessage),
 		DispatchCount: dispatchCount,
+		PodUid:        dbutils.NullString(p.PodUid),
 	}
 	if len(p.Containers) > 0 {
 		if b, err := json.Marshal(p.Containers); err == nil {
@@ -52,6 +53,7 @@ func WorkloadPodFromV1(workloadId, workloadUid string, dispatchCount int, p *v1.
 func (p *WorkloadPod) ToV1() v1.WorkloadPod {
 	out := v1.WorkloadPod{
 		PodId:         p.PodId,
+		PodUid:        dbutils.ParseNullString(p.PodUid),
 		ResourceId:    int8(p.ResourceId),
 		AdminNodeName: dbutils.ParseNullString(p.AdminNodeName),
 		Phase:         corev1.PodPhase(dbutils.ParseNullString(p.Phase)),

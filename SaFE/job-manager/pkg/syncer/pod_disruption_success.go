@@ -134,10 +134,13 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 	default:
 		return "", "", false
 	}
-	if at := strings.Index(p.FailedMessage, disruptionTargetPrefix); at >= 0 {
-		return p.PodId, p.FailedMessage[at:], true
+	// Only the pod's own condition: one carried from an earlier pod of the same
+	// name says nothing about how this pod ended.
+	own := recordedDisruption(p)
+	if own == "" {
+		return "", "", true
 	}
-	return "", "", true
+	return p.PodId, own, true
 }
 
 // seenSucceededClean reports whether the record shows the pod ended Succeeded
@@ -146,11 +149,17 @@ func (r *SyncerReconciler) disruptedSuccess(ctx context.Context, clientSets *Clu
 // set before its containers are signalled, so a condition seen only later was
 // set after the pod had ended (as the taint manager or a drain does to a
 // completed pod), whatever its time says to the second. The record must
-// describe the pod: the same name and start time.
+// describe the pod: the same name, and the same uid, or, for a record or pod
+// with none, the same start time. A disruption the record carries from an
+// earlier pod of the same name is not the pod's.
 func seenSucceededClean(record *v1.WorkloadPod, pod *corev1.Pod) bool {
-	return record != nil && pod != nil && record.PodId == pod.Name &&
-		record.Phase == corev1.PodSucceeded && !strings.Contains(record.FailedMessage, disruptionTargetPrefix) &&
-		record.StartTime != "" && record.StartTime == podStartTime(pod)
+	if record == nil || pod == nil || record.PodId != pod.Name || !endedSucceededClean(record) {
+		return false
+	}
+	if record.PodUid != "" && pod.UID != "" {
+		return record.PodUid == string(pod.UID)
+	}
+	return record.StartTime != "" && record.StartTime == podStartTime(pod)
 }
 
 // lastEndedAttempts returns, when no pod is cached, the records of the
@@ -198,12 +207,11 @@ func lastEndedAttempts(adminWorkload *v1.Workload) (records []*v1.WorkloadPod, s
 }
 
 // recordedDisruption returns the DisruptionTarget a pod record holds as its
-// pod's own, "" when none.
+// pod's own, "" when none: one carried from an earlier pod of the same name is
+// not.
 func recordedDisruption(p *v1.WorkloadPod) string {
-	if at := strings.Index(p.FailedMessage, disruptionTargetPrefix); at >= 0 {
-		return p.FailedMessage[at:]
-	}
-	return ""
+	own, _ := podDisruptions(p.FailedMessage)
+	return own
 }
 
 // recordOf returns the workload's record of the named pod, nil when none.
@@ -351,9 +359,9 @@ func (r *SyncerReconciler) waitingSuccess(adminWorkload *v1.Workload, dispatch i
 //
 // The dispatch time is written in UTC. A record's start time carries no zone,
 // and is the pod's start time as this process's local clock reads it (see
-// buildWorkloadPodInfo), so it is parsed as local time. It holds whole
-// seconds, and a pod that started in the second it was dispatched in has
-// started after the dispatch.
+// podStartTime), so it is parsed as local time. It holds whole seconds, and a
+// pod that started in the second it was dispatched in has started after the
+// dispatch.
 func startedInCurrentDispatch(adminWorkload *v1.Workload, p *v1.WorkloadPod) bool {
 	dispatchedAt, err := timeutil.CvtStrToRFC3339Milli(
 		v1.GetAnnotation(adminWorkload, v1.WorkloadDispatchedAnnotation))

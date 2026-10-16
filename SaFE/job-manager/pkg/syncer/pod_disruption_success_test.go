@@ -389,6 +389,8 @@ func TestSameNamePodAfterWorkloadEndIsRecorded(t *testing.T) {
 		_, _, updated := r.updateWorkloadNodeAndPods(context.Background(), monkeyClientSets(), w, replacement, nil)
 		assert.Equal(t, updated, true, phase)
 		assert.Equal(t, w.Status.Pods[0].Phase, corev1.PodPending, phase)
+		// The record keeps the earlier pod's condition as the earlier one's.
+		assert.Equal(t, w.Status.Pods[0].FailedMessage, earlierPodPrefix+wantEviction(), phase)
 	}
 }
 

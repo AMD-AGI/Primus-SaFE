@@ -90,6 +90,10 @@ type resourceMessage struct {
 	// object (see formatDisruptionTarget). A delete event is the last chance to
 	// read it: once the pod is gone the informer cache no longer has it.
 	disruption string
+	// startTime is a pod's start time as a pod record holds it (see
+	// podStartTime), "" when unset: a delete tells by it whether the pod is
+	// later than the one a record of its name describes.
+	startTime string
 }
 
 // newClusterClientSets creates and initializes a new ClusterClientSets instance.
@@ -294,6 +298,7 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 	if msg.gvk.Kind == common.PodKind {
 		msg.phase = podPhaseOf(newUnstructured)
 		msg.disruption = disruptionTargetOf(newUnstructured)
+		msg.startTime = podStartTimeOf(newUnstructured)
 	}
 
 	switch msg.action {
