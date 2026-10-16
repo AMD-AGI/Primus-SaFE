@@ -282,7 +282,9 @@ func (h *Handler) cleanUpWorkloads(ctx context.Context, mainWorkload *v1.Workloa
 			}
 		}
 	}
-	if mainWorkload != nil {
+	// An empty UID means this request never created the object (e.g. AlreadyExists),
+	// so a same-name workload that already exists must be left untouched.
+	if mainWorkload != nil && mainWorkload.UID != "" {
 		if err := h.Delete(ctx, mainWorkload); err != nil && !apierrors.IsNotFound(err) {
 			klog.ErrorS(err, "failed to delete main workload", "workload", mainWorkload.Name)
 		}
