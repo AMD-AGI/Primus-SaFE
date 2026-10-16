@@ -19,7 +19,10 @@ spec:
     statusCheck:
       mirror: {}
   gateway:
-    hostNetwork: true
+    # Keep this explicit. Left unset, RGW inherits hostNetwork from
+    # cephcluster.yaml and takes host port 80, which the Higress gateway
+    # (Bootstrap/higress/values.yaml) also binds.
+    hostNetwork: false
     instances: 1
     port: 80
     priorityClassName: system-cluster-critical
