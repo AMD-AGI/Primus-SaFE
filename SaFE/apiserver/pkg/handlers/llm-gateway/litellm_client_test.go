@@ -103,7 +103,7 @@ func TestCreateKey_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
-	resp, err := client.CreateKey(context.Background(), "test@amd.com", "apim-key-value")
+	resp, err := client.CreateKey(context.Background(), "test@amd.com")
 
 	assert.NoError(t, err)
 	assert.Equal(t, testGeneratedKey, resp.Key)
@@ -111,8 +111,7 @@ func TestCreateKey_Success(t *testing.T) {
 	assert.Equal(t, "test@amd.com", received.UserID)
 	assert.Equal(t, "team-123", received.TeamID)
 	assert.Equal(t, "test@amd.com", received.KeyAlias)
-	assert.Equal(t, "apim-key-value", received.Metadata["apim_key"])
-	assert.Equal(t, "test@amd.com", received.Metadata["safe_user_id"])
+	assert.Equal(t, map[string]string{"safe_user_id": "test@amd.com"}, received.Metadata)
 }
 
 func TestCreateKey_LiteLLMError(t *testing.T) {
@@ -123,46 +122,11 @@ func TestCreateKey_LiteLLMError(t *testing.T) {
 	defer server.Close()
 
 	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
-	resp, err := client.CreateKey(context.Background(), "test@amd.com", "apim-key")
+	resp, err := client.CreateKey(context.Background(), "test@amd.com")
 
 	assert.Error(t, err)
 	assert.Nil(t, resp)
 	assert.Contains(t, err.Error(), "400")
-}
-
-// ── UpdateKeyMetadata tests ───────────────────────────────────────────────
-
-func TestUpdateKeyMetadata_Success(t *testing.T) {
-	var received UpdateKeyRequest
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/key/update", r.URL.Path)
-		json.NewDecoder(r.Body).Decode(&received)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{}`))
-	}))
-	defer server.Close()
-
-	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
-	err := client.UpdateKeyMetadata(context.Background(), "hash1234567890123456", "new-apim-key", "test@amd.com")
-
-	assert.NoError(t, err)
-	assert.Equal(t, "hash1234567890123456", received.Key)
-	assert.Equal(t, "new-apim-key", received.Metadata["apim_key"])
-	assert.Equal(t, "test@amd.com", received.Metadata["safe_user_id"])
-}
-
-func TestUpdateKeyMetadata_Error(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte(`{"error":"key not found"}`))
-	}))
-	defer server.Close()
-
-	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
-	err := client.UpdateKeyMetadata(context.Background(), "hash1234567890123456", "apim-key", "test@amd.com")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "404")
 }
 
 // ── DeleteKey tests ───────────────────────────────────────────────────────
