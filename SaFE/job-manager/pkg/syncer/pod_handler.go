@@ -187,17 +187,17 @@ func (r *SyncerReconciler) updateAdminWorkloadByPod(ctx context.Context, clientS
 		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
 		extraStatusFields = map[string]any{"phase": adminWorkload.Status.Phase}
 	}
-	// On the kube-scheduler path a Pending/Unschedulable pod means B should scale up;
-	// surface PodScheduled + recent Events on Status.Message and AdminScheduling for the
-	// timeline. Clear Status.Message once pods are scheduled; keep AdminScheduling text
-	// as the last wait reason so the timeline entry stays informative.
+	// On the kube-scheduler path a Pending/Unschedulable pod means B should scale up.
+	// Surface that wait on Status.Message. AdminScheduling is only the queue entry
+	// written before AdminScheduled. After dispatch the same wait is K8sNotReady or
+	// K8sRunning, and its reason is the current dispatch count.
 	if msg := externalWaitingMessage(ctx, clientSets, adminWorkload, pod); msg != "" {
 		if extraStatusFields == nil {
 			extraStatusFields = map[string]any{}
 		}
 		adminWorkload.Status.Message = msg
 		extraStatusFields["message"] = msg
-		if jobutils.SyncAdminSchedulingCondition(adminWorkload, msg) {
+		if syncExternalWaitCondition(adminWorkload, msg) {
 			extraStatusFields["conditions"] = adminWorkload.Status.Conditions
 		}
 	} else if shouldClearExternalScaleUpMessage(adminWorkload, pod) {
@@ -1918,6 +1918,33 @@ func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 }
 
 const externalWaitingScaleUpPrefix = "In queue - waiting for scale-up"
+
+// syncExternalWaitCondition records a kube-scheduler wait on the timeline.
+// AdminScheduling exists only before AdminScheduled. After dispatch the wait uses
+// the Kubernetes phase condition, and the reason is the current dispatch count.
+func syncExternalWaitCondition(workload *v1.Workload, message string) bool {
+	if workload == nil || workload.IsEnd() {
+		return false
+	}
+	if !v1.IsWorkloadScheduled(workload) {
+		return jobutils.SyncAdminSchedulingCondition(workload, message)
+	}
+	condType := string(v1.K8sNotReady)
+	if workload.Status.Phase == v1.WorkloadRunning {
+		condType = string(v1.K8sRunning)
+	}
+	count := v1.GetWorkloadDispatchCnt(workload)
+	if count < 1 {
+		count = 1
+	}
+	cond := jobutils.NewCondition(condType, message, commonworkload.GenerateDispatchReason(count))
+	current := jobutils.FindCondition(workload, cond)
+	if current != nil && current.Message == message && current.Status == metav1.ConditionTrue {
+		return false
+	}
+	updateWorkloadCondition(workload, cond)
+	return true
+}
 
 // externalWaitingMessage builds the UI wait reason from PodScheduled plus the newest
 // scheduling-related Event (TriggeredScaleUp / NotTriggerScaleUp / lease / pool / …).

@@ -145,6 +145,10 @@ spec:
                   port:
                     description: Liveness probe port
                     type: integer
+                  timeoutSeconds:
+                    description: Probe timeout. When unset, the Kubernetes default
+                      of 1s is used.
+                    type: integer
                 required:
                 - path
                 - port
@@ -173,6 +177,10 @@ spec:
                     type: integer
                   port:
                     description: Liveness probe port
+                    type: integer
+                  timeoutSeconds:
+                    description: Probe timeout. When unset, the Kubernetes default
+                      of 1s is used.
                     type: integer
                 required:
                 - path
@@ -512,16 +520,15 @@ spec:
                       the same idempotency key rather than a new one.
                     type: string
                   resolvedImageSources:
-                    description: |-
-                      ResolvedImageSources is unused; kept omitempty for compatibility
-                      with status from older job-manager builds.
+                    description: ResolvedImageSources is unused; kept omitempty for
+                      compatibility with older status.
                     items:
                       type: string
                     type: array
                   resolvedImages:
                     description: |-
-                      ResolvedImages is unused; Autopilot VK pins digests at bind. Kept
-                      omitempty for compatibility with status from older job-manager builds.
+                      ResolvedImages is unused: Autopilot VK pins digests at bind. Kept omitempty for
+                      compatibility with stored status from older job-manager builds.
                     items:
                       type: string
                     type: array

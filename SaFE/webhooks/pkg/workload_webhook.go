@@ -167,6 +167,8 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateDynamoDeployment(newWorkload)
 	case common.InferaDeploymentKind:
 		m.mutateInferaDeployment(newWorkload)
+	case common.AtomKind:
+		m.mutateAtom(newWorkload)
 	}
 	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
@@ -443,6 +445,25 @@ func (m *WorkloadMutator) mutateService(oldWorkload, workload *v1.Workload) {
 	}
 }
 
+// mutateAtom disables retry and defaults the router Service to port 8000.
+func (m *WorkloadMutator) mutateAtom(workload *v1.Workload) {
+	workload.Spec.IsSupervised = false
+	workload.Spec.MaxRetry = 0
+	workload.Spec.Dependencies = nil
+	if workload.Spec.Service == nil {
+		workload.Spec.Service = &v1.Service{
+			Protocol:    corev1.ProtocolTCP,
+			Port:        common.AtomRouterPort,
+			TargetPort:  common.AtomRouterPort,
+			ServiceType: corev1.ServiceTypeClusterIP,
+		}
+		return
+	}
+	if workload.Spec.Service.TargetPort == 0 {
+		workload.Spec.Service.TargetPort = common.AtomRouterPort
+	}
+}
+
 // mutateDeployment resets supervision and rollout defaults for Deployments.
 func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
@@ -584,6 +605,31 @@ func (m *WorkloadMutator) mutateInferaDeployment(workload *v1.Workload) {
 	if _, ok := workload.Spec.Env["NATS_SERVER"]; !ok {
 		workload.Spec.Env["NATS_SERVER"] = common.DynamoDefaultNatsURL
 	}
+}
+
+// validateAtom requires three roles in router, prefill, decode order.
+func (v *WorkloadValidator) validateAtom(workload *v1.Workload) error {
+	const roleCount = 3
+	if len(workload.Spec.Resources) != roleCount ||
+		len(workload.Spec.Images) != roleCount ||
+		len(workload.Spec.EntryPoints) != roleCount {
+		return fmt.Errorf("atom requires 3 resources, images and entryPoints in order router, prefill, decode")
+	}
+	for i := 0; i < roleCount; i++ {
+		if strings.TrimSpace(workload.Spec.Images[i]) == "" {
+			return fmt.Errorf("atom image at index %d is empty", i)
+		}
+		if strings.TrimSpace(workload.Spec.EntryPoints[i]) == "" {
+			return fmt.Errorf("atom entryPoint at index %d is empty", i)
+		}
+	}
+	if workload.Spec.Service != nil && workload.Spec.Service.TargetPort != common.AtomRouterPort {
+		return fmt.Errorf("atom router targetPort must be %d", common.AtomRouterPort)
+	}
+	if len(commonworkload.AtomRoleObjectName(workload.Name, common.AtomRolePrefill)) > commonutils.MaxAtomRoleNameLen {
+		return fmt.Errorf("atom workload name is too long")
+	}
+	return nil
 }
 
 // validateInferaDeployment enforces InferaDeployment invariants: legal role
@@ -1077,6 +1123,8 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		if err == nil {
 			err = validateInferaSharedReadinessPort(newWorkload, oldWorkload)
 		}
+	case common.AtomKind:
+		err = v.validateAtom(newWorkload)
 	}
 	if err != nil {
 		return err

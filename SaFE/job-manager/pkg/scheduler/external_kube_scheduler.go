@@ -54,14 +54,11 @@ var (
 )
 
 // admitExternalViaScheduler admits an external workload on the kube-scheduler path.
-// Single-replica workloads are admitted immediately so the dispatcher can create the Pod;
-// Unschedulable pods then trigger B scale-up. Gang workloads require a ProvisioningRequest
-// before the PyTorchJob is created (see ensureExternalProvisioning).
+// Kind and total replica count are not filtered. The dispatcher creates the objects
+// immediately, and unschedulable pods trigger scale-up. An RDMA PyTorch gang still
+// waits for a ProvisioningRequest before the Job is created (see ensureExternalProvisioning).
 func (r *SchedulerReconciler) admitExternalViaScheduler(ctx context.Context,
 	workload *v1.Workload, workspace *v1.Workspace) (bool, string, error) {
-	if err := validateExternalShapeForScheduler(workload); err != nil {
-		return false, ExternalUnsupportedReason, err
-	}
 	state, err := r.ensureExternalSchedulerState(ctx, workload)
 	if err != nil {
 		return false, "", err
@@ -568,19 +565,4 @@ func externalObjectKey(workload *v1.Workload) string {
 	}
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:8])
-}
-
-// validateExternalShapeForScheduler keeps the same shape gate the claim path used,
-// plus InferaDeployment: frontend/prefill/decode are heterogeneous roles, not an
-// RDMA gang. They admit immediately; unschedulable GPU pods trigger scale-up.
-func validateExternalShapeForScheduler(workload *v1.Workload) error {
-	if workload == nil {
-		return fmt.Errorf("nil workload")
-	}
-	if commonworkload.IsExternalRDMAGang(workload) ||
-		commonworkload.GetTotalReplica(workload) == 1 ||
-		commonworkload.IsInferaDeployment(workload) {
-		return nil
-	}
-	return fmt.Errorf("external kube-scheduler path supports one replica, an RDMA gang, or InferaDeployment")
 }

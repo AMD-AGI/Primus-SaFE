@@ -46,6 +46,7 @@ export enum WorkloadKind {
   Sandbox = 'Sandbox',
   DynamoDeployment = 'DynamoDeployment',
   InferaDeployment = 'InferaDeployment',
+  Atom = 'Atom',
 }
 // kind -> base path
 export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
@@ -62,6 +63,7 @@ export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
   [WorkloadKind.Sandbox]: '/sandbox-workload',
   [WorkloadKind.DynamoDeployment]: '/dynamo',
   [WorkloadKind.InferaDeployment]: '/infera',
+  [WorkloadKind.Atom]: '/atom',
 } as const
 
 export type PriorityValue = 0 | 1 | 2

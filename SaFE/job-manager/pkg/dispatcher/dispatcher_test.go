@@ -1845,6 +1845,95 @@ func TestGenerateMonarchClient(t *testing.T) {
 	assert.Equal(t, string(client.Spec.Kind), common.MonarchClient)
 }
 
+func TestGenerateAtomRoles(t *testing.T) {
+	r := newGenReconciler(t)
+	w := atomRootWorkload()
+	prefill := r.generateAtomRoleWorkload(context.Background(), w, common.AtomRolePrefill)
+	decode := r.generateAtomRoleWorkload(context.Background(), w, common.AtomRoleDecode)
+	router := r.generateAtomRoleWorkload(context.Background(), w, common.AtomRoleRouter)
+	assert.Equal(t, prefill.Name, "atom1-prefill")
+	assert.Equal(t, prefill.Spec.Resources[0].Replica, 2)
+	assert.Equal(t, prefill.Spec.Readiness.Path, common.AtomHealthPath)
+	assert.Equal(t, prefill.Spec.Readiness.Port, common.AtomPrefillPort)
+	assert.Equal(t, prefill.Spec.Env[common.AtomRoleEnv], common.AtomRolePrefill)
+	assert.Equal(t, prefill.Spec.Env[common.AtomPrefillEndpointEnv], "http://atom1-prefill.ws.svc.cluster.local:8010")
+	assert.Equal(t, commonworkload.GetK8sServiceName(prefill), "atom1-prefill")
+	assert.Equal(t, v1.GetRootWorkloadId(prefill), "atom1")
+	id, ok := v1.GetResourceId(prefill)
+	assert.Assert(t, ok)
+	assert.Equal(t, id, 1)
+	assert.Equal(t, decode.Spec.Resources[0].Replica, 3)
+	assert.Equal(t, decode.Spec.Readiness.Port, common.AtomDecodePort)
+	assert.Equal(t, router.Name, "atom1")
+	assert.Equal(t, router.Spec.Readiness.Path, common.AtomReadinessPath)
+	assert.Equal(t, router.Spec.Service.TargetPort, common.AtomRouterPort)
+	assert.Equal(t, router.Spec.Service.Port, 80)
+	assert.Equal(t, commonworkload.GetK8sServiceName(router), "atom-public")
+}
+
+func TestRenderAtomPrefill(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	w := atomRootWorkload()
+	w.Spec.Workspace = workspace.Name
+	configmap, err := parseConfigmap(TestDeploymentTemplateConfig)
+	assert.NilError(t, err)
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestDeploymentResourceTemplate, workspace).WithScheme(scheme).Build()
+	r := &DispatcherReconciler{Client: adminClient}
+	prefill := r.generateAtomRoleWorkload(context.Background(), w, common.AtomRolePrefill)
+	obj, err := r.generateK8sObject(context.Background(), prefill, nil)
+	assert.NilError(t, err)
+	deployment := &appsv1.Deployment{}
+	assert.NilError(t, unstructuredutils.ConvertUnstructuredToObject(obj, deployment))
+	assert.Equal(t, deployment.Name, "atom1-prefill")
+	assert.Equal(t, int(*deployment.Spec.Replicas), 2)
+	assert.Equal(t, deployment.Labels[v1.WorkloadIdLabel], "atom1")
+	podLabels := deployment.Spec.Template.Labels
+	assert.Equal(t, podLabels[v1.K8sObjectIdLabel], "atom1-prefill")
+	assert.Equal(t, deployment.Spec.Template.Annotations[v1.ResourceIdAnnotation], "1")
+	probe := deployment.Spec.Template.Spec.Containers[0].ReadinessProbe
+	assert.Assert(t, probe != nil && probe.HTTPGet != nil)
+	assert.Equal(t, probe.HTTPGet.Path, common.AtomHealthPath)
+	assert.Equal(t, int(probe.HTTPGet.Port.IntVal), common.AtomPrefillPort)
+	assert.Equal(t, int(probe.TimeoutSeconds), common.AtomProbeTimeoutSeconds)
+	foundRole := false
+	for _, env := range deployment.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == common.AtomRoleEnv && env.Value == common.AtomRolePrefill {
+			foundRole = true
+		}
+	}
+	assert.Assert(t, foundRole)
+}
+
+func atomRootWorkload() *v1.Workload {
+	res := func(replica int) v1.WorkloadResource {
+		return v1.WorkloadResource{Replica: replica, CPU: "1", Memory: "1Gi", EphemeralStorage: "1Gi"}
+	}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:   "atom1",
+		Labels: map[string]string{v1.ServiceNameLabel: "atom-public"},
+	}}
+	w.Spec.Workspace = "ws"
+	w.Spec.Kind = common.AtomKind
+	w.Spec.Version = common.DefaultVersion
+	w.Spec.Resources = []v1.WorkloadResource{res(1), res(2), res(3)}
+	w.Spec.Images = []string{"router:latest", "prefill:latest", "decode:latest"}
+	w.Spec.EntryPoints = []string{
+		stringutil.Base64Encode("atomesh"),
+		stringutil.Base64Encode("prefill"),
+		stringutil.Base64Encode("decode"),
+	}
+	w.Spec.Service = &v1.Service{
+		Name:        "atom-public",
+		Protocol:    corev1.ProtocolTCP,
+		Port:        80,
+		TargetPort:  common.AtomRouterPort,
+		ServiceType: corev1.ServiceTypeNodePort,
+	}
+	return w
+}
+
 func TestGenerateMonarchMesh(t *testing.T) {
 	r := newGenReconciler(t)
 	w := multiResourceWorkload()
@@ -1970,6 +2059,26 @@ func TestGenerateServicePorts(t *testing.T) {
 	assert.Equal(t, ports[0].Port, int32(8080))
 	assert.Equal(t, ports[0].TargetPort.IntVal, int32(9090))
 	assert.Equal(t, string(ports[0].Protocol), string(corev1.ProtocolTCP))
+}
+
+func TestAtomBootstrapServicePorts(t *testing.T) {
+	svc := &v1.Service{Protocol: corev1.ProtocolTCP, Port: common.AtomPrefillPort, TargetPort: common.AtomPrefillPort}
+	prefill := &v1.Workload{Spec: v1.WorkloadSpec{Env: map[string]string{common.AtomRoleEnv: common.AtomRolePrefill}}}
+	ports := servicePortsForWorkload(prefill, svc)
+	assert.Equal(t, len(ports), 2)
+	assert.Equal(t, ports[0].Name, "http")
+	assert.Equal(t, ports[1].Name, "bootstrap")
+	assert.Equal(t, ports[1].Port, int32(common.AtomPrefillBootstrapPort))
+	assert.Equal(t, ports[1].TargetPort.IntVal, int32(common.AtomPrefillBootstrapPort))
+
+	decode := prefill.DeepCopy()
+	decode.Spec.Env[common.AtomRoleEnv] = common.AtomRoleDecode
+	ports = servicePortsForWorkload(decode, svc)
+	assert.Equal(t, ports[1].Port, int32(common.AtomDecodeBootstrapPort))
+
+	router := prefill.DeepCopy()
+	router.Spec.Env[common.AtomRoleEnv] = common.AtomRoleRouter
+	assert.Equal(t, len(servicePortsForWorkload(router, svc)), 1)
 }
 
 func TestShouldDispatch(t *testing.T) {
@@ -2644,7 +2753,7 @@ func TestSyncSkipsExternalWorkload(t *testing.T) {
 	approved := w.Spec.Images[0] + "@sha256:" + strings.Repeat("a", 64)
 	replaceImage(obj.Object, w.Spec.Images[0], approved)
 	w.Status.ExternalExecution = &v1.WorkloadExternalExecution{
-		ClaimId:    "claim-1",
+		ClaimId: "claim-1",
 		Placements: []v1.WorkloadExternalPlacement{{UnitKey: v1.ExternalSingleUnitKey, NodeName: "vk-1",
 			ImageRef: approved, CPUMillis: 1000, MemoryBytes: 1 << 30}},
 	}

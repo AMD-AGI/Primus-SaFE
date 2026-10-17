@@ -137,6 +137,57 @@ func TestExportImageHandlePendingIsQueuedOnce(t *testing.T) {
 	assert.Zero(t, res.RequeueAfter)
 }
 
+func TestExportImageQueuedMarkerIsClearedWhenExportEnds(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1", UID: "uid-1", CreationTimestamp: metav1.Now()},
+		Spec:       v1.OpsJobSpec{Type: v1.OpsJobExportImageType, TimeoutSecond: 1800},
+		Status:     v1.OpsJobStatus{Phase: v1.OpsJobRunning, StartedAt: &metav1.Time{Time: time.Now()}},
+	}
+	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	r.Controller = commonctrl.NewController[string](nil, 1)
+
+	_, err := r.handle(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Len(t, r.queued, 1)
+
+	// The job has no workload, so the export fails and ends.
+	_, err = r.Do(context.Background(), "j1")
+	assert.NoError(t, err)
+	assert.Empty(t, r.queued)
+}
+
+func TestExportImageRecreatedJobIsQueuedAgain(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1", UID: "uid-1", CreationTimestamp: metav1.Now()},
+		Spec:       v1.OpsJobSpec{Type: v1.OpsJobExportImageType, TimeoutSecond: 1800},
+		Status:     v1.OpsJobStatus{Phase: v1.OpsJobRunning, StartedAt: &metav1.Time{Time: time.Now()}},
+	}
+	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	r.Controller = commonctrl.NewController[string](nil, 1)
+	assert.True(t, r.enqueueExport(job))
+
+	recreated := job.DeepCopy()
+	recreated.UID = "uid-2"
+	assert.True(t, r.enqueueExport(recreated))
+	assert.Equal(t, types.UID("uid-2"), r.queued["j1"])
+}
+
+func TestExportImageQueuedMarkerIsKeptWhileWaitingForASlot(t *testing.T) {
+	job := exportJob("j1", "wl1", "img:1")
+	job.UID = "uid-1"
+	v1.SetLabel(job, v1.UserIdLabel, "u1")
+	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	r.Controller = commonctrl.NewController[string](nil, 1)
+	assert.True(t, r.enqueueExport(job))
+	assert.True(t, r.claim("u1"))
+	defer r.release("u1")
+
+	res, err := r.Do(context.Background(), "j1")
+	assert.NoError(t, err)
+	assert.Equal(t, exportWaitRetry, res.RequeueAfter)
+	assert.Equal(t, types.UID("uid-1"), r.queued["j1"])
+}
+
 func TestExportImageDoNoWorkloadId(t *testing.T) {
 	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{Name: "j1"},
@@ -152,8 +203,11 @@ func TestExportImageDoNoWorkloadId(t *testing.T) {
 
 func TestExportImageDoJobNotFound(t *testing.T) {
 	r := &ExportImageJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
-	_, err := r.Do(context.Background(), "missing")
-	assert.Error(t, err)
+	r.queued = map[string]types.UID{"missing": "uid-1"}
+	res, err := r.Do(context.Background(), "missing")
+	assert.NoError(t, err)
+	assert.Zero(t, res)
+	assert.Empty(t, r.queued)
 }
 
 func TestExportImageDoMissingWorkloadId(t *testing.T) {

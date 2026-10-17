@@ -1200,7 +1200,7 @@ func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {
 	if healthz == nil {
 		return nil
 	}
-	return map[string]interface{}{
+	probe := map[string]interface{}{
 		"failureThreshold":    int64(healthz.FailureThreshold),
 		"initialDelaySeconds": int64(healthz.InitialDelaySeconds),
 		"periodSeconds":       int64(healthz.PeriodSeconds),
@@ -1209,6 +1209,10 @@ func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {
 			"port": int64(healthz.Port),
 		},
 	}
+	if healthz.TimeoutSeconds > 0 {
+		probe["timeoutSeconds"] = int64(healthz.TimeoutSeconds)
+	}
+	return probe
 }
 
 // buildVolumeMount creates a volume mount definition.
@@ -3139,7 +3143,7 @@ func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, resourceId int) error {
 	path := podSpecPath(adminWorkload, &resourceSpec, "hostNetwork")
 	if isExternalWorkload(adminWorkload) {
-		// External: RDMA gang, or Infera/Dynamo roles with RDMA (see externalHostNetworkEnabled).
+		// External: RDMA gang, or Infera/Dynamo/Atom engine roles with RDMA.
 		return jobutils.SetNestedField(obj.Object, externalHostNetworkEnabled(adminWorkload, resourceId), path)
 	}
 	return modifyHostNetwork(obj, adminWorkload, path, resourceId)
@@ -3492,6 +3496,7 @@ func stripExternalVolumeMountSubPaths(obj *unstructured.Unstructured, workload *
 // on the cluster hosting virtual nodes. In-cluster URLs keep their path/query; the host
 // is swapped to the public control-plane base. WORKLOAD_MANAGER_URL is left unchanged:
 // agent-sandbox runs on the execution cluster, so its Service DNS must stay local.
+// Atom prefill and decode endpoints stay on the execution-cluster Service as well.
 func applyExternalEnvRewrite(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
 	base := externalControlPlaneBaseURL()
@@ -3603,8 +3608,10 @@ func rewriteExternalContainerEnvs(obj *unstructured.Unstructured, workload *v1.W
 			if val == "" || !strings.Contains(val, ".svc.cluster.local") {
 				continue
 			}
-			// Sandbox talks to the workload manager in the execution cluster.
-			if name == "WORKLOAD_MANAGER_URL" {
+			// These endpoints address Services on the execution cluster.
+			if name == "WORKLOAD_MANAGER_URL" ||
+				name == common.AtomPrefillEndpointEnv ||
+				name == common.AtomDecodeEndpointEnv {
 				continue
 			}
 			env["value"] = rewriteClusterLocalURL(val, base)
