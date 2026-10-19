@@ -634,35 +634,67 @@ func (v *WorkloadValidator) validateAtom(workload *v1.Workload) error {
 }
 
 // validateAtomPorts checks listen and bootstrap ports supplied at create time.
+// Router stays on the pod network, so its port may match an engine port.
+// An engine cannot reuse one port for listen and bootstrap. Prefill and decode
+// share a host port space only when both request RDMA.
 func validateAtomPorts(workload *v1.Workload) error {
-	roles := []string{common.AtomRoleRouter, common.AtomRolePrefill, common.AtomRoleDecode}
 	serviceTarget := 0
 	if workload.Spec.Service != nil {
 		serviceTarget = workload.Spec.Service.TargetPort
 	}
-	seen := map[int]string{}
-	for i, role := range roles {
+	routerCommand := commonworkload.AtomCommand(workload, common.AtomRoleRouter)
+	if serviceTarget > 0 {
+		if flagged, ok := commonworkload.AtomEntrypointPort(routerCommand); ok && flagged != serviceTarget {
+			return fmt.Errorf("atom router targetPort %d does not match entrypoint --port %d", serviceTarget, flagged)
+		}
+	}
+	routerPort := commonworkload.AtomListenPort(serviceTarget, routerCommand, common.AtomRoleRouter)
+	if err := claimAtomPort(map[int]string{}, routerPort, "router port"); err != nil {
+		return err
+	}
+
+	type atomEnginePorts struct {
+		listen    int
+		bootstrap int
+		hostNet   bool
+	}
+	engines := map[string]atomEnginePorts{}
+	for _, role := range []string{common.AtomRolePrefill, common.AtomRoleDecode} {
 		command := commonworkload.AtomCommand(workload, role)
-		if role == common.AtomRoleRouter && serviceTarget > 0 {
-			if flagged, ok := commonworkload.AtomEntrypointPort(command); ok && flagged != serviceTarget {
-				return fmt.Errorf("atom router targetPort %d does not match entrypoint --port %d", serviceTarget, flagged)
-			}
-		}
-		listen := commonworkload.AtomListenPort(serviceTarget, command, role)
-		if err := claimAtomPort(seen, listen, role+" port"); err != nil {
+		listen := commonworkload.AtomListenPort(0, command, role)
+		bootstrap := commonworkload.AtomBootstrapPort(command, role)
+		if err := claimAtomPort(map[int]string{}, listen, role+" port"); err != nil {
 			return err
 		}
-		if role == common.AtomRoleRouter {
-			continue
-		}
-		if err := claimAtomPort(seen, commonworkload.AtomBootstrapPort(command, role), role+" bootstrap port"); err != nil {
+		if err := claimAtomPort(map[int]string{listen: role + " port"}, bootstrap, role+" bootstrap port"); err != nil {
 			return err
 		}
-		if i < len(workload.Spec.Resources) {
-			res := workload.Spec.Resources[i]
-			if res.RdmaResource != "" && res.RdmaResource != "0" && res.Replica > 1 {
+		hostNet := false
+		index := commonworkload.AtomRoleIndex(role)
+		if index >= 0 && index < len(workload.Spec.Resources) {
+			res := workload.Spec.Resources[index]
+			hostNet = commonworkload.HasRDMAResource(&res)
+			if hostNet && res.Replica > 1 {
 				return fmt.Errorf("atom %s replica must be 1 when rdmaResource is set", role)
 			}
+		}
+		engines[role] = atomEnginePorts{listen: listen, bootstrap: bootstrap, hostNet: hostNet}
+	}
+	prefill := engines[common.AtomRolePrefill]
+	decode := engines[common.AtomRoleDecode]
+	if prefill.hostNet && decode.hostNet {
+		seen := map[int]string{}
+		if err := claimAtomPort(seen, prefill.listen, "prefill port"); err != nil {
+			return err
+		}
+		if err := claimAtomPort(seen, prefill.bootstrap, "prefill bootstrap port"); err != nil {
+			return err
+		}
+		if err := claimAtomPort(seen, decode.listen, "decode port"); err != nil {
+			return err
+		}
+		if err := claimAtomPort(seen, decode.bootstrap, "decode bootstrap port"); err != nil {
+			return err
 		}
 	}
 	return nil
