@@ -6,7 +6,7 @@ set -euo pipefail
 
 engine="${1:-}"
 tag="${2:-}"
-sglang_base="docker.io/primussafe/sglang-rocm:20261013121117-8e371c"
+sglang_base="${SGLANG_BASE:-docker.io/primussafe/sglang-rocm:20261013121117-8e371c}"
 vllm_base="docker.io/vllm/vllm-openai-rocm:v0.29.0"
 
 case "${engine}" in

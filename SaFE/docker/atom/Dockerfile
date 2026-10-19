@@ -3,6 +3,7 @@
 
 # Packages ATOM source and atomesh on a published SGLang or vLLM ROCm image.
 # Select the base with ENGINE=sglang or ENGINE=vllm.
+# The SGLang base rebuilds Mooncake 01d1eb2a with chunked HIP dma-buf registration.
 # sshd listens on 2222. With no user command the container runs tail -f /dev/null.
 # /tmp/aiter_configs is emptied and mode 1777 so a non-root process can rewrite it.
 ARG ENGINE=sglang
@@ -41,6 +42,14 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --default-toolchain "${RUST_VERSION}" --profile minimal \
     && rustc --version && cargo --version
+
+COPY patch-mooncake.py /tmp/patch-mooncake.py
+COPY build-mooncake.sh /tmp/build-mooncake.sh
+# The vLLM base has no /sgl-workspace/Mooncake tree.
+RUN if [ "${ENGINE}" = "sglang" ]; then \
+        bash /tmp/build-mooncake.sh; \
+    fi \
+    && rm -f /tmp/patch-mooncake.py /tmp/build-mooncake.sh /tmp/mooncake-cmake.log
 
 RUN git clone --depth 1 --branch "${ATOM_REF}" "${ATOM_REPO}" /opt/ATOM \
     && cd /opt/ATOM \
