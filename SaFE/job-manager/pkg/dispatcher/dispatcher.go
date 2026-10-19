@@ -180,7 +180,7 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 		result, err = r.processTorchFTWorkload(ctx, workload)
 	case commonworkload.IsMonarchJob(workload):
 		result, err = r.processMonarchWorkload(ctx, workload)
-	case commonworkload.IsAtom(workload):
+	case commonworkload.IsAtom(workload), commonworkload.IsSGLangRouter(workload):
 		result, err = r.processAtomWorkload(ctx, workload)
 	default:
 		result, err = r.processWorkload(ctx, workload)
@@ -1195,7 +1195,8 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 // createIngress creates an Ingress in the same namespace that points to the same-named Service.
 func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload *v1.Workload,
 	clientSets *syncer.ClusterClientSets, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
-	if adminWorkload.Spec.Service == nil || commonconfig.GetIngress() != common.HigressClassname {
+	if adminWorkload.Spec.Service == nil || commonconfig.GetIngress() != common.HigressClassname ||
+		!publishesSGLangRouterIngress(adminWorkload) {
 		return ctrlruntime.Result{}, nil
 	}
 	k8sClientSet := clientSets.ClientFactory().ClientSet()
@@ -1277,8 +1278,8 @@ func (r *DispatcherReconciler) updateIngress(ctx context.Context, adminWorkload 
 	k8sClientSet := clientSets.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
 	name := adminWorkload.Name
-	// Delete when service is not desired
-	if adminWorkload.Spec.Service == nil {
+	// Delete when service is not desired. SGLangRouter engines stay off the public Ingress.
+	if adminWorkload.Spec.Service == nil || !publishesSGLangRouterIngress(adminWorkload) {
 		err := k8sClientSet.NetworkingV1().Ingresses(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
@@ -1484,6 +1485,12 @@ func (r *DispatcherReconciler) generateAtomRoleWorkload(ctx context.Context, roo
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[index]}
 	workload.Spec.Images = []string{rootWorkload.Spec.Images[index]}
 	workload.Spec.EntryPoints = []string{rootWorkload.Spec.EntryPoints[index]}
+	if commonworkload.IsSGLangRouter(rootWorkload) {
+		v1.SetLabel(workload, v1.WorkloadKindLabel, common.SGLangRouterKind)
+		if role == common.AtomRoleRouter {
+			workload.Spec.EntryPoints = []string{sglangRouterEntryPoint(rootWorkload)}
+		}
+	}
 	workload.Spec.Liveness = nil
 	workload.Spec.Readiness = &v1.HealthCheck{
 		Path:                atomReadinessPath(role),
@@ -1537,6 +1544,43 @@ func atomReadinessPath(role string) string {
 		return common.AtomReadinessPath
 	}
 	return common.AtomHealthPath
+}
+
+// publishesSGLangRouterIngress keeps SGLangRouter prefill and decode off the public Ingress.
+func publishesSGLangRouterIngress(workload *v1.Workload) bool {
+	if v1.GetLabel(workload, v1.WorkloadKindLabel) != common.SGLangRouterKind {
+		return true
+	}
+	role := ""
+	if workload.Spec.Env != nil {
+		role = workload.Spec.Env[common.AtomRoleEnv]
+	}
+	return role == "" || role == common.AtomRoleRouter
+}
+
+// sglangRouterEntryPoint substitutes the model-gateway prefill and decode URLs.
+func sglangRouterEntryPoint(root *v1.Workload) string {
+	index := commonworkload.AtomRoleIndex(common.AtomRoleRouter)
+	command := entryPointText(root.Spec.EntryPoints[index])
+	prefill := commonworkload.AtomServiceEndpoint(
+		commonworkload.AtomRoleObjectName(root.Name, common.AtomRolePrefill),
+		root.Spec.Workspace, common.AtomPrefillPort)
+	decode := commonworkload.AtomServiceEndpoint(
+		commonworkload.AtomRoleObjectName(root.Name, common.AtomRoleDecode),
+		root.Spec.Workspace, common.AtomDecodePort)
+	command = strings.ReplaceAll(command, common.SGLangRouterPrefillToken, prefill)
+	command = strings.ReplaceAll(command, common.SGLangRouterDecodeToken, decode)
+	return stringutil.Base64Encode(command)
+}
+
+// entryPointText returns the command text, decoding a base64 payload when present.
+func entryPointText(value string) string {
+	if stringutil.IsBase64(value) {
+		if decoded := stringutil.Base64Decode(value); decoded != "" {
+			return decoded
+		}
+	}
+	return value
 }
 
 // atomClusterService returns a ClusterIP Service for one Atom role.

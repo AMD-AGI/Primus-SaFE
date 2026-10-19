@@ -475,6 +475,7 @@ func TestGetScope(t *testing.T) {
 	assert.Equal(t, GetScope(wlKind(common.RayJobKind)), v1.RayScope)
 	assert.Equal(t, GetScope(wlKind(common.SandboxKind)), v1.SandboxScope)
 	assert.Equal(t, GetScope(wlKind(common.AtomKind)), v1.InferScope)
+	assert.Equal(t, GetScope(wlKind(common.SGLangRouterKind)), v1.InferScope)
 	assert.Equal(t, GetScope(wlKind("Unknown")), v1.WorkspaceScope(""))
 }
 
@@ -503,7 +504,10 @@ func TestKindPredicates(t *testing.T) {
 	assert.Assert(t, IsInferaDeployment(wlKind(common.InferaDeploymentKind)))
 	assert.Assert(t, IsAtom(wlKind(common.AtomKind)))
 	assert.Assert(t, !IsAtom(wlKind(common.DeploymentKind)))
+	assert.Assert(t, IsSGLangRouter(wlKind(common.SGLangRouterKind)))
+	assert.Assert(t, !IsSGLangRouter(wlKind(common.AtomKind)))
 	assert.Assert(t, IsApplication(wlKind(common.AtomKind)))
+	assert.Assert(t, IsApplication(wlKind(common.SGLangRouterKind)))
 	assert.Assert(t, IsMonarchJob(wlKind(common.MonarchJob)))
 	assert.Assert(t, !IsMonarchJob(wlKind(common.JobKind)))
 	assert.Assert(t, IsMonarchMesh(wlKind(common.MonarchMesh)))
@@ -521,6 +525,7 @@ func TestAtomRoleContract(t *testing.T) {
 	assert.Equal(t, AtomRoleIndex(common.AtomRolePrefill), 1)
 	assert.Equal(t, AtomServiceEndpoint("atom1-prefill", "ws", common.AtomPrefillPort),
 		"http://atom1-prefill.ws.svc.cluster.local:8010")
+	assert.DeepEqual(t, GetWorkloadGVK(wlKind(common.SGLangRouterKind)), []schema.GroupVersionKind{AtomDeploymentGVK()})
 }
 
 func TestIsOpsJob(t *testing.T) {

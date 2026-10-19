@@ -1934,6 +1934,30 @@ func atomRootWorkload() *v1.Workload {
 	return w
 }
 
+func TestGenerateSGLangRouter(t *testing.T) {
+	r := newGenReconciler(t)
+	w := atomRootWorkload()
+	w.Name = "sglang1"
+	w.Spec.Kind = common.SGLangRouterKind
+	v1.SetLabel(w, v1.WorkloadKindLabel, common.SGLangRouterKind)
+	w.Spec.EntryPoints = []string{
+		stringutil.Base64Encode("python3 -m sglang_router.launch_router --pd-disaggregation --prefill {prefill} --decode {decode} --host 0.0.0.0 --port 8000"),
+		stringutil.Base64Encode("python3 -m sglang.launch_server --disaggregation-mode prefill"),
+		stringutil.Base64Encode("python3 -m sglang.launch_server --disaggregation-mode decode"),
+	}
+	router := r.generateAtomRoleWorkload(context.Background(), w, common.AtomRoleRouter)
+	prefill := r.generateAtomRoleWorkload(context.Background(), w, common.AtomRolePrefill)
+	command := stringutil.Base64Decode(router.Spec.EntryPoints[0])
+	assert.Assert(t, strings.Contains(command, "sglang_router.launch_router"))
+	assert.Assert(t, strings.Contains(command, "http://sglang1-prefill.ws.svc.cluster.local:8010"))
+	assert.Assert(t, strings.Contains(command, "http://sglang1-decode.ws.svc.cluster.local:8020"))
+	assert.Assert(t, !strings.Contains(command, "atomesh"))
+	assert.Assert(t, !strings.Contains(command, "{prefill}"))
+	assert.Equal(t, v1.GetLabel(prefill, v1.WorkloadKindLabel), common.SGLangRouterKind)
+	assert.Assert(t, !publishesSGLangRouterIngress(prefill))
+	assert.Assert(t, publishesSGLangRouterIngress(router))
+}
+
 func TestGenerateMonarchMesh(t *testing.T) {
 	r := newGenReconciler(t)
 	w := multiResourceWorkload()

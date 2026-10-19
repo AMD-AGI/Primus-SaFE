@@ -169,6 +169,8 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateInferaDeployment(newWorkload)
 	case common.AtomKind:
 		m.mutateAtom(newWorkload)
+	case common.SGLangRouterKind:
+		m.mutateAtom(newWorkload)
 	}
 	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
@@ -609,27 +611,65 @@ func (m *WorkloadMutator) mutateInferaDeployment(workload *v1.Workload) {
 
 // validateAtom requires three roles in router, prefill, decode order.
 func (v *WorkloadValidator) validateAtom(workload *v1.Workload) error {
+	return validateDisaggregatedShape(workload, "atom")
+}
+
+// validateSGLangRouter requires the same three roles and an SGLang model-gateway router.
+func (v *WorkloadValidator) validateSGLangRouter(workload *v1.Workload) error {
+	if err := validateDisaggregatedShape(workload, "SGLangRouter"); err != nil {
+		return err
+	}
+	router := workloadEntryPoint(workload.Spec.EntryPoints[0])
+	if strings.Contains(strings.ToLower(router), "atomesh") {
+		return fmt.Errorf("SGLangRouter must not use atomesh")
+	}
+	if !strings.Contains(router, "sglang_router") {
+		return fmt.Errorf("SGLangRouter must launch sglang_router")
+	}
+	if !strings.Contains(router, common.SGLangRouterPrefillToken) || !strings.Contains(router, common.SGLangRouterDecodeToken) {
+		return fmt.Errorf("SGLangRouter entrypoint must contain {prefill} and {decode}")
+	}
+	for i := 1; i < len(workload.Spec.EntryPoints); i++ {
+		if strings.Contains(strings.ToLower(workloadEntryPoint(workload.Spec.EntryPoints[i])), "atomesh") {
+			return fmt.Errorf("SGLangRouter entryPoint at index %d must not use atomesh", i)
+		}
+	}
+	return nil
+}
+
+// validateDisaggregatedShape checks the shared router, prefill, decode contract.
+func validateDisaggregatedShape(workload *v1.Workload, kind string) error {
 	const roleCount = 3
 	if len(workload.Spec.Resources) != roleCount ||
 		len(workload.Spec.Images) != roleCount ||
 		len(workload.Spec.EntryPoints) != roleCount {
-		return fmt.Errorf("atom requires 3 resources, images and entryPoints in order router, prefill, decode")
+		return fmt.Errorf("%s requires 3 resources, images and entryPoints in order router, prefill, decode", kind)
 	}
 	for i := 0; i < roleCount; i++ {
 		if strings.TrimSpace(workload.Spec.Images[i]) == "" {
-			return fmt.Errorf("atom image at index %d is empty", i)
+			return fmt.Errorf("%s image at index %d is empty", kind, i)
 		}
 		if strings.TrimSpace(workload.Spec.EntryPoints[i]) == "" {
-			return fmt.Errorf("atom entryPoint at index %d is empty", i)
+			return fmt.Errorf("%s entryPoint at index %d is empty", kind, i)
 		}
 	}
 	if workload.Spec.Service != nil && workload.Spec.Service.TargetPort != common.AtomRouterPort {
-		return fmt.Errorf("atom router targetPort must be %d", common.AtomRouterPort)
+		return fmt.Errorf("%s router targetPort must be %d", kind, common.AtomRouterPort)
 	}
 	if len(commonworkload.AtomRoleObjectName(workload.Name, common.AtomRolePrefill)) > commonutils.MaxAtomRoleNameLen {
-		return fmt.Errorf("atom workload name is too long")
+		return fmt.Errorf("%s workload name is too long", kind)
 	}
 	return nil
+}
+
+// workloadEntryPoint returns the command text, decoding a base64 payload when present.
+func workloadEntryPoint(value string) string {
+	if stringutil.IsBase64(value) {
+		if decoded := stringutil.Base64Decode(value); decoded != "" {
+			return decoded
+		}
+	}
+	return value
 }
 
 // validateInferaDeployment enforces InferaDeployment invariants: legal role
@@ -1125,6 +1165,8 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		}
 	case common.AtomKind:
 		err = v.validateAtom(newWorkload)
+	case common.SGLangRouterKind:
+		err = v.validateSGLangRouter(newWorkload)
 	}
 	if err != nil {
 		return err

@@ -670,6 +670,29 @@ func TestValidateAtomNameLength(t *testing.T) {
 	assert.Assert(t, v.validateAtom(atomWorkloadNamed(okName+"b")) != nil)
 }
 
+// TestValidateSGLangRouter accepts the model gateway and rejects atomesh.
+func TestValidateSGLangRouter(t *testing.T) {
+	v := &WorkloadValidator{}
+	w := atomWorkloadNamed("sglang1")
+	w.Spec.Kind = common.SGLangRouterKind
+	w.Spec.EntryPoints = []string{
+		stringutil.Base64Encode("python3 -m sglang_router.launch_router --pd-disaggregation --prefill {prefill} --decode {decode} --port 8000"),
+		stringutil.Base64Encode("python3 -m sglang.launch_server --disaggregation-mode prefill"),
+		stringutil.Base64Encode("python3 -m sglang.launch_server --disaggregation-mode decode"),
+	}
+	assert.NilError(t, v.validateSGLangRouter(w))
+
+	w.Spec.EntryPoints[0] = stringutil.Base64Encode("atomesh launch --pd-disaggregation --prefill {prefill} --decode {decode}")
+	assert.Assert(t, v.validateSGLangRouter(w) != nil)
+
+	w.Spec.EntryPoints[0] = stringutil.Base64Encode("python3 -m sglang_router.launch_router --port 8000")
+	assert.Assert(t, v.validateSGLangRouter(w) != nil)
+
+	w.Spec.EntryPoints[0] = stringutil.Base64Encode("python3 -m sglang_router.launch_router --prefill {prefill} --decode {decode}")
+	w.Spec.EntryPoints[1] = stringutil.Base64Encode("atomesh")
+	assert.Assert(t, v.validateSGLangRouter(w) != nil)
+}
+
 func TestWorkloadValidateInferaDeployment(t *testing.T) {
 	v := &WorkloadValidator{}
 	assert.Assert(t, v.validateInferaDeployment(&v1.Workload{}) != nil)

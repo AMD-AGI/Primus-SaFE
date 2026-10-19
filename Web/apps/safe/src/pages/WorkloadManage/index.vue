@@ -401,6 +401,7 @@ const isTrainingLike = (kind: string) =>
 
 const hasResume = (kind: string) =>
   [WorkloadKind.Authoring, WorkloadKind.Deployment, WorkloadKind.StatefulSet, WorkloadKind.Atom,
+   WorkloadKind.SGLangRouter,
    WorkloadKind.AutoscalingRunnerSet, WorkloadKind.EphemeralRunner, WorkloadKind.UnifiedJob].includes(kind as WorkloadKind)
 
 const hasSSH = (kind: string) => kind === WorkloadKind.Authoring
@@ -430,6 +431,7 @@ const dialogImportMap: Record<string, () => Promise<any>> = {
   DynamoDeployment: () => import('@/pages/Dynamo/Components/AddDialog.vue'),
   InferaDeployment: () => import('@/pages/Infera/Components/AddDialog.vue'),
   Atom: () => import('@/pages/Atom/Components/AddDialog.vue'),
+  SGLangRouter: () => import('@/pages/SGLangRouter/Components/AddDialog.vue'),
   Deployment: () => import('@/pages/Infer/Components/AddDialog.vue'),
   StatefulSet: () => import('@/pages/Infer/Components/AddDialog.vue'),
   AutoscalingRunnerSet: () => import('@/pages/CICD/Components/AddDialog.vue'),
@@ -642,7 +644,7 @@ const isCicdKind = (kind: string) =>
   [WorkloadKind.AutoscalingRunnerSet, WorkloadKind.EphemeralRunner, WorkloadKind.UnifiedJob].includes(kind as WorkloadKind)
 
 const isInferKind = (kind: string) =>
-  [WorkloadKind.Deployment, WorkloadKind.StatefulSet, WorkloadKind.Atom].includes(kind as WorkloadKind)
+  [WorkloadKind.Deployment, WorkloadKind.StatefulSet, WorkloadKind.Atom, WorkloadKind.SGLangRouter].includes(kind as WorkloadKind)
 
 const getEditDisabled = (row: Row): boolean => {
   const kind = getRowKind(row)

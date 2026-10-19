@@ -379,7 +379,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
 	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind, common.MonarchJob:
 		return v1.TrainScope
-	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind, common.InferaDeploymentKind, common.AtomKind:
+	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind, common.InferaDeploymentKind, common.AtomKind, common.SGLangRouterKind:
 		return v1.InferScope
 	case common.AuthoringKind:
 		return v1.AuthoringScope
@@ -404,6 +404,7 @@ func IsApplication(w *v1.Workload) bool {
 		w.SpecKind() == common.DynamoDeploymentKind ||
 		w.SpecKind() == common.InferaDeploymentKind ||
 		w.SpecKind() == common.AtomKind ||
+		w.SpecKind() == common.SGLangRouterKind ||
 		w.SpecKind() == common.CICDGithubRunnerKind {
 		return true
 	}
@@ -572,6 +573,11 @@ func IsInferaDeployment(w *v1.Workload) bool {
 // IsAtom reports whether the workload serves through atomesh, prefill and decode.
 func IsAtom(w *v1.Workload) bool {
 	return w.SpecKind() == common.AtomKind
+}
+
+// IsSGLangRouter reports a prefill/decode cluster fronted by the SGLang model gateway.
+func IsSGLangRouter(w *v1.Workload) bool {
+	return w != nil && w.SpecKind() == common.SGLangRouterKind
 }
 
 // AtomDeploymentGVK is the Kubernetes object created for every Atom role.
@@ -909,7 +915,7 @@ func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
 			Group: "", Version: common.DefaultVersion, Kind: common.MonarchClient,
 		})
 		result = append(result, MonarchMeshWorkloadGVK())
-	} else if IsAtom(workload) {
+	} else if IsAtom(workload) || IsSGLangRouter(workload) {
 		result = append(result, AtomDeploymentGVK())
 	} else {
 		result = append(result, workload.ToSchemaGVK())

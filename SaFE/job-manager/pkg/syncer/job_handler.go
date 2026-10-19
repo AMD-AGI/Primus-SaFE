@@ -207,7 +207,7 @@ func (r *SyncerReconciler) getK8sObjectStatus(ctx context.Context, message *reso
 
 	var rt *v1.ResourceTemplate
 	if commonworkload.IsTorchFT(adminWorkload) || commonworkload.IsMonarchJob(adminWorkload) ||
-		commonworkload.IsAtom(adminWorkload) {
+		commonworkload.IsAtom(adminWorkload) || commonworkload.IsSGLangRouter(adminWorkload) {
 		// For TorchFT or MonarchJob workloads, the GVK of the K8s object is not the workload GVK, but we can retrieve it via the object's own GVK.
 		rt, err = commonworkload.GetResourceTemplateByGVK(ctx, r.Client, message.gvk)
 	} else {
@@ -357,7 +357,7 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 	}
 	var status *jobutils.K8sObjectStatus
 	var statusErr error
-	if commonworkload.IsAtom(originalWorkload) {
+	if commonworkload.IsAtom(originalWorkload) || commonworkload.IsSGLangRouter(originalWorkload) {
 		status, statusErr = r.aggregateAtomStatus(ctx, clientSets, originalWorkload)
 	} else {
 		status, statusErr = r.getK8sObjectStatus(ctx, message, clientSets, originalWorkload)

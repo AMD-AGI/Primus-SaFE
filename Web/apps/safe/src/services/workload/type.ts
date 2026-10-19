@@ -47,6 +47,7 @@ export enum WorkloadKind {
   DynamoDeployment = 'DynamoDeployment',
   InferaDeployment = 'InferaDeployment',
   Atom = 'Atom',
+  SGLangRouter = 'SGLangRouter',
 }
 // kind -> base path
 export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
@@ -64,6 +65,7 @@ export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
   [WorkloadKind.DynamoDeployment]: '/dynamo',
   [WorkloadKind.InferaDeployment]: '/infera',
   [WorkloadKind.Atom]: '/atom',
+  [WorkloadKind.SGLangRouter]: '/sglang-router',
 } as const
 
 export type PriorityValue = 0 | 1 | 2

@@ -43,9 +43,11 @@ const (
 	DynamoDeploymentKind    = "DynamoDeployment"
 	InferaDeploymentKind    = "InferaDeployment"
 	AtomKind                = "Atom"
-	ConfigmapKind           = "ConfigMap"
-	ClusterRoleKind         = "ClusterRole"
-	ServiceAccountKind      = "ServiceAccount"
+	// SGLangRouterKind is a prefill/decode cluster fronted by the SGLang model gateway.
+	SGLangRouterKind   = "SGLangRouter"
+	ConfigmapKind      = "ConfigMap"
+	ClusterRoleKind    = "ClusterRole"
+	ServiceAccountKind = "ServiceAccount"
 
 	GithubConfigUrl       = "GITHUB_CONFIG_URL"
 	RunnerLabels          = "RUNNER_LABELS"
@@ -112,8 +114,11 @@ const (
 	AtomServerPortEnv      = "ATOM_SERVER_PORT"
 	AtomPrefillEndpointEnv = "ATOM_PREFILL_ENDPOINT"
 	AtomDecodeEndpointEnv  = "ATOM_DECODE_ENDPOINT"
-	AtomHealthPath         = "/health"
-	AtomReadinessPath      = "/readiness"
+	// SGLangRouter router commands use these tokens. Dispatch replaces them with Service URLs.
+	SGLangRouterPrefillToken = "{prefill}"
+	SGLangRouterDecodeToken  = "{decode}"
+	AtomHealthPath           = "/health"
+	AtomReadinessPath        = "/readiness"
 
 	AtomProbeInitialDelaySeconds = 5
 	AtomProbePeriodSeconds       = 5

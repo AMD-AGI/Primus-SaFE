@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getWorkloadDetail, deleteWorkload, stopWorkload, addWorkload } from '@/services'
 import { ensureResumeCooldownElapsed } from '@/composables/useWorkloadResumePermission'
 import { buildAtomResumePayload } from '@/pages/Atom/atomPayload'
+import { buildSGLangRouterResumePayload } from '@/pages/SGLangRouter/sglangRouterPayload'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 export interface UseWorkloadDetailOptions {
@@ -218,6 +219,8 @@ export function useWorkloadDetail(options: UseWorkloadDetailOptions) {
         }
       } else if (kind === 'Atom') {
         payload = buildAtomResumePayload(detail, wsStore.currentWorkspaceId!, secrets)
+      } else if (kind === 'SGLangRouter') {
+        payload = buildSGLangRouterResumePayload(detail, wsStore.currentWorkspaceId!, secrets)
       } else if (kind === 'Deployment' || kind === 'StatefulSet') {
         // Infer - Deployment/StatefulSet
         const resources = detail.resources || [detail.resource]
