@@ -89,6 +89,7 @@ import {
   ATOM_ROLES,
   buildAtomResumePayload,
   buildAtomWorkloadBody,
+  mergeAtomResumeResources,
   initialAtomForm,
   type AtomResumeDetail,
   type AtomRole,
@@ -183,10 +184,7 @@ async function submit() {
         priority: body.priority,
         images: body.images,
         entryPoints: body.entryPoints,
-        resources: body.resources.map((item, index) => ({
-          ...(preservedResources[index] || {}),
-          ...item,
-        })),
+        resources: mergeAtomResumeResources(preservedResources, body.resources),
         service: body.service,
       })
     } else {

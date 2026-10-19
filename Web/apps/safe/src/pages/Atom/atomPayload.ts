@@ -135,6 +135,28 @@ export interface AtomResumeDetail {
   secrets?: { id: string }[]
 }
 
+/** Fields the Atom form can clear. Omitting them must not keep the previous value. */
+const clearableAtomResourceKeys = ['gpu', 'sharedMemory', 'gpuName', 'rdmaResource'] as const
+
+/**
+ * Overlay form resources onto a resumed workload.
+ * Empty GPU, shared memory, GPU name, and RDMA fields clear the previous values.
+ */
+export function mergeAtomResumeResources(
+  preserved: readonly object[],
+  formResources: readonly object[],
+) {
+  return formResources.map((item, index) => {
+    const previous: Record<string, unknown> = {
+      ...((preserved[index] as Record<string, unknown> | undefined) || {}),
+    }
+    for (const key of clearableAtomResourceKeys) {
+      delete previous[key]
+    }
+    return { ...previous, ...(item as Record<string, unknown>) }
+  })
+}
+
 /** Copy an Atom role resource, including GPU name and RDMA, for resume. */
 function atomResumeResource(item: Record<string, unknown>) {
   return {
