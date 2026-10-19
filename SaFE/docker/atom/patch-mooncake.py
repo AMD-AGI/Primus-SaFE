@@ -492,5 +492,19 @@ unreg_insert = unreg_anchor + r'''    std::vector<uint64_t> chunk_addrs;
 if unreg_anchor not in tt:
     raise SystemExit("unregister anchor missing")
 tt = tt.replace(unreg_anchor, unreg_insert, 1)
+
+# HIP and RDMA share one buffer list. A HIP entry has no RDMA lkeys, so
+# selecting it and indexing lkey[device_id] walks off the vector.
+buffer_loop = "        const auto &buffer = buffers[buffer_id];\n"
+protocol_skip = (
+    buffer_loop
+    + "#ifdef ENABLE_MULTI_PROTOCOL\n"
+    + "        // Skip entries registered by another protocol.\n"
+    + '        if (!buffer.protocol.empty() && buffer.protocol != "rdma") continue;\n'
+    + "#endif\n"
+)
+if tt.count(buffer_loop) != 2:
+    raise SystemExit("selectDevice buffer loops missing")
+tt = tt.replace(buffer_loop, protocol_skip)
 transport.write_text(tt)
 print("patched")
