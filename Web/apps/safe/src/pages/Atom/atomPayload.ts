@@ -142,10 +142,10 @@ const clearableAtomResourceKeys = ['gpu', 'sharedMemory', 'gpuName', 'rdmaResour
  * Overlay form resources onto a resumed workload.
  * Empty GPU, shared memory, GPU name, and RDMA fields clear the previous values.
  */
-export function mergeAtomResumeResources(
+export function mergeAtomResumeResources<T extends object>(
   preserved: readonly object[],
-  formResources: readonly object[],
-) {
+  formResources: readonly T[],
+): T[] {
   return formResources.map((item, index) => {
     const previous: Record<string, unknown> = {
       ...((preserved[index] as Record<string, unknown> | undefined) || {}),
@@ -153,7 +153,7 @@ export function mergeAtomResumeResources(
     for (const key of clearableAtomResourceKeys) {
       delete previous[key]
     }
-    return { ...previous, ...(item as Record<string, unknown>) }
+    return { ...previous, ...item } as T
   })
 }
 

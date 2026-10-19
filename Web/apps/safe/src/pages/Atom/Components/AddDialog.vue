@@ -180,6 +180,8 @@ async function submit() {
       const preservedResources = Array.isArray(preserved.resources) ? preserved.resources : []
       await resumeWorkload(props.wlid, {
         ...preserved,
+        displayName: form.displayName.trim() || preserved.displayName || '',
+        groupVersionKind: body.groupVersionKind,
         description: body.description,
         priority: body.priority,
         images: body.images,
