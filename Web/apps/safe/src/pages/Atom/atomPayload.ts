@@ -5,7 +5,7 @@ import { WorkloadKind } from '@/services/workload/type'
 export const ATOM_ROLES = ['router', 'prefill', 'decode'] as const
 export type AtomRole = (typeof ATOM_ROLES)[number]
 
-/** Router container port. The user Service targetPort must stay on this value. */
+/** Default router container port. */
 export const ATOM_ROUTER_TARGET_PORT = 8000
 
 export interface AtomRoleForm {
@@ -17,6 +17,8 @@ export interface AtomRoleForm {
   memory: string
   ephemeralStorage: string
   sharedMemory: string
+  gpuName: string
+  rdmaResource: string
 }
 
 export interface AtomFormModel {
@@ -24,6 +26,7 @@ export interface AtomFormModel {
   description: string
   priority: number
   servicePort: number
+  serviceTargetPort: number
   serviceType: string
   serviceName: string
   roles: Record<AtomRole, AtomRoleForm>
@@ -40,6 +43,8 @@ export function emptyAtomRole(): AtomRoleForm {
     memory: '4',
     ephemeralStorage: '20',
     sharedMemory: '',
+    gpuName: '',
+    rdmaResource: '',
   }
 }
 
@@ -50,6 +55,7 @@ export function initialAtomForm(): AtomFormModel {
     description: '',
     priority: 1,
     servicePort: ATOM_ROUTER_TARGET_PORT,
+    serviceTargetPort: ATOM_ROUTER_TARGET_PORT,
     serviceType: 'ClusterIP',
     serviceName: '',
     roles: {
@@ -66,15 +72,17 @@ function withGi(value: string): string {
   return /gi$/i.test(trimmed) ? trimmed : `${trimmed}Gi`
 }
 
-function roleResource(role: AtomRoleForm) {
-  const gpu = role.gpu.trim()
+function roleResource(form: AtomRoleForm) {
+  const gpu = form.gpu.trim()
   return {
-    replica: Number(role.replica) || 1,
-    cpu: String(role.cpu).trim(),
-    memory: withGi(role.memory),
-    ephemeralStorage: withGi(role.ephemeralStorage),
+    replica: Number(form.replica) || 1,
+    cpu: String(form.cpu).trim(),
+    memory: withGi(form.memory),
+    ephemeralStorage: withGi(form.ephemeralStorage),
     ...(gpu && gpu !== '0' ? { gpu } : {}),
-    ...(role.sharedMemory.trim() ? { sharedMemory: role.sharedMemory.trim() } : {}),
+    ...(form.sharedMemory.trim() ? { sharedMemory: form.sharedMemory.trim() } : {}),
+    ...(form.gpuName.trim() ? { gpuName: form.gpuName.trim() } : {}),
+    ...(form.rdmaResource.trim() ? { rdmaResource: form.rdmaResource.trim() } : {}),
   }
 }
 
@@ -98,7 +106,7 @@ export function buildAtomWorkloadBody(form: AtomFormModel) {
       ...(form.serviceName.trim() ? { name: form.serviceName.trim() } : {}),
       protocol: 'TCP',
       port: Number(form.servicePort) || ATOM_ROUTER_TARGET_PORT,
-      targetPort: ATOM_ROUTER_TARGET_PORT,
+      targetPort: Number(form.serviceTargetPort) || ATOM_ROUTER_TARGET_PORT,
       serviceType: form.serviceType || 'ClusterIP',
     },
   }
@@ -116,6 +124,7 @@ export interface AtomResumeDetail {
     name?: string
     protocol?: string
     port?: number
+    targetPort?: number
     serviceType?: string
   }
   timeout?: number
@@ -123,6 +132,7 @@ export interface AtomResumeDetail {
   customerLabels?: Record<string, string>
   workloadId?: string
   useWorkspaceStorage?: boolean
+  secrets?: { id: string }[]
 }
 
 /** Copy an Atom role resource, including GPU name and RDMA, for resume. */
@@ -155,7 +165,7 @@ export function buildAtomResumePayload(
           ...(detail.service.name ? { name: detail.service.name } : {}),
           protocol: detail.service.protocol || 'TCP',
           port: detail.service.port,
-          targetPort: ATOM_ROUTER_TARGET_PORT,
+          targetPort: detail.service.targetPort || ATOM_ROUTER_TARGET_PORT,
           serviceType: detail.service.serviceType || 'ClusterIP',
         },
       }

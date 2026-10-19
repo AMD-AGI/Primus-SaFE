@@ -642,6 +642,17 @@ func TestWorkloadMutateAndValidateAtom(t *testing.T) {
 	w.Spec.EntryPoints = []string{"r", "p", "d"}
 	assert.NilError(t, v.validateAtom(w))
 	w.Spec.Service.TargetPort = 9000
+	w.Spec.EntryPoints[0] = "python --port 8000"
+	assert.Assert(t, v.validateAtom(w) != nil)
+
+	w.Spec.Service.TargetPort = 18000
+	w.Spec.EntryPoints = []string{
+		"python --port 18000",
+		"python --port 18010 --disaggregation-bootstrap-port 18998",
+		"python --port 18020 --disaggregation-bootstrap-port 19098",
+	}
+	assert.NilError(t, v.validateAtom(w))
+	w.Spec.EntryPoints[2] = "python --port 18010 --disaggregation-bootstrap-port 19098"
 	assert.Assert(t, v.validateAtom(w) != nil)
 }
 

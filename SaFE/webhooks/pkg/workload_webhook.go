@@ -445,22 +445,23 @@ func (m *WorkloadMutator) mutateService(oldWorkload, workload *v1.Workload) {
 	}
 }
 
-// mutateAtom disables retry and defaults the router Service to port 8000.
+// mutateAtom disables retry and defaults the router Service to the router listen port.
 func (m *WorkloadMutator) mutateAtom(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
 	workload.Spec.Dependencies = nil
+	routerPort := commonworkload.AtomListenPort(0, commonworkload.AtomCommand(workload, common.AtomRoleRouter), common.AtomRoleRouter)
 	if workload.Spec.Service == nil {
 		workload.Spec.Service = &v1.Service{
 			Protocol:    corev1.ProtocolTCP,
-			Port:        common.AtomRouterPort,
-			TargetPort:  common.AtomRouterPort,
+			Port:        routerPort,
+			TargetPort:  routerPort,
 			ServiceType: corev1.ServiceTypeClusterIP,
 		}
 		return
 	}
 	if workload.Spec.Service.TargetPort == 0 {
-		workload.Spec.Service.TargetPort = common.AtomRouterPort
+		workload.Spec.Service.TargetPort = routerPort
 	}
 }
 
@@ -623,12 +624,59 @@ func (v *WorkloadValidator) validateAtom(workload *v1.Workload) error {
 			return fmt.Errorf("atom entryPoint at index %d is empty", i)
 		}
 	}
-	if workload.Spec.Service != nil && workload.Spec.Service.TargetPort != common.AtomRouterPort {
-		return fmt.Errorf("atom router targetPort must be %d", common.AtomRouterPort)
+	if err := validateAtomPorts(workload); err != nil {
+		return err
 	}
 	if len(commonworkload.AtomRoleObjectName(workload.Name, common.AtomRolePrefill)) > commonutils.MaxAtomRoleNameLen {
 		return fmt.Errorf("atom workload name is too long")
 	}
+	return nil
+}
+
+// validateAtomPorts checks listen and bootstrap ports supplied at create time.
+func validateAtomPorts(workload *v1.Workload) error {
+	roles := []string{common.AtomRoleRouter, common.AtomRolePrefill, common.AtomRoleDecode}
+	serviceTarget := 0
+	if workload.Spec.Service != nil {
+		serviceTarget = workload.Spec.Service.TargetPort
+	}
+	seen := map[int]string{}
+	for i, role := range roles {
+		command := commonworkload.AtomCommand(workload, role)
+		if role == common.AtomRoleRouter && serviceTarget > 0 {
+			if flagged, ok := commonworkload.AtomEntrypointPort(command); ok && flagged != serviceTarget {
+				return fmt.Errorf("atom router targetPort %d does not match entrypoint --port %d", serviceTarget, flagged)
+			}
+		}
+		listen := commonworkload.AtomListenPort(serviceTarget, command, role)
+		if err := claimAtomPort(seen, listen, role+" port"); err != nil {
+			return err
+		}
+		if role == common.AtomRoleRouter {
+			continue
+		}
+		if err := claimAtomPort(seen, commonworkload.AtomBootstrapPort(command, role), role+" bootstrap port"); err != nil {
+			return err
+		}
+		if i < len(workload.Spec.Resources) {
+			res := workload.Spec.Resources[i]
+			if res.RdmaResource != "" && res.RdmaResource != "0" && res.Replica > 1 {
+				return fmt.Errorf("atom %s replica must be 1 when rdmaResource is set", role)
+			}
+		}
+	}
+	return nil
+}
+
+// claimAtomPort records one Atom port and rejects values outside 1-65535 or duplicates.
+func claimAtomPort(seen map[int]string, port int, name string) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("atom %s %d is outside 1-65535", name, port)
+	}
+	if owner, ok := seen[port]; ok {
+		return fmt.Errorf("atom %s %d duplicates %s", name, port, owner)
+	}
+	seen[port] = name
 	return nil
 }
 
