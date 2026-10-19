@@ -26,11 +26,13 @@ cmake --install "${root}/build"
 rm -rf "${root}/build"
 
 so="$(/opt/venv/bin/python -c 'import mooncake.engine as engine; print(engine.__file__)')"
-strings "${so}" | grep -q "ibv_reg_dmabuf_mr"
-strings "${so}" | grep -q "Auto-splitting buffer"
-strings "${so}" | grep -q "MC_DISABLE_HIP"
-strings "${so}" | grep -q "MOONCAKE_DISABLE_HIP_DMABUF"
-if strings "${so}" | grep -q "shrink it to"; then
+# Search the binary directly. grep -q closes a pipe early, and pipefail then
+# treats the resulting SIGPIPE as failure.
+grep -aq "ibv_reg_dmabuf_mr" "${so}"
+grep -aq "Auto-splitting buffer" "${so}"
+grep -aq "MC_DISABLE_HIP" "${so}"
+grep -aq "MOONCAKE_DISABLE_HIP_DMABUF" "${so}"
+if grep -aq "shrink it to" "${so}"; then
     echo "installed engine.so still shrinks oversized buffers" >&2
     exit 1
 fi
