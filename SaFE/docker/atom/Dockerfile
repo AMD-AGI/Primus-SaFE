@@ -15,7 +15,8 @@ FROM ${BASE_IMAGE}
 
 ARG ENGINE=sglang
 ARG ATOM_REPO=https://github.com/ROCm/ATOM.git
-ARG ATOM_REF=main
+# Commit on ROCm/ATOM main. A branch name would move between image builds.
+ARG ATOM_REF=53e4fb52403707ab07b69ee909501ea3cc25ca5c
 ARG RUST_VERSION=1.94.0
 ARG ATOM_MESH_FEATURES=""
 
@@ -51,7 +52,10 @@ RUN if [ "${ENGINE}" = "sglang" ]; then \
     fi \
     && rm -f /tmp/patch-mooncake.py /tmp/build-mooncake.sh /tmp/mooncake-cmake.log
 
-RUN git clone --depth 1 --branch "${ATOM_REF}" "${ATOM_REPO}" /opt/ATOM \
+RUN git init /opt/ATOM \
+    && git -C /opt/ATOM remote add origin "${ATOM_REPO}" \
+    && git -C /opt/ATOM fetch --depth 1 origin "${ATOM_REF}" \
+    && git -C /opt/ATOM checkout --detach FETCH_HEAD \
     && cd /opt/ATOM \
     && ATOM_MESH_BUILD=1 ATOM_MESH_FEATURES="${ATOM_MESH_FEATURES}" \
         /usr/local/bin/atom-python -m pip install --no-cache-dir -e . --no-deps \
