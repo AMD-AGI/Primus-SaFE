@@ -39,7 +39,7 @@ describe('buildAtomResumePayload', () => {
         workloadId: 'atom-qwen3-14b-abcde',
         useWorkspaceStorage: true,
       },
-      'crusoe-spur-vk',
+      'workspace-a',
       [],
     )
 
