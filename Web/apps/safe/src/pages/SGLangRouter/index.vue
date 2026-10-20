@@ -259,7 +259,7 @@ type Action = {
 }
 
 /** Phases that still own live resources and can be stopped. */
-const STOPPABLE_PHASES = ['Running', 'Pending', 'NotReady']
+const STOPPABLE_PHASES = ['Running', 'Pending', 'NotReady', 'Updating']
 
 /** Inline Resume and Clone, with Stop and Delete under the more menu. */
 function getActions(_row: SGLangRouterRow): Action[] {
@@ -289,7 +289,7 @@ function getActions(_row: SGLangRouterRow): Action[] {
       disabled: (row) => !canWrite.value || !STOPPABLE_PHASES.includes(row.phase || ''),
       tooltip: (row) => {
         if (STOPPABLE_PHASES.includes(row.phase || '')) return 'Stop workload'
-        return 'Stop is only available for Running, Pending, or NotReady workloads'
+        return 'Stop is only available for Running, Pending, NotReady, or Updating workloads'
       },
       onClick: (row) => onStop(row),
     },

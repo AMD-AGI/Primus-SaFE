@@ -17,6 +17,8 @@ export interface SGLangRouterRoleForm {
   memory: string
   ephemeralStorage: string
   sharedMemory: string
+  gpuName: string
+  rdmaResource: string
 }
 
 export interface SGLangRouterFormModel {
@@ -25,6 +27,7 @@ export interface SGLangRouterFormModel {
   priority: number
   servicePort: number
   serviceType: string
+  serviceNodePort: number | null
   serviceName: string
   roles: Record<SGLangRouterRole, SGLangRouterRoleForm>
 }
@@ -50,6 +53,8 @@ export function emptySGLangRouterRole(entryPoint = ''): SGLangRouterRoleForm {
     memory: '4',
     ephemeralStorage: '20',
     sharedMemory: '',
+    gpuName: '',
+    rdmaResource: '',
   }
 }
 
@@ -61,6 +66,7 @@ export function initialSGLangRouterForm(): SGLangRouterFormModel {
     priority: 1,
     servicePort: SGLANG_ROUTER_TARGET_PORT,
     serviceType: 'ClusterIP',
+    serviceNodePort: null,
     serviceName: '',
     roles: {
       router: emptySGLangRouterRole(SGLANG_ROUTER_DEFAULT_ENTRY.router),
@@ -84,7 +90,9 @@ function roleResource(role: SGLangRouterRoleForm) {
     memory: withGi(role.memory),
     ephemeralStorage: withGi(role.ephemeralStorage),
     ...(gpu && gpu !== '0' ? { gpu } : {}),
-    ...(role.sharedMemory.trim() ? { sharedMemory: role.sharedMemory.trim() } : {}),
+    ...(role.sharedMemory.trim() ? { sharedMemory: withGi(role.sharedMemory) } : {}),
+    ...(role.gpuName.trim() ? { gpuName: role.gpuName.trim() } : {}),
+    ...(role.rdmaResource.trim() ? { rdmaResource: role.rdmaResource.trim() } : {}),
   }
 }
 
@@ -110,6 +118,9 @@ export function buildSGLangRouterWorkloadBody(form: SGLangRouterFormModel) {
       port: Number(form.servicePort) || SGLANG_ROUTER_TARGET_PORT,
       targetPort: SGLANG_ROUTER_TARGET_PORT,
       serviceType: form.serviceType || 'ClusterIP',
+      ...(form.serviceType === 'NodePort' && Number(form.serviceNodePort) > 0
+        ? { nodePort: Number(form.serviceNodePort) }
+        : {}),
     },
   }
 }

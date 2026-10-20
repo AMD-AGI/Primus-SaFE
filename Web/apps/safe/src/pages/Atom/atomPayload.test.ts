@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildAtomResumePayload } from './atomPayload'
+import { quantityToGi } from '@/utils'
+import { buildAtomResumePayload, buildAtomWorkloadBody, initialAtomForm } from './atomPayload'
 
 describe('buildAtomResumePayload', () => {
   it('keeps env, RDMA, GPU name, and customer labels', () => {
@@ -38,7 +39,7 @@ describe('buildAtomResumePayload', () => {
         workloadId: 'atom-qwen3-14b-abcde',
         useWorkspaceStorage: true,
       },
-      'crusoe-spur-vk',
+      'workspace-a',
       [],
     )
 
@@ -47,5 +48,38 @@ describe('buildAtomResumePayload', () => {
     expect(payload.resources[1]).toMatchObject({ gpuName: 'amd.com/gpu', rdmaResource: '1k' })
     expect(payload.resources[2]).toMatchObject({ gpuName: 'amd.com/gpu', rdmaResource: '1k' })
     expect(payload.resources[0]).not.toHaveProperty('rdmaResource')
+  })
+})
+
+describe('quantityToGi', () => {
+  it('converts Mi and Ti into Gi numbers', () => {
+    expect(quantityToGi('16Gi')).toBe('16')
+    expect(quantityToGi('4096Mi')).toBe('4')
+    expect(quantityToGi('1Ti')).toBe('1024')
+  })
+})
+
+describe('buildAtomWorkloadBody', () => {
+  it('sends gpu name, RDMA, shared memory, and a positive node port', () => {
+    const form = initialAtomForm()
+    form.displayName = 'atom'
+    form.serviceType = 'NodePort'
+    form.serviceNodePort = 32080
+    form.roles.prefill.gpu = '8'
+    form.roles.prefill.gpuName = 'amd.com/gpu'
+    form.roles.prefill.rdmaResource = '1k'
+    form.roles.prefill.memory = '4'
+    form.roles.prefill.sharedMemory = '64'
+
+    const body = buildAtomWorkloadBody(form)
+
+    expect(body.service).toMatchObject({ serviceType: 'NodePort', nodePort: 32080 })
+    expect(body.resources[1]).toMatchObject({
+      memory: '4Gi',
+      sharedMemory: '64Gi',
+      gpuName: 'amd.com/gpu',
+      rdmaResource: '1k',
+    })
+    expect(body.resources[0]).not.toHaveProperty('gpuName')
   })
 })

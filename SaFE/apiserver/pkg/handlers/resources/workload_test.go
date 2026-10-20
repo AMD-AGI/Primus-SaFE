@@ -1943,6 +1943,7 @@ func Test_buildSSHCommand(t *testing.T) {
 		workspace      string
 		pod            *v1.WorkloadPod
 		gvk            v1.GroupVersionKind
+		templateKind   string
 		mainContainer  string
 		expectedResult string
 	}{
@@ -1985,6 +1986,40 @@ func Test_buildSSHCommand(t *testing.T) {
 			gvk:            v1.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PyTorchJob"},
 			expectedResult: "ssh -o ServerAliveInterval=60 test-user.workload-abc123-master-0.pytorch.bash.test-workspace@ssh.example.com -p 2222",
 		},
+		{
+			name:          "Atom uses the Deployment template",
+			sshEnable:     "true",
+			subDomain:     "ssh",
+			domain:        "example.com",
+			sshPort:       "2222",
+			userId:        "test-user",
+			workspace:     "test-workspace",
+			mainContainer: "main",
+			templateKind:  common.DeploymentKind,
+			pod: &v1.WorkloadPod{
+				PodId: "atom-qwen-prefill-0",
+				Phase: corev1.PodRunning,
+			},
+			gvk:            v1.GroupVersionKind{Group: "amd.com", Version: "v1", Kind: common.AtomKind},
+			expectedResult: "ssh -o ServerAliveInterval=60 test-user.atom-qwen-prefill-0.main.bash.test-workspace@ssh.example.com -p 2222",
+		},
+		{
+			name:          "SGLangRouter uses the Deployment template",
+			sshEnable:     "true",
+			subDomain:     "ssh",
+			domain:        "example.com",
+			sshPort:       "2222",
+			userId:        "test-user",
+			workspace:     "test-workspace",
+			mainContainer: "main",
+			templateKind:  common.DeploymentKind,
+			pod: &v1.WorkloadPod{
+				PodId: "sglang-router-0",
+				Phase: corev1.PodRunning,
+			},
+			gvk:            v1.GroupVersionKind{Group: "amd.com", Version: "v1", Kind: common.SGLangRouterKind},
+			expectedResult: "ssh -o ServerAliveInterval=60 test-user.sglang-router-0.main.bash.test-workspace@ssh.example.com -p 2222",
+		},
 	}
 
 	for _, tt := range tests {
@@ -2002,13 +2037,17 @@ func Test_buildSSHCommand(t *testing.T) {
 			}()
 
 			// Create workload template ConfigMap
+			templateKind := tt.templateKind
+			if templateKind == "" {
+				templateKind = tt.gvk.Kind
+			}
 			templateCM := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "workload-template-pytorchjob",
+					Name:      "workload-template-" + strings.ToLower(templateKind),
 					Namespace: common.PrimusSafeNamespace,
 					Labels: map[string]string{
 						v1.WorkloadVersionLabel: tt.gvk.Version,
-						v1.WorkloadKindLabel:    tt.gvk.Kind,
+						v1.WorkloadKindLabel:    templateKind,
 					},
 					Annotations: map[string]string{
 						v1.MainContainerAnnotation: tt.mainContainer,

@@ -8,6 +8,7 @@
     direction="rtl"
     append-to-body
     @open="onOpen"
+    @update:model-value="(open: boolean) => emit('update:visible', open)"
   >
     <el-form ref="formRef" :model="form" label-width="140px" :rules="rules">
       <div class="section-title">Basic</div>
@@ -34,6 +35,9 @@
           <el-option label="NodePort" value="NodePort" />
         </el-select>
       </el-form-item>
+      <el-form-item v-if="form.serviceType === 'NodePort'" label="Node port" prop="serviceNodePort" :rules="nodePortRule">
+        <el-input-number v-model="form.serviceNodePort" :min="1" :max="65535" />
+      </el-form-item>
 
       <div v-for="role in SGLANG_ROUTER_ROLES" :key="role" class="role-card">
         <div class="section-title">{{ role }}</div>
@@ -59,8 +63,17 @@
         <el-form-item label="GPU">
           <el-input v-model="form.roles[role].gpu" placeholder="Empty for CPU" />
         </el-form-item>
+        <el-form-item label="GPU name">
+          <el-input v-model="form.roles[role].gpuName" placeholder="amd.com/gpu" />
+        </el-form-item>
+        <el-form-item label="RDMA">
+          <el-input v-model="form.roles[role].rdmaResource" placeholder="1k" />
+        </el-form-item>
         <el-form-item label="Memory (Gi)">
           <el-input v-model="form.roles[role].memory" />
+        </el-form-item>
+        <el-form-item label="Shared memory (Gi)">
+          <el-input v-model="form.roles[role].sharedMemory" />
         </el-form-item>
         <el-form-item label="Ephemeral (Gi)">
           <el-input v-model="form.roles[role].ephemeralStorage" />
@@ -79,7 +92,7 @@ import { computed, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormItemRule } from 'element-plus'
 import ImageInput from '@/components/Base/ImageInput.vue'
 import { addWorkload, editWorkload, getWorkloadDetail, resumeWorkload } from '@/services/workload/index'
-import { decodeFromBase64String } from '@/utils'
+import { decodeFromBase64String, quantityToGi } from '@/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { SGLANG_ROUTER_ROLES, buildSGLangRouterWorkloadBody, initialSGLangRouterForm, type SGLangRouterRole } from '../sglangRouterPayload'
 
@@ -110,9 +123,15 @@ function requiredRule(message: string): FormItemRule {
   return { required: true, message, trigger: 'blur' }
 }
 
-function giNumber(value?: string) {
-  if (!value) return ''
-  return String(value).replace(/gi$/i, '')
+const nodePortRule: FormItemRule = {
+  validator: (_rule, value, callback) => {
+    if (form.serviceType === 'NodePort' && !(Number(value) > 0)) {
+      callback(new Error('Node port is required'))
+      return
+    }
+    callback()
+  },
+  trigger: 'change',
 }
 
 /** Fill the three role slots from an existing SGLangRouter workload. */
@@ -125,6 +144,7 @@ async function onOpen() {
   form.priority = res.priority ?? 1
   form.servicePort = res.service?.port || 8000
   form.serviceType = res.service?.serviceType || 'ClusterIP'
+  form.serviceNodePort = Number(res.service?.nodePort) > 0 ? Number(res.service?.nodePort) : null
   form.serviceName = props.action === 'Clone' ? '' : String(res.service?.name || '')
   SGLANG_ROUTER_ROLES.forEach((role: SGLangRouterRole, index) => {
     const resource = res.resources?.[index] || {}
@@ -134,9 +154,11 @@ async function onOpen() {
       replica: Number(resource.replica) || 1,
       cpu: resource.cpu != null ? String(resource.cpu) : '2',
       gpu: resource.gpu != null ? String(resource.gpu) : '',
-      memory: giNumber(resource.memory) || '4',
-      ephemeralStorage: giNumber(resource.ephemeralStorage) || '20',
-      sharedMemory: resource.sharedMemory || '',
+      memory: quantityToGi(resource.memory) || '4',
+      ephemeralStorage: quantityToGi(resource.ephemeralStorage) || '20',
+      sharedMemory: quantityToGi(resource.sharedMemory),
+      gpuName: resource.gpuName || '',
+      rdmaResource: resource.rdmaResource || '',
     }
   })
 }

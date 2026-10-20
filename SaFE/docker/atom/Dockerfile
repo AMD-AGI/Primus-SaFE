@@ -4,7 +4,7 @@
 # Packages ATOM source and atomesh on a published SGLang or vLLM ROCm image.
 # Select the base with ENGINE=sglang or ENGINE=vllm.
 # The SGLang base rebuilds Mooncake 01d1eb2a with chunked HIP dma-buf registration.
-# sshd listens on 2222. With no user command the container runs tail -f /dev/null.
+# sshd starts only when MN_SSH_AUTHORIZED_KEY is set. With no user command the container runs tail -f /dev/null.
 # /tmp/aiter_configs is emptied and mode 1777 so a non-root process can rewrite it.
 ARG ENGINE=sglang
 ARG SGLANG_BASE=docker.io/primussafe/sglang-rocm:20261013121117-8e371c
@@ -15,7 +15,8 @@ FROM ${BASE_IMAGE}
 
 ARG ENGINE=sglang
 ARG ATOM_REPO=https://github.com/ROCm/ATOM.git
-ARG ATOM_REF=main
+# Commit on ROCm/ATOM main. A branch name would move between image builds.
+ARG ATOM_REF=53e4fb52403707ab07b69ee909501ea3cc25ca5c
 ARG RUST_VERSION=1.94.0
 ARG ATOM_MESH_FEATURES=""
 
@@ -51,7 +52,10 @@ RUN if [ "${ENGINE}" = "sglang" ]; then \
     fi \
     && rm -f /tmp/patch-mooncake.py /tmp/build-mooncake.sh /tmp/mooncake-cmake.log
 
-RUN git clone --depth 1 --branch "${ATOM_REF}" "${ATOM_REPO}" /opt/ATOM \
+RUN git init /opt/ATOM \
+    && git -C /opt/ATOM remote add origin "${ATOM_REPO}" \
+    && git -C /opt/ATOM fetch --depth 1 origin "${ATOM_REF}" \
+    && git -C /opt/ATOM checkout --detach FETCH_HEAD \
     && cd /opt/ATOM \
     && ATOM_MESH_BUILD=1 ATOM_MESH_FEATURES="${ATOM_MESH_FEATURES}" \
         /usr/local/bin/atom-python -m pip install --no-cache-dir -e . --no-deps \
@@ -74,18 +78,6 @@ RUN chmod 0755 /usr/local/bin/atom-entrypoint /usr/local/bin/sshd-init.sh /usr/l
     && cp /usr/local/bin/sh-wrapper.sh /usr/bin/sh \
     && mkdir -p /root/.ssh /run/sshd \
     && chmod 700 /root/.ssh \
-    && ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/id_ed25519 \
-    && cp /root/.ssh/id_ed25519.pub /root/.ssh/authorized_keys \
-    && chmod 600 /root/.ssh/id_ed25519 /root/.ssh/authorized_keys \
-    && printf '%s\n' \
-        'Host *' \
-        '  Port 2222' \
-        '  StrictHostKeyChecking no' \
-        '  UserKnownHostsFile /dev/null' \
-        '  IdentityFile /root/.ssh/id_ed25519' \
-        > /root/.ssh/config \
-    && chmod 600 /root/.ssh/config \
-    && ssh-keygen -A \
     && rm -rf /tmp/aiter_configs \
     && mkdir -p /tmp/aiter_configs \
     && chmod 1777 /tmp/aiter_configs

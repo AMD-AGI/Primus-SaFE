@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildSGLangRouterResumePayload } from './sglangRouterPayload'
+import { buildSGLangRouterResumePayload, buildSGLangRouterWorkloadBody, initialSGLangRouterForm } from './sglangRouterPayload'
 
 describe('buildSGLangRouterResumePayload', () => {
   it('keeps env, RDMA, GPU name, and customer labels', () => {
@@ -38,7 +38,7 @@ describe('buildSGLangRouterResumePayload', () => {
         workloadId: 'atom-qwen3-14b-abcde',
         useWorkspaceStorage: true,
       },
-      'crusoe-spur-vk',
+      'workspace-a',
       [],
     )
 
@@ -47,5 +47,27 @@ describe('buildSGLangRouterResumePayload', () => {
     expect(payload.resources[1]).toMatchObject({ gpuName: 'amd.com/gpu', rdmaResource: '1k' })
     expect(payload.resources[2]).toMatchObject({ gpuName: 'amd.com/gpu', rdmaResource: '1k' })
     expect(payload.resources[0]).not.toHaveProperty('rdmaResource')
+  })
+})
+
+describe('buildSGLangRouterWorkloadBody', () => {
+  it('sends gpu name, RDMA, shared memory, and a positive node port', () => {
+    const form = initialSGLangRouterForm()
+    form.displayName = 'sglang'
+    form.serviceType = 'NodePort'
+    form.serviceNodePort = 32081
+    form.roles.decode.gpu = '8'
+    form.roles.decode.gpuName = 'amd.com/gpu'
+    form.roles.decode.rdmaResource = '1k'
+    form.roles.decode.sharedMemory = '32'
+
+    const body = buildSGLangRouterWorkloadBody(form)
+
+    expect(body.service).toMatchObject({ serviceType: 'NodePort', nodePort: 32081 })
+    expect(body.resources[2]).toMatchObject({
+      sharedMemory: '32Gi',
+      gpuName: 'amd.com/gpu',
+      rdmaResource: '1k',
+    })
   })
 })

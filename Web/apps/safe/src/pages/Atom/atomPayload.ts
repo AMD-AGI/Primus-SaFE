@@ -17,6 +17,8 @@ export interface AtomRoleForm {
   memory: string
   ephemeralStorage: string
   sharedMemory: string
+  gpuName: string
+  rdmaResource: string
 }
 
 export interface AtomFormModel {
@@ -25,6 +27,7 @@ export interface AtomFormModel {
   priority: number
   servicePort: number
   serviceType: string
+  serviceNodePort: number | null
   serviceName: string
   roles: Record<AtomRole, AtomRoleForm>
 }
@@ -40,6 +43,8 @@ export function emptyAtomRole(): AtomRoleForm {
     memory: '4',
     ephemeralStorage: '20',
     sharedMemory: '',
+    gpuName: '',
+    rdmaResource: '',
   }
 }
 
@@ -51,6 +56,7 @@ export function initialAtomForm(): AtomFormModel {
     priority: 1,
     servicePort: ATOM_ROUTER_TARGET_PORT,
     serviceType: 'ClusterIP',
+    serviceNodePort: null,
     serviceName: '',
     roles: {
       router: emptyAtomRole(),
@@ -74,7 +80,9 @@ function roleResource(role: AtomRoleForm) {
     memory: withGi(role.memory),
     ephemeralStorage: withGi(role.ephemeralStorage),
     ...(gpu && gpu !== '0' ? { gpu } : {}),
-    ...(role.sharedMemory.trim() ? { sharedMemory: role.sharedMemory.trim() } : {}),
+    ...(role.sharedMemory.trim() ? { sharedMemory: withGi(role.sharedMemory) } : {}),
+    ...(role.gpuName.trim() ? { gpuName: role.gpuName.trim() } : {}),
+    ...(role.rdmaResource.trim() ? { rdmaResource: role.rdmaResource.trim() } : {}),
   }
 }
 
@@ -100,6 +108,9 @@ export function buildAtomWorkloadBody(form: AtomFormModel) {
       port: Number(form.servicePort) || ATOM_ROUTER_TARGET_PORT,
       targetPort: ATOM_ROUTER_TARGET_PORT,
       serviceType: form.serviceType || 'ClusterIP',
+      ...(form.serviceType === 'NodePort' && Number(form.serviceNodePort) > 0
+        ? { nodePort: Number(form.serviceNodePort) }
+        : {}),
     },
   }
 }
