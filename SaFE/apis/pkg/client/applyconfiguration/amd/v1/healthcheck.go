@@ -19,6 +19,8 @@ type HealthCheckApplyConfiguration struct {
 	PeriodSeconds *int `json:"periodSeconds,omitempty"`
 	// Failure retry limit. default 3
 	FailureThreshold *int `json:"failureThreshold,omitempty"`
+	// Probe timeout. When unset, the Kubernetes default of 1s is used.
+	TimeoutSeconds *int `json:"timeoutSeconds,omitempty"`
 }
 
 // HealthCheckApplyConfiguration constructs a declarative configuration of the HealthCheck type for use with
@@ -64,5 +66,13 @@ func (b *HealthCheckApplyConfiguration) WithPeriodSeconds(value int) *HealthChec
 // If called multiple times, the FailureThreshold field is set to the value of the last call.
 func (b *HealthCheckApplyConfiguration) WithFailureThreshold(value int) *HealthCheckApplyConfiguration {
 	b.FailureThreshold = &value
+	return b
+}
+
+// WithTimeoutSeconds sets the TimeoutSeconds field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the TimeoutSeconds field is set to the value of the last call.
+func (b *HealthCheckApplyConfiguration) WithTimeoutSeconds(value int) *HealthCheckApplyConfiguration {
+	b.TimeoutSeconds = &value
 	return b
 }

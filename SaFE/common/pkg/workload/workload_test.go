@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
@@ -473,6 +474,7 @@ func TestGetScope(t *testing.T) {
 	assert.Equal(t, GetScope(wlKind(common.CICDGithubRunnerKind)), v1.CICDScope)
 	assert.Equal(t, GetScope(wlKind(common.RayJobKind)), v1.RayScope)
 	assert.Equal(t, GetScope(wlKind(common.SandboxKind)), v1.SandboxScope)
+	assert.Equal(t, GetScope(wlKind(common.AtomKind)), v1.InferScope)
 	assert.Equal(t, GetScope(wlKind("Unknown")), v1.WorkspaceScope(""))
 }
 
@@ -499,12 +501,32 @@ func TestKindPredicates(t *testing.T) {
 	assert.Assert(t, !IsRayJob(wlKind(common.JobKind)))
 	assert.Assert(t, IsDynamoDeployment(wlKind(common.DynamoDeploymentKind)))
 	assert.Assert(t, IsInferaDeployment(wlKind(common.InferaDeploymentKind)))
+	assert.Assert(t, IsAtom(wlKind(common.AtomKind)))
+	assert.Assert(t, !IsAtom(wlKind(common.DeploymentKind)))
+	assert.Assert(t, IsApplication(wlKind(common.AtomKind)))
 	assert.Assert(t, IsMonarchJob(wlKind(common.MonarchJob)))
 	assert.Assert(t, !IsMonarchJob(wlKind(common.JobKind)))
 	assert.Assert(t, IsMonarchMesh(wlKind(common.MonarchMesh)))
 	assert.Assert(t, !IsMonarchMesh(wlKind(common.JobKind)))
 	assert.Assert(t, IsSandBox(wlKind(common.SandboxKind)))
 	assert.Assert(t, !IsSandBox(wlKind(common.JobKind)))
+}
+
+func TestAtomRoleContract(t *testing.T) {
+	w := wlKind(common.AtomKind)
+	assert.DeepEqual(t, GetWorkloadGVK(w), []schema.GroupVersionKind{AtomDeploymentGVK()})
+	assert.Equal(t, AtomRoleObjectName("atom1", common.AtomRoleRouter), "atom1")
+	assert.Equal(t, AtomRoleObjectName("atom1", common.AtomRolePrefill), "atom1-prefill")
+	assert.Equal(t, AtomRoleObjectName("atom1", common.AtomRoleDecode), "atom1-decode")
+	assert.Equal(t, AtomRoleIndex(common.AtomRolePrefill), 1)
+	assert.Equal(t, AtomServiceEndpoint("atom1-prefill", "ws", common.AtomPrefillPort),
+		"http://atom1-prefill.ws.svc.cluster.local:8010")
+	assert.Equal(t, AtomListenPort(0, "", common.AtomRolePrefill), common.AtomPrefillPort)
+	assert.Equal(t, AtomListenPort(0, "python --port 18010", common.AtomRolePrefill), 18010)
+	assert.Equal(t, AtomListenPort(18000, "python --port 8000", common.AtomRoleRouter), 18000)
+	assert.Equal(t, AtomBootstrapPort("", common.AtomRoleDecode), common.AtomDecodeBootstrapPort)
+	assert.Equal(t, AtomBootstrapPort("python --disaggregation-bootstrap-port 19098", common.AtomRoleDecode), 19098)
+	assert.Equal(t, AtomBootstrapPort("python --disaggregation-bootstrap-port 1", common.AtomRoleRouter), 0)
 }
 
 func TestIsOpsJob(t *testing.T) {

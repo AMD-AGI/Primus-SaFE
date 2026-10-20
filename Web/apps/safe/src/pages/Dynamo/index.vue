@@ -491,6 +491,9 @@ type Action = {
   onClick: (row: DynamoRow) => void | Promise<void>
 }
 
+/** Phases that still own live resources and can be stopped. */
+const STOPPABLE_PHASES = ['Running', 'Pending', 'NotReady']
+
 const getActions = (_row: DynamoRow): Action[] => [
   // Resume leads the action row so the phase-gated restart keeps one of the two
   // inline slots instead of being pushed under the "..." menu by Clone/Stop.
@@ -516,10 +519,10 @@ const getActions = (_row: DynamoRow): Action[] => [
     label: 'Stop',
     icon: Close,
     btnClass: 'btn-danger-plain',
-    disabled: (row) => !canWrite.value || !['Running', 'Pending'].includes(row.phase || ''),
+    disabled: (row) => !canWrite.value || !STOPPABLE_PHASES.includes(row.phase || ''),
     tooltip: (row) => {
-      if (['Running', 'Pending'].includes(row.phase || '')) return 'Stop workload'
-      return 'Stop is only available for Running or Pending workloads'
+      if (STOPPABLE_PHASES.includes(row.phase || '')) return 'Stop workload'
+      return 'Stop is only available for Running, Pending, or NotReady workloads'
     },
     onClick: (row) => onStop(row),
   },

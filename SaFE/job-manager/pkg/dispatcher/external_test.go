@@ -241,6 +241,30 @@ func TestExternalHostNetworkInferaRDMA(t *testing.T) {
 	}
 }
 
+// External Atom prefill and decode with RDMA use hostNetwork. The router does not.
+func TestExternalHostNetworkAtomRDMA(t *testing.T) {
+	prefill := claimWorkload()
+	prefill.Spec.Kind = common.DeploymentKind
+	prefill.Spec.Env = map[string]string{common.AtomRoleEnv: common.AtomRolePrefill}
+	prefill.Spec.Resources = []v1.WorkloadResource{
+		{Replica: 1, CPU: "16", Memory: "128Gi", GPU: "1", GPUName: "amd.com/gpu", RdmaResource: "1k"},
+	}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	assert.NilError(t, updateHostNetwork(prefill, obj, externalShapeSpec(), 0))
+	enabled, found, err := unstructured.NestedBool(obj.Object, "spec", "template", "spec", "hostNetwork")
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Assert(t, enabled)
+
+	router := prefill.DeepCopy()
+	router.Spec.Env[common.AtomRoleEnv] = common.AtomRoleRouter
+	router.Spec.Resources[0].RdmaResource = ""
+	obj = &unstructured.Unstructured{Object: map[string]interface{}{}}
+	assert.NilError(t, updateHostNetwork(router, obj, externalShapeSpec(), 0))
+	enabled, _, _ = unstructured.NestedBool(obj.Object, "spec", "template", "spec", "hostNetwork")
+	assert.Assert(t, !enabled)
+}
+
 // External Infera without RDMA stays on the pod network when ForceHostNetwork is unset.
 func TestExternalHostNetworkInferaNoRDMA(t *testing.T) {
 	w := claimWorkload()
@@ -530,6 +554,36 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 		"WORKLOAD_MANAGER_URL must stay on the execution-cluster Service")
 	assert.Equal(t, envs[1].(map[string]interface{})["value"],
 		"https://global.primus-safe.amd.com/api/v1")
+}
+
+func TestApplyExternalEnvRewriteKeepsAtomEndpoints(t *testing.T) {
+	viper.Set("global.domain", "primus-safe.amd.com")
+	viper.Set("global.sub_domain", "global")
+	t.Cleanup(func() {
+		viper.Set("global.domain", "")
+		viper.Set("global.sub_domain", "")
+	})
+	prefill := "http://atom1-prefill.ws.svc.cluster.local:8010"
+	decode := "http://atom1-decode.ws.svc.cluster.local:8020"
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
+			"containers": []interface{}{
+				map[string]interface{}{
+					"name": "main",
+					"env": []interface{}{
+						map[string]interface{}{"name": common.AtomPrefillEndpointEnv, "value": prefill},
+						map[string]interface{}{"name": common.AtomDecodeEndpointEnv, "value": decode},
+						map[string]interface{}{"name": "OTHER_URL", "value": "http://foo.ws.svc.cluster.local:9/api"},
+					},
+				},
+			},
+		}}},
+	}}
+	assert.NilError(t, applyExternalEnvRewrite(obj, claimWorkload(), externalShapeSpec()))
+	envs := envValues(t, obj)
+	assert.Equal(t, envs[common.AtomPrefillEndpointEnv], prefill)
+	assert.Equal(t, envs[common.AtomDecodeEndpointEnv], decode)
+	assert.Equal(t, envs["OTHER_URL"], "https://global.primus-safe.amd.com/api")
 }
 
 func TestBuildObjectAnnotationsIncludesUserAccount(t *testing.T) {

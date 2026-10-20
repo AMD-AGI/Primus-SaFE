@@ -395,7 +395,7 @@ external_execution:
   workspace_resync_seconds: 30
 workload:
   # Seconds to keep a finished workload before TTL deletion.
-  ttl_second: 3600
+  ttl_second: 60
 sandbox:
   enable: true
   namespace: "agent-sandbox-system"

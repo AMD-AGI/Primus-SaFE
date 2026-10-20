@@ -18,6 +18,47 @@ import (
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
+func TestSyncExternalWaitCondition(t *testing.T) {
+	msg := "In queue - waiting for scale-up - 0/21 nodes are available"
+
+	queued := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "queued"}}
+	if !syncExternalWaitCondition(queued, msg) {
+		t.Fatal("expected a new AdminScheduling condition")
+	}
+	if queued.Status.Conditions[0].Type != string(v1.AdminScheduling) ||
+		queued.Status.Conditions[0].Reason != "run_1_times" {
+		t.Fatalf("queued condition: %+v", queued.Status.Conditions[0])
+	}
+
+	dispatched := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "dispatched"},
+		Status:     v1.WorkloadStatus{Phase: v1.WorkloadNotReady},
+	}
+	v1.SetAnnotation(dispatched, v1.WorkloadScheduledAnnotation, "t")
+	v1.SetAnnotation(dispatched, v1.WorkloadDispatchedAnnotation, "t")
+	v1.SetLabel(dispatched, v1.WorkloadDispatchCntLabel, "1")
+	if !syncExternalWaitCondition(dispatched, msg) {
+		t.Fatal("expected a K8sNotReady condition")
+	}
+	if len(dispatched.Status.Conditions) != 1 ||
+		dispatched.Status.Conditions[0].Type != string(v1.K8sNotReady) ||
+		dispatched.Status.Conditions[0].Reason != "run_1_times" {
+		t.Fatalf("dispatched condition: %+v", dispatched.Status.Conditions)
+	}
+	if syncExternalWaitCondition(dispatched, msg) {
+		t.Fatal("same wait must not append another condition")
+	}
+
+	running := dispatched.DeepCopy()
+	running.Status.Phase = v1.WorkloadRunning
+	v1.SetLabel(running, v1.WorkloadDispatchCntLabel, "2")
+	if !syncExternalWaitCondition(running, msg) ||
+		running.Status.Conditions[len(running.Status.Conditions)-1].Type != string(v1.K8sRunning) ||
+		running.Status.Conditions[len(running.Status.Conditions)-1].Reason != "run_2_times" {
+		t.Fatalf("retry condition: %+v", running.Status.Conditions)
+	}
+}
+
 func TestExternalUnschedulableMessage(t *testing.T) {
 	w := &v1.Workload{
 		Status: v1.WorkloadStatus{

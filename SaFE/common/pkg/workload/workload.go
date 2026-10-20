@@ -8,10 +8,12 @@ package workload
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -379,7 +381,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
 	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind, common.MonarchJob:
 		return v1.TrainScope
-	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind, common.InferaDeploymentKind:
+	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind, common.InferaDeploymentKind, common.AtomKind:
 		return v1.InferScope
 	case common.AuthoringKind:
 		return v1.AuthoringScope
@@ -403,6 +405,7 @@ func IsApplication(w *v1.Workload) bool {
 		w.SpecKind() == common.StatefulSetKind ||
 		w.SpecKind() == common.DynamoDeploymentKind ||
 		w.SpecKind() == common.InferaDeploymentKind ||
+		w.SpecKind() == common.AtomKind ||
 		w.SpecKind() == common.CICDGithubRunnerKind {
 		return true
 	}
@@ -566,6 +569,130 @@ func GetDynamoBackendFramework(w *v1.Workload) string {
 // DynamoDeployment). Roles/KV-backend/framework reuse the Dynamo constants.
 func IsInferaDeployment(w *v1.Workload) bool {
 	return w.SpecKind() == common.InferaDeploymentKind
+}
+
+// IsAtom reports whether the workload serves through atomesh, prefill and decode.
+func IsAtom(w *v1.Workload) bool {
+	return w.SpecKind() == common.AtomKind
+}
+
+// AtomDeploymentGVK is the Kubernetes object created for every Atom role.
+func AtomDeploymentGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group: "apps", Version: common.DefaultVersion, Kind: common.DeploymentKind,
+	}
+}
+
+var (
+	atomListenFlag    = regexp.MustCompile(`(?:^|\s)--port(?:=|\s+)(\d+)`)
+	atomBootstrapFlag = regexp.MustCompile(`(?:^|\s)--disaggregation-bootstrap-port(?:=|\s+)(\d+)`)
+)
+
+// AtomCommand returns the decoded startup command of one Atom role.
+func AtomCommand(workload *v1.Workload, role string) string {
+	if workload == nil {
+		return ""
+	}
+	index := AtomRoleIndex(role)
+	if index < 0 || index >= len(workload.Spec.EntryPoints) {
+		return ""
+	}
+	return DecodeEntryPoint(workload.Spec.EntryPoints[index])
+}
+
+// DecodeEntryPoint returns the command text, decoding a base64 payload when present.
+func DecodeEntryPoint(raw string) string {
+	if stringutil.IsBase64(raw) {
+		if decoded := stringutil.Base64Decode(raw); decoded != "" {
+			return decoded
+		}
+	}
+	return raw
+}
+
+// AtomListenPort returns the container port of an Atom role.
+// The router uses service.targetPort when it is set, the same field as a Deployment.
+// Prefill and decode follow --port in the entrypoint, the same way an Infera frontend does.
+func AtomListenPort(serviceTarget int, command, role string) int {
+	if role == common.AtomRoleRouter && serviceTarget > 0 {
+		return serviceTarget
+	}
+	if port := flagPort(command, atomListenFlag); port > 0 {
+		return port
+	}
+	switch role {
+	case common.AtomRolePrefill:
+		return common.AtomPrefillPort
+	case common.AtomRoleDecode:
+		return common.AtomDecodePort
+	default:
+		return common.AtomRouterPort
+	}
+}
+
+// AtomBootstrapPort returns the Mooncake bootstrap port of an Atom engine role.
+// A --disaggregation-bootstrap-port flag in the entrypoint overrides the default.
+func AtomBootstrapPort(command, role string) int {
+	switch role {
+	case common.AtomRolePrefill:
+		if port := flagPort(command, atomBootstrapFlag); port > 0 {
+			return port
+		}
+		return common.AtomPrefillBootstrapPort
+	case common.AtomRoleDecode:
+		if port := flagPort(command, atomBootstrapFlag); port > 0 {
+			return port
+		}
+		return common.AtomDecodeBootstrapPort
+	default:
+		return 0
+	}
+}
+
+// AtomEntrypointPort returns the --port value in a startup command.
+func AtomEntrypointPort(command string) (int, bool) {
+	port := flagPort(command, atomListenFlag)
+	return port, port > 0
+}
+
+// flagPort returns the first positive port captured by pattern.
+func flagPort(command string, pattern *regexp.Regexp) int {
+	match := pattern.FindStringSubmatch(command)
+	if len(match) < 2 {
+		return 0
+	}
+	port, err := strconv.Atoi(match[1])
+	if err != nil || port <= 0 {
+		return 0
+	}
+	return port
+}
+
+// AtomRoleIndex returns the resource, image and entrypoint index of an Atom role.
+func AtomRoleIndex(role string) int {
+	switch role {
+	case common.AtomRoleRouter:
+		return 0
+	case common.AtomRolePrefill:
+		return 1
+	case common.AtomRoleDecode:
+		return 2
+	default:
+		return -1
+	}
+}
+
+// AtomRoleObjectName returns the Deployment and Service name for an Atom role.
+func AtomRoleObjectName(rootName, role string) string {
+	if role == common.AtomRoleRouter {
+		return rootName
+	}
+	return rootName + "-" + role
+}
+
+// AtomServiceEndpoint returns the in-cluster address of an Atom role Service.
+func AtomServiceEndpoint(name, namespace string, port int) string {
+	return fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", name, namespace, port)
 }
 
 // GetInferaServiceRoles returns the parsed service roles for an
@@ -869,6 +996,8 @@ func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
 			Group: "", Version: common.DefaultVersion, Kind: common.MonarchClient,
 		})
 		result = append(result, MonarchMeshWorkloadGVK())
+	} else if IsAtom(workload) {
+		result = append(result, AtomDeploymentGVK())
 	} else {
 		result = append(result, workload.ToSchemaGVK())
 	}
@@ -897,6 +1026,7 @@ func SetMainContainerViaTemplate(ctx context.Context, cli client.Client, workloa
 
 // GetUsedHostPorts returns a set of all host ports currently in use by workloads in the specified cluster.
 // It collects: (1) JobPort and SSHPort from RDMA workloads (hostNetwork pods); (2) Service.NodePort;
+// Atom prefill and decode listen and bootstrap ports are included when the role requests RDMA.
 // (3) GcsServer and Dashboard Port for RayJob; (4) DynamoFrontendPort for DGD when any worker uses RDMA
 // (Frontend is promoted to hostNetwork in IsEnabledHostNetwork to dodge the same-node Pod->hostIP hairpin).
 // The returned map acts as a set where keys are port numbers and values are empty structs.
@@ -906,6 +1036,11 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterId})
 	if cli.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector}) == nil {
 		for _, item := range workloadList.Items {
+			if IsAtom(&item) {
+				for port := range atomEngineHostPorts(&item) {
+					ports[port] = struct{}{}
+				}
+			}
 			if item.HasHostNetwork() {
 				if item.Spec.JobPort > 0 {
 					ports[item.Spec.JobPort] = struct{}{}
@@ -925,6 +1060,27 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 			if item.Spec.Service != nil && item.Spec.Service.NodePort > 0 {
 				ports[item.Spec.Service.NodePort] = struct{}{}
 			}
+		}
+	}
+	return ports
+}
+
+// atomEngineHostPorts returns listen and bootstrap ports of Atom engines that use hostNetwork.
+func atomEngineHostPorts(workload *v1.Workload) map[int]struct{} {
+	ports := map[int]struct{}{}
+	roles := []string{common.AtomRoleRouter, common.AtomRolePrefill, common.AtomRoleDecode}
+	for i, role := range roles {
+		if role == common.AtomRoleRouter || i >= len(workload.Spec.Resources) {
+			continue
+		}
+		res := workload.Spec.Resources[i]
+		if !HasRDMAResource(&res) {
+			continue
+		}
+		command := AtomCommand(workload, role)
+		ports[AtomListenPort(0, command, role)] = struct{}{}
+		if bootstrap := AtomBootstrapPort(command, role); bootstrap > 0 {
+			ports[bootstrap] = struct{}{}
 		}
 	}
 	return ports

@@ -291,7 +291,7 @@ interface MenuItem {
 const workloadMenuItems = shallowRef<MenuItem[]>([])
 const workloadGroupIndexes = ['workloads-infer', 'workloads-training']
 const workloadGroupRoutes = [
-  { group: 'workloads-infer', paths: ['/infer', '/infera'] },
+  { group: 'workloads-infer', paths: ['/infer', '/infera', '/atom'] },
   {
     group: 'workloads-training',
     paths: ['/training', '/torchft', '/rayjob', '/monarch'],
@@ -343,6 +343,13 @@ watchEffect(() => {
       canAccess: canInfer.value,
       tooltip: 'Infera has been disabled by the administrator.',
       icon: menuIcons.infera,
+    },
+    {
+      index: '/atom',
+      name: 'Atom',
+      canAccess: canInfer.value,
+      tooltip: 'Atom has been disabled by the administrator.',
+      icon: menuIcons.deployment,
     },
   ].filter((item) => item.canAccess !== false)
 

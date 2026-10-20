@@ -528,3 +528,26 @@ export function isLogDownloadEnabledForHost(enabled: boolean | undefined, hostna
   if (!enabled) return false
   return !LOG_DOWNLOAD_DISABLED_HOSTS.has(hostname.toLowerCase())
 }
+
+/** Convert a Kubernetes quantity to a Gi number string. Plain numbers stay as Gi. */
+export function quantityToGi(value?: string): string {
+  if (!value) return ''
+  const match = /^(\d+(?:\.\d+)?)\s*([A-Za-z]*)$/.exec(String(value).trim())
+  if (!match) return ''
+  const amount = Number(match[1])
+  const scale: Record<string, number> = {
+    '': 1,
+    gi: 1,
+    g: 1,
+    mi: 1 / 1024,
+    m: 1 / 1024,
+    ki: 1 / 1024 / 1024,
+    k: 1 / 1024 / 1024,
+    ti: 1024,
+    t: 1024,
+  }
+  const factor = scale[match[2].toLowerCase()]
+  if (factor === undefined || !Number.isFinite(amount)) return ''
+  const gi = Math.round(amount * factor * 1000) / 1000
+  return String(gi)
+}

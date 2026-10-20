@@ -963,3 +963,24 @@ func TestRunnerSetFailure_ConflictAndRestart(t *testing.T) {
 	assert.NilError(t, err)
 	assert.DeepEqual(t, current.Status, before.Status)
 }
+
+func TestCombineAtomRoleStatus(t *testing.T) {
+	ready := map[string]string{
+		common.AtomRoleRouter:  string(v1.K8sRunning),
+		common.AtomRolePrefill: string(v1.K8sRunning),
+		common.AtomRoleDecode:  string(v1.K8sRunning),
+	}
+	assert.Equal(t, combineAtomRoleStatus(ready).Phase, string(v1.K8sRunning))
+
+	routerOnly := map[string]string{common.AtomRoleRouter: string(v1.K8sRunning)}
+	notReady := combineAtomRoleStatus(routerOnly)
+	assert.Equal(t, notReady.Phase, string(v1.K8sNotReady))
+	assert.Assert(t, strings.Contains(notReady.Message, common.AtomRolePrefill))
+
+	updating := map[string]string{
+		common.AtomRoleRouter:  string(v1.K8sRunning),
+		common.AtomRolePrefill: string(v1.K8sUpdating),
+		common.AtomRoleDecode:  string(v1.K8sRunning),
+	}
+	assert.Equal(t, combineAtomRoleStatus(updating).Phase, string(v1.K8sUpdating))
+}

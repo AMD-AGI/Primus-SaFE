@@ -44,8 +44,10 @@ type ModelSpecApplyConfiguration struct {
 	// MountPath (or HostPath when MountPath is empty). If empty, the controller uses
 	// the workspace's first PFS volume (or first volume).
 	TargetVolume *string `json:"targetVolume,omitempty"`
-	// TargetSubpath is an optional sub-directory under "<volume>/models/<safe-name>"
-	// to keep multiple imports of the same model separated. Empty = default layout.
+	// TargetSubpath is an optional sub-directory of the volume that holds the model
+	// directory. The layout is "<volume>/<subpath>/models/<dir>", or
+	// "<volume>/<subpath>/<dir>" when the subpath already contains a "models"
+	// segment. Empty = "<volume>/models/<dir>".
 	TargetSubpath *string `json:"targetSubpath,omitempty"`
 }
 

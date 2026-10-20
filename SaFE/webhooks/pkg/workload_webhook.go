@@ -167,6 +167,8 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateDynamoDeployment(newWorkload)
 	case common.InferaDeploymentKind:
 		m.mutateInferaDeployment(newWorkload)
+	case common.AtomKind:
+		m.mutateAtom(newWorkload)
 	}
 	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
@@ -443,6 +445,26 @@ func (m *WorkloadMutator) mutateService(oldWorkload, workload *v1.Workload) {
 	}
 }
 
+// mutateAtom disables retry and defaults the router Service to the router listen port.
+func (m *WorkloadMutator) mutateAtom(workload *v1.Workload) {
+	workload.Spec.IsSupervised = false
+	workload.Spec.MaxRetry = 0
+	workload.Spec.Dependencies = nil
+	routerPort := commonworkload.AtomListenPort(0, commonworkload.AtomCommand(workload, common.AtomRoleRouter), common.AtomRoleRouter)
+	if workload.Spec.Service == nil {
+		workload.Spec.Service = &v1.Service{
+			Protocol:    corev1.ProtocolTCP,
+			Port:        routerPort,
+			TargetPort:  routerPort,
+			ServiceType: corev1.ServiceTypeClusterIP,
+		}
+		return
+	}
+	if workload.Spec.Service.TargetPort == 0 {
+		workload.Spec.Service.TargetPort = routerPort
+	}
+}
+
 // mutateDeployment resets supervision and rollout defaults for Deployments.
 func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
@@ -584,6 +606,110 @@ func (m *WorkloadMutator) mutateInferaDeployment(workload *v1.Workload) {
 	if _, ok := workload.Spec.Env["NATS_SERVER"]; !ok {
 		workload.Spec.Env["NATS_SERVER"] = common.DynamoDefaultNatsURL
 	}
+}
+
+// validateAtom requires three roles in router, prefill, decode order.
+func (v *WorkloadValidator) validateAtom(workload *v1.Workload) error {
+	const roleCount = 3
+	if len(workload.Spec.Resources) != roleCount ||
+		len(workload.Spec.Images) != roleCount ||
+		len(workload.Spec.EntryPoints) != roleCount {
+		return fmt.Errorf("atom requires 3 resources, images and entryPoints in order router, prefill, decode")
+	}
+	for i := 0; i < roleCount; i++ {
+		if strings.TrimSpace(workload.Spec.Images[i]) == "" {
+			return fmt.Errorf("atom image at index %d is empty", i)
+		}
+		if strings.TrimSpace(workload.Spec.EntryPoints[i]) == "" {
+			return fmt.Errorf("atom entryPoint at index %d is empty", i)
+		}
+	}
+	if err := validateAtomPorts(workload); err != nil {
+		return err
+	}
+	if len(commonworkload.AtomRoleObjectName(workload.Name, common.AtomRolePrefill)) > commonutils.MaxAtomRoleNameLen {
+		return fmt.Errorf("atom workload name is too long")
+	}
+	return nil
+}
+
+// validateAtomPorts checks listen and bootstrap ports supplied at create time.
+// Router stays on the pod network, so its port may match an engine port.
+// An engine cannot reuse one port for listen and bootstrap. Prefill and decode
+// share a host port space only when both request RDMA.
+func validateAtomPorts(workload *v1.Workload) error {
+	serviceTarget := 0
+	if workload.Spec.Service != nil {
+		serviceTarget = workload.Spec.Service.TargetPort
+	}
+	routerCommand := commonworkload.AtomCommand(workload, common.AtomRoleRouter)
+	if serviceTarget > 0 {
+		if flagged, ok := commonworkload.AtomEntrypointPort(routerCommand); ok && flagged != serviceTarget {
+			return fmt.Errorf("atom router targetPort %d does not match entrypoint --port %d", serviceTarget, flagged)
+		}
+	}
+	routerPort := commonworkload.AtomListenPort(serviceTarget, routerCommand, common.AtomRoleRouter)
+	if err := claimAtomPort(map[int]string{}, routerPort, "router port"); err != nil {
+		return err
+	}
+
+	type atomEnginePorts struct {
+		listen    int
+		bootstrap int
+		hostNet   bool
+	}
+	engines := map[string]atomEnginePorts{}
+	for _, role := range []string{common.AtomRolePrefill, common.AtomRoleDecode} {
+		command := commonworkload.AtomCommand(workload, role)
+		listen := commonworkload.AtomListenPort(0, command, role)
+		bootstrap := commonworkload.AtomBootstrapPort(command, role)
+		if err := claimAtomPort(map[int]string{}, listen, role+" port"); err != nil {
+			return err
+		}
+		if err := claimAtomPort(map[int]string{listen: role + " port"}, bootstrap, role+" bootstrap port"); err != nil {
+			return err
+		}
+		hostNet := false
+		index := commonworkload.AtomRoleIndex(role)
+		if index >= 0 && index < len(workload.Spec.Resources) {
+			res := workload.Spec.Resources[index]
+			hostNet = commonworkload.HasRDMAResource(&res)
+			if hostNet && res.Replica > 1 {
+				return fmt.Errorf("atom %s replica must be 1 when rdmaResource is set", role)
+			}
+		}
+		engines[role] = atomEnginePorts{listen: listen, bootstrap: bootstrap, hostNet: hostNet}
+	}
+	prefill := engines[common.AtomRolePrefill]
+	decode := engines[common.AtomRoleDecode]
+	if prefill.hostNet && decode.hostNet {
+		seen := map[int]string{}
+		if err := claimAtomPort(seen, prefill.listen, "prefill port"); err != nil {
+			return err
+		}
+		if err := claimAtomPort(seen, prefill.bootstrap, "prefill bootstrap port"); err != nil {
+			return err
+		}
+		if err := claimAtomPort(seen, decode.listen, "decode port"); err != nil {
+			return err
+		}
+		if err := claimAtomPort(seen, decode.bootstrap, "decode bootstrap port"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// claimAtomPort records one Atom port and rejects values outside 1-65535 or duplicates.
+func claimAtomPort(seen map[int]string, port int, name string) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("atom %s %d is outside 1-65535", name, port)
+	}
+	if owner, ok := seen[port]; ok {
+		return fmt.Errorf("atom %s %d duplicates %s", name, port, owner)
+	}
+	seen[port] = name
+	return nil
 }
 
 // validateInferaDeployment enforces InferaDeployment invariants: legal role
@@ -1077,6 +1203,8 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		if err == nil {
 			err = validateInferaSharedReadinessPort(newWorkload, oldWorkload)
 		}
+	case common.AtomKind:
+		err = v.validateAtom(newWorkload)
 	}
 	if err != nil {
 		return err
