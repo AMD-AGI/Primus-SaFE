@@ -526,6 +526,12 @@ func TestAtomRoleContract(t *testing.T) {
 	assert.Equal(t, AtomServiceEndpoint("atom1-prefill", "ws", common.AtomPrefillPort),
 		"http://atom1-prefill.ws.svc.cluster.local:8010")
 	assert.DeepEqual(t, GetWorkloadGVK(wlKind(common.SGLangRouterKind)), []schema.GroupVersionKind{AtomDeploymentGVK()})
+	assert.Equal(t, AtomListenPort(0, "", common.AtomRolePrefill), common.AtomPrefillPort)
+	assert.Equal(t, AtomListenPort(0, "python --port 18010", common.AtomRolePrefill), 18010)
+	assert.Equal(t, AtomListenPort(18000, "python --port 8000", common.AtomRoleRouter), 18000)
+	assert.Equal(t, AtomBootstrapPort("", common.AtomRoleDecode), common.AtomDecodeBootstrapPort)
+	assert.Equal(t, AtomBootstrapPort("python --disaggregation-bootstrap-port 19098", common.AtomRoleDecode), 19098)
+	assert.Equal(t, AtomBootstrapPort("python --disaggregation-bootstrap-port 1", common.AtomRoleRouter), 0)
 }
 
 func TestIsOpsJob(t *testing.T) {

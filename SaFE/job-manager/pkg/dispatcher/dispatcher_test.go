@@ -1871,6 +1871,27 @@ func TestGenerateAtomRoles(t *testing.T) {
 	assert.Equal(t, commonworkload.GetK8sServiceName(router), "atom-public")
 }
 
+func TestGenerateAtomCustomPorts(t *testing.T) {
+	r := newGenReconciler(t)
+	w := atomRootWorkload()
+	w.Spec.Service.TargetPort = 18000
+	w.Spec.EntryPoints = []string{
+		stringutil.Base64Encode("python --port 18000"),
+		stringutil.Base64Encode("python --port 18010 --disaggregation-bootstrap-port 18998"),
+		stringutil.Base64Encode("python --port 18020 --disaggregation-bootstrap-port 19098"),
+	}
+	prefill := r.generateAtomRoleWorkload(context.Background(), w, common.AtomRolePrefill)
+	router := r.generateAtomRoleWorkload(context.Background(), w, common.AtomRoleRouter)
+	assert.Equal(t, prefill.Spec.Readiness.Port, 18010)
+	assert.Equal(t, prefill.Spec.Env[common.AtomServerPortEnv], "18010")
+	assert.Equal(t, prefill.Spec.Env[common.AtomPrefillEndpointEnv], "http://atom1-prefill.ws.svc.cluster.local:18010")
+	assert.Equal(t, prefill.Spec.Service.Port, 18010)
+	ports := servicePortsForWorkload(prefill, prefill.Spec.Service)
+	assert.Equal(t, ports[1].Port, int32(18998))
+	assert.Equal(t, router.Spec.Service.TargetPort, 18000)
+	assert.Equal(t, router.Spec.Readiness.Port, 18000)
+}
+
 func TestRenderAtomPrefill(t *testing.T) {
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	w := atomRootWorkload()

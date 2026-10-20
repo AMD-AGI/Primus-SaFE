@@ -25,9 +25,13 @@
           <el-option label="High" :value="2" />
         </el-select>
       </el-form-item>
+      <el-form-item label="Container port">
+        <el-input-number v-model="form.serviceTargetPort" :min="1" :max="65535" />
+        <span class="hint">Router listen port. It must match --port in the router entrypoint.</span>
+      </el-form-item>
       <el-form-item label="Service port">
         <el-input-number v-model="form.servicePort" :min="1" :max="65535" />
-        <span class="hint">Router target port stays 8000. Prefill 8010 and decode 8020 are internal.</span>
+        <span class="hint">External Service port. Prefill and decode ports come from their entrypoints.</span>
       </el-form-item>
       <el-form-item label="Service type">
         <el-select v-model="form.serviceType">
@@ -50,6 +54,9 @@
           :rules="requiredRule('Entrypoint is required')"
         >
           <el-input v-model="form.roles[role].entryPoint" type="textarea" :rows="3" />
+          <div v-if="role !== 'router'" class="hint block">
+            Set --port and --disaggregation-bootstrap-port here. Defaults are 8010/8998 and 8020/9098.
+          </div>
         </el-form-item>
         <el-form-item label="Replica">
           <el-input-number v-model="form.roles[role].replica" :min="1" />
@@ -89,9 +96,17 @@ import { computed, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormItemRule } from 'element-plus'
 import ImageInput from '@/components/Base/ImageInput.vue'
 import { addWorkload, editWorkload, getWorkloadDetail, resumeWorkload } from '@/services/workload/index'
+import { decodeFromBase64String, quantityToGi } from '@/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { quantityToGi } from '@/utils'
-import { ATOM_ROLES, buildAtomWorkloadBody, initialAtomForm, type AtomRole } from '../atomPayload'
+import {
+  ATOM_ROLES,
+  buildAtomResumePayload,
+  buildAtomWorkloadBody,
+  mergeAtomResumeResources,
+  initialAtomForm,
+  type AtomResumeDetail,
+  type AtomRole,
+} from '../atomPayload'
 
 const props = defineProps<{
   visible: boolean
@@ -108,6 +123,7 @@ const emit = defineEmits<{
 const store = useWorkspaceStore()
 const formRef = ref<FormInstance>()
 const form = reactive(initialAtomForm())
+const sourceDetail = ref<AtomResumeDetail | null>(null)
 const submitting = ref(false)
 const isEdit = computed(() => props.action === 'Edit')
 const isResume = computed(() => props.action === 'Resume')
@@ -134,12 +150,15 @@ const nodePortRule: FormItemRule = {
 /** Fill the three role slots from an existing Atom workload. */
 async function onOpen() {
   Object.assign(form, initialAtomForm())
+  sourceDetail.value = null
   if (!props.wlid) return
   const res = await getWorkloadDetail(props.wlid)
+  sourceDetail.value = res
   form.displayName = res.displayName || ''
   form.description = res.description || ''
   form.priority = res.priority ?? 1
   form.servicePort = res.service?.port || 8000
+  form.serviceTargetPort = res.service?.targetPort || 8000
   form.serviceType = res.service?.serviceType || 'ClusterIP'
   form.serviceNodePort = Number(res.service?.nodePort) > 0 ? Number(res.service?.nodePort) : null
   form.serviceName = props.action === 'Clone' ? '' : String(res.service?.name || '')
@@ -147,15 +166,15 @@ async function onOpen() {
     const resource = res.resources?.[index] || {}
     form.roles[role] = {
       image: res.images?.[index] || '',
-      entryPoint: res.entryPoints?.[index] || '',
+      entryPoint: decodeFromBase64String(res.entryPoints?.[index] || ''),
       replica: Number(resource.replica) || 1,
       cpu: resource.cpu != null ? String(resource.cpu) : '2',
       gpu: resource.gpu != null ? String(resource.gpu) : '',
       memory: quantityToGi(resource.memory) || '4',
       ephemeralStorage: quantityToGi(resource.ephemeralStorage) || '20',
       sharedMemory: quantityToGi(resource.sharedMemory),
-      gpuName: resource.gpuName || '',
-      rdmaResource: resource.rdmaResource || '',
+      gpuName: resource.gpuName ? String(resource.gpuName) : '',
+      rdmaResource: resource.rdmaResource ? String(resource.rdmaResource) : '',
     }
   })
 }
@@ -175,10 +194,20 @@ async function submit() {
         resources: body.resources,
         service: body.service,
       })
-    } else if (isResume.value && props.wlid) {
+    } else if (isResume.value && props.wlid && sourceDetail.value) {
+      const secrets = (sourceDetail.value.secrets || []).map((item: { id: string }) => ({ id: item.id }))
+      const preserved = buildAtomResumePayload(sourceDetail.value, store.currentWorkspaceId || '', secrets)
+      const preservedResources = Array.isArray(preserved.resources) ? preserved.resources : []
       await resumeWorkload(props.wlid, {
-        ...body,
-        workspace: store.currentWorkspaceId,
+        ...preserved,
+        displayName: form.displayName.trim() || preserved.displayName || '',
+        groupVersionKind: body.groupVersionKind,
+        description: body.description,
+        priority: body.priority,
+        images: body.images,
+        entryPoints: body.entryPoints,
+        resources: mergeAtomResumeResources(preservedResources, body.resources),
+        service: body.service,
       })
     } else {
       await addWorkload({
@@ -211,5 +240,10 @@ async function submit() {
   margin-left: 12px;
   color: var(--el-text-color-secondary);
   font-size: 12px;
+}
+.hint.block {
+  display: block;
+  margin-left: 0;
+  margin-top: 6px;
 }
 </style>

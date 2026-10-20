@@ -279,6 +279,63 @@ func Test_deleteWorkload(t *testing.T) {
 	assert.Assert(t, err != nil, "Workload should be deleted from etcd after delete")
 }
 
+// Test_cleanUpWorkloads_KeepsExistingOnConflict verifies that a failed create caused by a
+// same-name workload does not delete the workload that already exists.
+func Test_cleanUpWorkloads_KeepsExistingOnConflict(t *testing.T) {
+	ctx := context.Background()
+	user := genMockUser()
+	role := genMockRole()
+
+	existing := genMockWorkload("test-cluster", "test-workspace")
+	existing.Name = "test-workload-conflict"
+	v1.SetLabel(existing, v1.UserIdLabel, user.Name)
+
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(user, role, existing).
+		WithScheme(scheme.Scheme).
+		Build()
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        k8sfake.NewSimpleClientset(),
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+
+	// A second request with the same name fails at Create with AlreadyExists.
+	duplicate := genMockWorkload("test-cluster", "test-workspace")
+	duplicate.Name = existing.Name
+	err := h.Create(ctx, duplicate)
+	assert.Assert(t, apierrors.IsAlreadyExists(err))
+
+	h.cleanUpWorkloads(ctx, duplicate, nil)
+
+	got := &v1.Workload{}
+	assert.NilError(t, h.Get(ctx, client.ObjectKey{Name: existing.Name}, got),
+		"The existing workload must survive a conflicting create")
+}
+
+// Test_cleanUpWorkloads_DeletesCreatedWorkload verifies that a workload created by the
+// failed request itself is still rolled back.
+func Test_cleanUpWorkloads_DeletesCreatedWorkload(t *testing.T) {
+	ctx := context.Background()
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithScheme(scheme.Scheme).
+		Build()
+	h := Handler{
+		Client:    fakeCtrlClient,
+		clientSet: k8sfake.NewSimpleClientset(),
+	}
+
+	created := genMockWorkload("test-cluster", "test-workspace")
+	created.Name = "test-workload-rollback"
+	assert.NilError(t, h.Create(ctx, created))
+	created.UID = "created-by-this-request"
+
+	h.cleanUpWorkloads(ctx, created, nil)
+
+	err := h.Get(ctx, client.ObjectKey{Name: created.Name}, &v1.Workload{})
+	assert.Assert(t, apierrors.IsNotFound(err), "A workload created by the failed request must be removed")
+}
+
 // Test_updateWorkloadPhase tests updating workload phase
 func Test_updateWorkloadPhase(t *testing.T) {
 	ctx := context.Background()

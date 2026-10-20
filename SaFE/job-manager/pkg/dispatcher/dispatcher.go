@@ -1476,7 +1476,13 @@ func (r *DispatcherReconciler) generateAtomRoleWorkload(ctx context.Context, roo
 		index >= len(rootWorkload.Spec.EntryPoints) {
 		return nil
 	}
-	port := atomRolePort(role)
+	serviceTarget := 0
+	if rootWorkload.Spec.Service != nil {
+		serviceTarget = rootWorkload.Spec.Service.TargetPort
+	}
+	port := commonworkload.AtomListenPort(serviceTarget, commonworkload.AtomCommand(rootWorkload, role), role)
+	prefillPort := commonworkload.AtomListenPort(0, commonworkload.AtomCommand(rootWorkload, common.AtomRolePrefill), common.AtomRolePrefill)
+	decodePort := commonworkload.AtomListenPort(0, commonworkload.AtomCommand(rootWorkload, common.AtomRoleDecode), common.AtomRoleDecode)
 	workload := rootWorkload.DeepCopy()
 	workload.Name = commonworkload.AtomRoleObjectName(rootWorkload.Name, role)
 	workload.Spec.Kind = common.DeploymentKind
@@ -1509,33 +1515,21 @@ func (r *DispatcherReconciler) generateAtomRoleWorkload(ctx context.Context, roo
 	workload.Spec.Env[common.AtomServerPortEnv] = strconv.Itoa(port)
 	workload.Spec.Env[common.AtomPrefillEndpointEnv] = commonworkload.AtomServiceEndpoint(
 		commonworkload.AtomRoleObjectName(rootWorkload.Name, common.AtomRolePrefill),
-		rootWorkload.Spec.Workspace, common.AtomPrefillPort)
+		rootWorkload.Spec.Workspace, prefillPort)
 	workload.Spec.Env[common.AtomDecodeEndpointEnv] = commonworkload.AtomServiceEndpoint(
 		commonworkload.AtomRoleObjectName(rootWorkload.Name, common.AtomRoleDecode),
-		rootWorkload.Spec.Workspace, common.AtomDecodePort)
+		rootWorkload.Spec.Workspace, decodePort)
 	if role == common.AtomRoleRouter {
 		if workload.Spec.Service == nil {
 			workload.Spec.Service = atomClusterService(workload.Name, port)
 		}
-		workload.Spec.Service.TargetPort = common.AtomRouterPort
+		workload.Spec.Service.TargetPort = port
 	} else {
 		workload.Spec.Service = atomClusterService(workload.Name, port)
 		v1.SetLabel(workload, v1.ServiceNameLabel, workload.Name)
 	}
 	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
 	return workload
-}
-
-// atomRolePort returns the fixed listen port of an Atom role.
-func atomRolePort(role string) int {
-	switch role {
-	case common.AtomRolePrefill:
-		return common.AtomPrefillPort
-	case common.AtomRoleDecode:
-		return common.AtomDecodePort
-	default:
-		return common.AtomRouterPort
-	}
 }
 
 // atomReadinessPath returns the HTTP probe path of an Atom role.
@@ -1631,19 +1625,21 @@ func servicePortsForWorkload(workload *v1.Workload, specService *v1.Service) []c
 	return ports
 }
 
-// atomBootstrapPort returns the fixed Mooncake bootstrap port of an Atom engine role.
+// atomBootstrapPort returns the Mooncake bootstrap port of an Atom engine role.
 func atomBootstrapPort(workload *v1.Workload) (int, bool) {
 	if workload == nil || workload.Spec.Env == nil {
 		return 0, false
 	}
-	switch workload.Spec.Env[common.AtomRoleEnv] {
-	case common.AtomRolePrefill:
-		return common.AtomPrefillBootstrapPort, true
-	case common.AtomRoleDecode:
-		return common.AtomDecodeBootstrapPort, true
-	default:
+	role := workload.Spec.Env[common.AtomRoleEnv]
+	command := ""
+	if len(workload.Spec.EntryPoints) > 0 {
+		command = commonworkload.DecodeEntryPoint(workload.Spec.EntryPoints[0])
+	}
+	port := commonworkload.AtomBootstrapPort(command, role)
+	if port == 0 {
 		return 0, false
 	}
+	return port, true
 }
 
 // checkK8sServiceOwner verifies that the workload owns the data-plane Service.

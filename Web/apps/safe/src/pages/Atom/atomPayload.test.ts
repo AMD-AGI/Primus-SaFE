@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { quantityToGi } from '@/utils'
-import { buildAtomResumePayload, buildAtomWorkloadBody, initialAtomForm } from './atomPayload'
+import { buildAtomResumePayload, buildAtomWorkloadBody, initialAtomForm, mergeAtomResumeResources } from './atomPayload'
 
 describe('buildAtomResumePayload', () => {
   it('keeps env, RDMA, GPU name, and customer labels', () => {
@@ -48,6 +48,48 @@ describe('buildAtomResumePayload', () => {
     expect(payload.resources[1]).toMatchObject({ gpuName: 'amd.com/gpu', rdmaResource: '1k' })
     expect(payload.resources[2]).toMatchObject({ gpuName: 'amd.com/gpu', rdmaResource: '1k' })
     expect(payload.resources[0]).not.toHaveProperty('rdmaResource')
+  })
+
+  it('drops RDMA and GPU name cleared in the resume form', () => {
+    const merged = mergeAtomResumeResources(
+      [
+        { replica: 1, cpu: '4', memory: '16Gi', ephemeralStorage: '20Gi' },
+        {
+          replica: 1,
+          cpu: '16',
+          gpu: '8',
+          gpuName: 'amd.com/gpu',
+          memory: '128Gi',
+          sharedMemory: '64Gi',
+          ephemeralStorage: '50Gi',
+          rdmaResource: '1k',
+        },
+      ],
+      [
+        { replica: 1, cpu: '4', memory: '16Gi', ephemeralStorage: '20Gi' },
+        { replica: 1, cpu: '16', memory: '128Gi', ephemeralStorage: '50Gi' },
+      ],
+    )
+
+    expect(merged[1]).not.toHaveProperty('rdmaResource')
+    expect(merged[1]).not.toHaveProperty('gpuName')
+    expect(merged[1]).not.toHaveProperty('gpu')
+    expect(merged[1]).not.toHaveProperty('sharedMemory')
+    expect(merged[1]).toMatchObject({ cpu: '16', memory: '128Gi', ephemeralStorage: '50Gi' })
+  })
+
+  it('keeps RDMA and GPU name when the resume form still sets them', () => {
+    const merged = mergeAtomResumeResources(
+      [{ gpu: '4', gpuName: 'old', sharedMemory: '8Gi', rdmaResource: '1k' }],
+      [{ gpu: '8', gpuName: 'amd.com/gpu', sharedMemory: '16Gi', rdmaResource: '2k' }],
+    )
+
+    expect(merged[0]).toMatchObject({
+      gpu: '8',
+      gpuName: 'amd.com/gpu',
+      sharedMemory: '16Gi',
+      rdmaResource: '2k',
+    })
   })
 })
 
