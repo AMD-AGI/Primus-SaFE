@@ -534,6 +534,30 @@ func TestAtomRoleContract(t *testing.T) {
 	assert.Equal(t, AtomBootstrapPort("python --disaggregation-bootstrap-port 1", common.AtomRoleRouter), 0)
 }
 
+func TestGetUsedHostPortsRegistersSGLangRouterEngines(t *testing.T) {
+	mockScheme := runtime.NewScheme()
+	assert.NilError(t, v1.AddToScheme(mockScheme))
+	router := wlKind(common.SGLangRouterKind)
+	router.Name = "sglang1"
+	v1.SetLabel(router, v1.ClusterIdLabel, "c1")
+	router.Spec.Resources = []v1.WorkloadResource{{}, {RdmaResource: "1k"}, {RdmaResource: "1k"}}
+	router.Spec.EntryPoints = []string{
+		"python --port 8000",
+		"python --port 18010 --disaggregation-bootstrap-port 18998",
+		"python --port 18020 --disaggregation-bootstrap-port 19098",
+	}
+	cli := fake.NewClientBuilder().WithScheme(mockScheme).WithObjects(router).Build()
+
+	ports := GetUsedHostPorts(context.Background(), cli, "c1")
+
+	for _, port := range []int{18010, 18998, 18020, 19098} {
+		_, ok := ports[port]
+		assert.Assert(t, ok)
+	}
+	_, routerRegistered := ports[8000]
+	assert.Assert(t, !routerRegistered)
+}
+
 func TestIsOpsJob(t *testing.T) {
 	w := wlKind(common.JobKind)
 	assert.Assert(t, !IsOpsJob(w))

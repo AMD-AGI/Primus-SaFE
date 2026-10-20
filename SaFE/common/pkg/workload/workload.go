@@ -1032,7 +1032,7 @@ func SetMainContainerViaTemplate(ctx context.Context, cli client.Client, workloa
 
 // GetUsedHostPorts returns a set of all host ports currently in use by workloads in the specified cluster.
 // It collects: (1) JobPort and SSHPort from RDMA workloads (hostNetwork pods); (2) Service.NodePort;
-// Atom prefill and decode listen and bootstrap ports are included when the role requests RDMA.
+// Atom and SGLangRouter prefill and decode listen and bootstrap ports are included when the role requests RDMA.
 // (3) GcsServer and Dashboard Port for RayJob; (4) DynamoFrontendPort for DGD when any worker uses RDMA
 // (Frontend is promoted to hostNetwork in IsEnabledHostNetwork to dodge the same-node Pod->hostIP hairpin).
 // The returned map acts as a set where keys are port numbers and values are empty structs.
@@ -1042,7 +1042,7 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterId})
 	if cli.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector}) == nil {
 		for _, item := range workloadList.Items {
-			if IsAtom(&item) {
+			if IsAtom(&item) || IsSGLangRouter(&item) {
 				for port := range atomEngineHostPorts(&item) {
 					ports[port] = struct{}{}
 				}
@@ -1071,7 +1071,7 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 	return ports
 }
 
-// atomEngineHostPorts returns listen and bootstrap ports of Atom engines that use hostNetwork.
+// atomEngineHostPorts returns listen and bootstrap ports of prefill and decode roles that request RDMA.
 func atomEngineHostPorts(workload *v1.Workload) map[int]struct{} {
 	ports := map[int]struct{}{}
 	roles := []string{common.AtomRoleRouter, common.AtomRolePrefill, common.AtomRoleDecode}
