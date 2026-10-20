@@ -17,6 +17,8 @@ COPY sh-wrapper.sh /usr/local/bin/sh-wrapper.sh
 COPY entrypoint.sh /usr/local/bin/sglang-router-entrypoint
 # Replace /usr/bin/sh with a file. Writing through the symlink would overwrite dash.
 # /bin/sh is that same file on a merged /usr layout, and a separate copy otherwise.
+# The /bin/sh wrapper creates /run/sshd-init.done on first use. The marker is removed at
+# the end of this step so sshd starts once in each container.
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         openssh-server openssh-client openssh-sftp-server \
     && rm -rf /var/lib/apt/lists/* \
@@ -40,7 +42,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
         '  IdentityFile /root/.ssh/id_ed25519' \
         > /root/.ssh/config \
     && chmod 600 /root/.ssh/config \
-    && ssh-keygen -A
+    && ssh-keygen -A \
+    && rm -f /run/sshd-init.done
 
 ENTRYPOINT ["/usr/local/bin/sglang-router-entrypoint"]
 CMD ["tail", "-f", "/dev/null"]
