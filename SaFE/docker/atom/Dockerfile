@@ -4,7 +4,7 @@
 # Packages ATOM source and atomesh on a published SGLang or vLLM ROCm image.
 # Select the base with ENGINE=sglang or ENGINE=vllm.
 # The SGLang base rebuilds Mooncake 01d1eb2a with chunked HIP dma-buf registration.
-# sshd listens on 2222. With no user command the container runs tail -f /dev/null.
+# sshd starts only when MN_SSH_AUTHORIZED_KEY is set. With no user command the container runs tail -f /dev/null.
 # /tmp/aiter_configs is emptied and mode 1777 so a non-root process can rewrite it.
 ARG ENGINE=sglang
 ARG SGLANG_BASE=docker.io/primussafe/sglang-rocm:20261013121117-8e371c
@@ -74,18 +74,6 @@ RUN chmod 0755 /usr/local/bin/atom-entrypoint /usr/local/bin/sshd-init.sh /usr/l
     && cp /usr/local/bin/sh-wrapper.sh /usr/bin/sh \
     && mkdir -p /root/.ssh /run/sshd \
     && chmod 700 /root/.ssh \
-    && ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/id_ed25519 \
-    && cp /root/.ssh/id_ed25519.pub /root/.ssh/authorized_keys \
-    && chmod 600 /root/.ssh/id_ed25519 /root/.ssh/authorized_keys \
-    && printf '%s\n' \
-        'Host *' \
-        '  Port 2222' \
-        '  StrictHostKeyChecking no' \
-        '  UserKnownHostsFile /dev/null' \
-        '  IdentityFile /root/.ssh/id_ed25519' \
-        > /root/.ssh/config \
-    && chmod 600 /root/.ssh/config \
-    && ssh-keygen -A \
     && rm -rf /tmp/aiter_configs \
     && mkdir -p /tmp/aiter_configs \
     && chmod 1777 /tmp/aiter_configs

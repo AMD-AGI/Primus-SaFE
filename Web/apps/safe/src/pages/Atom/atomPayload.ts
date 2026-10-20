@@ -28,6 +28,7 @@ export interface AtomFormModel {
   servicePort: number
   serviceTargetPort: number
   serviceType: string
+  serviceNodePort: number | null
   serviceName: string
   roles: Record<AtomRole, AtomRoleForm>
 }
@@ -57,6 +58,7 @@ export function initialAtomForm(): AtomFormModel {
     servicePort: ATOM_ROUTER_TARGET_PORT,
     serviceTargetPort: ATOM_ROUTER_TARGET_PORT,
     serviceType: 'ClusterIP',
+    serviceNodePort: null,
     serviceName: '',
     roles: {
       router: emptyAtomRole(),
@@ -80,7 +82,7 @@ function roleResource(form: AtomRoleForm) {
     memory: withGi(form.memory),
     ephemeralStorage: withGi(form.ephemeralStorage),
     ...(gpu && gpu !== '0' ? { gpu } : {}),
-    ...(form.sharedMemory.trim() ? { sharedMemory: form.sharedMemory.trim() } : {}),
+    ...(form.sharedMemory.trim() ? { sharedMemory: withGi(form.sharedMemory) } : {}),
     ...(form.gpuName.trim() ? { gpuName: form.gpuName.trim() } : {}),
     ...(form.rdmaResource.trim() ? { rdmaResource: form.rdmaResource.trim() } : {}),
   }
@@ -108,6 +110,9 @@ export function buildAtomWorkloadBody(form: AtomFormModel) {
       port: Number(form.servicePort) || ATOM_ROUTER_TARGET_PORT,
       targetPort: Number(form.serviceTargetPort) || ATOM_ROUTER_TARGET_PORT,
       serviceType: form.serviceType || 'ClusterIP',
+      ...(form.serviceType === 'NodePort' && Number(form.serviceNodePort) > 0
+        ? { nodePort: Number(form.serviceNodePort) }
+        : {}),
     },
   }
 }
@@ -126,6 +131,7 @@ export interface AtomResumeDetail {
     port?: number
     targetPort?: number
     serviceType?: string
+    nodePort?: number
   }
   timeout?: number
   env?: Record<string, string>
@@ -189,6 +195,7 @@ export function buildAtomResumePayload(
           port: detail.service.port,
           targetPort: detail.service.targetPort || ATOM_ROUTER_TARGET_PORT,
           serviceType: detail.service.serviceType || 'ClusterIP',
+          ...(Number(detail.service.nodePort) > 0 ? { nodePort: Number(detail.service.nodePort) } : {}),
         },
       }
     : {}

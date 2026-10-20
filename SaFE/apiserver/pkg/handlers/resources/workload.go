@@ -1713,6 +1713,14 @@ func parseCustomerLabels(labels map[string]string) (map[string]string, []string,
 	return customerLabels, specifiedNodes, excludedNodes
 }
 
+// sshTemplateGVK maps Atom onto the Deployment template its roles render.
+func sshTemplateGVK(gvk v1.GroupVersionKind) v1.GroupVersionKind {
+	if gvk.Kind == common.AtomKind {
+		gvk.Kind = common.DeploymentKind
+	}
+	return gvk
+}
+
 // buildSSHCommand constructs the SSH command for accessing a workload pod.
 func (h *Handler) buildSSHCommand(ctx context.Context, pod *v1.WorkloadPod, userId, workspace string, gvk v1.GroupVersionKind) string {
 	if !commonconfig.IsSSHEnable() || pod.Phase != corev1.PodRunning {
@@ -1722,7 +1730,7 @@ func (h *Handler) buildSSHCommand(ctx context.Context, pod *v1.WorkloadPod, user
 		userId = "none"
 	}
 
-	template, err := commonworkload.GetWorkloadTemplate(ctx, h.Client, gvk.ToSchemaGVK())
+	template, err := commonworkload.GetWorkloadTemplate(ctx, h.Client, sshTemplateGVK(gvk).ToSchemaGVK())
 	if err != nil {
 		klog.ErrorS(err, "Failed to get workload template")
 		return ""

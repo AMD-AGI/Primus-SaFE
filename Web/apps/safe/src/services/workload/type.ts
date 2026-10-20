@@ -126,6 +126,7 @@ export interface EditWorkloadRequest {
     replica?: number
     cpu: string
     gpu?: string
+    gpuName?: string
     memory: string
     ephemeralStorage?: string
     sharedMemory?: string
@@ -192,6 +193,7 @@ export interface SubmitWorkloadRequest {
     replica?: number
     cpu: string
     gpu?: string
+    gpuName?: string
     memory: string
     ephemeralStorage?: string
     sharedMemory?: string
