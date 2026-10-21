@@ -100,7 +100,7 @@ func isAtomEngineRole(workload *v1.Workload) bool {
 	if workload == nil || workload.Spec.Env == nil {
 		return false
 	}
-	role := workload.Spec.Env[common.AtomRoleEnv]
+	role := workload.Spec.Env[common.InferRoleEnv]
 	return role == common.AtomRolePrefill || role == common.AtomRoleDecode
 }
 

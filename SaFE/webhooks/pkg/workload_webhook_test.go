@@ -715,6 +715,10 @@ func TestValidateSGLangRouter(t *testing.T) {
 	w.Spec.EntryPoints[0] = stringutil.Base64Encode("python3 -m sglang_router.launch_router --prefill {prefill} --decode {decode}")
 	w.Spec.EntryPoints[1] = stringutil.Base64Encode("atomesh")
 	assert.Assert(t, v.validateSGLangRouter(w) != nil)
+
+	w.Spec.EntryPoints[1] = stringutil.Base64Encode("python3 -m sglang.launch_server --model-path /models/atomesh-ckpt")
+	w.Spec.EntryPoints[2] = stringutil.Base64Encode("python3 -m sglang.launch_server --disaggregation-mode decode")
+	assert.NilError(t, v.validateSGLangRouter(w))
 }
 
 func TestWorkloadValidateInferaDeployment(t *testing.T) {

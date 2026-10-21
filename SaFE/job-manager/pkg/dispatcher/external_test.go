@@ -245,7 +245,7 @@ func TestExternalHostNetworkInferaRDMA(t *testing.T) {
 func TestExternalHostNetworkAtomRDMA(t *testing.T) {
 	prefill := claimWorkload()
 	prefill.Spec.Kind = common.DeploymentKind
-	prefill.Spec.Env = map[string]string{common.AtomRoleEnv: common.AtomRolePrefill}
+	prefill.Spec.Env = map[string]string{common.InferRoleEnv: common.AtomRolePrefill}
 	prefill.Spec.Resources = []v1.WorkloadResource{
 		{Replica: 1, CPU: "16", Memory: "128Gi", GPU: "1", GPUName: "amd.com/gpu", RdmaResource: "1k"},
 	}
@@ -257,7 +257,7 @@ func TestExternalHostNetworkAtomRDMA(t *testing.T) {
 	assert.Assert(t, enabled)
 
 	router := prefill.DeepCopy()
-	router.Spec.Env[common.AtomRoleEnv] = common.AtomRoleRouter
+	router.Spec.Env[common.InferRoleEnv] = common.AtomRoleRouter
 	router.Spec.Resources[0].RdmaResource = ""
 	obj = &unstructured.Unstructured{Object: map[string]interface{}{}}
 	assert.NilError(t, updateHostNetwork(router, obj, externalShapeSpec(), 0))

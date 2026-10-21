@@ -540,6 +540,7 @@ func TestGetUsedHostPortsRegistersSGLangRouterEngines(t *testing.T) {
 	router := wlKind(common.SGLangRouterKind)
 	router.Name = "sglang1"
 	v1.SetLabel(router, v1.ClusterIdLabel, "c1")
+	router.Spec.Env = map[string]string{common.MNSSHPortEnv: "2233"}
 	router.Spec.Resources = []v1.WorkloadResource{{}, {RdmaResource: "1k"}, {RdmaResource: "1k"}}
 	router.Spec.EntryPoints = []string{
 		"python --port 8000",
@@ -550,7 +551,7 @@ func TestGetUsedHostPortsRegistersSGLangRouterEngines(t *testing.T) {
 
 	ports := GetUsedHostPorts(context.Background(), cli, "c1")
 
-	for _, port := range []int{18010, 18998, 18020, 19098} {
+	for _, port := range []int{18010, 18998, 18020, 19098, 2233, 2243} {
 		_, ok := ports[port]
 		assert.Assert(t, ok)
 	}

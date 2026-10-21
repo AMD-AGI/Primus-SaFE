@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -167,9 +168,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateDynamoDeployment(newWorkload)
 	case common.InferaDeploymentKind:
 		m.mutateInferaDeployment(newWorkload)
-	case common.AtomKind:
-		m.mutateAtom(newWorkload)
-	case common.SGLangRouterKind:
+	case common.AtomKind, common.SGLangRouterKind:
 		m.mutateAtom(newWorkload)
 	}
 	m.mutateHostPath(newWorkload, workspace)
@@ -620,8 +619,8 @@ func (v *WorkloadValidator) validateSGLangRouter(workload *v1.Workload) error {
 	if err := validateDisaggregatedShape(workload, "SGLangRouter"); err != nil {
 		return err
 	}
-	router := workloadEntryPoint(workload.Spec.EntryPoints[0])
-	if strings.Contains(strings.ToLower(router), "atomesh") {
+	router := commonworkload.DecodeEntryPoint(workload.Spec.EntryPoints[0])
+	if containsAtomeshCommand(router) {
 		return fmt.Errorf("SGLangRouter must not use atomesh")
 	}
 	if !strings.Contains(router, "sglang_router") {
@@ -631,11 +630,17 @@ func (v *WorkloadValidator) validateSGLangRouter(workload *v1.Workload) error {
 		return fmt.Errorf("SGLangRouter entrypoint must contain {prefill} and {decode}")
 	}
 	for i := 1; i < len(workload.Spec.EntryPoints); i++ {
-		if strings.Contains(strings.ToLower(workloadEntryPoint(workload.Spec.EntryPoints[i])), "atomesh") {
+		if containsAtomeshCommand(commonworkload.DecodeEntryPoint(workload.Spec.EntryPoints[i])) {
 			return fmt.Errorf("SGLangRouter entryPoint at index %d must not use atomesh", i)
 		}
 	}
 	return nil
+}
+
+// containsAtomeshCommand reports atomesh as a command word, not a path or model name substring.
+func containsAtomeshCommand(command string) bool {
+	return regexp.MustCompile(`(^|[[:space:]=;|&/])atomesh([[:space:]=;|&]|$)`).
+		MatchString(strings.ToLower(command))
 }
 
 // validateDisaggregatedShape checks the shared router, prefill, decode contract.
@@ -661,16 +666,6 @@ func validateDisaggregatedShape(workload *v1.Workload, kind string) error {
 		return fmt.Errorf("%s workload name is too long", kind)
 	}
 	return nil
-}
-
-// workloadEntryPoint returns the command text, decoding a base64 payload when present.
-func workloadEntryPoint(value string) string {
-	if stringutil.IsBase64(value) {
-		if decoded := stringutil.Base64Decode(value); decoded != "" {
-			return decoded
-		}
-	}
-	return value
 }
 
 // validateAtomPorts checks listen and bootstrap ports supplied at create time.

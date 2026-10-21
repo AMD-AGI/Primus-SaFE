@@ -32,7 +32,7 @@ if [ "${actual}" != "specified command" ]; then
     exit 1
 fi
 
-ATOM_ROLE=router "${tmp_dir}/entrypoint.sh" tail -f /dev/null &
+INFER_ROLE=router "${tmp_dir}/entrypoint.sh" tail -f /dev/null &
 tail_pid=$!
 sleep 0.1
 if ! kill -0 "${tail_pid}" 2>/dev/null; then
@@ -43,7 +43,7 @@ kill "${tail_pid}"
 wait "${tail_pid}" 2>/dev/null || true
 tail_pid=""
 
-ATOM_ROLE=prefill "${tmp_dir}/entrypoint.sh" &
+INFER_ROLE=prefill "${tmp_dir}/entrypoint.sh" &
 tail_pid=$!
 sleep 0.1
 if ! kill -0 "${tail_pid}" 2>/dev/null; then

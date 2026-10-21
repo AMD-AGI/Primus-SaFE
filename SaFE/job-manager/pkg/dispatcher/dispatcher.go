@@ -1196,7 +1196,7 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload *v1.Workload,
 	clientSets *syncer.ClusterClientSets, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
 	if adminWorkload.Spec.Service == nil || commonconfig.GetIngress() != common.HigressClassname ||
-		!publishesSGLangRouterIngress(adminWorkload) {
+		!publishesRoleIngress(adminWorkload) {
 		return ctrlruntime.Result{}, nil
 	}
 	k8sClientSet := clientSets.ClientFactory().ClientSet()
@@ -1279,7 +1279,7 @@ func (r *DispatcherReconciler) updateIngress(ctx context.Context, adminWorkload 
 	namespace := adminWorkload.Spec.Workspace
 	name := adminWorkload.Name
 	// Delete when service is not desired. SGLangRouter engines stay off the public Ingress.
-	if adminWorkload.Spec.Service == nil || !publishesSGLangRouterIngress(adminWorkload) {
+	if adminWorkload.Spec.Service == nil || !publishesRoleIngress(adminWorkload) {
 		err := k8sClientSet.NetworkingV1().Ingresses(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
@@ -1491,11 +1491,8 @@ func (r *DispatcherReconciler) generateAtomRoleWorkload(ctx context.Context, roo
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[index]}
 	workload.Spec.Images = []string{rootWorkload.Spec.Images[index]}
 	workload.Spec.EntryPoints = []string{rootWorkload.Spec.EntryPoints[index]}
-	if commonworkload.IsSGLangRouter(rootWorkload) {
-		v1.SetLabel(workload, v1.WorkloadKindLabel, common.SGLangRouterKind)
-		if role == common.AtomRoleRouter {
-			workload.Spec.EntryPoints = []string{sglangRouterEntryPoint(rootWorkload)}
-		}
+	if commonworkload.IsSGLangRouter(rootWorkload) && role == common.AtomRoleRouter {
+		workload.Spec.EntryPoints = []string{sglangRouterEntryPoint(rootWorkload, prefillPort, decodePort)}
 	}
 	workload.Spec.Liveness = nil
 	workload.Spec.Readiness = &v1.HealthCheck{
@@ -1511,7 +1508,7 @@ func (r *DispatcherReconciler) generateAtomRoleWorkload(ctx context.Context, roo
 	if workload.Spec.Env == nil {
 		workload.Spec.Env = map[string]string{}
 	}
-	workload.Spec.Env[common.AtomRoleEnv] = role
+	workload.Spec.Env[common.InferRoleEnv] = role
 	workload.Spec.Env[common.AtomServerPortEnv] = strconv.Itoa(port)
 	workload.Spec.Env[common.AtomPrefillEndpointEnv] = commonworkload.AtomServiceEndpoint(
 		commonworkload.AtomRoleObjectName(rootWorkload.Name, common.AtomRolePrefill),
@@ -1540,41 +1537,28 @@ func atomReadinessPath(role string) string {
 	return common.AtomHealthPath
 }
 
-// publishesSGLangRouterIngress keeps SGLangRouter prefill and decode off the public Ingress.
-func publishesSGLangRouterIngress(workload *v1.Workload) bool {
-	if v1.GetLabel(workload, v1.WorkloadKindLabel) != common.SGLangRouterKind {
-		return true
-	}
+// publishesRoleIngress keeps Atom and SGLangRouter prefill and decode off the public Ingress.
+func publishesRoleIngress(workload *v1.Workload) bool {
 	role := ""
 	if workload.Spec.Env != nil {
-		role = workload.Spec.Env[common.AtomRoleEnv]
+		role = workload.Spec.Env[common.InferRoleEnv]
 	}
-	return role == "" || role == common.AtomRoleRouter
+	return role != common.AtomRolePrefill && role != common.AtomRoleDecode
 }
 
 // sglangRouterEntryPoint substitutes the model-gateway prefill and decode URLs.
-func sglangRouterEntryPoint(root *v1.Workload) string {
+func sglangRouterEntryPoint(root *v1.Workload, prefillPort, decodePort int) string {
 	index := commonworkload.AtomRoleIndex(common.AtomRoleRouter)
-	command := entryPointText(root.Spec.EntryPoints[index])
+	command := commonworkload.DecodeEntryPoint(root.Spec.EntryPoints[index])
 	prefill := commonworkload.AtomServiceEndpoint(
 		commonworkload.AtomRoleObjectName(root.Name, common.AtomRolePrefill),
-		root.Spec.Workspace, common.AtomPrefillPort)
+		root.Spec.Workspace, prefillPort)
 	decode := commonworkload.AtomServiceEndpoint(
 		commonworkload.AtomRoleObjectName(root.Name, common.AtomRoleDecode),
-		root.Spec.Workspace, common.AtomDecodePort)
+		root.Spec.Workspace, decodePort)
 	command = strings.ReplaceAll(command, common.SGLangRouterPrefillToken, prefill)
 	command = strings.ReplaceAll(command, common.SGLangRouterDecodeToken, decode)
 	return stringutil.Base64Encode(command)
-}
-
-// entryPointText returns the command text, decoding a base64 payload when present.
-func entryPointText(value string) string {
-	if stringutil.IsBase64(value) {
-		if decoded := stringutil.Base64Decode(value); decoded != "" {
-			return decoded
-		}
-	}
-	return value
 }
 
 // atomClusterService returns a ClusterIP Service for one Atom role.
@@ -1630,7 +1614,7 @@ func atomBootstrapPort(workload *v1.Workload) (int, bool) {
 	if workload == nil || workload.Spec.Env == nil {
 		return 0, false
 	}
-	role := workload.Spec.Env[common.AtomRoleEnv]
+	role := workload.Spec.Env[common.InferRoleEnv]
 	command := ""
 	if len(workload.Spec.EntryPoints) > 0 {
 		command = commonworkload.DecodeEntryPoint(workload.Spec.EntryPoints[0])

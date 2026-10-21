@@ -11,6 +11,7 @@ unchanged.
 """
 
 import argparse
+import json
 import logging
 import sys
 import time
@@ -90,16 +91,39 @@ class GatewayChatBackend:
         }
 
     async def _generate_chat_stream(self, adapted_request, processed_request, raw_request):
-        """Yield the gateway's chat completion SSE lines. Upstream errors become one data line."""
+        """Yield the gateway's chat completion SSE lines. Upstream errors become one SSE event."""
         body = chat_body(processed_request)
         body["stream"] = True
-        async with self.client.stream("POST", CHAT_PATH, json=body) as resp:
-            if resp.status_code != 200:
-                yield "data: " + (await resp.aread()).decode("utf-8", errors="replace")
-                return
-            async for line in resp.aiter_lines():
-                if line:
-                    yield line + "\n\n"
+        try:
+            async with self.client.stream("POST", CHAT_PATH, json=body) as resp:
+                if resp.status_code != 200:
+                    raw = (await resp.aread()).decode("utf-8", errors="replace")
+                    try:
+                        payload = json.loads(raw)
+                    except json.JSONDecodeError:
+                        payload = {
+                            "error": {
+                                "message": raw or f"gateway returned {resp.status_code}",
+                                "type": "api_error",
+                                "code": resp.status_code,
+                            }
+                        }
+                    yield "data: " + json.dumps(payload) + "\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+                async for line in resp.aiter_lines():
+                    if line:
+                        yield line + "\n\n"
+        except httpx.HTTPError as e:
+            payload = {
+                "error": {
+                    "message": "Gateway unreachable",
+                    "type": "api_error",
+                    "code": type(e).__name__,
+                }
+            }
+            yield "data: " + json.dumps(payload) + "\n\n"
+            yield "data: [DONE]\n\n"
 
 
 class GatewayAnthropicServing(AnthropicServing):
