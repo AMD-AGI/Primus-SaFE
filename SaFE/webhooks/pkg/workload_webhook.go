@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -614,33 +613,9 @@ func (v *WorkloadValidator) validateAtom(workload *v1.Workload) error {
 	return validateDisaggregatedShape(workload, "atom")
 }
 
-// validateSGLangRouter requires the same three roles and an SGLang model-gateway router.
+// validateSGLangRouter requires the same three roles as Atom.
 func (v *WorkloadValidator) validateSGLangRouter(workload *v1.Workload) error {
-	if err := validateDisaggregatedShape(workload, "SGLangRouter"); err != nil {
-		return err
-	}
-	router := commonworkload.DecodeEntryPoint(workload.Spec.EntryPoints[0])
-	if containsAtomeshCommand(router) {
-		return fmt.Errorf("SGLangRouter must not use atomesh")
-	}
-	if !strings.Contains(router, "sglang_router") {
-		return fmt.Errorf("SGLangRouter must launch sglang_router")
-	}
-	if !strings.Contains(router, common.SGLangRouterPrefillToken) || !strings.Contains(router, common.SGLangRouterDecodeToken) {
-		return fmt.Errorf("SGLangRouter entrypoint must contain {prefill} and {decode}")
-	}
-	for i := 1; i < len(workload.Spec.EntryPoints); i++ {
-		if containsAtomeshCommand(commonworkload.DecodeEntryPoint(workload.Spec.EntryPoints[i])) {
-			return fmt.Errorf("SGLangRouter entryPoint at index %d must not use atomesh", i)
-		}
-	}
-	return nil
-}
-
-// containsAtomeshCommand reports atomesh as a command word, not a path or model name substring.
-func containsAtomeshCommand(command string) bool {
-	return regexp.MustCompile(`(^|[[:space:]=;|&/])atomesh([[:space:]=;|&]|$)`).
-		MatchString(strings.ToLower(command))
+	return validateDisaggregatedShape(workload, "SGLangRouter")
 }
 
 // validateDisaggregatedShape checks the shared router, prefill, decode contract.
