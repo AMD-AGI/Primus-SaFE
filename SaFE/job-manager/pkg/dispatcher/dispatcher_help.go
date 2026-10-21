@@ -3286,9 +3286,15 @@ func stripExternalContainerPrivileges(obj *unstructured.Unstructured, workload *
 	return jobutils.SetNestedField(obj.Object, containers, path)
 }
 
+// externalNodeFailureTolerationSeconds is how long a pod remains after its node
+// is tainted NotReady or Unreachable. Declaring it here keeps the apiserver
+// from injecting its 300s default.
+const externalNodeFailureTolerationSeconds int64 = 30
+
 // applyExternalVirtualKubeletToleration adds tolerations for the provider's virtual-node
 // taints so kube-scheduler can place the pod on an external VK. Both the community
-// key and the legacy SaFE key are added during the dual-key transition.
+// key and the legacy SaFE key are added during the dual-key transition. NotReady
+// and Unreachable are tolerated only for externalNodeFailureTolerationSeconds.
 func applyExternalVirtualKubeletToleration(obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec v1.ResourceSpec) error {
 	path := podSpecPath(workload, &resourceSpec, "tolerations")
@@ -3314,6 +3320,17 @@ func applyExternalVirtualKubeletToleration(obj *unstructured.Unstructured, workl
 			"key":      key,
 			"operator": "Exists",
 			"effect":   "NoSchedule",
+		})
+	}
+	for _, key := range []string{corev1.TaintNodeNotReady, corev1.TaintNodeUnreachable} {
+		if have[key] {
+			continue
+		}
+		tolerations = append(tolerations, map[string]interface{}{
+			"key":               key,
+			"operator":          "Exists",
+			"effect":            "NoExecute",
+			"tolerationSeconds": externalNodeFailureTolerationSeconds,
 		})
 	}
 	return jobutils.SetNestedField(obj.Object, tolerations, path)
