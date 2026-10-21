@@ -78,6 +78,7 @@ RUN chmod 0755 /usr/local/bin/atom-entrypoint /usr/local/bin/sshd-init.sh /usr/l
     && cp /usr/local/bin/sh-wrapper.sh /usr/bin/sh \
     && mkdir -p /root/.ssh /run/sshd \
     && chmod 700 /root/.ssh \
+    && rm -rf /run/sshd-init.lock /run/sshd-init.done \
     && rm -rf /tmp/aiter_configs \
     && mkdir -p /tmp/aiter_configs \
     && chmod 1777 /tmp/aiter_configs
