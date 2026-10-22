@@ -97,6 +97,32 @@ off_thread_tail = """    // HIP queries and the dma-buf export run on a joined s
     }
     return rc;
 }"""
+# Retain without a later release leaks the primary context.
+previous_restore_tail = """    // HIP queries and the dma-buf export run on a joined side thread.
+    // Retain the caller's primary context across that work and put it
+    // back afterwards. Without the retain, the next hipStreamCreate
+    // on this thread segfaults.
+    hipCtx_t caller_ctx = nullptr;
+    (void)hipCtxGetCurrent(&caller_ctx);
+    hipCtx_t retained_ctx = nullptr;
+    (void)hipDevicePrimaryCtxRetain(&retained_ctx, hipAttr.device);
+    int rc = ERR_CONTEXT;
+    std::thread([&]() {
+        if (hipSetDevice(hipAttr.device) != hipSuccess) {
+            LOG(ERROR) << "Failed to set HIP device to " << hipAttr.device
+                       << " for dmabuf export of " << (uintptr_t)addr;
+            return;
+        }
+        rc = exportCurrentDeviceDmabuf(addr, out);
+    }).join();
+    if (caller_ctx != nullptr) {
+        (void)hipCtxSetCurrent(caller_ctx);
+    }
+    if (rc == 0) {
+        LOG_FIRST_N(INFO, 1) << "dmabuf export restores the caller HIP context";
+    }
+    return rc;
+}"""
 previous_off_thread_tail = """    // HIP queries and the dma-buf export run on a joined side thread.
     // Doing them on the scheduler thread leaves PyTorch's HIP context
     // unusable: the next hipStreamCreate segfaults.
@@ -114,8 +140,12 @@ previous_off_thread_tail = """    // HIP queries and the dma-buf export run on a
     }
     return rc;
 }"""
-if marker_restore in ct:
+if "hipDevicePrimaryCtxRelease" in ct:
     pass
+elif marker_restore in ct:
+    if previous_restore_tail not in ct:
+        raise SystemExit("restore export anchor missing")
+    ctx.write_text(ct.replace(previous_restore_tail, off_thread_tail, 1))
 elif marker_off_thread in ct:
     if previous_off_thread_tail not in ct:
         raise SystemExit("off-thread export anchor missing")

@@ -12,8 +12,23 @@ path = Path(
 )
 marker = "Realize HIP streams before Mooncake dma-buf export"
 text = path.read_text()
+old_loop = """        for realized in (self.schedule_stream, self.forward_stream):
+            if realized is not None and hasattr(realized, "cuda_stream"):
+                _ = realized.cuda_stream
+"""
+new_loop = """        for name in ("schedule_stream", "forward_stream"):
+            realized = getattr(self, name, None)
+            if realized is not None and hasattr(realized, "cuda_stream"):
+                _ = realized.cuda_stream
+"""
 if marker in text:
-    print("scheduler streams already realized")
+    if new_loop in text:
+        print("scheduler streams already realized")
+        raise SystemExit(0)
+    if old_loop not in text:
+        raise SystemExit("scheduler stream loop anchor missing")
+    path.write_text(text.replace(old_loop, new_loop, 1))
+    print("scheduler streams upgraded")
     raise SystemExit(0)
 
 anchor = """        ) = self.tp_worker.get_worker_info()
