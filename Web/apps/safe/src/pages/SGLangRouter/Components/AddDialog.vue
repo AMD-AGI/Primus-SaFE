@@ -127,6 +127,7 @@ const sourceDetail = ref<SGLangRouterResumeDetail | null>(null)
 const submitting = ref(false)
 const isEdit = computed(() => props.action === 'Edit')
 const isResume = computed(() => props.action === 'Resume')
+const isClone = computed(() => props.action === 'Clone')
 
 const rules = {
   displayName: [{ required: true, message: 'Name is required', trigger: 'blur' }],
@@ -194,11 +195,11 @@ async function submit() {
         resources: body.resources,
         service: body.service,
       })
-    } else if (isResume.value && props.wlid && sourceDetail.value) {
+    } else if ((isResume.value || isClone.value) && props.wlid && sourceDetail.value) {
       const secrets = (sourceDetail.value.secrets || []).map((item: { id: string }) => ({ id: item.id }))
       const preserved = buildSGLangRouterResumePayload(sourceDetail.value, store.currentWorkspaceId || '', secrets)
       const preservedResources = Array.isArray(preserved.resources) ? preserved.resources : []
-      await resumeWorkload(props.wlid, {
+      const request = {
         ...preserved,
         displayName: form.displayName.trim() || preserved.displayName || '',
         groupVersionKind: body.groupVersionKind,
@@ -208,7 +209,13 @@ async function submit() {
         entryPoints: body.entryPoints,
         resources: mergeSGLangRouterResumeResources(preservedResources, body.resources),
         service: body.service,
-      })
+      }
+      if (isClone.value) {
+        delete request.workloadId
+        await addWorkload(request)
+      } else {
+        await resumeWorkload(props.wlid, request)
+      }
     } else {
       await addWorkload({
         ...body,
