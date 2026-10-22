@@ -30,6 +30,7 @@ from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import ValidationError
 from sglang.srt.entrypoints.anthropic.protocol import (
     AnthropicCountTokensRequest,
     AnthropicCountTokensResponse,
@@ -216,7 +217,10 @@ class GatewayAnthropicServing(AnthropicServing):
             return self._error_response(502, "api_error", "Gateway unreachable", type(e).__name__)
         if resp.status_code != 200:
             return self._upstream_error(resp)
-        response = ChatCompletionResponse.model_validate(resp.json())
+        try:
+            response = ChatCompletionResponse.model_validate(resp.json())
+        except (json.JSONDecodeError, ValidationError):
+            return self._error_response(502, "api_error", "Gateway returned an invalid completion")
         return JSONResponse(content=self._convert_response(response).model_dump(exclude_none=True))
 
     async def _handle_streaming(self, chat_request, anthropic_request, raw_request):

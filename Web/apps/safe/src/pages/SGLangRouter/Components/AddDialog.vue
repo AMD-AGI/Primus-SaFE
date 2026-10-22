@@ -212,6 +212,13 @@ async function submit() {
       }
       if (isClone.value) {
         delete request.workloadId
+        if (request.env) {
+          const env = { ...request.env }
+          delete env.MN_SSH_PORT
+          delete env.MN_SSH_AUTHORIZED_KEY
+          if (Object.keys(env).length) request.env = env
+          else delete request.env
+        }
         await addWorkload(request)
       } else {
         await resumeWorkload(props.wlid, request)

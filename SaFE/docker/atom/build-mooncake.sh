@@ -26,7 +26,8 @@ cmake --build "${root}/build" -j "$(nproc)"
 cmake --install "${root}/build"
 # The install directory can land as mode 767. Members of group 1000 then
 # cannot search it, and mooncake.engine fails to import.
-chmod 0755 /opt/venv/lib/python3.10/site-packages/mooncake
+mooncake_dir="$(/opt/venv/bin/python -c 'import mooncake, os; print(os.path.dirname(mooncake.__file__))')"
+chmod 0755 "${mooncake_dir}"
 rm -rf "${root}/build"
 
 so="$(/opt/venv/bin/python -c 'import mooncake.engine as engine; print(engine.__file__)')"
