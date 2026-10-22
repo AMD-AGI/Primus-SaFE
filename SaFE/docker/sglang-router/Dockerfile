@@ -30,5 +30,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     && chmod 700 /root/.ssh \
     && rm -rf /run/sshd-init.lock /run/sshd-init.done
 
+# Unset means dma-buf. These nodes reject peer-memory registration.
+ENV MOONCAKE_DISABLE_HIP_DMABUF=0
+
 ENTRYPOINT ["/usr/local/bin/sglang-router-entrypoint"]
 CMD ["tail", "-f", "/dev/null"]

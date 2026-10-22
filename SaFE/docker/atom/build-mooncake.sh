@@ -6,6 +6,7 @@ set -euo pipefail
 
 root="/sgl-workspace/Mooncake"
 python3 /tmp/patch-mooncake.py
+python3 /tmp/patch-rdma-allocator.py
 
 rm -rf "${root}/build"
 cmake -S "${root}" -B "${root}/build" \
@@ -23,12 +24,16 @@ grep -q "HIP dmabuf MR registration enabled (hsa-runtime64 found)" /tmp/mooncake
 
 cmake --build "${root}/build" -j "$(nproc)"
 cmake --install "${root}/build"
+# The install directory can land as mode 767. Members of group 1000 then
+# cannot search it, and mooncake.engine fails to import.
+chmod 0755 /opt/venv/lib/python3.10/site-packages/mooncake
 rm -rf "${root}/build"
 
 so="$(/opt/venv/bin/python -c 'import mooncake.engine as engine; print(engine.__file__)')"
 # Search the binary directly. grep -q closes a pipe early, and pipefail then
 # treats the resulting SIGPIPE as failure.
 grep -aq "ibv_reg_dmabuf_mr" "${so}"
+grep -aq "Selected HIP memory allocator for protocol" "${so}"
 grep -aq "Auto-splitting buffer" "${so}"
 grep -aq "MC_DISABLE_HIP" "${so}"
 grep -aq "MOONCAKE_DISABLE_HIP_DMABUF" "${so}"
