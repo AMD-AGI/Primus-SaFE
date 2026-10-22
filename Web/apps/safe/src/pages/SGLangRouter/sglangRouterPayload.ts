@@ -5,7 +5,7 @@ import { WorkloadKind } from '@/services/workload/type'
 export const SGLANG_ROUTER_ROLES = ['router', 'prefill', 'decode'] as const
 export type SGLangRouterRole = (typeof SGLANG_ROUTER_ROLES)[number]
 
-/** Router container port. The user Service targetPort must stay on this value. */
+/** Default router listen port. The Service targetPort must match --port. */
 export const SGLANG_ROUTER_TARGET_PORT = 8000
 
 export interface SGLangRouterRoleForm {
@@ -36,7 +36,7 @@ export interface SGLangRouterFormModel {
 /** Default commands. Dispatch replaces {prefill} and {decode} on the router. */
 export const SGLANG_ROUTER_DEFAULT_ENTRY: Record<SGLangRouterRole, string> = {
   router:
-    'python3 -m sglang_router.launch_router --pd-disaggregation --prefill {prefill} --decode {decode} --host 0.0.0.0 --port 8000',
+    'set -euo pipefail\nexec python3 -m sglang_router.launch_router \\\n  --pd-disaggregation \\\n  --prefill {prefill} 8998 \\\n  --decode {decode} \\\n  --host 0.0.0.0 --port 8000 \\\n  --worker-startup-timeout-secs 14400\n',
   prefill:
     'python3 -m sglang.launch_server --model-path /models --disaggregation-mode prefill --disaggregation-transfer-backend mooncake --disaggregation-bootstrap-port 8998 --host 0.0.0.0 --port 8010',
   decode:

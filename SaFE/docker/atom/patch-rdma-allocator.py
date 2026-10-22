@@ -70,13 +70,13 @@ marker_export = "dmabuf export keeps the caller HIP context"
 marker_off_thread = "dmabuf export runs off the caller HIP context"
 marker_restore = "dmabuf export restores the caller HIP context"
 off_thread_tail = """    // HIP queries and the dma-buf export run on a joined side thread.
-    // Retain the caller's primary context across that work and put it
-    // back afterwards. Without the retain, the next hipStreamCreate
+    // Retain the caller's primary context across that work and release
+    // it afterwards. Without the retain, the next hipStreamCreate
     // on this thread segfaults.
     hipCtx_t caller_ctx = nullptr;
     (void)hipCtxGetCurrent(&caller_ctx);
     hipCtx_t retained_ctx = nullptr;
-    (void)hipDevicePrimaryCtxRetain(&retained_ctx, hipAttr.device);
+    hipError_t retain_res = hipDevicePrimaryCtxRetain(&retained_ctx, hipAttr.device);
     int rc = ERR_CONTEXT;
     std::thread([&]() {
         if (hipSetDevice(hipAttr.device) != hipSuccess) {
@@ -88,6 +88,9 @@ off_thread_tail = """    // HIP queries and the dma-buf export run on a joined s
     }).join();
     if (caller_ctx != nullptr) {
         (void)hipCtxSetCurrent(caller_ctx);
+    }
+    if (retain_res == hipSuccess) {
+        (void)hipDevicePrimaryCtxRelease(hipAttr.device);
     }
     if (rc == 0) {
         LOG_FIRST_N(INFO, 1) << "dmabuf export restores the caller HIP context";

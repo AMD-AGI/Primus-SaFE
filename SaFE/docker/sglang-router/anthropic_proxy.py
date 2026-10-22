@@ -3,11 +3,11 @@
 
 """Anthropic Messages API front for the SGLang model gateway.
 
-POST /v1/messages and /v1/messages/count_tokens are translated to the OpenAI
-chat completions API and sent to the gateway. SGLang's own AnthropicServing
-converters build the requests, responses and streaming events, so the wire
-format matches a standalone SGLang server. Every other request is forwarded
-unchanged.
+POST /v1/messages is translated to the OpenAI chat completions API and sent to
+the gateway. count_tokens is sent to the gateway's tokenize endpoint, which
+launch_router and atomesh both expose, so no tokens are generated. SGLang's own
+AnthropicServing converters build the requests, responses and streaming events.
+Every other request is forwarded unchanged.
 """
 
 import argparse
@@ -42,6 +42,7 @@ from starlette.background import BackgroundTask
 logger = logging.getLogger("anthropic_proxy")
 
 CHAT_PATH = "/v1/chat/completions"
+TOKENIZE_PATH = "/v1/tokenize"
 HOP_BY_HOP = {
     "connection",
     "keep-alive",
@@ -54,6 +55,68 @@ HOP_BY_HOP = {
     "host",
     "content-length",
 }
+
+
+def block_text(content) -> str:
+    """Flatten a message content value to plain text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                parts.append(str(block.get("text") or ""))
+            else:
+                text = getattr(block, "text", None)
+                parts.append("" if text is None else str(text))
+        return "".join(parts)
+    return str(content)
+
+
+def tokenize_prompt(chat_request) -> str:
+    """Render converted chat messages and tools as the tokenize prompt."""
+    lines = []
+    for message in getattr(chat_request, "messages", None) or []:
+        if isinstance(message, dict):
+            role = message.get("role", "")
+            content = message.get("content")
+        else:
+            role = getattr(message, "role", "")
+            content = getattr(message, "content", "")
+        lines.append(f"{role}: {block_text(content)}")
+    tools = getattr(chat_request, "tools", None)
+    if tools:
+        dumped = []
+        for tool in tools:
+            if hasattr(tool, "model_dump"):
+                dumped.append(tool.model_dump(exclude_none=True))
+            else:
+                dumped.append(tool)
+        lines.append(json.dumps(dumped, default=str))
+    return "\n".join(lines)
+
+
+def token_count(payload) -> int | None:
+    """Read a token count from a tokenize response."""
+    if not isinstance(payload, dict):
+        return None
+    count = payload.get("count")
+    if isinstance(count, bool):
+        return None
+    if isinstance(count, int):
+        return count
+    if isinstance(count, list) and count and all(isinstance(item, int) for item in count):
+        return count[0]
+    tokens = payload.get("tokens")
+    if isinstance(tokens, list):
+        if tokens and isinstance(tokens[0], list):
+            return len(tokens[0])
+        return len(tokens)
+    return None
 
 
 def chat_body(chat_request) -> dict:
@@ -164,7 +227,7 @@ class GatewayAnthropicServing(AnthropicServing):
         )
 
     async def handle_count_tokens(self, request: AnthropicCountTokensRequest, raw_request: Request):
-        """Count prompt tokens with a one-token completion on the gateway."""
+        """Count prompt tokens through the upstream tokenize endpoint."""
         try:
             messages_request = AnthropicMessagesRequest(
                 model=request.model,
@@ -176,16 +239,25 @@ class GatewayAnthropicServing(AnthropicServing):
                 tool_choice=request.tool_choice,
             )
             chat_request = self._convert_to_chat_completion_request(messages_request)
+            prompt = tokenize_prompt(chat_request)
         except Exception as e:
             return self._error_response(400, "invalid_request_error", str(e))
         try:
-            resp = await self._post_chat(chat_request, stream=False, max_tokens=1)
+            resp = await self.client.post(
+                TOKENIZE_PATH,
+                json={"model": request.model, "prompt": prompt},
+            )
         except httpx.HTTPError as e:
             return self._error_response(502, "api_error", "Gateway unreachable", type(e).__name__)
         if resp.status_code != 200:
             return self._upstream_error(resp)
-        tokens = resp.json()["usage"]["prompt_tokens"]
-        return JSONResponse(content=AnthropicCountTokensResponse(input_tokens=tokens).model_dump())
+        try:
+            count = token_count(resp.json())
+        except json.JSONDecodeError:
+            count = None
+        if count is None:
+            return self._error_response(502, "api_error", "Tokenizer response has no token count")
+        return JSONResponse(content=AnthropicCountTokensResponse(input_tokens=count).model_dump())
 
 
 def build_app(upstream: str) -> FastAPI:

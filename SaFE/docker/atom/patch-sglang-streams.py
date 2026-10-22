@@ -22,7 +22,8 @@ anchor = """        ) = self.tp_worker.get_worker_info()
 replacement = """        ) = self.tp_worker.get_worker_info()
         # Realize HIP streams before Mooncake dma-buf export. Export leaves
         # a later hipStreamCreate on this thread segfaulting.
-        for realized in (self.schedule_stream, self.forward_stream):
+        for name in ("schedule_stream", "forward_stream"):
+            realized = getattr(self, name, None)
             if realized is not None and hasattr(realized, "cuda_stream"):
                 _ = realized.cuda_stream
         # DFlash auto-enables the legacy formula; other workloads opt in via
