@@ -634,7 +634,7 @@ func validateDisaggregatedShape(workload *v1.Workload, kind string) error {
 			return fmt.Errorf("%s entryPoint at index %d is empty", kind, i)
 		}
 	}
-	if err := validateAtomPorts(workload); err != nil {
+	if err := validateAtomPorts(workload, kind); err != nil {
 		return err
 	}
 	if len(commonworkload.AtomRoleObjectName(workload.Name, common.AtomRolePrefill)) > commonutils.MaxAtomRoleNameLen {
@@ -647,7 +647,7 @@ func validateDisaggregatedShape(workload *v1.Workload, kind string) error {
 // Router stays on the pod network, so its port may match an engine port.
 // An engine cannot reuse one port for listen and bootstrap. Prefill and decode
 // share a host port space only when both request RDMA.
-func validateAtomPorts(workload *v1.Workload) error {
+func validateAtomPorts(workload *v1.Workload, kind string) error {
 	serviceTarget := 0
 	if workload.Spec.Service != nil {
 		serviceTarget = workload.Spec.Service.TargetPort
@@ -655,11 +655,11 @@ func validateAtomPorts(workload *v1.Workload) error {
 	routerCommand := commonworkload.AtomCommand(workload, common.AtomRoleRouter)
 	if serviceTarget > 0 {
 		if flagged, ok := commonworkload.AtomEntrypointPort(routerCommand); ok && flagged != serviceTarget {
-			return fmt.Errorf("atom router targetPort %d does not match entrypoint --port %d", serviceTarget, flagged)
+			return fmt.Errorf("%s router targetPort %d does not match entrypoint --port %d", kind, serviceTarget, flagged)
 		}
 	}
 	routerPort := commonworkload.AtomListenPort(serviceTarget, routerCommand, common.AtomRoleRouter)
-	if err := claimAtomPort(map[int]string{}, routerPort, "router port"); err != nil {
+	if err := claimAtomPort(map[int]string{}, routerPort, "router port", kind); err != nil {
 		return err
 	}
 
@@ -673,10 +673,10 @@ func validateAtomPorts(workload *v1.Workload) error {
 		command := commonworkload.AtomCommand(workload, role)
 		listen := commonworkload.AtomListenPort(0, command, role)
 		bootstrap := commonworkload.AtomBootstrapPort(command, role)
-		if err := claimAtomPort(map[int]string{}, listen, role+" port"); err != nil {
+		if err := claimAtomPort(map[int]string{}, listen, role+" port", kind); err != nil {
 			return err
 		}
-		if err := claimAtomPort(map[int]string{listen: role + " port"}, bootstrap, role+" bootstrap port"); err != nil {
+		if err := claimAtomPort(map[int]string{listen: role + " port"}, bootstrap, role+" bootstrap port", kind); err != nil {
 			return err
 		}
 		hostNet := false
@@ -685,7 +685,7 @@ func validateAtomPorts(workload *v1.Workload) error {
 			res := workload.Spec.Resources[index]
 			hostNet = commonworkload.HasRDMAResource(&res)
 			if hostNet && res.Replica > 1 {
-				return fmt.Errorf("atom %s replica must be 1 when rdmaResource is set", role)
+				return fmt.Errorf("%s %s replica must be 1 when rdmaResource is set", kind, role)
 			}
 		}
 		engines[role] = atomEnginePorts{listen: listen, bootstrap: bootstrap, hostNet: hostNet}
@@ -694,16 +694,16 @@ func validateAtomPorts(workload *v1.Workload) error {
 	decode := engines[common.AtomRoleDecode]
 	if prefill.hostNet && decode.hostNet {
 		seen := map[int]string{}
-		if err := claimAtomPort(seen, prefill.listen, "prefill port"); err != nil {
+		if err := claimAtomPort(seen, prefill.listen, "prefill port", kind); err != nil {
 			return err
 		}
-		if err := claimAtomPort(seen, prefill.bootstrap, "prefill bootstrap port"); err != nil {
+		if err := claimAtomPort(seen, prefill.bootstrap, "prefill bootstrap port", kind); err != nil {
 			return err
 		}
-		if err := claimAtomPort(seen, decode.listen, "decode port"); err != nil {
+		if err := claimAtomPort(seen, decode.listen, "decode port", kind); err != nil {
 			return err
 		}
-		if err := claimAtomPort(seen, decode.bootstrap, "decode bootstrap port"); err != nil {
+		if err := claimAtomPort(seen, decode.bootstrap, "decode bootstrap port", kind); err != nil {
 			return err
 		}
 	}
@@ -711,12 +711,12 @@ func validateAtomPorts(workload *v1.Workload) error {
 }
 
 // claimAtomPort records one Atom port and rejects values outside 1-65535 or duplicates.
-func claimAtomPort(seen map[int]string, port int, name string) error {
+func claimAtomPort(seen map[int]string, port int, name, kind string) error {
 	if port < 1 || port > 65535 {
-		return fmt.Errorf("atom %s %d is outside 1-65535", name, port)
+		return fmt.Errorf("%s %s %d is outside 1-65535", kind, name, port)
 	}
 	if owner, ok := seen[port]; ok {
-		return fmt.Errorf("atom %s %d duplicates %s", name, port, owner)
+		return fmt.Errorf("%s %s %d duplicates %s", kind, name, port, owner)
 	}
 	seen[port] = name
 	return nil

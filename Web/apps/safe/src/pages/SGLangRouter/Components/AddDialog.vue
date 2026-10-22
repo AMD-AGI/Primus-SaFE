@@ -25,9 +25,13 @@
           <el-option label="High" :value="2" />
         </el-select>
       </el-form-item>
+      <el-form-item label="Container port">
+        <el-input-number v-model="form.serviceTargetPort" :min="1" :max="65535" />
+        <span class="hint">Router listen port. It must match --port in the router entrypoint.</span>
+      </el-form-item>
       <el-form-item label="Service port">
         <el-input-number v-model="form.servicePort" :min="1" :max="65535" />
-        <span class="hint">Router target port stays 8000. Prefill 8010 and decode 8020 are internal.</span>
+        <span class="hint">External Service port. Prefill and decode ports come from their entrypoints.</span>
       </el-form-item>
       <el-form-item label="Service type">
         <el-select v-model="form.serviceType">
@@ -94,7 +98,15 @@ import ImageInput from '@/components/Base/ImageInput.vue'
 import { addWorkload, editWorkload, getWorkloadDetail, resumeWorkload } from '@/services/workload/index'
 import { decodeFromBase64String, quantityToGi } from '@/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { SGLANG_ROUTER_ROLES, buildSGLangRouterWorkloadBody, initialSGLangRouterForm, type SGLangRouterRole } from '../sglangRouterPayload'
+import {
+  SGLANG_ROUTER_ROLES,
+  buildSGLangRouterResumePayload,
+  buildSGLangRouterWorkloadBody,
+  initialSGLangRouterForm,
+  mergeSGLangRouterResumeResources,
+  type SGLangRouterResumeDetail,
+  type SGLangRouterRole,
+} from '../sglangRouterPayload'
 
 const props = defineProps<{
   visible: boolean
@@ -111,6 +123,7 @@ const emit = defineEmits<{
 const store = useWorkspaceStore()
 const formRef = ref<FormInstance>()
 const form = reactive(initialSGLangRouterForm())
+const sourceDetail = ref<SGLangRouterResumeDetail | null>(null)
 const submitting = ref(false)
 const isEdit = computed(() => props.action === 'Edit')
 const isResume = computed(() => props.action === 'Resume')
@@ -137,12 +150,15 @@ const nodePortRule: FormItemRule = {
 /** Fill the three role slots from an existing SGLangRouter workload. */
 async function onOpen() {
   Object.assign(form, initialSGLangRouterForm())
+  sourceDetail.value = null
   if (!props.wlid) return
   const res = await getWorkloadDetail(props.wlid)
+  sourceDetail.value = res
   form.displayName = res.displayName || ''
   form.description = res.description || ''
   form.priority = res.priority ?? 1
   form.servicePort = res.service?.port || 8000
+  form.serviceTargetPort = res.service?.targetPort || 8000
   form.serviceType = res.service?.serviceType || 'ClusterIP'
   form.serviceNodePort = Number(res.service?.nodePort) > 0 ? Number(res.service?.nodePort) : null
   form.serviceName = props.action === 'Clone' ? '' : String(res.service?.name || '')
@@ -178,10 +194,20 @@ async function submit() {
         resources: body.resources,
         service: body.service,
       })
-    } else if (isResume.value && props.wlid) {
+    } else if (isResume.value && props.wlid && sourceDetail.value) {
+      const secrets = (sourceDetail.value.secrets || []).map((item: { id: string }) => ({ id: item.id }))
+      const preserved = buildSGLangRouterResumePayload(sourceDetail.value, store.currentWorkspaceId || '', secrets)
+      const preservedResources = Array.isArray(preserved.resources) ? preserved.resources : []
       await resumeWorkload(props.wlid, {
-        ...body,
-        workspace: store.currentWorkspaceId,
+        ...preserved,
+        displayName: form.displayName.trim() || preserved.displayName || '',
+        groupVersionKind: body.groupVersionKind,
+        description: body.description,
+        priority: body.priority,
+        images: body.images,
+        entryPoints: body.entryPoints,
+        resources: mergeSGLangRouterResumeResources(preservedResources, body.resources),
+        service: body.service,
       })
     } else {
       await addWorkload({

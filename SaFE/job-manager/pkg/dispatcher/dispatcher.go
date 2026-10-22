@@ -1278,7 +1278,7 @@ func (r *DispatcherReconciler) updateIngress(ctx context.Context, adminWorkload 
 	k8sClientSet := clientSets.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
 	name := adminWorkload.Name
-	// Delete when service is not desired. SGLangRouter engines stay off the public Ingress.
+	// Delete when service is not desired. Atom and SGLangRouter engines stay off the public Ingress.
 	if adminWorkload.Spec.Service == nil || !publishesRoleIngress(adminWorkload) {
 		err := k8sClientSet.NetworkingV1().Ingresses(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
@@ -1538,12 +1538,29 @@ func atomReadinessPath(role string) string {
 }
 
 // publishesRoleIngress keeps Atom and SGLangRouter prefill and decode off the public Ingress.
+// Role objects are Deployments and keep the root kind label. Other kinds are unchanged.
 func publishesRoleIngress(workload *v1.Workload) bool {
+	if !disaggregatedInferKind(workload) {
+		return true
+	}
 	role := ""
 	if workload.Spec.Env != nil {
 		role = workload.Spec.Env[common.InferRoleEnv]
 	}
 	return role != common.AtomRolePrefill && role != common.AtomRoleDecode
+}
+
+// disaggregatedInferKind reports an Atom or SGLangRouter workload, including a rendered role Deployment.
+func disaggregatedInferKind(workload *v1.Workload) bool {
+	if workload == nil {
+		return false
+	}
+	kind := workload.SpecKind()
+	if kind == common.AtomKind || kind == common.SGLangRouterKind {
+		return true
+	}
+	kind = v1.GetLabel(workload, v1.WorkloadKindLabel)
+	return kind == common.AtomKind || kind == common.SGLangRouterKind
 }
 
 // sglangRouterEntryPoint substitutes the model-gateway prefill and decode URLs.

@@ -26,6 +26,7 @@ export interface SGLangRouterFormModel {
   description: string
   priority: number
   servicePort: number
+  serviceTargetPort: number
   serviceType: string
   serviceNodePort: number | null
   serviceName: string
@@ -65,6 +66,7 @@ export function initialSGLangRouterForm(): SGLangRouterFormModel {
     description: '',
     priority: 1,
     servicePort: SGLANG_ROUTER_TARGET_PORT,
+    serviceTargetPort: SGLANG_ROUTER_TARGET_PORT,
     serviceType: 'ClusterIP',
     serviceNodePort: null,
     serviceName: '',
@@ -116,7 +118,7 @@ export function buildSGLangRouterWorkloadBody(form: SGLangRouterFormModel) {
       ...(form.serviceName.trim() ? { name: form.serviceName.trim() } : {}),
       protocol: 'TCP',
       port: Number(form.servicePort) || SGLANG_ROUTER_TARGET_PORT,
-      targetPort: SGLANG_ROUTER_TARGET_PORT,
+      targetPort: Number(form.serviceTargetPort) || SGLANG_ROUTER_TARGET_PORT,
       serviceType: form.serviceType || 'ClusterIP',
       ...(form.serviceType === 'NodePort' && Number(form.serviceNodePort) > 0
         ? { nodePort: Number(form.serviceNodePort) }
@@ -137,13 +139,38 @@ export interface SGLangRouterResumeDetail {
     name?: string
     protocol?: string
     port?: number
+    targetPort?: number
     serviceType?: string
+    nodePort?: number
   }
   timeout?: number
   env?: Record<string, string>
   customerLabels?: Record<string, string>
   workloadId?: string
   useWorkspaceStorage?: boolean
+  secrets?: { id: string }[]
+}
+
+/** Fields the SGLangRouter form can clear. Omitting them must not keep the previous value. */
+const clearableSGLangRouterResourceKeys = ['gpu', 'sharedMemory', 'gpuName', 'rdmaResource'] as const
+
+/**
+ * Overlay form resources onto a resumed workload.
+ * Empty GPU, shared memory, GPU name, and RDMA fields clear the previous values.
+ */
+export function mergeSGLangRouterResumeResources<T extends object>(
+  preserved: readonly object[],
+  formResources: readonly T[],
+): T[] {
+  return formResources.map((item, index) => {
+    const previous: Record<string, unknown> = {
+      ...((preserved[index] as Record<string, unknown> | undefined) || {}),
+    }
+    for (const key of clearableSGLangRouterResourceKeys) {
+      delete previous[key]
+    }
+    return { ...previous, ...item } as T
+  })
 }
 
 /** Copy an SGLangRouter role resource, including GPU name and RDMA, for resume. */
@@ -176,8 +203,9 @@ export function buildSGLangRouterResumePayload(
           ...(detail.service.name ? { name: detail.service.name } : {}),
           protocol: detail.service.protocol || 'TCP',
           port: detail.service.port,
-          targetPort: SGLANG_ROUTER_TARGET_PORT,
+          targetPort: detail.service.targetPort || SGLANG_ROUTER_TARGET_PORT,
           serviceType: detail.service.serviceType || 'ClusterIP',
+          ...(Number(detail.service.nodePort) > 0 ? { nodePort: Number(detail.service.nodePort) } : {}),
         },
       }
     : {}

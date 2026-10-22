@@ -1932,8 +1932,11 @@ func atomRootWorkload() *v1.Workload {
 		return v1.WorkloadResource{Replica: replica, CPU: "1", Memory: "1Gi", EphemeralStorage: "1Gi"}
 	}
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
-		Name:   "atom1",
-		Labels: map[string]string{v1.ServiceNameLabel: "atom-public"},
+		Name: "atom1",
+		Labels: map[string]string{
+			v1.ServiceNameLabel:  "atom-public",
+			v1.WorkloadKindLabel: common.AtomKind,
+		},
 	}}
 	w.Spec.Workspace = "ws"
 	w.Spec.Kind = common.AtomKind
@@ -1979,6 +1982,13 @@ func TestGenerateSGLangRouter(t *testing.T) {
 	assert.Assert(t, publishesRoleIngress(router))
 	atomPrefill := r.generateAtomRoleWorkload(context.Background(), atomRootWorkload(), common.AtomRolePrefill)
 	assert.Assert(t, !publishesRoleIngress(atomPrefill))
+
+	plain := &v1.Workload{Spec: v1.WorkloadSpec{
+		GroupVersionKind: v1.GroupVersionKind{Kind: common.DeploymentKind},
+		Env:              map[string]string{common.InferRoleEnv: common.AtomRolePrefill},
+	}}
+	v1.SetLabel(plain, v1.WorkloadKindLabel, common.DeploymentKind)
+	assert.Assert(t, publishesRoleIngress(plain))
 }
 
 func TestGenerateMonarchMesh(t *testing.T) {
