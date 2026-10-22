@@ -299,12 +299,17 @@ func (r *DispatcherReconciler) processMonarchWorkload(ctx context.Context, rootW
 	return ctrlruntime.Result{}, nil
 }
 
-// processAtomWorkload creates prefill, decode and router Deployments for an Atom workload.
+// processAtomWorkload creates prefill, decode and router Deployments.
 func (r *DispatcherReconciler) processAtomWorkload(ctx context.Context, rootWorkload *v1.Workload) (ctrlruntime.Result, error) {
 	for _, role := range []string{common.AtomRolePrefill, common.AtomRoleDecode, common.AtomRoleRouter} {
 		roleWorkload := r.generateAtomRoleWorkload(ctx, rootWorkload, role)
 		if roleWorkload == nil {
-			return ctrlruntime.Result{}, commonerrors.NewBadRequest("invalid atom workload shape")
+			kind := common.AtomKind
+			if rootWorkload != nil && rootWorkload.SpecKind() != "" {
+				kind = rootWorkload.SpecKind()
+			}
+			return ctrlruntime.Result{}, commonerrors.NewBadRequest(
+				fmt.Sprintf("invalid %s workload shape", kind))
 		}
 		if result, err := r.processWorkload(ctx, roleWorkload); err != nil || result.RequeueAfter > 0 {
 			return result, err

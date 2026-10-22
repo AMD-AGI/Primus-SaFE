@@ -610,12 +610,22 @@ func (m *WorkloadMutator) mutateInferaDeployment(workload *v1.Workload) {
 
 // validateAtom requires three roles in router, prefill, decode order.
 func (v *WorkloadValidator) validateAtom(workload *v1.Workload) error {
-	return validateDisaggregatedShape(workload, "atom")
+	return validateDisaggregatedShape(workload, workloadKindLabel(workload))
 }
 
 // validateSGLangRouter requires the same three roles as Atom.
 func (v *WorkloadValidator) validateSGLangRouter(workload *v1.Workload) error {
-	return validateDisaggregatedShape(workload, "SGLangRouter")
+	return validateDisaggregatedShape(workload, workloadKindLabel(workload))
+}
+
+// workloadKindLabel returns the spec kind written into admission errors.
+func workloadKindLabel(workload *v1.Workload) string {
+	if workload != nil {
+		if kind := strings.TrimSpace(workload.SpecKind()); kind != "" {
+			return kind
+		}
+	}
+	return common.AtomKind
 }
 
 // validateDisaggregatedShape checks the shared router, prefill, decode contract.

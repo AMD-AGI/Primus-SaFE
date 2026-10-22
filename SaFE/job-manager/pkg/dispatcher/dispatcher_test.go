@@ -1958,6 +1958,17 @@ func atomRootWorkload() *v1.Workload {
 	return w
 }
 
+func TestProcessAtomWorkloadInvalidShapeUsesKind(t *testing.T) {
+	r := &DispatcherReconciler{}
+	w := &v1.Workload{Spec: v1.WorkloadSpec{
+		GroupVersionKind: v1.GroupVersionKind{Kind: common.SGLangRouterKind},
+	}}
+	_, err := r.processAtomWorkload(context.Background(), w)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "invalid "+common.SGLangRouterKind+" workload shape"))
+	assert.Assert(t, !strings.Contains(err.Error(), "atom"))
+}
+
 func TestGenerateSGLangRouter(t *testing.T) {
 	r := newGenReconciler(t)
 	w := atomRootWorkload()

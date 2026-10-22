@@ -702,7 +702,19 @@ func TestValidateSGLangRouter(t *testing.T) {
 	assert.NilError(t, v.validateSGLangRouter(w))
 
 	w.Spec.EntryPoints = w.Spec.EntryPoints[:2]
-	assert.Assert(t, v.validateSGLangRouter(w) != nil)
+	err := v.validateSGLangRouter(w)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), common.SGLangRouterKind))
+	assert.Assert(t, !strings.Contains(err.Error(), "atom"))
+
+	w = atomWorkloadNamed("sglang-ports")
+	w.Spec.Kind = common.SGLangRouterKind
+	w.Spec.Service = &v1.Service{TargetPort: 9000}
+	w.Spec.EntryPoints[0] = "python --port 8000"
+	err = v.validateSGLangRouter(w)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), common.SGLangRouterKind))
+	assert.Assert(t, !strings.Contains(err.Error(), "atom"))
 }
 
 func TestWorkloadValidateInferaDeployment(t *testing.T) {
