@@ -37,6 +37,7 @@ grep -aq "Selected HIP memory allocator for protocol" "${so}"
 grep -aq "Auto-splitting buffer" "${so}"
 grep -aq "MC_DISABLE_HIP" "${so}"
 grep -aq "MOONCAKE_DISABLE_HIP_DMABUF" "${so}"
+grep -aq "hipDevicePrimaryCtxRelease" "${so}"
 if grep -aq "shrink it to" "${so}"; then
     echo "installed engine.so still shrinks oversized buffers" >&2
     exit 1

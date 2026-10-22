@@ -5,6 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
+SaFE/docker/sglang-router/libionic.so.1.1.54.0-187
 
 # Distribution / packaging
 .Python

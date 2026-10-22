@@ -8,7 +8,7 @@
 # sshd starts only when MN_SSH_AUTHORIZED_KEY is set. With no user command the container runs tail -f /dev/null.
 # /tmp/aiter_configs is emptied and mode 1777 so a non-root process can rewrite it.
 ARG ENGINE=sglang
-ARG SGLANG_BASE=docker.io/primussafe/sglang-rocm:20261013121117-8e371c
+ARG SGLANG_BASE=docker.io/lmsysorg/sglang-rocm:v0.5.21-rocm720-mi35x-20261008
 ARG VLLM_BASE=docker.io/vllm/vllm-openai-rocm:v0.29.0
 ARG BASE_IMAGE=${SGLANG_BASE}
 
