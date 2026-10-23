@@ -53,6 +53,7 @@ const getRequiredScopeByPath = (path: string): ScopesKeys | undefined => {
     ['/torchft', 'Train'],
     ['/infer', 'Infer'],
     ['/atom', 'Infer'],
+    ['/sglang-router', 'Infer'],
     ['/authoring', 'Authoring'],
     ['/cicd', 'CICD'],
     ['/rayjob', 'Ray'],

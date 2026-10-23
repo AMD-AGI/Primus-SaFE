@@ -13,6 +13,7 @@ import (
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/spf13/viper"
 	"gotest.tools/v3/assert"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -245,7 +246,7 @@ func TestExternalHostNetworkInferaRDMA(t *testing.T) {
 func TestExternalHostNetworkAtomRDMA(t *testing.T) {
 	prefill := claimWorkload()
 	prefill.Spec.Kind = common.DeploymentKind
-	prefill.Spec.Env = map[string]string{common.AtomRoleEnv: common.AtomRolePrefill}
+	prefill.Spec.Env = map[string]string{common.InferRoleEnv: common.AtomRolePrefill}
 	prefill.Spec.Resources = []v1.WorkloadResource{
 		{Replica: 1, CPU: "16", Memory: "128Gi", GPU: "1", GPUName: "amd.com/gpu", RdmaResource: "1k"},
 	}
@@ -257,7 +258,7 @@ func TestExternalHostNetworkAtomRDMA(t *testing.T) {
 	assert.Assert(t, enabled)
 
 	router := prefill.DeepCopy()
-	router.Spec.Env[common.AtomRoleEnv] = common.AtomRoleRouter
+	router.Spec.Env[common.InferRoleEnv] = common.AtomRoleRouter
 	router.Spec.Resources[0].RdmaResource = ""
 	obj = &unstructured.Unstructured{Object: map[string]interface{}{}}
 	assert.NilError(t, updateHostNetwork(router, obj, externalShapeSpec(), 0))
@@ -513,6 +514,19 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 	}
 	for _, want := range v1.ExternalVirtualKubeletTaintKeys() {
 		assert.Assert(t, found[want], "missing VK toleration %s", want)
+	}
+	for _, key := range []string{corev1.TaintNodeNotReady, corev1.TaintNodeUnreachable} {
+		var got map[string]interface{}
+		for _, raw := range tolerations {
+			tMap := raw.(map[string]interface{})
+			if tMap["key"] == key {
+				got = tMap
+			}
+		}
+		assert.Assert(t, got != nil, "missing node-failure toleration %s", key)
+		assert.Equal(t, got["operator"], "Exists")
+		assert.Equal(t, got["effect"], "NoExecute")
+		assert.Equal(t, got["tolerationSeconds"], externalNodeFailureTolerationSeconds)
 	}
 
 	containers, _ := podSpec["containers"].([]interface{})

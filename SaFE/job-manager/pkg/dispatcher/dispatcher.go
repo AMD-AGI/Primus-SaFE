@@ -180,7 +180,7 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 		result, err = r.processTorchFTWorkload(ctx, workload)
 	case commonworkload.IsMonarchJob(workload):
 		result, err = r.processMonarchWorkload(ctx, workload)
-	case commonworkload.IsAtom(workload):
+	case commonworkload.IsAtom(workload), commonworkload.IsSGLangRouter(workload):
 		result, err = r.processAtomWorkload(ctx, workload)
 	default:
 		result, err = r.processWorkload(ctx, workload)
@@ -299,12 +299,17 @@ func (r *DispatcherReconciler) processMonarchWorkload(ctx context.Context, rootW
 	return ctrlruntime.Result{}, nil
 }
 
-// processAtomWorkload creates prefill, decode and router Deployments for an Atom workload.
+// processAtomWorkload creates prefill, decode and router Deployments.
 func (r *DispatcherReconciler) processAtomWorkload(ctx context.Context, rootWorkload *v1.Workload) (ctrlruntime.Result, error) {
 	for _, role := range []string{common.AtomRolePrefill, common.AtomRoleDecode, common.AtomRoleRouter} {
 		roleWorkload := r.generateAtomRoleWorkload(ctx, rootWorkload, role)
 		if roleWorkload == nil {
-			return ctrlruntime.Result{}, commonerrors.NewBadRequest("invalid atom workload shape")
+			kind := common.AtomKind
+			if rootWorkload != nil && rootWorkload.SpecKind() != "" {
+				kind = rootWorkload.SpecKind()
+			}
+			return ctrlruntime.Result{}, commonerrors.NewBadRequest(
+				fmt.Sprintf("invalid %s workload shape", kind))
 		}
 		if result, err := r.processWorkload(ctx, roleWorkload); err != nil || result.RequeueAfter > 0 {
 			return result, err
@@ -1195,7 +1200,8 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 // createIngress creates an Ingress in the same namespace that points to the same-named Service.
 func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload *v1.Workload,
 	clientSets *syncer.ClusterClientSets, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
-	if adminWorkload.Spec.Service == nil || commonconfig.GetIngress() != common.HigressClassname {
+	if adminWorkload.Spec.Service == nil || commonconfig.GetIngress() != common.HigressClassname ||
+		!publishesRoleIngress(adminWorkload) {
 		return ctrlruntime.Result{}, nil
 	}
 	k8sClientSet := clientSets.ClientFactory().ClientSet()
@@ -1277,8 +1283,8 @@ func (r *DispatcherReconciler) updateIngress(ctx context.Context, adminWorkload 
 	k8sClientSet := clientSets.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
 	name := adminWorkload.Name
-	// Delete when service is not desired
-	if adminWorkload.Spec.Service == nil {
+	// Delete when service is not desired. Atom and SGLangRouter engines stay off the public Ingress.
+	if adminWorkload.Spec.Service == nil || !publishesRoleIngress(adminWorkload) {
 		err := k8sClientSet.NetworkingV1().Ingresses(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
@@ -1490,6 +1496,9 @@ func (r *DispatcherReconciler) generateAtomRoleWorkload(ctx context.Context, roo
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[index]}
 	workload.Spec.Images = []string{rootWorkload.Spec.Images[index]}
 	workload.Spec.EntryPoints = []string{rootWorkload.Spec.EntryPoints[index]}
+	if commonworkload.IsSGLangRouter(rootWorkload) && role == common.AtomRoleRouter {
+		workload.Spec.EntryPoints = []string{sglangRouterEntryPoint(rootWorkload, prefillPort, decodePort)}
+	}
 	workload.Spec.Liveness = nil
 	workload.Spec.Readiness = &v1.HealthCheck{
 		Path:                atomReadinessPath(role),
@@ -1504,7 +1513,7 @@ func (r *DispatcherReconciler) generateAtomRoleWorkload(ctx context.Context, roo
 	if workload.Spec.Env == nil {
 		workload.Spec.Env = map[string]string{}
 	}
-	workload.Spec.Env[common.AtomRoleEnv] = role
+	workload.Spec.Env[common.InferRoleEnv] = role
 	workload.Spec.Env[common.AtomServerPortEnv] = strconv.Itoa(port)
 	workload.Spec.Env[common.AtomPrefillEndpointEnv] = commonworkload.AtomServiceEndpoint(
 		commonworkload.AtomRoleObjectName(rootWorkload.Name, common.AtomRolePrefill),
@@ -1531,6 +1540,47 @@ func atomReadinessPath(role string) string {
 		return common.AtomReadinessPath
 	}
 	return common.AtomHealthPath
+}
+
+// publishesRoleIngress keeps Atom and SGLangRouter prefill and decode off the public Ingress.
+// Role objects are Deployments and keep the root kind label. Other kinds are unchanged.
+func publishesRoleIngress(workload *v1.Workload) bool {
+	if !disaggregatedInferKind(workload) {
+		return true
+	}
+	role := ""
+	if workload.Spec.Env != nil {
+		role = workload.Spec.Env[common.InferRoleEnv]
+	}
+	return role != common.AtomRolePrefill && role != common.AtomRoleDecode
+}
+
+// disaggregatedInferKind reports an Atom or SGLangRouter workload, including a rendered role Deployment.
+func disaggregatedInferKind(workload *v1.Workload) bool {
+	if workload == nil {
+		return false
+	}
+	kind := workload.SpecKind()
+	if kind == common.AtomKind || kind == common.SGLangRouterKind {
+		return true
+	}
+	kind = v1.GetLabel(workload, v1.WorkloadKindLabel)
+	return kind == common.AtomKind || kind == common.SGLangRouterKind
+}
+
+// sglangRouterEntryPoint substitutes the model-gateway prefill and decode URLs.
+func sglangRouterEntryPoint(root *v1.Workload, prefillPort, decodePort int) string {
+	index := commonworkload.AtomRoleIndex(common.AtomRoleRouter)
+	command := commonworkload.DecodeEntryPoint(root.Spec.EntryPoints[index])
+	prefill := commonworkload.AtomServiceEndpoint(
+		commonworkload.AtomRoleObjectName(root.Name, common.AtomRolePrefill),
+		root.Spec.Workspace, prefillPort)
+	decode := commonworkload.AtomServiceEndpoint(
+		commonworkload.AtomRoleObjectName(root.Name, common.AtomRoleDecode),
+		root.Spec.Workspace, decodePort)
+	command = strings.ReplaceAll(command, common.SGLangRouterPrefillToken, prefill)
+	command = strings.ReplaceAll(command, common.SGLangRouterDecodeToken, decode)
+	return stringutil.Base64Encode(command)
 }
 
 // atomClusterService returns a ClusterIP Service for one Atom role.
@@ -1586,7 +1636,7 @@ func atomBootstrapPort(workload *v1.Workload) (int, bool) {
 	if workload == nil || workload.Spec.Env == nil {
 		return 0, false
 	}
-	role := workload.Spec.Env[common.AtomRoleEnv]
+	role := workload.Spec.Env[common.InferRoleEnv]
 	command := ""
 	if len(workload.Spec.EntryPoints) > 0 {
 		command = commonworkload.DecodeEntryPoint(workload.Spec.EntryPoints[0])

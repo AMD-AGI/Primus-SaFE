@@ -694,6 +694,29 @@ func TestValidateAtomNameLength(t *testing.T) {
 	assert.Assert(t, v.validateAtom(atomWorkloadNamed(okName+"b")) != nil)
 }
 
+// TestValidateSGLangRouter accepts any non-empty entryPoints in the three-role shape.
+func TestValidateSGLangRouter(t *testing.T) {
+	v := &WorkloadValidator{}
+	w := atomWorkloadNamed("sglang1")
+	w.Spec.Kind = common.SGLangRouterKind
+	assert.NilError(t, v.validateSGLangRouter(w))
+
+	w.Spec.EntryPoints = w.Spec.EntryPoints[:2]
+	err := v.validateSGLangRouter(w)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), common.SGLangRouterKind))
+	assert.Assert(t, !strings.Contains(err.Error(), "atom"))
+
+	w = atomWorkloadNamed("sglang-ports")
+	w.Spec.Kind = common.SGLangRouterKind
+	w.Spec.Service = &v1.Service{TargetPort: 9000}
+	w.Spec.EntryPoints[0] = "python --port 8000"
+	err = v.validateSGLangRouter(w)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), common.SGLangRouterKind))
+	assert.Assert(t, !strings.Contains(err.Error(), "atom"))
+}
+
 func TestWorkloadValidateInferaDeployment(t *testing.T) {
 	v := &WorkloadValidator{}
 	assert.Assert(t, v.validateInferaDeployment(&v1.Workload{}) != nil)

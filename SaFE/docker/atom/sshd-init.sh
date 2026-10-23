@@ -25,7 +25,7 @@ case "${MN_SSH_PORT}" in
 esac
 
 offset=0
-case "${ATOM_ROLE:-}" in
+case "${INFER_ROLE:-}" in
     decode) offset=10 ;;
     router) offset=20 ;;
 esac

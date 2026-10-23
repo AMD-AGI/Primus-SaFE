@@ -475,6 +475,7 @@ func TestGetScope(t *testing.T) {
 	assert.Equal(t, GetScope(wlKind(common.RayJobKind)), v1.RayScope)
 	assert.Equal(t, GetScope(wlKind(common.SandboxKind)), v1.SandboxScope)
 	assert.Equal(t, GetScope(wlKind(common.AtomKind)), v1.InferScope)
+	assert.Equal(t, GetScope(wlKind(common.SGLangRouterKind)), v1.InferScope)
 	assert.Equal(t, GetScope(wlKind("Unknown")), v1.WorkspaceScope(""))
 }
 
@@ -503,7 +504,10 @@ func TestKindPredicates(t *testing.T) {
 	assert.Assert(t, IsInferaDeployment(wlKind(common.InferaDeploymentKind)))
 	assert.Assert(t, IsAtom(wlKind(common.AtomKind)))
 	assert.Assert(t, !IsAtom(wlKind(common.DeploymentKind)))
+	assert.Assert(t, IsSGLangRouter(wlKind(common.SGLangRouterKind)))
+	assert.Assert(t, !IsSGLangRouter(wlKind(common.AtomKind)))
 	assert.Assert(t, IsApplication(wlKind(common.AtomKind)))
+	assert.Assert(t, IsApplication(wlKind(common.SGLangRouterKind)))
 	assert.Assert(t, IsMonarchJob(wlKind(common.MonarchJob)))
 	assert.Assert(t, !IsMonarchJob(wlKind(common.JobKind)))
 	assert.Assert(t, IsMonarchMesh(wlKind(common.MonarchMesh)))
@@ -521,12 +525,38 @@ func TestAtomRoleContract(t *testing.T) {
 	assert.Equal(t, AtomRoleIndex(common.AtomRolePrefill), 1)
 	assert.Equal(t, AtomServiceEndpoint("atom1-prefill", "ws", common.AtomPrefillPort),
 		"http://atom1-prefill.ws.svc.cluster.local:8010")
+	assert.DeepEqual(t, GetWorkloadGVK(wlKind(common.SGLangRouterKind)), []schema.GroupVersionKind{AtomDeploymentGVK()})
 	assert.Equal(t, AtomListenPort(0, "", common.AtomRolePrefill), common.AtomPrefillPort)
 	assert.Equal(t, AtomListenPort(0, "python --port 18010", common.AtomRolePrefill), 18010)
 	assert.Equal(t, AtomListenPort(18000, "python --port 8000", common.AtomRoleRouter), 18000)
 	assert.Equal(t, AtomBootstrapPort("", common.AtomRoleDecode), common.AtomDecodeBootstrapPort)
 	assert.Equal(t, AtomBootstrapPort("python --disaggregation-bootstrap-port 19098", common.AtomRoleDecode), 19098)
 	assert.Equal(t, AtomBootstrapPort("python --disaggregation-bootstrap-port 1", common.AtomRoleRouter), 0)
+}
+
+func TestGetUsedHostPortsRegistersSGLangRouterEngines(t *testing.T) {
+	mockScheme := runtime.NewScheme()
+	assert.NilError(t, v1.AddToScheme(mockScheme))
+	router := wlKind(common.SGLangRouterKind)
+	router.Name = "sglang1"
+	v1.SetLabel(router, v1.ClusterIdLabel, "c1")
+	router.Spec.Env = map[string]string{common.MNSSHPortEnv: "2233"}
+	router.Spec.Resources = []v1.WorkloadResource{{}, {RdmaResource: "1k"}, {RdmaResource: "1k"}}
+	router.Spec.EntryPoints = []string{
+		"python --port 8000",
+		"python --port 18010 --disaggregation-bootstrap-port 18998",
+		"python --port 18020 --disaggregation-bootstrap-port 19098",
+	}
+	cli := fake.NewClientBuilder().WithScheme(mockScheme).WithObjects(router).Build()
+
+	ports := GetUsedHostPorts(context.Background(), cli, "c1")
+
+	for _, port := range []int{18010, 18998, 18020, 19098, 2233, 2243} {
+		_, ok := ports[port]
+		assert.Assert(t, ok)
+	}
+	_, routerRegistered := ports[8000]
+	assert.Assert(t, !routerRegistered)
 }
 
 func TestIsOpsJob(t *testing.T) {

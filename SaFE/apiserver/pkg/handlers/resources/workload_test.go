@@ -2060,6 +2060,23 @@ func Test_buildSSHCommand(t *testing.T) {
 			gvk:            v1.GroupVersionKind{Group: "amd.com", Version: "v1", Kind: common.AtomKind},
 			expectedResult: "ssh -o ServerAliveInterval=60 test-user.atom-qwen-prefill-0.main.bash.test-workspace@ssh.example.com -p 2222",
 		},
+		{
+			name:          "SGLangRouter uses the Deployment template",
+			sshEnable:     "true",
+			subDomain:     "ssh",
+			domain:        "example.com",
+			sshPort:       "2222",
+			userId:        "test-user",
+			workspace:     "test-workspace",
+			mainContainer: "main",
+			templateKind:  common.DeploymentKind,
+			pod: &v1.WorkloadPod{
+				PodId: "sglang-router-0",
+				Phase: corev1.PodRunning,
+			},
+			gvk:            v1.GroupVersionKind{Group: "amd.com", Version: "v1", Kind: common.SGLangRouterKind},
+			expectedResult: "ssh -o ServerAliveInterval=60 test-user.sglang-router-0.main.bash.test-workspace@ssh.example.com -p 2222",
+		},
 	}
 
 	for _, tt := range tests {

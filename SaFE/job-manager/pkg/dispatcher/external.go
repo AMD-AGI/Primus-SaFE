@@ -70,8 +70,8 @@ func externalHostNetworkEnabled(workload *v1.Workload, resourceId int) bool {
 	if workload == nil || !isExternalWorkload(workload) {
 		return false
 	}
-	// Atom role objects are rendered as Deployments. The role env marks the
-	// prefill and decode engines, which need hostNetwork to see RDMA HCAs.
+	// Atom and SGLangRouter role objects are rendered as Deployments. The role env
+	// marks the prefill and decode engines, which need hostNetwork to see RDMA HCAs.
 	if isAtomEngineRole(workload) {
 		if resourceId < 0 || resourceId >= len(workload.Spec.Resources) {
 			return false
@@ -100,7 +100,7 @@ func isAtomEngineRole(workload *v1.Workload) bool {
 	if workload == nil || workload.Spec.Env == nil {
 		return false
 	}
-	role := workload.Spec.Env[common.AtomRoleEnv]
+	role := workload.Spec.Env[common.InferRoleEnv]
 	return role == common.AtomRolePrefill || role == common.AtomRoleDecode
 }
 

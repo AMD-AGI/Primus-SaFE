@@ -3,11 +3,12 @@
 
 # Packages ATOM source and atomesh on a published SGLang or vLLM ROCm image.
 # Select the base with ENGINE=sglang or ENGINE=vllm.
-# The SGLang base rebuilds Mooncake 01d1eb2a with chunked HIP dma-buf registration.
+# The SGLang base rebuilds Mooncake 01d1eb2a with chunked HIP dma-buf registration
+# and realizes the scheduler HIP streams before that registration.
 # sshd starts only when MN_SSH_AUTHORIZED_KEY is set. With no user command the container runs tail -f /dev/null.
 # /tmp/aiter_configs is emptied and mode 1777 so a non-root process can rewrite it.
 ARG ENGINE=sglang
-ARG SGLANG_BASE=docker.io/primussafe/sglang-rocm:20261013121117-8e371c
+ARG SGLANG_BASE=docker.io/lmsysorg/sglang-rocm:v0.5.21-rocm720-mi35x-20261008
 ARG VLLM_BASE=docker.io/vllm/vllm-openai-rocm:v0.29.0
 ARG BASE_IMAGE=${SGLANG_BASE}
 
@@ -45,12 +46,16 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     && rustc --version && cargo --version
 
 COPY patch-mooncake.py /tmp/patch-mooncake.py
+COPY patch-rdma-allocator.py /tmp/patch-rdma-allocator.py
+COPY patch-sglang-streams.py /tmp/patch-sglang-streams.py
 COPY build-mooncake.sh /tmp/build-mooncake.sh
 # The vLLM base has no /sgl-workspace/Mooncake tree.
 RUN if [ "${ENGINE}" = "sglang" ]; then \
         bash /tmp/build-mooncake.sh; \
+        python3 /tmp/patch-sglang-streams.py; \
     fi \
-    && rm -f /tmp/patch-mooncake.py /tmp/build-mooncake.sh /tmp/mooncake-cmake.log
+    && rm -f /tmp/patch-mooncake.py /tmp/patch-rdma-allocator.py \
+        /tmp/patch-sglang-streams.py /tmp/build-mooncake.sh /tmp/mooncake-cmake.log
 
 RUN git init /opt/ATOM \
     && git -C /opt/ATOM remote add origin "${ATOM_REPO}" \
@@ -78,6 +83,7 @@ RUN chmod 0755 /usr/local/bin/atom-entrypoint /usr/local/bin/sshd-init.sh /usr/l
     && cp /usr/local/bin/sh-wrapper.sh /usr/bin/sh \
     && mkdir -p /root/.ssh /run/sshd \
     && chmod 700 /root/.ssh \
+    && rm -rf /run/sshd-init.lock /run/sshd-init.done \
     && rm -rf /tmp/aiter_configs \
     && mkdir -p /tmp/aiter_configs \
     && chmod 1777 /tmp/aiter_configs

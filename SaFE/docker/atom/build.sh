@@ -6,7 +6,7 @@ set -euo pipefail
 
 engine="${1:-}"
 tag="${2:-}"
-sglang_base="${SGLANG_BASE:-docker.io/primussafe/sglang-rocm:20261013121117-8e371c}"
+sglang_base="${SGLANG_BASE:-docker.io/lmsysorg/sglang-rocm:v0.5.21-rocm720-mi35x-20261008}"
 vllm_base="docker.io/vllm/vllm-openai-rocm:v0.29.0"
 
 case "${engine}" in
@@ -25,7 +25,9 @@ case "${engine}" in
 esac
 
 root="$(cd "$(dirname "$0")" && pwd)"
-docker build \
+builder="${BUILDER:-docker}"
+# shellcheck disable=SC2086
+${builder} build \
     -f "${root}/Dockerfile" \
     --build-arg "ENGINE=${engine}" \
     --build-arg "BASE_IMAGE=${base}" \

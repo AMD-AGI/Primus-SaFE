@@ -110,7 +110,7 @@ func getMaxNameLength(workloadKind string) int {
 		return commonutils.MaxRayJobNameLen
 	case common.MonarchJob:
 		return commonutils.MaxMonarchJobNameLen
-	case common.AtomKind:
+	case common.AtomKind, common.SGLangRouterKind:
 		return commonutils.MaxAtomNameLen
 	default:
 		return commonutils.MaxGeneratedNameLength

@@ -1715,9 +1715,9 @@ func parseCustomerLabels(labels map[string]string) (map[string]string, []string,
 	return customerLabels, specifiedNodes, excludedNodes
 }
 
-// sshTemplateGVK maps Atom onto the Deployment template its roles render.
+// sshTemplateGVK maps kinds that render Deployments onto the Deployment template.
 func sshTemplateGVK(gvk v1.GroupVersionKind) v1.GroupVersionKind {
-	if gvk.Kind == common.AtomKind {
+	if gvk.Kind == common.AtomKind || gvk.Kind == common.SGLangRouterKind {
 		gvk.Kind = common.DeploymentKind
 	}
 	return gvk

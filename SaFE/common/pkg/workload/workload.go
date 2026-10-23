@@ -381,7 +381,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
 	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind, common.MonarchJob:
 		return v1.TrainScope
-	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind, common.InferaDeploymentKind, common.AtomKind:
+	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind, common.InferaDeploymentKind, common.AtomKind, common.SGLangRouterKind:
 		return v1.InferScope
 	case common.AuthoringKind:
 		return v1.AuthoringScope
@@ -406,6 +406,7 @@ func IsApplication(w *v1.Workload) bool {
 		w.SpecKind() == common.DynamoDeploymentKind ||
 		w.SpecKind() == common.InferaDeploymentKind ||
 		w.SpecKind() == common.AtomKind ||
+		w.SpecKind() == common.SGLangRouterKind ||
 		w.SpecKind() == common.CICDGithubRunnerKind {
 		return true
 	}
@@ -574,6 +575,11 @@ func IsInferaDeployment(w *v1.Workload) bool {
 // IsAtom reports whether the workload serves through atomesh, prefill and decode.
 func IsAtom(w *v1.Workload) bool {
 	return w.SpecKind() == common.AtomKind
+}
+
+// IsSGLangRouter reports a prefill/decode cluster fronted by the SGLang model gateway.
+func IsSGLangRouter(w *v1.Workload) bool {
+	return w != nil && w.SpecKind() == common.SGLangRouterKind
 }
 
 // AtomDeploymentGVK is the Kubernetes object created for every Atom role.
@@ -996,7 +1002,7 @@ func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
 			Group: "", Version: common.DefaultVersion, Kind: common.MonarchClient,
 		})
 		result = append(result, MonarchMeshWorkloadGVK())
-	} else if IsAtom(workload) {
+	} else if IsAtom(workload) || IsSGLangRouter(workload) {
 		result = append(result, AtomDeploymentGVK())
 	} else {
 		result = append(result, workload.ToSchemaGVK())
@@ -1026,7 +1032,8 @@ func SetMainContainerViaTemplate(ctx context.Context, cli client.Client, workloa
 
 // GetUsedHostPorts returns a set of all host ports currently in use by workloads in the specified cluster.
 // It collects: (1) JobPort and SSHPort from RDMA workloads (hostNetwork pods); (2) Service.NodePort;
-// Atom prefill and decode listen and bootstrap ports are included when the role requests RDMA.
+// Atom and SGLangRouter prefill and decode listen and bootstrap ports are included when the role requests RDMA.
+// When Spec.Env carries MN_SSH_PORT, those hostNetwork roles also reserve the sshd port window.
 // (3) GcsServer and Dashboard Port for RayJob; (4) DynamoFrontendPort for DGD when any worker uses RDMA
 // (Frontend is promoted to hostNetwork in IsEnabledHostNetwork to dodge the same-node Pod->hostIP hairpin).
 // The returned map acts as a set where keys are port numbers and values are empty structs.
@@ -1036,8 +1043,11 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterId})
 	if cli.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector}) == nil {
 		for _, item := range workloadList.Items {
-			if IsAtom(&item) {
+			if IsAtom(&item) || IsSGLangRouter(&item) {
 				for port := range atomEngineHostPorts(&item) {
+					ports[port] = struct{}{}
+				}
+				for port := range atomSSHHostPorts(&item) {
 					ports[port] = struct{}{}
 				}
 			}
@@ -1065,7 +1075,7 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 	return ports
 }
 
-// atomEngineHostPorts returns listen and bootstrap ports of Atom engines that use hostNetwork.
+// atomEngineHostPorts returns listen and bootstrap ports of prefill and decode roles that request RDMA.
 func atomEngineHostPorts(workload *v1.Workload) map[int]struct{} {
 	ports := map[int]struct{}{}
 	roles := []string{common.AtomRoleRouter, common.AtomRolePrefill, common.AtomRoleDecode}
@@ -1081,6 +1091,37 @@ func atomEngineHostPorts(workload *v1.Workload) map[int]struct{} {
 		ports[AtomListenPort(0, command, role)] = struct{}{}
 		if bootstrap := AtomBootstrapPort(command, role); bootstrap > 0 {
 			ports[bootstrap] = struct{}{}
+		}
+	}
+	return ports
+}
+
+// atomSSHHostPorts returns sshd listen ports for RDMA prefill and decode when MN_SSH_PORT is set.
+func atomSSHHostPorts(workload *v1.Workload) map[int]struct{} {
+	ports := map[int]struct{}{}
+	if workload == nil || workload.Spec.Env == nil {
+		return ports
+	}
+	base, err := strconv.Atoi(strings.TrimSpace(workload.Spec.Env[common.MNSSHPortEnv]))
+	if err != nil || base < 1 || base > 65535 {
+		return ports
+	}
+	roles := []string{common.AtomRolePrefill, common.AtomRoleDecode}
+	for _, role := range roles {
+		index := AtomRoleIndex(role)
+		if index < 0 || index >= len(workload.Spec.Resources) {
+			continue
+		}
+		res := workload.Spec.Resources[index]
+		if !HasRDMAResource(&res) {
+			continue
+		}
+		port := base
+		if role == common.AtomRoleDecode {
+			port = base + common.MNSSHPortDecodeOffset
+		}
+		if port >= 1 && port <= 65535 {
+			ports[port] = struct{}{}
 		}
 	}
 	return ports

@@ -126,6 +126,11 @@ const router = createRouter({
           component: () => import('../pages/Atom/index.vue'),
         },
         {
+          path: '/sglang-router',
+          name: 'SGLangRouter',
+          component: () => import('../pages/SGLangRouter/index.vue'),
+        },
+        {
           path: '/cicd/detail',
           name: 'CICDDetail',
           component: () => import('../pages/CICD/CICDDetail.vue'),
@@ -189,6 +194,11 @@ const router = createRouter({
           path: '/atom/detail',
           name: 'AtomDetail',
           component: () => import('../pages/Atom/AtomDetail.vue'),
+        },
+        {
+          path: '/sglang-router/detail',
+          name: 'SGLangRouterDetail',
+          component: () => import('../pages/SGLangRouter/SGLangRouterDetail.vue'),
         },
         {
           path: '/workspace',

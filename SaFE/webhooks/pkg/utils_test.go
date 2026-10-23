@@ -202,6 +202,7 @@ func TestGetMaxNameLength(t *testing.T) {
 	assert.Equal(t, commonutils.MaxRayJobNameLen, getMaxNameLength(common.RayJobKind))
 	assert.Equal(t, commonutils.MaxMonarchJobNameLen, getMaxNameLength(common.MonarchJob))
 	assert.Equal(t, commonutils.MaxDeploymentNameLen-len("-"+common.AtomRolePrefill), getMaxNameLength(common.AtomKind))
+	assert.Equal(t, commonutils.MaxDeploymentNameLen-len("-"+common.AtomRolePrefill), getMaxNameLength(common.SGLangRouterKind))
 	assert.Equal(t, commonutils.MaxGeneratedNameLength, getMaxNameLength("Unknown"))
 }
 

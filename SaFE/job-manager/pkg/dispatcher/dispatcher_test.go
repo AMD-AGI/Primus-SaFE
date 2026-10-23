@@ -1855,7 +1855,7 @@ func TestGenerateAtomRoles(t *testing.T) {
 	assert.Equal(t, prefill.Spec.Resources[0].Replica, 2)
 	assert.Equal(t, prefill.Spec.Readiness.Path, common.AtomHealthPath)
 	assert.Equal(t, prefill.Spec.Readiness.Port, common.AtomPrefillPort)
-	assert.Equal(t, prefill.Spec.Env[common.AtomRoleEnv], common.AtomRolePrefill)
+	assert.Equal(t, prefill.Spec.Env[common.InferRoleEnv], common.AtomRolePrefill)
 	assert.Equal(t, prefill.Spec.Env[common.AtomPrefillEndpointEnv], "http://atom1-prefill.ws.svc.cluster.local:8010")
 	assert.Equal(t, commonworkload.GetK8sServiceName(prefill), "atom1-prefill")
 	assert.Equal(t, v1.GetRootWorkloadId(prefill), "atom1")
@@ -1920,7 +1920,7 @@ func TestRenderAtomPrefill(t *testing.T) {
 	assert.Equal(t, int(probe.TimeoutSeconds), common.AtomProbeTimeoutSeconds)
 	foundRole := false
 	for _, env := range deployment.Spec.Template.Spec.Containers[0].Env {
-		if env.Name == common.AtomRoleEnv && env.Value == common.AtomRolePrefill {
+		if env.Name == common.InferRoleEnv && env.Value == common.AtomRolePrefill {
 			foundRole = true
 		}
 	}
@@ -1932,8 +1932,11 @@ func atomRootWorkload() *v1.Workload {
 		return v1.WorkloadResource{Replica: replica, CPU: "1", Memory: "1Gi", EphemeralStorage: "1Gi"}
 	}
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
-		Name:   "atom1",
-		Labels: map[string]string{v1.ServiceNameLabel: "atom-public"},
+		Name: "atom1",
+		Labels: map[string]string{
+			v1.ServiceNameLabel:  "atom-public",
+			v1.WorkloadKindLabel: common.AtomKind,
+		},
 	}}
 	w.Spec.Workspace = "ws"
 	w.Spec.Kind = common.AtomKind
@@ -1953,6 +1956,50 @@ func atomRootWorkload() *v1.Workload {
 		ServiceType: corev1.ServiceTypeNodePort,
 	}
 	return w
+}
+
+func TestProcessAtomWorkloadInvalidShapeUsesKind(t *testing.T) {
+	r := &DispatcherReconciler{}
+	w := &v1.Workload{Spec: v1.WorkloadSpec{
+		GroupVersionKind: v1.GroupVersionKind{Kind: common.SGLangRouterKind},
+	}}
+	_, err := r.processAtomWorkload(context.Background(), w)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "invalid "+common.SGLangRouterKind+" workload shape"))
+	assert.Assert(t, !strings.Contains(err.Error(), "atom"))
+}
+
+func TestGenerateSGLangRouter(t *testing.T) {
+	r := newGenReconciler(t)
+	w := atomRootWorkload()
+	w.Name = "sglang1"
+	w.Spec.Kind = common.SGLangRouterKind
+	v1.SetLabel(w, v1.WorkloadKindLabel, common.SGLangRouterKind)
+	w.Spec.EntryPoints = []string{
+		stringutil.Base64Encode("python3 -m sglang_router.launch_router --pd-disaggregation --prefill {prefill} --decode {decode} --host 0.0.0.0 --port 8000"),
+		stringutil.Base64Encode("python3 -m sglang.launch_server --disaggregation-mode prefill --port 18010"),
+		stringutil.Base64Encode("python3 -m sglang.launch_server --disaggregation-mode decode --port 18020"),
+	}
+	router := r.generateAtomRoleWorkload(context.Background(), w, common.AtomRoleRouter)
+	prefill := r.generateAtomRoleWorkload(context.Background(), w, common.AtomRolePrefill)
+	command := stringutil.Base64Decode(router.Spec.EntryPoints[0])
+	assert.Assert(t, strings.Contains(command, "sglang_router.launch_router"))
+	assert.Assert(t, strings.Contains(command, "http://sglang1-prefill.ws.svc.cluster.local:18010"))
+	assert.Assert(t, strings.Contains(command, "http://sglang1-decode.ws.svc.cluster.local:18020"))
+	assert.Assert(t, !strings.Contains(command, "atomesh"))
+	assert.Assert(t, !strings.Contains(command, "{prefill}"))
+	assert.Equal(t, prefill.Spec.Readiness.Port, 18010)
+	assert.Assert(t, !publishesRoleIngress(prefill))
+	assert.Assert(t, publishesRoleIngress(router))
+	atomPrefill := r.generateAtomRoleWorkload(context.Background(), atomRootWorkload(), common.AtomRolePrefill)
+	assert.Assert(t, !publishesRoleIngress(atomPrefill))
+
+	plain := &v1.Workload{Spec: v1.WorkloadSpec{
+		GroupVersionKind: v1.GroupVersionKind{Kind: common.DeploymentKind},
+		Env:              map[string]string{common.InferRoleEnv: common.AtomRolePrefill},
+	}}
+	v1.SetLabel(plain, v1.WorkloadKindLabel, common.DeploymentKind)
+	assert.Assert(t, publishesRoleIngress(plain))
 }
 
 func TestGenerateMonarchMesh(t *testing.T) {
@@ -2084,7 +2131,7 @@ func TestGenerateServicePorts(t *testing.T) {
 
 func TestAtomBootstrapServicePorts(t *testing.T) {
 	svc := &v1.Service{Protocol: corev1.ProtocolTCP, Port: common.AtomPrefillPort, TargetPort: common.AtomPrefillPort}
-	prefill := &v1.Workload{Spec: v1.WorkloadSpec{Env: map[string]string{common.AtomRoleEnv: common.AtomRolePrefill}}}
+	prefill := &v1.Workload{Spec: v1.WorkloadSpec{Env: map[string]string{common.InferRoleEnv: common.AtomRolePrefill}}}
 	ports := servicePortsForWorkload(prefill, svc)
 	assert.Equal(t, len(ports), 2)
 	assert.Equal(t, ports[0].Name, "http")
@@ -2093,12 +2140,12 @@ func TestAtomBootstrapServicePorts(t *testing.T) {
 	assert.Equal(t, ports[1].TargetPort.IntVal, int32(common.AtomPrefillBootstrapPort))
 
 	decode := prefill.DeepCopy()
-	decode.Spec.Env[common.AtomRoleEnv] = common.AtomRoleDecode
+	decode.Spec.Env[common.InferRoleEnv] = common.AtomRoleDecode
 	ports = servicePortsForWorkload(decode, svc)
 	assert.Equal(t, ports[1].Port, int32(common.AtomDecodeBootstrapPort))
 
 	router := prefill.DeepCopy()
-	router.Spec.Env[common.AtomRoleEnv] = common.AtomRoleRouter
+	router.Spec.Env[common.InferRoleEnv] = common.AtomRoleRouter
 	assert.Equal(t, len(servicePortsForWorkload(router, svc)), 1)
 }
 

@@ -43,9 +43,11 @@ const (
 	DynamoDeploymentKind    = "DynamoDeployment"
 	InferaDeploymentKind    = "InferaDeployment"
 	AtomKind                = "Atom"
-	ConfigmapKind           = "ConfigMap"
-	ClusterRoleKind         = "ClusterRole"
-	ServiceAccountKind      = "ServiceAccount"
+	// SGLangRouterKind is a prefill/decode cluster fronted by the SGLang model gateway.
+	SGLangRouterKind   = "SGLangRouter"
+	ConfigmapKind      = "ConfigMap"
+	ClusterRoleKind    = "ClusterRole"
+	ServiceAccountKind = "ServiceAccount"
 
 	GithubConfigUrl       = "GITHUB_CONFIG_URL"
 	RunnerLabels          = "RUNNER_LABELS"
@@ -108,12 +110,20 @@ const (
 	AtomPrefillBootstrapPort = 8998
 	AtomDecodeBootstrapPort  = 9098
 
-	AtomRoleEnv            = "ATOM_ROLE"
+	// InferRoleEnv marks router, prefill, or decode on a disaggregated infer Deployment.
+	InferRoleEnv           = "INFER_ROLE"
 	AtomServerPortEnv      = "ATOM_SERVER_PORT"
 	AtomPrefillEndpointEnv = "ATOM_PREFILL_ENDPOINT"
 	AtomDecodeEndpointEnv  = "ATOM_DECODE_ENDPOINT"
-	AtomHealthPath         = "/health"
-	AtomReadinessPath      = "/readiness"
+	// MNSSHPortEnv is the Brain-injected base sshd port for hostNetwork roles.
+	MNSSHPortEnv = "MN_SSH_PORT"
+	// Prefill uses the base. Decode adds MNSSHPortDecodeOffset.
+	MNSSHPortDecodeOffset = 10
+	// SGLangRouter router commands use these tokens. Dispatch replaces them with Service URLs.
+	SGLangRouterPrefillToken = "{prefill}"
+	SGLangRouterDecodeToken  = "{decode}"
+	AtomHealthPath           = "/health"
+	AtomReadinessPath        = "/readiness"
 
 	AtomProbeInitialDelaySeconds = 5
 	AtomProbePeriodSeconds       = 5
