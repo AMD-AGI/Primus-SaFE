@@ -6,20 +6,27 @@
 package dispatcher
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	"github.com/spf13/viper"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -2994,4 +3001,604 @@ func TestConstrainCICDListener_ConfinesEveryTemplateTerm(t *testing.T) {
 	before := obj.DeepCopy()
 	assert.NilError(t, constrainCICDListener(obj, workload))
 	assert.DeepEqual(t, obj.Object, before.Object)
+}
+
+// The cluster's registry host aliases go into every Pod the platform creates there, on a
+// virtual kubelet as on a kubelet, after any the template already has.
+func TestInitializeObjectAddsTheClustersHostAliases(t *testing.T) {
+	viper.Set("save_image.clusters", []map[string]any{{
+		"cluster": "edge",
+		"host_aliases": []map[string]any{
+			{"ip": "10.0.0.5", "hostnames": []string{"registry.example.com"}},
+		},
+	}})
+	t.Cleanup(viper.Reset)
+
+	obj, workload, spec := externalAuthoringPod()
+	workload.Labels[v1.ClusterIdLabel] = "edge"
+	workload.Spec.Resources = []v1.WorkloadResource{{Replica: 1, CPU: "1", Memory: "1Gi"}}
+	path := podSpecPath(workload, &spec, "hostAliases")
+	assert.NilError(t, unstructured.SetNestedSlice(obj.Object, []interface{}{
+		map[string]interface{}{"ip": "10.0.0.1", "hostnames": []interface{}{"keep.example.com"}},
+	}, path...))
+	assert.NilError(t, initializeObject(obj, workload, nil, &spec, 0))
+
+	got, _, err := unstructured.NestedSlice(obj.Object, path...)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, []interface{}{
+		map[string]interface{}{"ip": "10.0.0.1", "hostnames": []interface{}{"keep.example.com"}},
+		map[string]interface{}{"ip": "10.0.0.5", "hostnames": []interface{}{"registry.example.com"}},
+	}, got)
+
+	// Another cluster gets none.
+	obj, workload, spec = externalAuthoringPod()
+	workload.Labels[v1.ClusterIdLabel] = "other"
+	workload.Spec.Resources = []v1.WorkloadResource{{Replica: 1, CPU: "1", Memory: "1Gi"}}
+	assert.NilError(t, initializeObject(obj, workload, nil, &spec, 0))
+	_, found, _ := unstructured.NestedSlice(obj.Object, podSpecPath(workload, &spec, "hostAliases")...)
+	assert.Assert(t, !found)
+}
+
+func TestModifyHostAliasesRefusesUnreadableSettings(t *testing.T) {
+	viper.Set("save_image.clusters", "not a list")
+	t.Cleanup(viper.Reset)
+	obj, workload, spec := externalAuthoringPod()
+	assert.Assert(t, modifyHostAliases(obj, workload, podSpecPath(workload, &spec, "hostAliases")) != nil)
+}
+
+// activeDeadlineCase renders a workload of one kind through generateK8sObject
+// and returns the pod spec activeDeadlineSeconds of its first resource spec.
+type activeDeadlineCase struct {
+	kind     string
+	template string
+	rt       *v1.ResourceTemplate
+}
+
+var activeDeadlineCases = map[string]activeDeadlineCase{
+	common.PytorchJobKind: {common.PytorchJobKind, TestPytorchJobTemplateConfig, jobutils.TestPytorchResourceTemplate},
+	common.JobKind:        {common.JobKind, TestJobTemplateConfig, jobutils.TestJobResourceTemplate},
+	common.SandboxKind:    {common.SandboxKind, TestSandboxConfig, jobutils.TestSandboxResourceTemplate},
+	common.DeploymentKind: {common.DeploymentKind, TestDeploymentTemplateConfig, jobutils.TestDeploymentResourceTemplate},
+}
+
+func renderActiveDeadline(t *testing.T, c activeDeadlineCase, mutate func(*v1.Workload)) (int64, bool) {
+	t.Helper()
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: c.kind}
+	if c.kind == common.DeploymentKind {
+		workload.Spec.GroupVersionKind.Group = "apps"
+	}
+	if c.kind == common.SandboxKind {
+		workload.Spec.GroupVersionKind.Version = common.DefaultVersion
+		workload.Spec.JobPort = 0
+		workload.Spec.EntryPoints = nil
+		workload.Spec.Resources[0].RdmaResource = ""
+		workload.Spec.Env[sandboxAuthPublicKeyEnvName] = "test-public-key"
+	}
+	if mutate != nil {
+		mutate(workload)
+	}
+	configmap, err := parseConfigmap(c.template)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, c.rt, workspace).WithScheme(scheme).Build()
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+	path := podSpecPath(workload, &c.rt.Spec.ResourceSpecs[0], "activeDeadlineSeconds")
+	v, found, err := jobutils.NestedInt64(obj.Object, path)
+	assert.NilError(t, err)
+	return v, found
+}
+
+func TestActiveDeadlineFromTimeoutPerKind(t *testing.T) {
+	tests := []struct {
+		kind string
+		want bool
+	}{
+		{common.PytorchJobKind, true},
+		{common.JobKind, true},
+		{common.SandboxKind, true},
+		// A Deployment's pods are a long-running service, and the API server
+		// refuses activeDeadlineSeconds in its pod template.
+		{common.DeploymentKind, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.kind, func(t *testing.T) {
+			v, found := renderActiveDeadline(t, activeDeadlineCases[tt.kind], func(w *v1.Workload) {
+				w.Spec.Timeout = pointer.Int(180000)
+			})
+			assert.Equal(t, found, tt.want)
+			if tt.want {
+				assert.Equal(t, v, int64(180000))
+			}
+		})
+	}
+}
+
+func TestActiveDeadlineAbsentWithoutTimeout(t *testing.T) {
+	for _, kind := range []string{common.PytorchJobKind, common.JobKind, common.SandboxKind} {
+		t.Run(kind, func(t *testing.T) {
+			for _, timeout := range []*int{nil, pointer.Int(0)} {
+				_, found := renderActiveDeadline(t, activeDeadlineCases[kind], func(w *v1.Workload) {
+					w.Spec.Timeout = timeout
+				})
+				assert.Equal(t, found, false)
+			}
+		})
+	}
+}
+
+// A redispatched workload keeps the timeout as written: the workload timeout is
+// fixed and counted from the first start, so the pod value stays an upper bound.
+func TestActiveDeadlineOnFailoverKeepsTheTimeout(t *testing.T) {
+	v, found := renderActiveDeadline(t, activeDeadlineCases[common.PytorchJobKind], func(w *v1.Workload) {
+		w.Spec.Timeout = pointer.Int(86400)
+		v1.SetLabel(w, v1.WorkloadDispatchCntLabel, "3")
+		w.Status.StartTime = &metav1.Time{Time: time.Now().UTC().Add(-10 * time.Hour)}
+	})
+	assert.Equal(t, found, true)
+	assert.Equal(t, v, int64(86400))
+}
+
+func TestModifyActiveDeadlineKinds(t *testing.T) {
+	path := []string{"spec", "template", "spec", "activeDeadlineSeconds"}
+	tests := []struct {
+		kind string
+		want bool
+	}{
+		{common.AuthoringKind, true},
+		{common.PytorchJobKind, true},
+		{common.UnifiedJobKind, true},
+		{common.TorchFTKind, true},
+		{common.JobKind, true},
+		{common.MonarchClient, true},
+		{common.SandboxKind, true},
+		{common.DeploymentKind, false},
+		{common.StatefulSetKind, false},
+		{common.CICDGithubRunnerKind, false},
+		{common.CICDScaleRunnerSetKind, false},
+		{common.CICDEphemeralRunnerKind, false},
+		{common.DynamoDeploymentKind, false},
+		{common.InferaDeploymentKind, false},
+		{common.MonarchMesh, false},
+		{common.RayJobKind, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.kind, func(t *testing.T) {
+			w := &v1.Workload{}
+			w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: tt.kind}
+			w.Spec.Timeout = pointer.Int(3600)
+			obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+			assert.NilError(t, modifyActiveDeadline(obj, w, path))
+			v, found, err := jobutils.NestedInt64(obj.Object, path)
+			assert.NilError(t, err)
+			assert.Equal(t, found, tt.want)
+			if tt.want {
+				assert.Equal(t, v, int64(3600))
+			}
+		})
+	}
+}
+
+func TestModifyActiveDeadlineExistingValue(t *testing.T) {
+	path := []string{"spec", "template", "spec", "activeDeadlineSeconds"}
+	tests := []struct {
+		name     string
+		existing interface{}
+		want     int64
+	}{
+		{"smaller int64 is kept", int64(600), 600},
+		{"smaller float from yaml is kept", float64(600), 600},
+		{"equal is kept", int64(3600), 3600},
+		{"larger is lowered to the timeout", int64(7200), 3600},
+		{"larger float from yaml is lowered", float64(7200), 3600},
+		{"zero is replaced", int64(0), 3600},
+		{"non-number is replaced", "600", 3600},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := &v1.Workload{}
+			w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.JobKind}
+			w.Spec.Timeout = pointer.Int(3600)
+			obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+			assert.NilError(t, jobutils.SetNestedField(obj.Object, tt.existing, path))
+			assert.NilError(t, modifyActiveDeadline(obj, w, path))
+			got, _, _ := jobutils.NestedField(obj.Object, path)
+			n, ok := toPositiveInt64(got)
+			assert.Equal(t, ok, true)
+			assert.Equal(t, n, tt.want)
+		})
+	}
+}
+
+// Without a timeout a value set by the template is left alone.
+func TestModifyActiveDeadlineNoTimeoutKeepsTemplateValue(t *testing.T) {
+	path := []string{"spec", "template", "spec", "activeDeadlineSeconds"}
+	w := &v1.Workload{}
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.JobKind}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, int64(600), path))
+	assert.NilError(t, modifyActiveDeadline(obj, w, path))
+	v, _, _ := jobutils.NestedInt64(obj.Object, path)
+	assert.Equal(t, v, int64(600))
+}
+
+var affinityTestPath = []string{"spec", "template", "spec", "affinity", "nodeAffinity",
+	"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms"}
+
+func expr(key, op string, values ...string) interface{} {
+	vals := make([]interface{}, 0, len(values))
+	for _, v := range values {
+		vals = append(vals, v)
+	}
+	return map[string]interface{}{"key": key, "operator": op, "values": vals}
+}
+
+func term(exprs ...interface{}) interface{} {
+	return map[string]interface{}{"matchExpressions": append([]interface{}{}, exprs...)}
+}
+
+// injectedTerms stands in for terms another layer already wrote into the pod template:
+// each confines the pod to a pool of nodes, and the terms are ORed with each other.
+func injectedTerms(n int) []interface{} {
+	terms := make([]interface{}, 0, n)
+	for i := 0; i < n; i++ {
+		terms = append(terms, term(
+			expr("example.com/pool", "In", "pool-"+strconv.Itoa(i)),
+			expr("example.com/lease-end", "Gt", "100"),
+		))
+	}
+	return terms
+}
+
+func affinityObject(terms []interface{}) *unstructured.Unstructured {
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	if terms != nil {
+		_ = jobutils.SetNestedField(obj.Object, terms, affinityTestPath)
+	}
+	return obj
+}
+
+func affinityWorkload(workspace string, labels map[string]string) *v1.Workload {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", Annotations: map[string]string{}}}
+	w.Spec.Workspace = workspace
+	w.Spec.CustomerLabels = labels
+	return w
+}
+
+func renderedTerms(t *testing.T, obj *unstructured.Unstructured) []interface{} {
+	terms, _, err := jobutils.NestedSlice(obj.Object, affinityTestPath)
+	assert.NilError(t, err)
+	return terms
+}
+
+// exprMatches evaluates one node selector requirement against node labels the way the
+// scheduler does for the operators used here.
+func exprMatches(t *testing.T, raw interface{}, labels map[string]string) bool {
+	e := raw.(map[string]interface{})
+	key := e["key"].(string)
+	var values []string
+	if vs, ok := e["values"].([]interface{}); ok {
+		for _, v := range vs {
+			values = append(values, v.(string))
+		}
+	}
+	val, has := labels[key]
+	switch e["operator"] {
+	case "In":
+		for _, v := range values {
+			if has && v == val {
+				return true
+			}
+		}
+		return false
+	case "NotIn":
+		for _, v := range values {
+			if has && v == val {
+				return false
+			}
+		}
+		return true
+	case "Gt":
+		got, err1 := strconv.ParseInt(val, 10, 64)
+		want, err2 := strconv.ParseInt(values[0], 10, 64)
+		return has && err1 == nil && err2 == nil && got > want
+	}
+	t.Fatalf("unexpected operator %v", e["operator"])
+	return false
+}
+
+// schedulable reports whether a node with these labels satisfies the required node
+// affinity: terms are ORed, the expressions inside a term are ANDed.
+func schedulable(t *testing.T, terms []interface{}, labels map[string]string) bool {
+	if len(terms) == 0 {
+		return true
+	}
+	for _, raw := range terms {
+		exprs, _ := raw.(map[string]interface{})["matchExpressions"].([]interface{})
+		ok := true
+		for _, e := range exprs {
+			if !exprMatches(t, e, labels) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return true
+		}
+	}
+	return false
+}
+
+func node(name, workspace, pool, leaseEnd string, extra map[string]string) map[string]string {
+	labels := map[string]string{v1.K8sHostName: name, "example.com/pool": pool, "example.com/lease-end": leaseEnd}
+	if workspace != "" {
+		labels[v1.WorkspaceIdLabel] = workspace
+	}
+	for k, v := range extra {
+		labels[k] = v
+	}
+	return labels
+}
+
+func TestRequiredAffinityWithoutCustomerLabelsIsUnchanged(t *testing.T) {
+	// No template terms: one term with the workspace confinement.
+	obj := affinityObject(nil)
+	assert.NilError(t, modifyRequiredNodeAffinity(obj, affinityWorkload("ws-1", nil), affinityTestPath))
+	assert.DeepEqual(t, renderedTerms(t, obj), []interface{}{
+		term(expr(v1.WorkspaceIdLabel, "In", "ws-1")),
+	})
+
+	// Several template terms: every term gains the workspace confinement, since the
+	// terms are ORed and one without it would reach any workspace's nodes.
+	obj = affinityObject(injectedTerms(3))
+	assert.NilError(t, modifyRequiredNodeAffinity(obj, affinityWorkload("ws-1", nil), affinityTestPath))
+	want := injectedTerms(3)
+	for i := range want {
+		m := want[i].(map[string]interface{})
+		m["matchExpressions"] = append(m["matchExpressions"].([]interface{}),
+			expr(v1.WorkspaceIdLabel, "In", "ws-1"))
+	}
+	assert.DeepEqual(t, renderedTerms(t, obj), want)
+
+	// Default workspace and no labels: nothing to add, the template is left alone.
+	obj = affinityObject(injectedTerms(2))
+	assert.NilError(t, modifyRequiredNodeAffinity(obj, affinityWorkload("default", nil), affinityTestPath))
+	assert.DeepEqual(t, renderedTerms(t, obj), injectedTerms(2))
+}
+
+func TestRequiredAffinityOnlyCustomerLabels(t *testing.T) {
+	obj := affinityObject(nil)
+	w := affinityWorkload("default", map[string]string{"example.com/gpu-model": "model-a"})
+	assert.NilError(t, modifyRequiredNodeAffinity(obj, w, affinityTestPath))
+	assert.DeepEqual(t, renderedTerms(t, obj), []interface{}{
+		term(expr("example.com/gpu-model", "In", "model-a")),
+	})
+}
+
+func TestRequiredAffinityCustomerLabelsWithOneInjectedTerm(t *testing.T) {
+	obj := affinityObject(injectedTerms(1))
+	w := affinityWorkload("ws-1", map[string]string{"example.com/gpu-model": "model-a"})
+	assert.NilError(t, modifyRequiredNodeAffinity(obj, w, affinityTestPath))
+	want := injectedTerms(1)
+	first := want[0].(map[string]interface{})
+	first["matchExpressions"] = append(first["matchExpressions"].([]interface{}),
+		expr(v1.WorkspaceIdLabel, "In", "ws-1"), expr("example.com/gpu-model", "In", "model-a"))
+	assert.DeepEqual(t, renderedTerms(t, obj), want)
+}
+
+func TestRequiredAffinityCustomerLabelsWithSeveralInjectedTerms(t *testing.T) {
+	obj := affinityObject(injectedTerms(3))
+	w := affinityWorkload("ws-1", map[string]string{"example.com/gpu-model": "model-a"})
+	assert.NilError(t, modifyRequiredNodeAffinity(obj, w, affinityTestPath))
+	terms := renderedTerms(t, obj)
+	assert.Equal(t, len(terms), 3)
+	want := injectedTerms(3)
+	for i := range want {
+		m := want[i].(map[string]interface{})
+		m["matchExpressions"] = append(m["matchExpressions"].([]interface{}),
+			expr(v1.WorkspaceIdLabel, "In", "ws-1"), expr("example.com/gpu-model", "In", "model-a"))
+	}
+	assert.DeepEqual(t, terms, want)
+
+	// A node outside the label is rejected whichever term it would match.
+	other := map[string]string{"example.com/gpu-model": "model-b"}
+	same := map[string]string{"example.com/gpu-model": "model-a"}
+	for pool := 1; pool < 3; pool++ {
+		p := "pool-" + strconv.Itoa(pool)
+		assert.Assert(t, !schedulable(t, terms, node("node-x", "ws-1", p, "200", other)), p)
+		assert.Assert(t, schedulable(t, terms, node("node-x", "ws-1", p, "200", same)), p)
+	}
+}
+
+func TestRequiredAffinityHostnamePinHoldsAcrossInjectedTerms(t *testing.T) {
+	obj := affinityObject(injectedTerms(3))
+	w := affinityWorkload("ws-1", map[string]string{v1.K8sHostName: "node-b"})
+	assert.NilError(t, modifyRequiredNodeAffinity(obj, w, affinityTestPath))
+	terms := renderedTerms(t, obj)
+
+	// node-a is in an injected pool and has lease left, but the user pinned node-b.
+	for pool := 0; pool < 3; pool++ {
+		p := "pool-" + strconv.Itoa(pool)
+		assert.Assert(t, !schedulable(t, terms, node("node-a", "ws-1", p, "200", nil)), p)
+	}
+	// node-b still schedules through any injected pool, inside the workspace only.
+	for pool := 0; pool < 3; pool++ {
+		p := "pool-" + strconv.Itoa(pool)
+		assert.Assert(t, schedulable(t, terms, node("node-b", "ws-1", p, "200", nil)), p)
+		assert.Assert(t, !schedulable(t, terms, node("node-b", "", p, "200", nil)), p)
+		assert.Assert(t, !schedulable(t, terms, node("node-b", "ws-2", p, "200", nil)), p)
+	}
+	// The injected constraints still hold for the pinned node.
+	assert.Assert(t, !schedulable(t, terms, node("node-b", "ws-1", "pool-9", "200", nil)))
+	assert.Assert(t, !schedulable(t, terms, node("node-b", "ws-1", "pool-1", "50", nil)))
+
+	// specified/excluded nodes keys are rewritten to hostname In / NotIn in every term.
+	obj = affinityObject(injectedTerms(2))
+	w = affinityWorkload("default", map[string]string{common.ExcludedNodes: "node-a node-c"})
+	assert.NilError(t, modifyRequiredNodeAffinity(obj, w, affinityTestPath))
+	terms = renderedTerms(t, obj)
+	assert.Assert(t, !schedulable(t, terms, node("node-a", "", "pool-1", "200", nil)))
+	assert.Assert(t, schedulable(t, terms, node("node-b", "", "pool-1", "200", nil)))
+
+	// A preferred (non-required) hostname choice adds no required expression anywhere.
+	obj = affinityObject(injectedTerms(2))
+	w = affinityWorkload("default", map[string]string{v1.K8sHostName: "node-b"})
+	w.Annotations[v1.NodesAffinityAnnotation] = common.NodesAffinityPreferred
+	assert.NilError(t, modifyRequiredNodeAffinity(obj, w, affinityTestPath))
+	assert.DeepEqual(t, renderedTerms(t, obj), injectedTerms(2))
+}
+
+func TestRequiredAffinityWorkspaceHoldsAcrossInjectedTerms(t *testing.T) {
+	for _, labels := range []map[string]string{nil, {"example.com/gpu-model": "model-a"}} {
+		obj := affinityObject(injectedTerms(3))
+		assert.NilError(t, modifyRequiredNodeAffinity(obj, affinityWorkload("ws-1", labels), affinityTestPath))
+		terms := renderedTerms(t, obj)
+		assert.Equal(t, len(terms), 3)
+		// Whichever injected term a node matches, it must be in ws-1: a node without the
+		// workspace label or in another workspace is rejected.
+		for pool := 0; pool < 3; pool++ {
+			p := "pool-" + strconv.Itoa(pool)
+			extra := map[string]string{"example.com/gpu-model": "model-a"}
+			assert.Assert(t, schedulable(t, terms, node("node-a", "ws-1", p, "200", extra)), p)
+			assert.Assert(t, !schedulable(t, terms, node("node-a", "", p, "200", extra)), p)
+			assert.Assert(t, !schedulable(t, terms, node("node-a", "ws-2", p, "200", extra)), p)
+		}
+	}
+}
+
+const (
+	primusSafeChart = "../../../charts/primus-safe"
+	envSecretName   = "sandbox-env"
+)
+
+// renderChartSandboxTemplate renders the chart's own sandbox template ConfigMap, so the test
+// dispatches through the template a deployment actually installs.
+func renderChartSandboxTemplate(t *testing.T, values ...string) string {
+	t.Helper()
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+	if _, err := os.Stat(primusSafeChart); err != nil {
+		t.Skipf("chart not found at %s", primusSafeChart)
+	}
+	args := append([]string{"template", primusSafeChart, "--namespace", common.PrimusSafeNamespace,
+		"--show-only", "templates/configmap/sandbox_template.yaml"}, values...)
+	var stderr bytes.Buffer
+	cmd := exec.Command("helm", args...)
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	assert.NilError(t, err, stderr.String())
+	return string(out)
+}
+
+// dispatchSandbox renders a Sandbox workload through generateK8sObject with the
+// given template and returns the object and its main container's env.
+func dispatchSandbox(t *testing.T, template string, env map[string]string, extra ...*corev1.Secret) (*v1.Workload, *unstructured.Unstructured, []interface{}) {
+	t.Helper()
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	t.Cleanup(func() { commonconfig.SetValue("net.rdma_name", "") })
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{Version: common.DefaultVersion, Kind: common.SandboxKind}
+	workload.Spec.JobPort = 0
+	workload.Spec.EntryPoints = nil
+	workload.Spec.Resources[0].RdmaResource = ""
+	workload.Spec.Env[sandboxAuthPublicKeyEnvName] = "test-public-key"
+	for k, v := range env {
+		workload.Spec.Env[k] = v
+	}
+
+	configmap, err := parseConfigmap(template)
+	assert.NilError(t, err)
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	builder := fake.NewClientBuilder().WithObjects(configmap,
+		jobutils.TestSandboxResourceTemplate, workspace).WithScheme(scheme)
+	for _, s := range extra {
+		s = s.DeepCopy()
+		s.Namespace = workspace.Name
+		builder = builder.WithObjects(s)
+	}
+	adminClient := builder.Build()
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+	return workload, obj, getEnvs(t, obj, workload, &jobutils.TestSandboxResourceTemplate.Spec.ResourceSpecs[0])
+}
+
+func envByName(envs []interface{}) map[string]map[string]interface{} {
+	result := map[string]map[string]interface{}{}
+	for _, item := range envs {
+		entry := item.(map[string]interface{})
+		result[entry["name"].(string)] = entry
+	}
+	return result
+}
+
+func mainContainer(t *testing.T, obj *unstructured.Unstructured) map[string]interface{} {
+	t.Helper()
+	containers, _, err := unstructured.NestedSlice(obj.Object, "spec", "podTemplate", "spec", "containers")
+	assert.NilError(t, err)
+	for _, c := range containers {
+		if c.(map[string]interface{})["name"] == "codeinterpreter" {
+			return c.(map[string]interface{})
+		}
+	}
+	t.Fatal("main container not found")
+	return nil
+}
+
+// TestSandboxReceivesTheEnvSecretByReference dispatches a Sandbox through the chart's template
+// with sandbox.env_secret set. The main container keeps the envFrom reference to the Secret in
+// its own namespace; the Secret's values appear nowhere in the Workload or the dispatched
+// object; and a variable the Workload sets stays an explicit env entry, which Kubernetes gives
+// precedence over envFrom.
+func TestSandboxReceivesTheEnvSecretByReference(t *testing.T) {
+	template := renderChartSandboxTemplate(t, "--set", "sandbox.env_secret="+envSecretName)
+	const sentinel = "value-that-must-stay-in-the-secret"
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: envSecretName},
+		Data: map[string][]byte{"ANY_NEW_NAME": []byte(sentinel), "USER_SET_TOKEN": []byte(sentinel)}}
+	workload, obj, envs := dispatchSandbox(t, template, map[string]string{"USER_SET_TOKEN": "user-value"}, secret)
+
+	assert.Equal(t, obj.GetNamespace(), workload.Spec.Workspace)
+	main := mainContainer(t, obj)
+	assert.DeepEqual(t, main["envFrom"], []interface{}{
+		map[string]interface{}{"secretRef": map[string]interface{}{"name": envSecretName, "optional": true}},
+	})
+	byName := envByName(envs)
+	assert.DeepEqual(t, byName["USER_SET_TOKEN"], map[string]interface{}{"name": "USER_SET_TOKEN", "value": "user-value"})
+	_, listed := byName["ANY_NEW_NAME"]
+	assert.Equal(t, listed, false, "a Secret key became an explicit env entry")
+
+	for what, v := range map[string]interface{}{"workload": workload, "dispatched object": obj.Object} {
+		raw, err := json.Marshal(v)
+		assert.NilError(t, err)
+		assert.Assert(t, !strings.Contains(string(raw), sentinel), "the Secret's value is in the %s", what)
+	}
+}
+
+// TestSandboxDefaultTemplateReferencesNoSecret: without sandbox.env_secret the dispatched
+// Sandbox reads nothing from a Secret.
+func TestSandboxDefaultTemplateReferencesNoSecret(t *testing.T) {
+	template := renderChartSandboxTemplate(t)
+	assert.Assert(t, !strings.Contains(template, "envFrom"))
+	_, obj, envs := dispatchSandbox(t, template, nil)
+	_, hasEnvFrom := mainContainer(t, obj)["envFrom"]
+	assert.Equal(t, hasEnvFrom, false)
+	for name, entry := range envByName(envs) {
+		if from, ok := entry["valueFrom"].(map[string]interface{}); ok {
+			_, isSecret := from["secretKeyRef"]
+			assert.Equal(t, isSecret, false, "%s reads a Secret", name)
+		}
+	}
 }
