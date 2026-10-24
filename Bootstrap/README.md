@@ -37,43 +37,60 @@ SaFE-Bootstrap is an automation toolkit for deploying, configuring, and benchmar
   - `kubemark.Dockerfile`: Dockerfile for building kubemark image.
   - `templates/`: YAML/JSON templates for benchmarking workloads.
 
-- **hosts.yaml**  
-  Ansible inventory file for Kubespray, listing all nodes and their roles.
+- **hosts.ini**  
+  Ansible inventory file that `bootstrap.sh` passes to Kubespray, listing all nodes and their roles.
 
-## Editing hosts.yaml
+## Editing hosts.ini
 
-Before bootstrapping the cluster, you must edit the `hosts.yaml` file to define your cluster nodes and their roles. This file follows the Ansible inventory format and is used by Kubespray to determine which machines will serve as control plane nodes, etcd nodes, and worker nodes.
+Before bootstrapping the cluster, you must edit the `hosts.ini` file to define your cluster nodes and their roles. This file follows the Ansible inventory format and is used by Kubespray to determine which machines will serve as control plane nodes, etcd nodes, and worker nodes.
 
 Example structure:
 
-```
+```ini
 [all]
-  node1 ansible_host=192.168.1.10 ip=192.168.1.10
-  node2 ansible_host=192.168.1.11 ip=192.168.1.11
-  node3 ansible_host=192.168.1.12 ip=192.168.1.12
+node-01 ansible_host=10.0.0.11 ip=10.0.0.11
+node-02 ansible_host=10.0.0.12 ip=10.0.0.12
+node-03 ansible_host=10.0.0.13 ip=10.0.0.13
 
 [kube_control_plane]
-  node1
-  node2
+node-01
+node-02
+node-03
 
 [etcd]
-  node1
-  node2
-  node3
+node-01
+node-02
+node-03
 
 [kube_node]
-  node1
-  node2
-  node3
+node-01
+node-02
+node-03
 
-[k8s-cluster:children]
-  kube_node
-  kube_control_plane
+[k8s_cluster:children]
+kube_control_plane
+kube_node
 ```
 
-- Replace `node1`, `node2`, etc. with your actual hostnames or aliases.
-- Set the correct `ansible_host` and `ip` for each node.
-- Assign nodes to the appropriate groups based on their intended roles.
+- Replace `node-01`, `node-02`, etc. with your actual hostnames. Kubespray renames each host to its inventory name.
+- Set the correct `ansible_host` (the address Ansible connects to) and `ip` (the address Kubernetes binds to) for each node.
+- Assign nodes to the appropriate groups based on their intended roles. Kubespray stops if the number of `etcd` nodes is even.
+- Node IPs must not overlap the pod range (`KUBE_PODS_SUBNET`, default `172.16.0.0/12`) or the service range (`KUBE_SERVICE_ADDRESSES`, default `192.168.0.0/16`). If they do, change those variables at the top of `bootstrap.sh`.
+
+### Logging in as a non-root user
+
+By default, Ansible logs in to the nodes as the user that runs `bootstrap.sh`. To log in as a specific non-root user instead, add the login settings to `hosts.ini`:
+
+```ini
+[all:vars]
+ansible_user=<user>
+ansible_ssh_private_key_file=~/.ssh/id_ed25519
+```
+
+- The user needs passwordless sudo on every node, because `bootstrap.sh` does not prompt for a sudo password.
+- Authorize the key for that user on every node, including the deploy host if it is one of the nodes.
+- Do not set `ansible_become` in the inventory. `bootstrap.sh` already runs every playbook with `--become --become-user=root`, and inventory variables override Kubespray's per-task `become: false`, which it uses mainly for tasks that run on the deploy host.
+- Put these settings in `hosts.ini`, not in an `ansible.cfg` in `Bootstrap/`. Ansible uses only the first config file it finds, and `./ansible.cfg` in the current directory comes before `~/.ansible.cfg`. `bootstrap.sh` runs Ansible from `Bootstrap/kubespray`, which has its own `ansible.cfg`, so a file in `Bootstrap/` is never read.
 
 ## Quick Start
 
