@@ -1,8 +1,33 @@
 # Ceph Storage Bootstrap
 
-Before applying `storageclass.yaml`, replace the `storage-rbd` Secret placeholders with a dedicated Ceph user and key.
+`ceph.sh` deploys Rook-Ceph (`cephcluster.yaml`), the RBD CSI driver, the `rbd`
+pool and default StorageClass (`storageclass.yaml`) and the S3 object store
+(`ceph-rgw.yaml`).
 
-Do not deploy the manifest with `<ceph-user-id>` or `<ceph-user-key>` unchanged. The RBD CSI driver requires valid credentials for provisioning, expanding, and staging volumes.
+The StorageClass authenticates with the `storage-rbd` Secret in the `default`
+namespace. No manifest carries Ceph credentials, so re-applying one never
+resets that Secret. `ceph.sh` writes it:
+
+1. It applies `cephclient.yaml`, a Rook `CephClient` that creates the dedicated
+   Ceph user `client.storage-rbd` with the `rbd` profile on pool `rbd`, and
+   waits for it to be `Ready`.
+2. It decodes the key that Rook stores in the `rook-ceph` namespace, in the
+   Secret named by the CephClient's `.status.info.secretName`
+   (`rook-ceph-client-storage-rbd`).
+3. It writes `storage-rbd` with `userID: storage-rbd` and that key as `userKey`.
+
+Re-running the script rewrites the Secret from the same user.
+
+To use an existing Ceph user instead, export both variables before running
+`ceph.sh`. It then skips the `CephClient`:
+
+```sh
+export CEPH_USER_ID=<id>    # without the "client." prefix
+export CEPH_USER_KEY=<key>  # the plain key: ceph auth get-key client.<id>
+```
+
+That user needs `mon 'profile rbd'`, `osd 'profile rbd pool=rbd'` and
+`mgr 'profile rbd pool=rbd'`.
 
 ## Node plugin tolerations
 

@@ -8,6 +8,7 @@ spec:
   replicated:
     size: 2
 ---
+# The storage-rbd Secret referenced below is written by ceph.sh (see README.md).
 allowVolumeExpansion: true
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -29,16 +30,3 @@ parameters:
 provisioner: rbd.csi.ceph.com
 reclaimPolicy: Delete
 volumeBindingMode: Immediate
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: storage-rbd
-  namespace: default
-stringData:
-  # Replace these placeholders with a dedicated Ceph user and key before deployment.
-  userID: "<ceph-user-id>"
-  userKey: "<ceph-user-key>"
-type: kubernetes.io/rbd
-
-
