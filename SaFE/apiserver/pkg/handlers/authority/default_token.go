@@ -104,7 +104,7 @@ func (t *defaultToken) Validate(ctx context.Context, rawToken string) (*UserInfo
 
 	parts := strings.Split(tokenPlain, TokenDelim)
 	if len(parts) != 4 {
-		klog.Errorf("invalid user token, tokenPlain: %s, current len: %d", tokenPlain, len(parts))
+		klog.Errorf("invalid user token, unexpected field count: %d", len(parts))
 		return nil, fmt.Errorf("invalid token")
 	}
 	for _, part := range parts {
