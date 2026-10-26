@@ -3,6 +3,4 @@
 # See LICENSE for license information.
 #
 
-{{- if .Capabilities.APIVersions.Has "config.gatekeeper.sh/v1alpha1" }}
-{{ include "constraints.syncConfig" . }}
-{{- end }}
+# The post-install hook creates this resource after Gatekeeper registers its CRD.

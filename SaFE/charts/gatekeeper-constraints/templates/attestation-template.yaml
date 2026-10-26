@@ -3,6 +3,4 @@
 # See LICENSE for license information.
 #
 
-{{- if .Capabilities.APIVersions.Has "templates.gatekeeper.sh/v1" }}
-{{ include "constraints.attestationTemplate" . }}
-{{- end }}
+# The post-install hook creates this resource after Gatekeeper registers its CRD.
