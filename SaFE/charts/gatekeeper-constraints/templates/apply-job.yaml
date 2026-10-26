@@ -17,6 +17,12 @@ rules:
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
     verbs: ["get"]
+  - apiGroups: ["templates.gatekeeper.sh"]
+    resources: ["constrainttemplates"]
+    verbs: ["get", "create", "patch", "update"]
+  - apiGroups: ["config.gatekeeper.sh"]
+    resources: ["configs"]
+    verbs: ["get", "create", "patch", "update"]
   - apiGroups: ["constraints.gatekeeper.sh"]
     resources: ["*"]
     verbs: ["get", "create", "patch", "update"]
@@ -54,6 +60,9 @@ spec:
         - name: apply
           image: "{{ include "constraints.curlRepository" . }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: RELEASE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
           command: ["sh", "-c"]
           args:
             - |
@@ -76,19 +85,20 @@ spec:
                 return 1
               }
               apply() {
-                collection="$1"
+                url="$1"
                 name="$2"
-                url="${api}/apis/constraints.gatekeeper.sh/v1beta1/${collection}"
+                body="$3"
+                spec="$4"
                 code="$(curl -sS -o /tmp/resp -w '%{http_code}' --cacert "$ca" \
                   -H "Authorization: Bearer ${token}" -H "Content-Type: application/json" \
-                  -X POST "${url}" --data-binary "@/manifests/${name}.json")"
+                  -X POST "${url}" --data-binary "@${body}")"
                 if [ "$code" = "200" ] || [ "$code" = "201" ]; then
                   return 0
                 fi
                 if [ "$code" = "409" ]; then
                   code="$(curl -sS -o /tmp/resp -w '%{http_code}' --cacert "$ca" \
                     -H "Authorization: Bearer ${token}" -H "Content-Type: application/merge-patch+json" \
-                    -X PATCH "${url}/${name}" --data-binary "@/manifests/${name}.spec.json")"
+                    -X PATCH "${url}/${name}" --data-binary "@${spec}")"
                   if [ "$code" = "200" ]; then
                     return 0
                   fi
@@ -97,10 +107,15 @@ spec:
                 cat /tmp/resp >&2
                 return 1
               }
+              wait_crd configs.config.gatekeeper.sh
+              wait_crd constrainttemplates.templates.gatekeeper.sh
+              apply "${api}/apis/config.gatekeeper.sh/v1alpha1/namespaces/${RELEASE_NAMESPACE}/configs" config /manifests/config.json /manifests/config.spec.json
+              apply "${api}/apis/templates.gatekeeper.sh/v1/constrainttemplates" sandboxworkloadmembership /manifests/sandboxworkloadmembership-template.json /manifests/sandboxworkloadmembership-template.spec.json
+              apply "${api}/apis/templates.gatekeeper.sh/v1/constrainttemplates" sandboxworkloadattestation /manifests/sandboxworkloadattestation-template.json /manifests/sandboxworkloadattestation-template.spec.json
               wait_crd sandboxworkloadmemberships.constraints.gatekeeper.sh
               wait_crd sandboxworkloadattestations.constraints.gatekeeper.sh
-              apply sandboxworkloadmemberships sandbox-workload-membership
-              apply sandboxworkloadattestations sandbox-workload-attestation
+              apply "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadmemberships" sandbox-workload-membership /manifests/sandbox-workload-membership.json /manifests/sandbox-workload-membership.spec.json
+              apply "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadattestations" sandbox-workload-attestation /manifests/sandbox-workload-attestation.json /manifests/sandbox-workload-attestation.spec.json
           volumeMounts:
             - name: manifests
               mountPath: /manifests

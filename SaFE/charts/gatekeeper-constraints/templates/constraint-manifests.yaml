@@ -9,6 +9,12 @@ metadata:
   name: gatekeeper-constraint-manifests
   namespace: {{ .Release.Namespace }}
 data:
+  config.json: {{ include "constraints.syncConfig" . | fromYaml | toJson | quote }}
+  config.spec.json: {{ dict "spec" (include "constraints.syncConfig" . | fromYaml).spec | toJson | quote }}
+  sandboxworkloadmembership-template.json: {{ include "constraints.membershipTemplate" . | fromYaml | toJson | quote }}
+  sandboxworkloadmembership-template.spec.json: {{ dict "spec" (include "constraints.membershipTemplate" . | fromYaml).spec | toJson | quote }}
+  sandboxworkloadattestation-template.json: {{ include "constraints.attestationTemplate" . | fromYaml | toJson | quote }}
+  sandboxworkloadattestation-template.spec.json: {{ dict "spec" (include "constraints.attestationTemplate" . | fromYaml).spec | toJson | quote }}
   sandbox-workload-membership.json: {{ include "constraints.membership" . | fromYaml | toJson | quote }}
   sandbox-workload-membership.spec.json: {{ dict "spec" (include "constraints.membership" . | fromYaml).spec | toJson | quote }}
   sandbox-workload-attestation.json: {{ include "constraints.attestation" . | fromYaml | toJson | quote }}
