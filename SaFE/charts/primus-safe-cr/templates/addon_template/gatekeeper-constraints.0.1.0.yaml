@@ -10,10 +10,7 @@
 #   1. Package SaFE/charts/gatekeeper-constraints and mirror it before applying:
 #        oci://<helm_registry>/primussafe/gatekeeper-constraints:0.1.0
 #      The apply hook uses <proxy_image_registry>/primussafe/curl:8.20.0.
-#   2. Both constraints start at enforcementAction dryrun. They record
-#      violations and still admit the Workload. Set enforcementAction to deny
-#      only after Workloads carry agent-sandbox.io/grant-id and
-#      agent-sandbox.io/grant-attestation, and after jwks is Claw's JWKS JSON.
+#   2. Both constraints use enforcementAction deny and reject a violating Workload.
 #   3. User membership reads the synced User CR. The workspace list is
 #      spec.resources.workspaces, with spec.resources.workspace as a fallback.
 #
@@ -30,14 +27,14 @@ metadata:
   name: gatekeeper-constraints.0.1.0
 spec:
   category: plugin
-  description: Gatekeeper constraints that check Agent Sandbox Workload membership and the Claw grant attestation. Install on the management cluster after Gatekeeper. Enforcement starts in dryrun.
+  description: Gatekeeper constraints that check Agent Sandbox Workload membership and the Claw grant attestation. Install on the management cluster after Gatekeeper. Violations are denied.
   url: oci://{{ .Values.global.helm_registry }}/primussafe/gatekeeper-constraints
   version: 0.1.0
   type: helm
   required: false
   helmDefaultNamespace: gatekeeper-system
   helmDefaultValues: |
-    enforcementAction: dryrun
+    enforcementAction: deny
     sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane
     jwks: ""
     image:

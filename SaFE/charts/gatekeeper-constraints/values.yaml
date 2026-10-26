@@ -3,9 +3,8 @@
 # See LICENSE for license information.
 #
 
-# dryrun records violations and still admits the Workload.
-# Set deny after Workloads carry the grant id and attestation.
-enforcementAction: dryrun
+# deny rejects a Workload that violates a constraint.
+enforcementAction: deny
 
 # Calls from this account are checked. The Gatekeeper webhook is scoped to it.
 sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane
