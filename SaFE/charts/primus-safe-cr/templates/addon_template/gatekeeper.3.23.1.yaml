@@ -3,8 +3,8 @@
 # See LICENSE for license information.
 #
 # OPA Gatekeeper for admission checks on Workloads created by Agent Sandbox.
-# This template is not a default addon. Install an Addon from it only on the
-# management cluster. Data-plane clusters do not run this webhook.
+# primus-safe-cr installs this chart on the management cluster. This template
+# is not a default addon, so data-plane clusters do not run the webhook.
 #
 # Notes:
 #   1. Upstream chart 3.23.1 from oci://ghcr.io/open-policy-agent/charts/gatekeeper.

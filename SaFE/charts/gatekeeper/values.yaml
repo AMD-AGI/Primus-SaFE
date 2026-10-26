@@ -1,0 +1,388 @@
+replicas: 2
+revisionHistoryLimit: 10
+auditInterval: 60
+metricsBackends: ["prometheus"]
+auditMatchKindOnly: false
+constraintViolationsLimit: 20
+auditFromCache: false
+disableAudit: false
+disableMutation: true
+disableValidatingWebhook: false
+validatingWebhookName: gatekeeper-validating-webhook-configuration
+validatingWebhookTimeoutSeconds: 10
+validatingWebhookFailurePolicy: Fail
+validatingWebhookAnnotations: {}
+validatingWebhookExemptNamespacesLabels: {}
+validatingWebhookObjectSelector: {}
+validatingWebhookMatchConditions:
+  - name: agent-sandbox-controlplane
+    expression: request.userInfo.username == 'system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane'
+validatingWebhookCheckIgnoreFailurePolicy: Fail
+validatingWebhookCustomRules:
+  - apiGroups: ["amd.com"]
+    apiVersions: ["v1"]
+    operations: ["CREATE"]
+    resources: ["workloads"]
+    scope: "Cluster"
+validatingWebhookSubResources:
+  [
+    "pods/ephemeralcontainers",
+    "pods/exec",
+    "pods/log",
+    "pods/eviction",
+    "pods/portforward",
+    "pods/proxy",
+    "pods/attach",
+    "pods/binding",
+    "pods/resize",
+    "deployments/scale",
+    "replicasets/scale",
+    "statefulsets/scale",
+    "replicationcontrollers/scale",
+    "services/proxy",
+    "nodes/proxy",
+    "services/status",
+  ]
+validatingWebhookURL: null
+validatingWebhookScope: "*"
+enableDeleteOperations: false
+enableConnectOperations: false
+enableExternalData: true
+enableGeneratorResourceExpansion: true
+enableTLSHealthcheck: false
+maxServingThreads: -1
+mutatingWebhookName: gatekeeper-mutating-webhook-configuration
+mutatingWebhookFailurePolicy: Ignore
+mutatingWebhookReinvocationPolicy: Never
+mutatingWebhookAnnotations: {}
+mutatingWebhookExemptNamespacesLabels: {}
+mutatingWebhookObjectSelector: {}
+mutatingWebhookMatchConditions: []
+mutatingWebhookTimeoutSeconds: 1
+mutatingWebhookCustomRules: {}
+mutatingWebhookSubResources:
+  [
+    "pods/ephemeralcontainers",
+    "pods/exec",
+    "pods/log",
+    "pods/eviction",
+    "pods/portforward",
+    "pods/proxy",
+    "pods/attach",
+    "pods/binding",
+    "deployments/scale",
+    "replicasets/scale",
+    "statefulsets/scale",
+    "replicationcontrollers/scale",
+    "services/proxy",
+    "nodes/proxy",
+    "services/status",
+  ]
+mutatingWebhookURL: null
+mutatingWebhookScope: "*"
+mutationAnnotations: false
+auditChunkSize: 500
+logLevel: INFO
+logDenies: false
+logMutations: false
+admissionEventsInvolvedNamespace: false
+auditEventsInvolvedNamespace: false
+resourceQuota: true
+externaldataProviderResponseCacheTTL: 3m
+enableK8sNativeValidation: true
+commonAnnotations: {}
+extraVolumeMounts: []
+extraVolumes: []
+image:
+  repository: openpolicyagent/gatekeeper
+  crdRepository: openpolicyagent/gatekeeper-crds
+  release: v3.23.1
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+preInstall:
+  crdRepository:
+    image:
+      repository: null
+      tag: v3.23.1
+postUpgrade:
+  labelNamespace:
+    serviceAccount:
+      name: gatekeeper-update-namespace-label-post-upgrade
+      create: true
+    enabled: false
+    image:
+      repository: openpolicyagent/gatekeeper-crds
+      tag: v3.23.1
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+    extraNamespaces: []
+    podSecurity:
+      [
+        "pod-security.kubernetes.io/audit=restricted",
+        "pod-security.kubernetes.io/audit-version=latest",
+        "pod-security.kubernetes.io/warn=restricted",
+        "pod-security.kubernetes.io/warn-version=latest",
+        "pod-security.kubernetes.io/enforce=restricted",
+        "pod-security.kubernetes.io/enforce-version=v1.24",
+      ]
+    extraAnnotations: {}
+    priorityClassName: ""
+  affinity: {}
+  tolerations: []
+  nodeSelector: { kubernetes.io/os: linux }
+  resources: {}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsGroup: 999
+    runAsNonRoot: true
+    runAsUser: 1000
+postInstall:
+  labelNamespace:
+    serviceAccount:
+      name: gatekeeper-update-namespace-label
+      create: true
+    enabled: false
+    extraRules: []
+    image:
+      repository: openpolicyagent/gatekeeper-crds
+      tag: v3.23.1
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+    extraNamespaces: []
+    podSecurity:
+      [
+        "pod-security.kubernetes.io/audit=restricted",
+        "pod-security.kubernetes.io/audit-version=latest",
+        "pod-security.kubernetes.io/warn=restricted",
+        "pod-security.kubernetes.io/warn-version=latest",
+        "pod-security.kubernetes.io/enforce=restricted",
+        "pod-security.kubernetes.io/enforce-version=v1.24",
+      ]
+    extraAnnotations: {}
+    priorityClassName: ""
+  probeWebhook:
+    enabled: true
+    image:
+      repository: curlimages/curl
+      tag: 8.20.0
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+    waitTimeout: 60
+    httpTimeout: 2
+    insecureHTTPS: false
+    priorityClassName: ""
+  affinity: {}
+  tolerations: []
+  nodeSelector: { kubernetes.io/os: linux }
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsGroup: 999
+    runAsNonRoot: true
+    runAsUser: 1000
+preUninstall:
+  deleteWebhookConfigurations:
+    serviceAccount:
+      name: gatekeeper-delete-webhook-configs
+      create: true
+    extraRules: []
+    enabled: false
+    image:
+      repository: openpolicyagent/gatekeeper-crds
+      tag: v3.23.1
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+    priorityClassName: ""
+  affinity: {}
+  tolerations: []
+  nodeSelector: { kubernetes.io/os: linux }
+  resources: {}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsGroup: 999
+    runAsNonRoot: true
+    runAsUser: 1000
+podAnnotations: {}
+auditPodAnnotations: {}
+podLabels: {}
+podCountLimit: "100"
+secretAnnotations: {}
+enableRuntimeDefaultSeccompProfile: true
+controllerManager:
+  serviceAccount:
+    name: gatekeeper-admin
+    automountServiceAccountToken: true
+  containerName: manager
+  exemptNamespaces: []
+  exemptNamespacePrefixes: []
+  hostNetwork: false
+  dnsPolicy: ClusterFirst
+  port: 8443
+  metricsPort: 8888
+  healthPort: 9090
+  readinessTimeout: 1
+  livenessTimeout: 1
+  priorityClassName: system-cluster-critical
+  disableCertRotation: false
+  tlsMinVersion: 1.3
+  clientCertName: ""
+  strategyType: RollingUpdate
+  strategyRollingUpdate: {}
+  podLabels: {}
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: gatekeeper.sh/operation
+                  operator: In
+                  values:
+                    - webhook
+            topologyKey: kubernetes.io/hostname
+          weight: 100
+  topologySpreadConstraints: []
+  tolerations: []
+  nodeSelector: { kubernetes.io/os: linux }
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsGroup: 999
+    runAsNonRoot: true
+    runAsUser: 1000
+  podSecurityContext:
+    fsGroup: 999
+    supplementalGroups:
+      - 999
+  extraRules: []
+  networkPolicy:
+    enabled: false
+    ingress: []
+      # - from:
+      #   - ipBlock:
+      #       cidr: 0.0.0.0/0
+  disableWebhookOperation: false
+  disableGenerateOperation: true
+exportBackend: ""
+audit:
+  exportConnection:
+    path: /tmp/violations/topics
+    maxAuditResults: 3
+  exportVolumeMount:
+    path: /tmp/violations
+  exportVolume:
+    name: tmp-violations
+    emptyDir: {}
+  exportSidecar:
+    name: reader
+    image: ghcr.io/open-policy-agent/fake-reader:latest
+    imagePullPolicy: Always
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      readOnlyRootFilesystem: true
+      runAsGroup: 999
+      runAsNonRoot: true
+      runAsUser: 1000
+      seccompProfile:
+        type: RuntimeDefault
+    volumeMounts:
+      - mountPath: /tmp/violations
+        name: tmp-violations
+  serviceAccount:
+    name: gatekeeper-admin
+    automountServiceAccountToken: true
+  containerName: manager
+  hostNetwork: false
+  dnsPolicy: ClusterFirst
+  metricsPort: 8888
+  healthPort: 9090
+  readinessTimeout: 1
+  livenessTimeout: 1
+  priorityClassName: system-cluster-critical
+  disableCertRotation: false
+  podLabels: {}
+  affinity: {}
+  tolerations: []
+  nodeSelector: { kubernetes.io/os: linux }
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsGroup: 999
+    runAsNonRoot: true
+    runAsUser: 1000
+  podSecurityContext:
+    fsGroup: 999
+    supplementalGroups:
+      - 999
+  writeToRAMDisk: false
+  extraRules: []
+  disableGenerateOperation: false
+  disableAuditOperation: false
+  disableAuditSidecar: false
+  disableStatusOperation: false
+crds:
+  affinity: {}
+  tolerations: []
+  nodeSelector: { kubernetes.io/os: linux }
+  resources: {}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsGroup: 65532
+    runAsNonRoot: true
+    runAsUser: 65532
+pdb:
+  controllerManager:
+    minAvailable: 1
+service: {}
+disabledBuiltins: ["{http.send}"]
+upgradeCRDs:
+  serviceAccount:
+    create: true
+    name: gatekeeper-admin-upgrade-crds
+  enabled: true
+  extraRules: []
+  priorityClassName: ""
+rbac:
+  create: true
+externalCertInjection:
+  enabled: false
+  secretName: gatekeeper-webhook-server-cert
+serviceAccount:
+  gatekeeperAdmin:
+    create: true

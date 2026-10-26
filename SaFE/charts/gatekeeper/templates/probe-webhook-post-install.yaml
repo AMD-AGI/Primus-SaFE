@@ -1,0 +1,46 @@
+{{- if not .Values.disableValidatingWebhook }}
+{{- if and (not .Values.postInstall.labelNamespace.enabled) .Values.postInstall.probeWebhook.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gatekeeper-probe-webhook-post-install
+  labels:
+    {{- include "gatekeeper.mandatoryLabels" . | nindent 4 }}
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": hook-succeeded,before-hook-creation
+spec:
+  template:
+    metadata:
+      annotations:
+        {{- toYaml .Values.podAnnotations | trim | nindent 8 }}
+      labels:
+        {{- include "gatekeeper.podLabels" . | nindent 8 }}
+        {{- include "gatekeeper.mandatoryLabels" . | nindent 8 }}
+        {{- include "gatekeeper.commonLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      {{- if .Values.postInstall.probeWebhook.priorityClassName }}
+      priorityClassName: {{ .Values.postInstall.probeWebhook.priorityClassName }}
+      {{- end }}
+      {{- if .Values.postInstall.probeWebhook.image.pullSecrets }}
+      imagePullSecrets:
+      {{- .Values.postInstall.probeWebhook.image.pullSecrets | toYaml | nindent 12 }}
+      {{- end }}
+      volumes:
+      {{- include "gatekeeper.postInstallWebhookProbeVolume" . | nindent 8 }}
+      containers:
+      {{- include "gatekeeper.postInstallWebhookProbeContainer" . | nindent 8 }}
+      {{- with .Values.postInstall }}
+      affinity:
+        {{- toYaml .affinity | nindent 8 }}
+      tolerations:
+        {{- toYaml .tolerations | nindent 8 }}
+      nodeSelector:
+        {{- toYaml .nodeSelector | nindent 8 }}
+      {{- end }}
+  backoffLimit: 3
+{{- end }}
+{{- end }}

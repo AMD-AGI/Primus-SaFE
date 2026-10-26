@@ -52,7 +52,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: apply
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ include "constraints.curlRepository" . }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["sh", "-c"]
           args:

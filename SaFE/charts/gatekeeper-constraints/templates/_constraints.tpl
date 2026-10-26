@@ -7,6 +7,17 @@
 app.kubernetes.io/managed-by: Helm
 {{- end -}}
 
+{{/*
+Curl image for the constraint apply hook. A SaFE proxy registry replaces the upstream name.
+*/}}
+{{- define "constraints.curlRepository" -}}
+{{- if .Values.global.proxy_image_registry -}}
+{{- printf "%s/primussafe/curl" .Values.global.proxy_image_registry -}}
+{{- else -}}
+{{- .Values.image.repository -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "constraints.membership" -}}
 apiVersion: constraints.gatekeeper.sh/v1beta1
 kind: SandboxWorkloadMembership
