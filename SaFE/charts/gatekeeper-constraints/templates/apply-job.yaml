@@ -112,10 +112,10 @@ spec:
               apply "${api}/apis/config.gatekeeper.sh/v1alpha1/namespaces/${RELEASE_NAMESPACE}/configs" config /manifests/config.json /manifests/config.spec.json
               apply "${api}/apis/templates.gatekeeper.sh/v1/constrainttemplates" sandboxworkloadmembership /manifests/sandboxworkloadmembership-template.json /manifests/sandboxworkloadmembership-template.spec.json
               apply "${api}/apis/templates.gatekeeper.sh/v1/constrainttemplates" sandboxworkloadattestation /manifests/sandboxworkloadattestation-template.json /manifests/sandboxworkloadattestation-template.spec.json
-              wait_crd sandboxworkloadmemberships.constraints.gatekeeper.sh
-              wait_crd sandboxworkloadattestations.constraints.gatekeeper.sh
-              apply "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadmemberships" sandbox-workload-membership /manifests/sandbox-workload-membership.json /manifests/sandbox-workload-membership.spec.json
-              apply "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadattestations" sandbox-workload-attestation /manifests/sandbox-workload-attestation.json /manifests/sandbox-workload-attestation.spec.json
+              wait_crd sandboxworkloadmembership.constraints.gatekeeper.sh
+              wait_crd sandboxworkloadattestation.constraints.gatekeeper.sh
+              apply "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadmembership" sandbox-workload-membership /manifests/sandbox-workload-membership.json /manifests/sandbox-workload-membership.spec.json
+              apply "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadattestation" sandbox-workload-attestation /manifests/sandbox-workload-attestation.json /manifests/sandbox-workload-attestation.spec.json
           volumeMounts:
             - name: manifests
               mountPath: /manifests

@@ -171,9 +171,9 @@ spec:
         }
 
         gpu_count(obj) = n {
-          cards := [to_number(r.gpu) * replica(r) |
-            r := obj.spec.resources[_]
-            object.get(r, "gpu", "") != ""
+          cards := [to_number(resource.gpu) * replica(resource) |
+            resource := obj.spec.resources[_]
+            object.get(resource, "gpu", "") != ""
           ]
           n := sum(cards)
         }
