@@ -1,0 +1,15 @@
+#
+# Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gatekeeper-constraint-manifests
+  namespace: {{ .Release.Namespace }}
+data:
+  sandbox-workload-membership.json: {{ include "constraints.membership" . | fromYaml | toJson | quote }}
+  sandbox-workload-membership.spec.json: {{ dict "spec" (include "constraints.membership" . | fromYaml).spec | toJson | quote }}
+  sandbox-workload-attestation.json: {{ include "constraints.attestation" . | fromYaml | toJson | quote }}
+  sandbox-workload-attestation.spec.json: {{ dict "spec" (include "constraints.attestation" . | fromYaml).spec | toJson | quote }}

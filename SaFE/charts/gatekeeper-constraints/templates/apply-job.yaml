@@ -1,0 +1,111 @@
+#
+# Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gatekeeper-constraint-apply
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gatekeeper-constraint-apply
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get"]
+  - apiGroups: ["constraints.gatekeeper.sh"]
+    resources: ["*"]
+    verbs: ["get", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gatekeeper-constraint-apply
+subjects:
+  - kind: ServiceAccount
+    name: gatekeeper-constraint-apply
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gatekeeper-constraint-apply
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gatekeeper-constraint-apply
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      serviceAccountName: gatekeeper-constraint-apply
+      restartPolicy: Never
+      containers:
+        - name: apply
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              token="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+              ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              api=https://kubernetes.default.svc
+              wait_crd() {
+                name="$1"
+                i=0
+                while [ "$i" -lt 60 ]; do
+                  if curl -fsS --cacert "$ca" -H "Authorization: Bearer ${token}" \
+                    "${api}/apis/apiextensions.k8s.io/v1/customresourcedefinitions/${name}" >/dev/null; then
+                    return 0
+                  fi
+                  i=$((i + 1))
+                  sleep 2
+                done
+                echo "timed out waiting for ${name}" >&2
+                return 1
+              }
+              apply() {
+                collection="$1"
+                name="$2"
+                url="${api}/apis/constraints.gatekeeper.sh/v1beta1/${collection}"
+                code="$(curl -sS -o /tmp/resp -w '%{http_code}' --cacert "$ca" \
+                  -H "Authorization: Bearer ${token}" -H "Content-Type: application/json" \
+                  -X POST "${url}" --data-binary "@/manifests/${name}.json")"
+                if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+                  return 0
+                fi
+                if [ "$code" = "409" ]; then
+                  code="$(curl -sS -o /tmp/resp -w '%{http_code}' --cacert "$ca" \
+                    -H "Authorization: Bearer ${token}" -H "Content-Type: application/merge-patch+json" \
+                    -X PATCH "${url}/${name}" --data-binary "@/manifests/${name}.spec.json")"
+                  if [ "$code" = "200" ]; then
+                    return 0
+                  fi
+                fi
+                echo "apply ${name} failed: ${code}" >&2
+                cat /tmp/resp >&2
+                return 1
+              }
+              wait_crd sandboxworkloadmemberships.constraints.gatekeeper.sh
+              wait_crd sandboxworkloadattestations.constraints.gatekeeper.sh
+              apply sandboxworkloadmemberships sandbox-workload-membership
+              apply sandboxworkloadattestations sandbox-workload-attestation
+          volumeMounts:
+            - name: manifests
+              mountPath: /manifests
+              readOnly: true
+      volumes:
+        - name: manifests
+          configMap:
+            name: gatekeeper-constraint-manifests

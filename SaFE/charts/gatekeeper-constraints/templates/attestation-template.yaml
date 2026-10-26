@@ -1,0 +1,63 @@
+#
+# Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: sandboxworkloadattestation
+spec:
+  crd:
+    spec:
+      names:
+        kind: SandboxWorkloadAttestation
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            sandboxCreator:
+              type: string
+            jwks:
+              type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package sandboxworkloadattestation
+
+        violation[{"msg": msg}] {
+          input.review.userInfo.username == input.parameters.sandboxCreator
+          not valid_attestation
+          msg := "grant attestation is missing, invalid, expired or does not match the workload"
+        }
+
+        valid_attestation {
+          obj := input.review.object
+          token := object.get(object.get(obj.metadata, "annotations", {}), "agent-sandbox.io/grant-attestation", "")
+          token != ""
+          [ok, _, claims] := io.jwt.decode_verify(token, {
+            "cert": input.parameters.jwks,
+            "alg": "ES256",
+            "iss": "primus-claw",
+            "aud": "agent-sandbox-workload",
+            "time": time.now_ns(),
+          })
+          ok
+          claims.jti == object.get(object.get(obj.metadata, "labels", {}), "agent-sandbox.io/grant-id", "")
+          claims.sub == object.get(object.get(obj.metadata, "labels", {}), "primus-safe.user.id", "")
+          claims.workspaces[_] == obj.spec.workspace
+          claims.kinds[_] == obj.spec.groupVersionKind.kind
+          gpu_count(obj) <= claims.maxGpusPerSandbox
+        }
+
+        gpu_count(obj) = n {
+          cards := [to_number(r.gpu) * replica(r) |
+            r := obj.spec.resources[_]
+            object.get(r, "gpu", "") != ""
+          ]
+          n := sum(cards)
+        }
+
+        replica(resource) = n {
+          n := to_number(object.get(resource, "replica", 1))
+        }

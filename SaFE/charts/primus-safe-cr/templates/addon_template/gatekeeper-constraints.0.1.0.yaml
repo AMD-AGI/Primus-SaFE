@@ -1,0 +1,46 @@
+#
+# Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Membership and grant-attestation constraints for the Gatekeeper addon.
+# Install this Addon on the management cluster after gatekeeper.3.23.1.
+# It is not a default addon.
+#
+# Notes:
+#   1. Package SaFE/charts/gatekeeper-constraints and mirror it before applying:
+#        oci://<helm_registry>/primussafe/gatekeeper-constraints:0.1.0
+#      The apply hook uses <proxy_image_registry>/primussafe/curl:8.20.0.
+#   2. Both constraints start at enforcementAction dryrun. They record
+#      violations and still admit the Workload. Set enforcementAction to deny
+#      only after Workloads carry agent-sandbox.io/grant-id and
+#      agent-sandbox.io/grant-attestation, and after jwks is Claw's JWKS JSON.
+#   3. User membership reads the synced User CR. The workspace list is
+#      spec.resources.workspaces, with spec.resources.workspace as a fallback.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "gatekeeper-constraints.0.1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: gatekeeper-constraints.0.1.0
+spec:
+  category: plugin
+  description: Gatekeeper constraints that check Agent Sandbox Workload membership and the Claw grant attestation. Install on the management cluster after Gatekeeper. Enforcement starts in dryrun.
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/gatekeeper-constraints
+  version: 0.1.0
+  type: helm
+  required: false
+  helmDefaultNamespace: gatekeeper-system
+  helmDefaultValues: |
+    enforcementAction: dryrun
+    sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane
+    jwks: ""
+    image:
+      repository: {{ .Values.global.proxy_image_registry }}/primussafe/curl
+      tag: "8.20.0"
+      pullPolicy: IfNotPresent

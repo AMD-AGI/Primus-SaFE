@@ -1,0 +1,19 @@
+#
+# Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+# dryrun records violations and still admits the Workload.
+# Set deny after Workloads carry the grant id and attestation.
+enforcementAction: dryrun
+
+# Calls from this account are checked. The Gatekeeper webhook is scoped to it.
+sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane
+
+# Claw JWKS document, JSON text. Empty text fails attestation verification.
+jwks: ""
+
+image:
+  repository: curlimages/curl
+  tag: "8.20.0"
+  pullPolicy: IfNotPresent

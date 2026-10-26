@@ -15,8 +15,8 @@
 #        <proxy_image_registry>/primussafe/curl:8.20.0
 #   2. The validating webhook admits amd.com/v1 Workload CREATE from
 #      system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane.
-#      Other creators are not sent to Gatekeeper. No constraints are installed
-#      here, so a reachable webhook allows those creates.
+#      Other creators are not sent to Gatekeeper. Constraints are the
+#      gatekeeper-constraints addon, installed after this one.
 #   3. failurePolicy is Fail. If the webhook is unreachable, only that
 #      service account's Workload creates are rejected.
 #   4. Two controller replicas. Mutation is disabled.
