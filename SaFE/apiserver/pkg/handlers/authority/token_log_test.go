@@ -10,6 +10,7 @@ import (
 	"flag"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -29,7 +30,10 @@ func captureKlog(t *testing.T, fn func()) string {
 	klog.SetOutput(&buf)
 	defer func() {
 		klog.Flush()
+		klog.SetOutput(os.Stderr)
 		assert.NoError(t, fs.Set("logtostderr", "true"))
+		assert.NoError(t, fs.Set("alsologtostderr", "false"))
+		assert.NoError(t, fs.Set("stderrthreshold", "ERROR"))
 	}()
 	fn()
 	klog.Flush()
@@ -66,16 +70,8 @@ func TestParseTokenDoesNotLogRawToken(t *testing.T) {
 			assert.Error(t, err)
 			assert.Contains(t, out, "failed to validate user token", "failure must still be logged")
 			assert.NotContains(t, out, secret)
-			assert.Contains(t, out, tokenFingerprint(secret))
 		})
 	}
-}
-
-func TestTokenFingerprint(t *testing.T) {
-	fp := tokenFingerprint("abc")
-	assert.Len(t, fp, 8)
-	assert.Equal(t, "ba7816bf", fp)
-	assert.NotEqual(t, fp, tokenFingerprint("abd"))
 }
 
 func TestInternalAuthValidate(t *testing.T) {

@@ -114,7 +114,7 @@ func (t *defaultToken) Validate(ctx context.Context, rawToken string) (*UserInfo
 	}
 	expire, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		klog.ErrorS(err, "failed to parse token expire", "user", parts[0], "expire", parts[1])
+		klog.Error("failed to parse token expire")
 		return nil, fmt.Errorf("invalid token")
 	}
 	if commonconfig.GetUserTokenExpire() > 0 && time.Now().Unix() > expire {

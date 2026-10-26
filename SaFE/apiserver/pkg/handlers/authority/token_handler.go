@@ -6,8 +6,6 @@
 package authority
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -109,7 +107,7 @@ func parseTokenFromRequest(c *gin.Context) error {
 	}
 	userInfo, err := tokenInstance.Validate(c.Request.Context(), rawToken)
 	if err != nil {
-		klog.ErrorS(err, "failed to validate user token", "userType", userType, "tokenFingerprint", tokenFingerprint(rawToken))
+		klog.ErrorS(err, "failed to validate user token", "userType", userType)
 		return commonerrors.NewUnauthorized(ErrInvalidToken)
 	}
 	c.Set(common.UserId, userInfo.Id)
@@ -117,13 +115,6 @@ func parseTokenFromRequest(c *gin.Context) error {
 	c.Set(common.UserType, userType)
 	klog.Infof("User %s (name: %s) of type %s validated successfully", userInfo.Id, userInfo.Name, userType)
 	return nil
-}
-
-// tokenFingerprint returns a short, non-reversible identifier (first 8 hex chars of
-// the SHA-256 digest) so failed validations can be correlated without logging the credential.
-func tokenFingerprint(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])[:8]
 }
 
 // extractTokenAndUserType retrieves token and user type from request
