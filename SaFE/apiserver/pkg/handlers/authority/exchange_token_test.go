@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -20,6 +21,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identityexchange/fake"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 )
 
 const (
@@ -172,6 +174,23 @@ func TestVerifyTokenWithExchangedToken(t *testing.T) {
 	require.False(t, called, "the platform key is not even looked up")
 	require.Empty(t, resp.Data.PlatformKey)
 
+	t.Run("the virtual key is not returned either", func(t *testing.T) {
+		// Give the lookup every chance to run: the user record carries an email, so
+		// without the guard the virtual key would be resolved from it.
+		defer setupDefaultToken(t)()
+		require.NoError(t, defaultTokenInstance.Create(context.Background(), e.users.M[exUser].DeepCopy()))
+		// A strict mock with no expectations: any binding lookup fails the test.
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		old := apiKeyTokenInstance
+		apiKeyTokenInstance = &ApiKeyToken{dbClient: mock_client.NewMockInterface(ctrl)}
+		t.Cleanup(func() { apiKeyTokenInstance = old })
+		w := callVerifyToken(t, VerifyTokenRequest{Authorization: "Bearer " + tok, IncludeVirtualKey: true}, testInternalToken)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var resp verifyResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		require.Empty(t, resp.Data.VirtualKey)
+	})
 	t.Run("a token for another audience", func(t *testing.T) {
 		w := callVerifyToken(t, VerifyTokenRequest{Authorization: "Bearer " + tok, Audience: "someone-else"}, testInternalToken)
 		require.Equal(t, http.StatusUnauthorized, w.Code)

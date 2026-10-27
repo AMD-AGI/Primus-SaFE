@@ -252,8 +252,9 @@ func VerifyToken(c *gin.Context) {
 		}
 	}
 
-	// Optionally include LiteLLM virtual key (decrypted from DB)
-	if req.IncludeVirtualKey {
+	// Optionally include LiteLLM virtual key (decrypted from DB). Like the platform
+	// key it is a standing credential, so it is never returned for an exchanged token.
+	if req.IncludeVirtualKey && actor == "" {
 		// If email is missing (e.g., API key auth), try to fetch from User CR
 		if resp.Email == "" {
 			if tokenInst := DefaultTokenInstance(); tokenInst != nil {
