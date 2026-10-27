@@ -8,7 +8,10 @@ package identityexchange
 import (
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
@@ -22,6 +25,7 @@ const (
 	CapabilityUserManagement  = "user-management"
 	CapabilitySecret          = "secret"
 	CapabilityCredentialMint  = "credential-mint"
+	CapabilityCredentialRead  = "credential-read"
 	CapabilityExchangeManager = "exchange-management"
 )
 
@@ -57,6 +61,12 @@ func Forbidden(method, urlPath string) (capability string, forbidden bool) {
 		if !read {
 			return CapabilityCredentialMint, true
 		}
+	case "llm-gateway":
+		// The gateway binding holds the user's gateway key, which can be revealed,
+		// replaced and removed there. Usage, budget and the proxy itself stay open.
+		if len(rest) > 1 && rest[1] == "binding" {
+			return CapabilityCredentialRead, true
+		}
 	case "identity-bindings", "service-clients":
 		return CapabilityExchangeManager, true
 	}
@@ -76,3 +86,31 @@ func ScopeAllows(scopes []string, method string) bool {
 	}
 	return contains(scopes, ScopeRead) && (method == http.MethodGet || method == http.MethodHead)
 }
+
+// credentialWords are path fragments that suggest a route handles a credential.
+var credentialWords = []string{"key", "secret", "credential", "token", "password", "reveal"}
+
+// CredentialRouteGaps returns the routes ("METHOD path") of an engine whose path
+// mentions a credential but which an exchanged token may call. It exists so that
+// the route tables of the packages that register routes can pin the exclusion
+// list in a test: a new route must be classified in Forbidden, or reviewed and
+// listed in reviewed, instead of being allowed by default.
+func CredentialRouteGaps(routes []gin.RouteInfo, reviewed map[string]bool) []string {
+	var gaps []string
+	for _, r := range routes {
+		path := routeParam.ReplaceAllString(r.Path, "x")
+		if _, forbidden := Forbidden(r.Method, path); forbidden || reviewed[r.Method+" "+r.Path] {
+			continue
+		}
+		lower := strings.ToLower(r.Path)
+		for _, w := range credentialWords {
+			if strings.Contains(lower, w) {
+				gaps = append(gaps, r.Method+" "+r.Path)
+				break
+			}
+		}
+	}
+	return gaps
+}
+
+var routeParam = regexp.MustCompile(`:[A-Za-z]+`)

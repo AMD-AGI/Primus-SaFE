@@ -43,6 +43,12 @@ func TestForbiddenCapabilities(t *testing.T) {
 		// Standing credentials.
 		{"add ssh public key", http.MethodPost, "/api/v1/publickeys", identityexchange.CapabilityCredentialMint},
 		{"delete ssh public key", http.MethodDelete, "/api/v1/publickeys/3", identityexchange.CapabilityCredentialMint},
+		// The gateway key: reveal, replace, remove.
+		{"reveal gateway key", http.MethodGet, "/api/v1/llm-gateway/binding/apim-key", identityexchange.CapabilityCredentialRead},
+		{"read gateway binding", http.MethodGet, "/api/v1/llm-gateway/binding", identityexchange.CapabilityCredentialRead},
+		{"replace gateway binding", http.MethodPut, "/api/v1/llm-gateway/binding", identityexchange.CapabilityCredentialRead},
+		{"create gateway binding", http.MethodPost, "/api/v1/llm-gateway/binding", identityexchange.CapabilityCredentialRead},
+		{"delete gateway binding", http.MethodDelete, "/api/v1/llm-gateway/binding", identityexchange.CapabilityCredentialRead},
 		// The exchange itself: bindings and clients.
 		{"create binding", http.MethodPost, "/api/v1/identity-bindings", identityexchange.CapabilityExchangeManager},
 		{"list bindings", http.MethodGet, "/api/v1/identity-bindings", identityexchange.CapabilityExchangeManager},
@@ -74,6 +80,8 @@ func TestForbiddenLeavesOrdinaryAccessAlone(t *testing.T) {
 		{http.MethodGet, "/api/v1/users/u1/settings"},
 		{http.MethodGet, "/api/v1/publickeys"},
 		{http.MethodGet, "/api/v1/workspaces"},
+		{http.MethodGet, "/api/v1/llm-gateway/usage"},
+		{http.MethodGet, "/api/v1/llm-gateway/budget"},
 		{http.MethodPost, "/api/v1/login"},
 		{http.MethodGet, "/lens/v1/secrets"}, // not the platform API
 		{http.MethodGet, "/"},

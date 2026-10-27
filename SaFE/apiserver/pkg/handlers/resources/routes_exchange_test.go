@@ -33,9 +33,13 @@ func TestExchangedTokenExclusionsCoverTheRouteTable(t *testing.T) {
 	e := gin.New()
 	InitCustomRouters(e, &Handler{})
 
-	// Routes outside the four credential families whose path nevertheless contains
-	// a credential word, reviewed one by one and allowed on purpose.
-	reviewed := map[string]bool{}
+	// Routes whose path contains a credential word but which are allowed on purpose,
+	// reviewed one by one.
+	reviewed := map[string]bool{
+		"GET /api/v1/publickeys": true, // lists the user's SSH public keys; public material only
+	}
+	require.Empty(t, identityexchange.CredentialRouteGaps(e.Routes(), reviewed),
+		"a route mentions a credential but is allowed for exchanged tokens: classify it in identityexchange.Forbidden or review it here")
 
 	seen := map[string]int{}
 	for _, r := range e.Routes() {
@@ -56,12 +60,6 @@ func TestExchangedTokenExclusionsCoverTheRouteTable(t *testing.T) {
 		case res == "publickeys" && r.Method != http.MethodGet:
 			require.True(t, forbidden, "%s %s must be refused for exchanged tokens", r.Method, r.Path)
 			seen[res]++
-		case !forbidden:
-			lower := strings.ToLower(r.Path)
-			if (strings.Contains(lower, "apikey") || strings.Contains(lower, "secret") || strings.Contains(lower, "credential")) &&
-				!reviewed[r.Method+" "+r.Path] {
-				t.Errorf("%s %s mentions a credential but is allowed for exchanged tokens: classify it in identityexchange.Forbidden or review it here", r.Method, r.Path)
-			}
 		}
 	}
 	for _, res := range []string{"apikeys", "secrets", "identity-bindings", "service-clients", "users", "publickeys"} {
