@@ -140,7 +140,11 @@ func NewIntrospectionAuthenticator(cfg IntrospectionConfig) (*IntrospectionAuthe
 			}
 			tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 		}
-		cfg.HTTPClient = &http.Client{Timeout: cfg.Timeout, Transport: tr}
+		// A redirect is never followed: the request carries the credential being checked and the
+		// client's own credentials, and a 307/308 would resend both wherever it points. A 3xx
+		// answer is then "the introspection did not happen".
+		cfg.HTTPClient = &http.Client{Timeout: cfg.Timeout, Transport: tr,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
 	return &IntrospectionAuthenticator{cfg: cfg, cache: map[string]*cacheEntry{}}, nil
 }

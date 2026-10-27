@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -659,4 +660,44 @@ func TestIntrospectionStaleWindowIsMeasuredAfterTheFailedCall(t *testing.T) {
 	_, err = introspect(a, "good", "")
 	var u *UnavailableError
 	require.ErrorAs(t, err, &u, "the window is measured from the end of the failed call")
+}
+
+// The introspection request carries the credential being checked and the client's own secret.
+// An endpoint that redirects (307 and 308 resend the body and keep the method) must not be
+// able to send either anywhere else.
+func TestIntrospectionDoesNotFollowRedirects(t *testing.T) {
+	var seen atomic.Int64
+	var leaked atomic.Value
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen.Add(1)
+		_ = r.ParseForm()
+		_, secret, _ := r.BasicAuth()
+		leaked.Store(r.PostForm.Get("token") + "|" + secret)
+		_, _ = w.Write([]byte(`{"active": true, "sub": "mallory"}`))
+	}))
+	defer elsewhere.Close()
+	for _, code := range []int{http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			redirecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/.well-known/openid-configuration" {
+					w.Header().Set("Location", elsewhere.URL+r.URL.Path)
+				} else {
+					w.Header().Set("Location", elsewhere.URL)
+				}
+				w.WriteHeader(code)
+			}))
+			defer redirecting.Close()
+			seen.Store(0)
+			for name, mod := range map[string]func(*IntrospectionConfig){
+				"the endpoint redirects": func(c *IntrospectionConfig) { c.URL = redirecting.URL },
+				"discovery redirects":    func(c *IntrospectionConfig) { c.URL, c.Issuer = "", redirecting.URL },
+			} {
+				a := newIntrospection(t, newFakeIntrospector(t), newTestClock(), mod)
+				_, err := introspect(a, "the-bearer-token", "")
+				var u *UnavailableError
+				require.ErrorAs(t, err, &u, name)
+			}
+			require.EqualValues(t, 0, seen.Load(), "the credential and the client secret went to another host: %v", leaked.Load())
+		})
+	}
 }
