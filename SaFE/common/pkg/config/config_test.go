@@ -114,6 +114,7 @@ func TestGettersDefaults(t *testing.T) {
 	testifyassert.False(t, IsSandboxEnable())
 	testifyassert.Equal(t, "", GetSandboxNamespace())
 	testifyassert.Equal(t, "", GetSandboxSecret())
+	testifyassert.Equal(t, "", GetSandboxEnvdInjectorImage())
 	testifyassert.False(t, IsMCPEnable())
 	testifyassert.Equal(t, "/api/v1/safe-mcp/mcp", GetMCPBasePath())
 	testifyassert.Equal(t, "", GetMCPInstructions())

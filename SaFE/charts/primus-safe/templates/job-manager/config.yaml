@@ -73,6 +73,7 @@ data:
       enable: {{ .Values.sandbox.enable }}
       namespace: {{ .Values.sandbox.namespace }}
       secret: {{ .Values.sandbox.secret }}
+      envd_injector_image: harbor.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/proxy/{{ .Values.sandbox.envd_injector_image }}
     db:
       # Whether to enable database, The database will store some historical data regarding workloads, faults, and ops jobs.
       enable: {{ .Values.db.enable }}

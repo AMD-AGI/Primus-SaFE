@@ -195,10 +195,11 @@ const (
 	monarchClientRole = monarchPrefix + "client_role"
 
 	// sandbox
-	sandboxPrefix    = "sandbox."
-	sandboxEnable    = sandboxPrefix + "enable"
-	sandboxNamespace = sandboxPrefix + "namespace"
-	sandboxSecret    = sandboxPrefix + "secret"
+	sandboxPrefix            = "sandbox."
+	sandboxEnable            = sandboxPrefix + "enable"
+	sandboxNamespace         = sandboxPrefix + "namespace"
+	sandboxSecret            = sandboxPrefix + "secret"
+	sandboxEnvdInjectorImage = sandboxPrefix + "envd_injector_image"
 
 	// mcp
 	mcpPrefix         = "mcp."
@@ -211,7 +212,7 @@ const (
 	externalExecutionPrefix            = "external_execution."
 	externalExecutionEnabled           = externalExecutionPrefix + "enabled"
 	externalExecutionObservationMaxAge = externalExecutionPrefix + "observation_max_age_seconds"
-	externalExecutionWorkspaceResync = externalExecutionPrefix + "workspace_resync_seconds"
+	externalExecutionWorkspaceResync   = externalExecutionPrefix + "workspace_resync_seconds"
 
 	// model_optimization (hyperloom via primus-claw)
 	modelOptimizationPrefix       = "model_optimization."

@@ -49,8 +49,22 @@ const (
 
 	sandboxAuthPublicKeyEnvName = "ENVD_AUTH_PUBLIC_KEY"
 	sandboxSecretPublicPemKey   = "public.pem"
-	// sandboxNameLabel marks a Workload whose pod runs envd for Agent Sandbox.
-	sandboxNameLabel = "runtime.agent-sandbox.io/sandbox-name"
+	// grantIDLabel is the Agent Sandbox grant that owns this Workload.
+	grantIDLabel = "agent-sandbox.io/grant-id"
+	// sandboxIDLabel is the sandbox id the Router puts in the envd JWT.
+	sandboxIDLabel = "agent-sandbox.io/sandbox-id"
+	envdBinVolume  = "envd-bin"
+	envdBinMount   = "/shared/bin"
+	// envdInjectorScript copies the envd binary into the shared volume.
+	envdInjectorScript = `set -e
+cp /envd /shared/bin/envd
+cp /tmux /shared/bin/tmux 2>/dev/null || true
+cp /iptables /shared/bin/iptables
+cp /iptables /shared/bin/ip6tables
+ln -sf iptables /shared/bin/iptables-legacy
+ln -sf ip6tables /shared/bin/ip6tables-legacy
+cp /musl-ld.so /shared/bin/ld-musl-x86_64.so.1
+ln -sf ld-musl-x86_64.so.1 /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true`
 	// sessionIDAnnotation is the downward-API field envd compares with the Router token.
 	sessionIDAnnotation   = "runtime.agent-sandbox.io/session-id"
 	sessionIdentityVolume = "envd-session-identity"
@@ -2879,11 +2893,11 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context, clientSets *sy
 	return nil
 }
 
-// agentSandboxPyTorch reports a PyTorchJob that Agent Sandbox asked to run envd.
-// The marker is the same sandbox-name label the Sandbox path writes.
+// agentSandboxPyTorch reports a PyTorchJob created for an Agent Sandbox grant.
+// A training job can set sandbox-name; grant-id is the marker the sandbox service owns.
 func agentSandboxPyTorch(workload *v1.Workload) bool {
 	return workload != nil && workload.SpecKind() == common.PytorchJobKind &&
-		workload.Labels[sandboxNameLabel] != ""
+		v1.GetLabel(workload, grantIDLabel) != ""
 }
 
 // applyAgentSandboxPyTorch injects the data-plane envd public key and the session
@@ -2894,10 +2908,14 @@ func (r *DispatcherReconciler) applyAgentSandboxPyTorch(ctx context.Context, cli
 	if err := injectSandboxEnvdAuthPublicKey(ctx, clientSets, adminWorkload); err != nil {
 		return err
 	}
+	sandboxID := v1.GetLabel(adminWorkload, sandboxIDLabel)
+	if sandboxID == "" {
+		return fmt.Errorf("agent sandbox workload %s has no sandbox id", adminWorkload.Name)
+	}
 	v1.SetLabel(adminWorkload, "runtime.agent-sandbox.io/user.id", v1.GetUserId(adminWorkload))
-	v1.SetLabel(adminWorkload, sandboxNameLabel, adminWorkload.Name)
 	v1.SetAnnotation(adminWorkload, "runtime.agent-sandbox.io/user.name", v1.GetUserName(adminWorkload))
-	v1.SetAnnotation(adminWorkload, sessionIDAnnotation, adminWorkload.Name)
+	// Keep the sandbox id the creator wrote. The Workload name is a different string.
+	v1.SetAnnotation(adminWorkload, sessionIDAnnotation, sandboxID)
 	if workspace != nil {
 		if str := workspace.GetIdleTime(commonworkload.GetScope(adminWorkload)); str != "" {
 			v1.SetAnnotation(adminWorkload, "runtime.agent-sandbox.io/idle-timeout", str)
@@ -2907,11 +2925,162 @@ func (r *DispatcherReconciler) applyAgentSandboxPyTorch(ctx context.Context, cli
 		return fmt.Errorf("no resource specs found")
 	}
 	for i := range rt.Spec.ResourceSpecs {
-		if err := ensureSessionIdentity(obj, adminWorkload, &rt.Spec.ResourceSpecs[i]); err != nil {
+		spec := &rt.Spec.ResourceSpecs[i]
+		if len(spec.PrePaths) > 0 {
+			_, found, err := jobutils.NestedField(obj.Object, spec.PrePaths)
+			if err != nil {
+				return err
+			}
+			if !found {
+				continue
+			}
+		}
+		if err := tightenSandboxPod(obj, adminWorkload, spec); err != nil {
+			return err
+		}
+		if err := ensureEnvD(obj, adminWorkload, spec); err != nil {
+			return err
+		}
+		if err := ensureSessionIdentity(obj, adminWorkload, spec); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// tightenSandboxPod drops the training template's host paths and SYS_PTRACE.
+// Those are not part of a sandbox pod.
+func tightenSandboxPod(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
+	containers, path, err := getContainers(workload, obj, *resourceSpec)
+	if err != nil {
+		return err
+	}
+	volumesPath := podSpecPath(workload, resourceSpec, "volumes")
+	volumes, _, _ := jobutils.NestedSlice(obj.Object, volumesPath)
+	dropped := map[string]struct{}{}
+	kept := make([]interface{}, 0, len(volumes))
+	for _, item := range volumes {
+		raw, ok := item.(map[string]interface{})
+		if !ok {
+			kept = append(kept, item)
+			continue
+		}
+		if _, host := raw["hostPath"]; host {
+			if name, _ := raw["name"].(string); name != "" {
+				dropped[name] = struct{}{}
+			}
+			continue
+		}
+		kept = append(kept, item)
+	}
+	if len(dropped) > 0 {
+		if err = jobutils.SetNestedField(obj.Object, kept, volumesPath); err != nil {
+			return err
+		}
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		dropCapability(container, "SYS_PTRACE")
+		if len(dropped) > 0 {
+			container["volumeMounts"] = withoutMounts(container["volumeMounts"], dropped)
+		}
+		containers[i] = container
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+// ensureEnvD installs envd from the injector image and makes it the container process.
+func ensureEnvD(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
+	image := commonconfig.GetSandboxEnvdInjectorImage()
+	if image == "" {
+		return fmt.Errorf("sandbox envd injector image is not configured")
+	}
+	containers, path, err := getContainers(workload, obj, *resourceSpec)
+	if err != nil {
+		return err
+	}
+	mount := map[string]interface{}{"name": envdBinVolume, "mountPath": envdBinMount}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		mounts, _ := container["volumeMounts"].([]interface{})
+		if !hasNamedItem(mounts, envdBinVolume) {
+			container["volumeMounts"] = append(mounts, mount)
+		}
+		container["command"] = []interface{}{"/bin/sh", "-c"}
+		container["args"] = []interface{}{"mkdir -p /app && exec /shared/bin/envd --port=8080 --workspace=/app"}
+		containers[i] = container
+	}
+	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
+		return err
+	}
+	initPath := podSpecPath(workload, resourceSpec, "initContainers")
+	inits, _, _ := jobutils.NestedSlice(obj.Object, initPath)
+	if !hasNamedItem(inits, "envd-injector") {
+		inits = append(inits, map[string]interface{}{
+			"name":            "envd-injector",
+			"image":           image,
+			"imagePullPolicy": "IfNotPresent",
+			"command":         []interface{}{"sh", "-c", envdInjectorScript},
+			"volumeMounts":    []interface{}{mount},
+		})
+		if err = jobutils.SetNestedField(obj.Object, inits, initPath); err != nil {
+			return err
+		}
+	}
+	volumesPath := podSpecPath(workload, resourceSpec, "volumes")
+	volumes, _, _ := jobutils.NestedSlice(obj.Object, volumesPath)
+	if hasNamedItem(volumes, envdBinVolume) {
+		return nil
+	}
+	volumes = append(volumes, map[string]interface{}{
+		"name":     envdBinVolume,
+		"emptyDir": map[string]interface{}{},
+	})
+	return jobutils.SetNestedField(obj.Object, volumes, volumesPath)
+}
+
+func dropCapability(container map[string]interface{}, name string) {
+	security, _ := container["securityContext"].(map[string]interface{})
+	if security == nil {
+		return
+	}
+	caps, _ := security["capabilities"].(map[string]interface{})
+	if caps == nil {
+		return
+	}
+	add, _ := caps["add"].([]interface{})
+	kept := make([]interface{}, 0, len(add))
+	for _, item := range add {
+		if got, _ := item.(string); got == name {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	caps["add"] = kept
+}
+
+func withoutMounts(raw interface{}, dropped map[string]struct{}) []interface{} {
+	mounts, _ := raw.([]interface{})
+	kept := make([]interface{}, 0, len(mounts))
+	for _, item := range mounts {
+		mount, ok := item.(map[string]interface{})
+		if !ok {
+			kept = append(kept, item)
+			continue
+		}
+		name, _ := mount["name"].(string)
+		if _, skip := dropped[name]; skip {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	return kept
 }
 
 // ensureSessionIdentity mounts the pod annotation that envd reads as its session id.
