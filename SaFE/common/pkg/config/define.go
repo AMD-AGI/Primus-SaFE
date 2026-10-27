@@ -213,7 +213,7 @@ const (
 	externalExecutionPrefix            = "external_execution."
 	externalExecutionEnabled           = externalExecutionPrefix + "enabled"
 	externalExecutionObservationMaxAge = externalExecutionPrefix + "observation_max_age_seconds"
-	externalExecutionWorkspaceResync = externalExecutionPrefix + "workspace_resync_seconds"
+	externalExecutionWorkspaceResync   = externalExecutionPrefix + "workspace_resync_seconds"
 
 	// model_optimization (hyperloom via primus-claw)
 	modelOptimizationPrefix       = "model_optimization."
