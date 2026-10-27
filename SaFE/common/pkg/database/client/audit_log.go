@@ -54,7 +54,8 @@ func (c *Client) BatchInsertAuditLogs(ctx context.Context, auditLogs []*AuditLog
 		Insert(TPAuditLog).
 		Columns("user_id", "user_name", "user_type", "client_ip", "http_method",
 			"request_path", "resource_type", "action", "request_body",
-			"response_status", "response_body", "latency_ms", "trace_id", "create_time")
+			"response_status", "response_body", "latency_ms", "trace_id", "create_time",
+			"actor_client_id", "token_jti")
 
 	for _, log := range auditLogs {
 		builder = builder.Values(
@@ -72,6 +73,8 @@ func (c *Client) BatchInsertAuditLogs(ctx context.Context, auditLogs []*AuditLog
 			log.LatencyMs,
 			log.TraceId,
 			log.CreateTime,
+			log.ActorClientId,
+			log.TokenJti,
 		)
 	}
 

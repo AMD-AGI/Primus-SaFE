@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
@@ -578,6 +579,9 @@ func setCookie(c *gin.Context, userInfo *view.UserLoginResponse, userType v1.Use
 // Maps user properties to the appropriate response structure and includes
 // workspace information which user can access or manage
 func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) view.UserResponseItem {
+	// In external mode the response shows the roles and workspaces the request's groups
+	// map to; the copy is only read here, never written back.
+	user = extauth.ApplyOverlay(ctx, user)
 	result := view.UserResponseItem{
 		Id:             user.Name,
 		Name:           v1.GetUserName(user),

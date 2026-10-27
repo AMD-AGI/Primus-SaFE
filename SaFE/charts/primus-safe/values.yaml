@@ -222,6 +222,41 @@ tls:
   # stay compatible with self-signed ingress certificates and images without an
   # updated CA bundle. Set to true in deployments that provide valid certs/CA.
   verify_outbound: false
+# Pluggable authentication, in the Kubernetes style. Authorization (roles, workspaces) always stays in SaFE.
+# See docs/apis/external-authentication.md.
+auth:
+  # builtin: the apiserver's own accounts, sessions, SSO login and API keys (default, nothing else to configure).
+  # external: requests are authenticated by `authenticators`, in order; the first to accept decides.
+  mode: builtin
+  # Entries when mode is external. Durations are Go durations ("30s", "30m").
+  #   - type: oidc        # validate JWTs from one issuer
+  #     issuer: https://idp.example.com
+  #     audience: safe-apiserver          # required
+  #     jwks_url: ""                      # default: from the issuer's discovery document
+  #     clock_skew: 30s
+  #     jwks_cache_ttl: 10m
+  #     id_claim: sub
+  #     username_claim: preferred_username
+  #     email_claim: email
+  #     groups_claim: groups
+  #   - type: webhook     # authentication.k8s.io/v1 TokenReview
+  #     url: https://authn.example.com/token-review
+  #     ca_bundle: ""                     # PEM text or file path
+  #     timeout: 5s
+  #     cache_ttl: 30s
+  #     cache_negative_ttl: 5s
+  #     stale_if_error: 30m               # keep accepted credentials working while the webhook is down
+  #   - type: builtin     # fall through to the built-in mode (e.g. a local administrator)
+  authenticators: []
+  # Identity groups mapped to SaFE roles on every request; never stored on the user.
+  #   - group: platform-admins
+  #     roles: [system-admin]
+  #   - group: team-a-leads
+  #     roles: [workspace-admin]
+  #     workspaces: [team-a]
+  group_mappings: []
+  # Where the console sends users to sign in when mode is external.
+  login_url: ""
 sso:
   # Enable sso login
   enable: true

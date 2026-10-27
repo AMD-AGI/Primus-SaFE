@@ -178,6 +178,13 @@ const (
 	langfuseProxyPrefix     = "langfuse_proxy."
 	langfuseProxySecretPath = langfuseProxyPrefix + "secret_path"
 
+	// pluggable authentication
+	authPrefix         = "auth."
+	authMode           = authPrefix + "mode"
+	authAuthenticators = authPrefix + "authenticators"
+	authGroupMappings  = authPrefix + "group_mappings"
+	authLoginURL       = authPrefix + "login_url"
+
 	// a2a
 	a2aPrefix            = "a2a."
 	a2aScannerPrefix     = a2aPrefix + "scanner."

@@ -152,6 +152,8 @@ const (
 	UserId                = "userId"
 	UserType              = "userType"
 	ApiKeyId              = "apiKeyId"
+	ActorClientId         = "actorClientId" // the party acting for the user (delegated token "act" claim)
+	TokenJti              = "tokenJti"      // id of the delegated token
 	UserSelf              = "self"
 	UserSystem            = "primus-safe-system"
 	UserWorkspaces        = "workspaces"

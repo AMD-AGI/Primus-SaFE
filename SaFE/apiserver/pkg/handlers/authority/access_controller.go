@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
@@ -90,6 +91,7 @@ func (a *AccessController) Authorize(in AccessInput) error {
 			return err
 		}
 	}
+	in.User = extauth.ApplyOverlay(in.Context, in.User)
 	if len(in.Roles) == 0 {
 		in.Roles = a.GetRoles(in.Context, in.User)
 	}
@@ -105,6 +107,7 @@ func (a *AccessController) AuthorizeSystemAdmin(in AccessInput, readOnlyAllowed 
 			return err
 		}
 	}
+	in.User = extauth.ApplyOverlay(in.Context, in.User)
 	if in.User.IsSystemAdmin() {
 		return nil
 	}
@@ -135,6 +138,8 @@ func (a *AccessController) GetRoles(ctx context.Context, user *v1.User) []*v1.Ro
 		return nil
 	}
 	var result []*v1.Role
+	// In external mode: the roles the request's groups map to, never stored.
+	user = extauth.ApplyOverlay(ctx, user)
 	for _, r := range user.Spec.Roles {
 		role := &v1.Role{}
 		err := a.Get(ctx, client.ObjectKey{Name: string(r)}, role)
