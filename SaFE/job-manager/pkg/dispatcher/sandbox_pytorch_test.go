@@ -7,6 +7,8 @@ package dispatcher
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -84,7 +86,7 @@ func TestApplyAgentSandboxPyTorchInjectsKeyAndSessionFile(t *testing.T) {
 		}
 	}
 	assert.Assert(t, sawSession)
-	assert.Equal(t, container["args"].([]interface{})[0], "mkdir -p /app && exec /shared/bin/envd --port=8080 --workspace=/app")
+	assert.Equal(t, container["args"].([]interface{})[0], envdStartupScript)
 	inits, found, err := jobutils.NestedSlice(obj.Object, []string{
 		"spec", "pytorchReplicaSpecs", "Master", "template", "spec", "initContainers"})
 	assert.NilError(t, err)
@@ -179,4 +181,16 @@ func pytorchObject() *unstructured.Unstructured {
 			},
 		},
 	}}
+}
+
+// TestAgentSandboxPyTorchMatchesSandboxTemplate keeps the PyTorch path's envd
+// startup and injector script in step with the chart's Sandbox template.
+func TestAgentSandboxPyTorchMatchesSandboxTemplate(t *testing.T) {
+	raw, err := os.ReadFile(primusSafeChart + "/templates/configmap/sandbox_template.yaml")
+	assert.NilError(t, err)
+	template := strings.Join(strings.Fields(string(raw)), " ")
+	assert.Assert(t, strings.Contains(template, strings.Join(strings.Fields(envdStartupScript), " ")),
+		"envdStartupScript differs from the Sandbox template's startup command")
+	assert.Assert(t, strings.Contains(template, strings.Join(strings.Fields(envdInjectorScript), " ")),
+		"envdInjectorScript differs from the Sandbox template's envd-injector script")
 }

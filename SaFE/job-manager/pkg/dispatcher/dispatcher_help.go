@@ -55,7 +55,8 @@ const (
 	sandboxIDLabel = "agent-sandbox.io/sandbox-id"
 	envdBinVolume  = "envd-bin"
 	envdBinMount   = "/shared/bin"
-	// envdInjectorScript copies the envd binary into the shared volume.
+	// envdInjectorScript copies the envd binary into the shared volume. It is the
+	// Sandbox template's envd-injector script; a test keeps the two in step.
 	envdInjectorScript = `set -e
 cp /envd /shared/bin/envd
 cp /tmux /shared/bin/tmux 2>/dev/null || true
@@ -64,7 +65,13 @@ cp /iptables /shared/bin/ip6tables
 ln -sf iptables /shared/bin/iptables-legacy
 ln -sf ip6tables /shared/bin/ip6tables-legacy
 cp /musl-ld.so /shared/bin/ld-musl-x86_64.so.1
-ln -sf ld-musl-x86_64.so.1 /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true`
+ln -sf ld-musl-x86_64.so.1 /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true
+( cp /amd-root-ca.crt /amd-issuing-ca.crt /amd-bundle.pem /setup-amd-ca.sh /shared/bin/ \
+  && chmod +x /shared/bin/setup-amd-ca.sh ) 2>/dev/null || true`
+	// envdStartupScript starts envd in the main container. It is the Sandbox
+	// template's startup command (PATH setup, work directory, CA setup, the
+	// SANDBOX_STARTUP snippet); a test keeps the two in step.
+	envdStartupScript = `__sandbox_path_rest="${PATH-}:"'/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin:'; __sandbox_path=; while [ -n "$__sandbox_path_rest" ]; do __sandbox_path_dir="${__sandbox_path_rest%%:*}"; __sandbox_path_rest="${__sandbox_path_rest#*:}"; case "$__sandbox_path_dir" in */../*|*/..) ;; /*) case ":$__sandbox_path:" in *":$__sandbox_path_dir:"*) ;; *) __sandbox_path="${__sandbox_path:+$__sandbox_path:}$__sandbox_path_dir" ;; esac ;; esac; done; PATH="$__sandbox_path"; export PATH; unset __sandbox_path_rest __sandbox_path_dir __sandbox_path; mkdir -p /app /app/work && /shared/bin/setup-amd-ca.sh && if [ -n "${SANDBOX_STARTUP-}" ]; then eval "$SANDBOX_STARTUP"; fi && exec /shared/bin/envd --port=8080 --workspace=/app`
 	// sessionIDAnnotation is the downward-API field envd compares with the Router token.
 	sessionIDAnnotation   = "runtime.agent-sandbox.io/session-id"
 	sessionIdentityVolume = "envd-session-identity"
@@ -3013,7 +3020,7 @@ func ensureEnvD(obj *unstructured.Unstructured, workload *v1.Workload, resourceS
 			container["volumeMounts"] = append(mounts, mount)
 		}
 		container["command"] = []interface{}{"/bin/sh", "-c"}
-		container["args"] = []interface{}{"mkdir -p /app && exec /shared/bin/envd --port=8080 --workspace=/app"}
+		container["args"] = []interface{}{envdStartupScript}
 		containers[i] = container
 	}
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
