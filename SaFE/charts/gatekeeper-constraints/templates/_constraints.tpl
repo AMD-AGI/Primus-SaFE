@@ -11,10 +11,19 @@ app.kubernetes.io/managed-by: Helm
 Curl image for the constraint apply hook. A SaFE proxy registry replaces the upstream name.
 */}}
 {{- define "constraints.curlRepository" -}}
-{{- if .Values.global.proxy_image_registry -}}
+{{- if .Values.image.repository -}}
+{{- .Values.image.repository -}}
+{{- else if and .Values.global .Values.global.proxy_image_registry -}}
 {{- printf "%s/primussafe/curl" .Values.global.proxy_image_registry -}}
 {{- else -}}
-{{- .Values.image.repository -}}
+curlimages/curl
+{{- end -}}
+{{- end -}}
+
+{{/* deny requires a JWKS document. */}}
+{{- define "constraints.requireJwksForDeny" -}}
+{{- if and (eq .Values.enforcementAction "deny") (not .Values.jwks) -}}
+{{- fail "jwks must be set before enforcementAction is deny" -}}
 {{- end -}}
 {{- end -}}
 
@@ -163,6 +172,7 @@ spec:
             "time": time.now_ns(),
           })
           ok
+          object.get(claims, "exp", 0) > 0
           claims.jti == object.get(object.get(obj.metadata, "labels", {}), "agent-sandbox.io/grant-id", "")
           claims.sub == object.get(object.get(obj.metadata, "labels", {}), "primus-safe.user.id", "")
           claims.workspaces[_] == obj.spec.workspace

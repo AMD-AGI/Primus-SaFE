@@ -1,9 +1,0 @@
-dependencies:
-- name: gatekeeper
-  repository: file://../gatekeeper
-  version: 3.23.1
-- name: gatekeeper-constraints
-  repository: file://../gatekeeper-constraints
-  version: 0.1.0
-digest: sha256:e47170bf41f877f16d9891e49719b8095d86bd62e9d3e5eb464dd8f5b4d9821d
-generated: "2026-10-26T03:38:34.769739038Z"

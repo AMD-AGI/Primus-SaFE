@@ -3,23 +3,22 @@
 # See LICENSE for license information.
 #
 # OPA Gatekeeper for admission checks on Workloads created by Agent Sandbox.
-# primus-safe-cr installs this chart on the management cluster. This template
-# is not a default addon, so data-plane clusters do not run the webhook.
+# This AddonTemplate is not a default addon. Install it on the management
+# cluster. Data-plane clusters do not receive the webhook.
 #
 # Notes:
-#   1. Upstream chart 3.23.1 from oci://ghcr.io/open-policy-agent/charts/gatekeeper.
-#      Mirror before applying:
+#   1. Use the published Gatekeeper chart 3.23.1. Mirror it before applying:
 #        oci://<helm_registry>/primussafe/gatekeeper:3.23.1
 #        <proxy_image_registry>/primussafe/gatekeeper:v3.23.1
 #        <proxy_image_registry>/primussafe/gatekeeper-crds:v3.23.1
 #        <proxy_image_registry>/primussafe/curl:8.20.0
-#   2. The validating webhook admits amd.com/v1 Workload CREATE from
+#   2. Requires Kubernetes 1.28 or newer. The chart applies the service-account
+#      match condition only on those versions.
+#   3. The validating webhook admits amd.com/v1 Workload CREATE from
 #      system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane.
-#      Other creators are not sent to Gatekeeper. Constraints are the
+#      Its failurePolicy is Fail. The namespace check-ignore webhook stays Ignore.
+#   4. Two controller replicas. Mutation is disabled. Constraints are the
 #      gatekeeper-constraints addon, installed after this one.
-#   3. failurePolicy is Fail. If the webhook is unreachable, only that
-#      service account's Workload creates are rejected.
-#   4. Two controller replicas. Mutation is disabled.
 #
 
 apiVersion: amd.com/v1
@@ -34,7 +33,7 @@ metadata:
   name: gatekeeper.3.23.1
 spec:
   category: plugin
-  description: OPA Gatekeeper admission controller. Install on the management cluster only. The validating webhook receives Workload creates from the Agent Sandbox control plane.
+  description: OPA Gatekeeper admission controller for the management cluster. Requires Kubernetes 1.28 or newer. The validating webhook receives Workload creates from the Agent Sandbox control plane.
   url: oci://{{ .Values.global.helm_registry }}/primussafe/gatekeeper
   version: 3.23.1
   type: helm
@@ -44,6 +43,7 @@ spec:
     replicas: 2
     disableMutation: true
     validatingWebhookFailurePolicy: Fail
+    validatingWebhookCheckIgnoreFailurePolicy: Ignore
     validatingWebhookTimeoutSeconds: 10
     validatingWebhookMatchConditions:
       - name: agent-sandbox-controlplane
