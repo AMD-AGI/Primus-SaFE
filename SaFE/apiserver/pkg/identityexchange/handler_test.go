@@ -39,6 +39,7 @@ func newEngine(e *env, asUser string, admin bool) *gin.Engine {
 	api.POST("/service-clients", e.svc.CreateClient)
 	api.GET("/service-clients", e.svc.ListClients)
 	api.POST("/service-clients/:clientId/disable", e.svc.DisableClient)
+	api.POST("/service-clients/:clientId/enable", e.svc.EnableClient)
 	return r
 }
 
@@ -234,6 +235,9 @@ func TestServiceClientAdministration(t *testing.T) {
 		require.Equal(t, 400, do(r, http.MethodPost, "/api/v1/service-clients", bad).Code, name)
 	}
 
+	require.Equal(t, 200, do(r, http.MethodPost, "/api/v1/service-clients/"+clientId+"/disable", "").Code)
+	require.Equal(t, 200, do(r, http.MethodPost, "/api/v1/service-clients/"+clientId+"/enable", "").Code)
+	require.False(t, e.store.Clients[clientId].Disabled)
 	require.Equal(t, 200, do(r, http.MethodPost, "/api/v1/service-clients/"+clientId+"/disable", "").Code)
 	_, oerr := e.svc.Exchange(context.Background(), baseReq())
 	require.NotNil(t, oerr)

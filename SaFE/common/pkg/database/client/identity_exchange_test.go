@@ -90,3 +90,43 @@ func TestAuditLogFieldTagsIncludeActor(t *testing.T) {
 	require.Contains(t, tags, "actorclientid")
 	require.Contains(t, tags, "tokenjti")
 }
+
+func TestServiceClientQueries(t *testing.T) {
+	c, mock := newMockClient(t)
+	ctx := context.Background()
+	mock.ExpectQuery(`SELECT \* FROM service_clients WHERE client_id=\$1`).WithArgs("c1").
+		WillReturnRows(sqlmock.NewRows([]string{"client_id", "disabled"}).AddRow("c1", true))
+	sc, err := c.GetServiceClient(ctx, "c1")
+	require.NoError(t, err)
+	require.True(t, sc.Disabled)
+	_, err = c.GetServiceClient(ctx, "")
+	require.Error(t, err)
+
+	mock.ExpectQuery(`SELECT \* FROM service_clients ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"client_id"}).AddRow("a").AddRow("b"))
+	list, err := c.ListServiceClients(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+
+	mock.ExpectExec(`UPDATE service_clients SET disabled=\$1 WHERE client_id=\$2`).WithArgs(true, "c1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	ok, err := c.SetServiceClientDisabled(ctx, "c1", true)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestListIdentityBindingsByUser(t *testing.T) {
+	c, mock := newMockClient(t)
+	mock.ExpectQuery(`SELECT \* FROM identity_bindings WHERE user_id=\$1 AND deleted=false ORDER BY id`).WithArgs("u").
+		WillReturnRows(sqlmock.NewRows([]string{"client_id", "user_id"}).AddRow("c", "u"))
+	list, err := c.ListIdentityBindingsByUser(context.Background(), "u")
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+}
+
+func TestIdentityExchangeNilInputs(t *testing.T) {
+	c, _ := newMockClient(t)
+	require.Error(t, c.InsertServiceClient(context.Background(), nil))
+	require.Error(t, c.InsertIdentityBinding(context.Background(), nil))
+}
