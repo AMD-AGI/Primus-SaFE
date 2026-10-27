@@ -523,7 +523,7 @@ func TestChartPinsTheSandboxToTheNonLegacyHIPIPCPath(t *testing.T) {
 const sandboxPathSetupScript = `__sandbox_path_rest="${PATH-}:"'/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin:'; __sandbox_path=; while [ -n "$__sandbox_path_rest" ]; do __sandbox_path_dir="${__sandbox_path_rest%%:*}"; __sandbox_path_rest="${__sandbox_path_rest#*:}"; case "$__sandbox_path_dir" in */../*|*/..) ;; /*) case ":$__sandbox_path:" in *":$__sandbox_path_dir:"*) ;; *) __sandbox_path="${__sandbox_path:+$__sandbox_path:}$__sandbox_path_dir" ;; esac ;; esac; done; PATH="$__sandbox_path"; export PATH; unset __sandbox_path_rest __sandbox_path_dir __sandbox_path; `
 
 // sandboxStartupTail is what the startup command runs once PATH is set up.
-const sandboxStartupTail = "mkdir -p /app && /shared/bin/setup-amd-ca.sh && if [ -n \"${SANDBOX_STARTUP-}\" ]; then eval \"$SANDBOX_STARTUP\"; fi && exec /shared/bin/envd --port=8080 --workspace=/app"
+const sandboxStartupTail = "mkdir -p /app /app/work && /shared/bin/setup-amd-ca.sh && if [ -n \"${SANDBOX_STARTUP-}\" ]; then eval \"$SANDBOX_STARTUP\"; fi && exec /shared/bin/envd --port=8080 --workspace=/app"
 
 // sandboxRuntimePath is PATH when the container starts with none.
 const sandboxRuntimePath = "/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin"
