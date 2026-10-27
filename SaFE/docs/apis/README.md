@@ -24,7 +24,7 @@ Welcome to the Primus-SaFE API documentation. This documentation provides comple
 - [secret.md](./secret.md) - Secret Management API
 - [public-key.md](./public-key.md) - Public Key Management API
 - [api-key.md](./api-key.md) - API Key Management API
-- [external-authentication.md](./external-authentication.md) - Pluggable authentication (OIDC/JWT, webhook TokenReview)
+- [external-authentication.md](./external-authentication.md) - Pluggable authentication (OIDC/JWT, token introspection)
 
 #### Operations
 - [fault.md](./fault.md) - Fault Injection API

@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -24,26 +26,27 @@ import (
 )
 
 // delegatedChain builds a real Authorize + Audit chain in external mode. The
-// authenticator is a fake TokenReview server that answers "alice, acted for by
+// authenticator is a fake RFC 7662 introspection server that answers "alice, acted for by
 // svc-bot" for the token "delegated" and "alice" for "direct".
 func delegatedChain(t *testing.T) (*gin.Engine, chan *dbclient.AuditLog) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	rev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var in struct {
-			Spec struct{ Token string } `json:"spec"`
+		require.NoError(t, r.ParseForm())
+		token := r.PostForm.Get("token")
+		answer := map[string]any{"active": token != "", "sub": "alice-id", "username": "alice"}
+		if token == "delegated" {
+			answer["act"] = map[string]any{"client_id": "svc-bot"}
+			answer["scope"] = "safe.api"
+			answer["jti"] = "jti-7"
 		}
-		_ = json.NewDecoder(r.Body).Decode(&in)
-		user := map[string]any{"uid": "alice-id", "username": "alice"}
-		if in.Spec.Token == "delegated" {
-			user["extra"] = map[string][]string{"actor": {"svc-bot"}, "scopes": {"safe.api"}, "jti": {"jti-7"}}
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"apiVersion": "authentication.k8s.io/v1", "kind": "TokenReview",
-			"status": map[string]any{"authenticated": in.Spec.Token != "", "user": user}})
+		_ = json.NewEncoder(w).Encode(answer)
 	}))
 	t.Cleanup(rev.Close)
 	viper.Set("auth.mode", "external")
-	viper.Set("auth.authenticators", []map[string]any{{"type": "webhook", "url": rev.URL}})
+	secretFile := filepath.Join(t.TempDir(), "client-secret")
+	require.NoError(t, os.WriteFile(secretFile, []byte("secret"), 0o600))
+	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection", "url": rev.URL, "client_id": "svc-safe", "client_secret_file": secretFile}})
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
 	require.NoError(t, authority.InitExternalAuth(fake.NewClientBuilder().WithScheme(scheme).Build()))

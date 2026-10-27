@@ -104,7 +104,7 @@ func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error)
 				return nil, fmt.Errorf("auth.authenticators[%d]: %w", i, err)
 			}
 			list = append(list, a)
-		case "webhook":
+		case "introspection":
 			var d [4]time.Duration
 			for j, f := range []struct{ n, v string }{
 				{"timeout", c.Timeout}, {"cache_ttl", c.CacheTTL}, {"cache_negative_ttl", c.CacheNegativeTTL}, {"stale_if_error", c.StaleIfError},
@@ -114,8 +114,9 @@ func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error)
 					return nil, err
 				}
 			}
-			a, err := extauth.NewWebhookAuthenticator(extauth.WebhookConfig{
-				Name: c.Name, URL: c.URL, CABundle: c.CABundle,
+			a, err := extauth.NewIntrospectionAuthenticator(extauth.IntrospectionConfig{
+				Name: c.Name, URL: c.URL, Issuer: c.Issuer, CABundle: c.CABundle,
+				ClientID: c.ClientID, ClientSecretFile: c.ClientSecretFile,
 				Timeout: d[0], CacheTTL: d[1], CacheNegativeTTL: d[2], StaleIfError: d[3],
 			})
 			if err != nil {

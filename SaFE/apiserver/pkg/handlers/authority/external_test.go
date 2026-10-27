@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -33,19 +35,21 @@ import (
 )
 
 const (
-	extAudience = "safe-apiserver"
-	extUser     = "alice-id"
+	extAudience     = "safe-apiserver"
+	extUser         = "alice-id"
+	extClientID     = "svc-safe"
+	extClientSecret = "s3cret-for-the-introspection-endpoint"
 )
 
-// extEnv is a fake issuer (discovery + JWKS), a fake TokenReview server and a fake
-// cluster, wired to the external mode through configuration.
+// extEnv is a fake issuer (discovery + JWKS), a fake RFC 7662 introspection server and a
+// fake cluster, wired to the external mode through configuration.
 type extEnv struct {
 	t        *testing.T
 	issuer   *httptest.Server
 	key      *ecdsa.PrivateKey
 	reviewer *httptest.Server
-	revMode  atomic.Value // "ok" | "503"
-	revUsers map[string]map[string]any
+	revMode  atomic.Value              // "ok" | "503"
+	revUsers map[string]map[string]any // token -> the introspection answer for it
 	cli      client.Client
 }
 
@@ -64,27 +68,32 @@ func newExtEnv(t *testing.T, mapping []map[string]any, builtin bool) *extEnv {
 	e.issuer = httptest.NewServer(mux)
 	t.Cleanup(e.issuer.Close)
 
+	secretFile := filepath.Join(t.TempDir(), "client-secret")
+	require.NoError(t, os.WriteFile(secretFile, []byte(extClientSecret+"\n"), 0o600))
 	e.reviewer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if e.revMode.Load() == "503" {
 			http.Error(w, "down", http.StatusServiceUnavailable)
 			return
 		}
-		var in struct {
-			Spec struct{ Token, Cookie string } `json:"spec"`
+		if id, secret, ok := r.BasicAuth(); !ok || id != extClientID || secret != extClientSecret {
+			http.Error(w, "who are you", http.StatusUnauthorized)
+			return
 		}
-		_ = json.NewDecoder(r.Body).Decode(&in)
-		user, ok := e.revUsers[in.Spec.Token+"|"+in.Spec.Cookie]
-		status := map[string]any{"authenticated": ok}
-		if ok {
-			status["user"] = user
+		require.NoError(t, r.ParseForm())
+		answer := map[string]any{"active": false}
+		if user, ok := e.revUsers[r.PostForm.Get("token")]; ok {
+			answer = map[string]any{"active": true}
+			for k, v := range user {
+				answer[k] = v
+			}
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"apiVersion": "authentication.k8s.io/v1", "kind": "TokenReview", "status": status})
+		_ = json.NewEncoder(w).Encode(answer)
 	}))
 	t.Cleanup(e.reviewer.Close)
 
 	chain := []map[string]any{
 		{"type": "oidc", "issuer": e.issuer.URL, "audience": extAudience, "jwks_url": e.issuer.URL + "/jwks"},
-		{"type": "webhook", "url": e.reviewer.URL, "cache_ttl": "50ms", "stale_if_error": "30m"},
+		{"type": "introspection", "url": e.reviewer.URL, "client_id": extClientID, "client_secret_file": secretFile, "cache_ttl": "50ms", "stale_if_error": "30m"},
 	}
 	if builtin {
 		chain = append(chain, map[string]any{"type": "builtin"})
@@ -189,17 +198,22 @@ func TestExternalModeRefusesAChainItCannotBuild(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+	goodSecret := filepath.Join(t.TempDir(), "secret")
+	require.NoError(t, os.WriteFile(goodSecret, []byte("x"), 0o600))
 	t.Cleanup(func() {
 		viper.Set("auth.mode", nil)
 		viper.Set("auth.authenticators", nil)
 		require.NoError(t, InitExternalAuth(nil))
 	})
 	for name, chain := range map[string]any{
-		"empty":          nil,
-		"unknown type":   []map[string]any{{"type": "ldap"}},
-		"oidc no aud":    []map[string]any{{"type": "oidc", "issuer": "https://issuer.example.com"}},
-		"webhook no url": []map[string]any{{"type": "webhook"}},
-		"bad duration":   []map[string]any{{"type": "webhook", "url": "https://x.example.com", "cache_ttl": "soon"}},
+		"empty":                   nil,
+		"unknown type":            []map[string]any{{"type": "ldap"}},
+		"oidc no aud":             []map[string]any{{"type": "oidc", "issuer": "https://issuer.example.com"}},
+		"introspection no url":    []map[string]any{{"type": "introspection", "client_id": "c", "client_secret_file": goodSecret}},
+		"introspection no client": []map[string]any{{"type": "introspection", "url": "https://x.example.com"}},
+		"unreadable secret file":  []map[string]any{{"type": "introspection", "url": "https://x.example.com", "client_id": "c", "client_secret_file": goodSecret + ".missing"}},
+		"bad duration":            []map[string]any{{"type": "introspection", "url": "https://x.example.com", "client_id": "c", "client_secret_file": goodSecret, "cache_ttl": "soon"}},
+		"the retired webhook":     []map[string]any{{"type": "webhook", "url": "https://x.example.com"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			viper.Set("auth.mode", "external")
@@ -291,7 +305,7 @@ func TestExternalGroupsMapToRolesPerRequest(t *testing.T) {
 
 func TestExternalFrozenByTheAuthenticator(t *testing.T) {
 	e := newExtEnv(t, adminMapping, false)
-	e.revUsers["tok|"] = map[string]any{"uid": "frozen-id", "username": "f", "extra": map[string][]string{"restricted": {"true"}}}
+	e.revUsers["tok"] = map[string]any{"sub": "frozen-id", "username": "f", "restricted": true}
 	c, err := extParse(t, http.MethodGet, "/api/v1/workloads", "tok")
 	require.NoError(t, err)
 	ac := &AccessController{Client: e.cli}
@@ -354,9 +368,9 @@ func TestExternalDelegatedScope(t *testing.T) {
 	require.True(t, apierrors.IsForbidden(err), "no recognised scope allows nothing: %v", err)
 }
 
-func TestExternalWebhookCookieAndOutage(t *testing.T) {
+func TestExternalIntrospectionCookieAndOutage(t *testing.T) {
 	e := newExtEnv(t, nil, false)
-	e.revUsers["|session"] = map[string]any{"uid": "bob-id", "username": "bob", "groups": []string{"g"}}
+	e.revUsers["session"] = map[string]any{"sub": "bob-id", "username": "bob", "groups": []string{"g"}}
 	gin.SetMode(gin.TestMode)
 	call := func() (*gin.Context, error) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -385,7 +399,7 @@ func TestExternalWebhookCookieAndOutage(t *testing.T) {
 func TestExternalFallsThroughToBuiltin(t *testing.T) {
 	e := newExtEnv(t, nil, true)
 	defer setupDefaultToken(t)()
-	// The webhook does not know this credential; the built-in mode at the end of the chain does.
+	// The introspection endpoint does not know this credential; the built-in mode at the end of the chain does.
 	c, err := extParse(t, http.MethodGet, "/api/v1/users/self", generateTestToken(t, "local-admin", "admin"))
 	require.NoError(t, err)
 	require.Equal(t, "local-admin", c.GetString(common.UserId))
@@ -393,7 +407,7 @@ func TestExternalFallsThroughToBuiltin(t *testing.T) {
 	require.NoError(t, e.cli.List(context.Background(), list))
 	require.Empty(t, list.Items, "the built-in path provisions nothing")
 
-	// Through an outage of the webhook too: a local administrator still gets in.
+	// Through an outage of the introspection endpoint too: a local administrator still gets in.
 	e.revMode.Store("503")
 	c, err = extParse(t, http.MethodGet, "/api/v1/users/self", generateTestToken(t, "local-admin2", "admin"))
 	require.NoError(t, err)

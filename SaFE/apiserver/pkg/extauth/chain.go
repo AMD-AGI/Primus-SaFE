@@ -8,7 +8,7 @@
 // the credential decides who the caller is, and authorization stays in SaFE.
 //
 // Three kinds of authenticator exist: OIDC/JWT validation against a configured
-// issuer, a webhook TokenReview (authentication.k8s.io/v1) with caching, and the
+// issuer, OAuth 2.0 token introspection (RFC 7662) with caching, and the
 // built-in mode (the apiserver's own accounts, sessions and API keys), which the
 // chain only marks and the caller runs.
 package extauth
@@ -65,7 +65,7 @@ var (
 )
 
 // UnavailableError means an authenticator could not decide, for example the
-// webhook is unreachable. It is never a pass and never cached as a rejection.
+// introspection endpoint is unreachable. It is never a pass and never cached as a rejection.
 type UnavailableError struct {
 	Authenticator string
 	Err           error

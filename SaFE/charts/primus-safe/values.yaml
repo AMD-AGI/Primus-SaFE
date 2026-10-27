@@ -239,15 +239,22 @@ auth:
   #     username_claim: preferred_username
   #     email_claim: email
   #     groups_claim: groups
-  #   - type: webhook     # authentication.k8s.io/v1 TokenReview
-  #     url: https://authn.example.com/token-review
+  #   - type: introspection   # OAuth 2.0 token introspection (RFC 7662), for opaque tokens such as API keys
+  #     issuer: https://idp.example.com   # its discovery document names the endpoint when url is empty
+  #     url: ""                           # the introspection endpoint
+  #     client_id: safe-apiserver
+  #     client_secret_file: /etc/secrets/auth/client-secret   # the mounted auth.client_secret Secret
   #     ca_bundle: ""                     # PEM text or file path
   #     timeout: 5s
   #     cache_ttl: 30s
   #     cache_negative_ttl: 5s
-  #     stale_if_error: 30m               # keep accepted credentials working while the webhook is down
+  #     stale_if_error: 30m               # keep accepted credentials working while the endpoint is down
   #   - type: builtin     # fall through to the built-in mode (e.g. a local administrator)
   authenticators: []
+  # Name of the Secret that holds the client secret of an `introspection` authenticator, under the key
+  # `client-secret`. It is mounted into the apiserver at client_secret_path. Leave empty when unused.
+  client_secret: ""
+  client_secret_path: /etc/secrets/auth
   # Identity groups mapped to SaFE roles on every request; never stored on the user.
   #   - group: platform-admins
   #     roles: [system-admin]

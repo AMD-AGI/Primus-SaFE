@@ -884,13 +884,14 @@ const (
 )
 
 // AuthenticatorConfig is one entry of auth.authenticators. Type selects the
-// mechanism ("oidc", "webhook" or "builtin"); the other fields apply to one type each.
+// mechanism ("oidc", "introspection" or "builtin"); the other fields apply to one type each.
 // Durations are Go duration strings such as "30s" or "30m".
 type AuthenticatorConfig struct {
 	Type string `json:"type" yaml:"type" mapstructure:"type"`
 	Name string `json:"name" yaml:"name" mapstructure:"name"`
 
-	// oidc: validate JWTs from one issuer.
+	// oidc: validate JWTs from one issuer. introspection: Issuer also names the issuer whose
+	// discovery document gives the endpoint (when URL is empty) and whose tokens are accepted.
 	Issuer        string `json:"issuer" yaml:"issuer" mapstructure:"issuer"`
 	Audience      string `json:"audience" yaml:"audience" mapstructure:"audience"`
 	JWKSURL       string `json:"jwks_url" yaml:"jwks_url" mapstructure:"jwks_url"`
@@ -901,9 +902,12 @@ type AuthenticatorConfig struct {
 	EmailClaim    string `json:"email_claim" yaml:"email_claim" mapstructure:"email_claim"`
 	GroupsClaim   string `json:"groups_claim" yaml:"groups_claim" mapstructure:"groups_claim"`
 
-	// webhook: authentication.k8s.io/v1 TokenReview against URL.
+	// introspection: OAuth 2.0 token introspection (RFC 7662) at URL, authenticated with a client id
+	// and a client secret read from a file (a mounted Secret).
 	URL              string `json:"url" yaml:"url" mapstructure:"url"`
 	CABundle         string `json:"ca_bundle" yaml:"ca_bundle" mapstructure:"ca_bundle"` // PEM text or a file path
+	ClientID         string `json:"client_id" yaml:"client_id" mapstructure:"client_id"`
+	ClientSecretFile string `json:"client_secret_file" yaml:"client_secret_file" mapstructure:"client_secret_file"`
 	Timeout          string `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
 	CacheTTL         string `json:"cache_ttl" yaml:"cache_ttl" mapstructure:"cache_ttl"`
 	CacheNegativeTTL string `json:"cache_negative_ttl" yaml:"cache_negative_ttl" mapstructure:"cache_negative_ttl"`

@@ -677,7 +677,7 @@ func TestAuthConfig(t *testing.T) {
 
 	viper.Set("auth.authenticators", []map[string]any{
 		{"type": "oidc", "issuer": "https://idp.example.com", "audience": "a", "jwks_url": "https://idp.example.com/keys", "clock_skew": "1m", "groups_claim": "roles"},
-		{"type": "webhook", "url": "https://authn.example.com", "stale_if_error": "30m", "cache_negative_ttl": "5s"},
+		{"type": "introspection", "url": "https://authn.example.com/oauth/introspect", "client_id": "svc-safe", "client_secret_file": "/etc/secrets/auth/secret", "stale_if_error": "30m", "cache_negative_ttl": "5s"},
 	})
 	list, err = GetAuthenticators()
 	testifyassert.NoError(t, err)
@@ -685,6 +685,9 @@ func TestAuthConfig(t *testing.T) {
 	testifyassert.Equal(t, "https://idp.example.com/keys", list[0].JWKSURL)
 	testifyassert.Equal(t, "roles", list[0].GroupsClaim)
 	testifyassert.Equal(t, "30m", list[1].StaleIfError)
+	testifyassert.Equal(t, "introspection", list[1].Type)
+	testifyassert.Equal(t, "svc-safe", list[1].ClientID)
+	testifyassert.Equal(t, "/etc/secrets/auth/secret", list[1].ClientSecretFile)
 
 	viper.Set("auth.group_mappings", []map[string]any{{"group": "admins", "roles": []string{"system-admin"}, "workspaces": []string{"w1"}}})
 	maps, err := GetAuthGroupMappings()
