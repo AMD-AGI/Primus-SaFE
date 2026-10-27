@@ -104,7 +104,7 @@ func (t *defaultToken) Validate(ctx context.Context, rawToken string) (*UserInfo
 
 	parts := strings.Split(tokenPlain, TokenDelim)
 	if len(parts) != 4 {
-		klog.Errorf("invalid user token, tokenPlain: %s, current len: %d", tokenPlain, len(parts))
+		klog.Errorf("invalid user token, unexpected field count: %d", len(parts))
 		return nil, fmt.Errorf("invalid token")
 	}
 	for _, part := range parts {
@@ -114,7 +114,7 @@ func (t *defaultToken) Validate(ctx context.Context, rawToken string) (*UserInfo
 	}
 	expire, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		klog.ErrorS(err, "failed to parse token expire", "user", parts[0], "expire", parts[1])
+		klog.Error("failed to parse token expire")
 		return nil, fmt.Errorf("invalid token")
 	}
 	if commonconfig.GetUserTokenExpire() > 0 && time.Now().Unix() > expire {

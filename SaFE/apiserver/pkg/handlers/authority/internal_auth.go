@@ -8,6 +8,7 @@ package authority
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"sync"
 
@@ -131,7 +132,7 @@ func (a *InternalAuth) Validate(token string) bool {
 	if a == nil || a.token == "" || token == "" {
 		return false
 	}
-	return a.token == token
+	return subtle.ConstantTimeCompare([]byte(a.token), []byte(token)) == 1
 }
 
 // generateRandomToken generates a cryptographically secure random token

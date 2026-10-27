@@ -107,7 +107,7 @@ func parseTokenFromRequest(c *gin.Context) error {
 	}
 	userInfo, err := tokenInstance.Validate(c.Request.Context(), rawToken)
 	if err != nil {
-		klog.ErrorS(err, "failed to validate user token", "token", rawToken)
+		klog.ErrorS(err, "failed to validate user token", "userType", userType)
 		return commonerrors.NewUnauthorized(ErrInvalidToken)
 	}
 	c.Set(common.UserId, userInfo.Id)
