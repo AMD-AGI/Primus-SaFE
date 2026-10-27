@@ -11,8 +11,7 @@
 #        oci://<helm_registry>/primussafe/gatekeeper-constraints:0.1.0
 #      The apply hook uses <proxy_image_registry>/primussafe/curl:8.20.0.
 #   2. enforcementAction starts as dryrun. Set it to deny only after jwks is set.
-#   3. User membership reads the synced User CR. The workspace list is
-#      spec.resources.workspaces, with spec.resources.workspace as a fallback.
+#   3. User membership reads spec.resources.workspaces on the synced User CR.
 #
 
 apiVersion: amd.com/v1

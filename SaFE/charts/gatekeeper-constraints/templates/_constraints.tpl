@@ -101,34 +101,7 @@ spec:
   targets:
     - target: admission.k8s.gatekeeper.sh
       rego: |
-        package sandboxworkloadmembership
-
-        violation[{"msg": msg}] {
-          input.review.userInfo.username == input.parameters.sandboxCreator
-          user_id := object.get(object.get(input.review.object.metadata, "labels", {}), "primus-safe.user.id", "")
-          workspace := object.get(input.review.object.spec, "workspace", "")
-          not member(user_id, workspace)
-          msg := sprintf("user %q is not a member of workspace %q", [user_id, workspace])
-        }
-
-        member(user_id, workspace) {
-          user_id != ""
-          workspace != ""
-          listed(user_id, "workspaces")[_] == workspace
-        }
-
-        member(user_id, workspace) {
-          user_id != ""
-          workspace != ""
-          listed(user_id, "workspace")[_] == workspace
-        }
-
-        listed(user_id, key) = items {
-          user := data.inventory.cluster["amd.com/v1"]["User"][user_id]
-          spec := object.get(user, "spec", {})
-          resources := object.get(spec, "resources", {})
-          items := object.get(resources, key, [])
-        }
+{{ .Files.Get "rego/membership.rego" | indent 8 }}
 {{- end -}}
 
 {{- define "constraints.attestationTemplate" -}}
@@ -152,45 +125,5 @@ spec:
   targets:
     - target: admission.k8s.gatekeeper.sh
       rego: |
-        package sandboxworkloadattestation
-
-        violation[{"msg": msg}] {
-          input.review.userInfo.username == input.parameters.sandboxCreator
-          not valid_attestation
-          msg := "grant attestation is missing, invalid, expired or does not match the workload"
-        }
-
-        valid_attestation {
-          obj := input.review.object
-          token := object.get(object.get(obj.metadata, "annotations", {}), "agent-sandbox.io/grant-attestation", "")
-          token != ""
-          [ok, _, claims] := io.jwt.decode_verify(token, {
-            "cert": input.parameters.jwks,
-            "alg": "ES256",
-            "iss": "primus-claw",
-            "aud": "agent-sandbox-workload",
-            "time": time.now_ns(),
-          })
-          ok
-          object.get(claims, "exp", 0) > 0
-          claims.jti == object.get(object.get(obj.metadata, "labels", {}), "agent-sandbox.io/grant-id", "")
-          claims.sub == object.get(object.get(obj.metadata, "labels", {}), "primus-safe.user.id", "")
-          claims.workspaces[_] == obj.spec.workspace
-          claims.kinds[_] == obj.spec.groupVersionKind.kind
-          gpu_count(obj) <= claims.maxGpusPerSandbox
-        }
-
-        gpu_count(obj) = n {
-          cards := [c | resource := obj.spec.resources[_]; c := resource_gpus(resource)]
-          n := sum(cards)
-        }
-
-        resource_gpus(resource) = n {
-          object.get(resource, "gpu", "") != ""
-          n := to_number(resource.gpu) * replica(resource)
-        }
-
-        replica(resource) = n {
-          n := to_number(object.get(resource, "replica", 1))
-        }
+{{ .Files.Get "rego/attestation.rego" | indent 8 }}
 {{- end -}}
