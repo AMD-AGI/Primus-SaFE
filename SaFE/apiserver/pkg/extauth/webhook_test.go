@@ -331,3 +331,44 @@ func TestWebhookConfigValidation(t *testing.T) {
 	_, err = NewWebhookAuthenticator(WebhookConfig{URL: "https://x.example.com", CABundle: "/no/such/file"})
 	require.Error(t, err)
 }
+
+// The authenticator may apply address policy, so an acceptance for one address
+// is not an acceptance for another.
+func TestWebhookCacheIsPerClientAddress(t *testing.T) {
+	f := newFakeReviewer(t)
+	f.accept("good", "", aliceUser)
+	w := newWebhook(t, f, newTestClock(), nil)
+	_, err := w.Authenticate(context.Background(), Credentials{Bearer: "good", ClientIP: "10.0.0.1"})
+	require.NoError(t, err)
+	_, err = w.Authenticate(context.Background(), Credentials{Bearer: "good", ClientIP: "10.0.0.2"})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, f.calls.Load(), "each address is reviewed on its own")
+	_, err = w.Authenticate(context.Background(), Credentials{Bearer: "good", ClientIP: "10.0.0.1"})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, f.calls.Load())
+}
+
+// A review that runs into its timeout must not be judged against the time the
+// request began.
+func TestWebhookStaleWindowIsMeasuredAfterTheFailedCall(t *testing.T) {
+	f := newFakeReviewer(t)
+	f.accept("good", "", aliceUser)
+	clock := newTestClock()
+	w := newWebhook(t, f, clock, func(c *WebhookConfig) { c.CacheTTL, c.StaleIfError = 10*time.Second, time.Minute })
+	_, err := review(w, "good", "")
+	require.NoError(t, err)
+
+	clock.advance(50 * time.Second) // inside ttl + stale (70s) when the request begins
+	f.mode.Store("503")
+	w.cfg.HTTPClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		clock.advance(30 * time.Second) // the call fails slowly: 80s since the entry was fetched
+		return nil, context.DeadlineExceeded
+	})}
+	_, err = review(w, "good", "")
+	var u *UnavailableError
+	require.ErrorAs(t, err, &u, "the window had passed by the time the call failed")
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

@@ -185,6 +185,9 @@ func (w *WebhookAuthenticator) Authenticate(ctx context.Context, cred Credential
 	// The webhook could not answer. An accepted credential seen recently enough is
 	// still honoured, within the stale_if_error window; anything else is "unavailable",
 	// which is neither a pass nor a cached rejection.
+	// The clock is read again: a review that timed out took its whole timeout, and the
+	// window is measured from now, not from when the request began.
+	now = w.cfg.Now()
 	if e != nil && e.id != nil && w.cfg.StaleIfError > 0 &&
 		now.Sub(e.fetched) < w.cfg.CacheTTL+w.cfg.StaleIfError && !expired(e.id, now) {
 		apimetrics.AuthStaleServedTotal.WithLabelValues(w.Name()).Inc()
@@ -199,7 +202,9 @@ func expired(id *Identity, now time.Time) bool { return !id.Expiry.IsZero() && n
 
 func cacheKey(c Credentials) string {
 	h := sha256.New()
-	for _, part := range []string{c.Bearer, c.Cookie, c.UserType} {
+	// The client address is part of the key: the authenticator may apply address
+	// policy (an API key's allow list), so one address's acceptance is not another's.
+	for _, part := range []string{c.Bearer, c.Cookie, c.UserType, c.ClientIP} {
 		h.Write([]byte(strconv.Itoa(len(part))))
 		h.Write([]byte{':'})
 		h.Write([]byte(part))

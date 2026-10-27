@@ -134,6 +134,9 @@ func TestForbiddenDelegatedCapabilities(t *testing.T) {
 		{http.MethodGet, "/api/v1/secrets/s1", CapabilitySecret},
 		{http.MethodPost, "/api/v1/secrets", CapabilitySecret},
 		{http.MethodGet, "/api/v1/users", CapabilityUserManagement},
+		{http.MethodGet, "/api/v1/users/u1", CapabilityUserManagement},
+		{http.MethodGet, "/api/v1/users/u1/settings", CapabilityUserManagement},
+		{http.MethodPatch, "/api/v1/users/self", CapabilityUserManagement},
 		{http.MethodPatch, "/api/v1/users/u1", CapabilityUserManagement},
 		{http.MethodDelete, "/api/v1/users/u1", CapabilityUserManagement},
 		{http.MethodPost, "/api/v1/publickeys", CapabilityCredentialMint},
@@ -151,6 +154,7 @@ func TestForbiddenDelegatedCapabilities(t *testing.T) {
 	}
 	for _, tt := range []struct{ method, path string }{
 		{http.MethodGet, "/api/v1/users/self"},
+		{http.MethodGet, "/api/v1/users/self/workspaces"},
 		{http.MethodGet, "/api/v1/workloads"},
 		{http.MethodPost, "/api/v1/workloads"},
 		{http.MethodGet, "/api/v1/publickeys"},

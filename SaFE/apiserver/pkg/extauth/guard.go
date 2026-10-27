@@ -59,9 +59,10 @@ func Forbidden(method, urlPath string) (capability string, forbidden bool) {
 	case "secrets":
 		return CapabilitySecret, true
 	case "users":
-		// Reading one user (including "self") is allowed; listing users and every
-		// write (roles, status, settings) are user management.
-		if !read || len(rest) == 1 {
+		// A delegated token acts as one user, so it may read that user ("self", and
+		// what hangs off it, such as the workspaces). Every other user route, a named
+		// user's record or settings, the user list and every write, is user management.
+		if !read || len(rest) < 2 || rest[1] != "self" {
 			return CapabilityUserManagement, true
 		}
 	case "publickeys":

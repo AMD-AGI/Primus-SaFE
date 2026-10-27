@@ -49,7 +49,13 @@ func TestDelegatedTokenExclusionsCoverTheRouteTable(t *testing.T) {
 		case res == "apikeys" || res == "secrets":
 			require.True(t, forbidden, "%s %s must be refused for delegated tokens", r.Method, r.Path)
 			seen[res]++
-		case res == "users" && (r.Method != http.MethodGet || len(rest) == 0):
+		case res == "users":
+			// The path parameter stands for any user but the caller ("self" is spelled
+			// out in the route table when it is its own route), so every users route
+			// is refused here, and the caller's own record is checked below.
+			if len(rest) > 0 && rest[0] == "self" {
+				continue
+			}
 			require.True(t, forbidden, "%s %s must be refused for delegated tokens", r.Method, r.Path)
 			seen[res]++
 		case res == "publickeys" && r.Method != http.MethodGet:
@@ -60,6 +66,8 @@ func TestDelegatedTokenExclusionsCoverTheRouteTable(t *testing.T) {
 			seen[res]++
 		}
 	}
+	_, forbidden := extauth.Forbidden(http.MethodGet, "/api/v1/users/self")
+	require.False(t, forbidden, "a delegated token reads the user it acts for")
 	for _, res := range []string{"apikeys", "secrets", "users", "publickeys", "auth"} {
 		require.Positive(t, seen[res], "no route found for %s: the test would pass vacuously", res)
 	}

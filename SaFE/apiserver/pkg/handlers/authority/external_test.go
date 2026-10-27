@@ -311,6 +311,8 @@ func TestExternalDelegatedTokenExclusions(t *testing.T) {
 		{"read secret", http.MethodGet, "/api/v1/secrets/s1"},
 		{"create secret", http.MethodPost, "/api/v1/secrets"},
 		{"list users", http.MethodGet, "/api/v1/users"},
+		{"read another user", http.MethodGet, "/api/v1/users/someone-else"},
+		{"read another user's settings", http.MethodGet, "/api/v1/users/someone-else/settings"},
 		{"change a user's roles", http.MethodPatch, "/api/v1/users/u1"},
 		{"add an ssh key", http.MethodPost, "/api/v1/publickeys"},
 		{"reveal the gateway key", http.MethodGet, "/api/v1/llm-gateway/binding/reveal"},
