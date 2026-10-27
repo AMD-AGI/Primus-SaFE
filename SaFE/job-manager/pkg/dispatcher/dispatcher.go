@@ -916,6 +916,8 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 		err = updateMonarchMesh(obj, adminWorkload)
 	case commonworkload.IsSandBox(adminWorkload):
 		err = r.updateSandbox(ctx, clientSets, obj, adminWorkload, workspace, rt)
+	case agentSandboxPyTorch(adminWorkload):
+		err = r.applyAgentSandboxPyTorch(ctx, clientSets, obj, adminWorkload, workspace, rt)
 	}
 	if err != nil {
 		return err

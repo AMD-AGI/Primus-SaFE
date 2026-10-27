@@ -49,6 +49,13 @@ const (
 
 	sandboxAuthPublicKeyEnvName = "ENVD_AUTH_PUBLIC_KEY"
 	sandboxSecretPublicPemKey   = "public.pem"
+	// sandboxNameLabel marks a Workload whose pod runs envd for Agent Sandbox.
+	sandboxNameLabel = "runtime.agent-sandbox.io/sandbox-name"
+	// sessionIDAnnotation is the downward-API field envd compares with the Router token.
+	sessionIDAnnotation   = "runtime.agent-sandbox.io/session-id"
+	sessionIdentityVolume = "envd-session-identity"
+	sessionIdentityMount  = "/var/run/agent-sandbox/session"
+	sessionIdentityFile   = "session-id"
 
 	// inferaNodeCountField is the flat IDEP ServiceSpec field carrying the node
 	// count of a multi-node role's LeaderWorkerSet group. Written by
@@ -2870,6 +2877,101 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context, clientSets *sy
 		}
 	}
 	return nil
+}
+
+// agentSandboxPyTorch reports a PyTorchJob that Agent Sandbox asked to run envd.
+// The marker is the same sandbox-name label the Sandbox path writes.
+func agentSandboxPyTorch(workload *v1.Workload) bool {
+	return workload != nil && workload.SpecKind() == common.PytorchJobKind &&
+		workload.Labels[sandboxNameLabel] != ""
+}
+
+// applyAgentSandboxPyTorch injects the data-plane envd public key and the session
+// identity file. Without the key, envd accepts every request. Without the file,
+// envd rejects the Router token.
+func (r *DispatcherReconciler) applyAgentSandboxPyTorch(ctx context.Context, clientSets *syncer.ClusterClientSets,
+	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
+	if err := injectSandboxEnvdAuthPublicKey(ctx, clientSets, adminWorkload); err != nil {
+		return err
+	}
+	v1.SetLabel(adminWorkload, "runtime.agent-sandbox.io/user.id", v1.GetUserId(adminWorkload))
+	v1.SetLabel(adminWorkload, sandboxNameLabel, adminWorkload.Name)
+	v1.SetAnnotation(adminWorkload, "runtime.agent-sandbox.io/user.name", v1.GetUserName(adminWorkload))
+	v1.SetAnnotation(adminWorkload, sessionIDAnnotation, adminWorkload.Name)
+	if workspace != nil {
+		if str := workspace.GetIdleTime(commonworkload.GetScope(adminWorkload)); str != "" {
+			v1.SetAnnotation(adminWorkload, "runtime.agent-sandbox.io/idle-timeout", str)
+		}
+	}
+	if rt == nil || len(rt.Spec.ResourceSpecs) == 0 {
+		return fmt.Errorf("no resource specs found")
+	}
+	for i := range rt.Spec.ResourceSpecs {
+		if err := ensureSessionIdentity(obj, adminWorkload, &rt.Spec.ResourceSpecs[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ensureSessionIdentity mounts the pod annotation that envd reads as its session id.
+func ensureSessionIdentity(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
+	containers, path, err := getContainers(workload, obj, *resourceSpec)
+	if err != nil {
+		return err
+	}
+	mount := map[string]interface{}{
+		"name":      sessionIdentityVolume,
+		"mountPath": sessionIdentityMount,
+		"readOnly":  true,
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		mounts, _ := container["volumeMounts"].([]interface{})
+		if !hasNamedItem(mounts, sessionIdentityVolume) {
+			container["volumeMounts"] = append(mounts, mount)
+		}
+		containers[i] = container
+	}
+	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
+		return err
+	}
+	volumesPath := podSpecPath(workload, resourceSpec, "volumes")
+	volumes, _, _ := jobutils.NestedSlice(obj.Object, volumesPath)
+	if hasNamedItem(volumes, sessionIdentityVolume) {
+		return nil
+	}
+	volumes = append(volumes, map[string]interface{}{
+		"name": sessionIdentityVolume,
+		"downwardAPI": map[string]interface{}{
+			"items": []interface{}{
+				map[string]interface{}{
+					"path": sessionIdentityFile,
+					"fieldRef": map[string]interface{}{
+						"fieldPath": "metadata.annotations['" + sessionIDAnnotation + "']",
+					},
+				},
+			},
+		},
+	})
+	return jobutils.SetNestedField(obj.Object, volumes, volumesPath)
+}
+
+// hasNamedItem reports whether a volume or mount list already contains name.
+func hasNamedItem(items []interface{}, name string) bool {
+	for _, item := range items {
+		raw, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if got, _ := raw["name"].(string); got == name {
+			return true
+		}
+	}
+	return false
 }
 
 // updateMetadata updates the template metadata annotations in the unstructured object.
