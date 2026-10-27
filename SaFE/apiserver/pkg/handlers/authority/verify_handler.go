@@ -14,6 +14,7 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identityexchange"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -39,6 +40,9 @@ type VerifyTokenRequest struct {
 	IncludePlatformKey bool `json:"includePlatformKey,omitempty"`
 	// If true, returns the user's LiteLLM virtual key (decrypted)
 	IncludeVirtualKey bool `json:"includeVirtualKey,omitempty"`
+	// Audience the exchanged token must be issued for (exchanged tokens only);
+	// defaults to this apiserver's own audience.
+	Audience string `json:"audience,omitempty"`
 }
 
 // VerifyTokenResponse represents the response body for token verification
@@ -53,6 +57,10 @@ type VerifyTokenResponse struct {
 	ApiKeyId      int64         `json:"apiKeyId,omitempty"`
 	PlatformKey   string        `json:"platformKey,omitempty"`
 	VirtualKey    string        `json:"virtualKey,omitempty"`
+	// Actor is the service client acting for the user (type "exchange" only).
+	Actor string `json:"actor,omitempty"`
+	// Scope is the space separated scope of an exchanged token.
+	Scope string `json:"scope,omitempty"`
 }
 
 // platformKeyFetcher resolves the platform API key for a user. It is a package
@@ -112,6 +120,7 @@ func VerifyToken(c *gin.Context) {
 	// Authenticate: Cookie > ApiKey > Authorization (auto-detect ak- prefix)
 	var userInfo *UserInfo
 	var rawToken, userType string
+	var actor, scope string
 	var err error
 
 	if req.Cookie != "" {
@@ -142,6 +151,20 @@ func VerifyToken(c *gin.Context) {
 			userType = req.UserType
 			if userType == "" {
 				userType = string(v1.DefaultUserType)
+			}
+			if ie := identityexchange.Default(); ie != nil && ie.IsExchangeToken(rawToken) {
+				principal, perr := ie.ValidateAccessToken(c.Request.Context(), rawToken, req.Audience)
+				if perr != nil {
+					klog.ErrorS(perr, "failed to validate exchanged token")
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+						"code":    http.StatusUnauthorized,
+						"message": ErrInvalidToken,
+					})
+					return
+				}
+				userInfo = &UserInfo{Id: principal.UserId, Name: principal.UserName, Exp: principal.Expiry.Unix(), Roles: principal.Roles}
+				userType = identityexchange.UserType
+				actor, scope = principal.ClientId, strings.Join(principal.Scopes, " ")
 			}
 		}
 	} else {
@@ -205,6 +228,8 @@ func VerifyToken(c *gin.Context) {
 		Type:          userType,
 		ApiKeyId:      userInfo.ApiKeyId,
 		Roles:         userInfo.Roles,
+		Actor:         actor,
+		Scope:         scope,
 	}
 
 	// Backfill preferred name from the User CR when the auth path (e.g. API key)
@@ -217,8 +242,9 @@ func VerifyToken(c *gin.Context) {
 		}
 	}
 
-	// Optionally include platform API key (GetOrCreate)
-	if req.IncludePlatformKey {
+	// Optionally include platform API key (GetOrCreate). Never for an exchanged
+	// token: that would turn a short-lived delegation into a permanent credential.
+	if req.IncludePlatformKey && actor == "" {
 		if platformKey, err := platformKeyFetcher(c.Request.Context(), userInfo.Id, userInfo.Name); err != nil {
 			klog.ErrorS(err, "failed to get/create platform key", "userId", userInfo.Id)
 		} else if platformKey != "" {

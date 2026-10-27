@@ -13,6 +13,7 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identityexchange"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
@@ -181,6 +182,25 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 
 		// ==================== Audit Logs (read-only) ====================
 		authGroup.GET("/auditlogs", h.ListAuditLog)
+
+		// ==================== Identity exchange (bindings and service clients) ====================
+		// Refused for exchanged tokens (identityexchange.Forbidden), so a service client can
+		// neither create the binding it needs nor administer itself.
+		if ie := identityexchange.Default(); ie != nil {
+			bindings := authGroup.Group("/identity-bindings")
+			{
+				bindings.POST("", middleware.Audit("identity-binding"), ie.CreateBinding)
+				bindings.GET("", ie.ListBindings)
+				bindings.DELETE("/:id", middleware.Audit("identity-binding"), ie.DeleteBinding)
+			}
+			clients := authGroup.Group("/service-clients")
+			{
+				clients.POST("", middleware.Audit("service-client"), ie.CreateClient)
+				clients.GET("", ie.ListClients)
+				clients.POST("/:clientId/disable", middleware.Audit("service-client", "disable"), ie.DisableClient)
+				clients.POST("/:clientId/enable", middleware.Audit("service-client", "enable"), ie.EnableClient)
+			}
+		}
 
 		// ==================== Logout ====================
 		authGroup.POST("/logout", middleware.Audit("auth", "logout"), h.Logout)

@@ -559,6 +559,46 @@ data:
     CREATE INDEX IF NOT EXISTS idx_audit_logs_http_method ON audit_logs(http_method);
     alter table audit_logs owner to "primus-safe";
 
+    -- Token exchange: who acted (service client) and with which token. NULL for direct requests.
+    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_client_id VARCHAR(64);
+    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS token_jti VARCHAR(64);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_client_id ON audit_logs(actor_client_id) WHERE actor_client_id IS NOT NULL;
+
+    -- Service clients allowed to call the token exchange endpoint (RFC 8693).
+    CREATE TABLE IF NOT EXISTS service_clients (
+        id SERIAL PRIMARY KEY,
+        client_id VARCHAR(64) UNIQUE NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        secret_hash VARCHAR(128) NOT NULL,
+        auth_method VARCHAR(32) NOT NULL DEFAULT 'client_secret_basic',
+        allowed_audiences JSONB NOT NULL DEFAULT '[]',
+        allowed_scopes JSONB NOT NULL DEFAULT '[]',
+        whitelist JSONB NOT NULL DEFAULT '[]',
+        max_ttl_seconds INT NOT NULL DEFAULT 600,
+        disabled BOOLEAN NOT NULL DEFAULT false,
+        created_by VARCHAR(64) NOT NULL DEFAULT '',
+        creation_time TIMESTAMPTZ NOT NULL DEFAULT now(),
+        public_key TEXT NULL
+    );
+    alter table service_clients owner to "primus-safe";
+
+    -- User-confirmed bindings: (client, issuer, subject) -> SaFE user. A service client
+    -- can only act for users that created a binding to it.
+    CREATE TABLE IF NOT EXISTS identity_bindings (
+        id SERIAL PRIMARY KEY,
+        client_id VARCHAR(64) NOT NULL,
+        issuer VARCHAR(256) NOT NULL,
+        subject VARCHAR(256) NOT NULL,
+        user_id VARCHAR(64) NOT NULL,
+        creation_time TIMESTAMPTZ NOT NULL DEFAULT now(),
+        deleted BOOLEAN NOT NULL DEFAULT false,
+        deletion_time TIMESTAMPTZ NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_binding_subject
+        ON identity_bindings(client_id, issuer, subject) WHERE deleted = false;
+    CREATE INDEX IF NOT EXISTS idx_identity_binding_user ON identity_bindings(user_id, client_id) WHERE deleted = false;
+    alter table identity_bindings owner to "primus-safe";
+
     -- Dataset table for managing datasets
     -- All columns are defined in CREATE TABLE for new installations
     -- ALTER TABLE statements are kept for backward compatibility with existing installations

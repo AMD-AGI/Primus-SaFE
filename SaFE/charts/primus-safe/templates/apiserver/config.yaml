@@ -136,6 +136,17 @@ data:
       sampling_ratio: {{ default 1.0 (default dict .Values.tracing).sampling_ratio }}
       # OTLP exporter endpoint (e.g., localhost:4317 for gRPC)
       otlp_endpoint: {{ default "otel-collector-collector.primus-safe.svc.cluster.local:4317" (default dict .Values.tracing).otlp_endpoint }}
+    {{- if .Values.identity_exchange }}
+    identity_exchange:
+      # OAuth 2.0 token exchange (RFC 8693): lets a registered service client act for users who confirmed a binding.
+      enable: {{ default false .Values.identity_exchange.enable }}
+      # Issuer URL of the exchanged tokens and the OIDC discovery document (externally reachable base URL).
+      issuer: {{ default "" .Values.identity_exchange.issuer | quote }}
+      # Audience that identifies the apiserver in exchanged tokens.
+      audience: {{ default "safe-apiserver" .Values.identity_exchange.audience | quote }}
+      # Signing algorithm for a newly generated key: ES256 (default) or RS256.
+      signing_algorithm: {{ default "ES256" .Values.identity_exchange.signing_algorithm | quote }}
+    {{- end }}
     {{- if .Values.a2a }}
     a2a:
       scanner:

@@ -29,6 +29,7 @@ import (
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identityexchange"
 	mcprouter "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/mcp/router"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -66,6 +67,10 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		if dbClient != nil {
 			authority.NewApiKeyToken(dbClient, mgr.GetClient())
 		}
+	}
+	// Initialize OAuth 2.0 token exchange (service clients acting for users who confirmed a binding)
+	if err := initIdentityExchange(engine, mgr); err != nil {
+		return nil, err
 	}
 	// Initialize proxy handlers first to avoid route conflicts with resource handlers
 	proxyHandler, err := proxyhandlers.NewProxyHandler()
@@ -210,4 +215,38 @@ func InitModelHandlers(ctx context.Context, mgr ctrlruntime.Manager) *model_hand
 // Returns the SSH handler or an error if initialization fails.
 func InitSshHandlers(ctx context.Context, mgr ctrlruntime.Manager) (*sshhandler.SshHandler, error) {
 	return sshhandler.NewSshHandler(ctx, mgr)
+}
+
+// initIdentityExchange enables the token exchange endpoints and the validation of
+// exchanged tokens when configured. It needs the database for clients and bindings.
+func initIdentityExchange(engine *gin.Engine, mgr ctrlruntime.Manager) error {
+	if !commonconfig.IsIdentityExchangeEnable() {
+		return nil
+	}
+	dbClient := dbclient.NewClient()
+	if !commonconfig.IsDBEnable() || dbClient == nil {
+		return commonerrors.NewInternalError("identity exchange requires the database")
+	}
+	keys, err := identityexchange.LoadOrCreateKeySet(context.Background(), mgr.GetClient(),
+		common.PrimusSafeNamespace, commonconfig.GetIdentityExchangeAlgorithm())
+	if err != nil {
+		return commonerrors.NewInternalError("failed to load identity exchange signing keys: " + err.Error())
+	}
+	svc, err := identityexchange.NewService(identityexchange.Config{
+		Issuer:   commonconfig.GetIdentityExchangeIssuer(),
+		Audience: commonconfig.GetIdentityExchangeAudience(),
+	}, keys, dbClient, identityexchange.NewUserStore(mgr.GetClient()))
+	if err != nil {
+		return commonerrors.NewInternalError("failed to create identity exchange service: " + err.Error())
+	}
+	accessController := authority.NewAccessController(mgr.GetClient())
+	svc.SetAdminCheck(func(c *gin.Context) error {
+		return accessController.AuthorizeSystemAdmin(authority.AccessInput{
+			Context: c.Request.Context(), UserId: c.GetString(common.UserId),
+		}, false)
+	})
+	svc.RegisterPublicRoutes(engine)
+	identityexchange.SetDefault(svc)
+	klog.Infof("identity exchange enabled, issuer: %s", commonconfig.GetIdentityExchangeIssuer())
+	return nil
 }

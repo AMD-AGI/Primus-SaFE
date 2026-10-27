@@ -152,6 +152,8 @@ const (
 	UserId                = "userId"
 	UserType              = "userType"
 	ApiKeyId              = "apiKeyId"
+	ActorClientId         = "actorClientId" // service client acting for the user (token exchange)
+	TokenJti              = "tokenJti"      // id of the exchanged access token
 	UserSelf              = "self"
 	UserSystem            = "primus-safe-system"
 	UserWorkspaces        = "workspaces"

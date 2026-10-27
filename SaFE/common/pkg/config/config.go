@@ -868,3 +868,20 @@ func GetModelOptimizationMaxConcurrent() int {
 func GetModelOptimizationClawPluginID() int {
 	return getInt(modelOptimizationClawPluginID, 4)
 }
+
+// IsIdentityExchangeEnable returns whether the OAuth 2.0 token exchange endpoint is enabled.
+// It requires the database (service clients and bindings are stored there).
+func IsIdentityExchangeEnable() bool { return getBool(identityExchangeEnable, false) }
+
+// GetIdentityExchangeIssuer returns the issuer URL placed in exchanged tokens and the discovery document.
+func GetIdentityExchangeIssuer() string { return getString(identityExchangeIssuer, "") }
+
+// GetIdentityExchangeAudience returns the audience that identifies this apiserver in exchanged tokens.
+func GetIdentityExchangeAudience() string {
+	return getString(identityExchangeAudience, "safe-apiserver")
+}
+
+// GetIdentityExchangeAlgorithm returns the JWS algorithm used to sign exchanged tokens (ES256 or RS256).
+func GetIdentityExchangeAlgorithm() string {
+	return getString(identityExchangeAlgorithm, "ES256")
+}

@@ -176,6 +176,13 @@ const (
 	langfuseProxyPrefix     = "langfuse_proxy."
 	langfuseProxySecretPath = langfuseProxyPrefix + "secret_path"
 
+	// identity exchange (RFC 8693 token exchange)
+	identityExchangePrefix    = "identity_exchange."
+	identityExchangeEnable    = identityExchangePrefix + "enable"
+	identityExchangeIssuer    = identityExchangePrefix + "issuer"
+	identityExchangeAudience  = identityExchangePrefix + "audience"
+	identityExchangeAlgorithm = identityExchangePrefix + "signing_algorithm"
+
 	// a2a
 	a2aPrefix            = "a2a."
 	a2aScannerPrefix     = a2aPrefix + "scanner."
@@ -211,7 +218,7 @@ const (
 	externalExecutionPrefix            = "external_execution."
 	externalExecutionEnabled           = externalExecutionPrefix + "enabled"
 	externalExecutionObservationMaxAge = externalExecutionPrefix + "observation_max_age_seconds"
-	externalExecutionWorkspaceResync = externalExecutionPrefix + "workspace_resync_seconds"
+	externalExecutionWorkspaceResync   = externalExecutionPrefix + "workspace_resync_seconds"
 
 	// model_optimization (hyperloom via primus-claw)
 	modelOptimizationPrefix       = "model_optimization."

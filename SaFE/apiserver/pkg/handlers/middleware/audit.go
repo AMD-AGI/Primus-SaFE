@@ -185,6 +185,11 @@ func Audit(resourceType string, action ...string) gin.HandlerFunc {
 		explicitAction = action[0]
 	}
 
+	return auditHandler(resourceType, explicitAction)
+}
+
+// auditHandler records non-GET requests into the audit buffer.
+func auditHandler(resourceType, explicitAction string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		method := c.Request.Method
 
@@ -273,10 +278,45 @@ func Audit(resourceType string, action ...string) gin.HandlerFunc {
 			LatencyMs:      sql.NullInt64{Int64: latencyMs, Valid: true},
 			TraceId:        toNullString(traceId),
 			CreateTime:     pq.NullTime{Time: time.Now().UTC(), Valid: true},
+			ActorClientId:  toNullString(c.GetString(common.ActorClientId)),
+			TokenJti:       toNullString(c.GetString(common.TokenJti)),
 		}
 
 		auditBuffer.send(log)
 	}
+}
+
+// auditExchangedRead records a read request (GET) made with an exchanged token.
+// Reads are not audited in general, but a service client reading a user's data
+// must leave a trace of who acted for whom. The record is deliberately lean: no
+// request or response body.
+func auditExchangedRead(c *gin.Context, startTime time.Time) {
+	if auditBuffer == nil {
+		return
+	}
+	latencyMs := time.Since(startTime).Milliseconds()
+	if latencyMs == 0 {
+		latencyMs = 1
+	}
+	traceId := c.Writer.Header().Get("X-Trace-Id")
+	if isInvalidTraceId(traceId) {
+		traceId = ""
+	}
+	auditBuffer.send(&dbclient.AuditLog{
+		UserId:         c.GetString(common.UserId),
+		UserName:       toNullString(c.GetString(common.UserName)),
+		UserType:       toNullString(c.GetString(common.UserType)),
+		ClientIP:       toNullString(c.ClientIP()),
+		HttpMethod:     c.Request.Method,
+		RequestPath:    c.Request.URL.Path,
+		Action:         toNullString("read"),
+		ResponseStatus: c.Writer.Status(),
+		LatencyMs:      sql.NullInt64{Int64: latencyMs, Valid: true},
+		TraceId:        toNullString(traceId),
+		CreateTime:     pq.NullTime{Time: time.Now().UTC(), Valid: true},
+		ActorClientId:  toNullString(c.GetString(common.ActorClientId)),
+		TokenJti:       toNullString(c.GetString(common.TokenJti)),
+	})
 }
 
 // inferAction determines the action from HTTP method

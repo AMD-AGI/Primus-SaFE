@@ -657,3 +657,28 @@ func TestDBTargetSessionAttrsHonoursAnExplicitEmpty(t *testing.T) {
 	testifyassert.Equal(t, "any", GetDBTargetSessionAttrs())
 	viper.Reset()
 }
+
+func TestIdentityExchangeConfig(t *testing.T) {
+	defer func() {
+		SetValue(identityExchangeEnable, "")
+		SetValue(identityExchangeIssuer, "")
+		SetValue(identityExchangeAudience, "")
+		SetValue(identityExchangeAlgorithm, "")
+	}()
+	SetValue(identityExchangeEnable, "")
+	SetValue(identityExchangeIssuer, "")
+	SetValue(identityExchangeAudience, "")
+	SetValue(identityExchangeAlgorithm, "")
+	// Off by default, with the audience and the algorithm the design asks for.
+	if got := GetIdentityExchangeAudience(); got != "" && got != "safe-apiserver" {
+		t.Fatalf("unexpected default audience %q", got)
+	}
+	SetValue(identityExchangeEnable, "true")
+	SetValue(identityExchangeIssuer, "https://safe.example.test")
+	SetValue(identityExchangeAudience, "my-aud")
+	SetValue(identityExchangeAlgorithm, "RS256")
+	if !IsIdentityExchangeEnable() || GetIdentityExchangeIssuer() != "https://safe.example.test" ||
+		GetIdentityExchangeAudience() != "my-aud" || GetIdentityExchangeAlgorithm() != "RS256" {
+		t.Fatal("identity exchange settings were not read back")
+	}
+}

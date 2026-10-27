@@ -6,11 +6,14 @@
 package middleware
 
 import (
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identityexchange"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
@@ -28,6 +31,14 @@ func Authorize(_ ...string) gin.HandlerFunc {
 		err := authority.ParseToken(c)
 		if err != nil {
 			apiutils.AbortWithApiError(c, err)
+			return
+		}
+		// Writes carry the Audit middleware; reads made with an exchanged token are
+		// recorded here so that a service client acting for a user always leaves a trace.
+		if c.GetString(common.UserType) == identityexchange.UserType && c.Request.Method == http.MethodGet {
+			start := time.Now()
+			c.Next()
+			auditExchangedRead(c, start)
 		}
 	}
 }

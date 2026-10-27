@@ -12,6 +12,7 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identityexchange"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -47,6 +48,18 @@ func ParseToken(c *gin.Context) error {
 		return nil
 	}
 
+	// An exchanged token (a JWT issued by this server for a service client acting
+	// for a user) is recognised by its type and issuer, not by its shape.
+	if ie := identityexchange.Default(); ie != nil {
+		if bearer := getBearerToken(c); bearer != "" && ie.IsExchangeToken(bearer) {
+			if err := parseExchangeToken(c, ie, bearer); err != nil {
+				apimetrics.AuthFailuresTotal.WithLabelValues("exchange").Inc()
+				return err
+			}
+			return nil
+		}
+	}
+
 	// Fall back to regular token authentication
 	err := parseTokenFromRequest(c)
 	if err != nil {
@@ -57,6 +70,33 @@ func ParseToken(c *gin.Context) error {
 		apimetrics.AuthFailuresTotal.WithLabelValues(reason).Inc()
 		return commonerrors.NewUnauthorized(err.Error())
 	}
+	return nil
+}
+
+// parseExchangeToken authenticates a request made by a service client with an
+// exchanged token. The user is the token subject and the client is recorded as
+// the actor. The capabilities in identityexchange.Forbidden are refused here, for
+// every caller of ParseToken, whatever the token's scope.
+func parseExchangeToken(c *gin.Context, ie *identityexchange.Service, raw string) error {
+	principal, err := ie.ValidateAccessToken(c.Request.Context(), raw, "")
+	if err != nil {
+		// The reason is logged, the token is not.
+		klog.ErrorS(err, "failed to validate exchanged token", "path", c.Request.URL.Path)
+		return commonerrors.NewUnauthorized(ErrInvalidToken)
+	}
+	if capability, forbidden := identityexchange.Forbidden(c.Request.Method, c.Request.URL.Path); forbidden {
+		klog.Warningf("exchanged token refused: capability %s, client %s, user %s", capability, principal.ClientId, principal.UserId)
+		return commonerrors.NewForbidden("this operation is not available with an exchanged token")
+	}
+	if !identityexchange.ScopeAllows(principal.Scopes, c.Request.Method) {
+		return commonerrors.NewForbidden("the token scope does not allow this operation")
+	}
+	c.Set(common.UserId, principal.UserId)
+	c.Set(common.UserName, principal.UserName)
+	c.Set(common.UserType, identityexchange.UserType)
+	c.Set(common.ActorClientId, principal.ClientId)
+	c.Set(common.TokenJti, principal.Jti)
+	klog.Infof("exchanged token accepted for user %s (client %s, jti %s)", principal.UserId, principal.ClientId, principal.Jti)
 	return nil
 }
 

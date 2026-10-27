@@ -320,6 +320,15 @@ langfuse_proxy:
   # Shared Langfuse project credentials (stored in Secret, not ConfigMap)
   public_key: ""
   secret_key: ""
+identity_exchange:
+  # OAuth 2.0 token exchange (RFC 8693). Requires the database. When enabled, the apiserver serves
+  # POST /oauth/token, /.well-known/openid-configuration and /.well-known/jwks.json at the root of
+  # the issuer URL, so route those paths to the apiserver.
+  enable: false
+  issuer: ""
+  audience: "safe-apiserver"
+  signing_algorithm: "ES256"
+
 a2a:
   # A2A service discovery scanner
   scanner_enable: true
