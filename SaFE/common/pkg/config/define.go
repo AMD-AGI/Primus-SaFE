@@ -134,6 +134,8 @@ const (
 	ssoPrefix     = "sso."
 	ssoEnable     = ssoPrefix + "enable"
 	ssoSecretPath = ssoPrefix + "secret_path"
+	// ssoBridgeAllowlist lists the web origins (optionally with a path prefix) that may receive an SSO authorization code.
+	ssoBridgeAllowlist = ssoPrefix + "bridge_allowlist"
 
 	// cicd
 	cicdPrefix                  = "cicd."
@@ -211,7 +213,7 @@ const (
 	externalExecutionPrefix            = "external_execution."
 	externalExecutionEnabled           = externalExecutionPrefix + "enabled"
 	externalExecutionObservationMaxAge = externalExecutionPrefix + "observation_max_age_seconds"
-	externalExecutionWorkspaceResync = externalExecutionPrefix + "workspace_resync_seconds"
+	externalExecutionWorkspaceResync   = externalExecutionPrefix + "workspace_resync_seconds"
 
 	// model_optimization (hyperloom via primus-claw)
 	modelOptimizationPrefix       = "model_optimization."

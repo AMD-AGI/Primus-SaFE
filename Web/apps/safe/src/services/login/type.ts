@@ -61,6 +61,8 @@ export interface EnvsResp {
   // sso
   ssoEnable?: boolean
   ssoAuthUrl?: string
+  // origins (optionally with a path prefix) other than this console allowed to receive the SSO code
+  ssoBridgeAllowlist?: string[]
   // cd
   cdRequireApproval?: boolean
   // KubeSpray image tags mapped to the Kubernetes version each one installs. The pair is
