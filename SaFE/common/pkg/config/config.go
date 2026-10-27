@@ -499,6 +499,12 @@ func IsSSOEnable() bool {
 	return getBool(ssoEnable, false)
 }
 
+// GetSSOBridgeAllowlist returns the origins (optionally with a path prefix) that the
+// web login page may forward an SSO authorization code to. Empty means same origin only.
+func GetSSOBridgeAllowlist() []string {
+	return getStringSlice(ssoBridgeAllowlist, nil)
+}
+
 func GetSSOClientId() string {
 	return getFromFile(ssoSecretPath, "id")
 }
