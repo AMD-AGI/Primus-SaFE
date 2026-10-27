@@ -10,7 +10,7 @@ SaFE manages GPU clusters (Kubernetes + ROCm): it schedules workloads onto works
 ## Setup
 
 - `SAFE_URL`: base URL of the SaFE deployment, no trailing slash (e.g. `https://<your-safe-host>`). Ask the user or check the site skill if unset.
-- `SAFE_API_KEY`: the user's own API key, normally already in the environment. Never print it, never write it to files.
+- `SAFE_API_KEY`: the user's own API key, normally already in the environment. Never print it, never write it to files. When inspecting workloads or pods, never expand or quote environment variables, secrets or tokens; summarize env only by variable names when needed.
 - Auth: `Authorization: Bearer $SAFE_API_KEY` works on every SaFE API (REST and MCP). Actions run as the key's owner. Verify who you are:
   `curl -s -H "Authorization: Bearer $SAFE_API_KEY" "$SAFE_URL/api/v1/users/self"`
 - All REST paths are under `/api/v1/`. Lists return `{"totalCount":N,"items":[...]}` and take `limit` / `offset`.
