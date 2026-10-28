@@ -6,9 +6,11 @@
 package authority
 
 import (
+	"context"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -49,9 +51,32 @@ func ParseToken(c *gin.Context) error {
 		// and the platform roles come only from identity providers: the user is an ordinary
 		// one, whatever the user object stores. There is no local-account exception.
 		c.Request = c.Request.WithContext(extauth.WithOverlay(c.Request.Context(),
-			extauth.MapGroups(c.GetString(common.UserId), nil, st.mappings, false)))
+			builtinOverlay(st, c.GetString(common.UserId))))
 	}
 	return err
+}
+
+// builtinOverlay is the overlay of a user a built-in credential authenticated in external mode:
+// no identity provider vouched for it, so it adds nothing and the platform roles are not kept.
+func builtinOverlay(st *externalAuth, userId string) *extauth.Overlay {
+	return extauth.MapGroups(userId, nil, st.mappings, false)
+}
+
+// builtinRoles returns the roles a built-in credential carries as the apiserver itself sees them:
+// in builtin mode the roles stored on the user object, in external mode the same roles without
+// the platform ones (see ParseToken). The services that authorize through POST /auth/verify read
+// the roles from the response, so it must not hand them what the apiserver no longer honours.
+func builtinRoles(userId string, stored []v1.UserRole) []v1.UserRole {
+	st := externalState.Load()
+	if st == nil {
+		return stored
+	}
+	ctx := extauth.WithOverlay(context.Background(), builtinOverlay(st, userId))
+	user := extauth.ApplyOverlay(ctx, &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: userId},
+		Spec:       v1.UserSpec{Roles: stored},
+	})
+	return user.Spec.Roles
 }
 
 // parseBuiltin authenticates a request with the apiserver's own API keys, sessions and accounts.

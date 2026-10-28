@@ -204,7 +204,8 @@ func VerifyToken(c *gin.Context) {
 		Exp:           userInfo.Exp,
 		Type:          userType,
 		ApiKeyId:      userInfo.ApiKeyId,
-		Roles:         userInfo.Roles,
+		// The roles as the apiserver sees them: in external mode the stored platform roles do not count.
+		Roles: builtinRoles(userInfo.Id, userInfo.Roles),
 	}
 
 	// Backfill preferred name from the User CR when the auth path (e.g. API key)

@@ -7,21 +7,27 @@ package authority
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang/mock/gomock"
+	"github.com/lib/pq"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 )
 
 // extCacheTTL is the introspection cache_ttl newExtEnvWith configures.
@@ -217,4 +223,70 @@ func TestGetRequestUserAppliesTheOverlay(t *testing.T) {
 	stored := e.user(extUser)
 	require.Empty(t, stored.Spec.Roles)
 	require.Empty(t, stored.Spec.Resources)
+}
+
+// POST /auth/verify is what the services behind the apiserver authorize through, so it must
+// agree with ParseToken: a built-in credential in external mode carries no platform role, even
+// though the user object still lists one. Builtin mode keeps the stored roles, as before.
+func TestVerifyReturnsNoStoredPlatformRoleInExternalMode(t *testing.T) {
+	defer setupInternalAuth(t)()
+	defer setupDefaultToken(t)()
+
+	// The key of the same account, found in the (mock) key store.
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock_client.NewMockInterface(ctrl)
+	testKey := syntheticAPIKey("verify-external-roles")
+	mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey(testKey, nil)).Return(&dbclient.ApiKey{
+		Id: 7, UserId: "local-admin", UserName: "admin", Whitelist: "[]",
+		ExpirationTime: pq.NullTime{Time: time.Now().UTC().Add(time.Hour), Valid: true},
+	}, nil).AnyTimes()
+
+	stored := []v1.UserRole{v1.SystemAdminRole}
+	newCli := func() client.Client {
+		scheme := runtime.NewScheme()
+		require.NoError(t, v1.AddToScheme(scheme))
+		return fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1.User{
+			ObjectMeta: metav1.ObjectMeta{Name: "local-admin"},
+			Spec:       v1.UserSpec{Type: v1.DefaultUserType, Roles: stored},
+		}).Build()
+	}
+	verify := func(cli client.Client, req VerifyTokenRequest) []v1.UserRole {
+		oldDefault, oldKey := defaultTokenInstance, apiKeyTokenInstance
+		defaultTokenInstance = &defaultToken{Client: cli}
+		apiKeyTokenInstance = &ApiKeyToken{dbClient: mockDB, Client: cli}
+		defer func() { defaultTokenInstance, apiKeyTokenInstance = oldDefault, oldKey }()
+		w := callVerifyToken(t, req, testInternalToken)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var resp verifyResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		return resp.Data.Roles
+	}
+	cookie := VerifyTokenRequest{Cookie: "Token=" + generateTestToken(t, "local-admin", "admin")}
+	bearer := VerifyTokenRequest{Authorization: "Bearer " + generateTestToken(t, "local-admin", "admin")}
+	apiKey := verifyRequestWithAuthKey(VerifyTokenRequest{ClientIP: "10.0.0.1"}, testKey)
+	creds := map[string]VerifyTokenRequest{"cookie": cookie, "bearer": bearer, "api key": apiKey}
+
+	// Positive control, builtin mode: the stored role is returned, so the empty answers
+	// below cannot be a fixture that never carried one.
+	require.Nil(t, externalState.Load())
+	for name, req := range creds {
+		require.Equal(t, stored, verify(newCli(), req), "builtin mode, %s", name)
+	}
+
+	newExtEnv(t, adminMapping, true)
+	for name, req := range creds {
+		t.Run(name, func(t *testing.T) {
+			cli := newCli()
+			roles := verify(cli, req)
+			require.NotContains(t, roles, v1.SystemAdminRole, "the stored platform role is not honoured")
+			require.NotContains(t, roles, v1.SystemAdminReadonlyRole)
+			require.Equal(t, []v1.UserRole{v1.DefaultRole}, roles, "an ordinary user, as ParseToken sees it")
+
+			// The record is untouched.
+			u := &v1.User{}
+			require.NoError(t, cli.Get(context.Background(), client.ObjectKey{Name: "local-admin"}, u))
+			require.Equal(t, stored, u.Spec.Roles)
+		})
+	}
 }
