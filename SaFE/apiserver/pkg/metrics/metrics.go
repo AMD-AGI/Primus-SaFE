@@ -23,6 +23,13 @@ var (
 		Help: "Total apiserver authentication failures, by reason.",
 	}, []string{"reason"})
 
+	// AuthStaleServedTotal counts requests authenticated from an expired cache entry
+	// because the external authenticator could not be reached (stale_if_error).
+	AuthStaleServedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_apiserver_auth_stale_served_total",
+		Help: "Total requests authenticated from a stale cache entry while the authenticator was unavailable, by authenticator.",
+	}, []string{"authenticator"})
+
 	// AuthzDeniedTotal counts authorization (RBAC) denials by resource and verb.
 	AuthzDeniedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "safe_apiserver_authz_denied_total",
@@ -52,6 +59,7 @@ var (
 func init() {
 	ctrlmetrics.Registry.MustRegister(
 		AuthFailuresTotal,
+		AuthStaleServedTotal,
 		AuthzDeniedTotal,
 		AuditLogsDroppedTotal,
 		StreamConnectionsActive,

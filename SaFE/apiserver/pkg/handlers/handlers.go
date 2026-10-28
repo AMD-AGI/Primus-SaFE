@@ -56,6 +56,10 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	if authority.NewDefaultToken(mgr.GetClient()) == nil {
 		return nil, commonerrors.NewInternalError("failed to new default token")
 	}
+	// Pluggable authentication: a no-op in the default builtin mode.
+	if err := authority.InitExternalAuth(mgr.GetClient()); err != nil {
+		return nil, commonerrors.NewInternalError("failed to initialize external authentication: " + err.Error())
+	}
 	// Initialize internal auth for service-to-service authentication
 	if _, err := authority.NewInternalAuth(mgr.GetClient()); err != nil {
 		return nil, commonerrors.NewInternalError("failed to initialize internal auth: " + err.Error())

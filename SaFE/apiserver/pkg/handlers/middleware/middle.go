@@ -6,7 +6,9 @@
 package middleware
 
 import (
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -28,6 +30,14 @@ func Authorize(_ ...string) gin.HandlerFunc {
 		err := authority.ParseToken(c)
 		if err != nil {
 			apiutils.AbortWithApiError(c, err)
+			return
+		}
+		// Writes carry the Audit middleware; reads made with a delegated token are
+		// recorded here so that a party acting for a user always leaves a trace.
+		if authority.IsDelegatedRequest(c) && c.Request.Method == http.MethodGet {
+			start := time.Now()
+			c.Next()
+			auditDelegatedRead(c, start)
 		}
 	}
 }

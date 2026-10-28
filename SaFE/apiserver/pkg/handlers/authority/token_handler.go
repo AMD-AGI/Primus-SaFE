@@ -33,6 +33,14 @@ type TokenItem struct {
 // ParseToken parses the token from request (cookie or header)
 // It first tries API Key authentication, then falls back to regular token authentication
 func ParseToken(c *gin.Context) error {
+	// In external mode the configured authenticator chain decides first; when the chain
+	// reaches the built-in mode, or the mode is builtin (the default), the code below runs.
+	if st := externalState.Load(); st != nil {
+		handled, err := parseExternal(c, st)
+		if handled || err != nil {
+			return err
+		}
+	}
 	// First, try to authenticate with API key from Authorization: Bearer header
 	authHeader := c.GetHeader("Authorization")
 	apiKey := ExtractApiKeyFromRequest(authHeader)

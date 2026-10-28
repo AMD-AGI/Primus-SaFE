@@ -38,5 +38,11 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 			resp.SSOAuthUrl = inst.AuthURL()
 		}
 	}
+	// With external authentication the sign-in page is wherever the deployment says.
+	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
+		if url := commonconfig.GetAuthLoginURL(); url != "" {
+			resp.SSOEnable, resp.SSOAuthUrl = true, url
+		}
+	}
 	return resp, nil
 }

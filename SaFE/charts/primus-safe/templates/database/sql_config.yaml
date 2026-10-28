@@ -559,6 +559,11 @@ data:
     CREATE INDEX IF NOT EXISTS idx_audit_logs_http_method ON audit_logs(http_method);
     alter table audit_logs owner to "primus-safe";
 
+    -- Delegated tokens: who acted (the "act" party) and with which token. NULL for direct requests.
+    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_client_id VARCHAR(64);
+    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS token_jti VARCHAR(64);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_client_id ON audit_logs(actor_client_id) WHERE actor_client_id IS NOT NULL;
+
     -- Dataset table for managing datasets
     -- All columns are defined in CREATE TABLE for new installations
     -- ALTER TABLE statements are kept for backward compatibility with existing installations

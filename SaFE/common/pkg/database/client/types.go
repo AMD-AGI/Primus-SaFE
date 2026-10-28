@@ -508,6 +508,10 @@ type AuditLog struct {
 	LatencyMs      sql.NullInt64  `db:"latency_ms"`
 	TraceId        sql.NullString `db:"trace_id"`
 	CreateTime     pq.NullTime    `db:"create_time"`
+	// ActorClientId is the party that acted on behalf of UserId (delegated token); empty for direct requests.
+	ActorClientId sql.NullString `db:"actor_client_id"`
+	// TokenJti is the id of the delegated token that authenticated the request.
+	TokenJti sql.NullString `db:"token_jti"`
 }
 
 // GetAuditLogFieldTags returns the AuditLogFieldTags value.
