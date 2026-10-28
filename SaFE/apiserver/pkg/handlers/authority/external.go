@@ -66,7 +66,32 @@ func InitExternalAuth(cli client.Client) error {
 	}
 	externalState.Store(&externalAuth{chain: chain, mappings: mappings, client: cli})
 	klog.Infof("external authentication enabled with %d authenticator(s)", chain.Len())
+	warnStoredPlatformRoles(cfgs)
 	return nil
+}
+
+// warnStoredPlatformRoles tells the operator at start-up what external mode does to the accounts
+// the apiserver holds itself, so that a deployment that relied on a local administrator finds out
+// when it starts and not during an outage of the identity provider: the platform roles stored on
+// user objects stop counting, so such an account is an ordinary user. A builtin entry in the chain
+// does not bring them back; it only keeps the credentials working.
+func warnStoredPlatformRoles(cfgs []commonconfig.AuthenticatorConfig) {
+	roles := make([]string, 0, len(extauth.PlatformRoles))
+	for _, r := range extauth.PlatformRoles {
+		roles = append(roles, string(r))
+	}
+	msg := fmt.Sprintf("auth.mode is external: the platform roles (%s) come only from auth.group_mappings; "+
+		"the ones stored on user objects no longer count, so a local administrator is an ordinary user",
+		strings.Join(roles, ", "))
+	for _, c := range cfgs {
+		if strings.EqualFold(c.Type, "builtin") {
+			msg += "; the builtin authenticator in auth.authenticators still accepts the sessions and API keys of local " +
+				"accounts, but as ordinary users, so no local account can administer the platform while the identity " +
+				"provider is down (recovering means setting auth.mode back to builtin)"
+			break
+		}
+	}
+	klog.Warning(msg)
 }
 
 func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error) {

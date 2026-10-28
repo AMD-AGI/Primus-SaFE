@@ -111,6 +111,7 @@ Unlike [install.sh](../../bootstrap/install.sh), the upgrade script:
 - If `ingress=higress`, `sub_domain` from `.env` is applied
 - Data-plane observability (OpenSearch, Grafana) is now managed via Robust AddonTemplate, not direct primus-lens integration
 - Backup your configuration before performing upgrades
+- **Deployments with `auth.mode: external`:** the platform roles (`system-admin`, `system-admin-readonly`) come only from `auth.group_mappings`; the ones stored on user objects no longer count, so a local break-glass administrator (a `builtin` entry kept last in `auth.authenticators`) becomes an ordinary user. Grant every administrator the role through a group mapping before upgrading; see [External Authentication](../apis/external-authentication.md#upgrading-from-a-release-that-kept-local-administrators)
 - Test upgrades in a non-production environment first
 
 ### 🔄 Upgrade Command

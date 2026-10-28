@@ -66,7 +66,18 @@ auth:
   login_url: "https://console.example.com/sign-in"
 ```
 
-Mapped roles and workspaces are part of the user every handler resolves for the request (`AccessController.GetRequestUser`), so the access controller (`Authorize`, `AuthorizeSystemAdmin`, role lookup), the checks handlers make on the user directly (model visibility, workspace access, the sandbox environment Secret, reserved workspace labels) and `GET /users/self` all agree. That user is a copy for the request; it is never written back to the user object. An SSH session is not an HTTP request: it is authenticated by public key and sees the roles stored on the user object.
+Mapped roles and workspaces are part of the user every handler resolves for the request (`AccessController.GetRequestUser`), so the access controller (`Authorize`, `AuthorizeSystemAdmin`, role lookup), the checks handlers make on the user directly (model visibility, workspace access, the sandbox environment Secret, reserved workspace labels) and `GET /users/self` all agree. That user is a copy for the request; it is never written back to the user object. An SSH session is not an HTTP request: it is authenticated by public key, not by an identity provider, so it follows the same rule as a built-in credential: the platform roles stored on the user object do not count, and the user holds the `default` role and the workspaces and other roles of the record.
+
+## Upgrading from a release that kept local administrators
+
+**Breaking change for deployments that relied on a local administrator.** Earlier releases told operators to put `builtin` last in `auth.authenticators` to keep a local administrator able to sign in, including while the introspection endpoint is down. That exception is gone: in external mode the platform roles (`system-admin`, `system-admin-readonly`) held by a request come only from `auth.group_mappings`, and the roles stored on user objects, such as that of a local break-glass administrator, are not counted. After the upgrade such an account still authenticates through the `builtin` entry (its sessions and API keys keep working) but is an ordinary user, and `POST /auth/verify` and SSH sessions agree.
+
+Before upgrading a deployment in external mode:
+
+* Make sure every administrator is granted `system-admin` (or `system-admin-readonly`) by a group mapping at the identity provider. There is no local fallback while the identity provider is down.
+* If a local administrator is needed as a break-glass path, that is `auth.mode: builtin`: set it back (a configuration change and an apiserver roll) to sign in with local accounts. No user object or table is changed by either mode.
+
+The apiserver logs a warning at start-up in external mode, and names the `builtin` entry when the chain has one, so the change is visible before an outage and not during it.
 
 ## Delegated tokens
 

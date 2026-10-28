@@ -50,10 +50,22 @@ func ParseToken(c *gin.Context) error {
 		// The chain reached the built-in mode, so no identity provider vouched for this request,
 		// and the platform roles come only from identity providers: the user is an ordinary
 		// one, whatever the user object stores. There is no local-account exception.
-		c.Request = c.Request.WithContext(extauth.WithOverlay(c.Request.Context(),
-			builtinOverlay(st, c.GetString(common.UserId))))
+		c.Request = c.Request.WithContext(WithoutIdentity(c.Request.Context(), c.GetString(common.UserId)))
 	}
 	return err
+}
+
+// WithoutIdentity returns ctx for a user that no identity provider vouched for, the rule of
+// every credential the apiserver accepts on its own in external mode (a built-in session or
+// API key, an SSH session): the user adds nothing to the record and holds no platform role,
+// whatever the user object stores (extauth.PlatformRoles). In builtin mode, the default, it
+// returns ctx as it is: the stored roles are the roles.
+func WithoutIdentity(ctx context.Context, userId string) context.Context {
+	st := externalState.Load()
+	if st == nil {
+		return ctx
+	}
+	return extauth.WithOverlay(ctx, builtinOverlay(st, userId))
 }
 
 // builtinOverlay is the overlay of a user a built-in credential authenticated in external mode:

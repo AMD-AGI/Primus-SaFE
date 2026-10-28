@@ -32,10 +32,12 @@ func WithOverlay(ctx context.Context, o *Overlay) context.Context {
 	return context.WithValue(ctx, overlayKey{}, o)
 }
 
-// platformRoles are the roles an identity grants platform-wide. In external mode the
+// PlatformRoles are the roles an identity grants platform-wide. In external mode the
 // authenticators are their only source: the value stored on the user object is not
-// consulted for them (see ApplyOverlay).
-var platformRoles = []v1.UserRole{v1.SystemAdminRole, v1.SystemAdminReadonlyRole}
+// consulted for them (see ApplyOverlay). It is the one list of them: whatever needs to
+// know which roles the identity provider owns, such as the guard on editing them, reads it
+// from here.
+var PlatformRoles = []v1.UserRole{v1.SystemAdminRole, v1.SystemAdminReadonlyRole}
 
 // ApplyOverlay returns the user as this request sees it. For a request that has an overlay
 // (every request the external mode authenticates):
@@ -61,7 +63,7 @@ func ApplyOverlay(ctx context.Context, user *v1.User) *v1.User {
 	u := user.DeepCopy()
 	kept := make([]v1.UserRole, 0, len(u.Spec.Roles)+len(o.Roles))
 	for _, r := range u.Spec.Roles {
-		if !v1.IsContainRole(platformRoles, r) {
+		if !v1.IsContainRole(PlatformRoles, r) {
 			kept = append(kept, r)
 		}
 	}

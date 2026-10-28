@@ -258,7 +258,8 @@ func (s *goSource) paramFromRequest(fn *funcScope, idx int, id *ast.Ident, seen 
 // longer matches a finding fails the test, so the list cannot outlive the code it excuses.
 var notRequestContexts = map[string]string{
 	"ssh-handlers/k8s.go": "an SSH session is authenticated by public key on the SSH port; no external authenticator " +
-		"ran, so no overlay exists for it, and the roles of its user are the ones stored",
+		"ran, so its context carries the overlay of a user no identity vouched for (authority.WithoutIdentity, " +
+		"pinned by TestAuthUserHoldsNoStoredPlatformRoleInExternalMode), not a request's",
 }
 
 func TestEveryAuthorizationContextIsTheRequestContext(t *testing.T) {
