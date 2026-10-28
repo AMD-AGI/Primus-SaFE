@@ -798,6 +798,41 @@ func TestGetMemoryStorageSizeWithoutSizeLimit(t *testing.T) {
 	assert.Equal(t, sizes[0], "")
 }
 
+func TestGetMemoryStorageSizeIgnoresSigningKey(t *testing.T) {
+	idep := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"services": map[string]interface{}{
+				"role0": map[string]interface{}{
+					"extraPodSpec": map[string]interface{}{
+						"volumes": []interface{}{
+							map[string]interface{}{
+								"name":     "signing-key",
+								"emptyDir": map[string]interface{}{"medium": "Memory", "sizeLimit": "1Mi"},
+							},
+							map[string]interface{}{
+								"name":     "shared-memory",
+								"emptyDir": map[string]interface{}{"medium": "Memory", "sizeLimit": "20Gi"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}}
+	rt := &v1.ResourceTemplate{
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.InferaDeploymentKind},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths:     []string{"spec", "services", "role0"},
+				PodSpecPaths: []string{"extraPodSpec"},
+			}},
+		},
+	}
+	sizes, err := GetMemoryStorageSize(idep, rt, 1)
+	assert.NilError(t, err)
+	assert.Equal(t, sizes[0], "20Gi")
+}
+
 func syntheticRunnerFailureMapping() *v1.ResourceTemplate {
 	rt := TestCICDScaleSetResourceTemplate.DeepCopy()
 	rt.Spec.ResourceStatus = v1.ResourceStatus{PrePaths: []string{"status", "conditions"}, MessagePaths: []string{"message"},

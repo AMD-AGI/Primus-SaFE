@@ -49,6 +49,50 @@ const (
 
 	sandboxAuthPublicKeyEnvName = "ENVD_AUTH_PUBLIC_KEY"
 	sandboxSecretPublicPemKey   = "public.pem"
+	// grantIDLabel is the Agent Sandbox grant that owns this Workload.
+	grantIDLabel = "agent-sandbox.io/grant-id"
+	// sandboxIDLabel is the sandbox id the Router puts in the envd JWT.
+	sandboxIDLabel = "agent-sandbox.io/sandbox-id"
+	envdBinVolume  = "envd-bin"
+	envdBinMount   = "/shared/bin"
+	// envdInjectorScript copies the envd binary into the shared volume. It is the
+	// Sandbox template's envd-injector script; a test keeps the two in step.
+	envdInjectorScript = `set -e
+cp /envd /shared/bin/envd
+cp /tmux /shared/bin/tmux 2>/dev/null || true
+cp /iptables /shared/bin/iptables
+cp /iptables /shared/bin/ip6tables
+ln -sf iptables /shared/bin/iptables-legacy
+ln -sf ip6tables /shared/bin/ip6tables-legacy
+cp /musl-ld.so /shared/bin/ld-musl-x86_64.so.1
+ln -sf ld-musl-x86_64.so.1 /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true
+( cp /amd-root-ca.crt /amd-issuing-ca.crt /amd-bundle.pem /setup-amd-ca.sh /shared/bin/ \
+  && chmod +x /shared/bin/setup-amd-ca.sh ) 2>/dev/null || true
+for f in /etc/secrets/*/signing-key.pem; do
+  if [ -f "$f" ]; then
+    umask 077
+    cp "$f" /run/signing-key/signing-key.pem
+    chown 1000:1000 /run/signing-key/signing-key.pem
+    chmod 0400 /run/signing-key/signing-key.pem
+    break
+  fi
+done`
+	// envdStartupScript starts envd in the main container. It is the Sandbox
+	// template's startup command (PATH setup, work directory, CA setup, the
+	// signing key file, and the SANDBOX_STARTUP snippet); a test keeps the two in step.
+	// A PEM in the environment is written mode 0400 to HYPERLOOM_SIGNING_KEY_FILE,
+	// defaulting to tmpfs, then removed from the environment. The file is never under /app.
+	envdStartupScript = `__sandbox_path_rest="${PATH-}:"'/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin:'; __sandbox_path=; while [ -n "$__sandbox_path_rest" ]; do __sandbox_path_dir="${__sandbox_path_rest%%:*}"; __sandbox_path_rest="${__sandbox_path_rest#*:}"; case "$__sandbox_path_dir" in */../*|*/..) ;; /*) case ":$__sandbox_path:" in *":$__sandbox_path_dir:"*) ;; *) __sandbox_path="${__sandbox_path:+$__sandbox_path:}$__sandbox_path_dir" ;; esac ;; esac; done; PATH="$__sandbox_path"; export PATH; unset __sandbox_path_rest __sandbox_path_dir __sandbox_path; mkdir -p /app /app/work && /shared/bin/setup-amd-ca.sh && if [ -n "${HYPERLOOM_SIGNING_KEY_PEM-}" ]; then keyfile="${HYPERLOOM_SIGNING_KEY_FILE:-/dev/shm/hyperloom-signing-key.pem}"; case "$keyfile" in /app|/app/*) echo "signing key path is under /app" >&2; exit 1;; esac; mkdir -p "$(dirname "$keyfile")"; umask 077; printf '%s\n' "$HYPERLOOM_SIGNING_KEY_PEM" > "$keyfile"; chmod 0400 "$keyfile"; unset HYPERLOOM_SIGNING_KEY_PEM; export HYPERLOOM_SIGNING_KEY_FILE="$keyfile"; fi && if [ -n "${SANDBOX_STARTUP-}" ]; then eval "$SANDBOX_STARTUP"; fi && exec /shared/bin/envd --port=8080 --workspace=/app`
+	// sessionIDAnnotation is the downward-API field envd compares with the Router token.
+	sessionIDAnnotation   = "runtime.agent-sandbox.io/session-id"
+	sessionIdentityVolume = "envd-session-identity"
+	sessionIdentityMount  = "/var/run/agent-sandbox/session"
+	sessionIdentityFile   = "session-id"
+	// signingKeyVolume is a tmpfs copy of the private key. The secret itself stays on the init container.
+	signingKeyVolume = "signing-key"
+	signingKeyMount  = "/run/signing-key"
+	signingKeyFile   = "/run/signing-key/signing-key.pem"
+	signingKeyEnv    = "HYPERLOOM_SIGNING_KEY_FILE"
 
 	// inferaNodeCountField is the flat IDEP ServiceSpec field carrying the node
 	// count of a multi-node role's LeaderWorkerSet group. Written by
@@ -491,7 +535,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	volumeMounts = append(volumeMounts, buildPersistentVolumeMounts(workload, workspace)...)
 
 	for _, secret := range workload.Spec.Secrets {
-		if secret.Type != v1.SecretGeneral {
+		if secret.Type != v1.SecretGeneral || isSandboxSigningSecret(workload, secret) {
 			continue
 		}
 		mountPath := fmt.Sprintf("%s/%s", common.SecretPath, secret.Id)
@@ -499,6 +543,27 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	container["volumeMounts"] = volumeMounts
+}
+
+// isSandboxSigningSecret reports the private key whose secret name is the workload name.
+func isSandboxSigningSecret(workload *v1.Workload, secret v1.SecretEntity) bool {
+	return workload != nil && secret.Type == v1.SecretGeneral && secret.Id != "" && secret.Id == workload.Name
+}
+
+// signingSecretMounts mounts that key read-only for the init container copy.
+func signingSecretMounts(workload *v1.Workload) []interface{} {
+	var mounts []interface{}
+	if workload == nil {
+		return mounts
+	}
+	for _, secret := range workload.Spec.Secrets {
+		if !isSandboxSigningSecret(workload, secret) {
+			continue
+		}
+		mountPath := fmt.Sprintf("%s/%s", common.SecretPath, secret.Id)
+		mounts = append(mounts, buildVolumeMount(secret.Id, mountPath, "", "", true, false))
+	}
+	return mounts
 }
 
 // buildPersistentVolumeMounts returns the volume mounts for the persistent
@@ -585,8 +650,9 @@ func volumeMountPath(volumeMount interface{}) string {
 // directories.
 //
 // The matching pod-level volumes are added by modifyVolumes; here we only add
-// the volumeMounts. Ephemeral mounts (/dev/shm) and secrets are intentionally
-// skipped — the daemon does not need them. Kinds without init containers are a
+// the volumeMounts. Ephemeral mounts (/dev/shm) and ordinary secrets are
+// skipped. The sandbox signing secret is mounted so the injector can copy it.
+// Kinds without init containers are a
 // no-op. Duplicate mounts are not de-duplicated: the API server will reject the
 // pod so the misconfiguration surfaces loudly instead of being masked.
 func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
@@ -599,6 +665,7 @@ func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
 		return nil
 	}
 	persistentMounts := buildPersistentVolumeMounts(workload, workspace)
+	persistentMounts = append(persistentMounts, signingSecretMounts(workload)...)
 	if len(persistentMounts) == 0 {
 		return nil
 	}
@@ -2872,6 +2939,383 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context, clientSets *sy
 	return nil
 }
 
+// agentSandboxPyTorch reports a PyTorchJob created for an Agent Sandbox grant.
+// A training job can set sandbox-name; grant-id is the marker the sandbox service owns.
+func agentSandboxPyTorch(workload *v1.Workload) bool {
+	return workload != nil && workload.SpecKind() == common.PytorchJobKind &&
+		v1.GetLabel(workload, grantIDLabel) != ""
+}
+
+// applyAgentSandboxPyTorch injects the data-plane envd public key and the session
+// identity file. Without the key, envd accepts every request. Without the file,
+// envd rejects the Router token.
+func (r *DispatcherReconciler) applyAgentSandboxPyTorch(ctx context.Context, clientSets *syncer.ClusterClientSets,
+	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
+	if err := injectSandboxEnvdAuthPublicKey(ctx, clientSets, adminWorkload); err != nil {
+		return err
+	}
+	sandboxID := v1.GetLabel(adminWorkload, sandboxIDLabel)
+	if sandboxID == "" {
+		return fmt.Errorf("agent sandbox workload %s has no sandbox id", adminWorkload.Name)
+	}
+	v1.SetLabel(adminWorkload, "runtime.agent-sandbox.io/user.id", v1.GetUserId(adminWorkload))
+	v1.SetAnnotation(adminWorkload, "runtime.agent-sandbox.io/user.name", v1.GetUserName(adminWorkload))
+	// Keep the sandbox id the creator wrote. The Workload name is a different string.
+	v1.SetAnnotation(adminWorkload, sessionIDAnnotation, sandboxID)
+	if workspace != nil {
+		if str := workspace.GetIdleTime(commonworkload.GetScope(adminWorkload)); str != "" {
+			v1.SetAnnotation(adminWorkload, "runtime.agent-sandbox.io/idle-timeout", str)
+		}
+	}
+	if rt == nil || len(rt.Spec.ResourceSpecs) == 0 {
+		return fmt.Errorf("no resource specs found")
+	}
+	for i := range rt.Spec.ResourceSpecs {
+		spec := &rt.Spec.ResourceSpecs[i]
+		if len(spec.PrePaths) > 0 {
+			_, found, err := jobutils.NestedField(obj.Object, spec.PrePaths)
+			if err != nil {
+				return err
+			}
+			if !found {
+				continue
+			}
+		}
+		if err := tightenSandboxPod(obj, adminWorkload, spec); err != nil {
+			return err
+		}
+		if err := ensureEnvD(obj, adminWorkload, spec); err != nil {
+			return err
+		}
+		if err := ensureScheduledNodeName(obj, adminWorkload, spec); err != nil {
+			return err
+		}
+		if err := ensureSessionIdentity(obj, adminWorkload, spec); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// tightenSandboxPod drops the training template's host paths and SYS_PTRACE.
+// Those are not part of a sandbox pod.
+func tightenSandboxPod(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
+	containers, path, err := getContainers(workload, obj, *resourceSpec)
+	if err != nil {
+		return err
+	}
+	volumesPath := podSpecPath(workload, resourceSpec, "volumes")
+	volumes, _, _ := jobutils.NestedSlice(obj.Object, volumesPath)
+	dropped := map[string]struct{}{}
+	kept := make([]interface{}, 0, len(volumes))
+	for _, item := range volumes {
+		raw, ok := item.(map[string]interface{})
+		if !ok {
+			kept = append(kept, item)
+			continue
+		}
+		if _, host := raw["hostPath"]; host {
+			if name, _ := raw["name"].(string); name != "" {
+				dropped[name] = struct{}{}
+			}
+			continue
+		}
+		kept = append(kept, item)
+	}
+	if len(dropped) > 0 {
+		if err = jobutils.SetNestedField(obj.Object, kept, volumesPath); err != nil {
+			return err
+		}
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		dropCapability(container, "SYS_PTRACE")
+		if len(dropped) > 0 {
+			container["volumeMounts"] = withoutMounts(container["volumeMounts"], dropped)
+		}
+		containers[i] = container
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+// ensureEnvD installs envd from the injector image and makes it the container process.
+func ensureEnvD(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
+	image := commonconfig.GetSandboxEnvdInjectorImage()
+	if image == "" {
+		return fmt.Errorf("sandbox envd injector image is not configured")
+	}
+	containers, path, err := getContainers(workload, obj, *resourceSpec)
+	if err != nil {
+		return err
+	}
+	mount := map[string]interface{}{"name": envdBinVolume, "mountPath": envdBinMount}
+	keyMount := map[string]interface{}{"name": signingKeyVolume, "mountPath": signingKeyMount}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		mounts, _ := container["volumeMounts"].([]interface{})
+		if !hasNamedItem(mounts, envdBinVolume) {
+			mounts = append(mounts, mount)
+		}
+		if !hasNamedItem(mounts, signingKeyVolume) {
+			mounts = append(mounts, keyMount)
+		}
+		container["volumeMounts"] = mounts
+		container["command"] = []interface{}{"/bin/sh", "-c"}
+		container["args"] = []interface{}{envdStartupScript}
+		setEnvValue(container, signingKeyEnv, signingKeyFile)
+		containers[i] = container
+	}
+	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
+		return err
+	}
+	initPath := podSpecPath(workload, resourceSpec, "initContainers")
+	inits, _, _ := jobutils.NestedSlice(obj.Object, initPath)
+	if !hasNamedItem(inits, "envd-injector") {
+		inits = append(inits, map[string]interface{}{
+			"name":            "envd-injector",
+			"image":           image,
+			"imagePullPolicy": "IfNotPresent",
+			"command":         []interface{}{"sh", "-c", envdInjectorScript},
+			"volumeMounts":    []interface{}{mount, keyMount},
+		})
+	} else {
+		for i := range inits {
+			init, ok := inits[i].(map[string]interface{})
+			if !ok || init["name"] != "envd-injector" {
+				continue
+			}
+			mounts, _ := init["volumeMounts"].([]interface{})
+			if !hasNamedItem(mounts, envdBinVolume) {
+				mounts = append(mounts, mount)
+			}
+			if !hasNamedItem(mounts, signingKeyVolume) {
+				mounts = append(mounts, keyMount)
+			}
+			init["volumeMounts"] = mounts
+			init["command"] = []interface{}{"sh", "-c", envdInjectorScript}
+			inits[i] = init
+		}
+	}
+	if err = jobutils.SetNestedField(obj.Object, inits, initPath); err != nil {
+		return err
+	}
+	volumesPath := podSpecPath(workload, resourceSpec, "volumes")
+	volumes, _, _ := jobutils.NestedSlice(obj.Object, volumesPath)
+	if !hasNamedItem(volumes, envdBinVolume) {
+		volumes = append(volumes, map[string]interface{}{
+			"name":     envdBinVolume,
+			"emptyDir": map[string]interface{}{},
+		})
+	}
+	if !hasNamedItem(volumes, signingKeyVolume) {
+		volumes = append(volumes, map[string]interface{}{
+			"name": signingKeyVolume,
+			"emptyDir": map[string]interface{}{
+				"medium":    "Memory",
+				"sizeLimit": "1Mi",
+			},
+		})
+	}
+	return jobutils.SetNestedField(obj.Object, volumes, volumesPath)
+}
+
+// pointSigningKeyFile points HYPERLOOM_SIGNING_KEY_FILE at the tmpfs copy.
+// The creator's path is the secret mount, and that mount is only on the init container.
+func pointSigningKeyFile(obj *unstructured.Unstructured, workload *v1.Workload, rt *v1.ResourceTemplate) error {
+	if rt == nil {
+		return nil
+	}
+	for i := range rt.Spec.ResourceSpecs {
+		spec := &rt.Spec.ResourceSpecs[i]
+		if len(spec.PrePaths) > 0 {
+			_, found, err := jobutils.NestedField(obj.Object, spec.PrePaths)
+			if err != nil {
+				return err
+			}
+			if !found {
+				continue
+			}
+		}
+		containers, path, err := getContainers(workload, obj, *spec)
+		if err != nil {
+			return err
+		}
+		for j := range containers {
+			container, ok := containers[j].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			setEnvValue(container, signingKeyEnv, signingKeyFile)
+			containers[j] = container
+		}
+		if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// setEnvValue sets one container env entry, replacing a value the caller already wrote.
+func setEnvValue(container map[string]interface{}, name, value string) {
+	envs, _ := container["env"].([]interface{})
+	for i, item := range envs {
+		env, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if got, _ := env["name"].(string); got == name {
+			envs[i] = map[string]interface{}{"name": name, "value": value}
+			container["env"] = envs
+			return
+		}
+	}
+	container["env"] = append(envs, map[string]interface{}{"name": name, "value": value})
+}
+
+// ensureScheduledNodeName sets NODE_NAME from the scheduled node, matching the Sandbox template.
+func ensureScheduledNodeName(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
+	containers, path, err := getContainers(workload, obj, *resourceSpec)
+	if err != nil {
+		return err
+	}
+	nodeEnv := map[string]interface{}{
+		"name": "NODE_NAME",
+		"valueFrom": map[string]interface{}{
+			"fieldRef": map[string]interface{}{"fieldPath": "spec.nodeName"},
+		},
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		envs, _ := container["env"].([]interface{})
+		if hasEnvName(envs, "NODE_NAME") {
+			continue
+		}
+		container["env"] = append(envs, nodeEnv)
+		containers[i] = container
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+func hasEnvName(envs []interface{}, name string) bool {
+	for _, item := range envs {
+		env, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if got, _ := env["name"].(string); got == name {
+			return true
+		}
+	}
+	return false
+}
+
+func dropCapability(container map[string]interface{}, name string) {
+	security, _ := container["securityContext"].(map[string]interface{})
+	if security == nil {
+		return
+	}
+	caps, _ := security["capabilities"].(map[string]interface{})
+	if caps == nil {
+		return
+	}
+	add, _ := caps["add"].([]interface{})
+	kept := make([]interface{}, 0, len(add))
+	for _, item := range add {
+		if got, _ := item.(string); got == name {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	caps["add"] = kept
+}
+
+func withoutMounts(raw interface{}, dropped map[string]struct{}) []interface{} {
+	mounts, _ := raw.([]interface{})
+	kept := make([]interface{}, 0, len(mounts))
+	for _, item := range mounts {
+		mount, ok := item.(map[string]interface{})
+		if !ok {
+			kept = append(kept, item)
+			continue
+		}
+		name, _ := mount["name"].(string)
+		if _, skip := dropped[name]; skip {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	return kept
+}
+
+// ensureSessionIdentity mounts the pod annotation that envd reads as its session id.
+func ensureSessionIdentity(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
+	containers, path, err := getContainers(workload, obj, *resourceSpec)
+	if err != nil {
+		return err
+	}
+	mount := map[string]interface{}{
+		"name":      sessionIdentityVolume,
+		"mountPath": sessionIdentityMount,
+		"readOnly":  true,
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		mounts, _ := container["volumeMounts"].([]interface{})
+		if !hasNamedItem(mounts, sessionIdentityVolume) {
+			container["volumeMounts"] = append(mounts, mount)
+		}
+		containers[i] = container
+	}
+	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
+		return err
+	}
+	volumesPath := podSpecPath(workload, resourceSpec, "volumes")
+	volumes, _, _ := jobutils.NestedSlice(obj.Object, volumesPath)
+	if hasNamedItem(volumes, sessionIdentityVolume) {
+		return nil
+	}
+	volumes = append(volumes, map[string]interface{}{
+		"name": sessionIdentityVolume,
+		"downwardAPI": map[string]interface{}{
+			"items": []interface{}{
+				map[string]interface{}{
+					"path": sessionIdentityFile,
+					"fieldRef": map[string]interface{}{
+						"fieldPath": "metadata.annotations['" + sessionIDAnnotation + "']",
+					},
+				},
+			},
+		},
+	})
+	return jobutils.SetNestedField(obj.Object, volumes, volumesPath)
+}
+
+// hasNamedItem reports whether a volume or mount list already contains name.
+func hasNamedItem(items []interface{}, name string) bool {
+	for _, item := range items {
+		raw, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if got, _ := raw["name"].(string); got == name {
+			return true
+		}
+	}
+	return false
+}
+
 // updateMetadata updates the template metadata annotations in the unstructured object.
 func updateMetadata(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
@@ -2988,7 +3432,8 @@ func updateContainers(adminWorkload *v1.Workload,
 			// degrading a PD deployment to aggregated. On the create path the
 			// flags are then a no-op for normalizeInferaIDEP, whose per-flag
 			// dedup sees them already present.
-			if cmds := expectedCommands(adminWorkload, id); len(cmds) > 0 {
+			// An Agent Sandbox PyTorchJob runs envd. Its entry point must not replace that command.
+			if cmds := expectedCommands(adminWorkload, id); len(cmds) > 0 && !agentSandboxPyTorch(adminWorkload) {
 				container["command"] = cmds
 			}
 		}

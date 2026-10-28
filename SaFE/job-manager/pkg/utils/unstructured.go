@@ -396,6 +396,10 @@ func GetMemoryStorageVolume(volumes []interface{}) map[string]interface{} {
 		if !ok {
 			continue
 		}
+		// The sandbox signing key is its own memory volume. Shared memory is the other one.
+		if name, _ := volume["name"].(string); name == "signing-key" {
+			continue
+		}
 		medium, ok := emptyDir["medium"].(string)
 		if !ok || medium != string(corev1.StorageMediumMemory) {
 			continue

@@ -434,6 +434,11 @@ func TestChartRendersNoSandboxEnvSecretByDefault(t *testing.T) {
 	main := pod.Spec.PodTemplate.Spec.Containers[0]
 	testifyassert.Empty(t, main.EnvFrom)
 	for _, current := range main.Env {
+		if current.Name == "NODE_NAME" {
+			fieldRef, _ := current.ValueFrom["fieldRef"].(map[string]interface{})
+			testifyassert.Equal(t, "spec.nodeName", fieldRef["fieldPath"])
+			continue
+		}
 		testifyassert.Nil(t, current.ValueFrom, "%s reads from a reference", current.Name)
 	}
 }
@@ -523,7 +528,7 @@ func TestChartPinsTheSandboxToTheNonLegacyHIPIPCPath(t *testing.T) {
 const sandboxPathSetupScript = `__sandbox_path_rest="${PATH-}:"'/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin:'; __sandbox_path=; while [ -n "$__sandbox_path_rest" ]; do __sandbox_path_dir="${__sandbox_path_rest%%:*}"; __sandbox_path_rest="${__sandbox_path_rest#*:}"; case "$__sandbox_path_dir" in */../*|*/..) ;; /*) case ":$__sandbox_path:" in *":$__sandbox_path_dir:"*) ;; *) __sandbox_path="${__sandbox_path:+$__sandbox_path:}$__sandbox_path_dir" ;; esac ;; esac; done; PATH="$__sandbox_path"; export PATH; unset __sandbox_path_rest __sandbox_path_dir __sandbox_path; `
 
 // sandboxStartupTail is what the startup command runs once PATH is set up.
-const sandboxStartupTail = "mkdir -p /app && /shared/bin/setup-amd-ca.sh && exec /shared/bin/envd --port=8080 --workspace=/app"
+const sandboxStartupTail = "mkdir -p /app /app/work && /shared/bin/setup-amd-ca.sh && if [ -n \"${HYPERLOOM_SIGNING_KEY_PEM-}\" ]; then keyfile=\"${HYPERLOOM_SIGNING_KEY_FILE:-/dev/shm/hyperloom-signing-key.pem}\"; case \"$keyfile\" in /app|/app/*) echo \"signing key path is under /app\" >&2; exit 1;; esac; mkdir -p \"$(dirname \"$keyfile\")\"; umask 077; printf '%s\\n' \"$HYPERLOOM_SIGNING_KEY_PEM\" > \"$keyfile\"; chmod 0400 \"$keyfile\"; unset HYPERLOOM_SIGNING_KEY_PEM; export HYPERLOOM_SIGNING_KEY_FILE=\"$keyfile\"; fi && if [ -n \"${SANDBOX_STARTUP-}\" ]; then eval \"$SANDBOX_STARTUP\"; fi && exec /shared/bin/envd --port=8080 --workspace=/app"
 
 // sandboxRuntimePath is PATH when the container starts with none.
 const sandboxRuntimePath = "/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin"
@@ -552,6 +557,23 @@ func TestChartRendersTheSandboxPathSetupExactly(t *testing.T) {
 		main := renderSandboxPod(t, values...).Spec.PodTemplate.Spec.Containers[0]
 		testifyrequire.Equal(t, []string{"/bin/sh", "-c"}, main.Command, "values %v", values)
 		testifyrequire.Equal(t, []string{sandboxPathSetupScript + sandboxStartupTail}, main.Args, "values %v", values)
+		foundNode := false
+		foundKey := false
+		for _, current := range main.Env {
+			if current.Name == "NODE_NAME" {
+				foundNode = true
+				fieldRef, _ := current.ValueFrom["fieldRef"].(map[string]interface{})
+				testifyrequire.NotNil(t, fieldRef, "values %v", values)
+				testifyassert.Equal(t, "spec.nodeName", fieldRef["fieldPath"], "values %v", values)
+			}
+			if current.Name == "HYPERLOOM_SIGNING_KEY_FILE" {
+				foundKey = true
+				testifyassert.Equal(t, "/run/signing-key/signing-key.pem", current.Value, "values %v", values)
+				testifyassert.Nil(t, current.ValueFrom, "values %v", values)
+			}
+		}
+		testifyrequire.True(t, foundNode, "values %v", values)
+		testifyrequire.True(t, foundKey, "values %v", values)
 	}
 }
 

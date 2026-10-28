@@ -916,6 +916,8 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 		err = updateMonarchMesh(obj, adminWorkload)
 	case commonworkload.IsSandBox(adminWorkload):
 		err = r.updateSandbox(ctx, clientSets, obj, adminWorkload, workspace, rt)
+	case agentSandboxPyTorch(adminWorkload):
+		err = r.applyAgentSandboxPyTorch(ctx, clientSets, obj, adminWorkload, workspace, rt)
 	}
 	if err != nil {
 		return err
@@ -946,6 +948,12 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 	for i := len(rt.Spec.ResourceSpecs) - 1; i >= len(adminWorkload.Spec.Resources); i-- {
 		t := rt.Spec.ResourceSpecs[i]
 		if err = jobutils.RemoveNestedField(obj.Object, t.PrePaths); err != nil {
+			return err
+		}
+	}
+	// Apply after updateContainers so a caller-supplied path cannot replace the copied key.
+	if commonworkload.IsSandBox(adminWorkload) || agentSandboxPyTorch(adminWorkload) {
+		if err = pointSigningKeyFile(obj, adminWorkload, rt); err != nil {
 			return err
 		}
 	}

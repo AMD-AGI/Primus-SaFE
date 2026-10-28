@@ -763,6 +763,11 @@ func GetSandboxSecret() string {
 	return getString(sandboxSecret, "")
 }
 
+// GetSandboxEnvdInjectorImage returns the image that installs the envd binary.
+func GetSandboxEnvdInjectorImage() string {
+	return getString(sandboxEnvdInjectorImage, "")
+}
+
 // ── External execution capacity ─────────────────────────────────────────
 
 // IsExternalExecutionEnable reports whether external execution capacity is admitted.
