@@ -93,14 +93,17 @@ func (c *LiteLLMClient) CreateUser(ctx context.Context, email string) error {
 }
 
 // CreateKey creates a Virtual Key bound to a LiteLLM User via POST /key/generate.
+// An empty apimKey creates a key without APIM metadata, for a user who has not
+// uploaded one.
 func (c *LiteLLMClient) CreateKey(ctx context.Context, email, apimKey string) (*CreateKeyResponse, error) {
+	metadata := map[string]string{"safe_user_id": email}
+	if apimKey != "" {
+		metadata["apim_key"] = apimKey
+	}
 	reqBody := CreateKeyRequest{
-		UserID: email,
-		TeamID: c.teamID,
-		Metadata: map[string]string{
-			"apim_key":     apimKey,
-			"safe_user_id": email,
-		},
+		UserID:   email,
+		TeamID:   c.teamID,
+		Metadata: metadata,
 		KeyAlias: email,
 	}
 
@@ -144,14 +147,16 @@ func (c *LiteLLMClient) CreateKey(ctx context.Context, email, apimKey string) (*
 
 // UpdateKeyMetadata updates the metadata of an existing Virtual Key.
 // Both apim_key and safe_user_id are included to prevent metadata loss
-// since LiteLLM /key/update replaces the entire metadata object.
+// since LiteLLM /key/update replaces the entire metadata object. An empty
+// apimKey leaves apim_key out, which is how a key without one is described.
 func (c *LiteLLMClient) UpdateKeyMetadata(ctx context.Context, tokenHash string, apimKey string, email string) error {
+	metadata := map[string]string{"safe_user_id": email}
+	if apimKey != "" {
+		metadata["apim_key"] = apimKey
+	}
 	reqBody := UpdateKeyRequest{
-		Key: tokenHash,
-		Metadata: map[string]string{
-			"apim_key":     apimKey,
-			"safe_user_id": email,
-		},
+		Key:      tokenHash,
+		Metadata: metadata,
 	}
 
 	body, err := json.Marshal(reqBody)

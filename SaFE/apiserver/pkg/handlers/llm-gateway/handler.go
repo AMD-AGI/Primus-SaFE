@@ -238,36 +238,64 @@ func (h *Handler) createBindingLocked(ctx context.Context, email, apimKey string
 		return nil, commonerrors.NewInternalError("service temporarily unavailable, please try again later")
 	}
 	if existing != nil {
-		return nil, commonerrors.NewAlreadyExist("APIM Key already bound for " + email + ", use PUT to update")
+		if hasApimKey(existing) {
+			return nil, commonerrors.NewAlreadyExist("APIM Key already bound for " + email + ", use PUT to update")
+		}
+		// The proxy already gave this user a virtual key without an APIM key;
+		// uploading one fills that binding rather than creating a second.
+		return h.fillApimKeyLocked(ctx, existing, email, apimKey)
 	}
 
-	apimKeyHash := dbclient.ComputeApimKeyHash(apimKey)
-
-	encryptedApimKey, err := h.crypto.Encrypt([]byte(apimKey))
+	binding, virtualKey, err := h.provisionBindingLocked(ctx, email, apimKey)
 	if err != nil {
-		klog.ErrorS(err, "CreateBinding: failed to encrypt APIM Key", "email", email)
-		return nil, commonerrors.NewInternalError("service temporarily unavailable, please try again later")
+		return nil, err
+	}
+	return &BindingResponse{
+		UserEmail:  email,
+		KeyAlias:   email,
+		HasAPIMKey: true,
+		VirtualKey: virtualKey,
+		CreatedAt:  binding.CreatedAt.Format("2006-01-02T15:04:05Z"),
+	}, nil
+}
+
+// provisionBindingLocked creates the user's LiteLLM virtual key and persists
+// the binding for it. An empty apimKey provisions a binding that carries only
+// the virtual key. The caller holds the user's binding lock and has verified
+// that no binding exists. It returns the stored binding and the plaintext
+// virtual key.
+func (h *Handler) provisionBindingLocked(ctx context.Context, email, apimKey string) (*dbclient.LLMGatewayUserBinding, string, error) {
+	var apimKeyHash, encryptedApimKey string
+	if apimKey != "" {
+		apimKeyHash = dbclient.ComputeApimKeyHash(apimKey)
+
+		var err error
+		encryptedApimKey, err = h.crypto.Encrypt([]byte(apimKey))
+		if err != nil {
+			klog.ErrorS(err, "CreateBinding: failed to encrypt APIM Key", "email", email)
+			return nil, "", commonerrors.NewInternalError("service temporarily unavailable, please try again later")
+		}
 	}
 
 	if err := h.litellmClient.CreateUser(ctx, email); err != nil {
 		klog.ErrorS(err, "CreateBinding: LiteLLM create user failed", "email", email)
-		return nil, commonerrors.NewInternalError("LLM service unavailable, please try again later")
+		return nil, "", commonerrors.NewInternalError("LLM service unavailable, please try again later")
 	}
 
 	litellmResp, err := h.createLiteLLMKeyWithRecovery(ctx, email, apimKey)
 	if err != nil {
 		klog.ErrorS(err, "CreateBinding: LiteLLM create key failed", "email", email)
 		if commonerrors.IsPrimus(err) {
-			return nil, err
+			return nil, "", err
 		}
-		return nil, commonerrors.NewInternalError("LLM service unavailable, please try again later")
+		return nil, "", commonerrors.NewInternalError("LLM service unavailable, please try again later")
 	}
 
 	encryptedVKey, err := h.crypto.Encrypt([]byte(litellmResp.Key))
 	if err != nil {
 		klog.ErrorS(err, "CreateBinding: failed to encrypt Virtual Key", "email", email)
 		h.rollbackLiteLLMKeyByHash(litellmResp.TokenID, email, "virtual key encryption failed")
-		return nil, commonerrors.NewInternalError("service temporarily unavailable, please try again later")
+		return nil, "", commonerrors.NewInternalError("service temporarily unavailable, please try again later")
 	}
 
 	binding := &dbclient.LLMGatewayUserBinding{
@@ -282,17 +310,69 @@ func (h *Handler) createBindingLocked(ctx context.Context, email, apimKey string
 	if err := h.dbClient.CreateLLMBinding(ctx, binding); err != nil {
 		klog.ErrorS(err, "CreateBinding: DB save failed, rolling back LiteLLM key", "email", email)
 		h.rollbackLiteLLMKeyByHash(litellmResp.TokenID, email, "DB save failed")
-		return nil, commonerrors.NewInternalError("failed to save binding, please try again later")
+		return nil, "", commonerrors.NewInternalError("failed to save binding, please try again later")
 	}
 
-	klog.Infof("LLM Gateway: binding created for %s", email)
+	klog.Infof("LLM Gateway: binding created for %s (apim key: %t)", email, apimKey != "")
+	return binding, litellmResp.Key, nil
+}
+
+// fillApimKeyLocked stores the first APIM key on a binding that has only the
+// virtual key and answers like a fresh create: the virtual key is returned
+// because the user has never seen it.
+func (h *Handler) fillApimKeyLocked(ctx context.Context, existing *dbclient.LLMGatewayUserBinding, email, apimKey string) (*BindingResponse, error) {
+	virtualKey, err := h.crypto.Decrypt(existing.LiteLLMVirtualKey)
+	if err != nil {
+		klog.ErrorS(err, "CreateBinding: failed to decrypt Virtual Key", "email", email)
+		return nil, commonerrors.NewInternalError("service temporarily unavailable, please try again later")
+	}
+	if err := h.replaceApimKey(ctx, existing, email, apimKey, "CreateBinding"); err != nil {
+		return nil, err
+	}
+	klog.Infof("LLM Gateway: APIM key added to existing binding for %s", email)
 	return &BindingResponse{
 		UserEmail:  email,
-		KeyAlias:   email,
+		KeyAlias:   existing.KeyAlias,
 		HasAPIMKey: true,
-		VirtualKey: litellmResp.Key,
-		CreatedAt:  binding.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		VirtualKey: virtualKey,
+		CreatedAt:  existing.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}, nil
+}
+
+// replaceApimKey makes apimKey the APIM key of an existing binding: LiteLLM
+// key metadata first, then the row, undoing the metadata when the row cannot
+// be saved. op names the calling endpoint in logs.
+func (h *Handler) replaceApimKey(ctx context.Context, existing *dbclient.LLMGatewayUserBinding, email, apimKey, op string) error {
+	newApimKeyHash := dbclient.ComputeApimKeyHash(apimKey)
+
+	oldApimKey, _ := h.crypto.Decrypt(existing.ApimKey)
+	// A previous key that could not be read back cannot be restored; a binding
+	// that never had one is restored to having none.
+	restorable := oldApimKey != "" || !hasApimKey(existing)
+
+	if err := h.litellmClient.UpdateKeyMetadata(ctx, existing.LiteLLMKeyHash, apimKey, email); err != nil {
+		klog.ErrorS(err, op+": LiteLLM update key failed", "email", email)
+		return commonerrors.NewInternalError("LLM service unavailable, please try again later")
+	}
+
+	encryptedApimKey, err := h.crypto.Encrypt([]byte(apimKey))
+	if err != nil {
+		klog.ErrorS(err, op+": failed to encrypt APIM Key", "email", email)
+		if restorable {
+			_ = h.litellmClient.UpdateKeyMetadata(ctx, existing.LiteLLMKeyHash, oldApimKey, email)
+		}
+		return commonerrors.NewInternalError("service temporarily unavailable, please try again later")
+	}
+	existing.ApimKey = encryptedApimKey
+	existing.ApimKeyHash = newApimKeyHash
+	if err := h.dbClient.UpdateLLMBinding(ctx, existing); err != nil {
+		klog.ErrorS(err, op+": DB save failed, rolling back LiteLLM key", "email", email)
+		if restorable {
+			_ = h.litellmClient.UpdateKeyMetadata(ctx, existing.LiteLLMKeyHash, oldApimKey, email)
+		}
+		return commonerrors.NewInternalError("failed to update binding, please try again later")
+	}
+	return nil
 }
 
 func (h *Handler) createLiteLLMKeyWithRecovery(ctx context.Context, email, apimKey string) (*CreateKeyResponse, error) {
@@ -367,33 +447,8 @@ func (h *Handler) UpdateBinding(c *gin.Context) {
 		return
 	}
 
-	newApimKeyHash := dbclient.ComputeApimKeyHash(req.ApimKey)
-
-	oldApimKey, _ := h.crypto.Decrypt(existing.ApimKey)
-
-	if err := h.litellmClient.UpdateKeyMetadata(c.Request.Context(), existing.LiteLLMKeyHash, req.ApimKey, email); err != nil {
-		klog.ErrorS(err, "UpdateBinding: LiteLLM update key failed", "email", email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("LLM service unavailable, please try again later"))
-		return
-	}
-
-	encryptedApimKey, err := h.crypto.Encrypt([]byte(req.ApimKey))
-	if err != nil {
-		klog.ErrorS(err, "UpdateBinding: failed to encrypt APIM Key", "email", email)
-		if oldApimKey != "" {
-			_ = h.litellmClient.UpdateKeyMetadata(c.Request.Context(), existing.LiteLLMKeyHash, oldApimKey, email)
-		}
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
-		return
-	}
-	existing.ApimKey = encryptedApimKey
-	existing.ApimKeyHash = newApimKeyHash
-	if err := h.dbClient.UpdateLLMBinding(c.Request.Context(), existing); err != nil {
-		klog.ErrorS(err, "UpdateBinding: DB save failed, rolling back LiteLLM key", "email", email)
-		if oldApimKey != "" {
-			_ = h.litellmClient.UpdateKeyMetadata(c.Request.Context(), existing.LiteLLMKeyHash, oldApimKey, email)
-		}
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to update binding, please try again later"))
+	if err := h.replaceApimKey(c.Request.Context(), existing, email, req.ApimKey, "UpdateBinding"); err != nil {
+		apiutils.AbortWithApiError(c, err)
 		return
 	}
 
@@ -465,14 +520,16 @@ func (h *Handler) GetBinding(c *gin.Context) {
 	}
 
 	var apimKeyHint string
-	if plainKey, err := h.crypto.Decrypt(existing.ApimKey); err == nil && plainKey != "" {
-		apimKeyHint = maskKey(plainKey)
+	if hasApimKey(existing) {
+		if plainKey, err := h.crypto.Decrypt(existing.ApimKey); err == nil && plainKey != "" {
+			apimKeyHint = maskKey(plainKey)
+		}
 	}
 
 	c.JSON(http.StatusOK, BindingResponse{
 		UserEmail:   email,
 		KeyAlias:    existing.KeyAlias,
-		HasAPIMKey:  true,
+		HasAPIMKey:  hasApimKey(existing),
 		ApimKeyHint: apimKeyHint,
 		CreatedAt:   existing.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:   existing.UpdatedAt.Format("2006-01-02T15:04:05Z"),
@@ -495,7 +552,7 @@ func (h *Handler) RevealApimKey(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
 		return
 	}
-	if existing == nil {
+	if existing == nil || !hasApimKey(existing) {
 		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("no APIM Key bound for "+email))
 		return
 	}
