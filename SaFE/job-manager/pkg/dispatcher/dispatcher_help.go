@@ -71,7 +71,9 @@ ln -sf ld-musl-x86_64.so.1 /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true
 	// envdStartupScript starts envd in the main container. It is the Sandbox
 	// template's startup command (PATH setup, work directory, CA setup, the
 	// signing key file, and the SANDBOX_STARTUP snippet); a test keeps the two in step.
-	envdStartupScript = `__sandbox_path_rest="${PATH-}:"'/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin:'; __sandbox_path=; while [ -n "$__sandbox_path_rest" ]; do __sandbox_path_dir="${__sandbox_path_rest%%:*}"; __sandbox_path_rest="${__sandbox_path_rest#*:}"; case "$__sandbox_path_dir" in */../*|*/..) ;; /*) case ":$__sandbox_path:" in *":$__sandbox_path_dir:"*) ;; *) __sandbox_path="${__sandbox_path:+$__sandbox_path:}$__sandbox_path_dir" ;; esac ;; esac; done; PATH="$__sandbox_path"; export PATH; unset __sandbox_path_rest __sandbox_path_dir __sandbox_path; mkdir -p /app /app/work && /shared/bin/setup-amd-ca.sh && if [ -n "${HYPERLOOM_SIGNING_KEY_PEM-}" ]; then umask 077; printf '%s\n' "$HYPERLOOM_SIGNING_KEY_PEM" > /app/signing-key.pem; unset HYPERLOOM_SIGNING_KEY_PEM; fi && if [ -n "${SANDBOX_STARTUP-}" ]; then eval "$SANDBOX_STARTUP"; fi && exec /shared/bin/envd --port=8080 --workspace=/app`
+	// A PEM in the environment is written mode 0400 to HYPERLOOM_SIGNING_KEY_FILE,
+	// defaulting to tmpfs, then removed from the environment. The file is never under /app.
+	envdStartupScript = `__sandbox_path_rest="${PATH-}:"'/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin:'; __sandbox_path=; while [ -n "$__sandbox_path_rest" ]; do __sandbox_path_dir="${__sandbox_path_rest%%:*}"; __sandbox_path_rest="${__sandbox_path_rest#*:}"; case "$__sandbox_path_dir" in */../*|*/..) ;; /*) case ":$__sandbox_path:" in *":$__sandbox_path_dir:"*) ;; *) __sandbox_path="${__sandbox_path:+$__sandbox_path:}$__sandbox_path_dir" ;; esac ;; esac; done; PATH="$__sandbox_path"; export PATH; unset __sandbox_path_rest __sandbox_path_dir __sandbox_path; mkdir -p /app /app/work && /shared/bin/setup-amd-ca.sh && if [ -n "${HYPERLOOM_SIGNING_KEY_PEM-}" ]; then keyfile="${HYPERLOOM_SIGNING_KEY_FILE:-/dev/shm/hyperloom-signing-key.pem}"; case "$keyfile" in /app|/app/*) echo "signing key path is under /app" >&2; exit 1;; esac; mkdir -p "$(dirname "$keyfile")"; umask 077; printf '%s\n' "$HYPERLOOM_SIGNING_KEY_PEM" > "$keyfile"; chmod 0400 "$keyfile"; unset HYPERLOOM_SIGNING_KEY_PEM; export HYPERLOOM_SIGNING_KEY_FILE="$keyfile"; fi && if [ -n "${SANDBOX_STARTUP-}" ]; then eval "$SANDBOX_STARTUP"; fi && exec /shared/bin/envd --port=8080 --workspace=/app`
 	// sessionIDAnnotation is the downward-API field envd compares with the Router token.
 	sessionIDAnnotation   = "runtime.agent-sandbox.io/session-id"
 	sessionIdentityVolume = "envd-session-identity"
@@ -2948,6 +2950,9 @@ func (r *DispatcherReconciler) applyAgentSandboxPyTorch(ctx context.Context, cli
 		if err := ensureEnvD(obj, adminWorkload, spec); err != nil {
 			return err
 		}
+		if err := ensureScheduledNodeName(obj, adminWorkload, spec); err != nil {
+			return err
+		}
 		if err := ensureSessionIdentity(obj, adminWorkload, spec); err != nil {
 			return err
 		}
@@ -3050,6 +3055,46 @@ func ensureEnvD(obj *unstructured.Unstructured, workload *v1.Workload, resourceS
 		"emptyDir": map[string]interface{}{},
 	})
 	return jobutils.SetNestedField(obj.Object, volumes, volumesPath)
+}
+
+// ensureScheduledNodeName sets NODE_NAME from the scheduled node, matching the Sandbox template.
+func ensureScheduledNodeName(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
+	containers, path, err := getContainers(workload, obj, *resourceSpec)
+	if err != nil {
+		return err
+	}
+	nodeEnv := map[string]interface{}{
+		"name": "NODE_NAME",
+		"valueFrom": map[string]interface{}{
+			"fieldRef": map[string]interface{}{"fieldPath": "spec.nodeName"},
+		},
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		envs, _ := container["env"].([]interface{})
+		if hasEnvName(envs, "NODE_NAME") {
+			continue
+		}
+		container["env"] = append(envs, nodeEnv)
+		containers[i] = container
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+func hasEnvName(envs []interface{}, name string) bool {
+	for _, item := range envs {
+		env, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if got, _ := env["name"].(string); got == name {
+			return true
+		}
+	}
+	return false
 }
 
 func dropCapability(container map[string]interface{}, name string) {
@@ -3266,7 +3311,8 @@ func updateContainers(adminWorkload *v1.Workload,
 			// degrading a PD deployment to aggregated. On the create path the
 			// flags are then a no-op for normalizeInferaIDEP, whose per-flag
 			// dedup sees them already present.
-			if cmds := expectedCommands(adminWorkload, id); len(cmds) > 0 {
+			// An Agent Sandbox PyTorchJob runs envd. Its entry point must not replace that command.
+			if cmds := expectedCommands(adminWorkload, id); len(cmds) > 0 && !agentSandboxPyTorch(adminWorkload) {
 				container["command"] = cmds
 			}
 		}
