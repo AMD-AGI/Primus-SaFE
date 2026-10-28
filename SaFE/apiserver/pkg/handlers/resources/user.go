@@ -119,8 +119,13 @@ func (h *Handler) updateUserSettings(c *gin.Context) (interface{}, error) {
 	targetUserId := c.GetString(common.Name)
 	var targetUser *v1.User
 	if targetUserId == common.UserSelf {
-		targetUser = requestUser
+		// The record, not requestUser: that is the user as this request sees it, with the roles
+		// the identity lent it, and the update below must not store them.
 		targetUserId = requestUser.Name
+		targetUser, err = h.getAdminUser(c.Request.Context(), targetUserId)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		targetUser, err = h.getAdminUser(c.Request.Context(), targetUserId)
 		if err != nil {

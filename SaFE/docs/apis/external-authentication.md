@@ -14,7 +14,7 @@ With `auth.mode: external` the apiserver instead asks a configurable chain of au
 |---|---|
 | `oidc` | Validates a JWT from one issuer: signature (keys from `jwks_url`, or the issuer's discovery document), `iss`, `aud` (required), `exp`, `nbf`, with `clock_skew` leeway. Keys are cached (`jwks_cache_ttl`), refreshed when an unknown key id appears, and the cached keys keep working if the issuer's key endpoint is down. A JWT from another issuer is not judged by this entry, so several issuers can share a chain. |
 | `introspection` | Asks an OAuth 2.0 token introspection endpoint (RFC 7662) at `url` (or the `introspection_endpoint` of `issuer`'s discovery document) who a credential belongs to, for credentials SaFE cannot interpret itself (opaque tokens such as API keys, session cookies). The apiserver authenticates to the endpoint as `client_id` with the secret in the file `client_secret_file` (a mounted Secret, read on every call so rotation needs no restart). Answers are cached: accepted credentials for `cache_ttl` (default 30s), rejected ones for `cache_negative_ttl` (default 5s); concurrent requests with one credential share one call. |
-| `builtin` | Hands the request to the built-in mode. Put it last to keep a local administrator able to sign in, including while the introspection endpoint is down. |
+| `builtin` | Hands the request to the built-in mode (the apiserver's own accounts, sessions and API keys). The identity it authenticates holds no platform role (see [Users and roles](#users-and-roles)). |
 
 ### Introspection protocol
 
@@ -51,7 +51,8 @@ If the introspection endpoint cannot answer, a credential it **accepted** before
 ## Users and roles
 
 * **Just-in-time users.** The first time an authenticated `uid` is seen, SaFE creates the user object (name is the `uid`, which must be a valid resource name; email and display name become annotations). Later requests only refresh those annotations. No role is written.
-* **Groups map to roles at request time.** `auth.group_mappings` maps identity groups to SaFE roles; the result is computed for each request and never stored, so removing a user from a group takes effect on the next request. The effective roles are the user object's `roles` united with the mapped ones. The `workspace-admin` role in a mapping means managing the listed `workspaces`; any mapping with `workspaces` also grants access to them.
+* **Groups map to roles at request time.** `auth.group_mappings` maps identity groups to SaFE roles; the result is computed for each request and never stored, so removing a user from a group takes effect on the next request. The `workspace-admin` role in a mapping means managing the listed `workspaces`; any mapping with `workspaces` also grants access to them.
+* **The platform roles come only from the identity.** `system-admin` and `system-admin-readonly` are held by a request if and only if a group mapping grants them. The roles stored on the user object are ignored for these two, so an administrator whose group is removed at the identity provider stops being one within `cache_ttl` (30s by default) even though the object still lists the role, and restoring the group restores the role. Nothing is written to the user object, so `auth.mode: builtin` finds it as it was. Every other role, the workspaces and the restriction are the user object's united with the mapped ones. A user who holds no platform role is an ordinary user and holds the `default` role. This applies to every request in external mode, including one the chain hands to the `builtin` entry: no identity provider vouched for it, so the platform roles stored on its user object do not count. There is no local-account exception; to sign in with local accounts, use `auth.mode: builtin`.
 
 ```yaml
 auth:
@@ -59,14 +60,13 @@ auth:
   authenticators:
     - {type: oidc, issuer: "https://idp.example.com", audience: safe-apiserver}
     - {type: introspection, issuer: "https://idp.example.com", audience: safe-apiserver, client_id: safe-apiserver, client_secret_file: /etc/secrets/auth/client-secret}
-    - {type: builtin}
   group_mappings:
     - {group: platform-admins, roles: [system-admin]}
     - {group: team-a-leads, roles: [workspace-admin], workspaces: [team-a]}
   login_url: "https://console.example.com/sign-in"
 ```
 
-Mapped roles and workspaces are honoured by the access controller (`Authorize`, `AuthorizeSystemAdmin`, role lookup) and by `GET /users/self`. A handful of handlers that read the stored user object directly (for example some model and workspace-label checks) still see only the stored roles; they fail closed.
+Mapped roles and workspaces are part of the user every handler resolves for the request (`AccessController.GetRequestUser`), so the access controller (`Authorize`, `AuthorizeSystemAdmin`, role lookup), the checks handlers make on the user directly (model visibility, workspace access, the sandbox environment Secret, reserved workspace labels) and `GET /users/self` all agree. That user is a copy for the request; it is never written back to the user object. An SSH session is not an HTTP request: it is authenticated by public key and sees the roles stored on the user object.
 
 ## Delegated tokens
 

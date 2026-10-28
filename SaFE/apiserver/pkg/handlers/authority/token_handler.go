@@ -12,6 +12,7 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -35,12 +36,26 @@ type TokenItem struct {
 func ParseToken(c *gin.Context) error {
 	// In external mode the configured authenticator chain decides first; when the chain
 	// reaches the built-in mode, or the mode is builtin (the default), the code below runs.
-	if st := externalState.Load(); st != nil {
+	st := externalState.Load()
+	if st != nil {
 		handled, err := parseExternal(c, st)
 		if handled || err != nil {
 			return err
 		}
 	}
+	err := parseBuiltin(c)
+	if err == nil && st != nil {
+		// The chain reached the built-in mode, so no identity provider vouched for this request,
+		// and the platform roles come only from identity providers: the user is an ordinary
+		// one, whatever the user object stores. There is no local-account exception.
+		c.Request = c.Request.WithContext(extauth.WithOverlay(c.Request.Context(),
+			extauth.MapGroups(c.GetString(common.UserId), nil, st.mappings, false)))
+	}
+	return err
+}
+
+// parseBuiltin authenticates a request with the apiserver's own API keys, sessions and accounts.
+func parseBuiltin(c *gin.Context) error {
 	// First, try to authenticate with API key from Authorization: Bearer header
 	authHeader := c.GetHeader("Authorization")
 	apiKey := ExtractApiKeyFromRequest(authHeader)
