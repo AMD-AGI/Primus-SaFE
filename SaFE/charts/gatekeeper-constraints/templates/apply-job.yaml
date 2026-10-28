@@ -76,6 +76,7 @@ roleRef:
   kind: ClusterRole
   name: gatekeeper-constraint-apply
 ---
+# Creates the Config, ConstraintTemplates, and constraints after Gatekeeper registers their CRDs.
 apiVersion: batch/v1
 kind: Job
 metadata:
