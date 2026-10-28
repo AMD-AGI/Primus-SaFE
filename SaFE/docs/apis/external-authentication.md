@@ -14,7 +14,7 @@ With `auth.mode: external` the apiserver instead asks a configurable chain of au
 |---|---|
 | `oidc` | Validates a JWT from one issuer: signature (keys from `jwks_url`, or the issuer's discovery document), `iss`, `aud` (required), `exp`, `nbf`, with `clock_skew` leeway. Keys are cached (`jwks_cache_ttl`), refreshed when an unknown key id appears, and the cached keys keep working if the issuer's key endpoint is down. A JWT from another issuer is not judged by this entry, so several issuers can share a chain. |
 | `introspection` | Asks an OAuth 2.0 token introspection endpoint (RFC 7662) at `url` (or the `introspection_endpoint` of `issuer`'s discovery document) who a credential belongs to, for credentials SaFE cannot interpret itself (opaque tokens such as API keys, session cookies). The apiserver authenticates to the endpoint as `client_id` with the secret in the file `client_secret_file` (a mounted Secret, read on every call so rotation needs no restart). Answers are cached: accepted credentials for `cache_ttl` (default 30s), rejected ones for `cache_negative_ttl` (default 5s); concurrent requests with one credential share one call. |
-| `builtin` | Hands the request to the built-in mode. Put it last to keep a local administrator able to sign in, including while the introspection endpoint is down. |
+| `builtin` | Hands the request to the built-in mode, which keeps accepting the sessions and API keys it issued before the switch. It does not bring back sign-in: see "What the apiserver stops offering". |
 
 ### Introspection protocol
 
@@ -68,6 +68,21 @@ auth:
 
 Mapped roles and workspaces are honoured by the access controller (`Authorize`, `AuthorizeSystemAdmin`, role lookup) and by `GET /users/self`. A handful of handlers that read the stored user object directly (for example some model and workspace-label checks) still see only the stored roles; they fail closed.
 
+## What the apiserver stops offering
+
+With `auth.mode: external` the identity provider owns sign-in, accounts, API keys and platform roles, so the apiserver refuses the ways of creating them itself, with `403`, for every caller and every account type (there is no local-account exception):
+
+| Request | Why |
+|---|---|
+| `POST /api/v1/login` (password and SSO code) | sign-in belongs to the provider |
+| `POST /api/v1/users` (registration) | accounts are created by the provider's first sign-in |
+| `POST /api/v1/apikeys`, `DELETE /api/v1/apikeys/{id}` | keys are issued and revoked with the provider |
+| `PATCH /api/v1/users/{id}` that adds or removes `system-admin` or `system-admin-readonly` | platform roles come from the provider through `group_mappings`; a patch that leaves them as they are (other fields, other roles) is accepted |
+
+`GET /api/v1/envs` reports `authMode`, and the console hides the password form, registration, password change, API key management and role editing accordingly. Reading keys (`GET /apikeys`) and everything else is unchanged.
+
+Because a local sign-in is not available, backing out of an outage of the provider is a configuration change, not a login: set `auth.mode: builtin` (see below).
+
 ## Delegated tokens
 
 A token that carries an `act` claim (RFC 8693) means a party is acting on behalf of the user; SaFE records the actor, and restricts it, whoever issued it:
@@ -84,4 +99,4 @@ A malformed `act` claim is rejected rather than read as a direct login.
 
 ## Rolling back
 
-Set `auth.mode: builtin`. No user object or table is changed by either mode.
+Set `auth.mode: builtin` and roll the apiserver. No user object or table is changed by either mode, and the endpoints listed under "What the apiserver stops offering" work again.

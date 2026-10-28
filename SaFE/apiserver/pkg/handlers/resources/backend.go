@@ -27,6 +27,7 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 		EnableSSH:            commonconfig.IsSSHEnable(),
 		SSHIP:                commonconfig.GetSSHServerIP(),
 		SSHPort:              commonconfig.GetSSHServerPort(),
+		AuthMode:             commonconfig.GetAuthMode(),
 		SSOEnable:            commonconfig.IsSSOEnable(),
 		SSOBridgeAllowlist:   commonconfig.GetSSOBridgeAllowlist(),
 		CDRequireApproval:    commonconfig.IsCDRequireApproval(),

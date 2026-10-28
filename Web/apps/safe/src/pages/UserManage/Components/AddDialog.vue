@@ -24,7 +24,7 @@
         <el-input v-model="form.name" :disabled="isEdit" />
       </el-form-item>
 
-      <el-form-item label="Password" prop="password">
+      <el-form-item v-if="!external" label="Password" prop="password">
         <el-input v-model="form.password" />
       </el-form-item>
 
@@ -32,7 +32,7 @@
         <el-input v-model="form.email" />
       </el-form-item>
       <el-form-item label="Roles" prop="roles" v-if="isEdit">
-        <el-select v-model="form.roles" multiple clearable>
+        <el-select v-model="form.roles" multiple clearable :disabled="external">
           <el-option label="default" value="default" />
           <el-option label="system-admin" value="system-admin" />
           <el-option label="system-admin-readonly" value="system-admin-readonly" />
@@ -86,6 +86,7 @@ import type { RegisterReq, UserSelfData } from '@/services'
 import { register, editUser } from '@/services'
 import { type FormInstance, type FormRules, ElMessage } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useUserStore } from '@/stores/user'
 
 const props = defineProps<{
   visible: boolean
@@ -96,6 +97,10 @@ const emit = defineEmits(['update:visible', 'success'])
 const isEdit = computed(() => props.action === 'Edit')
 
 const wsStore = useWorkspaceStore()
+const userStore = useUserStore()
+// An external identity provider decides platform roles and there are no passwords here;
+// the server refuses to change the roles, so the dialog neither offers nor sends them.
+const external = computed(() => userStore.isExternalAuth)
 
 const initialForm = () => ({
   id: '',
@@ -140,11 +145,13 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       })
       ElMessage({ message: 'Create successful', type: 'success' })
     } else {
-      const { id, name, type, creationTime, managedWorkspaces, password, ...baseEditForm } = form
+      const { id, name, type, creationTime, managedWorkspaces, password, roles, ...baseEditForm } =
+        form
       if (!props.user) return
       await editUser(form.id, {
         ...baseEditForm,
-        ...(password ? { password } : {}),
+        ...(external.value ? {} : { roles }),
+        ...(password && !external.value ? { password } : {}),
       })
       ElMessage({ message: 'Edit successful', type: 'success' })
     }

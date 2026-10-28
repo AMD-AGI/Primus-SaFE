@@ -109,7 +109,7 @@
               match="prefix"
             />Secrets
           </el-menu-item>
-          <el-menu-item index="/manageapikeys">
+          <el-menu-item v-if="showAPIKeys" index="/manageapikeys">
             <MenuItemIcon
               index="/manageapikeys"
               :light="menuIcons.apikey.light"
@@ -245,6 +245,8 @@ const router = useRouter()
 const userStore = useUserStore()
 const wsStore = useWorkspaceStore()
 const hasManagerAccess = computed(() => userStore.hasManagerAccess)
+// API keys live with the identity provider when one is configured.
+const showAPIKeys = computed(() => !userStore.isExternalAuth)
 const menuRef = ref()
 
 // Elegant permission check function
@@ -683,7 +685,7 @@ const flattenNav = (items: MenuItem[], section: string): FlatNavItem[] => {
 }
 
 const searchIndex = computed<FlatNavItem[]>(() => [
-  ...staticNavItems,
+  ...staticNavItems.filter((item) => item.path !== '/manageapikeys' || showAPIKeys.value),
   ...flattenNav(workloadMenuItems.value, 'Workloads'),
   ...(hasManagerAccess.value ? flattenNav(modelLabMenuItems, 'Model Lab') : []),
   ...flattenNav(aiAgentMenuItems.value, 'AI Agent'),

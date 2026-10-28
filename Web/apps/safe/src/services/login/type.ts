@@ -58,6 +58,9 @@ export interface EnvsResp {
   sshPort?: number
   sshIP?: string
   authoringImage?: string
+  // How requests are authenticated. With 'external' an identity provider owns sign-in,
+  // accounts, API keys and platform roles; the console hides what the server refuses.
+  authMode?: 'builtin' | 'external'
   // sso
   ssoEnable?: boolean
   ssoAuthUrl?: string

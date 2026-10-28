@@ -50,6 +50,9 @@ func (h *Handler) DeleteApiKey(c *gin.Context) {
 
 // createApiKey implements the API key creation logic.
 func (h *Handler) createApiKey(c *gin.Context) (interface{}, error) {
+	if err := refuseExternal("creating an API key"); err != nil {
+		return nil, err
+	}
 	if h.dbClient == nil {
 		return nil, commonerrors.NewInternalError("database is not enabled")
 	}
@@ -266,6 +269,9 @@ func (h *Handler) listApiKey(c *gin.Context) (interface{}, error) {
 
 // deleteApiKey implements the API key deletion logic (soft delete).
 func (h *Handler) deleteApiKey(c *gin.Context) (interface{}, error) {
+	if err := refuseExternal("deleting an API key"); err != nil {
+		return nil, err
+	}
 	if h.dbClient == nil {
 		return nil, commonerrors.NewInternalError("database is not enabled")
 	}

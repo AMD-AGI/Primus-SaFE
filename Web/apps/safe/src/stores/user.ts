@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { login, getUserData, logout, getEnvs } from '@/services/login'
 import type { LoginReq, UserSelfData, EnvsResp } from '@/services'
+import { isExternalAuth } from '@/utils/authMode'
 import { useWorkspaceStore } from './workspace'
 
 const QUICK_START_VERSION = 'v1'
@@ -72,6 +73,8 @@ export const useUserStore = defineStore('user', {
         (state.profile?.roles?.includes('system-admin-readonly') ?? false)
       return state.session === 'authenticated' && seenVer !== state.onboarding.quickStartVersion && !isAdmin
     },
+    // An identity provider owns sign-in, accounts, API keys and platform roles
+    isExternalAuth: (s) => isExternalAuth(s.envs),
     // CD approval config: whether approval is required (defaults to true)
     cdRequireApproval: (s) => s.envs?.cdRequireApproval ?? true,
   },

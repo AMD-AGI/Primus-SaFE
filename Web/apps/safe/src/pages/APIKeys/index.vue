@@ -4,6 +4,7 @@
     <div class="flex flex-wrap items-center justify-between gap-2 mt-4">
       <div class="flex flex-wrap items-center">
         <el-button
+          v-if="manageable"
           type="primary"
           round
           :icon="Plus"
@@ -16,6 +17,9 @@
         >
           Create API Key
         </el-button>
+        <el-text v-else type="info">
+          API keys are issued and revoked by the external identity provider.
+        </el-text>
       </div>
       <div class="flex flex-wrap items-center">
         <el-input
@@ -97,7 +101,7 @@
           {{ formatTimeStr(row.creationTime) }}
         </template>
       </el-table-column>
-      <el-table-column label="Actions" width="100" fixed="right">
+      <el-table-column v-if="manageable" label="Actions" width="100" fixed="right">
         <template #default="{ row }">
           <el-tooltip content="Delete" placement="top">
             <el-button
@@ -126,7 +130,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted, h, reactive } from 'vue'
+import { ref, onMounted, h, reactive, computed } from 'vue'
 import { listAPIKeys, deleteAPIKey } from '@/services/apikeys'
 import type { APIKey } from '@/services/apikeys/type'
 import { Plus, Delete, Key, Search } from '@element-plus/icons-vue'
@@ -135,7 +139,11 @@ import dayjs from 'dayjs'
 import { debounce } from 'lodash'
 import AddDialog from './Components/AddDialog.vue'
 import { formatTimeStr } from '@/utils/index'
+import { useUserStore } from '@/stores/user'
 
+const userStore = useUserStore()
+// The server refuses creating and deleting keys when an external identity provider owns them.
+const manageable = computed(() => !userStore.isExternalAuth)
 const addVisible = ref(false)
 const loading = ref(false)
 const items = ref<APIKey[]>([])

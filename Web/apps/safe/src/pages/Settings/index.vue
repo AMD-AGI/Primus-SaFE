@@ -69,15 +69,17 @@
           <span class="card-title">Security</span>
         </template>
 
-        <div class="setting-row">
-          <div>
-            <div class="setting-label">Password</div>
-            <div class="setting-desc">Update your account password.</div>
+        <template v-if="!userStore.isExternalAuth">
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Password</div>
+              <div class="setting-desc">Update your account password.</div>
+            </div>
+            <el-button size="small" plain @click="pwdVisible = true">Change Password</el-button>
           </div>
-          <el-button size="small" plain @click="pwdVisible = true">Change Password</el-button>
-        </div>
 
-        <el-divider style="margin: 14px 0" />
+          <el-divider style="margin: 14px 0" />
+        </template>
 
         <div class="setting-row">
           <div>
@@ -87,15 +89,17 @@
           <el-button size="small" plain @click="router.push('/publickeys')">Manage</el-button>
         </div>
 
-        <el-divider style="margin: 14px 0" />
+        <template v-if="!userStore.isExternalAuth">
+          <el-divider style="margin: 14px 0" />
 
-        <div class="setting-row">
-          <div>
-            <div class="setting-label">API Keys</div>
-            <div class="setting-desc">Manage API keys for programmatic access.</div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">API Keys</div>
+              <div class="setting-desc">Manage API keys for programmatic access.</div>
+            </div>
+            <el-button size="small" plain @click="router.push('/manageapikeys')">Manage</el-button>
           </div>
-          <el-button size="small" plain @click="router.push('/manageapikeys')">Manage</el-button>
-        </div>
+        </template>
       </el-card>
 
       <!-- Environment (admin only) -->

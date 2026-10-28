@@ -17,6 +17,7 @@ Returns environment configuration flags and endpoints used by the frontend and c
   "enableSsh": true,
   "sshPort": 30122,
   "sshIP": "10.0.0.10",
+  "authMode": "builtin",
   "ssoEnable": true,
   "ssoAuthUrl": "https://accounts.example.com/oauth2/authorize?client_id=abc&redirect_uri=http%3A%2F%2Ftest.primus-safe.amd.com&response_type=code&scope=openid+profile+email+groups"
 }
@@ -31,6 +32,7 @@ Returns environment configuration flags and endpoints used by the frontend and c
 | enableSsh | bool | Whether SSH features (including WebShell) are enabled. |
 | sshPort | int | SSH service port exposed by the system. |
 | sshIP | string | SSH service IP address. |
+| authMode | string | How requests are authenticated: `builtin` (the default) or `external`. With `external`, an identity provider owns sign-in, accounts, API keys and platform roles, and the console hides the password form, registration, password change, API key management and role editing (see [External Authentication](external-authentication.md)). An apiserver that predates this field omits it, which means `builtin`. |
 | ssoEnable | bool | Whether Single Sign-On (SSO) via OIDC is enabled. |
 | ssoAuthUrl | string | Authorization URL for SSO login; present only if `ssoEnable` is true. |
 
