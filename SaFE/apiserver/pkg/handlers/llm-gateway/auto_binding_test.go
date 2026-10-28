@@ -312,12 +312,15 @@ func newGatewayServer(t *testing.T, h *Handler, email string) *httptest.Server {
 	return srv
 }
 
-func chat(t *testing.T, srv *httptest.Server, body string) int {
+func chat(t *testing.T, srv *httptest.Server, contentType, body string) int {
 	t.Helper()
 	if body == "" {
 		body = `{"model":"m","messages":[]}`
 	}
-	resp, err := http.Post(srv.URL+"/api/v1/llm-proxy/v1/chat/completions", "application/json", strings.NewReader(body))
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	resp, err := http.Post(srv.URL+"/api/v1/llm-proxy/v1/chat/completions", contentType, strings.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
@@ -359,6 +362,7 @@ func TestProxyLLMRequest_BindingResolution(t *testing.T) {
 		name         string
 		seed         *dbclient.LLMGatewayUserBinding
 		body         string
+		contentType  string // "" means application/json
 		requests     int
 		wantGenerate int
 		wantAuth     string
@@ -374,6 +378,15 @@ func TestProxyLLMRequest_BindingResolution(t *testing.T) {
 		{
 			name:         "no binding: a client-supplied APIM header is not forwarded",
 			body:         clientAPIM,
+			requests:     1,
+			wantGenerate: 1,
+			wantAuth:     "Bearer vkey-1",
+			wantOther:    true,
+		},
+		{
+			name:         "no binding: a client-supplied APIM header in a +json body is not forwarded",
+			body:         clientAPIM,
+			contentType:  "application/vnd.api+json; charset=utf-8",
 			requests:     1,
 			wantGenerate: 1,
 			wantAuth:     "Bearer vkey-1",
@@ -418,7 +431,7 @@ func TestProxyLLMRequest_BindingResolution(t *testing.T) {
 			srv := newGatewayServer(t, newAutoHandler(store.mockDB(ctrl), fake), autoTestEmail)
 
 			for i := 0; i < tt.requests; i++ {
-				require.Equal(t, http.StatusOK, chat(t, srv, tt.body), "request %d", i+1)
+				require.Equal(t, http.StatusOK, chat(t, srv, tt.contentType, tt.body), "request %d", i+1)
 			}
 
 			userNew, generate, update, del, upstream := fake.snapshot()
@@ -498,7 +511,7 @@ func TestProxyLLMRequest_ConcurrentFirstRequestsCreateOneBinding(t *testing.T) {
 					wg.Add(1)
 					go func() {
 						defer wg.Done()
-						statuses <- chat(t, srv, "")
+						statuses <- chat(t, srv, "", "")
 					}()
 				}
 			}
@@ -588,7 +601,7 @@ func TestProxyLLMRequest_BindingCreationFailures(t *testing.T) {
 			tt.arrange(store, fake)
 			srv := newGatewayServer(t, newAutoHandler(store.mockDB(ctrl), fake), autoTestEmail)
 
-			assert.Equal(t, tt.wantStatus, chat(t, srv, ""))
+			assert.Equal(t, tt.wantStatus, chat(t, srv, "", ""))
 
 			_, _, _, del, upstream := fake.snapshot()
 			assert.Equal(t, tt.wantDelete, del)
@@ -610,13 +623,13 @@ func TestProxyLLMRequest_CreationRetriedAfterFailure(t *testing.T) {
 	srv := newGatewayServer(t, newAutoHandler(store.mockDB(ctrl), fake), autoTestEmail)
 
 	fake.failGenerate.Store(true)
-	assert.Equal(t, http.StatusInternalServerError, chat(t, srv, ""))
+	assert.Equal(t, http.StatusInternalServerError, chat(t, srv, "", ""))
 	rows, _, _ := store.counts()
 	assert.Zero(t, rows, "a failed creation leaves no binding behind")
 
 	fake.failGenerate.Store(false)
-	assert.Equal(t, http.StatusOK, chat(t, srv, ""))
-	assert.Equal(t, http.StatusOK, chat(t, srv, ""))
+	assert.Equal(t, http.StatusOK, chat(t, srv, "", ""))
+	assert.Equal(t, http.StatusOK, chat(t, srv, "", ""))
 	_, generate, _, _, _ := fake.snapshot()
 	assert.Equal(t, 2, generate, "one failed attempt, one that stuck")
 	rows, creates, _ := store.counts()
@@ -682,7 +695,7 @@ func TestAPIMKeyUpload_FillsTheProxyCreatedBinding(t *testing.T) {
 			srv := newGatewayServer(t, newAutoHandler(store.mockDB(ctrl), fake), autoTestEmail)
 
 			// Before any key: the proxy gives the user a binding, which reports as unbound.
-			require.Equal(t, http.StatusOK, chat(t, srv, ""))
+			require.Equal(t, http.StatusOK, chat(t, srv, "", ""))
 			status, raw := send(t, srv, http.MethodGet, "/binding", "")
 			require.Equal(t, http.StatusOK, status)
 			var before BindingResponse
@@ -728,7 +741,7 @@ func TestAPIMKeyUpload_FillsTheProxyCreatedBinding(t *testing.T) {
 			assert.Contains(t, after.ApimKeyHint, "****")
 			status, _ = send(t, srv, http.MethodGet, "/binding/apim-key", "")
 			assert.Equal(t, http.StatusOK, status)
-			require.Equal(t, http.StatusOK, chat(t, srv, ""))
+			require.Equal(t, http.StatusOK, chat(t, srv, "", ""))
 			_, _, _, _, upstream := fake.snapshot()
 			require.Len(t, upstream, 2)
 			_, present := upstream[0].apimHeader()
@@ -853,4 +866,28 @@ func TestUpdateBinding_FailureRestoresPreviousAPIMKey(t *testing.T) {
 	assert.Equal(t, "old-apim-key", fake.updated[1]["apim_key"])
 	row, _ := store.row(autoTestEmail)
 	assert.Equal(t, "old-apim-key", row.ApimKey)
+}
+
+func TestIsJSONContentType(t *testing.T) {
+	tests := []struct {
+		contentType string
+		want        bool
+	}{
+		{"application/json", true},
+		{"Application/JSON; charset=utf-8", true},
+		{" application/json ", true},
+		{"application/vnd.api+json", true},
+		{"application/merge-patch+json; charset=utf-8", true},
+		{"APPLICATION/LD+JSON", true},
+		{"text/plain", false},
+		{"application/jsonl", false},
+		{"multipart/form-data; boundary=x", false},
+		{"application/x-www-form-urlencoded", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.contentType, func(t *testing.T) {
+			assert.Equal(t, tt.want, isJSONContentType(tt.contentType))
+		})
+	}
 }

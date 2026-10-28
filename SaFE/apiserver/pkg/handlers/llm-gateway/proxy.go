@@ -305,9 +305,13 @@ func marshalJSON(v any) ([]byte, error) {
 	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
+// isJSONContentType reports whether the body is declared as JSON: application/json
+// or any type with the +json structured-syntax suffix (e.g. application/vnd.api+json),
+// which is JSON by definition and must be sanitized the same way.
 func isJSONContentType(contentType string) bool {
 	mediaType, _, _ := strings.Cut(contentType, ";")
-	return strings.EqualFold(strings.TrimSpace(mediaType), "application/json")
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 }
 
 // recoverReverseProxyAbort absorbs the panic ReverseProxy raises when it can no
