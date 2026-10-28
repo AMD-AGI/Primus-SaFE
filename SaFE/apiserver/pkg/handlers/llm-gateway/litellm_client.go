@@ -93,12 +93,13 @@ func (c *LiteLLMClient) CreateUser(ctx context.Context, email string) error {
 }
 
 // CreateKey creates a Virtual Key bound to a LiteLLM User via POST /key/generate.
-func (c *LiteLLMClient) CreateKey(ctx context.Context, email, apimKey string) (*CreateKeyResponse, error) {
+// The APIM key stays out of the key's metadata: LiteLLM copies key metadata
+// into every request's logging payload, and the proxy sends the APIM key itself.
+func (c *LiteLLMClient) CreateKey(ctx context.Context, email string) (*CreateKeyResponse, error) {
 	reqBody := CreateKeyRequest{
 		UserID: email,
 		TeamID: c.teamID,
 		Metadata: map[string]string{
-			"apim_key":     apimKey,
 			"safe_user_id": email,
 		},
 		KeyAlias: email,
@@ -140,50 +141,6 @@ func (c *LiteLLMClient) CreateKey(ctx context.Context, email, apimKey string) (*
 
 	klog.Infof("LiteLLM: created key for %s, token=%s, key_name=%s", email, result.TokenID, result.KeyName)
 	return &result, nil
-}
-
-// UpdateKeyMetadata updates the metadata of an existing Virtual Key.
-// Both apim_key and safe_user_id are included to prevent metadata loss
-// since LiteLLM /key/update replaces the entire metadata object.
-func (c *LiteLLMClient) UpdateKeyMetadata(ctx context.Context, tokenHash string, apimKey string, email string) error {
-	reqBody := UpdateKeyRequest{
-		Key: tokenHash,
-		Metadata: map[string]string{
-			"apim_key":     apimKey,
-			"safe_user_id": email,
-		},
-	}
-
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.endpoint+"/key/update", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if c.adminKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.adminKey)
-	}
-
-	resp, err := c.do(req)
-	if err != nil {
-		return fmt.Errorf("failed to call LiteLLM: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		klog.ErrorS(nil, "LiteLLM update key failed",
-			"status", resp.StatusCode, "body", string(respBody))
-		return fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	klog.Infof("LiteLLM: updated key metadata for token_hash=%s", shortTokenHash(tokenHash))
-	return nil
 }
 
 // DeleteKeyByHash removes a Virtual Key by token hash only, treating 404 as already cleaned up.

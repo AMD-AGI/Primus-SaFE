@@ -170,13 +170,6 @@ type CreateKeyResponse struct {
 	Expires string `json:"expires"`  // Expiration time
 }
 
-// UpdateKeyRequest is the request body for POST /key/update
-type UpdateKeyRequest struct {
-	Key      string            `json:"key,omitempty"`
-	KeyAlias string            `json:"key_alias,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
-}
-
 // DeleteKeyRequest is the request body for POST /key/delete
 type DeleteKeyRequest struct {
 	Keys       []string `json:"keys,omitempty"`        // List of token hashes to delete
