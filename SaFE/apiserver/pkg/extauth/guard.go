@@ -30,8 +30,15 @@ const (
 	CapabilityPlatformKey    = "platform-key"
 )
 
+// CapabilityInteractive is the capability of a request that opens an interactive or
+// upgraded session: a shell, exec, attach or port-forward into a pod, or any connection
+// the server upgrades (WebSocket, SPDY). Such a session runs commands and moves data in
+// both directions over one GET, so it is not a read whatever its HTTP method says.
+const CapabilityInteractive = "interactive-session"
+
 // Scopes of a delegated credential: safe.api allows what the user may do (minus
-// Forbidden), safe.read only reads.
+// Forbidden), safe.read only reads, and a read is judged by what the request can do,
+// not by its HTTP method (see ReadOnly).
 const (
 	ScopeAPI  = "safe.api"
 	ScopeRead = "safe.read"
@@ -88,9 +95,68 @@ func splitPath(p string) []string {
 	return strings.Split(strings.Trim(p, "/"), "/")
 }
 
+// interactiveSegments are the last path segments of the routes that open an
+// interactive session on a pod or a node.
+var interactiveSegments = map[string]bool{
+	"webshell": true, "shell": true, "terminal": true,
+	"exec": true, "attach": true, "portforward": true, "port-forward": true,
+}
+
+// Interactive reports whether the request opens an interactive or upgraded session
+// (CapabilityInteractive). It is true for any request that asks the server to switch
+// protocols, whichever route it is sent to: a handler can only upgrade a connection
+// when the client sent the upgrade headers, so a route added later is covered without
+// being listed. It is also true for the route shapes of the known interactive routes,
+// which pins their classification in the route-table tests and does not depend on the
+// headers a client chooses to send.
+func Interactive(r *http.Request) bool {
+	return upgradeRequested(r.Header) || interactiveRoute(r.URL.Path)
+}
+
+// upgradeRequested reports whether the headers ask for a protocol switch (RFC 9110
+// section 7.8): an Upgrade header, or the "upgrade" token in Connection.
+func upgradeRequested(h http.Header) bool {
+	if strings.TrimSpace(h.Get("Upgrade")) != "" {
+		return true
+	}
+	for _, v := range h.Values("Connection") {
+		for _, tok := range strings.Split(v, ",") {
+			if strings.EqualFold(strings.TrimSpace(tok), "upgrade") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// interactiveRoute reports whether a path has the shape of an interactive route of the
+// public API: a resource and its name, then (possibly through more of them) a final
+// segment that names a session, such as workloads/:name/pods/:pod/webshell.
+func interactiveRoute(urlPath string) bool {
+	segs := splitPath(urlPath)
+	prefix := strings.Split(strings.Trim(common.PrimusRouterCustomRootPath, "/"), "/")
+	if len(segs) < len(prefix)+3 {
+		return false
+	}
+	for i, p := range prefix {
+		if segs[i] != p {
+			return false
+		}
+	}
+	return interactiveSegments[segs[len(segs)-1]]
+}
+
+// ReadOnly reports whether a request only reads. The HTTP method is not enough: a GET
+// that upgrades into a shell reads nothing. A request is read-only when its method is
+// GET or HEAD and it is not Interactive.
+func ReadOnly(r *http.Request) bool {
+	return (r.Method == http.MethodGet || r.Method == http.MethodHead) && !Interactive(r)
+}
+
 // ScopeAllows reports whether the scopes of a delegated credential allow the
-// request. A delegated credential without a recognised scope allows nothing.
-func ScopeAllows(scopes []string, method string) bool {
+// request. A delegated credential without a recognised scope allows nothing, and
+// safe.read allows only what ReadOnly accepts.
+func ScopeAllows(scopes []string, r *http.Request) bool {
 	has := func(s string) bool {
 		for _, x := range scopes {
 			if x == s {
@@ -102,7 +168,7 @@ func ScopeAllows(scopes []string, method string) bool {
 	if has(ScopeAPI) {
 		return true
 	}
-	return has(ScopeRead) && (method == http.MethodGet || method == http.MethodHead)
+	return has(ScopeRead) && ReadOnly(r)
 }
 
 // credentialWords are path fragments that suggest a route handles a credential.
@@ -128,6 +194,25 @@ func CredentialRouteGaps(routes []gin.RouteInfo, reviewed map[string]bool) []str
 				gaps = append(gaps, r.Method+" "+r.Path)
 				break
 			}
+		}
+	}
+	return gaps
+}
+
+// InteractiveRouteGaps returns the routes ("METHOD path") of an engine whose handler
+// upgrades the connection (as reported by upgrading, which the route-table test derives
+// from the handlers' source) but whose path is not classified as interactive. A delegated
+// credential is held to safe.api for such a route whatever the client sends; this pins
+// the classification of the route itself, so that a new upgrade route is classified in
+// Interactive or reviewed, instead of relying on request headers alone.
+func InteractiveRouteGaps(routes []gin.RouteInfo, upgrading func(handler string) bool) []string {
+	var gaps []string
+	for _, r := range routes {
+		if !upgrading(r.Handler) {
+			continue
+		}
+		if !interactiveRoute(routeParam.ReplaceAllString(r.Path, "x")) {
+			gaps = append(gaps, r.Method+" "+r.Path)
 		}
 	}
 	return gaps

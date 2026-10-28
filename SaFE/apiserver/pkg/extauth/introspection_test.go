@@ -148,7 +148,10 @@ func secretFile(t *testing.T, content string) string {
 }
 
 func newIntrospection(t *testing.T, f *fakeIntrospector, clock *testClock, mod func(*IntrospectionConfig)) *IntrospectionAuthenticator {
-	cfg := IntrospectionConfig{URL: f.srv.URL, ClientID: testClientID, ClientSecretFile: secretFile(t, testSecret+"\n"), Now: clock.now}
+	// Most tests are about something else than the audience, and their answers name none:
+	// they run with AllowMissingAudience, and TestIntrospectionChecksTheAudience without it.
+	cfg := IntrospectionConfig{URL: f.srv.URL, ClientID: testClientID, ClientSecretFile: secretFile(t, testSecret+"\n"), Now: clock.now,
+		Audience: testAudience, AllowMissingAudience: true}
 	if mod != nil {
 		mod(&cfg)
 	}
@@ -475,7 +478,7 @@ func TestIntrospectionUnreachable(t *testing.T) {
 	f := newFakeIntrospector(t)
 	url := f.srv.URL
 	f.srv.Close()
-	a, err := NewIntrospectionAuthenticator(IntrospectionConfig{URL: url, ClientID: testClientID, ClientSecretFile: secretFile(t, testSecret), Timeout: time.Second})
+	a, err := NewIntrospectionAuthenticator(IntrospectionConfig{URL: url, ClientID: testClientID, ClientSecretFile: secretFile(t, testSecret), Timeout: time.Second, Audience: testAudience})
 	require.NoError(t, err)
 	_, err = introspect(a, "tok", "")
 	var u *UnavailableError
@@ -509,13 +512,14 @@ func TestIntrospectionClientSecretFromFile(t *testing.T) {
 }
 
 func TestIntrospectionConfigValidation(t *testing.T) {
-	good := IntrospectionConfig{URL: "https://iam.example.com/oauth/introspect", ClientID: "c", ClientSecretFile: secretFile(t, "s")}
+	good := IntrospectionConfig{URL: "https://iam.example.com/oauth/introspect", ClientID: "c", ClientSecretFile: secretFile(t, "s"), Audience: testAudience}
 	_, err := NewIntrospectionAuthenticator(good)
 	require.NoError(t, err)
 	for name, mod := range map[string]func(*IntrospectionConfig){
 		"no url or issuer":      func(c *IntrospectionConfig) { c.URL = "" },
 		"no client id":          func(c *IntrospectionConfig) { c.ClientID = "" },
 		"no secret file":        func(c *IntrospectionConfig) { c.ClientSecretFile = "" },
+		"no audience":           func(c *IntrospectionConfig) { c.Audience = "" },
 		"secret file is absent": func(c *IntrospectionConfig) { c.ClientSecretFile = "/no/such/file" },
 		"secret file is empty":  func(c *IntrospectionConfig) { c.ClientSecretFile = secretFile(t, " \n") },
 		"secret file is huge":   func(c *IntrospectionConfig) { c.ClientSecretFile = secretFile(t, strings.Repeat("x", 5000)) },
@@ -606,6 +610,84 @@ func TestIntrospectionChecksTheIssuer(t *testing.T) {
 	b := newIntrospection(t, f, newTestClock(), nil)
 	_, err = introspect(b, "theirs", "")
 	require.NoError(t, err)
+}
+
+// An introspection endpoint answers "active" for any valid token it issued, whichever
+// client the token was minted for. The answer is only about this apiserver when its aud
+// (or, without one, its client_id) names the configured audience.
+func TestIntrospectionChecksTheAudience(t *testing.T) {
+	const sub = "u1"
+	for _, tt := range []struct {
+		name         string
+		answer       map[string]any
+		allowMissing bool
+		accepted     bool
+		wantErr      string // set: the answer cannot be trusted at all
+	}{
+		{"aud string matches", map[string]any{"aud": testAudience}, false, true, ""},
+		{"aud array contains it", map[string]any{"aud": []string{"other-api", testAudience}}, false, true, ""},
+		{"aud string is another service", map[string]any{"aud": "another-service"}, false, false, ""},
+		{"aud array without it", map[string]any{"aud": []string{"other-api", "another-service"}}, false, false, ""},
+		{"aud is a prefix of ours", map[string]any{"aud": testAudience + "-staging"}, false, false, ""},
+		{"aud differs in case", map[string]any{"aud": "Safe-Apiserver"}, false, false, ""},
+		// No aud: client_id stands in for it.
+		{"no aud, client_id matches", map[string]any{"client_id": testAudience}, false, true, ""},
+		{"no aud, client_id is another client", map[string]any{"client_id": "another-rp"}, false, false, ""},
+		{"empty aud, client_id matches", map[string]any{"aud": []string{}, "client_id": testAudience}, false, true, ""},
+		{"null aud, client_id matches", map[string]any{"aud": nil, "client_id": testAudience}, false, true, ""},
+		// A named audience that is not ours is final: client_id does not rescue it.
+		{"aud is another service, client_id matches", map[string]any{"aud": "another-service", "client_id": testAudience}, false, false, ""},
+		// Naming no audience at all is refused unless the authenticator is told it is fine.
+		{"no aud, no client_id", map[string]any{}, false, false, ""},
+		{"empty aud, no client_id", map[string]any{"aud": []string{}}, false, false, ""},
+		{"empty-string aud, no client_id", map[string]any{"aud": ""}, false, false, ""},
+		{"no aud, no client_id, allowed", map[string]any{}, true, true, ""},
+		{"wrong aud, missing allowed", map[string]any{"aud": "another-service"}, true, false, ""},
+		{"wrong client_id, missing allowed", map[string]any{"client_id": "another-rp"}, true, false, ""},
+		{"matching aud, missing allowed", map[string]any{"aud": testAudience}, true, true, ""},
+		// An aud of the wrong type is not an answer.
+		{"aud is a number", map[string]any{"aud": 7}, false, false, "malformed aud"},
+		{"aud is an object", map[string]any{"aud": map[string]any{"a": "b"}}, true, false, "malformed aud"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFakeIntrospector(t)
+			answer := map[string]any{"sub": sub}
+			for k, v := range tt.answer {
+				answer[k] = v
+			}
+			f.accept("tok", answer)
+			a := newIntrospection(t, f, newTestClock(), func(c *IntrospectionConfig) { c.AllowMissingAudience = tt.allowMissing })
+			id, err := introspect(a, "tok", "")
+			switch {
+			case tt.wantErr != "":
+				require.ErrorContains(t, err, tt.wantErr)
+				var u *UnavailableError
+				require.ErrorAs(t, err, &u, "an answer that cannot be read is never a pass")
+			case tt.accepted:
+				require.NoError(t, err)
+				require.Equal(t, sub, id.ID)
+			default:
+				require.ErrorIs(t, err, ErrUnauthenticated)
+				require.Nil(t, id)
+			}
+		})
+	}
+}
+
+// A refusal for the audience is a rejection like any other: cached briefly, never
+// served stale, and it does not become an acceptance when the answer is asked for again.
+func TestIntrospectionAudienceRejectionIsNotStaleServed(t *testing.T) {
+	f := newFakeIntrospector(t)
+	f.accept("tok", map[string]any{"sub": "u1", "aud": "another-service"})
+	clock := newTestClock()
+	a := newIntrospection(t, f, clock, nil)
+	_, err := introspect(a, "tok", "")
+	require.ErrorIs(t, err, ErrUnauthenticated)
+	f.mode.Store("503")
+	clock.advance(time.Minute)
+	_, err = introspect(a, "tok", "")
+	var u *UnavailableError
+	require.ErrorAs(t, err, &u, "a rejected credential is not served from the stale cache while the endpoint is down")
 }
 
 // The authenticator may apply address policy, user types and cookies mean different

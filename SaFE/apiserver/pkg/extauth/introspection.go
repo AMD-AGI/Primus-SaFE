@@ -51,6 +51,16 @@ type IntrospectionConfig struct {
 	// Issuer, when set, is checked against the discovery document and against the "iss" of
 	// every answer that has one: an answer about a token of another issuer is a rejection.
 	Issuer string
+	// Audience is what this apiserver is called to the issuer, and it is required. An
+	// introspection endpoint answers "active" for any valid token it issued, whichever
+	// client the token was minted for, so the answer is only about SaFE when it names
+	// SaFE: the answer's "aud" (a string or an array) must contain Audience, or, when it
+	// has no "aud", its "client_id" must equal it. Any other answer is a rejection.
+	Audience string
+	// AllowMissingAudience accepts an active answer that names no audience at all (no
+	// "aud" and no "client_id"), as the answer for an API key usually does. An answer that
+	// names another audience is still rejected.
+	AllowMissingAudience bool
 	// CABundle is PEM text, or the path of a PEM file, that signs the server's certificate.
 	CABundle string
 	// ClientID and ClientSecretFile authenticate this apiserver to the introspection endpoint
@@ -83,7 +93,8 @@ type IntrospectionConfig struct {
 // credential. For an active one, "sub" is the SaFE user id; the identity is described by
 // username, name, email, groups, roles (both groups and roles are group names for the
 // configured group mappings), scope, jti, exp, an optional "restricted" flag, and "act",
-// the party a delegated credential acts through ({"client_id": ...} or {"sub": ...}).
+// the party a delegated credential acts through ({"client_id": ...} or {"sub": ...}). The
+// answer must also be about this apiserver: see IntrospectionConfig.Audience.
 type IntrospectionAuthenticator struct {
 	cfg   IntrospectionConfig
 	group singleflight.Group
@@ -108,6 +119,9 @@ func NewIntrospectionAuthenticator(cfg IntrospectionConfig) (*IntrospectionAuthe
 	}
 	if cfg.ClientID == "" || cfg.ClientSecretFile == "" {
 		return nil, errors.New("introspection authenticator: client_id and client_secret_file are required")
+	}
+	if cfg.Audience == "" {
+		return nil, errors.New("introspection authenticator: audience is required")
 	}
 	if _, err := readClientSecret(cfg.ClientSecretFile); err != nil {
 		return nil, fmt.Errorf("introspection authenticator: client_secret_file: %w", err)
@@ -279,18 +293,20 @@ func (a *IntrospectionAuthenticator) store(key string, id *Identity) {
 // introspectionAnswer is an RFC 7662 response with the extension members this
 // authenticator reads. Active is a pointer so that an answer without it is told from "false".
 type introspectionAnswer struct {
-	Active     *bool       `json:"active"`
-	Issuer     string      `json:"iss"`
-	Sub        string      `json:"sub"`
-	Username   string      `json:"username"`
-	Name       string      `json:"name"`
-	Email      string      `json:"email"`
-	Groups     []string    `json:"groups"`
-	Roles      []string    `json:"roles"`
-	Scope      string      `json:"scope"`
-	Jti        string      `json:"jti"`
-	Exp        json.Number `json:"exp"`
-	Restricted bool        `json:"restricted"`
+	Active     *bool           `json:"active"`
+	Issuer     string          `json:"iss"`
+	Audience   json.RawMessage `json:"aud"` // a string or an array of strings
+	ClientID   string          `json:"client_id"`
+	Sub        string          `json:"sub"`
+	Username   string          `json:"username"`
+	Name       string          `json:"name"`
+	Email      string          `json:"email"`
+	Groups     []string        `json:"groups"`
+	Roles      []string        `json:"roles"`
+	Scope      string          `json:"scope"`
+	Jti        string          `json:"jti"`
+	Exp        json.Number     `json:"exp"`
+	Restricted bool            `json:"restricted"`
 	Act        *struct {
 		ClientID string `json:"client_id"`
 		Sub      string `json:"sub"`
@@ -407,6 +423,17 @@ func (a *IntrospectionAuthenticator) identity(r *introspectionAnswer) (*Identity
 		klog.Warningf("authenticator %s: answer for issuer %q, expected %q; credential refused", a.Name(), r.Issuer, a.cfg.Issuer)
 		return nil, nil
 	}
+	match, err := a.audienceMatches(r)
+	if err != nil {
+		return nil, err
+	}
+	if !match {
+		// An answer about a token minted for another client of the same issuer: the
+		// endpoint says it is active, but not for this apiserver.
+		klog.Warningf("authenticator %s: answer not for audience %q (aud %s, client_id %q); credential refused",
+			a.Name(), a.cfg.Audience, string(r.Audience), r.ClientID)
+		return nil, nil
+	}
 	id := &Identity{
 		ID: r.Sub, Name: r.Name, Email: r.Email, Jti: r.Jti, Restricted: r.Restricted,
 		Groups: unionOf(r.Groups, r.Roles), Scopes: strings.Fields(r.Scope),
@@ -439,6 +466,35 @@ func (a *IntrospectionAuthenticator) identity(r *introspectionAnswer) (*Identity
 		id.Expiry = time.Unix(sec, 0)
 	}
 	return id, nil
+}
+
+// audienceMatches reports whether the answer is about this apiserver. The audience is the
+// answer's "aud"; when it has none, its "client_id" (for a JWT access token, RFC 9068 gives
+// both). An answer that names no audience is accepted only with AllowMissingAudience. An
+// "aud" that is not a string or an array of strings cannot be trusted as an answer.
+func (a *IntrospectionAuthenticator) audienceMatches(r *introspectionAnswer) (bool, error) {
+	var auds []string
+	if raw := strings.TrimSpace(string(r.Audience)); raw != "" && raw != "null" {
+		var one string
+		if err := json.Unmarshal(r.Audience, &one); err == nil {
+			auds = []string{one}
+		} else if err = json.Unmarshal(r.Audience, &auds); err != nil {
+			return false, errors.New("introspection answer has a malformed aud")
+		}
+	}
+	if len(unionOf(auds)) == 0 && r.ClientID != "" {
+		auds = []string{r.ClientID}
+	}
+	auds = unionOf(auds)
+	if len(auds) == 0 {
+		return a.cfg.AllowMissingAudience, nil
+	}
+	for _, aud := range auds {
+		if aud == a.cfg.Audience {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // parseUnix reads an exp that is an integer or, as some servers write it, a whole or fractional number.

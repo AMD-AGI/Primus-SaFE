@@ -31,7 +31,7 @@ client_ip=203.0.113.7
 ```json
 {"active": true, "iss": "https://iam.example.com", "sub": "user-id", "username": "alice@example.com", "name": "Alice",
  "email": "alice@example.com", "groups": ["platform-admins"], "roles": ["platform-admins", "default"],
- "scope": "safe.read", "jti": "j-9", "exp": 1893456000, "act": {"client_id": "svc-bot"}}
+ "aud": "safe-apiserver", "scope": "safe.read", "jti": "j-9", "exp": 1893456000, "act": {"client_id": "svc-bot"}}
 ```
 
 `active: false` rejects the credential, whatever else the answer says. An answer without `active`, any other HTTP status (including `401` and `403` for the apiserver's own credentials), or a body that is not a JSON object means the introspection did not happen.
@@ -42,6 +42,7 @@ client_ip=203.0.113.7
 * `act` marks a delegated credential: the actor is `act.client_id`, else `act.sub`. An `act` that names no actor is refused rather than read as a direct login. `scope` is the space-separated scope of a delegated credential.
 * `restricted: true` freezes the user for the request.
 * `iss`, when present and when `issuer` is configured, must match it, or the credential is rejected.
+* `aud` (a string or an array) must contain the configured `audience`, which is required, or the credential is rejected. An introspection endpoint answers `active: true` for any valid token it issued, whichever client the token was minted for, so without this check a token issued to another relying party of the same issuer could be replayed against SaFE. When an answer has no `aud`, its `client_id` stands in for it and must equal `audience`. An answer that names no audience at all (no `aud` and no `client_id`, as the answer for an API key usually is) is rejected unless `allow_missing_audience: true`; an answer that names another audience is rejected either way. An `aud` that is neither a string nor an array of strings is treated like an unreadable answer (`503`).
 
 ### stale_if_error
 
@@ -57,7 +58,7 @@ auth:
   mode: external
   authenticators:
     - {type: oidc, issuer: "https://idp.example.com", audience: safe-apiserver}
-    - {type: introspection, issuer: "https://idp.example.com", client_id: safe-apiserver, client_secret_file: /etc/secrets/auth/client-secret}
+    - {type: introspection, issuer: "https://idp.example.com", audience: safe-apiserver, client_id: safe-apiserver, client_secret_file: /etc/secrets/auth/client-secret}
     - {type: builtin}
   group_mappings:
     - {group: platform-admins, roles: [system-admin]}
@@ -73,7 +74,7 @@ A token that carries an `act` claim (RFC 8693) means a party is acting on behalf
 
 * **Audit.** `audit_logs` has `actor_client_id` and `token_jti`. Reads made with a delegated token are recorded too (without bodies), not only writes.
 * **Capability exclusions.** A delegated token can never call API-key, Secret, user-management, SSH-key-writing, gateway-credential or token-verification routes, whatever its scope. The list is pinned by tests against the real route table; a new route whose path mentions a credential fails the test until it is classified.
-* **Scope.** A delegated token needs `safe.api` (everything the user may do, minus the exclusions) or `safe.read` (reads only) in its `scope` claim; without one it is refused.
+* **Scope.** A delegated token needs `safe.api` (everything the user may do, minus the exclusions) or `safe.read` (reads only) in its `scope` claim; without one it is refused. A read is judged by what the request can do, not by its HTTP method: the web shell is a `GET` that upgrades into an interactive exec session, so a request that asks the server to switch protocols (an `Upgrade` header or a `Connection: upgrade` token, whichever route it goes to), and the routes that open a shell, exec, attach or port-forward session, need `safe.api`. A test reads the handlers that upgrade the connection and checks that their routes are classified.
 
 A malformed `act` claim is rejected rather than read as a direct login.
 

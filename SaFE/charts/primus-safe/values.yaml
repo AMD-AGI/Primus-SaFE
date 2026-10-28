@@ -242,6 +242,8 @@ auth:
   #   - type: introspection   # OAuth 2.0 token introspection (RFC 7662), for opaque tokens such as API keys
   #     issuer: https://idp.example.com   # its discovery document names the endpoint when url is empty
   #     url: ""                           # the introspection endpoint
+  #     audience: safe-apiserver          # required: the answer's aud (else client_id) must name it
+  #     allow_missing_audience: false     # true accepts answers that name no audience, e.g. an API key's
   #     client_id: safe-apiserver
   #     client_secret_file: /etc/secrets/auth/client-secret   # the mounted auth.client_secret Secret
   #     ca_bundle: ""                     # PEM text or file path

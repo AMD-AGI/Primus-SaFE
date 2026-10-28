@@ -912,6 +912,11 @@ type AuthenticatorConfig struct {
 	CacheTTL         string `json:"cache_ttl" yaml:"cache_ttl" mapstructure:"cache_ttl"`
 	CacheNegativeTTL string `json:"cache_negative_ttl" yaml:"cache_negative_ttl" mapstructure:"cache_negative_ttl"`
 	StaleIfError     string `json:"stale_if_error" yaml:"stale_if_error" mapstructure:"stale_if_error"`
+
+	// introspection: Audience (above) is required and is what the answer's "aud", or its
+	// "client_id" when it has no "aud", must name. AllowMissingAudience accepts an answer
+	// that names none, such as an API key's; an answer that names another audience is refused.
+	AllowMissingAudience bool `json:"allow_missing_audience" yaml:"allow_missing_audience" mapstructure:"allow_missing_audience"`
 }
 
 // AuthGroupMapping maps an identity group to SaFE roles, evaluated on every request.

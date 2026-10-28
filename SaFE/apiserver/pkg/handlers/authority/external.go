@@ -116,6 +116,7 @@ func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error)
 			}
 			a, err := extauth.NewIntrospectionAuthenticator(extauth.IntrospectionConfig{
 				Name: c.Name, URL: c.URL, Issuer: c.Issuer, CABundle: c.CABundle,
+				Audience: c.Audience, AllowMissingAudience: c.AllowMissingAudience,
 				ClientID: c.ClientID, ClientSecretFile: c.ClientSecretFile,
 				Timeout: d[0], CacheTTL: d[1], CacheNegativeTTL: d[2], StaleIfError: d[3],
 			})
@@ -174,7 +175,7 @@ func parseExternal(c *gin.Context, st *externalAuth) (handled bool, err error) {
 			apimetrics.AuthFailuresTotal.WithLabelValues("delegated_forbidden").Inc()
 			return true, commonerrors.NewForbidden("this operation is not available with a delegated token")
 		}
-		if !extauth.ScopeAllows(id.Scopes, c.Request.Method) {
+		if !extauth.ScopeAllows(id.Scopes, c.Request) {
 			apimetrics.AuthFailuresTotal.WithLabelValues("delegated_scope").Inc()
 			return true, commonerrors.NewForbidden("the token scope does not allow this operation")
 		}
@@ -206,9 +207,10 @@ func parseExternal(c *gin.Context, st *externalAuth) (handled bool, err error) {
 
 var errInvalidUserId = errors.New("the authenticated user id is not a valid resource name")
 
-// ensureUser creates the user record the first time an identity is seen, and keeps
-// its name and email annotations current. Roles are not touched: the admission
-// webhook gives a new user the default role, and group roles are computed per request.
+// ensureUser creates the user record the first time an identity is seen. For a record
+// that already exists it refreshes the name and email annotations, best effort: roles
+// are not touched (the admission webhook gives a new user the default role, and group
+// roles are computed per request), and a refresh that fails never fails the request.
 func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) error {
 	if errs := validation.IsDNS1123Subdomain(id.ID); len(errs) > 0 {
 		return errInvalidUserId
@@ -216,17 +218,7 @@ func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) er
 	user := &v1.User{}
 	err := st.client.Get(ctx, client.ObjectKey{Name: id.ID}, user)
 	if err == nil {
-		patch := client.MergeFrom(user.DeepCopy())
-		changed := false
-		for k, val := range map[string]string{v1.UserNameAnnotation: id.Name, v1.UserEmailAnnotation: id.Email} {
-			if val != "" && v1.GetAnnotation(user, k) != val {
-				v1.SetAnnotation(user, k, val)
-				changed = true
-			}
-		}
-		if changed {
-			return st.client.Patch(ctx, user, patch)
-		}
+		st.refreshUser(ctx, user, id)
 		return nil
 	}
 	if !apierrors.IsNotFound(err) {
@@ -243,6 +235,33 @@ func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) er
 		Spec: v1.UserSpec{Type: v1.SSOUserType},
 	}
 	return client.IgnoreAlreadyExists(st.client.Create(ctx, user))
+}
+
+// refreshUser makes the name and email annotations of an existing record follow the
+// identity's claims. It is for the display only, so it is best effort: an error is
+// logged and the request goes on. The account itself is never changed, and a record
+// that is not an SSO user is left alone: the identity provider names an existing local
+// account (Spec.Type default) by its user id, but the account stays what it is. Its
+// user name is immutable, the user webhook refuses a patch that changes it, and a login
+// through the provider is no reason to rewrite a record that SaFE manages.
+func (st *externalAuth) refreshUser(ctx context.Context, user *v1.User, id *extauth.Identity) {
+	if user.Spec.Type != v1.SSOUserType {
+		return
+	}
+	patch := client.MergeFrom(user.DeepCopy())
+	changed := false
+	for k, val := range map[string]string{v1.UserNameAnnotation: id.Name, v1.UserEmailAnnotation: id.Email} {
+		if val != "" && v1.GetAnnotation(user, k) != val {
+			v1.SetAnnotation(user, k, val)
+			changed = true
+		}
+	}
+	if !changed {
+		return
+	}
+	if err := st.client.Patch(ctx, user, patch); err != nil {
+		klog.ErrorS(err, "failed to refresh the annotations of an existing user; continuing", "user", id.ID)
+	}
 }
 
 // IsDelegatedRequest reports whether the request was authenticated with a delegated credential.

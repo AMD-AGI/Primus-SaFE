@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -51,9 +52,48 @@ type extEnv struct {
 	revMode  atomic.Value              // "ok" | "503"
 	revUsers map[string]map[string]any // token -> the introspection answer for it
 	cli      client.Client
+	// denyUserPatch makes every patch of a user fail, as an admission webhook that is
+	// down or refuses would.
+	denyUserPatch atomic.Bool
+	// userPatches counts the patches of users that reached the cluster, whether or not
+	// the webhook let them through.
+	userPatches atomic.Int64
+}
+
+// userWebhook stands in for the user admission webhook on the fake cluster: the user's
+// type is immutable, and so is the user name of a local (default) account, the same
+// rules as validateImmutableFields in the webhooks package.
+func (e *extEnv) userWebhook() interceptor.Funcs {
+	return interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			if u, ok := obj.(*v1.User); ok {
+				e.userPatches.Add(1)
+				if e.denyUserPatch.Load() {
+					return apierrors.NewBadRequest("admission webhook \"user.safe\" denied the request")
+				}
+				old := &v1.User{}
+				if err := c.Get(ctx, client.ObjectKeyFromObject(u), old); err == nil {
+					if u.Spec.Type != old.Spec.Type {
+						return apierrors.NewBadRequest("spec.type: Forbidden: immutable")
+					}
+					if u.Spec.Type == v1.DefaultUserType && v1.GetUserName(u) != v1.GetUserName(old) {
+						return apierrors.NewBadRequest("user.name: Forbidden: immutable")
+					}
+				}
+			}
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	}
 }
 
 func newExtEnv(t *testing.T, mapping []map[string]any, builtin bool) *extEnv {
+	t.Helper()
+	// Most tests are not about the audience of an introspected answer, and theirs name none.
+	return newExtEnvWith(t, mapping, builtin, map[string]any{"allow_missing_audience": true})
+}
+
+// newExtEnvWith adds introspectionExtra to the introspection authenticator's configuration.
+func newExtEnvWith(t *testing.T, mapping []map[string]any, builtin bool, introspectionExtra map[string]any) *extEnv {
 	t.Helper()
 	e := &extEnv{t: t, revUsers: map[string]map[string]any{}}
 	e.revMode.Store("ok")
@@ -91,9 +131,16 @@ func newExtEnv(t *testing.T, mapping []map[string]any, builtin bool) *extEnv {
 	}))
 	t.Cleanup(e.reviewer.Close)
 
+	introspection := map[string]any{
+		"type": "introspection", "url": e.reviewer.URL, "client_id": extClientID, "client_secret_file": secretFile,
+		"audience": extAudience, "cache_ttl": "50ms", "stale_if_error": "30m",
+	}
+	for k, v := range introspectionExtra {
+		introspection[k] = v
+	}
 	chain := []map[string]any{
 		{"type": "oidc", "issuer": e.issuer.URL, "audience": extAudience, "jwks_url": e.issuer.URL + "/jwks"},
-		{"type": "introspection", "url": e.reviewer.URL, "client_id": extClientID, "client_secret_file": secretFile, "cache_ttl": "50ms", "stale_if_error": "30m"},
+		introspection,
 	}
 	if builtin {
 		chain = append(chain, map[string]any{"type": "builtin"})
@@ -103,7 +150,7 @@ func newExtEnv(t *testing.T, mapping []map[string]any, builtin bool) *extEnv {
 	viper.Set("auth.group_mappings", mapping)
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
-	e.cli = fake.NewClientBuilder().WithScheme(scheme).Build()
+	e.cli = fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(e.userWebhook()).Build()
 	require.NoError(t, InitExternalAuth(e.cli))
 	t.Cleanup(func() {
 		viper.Set("auth.mode", nil)
@@ -148,9 +195,17 @@ func (e *extEnv) user(id string) *v1.User {
 
 func extParse(t *testing.T, method, path, bearer string) (*gin.Context, error) {
 	t.Helper()
+	return extParseWith(t, method, path, bearer, nil)
+}
+
+func extParseWith(t *testing.T, method, path, bearer string, headers http.Header) (*gin.Context, error) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(method, path, nil)
+	for k, v := range headers {
+		c.Request.Header[k] = v
+	}
 	if bearer != "" {
 		c.Request.Header.Set("Authorization", "Bearer "+bearer)
 	}
@@ -206,14 +261,15 @@ func TestExternalModeRefusesAChainItCannotBuild(t *testing.T) {
 		require.NoError(t, InitExternalAuth(nil))
 	})
 	for name, chain := range map[string]any{
-		"empty":                   nil,
-		"unknown type":            []map[string]any{{"type": "ldap"}},
-		"oidc no aud":             []map[string]any{{"type": "oidc", "issuer": "https://issuer.example.com"}},
-		"introspection no url":    []map[string]any{{"type": "introspection", "client_id": "c", "client_secret_file": goodSecret}},
-		"introspection no client": []map[string]any{{"type": "introspection", "url": "https://x.example.com"}},
-		"unreadable secret file":  []map[string]any{{"type": "introspection", "url": "https://x.example.com", "client_id": "c", "client_secret_file": goodSecret + ".missing"}},
-		"bad duration":            []map[string]any{{"type": "introspection", "url": "https://x.example.com", "client_id": "c", "client_secret_file": goodSecret, "cache_ttl": "soon"}},
-		"the retired webhook":     []map[string]any{{"type": "webhook", "url": "https://x.example.com"}},
+		"empty":                     nil,
+		"unknown type":              []map[string]any{{"type": "ldap"}},
+		"oidc no aud":               []map[string]any{{"type": "oidc", "issuer": "https://issuer.example.com"}},
+		"introspection no url":      []map[string]any{{"type": "introspection", "client_id": "c", "client_secret_file": goodSecret, "audience": "a"}},
+		"introspection no client":   []map[string]any{{"type": "introspection", "url": "https://x.example.com"}},
+		"introspection no audience": []map[string]any{{"type": "introspection", "url": "https://x.example.com", "client_id": "c", "client_secret_file": goodSecret}},
+		"unreadable secret file":    []map[string]any{{"type": "introspection", "url": "https://x.example.com", "client_id": "c", "audience": "a", "client_secret_file": goodSecret + ".missing"}},
+		"bad duration":              []map[string]any{{"type": "introspection", "url": "https://x.example.com", "client_id": "c", "audience": "a", "client_secret_file": goodSecret, "cache_ttl": "soon"}},
+		"the retired webhook":       []map[string]any{{"type": "webhook", "url": "https://x.example.com"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			viper.Set("auth.mode", "external")
@@ -245,6 +301,73 @@ func TestExternalJITCreatesAndRefreshesUser(t *testing.T) {
 	list := &v1.UserList{}
 	require.NoError(t, e.cli.List(context.Background(), list))
 	require.Len(t, list.Items, 1)
+}
+
+// The identity provider names existing users by their SaFE user id, so a login can land
+// on a local account (type default) whose stored name is not the provider's. The user
+// webhook refuses a rename of a local account, and that used to turn into 401 on every
+// request: the user could never sign in. Now the account is left as it is and the login
+// goes through; an SSO user's display annotations still follow the claims, and a refresh
+// that fails never fails the login.
+func TestExternalExistingUsersAreNeverLockedOut(t *testing.T) {
+	local := func(name, email string) *v1.User {
+		return &v1.User{
+			ObjectMeta: metav1.ObjectMeta{Name: extUser, Annotations: map[string]string{v1.UserNameAnnotation: name, v1.UserEmailAnnotation: email}},
+			Spec:       v1.UserSpec{Type: v1.DefaultUserType, Password: "hashed", Roles: []v1.UserRole{v1.DefaultRole}},
+		}
+	}
+	sso := func(name, email string) *v1.User {
+		u := local(name, email)
+		u.Spec.Type, u.Spec.Password = v1.SSOUserType, ""
+		return u
+	}
+	for _, tt := range []struct {
+		name         string
+		existing     *v1.User
+		claims       map[string]any // overrides of the JWT's claims
+		denyPatch    bool
+		wantType     v1.UserType
+		wantName     string // the stored name afterwards
+		wantEmail    string
+		wantPassword string
+		wantPatches  int64 // over the three requests
+	}{
+		// The scenario of the review: a local account whose name differs from the claims.
+		// The record is not touched at all: no patch is even tried.
+		{"local account, other preferred_username", local("alice-local", "alice@corp.example"), nil, false, v1.DefaultUserType, "alice-local", "alice@corp.example", "hashed", 0},
+		{"local account, other name claim", local("alice-local", "alice@corp.example"), map[string]any{"name": "Alice Liddell"}, false, v1.DefaultUserType, "alice-local", "alice@corp.example", "hashed", 0},
+		{"local account, same name", local("alice", "alice@example.com"), nil, false, v1.DefaultUserType, "alice", "alice@example.com", "hashed", 0},
+		{"local account, no name stored", local("", ""), nil, false, v1.DefaultUserType, "", "", "hashed", 0},
+		{"local account, email differs only", local("alice", "old@example.com"), nil, false, v1.DefaultUserType, "alice", "old@example.com", "hashed", 0},
+		{"local account, the webhook is down", local("alice-local", "alice@corp.example"), nil, true, v1.DefaultUserType, "alice-local", "alice@corp.example", "hashed", 0},
+		// An SSO user follows the claims: one patch, then the record is current.
+		{"sso user, name and email change", sso("old-name", "old@example.com"), nil, false, v1.SSOUserType, "alice", "alice@example.com", "", 1},
+		{"sso user, nothing changes", sso("alice", "alice@example.com"), nil, false, v1.SSOUserType, "alice", "alice@example.com", "", 0},
+		// The refresh is best effort: it is tried again on the next request, and never fails one.
+		{"sso user, the refresh is refused", sso("old-name", "old@example.com"), nil, true, v1.SSOUserType, "old-name", "old@example.com", "", 3},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newExtEnv(t, nil, false)
+			require.NoError(t, e.cli.Create(context.Background(), tt.existing))
+			e.denyUserPatch.Store(tt.denyPatch)
+			// Every request, not just the first: the lock-out repeated on each of them.
+			for i := 0; i < 3; i++ {
+				c, err := extParse(t, http.MethodGet, "/api/v1/workloads", e.jwt(tt.claims))
+				require.NoError(t, err, "request %d", i)
+				require.Equal(t, extUser, c.GetString(common.UserId))
+			}
+			u := e.user(extUser)
+			require.Equal(t, tt.wantType, u.Spec.Type, "an existing account is never converted")
+			require.Equal(t, tt.wantName, v1.GetUserName(u))
+			require.Equal(t, tt.wantEmail, v1.GetUserEmail(u))
+			require.Equal(t, tt.wantPassword, u.Spec.Password)
+			require.Equal(t, tt.existing.Spec.Roles, u.Spec.Roles)
+			require.Equal(t, tt.wantPatches, e.userPatches.Load(), "patches of the user record")
+			list := &v1.UserList{}
+			require.NoError(t, e.cli.List(context.Background(), list))
+			require.Len(t, list.Items, 1, "no second record")
+		})
+	}
 }
 
 func TestExternalRejectsAnIdThatIsNotAResourceName(t *testing.T) {
@@ -301,6 +424,43 @@ func TestExternalGroupsMapToRolesPerRequest(t *testing.T) {
 	roles := ac.GetRoles(c.Request.Context(), e.user(extUser))
 	require.Len(t, roles, 1)
 	require.Equal(t, string(v1.SystemAdminRole), roles[0].Name)
+}
+
+// RFC 7662 servers answer "active" for any valid token they issued, for any client. With
+// [oidc, introspection] a JWT that OIDC refuses for its audience goes on to introspection,
+// which must not accept it either: the audience check holds on both paths.
+func TestExternalIntrospectionChecksTheAudience(t *testing.T) {
+	e := newExtEnvWith(t, nil, false, nil) // an answer must name the audience
+	wrongAud := e.jwt(map[string]any{"aud": []string{"another-service"}})
+	e.revUsers[wrongAud] = map[string]any{"sub": extUser, "username": "alice", "aud": []string{"another-service"}}
+	e.revUsers["ak-other-rp"] = map[string]any{"sub": extUser, "username": "alice", "client_id": "another-rp"}
+	e.revUsers["ak-no-aud"] = map[string]any{"sub": extUser, "username": "alice"}
+	e.revUsers["ak-ours"] = map[string]any{"sub": extUser, "username": "alice", "aud": extAudience}
+	e.revUsers["ak-ours-client"] = map[string]any{"sub": extUser, "username": "alice", "client_id": extAudience}
+
+	for name, tt := range map[string]struct {
+		token    string
+		accepted bool
+	}{
+		"the JWT OIDC refused for its audience, vouched for by the IdP": {wrongAud, false},
+		"a token minted for another client":                             {"ak-other-rp", false},
+		"an answer that names no audience":                              {"ak-no-aud", false},
+		"an answer with our audience":                                   {"ak-ours", true},
+		"an answer whose client is our audience":                        {"ak-ours-client", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := extParse(t, http.MethodGet, "/api/v1/workloads", tt.token)
+			if tt.accepted {
+				require.NoError(t, err)
+				return
+			}
+			require.True(t, apierrors.IsUnauthorized(err), "%v", err)
+		})
+	}
+	// Only the accepted credentials provisioned the user.
+	list := &v1.UserList{}
+	require.NoError(t, e.cli.List(context.Background(), list))
+	require.Len(t, list.Items, 1)
 }
 
 func TestExternalFrozenByTheAuthenticator(t *testing.T) {
@@ -366,6 +526,43 @@ func TestExternalDelegatedScope(t *testing.T) {
 	require.True(t, apierrors.IsForbidden(err), "%v", err)
 	_, err = extParse(t, http.MethodGet, "/api/v1/workloads", e.delegated("profile"))
 	require.True(t, apierrors.IsForbidden(err), "no recognised scope allows nothing: %v", err)
+}
+
+// A safe.read token reads. A GET that upgrades into a pod shell is not a read: it runs
+// commands as the user, so it needs safe.api, through the real authentication entry point.
+func TestExternalDelegatedReadScopeCannotOpenAShell(t *testing.T) {
+	e := newExtEnv(t, nil, false)
+	read, api := e.delegated("safe.read"), e.delegated("safe.api")
+	upgrade := http.Header{"Connection": {"Upgrade"}, "Upgrade": {"websocket"}}
+	const shell = "/api/v1/workloads/w1/pods/p1/webshell"
+	for _, tt := range []struct {
+		name    string
+		path    string
+		headers http.Header
+		token   string
+		allowed bool
+	}{
+		{"read scope, web shell upgrade", shell, upgrade, read, false},
+		{"read scope, web shell route without upgrade headers", shell, nil, read, false},
+		{"read scope, upgrade on a route nobody listed", "/api/v1/workloads/w1/stream", upgrade, read, false},
+		{"read scope, plain read of the same workload", "/api/v1/workloads/w1", nil, read, true},
+		{"api scope, web shell upgrade", shell, upgrade, api, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := extParseWith(t, http.MethodGet, tt.path, tt.token, tt.headers)
+			if tt.allowed {
+				require.NoError(t, err)
+				require.Equal(t, extUser, c.GetString(common.UserId))
+				return
+			}
+			require.True(t, apierrors.IsForbidden(err), "%v", err)
+			require.Contains(t, err.Error(), "the token scope does not allow this operation")
+			require.Empty(t, c.GetString(common.UserId), "no identity is established for a refused request")
+		})
+	}
+	// The same user, not delegated, is not subject to the scope.
+	_, err := extParseWith(t, http.MethodGet, shell, e.jwt(nil), upgrade)
+	require.NoError(t, err)
 }
 
 func TestExternalIntrospectionCookieAndOutage(t *testing.T) {
