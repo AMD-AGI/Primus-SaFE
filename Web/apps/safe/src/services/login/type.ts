@@ -46,6 +46,12 @@ export interface UserSelfData extends BaseUserResp {
   restrictedType: number
 }
 
+// GET /users/self/workspaces: the workspaces the user can access and the ones the user manages
+export interface SelfWorkspacesResp {
+  workspaces: Workspace[]
+  managedWorkspaces: Workspace[]
+}
+
 export interface UsersItemResp {
   totalCount: number
   items: UserSelfData[]

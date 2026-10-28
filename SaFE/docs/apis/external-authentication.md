@@ -66,7 +66,7 @@ auth:
   login_url: "https://console.example.com/sign-in"
 ```
 
-Mapped roles and workspaces are honoured by the access controller (`Authorize`, `AuthorizeSystemAdmin`, role lookup) and by `GET /users/self`. A handful of handlers that read the stored user object directly (for example some model and workspace-label checks) still see only the stored roles; they fail closed.
+Mapped roles and workspaces are honoured by the access controller (`Authorize`, `AuthorizeSystemAdmin`, role lookup) and by `GET /users/self` and `GET /users/self/workspaces`. A handful of handlers that read the stored user object directly (for example some model and workspace-label checks) still see only the stored roles; they fail closed.
 
 ## Delegated tokens
 
