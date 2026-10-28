@@ -1,0 +1,11 @@
+#
+# Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: v2
+name: gatekeeper-constraints
+description: Gatekeeper constraints for Agent Sandbox Workloads
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,18 @@
+#
+# Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+# dryrun records violations. deny rejects them and requires jwks.
+enforcementAction: dryrun
+
+# Calls from this account are checked. The Gatekeeper webhook is scoped to it.
+sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane
+
+# Claw JWKS document, JSON text. Required when enforcementAction is deny.
+jwks: ""
+
+image:
+  repository: curlimages/curl
+  tag: "8.20.0"
+  pullPolicy: IfNotPresent

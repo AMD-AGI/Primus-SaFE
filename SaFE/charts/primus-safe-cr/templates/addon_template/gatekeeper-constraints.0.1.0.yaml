@@ -1,0 +1,42 @@
+#
+# Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Membership and grant-attestation constraints for the Gatekeeper addon.
+# Install this Addon on the management cluster after gatekeeper.3.23.1.
+# It is not a default addon.
+#
+# Notes:
+#   1. Package SaFE/charts/gatekeeper-constraints and mirror it before applying:
+#        oci://<helm_registry>/primussafe/gatekeeper-constraints:0.1.0
+#      The apply hook uses <proxy_image_registry>/primussafe/curl:8.20.0.
+#   2. enforcementAction starts as dryrun. Set it to deny only after jwks is set.
+#   3. User membership reads spec.resources.workspaces on the synced User CR.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "gatekeeper-constraints.0.1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: gatekeeper-constraints.0.1.0
+spec:
+  category: plugin
+  description: Gatekeeper constraints that check Agent Sandbox Workload membership and the Claw grant attestation. Install on the management cluster after Gatekeeper. Enforcement starts as dryrun and switches to deny after jwks is set.
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/gatekeeper-constraints
+  version: 0.1.0
+  type: helm
+  required: false
+  helmDefaultNamespace: gatekeeper-system
+  helmDefaultValues: |
+    enforcementAction: dryrun
+    sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane
+    jwks: ""
+    image:
+      repository: {{ .Values.global.proxy_image_registry }}/primussafe/curl
+      tag: "8.20.0"
+      pullPolicy: IfNotPresent
