@@ -18,7 +18,7 @@ describe('isExternalAuth', () => {
 
 // The console must not offer what the server refuses in external mode, local accounts
 // included. Each control below is gated on the store's isExternalAuth.
-describe('external mode hides the password, registration, key and role controls', () => {
+describe('external mode hides the password, registration, key creation and role controls', () => {
   it('the store derives isExternalAuth from /envs', () => {
     expect(source('stores/user.ts')).toContain('isExternalAuth: (s) => isExternalAuth(s.envs)')
   })
@@ -38,19 +38,19 @@ describe('external mode hides the password, registration, key and role controls'
     )
   })
 
-  it('settings hide Change Password and API Keys', () => {
+  it('settings hide Change Password only', () => {
     const settings = source('pages/Settings/index.vue')
-    expect(settings.match(/<template v-if="!userStore\.isExternalAuth">/g)).toHaveLength(2)
+    expect(settings.match(/<template v-if="!userStore\.isExternalAuth">/g)).toHaveLength(1)
   })
 
-  it('the API Keys menu entry, its page actions and the auto-created key are gated', () => {
-    expect(source('components/layout/BaseMenu.vue')).toContain(
-      'const showAPIKeys = computed(() => !userStore.isExternalAuth)',
-    )
-    expect(source('components/layout/BaseMenu.vue')).toContain('<el-menu-item v-if="showAPIKeys"')
+  it('API key creation is gated, but the entry points and the delete action stay', () => {
+    // A key issued before the switch still authenticates, so it must stay revocable.
+    expect(source('components/layout/BaseMenu.vue')).not.toContain('isExternalAuth')
+    expect(source('pages/Settings/index.vue')).toContain("router.push('/manageapikeys')")
     const keys = source('pages/APIKeys/index.vue')
     expect(keys).toContain('const manageable = computed(() => !userStore.isExternalAuth)')
     expect(keys).toContain('v-if="manageable"')
+    expect(keys).toContain('<el-table-column label="Actions"')
     expect(source('pages/LLMGateway/index.vue')).toContain('if (userStore.isExternalAuth) return')
   })
 

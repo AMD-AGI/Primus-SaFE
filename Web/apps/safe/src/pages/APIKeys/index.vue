@@ -18,7 +18,8 @@
           Create API Key
         </el-button>
         <el-text v-else type="info">
-          API keys are issued and revoked by the external identity provider.
+          New API keys are issued by the external identity provider. A key issued before the
+          switch can still be deleted here.
         </el-text>
       </div>
       <div class="flex flex-wrap items-center">
@@ -101,7 +102,7 @@
           {{ formatTimeStr(row.creationTime) }}
         </template>
       </el-table-column>
-      <el-table-column v-if="manageable" label="Actions" width="100" fixed="right">
+      <el-table-column label="Actions" width="100" fixed="right">
         <template #default="{ row }">
           <el-tooltip content="Delete" placement="top">
             <el-button
@@ -142,7 +143,8 @@ import { formatTimeStr } from '@/utils/index'
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
-// The server refuses creating and deleting keys when an external identity provider owns them.
+// The server refuses creating keys when an external identity provider issues them. Deleting
+// stays: a key issued before the switch still authenticates, so it must stay revocable.
 const manageable = computed(() => !userStore.isExternalAuth)
 const addVisible = ref(false)
 const loading = ref(false)

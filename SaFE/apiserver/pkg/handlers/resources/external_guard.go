@@ -15,10 +15,11 @@ import (
 // With auth.mode external the identity provider owns sign-in, accounts, API keys and
 // platform roles, so the apiserver stops offering the ways of creating them itself:
 // password and SSO sign-in (POST /login), registration (POST /users), API key creation
-// and deletion, and changes to the platform roles of a user. There is no exception for
-// local accounts; backing out of the external mode is a configuration change
-// (auth.mode back to builtin), not a local sign-in. Nothing here applies in builtin
-// mode, the default.
+// and changes to the platform roles of a user. There is no exception for local
+// accounts; backing out of the external mode is a configuration change (auth.mode back
+// to builtin), not a local sign-in. Deleting an API key is not refused: the keys issued
+// before the switch keep authenticating through the built-in entry, and revoking one
+// must stay possible. Nothing here applies in builtin mode, the default.
 
 // platformRoles are the roles the identity provider decides in external mode.
 var platformRoles = []v1.UserRole{v1.SystemAdminRole, v1.SystemAdminReadonlyRole}

@@ -18,7 +18,7 @@ type GetEnvResponse struct {
 	SSHIP string `json:"sshIP"`
 	// How requests are authenticated: "builtin" (accounts, sessions and API keys of this
 	// deployment) or "external" (an identity provider decides, and the console neither
-	// offers registration, password changes nor API key management).
+	// offers registration, password changes nor API key creation).
 	AuthMode string `json:"authMode"`
 	// Whether to enable sso
 	SSOEnable bool `json:"ssoEnable"`

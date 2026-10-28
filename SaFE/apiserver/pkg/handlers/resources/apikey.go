@@ -267,11 +267,10 @@ func (h *Handler) listApiKey(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
-// deleteApiKey implements the API key deletion logic (soft delete).
+// deleteApiKey implements the API key deletion logic (soft delete). It stays available in
+// external mode: a key issued before the switch is still accepted by the built-in
+// authenticator, and revoking a leaked one must not depend on the mode.
 func (h *Handler) deleteApiKey(c *gin.Context) (interface{}, error) {
-	if err := refuseExternal("deleting an API key"); err != nil {
-		return nil, err
-	}
 	if h.dbClient == nil {
 		return nil, commonerrors.NewInternalError("database is not enabled")
 	}

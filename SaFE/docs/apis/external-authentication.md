@@ -76,10 +76,10 @@ With `auth.mode: external` the identity provider owns sign-in, accounts, API key
 |---|---|
 | `POST /api/v1/login` (password and SSO code) | sign-in belongs to the provider |
 | `POST /api/v1/users` (registration) | accounts are created by the provider's first sign-in |
-| `POST /api/v1/apikeys`, `DELETE /api/v1/apikeys/{id}` | keys are issued and revoked with the provider |
+| `POST /api/v1/apikeys` | keys are issued by the provider |
 | `PATCH /api/v1/users/{id}` that adds or removes `system-admin` or `system-admin-readonly` | platform roles come from the provider through `group_mappings`; a patch that leaves them as they are (other fields, other roles) is accepted |
 
-`GET /api/v1/envs` reports `authMode`, and the console hides the password form, registration, password change, API key management and role editing accordingly. Reading keys (`GET /apikeys`) and everything else is unchanged.
+`GET /api/v1/envs` reports `authMode`, and the console hides the password form, registration, password change, API key creation and role editing accordingly. In this mode `/envs` does not advertise the built-in sign-in either: `ssoEnable` is `false` and `ssoAuthUrl` is empty unless `auth.login_url` is set, in which case they are that URL. Listing keys (`GET /apikeys`), deleting them (`DELETE /apikeys/{id}`) and everything else is unchanged: a key issued before the switch is still accepted through the `builtin` entry, so it must stay possible to revoke it.
 
 Because a local sign-in is not available, backing out of an outage of the provider is a configuration change, not a login: set `auth.mode: builtin` (see below).
 
