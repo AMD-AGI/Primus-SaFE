@@ -1,0 +1,80 @@
+#
+# Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# OPA Gatekeeper for admission checks on Workloads created by Agent Sandbox.
+# This AddonTemplate is not a default addon. Install it on the management
+# cluster. Data-plane clusters do not receive the webhook.
+#
+# Notes:
+#   1. Use the published Gatekeeper chart 3.23.1. Mirror it before applying:
+#        oci://<helm_registry>/primussafe/gatekeeper:3.23.1
+#        <proxy_image_registry>/primussafe/gatekeeper:v3.23.1
+#        <proxy_image_registry>/primussafe/gatekeeper-crds:v3.23.1
+#        <proxy_image_registry>/primussafe/curl:8.20.0
+#   2. Requires Kubernetes 1.28 or newer. The chart applies the service-account
+#      match condition only on those versions.
+#   3. The validating webhook admits amd.com/v1 Workload CREATE from
+#      system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane.
+#      Its failurePolicy is Fail. The namespace check-ignore webhook stays Ignore.
+#   4. Two controller replicas. Mutation is disabled. Constraints are the
+#      gatekeeper-constraints addon, installed after this one.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "gatekeeper.3.23.1"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: gatekeeper.3.23.1
+spec:
+  category: plugin
+  description: OPA Gatekeeper admission controller for the management cluster. Requires Kubernetes 1.28 or newer. The validating webhook receives Workload creates from the Agent Sandbox control plane.
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/gatekeeper
+  version: 3.23.1
+  type: helm
+  required: false
+  helmDefaultNamespace: gatekeeper-system
+  helmDefaultValues: |
+    replicas: 2
+    disableMutation: true
+    validatingWebhookFailurePolicy: Fail
+    validatingWebhookCheckIgnoreFailurePolicy: Ignore
+    validatingWebhookTimeoutSeconds: 10
+    validatingWebhookMatchConditions:
+      - name: agent-sandbox-controlplane
+        expression: request.userInfo.username == 'system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane'
+    validatingWebhookCustomRules:
+      - apiGroups: ["amd.com"]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["workloads"]
+        scope: "Cluster"
+    image:
+      repository: {{ .Values.global.proxy_image_registry }}/primussafe/gatekeeper
+      crdRepository: {{ .Values.global.proxy_image_registry }}/primussafe/gatekeeper-crds
+      release: v3.23.1
+      pullPolicy: IfNotPresent
+    preInstall:
+      crdRepository:
+        image:
+          repository: {{ .Values.global.proxy_image_registry }}/primussafe/gatekeeper-crds
+          tag: v3.23.1
+    postInstall:
+      labelNamespace:
+        image:
+          repository: {{ .Values.global.proxy_image_registry }}/primussafe/gatekeeper-crds
+          tag: v3.23.1
+      probeWebhook:
+        image:
+          repository: {{ .Values.global.proxy_image_registry }}/primussafe/curl
+          tag: "8.20.0"
+    postUpgrade:
+      labelNamespace:
+        image:
+          repository: {{ .Values.global.proxy_image_registry }}/primussafe/gatekeeper-crds
+          tag: v3.23.1

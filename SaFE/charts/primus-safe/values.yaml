@@ -222,6 +222,50 @@ tls:
   # stay compatible with self-signed ingress certificates and images without an
   # updated CA bundle. Set to true in deployments that provide valid certs/CA.
   verify_outbound: false
+# Pluggable authentication, in the Kubernetes style. Authorization (roles, workspaces) always stays in SaFE.
+# See docs/apis/external-authentication.md.
+auth:
+  # builtin: the apiserver's own accounts, sessions, SSO login and API keys (default, nothing else to configure).
+  # external: requests are authenticated by `authenticators`, in order; the first to accept decides.
+  mode: builtin
+  # Entries when mode is external. Durations are Go durations ("30s", "30m").
+  #   - type: oidc        # validate JWTs from one issuer
+  #     issuer: https://idp.example.com
+  #     audience: safe-apiserver          # required
+  #     jwks_url: ""                      # default: from the issuer's discovery document
+  #     clock_skew: 30s
+  #     jwks_cache_ttl: 10m
+  #     id_claim: sub
+  #     username_claim: preferred_username
+  #     email_claim: email
+  #     groups_claim: groups
+  #   - type: introspection   # OAuth 2.0 token introspection (RFC 7662), for opaque tokens such as API keys
+  #     issuer: https://idp.example.com   # its discovery document names the endpoint when url is empty
+  #     url: ""                           # the introspection endpoint
+  #     audience: safe-apiserver          # required: the answer's aud (else client_id) must name it
+  #     allow_missing_audience: false     # true accepts answers that name no audience, e.g. an API key's
+  #     client_id: safe-apiserver
+  #     client_secret_file: /etc/secrets/auth/client-secret   # the mounted auth.client_secret Secret
+  #     ca_bundle: ""                     # PEM text or file path
+  #     timeout: 5s
+  #     cache_ttl: 30s
+  #     cache_negative_ttl: 5s
+  #     stale_if_error: 30m               # keep accepted credentials working while the endpoint is down
+  #   - type: builtin     # fall through to the built-in mode (e.g. a local administrator)
+  authenticators: []
+  # Name of the Secret that holds the client secret of an `introspection` authenticator, under the key
+  # `client-secret`. It is mounted into the apiserver at client_secret_path. Leave empty when unused.
+  client_secret: ""
+  client_secret_path: /etc/secrets/auth
+  # Identity groups mapped to SaFE roles on every request; never stored on the user.
+  #   - group: platform-admins
+  #     roles: [system-admin]
+  #   - group: team-a-leads
+  #     roles: [workspace-admin]
+  #     workspaces: [team-a]
+  group_mappings: []
+  # Where the console sends users to sign in when mode is external.
+  login_url: ""
 sso:
   # Enable sso login
   enable: true
@@ -229,6 +273,9 @@ sso:
   secret: "primus-safe-sso"
   # Path to mount sso secret
   secret_path: "/etc/secrets/sso"
+  # Other web apps allowed to receive the SSO authorization code (the console's own origin is always allowed).
+  # Each entry is an origin, optionally followed by a path prefix, e.g. "https://app.example.com/console".
+  bridge_allowlist: []
 workspace:
   # Reserved system resources for management components
   mem_reserve_percent: 0.05

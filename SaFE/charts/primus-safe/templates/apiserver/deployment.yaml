@@ -102,6 +102,11 @@ spec:
               mountPath: {{ default "/etc/secrets/langfuse-proxy" .Values.langfuse_proxy.secret_path }}
               readOnly: true
             {{- end }}
+            {{- if and .Values.auth .Values.auth.client_secret }}
+            - name: auth-client-secret
+              mountPath: {{ default "/etc/secrets/auth" .Values.auth.client_secret_path }}
+              readOnly: true
+            {{- end }}
           ports:
             - name: metrics
               containerPort: {{ default 8000 (default .Values.job_manager).metrics_port }}
@@ -182,6 +187,11 @@ spec:
         - name: langfuse-proxy-secret
           secret:
             secretName: {{ .Values.langfuse_proxy.secret }}
+        {{- end }}
+        {{- if and .Values.auth .Values.auth.client_secret }}
+        - name: auth-client-secret
+          secret:
+            secretName: {{ .Values.auth.client_secret }}
         {{- end }}
       {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:

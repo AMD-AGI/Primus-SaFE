@@ -225,7 +225,7 @@ func GetWorkloadHangCheckInterval() int {
 
 // GetWorkloadTTLSecond returns the TTL in seconds for completed workloads.
 func GetWorkloadTTLSecond() int {
-	return getInt(workloadTTLSecond, 3600)
+	return getInt(workloadTTLSecond, 60)
 }
 
 // IsOpenSearchEnable returns whether OpenSearch is enabled.
@@ -497,6 +497,12 @@ func GetIngress() string {
 
 func IsSSOEnable() bool {
 	return getBool(ssoEnable, false)
+}
+
+// GetSSOBridgeAllowlist returns the origins (optionally with a path prefix) that the
+// web login page may forward an SSO authorization code to. Empty means same origin only.
+func GetSSOBridgeAllowlist() []string {
+	return getStringSlice(ssoBridgeAllowlist, nil)
 }
 
 func GetSSOClientId() string {
@@ -873,3 +879,88 @@ func GetModelOptimizationMaxConcurrent() int {
 func GetModelOptimizationClawPluginID() int {
 	return getInt(modelOptimizationClawPluginID, 4)
 }
+
+// Authentication modes (auth.mode).
+const (
+	// AuthModeBuiltin is the default: local accounts, built-in sessions, SSO login and API keys.
+	AuthModeBuiltin = "builtin"
+	// AuthModeExternal authenticates requests with the configured authenticator chain.
+	AuthModeExternal = "external"
+)
+
+// AuthenticatorConfig is one entry of auth.authenticators. Type selects the
+// mechanism ("oidc", "introspection" or "builtin"); the other fields apply to one type each.
+// Durations are Go duration strings such as "30s" or "30m".
+type AuthenticatorConfig struct {
+	Type string `json:"type" yaml:"type" mapstructure:"type"`
+	Name string `json:"name" yaml:"name" mapstructure:"name"`
+
+	// oidc: validate JWTs from one issuer. introspection: Issuer also names the issuer whose
+	// discovery document gives the endpoint (when URL is empty) and whose tokens are accepted.
+	Issuer        string `json:"issuer" yaml:"issuer" mapstructure:"issuer"`
+	Audience      string `json:"audience" yaml:"audience" mapstructure:"audience"`
+	JWKSURL       string `json:"jwks_url" yaml:"jwks_url" mapstructure:"jwks_url"`
+	JWKSCacheTTL  string `json:"jwks_cache_ttl" yaml:"jwks_cache_ttl" mapstructure:"jwks_cache_ttl"`
+	ClockSkew     string `json:"clock_skew" yaml:"clock_skew" mapstructure:"clock_skew"`
+	IDClaim       string `json:"id_claim" yaml:"id_claim" mapstructure:"id_claim"`
+	UsernameClaim string `json:"username_claim" yaml:"username_claim" mapstructure:"username_claim"`
+	EmailClaim    string `json:"email_claim" yaml:"email_claim" mapstructure:"email_claim"`
+	GroupsClaim   string `json:"groups_claim" yaml:"groups_claim" mapstructure:"groups_claim"`
+
+	// introspection: OAuth 2.0 token introspection (RFC 7662) at URL, authenticated with a client id
+	// and a client secret read from a file (a mounted Secret).
+	URL              string `json:"url" yaml:"url" mapstructure:"url"`
+	CABundle         string `json:"ca_bundle" yaml:"ca_bundle" mapstructure:"ca_bundle"` // PEM text or a file path
+	ClientID         string `json:"client_id" yaml:"client_id" mapstructure:"client_id"`
+	ClientSecretFile string `json:"client_secret_file" yaml:"client_secret_file" mapstructure:"client_secret_file"`
+	Timeout          string `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
+	CacheTTL         string `json:"cache_ttl" yaml:"cache_ttl" mapstructure:"cache_ttl"`
+	CacheNegativeTTL string `json:"cache_negative_ttl" yaml:"cache_negative_ttl" mapstructure:"cache_negative_ttl"`
+	StaleIfError     string `json:"stale_if_error" yaml:"stale_if_error" mapstructure:"stale_if_error"`
+
+	// introspection: Audience (above) is required and is what the answer's "aud", or its
+	// "client_id" when it has no "aud", must name. AllowMissingAudience accepts an answer
+	// that names none, such as an API key's; an answer that names another audience is refused.
+	AllowMissingAudience bool `json:"allow_missing_audience" yaml:"allow_missing_audience" mapstructure:"allow_missing_audience"`
+}
+
+// AuthGroupMapping maps an identity group to SaFE roles, evaluated on every request.
+// Workspaces, when set, scope the mapping: the user gets access to them, and the
+// "workspace-admin" role means managing them.
+type AuthGroupMapping struct {
+	Group      string   `json:"group" yaml:"group" mapstructure:"group"`
+	Roles      []string `json:"roles" yaml:"roles" mapstructure:"roles"`
+	Workspaces []string `json:"workspaces" yaml:"workspaces" mapstructure:"workspaces"`
+}
+
+// GetAuthMode returns auth.mode: "builtin" (default) or "external". Any other value
+// is treated as builtin, so a typo never switches authentication off.
+func GetAuthMode() string {
+	if getString(authMode, AuthModeBuiltin) == AuthModeExternal {
+		return AuthModeExternal
+	}
+	return AuthModeBuiltin
+}
+
+// GetAuthenticators returns the authenticator chain, in order. A chain that cannot be
+// read is an error: the caller must not fall back to another mode.
+func GetAuthenticators() ([]AuthenticatorConfig, error) {
+	var list []AuthenticatorConfig
+	if err := viper.UnmarshalKey(authAuthenticators, &list); err != nil {
+		return nil, fmt.Errorf("reading %s: %w", authAuthenticators, err)
+	}
+	return list, nil
+}
+
+// GetAuthGroupMappings returns the group to role mappings.
+func GetAuthGroupMappings() ([]AuthGroupMapping, error) {
+	var list []AuthGroupMapping
+	if err := viper.UnmarshalKey(authGroupMappings, &list); err != nil {
+		return nil, fmt.Errorf("reading %s: %w", authGroupMappings, err)
+	}
+	return list, nil
+}
+
+// GetAuthLoginURL returns auth.login_url, where the console sends users to sign in when
+// authentication is external.
+func GetAuthLoginURL() string { return getString(authLoginURL, "") }

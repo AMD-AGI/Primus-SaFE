@@ -134,6 +134,8 @@ const (
 	ssoPrefix     = "sso."
 	ssoEnable     = ssoPrefix + "enable"
 	ssoSecretPath = ssoPrefix + "secret_path"
+	// ssoBridgeAllowlist lists the web origins (optionally with a path prefix) that may receive an SSO authorization code.
+	ssoBridgeAllowlist = ssoPrefix + "bridge_allowlist"
 
 	// cicd
 	cicdPrefix                  = "cicd."
@@ -175,6 +177,13 @@ const (
 	// langfuse_proxy
 	langfuseProxyPrefix     = "langfuse_proxy."
 	langfuseProxySecretPath = langfuseProxyPrefix + "secret_path"
+
+	// pluggable authentication
+	authPrefix         = "auth."
+	authMode           = authPrefix + "mode"
+	authAuthenticators = authPrefix + "authenticators"
+	authGroupMappings  = authPrefix + "group_mappings"
+	authLoginURL       = authPrefix + "login_url"
 
 	// a2a
 	a2aPrefix            = "a2a."

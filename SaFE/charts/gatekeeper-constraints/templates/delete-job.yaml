@@ -1,0 +1,52 @@
+#
+# Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+# Removes the Config, ConstraintTemplates, and constraints created by the apply hook.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gatekeeper-constraint-delete
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      serviceAccountName: gatekeeper-constraint-apply
+      restartPolicy: Never
+      containers:
+        - name: delete
+          image: "{{ include "constraints.curlRepository" . }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: RELEASE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              token="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+              ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              api=https://kubernetes.default.svc
+              delete() {
+                url="$1"
+                code="$(curl -sS -o /tmp/resp -w '%{http_code}' --cacert "$ca" \
+                  -H "Authorization: Bearer ${token}" -X DELETE "${url}")"
+                if [ "$code" = "200" ] || [ "$code" = "202" ] || [ "$code" = "404" ]; then
+                  return 0
+                fi
+                echo "delete ${url} failed: ${code}" >&2
+                cat /tmp/resp >&2
+                return 1
+              }
+              delete "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadmembership/sandbox-workload-membership"
+              delete "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadattestation/sandbox-workload-attestation"
+              delete "${api}/apis/templates.gatekeeper.sh/v1/constrainttemplates/sandboxworkloadmembership"
+              delete "${api}/apis/templates.gatekeeper.sh/v1/constrainttemplates/sandboxworkloadattestation"
+              delete "${api}/apis/config.gatekeeper.sh/v1alpha1/namespaces/${RELEASE_NAMESPACE}/configs/config"

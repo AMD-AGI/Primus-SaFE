@@ -28,6 +28,7 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 		SSHIP:                commonconfig.GetSSHServerIP(),
 		SSHPort:              commonconfig.GetSSHServerPort(),
 		SSOEnable:            commonconfig.IsSSOEnable(),
+		SSOBridgeAllowlist:   commonconfig.GetSSOBridgeAllowlist(),
 		CDRequireApproval:    commonconfig.IsCDRequireApproval(),
 		KubeSprayK8sVersions: v1.KubeSprayK8sVersions(),
 	}
@@ -35,6 +36,12 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 		inst := authority.SSOInstance()
 		if inst != nil {
 			resp.SSOAuthUrl = inst.AuthURL()
+		}
+	}
+	// With external authentication the sign-in page is wherever the deployment says.
+	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
+		if url := commonconfig.GetAuthLoginURL(); url != "" {
+			resp.SSOEnable, resp.SSOAuthUrl = true, url
 		}
 	}
 	return resp, nil

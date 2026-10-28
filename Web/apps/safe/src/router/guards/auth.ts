@@ -1,9 +1,10 @@
 import type { Router } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/stores/user'
-import { ssoLoginRaw } from '@/services/login'
+import { getEnvs, ssoLoginRaw } from '@/services/login'
 import { addUserToGroup, getUserNTID } from '@/services/mcp'
 import { getSafeRedirect } from '@/utils'
+import { resolveAllowedBridge } from '@/utils/ssoBridge'
 
 const SSO_GROUP = 'dl.primus-safe-users'
 const PUBLIC_NAME = new Set(['Login', 'LoginAdmin', 'Register', 'SSOError'])
@@ -25,18 +26,27 @@ function isPublicRoute(to: any) {
   )
 }
 
-function getBridgeRedirectFromState(state?: string) {
+/** Extracts the raw bridge URL carried in the OAuth state; '' when there is none. */
+function getBridgeCandidateFromState(state?: string) {
   if (!state) return ''
 
   const parts = state.split(':')
   if (parts.length < 3) return ''
 
   try {
-    const redirect = decodeURIComponent(parts.slice(2).join(':'))
-    const url = new URL(redirect)
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : ''
+    return decodeURIComponent(parts.slice(2).join(':'))
   } catch {
     return ''
+  }
+}
+
+/** Allow-listed bridges come from /envs; if it cannot be read only this origin is trusted. */
+async function loadBridgeAllowlist(): Promise<string[]> {
+  try {
+    const envs = await getEnvs()
+    return Array.isArray(envs?.ssoBridgeAllowlist) ? envs.ssoBridgeAllowlist : []
+  } catch {
+    return []
   }
 }
 
@@ -51,9 +61,28 @@ export default function setupAuthGuard(router: Router) {
 
       // Check if this is an SSO request from another app.
       // State format: {app}:{csrfToken}:{encodeURIComponent(bridgeUrl)}
-      const bridgeRedirect = getBridgeRedirectFromState(state)
-      if (bridgeRedirect && state) {
-        window.location.href = `${bridgeRedirect}?code=${code}&state=${encodeURIComponent(state)}`
+      const bridgeCandidate = getBridgeCandidateFromState(state)
+      if (bridgeCandidate && state) {
+        const bridge = resolveAllowedBridge(
+          bridgeCandidate,
+          await loadBridgeAllowlist(),
+          window.location.origin,
+        )
+        if (!bridge) {
+          // Never hand the code to a target that is not allow-listed.
+          history.replaceState(null, '', to.path)
+          return next({
+            path: '/sso-error',
+            query: {
+              error: 'invalid_bridge',
+              error_description: 'The sign-in request targets an application that is not allowed.',
+            },
+          })
+        }
+        bridge.searchParams.set('code', code)
+        bridge.searchParams.set('state', state)
+        bridge.hash = ''
+        window.location.href = bridge.toString()
         return
       }
 
