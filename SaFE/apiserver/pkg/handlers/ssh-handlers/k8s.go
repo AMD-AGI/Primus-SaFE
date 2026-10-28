@@ -363,10 +363,13 @@ func (h *SshHandler) getWorkloadAndClients(ctx context.Context, userInfo *UserIn
 	return workload, k8sClients, nil
 }
 
-// authUser authorizes the user for the given workload.
+// authUser authorizes the user for the given workload. An SSH session is authenticated by
+// public key, not by an identity provider, so in external mode the user is one no identity
+// vouched for (authority.WithoutIdentity): the platform roles stored on the user object do not
+// count, as for a built-in session or API key.
 func (h *SshHandler) authUser(ctx context.Context, userInfo *UserInfo, workload *v1.Workload) error {
 	if err := h.accessController.Authorize(authority.AccessInput{
-		Context:    ctx,
+		Context:    authority.WithoutIdentity(ctx, userInfo.User),
 		Resource:   workload,
 		Verb:       v1.GetVerb,
 		Workspaces: []string{workload.Spec.Workspace},

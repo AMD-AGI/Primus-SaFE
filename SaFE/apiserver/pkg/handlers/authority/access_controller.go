@@ -117,7 +117,13 @@ func (a *AccessController) AuthorizeSystemAdmin(in AccessInput, readOnlyAllowed 
 	return commonerrors.NewForbidden(SystemAdminRequired)
 }
 
-// GetRequestUser retrieves a user object by userId from the k8s cluster.
+// GetRequestUser retrieves a user object by userId from the k8s cluster, as this request
+// sees it: in external mode the roles and workspaces the request's identity maps to are
+// already merged in (extauth.ApplyOverlay), so a check made on the returned user, such as
+// IsSystemAdmin or HasWorkspaceRight, agrees with Authorize. ctx must be the request's
+// context; the overlay lives only there. The result is a copy for reading: it must never be
+// written back to the cluster, because that would store what the identity only lent for
+// this request. A caller that updates the user reads the record itself.
 // Returns an error if the userId is empty or the user doesn't exist.
 func (a *AccessController) GetRequestUser(ctx context.Context, userId string) (*v1.User, error) {
 	if userId == "" {
@@ -128,7 +134,7 @@ func (a *AccessController) GetRequestUser(ctx context.Context, userId string) (*
 	if err != nil {
 		return nil, commonerrors.NewUserNotRegistered(userId)
 	}
-	return user, nil
+	return extauth.ApplyOverlay(ctx, user), nil
 }
 
 // GetRoles retrieves all roles associated with a user.

@@ -5,6 +5,7 @@ import type {
   LoginReq,
   LoginResp,
   UserSelfData,
+  SelfWorkspacesResp,
   UsersItemResp,
   EnvsResp,
   EditUserResp,
@@ -43,6 +44,12 @@ export const editUser = (id: string, data: EditUserResp) => request.patch(`/user
 export const deleteUser = (id: string) => request.delete(`/users/${id}`)
 
 export const getSelfData = (): Promise<UserSelfData> => request.get(`/users/self`)
+
+// The caller's own workspace lists. The error handler is skipped: the console falls back to the
+// lists embedded in the user record when this route is missing or refuses, so no toast and no
+// session teardown for it.
+export const getSelfWorkspaces = (): Promise<SelfWorkspacesResp> =>
+  request.get(`/users/self/workspaces`, { skipErrorHandler: true })
 
 export const getUserData = (id: string): Promise<UserSelfData> => request.get(`/users/${id}`)
 

@@ -12,7 +12,9 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/spf13/viper"
 	testifyassert "github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -180,4 +182,62 @@ func TestAuthUser(t *testing.T) {
 	// Unknown user is rejected.
 	err = h.authUser(context.Background(), &UserInfo{User: "nobody"}, workload)
 	testifyassert.Error(t, err)
+}
+
+// An SSH session is authenticated by public key, not by an identity provider. In external mode a
+// user whose stored record lists system-admin is therefore an ordinary user there, as for a built-in
+// session or API key: the platform role is the identity provider's to grant. In builtin mode, the
+// default, the stored role is the role.
+func TestAuthUserHoldsNoStoredPlatformRoleInExternalMode(t *testing.T) {
+	adminRole := &v1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: string(v1.SystemAdminRole)},
+		Rules: []v1.PolicyRule{{
+			Resources:    []string{authority.AllResource},
+			Verbs:        []v1.RoleVerb{v1.AllVerb},
+			GrantedUsers: []string{authority.GrantedAllUser},
+		}},
+	}
+	defaultRole := &v1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: string(v1.DefaultRole)},
+		Rules: []v1.PolicyRule{{
+			Resources:    []string{authority.AllResource},
+			Verbs:        []v1.RoleVerb{v1.GetVerb},
+			GrantedUsers: []string{authority.GrantedOwner},
+		}},
+	}
+	newUser := func(name string, roles ...v1.UserRole) *v1.User {
+		return &v1.User{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{v1.UserIdLabel: name}},
+			Spec:       v1.UserSpec{Type: v1.DefaultUserType, Roles: roles},
+		}
+	}
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(adminRole, defaultRole,
+		newUser("admin", v1.SystemAdminRole), newUser("owner", v1.DefaultRole)).Build()
+	// Not NewAccessController: that is a singleton, and another test's client would win.
+	h := &SshHandler{accessController: &authority.AccessController{Client: cli}}
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-1", Labels: map[string]string{v1.UserIdLabel: "owner"}},
+		Spec:       v1.WorkloadSpec{Workspace: "ws-1"},
+	}
+	authorize := func(user string) error {
+		return h.authUser(context.Background(), &UserInfo{User: user}, workload)
+	}
+
+	// Builtin mode: the stored role is the role.
+	testifyassert.NoError(t, authorize("admin"))
+
+	viper.Set("auth.mode", "external")
+	viper.Set("auth.authenticators", []map[string]any{{"type": "builtin"}})
+	require.NoError(t, authority.InitExternalAuth(nil))
+	defer func() {
+		viper.Set("auth.mode", nil)
+		viper.Set("auth.authenticators", nil)
+		require.NoError(t, authority.InitExternalAuth(nil))
+	}()
+
+	testifyassert.Error(t, authorize("admin"), "the stored platform role does not count over SSH")
+	// The owner of the workload is still its owner: only the platform role went, not the account.
+	testifyassert.NoError(t, authorize("owner"))
 }
