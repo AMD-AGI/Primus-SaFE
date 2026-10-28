@@ -273,9 +273,6 @@ sso:
   secret: "primus-safe-sso"
   # Path to mount sso secret
   secret_path: "/etc/secrets/sso"
-  # Other web apps allowed to receive the SSO authorization code (the console's own origin is always allowed).
-  # Each entry is an origin, optionally followed by a path prefix, e.g. "https://app.example.com/console".
-  bridge_allowlist: []
 workspace:
   # Reserved system resources for management components
   mem_reserve_percent: 0.05

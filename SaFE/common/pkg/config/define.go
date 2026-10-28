@@ -134,8 +134,6 @@ const (
 	ssoPrefix     = "sso."
 	ssoEnable     = ssoPrefix + "enable"
 	ssoSecretPath = ssoPrefix + "secret_path"
-	// ssoBridgeAllowlist lists the web origins (optionally with a path prefix) that may receive an SSO authorization code.
-	ssoBridgeAllowlist = ssoPrefix + "bridge_allowlist"
 
 	// cicd
 	cicdPrefix                  = "cicd."

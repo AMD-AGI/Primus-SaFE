@@ -20,8 +20,6 @@ type GetEnvResponse struct {
 	SSOEnable bool `json:"ssoEnable"`
 	// The url for sso authorization
 	SSOAuthUrl string `json:"ssoAuthUrl"`
-	// Origins (optionally with a path prefix) other than the web console itself that may receive an SSO code.
-	SSOBridgeAllowlist []string `json:"ssoBridgeAllowlist"`
 	// Whether CD deployment requires approval from another user
 	CDRequireApproval bool `json:"cdRequireApproval"`
 	// KubeSpray image tags mapped to the Kubernetes versions they install.

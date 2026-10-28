@@ -1,8 +1,8 @@
 import type { Router } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import { getEnvs, ssoLoginRaw } from '@/services/login'
+import { ssoLoginRaw } from '@/services/login'
 import { getSafeRedirect } from '@/utils'
-import { resolveAllowedBridge } from '@/utils/ssoBridge'
+import { resolveOwnBridge } from '@/utils/ssoBridge'
 
 const PUBLIC_NAME = new Set(['Login', 'LoginAdmin', 'Register', 'SSOError'])
 const ENTRY_KEY = 'sso.redirect'
@@ -37,16 +37,6 @@ function getBridgeCandidateFromState(state?: string) {
   }
 }
 
-/** Allow-listed bridges come from /envs; if it cannot be read only this origin is trusted. */
-async function loadBridgeAllowlist(): Promise<string[]> {
-  try {
-    const envs = await getEnvs()
-    return Array.isArray(envs?.ssoBridgeAllowlist) ? envs.ssoBridgeAllowlist : []
-  } catch {
-    return []
-  }
-}
-
 export default function setupAuthGuard(router: Router) {
   router.beforeEach(async (to, _from, next) => {
     const user = useUserStore()
@@ -56,17 +46,13 @@ export default function setupAuthGuard(router: Router) {
     if (code) {
       const state = to.query.state as string | undefined
 
-      // Check if this is an SSO request from another app.
-      // State format: {app}:{csrfToken}:{encodeURIComponent(bridgeUrl)}
+      // Check if this is an SSO request from an app served under this console's origin
+      // (Lens). State format: {app}:{csrfToken}:{encodeURIComponent(bridgeUrl)}
       const bridgeCandidate = getBridgeCandidateFromState(state)
       if (bridgeCandidate && state) {
-        const bridge = resolveAllowedBridge(
-          bridgeCandidate,
-          await loadBridgeAllowlist(),
-          window.location.origin,
-        )
+        const bridge = resolveOwnBridge(bridgeCandidate, window.location.origin)
         if (!bridge) {
-          // Never hand the code to a target that is not allow-listed.
+          // Never hand the code to a target outside this console's origin.
           history.replaceState(null, '', to.path)
           return next({
             path: '/sso-error',
