@@ -380,6 +380,9 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	if err = refuseExternalRoleChange(targetUser, req); err != nil {
 		return nil, err
 	}
+	if err = refuseExternalPasswordChange(req); err != nil {
+		return nil, err
+	}
 	isChanged, err := h.authUserUpdate(c, targetUser, req)
 	if !isChanged || err != nil {
 		return nil, err

@@ -25,6 +25,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -58,7 +59,11 @@ var (
 )
 
 // guardTargets are the users the patch tests change, one per test so that they do not meet.
-var guardTargets = []string{"t-grant", "t-revoke", "t-echo", "t-local", "t-local-rev", "t-workspaces", "t-builtin"}
+var guardTargets = []string{"t-grant", "t-revoke", "t-echo", "t-local", "t-local-rev", "t-workspaces", "t-builtin",
+	"t-password-local", "t-password-idp", "t-builtin-password"}
+
+// targetPassword is the password the targets that have one start with.
+const targetPassword = "original-password"
 
 func guardUser(name string, userType v1.UserType, roles ...v1.UserRole) *v1.User {
 	return &v1.User{
@@ -86,12 +91,18 @@ func sharedGuardCluster(t *testing.T) client.Client {
 		idp.Annotations[v1.UserNameAnnotation] = idpUserName
 		objs := []client.Object{
 			genMockRole(), local, idp,
-			guardUser("idp-admin-id", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole),
+			// The administrator is one only through the group the identity provider puts it in (see
+			// guardEngineWithDB): the platform roles stored on a user object do not count.
+			guardUser("idp-admin-id", v1.SSOUserType, v1.DefaultRole),
 		}
 		for _, name := range guardTargets {
 			switch name {
 			case "t-local":
 				objs = append(objs, guardUser(name, v1.DefaultUserType, v1.DefaultRole))
+			case "t-password-local", "t-builtin-password":
+				u := guardUser(name, v1.DefaultUserType, v1.DefaultRole)
+				u.Spec.Password = stringutil.Base64Encode(targetPassword)
+				objs = append(objs, u)
 			case "t-local-rev":
 				objs = append(objs, guardUser(name, v1.DefaultUserType, v1.DefaultRole, v1.SystemAdminRole))
 			case "t-revoke":
@@ -127,7 +138,8 @@ func guardEngineWithDB(t *testing.T, builtin bool, db dbclient.Interface) *gin.E
 		require.NoError(t, r.ParseForm())
 		answer := map[string]any{"active": false}
 		if r.PostForm.Get("token") == "idp-admin" {
-			answer = map[string]any{"active": true, "sub": "idp-admin-id", "username": "idp-admin", "aud": guardAudience}
+			answer = map[string]any{"active": true, "sub": "idp-admin-id", "username": "idp-admin", "aud": guardAudience,
+				"groups": []string{"platform-admins"}}
 		}
 		_ = json.NewEncoder(w).Encode(answer)
 	}))
@@ -144,11 +156,13 @@ func guardEngineWithDB(t *testing.T, builtin bool, db dbclient.Interface) *gin.E
 	commonconfig.SetValue("crypto.enable", "false")
 	viper.Set("auth.mode", "external")
 	viper.Set("auth.authenticators", chain)
+	viper.Set("auth.group_mappings", []map[string]any{{"group": "platform-admins", "roles": []string{"system-admin"}}})
 	require.NoError(t, authority.InitExternalAuth(cli))
 	t.Cleanup(func() {
 		commonconfig.SetValue("crypto.enable", "")
 		viper.Set("auth.mode", nil)
 		viper.Set("auth.authenticators", nil)
+		viper.Set("auth.group_mappings", nil)
 		require.NoError(t, authority.InitExternalAuth(nil))
 	})
 
@@ -189,6 +203,14 @@ func storedRoles(t *testing.T, name string) []v1.UserRole {
 	u := &v1.User{}
 	require.NoError(t, guardCluster.Get(context.Background(), client.ObjectKey{Name: name}, u))
 	return u.Spec.Roles
+}
+
+// storedPassword is the password of a user, as the local sign-in would read it.
+func storedPassword(t *testing.T, name string) string {
+	t.Helper()
+	u := &v1.User{}
+	require.NoError(t, guardCluster.Get(context.Background(), client.ObjectKey{Name: name}, u))
+	return stringutil.Base64Decode(u.Spec.Password)
 }
 
 // With auth.mode external, every way of making a credential or an account that the
@@ -248,6 +270,22 @@ func TestExternalModeRefusesCredentialAndRoleWrites(t *testing.T) {
 		{
 			name: "create an API key as an administrator",
 			req:  guardRequest{method: http.MethodPost, path: "/api/v1/apikeys", body: `{"name":"k","ttlDays":7}`, bearer: "idp-admin"},
+		},
+		{
+			name: "set the password of a local account",
+			req: guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-password-local",
+				body: `{"password":"changed-by-a-script"}`, bearer: "idp-admin"},
+			after: func(t *testing.T, _ *httptest.ResponseRecorder) {
+				assert.Equal(t, targetPassword, storedPassword(t, "t-password-local"))
+			},
+		},
+		{
+			name: "set a password on an identity-provider user",
+			req: guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-password-idp",
+				body: `{"password":"changed-by-a-script","email":"a@example.com"}`, bearer: "idp-admin"},
+			after: func(t *testing.T, _ *httptest.ResponseRecorder) {
+				assert.Empty(t, storedPassword(t, "t-password-idp"), "the user has no password and must not get one")
+			},
 		},
 		{
 			name: "grant a platform role to an identity-provider user",
@@ -370,6 +408,19 @@ func TestBuiltinModeKeepsAccountEndpoints(t *testing.T) {
 	t.Run("a local account signs in", func(t *testing.T) {
 		w := guardRequest{method: http.MethodPost, path: "/api/v1/login", body: loginBody("default", localName, localPassword)}.serve(e)
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	})
+
+	t.Run("an administrator sets a password", func(t *testing.T) {
+		body, _ := json.Marshal(view.PatchUserRequest{Password: pointer.String("new-password")})
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPatch, "/", strings.NewReader(string(body)))
+		c.Request.Header.Set("Content-Type", "application/json")
+		c.Set(common.UserId, commonuser.GenerateUserIdByName(localName))
+		c.Set(common.Name, "t-builtin-password")
+		h.PatchUser(c)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		assert.Equal(t, "new-password", storedPassword(t, "t-builtin-password"))
 	})
 
 	t.Run("an administrator grants a platform role", func(t *testing.T) {
@@ -502,6 +553,35 @@ func TestRefuseExternalRoleChange(t *testing.T) {
 				t.Cleanup(func() { viper.Set("auth.mode", nil) })
 			}
 			err := refuseExternalRoleChange(tt.target, &view.PatchUserRequest{Roles: tt.request})
+			if tt.refused {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), refusal)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// Which patches count as a password change: any patch that carries a password, in external mode only.
+func TestRefuseExternalPasswordChange(t *testing.T) {
+	tests := []struct {
+		name     string
+		external bool
+		request  *string
+		refused  bool
+	}{
+		{"builtin mode never refuses", false, pointer.String("pw"), false},
+		{"no password in the patch", true, nil, false},
+		{"a password", true, pointer.String("pw"), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.external {
+				viper.Set("auth.mode", "external")
+				t.Cleanup(func() { viper.Set("auth.mode", nil) })
+			}
+			err := refuseExternalPasswordChange(&view.PatchUserRequest{Password: tt.request})
 			if tt.refused {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), refusal)

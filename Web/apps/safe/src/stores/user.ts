@@ -127,7 +127,10 @@ export const useUserStore = defineStore('user', {
 
         try {
           await this.fetchUser()
-          this.fetchEnvs().catch(() => {})
+          // Awaited: what the console offers depends on the auth mode /envs reports (see
+          // isExternalAuth), so a reload must not render the builtin-mode UI first. A failed
+          // /envs is not a failed session: the mode stays unknown, as it was before.
+          await this.fetchEnvs().catch(() => {})
         } catch {
           this.session = 'anonymous'
           this.profile = null
