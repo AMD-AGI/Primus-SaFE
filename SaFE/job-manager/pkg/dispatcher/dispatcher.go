@@ -951,6 +951,12 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 			return err
 		}
 	}
+	// Apply after updateContainers so a caller-supplied path cannot replace the copied key.
+	if commonworkload.IsSandBox(adminWorkload) || agentSandboxPyTorch(adminWorkload) {
+		if err = pointSigningKeyFile(obj, adminWorkload, rt); err != nil {
+			return err
+		}
+	}
 	// Apply after updateContainers so GetEnvToBeRemoved cannot drop injected keys.
 	if commonworkload.IsCICDGithubRunner(adminWorkload) {
 		if clientSets != nil && clientSets.ClientFactory() != nil {

@@ -434,6 +434,11 @@ func TestChartRendersNoSandboxEnvSecretByDefault(t *testing.T) {
 	main := pod.Spec.PodTemplate.Spec.Containers[0]
 	testifyassert.Empty(t, main.EnvFrom)
 	for _, current := range main.Env {
+		if current.Name == "NODE_NAME" {
+			fieldRef, _ := current.ValueFrom["fieldRef"].(map[string]interface{})
+			testifyassert.Equal(t, "spec.nodeName", fieldRef["fieldPath"])
+			continue
+		}
 		testifyassert.Nil(t, current.ValueFrom, "%s reads from a reference", current.Name)
 	}
 }
@@ -553,16 +558,22 @@ func TestChartRendersTheSandboxPathSetupExactly(t *testing.T) {
 		testifyrequire.Equal(t, []string{"/bin/sh", "-c"}, main.Command, "values %v", values)
 		testifyrequire.Equal(t, []string{sandboxPathSetupScript + sandboxStartupTail}, main.Args, "values %v", values)
 		foundNode := false
+		foundKey := false
 		for _, current := range main.Env {
-			if current.Name != "NODE_NAME" {
-				continue
+			if current.Name == "NODE_NAME" {
+				foundNode = true
+				fieldRef, _ := current.ValueFrom["fieldRef"].(map[string]interface{})
+				testifyrequire.NotNil(t, fieldRef, "values %v", values)
+				testifyassert.Equal(t, "spec.nodeName", fieldRef["fieldPath"], "values %v", values)
 			}
-			foundNode = true
-			fieldRef, _ := current.ValueFrom["fieldRef"].(map[string]interface{})
-			testifyrequire.NotNil(t, fieldRef, "values %v", values)
-			testifyassert.Equal(t, "spec.nodeName", fieldRef["fieldPath"], "values %v", values)
+			if current.Name == "HYPERLOOM_SIGNING_KEY_FILE" {
+				foundKey = true
+				testifyassert.Equal(t, "/run/signing-key/signing-key.pem", current.Value, "values %v", values)
+				testifyassert.Nil(t, current.ValueFrom, "values %v", values)
+			}
 		}
 		testifyrequire.True(t, foundNode, "values %v", values)
+		testifyrequire.True(t, foundKey, "values %v", values)
 	}
 }
 

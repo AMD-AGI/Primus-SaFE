@@ -58,6 +58,9 @@ data:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            # The init container copies the signing secret here. The main container has no secret mount.
+            - name: HYPERLOOM_SIGNING_KEY_FILE
+              value: /run/signing-key/signing-key.pem
             - name: OPENAI_BASE_URL
               value: https://{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/api/v1/llm-proxy/v1
             - name: WORKLOAD_MANAGER_URL
@@ -127,7 +130,8 @@ data:
                 if [ -f "$f" ]; then
                   umask 077
                   cp "$f" /run/signing-key/signing-key.pem
-                  chmod 0444 /run/signing-key/signing-key.pem
+                  chown 1000:1000 /run/signing-key/signing-key.pem
+                  chmod 0400 /run/signing-key/signing-key.pem
                   break
                 fi
               done
@@ -144,8 +148,10 @@ data:
           volumes:
           - emptyDir: {}
             name: envd-bin
-          - emptyDir: {}
-            name: signing-key
+          - name: signing-key
+            emptyDir:
+              medium: Memory
+              sizeLimit: 1Mi
 {{- if .Values.sandbox.extra_ca_secret }}
           - name: extra-ca
             secret:

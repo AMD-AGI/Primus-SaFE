@@ -19,6 +19,7 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
@@ -88,12 +89,17 @@ func TestApplyAgentSandboxPyTorchInjectsKeyAndSessionFile(t *testing.T) {
 	assert.Assert(t, sawSession)
 	assert.Equal(t, container["args"].([]interface{})[0], envdStartupScript)
 	assert.Equal(t, nodeNameFieldPath(t, container["env"]), "spec.nodeName")
+	assert.Equal(t, envValue(t, container["env"], signingKeyEnv), signingKeyFile)
+	assert.Assert(t, hasNamedItem(container["volumeMounts"].([]interface{}), signingKeyVolume))
+	assert.Equal(t, memoryVolume(t, volumes, signingKeyVolume), true)
 	inits, found, err := jobutils.NestedSlice(obj.Object, []string{
 		"spec", "pytorchReplicaSpecs", "Master", "template", "spec", "initContainers"})
 	assert.NilError(t, err)
 	assert.Assert(t, found)
 	assert.Equal(t, inits[0].(map[string]interface{})["name"], "envd-injector")
 	assert.Equal(t, inits[0].(map[string]interface{})["image"], "example/envd-injector:test")
+	assert.Assert(t, strings.Contains(inits[0].(map[string]interface{})["command"].([]interface{})[2].(string), "chmod 0400"))
+	assert.Assert(t, hasNamedItem(inits[0].(map[string]interface{})["volumeMounts"].([]interface{}), signingKeyVolume))
 	security := container["securityContext"].(map[string]interface{})
 	caps := security["capabilities"].(map[string]interface{})
 	for _, item := range caps["add"].([]interface{}) {
@@ -140,6 +146,45 @@ func TestApplyAgentSandboxPyTorchKeepsEnvdCommandWithEntryPoint(t *testing.T) {
 	container := containers[0].(map[string]interface{})
 	assert.DeepEqual(t, container["command"], []interface{}{"/bin/sh", "-c"})
 	assert.Equal(t, container["args"].([]interface{})[0], envdStartupScript)
+}
+
+func TestPointSigningKeyFileOverridesCreatorPath(t *testing.T) {
+	viper.Set("sandbox.namespace", "agent-sandbox-system")
+	viper.Set("sandbox.secret", "envd-router-identity")
+	viper.Set("sandbox.envd_injector_image", "example/envd-injector:test")
+	t.Cleanup(func() {
+		viper.Set("sandbox.namespace", "")
+		viper.Set("sandbox.secret", "")
+		viper.Set("sandbox.envd_injector_image", "")
+	})
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "envd-router-identity", Namespace: "agent-sandbox-system"},
+		Data:       map[string][]byte{"public.pem": []byte("-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----\n")},
+	}
+	sets := &syncer.ClusterClientSets{}
+	sets.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(
+		context.Background(), "crusoe", k8sfake.NewSimpleClientset(secret)))
+
+	workload := &v1.Workload{}
+	workload.Name = "asb-sbx-1"
+	workload.Spec.GroupVersionKind.Kind = "PyTorchJob"
+	workload.Spec.Resources = []v1.WorkloadResource{{CPU: "1", Memory: "1Gi"}}
+	workload.Spec.Env = map[string]string{signingKeyEnv: common.SecretPath + "/sbx-1/signing-key.pem"}
+	v1.SetLabel(workload, grantIDLabel, "gr-01")
+	v1.SetLabel(workload, sandboxIDLabel, "sbx-1")
+	obj := pytorchObject()
+	rt := pytorchTemplate()
+	err := (&DispatcherReconciler{}).applyAgentSandboxPyTorch(context.Background(), sets, obj, workload, nil, rt)
+	assert.NilError(t, err)
+	assert.NilError(t, updateContainers(workload, obj, rt.Spec.ResourceSpecs[0], 0))
+	assert.NilError(t, pointSigningKeyFile(obj, workload, rt))
+
+	containers, found, err := jobutils.NestedSlice(obj.Object, []string{
+		"spec", "pytorchReplicaSpecs", "Master", "template", "spec", "containers"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	container := containers[0].(map[string]interface{})
+	assert.Equal(t, envValue(t, container["env"], signingKeyEnv), signingKeyFile)
 }
 
 func nodeNameFieldPath(t *testing.T, raw interface{}) string {
@@ -253,4 +298,36 @@ func TestAgentSandboxPyTorchMatchesSandboxTemplate(t *testing.T) {
 		"envdInjectorScript differs from the Sandbox template's envd-injector script")
 	assert.Assert(t, strings.Contains(template, "name: NODE_NAME"))
 	assert.Assert(t, strings.Contains(template, "fieldPath: spec.nodeName"))
+	assert.Assert(t, strings.Contains(template, "chmod 0400"))
+	assert.Assert(t, strings.Contains(template, "chown 1000:1000"))
+	assert.Assert(t, !strings.Contains(template, "0444"))
+	assert.Assert(t, strings.Contains(template, "name: HYPERLOOM_SIGNING_KEY_FILE"))
+	assert.Assert(t, strings.Contains(template, "value: /run/signing-key/signing-key.pem"))
+}
+
+func envValue(t *testing.T, raw interface{}, name string) string {
+	t.Helper()
+	envs, _ := raw.([]interface{})
+	for _, item := range envs {
+		env, ok := item.(map[string]interface{})
+		if !ok || env["name"] != name {
+			continue
+		}
+		value, _ := env["value"].(string)
+		return value
+	}
+	return ""
+}
+
+func memoryVolume(t *testing.T, volumes []interface{}, name string) bool {
+	t.Helper()
+	for _, item := range volumes {
+		raw, ok := item.(map[string]interface{})
+		if !ok || raw["name"] != name {
+			continue
+		}
+		emptyDir, _ := raw["emptyDir"].(map[string]interface{})
+		return emptyDir["medium"] == "Memory"
+	}
+	return false
 }

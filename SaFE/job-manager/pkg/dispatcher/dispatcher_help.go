@@ -67,7 +67,16 @@ ln -sf ip6tables /shared/bin/ip6tables-legacy
 cp /musl-ld.so /shared/bin/ld-musl-x86_64.so.1
 ln -sf ld-musl-x86_64.so.1 /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true
 ( cp /amd-root-ca.crt /amd-issuing-ca.crt /amd-bundle.pem /setup-amd-ca.sh /shared/bin/ \
-  && chmod +x /shared/bin/setup-amd-ca.sh ) 2>/dev/null || true`
+  && chmod +x /shared/bin/setup-amd-ca.sh ) 2>/dev/null || true
+for f in /etc/secrets/*/signing-key.pem; do
+  if [ -f "$f" ]; then
+    umask 077
+    cp "$f" /run/signing-key/signing-key.pem
+    chown 1000:1000 /run/signing-key/signing-key.pem
+    chmod 0400 /run/signing-key/signing-key.pem
+    break
+  fi
+done`
 	// envdStartupScript starts envd in the main container. It is the Sandbox
 	// template's startup command (PATH setup, work directory, CA setup, the
 	// signing key file, and the SANDBOX_STARTUP snippet); a test keeps the two in step.
@@ -79,6 +88,11 @@ ln -sf ld-musl-x86_64.so.1 /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true
 	sessionIdentityVolume = "envd-session-identity"
 	sessionIdentityMount  = "/var/run/agent-sandbox/session"
 	sessionIdentityFile   = "session-id"
+	// signingKeyVolume is a tmpfs copy of the private key. The secret itself stays on the init container.
+	signingKeyVolume = "signing-key"
+	signingKeyMount  = "/run/signing-key"
+	signingKeyFile   = "/run/signing-key/signing-key.pem"
+	signingKeyEnv    = "HYPERLOOM_SIGNING_KEY_FILE"
 
 	// inferaNodeCountField is the flat IDEP ServiceSpec field carrying the node
 	// count of a multi-node role's LeaderWorkerSet group. Written by
@@ -3038,6 +3052,7 @@ func ensureEnvD(obj *unstructured.Unstructured, workload *v1.Workload, resourceS
 		return err
 	}
 	mount := map[string]interface{}{"name": envdBinVolume, "mountPath": envdBinMount}
+	keyMount := map[string]interface{}{"name": signingKeyVolume, "mountPath": signingKeyMount}
 	for i := range containers {
 		container, ok := containers[i].(map[string]interface{})
 		if !ok {
@@ -3045,10 +3060,15 @@ func ensureEnvD(obj *unstructured.Unstructured, workload *v1.Workload, resourceS
 		}
 		mounts, _ := container["volumeMounts"].([]interface{})
 		if !hasNamedItem(mounts, envdBinVolume) {
-			container["volumeMounts"] = append(mounts, mount)
+			mounts = append(mounts, mount)
 		}
+		if !hasNamedItem(mounts, signingKeyVolume) {
+			mounts = append(mounts, keyMount)
+		}
+		container["volumeMounts"] = mounts
 		container["command"] = []interface{}{"/bin/sh", "-c"}
 		container["args"] = []interface{}{envdStartupScript}
+		setEnvValue(container, signingKeyEnv, signingKeyFile)
 		containers[i] = container
 	}
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
@@ -3062,22 +3082,100 @@ func ensureEnvD(obj *unstructured.Unstructured, workload *v1.Workload, resourceS
 			"image":           image,
 			"imagePullPolicy": "IfNotPresent",
 			"command":         []interface{}{"sh", "-c", envdInjectorScript},
-			"volumeMounts":    []interface{}{mount},
+			"volumeMounts":    []interface{}{mount, keyMount},
 		})
-		if err = jobutils.SetNestedField(obj.Object, inits, initPath); err != nil {
-			return err
+	} else {
+		for i := range inits {
+			init, ok := inits[i].(map[string]interface{})
+			if !ok || init["name"] != "envd-injector" {
+				continue
+			}
+			mounts, _ := init["volumeMounts"].([]interface{})
+			if !hasNamedItem(mounts, envdBinVolume) {
+				mounts = append(mounts, mount)
+			}
+			if !hasNamedItem(mounts, signingKeyVolume) {
+				mounts = append(mounts, keyMount)
+			}
+			init["volumeMounts"] = mounts
+			init["command"] = []interface{}{"sh", "-c", envdInjectorScript}
+			inits[i] = init
 		}
+	}
+	if err = jobutils.SetNestedField(obj.Object, inits, initPath); err != nil {
+		return err
 	}
 	volumesPath := podSpecPath(workload, resourceSpec, "volumes")
 	volumes, _, _ := jobutils.NestedSlice(obj.Object, volumesPath)
-	if hasNamedItem(volumes, envdBinVolume) {
+	if !hasNamedItem(volumes, envdBinVolume) {
+		volumes = append(volumes, map[string]interface{}{
+			"name":     envdBinVolume,
+			"emptyDir": map[string]interface{}{},
+		})
+	}
+	if !hasNamedItem(volumes, signingKeyVolume) {
+		volumes = append(volumes, map[string]interface{}{
+			"name": signingKeyVolume,
+			"emptyDir": map[string]interface{}{
+				"medium":    "Memory",
+				"sizeLimit": "1Mi",
+			},
+		})
+	}
+	return jobutils.SetNestedField(obj.Object, volumes, volumesPath)
+}
+
+// pointSigningKeyFile points HYPERLOOM_SIGNING_KEY_FILE at the tmpfs copy.
+// The creator's path is the secret mount, and that mount is only on the init container.
+func pointSigningKeyFile(obj *unstructured.Unstructured, workload *v1.Workload, rt *v1.ResourceTemplate) error {
+	if rt == nil {
 		return nil
 	}
-	volumes = append(volumes, map[string]interface{}{
-		"name":     envdBinVolume,
-		"emptyDir": map[string]interface{}{},
-	})
-	return jobutils.SetNestedField(obj.Object, volumes, volumesPath)
+	for i := range rt.Spec.ResourceSpecs {
+		spec := &rt.Spec.ResourceSpecs[i]
+		if len(spec.PrePaths) > 0 {
+			_, found, err := jobutils.NestedField(obj.Object, spec.PrePaths)
+			if err != nil {
+				return err
+			}
+			if !found {
+				continue
+			}
+		}
+		containers, path, err := getContainers(workload, obj, *spec)
+		if err != nil {
+			return err
+		}
+		for j := range containers {
+			container, ok := containers[j].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			setEnvValue(container, signingKeyEnv, signingKeyFile)
+			containers[j] = container
+		}
+		if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// setEnvValue sets one container env entry, replacing a value the caller already wrote.
+func setEnvValue(container map[string]interface{}, name, value string) {
+	envs, _ := container["env"].([]interface{})
+	for i, item := range envs {
+		env, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if got, _ := env["name"].(string); got == name {
+			envs[i] = map[string]interface{}{"name": name, "value": value}
+			container["env"] = envs
+			return
+		}
+	}
+	container["env"] = append(envs, map[string]interface{}{"name": name, "value": value})
 }
 
 // ensureScheduledNodeName sets NODE_NAME from the scheduled node, matching the Sandbox template.
