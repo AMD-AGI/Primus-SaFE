@@ -855,8 +855,9 @@ func TestDeriveAESKey(t *testing.T) {
 	})
 }
 
-// TestValidateApiKeyPlatformKeySkipsExpiration tests that platform keys bypass expiration check
-func TestValidateApiKeyPlatformKeySkipsExpiration(t *testing.T) {
+// TestValidateApiKeyRefusesPlatformKeys tests that the permanent keys that were once issued to
+// CI/CD pods are not accepted any more, whatever their expiry, while a user key is checked as before.
+func TestValidateApiKeyRefusesPlatformKeys(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -864,57 +865,58 @@ func TestValidateApiKeyPlatformKeySkipsExpiration(t *testing.T) {
 	inst := &ApiKeyToken{dbClient: mockDB}
 
 	now := time.Now().UTC()
-
-	t.Run("expired platform key is still valid", func(t *testing.T) {
-		mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-platform-expired", nil)).Return(&dbclient.ApiKey{
-			Id:             100,
-			UserId:         "user-platform",
-			UserName:       "platform-user",
-			ApiKey:         HashApiKey("ak-platform-expired", nil),
-			Deleted:        false,
-			ExpirationTime: pq.NullTime{Time: now.Add(-48 * time.Hour), Valid: true},
+	record := func(id int64, key, keyType string, expires time.Time, deleted bool) *dbclient.ApiKey {
+		return &dbclient.ApiKey{
+			Id:             id,
+			UserId:         "user-" + key,
+			ApiKey:         HashApiKey(key, nil),
+			Deleted:        deleted,
+			ExpirationTime: pq.NullTime{Time: expires, Valid: true},
 			Whitelist:      "[]",
-			KeyType:        KeyTypePlatform,
-		}, nil)
+			KeyType:        keyType,
+		}
+	}
 
-		userInfo, err := inst.ValidateApiKey(context.Background(), "ak-platform-expired", "192.168.1.1")
-		assert.NoError(t, err)
-		assert.NotNil(t, userInfo)
-		assert.Equal(t, "user-platform", userInfo.Id)
+	t.Run("a platform key with a far-future expiry is refused", func(t *testing.T) {
+		mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-platform", nil)).
+			Return(record(100, "ak-platform", KeyTypePlatform, time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC), false), nil)
+		userInfo, err := inst.ValidateApiKey(context.Background(), "ak-platform", "192.168.1.1")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid API key")
+		assert.Nil(t, userInfo)
 	})
 
-	t.Run("expired user key is rejected", func(t *testing.T) {
-		mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-user-expired", nil)).Return(&dbclient.ApiKey{
-			Id:             101,
-			UserId:         "user-regular",
-			ApiKey:         HashApiKey("ak-user-expired", nil),
-			Deleted:        false,
-			ExpirationTime: pq.NullTime{Time: now.Add(-48 * time.Hour), Valid: true},
-			Whitelist:      "[]",
-			KeyType:        KeyTypeUser,
-		}, nil)
+	t.Run("a platform key that is expired is refused", func(t *testing.T) {
+		mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-platform-old", nil)).
+			Return(record(101, "ak-platform-old", KeyTypePlatform, now.Add(-48*time.Hour), false), nil)
+		_, err := inst.ValidateApiKey(context.Background(), "ak-platform-old", "192.168.1.1")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid API key")
+	})
 
+	t.Run("a user key is accepted", func(t *testing.T) {
+		mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-user", nil)).
+			Return(record(102, "ak-user", KeyTypeUser, now.Add(24*time.Hour), false), nil)
+		userInfo, err := inst.ValidateApiKey(context.Background(), "ak-user", "192.168.1.1")
+		assert.NoError(t, err)
+		assert.Equal(t, "user-ak-user", userInfo.Id)
+	})
+
+	t.Run("an expired user key is rejected", func(t *testing.T) {
+		mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-user-expired", nil)).
+			Return(record(103, "ak-user-expired", KeyTypeUser, now.Add(-48*time.Hour), false), nil)
 		userInfo, err := inst.ValidateApiKey(context.Background(), "ak-user-expired", "192.168.1.1")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "API key expired")
 		assert.Nil(t, userInfo)
 	})
 
-	t.Run("deleted platform key is still rejected", func(t *testing.T) {
-		mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-platform-deleted", nil)).Return(&dbclient.ApiKey{
-			Id:             102,
-			UserId:         "user-platform",
-			ApiKey:         HashApiKey("ak-platform-deleted", nil),
-			Deleted:        true,
-			ExpirationTime: pq.NullTime{Time: now.Add(24 * time.Hour), Valid: true},
-			Whitelist:      "[]",
-			KeyType:        KeyTypePlatform,
-		}, nil)
-
-		userInfo, err := inst.ValidateApiKey(context.Background(), "ak-platform-deleted", "192.168.1.1")
+	t.Run("a deleted key is unavailable", func(t *testing.T) {
+		mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-deleted", nil)).
+			Return(record(104, "ak-deleted", KeyTypeUser, now.Add(24*time.Hour), true), nil)
+		_, err := inst.ValidateApiKey(context.Background(), "ak-deleted", "192.168.1.1")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "Unavailable")
-		assert.Nil(t, userInfo)
 	})
 }
 

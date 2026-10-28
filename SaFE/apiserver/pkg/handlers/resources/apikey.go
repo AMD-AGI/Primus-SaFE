@@ -292,11 +292,6 @@ func (h *Handler) deleteApiKey(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewNotFoundWithMessage("API key not found")
 	}
 
-	// Platform keys cannot be deleted via user API
-	if record.KeyType == authority.KeyTypePlatform {
-		return nil, commonerrors.NewForbidden("platform API key cannot be deleted")
-	}
-
 	// Check RBAC permission - user must have "delete" permission on "apikeys" resource
 	err = h.accessController.Authorize(authority.AccessInput{
 		Context:       c.Request.Context(),

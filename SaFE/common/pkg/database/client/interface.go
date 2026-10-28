@@ -223,8 +223,6 @@ type ApiKeyInterface interface {
 	GetApiKeyByKey(ctx context.Context, apiKey string) (*ApiKey, error)
 	// SetApiKeyDeleted performs soft delete on an API key
 	SetApiKeyDeleted(ctx context.Context, userId string, id int64) error
-	// GetPlatformKeyByUserId retrieves the active platform key for a user
-	GetPlatformKeyByUserId(ctx context.Context, userId string) (*ApiKey, error)
 }
 
 // ModelInterface defines database operations for Model entities

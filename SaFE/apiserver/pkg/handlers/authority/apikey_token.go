@@ -43,7 +43,8 @@ const (
 	UserTypeApiKey = "apikey"
 	// KeyTypeUser is the default key type for user-created API keys
 	KeyTypeUser = "user"
-	// KeyTypePlatform is the key type for platform-managed API keys (invisible to users, never expires)
+	// KeyTypePlatform is the key type of the keys that were once issued to CI/CD pods and never
+	// expired. They are no longer issued, and the ones left in the database are refused.
 	KeyTypePlatform = "platform"
 )
 
@@ -149,11 +150,13 @@ func (a *ApiKeyToken) ValidateApiKey(ctx context.Context, apiKey string, clientI
 		return nil, commonerrors.NewUnauthorized("Unavailable")
 	}
 
-	// Platform keys never expire; only check expiration for user keys
-	if record.KeyType != KeyTypePlatform {
-		if record.ExpirationTime.Valid && time.Now().UTC().After(record.ExpirationTime.Time) {
-			return nil, commonerrors.NewUnauthorized("API key expired")
-		}
+	// A permanent key that was issued to CI/CD pods: the pods authenticate with their own
+	// token now, so the key is not accepted even though its record is still there.
+	if record.KeyType == KeyTypePlatform {
+		return nil, commonerrors.NewUnauthorized("invalid API key")
+	}
+	if record.ExpirationTime.Valid && time.Now().UTC().After(record.ExpirationTime.Time) {
+		return nil, commonerrors.NewUnauthorized("API key expired")
 	}
 
 	// Check IP whitelist
