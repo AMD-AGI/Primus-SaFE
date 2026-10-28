@@ -127,6 +127,7 @@ data:
                 if [ -f "$f" ]; then
                   umask 077
                   cp "$f" /run/signing-key/signing-key.pem
+                  chmod 0444 /run/signing-key/signing-key.pem
                   break
                 fi
               done
