@@ -65,6 +65,16 @@ type UserResponseItem struct {
 	AvatarUrl string `json:"avatarUrl,omitempty"`
 }
 
+// UserWorkspacesResponse is the answer of GET /users/self/workspaces: the same two lists
+// the user record carries, served on their own so a client that learns who the user is
+// from another service can still ask SaFE which workspaces the user can reach.
+type UserWorkspacesResponse struct {
+	// The workspaces which user can access
+	Workspaces []WorkspaceEntry `json:"workspaces"`
+	// The workspaces which user can manage
+	ManagedWorkspaces []WorkspaceEntry `json:"managedWorkspaces"`
+}
+
 type PatchUserRequest struct {
 	// User role, e.g. system-admin, default
 	Roles *[]v1.UserRole `json:"roles,omitempty"`

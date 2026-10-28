@@ -63,6 +63,12 @@ func (h *Handler) GetUser(c *gin.Context) {
 	handle(c, h.getUser)
 }
 
+// GetSelfWorkspaces returns the workspaces the requesting user can access and the ones the user manages.
+// It answers for the caller only; the same lists are also part of the user record returned by GetUser.
+func (h *Handler) GetSelfWorkspaces(c *gin.Context) {
+	handle(c, h.getSelfWorkspaces)
+}
+
 // PatchUser handles partial updates to a user resource.
 // It authorizes the request based on the specific fields being updated,
 // parses update parameters, and applies changes to the specified user.
@@ -321,6 +327,35 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	return h.cvtToUserResponseItem(c.Request.Context(), targetUser), nil
+}
+
+// getSelfWorkspaces implements the lookup behind GET /users/self/workspaces.
+// The caller always gets their own lists, so there is no target user to authorize: the
+// request is already authenticated, and the lists say nothing the user record does not.
+func (h *Handler) getSelfWorkspaces(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	if requestUser == nil {
+		return nil, commonerrors.NewUnauthorized("the request user is unknown")
+	}
+	// As in the user record: in external mode the lists include what the request's
+	// groups map to. The copy is only read here, never written back.
+	user := extauth.ApplyOverlay(c.Request.Context(), requestUser)
+	workspaces, managed := h.userWorkspaces(c.Request.Context(), user)
+	// An empty list is [], not null, so a client can read it without a nil check.
+	resp := &view.UserWorkspacesResponse{
+		Workspaces:        []view.WorkspaceEntry{},
+		ManagedWorkspaces: []view.WorkspaceEntry{},
+	}
+	if len(workspaces) > 0 {
+		resp.Workspaces = workspaces
+	}
+	if len(managed) > 0 {
+		resp.ManagedWorkspaces = managed
+	}
+	return resp, nil
 }
 
 // patchUser implements partial update logic for a user.
@@ -597,30 +632,30 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) view
 		RestrictedType: user.Spec.RestrictedType,
 		AvatarUrl:      v1.GetUserAvatarUrl(user),
 	}
-	if !user.IsSystemAdmin() {
-		workspaces := commonuser.GetWorkspace(user)
-		for _, id := range workspaces {
-			workspace := &v1.Workspace{}
-			if err := h.Get(ctx, client.ObjectKey{Name: id}, workspace); err != nil {
-				continue
-			}
-			result.Workspaces = append(result.Workspaces, view.WorkspaceEntry{
-				Id: id, Name: v1.GetDisplayName(workspace),
-			})
-		}
-
-		workspaces = commonuser.GetManagedWorkspace(user)
-		for _, id := range workspaces {
-			workspace := &v1.Workspace{}
-			if err := h.Get(ctx, client.ObjectKey{Name: id}, workspace); err != nil {
-				continue
-			}
-			result.ManagedWorkspaces = append(result.ManagedWorkspaces, view.WorkspaceEntry{
-				Id: id, Name: v1.GetDisplayName(workspace),
-			})
-		}
-	}
+	result.Workspaces, result.ManagedWorkspaces = h.userWorkspaces(ctx, user)
 	return result
+}
+
+// userWorkspaces returns the workspaces the user can access and the ones the user manages,
+// each as an id and a display name. A system administrator reaches every workspace without
+// being listed in any, so both lists are empty for one; a workspace that no longer exists
+// is left out. The user is taken as given: apply the request's overlay before calling.
+func (h *Handler) userWorkspaces(ctx context.Context, user *v1.User) (workspaces, managed []view.WorkspaceEntry) {
+	if user.IsSystemAdmin() {
+		return nil, nil
+	}
+	entries := func(ids []string) []view.WorkspaceEntry {
+		var result []view.WorkspaceEntry
+		for _, id := range ids {
+			workspace := &v1.Workspace{}
+			if err := h.Get(ctx, client.ObjectKey{Name: id}, workspace); err != nil {
+				continue
+			}
+			result = append(result, view.WorkspaceEntry{Id: id, Name: v1.GetDisplayName(workspace)})
+		}
+		return result
+	}
+	return entries(commonuser.GetWorkspace(user)), entries(commonuser.GetManagedWorkspace(user))
 }
 
 // logout handles user logout by clearing authentication cookies.
