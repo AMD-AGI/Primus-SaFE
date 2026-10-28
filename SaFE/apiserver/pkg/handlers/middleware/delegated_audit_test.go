@@ -34,7 +34,7 @@ func delegatedChain(t *testing.T) (*gin.Engine, chan *dbclient.AuditLog) {
 	rev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.NoError(t, r.ParseForm())
 		token := r.PostForm.Get("token")
-		answer := map[string]any{"active": token != "", "sub": "alice-id", "username": "alice"}
+		answer := map[string]any{"active": token != "", "sub": "alice-id", "username": "alice", "aud": "safe-apiserver"}
 		if token == "delegated" {
 			answer["act"] = map[string]any{"client_id": "svc-bot"}
 			answer["scope"] = "safe.api"
@@ -46,7 +46,7 @@ func delegatedChain(t *testing.T) (*gin.Engine, chan *dbclient.AuditLog) {
 	viper.Set("auth.mode", "external")
 	secretFile := filepath.Join(t.TempDir(), "client-secret")
 	require.NoError(t, os.WriteFile(secretFile, []byte("secret"), 0o600))
-	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection", "url": rev.URL, "client_id": "svc-safe", "client_secret_file": secretFile}})
+	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection", "url": rev.URL, "client_id": "svc-safe", "client_secret_file": secretFile, "audience": "safe-apiserver"}})
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
 	require.NoError(t, authority.InitExternalAuth(fake.NewClientBuilder().WithScheme(scheme).Build()))
