@@ -66,7 +66,7 @@ auth:
   login_url: "https://console.example.com/sign-in"
 ```
 
-Mapped roles and workspaces are part of the user every handler resolves for the request (`AccessController.GetRequestUser`), so the access controller (`Authorize`, `AuthorizeSystemAdmin`, role lookup), the checks handlers make on the user directly (model visibility, workspace access, the sandbox environment Secret, reserved workspace labels) `GET /users/self` and `GET /users/self/workspaces` all agree. That user is a copy for the request; it is never written back to the user object. An SSH session is not an HTTP request: it is authenticated by public key, not by an identity provider, so it follows the same rule as a built-in credential: the platform roles stored on the user object do not count, and the user holds the `default` role and the workspaces and other roles of the record.
+Mapped roles and workspaces are part of the user every handler resolves for the request (`AccessController.GetRequestUser`), so the access controller (`Authorize`, `AuthorizeSystemAdmin`, role lookup), the checks handlers make on the user directly (model visibility, workspace access, the sandbox environment Secret, reserved workspace labels), `GET /users/self` and `GET /users/self/workspaces` all agree. That user is a copy for the request; it is never written back to the user object. An SSH session is not an HTTP request: it is authenticated by public key, not by an identity provider, so it follows the same rule as a built-in credential: the platform roles stored on the user object do not count, and the user holds the `default` role and the workspaces and other roles of the record.
 
 ## Upgrading from a release that kept local administrators
 
