@@ -148,10 +148,8 @@ data:
           volumes:
           - emptyDir: {}
             name: envd-bin
-          - name: signing-key
-            emptyDir:
-              medium: Memory
-              sizeLimit: 1Mi
+          - emptyDir: {}
+            name: signing-key
 {{- if .Values.sandbox.extra_ca_secret }}
           - name: extra-ca
             secret:
