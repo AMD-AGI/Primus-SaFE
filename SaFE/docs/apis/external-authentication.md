@@ -78,6 +78,10 @@ A token that carries an `act` claim (RFC 8693) means a party is acting on behalf
 
 A malformed `act` claim is rejected rather than read as a direct login.
 
+## CI/CD runner pods
+
+This section applies in both modes. The pods of a CI/CD scale set (the runner proxy and the unified-job proxy) call the apiserver to create, watch and stop the workload that does the work. They authenticate with the ServiceAccount token the kubelet projects into the pod (audience `primus-safe-apiserver`, bound to the pod, renewed before it expires), not with an API key of their owner. The apiserver has the cluster the pod runs on verify the token (a `TokenReview`, with the cluster client it already has), reads the pod, and takes the owner of the CI/CD scale set the pod belongs to as the user. The token reaches three routes only: `POST /api/v1/workloads` (a runner or a unified job in the pod's workspace, stamped with the pod), and `GET` and `POST .../stop` on the workloads that same pod created. If the cluster cannot be asked, the answer is `503`, never a pass. The audit log records the pod as the party acting for the user.
+
 ## Database
 
 `audit_logs` gains two nullable columns (`actor_client_id`, `token_jti`). The chart adds them with `ADD COLUMN IF NOT EXISTS`; apply the database job before rolling the apiserver.

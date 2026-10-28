@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
@@ -36,6 +37,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 // InitHttpHandlers initializes the HTTP handlers for the API server.
@@ -60,6 +62,16 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	if err := authority.InitExternalAuth(mgr.GetClient()); err != nil {
 		return nil, commonerrors.NewInternalError("failed to initialize external authentication: " + err.Error())
 	}
+	// CI/CD runner pods authenticate with their ServiceAccount token, verified by the
+	// cluster they run on.
+	clientManager := commonutils.NewObjectManagerSingleton()
+	authority.InitPodTokenAuth(mgr.GetClient(), func(clusterId string) (kubernetes.Interface, error) {
+		factory, err := commonutils.GetK8sClientFactory(clientManager, clusterId)
+		if err != nil {
+			return nil, err
+		}
+		return factory.ClientSet(), nil
+	})
 	// The audit log reads user records through the manager's client.
 	middleware.SetAuditUserReader(mgr.GetClient())
 	// Initialize API key authentication if database is enabled
