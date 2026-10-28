@@ -97,6 +97,8 @@ data:
             volumeMounts:
             - mountPath: /shared/bin
               name: envd-bin
+            - mountPath: /run/signing-key
+              name: signing-key
             - mountPath: /var/run/agent-sandbox/session
               name: envd-session-identity
               readOnly: true
@@ -121,6 +123,13 @@ data:
               ln -sf ld-musl-x86_64.so.1 /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true
               ( cp /amd-root-ca.crt /amd-issuing-ca.crt /amd-bundle.pem /setup-amd-ca.sh /shared/bin/ \
                 && chmod +x /shared/bin/setup-amd-ca.sh ) 2>/dev/null || true
+              for f in /etc/secrets/*/signing-key.pem; do
+                if [ -f "$f" ]; then
+                  umask 077
+                  cp "$f" /run/signing-key/signing-key.pem
+                  break
+                fi
+              done
             image: harbor.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/proxy/{{ .Values.sandbox.envd_injector_image }}
             imagePullPolicy: IfNotPresent
             name: envd-injector
@@ -128,10 +137,15 @@ data:
             volumeMounts:
             - mountPath: /shared/bin
               name: envd-bin
+            - mountPath: /run/signing-key
+              name: signing-key
           restartPolicy: Never
           volumes:
           - emptyDir: {}
             name: envd-bin
+          - emptyDir:
+              medium: Memory
+            name: signing-key
 {{- if .Values.sandbox.extra_ca_secret }}
           - name: extra-ca
             secret:

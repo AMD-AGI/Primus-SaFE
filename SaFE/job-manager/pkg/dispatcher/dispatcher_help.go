@@ -519,7 +519,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	volumeMounts = append(volumeMounts, buildPersistentVolumeMounts(workload, workspace)...)
 
 	for _, secret := range workload.Spec.Secrets {
-		if secret.Type != v1.SecretGeneral {
+		if secret.Type != v1.SecretGeneral || isSandboxSigningSecret(workload, secret) {
 			continue
 		}
 		mountPath := fmt.Sprintf("%s/%s", common.SecretPath, secret.Id)
@@ -527,6 +527,27 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	container["volumeMounts"] = volumeMounts
+}
+
+// isSandboxSigningSecret reports the private key whose secret name is the workload name.
+func isSandboxSigningSecret(workload *v1.Workload, secret v1.SecretEntity) bool {
+	return workload != nil && secret.Type == v1.SecretGeneral && secret.Id != "" && secret.Id == workload.Name
+}
+
+// signingSecretMounts mounts that key read-only for the init container copy.
+func signingSecretMounts(workload *v1.Workload) []interface{} {
+	var mounts []interface{}
+	if workload == nil {
+		return mounts
+	}
+	for _, secret := range workload.Spec.Secrets {
+		if !isSandboxSigningSecret(workload, secret) {
+			continue
+		}
+		mountPath := fmt.Sprintf("%s/%s", common.SecretPath, secret.Id)
+		mounts = append(mounts, buildVolumeMount(secret.Id, mountPath, "", "", true, false))
+	}
+	return mounts
 }
 
 // buildPersistentVolumeMounts returns the volume mounts for the persistent
@@ -613,8 +634,9 @@ func volumeMountPath(volumeMount interface{}) string {
 // directories.
 //
 // The matching pod-level volumes are added by modifyVolumes; here we only add
-// the volumeMounts. Ephemeral mounts (/dev/shm) and secrets are intentionally
-// skipped — the daemon does not need them. Kinds without init containers are a
+// the volumeMounts. Ephemeral mounts (/dev/shm) and ordinary secrets are
+// skipped. The sandbox signing secret is mounted so the injector can copy it.
+// Kinds without init containers are a
 // no-op. Duplicate mounts are not de-duplicated: the API server will reject the
 // pod so the misconfiguration surfaces loudly instead of being masked.
 func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
@@ -627,6 +649,7 @@ func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
 		return nil
 	}
 	persistentMounts := buildPersistentVolumeMounts(workload, workspace)
+	persistentMounts = append(persistentMounts, signingSecretMounts(workload)...)
 	if len(persistentMounts) == 0 {
 		return nil
 	}

@@ -3602,3 +3602,39 @@ func TestSandboxDefaultTemplateReferencesNoSecret(t *testing.T) {
 		}
 	}
 }
+
+func TestSigningSecretMountsOnlyOnTheInitContainer(t *testing.T) {
+	workload := &v1.Workload{}
+	workload.Name = "sbx-1"
+	workload.Spec.Resources = []v1.WorkloadResource{{}}
+	workload.Spec.Secrets = []v1.SecretEntity{
+		{Id: "sbx-1", Type: v1.SecretGeneral},
+		{Id: "other", Type: v1.SecretGeneral},
+	}
+	container := map[string]interface{}{}
+	modifyVolumeMounts(container, workload, nil, 0)
+	mainPaths := mountPathCounts(container["volumeMounts"])
+	assert.Equal(t, mainPaths[common.SecretPath+"/sbx-1"], 0)
+	assert.Equal(t, mainPaths[common.SecretPath+"/other"], 1)
+
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"initContainers": []interface{}{map[string]interface{}{"name": "envd-injector"}},
+		},
+	}}
+	assert.NilError(t, modifyInitContainerVolumeMounts(obj, workload, nil, []string{"spec", "initContainers"}))
+	inits := obj.Object["spec"].(map[string]interface{})["initContainers"].([]interface{})
+	initPaths := mountPathCounts(inits[0].(map[string]interface{})["volumeMounts"])
+	assert.Equal(t, initPaths[common.SecretPath+"/sbx-1"], 1)
+	assert.Equal(t, initPaths[common.SecretPath+"/other"], 0)
+}
+
+func mountPathCounts(raw interface{}) map[string]int {
+	counts := map[string]int{}
+	mounts, _ := raw.([]interface{})
+	for _, mount := range mounts {
+		path, _ := mount.(map[string]interface{})["mountPath"].(string)
+		counts[path]++
+	}
+	return counts
+}
