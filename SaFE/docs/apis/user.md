@@ -298,6 +298,41 @@ Delete a specific user.
 
 ---
 
+### 8. Get Own Workspaces
+
+Get the workspaces the current user can access and the ones the current user manages. The lists are the `workspaces` and `managedWorkspaces` fields of "Get User Details", served on their own: a client that learns who the user is from another source (for example external authentication) can still ask SaFE which workspaces the user can reach.
+
+**Endpoint**: `GET /api/v1/users/self/workspaces`
+
+**Authentication Required**: Yes
+
+**Permission Requirements**: None beyond being signed in; the response is always about the caller. There is no per-user form of this route, `GET /api/v1/users/{UserId}/workspaces` does not exist. Read another user's lists from "Get User Details".
+
+**Response Example**:
+
+```json
+{
+  "workspaces": [
+    {
+      "id": "prod-cluster-ai-team",
+      "name": "ai-team"
+    }
+  ],
+  "managedWorkspaces": []
+}
+```
+
+**Field Description**:
+
+| Field | Description |
+|-------|-------------|
+| workspaces | The workspaces the user can access, each with its ID and display name |
+| managedWorkspaces | The workspaces the user manages, each with its ID and display name |
+
+Both fields are always arrays. A system administrator reaches every workspace without being listed in any, so both lists are empty for one; check `roles` first. A workspace that no longer exists is left out. When `auth.mode` is `external`, the lists include the workspaces the groups of the request map to (see [External Authentication](external-authentication.md)).
+
+---
+
 ## User Types
 
 | Type    | Description                                         |

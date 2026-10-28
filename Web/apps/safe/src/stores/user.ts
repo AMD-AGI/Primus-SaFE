@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { login, getUserData, logout, getEnvs } from '@/services/login'
 import type { LoginReq, UserSelfData, EnvsResp } from '@/services'
 import { useWorkspaceStore } from './workspace'
+import { applySelfWorkspaces, loadSelfWorkspaces } from './selfWorkspaces'
 
 const QUICK_START_VERSION = 'v1'
 
@@ -104,7 +105,10 @@ export const useUserStore = defineStore('user', {
       }
       if (!force && this._profileFetched && this.profile) return
 
-      this.profile = await getUserData(this.userId)
+      // The workspace lists come from their own route; the user record's embedded lists
+      // are the fallback (see selfWorkspaces.ts).
+      const [record, lists] = await Promise.all([getUserData(this.userId), loadSelfWorkspaces()])
+      this.profile = applySelfWorkspaces(record, lists)
       this._profileFetched = true
       this.session = 'authenticated'
     },
