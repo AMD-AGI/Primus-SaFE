@@ -134,9 +134,20 @@ func TestLogin(t *testing.T) {
 		},
 	}
 
+	ssoEmail := "sso.user@example.com"
+	ssoUser := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: commonuser.GenerateUserIdByName(ssoEmail)},
+		Spec:       v1.UserSpec{Type: v1.SSOUserType},
+	}
+	noPasswordName := "nopassword"
+	noPasswordUser := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: commonuser.GenerateUserIdByName(noPasswordName)},
+		Spec:       v1.UserSpec{Type: v1.DefaultUserType},
+	}
+
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(testUser).
+		WithObjects(testUser, ssoUser, noPasswordUser).
 		Build()
 
 	token := &defaultToken{Client: fakeClient}
@@ -170,6 +181,24 @@ func TestLogin(t *testing.T) {
 				Username: username,
 				Password: "wrongpassword",
 			},
+			wantError: true,
+			errorMsg:  "the password is incorrect",
+		},
+		{
+			name:      "sso account with an empty password",
+			input:     TokenInput{Username: ssoEmail, Password: ""},
+			wantError: true,
+			errorMsg:  "the password is incorrect",
+		},
+		{
+			name:      "sso account with a guessed password",
+			input:     TokenInput{Username: ssoEmail, Password: "anything"},
+			wantError: true,
+			errorMsg:  "the password is incorrect",
+		},
+		{
+			name:      "local account without a stored password",
+			input:     TokenInput{Username: noPasswordName, Password: ""},
 			wantError: true,
 			errorMsg:  "the password is incorrect",
 		},
