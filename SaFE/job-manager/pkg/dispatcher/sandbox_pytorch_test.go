@@ -87,6 +87,7 @@ func TestApplyAgentSandboxPyTorchInjectsKeyAndSessionFile(t *testing.T) {
 	}
 	assert.Assert(t, sawSession)
 	assert.Equal(t, container["args"].([]interface{})[0], envdStartupScript)
+	assert.Equal(t, nodeNameFieldPath(t, container["env"]), "spec.nodeName")
 	inits, found, err := jobutils.NestedSlice(obj.Object, []string{
 		"spec", "pytorchReplicaSpecs", "Master", "template", "spec", "initContainers"})
 	assert.NilError(t, err)
@@ -98,6 +99,63 @@ func TestApplyAgentSandboxPyTorchInjectsKeyAndSessionFile(t *testing.T) {
 	for _, item := range caps["add"].([]interface{}) {
 		assert.Assert(t, item != "SYS_PTRACE")
 	}
+}
+
+func TestApplyAgentSandboxPyTorchKeepsEnvdCommandWithEntryPoint(t *testing.T) {
+	viper.Set("sandbox.namespace", "agent-sandbox-system")
+	viper.Set("sandbox.secret", "envd-router-identity")
+	viper.Set("sandbox.envd_injector_image", "example/envd-injector:test")
+	t.Cleanup(func() {
+		viper.Set("sandbox.namespace", "")
+		viper.Set("sandbox.secret", "")
+		viper.Set("sandbox.envd_injector_image", "")
+	})
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "envd-router-identity", Namespace: "agent-sandbox-system"},
+		Data:       map[string][]byte{"public.pem": []byte("-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----\n")},
+	}
+	sets := &syncer.ClusterClientSets{}
+	sets.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(
+		context.Background(), "crusoe", k8sfake.NewSimpleClientset(secret)))
+
+	workload := &v1.Workload{}
+	workload.Name = "asb-sbx-1"
+	workload.Spec.GroupVersionKind.Kind = "PyTorchJob"
+	workload.Spec.Resources = []v1.WorkloadResource{{CPU: "1", Memory: "1Gi"}}
+	workload.Spec.EntryPoints = []string{"cGF5bG9hZA=="}
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "pytorch")
+	v1.SetLabel(workload, grantIDLabel, "gr-01")
+	v1.SetLabel(workload, sandboxIDLabel, "sbx-1")
+	obj := pytorchObject()
+	rt := pytorchTemplate()
+	assert.Assert(t, len(expectedCommands(workload, 0)) > 0)
+	err := (&DispatcherReconciler{}).applyAgentSandboxPyTorch(context.Background(), sets, obj, workload, nil, rt)
+	assert.NilError(t, err)
+	assert.NilError(t, updateContainers(workload, obj, rt.Spec.ResourceSpecs[0], 0))
+
+	containers, found, err := jobutils.NestedSlice(obj.Object, []string{
+		"spec", "pytorchReplicaSpecs", "Master", "template", "spec", "containers"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	container := containers[0].(map[string]interface{})
+	assert.DeepEqual(t, container["command"], []interface{}{"/bin/sh", "-c"})
+	assert.Equal(t, container["args"].([]interface{})[0], envdStartupScript)
+}
+
+func nodeNameFieldPath(t *testing.T, raw interface{}) string {
+	t.Helper()
+	envs, _ := raw.([]interface{})
+	for _, item := range envs {
+		env, ok := item.(map[string]interface{})
+		if !ok || env["name"] != "NODE_NAME" {
+			continue
+		}
+		valueFrom, _ := env["valueFrom"].(map[string]interface{})
+		fieldRef, _ := valueFrom["fieldRef"].(map[string]interface{})
+		path, _ := fieldRef["fieldPath"].(string)
+		return path
+	}
+	return ""
 }
 
 func TestAgentSandboxPyTorchRequiresGrant(t *testing.T) {
@@ -193,4 +251,6 @@ func TestAgentSandboxPyTorchMatchesSandboxTemplate(t *testing.T) {
 		"envdStartupScript differs from the Sandbox template's startup command")
 	assert.Assert(t, strings.Contains(template, strings.Join(strings.Fields(envdInjectorScript), " ")),
 		"envdInjectorScript differs from the Sandbox template's envd-injector script")
+	assert.Assert(t, strings.Contains(template, "name: NODE_NAME"))
+	assert.Assert(t, strings.Contains(template, "fieldPath: spec.nodeName"))
 }
