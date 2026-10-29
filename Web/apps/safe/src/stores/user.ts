@@ -31,10 +31,14 @@ export const useUserStore = defineStore('user', {
     },
   }),
 
+  // pinia-plugin-persistedstate v4 reads `pick`; the v2 name `paths` is ignored, which saved the
+  // whole state, `_initPromise` included. A promise is written as `{}` and read back as a truthy
+  // value, so after the first visit ensureSessionOnce returned at once on every load and the
+  // session was never asked about again (see user.persist.test.ts).
   persist: {
     key: 'user',
     storage: localStorage,
-    paths: ['session', 'userId', 'profile', 'onboarding'],
+    pick: ['session', 'userId', 'profile', 'onboarding'],
   } as any,
 
   getters: {
@@ -85,25 +89,37 @@ export const useUserStore = defineStore('user', {
     },
 
     /**
+     * Reset what is scoped to a signed-in user, so that nothing of the previous account shows.
+     */
+    async resetScopedStores() {
+      const { useClusterStore } = await import('./cluster')
+      const { useWorkspaceStore } = await import('./workspace')
+      useClusterStore().$reset()
+      useWorkspaceStore().$reset()
+    },
+
+    /**
      * With an identity provider the browser's session is not made by POST /login (the server
-     * refuses it), so a console that holds no userId may still be signed in: ask the server who
-     * the caller is. Returns whether there is a session now. Builtin mode makes no such call: its
-     * only way in is POST /login, which sets userId itself.
+     * refuses it) and the provider, not this console, decides who the caller is: ask the server,
+     * never a userId saved by an earlier visit. If the answer is a different user from the saved
+     * one (another account signed in at the provider in the same browser), nothing of the
+     * previous account is kept: the cluster and workspace selections are reset, as login() does.
+     * Returns whether there is a session now. A 401 just means nobody is signed in.
      */
     async adoptExternalSession(): Promise<boolean> {
       try {
-        await this.fetchEnvs(true)
-        if (!this.isExternalAuth) return false
         const record = await getSelfData()
         if (!record?.id) return false
         const lists = await loadSelfWorkspaces()
+        const changed = record.id !== this.userId
         this.userId = record.id
         this.profile = applySelfWorkspaces(record, lists)
         this._profileFetched = true
         this.session = 'authenticated'
+        if (changed) await this.resetScopedStores()
         return true
       } catch {
-        // Not signed in (401), or /envs or the server did not answer: anonymous, as before.
+        // Not signed in (401), or the server did not answer: anonymous, as before.
         return false
       }
     },
@@ -118,12 +134,7 @@ export const useUserStore = defineStore('user', {
       this.session = 'authenticated'
 
       // Reset cluster & workspace on login to avoid stale data when switching environments
-      const { useClusterStore } = await import('./cluster')
-      const { useWorkspaceStore } = await import('./workspace')
-      const clusterStore = useClusterStore()
-      const wsStore = useWorkspaceStore()
-      clusterStore.$reset()
-      wsStore.$reset()
+      await this.resetScopedStores()
     },
 
     async fetchUser(force = false) {
@@ -143,8 +154,25 @@ export const useUserStore = defineStore('user', {
     async ensureSessionOnce() {
       if (this._initPromise) return this._initPromise
       this._initPromise = (async () => {
-        if (!this.userId) {
+        // The auth mode decides how the caller is resolved, so /envs comes first. Awaited: what
+        // the console offers depends on it (see isExternalAuth), so a reload must not render the
+        // builtin-mode UI first. A failed /envs is not a failed session: the mode stays unknown
+        // and a saved userId is resolved as in builtin mode. A visitor's failure is quiet.
+        await this.fetchEnvs(!this.userId).catch(() => {})
+
+        if (this.isExternalAuth) {
+          // The identity provider owns who the caller is: a userId saved by an earlier visit is
+          // not that (another account may have signed in since), so always ask /users/self.
           if (await this.adoptExternalSession()) return
+          this.session = 'anonymous'
+          this.profile = null
+          this.userId = ''
+          this._profileFetched = true
+          return
+        }
+
+        if (!this.userId) {
+          // Builtin mode: its only way in is POST /login, which sets userId itself.
           this.session = 'anonymous'
           this._profileFetched = true
           return
@@ -152,10 +180,6 @@ export const useUserStore = defineStore('user', {
 
         try {
           await this.fetchUser()
-          // Awaited: what the console offers depends on the auth mode /envs reports (see
-          // isExternalAuth), so a reload must not render the builtin-mode UI first. A failed
-          // /envs is not a failed session: the mode stays unknown, as it was before.
-          await this.fetchEnvs().catch(() => {})
         } catch {
           this.session = 'anonymous'
           this.profile = null
@@ -179,12 +203,7 @@ export const useUserStore = defineStore('user', {
           envs: null,
         })
         // Reset cluster & workspace after logout to avoid data leakage between accounts
-        const { useClusterStore } = await import('./cluster')
-        const { useWorkspaceStore } = await import('./workspace')
-        const clusterStore = useClusterStore()
-        const wsStore = useWorkspaceStore()
-        clusterStore.$reset()
-        wsStore.$reset()
+        await this.resetScopedStores()
       }
     },
 

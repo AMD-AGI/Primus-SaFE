@@ -32,6 +32,8 @@ vi.mock('@/services/login', () => ({
 vi.mock('@/services/base', () => ({ getWorkspace: vi.fn() }))
 
 import { useUserStore } from './user'
+import { useClusterStore } from './cluster'
+import { useWorkspaceStore } from './workspace'
 
 const profile = { id: 'u1', name: 'user-one', roles: ['default'], workspaces: [], managedWorkspaces: [] }
 
@@ -66,6 +68,7 @@ describe('ensureSessionOnce and the auth mode', () => {
   it('is not done until /envs has answered, so a reload never renders builtin-mode UI first', async () => {
     const envs = deferred<{ authMode: string }>()
     getEnvs.mockReturnValue(envs.promise)
+    getSelfData.mockResolvedValue(profile)
     const store = signedIn()
 
     let done = false
@@ -73,13 +76,21 @@ describe('ensureSessionOnce and the auth mode', () => {
       done = true
     })
     await flush()
-    expect(store.session).toBe('authenticated')
     expect(done).toBe(false)
 
     envs.resolve({ authMode: 'external' })
     await session
     expect(done).toBe(true)
     expect(store.isExternalAuth).toBe(true)
+  })
+
+  it('resolves a saved userId by that id in builtin mode', async () => {
+    getEnvs.mockResolvedValue({ authMode: 'builtin' })
+    const store = signedIn()
+    await store.ensureSessionOnce()
+    expect(store.session).toBe('authenticated')
+    expect(getUserData).toHaveBeenCalledWith('u1')
+    expect(getSelfData).not.toHaveBeenCalled()
   })
 
   it('keeps the session when /envs fails: the mode is unknown, not the user signed out', async () => {
@@ -176,9 +187,77 @@ describe('ensureSessionOnce without a userId in external mode', () => {
     expect(getSelfData).toHaveBeenCalledTimes(1)
   })
 
-  it('does not probe for a console that already has a userId', async () => {
+})
+
+// The identity provider decides who the caller is, so a userId saved by an earlier visit is not
+// the identity: if the provider's session ended and another account signed in at it in the same
+// browser, asking by the saved id would show the first account's profile while every request
+// runs as the second.
+describe('ensureSessionOnce with a saved userId in external mode', () => {
+  const other = { id: 'u2', name: 'user-two', roles: ['default'], workspaces: [], managedWorkspaces: [] }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    getUserData.mockReset().mockResolvedValue(profile)
+    getEnvs.mockReset().mockResolvedValue({ authMode: 'external' })
+    getSelfData.mockReset()
+    getSelfWorkspaces.mockReset().mockResolvedValue(undefined)
+  })
+
+  // A console that remembers u1 and has picked a cluster and a workspace.
+  const rememberedAs = (id: string) => {
     const store = useUserStore()
-    store.userId = 'u1'
+    store.userId = id
+    store.profile = { ...profile, id } as unknown as typeof store.profile
+    store.session = 'authenticated'
+    useClusterStore().currentClusterId = 'cluster-1'
+    useWorkspaceStore().currentWorkspaceId = 'ws-1'
+    return store
+  }
+
+  it('resolves the caller through GET /users/self, never by the saved id', async () => {
+    getSelfData.mockResolvedValue(profile)
+    const store = rememberedAs('u1')
+    await store.ensureSessionOnce()
+    expect(getSelfData).toHaveBeenCalledTimes(1)
+    expect(getUserData).not.toHaveBeenCalled()
+    expect(store.session).toBe('authenticated')
+    expect(store.userId).toBe('u1')
+  })
+
+  it('shows the account the provider signed in, not the saved one, and keeps nothing of the old one', async () => {
+    getSelfData.mockResolvedValue(other)
+    const store = rememberedAs('u1')
+    await store.ensureSessionOnce()
+    expect(getUserData).not.toHaveBeenCalled()
+    expect(store.userId).toBe('u2')
+    expect(store.profile?.name).toBe('user-two')
+    expect(useClusterStore().currentClusterId).toBe('')
+    expect(useWorkspaceStore().currentWorkspaceId).toBeUndefined()
+  })
+
+  it('keeps the cluster and workspace selections when the provider answers the same account', async () => {
+    getSelfData.mockResolvedValue(profile)
+    const store = rememberedAs('u1')
+    await store.ensureSessionOnce()
+    expect(useClusterStore().currentClusterId).toBe('cluster-1')
+    expect(useWorkspaceStore().currentWorkspaceId).toBe('ws-1')
+  })
+
+  it('is signed out, and forgets the saved account, when the provider has no session (401)', async () => {
+    getSelfData.mockRejectedValue({ response: { status: 401 } })
+    const store = rememberedAs('u1')
+    await store.ensureSessionOnce()
+    expect(store.session).toBe('anonymous')
+    expect(store.userId).toBe('')
+    expect(store.profile).toBeNull()
+    expect(getUserData).not.toHaveBeenCalled()
+  })
+
+  it('does not take the saved account for the caller when /envs cannot say which mode it is', async () => {
+    // The mode is unknown, so the saved id is resolved as in builtin mode: the session is kept.
+    getEnvs.mockRejectedValue(new Error('503'))
+    const store = rememberedAs('u1')
     await store.ensureSessionOnce()
     expect(store.session).toBe('authenticated')
     expect(getSelfData).not.toHaveBeenCalled()
