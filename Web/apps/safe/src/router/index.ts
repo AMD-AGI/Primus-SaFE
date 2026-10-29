@@ -416,12 +416,6 @@ const router = createRouter({
           meta: { requiresSystemAdmin: true },
         },
         {
-          path: '/user-group',
-          name: 'UserGroup',
-          component: () => import('@/pages/UserGroup/index.vue'),
-          meta: { requiresSystemAdmin: true },
-        },
-        {
           path: '/tools',
           name: 'Tools',
           component: () => import('@/pages/Tools/index.vue'),

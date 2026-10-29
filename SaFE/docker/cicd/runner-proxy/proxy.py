@@ -273,6 +273,25 @@ def build_payload() -> Dict[str, Any]:
     return payload
 
 
+# The Kubernetes ServiceAccount token that the kubelet projects into this pod (audience: the
+# SaFE apiserver, bound to the pod, renewed before it expires). The apiserver takes the owner
+# of the CI/CD workload this pod belongs to as the user of the requests.
+POD_TOKEN_FILE = "/var/run/secrets/primus-safe/token"
+
+
+class PodTokenAuth(requests.auth.AuthBase):
+    """Sends the pod token as the bearer credential. The file is read again for every request
+    because the kubelet replaces it when it renews the token."""
+
+    def __init__(self, path: str = POD_TOKEN_FILE) -> None:
+        self.path = path
+
+    def __call__(self, request: Any) -> Any:
+        with open(self.path, "r", encoding="utf-8") as f:
+            request.headers["Authorization"] = "Bearer " + f.read().strip()
+        return request
+
+
 def build_session() -> Tuple[requests.Session, str]:
     admin_ip = getenv_str("ADMIN_CONTROL_PLANE")
     node_port = getenv_str("APISERVER_NODE_PORT")
@@ -282,11 +301,11 @@ def build_session() -> Tuple[requests.Session, str]:
         raise ValueError("Missing APISERVER_NODE_PORT (NodePort of apiserver pod)")
     base_url = f"http://{admin_ip}:{node_port}".rstrip("/")
 
-    bearer_token = getenv_str("USER_APIKEY")
+    if not os.path.isfile(POD_TOKEN_FILE):
+        raise ValueError(f"Missing the pod token: {POD_TOKEN_FILE}")
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json; charset=utf-8"})
-    if bearer_token:
-        s.headers.update({"Authorization": f"Bearer {bearer_token}"})
+    s.auth = PodTokenAuth(POD_TOKEN_FILE)
 
     return s, base_url
 

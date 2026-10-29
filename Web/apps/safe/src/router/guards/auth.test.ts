@@ -1,15 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const getEnvs = vi.fn()
 const ssoLoginRaw = vi.fn()
 
 // The store the guard sees; a test replaces it to play a saved session.
 let userState: Record<string, unknown> = { session: 'unknown' }
 
-vi.mock('element-plus', () => ({ ElMessage: {}, ElMessageBox: {} }))
 vi.mock('@/stores/user', () => ({ useUserStore: () => userState }))
-vi.mock('@/services/login', () => ({ getEnvs: () => getEnvs(), ssoLoginRaw: (...a: any[]) => ssoLoginRaw(...a) }))
-vi.mock('@/services/mcp', () => ({ addUserToGroup: vi.fn(), getUserNTID: vi.fn() }))
+vi.mock('@/services/login', () => ({ ssoLoginRaw: (...a: any[]) => ssoLoginRaw(...a) }))
 vi.mock('@/utils', () => ({ getSafeRedirect: (v: any) => v || '/' }))
 
 import setupAuthGuard from './auth'
@@ -24,11 +21,10 @@ async function runGuard(state: string) {
   return next
 }
 
-const stateFor = (bridge: string) => `claw:csrf:${encodeURIComponent(bridge)}`
+const stateFor = (bridge: string) => `lens:csrf:${encodeURIComponent(bridge)}`
 
 describe('auth guard SSO bridge forwarding', () => {
   beforeEach(() => {
-    getEnvs.mockReset()
     ssoLoginRaw.mockReset()
     ssoLoginRaw.mockResolvedValue({ status: 401, data: {} })
     const loc = { origin: SELF, href: SELF + '/' }
@@ -38,39 +34,26 @@ describe('auth guard SSO bridge forwarding', () => {
     vi.stubGlobal('history', { replaceState: vi.fn() })
   })
 
-  it('forwards the code to an allow-listed bridge', async () => {
-    getEnvs.mockResolvedValue({ ssoBridgeAllowlist: ['https://app.example.com/portal'] })
-    await runGuard(stateFor('https://app.example.com/portal/sso-bridge'))
-    const href = (window as any).location.href as string
-    expect(href.startsWith('https://app.example.com/portal/sso-bridge?')).toBe(true)
-    expect(new URL(href).searchParams.get('code')).toBe('CODE123')
-  })
-
-  it('forwards to the console origin with an empty allow-list', async () => {
-    getEnvs.mockResolvedValue({ ssoBridgeAllowlist: [] })
+  it('forwards the code to the Lens app on the console origin', async () => {
     await runGuard(stateFor(`${SELF}/lens/sso-bridge`))
-    expect((window as any).location.href).toContain('/lens/sso-bridge?code=CODE123')
+    const href = (window as any).location.href as string
+    expect(href.startsWith(`${SELF}/lens/sso-bridge?`)).toBe(true)
+    expect(new URL(href).searchParams.get('code')).toBe('CODE123')
+    expect(ssoLoginRaw).not.toHaveBeenCalled()
   })
 
   it.each([
+    'https://app.example.com/portal/sso-bridge',
     'https://evil.example.net/sso-bridge',
     'javascript:alert(1)',
     'data:text/html,x',
     '//evil.example.net/x',
-    'https://app.example.com@evil.example.net/portal',
-    'https://app.example.com.evil.example.net/portal/x',
+    'https://console.example.com@evil.example.net/portal',
+    'https://console.example.com.evil.example.net/portal/x',
   ])('never forwards the code to %s', async (bridge) => {
-    getEnvs.mockResolvedValue({ ssoBridgeAllowlist: ['https://app.example.com/portal'] })
     const next = await runGuard(stateFor(bridge))
     expect((window as any).location.href).toBe(SELF + '/')
     expect(ssoLoginRaw).not.toHaveBeenCalled()
-    expect(next).toHaveBeenCalledWith(expect.objectContaining({ path: '/sso-error' }))
-  })
-
-  it('falls back to same origin only when /envs fails', async () => {
-    getEnvs.mockRejectedValue(new Error('down'))
-    const next = await runGuard(stateFor('https://app.example.com/portal/sso-bridge'))
-    expect((window as any).location.href).toBe(SELF + '/')
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ path: '/sso-error' }))
   })
 })

@@ -52,13 +52,6 @@ func TestApiKeyCRUD(t *testing.T) {
 	_, err = c.GetApiKeyByKey(ctx, "abc")
 	assert.NoError(t, err)
 
-	// GetPlatformKeyByUserId empty + happy
-	_, err = c.GetPlatformKeyByUserId(ctx, "")
-	assert.Error(t, err)
-	mock.ExpectQuery("key_type='platform'").WithArgs("u1").WillReturnRows(idRows(1))
-	_, err = c.GetPlatformKeyByUserId(ctx, "u1")
-	assert.NoError(t, err)
-
 	// SetApiKeyDeleted: success (rows affected 1)
 	mock.ExpectExec("UPDATE api_keys SET deleted").WillReturnResult(sqlmock.NewResult(0, 1))
 	assert.NoError(t, c.SetApiKeyDeleted(ctx, "u1", 5))

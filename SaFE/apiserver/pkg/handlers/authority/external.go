@@ -218,8 +218,7 @@ func parseExternal(c *gin.Context, st *externalAuth) (handled bool, err error) {
 // authenticate runs the chain on the credentials. builtin is true when the chain reached the
 // built-in mode: no identity provider decided, and the caller runs the built-in path. A failure is
 // returned as the error the caller answers with (401 for a credential that is rejected, 503 for an
-// authenticator that could not decide), after it is counted; it is the one answer ParseToken and
-// POST /auth/verify share, so the same credential gets the same verdict on both.
+// authenticator that could not decide), after it is counted.
 func (st *externalAuth) authenticate(ctx context.Context, cred extauth.Credentials, path string) (id *extauth.Identity, builtin bool, err error) {
 	id, aerr := st.chain.Authenticate(ctx, cred)
 	switch {

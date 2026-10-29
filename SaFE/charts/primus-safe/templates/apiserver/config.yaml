@@ -107,8 +107,6 @@ data:
       secret_path: {{ .Values.sso.secret_path }}
       # Whether to enable sso
       enable: {{ .Values.sso.enable }}
-      # Origins (optionally with a path prefix) that may receive an SSO code besides this console's own origin
-      bridge_allowlist: {{ toJson (default (list) .Values.sso.bridge_allowlist) }}
     cicd:
       enable: {{ .Values.cicd.enable }}
       controller_name: {{ .Values.cicd.controller_name }}

@@ -144,7 +144,6 @@ func TestForbiddenDelegatedCapabilities(t *testing.T) {
 		{http.MethodDelete, "/api/v1/users/u1", CapabilityUserManagement},
 		{http.MethodPost, "/api/v1/publickeys", CapabilityCredentialMint},
 		{http.MethodGet, "/api/v1/llm-gateway/binding", CapabilityCredentialRead},
-		{http.MethodPost, "/api/v1/auth/verify", CapabilityPlatformKey},
 		// Path tricks do not get around it.
 		{http.MethodGet, "/api/v1//apikeys", CapabilityApiKey},
 		{http.MethodGet, "/api/v1/./secrets/s1", CapabilitySecret},

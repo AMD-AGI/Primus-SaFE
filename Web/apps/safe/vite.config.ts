@@ -17,8 +17,6 @@ export default defineConfig(({ mode }) => {
   // one lives on a separate environment (e.g. core42 vs. oci-slc).
   const CLAW_TARGET = env.PROXY_CLAW_TARGET || API_TARGET
   const WS_TARGET = env.PROXY_WS_TARGET || API_TARGET.replace(/^http/, 'ws')
-  const MCP_TARGET = env.PROXY_MCP_TARGET || API_TARGET
-  const MCP_REWRITE_PREFIX = env.PROXY_MCP_REWRITE_PREFIX || '/mcp'
   const DEV_DOMAIN = env.PROXY_DEV_DOMAIN || 'localhost'
   const ALLOWED_DEV_HOSTS = Array.from(new Set([DEV_DOMAIN, 'app.safe-primus.ai']))
 
@@ -108,13 +106,6 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: false,
           rewrite: (path) => path,
-        },
-        '/mcp-proxy': {
-          target: MCP_TARGET,
-          changeOrigin: true,
-          secure: false,
-          timeout: 30000,
-          rewrite: (path) => path.replace(/^\/mcp-proxy/, MCP_REWRITE_PREFIX),
         },
       },
     },

@@ -11,7 +11,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	"github.com/gin-gonic/gin"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
@@ -193,6 +192,5 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		noAuthGroup.POST("/login", middleware.Audit("auth", "login"), h.Login)
 		noAuthGroup.POST("/users", middleware.Audit("user", "register"), h.CreateUser)
 		noAuthGroup.GET("/envs", h.GetEnvs)
-		noAuthGroup.POST("/auth/verify", authority.VerifyToken)
 	}
 }

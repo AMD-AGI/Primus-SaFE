@@ -1,12 +1,9 @@
 import type { Router } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/stores/user'
-import { getEnvs, ssoLoginRaw } from '@/services/login'
-import { addUserToGroup, getUserNTID } from '@/services/mcp'
+import { ssoLoginRaw } from '@/services/login'
 import { getSafeRedirect } from '@/utils'
-import { resolveAllowedBridge } from '@/utils/ssoBridge'
+import { resolveOwnBridge } from '@/utils/ssoBridge'
 
-const SSO_GROUP = 'dl.primus-safe-users'
 const PUBLIC_NAME = new Set(['Login', 'LoginAdmin', 'Register', 'SSOError'])
 const ENTRY_KEY = 'sso.redirect'
 const OAUTH_STATE_KEY = 'oauth_state'
@@ -40,16 +37,6 @@ function getBridgeCandidateFromState(state?: string) {
   }
 }
 
-/** Allow-listed bridges come from /envs; if it cannot be read only this origin is trusted. */
-async function loadBridgeAllowlist(): Promise<string[]> {
-  try {
-    const envs = await getEnvs()
-    return Array.isArray(envs?.ssoBridgeAllowlist) ? envs.ssoBridgeAllowlist : []
-  } catch {
-    return []
-  }
-}
-
 export default function setupAuthGuard(router: Router) {
   router.beforeEach(async (to, _from, next) => {
     const user = useUserStore()
@@ -59,17 +46,13 @@ export default function setupAuthGuard(router: Router) {
     if (code) {
       const state = to.query.state as string | undefined
 
-      // Check if this is an SSO request from another app.
-      // State format: {app}:{csrfToken}:{encodeURIComponent(bridgeUrl)}
+      // Check if this is an SSO request from an app served under this console's origin
+      // (Lens). State format: {app}:{csrfToken}:{encodeURIComponent(bridgeUrl)}
       const bridgeCandidate = getBridgeCandidateFromState(state)
       if (bridgeCandidate && state) {
-        const bridge = resolveAllowedBridge(
-          bridgeCandidate,
-          await loadBridgeAllowlist(),
-          window.location.origin,
-        )
+        const bridge = resolveOwnBridge(bridgeCandidate, window.location.origin)
         if (!bridge) {
-          // Never hand the code to a target that is not allow-listed.
+          // Never hand the code to a target outside this console's origin.
           history.replaceState(null, '', to.path)
           return next({
             path: '/sso-error',
@@ -137,38 +120,13 @@ export default function setupAuthGuard(router: Router) {
         }
       }
 
-      // ❌ Login failed — try auto-joining the user group
-      const userEmail =
-        resp.data?.email || resp.data?.name || resp.data?.user?.email || resp.data?.user?.name
-
-      if (userEmail) {
-        try {
-          await addUserToGroup(userEmail, SSO_GROUP)
-          ElMessage.success('You have been added to the user group. Retrying SSO login...')
-
-          // Clear state and re-trigger SSO login
-          sessionStorage.removeItem(OAUTH_STATE_KEY)
-          localStorage.removeItem(SSO_ATTEMPTS_KEY)
-          sessionStorage.removeItem('sso.blocked')
-          history.replaceState(null, '', to.path)
-
-          // Preserve original redirect target
-          const redirect = sessionStorage.getItem(ENTRY_KEY) || to.fullPath || '/'
-          sessionStorage.setItem(ENTRY_KEY, redirect)
-
-          return next({ path: '/login', query: { redirect } })
-        } catch (addErr: any) {
-          console.warn('[SSO Auth] Failed to auto-add user to group:', addErr?.message)
-        }
-      }
-
-      // Fallback: redirect to SSO error page
+      // ❌ Login failed
       sessionStorage.removeItem(ENTRY_KEY)
       localStorage.removeItem(SSO_ATTEMPTS_KEY)
       sessionStorage.removeItem('sso.blocked')
       history.replaceState(null, '', to.path)
       const errMsg = resp.data?.errorMessage || resp.data?.message || 'SSO authentication failed.'
-      console.error('[SSO Auth] Login failed, no auto-join possible:', errMsg)
+      console.error('[SSO Auth] Login failed:', errMsg)
       return next({
         path: '/sso-error',
         query: {
@@ -178,55 +136,11 @@ export default function setupAuthGuard(router: Router) {
       })
     }
 
-    // B) Error callback — Okta returned an error parameter
+    // B) Error callback — the identity provider returned an error parameter
     if (to.query.error && to.path !== '/sso-error') {
       localStorage.removeItem(SSO_ATTEMPTS_KEY)
       sessionStorage.removeItem('sso.blocked')
       history.replaceState(null, '', to.path)
-      // access_denied: user is not in the group — try auto-joining
-      if (to.query.error === 'access_denied') {
-        try {
-          const result = await ElMessageBox.prompt(
-            'You don\'t have access yet. Enter your NTID or AMD email and we\'ll add you to the user group.\n\nNote: It may take up to 2 hours for Okta to sync after joining.',
-            'Request Access',
-            {
-              confirmButtonText: 'Join',
-              cancelButtonText: 'Cancel',
-              inputPlaceholder: 'NTID or email',
-              inputValidator: (v) => (v && v.trim().length > 0) || 'Please enter your NTID or email',
-            },
-          )
-          const identifier = (result as any).value as string | undefined
-
-          if (identifier) {
-            const userIdentifier = identifier.trim()
-
-            ElMessage.info('Verifying your identity...')
-            const ntidResult = await getUserNTID(userIdentifier)
-            if (typeof ntidResult === 'string' && ntidResult.startsWith('Error')) {
-              ElMessage.error('User not found in Active Directory. Please check your NTID or email.')
-              // Don't redirect; let the catch block below handle the sso-error page
-              throw new Error(ntidResult)
-            }
-            ElMessage.info('Adding you to the user group...')
-            await addUserToGroup(userIdentifier, SSO_GROUP)
-            // Redirect to a friendly waiting page
-            return next({
-              path: '/sso-error',
-              query: {
-                error: 'joined',
-                error_description: userIdentifier,
-              },
-            })
-          }
-        } catch (err: any) {
-          if (err !== 'cancel' && err !== 'close') {
-            console.error('[SSO Auth] Failed to auto-add user:', err)
-            ElMessage.error(`Failed to add user to group: ${err?.message || err}`)
-          }
-        }
-      }
-
       return next({
         path: '/sso-error',
         query: {

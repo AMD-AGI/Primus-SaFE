@@ -29,7 +29,6 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 		SSHPort:              commonconfig.GetSSHServerPort(),
 		AuthMode:             commonconfig.GetAuthMode(),
 		SSOEnable:            commonconfig.IsSSOEnable(),
-		SSOBridgeAllowlist:   commonconfig.GetSSOBridgeAllowlist(),
 		CDRequireApproval:    commonconfig.IsCDRequireApproval(),
 		KubeSprayK8sVersions: v1.KubeSprayK8sVersions(),
 	}

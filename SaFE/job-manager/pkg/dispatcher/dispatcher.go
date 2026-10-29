@@ -643,7 +643,7 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
 		isResourceChanged, isImagesChanged, isEntrypointChanged, isSharedMemoryChanged,
-		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged,
+		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged, isPodTokenChanged,
 	}
 	source, err := commonworkload.ResolveCICDProxySource(ctx, r.Client, adminWorkload)
 	if err != nil {
