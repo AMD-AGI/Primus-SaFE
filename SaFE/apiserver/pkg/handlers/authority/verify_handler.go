@@ -7,13 +7,17 @@ package authority
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -109,91 +113,29 @@ func VerifyToken(c *gin.Context) {
 		return
 	}
 
-	// Authenticate: Cookie > ApiKey > Authorization (auto-detect ak- prefix)
+	// Authenticate: in external mode the configured chain decides first, as it does for a request;
+	// when the chain reaches the built-in mode, or the mode is builtin (the default), the apiserver's
+	// own credentials are checked: Cookie > ApiKey > Authorization (auto-detect ak- prefix).
 	var userInfo *UserInfo
-	var rawToken, userType string
-	var err error
-
-	if req.Cookie != "" {
-		rawToken, userType, err = parseCookieString(req.Cookie)
-		if err != nil {
-			klog.ErrorS(err, "failed to parse cookie string")
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"code":    http.StatusBadRequest,
-				"message": "invalid cookie format",
-			})
+	var userType string
+	var roles []v1.UserRole
+	external := false
+	if st := externalState.Load(); st != nil {
+		verdict, builtin, ok := verifyExternal(c, st, &req)
+		if !ok {
 			return
 		}
-	} else if req.ApiKey != "" {
-		userInfo, err = verifyApiKey(c, req.ApiKey, req.ClientIP)
-		if err != nil {
-			return
+		if !builtin {
+			userInfo, userType, roles, external = verdict.info, UserTypeExternal, verdict.roles, true
 		}
-		userType = UserTypeApiKey
-	} else if req.Authorization != "" {
-		if apiKey := ExtractApiKeyFromRequest(req.Authorization); apiKey != "" {
-			userInfo, err = verifyApiKey(c, apiKey, req.ClientIP)
-			if err != nil {
-				return
-			}
-			userType = UserTypeApiKey
-		} else {
-			rawToken = extractBearerToken(req.Authorization)
-			userType = req.UserType
-			if userType == "" {
-				userType = string(v1.DefaultUserType)
-			}
-		}
-	} else {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-			"code":    http.StatusBadRequest,
-			"message": "cookie, apiKey, or authorization is required",
-		})
-		return
 	}
-
-	// For cookie/bearer-token paths, validate the token to get userInfo
-	if userInfo == nil {
-		if rawToken == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"code":    http.StatusUnauthorized,
-				"message": ErrInvalidToken,
-			})
+	if !external {
+		var ok bool
+		if userInfo, userType, ok = verifyBuiltin(c, &req); !ok {
 			return
 		}
-
-		var tokenInstance TokenInterface
-		if userType == string(v1.SSOUserType) {
-			if !commonconfig.IsSSOEnable() {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-					"code":    http.StatusBadRequest,
-					"message": "SSO is not enabled",
-				})
-				return
-			}
-			tokenInstance = SSOInstance()
-		} else {
-			tokenInstance = DefaultTokenInstance()
-		}
-
-		if tokenInstance == nil {
-			klog.Error("token validator not available")
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"code":    http.StatusInternalServerError,
-				"message": "token validator not available",
-			})
-			return
-		}
-
-		userInfo, err = tokenInstance.Validate(c.Request.Context(), rawToken)
-		if err != nil {
-			klog.ErrorS(err, "failed to validate user token")
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"code":    http.StatusUnauthorized,
-				"message": ErrInvalidToken,
-			})
-			return
-		}
+		// The roles as the apiserver sees them: in external mode the stored platform roles do not count.
+		roles = builtinRoles(userInfo.Id, userInfo.Roles)
 	}
 
 	resp := VerifyTokenResponse{
@@ -204,8 +146,7 @@ func VerifyToken(c *gin.Context) {
 		Exp:           userInfo.Exp,
 		Type:          userType,
 		ApiKeyId:      userInfo.ApiKeyId,
-		// The roles as the apiserver sees them: in external mode the stored platform roles do not count.
-		Roles: builtinRoles(userInfo.Id, userInfo.Roles),
+		Roles:         roles,
 	}
 
 	// Backfill preferred name from the User CR when the auth path (e.g. API key)
@@ -256,6 +197,209 @@ func VerifyToken(c *gin.Context) {
 		"code": 0,
 		"data": resp,
 	})
+}
+
+// verifyBuiltin authenticates the credentials of a verify request with the apiserver's own sessions,
+// tokens and API keys. It writes the failure answer to the gin context and returns ok false when
+// the credentials are not accepted.
+func verifyBuiltin(c *gin.Context, req *VerifyTokenRequest) (userInfo *UserInfo, userType string, ok bool) {
+	// Authenticate: Cookie > ApiKey > Authorization (auto-detect ak- prefix)
+	var rawToken string
+	var err error
+
+	if req.Cookie != "" {
+		rawToken, userType, err = parseCookieString(req.Cookie)
+		if err != nil {
+			klog.ErrorS(err, "failed to parse cookie string")
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"code":    http.StatusBadRequest,
+				"message": "invalid cookie format",
+			})
+			return nil, "", false
+		}
+	} else if req.ApiKey != "" {
+		userInfo, err = verifyApiKey(c, req.ApiKey, req.ClientIP)
+		if err != nil {
+			return nil, "", false
+		}
+		userType = UserTypeApiKey
+	} else if req.Authorization != "" {
+		if apiKey := ExtractApiKeyFromRequest(req.Authorization); apiKey != "" {
+			userInfo, err = verifyApiKey(c, apiKey, req.ClientIP)
+			if err != nil {
+				return nil, "", false
+			}
+			userType = UserTypeApiKey
+		} else {
+			rawToken = extractBearerToken(req.Authorization)
+			userType = req.UserType
+			if userType == "" {
+				userType = string(v1.DefaultUserType)
+			}
+		}
+	} else {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"code":    http.StatusBadRequest,
+			"message": "cookie, apiKey, or authorization is required",
+		})
+		return nil, "", false
+	}
+
+	// For cookie/bearer-token paths, validate the token to get userInfo
+	if userInfo == nil {
+		if rawToken == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"code":    http.StatusUnauthorized,
+				"message": ErrInvalidToken,
+			})
+			return nil, "", false
+		}
+
+		var tokenInstance TokenInterface
+		if userType == string(v1.SSOUserType) {
+			if !commonconfig.IsSSOEnable() {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+					"code":    http.StatusBadRequest,
+					"message": "SSO is not enabled",
+				})
+				return nil, "", false
+			}
+			tokenInstance = SSOInstance()
+		} else {
+			tokenInstance = DefaultTokenInstance()
+		}
+
+		if tokenInstance == nil {
+			klog.Error("token validator not available")
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"code":    http.StatusInternalServerError,
+				"message": "token validator not available",
+			})
+			return nil, "", false
+		}
+
+		userInfo, err = tokenInstance.Validate(c.Request.Context(), rawToken)
+		if err != nil {
+			klog.ErrorS(err, "failed to validate user token")
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"code":    http.StatusUnauthorized,
+				"message": ErrInvalidToken,
+			})
+			return nil, "", false
+		}
+	}
+
+	return userInfo, userType, true
+}
+
+// externalVerdict is what the external chain decided about the credentials of a verify request.
+type externalVerdict struct {
+	info *UserInfo
+	// roles are the roles of the user as a request authenticated with the same credentials sees
+	// them (extauth.ApplyOverlay): the platform roles come from the identity's groups only.
+	roles []v1.UserRole
+}
+
+// verifyExternal authenticates the credentials of a verify request with the configured chain, the
+// way ParseToken does for a request, so an identity provider's credential gets the roles its
+// groups map to and the services that authorize through POST /auth/verify can see an
+// administrator there. builtin is true when the chain reached the built-in mode: the caller then
+// checks the apiserver's own credentials. It writes the failure answer to the gin context and
+// returns ok false when the credentials are not accepted.
+func verifyExternal(c *gin.Context, st *externalAuth, req *VerifyTokenRequest) (verdict *externalVerdict, builtin, ok bool) {
+	// The same priority as the built-in path: Cookie > ApiKey > Authorization.
+	cred := extauth.Credentials{ClientIP: req.ClientIP}
+	if cred.ClientIP == "" {
+		cred.ClientIP = c.ClientIP()
+	}
+	switch {
+	case req.Cookie != "":
+		var err error
+		if cred.Cookie, cred.UserType, err = parseCookieString(req.Cookie); err != nil {
+			klog.ErrorS(err, "failed to parse cookie string")
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"code":    http.StatusBadRequest,
+				"message": "invalid cookie format",
+			})
+			return nil, false, false
+		}
+	case req.ApiKey != "":
+		cred.Bearer = req.ApiKey
+	case req.Authorization != "":
+		if cred.Bearer = ExtractApiKeyFromRequest(req.Authorization); cred.Bearer == "" {
+			cred.Bearer, cred.UserType = extractBearerToken(req.Authorization), req.UserType
+		}
+	default:
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"code":    http.StatusBadRequest,
+			"message": "cookie, apiKey, or authorization is required",
+		})
+		return nil, false, false
+	}
+	if cred.Empty() {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"code":    http.StatusUnauthorized,
+			"message": ErrInvalidToken,
+		})
+		return nil, false, false
+	}
+
+	ctx := c.Request.Context()
+	id, builtin, err := st.authenticate(ctx, cred, c.Request.URL.Path)
+	if err != nil {
+		abortVerify(c, err)
+		return nil, false, false
+	}
+	if builtin {
+		return nil, true, true
+	}
+	if id.Delegated() {
+		// Token verification is one of the capabilities a delegated credential never has
+		// (extauth.Forbidden): the verdict would hand the actor everything the user may do.
+		klog.Warningf("delegated credential refused: capability %s, actor %s, user %s", extauth.CapabilityPlatformKey, id.Actor, id.ID)
+		apimetrics.AuthFailuresTotal.WithLabelValues("delegated_forbidden").Inc()
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"code":    http.StatusForbidden,
+			"message": "this operation is not available with a delegated token",
+		})
+		return nil, false, false
+	}
+	user, err := st.provision(ctx, id)
+	if err != nil {
+		abortVerify(c, err)
+		return nil, false, false
+	}
+
+	info := &UserInfo{
+		Id:                id.ID,
+		Name:              id.Name,
+		Email:             id.Email,
+		PreferredUsername: v1.GetAnnotation(user, v1.UserPreferredNameAnnotation),
+	}
+	if info.Email == "" {
+		info.Email = v1.GetUserEmail(user)
+	}
+	if !id.Expiry.IsZero() {
+		info.Exp = id.Expiry.Unix()
+	}
+	roles := extauth.ApplyOverlay(extauth.WithOverlay(ctx, st.overlay(id)), user).Spec.Roles
+	return &externalVerdict{info: info, roles: roles}, false, true
+}
+
+// abortVerify answers a verify request with the failure the shared external path returned: 401 for a
+// rejected credential, 503 when the authentication service could not decide, and 500 for anything else.
+func abortVerify(c *gin.Context, err error) {
+	status, message := http.StatusInternalServerError, "failed to verify the credentials"
+	var statusErr apierrors.APIStatus
+	if errors.As(err, &statusErr) {
+		switch statusErr.Status().Code {
+		case http.StatusUnauthorized:
+			status, message = http.StatusUnauthorized, ErrInvalidToken
+		case http.StatusServiceUnavailable:
+			status, message = http.StatusServiceUnavailable, "the authentication service is unavailable"
+		}
+	}
+	c.AbortWithStatusJSON(status, gin.H{"code": status, "message": message})
 }
 
 // verifyApiKey validates an API key and returns user info.
