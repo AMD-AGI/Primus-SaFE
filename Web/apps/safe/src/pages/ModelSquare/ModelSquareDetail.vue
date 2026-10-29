@@ -52,12 +52,6 @@
           </el-button>
         </el-tooltip>
 
-        <el-tooltip content="Chat" placement="top">
-          <el-button circle class="glass-btn glass-btn--primary" @click="openChat">
-            <el-icon><ChatDotRound /></el-icon>
-          </el-button>
-        </el-tooltip>
-
         <el-tooltip
           v-if="canTrainModel"
           content="Train"
@@ -299,7 +293,6 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   CopyDocument,
   Delete,
-  ChatDotRound,
   VideoPlay,
   VideoPause,
   Right,
@@ -372,20 +365,6 @@ const getDetail = async () => {
     console.error('Failed to fetch model detail:', error)
     ElMessage.error('Failed to load model details')
   }
-}
-
-// Open chat
-const openChat = () => {
-  const modelName = detailData.value?.displayName || detailData.value?.id
-  const modelIcon = detailData.value?.icon || ''
-  router.push({
-    path: '/playground-agent',
-    query: {
-      modelId: modelId.value,
-      modelName,
-      modelIcon,
-    },
-  })
 }
 
 // Navigate to inference detail page
