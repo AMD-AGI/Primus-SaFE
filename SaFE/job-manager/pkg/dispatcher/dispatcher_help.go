@@ -380,33 +380,56 @@ func modifyPreferredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wo
 			nodes = dispatchNodesAt(workload, dispatchCnt-1)
 		}
 	}
-	if len(nodes) == 0 {
+	var excluded []string
+	if v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
+		if val := workload.Spec.CustomerLabels[common.ExcludedNodes]; val != "" {
+			excluded = strings.Fields(val)
+		}
+	}
+	if len(nodes) == 0 && len(excluded) == 0 {
 		return nil
-	}
-
-	// Convert node names to interface slice
-	nodeValues := make([]interface{}, len(nodes))
-	for i, node := range nodes {
-		nodeValues[i] = node
-	}
-	preferredTerm := map[string]interface{}{
-		"weight": int64(100),
-		"preference": map[string]interface{}{
-			"matchExpressions": []interface{}{
-				map[string]interface{}{
-					"key":      v1.K8sHostName,
-					"operator": "In",
-					"values":   nodeValues,
-				},
-			},
-		},
 	}
 
 	preferredTerms, _, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
 	}
-	preferredTerms = append(preferredTerms, preferredTerm)
+	if len(nodes) > 0 {
+		nodeValues := make([]interface{}, len(nodes))
+		for i, node := range nodes {
+			nodeValues[i] = node
+		}
+		preferredTerms = append(preferredTerms, map[string]interface{}{
+			"weight": int64(100),
+			"preference": map[string]interface{}{
+				"matchExpressions": []interface{}{
+					map[string]interface{}{
+						"key":      v1.K8sHostName,
+						"operator": "In",
+						"values":   nodeValues,
+					},
+				},
+			},
+		})
+	}
+	if len(excluded) > 0 {
+		values := make([]interface{}, len(excluded))
+		for i, node := range excluded {
+			values[i] = node
+		}
+		preferredTerms = append(preferredTerms, map[string]interface{}{
+			"weight": int64(100),
+			"preference": map[string]interface{}{
+				"matchExpressions": []interface{}{
+					map[string]interface{}{
+						"key":      v1.K8sHostName,
+						"operator": "NotIn",
+						"values":   values,
+					},
+				},
+			},
+		})
+	}
 	return jobutils.SetNestedField(obj.Object, preferredTerms, path)
 }
 
@@ -1361,6 +1384,10 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 		}
 		operator := "In"
 		if key == common.ExcludedNodes {
+			// A preferred node affinity keeps the exclusion as a preference.
+			if v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
+				continue
+			}
 			key = v1.K8sHostName
 			operator = "NotIn"
 		} else if key == v1.K8sHostName || key == common.SpecifiedNodes {

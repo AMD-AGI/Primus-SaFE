@@ -2113,6 +2113,28 @@ func TestBuildRequiredMatchExpressionExcludedNodes(t *testing.T) {
 	assert.Equal(t, m["operator"], "NotIn")
 }
 
+func TestPreferredExcludedNodesAreNotRequired(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", Annotations: map[string]string{
+		v1.NodesAffinityAnnotation: common.NodesAffinityPreferred,
+	}}}
+	w.Spec.Workspace = corev1.NamespaceDefault
+	w.Spec.CustomerLabels = map[string]string{common.ExcludedNodes: "node-a node-b"}
+	for _, expr := range buildRequiredMatchExpression(w) {
+		m := expr.(map[string]interface{})
+		assert.Assert(t, m["operator"] != "NotIn")
+	}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	path := []string{"affinity", "nodeAffinity", "preferredDuringSchedulingIgnoredDuringExecution"}
+	assert.NilError(t, modifyPreferredNodeAffinity(obj, w, path))
+	terms, found, err := unstructured.NestedSlice(obj.Object, path...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, len(terms), 1)
+	pref := terms[0].(map[string]interface{})["preference"].(map[string]interface{})
+	expr := pref["matchExpressions"].([]interface{})[0].(map[string]interface{})
+	assert.Equal(t, expr["operator"], "NotIn")
+}
+
 // newInferaWorkload builds an InferaDeployment workload with the given roles,
 // the subset of them that run multi-node, and one resource per role.
 func newInferaWorkload(roles, multinodeRoles []string, replicas []int) *v1.Workload {

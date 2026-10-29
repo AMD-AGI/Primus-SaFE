@@ -61,6 +61,9 @@ func ExternalCustomerMatchExpressions(workload *v1.Workload) []interface{} {
 		operator := "In"
 		switch key {
 		case common.ExcludedNodes:
+			if affinity, ok := workload.Annotations[v1.NodesAffinityAnnotation]; ok && affinity != common.NodesAffinityRequired {
+				continue
+			}
 			key = v1.K8sHostName
 			operator = "NotIn"
 		case v1.K8sHostName, common.SpecifiedNodes:
