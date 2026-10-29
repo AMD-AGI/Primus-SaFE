@@ -3,10 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const getEnvs = vi.fn()
 const ssoLoginRaw = vi.fn()
 
-vi.mock('element-plus', () => ({ ElMessage: {}, ElMessageBox: {} }))
 vi.mock('@/stores/user', () => ({ useUserStore: () => ({ session: 'unknown' }) }))
 vi.mock('@/services/login', () => ({ getEnvs: () => getEnvs(), ssoLoginRaw: (...a: any[]) => ssoLoginRaw(...a) }))
-vi.mock('@/services/mcp', () => ({ addUserToGroup: vi.fn(), getUserNTID: vi.fn() }))
 vi.mock('@/utils', () => ({ getSafeRedirect: (v: any) => v || '/' }))
 
 import setupAuthGuard from './auth'

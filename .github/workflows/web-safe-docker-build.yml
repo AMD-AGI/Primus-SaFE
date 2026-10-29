@@ -64,9 +64,6 @@ jobs:
           # Only main and release tags publish; other branches build to check the image.
           push: ${{ steps.tag.outputs.push == 'true' }}
           tags: ${{ steps.tag.outputs.tags }}
-          build-args: |
-            VITE_MCP_BASE_URL=${{ secrets.VITE_MCP_BASE_URL }}
-            VITE_MCP_API_KEY=${{ secrets.VITE_MCP_API_KEY }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

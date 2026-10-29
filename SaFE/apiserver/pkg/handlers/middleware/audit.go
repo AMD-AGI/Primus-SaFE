@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -415,15 +415,23 @@ func toStringValue(v interface{}) string {
 	return s
 }
 
+// auditUserReader reads user records for the audit log. It is set once at start-up.
+var auditUserReader atomic.Pointer[client.Reader]
+
+// SetAuditUserReader sets the reader the audit log uses to look a user up by id.
+func SetAuditUserReader(r client.Reader) {
+	auditUserReader.Store(&r)
+}
+
 // getUserFromK8s queries K8s to get user information by userId
 func getUserFromK8s(ctx context.Context, userId string) *v1.User {
-	internalAuth := authority.InternalAuthInstance()
-	if internalAuth == nil {
+	reader := auditUserReader.Load()
+	if reader == nil || *reader == nil {
 		return nil
 	}
 
 	user := &v1.User{}
-	if err := internalAuth.Get(ctx, client.ObjectKey{Name: userId}, user); err != nil {
+	if err := (*reader).Get(ctx, client.ObjectKey{Name: userId}, user); err != nil {
 		klog.ErrorS(err, "failed to get user from K8s for audit", "userId", userId)
 		return nil
 	}

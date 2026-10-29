@@ -5,8 +5,6 @@
 #   docker build -f Web/Dockerfile -t primus-web:<tag> Web/
 #
 # Optional build args (forwarded to the SaFE app at build time):
-#   --build-arg VITE_MCP_BASE_URL=...
-#   --build-arg VITE_MCP_API_KEY=...
 #   --build-arg VITE_SELF_WORKSPACES=false   (read the workspace lists from the user record
 #                                             instead of GET /users/self/workspaces)
 
@@ -29,11 +27,7 @@ RUN pnpm install --frozen-lockfile
 # ---------- Stage 2: build both apps ----------
 FROM deps AS builder
 
-ARG VITE_MCP_BASE_URL
-ARG VITE_MCP_API_KEY
 ARG VITE_SELF_WORKSPACES
-ENV VITE_MCP_BASE_URL=${VITE_MCP_BASE_URL}
-ENV VITE_MCP_API_KEY=${VITE_MCP_API_KEY}
 ENV VITE_SELF_WORKSPACES=${VITE_SELF_WORKSPACES}
 
 COPY apps/safe ./apps/safe

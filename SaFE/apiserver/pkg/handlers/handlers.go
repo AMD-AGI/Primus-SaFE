@@ -60,10 +60,8 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	if err := authority.InitExternalAuth(mgr.GetClient()); err != nil {
 		return nil, commonerrors.NewInternalError("failed to initialize external authentication: " + err.Error())
 	}
-	// Initialize internal auth for service-to-service authentication
-	if _, err := authority.NewInternalAuth(mgr.GetClient()); err != nil {
-		return nil, commonerrors.NewInternalError("failed to initialize internal auth: " + err.Error())
-	}
+	// The audit log reads user records through the manager's client.
+	middleware.SetAuditUserReader(mgr.GetClient())
 	// Initialize API key authentication if database is enabled
 	if commonconfig.IsDBEnable() {
 		dbClient := dbclient.NewClient()
@@ -157,8 +155,8 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	// Model Optimization (Hyperloom via PrimusClaw). Requires DB for task
 	// persistence + event log. Routes register whenever DB is enabled; Claw base
 	// URL from model_optimization.claw_base_url or derived https://<global host>/claw-api/v1;
-	// auth: Bearer ak-... if sent, else per-user platform key (GetOrCreatePlatformKey, same
-	// idea as Primus-Claw + /auth/verify), else optional secret claw_api_key for service use.
+	// auth: the caller's own Bearer ak-... if sent, else the optional secret claw_api_key
+	// for service use.
 	if commonconfig.IsDBEnable() {
 		optDBClient := dbclient.NewClient()
 		if optDBClient != nil {

@@ -264,26 +264,13 @@ func (h *Handler) sendSSEEvent(c *gin.Context, flusher interface{ Flush() }, ite
 	}
 }
 
-// AuthorizeRelay returns a middleware that accepts either:
-//   - X-Internal-Token header (service-to-service)
+// AuthorizeRelay returns a middleware that accepts the standard SaFE credentials:
 //   - Authorization: Bearer <api-key> (SaFE API key)
 //   - SaFE user session token (Cookie)
 func (h *Handler) AuthorizeRelay() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Try internal token first (service-to-service, e.g. Lens -> SaFE)
-		internalToken := c.GetHeader(authority.InternalAuthTokenHeader)
-		if internalToken != "" {
-			internalAuth := authority.InternalAuthInstance()
-			if internalAuth != nil && internalAuth.Validate(internalToken) {
-				c.Next()
-				return
-			}
-		}
-
-		// Fall back to standard SaFE auth (API key or session token)
-		err := authority.ParseToken(c)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: provide X-Internal-Token or Authorization: Bearer <api-key>"})
+		if err := authority.ParseToken(c); err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: provide Authorization: Bearer <api-key>"})
 			c.Abort()
 			return
 		}

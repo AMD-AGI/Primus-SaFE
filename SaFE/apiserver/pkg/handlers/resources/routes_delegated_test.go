@@ -61,14 +61,24 @@ func TestDelegatedTokenExclusionsCoverTheRouteTable(t *testing.T) {
 		case res == "publickeys" && r.Method != http.MethodGet:
 			require.True(t, forbidden, "%s %s must be refused for delegated tokens", r.Method, r.Path)
 			seen[res]++
-		case res == "auth":
-			require.True(t, forbidden, "%s %s must be refused for delegated tokens", r.Method, r.Path)
-			seen[res]++
 		}
 	}
 	_, forbidden := extauth.Forbidden(http.MethodGet, "/api/v1/users/self")
 	require.False(t, forbidden, "a delegated token reads the user it acts for")
-	for _, res := range []string{"apikeys", "secrets", "users", "publickeys", "auth"} {
+	for _, res := range []string{"apikeys", "secrets", "users", "publickeys"} {
 		require.Positive(t, seen[res], "no route found for %s: the test would pass vacuously", res)
+	}
+}
+
+// There is no token verification endpoint: who a credential belongs to is decided by the
+// apiserver's own authentication, or by the external authenticators, never handed to a
+// caller that holds a shared token.
+func TestNoTokenVerificationRoute(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	e := gin.New()
+	InitCustomRouters(e, &Handler{})
+	require.NotEmpty(t, e.Routes())
+	for _, r := range e.Routes() {
+		require.False(t, strings.HasPrefix(r.Path, "/api/v1/auth/"), "%s %s", r.Method, r.Path)
 	}
 }

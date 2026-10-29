@@ -73,7 +73,7 @@ Mapped roles and workspaces are honoured by the access controller (`Authorize`, 
 A token that carries an `act` claim (RFC 8693) means a party is acting on behalf of the user; SaFE records the actor, and restricts it, whoever issued it:
 
 * **Audit.** `audit_logs` has `actor_client_id` and `token_jti`. Reads made with a delegated token are recorded too (without bodies), not only writes.
-* **Capability exclusions.** A delegated token can never call API-key, Secret, user-management, SSH-key-writing, gateway-credential or token-verification routes, whatever its scope. The list is pinned by tests against the real route table; a new route whose path mentions a credential fails the test until it is classified.
+* **Capability exclusions.** A delegated token can never call API-key, Secret, user-management, SSH-key-writing, or gateway-credential routes, whatever its scope. The list is pinned by tests against the real route table; a new route whose path mentions a credential fails the test until it is classified.
 * **Scope.** A delegated token needs `safe.api` (everything the user may do, minus the exclusions) or `safe.read` (reads only) in its `scope` claim; without one it is refused. A read is judged by what the request can do, not by its HTTP method: the web shell is a `GET` that upgrades into an interactive exec session, so a request that asks the server to switch protocols (an `Upgrade` header or a `Connection: upgrade` token, whichever route it goes to), and the routes that open a shell, exec, attach or port-forward session, need `safe.api`. A test reads the handlers that upgrade the connection and checks that their routes are classified.
 
 A malformed `act` claim is rejected rather than read as a direct login.

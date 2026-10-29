@@ -38,15 +38,12 @@ type ClusterConfig struct {
 // AuthConfig holds upstream HTTP credentials; values come from environment only.
 type AuthConfig struct {
 	Outbound string `yaml:"-"`
-	Internal string `yaml:"-"`
 }
 
 // ApplyHeaders sets upstream HTTP auth headers.
 func (a AuthConfig) ApplyHeaders(req *http.Request) {
 	if a.Outbound != "" {
 		req.Header.Set("Authorization", "Bearer "+a.Outbound)
-	} else if a.Internal != "" {
-		req.Header.Set("X-Internal-Token", a.Internal)
 	}
 }
 
@@ -96,7 +93,6 @@ func Load(path string) (*Config, error) {
 		}
 		prefix := fmt.Sprintf("EMAIL_RELAY_CLUSTER_%d_", i)
 		cfg.Clusters[i].Auth.Outbound = os.Getenv(prefix + "OUTBOUND")
-		cfg.Clusters[i].Auth.Internal = os.Getenv(prefix + "INTERNAL")
 	}
 
 	return cfg, nil
