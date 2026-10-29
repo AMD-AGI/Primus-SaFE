@@ -77,6 +77,11 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 	wsConn := newWebsocketConn(conn).(*WebsocketConn)
 	sessionInfo := h.NewSessionInfo(userInfo, wsConn, rows, cols, WebShell, true)
 
+	// gin hands this *gin.Context to the next request as soon as the handler returns, so nothing
+	// that outlives the handler may touch c: the ping goroutine gets the request's context, and it
+	// stops with the handler.
+	ctx, stopPing := context.WithCancel(c.Request.Context())
+	defer stopPing()
 	// Start ping goroutine using WebsocketConn to avoid concurrent writes
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
@@ -88,12 +93,12 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 					klog.Errorf("write ping err: %v", err)
 					return
 				}
-			case <-c.Request.Context().Done():
+			case <-ctx.Done():
 				return
 			}
 		}
 	}()
-	if _, err := h.SessionConn(c.Request.Context(), sessionInfo); err != nil {
+	if _, err := h.SessionConn(ctx, sessionInfo); err != nil {
 		klog.Errorf("session conn err: %v", err)
 	}
 

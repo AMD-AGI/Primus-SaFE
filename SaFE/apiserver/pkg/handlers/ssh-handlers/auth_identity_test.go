@@ -72,6 +72,10 @@ type authFixture struct {
 	h       *SshHandler
 	wsURL   string
 	reached atomic.Int32 // requests that got past authorization (an exec, a port-forward, a session record)
+	// requestContext, when set, wraps the context of every web shell request.
+	requestContext func(context.Context) context.Context
+	// afterWebShell, when set, runs on the request goroutine once the web shell handler has returned.
+	afterWebShell func(c *gin.Context)
 }
 
 func newAuthFixture(t *testing.T) *authFixture {
@@ -176,8 +180,15 @@ func newAuthFixture(t *testing.T) *authFixture {
 		if g := c.GetHeader("X-Test-Groups"); g != "" {
 			groups = strings.Split(g, ",")
 		}
-		c.Request = c.Request.WithContext(requestContext(c.Request.Context(), u, c.GetHeader("X-Test-Identity"), groups))
+		ctx := requestContext(c.Request.Context(), u, c.GetHeader("X-Test-Identity"), groups)
+		if f.requestContext != nil {
+			ctx = f.requestContext(ctx)
+		}
+		c.Request = c.Request.WithContext(ctx)
 		c.Next()
+		if f.afterWebShell != nil {
+			f.afterWebShell(c)
+		}
 	}, f.h.WebShell)
 	webSrv := httptest.NewServer(router)
 	t.Cleanup(webSrv.Close)
@@ -403,6 +414,59 @@ func TestWebShellKeepsIdentityOverlayButSSHDoesNot(t *testing.T) {
 	require.True(t, web, "the web shell keeps the workspace the group grants")
 	viaSSH, _ := authPaths[1].run(t, f, c, "external")
 	require.False(t, viaSSH, "an SSH session has no identity provider behind it")
+}
+
+// ownDoneContext is a request context whose Done channel is its own and whose methods take no
+// lock. The race detector only reports two accesses that nothing orders, and the lock inside a
+// cancelable context orders more than it should here: a goroutine that waits on the context and the
+// handler that then uses it are ordered through that lock, and the race goes unseen on every run
+// where the goroutine happened to start first. Without the lock the unordered access is reported
+// every time.
+type ownDoneContext struct {
+	context.Context
+	done chan struct{}
+}
+
+func (c ownDoneContext) Done() <-chan struct{} { return c.done }
+
+func (c ownDoneContext) Err() error {
+	select {
+	case <-c.done:
+		return context.Canceled
+	default:
+		return nil
+	}
+}
+
+// gin pools its Context: once a handler returns, the next request is handed the same *gin.Context
+// and ServeHTTP overwrites its Request. A goroutine the web shell leaves running (the ping loop)
+// must therefore hold the request's context, not the gin.Context, or it reads Request while the
+// next request writes it. This writes Request the way ServeHTTP does for the next request, right
+// after the handler returns, so the race detector sees it on every run instead of on the runs where
+// the pool happens to hand the Context out again. The detector can still lose one access, so the
+// web shell runs several times at once; losing all of them is a one in thousands chance.
+func TestWebShellPingLoopDoesNotReadTheGinContextAfterTheHandlerReturns(t *testing.T) {
+	const sessions = 6
+	f := newAuthFixture(t)
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
+	f.requestContext = func(ctx context.Context) context.Context { return ownDoneContext{Context: ctx, done: done} }
+	recycled := make(chan struct{}, sessions)
+	f.afterWebShell = func(c *gin.Context) {
+		c.Request = c.Request.WithContext(context.Background())
+		recycled <- struct{}{}
+	}
+	for i := 0; i < sessions; i++ {
+		reached, _ := authPaths[0].run(t, f, authCase{user: "owner", identity: "builtin"}, "builtin")
+		require.True(t, reached, "the web shell session started")
+	}
+	for i := 0; i < sessions; i++ {
+		select {
+		case <-recycled:
+		case <-time.After(10 * time.Second):
+			t.Fatal("a web shell handler did not return")
+		}
+	}
 }
 
 // authUser is the restrictive function, so an entry path added later that calls it as it is, with
