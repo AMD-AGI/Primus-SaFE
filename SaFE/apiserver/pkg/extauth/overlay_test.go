@@ -126,3 +126,22 @@ func TestApplyOverlayPlatformRolesComeOnlyFromTheIdentity(t *testing.T) {
 		require.Same(t, stored, ApplyOverlay(context.Background(), stored))
 	})
 }
+
+// GrantedWorkspaces is what the identity grants the caller, and nothing for anyone else.
+func TestGrantedWorkspaces(t *testing.T) {
+	o := &Overlay{UserId: "alice-id", Workspaces: []string{"ws-a", "ws-b"}}
+	withOverlay := WithOverlay(context.Background(), o)
+
+	require.Equal(t, []string{"ws-a", "ws-b"}, GrantedWorkspaces(withOverlay, overlayUser(nil)))
+	require.Nil(t, GrantedWorkspaces(context.Background(), overlayUser(nil)), "no overlay")
+	require.Nil(t, GrantedWorkspaces(withOverlay, nil), "no user")
+
+	other := overlayUser(nil)
+	other.Name = "bob-id"
+	require.Nil(t, GrantedWorkspaces(withOverlay, other), "the overlay is the caller's alone")
+
+	// A copy: a caller that edits the answer does not edit the request's overlay.
+	got := GrantedWorkspaces(withOverlay, overlayUser(nil))
+	got[0] = "changed"
+	require.Equal(t, "ws-a", o.Workspaces[0])
+}

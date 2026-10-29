@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -131,6 +132,13 @@ func guardEngine(t *testing.T, builtin bool) *gin.Engine {
 // guardEngineWithDB is guardEngine for a handler that has a database.
 func guardEngineWithDB(t *testing.T, builtin bool, db dbclient.Interface) *gin.Engine {
 	t.Helper()
+	return guardEngineWithMappings(t, builtin, db, []map[string]any{{"group": "platform-admins", "roles": []string{"system-admin"}}})
+}
+
+// guardEngineWithMappings is guardEngineWithDB with the group mappings given: what the identity
+// provider's groups grant, which becomes the overlay of the request.
+func guardEngineWithMappings(t *testing.T, builtin bool, db dbclient.Interface, mappings []map[string]any) *gin.Engine {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	cli := sharedGuardCluster(t)
 
@@ -156,7 +164,7 @@ func guardEngineWithDB(t *testing.T, builtin bool, db dbclient.Interface) *gin.E
 	commonconfig.SetValue("crypto.enable", "false")
 	viper.Set("auth.mode", "external")
 	viper.Set("auth.authenticators", chain)
-	viper.Set("auth.group_mappings", []map[string]any{{"group": "platform-admins", "roles": []string{"system-admin"}}})
+	viper.Set("auth.group_mappings", mappings)
 	require.NoError(t, authority.InitExternalAuth(cli))
 	t.Cleanup(func() {
 		commonconfig.SetValue("crypto.enable", "")
@@ -603,4 +611,95 @@ func TestRefuseExternalPasswordChange(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The row the console shows for the caller's own account lists what their groups grant, so an
+// edit that adds one workspace sends those back with it. Which of them are the record's is
+// known only here: the granted ones are the overlay's and are never stored.
+func TestDropGrantedWorkspaces(t *testing.T) {
+	const self = "alice-id"
+	stored := func(ws ...string) *v1.User {
+		u := guardUser(self, v1.SSOUserType, v1.DefaultRole)
+		if len(ws) > 0 {
+			u.Spec.Resources = map[string][]string{common.UserWorkspaces: ws}
+		}
+		return u
+	}
+	ptr := func(ws ...string) *[]string { return &ws }
+	nothing := &[]string{} // an empty list, not an absent one: the patch still replaces what is stored
+	overlay := func(userId string, ws ...string) *extauth.Overlay {
+		return &extauth.Overlay{UserId: userId, Workspaces: ws}
+	}
+	tests := []struct {
+		name    string
+		overlay *extauth.Overlay // nil: a request without one, as in builtin mode
+		target  *v1.User
+		request *[]string
+		want    *[]string
+	}{
+		{"no workspaces in the patch", overlay(self, "ws-a"), stored(), nil, nil},
+		{"no overlay: the list is stored as sent", nil, stored(), ptr("ws-a", "ws-new"), ptr("ws-a", "ws-new")},
+		{"an overlay that grants nothing", overlay(self), stored(), ptr("ws-a", "ws-new"), ptr("ws-a", "ws-new")},
+		{"a granted workspace sent back with an added one is not stored", overlay(self, "ws-a"), stored(), ptr("ws-a", "ws-new"), ptr("ws-new")},
+		{"only granted workspaces sent back leave nothing to store", overlay(self, "ws-a", "ws-b"), stored(), ptr("ws-a", "ws-b"), nothing},
+		{"a granted workspace the record also stores stays", overlay(self, "ws-a"), stored("ws-a", "ws-old"), ptr("ws-a", "ws-new"), ptr("ws-a", "ws-new")},
+		{"a stored workspace that is not granted can be removed", overlay(self, "ws-a"), stored("ws-old"), ptr("ws-a"), nothing},
+		{"the order of what is kept is the order sent", overlay(self, "ws-b"), stored(), ptr("ws-z", "ws-b", "ws-a"), ptr("ws-z", "ws-a")},
+		{"the overlay is the caller's: another user's list is stored as sent", overlay("someone-else", "ws-a"), stored(), ptr("ws-a", "ws-new"), ptr("ws-a", "ws-new")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tt.overlay != nil {
+				ctx = extauth.WithOverlay(ctx, tt.overlay)
+			}
+			req := &view.PatchUserRequest{Workspaces: tt.request}
+			dropGrantedWorkspaces(ctx, tt.target, req)
+			if tt.want == nil {
+				assert.Nil(t, req.Workspaces)
+				return
+			}
+			require.NotNil(t, req.Workspaces)
+			assert.Equal(t, *tt.want, *req.Workspaces)
+		})
+	}
+}
+
+// The same on the real route: an administrator edits their own account, whose row lists the
+// workspace their group grants. The record keeps only what the edit added.
+func TestExternalModePatchStoresNoGrantedWorkspaces(t *testing.T) {
+	e := guardEngineWithMappings(t, true, nil, []map[string]any{{
+		"group": "platform-admins", "roles": []string{"system-admin"}, "workspaces": []string{"ws-granted"},
+	}})
+	storedWorkspaces := func(name string) []string {
+		u := &v1.User{}
+		require.NoError(t, guardCluster.Get(context.Background(), client.ObjectKey{Name: name}, u))
+		return commonuser.GetWorkspace(u)
+	}
+
+	t.Run("a granted workspace sent back with an added one is not stored", func(t *testing.T) {
+		w := guardRequest{method: http.MethodPatch, path: "/api/v1/users/idp-admin-id",
+			body: `{"workspaces":["ws-granted","ws-new"]}`, bearer: "idp-admin"}.serve(e)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		assert.Equal(t, []string{"ws-new"}, storedWorkspaces("idp-admin-id"))
+	})
+
+	t.Run("a workspace the record stores stays when its group grants it too", func(t *testing.T) {
+		u := &v1.User{}
+		require.NoError(t, guardCluster.Get(context.Background(), client.ObjectKey{Name: "idp-admin-id"}, u))
+		commonuser.AssignWorkspace(u, "ws-granted", "ws-old")
+		require.NoError(t, guardCluster.Update(context.Background(), u))
+
+		w := guardRequest{method: http.MethodPatch, path: "/api/v1/users/idp-admin-id",
+			body: `{"workspaces":["ws-granted","ws-new"]}`, bearer: "idp-admin"}.serve(e)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		assert.ElementsMatch(t, []string{"ws-granted", "ws-new"}, storedWorkspaces("idp-admin-id"))
+	})
+
+	t.Run("another user's list is stored as sent: the grant is the caller's", func(t *testing.T) {
+		w := guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-workspaces",
+			body: `{"workspaces":["ws-granted","ws-new"]}`, bearer: "idp-admin"}.serve(e)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		assert.ElementsMatch(t, []string{"ws-granted", "ws-new"}, storedWorkspaces("t-workspaces"))
+	})
 }

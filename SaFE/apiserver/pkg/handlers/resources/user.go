@@ -383,6 +383,7 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	if err = refuseExternalPasswordChange(req); err != nil {
 		return nil, err
 	}
+	dropGrantedWorkspaces(c.Request.Context(), targetUser, req)
 	isChanged, err := h.authUserUpdate(c, targetUser, req)
 	if !isChanged || err != nil {
 		return nil, err

@@ -6,11 +6,15 @@
 package resources
 
 import (
+	"context"
+
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 )
 
 // With auth.mode external the identity provider owns sign-in, accounts, API keys and
@@ -57,4 +61,30 @@ func refuseExternalRoleChange(target *v1.User, req *view.PatchUserRequest) error
 		}
 	}
 	return nil
+}
+
+// dropGrantedWorkspaces removes from a patch's workspace list the workspaces the request's
+// identity grants the target and the record does not store. The row the console shows for the
+// caller's own account lists what their groups grant, so an edit that adds one workspace sends
+// those back with it; storing them would keep them after the groups change and the record would
+// diverge from the identity provider (see extauth.ApplyOverlay: the mapped workspaces are never
+// written). A workspace the record already stores stays, granted or not: it is the record's.
+// A request without an overlay, as in builtin mode, is left as it is.
+func dropGrantedWorkspaces(ctx context.Context, target *v1.User, req *view.PatchUserRequest) {
+	if req.Workspaces == nil {
+		return
+	}
+	granted := extauth.GrantedWorkspaces(ctx, target)
+	if len(granted) == 0 {
+		return
+	}
+	stored := commonuser.GetWorkspace(target)
+	kept := make([]string, 0, len(*req.Workspaces))
+	for _, ws := range *req.Workspaces {
+		if slice.Contains(granted, ws) && !slice.Contains(stored, ws) {
+			continue
+		}
+		kept = append(kept, ws)
+	}
+	req.Workspaces = &kept
 }
