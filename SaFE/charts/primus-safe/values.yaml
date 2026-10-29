@@ -251,7 +251,7 @@ auth:
   #     cache_ttl: 30s
   #     cache_negative_ttl: 5s
   #     stale_if_error: 30m               # keep accepted credentials working while the endpoint is down
-  #   - type: builtin     # fall through to the built-in mode (e.g. a local administrator)
+  #   - type: builtin     # fall through to the built-in mode; what it authenticates holds no platform role
   authenticators: []
   # Name of the Secret that holds the client secret of an `introspection` authenticator, under the key
   # `client-secret`. It is mounted into the apiserver at client_secret_path. Leave empty when unused.

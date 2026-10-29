@@ -32,9 +32,26 @@ func WithOverlay(ctx context.Context, o *Overlay) context.Context {
 	return context.WithValue(ctx, overlayKey{}, o)
 }
 
-// ApplyOverlay returns the user as this request sees it: the record's roles and
-// workspaces united with the overlay's. The record passed in is not modified; when
-// there is no overlay for this user, it is returned as is.
+// PlatformRoles are the roles an identity grants platform-wide. In external mode the
+// authenticators are their only source: the value stored on the user object is not
+// consulted for them (see ApplyOverlay). It is the one list of them: whatever needs to
+// know which roles the identity provider owns, such as the guard on editing them, reads it
+// from here.
+var PlatformRoles = []v1.UserRole{v1.SystemAdminRole, v1.SystemAdminReadonlyRole}
+
+// ApplyOverlay returns the user as this request sees it. For a request that has an overlay
+// (every request the external mode authenticates):
+//   - the platform roles (system-admin, system-admin-readonly) are those the overlay grants,
+//     and only those: what the user object stores for them is ignored, so revoking one at the
+//     identity provider removes it from the next request that is authenticated afresh, even
+//     if the object still lists it. A user left without one is an ordinary user, who holds
+//     the default role;
+//   - every other role, the workspaces and the restriction are the record's united with the
+//     overlay's.
+//
+// The record passed in is not modified; when there is no overlay for this user, it is
+// returned as is. Applying it twice gives the same user as applying it once, so a caller
+// that is handed an already merged user may apply it again.
 func ApplyOverlay(ctx context.Context, user *v1.User) *v1.User {
 	if ctx == nil {
 		return user
@@ -44,14 +61,26 @@ func ApplyOverlay(ctx context.Context, user *v1.User) *v1.User {
 		return user
 	}
 	u := user.DeepCopy()
-	for _, r := range o.Roles {
-		if !v1.IsContainRole(u.Spec.Roles, r) {
-			u.Spec.Roles = append(u.Spec.Roles, r)
+	kept := make([]v1.UserRole, 0, len(u.Spec.Roles)+len(o.Roles))
+	for _, r := range u.Spec.Roles {
+		if !v1.IsContainRole(PlatformRoles, r) {
+			kept = append(kept, r)
 		}
 	}
-	if u.IsSystemAdmin() {
+	for _, r := range o.Roles {
+		if !v1.IsContainRole(kept, r) {
+			kept = append(kept, r)
+		}
+	}
+	u.Spec.Roles = kept
+	switch {
+	case u.IsSystemAdmin():
 		// As the admission webhook keeps it: a system administrator holds that role alone.
 		u.Spec.Roles = []v1.UserRole{v1.SystemAdminRole}
+	case !v1.IsContainRole(u.Spec.Roles, v1.DefaultRole):
+		// As the admission webhook keeps it: everyone else holds the default role. It was not
+		// stored for an administrator, who is an ordinary user once the identity revokes the role.
+		u.Spec.Roles = append([]v1.UserRole{v1.DefaultRole}, u.Spec.Roles...)
 	}
 	commonuser.AddWorkspace(u, o.Workspaces...)
 	commonuser.AddManagedWorkspace(u, o.Managed...)
@@ -59,6 +88,21 @@ func ApplyOverlay(ctx context.Context, user *v1.User) *v1.User {
 		u.Spec.RestrictedType = v1.UserFrozen
 	}
 	return u
+}
+
+// GrantedWorkspaces returns the workspaces this request's identity grants user, which the
+// record does not have to store: they are the overlay's, and exist only while the groups do.
+// It is empty for a request without an overlay and for any user but the one the request is
+// from, because the overlay is that one user's.
+func GrantedWorkspaces(ctx context.Context, user *v1.User) []string {
+	if ctx == nil || user == nil {
+		return nil
+	}
+	o, _ := ctx.Value(overlayKey{}).(*Overlay)
+	if o == nil || user.Name != o.UserId {
+		return nil
+	}
+	return append([]string(nil), o.Workspaces...)
 }
 
 // MapGroups turns the groups of an identity into an overlay, by the configured mappings.

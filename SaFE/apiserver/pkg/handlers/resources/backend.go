@@ -27,20 +27,22 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 		EnableSSH:            commonconfig.IsSSHEnable(),
 		SSHIP:                commonconfig.GetSSHServerIP(),
 		SSHPort:              commonconfig.GetSSHServerPort(),
+		AuthMode:             commonconfig.GetAuthMode(),
 		SSOEnable:            commonconfig.IsSSOEnable(),
 		CDRequireApproval:    commonconfig.IsCDRequireApproval(),
 		KubeSprayK8sVersions: v1.KubeSprayK8sVersions(),
 	}
-	if resp.SSOEnable {
-		inst := authority.SSOInstance()
-		if inst != nil {
-			resp.SSOAuthUrl = inst.AuthURL()
-		}
-	}
-	// With external authentication the sign-in page is wherever the deployment says.
 	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
+		// POST /login is refused whoever asks, so the built-in sign-in (the password form, the
+		// authorize URL of the built-in SSO) is not advertised: a console sent there would end
+		// on a 403. The sign-in page is wherever the deployment says, if it says.
+		resp.SSOEnable, resp.SSOAuthUrl = false, ""
 		if url := commonconfig.GetAuthLoginURL(); url != "" {
 			resp.SSOEnable, resp.SSOAuthUrl = true, url
+		}
+	} else if resp.SSOEnable {
+		if inst := authority.SSOInstance(); inst != nil {
+			resp.SSOAuthUrl = inst.AuthURL()
 		}
 	}
 	return resp, nil

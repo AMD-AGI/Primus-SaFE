@@ -54,6 +54,16 @@
           </div>
         </template>
 
+        <!-- An identity provider owns sign-in: there is no password form, not even on /login-admin -->
+        <template v-else-if="userStore.isExternalAuth">
+          <div class="py-12 text-center text-[13px] opacity-80">
+            <div class="mb-4">Sign-in is managed by an external identity provider.</div>
+            <el-button v-if="userStore.envs?.ssoAuthUrl" type="primary" @click="startSSO">
+              Continue to sign in
+            </el-button>
+          </div>
+        </template>
+
         <!-- /login-admin or SSO not enabled: show original form -->
         <template v-else>
           <el-form

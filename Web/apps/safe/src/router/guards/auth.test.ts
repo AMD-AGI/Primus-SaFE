@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const ssoLoginRaw = vi.fn()
 
-vi.mock('@/stores/user', () => ({ useUserStore: () => ({ session: 'unknown' }) }))
+// The store the guard sees; a test replaces it to play a saved session.
+let userState: Record<string, unknown> = { session: 'unknown' }
+
+vi.mock('@/stores/user', () => ({ useUserStore: () => userState }))
 vi.mock('@/services/login', () => ({ ssoLoginRaw: (...a: any[]) => ssoLoginRaw(...a) }))
 vi.mock('@/utils', () => ({ getSafeRedirect: (v: any) => v || '/' }))
 
@@ -52,5 +55,61 @@ describe('auth guard SSO bridge forwarding', () => {
     expect((window as any).location.href).toBe(SELF + '/')
     expect(ssoLoginRaw).not.toHaveBeenCalled()
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ path: '/sso-error' }))
+  })
+})
+
+// A visitor's saved session is 'anonymous', not 'unknown': the page the identity provider sends
+// the browser back to loads with that, and the provider may have signed the caller in meanwhile.
+describe('auth guard session probe', () => {
+  const page = { query: {}, path: '/workloads', fullPath: '/workloads', name: 'Workloads' }
+
+  const run = async () => {
+    let guard: any
+    setupAuthGuard({ beforeEach: (fn: any) => (guard = fn) } as any)
+    const next = vi.fn()
+    await guard(page, {}, next)
+    return next
+  }
+
+  // A store whose probe signs the caller in, as GET /users/self does behind the provider.
+  const probeSignsIn = () => {
+    const state: Record<string, unknown> = {
+      session: 'anonymous',
+      userId: '',
+      isLogin: false,
+      ensureSessionOnce: vi.fn(async () => {
+        state.session = 'authenticated'
+        state.userId = 'u1'
+        state.isLogin = true
+      }),
+    }
+    return state
+  }
+
+  it('waits for the probe when the saved session is anonymous and there is no userId', async () => {
+    const state = probeSignsIn()
+    userState = state
+    const next = await run()
+    expect(state.ensureSessionOnce).toHaveBeenCalledTimes(1)
+    // Decided after the probe: the caller goes where they asked, not to /login.
+    expect(next).toHaveBeenCalledWith()
+  })
+
+  it('still sends a caller the probe does not sign in to /login', async () => {
+    const state = probeSignsIn()
+    ;(state.ensureSessionOnce as ReturnType<typeof vi.fn>).mockImplementation(async () => {})
+    userState = state
+    const next = await run()
+    expect(state.ensureSessionOnce).toHaveBeenCalledTimes(1)
+    expect(next).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/workloads' } })
+  })
+
+  it('does not probe again for a session that is already known with a userId', async () => {
+    const state = probeSignsIn()
+    Object.assign(state, { session: 'authenticated', userId: 'u1', isLogin: true })
+    userState = state
+    const next = await run()
+    expect(state.ensureSessionOnce).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledWith()
   })
 })

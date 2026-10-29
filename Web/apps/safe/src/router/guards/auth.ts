@@ -150,8 +150,11 @@ export default function setupAuthGuard(router: Router) {
       })
     }
 
-    // C) Session probe
-    if (user.session === 'unknown') {
+    // C) Session probe. Not only while the session is unknown: a visitor's saved session is
+    // 'anonymous', yet an identity provider may have signed them in since (the console's
+    // /login redirects there and comes back), so with no userId wait for the probe too. It runs
+    // once; later calls get the same answer.
+    if (user.session === 'unknown' || !user.userId) {
       try {
         await user.ensureSessionOnce()
       } catch {}

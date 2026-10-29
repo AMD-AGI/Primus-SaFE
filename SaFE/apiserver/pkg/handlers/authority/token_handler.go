@@ -6,12 +6,14 @@
 package authority
 
 import (
+	"context"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -39,12 +41,44 @@ func ParseToken(c *gin.Context) error {
 	}
 	// In external mode the configured authenticator chain decides first; when the chain
 	// reaches the built-in mode, or the mode is builtin (the default), the code below runs.
-	if st := externalState.Load(); st != nil {
+	st := externalState.Load()
+	if st != nil {
 		handled, err := parseExternal(c, st)
 		if handled || err != nil {
 			return err
 		}
 	}
+	err := parseBuiltin(c)
+	if err == nil && st != nil {
+		// The chain reached the built-in mode, so no identity provider vouched for this request,
+		// and the platform roles come only from identity providers: the user is an ordinary
+		// one, whatever the user object stores. There is no local-account exception.
+		c.Request = c.Request.WithContext(WithoutIdentity(c.Request.Context(), c.GetString(common.UserId)))
+	}
+	return err
+}
+
+// WithoutIdentity returns ctx for a user that no identity provider vouched for, the rule of
+// every credential the apiserver accepts on its own in external mode (a built-in session or
+// API key, an SSH session): the user adds nothing to the record and holds no platform role,
+// whatever the user object stores (extauth.PlatformRoles). In builtin mode, the default, it
+// returns ctx as it is: the stored roles are the roles.
+func WithoutIdentity(ctx context.Context, userId string) context.Context {
+	st := externalState.Load()
+	if st == nil {
+		return ctx
+	}
+	return extauth.WithOverlay(ctx, builtinOverlay(st, userId))
+}
+
+// builtinOverlay is the overlay of a user a built-in credential authenticated in external mode:
+// no identity provider vouched for it, so it adds nothing and the platform roles are not kept.
+func builtinOverlay(st *externalAuth, userId string) *extauth.Overlay {
+	return extauth.MapGroups(userId, nil, st.mappings, false)
+}
+
+// parseBuiltin authenticates a request with the apiserver's own API keys, sessions and accounts.
+func parseBuiltin(c *gin.Context) error {
 	// First, try to authenticate with API key from Authorization: Bearer header
 	authHeader := c.GetHeader("Authorization")
 	apiKey := ExtractApiKeyFromRequest(authHeader)

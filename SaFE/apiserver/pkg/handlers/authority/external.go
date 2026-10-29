@@ -66,7 +66,32 @@ func InitExternalAuth(cli client.Client) error {
 	}
 	externalState.Store(&externalAuth{chain: chain, mappings: mappings, client: cli})
 	klog.Infof("external authentication enabled with %d authenticator(s)", chain.Len())
+	warnStoredPlatformRoles(cfgs)
 	return nil
+}
+
+// warnStoredPlatformRoles tells the operator at start-up what external mode does to the accounts
+// the apiserver holds itself, so that a deployment that relied on a local administrator finds out
+// when it starts and not during an outage of the identity provider: the platform roles stored on
+// user objects stop counting, so such an account is an ordinary user. A builtin entry in the chain
+// does not bring them back; it only keeps the credentials working.
+func warnStoredPlatformRoles(cfgs []commonconfig.AuthenticatorConfig) {
+	roles := make([]string, 0, len(extauth.PlatformRoles))
+	for _, r := range extauth.PlatformRoles {
+		roles = append(roles, string(r))
+	}
+	msg := fmt.Sprintf("auth.mode is external: the platform roles (%s) come only from auth.group_mappings; "+
+		"the ones stored on user objects no longer count, so a local administrator is an ordinary user",
+		strings.Join(roles, ", "))
+	for _, c := range cfgs {
+		if strings.EqualFold(c.Type, "builtin") {
+			msg += "; the builtin authenticator in auth.authenticators still accepts the sessions and API keys of local " +
+				"accounts, but as ordinary users, so no local account can administer the platform while the identity " +
+				"provider is down (recovering means setting auth.mode back to builtin)"
+			break
+		}
+	}
+	klog.Warning(msg)
 }
 
 func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error) {
@@ -151,21 +176,12 @@ func parseExternal(c *gin.Context, st *externalAuth) (handled bool, err error) {
 		return true, commonerrors.NewUnauthorized("token not present")
 	}
 
-	id, aerr := st.chain.Authenticate(c.Request.Context(), cred)
-	switch {
-	case aerr == nil:
-	case errors.Is(aerr, extauth.ErrBuiltin):
+	id, builtin, aerr := st.authenticate(c.Request.Context(), cred, c.Request.URL.Path)
+	if aerr != nil {
+		return true, aerr
+	}
+	if builtin {
 		return false, nil
-	default:
-		var unavailable *extauth.UnavailableError
-		if errors.As(aerr, &unavailable) {
-			klog.ErrorS(aerr, "authentication unavailable", "path", c.Request.URL.Path)
-			apimetrics.AuthFailuresTotal.WithLabelValues("unavailable").Inc()
-			// Never a pass: the caller is told to retry, not that its credential is bad.
-			return true, apierrors.NewServiceUnavailable("the authentication service is unavailable")
-		}
-		apimetrics.AuthFailuresTotal.WithLabelValues("invalid").Inc()
-		return true, commonerrors.NewUnauthorized(ErrInvalidToken)
 	}
 
 	if id.Delegated() {
@@ -181,17 +197,11 @@ func parseExternal(c *gin.Context, st *externalAuth) (handled bool, err error) {
 		}
 	}
 
-	if err = st.ensureUser(c.Request.Context(), id); err != nil {
-		klog.ErrorS(err, "failed to provision user", "user", id.ID)
-		apimetrics.AuthFailuresTotal.WithLabelValues("provision").Inc()
-		if apierrors.IsInvalid(err) || apierrors.IsBadRequest(err) || errors.Is(err, errInvalidUserId) {
-			return true, commonerrors.NewUnauthorized(ErrInvalidToken)
-		}
+	if _, err = st.provision(c.Request.Context(), id); err != nil {
 		return true, err
 	}
 
-	overlay := extauth.MapGroups(id.ID, id.Groups, st.mappings, id.Restricted)
-	c.Request = c.Request.WithContext(extauth.WithOverlay(c.Request.Context(), overlay))
+	c.Request = c.Request.WithContext(extauth.WithOverlay(c.Request.Context(), st.overlay(id)))
 	userType := UserTypeExternal
 	if id.Delegated() {
 		userType = UserTypeDelegated
@@ -205,24 +215,69 @@ func parseExternal(c *gin.Context, st *externalAuth) (handled bool, err error) {
 	return true, nil
 }
 
+// authenticate runs the chain on the credentials. builtin is true when the chain reached the
+// built-in mode: no identity provider decided, and the caller runs the built-in path. A failure is
+// returned as the error the caller answers with (401 for a credential that is rejected, 503 for an
+// authenticator that could not decide), after it is counted.
+func (st *externalAuth) authenticate(ctx context.Context, cred extauth.Credentials, path string) (id *extauth.Identity, builtin bool, err error) {
+	id, aerr := st.chain.Authenticate(ctx, cred)
+	switch {
+	case aerr == nil:
+		return id, false, nil
+	case errors.Is(aerr, extauth.ErrBuiltin):
+		return nil, true, nil
+	}
+	var unavailable *extauth.UnavailableError
+	if errors.As(aerr, &unavailable) {
+		klog.ErrorS(aerr, "authentication unavailable", "path", path)
+		apimetrics.AuthFailuresTotal.WithLabelValues("unavailable").Inc()
+		// Never a pass: the caller is told to retry, not that its credential is bad.
+		return nil, false, apierrors.NewServiceUnavailable("the authentication service is unavailable")
+	}
+	apimetrics.AuthFailuresTotal.WithLabelValues("invalid").Inc()
+	return nil, false, commonerrors.NewUnauthorized(ErrInvalidToken)
+}
+
+// provision makes sure the user record of an authenticated identity exists (ensureUser) and returns
+// it. A failure is counted and returned as the error the caller answers with.
+func (st *externalAuth) provision(ctx context.Context, id *extauth.Identity) (*v1.User, error) {
+	user, err := st.ensureUser(ctx, id)
+	if err != nil {
+		klog.ErrorS(err, "failed to provision user", "user", id.ID)
+		apimetrics.AuthFailuresTotal.WithLabelValues("provision").Inc()
+		if apierrors.IsInvalid(err) || apierrors.IsBadRequest(err) || errors.Is(err, errInvalidUserId) {
+			return nil, commonerrors.NewUnauthorized(ErrInvalidToken)
+		}
+		return nil, err
+	}
+	return user, nil
+}
+
+// overlay is what the identity adds to its user record for the request: the roles and workspaces
+// its groups map to, and its restriction.
+func (st *externalAuth) overlay(id *extauth.Identity) *extauth.Overlay {
+	return extauth.MapGroups(id.ID, id.Groups, st.mappings, id.Restricted)
+}
+
 var errInvalidUserId = errors.New("the authenticated user id is not a valid resource name")
 
 // ensureUser creates the user record the first time an identity is seen. For a record
 // that already exists it refreshes the name and email annotations, best effort: roles
 // are not touched (the admission webhook gives a new user the default role, and group
 // roles are computed per request), and a refresh that fails never fails the request.
-func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) error {
+// It returns the record as it is after that.
+func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) (*v1.User, error) {
 	if errs := validation.IsDNS1123Subdomain(id.ID); len(errs) > 0 {
-		return errInvalidUserId
+		return nil, errInvalidUserId
 	}
 	user := &v1.User{}
 	err := st.client.Get(ctx, client.ObjectKey{Name: id.ID}, user)
 	if err == nil {
 		st.refreshUser(ctx, user, id)
-		return nil
+		return user, nil
 	}
 	if !apierrors.IsNotFound(err) {
-		return err
+		return nil, err
 	}
 	user = &v1.User{
 		ObjectMeta: metav1.ObjectMeta{
@@ -234,7 +289,10 @@ func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) er
 		},
 		Spec: v1.UserSpec{Type: v1.SSOUserType},
 	}
-	return client.IgnoreAlreadyExists(st.client.Create(ctx, user))
+	if err = client.IgnoreAlreadyExists(st.client.Create(ctx, user)); err != nil {
+		return nil, err
+	}
+	return user, nil
 }
 
 // refreshUser makes the name and email annotations of an existing record follow the

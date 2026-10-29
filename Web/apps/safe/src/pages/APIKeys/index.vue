@@ -4,6 +4,7 @@
     <div class="flex flex-wrap items-center justify-between gap-2 mt-4">
       <div class="flex flex-wrap items-center">
         <el-button
+          v-if="manageable"
           type="primary"
           round
           :icon="Plus"
@@ -16,6 +17,10 @@
         >
           Create API Key
         </el-button>
+        <el-text v-else type="info">
+          New API keys are issued by the external identity provider. A key issued before the
+          switch can still be deleted here.
+        </el-text>
       </div>
       <div class="flex flex-wrap items-center">
         <el-input
@@ -126,7 +131,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted, h, reactive } from 'vue'
+import { ref, onMounted, h, reactive, computed } from 'vue'
 import { listAPIKeys, deleteAPIKey } from '@/services/apikeys'
 import type { APIKey } from '@/services/apikeys/type'
 import { Plus, Delete, Key, Search } from '@element-plus/icons-vue'
@@ -135,7 +140,12 @@ import dayjs from 'dayjs'
 import { debounce } from 'lodash'
 import AddDialog from './Components/AddDialog.vue'
 import { formatTimeStr } from '@/utils/index'
+import { useUserStore } from '@/stores/user'
 
+const userStore = useUserStore()
+// The server refuses creating keys when an external identity provider issues them. Deleting
+// stays: a key issued before the switch still authenticates, so it must stay revocable.
+const manageable = computed(() => !userStore.isExternalAuth)
 const addVisible = ref(false)
 const loading = ref(false)
 const items = ref<APIKey[]>([])

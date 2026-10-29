@@ -468,6 +468,7 @@ import type {
 } from '@/services'
 import { formatTimeStr, copyText } from '@/utils/index'
 import { isInvalidLLMGatewayBindingKey } from '@/utils/llmGatewayKey'
+import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   CircleCheckFilled,
@@ -498,6 +499,8 @@ import { CanvasRenderer } from 'echarts/renderers'
 echarts.use([BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 defineOptions({ name: 'LLMGatewayPage' })
+
+const userStore = useUserStore()
 
 const pageLoading = ref(false)
 const submitLoading = ref(false)
@@ -616,6 +619,8 @@ const copyApiKey = () => {
 }
 
 const autoCreateApiKey = async () => {
+  // With an external identity provider the server refuses creating a key here.
+  if (userStore.isExternalAuth) return
   try {
     const response = await createAPIKey({ name: 'llm', ttlDays: 365 })
     createdApiKeyData.value = response

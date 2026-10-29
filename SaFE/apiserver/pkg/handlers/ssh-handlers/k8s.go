@@ -43,7 +43,15 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 	if err != nil {
 		return 1, err
 	}
-	if err = h.authUser(ctx, sessionInfo.userInfo, workload); err != nil {
+	// A web shell is a request the identity middleware already authenticated, and its context carries
+	// what that decided (the identity provider's roles and workspaces): it alone opts in to them. An
+	// SSH session has only the public key it signed in with, which is what authUser authorizes.
+	if sessionInfo.sshType == WebShell {
+		err = h.authUserAsRequestIdentity(ctx, sessionInfo.userInfo, workload)
+	} else {
+		err = h.authUser(ctx, sessionInfo.userInfo, workload)
+	}
+	if err != nil {
 		return 1, err
 	}
 
@@ -363,18 +371,34 @@ func (h *SshHandler) getWorkloadAndClients(ctx context.Context, userInfo *UserIn
 	return workload, k8sClients, nil
 }
 
-// authUser authorizes the user for the given workload.
+// authUser authorizes the user of an SSH connection, the default every entry path calls. An SSH
+// connection is authenticated by public key and not by an identity provider, so in external mode its
+// user is one no identity vouched for (authority.WithoutIdentity): the platform roles stored on the
+// user object do not count, as for a built-in session or API key, and nothing ctx carries overrides
+// that. A path that forgets to choose therefore refuses rather than grants. Only the web shell
+// authorizes differently, and says so by calling authUserAsRequestIdentity.
 func (h *SshHandler) authUser(ctx context.Context, userInfo *UserInfo, workload *v1.Workload) error {
-	if err := h.accessController.Authorize(authority.AccessInput{
+	return h.authorize(authority.WithoutIdentity(ctx, userInfo.User), userInfo, workload)
+}
+
+// authUserAsRequestIdentity authorizes the user for the given workload as the identity ctx carries
+// it. ctx must be the context of a request the identity middleware authenticated (the web shell),
+// whose overlay holds the roles and workspaces the identity provider granted; with the context of an
+// SSH connection, which carries no overlay, it would honour the roles stored on the user object that
+// the identity provider may have revoked. Only the web shell calls it; everything else calls authUser.
+func (h *SshHandler) authUserAsRequestIdentity(ctx context.Context, userInfo *UserInfo, workload *v1.Workload) error {
+	return h.authorize(ctx, userInfo, workload)
+}
+
+// authorize checks the access with ctx exactly as it is; the two functions above choose the context.
+func (h *SshHandler) authorize(ctx context.Context, userInfo *UserInfo, workload *v1.Workload) error {
+	return h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   workload,
 		Verb:       v1.GetVerb,
 		Workspaces: []string{workload.Spec.Workspace},
 		UserId:     userInfo.User,
-	}); err != nil {
-		return err
-	}
-	return nil
+	})
 }
 
 // sendError writes an error message to the writer and logs it.

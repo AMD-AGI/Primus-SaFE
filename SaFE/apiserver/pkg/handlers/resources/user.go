@@ -125,8 +125,13 @@ func (h *Handler) updateUserSettings(c *gin.Context) (interface{}, error) {
 	targetUserId := c.GetString(common.Name)
 	var targetUser *v1.User
 	if targetUserId == common.UserSelf {
-		targetUser = requestUser
+		// The record, not requestUser: that is the user as this request sees it, with the roles
+		// the identity lent it, and the update below must not store them.
 		targetUserId = requestUser.Name
+		targetUser, err = h.getAdminUser(c.Request.Context(), targetUserId)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		targetUser, err = h.getAdminUser(c.Request.Context(), targetUserId)
 		if err != nil {
@@ -182,6 +187,9 @@ func (h *Handler) Logout(c *gin.Context) {
 // Parses the request, generates a user object with appropriate permissions and settings,
 // and creates it in the system.
 func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
+	if err := refuseExternal("user registration"); err != nil {
+		return nil, err
+	}
 	if commonconfig.IsSSOEnable() {
 		return nil, commonerrors.NewInternalError("the user registration is not enabled")
 	}
@@ -369,6 +377,13 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err = refuseExternalRoleChange(targetUser, req); err != nil {
+		return nil, err
+	}
+	if err = refuseExternalPasswordChange(req); err != nil {
+		return nil, err
+	}
+	dropGrantedWorkspaces(c.Request.Context(), targetUser, req)
 	isChanged, err := h.authUserUpdate(c, targetUser, req)
 	if !isChanged || err != nil {
 		return nil, err
@@ -542,6 +557,12 @@ func (h *Handler) getAdminUser(ctx context.Context, userId string) (*v1.User, er
 func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	query, err := parseLoginQuery(c)
 	if err != nil {
+		return nil, err
+	}
+	if err = refuseExternal("sign-in through this endpoint"); err != nil {
+		c.Set(common.UserId, "login-failed:"+query.Name)
+		c.Set(common.UserName, query.Name)
+		c.Set(common.UserType, string(query.Type))
 		return nil, err
 	}
 	var tokenInstance authority.TokenInterface
