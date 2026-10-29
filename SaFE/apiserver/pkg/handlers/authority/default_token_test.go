@@ -134,9 +134,25 @@ func TestLogin(t *testing.T) {
 		},
 	}
 
+	ssoEmail := "sso.user@example.com"
+	ssoUser := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: commonuser.GenerateUserIdByName(ssoEmail)},
+		Spec:       v1.UserSpec{Type: v1.SSOUserType},
+	}
+	ssoWithPasswordEmail := "sso.with.password@example.com"
+	ssoWithPassword := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: commonuser.GenerateUserIdByName(ssoWithPasswordEmail)},
+		Spec:       v1.UserSpec{Type: v1.SSOUserType, Password: stringutil.Base64Encode(password)},
+	}
+	noPasswordName := "nopassword"
+	noPasswordUser := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: commonuser.GenerateUserIdByName(noPasswordName)},
+		Spec:       v1.UserSpec{Type: v1.DefaultUserType},
+	}
+
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(testUser).
+		WithObjects(testUser, ssoUser, ssoWithPassword, noPasswordUser).
 		Build()
 
 	token := &defaultToken{Client: fakeClient}
@@ -170,6 +186,35 @@ func TestLogin(t *testing.T) {
 				Username: username,
 				Password: "wrongpassword",
 			},
+			wantError: true,
+			errorMsg:  "the password is incorrect",
+		},
+		{
+			name:      "sso account with an empty password",
+			input:     TokenInput{Username: ssoEmail, Password: ""},
+			wantError: true,
+			errorMsg:  "the password is incorrect",
+		},
+		{
+			name:      "sso account with a guessed password",
+			input:     TokenInput{Username: ssoEmail, Password: "anything"},
+			wantError: true,
+			errorMsg:  "the password is incorrect",
+		},
+		{
+			name:      "sso account that set a password",
+			input:     TokenInput{Username: ssoWithPasswordEmail, Password: password},
+			wantError: false,
+		},
+		{
+			name:      "sso account that set a password, empty input",
+			input:     TokenInput{Username: ssoWithPasswordEmail, Password: ""},
+			wantError: true,
+			errorMsg:  "the password is incorrect",
+		},
+		{
+			name:      "local account without a stored password",
+			input:     TokenInput{Username: noPasswordName, Password: ""},
 			wantError: true,
 			errorMsg:  "the password is incorrect",
 		},
