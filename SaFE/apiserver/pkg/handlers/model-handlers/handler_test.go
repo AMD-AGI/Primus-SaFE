@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	testifyassert "github.com/stretchr/testify/assert"
@@ -17,7 +18,30 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
+
+// sessCtx builds a gin context with body, user id, and params.
+func sessCtx(t *testing.T, method, body, userId string, params gin.Params) *gin.Context {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	var r *http.Request
+	if body != "" {
+		r = httptest.NewRequest(method, "/", strings.NewReader(body))
+	} else {
+		r = httptest.NewRequest(method, "/", nil)
+	}
+	r.Header.Set("Content-Type", "application/json")
+	c.Request = r
+	if userId != "" {
+		c.Set(common.UserId, userId)
+	}
+	c.Params = params
+	return c
+}
 
 func TestSetAndGetRobustClient(t *testing.T) {
 	// Default/reset state is nil.
@@ -198,17 +222,6 @@ func TestDatasetPublicWrappers(t *testing.T) {
 	h.ListDatasetTypes(sessCtx(t, http.MethodGet, "", "u1", nil))
 	// Bad form body -> createDataset returns early.
 	h.CreateDataset(sessCtx(t, http.MethodPost, "{bad", "u1", nil))
-}
-
-// TestPlaygroundSessionPublicWrappers exercises playground session gin wrappers.
-// With a nil dbClient the inner handlers fail fast ("requires database").
-func TestPlaygroundSessionPublicWrappers(t *testing.T) {
-	h := &Handler{}
-
-	h.SaveSession(sessCtx(t, http.MethodPost, `{"modelName":"m"}`, "u1", nil))
-	h.ListPlaygroundSession(sessCtx(t, http.MethodGet, "", "u1", nil))
-	h.GetPlaygroundSession(sessCtx(t, http.MethodGet, "", "u1", nil))
-	h.DeletePlaygroundSession(sessCtx(t, http.MethodDelete, "", "u1", nil))
 }
 
 // --- merged from pure_more_test.go ---

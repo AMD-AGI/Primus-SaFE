@@ -15,33 +15,6 @@ import (
 	dbmodel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 )
 
-func TestA2AServiceRegistryCRUD(t *testing.T) {
-	c, mock := newLooseMockClient(t)
-	arm(mock, 60)
-	ctx := context.Background()
-	q := sqrl.Eq{"deleted": false}
-
-	_ = c.UpsertA2AService(ctx, &A2AServiceRegistry{})
-	_, _ = c.GetA2AService(ctx, "svc")
-	_, _ = c.GetA2AServiceByK8s(ctx, "ns", "svc")
-	_, _ = c.SelectA2AServices(ctx, q, []string{"id"}, 10, 0)
-	_, _ = c.CountA2AServices(ctx, q)
-	_, _ = c.ListActiveA2AServices(ctx)
-	_ = c.SetA2AServiceDeleted(ctx, "svc")
-	_ = c.UpdateA2AHealth(ctx, "svc", "healthy")
-}
-
-func TestA2ACallLogCRUD(t *testing.T) {
-	c, mock := newLooseMockClient(t)
-	arm(mock, 60)
-	ctx := context.Background()
-	q := sqrl.Eq{"id": 1}
-
-	_ = c.InsertA2ACallLog(ctx, &A2ACallLog{})
-	_, _ = c.SelectA2ACallLogs(ctx, q, []string{"id"}, 10, 0)
-	_, _ = c.CountA2ACallLogs(ctx, q)
-}
-
 func TestLLMGatewayCRUD(t *testing.T) {
 	c, mock := newLooseMockClient(t)
 	arm(mock, 60)
@@ -142,20 +115,6 @@ func TestRegistryInfoCRUD(t *testing.T) {
 	_, _ = c.GetRegistryInfoByUrl(ctx, "http://r")
 	_ = c.DeleteRegistryInfo(ctx, 1)
 	_, _ = c.ListRegistryInfos(ctx, 1, 10)
-}
-
-func TestPlaygroundSessionCRUD(t *testing.T) {
-	c, mock := newLooseMockClient(t)
-	arm(mock, 60)
-	ctx := context.Background()
-	q := sqrl.Eq{"deleted": false}
-
-	_ = c.InsertPlaygroundSession(ctx, &PlaygroundSession{})
-	_ = c.UpdatePlaygroundSession(ctx, &PlaygroundSession{})
-	_, _ = c.SelectPlaygroundSessions(ctx, q, []string{"id"}, 10, 0)
-	_, _ = c.CountPlaygroundSessions(ctx, q)
-	_ = c.SetPlaygroundSessionDeleted(ctx, 1)
-	_, _ = c.GetPlaygroundSession(ctx, 1)
 }
 
 func TestAuditLogCRUD(t *testing.T) {

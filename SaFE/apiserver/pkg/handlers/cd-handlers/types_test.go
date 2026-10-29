@@ -255,13 +255,11 @@ func TestComponentConstants(t *testing.T) {
 		assert.Equal(t, "cicd_unified_job", ComponentCICDUnifiedJob)
 		assert.Equal(t, "model_downloader", ComponentModelDownloader)
 		assert.Equal(t, "ops_download", ComponentOpsDownload)
-		assert.Equal(t, "a2a_gateway", ComponentA2AGateway)
 	})
 
 	t.Run("image name constants have expected values", func(t *testing.T) {
 		assert.Equal(t, "model-downloader", ImageModelDownloader)
 		assert.Equal(t, "s3-downloader", ImageOpsDownload)
-		assert.Equal(t, "a2a-gateway", ImageA2AGateway)
 	})
 
 	t.Run("YAML key constants have expected values", func(t *testing.T) {
@@ -279,7 +277,6 @@ func TestComponentImageMap(t *testing.T) {
 		// Test new components
 		assert.Equal(t, ImageModelDownloader, ComponentImageMap[ComponentModelDownloader])
 		assert.Equal(t, ImageOpsDownload, ComponentImageMap[ComponentOpsDownload])
-		assert.Equal(t, ImageA2AGateway, ComponentImageMap[ComponentA2AGateway])
 	})
 }
 
@@ -324,12 +321,6 @@ func TestNormalizeImageVersion(t *testing.T) {
 			component: "ops_download",
 			version:   "latest",
 			expected:  "s3-downloader:latest",
-		},
-		{
-			name:      "version tag only - a2a_gateway",
-			component: "a2a_gateway",
-			version:   "20260324",
-			expected:  "a2a-gateway:20260324",
 		},
 		{
 			name:      "unknown component uses component name",

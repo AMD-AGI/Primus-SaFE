@@ -37,7 +37,7 @@ cd:
   # false: users can self-approve their own requests (development environment)
   require_approval: true
   # This list is of deployable components
-  components: "apiserver,resource_manager,job_manager,webhooks,web,preprocess,node_agent,cicd_runner,cicd_unified_job,model_downloader,ops_download,a2a_gateway,monarch"
+  components: "apiserver,resource_manager,job_manager,webhooks,web,preprocess,node_agent,cicd_runner,cicd_unified_job,model_downloader,ops_download,monarch"
   # GPU type for this cluster (e.g. "MI300X", "MI325X"). Can be overridden via env_file_config (gpu_type=MI300X).
   gpu_type: "MI300X"
 apiserver:
@@ -218,7 +218,7 @@ ssh:
     max_forwards_per_session: 8
 tls:
   # Verify TLS certificates for outbound HTTPS calls to model endpoints and
-  # third-party services (Playground chat, InferenceX). Defaults to false to
+  # third-party services (InferenceX). Defaults to false to
   # stay compatible with self-signed ingress certificates and images without an
   # updated CA bundle. Set to true in deployments that provide valid certs/CA.
   verify_outbound: false
@@ -345,9 +345,9 @@ proxy:
   services: []
   # Example configuration:
   # services:
-  #   - name: qa-agent
-  #     prefix: /agent/qa
-  #     target: http://qa-agent-service:8080
+  #   - name: my-service
+  #     prefix: /my-service
+  #     target: http://my-service:8080
   #     enabled: true
 
 # NOTE: the legacy /lens/v1/* URL prefix (gpu-aggregation, training, logs,
@@ -367,20 +367,6 @@ langfuse_proxy:
   # Shared Langfuse project credentials (stored in Secret, not ConfigMap)
   public_key: ""
   secret_key: ""
-a2a:
-  # A2A service discovery scanner
-  scanner_enable: true
-  scanner_interval: 60
-  scanner_namespaces: []
-a2a_gateway:
-  # A2A Gateway for Agent-to-Agent invocations
-  enable: true
-  image: "a2a-gateway:latest"
-  replicas: 1
-  cpu: 500m
-  memory: 512Mi
-  port: 8089
-  metrics_port: 9090
 llm_gateway:
   enabled: true
   secret_path: "/etc/secrets/llm-gateway"
