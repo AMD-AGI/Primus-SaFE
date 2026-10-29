@@ -4,6 +4,7 @@
     <div class="flex flex-wrap items-center justify-between gap-2 mt-4">
       <div class="flex flex-wrap items-center">
         <el-button
+          v-if="creatable"
           type="primary"
           round
           :icon="Plus"
@@ -17,6 +18,9 @@
         >
           Create User
         </el-button>
+        <el-text v-else type="info">
+          Accounts are created by the external identity provider.
+        </el-text>
       </div>
       <div class="flex flex-wrap items-center">
         <el-input
@@ -153,6 +157,8 @@ const state = reactive({
 
 const router = useRouter()
 const userStore = useUserStore()
+// The server refuses registration when an external identity provider owns accounts.
+const creatable = computed(() => !userStore.isExternalAuth)
 const wsStore = useWorkspaceStore()
 const isInCurrentWorkspace = (row: UserSelfData) => {
   return row.workspaces?.some((ws: Workspace) => ws.id === wsStore.currentWorkspaceId)

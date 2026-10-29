@@ -90,6 +90,21 @@ func ApplyOverlay(ctx context.Context, user *v1.User) *v1.User {
 	return u
 }
 
+// GrantedWorkspaces returns the workspaces this request's identity grants user, which the
+// record does not have to store: they are the overlay's, and exist only while the groups do.
+// It is empty for a request without an overlay and for any user but the one the request is
+// from, because the overlay is that one user's.
+func GrantedWorkspaces(ctx context.Context, user *v1.User) []string {
+	if ctx == nil || user == nil {
+		return nil
+	}
+	o, _ := ctx.Value(overlayKey{}).(*Overlay)
+	if o == nil || user.Name != o.UserId {
+		return nil
+	}
+	return append([]string(nil), o.Workspaces...)
+}
+
 // MapGroups turns the groups of an identity into an overlay, by the configured mappings.
 // A mapping with workspaces scopes the roles to them; the workspace-admin role is not
 // a user role (the admission webhook strips it), it means managing those workspaces.

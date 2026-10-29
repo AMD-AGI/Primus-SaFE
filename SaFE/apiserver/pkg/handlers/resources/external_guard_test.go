@@ -1,0 +1,705 @@
+/*
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
+package resources
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/golang/mock/gomock"
+	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
+)
+
+const (
+	guardAudience = "safe-apiserver"
+	// refusal is part of every message the external-mode guards answer with, which is how a
+	// test tells them from an authorization 403 or any other refusal.
+	refusal = "external identity provider"
+
+	localName     = "local-user"
+	localPassword = "local-account-password"
+	// idpUserName is the name of a user the identity provider created. Such a user has no
+	// password, which is what makes an empty password match it.
+	idpUserName = "idp-user@example.com"
+)
+
+var (
+	guardClusterOnce sync.Once
+	guardCluster     client.Client
+)
+
+// guardTargets are the users the patch tests change, one per test so that they do not meet.
+var guardTargets = []string{"t-grant", "t-revoke", "t-echo", "t-local", "t-local-rev", "t-workspaces", "t-builtin",
+	"t-password-local", "t-password-idp", "t-builtin-password", "t-swap"}
+
+// targetPassword is the password the targets that have one start with.
+const targetPassword = "original-password"
+
+func guardUser(name string, userType v1.UserType, roles ...v1.UserRole) *v1.User {
+	return &v1.User{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Labels:      map[string]string{v1.UserIdLabel: name},
+			Annotations: map[string]string{v1.UserNameAnnotation: name},
+		},
+		Spec: v1.UserSpec{Type: userType, Roles: roles},
+	}
+}
+
+// sharedGuardCluster returns the fake cluster of this file. The apiserver's local-account
+// sign-in keeps one process-wide instance bound to the first client it is given, so every
+// test here uses the same cluster and the targets it changes are told apart by name.
+func sharedGuardCluster(t *testing.T) client.Client {
+	t.Helper()
+	guardClusterOnce.Do(func() {
+		scheme := runtime.NewScheme()
+		require.NoError(t, v1.AddToScheme(scheme))
+		local := guardUser(commonuser.GenerateUserIdByName(localName), v1.DefaultUserType, v1.SystemAdminRole)
+		local.Annotations[v1.UserNameAnnotation] = localName
+		local.Spec.Password = stringutil.Base64Encode(localPassword)
+		idp := guardUser(commonuser.GenerateUserIdByName(idpUserName), v1.SSOUserType, v1.DefaultRole)
+		idp.Annotations[v1.UserNameAnnotation] = idpUserName
+		objs := []client.Object{
+			genMockRole(), local, idp,
+			// The administrator is one only through the group the identity provider puts it in (see
+			// guardEngineWithDB): the platform roles stored on a user object do not count.
+			guardUser("idp-admin-id", v1.SSOUserType, v1.DefaultRole),
+		}
+		for _, name := range guardTargets {
+			switch name {
+			case "t-local":
+				objs = append(objs, guardUser(name, v1.DefaultUserType, v1.DefaultRole))
+			case "t-password-local", "t-builtin-password":
+				u := guardUser(name, v1.DefaultUserType, v1.DefaultRole)
+				u.Spec.Password = stringutil.Base64Encode(targetPassword)
+				objs = append(objs, u)
+			case "t-local-rev":
+				objs = append(objs, guardUser(name, v1.DefaultUserType, v1.DefaultRole, v1.SystemAdminRole))
+			case "t-revoke", "t-swap":
+				objs = append(objs, guardUser(name, v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole))
+			default:
+				objs = append(objs, guardUser(name, v1.SSOUserType, v1.DefaultRole))
+			}
+		}
+		guardCluster = fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+		require.NotNil(t, authority.NewDefaultToken(guardCluster))
+		// Another test that got there first would leave the sign-in reading a different cluster.
+		require.True(t, authority.DefaultTokenInstance().Client == guardCluster, "the local sign-in is bound to another cluster")
+	})
+	return guardCluster
+}
+
+// guardEngine serves the real route table in external mode. The authenticator chain is a
+// fake RFC 7662 endpoint ("idp-admin" is the platform administrator the identity provider
+// vouches for) and, when builtin is set, the built-in authenticator: the most permissive
+// configuration.
+func guardEngine(t *testing.T, builtin bool) *gin.Engine {
+	t.Helper()
+	return guardEngineWithDB(t, builtin, nil)
+}
+
+// guardEngineWithDB is guardEngine for a handler that has a database.
+func guardEngineWithDB(t *testing.T, builtin bool, db dbclient.Interface) *gin.Engine {
+	t.Helper()
+	return guardEngineWithMappings(t, builtin, db, []map[string]any{{"group": "platform-admins", "roles": []string{"system-admin"}}})
+}
+
+// guardEngineWithMappings is guardEngineWithDB with the group mappings given: what the identity
+// provider's groups grant, which becomes the overlay of the request.
+func guardEngineWithMappings(t *testing.T, builtin bool, db dbclient.Interface, mappings []map[string]any) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	cli := sharedGuardCluster(t)
+
+	rev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseForm())
+		answer := map[string]any{"active": false}
+		if r.PostForm.Get("token") == "idp-admin" {
+			answer = map[string]any{"active": true, "sub": "idp-admin-id", "username": "idp-admin", "aud": guardAudience,
+				"groups": []string{"platform-admins"}}
+		}
+		_ = json.NewEncoder(w).Encode(answer)
+	}))
+	t.Cleanup(rev.Close)
+	secretFile := filepath.Join(t.TempDir(), "client-secret")
+	require.NoError(t, os.WriteFile(secretFile, []byte("secret"), 0o600))
+	chain := []map[string]any{{
+		"type": "introspection", "url": rev.URL, "client_id": "svc-safe",
+		"client_secret_file": secretFile, "audience": guardAudience,
+	}}
+	if builtin {
+		chain = append(chain, map[string]any{"type": "builtin"})
+	}
+	commonconfig.SetValue("crypto.enable", "false")
+	viper.Set("auth.mode", "external")
+	viper.Set("auth.authenticators", chain)
+	viper.Set("auth.group_mappings", mappings)
+	require.NoError(t, authority.InitExternalAuth(cli))
+	t.Cleanup(func() {
+		commonconfig.SetValue("crypto.enable", "")
+		viper.Set("auth.mode", nil)
+		viper.Set("auth.authenticators", nil)
+		viper.Set("auth.group_mappings", nil)
+		require.NoError(t, authority.InitExternalAuth(nil))
+	})
+
+	e := gin.New()
+	InitCustomRouters(e, &Handler{Client: cli, accessController: &authority.AccessController{Client: cli}, dbClient: db})
+	return e
+}
+
+type guardRequest struct {
+	method, path string
+	body         string
+	contentType  string // JSON when empty
+	bearer       string
+}
+
+func (r guardRequest) serve(e *gin.Engine) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(r.method, r.path, strings.NewReader(r.body))
+	if r.contentType == "" {
+		req.Header.Set("Content-Type", "application/json")
+	} else {
+		req.Header.Set("Content-Type", r.contentType)
+	}
+	if r.bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+r.bearer)
+	}
+	w := httptest.NewRecorder()
+	e.ServeHTTP(w, req)
+	return w
+}
+
+func loginBody(userType, name, password string) string {
+	b, _ := json.Marshal(map[string]string{"type": userType, "name": name, "password": password})
+	return string(b)
+}
+
+func storedRoles(t *testing.T, name string) []v1.UserRole {
+	t.Helper()
+	u := &v1.User{}
+	require.NoError(t, guardCluster.Get(context.Background(), client.ObjectKey{Name: name}, u))
+	return u.Spec.Roles
+}
+
+// storedPassword is the password of a user, as the local sign-in would read it.
+func storedPassword(t *testing.T, name string) string {
+	t.Helper()
+	u := &v1.User{}
+	require.NoError(t, guardCluster.Get(context.Background(), client.ObjectKey{Name: name}, u))
+	return stringutil.Base64Decode(u.Spec.Password)
+}
+
+// With auth.mode external, every way of making a credential or an account that the
+// identity provider owns is refused on the real route table, whoever asks, local accounts
+// included, in the most permissive configuration: a chain that still contains the built-in
+// authenticator.
+func TestExternalModeRefusesCredentialAndRoleWrites(t *testing.T) {
+	e := guardEngine(t, true)
+	tests := []struct {
+		name  string
+		req   guardRequest
+		after func(t *testing.T, w *httptest.ResponseRecorder)
+	}{
+		{
+			name: "login with an SSO authorization code",
+			req:  guardRequest{method: http.MethodPost, path: "/api/v1/login", body: `{"type":"sso","code":"c","name":"x"}`},
+		},
+		{
+			name: "login as a local account with the right password (JSON)",
+			req:  guardRequest{method: http.MethodPost, path: "/api/v1/login", body: loginBody("default", localName, localPassword)},
+			after: func(t *testing.T, w *httptest.ResponseRecorder) {
+				assert.NotContains(t, w.Body.String(), `"token"`, "no session may be issued")
+			},
+		},
+		{
+			name: "login as a local account with the right password (console form)",
+			req: guardRequest{method: http.MethodPost, path: "/api/v1/login", contentType: ContentTypeForm,
+				body: url.Values{"type": {"default"}, "name": {localName}, "password": {localPassword}}.Encode()},
+			after: func(t *testing.T, w *httptest.ResponseRecorder) {
+				assert.Empty(t, w.Header().Values("Set-Cookie"), "no cookie may be set")
+			},
+		},
+		{
+			name: "login as an identity-provider user with an empty password (JSON)",
+			req:  guardRequest{method: http.MethodPost, path: "/api/v1/login", body: loginBody("default", idpUserName, "")},
+			after: func(t *testing.T, w *httptest.ResponseRecorder) {
+				assert.NotContains(t, w.Body.String(), `"token"`, "no session may be issued")
+			},
+		},
+		{
+			name: "login as an identity-provider user with an empty password (console form)",
+			req: guardRequest{method: http.MethodPost, path: "/api/v1/login", contentType: ContentTypeForm,
+				body: url.Values{"type": {"default"}, "name": {idpUserName}, "password": {""}}.Encode()},
+			after: func(t *testing.T, w *httptest.ResponseRecorder) {
+				assert.Empty(t, w.Header().Values("Set-Cookie"), "no cookie may be set")
+			},
+		},
+		{
+			name: "register an account",
+			req:  guardRequest{method: http.MethodPost, path: "/api/v1/users", body: `{"name":"intruder","password":"pw"}`},
+			after: func(t *testing.T, _ *httptest.ResponseRecorder) {
+				err := guardCluster.Get(context.Background(),
+					client.ObjectKey{Name: commonuser.GenerateUserIdByName("intruder")}, &v1.User{})
+				assert.True(t, apierrors.IsNotFound(err), "the account must not exist, got %v", err)
+			},
+		},
+		{
+			name: "create an API key as an administrator",
+			req:  guardRequest{method: http.MethodPost, path: "/api/v1/apikeys", body: `{"name":"k","ttlDays":7}`, bearer: "idp-admin"},
+		},
+		{
+			name: "set the password of a local account",
+			req: guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-password-local",
+				body: `{"password":"changed-by-a-script"}`, bearer: "idp-admin"},
+			after: func(t *testing.T, _ *httptest.ResponseRecorder) {
+				assert.Equal(t, targetPassword, storedPassword(t, "t-password-local"))
+			},
+		},
+		{
+			name: "set a password on an identity-provider user",
+			req: guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-password-idp",
+				body: `{"password":"changed-by-a-script","email":"a@example.com"}`, bearer: "idp-admin"},
+			after: func(t *testing.T, _ *httptest.ResponseRecorder) {
+				assert.Empty(t, storedPassword(t, "t-password-idp"), "the user has no password and must not get one")
+			},
+		},
+		{
+			name: "grant a platform role to an identity-provider user",
+			req: guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-grant",
+				body: `{"roles":["default","system-admin"]}`, bearer: "idp-admin"},
+			after: func(t *testing.T, _ *httptest.ResponseRecorder) {
+				assert.Equal(t, []v1.UserRole{v1.DefaultRole}, storedRoles(t, "t-grant"))
+			},
+		},
+		{
+			name: "grant a platform role to a local account",
+			req: guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-local",
+				body: `{"roles":["default","system-admin"]}`, bearer: "idp-admin"},
+			after: func(t *testing.T, _ *httptest.ResponseRecorder) {
+				assert.Equal(t, []v1.UserRole{v1.DefaultRole}, storedRoles(t, "t-local"))
+			},
+		},
+		{
+			name: "swap a stored platform role for the other one",
+			req: guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-swap",
+				body: `{"roles":["default","system-admin-readonly"]}`, bearer: "idp-admin"},
+			after: func(t *testing.T, _ *httptest.ResponseRecorder) {
+				assert.Equal(t, []v1.UserRole{v1.DefaultRole, v1.SystemAdminRole}, storedRoles(t, "t-swap"))
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := tt.req.serve(e)
+			require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+			assert.Contains(t, w.Body.String(), refusal, "refused by the external-mode guard, not by something else")
+			if tt.after != nil {
+				tt.after(t, w)
+			}
+		})
+	}
+}
+
+// What stays available in external mode: a patch that leaves the platform roles alone,
+// and role names that are not platform roles, are not role changes.
+func TestExternalModeAllowsEditsThatLeavePlatformRolesAlone(t *testing.T) {
+	e := guardEngine(t, true)
+
+	t.Run("a patch that echoes the roles back goes through", func(t *testing.T) {
+		w := guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-echo",
+			body: `{"roles":["default"],"avatarUrl":"https://example.com/a.png"}`, bearer: "idp-admin"}.serve(e)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		u := &v1.User{}
+		require.NoError(t, guardCluster.Get(context.Background(), client.ObjectKey{Name: "t-echo"}, u))
+		assert.Equal(t, "https://example.com/a.png", v1.GetUserAvatarUrl(u))
+	})
+
+	t.Run("workspace-admin is not a platform role", func(t *testing.T) {
+		w := guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-workspaces",
+			body: `{"roles":["default","workspace-admin"]}`, bearer: "idp-admin"}.serve(e)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	})
+}
+
+// The platform roles stored on a user object do not count in external mode, so removing one
+// is not a grant: an operator can clean up a stale record (which would otherwise count again
+// after a rollback to builtin) through the API instead of by switching the mode.
+func TestExternalModeAllowsRemovingStoredPlatformRoles(t *testing.T) {
+	e := guardEngine(t, true)
+	for _, target := range []string{"t-revoke", "t-local-rev"} {
+		t.Run(target, func(t *testing.T) {
+			w := guardRequest{method: http.MethodPatch, path: "/api/v1/users/" + target,
+				body: `{"roles":["default"]}`, bearer: "idp-admin"}.serve(e)
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			assert.Equal(t, []v1.UserRole{v1.DefaultRole}, storedRoles(t, target))
+		})
+	}
+}
+
+// An API key issued before the switch is still accepted through the built-in entry, so it
+// must stay possible to revoke one that leaked: creation is refused in external mode,
+// deletion is not.
+func TestExternalModeKeepsApiKeyRevocation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock_client.NewMockInterface(ctrl)
+	e := guardEngineWithDB(t, true, db)
+
+	// A key of a local account, as issued before the switch.
+	db.EXPECT().GetApiKeyById(gomock.Any(), int64(5)).Return(&dbclient.ApiKey{Id: 5, UserId: localName}, nil)
+	db.EXPECT().SetApiKeyDeleted(gomock.Any(), "idp-admin-id", int64(5)).Return(nil).Times(1)
+	w := guardRequest{method: http.MethodDelete, path: "/api/v1/apikeys/5", bearer: "idp-admin"}.serve(e)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.NotContains(t, w.Body.String(), refusal)
+
+	// Creating one is still refused, before anything reaches the database.
+	w = guardRequest{method: http.MethodPost, path: "/api/v1/apikeys", body: `{"name":"k","ttlDays":7}`, bearer: "idp-admin"}.serve(e)
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), refusal)
+}
+
+// The refusal does not depend on the shape of the chain: without the built-in authenticator
+// in it, sign-in is refused all the same.
+func TestExternalModeRefusesLoginWhateverTheChain(t *testing.T) {
+	e := guardEngine(t, false)
+	for _, body := range []string{loginBody("default", localName, localPassword), loginBody("sso", "x", "")} {
+		w := guardRequest{method: http.MethodPost, path: "/api/v1/login", body: body}.serve(e)
+		require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+		assert.Contains(t, w.Body.String(), refusal)
+		assert.NotContains(t, w.Body.String(), `"token"`)
+	}
+}
+
+// Builtin mode, the default, is untouched: registration, local sign-in, role edits and the
+// API key handlers all behave as they always did.
+func TestBuiltinModeKeepsAccountEndpoints(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cli := sharedGuardCluster(t)
+	commonconfig.SetValue("crypto.enable", "false")
+	t.Cleanup(func() { commonconfig.SetValue("crypto.enable", "") })
+	h := &Handler{Client: cli, accessController: &authority.AccessController{Client: cli}}
+	e := gin.New()
+	InitCustomRouters(e, h)
+
+	t.Run("registration creates an account", func(t *testing.T) {
+		w := guardRequest{method: http.MethodPost, path: "/api/v1/users", body: `{"name":"newcomer","password":"pw"}`}.serve(e)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		require.NoError(t, cli.Get(context.Background(),
+			client.ObjectKey{Name: commonuser.GenerateUserIdByName("newcomer")}, &v1.User{}))
+	})
+
+	t.Run("a local account signs in", func(t *testing.T) {
+		w := guardRequest{method: http.MethodPost, path: "/api/v1/login", body: loginBody("default", localName, localPassword)}.serve(e)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	})
+
+	t.Run("an administrator sets a password", func(t *testing.T) {
+		body, _ := json.Marshal(view.PatchUserRequest{Password: pointer.String("new-password")})
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPatch, "/", strings.NewReader(string(body)))
+		c.Request.Header.Set("Content-Type", "application/json")
+		c.Set(common.UserId, commonuser.GenerateUserIdByName(localName))
+		c.Set(common.Name, "t-builtin-password")
+		h.PatchUser(c)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		assert.Equal(t, "new-password", storedPassword(t, "t-builtin-password"))
+	})
+
+	t.Run("an administrator grants a platform role", func(t *testing.T) {
+		body, _ := json.Marshal(view.PatchUserRequest{Roles: &[]v1.UserRole{v1.DefaultRole, v1.SystemAdminRole}})
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPatch, "/", strings.NewReader(string(body)))
+		c.Request.Header.Set("Content-Type", "application/json")
+		c.Set(common.UserId, commonuser.GenerateUserIdByName(localName))
+		c.Set(common.Name, "t-builtin")
+		h.PatchUser(c)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		assert.ElementsMatch(t, []v1.UserRole{v1.DefaultRole, v1.SystemAdminRole}, storedRoles(t, "t-builtin"))
+	})
+
+	t.Run("the API key handlers reach their own logic", func(t *testing.T) {
+		for name, handler := range map[string]gin.HandlerFunc{"create": h.CreateApiKey, "delete": h.DeleteApiKey} {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
+			c.Set(common.UserId, "someone")
+			handler(c)
+			// There is no database in this test: that answer comes from the handler's own
+			// first check, which a refusal in front of it would have pre-empted.
+			assert.Equal(t, http.StatusInternalServerError, w.Code, name)
+			assert.Contains(t, w.Body.String(), "database is not enabled", name)
+		}
+	})
+}
+
+// GET /envs tells the console which mode it is talking to.
+func getEnvsResponse(t *testing.T) view.GetEnvResponse {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/envs", nil)
+	(&Handler{}).GetEnvs(c)
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp view.GetEnvResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	return resp
+}
+
+func TestEnvsReportsAuthMode(t *testing.T) {
+	t.Cleanup(func() { viper.Set("auth.mode", nil) })
+
+	assert.Equal(t, "builtin", getEnvsResponse(t).AuthMode, "the default")
+	viper.Set("auth.mode", "external")
+	assert.Equal(t, "external", getEnvsResponse(t).AuthMode)
+	viper.Set("auth.mode", "externl")
+	assert.Equal(t, "builtin", getEnvsResponse(t).AuthMode, "a typo is builtin, as everywhere else")
+}
+
+// In external mode POST /login is refused, so /envs must not send the console to the built-in
+// SSO: with sso.enable on and no auth.login_url (a deployment in the middle of the migration)
+// it advertises no sign-in, and with auth.login_url it advertises that URL. Builtin mode keeps
+// advertising the built-in SSO.
+func TestEnvsDoesNotAdvertiseBuiltinSignInInExternalMode(t *testing.T) {
+	// A real OIDC provider for the built-in SSO, so its authorize URL is what builtin mode returns.
+	var idp *httptest.Server
+	idp = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/.well-known/openid-configuration", r.URL.Path)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer": idp.URL, "authorization_endpoint": idp.URL + "/authorize",
+			"token_endpoint": idp.URL + "/token", "jwks_uri": idp.URL + "/jwks",
+		})
+	}))
+	t.Cleanup(idp.Close)
+	secrets := t.TempDir()
+	for name, value := range map[string]string{
+		"id": "client-id", "secret": "client-secret", "endpoint": idp.URL, "redirect_uri": "https://console.example.com/sso",
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(secrets, name), []byte(value), 0o600))
+	}
+	commonconfig.SetValue("sso.enable", "true")
+	commonconfig.SetValue("sso.secret_path", secrets)
+	t.Cleanup(func() {
+		commonconfig.SetValue("sso.enable", "")
+		commonconfig.SetValue("sso.secret_path", "")
+		viper.Set("auth.mode", nil)
+		viper.Set("auth.login_url", nil)
+	})
+	require.NotNil(t, authority.NewSSOToken(nil), "the built-in SSO must be configured for this test to mean anything")
+
+	// Builtin mode: the built-in SSO is advertised (the positive control for the cases below).
+	got := getEnvsResponse(t)
+	require.True(t, got.SSOEnable)
+	require.True(t, strings.HasPrefix(got.SSOAuthUrl, idp.URL+"/authorize?"), got.SSOAuthUrl)
+
+	// External mode, no login_url: nothing to sign in with is advertised.
+	viper.Set("auth.mode", "external")
+	got = getEnvsResponse(t)
+	assert.False(t, got.SSOEnable)
+	assert.Empty(t, got.SSOAuthUrl)
+	assert.Equal(t, "external", got.AuthMode)
+
+	// External mode with login_url: that URL, never the built-in SSO.
+	viper.Set("auth.login_url", "https://console.example.com/sign-in")
+	got = getEnvsResponse(t)
+	assert.True(t, got.SSOEnable)
+	assert.Equal(t, "https://console.example.com/sign-in", got.SSOAuthUrl)
+}
+
+// Which role changes count: only granting a platform role the stored record does not have.
+// Removing a stored one is how a stale record is cleaned up: external mode ignores it anyway.
+func TestRefuseExternalRoleChange(t *testing.T) {
+	roles := func(r ...v1.UserRole) *[]v1.UserRole { return &r }
+	tests := []struct {
+		name     string
+		external bool
+		target   *v1.User
+		request  *[]v1.UserRole
+		refused  bool
+	}{
+		{"builtin mode never refuses", false, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.SystemAdminRole), false},
+		{"no roles in the patch", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), nil, false},
+		{"grant system-admin", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.DefaultRole, v1.SystemAdminRole), true},
+		{"grant system-admin-readonly", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.DefaultRole, v1.SystemAdminReadonlyRole), true},
+		{"revoke a stored system-admin", true, guardUser("u", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole), roles(v1.DefaultRole), false},
+		{"revoke every stored platform role", true, guardUser("u", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole, v1.SystemAdminReadonlyRole), roles(v1.DefaultRole), false},
+		{"revoke one stored platform role and keep the other", true, guardUser("u", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole, v1.SystemAdminReadonlyRole), roles(v1.DefaultRole, v1.SystemAdminReadonlyRole), false},
+		{"revoke a stored platform role and add a non-platform role", true, guardUser("u", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole), roles(v1.DefaultRole, v1.WorkspaceAdminRole), false},
+		{"revoke the stored platform roles and empty the list", true, guardUser("u", v1.SSOUserType, v1.SystemAdminRole), roles(), false},
+		{"swap system-admin for readonly", true, guardUser("u", v1.SSOUserType, v1.SystemAdminRole), roles(v1.SystemAdminReadonlyRole), true},
+		{"revoke one stored platform role and grant the other", true, guardUser("u", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole), roles(v1.DefaultRole, v1.SystemAdminReadonlyRole), true},
+		{"same roles in another order", true, guardUser("u", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole), roles(v1.SystemAdminRole, v1.DefaultRole), false},
+		{"only a non-platform role differs", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.DefaultRole, v1.WorkspaceAdminRole), false},
+		{"a local account is refused too", true, guardUser("u", v1.DefaultUserType, v1.DefaultRole), roles(v1.DefaultRole, v1.SystemAdminRole), true},
+		{"a local account's stored platform role can be removed too", true, guardUser("u", v1.DefaultUserType, v1.DefaultRole, v1.SystemAdminRole), roles(v1.DefaultRole), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.external {
+				viper.Set("auth.mode", "external")
+				t.Cleanup(func() { viper.Set("auth.mode", nil) })
+			}
+			err := refuseExternalRoleChange(tt.target, &view.PatchUserRequest{Roles: tt.request})
+			if tt.refused {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), refusal)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// Which patches count as a password change: any patch that carries a password, in external mode only.
+func TestRefuseExternalPasswordChange(t *testing.T) {
+	tests := []struct {
+		name     string
+		external bool
+		request  *string
+		refused  bool
+	}{
+		{"builtin mode never refuses", false, pointer.String("pw"), false},
+		{"no password in the patch", true, nil, false},
+		{"a password", true, pointer.String("pw"), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.external {
+				viper.Set("auth.mode", "external")
+				t.Cleanup(func() { viper.Set("auth.mode", nil) })
+			}
+			err := refuseExternalPasswordChange(&view.PatchUserRequest{Password: tt.request})
+			if tt.refused {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), refusal)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// The row the console shows for the caller's own account lists what their groups grant, so an
+// edit that adds one workspace sends those back with it. Which of them are the record's is
+// known only here: the granted ones are the overlay's and are never stored.
+func TestDropGrantedWorkspaces(t *testing.T) {
+	const self = "alice-id"
+	stored := func(ws ...string) *v1.User {
+		u := guardUser(self, v1.SSOUserType, v1.DefaultRole)
+		if len(ws) > 0 {
+			u.Spec.Resources = map[string][]string{common.UserWorkspaces: ws}
+		}
+		return u
+	}
+	ptr := func(ws ...string) *[]string { return &ws }
+	nothing := &[]string{} // an empty list, not an absent one: the patch still replaces what is stored
+	overlay := func(userId string, ws ...string) *extauth.Overlay {
+		return &extauth.Overlay{UserId: userId, Workspaces: ws}
+	}
+	tests := []struct {
+		name    string
+		overlay *extauth.Overlay // nil: a request without one, as in builtin mode
+		target  *v1.User
+		request *[]string
+		want    *[]string
+	}{
+		{"no workspaces in the patch", overlay(self, "ws-a"), stored(), nil, nil},
+		{"no overlay: the list is stored as sent", nil, stored(), ptr("ws-a", "ws-new"), ptr("ws-a", "ws-new")},
+		{"an overlay that grants nothing", overlay(self), stored(), ptr("ws-a", "ws-new"), ptr("ws-a", "ws-new")},
+		{"a granted workspace sent back with an added one is not stored", overlay(self, "ws-a"), stored(), ptr("ws-a", "ws-new"), ptr("ws-new")},
+		{"only granted workspaces sent back leave nothing to store", overlay(self, "ws-a", "ws-b"), stored(), ptr("ws-a", "ws-b"), nothing},
+		{"a granted workspace the record also stores stays", overlay(self, "ws-a"), stored("ws-a", "ws-old"), ptr("ws-a", "ws-new"), ptr("ws-a", "ws-new")},
+		{"a stored workspace that is not granted can be removed", overlay(self, "ws-a"), stored("ws-old"), ptr("ws-a"), nothing},
+		{"the order of what is kept is the order sent", overlay(self, "ws-b"), stored(), ptr("ws-z", "ws-b", "ws-a"), ptr("ws-z", "ws-a")},
+		{"the overlay is the caller's: another user's list is stored as sent", overlay("someone-else", "ws-a"), stored(), ptr("ws-a", "ws-new"), ptr("ws-a", "ws-new")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tt.overlay != nil {
+				ctx = extauth.WithOverlay(ctx, tt.overlay)
+			}
+			req := &view.PatchUserRequest{Workspaces: tt.request}
+			dropGrantedWorkspaces(ctx, tt.target, req)
+			if tt.want == nil {
+				assert.Nil(t, req.Workspaces)
+				return
+			}
+			require.NotNil(t, req.Workspaces)
+			assert.Equal(t, *tt.want, *req.Workspaces)
+		})
+	}
+}
+
+// The same on the real route: an administrator edits their own account, whose row lists the
+// workspace their group grants. The record keeps only what the edit added.
+func TestExternalModePatchStoresNoGrantedWorkspaces(t *testing.T) {
+	e := guardEngineWithMappings(t, true, nil, []map[string]any{{
+		"group": "platform-admins", "roles": []string{"system-admin"}, "workspaces": []string{"ws-granted"},
+	}})
+	storedWorkspaces := func(name string) []string {
+		u := &v1.User{}
+		require.NoError(t, guardCluster.Get(context.Background(), client.ObjectKey{Name: name}, u))
+		return commonuser.GetWorkspace(u)
+	}
+
+	t.Run("a granted workspace sent back with an added one is not stored", func(t *testing.T) {
+		w := guardRequest{method: http.MethodPatch, path: "/api/v1/users/idp-admin-id",
+			body: `{"workspaces":["ws-granted","ws-new"]}`, bearer: "idp-admin"}.serve(e)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		assert.Equal(t, []string{"ws-new"}, storedWorkspaces("idp-admin-id"))
+	})
+
+	t.Run("a workspace the record stores stays when its group grants it too", func(t *testing.T) {
+		u := &v1.User{}
+		require.NoError(t, guardCluster.Get(context.Background(), client.ObjectKey{Name: "idp-admin-id"}, u))
+		commonuser.AssignWorkspace(u, "ws-granted", "ws-old")
+		require.NoError(t, guardCluster.Update(context.Background(), u))
+
+		w := guardRequest{method: http.MethodPatch, path: "/api/v1/users/idp-admin-id",
+			body: `{"workspaces":["ws-granted","ws-new"]}`, bearer: "idp-admin"}.serve(e)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		assert.ElementsMatch(t, []string{"ws-granted", "ws-new"}, storedWorkspaces("idp-admin-id"))
+	})
+
+	t.Run("another user's list is stored as sent: the grant is the caller's", func(t *testing.T) {
+		w := guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-workspaces",
+			body: `{"workspaces":["ws-granted","ws-new"]}`, bearer: "idp-admin"}.serve(e)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		assert.ElementsMatch(t, []string{"ws-granted", "ws-new"}, storedWorkspaces("t-workspaces"))
+	})
+}

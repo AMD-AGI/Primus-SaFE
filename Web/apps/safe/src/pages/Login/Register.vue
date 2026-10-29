@@ -102,17 +102,19 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, toRaw } from 'vue'
+import { onMounted, reactive, ref, toRaw } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import { Lock, Moon } from '@element-plus/icons-vue'
 import { register } from '@/services/login'
 import { useRouter } from 'vue-router'
 import { toggleDark } from '@/composables'
+import { useUserStore } from '@/stores/user'
 
 const version = '1.0.0'
 
 const router = useRouter()
+const userStore = useUserStore()
 const formRef = ref<FormInstance>()
 const loading = ref(false)
 
@@ -151,6 +153,16 @@ const rules: FormRules = {
 function onLogin() {
   router.push('login')
 }
+
+// With an external identity provider the server refuses registration: do not offer it.
+onMounted(async () => {
+  try {
+    await userStore.fetchEnvs()
+  } catch {
+    return
+  }
+  if (userStore.isExternalAuth) router.replace('/login')
+})
 
 async function onSubmit() {
   if (!formRef.value) return

@@ -24,7 +24,7 @@
         <el-input v-model="form.name" :disabled="isEdit" />
       </el-form-item>
 
-      <el-form-item label="Password" prop="password">
+      <el-form-item v-if="!external" label="Password" prop="password">
         <el-input v-model="form.password" />
       </el-form-item>
 
@@ -32,7 +32,7 @@
         <el-input v-model="form.email" />
       </el-form-item>
       <el-form-item label="Roles" prop="roles" v-if="isEdit">
-        <el-select v-model="form.roles" multiple clearable>
+        <el-select v-model="form.roles" multiple clearable :disabled="external">
           <el-option label="default" value="default" />
           <el-option label="system-admin" value="system-admin" />
           <el-option label="system-admin-readonly" value="system-admin-readonly" />
@@ -86,6 +86,8 @@ import type { RegisterReq, UserSelfData } from '@/services'
 import { register, editUser } from '@/services'
 import { type FormInstance, type FormRules, ElMessage } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useUserStore } from '@/stores/user'
+import { buildUserPatch } from './userPatch'
 
 const props = defineProps<{
   visible: boolean
@@ -96,6 +98,10 @@ const emit = defineEmits(['update:visible', 'success'])
 const isEdit = computed(() => props.action === 'Edit')
 
 const wsStore = useWorkspaceStore()
+const userStore = useUserStore()
+// An external identity provider decides platform roles and there are no passwords here;
+// the server refuses to change the roles, so the dialog neither offers nor sends them.
+const external = computed(() => userStore.isExternalAuth)
 
 const initialForm = () => ({
   id: '',
@@ -140,12 +146,16 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       })
       ElMessage({ message: 'Create successful', type: 'success' })
     } else {
-      const { id, name, type, creationTime, managedWorkspaces, password, ...baseEditForm } = form
       if (!props.user) return
-      await editUser(form.id, {
-        ...baseEditForm,
-        ...(password ? { password } : {}),
-      })
+      // Only what the form changed: the row's workspaces and restriction are not always what is
+      // stored (see buildUserPatch), and sending them back would store them.
+      const patch = buildUserPatch(props.user, form, external.value)
+      if (Object.keys(patch).length === 0) {
+        ElMessage({ message: 'No changes', type: 'info' })
+        emit('update:visible', false)
+        return
+      }
+      await editUser(form.id, patch)
       ElMessage({ message: 'Edit successful', type: 'success' })
     }
 
@@ -168,7 +178,8 @@ const setInitialFormValues = async () => {
 
   form.id = props.user.id
   form.name = props.user.name
-  form.roles = props.user.roles
+  // A copy, so that editing the selection never changes the row the edit is compared with.
+  form.roles = [...(props.user.roles ?? [])]
   form.workspaces = props.user.workspaces?.map((item) => item.id) || []
   form.email = props.user.email
   form.restrictedType = props.user.restrictedType
