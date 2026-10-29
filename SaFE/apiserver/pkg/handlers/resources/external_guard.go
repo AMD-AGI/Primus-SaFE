@@ -16,7 +16,7 @@ import (
 // With auth.mode external the identity provider owns sign-in, accounts, API keys and
 // platform roles, so the apiserver stops offering the ways of creating them itself:
 // password and SSO sign-in (POST /login), registration (POST /users), API key creation,
-// changes to the platform roles of a user and setting a password. There is no exception
+// granting a platform role to a user and setting a password. There is no exception
 // for local accounts; backing out of the external mode is a configuration change
 // (auth.mode back to builtin), not a local sign-in. Deleting an API key is not refused:
 // the keys issued before the switch keep authenticating through the built-in entry, and
@@ -41,16 +41,19 @@ func refuseExternalPasswordChange(req *view.PatchUserRequest) error {
 	return refuseExternal("changing a password")
 }
 
-// refuseExternalRoleChange refuses a patch that adds or removes a platform role of a
-// user. A patch that leaves the platform roles as they are, such as one that only echoes
-// the roles back or changes the workspaces, is not a role change.
+// refuseExternalRoleChange refuses a patch that grants a platform role a user does not
+// hold in the stored record. A patch that leaves the platform roles as they are, such as
+// one that only echoes the roles back or changes the workspaces, is not a grant, and
+// neither is one that removes a stored platform role: external mode ignores the stored
+// platform roles, so removing one cleans up a stale record (it would otherwise count
+// again if auth.mode went back to builtin) and gives nobody more access.
 func refuseExternalRoleChange(target *v1.User, req *view.PatchUserRequest) error {
 	if req.Roles == nil {
 		return nil
 	}
 	for _, role := range extauth.PlatformRoles {
-		if v1.IsContainRole(target.Spec.Roles, role) != v1.IsContainRole(*req.Roles, role) {
-			return refuseExternal("changing platform roles")
+		if v1.IsContainRole(*req.Roles, role) && !v1.IsContainRole(target.Spec.Roles, role) {
+			return refuseExternal("granting platform roles")
 		}
 	}
 	return nil

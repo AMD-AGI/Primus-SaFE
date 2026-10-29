@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { login, getUserData, logout, getEnvs } from '@/services/login'
+import { login, getUserData, getSelfData, logout, getEnvs } from '@/services/login'
 import type { LoginReq, UserSelfData, EnvsResp } from '@/services'
 import { isExternalAuth } from '@/utils/authMode'
 import { useWorkspaceStore } from './workspace'
@@ -80,8 +80,32 @@ export const useUserStore = defineStore('user', {
     cdRequireApproval: (s) => s.envs?.cdRequireApproval ?? true,
   },
   actions: {
-    async fetchEnvs() {
-      this.envs = await getEnvs()
+    async fetchEnvs(quiet = false) {
+      this.envs = await getEnvs(quiet)
+    },
+
+    /**
+     * With an identity provider the browser's session is not made by POST /login (the server
+     * refuses it), so a console that holds no userId may still be signed in: ask the server who
+     * the caller is. Returns whether there is a session now. Builtin mode makes no such call: its
+     * only way in is POST /login, which sets userId itself.
+     */
+    async adoptExternalSession(): Promise<boolean> {
+      try {
+        await this.fetchEnvs(true)
+        if (!this.isExternalAuth) return false
+        const record = await getSelfData()
+        if (!record?.id) return false
+        const lists = await loadSelfWorkspaces()
+        this.userId = record.id
+        this.profile = applySelfWorkspaces(record, lists)
+        this._profileFetched = true
+        this.session = 'authenticated'
+        return true
+      } catch {
+        // Not signed in (401), or /envs or the server did not answer: anonymous, as before.
+        return false
+      }
     },
 
     async login(payload: LoginReq) {
@@ -120,6 +144,7 @@ export const useUserStore = defineStore('user', {
       if (this._initPromise) return this._initPromise
       this._initPromise = (async () => {
         if (!this.userId) {
+          if (await this.adoptExternalSession()) return
           this.session = 'anonymous'
           this._profileFetched = true
           return

@@ -59,8 +59,8 @@ describe('external mode hides the password, registration, key creation and role 
     expect(list).toContain('const creatable = computed(() => !userStore.isExternalAuth)')
     expect(list).toContain('v-if="creatable"')
     const dialog = source('pages/UserManage/Components/AddDialog.vue')
-    expect(dialog).toContain('...(external.value ? {} : { roles })')
-    expect(dialog).toContain('...(password && !external.value ? { password } : {})')
+    // What the body leaves out in external mode is buildUserPatch's, tested in userPatch.test.ts.
+    expect(dialog).toContain('buildUserPatch(props.user, form, external.value)')
     expect(dialog).toContain(':disabled="external"')
     expect(dialog).toContain('v-if="!external" label="Password"')
   })

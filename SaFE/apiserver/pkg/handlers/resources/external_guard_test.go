@@ -60,7 +60,7 @@ var (
 
 // guardTargets are the users the patch tests change, one per test so that they do not meet.
 var guardTargets = []string{"t-grant", "t-revoke", "t-echo", "t-local", "t-local-rev", "t-workspaces", "t-builtin",
-	"t-password-local", "t-password-idp", "t-builtin-password"}
+	"t-password-local", "t-password-idp", "t-builtin-password", "t-swap"}
 
 // targetPassword is the password the targets that have one start with.
 const targetPassword = "original-password"
@@ -105,7 +105,7 @@ func sharedGuardCluster(t *testing.T) client.Client {
 				objs = append(objs, u)
 			case "t-local-rev":
 				objs = append(objs, guardUser(name, v1.DefaultUserType, v1.DefaultRole, v1.SystemAdminRole))
-			case "t-revoke":
+			case "t-revoke", "t-swap":
 				objs = append(objs, guardUser(name, v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole))
 			default:
 				objs = append(objs, guardUser(name, v1.SSOUserType, v1.DefaultRole))
@@ -304,19 +304,11 @@ func TestExternalModeRefusesCredentialAndRoleWrites(t *testing.T) {
 			},
 		},
 		{
-			name: "revoke a platform role of a local account",
-			req: guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-local-rev",
-				body: `{"roles":["default"]}`, bearer: "idp-admin"},
+			name: "swap a stored platform role for the other one",
+			req: guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-swap",
+				body: `{"roles":["default","system-admin-readonly"]}`, bearer: "idp-admin"},
 			after: func(t *testing.T, _ *httptest.ResponseRecorder) {
-				assert.Equal(t, []v1.UserRole{v1.DefaultRole, v1.SystemAdminRole}, storedRoles(t, "t-local-rev"))
-			},
-		},
-		{
-			name: "revoke a platform role of an identity-provider user",
-			req: guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-revoke",
-				body: `{"roles":["default"]}`, bearer: "idp-admin"},
-			after: func(t *testing.T, _ *httptest.ResponseRecorder) {
-				assert.Equal(t, []v1.UserRole{v1.DefaultRole, v1.SystemAdminRole}, storedRoles(t, "t-revoke"))
+				assert.Equal(t, []v1.UserRole{v1.DefaultRole, v1.SystemAdminRole}, storedRoles(t, "t-swap"))
 			},
 		},
 	}
@@ -351,6 +343,21 @@ func TestExternalModeAllowsEditsThatLeavePlatformRolesAlone(t *testing.T) {
 			body: `{"roles":["default","workspace-admin"]}`, bearer: "idp-admin"}.serve(e)
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	})
+}
+
+// The platform roles stored on a user object do not count in external mode, so removing one
+// is not a grant: an operator can clean up a stale record (which would otherwise count again
+// after a rollback to builtin) through the API instead of by switching the mode.
+func TestExternalModeAllowsRemovingStoredPlatformRoles(t *testing.T) {
+	e := guardEngine(t, true)
+	for _, target := range []string{"t-revoke", "t-local-rev"} {
+		t.Run(target, func(t *testing.T) {
+			w := guardRequest{method: http.MethodPatch, path: "/api/v1/users/" + target,
+				body: `{"roles":["default"]}`, bearer: "idp-admin"}.serve(e)
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			assert.Equal(t, []v1.UserRole{v1.DefaultRole}, storedRoles(t, target))
+		})
+	}
 }
 
 // An API key issued before the switch is still accepted through the built-in entry, so it
@@ -525,8 +532,8 @@ func TestEnvsDoesNotAdvertiseBuiltinSignInInExternalMode(t *testing.T) {
 	assert.Equal(t, "https://console.example.com/sign-in", got.SSOAuthUrl)
 }
 
-// Which role changes count: only adding or removing a platform role of a user the identity
-// provider governs.
+// Which role changes count: only granting a platform role the stored record does not have.
+// Removing a stored one is how a stale record is cleaned up: external mode ignores it anyway.
 func TestRefuseExternalRoleChange(t *testing.T) {
 	roles := func(r ...v1.UserRole) *[]v1.UserRole { return &r }
 	tests := []struct {
@@ -540,11 +547,17 @@ func TestRefuseExternalRoleChange(t *testing.T) {
 		{"no roles in the patch", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), nil, false},
 		{"grant system-admin", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.DefaultRole, v1.SystemAdminRole), true},
 		{"grant system-admin-readonly", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.DefaultRole, v1.SystemAdminReadonlyRole), true},
-		{"revoke system-admin", true, guardUser("u", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole), roles(v1.DefaultRole), true},
+		{"revoke a stored system-admin", true, guardUser("u", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole), roles(v1.DefaultRole), false},
+		{"revoke every stored platform role", true, guardUser("u", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole, v1.SystemAdminReadonlyRole), roles(v1.DefaultRole), false},
+		{"revoke one stored platform role and keep the other", true, guardUser("u", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole, v1.SystemAdminReadonlyRole), roles(v1.DefaultRole, v1.SystemAdminReadonlyRole), false},
+		{"revoke a stored platform role and add a non-platform role", true, guardUser("u", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole), roles(v1.DefaultRole, v1.WorkspaceAdminRole), false},
+		{"revoke the stored platform roles and empty the list", true, guardUser("u", v1.SSOUserType, v1.SystemAdminRole), roles(), false},
 		{"swap system-admin for readonly", true, guardUser("u", v1.SSOUserType, v1.SystemAdminRole), roles(v1.SystemAdminReadonlyRole), true},
+		{"revoke one stored platform role and grant the other", true, guardUser("u", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole), roles(v1.DefaultRole, v1.SystemAdminReadonlyRole), true},
 		{"same roles in another order", true, guardUser("u", v1.SSOUserType, v1.DefaultRole, v1.SystemAdminRole), roles(v1.SystemAdminRole, v1.DefaultRole), false},
 		{"only a non-platform role differs", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.DefaultRole, v1.WorkspaceAdminRole), false},
 		{"a local account is refused too", true, guardUser("u", v1.DefaultUserType, v1.DefaultRole), roles(v1.DefaultRole, v1.SystemAdminRole), true},
+		{"a local account's stored platform role can be removed too", true, guardUser("u", v1.DefaultUserType, v1.DefaultRole, v1.SystemAdminRole), roles(v1.DefaultRole), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
