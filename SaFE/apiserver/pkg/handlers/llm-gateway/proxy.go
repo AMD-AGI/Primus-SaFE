@@ -141,8 +141,9 @@ func clonedDefaultTransport() *http.Transport {
 }
 
 // ProxyLLMRequest handles /llm-gateway/v1/* requests.
-// It resolves the user's Virtual Key from the DB, replaces the Authorization
-// header, and reverse-proxies the request to LiteLLM.
+// It resolves the user's Virtual Key from the DB (creating a binding that holds
+// only that key for a user who has none), replaces the Authorization header, and
+// reverse-proxies the request to LiteLLM.
 func (h *Handler) ProxyLLMRequest(c *gin.Context) {
 	email, ntid := h.getUserIdentity(c)
 	if email == "" {
@@ -151,17 +152,14 @@ func (h *Handler) ProxyLLMRequest(c *gin.Context) {
 		return
 	}
 
-	binding, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
+	binding, err := h.resolveBinding(c.Request.Context(), email)
 	if err != nil {
-		klog.ErrorS(err, "LLM Proxy: DB error", "email", email)
+		klog.ErrorS(err, "LLM Proxy: failed to resolve binding", "email", email)
+		if commonerrors.IsPrimus(err) {
+			apiutils.AbortWithApiError(c, err)
+			return
+		}
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("internal error"))
-		return
-	}
-	if binding == nil {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "No APIM Key binding found. Please upload your APIM Key on the SaFE platform first.",
-		})
-		c.Abort()
 		return
 	}
 
@@ -172,11 +170,16 @@ func (h *Handler) ProxyLLMRequest(c *gin.Context) {
 		return
 	}
 
-	apimKey, err := h.crypto.Decrypt(binding.ApimKey)
-	if err != nil {
-		klog.ErrorS(err, "LLM Proxy: failed to decrypt APIM Key", "email", email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("internal error"))
-		return
+	// A user without an APIM key is forwarded without one: nothing is stamped
+	// into extra_headers, and the upstream decides whether the model needs it.
+	var apimKey string
+	if hasApimKey(binding) {
+		apimKey, err = h.crypto.Decrypt(binding.ApimKey)
+		if err != nil {
+			klog.ErrorS(err, "LLM Proxy: failed to decrypt APIM Key", "email", email)
+			apiutils.AbortWithApiError(c, commonerrors.NewInternalError("internal error"))
+			return
+		}
 	}
 
 	applyProxyVirtualKeyHeader(c, virtualKey)
@@ -302,9 +305,13 @@ func marshalJSON(v any) ([]byte, error) {
 	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
+// isJSONContentType reports whether the body is declared as JSON: application/json
+// or any type with the +json structured-syntax suffix (e.g. application/vnd.api+json),
+// which is JSON by definition and must be sanitized the same way.
 func isJSONContentType(contentType string) bool {
 	mediaType, _, _ := strings.Cut(contentType, ";")
-	return strings.EqualFold(strings.TrimSpace(mediaType), "application/json")
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 }
 
 // recoverReverseProxyAbort absorbs the panic ReverseProxy raises when it can no

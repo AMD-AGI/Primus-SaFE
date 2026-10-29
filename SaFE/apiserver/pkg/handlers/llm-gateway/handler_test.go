@@ -472,7 +472,7 @@ func TestCreateBinding_AlreadyExists(t *testing.T) {
 
 	handler := newTestHandler(t, mockDB, litellm)
 
-	existing := &dbclient.LLMGatewayUserBinding{UserEmail: "test@amd.com"}
+	existing := &dbclient.LLMGatewayUserBinding{UserEmail: "test@amd.com", ApimKey: "bound-apim-key"}
 	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(existing, nil)
 
 	router := gin.New()
@@ -1088,33 +1088,6 @@ func TestProxyLLMRequest_OOBDoubleHeaderMessagesForwardsXAPIKey(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-}
-
-func TestProxyLLMRequest_NoBinding(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := mock_client.NewMockInterface(ctrl)
-	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	defer litellm.Close()
-
-	handler := newTestHandler(t, mockDB, litellm)
-
-	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(nil, nil)
-
-	router := gin.New()
-	router.POST("/proxy/*proxyPath", func(c *gin.Context) {
-		setUserContext(c, "user1", "test@amd.com")
-		handler.ProxyLLMRequest(c)
-	})
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/proxy/v1/chat/completions",
-		strings.NewReader(`{"model":"gpt-4o"}`))
-	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
 func TestRecoverReverseProxyAbortSuppressesErrAbortHandler(t *testing.T) {

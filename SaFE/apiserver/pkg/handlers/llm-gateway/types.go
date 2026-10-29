@@ -8,6 +8,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	commoncrypto "github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"golang.org/x/sync/singleflight"
 )
 
 // Handler manages LLM Gateway API endpoints and the LLM reverse proxy.
@@ -17,6 +18,10 @@ type Handler struct {
 	litellmClient    *LiteLLMClient
 	crypto           *commoncrypto.Crypto
 	proxy            *httputil.ReverseProxy
+
+	// bindingFlight collapses concurrent first requests of one user into one
+	// binding creation; see ensureBinding.
+	bindingFlight singleflight.Group
 }
 
 // ── Budget Request/Response types ─────────────────────────────────────────
