@@ -239,7 +239,7 @@ func (h *SshHandler) resolveForwardTarget(ctx context.Context, userInfo *UserInf
 	if err != nil {
 		return nil, err
 	}
-	if err = h.authUserByKey(ctx, userInfo, workload); err != nil {
+	if err = h.authUser(ctx, userInfo, workload); err != nil {
 		return nil, err
 	}
 	return k8sClients, nil

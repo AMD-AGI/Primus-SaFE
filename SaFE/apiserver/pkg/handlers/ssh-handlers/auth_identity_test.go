@@ -341,13 +341,13 @@ var authPaths = []authPath{
 		_, err := f.h.resolveForwardTarget(context.Background(), f.userInfo(c.user))
 		return err == nil, err
 	}},
-	{name: "authUserByKey", run: func(t *testing.T, f *authFixture, c authCase, mode string) (bool, error) {
+	{name: "authUser, the default", run: func(t *testing.T, f *authFixture, c authCase, mode string) (bool, error) {
 		workload := &v1.Workload{}
 		require.NoError(t, f.h.Get(context.Background(), clientKey("wl-1"), workload))
-		err := f.h.authUserByKey(context.Background(), f.userInfo(c.user), workload)
+		err := f.h.authUser(context.Background(), f.userInfo(c.user), workload)
 		return err == nil, err
 	}},
-	{name: "authUser with the request's identity", web: true, run: func(t *testing.T, f *authFixture, c authCase, mode string) (bool, error) {
+	{name: "authUserAsRequestIdentity", web: true, run: func(t *testing.T, f *authFixture, c authCase, mode string) (bool, error) {
 		workload := &v1.Workload{}
 		require.NoError(t, f.h.Get(context.Background(), clientKey("wl-1"), workload))
 		identity := ""
@@ -355,7 +355,7 @@ var authPaths = []authPath{
 			identity = c.identity
 		}
 		ctx := requestContext(context.Background(), c.user, identity, c.groups)
-		err := f.h.authUser(ctx, f.userInfo(c.user), workload)
+		err := f.h.authUserAsRequestIdentity(ctx, f.userInfo(c.user), workload)
 		return err == nil, err
 	}},
 }
@@ -403,6 +403,51 @@ func TestWebShellKeepsIdentityOverlayButSSHDoesNot(t *testing.T) {
 	require.True(t, web, "the web shell keeps the workspace the group grants")
 	viaSSH, _ := authPaths[1].run(t, f, c, "external")
 	require.False(t, viaSSH, "an SSH session has no identity provider behind it")
+}
+
+// authUser is the restrictive function, so an entry path added later that calls it as it is, with
+// whatever context it has, gets the restrictive behaviour: in external mode the roles stored on the
+// user object do not count, and an overlay in ctx (here one that grants system-admin) is not
+// honoured either, because only authUserAsRequestIdentity, which the web shell alone calls, opts in
+// to it. In builtin mode the stored record decides, as it always did.
+func TestAuthUserDefaultIsRestrictiveForANewCaller(t *testing.T) {
+	grantedByIdentity := func() context.Context {
+		return extauth.WithOverlay(context.Background(),
+			extauth.MapGroups("member", []string{"admins"}, authTestMappings, false))
+	}
+	for _, tc := range []struct {
+		name string
+		mode string
+		user string
+		ctx  func() context.Context
+		want bool
+	}{
+		// What a new SSH path hands it: the connection's context, with no overlay in it.
+		{"external: stored system-admin, no overlay in ctx", "external", "stored-admin", context.Background, false},
+		{"external: system-admin only an overlay grants", "external", "member", grantedByIdentity, false},
+		{"external: owner of the workload", "external", "owner", context.Background, true},
+		{"builtin: stored system-admin", "builtin", "stored-admin", context.Background, true},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			setAuthMode(t, tc.mode)
+			f := newAuthFixture(t)
+			workload := &v1.Workload{}
+			require.NoError(t, f.h.Get(context.Background(), clientKey("wl-1"), workload))
+			err := f.h.authUser(tc.ctx(), f.userInfo(tc.user), workload)
+			if tc.want {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.True(t, commonerrors.IsForbidden(err), "refused for another reason: %v", err)
+			// The opt-in is what differs: with the identity's overlay, authUserAsRequestIdentity lets
+			// the user in that authUser refuses, so the refusal above is the default's, not the fixture's.
+			if tc.name == "external: system-admin only an overlay grants" {
+				require.NoError(t, f.h.authUserAsRequestIdentity(tc.ctx(), f.userInfo(tc.user), workload))
+			}
+		})
+	}
 }
 
 func clientKey(name string) client.ObjectKey { return client.ObjectKey{Name: name} }
