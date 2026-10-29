@@ -67,7 +67,9 @@ func (t *defaultToken) Login(ctx context.Context, input TokenInput) (*v1.User, *
 	if err != nil {
 		return nil, nil, commonerrors.NewUserNotRegistered(input.Username)
 	}
-	if user.Spec.Password != stringutil.Base64Encode(input.Password) {
+	// An account without a stored password (an SSO account that never set one) cannot log in
+	// with a password: its empty stored value would otherwise match an empty input.
+	if user.Spec.Password == "" || user.Spec.Password != stringutil.Base64Encode(input.Password) {
 		return nil, nil, commonerrors.NewUnauthorized("the password is incorrect")
 	}
 
