@@ -1055,8 +1055,13 @@ func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Worklo
 			continue
 		}
 		secret := &corev1.Secret{}
-		if reader == nil ||
-			reader.Get(ctx, types.NamespacedName{Name: s.Id, Namespace: common.PrimusSafeNamespace}, secret) != nil {
+		key := types.NamespacedName{Name: s.Id, Namespace: common.PrimusSafeNamespace}
+		if reader == nil {
+			continue
+		}
+		// A secret created just before the workload may not be in the cache yet.
+		if err := reader.Get(ctx, key, secret); err != nil &&
+			(m.secretReader == nil || m.secretReader.Get(ctx, key, secret) != nil) {
 			continue
 		}
 		secretsSet.Insert(s.Id)

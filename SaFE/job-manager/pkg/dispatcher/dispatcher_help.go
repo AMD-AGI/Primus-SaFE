@@ -76,7 +76,11 @@ for f in /etc/secrets/*/signing-key.pem; do
     chmod 0400 /run/signing-key/signing-key.pem
     break
   fi
-done`
+done
+if [ -n "${SIGNING_KEY_REQUIRED-}" ] && [ ! -f /run/signing-key/signing-key.pem ]; then
+  echo "signing key secret is not mounted" >&2
+  exit 1
+fi`
 	// envdStartupScript starts envd in the main container. It is the Sandbox
 	// template's startup command (PATH setup, work directory, CA setup, the
 	// signing key file, and the SANDBOX_STARTUP snippet); a test keeps the two in step.
@@ -672,6 +676,10 @@ func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
 	for i := range initContainers {
 		c, ok := initContainers[i].(map[string]interface{})
 		if !ok {
+			continue
+		}
+		// Layer copy containers see only their own emptyDir.
+		if name, _ := c["name"].(string); strings.HasPrefix(name, sandboxLayerVolume) {
 			continue
 		}
 		var volumeMounts []interface{}
@@ -2936,6 +2944,27 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context, clientSets *sy
 			return err
 		}
 	}
+	if v1.GetLabel(adminWorkload, grantIDLabel) == "" {
+		return nil
+	}
+	for i := range rt.Spec.ResourceSpecs {
+		spec := &rt.Spec.ResourceSpecs[i]
+		if len(spec.PrePaths) > 0 {
+			_, found, err := jobutils.NestedField(obj.Object, spec.PrePaths)
+			if err != nil {
+				return err
+			}
+			if !found {
+				continue
+			}
+		}
+		if err := ensureSandboxLayers(obj, adminWorkload, spec); err != nil {
+			return err
+		}
+		if err := requireSandboxSigningKey(obj, adminWorkload, spec); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -2991,6 +3020,9 @@ func (r *DispatcherReconciler) applyAgentSandboxPyTorch(ctx context.Context, cli
 			return err
 		}
 		if err := ensureSessionIdentity(obj, adminWorkload, spec); err != nil {
+			return err
+		}
+		if err := requireSandboxSigningKey(obj, adminWorkload, spec); err != nil {
 			return err
 		}
 	}
