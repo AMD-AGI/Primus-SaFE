@@ -259,7 +259,8 @@ func (s *goSource) paramFromRequest(fn *funcScope, idx int, id *ast.Ident, seen 
 var notRequestContexts = map[string]string{
 	"ssh-handlers/k8s.go": "an SSH session is authenticated by public key on the SSH port; no external authenticator " +
 		"ran, so its context carries the overlay of a user no identity vouched for (authority.WithoutIdentity, " +
-		"pinned by TestAuthUserHoldsNoStoredPlatformRoleInExternalMode), not a request's",
+		"in authUserByKey), not a request's; the web shell, whose request context carries the identity's overlay, " +
+		"goes through authUser as it is (both pinned by TestAuthorizationByPathAndMode)",
 }
 
 func TestEveryAuthorizationContextIsTheRequestContext(t *testing.T) {
