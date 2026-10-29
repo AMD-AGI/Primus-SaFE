@@ -237,7 +237,6 @@ export async function copyText(text: string): Promise<void> {
   }
 }
 
-export * from './share'
 export function byte2Gi(byte: number, fractionDigits = 0, withUnit = true): string {
   if (isNaN(byte) || byte < 0) return withUnit ? '0 Gi' : '0'
   const gib = byte / 1024 / 1024 / 1024

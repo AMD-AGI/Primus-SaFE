@@ -13,8 +13,6 @@ import (
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/a2a"
-	a2ahandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/a2a-handlers"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	cdhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/cd-handlers"
 	emailrelayhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/email-relay-handlers"
@@ -107,20 +105,6 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	sshhandler.InitWebShellRouters(engine, sshHandler)
 	modelHandler := InitModelHandlers(context.Background(), mgr)
 	model_handlers.InitInferenceRouters(engine, modelHandler)
-
-	// Initialize A2A handlers if database is enabled
-	if commonconfig.IsDBEnable() {
-		a2aDbClient := dbclient.NewClient()
-		if a2aDbClient != nil {
-			a2aHandler := a2ahandlers.NewHandler(a2aDbClient, authority.NewAccessController(mgr.GetClient()))
-			a2ahandlers.InitA2ARouters(engine, a2aHandler)
-
-			if commonconfig.IsA2AScannerEnable() {
-				scanner := a2a.NewScanner(mgr.GetClient(), a2aDbClient)
-				go scanner.Start(context.Background())
-			}
-		}
-	}
 
 	// Initialize LLM Gateway handlers (if enabled and DB is available)
 	if commonconfig.IsLLMGatewayEnable() && commonconfig.IsDBEnable() {

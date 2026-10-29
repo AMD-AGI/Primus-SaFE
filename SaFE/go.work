@@ -1,7 +1,6 @@
 go 1.25.5
 
 use (
-	./a2a-gateway
 	./apis
 	./apiserver
 	./common

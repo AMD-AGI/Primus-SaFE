@@ -2,7 +2,7 @@
 
 ## Overview
 
-Playground Models API provides a model management interface for the AI Playground. Users can add models from Hugging Face or other sources, configure download targets, and start inference services. The system automatically fetches model metadata (display name, description, icon, tags) from Hugging Face when available.
+Playground Models API provides a model management interface for Model Square. Users can add models from Hugging Face or other sources, configure download targets, and start inference services. The system automatically fetches model metadata (display name, description, icon, tags) from Hugging Face when available.
 
 ## API List
 
@@ -617,6 +617,4 @@ curl -X DELETE http://localhost:8080/api/v1/playground/models/model-a3k9x \
 ## Related APIs
 
 - [Inference API](./inference.md) - Low-level inference service management
-- [Playground Sessions API](./playground-sessions.md) - Chat session management
-- [Playground Chat API](./playground-chat.md) - Real-time chat interface
 

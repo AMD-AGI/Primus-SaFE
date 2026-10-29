@@ -12,17 +12,6 @@
     <template #content>
       <div class="status-msg-tooltip__content">
         <div class="status-msg-tooltip__text">{{ messageText }}</div>
-        <div v-if="enableSendToChat" class="status-msg-tooltip__actions">
-          <el-button
-            v-if="messageTrimmed"
-            size="small"
-            type="primary"
-            plain
-            @click.stop="sendToChat"
-          >
-            {{ sendButtonText }}
-          </el-button>
-        </div>
       </div>
     </template>
 
@@ -32,25 +21,14 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ElMessage } from 'element-plus'
-import { useChatbotUIStore } from '@/stores/chatbotUI'
 
 type Props = {
   available: boolean
   display?: unknown
   message?: unknown
-  enableSendToChat?: boolean
-  sendButtonText?: string
-  toastText?: string
 }
 
-const props = withDefaults(defineProps<Props>(), {
-  enableSendToChat: true,
-  sendButtonText: 'Send to chat',
-  toastText: 'Filled into chat input',
-})
-
-const chatbotUIStore = useChatbotUIStore()
+const props = defineProps<Props>()
 
 const displayText = computed(() => {
   const v = props.display ?? props.available
@@ -63,14 +41,6 @@ const messageText = computed(() => {
   if (v === null || v === undefined || v === '') return '-'
   return String(v)
 })
-
-const messageTrimmed = computed(() => messageText.value.trim())
-
-const sendToChat = () => {
-  if (!messageTrimmed.value) return
-  chatbotUIStore.openAndPrefill(messageTrimmed.value)
-  ElMessage.success(props.toastText)
-}
 </script>
 
 <style lang="scss">
@@ -107,11 +77,6 @@ const sendToChat = () => {
   max-height: 180px;
   overflow: auto;
   color: var(--el-text-color-primary);
-}
-
-.status-msg-tooltip__actions {
-  display: flex;
-  justify-content: flex-end;
 }
 
 html.dark .status-msg-tooltip {

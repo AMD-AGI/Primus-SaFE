@@ -457,7 +457,7 @@ func GetUserTokenExpire() int {
 }
 
 // IsOutboundTLSVerifyEnabled reports whether outbound HTTPS requests to model
-// endpoints and third-party services (Playground chat, InferenceX) must verify
+// endpoints and third-party services (InferenceX) must verify
 // TLS certificates. It defaults to false to preserve compatibility with
 // self-signed ingress certificates and container images that ship without an
 // updated CA bundle. Security-conscious deployments can set
@@ -679,32 +679,6 @@ func GetLangfuseProxyPublicKey() string {
 // GetLangfuseProxySecretKey returns the shared Langfuse project secret key from secret.
 func GetLangfuseProxySecretKey() string {
 	return getFromFile(langfuseProxySecretPath, "secret_key")
-}
-
-// IsA2AScannerEnable returns whether the A2A service scanner is enabled.
-func IsA2AScannerEnable() bool { return getBool(a2aScannerEnable, false) }
-
-// GetA2AScannerInterval returns the A2A scanner interval in seconds.
-func GetA2AScannerInterval() int {
-	v := getInt(a2aScannerInterval, 60)
-	if v <= 0 {
-		return 60
-	}
-	return v
-}
-
-// GetA2AScannerNamespaces returns the namespaces to scan for A2A services.
-func GetA2AScannerNamespaces() []string {
-	return viper.GetStringSlice(a2aScannerNamespaces)
-}
-
-// GetA2AScannerLabelSelector returns the label selector for A2A service discovery.
-func GetA2AScannerLabelSelector() string {
-	v := getString(a2aScannerLabel, "")
-	if v == "" {
-		return "a2a.primus.io/enabled=true"
-	}
-	return v
 }
 
 // ── LLM Gateway ─────────────────────────────────────────────────────────
