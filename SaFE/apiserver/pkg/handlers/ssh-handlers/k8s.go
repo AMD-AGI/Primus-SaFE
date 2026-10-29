@@ -43,7 +43,15 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 	if err != nil {
 		return 1, err
 	}
-	if err = h.authUser(ctx, sessionInfo.userInfo, workload); err != nil {
+	// A web shell is a request the identity middleware already authenticated, and its context carries
+	// what that decided (the identity provider's roles and workspaces). An SSH session has only the
+	// public key it signed in with.
+	if sessionInfo.sshType == WebShell {
+		err = h.authUser(ctx, sessionInfo.userInfo, workload)
+	} else {
+		err = h.authUserByKey(ctx, sessionInfo.userInfo, workload)
+	}
+	if err != nil {
 		return 1, err
 	}
 
@@ -190,7 +198,7 @@ func (h *SshHandler) handleSftp(s Session) uint32 {
 		klog.Error(err)
 		return 1
 	}
-	if err = h.authUser(s.Context(), userInfo, workload); err != nil {
+	if err = h.authUserByKey(s.Context(), userInfo, workload); err != nil {
 		klog.Error(err)
 		return 1
 	}
@@ -247,7 +255,7 @@ func (h *SshHandler) handleDirectIp(ctx context.Context, sshConn *ssh.ServerConn
 		klog.Error(err)
 		return
 	}
-	if err = h.authUser(ctx, userInfo, workload); err != nil {
+	if err = h.authUserByKey(ctx, userInfo, workload); err != nil {
 		klog.Error(err)
 		return
 	}
@@ -363,13 +371,13 @@ func (h *SshHandler) getWorkloadAndClients(ctx context.Context, userInfo *UserIn
 	return workload, k8sClients, nil
 }
 
-// authUser authorizes the user for the given workload. An SSH session is authenticated by
-// public key, not by an identity provider, so in external mode the user is one no identity
-// vouched for (authority.WithoutIdentity): the platform roles stored on the user object do not
-// count, as for a built-in session or API key.
+// authUser authorizes the user for the given workload as the identity ctx carries it. ctx is the
+// context of a request the identity middleware authenticated (the web shell), whose overlay holds
+// the roles and workspaces the identity provider granted; it is not an SSH connection's context,
+// which carries none (see authUserByKey).
 func (h *SshHandler) authUser(ctx context.Context, userInfo *UserInfo, workload *v1.Workload) error {
 	if err := h.accessController.Authorize(authority.AccessInput{
-		Context:    authority.WithoutIdentity(ctx, userInfo.User),
+		Context:    ctx,
 		Resource:   workload,
 		Verb:       v1.GetVerb,
 		Workspaces: []string{workload.Spec.Workspace},
@@ -378,6 +386,15 @@ func (h *SshHandler) authUser(ctx context.Context, userInfo *UserInfo, workload 
 		return err
 	}
 	return nil
+}
+
+// authUserByKey authorizes the user of an SSH connection, which is authenticated by public key and
+// not by an identity provider. In external mode that user is one no identity vouched for
+// (authority.WithoutIdentity): the platform roles stored on the user object do not count, as for a
+// built-in session or API key. Only the SSH paths may call it: a web shell's context already holds
+// the identity provider's overlay, which this would replace.
+func (h *SshHandler) authUserByKey(ctx context.Context, userInfo *UserInfo, workload *v1.Workload) error {
+	return h.authUser(authority.WithoutIdentity(ctx, userInfo.User), userInfo, workload)
 }
 
 // sendError writes an error message to the writer and logs it.
