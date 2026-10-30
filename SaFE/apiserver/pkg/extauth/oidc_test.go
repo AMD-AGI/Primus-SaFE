@@ -257,7 +257,25 @@ func TestOIDCDelegatedClaims(t *testing.T) {
 	require.Equal(t, "svc-bot", id.Actor)
 	require.Equal(t, []string{"safe.read", "profile"}, id.Scopes)
 
-	for name, act := range map[string]any{"no sub": map[string]any{}, "a string": "svc-bot", "empty sub": map[string]any{"sub": ""}} {
+	// The actor is act.client_id, else act.sub, as the introspection authenticator reads it.
+	for name, tt := range map[string]struct {
+		act  map[string]any
+		want string
+	}{
+		"client_id only":                    {map[string]any{"client_id": "svc-a"}, "svc-a"},
+		"sub only":                          {map[string]any{"sub": "svc-b"}, "svc-b"},
+		"both, the same":                    {map[string]any{"client_id": "svc-c", "sub": "svc-c"}, "svc-c"},
+		"both, different: client_id counts": {map[string]any{"client_id": "svc-d", "sub": "svc-e"}, "svc-d"},
+		"blank client_id: sub counts":       {map[string]any{"client_id": "", "sub": "svc-f"}, "svc-f"},
+	} {
+		t.Run("actor: "+name, func(t *testing.T) {
+			id, err := auth(a, f.sign("k1", map[string]any{"act": tt.act, "scope": "safe.api"}))
+			require.NoError(t, err)
+			require.Equal(t, tt.want, id.Actor)
+		})
+	}
+
+	for name, act := range map[string]any{"no sub": map[string]any{}, "a string": "svc-bot", "empty sub": map[string]any{"sub": ""}, "blank members": map[string]any{"client_id": "", "sub": ""}} {
 		t.Run("malformed act: "+name, func(t *testing.T) {
 			// A broken delegation must never be read as the user's own login.
 			_, err := auth(a, f.sign("k1", map[string]any{"act": act}))

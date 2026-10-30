@@ -15,13 +15,17 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang/mock/gomock"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 )
 
 const (
@@ -106,6 +110,13 @@ func TestVerifyKeyActors(t *testing.T) {
 			wantCode: http.StatusOK, wantSubject: otherUser,
 		},
 		{
+			name: "JWT whose act.client_id is listed, act.sub is another", actors: []string{keyActorClient},
+			token: func(e *extEnv) string {
+				return e.jwt(map[string]any{"act": map[string]any{"client_id": keyActorClient, "sub": "someone-else"}, "scope": "safe.api"})
+			},
+			wantCode: http.StatusOK, wantSubject: extUser,
+		},
+		{
 			name: "introspected answer, act.client_id listed", actors: []string{keyActorClient},
 			token: func(e *extEnv) string {
 				e.revUsers["opaque-delegated"] = map[string]any{"sub": otherUser, "username": "bob", "groups": []string{"platform-admins"},
@@ -173,6 +184,13 @@ func TestVerifyKeyActors(t *testing.T) {
 		{
 			name: "ids are compared exactly, not by case", actors: []string{keyActorClient},
 			token:    func(e *extEnv) string { return e.delegatedJWT("SVC-BOT", "safe.api", extUser) },
+			wantCode: http.StatusForbidden, wantMessage: msgDelegatedForbidden, wantMetric: "delegated_forbidden",
+		},
+		{
+			name: "JWT whose act.client_id is not listed but act.sub is", actors: []string{keyActorClient},
+			token: func(e *extEnv) string {
+				return e.jwt(map[string]any{"act": map[string]any{"client_id": "someone-else", "sub": keyActorClient}, "scope": "safe.api"})
+			},
 			wantCode: http.StatusForbidden, wantMessage: msgDelegatedForbidden, wantMetric: "delegated_forbidden",
 		},
 		{
@@ -379,4 +397,35 @@ func TestKeyActorsOpenNothingButVerify(t *testing.T) {
 	// Its ordinary access is what it was.
 	_, err := extParse(t, http.MethodGet, "/api/v1/users/self", tok)
 	require.NoError(t, err)
+}
+
+// The gateway virtual key of a delegated verdict is found by the email on the subject's own record, not by
+// whatever the token says about the subject: here the token claims the email of another user, and only
+// the record's email may be looked up (the mock refuses any other).
+func TestVerifyKeyActorVirtualKeyIsFoundBySubjectRecord(t *testing.T) {
+	defer setupInternalAuth(t)()
+	stubPlatformKeys(t)
+	withKeyActors(t, keyActorClient)
+	e := newExtEnv(t, adminMapping, false)
+	const stored, claimed = "alice-local@example.com", "bob@example.com"
+	require.NoError(t, e.cli.Create(context.Background(), &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: extUser, Annotations: map[string]string{v1.UserNameAnnotation: "alice-local", v1.UserEmailAnnotation: stored}},
+		Spec:       v1.UserSpec{Type: v1.DefaultUserType, Password: "hashed", Roles: []v1.UserRole{v1.DefaultRole}},
+	}))
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock_client.NewMockInterface(ctrl)
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), stored).Return(&dbclient.LLMGatewayUserBinding{UserEmail: stored}, nil).Times(1)
+	oldKey := apiKeyTokenInstance
+	apiKeyTokenInstance = &ApiKeyToken{dbClient: mockDB, Client: e.cli}
+	defer func() { apiKeyTokenInstance = oldKey }()
+
+	tok := e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}, "scope": "safe.api", "email": claimed})
+	w := callVerifyToken(t, VerifyTokenRequest{Authorization: "Bearer " + tok, IncludeVirtualKey: true}, testInternalToken)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var resp verifyResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, extUser, resp.Data.Id)
+	require.Equal(t, stored, resp.Data.Email, "the subject's own email")
 }

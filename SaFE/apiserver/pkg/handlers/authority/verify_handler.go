@@ -399,6 +399,13 @@ func verifyExternal(c *gin.Context, st *externalAuth, req *VerifyTokenRequest) (
 	if info.Email == "" {
 		info.Email = v1.GetUserEmail(user)
 	}
+	if id.Delegated() {
+		// The keys of a delegated verdict are the subject's: the gateway virtual key is found by the email,
+		// and for the subject that is the one on its own record, not what the token says about it.
+		if stored := v1.GetUserEmail(user); stored != "" {
+			info.Email = stored
+		}
+	}
 	if !id.Expiry.IsZero() {
 		info.Exp = id.Expiry.Unix()
 	}
