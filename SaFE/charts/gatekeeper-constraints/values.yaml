@@ -12,6 +12,14 @@ sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-control
 # Claw JWKS document, JSON text. Required when enforcementAction is deny.
 jwks: ""
 
+# Identity-key Sandboxes carry no grant attestation. When allow is set, a Workload
+# labelled agent-sandbox.io/owner-key is accepted if its grant id is the owner
+# record of its user, its kind is Sandbox, and it requests at most
+# maxGpusPerSandbox GPUs. Workspace membership is still checked.
+ownerKeys:
+  allow: false
+  maxGpusPerSandbox: 8
+
 image:
   repository: curlimages/curl
   tag: "8.20.0"

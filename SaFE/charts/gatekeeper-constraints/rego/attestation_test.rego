@@ -52,3 +52,47 @@ test_expired_exp {
 test_gpu_above_max {
   count(violation) == 1 with input as review(valid_token, "2")
 }
+
+owner_workload(grant_id, kind, gpus) = obj {
+  obj := {
+    "metadata": {"labels": {
+      "primus-safe.user.id": "user-1",
+      "agent-sandbox.io/grant-id": grant_id,
+      "agent-sandbox.io/owner-key": "true",
+    }},
+    "spec": {
+      "workspace": "lab",
+      "groupVersionKind": {"kind": kind},
+      "resources": [{"gpu": gpus, "replica": 1}],
+    },
+  }
+}
+
+owner_review(obj, allow) = inp {
+  inp := {
+    "review": {"userInfo": {"username": creator}, "object": obj},
+    "parameters": {"sandboxCreator": creator, "jwks": cert, "allowOwnerKeys": allow, "ownerMaxGpusPerSandbox": 8},
+  }
+}
+
+owner_grant := "owner-c6c289e49e9c05b214586038"
+
+test_owner_workload_allowed {
+  count(violation) == 0 with input as owner_review(owner_workload(owner_grant, "Sandbox", "8"), true)
+}
+
+test_owner_workload_denied_when_disabled {
+  count(violation) == 1 with input as owner_review(owner_workload(owner_grant, "Sandbox", "1"), false)
+}
+
+test_owner_workload_wrong_grant {
+  count(violation) == 1 with input as owner_review(owner_workload("owner-000000000000000000000000", "Sandbox", "1"), true)
+}
+
+test_owner_workload_wrong_kind {
+  count(violation) == 1 with input as owner_review(owner_workload(owner_grant, "PyTorchJob", "1"), true)
+}
+
+test_owner_workload_gpu_above_max {
+  count(violation) == 1 with input as owner_review(owner_workload(owner_grant, "Sandbox", "9"), true)
+}
