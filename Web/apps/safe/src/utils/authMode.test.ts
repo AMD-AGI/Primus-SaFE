@@ -18,7 +18,7 @@ describe('isExternalAuth', () => {
 
 // The console must not offer what the server refuses in external mode, local accounts
 // included. Each control below is gated on the store's isExternalAuth.
-describe('external mode hides the password, registration, key creation and role controls', () => {
+describe('external mode hides the password, registration and role controls', () => {
   it('the store derives isExternalAuth from /envs', () => {
     expect(source('stores/user.ts')).toContain('isExternalAuth: (s) => isExternalAuth(s.envs)')
   })
@@ -43,14 +43,19 @@ describe('external mode hides the password, registration, key creation and role 
     expect(settings.match(/<template v-if="!userStore\.isExternalAuth">/g)).toHaveLength(1)
   })
 
-  it('API key creation is gated, but the entry points and the delete action stay', () => {
-    // A key issued before the switch still authenticates, so it must stay revocable.
+  it('API key management stays, and goes to the identity provider', () => {
+    // The apiserver refuses to issue keys in external mode, so nothing is hidden: list, create and
+    // delete are called with the mode and the service picks the provider's route (apiKeys tests).
     expect(source('components/layout/BaseMenu.vue')).not.toContain('isExternalAuth')
     expect(source('pages/Settings/index.vue')).toContain("router.push('/manageapikeys')")
     const keys = source('pages/APIKeys/index.vue')
-    expect(keys).toContain('const manageable = computed(() => !userStore.isExternalAuth)')
-    expect(keys).toContain('v-if="manageable"')
+    expect(keys).not.toContain('manageable')
+    expect(keys).toContain('const external = computed(() => userStore.isExternalAuth)')
+    expect(keys).toContain('await deleteAPIKey(id, external.value)')
+    expect(keys).toContain('external.value,\n    )')
     expect(keys).toContain('<el-table-column label="Actions"')
+    const dialog = source('pages/APIKeys/Components/AddDialog.vue')
+    expect(dialog).toContain('userStore.isExternalAuth,')
     expect(source('pages/LLMGateway/index.vue')).toContain('if (userStore.isExternalAuth) return')
   })
 

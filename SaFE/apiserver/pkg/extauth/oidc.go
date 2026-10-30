@@ -176,15 +176,20 @@ func (a *OIDCAuthenticator) identity(std jwt.Claims, claims map[string]any) (*Id
 	if id.Name == "" {
 		id.Name = id.ID
 	}
-	// RFC 8693 "act": the party acting for the subject.
+	// RFC 8693 "act": the party acting for the subject. The actor is act.client_id, else act.sub, the
+	// same reading as the introspection authenticator, so one token names one actor whichever
+	// authenticator accepts it: a token whose act.client_id and act.sub differ is the client_id's.
 	if act, ok := claims["act"]; ok {
 		m, isMap := act.(map[string]any)
-		sub, _ := m["sub"].(string)
-		if !isMap || sub == "" {
+		actor, _ := m["client_id"].(string)
+		if actor == "" {
+			actor, _ = m["sub"].(string)
+		}
+		if !isMap || actor == "" {
 			// A malformed delegation must not be read as a direct login.
 			return nil, fmt.Errorf("%w: malformed act claim", ErrUnauthenticated)
 		}
-		id.Actor = sub
+		id.Actor = actor
 		id.Scopes = tokenScopes(claims)
 	}
 	if r, ok := claims["restricted"].(bool); ok {

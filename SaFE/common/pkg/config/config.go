@@ -961,6 +961,11 @@ func GetAuthGroupMappings() ([]AuthGroupMapping, error) {
 	return list, nil
 }
 
+// GetAuthKeyActors returns auth.key_actors: the client ids of the parties that may, with a delegated token,
+// call POST /auth/verify and receive the keys of the user the token acts for. Blank entries are dropped.
+// The list is empty by default, and then no delegated token may call it.
+func GetAuthKeyActors() []string { return getStringSlice(authKeyActors, nil) }
+
 // GetAuthLoginURL returns auth.login_url, where the console sends users to sign in when
 // authentication is external.
 func GetAuthLoginURL() string { return getString(authLoginURL, "") }

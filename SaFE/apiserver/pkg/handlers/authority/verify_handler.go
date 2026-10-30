@@ -126,7 +126,7 @@ func VerifyToken(c *gin.Context) {
 			return
 		}
 		if !builtin {
-			userInfo, userType, roles, external = verdict.info, UserTypeExternal, verdict.roles, true
+			userInfo, userType, roles, external = verdict.info, verdict.userType, verdict.roles, true
 		}
 	}
 	if !external {
@@ -298,6 +298,8 @@ type externalVerdict struct {
 	// roles are the roles of the user as a request authenticated with the same credentials sees
 	// them (extauth.ApplyOverlay): the platform roles come from the identity's groups only.
 	roles []v1.UserRole
+	// userType is UserTypeExternal, or UserTypeDelegated for a delegated token of a key actor.
+	userType string
 }
 
 // verifyExternal authenticates the credentials of a verify request with the configured chain, the
@@ -353,16 +355,34 @@ func verifyExternal(c *gin.Context, st *externalAuth, req *VerifyTokenRequest) (
 	if builtin {
 		return nil, true, true
 	}
+	userType := UserTypeExternal
 	if id.Delegated() {
-		// Token verification is one of the capabilities a delegated credential never has
-		// (extauth.Forbidden): the verdict would hand the actor everything the user may do.
-		klog.Warningf("delegated credential refused: capability %s, actor %s, user %s", extauth.CapabilityPlatformKey, id.Actor, id.ID)
-		apimetrics.AuthFailuresTotal.WithLabelValues("delegated_forbidden").Inc()
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-			"code":    http.StatusForbidden,
-			"message": "this operation is not available with a delegated token",
-		})
-		return nil, false, false
+		// Token verification is one of the capabilities a delegated credential does not have
+		// (extauth.Forbidden): the verdict hands the caller the user's keys. The exception is a party the
+		// operator named in auth.key_actors, holding a token with the safe.api scope: the verdict is about
+		// the token's subject, whom the chain authenticated, and about nobody else; the request has no
+		// field that names another user. The token's audience is the one the authenticator that accepted it
+		// requires.
+		if !st.isKeyActor(id) {
+			klog.Warningf("delegated credential refused: capability %s, actor %s, user %s", extauth.CapabilityPlatformKey, id.Actor, id.ID)
+			apimetrics.AuthFailuresTotal.WithLabelValues("delegated_forbidden").Inc()
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"code":    http.StatusForbidden,
+				"message": "this operation is not available with a delegated token",
+			})
+			return nil, false, false
+		}
+		if !extauth.HasScope(id.Scopes, extauth.ScopeAPI) {
+			klog.Warningf("delegated credential refused: scope %v does not include %s, actor %s, user %s", id.Scopes, extauth.ScopeAPI, id.Actor, id.ID)
+			apimetrics.AuthFailuresTotal.WithLabelValues("delegated_scope").Inc()
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"code":    http.StatusForbidden,
+				"message": "the token scope does not allow this operation",
+			})
+			return nil, false, false
+		}
+		klog.Infof("delegated credential accepted for verification: actor %s, user %s, jti %s", id.Actor, id.ID, id.Jti)
+		userType = UserTypeDelegated
 	}
 	user, err := st.provision(ctx, id)
 	if err != nil {
@@ -379,11 +399,21 @@ func verifyExternal(c *gin.Context, st *externalAuth, req *VerifyTokenRequest) (
 	if info.Email == "" {
 		info.Email = v1.GetUserEmail(user)
 	}
+	if id.Delegated() {
+		// The keys of a delegated verdict are the subject's: the gateway virtual key is found by the email,
+		// and for the subject that is the one on its own record. For a local account that is the email it was
+		// created with; for an account the identity provider created the record follows the provider's claim
+		// (ensureUser), so the provider is trusted for the pairing of a subject and its email, as it is for the
+		// subject itself and for every credential this endpoint verifies.
+		if stored := v1.GetUserEmail(user); stored != "" {
+			info.Email = stored
+		}
+	}
 	if !id.Expiry.IsZero() {
 		info.Exp = id.Expiry.Unix()
 	}
 	roles := extauth.ApplyOverlay(extauth.WithOverlay(ctx, st.overlay(id)), user).Spec.Roles
-	return &externalVerdict{info: info, roles: roles}, false, true
+	return &externalVerdict{info: info, roles: roles, userType: userType}, false, true
 }
 
 // abortVerify answers a verify request with the failure the shared external path returned: 401 for a

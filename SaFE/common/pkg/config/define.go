@@ -184,6 +184,7 @@ const (
 	authAuthenticators = authPrefix + "authenticators"
 	authGroupMappings  = authPrefix + "group_mappings"
 	authLoginURL       = authPrefix + "login_url"
+	authKeyActors      = authPrefix + "key_actors"
 
 	// a2a
 	a2aPrefix            = "a2a."

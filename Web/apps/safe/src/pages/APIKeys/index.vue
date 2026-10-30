@@ -4,7 +4,6 @@
     <div class="flex flex-wrap items-center justify-between gap-2 mt-4">
       <div class="flex flex-wrap items-center">
         <el-button
-          v-if="manageable"
           type="primary"
           round
           :icon="Plus"
@@ -17,10 +16,6 @@
         >
           Create API Key
         </el-button>
-        <el-text v-else type="info">
-          New API keys are issued by the external identity provider. A key issued before the
-          switch can still be deleted here.
-        </el-text>
       </div>
       <div class="flex flex-wrap items-center">
         <el-input
@@ -143,9 +138,9 @@ import { formatTimeStr } from '@/utils/index'
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
-// The server refuses creating keys when an external identity provider issues them. Deleting
-// stays: a key issued before the switch still authenticates, so it must stay revocable.
-const manageable = computed(() => !userStore.isExternalAuth)
+// With an external identity provider the provider issues, lists and revokes the keys (the
+// apiserver refuses to issue them), so the same actions go to its route; see apiKeysPath.
+const external = computed(() => userStore.isExternalAuth)
 const addVisible = ref(false)
 const loading = ref(false)
 const items = ref<APIKey[]>([])
@@ -204,7 +199,7 @@ const onDelete = (id: number, name: string) => {
     type: 'warning',
   })
     .then(async () => {
-      await deleteAPIKey(id)
+      await deleteAPIKey(id, external.value)
       ElMessage({
         type: 'success',
         message: 'Delete completed',
@@ -221,13 +216,16 @@ const onDelete = (id: number, name: string) => {
 const refetch = async (name?: string) => {
   try {
     loading.value = true
-    const res = await listAPIKeys({
-      offset: (pagination.page - 1) * pagination.pageSize,
-      limit: pagination.pageSize,
-      sortBy: sortBy.value,
-      order: order.value,
-      ...(name ? { name } : {}),
-    })
+    const res = await listAPIKeys(
+      {
+        offset: (pagination.page - 1) * pagination.pageSize,
+        limit: pagination.pageSize,
+        sortBy: sortBy.value,
+        order: order.value,
+        ...(name ? { name } : {}),
+      },
+      external.value,
+    )
     items.value = res?.items || []
     pagination.total = res?.totalCount || 0
   } catch (err) {

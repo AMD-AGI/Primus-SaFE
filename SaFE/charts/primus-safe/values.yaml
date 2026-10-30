@@ -266,6 +266,11 @@ auth:
   group_mappings: []
   # Where the console sends users to sign in when mode is external.
   login_url: ""
+  # Client ids of the parties that may call POST /auth/verify with a delegated token (RFC 8693: an `act`
+  # claim naming the client) and receive the keys of the user the token acts for, and of that user only.
+  # The token must carry the safe.api scope and be accepted by an authenticator of the chain, which checks
+  # its audience. Exact ids, no wildcards. Empty (the default): a delegated token never calls it.
+  key_actors: []
 sso:
   # Enable sso login
   enable: true
