@@ -66,6 +66,8 @@ spec:
   parameters:
     sandboxCreator: {{ .Values.sandboxCreator | quote }}
     jwks: {{ .Values.jwks | quote }}
+    allowOwnerKeys: {{ .Values.ownerKeys.allow }}
+    ownerMaxGpusPerSandbox: {{ .Values.ownerKeys.maxGpusPerSandbox }}
 {{- end -}}
 
 {{- define "constraints.syncConfig" -}}
@@ -122,6 +124,10 @@ spec:
               type: string
             jwks:
               type: string
+            allowOwnerKeys:
+              type: boolean
+            ownerMaxGpusPerSandbox:
+              type: integer
   targets:
     - target: admission.k8s.gatekeeper.sh
       rego: |

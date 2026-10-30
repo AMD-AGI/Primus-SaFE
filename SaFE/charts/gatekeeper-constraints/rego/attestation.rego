@@ -27,6 +27,25 @@ valid_attestation {
   gpu_count(obj) <= claims.maxGpusPerSandbox
 }
 
+# valid_attestation accepts an identity-key Sandbox when allowOwnerKeys is set.
+# The grant id is the owner record name derived from the user id.
+valid_attestation {
+  input.parameters.allowOwnerKeys == true
+  obj := input.review.object
+  labels := object.get(obj.metadata, "labels", {})
+  object.get(labels, "agent-sandbox.io/owner-key", "") == "true"
+  user_id := object.get(labels, "primus-safe.user.id", "")
+  user_id != ""
+  object.get(labels, "agent-sandbox.io/grant-id", "") == owner_grant_id(user_id)
+  obj.spec.groupVersionKind.kind == "Sandbox"
+  gpu_count(obj) <= input.parameters.ownerMaxGpusPerSandbox
+}
+
+# owner_grant_id is owner- plus the first 24 hex digits of sha256(user id).
+owner_grant_id(user_id) = id {
+  id := concat("", ["owner-", substring(crypto.sha256(user_id), 0, 24)])
+}
+
 # gpu_count sums gpu times replica across workload resources.
 gpu_count(obj) = n {
   cards := [c | resource := obj.spec.resources[_]; c := resource_gpus(resource)]

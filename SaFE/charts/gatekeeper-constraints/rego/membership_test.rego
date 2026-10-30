@@ -33,3 +33,19 @@ test_workspace_field_does_not_grant_membership {
     with input as review("user-1", "lab")
     with data.inventory as inventory({"workspace": ["lab"]})
 }
+
+admin_inventory(roles) = data_doc {
+  data_doc := {"cluster": {"amd.com/v1": {"User": {"user-1": {"spec": {"roles": roles, "resources": {"workspaces": ["other"]}}}}}}}
+}
+
+test_system_admin_is_allowed_in_any_workspace {
+  count(violation) == 0
+    with input as review("user-1", "lab")
+    with data.inventory as admin_inventory(["system-admin"])
+}
+
+test_other_role_is_not_an_exception {
+  count(violation) == 1
+    with input as review("user-1", "lab")
+    with data.inventory as admin_inventory(["system-admin-readonly"])
+}
