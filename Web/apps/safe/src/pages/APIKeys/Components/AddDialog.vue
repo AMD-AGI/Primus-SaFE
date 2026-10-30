@@ -126,11 +126,13 @@ import type { CreateAPIKeyResponse } from '@/services/apikeys/type'
 import { type FormInstance, type FormRules, ElMessage } from 'element-plus'
 import { CopyDocument } from '@element-plus/icons-vue'
 import { copyText, formatTimeStr } from '@/utils/index'
+import { useUserStore } from '@/stores/user'
 
 defineProps<{
   visible: boolean
 }>()
 const emit = defineEmits(['update:visible', 'success'])
+const userStore = useUserStore()
 
 const initialForm = () => ({
   name: '',
@@ -169,11 +171,15 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       .map((line) => line.trim())
       .filter((line) => line.length > 0)
 
-    const response = await createAPIKey({
-      name: form.name,
-      ttlDays: form.ttlDays,
-      whitelist: whitelist.length > 0 ? whitelist : undefined,
-    })
+    // With an external identity provider the provider issues the key (see apiKeysPath).
+    const response = await createAPIKey(
+      {
+        name: form.name,
+        ttlDays: form.ttlDays,
+        whitelist: whitelist.length > 0 ? whitelist : undefined,
+      },
+      userStore.isExternalAuth,
+    )
 
     createdKey.value = response
     emit('update:visible', false)
