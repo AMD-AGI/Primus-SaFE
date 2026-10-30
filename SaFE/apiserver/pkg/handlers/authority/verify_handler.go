@@ -401,7 +401,10 @@ func verifyExternal(c *gin.Context, st *externalAuth, req *VerifyTokenRequest) (
 	}
 	if id.Delegated() {
 		// The keys of a delegated verdict are the subject's: the gateway virtual key is found by the email,
-		// and for the subject that is the one on its own record, not what the token says about it.
+		// and for the subject that is the one on its own record. For a local account that is the email it was
+		// created with; for an account the identity provider created the record follows the provider's claim
+		// (ensureUser), so the provider is trusted for the pairing of a subject and its email, as it is for the
+		// subject itself and for every credential this endpoint verifies.
 		if stored := v1.GetUserEmail(user); stored != "" {
 			info.Email = stored
 		}
