@@ -83,6 +83,21 @@ func loadRendered(t *testing.T, rendered string) {
 	testifyassert.NoError(t, LoadConfig(path))
 }
 
+// TestChartRendersAuthKeyActors pins that auth.key_actors reaches the getter, and that it is empty (nobody
+// may fetch keys with a delegated token) unless the operator sets it.
+func TestChartRendersAuthKeyActors(t *testing.T) {
+	loadRendered(t, renderApiserverConfig(t))
+	testifyassert.Empty(t, GetAuthKeyActors())
+
+	loadRendered(t, renderApiserverConfig(t, "--set", "auth.key_actors={client-a,client-b}"))
+	testifyassert.Equal(t, []string{"client-a", "client-b"}, GetAuthKeyActors())
+
+	// The other auth settings are rendered next to it and are not disturbed.
+	loadRendered(t, renderApiserverConfig(t, "--set", "auth.mode=external", "--set", "auth.key_actors={client-a}"))
+	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
+	testifyassert.Equal(t, []string{"client-a"}, GetAuthKeyActors())
+}
+
 // TestChartRendersReverseForwardDefaults pins what a stock install actually gets:
 // remote forwarding on, bound to loopback inside the pod, and limited.
 func TestChartRendersReverseForwardDefaults(t *testing.T) {

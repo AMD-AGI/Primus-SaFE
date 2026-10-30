@@ -659,6 +659,19 @@ func TestDBTargetSessionAttrsHonoursAnExplicitEmpty(t *testing.T) {
 	viper.Reset()
 }
 
+func TestAuthKeyActors(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	testifyassert.Empty(t, GetAuthKeyActors(), "no delegated token may call POST /auth/verify unless the operator names its client")
+	viper.Set("auth.key_actors", []string{"client-a", " client-b ", "", "  "})
+	testifyassert.Equal(t, []string{"client-a", "client-b"}, GetAuthKeyActors(), "blank entries are dropped, ids are trimmed")
+	viper.Set("auth.key_actors", "client-a, client-b")
+	testifyassert.Equal(t, []string{"client-a", "client-b"}, GetAuthKeyActors(), "a comma separated scalar is accepted too")
+	viper.Set("auth.key_actors", []string{})
+	testifyassert.Empty(t, GetAuthKeyActors())
+}
+
 func TestAuthConfig(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

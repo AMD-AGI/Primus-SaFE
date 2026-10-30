@@ -146,6 +146,7 @@ data:
       authenticators: {{ toJson (default (list) .Values.auth.authenticators) }}
       group_mappings: {{ toJson (default (list) .Values.auth.group_mappings) }}
       login_url: {{ default "" .Values.auth.login_url | quote }}
+      key_actors: {{ toJson (default (list) .Values.auth.key_actors) }}
     {{- end }}
     {{- if .Values.a2a }}
     a2a:
