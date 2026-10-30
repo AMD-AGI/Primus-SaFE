@@ -45,7 +45,46 @@ case "$1" in
     ;;
   get)
     [[ -z "${FAKE_GET_FAIL:-}" ]] || exit 1
-    cat "$FAKE_LIVE_VALUES"
+    case "$*" in
+      *"-o json"*) cat "$FAKE_LIVE_VALUES" ;;
+      # helm get values -o yaml: sorted keys, a list at the indent of its key
+      *"-o yaml"*) python3 - "$FAKE_LIVE_VALUES" <<'PY'
+import json, sys
+def scalar(v):
+    if v is None: return "null"
+    if v is True: return "true"
+    if v is False: return "false"
+    if isinstance(v, (int, float)): return str(v)
+    return json.dumps(v) if v == "" or any(c in v for c in ':#{}[],&*!|>\'"%@`') else v
+def flat(v): return "{}" if v == {} else "[]" if v == [] else scalar(v)
+def emit(o, ind):
+    pad = " " * ind
+    if isinstance(o, dict):
+        for k in sorted(o):
+            v = o[k]
+            if isinstance(v, (dict, list)) and v:
+                print(f"{pad}{k}:")
+                emit(v, ind + 2 if isinstance(v, dict) else ind)
+            else:
+                print(f"{pad}{k}: {flat(v)}")
+    else:
+        for item in o:
+            if isinstance(item, dict) and item:
+                for i, k in enumerate(sorted(item)):
+                    lead = pad + ("- " if i == 0 else "  ")
+                    v = item[k]
+                    if isinstance(v, (dict, list)) and v:
+                        print(f"{lead}{k}:")
+                        emit(v, ind + 4 if isinstance(v, dict) else ind + 2)
+                    else:
+                        print(f"{lead}{k}: {flat(v)}")
+            else:
+                print(f"{pad}- {flat(item)}")
+emit(json.load(open(sys.argv[1])), 0)
+PY
+        ;;
+      *) exit 1 ;;
+    esac
     ;;
   template)
     exec "$REAL_HELM" "${args[@]}"
@@ -70,6 +109,12 @@ EOF
 printf '#!/bin/bash\necho "kubectl $*" >> "$FAKE_LOG"\nexit 0\n' > "$W/bin/kubectl"
 printf '#!/bin/bash\nexit 0\n' > "$W/bin/sleep"
 chmod +x "$W/bin/"*
+# A PATH without jq, for a host that has helm and kubectl only.
+mkdir -p "$W/nojq"
+for tool in bash sed cp rm mkdir grep awk cat python3 env dirname; do
+  ln -s "$(command -v "$tool")" "$W/nojq/$tool"
+done
+cp "$W/bin/helm" "$W/bin/kubectl" "$W/bin/sleep" "$W/nojq/"
 
 BASE_ENV='ethernet_nic=eth0
 rdma_nic=rdma0
@@ -115,7 +160,7 @@ run_upgrade() {
     FAKE_LIVE_VALUES="$OUT/live.json"
   fi
   (
-    cd "$W/bootstrap" && export FAKE_LOG FAKE_OUT FAKE_LIVE_VALUES CALLED_BY_CD=true && PATH="$W/bin:$PATH" bash ./upgrade.sh
+    cd "$W/bootstrap" && export FAKE_LOG FAKE_OUT FAKE_LIVE_VALUES CALLED_BY_CD=true && PATH="${RUN_PATH:-$W/bin:$PATH}" bash ./upgrade.sh
   ) > "$OUT/log" 2>&1
   RC=$?
 }
@@ -220,6 +265,28 @@ expect "external without a chain: refused" refused
 expect "external without a chain: says why" grep -q 'needs a non-empty auth_authenticators' "$OUT/log"
 run_upgrade "$LIVE_BUILTIN" "auth_key_actors="
 expect "an empty key_actors is the empty list: applied" applied
+
+# 11. A host without jq: a release that is not external upgrades as it always did, and the break-glass
+# needs no jq; an external release asks for it instead of guessing.
+export NOJQ="$W/nojq"
+RUN_PATH="$NOJQ" run_upgrade "$LIVE_BUILTIN" ""
+expect "no jq, live builtin, no auth keys: applied" applied
+expect "no jq, live builtin, no auth keys: builtin" rendered 'mode: "builtin"'
+RUN_PATH="$NOJQ" run_upgrade '{"global":{"sub_domain":"test"}}' ""
+expect "no jq, release without auth values: applied" applied
+RUN_PATH="$NOJQ" run_upgrade "" ""
+expect "no jq, fresh install: applied" applied
+RUN_PATH="$NOJQ" run_upgrade "$LIVE_EXTERNAL" ""
+expect "no jq, live external, no auth keys: refused" refused
+expect "no jq, live external, no auth keys: asks for jq" grep -q 'jq is required' "$OUT/log"
+RUN_PATH="$NOJQ" run_upgrade "$LIVE_EXTERNAL" 'auth_mode=builtin'
+expect "no jq, break-glass: applied" applied
+expect "no jq, break-glass: builtin" rendered 'mode: "builtin"'
+RUN_PATH="$NOJQ" run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"
+expect "no jq, every key in .env: refused, the values cannot be written" refused
+expect "no jq, every key in .env: says why" grep -q 'jq is required when .env sets auth_' "$OUT/log"
+RUN_PATH="$NOJQ" run_upgrade "$LIVE_BUILTIN" "auth_mode=extrenal"
+expect "no jq, a mode that is neither: refused" refused
 
 echo
 if ((FAILS > 0)); then

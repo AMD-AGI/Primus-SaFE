@@ -124,7 +124,7 @@ auth_group_mappings='[{"group":"platform-admins","roles":["system-admin"]}]'
 auth_key_actors='["client-a"]'
 ```
 
-They set `auth.mode`, `auth.login_url`, `auth.client_secret` (the name of the Secret that holds the introspection client secret, not the secret itself), `auth.authenticators`, `auth.group_mappings` and `auth.key_actors`. Values that are not usable (a JSON key that is not an array, a mode that is neither `builtin` nor `external`, `external` without authenticators) stop the upgrade before it changes anything; the script needs `jq` when `.env` sets any of them.
+They set `auth.mode`, `auth.login_url`, `auth.client_secret` (the name of the Secret that holds the introspection client secret, not the secret itself), `auth.authenticators`, `auth.group_mappings` and `auth.key_actors`. Values that are not usable (a JSON key that is not an array, a mode that is neither `builtin` nor `external`, `external` without authenticators) stop the upgrade before it changes anything; the script needs `jq` when `.env` sets any of them (`auth_mode=builtin` on its own excepted) and to upgrade a release that is already external; a release that is not external upgrades without it.
 
 An upgrade never silently turns external authentication off. When the running release has `auth.mode: external` and `.env` does not set a key the release has (the mode itself, or any of the others with a value), the script exits non-zero before it applies anything and names the missing keys; copy them from `helm -n primus-safe get values primus-safe -o json | jq .auth`. It also refuses when it cannot read the running release, because an unknown mode is not a safe one.
 

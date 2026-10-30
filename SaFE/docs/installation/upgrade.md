@@ -2,7 +2,7 @@
 
 The [upgrade.sh](../../bootstrap/upgrade.sh) script provides a mechanism to upgrade the Primus-SaFE system after the initial installation has been completed using [install.sh](../../bootstrap/install.sh).
 
-**Prerequisites:** `helm` and `kubectl` must be installed (and `jq`, for the `auth_*` keys below).
+**Prerequisites:** `helm` and `kubectl` must be installed (and `jq`, only for the `auth_*` keys below and for a release that is already external).
 
 ### 📋 Prerequisites
 
@@ -54,7 +54,7 @@ For additional upgrade-specific behavior, you may add these optional keys to `.e
 | `auth_group_mappings` | JSON array, identity groups to roles. Sets `auth.group_mappings`. |
 | `auth_key_actors` | JSON array of identity client ids. Sets `auth.key_actors`. |
 
-The `auth_*` keys persist [external authentication](../apis/external-authentication.md#keeping-the-settings-across-upgrades) across upgrades and CD runs; they need `jq`. When the running release is external and `.env` does not set one of them that the release has, the script refuses to upgrade (it exits non-zero before changing anything) instead of switching authentication back to builtin; `auth_mode=builtin` is the deliberate way back.
+The `auth_*` keys persist [external authentication](../apis/external-authentication.md#keeping-the-settings-across-upgrades) across upgrades and CD runs; they need `jq`, except `auth_mode=builtin` on its own. A release that is not external upgrades without `jq` as before. When the running release is external and `.env` does not set one of them that the release has, the script refuses to upgrade (it exits non-zero before changing anything) instead of switching authentication back to builtin; `auth_mode=builtin` is the deliberate way back.
 
 > resource-manager adds a finalizer to every Secret that has workspace mirror targets, including ones made by hand with `kubectl`, and removes it again once the Secret has no targets and its copies are gone (for example after the selector annotation is deleted). Before `helm uninstall` and deleting the `primus-safe` namespace, delete such Secrets or remove the annotations and wait for the finalizer to go, or the namespace stays in `Terminating`.
 
