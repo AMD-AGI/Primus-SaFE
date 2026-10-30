@@ -23,15 +23,175 @@ if ! command -v kubectl &> /dev/null; then
 fi
 
 NAMESPACE="primus-safe"
+chart_name="primus-safe"
 
+# $3 is an optional second values file; it is applied after $2, so it wins.
 install_or_upgrade_helm_chart() {
   local chart_name="$1"
   local values_yaml="$2"
+  local extra_values="${3:-}"
   local chart_path="./$chart_name"
+  local extra=()
+  if [[ -n "$extra_values" ]]; then
+    extra=(-f "$extra_values")
+  fi
 
-  helm upgrade -i "$chart_name" "$chart_path" -n "$NAMESPACE" -f $values_yaml
+  helm upgrade -i "$chart_name" "$chart_path" -n "$NAMESPACE" -f $values_yaml ${extra[@]+"${extra[@]}"}
   echo "✅ $chart_name installed in namespace("$NAMESPACE")"
   echo
+}
+
+# Pluggable authentication (auth.*, see docs/apis/external-authentication.md) comes from .env, like
+# the other settings of this script. Every key is optional; one that .env does not set keeps the
+# chart default, except that a release which is already external refuses to lose it (check_live_auth).
+#   auth_mode            builtin | external                                  -> auth.mode
+#   auth_login_url       where the console sends users to sign in            -> auth.login_url
+#   auth_client_secret   name of the Secret holding the client secret of an
+#                        introspection authenticator (a name, not the secret) -> auth.client_secret
+#   auth_authenticators  JSON array, the authenticator chain                 -> auth.authenticators
+#   auth_group_mappings  JSON array, identity groups to roles                -> auth.group_mappings
+#   auth_key_actors      JSON array, client ids that may fetch the keys of
+#                        the user a delegated token acts for                 -> auth.key_actors
+# JSON values are single-quoted in .env, e.g. auth_key_actors='["client-a"]'.
+AUTH_ENV_KEYS=(auth_mode auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors)
+
+# check_live_auth refuses an upgrade that would silently turn the external authentication of the
+# running release off. helm renders every value from the chart defaults and the files it is given, so a
+# release that was switched to external, by hand or by an earlier .env, goes back to builtin on the
+# next upgrade whose .env carries no auth_* keys: the apiserver stops accepting the identity
+# provider's credentials and the platform roles its groups granted. The same goes for any auth.*
+# setting that the release has and .env leaves out. auth_mode=builtin in .env is the deliberate way
+# back (the break-glass for an identity provider outage) and is always allowed.
+check_live_auth() {
+  local releases live live_mode var key present unset_keys="" missing=""
+  if ! releases=$(helm -n "$NAMESPACE" list); then
+    echo "Error: cannot list the helm releases in $NAMESPACE, so the authentication mode of the running release is unknown" >&2
+    return 1
+  fi
+  if ! grep -q "^$chart_name " <<<"$releases"; then
+    return 0 # nothing installed yet, nothing to lose
+  fi
+  if [[ "${auth_mode:-}" == "builtin" ]]; then
+    return 0
+  fi
+  for var in "${AUTH_ENV_KEYS[@]}"; do
+    if [[ -z "${!var+x}" ]]; then
+      unset_keys="$unset_keys $var"
+    fi
+  done
+  if [[ -z "$unset_keys" ]]; then
+    return 0 # .env says everything: nothing can be dropped
+  fi
+  if command -v jq &> /dev/null; then
+    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o json); then
+      echo "Error: cannot read the values of release $chart_name, so its authentication mode is unknown" >&2
+      return 1
+    fi
+    if ! live_mode=$(jq -r '.auth.mode // "builtin"' <<<"$live"); then
+      echo "Error: cannot read auth.mode from the values of release $chart_name" >&2
+      return 1
+    fi
+  else
+    # Without jq only the mode can be read, from the YAML: a release that is not external has nothing
+    # to lose and needs nothing else, so it upgrades as it always did.
+    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o yaml); then
+      echo "Error: cannot read the values of release $chart_name, so its authentication mode is unknown" >&2
+      return 1
+    fi
+    if ! live_mode=$(awk '/^auth:/ {a = 1; next} /^[^ #]/ {a = 0} a && /^  mode:/ {gsub(/["\047]/, "", $2); print $2; exit}' <<<"$live"); then
+      echo "Error: cannot read auth.mode from the values of release $chart_name" >&2
+      return 1
+    fi
+  fi
+  if [[ "$live_mode" != "external" ]]; then
+    return 0
+  fi
+  if ! command -v jq &> /dev/null; then
+    echo "Error: release $chart_name is running with auth.mode=external, and jq is required to see which of its auth settings .env must carry" >&2
+    echo "       Nothing has been changed. Install jq, or set every auth_* key in .env, or set auth_mode=builtin to go back" >&2
+    echo "       to the built-in authentication on purpose." >&2
+    return 1
+  fi
+  for var in $unset_keys; do
+    key="${var#auth_}"
+    if ! present=$(jq -r --arg k "$key" '.auth[$k] | (. != null and . != "" and . != [] and . != {})' <<<"$live"); then
+      echo "Error: cannot read auth.$key from the values of release $chart_name" >&2
+      return 1
+    fi
+    if [[ "$present" == "true" ]]; then
+      missing="$missing $var"
+    fi
+  done
+  if [[ -n "$missing" ]]; then
+    echo "Error: release $chart_name is running with auth.mode=external, but .env does not set:$missing" >&2
+    echo "       Upgrading now would drop those settings: the apiserver would stop accepting the identity" >&2
+    echo "       provider's credentials, or the roles its groups grant. Nothing has been changed." >&2
+    echo "       Add them to .env (the live values are: helm -n $NAMESPACE get values $chart_name -o json | jq .auth)," >&2
+    echo "       or set auth_mode=builtin to go back to the built-in authentication on purpose." >&2
+    return 1
+  fi
+}
+
+# write_auth_values writes the auth_* keys of .env to the values file $1 (JSON, which helm reads as
+# YAML) and sets AUTH_VALUES_FILE to it; it stays empty when .env sets none. It returns 1, with a
+# message, for a value that cannot be used, before anything is changed.
+write_auth_values() {
+  local out="$1" json='{}' var key val any=false
+  AUTH_VALUES_FILE=""
+  for var in "${AUTH_ENV_KEYS[@]}"; do
+    if [[ -n "${!var+x}" ]]; then
+      any=true
+    fi
+  done
+  if [[ "$any" != "true" ]]; then
+    return 0
+  fi
+  if ! command -v jq &> /dev/null; then
+    # The break-glass alone, auth_mode=builtin, needs no jq to be written.
+    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_client_secret+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}" ]]; then
+      printf '{"auth":{"mode":"builtin"}}\n' > "$out"
+      AUTH_VALUES_FILE="$out"
+      return 0
+    fi
+    echo "Error: jq is required when .env sets auth_* keys other than auth_mode=builtin alone" >&2
+    return 1
+  fi
+  for var in "${AUTH_ENV_KEYS[@]}"; do
+    if [[ -z "${!var+x}" ]]; then
+      continue
+    fi
+    val="${!var}"
+    key="${var#auth_}"
+    case "$var" in
+      auth_authenticators|auth_group_mappings|auth_key_actors)
+        if [[ -z "${val//[[:space:]]/}" ]]; then
+          val='[]'
+        fi
+        if ! jq -e 'type == "array"' <<<"$val" &> /dev/null; then
+          echo "Error: $var in .env is not a JSON array" >&2
+          return 1
+        fi
+        json=$(jq -c --arg k "$key" --argjson v "$val" '.[$k] = $v' <<<"$json")
+        ;;
+      auth_mode)
+        if [[ "$val" != "builtin" && "$val" != "external" ]]; then
+          echo "Error: auth_mode in .env must be builtin or external" >&2
+          return 1
+        fi
+        json=$(jq -c --arg k "$key" --arg v "$val" '.[$k] = $v' <<<"$json")
+        ;;
+      *)
+        json=$(jq -c --arg k "$key" --arg v "$val" '.[$k] = $v' <<<"$json")
+        ;;
+    esac
+  done
+  # The apiserver refuses to start in external mode without a chain.
+  if [[ "${auth_mode:-}" == "external" ]] && ! jq -e '(.authenticators // []) | length > 0' <<<"$json" &> /dev/null; then
+    echo "Error: auth_mode=external in .env needs a non-empty auth_authenticators" >&2
+    return 1
+  fi
+  jq -n --argjson a "$json" '{auth: $a}' > "$out"
+  AUTH_VALUES_FILE="$out"
 }
 
 echo "====================================="
@@ -68,6 +228,10 @@ echo "✅ CSI Volume Handle: \"$csi_volume_handle\""
 echo "✅ Node Agent GPU Driver: \"${node_agent_gpu_driver:-6.12.12}\""
 echo "✅ Node Agent ROCm Version: \"${node_agent_rocm_version:-6.4}\""
 echo "✅ Node Agent Toggles: net_bnxt_load_204=${node_agent_toggle_net_bnxt_load_204:-off}, net_ainic_load_205=${node_agent_toggle_net_ainic_load_205:-off}, net_ainic_devices_208=${node_agent_toggle_net_ainic_devices_208:-off}, sys_csi_wekafs_309=${node_agent_toggle_sys_csi_wekafs_309:-on}"
+echo "✅ Auth mode: \"${auth_mode:-unset}\""
+
+# Before anything is changed: an upgrade must not silently turn the external authentication off.
+check_live_auth
 
 echo
 
@@ -218,7 +382,7 @@ if [[ -n "${proxy_services:-}" ]]; then
   services: $proxy_services" "$values_yaml"
 fi
 
-chart_name="primus-safe"
+write_auth_values "primus-safe/.auth-values.json"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"
   mkdir -p output
@@ -228,8 +392,8 @@ if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   echo
   rm -rf output
 fi
-install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
-rm -f "$values_yaml"
+install_or_upgrade_helm_chart "$chart_name" "$values_yaml" "$AUTH_VALUES_FILE"
+rm -f "$values_yaml" "$AUTH_VALUES_FILE"
 sleep 10
 
 echo
