@@ -2,7 +2,7 @@
 
 The [upgrade.sh](../../bootstrap/upgrade.sh) script provides a mechanism to upgrade the Primus-SaFE system after the initial installation has been completed using [install.sh](../../bootstrap/install.sh).
 
-**Prerequisites:** `helm` and `kubectl` must be installed.
+**Prerequisites:** `helm` and `kubectl` must be installed (and `jq`, for the `auth_*` keys below).
 
 ### 📋 Prerequisites
 
@@ -47,6 +47,14 @@ For additional upgrade-specific behavior, you may add these optional keys to `.e
 | `tracing_sampling_ratio` | Sampling ratio (e.g. `1.0`) |
 | `tracing_otlp_endpoint` | OTLP collector endpoint |
 | `proxy_services` | YAML list for proxy services configuration |
+| `auth_mode` | `builtin` or `external`. Sets `auth.mode`. |
+| `auth_login_url` | Where the console sends users to sign in in external mode. Sets `auth.login_url`. |
+| `auth_client_secret` | Name of the Secret that holds the client secret of an introspection authenticator. Sets `auth.client_secret`. |
+| `auth_authenticators` | JSON array, the authenticator chain. Single-quote it in `.env`. Sets `auth.authenticators`. |
+| `auth_group_mappings` | JSON array, identity groups to roles. Sets `auth.group_mappings`. |
+| `auth_key_actors` | JSON array of identity client ids. Sets `auth.key_actors`. |
+
+The `auth_*` keys persist [external authentication](../apis/external-authentication.md#keeping-the-settings-across-upgrades) across upgrades and CD runs; they need `jq`. When the running release is external and `.env` does not set one of them that the release has, the script refuses to upgrade (it exits non-zero before changing anything) instead of switching authentication back to builtin; `auth_mode=builtin` is the deliberate way back.
 
 > resource-manager adds a finalizer to every Secret that has workspace mirror targets, including ones made by hand with `kubectl`, and removes it again once the Secret has no targets and its copies are gone (for example after the selector annotation is deleted). Before `helm uninstall` and deleting the `primus-safe` namespace, delete such Secrets or remove the annotations and wait for the finalizer to go, or the namespace stays in `Terminating`.
 
@@ -111,7 +119,7 @@ Unlike [install.sh](../../bootstrap/install.sh), the upgrade script:
 - If `ingress=higress`, `sub_domain` from `.env` is applied
 - Data-plane observability (OpenSearch, Grafana) is now managed via Robust AddonTemplate, not direct primus-lens integration
 - Backup your configuration before performing upgrades
-- **Deployments with `auth.mode: external`:** the platform roles (`system-admin`, `system-admin-readonly`) come only from `auth.group_mappings`; the ones stored on user objects no longer count, so a local break-glass administrator (a `builtin` entry kept last in `auth.authenticators`) becomes an ordinary user. Grant every administrator the role through a group mapping before upgrading, and have them sign in through the identity provider (a local account no longer opens the administrator pages; `POST /auth/verify` runs the same authenticator chain, so services behind it see those administrators); see [External Authentication](../apis/external-authentication.md#upgrading-from-a-release-that-kept-local-administrators)
+- **Deployments with `auth.mode: external`:** keep the `auth_*` keys in `.env` (see above), or the script stops instead of turning authentication back to builtin. The platform roles (`system-admin`, `system-admin-readonly`) come only from `auth.group_mappings`; the ones stored on user objects no longer count, so a local break-glass administrator (a `builtin` entry kept last in `auth.authenticators`) becomes an ordinary user. Grant every administrator the role through a group mapping before upgrading, and have them sign in through the identity provider (a local account no longer opens the administrator pages; `POST /auth/verify` runs the same authenticator chain, so services behind it see those administrators); see [External Authentication](../apis/external-authentication.md#upgrading-from-a-release-that-kept-local-administrators)
 - Test upgrades in a non-production environment first
 
 ### 🔄 Upgrade Command
