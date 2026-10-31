@@ -48,6 +48,26 @@ Every account has a **type** and a set of **roles**.
 | `default` | Regular user. Can only act in workspaces they've been granted. |
 | `system-admin` | Full control of all resources (users, workspaces, nodes, clusters). |
 | `system-admin-readonly` | Can view everything platform-wide, but cannot create/update/delete. |
+| `self-read` | Can read the user's own account record and nothing else. Meant for a deployment where a new user holds no access until an administrator grants it (see below). |
+
+### A new user that holds no access yet
+
+By default every user holds the `default` role and joins the workspaces marked as default. To have a
+new user start with no access instead, set these in the `primus-safe` chart values:
+
+```yaml
+users:
+  base_roles: [self-read]          # roles every user who is not a system administrator holds
+  join_default_workspaces: false   # do not add new users to the default workspaces
+console:
+  access_contact: "Ask the platform team in #help"   # shown on the console's "no access yet" page
+```
+
+A user who holds only `self-read` signs in and sees a "no access yet" page with their name, e-mail, id
+and the contact line; every other API route answers `403`. To grant access, a `system-admin` adds the
+`default` role and the workspaces to the user (see [Assign workspace access and roles](#assign-workspace-access-and-roles)).
+`base_roles` roles must exist as `Role` objects before users can be created (the `primus-safe-cr` chart
+creates `self-read`, so install or upgrade it first). Users who already hold `default` keep it.
 
 Roles and workspace grants are **independent of** how the user authenticates — an SSO user can
 be a `system-admin`, and a local user can be a regular member.

@@ -38,6 +38,8 @@ data:
     ssh:
       # Whether to enable ssh, Users can log in directly to their own pods.
       enable: {{ .Values.ssh.enable }}
+    users:
+      {{- include "primus-safe.usersConfig" . | nindent 6 }}
     ops_job:
       # The lifecycle of the opsjob after completion, in seconds. Default is 60.
       ttl_second: {{ default 60 (default .Values.ops_job).ttl_second }}

@@ -107,7 +107,7 @@ User authentication and access token retrieval.
 | name | string | Username                                                      |
 | email | string | Email address                                                 |
 | type | string | User type: default/sso                                        |
-| roles | []string | User roles. e.g. system-admin, system-admin-readonly, default |
+| roles | []string | User roles. e.g. system-admin, system-admin-readonly, default, self-read (reads the user's own record only) |
 | workspaces | []object | Workspaces the user can access (non-admin only)               |
 | managedWorkspaces | []object | Workspaces the user can manage (non-admin only)               |
 | creationTime | string | User creation time (RFC3339)                                  |

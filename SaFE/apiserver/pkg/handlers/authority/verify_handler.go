@@ -47,16 +47,19 @@ type VerifyTokenRequest struct {
 
 // VerifyTokenResponse represents the response body for token verification
 type VerifyTokenResponse struct {
-	Id            string        `json:"id"`
-	Name          string        `json:"name"`
-	Email         string        `json:"email,omitempty"`
-	PreferredName string        `json:"preferredName,omitempty"`
-	Exp           int64         `json:"exp"`
-	Type          string        `json:"type"`
-	Roles         []v1.UserRole `json:"roles"`
-	ApiKeyId      int64         `json:"apiKeyId,omitempty"`
-	PlatformKey   string        `json:"platformKey,omitempty"`
-	VirtualKey    string        `json:"virtualKey,omitempty"`
+	Id            string `json:"id"`
+	Name          string `json:"name"`
+	Email         string `json:"email,omitempty"`
+	PreferredName string `json:"preferredName,omitempty"`
+	Exp           int64  `json:"exp"`
+	Type          string `json:"type"`
+	// Roles are the roles the user holds as the apiserver sees them (in external mode, with the roles the
+	// identity's groups map to and the deployment's base roles applied): what a service that wants to
+	// serve only users who hold a certain role reads. It is always a list, empty when the user holds none.
+	Roles       []v1.UserRole `json:"roles"`
+	ApiKeyId    int64         `json:"apiKeyId,omitempty"`
+	PlatformKey string        `json:"platformKey,omitempty"`
+	VirtualKey  string        `json:"virtualKey,omitempty"`
 }
 
 // platformKeyFetcher resolves the platform API key for a user. It is a package
@@ -138,6 +141,11 @@ func VerifyToken(c *gin.Context) {
 		roles = builtinRoles(userInfo.Id, userInfo.Roles)
 	}
 
+	if roles == nil {
+		// Always a list: a service that requires a role reads it without a nil check, and a user who holds
+		// none holds none, which is not the same as the roles being unknown.
+		roles = []v1.UserRole{}
+	}
 	resp := VerifyTokenResponse{
 		Id:            userInfo.Id,
 		Name:          userInfo.Name,

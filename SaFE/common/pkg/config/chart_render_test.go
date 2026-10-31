@@ -653,3 +653,52 @@ func TestChartRendersModelMaxConcurrentDownloads(t *testing.T) {
 	render("--set", "model.max_concurrent_downloads=-1")
 	testifyassert.Equal(t, -1, GetModelMaxConcurrentDownloads())
 }
+
+// TestChartRendersTheUsersAndConsoleDefaults pins what a stock install gets: every user holds the default role
+// and joins the default workspaces, as the platform always did, and the console's no-access page says whom to
+// ask. The webhook and the apiserver read the same values, so they are rendered from one definition and
+// compared here.
+func TestChartRendersTheUsersAndConsoleDefaults(t *testing.T) {
+	for _, name := range []string{"apiserver", "webhooks"} {
+		loadRendered(t, renderConfigMapData(t, name, "config.yaml"))
+		testifyassert.Equal(t, []string{"default"}, GetUserBaseRoles(), name)
+		testifyassert.True(t, IsUserJoinDefaultWorkspaces(), name)
+	}
+	loadRendered(t, renderApiserverConfig(t))
+	testifyassert.Equal(t, "请联系管理员开通", GetConsoleAccessContact())
+}
+
+// TestChartRendersTheMinimalUsersConfiguration pins that the values an operator writes for a deployment that
+// grants nothing until an administrator does reach both components, including the one Helm's `default`
+// swallows: false.
+func TestChartRendersTheMinimalUsersConfiguration(t *testing.T) {
+	values := []string{"--set", "users.base_roles={self-read}", "--set", "users.join_default_workspaces=false"}
+	for _, name := range []string{"apiserver", "webhooks"} {
+		loadRendered(t, renderConfigMapData(t, name, "config.yaml", values...))
+		testifyassert.Equal(t, []string{"self-read"}, GetUserBaseRoles(), name)
+		testifyassert.False(t, IsUserJoinDefaultWorkspaces(), name)
+	}
+
+	// More than one, and an empty list (which is the default, not "no roles").
+	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml", "--set", "users.base_roles={self-read,viewer}"))
+	testifyassert.Equal(t, []string{"self-read", "viewer"}, GetUserBaseRoles())
+	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml", "--set", "users.base_roles=null"))
+	testifyassert.Equal(t, []string{"default"}, GetUserBaseRoles())
+}
+
+// TestChartRendersTheAccessContact pins that the line is carried as text (a value with a colon or a quote
+// stays one string) and that an operator who sets it to nothing gets no line, not the default put back.
+func TestChartRendersTheAccessContact(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"set", []string{"--set-string", "console.access_contact=Ask the platform team: #help"}, "Ask the platform team: #help"},
+		{"a quote", []string{"--set-string", `console.access_contact=say "hello"`}, `say "hello"`},
+		{"empty is no line", []string{"--set-string", "console.access_contact="}, ""},
+	} {
+		loadRendered(t, renderApiserverConfig(t, tt.args...))
+		testifyassert.Equal(t, tt.want, GetConsoleAccessContact(), tt.name)
+	}
+}

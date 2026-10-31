@@ -16,7 +16,7 @@ import (
 func InitA2ARouters(engine *gin.Engine, handler *Handler) {
 	a2a := engine.Group("/api/v1/a2a")
 	a2a.Use(func(c *gin.Context) {
-		err := authority.ParseToken(c)
+		err := authority.AuthenticateRequest(c)
 		if err != nil {
 			apiutils.AbortWithApiError(c, err)
 			return

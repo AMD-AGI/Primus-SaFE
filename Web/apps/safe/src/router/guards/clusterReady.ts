@@ -1,12 +1,20 @@
 import { useClusterStore } from '@/stores/cluster'
-import axios from 'axios'
+import { statusOf } from '@/utils/httpStatus'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type { Router } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
-const statusOf = (e: unknown) => (axios.isAxiosError(e) ? e.response?.status : undefined)
-
-const SKIP_ROUTES = new Set(['/login', '/register', '/error', '/403', '/login-admin', '/sso-error'])
+// /no-access is skipped so that landing on it does not fetch the clusters again. It is not a
+// public route: the auth guard still requires a session for it.
+const SKIP_ROUTES = new Set([
+  '/login',
+  '/register',
+  '/error',
+  '/403',
+  '/login-admin',
+  '/sso-error',
+  '/no-access',
+])
 
 export default function setupClusterGuard(router: Router) {
   router.beforeEach(async (to, from, next) => {
@@ -23,7 +31,16 @@ export default function setupClusterGuard(router: Router) {
       }
 
       if (!clusterStore.isFetched) {
-        await clusterStore.fetchClusters()
+        try {
+          // Quiet: a refusal is read below, not shown as a toast.
+          await clusterStore.fetchClusters(true)
+        } catch (e) {
+          // An account that holds only the first-login role may read nothing but its own record,
+          // so the platform answers 403 here. That is "no access yet", not a fault: say so, from
+          // whatever page was asked for. Any other failure is handled as before.
+          if (statusOf(e) === 403) return next('/no-access')
+          throw e
+        }
       }
 
       // Admins are allowed to proceed even when no cluster is available

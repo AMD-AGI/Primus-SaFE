@@ -702,3 +702,49 @@ func TestAuthConfig(t *testing.T) {
 	_, err = GetAuthenticators()
 	testifyassert.Error(t, err, "an unreadable chain is an error, never an empty one")
 }
+
+// users.* and console.access_contact: what a key that is not set means, and what one that is set to
+// something the operator might write means.
+func TestUsersAndConsoleConfig(t *testing.T) {
+	t.Cleanup(viper.Reset)
+
+	viper.Reset()
+	testifyassert.Nil(t, GetUserBaseRoles(), "unset is nil: the caller supplies the default")
+	testifyassert.True(t, IsUserJoinDefaultWorkspaces(), "unset joins, as the platform always did")
+	testifyassert.Equal(t, "", GetConsoleAccessContact())
+
+	for _, tt := range []struct {
+		name  string
+		value any
+		want  []string
+	}{
+		{"a list", []string{"self-read"}, []string{"self-read"}},
+		{"a comma separated scalar", "self-read, viewer", []string{"self-read", "viewer"}},
+		{"an empty list is empty, not unset", []string{}, nil},
+		{"blank entries are dropped", []string{"self-read", " "}, []string{"self-read"}},
+	} {
+		viper.Reset()
+		viper.Set("users.base_roles", tt.value)
+		testifyassert.Equal(t, tt.want, GetUserBaseRoles(), tt.name)
+	}
+
+	for _, tt := range []struct {
+		value any
+		want  bool
+	}{{true, true}, {false, false}, {"false", false}, {"true", true}} {
+		viper.Reset()
+		viper.Set("users.join_default_workspaces", tt.value)
+		testifyassert.Equal(t, tt.want, IsUserJoinDefaultWorkspaces(), "%v", tt.value)
+	}
+
+	viper.Reset()
+	viper.Set("console.access_contact", "  Ask your administrator  ")
+	testifyassert.Equal(t, "Ask your administrator", GetConsoleAccessContact(), "surrounding space is not part of the line")
+	viper.Set("console.access_contact", "")
+	testifyassert.Equal(t, "", GetConsoleAccessContact())
+
+	SetValue("users.join_default_workspaces", "false")
+	testifyassert.False(t, IsUserJoinDefaultWorkspaces())
+	UnsetValue("users.join_default_workspaces")
+	testifyassert.True(t, IsUserJoinDefaultWorkspaces(), "UnsetValue reads as not configured, not as configured empty")
+}

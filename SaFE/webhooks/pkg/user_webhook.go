@@ -20,6 +20,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -117,7 +118,7 @@ func (m *UserMutator) mutateLabels(user *v1.User) {
 // 1. System admin users only keep SystemAdminRole
 // 2. Remove duplicate roles
 // 3. Filter out WorkspaceAdminRole (not allowed)
-// 4. Add DefaultRole for non-system admins if missing
+// 4. Add the base roles (users.base_roles, [default] unless configured) for non-system admins if missing
 func (m *UserMutator) mutateRoles(user *v1.User) {
 	switch {
 	case user.IsSystemAdmin() && len(user.Spec.Roles) > 1:
@@ -136,8 +137,8 @@ func (m *UserMutator) mutateRoles(user *v1.User) {
 			user.Spec.Roles = newRoles
 		}
 	}
-	if !user.IsSystemAdmin() && !v1.IsContainRole(user.Spec.Roles, v1.DefaultRole) {
-		user.Spec.Roles = append(user.Spec.Roles, v1.DefaultRole)
+	if !user.IsSystemAdmin() {
+		user.Spec.Roles = append(user.Spec.Roles, commonuser.MissingBaseRoles(user.Spec.Roles)...)
 	}
 }
 
@@ -157,7 +158,14 @@ func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 		}
 	}
 
-	// adds default workspaces to users' workspace lists.
+	// adds default workspaces to users' workspace lists, unless the deployment keeps a new user out
+	// of them until an administrator adds the user (users.join_default_workspaces).
+	if !commonconfig.IsUserJoinDefaultWorkspaces() {
+		if len(currentWorkspaces) != len(workspaces) {
+			commonuser.AssignWorkspace(user, workspaces...)
+		}
+		return
+	}
 	workspaceList := &v1.WorkspaceList{}
 	err := m.List(ctx, workspaceList)
 	if err != nil {

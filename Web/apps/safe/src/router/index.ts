@@ -40,6 +40,13 @@ const router = createRouter({
       meta: { hideMenu: true },
     },
     {
+      // Outside the layout, like /403: no menu and no header. Not a public route; see auth.ts.
+      path: '/no-access',
+      name: 'NoAccess',
+      component: () => import('../pages/NoAccess/NoAccessPage.vue'),
+      meta: { hideMenu: true },
+    },
+    {
       path: '/',
       component: () => import('@/layouts/AppLayout.vue'),
       children: [

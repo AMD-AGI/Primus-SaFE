@@ -82,7 +82,7 @@ func InitRoutes(engine *gin.Engine, handler *Handler) {
 	}
 
 	authMiddleware := func(c *gin.Context) {
-		if err := authority.ParseToken(c); err != nil {
+		if err := authority.AuthenticateRequest(c); err != nil {
 			apiutils.AbortWithApiError(c, err)
 			return
 		}
@@ -136,7 +136,7 @@ var llmProxyAuthHeaderMappings = []llmProxyAuthHeaderMapping{
 
 func llmProxyAuthMiddleware(c *gin.Context) {
 	normalizeProxyAPIKeyHeader(c)
-	if err := authority.ParseToken(c); err != nil {
+	if err := authority.AuthenticateRequest(c); err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}

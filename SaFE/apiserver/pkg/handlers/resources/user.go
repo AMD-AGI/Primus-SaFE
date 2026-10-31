@@ -82,12 +82,14 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 	handle(c, h.deleteUser)
 }
 
-// GetUserSettings returns the notification preferences for a user.
+// GetUserSettings returns the notification preferences for a user. The caller's own need the right to
+// update the caller's own record; another user's need the right to read their identity (administrators).
 func (h *Handler) GetUserSettings(c *gin.Context) {
 	handle(c, h.getUserSettings)
 }
 
-// UpdateUserSettings updates the notification preferences for a user.
+// UpdateUserSettings updates the notification preferences for a user. The caller's own need the right to
+// update the caller's own record.
 func (h *Handler) UpdateUserSettings(c *gin.Context) {
 	handle(c, h.updateUserSettings)
 }
@@ -97,13 +99,24 @@ func (h *Handler) getUserSettings(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if requestUser == nil {
+		return nil, commonerrors.NewUnauthorized("the request user is unknown")
+	}
 	targetUserId := c.GetString(common.Name)
 	var targetUser *v1.User
 	if targetUserId == common.UserSelf {
+		if err = h.authorizeOwnSettings(c, requestUser); err != nil {
+			return nil, err
+		}
 		targetUser = requestUser
 	} else {
 		targetUser, err = h.getAdminUser(c.Request.Context(), targetUserId)
 		if err != nil {
+			return nil, err
+		}
+		roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
+		if err = h.authUserAction(c, requestUser, targetUser,
+			commonuser.GetWorkspace(targetUser), authority.UserIdentityResource, roles, v1.GetVerb); err != nil {
 			return nil, err
 		}
 	}
@@ -112,17 +125,41 @@ func (h *Handler) getUserSettings(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+// authorizeOwnSettings checks that the request user may change the user's own record. The
+// notification settings are the user's own, to read and to change, so a user whom the roles do
+// not let update their own record (the self-read role reads it and nothing more) has none: the
+// check comes first, before the body is read.
+func (h *Handler) authorizeOwnSettings(c *gin.Context, requestUser *v1.User) error {
+	return h.accessController.Authorize(authority.AccessInput{
+		Context:       c.Request.Context(),
+		ResourceKind:  v1.UserKind,
+		ResourceName:  requestUser.Name,
+		ResourceOwner: requestUser.Name,
+		Verb:          v1.UpdateVerb,
+		User:          requestUser,
+		UserId:        c.GetString(common.UserId),
+	})
+}
+
 func (h *Handler) updateUserSettings(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
+	}
+	if requestUser == nil {
+		return nil, commonerrors.NewUnauthorized("the request user is unknown")
+	}
+	targetUserId := c.GetString(common.Name)
+	if targetUserId == common.UserSelf {
+		if err = h.authorizeOwnSettings(c, requestUser); err != nil {
+			return nil, err
+		}
 	}
 	req := &view.UpdateUserSettingsRequest{}
 	if _, err = apiutils.ParseRequestBody(c.Request, req); err != nil {
 		return nil, err
 	}
 
-	targetUserId := c.GetString(common.Name)
 	var targetUser *v1.User
 	if targetUserId == common.UserSelf {
 		// The record, not requestUser: that is the user as this request sees it, with the roles
@@ -490,6 +527,11 @@ func (h *Handler) authUserUpdate(c *gin.Context, targetUser *v1.User, req *view.
 // on the target user, considering workspaces and resource types.
 func (h *Handler) authUserAction(c *gin.Context, requestUser, targetUser *v1.User,
 	workspaces []string, kind string, roles []*v1.Role, verb v1.RoleVerb) error {
+	if kind == "" {
+		// A user object read through a client does not always carry its kind, and an empty one
+		// matches no rule: say it, so the rules that name the user resource always apply.
+		kind = v1.UserKind
+	}
 	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: kind,

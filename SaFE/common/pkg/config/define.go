@@ -121,6 +121,15 @@ const (
 	userPrefix            = "user."
 	userTokenExpireSecond = userPrefix + "token_expire"
 
+	// users: what every user holds when an administrator has granted nothing
+	usersPrefix                = "users."
+	usersBaseRoles             = usersPrefix + "base_roles"
+	usersJoinDefaultWorkspaces = usersPrefix + "join_default_workspaces"
+
+	// console: what the web console shows
+	consolePrefix        = "console."
+	consoleAccessContact = consolePrefix + "access_contact"
+
 	// tls (outbound HTTPS verification for third-party / model endpoints)
 	tlsPrefix         = "tls."
 	tlsVerifyOutbound = tlsPrefix + "verify_outbound"

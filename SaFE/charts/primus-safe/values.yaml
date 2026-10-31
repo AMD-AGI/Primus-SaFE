@@ -222,6 +222,26 @@ tls:
   # stay compatible with self-signed ingress certificates and images without an
   # updated CA bundle. Set to true in deployments that provide valid certs/CA.
   verify_outbound: false
+# What every user holds when an administrator has granted nothing. The defaults are what the
+# platform has always done: everyone holds the `default` role and joins the workspaces marked as
+# default. A deployment that wants a new user to start with no access sets base_roles to
+# [self-read] (a built-in role that lets a user read their own user record only) and
+# join_default_workspaces to false; an administrator then grants the roles and workspaces.
+users:
+  # Roles every user who is not a system administrator holds. The admission webhook adds the ones
+  # a user lacks when the user is created or updated, and in external authentication mode the
+  # apiserver adds them to every request. The platform roles (system-admin, system-admin-readonly)
+  # and workspace-admin are ignored here; an empty list is the default.
+  # Every role named here must exist as a Role object (primus-safe-cr creates self-read) before
+  # the webhook can create a user, so install or upgrade primus-safe-cr first.
+  base_roles:
+    - default
+  # Whether every user joins the workspaces marked as default.
+  join_default_workspaces: true
+console:
+  # The line the web console's "no access yet" page shows to a user who holds no access. Plain
+  # text; set it to "" to show none.
+  access_contact: "请联系管理员开通"
 # Pluggable authentication, in the Kubernetes style. Authorization (roles, workspaces) always stays in SaFE.
 # See docs/apis/external-authentication.md.
 auth:

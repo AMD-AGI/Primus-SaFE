@@ -30,6 +30,12 @@ func SetValue(key, value string) {
 	viper.Set(key, value)
 }
 
+// UnsetValue removes a value set with SetValue, so that the key reads as not configured again (which
+// is not the same as configured empty).
+func UnsetValue(key string) {
+	viper.Set(key, nil)
+}
+
 // LoadConfig loads configuration from the specified file path.
 func LoadConfig(path string) error {
 	viper.SetConfigFile(path)
@@ -454,6 +460,25 @@ func GetImageSecret() string {
 // GetUserTokenExpire returns the user token expiration time in seconds.
 func GetUserTokenExpire() int {
 	return getInt(userTokenExpireSecond, -1)
+}
+
+// GetUserBaseRoles returns users.base_roles as configured: the roles every user who is not a
+// system administrator holds. It is nil when the key is not set. Callers that need the
+// effective list (defaulted and sanitized) use commonuser.BaseRoles.
+func GetUserBaseRoles() []string {
+	return getStringSlice(usersBaseRoles, nil)
+}
+
+// IsUserJoinDefaultWorkspaces reports whether every user is added to the workspaces marked as
+// default, on creation and on every update (users.join_default_workspaces, true unless set).
+func IsUserJoinDefaultWorkspaces() bool {
+	return getBool(usersJoinDefaultWorkspaces, true)
+}
+
+// GetConsoleAccessContact returns console.access_contact, the line the web console's
+// "no access yet" page shows to a user who holds no access. It is empty unless set.
+func GetConsoleAccessContact() string {
+	return strings.TrimSpace(getString(consoleAccessContact, ""))
 }
 
 // IsOutboundTLSVerifyEnabled reports whether outbound HTTPS requests to model

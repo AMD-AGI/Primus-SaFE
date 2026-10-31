@@ -27,6 +27,9 @@ const (
 	// only for internal-use, The user will not be assigned the workspace-admin role
 	WorkspaceAdminRole UserRole = "workspace-admin"
 	DefaultRole        UserRole = "default"
+	// SelfReadRole is the built-in role that lets a user read the user's own User record and nothing else.
+	// It is meant as the base role of a deployment that grants nothing to a user until an administrator does.
+	SelfReadRole UserRole = "self-read"
 )
 
 type UserSpec struct {
