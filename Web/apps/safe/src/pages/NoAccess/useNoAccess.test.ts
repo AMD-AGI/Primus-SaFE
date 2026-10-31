@@ -62,7 +62,8 @@ const profile: UserSelfData = {
   restrictedType: 0,
 }
 
-const httpError = (status: number) =>
+// An error as axios raises it for a response with this status and body.
+const httpError = (status: number, data: unknown = {}) =>
   new AxiosError(
     `Request failed with status code ${status}`,
     'ERR_BAD_REQUEST',
@@ -71,11 +72,19 @@ const httpError = (status: number) =>
     {
       status,
       statusText: '',
-      data: {},
+      data,
       headers: {},
       config: {} as InternalAxiosRequestConfig,
     },
   )
+
+// The 403 the apiserver sends for a user that has no access yet (its own error code, written out
+// here on purpose: it is the contract with the server).
+const noAccessBody = {
+  errorCode: 'Primus.00051',
+  errorMessage: 'The user has no access yet. Ask an administrator to grant it',
+}
+const noAccess = () => httpError(403, noAccessBody)
 
 // A promise the test settles by hand.
 const deferred = <T>() => {
@@ -214,8 +223,8 @@ describe('Check again', () => {
     expect(page.checking.value).toBe(false)
   })
 
-  it('stays, and says so, on 403', async () => {
-    services.getClusters.mockRejectedValue(httpError(403))
+  it('stays, and says so, when refused with "no access yet"', async () => {
+    services.getClusters.mockRejectedValue(noAccess())
     const { cluster, page } = setup()
     await page.checkAgain()
     expect(services.getClusters).toHaveBeenCalledTimes(1)
@@ -225,8 +234,8 @@ describe('Check again', () => {
     expect(cluster.isFetched).toBe(false)
   })
 
-  it('goes home after a 403 once access has been granted', async () => {
-    services.getClusters.mockRejectedValueOnce(httpError(403))
+  it('goes home after a "no access yet" once access has been granted', async () => {
+    services.getClusters.mockRejectedValueOnce(noAccess())
     const { page } = setup()
     await page.checkAgain()
     expect(replace).not.toHaveBeenCalled()
@@ -252,6 +261,13 @@ describe('Check again', () => {
   it.each([
     ['a 500', httpError(500)],
     ['a 401', httpError(401)],
+    [
+      'a 403 with another error code',
+      httpError(403, { errorCode: 'Primus.00003', errorMessage: 'denied' }),
+    ],
+    ['a 403 with an empty body', httpError(403, {})],
+    ['a 403 with no body', httpError(403, undefined)],
+    ['a 403 with a string body', httpError(403, 'Forbidden')],
     ['a network error', new AxiosError('Network Error', 'ERR_NETWORK')],
   ])(
     'hands %s to the guards by going home, which treats it as it always did',
@@ -326,7 +342,7 @@ describe('what the page may ask the server', () => {
 
   it('never reads another user, a user list, the workspaces or the user record', async () => {
     services.getEnvs.mockResolvedValue({})
-    services.getClusters.mockRejectedValue(httpError(403))
+    services.getClusters.mockRejectedValue(noAccess())
     const { page } = setup({ envs: null })
     await page.loadContact()
     await page.copyId()

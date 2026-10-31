@@ -39,6 +39,7 @@ import (
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -188,7 +189,8 @@ func (r *syncRecorder) Flush() {
 }
 
 func refusedByTheGate(code int, body string) bool {
-	return code == http.StatusForbidden && strings.Contains(body, authority.ErrNoAccess)
+	return code == http.StatusForbidden && strings.Contains(body, authority.ErrNoAccess) &&
+		strings.Contains(body, commonerrors.NoAccess)
 }
 
 // Routes the apiserver serves without authenticating the caller. A route that appears here without

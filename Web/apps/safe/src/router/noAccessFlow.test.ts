@@ -44,6 +44,13 @@ const self = {
   roles: ['first-login'],
 }
 
+// The body of the 403 that means "no access yet": its own error code, written out here on
+// purpose, as it is the contract with the apiserver.
+const noAccessBody = {
+  errorCode: 'Primus.00051',
+  errorMessage: 'The user has no access yet. Ask an administrator to grant it',
+}
+
 type Reply = { status: number; data?: unknown }
 let replies: Record<string, Reply>
 let asked: string[]
@@ -92,7 +99,8 @@ beforeEach(() => {
     '/envs': { status: 200, data: { authMode: 'external', accessContact: 'team@example.com' } },
     '/users/self': { status: 200, data: self },
     '/users/self/workspaces': { status: 200, data: { workspaces: [], managedWorkspaces: [] } },
-    '/clusters': { status: 403, data: { errorCode: 'Primus.00005', errorMessage: 'forbidden' } },
+    // What the apiserver answers a user that has no access yet.
+    '/clusters': { status: 403, data: noAccessBody },
     '/logout': { status: 200, data: {} },
   }
   vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -145,6 +153,26 @@ describe('other failures of the clusters fetch are unchanged', () => {
     const { router } = await boot()
     await router.push('/workloads')
     expect(router.currentRoute.value.fullPath).toBe('/error')
+  })
+
+  // A user who holds other access can be refused the cluster list by the handler's own role
+  // check; only the "no access yet" code may send anyone to /no-access.
+  it.each([
+    ['another error code', { errorCode: 'Primus.00003', errorMessage: 'denied' }],
+    ['an empty body', {}],
+    ['no body', undefined],
+    ['a text body', 'Forbidden'],
+  ])('a 403 with %s goes to /error, not /no-access', async (_label, data) => {
+    replies['/clusters'] = { status: 403, data }
+    const { router } = await boot()
+    await router.push('/workloads')
+    expect(router.currentRoute.value.fullPath).toBe('/error')
+    expect(asked).toEqual([
+      'GET /envs',
+      'GET /users/self',
+      'GET /users/self/workspaces',
+      'GET /clusters',
+    ])
   })
 
   it('a 401 goes to /login with the page asked for as the way back', async () => {
@@ -204,12 +232,24 @@ describe('Check again through the real request layer', () => {
     }
   }
 
-  it('stays when the clusters still answer 403', async () => {
+  it('stays when the clusters still answer "no access yet"', async () => {
     const { page, replace } = await useIt()
     await page.checkAgain()
     expect(asked).toEqual(['GET /clusters'])
     expect(page.stillNoAccess.value).toBe(true)
     expect(replace).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['another error code', { errorCode: 'Primus.00003', errorMessage: 'denied' }],
+    ['no body', undefined],
+  ])('goes home, to be handled there, on a 403 with %s', async (_label, data) => {
+    const { page, replace } = await useIt()
+    replies['/clusters'] = { status: 403, data }
+    await page.checkAgain()
+    expect(asked).toEqual(['GET /clusters'])
+    expect(page.stillNoAccess.value).toBe(false)
+    expect(replace).toHaveBeenCalledWith('/')
   })
 
   it('goes home when they answer', async () => {

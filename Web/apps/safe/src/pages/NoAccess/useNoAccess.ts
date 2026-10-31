@@ -3,7 +3,7 @@ import type { Router } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useUserStore } from '@/stores/user'
 import { copyText } from '@/utils'
-import { statusOf } from '@/utils/httpStatus'
+import { isNoAccess } from '@/utils/httpStatus'
 
 /**
  * The logic of the "no access yet" page, kept apart from the template so it can be tested.
@@ -56,9 +56,9 @@ export function useNoAccess(router: Pick<Router, 'replace'>) {
    * so nothing needs resetting first (a reset would also drop the saved cluster of a user who
    * does have access and merely opened this page from a bookmark).
    * - success: go home; the store is fetched now, so the guard does not ask a second time.
-   * - 403: stay, and say so.
-   * - anything else (server down, session over): go home too; the guard asks again and treats it
-   *   as it always did (/error, or the sign-in page).
+   * - refused with "no access yet": stay, and say so.
+   * - anything else (server down, session over, a 403 that is not "no access yet"): go home too;
+   *   the guard asks again and treats it as it always did (/error, or the sign-in page).
    */
   async function checkAgain() {
     if (checking.value) return
@@ -67,7 +67,7 @@ export function useNoAccess(router: Pick<Router, 'replace'>) {
     try {
       await clusterStore.fetchClusters(true)
     } catch (e) {
-      if (statusOf(e) === 403) {
+      if (isNoAccess(e)) {
         stillNoAccess.value = true
         return
       }

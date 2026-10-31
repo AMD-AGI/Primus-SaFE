@@ -1,5 +1,5 @@
 import { useClusterStore } from '@/stores/cluster'
-import { statusOf } from '@/utils/httpStatus'
+import { isNoAccess, statusOf } from '@/utils/httpStatus'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type { Router } from 'vue-router'
 import { useUserStore } from '@/stores/user'
@@ -36,9 +36,11 @@ export default function setupClusterGuard(router: Router) {
           await clusterStore.fetchClusters(true)
         } catch (e) {
           // An account that holds only the first-login role may read nothing but its own record,
-          // so the platform answers 403 here. That is "no access yet", not a fault: say so, from
-          // whatever page was asked for. Any other failure is handled as before.
-          if (statusOf(e) === 403) return next('/no-access')
+          // so the platform refuses here with a 403 that says "no access yet" (its own error
+          // code). That is not a fault: say so, from whatever page was asked for. Any other
+          // failure, including a different 403 (a role check that failed for a user who does
+          // hold other access), is handled as before.
+          if (isNoAccess(e)) return next('/no-access')
           throw e
         }
       }

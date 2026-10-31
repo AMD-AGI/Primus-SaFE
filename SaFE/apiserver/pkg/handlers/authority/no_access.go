@@ -19,8 +19,9 @@ import (
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 )
 
-// ErrNoAccess is the answer to a user whose roles grant nothing but reading the user's own record
-// when the request is for anything else. A client tells it from other refusals by this text.
+// ErrNoAccess is the message of the answer to a user whose roles grant nothing but reading the user's
+// own record when the request is for anything else: a 403 with the error code commonerrors.NoAccess,
+// which is what a client tells it from the other refusals by.
 const ErrNoAccess = "The user has no access yet. Ask an administrator to grant it"
 
 // userResource is the resource kind the user's own record is read as (v1.UserKind, lower case).
@@ -34,19 +35,16 @@ const userResource = "user"
 // Everything else is refused before its handler runs. That is the rule, not a list of the handlers
 // that check: a handler that forgets to check, or is added without one, is still closed to such a
 // user. The handlers' own checks stay, and are what a user who holds access is held to.
-func noAccessRoutes() map[string]bool {
-	root := "/" + common.PrimusRouterCustomRootPath
-	return map[string]bool{
-		http.MethodGet + " " + root + "/users/:" + common.Name: true,
-		http.MethodGet + " " + root + "/users/self/workspaces": true,
-		http.MethodPost + " " + root + "/logout":               true,
-	}
+var noAccessRoutes = map[string]bool{
+	http.MethodGet + " /" + common.PrimusRouterCustomRootPath + "/users/:" + common.Name: true,
+	http.MethodGet + " /" + common.PrimusRouterCustomRootPath + "/users/self/workspaces": true,
+	http.MethodPost + " /" + common.PrimusRouterCustomRootPath + "/logout":               true,
 }
 
 // IsNoAccessRoute reports whether method and the route the request matched (the pattern, such as
 // "/api/v1/users/:name", as gin's FullPath gives it) are served to a user who holds no access.
 func IsNoAccessRoute(method, fullPath string) bool {
-	return noAccessRoutes()[method+" "+fullPath]
+	return noAccessRoutes[method+" "+fullPath]
 }
 
 // HoldsNoAccess reports whether the roles grant a user nothing: no rule among them lets the user do
@@ -157,5 +155,5 @@ func RequireAccess(c *gin.Context) error {
 	}
 	apimetrics.AuthFailuresTotal.WithLabelValues("no_access").Inc()
 	klog.Warningf("refused %s %s: user %s holds no access", c.Request.Method, c.FullPath(), user.Name)
-	return commonerrors.NewForbidden(ErrNoAccess)
+	return commonerrors.NewNoAccess(ErrNoAccess)
 }

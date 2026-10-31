@@ -22,6 +22,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority/authtest"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 )
 
@@ -112,11 +113,7 @@ func newAccessEnv(t *testing.T, users ...*v1.User) *accessEnv {
 	e.Use(gin.Recovery())
 	api := e.Group("/api/v1", func(c *gin.Context) {
 		if err := AuthenticateRequest(c); err != nil {
-			status := http.StatusInternalServerError
-			if se, ok := err.(interface{ Status() metav1.Status }); ok {
-				status = int(se.Status().Code)
-			}
-			c.AbortWithStatusJSON(status, gin.H{"message": err.Error()})
+			abortAs(c, err)
 			return
 		}
 		c.Next()
@@ -142,6 +139,15 @@ func (e *accessEnv) call(user *v1.User, method, path string) *httptest.ResponseR
 	w := httptest.NewRecorder()
 	e.engine.ServeHTTP(w, req)
 	return w
+}
+
+// abortAs answers as the apiserver does: the status of the error, with its code and message.
+func abortAs(c *gin.Context, err error) {
+	status, code := http.StatusInternalServerError, ""
+	if se, ok := err.(interface{ Status() metav1.Status }); ok {
+		status, code = int(se.Status().Code), string(se.Status().Reason)
+	}
+	c.AbortWithStatusJSON(status, gin.H{"errorCode": code, "errorMessage": err.Error()})
 }
 
 func accessUser(name string, roles ...v1.UserRole) *v1.User {
@@ -208,6 +214,7 @@ func TestAuthenticateRequestRefusesAUserWhoHoldsNoAccess(t *testing.T) {
 			require.Equal(t, tt.want, w.Code, w.Body.String())
 			if tt.want == shut {
 				require.Contains(t, w.Body.String(), ErrNoAccess, "refused by the gate, not by something else")
+				require.Contains(t, w.Body.String(), commonerrors.NoAccess, "with the error code a client tells it by")
 				require.NotContains(t, w.Body.String(), "reached", "the handler must not run")
 			}
 		})
@@ -241,11 +248,7 @@ func TestAuthenticateRequestFollowsTheBaseRolesInExternalMode(t *testing.T) {
 			engine := gin.New()
 			api := engine.Group("/api/v1", func(c *gin.Context) {
 				if err := AuthenticateRequest(c); err != nil {
-					status := http.StatusInternalServerError
-					if se, ok := err.(interface{ Status() metav1.Status }); ok {
-						status = int(se.Status().Code)
-					}
-					c.AbortWithStatusJSON(status, gin.H{"message": err.Error()})
+					abortAs(c, err)
 					return
 				}
 				c.Next()
@@ -272,7 +275,7 @@ func TestNoAccessRoutesAreExactlyTheOwnRecordRoutes(t *testing.T) {
 	require.True(t, IsNoAccessRoute(http.MethodGet, "/api/v1/users/:name"))
 	require.True(t, IsNoAccessRoute(http.MethodGet, "/api/v1/users/self/workspaces"))
 	require.True(t, IsNoAccessRoute(http.MethodPost, "/api/v1/logout"))
-	require.Len(t, noAccessRoutes(), 3)
+	require.Len(t, noAccessRoutes, 3)
 	for _, not := range [][2]string{
 		{http.MethodPut, "/api/v1/users/:name"},
 		{http.MethodDelete, "/api/v1/users/:name"},

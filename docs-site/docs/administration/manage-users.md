@@ -64,7 +64,7 @@ console:
 ```
 
 A user who holds only `self-read` signs in and sees a "no access yet" page with their name, e-mail, id
-and the contact line; every other API route answers `403`. To grant access, a `system-admin` adds the
+and the contact line; every other API route answers `403` (error code `Primus.00051`). To grant access, a `system-admin` adds the
 `default` role and the workspaces to the user (see [Assign workspace access and roles](#assign-workspace-access-and-roles)).
 `base_roles` roles must exist as `Role` objects before users can be created (the `primus-safe-cr` chart
 creates `self-read`, so install or upgrade it first). Users who already hold `default` keep it.

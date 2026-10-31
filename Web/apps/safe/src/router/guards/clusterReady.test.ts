@@ -21,8 +21,8 @@ vi.mock('@/stores/user', () => ({ useUserStore: () => userState }))
 
 import setupClusterGuard from './clusterReady'
 
-// An error as axios raises it for a response with this status.
-const httpError = (status: number) =>
+// An error as axios raises it for a response with this status and body.
+const httpError = (status: number, data: unknown = {}) =>
   new AxiosError(
     `Request failed with status code ${status}`,
     'ERR_BAD_REQUEST',
@@ -31,11 +31,19 @@ const httpError = (status: number) =>
     {
       status,
       statusText: '',
-      data: {},
+      data,
       headers: {},
       config: {} as InternalAxiosRequestConfig,
     },
   )
+
+// The 403 the apiserver sends for a user that has no access yet (its own error code, written out
+// here on purpose: it is the contract with the server).
+const noAccessBody = {
+  errorCode: 'Primus.00051',
+  errorMessage: 'The user has no access yet. Ask an administrator to grant it',
+}
+const noAccess = () => httpError(403, noAccessBody)
 
 const page = (path: string, fullPath = path) =>
   ({ path, fullPath, meta: {} }) as unknown as RouteLocationNormalized
@@ -70,11 +78,11 @@ beforeEach(() => {
   userState = { isLogin: true, hasManagerAccess: false, $patch: vi.fn() }
 })
 
-describe('cluster guard: a 403 from the clusters fetch means "no access yet"', () => {
+describe('cluster guard: the "no access yet" refusal of the clusters fetch', () => {
   it.each(['/', '/workloads', '/nodes', '/training/detail', '/cluster/detail', '/nodedetail'])(
     'sends a signed-in user asking for %s to /no-access',
     async (path) => {
-      clusterState.fetchClusters.mockRejectedValue(httpError(403))
+      clusterState.fetchClusters.mockRejectedValue(noAccess())
       const next = await run(page(path))
       expect(next).toHaveBeenCalledTimes(1)
       expect(next).toHaveBeenCalledWith('/no-access')
@@ -84,23 +92,60 @@ describe('cluster guard: a 403 from the clusters fetch means "no access yet"', (
   )
 
   it('ignores the query of a deep link: the target is always plain /no-access', async () => {
-    clusterState.fetchClusters.mockRejectedValue(httpError(403))
+    clusterState.fetchClusters.mockRejectedValue(noAccess())
     const next = await run(page('/training/detail', '/training/detail?id=abc'))
     expect(next).toHaveBeenCalledWith('/no-access')
   })
 
   it('asks quietly, so that the refusal reaches the guard as an error with its status', async () => {
-    clusterState.fetchClusters.mockRejectedValue(httpError(403))
+    clusterState.fetchClusters.mockRejectedValue(noAccess())
     await run(page('/workloads'))
     expect(clusterState.fetchClusters).toHaveBeenCalledTimes(1)
     expect(clusterState.fetchClusters).toHaveBeenCalledWith(true)
   })
 
-  it('does not treat a 403 from the workspace list as "no access yet"', async () => {
-    wsState.fetchWorkspace.mockRejectedValue(httpError(403))
+  it('does not treat that refusal from the workspace list as "no access yet"', async () => {
+    wsState.fetchWorkspace.mockRejectedValue(noAccess())
     const next = await run(page('/workloads'))
     expect(next).toHaveBeenCalledWith('/error')
   })
+})
+
+describe('cluster guard: a 403 that is not "no access yet" is not sent to /no-access', () => {
+  // A user who does hold other access (a workspace manager, say) can be refused the cluster list
+  // by the handler's own role check; /no-access would strand them.
+  it.each([
+    ['another error code', httpError(403, { errorCode: 'Primus.00003', errorMessage: 'denied' })],
+    ['an empty object body', httpError(403, {})],
+    ['no body', httpError(403, undefined)],
+    ['a null body', httpError(403, null)],
+    ['a string body', httpError(403, 'Forbidden')],
+    ['a string body that is the code', httpError(403, 'Primus.00051')],
+    ['an array body', httpError(403, [noAccessBody])],
+    ['a numeric error code', httpError(403, { errorCode: 51 })],
+  ])('goes to /error, like a 500, for a 403 with %s', async (_label, error) => {
+    clusterState.fetchClusters.mockRejectedValue(error)
+    const next = await run(page('/workloads'))
+    expect(next).toHaveBeenCalledTimes(1)
+    expect(next).toHaveBeenCalledWith('/error')
+    expect(next).not.toHaveBeenCalledWith('/no-access')
+    expect(wsState.fetchWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('stays on /error when it is already there', async () => {
+    clusterState.fetchClusters.mockRejectedValue(httpError(403, { errorCode: 'Primus.00003' }))
+    const next = await run(page('/error'))
+    expect(next).toHaveBeenCalledWith()
+  })
+
+  it.each([401, 500])(
+    'does not take the no-access code of a %s for "no access yet"',
+    async (status) => {
+      clusterState.fetchClusters.mockRejectedValue(httpError(status, noAccessBody))
+      const next = await run(page('/workloads'))
+      expect(next).not.toHaveBeenCalledWith('/no-access')
+    },
+  )
 })
 
 describe('cluster guard: other outcomes are unchanged', () => {
@@ -178,7 +223,7 @@ describe('cluster guard: other outcomes are unchanged', () => {
 
 describe('cluster guard: /no-access', () => {
   it('is let through without fetching the clusters, so landing on it cannot loop', async () => {
-    clusterState.fetchClusters.mockRejectedValue(httpError(403))
+    clusterState.fetchClusters.mockRejectedValue(noAccess())
     const next = await run(page('/no-access'))
     expect(clusterState.fetchClusters).not.toHaveBeenCalled()
     expect(wsState.fetchWorkspace).not.toHaveBeenCalled()
