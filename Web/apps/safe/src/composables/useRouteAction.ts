@@ -1,6 +1,10 @@
 import { onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ROUTE_ACTIONS } from '@/pages/ChatbotFullPage/constants/slashCommands'
+
+/** One-shot `?action=` values a list page understands. */
+export const ROUTE_ACTIONS = {
+  CREATE: 'create',
+} as const
 
 /**
  * Consume a one-shot `?action=xxx` route query on mount.
@@ -25,5 +29,3 @@ export function useRouteAction(handlers: Partial<Record<string, () => void>>) {
     router.replace({ query: rest })
   })
 }
-
-export { ROUTE_ACTIONS }

@@ -228,7 +228,7 @@ Supports multiple values (comma-separated).
 
 | Value | Description |
 |-------|-------------|
-| `playground` | Playground features (chat, sessions, models) |
+| `playground` | Playground features (models) |
 | `datasets` | Dataset management |
 
 **Example**: `?resourceType=workloads,nodes,clusters`

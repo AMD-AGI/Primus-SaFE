@@ -23,7 +23,7 @@ func InitRoutes(engine *gin.Engine, handler *Handler) {
 	}
 
 	// All routes sit under /api/v1/optimization and inherit the same auth +
-	// preprocessing middleware used by Model Square, Playground, etc.
+	// preprocessing middleware used by Model Square, etc.
 	group := engine.Group(
 		common.PrimusRouterCustomRootPath+"/optimization",
 		middleware.Authorize(),

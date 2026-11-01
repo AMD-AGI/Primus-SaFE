@@ -35,15 +35,11 @@ export interface MenuIcons {
   infera: IconSet
   modelSquare: IconSet
   preflight: IconSet
-  qabase: IconSet
-  playground: IconSet
   apikey: IconSet
-  chatbot: IconSet
   pytorch: IconSet
   rayjob: IconSet
   tools: IconSet
   llmGateway: IconSet
-  a2a: IconSet
   monarch: IconSet
   sandbox: IconSet
   modelOptimization: IconSet
@@ -83,15 +79,11 @@ export const menuIcons: MenuIcons = {
   evaluation: createIconSet('evaluation'),
   modelSquare: createIconSet('model'),
   preflight: createIconSet('diagnoser'),
-  qabase: createIconSet('knowledge'),
-  playground: createIconSet('infer'), // Using infer icons as placeholder
   apikey: createIconSet('apikey'),
-  chatbot: createIconSet('sparkles'),
   pytorch: createIconSet('pytorch'),
   rayjob: createIconSet('ray'),
   tools: createIconSet('skill'), // Using addons icons as placeholder
   llmGateway: createIconSet('apikey'), // Using apikey icons as placeholder
-  a2a: createIconSet('skill'), // Using skill icons as placeholder
   monarch: createIconSet('monarch'),
   sandbox: createIconSet('sandbox'),
   modelOptimization: createIconSet('optimization'),

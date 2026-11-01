@@ -130,15 +130,6 @@
           <MenuItem v-for="item in modelLabMenuItems" :key="item.index" :item="item" />
         </el-sub-menu>
 
-        <!-- AI Agent Menu -->
-        <el-sub-menu index="ai-agent" class="nav-section" v-if="aiAgentMenuItems.length">
-          <template #title>
-            <el-icon class="section-icon"><ChatDotRound /></el-icon>
-            <span class="nav-section-label">AI Agent</span>
-          </template>
-          <MenuItem v-for="item in aiAgentMenuItems" :key="item.index" :item="item" />
-        </el-sub-menu>
-
         <!-- Agent Infra Menu -->
         <el-sub-menu index="agent-infra" class="nav-section" v-if="agentInfraMenuItems.length">
           <template #title>
@@ -222,7 +213,6 @@ import {
   Cpu,
   FolderOpened,
   MagicStick,
-  ChatDotRound,
   Connection,
   Setting,
   Search,
@@ -454,11 +444,6 @@ const modelLabMenuItems: MenuItem[] = [
     icon: menuIcons.training,
   },
   {
-    index: '/playground-agent',
-    name: 'Playground',
-    icon: menuIcons.playground,
-  },
-  {
     index: '/dataset',
     name: 'Dataset',
     icon: menuIcons.dataset,
@@ -475,30 +460,6 @@ const modelLabMenuItems: MenuItem[] = [
   },
 ]
 
-// AI Agent submenu config - dynamic (partially open to regular users)
-const aiAgentMenuItems = shallowRef<MenuItem[]>([])
-
-// Watch permission changes, dynamically update AI Agent menu
-watchEffect(() => {
-  const allAiAgentItems = [
-    {
-      index: '/qabase',
-      name: 'QA Base',
-      icon: menuIcons.qabase,
-      canAccess: hasManagerAccess.value, // Admin only
-    },
-    {
-      index: '/feedback-management',
-      name: 'Feedback',
-      icon: menuIcons.usermanage,
-      canAccess: hasManagerAccess.value, // Admin only
-    },
-  ]
-
-  // Filter out menu items without permission
-  aiAgentMenuItems.value = allAiAgentItems.filter((item) => item.canAccess !== false)
-})
-
 // Agent Infra submenu config - dynamic
 const agentInfraMenuItems = shallowRef<MenuItem[]>([])
 
@@ -511,21 +472,9 @@ watchEffect(() => {
     //   canAccess: true,
     // },
     {
-      index: '/sandbox',
-      name: 'Sandbox',
-      icon: menuIcons.sandbox,
-      canAccess: hasManagerAccess.value, // Admin only
-    },
-    {
       index: '/litellm-gateway',
       name: 'LLM Gateway',
       icon: menuIcons.llmGateway,
-      canAccess: true, // Open to all users
-    },
-    {
-      index: '/a2a',
-      name: 'A2A Protocol',
-      icon: menuIcons.a2a,
       canAccess: true, // Open to all users
     },
   ]
@@ -686,7 +635,6 @@ const searchIndex = computed<FlatNavItem[]>(() => [
   ...staticNavItems,
   ...flattenNav(workloadMenuItems.value, 'Workloads'),
   ...(hasManagerAccess.value ? flattenNav(modelLabMenuItems, 'Model Lab') : []),
-  ...flattenNav(aiAgentMenuItems.value, 'AI Agent'),
   ...flattenNav(agentInfraMenuItems.value, 'Agent Infra'),
   ...flattenNav(systemMenuItems.value, 'System'),
   ...(canSeeWorkspaceAndUserMenu.value && !hasManagerAccess.value
