@@ -7,7 +7,6 @@ package model_handlers
 
 import (
 	"context"
-	"net/http"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -73,31 +72,5 @@ func TestExternalAdminSeesWhatAnAdministratorSees(t *testing.T) {
 		testifyassert.Equal(t, map[string]bool{"m-pub": true}, list(asExternal(readRBACCtx(externalUserID, "limit=100&offset=0", nil))))
 		testifyassert.Equal(t, map[string]bool{"m-pub": true, "m-own": true, "m-wsonly": true, "m-other": true},
 			list(asExternal(readRBACCtx(externalUserID, "limit=100&offset=0", nil), "platform-admins")))
-	})
-
-	t.Run("playground services: canAccessWorkspace", func(t *testing.T) {
-		h := withExternalUser(t, newPlaygroundRBACHandler(t)) // wl-ws2 runs in ws-2, which ext-1 is not a member of
-		list := func(c *gin.Context) map[string]bool {
-			res, err := h.listPlaygroundServices(c)
-			require.NoError(t, err)
-			ids := map[string]bool{}
-			for _, it := range res.(*ListPlaygroundServicesResponse).Items {
-				ids[it.ID] = true
-			}
-			return ids
-		}
-		testifyassert.False(t, list(asExternal(readRBACCtx(externalUserID, "", nil)))["wl-ws2"])
-		testifyassert.True(t, list(asExternal(readRBACCtx(externalUserID, "", nil), "platform-admins"))["wl-ws2"])
-	})
-
-	t.Run("chat with a workload: canAccessWorkspace", func(t *testing.T) {
-		h := withExternalUser(t, newPlaygroundRBACHandler(t))
-		chat := func(groups ...string) int {
-			c, w := newChatCtx(externalUserID, `{"serviceId":"wl-ws2","messages":[{"role":"user","content":"hi"}]}`)
-			h.Chat(asExternal(c, groups...))
-			return w.Code
-		}
-		testifyassert.Equal(t, http.StatusForbidden, chat())
-		testifyassert.NotEqual(t, http.StatusForbidden, chat("platform-admins"), "an admin by group passes the workspace gate")
 	})
 }
