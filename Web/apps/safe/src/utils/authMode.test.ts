@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { isExternalAuth } from './authMode'
+import { apiKeyRouting, apiKeysProviderUrl, isExternalAuth } from './authMode'
 
 const source = (rel: string) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf-8')
 
@@ -43,19 +43,24 @@ describe('external mode hides the password, registration and role controls', () 
     expect(settings.match(/<template v-if="!userStore\.isExternalAuth">/g)).toHaveLength(1)
   })
 
-  it('API key management stays, and goes to the identity provider', () => {
-    // The apiserver refuses to issue keys in external mode, so nothing is hidden: list, create and
-    // delete are called with the mode and the service picks the provider's route (apiKeys tests).
+  it('API key management is not hidden: where it goes is decided by apiKeyRouting', () => {
+    // The apiserver refuses to issue keys in external mode, so the page creates them at the
+    // identity provider's route when the deployment has one, and offers no creation otherwise.
     expect(source('components/layout/BaseMenu.vue')).not.toContain('isExternalAuth')
     expect(source('pages/Settings/index.vue')).toContain("router.push('/manageapikeys')")
+    expect(source('stores/user.ts')).toContain('apiKeyRouting: (s) => apiKeyRouting(s.envs)')
     const keys = source('pages/APIKeys/index.vue')
-    expect(keys).not.toContain('manageable')
-    expect(keys).toContain('const external = computed(() => userStore.isExternalAuth)')
-    expect(keys).toContain('await deleteAPIKey(id, external.value)')
-    expect(keys).toContain('external.value,\n    )')
-    expect(keys).toContain('<el-table-column label="Actions"')
-    const dialog = source('pages/APIKeys/Components/AddDialog.vue')
-    expect(dialog).toContain('userStore.isExternalAuth,')
+    expect(keys).toContain('v-if="creatable"')
+    expect(keys).toContain('const creatable = computed(() => userStore.apiKeyRouting.creatable)')
+    expect(keys).toContain('New API keys are issued by the external identity provider.')
+    // the provider's keys, and beside them the apiserver's, each list on its own source
+    expect(keys).toContain(':provider-url="providerUrl"')
+    expect(keys).toMatch(/<KeyList\s+v-if="legacy"\s+hide-until-present/)
+    const list = source('pages/APIKeys/Components/KeyList.vue')
+    expect(list).toContain('await deleteAPIKey(id, props.providerUrl)')
+    expect(list).toContain('props.providerUrl,\n    )')
+    expect(list).toContain('<el-table-column label="Actions"')
+    expect(source('pages/APIKeys/Components/AddDialog.vue')).toContain('props.providerUrl,')
     expect(source('pages/LLMGateway/index.vue')).toContain('if (userStore.isExternalAuth) return')
   })
 
@@ -68,5 +73,69 @@ describe('external mode hides the password, registration and role controls', () 
     expect(dialog).toContain('buildUserPatch(props.user, form, external.value)')
     expect(dialog).toContain(':disabled="external"')
     expect(dialog).toContain('v-if="!external" label="Password"')
+  })
+})
+
+describe('apiKeysProviderUrl', () => {
+  it.each([
+    [
+      'external and routed',
+      { authMode: 'external' as const, apiKeysUrl: '/api/v1/apikeys' },
+      '/api/v1/apikeys',
+    ],
+    [
+      'a trailing slash is dropped',
+      { authMode: 'external' as const, apiKeysUrl: '/api/v1/apikeys/' },
+      '/api/v1/apikeys',
+    ],
+    ['external, nothing routed', { authMode: 'external' as const }, ''],
+    ['external, an empty path', { authMode: 'external' as const, apiKeysUrl: '' }, ''],
+    ['builtin ignores it', { authMode: 'builtin' as const, apiKeysUrl: '/api/v1/apikeys' }, ''],
+    ['no mode (an older apiserver) ignores it', { apiKeysUrl: '/api/v1/apikeys' }, ''],
+    [
+      'an absolute URL is not a path on this origin',
+      { authMode: 'external' as const, apiKeysUrl: 'https://idp.example.com/api/v1/apikeys' },
+      '',
+    ],
+    [
+      'a protocol relative URL',
+      { authMode: 'external' as const, apiKeysUrl: '//idp.example.com/api/v1/apikeys' },
+      '',
+    ],
+    ['no leading slash', { authMode: 'external' as const, apiKeysUrl: 'api/v1/apikeys' }, ''],
+    ['a query', { authMode: 'external' as const, apiKeysUrl: '/api/v1/apikeys?x=1' }, ''],
+    ['a backslash', { authMode: 'external' as const, apiKeysUrl: '/\\idp.example.com' }, ''],
+    ['no envs yet', null, ''],
+  ])('%s', (_name, envs, want) => {
+    expect(apiKeysProviderUrl(envs)).toBe(want)
+  })
+})
+
+describe('apiKeyRouting', () => {
+  const routed = { authMode: 'external' as const, apiKeysUrl: '/api/v1/apikeys' }
+  it.each([
+    [
+      'builtin: the apiserver lists and creates, nothing legacy',
+      { authMode: 'builtin' as const },
+      { providerUrl: '', creatable: true, legacy: false },
+    ],
+    ['no mode: as builtin', {}, { providerUrl: '', creatable: true, legacy: false }],
+    [
+      'external, no route: the apiserver lists, nothing can be created',
+      { authMode: 'external' as const },
+      { providerUrl: '', creatable: false, legacy: false },
+    ],
+    [
+      'external, routed: the provider lists and creates, the apiserver keys stay listed and revocable',
+      routed,
+      { providerUrl: '/api/v1/apikeys', creatable: true, legacy: true },
+    ],
+    [
+      'builtin, a route reported: ignored',
+      { authMode: 'builtin' as const, apiKeysUrl: '/api/v1/apikeys' },
+      { providerUrl: '', creatable: true, legacy: false },
+    ],
+  ])('%s', (_name, envs, want) => {
+    expect(apiKeyRouting(envs)).toEqual(want)
   })
 })

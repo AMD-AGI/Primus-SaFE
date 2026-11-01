@@ -940,6 +940,20 @@ func GetAuthGroupMappings() ([]AuthGroupMapping, error) {
 // The list is empty by default, and then no delegated token may call it.
 func GetAuthKeyActors() []string { return getStringSlice(authKeyActors, nil) }
 
+// GetAuthAPIKeysURL returns auth.api_keys_url: the path on the console's own origin (for example
+// /api/v1/apikeys) where the deployment routes API key creation, listing and revocation to the identity
+// provider when authentication is external. Empty (the default) means nothing is routed there and the
+// console offers no key creation. Only a path counts: anything else (an absolute URL, a protocol relative
+// "//host", a value without the leading slash) is taken as not set, so the console never sends the session
+// to an origin the operator did not mean.
+func GetAuthAPIKeysURL() string {
+	url := strings.TrimSpace(getString(authAPIKeysURL, ""))
+	if !strings.HasPrefix(url, "/") || strings.HasPrefix(url, "//") || strings.ContainsAny(url, "\\ \t\r\n?#") {
+		return ""
+	}
+	return strings.TrimRight(url, "/")
+}
+
 // GetAuthLoginURL returns auth.login_url, where the console sends users to sign in when
 // authentication is external.
 func GetAuthLoginURL() string { return getString(authLoginURL, "") }

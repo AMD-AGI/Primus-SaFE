@@ -7,24 +7,30 @@ import type {
 } from './type'
 
 /**
- * Where the API key routes are called. With an external identity provider (`external`, see
- * isExternalAuth) the provider issues, lists and revokes the keys, and serves them at the public
- * `/api/v1/apikeys`, which is the path a gateway can route to it. `/v1/apikeys` under the request
- * base `/api` is that path; the console's usual `/apikeys` is the apiserver's compatibility alias,
- * which always reaches the apiserver, and the apiserver refuses to issue keys in that mode. With
- * the built-in accounts nothing changes.
+ * The API key routes. Without `providerUrl` they are the apiserver's `/apikeys`: the keys of this
+ * deployment's own accounts and, with an external identity provider, the keys the apiserver issued
+ * before the switch (they still authenticate, so they stay listed and revocable).
+ *
+ * `providerUrl` is the path where the deployment routes the identity provider's keys (GET /envs
+ * `apiKeysUrl`, see apiKeysProviderUrl): a path on this console's own origin, so it is called as it
+ * is, not under the request base. The apiserver refuses to issue keys in external mode: a key is
+ * created at the provider, and the keys the provider issued are listed and revoked there.
  */
-export const apiKeysPath = (external: boolean): string => (external ? '/v1/apikeys' : '/apikeys')
+const onOrigin = { baseURL: '' }
 
 export const createAPIKey = (
   data: CreateAPIKeyRequest,
-  external = false,
-): Promise<CreateAPIKeyResponse> => request.post(apiKeysPath(external), data)
+  providerUrl = '',
+): Promise<CreateAPIKeyResponse> =>
+  providerUrl ? request.post(providerUrl, data, onOrigin) : request.post('/apikeys', data)
 
-export const deleteAPIKey = (id: number, external = false): Promise<any> =>
-  request.delete(`${apiKeysPath(external)}/${id}`)
+export const deleteAPIKey = (id: number, providerUrl = ''): Promise<any> =>
+  providerUrl ? request.delete(`${providerUrl}/${id}`, onOrigin) : request.delete(`/apikeys/${id}`)
 
 export const listAPIKeys = (
   params?: ListAPIKeysParams,
-  external = false,
-): Promise<ListAPIKeysResponse> => request.get(apiKeysPath(external), { params })
+  providerUrl = '',
+): Promise<ListAPIKeysResponse> =>
+  providerUrl
+    ? request.get(providerUrl, { params, ...onOrigin })
+    : request.get('/apikeys', { params })

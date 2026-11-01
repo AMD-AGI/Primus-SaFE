@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { login, getUserData, getSelfData, logout, getEnvs } from '@/services/login'
 import type { LoginReq, UserSelfData, EnvsResp } from '@/services'
-import { isExternalAuth } from '@/utils/authMode'
+import { apiKeyRouting, isExternalAuth } from '@/utils/authMode'
 import { useWorkspaceStore } from './workspace'
 import { applySelfWorkspaces, loadSelfWorkspaces } from './selfWorkspaces'
 
@@ -80,6 +80,8 @@ export const useUserStore = defineStore('user', {
     },
     // An identity provider owns sign-in, accounts, API keys and platform roles
     isExternalAuth: (s) => isExternalAuth(s.envs),
+    // Where API keys are created, listed and revoked, by deployment
+    apiKeyRouting: (s) => apiKeyRouting(s.envs),
     // CD approval config: whether approval is required (defaults to true)
     cdRequireApproval: (s) => s.envs?.cdRequireApproval ?? true,
   },
