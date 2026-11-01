@@ -52,8 +52,12 @@ install_or_upgrade_helm_chart() {
 #   auth_group_mappings  JSON array, identity groups to roles                -> auth.group_mappings
 #   auth_key_actors      JSON array, client ids that may fetch the keys of
 #                        the user a delegated token acts for                 -> auth.key_actors
+#   auth_api_keys_url    path where API key creation reaches the identity
+#                        provider, when something else routes it              -> auth.api_keys_url
+#   auth_api_keys_upstream  host[:port] of the identity provider's service,
+#                        which the console's nginx routes /api/v1/apikeys to  -> auth.api_keys_upstream
 # JSON values are single-quoted in .env, e.g. auth_key_actors='["client-a"]'.
-AUTH_ENV_KEYS=(auth_mode auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors)
+AUTH_ENV_KEYS=(auth_mode auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream)
 
 # check_live_auth refuses an upgrade that would silently turn the external authentication of the
 # running release off. helm renders every value from the chart defaults and the files it is given, so a
@@ -148,7 +152,7 @@ write_auth_values() {
   fi
   if ! command -v jq &> /dev/null; then
     # The break-glass alone, auth_mode=builtin, needs no jq to be written.
-    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_client_secret+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}" ]]; then
+    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_client_secret+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}${auth_api_keys_url+x}${auth_api_keys_upstream+x}" ]]; then
       printf '{"auth":{"mode":"builtin"}}\n' > "$out"
       AUTH_VALUES_FILE="$out"
       return 0
