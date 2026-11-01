@@ -24,7 +24,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	a2ahandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/a2a-handlers"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority/authtest"
 	cdhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/cd-handlers"
@@ -69,7 +68,6 @@ func sweepHandlers(t *testing.T) routeHandlers {
 		image:          &imagehandlers.ImageHandler{},
 		ssh:            &sshhandler.SshHandler{},
 		model:          &model_handlers.Handler{},
-		a2a:            &a2ahandlers.Handler{},
 		llm:            &llmgateway.Handler{},
 		emailRelay:     &emailrelayhandlers.Handler{},
 		githubWorkflow: true,
@@ -255,7 +253,7 @@ func TestEveryAuthenticatedRouteRefusesAUserWhoHoldsNoAccess(t *testing.T) {
 	}
 	sort.Strings(gotPackages)
 	require.Equal(t, []string{
-		"handlers/a2a-handlers", "handlers/authority", "handlers/cd-handlers", "handlers/email-relay-handlers", "handlers/github-workflow",
+		"handlers/authority", "handlers/cd-handlers", "handlers/email-relay-handlers", "handlers/github-workflow",
 		"handlers/image-handlers", "handlers/inferencex", "handlers/lens-compat", "handlers/llm-gateway",
 		"handlers/model-handlers", "handlers/optimization", "handlers/proxy-handlers", "handlers/resources",
 		"handlers/ssh-handlers", "mcp/router",
