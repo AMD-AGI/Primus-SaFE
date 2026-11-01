@@ -23,6 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
@@ -688,6 +689,26 @@ func TestVerifyLogsTheKeysIssuedToAKeyActor(t *testing.T) {
 				return
 			}
 			require.Contains(t, logged, tc.want)
+		})
+	}
+}
+
+// isKeyActor compares the client id of a delegated identity and nothing else: not the audit actor, which
+// can be a subject, and never a blank entry of the list against an identity that names no client.
+func TestIsKeyActorMatchesOnlyAClientID(t *testing.T) {
+	st := &externalAuth{keyActors: map[string]struct{}{"": {}, keyActorClient: {}}}
+	for name, tt := range map[string]struct {
+		id   extauth.Identity
+		want bool
+	}{
+		"a client id in the list":          {extauth.Identity{Actor: keyActorClient, ActorClient: keyActorClient}, true},
+		"a subject with a listed id":       {extauth.Identity{Actor: keyActorClient}, false},
+		"a subject, a blank entry listed":  {extauth.Identity{Actor: "a-user"}, false},
+		"another client":                   {extauth.Identity{Actor: "other", ActorClient: "other"}, false},
+		"the audit actor is another party": {extauth.Identity{Actor: keyActorClient, ActorClient: "other"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tt.want, st.isKeyActor(&tt.id))
 		})
 	}
 }
