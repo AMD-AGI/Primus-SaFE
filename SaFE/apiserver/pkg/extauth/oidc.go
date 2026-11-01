@@ -176,20 +176,25 @@ func (a *OIDCAuthenticator) identity(std jwt.Claims, claims map[string]any) (*Id
 	if id.Name == "" {
 		id.Name = id.ID
 	}
-	// RFC 8693 "act": the party acting for the subject. The actor is act.client_id, else act.sub, the
-	// same reading as the introspection authenticator, so one token names one actor whichever
-	// authenticator accepts it: a token whose act.client_id and act.sub differ is the client_id's.
+	// RFC 8693 "act": the party acting for the subject. The actor, for the audit log, is act.client_id, else
+	// act.sub, the same reading as the introspection authenticator, so one token names one actor whichever
+	// authenticator accepts it: a token whose act.client_id and act.sub differ is the client_id's. The client
+	// id that auth.key_actors is matched against is narrower (see actorClient): act.sub is a subject, and is
+	// one only when the token's own client_id says it is the same party.
 	if act, ok := claims["act"]; ok {
 		m, isMap := act.(map[string]any)
-		actor, _ := m["client_id"].(string)
+		actClient, _ := m["client_id"].(string)
+		actSub, _ := m["sub"].(string)
+		actor := actClient
 		if actor == "" {
-			actor, _ = m["sub"].(string)
+			actor = actSub
 		}
 		if !isMap || actor == "" {
 			// A malformed delegation must not be read as a direct login.
 			return nil, fmt.Errorf("%w: malformed act claim", ErrUnauthenticated)
 		}
 		id.Actor = actor
+		id.ActorClient = actorClient(actClient, actSub, claimString(claims, "client_id"))
 		id.Scopes = tokenScopes(claims)
 	}
 	if r, ok := claims["restricted"].(bool); ok {

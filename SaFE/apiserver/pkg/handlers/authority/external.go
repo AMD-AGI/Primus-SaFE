@@ -249,10 +249,14 @@ func (st *externalAuth) authenticate(ctx context.Context, cred extauth.Credentia
 	return nil, false, commonerrors.NewUnauthorized(ErrInvalidToken)
 }
 
-// isKeyActor reports whether the party behind a delegated identity is named in auth.key_actors. The actor is
-// the client id of the token's "act" claim as the authenticator read it, and only an exact match counts.
+// isKeyActor reports whether the party behind a delegated identity is named in auth.key_actors. Only a client
+// id counts, and an exact match: the member of the token's "act" claim that is a client id (extauth.Identity
+// ActorClient), never the "sub" of one that is only a subject of the issuer, which can be a user.
 func (st *externalAuth) isKeyActor(id *extauth.Identity) bool {
-	_, ok := st.keyActors[id.Actor]
+	if id.ActorClient == "" {
+		return false
+	}
+	_, ok := st.keyActors[id.ActorClient]
 	return ok
 }
 

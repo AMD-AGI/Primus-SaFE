@@ -56,9 +56,10 @@ func stubPlatformKeys(t *testing.T) *[]string {
 	return &asked
 }
 
-// delegatedJWT is a token of the identity provider for audience extAudience that names actor and scope.
+// delegatedJWT is a token of the identity provider for audience extAudience that names actor and scope, as an
+// identity provider issues an exchanged token: act.sub is the client, and the token's own client_id is that client.
 func (e *extEnv) delegatedJWT(actor, scope, subject string) string {
-	return e.jwt(map[string]any{"act": map[string]any{"sub": actor}, "scope": scope, "sub": subject})
+	return e.jwt(map[string]any{"act": map[string]any{"sub": actor}, "client_id": actor, "scope": scope, "sub": subject})
 }
 
 func counter(reason string) float64 {
@@ -128,7 +129,7 @@ func TestVerifyKeyActors(t *testing.T) {
 		{
 			name: "a chain: the party acting now is listed, an earlier one is not", actors: []string{keyActorClient},
 			token: func(e *extEnv) string {
-				return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient, "act": map[string]any{"sub": "earlier-client"}}, "scope": "safe.api"})
+				return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient, "act": map[string]any{"sub": "earlier-client"}}, "client_id": keyActorClient, "scope": "safe.api"})
 			},
 			wantCode: http.StatusOK, wantSubject: extUser,
 		},
@@ -140,7 +141,9 @@ func TestVerifyKeyActors(t *testing.T) {
 		},
 		{
 			name: "listed actor, no scope", actors: []string{keyActorClient},
-			token:    func(e *extEnv) string { return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}}) },
+			token: func(e *extEnv) string {
+				return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient})
+			},
 			wantCode: http.StatusForbidden, wantMessage: msgScope, wantMetric: "delegated_scope",
 		},
 		{
@@ -165,7 +168,7 @@ func TestVerifyKeyActors(t *testing.T) {
 		{
 			name: "a chain: only an earlier party is listed, the one acting now is not", actors: []string{keyActorClient},
 			token: func(e *extEnv) string {
-				return e.jwt(map[string]any{"act": map[string]any{"sub": "other-client", "act": map[string]any{"sub": keyActorClient}}, "scope": "safe.api"})
+				return e.jwt(map[string]any{"act": map[string]any{"sub": "other-client", "act": map[string]any{"sub": keyActorClient}}, "client_id": "other-client", "scope": "safe.api"})
 			},
 			wantCode: http.StatusForbidden, wantMessage: msgDelegatedForbidden, wantMetric: "delegated_forbidden",
 		},
@@ -208,6 +211,57 @@ func TestVerifyKeyActors(t *testing.T) {
 			wantCode: http.StatusForbidden, wantMessage: msgDelegatedForbidden, wantMetric: "delegated_forbidden",
 		},
 		{
+			// act.sub is a subject of the issuer's namespace, which can be a user: a token that names a listed id
+			// there and says nothing that makes it a client is not the client's.
+			name: "act.sub is listed, the token has no client_id: a subject is not a client id", actors: []string{keyActorClient},
+			token: func(e *extEnv) string {
+				return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}, "scope": "safe.api"})
+			},
+			wantCode: http.StatusForbidden, wantMessage: msgDelegatedForbidden, wantMetric: "delegated_forbidden",
+		},
+		{
+			name: "act.sub is listed, the token was issued to another client", actors: []string{keyActorClient},
+			token: func(e *extEnv) string {
+				return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": "someone-else", "scope": "safe.api"})
+			},
+			wantCode: http.StatusForbidden, wantMessage: msgDelegatedForbidden, wantMetric: "delegated_forbidden",
+		},
+		{
+			name: "introspected answer, act.sub only, the answer's client_id is the same client", actors: []string{keyActorClient},
+			token: func(e *extEnv) string {
+				e.revUsers["opaque-sub-corroborated"] = map[string]any{"sub": otherUser, "username": "bob", "groups": []string{"platform-admins"},
+					"scope": "safe.api", "aud": extAudience, "client_id": keyActorClient, "act": map[string]any{"sub": keyActorClient}}
+				return "opaque-sub-corroborated"
+			},
+			wantCode: http.StatusOK, wantSubject: otherUser,
+		},
+		{
+			name: "introspected answer, act.sub is listed, the answer names no client", actors: []string{keyActorClient},
+			token: func(e *extEnv) string {
+				e.revUsers["opaque-sub-alone"] = map[string]any{"sub": extUser, "username": "alice", "scope": "safe.api", "aud": extAudience,
+					"act": map[string]any{"sub": keyActorClient}}
+				return "opaque-sub-alone"
+			},
+			wantCode: http.StatusForbidden, wantMessage: msgDelegatedForbidden, wantMetric: "delegated_forbidden",
+		},
+		{
+			name: "introspected answer, act.sub is listed, the answer's client_id is another", actors: []string{keyActorClient},
+			token: func(e *extEnv) string {
+				e.revUsers["opaque-sub-other-client"] = map[string]any{"sub": extUser, "username": "alice", "scope": "safe.api", "aud": extAudience,
+					"client_id": "someone-else", "act": map[string]any{"sub": keyActorClient}}
+				return "opaque-sub-other-client"
+			},
+			wantCode: http.StatusForbidden, wantMessage: msgDelegatedForbidden, wantMetric: "delegated_forbidden",
+		},
+		{
+			// A blank id in the list is not a client: a token that names no client id must not match it.
+			name: "a blank id in the list, a token that names no client id", actors: []string{"", keyActorClient},
+			token: func(e *extEnv) string {
+				return e.jwt(map[string]any{"act": map[string]any{"sub": "a-user"}, "scope": "safe.api"})
+			},
+			wantCode: http.StatusForbidden, wantMessage: msgDelegatedForbidden, wantMetric: "delegated_forbidden",
+		},
+		{
 			name: "introspected answer, act.client_id not listed", actors: []string{keyActorClient},
 			token: func(e *extEnv) string {
 				e.revUsers["opaque-other"] = map[string]any{"sub": extUser, "username": "alice", "scope": "safe.api", "aud": extAudience,
@@ -220,7 +274,7 @@ func TestVerifyKeyActors(t *testing.T) {
 		{
 			name: "listed actor, a token for another audience", actors: []string{keyActorClient},
 			token: func(e *extEnv) string {
-				return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}, "scope": "safe.api", "aud": []string{"another-service"}})
+				return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient, "scope": "safe.api", "aud": []string{"another-service"}})
 			},
 			wantCode: http.StatusUnauthorized, wantMetric: "invalid",
 		},
@@ -236,7 +290,7 @@ func TestVerifyKeyActors(t *testing.T) {
 		{
 			name: "listed actor, an expired token", actors: []string{keyActorClient},
 			token: func(e *extEnv) string {
-				return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}, "scope": "safe.api", "exp": time.Now().Add(-time.Hour).Unix()})
+				return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient, "scope": "safe.api", "exp": time.Now().Add(-time.Hour).Unix()})
 			},
 			wantCode: http.StatusUnauthorized, wantMetric: "invalid",
 		},
@@ -435,7 +489,7 @@ func TestVerifyKeyActorVirtualKeyIsFoundBySubjectRecord(t *testing.T) {
 	apiKeyTokenInstance = &ApiKeyToken{dbClient: mockDB, Client: e.cli}
 	defer func() { apiKeyTokenInstance = oldKey }()
 
-	tok := e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}, "scope": "safe.api", "email": claimed})
+	tok := e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient, "scope": "safe.api", "email": claimed})
 	w := callVerifyToken(t, VerifyTokenRequest{Authorization: "Bearer " + tok, IncludeVirtualKey: true}, testInternalToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var resp verifyResponse
@@ -456,7 +510,7 @@ func TestVerifyRefusesKeysForARestrictedUser(t *testing.T) {
 	}
 	delegated := func(extra map[string]any) func(e *extEnv) string {
 		return func(e *extEnv) string {
-			claims := map[string]any{"act": map[string]any{"sub": keyActorClient}, "scope": "safe.api"}
+			claims := map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient, "scope": "safe.api"}
 			for k, v := range extra {
 				claims[k] = v
 			}
@@ -565,7 +619,7 @@ func TestVerifyVirtualKeyIsFoundByTheStoredEmail(t *testing.T) {
 			}, stored},
 		{"local account, delegated token with another email", record(v1.DefaultUserType, stored),
 			func(e *extEnv) string {
-				return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}, "scope": "safe.api", "email": claimed})
+				return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient, "scope": "safe.api", "email": claimed})
 			}, stored},
 		{"local account, direct token with no email claim", record(v1.DefaultUserType, stored),
 			func(e *extEnv) string { return e.jwt(map[string]any{"email": nil}) }, stored},
@@ -614,10 +668,10 @@ func TestVerifyLogsTheKeysIssuedToAKeyActor(t *testing.T) {
 		want string // a substring of the log; empty: nothing is logged about an issue
 	}{
 		{"delegated, platform key", VerifyTokenRequest{IncludePlatformKey: true},
-			map[string]any{"act": map[string]any{"sub": keyActorClient}, "scope": "safe.api", "jti": "jti-7"},
+			map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient, "scope": "safe.api", "jti": "jti-7"},
 			"keys issued to a delegated credential: actor svc-bot, user alice-id, jti jti-7, platform key true, virtual key false"},
 		{"delegated, no key asked for", VerifyTokenRequest{},
-			map[string]any{"act": map[string]any{"sub": keyActorClient}, "scope": "safe.api"}, ""},
+			map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient, "scope": "safe.api"}, ""},
 		{"direct token, platform key", VerifyTokenRequest{IncludePlatformKey: true}, nil, ""},
 	}
 	for _, tc := range cases {

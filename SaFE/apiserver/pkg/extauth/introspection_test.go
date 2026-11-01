@@ -225,10 +225,24 @@ func TestIntrospectionMapsTheAnswer(t *testing.T) {
 		}},
 		{"act by client_id", map[string]any{"sub": "u1", "act": map[string]any{"client_id": "svc-a"}}, func(t *testing.T, id *Identity) {
 			require.Equal(t, "svc-a", id.Actor)
+			require.Equal(t, "svc-a", id.ActorClient)
 			require.True(t, id.Delegated())
 		}},
 		{"act by sub (RFC 8693)", map[string]any{"sub": "u1", "act": map[string]any{"sub": "svc-b"}}, func(t *testing.T, id *Identity) {
 			require.Equal(t, "svc-b", id.Actor)
+			require.Empty(t, id.ActorClient, "a sub alone is a subject, which can be a user, not a client id")
+		}},
+		{"act by sub, the answer's client_id is the same party", map[string]any{"sub": "u1", "aud": testAudience, "client_id": "svc-b", "act": map[string]any{"sub": "svc-b"}}, func(t *testing.T, id *Identity) {
+			require.Equal(t, "svc-b", id.Actor)
+			require.Equal(t, "svc-b", id.ActorClient)
+		}},
+		{"act by sub, the answer's client_id is another party", map[string]any{"sub": "u1", "aud": testAudience, "client_id": "svc-x", "act": map[string]any{"sub": "svc-b"}}, func(t *testing.T, id *Identity) {
+			require.Equal(t, "svc-b", id.Actor)
+			require.Empty(t, id.ActorClient)
+		}},
+		{"act by client_id and sub: the client_id is the client", map[string]any{"sub": "u1", "act": map[string]any{"client_id": "svc-c", "sub": "svc-d"}}, func(t *testing.T, id *Identity) {
+			require.Equal(t, "svc-c", id.Actor)
+			require.Equal(t, "svc-c", id.ActorClient)
 		}},
 		{"no act: not delegated", map[string]any{"sub": "u1", "token_type": "api_key"}, func(t *testing.T, id *Identity) {
 			require.False(t, id.Delegated())
