@@ -120,6 +120,7 @@ func VerifyToken(c *gin.Context) {
 	var userType string
 	var roles []v1.UserRole
 	external := false
+	var delegated *externalVerdict
 	if st := externalState.Load(); st != nil {
 		verdict, builtin, ok := verifyExternal(c, st, &req)
 		if !ok {
@@ -127,6 +128,9 @@ func VerifyToken(c *gin.Context) {
 		}
 		if !builtin {
 			userInfo, userType, roles, external = verdict.info, verdict.userType, verdict.roles, true
+			if verdict.actor != "" {
+				delegated = verdict
+			}
 		}
 	}
 	if !external {
@@ -191,6 +195,13 @@ func VerifyToken(c *gin.Context) {
 				klog.Warning("API key auth not initialized, cannot provide virtual key")
 			}
 		}
+	}
+
+	if delegated != nil && (resp.PlatformKey != "" || resp.VirtualKey != "") {
+		// The platform key is an ordinary credential of the user: what the actor does with it is audited as
+		// the user's own, with no actor. This line is what ties the issue of a key to the actor that asked.
+		klog.Infof("keys issued to a delegated credential: actor %s, user %s, jti %s, platform key %t, virtual key %t",
+			delegated.actor, userInfo.Id, delegated.jti, resp.PlatformKey != "", resp.VirtualKey != "")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -300,6 +311,8 @@ type externalVerdict struct {
 	roles []v1.UserRole
 	// userType is UserTypeExternal, or UserTypeDelegated for a delegated token of a key actor.
 	userType string
+	// actor and jti are the party and the token id of a delegated credential; empty for any other.
+	actor, jti string
 }
 
 // verifyExternal authenticates the credentials of a verify request with the configured chain, the
@@ -399,21 +412,34 @@ func verifyExternal(c *gin.Context, st *externalAuth, req *VerifyTokenRequest) (
 	if info.Email == "" {
 		info.Email = v1.GetUserEmail(user)
 	}
-	if id.Delegated() {
-		// The keys of a delegated verdict are the subject's: the gateway virtual key is found by the email,
-		// and for the subject that is the one on its own record. For a local account that is the email it was
-		// created with; for an account the identity provider created the record follows the provider's claim
-		// (ensureUser), so the provider is trusted for the pairing of a subject and its email, as it is for the
-		// subject itself and for every credential this endpoint verifies.
-		if stored := v1.GetUserEmail(user); stored != "" {
-			info.Email = stored
-		}
+	// The gateway virtual key is found by the email, so the email is the one on the subject's own record, not
+	// what the credential says about the subject, whichever credential it is. For a local account that is the
+	// email it was created with (refreshUser never rewrites it), so a credential whose claim differs cannot
+	// look up another user's gateway key; for an account the identity provider created the record follows the
+	// provider's claim (ensureUser), so the provider is trusted for the pairing of a subject and its email, as
+	// it is for the subject itself and for every credential this endpoint verifies.
+	if stored := v1.GetUserEmail(user); stored != "" {
+		info.Email = stored
 	}
 	if !id.Expiry.IsZero() {
 		info.Exp = id.Expiry.Unix()
 	}
-	roles := extauth.ApplyOverlay(extauth.WithOverlay(ctx, st.overlay(id)), user).Spec.Roles
-	return &externalVerdict{info: info, roles: roles, userType: userType}, false, true
+	effective := extauth.ApplyOverlay(extauth.WithOverlay(ctx, st.overlay(id)), user)
+	if effective.IsRestricted() && (req.IncludePlatformKey || req.IncludeVirtualKey) {
+		// A restricted user (the provider's "restricted" claim, or the user record) is refused by every request
+		// the apiserver authenticates through the chain. The keys this endpoint hands out are authenticated
+		// through the built-in entry, which has no such claim to apply, so a key issued to a restricted user
+		// would go on working while the provider has frozen the user: it is not issued. This holds for any
+		// credential, and a key actor's token is one more.
+		klog.Warningf("keys refused for a restricted user: user %s, actor %q", id.ID, id.Actor)
+		apimetrics.AuthFailuresTotal.WithLabelValues("restricted").Inc()
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"code":    http.StatusForbidden,
+			"message": "the user is restricted",
+		})
+		return nil, false, false
+	}
+	return &externalVerdict{info: info, roles: effective.Spec.Roles, userType: userType, actor: id.Actor, jti: id.Jti}, false, true
 }
 
 // abortVerify answers a verify request with the failure the shared external path returned: 401 for a

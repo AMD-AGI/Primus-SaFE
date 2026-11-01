@@ -125,6 +125,13 @@ func TestVerifyKeyActors(t *testing.T) {
 			},
 			wantCode: http.StatusOK, wantSubject: otherUser,
 		},
+		{
+			name: "a chain: the party acting now is listed, an earlier one is not", actors: []string{keyActorClient},
+			token: func(e *extEnv) string {
+				return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient, "act": map[string]any{"sub": "earlier-client"}}, "scope": "safe.api"})
+			},
+			wantCode: http.StatusOK, wantSubject: extUser,
+		},
 
 		{
 			name: "listed actor, safe.read only", actors: []string{keyActorClient},
@@ -154,6 +161,13 @@ func TestVerifyKeyActors(t *testing.T) {
 				return "opaque-read"
 			},
 			wantCode: http.StatusForbidden, wantMessage: msgScope, wantMetric: "delegated_scope",
+		},
+		{
+			name: "a chain: only an earlier party is listed, the one acting now is not", actors: []string{keyActorClient},
+			token: func(e *extEnv) string {
+				return e.jwt(map[string]any{"act": map[string]any{"sub": "other-client", "act": map[string]any{"sub": keyActorClient}}, "scope": "safe.api"})
+			},
+			wantCode: http.StatusForbidden, wantMessage: msgDelegatedForbidden, wantMetric: "delegated_forbidden",
 		},
 
 		{
@@ -428,4 +442,198 @@ func TestVerifyKeyActorVirtualKeyIsFoundBySubjectRecord(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, extUser, resp.Data.Id)
 	require.Equal(t, stored, resp.Data.Email, "the subject's own email")
+}
+
+// The keys this endpoint hands out are authenticated afterwards through the built-in entry, which has no
+// "restricted" claim to apply, so a key issued to a restricted user (the provider's claim, or the user
+// record) would keep working while the user is frozen. Asked for a key, the verdict is refused for any
+// credential, a key actor's token included; a verdict that asks for no key is as it was.
+func TestVerifyRefusesKeysForARestrictedUser(t *testing.T) {
+	defer setupInternalAuth(t)()
+	frozenRecord := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: extUser, Annotations: map[string]string{v1.UserNameAnnotation: "alice", v1.UserEmailAnnotation: "alice@example.com"}},
+		Spec:       v1.UserSpec{Type: v1.SSOUserType, RestrictedType: v1.UserFrozen, Roles: []v1.UserRole{v1.DefaultRole}},
+	}
+	delegated := func(extra map[string]any) func(e *extEnv) string {
+		return func(e *extEnv) string {
+			claims := map[string]any{"act": map[string]any{"sub": keyActorClient}, "scope": "safe.api"}
+			for k, v := range extra {
+				claims[k] = v
+			}
+			return e.jwt(claims)
+		}
+	}
+	cases := []struct {
+		name     string
+		record   *v1.User
+		token    func(e *extEnv) string
+		req      VerifyTokenRequest
+		wantCode int
+	}{
+		{"delegated, the provider restricts the user, platform key", nil, delegated(map[string]any{"restricted": true}),
+			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusForbidden},
+		{"delegated, the provider restricts the user, virtual key", nil, delegated(map[string]any{"restricted": true}),
+			VerifyTokenRequest{IncludeVirtualKey: true}, http.StatusForbidden},
+		{"delegated, the provider restricts the user, both keys", nil, delegated(map[string]any{"restricted": true}),
+			VerifyTokenRequest{IncludePlatformKey: true, IncludeVirtualKey: true}, http.StatusForbidden},
+		{"delegated, the user record is frozen", frozenRecord, delegated(nil),
+			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusForbidden},
+		{"direct token, the provider restricts the user", nil, func(e *extEnv) string { return e.jwt(map[string]any{"restricted": true}) },
+			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusForbidden},
+		{"direct token, the user record is frozen", frozenRecord, func(e *extEnv) string { return e.jwt(nil) },
+			VerifyTokenRequest{IncludeVirtualKey: true}, http.StatusForbidden},
+		{"introspected, the provider restricts the user", nil, func(e *extEnv) string {
+			e.revUsers["opaque-frozen"] = map[string]any{"sub": extUser, "username": "alice", "restricted": true}
+			return "opaque-frozen"
+		}, VerifyTokenRequest{IncludePlatformKey: true}, http.StatusForbidden},
+
+		{"direct token, restricted, no key asked for: the verdict is as it was", nil, func(e *extEnv) string { return e.jwt(map[string]any{"restricted": true}) },
+			VerifyTokenRequest{}, http.StatusOK},
+		{"delegated, restricted, no key asked for: the verdict is as it was", nil, delegated(map[string]any{"restricted": true}),
+			VerifyTokenRequest{}, http.StatusOK},
+		{"delegated, restricted is false", nil, delegated(map[string]any{"restricted": false}),
+			VerifyTokenRequest{IncludePlatformKey: true, IncludeVirtualKey: true}, http.StatusOK},
+		{"direct token, not restricted", nil, func(e *extEnv) string { return e.jwt(nil) },
+			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusOK},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			asked := stubPlatformKeys(t)
+			withKeyActors(t, keyActorClient)
+			e := newExtEnv(t, adminMapping, false)
+			if tc.record != nil {
+				require.NoError(t, e.cli.Create(context.Background(), tc.record.DeepCopy()))
+			}
+			before := counter("restricted")
+			tc.req.Authorization = "Bearer " + tc.token(e)
+
+			var w *httptest.ResponseRecorder
+			logged := captureKlog(t, func() { w = callVerifyToken(t, tc.req, testInternalToken) })
+			require.Equal(t, tc.wantCode, w.Code, w.Body.String())
+
+			if tc.wantCode == http.StatusForbidden {
+				var body struct {
+					Message string `json:"message"`
+				}
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+				require.Equal(t, "the user is restricted", body.Message)
+				require.Empty(t, *asked, "no key is looked up for a restricted user")
+				require.Equal(t, 1.0, counter("restricted")-before)
+				require.NotContains(t, logged, "keys issued")
+				return
+			}
+			require.Equal(t, before, counter("restricted"))
+			var resp verifyResponse
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			require.Equal(t, extUser, resp.Data.Id)
+			if tc.req.IncludePlatformKey {
+				require.Equal(t, "pk-of-"+extUser, resp.Data.PlatformKey)
+			}
+		})
+	}
+}
+
+// The gateway virtual key is found by the email on the subject's own record, for every credential: a
+// local account keeps the email it was created with, so a credential whose email claim differs cannot
+// look up another user's key (the mock database refuses any other email). An account the provider created
+// follows the provider's claim, and a record with no email falls back to the claim.
+func TestVerifyVirtualKeyIsFoundByTheStoredEmail(t *testing.T) {
+	defer setupInternalAuth(t)()
+	const stored, claimed = "alice-local@example.com", "bob@example.com"
+	record := func(typ v1.UserType, email string) *v1.User {
+		ann := map[string]string{v1.UserNameAnnotation: "alice-local"}
+		if email != "" {
+			ann[v1.UserEmailAnnotation] = email
+		}
+		return &v1.User{
+			ObjectMeta: metav1.ObjectMeta{Name: extUser, Annotations: ann},
+			Spec:       v1.UserSpec{Type: typ, Password: "hashed", Roles: []v1.UserRole{v1.DefaultRole}},
+		}
+	}
+	cases := []struct {
+		name      string
+		record    *v1.User
+		token     func(e *extEnv) string
+		wantEmail string
+	}{
+		{"local account, direct token with another email", record(v1.DefaultUserType, stored),
+			func(e *extEnv) string { return e.jwt(map[string]any{"email": claimed}) }, stored},
+		{"local account, introspected credential with another email", record(v1.DefaultUserType, stored),
+			func(e *extEnv) string {
+				e.revUsers["opaque-local"] = map[string]any{"sub": extUser, "username": "alice", "email": claimed}
+				return "opaque-local"
+			}, stored},
+		{"local account, delegated token with another email", record(v1.DefaultUserType, stored),
+			func(e *extEnv) string {
+				return e.jwt(map[string]any{"act": map[string]any{"sub": keyActorClient}, "scope": "safe.api", "email": claimed})
+			}, stored},
+		{"local account, direct token with no email claim", record(v1.DefaultUserType, stored),
+			func(e *extEnv) string { return e.jwt(map[string]any{"email": nil}) }, stored},
+		{"account the provider created: the record follows the claim", nil,
+			func(e *extEnv) string { return e.jwt(map[string]any{"email": claimed}) }, claimed},
+		{"local account with no stored email: the claim", record(v1.DefaultUserType, ""),
+			func(e *extEnv) string { return e.jwt(map[string]any{"email": claimed}) }, claimed},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stubPlatformKeys(t)
+			withKeyActors(t, keyActorClient)
+			e := newExtEnv(t, adminMapping, false)
+			if tc.record != nil {
+				require.NoError(t, e.cli.Create(context.Background(), tc.record.DeepCopy()))
+			}
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockDB := mock_client.NewMockInterface(ctrl)
+			mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), tc.wantEmail).
+				Return(&dbclient.LLMGatewayUserBinding{UserEmail: tc.wantEmail}, nil).Times(1)
+			oldKey := apiKeyTokenInstance
+			apiKeyTokenInstance = &ApiKeyToken{dbClient: mockDB, Client: e.cli}
+			defer func() { apiKeyTokenInstance = oldKey }()
+
+			w := callVerifyToken(t, VerifyTokenRequest{Authorization: "Bearer " + tc.token(e), IncludeVirtualKey: true}, testInternalToken)
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			var resp verifyResponse
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			require.Equal(t, extUser, resp.Data.Id)
+			require.Equal(t, tc.wantEmail, resp.Data.Email)
+		})
+	}
+}
+
+// Whatever a key actor is handed is logged with the actor and the token id, so an issue of a key can be
+// tied to who asked for it: the platform key is an ordinary credential of the user, and what is done with
+// it afterwards is audited as the user's own. Nothing is logged for a verdict that is not delegated, or
+// that hands out no key.
+func TestVerifyLogsTheKeysIssuedToAKeyActor(t *testing.T) {
+	defer setupInternalAuth(t)()
+	cases := []struct {
+		name string
+		req  VerifyTokenRequest
+		jwt  map[string]any
+		want string // a substring of the log; empty: nothing is logged about an issue
+	}{
+		{"delegated, platform key", VerifyTokenRequest{IncludePlatformKey: true},
+			map[string]any{"act": map[string]any{"sub": keyActorClient}, "scope": "safe.api", "jti": "jti-7"},
+			"keys issued to a delegated credential: actor svc-bot, user alice-id, jti jti-7, platform key true, virtual key false"},
+		{"delegated, no key asked for", VerifyTokenRequest{},
+			map[string]any{"act": map[string]any{"sub": keyActorClient}, "scope": "safe.api"}, ""},
+		{"direct token, platform key", VerifyTokenRequest{IncludePlatformKey: true}, nil, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stubPlatformKeys(t)
+			withKeyActors(t, keyActorClient)
+			e := newExtEnv(t, adminMapping, false)
+			tc.req.Authorization = "Bearer " + e.jwt(tc.jwt)
+			var w *httptest.ResponseRecorder
+			logged := captureKlog(t, func() { w = callVerifyToken(t, tc.req, testInternalToken) })
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			if tc.want == "" {
+				require.NotContains(t, logged, "keys issued")
+				return
+			}
+			require.Contains(t, logged, tc.want)
+		})
+	}
 }
