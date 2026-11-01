@@ -220,8 +220,8 @@ func TestPrefixStripping(t *testing.T) {
 		},
 		{
 			name:         "nested path",
-			prefix:       "/agent/qa",
-			requestPath:  "/agent/qa/v1/chat",
+			prefix:       "/my-service",
+			requestPath:  "/my-service/v1/chat",
 			expectedPath: "/v1/chat",
 		},
 		{

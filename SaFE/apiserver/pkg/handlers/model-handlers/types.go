@@ -5,10 +5,6 @@
 
 package model_handlers
 
-import (
-	"time"
-)
-
 // ListModelQuery represents query parameters for listing models.
 type ListModelQuery struct {
 	Limit      int    `form:"limit" binding:"omitempty,min=1"`
@@ -22,90 +18,6 @@ type ListModelQuery struct {
 	// IncludeDeleting also returns models whose deletion is still cleaning up files
 	// (isDeleted=true, deletionTime set); by default they are hidden.
 	IncludeDeleting bool `form:"includeDeleting" binding:"omitempty"`
-}
-
-// ChatRequest represents the unified request to chat with a model or workload.
-// Backend auto-detects whether serviceId refers to a Model or Workload.
-type ChatRequest struct {
-	// Unified service identification (Model ID or Workload ID)
-	ServiceId string `json:"serviceId" binding:"required"` // Model ID or Workload ID
-
-	// Model name for the inference service
-	// - For remote_api models: auto-detected from model.spec.source.modelName (can be overridden)
-	// - For workloads: required, specifies the model path (e.g., "/models/llama-2-7b")
-	ModelName string `json:"modelName,omitempty"`
-
-	// Optional overrides
-	BaseUrl string `json:"baseUrl,omitempty"` // Override service URL (useful for workloads with custom endpoints)
-	ApiKey  string `json:"apiKey,omitempty"`  // Override API key
-
-	// Chat parameters
-	Messages         []map[string]interface{} `json:"messages" binding:"required"` // OpenAI format messages
-	Stream           bool                     `json:"stream"`                      // Enable streaming (SSE)
-	Temperature      float64                  `json:"temperature"`                 // Controls randomness (0.0-2.0)
-	TopP             float64                  `json:"topP"`                        // Nucleus sampling (0.0-1.0)
-	MaxTokens        int                      `json:"maxTokens"`                   // Maximum tokens to generate
-	FrequencyPenalty float64                  `json:"frequencyPenalty"`            // Penalize frequent tokens (-2.0 to 2.0)
-	PresencePenalty  float64                  `json:"presencePenalty"`             // Penalize tokens based on presence (-2.0 to 2.0)
-	N                int                      `json:"n"`                           // Number of completions to generate (1-10)
-}
-
-// SaveSessionRequest represents the request to save a chat session.
-type SaveSessionRequest struct {
-	Id           int64            `json:"id"` // Optional: if provided, update existing session
-	ModelName    string           `json:"modelName" binding:"required"`
-	DisplayName  string           `json:"displayName" binding:"required"`
-	SystemPrompt string           `json:"systemPrompt"`
-	Messages     []MessageHistory `json:"messages" binding:"required"` // Full chat history from frontend
-}
-
-// SaveSessionResponse represents the response after saving a session.
-type SaveSessionResponse struct {
-	Id int64 `json:"id"`
-}
-
-// ListPlaygroundSessionQuery represents query parameters for listing sessions.
-type ListPlaygroundSessionQuery struct {
-	Limit     int    `form:"limit" binding:"omitempty,min=1"`
-	Offset    int    `form:"offset" binding:"omitempty,min=0"`
-	ModelName string `form:"modelName" binding:"omitempty"`
-}
-
-// ListPlaygroundSessionResponse represents the response for listing sessions.
-type ListPlaygroundSessionResponse struct {
-	Total int                     `json:"total"`
-	Items []PlaygroundSessionInfo `json:"items"`
-}
-
-// PlaygroundSessionInfo represents basic session information.
-type PlaygroundSessionInfo struct {
-	Id           int64  `json:"id"`
-	UserId       string `json:"userId"`
-	ModelName    string `json:"modelName"`
-	DisplayName  string `json:"displayName"`
-	SystemPrompt string `json:"systemPrompt"`
-	Messages     string `json:"messages"`
-	CreationTime string `json:"creationTime"`
-	UpdateTime   string `json:"updateTime"`
-}
-
-// PlaygroundSessionDetail represents detailed session information.
-type PlaygroundSessionDetail struct {
-	Id           int64  `json:"id"`
-	UserId       string `json:"userId"`
-	ModelName    string `json:"modelName"`
-	DisplayName  string `json:"displayName"`
-	SystemPrompt string `json:"systemPrompt"`
-	Messages     string `json:"messages"`
-	CreationTime string `json:"creationTime"`
-	UpdateTime   string `json:"updateTime"`
-}
-
-// MessageHistory represents a chat message.
-type MessageHistory struct {
-	Role      string    `json:"role"` // system, user, assistant
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
 }
 
 // --- Model Management Types ---
@@ -237,39 +149,6 @@ type PatchModelRequest struct {
 	MaxTokens   *int      `json:"maxTokens,omitempty"`   // Update max context length
 }
 
-// --- Playground Services Types ---
-
-// PlaygroundServiceItem represents an item in the playground services list.
-// Can be either a remote_api model or a running inference workload.
-type PlaygroundServiceItem struct {
-	Type        string `json:"type"`        // "remote_api" or "workload"
-	ID          string `json:"id"`          // Model ID or Workload ID (use as serviceId for chat)
-	DisplayName string `json:"displayName"` // Display name
-	ModelName   string `json:"modelName"`   // Model name for API calls
-	Phase       string `json:"phase"`       // Status/Phase
-	Workspace   string `json:"workspace"`   // Workspace (for workloads)
-
-	// URL for accessing the service (can be used as baseUrl override in chat)
-	// - For remote_api: the API endpoint URL
-	// - For workload: external domain via Higress (if configured) or internal domain
-	BaseUrl string `json:"baseUrl,omitempty"`
-
-	// For workloads only
-	SourceModelID   string `json:"sourceModelId,omitempty"`   // Source Model ID (from annotation)
-	SourceModelName string `json:"sourceModelName,omitempty"` // Source Model display name
-}
-
-// ListPlaygroundServicesQuery represents query parameters for listing playground services.
-type ListPlaygroundServicesQuery struct {
-	Workspace string `form:"workspace" binding:"omitempty"` // Filter workloads by workspace
-}
-
-// ListPlaygroundServicesResponse represents the response for listing playground services.
-type ListPlaygroundServicesResponse struct {
-	Total int                     `json:"total"`
-	Items []PlaygroundServiceItem `json:"items"`
-}
-
 // --- Workload Config Types ---
 
 // WorkloadConfigRequest represents the request to get workload config for a model.
@@ -330,11 +209,3 @@ type AssociatedWorkload struct {
 	CreatedAt   string `json:"createdAt"`
 }
 
-// --- Chat URL Types ---
-
-// ChatURLResponse represents the response for getting the chat URL.
-type ChatURLResponse struct {
-	URL       string `json:"url"`       // Base URL for chat API
-	ModelName string `json:"modelName"` // Model name to use
-	HasApiKey bool   `json:"hasApiKey"` // Whether an API key is configured
-}
