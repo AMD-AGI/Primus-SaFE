@@ -29,7 +29,7 @@ valid_attestation {
 
 # gpu_count sums gpu times replica across workload resources.
 gpu_count(obj) = n {
-  cards := [c | resource := obj.spec.resources[_]; c := resource_gpus(resource)]
+  cards := [resource_gpus(obj.spec.resources[_])]
   n := sum(cards)
 }
 
