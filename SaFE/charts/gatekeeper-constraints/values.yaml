@@ -16,3 +16,16 @@ image:
   repository: curlimages/curl
   tag: "8.20.0"
   pullPolicy: IfNotPresent
+
+# Hook Job security settings. They satisfy the restricted Pod Security level of the Gatekeeper namespace.
+# The UID matches the curl_user account of the curl image.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 100
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]

@@ -20,10 +20,14 @@ spec:
     spec:
       serviceAccountName: gatekeeper-constraint-apply
       restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: delete
           image: "{{ include "constraints.curlRepository" . }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
             - name: RELEASE_NAMESPACE
               value: {{ .Release.Namespace | quote }}
