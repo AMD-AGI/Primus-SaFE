@@ -1,7 +1,6 @@
 go 1.25.5
 
 use (
-	./SaFE/a2a-gateway
 	./SaFE/apis
 	./SaFE/apiserver
 	./SaFE/common

@@ -12,23 +12,13 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
-// InitInferenceRouters initializes and registers all model, playground, and dataset API routes with the Gin engine.
+// InitInferenceRouters initializes and registers all model, dataset, evaluation and training API routes with the Gin engine.
 // It sets up authenticated routes requiring authorization and preprocessing.
 // Write operations are audited with appropriate resourceTypes.
 func InitInferenceRouters(e *gin.Engine, h *Handler) {
-	// Model and Playground API requires authentication and preprocessing.
+	// Model API requires authentication and preprocessing.
 	group := e.Group(common.PrimusRouterCustomRootPath, middleware.Authorize(), middleware.Preprocess())
 	{
-		// Playground chat (high frequency, no audit)
-		group.POST("playground/chat", h.Chat)
-		group.GET("playground/services", h.ListPlaygroundServices)
-
-		// Playground sessions with audit
-		group.POST("playground/sessions", middleware.Audit("session"), h.SaveSession)
-		group.DELETE("playground/sessions/:id", middleware.Audit("session"), h.DeletePlaygroundSession)
-		group.GET("playground/sessions", h.ListPlaygroundSession)
-		group.GET("playground/sessions/:id", h.GetPlaygroundSession)
-
 		// Model management with audit
 		group.POST("playground/models", middleware.Audit("model"), h.CreateModel)
 		group.PATCH("playground/models/:id", middleware.Audit("model"), h.PatchModel)
@@ -39,7 +29,6 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 		group.GET("playground/models/:id/workloads", h.GetModelWorkloads)
 		group.GET("playground/models/:id/workload-config", h.GetWorkloadConfig)
 		group.GET("playground/models/:id/sft-config", h.GetSftConfig)
-		group.GET("playground/models/:id/chat-url", h.GetChatURL)
 
 		// Dataset routes (only registered if S3 is enabled)
 		if h.IsDatasetEnabled() {

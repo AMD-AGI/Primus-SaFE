@@ -106,9 +106,6 @@ func TestGettersDefaults(t *testing.T) {
 	testifyassert.Equal(t, "error_only", GetTracingMode())
 	testifyassert.Equal(t, 1.0, GetTracingSamplingRatio())
 	testifyassert.Equal(t, "", GetTracingOtlpEndpoint())
-	testifyassert.False(t, IsA2AScannerEnable())
-	testifyassert.Equal(t, 60, GetA2AScannerInterval())
-	testifyassert.Equal(t, "a2a.primus.io/enabled=true", GetA2AScannerLabelSelector())
 	testifyassert.False(t, IsLLMGatewayEnable())
 	testifyassert.False(t, IsMonarchEnable())
 	testifyassert.False(t, IsSandboxEnable())
@@ -161,9 +158,6 @@ func TestGettersWithValues(t *testing.T) {
 	viper.Set(tracingEnable, true)
 	viper.Set(tracingMode, "all")
 	viper.Set(tracingSamplingRatio, 0.5)
-	viper.Set(a2aScannerEnable, true)
-	viper.Set(a2aScannerInterval, -5) // negative -> falls back to 60
-	viper.Set(a2aScannerLabel, "x=y")
 	viper.Set(mcpEnable, true)
 	viper.Set(modelOptimizationEnable, true)
 	viper.Set(modelOptimizationClawBaseURL, "http://claw/v1")
@@ -197,9 +191,6 @@ func TestGettersWithValues(t *testing.T) {
 	testifyassert.True(t, IsTracingEnable())
 	testifyassert.Equal(t, "all", GetTracingMode())
 	testifyassert.Equal(t, 0.5, GetTracingSamplingRatio())
-	testifyassert.True(t, IsA2AScannerEnable())
-	testifyassert.Equal(t, 60, GetA2AScannerInterval())
-	testifyassert.Equal(t, "x=y", GetA2AScannerLabelSelector())
 	testifyassert.True(t, IsMCPEnable())
 	testifyassert.True(t, IsModelOptimizationEnable())
 	testifyassert.Equal(t, "http://claw/v1", GetModelOptimizationClawBaseURL())
@@ -296,9 +287,6 @@ func TestStringHelpers(t *testing.T) {
 	viper.Set(mcpAllowedOrigins, "http://a, http://b")
 	testifyassert.Equal(t, []string{"http://a", "http://b"}, GetMCPAllowedOrigins())
 
-	viper.Set(a2aScannerNamespaces, []string{"ns1", "ns2"})
-	testifyassert.Equal(t, []string{"ns1", "ns2"}, GetA2AScannerNamespaces())
-
 	viper.Set(cdComponents, "c1,c2")
 	testifyassert.Equal(t, []string{"c1", "c2"}, GetComponents())
 }
@@ -371,16 +359,16 @@ proxy:
 			configContent: `
 proxy:
   services:
-    - name: qa-agent
-      prefix: /agent/qa
-      target: http://qa-agent-service:8080
+    - name: my-service
+      prefix: /my-service
+      target: http://my-service:8080
       enabled: true
 `,
 			expectedCount: 1,
 			expectedFirst: &ProxyService{
-				Name:    "qa-agent",
-				Prefix:  "/agent/qa",
-				Target:  "http://qa-agent-service:8080",
+				Name:    "my-service",
+				Prefix:  "/my-service",
+				Target:  "http://my-service:8080",
 				Enabled: true,
 			},
 		},
@@ -389,9 +377,9 @@ proxy:
 			configContent: `
 proxy:
   services:
-    - name: qa-agent
-      prefix: /agent/qa
-      target: http://qa-agent-service:8080
+    - name: my-service
+      prefix: /my-service
+      target: http://my-service:8080
       enabled: true
     - name: data-service
       prefix: /api/data
@@ -400,9 +388,9 @@ proxy:
 `,
 			expectedCount: 2,
 			expectedFirst: &ProxyService{
-				Name:    "qa-agent",
-				Prefix:  "/agent/qa",
-				Target:  "http://qa-agent-service:8080",
+				Name:    "my-service",
+				Prefix:  "/my-service",
+				Target:  "http://my-service:8080",
 				Enabled: true,
 			},
 		},

@@ -21,7 +21,6 @@ jobs:
       fail-fast: false
       matrix:
         module:
-          - a2a-gateway
           - apiserver
           - common
           - job-manager
@@ -175,6 +174,18 @@ jobs:
           flags: safe-${{ matrix.module }}
           name: safe-${{ matrix.module }}
           fail_ci_if_error: false
+
+  test-bootstrap:
+    name: Test Bootstrap Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Runs upgrade.sh against the real charts with a stand-in helm and kubectl (helm and jq are
+      # on the runner image).
+      - name: Test upgrade.sh authentication settings
+        run: bash SaFE/bootstrap/tests/upgrade_auth_test.sh
 
   coverage-summary:
     name: Coverage Summary

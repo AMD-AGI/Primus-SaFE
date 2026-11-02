@@ -74,13 +74,6 @@ export default defineConfig(({ mode }) => {
           ws: true,
           changeOrigin: true,
         },
-        '/agent/ops': {
-          target: BACKEND_TARGET,
-          ws: true,
-          changeOrigin: true,
-          secure: false,
-          rewrite: (path) => path,
-        },
         '/claw-api': {
           target: CLAW_TARGET,
           changeOrigin: true,
@@ -100,12 +93,6 @@ export default defineConfig(({ mode }) => {
               }
             })
           },
-        },
-        '/x-flannel': {
-          target: API_TARGET,
-          changeOrigin: true,
-          secure: false,
-          rewrite: (path) => path,
         },
       },
     },
