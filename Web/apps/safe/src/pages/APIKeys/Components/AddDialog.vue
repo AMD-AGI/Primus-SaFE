@@ -127,8 +127,10 @@ import { type FormInstance, type FormRules, ElMessage } from 'element-plus'
 import { CopyDocument } from '@element-plus/icons-vue'
 import { copyText, formatTimeStr } from '@/utils/index'
 
-defineProps<{
+const props = defineProps<{
   visible: boolean
+  // Where the identity provider creates keys (GET /envs apiKeysUrl); '' for the apiserver
+  providerUrl?: string
 }>()
 const emit = defineEmits(['update:visible', 'success'])
 
@@ -169,11 +171,15 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       .map((line) => line.trim())
       .filter((line) => line.length > 0)
 
-    const response = await createAPIKey({
-      name: form.name,
-      ttlDays: form.ttlDays,
-      whitelist: whitelist.length > 0 ? whitelist : undefined,
-    })
+    // With an external identity provider that routes its keys here, the provider issues the key.
+    const response = await createAPIKey(
+      {
+        name: form.name,
+        ttlDays: form.ttlDays,
+        whitelist: whitelist.length > 0 ? whitelist : undefined,
+      },
+      props.providerUrl,
+    )
 
     createdKey.value = response
     emit('update:visible', false)

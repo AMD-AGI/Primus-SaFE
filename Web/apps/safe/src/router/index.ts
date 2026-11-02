@@ -40,6 +40,13 @@ const router = createRouter({
       meta: { hideMenu: true },
     },
     {
+      // Outside the layout, like /403: no menu and no header. Not a public route; see auth.ts.
+      path: '/no-access',
+      name: 'NoAccess',
+      component: () => import('../pages/NoAccess/NoAccessPage.vue'),
+      meta: { hideMenu: true },
+    },
+    {
       path: '/',
       component: () => import('@/layouts/AppLayout.vue'),
       children: [
@@ -334,11 +341,6 @@ const router = createRouter({
           component: () => import('@/pages/PostTrain/PostTrainDetail.vue'),
         },
         {
-          path: '/playground-agent',
-          name: 'PlaygroundAgent',
-          component: () => import('@/pages/PlaygroundAgent/index.vue'),
-        },
-        {
           path: '/model-square',
           name: 'ModelSquare',
           component: () => import('@/pages/ModelSquare/index.vue'),
@@ -347,18 +349,6 @@ const router = createRouter({
           path: '/model-square/detail/:id',
           name: 'ModelSquareDetail',
           component: () => import('@/pages/ModelSquare/ModelSquareDetail.vue'),
-        },
-        {
-          path: '/chatbot',
-          name: 'ChatbotFullPage',
-          component: () => import('@/pages/ChatbotFullPage/index.vue'),
-          meta: { hideInMenu: true },
-        },
-        {
-          path: '/qabase',
-          name: 'QABase',
-          component: () => import('@/pages/QABase/index.vue'),
-          meta: { requiresWorkspaceAdmin: true },
         },
         {
           path: '/deploy',
@@ -371,12 +361,6 @@ const router = createRouter({
           name: 'DeployDetail',
           component: () => import('@/pages/Deploy/DeployDetail.vue'),
           meta: { requiresSystemAdmin: true },
-        },
-        {
-          path: '/feedback-management',
-          name: 'FeedbackManagement',
-          component: () => import('@/pages/FeedbackManagement/index.vue'),
-          meta: { requiresWorkspaceAdmin: true },
         },
         {
           path: '/dataset',
@@ -427,12 +411,6 @@ const router = createRouter({
           component: () => import('@/pages/Tools/index.vue'),
         },
         {
-          path: '/sandbox',
-          name: 'Sandbox',
-          component: () => import('@/pages/Sandbox/index.vue'),
-          meta: { requiresWorkspaceAdmin: true },
-        },
-        {
           path: '/workload-manage',
           name: 'WorkloadManage',
           component: () => import('@/pages/WorkloadManage/index.vue'),
@@ -442,11 +420,6 @@ const router = createRouter({
           path: '/litellm-gateway',
           name: 'LLMGateway',
           component: () => import('@/pages/LLMGateway/index.vue'),
-        },
-        {
-          path: '/a2a',
-          name: 'A2AProtocol',
-          component: () => import('@/pages/A2A/index.vue'),
         },
         {
           path: '/claw',

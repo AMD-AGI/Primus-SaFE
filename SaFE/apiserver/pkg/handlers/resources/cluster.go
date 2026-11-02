@@ -177,9 +177,12 @@ func (h *Handler) generateCluster(ctx context.Context,
 }
 
 // listCluster implements the cluster listing logic.
-// Retrieves all clusters, sorts them by name, and converts them to response items.
+// Authorizes the request, retrieves all clusters, sorts them by name, and converts them to response items.
 func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
+	if err := h.authorizeKind(c, v1.ClusterKind, "", v1.ListVerb); err != nil {
+		return nil, err
+	}
 	clusterList := &v1.ClusterList{}
 	if err := h.List(ctx, clusterList, &client.ListOptions{}); err != nil {
 		return nil, err
@@ -202,12 +205,15 @@ func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 // Gets the cluster by ID and converts it to a detailed response format.
 func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
+	if err := h.authorizeKind(c, v1.ClusterKind, c.GetString(common.Name), v1.GetVerb); err != nil {
+		return nil, err
+	}
 	cluster, err := h.getAdminCluster(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
 	resp := cvtToGetClusterResponse(ctx, h.Client, cluster)
-	// Cluster status stays visible to all authenticated users, but control-plane
+	// Cluster status stays visible to every user the role grants cluster get (the default role does), but control-plane
 	// infrastructure details (endpoint, secret references, pod subnet) are only
 	// exposed to system administrators. Fails closed: if admin status cannot be
 	// determined, the fields are redacted.

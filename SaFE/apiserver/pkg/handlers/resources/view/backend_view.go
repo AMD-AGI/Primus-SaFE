@@ -18,8 +18,13 @@ type GetEnvResponse struct {
 	SSHIP string `json:"sshIP"`
 	// How requests are authenticated: "builtin" (accounts, sessions and API keys of this
 	// deployment) or "external" (an identity provider decides, and the console neither
-	// offers registration, password changes nor API key creation).
+	// offers registration or password changes, and creates API keys only where the deployment routes them
+	// to the provider, see APIKeysURL).
 	AuthMode string `json:"authMode"`
+	// With external authentication, the path on the console's own origin where API key creation, listing and
+	// revocation are routed to the identity provider (auth.api_keys_url). Absent when authentication is not
+	// external or nothing is routed there: the console then offers no key creation.
+	APIKeysURL string `json:"apiKeysUrl,omitempty"`
 	// Whether to enable sso
 	SSOEnable bool `json:"ssoEnable"`
 	// The url for sso authorization
@@ -28,6 +33,9 @@ type GetEnvResponse struct {
 	SSOBridgeAllowlist []string `json:"ssoBridgeAllowlist"`
 	// Whether CD deployment requires approval from another user
 	CDRequireApproval bool `json:"cdRequireApproval"`
+	// The line the console's "no access yet" page shows to a user who holds no access (console.access_contact).
+	// Plain text, empty when the deployment sets none.
+	AccessContact string `json:"accessContact"`
 	// KubeSpray image tags mapped to the Kubernetes versions they install.
 	KubeSprayK8sVersions map[string]string `json:"kubeSprayK8sVersions"`
 }

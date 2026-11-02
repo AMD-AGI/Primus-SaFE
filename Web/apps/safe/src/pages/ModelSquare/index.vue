@@ -218,14 +218,6 @@
 
           <!-- Action button area -->
           <div class="model-actions">
-            <button
-              class="btn-chat"
-              :disabled="model.phase !== 'Ready'"
-              @click="openChat(model)"
-            >
-              <el-icon :size="14"><ChatLineSquare /></el-icon>
-              Chat
-            </button>
             <div class="action-buttons">
               <el-tooltip content="View Details" placement="top">
                 <el-button
@@ -422,13 +414,6 @@
       @success="handleInferSuccess"
     />
 
-    <!-- Select Infer dialog (Local type) -->
-    <SelectInferDialog
-      v-model:visible="showSelectInferDialog"
-      :model-id="currentSelectModel?.id || ''"
-      @confirm="handleInferSelected"
-    />
-
   </div>
 </template>
 
@@ -439,7 +424,6 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus,
   Search,
-  ChatLineSquare,
   View,
   Delete,
   VideoPlay,
@@ -468,7 +452,6 @@ import ModelPrewarmDialog from './Components/ModelPrewarmDialog.vue'
 import ModelPrewarmNodeDetail from './Components/ModelPrewarmNodeDetail.vue'
 import ToggleServiceDialog from './Components/ToggleServiceDialog.vue'
 import InferAddDialog from '@/pages/Infer/Components/AddDialog.vue'
-import SelectInferDialog from './Components/SelectInferDialog.vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useClusterStore } from '@/stores/cluster'
 import { useUserStore } from '@/stores/user'
@@ -513,8 +496,6 @@ const showInferDialog = ref(false)
 const currentInferWlid = ref<string>('')
 const inferAction = ref('Create')
 const inferPrefillData = ref<Record<string, unknown>>({})
-const showSelectInferDialog = ref(false)
-const currentSelectModel = ref<PlaygroundModel | null>(null)
 
 interface PrewarmRow {
   jobId: string
@@ -792,49 +773,6 @@ watch(
   },
   { immediate: true },
 )
-
-// Open chat
-const openChat = (model: PlaygroundModel) => {
-  // Remote API type: navigate directly
-  if (model.accessMode === 'remote_api') {
-    if (model.phase !== 'Ready') {
-      ElMessage.warning('Model is not ready yet.')
-      return
-    }
-
-    router.push({
-      path: '/playground-agent',
-      query: {
-        modelId: model.id,
-        serviceId: model.id, // Remote API uses modelId as serviceId
-        modelIcon: model.icon || '',
-      },
-    })
-    return
-  }
-
-  // Local type: show select Infer dialog
-  currentSelectModel.value = model
-  showSelectInferDialog.value = true
-}
-
-// Handle Infer selection
-const handleInferSelected = (
-  inferId: string,
-  service: { id: string; displayName: string } | undefined,
-) => {
-  if (!currentSelectModel.value) return
-
-  router.push({
-    path: '/playground-agent',
-    query: {
-      modelId: currentSelectModel.value.id,
-      serviceId: inferId,
-      modelName: service?.displayName || '',
-      modelIcon: currentSelectModel.value.icon || '',
-    },
-  })
-}
 
 // Handle dropdown command
 const handleCommand = async (command: string, model: PlaygroundModel) => {
@@ -1408,35 +1346,10 @@ watch(
       backdrop-filter: blur(8px);
       position: relative;
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-end;
       align-items: center;
       margin-top: auto;
 
-      .btn-chat {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 5px 14px;
-        border-radius: 14px;
-        border: 1px solid var(--el-color-primary-light-3);
-        background: transparent;
-        color: var(--el-color-primary);
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s;
-
-        &:hover:not(:disabled) {
-          background: var(--el-color-primary);
-          color: #fff;
-          border-color: var(--el-color-primary);
-        }
-
-        &:disabled {
-          opacity: 0.35;
-          cursor: not-allowed;
-        }
-      }
 
       .action-buttons {
         display: flex;

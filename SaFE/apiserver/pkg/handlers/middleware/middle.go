@@ -27,7 +27,7 @@ func Preprocess(_ ...string) gin.HandlerFunc {
 // Authorize parses the cookie and aborts the request with an API error if parsing fails.
 func Authorize(_ ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		err := authority.ParseToken(c)
+		err := authority.AuthenticateRequest(c)
 		if err != nil {
 			apiutils.AbortWithApiError(c, err)
 			return

@@ -15,10 +15,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbModel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/channel"
@@ -281,7 +283,12 @@ func (h *Handler) AuthorizeRelay() gin.HandlerFunc {
 		}
 
 		// Fall back to standard SaFE auth (API key or session token)
-		err := authority.ParseToken(c)
+		err := authority.AuthenticateRequest(c)
+		if apierrors.IsForbidden(err) {
+			// Authenticated, and refused: the user holds no access (authority.ErrNoAccess). That is not a missing credential.
+			apiutils.AbortWithApiError(c, err)
+			return
+		}
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: provide X-Internal-Token or Authorization: Bearer <api-key>"})
 			c.Abort()

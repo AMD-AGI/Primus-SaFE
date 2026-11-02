@@ -29,6 +29,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority/authtest"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
@@ -651,9 +652,10 @@ func TestGetClusterRedactsInfraForNonAdmin(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "admin-c"},
 		Spec:       v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.SystemAdminRole}},
 	}
+	// An ordinary user holds the default role, which is what lets it read clusters.
 	normal := &v1.User{
 		ObjectMeta: metav1.ObjectMeta{Name: "user-c"},
-		Spec:       v1.UserSpec{Type: v1.DefaultUserType},
+		Spec:       v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.DefaultRole}},
 	}
 	subnet := "10.0.0.0/16"
 	svcAddr := "10.254.0.0/16"
@@ -665,7 +667,8 @@ func TestGetClusterRedactsInfraForNonAdmin(t *testing.T) {
 	cluster.Spec.ControlPlane.Nodes = []string{"node-a", "node-b"}
 	cluster.Spec.ControlPlane.KubeApiServerArgs = map[string]string{"foo": "bar"}
 
-	ctrlClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(admin, normal, cluster).Build()
+	objs := append(authtest.ChartRoles(t), admin, normal, cluster)
+	ctrlClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 	h := &Handler{Client: ctrlClient, accessController: &authority.AccessController{Client: ctrlClient}}
 
 	newReq := func(userID string) *gin.Context {

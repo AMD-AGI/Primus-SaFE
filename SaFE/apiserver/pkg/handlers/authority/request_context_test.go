@@ -121,6 +121,10 @@ func (s *goSource) pos(n ast.Node) string {
 var derivingCalls = map[string]bool{"WithTimeout": true, "WithCancel": true, "WithDeadline": true,
 	"WithValue": true, "WithoutCancel": true, "WithCancelCause": true, "WithTimeoutCause": true}
 
+// overlayingCalls put the overlay of an identity on the context they are given, or leave it as it is
+// (extauth.WithOverlay, WithoutIdentity): the result is as much the request's as their first argument.
+var overlayingCalls = map[string]bool{"WithOverlay": true, "WithoutIdentity": true}
+
 // fromRequest reports why e is not the context of the request, or "" when it is. An
 // identifier is followed to every assignment of it in the function and the functions around it
 // and, when it is a parameter, to the argument of every call of the function.
@@ -129,6 +133,9 @@ func (s *goSource) fromRequest(e ast.Expr, sc *funcScope, seen map[string]bool) 
 	case *ast.ParenExpr:
 		return s.fromRequest(x.X, sc, seen)
 	case *ast.CallExpr:
+		if overlayingCalls[calleeName(x)] && len(x.Args) > 0 {
+			return s.fromRequest(x.Args[0], sc, seen)
+		}
 		if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
 			// <gin context>.Request.Context()
 			if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "Request" && sel.Sel.Name == "Context" {

@@ -32,6 +32,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority/authtest"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -90,12 +91,14 @@ func sharedGuardCluster(t *testing.T) client.Client {
 		local.Spec.Password = stringutil.Base64Encode(localPassword)
 		idp := guardUser(commonuser.GenerateUserIdByName(idpUserName), v1.SSOUserType, v1.DefaultRole)
 		idp.Annotations[v1.UserNameAnnotation] = idpUserName
-		objs := []client.Object{
-			genMockRole(), local, idp,
+		// The roles as the chart ships them, so that a user who holds the default role is let through the gate
+		// every authenticated route starts with and meets the handler's own checks, which is what these tests
+		// are about; a fixture without them would have every non-administrator refused at the gate.
+		objs := append(authtest.ChartRoles(t), local, idp,
 			// The administrator is one only through the group the identity provider puts it in (see
 			// guardEngineWithDB): the platform roles stored on a user object do not count.
 			guardUser("idp-admin-id", v1.SSOUserType, v1.DefaultRole),
-		}
+		)
 		for _, name := range guardTargets {
 			switch name {
 			case "t-local":

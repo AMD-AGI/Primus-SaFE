@@ -104,10 +104,11 @@ rules:
   verbs:
     - get
     - list
-# A2A service registry is read-only for all users; create/update/delete are
-# restricted to system administrators (see the system-admin role above).
+# Cluster addons and their templates: the apiserver checks these reads like every other, so the
+# default role holds them explicitly (every user could read them before the check existed).
 - resources:
-    - a2a
+    - addon
+    - addontemplate
   grantedUsers:
     - "*"
   verbs:
@@ -198,3 +199,23 @@ rules:
     - workspace-user
   verbs:
     - list
+---
+apiVersion: amd.com/v1
+kind: Role
+metadata:
+  name: self-read
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+# The role of a user who holds no access yet (primus-safe users.base_roles: [self-read]): the
+# user's own user record, to read, and nothing else. No list, no write, no workspace, no other
+# resource. An administrator grants more by adding the default role and workspaces to the user.
+rules:
+- resources:
+    - user
+  grantedUsers:
+    - owner
+  verbs:
+    - get

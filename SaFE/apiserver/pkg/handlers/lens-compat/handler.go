@@ -83,7 +83,7 @@ func (h *Handler) Register(engine *gin.Engine) {
 	}
 	group := engine.Group(Prefix)
 	group.Use(func(c *gin.Context) {
-		if err := authority.ParseToken(c); err != nil {
+		if err := authority.AuthenticateRequest(c); err != nil {
 			apiutils.AbortWithApiError(c, err)
 			return
 		}

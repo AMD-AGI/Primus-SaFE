@@ -84,7 +84,10 @@ func Forbidden(method, urlPath string) (capability string, forbidden bool) {
 			return CapabilityCredentialRead, true
 		}
 	case "auth":
-		// The token verification endpoint can hand back a user's platform key.
+		// The token verification endpoint can hand back a user's platform key. The one party
+		// that may use it with a delegated token is named in auth.key_actors; POST /auth/verify
+		// does not go through ParseToken, so that exception lives in the handler, and a delegated
+		// token reaches no other route of this prefix.
 		return CapabilityPlatformKey, true
 	}
 	return "", false
@@ -157,18 +160,20 @@ func ReadOnly(r *http.Request) bool {
 // request. A delegated credential without a recognised scope allows nothing, and
 // safe.read allows only what ReadOnly accepts.
 func ScopeAllows(scopes []string, r *http.Request) bool {
-	has := func(s string) bool {
-		for _, x := range scopes {
-			if x == s {
-				return true
-			}
-		}
-		return false
-	}
-	if has(ScopeAPI) {
+	if HasScope(scopes, ScopeAPI) {
 		return true
 	}
-	return has(ScopeRead) && ReadOnly(r)
+	return HasScope(scopes, ScopeRead) && ReadOnly(r)
+}
+
+// HasScope reports whether the scopes of a delegated credential include the scope.
+func HasScope(scopes []string, scope string) bool {
+	for _, x := range scopes {
+		if x == scope {
+			return true
+		}
+	}
+	return false
 }
 
 // credentialWords are path fragments that suggest a route handles a credential.

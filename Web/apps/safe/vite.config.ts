@@ -41,7 +41,10 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: false,
           timeout: 1800000, // 30 minutes, for large file uploads
-          rewrite: (p) => p.replace(/^\/api/, '/api/v1'),
+          // The console's own calls are `/api/<route>` and reach `/api/v1/<route>`. A path already under
+          // `/api/v1/` is a public path used as it is (apiKeysUrl, where the deployment routes API keys to
+          // the identity provider) and is not given a second `/v1`.
+          rewrite: (p) => (p.startsWith('/api/v1/') ? p : p.replace(/^\/api/, '/api/v1')),
           cookieDomainRewrite: { '*': DEV_DOMAIN },
           configure(proxy) {
             proxy.on('proxyRes', (proxyRes, req, res) => {
@@ -76,13 +79,6 @@ export default defineConfig(({ mode }) => {
           ws: true,
           changeOrigin: true,
         },
-        '/agent/ops': {
-          target: BACKEND_TARGET,
-          ws: true,
-          changeOrigin: true,
-          secure: false,
-          rewrite: (path) => path,
-        },
         '/claw-api': {
           target: CLAW_TARGET,
           changeOrigin: true,
@@ -102,12 +98,6 @@ export default defineConfig(({ mode }) => {
               }
             })
           },
-        },
-        '/x-flannel': {
-          target: API_TARGET,
-          changeOrigin: true,
-          secure: false,
-          rewrite: (path) => path,
         },
         '/mcp-proxy': {
           target: MCP_TARGET,

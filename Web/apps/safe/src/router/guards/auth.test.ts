@@ -1,3 +1,4 @@
+import type { Router } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const getEnvs = vi.fn()
@@ -127,6 +128,53 @@ describe('auth guard session probe', () => {
     userState = state
     const next = await run()
     expect(state.ensureSessionOnce).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledWith()
+  })
+})
+
+// /no-access is for a signed-in user: the auth guard must not count it among the public pages.
+describe('auth guard and /no-access', () => {
+  type Guard = (to: unknown, from: unknown, next: ReturnType<typeof vi.fn>) => Promise<void>
+
+  const run = async (to: Record<string, unknown>) => {
+    let guard!: Guard
+    setupAuthGuard({
+      beforeEach: (fn: Guard) => {
+        guard = fn
+      },
+    } as unknown as Router)
+    const next = vi.fn()
+    await guard(to, {}, next)
+    return next
+  }
+  const noAccess = { query: {}, path: '/no-access', fullPath: '/no-access', name: 'NoAccess' }
+  const visitor = () => ({
+    session: 'anonymous',
+    userId: '',
+    isLogin: false,
+    ensureSessionOnce: vi.fn(async () => {}),
+  })
+
+  it('sends an anonymous visitor to /login, with /no-access as the way back', async () => {
+    userState = visitor()
+    const next = await run(noAccess)
+    expect(next).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/no-access' } })
+  })
+
+  it('sends an anonymous visitor to /login even when only the path identifies the page', async () => {
+    userState = visitor()
+    const next = await run({ ...noAccess, name: undefined })
+    expect(next).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/no-access' } })
+  })
+
+  it('lets a signed-in user in', async () => {
+    userState = {
+      session: 'authenticated',
+      userId: 'u1',
+      isLogin: true,
+      ensureSessionOnce: vi.fn(),
+    }
+    const next = await run(noAccess)
     expect(next).toHaveBeenCalledWith()
   })
 })

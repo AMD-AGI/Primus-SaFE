@@ -30,6 +30,12 @@ func SetValue(key, value string) {
 	viper.Set(key, value)
 }
 
+// UnsetValue removes a value set with SetValue, so that the key reads as not configured again (which
+// is not the same as configured empty).
+func UnsetValue(key string) {
+	viper.Set(key, nil)
+}
+
 // LoadConfig loads configuration from the specified file path.
 func LoadConfig(path string) error {
 	viper.SetConfigFile(path)
@@ -456,8 +462,28 @@ func GetUserTokenExpire() int {
 	return getInt(userTokenExpireSecond, -1)
 }
 
+// GetUserBaseRoles returns users.base_roles as configured: the roles every user who is not a
+// system administrator holds. It is nil when the key is not set. Callers that need the
+// effective list (defaulted and sanitized) use commonuser.BaseRoles.
+func GetUserBaseRoles() []string {
+	return getStringSlice(usersBaseRoles, nil)
+}
+
+// IsUserJoinDefaultWorkspaces reports whether every user is added to the workspaces marked as
+// default: when the user is created or updated, and when a workspace is marked as default
+// (users.join_default_workspaces, true unless set).
+func IsUserJoinDefaultWorkspaces() bool {
+	return getBool(usersJoinDefaultWorkspaces, true)
+}
+
+// GetConsoleAccessContact returns console.access_contact, the line the web console's
+// "no access yet" page shows to a user who holds no access. It is empty unless set.
+func GetConsoleAccessContact() string {
+	return strings.TrimSpace(getString(consoleAccessContact, ""))
+}
+
 // IsOutboundTLSVerifyEnabled reports whether outbound HTTPS requests to model
-// endpoints and third-party services (Playground chat, InferenceX) must verify
+// endpoints and third-party services (InferenceX) must verify
 // TLS certificates. It defaults to false to preserve compatibility with
 // self-signed ingress certificates and container images that ship without an
 // updated CA bundle. Security-conscious deployments can set
@@ -679,32 +705,6 @@ func GetLangfuseProxyPublicKey() string {
 // GetLangfuseProxySecretKey returns the shared Langfuse project secret key from secret.
 func GetLangfuseProxySecretKey() string {
 	return getFromFile(langfuseProxySecretPath, "secret_key")
-}
-
-// IsA2AScannerEnable returns whether the A2A service scanner is enabled.
-func IsA2AScannerEnable() bool { return getBool(a2aScannerEnable, false) }
-
-// GetA2AScannerInterval returns the A2A scanner interval in seconds.
-func GetA2AScannerInterval() int {
-	v := getInt(a2aScannerInterval, 60)
-	if v <= 0 {
-		return 60
-	}
-	return v
-}
-
-// GetA2AScannerNamespaces returns the namespaces to scan for A2A services.
-func GetA2AScannerNamespaces() []string {
-	return viper.GetStringSlice(a2aScannerNamespaces)
-}
-
-// GetA2AScannerLabelSelector returns the label selector for A2A service discovery.
-func GetA2AScannerLabelSelector() string {
-	v := getString(a2aScannerLabel, "")
-	if v == "" {
-		return "a2a.primus.io/enabled=true"
-	}
-	return v
 }
 
 // ── LLM Gateway ─────────────────────────────────────────────────────────
@@ -959,6 +959,25 @@ func GetAuthGroupMappings() ([]AuthGroupMapping, error) {
 		return nil, fmt.Errorf("reading %s: %w", authGroupMappings, err)
 	}
 	return list, nil
+}
+
+// GetAuthKeyActors returns auth.key_actors: the client ids of the parties that may, with a delegated token,
+// call POST /auth/verify and receive the keys of the user the token acts for. Blank entries are dropped.
+// The list is empty by default, and then no delegated token may call it.
+func GetAuthKeyActors() []string { return getStringSlice(authKeyActors, nil) }
+
+// GetAuthAPIKeysURL returns auth.api_keys_url: the path on the console's own origin (for example
+// /api/v1/apikeys) where the deployment routes API key creation, listing and revocation to the identity
+// provider when authentication is external. Empty (the default) means nothing is routed there and the
+// console offers no key creation. Only a path counts: anything else (an absolute URL, a protocol relative
+// "//host", a value without the leading slash) is taken as not set, so the console never sends the session
+// to an origin the operator did not mean.
+func GetAuthAPIKeysURL() string {
+	url := strings.TrimSpace(getString(authAPIKeysURL, ""))
+	if !strings.HasPrefix(url, "/") || strings.HasPrefix(url, "//") || strings.ContainsAny(url, "\\ \t\r\n?#") {
+		return ""
+	}
+	return strings.TrimRight(url, "/")
 }
 
 // GetAuthLoginURL returns auth.login_url, where the console sends users to sign in when

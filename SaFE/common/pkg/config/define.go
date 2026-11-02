@@ -121,6 +121,15 @@ const (
 	userPrefix            = "user."
 	userTokenExpireSecond = userPrefix + "token_expire"
 
+	// users: what every user holds when an administrator has granted nothing
+	usersPrefix                = "users."
+	usersBaseRoles             = usersPrefix + "base_roles"
+	usersJoinDefaultWorkspaces = usersPrefix + "join_default_workspaces"
+
+	// console: what the web console shows
+	consolePrefix        = "console."
+	consoleAccessContact = consolePrefix + "access_contact"
+
 	// tls (outbound HTTPS verification for third-party / model endpoints)
 	tlsPrefix         = "tls."
 	tlsVerifyOutbound = tlsPrefix + "verify_outbound"
@@ -184,14 +193,8 @@ const (
 	authAuthenticators = authPrefix + "authenticators"
 	authGroupMappings  = authPrefix + "group_mappings"
 	authLoginURL       = authPrefix + "login_url"
-
-	// a2a
-	a2aPrefix            = "a2a."
-	a2aScannerPrefix     = a2aPrefix + "scanner."
-	a2aScannerEnable     = a2aScannerPrefix + "enable"
-	a2aScannerInterval   = a2aScannerPrefix + "interval_seconds"
-	a2aScannerNamespaces = a2aScannerPrefix + "namespaces"
-	a2aScannerLabel      = a2aScannerPrefix + "label_selector"
+	authKeyActors      = authPrefix + "key_actors"
+	authAPIKeysURL     = authPrefix + "api_keys_url"
 
 	// llm_gateway
 	llmGatewayPrefix     = "llm_gateway."
