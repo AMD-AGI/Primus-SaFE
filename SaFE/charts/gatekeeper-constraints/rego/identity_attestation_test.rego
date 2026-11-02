@@ -4,19 +4,24 @@ creator := "system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplan
 issuer := "https://identity.example.test"
 
 cert := `-----BEGIN CERTIFICATE-----
-MIIBHjCBxaADAgECAgEBMAoGCCqGSM49BAMCMBgxFjAUBgNVBAMMDXJlZ28taWRl
+MIIBHzCBxaADAgECAgEBMAoGCCqGSM49BAMCMBgxFjAUBgNVBAMMDXJlZ28taWRl
 bnRpdHkwIBcNMjYxMDI2MDAwMDAwWhgPMjA5OTAxMDEwMDAwMDBaMBgxFjAUBgNV
-BAMMDXJlZ28taWRlbnRpdHkwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAS7uxK0
-K4tqzAawHexPtPleA63SpKJfIqTrDeVX6qwRTX6wWMFXZCv2Sp5C29uz9wDyf94+
-GZu1OVpliXXekAJmMAoGCCqGSM49BAMCA0gAMEUCIQCetOpX3vvdldzmYLsN01Tf
-mbS5NTbNrZCGxOVZDZ/ZJAIgV3z2t129lQDefQqKn4V1pPcOb8FTZWMKyCum2qFV
-6p8=
+BAMMDXJlZ28taWRlbnRpdHkwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATBJy/j
+G1Obre2aROsfXr0qTV59xSvyjXhcof6V0wLjcwS3ohczo2XbB+Ydwta5ccZQdgHT
+hHthDBv8TmoFMtUjMAoGCCqGSM49BAMCA0kAMEYCIQDWoT7Rye5xR2qTukcw7IEc
+C+xjcD6P1XGIdAfg4I2SjQIhAJzvOoaO4BCqK1LZbmXdrriWPAvWUcqa3L6OjgT6
+dDcb
 -----END CERTIFICATE-----`
 
-valid_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsImV4cCI6NDEwMjQ0NDgwMH0.8gTxk7_h4l8qeqqGjec1A4lqaiE16cQkMU1xm3371mgJld_5Jd8qGlqPdvT0_i-wY9-cZZPTlggrcujbt6ooWw"
-expired_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsImV4cCI6MX0.q-P_AzaJoXzHs5leVTu-X4rOqn3ChNb5A_gq_Q2G-jmtRd-T_Oblu9EXSTk2ABKOa2juj7liIaJaBqOl1K2klQ"
+valid_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsIm1heEdwdXMiOjEsImV4cCI6NDEwMjQ0NDgwMH0.iNwyar8JCqYB9nw85mbSDrtgW-qGzredgKwyl58X-kL5PJjXFcZ7UKjUgo8E_udXG8JFxOiKFCCRlz4Rb27tRw"
+expired_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsIm1heEdwdXMiOjEsImV4cCI6MX0.CRPWoX-1rrtJa9WFKr-nl7DTIbkms3tI6yC7rzC1UiX0CO6GP_3rcB__2-JBrepmQDlJ6_STJca2OWqB1pMZ9w"
+no_gpu_claim_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsImV4cCI6NDEwMjQ0NDgwMH0.Ln3QXMEfmiFe9wyD415jGegvCjI_aflgLm1ILokWqOmC1F0kISTbNKVjd3mhQhDvItgvXpl_5Fgr7dlQoCfQkg"
 
 workload(token, workspace) = obj {
+  obj := gpu_workload(token, workspace, "")
+}
+
+gpu_workload(token, workspace, gpus) = obj {
   obj := {
     "metadata": {
       "labels": {"primus-safe.user.id": "user-1"},
@@ -25,13 +30,18 @@ workload(token, workspace) = obj {
     "spec": {
       "workspace": workspace,
       "groupVersionKind": {"kind": "Sandbox"},
+      "resources": [{"gpu": gpus, "replica": 1}],
     },
   }
 }
 
 review(token, workspace) = inp {
+  inp := wrap(workload(token, workspace))
+}
+
+wrap(obj) = inp {
   inp := {
-    "review": {"userInfo": {"username": creator}, "object": workload(token, workspace)},
+    "review": {"userInfo": {"username": creator}, "object": obj},
     "parameters": {"sandboxCreator": creator, "jwks": cert, "issuer": issuer},
   }
 }
@@ -50,6 +60,18 @@ test_expired_token {
 
 test_missing_token {
   count(violation) == 1 with input as review("", "lab")
+}
+
+test_gpu_within_max {
+  count(violation) == 0 with input as wrap(gpu_workload(valid_token, "lab", "1"))
+}
+
+test_gpu_above_max {
+  count(violation) == 1 with input as wrap(gpu_workload(valid_token, "lab", "2"))
+}
+
+test_token_without_gpu_claim {
+  count(violation) == 1 with input as review(no_gpu_claim_token, "lab")
 }
 
 test_grant_only_skips_identity {
@@ -71,10 +93,7 @@ grant_only_review = inp {
       "groupVersionKind": {"kind": "Sandbox"},
     },
   }
-  inp := {
-    "review": {"userInfo": {"username": creator}, "object": obj},
-    "parameters": {"sandboxCreator": creator, "jwks": cert, "issuer": issuer},
-  }
+  inp := wrap(obj)
 }
 
 expired_identity_with_grant = inp {
@@ -91,8 +110,5 @@ expired_identity_with_grant = inp {
       "groupVersionKind": {"kind": "Sandbox"},
     },
   }
-  inp := {
-    "review": {"userInfo": {"username": creator}, "object": obj},
-    "parameters": {"sandboxCreator": creator, "jwks": cert, "issuer": issuer},
-  }
+  inp := wrap(obj)
 }

@@ -45,4 +45,27 @@ valid_identity {
   claims.workspace == obj.spec.workspace
   claims.kind == "Sandbox"
   claims.kind == obj.spec.groupVersionKind.kind
+  is_number(claims.maxGpus)
+  gpu_count(obj) <= claims.maxGpus
+}
+
+# gpu_count sums gpu times replica across workload resources.
+gpu_count(obj) = n {
+  cards := [resource_gpus(object.get(obj.spec, "resources", [])[_])]
+  n := sum(cards)
+}
+
+# resource_gpus returns the gpu count times replica, or zero when gpu is unset.
+resource_gpus(resource) = n {
+  object.get(resource, "gpu", "") != ""
+  n := to_number(resource.gpu) * replica(resource)
+}
+
+resource_gpus(resource) = 0 {
+  object.get(resource, "gpu", "") == ""
+}
+
+# replica reads the resource replica, defaulting to one.
+replica(resource) = n {
+  n := to_number(object.get(resource, "replica", 1))
 }

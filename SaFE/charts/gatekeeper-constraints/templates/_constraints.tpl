@@ -96,6 +96,11 @@ kind: Config
 metadata:
   name: config
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "constraints.ownership" . | nindent 4 }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
 spec:
   sync:
     syncOnly:
@@ -109,6 +114,11 @@ apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
 metadata:
   name: sandboxworkloadmembership
+  labels:
+    {{- include "constraints.ownership" . | nindent 4 }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
 spec:
   crd:
     spec:
@@ -131,6 +141,11 @@ apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
 metadata:
   name: sandboxworkloadattestation
+  labels:
+    {{- include "constraints.ownership" . | nindent 4 }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
 spec:
   crd:
     spec:
@@ -155,6 +170,11 @@ apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
 metadata:
   name: sandboxworkloadidentity
+  labels:
+    {{- include "constraints.ownership" . | nindent 4 }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
 spec:
   crd:
     spec:
