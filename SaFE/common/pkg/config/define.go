@@ -184,6 +184,8 @@ const (
 	authAuthenticators = authPrefix + "authenticators"
 	authGroupMappings  = authPrefix + "group_mappings"
 	authLoginURL       = authPrefix + "login_url"
+	authKeyActors      = authPrefix + "key_actors"
+	authAPIKeysURL     = authPrefix + "api_keys_url"
 
 	// llm_gateway
 	llmGatewayPrefix     = "llm_gateway."

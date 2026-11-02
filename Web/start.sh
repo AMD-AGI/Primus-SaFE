@@ -18,6 +18,9 @@ fi
 cp /etc/nginx/nginx.conf /tmp/nginx.conf
 sed -i "s/__RESOLVER__/${RESOLVER_IP}/g" /tmp/nginx.conf
 
+# The identity provider's API key route, if the deployment has one (API_KEYS_UPSTREAM); nginx.conf includes it.
+/api-keys-route.sh /tmp/api-keys-route.conf
+
 : "${PUBLIC_HOST:=localhost}"
 : "${PUBLIC_SCHEME:=https}"
 

@@ -257,7 +257,38 @@ func TestOIDCDelegatedClaims(t *testing.T) {
 	require.Equal(t, "svc-bot", id.Actor)
 	require.Equal(t, []string{"safe.read", "profile"}, id.Scopes)
 
-	for name, act := range map[string]any{"no sub": map[string]any{}, "a string": "svc-bot", "empty sub": map[string]any{"sub": ""}} {
+	// The actor, for the audit log, is act.client_id, else act.sub, as the introspection authenticator reads
+	// it. The client id that auth.key_actors matches is act.client_id, or act.sub only when the token's own
+	// client_id names the same party: an act.sub alone is a subject, which can be a user.
+	for name, tt := range map[string]struct {
+		act             map[string]any
+		tokenClientID   any // the token's own client_id claim; nil: none
+		want            string
+		wantActorClient string
+	}{
+		"client_id only":                                   {map[string]any{"client_id": "svc-a"}, nil, "svc-a", "svc-a"},
+		"sub only: a subject, not a client":                {map[string]any{"sub": "svc-b"}, nil, "svc-b", ""},
+		"sub only, the token was issued to that client":    {map[string]any{"sub": "svc-b"}, "svc-b", "svc-b", "svc-b"},
+		"sub only, the token was issued to another client": {map[string]any{"sub": "svc-b"}, "svc-x", "svc-b", ""},
+		"sub only, a client_id claim that is not a string": {map[string]any{"sub": "svc-b"}, 7, "svc-b", ""},
+		"both, the same":                                   {map[string]any{"client_id": "svc-c", "sub": "svc-c"}, nil, "svc-c", "svc-c"},
+		"both, different: client_id counts":                {map[string]any{"client_id": "svc-d", "sub": "svc-e"}, nil, "svc-d", "svc-d"},
+		"both, different, issued to the sub":               {map[string]any{"client_id": "svc-d", "sub": "svc-e"}, "svc-e", "svc-d", "svc-d"},
+		"blank client_id: sub counts for the audit only":   {map[string]any{"client_id": "", "sub": "svc-f"}, nil, "svc-f", ""},
+	} {
+		t.Run("actor: "+name, func(t *testing.T) {
+			claims := map[string]any{"act": tt.act, "scope": "safe.api"}
+			if tt.tokenClientID != nil {
+				claims["client_id"] = tt.tokenClientID
+			}
+			id, err := auth(a, f.sign("k1", claims))
+			require.NoError(t, err)
+			require.Equal(t, tt.want, id.Actor)
+			require.Equal(t, tt.wantActorClient, id.ActorClient)
+		})
+	}
+
+	for name, act := range map[string]any{"no sub": map[string]any{}, "a string": "svc-bot", "empty sub": map[string]any{"sub": ""}, "blank members": map[string]any{"client_id": "", "sub": ""}} {
 		t.Run("malformed act: "+name, func(t *testing.T) {
 			// A broken delegation must never be read as the user's own login.
 			_, err := auth(a, f.sign("k1", map[string]any{"act": act}))

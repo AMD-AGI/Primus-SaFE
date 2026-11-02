@@ -67,6 +67,9 @@ export interface EnvsResp {
   // How requests are authenticated. With 'external' an identity provider owns sign-in,
   // accounts, API keys and platform roles; the console hides what the server refuses.
   authMode?: 'builtin' | 'external'
+  // With 'external': the path on this console's own origin where the deployment routes API key
+  // creation, listing and revocation to the identity provider. Absent when nothing is routed there.
+  apiKeysUrl?: string
   // sso
   ssoEnable?: boolean
   ssoAuthUrl?: string

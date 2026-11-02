@@ -48,6 +48,13 @@ spec:
           image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.web.image }}
           ports:
             - containerPort: 80
+          {{- $auth := default dict .Values.auth }}
+          {{- if and (eq (toString $auth.mode) "external") $auth.api_keys_upstream }}
+          env:
+            # The console's nginx proxies /api/v1/apikeys to the identity provider (Web/api-keys-route.sh).
+            - name: API_KEYS_UPSTREAM
+              value: {{ $auth.api_keys_upstream | quote }}
+          {{- end }}
           resources:
             limits:
               cpu: {{ .Values.web.cpu }}

@@ -38,6 +38,9 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 		// authorize URL of the built-in SSO) is not advertised: a console sent there would end
 		// on a 403. The sign-in page is wherever the deployment says, if it says.
 		resp.SSOEnable, resp.SSOAuthUrl = false, ""
+		// The apiserver refuses to issue API keys here. The identity provider does, at the path the
+		// deployment routes to it; the console uses that path only when it is told one.
+		resp.APIKeysURL = commonconfig.GetAuthAPIKeysURL()
 		if url := commonconfig.GetAuthLoginURL(); url != "" {
 			resp.SSOEnable, resp.SSOAuthUrl = true, url
 		}
