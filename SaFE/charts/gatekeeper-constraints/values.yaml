@@ -3,8 +3,8 @@
 # See LICENSE for license information.
 #
 
-# dryrun records violations. deny rejects them and requires jwks.
-enforcementAction: dryrun
+# deny rejects Workloads that fail a constraint. jwks, identityJwks, and identityIssuer are required.
+enforcementAction: deny
 
 # Calls from this account are checked. The Gatekeeper webhook is scoped to it.
 sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane

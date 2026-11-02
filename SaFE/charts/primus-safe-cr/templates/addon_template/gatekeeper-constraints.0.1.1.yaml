@@ -11,7 +11,7 @@
 #        oci://<helm registry host>/primussafe/gatekeeper-constraints:0.1.1
 #      A helm_registry value ending in /proxy names the cache project, so the host is used.
 #      The apply Job uses <proxy_image_registry>/primussafe/curl:8.20.0.
-#   2. enforcementAction starts as dryrun. Set it to deny only after jwks, identityJwks, and identityIssuer are set.
+#   2. enforcementAction is deny. Set jwks, identityJwks, and identityIssuer when installing the Addon.
 #   3. User membership reads spec.resources.workspaces on the synced User CR.
 #
 
@@ -27,14 +27,14 @@ metadata:
   name: gatekeeper-constraints.0.1.1
 spec:
   category: plugin
-  description: Gatekeeper constraints that check Agent Sandbox Workload membership, the Claw grant attestation, and the primus-identity attestation. Install on the management cluster after Gatekeeper. Enforcement starts as dryrun.
+  description: Gatekeeper constraints that check Agent Sandbox Workload membership, the Claw grant attestation, and the primus-identity attestation. Install on the management cluster after Gatekeeper. Enforcement is deny.
   url: oci://{{ .Values.global.helm_registry | trimSuffix "/proxy" }}/primussafe/gatekeeper-constraints
   version: 0.1.1
   type: helm
   required: false
   helmDefaultNamespace: gatekeeper-system
   helmDefaultValues: |
-    enforcementAction: dryrun
+    enforcementAction: deny
     sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane
     jwks: ""
     identityJwks: ""
