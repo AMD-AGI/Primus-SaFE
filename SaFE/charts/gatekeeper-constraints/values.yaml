@@ -12,6 +12,10 @@ sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-control
 # Claw JWKS document, JSON text. Required when enforcementAction is deny.
 jwks: ""
 
+# primus-identity verification material and issuer. Required when enforcementAction is deny.
+identityJwks: ""
+identityIssuer: ""
+
 image:
   repository: curlimages/curl
   tag: "8.20.0"

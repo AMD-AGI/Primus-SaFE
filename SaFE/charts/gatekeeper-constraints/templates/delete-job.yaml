@@ -47,6 +47,8 @@ spec:
               }
               delete "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadmembership/sandbox-workload-membership"
               delete "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadattestation/sandbox-workload-attestation"
+              delete "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadidentity/sandbox-workload-identity"
               delete "${api}/apis/templates.gatekeeper.sh/v1/constrainttemplates/sandboxworkloadmembership"
               delete "${api}/apis/templates.gatekeeper.sh/v1/constrainttemplates/sandboxworkloadattestation"
+              delete "${api}/apis/templates.gatekeeper.sh/v1/constrainttemplates/sandboxworkloadidentity"
               delete "${api}/apis/config.gatekeeper.sh/v1alpha1/namespaces/${RELEASE_NAMESPACE}/configs/config"

@@ -20,3 +20,7 @@ data:
   sandbox-workload-membership.spec.json: {{ dict "spec" (include "constraints.membership" . | fromYaml).spec | toJson | quote }}
   sandbox-workload-attestation.json: {{ include "constraints.attestation" . | fromYaml | toJson | quote }}
   sandbox-workload-attestation.spec.json: {{ dict "spec" (include "constraints.attestation" . | fromYaml).spec | toJson | quote }}
+  sandboxworkloadidentity-template.json: {{ include "constraints.identityAttestationTemplate" . | fromYaml | toJson | quote }}
+  sandboxworkloadidentity-template.spec.json: {{ dict "spec" (include "constraints.identityAttestationTemplate" . | fromYaml).spec | toJson | quote }}
+  sandbox-workload-identity.json: {{ include "constraints.identityAttestation" . | fromYaml | toJson | quote }}
+  sandbox-workload-identity.spec.json: {{ dict "spec" (include "constraints.identityAttestation" . | fromYaml).spec | toJson | quote }}

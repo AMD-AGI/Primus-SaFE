@@ -22,8 +22,8 @@ curlimages/curl
 
 {{/* deny requires a JWKS document. */}}
 {{- define "constraints.requireJwksForDeny" -}}
-{{- if and (eq .Values.enforcementAction "deny") (not .Values.jwks) -}}
-{{- fail "jwks must be set before enforcementAction is deny" -}}
+{{- if and (eq .Values.enforcementAction "deny") (or (not .Values.jwks) (not .Values.identityJwks) (not .Values.identityIssuer)) -}}
+{{- fail "jwks, identityJwks, and identityIssuer must be set before enforcementAction is deny" -}}
 {{- end -}}
 {{- end -}}
 
@@ -66,6 +66,28 @@ spec:
   parameters:
     sandboxCreator: {{ .Values.sandboxCreator | quote }}
     jwks: {{ .Values.jwks | quote }}
+{{- end -}}
+
+{{- define "constraints.identityAttestation" -}}
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: SandboxWorkloadIdentity
+metadata:
+  name: sandbox-workload-identity
+  labels:
+    {{- include "constraints.ownership" . | nindent 4 }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
+spec:
+  enforcementAction: {{ .Values.enforcementAction | quote }}
+  match:
+    kinds:
+      - apiGroups: ["amd.com"]
+        kinds: ["Workload"]
+  parameters:
+    sandboxCreator: {{ .Values.sandboxCreator | quote }}
+    jwks: {{ .Values.identityJwks | quote }}
+    issuer: {{ .Values.identityIssuer | quote }}
 {{- end -}}
 
 {{- define "constraints.syncConfig" -}}
@@ -126,4 +148,30 @@ spec:
     - target: admission.k8s.gatekeeper.sh
       rego: |
 {{ .Files.Get "rego/attestation.rego" | indent 8 }}
+{{- end -}}
+
+{{- define "constraints.identityAttestationTemplate" -}}
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: sandboxworkloadidentity
+spec:
+  crd:
+    spec:
+      names:
+        kind: SandboxWorkloadIdentity
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            sandboxCreator:
+              type: string
+            jwks:
+              type: string
+            issuer:
+              type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+{{ .Files.Get "rego/identity_attestation.rego" | indent 8 }}
 {{- end -}}
