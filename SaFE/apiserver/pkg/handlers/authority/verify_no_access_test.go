@@ -239,3 +239,69 @@ func TestVerifyAgreesWithTheGateForABuiltinCredentialInExternalMode(t *testing.T
 	require.Equal(t, http.StatusForbidden, gate.Code, gate.Body.String())
 	require.True(t, containsNoAccessCode(gate), gate.Body.String())
 }
+
+// A delegated token of a key actor (auth.key_actors) is verified with the identity it acts for, so what the
+// answer says about access is the subject's, judged with the roles the subject's groups map to, as the gate
+// judges a request that carries the same token. The type of the answer is still "delegated".
+func TestVerifyOfAKeyActorReportsNoAccessAsTheGateDoes(t *testing.T) {
+	defer setupInternalAuth(t)()
+	for _, tt := range []struct {
+		name     string
+		groups   []string
+		noAccess bool
+	}{
+		{"a subject who holds no access under the minimal base role", []string{"some-group"}, true},
+		{"a subject who is an administrator by group", []string{"platform-admins"}, false},
+		{"a subject who manages a workspace by group", []string{"team-a"}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Set("users.base_roles", []string{"self-read"})
+			t.Cleanup(func() { viper.Set("users.base_roles", nil) })
+			withKeyActors(t, keyActorClient)
+			e := newExtEnv(t, adminMapping, false)
+			for _, r := range authtest.ChartRoles(t) {
+				require.NoError(t, e.cli.Create(t.Context(), r))
+			}
+			bearer := e.jwt(map[string]any{
+				"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient,
+				"scope": "safe.api", "groups": tt.groups,
+			})
+
+			w := callVerifyToken(t, VerifyTokenRequest{Authorization: "Bearer " + bearer}, testInternalToken)
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			var resp struct {
+				Data struct {
+					Type string `json:"type"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			require.Equal(t, UserTypeDelegated, resp.Data.Type)
+			want := "false"
+			if tt.noAccess {
+				want = "true"
+			}
+			require.Equal(t, want, rawNoAccess(t, w.Body.Bytes()))
+
+			gin.SetMode(gin.TestMode)
+			engine := gin.New()
+			engine.Use(func(c *gin.Context) {
+				if err := AuthenticateRequest(c); err != nil {
+					abortAs(c, err)
+					return
+				}
+				c.Next()
+			})
+			engine.GET("/api/v1/clusters", func(c *gin.Context) { c.String(http.StatusOK, "reached") })
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/clusters", nil)
+			req.Header.Set("Authorization", "Bearer "+bearer)
+			gate := httptest.NewRecorder()
+			engine.ServeHTTP(gate, req)
+			if tt.noAccess {
+				require.Equal(t, http.StatusForbidden, gate.Code, gate.Body.String())
+				require.True(t, containsNoAccessCode(gate), gate.Body.String())
+			} else {
+				require.Equal(t, http.StatusOK, gate.Code, gate.Body.String())
+			}
+		})
+	}
+}
