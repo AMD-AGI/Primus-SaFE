@@ -16,7 +16,6 @@ import (
 // All endpoints require authentication via either:
 //   - SaFE API key (Authorization: Bearer <api-key>)
 //   - SaFE user session token (Cookie)
-//   - X-Internal-Token (service-to-service)
 func InitEmailRelayRouters(e *gin.Engine, h *Handler) {
 	group := e.Group(common.PrimusRouterCustomRootPath+"/email-relay", h.AuthorizeRelay())
 	{

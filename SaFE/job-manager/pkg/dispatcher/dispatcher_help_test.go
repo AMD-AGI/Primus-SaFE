@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/spf13/viper"
 	"gotest.tools/assert"
@@ -1487,98 +1486,10 @@ func TestBuildEnvironmentSkipsSupervisionForExternal(t *testing.T) {
 	}
 }
 
-// --- merged from dispatcher_help_platform_key_test.go ---
+// --- the runner pods' own token replaces the owner's API key ---
 
-func TestPlatformKeyForUser(t *testing.T) {
-	workload := &v1.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-workload",
-			Labels: map[string]string{
-				v1.UserIdLabel: "user-1",
-			},
-			Annotations: map[string]string{
-				v1.UserNameAnnotation: "alice",
-			},
-		},
-	}
-
-	t.Run("db disabled", func(t *testing.T) {
-		stubPlatformKeyDeps(t, func() bool { return false }, nil, nil)
-		assert.Equal(t, "", platformKeyForUser(workload))
-	})
-
-	t.Run("empty user id", func(t *testing.T) {
-		stubPlatformKeyDeps(t, func() bool { return true }, nil, nil)
-		assert.Equal(t, "", platformKeyForUser(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}))
-	})
-
-	t.Run("db client unavailable", func(t *testing.T) {
-		stubPlatformKeyDeps(t, func() bool { return true }, func() *dbclient.Client { return nil }, nil)
-		assert.Equal(t, "", platformKeyForUser(workload))
-	})
-
-	t.Run("lookup error", func(t *testing.T) {
-		stubPlatformKeyDeps(t,
-			func() bool { return true },
-			func() *dbclient.Client { return &dbclient.Client{} },
-			func(context.Context, dbclient.Interface, string, string) (string, error) {
-				return "", fmt.Errorf("lookup failed")
-			})
-		assert.Equal(t, "", platformKeyForUser(workload))
-	})
-
-	t.Run("success", func(t *testing.T) {
-		stubPlatformKeyDeps(t,
-			func() bool { return true },
-			func() *dbclient.Client { return &dbclient.Client{} },
-			func(_ context.Context, _ dbclient.Interface, userId, userName string) (string, error) {
-				assert.Equal(t, "user-1", userId)
-				assert.Equal(t, "alice", userName)
-				return "platform-token-for-user", nil
-			})
-		assert.Equal(t, "platform-token-for-user", platformKeyForUser(workload))
-	})
-}
-
-// stubPlatformKeyDeps replaces the DB reads used by platformKeyForUser and restores them after the test.
-func stubPlatformKeyDeps(
-	t *testing.T,
-	enabled func() bool,
-	client func() *dbclient.Client,
-	lookup func(context.Context, dbclient.Interface, string, string) (string, error),
-) {
-	t.Helper()
-	origEnabled, origClient, origLookup := platformDBEnabled, platformDBClient, platformKeyLookup
-	if enabled != nil {
-		platformDBEnabled = enabled
-	}
-	if client != nil {
-		platformDBClient = client
-	}
-	if lookup != nil {
-		platformKeyLookup = lookup
-	}
-	t.Cleanup(func() {
-		platformDBEnabled, platformDBClient, platformKeyLookup = origEnabled, origClient, origLookup
-	})
-}
-
-// stubPlatformKey overrides the platformKeyForUserFn seam for a test and
-// restores it on cleanup. Assigning the package var is deterministic, unlike
-// gomonkey patching of the cross-package apikey/db chain, which proved flaky
-// when many tests patch it in a single package run.
-func stubPlatformKey(t *testing.T, key string) {
-	t.Helper()
-	orig := platformKeyForUserFn
-	platformKeyForUserFn = func(*v1.Workload) string { return key }
-	t.Cleanup(func() { platformKeyForUserFn = orig })
-}
-
-func TestBuildEnvironment_InjectsUserIdAndApiKey(t *testing.T) {
-	stubPlatformKey(t, "injected-user-api-key")
-
-	// UnifiedJob workload satisfies the buildEnvironment gate
-	// (IsCICD || UnifiedJobKind); it must get USER_ID + USER_APIKEY.
+func TestBuildEnvironment_InjectsUserIdAndNoApiKey(t *testing.T) {
+	// A UnifiedJob workload gets the owner's id; no credential is put in its env.
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "utd-multi-node-test",
@@ -1590,12 +1501,14 @@ func TestBuildEnvironment_InjectsUserIdAndApiKey(t *testing.T) {
 
 	envs := buildEnvironment(workload, nil, -1)
 	assert.Equal(t, true, findEnv(envs, jobutils.UserIdEnv, "user-1"))
-	assert.Equal(t, true, findEnv(envs, jobutils.UserApiKeyEnv, "injected-user-api-key"))
+	for _, e := range envs {
+		assert.Assert(t, e.(map[string]interface{})["name"] != legacyUserApiKeyEnv)
+	}
 }
 
-func TestUpdateCICDScaleSetEnvs_InjectsUserApiKey(t *testing.T) {
-	stubPlatformKey(t, "injected-user-api-key")
-
+// scaleSetObject is a scale set as it is rendered: two containers, one of them carrying the
+// owner's API key from a rendering before the pods had a token of their own.
+func scaleSetObject() (*unstructured.Unstructured, *v1.Workload, v1.ResourceSpec, *v1.Workspace) {
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Labels[v1.UserIdLabel] = "user-cicd"
@@ -1604,6 +1517,8 @@ func TestUpdateCICDScaleSetEnvs_InjectsUserApiKey(t *testing.T) {
 	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, "10.0.0.1")
 	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
 	workload.Spec.Workspace = workspace.Name
+	workload.Spec.GroupVersionKind.Kind = common.CICDScaleRunnerSetKind
+	workload.Spec.Env[common.UnifiedJobEnable] = v1.TrueStr
 
 	obj := &unstructured.Unstructured{Object: map[string]interface{}{
 		"spec": map[string]interface{}{
@@ -1612,20 +1527,109 @@ func TestUpdateCICDScaleSetEnvs_InjectsUserApiKey(t *testing.T) {
 					"containers": []interface{}{
 						map[string]interface{}{
 							"name": "runner",
-							"env":  []interface{}{},
+							"env": []interface{}{
+								map[string]interface{}{"name": legacyUserApiKeyEnv, "value": "legacy-key-from-an-old-rendering"},
+							},
 						},
+						map[string]interface{}{"name": "unified-job", "env": []interface{}{}},
 					},
 				},
 			},
 		},
 	}}
+	return obj, workload, jobutils.TestCICDScaleSetResourceTemplate.Spec.ResourceSpecs[0], workspace
+}
 
-	resourceSpec := jobutils.TestCICDScaleSetResourceTemplate.Spec.ResourceSpecs[0]
-	err := updateCICDScaleSetEnvs(obj, workload, workspace, resourceSpec)
+func podTemplateField(t *testing.T, obj *unstructured.Unstructured, field string) []interface{} {
+	t.Helper()
+	items, _, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", field})
 	assert.NilError(t, err)
+	return items
+}
+
+func TestUpdateCICDScaleSet_PodTokenReplacesTheApiKey(t *testing.T) {
+	obj, workload, resourceSpec, workspace := scaleSetObject()
+	assert.NilError(t, updateCICDScaleSetEnvs(obj, workload, workspace, resourceSpec))
+	assert.NilError(t, applyPodToken(obj, workload, resourceSpec))
 
 	envs := getEnvs(t, obj, workload, &resourceSpec)
-	assert.Equal(t, true, findEnv(envs, jobutils.UserApiKeyEnv, "injected-user-api-key"))
+	assert.Equal(t, true, findEnv(envs, jobutils.UserIdEnv, "user-cicd"))
+	for _, e := range envs {
+		assert.Assert(t, e.(map[string]interface{})["name"] != legacyUserApiKeyEnv, "the owner's key is dropped")
+	}
+
+	// The token is projected for the apiserver audience, and mounted where the proxies read it.
+	volume, at := namedItem(podTemplateField(t, obj, "volumes"), common.PodTokenVolumeName)
+	assert.Assert(t, at >= 0)
+	source := volume["projected"].(map[string]interface{})["sources"].([]interface{})[0].(map[string]interface{})
+	token := source["serviceAccountToken"].(map[string]interface{})
+	assert.Equal(t, token["audience"], common.PodTokenAudience)
+	assert.Equal(t, token["path"], common.PodTokenFile)
+	assert.Equal(t, token["expirationSeconds"], int64(common.PodTokenExpirationSeconds))
+	containers := podTemplateField(t, obj, "containers")
+	assert.Equal(t, len(containers), 2)
+	for _, c := range containers {
+		mounts := c.(map[string]interface{})["volumeMounts"].([]interface{})
+		mount, _ := namedItem(mounts, common.PodTokenVolumeName)
+		assert.Equal(t, mount["mountPath"], common.PodTokenMountDir)
+		assert.Equal(t, mount["readOnly"], true)
+	}
+}
+
+func TestApplyPodTokenIsIdempotent(t *testing.T) {
+	obj, workload, resourceSpec, _ := scaleSetObject()
+	assert.NilError(t, applyPodToken(obj, workload, resourceSpec))
+	assert.NilError(t, applyPodToken(obj, workload, resourceSpec))
+	assert.Equal(t, len(podTemplateField(t, obj, "volumes")), 1)
+	for _, c := range podTemplateField(t, obj, "containers") {
+		assert.Equal(t, len(c.(map[string]interface{})["volumeMounts"].([]interface{})), 1)
+	}
+}
+
+func TestApplyPodTokenKeepsTheOtherVolumesAndMounts(t *testing.T) {
+	obj, workload, resourceSpec, _ := scaleSetObject()
+	assert.NilError(t, jobutils.SetNestedField(obj.Object,
+		[]interface{}{map[string]interface{}{"name": "podinfo"}}, []string{"spec", "template", "spec", "volumes"}))
+	containers := podTemplateField(t, obj, "containers")
+	containers[0].(map[string]interface{})["volumeMounts"] = []interface{}{map[string]interface{}{"name": "podinfo"}}
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, containers, []string{"spec", "template", "spec", "containers"}))
+
+	assert.NilError(t, applyPodToken(obj, workload, resourceSpec))
+	_, at := namedItem(podTemplateField(t, obj, "volumes"), "podinfo")
+	assert.Assert(t, at >= 0)
+	mounts := podTemplateField(t, obj, "containers")[0].(map[string]interface{})["volumeMounts"].([]interface{})
+	_, at = namedItem(mounts, "podinfo")
+	assert.Assert(t, at >= 0)
+	_, at = namedItem(mounts, common.PodTokenVolumeName)
+	assert.Assert(t, at >= 0)
+}
+
+// A scale set that is already running is updated once: when it lacks the token, or still
+// carries the owner's key.
+func TestIsPodTokenChanged(t *testing.T) {
+	rt := jobutils.TestCICDScaleSetResourceTemplate
+	obj, workload, resourceSpec, workspace := scaleSetObject()
+	assert.Equal(t, true, isPodTokenChanged(workload, obj, rt), "no token yet")
+
+	assert.NilError(t, applyPodToken(obj, workload, resourceSpec))
+	assert.Equal(t, true, isPodTokenChanged(workload, obj, rt), "the owner's key is still in the env")
+
+	assert.NilError(t, updateCICDScaleSetEnvs(obj, workload, workspace, resourceSpec))
+	assert.Equal(t, false, isPodTokenChanged(workload, obj, rt), "done: nothing to update")
+
+	// A container that lost its mount is a change, and so is a missing volume.
+	containers := podTemplateField(t, obj, "containers")
+	containers[1].(map[string]interface{})["volumeMounts"] = []interface{}{}
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, containers, []string{"spec", "template", "spec", "containers"}))
+	assert.Equal(t, true, isPodTokenChanged(workload, obj, rt), "a container without the mount")
+	assert.NilError(t, applyPodToken(obj, workload, resourceSpec))
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, []interface{}{}, []string{"spec", "template", "spec", "volumes"}))
+	assert.Equal(t, true, isPodTokenChanged(workload, obj, rt), "no volume")
+
+	// Other workloads are not concerned.
+	other := workload.DeepCopy()
+	other.Spec.GroupVersionKind.Kind = "PyTorchJob"
+	assert.Equal(t, false, isPodTokenChanged(other, obj, rt))
 }
 
 // --- merged from dispatcher_help_pure_test.go ---

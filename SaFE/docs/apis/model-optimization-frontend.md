@@ -19,7 +19,7 @@
 
 前端 **不需要理解 Hyperloom 内部的 DFS 或 Claw/Claude 原始事件格式**。后端已经把运行时事件翻译为结构化的 SSE 数据，前端只需要消费这些 API。
 
-**创建任务成功判定**：`POST /tasks` 返回 **HTTP 201** 且 body 含 **`id`**、**`clawSessionId`** 表示 SaFE 已落库且已向 Claw 建会话并下发首条 prompt。若返回 5xx 或任务很快变为 **Failed**，查看 **`GET /tasks/:id` 的 `message`**（例如 Claw 侧校验 Key 时无法访问 SaFE `auth/verify` 等部署问题，非前端表单错误）。
+**创建任务成功判定**：`POST /tasks` 返回 **HTTP 201** 且 body 含 **`id`**、**`clawSessionId`** 表示 SaFE 已落库且已向 Claw 建会话并下发首条 prompt。若返回 5xx 或任务很快变为 **Failed**，查看 **`GET /tasks/:id` 的 `message`**（例如 Claw 侧鉴权配置问题，非前端表单错误）。
 
 ## 2. 建议放置位置
 

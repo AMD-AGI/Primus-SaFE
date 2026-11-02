@@ -33,6 +33,8 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 const (
@@ -41,6 +43,34 @@ const (
 	extClientID     = "svc-safe"
 	extClientSecret = "s3cret-for-the-introspection-endpoint"
 )
+
+// setupDefaultToken creates a defaultToken with crypto disabled for testing
+func setupDefaultToken(t *testing.T) func() {
+	t.Helper()
+	commonconfig.SetValue("crypto.enable", "false")
+	commonconfig.SetValue("user.token.expire", "-1")
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	old := defaultTokenInstance
+	defaultTokenInstance = &defaultToken{Client: cli}
+	return func() {
+		defaultTokenInstance = old
+		commonconfig.SetValue("crypto.enable", "")
+		commonconfig.SetValue("user.token.expire", "")
+	}
+}
+
+// generateTestToken generates a valid encoded default token for testing
+func generateTestToken(t *testing.T, userId, username string) string {
+	t.Helper()
+	expire := time.Now().Add(time.Hour).Unix()
+	raw, err := generateDefaultToken(userId, expire, username)
+	require.NoError(t, err)
+	return stringutil.Base64Encode(raw)
+}
 
 // extEnv is a fake issuer (discovery + JWKS), a fake RFC 7662 introspection server and a
 // fake cluster, wired to the external mode through configuration.
@@ -490,7 +520,6 @@ func TestExternalDelegatedTokenExclusions(t *testing.T) {
 		{"change a user's roles", http.MethodPatch, "/api/v1/users/u1"},
 		{"add an ssh key", http.MethodPost, "/api/v1/publickeys"},
 		{"reveal the gateway key", http.MethodGet, "/api/v1/llm-gateway/binding/reveal"},
-		{"platform key", http.MethodPost, "/api/v1/auth/verify"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			c, err := extParse(t, tt.method, tt.path, tok)

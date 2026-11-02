@@ -134,7 +134,7 @@ func (h *Handler) submitTask(
 	}
 	if strings.TrimSpace(clawBearer) == "" {
 		return nil, commonerrors.NewUnauthorized(
-			"PrimusClaw authentication required: log in (platform key), send Authorization: Bearer ak-..., or configure model_optimization secret claw_api_key",
+			"PrimusClaw authentication required: send Authorization: Bearer ak-..., or configure model_optimization secret claw_api_key",
 		)
 	}
 
@@ -1153,20 +1153,10 @@ func (h *Handler) hasOptimizationReport(sessionID, clawBearer string) bool {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-// clawBearerForTask resolves the Bearer token for a task owner using their
-// platform key. Used by recoverRunningTasks so it can access Claw sessions
-// that were created with a user-specific token rather than the service key.
-func (h *Handler) clawBearerForTask(ctx context.Context, userID, userName string) string {
-	if userID != "" {
-		if tok := authority.ApiKeyTokenInstance(); tok != nil {
-			pk, err := tok.GetOrCreatePlatformKey(ctx, userID, userName)
-			if err != nil {
-				klog.ErrorS(err, "clawBearerForTask: GetOrCreatePlatformKey failed", "userId", userID)
-			} else if strings.TrimSpace(pk) != "" {
-				return pk
-			}
-		}
-	}
+// clawBearerForTask resolves the Bearer token for background calls to PrimusClaw
+// (recovery after a restart, metrics collection), where there is no request to take a
+// credential from: the file-based service key from the model_optimization config.
+func (h *Handler) clawBearerForTask() string {
 	return commonconfig.GetModelOptimizationClawAPIKey()
 }
 
@@ -1174,25 +1164,11 @@ func (h *Handler) clawBearerForTask(ctx context.Context, userID, userName string
 //
 // Priority:
 //  1. Explicit user API key from the request Authorization header.
-//  2. Per-user platform key (ak-xxx) via GetOrCreatePlatformKey.
-//  3. File-based service key from model_optimization config.
+//  2. File-based service key from model_optimization config.
 func (h *Handler) clawBearerForGin(c *gin.Context) string {
 	if c != nil {
 		if k := authority.ExtractApiKeyFromRequest(c.GetHeader("Authorization")); k != "" {
 			return k
-		}
-		userID := c.GetString(common.UserId)
-		userName := c.GetString(common.UserName)
-		if userID != "" {
-			if tok := authority.ApiKeyTokenInstance(); tok != nil {
-				pk, err := tok.GetOrCreatePlatformKey(c.Request.Context(), userID, userName)
-				if err != nil {
-					klog.ErrorS(err, "model optimization: GetOrCreatePlatformKey for PrimusClaw",
-						"userId", userID)
-				} else if strings.TrimSpace(pk) != "" {
-					return pk
-				}
-			}
 		}
 	}
 	return commonconfig.GetModelOptimizationClawAPIKey()
@@ -1235,9 +1211,8 @@ func (h *Handler) recoverRunningTasks(ctx context.Context) {
 			continue
 		}
 
-		// Resolve a fresh bearer per task using the task owner's platform key so
-		// recoverRunningTasks can access sessions created with user-specific tokens.
-		clawBearer := h.clawBearerForTask(ctx, task.UserID, task.UserName)
+		// No request to take a credential from: use the service key.
+		clawBearer := h.clawBearerForTask()
 		clawCtx := WithClawBearer(ctx, clawBearer)
 
 		ss, err := h.clawClient.GetSession(clawCtx, task.ClawSessionID)
@@ -1288,37 +1263,6 @@ func (h *Handler) recoverRunningTasks(ctx context.Context) {
 				"task_id", task.ID, "session_id", task.ClawSessionID, "last_seq", lastSeq)
 		}
 	}
-}
-
-// getLiteLLMKey returns the user's sk-xxx LiteLLM virtual key for use as
-// ANTHROPIC_API_KEY inside the GPU sandbox. Falls back to empty string on any error.
-func (h *Handler) getLiteLLMKey(ctx context.Context, userID, userName string) string {
-	email := h.getUserEmail(ctx, userID)
-	if email == "" {
-		return ""
-	}
-	tok := authority.ApiKeyTokenInstance()
-	if tok == nil {
-		return ""
-	}
-	sk, err := tok.GetVirtualKeyByEmail(ctx, email)
-	if err != nil {
-		klog.V(4).InfoS("getLiteLLMKey: GetVirtualKeyByEmail failed", "userId", userID, "error", err)
-		return ""
-	}
-	return strings.TrimSpace(sk)
-}
-
-// getUserEmail looks up the User CR by userId and returns the email annotation.
-func (h *Handler) getUserEmail(ctx context.Context, userID string) string {
-	if h.k8sClient == nil || userID == "" {
-		return ""
-	}
-	user := &v1.User{}
-	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: userID}, user); err != nil {
-		return ""
-	}
-	return v1.GetUserEmail(user)
 }
 
 func promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace string) PromptConfig {

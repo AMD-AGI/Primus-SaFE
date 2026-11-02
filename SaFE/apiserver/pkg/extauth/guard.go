@@ -27,7 +27,6 @@ const (
 	CapabilitySecret         = "secret"
 	CapabilityCredentialMint = "credential-mint"
 	CapabilityCredentialRead = "credential-read"
-	CapabilityPlatformKey    = "platform-key"
 )
 
 // CapabilityInteractive is the capability of a request that opens an interactive or
@@ -83,9 +82,6 @@ func Forbidden(method, urlPath string) (capability string, forbidden bool) {
 		if len(rest) > 1 && rest[1] == "binding" {
 			return CapabilityCredentialRead, true
 		}
-	case "auth":
-		// The token verification endpoint can hand back a user's platform key.
-		return CapabilityPlatformKey, true
 	}
 	return "", false
 }

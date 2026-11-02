@@ -2832,6 +2832,67 @@ func TestSyncSkipsExternalWorkload(t *testing.T) {
 	assert.Equal(t, count, 0)
 }
 
+// A scale set rendered before the runner pods had a token of their own is updated once: it gets
+// the token, and the owner's API key leaves the env of its containers. Each half of the old
+// rendering alone is enough to trigger the update.
+func TestSyncCICDScaleSet_MigratesToThePodToken(t *testing.T) {
+	podSpec := []string{"spec", "template", "spec"}
+	for _, tc := range []struct {
+		name            string
+		noToken, hasKey bool
+	}{
+		{"no token", true, false},
+		{"the owner's key in the env", false, true},
+		{"both", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, w, _, _ := proxyDispatcherFixture(t, common.CICDScaleRunnerSetKind, false)
+			obj, err := r.generateK8sObject(context.Background(), w, nil)
+			assert.NilError(t, err)
+			volumes, _, _ := unstructured.NestedSlice(obj.Object, append(podSpec, "volumes")...)
+			_, at := namedItem(volumes, common.PodTokenVolumeName)
+			assert.Assert(t, at >= 0, "a new scale set is rendered with the token")
+
+			containers, _, _ := unstructured.NestedSlice(obj.Object, append(podSpec, "containers")...)
+			for _, c := range containers {
+				container := c.(map[string]interface{})
+				if tc.noToken {
+					delete(container, "volumeMounts")
+				}
+				if tc.hasKey {
+					container["env"] = append(container["env"].([]interface{}),
+						map[string]interface{}{"name": legacyUserApiKeyEnv, "value": "legacy-key-from-an-old-rendering"})
+				}
+			}
+			assert.NilError(t, unstructured.SetNestedSlice(obj.Object, containers, append(podSpec, "containers")...))
+			if tc.noToken {
+				assert.NilError(t, unstructured.SetNestedSlice(obj.Object, []interface{}{}, append(podSpec, "volumes")...))
+			}
+
+			cs, read := proxyDynamicClient(t, obj)
+			current, _ := read()
+			assert.NilError(t, r.syncWorkloadToObject(context.Background(), w, cs, current))
+			updated, count := read()
+			assert.Equal(t, count, 1, "updated once")
+			volumes, _, _ = unstructured.NestedSlice(updated.Object, append(podSpec, "volumes")...)
+			_, at = namedItem(volumes, common.PodTokenVolumeName)
+			assert.Assert(t, at >= 0, "the token is there")
+			containers, _, _ = unstructured.NestedSlice(updated.Object, append(podSpec, "containers")...)
+			for _, c := range containers {
+				container := c.(map[string]interface{})
+				_, at = namedItem(container["volumeMounts"].([]interface{}), common.PodTokenVolumeName)
+				assert.Assert(t, at >= 0, "mounted in %v", container["name"])
+				_, at = namedItem(container["env"].([]interface{}), legacyUserApiKeyEnv)
+				assert.Assert(t, at < 0, "the owner's key is gone from %v", container["name"])
+			}
+
+			assert.NilError(t, r.syncWorkloadToObject(context.Background(), w, cs, updated))
+			_, count = read()
+			assert.Equal(t, count, 1, "and not again")
+		})
+	}
+}
+
 func TestSyncCICDProxy_Idempotent(t *testing.T) {
 	for _, kind := range []string{common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind} {
 		t.Run(kind, func(t *testing.T) {

@@ -163,6 +163,12 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 		}
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
+	// A CI/CD runner pod creates a runner or a unified job of its own scale set, nothing else.
+	if pod := authority.PodIdentityFrom(c); pod != nil {
+		if err = pod.ScopeCreate(mainWorkload); err != nil {
+			return nil, err
+		}
+	}
 	var preheatWorkloads []*v1.Workload
 	isSucceed := false
 	defer func() {

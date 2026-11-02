@@ -73,26 +73,3 @@ func TestParseTokenDoesNotLogRawToken(t *testing.T) {
 		})
 	}
 }
-
-func TestInternalAuthValidate(t *testing.T) {
-	tests := []struct {
-		name  string
-		auth  *InternalAuth
-		token string
-		want  bool
-	}{
-		{"match", &InternalAuth{token: "s3cret"}, "s3cret", true},
-		{"mismatch", &InternalAuth{token: "s3cret"}, "s3creT", false},
-		{"prefix", &InternalAuth{token: "s3cret"}, "s3cre", false},
-		{"longer", &InternalAuth{token: "s3cret"}, "s3cret-extra", false},
-		{"empty input", &InternalAuth{token: "s3cret"}, "", false},
-		{"empty stored", &InternalAuth{}, "", false},
-		{"empty stored non-empty input", &InternalAuth{}, "x", false},
-		{"nil receiver", nil, "x", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.auth.Validate(tt.token))
-		})
-	}
-}

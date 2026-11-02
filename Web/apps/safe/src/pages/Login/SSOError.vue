@@ -1,105 +1,65 @@
 <template>
   <div class="sso-error-container">
     <div class="error-card">
-      <!-- ========== Join successful: waiting for sync page ========== -->
-      <template v-if="isJoined">
-        <div class="error-icon">
-          <el-icon :size="80" color="#67C23A">
-            <SuccessFilled />
-          </el-icon>
+      <div class="error-icon">
+        <el-icon :size="80" color="#F56C6C">
+          <CircleCloseFilled />
+        </el-icon>
+      </div>
+
+      <h1 class="error-title">SSO Authentication Failed</h1>
+
+      <div class="error-message">
+        <p v-if="errorMessage" class="error-detail">
+          {{ errorMessage }}
+        </p>
+        <p v-else class="error-detail">
+          We were unable to authenticate you through Single Sign-On. This might be due to an
+          expired session, network issues, or configuration problems.
+        </p>
+      </div>
+
+      <div class="error-reasons" v-if="!isUserNotRegistered">
+        <h3>Possible reasons:</h3>
+        <ul>
+          <li>Your SSO session has expired</li>
+          <li>Invalid or missing authentication token</li>
+          <li>Network connectivity issues</li>
+          <li>SSO service temporarily unavailable</li>
+        </ul>
+      </div>
+
+      <div class="error-reasons" v-else>
+        <h3>What should I do?</h3>
+        <ul>
+          <li>Contact your system administrator to verify your account permissions</li>
+          <li>Ensure your account has been registered and granted access</li>
+          <li>Verify that your SSO account is properly linked to the system</li>
+          <li v-if="errorCode === 'sso_repeated_failure'">
+            If you continue experiencing issues, please provide this error code to support
+          </li>
+        </ul>
+      </div>
+
+      <div class="action-buttons">
+        <el-button
+          v-if="!isUserNotRegistered"
+          type="primary"
+          size="large"
+          @click="retrySSO"
+          :loading="retrying"
+        >
+          <el-icon class="mr-2"><RefreshRight /></el-icon>
+          Retry SSO Login
+        </el-button>
+      </div>
+
+      <div class="help-info">
+        <p>If the problem persists, please contact your system administrator.</p>
+        <div class="error-code" v-if="errorCode">
+          Error Code: <code>{{ errorCode }}</code>
         </div>
-
-        <h1 class="error-title">You've Been Added!</h1>
-
-        <div class="error-message">
-          <p class="error-detail">
-            <strong>{{ joinedUser }}</strong> has been added to the Primus user group.
-          </p>
-        </div>
-
-        <div class="error-reasons">
-          <h3>What happens next?</h3>
-          <ul>
-            <li>Okta needs up to <strong>2 hours</strong> to sync your group membership</li>
-            <li>After the sync completes, you will be able to log in via SSO</li>
-            <li>You can try logging in again after some time using the button below</li>
-          </ul>
-        </div>
-
-        <div class="action-buttons">
-          <el-button type="primary" size="large" @click="retrySSO" :loading="retrying">
-            <el-icon class="mr-2"><RefreshRight /></el-icon>
-            Try SSO Login
-          </el-button>
-        </div>
-
-        <div class="help-info">
-          <p>If you still can't log in after 2 hours, please contact your system administrator.</p>
-        </div>
-      </template>
-
-      <!-- ========== Original error page ========== -->
-      <template v-else>
-        <div class="error-icon">
-          <el-icon :size="80" color="#F56C6C">
-            <CircleCloseFilled />
-          </el-icon>
-        </div>
-
-        <h1 class="error-title">SSO Authentication Failed</h1>
-
-        <div class="error-message">
-          <p v-if="errorMessage" class="error-detail">
-            {{ errorMessage }}
-          </p>
-          <p v-else class="error-detail">
-            We were unable to authenticate you through Single Sign-On. This might be due to an
-            expired session, network issues, or configuration problems.
-          </p>
-        </div>
-
-        <div class="error-reasons" v-if="!isUserNotRegistered">
-          <h3>Possible reasons:</h3>
-          <ul>
-            <li>Your SSO session has expired</li>
-            <li>Invalid or missing authentication token</li>
-            <li>Network connectivity issues</li>
-            <li>SSO service temporarily unavailable</li>
-          </ul>
-        </div>
-
-        <div class="error-reasons" v-else>
-          <h3>What should I do?</h3>
-          <ul>
-            <li>Contact your system administrator to verify your account permissions</li>
-            <li>Ensure your account has been registered and granted access</li>
-            <li>Verify that your SSO account is properly linked to the system</li>
-            <li v-if="errorCode === 'sso_repeated_failure'">
-              If you continue experiencing issues, please provide this error code to support
-            </li>
-          </ul>
-        </div>
-
-        <div class="action-buttons">
-          <el-button
-            v-if="!isUserNotRegistered"
-            type="primary"
-            size="large"
-            @click="retrySSO"
-            :loading="retrying"
-          >
-            <el-icon class="mr-2"><RefreshRight /></el-icon>
-            Retry SSO Login
-          </el-button>
-        </div>
-
-        <div class="help-info">
-          <p>If the problem persists, please contact your system administrator.</p>
-          <div class="error-code" v-if="errorCode">
-            Error Code: <code>{{ errorCode }}</code>
-          </div>
-        </div>
-      </template>
+      </div>
     </div>
   </div>
 </template>
@@ -107,7 +67,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { CircleCloseFilled, SuccessFilled, RefreshRight } from '@element-plus/icons-vue'
+import { CircleCloseFilled, RefreshRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 
@@ -118,25 +78,17 @@ const retrying = ref(false)
 const errorMessage = ref('')
 const errorCode = ref('')
 const isUserNotRegistered = ref(false)
-const isJoined = ref(false)
-const joinedUser = ref('')
 
 onMounted(() => {
   // Get error info from route parameters
   if (route.query.error) {
     errorCode.value = route.query.error as string
 
-    // Just joined user group — show friendly waiting page
-    if (errorCode.value === 'joined') {
-      isJoined.value = true
-      joinedUser.value = decodeURIComponent((route.query.error_description as string) || '')
-    }
-
     // Check if user is not registered or permission error (hide retry button)
     isUserNotRegistered.value =
       errorCode.value === 'user_not_registered' || errorCode.value === 'sso_repeated_failure'
   }
-  if (!isJoined.value && route.query.error_description) {
+  if (route.query.error_description) {
     errorMessage.value = decodeURIComponent(route.query.error_description as string)
   } else if (route.query.message) {
     errorMessage.value = decodeURIComponent(route.query.message as string)

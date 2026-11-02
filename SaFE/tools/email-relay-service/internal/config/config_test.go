@@ -8,26 +8,19 @@ import (
 	"time"
 )
 
-// TestApplyHeaders verifies upstream auth headers are set based on credential precedence.
+// TestApplyHeaders verifies the upstream auth header is set from the outbound credential.
 func TestApplyHeaders(t *testing.T) {
-	// outbound token takes precedence and uses Bearer auth
+	// the outbound token is sent as Bearer auth
 	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
 	AuthConfig{Outbound: "tok"}.ApplyHeaders(req)
 	if got := req.Header.Get("Authorization"); got != "Bearer tok" {
 		t.Fatalf("Authorization = %q, want %q", got, "Bearer tok")
 	}
 
-	// internal token is used only when outbound is absent
-	req, _ = http.NewRequest(http.MethodGet, "http://example.com", nil)
-	AuthConfig{Internal: "itok"}.ApplyHeaders(req)
-	if got := req.Header.Get("X-Internal-Token"); got != "itok" {
-		t.Fatalf("X-Internal-Token = %q, want %q", got, "itok")
-	}
-
 	// no credentials means no headers
 	req, _ = http.NewRequest(http.MethodGet, "http://example.com", nil)
 	AuthConfig{}.ApplyHeaders(req)
-	if req.Header.Get("Authorization") != "" || req.Header.Get("X-Internal-Token") != "" {
+	if req.Header.Get("Authorization") != "" {
 		t.Fatalf("expected no auth headers")
 	}
 }
@@ -78,7 +71,6 @@ func TestLoad(t *testing.T) {
 	t.Setenv("EMAIL_RELAY_SMTP_USER", "user1")
 	t.Setenv("EMAIL_RELAY_SMTP_CREDENTIAL", "secret")
 	t.Setenv("EMAIL_RELAY_CLUSTER_0_OUTBOUND", "obtok")
-	t.Setenv("EMAIL_RELAY_CLUSTER_0_INTERNAL", "intok")
 	content := "smtp:\n  host: mail.local\n  from: a@b.com\nclusters:\n  - name: c1\n    base_url: http://x/\n"
 	cfg, err := Load(writeConfig(t, content))
 	if err != nil {
@@ -103,7 +95,7 @@ func TestLoad(t *testing.T) {
 	if c0.ReconnectInterval != 5*time.Second {
 		t.Errorf("default reconnect = %v", c0.ReconnectInterval)
 	}
-	if c0.Auth.Outbound != "obtok" || c0.Auth.Internal != "intok" {
+	if c0.Auth.Outbound != "obtok" {
 		t.Errorf("cluster auth not loaded from env")
 	}
 }

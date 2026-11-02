@@ -86,6 +86,18 @@ const (
 	CICDArcNamespace           = "arc-systems"
 	GithubRunnerServiceAccount = "github-runner"
 
+	// PodTokenAudience is the audience of the projected ServiceAccount token that a CI/CD
+	// runner pod presents to the apiserver. A token with another audience is not accepted.
+	PodTokenAudience = "primus-safe-apiserver"
+	// PodTokenVolumeName and PodTokenMountDir say where the runner pod gets that token;
+	// the file name inside the directory is PodTokenFile.
+	PodTokenVolumeName = "primus-safe-apiserver-token"
+	PodTokenMountDir   = "/var/run/secrets/primus-safe"
+	PodTokenFile       = "token"
+	// PodTokenExpirationSeconds is the lifetime of the projected token; the kubelet renews
+	// the file before it expires, so a reader must open it again for every request.
+	PodTokenExpirationSeconds = 3600
+
 	RayJobSubmitterName    = "ray-job-submitter"
 	RayJobSubmitterCpu     = "1"
 	RayJobSubmitterMemory  = "1Gi"

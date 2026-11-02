@@ -1398,6 +1398,58 @@ func Test_getWorkloadPodContainers(t *testing.T) {
 	assert.Equal(t, len(response.Shells), 3, "Should have 3 shells")
 }
 
+// A runner pod's token creates a runner or a unified job in the workspace of its own pod, and the
+// workload is stamped with the pod; any other workload is refused and nothing is created.
+func Test_createWorkload_WithPodToken(t *testing.T) {
+	workspaceId := "test-workspace"
+	user := genMockUser()
+	role := genMockRole()
+	controlPlaneNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "control-plane-node-1", Labels: map[string]string{common.KubernetesControlPlane: ""}},
+		Status:     corev1.NodeStatus{Addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "192.168.1.100"}}},
+	}
+	_ = corev1.AddToScheme(scheme.Scheme)
+	_ = v1.AddToScheme(scheme.Scheme)
+	scaleSet := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "scale-set-1"}}
+	body := func(kind, workspace string) string {
+		return fmt.Sprintf(`{"displayName":"job","workspaceId":"%s","images":["img"],"entryPoints":["run"],
+			"groupVersionKind":{"version":"v1","kind":"%s"},
+			"resources":[{"replica":1,"cpu":"1","memory":"1Gi"}],"env":{"SCALE_RUNNER_ID":"forged"}}`, workspace, kind)
+	}
+	run := func(kind, workspace string) (*Handler, interface{}, error) {
+		fakeCtrlClient := ctrlruntimefake.NewClientBuilder().WithObjects(user, role, controlPlaneNode).
+			WithScheme(scheme.Scheme).WithStatusSubresource(&v1.Workload{}, controlPlaneNode).Build()
+		h := &Handler{Client: fakeCtrlClient, clientSet: k8sfake.NewSimpleClientset(),
+			accessController: authority.NewAccessController(fakeCtrlClient)}
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Set(common.UserId, user.Name)
+		c.Set(common.UserName, v1.GetUserName(user))
+		authority.SetPodIdentity(c, &authority.PodIdentity{Pod: "runner-pod", Workspace: workspaceId, Workload: scaleSet})
+		c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/workloads", strings.NewReader(body(kind, workspace)))
+		c.Request.Header.Set("Content-Type", "application/json")
+		result, err := h.createWorkload(c)
+		return h, result, err
+	}
+
+	h, result, err := run(common.UnifiedJobKind, workspaceId)
+	assert.NilError(t, err)
+	created := &v1.Workload{}
+	assert.NilError(t, h.Get(context.Background(), client.ObjectKey{Name: result.(*view.CreateWorkloadResponse).WorkloadId}, created))
+	assert.Equal(t, created.Spec.Env[common.ScaleRunnerID], "runner-pod", "the pod is stamped by the apiserver, not by the caller")
+	assert.Equal(t, created.Spec.Env[common.ScaleRunnerSetID], "scale-set-1")
+
+	for _, tc := range []struct{ kind, workspace string }{
+		{"PyTorchJob", workspaceId},
+		{common.UnifiedJobKind, "another-workspace"},
+	} {
+		h, _, err = run(tc.kind, tc.workspace)
+		assert.Assert(t, err != nil, "%s in %s must be refused", tc.kind, tc.workspace)
+		list := &v1.WorkloadList{}
+		assert.NilError(t, h.List(context.Background(), list))
+		assert.Equal(t, len(list.Items), 0, "nothing is created")
+	}
+}
+
 // Test_createWorkload_NormalWorkload tests creating a normal workload
 func Test_createWorkload_NormalWorkload(t *testing.T) {
 	workspaceId := "test-workspace"

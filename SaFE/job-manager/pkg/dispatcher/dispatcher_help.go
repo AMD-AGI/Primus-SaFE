@@ -27,7 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -296,48 +295,6 @@ func modifyRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wor
 // dispatchNodeReadTimeout bounds the best-effort DB read for previous-dispatch
 // nodes so dispatching never blocks on the database.
 const dispatchNodeReadTimeout = 5 * time.Second
-
-// platformKeyReadTimeout bounds the best-effort DB read for user platform keys.
-const platformKeyReadTimeout = 5 * time.Second
-
-// platformKeyDeps are the DB reads used by platformKeyForUser. Tests replace them by assignment.
-var (
-	platformDBEnabled = commonconfig.IsDBEnable
-	platformDBClient  = dbclient.NewClient
-	platformKeyLookup = apikey.GetOrCreatePlatformKey
-)
-
-// platformKeyForUser returns the plaintext platform API key for the workload owner.
-// Best-effort: returns empty string when DB is disabled, the client is unavailable,
-// or lookup/creation fails.
-func platformKeyForUser(workload *v1.Workload) string {
-	if !platformDBEnabled() {
-		return ""
-	}
-	userId := v1.GetUserId(workload)
-	if userId == "" {
-		return ""
-	}
-	db := platformDBClient()
-	if db == nil {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), platformKeyReadTimeout)
-	defer cancel()
-	key, err := platformKeyLookup(ctx, db, userId, v1.GetUserName(workload))
-	if err != nil {
-		klog.ErrorS(err, "failed to get/create platform key for workload env",
-			"userId", userId, "workload", workload.Name)
-		return ""
-	}
-	return key
-}
-
-// platformKeyForUserFn is a seam so tests can stub the platform key lookup by
-// assignment. gomonkey cannot reliably re-patch the cross-package apikey/db
-// chain across many tests in a single package run, which made env-injection
-// tests flaky; a package var override is deterministic.
-var platformKeyForUserFn = platformKeyForUser
 
 // dispatchNodesAt returns the admin nodes assigned at the given dispatch index,
 // preferring the DB workload_dispatch_node table and falling back to the etcd
@@ -1215,16 +1172,8 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 	result = addEnvVar(result, workload, "SAFE_WORKSPACE", workload.Spec.Workspace)
 	result = addEnvVar(result, workload, "DISPLAY_NAME", v1.GetDisplayName(workload))
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
-	// Inject the workload owner's identity + platform API key so non-CICD
-	// workloads (e.g. multi-node jobs) can authenticate downstream, mirroring
-	// updateCICDScaleSetEnvs. USER_ID is skipped if already set via Spec.Env;
-	// USER_APIKEY is best-effort (empty when DB/lookup is unavailable).
+	// Inject the workload owner's identity. It is skipped if already set via Spec.Env.
 	result = addEnvVar(result, workload, jobutils.UserIdEnv, v1.GetUserId(workload))
-	if commonworkload.IsCICD(workload) || workload.SpecKind() == common.UnifiedJobKind {
-		if platformKey := platformKeyForUserFn(workload); platformKey != "" {
-			result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, platformKey)
-		}
-	}
 	if commonworkload.IsAuthoring(workload) {
 		result = addEnvVar(result, workload, jobutils.AdminControlPlaneEnv, v1.GetAdminControlPlane(workload))
 	}
@@ -1584,10 +1533,114 @@ func updateCICDScaleSet(obj *unstructured.Unstructured,
 	if err := updateCICDScaleSetEnvs(obj, adminWorkload, workspace, rt.Spec.ResourceSpecs[0]); err != nil {
 		return err
 	}
+	if err := applyPodToken(obj, adminWorkload, rt.Spec.ResourceSpecs[0]); err != nil {
+		return err
+	}
 	if err := constrainCICDListener(obj, adminWorkload); err != nil {
 		return err
 	}
 	return nil
+}
+
+// legacyUserApiKeyEnv is the env the runner pods used to carry the owner's API key in. It is
+// no longer set, and is removed from a scale set that still has it.
+const legacyUserApiKeyEnv = "USER_APIKEY"
+
+// podTokenVolume is the projected ServiceAccount token the runner proxies present to the
+// apiserver: a token for the apiserver audience, bound to the pod, that the kubelet renews.
+func podTokenVolume() map[string]interface{} {
+	return map[string]interface{}{
+		"name": common.PodTokenVolumeName,
+		"projected": map[string]interface{}{
+			"sources": []interface{}{map[string]interface{}{
+				"serviceAccountToken": map[string]interface{}{
+					"audience":          common.PodTokenAudience,
+					"expirationSeconds": int64(common.PodTokenExpirationSeconds),
+					"path":              common.PodTokenFile,
+				},
+			}},
+		},
+	}
+}
+
+func podTokenMount() map[string]interface{} {
+	return map[string]interface{}{
+		"name": common.PodTokenVolumeName, "mountPath": common.PodTokenMountDir, "readOnly": true,
+	}
+}
+
+func namedItem(items []interface{}, name string) (map[string]interface{}, int) {
+	for i, item := range items {
+		if m, ok := item.(map[string]interface{}); ok && m["name"] == name {
+			return m, i
+		}
+	}
+	return nil, -1
+}
+
+// applyPodToken gives every container of the CI/CD scale set's runner pod the token it
+// authenticates with. It replaces the owner's API key that used to be put in their env.
+func applyPodToken(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec v1.ResourceSpec) error {
+	volumesPath := podSpecPath(workload, &resourceSpec, "volumes")
+	volumes, _, err := jobutils.NestedSlice(obj.Object, volumesPath)
+	if err != nil {
+		return err
+	}
+	if _, i := namedItem(volumes, common.PodTokenVolumeName); i >= 0 {
+		volumes[i] = podTokenVolume()
+	} else {
+		volumes = append(volumes, podTokenVolume())
+	}
+	if err = jobutils.SetNestedField(obj.Object, volumes, volumesPath); err != nil {
+		return err
+	}
+	containers, path, err := getContainers(workload, obj, resourceSpec)
+	if err != nil {
+		return err
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		mounts, _ := container["volumeMounts"].([]interface{})
+		if _, at := namedItem(mounts, common.PodTokenVolumeName); at >= 0 {
+			mounts[at] = podTokenMount()
+		} else {
+			mounts = append(mounts, podTokenMount())
+		}
+		container["volumeMounts"] = mounts
+	}
+	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+// isPodTokenChanged reports whether a CI/CD scale set that is already running still needs
+// the token of its runner pods, or still carries the owner's API key in their env.
+func isPodTokenChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
+	if !commonworkload.IsCICDScalingRunnerSet(adminWorkload) || len(rt.Spec.ResourceSpecs) == 0 {
+		return false
+	}
+	resourceSpec := rt.Spec.ResourceSpecs[0]
+	volumes, _, _ := jobutils.NestedSlice(obj.Object, podSpecPath(adminWorkload, &resourceSpec, "volumes"))
+	if _, i := namedItem(volumes, common.PodTokenVolumeName); i < 0 {
+		return true
+	}
+	containers, _, _ := jobutils.NestedSlice(obj.Object, podSpecPath(adminWorkload, &resourceSpec, "containers"))
+	for _, item := range containers {
+		container, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		mounts, _ := container["volumeMounts"].([]interface{})
+		if _, at := namedItem(mounts, common.PodTokenVolumeName); at < 0 {
+			return true
+		}
+		envs, _ := container["env"].([]interface{})
+		if _, at := namedItem(envs, legacyUserApiKeyEnv); at >= 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // cicdListenerContainer is the name ARC gives the listener container; a
@@ -2167,11 +2220,9 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 	}
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.UserIdEnv] = v1.GetUserId(adminWorkload)
-	// CICD scale sets have their own env path (not buildEnvironment), so inject
-	// the platform API key here too; best-effort (empty when DB/lookup fails).
-	if platformKey := platformKeyForUserFn(adminWorkload); platformKey != "" {
-		envs[jobutils.UserApiKeyEnv] = platformKey
-	}
+	// A scale set rendered before the pods authenticated with their own token carries the
+	// owner's API key in its env; it is dropped when the scale set is updated.
+	envToBeRemoved := append(slices.Clone(v1.GetEnvToBeRemoved(adminWorkload)), legacyUserApiKeyEnv)
 	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
 	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
 	envs[jobutils.AdminControlPlaneEnv] = v1.GetAdminControlPlane(adminWorkload)
@@ -2196,7 +2247,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 		// When unified build is enabled, update all containers with envs
 		for i := range containers {
 			container := containers[i].(map[string]interface{})
-			updateContainerEnv(envs, container, v1.GetEnvToBeRemoved(adminWorkload))
+			updateContainerEnv(envs, container, envToBeRemoved)
 		}
 		if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
 			return err
@@ -2208,7 +2259,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 			container := containers[i].(map[string]interface{})
 			name := jobutils.NestedStringSilently(container, []string{"name"})
 			if name == mainContainerName {
-				updateContainerEnv(envs, container, v1.GetEnvToBeRemoved(adminWorkload))
+				updateContainerEnv(envs, container, envToBeRemoved)
 				// Keep only the main container and remove other container
 				newContainers := []interface{}{container}
 				return jobutils.SetNestedField(obj.Object, newContainers, path)

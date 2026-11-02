@@ -21,8 +21,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	testifyassert "github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/stretchr/testify/assert"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
 func TestInferAction(t *testing.T) {
@@ -309,10 +314,24 @@ func TestAuditMiddlewareDBEnabledNoClient(t *testing.T) {
 
 // --- merged from audit_helpers_test.go ---
 
-func TestGetUserFromK8sNoInternalAuth(t *testing.T) {
-	// InternalAuth singleton is not initialized in unit tests, so the lookup
-	// returns nil rather than panicking.
+func TestGetUserFromK8s(t *testing.T) {
+	scheme := runtime.NewScheme()
+	assert.NoError(t, v1.AddToScheme(scheme))
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(&v1.User{ObjectMeta: metav1.ObjectMeta{Name: "u1"}}).Build()
+
+	// Without a reader the lookup returns nil rather than panicking.
+	auditUserReader.Store(nil)
 	testifyassert.Nil(t, getUserFromK8s(context.Background(), "u1"))
+
+	SetAuditUserReader(cli)
+	defer auditUserReader.Store(nil)
+	user := getUserFromK8s(context.Background(), "u1")
+	if assert.NotNil(t, user) {
+		assert.Equal(t, "u1", user.Name)
+	}
+	// An unknown user is nil as well.
+	testifyassert.Nil(t, getUserFromK8s(context.Background(), "nobody"))
 }
 
 // --- merged from audit_writebatch_test.go ---
