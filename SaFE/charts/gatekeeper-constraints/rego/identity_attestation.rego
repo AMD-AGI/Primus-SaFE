@@ -45,6 +45,7 @@ valid_identity {
   claims.workspace == obj.spec.workspace
   claims.kind == "Sandbox"
   claims.kind == obj.spec.groupVersionKind.kind
+  claims.sandbox == obj.metadata.name
   is_number(claims.maxGpus)
   gpu_count(obj) <= claims.maxGpus
 }

@@ -4,26 +4,32 @@ creator := "system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplan
 issuer := "https://identity.example.test"
 
 cert := `-----BEGIN CERTIFICATE-----
-MIIBHzCBxaADAgECAgEBMAoGCCqGSM49BAMCMBgxFjAUBgNVBAMMDXJlZ28taWRl
+MIIBHjCBxaADAgECAgEBMAoGCCqGSM49BAMCMBgxFjAUBgNVBAMMDXJlZ28taWRl
 bnRpdHkwIBcNMjYxMDI2MDAwMDAwWhgPMjA5OTAxMDEwMDAwMDBaMBgxFjAUBgNV
-BAMMDXJlZ28taWRlbnRpdHkwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATBJy/j
-G1Obre2aROsfXr0qTV59xSvyjXhcof6V0wLjcwS3ohczo2XbB+Ydwta5ccZQdgHT
-hHthDBv8TmoFMtUjMAoGCCqGSM49BAMCA0kAMEYCIQDWoT7Rye5xR2qTukcw7IEc
-C+xjcD6P1XGIdAfg4I2SjQIhAJzvOoaO4BCqK1LZbmXdrriWPAvWUcqa3L6OjgT6
-dDcb
+BAMMDXJlZ28taWRlbnRpdHkwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASiM3UQ
+3YBzybd2MTImAXOobBUPZDh0maLlE4dBZ+ftWFnwJFup85N+H9zBhq8EjLXnXOuk
+QP0M01Ls8jiHy2e5MAoGCCqGSM49BAMCA0gAMEUCIGc2A9BXQZmNU2V41DLGVuKu
+Knuj/urMkgGsmYBYHmS1AiEAg7iICJVCDpHsGQ/xFC5KDgMpH6AaX/z1PIImN353
+eZE=
 -----END CERTIFICATE-----`
 
-valid_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsIm1heEdwdXMiOjEsImV4cCI6NDEwMjQ0NDgwMH0.iNwyar8JCqYB9nw85mbSDrtgW-qGzredgKwyl58X-kL5PJjXFcZ7UKjUgo8E_udXG8JFxOiKFCCRlz4Rb27tRw"
-expired_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsIm1heEdwdXMiOjEsImV4cCI6MX0.CRPWoX-1rrtJa9WFKr-nl7DTIbkms3tI6yC7rzC1UiX0CO6GP_3rcB__2-JBrepmQDlJ6_STJca2OWqB1pMZ9w"
-no_gpu_claim_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsImV4cCI6NDEwMjQ0NDgwMH0.Ln3QXMEfmiFe9wyD415jGegvCjI_aflgLm1ILokWqOmC1F0kISTbNKVjd3mhQhDvItgvXpl_5Fgr7dlQoCfQkg"
+valid_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsInNhbmRib3giOiJzYngtMSIsIm1heEdwdXMiOjEsImV4cCI6NDEwMjQ0NDgwMH0.o9ZYCgUVD5i_eEoZWWZw8-OhEhzrLlRHwkReN1BtrZpf8X4QSSkQU941XXcUW3W4XiFgTZOwJtHytQ6mpFDNtg"
+expired_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsInNhbmRib3giOiJzYngtMSIsIm1heEdwdXMiOjEsImV4cCI6MX0.95WeKjML19XS9B8X6q593JK0WFYk69mihthQ4vIqLbUZU2ORnQCFvnSDMDYC4zvViuqtDwLsm-C79ETJ7onSRw"
+no_gpu_claim_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsInNhbmRib3giOiJzYngtMSIsImV4cCI6NDEwMjQ0NDgwMH0.D4w0Ud0uYGZidMcljig4ZO5yEAAqHruynJc_vPlYqhT1PY7wyONXhAuXI6Cit_YuYa7Vs4WIXBujgHSejJTHxw"
+no_sandbox_claim_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsIm1heEdwdXMiOjEsImV4cCI6NDEwMjQ0NDgwMH0.t-EdRTFNYsy3qrkiClhXUuQt_LxbjsKNEH8HtYL_PIRzTD-p0YrjFy6Jtwp-cDSaxVBfYpe4bCRXJ58vcyN83Q"
 
 workload(token, workspace) = obj {
   obj := gpu_workload(token, workspace, "")
 }
 
 gpu_workload(token, workspace, gpus) = obj {
+  obj := named_workload(token, workspace, gpus, "sbx-1")
+}
+
+named_workload(token, workspace, gpus, name) = obj {
   obj := {
     "metadata": {
+      "name": name,
       "labels": {"primus-safe.user.id": "user-1"},
       "annotations": {"agent-sandbox.io/identity-attestation": token},
     },
@@ -70,6 +76,14 @@ test_gpu_above_max {
   count(violation) == 1 with input as wrap(gpu_workload(valid_token, "lab", "2"))
 }
 
+test_other_workload_name {
+  count(violation) == 1 with input as wrap(named_workload(valid_token, "lab", "", "sbx-2"))
+}
+
+test_token_without_sandbox_claim {
+  count(violation) == 1 with input as review(no_sandbox_claim_token, "lab")
+}
+
 test_token_without_gpu_claim {
   count(violation) == 1 with input as review(no_gpu_claim_token, "lab")
 }
@@ -99,6 +113,7 @@ grant_only_review = inp {
 expired_identity_with_grant = inp {
   obj := {
     "metadata": {
+      "name": "sbx-1",
       "labels": {"primus-safe.user.id": "user-1"},
       "annotations": {
         "agent-sandbox.io/identity-attestation": expired_token,
