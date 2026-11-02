@@ -12,7 +12,8 @@
 #      A helm_registry value ending in /proxy names the cache project, so the host is used.
 #      The apply Job uses <proxy_image_registry>/primussafe/curl:8.20.0.
 #   2. enforcementAction is deny. Set jwks, identityJwks, and identityIssuer when installing the Addon.
-#   3. User membership reads spec.resources.workspaces on the synced User CR.
+#   3. User membership reads spec.resources.workspaces on the synced User CR. A system-admin User
+#      is a member of every workspace.
 #
 
 apiVersion: amd.com/v1
