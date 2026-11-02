@@ -52,3 +52,58 @@ test_expired_exp {
 test_gpu_above_max {
   count(violation) == 1 with input as review(valid_token, "2")
 }
+
+test_cpu_only_resource {
+  count(violation) == 0 with input as review(valid_token, "")
+}
+
+test_identity_only_skips_grant {
+  count(violation) == 0 with input as identity_only_review
+}
+
+test_missing_both_credentials {
+  count(violation) == 1 with input as review("", "1")
+}
+
+test_invalid_grant_not_excused_by_identity_annotation {
+  count(violation) == 1 with input as expired_grant_with_identity
+}
+
+identity_only_review = inp {
+  obj := {
+    "metadata": {
+      "labels": {"primus-safe.user.id": "user-1"},
+      "annotations": {"agent-sandbox.io/identity-attestation": "eyJ.identity"},
+    },
+    "spec": {
+      "workspace": "lab",
+      "groupVersionKind": {"kind": "Sandbox"},
+      "resources": [{"replica": 1}],
+    },
+  }
+  inp := {
+    "review": {"userInfo": {"username": creator}, "object": obj},
+    "parameters": {"sandboxCreator": creator, "jwks": cert},
+  }
+}
+
+expired_grant_with_identity = inp {
+  obj := {
+    "metadata": {
+      "labels": {"primus-safe.user.id": "user-1", "agent-sandbox.io/grant-id": "gr-1"},
+      "annotations": {
+        "agent-sandbox.io/grant-attestation": expired_token,
+        "agent-sandbox.io/identity-attestation": "eyJ.identity",
+      },
+    },
+    "spec": {
+      "workspace": "lab",
+      "groupVersionKind": {"kind": "Sandbox"},
+      "resources": [{"gpu": "1", "replica": 1}],
+    },
+  }
+  inp := {
+    "review": {"userInfo": {"username": creator}, "object": obj},
+    "parameters": {"sandboxCreator": creator, "jwks": cert},
+  }
+}

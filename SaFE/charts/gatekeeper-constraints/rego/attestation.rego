@@ -2,8 +2,29 @@ package sandboxworkloadattestation
 
 violation[{"msg": msg}] {
   input.review.userInfo.username == input.parameters.sandboxCreator
-  not valid_attestation
+  not grant_satisfied
   msg := "grant attestation is missing, invalid, expired or does not match the workload"
+}
+
+# grant_token reads the Claw grant JWT. An empty value means this Workload uses the identity path.
+grant_token = t {
+  t := object.get(object.get(input.review.object.metadata, "annotations", {}), "agent-sandbox.io/grant-attestation", "")
+}
+
+# identity_token reads the primus-identity JWT. Presence is enough here; the identity constraint verifies it.
+identity_token = t {
+  t := object.get(object.get(input.review.object.metadata, "annotations", {}), "agent-sandbox.io/identity-attestation", "")
+}
+
+# grant_satisfied accepts a valid Claw grant, or no grant when an identity attestation is present.
+# A grant that is present must verify. An invalid grant is not excused by the other annotation.
+grant_satisfied {
+  valid_attestation
+}
+
+grant_satisfied {
+  grant_token == ""
+  identity_token != ""
 }
 
 # valid_attestation checks the Claw grant JWT against this Workload.
@@ -33,10 +54,14 @@ gpu_count(obj) = n {
   n := sum(cards)
 }
 
-# resource_gpus returns zero when the resource does not request a GPU.
+# resource_gpus returns the gpu count times replica, or zero when gpu is unset.
 resource_gpus(resource) = n {
   object.get(resource, "gpu", "") != ""
   n := to_number(resource.gpu) * replica(resource)
+}
+
+resource_gpus(resource) = 0 {
+  object.get(resource, "gpu", "") == ""
 }
 
 # replica reads the resource replica, defaulting to one.

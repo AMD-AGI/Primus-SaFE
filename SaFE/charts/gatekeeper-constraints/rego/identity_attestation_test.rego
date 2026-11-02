@@ -51,3 +51,48 @@ test_expired_token {
 test_missing_token {
   count(violation) == 1 with input as review("", "lab")
 }
+
+test_grant_only_skips_identity {
+  count(violation) == 0 with input as grant_only_review
+}
+
+test_invalid_identity_not_excused_by_grant {
+  count(violation) == 1 with input as expired_identity_with_grant
+}
+
+grant_only_review = inp {
+  obj := {
+    "metadata": {
+      "labels": {"primus-safe.user.id": "user-1", "agent-sandbox.io/grant-id": "gr-1"},
+      "annotations": {"agent-sandbox.io/grant-attestation": "eyJ.grant"},
+    },
+    "spec": {
+      "workspace": "lab",
+      "groupVersionKind": {"kind": "Sandbox"},
+    },
+  }
+  inp := {
+    "review": {"userInfo": {"username": creator}, "object": obj},
+    "parameters": {"sandboxCreator": creator, "jwks": cert, "issuer": issuer},
+  }
+}
+
+expired_identity_with_grant = inp {
+  obj := {
+    "metadata": {
+      "labels": {"primus-safe.user.id": "user-1"},
+      "annotations": {
+        "agent-sandbox.io/identity-attestation": expired_token,
+        "agent-sandbox.io/grant-attestation": "eyJ.grant",
+      },
+    },
+    "spec": {
+      "workspace": "lab",
+      "groupVersionKind": {"kind": "Sandbox"},
+    },
+  }
+  inp := {
+    "review": {"userInfo": {"username": creator}, "object": obj},
+    "parameters": {"sandboxCreator": creator, "jwks": cert, "issuer": issuer},
+  }
+}
