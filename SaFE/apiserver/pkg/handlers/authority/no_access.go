@@ -6,6 +6,7 @@
 package authority
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -52,11 +53,20 @@ func IsNoAccessRoute(method, fullPath string) bool {
 // cannot be found, holds no access either: closed is the safe answer for the one check that has to
 // hold on every route. The user's managed workspaces count as access, as they do in Authorize.
 //
-// It reads the rules, not the names of the roles, so it needs no knowledge of which role a
-// deployment gives a new user, and a role of the same shape is judged the same.
+// A system administrator, read-only or not, is the exception: that user holds access by being one,
+// as AuthorizeSystemAdmin takes it, whatever the Role objects say. The Role of the platform being
+// missing or unreadable (the objects installed in the wrong order, say) must not lock out the very
+// people who have to put it right. The user is the one the request sees, with the overlay applied
+// (GetRequestUser), which is what decides who is a system administrator in external mode.
+//
+// For everyone else it reads the rules, not the names of the roles, so it needs no knowledge of
+// which role a deployment gives a new user, and a role of the same shape is judged the same.
 func HoldsNoAccess(user *v1.User, roles []*v1.Role) bool {
 	if user == nil {
 		return true
+	}
+	if user.IsSystemAdmin() || user.IsSystemAdminReadonly() {
+		return false
 	}
 	if len(commonuser.GetManagedWorkspace(user)) > 0 {
 		return false
@@ -139,21 +149,32 @@ func RequireAccess(c *gin.Context) error {
 	if IsNoAccessRoute(c.Request.Method, c.FullPath()) {
 		return nil
 	}
-	cli := accessClient()
-	if cli == nil {
-		klog.Error("no client to read the roles of the authenticated user with")
-		return commonerrors.NewInternalError("failed to check the user's access")
-	}
-	ctx := c.Request.Context()
-	ac := &AccessController{Client: cli}
-	user, err := ac.GetRequestUser(ctx, c.GetString(common.UserId))
+	noAccess, user, err := userHoldsNoAccess(c.Request.Context(), c.GetString(common.UserId))
 	if err != nil {
 		return err
 	}
-	if !HoldsNoAccess(user, ac.GetRoles(ctx, user)) {
+	if !noAccess {
 		return nil
 	}
 	apimetrics.AuthFailuresTotal.WithLabelValues("no_access").Inc()
 	klog.Warningf("refused %s %s: user %s holds no access", c.Request.Method, c.FullPath(), user.Name)
 	return commonerrors.NewNoAccess(ErrNoAccess)
+}
+
+// userHoldsNoAccess applies HoldsNoAccess to the user userId as the request ctx belongs to sees it:
+// the record, with the overlay of ctx applied, and the roles that user holds. It is the one place
+// the rule is evaluated, so a request (RequireAccess) and a verification of the same credential
+// (POST /auth/verify) cannot come to different answers. It returns the user it judged.
+func userHoldsNoAccess(ctx context.Context, userId string) (bool, *v1.User, error) {
+	cli := accessClient()
+	if cli == nil {
+		klog.Error("no client to read the roles of the authenticated user with")
+		return false, nil, commonerrors.NewInternalError("failed to check the user's access")
+	}
+	ac := &AccessController{Client: cli}
+	user, err := ac.GetRequestUser(ctx, userId)
+	if err != nil {
+		return false, nil, err
+	}
+	return HoldsNoAccess(user, ac.GetRoles(ctx, user)), user, nil
 }

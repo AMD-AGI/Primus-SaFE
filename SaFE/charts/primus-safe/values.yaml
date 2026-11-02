@@ -236,7 +236,9 @@ users:
   # the webhook can create a user, so install or upgrade primus-safe-cr first.
   base_roles:
     - default
-  # Whether every user joins the workspaces marked as default.
+  # Whether every user joins the workspaces marked as default: when a user is created or updated, and
+  # when an administrator marks a workspace as default. When false neither adds anyone; an
+  # administrator adds the users to the workspaces they should be in.
   join_default_workspaces: true
 console:
   # The line the web console's "no access yet" page shows to a user who holds no access. Plain

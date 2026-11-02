@@ -41,6 +41,11 @@ func TestHoldsNoAccess(t *testing.T) {
 		commonuser.AddManagedWorkspace(u, managed...)
 		return u
 	}
+	holding := func(roles ...v1.UserRole) *v1.User {
+		u := user()
+		u.Spec.Roles = roles
+		return u
+	}
 	selfRead := authtest.ChartRole(t, v1.SelfReadRole)
 	own := rule([]string{"user"}, []string{"owner"}, v1.GetVerb)
 	for _, tt := range []struct {
@@ -75,6 +80,17 @@ func TestHoldsNoAccess(t *testing.T) {
 		{"no verbs", user(), []*v1.Role{roleOf(rule([]string{"user"}, []string{"owner"}))}, false},
 		{"one good rule and one that grants more", user(), []*v1.Role{roleOf(own, rule([]string{"workload"}, []string{"owner"}, v1.GetVerb))}, false},
 		{"managing a workspace is access", user("ws-a"), []*v1.Role{selfRead}, false},
+		// A system administrator holds access by being one, whatever the Role objects say: the platform Role
+		// missing or unreadable must not lock out the people who would have to put it right.
+		{"a system administrator whose Role could not be found", holding(v1.SystemAdminRole), nil, false},
+		{"a system administrator whose Role is unreadable", holding(v1.SystemAdminRole), []*v1.Role{nil}, false},
+		{"a system administrator with the minimal role next to it", holding(v1.SystemAdminRole, v1.SelfReadRole), []*v1.Role{selfRead}, false},
+		{"a read-only administrator whose Role could not be found", holding(v1.SystemAdminReadonlyRole), nil, false},
+		{"a read-only administrator with only the minimal role found", holding(v1.SystemAdminReadonlyRole, v1.SelfReadRole), []*v1.Role{selfRead}, false},
+		// The exemption is for the platform roles alone: another role that cannot be found is no access.
+		{"the default role could not be found", holding(v1.DefaultRole), nil, true},
+		{"a role nobody installed", holding("a-role-nobody-installed"), nil, true},
+		{"the minimal role alone", holding(v1.SelfReadRole), []*v1.Role{selfRead}, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, HoldsNoAccess(tt.user, tt.roles))
@@ -87,6 +103,7 @@ func TestHoldsNoAccess(t *testing.T) {
 type accessEnv struct {
 	t      *testing.T
 	engine *gin.Engine
+	cli    client.Client
 }
 
 func newAccessEnv(t *testing.T, users ...*v1.User) *accessEnv {
@@ -129,7 +146,7 @@ func newAccessEnv(t *testing.T, users ...*v1.User) *accessEnv {
 	api.GET("/workloads", reached)
 	api.POST("/workloads", reached)
 	api.POST("/users/:name", reached) // the same path as the allowed GET, another method
-	return &accessEnv{t: t, engine: e}
+	return &accessEnv{t: t, engine: e, cli: cli}
 }
 
 func (e *accessEnv) call(user *v1.User, method, path string) *httptest.ResponseRecorder {
@@ -216,6 +233,38 @@ func TestAuthenticateRequestRefusesAUserWhoHoldsNoAccess(t *testing.T) {
 				require.Contains(t, w.Body.String(), ErrNoAccess, "refused by the gate, not by something else")
 				require.Contains(t, w.Body.String(), commonerrors.NoAccess, "with the error code a client tells it by")
 				require.NotContains(t, w.Body.String(), "reached", "the handler must not run")
+			}
+		})
+	}
+}
+
+// The platform Roles of a deployment missing (the objects installed in the wrong order, say) must not lock
+// the system administrators out of every route: they are the people who have to put it right, and the check
+// that lets them through the administrator routes (AuthorizeSystemAdmin) reads the role name alone. An
+// ordinary user whose Role is missing holds no access, as ever.
+func TestAuthenticateRequestServesAdministratorsWhoseRoleIsMissing(t *testing.T) {
+	admin := accessUser("admin-user", v1.SystemAdminRole)
+	readonly := accessUser("readonly-user", v1.SystemAdminReadonlyRole)
+	plain := accessUser("plain-user", v1.DefaultRole)
+	env := newAccessEnv(t, admin, readonly, plain)
+	for _, name := range []v1.UserRole{v1.SystemAdminRole, v1.SystemAdminReadonlyRole, v1.DefaultRole} {
+		require.NoError(t, env.cli.Delete(t.Context(), &v1.Role{ObjectMeta: metav1.ObjectMeta{Name: string(name)}}))
+	}
+
+	for _, tt := range []struct {
+		name string
+		user *v1.User
+		want int
+	}{
+		{"a system administrator", admin, http.StatusOK},
+		{"a read-only administrator", readonly, http.StatusOK},
+		{"an ordinary user", plain, http.StatusForbidden},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := env.call(tt.user, http.MethodGet, "/api/v1/users")
+			require.Equal(t, tt.want, w.Code, w.Body.String())
+			if tt.want == http.StatusForbidden {
+				require.Contains(t, w.Body.String(), commonerrors.NoAccess)
 			}
 		})
 	}

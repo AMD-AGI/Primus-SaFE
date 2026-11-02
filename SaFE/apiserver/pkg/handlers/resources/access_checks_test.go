@@ -42,6 +42,8 @@ const (
 	userDefault  = "default-user"
 	userAdmin    = "admin-user"
 	userOther    = "other-user"
+	// userReadonly is a read-only administrator in a deployment whose base role is self-read: it holds both.
+	userReadonly = "readonly-user"
 )
 
 func newAccessFixture(t *testing.T) *accessFixture {
@@ -57,6 +59,7 @@ func newAccessFixture(t *testing.T) *accessFixture {
 	}
 	objs := append(authtest.ChartRoles(t),
 		user(userSelfRead, v1.SelfReadRole), user(userDefault, v1.DefaultRole), user(userAdmin, v1.SystemAdminRole), user(userOther, v1.DefaultRole),
+		user(userReadonly, v1.SystemAdminReadonlyRole, v1.SelfReadRole),
 		&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}},
 		&v1.Addon{ObjectMeta: metav1.ObjectMeta{Name: "a1"}},
 		&v1.AddonTemplate{ObjectMeta: metav1.ObjectMeta{Name: "t1"}},
@@ -126,9 +129,9 @@ func TestClusterAddonAndTemplateReadsAreChecked(t *testing.T) {
 	}
 }
 
-// The notification settings are the user's own to read and to change, so the right to update the user's own
-// record is what they take. The write is judged by the record, not by the answer: a refused user's
-// settings are left as they were.
+// The notification settings are the user's own: reading them takes the right to read the user's own record,
+// changing them the right to update it. The write is judged by the record, not by the answer: a refused
+// user's settings are left as they were.
 func TestUserSettingsAreChecked(t *testing.T) {
 	f := newAccessFixture(t)
 	on := `{"enableNotification": true}`
@@ -142,13 +145,25 @@ func TestUserSettingsAreChecked(t *testing.T) {
 		require.True(t, f.notification(t, userDefault))
 	})
 
-	t.Run("self-read may neither read nor change them", func(t *testing.T) {
-		res, err := f.h.getUserSettings(f.ctx(userSelfRead, common.UserSelf, ""))
-		require.True(t, apierrors.IsForbidden(err), "%v", err)
+	// A read-only administrator holds a role that reads everything and neither update: the own settings are
+	// read, as the other users' are, and cannot be changed. A reader of the own record gets the same from the
+	// self-read role next to it: what keeps a user who holds that role alone off this route is the gate every
+	// authenticated route starts with (swept in the handlers package), not the handler.
+	for _, who := range []string{userReadonly, userSelfRead} {
+		t.Run(who+" reads the own settings and cannot change them", func(t *testing.T) {
+			res, err := f.h.getUserSettings(f.ctx(who, common.UserSelf, ""))
+			require.NoError(t, err)
+			require.False(t, res.(*view.UserSettingsResponse).EnableNotification)
+			_, err = f.h.updateUserSettings(f.ctx(who, common.UserSelf, on))
+			require.True(t, apierrors.IsForbidden(err), "%v", err)
+			require.False(t, f.notification(t, who), "the record was written for a user who was refused")
+		})
+	}
+
+	t.Run("a user nobody knows reads nothing", func(t *testing.T) {
+		res, err := f.h.getUserSettings(f.ctx("nobody-knows-me", common.UserSelf, ""))
+		require.Error(t, err)
 		require.Nil(t, res)
-		_, err = f.h.updateUserSettings(f.ctx(userSelfRead, common.UserSelf, on))
-		require.True(t, apierrors.IsForbidden(err), "%v", err)
-		require.False(t, f.notification(t, userSelfRead), "the record was written for a user who was refused")
 	})
 
 	t.Run("the check comes before the body is read", func(t *testing.T) {

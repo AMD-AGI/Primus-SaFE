@@ -58,7 +58,7 @@ new user start with no access instead, set these in the `primus-safe` chart valu
 ```yaml
 users:
   base_roles: [self-read]          # roles every user who is not a system administrator holds
-  join_default_workspaces: false   # do not add new users to the default workspaces
+  join_default_workspaces: false   # do not add users to the default workspaces, nor when a workspace is marked as default
 console:
   access_contact: "Ask the platform team in #help"   # shown on the console's "no access yet" page
 ```

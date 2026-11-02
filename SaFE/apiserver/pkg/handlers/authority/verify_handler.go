@@ -56,10 +56,16 @@ type VerifyTokenResponse struct {
 	// Roles are the roles the user holds as the apiserver sees them (in external mode, with the roles the
 	// identity's groups map to and the deployment's base roles applied): what a service that wants to
 	// serve only users who hold a certain role reads. It is always a list, empty when the user holds none.
-	Roles       []v1.UserRole `json:"roles"`
-	ApiKeyId    int64         `json:"apiKeyId,omitempty"`
-	PlatformKey string        `json:"platformKey,omitempty"`
-	VirtualKey  string        `json:"virtualKey,omitempty"`
+	Roles []v1.UserRole `json:"roles"`
+	// NoAccess is true when the user holds no access: nothing but reading the user's own record, so the
+	// apiserver refuses every other route to this user (403, error code Primus.00051). It is the same
+	// answer HoldsNoAccess gives a request, computed from the rules of the roles, which a service
+	// cannot do from the role names; a service that serves only users who hold access refuses the
+	// user when it is true. A user whose record or roles cannot be read is reported as holding none.
+	NoAccess    bool   `json:"noAccess"`
+	ApiKeyId    int64  `json:"apiKeyId,omitempty"`
+	PlatformKey string `json:"platformKey,omitempty"`
+	VirtualKey  string `json:"virtualKey,omitempty"`
 }
 
 // platformKeyFetcher resolves the platform API key for a user. It is a package
@@ -122,6 +128,9 @@ func VerifyToken(c *gin.Context) {
 	var userInfo *UserInfo
 	var userType string
 	var roles []v1.UserRole
+	// The context the apiserver would judge a request with the same credential in: the overlay of
+	// the identity in it, so the user is seen with the roles it lends.
+	accessCtx := c.Request.Context()
 	external := false
 	if st := externalState.Load(); st != nil {
 		verdict, builtin, ok := verifyExternal(c, st, &req)
@@ -130,6 +139,7 @@ func VerifyToken(c *gin.Context) {
 		}
 		if !builtin {
 			userInfo, userType, roles, external = verdict.info, UserTypeExternal, verdict.roles, true
+			accessCtx = extauth.WithOverlay(c.Request.Context(), verdict.overlay)
 		}
 	}
 	if !external {
@@ -139,6 +149,7 @@ func VerifyToken(c *gin.Context) {
 		}
 		// The roles as the apiserver sees them: in external mode the stored platform roles do not count.
 		roles = builtinRoles(userInfo.Id, userInfo.Roles)
+		accessCtx = WithoutIdentity(c.Request.Context(), userInfo.Id)
 	}
 
 	if roles == nil {
@@ -155,6 +166,7 @@ func VerifyToken(c *gin.Context) {
 		Type:          userType,
 		ApiKeyId:      userInfo.ApiKeyId,
 		Roles:         roles,
+		NoAccess:      verifyHoldsNoAccess(accessCtx, userInfo.Id),
 	}
 
 	// Backfill preferred name from the User CR when the auth path (e.g. API key)
@@ -205,6 +217,19 @@ func VerifyToken(c *gin.Context) {
 		"code": 0,
 		"data": resp,
 	})
+}
+
+// verifyHoldsNoAccess applies to the verified user the rule every route of the apiserver applies to
+// the user of a request (RequireAccess), so what a service learns here is what the apiserver would
+// answer that user. When the user cannot be judged (no client, the record or a role unreadable) the
+// answer is the closed one, as it is for a request: the user is reported as holding no access.
+func verifyHoldsNoAccess(ctx context.Context, userId string) bool {
+	noAccess, _, err := userHoldsNoAccess(ctx, userId)
+	if err != nil {
+		klog.ErrorS(err, "failed to check the access of the verified user", "userId", userId)
+		return true
+	}
+	return noAccess
 }
 
 // verifyBuiltin authenticates the credentials of a verify request with the apiserver's own sessions,
@@ -306,6 +331,9 @@ type externalVerdict struct {
 	// roles are the roles of the user as a request authenticated with the same credentials sees
 	// them (extauth.ApplyOverlay): the platform roles come from the identity's groups only.
 	roles []v1.UserRole
+	// overlay is the identity's overlay: what a request with the same credentials carries in its
+	// context, and what the user's access is judged with.
+	overlay *extauth.Overlay
 }
 
 // verifyExternal authenticates the credentials of a verify request with the configured chain, the
@@ -390,8 +418,9 @@ func verifyExternal(c *gin.Context, st *externalAuth, req *VerifyTokenRequest) (
 	if !id.Expiry.IsZero() {
 		info.Exp = id.Expiry.Unix()
 	}
-	roles := extauth.ApplyOverlay(extauth.WithOverlay(ctx, st.overlay(id)), user).Spec.Roles
-	return &externalVerdict{info: info, roles: roles}, false, true
+	overlay := st.overlay(id)
+	roles := extauth.ApplyOverlay(extauth.WithOverlay(ctx, overlay), user).Spec.Roles
+	return &externalVerdict{info: info, roles: roles, overlay: overlay}, false, true
 }
 
 // abortVerify answers a verify request with the failure the shared external path returned: 401 for a

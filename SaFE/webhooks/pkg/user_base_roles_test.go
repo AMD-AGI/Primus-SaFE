@@ -12,6 +12,7 @@ import (
 	"gotest.tools/assert"
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -218,6 +219,45 @@ func TestUserMutateWorkspaceWithoutJoiningTheDefaults(t *testing.T) {
 			m.mutateWorkspace(context.Background(), user)
 			assert.DeepEqual(t, commonuser.GetWorkspace(user), tt.want)
 		})
+	}
+}
+
+// Marking a workspace as default adds the users to it, unless the deployment keeps users out of the default
+// workspaces until an administrator adds them: the same setting the user webhook honours. With the default
+// (unset or true) the workspace webhook does what it always did, on every transition; with false it adds no
+// one, and what an administrator does by hand (a manager, a user's own list) is not its business.
+func TestMarkingAWorkspaceAsDefaultFollowsJoinDefaultWorkspaces(t *testing.T) {
+	notDefault := func() *v1.Workspace { return &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}} }
+	isDefault := func() *v1.Workspace {
+		return &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{IsDefault: true}}
+	}
+	for _, tt := range []struct {
+		name     string
+		old, new *v1.Workspace
+		// joinsOnDefault is what the users hold afterwards when the setting is unset or true.
+		joinsOnDefault bool
+	}{
+		{"a workspace created as default", nil, isDefault(), true},
+		{"a workspace marked as default", notDefault(), isDefault(), true},
+		{"a workspace that already was default", isDefault(), isDefault(), false},
+		{"a workspace that is not default", nil, notDefault(), false},
+		{"a workspace that stops being default", isDefault(), notDefault(), false},
+	} {
+		for _, join := range []string{"unset", "true", "false"} {
+			t.Run(tt.name+", join "+join, func(t *testing.T) {
+				setUsersConfig(t, "unset", join)
+				scheme := newScheme(t)
+				u1, u2 := &v1.User{ObjectMeta: metav1.ObjectMeta{Name: "u1"}}, &v1.User{ObjectMeta: metav1.ObjectMeta{Name: "u2"}}
+				cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(u1, u2).Build()
+				m := &WorkspaceMutator{Client: cli}
+				assert.NilError(t, m.mutateDefaultWorkspaceUsers(context.Background(), tt.old, tt.new))
+				for _, name := range []string{"u1", "u2"} {
+					got := &v1.User{}
+					assert.NilError(t, cli.Get(context.Background(), client.ObjectKey{Name: name}, got))
+					assert.Equal(t, commonuser.HasWorkspaceRight(got, "ws1"), tt.joinsOnDefault && join != "false", name)
+				}
+			})
+		}
 	}
 }
 

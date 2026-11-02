@@ -470,7 +470,8 @@ func GetUserBaseRoles() []string {
 }
 
 // IsUserJoinDefaultWorkspaces reports whether every user is added to the workspaces marked as
-// default, on creation and on every update (users.join_default_workspaces, true unless set).
+// default: when the user is created or updated, and when a workspace is marked as default
+// (users.join_default_workspaces, true unless set).
 func IsUserJoinDefaultWorkspaces() bool {
 	return getBool(usersJoinDefaultWorkspaces, true)
 }

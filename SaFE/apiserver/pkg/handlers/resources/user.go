@@ -83,7 +83,7 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 }
 
 // GetUserSettings returns the notification preferences for a user. The caller's own need the right to
-// update the caller's own record; another user's need the right to read their identity (administrators).
+// read the caller's own record; another user's need the right to read their identity (administrators).
 func (h *Handler) GetUserSettings(c *gin.Context) {
 	handle(c, h.getUserSettings)
 }
@@ -105,7 +105,7 @@ func (h *Handler) getUserSettings(c *gin.Context) (interface{}, error) {
 	targetUserId := c.GetString(common.Name)
 	var targetUser *v1.User
 	if targetUserId == common.UserSelf {
-		if err = h.authorizeOwnSettings(c, requestUser); err != nil {
+		if err = h.authorizeOwnSettings(c, requestUser, v1.GetVerb); err != nil {
 			return nil, err
 		}
 		targetUser = requestUser
@@ -125,17 +125,20 @@ func (h *Handler) getUserSettings(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
-// authorizeOwnSettings checks that the request user may change the user's own record. The
-// notification settings are the user's own, to read and to change, so a user whom the roles do
-// not let update their own record (the self-read role reads it and nothing more) has none: the
-// check comes first, before the body is read.
-func (h *Handler) authorizeOwnSettings(c *gin.Context, requestUser *v1.User) error {
+// authorizeOwnSettings checks that the request user may do verb on the user's own record. The
+// notification settings are the user's own, so reading them takes the right to read the record
+// (get) and changing them the right to update it: a read-only administrator reads them and cannot
+// change them. The check comes first, before the body is read.
+//
+// What keeps a user whose roles grant nothing but reading the own record off the settings routes is
+// the gate every authenticated route starts with (authority.AuthenticateRequest), not this check.
+func (h *Handler) authorizeOwnSettings(c *gin.Context, requestUser *v1.User, verb v1.RoleVerb) error {
 	return h.accessController.Authorize(authority.AccessInput{
 		Context:       c.Request.Context(),
 		ResourceKind:  v1.UserKind,
 		ResourceName:  requestUser.Name,
 		ResourceOwner: requestUser.Name,
-		Verb:          v1.UpdateVerb,
+		Verb:          verb,
 		User:          requestUser,
 		UserId:        c.GetString(common.UserId),
 	})
@@ -151,7 +154,7 @@ func (h *Handler) updateUserSettings(c *gin.Context) (interface{}, error) {
 	}
 	targetUserId := c.GetString(common.Name)
 	if targetUserId == common.UserSelf {
-		if err = h.authorizeOwnSettings(c, requestUser); err != nil {
+		if err = h.authorizeOwnSettings(c, requestUser, v1.UpdateVerb); err != nil {
 			return nil, err
 		}
 	}
