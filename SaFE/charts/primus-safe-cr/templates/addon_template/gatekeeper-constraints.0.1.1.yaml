@@ -2,15 +2,16 @@
 # Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
-# Membership and grant-attestation constraints for the Gatekeeper addon.
+# Membership, grant-attestation, and primus-identity attestation constraints.
 # Install this Addon on the management cluster after gatekeeper.3.23.1.
 # It is not a default addon.
 #
 # Notes:
-#   1. Package SaFE/charts/gatekeeper-constraints and mirror it before applying:
-#        oci://<helm_registry>/primussafe/gatekeeper-constraints:0.1.1
-#      The apply hook uses <proxy_image_registry>/primussafe/curl:8.20.0.
-#   2. enforcementAction starts as dryrun. Set it to deny only after jwks is set.
+#   1. Package SaFE/charts/gatekeeper-constraints and push it before applying:
+#        oci://<helm registry host>/primussafe/gatekeeper-constraints:0.1.1
+#      A helm_registry value ending in /proxy names the cache project, so the host is used.
+#      The apply Job uses <proxy_image_registry>/primussafe/curl:8.20.0.
+#   2. enforcementAction starts as dryrun. Set it to deny only after jwks, identityJwks, and identityIssuer are set.
 #   3. User membership reads spec.resources.workspaces on the synced User CR.
 #
 
@@ -26,8 +27,8 @@ metadata:
   name: gatekeeper-constraints.0.1.1
 spec:
   category: plugin
-  description: Gatekeeper constraints that check Agent Sandbox Workload membership and the Claw grant attestation. Install on the management cluster after Gatekeeper. Enforcement starts as dryrun and switches to deny after jwks is set.
-  url: oci://{{ .Values.global.helm_registry }}/primussafe/gatekeeper-constraints
+  description: Gatekeeper constraints that check Agent Sandbox Workload membership, the Claw grant attestation, and the primus-identity attestation. Install on the management cluster after Gatekeeper. Enforcement starts as dryrun.
+  url: oci://{{ .Values.global.helm_registry | trimSuffix "/proxy" }}/primussafe/gatekeeper-constraints
   version: 0.1.1
   type: helm
   required: false
@@ -36,6 +37,8 @@ spec:
     enforcementAction: dryrun
     sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane
     jwks: ""
+    identityJwks: ""
+    identityIssuer: ""
     image:
       repository: {{ .Values.global.proxy_image_registry }}/primussafe/curl
       tag: "8.20.0"
