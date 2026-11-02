@@ -42,7 +42,7 @@ func withExternalUser(t *testing.T, h *Handler) *Handler {
 	return h
 }
 
-// canViewModel and canAccessWorkspace read the user that readVisibilityUser fetches. In
+// canViewModel reads the user that readVisibilityUser fetches. In
 // external mode that user must carry the roles the request's groups map to, or an
 // administrator made so by a group is refused what a stored administrator may see.
 func TestExternalAdminSeesWhatAnAdministratorSees(t *testing.T) {

@@ -39,7 +39,10 @@ const (
 type externalAuth struct {
 	chain    *extauth.Chain
 	mappings []commonconfig.AuthGroupMapping
-	client   client.Client
+	// keyActors are the client ids (auth.key_actors) of the parties that may call POST /auth/verify with
+	// a delegated token. Empty: none may.
+	keyActors map[string]struct{}
+	client    client.Client
 }
 
 var externalState atomic.Pointer[externalAuth]
@@ -64,8 +67,15 @@ func InitExternalAuth(cli client.Client) error {
 	if err != nil {
 		return err
 	}
-	externalState.Store(&externalAuth{chain: chain, mappings: mappings, client: cli})
+	keyActors := map[string]struct{}{}
+	for _, a := range commonconfig.GetAuthKeyActors() {
+		keyActors[a] = struct{}{}
+	}
+	externalState.Store(&externalAuth{chain: chain, mappings: mappings, keyActors: keyActors, client: cli})
 	klog.Infof("external authentication enabled with %d authenticator(s)", chain.Len())
+	if len(keyActors) > 0 {
+		klog.Infof("%d client(s) may fetch the keys of the user a delegated token acts for (auth.key_actors)", len(keyActors))
+	}
 	warnStoredPlatformRoles(cfgs)
 	return nil
 }
@@ -237,6 +247,17 @@ func (st *externalAuth) authenticate(ctx context.Context, cred extauth.Credentia
 	}
 	apimetrics.AuthFailuresTotal.WithLabelValues("invalid").Inc()
 	return nil, false, commonerrors.NewUnauthorized(ErrInvalidToken)
+}
+
+// isKeyActor reports whether the party behind a delegated identity is named in auth.key_actors. Only a client
+// id counts, and an exact match: the member of the token's "act" claim that is a client id (extauth.Identity
+// ActorClient), never the "sub" of one that is only a subject of the issuer, which can be a user.
+func (st *externalAuth) isKeyActor(id *extauth.Identity) bool {
+	if id.ActorClient == "" {
+		return false
+	}
+	_, ok := st.keyActors[id.ActorClient]
+	return ok
 }
 
 // provision makes sure the user record of an authenticated identity exists (ensureUser) and returns

@@ -288,6 +288,24 @@ auth:
   group_mappings: []
   # Where the console sends users to sign in when mode is external.
   login_url: ""
+  # Client ids of the parties that may call POST /auth/verify with a delegated token (RFC 8693: an `act`
+  # claim naming the client) and receive the keys of the user the token acts for, and of that user only.
+  # The token must carry the safe.api scope and be accepted by an authenticator of the chain, which checks
+  # its audience. Exact ids, no wildcards. Empty (the default): a delegated token never calls it.
+  key_actors: []
+  # Where API key creation, listing and revocation are routed to the identity provider when mode is external:
+  # a path on the console's own origin, such as /api/v1/apikeys. The apiserver refuses to issue keys in that
+  # mode, so the console offers "Create API Key" and uses this path only when it is set (it is reported by
+  # GET /envs as apiKeysUrl); empty, it offers no key creation. Set it by itself when your own gateway routes
+  # the path to the identity provider; setting api_keys_upstream makes it /api/v1/apikeys whatever is set here.
+  api_keys_url: ""
+  # The identity provider's service that serves /api/v1/apikeys, as host[:port] with a full in-cluster DNS
+  # name (service.namespace.svc.cluster.local:port; the console's resolver does not use search domains).
+  # With mode external and this set, the console's nginx proxies /api/v1/apikeys there, ahead of its route to
+  # the apiserver, so no gateway rule is needed. /api/apikeys, the console's alias to the apiserver, is not
+  # touched: it lists and revokes the keys the apiserver issued before the switch. Ignored when mode is not
+  # external.
+  api_keys_upstream: ""
 sso:
   # Enable sso login
   enable: true

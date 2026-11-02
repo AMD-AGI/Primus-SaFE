@@ -145,6 +145,11 @@ data:
       # OTLP exporter endpoint (e.g., localhost:4317 for gRPC)
       otlp_endpoint: {{ default "otel-collector-collector.primus-safe.svc.cluster.local:4317" (default dict .Values.tracing).otlp_endpoint }}
     {{- if .Values.auth }}
+    {{- $apiKeysURL := default "" .Values.auth.api_keys_url }}
+    {{- if .Values.auth.api_keys_upstream }}
+    {{- /* the path the console's nginx routes to that upstream */}}
+    {{- $apiKeysURL = "/api/v1/apikeys" }}
+    {{- end }}
     auth:
       # builtin (default): local accounts, built-in sessions, SSO login and API keys.
       # external: authenticate requests with the chain in `authenticators` (OIDC/JWT, RFC 7662 token introspection, builtin).
@@ -152,6 +157,9 @@ data:
       authenticators: {{ toJson (default (list) .Values.auth.authenticators) }}
       group_mappings: {{ toJson (default (list) .Values.auth.group_mappings) }}
       login_url: {{ default "" .Values.auth.login_url | quote }}
+      key_actors: {{ toJson (default (list) .Values.auth.key_actors) }}
+      # The path where the deployment routes API key creation, listing and revocation to the identity provider.
+      api_keys_url: {{ $apiKeysURL | quote }}
     {{- end }}
     {{- if or .Values.proxy .Values.langfuse_proxy }}
     proxy:

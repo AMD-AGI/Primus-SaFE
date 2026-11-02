@@ -63,3 +63,42 @@ func TestGetEnvsExternalLoginURL(t *testing.T) {
 	assert.True(t, got.SSOEnable)
 	assert.Equal(t, "https://sign-in.example.com/start", got.SSOAuthUrl)
 }
+
+// The console creates API keys at the identity provider only where the deployment says the provider's route
+// exists (auth.api_keys_url), and only in external mode: otherwise nothing is reported and the console keeps
+// the apiserver's own keys and its note.
+func TestGetEnvsAPIKeysURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	get := func() view.GetEnvResponse {
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/envs", nil)
+		(&Handler{}).GetEnvs(c)
+		assert.Equal(t, http.StatusOK, rsp.Code)
+		var resp view.GetEnvResponse
+		assert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &resp))
+		return resp
+	}
+	t.Cleanup(func() { viper.Set("auth.mode", nil); viper.Set("auth.api_keys_url", nil) })
+
+	for _, tt := range []struct {
+		name, mode, url, want string
+	}{
+		{"external, routed", "external", "/api/v1/apikeys", "/api/v1/apikeys"},
+		{"external, trailing slash", "external", "/api/v1/apikeys/", "/api/v1/apikeys"},
+		{"external, nothing routed", "external", "", ""},
+		{"builtin ignores it", "builtin", "/api/v1/apikeys", ""},
+		{"default mode ignores it", "", "/api/v1/apikeys", ""},
+		{"external, an absolute URL is not a path on the console's origin", "external", "https://other.example.com/api/v1/apikeys", ""},
+		{"external, a protocol relative URL", "external", "//other.example.com/api/v1/apikeys", ""},
+		{"external, no leading slash", "external", "api/v1/apikeys", ""},
+		{"external, a query or fragment", "external", "/api/v1/apikeys?x=1", ""},
+		{"external, only a slash", "external", "/", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Set("auth.mode", tt.mode)
+			viper.Set("auth.api_keys_url", tt.url)
+			assert.Equal(t, tt.want, get().APIKeysURL)
+		})
+	}
+}

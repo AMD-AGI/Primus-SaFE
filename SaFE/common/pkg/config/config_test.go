@@ -647,6 +647,42 @@ func TestDBTargetSessionAttrsHonoursAnExplicitEmpty(t *testing.T) {
 	viper.Reset()
 }
 
+func TestAuthKeyActors(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	testifyassert.Empty(t, GetAuthKeyActors(), "no delegated token may call POST /auth/verify unless the operator names its client")
+	viper.Set("auth.key_actors", []string{"client-a", " client-b ", "", "  "})
+	testifyassert.Equal(t, []string{"client-a", "client-b"}, GetAuthKeyActors(), "blank entries are dropped, ids are trimmed")
+	viper.Set("auth.key_actors", "client-a, client-b")
+	testifyassert.Equal(t, []string{"client-a", "client-b"}, GetAuthKeyActors(), "a comma separated scalar is accepted too")
+	viper.Set("auth.key_actors", []string{})
+	testifyassert.Empty(t, GetAuthKeyActors())
+}
+
+func TestAuthAPIKeysURL(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	testifyassert.Empty(t, GetAuthAPIKeysURL(), "nothing is routed to the identity provider unless the operator says so")
+	for in, want := range map[string]string{
+		"/api/v1/apikeys":                 "/api/v1/apikeys",
+		"  /api/v1/apikeys/  ":            "/api/v1/apikeys",
+		"https://idp.example.com/apikeys": "",
+		"//idp.example.com/apikeys":       "",
+		"api/v1/apikeys":                  "",
+		"/api/v1/api keys":                "",
+		"/api/v1/apikeys?x=1":             "",
+		"/api/v1/apikeys#x":               "",
+		"/api\\v1":                        "",
+		"/":                               "",
+		"":                                "",
+	} {
+		viper.Set("auth.api_keys_url", in)
+		testifyassert.Equal(t, want, GetAuthAPIKeysURL(), "input %q", in)
+	}
+}
+
 func TestAuthConfig(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

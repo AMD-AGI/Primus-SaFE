@@ -25,6 +25,7 @@ export interface ListAPIKeysParams {
   limit?: number
   sortBy?: 'creationTime' | 'expirationTime'
   order?: 'desc' | 'asc'
+  name?: string
 }
 
 export interface ListAPIKeysResponse {

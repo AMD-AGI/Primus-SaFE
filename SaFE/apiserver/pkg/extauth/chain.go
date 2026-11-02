@@ -31,6 +31,11 @@ type Identity struct {
 	// (the "act" claim, RFC 8693). A delegated identity is subject to the
 	// capability exclusions in Forbidden.
 	Actor string
+	// ActorClient is the client id of Actor when the credential states the actor as a client: act.client_id,
+	// or act.sub when the credential's own client_id (RFC 9068, RFC 7662) names the same party. Otherwise it is
+	// empty, and Actor is only a subject in the issuer's namespace, which can be a user. auth.key_actors is
+	// matched against this field and never against Actor, which is for the audit log.
+	ActorClient string
 	// Scopes are the scopes of a delegated credential.
 	Scopes []string
 	// Jti identifies the credential, for the audit log.
@@ -39,6 +44,19 @@ type Identity struct {
 	Restricted bool
 	// Expiry is zero when the authenticator gave none.
 	Expiry time.Time
+}
+
+// actorClient is the client id a credential names as its actor: the client_id member of "act", or the "sub"
+// member when the credential's own client_id, the client it was issued to, is that same id. An "act.sub"
+// alone is a subject, which can be a user: it is not taken for a client id.
+func actorClient(actClientID, actSub, credentialClientID string) string {
+	if actClientID != "" {
+		return actClientID
+	}
+	if actSub != "" && actSub == credentialClientID {
+		return actSub
+	}
+	return ""
 }
 
 // Delegated reports whether the identity acts through a delegated credential.

@@ -135,10 +135,12 @@ auth_login_url=https://idp.example.com/sign-in/start
 auth_client_secret=safe-introspection
 auth_authenticators='[{\"type\":\"oidc\",\"issuer\":\"https://idp.example.com\",\"audience\":\"primus-safe\"}]'
 auth_group_mappings='[{\"group\":\"admins\",\"roles\":[\"system-admin\"]}]'
-auth_key_actors='[\"client-a\"]'"
+auth_key_actors='[\"client-a\"]'
+auth_api_keys_url=/api/v1/apikeys
+auth_api_keys_upstream=identity.idns.svc.cluster.local:8080"
 
 # What helm get values says for a release that is running with that auth setting.
-LIVE_EXTERNAL='{"global":{"sub_domain":"test"},"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","client_secret":"safe-introspection","authenticators":[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"key_actors":["client-a"]}}'
+LIVE_EXTERNAL='{"global":{"sub_domain":"test"},"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","client_secret":"safe-introspection","authenticators":[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"key_actors":["client-a"],"api_keys_upstream":"identity.idns.svc.cluster.local:8080"}}'
 LIVE_BUILTIN='{"global":{"sub_domain":"test"},"auth":{"mode":"builtin","authenticators":[],"group_mappings":[],"login_url":""}}'
 
 FAILS=0
@@ -192,11 +194,14 @@ expect "all auth keys: authenticators" rendered 'authenticators: [{"audience":"p
 expect "all auth keys: group_mappings" rendered 'group_mappings: [{"group":"admins","roles":["system-admin"]}]'
 expect "all auth keys: client secret mounted into the apiserver" grep -qxF '            secretName: safe-introspection' "$OUT/rendered.yaml"
 expect "all auth keys: key_actors reach the values" grep -qx 2 "$OUT/value-files"
+expect "all auth keys: key_actors" rendered 'key_actors: ["client-a"]'
+expect "all auth keys: the path of the provider's key route is reported" rendered 'api_keys_url: "/api/v1/apikeys"'
+expect "all auth keys: the console's nginx gets the provider's service" grep -qxF '              value: "identity.idns.svc.cluster.local:8080"' "$OUT/rendered.yaml"
 expect "all auth keys: the script prints no auth value" bash -c '! grep -q "idp.example.com" "$1"' _ "$OUT/log"
 # Rendered with and without: only the auth segment differs.
 cp "$OUT/rendered.yaml" "$W/with-auth.yaml"
 run_upgrade "" ""
-diff_lines="$(diff "$OUT/rendered.yaml" "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|secret:$' || true)"
+diff_lines="$(diff "$OUT/rendered.yaml" "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|API_KEYS_UPSTREAM|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|secret:$' || true)"
 expect "rendering with and without the keys differs only in the auth segment" test -z "$diff_lines"
 [[ -z "$diff_lines" ]] || echo "$diff_lines"
 
@@ -210,6 +215,11 @@ expect "live external, no auth keys: the message says how to go back on purpose"
 run_upgrade "$LIVE_EXTERNAL" "$(grep -v '^auth_group_mappings' <<<"$AUTH_ENV")"
 expect "live external, group_mappings missing: refused" refused
 expect "live external, group_mappings missing: names it" grep -q 'does not set: auth_group_mappings$' "$OUT/log"
+
+# 4b. The console's route to the identity provider is one of them: an upgrade must not drop it either.
+run_upgrade "$LIVE_EXTERNAL" "$(grep -v '^auth_api_keys_upstream' <<<"$AUTH_ENV")"
+expect "live external, api_keys_upstream missing: refused" refused
+expect "live external, api_keys_upstream missing: names it" grep -q 'does not set: auth_api_keys_upstream$' "$OUT/log"
 
 # 5. Every key present: the upgrade goes through and renders what the release runs.
 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"

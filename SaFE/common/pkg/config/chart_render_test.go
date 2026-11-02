@@ -83,6 +83,116 @@ func loadRendered(t *testing.T, rendered string) {
 	testifyassert.NoError(t, LoadConfig(path))
 }
 
+// TestChartRendersAuthKeyActors pins that auth.key_actors reaches the getter, and that it is empty (nobody
+// may fetch keys with a delegated token) unless the operator sets it.
+func TestChartRendersAuthKeyActors(t *testing.T) {
+	loadRendered(t, renderApiserverConfig(t))
+	testifyassert.Empty(t, GetAuthKeyActors())
+
+	loadRendered(t, renderApiserverConfig(t, "--set", "auth.key_actors={client-a,client-b}"))
+	testifyassert.Equal(t, []string{"client-a", "client-b"}, GetAuthKeyActors())
+
+	// The other auth settings are rendered next to it and are not disturbed.
+	loadRendered(t, renderApiserverConfig(t, "--set", "auth.mode=external", "--set", "auth.key_actors={client-a}"))
+	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
+	testifyassert.Equal(t, []string{"client-a"}, GetAuthKeyActors())
+}
+
+// renderWebEnv returns the environment of the console container (the "-web" Deployment) of the rendered chart.
+func renderWebEnv(t *testing.T, values ...string) map[string]string {
+	t.Helper()
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+	cmd := exec.Command("helm", append([]string{"template", "rel", chartPath}, values...)...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	testifyrequire.NoErrorf(t, err, "helm template failed:\n%s", stderr.String())
+
+	decoder := yaml.NewDecoder(strings.NewReader(string(out)))
+	for {
+		var doc struct {
+			Kind     string `yaml:"kind"`
+			Metadata struct {
+				Name string `yaml:"name"`
+			} `yaml:"metadata"`
+			Spec struct {
+				Template struct {
+					Spec struct {
+						Containers []struct {
+							Name string `yaml:"name"`
+							Env  []struct {
+								Name  string `yaml:"name"`
+								Value string `yaml:"value"`
+							} `yaml:"env"`
+						} `yaml:"containers"`
+					} `yaml:"spec"`
+				} `yaml:"template"`
+			} `yaml:"spec"`
+		}
+		if err := decoder.Decode(&doc); err != nil {
+			testifyrequire.ErrorIsf(t, err, io.EOF, "rendered chart is not valid YAML: %v", err)
+			break
+		}
+		if doc.Kind == "Deployment" && doc.Metadata.Name == "rel-web" {
+			env := map[string]string{}
+			for _, c := range doc.Spec.Template.Spec.Containers {
+				for _, e := range c.Env {
+					env[e.Name] = e.Value
+				}
+			}
+			return env
+		}
+	}
+	t.Fatal("no rel-web Deployment in the rendered chart")
+	return nil
+}
+
+// TestChartRoutesAPIKeysToTheIdentityProvider pins the two halves of the console's key routing: the path the
+// apiserver reports to the console (auth.api_keys_url, from GET /envs), and the route the console's nginx
+// gets (API_KEYS_UPSTREAM). The one value api_keys_upstream gives both; api_keys_url alone is for a deployment
+// whose own gateway routes the path; and nothing is routed unless the mode is external, so a built-in
+// deployment's /api/v1/apikeys still reaches the apiserver.
+func TestChartRoutesAPIKeysToTheIdentityProvider(t *testing.T) {
+	const upstream = "identity.idns.svc.cluster.local:8080"
+	for _, tt := range []struct {
+		name         string
+		values       []string
+		wantURL      string
+		wantUpstream string // "" means the console container has no API_KEYS_UPSTREAM
+	}{
+		{"stock install: nothing routed", nil, "", ""},
+		{"external, nothing set", []string{"auth.mode=external"}, "", ""},
+		{"external, upstream: the console's nginx routes it and the path is reported",
+			[]string{"auth.mode=external", "auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", upstream},
+		{"external, url only: the deployment's own gateway routes it",
+			[]string{"auth.mode=external", "auth.api_keys_url=/api/v1/apikeys"}, "/api/v1/apikeys", ""},
+		{"external, a url and an upstream: the path reported is the one the console's nginx routes",
+			[]string{"auth.mode=external", "auth.api_keys_url=/idp/apikeys", "auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", upstream},
+		{"builtin, upstream set: the console's nginx must not take the path",
+			[]string{"auth.mode=builtin", "auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", ""},
+		{"no mode, upstream set: the console's nginx must not take the path",
+			[]string{"auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var args []string
+			for _, v := range tt.values {
+				args = append(args, "--set", v)
+			}
+			loadRendered(t, renderApiserverConfig(t, args...))
+			testifyassert.Equal(t, tt.wantURL, GetAuthAPIKeysURL())
+
+			env := renderWebEnv(t, args...)
+			if tt.wantUpstream == "" {
+				testifyassert.NotContains(t, env, "API_KEYS_UPSTREAM")
+			} else {
+				testifyassert.Equal(t, tt.wantUpstream, env["API_KEYS_UPSTREAM"])
+			}
+		})
+	}
+}
+
 // TestChartRendersReverseForwardDefaults pins what a stock install actually gets:
 // remote forwarding on, bound to loopback inside the pod, and limited.
 func TestChartRendersReverseForwardDefaults(t *testing.T) {
