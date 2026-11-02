@@ -183,6 +183,9 @@ func (h *Handler) generateAddon(c *gin.Context, req *view.CreateAddonRequestBody
 // Retrieves all addons, sorts them by name, and converts them to response items.
 func (h *Handler) listAddon(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
+	if err := h.authorizeKind(c, v1.AddonKind, "", v1.ListVerb); err != nil {
+		return nil, err
+	}
 	addonList := &v1.AddonList{}
 	if err := h.List(ctx, addonList, &client.ListOptions{}); err != nil {
 		return nil, err
@@ -204,6 +207,9 @@ func (h *Handler) listAddon(c *gin.Context) (interface{}, error) {
 // getAddon implements the logic for retrieving a single addon's detailed information.
 // Gets the addon by ID and converts it to a detailed response format.
 func (h *Handler) getAddon(c *gin.Context) (interface{}, error) {
+	if err := h.authorizeKind(c, v1.AddonKind, c.Param(common.AddonName), v1.GetVerb); err != nil {
+		return nil, err
+	}
 	addon, err := h.getAdminAddon(c.Request.Context(), c.Param(common.AddonName))
 	if err != nil {
 		return nil, err

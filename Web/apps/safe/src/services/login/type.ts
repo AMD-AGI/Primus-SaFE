@@ -77,6 +77,9 @@ export interface EnvsResp {
   ssoBridgeAllowlist?: string[]
   // cd
   cdRequireApproval?: boolean
+  // Whom a signed-in user without access should ask for it (plain text, may be empty or absent
+  // on older servers). Never render it as HTML.
+  accessContact?: string
   // KubeSpray image tags mapped to the Kubernetes version each one installs. The pair is
   // not free-form: picking an image determines the version, so the form derives it.
   kubeSprayK8sVersions?: Record<string, string>

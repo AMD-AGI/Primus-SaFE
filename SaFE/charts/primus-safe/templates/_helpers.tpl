@@ -33,3 +33,16 @@ and is refused by the sandbox template rather than read as unset.
 {{- $raw := (default dict .Values.sandbox).env_secret -}}
 {{- if not (kindIs "invalid" $raw) -}}{{- toString $raw -}}{{- end -}}
 {{- end -}}
+
+{{/*
+The users block of the apiserver and webhooks configuration: what every user holds when an
+administrator has granted nothing. One definition for both, because the admission webhook (what
+is stored) and the apiserver (what a request sees in external mode) must agree on it.
+base_roles: an empty list is the default, not "no roles": a user cannot be created without one.
+join_default_workspaces: hasKey rather than `default`, which treats false as absent.
+*/}}
+{{- define "primus-safe.usersConfig" -}}
+{{- $u := default dict .Values.users -}}
+base_roles: {{ toJson (default (list "default") $u.base_roles) }}
+join_default_workspaces: {{ if hasKey $u "join_default_workspaces" }}{{ $u.join_default_workspaces }}{{ else }}true{{ end }}
+{{- end -}}

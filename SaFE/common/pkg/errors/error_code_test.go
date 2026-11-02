@@ -100,3 +100,18 @@ func TestIsNonRetryableError(t *testing.T) {
 		})
 	}
 }
+
+// The refusal of a user who holds no access yet is a 403 with its own code, so a client can tell it from a
+// role that merely does not grant one thing; it is still a forbidden operation to everything that asks.
+func TestNoAccess(t *testing.T) {
+	err := NewNoAccess("no access yet")
+	assert.Equal(t, int32(403), err.Status().Code)
+	assert.Equal(t, NoAccess, GetErrorCode(err))
+	assert.Equal(t, "Primus.00051", NoAccess)
+	assert.True(t, IsPrimus(err))
+	assert.True(t, IsForbidden(err))
+	assert.True(t, apierrors.IsForbidden(err))
+	assert.NotEqual(t, Forbidden, GetErrorCode(err))
+	assert.True(t, IsForbidden(NewForbidden("a role does not grant it")))
+	assert.False(t, IsForbidden(NewBadRequest("x")))
+}

@@ -33,6 +33,9 @@ type GetEnvResponse struct {
 	SSOBridgeAllowlist []string `json:"ssoBridgeAllowlist"`
 	// Whether CD deployment requires approval from another user
 	CDRequireApproval bool `json:"cdRequireApproval"`
+	// The line the console's "no access yet" page shows to a user who holds no access (console.access_contact).
+	// Plain text, empty when the deployment sets none.
+	AccessContact string `json:"accessContact"`
 	// KubeSpray image tags mapped to the Kubernetes versions they install.
 	KubeSprayK8sVersions map[string]string `json:"kubeSprayK8sVersions"`
 }

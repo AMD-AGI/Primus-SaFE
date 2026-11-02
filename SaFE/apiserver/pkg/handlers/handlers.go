@@ -69,42 +69,34 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 			authority.NewApiKeyToken(dbClient, mgr.GetClient())
 		}
 	}
-	// Initialize proxy handlers first to avoid route conflicts with resource handlers
-	proxyHandler, err := proxyhandlers.NewProxyHandler()
-	if err != nil {
+	routes := routeHandlers{}
+
+	// Proxy handlers are registered first to avoid route conflicts with resource handlers.
+	var err error
+	if routes.proxy, err = proxyhandlers.NewProxyHandler(); err != nil {
 		return nil, err
 	}
-	proxyhandlers.InitProxyRoutes(engine, proxyHandler)
 
 	// Dynamic lens-compat proxy: routes /lens/v1/* to the robust-analyzer of
 	// the cluster named by ?cluster=<name>. Uses the shared robustclient that
 	// is populated by resource-manager's Discovery controller, so adding a
 	// new data cluster only requires a Cluster CR + the addon endpoint
 	// annotation — no apiserver config or helm upgrade.
-	lenscompat.NewHandler(model_handlers.GetRobustClient()).Register(engine)
+	routes.lens = lenscompat.NewHandler(model_handlers.GetRobustClient())
 
-	customHandler, err := reshandler.NewHandler(mgr)
-	if err != nil {
+	if routes.resources, err = reshandler.NewHandler(mgr); err != nil {
 		return nil, err
 	}
-	reshandler.InitCustomRouters(engine, customHandler)
-	cdHandler, err := cdhandlers.NewHandler(mgr)
-	if err != nil {
+	if routes.cd, err = cdhandlers.NewHandler(mgr); err != nil {
 		return nil, err
 	}
-	cdhandlers.InitCDRouters(engine, cdHandler)
-	imageHandler, err := imagehandlers.NewImageHandler(mgr)
-	if err != nil {
+	if routes.image, err = imagehandlers.NewImageHandler(mgr); err != nil {
 		return nil, err
 	}
-	imagehandlers.InitImageRouter(engine, imageHandler)
-	sshHandler, err := InitSshHandlers(context.Background(), mgr)
-	if err != nil {
+	if routes.ssh, err = InitSshHandlers(context.Background(), mgr); err != nil {
 		return nil, err
 	}
-	sshhandler.InitWebShellRouters(engine, sshHandler)
-	modelHandler := InitModelHandlers(context.Background(), mgr)
-	model_handlers.InitInferenceRouters(engine, modelHandler)
+	routes.model = InitModelHandlers(context.Background(), mgr)
 
 	// Initialize LLM Gateway handlers (if enabled and DB is available)
 	if commonconfig.IsLLMGatewayEnable() && commonconfig.IsDBEnable() {
@@ -114,7 +106,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 			if llmErr != nil {
 				klog.ErrorS(llmErr, "failed to initialize LLM Gateway handler")
 			} else {
-				llmgateway.InitRoutes(engine, llmHandler)
+				routes.llm = llmHandler
 			}
 		}
 	}
@@ -125,18 +117,15 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		if err != nil {
 			klog.Warningf("Email relay handler initialization skipped: %v", err)
 		} else {
-			emailrelayhandlers.InitEmailRelayRouters(engine, emailRelayHandler)
+			routes.emailRelay = emailRelayHandler
 		}
 	}
 
 	// GitHub Workflow CI/CD API
-	if commonconfig.IsDBEnable() {
-		githubworkflow.RegisterRoutes(engine.Group(common.PrimusRouterCustomRootPath))
-	}
+	routes.githubWorkflow = commonconfig.IsDBEnable()
 
 	// InferenceX benchmark data proxy (no DB required)
-	infxHandler := inferencexhandlers.NewHandler(24 * time.Hour)
-	inferencexhandlers.InitInferenceXRouters(engine, infxHandler)
+	routes.inferencex = inferencexhandlers.NewHandler(24 * time.Hour)
 
 	// Model Optimization (Hyperloom via PrimusClaw). Requires DB for task
 	// persistence + event log. Routes register whenever DB is enabled; Claw base
@@ -150,7 +139,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 			if optErr != nil {
 				klog.ErrorS(optErr, "failed to initialize Model Optimization handler")
 			} else {
-				optimizationhandlers.InitRoutes(engine, optHandler)
+				routes.optimization = optHandler
 				go optHandler.Start(context.Background())
 			}
 		}
@@ -159,11 +148,74 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	// MCP (Model Context Protocol) server: opt-in via mcp.enabled (default true
 	// in Helm chart). Mounts SSE + Streamable HTTP transports under the path
 	// configured by mcp.base_path so AI clients can drive the apiserver.
-	if commonconfig.IsMCPEnable() {
+	routes.mcp = commonconfig.IsMCPEnable()
+
+	registerRoutes(engine, routes)
+	return engine, nil
+}
+
+// routeHandlers are the handlers whose routes the apiserver serves; a nil one, or a false flag, is
+// not served (what InitHttpHandlers leaves out when its dependency, such as the database, is not
+// available). It is the one list of what the apiserver registers, so a test that registers all of
+// it, with handlers that have nothing behind them, sees the same routes the apiserver serves.
+type routeHandlers struct {
+	proxy          *proxyhandlers.ProxyHandler
+	lens           *lenscompat.Handler
+	resources      *reshandler.Handler
+	cd             *cdhandlers.Handler
+	image          *imagehandlers.ImageHandler
+	ssh            *sshhandler.SshHandler
+	model          *model_handlers.Handler
+	llm            *llmgateway.Handler
+	emailRelay     *emailrelayhandlers.Handler
+	githubWorkflow bool
+	inferencex     *inferencexhandlers.Handler
+	optimization   *optimizationhandlers.Handler
+	mcp            bool
+}
+
+// registerRoutes registers the routes of the handlers on the engine, in the order that matters: the
+// proxies first, so that they do not conflict with the resource routes.
+func registerRoutes(engine *gin.Engine, h routeHandlers) {
+	if h.proxy != nil {
+		proxyhandlers.InitProxyRoutes(engine, h.proxy)
+	}
+	if h.lens != nil {
+		h.lens.Register(engine)
+	}
+	if h.resources != nil {
+		reshandler.InitCustomRouters(engine, h.resources)
+	}
+	if h.cd != nil {
+		cdhandlers.InitCDRouters(engine, h.cd)
+	}
+	if h.image != nil {
+		imagehandlers.InitImageRouter(engine, h.image)
+	}
+	if h.ssh != nil {
+		sshhandler.InitWebShellRouters(engine, h.ssh)
+	}
+	if h.model != nil {
+		model_handlers.InitInferenceRouters(engine, h.model)
+	}
+	if h.llm != nil {
+		llmgateway.InitRoutes(engine, h.llm)
+	}
+	if h.emailRelay != nil {
+		emailrelayhandlers.InitEmailRelayRouters(engine, h.emailRelay)
+	}
+	if h.githubWorkflow {
+		githubworkflow.RegisterRoutes(engine.Group(common.PrimusRouterCustomRootPath))
+	}
+	if h.inferencex != nil {
+		inferencexhandlers.InitInferenceXRouters(engine, h.inferencex)
+	}
+	if h.optimization != nil {
+		optimizationhandlers.InitRoutes(engine, h.optimization)
+	}
+	if h.mcp {
 		mcprouter.InitRoutes(engine)
 	}
-
-	return engine, nil
 }
 
 // InitModelHandlers initializes the model handlers for the API server.

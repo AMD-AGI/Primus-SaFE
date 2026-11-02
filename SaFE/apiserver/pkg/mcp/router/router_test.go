@@ -311,12 +311,14 @@ func TestMCPRoutes_AuthHeaderForwarded(t *testing.T) {
 // the apiserver's containers/storage dependency tree (libbtrfs-dev). It uses
 // go/ast static analysis of handlers.go to assert:
 //  1. the mcprouter import is present,
-//  2. InitHttpHandlers checks commonconfig.IsMCPEnable(),
-//  3. InitHttpHandlers calls mcprouter.InitRoutes(engine) inside that guard.
+//  2. InitHttpHandlers decides whether MCP is served from commonconfig.IsMCPEnable(),
+//  3. registerRoutes (the one function that registers every route, which InitHttpHandlers
+//     calls) calls mcprouter.InitRoutes(engine) when it is.
 func TestHandlersGo_WiresMCPRouter(t *testing.T) {
 	const (
 		mcpRouterImport = "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/mcp/router"
 		funcName        = "InitHttpHandlers"
+		registerFn      = "registerRoutes"
 		gateFn          = "IsMCPEnable"
 		initFn          = "InitRoutes"
 	)
@@ -349,40 +351,61 @@ func TestHandlersGo_WiresMCPRouter(t *testing.T) {
 		t.Fatalf("handlers.go must import %q (regression: PR #511 dropped it; restore the mcprouter import)", mcpRouterImport)
 	}
 
-	var initFunc *ast.FuncDecl
+	funcs := map[string]*ast.FuncDecl{}
 	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok {
-			continue
-		}
-		if fn.Name.Name == funcName {
-			initFunc = fn
-			break
+		if fn, ok := decl.(*ast.FuncDecl); ok {
+			funcs[fn.Name.Name] = fn
 		}
 	}
+	initFunc, registerFunc := funcs[funcName], funcs[registerFn]
 	if initFunc == nil {
 		t.Fatalf("function %s not found in handlers.go", funcName)
 	}
+	if registerFunc == nil {
+		t.Fatalf("function %s not found in handlers.go", registerFn)
+	}
 
-	var (
-		sawGate    bool
-		initInGate bool
-	)
+	// InitHttpHandlers: the MCP flag is set from commonconfig.IsMCPEnable(), and the routes are registered
+	// by registerRoutes.
+	var sawGate, callsRegister bool
 	ast.Inspect(initFunc, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.AssignStmt:
+			for i, rhs := range x.Rhs {
+				if !isCallSelector(rhs, "commonconfig", gateFn) || i >= len(x.Lhs) {
+					continue
+				}
+				if sel, ok := x.Lhs[i].(*ast.SelectorExpr); ok && sel.Sel.Name == "mcp" {
+					sawGate = true
+				}
+			}
+		case *ast.CallExpr:
+			if id, ok := x.Fun.(*ast.Ident); ok && id.Name == registerFn {
+				callsRegister = true
+			}
+		}
+		return true
+	})
+	if !sawGate {
+		t.Errorf("InitHttpHandlers must set the MCP flag of its route handlers from commonconfig.%s()", gateFn)
+	}
+	if !callsRegister {
+		t.Errorf("InitHttpHandlers must register its routes with %s", registerFn)
+	}
+
+	// registerRoutes: mcprouter.InitRoutes is called when the MCP flag is on.
+	var initInGate bool
+	ast.Inspect(registerFunc, func(n ast.Node) bool {
 		ifStmt, ok := n.(*ast.IfStmt)
 		if !ok {
 			return true
 		}
-		if !isCallSelector(ifStmt.Cond, "commonconfig", gateFn) {
+		sel, ok := ifStmt.Cond.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "mcp" {
 			return true
 		}
-		sawGate = true
 		ast.Inspect(ifStmt.Body, func(inner ast.Node) bool {
-			call, ok := inner.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			if isCallSelector(call, mcpAlias, initFn) {
+			if call, ok := inner.(*ast.CallExpr); ok && isCallSelector(call, mcpAlias, initFn) {
 				initInGate = true
 				return false
 			}
@@ -390,12 +413,8 @@ func TestHandlersGo_WiresMCPRouter(t *testing.T) {
 		})
 		return true
 	})
-
-	if !sawGate {
-		t.Errorf("InitHttpHandlers must guard MCP wire-up with commonconfig.%s()", gateFn)
-	}
 	if !initInGate {
-		t.Errorf("InitHttpHandlers must call %s.%s(engine) inside the commonconfig.%s() gate (regression: PR #511 dropped it)", mcpAlias, initFn, gateFn)
+		t.Errorf("%s must call %s.%s(engine) when the MCP flag is on (regression: PR #511 dropped it)", registerFn, mcpAlias, initFn)
 	}
 }
 

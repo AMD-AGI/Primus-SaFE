@@ -50,6 +50,11 @@ const (
 	// error — typically by rendering an empty placeholder instead of a
 	// red toast.
 	RobustAddonNotInstalled = PrimusPrefix + "00050"
+	// NoAccess is the refusal of a user whose roles grant nothing but reading the user's own
+	// record, to any request for anything else (HTTP 403). It is told apart from the other
+	// refusals, which say that a role does not grant one thing, so that a client can show a
+	// "no access yet" page for exactly this case and not for a user who holds other access.
+	NoAccess = PrimusPrefix + "00051"
 )
 
 // workload: 01xxx
@@ -94,7 +99,8 @@ func IsInternal(err error) bool {
 
 // IsForbidden checks if an error indicates a forbidden operation.
 func IsForbidden(err error) bool {
-	return apierrors.ReasonForError(err) == Forbidden
+	reason := apierrors.ReasonForError(err)
+	return reason == Forbidden || reason == NoAccess
 }
 
 // IsNotFound checks if an error indicates a resource was not found.
@@ -159,6 +165,16 @@ func NewForbidden(message string) *apierrors.StatusError {
 		Status:  metav1.StatusFailure,
 		Code:    http.StatusForbidden,
 		Reason:  Forbidden,
+		Message: message,
+	}}
+}
+
+// NewNoAccess creates the error (403, reason NoAccess) for a user who holds no access yet.
+func NewNoAccess(message string) *apierrors.StatusError {
+	return &apierrors.StatusError{ErrStatus: metav1.Status{
+		Status:  metav1.StatusFailure,
+		Code:    http.StatusForbidden,
+		Reason:  NoAccess,
 		Message: message,
 	}}
 }

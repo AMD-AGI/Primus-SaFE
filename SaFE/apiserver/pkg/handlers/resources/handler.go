@@ -128,3 +128,18 @@ func (h *Handler) getAndSetUsername(c *gin.Context) (*v1.User, error) {
 	c.Set(common.UserName, v1.GetUserName(user))
 	return user, nil
 }
+
+// authorizeKind checks that the request user may perform verb on resources of the kind, before the
+// handler reads anything: a read that is answered only to the roles that hold the grant must not
+// depend on whether the object exists. name is the object the request names, "" for a list.
+// The role objects decide, so a user holds exactly what the roles grant (for the built-in default
+// role, the platform's long-standing behavior; for self-read, nothing here).
+func (h *Handler) authorizeKind(c *gin.Context, kind, name string, verb v1.RoleVerb) error {
+	return h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: kind,
+		ResourceName: name,
+		Verb:         verb,
+		UserId:       c.GetString(common.UserId),
+	})
+}

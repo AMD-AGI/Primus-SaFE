@@ -47,16 +47,25 @@ type VerifyTokenRequest struct {
 
 // VerifyTokenResponse represents the response body for token verification
 type VerifyTokenResponse struct {
-	Id            string        `json:"id"`
-	Name          string        `json:"name"`
-	Email         string        `json:"email,omitempty"`
-	PreferredName string        `json:"preferredName,omitempty"`
-	Exp           int64         `json:"exp"`
-	Type          string        `json:"type"`
-	Roles         []v1.UserRole `json:"roles"`
-	ApiKeyId      int64         `json:"apiKeyId,omitempty"`
-	PlatformKey   string        `json:"platformKey,omitempty"`
-	VirtualKey    string        `json:"virtualKey,omitempty"`
+	Id            string `json:"id"`
+	Name          string `json:"name"`
+	Email         string `json:"email,omitempty"`
+	PreferredName string `json:"preferredName,omitempty"`
+	Exp           int64  `json:"exp"`
+	Type          string `json:"type"`
+	// Roles are the roles the user holds as the apiserver sees them (in external mode, with the roles the
+	// identity's groups map to and the deployment's base roles applied): what a service that wants to
+	// serve only users who hold a certain role reads. It is always a list, empty when the user holds none.
+	Roles []v1.UserRole `json:"roles"`
+	// NoAccess is true when the user holds no access: nothing but reading the user's own record, so the
+	// apiserver refuses every other route to this user (403, error code Primus.00051). It is the same
+	// answer HoldsNoAccess gives a request, computed from the rules of the roles, which a service
+	// cannot do from the role names; a service that serves only users who hold access refuses the
+	// user when it is true. A user whose record or roles cannot be read is reported as holding none.
+	NoAccess    bool   `json:"noAccess"`
+	ApiKeyId    int64  `json:"apiKeyId,omitempty"`
+	PlatformKey string `json:"platformKey,omitempty"`
+	VirtualKey  string `json:"virtualKey,omitempty"`
 }
 
 // platformKeyFetcher resolves the platform API key for a user. It is a package
@@ -119,6 +128,9 @@ func VerifyToken(c *gin.Context) {
 	var userInfo *UserInfo
 	var userType string
 	var roles []v1.UserRole
+	// The context the apiserver would judge a request with the same credential in: the overlay of
+	// the identity in it, so the user is seen with the roles it lends.
+	accessCtx := c.Request.Context()
 	external := false
 	var delegated *externalVerdict
 	if st := externalState.Load(); st != nil {
@@ -128,6 +140,7 @@ func VerifyToken(c *gin.Context) {
 		}
 		if !builtin {
 			userInfo, userType, roles, external = verdict.info, verdict.userType, verdict.roles, true
+			accessCtx = extauth.WithOverlay(c.Request.Context(), verdict.overlay)
 			if verdict.actor != "" {
 				delegated = verdict
 			}
@@ -140,8 +153,14 @@ func VerifyToken(c *gin.Context) {
 		}
 		// The roles as the apiserver sees them: in external mode the stored platform roles do not count.
 		roles = builtinRoles(userInfo.Id, userInfo.Roles)
+		accessCtx = WithoutIdentity(c.Request.Context(), userInfo.Id)
 	}
 
+	if roles == nil {
+		// Always a list: a service that requires a role reads it without a nil check, and a user who holds
+		// none holds none, which is not the same as the roles being unknown.
+		roles = []v1.UserRole{}
+	}
 	resp := VerifyTokenResponse{
 		Id:            userInfo.Id,
 		Name:          userInfo.Name,
@@ -151,6 +170,7 @@ func VerifyToken(c *gin.Context) {
 		Type:          userType,
 		ApiKeyId:      userInfo.ApiKeyId,
 		Roles:         roles,
+		NoAccess:      verifyHoldsNoAccess(accessCtx, userInfo.Id),
 	}
 
 	// Backfill preferred name from the User CR when the auth path (e.g. API key)
@@ -208,6 +228,19 @@ func VerifyToken(c *gin.Context) {
 		"code": 0,
 		"data": resp,
 	})
+}
+
+// verifyHoldsNoAccess applies to the verified user the rule every route of the apiserver applies to
+// the user of a request (RequireAccess), so what a service learns here is what the apiserver would
+// answer that user. When the user cannot be judged (no client, the record or a role unreadable) the
+// answer is the closed one, as it is for a request: the user is reported as holding no access.
+func verifyHoldsNoAccess(ctx context.Context, userId string) bool {
+	noAccess, _, err := userHoldsNoAccess(ctx, userId)
+	if err != nil {
+		klog.ErrorS(err, "failed to check the access of the verified user", "userId", userId)
+		return true
+	}
+	return noAccess
 }
 
 // verifyBuiltin authenticates the credentials of a verify request with the apiserver's own sessions,
@@ -309,6 +342,9 @@ type externalVerdict struct {
 	// roles are the roles of the user as a request authenticated with the same credentials sees
 	// them (extauth.ApplyOverlay): the platform roles come from the identity's groups only.
 	roles []v1.UserRole
+	// overlay is the identity's overlay: what a request with the same credentials carries in its
+	// context, and what the user's access is judged with.
+	overlay *extauth.Overlay
 	// userType is UserTypeExternal, or UserTypeDelegated for a delegated token of a key actor.
 	userType string
 	// actor and jti are the party and the token id of a delegated credential; empty for any other.
@@ -424,7 +460,8 @@ func verifyExternal(c *gin.Context, st *externalAuth, req *VerifyTokenRequest) (
 	if !id.Expiry.IsZero() {
 		info.Exp = id.Expiry.Unix()
 	}
-	effective := extauth.ApplyOverlay(extauth.WithOverlay(ctx, st.overlay(id)), user)
+	overlay := st.overlay(id)
+	effective := extauth.ApplyOverlay(extauth.WithOverlay(ctx, overlay), user)
 	if effective.IsRestricted() && (req.IncludePlatformKey || req.IncludeVirtualKey) {
 		// A restricted user (the provider's "restricted" claim, or the user record) is refused by every request
 		// the apiserver authenticates through the chain. The keys this endpoint hands out are authenticated
@@ -439,7 +476,7 @@ func verifyExternal(c *gin.Context, st *externalAuth, req *VerifyTokenRequest) (
 		})
 		return nil, false, false
 	}
-	return &externalVerdict{info: info, roles: effective.Spec.Roles, userType: userType, actor: id.Actor, jti: id.Jti}, false, true
+	return &externalVerdict{info: info, roles: effective.Spec.Roles, overlay: overlay, userType: userType, actor: id.Actor, jti: id.Jti}, false, true
 }
 
 // abortVerify answers a verify request with the failure the shared external path returned: 401 for a

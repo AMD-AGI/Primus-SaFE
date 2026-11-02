@@ -31,6 +31,7 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 		SSOEnable:            commonconfig.IsSSOEnable(),
 		SSOBridgeAllowlist:   commonconfig.GetSSOBridgeAllowlist(),
 		CDRequireApproval:    commonconfig.IsCDRequireApproval(),
+		AccessContact:        commonconfig.GetConsoleAccessContact(),
 		KubeSprayK8sVersions: v1.KubeSprayK8sVersions(),
 	}
 	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {

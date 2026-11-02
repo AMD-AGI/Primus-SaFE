@@ -693,9 +693,13 @@ func (m *WorkspaceMutator) mutateWorkloadsOfWorkspace(ctx context.Context, works
 	return nil
 }
 
-// mutateDefaultWorkspaceUsers adds workspace access to all users when marked as default.
+// mutateDefaultWorkspaceUsers adds workspace access to all users when marked as default, unless the
+// deployment keeps users out of the default workspaces until an administrator adds them
+// (users.join_default_workspaces=false): the same setting the user webhook honours when a user is
+// created or updated, so marking a workspace as default does not hand a user the access that
+// setting withholds.
 func (m *WorkspaceMutator) mutateDefaultWorkspaceUsers(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
-	if !newWorkspace.Spec.IsDefault {
+	if !newWorkspace.Spec.IsDefault || !commonconfig.IsUserJoinDefaultWorkspaces() {
 		return nil
 	}
 	if oldWorkspace != nil && oldWorkspace.Spec.IsDefault {

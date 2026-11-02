@@ -97,6 +97,12 @@ data:
     user:
       # The expiration time of the token(only for local token), in seconds.
       token_expire: 604800
+    users:
+      {{- include "primus-safe.usersConfig" . | nindent 6 }}
+    console:
+      # The line the console's "no access yet" page shows to a user who holds no access.
+      {{- /* hasKey rather than `default`: an operator who sets it to "" gets no line, not the default. */}}
+      access_contact: {{ if hasKey (default dict .Values.console) "access_contact" }}{{ toJson (toString .Values.console.access_contact) }}{{ else }}"请联系管理员开通"{{ end }}
     tls:
       # Verify TLS certificates for outbound HTTPS calls to model endpoints and
       # third-party services (InferenceX). Default false keeps

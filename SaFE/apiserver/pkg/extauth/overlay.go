@@ -45,7 +45,7 @@ var PlatformRoles = []v1.UserRole{v1.SystemAdminRole, v1.SystemAdminReadonlyRole
 //     and only those: what the user object stores for them is ignored, so revoking one at the
 //     identity provider removes it from the next request that is authenticated afresh, even
 //     if the object still lists it. A user left without one is an ordinary user, who holds
-//     the default role;
+//     the base roles (the default role unless users.base_roles says otherwise);
 //   - every other role, the workspaces and the restriction are the record's united with the
 //     overlay's.
 //
@@ -77,10 +77,13 @@ func ApplyOverlay(ctx context.Context, user *v1.User) *v1.User {
 	case u.IsSystemAdmin():
 		// As the admission webhook keeps it: a system administrator holds that role alone.
 		u.Spec.Roles = []v1.UserRole{v1.SystemAdminRole}
-	case !v1.IsContainRole(u.Spec.Roles, v1.DefaultRole):
-		// As the admission webhook keeps it: everyone else holds the default role. It was not
-		// stored for an administrator, who is an ordinary user once the identity revokes the role.
-		u.Spec.Roles = append([]v1.UserRole{v1.DefaultRole}, u.Spec.Roles...)
+	default:
+		// As the admission webhook keeps it: everyone else holds the base roles (the default
+		// role unless users.base_roles says otherwise). They were not stored for an
+		// administrator, who is an ordinary user once the identity revokes the role.
+		if missing := commonuser.MissingBaseRoles(u.Spec.Roles); len(missing) > 0 {
+			u.Spec.Roles = append(missing, u.Spec.Roles...)
+		}
 	}
 	commonuser.AddWorkspace(u, o.Workspaces...)
 	commonuser.AddManagedWorkspace(u, o.Managed...)
