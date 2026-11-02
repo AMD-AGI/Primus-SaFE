@@ -416,6 +416,52 @@ func TestGetUserHandlerSelf(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rsp.Code)
 }
 
+func TestGetUserHandlerSelfPreferredName(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		want        string
+	}{
+		{
+			name:        "recorded at SSO sign-in",
+			annotations: map[string]string{v1.UserPreferredNameAnnotation: "jdoe@example.com"},
+			want:        "jdoe@example.com",
+		},
+		{
+			name:        "recorded as empty",
+			annotations: map[string]string{v1.UserPreferredNameAnnotation: ""},
+		},
+		{
+			name: "never recorded",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user := genMockUser()
+			for k, v := range tt.annotations {
+				v1.SetAnnotation(user, k, v)
+			}
+			h := newWorkspacesHandler(user, genMockRole())
+			rsp := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rsp)
+			c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+			c.Set(common.UserId, user.Name)
+			c.Set(common.Name, common.UserSelf)
+			h.GetUser(c)
+			testifyassert.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+
+			var got map[string]interface{}
+			testifyassert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &got))
+			if tt.want == "" {
+				testifyassert.NotContains(t, got, "preferredName")
+			} else {
+				testifyassert.Equal(t, tt.want, got["preferredName"])
+			}
+		})
+	}
+}
+
 func TestCreateUserHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h, _ := newAdminHandlerWithObjects()

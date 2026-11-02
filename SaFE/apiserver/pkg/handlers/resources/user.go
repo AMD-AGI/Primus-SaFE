@@ -642,6 +642,7 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) view
 		Id:             user.Name,
 		Name:           v1.GetUserName(user),
 		Email:          v1.GetUserEmail(user),
+		PreferredName:  v1.GetAnnotation(user, v1.UserPreferredNameAnnotation),
 		Type:           user.Spec.Type,
 		Roles:          user.Spec.Roles,
 		CreationTime:   timeutil.FormatRFC3339(user.CreationTimestamp.Time),

@@ -106,6 +106,7 @@ User authentication and access token retrieval.
 | id | string | User ID                                                       |
 | name | string | Username                                                      |
 | email | string | Email address                                                 |
+| preferredName | string | Preferred username from the SSO identity provider (the `preferred_username` claim), recorded when the user signs in through SSO. Omitted when none is recorded, e.g. for a default user |
 | type | string | User type: default/sso                                        |
 | roles | []string | User roles. e.g. system-admin, system-admin-readonly, default |
 | workspaces | []object | Workspaces the user can access (non-admin only)               |
