@@ -26,6 +26,9 @@ type ModelStatusApplyConfiguration struct {
 	LocalPaths []ModelLocalPathApplyConfiguration `json:"localPaths,omitempty"`
 	// UpdateTime is the last update time
 	UpdateTime *metav1.Time `json:"updateTime,omitempty"`
+	// ModelConfig is the structure summary read from the model's config.json; unset until it
+	// has been read.
+	ModelConfig *ModelConfigApplyConfiguration `json:"modelConfig,omitempty"`
 }
 
 // ModelStatusApplyConfiguration constructs a declarative configuration of the ModelStatus type for use with
@@ -76,5 +79,13 @@ func (b *ModelStatusApplyConfiguration) WithLocalPaths(values ...*ModelLocalPath
 // If called multiple times, the UpdateTime field is set to the value of the last call.
 func (b *ModelStatusApplyConfiguration) WithUpdateTime(value metav1.Time) *ModelStatusApplyConfiguration {
 	b.UpdateTime = &value
+	return b
+}
+
+// WithModelConfig sets the ModelConfig field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ModelConfig field is set to the value of the last call.
+func (b *ModelStatusApplyConfiguration) WithModelConfig(value *ModelConfigApplyConfiguration) *ModelStatusApplyConfiguration {
+	b.ModelConfig = value
 	return b
 }

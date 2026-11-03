@@ -90,6 +90,11 @@ spec:
                     - "fine_tuned": produced by SFT training within the platform
                     - "rl_trained": produced by RL training (GRPO/PPO) within the platform
                 type: string
+              postTrainingRunId:
+                description: |-
+                  PostTrainingRunId is the Post Training run that produced this model. Models produced by
+                  the older SFT and RL jobs use SftJobId instead and leave this empty.
+                type: string
               sftJobId:
                 description: |-
                   SftJobId is the workload ID of the training job that produced this model
@@ -233,6 +238,48 @@ spec:
               message:
                 description: Message contains additional status information
                 type: string
+              modelConfig:
+                description: |-
+                  ModelConfig is the structure summary read from the model's config.json; unset until it
+                  has been read.
+                properties:
+                  architectures:
+                    description: Architectures is config.json architectures, e.g.
+                      ["Qwen3ForCausalLM"]
+                    items:
+                      type: string
+                    type: array
+                  hiddenSize:
+                    description: HiddenSize is config.json hidden_size
+                    type: integer
+                  maxPositionEmbeddings:
+                    description: MaxPositionEmbeddings is config.json max_position_embeddings
+                    type: integer
+                  modelType:
+                    description: ModelType is config.json model_type
+                    type: string
+                  numAttentionHeads:
+                    description: NumAttentionHeads is config.json num_attention_heads
+                    type: integer
+                  numExperts:
+                    description: |-
+                      NumExperts is the routed expert count (num_experts, n_routed_experts or
+                      num_local_experts); zero for dense models
+                    type: integer
+                  numHiddenLayers:
+                    description: NumHiddenLayers is config.json num_hidden_layers
+                    type: integer
+                  numKeyValueHeads:
+                    description: NumKeyValueHeads is config.json num_key_value_heads
+                    type: integer
+                  ropeTheta:
+                    description: RopeTheta is config.json rope_theta as decimal text,
+                      since CRDs avoid floating-point fields
+                    type: string
+                  torchDtype:
+                    description: TorchDtype is config.json torch_dtype
+                    type: string
+                type: object
               phase:
                 description: Phase is the current phase of the model
                 type: string

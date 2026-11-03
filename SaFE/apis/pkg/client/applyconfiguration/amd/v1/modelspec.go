@@ -49,6 +49,9 @@ type ModelSpecApplyConfiguration struct {
 	// "<volume>/<subpath>/<dir>" when the subpath already contains a "models"
 	// segment. Empty = "<volume>/models/<dir>".
 	TargetSubpath *string `json:"targetSubpath,omitempty"`
+	// PostTrainingRunId is the Post Training run that produced this model. Models produced by
+	// the older SFT and RL jobs use SftJobId instead and leave this empty.
+	PostTrainingRunId *string `json:"postTrainingRunId,omitempty"`
 }
 
 // ModelSpecApplyConfiguration constructs a declarative configuration of the ModelSpec type for use with
@@ -160,5 +163,13 @@ func (b *ModelSpecApplyConfiguration) WithTargetVolume(value string) *ModelSpecA
 // If called multiple times, the TargetSubpath field is set to the value of the last call.
 func (b *ModelSpecApplyConfiguration) WithTargetSubpath(value string) *ModelSpecApplyConfiguration {
 	b.TargetSubpath = &value
+	return b
+}
+
+// WithPostTrainingRunId sets the PostTrainingRunId field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PostTrainingRunId field is set to the value of the last call.
+func (b *ModelSpecApplyConfiguration) WithPostTrainingRunId(value string) *ModelSpecApplyConfiguration {
+	b.PostTrainingRunId = &value
 	return b
 }
