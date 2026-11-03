@@ -113,6 +113,24 @@ func TestSandboxLayersBadAnnotationFailsWorkload(t *testing.T) {
 	}
 }
 
+func TestSandboxLayersRejectWorkspaceAndHostPathMounts(t *testing.T) {
+	for name, mutate := range map[string]func(*v1.Workload){
+		"workspace volume": func(w *v1.Workload) {
+			v1.SetAnnotation(w, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+			v1.SetAnnotation(w, sandboxLayersAnnotation, `[{"image":"`+testLayerImage+`","from":"/layer","mount":"/ceph"}]`)
+		},
+		"host path": func(w *v1.Workload) {
+			w.Spec.Hostpath = []string{"/opt/hp"}
+			v1.SetAnnotation(w, sandboxLayersAnnotation, `[{"image":"`+testLayerImage+`","from":"/layer","mount":"/opt/hp/x"}]`)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := renderAgentSandbox(t, mutate)
+			assert.Assert(t, jobutils.IsUnrecoverableError(err), "err = %v", err)
+		})
+	}
+}
+
 func TestSandboxLayerSamePathCopiesIntoTarget(t *testing.T) {
 	obj, err := renderAgentSandbox(t, func(w *v1.Workload) {
 		v1.SetAnnotation(w, sandboxLayersAnnotation, `[{"image":"`+testLayerImage+`","from":"/opt/tools","mount":"/opt/tools"}]`)
@@ -135,7 +153,7 @@ func TestSandboxLayersMountMainContainerOnly(t *testing.T) {
 
 	v1.SetAnnotation(workload, sandboxLayersAnnotation, `[{"image":"`+testLayerImage+`","from":"/layer","mount":"/opt/host"}]`)
 	spec := jobutils.TestSandboxResourceTemplate.Spec.ResourceSpecs[0]
-	assert.NilError(t, ensureSandboxLayers(obj, workload, &spec))
+	assert.NilError(t, ensureSandboxLayers(obj, workload, nil, &spec))
 
 	containers, _, _ = unstructured.NestedSlice(obj.Object, containersPath...)
 	for _, item := range containers {

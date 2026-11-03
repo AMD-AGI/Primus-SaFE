@@ -104,8 +104,9 @@ func pathsOverlap(a, b string) bool {
 
 // ensureSandboxLayers adds one emptyDir, one copy init container after envd-injector,
 // and one main-container mount per layer. A bad annotation fails the Workload.
-// The copy init container writes to sandboxLayerCopyTarget.
-func ensureSandboxLayers(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
+// The copy init container writes to sandboxLayerCopyTarget. A layer mount may not overlap
+// a container mount, or a workspace or host-path mount that initializeObject adds later.
+func ensureSandboxLayers(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, resourceSpec *v1.ResourceSpec) error {
 	layers, err := parseSandboxLayers(workload)
 	if err != nil {
 		return commonerrors.NewBadRequest(err.Error())
@@ -117,7 +118,10 @@ func ensureSandboxLayers(obj *unstructured.Unstructured, workload *v1.Workload, 
 	if err != nil {
 		return err
 	}
-	for _, mount := range containerMountPaths(containers) {
+	taken := append(containerMountPaths(containers), containerMountPaths([]interface{}{
+		map[string]interface{}{"volumeMounts": buildPersistentVolumeMounts(workload, workspace)},
+	})...)
+	for _, mount := range taken {
 		for i, l := range layers {
 			if pathsOverlap(l.Mount, mount) {
 				return commonerrors.NewBadRequest(fmt.Sprintf("layers[%d].mount %s overlaps %s", i, l.Mount, mount))

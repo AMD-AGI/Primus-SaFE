@@ -2958,7 +2958,7 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context, clientSets *sy
 				continue
 			}
 		}
-		if err := ensureSandboxLayers(obj, adminWorkload, spec); err != nil {
+		if err := ensureSandboxLayers(obj, adminWorkload, workspace, spec); err != nil {
 			return err
 		}
 		if err := requireSandboxSigningKey(obj, adminWorkload, spec); err != nil {
