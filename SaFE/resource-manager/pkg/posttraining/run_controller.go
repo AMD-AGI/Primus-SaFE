@@ -38,6 +38,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
@@ -211,6 +212,7 @@ func (c *registryCache) get(ctx context.Context, reader client.Reader) *registry
 		key := client.ObjectKey{Namespace: common.PrimusSafeNamespace, Name: registry.ConfigMapName}
 		if err := reader.Get(ctx, key, cm); err == nil && cm.ResourceVersion != c.version {
 			if err := c.store.Load([]byte(cm.Data[registry.DataKey]), nil); err != nil {
+				rmmetrics.PostTrainingRegistryLoadFailuresTotal.Inc()
 				klog.ErrorS(err, "rejected a Post Training registry version", "resourceVersion", cm.ResourceVersion)
 			}
 			c.version = cm.ResourceVersion
@@ -258,6 +260,9 @@ func SetupPostTrainingController(_ context.Context, mgr manager.Manager) error {
 	if err = mgr.Add(manager.RunnableFunc(r.recoverRuns)); err != nil {
 		return err
 	}
+	if err = mgr.Add(manager.RunnableFunc(r.runGauges)); err != nil {
+		return err
+	}
 	klog.Info("Setup Post Training controller successfully")
 	return nil
 }
@@ -302,19 +307,22 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ctrlruntime.Result{}, nil
 		}
-		return ctrlruntime.Result{}, err
+		return ctrlruntime.Result{}, reconcileError("database", err)
 	}
 	if finished(run) {
 		return ctrlruntime.Result{}, nil
 	}
 	w := &v1.Workload{}
+	var res ctrlruntime.Result
 	if err = r.Get(ctx, client.ObjectKey{Name: run.WorkloadID}, w); err != nil {
 		if !apierrors.IsNotFound(err) {
-			return ctrlruntime.Result{}, err
+			return ctrlruntime.Result{}, reconcileError("workload", err)
 		}
-		return r.reconcileLost(ctx, run)
+		res, err = r.reconcileLost(ctx, run)
+	} else {
+		res, err = r.reconcileWorkload(ctx, run, w)
 	}
-	return r.reconcileWorkload(ctx, run, w)
+	return res, reconcileError("advance", err)
 }
 
 // finished reports whether the controller has nothing left to do for run.
@@ -510,6 +518,7 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 	run := u.run
 	cur := loadCursor(run.MetricCursor)
 	in := r.newIngestion(ctx, u, cur)
+	rejected, skipped := in.sum.Rejected, cur.Skipped
 	more, readErr := r.readSubmitter(ctx, w, cur, in)
 	points := in.finish()
 	if in.resumeFrom != nil {
@@ -532,7 +541,8 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 			return false, err
 		}
 	}
-	u.set("metric_gap", run.MetricGap, cur.hasGap(u.now))
+	gap := cur.hasGap(u.now)
+	u.set("metric_gap", run.MetricGap, gap)
 	if data, _ := json.Marshal(cur); string(data) != run.MetricCursor {
 		u.fields["metric_cursor"] = string(data)
 	}
@@ -543,6 +553,7 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 	if err := r.db.SavePostTrainingRunMetrics(ctx, run.RunID, points, fields); err != nil {
 		return false, ignoreRecordNotFound(err)
 	}
+	countRead(in, rejected, skipped, run.MetricGap, gap)
 	r.notifyChanges(ctx, run, fields)
 	if readErr != nil {
 		klog.V(2).InfoS("submitter log not readable yet", "run", run.RunID, "err", readErr)

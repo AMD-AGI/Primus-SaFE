@@ -18,6 +18,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/model"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/topic/posttrainingrun"
+	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 )
 
 // endEvents maps the status a run ends with to its notification event.
@@ -61,6 +62,7 @@ func (r *RunReconciler) notify(ctx context.Context, run *dbclient.PostTrainingRu
 	data := map[string]interface{}{"topic": model.TopicPostTrainingRun, "event": event, "run": info,
 		"users": []*v1.User{user}}
 	if err := manager.SubmitNotification(ctx, model.TopicPostTrainingRun, run.RunID+"-"+event, data); err != nil {
+		rmmetrics.PostTrainingNotificationFailuresTotal.Inc()
 		klog.ErrorS(err, "failed to submit a Post Training notification", "run", run.RunID, "event", event)
 	}
 }
