@@ -41,8 +41,8 @@ const (
 	secretClientID    = "secret-client"
 	secretRedirectURI = "https://console.example.com/sign-in"
 	loginClientID     = "console"
-	loginRedirectURI = "https://console.example.com/sso/callback"
-	loginVerifier    = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ" // 46 characters
+	loginRedirectURI  = "https://console.example.com/sso/callback"
+	loginVerifier     = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ" // 46 characters
 )
 
 // fakeLoginProvider is an OpenID Connect provider that serves the authorization code flow for a public
@@ -53,7 +53,8 @@ type fakeLoginProvider struct {
 	srv *httptest.Server
 	key *ecdsa.PrivateKey
 
-	down atomic.Bool
+	down        atomic.Bool
+	discoveries atomic.Int64
 	// confidential makes it the provider of the sso Secret instead: a client with a secret, no PKCE.
 	confidential bool
 
@@ -70,6 +71,7 @@ func newFakeLoginProvider(t *testing.T) *fakeLoginProvider {
 	f := &fakeLoginProvider{t: t, key: k, codes: map[string]string{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		f.discoveries.Add(1)
 		if f.down.Load() {
 			http.Error(w, "down", http.StatusServiceUnavailable)
 			return
@@ -233,6 +235,11 @@ func TestSSOLoginProviderDownAtStart(t *testing.T) {
 	inst, err := initializeSSOToken(newLoginTestClient(t))
 	require.NoError(t, err)
 	assert.Equal(t, "", inst.LoginAuthURL())
+	// Within the retry interval the provider is not asked again: requests fail at once.
+	hits := f.discoveries.Load()
+	assert.Equal(t, "", inst.LoginAuthURL())
+	assert.Equal(t, hits, f.discoveries.Load(), "discovery was retried within the retry interval")
+	inst.login.retryInterval = 0
 	f.issue("code-1", loginVerifier)
 	_, _, err = inst.Login(context.Background(), TokenInput{Code: "code-1", CodeVerifier: loginVerifier})
 	require.Error(t, err)
@@ -386,4 +393,56 @@ func TestSSOLoginKeepsTheSecretProvider(t *testing.T) {
 	assert.Error(t, err, "a token of the sso Secret provider for the console's client id")
 	_, err = inst.Validate(context.Background(), login.idToken(map[string]any{"aud": secretClientID}))
 	assert.Error(t, err, "a token of the sso.login provider for the other client id")
+}
+
+// With sso.login on, the sso Secret's provider being down at start-up does not stop the console's sign-in: it is
+// discovered on first use, and serves again once it answers.
+func TestSSOLoginSecretProviderDownAtStart(t *testing.T) {
+	login := newFakeLoginProvider(t)
+	secret := newFakeLoginProvider(t)
+	secret.confidential = true
+	secret.down.Store(true)
+	withLoginConfig(t, login.srv.URL)
+	dir := t.TempDir()
+	for name, v := range map[string]string{"id": secretClientID, "secret": "s3cret", "endpoint": secret.srv.URL, "redirect_uri": secretRedirectURI} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(v+"\n"), 0o600))
+	}
+	commonconfig.SetValue("sso.secret_path", dir)
+	inst, err := initializeSSOToken(newLoginTestClient(t))
+	require.NoError(t, err, "a provider of the sso Secret that is down must not stop the apiserver")
+	inst.secretLazy.retryInterval = 0
+
+	assert.NotEqual(t, "", inst.LoginAuthURL())
+	login.issue("console", loginVerifier)
+	_, _, err = inst.Login(context.Background(), TokenInput{Code: "console", CodeVerifier: loginVerifier})
+	require.NoError(t, err, "the console signs in while the other provider is down")
+	assert.Equal(t, "", inst.AuthURL())
+	secret.issue("bridged", "")
+	_, _, err = inst.Login(context.Background(), TokenInput{Code: "bridged"})
+	require.Error(t, err)
+
+	secret.down.Store(false)
+	assert.True(t, strings.HasPrefix(inst.AuthURL(), secret.srv.URL+"/oauth/authorize?"), inst.AuthURL())
+	secret.issue("bridged-2", "")
+	_, resp, err := inst.Login(context.Background(), TokenInput{Code: "bridged-2"})
+	require.NoError(t, err)
+	_, err = inst.Validate(context.Background(), resp.Token)
+	require.NoError(t, err)
+}
+
+// With sso.login off nothing is deferred: a provider of the sso Secret that cannot be discovered stops the start, as before.
+func TestSSOSecretProviderDownWithoutLogin(t *testing.T) {
+	secret := newFakeLoginProvider(t)
+	secret.down.Store(true)
+	commonconfig.SetValue("db.enable", "false")
+	defer commonconfig.SetValue("db.enable", "")
+	dir := t.TempDir()
+	for name, v := range map[string]string{"id": secretClientID, "secret": "s3cret", "endpoint": secret.srv.URL, "redirect_uri": secretRedirectURI} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(v+"\n"), 0o600))
+	}
+	commonconfig.SetValue("sso.secret_path", dir)
+	defer commonconfig.SetValue("sso.secret_path", "")
+	_, err := initializeSSOToken(newLoginTestClient(t))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to new provider")
 }
