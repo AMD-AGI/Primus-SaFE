@@ -81,6 +81,10 @@ func (h *Handler) SubmitRun(c *gin.Context) {
 		apiutils.AbortWithApiError(c, apierrors.NewServiceUnavailable("Post Training registry is invalid: "+regErr.Error()))
 		return
 	}
+	if err := pausedError(reg); err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
 	resp, diags, err := h.submit(c, reg, &req)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
@@ -167,6 +171,18 @@ func (h *Handler) buildInput(ctx context.Context, reg *registry.Registry, req *r
 	}
 	return &recipe.Input{Registry: reg, Request: req, RunID: runID, RunDir: ws.runDir(runID), Model: mi,
 		Dataset: dataset, EvalDataset: evalDataset, Workspace: ws.WorkspaceInfo}, ws, model, nil
+}
+
+// pausedError is the 503 returned for new submissions while the registry pauses them.
+func pausedError(reg *registry.Registry) error {
+	if !reg.Paused.Enabled {
+		return nil
+	}
+	reason := reg.Paused.Reason
+	if reason == "" {
+		reason = "new Post Training runs are paused"
+	}
+	return apierrors.NewServiceUnavailable(reason)
 }
 
 // newRunID builds a run id from the display name, short enough for the names KubeRay derives from it.

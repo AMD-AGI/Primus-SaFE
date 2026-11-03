@@ -68,13 +68,38 @@ func (h *Handler) registry(ctx context.Context) (*registry.Registry, error) {
 	}
 	h.mu.Lock()
 	if cm.ResourceVersion != h.loadedRV {
-		if err := h.store.Load([]byte(cm.Data[registry.DataKey]), recipe.CheckRegistry); err != nil {
+		prev, _ := h.store.Get()
+		check := func(next *registry.Registry) error {
+			if err := recipe.CheckRegistry(next); err != nil {
+				return err
+			}
+			return registry.CheckRemovedImages(prev, next, h.imagesInUse(ctx))
+		}
+		if err := h.store.Load([]byte(cm.Data[registry.DataKey]), check); err != nil {
 			klog.ErrorS(err, "rejected a Post Training registry version", "resourceVersion", cm.ResourceVersion)
 		}
 		h.loadedRV = cm.ResourceVersion
 	}
 	h.mu.Unlock()
 	return h.store.Get()
+}
+
+// imagesInUse lists the images of the runs that have not finished.
+func (h *Handler) imagesInUse(ctx context.Context) []string {
+	if h.db == nil {
+		return nil
+	}
+	runs, _, err := h.db.ListPostTrainingRuns(ctx, dbclient.PostTrainingRunFilter{
+		Statuses: []string{string(v1.WorkloadPending), string(v1.WorkloadRunning)}})
+	if err != nil {
+		klog.ErrorS(err, "failed to list unfinished runs for the registry check")
+		return nil
+	}
+	images := make([]string, 0, len(runs))
+	for _, r := range runs {
+		images = append(images, r.Image)
+	}
+	return images
 }
 
 // requireEnabled answers 404 when Post Training is off, and returns the registry or its load error otherwise.

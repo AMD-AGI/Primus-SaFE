@@ -50,8 +50,11 @@ specs:
         minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
         unverified: [rl-separate]
 images:
-  - {image: img:1, framework: slime, arch: [gfx950], frameworkCommit: abc, validated: true,
+  - {image: img:1, framework: slime, arch: [gfx950], frameworkCommit: abc, validated: true, default: true,
      features: [full, separate, lora, loraRl]}
+  - {image: img:old, framework: slime, arch: [gfx950], frameworkCommit: old, validated: true, deprecated: true,
+     features: [full]}
+  - {image: img:new, framework: slime, arch: [gfx950], frameworkCommit: new, validated: false}
 gpuArch: {MI355X: gfx950, MI325X: gfx942}
 `
 
@@ -134,12 +137,15 @@ func TestCompileRejects(t *testing.T) {
 		"unknown structure": {func(in *Input) { in.Model.Config.HiddenSize = 2560 }, "not supported"},
 		"no image for arch": {func(in *Input) { in.Workspace.GPUModel = "MI325X" },
 			"No validated slime image for workspace GPU architecture gfx942"},
-		"unknown gpu":      {func(in *Input) { in.Workspace.GPUModel = "" }, "no known architecture"},
-		"method":           {func(in *Input) { in.Request.Method = "lora" }, "does not support sft with lora"},
-		"too many nodes":   {func(in *Input) { in.Request.Resources.Nodes = 5 }, "only 4 nodes"},
-		"dataset type":     {func(in *Input) { in.Dataset.Type = "rlhf" }, "needs a sft dataset"},
-		"no dataset":       {func(in *Input) { in.Dataset = nil }, "Select a training dataset"},
-		"unlisted image":   {func(in *Input) { in.Request.Resources.Image = "img:9" }, "not in the image table"},
+		"unknown gpu":    {func(in *Input) { in.Workspace.GPUModel = "" }, "no known architecture"},
+		"method":         {func(in *Input) { in.Request.Method = "lora" }, "does not support sft with lora"},
+		"too many nodes": {func(in *Input) { in.Request.Resources.Nodes = 5 }, "only 4 nodes"},
+		"dataset type":   {func(in *Input) { in.Dataset.Type = "rlhf" }, "needs a sft dataset"},
+		"no dataset":     {func(in *Input) { in.Dataset = nil }, "Select a training dataset"},
+		"unvalidated lora": {func(in *Input) {
+			in.Request.Resources.Image = "img:new"
+			in.Request.Export.PeftAdapter = true
+		}, "allows only full SFT and GRPO without other features, not peftExport"},
 		"feature":          {func(in *Input) { in.Request.Export.PeftAdapter = true }, "validated for peftExport"},
 		"rl lora colocate": {rlLora(""), "RL with LoRA needs a separate rollout"},
 		"rl min nodes":     {rlLora(LayoutSeparate), "at least 2 nodes"},
@@ -166,6 +172,32 @@ func rlLora(layout string) func(*Input) {
 		in.Request.TrainType, in.Request.Method, in.Dataset.Type = "rl", "lora", "rlhf"
 		in.Request.Choices.Layout, in.Request.Choices.RolloutGpus = layout, 4
 	}
+}
+
+func TestImageSelection(t *testing.T) {
+	warnings := func(in *Input) []string {
+		var out []string
+		for _, d := range Compile(in).Diagnostics {
+			if d.Level == LevelWarning {
+				out = append(out, d.Message)
+			}
+		}
+		return out
+	}
+	in := input(t)
+	res := Compile(in)
+	require.Equal(t, "img:1", res.Image.Image, "the default image")
+
+	in.Request.Resources.Image = "img:old"
+	require.Contains(t, warnings(in)[0], "deprecated")
+	in.Request.Resources.Image = "img:new"
+	require.Contains(t, warnings(in)[0], "has not been validated")
+
+	in.Request.Resources.Image = "registry.local/slime:mine"
+	res = Compile(in)
+	require.Empty(t, errorsOf(res))
+	require.Equal(t, "abc", res.Recipe.FrameworkVersion, "a custom image compiles with the default image's commit")
+	require.Contains(t, warnings(in)[0], "not in the image table")
 }
 
 func TestUnverifiedConfigurationWarns(t *testing.T) {

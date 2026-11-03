@@ -244,6 +244,9 @@ type Context struct {
 	Image         *registry.Image
 	Arch          string
 	Layout        Layout
+	// CustomImage is set when the request names an image outside the image table; such runs use no conversion
+	// cache.
+	CustomImage bool
 }
 
 // Options are the wizard's choices for one framework: defaults, presets and per-field values with reasons for the
@@ -550,25 +553,48 @@ func resolve(in *Input, res *Result) (*Context, Framework, *registry.Framework) 
 		res.errorf("workspace", "The workspace GPU %q has no known architecture", in.Workspace.GPUModel)
 		return nil, nil, nil
 	}
-	var img *registry.Image
-	if name := req.Resources.Image; name != "" {
-		img = reg.ImageByName(name)
-		switch {
-		case img == nil:
-			res.errorf("resources.image", "Image %s is not in the image table", name)
-		case img.Framework != fw.Name:
-			res.errorf("resources.image", "Image %s is not a %s image", name, fw.Name)
-		case !img.HasArch(arch):
-			res.errorf("resources.image", "Image %s is not built for %s", name, arch)
-		}
-	} else if img = reg.ValidatedImage(fw.Name, arch); img == nil {
-		res.errorf("workspace", "No validated %s image for workspace GPU architecture %s", fw.Name, arch)
-	}
+	img, custom := selectImage(reg, req, fw.Name, arch, res)
 	if res.HasErrors() {
 		return nil, nil, nil
 	}
 	return &Context{Input: in, Request: req, Spec: spec, FrameworkSpec: fs, Image: img, Arch: arch,
-		Layout: layoutOf(req)}, plugin, fw
+		Layout: layoutOf(req), CustomImage: custom}, plugin, fw
+}
+
+// selectImage picks the image of a request: the default image of the framework and architecture, or the named one.
+// A named image outside the table is compiled with the default image's framework commit.
+func selectImage(reg *registry.Registry, req *SubmitRequest, framework, arch string,
+	res *Result) (*registry.Image, bool) {
+	def := reg.DefaultImage(framework, arch)
+	name := req.Resources.Image
+	if name == "" {
+		if def == nil {
+			res.errorf("workspace", "No validated %s image for workspace GPU architecture %s", framework, arch)
+		}
+		return def, false
+	}
+	img := reg.ImageByName(name)
+	switch {
+	case img == nil && def == nil:
+		res.errorf("resources.image", "Image %s is not in the image table, and no validated %s image for %s "+
+			"tells how to compile for it", name, framework, arch)
+		return nil, false
+	case img == nil:
+		res.warnf("resources.image", "Image %s is not in the image table: only full SFT and GRPO without other "+
+			"features, and no conversion cache", name)
+		return &registry.Image{Image: name, Framework: framework, Arch: []string{arch},
+			FrameworkCommit: def.FrameworkCommit}, true
+	case img.Framework != framework:
+		res.errorf("resources.image", "Image %s is not a %s image", name, framework)
+	case !img.HasArch(arch):
+		res.errorf("resources.image", "Image %s is not built for %s", name, arch)
+	case img.Deprecated:
+		res.warnf("resources.image", "Image %s is deprecated; new runs use the default image", name)
+	case !img.Validated:
+		res.warnf("resources.image", "Image %s has not been validated: only full SFT and GRPO without other "+
+			"features", name)
+	}
+	return img, false
 }
 
 // layoutOf derives the GPU split from the request.
@@ -612,7 +638,12 @@ func checkMethod(ctx *Context, res *Result) {
 		return
 	}
 	for _, f := range requiredFeatures(req) {
-		if !img.HasFeature(f) {
+		switch {
+		case !img.Validated || ctx.CustomImage:
+			if f != registry.FeatureFull {
+				res.errorf("", "Image %s allows only full SFT and GRPO without other features, not %s", img.Image, f)
+			}
+		case !img.HasFeature(f):
 			res.errorf("", "The image has not been validated for %s", f)
 		}
 	}
@@ -726,6 +757,10 @@ func platformRules(ctx *Context, res *Result) {
 	}
 	if in.Workspace.Nodes > 0 && nodes > in.Workspace.Nodes {
 		res.errorf("resources.nodes", "The workspace has only %d nodes", in.Workspace.Nodes)
+	}
+	if ctx.CustomImage && fs.ConvertNodes > nodes {
+		res.errorf("resources.nodes", "A run with an image outside the table converts weights in its own workload "+
+			"and needs at least %d nodes", fs.ConvertNodes)
 	}
 	if fs.IsUnverified(req.TrainType, variant, sep) {
 		res.warnf("", "This configuration of %s has not been verified", ctx.Spec.Name)

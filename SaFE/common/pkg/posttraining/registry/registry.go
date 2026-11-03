@@ -70,6 +70,13 @@ type Registry struct {
 	GPUArch    map[string]string `json:"gpuArch"`
 	Network    Network           `json:"network,omitempty"`
 	Evaluation Evaluation        `json:"evaluation,omitempty"`
+	Paused     Paused            `json:"paused,omitempty"`
+}
+
+// Paused stops new submissions, A/B experiments, re-exports and re-evaluations; running runs carry on.
+type Paused struct {
+	Enabled bool   `json:"enabled"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // Framework is one training framework: the compiler plugin, the launcher adapter and its metric panels.
@@ -202,15 +209,20 @@ type Freeze struct {
 
 // Image is one training image of a framework.
 type Image struct {
-	Image           string                 `json:"image"`
-	Framework       string                 `json:"framework"`
-	Arch            []string               `json:"arch"`
-	FrameworkCommit string                 `json:"frameworkCommit"`
-	MegatronBridge  string                 `json:"megatronBridge,omitempty"`
-	Env             map[string]string      `json:"env,omitempty"`
-	Validated       bool                   `json:"validated"`
-	Features        []string               `json:"features,omitempty"`
-	Ext             map[string]interface{} `json:"ext,omitempty"`
+	Image           string            `json:"image"`
+	Framework       string            `json:"framework"`
+	Arch            []string          `json:"arch"`
+	FrameworkCommit string            `json:"frameworkCommit"`
+	MegatronBridge  string            `json:"megatronBridge,omitempty"`
+	Env             map[string]string `json:"env,omitempty"`
+	Validated       bool              `json:"validated"`
+	// Default marks the image new runs use for its framework and architecture; once any image is validated for
+	// them, exactly one validated image is the default.
+	Default bool `json:"default,omitempty"`
+	// Deprecated images are no longer offered for new runs but still serve the runs that use them.
+	Deprecated bool                   `json:"deprecated,omitempty"`
+	Features   []string               `json:"features,omitempty"`
+	Ext        map[string]interface{} `json:"ext,omitempty"`
 }
 
 // Network holds multi-node network settings.
@@ -337,7 +349,7 @@ func (r *Registry) Validate() error {
 		}
 	}
 
-	validated := map[string]string{}
+	validated, defaultImages := map[string]int{}, map[string][]string{}
 	for _, img := range r.Images {
 		if img.Image == "" {
 			add("an image has no name")
@@ -354,17 +366,30 @@ func (r *Registry) Validate() error {
 				add("image %s lists architecture %s that gpuArch does not map to", img.Image, arch)
 			}
 			key := img.Framework + "/" + arch
-			if img.Validated {
-				if other, ok := validated[key]; ok {
-					add("images %s and %s are both validated for %s", other, img.Image, key)
-				}
-				validated[key] = img.Image
+			if img.Validated && !img.Deprecated {
+				validated[key]++
+			}
+			if img.Default {
+				defaultImages[key] = append(defaultImages[key], img.Image)
 			}
 		}
 		for _, f := range img.Features {
 			if !knownFeatures[f] {
 				add("image %s lists unknown feature %s", img.Image, f)
 			}
+		}
+		if img.Default && (!img.Validated || img.Deprecated) {
+			add("default image %s must be validated and not deprecated", img.Image)
+		}
+	}
+	for key, n := range validated {
+		if d := defaultImages[key]; n > 0 && len(d) != 1 {
+			add("%s needs exactly one default image, found %d", key, len(d))
+		}
+	}
+	for key, d := range defaultImages {
+		if len(d) > 1 && validated[key] == 0 {
+			add("%s has %d default images", key, len(d))
 		}
 	}
 
@@ -560,11 +585,12 @@ func (r *Registry) Arch(gpuModel string) string {
 	return r.GPUArch[gpuModel]
 }
 
-// ValidatedImage returns the validated image of a framework on an architecture, or nil when there is none.
-func (r *Registry) ValidatedImage(framework, arch string) *Image {
+// DefaultImage returns the default image of a framework on an architecture, or nil before any image is validated
+// there.
+func (r *Registry) DefaultImage(framework, arch string) *Image {
 	for i := range r.Images {
 		img := &r.Images[i]
-		if img.Framework == framework && img.Validated && img.HasArch(arch) {
+		if img.Framework == framework && img.Default && img.HasArch(arch) {
 			return img
 		}
 	}
@@ -599,6 +625,29 @@ func (img *Image) HasFeature(feature string) bool {
 		}
 	}
 	return false
+}
+
+// CheckRemovedImages rejects a new version that drops an image of the previous version which unfinished runs
+// still use; inUse lists those runs' images.
+func CheckRemovedImages(prev, next *Registry, inUse []string) error {
+	if prev == nil {
+		return nil
+	}
+	used := map[string]bool{}
+	for _, img := range inUse {
+		used[img] = true
+	}
+	var removed []string
+	for _, img := range prev.Images {
+		if used[img.Image] && next.ImageByName(img.Image) == nil {
+			removed = append(removed, img.Image)
+		}
+	}
+	if len(removed) > 0 {
+		sort.Strings(removed)
+		return fmt.Errorf("invalid registry: unfinished runs still use the removed images %s", strings.Join(removed, ", "))
+	}
+	return nil
 }
 
 // Store keeps the last valid registry; a version that fails to parse or validate is rejected and the previous one

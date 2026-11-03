@@ -47,7 +47,7 @@ specs:
         methods: {sft: [full, lora], rl: [full, lora]}
         minNodes: {sft-full: 1, sft-lora: 1, rl: 1, rl-separate: 2}
 images:
-  - {image: img:1, framework: slime, arch: [gfx950], frameworkCommit: abc, validated: true, features: [full]}
+  - {image: img:1, framework: slime, arch: [gfx950], frameworkCommit: abc, validated: true, default: true, features: [full]}
 gpuArch: {MI355X: gfx950}
 `
 
@@ -106,10 +106,24 @@ images:`
 	require.NoError(t, err)
 }
 
-func TestTwoValidatedImagesForOneArch(t *testing.T) {
-	second := "  - {image: img:2, framework: slime, arch: [gfx950], frameworkCommit: def, validated: true}\ngpuArch:"
-	_, err := Parse([]byte(strings.Replace(minimal, "gpuArch:", second, 1)))
-	require.ErrorContains(t, err, "both validated for slime/gfx950")
+func TestDefaultImages(t *testing.T) {
+	image := func(attrs string) string {
+		return "  - {image: img:2, framework: slime, arch: [gfx950], frameworkCommit: def" + attrs + "}\ngpuArch:"
+	}
+	r, err := Parse([]byte(strings.Replace(minimal, "gpuArch:", image(", validated: true"), 1)))
+	require.NoError(t, err, "a second validated image is fine while one image is the default")
+	require.Equal(t, "img:1", r.DefaultImage("slime", "gfx950").Image)
+
+	_, err = Parse([]byte(strings.Replace(minimal, "gpuArch:", image(", validated: true, default: true"), 1)))
+	require.ErrorContains(t, err, "slime/gfx950 needs exactly one default image, found 2")
+	_, err = Parse([]byte(strings.Replace(minimal, "gpuArch:", image(", default: true"), 1)))
+	require.ErrorContains(t, err, "default image img:2 must be validated and not deprecated")
+	_, err = Parse([]byte(strings.Replace(minimal, "default: true, features", "features", 1)))
+	require.ErrorContains(t, err, "slime/gfx950 needs exactly one default image, found 0")
+
+	r, err = Parse([]byte(strings.Replace(minimal, "validated: true, default: true", "validated: false", 1)))
+	require.NoError(t, err, "no default is needed before any image is validated")
+	require.Nil(t, r.DefaultImage("slime", "gfx950"))
 }
 
 func TestCombinationsAndMinNodes(t *testing.T) {
@@ -130,6 +144,16 @@ func TestCombinationsAndMinNodes(t *testing.T) {
 
 	fs.Rollout = nil
 	require.Contains(t, fs.validate()[0], "rl-full")
+}
+
+func TestCheckRemovedImages(t *testing.T) {
+	prev, err := Parse([]byte(minimal))
+	require.NoError(t, err)
+	next, err := Parse([]byte(strings.Replace(minimal, "img:1", "img:2", 1)))
+	require.NoError(t, err)
+	require.NoError(t, CheckRemovedImages(nil, next, []string{"img:1"}))
+	require.NoError(t, CheckRemovedImages(prev, next, []string{"custom:1"}))
+	require.ErrorContains(t, CheckRemovedImages(prev, next, []string{"img:1"}), "still use the removed images img:1")
 }
 
 func TestStoreKeepsLastValidVersion(t *testing.T) {
