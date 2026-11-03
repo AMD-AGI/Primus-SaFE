@@ -20,11 +20,23 @@ curlimages/curl
 {{- end -}}
 {{- end -}}
 
-{{/* deny requires a JWKS document. */}}
+{{/* identity.jwks, identity.issuer, and identity.actor are set together. deny requires the grant jwks or the identity provider. */}}
 {{- define "constraints.requireJwksForDeny" -}}
-{{- if and (eq .Values.enforcementAction "deny") (not .Values.jwks) -}}
-{{- fail "jwks must be set before enforcementAction is deny" -}}
+{{- $id := .Values.identity -}}
+{{- $idSet := and $id.jwks $id.issuer $id.actor -}}
+{{- if and (or $id.jwks $id.issuer $id.actor) (not $idSet) -}}
+{{- fail "identity.jwks, identity.issuer, and identity.actor must be set together" -}}
 {{- end -}}
+{{- if and (eq .Values.enforcementAction "deny") (not .Values.jwks) (not $idSet) -}}
+{{- fail "jwks or the identity provider must be set before enforcementAction is deny" -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Constraints are kept when a render omits them; the delete hook removes them. */}}
+{{- define "constraints.constraintAnnotations" -}}
+meta.helm.sh/release-name: {{ .Release.Name | quote }}
+meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
+helm.sh/resource-policy: keep
 {{- end -}}
 
 {{- define "constraints.membership" -}}
@@ -35,8 +47,7 @@ metadata:
   labels:
     {{- include "constraints.ownership" . | nindent 4 }}
   annotations:
-    meta.helm.sh/release-name: {{ .Release.Name | quote }}
-    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
+    {{- include "constraints.constraintAnnotations" . | nindent 4 }}
 spec:
   enforcementAction: {{ .Values.enforcementAction | quote }}
   match:
@@ -55,8 +66,7 @@ metadata:
   labels:
     {{- include "constraints.ownership" . | nindent 4 }}
   annotations:
-    meta.helm.sh/release-name: {{ .Release.Name | quote }}
-    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
+    {{- include "constraints.constraintAnnotations" . | nindent 4 }}
 spec:
   enforcementAction: {{ .Values.enforcementAction | quote }}
   match:
@@ -66,6 +76,14 @@ spec:
   parameters:
     sandboxCreator: {{ .Values.sandboxCreator | quote }}
     jwks: {{ .Values.jwks | quote }}
+    identity:
+      jwks: {{ .Values.identity.jwks | quote }}
+      issuer: {{ .Values.identity.issuer | quote }}
+      audience: {{ .Values.identity.audience | quote }}
+      tokenType: {{ .Values.identity.tokenType | quote }}
+      actor: {{ .Values.identity.actor | quote }}
+      detailType: {{ .Values.identity.detailType | quote }}
+      algorithm: {{ .Values.identity.algorithm | quote }}
 {{- end -}}
 
 {{- define "constraints.syncConfig" -}}
@@ -74,6 +92,11 @@ kind: Config
 metadata:
   name: config
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "constraints.ownership" . | nindent 4 }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
 spec:
   sync:
     syncOnly:
@@ -87,6 +110,11 @@ apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
 metadata:
   name: sandboxworkloadmembership
+  labels:
+    {{- include "constraints.ownership" . | nindent 4 }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
 spec:
   crd:
     spec:
@@ -109,6 +137,11 @@ apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
 metadata:
   name: sandboxworkloadattestation
+  labels:
+    {{- include "constraints.ownership" . | nindent 4 }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
 spec:
   crd:
     spec:
@@ -122,6 +155,23 @@ spec:
               type: string
             jwks:
               type: string
+            identity:
+              type: object
+              properties:
+                jwks:
+                  type: string
+                issuer:
+                  type: string
+                audience:
+                  type: string
+                tokenType:
+                  type: string
+                actor:
+                  type: string
+                detailType:
+                  type: string
+                algorithm:
+                  type: string
   targets:
     - target: admission.k8s.gatekeeper.sh
       rego: |

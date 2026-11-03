@@ -3,16 +3,43 @@
 # See LICENSE for license information.
 #
 
-# dryrun records violations. deny rejects them and requires jwks.
+# dryrun records violations without rejecting. deny rejects Workloads that fail a constraint and requires jwks or
+# the identity provider.
 enforcementAction: dryrun
 
 # Calls from this account are checked. The Gatekeeper webhook is scoped to it.
 sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane
 
-# Claw JWKS document, JSON text. Required when enforcementAction is deny.
+# Claw JWKS document, JSON text. An empty value refuses every Claw grant.
 jwks: ""
+
+# Identity provider assertion. jwks is the provider JWKS document, JSON text; issuer is its iss. actor is the
+# control plane client id, the act.sub of the assertion. jwks, issuer, and actor are set together; when they are
+# empty, every assertion is refused. audience, tokenType, and detailType are the aud, the typ header, and the
+# authorization_details type the control plane asks for. algorithm is the only signature algorithm accepted.
+identity:
+  jwks: ""
+  issuer: ""
+  actor: ""
+  audience: agent-sandbox-admission
+  tokenType: assertion+jwt
+  detailType: agent-sandbox-workload
+  algorithm: ES256
 
 image:
   repository: curlimages/curl
   tag: "8.20.0"
   pullPolicy: IfNotPresent
+
+# Hook Job security settings. They satisfy the restricted Pod Security level of the Gatekeeper namespace.
+# The UID matches the curl_user account of the curl image.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 100
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]

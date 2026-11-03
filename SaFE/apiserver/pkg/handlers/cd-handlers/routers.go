@@ -14,7 +14,7 @@ import (
 // InitCDRouters initializes routes for both Safe and Lens CD
 // Use query param ?type=safe or ?type=lens to filter (default: safe)
 func InitCDRouters(e *gin.Engine, h *Handler) {
-	group := e.Group(common.PrimusRouterCustomRootPath+"/cd", middleware.Authorize(), middleware.Preprocess())
+	group := e.Group(common.PrimusRouterCustomRootPath+"/cd", middleware.Authorize(), h.authorizeSystemAdmin(), middleware.Preprocess())
 	{
 		// Unified endpoints - use type field in body or query param to distinguish
 		group.POST("/deployments", h.CreateDeploymentRequest)       // body.type = "safe" or "lens"

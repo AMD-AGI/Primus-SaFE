@@ -8,6 +8,7 @@ kind: AddonTemplate
 metadata:
   labels:
     primus-safe.display.name: "kube-scheduler-plugins.0.38.1"
+    primus-safe.addon.auto.upgrade: "false"
     app.kubernetes.io/managed-by: Helm
     primus-safe.addon.default: ""
   annotations:

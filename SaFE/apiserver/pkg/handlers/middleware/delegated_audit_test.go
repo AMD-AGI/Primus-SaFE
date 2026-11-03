@@ -22,6 +22,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority/authtest"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
@@ -49,7 +50,9 @@ func delegatedChain(t *testing.T) (*gin.Engine, chan *dbclient.AuditLog) {
 	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection", "url": rev.URL, "client_id": "svc-safe", "client_secret_file": secretFile, "audience": "safe-apiserver"}})
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
-	require.NoError(t, authority.InitExternalAuth(fake.NewClientBuilder().WithScheme(scheme).Build()))
+	// The roles as the chart ships them: the user these requests are made as holds the default role, and the
+	// gate every authenticated route starts with reads what that role grants.
+	require.NoError(t, authority.InitExternalAuth(fake.NewClientBuilder().WithScheme(scheme).WithObjects(authtest.ChartRoles(t)...).Build()))
 
 	ch := make(chan *dbclient.AuditLog, 10)
 	old := auditBuffer

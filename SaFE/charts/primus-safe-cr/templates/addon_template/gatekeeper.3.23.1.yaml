@@ -14,7 +14,7 @@
 #        <proxy_image_registry>/primussafe/curl:8.20.0
 #   2. Requires Kubernetes 1.28 or newer. The chart applies the service-account
 #      match condition only on those versions.
-#   3. The validating webhook admits amd.com/v1 Workload CREATE from
+#   3. The validating webhook admits amd.com/v1 Workload CREATE and UPDATE from
 #      system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane.
 #      Its failurePolicy is Fail. The namespace check-ignore webhook stays Ignore.
 #   4. Two controller replicas. Mutation is disabled. Constraints are the
@@ -33,7 +33,7 @@ metadata:
   name: gatekeeper.3.23.1
 spec:
   category: plugin
-  description: OPA Gatekeeper admission controller for the management cluster. Requires Kubernetes 1.28 or newer. The validating webhook receives Workload creates from the Agent Sandbox control plane.
+  description: OPA Gatekeeper admission controller for the management cluster. Requires Kubernetes 1.28 or newer. The validating webhook receives Workload creates and updates from the Agent Sandbox control plane.
   url: oci://{{ .Values.global.helm_registry }}/primussafe/gatekeeper
   version: 3.23.1
   type: helm
@@ -51,7 +51,7 @@ spec:
     validatingWebhookCustomRules:
       - apiGroups: ["amd.com"]
         apiVersions: ["v1"]
-        operations: ["CREATE"]
+        operations: ["CREATE", "UPDATE"]
         resources: ["workloads"]
         scope: "Cluster"
     image:

@@ -115,7 +115,7 @@ func InitProxyRoutes(engine *gin.Engine, handler *ProxyHandler) {
 
 		// Apply authentication middleware
 		group.Use(func(c *gin.Context) {
-			err := authority.ParseToken(c)
+			err := authority.AuthenticateRequest(c)
 			if err != nil {
 				apiutils.AbortWithApiError(c, err)
 				return

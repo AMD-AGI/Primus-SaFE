@@ -457,6 +457,7 @@ func (a *IntrospectionAuthenticator) identity(r *introspectionAnswer) (*Identity
 		if id.Actor == "" {
 			return nil, errors.New("introspection answer has an act member without an actor")
 		}
+		id.ActorClient = actorClient(r.Act.ClientID, r.Act.Sub, r.ClientID)
 	}
 	if r.Exp != "" {
 		sec, err := parseUnix(r.Exp)

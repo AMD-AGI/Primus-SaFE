@@ -15,6 +15,14 @@ member(user_id, workspace) {
   listed(user_id, "workspaces")[_] == workspace
 }
 
+# member accepts a system-admin User in every workspace.
+member(user_id, workspace) {
+  user_id != ""
+  workspace != ""
+  user := data.inventory.cluster["amd.com/v1"]["User"][user_id]
+  object.get(object.get(user, "spec", {}), "roles", [])[_] == "system-admin"
+}
+
 # listed reads one array from the User's spec.resources.
 listed(user_id, key) = items {
   user := data.inventory.cluster["amd.com/v1"]["User"][user_id]

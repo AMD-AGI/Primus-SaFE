@@ -22,6 +22,7 @@ import (
 	"golang.org/x/oauth2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -201,6 +202,76 @@ func TestSynchronizeUser(t *testing.T) {
 			assert.NoError(t, err)
 			assert.NotNil(t, user)
 			assert.Equal(t, tt.userInfo.Id, user.Name)
+		})
+	}
+}
+
+func TestSynchronizeUserPreferredName(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	existingUser := func(extra map[string]string) *v1.User {
+		annotations := map[string]string{
+			v1.UserNameAnnotation:  "J Doe",
+			v1.UserEmailAnnotation: "jdoe@example.com",
+		}
+		for k, v := range extra {
+			annotations[k] = v
+		}
+		return &v1.User{
+			ObjectMeta: metav1.ObjectMeta{Name: "sso-user", Annotations: annotations},
+			Spec:       v1.UserSpec{Type: v1.SSOUserType},
+		}
+	}
+
+	tests := []struct {
+		name          string
+		existingUser  *v1.User
+		preferredName string
+	}{
+		{
+			name:          "first login records the claim",
+			preferredName: "jdoe@example.com",
+		},
+		{
+			name: "first login without the claim records none",
+		},
+		{
+			name:          "later login adds a missing claim",
+			existingUser:  existingUser(nil),
+			preferredName: "jdoe@example.com",
+		},
+		{
+			name:          "later login follows a changed claim",
+			existingUser:  existingUser(map[string]string{v1.UserPreferredNameAnnotation: "old@example.com"}),
+			preferredName: "jdoe@example.com",
+		},
+		{
+			name:          "later login keeps an unchanged claim",
+			existingUser:  existingUser(map[string]string{v1.UserPreferredNameAnnotation: "jdoe@example.com"}),
+			preferredName: "jdoe@example.com",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			builder := fake.NewClientBuilder().WithScheme(scheme)
+			if tt.existingUser != nil {
+				builder = builder.WithObjects(tt.existingUser)
+			}
+			token := &ssoToken{Client: builder.Build()}
+			userInfo := &UserInfo{
+				Id:                "sso-user",
+				Name:              "J Doe",
+				Email:             "jdoe@example.com",
+				PreferredUsername: tt.preferredName,
+			}
+
+			user, err := token.synchronizeUser(context.Background(), userInfo)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.preferredName, v1.GetAnnotation(user, v1.UserPreferredNameAnnotation))
+
+			stored := &v1.User{}
+			assert.NoError(t, token.Get(context.Background(), client.ObjectKey{Name: "sso-user"}, stored))
+			assert.Equal(t, tt.preferredName, v1.GetAnnotation(stored, v1.UserPreferredNameAnnotation))
 		})
 	}
 }

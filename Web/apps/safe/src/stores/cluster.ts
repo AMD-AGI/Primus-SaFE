@@ -27,9 +27,10 @@ export const useClusterStore = defineStore('cluster', {
   } as any,
 
   actions: {
-    async fetchClusters() {
+    // With `quiet` a failure is not toasted and reaches the caller as the raw axios error.
+    async fetchClusters(quiet = false) {
       try {
-        const res = await getClusters()
+        const res = await getClusters(quiet)
         this.items = res.items || []
         this.totalCount = res.totalCount
 

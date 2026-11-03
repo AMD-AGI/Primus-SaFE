@@ -113,6 +113,22 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 	return h, nil
 }
 
+// authorizeSystemAdmin admits a system administrator to every CD route and a
+// read-only system administrator to GET routes. Other requests are aborted.
+func (h *Handler) authorizeSystemAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		err := h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
+			Context: c.Request.Context(),
+			UserId:  c.GetString(common.UserId),
+		}, c.Request.Method == http.MethodGet)
+		if err != nil {
+			apiutils.AbortWithApiError(c, err)
+			return
+		}
+		c.Next()
+	}
+}
+
 // getAndSetUsername retrieves the user information based on the user ID stored in the context
 // and sets the username in the context for further use.
 // Returns the username string and any error encountered during the process.

@@ -37,6 +37,9 @@ func (h *Handler) GetAddonTemplate(c *gin.Context) {
 // Supports filtering by type parameter from query string.
 func (h *Handler) listAddonTemplate(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
+	if err := h.authorizeKind(c, v1.AddOnTemplateKind, "", v1.ListVerb); err != nil {
+		return nil, err
+	}
 	addonTemplateList := &v1.AddonTemplateList{}
 	if err := h.List(ctx, addonTemplateList, &client.ListOptions{}); err != nil {
 		return nil, err
@@ -65,6 +68,9 @@ func (h *Handler) listAddonTemplate(c *gin.Context) (interface{}, error) {
 // getAddonTemplate implements the logic for retrieving a single addon template's detailed information.
 // Gets the addon template by ID and converts it to a detailed response format.
 func (h *Handler) getAddonTemplate(c *gin.Context) (interface{}, error) {
+	if err := h.authorizeKind(c, v1.AddOnTemplateKind, c.GetString(common.Name), v1.GetVerb); err != nil {
+		return nil, err
+	}
 	addonTemplate, err := h.getAdminAddonTemplate(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
