@@ -252,6 +252,7 @@ func SetupPostTrainingController(_ context.Context, mgr manager.Manager) error {
 		Named("post-training-run").
 		Watches(&v1.Workload{}, handler.EnqueueRequestsFromMapFunc(runRequest), ofRun).
 		Watches(&v1.Model{}, handler.EnqueueRequestsFromMapFunc(runRequest), ofRun).
+		Watches(&v1.OpsJob{}, handler.EnqueueRequestsFromMapFunc(runRequest), ofRun).
 		WatchesRawSource(source.Channel(r.recovered, &handler.EnqueueRequestForObject{})).
 		Complete(r)
 	if err != nil {
@@ -425,8 +426,8 @@ func (r *RunReconciler) reconcileLost(ctx context.Context, run *dbclient.PostTra
 		}
 		return r.finish(ctx, u, v1.WorkloadFailed, endTime, nil)
 	}
-	u.fail(run.Stage, "The workload ended while the controller was down and its result was lost", endTime)
-	return ctrlruntime.Result{}, r.save(ctx, u)
+	return r.verify(ctx, u, endTime, run.Stage,
+		"The workload ended while the controller was down and its result was lost")
 }
 
 // finish records how the run ended once its workload reached phase; a success goes on to registration.
@@ -457,7 +458,8 @@ func (r *RunReconciler) finish(ctx context.Context, u *runUpdate, phase v1.Workl
 	case res == nil && u.now.Sub(endTime) < resultWait:
 		return ctrlruntime.Result{RequeueAfter: pendingRequeue}, r.save(ctx, u)
 	case res == nil:
-		u.fail("export", "The workload succeeded but reported no result", endTime)
+		return r.verify(ctx, u, endTime, "export",
+			"The workload succeeded but the run directory has no complete exported model")
 	default:
 		return r.register(ctx, u, res, endTime)
 	}

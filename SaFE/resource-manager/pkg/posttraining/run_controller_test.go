@@ -8,6 +8,7 @@ package posttraining
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
@@ -152,16 +153,48 @@ func TestLostWorkloadUsesWorkloadPodResult(t *testing.T) {
 
 func TestResultOfOlderAttemptIsIgnored(t *testing.T) {
 	run := testRunRow("Running", "train")
+	run.OutputPath = testRunDir
 	run.MetricCursor = `{"order":["a1","a2"],"attempts":{"a1":{"maxSeq":3},"a2":{"maxSeq":1}}}`
 	w := endedWorkload(v1.WorkloadSucceeded)
 	w.Status.EndTime = &metav1.Time{Time: time.Now().Add(-2 * resultWait)}
 	r, db, updates := newTestReconciler(t, run, w)
 	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods(
 		`[SUCCESS] {"run":"`+testRun+`","attempt":"a1","output":"`+testRunDir+`/final_model"}`), nil).AnyTimes()
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	require.Contains(t, (*updates)[len(*updates)-1]["stage_history"], `"event":"verify"`)
+	job := &v1.OpsJob{}
+	require.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: verifyJobName(testRun)}, job))
+	require.Equal(t, testRunDir, job.GetParameter(v1.ParameterDestPath).Value)
+	require.Equal(t, testRun, job.Labels[v1.PostTrainingRunIdLabel])
+
+	job.Status.Phase = v1.OpsJobFailed
+	job.Status.Outputs = []v1.Parameter{{Name: "result", Value: `["[ERROR] VERIFY={\"disk\":{\"total\":5}}"]`}}
+	require.NoError(t, r.Update(context.Background(), job))
 	reconcileRun(t, r)
 	last := (*updates)[len(*updates)-1]
 	require.Equal(t, "Failed", last["status"])
 	require.Equal(t, "export", last["failed_stage"])
+	require.Equal(t, `{"total":5}`, last["disk_usage"])
+}
+
+func TestVerifyRegistersCompleteOutputOfLostWorkload(t *testing.T) {
+	run := testRunRow("Running", "export")
+	run.OutputPath = testRunDir
+	r, db, updates := newTestReconciler(t, run)
+	db.EXPECT().GetWorkload(gomock.Any(), testRun).Return(nil, errors.New("not found")).AnyTimes()
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(nil, nil).AnyTimes()
+	reconcileRun(t, r)
+	job := &v1.OpsJob{}
+	require.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: verifyJobName(testRun)}, job))
+	job.Status.Phase = v1.OpsJobSucceeded
+	job.Status.Outputs = []v1.Parameter{{Name: "result", Value: commonopsjob.FilterResultLog([]byte(
+		`[SUCCESS] VERIFY={"output":"` + testRunDir + `/final_model","disk":{"finalModel":9,"total":9}}`))}}
+	require.NoError(t, r.Update(context.Background(), job))
+	reconcileRun(t, r)
+	last := (*updates)[len(*updates)-1]
+	require.Equal(t, "register", last["stage"])
+	require.Equal(t, `{"finalModel":9,"total":9}`, last["disk_usage"])
+	require.NotEmpty(t, last["output_model_id"])
 }
 
 func TestPreemptedRunKeepsRunning(t *testing.T) {
