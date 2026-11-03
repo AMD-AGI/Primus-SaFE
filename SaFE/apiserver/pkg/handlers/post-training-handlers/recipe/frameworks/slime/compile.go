@@ -24,7 +24,10 @@ const (
 	defaultRewardType  = "deepscaler"
 	defaultMaxTokens   = 9216
 	defaultResponseLen = 8192
+	defaultValSamples  = 256
 	correctionTIS      = "tis"
+	// valDatasetName names the SFT validation set, so its loss is reported as eval/val/loss.
+	valDatasetName = "val"
 )
 
 func init() {
@@ -98,12 +101,19 @@ func (plugin) normalize(ctx *recipe.Context) recipe.Choices {
 		if len(c.FieldMap) == 0 {
 			c.FieldMap = map[string]string{"instruction": "instruction", "input": "input", "output": "output"}
 		}
+		if hasValidation(ctx.Request) {
+			fill(&c.ValInterval, c.SaveInterval)
+			fill(&c.ValMaxSamples, max(defaultValSamples, c.BatchSize))
+		}
 		return c
 	}
 	fill(&c.NumRollout, 3)
 	fill(&c.BatchSize, 32)
 	fill(&c.NSamplesPerPrompt, 8)
 	fill(&c.SaveInterval, 20)
+	if ctx.Request.EvalDatasetID != "" {
+		fill(&c.EvalInterval, c.SaveInterval)
+	}
 	fill(&c.MaxResponseLen, defaultResponseLen)
 	fill(&c.GpusPerEngine, d["gpusPerEngine"])
 	fill(&c.GpusPerEngine, 1)
@@ -204,7 +214,15 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		} else {
 			a.add("--num-epoch", itoa(c.NumEpoch))
 		}
+		if hasValidation(ctx.Request) {
+			a.add("--eval-interval", itoa(c.ValInterval),
+				"--eval-prompt-data", valDatasetName, in.RunDir+"/data/eval.jsonl")
+		}
 	}
+	if rl && in.EvalDataset != nil && c.EvalInterval > 0 {
+		a.add("--eval-interval", itoa(c.EvalInterval), "--eval-prompt-data", "eval", in.RunDir+"/data/eval.jsonl")
+	}
+	a.add("--use-tensorboard")
 
 	a.add("--tensor-model-parallel-size", itoa(c.TP), "--pipeline-model-parallel-size", itoa(c.PP),
 		"--context-parallel-size", itoa(c.CP), "--expert-model-parallel-size", itoa(c.EP),
@@ -240,8 +258,15 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 	}
 	if rl {
 		plan.Rollout = map[string]interface{}{"precision": "bf16", "schedule": "sync", "layout": c.Layout}
+	} else if hasValidation(ctx.Request) {
+		plan.Val = &recipe.RecipeVal{Interval: c.ValInterval, MaxSamples: c.ValMaxSamples, Split: c.ValSplit}
 	}
 	return plan, nil
+}
+
+// hasValidation tells whether an SFT request has a validation set, given or split from the training data.
+func hasValidation(req *recipe.SubmitRequest) bool {
+	return req.TrainType != registry.TrainTypeRL && (req.EvalDatasetID != "" || req.Choices.ValSplit > 0)
 }
 
 // actorPlacement splits a separate RL layout: whole nodes for training, or the first GPUs of a single node.

@@ -102,10 +102,14 @@ class Runner:
         """Convert the training data, and the validation data when the recipe has some."""
         data, train_type = self.recipe["data"], self.recipe["trainType"]
         field_map = data.get("fieldMap") or {}
+        val = self.recipe.get("val") or {}
+        split = val.get("split") or 0
         try:
-            stats = {"train": dataset.prepare(data["train"], self.path("data", "train.jsonl"), train_type, field_map)}
+            stats = {"train": dataset.prepare(
+                data["train"], self.path("data", "train.jsonl"), train_type, field_map,
+                split_dst=self.path("data", "eval.jsonl") if split else None, split=split,
+                split_limit=val.get("maxSamples") or None)}
             if data.get("eval"):
-                val = self.recipe.get("val") or {}
                 stats["eval"] = dataset.prepare(data["eval"], self.path("data", "eval.jsonl"), train_type, field_map,
                                                 limit=val.get("maxSamples") or None)
         except dataset.DatasetError as e:

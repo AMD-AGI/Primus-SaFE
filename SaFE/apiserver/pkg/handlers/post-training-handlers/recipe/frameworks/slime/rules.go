@@ -12,6 +12,40 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 )
 
+// validationRules checks the SFT validation settings and warns when the curves will lack validation loss.
+func validationRules(ctx *recipe.Context, c recipe.Choices) []recipe.Diagnostic {
+	var out []recipe.Diagnostic
+	add := func(level, field, format string, args ...interface{}) {
+		out = append(out, recipe.Diagnostic{Level: level, Field: field, Message: fmt.Sprintf(format, args...)})
+	}
+	req := ctx.Request
+	if c.ValSplit < 0 || c.ValSplit > 0.2 {
+		add(recipe.LevelError, "choices.valSplit", "The validation split must be between 0 and 0.2")
+	}
+	if c.ValSplit > 0 && req.EvalDatasetID != "" {
+		add(recipe.LevelError, "choices.valSplit", "Split a validation set from the training data or select one, not both")
+	}
+	if ev := ctx.Input.EvalDataset; ev != nil && ev.Type != recipe.DatasetTypeSFT {
+		add(recipe.LevelError, "evalDatasetId", "The validation set must be an sft dataset, not %s", ev.Type)
+	}
+	if !hasValidation(req) {
+		add(recipe.LevelWarning, "evalDatasetId", "No validation set: the curves will have no validation loss")
+		return out
+	}
+	if c.ValInterval < 1 || (c.NumRollout > 0 && c.ValInterval > c.NumRollout) {
+		add(recipe.LevelError, "choices.valInterval", "The validation interval must be between 1 and the number of steps")
+	}
+	if c.ValMaxSamples < c.BatchSize {
+		add(recipe.LevelError, "choices.valMaxSamples", "Validation samples (%d) must be at least the batch size (%d)",
+			c.ValMaxSamples, c.BatchSize)
+	}
+	if c.ValInterval > 0 && c.SaveInterval%c.ValInterval != 0 {
+		add(recipe.LevelWarning, "choices.saveInterval",
+			"The save interval is not a multiple of the validation interval: some checkpoints have no validation loss")
+	}
+	return out
+}
+
 // rewardTypes are the RL reward types this version compiles.
 var rewardTypes = map[string]bool{defaultRewardType: true}
 
@@ -36,7 +70,7 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	}
 
 	if ctx.Request.TrainType != registry.TrainTypeRL {
-		return out
+		return append(out, validationRules(ctx, c)...)
 	}
 	if c.NumRollout < 1 || c.NSamplesPerPrompt < 1 || c.MaxResponseLen < 1 {
 		fail("choices.numRollout", "Rollouts, samples per prompt and response length must be positive")

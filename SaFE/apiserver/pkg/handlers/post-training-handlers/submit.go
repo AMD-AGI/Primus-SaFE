@@ -211,6 +211,7 @@ func buildWorkload(c *gin.Context, reg *registry.Registry, req *recipe.SubmitReq
 		"PYTHONUNBUFFERED":      "1",
 		"NCCL_DEBUG":            "WARN",
 		"RAY_DEDUP_LOGS":        "0",
+		"TENSORBOARD_DIR":       res.Recipe.Output.Base + "/tensorboard",
 	}
 	for k, v := range res.Image.Env {
 		env[k] = v

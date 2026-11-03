@@ -52,6 +52,18 @@ def test_missing_field_names_the_field_and_rows(tmp_path):
     assert not (tmp_path / "t.jsonl").exists()
 
 
+def test_validation_split_is_reproducible(tmp_path):
+    src = tmp_path / "train.jsonl"
+    write_jsonl(src, [{"instruction": str(i), "output": "x"} for i in range(1000)])
+    runs = []
+    for n in range(2):
+        stats = dataset.prepare(str(src), str(tmp_path / ("t%d.jsonl" % n)), "sft", {},
+                                split_dst=str(tmp_path / ("e%d.jsonl" % n)), split=0.1, split_limit=50)
+        runs.append((tmp_path / ("e%d.jsonl" % n)).read_text())
+    assert stats["split"] == 50 and stats["written"] + 50 < 1000
+    assert runs[0] == runs[1], "a fixed seed picks the same rows on a retry"
+
+
 def test_limit_and_errors(tmp_path):
     src = tmp_path / "train.jsonl"
     write_jsonl(src, [{"instruction": str(i), "output": "x"} for i in range(5)])

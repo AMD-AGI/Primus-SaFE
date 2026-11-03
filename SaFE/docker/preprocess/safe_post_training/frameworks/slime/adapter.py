@@ -62,6 +62,8 @@ class Adapter:
 
     def __init__(self, env=os.environ):
         self.env = env
+        self.train_type = ""
+        self.seen_eval_zero = False
 
     def convert(self, recipe, run_dir, run_command):
         """Convert the base HF weights to torch_dist in the recipe's convert directory on one node."""
@@ -85,6 +87,7 @@ class Adapter:
 
     def train_command(self, recipe, run_dir):
         """Return the train.py command, its environment and the files to write before it starts."""
+        self.train_type = recipe.get("trainType", "")
         root = slime_dir(self.env)
         cmd = [sys.executable, os.path.join(root, "train.py")]
         cmd += model_args(root, recipe["model"]["script"]) + list(recipe["frameworkArgs"])
@@ -136,4 +139,11 @@ class Adapter:
                 continue
             values[name] = float(value)
         axis = "train" if kind == "step" else "rollout"
+        if kind == "eval" and self.train_type == "sft":
+            # SFT validation runs before training as eval 0 and after rollout N as eval N, i.e. after N+1 steps.
+            axis = "train"
+            if step == 0 and not self.seen_eval_zero:
+                self.seen_eval_zero = True
+            else:
+                step += 1
         return kind, axis, step, values
