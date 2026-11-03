@@ -33,6 +33,8 @@ const (
 	MainContainerAnnotation     = PrimusSafePrefix + "main.container"
 	OwnerLabel                  = PrimusSafePrefix + "owner"
 	RequireNodeSpreadAnnotation = PrimusSafePrefix + "require.node.spread"
+	// set to "false" on an AddonTemplate or an Addon to exclude it from automatic template upgrades
+	AddonAutoUpgradeLabel = PrimusSafePrefix + "addon.auto.upgrade"
 
 	// cicd
 	CICDScaleSetIdAnnotation         = "runner-scale-set-id"

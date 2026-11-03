@@ -9,6 +9,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v2"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
@@ -65,6 +66,10 @@ func (r *AddonTemplateController) Reconcile(ctx context.Context, req ctrlruntime
 		return ctrlruntime.Result{}, err
 	}
 
+	if err = r.upgradeAddons(ctx, template); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+
 	if template.Spec.URL == "" || template.Status.HelmStatus.Values != "" {
 		return ctrlruntime.Result{}, nil
 	}
@@ -81,6 +86,78 @@ func (r *AddonTemplateController) Reconcile(ctx context.Context, req ctrlruntime
 	}
 
 	return ctrlruntime.Result{}, r.updateTemplateStatus(ctx, template, chart)
+}
+
+// upgradeAddons points Addons that use an older version of the template's chart to the highest version.
+func (r *AddonTemplateController) upgradeAddons(ctx context.Context, template *v1.AddonTemplate) error {
+	if !isAutoUpgradeTemplate(template) {
+		return nil
+	}
+	templates := &v1.AddonTemplateList{}
+	if err := r.List(ctx, templates); err != nil {
+		return err
+	}
+	latest, versions := latestAddonTemplate(templates.Items, template)
+	if latest == "" {
+		return nil
+	}
+	addons := &v1.AddonList{}
+	if err := r.List(ctx, addons); err != nil {
+		return err
+	}
+	for i := range addons.Items {
+		addon := &addons.Items[i]
+		if !shouldUpgradeAddon(addon, latest, versions) {
+			continue
+		}
+		previous := addon.Spec.AddonSource.HelmRepository.Template.Name
+		original := client.MergeFrom(addon.DeepCopy())
+		addon.Spec.AddonSource.HelmRepository.Template.Name = latest
+		if err := r.Patch(ctx, addon, original); err != nil {
+			return err
+		}
+		klog.Infof("upgrade addon %s template from %s to %s", addon.Name, previous, latest)
+	}
+	return nil
+}
+
+// isAutoUpgradeTemplate reports whether a template takes part in automatic Addon upgrades.
+func isAutoUpgradeTemplate(template *v1.AddonTemplate) bool {
+	return template.Spec.URL != "" && template.DeletionTimestamp.IsZero() &&
+		template.Labels[v1.AddonAutoUpgradeLabel] != "false"
+}
+
+// latestAddonTemplate returns the highest-version template sharing the given template's chart,
+// and the parsed versions of all such templates keyed by name.
+func latestAddonTemplate(templates []v1.AddonTemplate, template *v1.AddonTemplate) (string, map[string]*semver.Version) {
+	latest := ""
+	versions := map[string]*semver.Version{}
+	for i := range templates {
+		t := &templates[i]
+		if !isAutoUpgradeTemplate(t) || t.Spec.URL != template.Spec.URL || t.Spec.Type != template.Spec.Type {
+			continue
+		}
+		version, err := semver.NewVersion(t.Spec.Version)
+		if err != nil {
+			continue
+		}
+		versions[t.Name] = version
+		if latest == "" || version.GreaterThan(versions[latest]) {
+			latest = t.Name
+		}
+	}
+	return latest, versions
+}
+
+// shouldUpgradeAddon reports whether an Addon references a lower version than the latest template.
+func shouldUpgradeAddon(addon *v1.Addon, latest string, versions map[string]*semver.Version) bool {
+	helm := addon.Spec.AddonSource.HelmRepository
+	if helm == nil || helm.Template == nil || !addon.DeletionTimestamp.IsZero() ||
+		addon.Labels[v1.AddonAutoUpgradeLabel] == "false" {
+		return false
+	}
+	current, ok := versions[helm.Template.Name]
+	return ok && current.LessThan(versions[latest])
 }
 
 // initializeActionConfig creates and initializes Helm action configuration.
