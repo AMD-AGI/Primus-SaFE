@@ -77,8 +77,8 @@ func TestSandboxLayersRenderedFromAnnotation(t *testing.T) {
 	layer := inits[1].(map[string]interface{})
 	assert.Equal(t, layer["name"], "as-layer-0")
 	assert.Equal(t, layer["image"], testLayerImage)
-	assert.DeepEqual(t, layer["command"], []interface{}{"sh", "-c", "set -e; cp -a '/layer/.' '/opt/host/'"})
-	assert.DeepEqual(t, layer["volumeMounts"], []interface{}{map[string]interface{}{"name": "as-layer-0", "mountPath": "/opt/host"}})
+	assert.DeepEqual(t, layer["command"], []interface{}{"sh", "-c", "set -e; cp -a '/layer/.' '/as-layer-out/'"})
+	assert.DeepEqual(t, layer["volumeMounts"], []interface{}{map[string]interface{}{"name": "as-layer-0", "mountPath": "/as-layer-out"}})
 	assert.DeepEqual(t, layer["securityContext"], inits[0].(map[string]interface{})["securityContext"])
 
 	injector := envByName(inits[0].(map[string]interface{})["env"].([]interface{}))
@@ -102,6 +102,7 @@ func TestSandboxLayersBadAnnotationFailsWorkload(t *testing.T) {
 		"tag":      `[{"image":"registry.example/layer:v1","from":"/layer","mount":"/opt/host"}]`,
 		"reserved": `[{"image":"` + testLayerImage + `","from":"/layer","mount":"/run/signing-key"}]`,
 		"shell":    `[{"image":"` + testLayerImage + `","from":"/layer'; id; '","mount":"/opt/host"}]`,
+		"target":   `[{"image":"` + testLayerImage + `","from":"/as-layer-out/x","mount":"/opt/host"}]`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := renderAgentSandbox(t, func(w *v1.Workload) {
@@ -109,6 +110,42 @@ func TestSandboxLayersBadAnnotationFailsWorkload(t *testing.T) {
 			})
 			assert.Assert(t, jobutils.IsUnrecoverableError(err), "err = %v", err)
 		})
+	}
+}
+
+func TestSandboxLayerSamePathCopiesIntoTarget(t *testing.T) {
+	obj, err := renderAgentSandbox(t, func(w *v1.Workload) {
+		v1.SetAnnotation(w, sandboxLayersAnnotation, `[{"image":"`+testLayerImage+`","from":"/opt/tools","mount":"/opt/tools"}]`)
+	})
+	assert.NilError(t, err)
+	layer := podItems(t, obj, "initContainers")["as-layer-0"]
+	assert.DeepEqual(t, layer["command"], []interface{}{"sh", "-c", "set -e; cp -a '/opt/tools/.' '/as-layer-out/'"})
+	assert.DeepEqual(t, layer["volumeMounts"], []interface{}{map[string]interface{}{"name": "as-layer-0", "mountPath": "/as-layer-out"}})
+}
+
+func TestSandboxLayersMountMainContainerOnly(t *testing.T) {
+	var workload *v1.Workload
+	obj, err := renderAgentSandbox(t, func(w *v1.Workload) { workload = w })
+	assert.NilError(t, err)
+	containersPath := []string{"spec", "podTemplate", "spec", "containers"}
+	containers, _, err := unstructured.NestedSlice(obj.Object, containersPath...)
+	assert.NilError(t, err)
+	containers = append(containers, map[string]interface{}{"name": "sidecar", "image": "sidecar:1"})
+	assert.NilError(t, unstructured.SetNestedSlice(obj.Object, containers, containersPath...))
+
+	v1.SetAnnotation(workload, sandboxLayersAnnotation, `[{"image":"`+testLayerImage+`","from":"/layer","mount":"/opt/host"}]`)
+	spec := jobutils.TestSandboxResourceTemplate.Spec.ResourceSpecs[0]
+	assert.NilError(t, ensureSandboxLayers(obj, workload, &spec))
+
+	containers, _, _ = unstructured.NestedSlice(obj.Object, containersPath...)
+	for _, item := range containers {
+		c := item.(map[string]interface{})
+		mounts, _ := c["volumeMounts"].([]interface{})
+		has := false
+		for _, m := range mounts {
+			has = has || m.(map[string]interface{})["name"] == "as-layer-0"
+		}
+		assert.Equal(t, has, c["name"] != "sidecar", "container %v", c["name"])
 	}
 }
 

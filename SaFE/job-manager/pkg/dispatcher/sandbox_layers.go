@@ -16,6 +16,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
@@ -24,7 +25,10 @@ const (
 	sandboxLayersAnnotation = "agent-sandbox.io/layers"
 	maxSandboxLayers        = 4
 	sandboxLayerVolume      = "as-layer-"
-	envdInjectorName        = "envd-injector"
+	// sandboxLayerCopyTarget is where a copy init container mounts its emptyDir,
+	// outside the layer image paths so the mount never hides the source.
+	sandboxLayerCopyTarget = "/as-layer-out"
+	envdInjectorName       = "envd-injector"
 	// signingKeyRequiredEnv makes the envd-injector fail when no signing key file is mounted.
 	signingKeyRequiredEnv = "SIGNING_KEY_REQUIRED"
 )
@@ -69,6 +73,9 @@ func parseSandboxLayers(workload *v1.Workload) ([]sandboxLayer, error) {
 		if err := checkSandboxLayerPath(l.From); err != nil {
 			return nil, fmt.Errorf("layers[%d].from: %v", i, err)
 		}
+		if pathsOverlap(l.From, sandboxLayerCopyTarget) {
+			return nil, fmt.Errorf("layers[%d].from %s overlaps %s", i, l.From, sandboxLayerCopyTarget)
+		}
 		if err := checkSandboxLayerPath(l.Mount); err != nil {
 			return nil, fmt.Errorf("layers[%d].mount: %v", i, err)
 		}
@@ -97,6 +104,7 @@ func pathsOverlap(a, b string) bool {
 
 // ensureSandboxLayers adds one emptyDir, one copy init container after envd-injector,
 // and one main-container mount per layer. A bad annotation fails the Workload.
+// The copy init container writes to sandboxLayerCopyTarget.
 func ensureSandboxLayers(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
 	layers, err := parseSandboxLayers(workload)
 	if err != nil {
@@ -124,6 +132,7 @@ func ensureSandboxLayers(obj *unstructured.Unstructured, workload *v1.Workload, 
 			securityContext = init["securityContext"]
 		}
 	}
+	mainContainer := commonworkload.GetMainContainer(workload, workload.SpecKind(), 0)
 	volumesPath := podSpecPath(workload, resourceSpec, "volumes")
 	volumes, _, _ := jobutils.NestedSlice(obj.Object, volumesPath)
 	for i, l := range layers {
@@ -137,8 +146,8 @@ func ensureSandboxLayers(obj *unstructured.Unstructured, workload *v1.Workload, 
 				"name":            name,
 				"image":           l.Image,
 				"imagePullPolicy": "IfNotPresent",
-				"command":         []interface{}{"sh", "-c", "set -e; cp -a '" + l.From + "/.' '" + l.Mount + "/'"},
-				"volumeMounts":    []interface{}{map[string]interface{}{"name": name, "mountPath": l.Mount}},
+				"command":         []interface{}{"sh", "-c", "set -e; cp -a '" + l.From + "/.' '" + sandboxLayerCopyTarget + "/'"},
+				"volumeMounts":    []interface{}{map[string]interface{}{"name": name, "mountPath": sandboxLayerCopyTarget}},
 			}
 			if securityContext != nil {
 				init["securityContext"] = securityContext
@@ -147,7 +156,7 @@ func ensureSandboxLayers(obj *unstructured.Unstructured, workload *v1.Workload, 
 		}
 		for j := range containers {
 			container, ok := containers[j].(map[string]interface{})
-			if !ok {
+			if !ok || container["name"] != mainContainer {
 				continue
 			}
 			mounts, _ := container["volumeMounts"].([]interface{})
