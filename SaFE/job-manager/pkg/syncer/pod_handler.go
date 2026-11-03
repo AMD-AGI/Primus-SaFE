@@ -1482,6 +1482,9 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 			message := getPodLog(ctx, clientSet, pod, mainContainerName)
 			c.Message = message
 		}
+		if commonworkload.IsPostTraining(adminWorkload) && c.Name == common.RayJobSubmitterName {
+			c.Message = getPostTrainingResult(ctx, clientSet, pod, v1.GetLabel(adminWorkload, v1.PostTrainingRunIdLabel))
+		}
 		workloadPod.Containers = append(workloadPod.Containers, c)
 	}
 
@@ -1729,6 +1732,18 @@ func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.
 	}
 
 	return commonopsjob.FilterResultLog(data)
+}
+
+// getPostTrainingResult reads the tail of a Post Training submitter log and keeps the result lines of run.
+func getPostTrainingResult(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod, run string) string {
+	var tailLine int64 = LogTailLines
+	opt := &corev1.PodLogOptions{Container: common.RayJobSubmitterName, TailLines: &tailLine}
+	data, err := clientSet.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, opt).DoRaw(ctx)
+	if err != nil {
+		klog.ErrorS(err, "failed to get log of pod", "namespace", pod.Namespace, "podName", pod.Name)
+		return ""
+	}
+	return commonopsjob.FilterRunResultLog(data, run)
 }
 
 // sortWorkloadPods sorts workload pods by host IP and pod ID to maintain consistent ordering.

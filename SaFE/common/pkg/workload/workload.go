@@ -829,6 +829,11 @@ func IsOpsJob(w *v1.Workload) bool {
 	return v1.GetOpsJobId(w) != ""
 }
 
+// IsPostTraining returns true if the workload belongs to a Post Training run.
+func IsPostTraining(w *v1.Workload) bool {
+	return v1.GetLabel(w, v1.PostTrainingRunIdLabel) != ""
+}
+
 // IsResourceEqual compares the resource specifications of two workloads.
 // Returns true if both workloads have the same resource including replica counts
 func IsResourceEqual(workload1, workload2 *v1.Workload) bool {

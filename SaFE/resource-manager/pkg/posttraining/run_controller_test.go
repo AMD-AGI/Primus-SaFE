@@ -24,6 +24,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commonopsjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
@@ -39,10 +40,12 @@ func testRunRow(status, stage string) *dbclient.PostTrainingRun {
 	}
 }
 
-// submitterPods returns the workload_pod row of a submitter whose container message holds lines.
-func submitterPods(lines string) []*dbclient.WorkloadPod {
+// submitterPods returns the workload_pod row of a submitter whose container message is what job-manager keeps
+// of log.
+func submitterPods(log string) []*dbclient.WorkloadPod {
 	return []*dbclient.WorkloadPod{dbclient.WorkloadPodFromV1(testRun, "uid1", 1, &v1.WorkloadPod{
-		PodId: testRun + "-sub", Containers: []v1.Container{{Name: SubmitterContainer, Message: lines}}})}
+		PodId: testRun + "-sub", Containers: []v1.Container{{Name: SubmitterContainer,
+			Message: commonopsjob.FilterRunResultLog([]byte(log), testRun)}}})}
 }
 
 // newTestReconciler builds a reconciler over a fake API server holding objs and a mocked database whose run
