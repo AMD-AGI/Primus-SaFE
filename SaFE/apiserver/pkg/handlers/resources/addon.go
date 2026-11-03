@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -268,11 +269,52 @@ func (h *Handler) patchAddon(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	previous := ""
+	if helm := addon.Spec.AddonSource.HelmRepository; helm != nil && helm.Template != nil {
+		previous = helm.Template.Name
+	}
 	isChanged := h.updateAddon(addon, req)
 	if !isChanged {
 		return nil, nil
 	}
+	if err = h.markTemplateChoice(ctx, addon, previous); err != nil {
+		return nil, err
+	}
 	return nil, h.Update(ctx, addon)
+}
+
+// markTemplateChoice records an explicit template change: moving an Addon to a lower version of the same chart turns
+// automatic template upgrades off for it, and moving it to a higher version turns them back on.
+func (h *Handler) markTemplateChoice(ctx context.Context, addon *v1.Addon, previous string) error {
+	helm := addon.Spec.AddonSource.HelmRepository
+	if helm == nil || helm.Template == nil || previous == "" || helm.Template.Name == previous {
+		return nil
+	}
+	from, to := &v1.AddonTemplate{}, &v1.AddonTemplate{}
+	if err := h.Get(ctx, client.ObjectKey{Name: previous}, from); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if err := h.Get(ctx, client.ObjectKey{Name: helm.Template.Name}, to); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if from.Spec.URL != to.Spec.URL || from.Spec.Type != to.Spec.Type {
+		return nil
+	}
+	fromVersion, err := version.ParseSemantic(from.Spec.Version)
+	if err != nil {
+		return nil
+	}
+	toVersion, err := version.ParseSemantic(to.Spec.Version)
+	if err != nil {
+		return nil
+	}
+	switch {
+	case toVersion.LessThan(fromVersion):
+		v1.SetLabel(addon, v1.AddonAutoUpgradeLabel, "false")
+	case fromVersion.LessThan(toVersion):
+		v1.RemoveLabel(addon, v1.AddonAutoUpgradeLabel)
+	}
+	return nil
 }
 
 // updateAddon applies updates to an addon based on the patch request.

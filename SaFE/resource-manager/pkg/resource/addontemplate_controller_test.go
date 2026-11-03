@@ -78,11 +78,11 @@ func TestAddonTemplateReconcileAlreadySynced(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// newHelmTemplate builds a helm AddonTemplate for upgrade tests.
+// newHelmTemplate builds a synced helm AddonTemplate for upgrade tests; its default values name it.
 func newHelmTemplate(name, url, version string, labels map[string]string) *v1.AddonTemplate {
 	return &v1.AddonTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
-		Spec:       v1.AddonTemplateSpec{Type: v1.AddonTemplateHelm, URL: url, Version: version},
+		Spec:       v1.AddonTemplateSpec{Type: v1.AddonTemplateHelm, URL: url, Version: version, HelmDefaultValues: "defaults: " + name},
 		Status:     v1.AddonTemplateStatus{HelmStatus: v1.HelmStatus{Values: "synced"}},
 	}
 }
@@ -98,19 +98,33 @@ func newTemplateAddon(name, template string, labels map[string]string) *v1.Addon
 	}
 }
 
+// withValues sets the helm values of an Addon.
+func withValues(addon *v1.Addon, values string) *v1.Addon {
+	addon.Spec.AddonSource.HelmRepository.Values = values
+	return addon
+}
+
 func TestAddonTemplateReconcileUpgradesAddons(t *testing.T) {
 	scheme, _ := genMockScheme()
 	const chartURL = "oci://registry/primussafe/chart"
+	unsynced := newHelmTemplate("chart.0.1.11", chartURL, "0.1.11", nil)
+	unsynced.Status.HelmStatus.Values = ""
 	objs := []client.Object{
 		newHelmTemplate("chart.0.1.2", chartURL, "0.1.2", nil),
 		newHelmTemplate("chart.0.1.10", chartURL, "0.1.10", nil),
-		newHelmTemplate("chart.0.2.0-rc", chartURL, "bad version", nil),
+		unsynced,
+		newHelmTemplate("chart.0.2.0-rc0", chartURL, "0.2.0-rc0", nil),
+		newHelmTemplate("chart.0.2.0-rc1", chartURL, "0.2.0-rc1", nil),
+		newHelmTemplate("chart.bad", chartURL, "bad version", nil),
 		newHelmTemplate("other.0.9.0", "oci://registry/primussafe/other", "0.9.0", nil),
 		newHelmTemplate("pinned.0.31.8", "oci://registry/pinned", "0.31.8", map[string]string{v1.AddonAutoUpgradeLabel: "false"}),
 		newHelmTemplate("pinned.0.35.7", "oci://registry/pinned", "0.35.7", map[string]string{v1.AddonAutoUpgradeLabel: "false"}),
 		newTemplateAddon("old", "chart.0.1.2", nil),
+		withValues(newTemplateAddon("defaults", "chart.0.1.2", nil), "defaults: chart.0.1.2"),
+		withValues(newTemplateAddon("custom", "chart.0.1.2", nil), "custom: true"),
 		newTemplateAddon("opt-out", "chart.0.1.2", map[string]string{v1.AddonAutoUpgradeLabel: "false"}),
 		newTemplateAddon("latest", "chart.0.1.10", nil),
+		newTemplateAddon("prerelease", "chart.0.2.0-rc0", nil),
 		newTemplateAddon("other", "other.0.9.0", nil),
 		newTemplateAddon("pinned", "pinned.0.31.8", nil),
 	}
@@ -122,17 +136,21 @@ func TestAddonTemplateReconcileUpgradesAddons(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	expected := map[string]string{
-		"old":     "chart.0.1.10",
-		"opt-out": "chart.0.1.2",
-		"latest":  "chart.0.1.10",
-		"other":   "other.0.9.0",
-		"pinned":  "pinned.0.31.8",
+	expected := map[string][2]string{
+		"old":        {"chart.0.1.10", ""},
+		"defaults":   {"chart.0.1.10", "defaults: chart.0.1.10"},
+		"custom":     {"chart.0.1.10", "custom: true"},
+		"opt-out":    {"chart.0.1.2", ""},
+		"latest":     {"chart.0.1.10", ""},
+		"prerelease": {"chart.0.2.0-rc1", ""},
+		"other":      {"other.0.9.0", ""},
+		"pinned":     {"pinned.0.31.8", ""},
 	}
-	for name, template := range expected {
+	for name, want := range expected {
 		addon := &v1.Addon{}
 		assert.NoError(t, cl.Get(context.Background(), types.NamespacedName{Name: name}, addon))
-		assert.Equal(t, template, addon.Spec.AddonSource.HelmRepository.Template.Name, name)
+		assert.Equal(t, want[0], addon.Spec.AddonSource.HelmRepository.Template.Name, name)
+		assert.Equal(t, want[1], addon.Spec.AddonSource.HelmRepository.Values, name)
 	}
 }
 

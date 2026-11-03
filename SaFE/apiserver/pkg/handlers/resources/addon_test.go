@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
@@ -340,6 +341,47 @@ func TestPatchAddonHandler(t *testing.T) {
 	c.Params = gin.Params{{Key: common.AddonName, Value: "addon-1"}}
 	h.PatchAddon(c)
 	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+// patchAddonTemplate patches the template of an Addon through the handler and returns the stored Addon.
+func patchAddonTemplate(t *testing.T, h *Handler, user *v1.User, name, template string) *v1.Addon {
+	body, _ := json.Marshal(view.PatchAddonRequest{Template: &template})
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, user.Name)
+	c.Params = gin.Params{{Key: common.AddonName, Value: name}}
+	h.PatchAddon(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+	addon := &v1.Addon{}
+	assert.NoError(t, h.Get(context.Background(), client.ObjectKey{Name: name}, addon))
+	return addon
+}
+
+func TestPatchAddonTemplateMarksAutoUpgrade(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	template := func(name, url, version string) *v1.AddonTemplate {
+		return &v1.AddonTemplate{ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec: v1.AddonTemplateSpec{Type: v1.AddonTemplateHelm, URL: url, Version: version}}
+	}
+	addon := newHelmAddon("addon-1")
+	addon.Spec.AddonSource.HelmRepository.Template.Name = "chart.0.1.3"
+	h, user := newAdminHandlerWithObjects(addon,
+		template("chart.0.1.2", "oci://r/chart", "0.1.2"),
+		template("chart.0.1.3", "oci://r/chart", "0.1.3"),
+		template("other.0.1.1", "oci://r/other", "0.1.1"))
+
+	stored := patchAddonTemplate(t, h, user, "addon-1", "chart.0.1.2")
+	assert.Equal(t, "false", stored.Labels[v1.AddonAutoUpgradeLabel])
+
+	stored = patchAddonTemplate(t, h, user, "addon-1", "chart.0.1.3")
+	_, ok := stored.Labels[v1.AddonAutoUpgradeLabel]
+	assert.False(t, ok)
+
+	stored = patchAddonTemplate(t, h, user, "addon-1", "other.0.1.1")
+	_, ok = stored.Labels[v1.AddonAutoUpgradeLabel]
+	assert.False(t, ok)
 }
 
 func TestUpdateAddon(t *testing.T) {

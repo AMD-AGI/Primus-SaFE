@@ -46,7 +46,7 @@ func SetupAddonTemplateController(mgr manager.Manager) error {
 		},
 	}
 	err = ctrlruntime.NewControllerManagedBy(mgr).
-		For(&v1.AddonTemplate{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&v1.AddonTemplate{}, builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{}))).
 		Complete(at)
 	if err != nil {
 		return nil
@@ -66,29 +66,31 @@ func (r *AddonTemplateController) Reconcile(ctx context.Context, req ctrlruntime
 		return ctrlruntime.Result{}, err
 	}
 
-	if err = r.upgradeAddons(ctx, template); err != nil {
-		return ctrlruntime.Result{}, err
-	}
-
-	if template.Spec.URL == "" || template.Status.HelmStatus.Values != "" {
+	if template.Spec.URL == "" {
 		return ctrlruntime.Result{}, nil
 	}
 
-	actionConfig, err := r.initializeActionConfig()
-	if err != nil {
-		return ctrlruntime.Result{}, err
+	if template.Status.HelmStatus.Values == "" {
+		actionConfig, err := r.initializeActionConfig()
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+
+		chart, err := r.fetchChart(template, actionConfig)
+		if err != nil {
+			klog.Errorf("loading chart failed: %v", err)
+			return ctrlruntime.Result{}, nil
+		}
+
+		if err = r.updateTemplateStatus(ctx, template, chart); err != nil {
+			return ctrlruntime.Result{}, err
+		}
 	}
 
-	chart, err := r.fetchChart(template, actionConfig)
-	if err != nil {
-		klog.Errorf("loading chart failed: %v", err)
-		return ctrlruntime.Result{}, nil
-	}
-
-	return ctrlruntime.Result{}, r.updateTemplateStatus(ctx, template, chart)
+	return ctrlruntime.Result{}, r.upgradeAddons(ctx, template)
 }
 
-// upgradeAddons points Addons that use an older version of the template's chart to the highest version.
+// upgradeAddons points Addons that use an older version of the template's chart to the highest synced version.
 func (r *AddonTemplateController) upgradeAddons(ctx context.Context, template *v1.AddonTemplate) error {
 	if !isAutoUpgradeTemplate(template) {
 		return nil
@@ -97,8 +99,8 @@ func (r *AddonTemplateController) upgradeAddons(ctx context.Context, template *v
 	if err := r.List(ctx, templates); err != nil {
 		return err
 	}
-	latest, versions := latestAddonTemplate(templates.Items, template)
-	if latest == "" {
+	family, versions := chartTemplates(templates.Items, template)
+	if len(family) < 2 {
 		return nil
 	}
 	addons := &v1.AddonList{}
@@ -107,16 +109,19 @@ func (r *AddonTemplateController) upgradeAddons(ctx context.Context, template *v
 	}
 	for i := range addons.Items {
 		addon := &addons.Items[i]
-		if !shouldUpgradeAddon(addon, latest, versions) {
+		target := upgradeTarget(addon, family, versions)
+		if target == "" {
 			continue
 		}
-		previous := addon.Spec.AddonSource.HelmRepository.Template.Name
-		original := client.MergeFrom(addon.DeepCopy())
-		addon.Spec.AddonSource.HelmRepository.Template.Name = latest
+		helm := addon.Spec.AddonSource.HelmRepository
+		previous := helm.Template.Name
+		original := client.MergeFromWithOptions(addon.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		helm.Values = upgradedValues(helm.Values, family[previous], family[target])
+		helm.Template.Name = target
 		if err := r.Patch(ctx, addon, original); err != nil {
 			return err
 		}
-		klog.Infof("upgrade addon %s template from %s to %s", addon.Name, previous, latest)
+		klog.Infof("upgrade addon %s template from %s to %s", addon.Name, previous, target)
 	}
 	return nil
 }
@@ -127,13 +132,17 @@ func isAutoUpgradeTemplate(template *v1.AddonTemplate) bool {
 		template.Labels[v1.AddonAutoUpgradeLabel] != "false"
 }
 
-// latestAddonTemplate returns the highest-version template sharing the given template's chart,
-// and the parsed versions of all such templates keyed by name.
-func latestAddonTemplate(templates []v1.AddonTemplate, template *v1.AddonTemplate) (string, map[string]*semver.Version) {
-	latest := ""
+// chartTemplates returns the auto-upgrade templates that share the given template's chart and have a semver version,
+// and their parsed versions, keyed by name. The given template is used as passed, so a status written in this
+// reconcile is seen.
+func chartTemplates(templates []v1.AddonTemplate, template *v1.AddonTemplate) (map[string]*v1.AddonTemplate, map[string]*semver.Version) {
+	family := map[string]*v1.AddonTemplate{}
 	versions := map[string]*semver.Version{}
 	for i := range templates {
 		t := &templates[i]
+		if t.Name == template.Name {
+			t = template
+		}
 		if !isAutoUpgradeTemplate(t) || t.Spec.URL != template.Spec.URL || t.Spec.Type != template.Spec.Type {
 			continue
 		}
@@ -141,23 +150,43 @@ func latestAddonTemplate(templates []v1.AddonTemplate, template *v1.AddonTemplat
 		if err != nil {
 			continue
 		}
-		versions[t.Name] = version
-		if latest == "" || version.GreaterThan(versions[latest]) {
-			latest = t.Name
-		}
+		family[t.Name], versions[t.Name] = t, version
 	}
-	return latest, versions
+	return family, versions
 }
 
-// shouldUpgradeAddon reports whether an Addon references a lower version than the latest template.
-func shouldUpgradeAddon(addon *v1.Addon, latest string, versions map[string]*semver.Version) bool {
+// upgradeTarget returns the template an Addon should move to, or "" to keep it. The target is the highest version
+// above the Addon's whose chart values are synced; a pre-release is a target only for an Addon on a pre-release.
+func upgradeTarget(addon *v1.Addon, family map[string]*v1.AddonTemplate, versions map[string]*semver.Version) string {
 	helm := addon.Spec.AddonSource.HelmRepository
 	if helm == nil || helm.Template == nil || !addon.DeletionTimestamp.IsZero() ||
 		addon.Labels[v1.AddonAutoUpgradeLabel] == "false" {
-		return false
+		return ""
 	}
 	current, ok := versions[helm.Template.Name]
-	return ok && current.LessThan(versions[latest])
+	if !ok {
+		return ""
+	}
+	target := ""
+	for name, version := range versions {
+		if family[name].Status.HelmStatus.Values == "" || !version.GreaterThan(current) ||
+			(version.Prerelease() != "" && current.Prerelease() == "") {
+			continue
+		}
+		if target == "" || version.GreaterThan(versions[target]) {
+			target = name
+		}
+	}
+	return target
+}
+
+// upgradedValues returns the values of an Addon moved from one template to another: values equal to the old
+// template's defaults become the new template's defaults, and any other values are kept.
+func upgradedValues(values string, from, to *v1.AddonTemplate) string {
+	if values != "" && values == from.Spec.HelmDefaultValues {
+		return to.Spec.HelmDefaultValues
+	}
+	return values
 }
 
 // initializeActionConfig creates and initializes Helm action configuration.
