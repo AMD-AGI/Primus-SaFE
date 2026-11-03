@@ -47,6 +47,7 @@ func dispatchSandboxWithParts(t *testing.T, mutate func(*v1.Workload)) (*unstruc
 
 func samplePodParts(w *v1.Workload) {
 	w.Spec.EntryPoints = []string{stringutil.Base64Encode("a; b && exec /shared/bin/envd")}
+	w.Spec.Readiness = &v1.HealthCheck{Path: "/health", Port: 8080, PeriodSeconds: 2, FailureThreshold: 30}
 	w.Spec.Secrets = []v1.SecretEntity{{Id: "sbx-key", Type: v1.SecretGeneral}, {Id: "other", Type: v1.SecretGeneral}}
 	w.Spec.Volumes = []v1.PodVolume{
 		{Name: "envd-bin", EmptyDir: &v1.PodEmptyDir{}},
@@ -90,6 +91,8 @@ func TestSandboxRendersPodParts(t *testing.T) {
 
 	main := mainContainer(t, obj)
 	assert.DeepEqual(t, main["command"], []interface{}{"/bin/sh", "-c", "a; b && exec /shared/bin/envd"})
+	probe, _ := main["readinessProbe"].(map[string]interface{})
+	assert.DeepEqual(t, probe["httpGet"], map[string]interface{}{"path": "/health", "port": int64(8080)})
 	mainPaths := mountPathCounts(main["volumeMounts"])
 	assert.Equal(t, mainPaths["/shared/bin"], 1)
 	assert.Equal(t, mainPaths["/var/run/agent-sandbox/session"], 1)

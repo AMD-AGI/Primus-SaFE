@@ -381,8 +381,9 @@ func (m *WorkloadMutator) mutateHostPath(workload *v1.Workload, workspace *v1.Wo
 }
 
 // mutateHealthCheck fills default probe timings for liveness/readiness.
+// Probes are kept for applications and sandboxes.
 func (m *WorkloadMutator) mutateHealthCheck(workload *v1.Workload) {
-	if !commonworkload.IsApplication(workload) {
+	if !commonworkload.IsApplication(workload) && !commonworkload.IsSandBox(workload) {
 		workload.Spec.Readiness = nil
 		workload.Spec.Liveness = nil
 		return

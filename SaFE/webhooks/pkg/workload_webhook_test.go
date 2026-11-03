@@ -107,6 +107,13 @@ func TestWorkloadMutateHealthCheck(t *testing.T) {
 	}}
 	m.mutateHealthCheck(job)
 	assert.Assert(t, job.Spec.Readiness == nil)
+
+	sandbox := &v1.Workload{Spec: v1.WorkloadSpec{
+		GroupVersionKind: v1.GroupVersionKind{Kind: common.SandboxKind},
+		Readiness:        &v1.HealthCheck{Path: "/health", Port: 8080},
+	}}
+	m.mutateHealthCheck(sandbox)
+	assert.Assert(t, sandbox.Spec.Readiness != nil)
 }
 
 // TestWorkloadMutateService verifies service protocol and defaults.
