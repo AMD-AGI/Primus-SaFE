@@ -79,7 +79,8 @@ type markerBody struct {
 
 // stageDetail is the part of a [STAGE] detail the controller reads.
 type stageDetail struct {
-	ResumeStep *int64 `json:"resumeStep"`
+	ResumeStep    *int64 `json:"resumeStep"`
+	ParseFailures int64  `json:"parseFailures"`
 }
 
 // stallDetail is the detail of a stalled [STAGE]: the last progress time in unix seconds, the last step and the
@@ -150,6 +151,8 @@ type attemptCursor struct {
 	MaxSeq     int64      `json:"maxSeq"`
 	Gaps       []seqRange `json:"gaps,omitempty"`
 	ResumeStep *int64     `json:"resumeStep,omitempty"`
+	// ParseFailures is the attempt's count of unparsable metric lines from its last heartbeat.
+	ParseFailures int64 `json:"parseFailures,omitempty"`
 }
 
 // seqRange is a run of missing seqs noticed at Since (unix seconds).
@@ -448,6 +451,8 @@ type ingestion struct {
 	sawStage  bool
 	noRetry   bool
 	disk      string
+	// parseFailures is the growth of the launchers' unparsable metric line counts in this read.
+	parseFailures int64
 }
 
 // add applies one marker.
@@ -478,6 +483,12 @@ func (in *ingestion) add(m *marker) {
 func (in *ingestion) addStage(m *marker) {
 	switch m.Body.State {
 	case "heartbeat":
+		var detail stageDetail
+		if a := in.cur.Attempts[m.Body.Attempt]; json.Unmarshal(m.Body.Detail, &detail) == nil &&
+			detail.ParseFailures > a.ParseFailures {
+			in.parseFailures += detail.ParseFailures - a.ParseFailures
+			a.ParseFailures = detail.ParseFailures
+		}
 		return
 	case "failed":
 		in.noRetry = in.noRetry || (m.Body.Retry != nil && !*m.Body.Retry)

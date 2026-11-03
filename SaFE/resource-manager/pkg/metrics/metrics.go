@@ -175,6 +175,49 @@ var (
 		Name: "safe_github_sync_total",
 		Help: "Total GitHub workflow-run sync outcomes, by result.",
 	}, []string{"result"})
+
+	// --- post training ---
+
+	PostTrainingRuns = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "safe_post_training_runs",
+		Help: "Unfinished Post Training runs, by status and stage.",
+	}, []string{"status", "stage"})
+	PostTrainingRunsStalled = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "safe_post_training_runs_stalled",
+		Help: "Post Training runs marked stalled, lost launchers included.",
+	})
+	PostTrainingReconcileErrorsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_post_training_reconcile_errors_total",
+		Help: "Total Post Training reconcile errors, by reason.",
+	}, []string{"reason"})
+	PostTrainingMetricParseFailuresTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "safe_post_training_metric_parse_failures_total",
+		Help: "Total metric lines the launchers failed to parse, as reported in their heartbeats.",
+	})
+	PostTrainingMetricRejectedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "safe_post_training_metric_rejected_total",
+		Help: "Total metric points skipped for an invalid name, value or step.",
+	})
+	PostTrainingLogLinesSkippedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "safe_post_training_log_lines_skipped_total",
+		Help: "Total submitter log lines skipped for being too long.",
+	})
+	PostTrainingMetricGapsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "safe_post_training_metric_gaps_total",
+		Help: "Total Post Training runs that got a metric gap.",
+	})
+	PostTrainingEvalServicesOrphaned = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "safe_post_training_eval_services_orphaned",
+		Help: "Evaluation inference services still running after their evaluation ended without keep.",
+	})
+	PostTrainingRegistryLoadFailuresTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "safe_post_training_registry_load_failures_total",
+		Help: "Total rejected Post Training registry versions.",
+	})
+	PostTrainingNotificationFailuresTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "safe_post_training_notification_failures_total",
+		Help: "Total run-level Post Training notifications that failed to submit.",
+	})
 )
 
 func init() {
@@ -202,5 +245,15 @@ func init() {
 		WorkspaceExpectationExpiredTotal,
 		GithubSyncBacklog,
 		GithubSyncTotal,
+		PostTrainingRuns,
+		PostTrainingRunsStalled,
+		PostTrainingReconcileErrorsTotal,
+		PostTrainingMetricParseFailuresTotal,
+		PostTrainingMetricRejectedTotal,
+		PostTrainingLogLinesSkippedTotal,
+		PostTrainingMetricGapsTotal,
+		PostTrainingEvalServicesOrphaned,
+		PostTrainingRegistryLoadFailuresTotal,
+		PostTrainingNotificationFailuresTotal,
 	)
 }
