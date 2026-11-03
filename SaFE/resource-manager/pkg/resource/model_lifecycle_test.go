@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
@@ -30,7 +31,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonopsjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
@@ -1429,4 +1433,46 @@ func TestModelDownloadSavesFinishedJobOnLaterError(t *testing.T) {
 		}
 		assert.Equal(t, v1.LocalPathStatusReady, getModel(t, cl, "m1").Status.LocalPaths[0].Status, step)
 	}
+}
+
+func TestReportedModelConfig(t *testing.T) {
+	lines := `["[SUCCESS] MODEL_CONFIG={\"architectures\":[\"Qwen3ForCausalLM\"],\"model_type\":\"qwen3\",` +
+		`\"num_hidden_layers\":36,\"num_key_value_heads\":8,\"rope_theta\":1000000.0,\"torch_dtype\":\"bfloat16\"}",` +
+		`"[SUCCESS] MODEL_SIZE_BYTES=42"]`
+	job := &v1.OpsJob{Status: v1.OpsJobStatus{Outputs: []v1.Parameter{{Name: "result", Value: lines}}}}
+	cfg := reportedModelConfig(job)
+	require.NotNil(t, cfg)
+	assert.Equal(t, []string{"Qwen3ForCausalLM"}, cfg.Architectures)
+	assert.Equal(t, 36, cfg.NumHiddenLayers)
+	assert.Equal(t, "1000000.0", cfg.RopeTheta)
+	assert.Equal(t, "bfloat16", cfg.TorchDtype)
+	assert.Equal(t, int64(42), reportedModelSize(job), "the size line next to it still parses")
+	assert.Nil(t, reportedModelConfig(&v1.OpsJob{Status: v1.OpsJobStatus{Outputs: []v1.Parameter{
+		{Name: "result", Value: "[SUCCESS] MODEL_CONFIG={}"}}}}), "a config without model_type or architectures")
+}
+
+func TestPostTrainingOutputCleanupWaitsForBasedRuns(t *testing.T) {
+	model := genMockModel("qwen-sft-out", v1.AccessModeLocalPath, "ws1")
+	model.Spec.PostTrainingRunId = "pt-qwen-abc12"
+	r := &ModelReconciler{}
+	assert.True(t, r.needsCleanup(model), "a Post Training output is deleted with its weights")
+	assert.False(t, r.needsCleanup(genMockModel("registered", v1.AccessModeLocalPath, "ws1")))
+
+	now := metav1.Now()
+	model.DeletionTimestamp = &now
+	model.Finalizers = []string{ModelFinalizer}
+	cli := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(model).WithStatusSubresource(model).Build()
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, f dbclient.PostTrainingRunFilter) ([]*dbclient.PostTrainingRun, int64, error) {
+			assert.Equal(t, "qwen-sft-out", f.BaseModelID)
+			return nil, 2, nil
+		})
+	r = &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, db: db}
+	res, err := r.handleDelete(context.Background(), model)
+	require.NoError(t, err)
+	assert.Equal(t, baseInUseRequeue, res.RequeueAfter)
+	got := &v1.Model{}
+	require.NoError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(model), got))
+	assert.Contains(t, got.Finalizers, ModelFinalizer, "the weights stay while runs train from them")
 }
