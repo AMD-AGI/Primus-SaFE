@@ -7,6 +7,7 @@ package resource
 
 import (
 	"context"
+	"reflect"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -103,20 +104,28 @@ func (r *AddonTemplateController) upgradeAddons(ctx context.Context, template *v
 	if len(family) < 2 {
 		return nil
 	}
+	defaults := defaultComponents(templates.Items)
 	addons := &v1.AddonList{}
 	if err := r.List(ctx, addons); err != nil {
 		return err
 	}
 	for i := range addons.Items {
 		addon := &addons.Items[i]
+		if isDefaultAddon(addon, defaults) {
+			continue
+		}
 		target := upgradeTarget(addon, family, versions)
 		if target == "" {
 			continue
 		}
 		helm := addon.Spec.AddonSource.HelmRepository
 		previous := helm.Template.Name
+		values, ok := upgradedValues(helm.Values, family[previous], family[target])
+		if !ok {
+			continue
+		}
 		original := client.MergeFromWithOptions(addon.DeepCopy(), client.MergeFromWithOptimisticLock{})
-		helm.Values = upgradedValues(helm.Values, family[previous], family[target])
+		helm.Values = values
 		helm.Template.Name = target
 		if err := r.Patch(ctx, addon, original); err != nil {
 			return err
@@ -124,6 +133,28 @@ func (r *AddonTemplateController) upgradeAddons(ctx context.Context, template *v
 		klog.Infof("upgrade addon %s template from %s to %s", addon.Name, previous, target)
 	}
 	return nil
+}
+
+// defaultComponents returns the components of the templates labelled as cluster default Addons.
+func defaultComponents(templates []v1.AddonTemplate) map[string]bool {
+	components := map[string]bool{}
+	for i := range templates {
+		if _, ok := templates[i].Labels[v1.AddonDefaultLabel]; ok {
+			components[getComponentName(templates[i].Name)] = true
+		}
+	}
+	return components
+}
+
+// isDefaultAddon reports whether an Addon is the cluster default Addon of a component, named {cluster}-{component}.
+// Its template follows the template labelled as the default, so it is not upgraded here.
+func isDefaultAddon(addon *v1.Addon, defaults map[string]bool) bool {
+	helm := addon.Spec.AddonSource.HelmRepository
+	if addon.Spec.Cluster == nil || helm == nil || helm.Template == nil {
+		return false
+	}
+	component := getComponentName(helm.Template.Name)
+	return defaults[component] && addon.Name == addon.Spec.Cluster.Name+"-"+component
 }
 
 // isAutoUpgradeTemplate reports whether a template takes part in automatic Addon upgrades.
@@ -157,6 +188,7 @@ func chartTemplates(templates []v1.AddonTemplate, template *v1.AddonTemplate) (m
 
 // upgradeTarget returns the template an Addon should move to, or "" to keep it. The target is the highest version
 // above the Addon's whose chart values are synced; a pre-release is a target only for an Addon on a pre-release.
+// Templates of the same version are ordered by name.
 func upgradeTarget(addon *v1.Addon, family map[string]*v1.AddonTemplate, versions map[string]*semver.Version) string {
 	helm := addon.Spec.AddonSource.HelmRepository
 	if helm == nil || helm.Template == nil || !addon.DeletionTimestamp.IsZero() ||
@@ -173,20 +205,33 @@ func upgradeTarget(addon *v1.Addon, family map[string]*v1.AddonTemplate, version
 			(version.Prerelease() != "" && current.Prerelease() == "") {
 			continue
 		}
-		if target == "" || version.GreaterThan(versions[target]) {
+		if target == "" || version.GreaterThan(versions[target]) || (version.Equal(versions[target]) && name < target) {
 			target = name
 		}
 	}
 	return target
 }
 
-// upgradedValues returns the values of an Addon moved from one template to another: values equal to the old
-// template's defaults become the new template's defaults, and any other values are kept.
-func upgradedValues(values string, from, to *v1.AddonTemplate) string {
-	if values != "" && values == from.Spec.HelmDefaultValues {
-		return to.Spec.HelmDefaultValues
+// upgradedValues returns the values of an Addon moved from one template to another, and false when the Addon keeps
+// its template. Empty values stay empty, values with the same data as the old template's defaults become the new
+// template's defaults, and other values keep the Addon on its template.
+func upgradedValues(values string, from, to *v1.AddonTemplate) (string, bool) {
+	if strings.TrimSpace(values) == "" {
+		return values, true
 	}
-	return values
+	if sameValues(values, from.Spec.HelmDefaultValues) {
+		return to.Spec.HelmDefaultValues, true
+	}
+	return values, false
+}
+
+// sameValues reports whether two Helm values documents hold the same data.
+func sameValues(a, b string) bool {
+	var x, y interface{}
+	if yaml.Unmarshal([]byte(a), &x) != nil || yaml.Unmarshal([]byte(b), &y) != nil {
+		return false
+	}
+	return reflect.DeepEqual(x, y)
 }
 
 // initializeActionConfig creates and initializes Helm action configuration.

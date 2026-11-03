@@ -384,6 +384,37 @@ func TestPatchAddonTemplateMarksAutoUpgrade(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestPatchAddonTemplateKeepsIntermediateChoice(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	template := func(name, version string, synced bool) *v1.AddonTemplate {
+		t := &v1.AddonTemplate{ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec: v1.AddonTemplateSpec{Type: v1.AddonTemplateHelm, URL: "oci://r/chart", Version: version}}
+		if synced {
+			t.Status.HelmStatus.Values = "synced"
+		}
+		return t
+	}
+	addon := newHelmAddon("addon-1")
+	addon.Spec.AddonSource.HelmRepository.Template.Name = "chart.0.1.2"
+	addon.Labels = map[string]string{v1.AddonAutoUpgradeLabel: "false"}
+	h, user := newAdminHandlerWithObjects(addon,
+		template("chart.0.1.2", "0.1.2", true),
+		template("chart.0.1.3", "0.1.3", true),
+		template("chart.0.1.4", "0.1.4", true),
+		template("chart.0.1.5", "0.1.5", false),
+		template("chart.0.2.0-rc1", "0.2.0-rc1", true))
+
+	stored := patchAddonTemplate(t, h, user, "addon-1", "chart.0.1.3")
+	assert.Equal(t, "false", stored.Labels[v1.AddonAutoUpgradeLabel])
+
+	stored = patchAddonTemplate(t, h, user, "addon-1", "chart.0.1.4")
+	_, ok := stored.Labels[v1.AddonAutoUpgradeLabel]
+	assert.False(t, ok)
+
+	stored = patchAddonTemplate(t, h, user, "addon-1", "chart.0.1.3")
+	assert.Equal(t, "false", stored.Labels[v1.AddonAutoUpgradeLabel])
+}
+
 func TestUpdateAddon(t *testing.T) {
 	h, _ := newAdminHandlerWithObjects()
 	addon := newHelmAddon("addon-1")

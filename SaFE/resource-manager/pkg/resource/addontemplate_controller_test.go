@@ -122,6 +122,8 @@ func TestAddonTemplateReconcileUpgradesAddons(t *testing.T) {
 		newTemplateAddon("old", "chart.0.1.2", nil),
 		withValues(newTemplateAddon("defaults", "chart.0.1.2", nil), "defaults: chart.0.1.2"),
 		withValues(newTemplateAddon("custom", "chart.0.1.2", nil), "custom: true"),
+		withValues(newTemplateAddon("defaults-newline", "chart.0.1.2", nil), "defaults: chart.0.1.2\n"),
+		withValues(newTemplateAddon("one-override", "chart.0.1.2", nil), "defaults: chart.0.1.2\nextra: 1\n"),
 		newTemplateAddon("opt-out", "chart.0.1.2", map[string]string{v1.AddonAutoUpgradeLabel: "false"}),
 		newTemplateAddon("latest", "chart.0.1.10", nil),
 		newTemplateAddon("prerelease", "chart.0.2.0-rc0", nil),
@@ -137,20 +139,69 @@ func TestAddonTemplateReconcileUpgradesAddons(t *testing.T) {
 	}
 
 	expected := map[string][2]string{
-		"old":        {"chart.0.1.10", ""},
-		"defaults":   {"chart.0.1.10", "defaults: chart.0.1.10"},
-		"custom":     {"chart.0.1.10", "custom: true"},
-		"opt-out":    {"chart.0.1.2", ""},
-		"latest":     {"chart.0.1.10", ""},
-		"prerelease": {"chart.0.2.0-rc1", ""},
-		"other":      {"other.0.9.0", ""},
-		"pinned":     {"pinned.0.31.8", ""},
+		"old":              {"chart.0.1.10", ""},
+		"defaults":         {"chart.0.1.10", "defaults: chart.0.1.10"},
+		"custom":           {"chart.0.1.2", "custom: true"},
+		"defaults-newline": {"chart.0.1.10", "defaults: chart.0.1.10"},
+		"one-override":     {"chart.0.1.2", "defaults: chart.0.1.2\nextra: 1\n"},
+		"opt-out":          {"chart.0.1.2", ""},
+		"latest":           {"chart.0.1.10", ""},
+		"prerelease":       {"chart.0.2.0-rc1", ""},
+		"other":            {"other.0.9.0", ""},
+		"pinned":           {"pinned.0.31.8", ""},
 	}
 	for name, want := range expected {
 		addon := &v1.Addon{}
 		assert.NoError(t, cl.Get(context.Background(), types.NamespacedName{Name: name}, addon))
 		assert.Equal(t, want[0], addon.Spec.AddonSource.HelmRepository.Template.Name, name)
 		assert.Equal(t, want[1], addon.Spec.AddonSource.HelmRepository.Values, name)
+	}
+}
+
+func TestUpgradeTargetBreaksVersionTiesByName(t *testing.T) {
+	const chartURL = "oci://registry/primussafe/tie"
+	templates := []v1.AddonTemplate{
+		*newHelmTemplate("tie.0.9.0", chartURL, "0.9.0", nil),
+		*newHelmTemplate("tie.b.1.0.0", chartURL, "1.0.0", nil),
+		*newHelmTemplate("tie.a.1.0.0", chartURL, "1.0.0", nil),
+	}
+	family, versions := chartTemplates(templates, &templates[0])
+	old := newTemplateAddon("old", "tie.0.9.0", nil)
+	same := newTemplateAddon("same", "tie.b.1.0.0", nil)
+	for i := 0; i < 50; i++ {
+		assert.Equal(t, "tie.a.1.0.0", upgradeTarget(old, family, versions))
+		assert.Equal(t, "", upgradeTarget(same, family, versions))
+	}
+}
+
+func TestAutoUpgradeKeepsDefaultAddon(t *testing.T) {
+	const chartURL = "oci://registry/primussafe/training-operator"
+	cluster := testCluster("c1")
+	current := newHelmTemplate("training-operator.1.9.2", chartURL, "1.9.2", map[string]string{v1.AddonDefaultLabel: ""})
+	next := newHelmTemplate("training-operator.1.10.0", chartURL, "1.10.0", nil)
+	user := newTemplateAddon("user-training-operator", "training-operator.1.9.2", nil)
+	plane := newPlaneReconciler(t, cluster, current, next, user)
+	templates := &AddonTemplateController{Client: plane.Client}
+
+	_, err := plane.guaranteeDefaultAddon(context.Background(), cluster)
+	assert.NoError(t, err)
+	created := &v1.Addon{}
+	assert.NoError(t, plane.Get(context.Background(), types.NamespacedName{Name: "c1-training-operator"}, created))
+	_, err = templates.Reconcile(context.Background(), reconcileRequest("training-operator.1.10.0"))
+	assert.NoError(t, err)
+	_, err = plane.guaranteeDefaultAddon(context.Background(), cluster)
+	assert.NoError(t, err)
+	settled := &v1.Addon{}
+	assert.NoError(t, plane.Get(context.Background(), types.NamespacedName{Name: "c1-training-operator"}, settled))
+	assert.Equal(t, created.ResourceVersion, settled.ResourceVersion, "the default Addon is not patched")
+
+	for name, want := range map[string]string{
+		"c1-training-operator":   "training-operator.1.9.2",
+		"user-training-operator": "training-operator.1.10.0",
+	} {
+		addon := &v1.Addon{}
+		assert.NoError(t, plane.Get(context.Background(), types.NamespacedName{Name: name}, addon))
+		assert.Equal(t, want, addon.Spec.AddonSource.HelmRepository.Template.Name, name)
 	}
 }
 

@@ -283,8 +283,9 @@ func (h *Handler) patchAddon(c *gin.Context) (interface{}, error) {
 	return nil, h.Update(ctx, addon)
 }
 
-// markTemplateChoice records an explicit template change: moving an Addon to a lower version of the same chart turns
-// automatic template upgrades off for it, and moving it to a higher version turns them back on.
+// markTemplateChoice records an explicit template change within one chart: moving an Addon to a lower version, or to
+// a version below the highest synced one, turns automatic template upgrades off for it, and moving it up to the
+// highest synced version turns them back on.
 func (h *Handler) markTemplateChoice(ctx context.Context, addon *v1.Addon, previous string) error {
 	helm := addon.Spec.AddonSource.HelmRepository
 	if helm == nil || helm.Template == nil || previous == "" || helm.Template.Name == previous {
@@ -308,13 +309,45 @@ func (h *Handler) markTemplateChoice(ctx context.Context, addon *v1.Addon, previ
 	if err != nil {
 		return nil
 	}
+	if toVersion.LessThan(fromVersion) {
+		v1.SetLabel(addon, v1.AddonAutoUpgradeLabel, "false")
+		return nil
+	}
+	higher, err := h.hasHigherTemplate(ctx, to, toVersion)
+	if err != nil {
+		return err
+	}
 	switch {
-	case toVersion.LessThan(fromVersion):
+	case higher:
 		v1.SetLabel(addon, v1.AddonAutoUpgradeLabel, "false")
 	case fromVersion.LessThan(toVersion):
 		v1.RemoveLabel(addon, v1.AddonAutoUpgradeLabel)
 	}
 	return nil
+}
+
+// hasHigherTemplate reports whether the chart of a template has a version above it that automatic upgrades would
+// move an Addon to: synced, not opted out, and not a pre-release unless the template is one.
+func (h *Handler) hasHigherTemplate(ctx context.Context, template *v1.AddonTemplate, current *version.Version) (bool, error) {
+	templates := &v1.AddonTemplateList{}
+	if err := h.List(ctx, templates); err != nil {
+		return false, err
+	}
+	for i := range templates.Items {
+		t := &templates.Items[i]
+		if t.Name == template.Name || t.Spec.URL != template.Spec.URL || t.Spec.Type != template.Spec.Type ||
+			!t.DeletionTimestamp.IsZero() || t.Labels[v1.AddonAutoUpgradeLabel] == "false" || t.Status.HelmStatus.Values == "" {
+			continue
+		}
+		v, err := version.ParseSemantic(t.Spec.Version)
+		if err != nil || (v.PreRelease() != "" && current.PreRelease() == "") {
+			continue
+		}
+		if current.LessThan(v) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // updateAddon applies updates to an addon based on the patch request.
