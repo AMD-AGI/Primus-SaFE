@@ -188,7 +188,7 @@ func chartTemplates(templates []v1.AddonTemplate, template *v1.AddonTemplate) (m
 
 // upgradeTarget returns the template an Addon should move to, or "" to keep it. The target is the highest version
 // above the Addon's whose chart values are synced; a pre-release is a target only for an Addon on a pre-release.
-// Templates of the same version are ordered by name.
+// When several templates share the highest version, the Addon is kept.
 func upgradeTarget(addon *v1.Addon, family map[string]*v1.AddonTemplate, versions map[string]*semver.Version) string {
 	helm := addon.Spec.AddonSource.HelmRepository
 	if helm == nil || helm.Template == nil || !addon.DeletionTimestamp.IsZero() ||
@@ -199,15 +199,21 @@ func upgradeTarget(addon *v1.Addon, family map[string]*v1.AddonTemplate, version
 	if !ok {
 		return ""
 	}
-	target := ""
+	target, tied := "", false
 	for name, version := range versions {
 		if family[name].Status.HelmStatus.Values == "" || !version.GreaterThan(current) ||
 			(version.Prerelease() != "" && current.Prerelease() == "") {
 			continue
 		}
-		if target == "" || version.GreaterThan(versions[target]) || (version.Equal(versions[target]) && name < target) {
-			target = name
+		switch {
+		case target == "" || version.GreaterThan(versions[target]):
+			target, tied = name, false
+		case version.Equal(versions[target]):
+			tied = true
 		}
+	}
+	if tied {
+		return ""
 	}
 	return target
 }

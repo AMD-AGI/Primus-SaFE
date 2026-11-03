@@ -158,10 +158,11 @@ func TestAddonTemplateReconcileUpgradesAddons(t *testing.T) {
 	}
 }
 
-func TestUpgradeTargetBreaksVersionTiesByName(t *testing.T) {
+func TestUpgradeTargetSkipsVersionTies(t *testing.T) {
 	const chartURL = "oci://registry/primussafe/tie"
 	templates := []v1.AddonTemplate{
 		*newHelmTemplate("tie.0.9.0", chartURL, "0.9.0", nil),
+		*newHelmTemplate("tie.0.9.5", chartURL, "0.9.5", nil),
 		*newHelmTemplate("tie.b.1.0.0", chartURL, "1.0.0", nil),
 		*newHelmTemplate("tie.a.1.0.0", chartURL, "1.0.0", nil),
 	}
@@ -169,9 +170,12 @@ func TestUpgradeTargetBreaksVersionTiesByName(t *testing.T) {
 	old := newTemplateAddon("old", "tie.0.9.0", nil)
 	same := newTemplateAddon("same", "tie.b.1.0.0", nil)
 	for i := 0; i < 50; i++ {
-		assert.Equal(t, "tie.a.1.0.0", upgradeTarget(old, family, versions))
+		assert.Equal(t, "", upgradeTarget(old, family, versions))
 		assert.Equal(t, "", upgradeTarget(same, family, versions))
 	}
+
+	family, versions = chartTemplates(templates[:3], &templates[0])
+	assert.Equal(t, "tie.b.1.0.0", upgradeTarget(old, family, versions))
 }
 
 func TestAutoUpgradeKeepsDefaultAddon(t *testing.T) {
