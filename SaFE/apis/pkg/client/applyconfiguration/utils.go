@@ -86,6 +86,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.MachineStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Model"):
 		return &amdv1.ModelApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ModelConfig"):
+		return &amdv1.ModelConfigApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ModelLocalPath"):
 		return &amdv1.ModelLocalPathApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ModelSource"):
