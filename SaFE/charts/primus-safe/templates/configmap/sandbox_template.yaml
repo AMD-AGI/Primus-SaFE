@@ -26,45 +26,15 @@ data:
         spec:
           schedulerName: kube-scheduler-plugins
           containers:
-          # The container sets no PATH: a PATH env var replaces the image's own, so commands
-          # in the sandbox lost the image's directories (a venv, toolchains). The script keeps
-          # the PATH the container starts with, in its order, drops entries that are empty,
-          # relative or contain a '..' segment, and appends each directory the runtime needs
-          # that it lacks, once; an empty PATH becomes exactly that list. It is the PATH setup
-          # the PrimusClaw workload manager puts ahead of its own sandboxes' startup command,
-          # token for token.
-          - args:
-            - __sandbox_path_rest="${PATH-}:"'/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin:'; __sandbox_path=; while [ -n "$__sandbox_path_rest" ]; do __sandbox_path_dir="${__sandbox_path_rest%%:*}"; __sandbox_path_rest="${__sandbox_path_rest#*:}"; case "$__sandbox_path_dir" in */../*|*/..) ;; /*) case ":$__sandbox_path:" in *":$__sandbox_path_dir:"*) ;; *) __sandbox_path="${__sandbox_path:+$__sandbox_path:}$__sandbox_path_dir" ;; esac ;; esac; done; PATH="$__sandbox_path"; export PATH; unset __sandbox_path_rest __sandbox_path_dir __sandbox_path; mkdir -p /app /app/work && /shared/bin/setup-amd-ca.sh && if [ -n "${HYPERLOOM_SIGNING_KEY_PEM-}" ]; then keyfile="${HYPERLOOM_SIGNING_KEY_FILE:-/dev/shm/hyperloom-signing-key.pem}"; case "$keyfile" in /app|/app/*) echo "signing key path is under /app" >&2; exit 1;; esac; mkdir -p "$(dirname "$keyfile")"; umask 077; printf '%s\n' "$HYPERLOOM_SIGNING_KEY_PEM" > "$keyfile"; chmod 0400 "$keyfile"; unset HYPERLOOM_SIGNING_KEY_PEM; export HYPERLOOM_SIGNING_KEY_FILE="$keyfile"; fi && if [ -n "${SANDBOX_STARTUP-}" ]; then eval "$SANDBOX_STARTUP"; fi && exec /shared/bin/envd --port=8080 --workspace=/app
-            command:
-            - /bin/sh
-            - -c
-            env:
+          - env:
             - name: NCCL_SOCKET_IFNAME
               value: "{{ .Values.net.nccl_socket_ifname }}"
             - name: GLOO_SOCKET_IFNAME
               value: "{{ .Values.net.nccl_socket_ifname }}"
             - name: NCCL_IB_HCA
               value: "{{ .Values.net.nccl_ib_hca }}"
-            # Sandbox Pods are unprivileged and do not share the host IPC namespace. There the
-            # amdkfd legacy IPC import (AMDKFD_IOC_IPC_IMPORT_HANDLE) is refused with EPERM, so an
-            # image ENV of HSA_ENABLE_IPC_MODE_LEGACY=1 makes every hipIpcOpenMemHandle fail with
-            # "invalid device pointer" and multi-GPU RCCL cannot initialise. The default
-            # (DMA-BUF) IPC path works there. The Pod spec wins over the image ENV, and a
-            # workload's own env still wins over this value.
-            - name: HSA_ENABLE_IPC_MODE_LEGACY
-              value: "0"
-            # NODE_NAME is the node this pod is scheduled on.
-            - name: NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-            # The init container copies the signing secret here. The main container has no secret mount.
-            - name: HYPERLOOM_SIGNING_KEY_FILE
-              value: /run/signing-key/signing-key.pem
             - name: OPENAI_BASE_URL
               value: https://{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/api/v1/llm-proxy/v1
-            - name: WORKLOAD_MANAGER_URL
-              value: http://workloadmanager.agent-sandbox-system.svc.cluster.local:8080
 {{- if .Values.sandbox.extra_ca_secret }}
             - name: SSL_CERT_FILE
               value: /shared/bin/ca-bundle.pem
@@ -88,80 +58,18 @@ data:
 {{- end }}
             imagePullPolicy: IfNotPresent
             name: codeinterpreter
-            readinessProbe:
-              failureThreshold: 30
-              httpGet:
-                path: /health
-                port: 8080
-              initialDelaySeconds: 1
-              periodSeconds: 2
-              successThreshold: 1
-              timeoutSeconds: 2
-            volumeMounts:
-            - mountPath: /shared/bin
-              name: envd-bin
-            - mountPath: /run/signing-key
-              name: signing-key
-            - mountPath: /var/run/agent-sandbox/session
-              name: envd-session-identity
-              readOnly: true
 {{- if .Values.sandbox.extra_ca_secret }}
+            volumeMounts:
             - mountPath: /etc/claw/extra-ca
               name: extra-ca
               readOnly: true
 {{- end }}
-          initContainers:
-          - command:
-            - sh
-            - -c
-            - |
-              set -e
-              cp /envd /shared/bin/envd
-              cp /tmux /shared/bin/tmux 2>/dev/null || true
-              cp /iptables /shared/bin/iptables
-              cp /iptables /shared/bin/ip6tables
-              ln -sf iptables  /shared/bin/iptables-legacy
-              ln -sf ip6tables /shared/bin/ip6tables-legacy
-              cp /musl-ld.so /shared/bin/ld-musl-x86_64.so.1
-              ln -sf ld-musl-x86_64.so.1 /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true
-              ( cp /amd-root-ca.crt /amd-issuing-ca.crt /amd-bundle.pem /setup-amd-ca.sh /shared/bin/ \
-                && chmod +x /shared/bin/setup-amd-ca.sh ) 2>/dev/null || true
-              for f in /etc/secrets/*/signing-key.pem; do
-                if [ -f "$f" ]; then
-                  umask 077
-                  cp "$f" /run/signing-key/signing-key.pem
-                  chown 1000:1000 /run/signing-key/signing-key.pem
-                  chmod 0400 /run/signing-key/signing-key.pem
-                  break
-                fi
-              done
-              if [ -n "${SIGNING_KEY_REQUIRED-}" ] && [ ! -f /run/signing-key/signing-key.pem ]; then
-                echo "signing key secret is not mounted" >&2
-                exit 1
-              fi
-            image: harbor.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/proxy/{{ .Values.sandbox.envd_injector_image }}
-            imagePullPolicy: IfNotPresent
-            name: envd-injector
-            resources: {}
-            volumeMounts:
-            - mountPath: /shared/bin
-              name: envd-bin
-            - mountPath: /run/signing-key
-              name: signing-key
           restartPolicy: Never
-          volumes:
-          - emptyDir: {}
-            name: envd-bin
-          - emptyDir: {}
-            name: signing-key
 {{- if .Values.sandbox.extra_ca_secret }}
+          volumes:
           - name: extra-ca
             secret:
               secretName: {{ .Values.sandbox.extra_ca_secret }}
+{{- else }}
+          volumes: []
 {{- end }}
-          - name: envd-session-identity
-            downwardAPI:
-              items:
-              - path: session-id
-                fieldRef:
-                  fieldPath: metadata.annotations['runtime.agent-sandbox.io/session-id']

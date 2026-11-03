@@ -87,6 +87,40 @@ spec:
                   type: string
                 description: Environment variable for workload
                 type: object
+              envRefs:
+                description: Main-container environment variables read from a pod
+                  field or a ConfigMap. Only for Sandbox.
+                items:
+                  description: |-
+                    PodEnvVar is an environment variable with a literal value, a pod field, or a ConfigMap key.
+                    Exactly one of value, fieldPath and configMapKeyRef is set.
+                  properties:
+                    configMapKeyRef:
+                      description: ConfigMap key in the workload namespace
+                      properties:
+                        key:
+                          description: Key in the ConfigMap
+                          type: string
+                        name:
+                          description: ConfigMap name
+                          type: string
+                      required:
+                      - key
+                      - name
+                      type: object
+                    fieldPath:
+                      description: Pod field path, e.g. spec.nodeName
+                      type: string
+                    name:
+                      description: Variable name
+                      type: string
+                    value:
+                      description: Literal value
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
               groupVersionKind:
                 description: |-
                   Group: An extension field that is not currently in use
@@ -115,6 +149,82 @@ spec:
                   It must match the length of resources.
                 items:
                   type: string
+                type: array
+              initContainers:
+                description: Init containers that run, in order, before the workload
+                  containers. Only for Sandbox.
+                items:
+                  description: PodInitContainer is an init container added to the
+                    workload pod.
+                  properties:
+                    command:
+                      description: Container command
+                      items:
+                        type: string
+                      type: array
+                    env:
+                      description: Container environment variables
+                      items:
+                        description: |-
+                          PodEnvVar is an environment variable with a literal value, a pod field, or a ConfigMap key.
+                          Exactly one of value, fieldPath and configMapKeyRef is set.
+                        properties:
+                          configMapKeyRef:
+                            description: ConfigMap key in the workload namespace
+                            properties:
+                              key:
+                                description: Key in the ConfigMap
+                                type: string
+                              name:
+                                description: ConfigMap name
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                          fieldPath:
+                            description: Pod field path, e.g. spec.nodeName
+                            type: string
+                          name:
+                            description: Variable name
+                            type: string
+                          value:
+                            description: Literal value
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      type: array
+                    image:
+                      description: Container image
+                      type: string
+                    name:
+                      description: Container name, unique in the pod
+                      type: string
+                    volumeMounts:
+                      description: Mounts of the workload volumes
+                      items:
+                        description: PodVolumeMount mounts a workload volume into
+                          a container.
+                        properties:
+                          mountPath:
+                            description: Absolute mount path
+                            type: string
+                          name:
+                            description: Volume name
+                            type: string
+                          readOnly:
+                            description: Mount read-only
+                            type: boolean
+                        required:
+                        - mountPath
+                        - name
+                        type: object
+                      type: array
+                  required:
+                  - image
+                  - name
+                  type: object
                 type: array
               isSupervised:
                 description: Supervision flag for the workload. When enabled, it performs
@@ -294,6 +404,72 @@ spec:
                 description: The lifecycle of the workload after completion, in seconds.
                   default 60.
                 type: integer
+              volumeMounts:
+                description: Main-container mounts of the volumes above. Only for
+                  Sandbox.
+                items:
+                  description: PodVolumeMount mounts a workload volume into a container.
+                  properties:
+                    mountPath:
+                      description: Absolute mount path
+                      type: string
+                    name:
+                      description: Volume name
+                      type: string
+                    readOnly:
+                      description: Mount read-only
+                      type: boolean
+                  required:
+                  - mountPath
+                  - name
+                  type: object
+                type: array
+              volumes:
+                description: Pod volumes used by initContainers and volumeMounts.
+                  Only for Sandbox.
+                items:
+                  description: PodVolume is a pod volume. Exactly one source is set.
+                  properties:
+                    configMap:
+                      description: ConfigMap in the workload namespace
+                      type: string
+                    downwardAPI:
+                      description: Pod fields written as files
+                      items:
+                        description: PodDownwardFile is one file of a downward API
+                          volume.
+                        properties:
+                          fieldPath:
+                            description: Pod field path, e.g. metadata.annotations['key']
+                            type: string
+                          path:
+                            description: File path relative to the mount
+                            type: string
+                        required:
+                        - fieldPath
+                        - path
+                        type: object
+                      type: array
+                    emptyDir:
+                      description: Empty directory
+                      properties:
+                        medium:
+                          description: Storage medium, empty or Memory
+                          type: string
+                        sizeLimit:
+                          description: Size limit, e.g. 1Mi
+                          type: string
+                      type: object
+                    name:
+                      description: Volume name, unique in the pod
+                      type: string
+                    secret:
+                      description: Secret id listed in secrets with type general
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
               workspace:
                 description: Requested workspace id
                 type: string

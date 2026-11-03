@@ -192,6 +192,89 @@ type WorkloadSpec struct {
 	// The secrets used by the workload. Including some token secrets (only for CI/CD) and specified image secrets.
 	// Image secrets automatically use all image secrets bound to the workspace.
 	Secrets []SecretEntity `json:"secrets,omitempty"`
+	// Init containers that run, in order, before the workload containers. Only for Sandbox.
+	InitContainers []PodInitContainer `json:"initContainers,omitempty"`
+	// Pod volumes used by initContainers and volumeMounts. Only for Sandbox.
+	Volumes []PodVolume `json:"volumes,omitempty"`
+	// Main-container mounts of the volumes above. Only for Sandbox.
+	VolumeMounts []PodVolumeMount `json:"volumeMounts,omitempty"`
+	// Main-container environment variables read from a pod field or a ConfigMap. Only for Sandbox.
+	EnvRefs []PodEnvVar `json:"envRefs,omitempty"`
+}
+
+// PodInitContainer is an init container added to the workload pod.
+type PodInitContainer struct {
+	// Container name, unique in the pod
+	Name string `json:"name"`
+	// Container image
+	Image string `json:"image"`
+	// Container command
+	Command []string `json:"command,omitempty"`
+	// Container environment variables
+	Env []PodEnvVar `json:"env,omitempty"`
+	// Mounts of the workload volumes
+	VolumeMounts []PodVolumeMount `json:"volumeMounts,omitempty"`
+}
+
+// PodEnvVar is an environment variable with a literal value, a pod field, or a ConfigMap key.
+// Exactly one of value, fieldPath and configMapKeyRef is set.
+type PodEnvVar struct {
+	// Variable name
+	Name string `json:"name"`
+	// Literal value
+	Value string `json:"value,omitempty"`
+	// Pod field path, e.g. spec.nodeName
+	FieldPath string `json:"fieldPath,omitempty"`
+	// ConfigMap key in the workload namespace
+	ConfigMapKeyRef *PodConfigMapKey `json:"configMapKeyRef,omitempty"`
+}
+
+// PodConfigMapKey selects a key of a ConfigMap in the workload namespace.
+type PodConfigMapKey struct {
+	// ConfigMap name
+	Name string `json:"name"`
+	// Key in the ConfigMap
+	Key string `json:"key"`
+}
+
+// PodVolume is a pod volume. Exactly one source is set.
+type PodVolume struct {
+	// Volume name, unique in the pod
+	Name string `json:"name"`
+	// Empty directory
+	EmptyDir *PodEmptyDir `json:"emptyDir,omitempty"`
+	// Pod fields written as files
+	DownwardAPI []PodDownwardFile `json:"downwardAPI,omitempty"`
+	// ConfigMap in the workload namespace
+	ConfigMap string `json:"configMap,omitempty"`
+	// Secret id listed in secrets with type general
+	Secret string `json:"secret,omitempty"`
+}
+
+// PodEmptyDir is an empty directory volume.
+type PodEmptyDir struct {
+	// Storage medium, empty or Memory
+	Medium string `json:"medium,omitempty"`
+	// Size limit, e.g. 1Mi
+	SizeLimit string `json:"sizeLimit,omitempty"`
+}
+
+// PodDownwardFile is one file of a downward API volume.
+type PodDownwardFile struct {
+	// File path relative to the mount
+	Path string `json:"path"`
+	// Pod field path, e.g. metadata.annotations['key']
+	FieldPath string `json:"fieldPath"`
+}
+
+// PodVolumeMount mounts a workload volume into a container.
+type PodVolumeMount struct {
+	// Volume name
+	Name string `json:"name"`
+	// Absolute mount path
+	MountPath string `json:"mountPath"`
+	// Mount read-only
+	ReadOnly bool `json:"readOnly,omitempty"`
 }
 
 type WorkloadStatus struct {

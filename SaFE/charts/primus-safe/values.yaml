@@ -485,8 +485,9 @@ sandbox:
   enable: true
   namespace: "agent-sandbox-system"
   secret: "envd-router-identity"
-  # EnvD injector initContainer image. Repo path only; the template adds harbor.<sub_domain>.<domain>/proxy/,
-  # so the digest has to exist on Docker Hub. Must include GET /api/jobs for Brain idle sandbox reclaim.
+  # EnvD injector initContainer image for Agent Sandbox PyTorchJobs. Repo path only; job-manager adds
+  # harbor.<sub_domain>.<domain>/proxy/, so the digest has to exist on Docker Hub. Must include GET /api/jobs
+  # for Brain idle sandbox reclaim. Sandbox workloads bring their own init containers.
   envd_injector_image: "primussafe/agent-sandbox-envd-injector@sha256:15897087043550c2d7fafc3a1827ee011e3ede7dec6aaaaab555a84df814ac9b"
   # Secret holding extra CA certificates (PEM, any key name) that sandboxes must trust. Create it in the
   # primus-safe namespace with the annotations

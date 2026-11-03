@@ -64,6 +64,14 @@ type WorkloadSpecApplyConfiguration struct {
 	// The secrets used by the workload. Including some token secrets (only for CI/CD) and specified image secrets.
 	// Image secrets automatically use all image secrets bound to the workspace.
 	Secrets []SecretEntityApplyConfiguration `json:"secrets,omitempty"`
+	// Init containers that run, in order, before the workload containers. Only for Sandbox.
+	InitContainers []PodInitContainerApplyConfiguration `json:"initContainers,omitempty"`
+	// Pod volumes used by initContainers and volumeMounts. Only for Sandbox.
+	Volumes []PodVolumeApplyConfiguration `json:"volumes,omitempty"`
+	// Main-container mounts of the volumes above. Only for Sandbox.
+	VolumeMounts []PodVolumeMountApplyConfiguration `json:"volumeMounts,omitempty"`
+	// Main-container environment variables read from a pod field or a ConfigMap. Only for Sandbox.
+	EnvRefs []PodEnvVarApplyConfiguration `json:"envRefs,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
@@ -296,6 +304,58 @@ func (b *WorkloadSpecApplyConfiguration) WithSecrets(values ...*SecretEntityAppl
 			panic("nil value passed to WithSecrets")
 		}
 		b.Secrets = append(b.Secrets, *values[i])
+	}
+	return b
+}
+
+// WithInitContainers adds the given value to the InitContainers field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the InitContainers field.
+func (b *WorkloadSpecApplyConfiguration) WithInitContainers(values ...*PodInitContainerApplyConfiguration) *WorkloadSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithInitContainers")
+		}
+		b.InitContainers = append(b.InitContainers, *values[i])
+	}
+	return b
+}
+
+// WithVolumes adds the given value to the Volumes field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Volumes field.
+func (b *WorkloadSpecApplyConfiguration) WithVolumes(values ...*PodVolumeApplyConfiguration) *WorkloadSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithVolumes")
+		}
+		b.Volumes = append(b.Volumes, *values[i])
+	}
+	return b
+}
+
+// WithVolumeMounts adds the given value to the VolumeMounts field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the VolumeMounts field.
+func (b *WorkloadSpecApplyConfiguration) WithVolumeMounts(values ...*PodVolumeMountApplyConfiguration) *WorkloadSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithVolumeMounts")
+		}
+		b.VolumeMounts = append(b.VolumeMounts, *values[i])
+	}
+	return b
+}
+
+// WithEnvRefs adds the given value to the EnvRefs field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the EnvRefs field.
+func (b *WorkloadSpecApplyConfiguration) WithEnvRefs(values ...*PodEnvVarApplyConfiguration) *WorkloadSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithEnvRefs")
+		}
+		b.EnvRefs = append(b.EnvRefs, *values[i])
 	}
 	return b
 }

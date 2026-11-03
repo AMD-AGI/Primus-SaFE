@@ -1236,6 +1236,9 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	if err != nil {
 		return err
 	}
+	if err = validatePodParts(newWorkload); err != nil {
+		return err
+	}
 
 	if err = v.validateRequiredParams(newWorkload); err != nil {
 		return err
@@ -2048,6 +2051,9 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 	}
 	if v1.GetUserAccount(newWorkload) != v1.GetUserAccount(oldWorkload) {
 		return field.Forbidden(field.NewPath("annotations").Key(v1.UserAccountAnnotation), "immutable")
+	}
+	if err := validatePodPartsImmutable(newWorkload, oldWorkload); err != nil {
+		return err
 	}
 	if commonworkload.IsCICDScalingRunnerSet(newWorkload) {
 		val1, _ := oldWorkload.Spec.Env[common.UnifiedJobEnable]

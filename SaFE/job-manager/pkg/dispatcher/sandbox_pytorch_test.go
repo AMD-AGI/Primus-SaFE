@@ -7,7 +7,6 @@ package dispatcher
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 
@@ -284,25 +283,6 @@ func pytorchObject() *unstructured.Unstructured {
 			},
 		},
 	}}
-}
-
-// TestAgentSandboxPyTorchMatchesSandboxTemplate keeps the PyTorch path's envd
-// startup and injector script in step with the chart's Sandbox template.
-func TestAgentSandboxPyTorchMatchesSandboxTemplate(t *testing.T) {
-	raw, err := os.ReadFile(primusSafeChart + "/templates/configmap/sandbox_template.yaml")
-	assert.NilError(t, err)
-	template := strings.Join(strings.Fields(string(raw)), " ")
-	assert.Assert(t, strings.Contains(template, strings.Join(strings.Fields(envdStartupScript), " ")),
-		"envdStartupScript differs from the Sandbox template's startup command")
-	assert.Assert(t, strings.Contains(template, strings.Join(strings.Fields(envdInjectorScript), " ")),
-		"envdInjectorScript differs from the Sandbox template's envd-injector script")
-	assert.Assert(t, strings.Contains(template, "name: NODE_NAME"))
-	assert.Assert(t, strings.Contains(template, "fieldPath: spec.nodeName"))
-	assert.Assert(t, strings.Contains(template, "chmod 0400"))
-	assert.Assert(t, strings.Contains(template, "chown 1000:1000"))
-	assert.Assert(t, !strings.Contains(template, "0444"))
-	assert.Assert(t, strings.Contains(template, "name: HYPERLOOM_SIGNING_KEY_FILE"))
-	assert.Assert(t, strings.Contains(template, "value: /run/signing-key/signing-key.pem"))
 }
 
 func envValue(t *testing.T, raw interface{}, name string) string {

@@ -97,6 +97,9 @@ fi`
 	signingKeyMount  = "/run/signing-key"
 	signingKeyFile   = "/run/signing-key/signing-key.pem"
 	signingKeyEnv    = "HYPERLOOM_SIGNING_KEY_FILE"
+	envdInjectorName = "envd-injector"
+	// signingKeyRequiredEnv makes the envd-injector fail when no signing key file is mounted.
+	signingKeyRequiredEnv = "SIGNING_KEY_REQUIRED"
 
 	// inferaNodeCountField is the flat IDEP ServiceSpec field carrying the node
 	// count of a multi-node role's LeaderWorkerSet group. Written by
@@ -166,6 +169,9 @@ func initializeObject(obj *unstructured.Unstructured,
 	path = podSpecPath(workload, resourceSpec, "initContainers")
 	if err = modifyInitContainerVolumeMounts(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify init containers: %v", err.Error())
+	}
+	if err = applyPodParts(obj, workload, resourceSpec); err != nil {
+		return err
 	}
 	path = podSpecPath(workload, resourceSpec, "imagePullSecrets")
 	if err = modifyImageSecrets(obj, workload, path); err != nil {
@@ -538,8 +544,9 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 
 	volumeMounts = append(volumeMounts, buildPersistentVolumeMounts(workload, workspace)...)
 
+	partSecrets := podPartSecrets(workload)
 	for _, secret := range workload.Spec.Secrets {
-		if secret.Type != v1.SecretGeneral || isSandboxSigningSecret(workload, secret) {
+		if secret.Type != v1.SecretGeneral || isSandboxSigningSecret(workload, secret) || partSecrets[secret.Id] {
 			continue
 		}
 		mountPath := fmt.Sprintf("%s/%s", common.SecretPath, secret.Id)
@@ -678,10 +685,6 @@ func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
 		if !ok {
 			continue
 		}
-		// Layer copy containers see only their own emptyDir.
-		if name, _ := c["name"].(string); strings.HasPrefix(name, sandboxLayerVolume) {
-			continue
-		}
 		var volumeMounts []interface{}
 		if existing, ok := c["volumeMounts"].([]interface{}); ok {
 			volumeMounts = existing
@@ -724,8 +727,9 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 		volumes = append(volumes, buildHostPathVolume(volumeName, hostpath, "Directory"))
 		hasNewVolume = true
 	}
+	partSecrets := podPartSecrets(workload)
 	for _, secret := range workload.Spec.Secrets {
-		if secret.Type == v1.SecretGeneral {
+		if secret.Type == v1.SecretGeneral && !partSecrets[secret.Id] {
 			volumes = append(volumes, buildSecretVolume(secret.Id))
 			hasNewVolume = true
 		}
@@ -995,7 +999,8 @@ func buildCommands(workload *v1.Workload, id int) []interface{} {
 	}
 	// Only launcher workloads: exec so launcher.sh becomes PID 1 (see launcher.sh). CICD and
 	// other raw shell entrypoints must stay plain -c without exec to preserve multi-command scripts.
-	if workload.SpecKind() == common.CICDScaleRunnerSetKind || workload.SpecKind() == common.CICDGithubRunnerKind {
+	if workload.SpecKind() == common.CICDScaleRunnerSetKind || workload.SpecKind() == common.CICDGithubRunnerKind ||
+		workload.SpecKind() == common.SandboxKind {
 		return []interface{}{"/bin/sh", "-c", entryPoint}
 	}
 	return []interface{}{"/bin/sh", "-c", "exec " + entryPoint}
@@ -1017,6 +1022,9 @@ func buildEntryPoint(workload *v1.Workload, id int) string {
 	switch workload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:
 		result = workload.Spec.EntryPoints[id]
+	case common.SandboxKind:
+		// A Sandbox runs its entry point as a shell script, without the launcher.
+		result = commonworkload.DecodeEntryPoint(workload.Spec.EntryPoints[id])
 	default:
 		result = Launcher + " " + workload.Spec.EntryPoints[id]
 	}
@@ -2918,11 +2926,6 @@ func injectSandboxEnvdAuthPublicKey(ctx context.Context, clientSets *syncer.Clus
 // updateSandbox updates the sandbox-job configuration by sandbox template (legacy compatibility)
 func (r *DispatcherReconciler) updateSandbox(ctx context.Context, clientSets *syncer.ClusterClientSets,
 	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
-
-	if err := injectSandboxEnvdAuthPublicKey(ctx, clientSets, adminWorkload); err != nil {
-		return err
-	}
-
 	v1.SetLabel(adminWorkload, "runtime.agent-sandbox.io/user.id", v1.GetUserId(adminWorkload))
 	v1.SetLabel(adminWorkload, "runtime.agent-sandbox.io/sandbox-name", adminWorkload.Name)
 	v1.SetAnnotation(adminWorkload, "runtime.agent-sandbox.io/user.name", v1.GetUserName(adminWorkload))
@@ -2941,27 +2944,6 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context, clientSets *sy
 		shutdownTime := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 		shutdownTimeStr := shutdownTime.UTC().Format(timeutil.TimeRFC3339Milli)
 		if err := jobutils.SetNestedField(obj.Object, shutdownTimeStr, path); err != nil {
-			return err
-		}
-	}
-	if v1.GetLabel(adminWorkload, grantIDLabel) == "" {
-		return nil
-	}
-	for i := range rt.Spec.ResourceSpecs {
-		spec := &rt.Spec.ResourceSpecs[i]
-		if len(spec.PrePaths) > 0 {
-			_, found, err := jobutils.NestedField(obj.Object, spec.PrePaths)
-			if err != nil {
-				return err
-			}
-			if !found {
-				continue
-			}
-		}
-		if err := ensureSandboxLayers(obj, adminWorkload, workspace, spec); err != nil {
-			return err
-		}
-		if err := requireSandboxSigningKey(obj, adminWorkload, spec); err != nil {
 			return err
 		}
 	}
@@ -3191,6 +3173,29 @@ func pointSigningKeyFile(obj *unstructured.Unstructured, workload *v1.Workload, 
 		}
 	}
 	return nil
+}
+
+// requireSandboxSigningKey makes envd-injector fail when the creator expects a
+// signing key and no key file is mounted.
+func requireSandboxSigningKey(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
+	if workload.Spec.Env[signingKeyEnv] == "" {
+		return nil
+	}
+	initPath := podSpecPath(workload, resourceSpec, "initContainers")
+	inits, found, err := jobutils.NestedSlice(obj.Object, initPath)
+	if err != nil || !found {
+		return err
+	}
+	for i := range inits {
+		init, ok := inits[i].(map[string]interface{})
+		if !ok || init["name"] != envdInjectorName {
+			continue
+		}
+		setEnvValue(init, signingKeyRequiredEnv, "1")
+		init["terminationMessagePolicy"] = "FallbackToLogsOnError"
+		inits[i] = init
+	}
+	return jobutils.SetNestedField(obj.Object, inits, initPath)
 }
 
 // setEnvValue sets one container env entry, replacing a value the caller already wrote.

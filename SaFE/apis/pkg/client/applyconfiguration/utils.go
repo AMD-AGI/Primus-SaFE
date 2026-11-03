@@ -124,6 +124,20 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.ParameterApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("PhaseExpression"):
 		return &amdv1.PhaseExpressionApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("PodConfigMapKey"):
+		return &amdv1.PodConfigMapKeyApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("PodDownwardFile"):
+		return &amdv1.PodDownwardFileApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("PodEmptyDir"):
+		return &amdv1.PodEmptyDirApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("PodEnvVar"):
+		return &amdv1.PodEnvVarApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("PodInitContainer"):
+		return &amdv1.PodInitContainerApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("PodVolume"):
+		return &amdv1.PodVolumeApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("PodVolumeMount"):
+		return &amdv1.PodVolumeMountApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("PolicyRule"):
 		return &amdv1.PolicyRuleApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ReplicatedSpec"):
