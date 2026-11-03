@@ -16,12 +16,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	commonopsjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 )
 
 const (
 	// SubmitterContainer is the RayJob submitter container; its log follows the launcher's output.
-	SubmitterContainer = "ray-job-submitter"
+	SubmitterContainer = common.RayJobSubmitterName
 
 	markerStage   = "[STAGE]"
 	markerMetric  = "[METRIC]"
@@ -45,10 +47,8 @@ const (
 )
 
 var (
-	ansiPattern      = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
-	rayPrefixPattern = regexp.MustCompile(`^\([^()]*pid=\d+[^()]*\)\s*`)
-	valLossPattern   = regexp.MustCompile(`^eval/[^/]+/loss$`)
-	markerKinds      = []string{markerStage, markerMetric, markerSample, markerError, markerSuccess}
+	valLossPattern = regexp.MustCompile(`^eval/[^/]+/loss$`)
+	markerKinds    = []string{markerStage, markerMetric, markerSample, markerError, markerSuccess}
 )
 
 // marker is one launcher marker line addressed to a run.
@@ -95,8 +95,7 @@ type stallDetail struct {
 // parseMarker strips color codes and a Ray actor prefix from line and returns the marker that starts it, when
 // its JSON is valid and names runID. Forwarded child output is indented by the launcher and never matches.
 func parseMarker(line, runID string) (*marker, bool) {
-	text := strings.TrimRight(ansiPattern.ReplaceAllString(line, ""), "\r")
-	text = rayPrefixPattern.ReplaceAllString(text, "")
+	text := commonopsjob.StripMarkerPrefix(line)
 	for _, kind := range markerKinds {
 		if !strings.HasPrefix(text, kind+" ") {
 			continue
@@ -112,10 +111,15 @@ func parseMarker(line, runID string) (*marker, bool) {
 	return nil, false
 }
 
-// lastResult returns the last [SUCCESS] or [ERROR] marker of runID in text, which may hold several lines.
+// lastResult returns the last [SUCCESS] or [ERROR] marker of runID in text: lines, or the JSON array of lines
+// that job-manager keeps for a finished submitter.
 func lastResult(text, runID string) *marker {
+	var lines []string
+	if json.Unmarshal([]byte(text), &lines) != nil {
+		lines = strings.Split(text, "\n")
+	}
 	var result *marker
-	for _, line := range strings.Split(text, "\n") {
+	for _, line := range lines {
 		if m, ok := parseMarker(line, runID); ok && (m.Kind == markerSuccess || m.Kind == markerError) {
 			result = m
 		}

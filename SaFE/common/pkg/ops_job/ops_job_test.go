@@ -7,6 +7,7 @@ package ops_job
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,4 +53,19 @@ func TestFilterResultLog(t *testing.T) {
 	assert.Equal(t, `["[SUCCESS] MODEL_SIZE_BYTES=42","[ERROR] something"]`, FilterResultLog([]byte(log)))
 	assert.Equal(t, "", FilterResultLog([]byte("MODEL_SIZE_BYTES=42\n")), "unmarked lines are dropped")
 	assert.Equal(t, "", FilterResultLog(nil))
+}
+
+func TestFilterRunResultLog(t *testing.T) {
+	success := `[SUCCESS] {"run":"pt-1","attempt":"a1","output":"/w/pt-1/final_model"}`
+	log := "\x1b[36m(TrainActor pid=692)\x1b[0m " + `[ERROR] {"run":"pt-1","attempt":"a1","stage":"train"}` + "\n" +
+		`step 3: [SUCCESS] {"run":"pt-1"}` + "\n" +
+		`  [SUCCESS] {"run":"pt-1"}` + "\n" +
+		`[SUCCESS] {"run":"pt-2"}` + "\n" +
+		"[SUCCESS] not json\n" +
+		strings.Repeat("x", maxResultLineBytes+1) + "\n" +
+		success + "\r\n"
+	assert.Equal(t, `["[ERROR] {\"run\":\"pt-1\",\"attempt\":\"a1\",\"stage\":\"train\"}",`+
+		`"[SUCCESS] {\"run\":\"pt-1\",\"attempt\":\"a1\",\"output\":\"/w/pt-1/final_model\"}"]`,
+		FilterRunResultLog([]byte(log), "pt-1"), "only markers that start the line and name the run are kept")
+	assert.Equal(t, "", FilterRunResultLog([]byte(log), "pt-3"))
 }
