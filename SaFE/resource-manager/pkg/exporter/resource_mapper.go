@@ -361,6 +361,12 @@ func modelMapper(obj *unstructured.Unstructured) *dbclient.Model {
 		dbModel.SourceToken = cr.Spec.Source.Token.Name
 	}
 
+	dbModel.PostTrainingRunID = cr.Spec.PostTrainingRunId
+	if cr.Status.ModelConfig != nil {
+		modelConfig := string(jsonutils.MarshalSilently(cr.Status.ModelConfig))
+		dbModel.ModelConfig = &modelConfig
+	}
+
 	return dbModel
 }
 

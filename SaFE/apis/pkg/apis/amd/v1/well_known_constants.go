@@ -349,6 +349,17 @@ const (
 	ModelS3SourceEndpointAnn = ModelPrefix + "s3-source-endpoint" // annotation: user-provided HTTP(S) endpoint for the source bucket
 	SourceModelIdLabel       = PrimusSafePrefix + "source-model"
 
+	// post training: workloads, models and evaluation jobs of a Post Training run carry the run id;
+	// workloads also carry their role in the run, and re-exported models the checkpoint step.
+	PostTrainingPrefix          = PrimusSafePrefix + "post-training."
+	PostTrainingRunIdLabel      = PostTrainingPrefix + "run-id"
+	PostTrainingRoleLabel       = PostTrainingPrefix + "role"
+	PostTrainingExportStepLabel = PostTrainingPrefix + "export-step"
+	PostTrainingRoleTrain       = "train"
+	PostTrainingRoleConvert     = "convert"
+	PostTrainingRoleExport      = "export"
+	PostTrainingRoleImportScan  = "import-scan"
+
 	// dynamo (DynamoDeployment workload kind; see Phase 2 of the dynamo
 	// integration plan). Webhook/dispatcher read these to decide deployment
 	// shape (aggregated / disagg / multi-node TP) without extending the

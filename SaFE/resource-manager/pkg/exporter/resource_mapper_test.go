@@ -253,6 +253,29 @@ func TestModelMapperRichBranches(t *testing.T) {
 	assert.Equal(t, res.SourceToken, "tok")
 	assert.Equal(t, res.Origin, "internal")
 	assert.Assert(t, res.LocalPaths != "[]")
+	assert.Equal(t, res.PostTrainingRunID, "")
+	assert.Assert(t, res.ModelConfig == nil)
+}
+
+func TestModelMapperPostTraining(t *testing.T) {
+	model := &v1.Model{
+		ObjectMeta: metav1.ObjectMeta{Name: "m3", CreationTimestamp: metav1.Now()},
+		Spec: v1.ModelSpec{
+			Source:            v1.ModelSource{URL: "/wekafs/models/m3", AccessMode: v1.AccessModeLocalPath},
+			PostTrainingRunId: "pt-run-1",
+		},
+		Status: v1.ModelStatus{
+			ModelConfig: &v1.ModelConfig{Architectures: []string{"Qwen3ForCausalLM"}, NumHiddenLayers: 36,
+				RopeTheta: "1000000"},
+		},
+	}
+	u, err := unstructured.ConvertObjectToUnstructured(model)
+	assert.NilError(t, err)
+	res := modelMapper(u)
+	assert.Equal(t, res.PostTrainingRunID, "pt-run-1")
+	assert.Assert(t, res.ModelConfig != nil)
+	assert.Equal(t, *res.ModelConfig,
+		`{"architectures":["Qwen3ForCausalLM"],"numHiddenLayers":36,"ropeTheta":"1000000"}`)
 }
 
 func TestFaultMapperWithNode(t *testing.T) {
