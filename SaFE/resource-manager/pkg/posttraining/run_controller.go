@@ -483,13 +483,17 @@ func (r *RunReconciler) result(ctx context.Context, run *dbclient.PostTrainingRu
 	return best
 }
 
-// save writes the changed columns of u.
+// save writes the changed columns of u and sends the notifications they imply.
 func (r *RunReconciler) save(ctx context.Context, u *runUpdate) error {
 	fields := u.columns()
 	if len(fields) == 0 {
 		return nil
 	}
-	return client.IgnoreNotFound(ignoreRecordNotFound(r.db.UpdatePostTrainingRun(ctx, u.run.RunID, fields)))
+	if err := r.db.UpdatePostTrainingRun(ctx, u.run.RunID, fields); err != nil {
+		return ignoreRecordNotFound(err)
+	}
+	r.notifyChanges(ctx, u.run, fields)
+	return nil
 }
 
 // ignoreRecordNotFound drops the error of a run deleted in the meantime.
@@ -535,10 +539,11 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 	if data, _ := json.Marshal(in.sum); string(data) != run.MetricSummary && (len(points) > 0 || in.sum.Rejected > 0) {
 		u.fields["metric_summary"] = string(data)
 	}
-	err := r.db.SavePostTrainingRunMetrics(ctx, run.RunID, points, u.columns())
-	if err = ignoreRecordNotFound(err); err != nil {
-		return false, err
+	fields := u.columns()
+	if err := r.db.SavePostTrainingRunMetrics(ctx, run.RunID, points, fields); err != nil {
+		return false, ignoreRecordNotFound(err)
 	}
+	r.notifyChanges(ctx, run, fields)
 	if readErr != nil {
 		klog.V(2).InfoS("submitter log not readable yet", "run", run.RunID, "err", readErr)
 	}

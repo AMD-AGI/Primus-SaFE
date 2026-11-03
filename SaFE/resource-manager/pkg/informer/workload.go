@@ -72,6 +72,10 @@ func (w *WorkloadInformer) OnUpdate(oldObj, newObj interface{}) {
 // submitWorkloadNotification deduplicates by workload name + phase, ensuring
 // at most one notification per workload per phase transition.
 func (w *WorkloadInformer) submitWorkloadNotification(workload *v1.Workload) {
+	// Post Training sends run-level notifications from its controller instead.
+	if v1.GetLabel(workload, v1.PostTrainingRunIdLabel) != "" {
+		return
+	}
 	ctx := context.Background()
 	phase := string(workload.Status.Phase)
 	uid := fmt.Sprintf("%s-%s", workload.Name, phase)
