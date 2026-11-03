@@ -88,7 +88,7 @@ func TestCompileSFT(t *testing.T) {
 		"--input-key", "messages", "--rollout-function-path", "slime.rollout.sft_rollout.generate_rollout",
 		"--rollout-batch-size", "128", "--global-batch-size", "128", "--loss-type", "sft_loss",
 		"--calculate-per-token-loss", "--disable-compute-advantages-and-returns", "--debug-train-only",
-		"--num-epoch", "1",
+		"--num-epoch", "1", "--use-tensorboard",
 		"--tensor-model-parallel-size", "2", "--pipeline-model-parallel-size", "1", "--context-parallel-size", "2",
 		"--expert-model-parallel-size", "1", "--expert-tensor-parallel-size", "1", "--sequence-parallel",
 		"--recompute-granularity", "full", "--recompute-method", "uniform", "--recompute-num-layers", "1",
@@ -103,6 +103,31 @@ func TestCompileSFT(t *testing.T) {
 	require.Equal(t, "slime-qwen3-4B-m1-540ea91", res.Recipe.Convert.CacheKey)
 	require.Equal(t, 2, res.Recipe.Choices.TP, "spec defaults are filled in")
 	require.Equal(t, "1", res.Plan.Env["CUDA_DEVICE_MAX_CONNECTIONS"])
+}
+
+func TestCompileSFTValidation(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureValLoss)
+	in.Request.EvalDatasetID = "v1"
+	in.EvalDataset = &recipe.DatasetInfo{ID: "v1", Type: recipe.DatasetTypeSFT, Path: "/wekafs/datasets/v1", Ready: true}
+	res := compile(t, in)
+	got := strings.Join(res.Recipe.FrameworkArgs, " ")
+	require.Contains(t, got, "--eval-interval 200 --eval-prompt-data val /wekafs/custom/models/pt-1/data/eval.jsonl")
+	require.Equal(t, &recipe.RecipeVal{Interval: 200, MaxSamples: 256}, res.Recipe.Val)
+	require.Equal(t, "/wekafs/datasets/v1", res.Recipe.Data.Eval)
+
+	in.Request.Choices.ValSplit = 0.1
+	require.Contains(t, errorsOf(in), "not both")
+	in.Request.Choices.ValSplit, in.Request.EvalDatasetID, in.EvalDataset = 0.1, "", nil
+	in.Request.Choices.ValMaxSamples = 64
+	require.Contains(t, errorsOf(in), "Validation samples (64) must be at least the batch size (128)")
+	in.Request.Choices.ValMaxSamples, in.Request.Choices.ValInterval = 256, 150
+	res = compile(t, in)
+	require.Contains(t, res.Diagnostics[0].Message, "not a multiple of the validation interval")
+
+	plain := compile(t, qwen3Input(t, registry.TrainTypeSFT))
+	require.Contains(t, plain.Diagnostics[0].Message, "No validation set")
+	require.Nil(t, plain.Recipe.Val)
 }
 
 func TestCompileGRPOColocated(t *testing.T) {

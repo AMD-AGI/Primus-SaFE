@@ -11,6 +11,9 @@ image, .parquet files, or a directory of them.
 
 import json
 import os
+import random
+
+SPLIT_SEED = 20261103
 
 DATA_EXTENSIONS = (".jsonl", ".json", ".parquet")
 
@@ -91,15 +94,20 @@ def rl_row(row, field_map):
     return {"prompt": value, "label": str(row[label])}, None
 
 
-def prepare(src, dst, train_type, field_map, limit=None):
+def prepare(src, dst, train_type, field_map, limit=None, split_dst=None, split=0.0, split_limit=None):
     """Convert the dataset at src into dst and return its statistics. A field missing from any row fails the
-    stage, naming the field and how many rows lack it; limit keeps only the first rows (validation sets)."""
+    stage, naming the field and how many rows lack it; limit keeps only the first rows (validation sets). With
+    split_dst and split, a fixed-seed random share of the rows goes to split_dst instead, up to split_limit rows."""
     convert = rl_row if train_type == "rl" else sft_row
+    rng = random.Random(SPLIT_SEED)
     missing = {}
-    total = written = 0
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    tmp = dst + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as out:
+    total = written = held = 0
+    outputs = [dst] + ([split_dst] if split_dst else [])
+    for path in outputs:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    out = open(dst + ".tmp", "w", encoding="utf-8")
+    val = open(split_dst + ".tmp", "w", encoding="utf-8") if split_dst else None
+    try:
         for path in input_files(src):
             for row in read_rows(path):
                 total += 1
@@ -110,15 +118,28 @@ def prepare(src, dst, train_type, field_map, limit=None):
                 if field:
                     missing[field] = missing.get(field, 0) + 1
                     continue
-                if limit is None or written < limit:
-                    out.write(json.dumps(converted, ensure_ascii=False) + "\n")
+                line = json.dumps(converted, ensure_ascii=False) + "\n"
+                if val and rng.random() < split:
+                    if split_limit is None or held < split_limit:
+                        val.write(line)
+                        held += 1
+                elif limit is None or written < limit:
+                    out.write(line)
                     written += 1
-    if missing:
-        os.remove(tmp)
-        field, count = max(missing.items(), key=lambda kv: kv[1])
-        raise DatasetError("field '%s' missing in %d of %d rows" % (field, count, total))
-    if written == 0:
-        os.remove(tmp)
-        raise DatasetError("the dataset has no rows")
-    os.replace(tmp, dst)
-    return {"rows": total, "written": written}
+    finally:
+        out.close()
+        if val:
+            val.close()
+    if missing or written == 0 or (val and held == 0):
+        for path in outputs:
+            os.remove(path + ".tmp")
+        if missing:
+            field, count = max(missing.items(), key=lambda kv: kv[1])
+            raise DatasetError("field '%s' missing in %d of %d rows" % (field, count, total))
+        raise DatasetError("the dataset has no rows" if written == 0 else "the validation split holds no rows")
+    for path in outputs:
+        os.replace(path + ".tmp", path)
+    stats = {"rows": total, "written": written}
+    if val:
+        stats["split"] = held
+    return stats

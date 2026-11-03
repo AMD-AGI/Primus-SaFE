@@ -31,6 +31,14 @@ def test_parse_real_lines():
     assert (kind, axis, step) == ("perf", "rollout", 0) and values["rollout/response_len/max"] == 2156.0
 
 
+def test_sft_eval_steps_follow_training_steps():
+    a = Adapter(env={})
+    a.train_type = "sft"
+    eval_line = "x - eval %d: {'eval/val/loss': 0.5, 'eval/step': %d}"
+    assert [a.parse_metric_line(eval_line % (n, n))[1:3] for n in (0, 9, 19)] == \
+        [("train", 0), ("train", 10), ("train", 20)], "J2's eval 0, 9 and 19 sit at steps 0, 10 and 20"
+
+
 def test_parse_non_finite_and_other_lines():
     a = Adapter(env={})
     _, _, _, values = a.parse_metric_line("x - step 3: {'train/loss': nan, 'train/grad_norm': inf, 'train/x': -inf}")
