@@ -20,11 +20,23 @@ curlimages/curl
 {{- end -}}
 {{- end -}}
 
-{{/* deny requires the verification material of both paths. */}}
+{{/* identity.jwks, identity.issuer, and identity.actor are set together. deny requires the grant jwks or the identity provider. */}}
 {{- define "constraints.requireJwksForDeny" -}}
-{{- if and (eq .Values.enforcementAction "deny") (or (not .Values.jwks) (not .Values.identity.jwks) (not .Values.identity.issuer) (not .Values.identity.actor)) -}}
-{{- fail "jwks, identity.jwks, identity.issuer, and identity.actor must be set before enforcementAction is deny" -}}
+{{- $id := .Values.identity -}}
+{{- $idSet := and $id.jwks $id.issuer $id.actor -}}
+{{- if and (or $id.jwks $id.issuer $id.actor) (not $idSet) -}}
+{{- fail "identity.jwks, identity.issuer, and identity.actor must be set together" -}}
 {{- end -}}
+{{- if and (eq .Values.enforcementAction "deny") (not .Values.jwks) (not $idSet) -}}
+{{- fail "jwks or the identity provider must be set before enforcementAction is deny" -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Constraints are kept when a render omits them; the delete hook removes them. */}}
+{{- define "constraints.constraintAnnotations" -}}
+meta.helm.sh/release-name: {{ .Release.Name | quote }}
+meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
+helm.sh/resource-policy: keep
 {{- end -}}
 
 {{- define "constraints.membership" -}}
@@ -35,8 +47,7 @@ metadata:
   labels:
     {{- include "constraints.ownership" . | nindent 4 }}
   annotations:
-    meta.helm.sh/release-name: {{ .Release.Name | quote }}
-    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
+    {{- include "constraints.constraintAnnotations" . | nindent 4 }}
 spec:
   enforcementAction: {{ .Values.enforcementAction | quote }}
   match:
@@ -55,8 +66,7 @@ metadata:
   labels:
     {{- include "constraints.ownership" . | nindent 4 }}
   annotations:
-    meta.helm.sh/release-name: {{ .Release.Name | quote }}
-    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
+    {{- include "constraints.constraintAnnotations" . | nindent 4 }}
 spec:
   enforcementAction: {{ .Values.enforcementAction | quote }}
   match:
@@ -66,32 +76,14 @@ spec:
   parameters:
     sandboxCreator: {{ .Values.sandboxCreator | quote }}
     jwks: {{ .Values.jwks | quote }}
-{{- end -}}
-
-{{- define "constraints.identityAttestation" -}}
-apiVersion: constraints.gatekeeper.sh/v1beta1
-kind: SandboxWorkloadIdentity
-metadata:
-  name: sandbox-workload-identity
-  labels:
-    {{- include "constraints.ownership" . | nindent 4 }}
-  annotations:
-    meta.helm.sh/release-name: {{ .Release.Name | quote }}
-    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
-spec:
-  enforcementAction: {{ .Values.enforcementAction | quote }}
-  match:
-    kinds:
-      - apiGroups: ["amd.com"]
-        kinds: ["Workload"]
-  parameters:
-    sandboxCreator: {{ .Values.sandboxCreator | quote }}
-    jwks: {{ .Values.identity.jwks | quote }}
-    issuer: {{ .Values.identity.issuer | quote }}
-    audience: {{ .Values.identity.audience | quote }}
-    tokenType: {{ .Values.identity.tokenType | quote }}
-    actor: {{ .Values.identity.actor | quote }}
-    detailType: {{ .Values.identity.detailType | quote }}
+    identity:
+      jwks: {{ .Values.identity.jwks | quote }}
+      issuer: {{ .Values.identity.issuer | quote }}
+      audience: {{ .Values.identity.audience | quote }}
+      tokenType: {{ .Values.identity.tokenType | quote }}
+      actor: {{ .Values.identity.actor | quote }}
+      detailType: {{ .Values.identity.detailType | quote }}
+      algorithm: {{ .Values.identity.algorithm | quote }}
 {{- end -}}
 
 {{- define "constraints.syncConfig" -}}
@@ -163,47 +155,25 @@ spec:
               type: string
             jwks:
               type: string
+            identity:
+              type: object
+              properties:
+                jwks:
+                  type: string
+                issuer:
+                  type: string
+                audience:
+                  type: string
+                tokenType:
+                  type: string
+                actor:
+                  type: string
+                detailType:
+                  type: string
+                algorithm:
+                  type: string
   targets:
     - target: admission.k8s.gatekeeper.sh
       rego: |
 {{ .Files.Get "rego/attestation.rego" | indent 8 }}
-{{- end -}}
-
-{{- define "constraints.identityAttestationTemplate" -}}
-apiVersion: templates.gatekeeper.sh/v1
-kind: ConstraintTemplate
-metadata:
-  name: sandboxworkloadidentity
-  labels:
-    {{- include "constraints.ownership" . | nindent 4 }}
-  annotations:
-    meta.helm.sh/release-name: {{ .Release.Name | quote }}
-    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
-spec:
-  crd:
-    spec:
-      names:
-        kind: SandboxWorkloadIdentity
-      validation:
-        openAPIV3Schema:
-          type: object
-          properties:
-            sandboxCreator:
-              type: string
-            jwks:
-              type: string
-            issuer:
-              type: string
-            audience:
-              type: string
-            tokenType:
-              type: string
-            actor:
-              type: string
-            detailType:
-              type: string
-  targets:
-    - target: admission.k8s.gatekeeper.sh
-      rego: |
-{{ .Files.Get "rego/identity_attestation.rego" | indent 8 }}
 {{- end -}}
