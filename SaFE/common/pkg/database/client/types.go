@@ -312,6 +312,11 @@ type Model struct {
 	UpdatedAt    pq.NullTime `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt" db:"updated_at"`
 	DeletionTime pq.NullTime `gorm:"column:deletion_time" json:"deletionTime" db:"deletion_time"`
 	IsDeleted    bool        `gorm:"column:is_deleted" json:"isDeleted" db:"is_deleted"`
+
+	// PostTrainingRunID is the Post Training run that produced the model; empty for other models.
+	PostTrainingRunID string `gorm:"column:post_training_run_id" json:"postTrainingRunId,omitempty" db:"post_training_run_id"`
+	// ModelConfig is the JSON structure summary read from config.json; nil until it has been read.
+	ModelConfig *string `gorm:"column:model_config" json:"modelConfig,omitempty" db:"model_config"`
 }
 
 func (Model) TableName() string {
@@ -587,6 +592,10 @@ type EvaluationTask struct {
 	StartTime        pq.NullTime    `db:"start_time"`
 	EndTime          pq.NullTime    `db:"end_time"`
 	IsDeleted        bool           `db:"is_deleted"`
+
+	// PostTrainingRunId and ModelId link an evaluation to its Post Training run and the evaluated model.
+	PostTrainingRunId sql.NullString `db:"post_training_run_id"`
+	ModelId           sql.NullString `db:"model_id"`
 }
 
 // GetEvaluationTaskFieldTags returns the EvaluationTaskFieldTags value.

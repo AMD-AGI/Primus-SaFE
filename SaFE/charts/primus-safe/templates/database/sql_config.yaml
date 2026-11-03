@@ -402,6 +402,10 @@ data:
     ALTER TABLE model ADD COLUMN IF NOT EXISTS target_subpath VARCHAR(256);
     create index if not exists T_MODEL_ORIGIN_INDEX on model (origin, is_deleted);
     create index if not exists T_MODEL_USER_ID_INDEX on model (user_id);
+    -- Post Training: the run that produced the model, and the structure summary read from config.json
+    ALTER TABLE model ADD COLUMN IF NOT EXISTS post_training_run_id VARCHAR(64);
+    ALTER TABLE model ADD COLUMN IF NOT EXISTS model_config JSONB;
+    create index if not exists T_MODEL_POST_TRAINING_RUN_INDEX on model (post_training_run_id);
 
     alter table model owner to "primus-safe";
 
@@ -645,6 +649,11 @@ data:
 
     -- Remove deprecated progress column from existing tables
     ALTER TABLE evaluation_task DROP COLUMN IF EXISTS progress;
+    -- Post Training: the run and the model an evaluation belongs to
+    ALTER TABLE evaluation_task ADD COLUMN IF NOT EXISTS post_training_run_id VARCHAR(64);
+    ALTER TABLE evaluation_task ADD COLUMN IF NOT EXISTS model_id VARCHAR(64);
+    create index if not exists T_EVAL_TASK_POST_TRAINING_RUN_INDEX on evaluation_task (post_training_run_id);
+    create index if not exists T_EVAL_TASK_MODEL_INDEX on evaluation_task (model_id);
 
     alter table evaluation_task owner to "primus-safe";
 
