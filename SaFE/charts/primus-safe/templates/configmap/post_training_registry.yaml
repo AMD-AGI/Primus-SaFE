@@ -1,0 +1,20 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+{{- if .Values.post_training.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: post-training-registry
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+data:
+  registry.yaml: |
+{{ toYaml .Values.post_training.registry | indent 4 }}
+{{- end }}

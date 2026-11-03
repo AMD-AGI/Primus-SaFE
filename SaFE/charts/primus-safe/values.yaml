@@ -446,6 +446,110 @@ model_optimization:
   # per-deploy via .env `optimize_max_concurrent` (synced into values.yaml by
   # upgrade.sh and into the live apiserver ConfigMap by cd-deploy.sh).
   max_concurrent: 1024
+# Post Training (slime). When enabled, the post-training-registry ConfigMap is rendered from
+# post_training.registry; the apiserver and the Post Training controller treat a missing ConfigMap
+# as Post Training being disabled. Override the registry per cluster to enable images and features
+# once they pass acceptance.
+post_training:
+  enabled: false
+  registry:
+    frameworks:
+      - name: slime
+        default: true
+        compiler: slime
+        adapter: frameworks/slime
+        importFormats: [slime-rocm]
+        metrics:
+          include: ["train/*", "eval/*", "eval/*/*", "rollout/*", "rollout/*/*", "perf/*", "passrate/*"]
+          summary: {sft: train/loss, rl: rollout/raw_reward}
+          maxPointsPerRun: 2000000
+          panels:
+            sft:
+              - {id: loss, series: [train/loss, "eval/*/loss"], smooth: true}
+              - {id: lr, series: ["train/lr-pg_*"]}
+              - {id: grad_norm, series: [train/grad_norm], logY: true}
+              - {id: throughput, series: [perf/actor_train_tok_per_s, perf/actor_train_tflops]}
+            rl:
+              - {id: reward, series: [rollout/raw_reward, "eval/*"], smooth: true}
+              - {id: policy, series: [train/pg_loss, train/kl_loss, train/ppo_kl]}
+              - {id: clip_entropy, series: [train/pg_clipfrac, train/entropy_loss]}
+              - {id: consistency, series: [train/train_rollout_logprob_abs_diff, train/tis, train/ois, train/tis_clipfrac]}
+              - {id: grad_perf, series: [train/grad_norm, perf/step_time, perf/actor_train_tok_per_s, perf/wait_time_ratio]}
+    specs:
+      - name: qwen3-4B
+        match: {architectures: [Qwen3ForCausalLM], num_hidden_layers: 36, hidden_size: 2560,
+                num_attention_heads: 32, num_key_value_heads: 8, rope_theta: 1000000}
+        evalTp: 1
+        checkpoint: {keepLast: 0}
+        watchdog: {startupMinutes: 30, minStallMinutes: 30, stallFactor: 3, saveMinutes: 20}
+        frameworks:
+          slime:
+            modelScript: scripts/models/qwen3-4B.sh
+            methods: {sft: [full], rl: [full]}
+            defaults: {tp: 2, pp: 1, cp: 2, ep: 1, gpusPerEngine: 2}
+            minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
+            convertNodes: 1
+      - name: qwen3-4B-Instruct-2507
+        match: {architectures: [Qwen3ForCausalLM], num_hidden_layers: 36, hidden_size: 2560,
+                num_attention_heads: 32, num_key_value_heads: 8, rope_theta: 5000000}
+        evalTp: 1
+        checkpoint: {keepLast: 0}
+        watchdog: {startupMinutes: 30, minStallMinutes: 30, stallFactor: 3, saveMinutes: 20}
+        frameworks:
+          slime:
+            modelScript: scripts/models/qwen3-4B-Instruct-2507.sh
+            methods: {sft: [full], rl: [full]}
+            defaults: {tp: 2, pp: 1, cp: 2, ep: 1, gpusPerEngine: 2}
+            minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
+            convertNodes: 1
+      - name: qwen3-8B
+        match: {architectures: [Qwen3ForCausalLM], num_hidden_layers: 36, hidden_size: 4096,
+                num_attention_heads: 32, num_key_value_heads: 8, rope_theta: 1000000}
+        evalTp: 1
+        checkpoint: {keepLast: 0}
+        watchdog: {startupMinutes: 30, minStallMinutes: 30, stallFactor: 3, saveMinutes: 20}
+        frameworks:
+          slime:
+            modelScript: scripts/models/qwen3-8B.sh
+            methods: {sft: [full], rl: [full]}
+            defaults: {tp: 2, pp: 1, cp: 1, ep: 1, gpusPerEngine: 2}
+            minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
+            convertNodes: 1
+    images:
+      # Registered unvalidated: mark validated and list features once the Qwen3-4B SFT and GRPO smoke runs
+      # pass on the target nodes.
+      - image: primussafe/slime:540ea91-rocm724-gfx950
+        framework: slime
+        arch: [gfx950]
+        frameworkCommit: 540ea91
+        megatronBridge: v0.6.2
+        env: {RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES: "1"}
+        validated: false
+        features: []
+    gpuArch: {MI300X: gfx942, MI325X: gfx942, MI350X: gfx950, MI355X: gfx950}
+    network:
+      ainic:
+        env:
+          USING_AINIC: "1"
+          NCCL_IB_GID_INDEX: "1"
+          NCCL_DMABUF_ENABLE: "0"
+          NCCL_MAX_P2P_CHANNELS: "56"
+          NET_OPTIONAL_RECV_COMPLETION: "1"
+          NCCL_IB_USE_INLINE: "1"
+          RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING: "0"
+          NCCL_GDR_FLUSH_DISABLE: "1"
+          NCCL_IGNORE_CPU_AFFINITY: "1"
+          LD_LIBRARY_PATH: "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib"
+    evaluation:
+      inference:
+        image: fromImages
+        command: "python3 -m sglang.launch_server --model-path {model} --served-model-name {name} --tp {tp} --host 0.0.0.0 --port 8000"
+        port: 8000
+        readinessPath: /v1/models
+        maxWaitSeconds: 7200
+      probes:
+        - {prompt: "What is the capital of France? Answer with one word.", expect: exact, answer: Paris}
+        - {prompt: "Write a Triton kernel that adds two vectors.", expect: pythonCode}
 # Save Image: where a cluster's saved workload images go. A cluster without an entry uses
 # the default registry. Each entry:
 #   cluster: <cluster id>
