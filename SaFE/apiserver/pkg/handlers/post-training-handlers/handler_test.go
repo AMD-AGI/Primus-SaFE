@@ -44,7 +44,7 @@ specs:
         methods: {sft: [full], rl: [full]}
         minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
 images:
-  - {image: "img:1", framework: slime, arch: [gfx950], frameworkCommit: abc, validated: true, features: [full],
+  - {image: "img:1", framework: slime, arch: [gfx950], frameworkCommit: abc, validated: true, default: true, features: [full],
      env: {RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES: "1"}}
 gpuArch: {MI355X: gfx950}
 network:
@@ -186,4 +186,13 @@ func TestRegistryLoading(t *testing.T) {
 	require.Equal(t, "qwen3-4B", reg.Specs[0].Name)
 	require.Empty(t, workspaceUnavailable(reg, "", "MI355X"))
 	require.Equal(t, `The workspace GPU "MI325X" has no known architecture`, workspaceUnavailable(reg, "", "MI325X"))
+}
+
+func TestPausedError(t *testing.T) {
+	reg, err := registry.Parse([]byte(testRegistry))
+	require.NoError(t, err)
+	require.NoError(t, pausedError(reg))
+	reg.Paused = registry.Paused{Enabled: true, Reason: "cluster upgrade until 18:00"}
+	err = pausedError(reg)
+	require.ErrorContains(t, err, "cluster upgrade until 18:00")
 }

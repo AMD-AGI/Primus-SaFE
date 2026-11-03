@@ -43,6 +43,7 @@ type modelSupport struct {
 type modelsResponse struct {
 	Items             []modelSupport `json:"items"`
 	UnavailableReason string         `json:"unavailableReason,omitempty"`
+	PausedReason      string         `json:"pausedReason,omitempty"`
 }
 
 // frameworkItem is one selectable framework.
@@ -98,6 +99,9 @@ func (h *Handler) ListModels(c *gin.Context) {
 		return
 	}
 	resp.UnavailableReason = workspaceUnavailable(reg, q.Framework, ws.GPUModel)
+	if err := pausedError(reg); err != nil {
+		resp.PausedReason = err.Error()
+	}
 	models := &v1.ModelList{}
 	if err := h.client.List(ctx, models); err != nil {
 		apiutils.AbortWithApiError(c, err)
@@ -132,7 +136,7 @@ func workspaceUnavailable(reg *registry.Registry, framework, gpuModel string) st
 	if arch == "" {
 		return fmt.Sprintf("The workspace GPU %q has no known architecture", gpuModel)
 	}
-	if reg.ValidatedImage(fw.Name, arch) == nil {
+	if reg.DefaultImage(fw.Name, arch) == nil {
 		return fmt.Sprintf("No validated %s image for workspace GPU architecture %s", fw.Name, arch)
 	}
 	return ""

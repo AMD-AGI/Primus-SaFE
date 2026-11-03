@@ -30,7 +30,7 @@ func chartRegistry(t *testing.T) *registry.Registry {
 	require.NoError(t, err)
 	reg, err := registry.Parse(out)
 	require.NoError(t, err)
-	reg.Images[0].Validated = true
+	reg.Images[0].Validated, reg.Images[0].Default = true, true
 	reg.Images[0].Features = []string{registry.FeatureFull, registry.FeatureSeparate}
 	return reg
 }
