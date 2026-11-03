@@ -246,3 +246,30 @@ func TestDownloadWorkloadQueuesOnExternalWorkspace(t *testing.T) {
 		})
 	}
 }
+
+func TestModelInspectJobWorkload(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "pt-verify-pt-qwen-abc12",
+			Labels: map[string]string{v1.WorkspaceIdLabel: "ws1", v1.ClusterIdLabel: "c1"},
+		},
+		Spec: v1.OpsJobSpec{
+			Type:       v1.OpsJobModelInspectType,
+			Image:      pointer.String("s3-downloader"),
+			EntryPoint: pointer.String("cm0="),
+			Inputs:     []v1.Parameter{{Name: v1.ParameterDestPath, Value: "/data/custom/models/pt-qwen-abc12"}},
+		},
+	}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	r := &DownloadJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, ws)}
+	assert.False(t, r.filter(context.Background(), job), "the download controller runs model inspections")
+	_, err := r.generateDownloadWorkload(context.Background(), job)
+	assert.Error(t, err, "an inspection that belongs to neither a model nor a run cannot pick its command")
+
+	job.Labels[v1.PostTrainingRunIdLabel] = "pt-qwen-abc12"
+	wl, err := r.generateDownloadWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"cm0="}, wl.Spec.EntryPoints)
+	assert.Equal(t, "1", wl.Spec.Resources[0].CPU)
+	assert.True(t, isDownloadWorkload(wl))
+}

@@ -206,7 +206,7 @@ func (h *Handler) getModel(ctx context.Context, id, workspace string) (*v1.Model
 func modelInfo(m *v1.Model, workspace string) recipe.ModelInfo {
 	info := recipe.ModelInfo{ID: m.Name, Config: m.Status.ModelConfig, MaxTokens: m.Spec.MaxTokens}
 	if m.Annotations != nil {
-		info.ConfigError = m.Annotations[modelInspectErrorAnnotation]
+		info.ConfigError = m.Annotations[v1.ModelInspectErrorAnnotation]
 	}
 	if m.IsRemoteAPI() || !m.IsReady() {
 		return info
@@ -217,8 +217,6 @@ func modelInfo(m *v1.Model, workspace string) recipe.ModelInfo {
 	return info
 }
 
-// modelInspectErrorAnnotation records why reading a model's config.json failed.
-const modelInspectErrorAnnotation = v1.PrimusSafePrefix + "model.inspect-error"
 
 // modelPathIn returns the ready local path of a model in a workspace, or "".
 func modelPathIn(m *v1.Model, workspace string) string {
