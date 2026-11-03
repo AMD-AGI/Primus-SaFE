@@ -234,7 +234,7 @@ func TestSSOLoginProviderDownAtStart(t *testing.T) {
 	// The apiserver starts; the sign-in is unavailable until the provider answers.
 	inst, err := initializeSSOToken(newLoginTestClient(t))
 	require.NoError(t, err)
-	assert.Equal(t, "", inst.LoginAuthURL())
+	assert.True(t, inst.LoginEnabled(), "the console must not fall back to the other sign-in while the provider is down")
 	// Within the retry interval the provider is not asked again: requests fail at once.
 	hits := f.discoveries.Load()
 	assert.Equal(t, "", inst.LoginAuthURL())
@@ -348,12 +348,39 @@ func TestSSOLoginValidateChoosesTheIssuersVerifier(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestUnverifiedIssuer(t *testing.T) {
+func TestUnverifiedIssuerAudience(t *testing.T) {
 	enc := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
-	assert.Equal(t, "https://idp", unverifiedIssuer(enc(`{}`)+"."+enc(`{"iss":"https://idp"}`)+".sig"))
-	assert.Equal(t, "", unverifiedIssuer("a.b"))
-	assert.Equal(t, "", unverifiedIssuer("a.!!!.c"))
-	assert.Equal(t, "", unverifiedIssuer(enc(`{}`)+"."+enc(`[1]`)+".sig"))
+	iss, aud := unverifiedIssuerAudience(enc(`{}`) + "." + enc(`{"iss":"https://idp","aud":"a"}`) + ".sig")
+	assert.Equal(t, "https://idp", iss)
+	assert.Equal(t, []string{"a"}, aud)
+	_, aud = unverifiedIssuerAudience(enc(`{}`) + "." + enc(`{"iss":"https://idp","aud":["a","b"]}`) + ".sig")
+	assert.Equal(t, []string{"a", "b"}, aud)
+	for _, raw := range []string{"a.b", "a.!!!.c", enc(`{}`) + "." + enc(`[1]`) + ".sig"} {
+		iss, aud = unverifiedIssuerAudience(raw)
+		assert.Equal(t, "", iss)
+		assert.Empty(t, aud)
+	}
+}
+
+// One issuer, two clients: the sso Secret's client (bridged web apps) and the console's (sso.login). Each session is
+// judged by the verifier of its own client.
+func TestSSOLoginSharedIssuerTwoClients(t *testing.T) {
+	login := newFakeLoginProvider(t)
+	withLoginConfig(t, login.srv.URL)
+	dir := t.TempDir()
+	for name, v := range map[string]string{"id": secretClientID, "secret": "s3cret", "endpoint": login.srv.URL, "redirect_uri": secretRedirectURI} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(v+"\n"), 0o600))
+	}
+	commonconfig.SetValue("sso.secret_path", dir)
+	inst, err := initializeSSOToken(newLoginTestClient(t))
+	require.NoError(t, err)
+	for name, aud := range map[string]any{"console": loginClientID, "bridged": secretClientID, "bridged, list": []string{secretClientID}} {
+		_, err = inst.Validate(context.Background(), login.idToken(map[string]any{"aud": aud}))
+		assert.NoError(t, err, name)
+	}
+	_, err = inst.Validate(context.Background(), login.idToken(map[string]any{"aud": "a-third-app"}))
+	assert.Error(t, err)
+	assert.True(t, inst.LoginEnabled())
 }
 
 // With both providers, the sso Secret's keeps serving what it served: its authorization URL stays ssoAuthUrl, a code

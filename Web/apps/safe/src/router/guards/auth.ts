@@ -5,7 +5,7 @@ import { getEnvs, ssoLoginRaw } from '@/services/login'
 import { addUserToGroup, getUserNTID } from '@/services/mcp'
 import { getSafeRedirect } from '@/utils'
 import { resolveAllowedBridge } from '@/utils/ssoBridge'
-import { takeCallbackVerifier } from '@/utils/ssoSignIn'
+import { pkceRequired, takeCallbackVerifier } from '@/utils/ssoSignIn'
 
 const SSO_GROUP = 'dl.primus-safe-users'
 const PUBLIC_NAME = new Set(['Login', 'LoginAdmin', 'Register', 'SSOError'])
@@ -51,11 +51,10 @@ async function loadBridgeAllowlist(): Promise<string[]> {
   }
 }
 
-/** Whether the console's sign-in uses PKCE (/envs ssoLoginUrl); false if /envs cannot be read. */
+/** Whether the console's sign-in uses PKCE (/envs ssoPkce); false if /envs cannot be read. */
 async function loadPkceRequired(): Promise<boolean> {
   try {
-    const envs = await getEnvs()
-    return !!envs?.ssoLoginUrl
+    return pkceRequired(await getEnvs())
   } catch {
     return false
   }

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -385,8 +386,9 @@ func (c *ssoToken) Validate(ctx context.Context, rawToken string) (*UserInfo, er
 		}
 		rawToken = userToken[0].Token
 	}
-	// A session made by a sign-in at the sso.login provider holds that provider's ID token.
-	if c.login != nil && unverifiedIssuer(rawToken) == c.login.issuer {
+	// A session made by a sign-in at the sso.login provider holds that provider's ID token, for the
+	// console's client (the two providers may be one issuer with two clients).
+	if iss, aud := unverifiedIssuerAudience(rawToken); c.login != nil && iss == c.login.issuer && slices.Contains(aud, c.login.clientId) {
 		_, verifier, err := c.login.get()
 		if err != nil {
 			return nil, err
@@ -396,24 +398,31 @@ func (c *ssoToken) Validate(ctx context.Context, rawToken string) (*UserInfo, er
 	return c.validate(ctx, rawToken)
 }
 
-// unverifiedIssuer reads the iss claim of a JWT without verifying it. It only chooses which provider's
-// verifier judges the token; that verifier checks the issuer again, with the signature.
-func unverifiedIssuer(raw string) string {
+// unverifiedIssuerAudience reads the iss and aud claims of a JWT without verifying them. They only
+// choose which provider's verifier judges the token; that verifier checks both again, with the signature.
+func unverifiedIssuerAudience(raw string) (string, []string) {
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
-		return ""
+		return "", nil
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	var claims struct {
-		Issuer string `json:"iss"`
+		Issuer   string          `json:"iss"`
+		Audience json.RawMessage `json:"aud"`
 	}
 	if json.Unmarshal(payload, &claims) != nil {
-		return ""
+		return "", nil
 	}
-	return claims.Issuer
+	var one string
+	if json.Unmarshal(claims.Audience, &one) == nil {
+		return claims.Issuer, []string{one}
+	}
+	var many []string
+	_ = json.Unmarshal(claims.Audience, &many)
+	return claims.Issuer, many
 }
 
 // validate verifies ID token and extracts user information
@@ -537,6 +546,12 @@ func (c *ssoToken) oauth2Config(provider *oidc.Provider) *oauth2.Config {
 		Scopes:       DefaultOIDCScopes,
 		RedirectURL:  c.redirectURI,
 	}
+}
+
+// LoginEnabled reports whether the console signs in at the sso.login provider, whether or not that
+// provider can be discovered right now: the console must then not fall back to the other sign-in.
+func (c *ssoToken) LoginEnabled() bool {
+	return c != nil && c.login != nil
 }
 
 // LoginAuthURL returns the authorization URL of the sso.login provider, for the console's client and

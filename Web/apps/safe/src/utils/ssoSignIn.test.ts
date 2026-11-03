@@ -5,6 +5,7 @@ import {
   buildSignInUrl,
   codeChallengeS256,
   newCodeVerifier,
+  pkceRequired,
   signInTarget,
   takeCallbackVerifier,
 } from './ssoSignIn'
@@ -107,5 +108,28 @@ describe('signInTarget', () => {
     expect(signInTarget({})).toBeNull()
     expect(signInTarget(undefined)).toBeNull()
     expect(signInTarget(null)).toBeNull()
+  })
+
+  it('does not fall back to ssoAuthUrl while the PKCE sign-in is configured but unavailable', () => {
+    expect(signInTarget({ ssoAuthUrl: 'https://a/authorize', ssoPkce: true })).toBeNull()
+    expect(
+      signInTarget({
+        ssoAuthUrl: 'https://a/authorize',
+        ssoLoginUrl: 'https://b/authorize',
+        ssoPkce: true,
+      }),
+    ).toEqual({
+      url: 'https://b/authorize',
+      pkce: true,
+    })
+  })
+})
+
+describe('pkceRequired', () => {
+  it('follows ssoPkce, and ssoLoginUrl from a server that does not report ssoPkce', () => {
+    expect(pkceRequired({ ssoPkce: true })).toBe(true)
+    expect(pkceRequired({ ssoLoginUrl: 'https://b/authorize' })).toBe(true)
+    expect(pkceRequired({ ssoAuthUrl: 'https://a/authorize' } as never)).toBe(false)
+    expect(pkceRequired(null)).toBe(false)
   })
 })

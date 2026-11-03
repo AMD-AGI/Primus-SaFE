@@ -37,6 +37,7 @@ Returns environment configuration flags and endpoints used by the frontend and c
 | ssoEnable | bool | Whether Single Sign-On (SSO) via OIDC is enabled. With `authMode` `external` it is `true` only when `auth.login_url` is set: the built-in sign-in is refused there and is not advertised. |
 | ssoAuthUrl | string | Authorization URL for SSO login; present only if `ssoEnable` is true. With `authMode` `external` it is `auth.login_url`. Otherwise it is the URL of the provider of the `sso` Secret, whose codes `POST /api/v1/login` redeems without a code verifier (also for the web apps that bridge through the console); empty when that provider is not configured. |
 | ssoLoginUrl | string | With `sso.login` enabled (`authMode` `builtin`): the console's sign-in, the authorization endpoint of that provider for the console's client id and callback, asking for PKCE (`code_challenge_method=S256`). The console uses it instead of `ssoAuthUrl`: it adds its `state` and an S256 `code_challenge`, keeps the verifier in the tab, and sends it as `code_verifier` with the code to `POST /api/v1/login`. Absent otherwise. |
+| ssoPkce | bool | `true` whenever `sso.login` is enabled, also while its provider cannot be reached and `ssoLoginUrl` is therefore absent: the console then offers no sign-in rather than falling back to `ssoAuthUrl`, and uses a code at its callback only with the PKCE verifier it kept. Absent otherwise. |
 
 #### Notes
 

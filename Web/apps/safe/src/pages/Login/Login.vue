@@ -236,7 +236,11 @@ function clearSSOAttempts() {
 async function startSSO() {
   const signIn = signInTarget(userStore.envs)
   if (!signIn) {
-    ElMessage.error('SSO is not configured')
+    ElMessage.error(
+      userStore.envs?.ssoPkce
+        ? 'Single sign-on is temporarily unavailable. Please try again later.'
+        : 'SSO is not configured',
+    )
     return
   }
 

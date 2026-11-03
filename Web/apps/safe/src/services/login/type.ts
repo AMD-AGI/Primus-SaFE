@@ -76,6 +76,9 @@ export interface EnvsResp {
   // The console's sign-in when the server has one with PKCE (sso.login): used instead of ssoAuthUrl,
   // with an S256 code challenge, and the verifier is sent with the code
   ssoLoginUrl?: string
+  // The console signs in only with PKCE (sso.login is on), even while ssoLoginUrl is empty because
+  // the provider cannot be reached: it then does not fall back to ssoAuthUrl
+  ssoPkce?: boolean
   // origins (optionally with a path prefix) other than this console allowed to receive the SSO code
   ssoBridgeAllowlist?: string[]
   // cd

@@ -9,13 +9,23 @@
 export const OAUTH_STATE_KEY = 'oauth_state'
 export const PKCE_VERIFIER_KEY = 'oauth_pkce_verifier'
 
-/** Where the console signs in, from /envs: ssoLoginUrl with PKCE when there is one, else ssoAuthUrl. */
+/**
+ * Where the console signs in, from /envs: ssoLoginUrl with PKCE when there is one, else ssoAuthUrl. When
+ * the server says the sign-in is PKCE's (ssoPkce) and has no ssoLoginUrl just now, there is none: falling
+ * back to ssoAuthUrl would accept codes without PKCE again.
+ */
 export function signInTarget(
-  envs?: { ssoAuthUrl?: string; ssoLoginUrl?: string } | null,
+  envs?: { ssoAuthUrl?: string; ssoLoginUrl?: string; ssoPkce?: boolean } | null,
 ): { url: string; pkce: boolean } | null {
   if (envs?.ssoLoginUrl) return { url: envs.ssoLoginUrl, pkce: true }
+  if (envs?.ssoPkce) return null
   if (envs?.ssoAuthUrl) return { url: envs.ssoAuthUrl, pkce: false }
   return null
+}
+
+/** Whether a callback must come with this tab's PKCE verifier, from /envs. */
+export function pkceRequired(envs?: { ssoLoginUrl?: string; ssoPkce?: boolean } | null): boolean {
+  return !!envs?.ssoPkce || !!envs?.ssoLoginUrl
 }
 
 function base64Url(bytes: Uint8Array): string {

@@ -33,6 +33,9 @@ type GetEnvResponse struct {
 	// PKCE (the console adds its state and an S256 code_challenge, and sends the code verifier with the
 	// code). ssoAuthUrl stays the URL of the provider of the sso Secret while that is configured.
 	SSOLoginUrl string `json:"ssoLoginUrl,omitempty"`
+	// True when sso.login is on, even while its provider cannot be reached (ssoLoginUrl empty): the
+	// console then signs in only with PKCE, and does not fall back to ssoAuthUrl.
+	SSOPkce bool `json:"ssoPkce,omitempty"`
 	// Origins (optionally with a path prefix) other than the web console itself that may receive an SSO code.
 	SSOBridgeAllowlist []string `json:"ssoBridgeAllowlist"`
 	// Whether CD deployment requires approval from another user
