@@ -99,7 +99,7 @@ func (a *AccessController) Authorize(in AccessInput) error {
 }
 
 // AuthorizeSystemAdmin checks if the user has system administrator privileges.
-// Returns an error if the user is not a system admin.
+// Returns an error if the user is restricted or is not a system admin.
 func (a *AccessController) AuthorizeSystemAdmin(in AccessInput, readOnlyAllowed bool) error {
 	if in.User == nil {
 		var err error
@@ -108,6 +108,9 @@ func (a *AccessController) AuthorizeSystemAdmin(in AccessInput, readOnlyAllowed 
 		}
 	}
 	in.User = extauth.ApplyOverlay(in.Context, in.User)
+	if err := a.checkUserStatus(in.User); err != nil {
+		return err
+	}
 	if in.User.IsSystemAdmin() {
 		return nil
 	}
