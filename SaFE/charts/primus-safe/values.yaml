@@ -475,7 +475,7 @@ sandbox:
   secret: "envd-router-identity"
   # EnvD injector initContainer image. Repo path only; the template adds harbor.<sub_domain>.<domain>/proxy/,
   # so the digest has to exist on Docker Hub. Must include GET /api/jobs for Brain idle sandbox reclaim.
-  envd_injector_image: "primussafe/agent-sandbox-envd-injector@sha256:0b5dc0743c691a77e2a8ed472661bb2701c108dc8243a741384e038514c39090"
+  envd_injector_image: "primussafe/agent-sandbox-envd-injector@sha256:15897087043550c2d7fafc3a1827ee011e3ede7dec6aaaaab555a84df814ac9b"
   # Secret holding extra CA certificates (PEM, any key name) that sandboxes must trust. Create it in the
   # primus-safe namespace with the annotations
   #   primus-safe.workspace.selector: "primus-safe.workspace.scope.sandbox=true"
