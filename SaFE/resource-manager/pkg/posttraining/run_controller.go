@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +50,7 @@ const (
 	// createGrace covers a run whose workload is not in the cache yet.
 	createGrace       = 2 * time.Minute
 	registryTTL       = time.Minute
+	registerTimeout   = 30 * time.Minute
 	defaultMaxPoints  = 2000000
 	recoverPageSize   = 500
 	recoverBufferSize = 1024
@@ -58,6 +61,9 @@ var (
 	separateConvertOrder = []string{"queued", "convert", "prepare", "check", "train", "export", "register", "eval", "done"}
 	launcherStages       = map[string]bool{"prepare": true, "convert": true, "check": true, "train": true, "export": true}
 )
+
+// lostMessage starts the message of a run whose launcher stopped reporting.
+const lostMessage = "The launcher has not reported"
 
 // stageEntry is one record of the stage_history column.
 type stageEntry struct {
@@ -151,6 +157,20 @@ func (u *runUpdate) end(status v1.WorkloadPhase, endTime time.Time) {
 	if !u.run.EndTime.Valid {
 		u.fields["end_time"] = endTime
 	}
+	if u.run.StalledSince.Valid {
+		u.fields["stalled_since"] = nil
+	}
+}
+
+// stageStart returns when the run entered stage, or the zero time when it has not.
+func (u *runUpdate) stageStart(stage string) time.Time {
+	for _, e := range u.history {
+		if e.Stage == stage && e.Event == "" {
+			t, _ := time.Parse(time.RFC3339, e.Time)
+			return t
+		}
+	}
+	return time.Time{}
 }
 
 // fail marks the run failed at stage for reason.
@@ -321,7 +341,9 @@ func (r *RunReconciler) reconcileWorkload(ctx context.Context, run *dbclient.Pos
 		return ctrlruntime.Result{RequeueAfter: pendingRequeue}, r.save(ctx, u)
 	case w.IsRunning():
 		u.set("status", run.Status, string(v1.WorkloadRunning))
-		u.set("message", run.Message, "")
+		if !run.StalledSince.Valid {
+			u.set("message", run.Message, "")
+		}
 		u.set("queue_position", run.QueuePosition, 0)
 		if run.Stage == "queued" {
 			u.moveTo(u.order[1])
@@ -497,6 +519,15 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 	case in.newAttempt:
 		u.set("result_line", run.ResultLine, "")
 	}
+	syncStall(u, in, w.IsRunning())
+	if in.disk != "" {
+		u.set("disk_usage", run.DiskUsage, in.disk)
+	}
+	if in.noRetry {
+		if err := r.disableFailover(ctx, w); err != nil {
+			return false, err
+		}
+	}
 	u.set("metric_gap", run.MetricGap, cur.hasGap(u.now))
 	if data, _ := json.Marshal(cur); string(data) != run.MetricCursor {
 		u.fields["metric_cursor"] = string(data)
@@ -560,12 +591,57 @@ func (r *RunReconciler) readSubmitter(ctx context.Context, w *v1.Workload, cur *
 		return false, err
 	}
 	defer stream.Close()
-	n, err := scanLog(stream, cur, func(_ time.Time, line string) {
+	n, err := scanLog(stream, cur, func(ts time.Time, line string) {
 		if m, ok := parseMarker(line, in.u.run.RunID); ok {
+			if m.Kind == markerStage {
+				cur.LastStage = ts.Unix()
+			}
 			in.add(m)
 		}
 	})
 	return n >= maxReadBytes, err
+}
+
+// syncStall marks the run stalled from the watchdog's warning, or when a running launcher has printed no [STAGE]
+// for lostAfter, and clears the mark on progress or, for a lost launcher, on its next [STAGE].
+func syncStall(u *runUpdate, in *ingestion, running bool) {
+	run := u.run
+	lost := strings.HasPrefix(run.Message, lostMessage)
+	switch {
+	case in.stall != nil:
+		since := time.Unix(0, int64(in.stall.Since*float64(time.Second))).UTC()
+		last := "none"
+		if in.stall.LastStep != nil {
+			last = strconv.FormatInt(*in.stall.LastStep, 10)
+		}
+		message := fmt.Sprintf("No training progress for %d minutes (last step %s); the attempt is stopped and "+
+			"retried at %d minutes", in.stall.Minutes, last, in.stall.StopMinutes)
+		if !run.StalledSince.Valid || lost {
+			u.event("stalled", message)
+		}
+		u.fields["stalled_since"] = since
+		u.set("message", run.Message, message)
+	case run.StalledSince.Valid && (in.unstalled || (lost && in.sawStage)):
+		u.fields["stalled_since"] = nil
+		u.set("message", run.Message, "")
+	case running && !run.StalledSince.Valid && !in.sawStage && in.cur.LastStage > 0 &&
+		u.now.Sub(time.Unix(in.cur.LastStage, 0)) > lostAfter:
+		minutes := int(u.now.Sub(time.Unix(in.cur.LastStage, 0)).Minutes())
+		message := fmt.Sprintf("%s for %d minutes", lostMessage, minutes)
+		u.event("lost", message)
+		u.fields["stalled_since"] = time.Unix(in.cur.LastStage, 0).UTC()
+		u.set("message", run.Message, message)
+	}
+}
+
+// disableFailover stops the platform from dispatching the workload again after an error that would recur.
+func (r *RunReconciler) disableFailover(ctx context.Context, w *v1.Workload) error {
+	if v1.IsWorkloadDisableFailover(w) {
+		return nil
+	}
+	patch := client.MergeFrom(w.DeepCopy())
+	v1.SetAnnotation(w, v1.WorkloadDisableFailoverAnnotation, v1.TrueStr)
+	return client.IgnoreNotFound(r.Patch(ctx, w, patch))
 }
 
 // hasContainer reports whether pod runs a container named name.

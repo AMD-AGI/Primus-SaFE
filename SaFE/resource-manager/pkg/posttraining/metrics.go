@@ -40,6 +40,8 @@ const (
 	// the last two minutes of metrics every minute.
 	gapGrace = 120 * time.Second
 	maxGaps  = 256
+	// lostAfter is how long a running launcher may go without any [STAGE], heartbeats included.
+	lostAfter = 10 * time.Minute
 )
 
 var (
@@ -78,6 +80,15 @@ type markerBody struct {
 // stageDetail is the part of a [STAGE] detail the controller reads.
 type stageDetail struct {
 	ResumeStep *int64 `json:"resumeStep"`
+}
+
+// stallDetail is the detail of a stalled [STAGE]: the last progress time in unix seconds, the last step and the
+// idle minutes at which the watchdog stops the attempt.
+type stallDetail struct {
+	Since       float64 `json:"since"`
+	LastStep    *int64  `json:"lastStep"`
+	Minutes     int     `json:"minutes"`
+	StopMinutes int     `json:"stopMinutes"`
 }
 
 // parseMarker strips color codes and a Ray actor prefix from line and returns the marker that starts it, when
@@ -130,6 +141,8 @@ type logCursor struct {
 	// Order lists the attempts in the order their first [STAGE] was read.
 	Order    []string                  `json:"order,omitempty"`
 	Attempts map[string]*attemptCursor `json:"attempts,omitempty"`
+	// LastStage is the log time of the last [STAGE] read, in unix seconds.
+	LastStage int64 `json:"lastStage,omitempty"`
 }
 
 // attemptCursor tracks the metric seqs of one attempt and where it resumed training.
@@ -429,6 +442,12 @@ type ingestion struct {
 	resumeFrom *int64
 	result     *marker
 	newAttempt bool
+	// stall is the latest stall warning not followed by progress; unstalled is set by progress after one.
+	stall     *stallDetail
+	unstalled bool
+	sawStage  bool
+	noRetry   bool
+	disk      string
 }
 
 // add applies one marker.
@@ -438,6 +457,7 @@ func (in *ingestion) add(m *marker) {
 		if in.cur.register(attempt) {
 			in.newAttempt = true
 		}
+		in.sawStage = true
 		in.addStage(m)
 		return
 	}
@@ -456,7 +476,25 @@ func (in *ingestion) add(m *marker) {
 
 // addStage advances the stage, never backwards in the run's order, and records each attempt's resume step.
 func (in *ingestion) addStage(m *marker) {
-	if m.Body.State == "heartbeat" || m.Body.State == "failed" {
+	switch m.Body.State {
+	case "heartbeat":
+		return
+	case "failed":
+		in.noRetry = in.noRetry || (m.Body.Retry != nil && !*m.Body.Retry)
+		return
+	case "stalled":
+		stall := &stallDetail{}
+		if json.Unmarshal(m.Body.Detail, stall) == nil && stall.Since > 0 {
+			in.stall = stall
+		}
+		return
+	case "recovered":
+		in.stall, in.unstalled = nil, true
+		return
+	case "disk":
+		if len(m.Body.Detail) > 0 {
+			in.disk = string(m.Body.Detail)
+		}
 		return
 	}
 	if launcherStage(m.Body.Stage) {
@@ -495,6 +533,9 @@ func (in *ingestion) addMetric(m *marker) {
 	}
 	if !in.cur.Attempts[b.Attempt].accept(b.Seq, in.u.now) {
 		return
+	}
+	if b.Kind == "step" || b.Kind == "rollout" || b.Kind == "eval" {
+		in.stall, in.unstalled = nil, true
 	}
 	wall := in.u.now
 	if b.T > 0 {

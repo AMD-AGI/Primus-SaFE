@@ -202,3 +202,42 @@ func TestSparklineStaysBounded(t *testing.T) {
 	require.Equal(t, int64(0), m.Spark[0].Step)
 	require.Equal(t, int64(999), m.Step)
 }
+
+func TestIngestionStallDiskAndNoRetry(t *testing.T) {
+	in := newTestIngestion(100)
+	feed(in, stageLine("a1", "train", "running", ""),
+		stageLine("a1", "train", "stalled", `{"since":1762160000.5,"lastStep":340,"minutes":31,"stopMinutes":60}`),
+		stageLine("a1", "train", "disk", `{"checkpoints":1024,"total":1024}`))
+	require.Equal(t, 340, int(*in.stall.LastStep))
+	require.Equal(t, `{"checkpoints":1024,"total":1024}`, in.disk)
+
+	u := in.u
+	syncStall(u, in, true)
+	require.Equal(t, time.Unix(1762160000, 500000000).UTC(), u.fields["stalled_since"])
+	require.Equal(t, "No training progress for 31 minutes (last step 340); the attempt is stopped and retried at "+
+		"60 minutes", u.fields["message"])
+
+	feed(in, metricLine("a1", 1, 341, `{"train/loss":1}`),
+		stageLine("a1", "train", "failed", `{"stage":"train","reason":"disk full"}`))
+	require.Nil(t, in.stall, "a new training step clears the stall")
+	require.True(t, in.unstalled)
+	require.False(t, in.noRetry, "a failed stage without retry false keeps failover")
+	feed(in, strings.Replace(stageLine("a1", "train", "failed", ""), `"state"`, `"retry":false,"state"`, 1))
+	require.True(t, in.noRetry)
+}
+
+func TestLostLauncherIsMarkedAndCleared(t *testing.T) {
+	in := newTestIngestion(100)
+	in.cur.LastStage = time.Now().Add(-11 * time.Minute).Unix()
+	syncStall(in.u, in, true)
+	require.Contains(t, in.u.fields["message"], lostMessage)
+	require.NotNil(t, in.u.fields["stalled_since"])
+
+	in = newTestIngestion(100)
+	in.u.run.StalledSince.Valid, in.u.run.Message = true, lostMessage+" for 11 minutes"
+	feed(in, stageLine("a1", "train", "heartbeat", ""))
+	syncStall(in.u, in, true)
+	require.Contains(t, in.u.fields, "stalled_since")
+	require.Nil(t, in.u.fields["stalled_since"], "any [STAGE] from a lost launcher clears the mark")
+	require.Equal(t, "", in.u.fields["message"])
+}
