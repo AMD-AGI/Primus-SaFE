@@ -11,12 +11,12 @@ grant_token = t {
   t := object.get(object.get(input.review.object.metadata, "annotations", {}), "agent-sandbox.io/grant-attestation", "")
 }
 
-# identity_token reads the primus-identity JWT. Presence is enough here; the identity constraint verifies it.
+# identity_token reads the identity provider assertion. Presence is enough here; the identity constraint verifies it.
 identity_token = t {
   t := object.get(object.get(input.review.object.metadata, "annotations", {}), "agent-sandbox.io/identity-attestation", "")
 }
 
-# grant_satisfied accepts a valid Claw grant, or no grant when an identity attestation is present.
+# grant_satisfied accepts a valid Claw grant, or no grant when an identity assertion is present.
 # A grant that is present must verify. An invalid grant is not excused by the other annotation.
 grant_satisfied {
   valid_attestation

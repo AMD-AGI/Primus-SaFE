@@ -2,7 +2,7 @@
 # Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
-# Membership, grant-attestation, and primus-identity attestation constraints.
+# Membership, grant-attestation, and identity provider assertion constraints.
 # Install this Addon on the management cluster after gatekeeper.3.23.1.
 # It is not a default addon.
 #
@@ -11,7 +11,7 @@
 #        oci://<helm registry host>/primussafe/gatekeeper-constraints:0.1.2
 #      A helm_registry value ending in /proxy names the cache project, so the host is used.
 #      The apply Job uses <proxy_image_registry>/primussafe/curl:8.20.0.
-#   2. enforcementAction is deny. Set jwks, identityJwks, and identityIssuer when installing the Addon.
+#   2. enforcementAction is deny. Set jwks, identity.jwks, identity.issuer, and identity.actor when installing the Addon.
 #   3. User membership reads spec.resources.workspaces on the synced User CR. A system-admin User
 #      is a member of every workspace.
 #
@@ -28,7 +28,7 @@ metadata:
   name: gatekeeper-constraints.0.1.2
 spec:
   category: plugin
-  description: Gatekeeper constraints that check Agent Sandbox Workload membership, the Claw grant attestation, and the primus-identity attestation. Install on the management cluster after Gatekeeper. Enforcement is deny.
+  description: Gatekeeper constraints that check Agent Sandbox Workload membership, the Claw grant attestation, and the identity provider assertion. Install on the management cluster after Gatekeeper. Enforcement is deny.
   url: oci://{{ .Values.global.helm_registry | trimSuffix "/proxy" }}/primussafe/gatekeeper-constraints
   version: 0.1.2
   type: helm
@@ -38,8 +38,13 @@ spec:
     enforcementAction: deny
     sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane
     jwks: ""
-    identityJwks: ""
-    identityIssuer: ""
+    identity:
+      jwks: ""
+      issuer: ""
+      actor: ""
+      audience: agent-sandbox-admission
+      tokenType: assertion+jwt
+      detailType: agent-sandbox-workload
     image:
       repository: {{ .Values.global.proxy_image_registry }}/primussafe/curl
       tag: "8.20.0"

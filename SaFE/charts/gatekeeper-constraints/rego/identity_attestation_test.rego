@@ -3,23 +3,22 @@ package sandboxworkloadidentity
 creator := "system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane"
 issuer := "https://identity.example.test"
 
-cert := `-----BEGIN CERTIFICATE-----
-MIIBHjCBxaADAgECAgEBMAoGCCqGSM49BAMCMBgxFjAUBgNVBAMMDXJlZ28taWRl
-bnRpdHkwIBcNMjYxMDI2MDAwMDAwWhgPMjA5OTAxMDEwMDAwMDBaMBgxFjAUBgNV
-BAMMDXJlZ28taWRlbnRpdHkwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASiM3UQ
-3YBzybd2MTImAXOobBUPZDh0maLlE4dBZ+ftWFnwJFup85N+H9zBhq8EjLXnXOuk
-QP0M01Ls8jiHy2e5MAoGCCqGSM49BAMCA0gAMEUCIGc2A9BXQZmNU2V41DLGVuKu
-Knuj/urMkgGsmYBYHmS1AiEAg7iICJVCDpHsGQ/xFC5KDgMpH6AaX/z1PIImN353
-eZE=
------END CERTIFICATE-----`
+jwks := `{"keys":[{"kty":"EC","crv":"P-256","x":"6CGuFJwQpwIJ9X4Vb6jLs9plsGVZqN_N4yhNVuUywaw","y":"lK8cqCW2A6eNavmsZ4mIHnlz9gcm8TH_qr9U-9WvlDo","kid":"k1","alg":"ES256","use":"sig"}]}`
 
-valid_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsInNhbmRib3giOiJzYngtMSIsIm1heEdwdXMiOjEsImV4cCI6NDEwMjQ0NDgwMH0.o9ZYCgUVD5i_eEoZWWZw8-OhEhzrLlRHwkReN1BtrZpf8X4QSSkQU941XXcUW3W4XiFgTZOwJtHytQ6mpFDNtg"
-expired_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsInNhbmRib3giOiJzYngtMSIsIm1heEdwdXMiOjEsImV4cCI6MX0.95WeKjML19XS9B8X6q593JK0WFYk69mihthQ4vIqLbUZU2ORnQCFvnSDMDYC4zvViuqtDwLsm-C79ETJ7onSRw"
-no_gpu_claim_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsInNhbmRib3giOiJzYngtMSIsImV4cCI6NDEwMjQ0NDgwMH0.D4w0Ud0uYGZidMcljig4ZO5yEAAqHruynJc_vPlYqhT1PY7wyONXhAuXI6Cit_YuYa7Vs4WIXBujgHSejJTHxw"
-no_sandbox_claim_token := "eyJhbGciOiJFUzI1NiIsInR5cCI6InNhbmRib3gtYXR0ZXN0YXRpb24rand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtaWRlbnRpdHkiLCJzdWIiOiJ1c2VyLTEiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsIm1heEdwdXMiOjEsImV4cCI6NDEwMjQ0NDgwMH0.t-EdRTFNYsy3qrkiClhXUuQt_LxbjsKNEH8HtYL_PIRzTD-p0YrjFy6Jtwp-cDSaxVBfYpe4bCRXJ58vcyN83Q"
+valid_token := "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIiwidHlwIjoiYXNzZXJ0aW9uK2p3dCJ9.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtYWRtaXNzaW9uIiwic3ViIjoidXNlci0xIiwiYWN0Ijp7InN1YiI6InN2Yy1jb250cm9scGxhbmUifSwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImF1dGhvcml6YXRpb25fZGV0YWlscyI6W3sidHlwZSI6ImFnZW50LXNhbmRib3gtd29ya2xvYWQiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsIm5hbWUiOiJzYngtMSIsImdwdXMiOjF9XX0.0BM5n_HOPhV1EBA_WLGLmqFhEIjs8XVaZD-NB_gp4kuv9-kdNTPoK8m1SBy5-jpsAtmggpDgv2SgVOC7P0Nfzw"
+expired_token := "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIiwidHlwIjoiYXNzZXJ0aW9uK2p3dCJ9.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtYWRtaXNzaW9uIiwic3ViIjoidXNlci0xIiwiYWN0Ijp7InN1YiI6InN2Yy1jb250cm9scGxhbmUifSwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjEsImF1dGhvcml6YXRpb25fZGV0YWlscyI6W3sidHlwZSI6ImFnZW50LXNhbmRib3gtd29ya2xvYWQiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsIm5hbWUiOiJzYngtMSIsImdwdXMiOjF9XX0.VAjSRzVbbxvRTB37ZnFbpSx8A9RluqEN3o9820myaaa-DBZB2F9chiWD0sH-YhN1bPn6WXSL5-MeHb-S5FQASA"
+access_token_typ := "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtYWRtaXNzaW9uIiwic3ViIjoidXNlci0xIiwiYWN0Ijp7InN1YiI6InN2Yy1jb250cm9scGxhbmUifSwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImF1dGhvcml6YXRpb25fZGV0YWlscyI6W3sidHlwZSI6ImFnZW50LXNhbmRib3gtd29ya2xvYWQiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsIm5hbWUiOiJzYngtMSIsImdwdXMiOjF9XX0.Doo7k9PtIC69sWWc8NBPPPfSfr7HnZZQlhZw37GhXFihovChabAwLo2pd1X9xecc2hCY4yuo4FvJ9hFb94hWCg"
+other_actor_token := "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIiwidHlwIjoiYXNzZXJ0aW9uK2p3dCJ9.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtYWRtaXNzaW9uIiwic3ViIjoidXNlci0xIiwiYWN0Ijp7InN1YiI6InN2Yy1vdGhlciJ9LCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwiYXV0aG9yaXphdGlvbl9kZXRhaWxzIjpbeyJ0eXBlIjoiYWdlbnQtc2FuZGJveC13b3JrbG9hZCIsIndvcmtzcGFjZSI6ImxhYiIsImtpbmQiOiJTYW5kYm94IiwibmFtZSI6InNieC0xIiwiZ3B1cyI6MX1dfQ.RGqH3-mgQUGU_5VVO26OWdenE-VUTZQB79zDNEtkj6xKN7v5gVsUBlmVvkKC9Zs7aQ3xD8-C0d4r3f_3IMnXag"
+other_audience_token := "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIiwidHlwIjoiYXNzZXJ0aW9uK2p3dCJ9.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6Im90aGVyIiwic3ViIjoidXNlci0xIiwiYWN0Ijp7InN1YiI6InN2Yy1jb250cm9scGxhbmUifSwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImF1dGhvcml6YXRpb25fZGV0YWlscyI6W3sidHlwZSI6ImFnZW50LXNhbmRib3gtd29ya2xvYWQiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsIm5hbWUiOiJzYngtMSIsImdwdXMiOjF9XX0.XuGSA_ZX9RJOX2dO7RCn6mfyD1gkBv7B2z8DEPmlhPm1fOFQzyilVk3WlWl8VEPbNUuGmw-eGmC3Mr2qGt-jsA"
+other_issuer_token := "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIiwidHlwIjoiYXNzZXJ0aW9uK2p3dCJ9.eyJpc3MiOiJodHRwczovL290aGVyLmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtYWRtaXNzaW9uIiwic3ViIjoidXNlci0xIiwiYWN0Ijp7InN1YiI6InN2Yy1jb250cm9scGxhbmUifSwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImF1dGhvcml6YXRpb25fZGV0YWlscyI6W3sidHlwZSI6ImFnZW50LXNhbmRib3gtd29ya2xvYWQiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsIm5hbWUiOiJzYngtMSIsImdwdXMiOjF9XX0.vpmVbcwQUSE7KITUdr4V4mgQctNBViSEvh_WMISv9iCuGJwuWglLwIjJQ-d7tS8NO8VFjKVxw7_63WUzjobf1w"
+other_detail_type_token := "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIiwidHlwIjoiYXNzZXJ0aW9uK2p3dCJ9.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtYWRtaXNzaW9uIiwic3ViIjoidXNlci0xIiwiYWN0Ijp7InN1YiI6InN2Yy1jb250cm9scGxhbmUifSwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImF1dGhvcml6YXRpb25fZGV0YWlscyI6W3sidHlwZSI6Im90aGVyIiwid29ya3NwYWNlIjoibGFiIiwia2luZCI6IlNhbmRib3giLCJuYW1lIjoic2J4LTEiLCJncHVzIjoxfV19.mdwPixbGJtcs55XpscwqftKvCc0g68DlzpDuV3g5UFI5wmhylHabVL1A_KLMd6cRc0-uqPDkQzlRSB4rJz1zaQ"
+no_details_token := "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIiwidHlwIjoiYXNzZXJ0aW9uK2p3dCJ9.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtYWRtaXNzaW9uIiwic3ViIjoidXNlci0xIiwiYWN0Ijp7InN1YiI6InN2Yy1jb250cm9scGxhbmUifSwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9.tZ1EkYI_oV0t7_VZpS0_DVh66deukk2W7B013vVb8wGZlMh5Se-OGyz0uB1x0NtK7zNoZumkJbS7a94kr4c25w"
+string_gpus_token := "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIiwidHlwIjoiYXNzZXJ0aW9uK2p3dCJ9.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtYWRtaXNzaW9uIiwic3ViIjoidXNlci0xIiwiYWN0Ijp7InN1YiI6InN2Yy1jb250cm9scGxhbmUifSwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImF1dGhvcml6YXRpb25fZGV0YWlscyI6W3sidHlwZSI6ImFnZW50LXNhbmRib3gtd29ya2xvYWQiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsIm5hbWUiOiJzYngtMSIsImdwdXMiOiIxIn1dfQ.VCMLQ6yZlveDCdFiQ4Ci4aeLtdqfpAbMBAEzSOQIxVCcWLBiVRDFsCrZKxBX8dvRvMqWSVDVyR3E5PCp2-cI8A"
+no_name_token := "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIiwidHlwIjoiYXNzZXJ0aW9uK2p3dCJ9.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtYWRtaXNzaW9uIiwic3ViIjoidXNlci0xIiwiYWN0Ijp7InN1YiI6InN2Yy1jb250cm9scGxhbmUifSwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImF1dGhvcml6YXRpb25fZGV0YWlscyI6W3sidHlwZSI6ImFnZW50LXNhbmRib3gtd29ya2xvYWQiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsImdwdXMiOjF9XX0.tRcbhEDWHgphqzAZR7aje5PFcEAJkyVVkHkBK8ri8u-LOSH9tvL4wnPe8JvYmUyS3QXgp_Aekpg3v0GLOR9JOw"
+foreign_key_token := "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIiwidHlwIjoiYXNzZXJ0aW9uK2p3dCJ9.eyJpc3MiOiJodHRwczovL2lkZW50aXR5LmV4YW1wbGUudGVzdCIsImF1ZCI6ImFnZW50LXNhbmRib3gtYWRtaXNzaW9uIiwic3ViIjoidXNlci0xIiwiYWN0Ijp7InN1YiI6InN2Yy1jb250cm9scGxhbmUifSwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImF1dGhvcml6YXRpb25fZGV0YWlscyI6W3sidHlwZSI6ImFnZW50LXNhbmRib3gtd29ya2xvYWQiLCJ3b3Jrc3BhY2UiOiJsYWIiLCJraW5kIjoiU2FuZGJveCIsIm5hbWUiOiJzYngtMSIsImdwdXMiOjF9XX0.tl4xChCgX-CIRsWCdhatuAWy4ckPPeCWARuPGHbdcGd8_uJJcYp06eu1G89LjzWjVCAfDYwewgAzq0Jk8lGs0A"
 
 workload(token, workspace) = obj {
-  obj := gpu_workload(token, workspace, "")
+  obj := gpu_workload(token, workspace, "1")
 }
 
 gpu_workload(token, workspace, gpus) = obj {
@@ -48,7 +47,15 @@ review(token, workspace) = inp {
 wrap(obj) = inp {
   inp := {
     "review": {"userInfo": {"username": creator}, "object": obj},
-    "parameters": {"sandboxCreator": creator, "jwks": cert, "issuer": issuer},
+    "parameters": {
+      "sandboxCreator": creator,
+      "jwks": jwks,
+      "issuer": issuer,
+      "audience": "agent-sandbox-admission",
+      "tokenType": "assertion+jwt",
+      "actor": "svc-controlplane",
+      "detailType": "agent-sandbox-workload",
+    },
   }
 }
 
@@ -60,32 +67,65 @@ test_wrong_workspace {
   count(violation) == 1 with input as review(valid_token, "other")
 }
 
-test_expired_token {
-  count(violation) == 1 with input as review(expired_token, "lab")
-}
-
 test_missing_token {
   count(violation) == 1 with input as review("", "lab")
 }
 
-test_gpu_within_max {
-  count(violation) == 0 with input as wrap(gpu_workload(valid_token, "lab", "1"))
+test_expired_token {
+  count(violation) == 1 with input as review(expired_token, "lab")
 }
 
-test_gpu_above_max {
-  count(violation) == 1 with input as wrap(gpu_workload(valid_token, "lab", "2"))
+test_access_token_type {
+  count(violation) == 1 with input as review(access_token_typ, "lab")
+}
+
+test_other_actor {
+  count(violation) == 1 with input as review(other_actor_token, "lab")
+}
+
+test_other_audience {
+  count(violation) == 1 with input as review(other_audience_token, "lab")
+}
+
+test_other_issuer {
+  count(violation) == 1 with input as review(other_issuer_token, "lab")
+}
+
+test_foreign_key {
+  count(violation) == 1 with input as review(foreign_key_token, "lab")
+}
+
+test_other_detail_type {
+  count(violation) == 1 with input as review(other_detail_type_token, "lab")
+}
+
+test_no_details {
+  count(violation) == 1 with input as review(no_details_token, "lab")
+}
+
+test_detail_without_name {
+  count(violation) == 1 with input as review(no_name_token, "lab")
+}
+
+test_string_gpus {
+  count(violation) == 1 with input as review(string_gpus_token, "lab")
 }
 
 test_other_workload_name {
-  count(violation) == 1 with input as wrap(named_workload(valid_token, "lab", "", "sbx-2"))
+  count(violation) == 1 with input as wrap(named_workload(valid_token, "lab", "1", "sbx-2"))
 }
 
-test_token_without_sandbox_claim {
-  count(violation) == 1 with input as review(no_sandbox_claim_token, "lab")
+test_gpu_more_than_asserted {
+  count(violation) == 1 with input as wrap(gpu_workload(valid_token, "lab", "2"))
 }
 
-test_token_without_gpu_claim {
-  count(violation) == 1 with input as review(no_gpu_claim_token, "lab")
+test_gpu_fewer_than_asserted {
+  count(violation) == 1 with input as wrap(gpu_workload(valid_token, "lab", ""))
+}
+
+test_other_user {
+  obj := json.patch(workload(valid_token, "lab"), [{"op": "replace", "path": "/metadata/labels/primus-safe.user.id", "value": "user-2"}])
+  count(violation) == 1 with input as wrap(obj)
 }
 
 test_grant_only_skips_identity {

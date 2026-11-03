@@ -20,10 +20,10 @@ curlimages/curl
 {{- end -}}
 {{- end -}}
 
-{{/* deny requires a JWKS document. */}}
+{{/* deny requires the verification material of both paths. */}}
 {{- define "constraints.requireJwksForDeny" -}}
-{{- if and (eq .Values.enforcementAction "deny") (or (not .Values.jwks) (not .Values.identityJwks) (not .Values.identityIssuer)) -}}
-{{- fail "jwks, identityJwks, and identityIssuer must be set before enforcementAction is deny" -}}
+{{- if and (eq .Values.enforcementAction "deny") (or (not .Values.jwks) (not .Values.identity.jwks) (not .Values.identity.issuer) (not .Values.identity.actor)) -}}
+{{- fail "jwks, identity.jwks, identity.issuer, and identity.actor must be set before enforcementAction is deny" -}}
 {{- end -}}
 {{- end -}}
 
@@ -86,8 +86,12 @@ spec:
         kinds: ["Workload"]
   parameters:
     sandboxCreator: {{ .Values.sandboxCreator | quote }}
-    jwks: {{ .Values.identityJwks | quote }}
-    issuer: {{ .Values.identityIssuer | quote }}
+    jwks: {{ .Values.identity.jwks | quote }}
+    issuer: {{ .Values.identity.issuer | quote }}
+    audience: {{ .Values.identity.audience | quote }}
+    tokenType: {{ .Values.identity.tokenType | quote }}
+    actor: {{ .Values.identity.actor | quote }}
+    detailType: {{ .Values.identity.detailType | quote }}
 {{- end -}}
 
 {{- define "constraints.syncConfig" -}}
@@ -189,6 +193,14 @@ spec:
             jwks:
               type: string
             issuer:
+              type: string
+            audience:
+              type: string
+            tokenType:
+              type: string
+            actor:
+              type: string
+            detailType:
               type: string
   targets:
     - target: admission.k8s.gatekeeper.sh

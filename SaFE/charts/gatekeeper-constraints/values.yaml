@@ -3,7 +3,7 @@
 # See LICENSE for license information.
 #
 
-# deny rejects Workloads that fail a constraint. jwks, identityJwks, and identityIssuer are required.
+# deny rejects Workloads that fail a constraint. jwks, identity.jwks, identity.issuer, and identity.actor are required.
 enforcementAction: deny
 
 # Calls from this account are checked. The Gatekeeper webhook is scoped to it.
@@ -12,9 +12,16 @@ sandboxCreator: system:serviceaccount:agent-sandbox-system:agent-sandbox-control
 # Claw JWKS document, JSON text. Required when enforcementAction is deny.
 jwks: ""
 
-# primus-identity verification material and issuer. Required when enforcementAction is deny.
-identityJwks: ""
-identityIssuer: ""
+# Identity provider assertion. jwks is the provider JWKS document, JSON text; issuer is its iss. actor is the
+# control plane client id, the act.sub of the assertion. audience, tokenType, and detailType are the aud, the typ
+# header, and the authorization_details type the control plane asks for.
+identity:
+  jwks: ""
+  issuer: ""
+  actor: ""
+  audience: agent-sandbox-admission
+  tokenType: assertion+jwt
+  detailType: agent-sandbox-workload
 
 image:
   repository: curlimages/curl
