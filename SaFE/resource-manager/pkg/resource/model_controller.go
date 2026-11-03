@@ -6,6 +6,7 @@
 package resource
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -34,6 +35,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -66,6 +68,12 @@ const (
 	// the files it left on disk. The job prints it on a "[SUCCESS]" line, the only kind of
 	// line besides "[ERROR]" that reaches the job outputs.
 	modelSizeMarker = "MODEL_SIZE_BYTES="
+	// modelConfigMarker prefixes the JSON of the structure fields of the model's config.json,
+	// printed the same way.
+	modelConfigMarker = "MODEL_CONFIG="
+	// baseInUseRequeue is how often the deletion of a base model of unfinished Post Training
+	// runs checks again whether they finished.
+	baseInUseRequeue = time.Minute
 
 	// cleanupRetryInterval is how long a failed cleanup waits before it runs again.
 	cleanupRetryInterval = 30 * time.Second
@@ -95,6 +103,8 @@ type ModelReconciler struct {
 	apiReader client.Reader
 	// recorder reports what happens to a model's files when they cannot be removed.
 	recorder record.EventRecorder
+	// db finds the unfinished Post Training runs that use a model as their base; nil without a database.
+	db dbclient.Interface
 }
 
 // SetupModelController sets up the controller with the Manager.
@@ -105,6 +115,9 @@ func SetupModelController(mgr manager.Manager) error {
 		},
 		apiReader: mgr.GetAPIReader(),
 		recorder:  mgr.GetEventRecorderFor("model-controller"),
+	}
+	if commonconfig.IsDBEnable() {
+		r.db = dbclient.NewClient()
 	}
 	err := ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Model{}).
@@ -226,9 +239,22 @@ func hasUnfinishedLocalPath(model *v1.Model) bool {
 	return false
 }
 
-// needsCleanup checks if the model needs cleanup on deletion (only Local type needs cleanup)
+// needsCleanup checks if the model needs cleanup on deletion: downloaded local models, and the
+// local_path outputs of Post Training runs, whose weights are deleted with the model.
 func (r *ModelReconciler) needsCleanup(model *v1.Model) bool {
-	return model.Spec.Source.AccessMode == v1.AccessModeLocal
+	return model.Spec.Source.AccessMode == v1.AccessModeLocal ||
+		(model.Spec.Source.AccessMode == v1.AccessModeLocalPath && model.Spec.PostTrainingRunId != "")
+}
+
+// basedRuns counts the unfinished Post Training runs that train from model; their weights must stay until
+// they end.
+func (r *ModelReconciler) basedRuns(ctx context.Context, model *v1.Model) (int64, error) {
+	if r.db == nil {
+		return 0, nil
+	}
+	_, total, err := r.db.ListPostTrainingRuns(ctx, dbclient.PostTrainingRunFilter{BaseModelID: model.Name,
+		Statuses: []string{string(v1.WorkloadPending), string(v1.WorkloadRunning)}, Limit: 1})
+	return total, err
 }
 
 // handleDelete removes what a local model left behind before the finalizer is released:
@@ -260,6 +286,17 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 		klog.InfoS(message, "model", model.Name)
 		r.event(model, corev1.EventTypeWarning, "CleanupAbandoned", message)
 		return r.releaseModel(ctx, model)
+	}
+
+	// 0. Unfinished Post Training runs still read the weights as their base model.
+	runs, err := r.basedRuns(ctx, model)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if runs > 0 {
+		message := fmt.Sprintf("Waiting for %d unfinished Post Training runs that train from this model "+
+			"before removing its files", runs)
+		return ctrl.Result{RequeueAfter: baseInUseRequeue}, r.setDeletingMessage(ctx, model, message)
 	}
 
 	// 1. A download still writing into the directory would refill it after the cleanup.
@@ -1387,6 +1424,9 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 				lp.Status = v1.LocalPathStatusReady
 				lp.Message = "Download completed"
 				lp.SizeBytes = reportedModelSize(opsJob)
+				if cfg := reportedModelConfig(opsJob); cfg != nil && model.Status.ModelConfig == nil {
+					model.Status.ModelConfig = cfg
+				}
 				klog.InfoS("Local download completed", "model", model.Name, "workspace", lp.Workspace,
 					"path", lp.Path, "sizeBytes", lp.SizeBytes)
 
@@ -1579,6 +1619,54 @@ func reportedModelSize(job *v1.OpsJob) int64 {
 		}
 	}
 	return size
+}
+
+// reportedModelConfig returns the structure summary the download job reported in its output, or nil. The
+// outputs hold the job's marker lines, as a JSON array of lines or as plain lines.
+func reportedModelConfig(job *v1.OpsJob) *v1.ModelConfig {
+	var cfg *v1.ModelConfig
+	for _, out := range job.Status.Outputs {
+		var lines []string
+		if json.Unmarshal([]byte(out.Value), &lines) != nil {
+			lines = strings.Split(out.Value, "\n")
+		}
+		for _, line := range lines {
+			if i := strings.Index(line, modelConfigMarker); i >= 0 {
+				if parsed, err := parseModelConfig([]byte(line[i+len(modelConfigMarker):])); err == nil {
+					cfg = parsed
+				}
+			}
+		}
+	}
+	return cfg
+}
+
+// parseModelConfig converts the config.json structure fields printed after MODEL_CONFIG= into a ModelConfig.
+func parseModelConfig(data []byte) (*v1.ModelConfig, error) {
+	var raw struct {
+		Architectures         []string    `json:"architectures"`
+		ModelType             string      `json:"model_type"`
+		NumHiddenLayers       int         `json:"num_hidden_layers"`
+		HiddenSize            int         `json:"hidden_size"`
+		NumAttentionHeads     int         `json:"num_attention_heads"`
+		NumKeyValueHeads      int         `json:"num_key_value_heads"`
+		NumExperts            int         `json:"num_experts"`
+		RopeTheta             json.Number `json:"rope_theta"`
+		MaxPositionEmbeddings int         `json:"max_position_embeddings"`
+		TorchDtype            string      `json:"torch_dtype"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(data), &raw); err != nil {
+		return nil, err
+	}
+	if raw.ModelType == "" && len(raw.Architectures) == 0 {
+		return nil, fmt.Errorf("config.json has neither model_type nor architectures")
+	}
+	return &v1.ModelConfig{
+		Architectures: raw.Architectures, ModelType: raw.ModelType, NumHiddenLayers: raw.NumHiddenLayers,
+		HiddenSize: raw.HiddenSize, NumAttentionHeads: raw.NumAttentionHeads, NumKeyValueHeads: raw.NumKeyValueHeads,
+		NumExperts: raw.NumExperts, RopeTheta: raw.RopeTheta.String(), MaxPositionEmbeddings: raw.MaxPositionEmbeddings,
+		TorchDtype: raw.TorchDtype,
+	}, nil
 }
 
 // initializeLocalPaths initializes the local paths based on workspace configuration
@@ -2036,6 +2124,29 @@ fi
 if ! has_files '*.safetensors' '*.bin' '*.pth' '*.pt'; then
   echo "[ERROR] $HF_REPO_ID has no safetensors or PyTorch (.bin, .pth, .pt) weights; GGUF and TensorFlow/Flax weights are not downloaded"
   exit 1
+fi
+config=""
+if [ -f "$DEST_PATH/config.json" ] && command -v python3 >/dev/null 2>&1; then
+  config="$(python3 -c '
+import json, sys
+c = json.load(open(sys.argv[1]))
+t = c.get("text_config") or {}
+def get(*keys):
+    for k in keys:
+        for src in (c, t):
+            if src.get(k) is not None:
+                return src[k]
+out = {"architectures": get("architectures"), "model_type": get("model_type"),
+       "num_hidden_layers": get("num_hidden_layers"), "hidden_size": get("hidden_size"),
+       "num_attention_heads": get("num_attention_heads"), "num_key_value_heads": get("num_key_value_heads"),
+       "num_experts": get("num_experts", "n_routed_experts", "num_local_experts"),
+       "rope_theta": get("rope_theta"), "max_position_embeddings": get("max_position_embeddings"),
+       "torch_dtype": get("torch_dtype", "dtype")}
+print(json.dumps({k: v for k, v in out.items() if v is not None}, separators=(",", ":")))
+' "$DEST_PATH/config.json" 2>/dev/null || true)"
+fi
+if [ -n "$config" ]; then
+  echo "[SUCCESS] ` + modelConfigMarker + `$config"
 fi
 size="$(du -sb --exclude=.cache "$DEST_PATH" | cut -f1)"
 echo "[SUCCESS] ` + modelSizeMarker + `$size"
