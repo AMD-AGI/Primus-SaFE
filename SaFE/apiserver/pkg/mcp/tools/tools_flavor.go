@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	mcpserver "github.com/AMD-AIG-AIMA/SAFE/common/pkg/mcp/server"
 )
@@ -16,6 +17,7 @@ func flavorTools() []*mcpserver.MCPTool {
 	return []*mcpserver.MCPTool{
 		flavorList(),
 		flavorGet(),
+		flavorAvail(),
 	}
 }
 
@@ -50,6 +52,31 @@ func flavorGet() *mcpserver.MCPTool {
 				return nil, err
 			}
 			return APICall(ctx, http.MethodGet, fmt.Sprintf("/nodeflavors/%s", getStr(p, "flavor_id")), nil)
+		},
+	}
+}
+
+func flavorAvail() *mcpserver.MCPTool {
+	return &mcpserver.MCPTool{
+		Name:        "flavor_avail",
+		Description: "Get the resources still free for a node flavor, to tell whether a workload that needs them can be placed.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"flavor_id": prop("string", "Node flavor ID"),
+			},
+			"required": []string{"flavor_id"},
+		},
+		Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			p, err := parseParams(raw)
+			if err != nil {
+				return nil, err
+			}
+			id := getStr(p, "flavor_id")
+			if id == "" {
+				return nil, fmt.Errorf("flavor_id is required")
+			}
+			return APICall(ctx, http.MethodGet, "/nodeflavors/"+url.PathEscape(id)+"/avail", nil)
 		},
 	}
 }

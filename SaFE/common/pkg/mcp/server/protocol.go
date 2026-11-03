@@ -153,9 +153,18 @@ type ToolsListResult struct {
 }
 
 type ToolDefinition struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	InputSchema map[string]any `json:"inputSchema"`
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	InputSchema map[string]any   `json:"inputSchema"`
+	Annotations *ToolAnnotations `json:"annotations,omitempty"`
+}
+
+// ToolAnnotations carries the optional behaviour hints of the MCP tool annotations. A client
+// uses them to decide how much care a call needs; they are hints, not enforcement.
+type ToolAnnotations struct {
+	// ReadOnlyHint is true for a tool that does not change its environment. The MCP default,
+	// when a tool carries no annotations, is false.
+	ReadOnlyHint bool `json:"readOnlyHint"`
 }
 
 type ToolsCallParams struct {
