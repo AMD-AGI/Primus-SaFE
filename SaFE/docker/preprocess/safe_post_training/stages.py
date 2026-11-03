@@ -1,0 +1,214 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+"""The launcher's stages: prepare, convert, check, train and export.
+
+Each stage leaves a completion mark, so a retried workload skips the stages that already finished. The framework
+specific work (conversion, the training command, export and metric lines) comes from the recipe's adapter.
+"""
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+from safe_post_training import dataset
+
+STAGES = ("prepare", "convert", "check", "train", "export")
+# bf16 weights plus fp32 master weights and two fp32 Adam moments, relative to the bf16 weights on disk.
+CHECKPOINT_FACTOR = 7
+
+
+class StageError(Exception):
+    """A stage failure; retry is False when running the workload again would fail the same way."""
+
+    def __init__(self, stage, reason, retry=True):
+        super().__init__(reason)
+        self.stage, self.reason, self.retry = stage, reason, retry
+
+
+def dir_size(path):
+    """Return the total size of the files under path, 0 when it does not exist."""
+    total = 0
+    for root, _, names in os.walk(path):
+        for name in names:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def weights_size(model_dir):
+    """Return the size of a HF model's weight files."""
+    total = 0
+    for name in os.listdir(model_dir) if os.path.isdir(model_dir) else []:
+        if name.endswith((".safetensors", ".bin")):
+            total += os.path.getsize(os.path.join(model_dir, name))
+    return total
+
+
+def ray_gpus():
+    """Return the GPU count of the job's Ray cluster."""
+    code = "import json, ray; ray.init(address='auto', logging_level='ERROR'); print(json.dumps(ray.cluster_resources()))"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300)
+    if out.returncode != 0:
+        raise StageError("check", "cannot read the Ray cluster resources: " + out.stderr.strip()[-500:])
+    return int(json.loads(out.stdout.strip().splitlines()[-1]).get("GPU", 0))
+
+
+class Runner:
+    """Runs the stages of one recipe."""
+
+    def __init__(self, recipe, run_dir, adapter, emitter, gpus=ray_gpus):
+        self.recipe, self.run_dir, self.adapter, self.emitter, self.gpus = recipe, run_dir, adapter, emitter, gpus
+
+    def path(self, *parts):
+        """Return a path under the run directory."""
+        return os.path.join(self.run_dir, *parts)
+
+    def done_mark(self, stage):
+        """Return the file whose presence means a stage finished, or None for stages that always run."""
+        convert = self.recipe.get("convert") or {}
+        return {
+            "prepare": self.path("data", ".done"),
+            "convert": os.path.join(convert.get("dir", self.path("convert")), ".complete"),
+            "train": self.path(".train.done"),
+            "export": self.path("final_model", ".done"),
+        }.get(stage)
+
+    def run(self):
+        """Run every stage that has not finished yet and return the export result."""
+        result = None
+        for stage in STAGES:
+            mark = self.done_mark(stage)
+            if mark and os.path.exists(mark):
+                self.emitter.stage(stage, state="skipped")
+                if stage == "export":
+                    result = self.read_result()
+                continue
+            self.emitter.stage(stage, state="running")
+            out = getattr(self, "stage_" + stage)()
+            if mark:
+                os.makedirs(os.path.dirname(mark), exist_ok=True)
+                open(mark, "w").close()
+            if stage == "export":
+                result = out
+        return result
+
+    def stage_prepare(self):
+        """Convert the training data, and the validation data when the recipe has some."""
+        data, train_type = self.recipe["data"], self.recipe["trainType"]
+        field_map = data.get("fieldMap") or {}
+        try:
+            stats = {"train": dataset.prepare(data["train"], self.path("data", "train.jsonl"), train_type, field_map)}
+            if data.get("eval"):
+                val = self.recipe.get("val") or {}
+                stats["eval"] = dataset.prepare(data["eval"], self.path("data", "eval.jsonl"), train_type, field_map,
+                                                limit=val.get("maxSamples") or None)
+        except dataset.DatasetError as e:
+            raise StageError("prepare", str(e), retry=False) from e
+        with open(self.path("data", "stats.json"), "w") as f:
+            json.dump(stats, f)
+        self.emitter.stage("prepare", state="done", detail=stats)
+
+    def stage_convert(self):
+        """Convert the base weights for training."""
+        self.adapter.convert(self.recipe, self.run_dir, self.run_command)
+
+    def stage_check(self):
+        """Check the GPU count, the inputs and the free space before training."""
+        layout = self.recipe["layout"]
+        want = layout["nodes"] * layout["gpusPerNode"]
+        have = self.gpus()
+        if have < want:
+            raise StageError("check", "the Ray cluster has %d GPUs, the recipe needs %d" % (have, want))
+        model = self.recipe["model"]["path"]
+        for path in (os.path.join(model, "config.json"), self.path("data", "train.jsonl")):
+            if not os.path.exists(path):
+                raise StageError("check", "missing input %s" % path)
+        need = self.space_needed()
+        free = shutil.disk_usage(self.run_dir).free
+        if free < need:
+            raise StageError("check", "shared storage has %d GiB free, the run needs about %d GiB"
+                             % (free >> 30, need >> 30), retry=False)
+
+    def space_needed(self):
+        """Estimate the bytes the run writes: the checkpoints kept at the same time plus the exported model."""
+        weights = weights_size(self.recipe["model"]["path"])
+        keep = (self.recipe.get("checkpoint") or {}).get("keepLast", 0)
+        count = keep + 2 if keep > 0 else 3
+        return weights * CHECKPOINT_FACTOR * count + weights
+
+    def stage_train(self):
+        """Run the training command, resuming from the latest checkpoint when there is one."""
+        cmd, env, files = self.adapter.train_command(self.recipe, self.run_dir)
+        for rel, content in (files or {}).items():
+            target = self.path(rel)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "w") as f:
+                f.write(content)
+        resume = self.adapter.latest_checkpoint(self.run_dir)
+        if resume is not None:
+            cmd = cmd + ["--load", self.path("checkpoints")]
+            self.emitter.stage("train", state="running", detail={"resumeStep": resume})
+        code = self.run_command(cmd, env=env, parse=True)
+        if code != 0:
+            raise StageError("train", "training exited with code %d" % code)
+
+    def stage_export(self):
+        """Export the final model and return the result the launcher reports."""
+        output = self.adapter.export(self.recipe, self.run_dir, self.run_command)
+        missing = [n for n in ("config.json",) if not os.path.exists(os.path.join(output, n))]
+        if not any(n.endswith((".safetensors", ".bin")) for n in os.listdir(output)):
+            missing.append("weights")
+        if not any(n.startswith("tokenizer") for n in os.listdir(output)):
+            missing.append("tokenizer")
+        if missing:
+            raise StageError("export", "the exported model lacks %s" % ", ".join(missing), retry=False)
+        result = {"stage": "export", "output": output, "iteration": self.adapter.latest_checkpoint(self.run_dir),
+                  "lastMetrics": self.emitter.last_metrics()}
+        self.write_result(result)
+        return result
+
+    def write_result(self, result):
+        """Write result.json, which the verification job reads when the result marker is lost."""
+        tmp = self.path("result.json.tmp")
+        with open(tmp, "w") as f:
+            json.dump(result, f)
+        os.replace(tmp, self.path("result.json"))
+
+    def read_result(self):
+        """Read the result an earlier attempt wrote."""
+        try:
+            with open(self.path("result.json")) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {"stage": "export", "output": self.path("final_model")}
+
+    def run_command(self, cmd, env=None, parse=False):
+        """Run a command in its own process group, forward its output and, when parse is set, turn metric lines
+        into [METRIC] markers. Returns the exit code."""
+        full_env = dict(os.environ)
+        full_env.update(env or {})
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=full_env,
+                                cwd=self.run_dir, start_new_session=True, text=True, errors="replace", bufsize=1)
+        for line in proc.stdout:
+            self.emitter.forward(line)
+            if parse:
+                self.parse_line(line)
+        return proc.wait()
+
+    def parse_line(self, line):
+        """Report the metrics of one training output line; a line that looks like metrics but does not parse is
+        counted."""
+        try:
+            parsed = self.adapter.parse_metric_line(line)
+        except (ValueError, SyntaxError):
+            self.emitter.parse_failures += 1
+            return
+        if parsed:
+            kind, axis, step, values = parsed
+            self.emitter.metric(kind, axis, step, values)
