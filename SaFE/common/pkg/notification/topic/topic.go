@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/model"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/topic/posttrainingrun"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/topic/workload"
 )
 
@@ -23,6 +24,8 @@ func NewTopics() map[string]Topic {
 	topics := make(map[string]Topic)
 	workloadTopic := &workload.Topic{}
 	topics[workloadTopic.Name()] = workloadTopic
+	postTrainingRunTopic := &posttrainingrun.Topic{}
+	topics[postTrainingRunTopic.Name()] = postTrainingRunTopic
 
 	return topics
 }
