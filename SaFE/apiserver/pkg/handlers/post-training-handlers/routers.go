@@ -23,4 +23,10 @@ func InitRoutes(engine *gin.Engine, h *Handler) {
 	group.GET("/config", h.GetConfig)
 	group.POST("/recipes/preview", h.PreviewRecipe)
 	group.POST("/runs", middleware.Audit("post-training"), h.SubmitRun)
+	group.GET("/runs", h.ListRuns)
+	group.GET("/runs/:id", h.GetRun)
+	group.POST("/runs/:id/stop", middleware.Audit("post-training"), h.StopRun)
+	group.DELETE("/runs/:id", middleware.Audit("post-training"), h.DeleteRun)
+	group.GET("/runs/:id/metrics", h.GetMetrics)
+	group.GET("/runs/:id/metrics/export", h.ExportMetrics)
 }
