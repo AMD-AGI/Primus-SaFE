@@ -122,7 +122,7 @@ func (c *ssoToken) secret() (*oidc.Provider, *oidc.IDTokenVerifier, error) {
 	if c.secretLazy != nil {
 		return c.secretLazy.get()
 	}
-	if c.verifier == nil {
+	if c.provider == nil && c.verifier == nil {
 		return nil, nil, fmt.Errorf("no provider is configured for it")
 	}
 	return c.provider, c.verifier, nil
@@ -420,6 +420,9 @@ func unverifiedIssuer(raw string) string {
 // Implements TokenInterface.Validate method for OAuth2 tokens
 func (c *ssoToken) validate(ctx context.Context, rawToken string) (*UserInfo, error) {
 	_, verifier, err := c.secret()
+	if err == nil && verifier == nil {
+		err = fmt.Errorf("no provider is configured for it")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify ID token: %v", err)
 	}
