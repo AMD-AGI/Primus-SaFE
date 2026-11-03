@@ -38,6 +38,8 @@ type Interface interface {
 	OptimizationTaskInterface
 	WorkloadPodInterface
 	WorkloadDispatchNodeInterface
+	PostTrainingRunInterface
+	PostTrainingRunMetricInterface
 }
 
 type WorkloadInterface interface {
@@ -284,4 +286,23 @@ type OptimizationTaskInterface interface {
 	ListOptimizationEvents(ctx context.Context, taskID string, afterSeq int64, limit int) ([]*OptimizationEvent, error)
 	OptimizationEventSeq(ctx context.Context, taskID string, eventID string) (int64, bool, error)
 	LatestOptimizationEventSeq(ctx context.Context, taskID string) (int64, error)
+}
+
+// PostTrainingRunInterface defines database operations for Post Training runs.
+type PostTrainingRunInterface interface {
+	CreatePostTrainingRun(ctx context.Context, run *PostTrainingRun) error
+	GetPostTrainingRun(ctx context.Context, runID string) (*PostTrainingRun, error)
+	ListPostTrainingRuns(ctx context.Context, filter PostTrainingRunFilter) ([]*PostTrainingRun, int64, error)
+	UpdatePostTrainingRun(ctx context.Context, runID string, fields map[string]interface{}) error
+	SetPostTrainingRunDeleted(ctx context.Context, runID string) error
+}
+
+// PostTrainingRunMetricInterface defines database operations for the metric points of Post Training runs.
+type PostTrainingRunMetricInterface interface {
+	SavePostTrainingRunMetrics(ctx context.Context, runID string, points []*PostTrainingRunMetric,
+		runFields map[string]interface{}) error
+	DeletePostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) error
+	ListPostTrainingRunMetrics(ctx context.Context, runID string, names []string) ([]*PostTrainingRunMetric, error)
+	ListPostTrainingRunMetricNames(ctx context.Context, runID string) ([]string, error)
+	DeletePostTrainingRunMetrics(ctx context.Context, runID string) error
 }

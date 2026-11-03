@@ -949,3 +949,82 @@ data:
     end $$;
     drop index if exists idx_workload_dispatch_node_run;
     alter table workload_dispatch_node owner to "primus-safe";
+
+    -- Post Training: one row per run plus its metric points.
+    -- Maps to common/pkg/database/client PostTrainingRun / PostTrainingRunMetric.
+    create table if not exists post_training_run
+    (
+        id SERIAL PRIMARY KEY,
+        run_id VARCHAR(64) NOT NULL UNIQUE,
+        workload_id VARCHAR(64) NOT NULL UNIQUE,
+        workload_uid VARCHAR(64),
+        display_name VARCHAR(128) NOT NULL,
+        framework VARCHAR(32) NOT NULL DEFAULT 'slime',
+        framework_version VARCHAR(64),
+        train_type VARCHAR(16) NOT NULL,
+        method VARCHAR(16) NOT NULL,
+        algorithm VARCHAR(32),
+        workspace VARCHAR(64) NOT NULL,
+        cluster VARCHAR(64) NOT NULL,
+        user_id VARCHAR(64),
+        user_name VARCHAR(128),
+        base_model_id VARCHAR(64) NOT NULL,
+        base_model_name VARCHAR(256) NOT NULL,
+        dataset_id VARCHAR(64) NOT NULL,
+        dataset_name VARCHAR(256),
+        eval_dataset_id VARCHAR(64),
+        image TEXT,
+        node_count INTEGER,
+        gpu_per_node INTEGER,
+        priority INTEGER,
+        timeout INTEGER,
+        output_path TEXT,
+        output_model_id VARCHAR(64),
+        status VARCHAR(32) NOT NULL DEFAULT 'Pending',
+        stage VARCHAR(32) NOT NULL DEFAULT 'queued',
+        failed_stage VARCHAR(32),
+        message TEXT,
+        queue_position INTEGER,
+        stage_history TEXT,
+        recipe TEXT NOT NULL,
+        recipe_hash VARCHAR(64) NOT NULL,
+        eval_enabled BOOLEAN DEFAULT FALSE,
+        metric_cursor TEXT,
+        metric_summary TEXT,
+        metric_gap BOOLEAN DEFAULT FALSE,
+        result_line TEXT,
+        convert_workload_id VARCHAR(64),
+        template_id VARCHAR(64),
+        template_version INTEGER,
+        experiment_id VARCHAR(64),
+        variant_name VARCHAR(64),
+        ext TEXT,
+        start_time TIMESTAMPTZ,
+        end_time TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ,
+        deletion_time TIMESTAMPTZ,
+        is_deleted BOOLEAN DEFAULT FALSE
+    );
+    create index if not exists T_POST_TRAINING_RUN_CREATED_AT_INDEX on post_training_run (created_at DESC);
+    create index if not exists T_POST_TRAINING_RUN_FRAMEWORK_INDEX on post_training_run (framework, created_at DESC);
+    create index if not exists T_POST_TRAINING_RUN_WORKSPACE_STATUS_INDEX on post_training_run (workspace, status, is_deleted);
+    create index if not exists T_POST_TRAINING_RUN_USER_ID_INDEX on post_training_run (user_id, is_deleted);
+    create index if not exists T_POST_TRAINING_RUN_BASE_MODEL_INDEX on post_training_run (base_model_id);
+    create index if not exists T_POST_TRAINING_RUN_OUTPUT_MODEL_INDEX on post_training_run (output_model_id);
+    create index if not exists T_POST_TRAINING_RUN_RECIPE_HASH_INDEX on post_training_run (recipe_hash, status);
+    create index if not exists T_POST_TRAINING_RUN_TEMPLATE_INDEX on post_training_run (template_id, status);
+    create index if not exists T_POST_TRAINING_RUN_EXPERIMENT_INDEX on post_training_run (experiment_id);
+    alter table post_training_run owner to "primus-safe";
+
+    create table if not exists post_training_run_metric
+    (
+        id BIGSERIAL PRIMARY KEY,
+        run_id VARCHAR(64) NOT NULL,
+        name VARCHAR(160) NOT NULL,
+        step INTEGER NOT NULL,
+        value DOUBLE PRECISION NOT NULL,
+        wall_time TIMESTAMPTZ NOT NULL
+    );
+    create unique index if not exists T_POST_TRAINING_RUN_METRIC_POINT_INDEX on post_training_run_metric (run_id, name, step);
+    alter table post_training_run_metric owner to "primus-safe";

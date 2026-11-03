@@ -344,6 +344,20 @@ func (mr *MockInterfaceMockRecorder) CreateNodeStatistic(ctx, stat interface{}) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateNodeStatistic", reflect.TypeOf((*MockInterface)(nil).CreateNodeStatistic), ctx, stat)
 }
 
+// CreatePostTrainingRun mocks base method.
+func (m *MockInterface) CreatePostTrainingRun(ctx context.Context, run *client.PostTrainingRun) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePostTrainingRun", ctx, run)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreatePostTrainingRun indicates an expected call of CreatePostTrainingRun.
+func (mr *MockInterfaceMockRecorder) CreatePostTrainingRun(ctx, run interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePostTrainingRun", reflect.TypeOf((*MockInterface)(nil).CreatePostTrainingRun), ctx, run)
+}
+
 // CreateWorkloadStatistic mocks base method.
 func (m *MockInterface) CreateWorkloadStatistic(ctx context.Context, stat *model.WorkloadStatistic) error {
 	m.ctrl.T.Helper()
@@ -496,6 +510,34 @@ func (m *MockInterface) DeleteOptimizationTask(ctx context.Context, id string) e
 func (mr *MockInterfaceMockRecorder) DeleteOptimizationTask(ctx, id interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOptimizationTask", reflect.TypeOf((*MockInterface)(nil).DeleteOptimizationTask), ctx, id)
+}
+
+// DeletePostTrainingRunMetrics mocks base method.
+func (m *MockInterface) DeletePostTrainingRunMetrics(ctx context.Context, runID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePostTrainingRunMetrics", ctx, runID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePostTrainingRunMetrics indicates an expected call of DeletePostTrainingRunMetrics.
+func (mr *MockInterfaceMockRecorder) DeletePostTrainingRunMetrics(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePostTrainingRunMetrics", reflect.TypeOf((*MockInterface)(nil).DeletePostTrainingRunMetrics), ctx, runID)
+}
+
+// DeletePostTrainingRunMetricsAfterStep mocks base method.
+func (m *MockInterface) DeletePostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePostTrainingRunMetricsAfterStep", ctx, runID, step)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePostTrainingRunMetricsAfterStep indicates an expected call of DeletePostTrainingRunMetricsAfterStep.
+func (mr *MockInterfaceMockRecorder) DeletePostTrainingRunMetricsAfterStep(ctx, runID, step interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePostTrainingRunMetricsAfterStep", reflect.TypeOf((*MockInterface)(nil).DeletePostTrainingRunMetricsAfterStep), ctx, runID, step)
 }
 
 // DeletePublicKey mocks base method.
@@ -1029,6 +1071,21 @@ func (mr *MockInterfaceMockRecorder) GetPlatformKeyByUserId(ctx, userId interfac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPlatformKeyByUserId", reflect.TypeOf((*MockInterface)(nil).GetPlatformKeyByUserId), ctx, userId)
 }
 
+// GetPostTrainingRun mocks base method.
+func (m *MockInterface) GetPostTrainingRun(ctx context.Context, runID string) (*client.PostTrainingRun, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingRun", ctx, runID)
+	ret0, _ := ret[0].(*client.PostTrainingRun)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingRun indicates an expected call of GetPostTrainingRun.
+func (mr *MockInterfaceMockRecorder) GetPostTrainingRun(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingRun", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingRun), ctx, runID)
+}
+
 // GetPublicKeyByUserId mocks base method.
 func (m *MockInterface) GetPublicKeyByUserId(ctx context.Context, userId string) ([]*client.PublicKey, error) {
 	m.ctrl.T.Helper()
@@ -1393,6 +1450,52 @@ func (mr *MockInterfaceMockRecorder) ListPendingEmailOutbox(ctx, limit interface
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPendingEmailOutbox", reflect.TypeOf((*MockInterface)(nil).ListPendingEmailOutbox), ctx, limit)
 }
 
+// ListPostTrainingRunMetricNames mocks base method.
+func (m *MockInterface) ListPostTrainingRunMetricNames(ctx context.Context, runID string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingRunMetricNames", ctx, runID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPostTrainingRunMetricNames indicates an expected call of ListPostTrainingRunMetricNames.
+func (mr *MockInterfaceMockRecorder) ListPostTrainingRunMetricNames(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingRunMetricNames", reflect.TypeOf((*MockInterface)(nil).ListPostTrainingRunMetricNames), ctx, runID)
+}
+
+// ListPostTrainingRunMetrics mocks base method.
+func (m *MockInterface) ListPostTrainingRunMetrics(ctx context.Context, runID string, names []string) ([]*client.PostTrainingRunMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingRunMetrics", ctx, runID, names)
+	ret0, _ := ret[0].([]*client.PostTrainingRunMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPostTrainingRunMetrics indicates an expected call of ListPostTrainingRunMetrics.
+func (mr *MockInterfaceMockRecorder) ListPostTrainingRunMetrics(ctx, runID, names interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingRunMetrics", reflect.TypeOf((*MockInterface)(nil).ListPostTrainingRunMetrics), ctx, runID, names)
+}
+
+// ListPostTrainingRuns mocks base method.
+func (m *MockInterface) ListPostTrainingRuns(ctx context.Context, filter client.PostTrainingRunFilter) ([]*client.PostTrainingRun, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingRuns", ctx, filter)
+	ret0, _ := ret[0].([]*client.PostTrainingRun)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListPostTrainingRuns indicates an expected call of ListPostTrainingRuns.
+func (mr *MockInterfaceMockRecorder) ListPostTrainingRuns(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingRuns", reflect.TypeOf((*MockInterface)(nil).ListPostTrainingRuns), ctx, filter)
+}
+
 // ListRegistryInfos mocks base method.
 func (m *MockInterface) ListRegistryInfos(ctx context.Context, pageNum, pageSize int) ([]*model.RegistryInfo, error) {
 	m.ctrl.T.Helper()
@@ -1467,6 +1570,20 @@ func (m *MockInterface) OptimizationEventSeq(ctx context.Context, taskID, eventI
 func (mr *MockInterfaceMockRecorder) OptimizationEventSeq(ctx, taskID, eventID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OptimizationEventSeq", reflect.TypeOf((*MockInterface)(nil).OptimizationEventSeq), ctx, taskID, eventID)
+}
+
+// SavePostTrainingRunMetrics mocks base method.
+func (m *MockInterface) SavePostTrainingRunMetrics(ctx context.Context, runID string, points []*client.PostTrainingRunMetric, runFields map[string]interface{}) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SavePostTrainingRunMetrics", ctx, runID, points, runFields)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SavePostTrainingRunMetrics indicates an expected call of SavePostTrainingRunMetrics.
+func (mr *MockInterfaceMockRecorder) SavePostTrainingRunMetrics(ctx, runID, points, runFields interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SavePostTrainingRunMetrics", reflect.TypeOf((*MockInterface)(nil).SavePostTrainingRunMetrics), ctx, runID, points, runFields)
 }
 
 // SelectApiKeys mocks base method.
@@ -1703,6 +1820,20 @@ func (m *MockInterface) SetOpsJobDeleted(ctx context.Context, opsJobId string) e
 func (mr *MockInterfaceMockRecorder) SetOpsJobDeleted(ctx, opsJobId interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOpsJobDeleted", reflect.TypeOf((*MockInterface)(nil).SetOpsJobDeleted), ctx, opsJobId)
+}
+
+// SetPostTrainingRunDeleted mocks base method.
+func (m *MockInterface) SetPostTrainingRunDeleted(ctx context.Context, runID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPostTrainingRunDeleted", ctx, runID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPostTrainingRunDeleted indicates an expected call of SetPostTrainingRunDeleted.
+func (mr *MockInterfaceMockRecorder) SetPostTrainingRunDeleted(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPostTrainingRunDeleted", reflect.TypeOf((*MockInterface)(nil).SetPostTrainingRunDeleted), ctx, runID)
 }
 
 // SetPublicKeyDescription mocks base method.
@@ -2011,6 +2142,20 @@ func (m *MockInterface) UpdateOptimizationTaskStatus(ctx context.Context, id str
 func (mr *MockInterfaceMockRecorder) UpdateOptimizationTaskStatus(ctx, id, status, currentPhase, message interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOptimizationTaskStatus", reflect.TypeOf((*MockInterface)(nil).UpdateOptimizationTaskStatus), ctx, id, status, currentPhase, message)
+}
+
+// UpdatePostTrainingRun mocks base method.
+func (m *MockInterface) UpdatePostTrainingRun(ctx context.Context, runID string, fields map[string]interface{}) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePostTrainingRun", ctx, runID, fields)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdatePostTrainingRun indicates an expected call of UpdatePostTrainingRun.
+func (mr *MockInterfaceMockRecorder) UpdatePostTrainingRun(ctx, runID, fields interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostTrainingRun", reflect.TypeOf((*MockInterface)(nil).UpdatePostTrainingRun), ctx, runID, fields)
 }
 
 // UpdateWorkloadStatistic mocks base method.
@@ -5015,4 +5160,195 @@ func (m *MockOptimizationTaskInterface) UpsertOptimizationTask(ctx context.Conte
 func (mr *MockOptimizationTaskInterfaceMockRecorder) UpsertOptimizationTask(ctx, task interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertOptimizationTask", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).UpsertOptimizationTask), ctx, task)
+}
+
+// MockPostTrainingRunInterface is a mock of PostTrainingRunInterface interface.
+type MockPostTrainingRunInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockPostTrainingRunInterfaceMockRecorder
+}
+
+// MockPostTrainingRunInterfaceMockRecorder is the mock recorder for MockPostTrainingRunInterface.
+type MockPostTrainingRunInterfaceMockRecorder struct {
+	mock *MockPostTrainingRunInterface
+}
+
+// NewMockPostTrainingRunInterface creates a new mock instance.
+func NewMockPostTrainingRunInterface(ctrl *gomock.Controller) *MockPostTrainingRunInterface {
+	mock := &MockPostTrainingRunInterface{ctrl: ctrl}
+	mock.recorder = &MockPostTrainingRunInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPostTrainingRunInterface) EXPECT() *MockPostTrainingRunInterfaceMockRecorder {
+	return m.recorder
+}
+
+// CreatePostTrainingRun mocks base method.
+func (m *MockPostTrainingRunInterface) CreatePostTrainingRun(ctx context.Context, run *client.PostTrainingRun) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePostTrainingRun", ctx, run)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreatePostTrainingRun indicates an expected call of CreatePostTrainingRun.
+func (mr *MockPostTrainingRunInterfaceMockRecorder) CreatePostTrainingRun(ctx, run interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePostTrainingRun", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).CreatePostTrainingRun), ctx, run)
+}
+
+// GetPostTrainingRun mocks base method.
+func (m *MockPostTrainingRunInterface) GetPostTrainingRun(ctx context.Context, runID string) (*client.PostTrainingRun, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingRun", ctx, runID)
+	ret0, _ := ret[0].(*client.PostTrainingRun)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingRun indicates an expected call of GetPostTrainingRun.
+func (mr *MockPostTrainingRunInterfaceMockRecorder) GetPostTrainingRun(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingRun", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).GetPostTrainingRun), ctx, runID)
+}
+
+// ListPostTrainingRuns mocks base method.
+func (m *MockPostTrainingRunInterface) ListPostTrainingRuns(ctx context.Context, filter client.PostTrainingRunFilter) ([]*client.PostTrainingRun, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingRuns", ctx, filter)
+	ret0, _ := ret[0].([]*client.PostTrainingRun)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListPostTrainingRuns indicates an expected call of ListPostTrainingRuns.
+func (mr *MockPostTrainingRunInterfaceMockRecorder) ListPostTrainingRuns(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingRuns", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).ListPostTrainingRuns), ctx, filter)
+}
+
+// SetPostTrainingRunDeleted mocks base method.
+func (m *MockPostTrainingRunInterface) SetPostTrainingRunDeleted(ctx context.Context, runID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPostTrainingRunDeleted", ctx, runID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPostTrainingRunDeleted indicates an expected call of SetPostTrainingRunDeleted.
+func (mr *MockPostTrainingRunInterfaceMockRecorder) SetPostTrainingRunDeleted(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPostTrainingRunDeleted", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).SetPostTrainingRunDeleted), ctx, runID)
+}
+
+// UpdatePostTrainingRun mocks base method.
+func (m *MockPostTrainingRunInterface) UpdatePostTrainingRun(ctx context.Context, runID string, fields map[string]interface{}) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePostTrainingRun", ctx, runID, fields)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdatePostTrainingRun indicates an expected call of UpdatePostTrainingRun.
+func (mr *MockPostTrainingRunInterfaceMockRecorder) UpdatePostTrainingRun(ctx, runID, fields interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostTrainingRun", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).UpdatePostTrainingRun), ctx, runID, fields)
+}
+
+// MockPostTrainingRunMetricInterface is a mock of PostTrainingRunMetricInterface interface.
+type MockPostTrainingRunMetricInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockPostTrainingRunMetricInterfaceMockRecorder
+}
+
+// MockPostTrainingRunMetricInterfaceMockRecorder is the mock recorder for MockPostTrainingRunMetricInterface.
+type MockPostTrainingRunMetricInterfaceMockRecorder struct {
+	mock *MockPostTrainingRunMetricInterface
+}
+
+// NewMockPostTrainingRunMetricInterface creates a new mock instance.
+func NewMockPostTrainingRunMetricInterface(ctrl *gomock.Controller) *MockPostTrainingRunMetricInterface {
+	mock := &MockPostTrainingRunMetricInterface{ctrl: ctrl}
+	mock.recorder = &MockPostTrainingRunMetricInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPostTrainingRunMetricInterface) EXPECT() *MockPostTrainingRunMetricInterfaceMockRecorder {
+	return m.recorder
+}
+
+// DeletePostTrainingRunMetrics mocks base method.
+func (m *MockPostTrainingRunMetricInterface) DeletePostTrainingRunMetrics(ctx context.Context, runID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePostTrainingRunMetrics", ctx, runID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePostTrainingRunMetrics indicates an expected call of DeletePostTrainingRunMetrics.
+func (mr *MockPostTrainingRunMetricInterfaceMockRecorder) DeletePostTrainingRunMetrics(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePostTrainingRunMetrics", reflect.TypeOf((*MockPostTrainingRunMetricInterface)(nil).DeletePostTrainingRunMetrics), ctx, runID)
+}
+
+// DeletePostTrainingRunMetricsAfterStep mocks base method.
+func (m *MockPostTrainingRunMetricInterface) DeletePostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePostTrainingRunMetricsAfterStep", ctx, runID, step)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePostTrainingRunMetricsAfterStep indicates an expected call of DeletePostTrainingRunMetricsAfterStep.
+func (mr *MockPostTrainingRunMetricInterfaceMockRecorder) DeletePostTrainingRunMetricsAfterStep(ctx, runID, step interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePostTrainingRunMetricsAfterStep", reflect.TypeOf((*MockPostTrainingRunMetricInterface)(nil).DeletePostTrainingRunMetricsAfterStep), ctx, runID, step)
+}
+
+// ListPostTrainingRunMetricNames mocks base method.
+func (m *MockPostTrainingRunMetricInterface) ListPostTrainingRunMetricNames(ctx context.Context, runID string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingRunMetricNames", ctx, runID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPostTrainingRunMetricNames indicates an expected call of ListPostTrainingRunMetricNames.
+func (mr *MockPostTrainingRunMetricInterfaceMockRecorder) ListPostTrainingRunMetricNames(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingRunMetricNames", reflect.TypeOf((*MockPostTrainingRunMetricInterface)(nil).ListPostTrainingRunMetricNames), ctx, runID)
+}
+
+// ListPostTrainingRunMetrics mocks base method.
+func (m *MockPostTrainingRunMetricInterface) ListPostTrainingRunMetrics(ctx context.Context, runID string, names []string) ([]*client.PostTrainingRunMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingRunMetrics", ctx, runID, names)
+	ret0, _ := ret[0].([]*client.PostTrainingRunMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPostTrainingRunMetrics indicates an expected call of ListPostTrainingRunMetrics.
+func (mr *MockPostTrainingRunMetricInterfaceMockRecorder) ListPostTrainingRunMetrics(ctx, runID, names interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingRunMetrics", reflect.TypeOf((*MockPostTrainingRunMetricInterface)(nil).ListPostTrainingRunMetrics), ctx, runID, names)
+}
+
+// SavePostTrainingRunMetrics mocks base method.
+func (m *MockPostTrainingRunMetricInterface) SavePostTrainingRunMetrics(ctx context.Context, runID string, points []*client.PostTrainingRunMetric, runFields map[string]interface{}) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SavePostTrainingRunMetrics", ctx, runID, points, runFields)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SavePostTrainingRunMetrics indicates an expected call of SavePostTrainingRunMetrics.
+func (mr *MockPostTrainingRunMetricInterfaceMockRecorder) SavePostTrainingRunMetrics(ctx, runID, points, runFields interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SavePostTrainingRunMetrics", reflect.TypeOf((*MockPostTrainingRunMetricInterface)(nil).SavePostTrainingRunMetrics), ctx, runID, points, runFields)
 }
