@@ -826,3 +826,20 @@ func TestOpsJobValidateModelCleanup(t *testing.T) {
 		"a cleanup must not run while a download writes into the same directory")
 	assert.NoError(t, v.validateModelCleanup(context.Background(), cleanup("j1", "/data/models/other")))
 }
+
+// TestOpsJobValidateModelInspect accepts reads of model and run directories only.
+func TestOpsJobValidateModelInspect(t *testing.T) {
+	inspect := func(p string) *v1.OpsJob {
+		return &v1.OpsJob{Spec: v1.OpsJobSpec{Type: v1.OpsJobModelInspectType, Inputs: []v1.Parameter{
+			{Name: v1.ParameterDestPath, Value: p}, {Name: v1.ParameterWorkspace, Value: "ws1"}}}}
+	}
+	v := &OpsJobValidator{}
+	assert.NoError(t, v.validateModelInspect(inspect("/data/custom/models/pt-qwen-abc12")))
+	assert.NoError(t, v.validateModelInspect(inspect("/data/models/org--repo")))
+	for _, p := range []string{"/data", "/data/models", "relative/models/x", "/data/models/../etc"} {
+		assert.Error(t, v.validateModelInspect(inspect(p)), p)
+	}
+	noWorkspace := inspect("/data/models/org--repo")
+	noWorkspace.Spec.Inputs = noWorkspace.Spec.Inputs[:1]
+	assert.Error(t, v.validateModelInspect(noWorkspace))
+}

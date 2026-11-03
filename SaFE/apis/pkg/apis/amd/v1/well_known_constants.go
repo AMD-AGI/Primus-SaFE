@@ -348,6 +348,10 @@ const (
 	ModelS3SourceSecretAnn   = ModelPrefix + "s3-source-secret"   // annotation: Secret name in primus-safe namespace
 	ModelS3SourceEndpointAnn = ModelPrefix + "s3-source-endpoint" // annotation: user-provided HTTP(S) endpoint for the source bucket
 	SourceModelIdLabel       = PrimusSafePrefix + "source-model"
+	// ModelInspectAnnotation records that the model's config.json was read once: "done" or "failed".
+	ModelInspectAnnotation = ModelPrefix + "inspect"
+	// ModelInspectErrorAnnotation records why reading the model's config.json failed.
+	ModelInspectErrorAnnotation = PrimusSafePrefix + "model.inspect-error"
 
 	// post training: workloads, models and evaluation jobs of a Post Training run carry the run id;
 	// workloads also carry their role in the run, and re-exported models the checkpoint step.

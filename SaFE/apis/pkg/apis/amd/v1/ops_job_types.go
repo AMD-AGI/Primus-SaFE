@@ -38,6 +38,10 @@ const (
 	// OpsJobModelCleanupType removes a downloaded model directory from workspace storage.
 	// It is created only by the Model controller and is not exposed through the API.
 	OpsJobModelCleanupType OpsJobType = "model-cleanup"
+	// OpsJobModelInspectType reads workspace storage without changing it: a model's config.json, or the output
+	// of a Post Training run whose result marker was lost. It is created only by the Model and Post Training
+	// controllers and is not exposed through the API.
+	OpsJobModelInspectType OpsJobType = "model-inspect"
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"

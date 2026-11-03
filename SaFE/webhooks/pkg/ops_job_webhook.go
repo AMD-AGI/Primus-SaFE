@@ -231,7 +231,8 @@ func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob
 }
 
 func (m *OpsJobMutator) generateDestPath(ctx context.Context, job *v1.OpsJob) error {
-	if job.Spec.Type != v1.OpsJobDownloadType && job.Spec.Type != v1.OpsJobModelCleanupType {
+	if job.Spec.Type != v1.OpsJobDownloadType && job.Spec.Type != v1.OpsJobModelCleanupType &&
+		job.Spec.Type != v1.OpsJobModelInspectType {
 		return nil
 	}
 	destParam := job.GetParameter(v1.ParameterDestPath)
@@ -311,6 +312,8 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 		err = v.validateDownload(ctx, job)
 	case v1.OpsJobModelCleanupType:
 		err = v.validateModelCleanup(ctx, job)
+	case v1.OpsJobModelInspectType:
+		err = v.validateModelInspect(job)
 	case v1.OpsJobModelPrewarmType:
 		err = v.validateModelPrewarm(ctx, job)
 	default:
@@ -523,6 +526,23 @@ func (v *OpsJobValidator) validateModelCleanup(ctx context.Context, job *v1.OpsJ
 			"%s must be an absolute path below a models directory", v1.ParameterDestPath))
 	}
 	return v.validateNoJobOnSameDestPath(ctx, job)
+}
+
+// validateModelInspect accepts a read of a model directory, or of a Post Training run directory, which also
+// lies below a models directory.
+func (v *OpsJobValidator) validateModelInspect(job *v1.OpsJob) error {
+	destParam, err := commonjob.GetRequiredParameter(job, v1.ParameterDestPath)
+	if err != nil {
+		return err
+	}
+	if _, err = commonjob.GetRequiredParameter(job, v1.ParameterWorkspace); err != nil {
+		return err
+	}
+	if !isModelDirPath(destParam.Value) {
+		return commonerrors.NewBadRequest(fmt.Sprintf(
+			"%s must be an absolute path below a models directory", v1.ParameterDestPath))
+	}
+	return nil
 }
 
 // isModelDirPath reports whether p is an absolute, clean path with at least one

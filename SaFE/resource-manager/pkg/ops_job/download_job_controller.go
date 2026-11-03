@@ -83,7 +83,8 @@ func isDownloadWorkload(workload *v1.Workload) bool {
 		return false
 	}
 	jobType := v1.GetOpsJobType(workload)
-	return jobType == string(v1.OpsJobDownloadType) || jobType == string(v1.OpsJobModelCleanupType)
+	return jobType == string(v1.OpsJobDownloadType) || jobType == string(v1.OpsJobModelCleanupType) ||
+		jobType == string(v1.OpsJobModelInspectType)
 }
 
 // isModelOwned reports whether the job is controlled by a Model. Only those jobs may
@@ -92,6 +93,13 @@ func isDownloadWorkload(workload *v1.Workload) bool {
 func isModelOwned(job *v1.OpsJob) bool {
 	owner := metav1.GetControllerOf(job)
 	return owner != nil && owner.Kind == v1.ModelKind
+}
+
+// mayRunEntryPoint reports whether the job may carry its own entry point: jobs of a Model, and the
+// model-inspect jobs with which the Post Training controller checks a run's output.
+func mayRunEntryPoint(job *v1.OpsJob) bool {
+	return isModelOwned(job) ||
+		(job.Spec.Type == v1.OpsJobModelInspectType && v1.GetLabel(job, v1.PostTrainingRunIdLabel) != "")
 }
 
 // Reconcile is the main control loop for DownloadJob resources.
@@ -112,7 +120,8 @@ func (r *DownloadJobReconciler) observe(_ context.Context, job *v1.OpsJob) (bool
 
 // filter determines if the job should be processed by this download job reconciler.
 func (r *DownloadJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
-	return job.Spec.Type != v1.OpsJobDownloadType && job.Spec.Type != v1.OpsJobModelCleanupType
+	return job.Spec.Type != v1.OpsJobDownloadType && job.Spec.Type != v1.OpsJobModelCleanupType &&
+		job.Spec.Type != v1.OpsJobModelInspectType
 }
 
 // handle processes the download job by creating a corresponding workload.
@@ -176,7 +185,7 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 		Memory:           "8Gi",
 		EphemeralStorage: "50Gi",
 	}
-	if job.Spec.Type == v1.OpsJobModelCleanupType {
+	if job.Spec.Type == v1.OpsJobModelCleanupType || job.Spec.Type == v1.OpsJobModelInspectType {
 		resource = v1.WorkloadResource{Replica: 1, CPU: "1", Memory: "1Gi", EphemeralStorage: "1Gi"}
 	}
 
@@ -242,7 +251,7 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 		}}
 	}
 	if job.Spec.EntryPoint != nil && *job.Spec.EntryPoint != "" {
-		if !isModelOwned(job) {
+		if !mayRunEntryPoint(job) {
 			return nil, commonerrors.NewBadRequest("only jobs created by a model may set an entry point")
 		}
 		workload.Spec.EntryPoints = []string{*job.Spec.EntryPoint}
