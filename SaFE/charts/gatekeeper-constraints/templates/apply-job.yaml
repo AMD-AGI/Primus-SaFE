@@ -3,50 +3,24 @@
 # See LICENSE for license information.
 #
 
-# The account exists only while a hook Job runs.
+# The account applies constraint manifests and is also used by the delete hook.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: gatekeeper-constraint-apply
   namespace: {{ .Release.Namespace }}
-  annotations:
-    helm.sh/hook: post-install,post-upgrade,pre-delete
-    helm.sh/hook-weight: "5"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: gatekeeper-constraint-apply
-  annotations:
-    helm.sh/hook: post-install,post-upgrade,pre-delete
-    helm.sh/hook-weight: "5"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 rules:
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
     resourceNames:
-      - configs.config.gatekeeper.sh
-      - constrainttemplates.templates.gatekeeper.sh
       - sandboxworkloadmembership.constraints.gatekeeper.sh
       - sandboxworkloadattestation.constraints.gatekeeper.sh
     verbs: ["get"]
-  - apiGroups: ["templates.gatekeeper.sh"]
-    resources: ["constrainttemplates"]
-    verbs: ["create"]
-  - apiGroups: ["templates.gatekeeper.sh"]
-    resources: ["constrainttemplates"]
-    resourceNames:
-      - sandboxworkloadmembership
-      - sandboxworkloadattestation
-    verbs: ["get", "patch", "update", "delete"]
-  - apiGroups: ["config.gatekeeper.sh"]
-    resources: ["configs"]
-    verbs: ["create"]
-  - apiGroups: ["config.gatekeeper.sh"]
-    resources: ["configs"]
-    resourceNames: ["config"]
-    verbs: ["get", "patch", "update", "delete"]
   - apiGroups: ["constraints.gatekeeper.sh"]
     resources: ["sandboxworkloadmembership", "sandboxworkloadattestation"]
     verbs: ["create"]
@@ -63,10 +37,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: gatekeeper-constraint-apply
-  annotations:
-    helm.sh/hook: post-install,post-upgrade,pre-delete
-    helm.sh/hook-weight: "5"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 subjects:
   - kind: ServiceAccount
     name: gatekeeper-constraint-apply
@@ -76,16 +46,15 @@ roleRef:
   kind: ClusterRole
   name: gatekeeper-constraint-apply
 ---
-# Creates the Config, ConstraintTemplates, and constraints after Gatekeeper registers their CRDs.
+# Applies the constraints once their CRDs serve the parameters of this chart. The
+# ConstraintTemplates and Config are release resources. This is a release Job,
+# so an upgrade that does not run Helm hooks still creates it. The name includes
+# the chart version because a finished Job cannot be updated in place.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: gatekeeper-constraint-apply
+  name: gatekeeper-constraint-apply-{{ .Chart.Version | replace "." "-" }}
   namespace: {{ .Release.Namespace }}
-  annotations:
-    helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "10"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 300
@@ -113,10 +82,12 @@ spec:
               api=https://kubernetes.default.svc
               wait_crd() {
                 name="$1"
+                field="$2"
                 i=0
                 while [ "$i" -lt 60 ]; do
                   if curl -fsS --cacert "$ca" -H "Authorization: Bearer ${token}" \
-                    "${api}/apis/apiextensions.k8s.io/v1/customresourcedefinitions/${name}" >/dev/null; then
+                    "${api}/apis/apiextensions.k8s.io/v1/customresourcedefinitions/${name}" -o /tmp/crd &&
+                    grep -q "\"${field}\"" /tmp/crd; then
                     return 0
                   fi
                   i=$((i + 1))
@@ -148,13 +119,8 @@ spec:
                 cat /tmp/resp >&2
                 return 1
               }
-              wait_crd configs.config.gatekeeper.sh
-              wait_crd constrainttemplates.templates.gatekeeper.sh
-              apply "${api}/apis/config.gatekeeper.sh/v1alpha1/namespaces/${RELEASE_NAMESPACE}/configs" config /manifests/config.json /manifests/config.spec.json
-              apply "${api}/apis/templates.gatekeeper.sh/v1/constrainttemplates" sandboxworkloadmembership /manifests/sandboxworkloadmembership-template.json /manifests/sandboxworkloadmembership-template.spec.json
-              apply "${api}/apis/templates.gatekeeper.sh/v1/constrainttemplates" sandboxworkloadattestation /manifests/sandboxworkloadattestation-template.json /manifests/sandboxworkloadattestation-template.spec.json
-              wait_crd sandboxworkloadmembership.constraints.gatekeeper.sh
-              wait_crd sandboxworkloadattestation.constraints.gatekeeper.sh
+              wait_crd sandboxworkloadmembership.constraints.gatekeeper.sh sandboxCreator
+              wait_crd sandboxworkloadattestation.constraints.gatekeeper.sh identity
               apply "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadmembership" sandbox-workload-membership /manifests/sandbox-workload-membership.json /manifests/sandbox-workload-membership.spec.json
               apply "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadattestation" sandbox-workload-attestation /manifests/sandbox-workload-attestation.json /manifests/sandbox-workload-attestation.spec.json
           volumeMounts:

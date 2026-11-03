@@ -3,7 +3,7 @@
 # See LICENSE for license information.
 #
 
-# Removes the Config, ConstraintTemplates, and constraints created by the apply hook.
+# Removes the constraints, which Helm keeps on uninstall.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -51,6 +51,3 @@ spec:
               }
               delete "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadmembership/sandbox-workload-membership"
               delete "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadattestation/sandbox-workload-attestation"
-              delete "${api}/apis/templates.gatekeeper.sh/v1/constrainttemplates/sandboxworkloadmembership"
-              delete "${api}/apis/templates.gatekeeper.sh/v1/constrainttemplates/sandboxworkloadattestation"
-              delete "${api}/apis/config.gatekeeper.sh/v1alpha1/namespaces/${RELEASE_NAMESPACE}/configs/config"
