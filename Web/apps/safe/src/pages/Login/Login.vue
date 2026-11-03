@@ -58,7 +58,7 @@
         <template v-else-if="userStore.isExternalAuth">
           <div class="py-12 text-center text-[13px] opacity-80">
             <div class="mb-4">Sign-in is managed by an external identity provider.</div>
-            <el-button v-if="userStore.envs?.ssoAuthUrl" type="primary" @click="startSSO">
+            <el-button v-if="signInTarget(userStore.envs)" type="primary" @click="startSSO">
               Continue to sign in
             </el-button>
           </div>
@@ -152,13 +152,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { toggleDark } from '@/composables'
 import { randomState, getSafeRedirect } from '@/utils'
+import { buildSignInUrl, signInTarget } from '@/utils/ssoSignIn'
 import { useDark } from '@vueuse/core'
 
 const isDark = useDark()
 
 const version = '1.0.0'
 const ENTRY_KEY = 'sso.redirect'
-const OAUTH_STATE_KEY = 'oauth_state'
 const SSO_ATTEMPTS_KEY = 'sso.attempts' // Track SSO attempt history (fallback protection)
 const MAX_SSO_ATTEMPTS = 5 // Max attempts (adjusted from 3 to 5 for more chances)
 const ATTEMPT_WINDOW_MS = 60000 // 60-second attempt window (extended from 30s to 60s)
@@ -233,8 +233,9 @@ function clearSSOAttempts() {
 }
 
 // ========== Core function: redirect to SSO login page ==========
-function startSSO() {
-  if (!userStore.envs?.ssoAuthUrl) {
+async function startSSO() {
+  const signIn = signInTarget(userStore.envs)
+  if (!signIn) {
     ElMessage.error('SSO is not configured')
     return
   }
@@ -243,18 +244,12 @@ function startSSO() {
   const target = getSafeRedirect(route.query.redirect)
   sessionStorage.setItem(ENTRY_KEY, target)
 
-  // 2. Generate random state (security verification)
-  const state = randomState()
-  sessionStorage.setItem(OAUTH_STATE_KEY, state)
+  // 2. Build SSO URL with a random state (security verification) and, when the provider needs it,
+  // a PKCE code challenge; both are kept in sessionStorage for the callback
+  const url = await buildSignInUrl(signIn.url, randomState(), signIn.pkce)
 
-  // 3. Build SSO URL
-  const u = new URL(userStore.envs?.ssoAuthUrl)
-  u.searchParams.set('state', state)
-
-  if (!u.searchParams.has('response_mode')) u.searchParams.set('response_mode', 'query')
-
-  // 4. Redirect
-  window.location.assign(u.toString())
+  // 3. Redirect
+  window.location.assign(url)
 }
 
 async function onSubmit() {

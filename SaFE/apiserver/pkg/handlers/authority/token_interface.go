@@ -17,6 +17,8 @@ type TokenInput struct {
 	Username string
 	Password string
 	Code     string
+	// CodeVerifier is the PKCE code verifier of a code asked for at the sso.login provider.
+	CodeVerifier string
 }
 
 // TokenResponse represents the response structure for token operations

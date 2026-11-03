@@ -624,9 +624,10 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	}
 
 	tokenInput := authority.TokenInput{
-		Code:     query.Code,
-		Username: query.Name,
-		Password: query.Password,
+		Code:         query.Code,
+		CodeVerifier: query.CodeVerifier,
+		Username:     query.Name,
+		Password:     query.Password,
 	}
 	user, resp, err := tokenInstance.Login(c.Request.Context(), tokenInput)
 
@@ -738,6 +739,7 @@ func parseLoginQuery(c *gin.Context) (*view.UserLoginRequest, error) {
 		req.Name = c.PostForm("name")
 		req.Password = c.PostForm("password")
 		req.Code = c.PostForm("code")
+		req.CodeVerifier = c.PostForm("code_verifier")
 		req.IsFromConsole = true
 	} else {
 		_, err := apiutils.ParseRequestBody(c.Request, req)

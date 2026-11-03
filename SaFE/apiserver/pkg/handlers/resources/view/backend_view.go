@@ -29,6 +29,10 @@ type GetEnvResponse struct {
 	SSOEnable bool `json:"ssoEnable"`
 	// The url for sso authorization
 	SSOAuthUrl string `json:"ssoAuthUrl"`
+	// The console's sign-in at the sso.login provider, when it is on: an authorization URL that needs
+	// PKCE (the console adds its state and an S256 code_challenge, and sends the code verifier with the
+	// code). ssoAuthUrl stays the URL of the provider of the sso Secret while that is configured.
+	SSOLoginUrl string `json:"ssoLoginUrl,omitempty"`
 	// Origins (optionally with a path prefix) other than the web console itself that may receive an SSO code.
 	SSOBridgeAllowlist []string `json:"ssoBridgeAllowlist"`
 	// Whether CD deployment requires approval from another user

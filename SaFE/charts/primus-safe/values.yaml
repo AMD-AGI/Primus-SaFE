@@ -316,6 +316,18 @@ sso:
   # Other web apps allowed to receive the SSO authorization code (the console's own origin is always allowed).
   # Each entry is an origin, optionally followed by a path prefix, e.g. "https://app.example.com/console".
   bridge_allowlist: []
+  # The console signs in at an OpenID Connect provider as a public client (no client secret) with PKCE,
+  # instead of at the provider of the secret above. Off by default. The provider of the secret, when it is
+  # still set, keeps serving the codes other web apps bring (SSO bridge) and the sessions it made; set the
+  # secret to an empty string to remove it once nothing uses it.
+  login:
+    enable: false
+    # Issuer of the provider (its discovery document is <issuer>/.well-known/openid-configuration).
+    issuer: ""
+    # Client id the console is registered with there.
+    client_id: ""
+    # The console's own callback, registered exactly at the provider, e.g. "https://console.example.com/sso/callback".
+    redirect_uri: ""
 workspace:
   # Reserved system resources for management components
   mem_reserve_percent: 0.05

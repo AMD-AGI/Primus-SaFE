@@ -5,6 +5,7 @@ import { getEnvs, ssoLoginRaw } from '@/services/login'
 import { addUserToGroup, getUserNTID } from '@/services/mcp'
 import { getSafeRedirect } from '@/utils'
 import { resolveAllowedBridge } from '@/utils/ssoBridge'
+import { takeCallbackVerifier } from '@/utils/ssoSignIn'
 
 const SSO_GROUP = 'dl.primus-safe-users'
 const PUBLIC_NAME = new Set(['Login', 'LoginAdmin', 'Register', 'SSOError'])
@@ -47,6 +48,16 @@ async function loadBridgeAllowlist(): Promise<string[]> {
     return Array.isArray(envs?.ssoBridgeAllowlist) ? envs.ssoBridgeAllowlist : []
   } catch {
     return []
+  }
+}
+
+/** Whether the console's sign-in uses PKCE (/envs ssoLoginUrl); false if /envs cannot be read. */
+async function loadPkceRequired(): Promise<boolean> {
+  try {
+    const envs = await getEnvs()
+    return !!envs?.ssoLoginUrl
+  } catch {
+    return false
   }
 }
 
@@ -98,8 +109,21 @@ export default function setupAuthGuard(router: Router) {
         })
       }
 
+      // With PKCE the code is used only with the verifier this tab kept for this state.
+      const pkce = takeCallbackVerifier(state, await loadPkceRequired())
+      if (!pkce.ok) {
+        history.replaceState(null, '', to.path)
+        return next({
+          path: '/sso-error',
+          query: {
+            error: 'state_mismatch',
+            error_description: 'The sign-in did not start in this tab. Please try again.',
+          },
+        })
+      }
+
       // ========== SSO login: use raw request to get the full response ==========
-      const resp = await ssoLoginRaw(code, state)
+      const resp = await ssoLoginRaw(code, state, pkce.verifier)
 
       const loginOk = resp.status >= 200 && resp.status < 300 && resp.data?.id
 

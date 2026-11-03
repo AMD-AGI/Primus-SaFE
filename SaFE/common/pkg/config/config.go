@@ -531,6 +531,29 @@ func GetSSOBridgeAllowlist() []string {
 	return getStringSlice(ssoBridgeAllowlist, nil)
 }
 
+// IsSSOLoginEnable returns whether the console signs in at the OpenID Connect provider of
+// sso.login (a public client with PKCE) instead of at the provider of sso.secret_path.
+func IsSSOLoginEnable() bool {
+	return getBool(ssoLoginEnable, false)
+}
+
+// GetSSOLoginIssuer returns the issuer of the sso.login provider; its discovery document is at
+// <issuer>/.well-known/openid-configuration.
+func GetSSOLoginIssuer() string {
+	return strings.TrimSpace(getString(ssoLoginIssuer, ""))
+}
+
+// GetSSOLoginClientId returns the client id the console is registered with at the sso.login provider.
+func GetSSOLoginClientId() string {
+	return strings.TrimSpace(getString(ssoLoginClientId, ""))
+}
+
+// GetSSOLoginRedirectURI returns the console's own callback address registered at the sso.login
+// provider, for example https://console.example.com/sso/callback.
+func GetSSOLoginRedirectURI() string {
+	return strings.TrimSpace(getString(ssoLoginRedirectURI, ""))
+}
+
 func GetSSOClientId() string {
 	return getFromFile(ssoSecretPath, "id")
 }

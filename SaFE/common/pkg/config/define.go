@@ -145,6 +145,13 @@ const (
 	ssoSecretPath = ssoPrefix + "secret_path"
 	// ssoBridgeAllowlist lists the web origins (optionally with a path prefix) that may receive an SSO authorization code.
 	ssoBridgeAllowlist = ssoPrefix + "bridge_allowlist"
+	// sso.login: the console signs in at an OpenID Connect provider as a public client with PKCE
+	// (authorization code flow), instead of at the provider of sso.secret_path. Off by default.
+	ssoLoginPrefix      = ssoPrefix + "login."
+	ssoLoginEnable      = ssoLoginPrefix + "enable"
+	ssoLoginIssuer      = ssoLoginPrefix + "issuer"
+	ssoLoginClientId    = ssoLoginPrefix + "client_id"
+	ssoLoginRedirectURI = ssoLoginPrefix + "redirect_uri"
 
 	// cicd
 	cicdPrefix                  = "cicd."
