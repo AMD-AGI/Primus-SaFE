@@ -262,15 +262,16 @@ func TestSkillTools_RequestShape(t *testing.T) {
 	}
 }
 
-// openSearchReply builds the shape the logs and events endpoints return.
+// openSearchReply builds the shape the logs and events endpoints return. The _source holds
+// what cicdlog.BuildOutput asks the search for on a workload: no container name.
 func openSearchReply(n int, msg func(i int) string) string {
 	var hits []string
 	for i := 0; i < n; i++ {
 		m, _ := json.Marshal(msg(i))
 		hits = append(hits, fmt.Sprintf(
 			`{"_id":"d%d","_source":{"@timestamp":"2026-11-03T08:%02d:00.000Z","stream":"stderr","message":%s,`+
-				`"kubernetes":{"pod_name":"pod-%d","container_name":"main","host":"node-a",`+
-				`"labels":{"primus-safe_workload_id":"w1","training_kubeflow_org/replica-type":"worker"}}}}`, i, i%60, m, i))
+				`"kubernetes":{"pod_name":"pod-%d","host":"node-a",`+
+				`"labels":{"primus-safe_workload_dispatch_count":"2"}}}}`, i, i%60, m, i))
 	}
 	return fmt.Sprintf(`{"took":3,"hits":{"total":{"value":%d},"hits":[%s]}}`, n, strings.Join(hits, ","))
 }
@@ -294,9 +295,10 @@ func TestWorkloadLogs_SmallReplyIsReshapedIntoLines(t *testing.T) {
 		t.Fatalf("lines: %v", m["lines"])
 	}
 	first := asMap(t, lines[0])
-	if first["message"] != "line 0" || first["pod"] != "pod-0" || first["container"] != "main" ||
-		first["time"] != "2026-11-03T08:00:00.000Z" {
-		t.Fatalf("first line: %v", first)
+	want := map[string]any{"time": "2026-11-03T08:00:00.000Z", "message": "line 0", "pod": "pod-0",
+		"node": "node-a", "stream": "stderr", "dispatch_count": "2"}
+	if fmt.Sprint(first) != fmt.Sprint(want) {
+		t.Fatalf("first line: got %v, want %v", first, want)
 	}
 	for _, banned := range []string{"labels", "kubernetes", "_id"} {
 		if _, ok := first[banned]; ok {
@@ -505,6 +507,30 @@ func TestNodePodLogs_ReplyKeepsTheNewestLines(t *testing.T) {
 		if n := len([]rune(l.(string))); n > wantMaxFieldChars+64 {
 			t.Fatalf("a line of %d chars got through", n)
 		}
+	}
+}
+
+// The backend splits the log text on newlines and applies tail_lines itself, so a full
+// reply to tail_lines=200 holds 200 lines and the empty string after the final newline.
+func TestNodePodLogs_TrailingNewlineIsNotALine(t *testing.T) {
+	t.Parallel()
+	var lines []string
+	for i := 0; i < 200; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	raw, _ := json.Marshal(map[string]any{"nodeId": "n1", "logs": append(lines, "")})
+	b := newBackend(t, string(raw))
+	got, err := b.call(t, "node_pod_logs", `{"node_id":"n1","tail_lines":200}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := asMap(t, got)
+	kept, _ := m["logs"].([]any)
+	if len(kept) != 200 || kept[0] != "line 0" || kept[199] != "line 199" {
+		t.Fatalf("want the 200 lines the backend returned, got %d lines from %v to %v", len(kept), kept[0], kept[len(kept)-1])
+	}
+	if tr, _ := m["truncated"].(bool); tr {
+		t.Fatalf("the backend returned exactly what was asked for and the reply says lines were left out")
 	}
 }
 

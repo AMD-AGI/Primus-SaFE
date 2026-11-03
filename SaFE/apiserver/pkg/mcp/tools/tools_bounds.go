@@ -5,6 +5,9 @@ package tools
 
 import (
 	"encoding/json"
+	"strings"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
 // An MCP client is usually a language model, and whatever a tool returns lands in its
@@ -157,8 +160,13 @@ func textField(m map[string]any, key string) string {
 	return s
 }
 
+// dispatchCountKey is the dispatch-count label as the log search stores it under
+// kubernetes.labels: with its dots written as underscores.
+var dispatchCountKey = strings.ReplaceAll(v1.WorkloadDispatchCntLabel, ".", "_")
+
 // compactLogReply turns the search reply for workload logs into one small record per line:
-// time, pod, container and message. The reply repeats a block of Kubernetes metadata on
+// time, message, and, when the search returned them, pod, node, stream and dispatch_count
+// (the run of a retried workload that printed it). The reply repeats a block of Kubernetes metadata on
 // every hit, which is most of its size and of no use to a reader. Lines come out in the
 // order the search returned them, and as many of them as fit the size budget. truncated is
 // true when the reply does not hold every matching line from offset on: lines were left
@@ -183,12 +191,20 @@ func compactLogReply(out any, offset int) any {
 		msg, c := cutText(msg, maxFieldChars)
 		cut = cut || c
 		line := map[string]any{"time": textField(src, "@timestamp"), "message": msg}
+		if v := textField(src, "stream"); v != "" {
+			line["stream"] = v
+		}
 		if k8s, ok := src["kubernetes"].(map[string]any); ok {
 			if v := textField(k8s, "pod_name"); v != "" {
 				line["pod"] = v
 			}
-			if v := textField(k8s, "container_name"); v != "" {
-				line["container"] = v
+			if v := textField(k8s, "host"); v != "" {
+				line["node"] = v
+			}
+			if labels, ok := k8s["labels"].(map[string]any); ok {
+				if v := textField(labels, dispatchCountKey); v != "" {
+					line["dispatch_count"] = v
+				}
 			}
 		}
 		lines = append(lines, line)
@@ -251,6 +267,11 @@ func boundNodeLogs(out any, tail int) any {
 	logs, ok := reply["logs"].([]any)
 	if !ok {
 		return out
+	}
+	// The backend splits the log text on newlines, so a log that ends with one, as
+	// Kubernetes logs do, yields an empty last element that is not a line.
+	if n := len(logs); n > 0 && logs[n-1] == "" {
+		logs = logs[:n-1]
 	}
 	start := 0
 	if len(logs) > tail {

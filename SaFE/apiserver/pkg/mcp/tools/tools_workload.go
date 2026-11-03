@@ -602,7 +602,7 @@ func workloadLogs() *mcpserver.MCPTool {
 	return &mcpserver.MCPTool{
 		Name: "workload_logs",
 		Description: "Search the stored logs of a workload. They are kept after the pods are gone, so use this when workload_pod_logs " +
-			"has no pod to read. Read-only. Returns {total, returned, truncated, lines:[{time, pod, container, message}]} (total is only a lower bound when totalIsLowerBound is true), " +
+			"has no pod to read. Read-only. Returns {total, returned, truncated, lines:[{time, message, pod, node, stream, dispatch_count}]} (total is only a lower bound when totalIsLowerBound is true), " +
 			"newest first unless order is asc, bounded in count and size. `truncated` is true when lines were left out, a message was cut, " +
 			"or more lines matched than returned: narrow with keywords, pod_names or a time range, or page with `offset`. " +
 			"This does not produce a file: to download the whole log use workload_logs_download.",
