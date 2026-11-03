@@ -257,8 +257,9 @@ func (c *ssoToken) synchronizeUser(ctx context.Context, userInfo *UserInfo) (*v1
 			ObjectMeta: metav1.ObjectMeta{
 				Name: userInfo.Id,
 				Annotations: map[string]string{
-					v1.UserNameAnnotation:  userInfo.Name,
-					v1.UserEmailAnnotation: userInfo.Email,
+					v1.UserNameAnnotation:          userInfo.Name,
+					v1.UserEmailAnnotation:         userInfo.Email,
+					v1.UserPreferredNameAnnotation: userInfo.PreferredUsername,
 				},
 			},
 			Spec: v1.UserSpec{
