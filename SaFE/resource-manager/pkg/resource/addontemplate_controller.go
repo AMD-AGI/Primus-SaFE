@@ -10,13 +10,13 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v2"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -93,7 +93,7 @@ func (r *AddonTemplateController) Reconcile(ctx context.Context, req ctrlruntime
 
 // upgradeAddons points Addons that use an older version of the template's chart to the highest synced version.
 func (r *AddonTemplateController) upgradeAddons(ctx context.Context, template *v1.AddonTemplate) error {
-	if !isAutoUpgradeTemplate(template) {
+	if _, ok := v1.AutoUpgradeVersion(template); !ok {
 		return nil
 	}
 	templates := &v1.AddonTemplateList{}
@@ -122,6 +122,7 @@ func (r *AddonTemplateController) upgradeAddons(ctx context.Context, template *v
 		previous := helm.Template.Name
 		values, ok := upgradedValues(helm.Values, family[previous], family[target])
 		if !ok {
+			klog.Infof("keep addon %s on template %s: its values differ from the template defaults", addon.Name, previous)
 			continue
 		}
 		original := client.MergeFromWithOptions(addon.DeepCopy(), client.MergeFromWithOptimisticLock{})
@@ -157,31 +158,22 @@ func isDefaultAddon(addon *v1.Addon, defaults map[string]bool) bool {
 	return defaults[component] && addon.Name == addon.Spec.Cluster.Name+"-"+component
 }
 
-// isAutoUpgradeTemplate reports whether a template takes part in automatic Addon upgrades.
-func isAutoUpgradeTemplate(template *v1.AddonTemplate) bool {
-	return template.Spec.URL != "" && template.DeletionTimestamp.IsZero() &&
-		template.Labels[v1.AddonAutoUpgradeLabel] != "false"
-}
-
-// chartTemplates returns the auto-upgrade templates that share the given template's chart and have a semver version,
-// and their parsed versions, keyed by name. The given template is used as passed, so a status written in this
-// reconcile is seen.
-func chartTemplates(templates []v1.AddonTemplate, template *v1.AddonTemplate) (map[string]*v1.AddonTemplate, map[string]*semver.Version) {
+// chartTemplates returns the auto-upgrade templates that share the given template's chart, and their parsed
+// versions, keyed by name. The given template is used as passed, so a status written in this reconcile is seen.
+func chartTemplates(templates []v1.AddonTemplate, template *v1.AddonTemplate) (map[string]*v1.AddonTemplate, map[string]*version.Version) {
 	family := map[string]*v1.AddonTemplate{}
-	versions := map[string]*semver.Version{}
+	versions := map[string]*version.Version{}
 	for i := range templates {
 		t := &templates[i]
 		if t.Name == template.Name {
 			t = template
 		}
-		if !isAutoUpgradeTemplate(t) || t.Spec.URL != template.Spec.URL || t.Spec.Type != template.Spec.Type {
+		if !v1.IsSameChart(t, template) {
 			continue
 		}
-		version, err := semver.NewVersion(t.Spec.Version)
-		if err != nil {
-			continue
+		if v, ok := v1.AutoUpgradeVersion(t); ok {
+			family[t.Name], versions[t.Name] = t, v
 		}
-		family[t.Name], versions[t.Name] = t, version
 	}
 	return family, versions
 }
@@ -189,7 +181,7 @@ func chartTemplates(templates []v1.AddonTemplate, template *v1.AddonTemplate) (m
 // upgradeTarget returns the template an Addon should move to, or "" to keep it. The target is the highest version
 // above the Addon's whose chart values are synced; a pre-release is a target only for an Addon on a pre-release.
 // When several templates share the highest version, the Addon is kept.
-func upgradeTarget(addon *v1.Addon, family map[string]*v1.AddonTemplate, versions map[string]*semver.Version) string {
+func upgradeTarget(addon *v1.Addon, family map[string]*v1.AddonTemplate, versions map[string]*version.Version) string {
 	helm := addon.Spec.AddonSource.HelmRepository
 	if helm == nil || helm.Template == nil || !addon.DeletionTimestamp.IsZero() ||
 		addon.Labels[v1.AddonAutoUpgradeLabel] == "false" {
@@ -199,20 +191,21 @@ func upgradeTarget(addon *v1.Addon, family map[string]*v1.AddonTemplate, version
 	if !ok {
 		return ""
 	}
-	target, tied := "", false
-	for name, version := range versions {
-		if family[name].Status.HelmStatus.Values == "" || !version.GreaterThan(current) ||
-			(version.Prerelease() != "" && current.Prerelease() == "") {
+	target, tied := "", ""
+	for name, v := range versions {
+		if !v1.IsUpgradeTarget(family[name], v, current) {
 			continue
 		}
 		switch {
-		case target == "" || version.GreaterThan(versions[target]):
-			target, tied = name, false
-		case version.Equal(versions[target]):
-			tied = true
+		case target == "" || v.GreaterThan(versions[target]):
+			target, tied = name, ""
+		case v.EqualTo(versions[target]):
+			tied = name
 		}
 	}
-	if tied {
+	if tied != "" {
+		klog.Infof("keep addon %s on template %s: templates %s and %s share the highest version",
+			addon.Name, helm.Template.Name, target, tied)
 		return ""
 	}
 	return target

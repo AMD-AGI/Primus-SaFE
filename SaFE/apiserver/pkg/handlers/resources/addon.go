@@ -177,6 +177,17 @@ func (h *Handler) generateAddon(c *gin.Context, req *view.CreateAddonRequestBody
 		v1.SetAnnotation(addon, v1.DescriptionAnnotation, req.Description)
 	}
 
+	// An Addon created on a template below the highest version that automatic upgrades would choose keeps it
+	if v, ok := v1.AutoUpgradeVersion(addonTemplate); ok {
+		higher, err := h.hasHigherTemplate(ctx, addonTemplate, v)
+		if err != nil {
+			return nil, err
+		}
+		if higher {
+			v1.SetLabel(addon, v1.AddonAutoUpgradeLabel, "false")
+		}
+	}
+
 	return addon, nil
 }
 
@@ -283,51 +294,62 @@ func (h *Handler) patchAddon(c *gin.Context) (interface{}, error) {
 	return nil, h.Update(ctx, addon)
 }
 
-// markTemplateChoice records an explicit template change within one chart: moving an Addon to a lower version, or to
-// a version below the highest synced one, turns automatic template upgrades off for it, and moving it up to the
-// highest synced version turns them back on.
+// markTemplateChoice records an explicit template change: an Addon moved to a template below the highest version that
+// automatic upgrades would choose, or below its previous template of the same chart, has automatic template upgrades
+// turned off; an Addon moved to any other template has them turned back on.
 func (h *Handler) markTemplateChoice(ctx context.Context, addon *v1.Addon, previous string) error {
 	helm := addon.Spec.AddonSource.HelmRepository
-	if helm == nil || helm.Template == nil || previous == "" || helm.Template.Name == previous {
+	if helm == nil || helm.Template == nil || helm.Template.Name == previous {
 		return nil
 	}
-	from, to := &v1.AddonTemplate{}, &v1.AddonTemplate{}
-	if err := h.Get(ctx, client.ObjectKey{Name: previous}, from); err != nil {
-		return client.IgnoreNotFound(err)
-	}
+	to := &v1.AddonTemplate{}
 	if err := h.Get(ctx, client.ObjectKey{Name: helm.Template.Name}, to); err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	if from.Spec.URL != to.Spec.URL || from.Spec.Type != to.Spec.Type {
+	toVersion, ok := v1.AutoUpgradeVersion(to)
+	if !ok {
 		return nil
 	}
-	fromVersion, err := version.ParseSemantic(from.Spec.Version)
-	if err != nil {
-		return nil
-	}
-	toVersion, err := version.ParseSemantic(to.Spec.Version)
-	if err != nil {
-		return nil
-	}
-	if toVersion.LessThan(fromVersion) {
-		v1.SetLabel(addon, v1.AddonAutoUpgradeLabel, "false")
-		return nil
-	}
-	higher, err := h.hasHigherTemplate(ctx, to, toVersion)
+	downgrade, err := h.isDowngrade(ctx, previous, to, toVersion)
 	if err != nil {
 		return err
 	}
-	switch {
-	case higher:
+	higher := false
+	if !downgrade {
+		if higher, err = h.hasHigherTemplate(ctx, to, toVersion); err != nil {
+			return err
+		}
+	}
+	if downgrade || higher {
 		v1.SetLabel(addon, v1.AddonAutoUpgradeLabel, "false")
-	case fromVersion.LessThan(toVersion):
+	} else {
 		v1.RemoveLabel(addon, v1.AddonAutoUpgradeLabel)
 	}
 	return nil
 }
 
+// isDowngrade reports whether a template is of a lower version than the previous template of an Addon, when the
+// previous template exists and installs the same chart.
+func (h *Handler) isDowngrade(ctx context.Context, previous string, to *v1.AddonTemplate, toVersion *version.Version) (bool, error) {
+	if previous == "" {
+		return false, nil
+	}
+	from := &v1.AddonTemplate{}
+	if err := h.Get(ctx, client.ObjectKey{Name: previous}, from); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	if !v1.IsSameChart(from, to) {
+		return false, nil
+	}
+	fromVersion, err := version.ParseSemantic(from.Spec.Version)
+	if err != nil {
+		return false, nil
+	}
+	return toVersion.LessThan(fromVersion), nil
+}
+
 // hasHigherTemplate reports whether the chart of a template has a version above it that automatic upgrades would
-// move an Addon to: synced, not opted out, and not a pre-release unless the template is one.
+// move an Addon to.
 func (h *Handler) hasHigherTemplate(ctx context.Context, template *v1.AddonTemplate, current *version.Version) (bool, error) {
 	templates := &v1.AddonTemplateList{}
 	if err := h.List(ctx, templates); err != nil {
@@ -335,15 +357,10 @@ func (h *Handler) hasHigherTemplate(ctx context.Context, template *v1.AddonTempl
 	}
 	for i := range templates.Items {
 		t := &templates.Items[i]
-		if t.Name == template.Name || t.Spec.URL != template.Spec.URL || t.Spec.Type != template.Spec.Type ||
-			!t.DeletionTimestamp.IsZero() || t.Labels[v1.AddonAutoUpgradeLabel] == "false" || t.Status.HelmStatus.Values == "" {
+		if t.Name == template.Name || !v1.IsSameChart(t, template) {
 			continue
 		}
-		v, err := version.ParseSemantic(t.Spec.Version)
-		if err != nil || (v.PreRelease() != "" && current.PreRelease() == "") {
-			continue
-		}
-		if current.LessThan(v) {
+		if v, ok := v1.AutoUpgradeVersion(t); ok && v1.IsUpgradeTarget(t, v, current) {
 			return true, nil
 		}
 	}
