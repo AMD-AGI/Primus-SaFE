@@ -39,6 +39,7 @@ RUN mkdir -p ${APP_HOME}/scripts ${APP_HOME}/drivers ${APP_HOME}/apps \
 COPY ./SaFE/docker/preprocess/*.sh ${APP_HOME}/
 COPY ./SaFE/docker/preprocess/*.py ${APP_HOME}/
 COPY ./SaFE/docker/preprocess/scripts/*.sh ${APP_HOME}/scripts/
+COPY ./SaFE/docker/preprocess/safe_post_training ${APP_HOME}/safe_post_training
 COPY --from=save-image /out/save-image ${APP_HOME}/save-image
 
 # Copy bnxt driver if path is specified
