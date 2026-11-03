@@ -1002,6 +1002,8 @@ data:
         metric_summary TEXT,
         metric_gap BOOLEAN DEFAULT FALSE,
         result_line TEXT,
+        stalled_since TIMESTAMPTZ,
+        disk_usage TEXT,
         convert_workload_id VARCHAR(64),
         template_id VARCHAR(64),
         template_version INTEGER,

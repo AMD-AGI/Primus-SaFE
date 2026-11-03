@@ -46,6 +46,10 @@ func (r *RunReconciler) register(ctx context.Context, u *runUpdate, res *marker,
 	}
 	u.set("output_model_id", run.OutputModelID, model.Name)
 	if !model.IsReady() {
+		if start := u.stageStart("register"); !start.IsZero() && u.now.Sub(start) > registerTimeout {
+			u.fail("register", "The output model did not become ready within 30 minutes", endTime)
+			return ctrlruntime.Result{}, r.save(ctx, u)
+		}
 		return ctrlruntime.Result{RequeueAfter: runningRequeue}, r.save(ctx, u)
 	}
 	u.moveTo("done")

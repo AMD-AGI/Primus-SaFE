@@ -175,3 +175,25 @@ func TestPreemptedRunKeepsRunning(t *testing.T) {
 	require.Equal(t, 3, last["queue_position"])
 	require.Contains(t, last["stage_history"], `"event":"preempted"`)
 }
+
+func TestDisableFailoverOnNoRetry(t *testing.T) {
+	w := endedWorkload(v1.WorkloadRunning)
+	r, _, _ := newTestReconciler(t, testRunRow("Running", "train"), w)
+	require.NoError(t, r.disableFailover(context.Background(), w))
+	got := &v1.Workload{}
+	require.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: testRun}, got))
+	require.True(t, v1.IsWorkloadDisableFailover(got))
+}
+
+func TestRegisterTimesOut(t *testing.T) {
+	run := testRunRow("Running", "register")
+	run.StageHistory = `[{"stage":"register","time":"` + time.Now().Add(-31*time.Minute).UTC().Format(time.RFC3339) + `"}]`
+	model := outputModel(run, testRunDir+"/final_model")
+	r, db, updates := newTestReconciler(t, run, endedWorkload(v1.WorkloadSucceeded), model)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods(
+		`[SUCCESS] {"run":"`+testRun+`","attempt":"a1","output":"`+testRunDir+`/final_model"}`), nil).AnyTimes()
+	reconcileRun(t, r)
+	last := (*updates)[len(*updates)-1]
+	require.Equal(t, "Failed", last["status"])
+	require.Equal(t, "register", last["failed_stage"])
+}

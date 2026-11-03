@@ -67,7 +67,11 @@ type PostTrainingRun struct {
 	MetricSummary string `gorm:"column:metric_summary" json:"metricSummary,omitempty" db:"metric_summary"`
 	MetricGap     bool   `gorm:"column:metric_gap" json:"metricGap" db:"metric_gap"`
 	// ResultLine is the JSON of the last [SUCCESS] or [ERROR] marker the controller read.
-	ResultLine        string `gorm:"column:result_line" json:"resultLine,omitempty" db:"result_line"`
+	ResultLine string `gorm:"column:result_line" json:"resultLine,omitempty" db:"result_line"`
+	// StalledSince is the last progress time of a run marked stalled, NULL while it makes progress.
+	StalledSince pq.NullTime `gorm:"column:stalled_since" json:"stalledSince,omitempty" db:"stalled_since"`
+	// DiskUsage is the JSON of the run directory sizes last reported for checkpoints and exported weights.
+	DiskUsage         string `gorm:"column:disk_usage" json:"diskUsage,omitempty" db:"disk_usage"`
 	ConvertWorkloadID string `gorm:"column:convert_workload_id" json:"convertWorkloadId,omitempty" db:"convert_workload_id"`
 	TemplateID        string `gorm:"column:template_id" json:"templateId,omitempty" db:"template_id"`
 	TemplateVersion   int    `gorm:"column:template_version" json:"templateVersion,omitempty" db:"template_version"`
