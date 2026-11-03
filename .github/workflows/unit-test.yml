@@ -192,6 +192,24 @@ jobs:
       - name: Test chart RBAC
         run: bash SaFE/bootstrap/tests/chart_rbac_test.sh
 
+  test-post-training-launcher:
+    name: Test Post Training launcher
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Run launcher tests
+        working-directory: SaFE/docker/preprocess
+        run: |
+          pip install pytest
+          python -m pytest safe_post_training/tests -q
+
   coverage-summary:
     name: Coverage Summary
     runs-on: ubuntu-latest
