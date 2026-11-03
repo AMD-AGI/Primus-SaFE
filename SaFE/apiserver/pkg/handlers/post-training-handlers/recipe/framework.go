@@ -462,6 +462,7 @@ func Compile(in *Input) *Result {
 	if ctx == nil || res.HasErrors() {
 		return res
 	}
+	res.Spec, res.Image = ctx.Spec, ctx.Image
 	platformRules(ctx, res)
 	res.Diagnostics = append(res.Diagnostics, plugin.Validate(ctx)...)
 	if res.HasErrors() {

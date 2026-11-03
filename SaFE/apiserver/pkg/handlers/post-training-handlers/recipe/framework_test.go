@@ -87,6 +87,8 @@ func errorsOf(r *Result) []string {
 func TestCompileBuildsRecipe(t *testing.T) {
 	res := Compile(input(t))
 	require.Empty(t, errorsOf(res))
+	require.Equal(t, "qwen3-8B", res.Spec.Name)
+	require.Equal(t, "img:1", res.Image.Image)
 	r := res.Recipe
 	require.Equal(t, RecipeSchema, r.Schema)
 	require.Equal(t, "slime", r.Framework)
