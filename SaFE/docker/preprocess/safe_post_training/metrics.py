@@ -120,6 +120,12 @@ class Emitter:
                 self.stage_name, self.stage_detail = stage, detail
             return self._write("[STAGE]", body)
 
+    def notice(self, state, detail):
+        """Print a [STAGE] marker about the current stage, such as a stall or the disk usage, without changing what
+        the heartbeat repeats."""
+        with self._lock:
+            return self._write("[STAGE]", {"stage": self.stage_name, "state": state, "detail": detail})
+
     def included(self, name):
         """Tell whether a metric name is forwarded: system/* always, others when they match the recipe include."""
         if name.startswith("system/"):
