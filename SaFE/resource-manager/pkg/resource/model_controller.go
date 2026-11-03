@@ -74,6 +74,10 @@ const (
 	// baseInUseRequeue is how often the deletion of a base model of unfinished Post Training
 	// runs checks again whether they finished.
 	baseInUseRequeue = time.Minute
+	// InspectJobPrefix is the prefix for the names of the jobs that read a model's config.json.
+	InspectJobPrefix = "inspect-"
+	inspectDone      = "done"
+	inspectFailed    = "failed"
 
 	// cleanupRetryInterval is how long a failed cleanup waits before it runs again.
 	cleanupRetryInterval = 30 * time.Second
@@ -185,7 +189,7 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				return ctrl.Result{}, err
 			}
 		}
-		return ctrl.Result{}, nil
+		return r.inspectModel(ctx, model)
 	}
 
 	// 5. Initialize Status if needed
@@ -219,6 +223,9 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		// may still be downloading or waiting for a download slot; they are driven on.
 		if model.IsLocal() && hasUnfinishedLocalPath(model) {
 			return r.handleDownloading(ctx, model)
+		}
+		if model.IsLocal() {
+			return r.inspectModel(ctx, model)
 		}
 		return ctrl.Result{}, nil
 	case v1.ModelPhaseFailed:
@@ -818,6 +825,152 @@ func validateCleanupPath(workspace *v1.Workspace, p string) error {
 		return fmt.Errorf("path %q is not inside a volume of workspace %s", p, workspace.Name)
 	}
 	return nil
+}
+
+// inspectJobName is the name of the job that reads the config.json of a model.
+func inspectJobName(model *v1.Model) string {
+	return hashedJobName(InspectJobPrefix+model.Name, model.Name)
+}
+
+// inspectModel reads, once, the config.json of a Ready local model that has no structure summary: it runs a
+// model-inspect job in a workspace holding the model, writes the summary to the status and records the
+// outcome, with the reason of a failure, in annotations. Jobs are started within the download limit.
+func (r *ModelReconciler) inspectModel(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
+	if model.Status.ModelConfig != nil || v1.GetAnnotation(model, v1.ModelInspectAnnotation) != "" {
+		return ctrl.Result{}, nil
+	}
+	workspaceName, dir := inspectTarget(model)
+	if dir == "" {
+		return ctrl.Result{}, nil
+	}
+	job := &v1.OpsJob{}
+	err := r.Get(ctx, client.ObjectKey{Name: inspectJobName(model)}, job)
+	switch {
+	case errors.IsNotFound(err):
+		return r.startInspect(ctx, model, workspaceName, dir)
+	case err != nil:
+		return ctrl.Result{}, err
+	case job.Status.Phase == v1.OpsJobSucceeded:
+		if cfg := reportedModelConfig(job); cfg != nil {
+			model.Status.ModelConfig = cfg
+			if err = r.Status().Update(ctx, model); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, r.finishInspect(ctx, model, job, inspectDone, "")
+		}
+		return ctrl.Result{}, r.finishInspect(ctx, model, job, inspectFailed, "config.json has no model structure fields")
+	case job.Status.Phase == v1.OpsJobFailed:
+		return ctrl.Result{}, r.finishInspect(ctx, model, job, inspectFailed, r.extractOpsJobFailureReason(job))
+	}
+	return ctrl.Result{}, nil
+}
+
+// inspectTarget returns the workspace and directory from which a model's config.json is read.
+func inspectTarget(model *v1.Model) (string, string) {
+	for _, lp := range model.Status.LocalPaths {
+		if lp.Status == v1.LocalPathStatusReady && lp.Path != "" && lp.Workspace != "" {
+			return lp.Workspace, lp.Path
+		}
+	}
+	if model.Spec.Source.AccessMode == v1.AccessModeLocalPath && model.Spec.Workspace != "" {
+		return model.Spec.Workspace, model.Spec.Source.LocalPath
+	}
+	return "", ""
+}
+
+// startInspect creates the model-inspect job once a download slot is free; a job that cannot be created is
+// recorded as a failed read.
+func (r *ModelReconciler) startInspect(ctx context.Context, model *v1.Model, workspaceName, dir string) (ctrl.Result, error) {
+	if limit := commonconfig.GetModelMaxConcurrentDownloads(); limit > 0 {
+		reader := r.apiReader
+		if reader == nil {
+			reader = r.Client
+		}
+		jobs := &v1.OpsJobList{}
+		if err := reader.List(ctx, jobs, client.MatchingLabels{
+			v1.OpsJobTypeLabel: string(v1.OpsJobModelInspectType)}); err != nil {
+			return ctrl.Result{}, err
+		}
+		active := 0
+		for i := range jobs.Items {
+			if !jobs.Items[i].IsEnd() {
+				active++
+			}
+		}
+		if active >= limit {
+			return ctrl.Result{RequeueAfter: downloadSlotWaitInterval}, nil
+		}
+	}
+	workspace := &v1.Workspace{}
+	if err := r.Get(ctx, client.ObjectKey{Name: workspaceName}, workspace); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	job, err := r.constructModelInspectOpsJob(model, workspace, dir)
+	if err == nil {
+		err = r.Create(ctx, job)
+	}
+	if err != nil && !errors.IsAlreadyExists(err) {
+		klog.ErrorS(err, "Failed to start reading the model config", "model", model.Name)
+		return ctrl.Result{}, r.finishInspect(ctx, model, nil, inspectFailed, err.Error())
+	}
+	return ctrl.Result{}, nil
+}
+
+// finishInspect records the outcome of reading a model's config.json and deletes the job.
+func (r *ModelReconciler) finishInspect(ctx context.Context, model *v1.Model, job *v1.OpsJob, outcome, reason string) error {
+	patch := client.MergeFrom(model.DeepCopy())
+	v1.SetAnnotation(model, v1.ModelInspectAnnotation, outcome)
+	if reason != "" {
+		v1.SetAnnotation(model, v1.ModelInspectErrorAnnotation, reason)
+	}
+	if err := r.Patch(ctx, model, patch); err != nil {
+		return err
+	}
+	if job != nil {
+		if err := r.Delete(ctx, job); err != nil && !errors.IsNotFound(err) {
+			klog.ErrorS(err, "Failed to delete the finished model-inspect job", "job", job.Name)
+		}
+	}
+	return nil
+}
+
+// constructModelInspectOpsJob creates the job that reads the config.json in dir, in the workspace holding it.
+func (r *ModelReconciler) constructModelInspectOpsJob(model *v1.Model, workspace *v1.Workspace, dir string) (*v1.OpsJob, error) {
+	if workspace.Spec.Cluster == "" {
+		return nil, fmt.Errorf("workspace %s has no cluster configured", workspace.Name)
+	}
+	userId, userName := modelOwner(model)
+	image := commonconfig.GetDownloadJoImage()
+	entryPoint := base64.StdEncoding.EncodeToString([]byte(modelInspectScript))
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: inspectJobName(model),
+			Labels: map[string]string{
+				v1.ClusterIdLabel:   workspace.Spec.Cluster,
+				v1.WorkspaceIdLabel: workspace.Name,
+				v1.ModelIdLabel:     model.Name,
+				v1.DisplayNameLabel: jobDisplayName("inspect-" + model.Name),
+				v1.UserIdLabel:      userId,
+				v1.OpsJobTypeLabel:  string(v1.OpsJobModelInspectType),
+			},
+			Annotations: map[string]string{v1.UserNameAnnotation: userName},
+		},
+		Spec: v1.OpsJobSpec{
+			Type:                    v1.OpsJobModelInspectType,
+			Image:                   &image,
+			EntryPoint:              &entryPoint,
+			TimeoutSecond:           600,
+			TTLSecondsAfterFinished: 600,
+			Inputs: []v1.Parameter{
+				{Name: v1.ParameterDestPath, Value: dir},
+				{Name: v1.ParameterWorkspace, Value: workspace.Name},
+			},
+		},
+	}
+	if err := controllerutil.SetControllerReference(model, job, r.Scheme()); err != nil {
+		return nil, err
+	}
+	return job, nil
 }
 
 // cleanupJobName is the name of the job that removes one local directory of a model.
@@ -2064,6 +2217,51 @@ func (r *ModelReconciler) unshareModelToken(ctx context.Context, model *v1.Model
 	return nil
 }
 
+// modelConfigShell sets $config to the JSON of the structure fields of $DEST_PATH/config.json, read from
+// text_config when the top level lacks them, and prints it after MODEL_CONFIG= on a "[SUCCESS]" line. A
+// missing python3 or config.json leaves $config empty and fails nothing.
+const modelConfigShell = `config=""
+if [ -f "$DEST_PATH/config.json" ] && command -v python3 >/dev/null 2>&1; then
+  config="$(python3 -c '
+import json, sys
+c = json.load(open(sys.argv[1]))
+t = c.get("text_config") or {}
+def get(*keys):
+    for k in keys:
+        for src in (c, t):
+            if src.get(k) is not None:
+                return src[k]
+out = {"architectures": get("architectures"), "model_type": get("model_type"),
+       "num_hidden_layers": get("num_hidden_layers"), "hidden_size": get("hidden_size"),
+       "num_attention_heads": get("num_attention_heads"), "num_key_value_heads": get("num_key_value_heads"),
+       "num_experts": get("num_experts", "n_routed_experts", "num_local_experts"),
+       "rope_theta": get("rope_theta"), "max_position_embeddings": get("max_position_embeddings"),
+       "torch_dtype": get("torch_dtype", "dtype")}
+print(json.dumps({k: v for k, v in out.items() if v is not None}, separators=(",", ":")))
+' "$DEST_PATH/config.json" 2>/dev/null || true)"
+fi
+if [ -n "$config" ]; then
+  echo "[SUCCESS] ` + modelConfigMarker + `$config"
+fi
+`
+
+// modelInspectScript reads the structure fields of $DEST_PATH/config.json; it fails with the reason on an
+// "[ERROR]" line when they cannot be read.
+const modelInspectScript = `set -u
+if [ ! -f "$DEST_PATH/config.json" ]; then
+  echo "[ERROR] $DEST_PATH/config.json does not exist"
+  exit 1
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[ERROR] python3 is not available to read config.json"
+  exit 1
+fi
+` + modelConfigShell + `if [ -z "$config" ]; then
+  echo "[ERROR] $DEST_PATH/config.json is not a readable model config"
+  exit 1
+fi
+`
+
 // hfDownloadScript downloads $HF_REPO_ID into $DEST_PATH. Only the files needed to load
 // the model are fetched: configs, tokenizer, remote code and one format of weights. The
 // weights are safetensors when the repository has them, otherwise PyTorch checkpoints
@@ -2125,30 +2323,7 @@ if ! has_files '*.safetensors' '*.bin' '*.pth' '*.pt'; then
   echo "[ERROR] $HF_REPO_ID has no safetensors or PyTorch (.bin, .pth, .pt) weights; GGUF and TensorFlow/Flax weights are not downloaded"
   exit 1
 fi
-config=""
-if [ -f "$DEST_PATH/config.json" ] && command -v python3 >/dev/null 2>&1; then
-  config="$(python3 -c '
-import json, sys
-c = json.load(open(sys.argv[1]))
-t = c.get("text_config") or {}
-def get(*keys):
-    for k in keys:
-        for src in (c, t):
-            if src.get(k) is not None:
-                return src[k]
-out = {"architectures": get("architectures"), "model_type": get("model_type"),
-       "num_hidden_layers": get("num_hidden_layers"), "hidden_size": get("hidden_size"),
-       "num_attention_heads": get("num_attention_heads"), "num_key_value_heads": get("num_key_value_heads"),
-       "num_experts": get("num_experts", "n_routed_experts", "num_local_experts"),
-       "rope_theta": get("rope_theta"), "max_position_embeddings": get("max_position_embeddings"),
-       "torch_dtype": get("torch_dtype", "dtype")}
-print(json.dumps({k: v for k, v in out.items() if v is not None}, separators=(",", ":")))
-' "$DEST_PATH/config.json" 2>/dev/null || true)"
-fi
-if [ -n "$config" ]; then
-  echo "[SUCCESS] ` + modelConfigMarker + `$config"
-fi
-size="$(du -sb --exclude=.cache "$DEST_PATH" | cut -f1)"
+` + modelConfigShell + `size="$(du -sb --exclude=.cache "$DEST_PATH" | cut -f1)"
 echo "[SUCCESS] ` + modelSizeMarker + `$size"
 `
 

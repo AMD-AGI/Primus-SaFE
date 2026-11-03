@@ -1476,3 +1476,85 @@ func TestPostTrainingOutputCleanupWaitsForBasedRuns(t *testing.T) {
 	require.NoError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(model), got))
 	assert.Contains(t, got.Finalizers, ModelFinalizer, "the weights stay while runs train from them")
 }
+
+func TestModelScriptsAreValidShell(t *testing.T) {
+	for name, script := range map[string]string{"download": hfDownloadScript, "inspect": modelInspectScript} {
+		out, err := exec.Command("sh", "-n", "-c", script).CombinedOutput()
+		require.NoError(t, err, "%s: %s", name, out)
+	}
+	assert.Contains(t, hfDownloadScript, modelConfigShell)
+}
+
+func TestModelInspectScript(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 is not installed")
+	}
+	dir := t.TempDir()
+	run := func() (string, error) {
+		cmd := exec.Command("sh", "-c", modelInspectScript)
+		cmd.Env = append(os.Environ(), "DEST_PATH="+dir)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	out, err := run()
+	assert.Error(t, err)
+	assert.Contains(t, out, "[ERROR] "+dir+"/config.json does not exist")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.json"),
+		[]byte(`{"architectures":["Qwen3ForCausalLM"],"model_type":"qwen3","num_hidden_layers":36}`), 0o644))
+	out, err = run()
+	require.NoError(t, err, out)
+	job := &v1.OpsJob{Status: v1.OpsJobStatus{Outputs: []v1.Parameter{{Name: "result",
+		Value: commonopsjob.FilterResultLog([]byte(out))}}}}
+	require.NotNil(t, reportedModelConfig(job))
+	assert.Equal(t, 36, reportedModelConfig(job).NumHiddenLayers)
+}
+
+func TestInspectModelReadsConfigOnce(t *testing.T) {
+	model := genMockModel("registered", v1.AccessModeLocalPath, "ws1")
+	model.Spec.Source.LocalPath = "/data/models/org--repo"
+	model.Status.Phase = v1.ModelPhaseReady
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+	cli := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(model, ws).WithStatusSubresource(model).Build()
+	r := &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, apiReader: cli}
+	ctx := context.Background()
+
+	_, err := r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	job := &v1.OpsJob{}
+	require.NoError(t, cli.Get(ctx, client.ObjectKey{Name: inspectJobName(model)}, job))
+	assert.Equal(t, v1.OpsJobModelInspectType, job.Spec.Type)
+	assert.Equal(t, "/data/models/org--repo", job.GetParameter(v1.ParameterDestPath).Value)
+
+	job.Status.Phase = v1.OpsJobSucceeded
+	job.Status.Outputs = []v1.Parameter{{Name: "result", Value: `["[SUCCESS] MODEL_CONFIG={\"model_type\":\"qwen3\"}"]`}}
+	require.NoError(t, cli.Update(ctx, job))
+	_, err = r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	got := &v1.Model{}
+	require.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(model), got))
+	assert.Equal(t, "qwen3", got.Status.ModelConfig.ModelType)
+	assert.Equal(t, inspectDone, got.Annotations[v1.ModelInspectAnnotation])
+	assert.True(t, errors.IsNotFound(cli.Get(ctx, client.ObjectKey{Name: inspectJobName(model)}, &v1.OpsJob{})))
+
+	failed := genMockModel("broken", v1.AccessModeLocalPath, "ws1")
+	failed.Spec.Source.LocalPath = "/data/models/broken"
+	require.NoError(t, cli.Create(ctx, failed))
+	_, err = r.inspectModel(ctx, failed)
+	require.NoError(t, err)
+	job = &v1.OpsJob{}
+	require.NoError(t, cli.Get(ctx, client.ObjectKey{Name: inspectJobName(failed)}, job))
+	job.Status.Phase = v1.OpsJobFailed
+	job.Status.Conditions = []metav1.Condition{{Type: opsJobCompletedCondition, Reason: opsJobFailedReason,
+		Message: "config.json does not exist"}}
+	require.NoError(t, cli.Update(ctx, job))
+	_, err = r.inspectModel(ctx, failed)
+	require.NoError(t, err)
+	require.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(failed), got))
+	assert.Equal(t, inspectFailed, got.Annotations[v1.ModelInspectAnnotation])
+	assert.Equal(t, "config.json does not exist", got.Annotations[v1.ModelInspectErrorAnnotation])
+	_, err = r.inspectModel(ctx, got)
+	require.NoError(t, err)
+	assert.True(t, errors.IsNotFound(cli.Get(ctx, client.ObjectKey{Name: inspectJobName(failed)}, &v1.OpsJob{})),
+		"a failed read is not retried")
+}
