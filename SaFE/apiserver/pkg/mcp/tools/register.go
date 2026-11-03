@@ -273,7 +273,41 @@ func RegisterAllTools() []*mcpserver.MCPTool {
 	tools = append(tools, workloadTools()...)
 	tools = append(tools, opsjobTools()...)
 	tools = append(tools, apikeyTools()...)
+	tools = append(tools, secretTools()...)
+	tools = append(tools, userTools()...)
+	markReadOnly(tools)
 	return tools
+}
+
+// readOnlyTools names the tools that never change state. They are served with the MCP
+// annotation readOnlyHint=true, and a client that holds every other tool for approval
+// (the gateway in front of this server does) lets exactly these through without asking.
+// A new tool is therefore held until it is added here; add it only when everything it
+// sends to the REST API is a read. Two POST routes are reads (workload logs and events,
+// which take their query as a body) and tools_skill_test.go checks every tool against
+// this list by what it actually sends.
+var readOnlyTools = []string{
+	"apikey_current", "apikey_list",
+	"cluster_get", "cluster_list", "cluster_logs",
+	"flavor_avail", "flavor_get", "flavor_list",
+	"node_export", "node_get", "node_list", "node_pod_logs", "node_reboot_logs", "node_status",
+	"opsjob_get", "opsjob_list",
+	"secret_list",
+	"user_self",
+	"workload_events", "workload_get", "workload_list", "workload_logs", "workload_pod_containers", "workload_pod_logs",
+	"workspace_get", "workspace_list",
+}
+
+func markReadOnly(tools []*mcpserver.MCPTool) {
+	readOnly := make(map[string]struct{}, len(readOnlyTools))
+	for _, name := range readOnlyTools {
+		readOnly[name] = struct{}{}
+	}
+	for _, tl := range tools {
+		if _, ok := readOnly[tl.Name]; ok {
+			tl.Annotations = &mcpserver.ToolAnnotations{ReadOnlyHint: true}
+		}
+	}
 }
 
 func prop(typ, desc string) map[string]any {

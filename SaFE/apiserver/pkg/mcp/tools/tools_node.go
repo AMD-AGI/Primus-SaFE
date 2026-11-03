@@ -18,7 +18,7 @@ func nodeTools() []*mcpserver.MCPTool {
 	return []*mcpserver.MCPTool{
 		nodeList(), nodeGet(), nodeCreate(), nodeUpdate(), nodeDelete(),
 		nodeStatus(), nodeCordon(), nodeUncordon(), nodeDrain(),
-		nodeReboot(), nodeRebootLogs(), nodeExport(),
+		nodeReboot(), nodeRebootLogs(), nodeExport(), nodePodLogs(),
 	}
 }
 
@@ -445,6 +445,44 @@ func nodeExport() *mcpserver.MCPTool {
 				suffix = "?" + q.Encode()
 			}
 			return APICall(ctx, http.MethodGet, "/nodes/export"+suffix, nil)
+		},
+	}
+}
+
+func nodePodLogs() *mcpserver.MCPTool {
+	return &mcpserver.MCPTool{
+		Name: "node_pod_logs",
+		Description: "Get the log of the pod that manages a node (the node agent), to see why a node failed to join or became unhealthy. " +
+			"Needs the right to manage nodes. Returns the last lines of the log in log order (newest last), bounded in count and size; `truncated` is true when older lines were left out or a line was cut.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"node_id":       prop("string", "Node ID"),
+				"tail_lines":    prop("integer", fmt.Sprintf("Number of lines from the end, default %d, at most %d", defaultTailLines, maxTailLines)),
+				"container":     prop("string", "Container name (optional)"),
+				"since_seconds": prop("integer", "Only logs from the last N seconds (optional)"),
+			},
+			"required": []string{"node_id"},
+		},
+		Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			p, err := parseParams(raw)
+			if err != nil {
+				return nil, err
+			}
+			id := getStr(p, "node_id")
+			if id == "" {
+				return nil, fmt.Errorf("node_id is required")
+			}
+			tail := clampedInt(p, "tail_lines", defaultTailLines, maxTailLines)
+			q := url.Values{}
+			q.Set("tailLines", strconv.Itoa(tail))
+			setQuery(q, p, "container", "container")
+			setQuery(q, p, "since_seconds", "sinceSeconds")
+			out, err := APICall(ctx, http.MethodGet, "/nodes/"+url.PathEscape(id)+"/logs?"+q.Encode(), nil)
+			if err != nil {
+				return nil, err
+			}
+			return boundNodeLogs(out, tail), nil
 		},
 	}
 }

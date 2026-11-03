@@ -629,3 +629,37 @@ func TestIntegration_FullFlow(t *testing.T) {
 	assert.Equal(t, "healthy", clusterResp.Status)
 	assert.Equal(t, 10, clusterResp.Nodes)
 }
+
+// TestServer_ToolsList_Annotations checks what a client sees for a tool's annotations: a
+// tool that declares readOnlyHint serves it, a tool that declares nothing serves no
+// annotations key (the MCP default then applies: it may change state), and an explicit
+// false stays visible.
+func TestServer_ToolsList_Annotations(t *testing.T) {
+	handler := func(context.Context, json.RawMessage) (any, error) { return nil, nil }
+	schema := map[string]any{"type": "object", "properties": map[string]any{}}
+	srv := New()
+	srv.RegisterTools([]*MCPTool{
+		{Name: "reads", Description: "d", InputSchema: schema, Handler: handler, Annotations: &ToolAnnotations{ReadOnlyHint: true}},
+		{Name: "declares_nothing", Description: "d", InputSchema: schema, Handler: handler},
+		{Name: "says_false", Description: "d", InputSchema: schema, Handler: handler, Annotations: &ToolAnnotations{}},
+	})
+	raw, err := srv.HandleMessage(context.Background(), []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	require.NoError(t, err)
+	var resp struct {
+		Result struct {
+			Tools []map[string]json.RawMessage `json:"tools"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &resp))
+	got := map[string]string{}
+	for _, tl := range resp.Result.Tools {
+		var name string
+		require.NoError(t, json.Unmarshal(tl["name"], &name))
+		got[name] = string(tl["annotations"])
+	}
+	assert.Equal(t, map[string]string{
+		"reads":            `{"readOnlyHint":true}`,
+		"declares_nothing": "",
+		"says_false":       `{"readOnlyHint":false}`,
+	}, got)
+}

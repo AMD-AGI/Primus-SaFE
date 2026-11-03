@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	mcpserver "github.com/AMD-AIG-AIMA/SAFE/common/pkg/mcp/server"
 )
@@ -17,6 +18,7 @@ func workloadTools() []*mcpserver.MCPTool {
 	return []*mcpserver.MCPTool{
 		workloadList(), workloadGet(), workloadCreate(), workloadUpdate(), workloadStop(),
 		workloadBatchStop(), workloadDelete(), workloadBatchDelete(), workloadPodLogs(), workloadLogsDownload(),
+		workloadResume(), workloadEvents(), workloadLogs(), workloadPodContainers(),
 	}
 }
 
@@ -492,6 +494,181 @@ func workloadLogsDownload() *mcpserver.MCPTool {
 				}
 			}
 			return APICall(ctx, http.MethodPost, "/workloads/"+url.PathEscape(id)+"/logs/download", body)
+		},
+	}
+}
+
+func workloadResume() *mcpserver.MCPTool {
+	return &mcpserver.MCPTool{
+		Name:        "workload_resume",
+		Description: "Resume a workload that was stopped. The workload is dispatched again with its original owner and settings.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"workload_id": prop("string", "Workload ID to resume"),
+			},
+			"required": []string{"workload_id"},
+		},
+		Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			p, err := parseParams(raw)
+			if err != nil {
+				return nil, err
+			}
+			id := getStr(p, "workload_id")
+			if id == "" {
+				return nil, fmt.Errorf("workload_id is required")
+			}
+			return APICall(ctx, http.MethodPost, "/workloads/"+url.PathEscape(id)+"/resume", nil)
+		},
+	}
+}
+
+// searchWindow builds the body shared by the log and event searches. Newest first is the
+// default: the usual question is what happened last.
+func searchWindow(p map[string]any, defaultLimit int) (map[string]any, error) {
+	body := map[string]any{"limit": clampedInt(p, "limit", defaultLimit, maxLogLimit)}
+	switch order := getStr(p, "order"); order {
+	case "":
+		body["order"] = "desc"
+	case "asc", "desc":
+		body["order"] = order
+	default:
+		return nil, fmt.Errorf("order must be asc or desc, got %q", order)
+	}
+	for _, k := range []string{"since", "until"} {
+		if v := getStr(p, k); v != "" {
+			body[k] = v
+		}
+	}
+	if n, ok := getInt(p, "offset"); ok && n > 0 {
+		body["offset"] = n
+	}
+	return body, nil
+}
+
+func searchWindowSchema(props map[string]any) map[string]any {
+	props["since"] = prop("string", "Start of the time range, UTC RFC 3339, e.g. 2026-11-03T08:00:00.000Z. Default: when the workload was created")
+	props["until"] = prop("string", "End of the time range, same format. Default: when the workload ended, or now")
+	props["limit"] = prop("integer", fmt.Sprintf("Maximum number of entries, default %d (events %d), at most %d", defaultLogLimit, defaultEventLimit, maxLogLimit))
+	props["offset"] = prop("integer", "Entries to skip, for paging, default 0")
+	props["order"] = propEnum("string", "Sort order by time, default desc (newest first)", []string{"desc", "asc"})
+	return props
+}
+
+func workloadEvents() *mcpserver.MCPTool {
+	return &mcpserver.MCPTool{
+		Name: "workload_events",
+		Description: "List the Kubernetes events recorded for a workload (scheduling, image pulls, restarts, evictions). " +
+			"Read-only. Newest first unless order is asc; bounded in count and size. `truncated` is true when events were left out, text was cut, " +
+			"or more events matched than returned: narrow the time range or page with `offset`.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": searchWindowSchema(map[string]any{
+				"workload_id": prop("string", "Workload ID"),
+			}),
+			"required": []string{"workload_id"},
+		},
+		Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			p, err := parseParams(raw)
+			if err != nil {
+				return nil, err
+			}
+			id := getStr(p, "workload_id")
+			if id == "" {
+				return nil, fmt.Errorf("workload_id is required")
+			}
+			body, err := searchWindow(p, defaultEventLimit)
+			if err != nil {
+				return nil, err
+			}
+			out, err := APICall(ctx, http.MethodPost, "/workloads/"+url.PathEscape(id)+"/events", body)
+			if err != nil {
+				return nil, err
+			}
+			offset, _ := body["offset"].(int)
+			return boundEventReply(out, offset), nil
+		},
+	}
+}
+
+func workloadLogs() *mcpserver.MCPTool {
+	props := searchWindowSchema(map[string]any{
+		"workload_id":    prop("string", "Workload ID"),
+		"keywords":       propArray(prop("string", ""), "Only lines containing all of these words"),
+		"pod_names":      prop("string", "Only these pods, comma separated"),
+		"node_names":     prop("string", "Only pods on these nodes, comma separated (ignored when pod_names is set)"),
+		"dispatch_count": prop("integer", "Only the run with this dispatch count (a retried workload runs more than once)"),
+	})
+	return &mcpserver.MCPTool{
+		Name: "workload_logs",
+		Description: "Search the stored logs of a workload. They are kept after the pods are gone, so use this when workload_pod_logs " +
+			"has no pod to read. Read-only. Returns {total, returned, truncated, lines:[{time, message, pod, node, stream, dispatch_count}]} (total is only a lower bound when totalIsLowerBound is true), " +
+			"newest first unless order is asc, bounded in count and size. `truncated` is true when lines were left out, a message was cut, " +
+			"or more lines matched than returned: narrow with keywords, pod_names or a time range, or page with `offset`. " +
+			"This does not produce a file: to download the whole log use workload_logs_download.",
+		InputSchema: map[string]any{
+			"type":       "object",
+			"properties": props,
+			"required":   []string{"workload_id"},
+		},
+		Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			p, err := parseParams(raw)
+			if err != nil {
+				return nil, err
+			}
+			id := getStr(p, "workload_id")
+			if id == "" {
+				return nil, fmt.Errorf("workload_id is required")
+			}
+			body, err := searchWindow(p, defaultLogLimit)
+			if err != nil {
+				return nil, err
+			}
+			if kw, ok := p["keywords"].([]any); ok && len(kw) > 0 {
+				body["keywords"] = kw
+			}
+			if v := strings.TrimSpace(getStr(p, "pod_names")); v != "" {
+				body["podNames"] = v
+			}
+			if v := strings.TrimSpace(getStr(p, "node_names")); v != "" {
+				body["nodeNames"] = v
+			}
+			if n, ok := getInt(p, "dispatch_count"); ok && n > 0 {
+				body["dispatchCount"] = n
+			}
+			out, err := APICall(ctx, http.MethodPost, "/workloads/"+url.PathEscape(id)+"/logs", body)
+			if err != nil {
+				return nil, err
+			}
+			offset, _ := body["offset"].(int)
+			return compactLogReply(out, offset), nil
+		},
+	}
+}
+
+func workloadPodContainers() *mcpserver.MCPTool {
+	return &mcpserver.MCPTool{
+		Name:        "workload_pod_containers",
+		Description: "List the container names of a pod of a workload, to pick the `container` argument of workload_pod_logs.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"workload_id": prop("string", "Workload ID"),
+				"pod_id":      prop("string", "Pod ID"),
+			},
+			"required": []string{"workload_id", "pod_id"},
+		},
+		Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			p, err := parseParams(raw)
+			if err != nil {
+				return nil, err
+			}
+			wid := getStr(p, "workload_id")
+			pid := getStr(p, "pod_id")
+			if wid == "" || pid == "" {
+				return nil, fmt.Errorf("workload_id and pod_id are required")
+			}
+			return APICall(ctx, http.MethodGet, "/workloads/"+url.PathEscape(wid)+"/pods/"+url.PathEscape(pid)+"/containers", nil)
 		},
 	}
 }
