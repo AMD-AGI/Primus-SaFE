@@ -1,0 +1,204 @@
+/*
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
+package posttraining
+
+import (
+	"fmt"
+	"math"
+	"sort"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+)
+
+const testRun = "pt-qwen-abc12"
+
+// stageLine builds a [STAGE] marker of testRun.
+func stageLine(attempt, stage, state, detail string) string {
+	body := fmt.Sprintf(`{"run":%q,"attempt":%q,"pv":1,"stage":%q,"state":%q`, testRun, attempt, stage, state)
+	if detail != "" {
+		body += `,"detail":` + detail
+	}
+	return "[STAGE] " + body + "}"
+}
+
+// metricLine builds a [METRIC] marker of testRun.
+func metricLine(attempt string, seq, step int, values string) string {
+	return fmt.Sprintf(`[METRIC] {"run":%q,"attempt":%q,"pv":1,"seq":%d,"kind":"step","axis":"train","step":%d,`+
+		`"t":1762164000.5,"v":%s}`, testRun, attempt, seq, step, values)
+}
+
+// newTestIngestion returns an ingestion over a fresh run of testRun.
+func newTestIngestion(maxPoints int64) *ingestion {
+	run := &dbclient.PostTrainingRun{RunID: testRun, Status: "Running", Stage: "queued", TrainType: "sft"}
+	return &ingestion{u: newRunUpdate(run), cur: loadCursor(""), sum: loadSummary(""), mainName: "train/loss",
+		maxPoints: maxPoints}
+}
+
+// feed applies marker lines to in.
+func feed(in *ingestion, lines ...string) {
+	for _, line := range lines {
+		if m, ok := parseMarker(line, testRun); ok {
+			in.add(m)
+		}
+	}
+}
+
+// pointKeys renders points as name@step=value, sorted.
+func pointKeys(points []*dbclient.PostTrainingRunMetric) []string {
+	out := make([]string, 0, len(points))
+	for _, p := range points {
+		out = append(out, fmt.Sprintf("%s@%d=%g", p.Name, p.Step, p.Value))
+	}
+	sort.Strings(out)
+	return out
+}
+
+func TestParseMarker(t *testing.T) {
+	actor := "\x1b[36m(MegatronTrainRayActor pid=2414, ip=10.245.153.145)\x1b[0m " + metricLine("a1", 3, 2, `{"train/loss":0.5}`)
+	m, ok := parseMarker(actor, testRun)
+	require.True(t, ok, "an actor's marker is read behind its color codes and Ray prefix")
+	require.Equal(t, markerMetric, m.Kind)
+	require.Equal(t, int64(3), m.Body.Seq)
+	require.True(t, strings.HasPrefix(m.Text, "[METRIC] {"))
+
+	for _, line := range []string{
+		"  " + metricLine("a1", 3, 2, `{"train/loss":0.5}`),
+		strings.Replace(metricLine("a1", 3, 2, `{}`), testRun, "pt-other", 1),
+		"[STAGE] {broken",
+		`[STAGE] {"run":"pt-qwen-abc12","stage":"train"}`,
+		"step 3: " + metricLine("a1", 3, 2, `{}`),
+	} {
+		_, ok := parseMarker(line, testRun)
+		require.False(t, ok, line)
+	}
+}
+
+func TestScanLogCursor(t *testing.T) {
+	cur := loadCursor("")
+	var got []string
+	collect := func(_ time.Time, line string) { got = append(got, line) }
+	log := "2026-11-03T10:00:00.000000001Z a\n2026-11-03T10:00:00.000000001Z b\n2026-11-03T10:00:01.5Z c\n" +
+		"2026-11-03T10:00:02Z unfinish"
+	_, err := scanLog(strings.NewReader(log), cur, collect)
+	require.NoError(t, err)
+	require.Equal(t, []string{"a", "b", "c"}, got, "an unfinished last line waits for the next read")
+	require.Equal(t, "2026-11-03T10:00:01.5Z", cur.Since)
+
+	got = nil
+	_, err = scanLog(strings.NewReader("2026-11-03T10:00:01.5Z c\n2026-11-03T10:00:02Z unfinished\n"), cur, collect)
+	require.NoError(t, err)
+	require.Equal(t, []string{"unfinished"}, got, "the overlap of a second-precision SinceTime is skipped")
+
+	cut := &logCursor{Since: "2026-11-03T10:00:00.000000001Z", SinceN: 1}
+	got = nil
+	_, err = scanLog(strings.NewReader(log[:strings.Index(log, "c\n")]), cut, collect)
+	require.NoError(t, err)
+	require.Equal(t, []string{"b"}, got, "a read cut between lines with one timestamp resumes after the first")
+}
+
+func TestScanLogSkipsLongLines(t *testing.T) {
+	long := "2026-11-03T10:00:00Z " + strings.Repeat("x", maxLineBytes+10) + "\n"
+	marker := "2026-11-03T10:00:01Z " + stageLine("a1", "train", "running", "") + "\n"
+	unfinished := "2026-11-03T10:00:02Z " + strings.Repeat("y", maxLineBytes+100)
+	cur := loadCursor("")
+	var got []string
+	_, err := scanLog(strings.NewReader(long+marker+unfinished), cur, func(_ time.Time, line string) {
+		got = append(got, line)
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 1, "the marker after a long line is still read")
+	require.Equal(t, int64(2), cur.Skipped, "an unfinished line that is already too long is skipped too")
+}
+
+func TestAttemptCursorGaps(t *testing.T) {
+	now := time.Unix(1000, 0)
+	a := &attemptCursor{}
+	require.True(t, a.accept(1, now))
+	require.True(t, a.accept(5, now))
+	require.False(t, a.accept(5, now), "a replayed seq is ignored")
+	require.True(t, a.accept(3, now))
+	require.Equal(t, []seqRange{{From: 2, To: 2, Since: 1000}, {From: 4, To: 4, Since: 1000}}, a.Gaps)
+	cur := &logCursor{Attempts: map[string]*attemptCursor{"a1": a}}
+	require.False(t, cur.hasGap(now.Add(gapGrace)))
+	require.True(t, cur.hasGap(now.Add(gapGrace+time.Second)))
+	a.accept(2, now)
+	a.accept(4, now)
+	require.Empty(t, a.Gaps)
+	require.False(t, cur.hasGap(now.Add(time.Hour)))
+}
+
+func TestIngestionResumeDropsReplacedPoints(t *testing.T) {
+	in := newTestIngestion(100)
+	feed(in,
+		stageLine("a1", "prepare", "running", ""),
+		stageLine("a1", "train", "running", `{"resumeStep":0}`),
+		metricLine("a1", 1, 9, `{"train/loss":1.0}`),
+		metricLine("a1", 2, 10, `{"train/loss":0.9,"system/gpu_util":50}`),
+		stageLine("a2", "prepare", "skipped", ""),
+		stageLine("a2", "train", "running", `{"resumeStep":9}`),
+		metricLine("a1", 3, 11, `{"train/loss":0.8}`),
+		metricLine("a2", 1, 10, `{"train/loss":0.7}`),
+	)
+	points := in.finish()
+	require.Equal(t, []string{"system/gpu_util@10=50", "train/loss@10=0.7", "train/loss@9=1"}, pointKeys(points))
+	require.Equal(t, int64(9), *in.resumeFrom)
+	require.Equal(t, "train", in.u.stage)
+	require.Equal(t, int64(10), in.sum.Main.Step)
+	require.Equal(t, 0.7, in.sum.Main.Value)
+	var resumes []string
+	for _, e := range in.u.history {
+		if e.ResumeStep != nil {
+			resumes = append(resumes, fmt.Sprintf("%s@%d", e.Attempt, *e.ResumeStep))
+		}
+	}
+	require.Equal(t, []string{"a2@9"}, resumes, "the first attempt starting at step 0 is not a resume")
+}
+
+func TestIngestionStageOrderAndResult(t *testing.T) {
+	in := newTestIngestion(100)
+	feed(in,
+		metricLine("a1", 1, 1, `{"train/loss":1}`),
+		stageLine("a1", "train", "running", ""),
+		stageLine("a1", "check", "running", ""),
+		stageLine("a1", "train", "heartbeat", ""),
+		`[SUCCESS] {"run":"pt-qwen-abc12","attempt":"a1","pv":1,"stage":"export","output":"/w/run/final_model"}`,
+	)
+	require.Empty(t, in.finish(), "metrics of an attempt with no [STAGE] yet are ignored")
+	require.Equal(t, "train", in.u.stage, "the stage never moves back")
+	require.Equal(t, markerSuccess, in.result.Kind)
+}
+
+func TestIngestionValidationCapAndSummary(t *testing.T) {
+	in := newTestIngestion(3)
+	feed(in, stageLine("a1", "train", "running", ""),
+		metricLine("a1", 1, 0, `{"train/loss":"NaN","eval/val/loss":2,"bad":"x","`+strings.Repeat("n", 161)+`":1}`),
+		metricLine("a1", 2, 1, `{"eval/val/loss":1.5,"train/loss":3}`),
+		fmt.Sprintf(`[METRIC] {"run":%q,"attempt":"a1","seq":3,"step":-1,"v":{"train/loss":1}}`, testRun),
+	)
+	points := in.finish()
+	require.Len(t, points, 3)
+	require.True(t, math.IsNaN(points[0].Value) || math.IsNaN(points[1].Value), "NaN is stored")
+	require.True(t, in.sum.Capped)
+	require.Equal(t, int64(3), in.sum.Rejected)
+	require.Equal(t, summaryPoint{Step: 1, Value: 1.5}, *in.sum.BestValLoss)
+	require.Equal(t, 3.0, in.sum.Main.Value, "the summary keeps updating past the point cap")
+}
+
+func TestSparklineStaysBounded(t *testing.T) {
+	m := &mainMetric{Name: "train/loss"}
+	for i := 0; i < 1000; i++ {
+		m.observe(int64(i), float64(i))
+	}
+	require.LessOrEqual(t, len(m.Spark), sparklinePoints)
+	require.Greater(t, len(m.Spark), sparklinePoints/4)
+	require.Equal(t, int64(0), m.Spark[0].Step)
+	require.Equal(t, int64(999), m.Step)
+}
