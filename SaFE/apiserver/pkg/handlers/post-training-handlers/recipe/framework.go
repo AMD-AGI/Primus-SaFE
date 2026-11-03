@@ -368,11 +368,13 @@ type Recipe struct {
 	Provenance       Provenance             `json:"provenance"`
 }
 
-// RecipeModel identifies the base model.
+// RecipeModel identifies the base model. Script is the framework's model script, which the launcher adapter turns
+// into the model structure arguments.
 type RecipeModel struct {
-	ID   string `json:"id"`
-	Path string `json:"path"`
-	Spec string `json:"spec"`
+	ID     string `json:"id"`
+	Path   string `json:"path"`
+	Spec   string `json:"spec"`
+	Script string `json:"script,omitempty"`
 }
 
 // RecipeData points at the training and evaluation data.
@@ -776,21 +778,22 @@ func assemble(ctx *Context, fw *registry.Framework, plan *FrameworkPlan) *Recipe
 		FrameworkVersion: ctx.Image.FrameworkCommit,
 		FrameworkOptions: orEmpty(req.FrameworkOptions),
 		Ext:              orEmpty(req.Ext),
-		Model:            RecipeModel{ID: in.Model.ID, Path: in.Model.Path, Spec: ctx.Spec.Name},
-		Data:             RecipeData{TrainID: in.Dataset.ID, Train: in.Dataset.Path, FieldMap: plan.Choices.FieldMap},
-		Layout:           ctx.Layout,
-		Choices:          plan.Choices,
-		FrameworkArgs:    plan.Args,
-		Files:            plan.Files,
-		Lora:             plan.Lora,
-		Val:              plan.Val,
-		Rollout:          plan.Rollout,
-		Critic:           plan.Critic,
-		Checkpoint:       ctx.Spec.Checkpoint,
-		Watchdog:         ctx.Spec.Watchdog,
-		Metrics:          RecipeMetrics{Include: fw.Metrics.Include},
-		Convert:          plan.Convert,
-		Output:           RecipeOutput{Base: in.RunDir, ExportHF: exportHF, PeftAdapter: req.Export.PeftAdapter},
+		Model: RecipeModel{ID: in.Model.ID, Path: in.Model.Path, Spec: ctx.Spec.Name,
+			Script: ctx.FrameworkSpec.ModelScript},
+		Data:          RecipeData{TrainID: in.Dataset.ID, Train: in.Dataset.Path, FieldMap: plan.Choices.FieldMap},
+		Layout:        ctx.Layout,
+		Choices:       plan.Choices,
+		FrameworkArgs: plan.Args,
+		Files:         plan.Files,
+		Lora:          plan.Lora,
+		Val:           plan.Val,
+		Rollout:       plan.Rollout,
+		Critic:        plan.Critic,
+		Checkpoint:    ctx.Spec.Checkpoint,
+		Watchdog:      ctx.Spec.Watchdog,
+		Metrics:       RecipeMetrics{Include: fw.Metrics.Include},
+		Convert:       plan.Convert,
+		Output:        RecipeOutput{Base: in.RunDir, ExportHF: exportHF, PeftAdapter: req.Export.PeftAdapter},
 		Provenance: Provenance{Compiler: CompilerVersion, FrameworkCommit: ctx.Image.FrameworkCommit,
 			Image: ctx.Image.Image, SpecSha256: SpecSha256(ctx.Spec)},
 	}
