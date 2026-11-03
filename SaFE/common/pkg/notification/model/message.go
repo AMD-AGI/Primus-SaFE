@@ -11,7 +11,8 @@ const (
 )
 
 const (
-	TopicWorkload = "workload"
+	TopicWorkload        = "workload"
+	TopicPostTrainingRun = "post-training-run"
 )
 
 type Message struct {
