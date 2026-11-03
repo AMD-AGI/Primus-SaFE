@@ -49,6 +49,8 @@ type UserResponseItem struct {
 	Name string `json:"name"`
 	// User mail
 	Email string `json:"email"`
+	// Preferred username from the SSO identity provider, recorded at SSO sign-in
+	PreferredName string `json:"preferredName,omitempty"`
 	// User type, e.g. default
 	Type v1.UserType `json:"type"`
 	// User role, e.g. system-admin, default
