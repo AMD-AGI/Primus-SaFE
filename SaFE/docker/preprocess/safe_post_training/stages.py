@@ -8,6 +8,7 @@ Each stage leaves a completion mark, so a retried workload skips the stages that
 specific work (conversion, the training command, export and metric lines) comes from the recipe's adapter.
 """
 
+import functools
 import json
 import os
 import shutil
@@ -19,6 +20,10 @@ from safe_post_training import dataset
 STAGES = ("prepare", "convert", "check", "train", "export")
 # bf16 weights plus fp32 master weights and two fp32 Adam moments, relative to the bf16 weights on disk.
 CHECKPOINT_FACTOR = 7
+DISK_DIRS = (("checkpoints", "checkpoints"), ("criticCheckpoints", "critic_checkpoints"),
+             ("finalModel", "final_model"), ("finalAdapter", "final_adapter"))
+PROGRESS_KINDS = ("step", "rollout", "eval")
+ENOSPC_TEXT = "No space left on device"
 
 
 class StageError(Exception):
@@ -39,6 +44,23 @@ def dir_size(path):
             except OSError:
                 pass
     return total
+
+
+def disk_usage(run_dir):
+    """Return the sizes of the run directory parts that hold checkpoints and exported weights, and their total."""
+    sizes = {key: dir_size(os.path.join(run_dir, name)) for key, name in DISK_DIRS}
+    sizes["total"] = sum(sizes.values())
+    return sizes
+
+
+def space_reason(run_dir):
+    """Describe a full shared storage with its free space and the run directory's usage."""
+    try:
+        free = shutil.disk_usage(run_dir).free
+    except OSError:
+        free = 0
+    return "shared storage is out of space (%.1f GiB free, run directory %.1f GiB)" % (
+        free / float(1 << 30), disk_usage(run_dir)["total"] / float(1 << 30))
 
 
 def weights_size(model_dir):
@@ -62,8 +84,11 @@ def ray_gpus():
 class Runner:
     """Runs the stages of one recipe."""
 
-    def __init__(self, recipe, run_dir, adapter, emitter, gpus=ray_gpus):
+    def __init__(self, recipe, run_dir, adapter, emitter, gpus=ray_gpus, watchdog=None):
         self.recipe, self.run_dir, self.adapter, self.emitter, self.gpus = recipe, run_dir, adapter, emitter, gpus
+        self.watchdog = watchdog
+        self.enospc = False
+        self.checkpoint = None
 
     def path(self, *parts):
         """Return a path under the run directory."""
@@ -120,7 +145,7 @@ class Runner:
 
     def stage_convert(self):
         """Convert the base weights for training."""
-        self.adapter.convert(self.recipe, self.run_dir, self.run_command)
+        self.adapter.convert(self.recipe, self.run_dir, functools.partial(self.run_command, watch="convert"))
 
     def stage_check(self):
         """Check the GPU count, the inputs and the free space before training."""
@@ -154,13 +179,29 @@ class Runner:
             os.makedirs(os.path.dirname(target), exist_ok=True)
             with open(target, "w") as f:
                 f.write(content)
-        resume = self.adapter.latest_checkpoint(self.run_dir)
+        resume = self.checkpoint = self.adapter.latest_checkpoint(self.run_dir)
         if resume is not None:
             cmd = cmd + ["--load", self.path("checkpoints")]
             self.emitter.stage("train", state="running", detail={"resumeStep": resume})
-        code = self.run_command(cmd, env=env, parse=True)
+        code = self.run_command(cmd, env=env, parse=True, watch="train")
         if code != 0:
+            if self.watchdog and self.watchdog.reason:
+                raise StageError("train", self.watchdog.reason)
+            if self.enospc:
+                raise StageError("train", space_reason(self.run_dir), retry=False)
             raise StageError("train", "training exited with code %d" % code)
+
+    def checkpoint_tick(self):
+        """Notice a checkpoint that finished saving: it counts as progress and the disk usage is reported."""
+        latest = self.adapter.latest_checkpoint(self.run_dir)
+        if latest != self.checkpoint:
+            self.checkpoint = latest
+            self.watchdog.saved()
+            self.report_disk()
+
+    def report_disk(self):
+        """Report the run directory usage in a [STAGE] marker."""
+        self.emitter.notice("disk", disk_usage(self.run_dir))
 
     def stage_export(self):
         """Export the final model and return the result the launcher reports."""
@@ -175,6 +216,7 @@ class Runner:
         result = {"stage": "export", "output": output, "iteration": self.adapter.latest_checkpoint(self.run_dir),
                   "lastMetrics": self.emitter.last_metrics()}
         self.write_result(result)
+        self.report_disk()
         return result
 
     def write_result(self, result):
@@ -192,18 +234,30 @@ class Runner:
         except (OSError, ValueError):
             return {"stage": "export", "output": self.path("final_model")}
 
-    def run_command(self, cmd, env=None, parse=False):
+    def run_command(self, cmd, env=None, parse=False, watch=None):
         """Run a command in its own process group, forward its output and, when parse is set, turn metric lines
-        into [METRIC] markers. Returns the exit code."""
+        into [METRIC] markers. With watch naming the stage, the watchdog ends the command when it stops making
+        progress. Returns the exit code."""
         full_env = dict(os.environ)
         full_env.update(env or {})
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=full_env,
                                 cwd=self.run_dir, start_new_session=True, text=True, errors="replace", bufsize=1)
-        for line in proc.stdout:
-            self.emitter.forward(line)
-            if parse:
-                self.parse_line(line)
-        return proc.wait()
+        dog = self.watchdog if watch else None
+        if dog:
+            dog.watch(proc, watch, tick=self.checkpoint_tick if watch == "train" else None)
+        try:
+            for line in proc.stdout:
+                self.emitter.forward(line)
+                if ENOSPC_TEXT in line:
+                    self.enospc = True
+                if dog:
+                    dog.line(line)
+                if parse:
+                    self.parse_line(line)
+            return proc.wait()
+        finally:
+            if dog:
+                dog.unwatch()
 
     def parse_line(self, line):
         """Report the metrics of one training output line; a line that looks like metrics but does not parse is
@@ -215,4 +269,5 @@ class Runner:
             return
         if parsed:
             kind, axis, step, values = parsed
-            self.emitter.metric(kind, axis, step, values)
+            if self.emitter.metric(kind, axis, step, values) and self.watchdog and kind in PROGRESS_KINDS:
+                self.watchdog.progress(step)
