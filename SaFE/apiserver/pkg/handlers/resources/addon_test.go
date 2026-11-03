@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
@@ -340,6 +341,129 @@ func TestPatchAddonHandler(t *testing.T) {
 	c.Params = gin.Params{{Key: common.AddonName, Value: "addon-1"}}
 	h.PatchAddon(c)
 	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+// patchAddonTemplate patches the template of an Addon through the handler and returns the stored Addon.
+func patchAddonTemplate(t *testing.T, h *Handler, user *v1.User, name, template string) *v1.Addon {
+	body, _ := json.Marshal(view.PatchAddonRequest{Template: &template})
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, user.Name)
+	c.Params = gin.Params{{Key: common.AddonName, Value: name}}
+	h.PatchAddon(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+	addon := &v1.Addon{}
+	assert.NoError(t, h.Get(context.Background(), client.ObjectKey{Name: name}, addon))
+	return addon
+}
+
+func TestPatchAddonTemplateMarksAutoUpgrade(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	template := func(name, url, version string) *v1.AddonTemplate {
+		return &v1.AddonTemplate{ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec: v1.AddonTemplateSpec{Type: v1.AddonTemplateHelm, URL: url, Version: version}}
+	}
+	addon := newHelmAddon("addon-1")
+	addon.Spec.AddonSource.HelmRepository.Template.Name = "chart.0.1.3"
+	h, user := newAdminHandlerWithObjects(addon,
+		template("chart.0.1.2", "oci://r/chart", "0.1.2"),
+		template("chart.0.1.3", "oci://r/chart", "0.1.3"),
+		template("other.0.1.1", "oci://r/other", "0.1.1"))
+
+	stored := patchAddonTemplate(t, h, user, "addon-1", "chart.0.1.2")
+	assert.Equal(t, "false", stored.Labels[v1.AddonAutoUpgradeLabel])
+
+	stored = patchAddonTemplate(t, h, user, "addon-1", "chart.0.1.3")
+	_, ok := stored.Labels[v1.AddonAutoUpgradeLabel]
+	assert.False(t, ok)
+
+	stored = patchAddonTemplate(t, h, user, "addon-1", "other.0.1.1")
+	_, ok = stored.Labels[v1.AddonAutoUpgradeLabel]
+	assert.False(t, ok)
+}
+
+func TestPatchAddonTemplateKeepsIntermediateChoice(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	template := func(name, version string, synced bool) *v1.AddonTemplate {
+		t := &v1.AddonTemplate{ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec: v1.AddonTemplateSpec{Type: v1.AddonTemplateHelm, URL: "oci://r/chart", Version: version}}
+		if synced {
+			t.Status.HelmStatus.Values = "synced"
+		}
+		return t
+	}
+	addon := newHelmAddon("addon-1")
+	addon.Spec.AddonSource.HelmRepository.Template.Name = "chart.0.1.2"
+	addon.Labels = map[string]string{v1.AddonAutoUpgradeLabel: "false"}
+	h, user := newAdminHandlerWithObjects(addon,
+		template("chart.0.1.2", "0.1.2", true),
+		template("chart.0.1.3", "0.1.3", true),
+		template("chart.0.1.4", "0.1.4", true),
+		template("chart.0.1.5", "0.1.5", false),
+		template("chart.0.2.0-rc1", "0.2.0-rc1", true))
+
+	stored := patchAddonTemplate(t, h, user, "addon-1", "chart.0.1.3")
+	assert.Equal(t, "false", stored.Labels[v1.AddonAutoUpgradeLabel])
+
+	stored = patchAddonTemplate(t, h, user, "addon-1", "chart.0.1.4")
+	_, ok := stored.Labels[v1.AddonAutoUpgradeLabel]
+	assert.False(t, ok)
+
+	stored = patchAddonTemplate(t, h, user, "addon-1", "chart.0.1.3")
+	assert.Equal(t, "false", stored.Labels[v1.AddonAutoUpgradeLabel])
+}
+
+// newChartTemplate returns a template of the chart oci://r/chart, with its chart values synced.
+func newChartTemplate(name, version string) *v1.AddonTemplate {
+	t := &v1.AddonTemplate{ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: v1.AddonTemplateSpec{Type: v1.AddonTemplateHelm, URL: "oci://r/chart", Version: version}}
+	t.Status.HelmStatus.Values = "synced"
+	return t
+}
+
+func TestPatchAddonTemplateDecidesByNewTemplate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	gone := newHelmAddon("gone")
+	gone.Spec.AddonSource.HelmRepository.Template.Name = "chart.0.1.1"
+	moved := newHelmAddon("moved")
+	moved.Spec.AddonSource.HelmRepository.Template.Name = "other.0.1.1"
+	other := &v1.AddonTemplate{ObjectMeta: metav1.ObjectMeta{Name: "other.0.1.1"},
+		Spec: v1.AddonTemplateSpec{Type: v1.AddonTemplateHelm, URL: "oci://r/other", Version: "0.1.1"}}
+	h, user := newAdminHandlerWithObjects(gone, moved, other,
+		newChartTemplate("chart.0.1.3", "0.1.3"), newChartTemplate("chart.0.1.4", "0.1.4"))
+
+	for _, name := range []string{"gone", "moved"} {
+		stored := patchAddonTemplate(t, h, user, name, "chart.0.1.3")
+		assert.Equal(t, "false", stored.Labels[v1.AddonAutoUpgradeLabel], name)
+
+		stored = patchAddonTemplate(t, h, user, name, "chart.0.1.4")
+		_, ok := stored.Labels[v1.AddonAutoUpgradeLabel]
+		assert.False(t, ok, name)
+	}
+}
+
+func TestGenerateAddonKeepsOlderTemplate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}
+	h, user := newAdminHandlerWithObjects(cluster,
+		newChartTemplate("chart.0.1.3", "0.1.3"), newChartTemplate("chart.0.1.4", "0.1.4"))
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "c1")
+
+	addon, err := h.generateAddon(c, &view.CreateAddonRequestBody{AddonBody: view.AddonBody{ReleaseName: "rel", Template: "chart.0.1.3"}}, []byte(`{}`))
+	testifyassert.NoError(t, err)
+	assert.Equal(t, "false", addon.Labels[v1.AddonAutoUpgradeLabel])
+
+	addon, err = h.generateAddon(c, &view.CreateAddonRequestBody{AddonBody: view.AddonBody{ReleaseName: "rel", Template: "chart.0.1.4"}}, []byte(`{}`))
+	testifyassert.NoError(t, err)
+	_, ok := addon.Labels[v1.AddonAutoUpgradeLabel]
+	assert.False(t, ok)
 }
 
 func TestUpdateAddon(t *testing.T) {
