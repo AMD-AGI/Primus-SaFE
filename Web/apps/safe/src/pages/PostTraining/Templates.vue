@@ -4,7 +4,7 @@
       <el-button link :icon="ArrowLeft" @click="router.push('/post-training')" />
       <span class="text-[20px] font-600">Templates</span>
       <span class="text-[13px] text-[var(--safe-muted)]">
-        {{ workspace }} · {{ items.length }} {{ items.length === 1 ? 'template' : 'templates' }}
+        {{ workspaceName }} · {{ items.length }} {{ items.length === 1 ? 'template' : 'templates' }}
       </span>
     </div>
 
@@ -117,6 +117,10 @@ const userStore = useUserStore()
 const wsStore = useWorkspaceStore()
 const isReadonly = computed(() => userStore.isReadonlyManager)
 const workspace = computed(() => wsStore.currentWorkspaceId ?? '')
+const workspaceName = computed(
+  () =>
+    wsStore.items.find((i) => i.workspaceId === workspace.value)?.workspaceName || workspace.value,
+)
 
 const items = ref<TemplateItem[]>([])
 const loading = ref(false)
