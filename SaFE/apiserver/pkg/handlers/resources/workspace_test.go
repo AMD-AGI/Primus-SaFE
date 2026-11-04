@@ -16,10 +16,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	testifyassert "github.com/stretchr/testify/assert"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -100,33 +99,72 @@ func TestGenerateWorkspaceExternalForcesReplicaZero(t *testing.T) {
 	assert.Equal(t, 0, ws.Spec.Replica)
 }
 
-func TestWorkspaceTargetNodeCountExternalFromBudget(t *testing.T) {
-	flavor := &v1.NodeFlavor{
-		ObjectMeta: metav1.ObjectMeta{Name: "vk-mi355x"},
-		Spec: v1.NodeFlavorSpec{
-			Gpu: &v1.GpuChip{
-				ResourceName: common.AmdGpu,
-				Quantity:     resource.MustParse("8"),
+func TestSetExternalNodeCounts(t *testing.T) {
+	const clusterId, flavor = "c1", "vk-mi355x"
+	newExternalWorkspace := func() *v1.Workspace {
+		ws := genMockWorkspace(clusterId, flavor)
+		ws.Labels[v1.WorkspaceExternalLabel] = v1.TrueStr
+		ws.Spec.Replica = 0
+		return ws
+	}
+	sized := func(ws *v1.Workspace, name string, gpu int64) *v1.Node {
+		return genAvailableNode(name, clusterId, ws.Name, flavor, genMockNodeResource(8*gpu, gpu<<30, gpu))
+	}
+
+	tests := []struct {
+		name         string
+		nodes        func(ws *v1.Workspace) []client.Object
+		wantCurrent  int
+		wantAbnormal int
+	}{
+		{
+			name:  "no node held",
+			nodes: func(ws *v1.Workspace) []client.Object { return nil },
+		},
+		{
+			name: "nodes of different sizes count one each",
+			nodes: func(ws *v1.Workspace) []client.Object {
+				return []client.Object{sized(ws, "n1", 1), sized(ws, "n2", 4), sized(ws, "n8", 8)}
 			},
+			wantCurrent: 3,
+		},
+		{
+			name: "unavailable node is abnormal",
+			nodes: func(ws *v1.Workspace) []client.Object {
+				bad := sized(ws, "bad", 2)
+				bad.Status.MachineStatus.Phase = ""
+				return []client.Object{sized(ws, "ok", 2), bad}
+			},
+			wantCurrent:  2,
+			wantAbnormal: 1,
+		},
+		{
+			name: "node claimed by another workspace is not counted",
+			nodes: func(ws *v1.Workspace) []client.Object {
+				moved := sized(ws, "moved", 2)
+				moved.Spec.Workspace = pointer.String("someone-else")
+				return []client.Object{sized(ws, "mine", 2), moved}
+			},
+			wantCurrent: 1,
 		},
 	}
-	ws := &v1.Workspace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   "crusoe-spur-vk",
-			Labels: map[string]string{v1.WorkspaceExternalLabel: v1.TrueStr},
-		},
-		Spec: v1.WorkspaceSpec{NodeFlavor: "vk-mi355x", Replica: 0},
-		Status: v1.WorkspaceStatus{
-			TotalResources: corev1.ResourceList{
-				common.AmdGpu: resource.MustParse("56"),
-			},
-		},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ws := newExternalWorkspace()
+			objs := append([]client.Object{ws}, tt.nodes(ws)...)
+			h, _ := newAdminHandlerWithObjects(objs...)
+			item := h.cvtToWorkspaceResponseItem(context.Background(), ws)
+			assert.Equal(t, tt.wantCurrent, item.CurrentNodeCount)
+			assert.Equal(t, tt.wantCurrent, item.TargetNodeCount)
+			assert.Equal(t, tt.wantAbnormal, item.AbnormalNodeCount)
+		})
 	}
-	h, _ := newAdminHandlerWithObjects(flavor, ws)
-	assert.Equal(t, 7, h.workspaceTargetNodeCount(context.Background(), ws))
-	assert.Equal(t, 3, h.workspaceTargetNodeCount(context.Background(), &v1.Workspace{
-		Spec: v1.WorkspaceSpec{Replica: 3},
-	}))
+
+	t.Run("ordinary workspace keeps its replica target", func(t *testing.T) {
+		ws := genMockWorkspace(clusterId, flavor)
+		h, _ := newAdminHandlerWithObjects(ws)
+		assert.Equal(t, 3, h.cvtToWorkspaceResponseItem(context.Background(), ws).TargetNodeCount)
+	})
 }
 
 func TestGenerateWorkspaceReservedLabelsRequireSystemAdmin(t *testing.T) {
@@ -160,10 +198,10 @@ func TestGenerateWorkspaceReservedLabelsRequireSystemAdmin(t *testing.T) {
 func TestGenerateWorkspaceExternalBoolRequiresSystemAdmin(t *testing.T) {
 	h, admin := newAdminHandlerWithObjects()
 	req := &view.CreateWorkspaceRequest{
-		Name:     "vkws",
+		Name:      "vkws",
 		ClusterId: "c1",
-		External: true,
-		Replica:  3,
+		External:  true,
+		Replica:   3,
 	}
 	ws, err := h.generateWorkspace(context.Background(), admin, req)
 	testifyassert.NoError(t, err)

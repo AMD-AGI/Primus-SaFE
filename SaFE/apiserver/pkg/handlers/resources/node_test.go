@@ -816,6 +816,54 @@ func TestGetWorkspaceAvailQuota(t *testing.T) {
 	assert.Equal(t, int64(1*1024*1024*1024), mem.Value())
 }
 
+// An external workspace's capacity is its budget and its nodes are sized to the Pods on
+// them, so the available quota is the budget minus what runs, whatever the nodes look like.
+func TestGetWorkspaceAvailQuotaExternalIsBudgetMinusUsed(t *testing.T) {
+	const clusterId, flavor = "test-cluster", "vk-mi355x"
+	budget := corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse("100"),
+		corev1.ResourceMemory: resource.MustParse("100Gi"),
+		common.AmdGpu:         resource.MustParse("16"),
+	}
+	tests := []struct {
+		name    string
+		running int
+		wantGpu int64
+		wantCpu int64
+	}{
+		{name: "nothing running leaves the whole budget", running: 0, wantGpu: 16, wantCpu: 100},
+		{name: "running Pods are subtracted", running: 2, wantGpu: 8, wantCpu: 68},
+		{name: "overuse clamps to zero", running: 5, wantGpu: 0, wantCpu: 20},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ws := genMockWorkspace(clusterId, flavor)
+			ws.Labels[v1.WorkspaceExternalLabel] = v1.TrueStr
+			ws.Status.TotalResources = budget
+			objs := []client.Object{ws}
+			var wls []client.Object
+			for i := 0; i < tt.running; i++ {
+				// Every node is a different size, none of them the flavor's.
+				node := genAvailableNode(fmt.Sprintf("vk-%d", i), clusterId, ws.Name, flavor,
+					genMockNodeResource(int64(8*(i+1)), 1<<30, int64(i+1)))
+				wl := genMockWorkload(clusterId, ws.Name)
+				wl.Status.Pods = []v1.WorkloadPod{{AdminNodeName: node.Name}}
+				objs = append(objs, node)
+				wls = append(wls, wl)
+			}
+			fakeClient := fake.NewClientBuilder().WithObjects(append(objs, wls...)...).
+				WithStatusSubresource(wls...).WithScheme(scheme.Scheme).Build()
+			h := Handler{Client: fakeClient}
+
+			avail, err := h.getWorkspaceAvailQuota(context.Background(), ws)
+			assert.NilError(t, err)
+			gpu, cpu := avail[common.AmdGpu], avail[corev1.ResourceCPU]
+			assert.Equal(t, tt.wantGpu, gpu.Value())
+			assert.Equal(t, tt.wantCpu, cpu.Value())
+		})
+	}
+}
+
 // --- merged from node_delete_test.go ---
 
 func TestExportNodeToCSV(t *testing.T) {
