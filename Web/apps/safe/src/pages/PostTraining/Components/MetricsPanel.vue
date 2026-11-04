@@ -49,6 +49,8 @@ const props = withDefaults(
     logY?: boolean
     /** A light band between a low and a high series, such as the min and max of a value. */
     band?: [MetricSeries | undefined, MetricSeries | undefined]
+    /** More bands, each in its own color, such as the min-to-max range of each group of runs. */
+    bands?: { low: MetricSeries; high: MetricSeries; color: string }[]
     /** Stack the series as areas; with rest, the part of rest they leave is stacked on top as Other. */
     stack?: boolean
     rest?: MetricSeries
@@ -62,6 +64,7 @@ const props = withDefaults(
     colors: undefined,
     logY: false,
     band: undefined,
+    bands: undefined,
     stack: false,
     rest: undefined,
     divisor: undefined,
@@ -115,32 +118,40 @@ const markLines = () => {
 const pointsOf = (s: MetricSeries): [number, number][] =>
   props.divisor ? s.points.map(([x, y]) => [x, y / props.divisor!]) : s.points
 
-/** The band series: the low line, invisible, and the gap to the high line stacked on it as a light area. */
-const bandSeries = () => {
-  const [low, high] = props.band ?? []
-  if (!low || !high) return []
+/** One band: the low line, invisible, and the gap to the high line stacked on it as a light area. */
+const bandPair = (low: MetricSeries, high: MetricSeries, color: string, id: string) => {
   const highAt = new Map(pointsOf(high).map(([x, y]) => [x, y]))
   const lows = pointsOf(low).filter(([x]) => highAt.has(x))
-  const color = isDark.value ? '#00e5e5' : '#0d9488'
   return [
     {
       name: low.name,
       type: 'line',
       data: lows,
-      stack: 'band',
+      stack: id,
       showSymbol: false,
+      silent: true,
       lineStyle: { opacity: 0 },
     },
     {
       name: `${low.name} – ${high.name}`,
       type: 'line',
       data: lows.map(([x, y]) => [x, highAt.get(x)! - y]),
-      stack: 'band',
+      stack: id,
       showSymbol: false,
+      silent: true,
       lineStyle: { opacity: 0 },
       areaStyle: { color, opacity: 0.15 },
     },
   ]
+}
+
+/** The band series of the band and bands props. */
+const bandSeries = () => {
+  const out: Record<string, unknown>[] = []
+  const [low, high] = props.band ?? []
+  if (low && high) out.push(...bandPair(low, high, isDark.value ? '#00e5e5' : '#0d9488', 'band'))
+  ;(props.bands ?? []).forEach((b, i) => out.push(...bandPair(b.low, b.high, b.color, `band-${i}`)))
+  return out
 }
 
 /** The stacked series, with Other: the part of rest the stacked series leave at each step. */
@@ -254,6 +265,7 @@ watch(
     props.smoothing,
     props.logY,
     props.band,
+    props.bands,
     props.rest,
     props.divisor,
     isDark.value,

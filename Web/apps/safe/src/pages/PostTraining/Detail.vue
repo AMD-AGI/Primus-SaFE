@@ -333,6 +333,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="Evaluation" name="evaluation">
+          <EvalByCheckpoint :run="run" :metrics="metrics" />
           <el-table :data="run.evaluations" size="small">
             <el-table-column label="Task">
               <template #default="{ row }">
@@ -517,6 +518,7 @@ import {
 import StageTimeline from './Components/StageTimeline.vue'
 import MetricsPanel from './Components/MetricsPanel.vue'
 import AllMetricsTable from './Components/AllMetricsTable.vue'
+import EvalByCheckpoint from './Components/EvalByCheckpoint.vue'
 import SaveTemplateDialog from './Components/SaveTemplateDialog.vue'
 import VariantEditor from './Components/VariantEditor.vue'
 import { requestFromRun, specOfRun } from './Create/wizard'
