@@ -563,3 +563,29 @@ func TestFP8RolloutServesTheQuantizedWeights(t *testing.T) {
 	require.Contains(t, strings.Join(res.Recipe.FrameworkArgs, " "), "--hf-checkpoint /wekafs/models/Qwen3-4B ")
 	require.Equal(t, "bf16", res.Recipe.Rollout["precision"])
 }
+
+func TestFullyAsyncKeepsGenerating(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeRL)
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureAsync)
+	in.Request.Resources.Nodes = 2
+	in.Request.Choices.Layout, in.Request.Choices.RolloutGpus = recipe.LayoutSeparate, 8
+	in.Request.Choices.Schedule = recipe.ScheduleAsync
+	in.Request.EvalDatasetID = "e1"
+	in.EvalDataset = &recipe.DatasetInfo{ID: "e1", Type: recipe.DatasetTypeRL, Path: "/wekafs/datasets/e1", Ready: true}
+	res := compile(t, in)
+	args := strings.Join(res.Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--rollout-function-path "+asyncRolloutFunction+" --skip-eval-before-train")
+	require.Contains(t, args, "--sglang-server-concurrency 128")
+	require.NotContains(t, args, "--eval-interval", "the automatic evaluation after training scores the model")
+	require.Equal(t, recipe.ScheduleAsync, res.Recipe.Rollout["schedule"])
+	require.Contains(t, warningsOf(res), "Fully async does not evaluate during training")
+	require.Contains(t, warningsOf(res), "Fully async without a train-inference correction")
+
+	in.Request.Choices.Concurrency, in.Request.Choices.NSamplesPerPrompt = 1, 16
+	require.Contains(t, errorsOf(in), "Fully async needs concurrency × rollout engines (1 × 4) of at least the "+
+		"samples per prompt (16)")
+	in.Request.Choices.Concurrency, in.Request.Choices.Layout = 0, recipe.LayoutColocate
+	require.Contains(t, errorsOf(in), "Fully async requires separate training and rollout GPUs")
+	in.Request.Choices.Layout, in.Request.Choices.Schedule = recipe.LayoutSeparate, "later"
+	require.Contains(t, errorsOf(in), "Schedule must be sync or async")
+}

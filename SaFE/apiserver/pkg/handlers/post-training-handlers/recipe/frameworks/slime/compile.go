@@ -45,6 +45,11 @@ const (
 	// fp8Dir holds the blockwise FP8 HF weights an FP8 rollout serves, next to the conversion's torch_dist.
 	fp8Dir     = "fp8_hf"
 	kvCacheFP8 = "fp8_e4m3"
+	// asyncRolloutFunction keeps rollouts generating across weight updates; asyncConcurrency is slime's
+	// configurator default for it.
+	asyncRolloutFunction = "slime.rollout.fully_async_rollout.generate_rollout_fully_async"
+	asyncConcurrency     = 128
+	maxConcurrency       = 8192
 	// valDatasetName names the SFT validation set, so its loss is reported as eval/val/loss.
 	valDatasetName = "val"
 
@@ -162,7 +167,9 @@ func (plugin) normalize(ctx *recipe.Context) recipe.Choices {
 	fill(&c.BatchSize, 32)
 	fill(&c.NSamplesPerPrompt, 8)
 	fill(&c.SaveInterval, 20)
-	if ctx.Request.EvalDatasetID != "" {
+	if c.Schedule == recipe.ScheduleAsync {
+		fill(&c.Concurrency, asyncConcurrency)
+	} else if ctx.Request.EvalDatasetID != "" {
 		fill(&c.EvalInterval, c.SaveInterval)
 	}
 	fill(&c.MaxResponseLen, defaultResponseLen)
@@ -326,6 +333,9 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		if c.KvCacheDtype != "" {
 			a.add("--sglang-kv-cache-dtype", c.KvCacheDtype)
 		}
+		if c.Schedule == recipe.ScheduleAsync {
+			a.add("--rollout-function-path", asyncRolloutFunction, "--skip-eval-before-train")
+		}
 		if c.Concurrency > 0 {
 			a.add("--sglang-server-concurrency", itoa(c.Concurrency))
 		}
@@ -344,7 +354,7 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 				"--eval-prompt-data", valDatasetName, in.RunDir+"/data/eval.jsonl")
 		}
 	}
-	if rl && in.EvalDataset != nil && c.EvalInterval > 0 {
+	if rl && in.EvalDataset != nil && c.EvalInterval > 0 && c.Schedule != recipe.ScheduleAsync {
 		a.add("--eval-interval", itoa(c.EvalInterval), "--eval-prompt-data", "eval", in.RunDir+"/data/eval.jsonl")
 	}
 	a.add("--use-tensorboard")
@@ -412,11 +422,14 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		plan.Files = map[string]string{pluginsConfigFile: loraConfig(c.Lora)}
 	}
 	if rl {
-		precision := "bf16"
+		precision, schedule := "bf16", "sync"
 		if fp8 {
 			precision = recipe.RolloutPrecisionFP8
 		}
-		plan.Rollout = map[string]interface{}{"precision": precision, "schedule": "sync", "layout": c.Layout}
+		if c.Schedule == recipe.ScheduleAsync {
+			schedule = recipe.ScheduleAsync
+		}
+		plan.Rollout = map[string]interface{}{"precision": precision, "schedule": schedule, "layout": c.Layout}
 		if c.AdvantageEstimator == recipe.AlgorithmPPO {
 			plan.Critic = criticPlan(c, in.RunDir)
 		}
