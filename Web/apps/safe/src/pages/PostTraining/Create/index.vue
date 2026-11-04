@@ -19,6 +19,20 @@
       <el-link type="primary" class="ml-2" @click="undoPrefill">Undo</el-link>
     </template>
   </el-alert>
+  <el-alert
+    v-if="editingTemplate"
+    class="mt-3"
+    type="info"
+    :closable="false"
+    show-icon
+    :title="`Editing template ${editingTemplate.name} · v${editingTemplate.version}. Saving creates v${editingTemplate.version + 1}. Runs created from v${editingTemplate.version} keep their recipe.`"
+  />
+  <el-alert v-if="specWarning" class="mt-3" type="warning" :closable="false" show-icon>
+    <template #title>
+      {{ specWarning }}
+      <el-link type="primary" class="ml-2" @click="step = 3">Go to Step 3</el-link>
+    </template>
+  </el-alert>
 
   <div class="pt-wizard mt-4">
     <nav class="pt-steps">
@@ -54,6 +68,7 @@
           :is="stepComponents[step - 1]"
           @changed="onChanged"
           @preset="applyPreset"
+          @template="useTemplate"
           @confirmed="(all: boolean) => (warningsConfirmed = all)"
         />
       </el-card>
@@ -73,7 +88,29 @@
         >
           Next: {{ steps[step] }}
         </el-button>
-        <el-tooltip v-else :content="submitBlocked" :disabled="!submitBlocked" placement="top">
+        <el-button
+          v-else-if="editingTemplate"
+          type="primary"
+          round
+          class="text-black"
+          @click="saveDialog = true"
+        >
+          Save Template
+        </el-button>
+        <el-button
+          v-if="step === steps.length && !editingTemplate"
+          round
+          :disabled="userStore.isReadonlyManager"
+          @click="saveDialog = true"
+        >
+          Save as Template
+        </el-button>
+        <el-tooltip
+          v-if="step === steps.length && !editingTemplate"
+          :content="submitBlocked"
+          :disabled="!submitBlocked"
+          placement="top"
+        >
           <span>
             <el-button
               type="primary"
@@ -94,6 +131,16 @@
       <PreflightPanel @goto="(s: number) => (step = s)" />
     </aside>
   </div>
+
+  <SaveTemplateDialog
+    v-model="saveDialog"
+    :request="w.form"
+    :spec="specOf(w.form.modelId)"
+    :model-label="modelName"
+    :data-label="datasetLabel"
+    :editing="editingTemplate"
+    @saved="onTemplateSaved"
+  />
 </template>
 
 <script setup lang="ts">
@@ -105,13 +152,14 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useUserStore } from '@/stores/user'
 import {
   getPostTrainingRun,
+  getPostTrainingTemplate,
   submitPostTrainingRun,
-  type Choices,
   type Diagnostic,
-  type PostTrainingRun,
-  type SubmitRequest,
+  type RunDetail,
   type SubmitResp,
+  type TemplateItem,
 } from '@/services/postTraining'
+import SaveTemplateDialog from '../Components/SaveTemplateDialog.vue'
 import PreflightPanel from './PreflightPanel.vue'
 import StepTask from './StepTask.vue'
 import StepData from './StepData.vue'
@@ -119,7 +167,14 @@ import StepResources from './StepResources.vue'
 import StepTraining from './StepTraining.vue'
 import StepOutputs from './StepOutputs.vue'
 import StepReview from './StepReview.vue'
-import { STEPS, createWizard, newRequest, provideWizard } from './wizard'
+import {
+  STEPS,
+  applyTemplate,
+  createWizard,
+  newRequest,
+  provideWizard,
+  requestFromRun,
+} from './wizard'
 
 defineOptions({ name: 'PostTrainingCreatePage' })
 
@@ -266,35 +321,13 @@ let undoPrefill = () => {}
 
 /** Copies a run's recipe snapshot into the request, as "Copy as New Run" does. */
 const prefillFromRun = async (runId: string) => {
-  const detail = (await getPostTrainingRun(runId)) as unknown as PostTrainingRun & {
-    recipe?: {
-      trainType?: 'sft' | 'rl'
-      method?: string
-      framework?: string
-      model?: { id?: string }
-      data?: { trainId?: string }
-      choices?: Choices
-      layout?: { nodes?: number }
-      output?: { exportHf?: boolean; peftAdapter?: boolean }
-      evaluation?: { enabled?: boolean; benchmarks?: string[]; keepService?: boolean }
-      tracking?: SubmitRequest['tracking']
-    }
-  }
-  const rec = detail.recipe ?? {}
-  Object.assign(w.form, {
+  const detail = (await getPostTrainingRun(runId)) as unknown as RunDetail
+  const { resources, ...copied } = requestFromRun(detail)
+  Object.assign(w.form, copied, {
+    workspace: w.form.workspace,
     displayName: `${detail.displayName}-copy`,
-    trainType: rec.trainType ?? detail.trainType,
-    method: rec.method ?? detail.method,
-    framework: rec.framework ?? detail.framework,
-    modelId: rec.model?.id ?? detail.baseModelId,
-    datasetId: rec.data?.trainId ?? detail.datasetId,
-    evalDatasetId: detail.evalDatasetId || undefined,
-    choices: JSON.parse(JSON.stringify(rec.choices ?? {})),
-    export: { hf: rec.output?.exportHf ?? true, peftAdapter: rec.output?.peftAdapter },
-    evaluation: rec.evaluation ?? {},
-    tracking: rec.tracking ? JSON.parse(JSON.stringify(rec.tracking)) : { wandb: {} },
   })
-  if (rec.layout?.nodes) w.form.resources.nodes = rec.layout.nodes
+  if (resources.nodes) w.form.resources.nodes = resources.nodes
   if (detail.image) w.form.resources.image = detail.image
   if (detail.priority < 2 || userStore.isManager || wsStore.isCurrentWorkspaceAdmin())
     w.form.resources.priority = detail.priority
@@ -309,11 +342,62 @@ const prefillFromRun = async (runId: string) => {
   }
 }
 
-/** Applies the URL's prefill: fromRun wins over modelId and trainType. */
+/** The spec the models API reports for a model. */
+const specOf = (modelId: string) => w.models.value?.items.find((m) => m.modelId === modelId)?.spec
+
+const datasetLabel = computed(() =>
+  [w.form.datasetId, w.form.evalDatasetId]
+    .filter(Boolean)
+    .map((id) => w.trainDatasets.value.find((d) => d.datasetId === id)?.displayName ?? id)
+    .join(', '),
+)
+
+const editingTemplate = ref<TemplateItem>()
+const specWarning = ref('')
+const saveDialog = ref(false)
+
+/**
+ * Applies a template as one change that can be undone, or opens it for editing in template mode. The parallel
+ * settings follow the model's spec when it differs from the template's.
+ */
+const useTemplate = async (templateId: string) => {
+  const tpl = (await getPostTrainingTemplate(templateId)) as unknown as TemplateItem
+  const before = JSON.parse(JSON.stringify(w.form))
+  const reset = applyTemplate(w.form, tpl, specOf)
+  specWarning.value = reset
+    ? `Parallel settings were reset. This template was saved for spec ${tpl.spec}. ${modelName.value} ` +
+      `uses spec ${specOf(w.form.modelId)}, so TP, PP and CP use that spec's defaults.`
+    : ''
+  if (route.query.mode === 'template') {
+    editingTemplate.value = tpl
+    w.form.templateId = undefined
+    w.form.displayName = tpl.name
+  } else {
+    prefill.value = `Template ${tpl.name} · v${tpl.version} applied.`
+    undoPrefill = () => {
+      Object.assign(w.form, before)
+      prefill.value = ''
+      specWarning.value = ''
+      w.loadConfig()
+    }
+  }
+  await Promise.all([w.loadDatasets(), w.loadConfig()])
+}
+
+/** A saved template edit returns to the templates page. */
+const onTemplateSaved = () => {
+  if (editingTemplate.value) router.push('/post-training/templates')
+}
+
+/** Applies the URL's prefill: fromRun wins over templateId, which wins over modelId and trainType. */
 const applyQuery = async () => {
   const q = route.query
   if (q.fromRun) {
     await prefillFromRun(String(q.fromRun))
+    return
+  }
+  if (q.templateId) {
+    await useTemplate(String(q.templateId))
     return
   }
   if (q.trainType === 'rl' || q.trainType === 'sft') w.form.trainType = q.trainType

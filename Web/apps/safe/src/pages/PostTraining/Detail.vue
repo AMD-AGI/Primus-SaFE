@@ -62,6 +62,13 @@
               <el-button round :disabled="isReadonly" @click="copyAsNew">Copy as New Run</el-button>
             </span>
           </el-tooltip>
+          <el-tooltip :content="readOnlyTip" :disabled="!isReadonly" placement="top">
+            <span>
+              <el-button round :disabled="isReadonly" @click="saveTemplate = true">
+                Save as Template
+              </el-button>
+            </span>
+          </el-tooltip>
           <el-tooltip :content="evaluateTip" :disabled="!evaluateTip" placement="top">
             <span>
               <el-button round :disabled="!!evaluateTip" @click="openEvaluate">Evaluate</el-button>
@@ -324,6 +331,16 @@
       </el-tabs>
     </template>
 
+    <SaveTemplateDialog
+      v-if="templateRequest"
+      v-model="saveTemplate"
+      :request="templateRequest"
+      :spec="run ? specOfRun(run) : undefined"
+      :model-label="run?.baseModelName || run?.baseModelId"
+      :data-label="run?.datasetName || run?.datasetId"
+      :source-run-id="run?.runId"
+    />
+
     <el-dialog v-model="evalDialog.visible" title="Evaluate the output model" width="520px">
       <el-form label-position="top">
         <el-form-item label="Benchmarks" required>
@@ -464,6 +481,8 @@ import {
 } from '@/services/postTraining'
 import StageTimeline from './Components/StageTimeline.vue'
 import MetricsPanel from './Components/MetricsPanel.vue'
+import SaveTemplateDialog from './Components/SaveTemplateDialog.vue'
+import { requestFromRun, specOfRun } from './Create/wizard'
 
 defineOptions({ name: 'PostTrainingDetailPage' })
 
@@ -489,6 +508,10 @@ const metrics = ref<MetricsResp>()
 const smoothing = ref(0.6)
 
 const isActive = computed(() => run.value?.status === 'Pending' || run.value?.status === 'Running')
+
+const saveTemplate = ref(false)
+/** The request the run's recipe snapshot gives a template. */
+const templateRequest = computed(() => (run.value ? requestFromRun(run.value) : undefined))
 
 type Recipe = {
   choices?: { numRollout?: number; saveInterval?: number }
