@@ -66,6 +66,9 @@ var (
 // lostMessage starts the message of a run whose launcher stopped reporting.
 const lostMessage = "The launcher has not reported"
 
+// notRetriedEvent records that the run failed in a way a retry would repeat, so the platform does not retry it.
+const notRetriedEvent = "not-retried"
+
 // stageEntry is one record of the stage_history column.
 type stageEntry struct {
 	Stage      string `json:"stage"`
@@ -569,6 +572,7 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 		u.set("disk_usage", run.DiskUsage, in.disk)
 	}
 	if in.noRetry {
+		markNotRetried(u)
 		if err := r.disableFailover(ctx, w); err != nil {
 			return false, err
 		}
@@ -682,6 +686,13 @@ func syncStall(u *runUpdate, in *ingestion, running bool) {
 		u.event("lost", message)
 		u.fields["stalled_since"] = time.Unix(in.cur.LastStage, 0).UTC()
 		u.set("message", run.Message, message)
+	}
+}
+
+// markNotRetried records the not-retried event once.
+func markNotRetried(u *runUpdate) {
+	if !hasEvent(u.history, notRetriedEvent) {
+		u.event(notRetriedEvent, "")
 	}
 }
 
