@@ -277,12 +277,17 @@ func loraDefaults(ctx *recipe.Context) *recipe.LoraChoice {
 	return &l
 }
 
-// loraConfig renders plugins.yaml, written as JSON, which YAML reads; slime sets each entry as an argument.
-func loraConfig(l *recipe.LoraChoice) string {
-	data, _ := json.MarshalIndent(map[string]interface{}{"pt_lora": map[string]interface{}{
+// loraConfig renders plugins.yaml, written as JSON, which YAML reads; slime sets each entry as an argument. With
+// expert layers it names the spec's expert targets.
+func loraConfig(l *recipe.LoraChoice, spec *registry.Lora) string {
+	cfg := map[string]interface{}{
 		"rank": l.Rank, "alpha": l.Alpha, "dropout": l.Dropout, "targets": l.Targets,
 		"experts": l.Experts, "expertMode": l.ExpertMode,
-	}}, "", "  ")
+	}
+	if l.Experts && spec != nil {
+		cfg["expertTargets"] = spec.ExpertTargets
+	}
+	data, _ := json.MarshalIndent(map[string]interface{}{"pt_lora": cfg}, "", "  ")
 	return string(data) + "\n"
 }
 
@@ -467,7 +472,7 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		Lora:    c.Lora,
 	}
 	if c.Lora != nil {
-		plan.Files = map[string]string{pluginsConfigFile: loraConfig(c.Lora)}
+		plan.Files = map[string]string{pluginsConfigFile: loraConfig(c.Lora, ctx.FrameworkSpec.Lora)}
 	}
 	if rl {
 		precision, schedule := "bf16", "sync"

@@ -2,6 +2,7 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
+import re
 import types
 
 import pytest
@@ -138,3 +139,23 @@ def test_adapter_only_checkpoints_merge_on_the_hf_side(tmp_path):
     cmd = commands[1]
     assert cmd[cmd.index("--output-dir") + 1] == str(tmp_path / "final_adapter")
     assert cmd[cmd.index("--verify-merged") + 1] == str(tmp_path / "m")
+
+
+def test_lora_targets_on_a_moe_model():
+    def hits(patterns, full_name):
+        """Bridge's ModuleMatcher: the module's own name equals a pattern, or its full name matches the wildcard."""
+        return any(p == full_name.rsplit(".", 1)[-1] or re.match("^" + p.replace("*", "(.*)") + "$", full_name)
+                   for p in patterns)
+
+    names = {"decoder.layers.0.mlp.linear_fc1", "decoder.layers.5.mlp.shared_experts.linear_fc1",
+             "decoder.layers.5.mlp.experts.linear_fc1", "decoder.layers.5.mlp.experts.linear_fc2",
+             "decoder.layers.5.self_attention.linear_proj", "decoder.layers.5.mlp.router"}
+    assert lora.target_patterns({"targets": ["linear_qkv", "linear_fc1"]}, moe=False) == ["linear_qkv", "linear_fc1"]
+    experts = lora.target_patterns({"targets": ["linear_proj", "linear_fc1"], "experts": True,
+                                    "expertTargets": ["linear_fc1", "linear_fc2"]}, moe=True)
+    assert {n for n in names if hits(experts, n)} == names - {"decoder.layers.5.mlp.router"}
+    plain = lora.target_patterns({"targets": ["linear_proj", "linear_fc1"]}, moe=True)
+    assert {n for n in names if hits(plain, n)} == {"decoder.layers.0.mlp.linear_fc1",
+                                                     "decoder.layers.5.mlp.shared_experts.linear_fc1",
+                                                     "decoder.layers.5.self_attention.linear_proj"}, \
+        "without experts the routed experts keep their weights"

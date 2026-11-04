@@ -144,3 +144,50 @@ def test_sync_merge_keeps_the_tensor_parallel_attributes(monkeypatch):
     assert torch.equal(out, (w.float() + 2 * b @ a).to(torch.bfloat16))
     assert (out.tensor_model_parallel, out.partition_dim, out.partition_stride) == (True, 0, 1), \
         "slime's all-gather reads them"
+
+
+def test_sync_merges_routed_experts():
+    pre = "module.module.decoder.layers.5.mlp.experts.linear_fc1"
+    g = torch.Generator().manual_seed(1)
+    w = {k: torch.randn(6, 4, generator=g) for k in (2, 3)}
+    w[3].tensor_model_parallel, w[3].partition_dim = True, 0
+    merge_expert = lora_sync.local_merge(4.0, 2)
+
+    def dense(w, a, b):
+        raise AssertionError("no dense weight here")
+
+    def sync(a, b):
+        named = [(pre + ".to_wrap.weight2", w[2]), (pre + ".to_wrap.weight3", w[3]),
+                 (pre + ".adapter.linear_in.weight", a), (pre + ".adapter.linear_out.weight", b)]
+        return dict(lora_sync.merged_named(named, dense, merge_expert, expert_offset=2))
+
+    a, b = torch.randn(2, 4, generator=g), torch.randn(6, 2, generator=g)
+    out = sync(a, b)
+    assert set(out) == {pre + ".weight2", pre + ".weight3"}, "the adapter itself is not sent"
+    for k in (2, 3):
+        assert torch.allclose(out[pre + ".weight%d" % k], w[k] + 2 * b @ a), "a shared adapter merges into each expert"
+    assert out[pre + ".weight3"].tensor_model_parallel and out[pre + ".weight3"].partition_dim == 0
+
+    a, b = torch.randn(2, 2, 4, generator=g), torch.randn(2, 6, 2, generator=g)
+    out = sync(a, b)
+    assert torch.allclose(out[pre + ".weight3"], w[3] + 2 * b[1] @ a[1]), "global expert 3 is the second local one"
+    with pytest.raises(ValueError, match="expert 2 is not one of this rank's 2 experts"):
+        named = [(pre + ".to_wrap.weight2", w[2]), (pre + ".adapter.linear_in.weight", a),
+                 (pre + ".adapter.linear_out.weight", b)]
+        list(lora_sync.merged_named(named, dense, merge_expert, expert_offset=4))
+
+
+def test_merge_routed_experts_of_stacked_layers():
+    key = "decoder.layers.mlp.experts.linear_fc1."
+    g = torch.Generator().manual_seed(2)
+    w = torch.randn(2, 3, 6, 4, generator=g)
+    a, b = torch.randn(2, 3, 2, 4, generator=g), torch.randn(2, 3, 6, 2, generator=g)
+    state = {key + "weight": w.clone(), key + "adapter.linear_in.weight": a, key + "adapter.linear_out.weight": b}
+    merge_lora.merge(state, 0.5)
+    assert torch.allclose(state[key + "weight"], w + 0.5 * b @ a), "one adapter per expert, per layer"
+
+    a, b = torch.randn(2, 2, 4, generator=g), torch.randn(2, 6, 2, generator=g)
+    state = {key + "weight": w.clone(), key + "adapter.linear_in.weight": a, key + "adapter.linear_out.weight": b}
+    merge_lora.merge(state, 0.5)
+    assert torch.allclose(state[key + "weight"], w + 0.5 * (b @ a).unsqueeze(1)), \
+        "an adapter shared by a layer's experts adds the same update to each"

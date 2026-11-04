@@ -631,3 +631,27 @@ func TestMooncakePDSplitsTheRollout(t *testing.T) {
 	opts, _ = recipe.FrameworkOptions(in)
 	require.Equal(t, "No RDMA devices are registered for cluster c1", opts.Fields["pd"].Values[1].Reason)
 }
+
+func TestGLMExpertLoRA(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	in.Model.Path, in.Model.MaxTokens = "/wekafs/models/GLM-5.3-BF16", 202752
+	in.Model.Config = &v1.ModelConfig{Architectures: []string{"GlmMoeDsaForCausalLM"}, ModelType: "glm_moe_dsa",
+		NumHiddenLayers: 78, HiddenSize: 6144, NumAttentionHeads: 64, NumKeyValueHeads: 64, NumExperts: 256,
+		MaxPositionEmbeddings: 1048576}
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureLora,
+		registry.FeatureLoraExperts)
+	in.Request.Method, in.Request.Resources.Nodes = registry.MethodLora, 2
+	in.Request.Choices.Lora = &recipe.LoraChoice{Experts: true}
+	in.Workspace.Nodes, in.Workspace.HostMemoryBytes = 8, 3_000_000_000_000
+	res := compile(t, in)
+	var cfg struct {
+		Lora map[string]interface{} `json:"pt_lora"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(res.Recipe.Files[pluginsConfigFile]), &cfg))
+	require.Equal(t, []interface{}{"linear_fc1", "linear_fc2"}, cfg.Lora["expertTargets"])
+	require.Equal(t, "shared", cfg.Lora["expertMode"], "the experts of a layer share one adapter by default")
+	require.Len(t, cfg.Lora["targets"], 5, "the attention projections the spec lists")
+
+	in.Request.Export.PeftAdapter = true
+	require.Contains(t, errorsOf(in), "A PEFT adapter cannot hold the experts' LoRA; export the merged model")
+}

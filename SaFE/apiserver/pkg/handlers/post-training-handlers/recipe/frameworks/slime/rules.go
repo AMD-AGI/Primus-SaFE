@@ -182,6 +182,9 @@ func loraRules(ctx *recipe.Context, l *recipe.LoraChoice) []recipe.Diagnostic {
 	if l.Experts && l.ExpertMode != expertModeShared && l.ExpertMode != recipe.ExpertModePerExpert {
 		fail("choices.lora.expertMode", "The expert mode must be shared or perExpert")
 	}
+	if l.Experts && ctx.Request.Export.PeftAdapter {
+		fail("export.peftAdapter", "A PEFT adapter cannot hold the experts' LoRA; export the merged model")
+	}
 	return out
 }
 

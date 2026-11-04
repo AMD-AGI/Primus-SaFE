@@ -11,6 +11,9 @@ module in its sharded state dict, since the adapters' extra state and fc1 split 
 pre-hook moves base keys under to_wrap. and fills the adapter keys a base checkpoint lacks, with B at zero, so the
 strict write-back succeeds, a real mismatch still fails and a reference model loaded from the base equals it. Loading
 from HF reads only the base parameters, under their unwrapped names. RL also gets lora_sync's merged weight sync.
+
+On a MoE model, pt_lora's experts adds the routed experts' grouped linears: Bridge gives the experts of a layer one
+shared adapter, or with expertMode perExpert one adapter per local expert.
 """
 import argparse
 import importlib.util
@@ -23,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 ADAPTER = ".adapter."
 WRAPPED = ".to_wrap."
+# EXPERT_TARGETS are the MLP linears a routed expert has too; PER_EXPERT is pt_lora's expertMode of one adapter per
+# expert.
+EXPERT_TARGETS = ("linear_fc1", "linear_fc2")
+PER_EXPERT = "perExpert"
 _state = {"installed": False, "base_load": False}
 
 
@@ -164,6 +171,21 @@ def install(adapter_wrapper):
     hf_to_megatron.load_hf_weights = load_hf_base
 
 
+def target_patterns(cfg, moe):
+    """Return Bridge's target_modules for pt_lora. A bare name matches every module of that name, the routed experts'
+    grouped linears included, so on a MoE model the fc1 and fc2 targets become patterns of the dense and the shared
+    expert MLPs; with experts, the routed experts' targets are added as patterns of their full names."""
+    out = []
+    for target in cfg["targets"]:
+        if moe and target in EXPERT_TARGETS:
+            out += ["*.mlp." + target, "*.shared_experts." + target]
+        else:
+            out.append(target)
+    if cfg.get("experts"):
+        out += ["*.mlp.experts." + t for t in cfg.get("expertTargets") or EXPERT_TARGETS]
+    return out
+
+
 def model_provider(pre_process=True, post_process=True, vp_stage=None):
     """Build slime's GPT model and wrap the pt_lora target modules with Bridge's LoRA."""
     from megatron.training.global_vars import get_args
@@ -173,8 +195,9 @@ def model_provider(pre_process=True, post_process=True, vp_stage=None):
     cfg = getattr(args, "pt_lora", None) or {}
     if not cfg.get("targets"):
         raise RuntimeError("pt_lora in plugins.yaml names no target modules")
-    if getattr(args, "num_experts", None):
-        raise RuntimeError("this LoRA plugin does not support MoE models yet")
+    moe = bool(getattr(args, "num_experts", None))
+    if cfg.get("experts") and not moe:
+        raise RuntimeError("pt_lora adapts expert layers, but the model has no experts")
     base_args = argparse.Namespace(**vars(args))
     base_args.custom_model_provider_path = None
     model = provider._get_model_provider_func(base_args)(pre_process=pre_process, post_process=post_process,
@@ -185,8 +208,9 @@ def model_provider(pre_process=True, post_process=True, vp_stage=None):
 
         lora_sync.install(cfg["alpha"], int(cfg["rank"]))
     install(adapter_wrapper)
-    lora = lora_cls(target_modules=list(cfg["targets"]), dim=int(cfg["rank"]), alpha=cfg["alpha"],
-                    dropout=float(cfg.get("dropout") or 0.0))
+    lora = lora_cls(target_modules=target_patterns(cfg, moe), dim=int(cfg["rank"]), alpha=cfg["alpha"],
+                    dropout=float(cfg.get("dropout") or 0.0),
+                    share_expert_adapters=cfg.get("expertMode") != PER_EXPERT)
     model = lora(model, training=True)
     for module in model.modules():
         if isinstance(module, adapter_wrapper):
