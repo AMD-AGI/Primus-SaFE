@@ -582,7 +582,8 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 	if data, _ := json.Marshal(cur); string(data) != run.MetricCursor {
 		u.fields["metric_cursor"] = string(data)
 	}
-	if data, _ := json.Marshal(in.sum); string(data) != run.MetricSummary && (len(points) > 0 || in.sum.Rejected > 0) {
+	if data, _ := json.Marshal(in.sum); string(data) != run.MetricSummary &&
+		(len(points) > 0 || in.sum.Rejected > 0 || in.linked) {
 		u.fields["metric_summary"] = string(data)
 	}
 	fields := u.columns()

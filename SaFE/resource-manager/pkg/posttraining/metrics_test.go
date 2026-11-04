@@ -245,3 +245,23 @@ func TestLostLauncherIsMarkedAndCleared(t *testing.T) {
 	require.Nil(t, in.u.fields["stalled_since"], "any [STAGE] from a lost launcher clears the mark")
 	require.Equal(t, "", in.u.fields["message"])
 }
+
+func TestLinkMarkers(t *testing.T) {
+	in := newTestIngestion(100)
+	link := func(v string) string {
+		return fmt.Sprintf(`[METRIC] {"run":%q,"attempt":"a1","pv":1,"kind":"link","t":1762164000.5,"v":%s}`, testRun, v)
+	}
+	feed(in, stageLine("a1", "train", "running", ""), link(`{"wandb":"https://wandb.ai/team/pt/runs/abc"}`),
+		metricLine("a1", 1, 1, `{"train/loss":2}`))
+	require.Equal(t, map[string]string{"wandb": "https://wandb.ai/team/pt/runs/abc"}, in.sum.Links)
+	require.True(t, in.linked)
+	require.Len(t, in.finish(), 1, "a link is not a point")
+	require.Empty(t, in.cur.Attempts["a1"].Gaps, "a link has no seq and leaves no gap")
+
+	again := newTestIngestion(100)
+	again.sum.Links = map[string]string{"wandb": "https://wandb.ai/team/pt/runs/abc"}
+	feed(again, stageLine("a1", "train", "running", ""),
+		link(`{"wandb":"https://wandb.ai/team/pt/runs/abc","x":"javascript:alert(1)","y":"ftp://h/f","z":3}`))
+	require.False(t, again.linked, "an unchanged link and links that are not http(s) URLs change nothing")
+	require.Len(t, again.sum.Links, 1)
+}

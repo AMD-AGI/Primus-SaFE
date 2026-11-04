@@ -40,6 +40,8 @@ export interface MetricSummary {
   rejected?: number
   main?: { name: string; step: number; value: number; spark?: SummaryPoint[] }
   bestValLoss?: SummaryPoint
+  /** URLs the launcher reported, such as the W&B run, by name. */
+  links?: Record<string, string>
 }
 
 /** A Post Training run as the run list returns it. JSON columns arrive as strings. */

@@ -109,6 +109,7 @@ import {
   type Choices,
   type Diagnostic,
   type PostTrainingRun,
+  type SubmitRequest,
   type SubmitResp,
 } from '@/services/postTraining'
 import PreflightPanel from './PreflightPanel.vue'
@@ -276,6 +277,7 @@ const prefillFromRun = async (runId: string) => {
       layout?: { nodes?: number }
       output?: { exportHf?: boolean; peftAdapter?: boolean }
       evaluation?: { enabled?: boolean; benchmarks?: string[]; keepService?: boolean }
+      tracking?: SubmitRequest['tracking']
     }
   }
   const rec = detail.recipe ?? {}
@@ -290,6 +292,7 @@ const prefillFromRun = async (runId: string) => {
     choices: JSON.parse(JSON.stringify(rec.choices ?? {})),
     export: { hf: rec.output?.exportHf ?? true, peftAdapter: rec.output?.peftAdapter },
     evaluation: rec.evaluation ?? {},
+    tracking: rec.tracking ? JSON.parse(JSON.stringify(rec.tracking)) : { wandb: {} },
   })
   if (rec.layout?.nodes) w.form.resources.nodes = rec.layout.nodes
   if (detail.image) w.form.resources.image = detail.image
