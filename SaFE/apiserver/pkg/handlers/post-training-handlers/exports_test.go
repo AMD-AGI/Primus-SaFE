@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +79,15 @@ func TestExportWorkload(t *testing.T) {
 	}
 	_, err = h.exportWorkload(c, reg, exportRun("Running"), &exportRequest{Step: 20})
 	require.Equal(t, http.StatusConflict, statusCode(err))
+
+	experts := exportRun("Succeeded")
+	experts.Method = registry.MethodLora
+	experts.Recipe = strings.Replace(experts.Recipe, `"output"`, `"lora":{"rank":16,"experts":true},"output"`, 1)
+	_, err = h.exportWorkload(c, reg, experts, &exportRequest{Step: 20, PeftAdapter: true})
+	require.Equal(t, http.StatusBadRequest, statusCode(err))
+	require.Contains(t, err.Error(), "A PEFT adapter cannot hold the experts' LoRA")
+	_, err = h.exportWorkload(c, reg, experts, &exportRequest{Step: 20})
+	require.NoError(t, err, "the merged model is exported as usual")
 }
 
 // exportJob is an export job of step 20 of pt-1 in phase, created at minute.

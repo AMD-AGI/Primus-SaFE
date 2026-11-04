@@ -122,6 +122,9 @@ func (h *Handler) exportWorkload(c *gin.Context, reg *registry.Registry, run *db
 	if err := json.Unmarshal([]byte(run.Recipe), &rec); err != nil || rec.Output.Base == "" {
 		return nil, commonerrors.NewInternalError(fmt.Sprintf("run %s has no run directory", run.RunID))
 	}
+	if req.PeftAdapter && rec.Lora != nil && rec.Lora.Experts {
+		return nil, commonerrors.NewBadRequest("A PEFT adapter cannot hold the experts' LoRA; export the merged model")
+	}
 	m, err := h.checkpointMarkers(ctx, run)
 	if err != nil {
 		return nil, err
