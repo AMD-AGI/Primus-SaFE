@@ -10,6 +10,13 @@ import {
   flattenChanges,
   formatCommand,
   formatDuration,
+  gateDuration,
+  importBanner,
+  importTimeline,
+  parallelismText,
+  resourcePeaks,
+  resourceSeries,
+  trainableTotal,
   groupSamples,
   importCommandFor,
   importHints,
@@ -35,7 +42,7 @@ import {
 } from './index'
 
 vi.mock('@/services/request', () => ({ default: {} }))
-import type { ImportPreview, PostTrainingRun, RunSample } from './types'
+import type { ImportPreview, ImportSummary, PostTrainingRun, RunSample } from './types'
 
 type StageRun = Pick<
   PostTrainingRun,
@@ -512,5 +519,144 @@ describe('imports', () => {
     )
     expect(isImportedRun({ source: 'spur' })).toBe(true)
     expect(isImportedRun({})).toBe(false)
+  })
+})
+
+describe('imported run detail', () => {
+  const failed = {
+    path: '/shared_nfs/zhanglei/glm53-kernel/slime-rocm/runs/j2r5-229357',
+    name: 'j2r5-229357',
+    verdict: 'FAIL',
+    status: 'Failed',
+    message: 'FAIL: VRAM still rising over steps 10-20',
+    failLine: 'FAIL: VRAM still rising over steps 10-20',
+    trainType: 'sft',
+    endTime: '2026-10-21T11:54:03Z',
+    nodes: [],
+    head: 'crsuse2-m2m-001',
+    saveSet: false,
+    mainLog: { name: 'b2_sft-crsuse2-m2m-001.log', bytes: 2711821, metricLines: 20 },
+    stages: [
+      {
+        stage: 'preflight',
+        label: 'Preflight',
+        gates: ['a1_host'],
+        start: '2026-10-21T10:13:43Z',
+        end: '2026-10-21T10:14:21Z',
+        result: 'pass',
+      },
+      {
+        stage: 'ray',
+        label: 'Ray',
+        gates: ['a1_ray'],
+        start: '2026-10-21T10:15:21Z',
+        end: '2026-10-21T10:17:55Z',
+        result: 'pass',
+      },
+      {
+        stage: 'train',
+        label: 'Train',
+        gates: ['b2_sft'],
+        start: '2026-10-21T10:17:55Z',
+        end: '2026-10-21T11:53:02Z',
+        result: 'fail',
+      },
+      {
+        stage: 'verdict',
+        label: 'Verdict',
+        gates: [],
+        start: '2026-10-21T11:54:03Z',
+        end: '2026-10-21T11:54:03Z',
+        result: 'fail',
+      },
+    ],
+    gates: [
+      { gate: 'a1_host', node: 'crsuse2-m2m-001', result: 'pass', seconds: 1 },
+      { gate: 'b2_sft', node: 'crsuse2-m2m-001', result: 'fail(1)', seconds: 5707 },
+      { gate: 'b2_sft', node: 'crsuse2-m2m-153', result: 'pass', seconds: 5698 },
+    ],
+    markers: [{ name: 'done_1', time: '2026-10-21T11:53:54Z' }],
+    check: [],
+    arguments: { kept: {}, total: 1031 },
+    checkpoints: { iterations: [] },
+  } as unknown as ImportSummary
+
+  it('lays out the stages the way the timeline shows them', () => {
+    const rows = importTimeline(failed, 'sft', 19)
+    expect(rows.map((r) => [r.label, r.state, r.text, r.sub ?? ''])).toEqual([
+      ['Preflight', 'done', '38s', ''],
+      ['Ray', 'done', '2m 34s', ''],
+      ['Train', 'failed', 'b2_sft fail(1) on crsuse2-m2m-001', '20 steps logged'],
+      ['Verdict', 'failed', 'FAIL', ''],
+    ])
+    expect(rows[2].gates).toEqual([
+      'b2_sft · crsuse2-m2m-001 · 1h 35m',
+      'b2_sft · crsuse2-m2m-153 · 1h 34m',
+    ])
+    const stopped = {
+      ...failed,
+      verdict: '',
+      stages: [
+        {
+          stage: 'train',
+          label: 'Train',
+          gates: ['b2_sft'],
+          start: '2026-10-22T23:24:03Z',
+          end: null,
+          result: 'running' as const,
+        },
+      ],
+    }
+    expect(importTimeline(stopped, 'sft', 21).map((r) => [r.state, r.text, r.sub ?? ''])).toEqual([
+      ['stopped', 'No END line', '22 steps logged'],
+      ['pending', 'No PASS or FAIL file', ''],
+    ])
+    expect(gateDuration(248)).toBe('4m 08s')
+  })
+
+  it('says why an imported run failed, where it stopped, or where it came from', () => {
+    expect(importBanner(failed)).toEqual({
+      type: 'error',
+      text: 'Gate b2_sft failed on crsuse2-m2m-001. Check failed: VRAM still rising over steps 10-20.',
+      evidence: 'FAIL: VRAM still rising over steps 10-20',
+      logPath:
+        '/shared_nfs/zhanglei/glm53-kernel/slime-rocm/runs/j2r5-229357/logs/b2_sft-crsuse2-m2m-001.log',
+    })
+    expect(importBanner({ ...failed, status: 'Stopped', verdict: '' }).text).toMatch(
+      /^No verdict\. The run directory has no PASS or FAIL file\. The last marker is done_1 at \d\d:53:54, and the log was last written at \d\d:54:03\. Curves and resources stop there\.$/,
+    )
+    expect(importBanner({ ...failed, status: 'Succeeded', verdict: 'PASS' }).type).toBe('primary')
+  })
+
+  it('reads the settings and the resource peaks the way the check output states them', () => {
+    expect(
+      trainableTotal('dense 18.60B over 4 shards, expert 77.31B over 16 shards, total 95.91B'),
+    ).toBe('95.91B')
+    expect(trainableTotal('')).toBe('')
+    expect(
+      parallelismText({
+        tensor_model_parallel_size: 2,
+        pipeline_model_parallel_size: 2,
+        context_parallel_size: 2,
+        expert_model_parallel_size: 8,
+      }),
+    ).toBe('TP 2 · PP 2 · CP 2 · EP 8')
+    const resources = {
+      'crsuse2-m2m-001': {
+        samples: [
+          [1792577623, 800000000, 200e9],
+          [1792577653, 861831680, 284345327616],
+        ] as [number, number, number][],
+        hostMemPeakKb: 861831680,
+        vramPeakBytes: 284345327616,
+      },
+    }
+    const [peak] = resourcePeaks(resources, 'crsuse2-m2m-001')
+    expect(peak.head).toBe(true)
+    expect((peak.hostMemBytes / 1e12).toFixed(2)).toBe('0.88')
+    expect((peak.vramBytes / 1e9).toFixed(1)).toBe('284.3')
+    const { memory, vram } = resourceSeries(resources, '2026-10-21T10:13:43Z')
+    expect(memory[0].points[1][0]).toBe(0.5)
+    expect(vram[0].points[1][1]).toBeCloseTo(284.35, 2)
   })
 })
