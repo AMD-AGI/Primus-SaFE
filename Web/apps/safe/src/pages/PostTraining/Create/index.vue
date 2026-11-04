@@ -292,6 +292,7 @@ const prefillFromRun = async (runId: string) => {
     evaluation: rec.evaluation ?? {},
   })
   if (rec.layout?.nodes) w.form.resources.nodes = rec.layout.nodes
+  if (detail.image) w.form.resources.image = detail.image
   prefill.value = `Copied from run ${detail.displayName}.`
   undoPrefill = () => {
     Object.assign(w.form, newRequest(w.workspace))

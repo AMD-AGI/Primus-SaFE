@@ -58,11 +58,21 @@
     <el-collapse>
       <el-collapse-item title="Advanced" name="advanced">
         <el-form-item label="Image" :error="fieldError('resources.image')">
-          <el-input
-            v-model="image"
-            placeholder="Default image of this GPU architecture"
-            style="width: 420px"
-          />
+          <div>
+            <el-input
+              v-model="image"
+              placeholder="Default image of this GPU architecture"
+              style="width: 420px"
+            />
+            <div
+              v-for="d in imageWarnings"
+              :key="d.message"
+              class="mt-1 text-[12px] text-[var(--safe-warning)]"
+            >
+              {{ d.message }}
+              <el-button link type="primary" @click="image = ''">Use the default image</el-button>
+            </div>
+          </div>
         </el-form-item>
         <el-form-item label="Weights & Biases">
           <el-switch v-model="wandb.enabled" />
@@ -155,6 +165,7 @@ onMounted(async () => {
 
 /** The first error of the preview on a field. */
 const fieldError = (field: string) => w.errors.value.find((d) => d.field === field)?.message ?? ''
+const imageWarnings = computed(() => w.warnings.value.filter((d) => d.field === 'resources.image'))
 </script>
 
 <style scoped>
