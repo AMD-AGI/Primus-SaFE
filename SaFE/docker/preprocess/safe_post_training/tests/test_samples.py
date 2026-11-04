@@ -46,6 +46,12 @@ def test_rollout_groups_are_sampled_whole(tmp_path):
     assert sample_log.log_eval(3, args, data, {}) is False
     assert [r["index"] for r in lines(tmp_path / "samples" / "eval-3.jsonl")] == [1, 2, 5]
 
+    scored = sample(0, 0, reward={"score": 0.5, "format": 1})
+    args.eval_reward_key = "score"
+    sample_log.log_eval(4, args, {"aime": {"samples": [scored]}})
+    got = lines(tmp_path / "samples" / "eval-4.jsonl")[0]
+    assert got["reward"] == 0.5 and got["rewardDetail"] == {"score": 0.5, "format": 1}, "slime's eval reward key"
+
     off = run_dir_with(tmp_path / "off", {"rolloutGroups": 0, "evalPerSet": 0})
     sample_log.log_rollout(1, off, samples)
     assert not (tmp_path / "off" / "samples").exists()

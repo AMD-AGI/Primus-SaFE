@@ -42,9 +42,10 @@ def text_of(prompt):
     return "" if prompt is None else str(prompt)
 
 
-def record(sample, dataset=""):
-    """Return the JSON line of one sample; a reward dict is kept as the detail and its numbers left out."""
-    reward = getattr(sample, "reward", None)
+def record(sample, dataset="", key=None):
+    """Return the JSON line of one sample; a reward dict is kept as the detail, its key entry as the reward."""
+    detail = getattr(sample, "reward", None)
+    reward = detail.get(key) if isinstance(detail, dict) and key else detail
     status = getattr(sample, "status", "")
     out = {
         "dataset": dataset,
@@ -57,8 +58,8 @@ def record(sample, dataset=""):
         "status": getattr(status, "value", status) or "",
         "tokens": getattr(sample, "response_length", 0) or 0,
     }
-    if isinstance(reward, dict):
-        out["rewardDetail"] = reward
+    if isinstance(detail, dict):
+        out["rewardDetail"] = detail
     return out
 
 
@@ -84,7 +85,9 @@ def log_rollout(rollout_id, args, samples, rollout_extra_metrics=None, rollout_t
             by_group.setdefault(getattr(s, "group_index", 0) or 0, []).append(s)
         rng = random.Random("%s-%s" % (getattr(args, "rollout_seed", 0), rollout_id))
         picked = sorted(rng.sample(sorted(by_group), min(groups, len(by_group))))
-        records = [record(s) for g in picked for s in sorted(by_group[g], key=lambda s: getattr(s, "index", 0) or 0)]
+        key = getattr(args, "reward_key", None)
+        records = [record(s, key=key) for g in picked
+                   for s in sorted(by_group[g], key=lambda s: getattr(s, "index", 0) or 0)]
         write(os.path.join(directory, SAMPLES_DIR, "rollout-%d.jsonl" % rollout_id), records)
     except Exception as e:  # noqa: BLE001 - logging samples must never stop training
         logger.warning("sample_log: rollout %s not logged: %s", rollout_id, e)
@@ -98,11 +101,12 @@ def log_eval(rollout_id, args, data, extra_metrics=None):
         per_set = int(limits(directory).get("evalPerSet") or 0)
         if per_set <= 0:
             return False
+        reward_key = getattr(args, "eval_reward_key", None) or getattr(args, "reward_key", None)
         records = []
         for key in sorted(data or {}):
             samples = (data[key] or {}).get("samples") or []
             for s in sorted(samples, key=lambda s: getattr(s, "index", 0) or 0)[:per_set]:
-                records.append(record(s, dataset=key))
+                records.append(record(s, dataset=key, key=reward_key))
         write(os.path.join(directory, SAMPLES_DIR, "eval-%d.jsonl" % rollout_id), records)
     except Exception as e:  # noqa: BLE001 - logging samples must never stop training
         logger.warning("sample_log: evaluation %s not logged: %s", rollout_id, e)
