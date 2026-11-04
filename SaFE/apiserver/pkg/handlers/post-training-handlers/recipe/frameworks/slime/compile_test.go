@@ -463,3 +463,69 @@ func TestCompileLoraRL(t *testing.T) {
 	args := strings.Join(compile(t, in).Recipe.FrameworkArgs, " ")
 	require.Contains(t, args, "--custom-config-path "+in.RunDir+"/plugins.yaml --ref-trainable-only")
 }
+
+func TestSpecsOfTheLargerModels(t *testing.T) {
+	reg := chartRegistry(t)
+	qwen3 := func(layers, hidden, heads int) *v1.ModelConfig {
+		return &v1.ModelConfig{Architectures: []string{"Qwen3ForCausalLM"}, NumHiddenLayers: layers, HiddenSize: hidden,
+			NumAttentionHeads: heads, NumKeyValueHeads: 8, RopeTheta: "1000000", MaxPositionEmbeddings: 40960}
+	}
+	llama := func(layers, hidden, heads, context int) *v1.ModelConfig {
+		return &v1.ModelConfig{Architectures: []string{"LlamaForCausalLM"}, NumHiddenLayers: layers, HiddenSize: hidden,
+			NumAttentionHeads: heads, NumKeyValueHeads: 8, RopeTheta: "500000", MaxPositionEmbeddings: context}
+	}
+	glm := &v1.ModelConfig{Architectures: []string{"GlmMoeDsaForCausalLM"}, ModelType: "glm_moe_dsa",
+		NumHiddenLayers: 78, HiddenSize: 6144, NumAttentionHeads: 64, NumKeyValueHeads: 64, NumExperts: 256,
+		MaxPositionEmbeddings: 1048576}
+	for name, cfg := range map[string]*v1.ModelConfig{
+		"qwen3-14B": qwen3(40, 5120, 40), "qwen3-32B": qwen3(64, 5120, 64),
+		"llama3.1-8B": llama(32, 4096, 32, 131072), "llama3.1-70B": llama(80, 8192, 64, 131072),
+		"glm5.3-744B-A40B": glm,
+	} {
+		spec := reg.MatchSpec(cfg)
+		require.NotNil(t, spec, name)
+		require.Equal(t, name, spec.Name)
+	}
+	require.Nil(t, reg.MatchSpec(llama(32, 4096, 32, 8192)), "Llama 3 8B has the 3.1 structure with an 8K context")
+	require.Equal(t, registry.Checkpoint{KeepLast: 2, KeepBest: true}, reg.MatchSpec(qwen3(64, 5120, 64)).Checkpoint)
+	g := reg.MatchSpec(glm)
+	require.Equal(t, "primussafe/sglang:v0.5.18-rocm720-mi35x-aiter-dbd8bf5-flydsl032-20260921", g.EvalInference.Image)
+	require.Equal(t, []string{recipe.AlgorithmGRPO}, g.Frameworks[Name].Algorithms)
+	n, _ := g.Frameworks[Name].MinNodesFor(registry.TrainTypeRL, registry.VariantFreeze, true)
+	require.Equal(t, 3, n, "frozen-layer GRPO runs on 2 training nodes and 1 rollout node, as J3 did")
+}
+
+func TestGLMNeedsItsHostMemoryOnEveryNode(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	in.Model.Path = "/wekafs/models/GLM-5.3-BF16"
+	in.Model.MaxTokens = 202752
+	in.Model.Config = &v1.ModelConfig{Architectures: []string{"GlmMoeDsaForCausalLM"}, ModelType: "glm_moe_dsa",
+		NumHiddenLayers: 78, HiddenSize: 6144, NumAttentionHeads: 64, NumKeyValueHeads: 64, NumExperts: 256,
+		MaxPositionEmbeddings: 1048576}
+	in.Request.Resources.Nodes = 8
+	in.Workspace.Nodes, in.Workspace.HostMemoryBytes = 8, 2_000_000_000_000
+	res := recipe.Compile(in)
+	var errs []string
+	for _, d := range res.Diagnostics {
+		if d.Level == recipe.LevelError {
+			errs = append(errs, d.Field+": "+d.Message)
+		}
+	}
+	require.Equal(t, []string{"resources.nodes: glm5.3-744B-A40B needs 2.1 TB of host memory per node, and this " +
+		"workspace's nodes have 2.00 TB"}, errs)
+
+	in.Workspace.HostMemoryBytes = 3_000_000_000_000
+	res = compile(t, in)
+	require.Equal(t, 2.1, res.Recipe.MinHostMemoryTB, "the check stage measures every node against it")
+	require.Contains(t, warningsOf(res), "has not been verified", "full training without frozen layers")
+
+	in.Workspace.HostMemoryBytes = 0
+	compile(t, in)
+}
+
+func TestSpecsWithoutAFloorKeepTheirRecipe(t *testing.T) {
+	res := compile(t, qwen3Input(t, registry.TrainTypeSFT))
+	data, err := json.Marshal(res.Recipe)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "minHostMemoryTB", "the recipe hashes of earlier runs stay the same")
+}

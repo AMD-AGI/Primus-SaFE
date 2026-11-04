@@ -174,6 +174,7 @@ func (h *Handler) getWorkspace(ctx context.Context, name string) (*workspaceInfo
 		nf := &v1.NodeFlavor{}
 		if err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: ws.Spec.NodeFlavor}, nf); err == nil {
 			info.flavor = nf
+			info.HostMemoryBytes = nf.Spec.Memory.Value()
 			if nf.Spec.Gpu != nil {
 				info.GPUModel = string(nf.Spec.Gpu.Product)
 			}
