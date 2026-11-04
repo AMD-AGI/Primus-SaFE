@@ -342,6 +342,10 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) 
 		}
 		return ctrlruntime.Result{}, reconcileError("database", err)
 	}
+	if run.Source != "" && run.Source != dbclient.PostTrainingSourceSafe {
+		// An imported run is written once by the import API and has no workload to follow.
+		return ctrlruntime.Result{}, nil
+	}
 	if run.CleanupRequest != "" && finished(run) {
 		res, err := r.reconcileCleanup(ctx, run)
 		return res, reconcileError("cleanup", err)
