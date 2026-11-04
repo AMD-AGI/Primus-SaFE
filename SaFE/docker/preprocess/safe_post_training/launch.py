@@ -32,6 +32,7 @@ LAUNCHER_VERSION = "1.0.0"
 NORETRY_FILE = ".noretry"
 NORETRY_WAIT = 90
 STATUS_FILE = "status.json"
+RECIPE_FILE = "recipe.json"
 WATCH_INTERVAL = 10
 KILL_GRACE = 30
 SAVING_PATTERN = re.compile(r"saving checkpoint", re.IGNORECASE)
@@ -232,6 +233,9 @@ def run(recipe, out=None, gpus=stages.ray_gpus, sleep=time.sleep, watchdog=None,
     else:
         attempt = next_attempt(run_dir)
         metrics_path, state_dir = os.path.join(run_dir, "metrics", "metrics.jsonl"), run_dir
+        # The sample plugin reads its limits from the recipe in the run directory.
+        with open(os.path.join(run_dir, RECIPE_FILE), "w") as f:
+            json.dump(recipe, f)
     emitter = metrics.Emitter(recipe["runId"], attempt, metrics_path,
                               include=(recipe.get("metrics") or {}).get("include"), out=out)
     emitter.stage("start", detail={"launcher": LAUNCHER_VERSION})

@@ -36,6 +36,10 @@ SOURCE_FILE = "source.json"
 # A conversion lock older than this was left by a conversion that died; the next run takes it over.
 LOCK_STALE_SECONDS = 6 * 3600
 ITER_DIR = re.compile(r"^iter_(\d{7})$")
+SAMPLES_DIR = "samples"
+SAMPLE_FILE = re.compile(r"^(rollout|eval)-(\d+)\.jsonl$")
+MAX_SAMPLE_LINE = 32 << 10
+MAX_SAMPLE_FILE = 1 << 20
 VAL_LOSS = re.compile(r"^eval/[^/]+/loss$")
 WANDB_DEFAULT_URL = "https://api.wandb.ai"
 WANDB_PROBE_SECONDS = 10
@@ -57,6 +61,14 @@ def http_status(url, timeout, headers=None):
         return e.code
     except (urllib.error.URLError, OSError, ValueError):
         return None
+
+
+def truncate(text, head, tail=0):
+    """Keep the head and the tail of a text and name how many characters of the middle were left out."""
+    if len(text) <= head + tail:
+        return text
+    omitted = len(text) - head - tail
+    return "%s … [%d characters omitted] … %s" % (text[:head], omitted, text[len(text) - tail:] if tail else "")
 
 
 def saved_iterations(path):
@@ -190,6 +202,7 @@ class Runner:
         self.wandb_link = None
         # val_losses maps a step to its validation loss, for keeping the best checkpoint.
         self.val_losses = {}
+        self.reported_samples = set()
 
     def path(self, *parts):
         """Return a path under the run directory."""
@@ -394,6 +407,7 @@ class Runner:
         finally:
             if sampler:
                 sampler.stop()
+            self.sample_tick()
         if code != 0:
             if self.watchdog and self.watchdog.reason:
                 raise StageError("train", self.watchdog.reason)
@@ -432,6 +446,56 @@ class Runner:
                 shutil.rmtree(self.path(sub, "iter_%07d" % step), ignore_errors=True)
         if deleted:
             self.emitter.notice("retention", {"deleted": deleted, "kept": sorted(keep)})
+
+    def train_tick(self):
+        """Run the periodic work of the train stage: checkpoints and samples."""
+        self.checkpoint_tick()
+        self.sample_tick()
+
+    def sample_tick(self):
+        """Report the sample files the sample plugin finished since the last tick, as [SAMPLE] markers."""
+        try:
+            names = sorted(os.listdir(self.path(SAMPLES_DIR)))
+        except OSError:
+            return
+        limits = (self.recipe.get("metrics") or {}).get("samples") or {}
+        for name in names:
+            m = SAMPLE_FILE.match(name)
+            if m and name not in self.reported_samples:
+                self.reported_samples.add(name)
+                self.report_samples(self.path(SAMPLES_DIR, name), m.group(1), int(m.group(2)), limits)
+
+    def report_samples(self, path, kind, step, limits):
+        """Print the samples of one file, truncated: the prompt's head, the response's head and tail, each line under
+        32 KB and at most 1 MB a file; the rest stays in the file."""
+        budget = MAX_SAMPLE_FILE
+        prompt_chars = limits.get("promptChars") or 2000
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                prompt, response = r.get("prompt") or "", r.get("response") or ""
+                reward = r.get("reward")
+                fields = {"kind": kind, "step": step, "dataset": r.get("dataset") or "", "group": r.get("group", 0),
+                          "index": r.get("index", 0), "prompt": truncate(prompt, prompt_chars), "label": r.get("label"),
+                          "reward": reward if isinstance(reward, (int, float)) and math.isfinite(reward) else None,
+                          "status": r.get("status") or "", "tokens": r.get("tokens") or 0,
+                          "promptChars": len(prompt), "responseChars": len(response)}
+                if r.get("rewardDetail") is not None:
+                    fields["rewardDetail"] = r["rewardDetail"]
+                head, tail = limits.get("responseHeadChars") or 1000, limits.get("responseTailChars") or 3000
+                while True:
+                    fields["response"] = truncate(response, head, tail)
+                    size = len(json.dumps(fields, ensure_ascii=False, default=str))
+                    if size <= MAX_SAMPLE_LINE or head + tail == 0:
+                        break
+                    head, tail = head // 2, tail // 2
+                if size > budget:
+                    return
+                budget -= size
+                self.emitter.sample(**fields)
 
     def report_disk(self):
         """Report the run directory usage in a [STAGE] marker."""
@@ -484,7 +548,7 @@ class Runner:
                                 cwd=self.run_dir, start_new_session=True, text=True, errors="replace", bufsize=1)
         dog = self.watchdog if watch else None
         if dog:
-            dog.watch(proc, watch, tick=self.checkpoint_tick if watch == "train" else None)
+            dog.watch(proc, watch, tick=self.train_tick if watch == "train" else None)
         try:
             for line in proc.stdout:
                 self.emitter.forward(line)

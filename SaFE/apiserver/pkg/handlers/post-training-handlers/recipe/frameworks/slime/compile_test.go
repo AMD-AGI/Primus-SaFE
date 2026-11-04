@@ -251,6 +251,18 @@ func TestCompilePassrate(t *testing.T) {
 	reg := in.Registry.Frameworks[0].Metrics
 	require.Equal(t, "lower", reg.Better["eval/*-truncated_ratio"])
 	require.Equal(t, 4, reg.Samples.RolloutGroups)
+
+	res := compile(t, in)
+	args := strings.Join(res.Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--custom-rollout-log-function-path "+sampleRolloutPlugin)
+	require.Contains(t, args, "--custom-eval-rollout-log-function-path "+sampleEvalPlugin)
+	require.Equal(t, 8, res.Recipe.Metrics.Samples.EvalPerSet, "the launcher and the plugin read the limits from the recipe")
+	off := *reg.Samples
+	off.RolloutGroups, off.EvalPerSet = 0, 0
+	in.Registry.Frameworks[0].Metrics.Samples = &off
+	require.NotContains(t, strings.Join(compile(t, in).Recipe.FrameworkArgs, " "), "sample_log",
+		"a cluster that turns samples off gets no hooks")
+	require.Nil(t, compile(t, qwen3Input(t, registry.TrainTypeSFT)).Recipe.Metrics.Samples)
 }
 
 func TestCompileGRPOColocated(t *testing.T) {
@@ -260,7 +272,7 @@ func TestCompileGRPOColocated(t *testing.T) {
 		"--actor-num-nodes 1 --actor-num-gpus-per-node 8 --colocate --rollout-num-gpus 8",
 		"--input-key prompt --label-key label --apply-chat-template --rm-type deepscaler",
 		"--num-rollout 3 --rollout-batch-size 32 --n-samples-per-prompt 8 --global-batch-size 256",
-		"--rollout-max-response-len 8192 --rollout-temperature 1 --balance-data --log-passrate --advantage-estimator grpo",
+		"--rollout-max-response-len 8192 --rollout-temperature 1 --balance-data --log-passrate",
 		"--use-kl-loss --kl-loss-coef 0 --kl-loss-type low_var_kl --entropy-coef 0 --eps-clip 0.2 --eps-clip-high 0.28",
 		"--rollout-num-gpus-per-engine 2 --sglang-mem-fraction-static 0.7",
 		"--lr 1e-06", "--lr-decay-style constant --adam-beta2 0.98",
