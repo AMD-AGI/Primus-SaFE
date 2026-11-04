@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  cleanupHintBytes,
   formatDuration,
   parseJSON,
   smoothPoints,
   stageDurations,
   stageSegments,
+  stallNote,
   timeOf,
 } from './index'
 
@@ -120,5 +122,54 @@ describe('stageDurations', () => {
     expect((d.get('queued')!.end - d.get('queued')!.start) / 60000).toBe(5)
     expect((d.get('prepare')!.end - d.get('prepare')!.start) / 60000).toBe(5)
     expect((d.get('train')!.end - d.get('train')!.start) / 60000).toBe(50)
+  })
+})
+
+describe('cleanupHintBytes', () => {
+  const now = Date.parse('2026-11-10T00:00:00Z')
+  const run = {
+    endTime: { Time: '2026-11-01T00:00:00Z', Valid: true },
+    diskUsage: '{"checkpoints":3000,"criticCheckpoints":1000,"finalModel":500}',
+    cleanupRequest: '',
+    stageHistory: '[]',
+  }
+
+  it('counts the checkpoints of a run ended a week ago', () => {
+    expect(cleanupHintBytes(run, now)).toBe(4000)
+  })
+
+  it('stays quiet for recent, cleaned or cleaning runs', () => {
+    expect(
+      cleanupHintBytes({ ...run, endTime: { Time: '2026-11-08T00:00:00Z', Valid: true } }, now),
+    ).toBe(0)
+    expect(cleanupHintBytes({ ...run, cleanupRequest: '{"keep":"none"}' }, now)).toBe(0)
+    expect(
+      cleanupHintBytes(
+        { ...run, stageHistory: [{ stage: 'done', time: '', event: 'checkpoints-cleaned' }] },
+        now,
+      ),
+    ).toBe(0)
+  })
+})
+
+describe('stallNote', () => {
+  const now = Date.parse('2026-11-10T01:00:00Z')
+  const since = { Time: '2026-11-10T00:18:00Z', Valid: true }
+
+  it('names the stall of a running run', () => {
+    expect(
+      stallNote({ status: 'Running', stalledSince: since, message: 'No training progress' }, now),
+    ).toBe('No progress for 42 min')
+    expect(
+      stallNote(
+        {
+          status: 'Running',
+          stalledSince: since,
+          message: 'The launcher has not reported for 9 minutes',
+        },
+        now,
+      ),
+    ).toBe('Launcher not reporting')
+    expect(stallNote({ status: 'Failed', stalledSince: since }, now)).toBe('')
   })
 })

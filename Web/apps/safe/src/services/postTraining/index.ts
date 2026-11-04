@@ -1,6 +1,7 @@
 import request from '@/services/request'
 import type {
   ConfigResp,
+  DiskUsage,
   MetricsResp,
   ModelsResp,
   NullTime,
@@ -107,6 +108,19 @@ export function evaluatePostTrainingRun(
   return request.post<{ runId: string; modelId: string }>(
     `/post-training/runs/${runId}/evaluate`,
     body,
+  )
+}
+
+export const NOT_RETRIED_EVENT = 'not-retried'
+export const CHECKPOINTS_CLEANED_EVENT = 'checkpoints-cleaned'
+export const LOST_MESSAGE = 'The launcher has not reported'
+const CLEANUP_HINT_DAYS = 7
+
+/** Removes a finished run's checkpoints, keeping the one with the best validation loss when keep is 'best'. */
+export function cleanupPostTrainingCheckpoints(runId: string, keep: 'best' | 'none') {
+  return request.post<{ runId: string; keep: string }>(
+    `/post-training/runs/${runId}/checkpoints/cleanup`,
+    { keep },
   )
 }
 
@@ -235,4 +249,37 @@ export function stageDurations(
     out.set(e.stage, { start: Date.parse(e.time), end: next ? Date.parse(next.time) : until })
   })
   return out
+}
+
+/** The bytes a run's checkpoints take, actor and critic together. */
+export function checkpointBytes(disk?: DiskUsage): number {
+  return (disk?.checkpoints ?? 0) + (disk?.criticCheckpoints ?? 0)
+}
+
+/** The bytes a run's checkpoints still take a week after it ended without a cleanup, or 0. */
+export function cleanupHintBytes(
+  run: Pick<PostTrainingRun, 'endTime' | 'diskUsage' | 'cleanupRequest'> & {
+    stageHistory?: string | StageEntry[]
+  },
+  now: number,
+): number {
+  const end = timeOf(run.endTime)
+  if (!end || run.cleanupRequest || now - Date.parse(end) < CLEANUP_HINT_DAYS * 86400000) return 0
+  const history =
+    typeof run.stageHistory === 'string'
+      ? parseJSON<StageEntry[]>(run.stageHistory)
+      : run.stageHistory
+  if (history?.some((e) => e.event === CHECKPOINTS_CLEANED_EVENT)) return 0
+  return checkpointBytes(parseJSON<DiskUsage>(run.diskUsage))
+}
+
+/** The short stall note of a running run: no progress for some minutes, or a launcher that stopped reporting. */
+export function stallNote(
+  run: Pick<PostTrainingRun, 'status' | 'stalledSince' | 'message'>,
+  now: number,
+): string {
+  const since = timeOf(run.stalledSince)
+  if (run.status !== 'Running' || !since) return ''
+  if (run.message?.startsWith(LOST_MESSAGE)) return 'Launcher not reporting'
+  return `No progress for ${Math.max(1, Math.round((now - Date.parse(since)) / 60000))} min`
 }

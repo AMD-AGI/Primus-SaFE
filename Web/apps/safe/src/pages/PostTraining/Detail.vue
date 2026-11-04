@@ -76,9 +76,27 @@
         :title="banner.title"
       >
         <div class="whitespace-pre-wrap">{{ banner.text }}</div>
-        <div v-if="banner.actions" class="mt-2 flex gap-3">
-          <el-button link type="primary" :disabled="isReadonly" @click="copyAsNew">
+        <div v-if="banner.actions || banner.stall" class="mt-2 flex gap-3">
+          <el-button
+            v-if="banner.stall"
+            link
+            type="primary"
+            :disabled="isReadonly"
+            @click="handleStop"
+          >
+            Stop
+          </el-button>
+          <el-button
+            v-if="banner.actions"
+            link
+            type="primary"
+            :disabled="isReadonly"
+            @click="copyAsNew"
+          >
             Copy as New Run
+          </el-button>
+          <el-button v-if="banner.cleanup" link type="primary" @click="tab = 'checkpoints'">
+            Clean up checkpoints
           </el-button>
           <el-button link type="primary" @click="viewLogs">View logs</el-button>
         </div>
@@ -148,10 +166,35 @@
         </el-tab-pane>
 
         <el-tab-pane label="Checkpoints" name="checkpoints">
-          <div class="text-[13px] mb-2">
-            Retention {{ retention }} · {{ checkpoints.length }} saved
-            <span v-if="saveInterval"> · Every {{ saveInterval }} steps</span>
+          <div class="flex items-center justify-between mb-1">
+            <div class="text-[13px]">
+              Retention {{ retention }} · {{ checkpoints.length }} saved
+              <span v-if="saveInterval"> · Every {{ saveInterval }} steps</span>
+            </div>
+            <el-tooltip
+              v-if="!isActive"
+              :content="cleanupTip"
+              :disabled="!cleanupTip"
+              placement="top"
+            >
+              <span>
+                <el-button size="small" round :disabled="!!cleanupTip" @click="openCleanup">
+                  Clean up checkpoints
+                </el-button>
+              </span>
+            </el-tooltip>
           </div>
+          <div v-if="disk" class="text-[12px] text-[var(--safe-muted)] mb-2">
+            Storage · checkpoints {{ formatBytes(checkpointBytes(disk), 1) }} · outputs
+            {{ formatBytes((disk.finalModel ?? 0) + (disk.finalAdapter ?? 0), 1) }}
+          </div>
+          <el-alert
+            v-if="hintBytes > 0"
+            type="warning"
+            :closable="false"
+            class="mb-2"
+            :title="`Ended ${endedDays} days ago. Clean up checkpoints to free ${formatBytes(hintBytes, 1)}.`"
+          />
           <el-table :data="checkpoints" size="small">
             <el-table-column label="Step" width="200">
               <template #default="{ row }">
@@ -165,8 +208,8 @@
             </el-table-column>
             <el-table-column label="Status">
               <template #default="{ row }">
-                <span :class="{ 'text-[var(--safe-muted)]': row.deleted }">
-                  {{ row.deleted ? 'Deleted by retention' : 'Kept' }}
+                <span :class="{ 'text-[var(--safe-muted)]': row.deletedBy }">
+                  {{ row.deletedBy ? `Deleted by ${row.deletedBy}` : 'Kept' }}
                 </span>
               </template>
             </el-table-column>
@@ -248,6 +291,23 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="cleanupDialog.visible" title="Clean up checkpoints" width="520px">
+      <el-radio-group v-model="cleanupDialog.keep" class="flex flex-col items-start">
+        <el-radio v-if="canKeepBest" value="best">Keep the best checkpoint</el-radio>
+        <el-radio value="none">Delete all</el-radio>
+      </el-radio-group>
+      <div class="mt-3 text-[13px]">
+        {{ cleanupFrees }} You can't export from a deleted checkpoint afterwards. Models already
+        exported are not affected.
+      </div>
+      <template #footer>
+        <el-button @click="cleanupDialog.visible = false">Cancel</el-button>
+        <el-button type="danger" :loading="cleanupDialog.loading" @click="confirmCleanup">
+          Clean up
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="deleteDialog.visible" title="Delete run" width="480px">
       <div v-if="run">
         Delete run <b>{{ run.displayName }}</b
@@ -276,11 +336,16 @@ import { ArrowLeft, CopyDocument } from '@element-plus/icons-vue'
 import { useDocumentVisibility, useIntervalFn, useNow } from '@vueuse/core'
 import dayjs from 'dayjs'
 import { useUserStore } from '@/stores/user'
-import { copyText } from '@/utils/index'
+import { copyText, formatBytes } from '@/utils/index'
 import { getDatasets } from '@/services/dataset'
 import type { DatasetItem } from '@/services/dataset/type'
 import {
+  LOST_MESSAGE,
+  NOT_RETRIED_EVENT,
   STAGE_LABELS,
+  checkpointBytes,
+  cleanupHintBytes,
+  cleanupPostTrainingCheckpoints,
   deletePostTrainingRun,
   evaluatePostTrainingRun,
   formatDuration,
@@ -288,9 +353,11 @@ import {
   getPostTrainingRun,
   metricsCsvUrl,
   parseJSON,
+  stallNote,
   statusTagType,
   stopPostTrainingRun,
   timeOf,
+  type DiskUsage,
   type EvaluationTaskRow,
   type MetricSeries,
   type MetricsResp,
@@ -304,6 +371,7 @@ defineOptions({ name: 'PostTrainingDetailPage' })
 
 const TABS = ['overview', 'metrics', 'checkpoints', 'outputs', 'evaluation', 'recipe']
 const VAL_LOSS = 'eval/val/loss'
+const DISK_FULL = /out of space|No space left on device/i
 const readOnlyTip = 'Read-only access'
 
 const route = useRoute()
@@ -359,7 +427,7 @@ const fetchMetrics = async (quiet = false) => {
 }
 
 useIntervalFn(() => {
-  if (!isActive.value && run.value?.stage !== 'eval') return
+  if (!isActive.value && run.value?.stage !== 'eval' && !run.value?.cleanupRequest) return
   if (visibility.value !== 'visible') return
   fetchRun(true)
   fetchMetrics(true)
@@ -374,28 +442,46 @@ const duration = computed(() => {
   return formatDuration((endMs - dayjs(start).valueOf()) / 1000)
 })
 
-/** The banner under the title: why a run failed, waits or was stopped. */
-const banner = computed(() => {
+type Banner = {
+  type: 'error' | 'warning' | 'info'
+  title: string
+  text: string
+  actions?: boolean
+  stall?: boolean
+  cleanup?: boolean
+}
+
+/** The banner under the title: why a run failed, looks stalled, waits or was stopped. */
+const banner = computed((): Banner | undefined => {
   const r = run.value
   if (!r) return undefined
   const position = r.queuePosition > 0 ? ` · #${r.queuePosition} in queue` : ''
   if (r.status === 'Failed') {
+    const notRetried = (r.stageHistory ?? []).some((e) => e.event === NOT_RETRIED_EVENT)
     return {
-      type: 'error' as const,
+      type: 'error',
       title: `Failed at ${stageLabel(r.failedStage)}.`,
-      text: r.message ?? '',
+      text: `${r.message ?? ''}${notRetried ? ' Not retried: retrying would fail the same way.' : ''}`,
       actions: true,
+      cleanup: DISK_FULL.test(r.message ?? ''),
     }
+  }
+  if (stallNote(r, now.value.getTime())) {
+    const since = Date.parse(timeOf(r.stalledSince) ?? '')
+    const minutes = Math.max(1, Math.round((now.value.getTime() - since) / 60000))
+    const text = r.message?.startsWith(LOST_MESSAGE)
+      ? `The launcher hasn't reported for ${minutes} min, so the stall watchdog can't act. Check the logs, or stop the run.`
+      : (r.message ?? '')
+    return { type: 'warning', title: '', text, stall: true }
   }
   if (r.status === 'Pending' || (r.status === 'Running' && r.queuePosition > 0)) {
     return {
-      type: 'info' as const,
+      type: 'info',
       title: '',
       text: `${r.message || 'Waiting to be scheduled'}${position}`,
     }
   }
-  if (r.status === 'Stopped')
-    return { type: 'info' as const, title: '', text: r.message || 'Stopped' }
+  if (r.status === 'Stopped') return { type: 'info', title: '', text: r.message || 'Stopped' }
   return undefined
 })
 
@@ -483,16 +569,72 @@ const retention = computed(() => {
 })
 const saveInterval = computed(() => recipe.value.choices?.saveInterval)
 
-/** The saved checkpoints, best first and then newest first. */
+/** The saved checkpoints, best first and then newest first; a deleted one the retention keeps went in a cleanup. */
 const checkpoints = computed(() => {
   const m = metrics.value?.markers
   if (!m) return []
   const resumed = new Set(m.resumes.map((r) => r.step))
   const best = m.bestCheckpoint?.step
+  const c = recipe.value.checkpoint
+  const n = m.checkpoints.length
   return m.checkpoints
-    .map((cp) => ({ ...cp, best: cp.step === best, resumed: resumed.has(cp.step) }))
+    .map((cp, i) => {
+      const retained = !c?.keepLast || i >= n - c.keepLast || (!!c.keepBest && cp.step === best)
+      const deletedBy = !cp.deleted ? '' : retained ? 'cleanup' : 'retention'
+      return { ...cp, best: cp.step === best, resumed: resumed.has(cp.step), deletedBy }
+    })
     .sort((a, b) => Number(b.best) - Number(a.best) || b.step - a.step)
 })
+
+const disk = computed(() => parseJSON<DiskUsage>(run.value?.diskUsage))
+const hintBytes = computed(() => (run.value ? cleanupHintBytes(run.value, now.value.getTime()) : 0))
+const endedDays = computed(() => {
+  const end = timeOf(run.value?.endTime)
+  return end ? Math.floor((now.value.getTime() - Date.parse(end)) / 86400000) : 0
+})
+
+const cleanupTip = computed(() => {
+  if (isReadonly.value) return readOnlyTip
+  if (run.value?.cleanupRequest) return 'Cleanup in progress'
+  if (disk.value && checkpointBytes(disk.value) === 0) return 'No checkpoints left'
+  return ''
+})
+
+const canKeepBest = computed(() => {
+  const best = checkpoints.value.find((cp) => cp.best)
+  return run.value?.trainType === 'sft' && !!best && !best.deletedBy
+})
+
+const cleanupDialog = reactive({ visible: false, loading: false, keep: 'none' as 'best' | 'none' })
+
+/** The space a cleanup frees: all checkpoint bytes, or all but about one checkpoint's share when one is kept. */
+const cleanupFrees = computed(() => {
+  if (!disk.value) return ''
+  const bytes = checkpointBytes(disk.value)
+  const kept = checkpoints.value.filter((cp) => !cp.deletedBy).length
+  const freed = cleanupDialog.keep === 'best' && kept > 0 ? (bytes * (kept - 1)) / kept : bytes
+  return `Frees about ${formatBytes(freed, 1)}.`
+})
+
+const openCleanup = () => {
+  Object.assign(cleanupDialog, {
+    visible: true,
+    loading: false,
+    keep: canKeepBest.value ? 'best' : 'none',
+  })
+}
+
+const confirmCleanup = async () => {
+  cleanupDialog.loading = true
+  try {
+    await cleanupPostTrainingCheckpoints(runId.value, cleanupDialog.keep)
+    ElMessage.success('Cleanup started')
+    cleanupDialog.visible = false
+    fetchRun()
+  } finally {
+    cleanupDialog.loading = false
+  }
+}
 
 const benchmarkNames = (row: EvaluationTaskRow) =>
   (parseJSON<{ datasetName?: string; datasetId?: string }[]>(row.Benchmarks) ?? [])
