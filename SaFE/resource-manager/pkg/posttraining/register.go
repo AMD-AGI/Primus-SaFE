@@ -52,8 +52,12 @@ func (r *RunReconciler) register(ctx context.Context, u *runUpdate, res *marker,
 		}
 		return ctrlruntime.Result{RequeueAfter: runningRequeue}, r.save(ctx, u)
 	}
-	u.moveTo("done")
 	u.end(v1.WorkloadSucceeded, endTime)
+	if run.EvalEnabled && parseRecipe(run).Evaluation != nil {
+		u.moveTo("eval")
+		return ctrlruntime.Result{RequeueAfter: time.Second}, r.save(ctx, u)
+	}
+	u.moveTo("done")
 	return ctrlruntime.Result{}, r.save(ctx, u)
 }
 

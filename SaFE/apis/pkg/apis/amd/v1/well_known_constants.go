@@ -363,6 +363,11 @@ const (
 	PostTrainingRoleConvert     = "convert"
 	PostTrainingRoleExport      = "export"
 	PostTrainingRoleImportScan  = "import-scan"
+	// PostTrainingRoleEval marks the inference service of an evaluation.
+	PostTrainingRoleEval = "eval"
+	// PostTrainingEvaluateAnnotation on a model of a run asks the run controller to evaluate it; the value is
+	// the JSON {"benchmarks": [dataset ids], "keepService": bool}.
+	PostTrainingEvaluateAnnotation = PostTrainingPrefix + "evaluate"
 
 	// dynamo (DynamoDeployment workload kind; see Phase 2 of the dynamo
 	// integration plan). Webhook/dispatcher read these to decide deployment
