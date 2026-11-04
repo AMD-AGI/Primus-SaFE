@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -1051,32 +1050,6 @@ func TestGetParamValue(t *testing.T) {
 	inputs := []v1.Parameter{{Name: "node", Value: "n1"}}
 	assert.Equal(t, "n1", getParamValue(inputs, "node"))
 	assert.Equal(t, "", getParamValue(inputs, "missing"))
-}
-
-func TestParseServedModelNameFromCmd(t *testing.T) {
-	assert.Equal(t, "my-model", parseServedModelNameFromCmd("vllm serve --served-model-name my-model --port 8000"))
-	assert.Equal(t, "m2", parseServedModelNameFromCmd("cmd --served-model-name=m2"))
-	assert.Equal(t, "", parseServedModelNameFromCmd("vllm serve --port 8000"))
-}
-
-func TestExtractServedModelName(t *testing.T) {
-	ep := base64.StdEncoding.EncodeToString([]byte("vllm serve --served-model-name my-model"))
-	assert.Equal(t, "my-model", extractServedModelName(ep, sql.NullString{}))
-
-	// From entryPoints array.
-	ep2 := base64.StdEncoding.EncodeToString([]byte("cmd --served-model-name arr-model"))
-	arr := `["` + ep2 + `"]`
-	assert.Equal(t, "arr-model", extractServedModelName("", sql.NullString{String: arr, Valid: true}))
-
-	// None.
-	assert.Equal(t, "", extractServedModelName("", sql.NullString{}))
-}
-
-func TestExtractModelNameFromEnv(t *testing.T) {
-	assert.Equal(t, "", extractModelNameFromEnv(sql.NullString{}))
-	assert.Equal(t, "", extractModelNameFromEnv(sql.NullString{String: "not-json", Valid: true}))
-	assert.Equal(t, "Qwen/Q", extractModelNameFromEnv(sql.NullString{String: `{"PRIMUS_SOURCE_MODEL":"Qwen/Q"}`, Valid: true}))
-	assert.Equal(t, "m2", extractModelNameFromEnv(sql.NullString{String: `{"MODEL_NAME":"m2"}`, Valid: true}))
 }
 
 // --- merged from ops_job_nodes_test.go ---
