@@ -204,6 +204,13 @@
               />
             </div>
           </div>
+          <GpuPanel
+            v-if="metrics?.series.length"
+            class="mb-4"
+            :series="systemSeries"
+            :layout="runLayout"
+            :workload-id="run.workloadId"
+          />
           <AllMetricsTable
             v-if="metrics?.series.length"
             :series="metrics.series"
@@ -519,6 +526,7 @@ import StageTimeline from './Components/StageTimeline.vue'
 import MetricsPanel from './Components/MetricsPanel.vue'
 import AllMetricsTable from './Components/AllMetricsTable.vue'
 import EvalByCheckpoint from './Components/EvalByCheckpoint.vue'
+import GpuPanel from './Components/GpuPanel.vue'
 import SaveTemplateDialog from './Components/SaveTemplateDialog.vue'
 import VariantEditor from './Components/VariantEditor.vue'
 import { requestFromRun, specOfRun } from './Create/wizard'
@@ -760,6 +768,28 @@ const registryPanels = computed(() => {
     schedule: choices?.schedule,
   })
 })
+
+/** The GPU layout the run's recipe asked for. */
+const runLayout = computed(
+  () =>
+    (
+      run.value?.recipe as
+        | {
+            layout?: {
+              nodes?: number
+              gpusPerNode?: number
+              colocate?: boolean
+              actorGpus?: number
+            }
+          }
+        | undefined
+    )?.layout,
+)
+
+/** The launcher's GPU samples, drawn in the System group on their own time axis. */
+const systemSeries = computed(() =>
+  (metrics.value?.series ?? []).filter((s) => s.name.startsWith('system/')),
+)
 
 const seriesOf = (names: string[]) =>
   names.map((n) => seriesByName.value.get(n)).filter((s): s is MetricSeries => !!s)
