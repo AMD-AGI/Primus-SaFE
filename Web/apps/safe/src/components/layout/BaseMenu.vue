@@ -439,9 +439,9 @@ const modelLabMenuItems: MenuItem[] = [
     icon: menuIcons.modelSquare,
   },
   {
-    index: '/posttrain',
-    name: 'Post Train',
-    icon: menuIcons.training,
+    index: '/post-training',
+    name: 'Post Training',
+    icon: menuIcons.postTraining,
   },
   {
     index: '/dataset',
