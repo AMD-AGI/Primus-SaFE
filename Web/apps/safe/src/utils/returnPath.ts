@@ -40,7 +40,8 @@ export function outsideConsoleReturn(value: unknown, origin: string): string | n
     return null
   }
   if (url.origin !== origin || url.username || url.password) return null
-  if (ENCODED_SEPARATOR.test(url.pathname)) return null
+  // Checked on the path as written: the URL parser already resolves "%2e%2e" segments.
+  if (ENCODED_SEPARATOR.test(raw.split(/[?#]/, 1)[0])) return null
   // The path as written must already be the normalised one: "/dispatron/../login" is refused
   // rather than resolved, so what the app behind the prefix sees is what was checked here.
   if (!raw.startsWith(url.pathname)) return null
