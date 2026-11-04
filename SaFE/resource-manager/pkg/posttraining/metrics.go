@@ -89,11 +89,13 @@ type stageDetail struct {
 	ParseFailures int64  `json:"parseFailures"`
 }
 
-// conversionDetail is the detail of a convert [STAGE] that registers a shared conversion.
+// conversionDetail is the detail of a convert [STAGE] that registers a shared conversion; FP8 tells that its FP8
+// HF weights exist.
 type conversionDetail struct {
 	CacheKey  string `json:"cacheKey"`
 	Dir       string `json:"dir"`
 	SizeBytes int64  `json:"sizeBytes"`
+	FP8       bool   `json:"fp8"`
 }
 
 // stallDetail is the detail of a stalled [STAGE]: the last progress time in unix seconds, the last step and the
