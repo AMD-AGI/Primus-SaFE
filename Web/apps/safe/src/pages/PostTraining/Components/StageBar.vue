@@ -21,6 +21,7 @@ import {
   stageSegments,
   type PostTrainingRun,
   type SegmentState,
+  type StageSegment,
 } from '@/services/postTraining'
 
 const props = defineProps<{
@@ -30,6 +31,9 @@ const props = defineProps<{
   >
   /** The latest training step, shown next to the Train stage. */
   step?: number
+  /** The segments and the caption of a run whose stages are not SaFE's, such as an imported run. */
+  stages?: StageSegment[]
+  label?: string
 }>()
 
 const stateText: Record<SegmentState, string> = {
@@ -41,10 +45,11 @@ const stateText: Record<SegmentState, string> = {
   pending: 'not started',
 }
 
-const segments = computed(() => stageSegments(props.run))
+const segments = computed(() => props.stages ?? stageSegments(props.run))
 
 /** The current stage under the bar, with the step while training. */
 const caption = computed(() => {
+  if (props.label != null) return props.label
   const stage =
     props.run.status === 'Failed' && props.run.failedStage ? props.run.failedStage : props.run.stage
   const label = STAGE_LABELS[stage as keyof typeof STAGE_LABELS] ?? stage

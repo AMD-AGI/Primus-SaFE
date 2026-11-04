@@ -11,12 +11,22 @@ import {
   formatCommand,
   formatDuration,
   groupSamples,
+  importCommandFor,
+  importHints,
+  importPreviewRows,
+  importedCaption,
+  importedSegments,
+  importedStatusNote,
+  importedTip,
+  isImportedRun,
   lastLine,
   nestChanges,
   parseJSON,
   rewardOf,
+  shortSpurPath,
   significance,
   smoothPoints,
+  spurLine,
   splitTruncated,
   stageDurations,
   stageSegments,
@@ -25,7 +35,7 @@ import {
 } from './index'
 
 vi.mock('@/services/request', () => ({ default: {} }))
-import type { PostTrainingRun, RunSample } from './types'
+import type { ImportPreview, PostTrainingRun, RunSample } from './types'
 
 type StageRun = Pick<
   PostTrainingRun,
@@ -381,5 +391,126 @@ describe('formatCommand', () => {
       'python3 train.py \\\n  --tp 2 \\\n  --sequence-parallel \\\n  --eval-prompt-data val /d/eval.jsonl',
     )
     expect(formatCommand([])).toBe('python3 train.py')
+  })
+})
+
+describe('imports', () => {
+  const preview: ImportPreview = {
+    name: 'j2r3-229263',
+    path: '/shared_nfs/zhanglei/glm53-kernel/slime-rocm/runs/j2r3-229263',
+    verdict: 'FAIL',
+    failedGate: { gate: 'b2_sft', node: 'm2m-022', result: 'fail(1)' },
+    status: 'Failed',
+    trainType: 'sft',
+    slurmJobId: '229263',
+    nodes: 2,
+    mainLog: { name: 'b2_sft-crsuse2-m2m-022.log', bytes: 131_000, metricLines: 0 },
+    series: 0,
+    gates: 10,
+    markers: 11,
+    arguments: 1031,
+    keptArguments: 32,
+    samples: 27,
+    sampleNodes: 2,
+    checkpoints: 0,
+    saveSet: false,
+  }
+
+  it('previews a directory the way the dialog lists it', () => {
+    const rows = Object.fromEntries(importPreviewRows(preview).map((r) => [r.label, r.value]))
+    expect(rows).toMatchObject({
+      Verdict: 'FAIL b2_sft fail(1) on m2m-022',
+      Run: 'SFT · Slurm job 229263 · 2 nodes',
+      Metrics: 'b2_sft-crsuse2-m2m-022.log · 131 KB · 0 step lines',
+      Gates: '10 results · 11 markers',
+      Arguments: '1,031 parsed · 32 kept',
+      Resources: '27 samples from 2 nodes',
+      Checkpoint: '--save not set',
+    })
+    expect(importPreviewRows({ ...preview, saveSet: true, checkpoints: 1 }).at(-1)?.value).toBe(
+      '1 checkpoint in ckpt/',
+    )
+  })
+
+  it('warns where the import holds less and explains the rest', () => {
+    expect(importHints(preview)).toEqual([
+      {
+        type: 'warning',
+        text: 'No step, rollout or eval lines in b2_sft-crsuse2-m2m-022.log, so there are no curves.',
+      },
+    ])
+    const hints = importHints({
+      ...preview,
+      verdict: '',
+      series: 4,
+      mainLog: { name: 'b6_grpo-h1.log', bytes: 2.69e9, metricLines: 0 },
+      warnings: [
+        'Gate c9 is not a known gate; it is shown as its own stage.',
+        '3 metric lines could not be parsed.',
+      ],
+    })
+    expect(hints.map((h) => h.type)).toEqual(['warning', 'info', 'info', 'warning'])
+    expect(hints[1].text).toBe('b6_grpo-h1.log is 2.7 GB; only its metric lines are kept.')
+  })
+
+  it('puts the directory in the command, quoted when a shell would split it', () => {
+    const command = 'SAFE_IMPORT_TOKEN=sst_a.b safe-post-training-import <run-dir>'
+    expect(importCommandFor(command, '  ')).toBe(command)
+    expect(importCommandFor(command, '/shared_nfs/runs/j2r5-229357')).toBe(
+      'SAFE_IMPORT_TOKEN=sst_a.b safe-post-training-import /shared_nfs/runs/j2r5-229357',
+    )
+    expect(importCommandFor(command, "/shared_nfs/it's $HOME")).toBe(
+      "SAFE_IMPORT_TOKEN=sst_a.b safe-post-training-import '/shared_nfs/it'\\''s $HOME'",
+    )
+    expect(shortSpurPath('/shared_nfs/zhanglei/glm53-kernel/slime-rocm/runs/j2r7-242118')).toBe(
+      '/shared_nfs/…/j2r7-242118',
+    )
+  })
+
+  it('shows an imported run with the stages and verdict of its directory', () => {
+    const history = JSON.stringify([
+      { stage: 'preflight', label: 'Preflight', gates: ['a1_host'], result: 'pass' },
+      { stage: 'ray', label: 'Ray', gates: ['a1_ray'], result: 'pass' },
+      { stage: 'train', label: 'Train', gates: ['b2_sft'], result: 'running' },
+    ])
+    expect(importedSegments({ stageHistory: history }).map((s) => s.state)).toEqual([
+      'done',
+      'done',
+      'stopped',
+    ])
+    const run = { trainType: 'sft' as const, failedStage: 'train' }
+    expect(importedCaption({ ...run, status: 'Succeeded' }, 19)).toBe('PASS · 20 steps')
+    expect(importedCaption({ ...run, status: 'Succeeded', trainType: 'rl' }, 4)).toBe(
+      'PASS · 5 rollouts',
+    )
+    expect(importedCaption({ ...run, status: 'Stopped' }, 21)).toBe('No verdict · 22 steps logged')
+    expect(
+      importedCaption({
+        ...run,
+        status: 'Failed',
+        import: {
+          sourcePath: '/d',
+          via: 'cli',
+          failedGate: { gate: 'b2_sft', node: 'h1', result: 'fail(1)' },
+        },
+      }),
+    ).toBe('FAIL at b2_sft')
+    expect(
+      importedStatusNote({ status: 'Failed', message: 'FAIL: VRAM still rising over steps 10-20' }),
+    ).toBe('Check failed: VRAM still rising over steps 10-20.')
+    expect(importedStatusNote({ status: 'Stopped', message: 'last marker done_0' })).toBe(
+      'No verdict in the run directory',
+    )
+    const info = {
+      sourcePath: '/shared_nfs/zhanglei/runs/j2r7-242118',
+      via: 'cli' as const,
+      slurmJobId: '242118',
+    }
+    expect(spurLine({ import: info, nodeCount: 2 })).toBe('Spur · job 242118 · 2 nodes')
+    expect(importedTip({ import: { ...info, importedAt: '2026-10-26T16:25:00' } })).toBe(
+      'Imported 10-26 16:25 from /shared_nfs/…/j2r7-242118. Read-only, and not counted in Verified.',
+    )
+    expect(isImportedRun({ source: 'spur' })).toBe(true)
+    expect(isImportedRun({})).toBe(false)
   })
 })

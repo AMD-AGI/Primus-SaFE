@@ -63,6 +63,13 @@
         >
           Templates
         </el-button>
+        <el-tooltip :content="importBlocked" :disabled="!importBlocked" placement="top">
+          <span>
+            <el-button round :icon="Download" :disabled="!!importBlocked" @click="openImport()">
+              Import from Spur
+            </el-button>
+          </span>
+        </el-tooltip>
         <el-tooltip v-if="canCompare" :content="compareTip" :disabled="!compareTip" placement="top">
           <span>
             <el-button round :disabled="!!compareTip" @click="goCompare">
@@ -187,9 +194,16 @@
                     row.variantName
                   }}</el-tag>
                 </div>
-                <div class="flex items-center gap-1">
-                  <span class="text-[12px] text-[var(--safe-muted)]">{{ row.runId }}</span>
-                  <el-tooltip v-if="row.verifiedRuns" placement="top">
+                <div class="flex flex-wrap items-center gap-1">
+                  <span class="text-[12px] text-[var(--safe-muted)] whitespace-nowrap">{{
+                    row.runId
+                  }}</span>
+                  <el-tooltip v-if="isImportedRun(row)" :content="importedTip(row)" placement="top">
+                    <el-tag size="small" type="info" effect="light" round
+                      >Imported from Spur</el-tag
+                    >
+                  </el-tooltip>
+                  <el-tooltip v-else-if="row.verifiedRuns" placement="top">
                     <template #content>
                       This recipe succeeded {{ row.verifiedRuns }}
                       {{ row.verifiedRuns === 1 ? 'time' : 'times' }} on this platform.
@@ -230,7 +244,7 @@
 
         <el-table-column
           label="Type / Method"
-          width="130"
+          width="150"
           column-key="type"
           :filters="typeFilters"
           :filter-multiple="false"
@@ -252,7 +266,12 @@
                   methodLabel(row.method)
                 }}</el-tag>
               </div>
-              <div v-if="row.algorithm" class="text-[12px] text-[var(--safe-muted)]">
+              <div v-if="isImportedRun(row)" class="text-[12px] text-[var(--safe-muted)]">
+                <template v-for="(part, i) in spurLine(row).split(' · ')" :key="i"
+                  >{{ i ? ' · ' : '' }}<span class="whitespace-nowrap">{{ part }}</span></template
+                >
+              </div>
+              <div v-else-if="row.algorithm" class="text-[12px] text-[var(--safe-muted)]">
                 {{ row.algorithm.toUpperCase() }}
               </div>
             </template></template
@@ -262,7 +281,13 @@
         <el-table-column label="Progress" width="150">
           <template #default="{ row }"
             ><template v-if="!isGroup(row)">
-              <StageBar :run="row" :step="summaryOf(row)?.main?.step" /> </template
+              <StageBar
+                v-if="isImportedRun(row)"
+                :run="row"
+                :stages="importedSegments(row)"
+                :label="importedCaption(row, summaryOf(row)?.main?.step)"
+              />
+              <StageBar v-else :run="row" :step="summaryOf(row)?.main?.step" /> </template
           ></template>
         </el-table-column>
 
@@ -317,10 +342,17 @@
           >
         </el-table-column>
 
-        <el-table-column label="Base Model" width="130" show-overflow-tooltip>
+        <el-table-column
+          label="Base Model"
+          width="130"
+          show-overflow-tooltip
+          :tooltip-formatter="baseModelTip"
+        >
           <template #default="{ row }"
             ><template v-if="!isGroup(row)">
+              <span v-if="isImportedRun(row)">{{ row.baseModelName || '—' }}</span>
               <el-link
+                v-else
                 type="primary"
                 @click.stop="router.push(`/model-square/detail/${row.baseModelId}`)"
               >
@@ -362,8 +394,8 @@
         <el-table-column label="Created" width="110">
           <template #default="{ row }"
             ><template v-if="!isGroup(row)">
-              <el-tooltip :content="formatTimeStr(timeOf(row.createdAt))" placement="top">
-                <span>{{ shortTime(timeOf(row.createdAt)) }}</span>
+              <el-tooltip :content="createdTip(row)" placement="top">
+                <span>{{ shortTime(createdAt(row)) }}</span>
               </el-tooltip>
             </template></template
           >
@@ -405,15 +437,15 @@
               </el-tooltip>
               <el-tooltip
                 v-if="canCreate"
-                :content="isReadonly ? readOnlyTip : createBlocked"
-                :disabled="!isReadonly && !createBlocked"
+                :content="copyBlocked(row)"
+                :disabled="!copyBlocked(row)"
                 placement="top"
               >
                 <span>
                   <el-button
                     link
                     type="primary"
-                    :disabled="isReadonly || !!createBlocked"
+                    :disabled="!!copyBlocked(row)"
                     @click.stop="
                       router.push({ path: '/post-training/create', query: { fromRun: row.runId } })
                     "
@@ -448,8 +480,16 @@
       />
     </el-card>
 
-    <el-dialog v-model="deleteDialog.visible" title="Delete run" width="480px">
-      <div v-if="deleteDialog.run">
+    <el-dialog v-model="deleteDialog.visible" :title="deleteTitle" width="480px">
+      <div v-if="deleteDialog.run && isImportedRun(deleteDialog.run)">
+        Removes the record and its parsed metrics from SaFE. The run directory on Spur is not
+        touched:
+        <div class="my-2 break-all font-mono text-[12px]">
+          {{ deleteDialog.run.import?.sourcePath || deleteDialog.run.outputPath }}
+        </div>
+        You can import it again later.
+      </div>
+      <div v-else-if="deleteDialog.run">
         Delete run <b>{{ deleteDialog.run.displayName }}</b
         >?
         <span v-if="isActive(deleteDialog.run)">It is stopped first.</span>
@@ -464,11 +504,18 @@
       </el-checkbox>
       <template #footer>
         <el-button @click="deleteDialog.visible = false">Cancel</el-button>
-        <el-button type="danger" :loading="deleteDialog.loading" @click="confirmDelete"
-          >Delete</el-button
-        >
+        <el-button type="danger" :loading="deleteDialog.loading" @click="confirmDelete">{{
+          deleteDialog.run && isImportedRun(deleteDialog.run) ? 'Delete Record' : 'Delete'
+        }}</el-button>
       </template>
     </el-dialog>
+
+    <ImportDialog
+      v-model="importDialog.visible"
+      :workspace="wsStore.currentWorkspaceId ?? ''"
+      :initial-mode="importDialog.mode"
+      @imported="fetchData()"
+    />
   </template>
 </template>
 
@@ -476,12 +523,13 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import { Download, Plus, Refresh } from '@element-plus/icons-vue'
 import { useDark, useDocumentVisibility, useIntervalFn, useNow } from '@vueuse/core'
 import dayjs from 'dayjs'
 import RefreshIcon from '@/components/icons/ResetIcon.vue'
 import StageBar from './Components/StageBar.vue'
 import Sparkline from './Components/Sparkline.vue'
+import ImportDialog from './Components/ImportDialog.vue'
 import { formatBytes, formatTimeStr } from '@/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUserStore } from '@/stores/user'
@@ -493,8 +541,14 @@ import {
   type ExperimentListResp,
   formatDuration,
   getPostTrainingModels,
+  importedCaption,
+  importedSegments,
+  importedStatusNote,
+  importedTip,
+  isImportedRun,
   listPostTrainingRuns,
   parseJSON,
+  spurLine,
   stallNote,
   statusTagType,
   stopPostTrainingRun,
@@ -536,6 +590,17 @@ const createBlocked = computed(() =>
     : unavailableReason.value ||
       (pausedReason.value ? `New runs are paused. ${pausedReason.value}` : ''),
 )
+
+/** Why runs cannot be imported here, or an empty string. */
+const importBlocked = computed(() =>
+  isReadonly.value
+    ? readOnlyTip
+    : unavailableReason.value
+      ? 'Not available in this workspace.'
+      : '',
+)
+const importDialog = reactive({ visible: false, mode: undefined as 'mount' | 'cli' | undefined })
+const openImport = (mode?: 'mount' | 'cli') => Object.assign(importDialog, { visible: true, mode })
 
 const filters = reactive({
   type: '',
@@ -731,6 +796,7 @@ const compareTip = computed(() => {
 /** Runs stay selectable until five are selected; experiment headers never are. */
 const selectable = (row: PostTrainingRun | ExperimentGroup) =>
   !isGroup(row) &&
+  !isImportedRun(row) &&
   (selected.value.length < MAX_COMPARE || selected.value.some((r) => r.runId === row.runId))
 
 /** The header row of an A/B experiment's runs on this page. */
@@ -817,6 +883,11 @@ const shortTime = (t?: string) => (t ? dayjs(t).format('MM-DD HH:mm') : '—')
  * looks stalled.
  */
 const statusNote = (row: PostTrainingRun): { text: string; cls: string } => {
+  if (isImportedRun(row)) {
+    const cls =
+      row.status === 'Failed' ? 'text-[var(--el-color-danger)]' : 'text-[var(--safe-muted)]'
+    return { text: importedStatusNote(row), cls }
+  }
   const hint = cleanupHintBytes(row, now.value.getTime())
   if (hint > 0) {
     return {
@@ -842,6 +913,7 @@ const statusNote = (row: PostTrainingRun): { text: string; cls: string } => {
 }
 
 const evaluationText = (row: PostTrainingRun) => {
+  if (isImportedRun(row)) return '—'
   if (!row.evalEnabled) return 'Not enabled'
   if (row.stage === 'eval') return 'Evaluating…'
   return '—'
@@ -855,6 +927,30 @@ const durationOf = (row: PostTrainingRun) => {
   const endMs = end ? dayjs(end).valueOf() : now.value.getTime()
   return formatDuration((endMs - dayjs(start).valueOf()) / 1000)
 }
+
+/** An imported run shows when it began on Spur; the platform's runs when they were created. */
+const createdAt = (row: PostTrainingRun) =>
+  (isImportedRun(row) && timeOf(row.startTime)) || timeOf(row.createdAt)
+const createdTip = (row: PostTrainingRun) =>
+  isImportedRun(row)
+    ? `Began on Spur ${formatTimeStr(timeOf(row.startTime))} · imported ${formatTimeStr(
+        row.import?.importedAt ?? timeOf(row.createdAt),
+      )}`
+    : formatTimeStr(timeOf(row.createdAt))
+
+/** The base model's full name; an imported run's is its --load path. */
+const baseModelTip = ({ row }: { row: PostTrainingRun }) =>
+  isImportedRun(row)
+    ? row.import?.baseModelPath || row.baseModelName || ''
+    : row.baseModelName || row.baseModelId || ''
+
+/** Why a run cannot be copied, or an empty string. */
+const copyBlocked = (row: PostTrainingRun) =>
+  isImportedRun(row)
+    ? "Imported runs can't be copied: they have no SaFE recipe."
+    : isReadonly.value
+      ? readOnlyTip
+      : createBlocked.value
 
 const goDetail = (row: Pick<PostTrainingRun, 'runId'>) => {
   router.push({ path: '/post-training/detail', query: { runId: row.runId } })
@@ -882,6 +978,12 @@ const deleteDialog = reactive({
   run: null as PostTrainingRun | null,
 })
 
+const deleteTitle = computed(() =>
+  deleteDialog.run && isImportedRun(deleteDialog.run)
+    ? `Delete the imported record ${deleteDialog.run.displayName}?`
+    : 'Delete run',
+)
+
 const openDelete = (row: PostTrainingRun) => {
   Object.assign(deleteDialog, { visible: true, loading: false, deleteModel: false, run: row })
 }
@@ -891,7 +993,7 @@ const confirmDelete = async () => {
   deleteDialog.loading = true
   try {
     await deletePostTrainingRun(deleteDialog.run.runId, deleteDialog.deleteModel)
-    ElMessage.success('Run deleted')
+    ElMessage.success(isImportedRun(deleteDialog.run) ? 'Record deleted' : 'Run deleted')
     deleteDialog.visible = false
     fetchData()
   } finally {
@@ -912,6 +1014,8 @@ watch(
 )
 
 onMounted(() => {
+  const way = router.currentRoute.value.query.import
+  if (way === 'mount' || way === 'cli') openImport(way)
   readQuery()
   fetchAvailability()
   fetchData()

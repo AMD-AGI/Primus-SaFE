@@ -1,10 +1,19 @@
+import dayjs from 'dayjs'
 import request from '@/services/request'
+import { formatBytes } from '@/utils'
 import type {
   ConfigResp,
   DiskUsage,
   Experiment,
   ExperimentListResp,
   ExperimentRequest,
+  ImportConfig,
+  ImportPreview,
+  ImportResult,
+  ImportScanStatus,
+  ImportStage,
+  ImportToken,
+  ImportTokenStatus,
   MetricPanel,
   MetricsResp,
   ModelsResp,
@@ -767,4 +776,184 @@ export function panelsOf(
       .filter(({ panel, metrics }) => panelVisible(panel, metrics, run)),
     unassigned,
   }
+}
+
+/** Reads whether the mounted-path import works in a workspace's cluster and whether the caller may import. */
+export function getImportConfig(workspace: string) {
+  return request.get<ImportConfig>('/post-training/imports/config', { params: { workspace } })
+}
+
+/** Issues a one-time token of the import command for a workspace. */
+export function issueImportToken(workspace: string) {
+  return request.post<ImportToken>('/post-training/imports/tokens', { workspace })
+}
+
+/** Reads whether the command used a token, for the import dialog's polling. */
+export function getImportToken(tokenId: string) {
+  return request.get<ImportTokenStatus>(`/post-training/imports/tokens/${tokenId}`, {
+    skipErrorHandler: true,
+  })
+}
+
+/** Starts a scan of a run directory under the cluster's mount root. */
+export function startImportScan(workspace: string, path: string) {
+  return request.post<{ scanId: string; workloadId: string }>(
+    '/post-training/imports/scans',
+    { workspace, path },
+    { skipErrorHandler: true },
+  )
+}
+
+/** Reads a scan's state, for the import dialog's polling. */
+export function getImportScan(scanId: string) {
+  return request.get<ImportScanStatus>(`/post-training/imports/scans/${scanId}`, {
+    skipErrorHandler: true,
+  })
+}
+
+/** Imports a scanned directory as a run. */
+export function commitImportScan(scanId: string) {
+  return request.post<ImportResult>(`/post-training/imports/scans/${scanId}/commit`, undefined, {
+    skipErrorHandler: true,
+  })
+}
+
+/** Tells whether a run was imported rather than trained on the platform. */
+export function isImportedRun(run: Pick<PostTrainingRun, 'source'>): boolean {
+  return !!run.source && run.source !== 'safe'
+}
+
+/** Quotes a word for a POSIX shell unless it holds only characters a shell leaves alone. */
+export function shellQuote(word: string): string {
+  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`
+}
+
+/** The import command with the run directory in place of <run-dir>, which stays while none is entered. */
+export function importCommandFor(command: string, dir: string): string {
+  const d = dir.trim()
+  return d ? command.replace('<run-dir>', shellQuote(d)) : command
+}
+
+/** Shortens a Spur path to its first and last directories, as /shared_nfs/…/j2r7-242118. */
+export function shortSpurPath(path: string): string {
+  const parts = path.split('/').filter(Boolean)
+  return parts.length > 2 ? `/${parts[0]}/…/${parts[parts.length - 1]}` : path
+}
+
+/** Counts things, as "1 node" or "2 nodes". */
+const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+
+/** A file size as the import command prints it: 131 KB, 2.7 MB. */
+const sizeText = (bytes: number) => formatBytes(bytes, 1).replace(/\.0 /, ' ')
+
+/** The rows of the import dialog's preview of a run directory. */
+export function importPreviewRows(p: ImportPreview): { label: string; value: string }[] {
+  const g = p.failedGate
+  let verdict = p.verdict || 'No verdict'
+  if (p.verdict === 'FAIL' && g) verdict = `FAIL ${g.gate} ${g.result} on ${g.node}`
+  const run = [
+    p.trainType.toUpperCase(),
+    p.slurmJobId ? `Slurm job ${p.slurmJobId}` : '',
+    count(p.nodes, 'node'),
+    p.startTime ? `began ${dayjs(p.startTime).format('MM-DD HH:mm')}` : '',
+  ]
+  const log = p.mainLog
+  let checkpoint = '--save not set'
+  if (p.saveSet)
+    checkpoint = p.checkpoints ? `${count(p.checkpoints, 'checkpoint')} in ckpt/` : 'None in ckpt/'
+  return [
+    { label: 'Verdict', value: verdict },
+    { label: 'Run', value: run.filter(Boolean).join(' · ') },
+    {
+      label: 'Metrics',
+      value: log
+        ? `${log.name} · ${sizeText(log.bytes)} · ${count(log.metricLines, 'step line')}`
+        : 'No main log',
+    },
+    { label: 'Gates', value: `${count(p.gates, 'result')} · ${count(p.markers, 'marker')}` },
+    {
+      label: 'Arguments',
+      value: `${p.arguments.toLocaleString('en-US')} parsed · ${p.keptArguments} kept`,
+    },
+    {
+      label: 'Resources',
+      value: `${count(p.samples, 'sample')} from ${count(p.sampleNodes, 'node')}`,
+    },
+    { label: 'Checkpoint', value: checkpoint },
+  ]
+}
+
+/** The hints under an import preview: warnings change what is imported, notes only explain. */
+export function importHints(p: ImportPreview): { type: 'warning' | 'info'; text: string }[] {
+  const out: { type: 'warning' | 'info'; text: string }[] = []
+  if (!p.verdict) {
+    out.push({
+      type: 'warning',
+      text: 'No PASS or FAIL in the run directory, so the run is imported as Stopped.',
+    })
+  }
+  if (!p.series) {
+    out.push({
+      type: 'warning',
+      text: `No step, rollout or eval lines in ${p.mainLog?.name ?? 'the main log'}, so there are no curves.`,
+    })
+  }
+  if (p.mainLog && p.mainLog.bytes >= 1e9) {
+    out.push({
+      type: 'info',
+      text: `${p.mainLog.name} is ${sizeText(p.mainLog.bytes)}; only its metric lines are kept.`,
+    })
+  }
+  for (const w of p.warnings ?? [])
+    out.push({ type: w.includes('is not a known gate') ? 'info' : 'warning', text: w })
+  return out
+}
+
+/** The stage bar of an imported run: the stages its directory shows, one cut short shown stopped. */
+export function importedSegments(run: Pick<PostTrainingRun, 'stageHistory'>): StageSegment[] {
+  return (parseJSON<ImportStage[]>(run.stageHistory) ?? []).map((s) => ({
+    stage: s.stage,
+    label: s.label || s.stage,
+    state: s.result === 'pass' ? 'done' : s.result === 'fail' ? 'failed' : 'stopped',
+  }))
+}
+
+/** The caption under an imported run's stage bar: its verdict with the steps or rollouts logged up to step. */
+export function importedCaption(
+  run: Pick<PostTrainingRun, 'status' | 'trainType' | 'failedStage' | 'import'>,
+  step?: number,
+): string {
+  if (run.status === 'Failed')
+    return `FAIL at ${run.import?.failedGate?.gate || run.failedStage || 'a gate'}`
+  const logged = count(step == null ? 0 : step + 1, run.trainType === 'rl' ? 'rollout' : 'step')
+  return run.status === 'Succeeded' ? `PASS · ${logged}` : `No verdict · ${logged} logged`
+}
+
+/** The line under an imported run's status: why its check failed, or that its directory has no verdict. */
+export function importedStatusNote(run: Pick<PostTrainingRun, 'status' | 'message'>): string {
+  if (run.status === 'Stopped') return 'No verdict in the run directory'
+  if (run.status !== 'Failed') return ''
+  const text = (run.message ?? '')
+    .split('\n')[0]
+    .trim()
+    .replace(/^FAIL:\s*/, 'Check failed: ')
+  return text && !/[.!?]$/.test(text) ? `${text}.` : text
+}
+
+/** The tooltip of an imported run's tag: when and from where it was imported. */
+export function importedTip(run: Pick<PostTrainingRun, 'import' | 'outputPath'>): string {
+  const at = run.import?.importedAt ? ` ${dayjs(run.import.importedAt).format('MM-DD HH:mm')}` : ''
+  const path = run.import?.sourcePath || run.outputPath
+  return `Imported${at}${path ? ` from ${shortSpurPath(path)}` : ''}. Read-only, and not counted in Verified.`
+}
+
+/** The line under an imported run's type: its Slurm job and nodes on Spur. */
+export function spurLine(run: Pick<PostTrainingRun, 'import' | 'nodeCount'>): string {
+  return [
+    'Spur',
+    run.import?.slurmJobId ? `job ${run.import.slurmJobId}` : '',
+    run.nodeCount ? count(run.nodeCount, 'node') : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }
