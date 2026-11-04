@@ -88,8 +88,8 @@ func (h *Handler) GetSamples(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// pickSampleStep chooses the step and dataset to show: the requested ones, or the latest step and its first
-// dataset. It reports false when the run has no such samples.
+// pickSampleStep chooses the step and dataset to show: the requested step or the latest one, and the requested
+// dataset or, when that step has none of it, the step's first. It reports false when the step has no samples.
 func pickSampleStep(steps []dbclient.PostTrainingRunSampleStep, stepQuery, datasetQuery string) (int, string, bool) {
 	if len(steps) == 0 {
 		return 0, "", false
@@ -102,12 +102,19 @@ func pickSampleStep(steps []dbclient.PostTrainingRunSampleStep, stepQuery, datas
 		}
 		step = v
 	}
+	first, found := "", false
 	for _, s := range steps {
-		if s.Step == step && (datasetQuery == "" || s.Dataset == datasetQuery) {
+		if s.Step != step {
+			continue
+		}
+		if s.Dataset == datasetQuery {
 			return step, s.Dataset, true
 		}
+		if !found {
+			first, found = s.Dataset, true
+		}
 	}
-	return 0, "", false
+	return step, first, found
 }
 
 // samplesCapped reads from the run's metric summary whether it reached its cap on stored samples.
