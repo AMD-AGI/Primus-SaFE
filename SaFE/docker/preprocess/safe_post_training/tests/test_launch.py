@@ -11,6 +11,8 @@ import re
 import sys
 import threading
 
+import pytest
+
 from safe_post_training import launch, metrics, stages
 
 
@@ -255,3 +257,24 @@ def test_checkpoint_exports_put_the_adapter_next_to_the_model(tmp_path):
     assert r.adapter_dir({"dir": "/runs/pt-x/exports/step-8"}) is None
     full = stages.Runner({"output": {"peftAdapter": True}}, str(tmp_path), FakeAdapter(), emitter)
     assert full.adapter_dir(None) is None, "only LoRA runs have an adapter"
+
+
+def test_the_check_needs_the_spec_host_memory_on_every_node(tmp_path):
+    recipe = dict(recipe_for(tmp_path), minHostMemoryTB=2.1)
+    recipe["model"]["spec"] = "glm5.3-744B-A40B"
+    run_dir = tmp_path / "run"
+    (run_dir / "data").mkdir(parents=True)
+    (run_dir / "data" / "train.jsonl").write_text("{}\n")
+    emitter = metrics.Emitter("pt-x", "a1", None, out=io.StringIO())
+    nodes = [("m2m-065", 2.2e12), ("m2m-085", 1.9e12)]
+    runner = stages.Runner(recipe, str(run_dir), FakeAdapter(), emitter, gpus=lambda: 8, memory=lambda: nodes)
+    with pytest.raises(stages.StageError) as e:
+        runner.stage_check()
+    assert e.value.reason == "glm5.3-744B-A40B needs 2.1 TB of host memory per node: m2m-085 has 1.90 TB"
+    assert not e.value.retry, "the same nodes come back on a retry"
+    nodes[1] = ("m2m-085", 2.4e12)
+    runner.stage_check()
+
+    del recipe["minHostMemoryTB"]
+    stages.Runner(recipe, str(run_dir), FakeAdapter(), emitter, gpus=lambda: 8,
+                  memory=lambda: pytest.fail("specs without a floor are not probed")).stage_check()

@@ -210,6 +210,8 @@ type WorkspaceInfo struct {
 	Cluster  string
 	GPUModel string
 	Nodes    int
+	// HostMemoryBytes is the host memory of the workspace's nodes, from its node flavor; zero when unknown.
+	HostMemoryBytes int64
 }
 
 // Input is everything one compilation needs; the API handlers gather it.
@@ -378,6 +380,7 @@ type Recipe struct {
 	Critic           map[string]interface{} `json:"critic"`
 	Checkpoint       registry.Checkpoint    `json:"checkpoint"`
 	Watchdog         registry.Watchdog      `json:"watchdog"`
+	MinHostMemoryTB  float64                `json:"minHostMemoryTB,omitempty"`
 	Metrics          RecipeMetrics          `json:"metrics"`
 	Convert          *RecipeConvert         `json:"convert,omitempty"`
 	Output           RecipeOutput           `json:"output"`
@@ -790,6 +793,11 @@ func platformRules(ctx *Context, res *Result) {
 	if in.Workspace.Nodes > 0 && nodes > in.Workspace.Nodes {
 		res.errorf("resources.nodes", "The workspace has only %d nodes", in.Workspace.Nodes)
 	}
+	if need := fs.MinHostMemoryTB; need > 0 && in.Workspace.HostMemoryBytes > 0 &&
+		float64(in.Workspace.HostMemoryBytes) < need*1e12 {
+		res.errorf("resources.nodes", "%s needs %.1f TB of host memory per node, and this workspace's nodes have "+
+			"%.2f TB", ctx.Spec.Name, need, float64(in.Workspace.HostMemoryBytes)/1e12)
+	}
 	if ctx.CustomImage && fs.ConvertNodes > nodes {
 		res.errorf("resources.nodes", "A run with an image outside the table converts weights in its own workload "+
 			"and needs at least %d nodes", fs.ConvertNodes)
@@ -868,6 +876,7 @@ func assemble(ctx *Context, fw *registry.Framework, plan *FrameworkPlan) *Recipe
 	if req.TrainType == registry.TrainTypeRL {
 		r.Algorithm = plan.Choices.AdvantageEstimator
 	}
+	r.MinHostMemoryTB = ctx.FrameworkSpec.MinHostMemoryTB
 	r.Data.Format = in.Dataset.Format
 	if in.EvalDataset != nil {
 		r.Data.Eval = in.EvalDataset.Path

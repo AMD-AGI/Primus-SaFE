@@ -187,12 +187,53 @@ def ray_gpus():
     return int(json.loads(out.stdout.strip().splitlines()[-1]).get("GPU", 0))
 
 
+# HOST_MEMORY_CODE prints [host, bytes] for each GPU node of the Ray cluster: the smaller of MemTotal and the
+# container's cgroup memory limit, which is what training can use there.
+HOST_MEMORY_CODE = """
+import json, ray
+from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
+ray.init(address="auto", logging_level="ERROR")
+
+@ray.remote(num_cpus=0)
+def memory():
+    import socket
+    total = 0
+    with open("/proc/meminfo") as f:
+        for line in f:
+            if line.startswith("MemTotal:"):
+                total = int(line.split()[1]) * 1024
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            with open(path) as f:
+                limit = f.read().strip()
+        except OSError:
+            continue
+        if limit.isdigit() and 0 < int(limit) < total:
+            total = int(limit)
+        break
+    return [socket.gethostname(), total]
+
+nodes = [n["NodeID"] for n in ray.nodes() if n.get("Alive") and n.get("Resources", {}).get("GPU", 0) > 0]
+refs = [memory.options(scheduling_strategy=NodeAffinitySchedulingStrategy(n, soft=False)).remote() for n in nodes]
+print(json.dumps(ray.get(refs, timeout=240)))
+"""
+
+
+def ray_host_memory():
+    """Return (host, bytes) for each GPU node of the job's Ray cluster: the host memory training can use there."""
+    out = subprocess.run([sys.executable, "-c", HOST_MEMORY_CODE], capture_output=True, text=True, timeout=300)
+    if out.returncode != 0:
+        raise StageError("check", "cannot read the nodes' host memory: " + out.stderr.strip()[-500:])
+    return [tuple(x) for x in json.loads(out.stdout.strip().splitlines()[-1])]
+
+
 class Runner:
     """Runs the stages of one recipe."""
 
     def __init__(self, recipe, run_dir, adapter, emitter, gpus=ray_gpus, watchdog=None, sleep=time.sleep,
-                 sampler=None):
+                 sampler=None, memory=ray_host_memory):
         self.recipe, self.run_dir, self.adapter, self.emitter, self.gpus = recipe, run_dir, adapter, emitter, gpus
+        self.memory = memory
         self.watchdog, self.sleep = watchdog, sleep
         # sampler, when set, returns the GPU sampler that runs alongside training.
         self.sampler = sampler
@@ -321,12 +362,13 @@ class Runner:
         self.report_conversion("done")
 
     def stage_check(self):
-        """Check the GPU count, the inputs and the free space before training."""
+        """Check the GPU count, the host memory, the inputs and the free space before training."""
         layout = self.recipe["layout"]
         want = layout["nodes"] * layout["gpusPerNode"]
         have = self.gpus()
         if have < want:
             raise StageError("check", "the Ray cluster has %d GPUs, the recipe needs %d" % (have, want))
+        self.check_host_memory()
         model = self.recipe["model"]["path"]
         for path in (os.path.join(model, "config.json"), self.path("data", "train.jsonl")):
             if not os.path.exists(path):
@@ -338,6 +380,17 @@ class Runner:
                              % (free >> 30, need >> 30), retry=False)
         self.check_wandb()
         self.check_reward()
+
+    def check_host_memory(self):
+        """Fail before training when a node has less host memory than the model's spec needs."""
+        need = self.recipe.get("minHostMemoryTB") or 0
+        if not need:
+            return
+        short = [(host, got) for host, got in self.memory() if got < need * 1e12]
+        if short:
+            raise StageError("check", "%s needs %.1f TB of host memory per node: %s" % (
+                (self.recipe.get("model") or {}).get("spec") or "the model", need,
+                ", ".join("%s has %.2f TB" % (host, got / 1e12) for host, got in short)), retry=False)
 
     def check_wandb(self, timeout=WANDB_PROBE_SECONDS):
         """Fail before training when W&B reporting is on and the W&B server does not answer."""
