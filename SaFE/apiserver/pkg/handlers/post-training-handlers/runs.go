@@ -74,6 +74,7 @@ type runDetail struct {
 	Summary      json.RawMessage            `json:"metricSummary,omitempty"`
 	OutputModel  *outputModel               `json:"outputModel,omitempty"`
 	Evaluations  []*dbclient.EvaluationTask `json:"evaluations"`
+	Exports      []exportItem               `json:"exports"`
 }
 
 // outputModel summarizes the model a run registered.
@@ -170,6 +171,10 @@ func (h *Handler) GetRun(c *gin.Context) {
 		if err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: run.OutputModelID}, m); err == nil {
 			detail.OutputModel = &outputModel{ID: m.Name, DisplayName: baseModelName(m), Phase: string(m.Status.Phase)}
 		}
+	}
+	if detail.Exports, err = h.listExports(ctx, run.RunID); err != nil {
+		klog.ErrorS(err, "failed to list the run's checkpoint exports", "run", run.RunID)
+		detail.Exports = []exportItem{}
 	}
 	tasks, err := h.db.SelectEvaluationTasks(ctx,
 		sqrl.Eq{"post_training_run_id": run.RunID, "is_deleted": false}, []string{"creation_time DESC"}, 100, 0)
@@ -273,19 +278,10 @@ func (h *Handler) planCleanup(ctx context.Context, run *dbclient.PostTrainingRun
 	case "none":
 		plan.Paths = []string{base + "/checkpoints", base + "/critic_checkpoints"}
 	case "best":
-		main := "train/loss"
-		if run.TrainType == registry.TrainTypeRL {
-			main = "rollout/raw_reward"
-		}
-		rows, err := h.db.ListPostTrainingRunMetrics(ctx, run.RunID, []string{main, valLossMetric})
+		m, err := h.checkpointMarkers(ctx, run)
 		if err != nil {
-			return "", commonerrors.NewInternalError("failed to read the run's metrics: " + err.Error())
+			return "", err
 		}
-		points := map[string][]*dbclient.PostTrainingRunMetric{}
-		for _, row := range rows {
-			points[row.Name] = append(points[row.Name], row)
-		}
-		m := buildMarkers(run, points)
 		if m.BestCheckpoint == nil {
 			return "", commonerrors.NewBadRequest("the run has no checkpoint with a validation loss to keep")
 		}
@@ -301,6 +297,24 @@ func (h *Handler) planCleanup(ctx context.Context, run *dbclient.PostTrainingRun
 	}
 	data, _ := json.Marshal(plan)
 	return string(data), nil
+}
+
+// checkpointMarkers returns the run's checkpoints with the best one and the deleted ones marked, from its main
+// metric and validation loss.
+func (h *Handler) checkpointMarkers(ctx context.Context, run *dbclient.PostTrainingRun) (markers, error) {
+	main := "train/loss"
+	if run.TrainType == registry.TrainTypeRL {
+		main = "rollout/raw_reward"
+	}
+	rows, err := h.db.ListPostTrainingRunMetrics(ctx, run.RunID, []string{main, valLossMetric})
+	if err != nil {
+		return markers{}, commonerrors.NewInternalError("failed to read the run's metrics: " + err.Error())
+	}
+	points := map[string][]*dbclient.PostTrainingRunMetric{}
+	for _, row := range rows {
+		points[row.Name] = append(points[row.Name], row)
+	}
+	return buildMarkers(run, points), nil
 }
 
 // stopWorkload marks a workload Stopped and deletes it, the way the workload stop API does; a missing or finished
