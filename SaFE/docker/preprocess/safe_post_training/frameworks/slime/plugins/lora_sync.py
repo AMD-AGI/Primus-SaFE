@@ -7,12 +7,17 @@
 SGLang serves the base model's parameter names, so every sync sends merged weights: W + (alpha / rank) * B @ A under
 the base name, with W's tensor-parallel attributes, and no adapter parameters. Only the iterator slime's separate
 rollout sync uses is replaced; it still applies its PP and EP renaming, all-gather, HF conversion and sending.
+
+A routed expert's weight is weight<global expert index> of its grouped linear. A shared adapter merges into every
+expert of the layer; an adapter per expert stacks the local experts on its first axis.
 """
+import re
 
 ADAPTER_IN = ".adapter.linear_in.weight"
 ADAPTER_OUT = ".adapter.linear_out.weight"
 WRAPPED = ".to_wrap."
 TP_ATTRS = ("tensor_model_parallel", "partition_dim", "partition_stride", "partition_sections")
+EXPERT_WEIGHT = re.compile(r"^weight(\d+)$")
 
 
 def adapter_pairs(named):
@@ -25,9 +30,10 @@ def adapter_pairs(named):
     return pairs
 
 
-def merged_named(named, merge):
+def merged_named(named, merge, merge_expert=None, expert_offset=0):
     """Yield (name, tensor) pairs with the adapters merged: a wrapped weight W as merge(W, A, B) under its base name,
-    the wrapped module's other tensors under their unwrapped names, and the rest unchanged."""
+    a routed expert's weight as merge_expert with its adapter, the wrapped module's other tensors under their unwrapped
+    names, and the rest unchanged. expert_offset is the global index of this rank's first local expert."""
     named = list(named)
     pairs = adapter_pairs(named)
     for name, tensor in named:
@@ -38,8 +44,19 @@ def merged_named(named, merge):
             continue
         prefix, rest = name.split(WRAPPED, 1)
         a, b = pairs.get(prefix, (None, None))
-        if rest == "weight" and a is not None and b is not None:
+        expert = EXPERT_WEIGHT.match(rest)
+        if a is None or b is None:
+            yield prefix + "." + rest, tensor
+        elif rest == "weight":
             yield prefix + "." + rest, merge(tensor, a, b)
+        elif expert and merge_expert is not None:
+            if a.dim() == 3:
+                local = int(expert.group(1)) - expert_offset
+                if not 0 <= local < a.shape[0]:
+                    raise ValueError("%s: expert %s is not one of this rank's %d experts" % (
+                        prefix, expert.group(1), a.shape[0]))
+                a, b = a[local], b[local]
+            yield prefix + "." + rest, merge_expert(tensor, a, b)
         else:
             yield prefix + "." + rest, tensor
 
@@ -66,15 +83,40 @@ def bridge_merge(alpha, rank):
     return merge
 
 
+def local_merge(alpha, rank):
+    """Return the merge of a routed expert's weight with its adapter, in float32 on this rank: runs keep expert tensor
+    parallelism at 1, so neither is split; it copies the weight's tensor-parallel attributes."""
+    import torch
+
+    scale = alpha / rank
+
+    def merge(w, a, b):
+        """Return W + (alpha / rank) * B @ A."""
+        with torch.no_grad():
+            out = (w.detach().float() + scale * (b.detach().float() @ a.detach().float())).to(w.dtype)
+        for attr in TP_ATTRS:
+            if hasattr(w, attr):
+                setattr(out, attr, getattr(w, attr))
+        return out
+
+    return merge
+
+
 def install(alpha, rank):
     """Make slime's separate-rollout weight sync send merged weights."""
     from slime.backends.megatron_utils.update_weight import update_weight_from_distributed as sync
 
     named = sync.named_params_and_buffers
-    merge = bridge_merge(alpha, rank)
+    merge, merge_expert = bridge_merge(alpha, rank), local_merge(alpha, rank)
 
     def merged_params(args, model):
         """Yield slime's named parameters with the LoRA adapters merged."""
-        return merged_named(named(args, model), merge)
+        offset = 0
+        if getattr(args, "num_experts", None):
+            from megatron.core import mpu
+
+            offset = (mpu.get_expert_model_parallel_rank() * args.num_experts //
+                      mpu.get_expert_model_parallel_world_size())
+        return merged_named(named(args, model), merge, merge_expert, offset)
 
     sync.named_params_and_buffers = merged_params

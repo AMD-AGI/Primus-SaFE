@@ -38,14 +38,23 @@ def merge_plan(keys):
 
 def merge(state_dict, scale):
     """Add scale * B @ A to every adapted weight, in float32, remove the adapter entries and return how many
-    weights were merged. Weights stacked over the layers carry the layer axis first, and so do their adapters."""
+    weights were merged. Weights stacked over the layers carry the layer axis first, and so do their adapters; routed
+    experts' weights then carry the expert axis, which an adapter shared by the experts may lack."""
+    import torch
+
     pairs, drop = merge_plan(state_dict)
     for weight, a_key, b_key in pairs:
         a, b, w = state_dict.pop(a_key), state_dict.pop(b_key), state_dict[weight]
-        if not (a.dim() == b.dim() == w.dim() and w.dim() in (2, 3)):
-            raise ValueError("%s: expert adapters cannot be merged yet" % weight)
+        if a.dim() == b.dim() == w.dim() - 1 and w.dim() == 4:
+            a, b = a.unsqueeze(-3), b.unsqueeze(-3)
+        if not (a.dim() == b.dim() == w.dim() and w.dim() in (2, 3, 4)):
+            raise ValueError("%s: an adapter of %d axes does not fit a weight of %d" % (weight, a.dim(), w.dim()))
         delta = b.float() @ a.float()
-        if delta.shape != w.shape:
+        try:
+            fits = torch.broadcast_shapes(delta.shape, w.shape) == w.shape
+        except RuntimeError:
+            fits = False
+        if not fits:
             raise ValueError("%s: the adapter gives %s for a weight of %s" % (weight, tuple(delta.shape),
                                                                             tuple(w.shape)))
         state_dict[weight] = (w.float() + scale * delta).to(w.dtype)
