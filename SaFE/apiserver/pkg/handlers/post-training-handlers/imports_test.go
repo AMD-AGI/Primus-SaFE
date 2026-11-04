@@ -18,6 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
@@ -235,4 +236,26 @@ func TestImportMountNeedsAReadOnlyVolumeAtTheRoot(t *testing.T) {
 	reg.Imports.Mounts[0].Workspace = "gone"
 	_, reason = mountOf("c1")
 	require.Equal(t, "The import workspace gone is not available.", reason)
+}
+
+func TestListShowsWhereAnImportRan(t *testing.T) {
+	h, db := importHandler(t)
+	ctx := context.Background()
+	require.Nil(t, h.listImportOf(ctx, &dbclient.PostTrainingRun{RunID: "r1", Source: dbclient.PostTrainingSourceSafe}))
+
+	summary := importSummaryJSON(t, func(s map[string]interface{}) {
+		s["arguments"] = map[string]interface{}{"kept": map[string]interface{}{"load": "/models/GLM-5.3-BF16"}, "total": 3}
+	})
+	db.EXPECT().GetPostTrainingImportByRun(gomock.Any(), "spur-j2").Return(&dbclient.PostTrainingImport{
+		SlurmJobID: "229357", SourcePath: "/shared_nfs/runs/j2", Via: importViaCLI, Verdict: "FAIL",
+		Summary: string(summary), CreatedAt: pq.NullTime{Time: time.Unix(1792578000, 0), Valid: true}}, nil)
+	got := h.listImportOf(ctx, &dbclient.PostTrainingRun{RunID: "spur-j2", Source: dbclient.PostTrainingSourceSpur})
+	require.Equal(t, "229357", got.SlurmJobID)
+	require.Equal(t, "b2_sft", got.FailedGate.Gate, "the list says which gate failed")
+	require.Equal(t, "/models/GLM-5.3-BF16", got.BaseModelPath)
+	require.Equal(t, int64(1792578000), got.ImportedAt.Unix())
+
+	db.EXPECT().GetPostTrainingImportByRun(gomock.Any(), "spur-gone").Return(nil, gorm.ErrRecordNotFound)
+	require.Nil(t, h.listImportOf(ctx, &dbclient.PostTrainingRun{RunID: "spur-gone", Source: "spur"}),
+		"a missing record leaves the row as it is")
 }
