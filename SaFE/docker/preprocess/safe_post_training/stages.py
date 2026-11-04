@@ -12,6 +12,7 @@ import contextlib
 import functools
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -34,6 +35,8 @@ CONVERT_LOCK = ".lock"
 SOURCE_FILE = "source.json"
 # A conversion lock older than this was left by a conversion that died; the next run takes it over.
 LOCK_STALE_SECONDS = 6 * 3600
+ITER_DIR = re.compile(r"^iter_(\d{7})$")
+VAL_LOSS = re.compile(r"^eval/[^/]+/loss$")
 WANDB_DEFAULT_URL = "https://api.wandb.ai"
 WANDB_PROBE_SECONDS = 10
 REWARD_PROBE_SECONDS = 10
@@ -54,6 +57,32 @@ def http_status(url, timeout, headers=None):
         return e.code
     except (urllib.error.URLError, OSError, ValueError):
         return None
+
+
+def saved_iterations(path):
+    """Return the iterations of the iter_NNNNNNN checkpoint directories under path, in order."""
+    try:
+        names = os.listdir(path)
+    except OSError:
+        return []
+    return sorted(int(m.group(1)) for m in (ITER_DIR.match(n) for n in names) if m)
+
+
+def load_val_losses(path):
+    """Return the validation losses by step that earlier attempts recorded in metrics.jsonl."""
+    out = {}
+    if not path or not os.path.exists(path):
+        return out
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            for name, value in (record.get("v") or {}).items():
+                if VAL_LOSS.match(name) and isinstance(value, (int, float)) and math.isfinite(value):
+                    out[int(record.get("step", -1))] = value
+    return out
 
 
 class StageError(Exception):
@@ -159,6 +188,8 @@ class Runner:
         self.reward_rejected = False
         self.checkpoint = None
         self.wandb_link = None
+        # val_losses maps a step to its validation loss, for keeping the best checkpoint.
+        self.val_losses = {}
 
     def path(self, *parts):
         """Return a path under the run directory."""
@@ -313,10 +344,18 @@ class Runner:
                                  retry=False)
 
     def space_needed(self):
-        """Estimate the bytes the run writes: the checkpoints kept at the same time plus the exported model."""
+        """Estimate the bytes the run writes: the checkpoints kept at the same time plus the exported model. With a
+        retention policy that is keepLast, the best one and the one being written; without one, every save."""
         weights = weights_size(self.recipe["model"]["path"])
         keep = (self.recipe.get("checkpoint") or {}).get("keepLast", 0)
-        count = keep + 2 if keep > 0 else 3
+        choices = self.recipe.get("choices") or {}
+        steps, interval = choices.get("numRollout") or 0, choices.get("saveInterval") or 0
+        if keep > 0:
+            count = keep + 2
+        elif steps and interval:
+            count = max(1, steps // interval)
+        else:
+            count = 3
         return weights * CHECKPOINT_FACTOR * count + weights
 
     def stage_train(self):
@@ -327,6 +366,7 @@ class Runner:
             os.makedirs(os.path.dirname(target), exist_ok=True)
             with open(target, "w") as f:
                 f.write(content)
+        self.val_losses.update(load_val_losses(self.emitter.metrics_path))
         resume = self.checkpoint = self.adapter.latest_checkpoint(self.run_dir)
         if resume is not None:
             cmd = cmd + ["--load", self.path("checkpoints")]
@@ -354,7 +394,29 @@ class Runner:
         if latest != self.checkpoint:
             self.checkpoint = latest
             self.watchdog.saved()
+            self.apply_retention(latest)
             self.report_disk()
+
+    def apply_retention(self, latest):
+        """Delete the saved checkpoints the spec's retention no longer keeps once latest is saved: all but the latest
+        keepLast and, for SFT with keepBest, the one with the lowest validation loss. PPO critic checkpoints go at the
+        same steps, so actor and critic stay in step."""
+        policy = self.recipe.get("checkpoint") or {}
+        keep_last = int(policy.get("keepLast") or 0)
+        if keep_last <= 0 or latest is None:
+            return
+        saved = [s for s in saved_iterations(self.path("checkpoints")) if s <= latest]
+        keep = set(saved[-keep_last:])
+        if policy.get("keepBest") and self.recipe.get("trainType") != "rl":
+            scored = [s for s in saved if s in self.val_losses]
+            if scored:
+                keep.add(min(scored, key=lambda s: self.val_losses[s]))
+        deleted = [s for s in saved if s not in keep]
+        for step in deleted:
+            for sub in ("checkpoints", "critic_checkpoints"):
+                shutil.rmtree(self.path(sub, "iter_%07d" % step), ignore_errors=True)
+        if deleted:
+            self.emitter.notice("retention", {"deleted": deleted, "kept": sorted(keep)})
 
     def report_disk(self):
         """Report the run directory usage in a [STAGE] marker."""
@@ -436,3 +498,6 @@ class Runner:
             kind, axis, step, values = parsed
             if self.emitter.metric(kind, axis, step, values) and self.watchdog and kind in PROGRESS_KINDS:
                 self.watchdog.progress(step)
+            for name, value in values.items():
+                if VAL_LOSS.match(name) and isinstance(value, (int, float)) and math.isfinite(value):
+                    self.val_losses[int(step)] = value
