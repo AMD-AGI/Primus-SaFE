@@ -234,12 +234,40 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserId(workload))
 	}
 	m.mutateUserAccount(ctx, workload)
+	m.mutateEphemeralRunnerWorkspaceStorage(ctx, workload)
 	if !v1.HasAnnotation(workload, v1.UseWorkspaceStorageAnnotation) {
 		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
 	}
 	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	commonworkload.SetMainContainerViaTemplate(ctx, m.Client, workload)
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
+}
+
+// mutateEphemeralRunnerWorkspaceStorage makes an EphemeralRunner use the workspace
+// storage setting of the AutoscalingRunnerSet that owns it. The runner-proxy creates
+// these children through the apiserver without the field, so the request default
+// (true) would otherwise mount the workspace volume into every CI job even when the
+// scale set was created with useWorkspaceStorage=false. The parent is resolved through
+// the controller reference set by mutateOwnerReference and checked for kind, UID,
+// workspace and cluster, the same way the dispatcher resolves it. When the parent
+// cannot be resolved or carries no setting, the child keeps what it already has.
+func (m *WorkloadMutator) mutateEphemeralRunnerWorkspaceStorage(ctx context.Context, workload *v1.Workload) {
+	if !commonworkload.IsCICDEphemeralRunner(workload) {
+		return
+	}
+	parent, err := commonworkload.ResolveCICDProxySource(ctx, m.Client, workload)
+	if err != nil || parent == nil {
+		if err != nil {
+			klog.ErrorS(err, "failed to resolve the scale set of the ephemeral runner",
+				"workload", workload.Name)
+		}
+		return
+	}
+	if !v1.HasAnnotation(parent, v1.UseWorkspaceStorageAnnotation) {
+		return
+	}
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation,
+		strconv.FormatBool(v1.IsEnableWorkspaceStorage(parent)))
 }
 
 // mutateUserAccount stamps the submitter account from the User CR preferred name.
