@@ -331,6 +331,11 @@ const router = createRouter({
           meta: { requiresSystemAdmin: true },
         },
         {
+          path: '/post-training',
+          name: 'PostTraining',
+          component: () => import('@/pages/PostTraining/index.vue'),
+        },
+        {
           path: '/posttrain',
           name: 'PostTrain',
           component: () => import('@/pages/PostTrain/index.vue'),
