@@ -9,6 +9,7 @@ slime prints each metric group as "[time] file:line - <kind> <step>: {...}" (Ray
 """
 
 import ast
+import json
 import os
 import re
 import shutil
@@ -33,6 +34,15 @@ def slime_dir(env=os.environ):
         if os.path.exists(os.path.join(path, "train.py")):
             return path
     raise StageError("train", "cannot find slime's train.py; set SLIME_DIR in the image table", retry=False)
+
+
+def critic_config(critic, resume):
+    """Return the megatron.yaml of a PPO critic, written as JSON, which YAML reads. slime does not fall back to the
+    base model for a role's own load directory, so load is left out until the critic has a checkpoint."""
+    overrides = dict(critic.get("overrides") or {})
+    if not resume:
+        overrides.pop("load", None)
+    return json.dumps({"megatron": [{"name": "critic", "role": "critic", "overrides": overrides}]}, indent=2) + "\n"
 
 
 def python_path(root, env=os.environ):
@@ -91,11 +101,16 @@ class Adapter:
         root = slime_dir(self.env)
         cmd = [sys.executable, os.path.join(root, "train.py")]
         cmd += model_args(root, recipe["model"]["script"]) + list(recipe["frameworkArgs"])
-        return cmd, {"PYTHONPATH": python_path(root, self.env)}, recipe.get("files") or {}
+        files = dict(recipe.get("files") or {})
+        critic = recipe.get("critic")
+        if critic:
+            resume = self.latest_checkpoint(run_dir, critic.get("checkpoints") or "critic_checkpoints") is not None
+            files[critic["megatronConfig"]] = critic_config(critic, resume)
+        return cmd, {"PYTHONPATH": python_path(root, self.env)}, files
 
-    def latest_checkpoint(self, run_dir):
-        """Return the iteration of the latest saved checkpoint, or None when there is none."""
-        path = os.path.join(run_dir, "checkpoints", "latest_checkpointed_iteration.txt")
+    def latest_checkpoint(self, run_dir, sub="checkpoints"):
+        """Return the iteration of the latest checkpoint saved in sub, or None when there is none."""
+        path = os.path.join(run_dir, sub, "latest_checkpointed_iteration.txt")
         try:
             with open(path) as f:
                 return int(f.read().strip())

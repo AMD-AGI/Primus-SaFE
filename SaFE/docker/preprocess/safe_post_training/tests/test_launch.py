@@ -179,3 +179,33 @@ def test_checkpoint_export_runs_only_the_export(monkeypatch, tmp_path):
 
     code, _, ms = run(monkeypatch, recipe, FakeAdapter())
     assert code == 0 and ms[-1][1]["output"] == str(export_dir), "a finished export is reported again"
+
+
+class PPOAdapter(FakeAdapter):
+    """A fake adapter whose actor and critic checkpoints end at the given steps."""
+
+    def __init__(self, actor, critic):
+        super().__init__()
+        self.steps = {"checkpoints": actor, "critic_checkpoints": critic}
+
+    def latest_checkpoint(self, run_dir, sub="checkpoints"):
+        return self.steps[sub]
+
+
+def test_ppo_resumes_only_in_step(monkeypatch, tmp_path):
+    for name, actor, critic in (("fresh", None, None), ("resumed", 40, 40)):
+        (tmp_path / name).mkdir()
+        recipe = recipe_for(tmp_path / name)
+        recipe["critic"] = {"megatronConfig": "megatron.yaml", "checkpoints": "critic_checkpoints"}
+        code, _, ms = run(monkeypatch, recipe, PPOAdapter(actor, critic))
+        assert code == 0, name
+    assert any(m[1].get("detail", {}).get("resumeStep") == 40 for m in ms if m[0] == "[STAGE]")
+
+    (tmp_path / "apart").mkdir()
+    recipe = recipe_for(tmp_path / "apart")
+    recipe["critic"] = {"megatronConfig": "megatron.yaml", "checkpoints": "critic_checkpoints"}
+    code, _, ms = run(monkeypatch, recipe, PPOAdapter(40, 30))
+    assert code != 0
+    assert ms[-1][0] == "[ERROR]" and ms[-1][1]["stage"] == "train"
+    assert ms[-1][1]["reason"] == "the actor checkpoints end at step 40 but the critic checkpoints at step 30"
+    assert ms[-1][1]["retry"] is False, "a rerun would not bring them back in step"
