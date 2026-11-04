@@ -229,6 +229,24 @@
                   <el-icon><View /></el-icon>
                 </el-button>
               </el-tooltip>
+              <el-tooltip
+                v-if="canTrain(model) && ptReasonOf"
+                :content="ptDisabled(model) || 'Train with Post Training'"
+                placement="top"
+              >
+                <span>
+                  <el-button
+                    size="small"
+                    circle
+                    class="btn-icon btn-detail"
+                    aria-label="Train with Post Training"
+                    :disabled="!!ptDisabled(model)"
+                    @click="router.push({ path: '/post-training/create', query: { modelId: model.id } })"
+                  >
+                    <el-icon><PostTrainingIcon /></el-icon>
+                  </el-button>
+                </span>
+              </el-tooltip>
               <!-- Retry button for Failed state -->
               <el-tooltip v-if="model.phase === 'Failed'" content="Retry" placement="top">
                 <el-button
@@ -442,10 +460,13 @@ import {
   retryModel,
   getModelWorkloadConfig,
   isDeployableLocalModel,
+  canTrain,
   type PlaygroundModel,
   type ModelsListParams,
   type ModelsListResp,
 } from '@/services/playground'
+import { postTrainingEntryReasons } from '@/services/postTraining'
+import PostTrainingIcon from '@/pages/PostTraining/Components/PostTrainingIcon.vue'
 import { getOpsjobs, getOpsjobsDetail, deleteOpsjobs, WorkloadPhaseButtonType } from '@/services'
 import AddModelDialog from './Components/AddModelDialog.vue'
 import ModelPrewarmDialog from './Components/ModelPrewarmDialog.vue'
@@ -464,6 +485,17 @@ const clusterStore = useClusterStore()
 const userStore = useUserStore()
 
 const activeTab = ref((router.currentRoute.value.query.tab as string) || 'models')
+
+const ptReasonOf = ref<(modelId: string) => string>()
+
+// Load why Train with Post Training is unavailable for the models of the current workspace
+const loadPostTrainingReasons = async () => {
+  ptReasonOf.value = await postTrainingEntryReasons(wsStore.currentWorkspaceId ?? '')
+}
+
+// Why Train with Post Training is disabled for a model, or an empty string
+const ptDisabled = (model: PlaygroundModel) =>
+  userStore.isReadonlyManager ? 'Read-only access' : (ptReasonOf.value?.(model.id) ?? '')
 const tabSegOptions = [
   { label: 'Models', value: 'models' },
   { label: 'Prewarm', value: 'prewarm' },
@@ -976,6 +1008,7 @@ const toggleRefreshPause = () => {
 // Initialize
 onMounted(() => {
   readQuery()
+  loadPostTrainingReasons()
   if (activeTab.value === 'models') {
     fetchModels()
     startTick()
@@ -995,6 +1028,7 @@ watch(
   (newWorkspaceId, oldWorkspaceId) => {
     if (newWorkspaceId !== oldWorkspaceId) {
       currentPage.value = 1
+      loadPostTrainingReasons()
       if (activeTab.value === 'models') {
         fetchModels()
       } else {

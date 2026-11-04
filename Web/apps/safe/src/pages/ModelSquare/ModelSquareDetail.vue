@@ -62,6 +62,24 @@
           </el-button>
         </el-tooltip>
 
+        <el-tooltip
+          v-if="canTrainModel && ptReasonOf"
+          :content="ptReason || 'Train with Post Training'"
+          placement="top"
+        >
+          <span>
+            <el-button
+              circle
+              class="glass-btn glass-btn--primary"
+              aria-label="Train with Post Training"
+              :disabled="!!ptReason"
+              @click="trainWithPostTraining"
+            >
+              <el-icon><PostTrainingIcon /></el-icon>
+            </el-button>
+          </span>
+        </el-tooltip>
+
         <el-tooltip :content="canStartService ? 'Start Service' : 'Stop Service'" placement="top">
           <el-button
             circle
@@ -158,11 +176,23 @@
           <el-icon class="ml-1"><Right /></el-icon>
         </el-link>
       </el-descriptions-item>
+      <el-descriptions-item v-if="detailData.postTrainingRunId" label="Source Run">
+        <el-link type="primary" :underline="false" @click="goToSourceRun">
+          {{ detailData.postTrainingRunId }}
+          <el-icon class="ml-1"><Right /></el-icon>
+        </el-link>
+      </el-descriptions-item>
       <el-descriptions-item v-if="detailData.workspace" label="Workspace">
         {{ detailData.workspace }}
       </el-descriptions-item>
     </el-descriptions>
   </el-card>
+
+  <LineageCard
+    v-if="detailData?.postTrainingRunId"
+    :model="detailData"
+    :start-rl-reason="ptReason"
+  />
 
   <!-- Resource Configuration -->
   <el-card
@@ -302,6 +332,11 @@ import {
 } from '@element-plus/icons-vue'
 import { getModelDetail, deleteModel, isDeployableLocalModel, canTrain } from '@/services/playground'
 import { copyText, formatTimeStr } from '@/utils/index'
+import { postTrainingEntryReasons } from '@/services/postTraining'
+import { useUserStore } from '@/stores/user'
+import { useWorkspaceStore } from '@/stores/workspace'
+import PostTrainingIcon from '@/pages/PostTraining/Components/PostTrainingIcon.vue'
+import LineageCard from '@/pages/PostTraining/Components/LineageCard.vue'
 import ToggleServiceDialog from './Components/ToggleServiceDialog.vue'
 import CreateTrainingDialog from './Components/CreateTrainingDialog.vue'
 import EditModelDialog from './Components/EditModelDialog.vue'
@@ -325,6 +360,29 @@ const canTrainModel = computed(() => {
   if (!detailData.value) return false
   return canTrain(detailData.value)
 })
+
+const userStore = useUserStore()
+const wsStore = useWorkspaceStore()
+const ptReasonOf = ref<(modelId: string) => string>()
+
+// Why Train with Post Training and Start RL from This Model are disabled, or an empty string
+const ptReason = computed(() => {
+  if (userStore.isReadonlyManager) return 'Read-only access'
+  return ptReasonOf.value && detailData.value ? ptReasonOf.value(detailData.value.id) : ''
+})
+
+// Open the Post Training wizard with this model as the base model
+const trainWithPostTraining = () => {
+  router.push({ path: '/post-training/create', query: { modelId: modelId.value } })
+}
+
+// Open the Post Training run that produced this model
+const goToSourceRun = () => {
+  router.push({
+    path: '/post-training/detail',
+    query: { runId: detailData.value?.postTrainingRunId },
+  })
+}
 
 // Get status type
 const getStatusType = (phase: string) => {
@@ -436,8 +494,9 @@ const onDelete = () => {
     })
 }
 
-onMounted(() => {
+onMounted(async () => {
   getDetail()
+  ptReasonOf.value = await postTrainingEntryReasons(wsStore.currentWorkspaceId ?? '')
 })
 </script>
 
