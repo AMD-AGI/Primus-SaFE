@@ -119,7 +119,7 @@ class Adapter:
 
     def export(self, recipe, run_dir, run_command, iteration=None, out=None):
         """Convert a checkpoint, the latest unless iteration names one, to HF in out (final_model/ by default) and
-        copy the tokenizer from the base model."""
+        copy the tokenizer from the base model. A LoRA checkpoint is exported with its adapters merged."""
         if iteration is None:
             iteration = self.latest_checkpoint(run_dir)
         if iteration is None:
@@ -129,8 +129,14 @@ class Adapter:
         src = os.path.join(run_dir, "checkpoints", "iter_%07d" % iteration)
         if not os.path.isdir(src):
             raise StageError("export", "the checkpoint of iteration %d no longer exists" % iteration, retry=False)
-        cmd = [sys.executable, os.path.join(root, "tools", "convert_torch_dist_to_hf.py"),
-               "--input-dir", src, "--output-dir", out, "--origin-hf-dir", base, "-f"]
+        lora = recipe.get("lora")
+        if lora:
+            cmd = [sys.executable, os.path.join(os.path.dirname(__file__), "plugins", "merge_lora.py"),
+                   "--slime-dir", root, "--input-dir", src, "--output-dir", out, "--origin-hf-dir", base,
+                   "--rank", str(lora["rank"]), "--alpha", str(lora["alpha"])]
+        else:
+            cmd = [sys.executable, os.path.join(root, "tools", "convert_torch_dist_to_hf.py"),
+                   "--input-dir", src, "--output-dir", out, "--origin-hf-dir", base, "-f"]
         code = run_command(cmd, env={"PYTHONPATH": python_path(root, self.env)})
         if code != 0:
             raise StageError("export", "HF export exited with code %d" % code)
