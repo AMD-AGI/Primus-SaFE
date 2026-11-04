@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -475,11 +476,26 @@ func (r *RunReconciler) reconcileLost(ctx context.Context, run *dbclient.PostTra
 		"The workload ended while the controller was down and its result was lost")
 }
 
+// stopMessage returns the reason the stop API gave a stopped workload, such as who stopped it, or "" when w is
+// unknown.
+func stopMessage(w *v1.Workload) string {
+	if w == nil {
+		return ""
+	}
+	if c := meta.FindStatusCondition(w.Status.Conditions, string(v1.AdminStopped)); c != nil {
+		return c.Message
+	}
+	return ""
+}
+
 // finish records how the run ended once its workload reached phase; a success goes on to registration.
 func (r *RunReconciler) finish(ctx context.Context, u *runUpdate, phase v1.WorkloadPhase, endTime time.Time,
 	w *v1.Workload) (ctrlruntime.Result, error) {
 	run := u.run
 	if phase == v1.WorkloadStopped {
+		if message := stopMessage(w); message != "" {
+			u.set("message", run.Message, message)
+		}
 		u.end(v1.WorkloadStopped, endTime)
 		return ctrlruntime.Result{}, r.save(ctx, u)
 	}
