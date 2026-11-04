@@ -230,3 +230,8 @@ func TestListItemJSON(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(data), "verifiedRuns", "a recipe that never succeeded carries no label")
 }
+
+func TestGetModelNeedsAnID(t *testing.T) {
+	_, _, err := evalHandler(t).getModel(context.Background(), "", "ws")
+	require.Equal(t, 400, statusCode(err), "a request without a model is the caller's mistake, not a server error")
+}

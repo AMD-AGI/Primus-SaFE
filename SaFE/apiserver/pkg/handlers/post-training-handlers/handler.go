@@ -191,6 +191,9 @@ func (w *workspaceInfo) runDir(runID string) string {
 
 // getModel reads a model and what the compiler needs to know about it in a workspace.
 func (h *Handler) getModel(ctx context.Context, id, workspace string) (*v1.Model, recipe.ModelInfo, error) {
+	if id == "" {
+		return nil, recipe.ModelInfo{}, commonerrors.NewBadRequest("modelId is required")
+	}
 	m := &v1.Model{}
 	if err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: id}, m); err != nil {
 		if apierrors.IsNotFound(err) {
