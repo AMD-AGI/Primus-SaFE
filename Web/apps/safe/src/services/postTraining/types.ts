@@ -217,6 +217,8 @@ export interface SubmitRequest {
   export: { hf?: boolean; peftAdapter?: boolean }
   tracking: { wandb: { enabled?: boolean; secretId?: string; project?: string; team?: string } }
   evaluation: { enabled?: boolean; benchmarks?: string[]; keepService?: boolean }
+  /** The template the request started from; the run records it with the template's version. */
+  templateId?: string
 }
 
 /** One allowed value of a wizard field, with why it is disabled. */
