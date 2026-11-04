@@ -78,16 +78,20 @@ export function listPostTrainingRuns(params: RunListParams, quiet = false) {
 }
 
 /** Returns a run with its recipe, stage history, output model and evaluations. */
-export function getPostTrainingRun(runId: string) {
-  return request.get<RunDetail>(`/post-training/runs/${runId}`)
+export function getPostTrainingRun(runId: string, quiet = false) {
+  return request.get<RunDetail>(`/post-training/runs/${runId}`, { skipErrorHandler: quiet })
 }
 
 /** Returns a run's metric series, all of them unless names lists patterns, and the markers on them. */
 export function getPostTrainingMetrics(
   runId: string,
   params?: { names?: string; maxPoints?: number },
+  quiet = false,
 ) {
-  return request.get<MetricsResp>(`/post-training/runs/${runId}/metrics`, { params })
+  return request.get<MetricsResp>(`/post-training/runs/${runId}/metrics`, {
+    params,
+    skipErrorHandler: quiet,
+  })
 }
 
 /** The URL of a run's metric points as CSV. */
