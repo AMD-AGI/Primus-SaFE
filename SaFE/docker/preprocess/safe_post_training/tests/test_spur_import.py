@@ -116,6 +116,12 @@ def test_a_run_without_verdict_is_stopped(tmp_path):
     assert s["status"] == "Stopped" and s["verdict"] == ""
     assert "the last marker is done_0" in s["message"]
 
+    root = make_run(str(tmp_path / "j3-2"), verdict="")
+    log = os.path.join(root, "node-h1.log")
+    write(log, "".join(line for line in open(log) if "END b2_sft" not in line))
+    train = next(st for st in spur_import.parse_slime_rocm(root)["stages"] if st["stage"] == "train")
+    assert train["result"] == "running" and train["end"] is None, "a gate without its END line has not ended"
+
 
 def test_a_passed_rl_run(tmp_path):
     s = spur_import.parse_slime_rocm(make_run(str(tmp_path / "j3k-238752"), verdict="PASS", rl=True))

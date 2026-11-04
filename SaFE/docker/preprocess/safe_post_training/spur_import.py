@@ -349,8 +349,10 @@ def stages_of(gates, head, verdict, verdict_time, warnings):
             s["start"] = g["start"]
         if g.get("end") is not None and (s["end"] is None or g["end"] > s["end"]):
             s["end"] = g["end"]
-        if g.get("result", "pass") != "pass":
-            s["result"] = "fail" if g.get("end") is not None else "running"
+        if g.get("end") is None:
+            s["result"] = "fail" if s["result"] == "fail" else "running"
+        elif g.get("result", "pass") != "pass":
+            s["result"] = "fail"
     known = [k for k, _ in STAGES]
     order.sort(key=lambda k: known.index(k) if k in known else len(known) - 1)
     out = [by_stage[k] for k in order]
