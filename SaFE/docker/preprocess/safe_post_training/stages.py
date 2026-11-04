@@ -527,9 +527,26 @@ class Runner:
             raise StageError("export", "the exported model lacks %s" % ", ".join(missing), retry=False)
         result = {"stage": "export", "output": output, "iteration": iteration,
                   "lastMetrics": self.emitter.last_metrics()}
+        adapter = self.adapter_dir(only)
+        if adapter:
+            self.adapter.export_adapter(self.recipe, self.run_dir, self.run_command, iteration, adapter, output)
+            lacking = [n for n in ("adapter_model.safetensors", "adapter_config.json")
+                       if not os.path.exists(os.path.join(adapter, n))]
+            if lacking:
+                raise StageError("export", "the PEFT adapter lacks %s" % ", ".join(lacking), retry=False)
+            result["adapter"] = adapter
         self.write_result(result, os.path.join(only["dir"], "result.json") if only else None)
         self.report_disk()
         return result
+
+    def adapter_dir(self, only):
+        """Return where a LoRA run's PEFT adapter goes when one is asked for: final_adapter/, or next to the model of a
+        checkpoint export; None otherwise."""
+        if not self.recipe.get("lora"):
+            return None
+        if only:
+            return only["dir"].rstrip("/") + "-adapter" if only.get("peftAdapter") else None
+        return self.path("final_adapter") if (self.recipe.get("output") or {}).get("peftAdapter") else None
 
     def write_result(self, result, path=None):
         """Write result.json, which the verification job reads when the result marker is lost."""
