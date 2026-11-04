@@ -143,6 +143,17 @@ export const CHECKPOINTS_CLEANED_EVENT = 'checkpoints-cleaned'
 export const LOST_MESSAGE = 'The launcher has not reported'
 const CLEANUP_HINT_DAYS = 7
 
+/** Exports a kept checkpoint of a finished run as a new model, in its own one-node job. */
+export function exportPostTrainingCheckpoint(
+  runId: string,
+  body: { step: number; displayName?: string; peftAdapter?: boolean },
+) {
+  return request.post<{ runId: string; step: number; workloadId: string }>(
+    `/post-training/runs/${runId}/exports`,
+    body,
+  )
+}
+
 /** Removes a finished run's checkpoints, keeping the one with the best validation loss when keep is 'best'. */
 export function cleanupPostTrainingCheckpoints(runId: string, keep: 'best' | 'none') {
   return request.post<{ runId: string; keep: string }>(

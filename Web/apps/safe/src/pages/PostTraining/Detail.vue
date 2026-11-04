@@ -196,7 +196,12 @@
           </div>
           <div v-if="disk" class="text-[12px] text-[var(--safe-muted)] mb-2">
             Storage · checkpoints {{ formatBytes(checkpointBytes(disk), 1) }} · outputs
-            {{ formatBytes((disk.finalModel ?? 0) + (disk.finalAdapter ?? 0), 1) }}
+            {{
+              formatBytes(
+                (disk.finalModel ?? 0) + (disk.finalAdapter ?? 0) + (disk.exports ?? 0),
+                1,
+              )
+            }}
           </div>
           <el-alert
             v-if="hintBytes > 0"
@@ -223,20 +228,67 @@
                 </span>
               </template>
             </el-table-column>
+            <el-table-column label="Actions" width="170">
+              <template #default="{ row }">
+                <el-tooltip
+                  v-if="!row.deletedBy"
+                  :content="exportTip"
+                  :disabled="!exportTip"
+                  placement="top"
+                >
+                  <span>
+                    <el-button link type="primary" :disabled="!!exportTip" @click="openExport(row)">
+                      Export as Model
+                    </el-button>
+                  </span>
+                </el-tooltip>
+              </template>
+            </el-table-column>
           </el-table>
+          <div v-if="isActive" class="text-[12px] text-[var(--safe-muted)] mt-2">
+            Export becomes available when the run ends. The last step is exported automatically.
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="Outputs" name="outputs">
-          <el-table :data="run.outputModel ? [run.outputModel] : []" size="small">
+          <el-table :data="outputs" size="small">
             <el-table-column label="Model">
               <template #default="{ row }">
-                <el-link type="primary" @click="router.push(`/model-square/detail/${row.id}`)">
-                  {{ row.displayName || row.id }}
+                <el-link
+                  v-if="row.modelId"
+                  type="primary"
+                  @click="router.push(`/model-square/detail/${row.modelId}`)"
+                >
+                  {{ row.name }}
                 </el-link>
+                <span v-else>{{ row.name }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="From" width="160">Last step</el-table-column>
-            <el-table-column label="Status" width="160" prop="phase" />
+            <el-table-column label="From" width="180">
+              <template #default="{ row }">
+                {{ row.from }}
+                <el-tag v-if="row.best" size="small" type="warning" effect="plain">Best</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="Status" min-width="200">
+              <template #default="{ row }">
+                <span :class="{ 'text-[var(--el-color-danger)]': row.failed }">{{
+                  row.status
+                }}</span>
+                <div v-if="row.failed && row.message" class="text-[12px] text-[var(--safe-muted)]">
+                  {{ row.message }}
+                </div>
+                <el-button
+                  v-if="row.failed && row.step !== undefined"
+                  link
+                  type="primary"
+                  :disabled="!!exportTip"
+                  @click="openExport({ step: row.step })"
+                >
+                  Retry
+                </el-button>
+              </template>
+            </el-table-column>
           </el-table>
           <div v-if="run.outputPath" class="text-[13px] mt-2">Path {{ run.outputPath }}</div>
         </el-tab-pane>
@@ -301,6 +353,41 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="exportDialog.visible"
+      :title="`Export Step ${exportDialog.step} as a Model`"
+      width="520px"
+    >
+      <el-form label-position="top">
+        <el-form-item label="Checkpoint">{{ exportDialog.summary }}</el-form-item>
+        <el-form-item label="Model name" required>
+          <el-input v-model="exportDialog.displayName" />
+          <div class="text-[12px] text-[var(--safe-muted)]">
+            Shown in Model Square. Defaults to the run name plus the step.
+          </div>
+        </el-form-item>
+        <el-form-item v-if="run?.method === 'lora'">
+          <el-checkbox v-model="exportDialog.peftAdapter">Also export a PEFT adapter</el-checkbox>
+        </el-form-item>
+      </el-form>
+      <div class="text-[13px]">
+        Runs as a separate 1-node job. The new model is registered as
+        {{ run?.trainType === 'rl' ? 'rl_trained' : 'fine_tuned' }}; this run's status and outputs
+        don't change.
+      </div>
+      <template #footer>
+        <el-button @click="exportDialog.visible = false">Cancel</el-button>
+        <el-button
+          type="primary"
+          :disabled="!exportDialog.displayName.trim()"
+          :loading="exportDialog.loading"
+          @click="confirmExport"
+        >
+          Export
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="cleanupDialog.visible" title="Clean up checkpoints" width="520px">
       <el-radio-group v-model="cleanupDialog.keep" class="flex flex-col items-start">
         <el-radio v-if="canKeepBest" value="best">Keep the best checkpoint</el-radio>
@@ -357,6 +444,7 @@ import {
   cleanupHintBytes,
   cleanupPostTrainingCheckpoints,
   deletePostTrainingRun,
+  exportPostTrainingCheckpoint,
   evaluatePostTrainingRun,
   formatDuration,
   getPostTrainingMetrics,
@@ -436,8 +524,21 @@ const fetchMetrics = async (quiet = false) => {
   }
 }
 
+/** Whether a checkpoint export is still running or its model is not ready yet. */
+const exporting = computed(() =>
+  (run.value?.exports ?? []).some((e) =>
+    e.modelId ? e.modelPhase !== 'Ready' : e.status !== 'Failed' && e.status !== 'Stopped',
+  ),
+)
+
 useIntervalFn(() => {
-  if (!isActive.value && run.value?.stage !== 'eval' && !run.value?.cleanupRequest) return
+  if (
+    !isActive.value &&
+    run.value?.stage !== 'eval' &&
+    !run.value?.cleanupRequest &&
+    !exporting.value
+  )
+    return
   if (visibility.value !== 'visible') return
   fetchRun(true)
   fetchMetrics(true)
@@ -613,6 +714,95 @@ const cleanupTip = computed(() => {
 const canKeepBest = computed(() => {
   const best = checkpoints.value.find((cp) => cp.best)
   return run.value?.trainType === 'sft' && !!best && !best.deletedBy
+})
+
+const exportTip = computed(() => {
+  if (isReadonly.value) return readOnlyTip
+  if (isActive.value) return 'Export becomes available when the run ends.'
+  if (run.value?.cleanupRequest) return 'Cleanup in progress'
+  return ''
+})
+
+const exportDialog = reactive({
+  visible: false,
+  loading: false,
+  step: 0,
+  summary: '',
+  displayName: '',
+  peftAdapter: false,
+})
+
+/** Opens the export dialog for a checkpoint, with the run name plus the step as the model name. */
+const openExport = (cp: { step: number; best?: boolean; valLoss?: number }) => {
+  const parts = [`Step ${cp.step}`]
+  if (cp.best) parts.push('best')
+  if (cp.valLoss !== undefined) parts.push(`val loss ${cp.valLoss.toFixed(3)}`)
+  Object.assign(exportDialog, {
+    visible: true,
+    loading: false,
+    step: cp.step,
+    summary: parts.join(' · '),
+    displayName: `${run.value?.displayName ?? ''}-step${cp.step}`,
+    peftAdapter: false,
+  })
+}
+
+const confirmExport = async () => {
+  exportDialog.loading = true
+  try {
+    await exportPostTrainingCheckpoint(runId.value, {
+      step: exportDialog.step,
+      displayName: exportDialog.displayName.trim(),
+      peftAdapter: exportDialog.peftAdapter || undefined,
+    })
+    ElMessage.success(`Exporting step ${exportDialog.step}`)
+    exportDialog.visible = false
+    tab.value = 'outputs'
+    fetchRun()
+  } finally {
+    exportDialog.loading = false
+  }
+}
+
+/** The run's models: the last step's output and every checkpoint export with its job's state. */
+const outputs = computed(() => {
+  const r = run.value
+  if (!r) return []
+  const bestStep = r.metricSummary?.bestValLoss?.step
+  const rows: {
+    name: string
+    modelId?: string
+    from: string
+    step?: number
+    best: boolean
+    status: string
+    failed: boolean
+    message?: string
+  }[] = []
+  if (r.outputModel) {
+    rows.push({
+      name: r.outputModel.displayName || r.outputModel.id,
+      modelId: r.outputModel.id,
+      from: 'Last step',
+      best: false,
+      status: r.outputModel.phase,
+      failed: false,
+    })
+  }
+  for (const e of r.exports ?? []) {
+    const failed = !e.modelId && (e.status === 'Failed' || e.status === 'Stopped')
+    rows.push({
+      name: e.displayName || `${r.displayName}-step${e.step}`,
+      modelId: e.modelId,
+      from: `Step ${e.step.toLocaleString()}`,
+      step: e.step,
+      best: e.step === bestStep,
+      status: e.modelId ? (e.modelPhase ?? '') : failed ? 'Export failed' : 'Exporting',
+      failed,
+      message: e.message,
+    })
+  }
+  return rows
 })
 
 const cleanupDialog = reactive({ visible: false, loading: false, keep: 'none' as 'best' | 'none' })
