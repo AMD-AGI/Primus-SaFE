@@ -334,6 +334,10 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) 
 		res, err := r.reconcileCleanup(ctx, run)
 		return res, reconcileError("cleanup", err)
 	}
+	if finished(run) && backfillPending(run, newRunUpdate(run).history) {
+		res, err := r.reconcileBackfill(ctx, run)
+		return res, reconcileError("backfill", err)
+	}
 	if finished(run) || run.Stage == "eval" {
 		res, err := r.reconcileEvaluations(ctx, run)
 		return res, reconcileError("evaluate", err)

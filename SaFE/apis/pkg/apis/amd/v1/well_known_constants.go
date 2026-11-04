@@ -365,6 +365,8 @@ const (
 	PostTrainingRoleImportScan  = "import-scan"
 	// PostTrainingRoleEval marks the inference service of an evaluation.
 	PostTrainingRoleEval = "eval"
+	// PostTrainingRoleBackfill marks the read-only workload that backfills a finished run's metric gaps.
+	PostTrainingRoleBackfill = "backfill"
 	// PostTrainingEvaluateAnnotation on a model of a run asks the run controller to evaluate it; the value is
 	// the JSON {"benchmarks": [dataset ids], "keepService": bool}.
 	PostTrainingEvaluateAnnotation = PostTrainingPrefix + "evaluate"
