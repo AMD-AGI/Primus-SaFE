@@ -220,7 +220,7 @@ check_live_sso() {
       echo "Error: cannot read the values of release $chart_name, so its SSO settings are unknown" >&2
       return 1
     fi
-    if ! state=$(jq -r '[(.sso.login.enable // false) == true, ((.sso.bridge_allowlist // []) | length > 0)] | map(tostring) | join(" ")' <<<"$live"); then
+    if ! state=$(jq -r '[((.sso.login.enable // false) | tostring) == "true", ((.sso.bridge_allowlist // []) | length > 0)] | map(tostring) | join(" ")' <<<"$live"); then
       echo "Error: cannot read the SSO settings from the values of release $chart_name" >&2
       return 1
     fi

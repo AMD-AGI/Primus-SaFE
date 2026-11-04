@@ -409,6 +409,12 @@ for jqmode in jq nojq; do
 sso_login_enable=false"
   expect "$jqmode, live allowlist, .env turns sso.login off but leaves the allowlist out: refused" refused
 done
+# helm keeps a value set with --set-string as a string: "true" is on all the same.
+for jqmode in jq nojq; do
+  rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
+  RUN_PATH="${rp:-}" run_upgrade '{"sso":{"enable":true,"login":{"enable":"true"}}}' "$SSO_ON"
+  expect "$jqmode, live sso.login.enable is the string \"true\": refused" refused
+done
 FAKE_GET_FAIL=1 run_upgrade "$LIVE_SSO" "$SSO_ON"
 expect "live SSO values cannot be read: refused" refused
 run_upgrade "$LIVE_SSO" "$SSO_ON
