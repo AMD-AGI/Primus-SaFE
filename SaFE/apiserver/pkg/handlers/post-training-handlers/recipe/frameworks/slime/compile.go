@@ -14,6 +14,7 @@ import (
 	"path"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
@@ -50,6 +51,8 @@ const (
 	asyncRolloutFunction = "slime.rollout.fully_async_rollout.generate_rollout_fully_async"
 	asyncConcurrency     = 128
 	maxConcurrency       = 8192
+	// sglangConfigFile splits the rollout GPUs into Mooncake prefill and decode engines.
+	sglangConfigFile = "sglang.yaml"
 	// valDatasetName names the SFT validation set, so its loss is reported as eval/val/loss.
 	valDatasetName = "val"
 
@@ -113,6 +116,7 @@ func (p plugin) Options(ctx *recipe.Context) *recipe.Options {
 	opts.Fields["advantageEstimator"] = recipe.FieldOptions{Values: []recipe.OptionValue{
 		{Value: recipe.AlgorithmGRPO, Label: "GRPO"}, ppo,
 	}}
+	rolloutOptions(ctx, opts)
 	if opts.Defaults.CriticLr == 0 {
 		opts.Defaults.CriticLr = defaultCriticLr
 	}
@@ -121,6 +125,37 @@ func (p plugin) Options(ctx *recipe.Context) *recipe.Options {
 		opts.Defaults.CriticWarmupRollouts = &warmup
 	}
 	return opts
+}
+
+// rolloutOptions lists the rollout precision, schedule and Mooncake PD values with the reasons for the disabled ones:
+// what the spec, the image and the cluster's registered RDMA devices allow.
+func rolloutOptions(ctx *recipe.Context, opts *recipe.Options) {
+	fs, img := ctx.FrameworkSpec, ctx.Image
+	fp8 := recipe.OptionValue{Value: recipe.RolloutPrecisionFP8, Label: "FP8"}
+	switch {
+	case fs.Rollout == nil || !fs.Rollout.FP8:
+		fp8.Disabled, fp8.Reason = true, "FP8 rollout isn't enabled for spec "+ctx.Spec.Name
+	case !img.HasFeature(registry.FeatureFP8Rollout):
+		fp8.Disabled, fp8.Reason = true, "The image has not been validated for FP8 rollout"
+	}
+	opts.Fields["rolloutPrecision"] = recipe.FieldOptions{Values: []recipe.OptionValue{
+		{Value: "bf16", Label: "BF16"}, fp8,
+	}}
+	async := recipe.OptionValue{Value: recipe.ScheduleAsync, Label: "Fully async"}
+	if !img.HasFeature(registry.FeatureAsync) {
+		async.Disabled, async.Reason = true, "The image has not been validated for fully async"
+	}
+	opts.Fields["schedule"] = recipe.FieldOptions{Values: []recipe.OptionValue{{Value: "sync", Label: "Sync"}, async}}
+	pd := recipe.OptionValue{Value: "on", Label: "On"}
+	switch cluster := ctx.Input.Workspace.Cluster; {
+	case fs.Rollout == nil || !fs.Rollout.PD:
+		pd.Disabled, pd.Reason = true, "Mooncake PD isn't enabled for spec "+ctx.Spec.Name
+	case !img.HasFeature(registry.FeaturePD):
+		pd.Disabled, pd.Reason = true, "The image has not been validated for Mooncake PD"
+	case len(ctx.Input.Registry.Network.RdmaDevices[cluster]) == 0:
+		pd.Disabled, pd.Reason = true, "No RDMA devices are registered for cluster "+cluster
+	}
+	opts.Fields["pd"] = recipe.FieldOptions{Values: []recipe.OptionValue{{Value: "off", Label: "Off"}, pd}}
 }
 
 // normalize returns the request choices with slime's defaults filled in; the result is what the recipe stores and
@@ -175,6 +210,11 @@ func (plugin) normalize(ctx *recipe.Context) recipe.Choices {
 	fill(&c.MaxResponseLen, defaultResponseLen)
 	fill(&c.GpusPerEngine, d["gpusPerEngine"])
 	fill(&c.GpusPerEngine, 1)
+	if c.PD != nil && c.PD.Enabled {
+		pd := *c.PD
+		fill(&pd.PrefillGpus, c.GpusPerEngine)
+		c.PD = &pd
+	}
 	if c.Lr == 0 {
 		c.Lr = 1e-6
 	}
@@ -336,6 +376,11 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		if c.Schedule == recipe.ScheduleAsync {
 			a.add("--rollout-function-path", asyncRolloutFunction, "--skip-eval-before-train")
 		}
+		if c.PD != nil && c.PD.Enabled {
+			a.add("--sglang-config", in.RunDir+"/"+sglangConfigFile,
+				"--sglang-disaggregation-transfer-backend", "mooncake",
+				"--sglang-disaggregation-ib-device", strings.Join(rdmaDevices(in), ","))
+		}
 		if c.Concurrency > 0 {
 			a.add("--sglang-server-concurrency", itoa(c.Concurrency))
 		}
@@ -430,6 +475,13 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 			schedule = recipe.ScheduleAsync
 		}
 		plan.Rollout = map[string]interface{}{"precision": precision, "schedule": schedule, "layout": c.Layout}
+		if pd := c.PD; pd != nil && pd.Enabled {
+			if plan.Files == nil {
+				plan.Files = map[string]string{}
+			}
+			plan.Files[sglangConfigFile] = sglangConfig(pd.PrefillGpus, l.RolloutGpus-pd.PrefillGpus, c.GpusPerEngine)
+			plan.Rollout["pd"] = map[string]interface{}{"prefillGpus": pd.PrefillGpus, "rdmaDevices": rdmaDevices(in)}
+		}
 		if c.AdvantageEstimator == recipe.AlgorithmPPO {
 			plan.Critic = criticPlan(c, in.RunDir)
 		}
@@ -437,6 +489,27 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		plan.Val = &recipe.RecipeVal{Interval: c.ValInterval, MaxSamples: c.ValMaxSamples, Split: c.ValSplit}
 	}
 	return plan, nil
+}
+
+// rdmaDevices returns the RDMA NICs the registry lists for the workspace's cluster, which Mooncake moves the KV
+// cache over.
+func rdmaDevices(in *recipe.Input) []string {
+	return in.Registry.Network.RdmaDevices[in.Workspace.Cluster]
+}
+
+// sglangConfig renders sglang.yaml for Mooncake PD the way slime's configurator does: one model whose weights the
+// rollout updates, served by a prefill and a decode group of engines.
+func sglangConfig(prefill, decode, perEngine int) string {
+	var b strings.Builder
+	b.WriteString("sglang:\n  - name: default\n    update_weights: true\n    server_groups:\n")
+	for _, g := range []struct {
+		role string
+		gpus int
+	}{{"prefill", prefill}, {"decode", decode}} {
+		fmt.Fprintf(&b, "      - worker_type: %s\n        num_gpus: %d\n        num_gpus_per_engine: %d\n",
+			g.role, g.gpus, perEngine)
+	}
+	return b.String()
 }
 
 // criticPlan describes the PPO critic for the adapter: its megatron.yaml entry overrides the actor's arguments with
