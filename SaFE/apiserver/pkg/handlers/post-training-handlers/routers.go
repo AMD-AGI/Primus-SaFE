@@ -40,6 +40,7 @@ func InitRoutes(engine *gin.Engine, h *Handler) {
 	group.POST("/templates", middleware.Audit("post-training"), h.CreateTemplate)
 	group.PUT("/templates/:id", middleware.Audit("post-training"), h.UpdateTemplate)
 	group.DELETE("/templates/:id", middleware.Audit("post-training"), h.DeleteTemplate)
+	group.GET("/runs/:id/samples", h.GetSamples)
 	group.GET("/runs/:id/metrics", h.GetMetrics)
 	group.GET("/runs/:id/metrics/export", h.ExportMetrics)
 }
