@@ -12,6 +12,7 @@ export interface MenuIcons {
   node: IconSet
   cluster: IconSet
   training: IconSet
+  postTraining: IconSet
   torchft: IconSet
   authoring: IconSet
   dataset: IconSet
@@ -56,6 +57,7 @@ export const menuIcons: MenuIcons = {
   node: createIconSet('nodes'),
   cluster: createIconSet('cluster'),
   training: createIconSet('training'),
+  postTraining: createIconSet('post-training'),
   torchft: createIconSet('torchft'),
   authoring: createIconSet('authoring'),
   usermanage: createIconSet('usermanage'),
