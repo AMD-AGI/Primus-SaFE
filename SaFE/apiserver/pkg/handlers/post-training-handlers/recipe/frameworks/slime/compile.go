@@ -33,10 +33,13 @@ const (
 	remoteRewardPlugin = "safe_post_training.frameworks.slime.plugins.remote_rm.remote_rm"
 	customRewardPlugin = "safe_post_training.frameworks.slime.plugins.custom_rm.custom_rm"
 	customRewardEnv    = "PT_CUSTOM_RM"
-	defaultMaxTokens   = 9216
-	defaultResponseLen = 8192
-	defaultValSamples  = 256
-	correctionTIS      = "tis"
+	// sampleRolloutPlugin and sampleEvalPlugin write the sampled responses for the launcher to report.
+	sampleRolloutPlugin = "safe_post_training.frameworks.slime.plugins.sample_log.log_rollout"
+	sampleEvalPlugin    = "safe_post_training.frameworks.slime.plugins.sample_log.log_eval"
+	defaultMaxTokens    = 9216
+	defaultResponseLen  = 8192
+	defaultValSamples   = 256
+	correctionTIS       = "tis"
 	// valDatasetName names the SFT validation set, so its loss is reported as eval/val/loss.
 	valDatasetName = "val"
 )
@@ -213,6 +216,11 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		if c.NSamplesPerPrompt > 1 {
 			// Pass@k needs several samples per prompt.
 			a.add("--log-passrate")
+		}
+		if fw := in.Registry.FrameworkByName(Name); fw != nil && fw.Metrics.Samples != nil &&
+			(fw.Metrics.Samples.RolloutGroups > 0 || fw.Metrics.Samples.EvalPerSet > 0) {
+			a.add("--custom-rollout-log-function-path", sampleRolloutPlugin,
+				"--custom-eval-rollout-log-function-path", sampleEvalPlugin)
 		}
 		a.add("--advantage-estimator", c.AdvantageEstimator)
 		if *c.UseKlLoss {

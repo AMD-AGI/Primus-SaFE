@@ -859,7 +859,7 @@ func assemble(ctx *Context, fw *registry.Framework, plan *FrameworkPlan) *Recipe
 		Critic:        plan.Critic,
 		Checkpoint:    ctx.Spec.Checkpoint,
 		Watchdog:      ctx.Spec.Watchdog,
-		Metrics:       RecipeMetrics{Include: fw.Metrics.Include},
+		Metrics:       RecipeMetrics{Include: fw.Metrics.Include, Samples: rlSamples(req, fw)},
 		Convert:       plan.Convert,
 		Output:        RecipeOutput{Base: in.RunDir, ExportHF: exportHF, PeftAdapter: req.Export.PeftAdapter},
 		Provenance: Provenance{Compiler: CompilerVersion, FrameworkCommit: ctx.Image.FrameworkCommit,
@@ -882,6 +882,15 @@ func assemble(ctx *Context, fw *registry.Framework, plan *FrameworkPlan) *Recipe
 	}
 	r.Provenance.RecipeHash = Hash(r)
 	return r
+}
+
+// rlSamples returns the RL sample limits of the framework for an RL request, or nil.
+func rlSamples(req *SubmitRequest, fw *registry.Framework) *registry.Samples {
+	if req.TrainType != registry.TrainTypeRL || fw.Metrics.Samples == nil {
+		return nil
+	}
+	samples := *fw.Metrics.Samples
+	return &samples
 }
 
 // hashInput is the part of a recipe that decides whether two runs are the same configuration. Run ids, names,
