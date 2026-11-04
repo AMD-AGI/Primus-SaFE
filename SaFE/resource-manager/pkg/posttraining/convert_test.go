@@ -23,9 +23,9 @@ func TestConvertMarkerRegistersTheCache(t *testing.T) {
 	in := newTestIngestion(100)
 	feed(in, stageLine("a1", "convert", "running", ""),
 		stageLine("a1", "convert", "skipped", `{"cacheKey":"slime-qwen3-8B-m1-abc",`+
-			`"dir":"/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m1-abc","sizeBytes":42}`))
+			`"dir":"/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m1-abc","fp8":true,"sizeBytes":42}`))
 	require.Equal(t, &conversionDetail{CacheKey: "slime-qwen3-8B-m1-abc",
-		Dir: "/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m1-abc", SizeBytes: 42}, in.conversion)
+		Dir: "/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m1-abc", SizeBytes: 42, FP8: true}, in.conversion)
 	require.Equal(t, "convert", in.u.stage)
 
 	plain := newTestIngestion(100)
@@ -39,7 +39,8 @@ func TestConvertMarkerRegistersTheCache(t *testing.T) {
 		func(_ context.Context, cache *dbclient.PostTrainingConvertCache) error {
 			require.Equal(t, dbclient.PostTrainingConvertCache{Workspace: "ws1", Framework: "slime",
 				CacheKey: "slime-qwen3-8B-m1-abc", ModelID: "qwen3-8b", Status: dbclient.ConvertCacheReady,
-				Path: "/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m1-abc", SizeBytes: 42}, *cache)
+				Path: "/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m1-abc", SizeBytes: 42, FP8Ready: true},
+				*cache, "the FP8 weights the launcher found are on record for the next FP8 rollout")
 			return nil
 		})
 	r.registerConversion(context.Background(), run, in.conversion)

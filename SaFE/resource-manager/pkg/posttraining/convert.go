@@ -40,6 +40,7 @@ func (r *RunReconciler) registerConversion(ctx context.Context, run *dbclient.Po
 		ModelID:   run.BaseModelID,
 		Path:      conversion.Dir,
 		Status:    dbclient.ConvertCacheReady,
+		FP8Ready:  conversion.FP8,
 		SizeBytes: conversion.SizeBytes,
 	}
 	if cache.Framework == "" {
