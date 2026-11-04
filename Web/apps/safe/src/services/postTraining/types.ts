@@ -283,6 +283,53 @@ export interface NullString {
   Valid: boolean
 }
 
+/** A nullable number column. */
+export interface NullFloat {
+  Float64: number
+  Valid: boolean
+}
+
+/** A stored RL sample of a rollout or an evaluation; file names the run folder file of a truncated one. */
+export interface RunSample {
+  id: number
+  runId: string
+  kind: SampleKind
+  step: number
+  dataset: string
+  group: number
+  index: number
+  prompt: string
+  response: string
+  label: NullString
+  reward: NullFloat
+  rewardDetail: NullString
+  status: string
+  tokens: number
+  promptChars: number
+  responseChars: number
+  wallTime: string
+  file?: string
+}
+
+export type SampleKind = 'rollout' | 'eval'
+
+/** A step that has samples, with how many, per dataset. */
+export interface SampleStep {
+  step: number
+  dataset: string
+  count: number
+}
+
+/** GET /post-training/runs/:id/samples: one step of a run's samples and the steps that have samples. */
+export interface SamplesResp {
+  kind: SampleKind
+  step: number | null
+  dataset: string
+  steps: SampleStep[]
+  samples: RunSample[]
+  capped: boolean
+}
+
 /** An evaluation task of a run; the API returns the database row with its Go field names. */
 export interface EvaluationTaskRow {
   TaskId: string
