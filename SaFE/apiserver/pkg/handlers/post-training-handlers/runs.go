@@ -373,27 +373,34 @@ func (h *Handler) DeleteRun(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	ctx := c.Request.Context()
-	message := fmt.Sprintf("the run is deleted by %s", c.GetString(common.UserName))
-	if err := h.stopWorkload(ctx, run.WorkloadID, message); err != nil {
+	if err := h.deleteRun(c, run, c.Query("deleteModel") == "true"); err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	if c.Query("deleteModel") == "true" && run.OutputModelID != "" {
+	c.JSON(http.StatusOK, gin.H{"runId": run.RunID})
+}
+
+// deleteRun stops the run's workload, deletes its output model when asked and soft-deletes the run with its metric
+// points.
+func (h *Handler) deleteRun(c *gin.Context, run *dbclient.PostTrainingRun, deleteModel bool) error {
+	ctx := c.Request.Context()
+	message := fmt.Sprintf("the run is deleted by %s", c.GetString(common.UserName))
+	if err := h.stopWorkload(ctx, run.WorkloadID, message); err != nil {
+		return err
+	}
+	if deleteModel && run.OutputModelID != "" {
 		m := &v1.Model{}
 		m.Name = run.OutputModelID
 		if err := h.client.Delete(ctx, m); err != nil && !apierrors.IsNotFound(err) {
-			apiutils.AbortWithApiError(c, err)
-			return
+			return err
 		}
 	}
 	if err := h.db.SetPostTrainingRunDeleted(ctx, run.RunID); err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to delete the run: "+err.Error()))
-		return
+		return commonerrors.NewInternalError("failed to delete the run: " + err.Error())
 	}
 	if err := h.db.DeletePostTrainingRunMetrics(ctx, run.RunID); err != nil {
 		klog.ErrorS(err, "failed to delete the run's metric points", "run", run.RunID)
 	}
 	klog.Infof("delete post training run %s by user %s", run.RunID, c.GetString(common.UserName))
-	c.JSON(http.StatusOK, gin.H{"runId": run.RunID})
+	return nil
 }
