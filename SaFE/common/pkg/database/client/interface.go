@@ -40,6 +40,7 @@ type Interface interface {
 	WorkloadDispatchNodeInterface
 	PostTrainingRunInterface
 	PostTrainingRunMetricInterface
+	PostTrainingConvertCacheInterface
 }
 
 type WorkloadInterface interface {
@@ -295,6 +296,16 @@ type PostTrainingRunInterface interface {
 	ListPostTrainingRuns(ctx context.Context, filter PostTrainingRunFilter) ([]*PostTrainingRun, int64, error)
 	UpdatePostTrainingRun(ctx context.Context, runID string, fields map[string]interface{}) error
 	SetPostTrainingRunDeleted(ctx context.Context, runID string) error
+}
+
+// PostTrainingConvertCacheInterface defines database operations for the shared weight conversions of Post
+// Training.
+type PostTrainingConvertCacheInterface interface {
+	GetPostTrainingConvertCache(ctx context.Context, workspace, cacheKey string) (*PostTrainingConvertCache, error)
+	UpsertPostTrainingConvertCache(ctx context.Context, cache *PostTrainingConvertCache) error
+	ListPostTrainingConvertCaches(ctx context.Context, filter PostTrainingConvertCacheFilter) ([]*PostTrainingConvertCache, error)
+	UpdatePostTrainingConvertCache(ctx context.Context, id int64, fields map[string]interface{}) error
+	DeletePostTrainingConvertCache(ctx context.Context, id int64) error
 }
 
 // PostTrainingRunMetricInterface defines database operations for the metric points of Post Training runs.
