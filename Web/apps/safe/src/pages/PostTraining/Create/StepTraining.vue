@@ -118,6 +118,47 @@
             The critic shares the actor's GPUs and keeps its own checkpoints. {{ criticNote }}
           </div>
         </el-collapse-item>
+
+        <el-collapse-item title="Rollout engine" name="engine">
+          <div class="pt-grid">
+            <div>
+              <div class="pt-label">Rollout precision</div>
+              <el-segmented v-model="rolloutPrecision" :options="segments(precisionValues)" />
+            </div>
+            <div>
+              <div class="pt-label">KV cache</div>
+              <el-segmented v-model="kvCache" :options="KV_CACHE" />
+            </div>
+            <div>
+              <div class="pt-label">Schedule</div>
+              <el-segmented v-model="schedule" :options="segments(scheduleValues)" />
+            </div>
+            <NumberField
+              v-if="schedule === 'async'"
+              label="Concurrency"
+              field="concurrency"
+              :min="1"
+            />
+            <div>
+              <div class="pt-label">Prefill / decode (Mooncake)</div>
+              <el-segmented v-model="pd" :options="segments(pdValues)" />
+            </div>
+            <div v-if="pd === 'on'">
+              <div class="pt-label">Prefill GPUs</div>
+              <el-input-number v-model="prefillGpus" :min="1" controls-position="right" />
+            </div>
+          </div>
+          <div v-if="schedule === 'async'" class="pt-help">
+            Fully async keeps generating across weight updates and skips eval during training.
+          </div>
+          <div v-if="pd === 'on'" class="pt-help">
+            Needs at least 2 rollout engines: one for prefill, one for decode.
+          </div>
+          <div v-for="o in unavailable" :key="o.label" class="pt-help">
+            {{ o.label }} is not available: {{ o.reason }}
+          </div>
+          <div v-for="msg in engineErrors" :key="msg" class="pt-error">{{ msg }}</div>
+        </el-collapse-item>
       </template>
 
       <el-collapse-item title="Freezing & checkpoints" name="checkpoints">
@@ -182,14 +223,22 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, ref } from 'vue'
 import { ElInputNumber } from 'element-plus'
-import type { Choices, LoraChoice } from '@/services/postTraining'
+import type { Choices, LoraChoice, OptionValue } from '@/services/postTraining'
 import { useWizard } from './wizard'
 
 const w = useWizard()
 
 const sft = computed(() => w.form.trainType === 'sft')
 const hasValidation = computed(() => !!w.form.evalDatasetId || !!w.form.choices.valSplit)
-const open = ref(['optimization', 'validation', 'reward', 'policy', 'checkpoints', 'lora'])
+const open = ref([
+  'optimization',
+  'validation',
+  'reward',
+  'policy',
+  'engine',
+  'checkpoints',
+  'lora',
+])
 const defaults = computed(() => w.config.value?.options?.defaults ?? ({} as Choices))
 
 type NumericChoice = {
@@ -257,6 +306,96 @@ const criticNote = computed(() => {
 const correction = computed({
   get: () => w.form.choices.correction ?? defaults.value.correction ?? '',
   set: (v: string) => (w.form.choices.correction = v || undefined),
+})
+
+const KV_CACHE = [
+  { label: 'BF16', value: 'bf16' },
+  { label: 'FP8', value: 'fp8' },
+]
+const layout = computed(() => w.form.choices.layout ?? defaults.value.layout ?? 'colocate')
+
+/** The segments of an option field. */
+const segments = (values: OptionValue[]) =>
+  values.map((o) => ({ label: o.label, value: o.value, disabled: o.disabled }))
+/** Disables a value the layout or the algorithm rules out, unless the config already did. */
+const rule = (o: OptionValue, why: string) =>
+  o.disabled || !why ? o : { ...o, disabled: true, reason: why }
+
+const precisionValues = computed(() => w.fieldValues('rolloutPrecision'))
+const scheduleValues = computed(() =>
+  w
+    .fieldValues('schedule')
+    .map((o) =>
+      o.value !== 'async'
+        ? o
+        : rule(
+            o,
+            algorithm.value === 'ppo'
+              ? 'Fully async supports GRPO only.'
+              : layout.value !== 'separate'
+                ? 'Fully async needs the disaggregated layout.'
+                : '',
+          ),
+    ),
+)
+const pdValues = computed(() =>
+  w
+    .fieldValues('pd')
+    .map((o) =>
+      o.value === 'on'
+        ? rule(o, layout.value !== 'separate' ? 'Mooncake PD needs the disaggregated layout.' : '')
+        : o,
+    ),
+)
+/** Why the disabled rollout engine values cannot be picked. */
+const unavailable = computed(() => [
+  ...precisionValues.value
+    .filter((o) => o.disabled)
+    .map((o) => ({ label: `${o.label} rollout`, reason: o.reason })),
+  ...scheduleValues.value
+    .filter((o) => o.disabled)
+    .map((o) => ({ label: o.label, reason: o.reason })),
+  ...pdValues.value
+    .filter((o) => o.disabled)
+    .map((o) => ({ label: 'Mooncake PD', reason: o.reason })),
+])
+const engineErrors = computed(() =>
+  [
+    'choices.rolloutPrecision',
+    'choices.kvCacheDtype',
+    'choices.schedule',
+    'choices.pd',
+    'choices.pd.prefillGpus',
+  ]
+    .map(fieldError)
+    .filter(Boolean),
+)
+
+const rolloutPrecision = computed({
+  get: () => w.form.choices.rolloutPrecision ?? 'bf16',
+  set: (v: string) => (w.form.choices.rolloutPrecision = v === 'bf16' ? undefined : v),
+})
+const kvCache = computed({
+  get: () => (w.form.choices.kvCacheDtype ? 'fp8' : 'bf16'),
+  set: (v: string) => (w.form.choices.kvCacheDtype = v === 'fp8' ? 'fp8_e4m3' : undefined),
+})
+const schedule = computed({
+  get: () => w.form.choices.schedule ?? 'sync',
+  set: (v: string) => (w.form.choices.schedule = v === 'sync' ? undefined : v),
+})
+const pd = computed({
+  get: () => (w.form.choices.pd?.enabled ? 'on' : 'off'),
+  set: (v: string) => (w.form.choices.pd = v === 'on' ? { enabled: true } : undefined),
+})
+const prefillGpus = computed({
+  get: () =>
+    w.form.choices.pd?.prefillGpus ??
+    w.form.choices.gpusPerEngine ??
+    defaults.value.gpusPerEngine ??
+    1,
+  set: (v: number | undefined) => {
+    if (w.form.choices.pd) w.form.choices.pd = { ...w.form.choices.pd, prefillGpus: v ?? undefined }
+  },
 })
 
 const lora = computed<LoraChoice>(() => w.form.choices.lora ?? defaults.value.lora ?? {})

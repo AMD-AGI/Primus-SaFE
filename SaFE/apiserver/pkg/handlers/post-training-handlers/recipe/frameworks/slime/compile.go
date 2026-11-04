@@ -120,6 +120,9 @@ func (p plugin) Options(ctx *recipe.Context) *recipe.Options {
 	if opts.Defaults.CriticLr == 0 {
 		opts.Defaults.CriticLr = defaultCriticLr
 	}
+	if opts.Defaults.Concurrency == 0 {
+		opts.Defaults.Concurrency = asyncConcurrency
+	}
 	if opts.Defaults.CriticWarmupRollouts == nil {
 		warmup := defaultCriticWarmup
 		opts.Defaults.CriticWarmupRollouts = &warmup

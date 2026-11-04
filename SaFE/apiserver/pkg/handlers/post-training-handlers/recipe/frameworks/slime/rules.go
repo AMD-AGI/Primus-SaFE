@@ -267,6 +267,9 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 		if cluster := ctx.Input.Workspace.Cluster; len(rdmaDevices(ctx.Input)) == 0 {
 			fail("choices.pd", "Mooncake PD needs the RDMA devices of cluster %s in the registry", cluster)
 		}
+		if l.Colocate {
+			fail("choices.pd", "Mooncake PD needs separate training and rollout GPUs")
+		}
 		// A request takes a prefill and then a decode engine, so the smaller group bounds the requests in flight.
 		engines = min(prefill/c.GpusPerEngine, decode/c.GpusPerEngine)
 	}

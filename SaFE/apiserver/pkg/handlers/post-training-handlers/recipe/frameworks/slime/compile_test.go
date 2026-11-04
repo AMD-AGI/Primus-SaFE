@@ -580,6 +580,8 @@ func TestFullyAsyncKeepsGenerating(t *testing.T) {
 	require.Equal(t, recipe.ScheduleAsync, res.Recipe.Rollout["schedule"])
 	require.Contains(t, warningsOf(res), "Fully async does not evaluate during training")
 	require.Contains(t, warningsOf(res), "Fully async without a train-inference correction")
+	opts, _ := recipe.FrameworkOptions(qwen3Input(t, registry.TrainTypeRL))
+	require.Equal(t, asyncConcurrency, opts.Defaults.Concurrency, "the wizard shows what an async run gets")
 
 	in.Request.Choices.Concurrency, in.Request.Choices.NSamplesPerPrompt = 1, 16
 	require.Contains(t, errorsOf(in), "Fully async needs concurrency × rollout engines (1 × 4) of at least the "+
@@ -621,6 +623,9 @@ func TestMooncakePDSplitsTheRollout(t *testing.T) {
 		"a request needs a prefill and a decode engine, and there is one prefill engine")
 
 	in.Request.Choices.Schedule, in.Request.Choices.Concurrency = "", 0
+	in.Request.Choices.Layout = recipe.LayoutColocate
+	require.Contains(t, errorsOf(in), "Mooncake PD needs separate training and rollout GPUs")
+	in.Request.Choices.Layout = recipe.LayoutSeparate
 	in.Registry.Network.RdmaDevices = nil
 	require.Contains(t, errorsOf(in), "Mooncake PD needs the RDMA devices of cluster c1 in the registry")
 	opts, _ = recipe.FrameworkOptions(in)
