@@ -56,6 +56,13 @@
             </el-button>
           </span>
         </el-tooltip>
+        <el-button
+          v-if="router.hasRoute('PostTrainingTemplates')"
+          round
+          @click="router.push('/post-training/templates')"
+        >
+          Templates
+        </el-button>
         <el-tooltip v-if="canCompare" :content="compareTip" :disabled="!compareTip" placement="top">
           <span>
             <el-button round :disabled="!!compareTip" @click="goCompare">
