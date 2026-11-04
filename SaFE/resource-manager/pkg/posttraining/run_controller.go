@@ -341,6 +341,11 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) 
 		res, err := r.reconcileBackfill(ctx, run)
 		return res, reconcileError("backfill", err)
 	}
+	if finished(run) {
+		if err := r.reconcileExports(ctx, run); err != nil {
+			return ctrlruntime.Result{}, reconcileError("export", err)
+		}
+	}
 	if finished(run) || run.Stage == "eval" {
 		res, err := r.reconcileEvaluations(ctx, run)
 		return res, reconcileError("evaluate", err)

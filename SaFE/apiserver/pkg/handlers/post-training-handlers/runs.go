@@ -268,6 +268,19 @@ func (h *Handler) planCleanup(ctx context.Context, run *dbclient.PostTrainingRun
 	if run.CleanupRequest != "" {
 		return "", commonerrors.NewConflict(fmt.Sprintf("a checkpoint cleanup of run %s is in progress", run.RunID))
 	}
+	exports, err := h.listExports(ctx, run.RunID)
+	if err != nil {
+		return "", commonerrors.NewInternalError("failed to list the run's exports: " + err.Error())
+	}
+	for _, e := range exports {
+		switch v1.WorkloadPhase(e.Status) {
+		case v1.WorkloadSucceeded, v1.WorkloadFailed, v1.WorkloadStopped:
+		default:
+			if e.WorkloadID != "" {
+				return "", commonerrors.NewConflict(fmt.Sprintf("step %d of run %s is being exported", e.Step, run.RunID))
+			}
+		}
+	}
 	var rec recipe.Recipe
 	if err := json.Unmarshal([]byte(run.Recipe), &rec); err != nil || rec.Output.Base == "" {
 		return "", commonerrors.NewInternalError(fmt.Sprintf("run %s has no run directory", run.RunID))
