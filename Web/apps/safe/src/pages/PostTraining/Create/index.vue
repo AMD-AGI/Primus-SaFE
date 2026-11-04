@@ -50,8 +50,17 @@
     <section class="pt-step-body">
       <el-card class="safe-card" shadow="never">
         <div class="font-500 mb-3">{{ steps[step - 1] }}</div>
-        <component :is="stepComponents[step - 1]" @changed="onChanged" @preset="applyPreset" />
+        <component
+          :is="stepComponents[step - 1]"
+          @changed="onChanged"
+          @preset="applyPreset"
+          @confirmed="(all: boolean) => (warningsConfirmed = all)"
+        />
       </el-card>
+      <div v-if="submitError" class="mt-3 text-[13px] text-[var(--el-color-danger)]">
+        <div>{{ submitError }}</div>
+        <div v-for="(d, i) in submitDiagnostics" :key="i">· {{ d.message }}</div>
+      </div>
       <div class="flex items-center justify-end gap-2 mt-3">
         <el-button round @click="router.push('/post-training')">Cancel</el-button>
         <el-button round :disabled="step === 1" @click="step--">Back</el-button>
@@ -64,6 +73,20 @@
         >
           Next: {{ steps[step] }}
         </el-button>
+        <el-tooltip v-else :content="submitBlocked" :disabled="!submitBlocked" placement="top">
+          <span>
+            <el-button
+              type="primary"
+              round
+              class="text-black"
+              :disabled="!!submitBlocked"
+              :loading="submitting"
+              @click="submit"
+            >
+              Submit
+            </el-button>
+          </span>
+        </el-tooltip>
       </div>
     </section>
 
@@ -76,13 +99,25 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { Check } from '@element-plus/icons-vue'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { getPostTrainingRun, type Choices, type PostTrainingRun } from '@/services/postTraining'
+import { useUserStore } from '@/stores/user'
+import {
+  getPostTrainingRun,
+  submitPostTrainingRun,
+  type Choices,
+  type Diagnostic,
+  type PostTrainingRun,
+  type SubmitResp,
+} from '@/services/postTraining'
 import PreflightPanel from './PreflightPanel.vue'
 import StepTask from './StepTask.vue'
 import StepData from './StepData.vue'
 import StepResources from './StepResources.vue'
+import StepTraining from './StepTraining.vue'
+import StepOutputs from './StepOutputs.vue'
+import StepReview from './StepReview.vue'
 import { STEPS, createWizard, newRequest, provideWizard } from './wizard'
 
 defineOptions({ name: 'PostTrainingCreatePage' })
@@ -94,7 +129,14 @@ const wsStore = useWorkspaceStore()
 const w = createWizard(wsStore.currentWorkspaceId ?? '', wsStore.currentNodeFlavor)
 provideWizard(w)
 
-const stepComponents: Component[] = [StepTask, StepData, StepResources]
+const stepComponents: Component[] = [
+  StepTask,
+  StepData,
+  StepResources,
+  StepTraining,
+  StepOutputs,
+  StepReview,
+]
 const steps = STEPS.slice(0, stepComponents.length)
 const step = ref(1)
 const visited = reactive(new Set<number>([1]))
@@ -135,8 +177,67 @@ const summary = (s: number) => {
         f.trainType === 'rl' && f.choices.layout === 'separate' ? ' · disaggregated' : ''
       return `${f.resources.nodes} node${f.resources.nodes === 1 ? '' : 's'}${layout}`
     }
+    case 4:
+      return f.method === 'lora'
+        ? `LoRA rank ${f.choices.lora?.rank ?? 16}`
+        : 'Spec defaults unless changed'
+    case 5:
+      return [
+        f.export.hf === false ? 'No export' : 'HF export',
+        f.evaluation.enabled ? 'evaluation' : '',
+      ]
+        .filter(Boolean)
+        .join(' · ')
     default:
-      return ''
+      return f.displayName
+  }
+}
+
+const userStore = useUserStore()
+const warningsConfirmed = ref(false)
+const submitting = ref(false)
+const submitError = ref('')
+const submitDiagnostics = ref<Diagnostic[]>([])
+
+/** Why the run cannot be submitted yet, or an empty string. */
+const submitBlocked = computed(() => {
+  if (userStore.isReadonlyManager) return 'Read-only access'
+  if (w.models.value?.pausedReason) return `New runs are paused. ${w.models.value.pausedReason}`
+  if (w.previewError.value) return 'Preflight unavailable'
+  if (w.errors.value.length) return 'Fix the errors in the preflight first.'
+  if (!w.form.displayName.trim()) return 'Name the run.'
+  if (!warningsConfirmed.value) return 'Confirm the warnings.'
+  return ''
+})
+
+type SubmitFailure = {
+  response?: { status?: number; data?: { errorMessage?: string; diagnostics?: Diagnostic[] } }
+}
+
+/** Submits the run and opens it; a request that no longer compiles shows the compiler's findings. */
+const submit = async () => {
+  submitting.value = true
+  submitError.value = ''
+  submitDiagnostics.value = []
+  try {
+    const res = (await submitPostTrainingRun(
+      JSON.parse(JSON.stringify(w.form)),
+    )) as unknown as SubmitResp
+    ElMessage.success(`Run ${res.runId} submitted`)
+    router.push(
+      router.hasRoute('PostTrainingDetail')
+        ? { path: '/post-training/detail', query: { runId: res.runId } }
+        : { path: '/post-training' },
+    )
+  } catch (err) {
+    const resp = (err as SubmitFailure)?.response
+    submitError.value =
+      resp?.status === 503
+        ? `Submission is paused: ${resp.data?.errorMessage ?? ''}`
+        : (resp?.data?.errorMessage ?? `Submission failed: ${String(err)}`)
+    submitDiagnostics.value = resp?.data?.diagnostics ?? []
+  } finally {
+    submitting.value = false
   }
 }
 
