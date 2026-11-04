@@ -71,6 +71,8 @@ export interface PostTrainingRun {
   timeout: number
   outputPath?: string
   outputModelId?: string
+  /** The PEFT adapter a LoRA run exported next to its output model. */
+  outputAdapterPath?: string
   status: RunStatus
   stage: RunStage
   failedStage?: string
