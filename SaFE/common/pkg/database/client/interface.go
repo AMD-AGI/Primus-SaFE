@@ -44,6 +44,7 @@ type Interface interface {
 	PostTrainingTemplateInterface
 	PostTrainingExperimentInterface
 	PostTrainingRunSampleInterface
+	PostTrainingImportInterface
 }
 
 type WorkloadInterface interface {
@@ -309,6 +310,19 @@ type PostTrainingRunSampleInterface interface {
 	ListPostTrainingRunSamples(ctx context.Context, filter PostTrainingRunSampleFilter) ([]*PostTrainingRunSample, error)
 	ListPostTrainingRunSampleSteps(ctx context.Context, runID, kind string) ([]PostTrainingRunSampleStep, error)
 	DeletePostTrainingRunSamples(ctx context.Context, runID string, afterStep *int) error
+}
+
+// PostTrainingImportInterface defines database operations for the Spur imports of Post Training and their tokens.
+type PostTrainingImportInterface interface {
+	CreatePostTrainingImportToken(ctx context.Context, t *PostTrainingImportToken) error
+	GetPostTrainingImportToken(ctx context.Context, tokenID string) (*PostTrainingImportToken, error)
+	GetPostTrainingImportTokenByHash(ctx context.Context, hash string) (*PostTrainingImportToken, error)
+	SetPostTrainingImportTokenError(ctx context.Context, tokenID, message string) error
+	SavePostTrainingImport(ctx context.Context, w PostTrainingImportWrite) error
+	GetPostTrainingImport(ctx context.Context, importID string) (*PostTrainingImport, error)
+	GetPostTrainingImportByRun(ctx context.Context, runID string) (*PostTrainingImport, error)
+	GetPostTrainingImportByPathKey(ctx context.Context, pathKey string) (*PostTrainingImport, error)
+	DeletePostTrainingImportOfRun(ctx context.Context, runID string) error
 }
 
 // PostTrainingTemplateInterface defines database operations for the recipe templates of Post Training.
