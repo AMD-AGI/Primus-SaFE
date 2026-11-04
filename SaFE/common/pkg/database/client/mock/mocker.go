@@ -512,6 +512,20 @@ func (mr *MockInterfaceMockRecorder) DeleteOptimizationTask(ctx, id interface{})
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOptimizationTask", reflect.TypeOf((*MockInterface)(nil).DeleteOptimizationTask), ctx, id)
 }
 
+// DeletePostTrainingConvertCache mocks base method.
+func (m *MockInterface) DeletePostTrainingConvertCache(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePostTrainingConvertCache", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePostTrainingConvertCache indicates an expected call of DeletePostTrainingConvertCache.
+func (mr *MockInterfaceMockRecorder) DeletePostTrainingConvertCache(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePostTrainingConvertCache", reflect.TypeOf((*MockInterface)(nil).DeletePostTrainingConvertCache), ctx, id)
+}
+
 // DeletePostTrainingRunMetrics mocks base method.
 func (m *MockInterface) DeletePostTrainingRunMetrics(ctx context.Context, runID string) error {
 	m.ctrl.T.Helper()
@@ -1071,6 +1085,21 @@ func (mr *MockInterfaceMockRecorder) GetPlatformKeyByUserId(ctx, userId interfac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPlatformKeyByUserId", reflect.TypeOf((*MockInterface)(nil).GetPlatformKeyByUserId), ctx, userId)
 }
 
+// GetPostTrainingConvertCache mocks base method.
+func (m *MockInterface) GetPostTrainingConvertCache(ctx context.Context, workspace, cacheKey string) (*client.PostTrainingConvertCache, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingConvertCache", ctx, workspace, cacheKey)
+	ret0, _ := ret[0].(*client.PostTrainingConvertCache)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingConvertCache indicates an expected call of GetPostTrainingConvertCache.
+func (mr *MockInterfaceMockRecorder) GetPostTrainingConvertCache(ctx, workspace, cacheKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingConvertCache", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingConvertCache), ctx, workspace, cacheKey)
+}
+
 // GetPostTrainingRun mocks base method.
 func (m *MockInterface) GetPostTrainingRun(ctx context.Context, runID string) (*client.PostTrainingRun, error) {
 	m.ctrl.T.Helper()
@@ -1448,6 +1477,21 @@ func (m *MockInterface) ListPendingEmailOutbox(ctx context.Context, limit int) (
 func (mr *MockInterfaceMockRecorder) ListPendingEmailOutbox(ctx, limit interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPendingEmailOutbox", reflect.TypeOf((*MockInterface)(nil).ListPendingEmailOutbox), ctx, limit)
+}
+
+// ListPostTrainingConvertCaches mocks base method.
+func (m *MockInterface) ListPostTrainingConvertCaches(ctx context.Context, filter client.PostTrainingConvertCacheFilter) ([]*client.PostTrainingConvertCache, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingConvertCaches", ctx, filter)
+	ret0, _ := ret[0].([]*client.PostTrainingConvertCache)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPostTrainingConvertCaches indicates an expected call of ListPostTrainingConvertCaches.
+func (mr *MockInterfaceMockRecorder) ListPostTrainingConvertCaches(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingConvertCaches", reflect.TypeOf((*MockInterface)(nil).ListPostTrainingConvertCaches), ctx, filter)
 }
 
 // ListPostTrainingRunMetricNames mocks base method.
@@ -2144,6 +2188,20 @@ func (mr *MockInterfaceMockRecorder) UpdateOptimizationTaskStatus(ctx, id, statu
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOptimizationTaskStatus", reflect.TypeOf((*MockInterface)(nil).UpdateOptimizationTaskStatus), ctx, id, status, currentPhase, message)
 }
 
+// UpdatePostTrainingConvertCache mocks base method.
+func (m *MockInterface) UpdatePostTrainingConvertCache(ctx context.Context, id int64, fields map[string]interface{}) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePostTrainingConvertCache", ctx, id, fields)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdatePostTrainingConvertCache indicates an expected call of UpdatePostTrainingConvertCache.
+func (mr *MockInterfaceMockRecorder) UpdatePostTrainingConvertCache(ctx, id, fields interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostTrainingConvertCache", reflect.TypeOf((*MockInterface)(nil).UpdatePostTrainingConvertCache), ctx, id, fields)
+}
+
 // UpdatePostTrainingRun mocks base method.
 func (m *MockInterface) UpdatePostTrainingRun(ctx context.Context, runID string, fields map[string]interface{}) error {
 	m.ctrl.T.Helper()
@@ -2310,6 +2368,20 @@ func (m *MockInterface) UpsertOptimizationTask(ctx context.Context, task *client
 func (mr *MockInterfaceMockRecorder) UpsertOptimizationTask(ctx, task interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertOptimizationTask", reflect.TypeOf((*MockInterface)(nil).UpsertOptimizationTask), ctx, task)
+}
+
+// UpsertPostTrainingConvertCache mocks base method.
+func (m *MockInterface) UpsertPostTrainingConvertCache(ctx context.Context, cache *client.PostTrainingConvertCache) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertPostTrainingConvertCache", ctx, cache)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertPostTrainingConvertCache indicates an expected call of UpsertPostTrainingConvertCache.
+func (mr *MockInterfaceMockRecorder) UpsertPostTrainingConvertCache(ctx, cache interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertPostTrainingConvertCache", reflect.TypeOf((*MockInterface)(nil).UpsertPostTrainingConvertCache), ctx, cache)
 }
 
 // UpsertRegistryInfo mocks base method.
@@ -5256,6 +5328,101 @@ func (m *MockPostTrainingRunInterface) UpdatePostTrainingRun(ctx context.Context
 func (mr *MockPostTrainingRunInterfaceMockRecorder) UpdatePostTrainingRun(ctx, runID, fields interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostTrainingRun", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).UpdatePostTrainingRun), ctx, runID, fields)
+}
+
+// MockPostTrainingConvertCacheInterface is a mock of PostTrainingConvertCacheInterface interface.
+type MockPostTrainingConvertCacheInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockPostTrainingConvertCacheInterfaceMockRecorder
+}
+
+// MockPostTrainingConvertCacheInterfaceMockRecorder is the mock recorder for MockPostTrainingConvertCacheInterface.
+type MockPostTrainingConvertCacheInterfaceMockRecorder struct {
+	mock *MockPostTrainingConvertCacheInterface
+}
+
+// NewMockPostTrainingConvertCacheInterface creates a new mock instance.
+func NewMockPostTrainingConvertCacheInterface(ctrl *gomock.Controller) *MockPostTrainingConvertCacheInterface {
+	mock := &MockPostTrainingConvertCacheInterface{ctrl: ctrl}
+	mock.recorder = &MockPostTrainingConvertCacheInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPostTrainingConvertCacheInterface) EXPECT() *MockPostTrainingConvertCacheInterfaceMockRecorder {
+	return m.recorder
+}
+
+// DeletePostTrainingConvertCache mocks base method.
+func (m *MockPostTrainingConvertCacheInterface) DeletePostTrainingConvertCache(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePostTrainingConvertCache", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePostTrainingConvertCache indicates an expected call of DeletePostTrainingConvertCache.
+func (mr *MockPostTrainingConvertCacheInterfaceMockRecorder) DeletePostTrainingConvertCache(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePostTrainingConvertCache", reflect.TypeOf((*MockPostTrainingConvertCacheInterface)(nil).DeletePostTrainingConvertCache), ctx, id)
+}
+
+// GetPostTrainingConvertCache mocks base method.
+func (m *MockPostTrainingConvertCacheInterface) GetPostTrainingConvertCache(ctx context.Context, workspace, cacheKey string) (*client.PostTrainingConvertCache, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingConvertCache", ctx, workspace, cacheKey)
+	ret0, _ := ret[0].(*client.PostTrainingConvertCache)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingConvertCache indicates an expected call of GetPostTrainingConvertCache.
+func (mr *MockPostTrainingConvertCacheInterfaceMockRecorder) GetPostTrainingConvertCache(ctx, workspace, cacheKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingConvertCache", reflect.TypeOf((*MockPostTrainingConvertCacheInterface)(nil).GetPostTrainingConvertCache), ctx, workspace, cacheKey)
+}
+
+// ListPostTrainingConvertCaches mocks base method.
+func (m *MockPostTrainingConvertCacheInterface) ListPostTrainingConvertCaches(ctx context.Context, filter client.PostTrainingConvertCacheFilter) ([]*client.PostTrainingConvertCache, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingConvertCaches", ctx, filter)
+	ret0, _ := ret[0].([]*client.PostTrainingConvertCache)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPostTrainingConvertCaches indicates an expected call of ListPostTrainingConvertCaches.
+func (mr *MockPostTrainingConvertCacheInterfaceMockRecorder) ListPostTrainingConvertCaches(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingConvertCaches", reflect.TypeOf((*MockPostTrainingConvertCacheInterface)(nil).ListPostTrainingConvertCaches), ctx, filter)
+}
+
+// UpdatePostTrainingConvertCache mocks base method.
+func (m *MockPostTrainingConvertCacheInterface) UpdatePostTrainingConvertCache(ctx context.Context, id int64, fields map[string]interface{}) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePostTrainingConvertCache", ctx, id, fields)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdatePostTrainingConvertCache indicates an expected call of UpdatePostTrainingConvertCache.
+func (mr *MockPostTrainingConvertCacheInterfaceMockRecorder) UpdatePostTrainingConvertCache(ctx, id, fields interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostTrainingConvertCache", reflect.TypeOf((*MockPostTrainingConvertCacheInterface)(nil).UpdatePostTrainingConvertCache), ctx, id, fields)
+}
+
+// UpsertPostTrainingConvertCache mocks base method.
+func (m *MockPostTrainingConvertCacheInterface) UpsertPostTrainingConvertCache(ctx context.Context, cache *client.PostTrainingConvertCache) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertPostTrainingConvertCache", ctx, cache)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertPostTrainingConvertCache indicates an expected call of UpsertPostTrainingConvertCache.
+func (mr *MockPostTrainingConvertCacheInterfaceMockRecorder) UpsertPostTrainingConvertCache(ctx, cache interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertPostTrainingConvertCache", reflect.TypeOf((*MockPostTrainingConvertCacheInterface)(nil).UpsertPostTrainingConvertCache), ctx, cache)
 }
 
 // MockPostTrainingRunMetricInterface is a mock of PostTrainingRunMetricInterface interface.

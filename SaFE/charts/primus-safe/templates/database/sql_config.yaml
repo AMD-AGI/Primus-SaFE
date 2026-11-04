@@ -1039,3 +1039,21 @@ data:
     );
     create unique index if not exists T_POST_TRAINING_RUN_METRIC_POINT_INDEX on post_training_run_metric (run_id, name, step);
     alter table post_training_run_metric owner to "primus-safe";
+    create table if not exists post_training_convert_cache
+    (
+        id SERIAL PRIMARY KEY,
+        workspace VARCHAR(64) NOT NULL,
+        framework VARCHAR(32) NOT NULL DEFAULT 'slime',
+        cache_key VARCHAR(256) NOT NULL,
+        model_id VARCHAR(64) NOT NULL,
+        path TEXT NOT NULL,
+        status VARCHAR(16) NOT NULL,
+        fp8_ready BOOLEAN DEFAULT FALSE,
+        workload_id VARCHAR(64),
+        size_bytes BIGINT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ
+    );
+    create unique index if not exists T_POST_TRAINING_CONVERT_CACHE_KEY_INDEX on post_training_convert_cache (workspace, cache_key);
+    create index if not exists T_POST_TRAINING_CONVERT_CACHE_MODEL_INDEX on post_training_convert_cache (model_id);
+    alter table post_training_convert_cache owner to "primus-safe";
