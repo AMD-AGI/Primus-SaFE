@@ -56,6 +56,10 @@
           <span>Smoothing</span>
           <el-slider v-model="smoothing" :min="0" :max="0.99" :step="0.01" class="w-[180px]" />
           <el-checkbox v-model="logY">Log Y</el-checkbox>
+          <el-checkbox v-if="hasRepeats" v-model="groupByRecipe">Group by recipe</el-checkbox>
+          <span v-if="hasRepeats && groupByRecipe" class="text-[var(--safe-muted)]">
+            {{ recipeGroups.length }} groups · {{ found.length }} runs
+          </span>
           <span class="text-[var(--safe-muted)]">Settings apply to every panel</span>
         </div>
         <div class="pt-grid mt-3">
@@ -65,6 +69,7 @@
             :title="p.name"
             :series="p.series"
             :colors="p.colors"
+            :bands="p.bands"
             :smoothing="smoothing"
             :log-y="logY"
           />
@@ -78,6 +83,7 @@
                 :title="p.name"
                 :series="p.series"
                 :colors="p.colors"
+                :bands="p.bands"
                 :smoothing="smoothing"
                 :log-y="logY"
               />
@@ -127,6 +133,17 @@
             </el-table-column>
             <el-table-column label="Duration" prop="duration" width="110" />
           </el-table>
+        </el-card>
+
+        <el-card v-if="scatter" class="safe-card mt-4" shadow="never">
+          <CompareScatter
+            v-if="scatter.points"
+            :field="scatter.field"
+            :x-label="scatter.label"
+            :points="scatter.points"
+            :columns="scatterColumns"
+          />
+          <div v-else class="text-[13px] text-[var(--safe-muted)]">{{ scatter.message }}</div>
         </el-card>
 
         <el-card class="safe-card mt-4" shadow="never">
@@ -212,6 +229,7 @@ import {
   type RunListResp,
 } from '@/services/postTraining'
 import MetricsPanel from './Components/MetricsPanel.vue'
+import CompareScatter from './Components/CompareScatter.vue'
 
 defineOptions({ name: 'PostTrainingComparePage' })
 
@@ -282,11 +300,76 @@ const mixedTypes = computed(() => {
 const isActive = (r: PostTrainingRun | RunDetail) =>
   r.status === 'Pending' || r.status === 'Running'
 
-type Panel = { name: string; series: MetricSeries[]; colors: string[] }
+type Band = { low: MetricSeries; high: MetricSeries; color: string }
+type Panel = { name: string; series: MetricSeries[]; colors: string[]; bands?: Band[] }
 
-/** One panel per metric name, overlaying that metric of every run that has it, each run in its own color. */
+const groupByRecipe = ref(false)
+
+/** The runs grouped by recipe hash, in run order, each group in the color of its first run. */
+const recipeGroups = computed(() => {
+  const groups = new Map<string, { hash: string; entries: Entry[]; color: string }>()
+  entries.value.forEach((e, i) => {
+    if (!e.run) return
+    const g = groups.get(e.run.recipeHash) ?? {
+      hash: e.run.recipeHash,
+      entries: [],
+      color: colors.value[i],
+    }
+    g.entries.push(e)
+    groups.set(e.run.recipeHash, g)
+  })
+  return [...groups.values()]
+})
+const hasRepeats = computed(() => recipeGroups.value.some((g) => g.entries.length > 1))
+
+/** The mean, min and max of several series at each step one of them has. */
+const aggregate = (list: MetricSeries[]) => {
+  const byStep = new Map<number, number[]>()
+  for (const s of list) for (const [x, y] of s.points) byStep.set(x, [...(byStep.get(x) ?? []), y])
+  const steps = [...byStep.keys()].sort((a, b) => a - b)
+  const of = (f: (v: number[]) => number): [number, number][] =>
+    steps.map((x) => [x, f(byStep.get(x)!)])
+  return {
+    mean: of((v) => v.reduce((a, b) => a + b, 0) / v.length),
+    min: of((v) => Math.min(...v)),
+    max: of((v) => Math.max(...v)),
+  }
+}
+
+/**
+ * One panel per metric name: every run in its own color, or with Group by recipe one mean line per recipe hash and
+ * a band from its lowest to its highest run.
+ */
 const panels = computed(() => {
   const byName = new Map<string, Panel>()
+  if (groupByRecipe.value && hasRepeats.value) {
+    const names = new Set(
+      entries.value.flatMap((e) => (e.metrics?.series ?? []).map((s) => s.name)),
+    )
+    for (const name of names) {
+      const panel: Panel = { name, series: [], colors: [], bands: [] }
+      for (const g of recipeGroups.value) {
+        const list = g.entries
+          .map((e) => e.metrics?.series.find((s) => s.name === name))
+          .filter((s): s is MetricSeries => !!s)
+        if (!list.length) continue
+        const agg = aggregate(list)
+        const label = `${g.hash.slice(0, 8)} · ${g.entries.length} run${g.entries.length === 1 ? '' : 's'}`
+        const base = { ...list[0], count: agg.mean.length }
+        panel.series.push({ ...base, name: label, points: agg.mean })
+        panel.colors.push(g.color)
+        if (list.length > 1) {
+          panel.bands!.push({
+            low: { ...base, name: `${label} min`, points: agg.min },
+            high: { ...base, name: `${label} max`, points: agg.max },
+            color: g.color,
+          })
+        }
+      }
+      byName.set(name, panel)
+    }
+    return byName
+  }
   entries.value.forEach((e, i) => {
     if (!e.run) return
     for (const s of e.metrics?.series ?? []) {
@@ -399,6 +482,47 @@ const best = computed(() => {
 
 const diff = computed(() => configDiff(found.value.map((r) => r.recipe)))
 const differing = computed(() => diff.value.filter((d) => d.differs))
+
+/** The result columns a scatter can plot: the train type's main result first, then the scores. */
+const scatterColumns = computed(() => {
+  const main = { key: 'main', label: trainType.value === 'rl' ? 'Final Reward' : 'Train Loss' }
+  const val = { key: 'valLoss', label: 'Best Val Loss' }
+  const first = trainType.value === 'rl' ? [main] : [val, main]
+  return [...first, ...benchmarks.value.map((b) => ({ key: b, label: b }))]
+})
+
+/**
+ * The single-parameter scatter: drawn when exactly one field besides the recipe hash differs and it is a number,
+ * otherwise a note when several fields differ.
+ */
+const scatter = computed(() => {
+  const fields = differing.value.filter((d) => d.field !== 'provenance.recipeHash')
+  if (fields.length > 1) {
+    return {
+      message:
+        `${fields.length} fields differ (${fields.map((f) => f.label).join(', ')}), so a single-parameter ` +
+        `scatter can't be drawn.`,
+    }
+  }
+  const field = fields[0]
+  if (!field || !field.values.every((v) => v !== '—' && Number.isFinite(Number(v))))
+    return undefined
+  const byRun = new Map(results.value.map((r) => [r.runId, r]))
+  const points = found.value.map((run, i) => {
+    const r = byRun.get(run.runId)
+    return {
+      name: run.displayName,
+      color: r?.color ?? colors.value[i],
+      x: Number(field.values[i]),
+      ended: !isActive(run),
+      results: { main: r?.main, valLoss: r?.valLoss, ...(r?.scores ?? {}) } as Record<
+        string,
+        number | undefined
+      >,
+    }
+  })
+  return { field: field.field, label: field.label, points }
+})
 const sameRecipe = computed(() => new Set(found.value.map((r) => r.recipeHash)).size === 1)
 
 /** Writes the run ids into the URL, which reloads the page's data. */
