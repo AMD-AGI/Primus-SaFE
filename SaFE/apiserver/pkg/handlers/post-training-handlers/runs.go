@@ -59,11 +59,24 @@ type listResponse struct {
 	Items []listItem `json:"items"`
 }
 
-// listItem is a run of the list with how many runs of its recipe hash succeeded on the platform.
+// listItem is a run of the list with how many runs of its recipe hash succeeded on the platform, and for an imported
+// run what the list shows of its import.
 type listItem struct {
 	*dbclient.PostTrainingRun
-	VerifiedRuns      int    `json:"verifiedRuns,omitempty"`
-	LatestVerifiedRun string `json:"latestVerifiedRun,omitempty"`
+	VerifiedRuns      int         `json:"verifiedRuns,omitempty"`
+	LatestVerifiedRun string      `json:"latestVerifiedRun,omitempty"`
+	Import            *listImport `json:"import,omitempty"`
+}
+
+// listImport is where and when an imported run ran and was imported, its failed gate and its full --load path.
+type listImport struct {
+	SlurmJobID    string      `json:"slurmJobId,omitempty"`
+	SourcePath    string      `json:"sourcePath"`
+	Via           string      `json:"via"`
+	Verdict       string      `json:"verdict,omitempty"`
+	ImportedAt    *time.Time  `json:"importedAt,omitempty"`
+	FailedGate    *importGate `json:"failedGate,omitempty"`
+	BaseModelPath string      `json:"baseModelPath,omitempty"`
 }
 
 // runDetail is a run with its parsed recipe, stage history, output model and evaluations.
@@ -133,9 +146,32 @@ func (h *Handler) ListRuns(c *gin.Context) {
 	items := make([]listItem, 0, len(runs))
 	for _, r := range runs {
 		rec := records[r.RecipeHash]
-		items = append(items, listItem{PostTrainingRun: r, VerifiedRuns: rec.Succeeded, LatestVerifiedRun: rec.LatestRun})
+		items = append(items, listItem{PostTrainingRun: r, VerifiedRuns: rec.Succeeded, LatestVerifiedRun: rec.LatestRun,
+			Import: h.listImportOf(c.Request.Context(), r)})
 	}
 	c.JSON(http.StatusOK, listResponse{Total: total, Items: items})
+}
+
+// listImportOf reads what the list shows of an imported run's import, or nil for a SaFE run or an unreadable record.
+func (h *Handler) listImportOf(ctx context.Context, run *dbclient.PostTrainingRun) *listImport {
+	if !imported(run) {
+		return nil
+	}
+	imp, err := h.db.GetPostTrainingImportByRun(ctx, run.RunID)
+	if err != nil {
+		klog.ErrorS(err, "failed to read the import of a run", "run", run.RunID)
+		return nil
+	}
+	out := &listImport{SlurmJobID: imp.SlurmJobID, SourcePath: imp.SourcePath, Via: imp.Via, Verdict: imp.Verdict}
+	if imp.CreatedAt.Valid {
+		out.ImportedAt = &imp.CreatedAt.Time
+	}
+	s := &importSummary{}
+	if json.Unmarshal([]byte(imp.Summary), s) == nil {
+		out.FailedGate = previewOf(s).FailedGate
+		_ = json.Unmarshal(s.Arguments.Kept["load"], &out.BaseModelPath)
+	}
+	return out
 }
 
 // getRun loads a run and checks the caller may act on it with verb.
