@@ -24,10 +24,12 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
@@ -184,6 +186,101 @@ func (h *Handler) StopRun(c *gin.Context) {
 	}
 	klog.Infof("stop post training run %s by user %s", run.RunID, c.GetString(common.UserName))
 	c.JSON(http.StatusOK, gin.H{"runId": run.RunID})
+}
+
+// cleanupBody is the body of POST /runs/:id/checkpoints/cleanup.
+type cleanupBody struct {
+	// Keep is "best" to keep the checkpoint with the lowest validation loss, or "none".
+	Keep string `json:"keep"`
+}
+
+// checkpointCleanup is the cleanup_request column: the directories the controller removes and the step kept.
+type checkpointCleanup struct {
+	Keep     string   `json:"keep"`
+	Paths    []string `json:"paths"`
+	KeptStep *int     `json:"keptStep,omitempty"`
+}
+
+// CleanupCheckpoints removes the checkpoints of a finished run, keeping the best one or none. The run controller
+// runs the cleanup jobs and updates the run's disk usage; the run, its curves and its output model stay.
+func (h *Handler) CleanupCheckpoints(c *gin.Context) {
+	if _, _, ok := h.requireEnabled(c); !ok {
+		return
+	}
+	var body cleanupBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("invalid request body: "+err.Error()))
+		return
+	}
+	run, err := h.getRun(c, v1.DeleteVerb)
+	if err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	ctx := c.Request.Context()
+	plan, err := h.planCleanup(ctx, run, body.Keep)
+	if err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	if err = h.db.UpdatePostTrainingRun(ctx, run.RunID, map[string]interface{}{"cleanup_request": plan}); err != nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to request the cleanup: "+err.Error()))
+		return
+	}
+	klog.Infof("clean up the checkpoints of post training run %s (keep %s) by user %s", run.RunID, body.Keep,
+		c.GetString(common.UserName))
+	c.JSON(http.StatusAccepted, gin.H{"runId": run.RunID, "keep": body.Keep})
+}
+
+// planCleanup checks that the checkpoints of run can be cleaned up and returns the cleanup_request value: both
+// checkpoint directories for "none", every remaining checkpoint but the best one for "best".
+func (h *Handler) planCleanup(ctx context.Context, run *dbclient.PostTrainingRun, keep string) (string, error) {
+	switch v1.WorkloadPhase(run.Status) {
+	case v1.WorkloadSucceeded, v1.WorkloadFailed, v1.WorkloadStopped:
+	default:
+		return "", commonerrors.NewConflict(fmt.Sprintf("run %s has not finished", run.RunID))
+	}
+	if run.CleanupRequest != "" {
+		return "", commonerrors.NewConflict(fmt.Sprintf("a checkpoint cleanup of run %s is in progress", run.RunID))
+	}
+	var rec recipe.Recipe
+	if err := json.Unmarshal([]byte(run.Recipe), &rec); err != nil || rec.Output.Base == "" {
+		return "", commonerrors.NewInternalError(fmt.Sprintf("run %s has no run directory", run.RunID))
+	}
+	base := rec.Output.Base
+	plan := checkpointCleanup{Keep: keep}
+	switch keep {
+	case "none":
+		plan.Paths = []string{base + "/checkpoints", base + "/critic_checkpoints"}
+	case "best":
+		main := "train/loss"
+		if run.TrainType == registry.TrainTypeRL {
+			main = "rollout/raw_reward"
+		}
+		rows, err := h.db.ListPostTrainingRunMetrics(ctx, run.RunID, []string{main, valLossMetric})
+		if err != nil {
+			return "", commonerrors.NewInternalError("failed to read the run's metrics: " + err.Error())
+		}
+		points := map[string][]*dbclient.PostTrainingRunMetric{}
+		for _, row := range rows {
+			points[row.Name] = append(points[row.Name], row)
+		}
+		m := buildMarkers(run, points)
+		if m.BestCheckpoint == nil {
+			return "", commonerrors.NewBadRequest("the run has no checkpoint with a validation loss to keep")
+		}
+		for _, cp := range m.Checkpoints {
+			if !cp.Deleted && cp.Step != m.BestCheckpoint.Step {
+				plan.Paths = append(plan.Paths, fmt.Sprintf("%s/checkpoints/iter_%07d", base, cp.Step))
+			}
+		}
+		kept := m.BestCheckpoint.Step
+		plan.KeptStep = &kept
+	default:
+		return "", commonerrors.NewBadRequest(`keep must be "best" or "none"`)
+	}
+	data, _ := json.Marshal(plan)
+	return string(data), nil
 }
 
 // stopWorkload marks a workload Stopped and deletes it, the way the workload stop API does; a missing or finished
