@@ -251,10 +251,19 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 	a.add("--attention-dropout", "0.0", "--hidden-dropout", "0.0", "--accumulate-allreduce-grads-in-fp32",
 		"--attention-softmax-in-fp32", "--attention-backend", "flash", "--no-gradient-accumulation-fusion")
 
+	env := map[string]string{"CUDA_DEVICE_MAX_CONNECTIONS": "1"}
+	if w := ctx.Request.Tracking.Wandb; w.Enabled {
+		a.add("--use-wandb", "--wandb-project", w.Project, "--wandb-group", in.RunID)
+		if w.Team != "" {
+			a.add("--wandb-team", w.Team)
+		}
+		// wandb would otherwise upload the console output, which can hold dataset and model text.
+		env["WANDB_CONSOLE"] = "off"
+	}
 	plan := &recipe.FrameworkPlan{
 		Choices: c,
 		Args:    []string(a),
-		Env:     map[string]string{"CUDA_DEVICE_MAX_CONNECTIONS": "1"},
+		Env:     env,
 		Convert: convert,
 	}
 	if rl {
