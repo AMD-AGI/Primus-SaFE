@@ -76,10 +76,29 @@ The [install.sh](../../bootstrap/install.sh) script provides a one-click install
         them in. Ask the provider for ID tokens that live as long as a session should.
       - Helm values (or `.env` for `bootstrap/upgrade.sh`): `sso.login.enable` (`sso_login_enable`), `sso.login.issuer`
         (`sso_login_issuer`), `sso.login.client_id` (`sso_login_client_id`), `sso.login.redirect_uri`
-        (`sso_login_redirect_uri`). `sso.enable` stays `true`.
+        (`sso_login_redirect_uri`). `sso.enable` stays `true`: `upgrade.sh` refuses `sso_login_enable=true` with
+        `sso_enable=false`, and a value with a space, a quote, a backslash, `|` or `&`.
+      - Other web apps that sign in through the console (SSO bridge) are listed in `sso.bridge_allowlist`
+        (`.env`: `sso_bridge_allowlist`, a JSON array in single quotes). For example, a site whose identity provider
+        serves the console's own host:
+
+        ```bash
+        sso_enable=true
+        sso_login_enable=true
+        sso_login_issuer=https://console.example.com
+        sso_login_client_id=safe-console
+        sso_login_redirect_uri=https://console.example.com/sso/callback
+        sso_bridge_allowlist='["http://localhost:5173","http://127.0.0.1:5173"]'
+        ```
+
+        Keep these keys in `.env` for every later upgrade: helm renders `sso.login` and `sso.bridge_allowlist` from the
+        chart defaults (off, empty) unless `.env` sets them, so `upgrade.sh` refuses to upgrade a release that runs with
+        `sso.login` on or a non-empty allowlist when `.env` leaves them out. `sso_login_enable=false` and
+        `sso_bridge_allowlist='[]'` turn them off on purpose.
       - The provider of the `primus-safe-sso` secret keeps working while the secret is there: codes other web apps bring
         through the SSO bridge (no PKCE verifier) are exchanged there, and sessions it made stay valid until they expire.
         Once nothing uses it, remove it with `sso.secret: ""` (`.env`: `sso_secret=`): the secret is then not mounted.
+        `upgrade.sh` accepts `sso_secret=` only together with `sso_login_enable=true`, since the apiserver needs one of the two.
       - Off again: `sso.login.enable: false` (with the secret still configured) and roll the apiserver.
 
 #### Image and Network Configuration
