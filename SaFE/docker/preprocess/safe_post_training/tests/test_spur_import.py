@@ -208,3 +208,27 @@ def test_the_command_runs_from_a_copy_of_the_package(tmp_path):
     out = subprocess.run(["sh", script, "--dry-run", root], capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
     assert json.loads(out.stdout)["name"] == "j2-3" and "points" in out.stdout
+
+
+def test_a_scan_reads_only_under_the_mount_root(monkeypatch, tmp_path, capsys):
+    mount = tmp_path / "shared_nfs"
+    inside = make_run(str(mount / "runs" / "j2-4"))
+    outside = make_run(str(tmp_path / "elsewhere" / "j2-5"))
+    os.symlink(outside, str(mount / "runs" / "link"))
+    log = tmp_path / "termination-log"
+    monkeypatch.setattr(spur_import, "TERMINATION_LOG", str(log))
+    monkeypatch.setenv(spur_import.TOKEN_ENV, token())
+    calls = []
+    monkeypatch.setattr(spur_import, "upload", lambda data, t, stage=False: calls.append(stage) or
+                        (422, {"errorMessage": "unknown parserVersion"}))
+    for refused in (outside, str(mount / "runs" / "link"), str(mount / "runs" / "j2-4" / ".." / ".." / ".." /
+                                                              "elsewhere" / "j2-5")):
+        assert spur_import.main([refused, "--stage", "--root", str(mount)]) == 1
+        assert log.read_text() == "The directory must be under %s." % mount
+    assert calls == [], "nothing outside the mount is read or uploaded"
+    assert spur_import.main([inside, "--stage", "--root", str(mount)]) == 2 and calls == [True]
+    assert log.read_text() == "The upload was refused: unknown parserVersion", "the dialog shows why the scan failed"
+    log.unlink()
+    assert spur_import.main([outside, "--dry-run", "--root", str(mount)]) == 1 and not log.exists(), \
+        "only a scan job leaves a termination message"
+    capsys.readouterr()

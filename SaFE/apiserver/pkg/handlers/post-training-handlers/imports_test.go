@@ -8,6 +8,7 @@ package posttraininghandlers
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
@@ -208,4 +210,29 @@ func TestCurvesOfDownsampledImports(t *testing.T) {
 	require.False(t, s.Downsampled)
 	require.Equal(t, 40, importedCounts(run)["train/loss"], "the curve says the log had 40 points")
 	require.Nil(t, importedCounts(&dbclient.PostTrainingRun{}))
+}
+
+func TestImportMountNeedsAReadOnlyVolumeAtTheRoot(t *testing.T) {
+	reg := &registry.Registry{Imports: registry.Imports{Mounts: []registry.ImportMount{
+		{Cluster: "c1", Workspace: "spur-import", Root: "/shared_nfs"}}}}
+	mountOf := func(cluster string, volumes ...v1.WorkspaceVolume) (*registry.ImportMount, string) {
+		scheme := runtime.NewScheme()
+		require.NoError(t, v1.AddToScheme(scheme))
+		ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "spur-import"}, Spec: v1.WorkspaceSpec{Volumes: volumes}}
+		h := NewHandler(fake.NewClientBuilder().WithScheme(scheme).WithObjects(ws).Build(), nil)
+		return h.importMount(context.Background(), reg, cluster)
+	}
+	m, reason := mountOf("c2")
+	require.Nil(t, m)
+	require.Equal(t, importNoMount, reason)
+	_, reason = mountOf("c1", v1.WorkspaceVolume{MountPath: "/shared_nfs", AccessMode: corev1.ReadWriteMany},
+		v1.WorkspaceVolume{MountPath: "/shared_nfs", AccessMode: corev1.ReadOnlyMany, EnableUserDir: true})
+	require.Equal(t, "The import workspace spur-import has no read-only volume at /shared_nfs.", reason,
+		"a writable volume, or one mounted per user, does not show Spur's paths as they are")
+	m, reason = mountOf("c1", v1.WorkspaceVolume{MountPath: "/shared_nfs", AccessMode: corev1.ReadOnlyMany})
+	require.Empty(t, reason)
+	require.Equal(t, "spur-import", m.Workspace)
+	reg.Imports.Mounts[0].Workspace = "gone"
+	_, reason = mountOf("c1")
+	require.Equal(t, "The import workspace gone is not available.", reason)
 }

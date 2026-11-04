@@ -562,9 +562,10 @@ post_training:
       probes:
         - {prompt: "What is the capital of France? Answer with one word.", expect: exact, answer: Paris}
         - {prompt: "Write a Triton kernel that adds two vectors.", expect: pythonCode}
-    # Mounted-path imports of Spur run directories: per cluster, a read-only PVC of Spur's /shared_nfs and its root
-    # in the scan job, e.g. {cluster: <cluster>, pvc: spur-shared-nfs-ro, root: /shared_nfs}. A mount is a storage and
-    # network change approved on its own; until then the dialog offers only the command upload.
+    # Mounted-path imports of Spur run directories: per cluster, the workspace whose pods see Spur's /shared_nfs
+    # read-only at root (a ReadOnlyMany volume mounted there), where the scan jobs run, e.g.
+    # {cluster: <cluster>, workspace: spur-import, root: /shared_nfs}. The mount is a storage and network change
+    # approved on its own; until then the dialog offers only the command upload.
     imports:
       mounts: []
 # Save Image: where a cluster's saved workload images go. A cluster without an entry uses

@@ -174,9 +174,13 @@ func TestStoreKeepsLastValidVersion(t *testing.T) {
 }
 
 func TestImportMounts(t *testing.T) {
-	r := &Registry{Imports: Imports{Mounts: []ImportMount{{Cluster: "spur", PVC: "spur-shared-nfs-ro", Root: "/shared_nfs"}}}}
+	r := &Registry{Imports: Imports{Mounts: []ImportMount{{Cluster: "spur", Workspace: "spur-import", Root: "/shared_nfs"}}}}
 	require.Equal(t, "/shared_nfs", r.Imports.MountFor("spur").Root)
 	require.Nil(t, r.Imports.MountFor("global"), "no mount until a cluster's mount is approved")
 	r.Imports.Mounts[0].Root = "shared_nfs"
 	require.ErrorContains(t, r.Validate(), "absolute root")
+	r.Imports.Mounts[0].Root = "/shared_nfs/"
+	require.ErrorContains(t, r.Validate(), "clean absolute root", "the root is compared with mount paths as written")
+	r.Imports.Mounts[0].Root, r.Imports.Mounts[0].Workspace = "/shared_nfs", ""
+	require.ErrorContains(t, r.Validate(), "a workspace")
 }

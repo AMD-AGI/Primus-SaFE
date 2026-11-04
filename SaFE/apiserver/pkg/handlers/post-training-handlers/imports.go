@@ -7,6 +7,7 @@ package posttraininghandlers
 
 import (
 	"compress/gzip"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -21,7 +22,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
@@ -47,6 +50,7 @@ const (
 	tokenExpired = "expired"
 	// importSpentMessage is what the command prints for a token it cannot use.
 	importSpentMessage = "Token expired or already used. Get a new command from the Import dialog in SaFE."
+	importNoMount      = "Spur's /shared_nfs isn't mounted on this cluster."
 )
 
 // importConfigResponse is GET /post-training/imports/config: whether the mounted-path import works in the workspace's
@@ -76,12 +80,32 @@ func (h *Handler) GetImportConfig(c *gin.Context) {
 		return
 	}
 	resp := importConfigResponse{CanImport: h.authorize(c, v1.CreateVerb, workspace, "", "", 0) == nil}
-	if m := reg.Imports.MountFor(ws.Cluster); m != nil {
+	if m, reason := h.importMount(c.Request.Context(), reg, ws.Cluster); m != nil {
 		resp.MountAvailable, resp.MountRoot, resp.MountCluster = true, m.Root, m.Cluster
 	} else {
-		resp.MountReason = "Spur's /shared_nfs isn't mounted on this cluster."
+		resp.MountReason = reason
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// importMount returns a cluster's import mount when its workspace has a read-only volume at the mount root, or why
+// the mounted-path import is not available.
+func (h *Handler) importMount(ctx context.Context, reg *registry.Registry, cluster string) (*registry.ImportMount,
+	string) {
+	m := reg.Imports.MountFor(cluster)
+	if m == nil {
+		return nil, importNoMount
+	}
+	ws := &v1.Workspace{}
+	if err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: m.Workspace}, ws); err != nil {
+		return nil, fmt.Sprintf("The import workspace %s is not available.", m.Workspace)
+	}
+	for _, vol := range ws.Spec.Volumes {
+		if vol.MountPath == m.Root && vol.AccessMode == corev1.ReadOnlyMany && vol.SubPath == "" && !vol.EnableUserDir {
+			return m, ""
+		}
+	}
+	return nil, fmt.Sprintf("The import workspace %s has no read-only volume at %s.", m.Workspace, m.Root)
 }
 
 // importTokenRequest is the body of POST /post-training/imports/tokens.
