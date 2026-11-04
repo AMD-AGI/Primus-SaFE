@@ -2979,3 +2979,78 @@ func TestWorkloadValidateInferaSharedReadinessPort(t *testing.T) {
 	assert.Assert(t, validateInferaSharedReadinessPort(pd("32000", true), pd("31000", true)) != nil,
 		"changing the value is checked like a create")
 }
+
+// newEphemeralRunnerStorageFixture builds an AutoscalingRunnerSet parent and an
+// EphemeralRunner child the way runner-proxy submits it through the apiserver: the
+// child names its parent in SCALE_RUNNER_SET_ID and arrives with the apiserver's
+// default workspace storage annotation (true).
+func newEphemeralRunnerStorageFixture(parentStorage string) (*v1.Workspace, *v1.Workload, *v1.Workload) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
+	parent := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "ars-1", UID: "ars-uid-1"},
+		Spec: v1.WorkloadSpec{
+			Workspace:        "ws1",
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.CICDScaleRunnerSetKind, Version: "v1"},
+			Resources:        []v1.WorkloadResource{wlResource()},
+		},
+	}
+	v1.SetLabel(parent, v1.ClusterIdLabel, "cluster1")
+	if parentStorage != "" {
+		v1.SetAnnotation(parent, v1.UseWorkspaceStorageAnnotation, parentStorage)
+	}
+	child := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "runner-1"},
+		Spec: v1.WorkloadSpec{
+			Workspace:        "ws1",
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.CICDEphemeralRunnerKind, Version: "v1"},
+			Resources:        []v1.WorkloadResource{wlResource()},
+			Env:              map[string]string{common.ScaleRunnerSetID: parent.Name},
+		},
+	}
+	v1.SetAnnotation(child, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	return ws, parent, child
+}
+
+// TestWorkloadMutateEphemeralRunnerInheritsWorkspaceStorage verifies that a CI job
+// created by runner-proxy takes the workspace storage setting of its scale set
+// instead of the apiserver default.
+func TestWorkloadMutateEphemeralRunnerInheritsWorkspaceStorage(t *testing.T) {
+	tests := []struct {
+		name          string
+		parentStorage string
+		want          string
+	}{
+		{name: "parent false gives child false", parentStorage: "false", want: "false"},
+		{name: "parent true gives child true", parentStorage: v1.TrueStr, want: v1.TrueStr},
+		{name: "parent without the annotation keeps the child default", parentStorage: "", want: v1.TrueStr},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ws, parent, child := newEphemeralRunnerStorageFixture(tt.parentStorage)
+			m := &WorkloadMutator{Client: fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(ws, parent).Build()}
+			assert.NilError(t, m.mutateOnCreation(context.Background(), child))
+			owner := metav1.GetControllerOf(child)
+			assert.Assert(t, owner != nil && owner.Name == parent.Name)
+			assert.Equal(t, v1.GetAnnotation(child, v1.UseWorkspaceStorageAnnotation), tt.want)
+		})
+	}
+}
+
+// TestWorkloadMutateEphemeralRunnerWorkspaceStorageUnresolvedParent verifies that a
+// child whose SCALE_RUNNER_SET_ID does not resolve to a matching scale set keeps its
+// own setting, and that one without any setting still gets the default.
+func TestWorkloadMutateEphemeralRunnerWorkspaceStorageUnresolvedParent(t *testing.T) {
+	// The named parent lives in another workspace, so it is not trusted.
+	ws, parent, child := newEphemeralRunnerStorageFixture("false")
+	parent.Spec.Workspace = "ws2"
+	m := &WorkloadMutator{Client: fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(ws, parent).Build()}
+	assert.NilError(t, m.mutateOnCreation(context.Background(), child))
+	assert.Equal(t, v1.GetAnnotation(child, v1.UseWorkspaceStorageAnnotation), v1.TrueStr)
+
+	// No parent at all and no annotation: the existing default applies.
+	ws, _, child = newEphemeralRunnerStorageFixture("false")
+	v1.RemoveAnnotation(child, v1.UseWorkspaceStorageAnnotation)
+	m = &WorkloadMutator{Client: fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(ws).Build()}
+	assert.NilError(t, m.mutateOnCreation(context.Background(), child))
+	assert.Equal(t, v1.GetAnnotation(child, v1.UseWorkspaceStorageAnnotation), v1.TrueStr)
+}
