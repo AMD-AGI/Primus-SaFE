@@ -339,9 +339,27 @@ export interface MetricMarkers {
   failure?: { step: number; reason?: string } | null
 }
 
+/** A chart of the metrics tab as the registry defines it; series, band and rest are name patterns. */
+export interface MetricPanel {
+  id: string
+  series: string[]
+  band?: string[]
+  smooth?: boolean
+  logY?: boolean
+  stack?: boolean
+  per?: string
+  when?: string
+  rest?: string
+  axis?: string
+}
+
 export interface MetricsResp {
   series: MetricSeries[]
   markers: MetricMarkers
+  /** The registry's panels for the run's framework and train type, the GPU panels, and the better directions. */
+  panels?: MetricPanel[]
+  system?: MetricPanel[]
+  better?: Record<string, 'lower' | 'higher'>
 }
 
 /** The sizes in bytes of the run directory parts the launcher reports. */

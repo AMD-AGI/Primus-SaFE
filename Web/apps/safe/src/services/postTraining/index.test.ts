@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  assignPanels,
+  betterOf,
   cleanupHintBytes,
+  matchName,
+  panelsOf,
   configDiff,
   flattenChanges,
   formatDuration,
@@ -227,5 +231,69 @@ describe('variant changes', () => {
     const flat = flattenChanges(changes)
     expect(flat).toEqual({ 'choices.lr': 2e-6, 'choices.lora.rank': 32, datasetId: 'd2' })
     expect(nestChanges(flat)).toEqual(changes)
+  })
+})
+
+describe('panels', () => {
+  const panels = [
+    { id: 'reward', series: ['rollout/raw_reward', 'eval/*'] },
+    { id: 'passrate', series: ['passrate/pass@*', 'eval/*-pass@*'], when: 'present' },
+    {
+      id: 'length',
+      band: ['rollout/response_len/min', 'rollout/response_len/max'],
+      series: ['rollout/response_len/median', 'eval/*-truncated_ratio'],
+    },
+    { id: 'time', series: ['perf/rollout_time'], stack: true, rest: 'perf/step_time' },
+    { id: 'staleness', series: ['rollout/staleness/mean'], when: 'async' },
+  ]
+
+  it('matches within one segment', () => {
+    expect(matchName('eval/*', 'eval/aime')).toBe(true)
+    expect(matchName('eval/*', 'eval/val/loss')).toBe(false)
+    expect(matchName('eval/*-pass@*', 'eval/aime-pass@4')).toBe(true)
+    expect(matchName('train/lr-pg_*', 'train/lr-pg_0')).toBe(true)
+  })
+
+  it('puts a metric in the most specific panel only', () => {
+    const names = [
+      'rollout/raw_reward',
+      'eval/aime',
+      'eval/aime-pass@4',
+      'eval/aime-truncated_ratio',
+      'rollout/response_len/min',
+      'rollout/response_len/max',
+      'rollout/response_len/median',
+      'perf/rollout_time',
+      'perf/step_time',
+      'train/odd',
+    ]
+    const { byPanel, unassigned } = assignPanels(panels, names)
+    expect(byPanel.get('reward')!.series).toEqual(['rollout/raw_reward', 'eval/aime'])
+    expect(byPanel.get('passrate')!.series).toEqual(['eval/aime-pass@4'])
+    expect(byPanel.get('length')!.band).toEqual([
+      'rollout/response_len/min',
+      'rollout/response_len/max',
+    ])
+    expect(byPanel.get('length')!.series).toEqual([
+      'rollout/response_len/median',
+      'eval/aime-truncated_ratio',
+    ])
+    expect(byPanel.get('time')!.rest).toBe('perf/step_time')
+    expect(unassigned).toEqual(['train/odd'])
+  })
+
+  it('shows conditional panels only when they apply', () => {
+    const shown = (names: string[], run = {}) =>
+      panelsOf(panels, names, run).shown.map((p) => p.panel.id)
+    expect(shown(['rollout/raw_reward'])).toEqual(['reward'])
+    expect(shown(['passrate/pass@1', 'rollout/staleness/mean'])).toEqual(['passrate'])
+    expect(shown(['rollout/staleness/mean'], { schedule: 'async' })).toEqual(['staleness'])
+  })
+
+  it('takes the most specific better direction', () => {
+    const better = { 'eval/*': 'higher', 'eval/*-truncated_ratio': 'lower' } as const
+    expect(betterOf(better, 'eval/aime')).toBe('higher')
+    expect(betterOf(better, 'eval/aime-truncated_ratio')).toBe('lower')
+    expect(betterOf(better, 'train/loss')).toBeUndefined()
   })
 })
