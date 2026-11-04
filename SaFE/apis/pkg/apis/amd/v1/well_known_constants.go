@@ -368,6 +368,8 @@ const (
 	// PostTrainingEvaluateAnnotation on a model of a run asks the run controller to evaluate it; the value is
 	// the JSON {"benchmarks": [dataset ids], "keepService": bool}.
 	PostTrainingEvaluateAnnotation = PostTrainingPrefix + "evaluate"
+	// PostTrainingEvalDoneAnnotation marks a kept evaluation inference service whose evaluation is over.
+	PostTrainingEvalDoneAnnotation = PostTrainingPrefix + "eval-done"
 
 	// dynamo (DynamoDeployment workload kind; see Phase 2 of the dynamo
 	// integration plan). Webhook/dispatcher read these to decide deployment

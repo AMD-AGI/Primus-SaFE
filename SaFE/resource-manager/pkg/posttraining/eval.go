@@ -39,13 +39,12 @@ import (
 
 const (
 	// The annotations of an evaluation inference service: the automatic evaluation after training, a service
-	// that outlives its evaluation, the benchmark datasets, the evaluation OpsJob once created, and a kept
-	// service whose evaluation is over.
+	// that outlives its evaluation, the benchmark datasets and the evaluation OpsJob once created. A kept
+	// service whose evaluation is over carries v1.PostTrainingEvalDoneAnnotation.
 	evalAutoAnnotation       = v1.PostTrainingPrefix + "eval-auto"
 	evalKeepAnnotation       = v1.PostTrainingPrefix + "eval-keep"
 	evalBenchmarksAnnotation = v1.PostTrainingPrefix + "eval-benchmarks"
 	evalJobAnnotation        = v1.PostTrainingPrefix + "eval-job"
-	evalDoneAnnotation       = v1.PostTrainingPrefix + "eval-done"
 
 	// evalStartedEvent is the stage_history event that records the service of the automatic evaluation.
 	evalStartedEvent = "evaluate"
@@ -79,7 +78,7 @@ func (r *RunReconciler) reconcileEvaluations(ctx context.Context, run *dbclient.
 		s := &services.Items[i]
 		present[s.Name] = true
 		autoSeen = autoSeen || v1.GetAnnotation(s, evalAutoAnnotation) == v1.TrueStr
-		if v1.GetAnnotation(s, evalDoneAnnotation) == v1.TrueStr {
+		if v1.GetAnnotation(s, v1.PostTrainingEvalDoneAnnotation) == v1.TrueStr {
 			continue
 		}
 		after, err := r.advanceEvaluation(ctx, run, s)
@@ -161,7 +160,7 @@ func (r *RunReconciler) finishEvaluation(ctx context.Context, run *dbclient.Post
 		}
 	default:
 		patch := client.MergeFrom(s.DeepCopy())
-		v1.SetAnnotation(s, evalDoneAnnotation, v1.TrueStr)
+		v1.SetAnnotation(s, v1.PostTrainingEvalDoneAnnotation, v1.TrueStr)
 		if err := r.Patch(ctx, s, patch); client.IgnoreNotFound(err) != nil {
 			return err
 		}
