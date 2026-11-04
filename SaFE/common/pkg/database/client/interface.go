@@ -43,6 +43,7 @@ type Interface interface {
 	PostTrainingConvertCacheInterface
 	PostTrainingTemplateInterface
 	PostTrainingExperimentInterface
+	PostTrainingRunSampleInterface
 }
 
 type WorkloadInterface interface {
@@ -299,6 +300,15 @@ type PostTrainingRunInterface interface {
 	UpdatePostTrainingRun(ctx context.Context, runID string, fields map[string]interface{}) error
 	SetPostTrainingRunDeleted(ctx context.Context, runID string) error
 	CountPostTrainingRunsByRecipe(ctx context.Context, hashes []string) (map[string]RecipeRecord, error)
+}
+
+// PostTrainingRunSampleInterface defines database operations for the RL samples of Post Training runs.
+type PostTrainingRunSampleInterface interface {
+	UpsertPostTrainingRunSamples(ctx context.Context, samples []*PostTrainingRunSample) error
+	CountPostTrainingRunSamples(ctx context.Context, runID string) (int64, error)
+	ListPostTrainingRunSamples(ctx context.Context, filter PostTrainingRunSampleFilter) ([]*PostTrainingRunSample, error)
+	ListPostTrainingRunSampleSteps(ctx context.Context, runID, kind string) ([]PostTrainingRunSampleStep, error)
+	DeletePostTrainingRunSamples(ctx context.Context, runID string, afterStep *int) error
 }
 
 // PostTrainingTemplateInterface defines database operations for the recipe templates of Post Training.
