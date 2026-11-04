@@ -11,6 +11,7 @@ package slime
 import (
 	"fmt"
 	"path"
+	"slices"
 	"strconv"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
@@ -42,6 +43,12 @@ const (
 	correctionTIS       = "tis"
 	// valDatasetName names the SFT validation set, so its loss is reported as eval/val/loss.
 	valDatasetName = "val"
+
+	// megatronConfigFile holds the PPO critic's own settings, which the adapter writes into the run directory.
+	megatronConfigFile  = "megatron.yaml"
+	criticCheckpoints   = "critic_checkpoints"
+	defaultCriticLr     = 1e-5
+	defaultCriticWarmup = 1
 )
 
 func init() {
@@ -79,11 +86,22 @@ func (p plugin) Options(ctx *recipe.Context) *recipe.Options {
 		colocate.Disabled, colocate.Reason = true, ctx.Spec.Name+" needs a separate rollout"
 	}
 	opts.Fields["layout"] = recipe.FieldOptions{Values: []recipe.OptionValue{colocate, sep}}
-	ppo := recipe.OptionValue{Value: recipe.AlgorithmPPO, Label: "PPO", Disabled: true,
-		Reason: "PPO is not available yet"}
+	ppo := recipe.OptionValue{Value: recipe.AlgorithmPPO, Label: "PPO"}
+	if fs := ctx.FrameworkSpec; len(fs.Algorithms) > 0 && !slices.Contains(fs.Algorithms, recipe.AlgorithmPPO) {
+		ppo.Disabled, ppo.Reason = true, ctx.Spec.Name+" supports GRPO only"
+	} else if !ctx.Image.HasFeature(registry.FeaturePPO) {
+		ppo.Disabled, ppo.Reason = true, "The image has not been validated for PPO"
+	}
 	opts.Fields["advantageEstimator"] = recipe.FieldOptions{Values: []recipe.OptionValue{
 		{Value: recipe.AlgorithmGRPO, Label: "GRPO"}, ppo,
 	}}
+	if opts.Defaults.CriticLr == 0 {
+		opts.Defaults.CriticLr = defaultCriticLr
+	}
+	if opts.Defaults.CriticWarmupRollouts == nil {
+		warmup := defaultCriticWarmup
+		opts.Defaults.CriticWarmupRollouts = &warmup
+	}
 	return opts
 }
 
@@ -141,6 +159,17 @@ func (plugin) normalize(ctx *recipe.Context) recipe.Choices {
 	}
 	if c.AdvantageEstimator == "" {
 		c.AdvantageEstimator = recipe.AlgorithmGRPO
+	}
+	if c.AdvantageEstimator == recipe.AlgorithmPPO {
+		if c.CriticLr == 0 {
+			c.CriticLr = defaultCriticLr
+		}
+		if c.CriticWarmupRollouts == nil {
+			warmup := defaultCriticWarmup
+			c.CriticWarmupRollouts = &warmup
+		}
+	} else {
+		c.CriticLr, c.CriticWarmupRollouts = 0, nil
 	}
 	if c.RewardType == "" {
 		c.RewardType = defaultRewardType
@@ -223,6 +252,12 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 				"--custom-eval-rollout-log-function-path", sampleEvalPlugin)
 		}
 		a.add("--advantage-estimator", c.AdvantageEstimator)
+		if c.AdvantageEstimator == recipe.AlgorithmPPO {
+			a.add("--megatron-config-path", in.RunDir+"/"+megatronConfigFile)
+			if *c.CriticWarmupRollouts > 0 {
+				a.add("--num-critic-only-steps", itoa(*c.CriticWarmupRollouts))
+			}
+		}
 		if *c.UseKlLoss {
 			a.add("--use-kl-loss", "--kl-loss-coef", ftoa(c.KlLossCoef), "--kl-loss-type", "low_var_kl")
 		}
@@ -302,10 +337,30 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 	}
 	if rl {
 		plan.Rollout = map[string]interface{}{"precision": "bf16", "schedule": "sync", "layout": c.Layout}
+		if c.AdvantageEstimator == recipe.AlgorithmPPO {
+			plan.Critic = criticPlan(c, in.RunDir)
+		}
 	} else if hasValidation(ctx.Request) {
 		plan.Val = &recipe.RecipeVal{Interval: c.ValInterval, MaxSamples: c.ValMaxSamples, Split: c.ValSplit}
 	}
 	return plan, nil
+}
+
+// criticPlan describes the PPO critic for the adapter: its megatron.yaml entry overrides the actor's arguments with
+// its own checkpoint directory and learning rate and keeps it fully trained, without LoRA or frozen parameters. The
+// adapter drops load while the directory holds no checkpoint, so a new critic starts from the base model.
+func criticPlan(c recipe.Choices, runDir string) map[string]interface{} {
+	dir := runDir + "/" + criticCheckpoints
+	return map[string]interface{}{
+		"lr":             c.CriticLr,
+		"warmupRollouts": *c.CriticWarmupRollouts,
+		"megatronConfig": megatronConfigFile,
+		"checkpoints":    criticCheckpoints,
+		"overrides": map[string]interface{}{
+			"load": dir, "save": dir, "lr": c.CriticLr,
+			"custom_model_provider_path": nil, "only_train_params_name_list": nil, "freeze_params_name_list": nil,
+		},
+	}
 }
 
 // rewardArgs returns slime's reward arguments for an RL request and sets the environment a reward plugin reads.

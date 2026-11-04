@@ -114,7 +114,7 @@ type Choices struct {
 	Concurrency          int           `json:"concurrency,omitempty"`
 	PD                   *PDChoice     `json:"pd,omitempty"`
 	CriticLr             float64       `json:"criticLr,omitempty"`
-	CriticWarmupRollouts int           `json:"criticWarmupRollouts,omitempty"`
+	CriticWarmupRollouts *int          `json:"criticWarmupRollouts,omitempty"`
 }
 
 // LoraChoice holds the LoRA options.
