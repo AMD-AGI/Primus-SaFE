@@ -356,6 +356,11 @@ const router = createRouter({
           component: () => import('@/pages/PostTraining/Templates.vue'),
         },
         {
+          path: '/post-training/experiments/detail',
+          name: 'PostTrainingExperiment',
+          component: () => import('@/pages/PostTraining/Experiment.vue'),
+        },
+        {
           path: '/posttrain',
           name: 'PostTrain',
           component: () => import('@/pages/PostTrain/index.vue'),

@@ -2,6 +2,9 @@ import request from '@/services/request'
 import type {
   ConfigResp,
   DiskUsage,
+  Experiment,
+  ExperimentListResp,
+  ExperimentRequest,
   MetricsResp,
   ModelsResp,
   NullTime,
@@ -165,7 +168,51 @@ export function cleanupPostTrainingCheckpoints(runId: string, keep: 'best' | 'no
   )
 }
 
-/** Lists a workspace's templates, optionally of one train type. */
+/** Submits an A/B experiment; a variant that does not compile refuses the whole experiment. */
+export function submitPostTrainingExperiment(body: ExperimentRequest) {
+  return request.post<{ experimentId: string; runIds: string[] }>(
+    '/post-training/experiments',
+    body,
+    {
+      skipErrorHandler: true,
+    },
+  )
+}
+
+/** Lists a workspace's experiments, or the ones experimentIds names, with their runs. */
+export function listPostTrainingExperiments(
+  params: { workspace: string; experimentIds?: string; limit?: number },
+  quiet = false,
+) {
+  return request.get<ExperimentListResp>('/post-training/experiments', {
+    params,
+    skipErrorHandler: quiet,
+  })
+}
+
+/** Returns an experiment with its variants and runs. */
+export function getPostTrainingExperiment(experimentId: string, quiet = false) {
+  return request.get<Experiment>(`/post-training/experiments/${experimentId}`, {
+    skipErrorHandler: quiet,
+  })
+}
+
+/** Stops every unfinished run of an experiment. */
+export function stopPostTrainingExperiment(experimentId: string) {
+  return request.post<{ experimentId: string; stopped: string[] }>(
+    `/post-training/experiments/${experimentId}/stop`,
+  )
+}
+
+/** Deletes an experiment's runs, their output models when deleteModel is set, and then the experiment. */
+export function deletePostTrainingExperiment(experimentId: string, deleteModel = false) {
+  return request.delete(`/post-training/experiments/${experimentId}`, {
+    params: { deleteModel },
+    skipErrorHandler: true,
+  })
+}
+
+/** Lists a workspace's templates, optionally of one train type. */ /** Lists a workspace's templates, optionally of one train type. */
 export function listPostTrainingTemplates(params: { workspace: string; trainType?: string }) {
   return request.get<TemplateListResp>('/post-training/templates', { params })
 }
@@ -419,4 +466,94 @@ export function configDiff(recipes: (Record<string, unknown> | undefined)[]): Di
       differs: new Set(values).size > 1,
     }
   })
+}
+
+/**
+ * Compares a variant's benchmark score with the baseline's, all fractions in [0, 1]. The difference is from the mean
+ * of the baseline's evaluations; it is significant when larger than both the gap between the baseline's two
+ * evaluations and two standard errors at n questions.
+ */
+export function significance(baseline: number[], variant: number, n?: number) {
+  const mean = baseline.reduce((a, b) => a + b, 0) / baseline.length
+  const gap = baseline.length > 1 ? Math.abs(baseline[0] - baseline[1]) : 0
+  const se = n ? 2 * Math.sqrt((mean * (1 - mean)) / n + (variant * (1 - variant)) / n) : 0
+  const threshold = Math.max(gap, se)
+  const diff = variant - mean
+  return { mean, diff, threshold, significant: Math.abs(diff) > threshold }
+}
+
+/** A request field an A/B variant may change: its label and where a recipe snapshot keeps it. */
+export interface VariantField {
+  key: string
+  label: string
+  recipeKey: string
+  trainType?: 'sft' | 'rl'
+}
+
+/** The fields an A/B variant may change from its baseline. */
+export const VARIANT_FIELDS: VariantField[] = [
+  { key: 'choices.lr', label: 'Learning rate', recipeKey: 'choices.lr' },
+  { key: 'choices.batchSize', label: 'Batch size', recipeKey: 'choices.batchSize' },
+  { key: 'choices.numRollout', label: 'Steps / rollouts', recipeKey: 'choices.numRollout' },
+  { key: 'method', label: 'Method', recipeKey: 'method' },
+  { key: 'choices.lora.rank', label: 'LoRA rank', recipeKey: 'choices.lora.rank' },
+  { key: 'datasetId', label: 'Dataset', recipeKey: 'data.trainId' },
+  { key: 'modelId', label: 'Base model', recipeKey: 'model.id' },
+  { key: 'resources.nodes', label: 'Nodes', recipeKey: 'layout.nodes' },
+  {
+    key: 'choices.nSamplesPerPrompt',
+    label: 'Samples per prompt',
+    recipeKey: 'choices.nSamplesPerPrompt',
+    trainType: 'rl',
+  },
+  {
+    key: 'choices.maxResponseLen',
+    label: 'Response length',
+    recipeKey: 'choices.maxResponseLen',
+    trainType: 'rl',
+  },
+  {
+    key: 'choices.correction',
+    label: 'Train–inference correction',
+    recipeKey: 'choices.correction',
+    trainType: 'rl',
+  },
+  {
+    key: 'choices.klLossCoef',
+    label: 'KL coefficient',
+    recipeKey: 'choices.klLossCoef',
+    trainType: 'rl',
+  },
+]
+
+/** Flattens a variant's changes into dotted field keys. */
+export function flattenChanges(
+  changes: Record<string, unknown> = {},
+  prefix = '',
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(changes)) {
+    const key = prefix ? `${prefix}.${k}` : k
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      Object.assign(out, flattenChanges(v as Record<string, unknown>, key))
+    } else {
+      out[key] = v
+    }
+  }
+  return out
+}
+
+/** Nests dotted field keys back into a changes object. */
+export function nestChanges(flat: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(flat)) {
+    const parts = key.split('.')
+    let node = out
+    parts.slice(0, -1).forEach((p) => {
+      node[p] = (node[p] as Record<string, unknown>) ?? {}
+      node = node[p] as Record<string, unknown>
+    })
+    node[parts[parts.length - 1]] = value
+  }
+  return out
 }
