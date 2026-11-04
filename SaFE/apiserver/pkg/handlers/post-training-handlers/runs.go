@@ -204,7 +204,7 @@ func (h *Handler) StopRun(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	message := fmt.Sprintf("the run is stopped by %s", c.GetString(common.UserName))
+	message := fmt.Sprintf("Stopped by %s", c.GetString(common.UserName))
 	if err := h.stopWorkload(c.Request.Context(), run.WorkloadID, message); err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -384,7 +384,7 @@ func (h *Handler) DeleteRun(c *gin.Context) {
 // points.
 func (h *Handler) deleteRun(c *gin.Context, run *dbclient.PostTrainingRun, deleteModel bool) error {
 	ctx := c.Request.Context()
-	message := fmt.Sprintf("the run is deleted by %s", c.GetString(common.UserName))
+	message := fmt.Sprintf("Deleted by %s", c.GetString(common.UserName))
 	if err := h.stopWorkload(ctx, run.WorkloadID, message); err != nil {
 		return err
 	}

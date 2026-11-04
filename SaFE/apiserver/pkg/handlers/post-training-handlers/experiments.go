@@ -305,7 +305,7 @@ func (h *Handler) StopExperiment(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	message := fmt.Sprintf("the experiment is stopped by %s", c.GetString(common.UserName))
+	message := fmt.Sprintf("Stopped by %s with its experiment", c.GetString(common.UserName))
 	stopped := []string{}
 	for _, r := range runs {
 		switch v1.WorkloadPhase(r.Status) {

@@ -281,3 +281,15 @@ func TestSaveSamplesStopsAtTheCap(t *testing.T) {
 	require.True(t, in.sum.SamplesCapped, "the samples past the cap stay in the run directory")
 	require.NoError(t, r.saveSamples(context.Background(), run, in, rows(1)), "a full run stores nothing more")
 }
+
+func TestStoppedRunSaysWhoStoppedIt(t *testing.T) {
+	w := endedWorkload(v1.WorkloadStopped)
+	w.Status.Conditions = []metav1.Condition{{Type: string(v1.AdminStopped), Status: metav1.ConditionTrue,
+		Message: "Stopped by alice", Reason: "r", LastTransitionTime: metav1.Now()}}
+	r, db, updates := newTestReconciler(t, testRunRow("Running", "train"), w)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods("log\n"), nil).AnyTimes()
+	reconcileRun(t, r)
+	last := (*updates)[len(*updates)-1]
+	require.Equal(t, "Stopped", last["status"])
+	require.Equal(t, "Stopped by alice", last["message"], "the detail page says who stopped the run")
+}
