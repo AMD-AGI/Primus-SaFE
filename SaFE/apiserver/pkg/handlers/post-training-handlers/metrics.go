@@ -109,8 +109,13 @@ func (h *Handler) GetMetrics(c *gin.Context) {
 		return
 	}
 	resp := metricsResponse{Series: []series{}}
+	counts := importedCounts(run)
 	for _, name := range sortedNames(points) {
-		resp.Series = append(resp.Series, buildSeries(name, axisOf(name, run.TrainType), points[name], maxPoints))
+		s := buildSeries(name, axisOf(name, run.TrainType), points[name], maxPoints)
+		if n, ok := counts[name]; ok {
+			s.Downsampled, s.Count = true, max(s.Count, n)
+		}
+		resp.Series = append(resp.Series, s)
 	}
 	resp.Markers = buildMarkers(run, points)
 	resp.Panels = []registry.Panel{}
@@ -121,6 +126,16 @@ func (h *Handler) GetMetrics(c *gin.Context) {
 		resp.System, resp.Better = fw.Metrics.Panels[systemPanels], fw.Metrics.Better
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// importedCounts returns the series the import command downsampled before upload, with the point counts their log
+// had, as an imported run's metric summary records them.
+func importedCounts(run *dbclient.PostTrainingRun) map[string]int {
+	var sum struct {
+		Downsampled map[string]int `json:"downsampled"`
+	}
+	_ = json.Unmarshal([]byte(run.MetricSummary), &sum)
+	return sum.Downsampled
 }
 
 // systemPanels is the panel group of the launcher's GPU metrics.

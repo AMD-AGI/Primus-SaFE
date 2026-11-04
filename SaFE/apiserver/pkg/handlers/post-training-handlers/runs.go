@@ -153,6 +153,80 @@ func (h *Handler) getRun(c *gin.Context, verb v1.RoleVerb) (*dbclient.PostTraini
 	return run, nil
 }
 
+// getWritableRun is getRun for the endpoints that change a run or start work from it, which an imported run refuses:
+// SaFE has no recipe, workload or output model for it.
+func (h *Handler) getWritableRun(c *gin.Context, verb v1.RoleVerb) (*dbclient.PostTrainingRun, error) {
+	run, err := h.getRun(c, verb)
+	if err != nil {
+		return nil, err
+	}
+	if imported(run) {
+		return nil, commonerrors.NewBadRequest("Imported runs are read-only.")
+	}
+	return run, nil
+}
+
+// imported tells whether a run was imported rather than trained on the platform.
+func imported(run *dbclient.PostTrainingRun) bool {
+	return run.Source != "" && run.Source != dbclient.PostTrainingSourceSafe
+}
+
+// runImportResponse is GET /post-training/runs/:id/import: the parsed data of an imported run that its row and
+// metric points do not hold, as the import recorded it.
+type runImportResponse struct {
+	ImportID      string          `json:"importId"`
+	SourcePath    string          `json:"sourcePath"`
+	Format        string          `json:"format"`
+	SlurmJobID    string          `json:"slurmJobId,omitempty"`
+	Via           string          `json:"via"`
+	Verdict       string          `json:"verdict,omitempty"`
+	ParserVersion string          `json:"parserVersion,omitempty"`
+	ImportedAt    *time.Time      `json:"importedAt,omitempty"`
+	ImportedBy    string          `json:"importedBy,omitempty"`
+	Summary       json.RawMessage `json:"summary"`
+	Resources     json.RawMessage `json:"resources"`
+	Warnings      json.RawMessage `json:"warnings"`
+}
+
+// GetRunImport returns the gates, markers, check output, resource samples, checkpoints and kept arguments of an
+// imported run.
+func (h *Handler) GetRunImport(c *gin.Context) {
+	if _, _, ok := h.requireEnabled(c); !ok {
+		return
+	}
+	run, err := h.getRun(c, v1.GetVerb)
+	if err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	if !imported(run) {
+		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("run %s is not imported",
+			run.RunID)))
+		return
+	}
+	imp, err := h.db.GetPostTrainingImportByRun(c.Request.Context(), run.RunID)
+	if err != nil {
+		apiutils.AbortWithApiError(c, notFoundOr(err, "the import of run "+run.RunID))
+		return
+	}
+	resp := runImportResponse{ImportID: imp.ImportID, SourcePath: imp.SourcePath, Format: imp.Format,
+		SlurmJobID: imp.SlurmJobID, Via: imp.Via, Verdict: imp.Verdict, ParserVersion: imp.ParserVersion,
+		ImportedBy: imp.UserName, Summary: rawOrNull(imp.Summary), Resources: rawOrNull(imp.Resources),
+		Warnings: rawOrNull(imp.Warnings)}
+	if imp.CreatedAt.Valid {
+		resp.ImportedAt = &imp.CreatedAt.Time
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// rawOrNull passes stored JSON through, or null when the column is empty.
+func rawOrNull(s string) json.RawMessage {
+	if s == "" {
+		return json.RawMessage("null")
+	}
+	return json.RawMessage(s)
+}
+
 // GetRun returns a run with its recipe snapshot, stage history, output model and evaluations.
 func (h *Handler) GetRun(c *gin.Context) {
 	if _, _, ok := h.requireEnabled(c); !ok {
@@ -199,7 +273,7 @@ func (h *Handler) StopRun(c *gin.Context) {
 	if _, _, ok := h.requireEnabled(c); !ok {
 		return
 	}
-	run, err := h.getRun(c, v1.DeleteVerb)
+	run, err := h.getWritableRun(c, v1.DeleteVerb)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -237,7 +311,7 @@ func (h *Handler) CleanupCheckpoints(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("invalid request body: "+err.Error()))
 		return
 	}
-	run, err := h.getRun(c, v1.DeleteVerb)
+	run, err := h.getWritableRun(c, v1.DeleteVerb)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -384,8 +458,14 @@ func (h *Handler) DeleteRun(c *gin.Context) {
 // points.
 func (h *Handler) deleteRun(c *gin.Context, run *dbclient.PostTrainingRun, deleteModel bool) error {
 	ctx := c.Request.Context()
-	message := fmt.Sprintf("Deleted by %s", c.GetString(common.UserName))
-	if err := h.stopWorkload(ctx, run.WorkloadID, message); err != nil {
+	if imported(run) {
+		// Only SaFE's record goes: the run directory on Spur is not touched, and the directory can be imported again.
+		if err := h.db.DeletePostTrainingImportOfRun(ctx, run.RunID); err != nil {
+			return commonerrors.NewInternalError("failed to delete the import record: " + err.Error())
+		}
+		deleteModel = false
+	} else if err := h.stopWorkload(ctx, run.WorkloadID, fmt.Sprintf("Deleted by %s",
+		c.GetString(common.UserName))); err != nil {
 		return err
 	}
 	if deleteModel && run.OutputModelID != "" {

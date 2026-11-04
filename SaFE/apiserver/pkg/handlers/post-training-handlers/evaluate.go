@@ -51,7 +51,7 @@ func (h *Handler) EvaluateRun(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	run, err := h.getRun(c, v1.GetVerb)
+	run, err := h.getWritableRun(c, v1.GetVerb)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
