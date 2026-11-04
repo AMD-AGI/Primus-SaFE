@@ -4,6 +4,7 @@ import { useUserStore } from '@/stores/user'
 import { getEnvs, ssoLoginRaw } from '@/services/login'
 import { addUserToGroup, getUserNTID } from '@/services/mcp'
 import { getSafeRedirect } from '@/utils'
+import { outsideConsoleReturn } from '@/utils/returnPath'
 import { resolveAllowedBridge } from '@/utils/ssoBridge'
 import { pkceRequired, takeCallbackVerifier } from '@/utils/ssoSignIn'
 
@@ -143,8 +144,18 @@ export default function setupAuthGuard(router: Router) {
           localStorage.removeItem(SSO_ATTEMPTS_KEY)
           sessionStorage.removeItem('sso.blocked')
 
-          const target = getSafeRedirect(sessionStorage.getItem(ENTRY_KEY))
+          const entry = sessionStorage.getItem(ENTRY_KEY)
           sessionStorage.removeItem(ENTRY_KEY)
+
+          // The sign-in was started by another app on this host (Dispatron, autopilot, the
+          // identity service): load its page, which the console router does not know.
+          const away = outsideConsoleReturn(entry, window.location.origin)
+          if (away) {
+            window.location.replace(away)
+            return next(false)
+          }
+
+          const target = getSafeRedirect(entry)
           history.replaceState(null, '', target)
 
           // First-login onboarding: admin → QuickStart, regular user → UserQuickStart
@@ -272,6 +283,11 @@ export default function setupAuthGuard(router: Router) {
     // D) Already logged in — skip login-related pages
     if (user.isLogin && user.userId) {
       if (PUBLIC_NAME.has(to.name as string)) {
+        const away = outsideConsoleReturn(to.query.redirect, window.location.origin)
+        if (away) {
+          window.location.replace(away)
+          return next(false)
+        }
         return next(getSafeRedirect(to.query.redirect))
       }
       return next()

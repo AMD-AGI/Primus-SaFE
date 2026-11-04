@@ -153,6 +153,7 @@ import { useUserStore } from '@/stores/user'
 import { toggleDark } from '@/composables'
 import { randomState, getSafeRedirect } from '@/utils'
 import { buildSignInUrl, signInTarget } from '@/utils/ssoSignIn'
+import { outsideConsoleReturn } from '@/utils/returnPath'
 import { useDark } from '@vueuse/core'
 
 const isDark = useDark()
@@ -272,6 +273,13 @@ async function onSubmit() {
 
       if (form.remember) localStorage.setItem('login.name', form.name)
       else localStorage.removeItem('login.name')
+
+      // Signed in for another app on this host: load its page, outside the console router.
+      const away = outsideConsoleReturn(route.query.redirect, window.location.origin)
+      if (away) {
+        window.location.replace(away)
+        return
+      }
 
       const safe = getSafeRedirect(route.query.redirect)
 

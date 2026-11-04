@@ -8,12 +8,15 @@ dayjs.extend(utc)
 /**
  * Sanitize a post-login / post-navigation redirect target.
  * Only same-origin absolute paths are allowed; protocol-relative ("//host"),
- * absolute URLs ("http(s)://") and any non-"/" value fall back to "/".
+ * absolute URLs ("http(s)://"), values with a backslash or a control character
+ * and any non-"/" value fall back to "/".
  * Prevents open-redirect / phishing via a crafted ?redirect= parameter.
  */
 export function getSafeRedirect(v: unknown): string {
   const s = Array.isArray(v) ? v[0] : ((v as string) ?? '')
-  if (!s || s.startsWith('http') || s.startsWith('//')) return '/'
+  if (typeof s !== 'string' || !s || s.startsWith('http') || s.startsWith('//')) return '/'
+  // A backslash or a control character can turn "/\host" or "/\t/host" into another origin.
+  if (/[\u0000-\u001f\u007f\\]/.test(s)) return '/'
   return s.startsWith('/') ? s : '/'
 }
 
