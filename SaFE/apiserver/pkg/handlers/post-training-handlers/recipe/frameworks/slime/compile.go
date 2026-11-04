@@ -210,6 +210,10 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		if c.MaxPromptLen > 0 {
 			a.add("--rollout-max-prompt-len", itoa(c.MaxPromptLen))
 		}
+		if c.NSamplesPerPrompt > 1 {
+			// Pass@k needs several samples per prompt.
+			a.add("--log-passrate")
+		}
 		a.add("--advantage-estimator", c.AdvantageEstimator)
 		if *c.UseKlLoss {
 			a.add("--use-kl-loss", "--kl-loss-coef", ftoa(c.KlLossCoef), "--kl-loss-type", "low_var_kl")

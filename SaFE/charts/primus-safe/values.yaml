@@ -462,6 +462,8 @@ post_training:
         metrics:
           include: ["train/*", "eval/*", "eval/*/*", "rollout/*", "rollout/*/*", "perf/*", "passrate/*"]
           summary: {sft: train/loss, rl: rollout/raw_reward}
+          better: {"train/loss": lower, "eval/*/loss": lower, "rollout/raw_reward": higher, "eval/*": higher, "eval/*-truncated_ratio": lower, "passrate/*": higher}
+          samples: {rolloutGroups: 4, evalPerSet: 8, promptChars: 2000, responseHeadChars: 1000, responseTailChars: 3000, maxRows: 50000}
           maxPointsPerRun: 2000000
           panels:
             sft:
@@ -471,10 +473,18 @@ post_training:
               - {id: throughput, series: [perf/actor_train_tok_per_s, perf/actor_train_tflops]}
             rl:
               - {id: reward, series: [rollout/raw_reward, "eval/*"], smooth: true}
+              - {id: signal, series: ["rollout/zero_std/count_*"], per: prompts, stack: true, when: grpo}
+              - {id: passrate, series: ["passrate/pass@*", "eval/*-pass@*"], when: present}
               - {id: policy, series: [train/pg_loss, train/kl_loss, train/ppo_kl]}
               - {id: clip_entropy, series: [train/pg_clipfrac, train/entropy_loss]}
               - {id: consistency, series: [train/train_rollout_logprob_abs_diff, train/tis, train/ois, train/tis_clipfrac]}
+              - {id: length, band: [rollout/response_len/min, rollout/response_len/max], series: [rollout/response_len/median, rollout/truncated, rollout/repetition_frac, "eval/*-truncated_ratio"]}
+              - {id: time, series: [perf/rollout_time, perf/data_preprocess_time, perf/log_probs_time, perf/ref_log_probs_time, perf/actor_train_time, perf/update_weights_time, perf/save_model_time, perf/sleep_time, perf/wake_up_time], stack: true, rest: perf/step_time}
+              - {id: engine, series: [perf/tokens_per_gpu_per_sec, perf/longest_sample_tokens_per_sec, rollout/prefix_cache_hit_rate, rollout/spec_accept_rate]}
               - {id: grad_perf, series: [train/grad_norm, perf/step_time, perf/actor_train_tok_per_s, perf/wait_time_ratio]}
+              - {id: staleness, series: [rollout/staleness/mean, rollout/staleness/max], when: async}
+              - {id: critic, series: [train/critic-value_loss, train/critic-value_clipfrac], when: ppo}
+              - {id: mtp, series: [train/mtp_loss], when: present}
             system:
               - {id: gpu_util, series: [system/gpu_util_mean, "system/*/gpu_util_mean"], band: [system/gpu_util_min, system/gpu_util_max], axis: time}
               - {id: gpu_mem, series: [system/gpu_mem_used_mean_gb, system/gpu_mem_used_max_gb, system/gpu_mem_total_gb, "system/*/gpu_mem_used_mean_gb", "system/*/gpu_mem_used_max_gb", "system/*/gpu_mem_total_gb"], axis: time}

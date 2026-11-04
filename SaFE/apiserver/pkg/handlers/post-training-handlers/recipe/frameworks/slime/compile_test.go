@@ -243,6 +243,16 @@ func TestCompileSeed(t *testing.T) {
 	require.NotContains(t, args, "--rollout-seed")
 }
 
+func TestCompilePassrate(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeRL)
+	require.Contains(t, compile(t, in).Recipe.FrameworkArgs, "--log-passrate", "eight samples per prompt by default")
+	in.Request.Choices.NSamplesPerPrompt = 1
+	require.NotContains(t, compile(t, in).Recipe.FrameworkArgs, "--log-passrate")
+	reg := in.Registry.Frameworks[0].Metrics
+	require.Equal(t, "lower", reg.Better["eval/*-truncated_ratio"])
+	require.Equal(t, 4, reg.Samples.RolloutGroups)
+}
+
 func TestCompileGRPOColocated(t *testing.T) {
 	res := compile(t, qwen3Input(t, registry.TrainTypeRL))
 	got := strings.Join(res.Recipe.FrameworkArgs, " ")
@@ -250,7 +260,7 @@ func TestCompileGRPOColocated(t *testing.T) {
 		"--actor-num-nodes 1 --actor-num-gpus-per-node 8 --colocate --rollout-num-gpus 8",
 		"--input-key prompt --label-key label --apply-chat-template --rm-type deepscaler",
 		"--num-rollout 3 --rollout-batch-size 32 --n-samples-per-prompt 8 --global-batch-size 256",
-		"--rollout-max-response-len 8192 --rollout-temperature 1 --balance-data --advantage-estimator grpo",
+		"--rollout-max-response-len 8192 --rollout-temperature 1 --balance-data --log-passrate --advantage-estimator grpo",
 		"--use-kl-loss --kl-loss-coef 0 --kl-loss-type low_var_kl --entropy-coef 0 --eps-clip 0.2 --eps-clip-high 0.28",
 		"--rollout-num-gpus-per-engine 2 --sglang-mem-fraction-static 0.7",
 		"--lr 1e-06", "--lr-decay-style constant --adam-beta2 0.98",
