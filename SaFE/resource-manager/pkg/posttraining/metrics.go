@@ -83,6 +83,13 @@ type stageDetail struct {
 	ParseFailures int64  `json:"parseFailures"`
 }
 
+// conversionDetail is the detail of a convert [STAGE] that registers a shared conversion.
+type conversionDetail struct {
+	CacheKey  string `json:"cacheKey"`
+	Dir       string `json:"dir"`
+	SizeBytes int64  `json:"sizeBytes"`
+}
+
 // stallDetail is the detail of a stalled [STAGE]: the last progress time in unix seconds, the last step and the
 // idle minutes at which the watchdog stops the attempt.
 type stallDetail struct {
@@ -457,6 +464,8 @@ type ingestion struct {
 	disk      string
 	// parseFailures is the growth of the launchers' unparsable metric line counts in this read.
 	parseFailures int64
+	// conversion is the shared conversion the launcher reused or made.
+	conversion *conversionDetail
 }
 
 // add applies one marker.
@@ -514,6 +523,12 @@ func (in *ingestion) addStage(m *marker) {
 	}
 	if launcherStage(m.Body.Stage) {
 		in.u.moveTo(m.Body.Stage)
+	}
+	if m.Body.Stage == "convert" && len(m.Body.Detail) > 0 {
+		conversion := &conversionDetail{}
+		if json.Unmarshal(m.Body.Detail, conversion) == nil && conversion.CacheKey != "" && conversion.Dir != "" {
+			in.conversion = conversion
+		}
 	}
 	if m.Body.Stage != "train" || len(m.Body.Detail) == 0 {
 		return
