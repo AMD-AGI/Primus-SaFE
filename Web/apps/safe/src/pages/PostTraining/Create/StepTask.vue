@@ -86,6 +86,24 @@
       </el-select>
     </el-form-item>
 
+    <el-form-item v-if="templates.length" label="Start from template">
+      <el-select
+        :model-value="w.form.templateId"
+        placeholder="Pick a template of this workspace"
+        clearable
+        style="width: 420px"
+        @change="(id: string) => id && emit('template', id)"
+      >
+        <el-option
+          v-for="t in templates"
+          :key="t.templateId"
+          :label="`${t.name} · v${t.version}`"
+          :value="t.templateId"
+        />
+      </el-select>
+      <div class="pt-help">Applying a template counts as one change you can undo.</div>
+    </el-form-item>
+
     <el-form-item v-if="presets.length" label="Preset">
       <div class="flex flex-wrap gap-2">
         <el-card
@@ -107,11 +125,36 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import {
+  listPostTrainingTemplates,
+  type TemplateItem,
+  type TemplateListResp,
+} from '@/services/postTraining'
 import { useWizard } from './wizard'
 
-const emit = defineEmits<{ changed: [field: string]; preset: [id: string] }>()
+const emit = defineEmits<{
+  changed: [field: string]
+  preset: [id: string]
+  template: [id: string]
+}>()
 const w = useWizard()
+
+const templates = ref<TemplateItem[]>([])
+
+/** Loads the workspace's templates of the request's train type. */
+const loadTemplates = async () => {
+  try {
+    const res = (await listPostTrainingTemplates({
+      workspace: w.workspace,
+      trainType: w.form.trainType,
+    })) as unknown as TemplateListResp
+    templates.value = res.items ?? []
+  } catch {
+    templates.value = []
+  }
+}
+watch(() => w.form.trainType, loadTemplates, { immediate: true })
 
 const frameworks = computed(() => w.config.value?.frameworks ?? [])
 const supported = computed(() => (w.models.value?.items ?? []).filter((m) => m.supported))
