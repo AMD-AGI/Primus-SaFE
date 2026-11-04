@@ -219,6 +219,12 @@ func TestDisableFailoverOnNoRetry(t *testing.T) {
 	got := &v1.Workload{}
 	require.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: testRun}, got))
 	require.True(t, v1.IsWorkloadDisableFailover(got))
+
+	u := newRunUpdate(testRunRow("Running", "train"))
+	markNotRetried(u)
+	markNotRetried(u)
+	require.True(t, hasEvent(u.history, notRetriedEvent))
+	require.Len(t, u.history, 1, "the event is recorded once")
 }
 
 func TestRegisterTimesOut(t *testing.T) {
