@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   cleanupHintBytes,
+  configDiff,
   formatDuration,
   parseJSON,
   smoothPoints,
@@ -171,5 +172,36 @@ describe('stallNote', () => {
       ),
     ).toBe('Launcher not reporting')
     expect(stallNote({ status: 'Failed', stalledSince: since }, now)).toBe('')
+  })
+})
+
+describe('configDiff', () => {
+  it('lines up the recipe fields, hash first, and marks the ones that differ', () => {
+    const rows = configDiff([
+      {
+        choices: { lr: 1e-5, fieldMap: { prompt: 'q' } },
+        output: { base: '/a' },
+        provenance: { recipeHash: 'abcdef123' },
+      },
+      {
+        choices: { lr: 2e-5, fieldMap: { prompt: 'q' } },
+        output: { base: '/b' },
+        provenance: { recipeHash: '0123456789' },
+      },
+      undefined,
+    ])
+    expect(rows[0]).toEqual({
+      field: 'provenance.recipeHash',
+      label: 'Recipe hash',
+      values: ['abcdef1', '0123456', '—'],
+      differs: true,
+    })
+    const lr = rows.find((r) => r.field === 'choices.lr')!
+    expect(lr.label).toBe('Learning rate')
+    expect(lr.values).toEqual(['0.00001', '0.00002', '—'])
+    expect(rows.some((r) => r.field === 'output.base')).toBe(false)
+    expect(configDiff([{ a: [1, 2] }, { a: [1, 2] }])).toEqual([
+      { field: 'a', label: 'a', values: ['1, 2', '1, 2'], differs: false },
+    ])
   })
 })

@@ -310,3 +310,71 @@ export function stallNote(
   if (run.message?.startsWith(LOST_MESSAGE)) return 'Launcher not reporting'
   return `No progress for ${Math.max(1, Math.round((now - Date.parse(since)) / 60000))} min`
 }
+
+/** Recipe fields that differ between any two runs by construction, or repeat other fields. */
+const DIFF_SKIPPED = new Set([
+  'output.base',
+  'data.train',
+  'data.eval',
+  'files',
+  'frameworkArgs',
+  'convert.dir',
+])
+
+/** Readable names of the recipe fields people compare most. */
+const DIFF_LABELS: Record<string, string> = {
+  'choices.lr': 'Learning rate',
+  'choices.minLr': 'Min learning rate',
+  'choices.batchSize': 'Batch size',
+  'choices.numEpoch': 'Epochs',
+  'choices.numRollout': 'Steps / rollouts',
+  'choices.maxTokensPerGpu': 'Max tokens per GPU',
+  'choices.saveInterval': 'Save interval',
+  'model.id': 'Base model',
+  'data.trainId': 'Dataset',
+  'provenance.recipeHash': 'Recipe hash',
+  'provenance.image': 'Image',
+}
+
+/** Flattens a recipe snapshot into dotted field paths and display values; lists are joined with commas. */
+export function flattenRecipe(value: unknown, prefix = '', out: Record<string, string> = {}) {
+  if (value === null || value === undefined) return out
+  if (Array.isArray(value)) {
+    out[prefix] = value
+      .map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v)))
+      .join(', ')
+  } else if (typeof value === 'object') {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      const path = prefix ? `${prefix}.${k}` : k
+      if (!DIFF_SKIPPED.has(path)) flattenRecipe(v, path, out)
+    }
+  } else if (prefix) {
+    out[prefix] = String(value)
+  }
+  return out
+}
+
+export interface DiffRow {
+  field: string
+  label: string
+  values: string[]
+  differs: boolean
+}
+
+/** Lines up the recipe fields of several runs, the recipe hash first; a missing field shows as —. */
+export function configDiff(recipes: (Record<string, unknown> | undefined)[]): DiffRow[] {
+  const flat = recipes.map((r) => flattenRecipe(r ?? {}))
+  const fields = [...new Set(flat.flatMap((f) => Object.keys(f)))].sort((a, b) =>
+    a === 'provenance.recipeHash' ? -1 : b === 'provenance.recipeHash' ? 1 : a.localeCompare(b),
+  )
+  return fields.map((field) => {
+    const values = flat.map((f) => f[field] ?? '—')
+    const short = field === 'provenance.recipeHash' ? values.map((v) => v.slice(0, 7)) : values
+    return {
+      field,
+      label: DIFF_LABELS[field] ?? field,
+      values: short,
+      differs: new Set(values).size > 1,
+    }
+  })
+}
