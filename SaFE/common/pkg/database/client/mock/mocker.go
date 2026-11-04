@@ -403,6 +403,20 @@ func (mr *MockInterfaceMockRecorder) CreatePostTrainingExperiment(ctx, e interfa
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePostTrainingExperiment", reflect.TypeOf((*MockInterface)(nil).CreatePostTrainingExperiment), ctx, e)
 }
 
+// CreatePostTrainingImportToken mocks base method.
+func (m *MockInterface) CreatePostTrainingImportToken(ctx context.Context, t *client.PostTrainingImportToken) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePostTrainingImportToken", ctx, t)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreatePostTrainingImportToken indicates an expected call of CreatePostTrainingImportToken.
+func (mr *MockInterfaceMockRecorder) CreatePostTrainingImportToken(ctx, t interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePostTrainingImportToken", reflect.TypeOf((*MockInterface)(nil).CreatePostTrainingImportToken), ctx, t)
+}
+
 // CreatePostTrainingRun mocks base method.
 func (m *MockInterface) CreatePostTrainingRun(ctx context.Context, run *client.PostTrainingRun) error {
 	m.ctrl.T.Helper()
@@ -597,6 +611,20 @@ func (m *MockInterface) DeletePostTrainingConvertCache(ctx context.Context, id i
 func (mr *MockInterfaceMockRecorder) DeletePostTrainingConvertCache(ctx, id interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePostTrainingConvertCache", reflect.TypeOf((*MockInterface)(nil).DeletePostTrainingConvertCache), ctx, id)
+}
+
+// DeletePostTrainingImportOfRun mocks base method.
+func (m *MockInterface) DeletePostTrainingImportOfRun(ctx context.Context, runID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePostTrainingImportOfRun", ctx, runID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePostTrainingImportOfRun indicates an expected call of DeletePostTrainingImportOfRun.
+func (mr *MockInterfaceMockRecorder) DeletePostTrainingImportOfRun(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePostTrainingImportOfRun", reflect.TypeOf((*MockInterface)(nil).DeletePostTrainingImportOfRun), ctx, runID)
 }
 
 // DeletePostTrainingRunMetrics mocks base method.
@@ -1202,6 +1230,81 @@ func (mr *MockInterfaceMockRecorder) GetPostTrainingExperiment(ctx, experimentID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingExperiment", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingExperiment), ctx, experimentID)
 }
 
+// GetPostTrainingImport mocks base method.
+func (m *MockInterface) GetPostTrainingImport(ctx context.Context, importID string) (*client.PostTrainingImport, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingImport", ctx, importID)
+	ret0, _ := ret[0].(*client.PostTrainingImport)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingImport indicates an expected call of GetPostTrainingImport.
+func (mr *MockInterfaceMockRecorder) GetPostTrainingImport(ctx, importID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImport", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingImport), ctx, importID)
+}
+
+// GetPostTrainingImportByPathKey mocks base method.
+func (m *MockInterface) GetPostTrainingImportByPathKey(ctx context.Context, pathKey string) (*client.PostTrainingImport, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingImportByPathKey", ctx, pathKey)
+	ret0, _ := ret[0].(*client.PostTrainingImport)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingImportByPathKey indicates an expected call of GetPostTrainingImportByPathKey.
+func (mr *MockInterfaceMockRecorder) GetPostTrainingImportByPathKey(ctx, pathKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImportByPathKey", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingImportByPathKey), ctx, pathKey)
+}
+
+// GetPostTrainingImportByRun mocks base method.
+func (m *MockInterface) GetPostTrainingImportByRun(ctx context.Context, runID string) (*client.PostTrainingImport, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingImportByRun", ctx, runID)
+	ret0, _ := ret[0].(*client.PostTrainingImport)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingImportByRun indicates an expected call of GetPostTrainingImportByRun.
+func (mr *MockInterfaceMockRecorder) GetPostTrainingImportByRun(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImportByRun", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingImportByRun), ctx, runID)
+}
+
+// GetPostTrainingImportToken mocks base method.
+func (m *MockInterface) GetPostTrainingImportToken(ctx context.Context, tokenID string) (*client.PostTrainingImportToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingImportToken", ctx, tokenID)
+	ret0, _ := ret[0].(*client.PostTrainingImportToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingImportToken indicates an expected call of GetPostTrainingImportToken.
+func (mr *MockInterfaceMockRecorder) GetPostTrainingImportToken(ctx, tokenID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImportToken", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingImportToken), ctx, tokenID)
+}
+
+// GetPostTrainingImportTokenByHash mocks base method.
+func (m *MockInterface) GetPostTrainingImportTokenByHash(ctx context.Context, hash string) (*client.PostTrainingImportToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingImportTokenByHash", ctx, hash)
+	ret0, _ := ret[0].(*client.PostTrainingImportToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingImportTokenByHash indicates an expected call of GetPostTrainingImportTokenByHash.
+func (mr *MockInterfaceMockRecorder) GetPostTrainingImportTokenByHash(ctx, hash interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImportTokenByHash", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingImportTokenByHash), ctx, hash)
+}
+
 // GetPostTrainingRun mocks base method.
 func (m *MockInterface) GetPostTrainingRun(ctx context.Context, runID string) (*client.PostTrainingRun, error) {
 	m.ctrl.T.Helper()
@@ -1795,6 +1898,20 @@ func (mr *MockInterfaceMockRecorder) OptimizationEventSeq(ctx, taskID, eventID i
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OptimizationEventSeq", reflect.TypeOf((*MockInterface)(nil).OptimizationEventSeq), ctx, taskID, eventID)
 }
 
+// SavePostTrainingImport mocks base method.
+func (m *MockInterface) SavePostTrainingImport(ctx context.Context, w client.PostTrainingImportWrite) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SavePostTrainingImport", ctx, w)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SavePostTrainingImport indicates an expected call of SavePostTrainingImport.
+func (mr *MockInterfaceMockRecorder) SavePostTrainingImport(ctx, w interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SavePostTrainingImport", reflect.TypeOf((*MockInterface)(nil).SavePostTrainingImport), ctx, w)
+}
+
 // SavePostTrainingRunMetrics mocks base method.
 func (m *MockInterface) SavePostTrainingRunMetrics(ctx context.Context, runID string, points []*client.PostTrainingRunMetric, runFields map[string]interface{}) error {
 	m.ctrl.T.Helper()
@@ -2057,6 +2174,20 @@ func (m *MockInterface) SetPostTrainingExperimentDeleted(ctx context.Context, ex
 func (mr *MockInterfaceMockRecorder) SetPostTrainingExperimentDeleted(ctx, experimentID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPostTrainingExperimentDeleted", reflect.TypeOf((*MockInterface)(nil).SetPostTrainingExperimentDeleted), ctx, experimentID)
+}
+
+// SetPostTrainingImportTokenError mocks base method.
+func (m *MockInterface) SetPostTrainingImportTokenError(ctx context.Context, tokenID, message string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPostTrainingImportTokenError", ctx, tokenID, message)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPostTrainingImportTokenError indicates an expected call of SetPostTrainingImportTokenError.
+func (mr *MockInterfaceMockRecorder) SetPostTrainingImportTokenError(ctx, tokenID, message interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPostTrainingImportTokenError", reflect.TypeOf((*MockInterface)(nil).SetPostTrainingImportTokenError), ctx, tokenID, message)
 }
 
 // SetPostTrainingRunDeleted mocks base method.
@@ -5674,6 +5805,160 @@ func (m *MockPostTrainingRunSampleInterface) UpsertPostTrainingRunSamples(ctx co
 func (mr *MockPostTrainingRunSampleInterfaceMockRecorder) UpsertPostTrainingRunSamples(ctx, samples interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertPostTrainingRunSamples", reflect.TypeOf((*MockPostTrainingRunSampleInterface)(nil).UpsertPostTrainingRunSamples), ctx, samples)
+}
+
+// MockPostTrainingImportInterface is a mock of PostTrainingImportInterface interface.
+type MockPostTrainingImportInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockPostTrainingImportInterfaceMockRecorder
+}
+
+// MockPostTrainingImportInterfaceMockRecorder is the mock recorder for MockPostTrainingImportInterface.
+type MockPostTrainingImportInterfaceMockRecorder struct {
+	mock *MockPostTrainingImportInterface
+}
+
+// NewMockPostTrainingImportInterface creates a new mock instance.
+func NewMockPostTrainingImportInterface(ctrl *gomock.Controller) *MockPostTrainingImportInterface {
+	mock := &MockPostTrainingImportInterface{ctrl: ctrl}
+	mock.recorder = &MockPostTrainingImportInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPostTrainingImportInterface) EXPECT() *MockPostTrainingImportInterfaceMockRecorder {
+	return m.recorder
+}
+
+// CreatePostTrainingImportToken mocks base method.
+func (m *MockPostTrainingImportInterface) CreatePostTrainingImportToken(ctx context.Context, t *client.PostTrainingImportToken) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePostTrainingImportToken", ctx, t)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreatePostTrainingImportToken indicates an expected call of CreatePostTrainingImportToken.
+func (mr *MockPostTrainingImportInterfaceMockRecorder) CreatePostTrainingImportToken(ctx, t interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePostTrainingImportToken", reflect.TypeOf((*MockPostTrainingImportInterface)(nil).CreatePostTrainingImportToken), ctx, t)
+}
+
+// DeletePostTrainingImportOfRun mocks base method.
+func (m *MockPostTrainingImportInterface) DeletePostTrainingImportOfRun(ctx context.Context, runID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePostTrainingImportOfRun", ctx, runID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePostTrainingImportOfRun indicates an expected call of DeletePostTrainingImportOfRun.
+func (mr *MockPostTrainingImportInterfaceMockRecorder) DeletePostTrainingImportOfRun(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePostTrainingImportOfRun", reflect.TypeOf((*MockPostTrainingImportInterface)(nil).DeletePostTrainingImportOfRun), ctx, runID)
+}
+
+// GetPostTrainingImport mocks base method.
+func (m *MockPostTrainingImportInterface) GetPostTrainingImport(ctx context.Context, importID string) (*client.PostTrainingImport, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingImport", ctx, importID)
+	ret0, _ := ret[0].(*client.PostTrainingImport)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingImport indicates an expected call of GetPostTrainingImport.
+func (mr *MockPostTrainingImportInterfaceMockRecorder) GetPostTrainingImport(ctx, importID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImport", reflect.TypeOf((*MockPostTrainingImportInterface)(nil).GetPostTrainingImport), ctx, importID)
+}
+
+// GetPostTrainingImportByPathKey mocks base method.
+func (m *MockPostTrainingImportInterface) GetPostTrainingImportByPathKey(ctx context.Context, pathKey string) (*client.PostTrainingImport, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingImportByPathKey", ctx, pathKey)
+	ret0, _ := ret[0].(*client.PostTrainingImport)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingImportByPathKey indicates an expected call of GetPostTrainingImportByPathKey.
+func (mr *MockPostTrainingImportInterfaceMockRecorder) GetPostTrainingImportByPathKey(ctx, pathKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImportByPathKey", reflect.TypeOf((*MockPostTrainingImportInterface)(nil).GetPostTrainingImportByPathKey), ctx, pathKey)
+}
+
+// GetPostTrainingImportByRun mocks base method.
+func (m *MockPostTrainingImportInterface) GetPostTrainingImportByRun(ctx context.Context, runID string) (*client.PostTrainingImport, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingImportByRun", ctx, runID)
+	ret0, _ := ret[0].(*client.PostTrainingImport)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingImportByRun indicates an expected call of GetPostTrainingImportByRun.
+func (mr *MockPostTrainingImportInterfaceMockRecorder) GetPostTrainingImportByRun(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImportByRun", reflect.TypeOf((*MockPostTrainingImportInterface)(nil).GetPostTrainingImportByRun), ctx, runID)
+}
+
+// GetPostTrainingImportToken mocks base method.
+func (m *MockPostTrainingImportInterface) GetPostTrainingImportToken(ctx context.Context, tokenID string) (*client.PostTrainingImportToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingImportToken", ctx, tokenID)
+	ret0, _ := ret[0].(*client.PostTrainingImportToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingImportToken indicates an expected call of GetPostTrainingImportToken.
+func (mr *MockPostTrainingImportInterfaceMockRecorder) GetPostTrainingImportToken(ctx, tokenID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImportToken", reflect.TypeOf((*MockPostTrainingImportInterface)(nil).GetPostTrainingImportToken), ctx, tokenID)
+}
+
+// GetPostTrainingImportTokenByHash mocks base method.
+func (m *MockPostTrainingImportInterface) GetPostTrainingImportTokenByHash(ctx context.Context, hash string) (*client.PostTrainingImportToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingImportTokenByHash", ctx, hash)
+	ret0, _ := ret[0].(*client.PostTrainingImportToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingImportTokenByHash indicates an expected call of GetPostTrainingImportTokenByHash.
+func (mr *MockPostTrainingImportInterfaceMockRecorder) GetPostTrainingImportTokenByHash(ctx, hash interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImportTokenByHash", reflect.TypeOf((*MockPostTrainingImportInterface)(nil).GetPostTrainingImportTokenByHash), ctx, hash)
+}
+
+// SavePostTrainingImport mocks base method.
+func (m *MockPostTrainingImportInterface) SavePostTrainingImport(ctx context.Context, w client.PostTrainingImportWrite) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SavePostTrainingImport", ctx, w)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SavePostTrainingImport indicates an expected call of SavePostTrainingImport.
+func (mr *MockPostTrainingImportInterfaceMockRecorder) SavePostTrainingImport(ctx, w interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SavePostTrainingImport", reflect.TypeOf((*MockPostTrainingImportInterface)(nil).SavePostTrainingImport), ctx, w)
+}
+
+// SetPostTrainingImportTokenError mocks base method.
+func (m *MockPostTrainingImportInterface) SetPostTrainingImportTokenError(ctx context.Context, tokenID, message string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPostTrainingImportTokenError", ctx, tokenID, message)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPostTrainingImportTokenError indicates an expected call of SetPostTrainingImportTokenError.
+func (mr *MockPostTrainingImportInterfaceMockRecorder) SetPostTrainingImportTokenError(ctx, tokenID, message interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPostTrainingImportTokenError", reflect.TypeOf((*MockPostTrainingImportInterface)(nil).SetPostTrainingImportTokenError), ctx, tokenID, message)
 }
 
 // MockPostTrainingTemplateInterface is a mock of PostTrainingTemplateInterface interface.
