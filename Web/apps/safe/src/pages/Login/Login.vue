@@ -153,7 +153,7 @@ import { useUserStore } from '@/stores/user'
 import { toggleDark } from '@/composables'
 import { randomState, getSafeRedirect } from '@/utils'
 import { buildSignInUrl, signInTarget } from '@/utils/ssoSignIn'
-import { outsideConsoleReturn } from '@/utils/returnPath'
+import { leaveConsoleFor, outsideConsoleReturn, RETURN_REFUSED_MESSAGE } from '@/utils/returnPath'
 import { useDark } from '@vueuse/core'
 
 const isDark = useDark()
@@ -277,11 +277,11 @@ async function onSubmit() {
       // Signed in for another app on this host: load its page, outside the console router.
       const away = outsideConsoleReturn(route.query.redirect, window.location.origin)
       if (away) {
-        window.location.replace(away)
-        return
+        if (leaveConsoleFor(away)) return
+        ElMessage.warning(RETURN_REFUSED_MESSAGE)
       }
 
-      const safe = getSafeRedirect(route.query.redirect)
+      const safe = away ? '/' : getSafeRedirect(route.query.redirect)
 
       if (userStore.shouldAutoShowQuickStart) {
         // First-time manager: go to QuickStart, put original target in next

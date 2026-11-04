@@ -8,7 +8,11 @@ const getEnvs = vi.fn()
 const ssoLoginRaw = vi.fn()
 let userState: Record<string, unknown> = {}
 
-vi.mock('element-plus', () => ({ ElMessage: {}, ElMessageBox: {} }))
+const warning = vi.fn()
+vi.mock('element-plus', () => ({
+  ElMessage: { warning: (...a: unknown[]) => warning(...a) },
+  ElMessageBox: {},
+}))
 vi.mock('@/stores/user', () => ({ useUserStore: () => userState }))
 vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({ $reset: vi.fn() }) }))
 vi.mock('@/stores/workspace', () => ({ useWorkspaceStore: () => ({ $reset: vi.fn() }) }))
@@ -55,7 +59,7 @@ const signedIn = (extra: Record<string, unknown> = {}) => ({
   session: 'authenticated',
   userId: 'u1',
   isLogin: true,
-  ensureSessionOnce: vi.fn(),
+  ensureSessionOnce: vi.fn(async () => {}),
   $patch: vi.fn(),
   fetchUser: vi.fn(async () => {}),
   shouldAutoShowQuickStart: false,
@@ -78,6 +82,7 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() })
   vi.stubGlobal('history', { replaceState })
   userState = signedIn()
+  warning.mockReset()
 })
 
 describe('sign-in callback returning outside the console', () => {
@@ -129,6 +134,22 @@ describe('sign-in callback returning outside the console', () => {
     expect(new URL(target, SELF).origin).toBe(SELF)
   })
 
+  it('stays in the console when the app sends the browser straight back', async () => {
+    session.set(ENTRY_KEY, '/dispatron/runs')
+    await callback()
+    expect(replace).toHaveBeenCalledTimes(1)
+
+    replace.mockClear()
+    replaceState.mockClear()
+    session.set('oauth_state', 'st')
+    session.set(ENTRY_KEY, '/dispatron/runs')
+    const next = await callback()
+    expect(replace).not.toHaveBeenCalled()
+    expect(warning).toHaveBeenCalledTimes(1)
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/')
+    expect(next).toHaveBeenCalledWith('/')
+  })
+
   it('does not navigate away when the sign-in fails', async () => {
     ssoLoginRaw.mockResolvedValue({ status: 401, data: {} })
     session.set(ENTRY_KEY, '/dispatron/')
@@ -142,10 +163,77 @@ describe('/login with a session already present', () => {
   const login = (redirect: unknown) =>
     run({ query: { redirect }, path: '/login', fullPath: '/login', name: 'Login' })
 
-  it('loads the allow-listed app page', async () => {
+  it('loads the allow-listed app page once the server confirms the session', async () => {
+    const order: string[] = []
+    userState = signedIn({
+      ensureSessionOnce: vi.fn(async () => {
+        await Promise.resolve()
+        order.push('probe')
+      }),
+    })
+    replace.mockImplementation(() => order.push('replace'))
     const next = await login('/dispatron/runs')
     expect(replace).toHaveBeenCalledWith(`${SELF}/dispatron/runs`)
+    expect(order).toEqual(['probe', 'replace'])
     expect(next).toHaveBeenCalledWith(false)
+  })
+
+  // localStorage still says 'authenticated', but the session cookie has expired: the server
+  // refuses it and ensureSessionOnce clears the saved session, as the real store does.
+  const stale = () =>
+    signedIn({
+      ensureSessionOnce: vi.fn(async () => {
+        Object.assign(userState, {
+          session: 'anonymous',
+          userId: '',
+          isLogin: false,
+          profile: null,
+        })
+      }),
+    })
+
+  it('signs in instead when the saved session is stale', async () => {
+    userState = stale()
+    const next = await login('/dispatron/runs')
+    expect(userState.ensureSessionOnce).toHaveBeenCalledTimes(1)
+    expect(replace).not.toHaveBeenCalled()
+    // the Login page renders, which starts the sign-in with the same redirect
+    expect(next).toHaveBeenCalledTimes(1)
+    expect(next).toHaveBeenCalledWith()
+  })
+
+  it('signs in instead when the session probe fails', async () => {
+    userState = signedIn({
+      ensureSessionOnce: vi.fn(async () => {
+        throw new Error('network')
+      }),
+    })
+    const next = await login('/dispatron/runs')
+    expect(replace).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledWith()
+  })
+
+  it('a stale session never reaches the app however often it comes back', async () => {
+    for (let i = 0; i < 3; i++) {
+      userState = stale()
+      await login('/dispatron/runs')
+    }
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it('stays in the console when the app sends the browser straight back', async () => {
+    await login('/dispatron/runs')
+    replace.mockClear()
+    const next = await login('/dispatron/runs')
+    expect(replace).not.toHaveBeenCalled()
+    expect(warning).toHaveBeenCalledTimes(1)
+    expect(next).toHaveBeenCalledWith('/')
+  })
+
+  it('a console target does not need the probe', async () => {
+    const next = await login('/workloads')
+    expect(userState.ensureSessionOnce).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledWith('/workloads')
   })
 
   it.each(['//evil.example.net', '/\\evil.example.net', 'https://evil.example.net/autopilot'])(

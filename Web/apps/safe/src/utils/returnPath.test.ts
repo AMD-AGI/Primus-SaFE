@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getSafeRedirect } from '@/utils'
-import { OUTSIDE_CONSOLE_PREFIXES, outsideConsoleReturn } from './returnPath'
+import {
+  leaveConsoleFor,
+  OUTSIDE_CONSOLE_PREFIXES,
+  outsideConsoleReturn,
+  REPEAT_RETURN_WINDOW_MS,
+} from './returnPath'
 
 const SELF = 'https://console.example.com'
 
@@ -105,5 +110,80 @@ describe('getSafeRedirect', () => {
     42,
   ])('sends %j to /', (v) => {
     expect(getSafeRedirect(v)).toBe('/')
+  })
+})
+
+describe('leaveConsoleFor', () => {
+  const A = `${SELF}/dispatron/runs`
+  const B = `${SELF}/autopilot/`
+  let store: Map<string, string>
+  let replace: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    store = new Map()
+    replace = vi.fn()
+    vi.stubGlobal('window', { location: { replace } })
+    vi.stubGlobal('sessionStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => store.set(k, v),
+      removeItem: (k: string) => store.delete(k),
+    })
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('returns the first time', () => {
+    expect(leaveConsoleFor(A, 1_000)).toBe(true)
+    expect(replace).toHaveBeenCalledWith(A)
+  })
+
+  it('does not return to the same page again within the window', () => {
+    leaveConsoleFor(A, 1_000)
+    replace.mockClear()
+    expect(leaveConsoleFor(A, 1_000 + REPEAT_RETURN_WINDOW_MS - 1)).toBe(false)
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it('returns again once the window has passed', () => {
+    leaveConsoleFor(A, 1_000)
+    expect(leaveConsoleFor(A, 1_000 + REPEAT_RETURN_WINDOW_MS)).toBe(true)
+    expect(replace).toHaveBeenCalledTimes(2)
+  })
+
+  it('a refused repeat does not extend the window', () => {
+    leaveConsoleFor(A, 1_000)
+    expect(leaveConsoleFor(A, 2_000)).toBe(false)
+    expect(leaveConsoleFor(A, 1_000 + REPEAT_RETURN_WINDOW_MS)).toBe(true)
+  })
+
+  it('another page is not a repeat', () => {
+    leaveConsoleFor(A, 1_000)
+    expect(leaveConsoleFor(B, 1_001)).toBe(true)
+    expect(replace).toHaveBeenLastCalledWith(B)
+  })
+
+  it.each(['not json', '{"href":"x"}', 'null', `{"href":"${A}","at":"1000"}`])(
+    'a saved record %j does not block',
+    (saved) => {
+      store.set('console.outsideReturn', saved)
+      expect(leaveConsoleFor(A, 1_000)).toBe(true)
+    },
+  )
+
+  it('a record from the future (clock set back) does not block', () => {
+    leaveConsoleFor(A, 50_000)
+    expect(leaveConsoleFor(A, 40_000)).toBe(true)
+  })
+
+  it('still returns when sessionStorage throws', () => {
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => {
+        throw new Error('denied')
+      },
+      setItem: () => {
+        throw new Error('denied')
+      },
+    })
+    expect(leaveConsoleFor(A, 1_000)).toBe(true)
+    expect(replace).toHaveBeenCalledWith(A)
   })
 })

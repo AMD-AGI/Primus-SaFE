@@ -48,3 +48,33 @@ export function outsideConsoleReturn(value: unknown, origin: string): string | n
   if (!OUTSIDE_CONSOLE_PREFIXES.some((p) => underPrefix(url.pathname, p))) return null
   return url.href
 }
+
+// The last full-page return this tab made, kept in sessionStorage: { href, at }.
+const LAST_RETURN_KEY = 'console.outsideReturn'
+
+/** Within this time a second return to the same page is the app sending the browser back. */
+export const REPEAT_RETURN_WINDOW_MS = 15_000
+
+export const RETURN_REFUSED_MESSAGE =
+  'The application sent you straight back after signing in, so you stay in the console. ' +
+  'If it keeps happening, contact the owner of that application.'
+
+/**
+ * Loads `href` (an outsideConsoleReturn result) with a full-page navigation and returns true,
+ * unless this tab already did that for the same URL less than REPEAT_RETURN_WINDOW_MS ago.
+ * Then the app sent the browser straight back to /login: it does not accept the console's
+ * session, and returning again would only loop. It returns false and the caller stays in the
+ * console. If sessionStorage cannot be used the return still happens, without this guard.
+ */
+export function leaveConsoleFor(href: string, now = Date.now()): boolean {
+  try {
+    const last = JSON.parse(sessionStorage.getItem(LAST_RETURN_KEY) || 'null')
+    const age = typeof last?.at === 'number' ? now - last.at : NaN
+    if (last?.href === href && age >= 0 && age < REPEAT_RETURN_WINDOW_MS) return false
+  } catch {}
+  try {
+    sessionStorage.setItem(LAST_RETURN_KEY, JSON.stringify({ href, at: now }))
+  } catch {}
+  window.location.replace(href)
+  return true
+}
