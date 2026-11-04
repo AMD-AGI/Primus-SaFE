@@ -9,26 +9,36 @@
       />
     </el-form-item>
 
-    <el-descriptions :column="2" border size="small">
-      <el-descriptions-item label="Task">{{ taskText }}</el-descriptions-item>
-      <el-descriptions-item label="Base model">{{ modelName }}</el-descriptions-item>
-      <el-descriptions-item label="Dataset">{{
-        datasetName(w.form.datasetId) || '—'
-      }}</el-descriptions-item>
-      <el-descriptions-item label="Validation / evaluation">{{
-        validationText
-      }}</el-descriptions-item>
-      <el-descriptions-item label="Nodes">
-        {{ w.form.resources.nodes }} × {{ w.form.resources.gpusPerNode }} GPUs
-      </el-descriptions-item>
-      <el-descriptions-item label="Export">{{
-        w.form.export.hf === false ? 'None' : 'Hugging Face model'
-      }}</el-descriptions-item>
-      <el-descriptions-item label="Automatic evaluation">{{ evaluationText }}</el-descriptions-item>
-      <el-descriptions-item label="Retries">{{
-        w.form.resources.maxRetry ?? 1
-      }}</el-descriptions-item>
-    </el-descriptions>
+    <el-tabs v-model="tab">
+      <el-tab-pane label="Summary" name="summary">
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="Task">{{ taskText }}</el-descriptions-item>
+          <el-descriptions-item label="Base model">{{ modelName }}</el-descriptions-item>
+          <el-descriptions-item label="Dataset">{{
+            datasetName(w.form.datasetId) || '—'
+          }}</el-descriptions-item>
+          <el-descriptions-item label="Validation / evaluation">{{
+            validationText
+          }}</el-descriptions-item>
+          <el-descriptions-item label="Nodes">
+            {{ w.form.resources.nodes }} × {{ w.form.resources.gpusPerNode }} GPUs
+          </el-descriptions-item>
+          <el-descriptions-item label="Export">{{
+            w.form.export.hf === false ? 'None' : 'Hugging Face model'
+          }}</el-descriptions-item>
+          <el-descriptions-item label="Automatic evaluation">{{
+            evaluationText
+          }}</el-descriptions-item>
+          <el-descriptions-item label="Retries">{{
+            w.form.resources.maxRetry ?? 1
+          }}</el-descriptions-item>
+        </el-descriptions>
+      </el-tab-pane>
+      <RecipePanes
+        :recipe="w.preview.value?.recipe"
+        :framework="w.form.framework || w.config.value?.framework"
+      />
+    </el-tabs>
 
     <div v-if="w.warnings.value.length" class="mt-4">
       <div class="font-500 mb-1">Confirm the warnings</div>
@@ -46,12 +56,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import RecipePanes from '../Components/RecipePanes.vue'
 import { useWizard } from './wizard'
 
 const emit = defineEmits<{ confirmed: [all: boolean] }>()
 const w = useWizard()
 
+const tab = ref('summary')
 const confirmed = reactive(new Set<string>())
 const toggle = (message: string, on: boolean) => {
   if (on) confirmed.add(message)

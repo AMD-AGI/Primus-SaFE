@@ -52,8 +52,13 @@
           </div>
         </div>
         <div class="flex items-center gap-2 shrink-0">
-          <el-tooltip :content="readOnlyTip" :disabled="!isReadonly" placement="top">
-            <span v-if="isActive">
+          <el-tooltip
+            v-if="isActive"
+            :content="readOnlyTip"
+            :disabled="!isReadonly"
+            placement="top"
+          >
+            <span>
               <el-button round :disabled="isReadonly" @click="handleStop">Stop</el-button>
             </span>
           </el-tooltip>
@@ -382,10 +387,16 @@
         </el-tab-pane>
 
         <el-tab-pane label="Recipe" name="recipe">
-          <div class="flex justify-end mb-2">
-            <el-button link type="primary" @click="copyText(recipeText)">Copy</el-button>
+          <div class="flex items-center gap-4 mb-1 text-[13px]">
+            <span>
+              Recipe hash
+              <span class="text-[var(--safe-muted)]">{{ run.recipeHash }}</span>
+            </span>
+            <el-button link type="primary" @click="downloadRecipe">Download recipe</el-button>
           </div>
-          <pre class="pt-recipe">{{ recipeText }}</pre>
+          <el-tabs v-model="recipeTab">
+            <RecipePanes :recipe="run.recipe" :framework="run.framework" />
+          </el-tabs>
         </el-tab-pane>
       </el-tabs>
     </template>
@@ -549,6 +560,7 @@ import GpuPanel from './Components/GpuPanel.vue'
 import SaveTemplateDialog from './Components/SaveTemplateDialog.vue'
 import VariantEditor from './Components/VariantEditor.vue'
 import SamplesTab from './Components/SamplesTab.vue'
+import RecipePanes from './Components/RecipePanes.vue'
 import { requestFromRun, specOfRun } from './Create/wizard'
 
 defineOptions({ name: 'PostTrainingDetailPage' })
@@ -605,8 +617,23 @@ watch(run, (r) => {
   if (r && tab.value === 'samples' && !hasSamples.value) tab.value = 'overview'
 })
 const recipeText = computed(() => JSON.stringify(run.value?.recipe ?? {}, null, 2))
+const recipeTab = ref('args')
+
+/** Saves the run's recipe snapshot as a JSON file. */
+const downloadRecipe = () => {
+  const url = URL.createObjectURL(new Blob([recipeText.value], { type: 'application/json' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `recipe-${run.value?.runId ?? 'run'}.json`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
 
 const methodLabel = (m: string) => (m === 'lora' ? 'LoRA' : 'Full')
+/** A message ending with a full stop, so another sentence can follow it. */
+const sentence = (s: string) => (s.trim() && !/[.!?]$/.test(s.trim()) ? `${s.trim()}.` : s.trim())
 const shortTime = (t?: string) => (t ? dayjs(t).format('MM-DD HH:mm') : '—')
 const stageLabel = (s?: string) => STAGE_LABELS[(s || 'train') as RunStage] ?? s
 
@@ -681,17 +708,23 @@ const banner = computed((): Banner | undefined => {
     return {
       type: 'error',
       title: `Failed at ${stageLabel(r.failedStage)}.`,
-      text: `${r.message ?? ''}${notRetried ? ' Not retried: retrying would fail the same way.' : ''}`,
+      text: [
+        sentence(r.message ?? ''),
+        notRetried ? 'Not retried: retrying would fail the same way.' : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
       actions: true,
       cleanup: DISK_FULL.test(r.message ?? ''),
     }
   }
-  if (stallNote(r, now.value.getTime())) {
+  const note = stallNote(r, now.value.getTime())
+  if (note) {
     const since = Date.parse(timeOf(r.stalledSince) ?? '')
     const minutes = Math.max(1, Math.round((now.value.getTime() - since) / 60000))
     const text = r.message?.startsWith(LOST_MESSAGE)
       ? `The launcher hasn't reported for ${minutes} min, so the stall watchdog can't act. Check the logs, or stop the run.`
-      : (r.message ?? '')
+      : r.message || `${note}.`
     return { type: 'warning', title: '', text, stall: true }
   }
   if (r.status === 'Pending' || (r.status === 'Running' && r.queuePosition > 0)) {
@@ -701,7 +734,14 @@ const banner = computed((): Banner | undefined => {
       text: `${r.message || 'Waiting to be scheduled'}${position}`,
     }
   }
-  if (r.status === 'Stopped') return { type: 'info', title: '', text: r.message || 'Stopped' }
+  if (r.status === 'Stopped') {
+    const end = timeOf(r.endTime)
+    return {
+      type: 'info',
+      title: '',
+      text: `${r.message || 'Stopped'}${end ? ` at ${shortTime(end)}` : ''}`,
+    }
+  }
   return undefined
 })
 
@@ -1148,13 +1188,5 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-}
-.pt-recipe {
-  max-height: 600px;
-  overflow: auto;
-  padding: 12px;
-  font-size: 12px;
-  border: 1px solid var(--safe-border);
-  border-radius: 8px;
 }
 </style>
