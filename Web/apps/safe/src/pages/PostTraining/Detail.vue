@@ -69,6 +69,13 @@
               </el-button>
             </span>
           </el-tooltip>
+          <el-tooltip :content="readOnlyTip" :disabled="!isReadonly" placement="top">
+            <span>
+              <el-button round :disabled="isReadonly" @click="abDrawer = true">
+                A/B from This Run
+              </el-button>
+            </span>
+          </el-tooltip>
           <el-tooltip :content="evaluateTip" :disabled="!evaluateTip" placement="top">
             <span>
               <el-button round :disabled="!!evaluateTip" @click="openEvaluate">Evaluate</el-button>
@@ -331,6 +338,8 @@
       </el-tabs>
     </template>
 
+    <VariantEditor v-if="templateRequest" v-model="abDrawer" :baseline="templateRequest" />
+
     <SaveTemplateDialog
       v-if="templateRequest"
       v-model="saveTemplate"
@@ -482,6 +491,7 @@ import {
 import StageTimeline from './Components/StageTimeline.vue'
 import MetricsPanel from './Components/MetricsPanel.vue'
 import SaveTemplateDialog from './Components/SaveTemplateDialog.vue'
+import VariantEditor from './Components/VariantEditor.vue'
 import { requestFromRun, specOfRun } from './Create/wizard'
 
 defineOptions({ name: 'PostTrainingDetailPage' })
@@ -510,6 +520,7 @@ const smoothing = ref(0.6)
 const isActive = computed(() => run.value?.status === 'Pending' || run.value?.status === 'Running')
 
 const saveTemplate = ref(false)
+const abDrawer = ref(false)
 /** The request the run's recipe snapshot gives a template. */
 const templateRequest = computed(() => (run.value ? requestFromRun(run.value) : undefined))
 
