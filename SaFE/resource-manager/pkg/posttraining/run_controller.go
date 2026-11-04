@@ -562,6 +562,9 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 	}
 	countRead(in, rejected, skipped, run.MetricGap, gap)
 	r.notifyChanges(ctx, run, fields)
+	if in.conversion != nil {
+		r.registerConversion(ctx, run, in.conversion)
+	}
 	if readErr != nil {
 		klog.V(2).InfoS("submitter log not readable yet", "run", run.RunID, "err", readErr)
 	}
