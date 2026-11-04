@@ -243,10 +243,35 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	if c.KvCacheDtype != "" && c.KvCacheDtype != kvCacheFP8 {
 		fail("choices.kvCacheDtype", "The KV cache dtype must be %s, or empty for the model's own", kvCacheFP8)
 	}
-	if c.RolloutPrecision == recipe.RolloutPrecisionFP8 && c.Correction == "" {
-		out = append(out, recipe.Diagnostic{Level: recipe.LevelWarning, Field: "choices.correction",
-			Message: "FP8 rollout without a train-inference correction such as TIS: training uses log-probs of " +
-				"the quantized rollout"})
+	async := c.Schedule == recipe.ScheduleAsync
+	if c.Schedule != "" && c.Schedule != "sync" && !async {
+		fail("choices.schedule", "Schedule must be sync or async")
+	}
+	if c.Concurrency < 0 || c.Concurrency > maxConcurrency {
+		fail("choices.concurrency", "Concurrency must be between 1 and %d", maxConcurrency)
+	}
+	warn := func(field, message string) {
+		out = append(out, recipe.Diagnostic{Level: recipe.LevelWarning, Field: field, Message: message})
+	}
+	if async && c.GpusPerEngine > 0 {
+		// The object store has a single generation worker, so these requests are all a rollout runs at once.
+		if engines := l.RolloutGpus / c.GpusPerEngine; c.Concurrency*engines < c.NSamplesPerPrompt {
+			fail("choices.concurrency", "Fully async needs concurrency × rollout engines (%d × %d) of at least "+
+				"the samples per prompt (%d)", c.Concurrency, engines, c.NSamplesPerPrompt)
+		}
+	}
+	if async && ctx.Request.EvalDatasetID != "" {
+		warn("evalDatasetId", "Fully async does not evaluate during training; the automatic evaluation after "+
+			"training scores the model")
+	}
+	switch {
+	case c.Correction != "":
+	case c.RolloutPrecision == recipe.RolloutPrecisionFP8:
+		warn("choices.correction", "FP8 rollout without a train-inference correction such as TIS: training uses "+
+			"log-probs of the quantized rollout")
+	case async:
+		warn("choices.correction", "Fully async without a train-inference correction such as TIS: samples come "+
+			"from older weights")
 	}
 	if c.Layout != recipe.LayoutColocate && c.Layout != recipe.LayoutSeparate {
 		fail("choices.layout", "Layout must be colocate or separate")
