@@ -64,6 +64,23 @@ The [install.sh](../../bootstrap/install.sh) script provides a one-click install
     - What the installer does:
       - Creates a Kubernetes secret `primus-safe-sso` in namespace `primus-safe` with keys: `id`, `secret`, `endpoint`, `redirect_uri`
       - Enables the `sso.enable` flag and wires the secret into the Primus‑SaFE Helm values
+    - Signing the console in at another OpenID Connect provider (`sso.login`, off by default):
+      - The console can sign in at an OIDC provider where it is registered as a **public client**: no client secret,
+        the authorization code flow with PKCE (S256), and a callback of the console's own, for example
+        `https://<console host>/sso/callback`, registered exactly at the provider. The console sends the browser to the
+        provider's authorization endpoint, the provider redirects back to that callback, and the apiserver exchanges the
+        code with the PKCE verifier at the provider's token endpoint. `/envs` reports this sign-in as `ssoLoginUrl`;
+        `ssoAuthUrl` stays the URL of the provider of the secret while it is configured. Sessions and users are kept as before: the session
+        holds the provider's ID token (its `exp` is the session's end), and the user id comes from the `email` claim
+        (else `sub`) by the same rule as for the other provider, so a person keeps one account whichever provider signed
+        them in. Ask the provider for ID tokens that live as long as a session should.
+      - Helm values (or `.env` for `bootstrap/upgrade.sh`): `sso.login.enable` (`sso_login_enable`), `sso.login.issuer`
+        (`sso_login_issuer`), `sso.login.client_id` (`sso_login_client_id`), `sso.login.redirect_uri`
+        (`sso_login_redirect_uri`). `sso.enable` stays `true`.
+      - The provider of the `primus-safe-sso` secret keeps working while the secret is there: codes other web apps bring
+        through the SSO bridge (no PKCE verifier) are exchanged there, and sessions it made stay valid until they expire.
+        Once nothing uses it, remove it with `sso.secret: ""` (`.env`: `sso_secret=`): the secret is then not mounted.
+      - Off again: `sso.login.enable: false` (with the secret still configured) and roll the apiserver.
 
 #### Image and Network Configuration
 

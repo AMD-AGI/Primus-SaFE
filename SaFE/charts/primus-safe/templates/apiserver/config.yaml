@@ -115,6 +115,13 @@ data:
       enable: {{ .Values.sso.enable }}
       # Origins (optionally with a path prefix) that may receive an SSO code besides this console's own origin
       bridge_allowlist: {{ toJson (default (list) .Values.sso.bridge_allowlist) }}
+      {{- $login := default dict .Values.sso.login }}
+      # The console signs in at this OpenID Connect provider (public client, PKCE) when enabled
+      login:
+        enable: {{ default false $login.enable }}
+        issuer: {{ toJson (toString (default "" $login.issuer)) }}
+        client_id: {{ toJson (toString (default "" $login.client_id)) }}
+        redirect_uri: {{ toJson (toString (default "" $login.redirect_uri)) }}
     cicd:
       enable: {{ .Values.cicd.enable }}
       controller_name: {{ .Values.cicd.controller_name }}

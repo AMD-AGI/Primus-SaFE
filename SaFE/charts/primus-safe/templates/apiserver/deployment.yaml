@@ -82,7 +82,7 @@ spec:
               mountPath: {{ .Values.s3.secret_path }}
               readOnly: true
             {{- end }}
-            {{- if .Values.sso.enable }}
+            {{- if and .Values.sso.enable .Values.sso.secret }}
             - name: sso-secret
               mountPath: {{ .Values.sso.secret_path }}
               readOnly: true
@@ -168,7 +168,7 @@ spec:
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-apiserver
-        {{- if .Values.sso.enable }}
+        {{- if and .Values.sso.enable .Values.sso.secret }}
         - name: sso-secret
           secret:
             secretName: {{ .Values.sso.secret }}

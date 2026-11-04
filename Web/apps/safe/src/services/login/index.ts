@@ -18,12 +18,14 @@ export const login = (data: LoginReq): Promise<LoginResp> => postForm<LoginResp>
  * SSO Login (bypass interceptor, get full response)
  * Even on failure, user info (e.g. email/name) can be obtained from response.data
  */
-export async function ssoLoginRaw(code: string, state?: string) {
+export async function ssoLoginRaw(code: string, state?: string, codeVerifier?: string) {
   const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
   const params = new URLSearchParams()
   params.append('type', 'sso')
   params.append('code', code)
   if (state) params.append('state', String(state))
+  // PKCE: the verifier of the challenge this tab sent with the authorization request (envs.ssoLoginUrl)
+  if (codeVerifier) params.append('code_verifier', codeVerifier)
 
   const resp = await axios.post(`${baseURL}/login`, params, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

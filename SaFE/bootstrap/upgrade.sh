@@ -217,6 +217,7 @@ lens_enable="false"
 echo "✅ Robust data-plane: managed via AddonTemplate"
 echo "✅ Support S3: \"$s3_enable\""
 echo "✅ Support SSO: \"$sso_enable\""
+echo "✅ SSO console sign-in at an OIDC provider (sso.login): \"${sso_login_enable:-unset}\""
 echo "✅ Support Tracing: \"${tracing_enable:-false}\" (mode: ${tracing_mode:-error_only})"
 echo "✅ Support LLM Gateway: \"${llm_gateway_enable:-false}\""
 echo "✅ Grafana: enable=\"${grafana_enable:-true}\" (set grafana_enable=false in .env to disable)"
@@ -233,6 +234,38 @@ echo "✅ Node Agent GPU Driver: \"${node_agent_gpu_driver:-6.12.12}\""
 echo "✅ Node Agent ROCm Version: \"${node_agent_rocm_version:-6.4}\""
 echo "✅ Node Agent Toggles: net_bnxt_load_204=${node_agent_toggle_net_bnxt_load_204:-off}, net_ainic_load_205=${node_agent_toggle_net_ainic_load_205:-off}, net_ainic_devices_208=${node_agent_toggle_net_ainic_devices_208:-off}, sys_csi_wekafs_309=${node_agent_toggle_sys_csi_wekafs_309:-on}"
 echo "✅ Auth mode: \"${auth_mode:-unset}\""
+
+# The console's sign-in at an OpenID Connect provider (sso.login, see docs/installation/install.md),
+# from .env like the rest. Written only when .env sets sso_login_enable, so a site without it keeps
+# the chart default (off, the console signs in at the provider of the sso Secret).
+#   sso_login_enable        true | false                                 -> sso.login.enable
+#   sso_login_issuer        the provider's issuer                         -> sso.login.issuer
+#   sso_login_client_id     the console's client id at the provider       -> sso.login.client_id
+#   sso_login_redirect_uri  the console's own callback, as registered     -> sso.login.redirect_uri
+#   sso_secret              the Secret of the other SSO provider (default
+#                           primus-safe-sso); empty removes it            -> sso.secret
+if [[ -n "${sso_login_enable:-}" ]]; then
+  if [[ "$sso_login_enable" != "true" && "$sso_login_enable" != "false" ]]; then
+    echo "Error: sso_login_enable in .env must be true or false" >&2
+    exit 1
+  fi
+  unsafe_value='["|\\[:space:]]'
+  for key in sso_login_issuer sso_login_client_id sso_login_redirect_uri; do
+    value="${!key:-}"
+    if [[ "$sso_login_enable" == "true" && -z "$value" ]]; then
+      echo "Error: sso_login_enable=true in .env needs $key" >&2
+      exit 1
+    fi
+    if [[ "$value" =~ $unsafe_value ]]; then
+      echo "Error: $key in .env must not contain spaces, quotes, backslashes or '|'" >&2
+      exit 1
+    fi
+  done
+fi
+if [[ "${sso_secret:-}" =~ [^a-z0-9.-] ]]; then
+  echo "Error: sso_secret in .env must be the name of a Secret" >&2
+  exit 1
+fi
 
 # Before anything is changed: an upgrade must not silently turn the external authentication off.
 check_live_auth
@@ -296,9 +329,16 @@ if [[ -n "${grafana_password:-}" ]]; then
 fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
-sed -i '/sso:/,/^[a-z]/ s/enable: .*/enable: '"$sso_enable"'/' "$values_yaml"
+# Anchored at the indentation of sso's own keys: sso.login has an enable of its own.
+sed -i '/sso:/,/^[a-z]/ s/^  enable: .*/  enable: '"$sso_enable"'/' "$values_yaml"
 if [[ "$sso_enable" == "true" ]]; then
-  sed -i '/^sso:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
+  sed -i '/^sso:/,/^[a-z]/ s#^  secret: ".*"#  secret: "'"${sso_secret-$SSO_SECRET}"'"#' "$values_yaml"
+fi
+if [[ -n "${sso_login_enable:-}" ]]; then
+  sed -i -e '/^sso:/,/^[a-z]/ s|^    enable: .*|    enable: '"$sso_login_enable"'|' \
+    -e '/^sso:/,/^[a-z]/ s|^    issuer: .*|    issuer: "'"${sso_login_issuer:-}"'"|' \
+    -e '/^sso:/,/^[a-z]/ s|^    client_id: .*|    client_id: "'"${sso_login_client_id:-}"'"|' \
+    -e '/^sso:/,/^[a-z]/ s|^    redirect_uri: .*|    redirect_uri: "'"${sso_login_redirect_uri:-}"'"|' "$values_yaml"
 fi
 sed -i '/^cd:/,/^[a-z]/ s/require_approval: .*/require_approval: '"$cd_require_approval"'/' "$values_yaml"
 

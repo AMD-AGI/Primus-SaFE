@@ -298,6 +298,45 @@ expect "no jq, every key in .env: says why" grep -q 'jq is required when .env se
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_BUILTIN" "auth_mode=extrenal"
 expect "no jq, a mode that is neither: refused" refused
 
+# The console's sign-in at an OIDC provider (sso_login_*): off unless .env says so; then on, with the
+# other provider's Secret kept or removed (sso_secret); and refused before anything is touched when
+# a value is not usable.
+SSO_ON="sso_enable=true"
+run_upgrade "" "$SSO_ON"
+expect "sso, no sso_login keys: applied" applied
+expect "sso, no sso_login keys: sso.enable is true" rendered 'enable: true'
+expect "sso, no sso_login keys: sso.login stays off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
+expect "sso, no sso_login keys: the sso Secret is mounted" grep -qxF '            secretName: primus-safe-sso' "$OUT/rendered.yaml"
+SSO_LOGIN="sso_login_enable=true
+sso_login_issuer=https://idp.example.com
+sso_login_client_id=console
+sso_login_redirect_uri=https://console.example.com/sso/callback"
+run_upgrade "" "$SSO_ON
+$SSO_LOGIN"
+expect "sso_login: applied" applied
+expect "sso_login: enabled" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+expect "sso_login: issuer" grep -qxF '        issuer: "https://idp.example.com"' "$OUT/rendered.yaml"
+expect "sso_login: client id" grep -qxF '        client_id: "console"' "$OUT/rendered.yaml"
+expect "sso_login: redirect uri" grep -qxF '        redirect_uri: "https://console.example.com/sso/callback"' "$OUT/rendered.yaml"
+expect "sso_login: the other provider's Secret is still mounted" grep -qxF '            secretName: primus-safe-sso' "$OUT/rendered.yaml"
+run_upgrade "" "$SSO_ON
+$SSO_LOGIN
+sso_secret="
+expect "sso_login, sso_secret empty: applied" applied
+expect "sso_login, sso_secret empty: no sso Secret is mounted" bash -c '! grep -q "sso-secret" "$1"' _ "$OUT/rendered.yaml"
+expect "sso_login, sso_secret empty: sso stays enabled" rendered 'enable: true'
+run_upgrade "" "$SSO_ON
+sso_login_enable=yes"
+expect "sso_login_enable neither true nor false: refused" refused
+run_upgrade "" "$SSO_ON
+sso_login_enable=true
+sso_login_issuer=https://idp.example.com"
+expect "sso_login without a client id: refused" refused
+run_upgrade "" "$SSO_ON
+$SSO_LOGIN
+sso_login_client_id='a|b'"
+expect "sso_login with a '|' in a value: refused" refused
+
 echo
 if ((FAILS > 0)); then
   echo "$FAILS check(s) failed; logs are in $W until this shell exits"
