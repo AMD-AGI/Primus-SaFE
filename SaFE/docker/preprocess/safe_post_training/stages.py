@@ -189,16 +189,16 @@ def ray_gpus():
     return int(json.loads(out.stdout.strip().splitlines()[-1]).get("GPU", 0))
 
 
-# HOST_MEMORY_CODE prints [host, bytes] for each GPU node of the Ray cluster: the smaller of MemTotal and the
-# container's cgroup memory limit, which is what training can use there.
-HOST_MEMORY_CODE = """
+# NODE_PROBE_CODE prints {host, memory, rdma} for each GPU node of the Ray cluster: the smaller of MemTotal and the
+# container's cgroup memory limit, which is what training can use there, and the RDMA devices the node has.
+NODE_PROBE_CODE = """
 import json, ray
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 ray.init(address="auto", logging_level="ERROR")
 
 @ray.remote(num_cpus=0)
-def memory():
-    import socket
+def probe():
+    import os, socket
     total = 0
     with open("/proc/meminfo") as f:
         for line in f:
@@ -213,29 +213,34 @@ def memory():
         if limit.isdigit() and 0 < int(limit) < total:
             total = int(limit)
         break
-    return [socket.gethostname(), total]
+    try:
+        rdma = sorted(os.listdir("/sys/class/infiniband"))
+    except OSError:
+        rdma = []
+    return {"host": socket.gethostname(), "memory": total, "rdma": rdma}
 
 nodes = [n["NodeID"] for n in ray.nodes() if n.get("Alive") and n.get("Resources", {}).get("GPU", 0) > 0]
-refs = [memory.options(scheduling_strategy=NodeAffinitySchedulingStrategy(n, soft=False)).remote() for n in nodes]
+refs = [probe.options(scheduling_strategy=NodeAffinitySchedulingStrategy(n, soft=False)).remote() for n in nodes]
 print(json.dumps(ray.get(refs, timeout=240)))
 """
 
 
-def ray_host_memory():
-    """Return (host, bytes) for each GPU node of the job's Ray cluster: the host memory training can use there."""
-    out = subprocess.run([sys.executable, "-c", HOST_MEMORY_CODE], capture_output=True, text=True, timeout=300)
+def ray_nodes():
+    """Return each GPU node of the job's Ray cluster as {host, memory, rdma}: the host memory training can use there
+    and the node's RDMA devices."""
+    out = subprocess.run([sys.executable, "-c", NODE_PROBE_CODE], capture_output=True, text=True, timeout=300)
     if out.returncode != 0:
-        raise StageError("check", "cannot read the nodes' host memory: " + out.stderr.strip()[-500:])
-    return [tuple(x) for x in json.loads(out.stdout.strip().splitlines()[-1])]
+        raise StageError("check", "cannot probe the nodes: " + out.stderr.strip()[-500:])
+    return json.loads(out.stdout.strip().splitlines()[-1])
 
 
 class Runner:
     """Runs the stages of one recipe."""
 
     def __init__(self, recipe, run_dir, adapter, emitter, gpus=ray_gpus, watchdog=None, sleep=time.sleep,
-                 sampler=None, memory=ray_host_memory):
+                 sampler=None, nodes=ray_nodes):
         self.recipe, self.run_dir, self.adapter, self.emitter, self.gpus = recipe, run_dir, adapter, emitter, gpus
-        self.memory = memory
+        self.nodes = nodes
         self.watchdog, self.sleep = watchdog, sleep
         # sampler, when set, returns the GPU sampler that runs alongside training.
         self.sampler = sampler
@@ -381,13 +386,17 @@ class Runner:
         self.report_conversion("done")
 
     def stage_check(self):
-        """Check the GPU count, the host memory, the inputs and the free space before training."""
+        """Check the GPU count, the nodes' host memory and RDMA devices, the inputs and the free space before
+        training."""
         layout = self.recipe["layout"]
         want = layout["nodes"] * layout["gpusPerNode"]
         have = self.gpus()
         if have < want:
             raise StageError("check", "the Ray cluster has %d GPUs, the recipe needs %d" % (have, want))
-        self.check_host_memory()
+        if self.recipe.get("minHostMemoryTB") or self.rdma_devices():
+            nodes = self.nodes()
+            self.check_host_memory(nodes)
+            self.check_rdma(nodes)
         model = self.recipe["model"]["path"]
         for path in (os.path.join(model, "config.json"), self.path("data", "train.jsonl")):
             if not os.path.exists(path):
@@ -400,16 +409,28 @@ class Runner:
         self.check_wandb()
         self.check_reward()
 
-    def check_host_memory(self):
+    def check_host_memory(self, nodes):
         """Fail before training when a node has less host memory than the model's spec needs."""
         need = self.recipe.get("minHostMemoryTB") or 0
-        if not need:
-            return
-        short = [(host, got) for host, got in self.memory() if got < need * 1e12]
+        short = [n for n in nodes if need and n["memory"] < need * 1e12]
         if short:
             raise StageError("check", "%s needs %.1f TB of host memory per node: %s" % (
                 (self.recipe.get("model") or {}).get("spec") or "the model", need,
-                ", ".join("%s has %.2f TB" % (host, got / 1e12) for host, got in short)), retry=False)
+                ", ".join("%s has %.2f TB" % (n["host"], n["memory"] / 1e12) for n in short)), retry=False)
+
+    def rdma_devices(self):
+        """Return the RDMA devices Mooncake PD moves the KV cache over, or none without PD."""
+        return ((self.recipe.get("rollout") or {}).get("pd") or {}).get("rdmaDevices") or []
+
+    def check_rdma(self, nodes):
+        """Fail before training when Mooncake PD is on and a node lacks one of the cluster's RDMA devices."""
+        want = self.rdma_devices()
+        missing = [(n["host"], [d for d in want if d not in n["rdma"]]) for n in nodes]
+        missing = [(host, devices) for host, devices in missing if devices]
+        if missing:
+            raise StageError("check", "Mooncake PD needs the RDMA devices %s on every node: %s" % (
+                ", ".join(want), "; ".join("%s lacks %s" % (host, ", ".join(devices)) for host, devices in missing)),
+                retry=False)
 
     def check_wandb(self, timeout=WANDB_PROBE_SECONDS):
         """Fail before training when W&B reporting is on and the W&B server does not answer."""

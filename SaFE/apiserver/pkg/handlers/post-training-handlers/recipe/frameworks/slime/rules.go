@@ -253,9 +253,26 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	warn := func(field, message string) {
 		out = append(out, recipe.Diagnostic{Level: recipe.LevelWarning, Field: field, Message: message})
 	}
+	engines := 0
+	if c.GpusPerEngine > 0 {
+		engines = l.RolloutGpus / c.GpusPerEngine
+	}
+	if pd := c.PD; pd != nil && pd.Enabled && c.GpusPerEngine > 0 {
+		prefill, decode := pd.PrefillGpus, l.RolloutGpus-pd.PrefillGpus
+		if prefill < c.GpusPerEngine || prefill%c.GpusPerEngine != 0 || decode < c.GpusPerEngine ||
+			decode%c.GpusPerEngine != 0 {
+			fail("choices.pd.prefillGpus", "Mooncake PD needs whole prefill and decode engines of %d GPUs within "+
+				"the %d rollout GPUs", c.GpusPerEngine, l.RolloutGpus)
+		}
+		if cluster := ctx.Input.Workspace.Cluster; len(rdmaDevices(ctx.Input)) == 0 {
+			fail("choices.pd", "Mooncake PD needs the RDMA devices of cluster %s in the registry", cluster)
+		}
+		// A request takes a prefill and then a decode engine, so the smaller group bounds the requests in flight.
+		engines = min(prefill/c.GpusPerEngine, decode/c.GpusPerEngine)
+	}
 	if async && c.GpusPerEngine > 0 {
 		// The object store has a single generation worker, so these requests are all a rollout runs at once.
-		if engines := l.RolloutGpus / c.GpusPerEngine; c.Concurrency*engines < c.NSamplesPerPrompt {
+		if c.Concurrency*engines < c.NSamplesPerPrompt {
 			fail("choices.concurrency", "Fully async needs concurrency × rollout engines (%d × %d) of at least "+
 				"the samples per prompt (%d)", c.Concurrency, engines, c.NSamplesPerPrompt)
 		}

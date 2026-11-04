@@ -589,3 +589,40 @@ func TestFullyAsyncKeepsGenerating(t *testing.T) {
 	in.Request.Choices.Layout, in.Request.Choices.Schedule = recipe.LayoutSeparate, "later"
 	require.Contains(t, errorsOf(in), "Schedule must be sync or async")
 }
+
+func TestMooncakePDSplitsTheRollout(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeRL)
+	in.Registry.Specs[0].Frameworks[Name].Rollout = &registry.Rollout{PD: true}
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeaturePD)
+	in.Registry.Network.RdmaDevices = map[string][]string{"c1": {"rdma0", "rdma1"}}
+	in.Workspace.Cluster = "c1"
+	in.Request.Resources.Nodes = 2
+	in.Request.Choices.Layout, in.Request.Choices.RolloutGpus = recipe.LayoutSeparate, 8
+	in.Request.Choices.PD = &recipe.PDChoice{Enabled: true}
+	res := compile(t, in)
+	require.Contains(t, strings.Join(res.Recipe.FrameworkArgs, " "), "--sglang-config /wekafs/custom/models/pt-1/"+
+		"sglang.yaml --sglang-disaggregation-transfer-backend mooncake --sglang-disaggregation-ib-device rdma0,rdma1")
+	require.Equal(t, "sglang:\n  - name: default\n    update_weights: true\n    server_groups:\n"+
+		"      - worker_type: prefill\n        num_gpus: 2\n        num_gpus_per_engine: 2\n"+
+		"      - worker_type: decode\n        num_gpus: 6\n        num_gpus_per_engine: 2\n",
+		res.Recipe.Files[sglangConfigFile], "one prefill engine by default, the other rollout GPUs decode")
+	require.Equal(t, map[string]interface{}{"prefillGpus": 2, "rdmaDevices": []string{"rdma0", "rdma1"}},
+		res.Recipe.Rollout["pd"], "the check stage looks for these devices on every node")
+	opts, _ := recipe.FrameworkOptions(in)
+	require.False(t, opts.Fields["pd"].Values[1].Disabled)
+	require.Equal(t, "FP8 rollout isn't enabled for spec qwen3-4B", opts.Fields["rolloutPrecision"].Values[1].Reason)
+
+	in.Request.Choices.PD.PrefillGpus = 3
+	require.Contains(t, errorsOf(in), "Mooncake PD needs whole prefill and decode engines of 2 GPUs within the 8")
+	in.Request.Choices.PD.PrefillGpus = 0
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureAsync)
+	in.Request.Choices.Schedule, in.Request.Choices.Concurrency = recipe.ScheduleAsync, 4
+	require.Contains(t, errorsOf(in), "(4 × 1) of at least the samples per prompt (8)",
+		"a request needs a prefill and a decode engine, and there is one prefill engine")
+
+	in.Request.Choices.Schedule, in.Request.Choices.Concurrency = "", 0
+	in.Registry.Network.RdmaDevices = nil
+	require.Contains(t, errorsOf(in), "Mooncake PD needs the RDMA devices of cluster c1 in the registry")
+	opts, _ = recipe.FrameworkOptions(in)
+	require.Equal(t, "No RDMA devices are registered for cluster c1", opts.Fields["pd"].Values[1].Reason)
+}

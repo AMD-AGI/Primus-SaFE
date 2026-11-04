@@ -267,7 +267,8 @@ def test_the_check_needs_the_spec_host_memory_on_every_node(tmp_path):
     (run_dir / "data" / "train.jsonl").write_text("{}\n")
     emitter = metrics.Emitter("pt-x", "a1", None, out=io.StringIO())
     nodes = [("m2m-065", 2.2e12), ("m2m-085", 1.9e12)]
-    runner = stages.Runner(recipe, str(run_dir), FakeAdapter(), emitter, gpus=lambda: 8, memory=lambda: nodes)
+    runner = stages.Runner(recipe, str(run_dir), FakeAdapter(), emitter, gpus=lambda: 8,
+                           nodes=lambda: [{"host": h, "memory": m, "rdma": []} for h, m in nodes])
     with pytest.raises(stages.StageError) as e:
         runner.stage_check()
     assert e.value.reason == "glm5.3-744B-A40B needs 2.1 TB of host memory per node: m2m-085 has 1.90 TB"
@@ -277,4 +278,21 @@ def test_the_check_needs_the_spec_host_memory_on_every_node(tmp_path):
 
     del recipe["minHostMemoryTB"]
     stages.Runner(recipe, str(run_dir), FakeAdapter(), emitter, gpus=lambda: 8,
-                  memory=lambda: pytest.fail("specs without a floor are not probed")).stage_check()
+                  nodes=lambda: pytest.fail("specs without a floor are not probed")).stage_check()
+
+
+def test_mooncake_pd_needs_the_rdma_devices_on_every_node(tmp_path):
+    recipe = dict(recipe_for(tmp_path), rollout={"pd": {"prefillGpus": 2, "rdmaDevices": ["rdma0", "rdma1"]}})
+    run_dir = tmp_path / "run"
+    (run_dir / "data").mkdir(parents=True)
+    (run_dir / "data" / "train.jsonl").write_text("{}\n")
+    emitter = metrics.Emitter("pt-x", "a1", None, out=io.StringIO())
+    nodes = [{"host": "m2m-001", "memory": 3e12, "rdma": ["rdma0", "rdma1"]},
+             {"host": "m2m-002", "memory": 3e12, "rdma": ["rdma0"]}]
+    runner = stages.Runner(recipe, str(run_dir), FakeAdapter(), emitter, gpus=lambda: 8, nodes=lambda: nodes)
+    with pytest.raises(stages.StageError) as e:
+        runner.stage_check()
+    assert e.value.reason == "Mooncake PD needs the RDMA devices rdma0, rdma1 on every node: m2m-002 lacks rdma1"
+    assert not e.value.retry
+    nodes[1]["rdma"].append("rdma1")
+    runner.stage_check()
