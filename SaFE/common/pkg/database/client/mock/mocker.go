@@ -242,6 +242,21 @@ func (mr *MockInterfaceMockRecorder) CountPostTrainingRunsByRecipe(ctx, hashes i
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPostTrainingRunsByRecipe", reflect.TypeOf((*MockInterface)(nil).CountPostTrainingRunsByRecipe), ctx, hashes)
 }
 
+// CountPostTrainingRunsByTemplate mocks base method.
+func (m *MockInterface) CountPostTrainingRunsByTemplate(ctx context.Context, templateIDs []string) (map[string]int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountPostTrainingRunsByTemplate", ctx, templateIDs)
+	ret0, _ := ret[0].(map[string]int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountPostTrainingRunsByTemplate indicates an expected call of CountPostTrainingRunsByTemplate.
+func (mr *MockInterfaceMockRecorder) CountPostTrainingRunsByTemplate(ctx, templateIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPostTrainingRunsByTemplate", reflect.TypeOf((*MockInterface)(nil).CountPostTrainingRunsByTemplate), ctx, templateIDs)
+}
+
 // CountPublicKeys mocks base method.
 func (m *MockInterface) CountPublicKeys(ctx context.Context, query squirrel.Sqlizer) (int, error) {
 	m.ctrl.T.Helper()
@@ -359,6 +374,20 @@ func (mr *MockInterfaceMockRecorder) CreateNodeStatistic(ctx, stat interface{}) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateNodeStatistic", reflect.TypeOf((*MockInterface)(nil).CreateNodeStatistic), ctx, stat)
 }
 
+// CreatePostTrainingExperiment mocks base method.
+func (m *MockInterface) CreatePostTrainingExperiment(ctx context.Context, e *client.PostTrainingExperiment) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePostTrainingExperiment", ctx, e)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreatePostTrainingExperiment indicates an expected call of CreatePostTrainingExperiment.
+func (mr *MockInterfaceMockRecorder) CreatePostTrainingExperiment(ctx, e interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePostTrainingExperiment", reflect.TypeOf((*MockInterface)(nil).CreatePostTrainingExperiment), ctx, e)
+}
+
 // CreatePostTrainingRun mocks base method.
 func (m *MockInterface) CreatePostTrainingRun(ctx context.Context, run *client.PostTrainingRun) error {
 	m.ctrl.T.Helper()
@@ -371,6 +400,20 @@ func (m *MockInterface) CreatePostTrainingRun(ctx context.Context, run *client.P
 func (mr *MockInterfaceMockRecorder) CreatePostTrainingRun(ctx, run interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePostTrainingRun", reflect.TypeOf((*MockInterface)(nil).CreatePostTrainingRun), ctx, run)
+}
+
+// CreatePostTrainingTemplate mocks base method.
+func (m *MockInterface) CreatePostTrainingTemplate(ctx context.Context, t *client.PostTrainingTemplate) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePostTrainingTemplate", ctx, t)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreatePostTrainingTemplate indicates an expected call of CreatePostTrainingTemplate.
+func (mr *MockInterfaceMockRecorder) CreatePostTrainingTemplate(ctx, t interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePostTrainingTemplate", reflect.TypeOf((*MockInterface)(nil).CreatePostTrainingTemplate), ctx, t)
 }
 
 // CreateWorkloadStatistic mocks base method.
@@ -1115,6 +1158,21 @@ func (mr *MockInterfaceMockRecorder) GetPostTrainingConvertCache(ctx, workspace,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingConvertCache", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingConvertCache), ctx, workspace, cacheKey)
 }
 
+// GetPostTrainingExperiment mocks base method.
+func (m *MockInterface) GetPostTrainingExperiment(ctx context.Context, experimentID string) (*client.PostTrainingExperiment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingExperiment", ctx, experimentID)
+	ret0, _ := ret[0].(*client.PostTrainingExperiment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingExperiment indicates an expected call of GetPostTrainingExperiment.
+func (mr *MockInterfaceMockRecorder) GetPostTrainingExperiment(ctx, experimentID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingExperiment", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingExperiment), ctx, experimentID)
+}
+
 // GetPostTrainingRun mocks base method.
 func (m *MockInterface) GetPostTrainingRun(ctx context.Context, runID string) (*client.PostTrainingRun, error) {
 	m.ctrl.T.Helper()
@@ -1128,6 +1186,21 @@ func (m *MockInterface) GetPostTrainingRun(ctx context.Context, runID string) (*
 func (mr *MockInterfaceMockRecorder) GetPostTrainingRun(ctx, runID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingRun", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingRun), ctx, runID)
+}
+
+// GetPostTrainingTemplate mocks base method.
+func (m *MockInterface) GetPostTrainingTemplate(ctx context.Context, templateID string) (*client.PostTrainingTemplate, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingTemplate", ctx, templateID)
+	ret0, _ := ret[0].(*client.PostTrainingTemplate)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingTemplate indicates an expected call of GetPostTrainingTemplate.
+func (mr *MockInterfaceMockRecorder) GetPostTrainingTemplate(ctx, templateID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingTemplate", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingTemplate), ctx, templateID)
 }
 
 // GetPublicKeyByUserId mocks base method.
@@ -1509,6 +1582,22 @@ func (mr *MockInterfaceMockRecorder) ListPostTrainingConvertCaches(ctx, filter i
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingConvertCaches", reflect.TypeOf((*MockInterface)(nil).ListPostTrainingConvertCaches), ctx, filter)
 }
 
+// ListPostTrainingExperiments mocks base method.
+func (m *MockInterface) ListPostTrainingExperiments(ctx context.Context, filter client.PostTrainingExperimentFilter) ([]*client.PostTrainingExperiment, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingExperiments", ctx, filter)
+	ret0, _ := ret[0].([]*client.PostTrainingExperiment)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListPostTrainingExperiments indicates an expected call of ListPostTrainingExperiments.
+func (mr *MockInterfaceMockRecorder) ListPostTrainingExperiments(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingExperiments", reflect.TypeOf((*MockInterface)(nil).ListPostTrainingExperiments), ctx, filter)
+}
+
 // ListPostTrainingRunMetricNames mocks base method.
 func (m *MockInterface) ListPostTrainingRunMetricNames(ctx context.Context, runID string) ([]string, error) {
 	m.ctrl.T.Helper()
@@ -1553,6 +1642,22 @@ func (m *MockInterface) ListPostTrainingRuns(ctx context.Context, filter client.
 func (mr *MockInterfaceMockRecorder) ListPostTrainingRuns(ctx, filter interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingRuns", reflect.TypeOf((*MockInterface)(nil).ListPostTrainingRuns), ctx, filter)
+}
+
+// ListPostTrainingTemplates mocks base method.
+func (m *MockInterface) ListPostTrainingTemplates(ctx context.Context, filter client.PostTrainingTemplateFilter) ([]*client.PostTrainingTemplate, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingTemplates", ctx, filter)
+	ret0, _ := ret[0].([]*client.PostTrainingTemplate)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListPostTrainingTemplates indicates an expected call of ListPostTrainingTemplates.
+func (mr *MockInterfaceMockRecorder) ListPostTrainingTemplates(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingTemplates", reflect.TypeOf((*MockInterface)(nil).ListPostTrainingTemplates), ctx, filter)
 }
 
 // ListRegistryInfos mocks base method.
@@ -1881,6 +1986,20 @@ func (mr *MockInterfaceMockRecorder) SetOpsJobDeleted(ctx, opsJobId interface{})
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOpsJobDeleted", reflect.TypeOf((*MockInterface)(nil).SetOpsJobDeleted), ctx, opsJobId)
 }
 
+// SetPostTrainingExperimentDeleted mocks base method.
+func (m *MockInterface) SetPostTrainingExperimentDeleted(ctx context.Context, experimentID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPostTrainingExperimentDeleted", ctx, experimentID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPostTrainingExperimentDeleted indicates an expected call of SetPostTrainingExperimentDeleted.
+func (mr *MockInterfaceMockRecorder) SetPostTrainingExperimentDeleted(ctx, experimentID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPostTrainingExperimentDeleted", reflect.TypeOf((*MockInterface)(nil).SetPostTrainingExperimentDeleted), ctx, experimentID)
+}
+
 // SetPostTrainingRunDeleted mocks base method.
 func (m *MockInterface) SetPostTrainingRunDeleted(ctx context.Context, runID string) error {
 	m.ctrl.T.Helper()
@@ -1893,6 +2012,20 @@ func (m *MockInterface) SetPostTrainingRunDeleted(ctx context.Context, runID str
 func (mr *MockInterfaceMockRecorder) SetPostTrainingRunDeleted(ctx, runID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPostTrainingRunDeleted", reflect.TypeOf((*MockInterface)(nil).SetPostTrainingRunDeleted), ctx, runID)
+}
+
+// SetPostTrainingTemplateDeleted mocks base method.
+func (m *MockInterface) SetPostTrainingTemplateDeleted(ctx context.Context, templateID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPostTrainingTemplateDeleted", ctx, templateID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPostTrainingTemplateDeleted indicates an expected call of SetPostTrainingTemplateDeleted.
+func (mr *MockInterfaceMockRecorder) SetPostTrainingTemplateDeleted(ctx, templateID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPostTrainingTemplateDeleted", reflect.TypeOf((*MockInterface)(nil).SetPostTrainingTemplateDeleted), ctx, templateID)
 }
 
 // SetPublicKeyDescription mocks base method.
@@ -2229,6 +2362,20 @@ func (m *MockInterface) UpdatePostTrainingRun(ctx context.Context, runID string,
 func (mr *MockInterfaceMockRecorder) UpdatePostTrainingRun(ctx, runID, fields interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostTrainingRun", reflect.TypeOf((*MockInterface)(nil).UpdatePostTrainingRun), ctx, runID, fields)
+}
+
+// UpdatePostTrainingTemplate mocks base method.
+func (m *MockInterface) UpdatePostTrainingTemplate(ctx context.Context, templateID string, fields map[string]interface{}) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePostTrainingTemplate", ctx, templateID, fields)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdatePostTrainingTemplate indicates an expected call of UpdatePostTrainingTemplate.
+func (mr *MockInterfaceMockRecorder) UpdatePostTrainingTemplate(ctx, templateID, fields interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostTrainingTemplate", reflect.TypeOf((*MockInterface)(nil).UpdatePostTrainingTemplate), ctx, templateID, fields)
 }
 
 // UpdateWorkloadStatistic mocks base method.
@@ -5358,6 +5505,199 @@ func (m *MockPostTrainingRunInterface) UpdatePostTrainingRun(ctx context.Context
 func (mr *MockPostTrainingRunInterfaceMockRecorder) UpdatePostTrainingRun(ctx, runID, fields interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostTrainingRun", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).UpdatePostTrainingRun), ctx, runID, fields)
+}
+
+// MockPostTrainingTemplateInterface is a mock of PostTrainingTemplateInterface interface.
+type MockPostTrainingTemplateInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockPostTrainingTemplateInterfaceMockRecorder
+}
+
+// MockPostTrainingTemplateInterfaceMockRecorder is the mock recorder for MockPostTrainingTemplateInterface.
+type MockPostTrainingTemplateInterfaceMockRecorder struct {
+	mock *MockPostTrainingTemplateInterface
+}
+
+// NewMockPostTrainingTemplateInterface creates a new mock instance.
+func NewMockPostTrainingTemplateInterface(ctrl *gomock.Controller) *MockPostTrainingTemplateInterface {
+	mock := &MockPostTrainingTemplateInterface{ctrl: ctrl}
+	mock.recorder = &MockPostTrainingTemplateInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPostTrainingTemplateInterface) EXPECT() *MockPostTrainingTemplateInterfaceMockRecorder {
+	return m.recorder
+}
+
+// CountPostTrainingRunsByTemplate mocks base method.
+func (m *MockPostTrainingTemplateInterface) CountPostTrainingRunsByTemplate(ctx context.Context, templateIDs []string) (map[string]int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountPostTrainingRunsByTemplate", ctx, templateIDs)
+	ret0, _ := ret[0].(map[string]int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountPostTrainingRunsByTemplate indicates an expected call of CountPostTrainingRunsByTemplate.
+func (mr *MockPostTrainingTemplateInterfaceMockRecorder) CountPostTrainingRunsByTemplate(ctx, templateIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPostTrainingRunsByTemplate", reflect.TypeOf((*MockPostTrainingTemplateInterface)(nil).CountPostTrainingRunsByTemplate), ctx, templateIDs)
+}
+
+// CreatePostTrainingTemplate mocks base method.
+func (m *MockPostTrainingTemplateInterface) CreatePostTrainingTemplate(ctx context.Context, t *client.PostTrainingTemplate) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePostTrainingTemplate", ctx, t)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreatePostTrainingTemplate indicates an expected call of CreatePostTrainingTemplate.
+func (mr *MockPostTrainingTemplateInterfaceMockRecorder) CreatePostTrainingTemplate(ctx, t interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePostTrainingTemplate", reflect.TypeOf((*MockPostTrainingTemplateInterface)(nil).CreatePostTrainingTemplate), ctx, t)
+}
+
+// GetPostTrainingTemplate mocks base method.
+func (m *MockPostTrainingTemplateInterface) GetPostTrainingTemplate(ctx context.Context, templateID string) (*client.PostTrainingTemplate, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingTemplate", ctx, templateID)
+	ret0, _ := ret[0].(*client.PostTrainingTemplate)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingTemplate indicates an expected call of GetPostTrainingTemplate.
+func (mr *MockPostTrainingTemplateInterfaceMockRecorder) GetPostTrainingTemplate(ctx, templateID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingTemplate", reflect.TypeOf((*MockPostTrainingTemplateInterface)(nil).GetPostTrainingTemplate), ctx, templateID)
+}
+
+// ListPostTrainingTemplates mocks base method.
+func (m *MockPostTrainingTemplateInterface) ListPostTrainingTemplates(ctx context.Context, filter client.PostTrainingTemplateFilter) ([]*client.PostTrainingTemplate, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingTemplates", ctx, filter)
+	ret0, _ := ret[0].([]*client.PostTrainingTemplate)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListPostTrainingTemplates indicates an expected call of ListPostTrainingTemplates.
+func (mr *MockPostTrainingTemplateInterfaceMockRecorder) ListPostTrainingTemplates(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingTemplates", reflect.TypeOf((*MockPostTrainingTemplateInterface)(nil).ListPostTrainingTemplates), ctx, filter)
+}
+
+// SetPostTrainingTemplateDeleted mocks base method.
+func (m *MockPostTrainingTemplateInterface) SetPostTrainingTemplateDeleted(ctx context.Context, templateID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPostTrainingTemplateDeleted", ctx, templateID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPostTrainingTemplateDeleted indicates an expected call of SetPostTrainingTemplateDeleted.
+func (mr *MockPostTrainingTemplateInterfaceMockRecorder) SetPostTrainingTemplateDeleted(ctx, templateID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPostTrainingTemplateDeleted", reflect.TypeOf((*MockPostTrainingTemplateInterface)(nil).SetPostTrainingTemplateDeleted), ctx, templateID)
+}
+
+// UpdatePostTrainingTemplate mocks base method.
+func (m *MockPostTrainingTemplateInterface) UpdatePostTrainingTemplate(ctx context.Context, templateID string, fields map[string]interface{}) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePostTrainingTemplate", ctx, templateID, fields)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdatePostTrainingTemplate indicates an expected call of UpdatePostTrainingTemplate.
+func (mr *MockPostTrainingTemplateInterfaceMockRecorder) UpdatePostTrainingTemplate(ctx, templateID, fields interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostTrainingTemplate", reflect.TypeOf((*MockPostTrainingTemplateInterface)(nil).UpdatePostTrainingTemplate), ctx, templateID, fields)
+}
+
+// MockPostTrainingExperimentInterface is a mock of PostTrainingExperimentInterface interface.
+type MockPostTrainingExperimentInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockPostTrainingExperimentInterfaceMockRecorder
+}
+
+// MockPostTrainingExperimentInterfaceMockRecorder is the mock recorder for MockPostTrainingExperimentInterface.
+type MockPostTrainingExperimentInterfaceMockRecorder struct {
+	mock *MockPostTrainingExperimentInterface
+}
+
+// NewMockPostTrainingExperimentInterface creates a new mock instance.
+func NewMockPostTrainingExperimentInterface(ctrl *gomock.Controller) *MockPostTrainingExperimentInterface {
+	mock := &MockPostTrainingExperimentInterface{ctrl: ctrl}
+	mock.recorder = &MockPostTrainingExperimentInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPostTrainingExperimentInterface) EXPECT() *MockPostTrainingExperimentInterfaceMockRecorder {
+	return m.recorder
+}
+
+// CreatePostTrainingExperiment mocks base method.
+func (m *MockPostTrainingExperimentInterface) CreatePostTrainingExperiment(ctx context.Context, e *client.PostTrainingExperiment) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePostTrainingExperiment", ctx, e)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreatePostTrainingExperiment indicates an expected call of CreatePostTrainingExperiment.
+func (mr *MockPostTrainingExperimentInterfaceMockRecorder) CreatePostTrainingExperiment(ctx, e interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePostTrainingExperiment", reflect.TypeOf((*MockPostTrainingExperimentInterface)(nil).CreatePostTrainingExperiment), ctx, e)
+}
+
+// GetPostTrainingExperiment mocks base method.
+func (m *MockPostTrainingExperimentInterface) GetPostTrainingExperiment(ctx context.Context, experimentID string) (*client.PostTrainingExperiment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPostTrainingExperiment", ctx, experimentID)
+	ret0, _ := ret[0].(*client.PostTrainingExperiment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPostTrainingExperiment indicates an expected call of GetPostTrainingExperiment.
+func (mr *MockPostTrainingExperimentInterfaceMockRecorder) GetPostTrainingExperiment(ctx, experimentID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingExperiment", reflect.TypeOf((*MockPostTrainingExperimentInterface)(nil).GetPostTrainingExperiment), ctx, experimentID)
+}
+
+// ListPostTrainingExperiments mocks base method.
+func (m *MockPostTrainingExperimentInterface) ListPostTrainingExperiments(ctx context.Context, filter client.PostTrainingExperimentFilter) ([]*client.PostTrainingExperiment, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingExperiments", ctx, filter)
+	ret0, _ := ret[0].([]*client.PostTrainingExperiment)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListPostTrainingExperiments indicates an expected call of ListPostTrainingExperiments.
+func (mr *MockPostTrainingExperimentInterfaceMockRecorder) ListPostTrainingExperiments(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingExperiments", reflect.TypeOf((*MockPostTrainingExperimentInterface)(nil).ListPostTrainingExperiments), ctx, filter)
+}
+
+// SetPostTrainingExperimentDeleted mocks base method.
+func (m *MockPostTrainingExperimentInterface) SetPostTrainingExperimentDeleted(ctx context.Context, experimentID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPostTrainingExperimentDeleted", ctx, experimentID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPostTrainingExperimentDeleted indicates an expected call of SetPostTrainingExperimentDeleted.
+func (mr *MockPostTrainingExperimentInterfaceMockRecorder) SetPostTrainingExperimentDeleted(ctx, experimentID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPostTrainingExperimentDeleted", reflect.TypeOf((*MockPostTrainingExperimentInterface)(nil).SetPostTrainingExperimentDeleted), ctx, experimentID)
 }
 
 // MockPostTrainingConvertCacheInterface is a mock of PostTrainingConvertCacheInterface interface.
