@@ -5,6 +5,7 @@ import type {
   Experiment,
   ExperimentListResp,
   ExperimentRequest,
+  MetricPanel,
   MetricsResp,
   ModelsResp,
   NullTime,
@@ -556,4 +557,119 @@ export function nestChanges(flat: Record<string, unknown>): Record<string, unkno
     node[parts[parts.length - 1]] = value
   }
   return out
+}
+
+/** Matches a metric name against a pattern whose * matches within one path segment, as the registry does. */
+export function matchName(pattern: string, name: string): boolean {
+  const pp = pattern.split('/')
+  const np = name.split('/')
+  if (!pattern || pp.length !== np.length) return false
+  return pp.every((seg, i) => {
+    const re = new RegExp(
+      `^${seg
+        .split('*')
+        .map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+        .join('.*')}$`,
+    )
+    return re.test(np[i])
+  })
+}
+
+/** How specific a pattern is: its characters outside the wildcards. */
+const specificity = (pattern: string) => pattern.replace(/\*/g, '').length
+
+/** The metrics a panel draws: its series, its band's low and high series, and its rest series. */
+export interface PanelMetrics {
+  series: string[]
+  band: [string?, string?]
+  rest?: string
+}
+
+/**
+ * Assigns every metric name to the panel whose pattern matches it most specifically, across the series, band and
+ * rest patterns of all panels. Returns the metrics of each panel by id and the names no panel draws.
+ */
+export function assignPanels(panels: MetricPanel[], names: string[]) {
+  type Role = 'series' | 'low' | 'high' | 'rest'
+  const byPanel = new Map<string, PanelMetrics>(
+    panels.map((p) => [p.id, { series: [], band: [undefined, undefined] }]),
+  )
+  const unassigned: string[] = []
+  const order = new Map<string, number>()
+  for (const name of names) {
+    let best: { panel: string; role: Role; score: number; index: number } | undefined
+    const consider = (panel: string, role: Role, pattern: string | undefined, index = 0) => {
+      if (pattern && matchName(pattern, name) && (!best || specificity(pattern) > best.score)) {
+        best = { panel, role, score: specificity(pattern), index }
+      }
+    }
+    for (const p of panels) {
+      p.series.forEach((pattern, i) => consider(p.id, 'series', pattern, i))
+      consider(p.id, 'low', p.band?.[0])
+      consider(p.id, 'high', p.band?.[1])
+      consider(p.id, 'rest', p.rest)
+    }
+    if (!best) {
+      unassigned.push(name)
+      continue
+    }
+    const m = byPanel.get(best.panel)!
+    if (best.role === 'series') {
+      m.series.push(name)
+      order.set(name, best.index)
+    } else if (best.role === 'low') m.band[0] = name
+    else if (best.role === 'high') m.band[1] = name
+    else m.rest = name
+  }
+  for (const m of byPanel.values()) {
+    m.series.sort((a, b) => order.get(a)! - order.get(b)! || a.localeCompare(b))
+  }
+  return { byPanel, unassigned }
+}
+
+/** Whether a panel shows for a run: when: present needs data, grpo, ppo and async need that kind of run. */
+export function panelVisible(
+  panel: MetricPanel,
+  metrics: PanelMetrics,
+  run: { algorithm?: string; schedule?: string },
+): boolean {
+  const hasData = metrics.series.length > 0 || !!metrics.band[0] || !!metrics.band[1]
+  switch (panel.when) {
+    case 'present':
+      return hasData
+    case 'grpo':
+      return hasData && run.algorithm !== 'ppo'
+    case 'ppo':
+      return hasData && run.algorithm === 'ppo'
+    case 'async':
+      return hasData && run.schedule === 'async'
+    default:
+      return hasData
+  }
+}
+
+/** Which direction is better for a metric, by the most specific matching pattern. */
+export function betterOf(better: Record<string, 'lower' | 'higher'> | undefined, name: string) {
+  let best: { dir: 'lower' | 'higher'; score: number } | undefined
+  for (const [pattern, dir] of Object.entries(better ?? {})) {
+    if (matchName(pattern, name) && (!best || specificity(pattern) > best.score)) {
+      best = { dir, score: specificity(pattern) }
+    }
+  }
+  return best?.dir
+}
+
+/** The panels a run shows, with their metrics, and the metrics no panel draws. */
+export function panelsOf(
+  panels: MetricPanel[],
+  names: string[],
+  run: { algorithm?: string; schedule?: string },
+) {
+  const { byPanel, unassigned } = assignPanels(panels, names)
+  return {
+    shown: panels
+      .map((panel) => ({ panel, metrics: byPanel.get(panel.id)! }))
+      .filter(({ panel, metrics }) => panelVisible(panel, metrics, run)),
+    unassigned,
+  }
 }

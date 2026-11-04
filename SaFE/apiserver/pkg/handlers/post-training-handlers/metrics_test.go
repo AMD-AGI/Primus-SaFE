@@ -18,6 +18,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 )
 
 // rows builds the points of one metric from (step, value) pairs.
@@ -120,4 +121,12 @@ func TestStopWorkload(t *testing.T) {
 	err := cli.Get(context.Background(), ctrlclient.ObjectKey{Name: "pt-x"}, &v1.Workload{})
 	require.Error(t, err, "the workload is deleted")
 	require.NoError(t, h.stopWorkload(context.Background(), "missing", "x"), "a missing workload is fine")
+}
+
+func TestFrameworkOf(t *testing.T) {
+	reg, err := registry.Parse([]byte(testRegistry))
+	require.NoError(t, err)
+	require.Equal(t, "slime", frameworkOf(reg, "").Name, "runs without a framework are slime runs")
+	require.Nil(t, frameworkOf(reg, "verl"))
+	require.Nil(t, frameworkOf(nil, "slime"))
 }

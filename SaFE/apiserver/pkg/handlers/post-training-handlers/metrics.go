@@ -81,11 +81,17 @@ type failureMark struct {
 type metricsResponse struct {
 	Series  []series `json:"series"`
 	Markers markers  `json:"markers"`
+	// Panels, System and Better come from the registry's metrics section of the run's framework: the panels of
+	// its train type, the GPU panels, and which direction is better for a name pattern.
+	Panels []registry.Panel  `json:"panels"`
+	System []registry.Panel  `json:"system,omitempty"`
+	Better map[string]string `json:"better,omitempty"`
 }
 
 // GetMetrics returns a run's metric series, downsampled to maxPoints, and the markers drawn on them.
 func (h *Handler) GetMetrics(c *gin.Context) {
-	if _, _, ok := h.requireEnabled(c); !ok {
+	reg, _, ok := h.requireEnabled(c)
+	if !ok {
 		return
 	}
 	run, err := h.getRun(c, v1.GetVerb)
@@ -107,7 +113,28 @@ func (h *Handler) GetMetrics(c *gin.Context) {
 		resp.Series = append(resp.Series, buildSeries(name, axisOf(name, run.TrainType), points[name], maxPoints))
 	}
 	resp.Markers = buildMarkers(run, points)
+	resp.Panels = []registry.Panel{}
+	if fw := frameworkOf(reg, run.Framework); fw != nil {
+		if p := fw.Metrics.Panels[run.TrainType]; p != nil {
+			resp.Panels = p
+		}
+		resp.System, resp.Better = fw.Metrics.Panels[systemPanels], fw.Metrics.Better
+	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// systemPanels is the panel group of the launcher's GPU metrics.
+const systemPanels = "system"
+
+// frameworkOf returns the registry's framework of a run, or nil when the registry or framework is missing.
+func frameworkOf(reg *registry.Registry, name string) *registry.Framework {
+	if reg == nil {
+		return nil
+	}
+	if name == "" {
+		name = "slime"
+	}
+	return reg.FrameworkByName(name)
 }
 
 // ExportMetrics writes a run's points as CSV (name, step, value, time) without downsampling.
