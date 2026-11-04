@@ -114,6 +114,7 @@
     <el-card class="mt-4 safe-card" shadow="never">
       <el-table
         ref="tableRef"
+        class="pt-run-table"
         :data="tableRows"
         :height="tableHeight"
         size="large"
@@ -169,7 +170,9 @@
         <el-table-column label="Run Name / ID" min-width="270" fixed="left">
           <template #default="{ row }"
             ><template v-if="!isGroup(row)">
-              <div class="flex flex-col items-start min-w-0">
+              <div
+                class="inline-flex flex-col items-start align-middle min-w-0 max-w-[calc(100%_-_40px)]"
+              >
                 <div class="flex items-center gap-1 max-w-full">
                   <el-link
                     v-if="canOpenDetail"
@@ -207,16 +210,19 @@
               </div>
             </template>
             <template v-else>
-              <div class="flex items-center gap-2">
-                <span class="font-500">{{ row.name }}</span>
+              <div class="inline-flex flex-col items-start align-middle max-w-[calc(100%_-_24px)]">
+                <div class="flex items-center gap-2 max-w-full">
+                  <span class="font-500 truncate">{{ row.name }}</span>
+                  <el-link
+                    v-if="router.hasRoute('PostTrainingExperiment')"
+                    type="primary"
+                    class="shrink-0"
+                    @click.stop="openExperiment(row.experimentId)"
+                  >
+                    View experiment
+                  </el-link>
+                </div>
                 <span class="text-[12px] text-[var(--safe-muted)]">{{ groupSummary(row) }}</span>
-                <el-link
-                  v-if="router.hasRoute('PostTrainingExperiment')"
-                  type="primary"
-                  @click.stop="openExperiment(row.experimentId)"
-                >
-                  View experiment
-                </el-link>
               </div>
             </template>
           </template>
@@ -375,7 +381,7 @@
           >
         </el-table-column>
 
-        <el-table-column label="Actions" width="206" fixed="right">
+        <el-table-column label="Actions" width="240" fixed="right">
           <template #default="{ row }"
             ><template v-if="!isGroup(row)">
               <el-button v-if="canOpenDetail" link type="primary" @click.stop="goDetail(row)"
@@ -934,5 +940,25 @@ onBeforeUnmount(() => {
   50% {
     opacity: 0.35;
   }
+}
+</style>
+
+<style>
+/* Fixed columns cover the cells scrolled under them, so unlike the theme's translucent rows they are opaque. */
+.pt-run-table .el-table__row > td.el-table-fixed-column--left,
+.pt-run-table .el-table__row > td.el-table-fixed-column--right,
+.pt-run-table th.el-table-fixed-column--left,
+.pt-run-table th.el-table-fixed-column--right {
+  background: rgb(255, 255, 255) !important;
+}
+.dark .pt-run-table .el-table__row > td.el-table-fixed-column--left,
+.dark .pt-run-table .el-table__row > td.el-table-fixed-column--right {
+  background: rgb(22, 26, 32) !important;
+}
+.dark .pt-run-table .el-table__row:hover > td.el-table-fixed-column--left,
+.dark .pt-run-table .el-table__row:hover > td.el-table-fixed-column--right,
+.dark .pt-run-table th.el-table-fixed-column--left,
+.dark .pt-run-table th.el-table-fixed-column--right {
+  background: rgb(28, 34, 43) !important;
 }
 </style>
