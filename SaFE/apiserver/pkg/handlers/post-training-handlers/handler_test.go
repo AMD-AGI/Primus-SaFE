@@ -24,6 +24,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 )
@@ -213,4 +214,19 @@ func TestPausedError(t *testing.T) {
 	reg.Paused = registry.Paused{Enabled: true, Reason: "cluster upgrade until 18:00"}
 	err = pausedError(reg)
 	require.ErrorContains(t, err, "cluster upgrade until 18:00")
+}
+
+func TestListItemJSON(t *testing.T) {
+	data, err := json.Marshal(listItem{PostTrainingRun: &dbclient.PostTrainingRun{RunID: "pt-1"}, VerifiedRuns: 2,
+		LatestVerifiedRun: "pt-0"})
+	require.NoError(t, err)
+	var got map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &got))
+	require.Equal(t, "pt-1", got["runId"], "the run's fields stay at the top level")
+	require.Equal(t, float64(2), got["verifiedRuns"])
+	require.Equal(t, "pt-0", got["latestVerifiedRun"])
+
+	data, err = json.Marshal(listItem{PostTrainingRun: &dbclient.PostTrainingRun{RunID: "pt-2"}})
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "verifiedRuns", "a recipe that never succeeded carries no label")
 }

@@ -112,3 +112,18 @@ func TestDedupePostTrainingRunMetrics(t *testing.T) {
 		require.Equal(t, "r1", p.RunID)
 	}
 }
+
+func TestCountPostTrainingRunsByRecipe(t *testing.T) {
+	c, mock := newMockClient(t)
+	mock.ExpectQuery(`SELECT recipe_hash, COUNT\(\*\) AS succeeded, .*FROM "post_training_run" WHERE .*recipe_hash IN .*GROUP BY "recipe_hash"`).
+		WithArgs("h1", "h2", postTrainingRunSucceeded, false).
+		WillReturnRows(sqlmock.NewRows([]string{"recipe_hash", "succeeded", "latest_run"}).AddRow("h1", 2, "pt-b"))
+	got, err := c.CountPostTrainingRunsByRecipe(context.Background(), []string{"h1", "h2"})
+	require.NoError(t, err)
+	require.Equal(t, map[string]RecipeRecord{"h1": {RecipeHash: "h1", Succeeded: 2, LatestRun: "pt-b"}}, got)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	empty, err := (&Client{}).CountPostTrainingRunsByRecipe(context.Background(), nil)
+	require.NoError(t, err, "no hashes need no query")
+	require.Empty(t, empty)
+}

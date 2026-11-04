@@ -296,6 +296,7 @@ type PostTrainingRunInterface interface {
 	ListPostTrainingRuns(ctx context.Context, filter PostTrainingRunFilter) ([]*PostTrainingRun, int64, error)
 	UpdatePostTrainingRun(ctx context.Context, runID string, fields map[string]interface{}) error
 	SetPostTrainingRunDeleted(ctx context.Context, runID string) error
+	CountPostTrainingRunsByRecipe(ctx context.Context, hashes []string) (map[string]RecipeRecord, error)
 }
 
 // PostTrainingConvertCacheInterface defines database operations for the shared weight conversions of Post
