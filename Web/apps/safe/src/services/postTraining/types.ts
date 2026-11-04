@@ -296,6 +296,18 @@ export interface EvaluationTaskRow {
   EndTime?: NullTime
 }
 
+/** One exported checkpoint of a run: its latest export job and, once registered, its model. */
+export interface ExportItem {
+  step: number
+  workloadId?: string
+  status?: string
+  message?: string
+  modelId?: string
+  displayName?: string
+  modelPhase?: string
+  createdAt?: string
+}
+
 /** GET /post-training/runs/:id: the run with its parsed recipe, history, summary, model and evaluations. */
 export interface RunDetail extends Omit<PostTrainingRun, 'stageHistory' | 'metricSummary'> {
   recipe?: Record<string, unknown>
@@ -303,6 +315,7 @@ export interface RunDetail extends Omit<PostTrainingRun, 'stageHistory' | 'metri
   metricSummary?: MetricSummary
   outputModel?: { id: string; displayName: string; phase: string }
   evaluations: EvaluationTaskRow[]
+  exports?: ExportItem[]
 }
 
 /** One downsampled metric series: [step, value] points on the train, rollout or time axis. */
@@ -335,5 +348,6 @@ export interface DiskUsage {
   criticCheckpoints?: number
   finalModel?: number
   finalAdapter?: number
+  exports?: number
   total?: number
 }
