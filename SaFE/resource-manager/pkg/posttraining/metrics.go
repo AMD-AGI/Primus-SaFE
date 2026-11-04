@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"io"
 	"math"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -38,6 +39,9 @@ const (
 	maxLineBytes     = 1 << 20
 	maxMetricNameLen = 160
 	sparklinePoints  = 60
+	// maxLinks and maxLinkLen cap the links a run's launcher reports, such as its W&B run.
+	maxLinks   = 8
+	maxLinkLen = 2048
 	// gapGrace is how long a missing seq may stay unread before it counts as a gap; the launcher replays
 	// the last two minutes of metrics every minute.
 	gapGrace = 120 * time.Second
@@ -382,6 +386,8 @@ type metricSummary struct {
 	Rejected    int64         `json:"rejected,omitempty"`
 	Main        *mainMetric   `json:"main,omitempty"`
 	BestValLoss *summaryPoint `json:"bestValLoss,omitempty"`
+	// Links are the http(s) URLs the launcher reported, such as the W&B run, by name.
+	Links map[string]string `json:"links,omitempty"`
 }
 
 // mainMetric is the latest value and the sparkline of the train type's summary metric. The sparkline keeps
@@ -494,6 +500,8 @@ type ingestion struct {
 	parseFailures int64
 	// conversion is the shared conversion the launcher reused or made.
 	conversion *conversionDetail
+	// linked is set when a link marker changed the summary's links.
+	linked bool
 }
 
 // add applies one marker.
@@ -583,6 +591,7 @@ func (in *ingestion) addStage(m *marker) {
 func (in *ingestion) addMetric(m *marker) {
 	b := &m.Body
 	if b.Kind == "link" {
+		in.addLinks(b.V)
 		return
 	}
 	if b.Seq <= 0 || b.Step == nil || *b.Step < 0 {
@@ -607,6 +616,29 @@ func (in *ingestion) addMetric(m *marker) {
 		}
 		in.points = append(in.points, pendingPoint{attempt: b.Attempt, point: &dbclient.PostTrainingRunMetric{
 			RunID: in.u.run.RunID, Name: name, Step: int(*b.Step), Value: value, WallTime: wall}})
+	}
+}
+
+// addLinks records the http(s) URLs of a link marker in the summary, keeping at most maxLinks names.
+func (in *ingestion) addLinks(values map[string]json.RawMessage) {
+	for name, raw := range values {
+		var link string
+		if json.Unmarshal(raw, &link) != nil || name == "" || len(name) > maxMetricNameLen || len(link) > maxLinkLen {
+			continue
+		}
+		if u, err := url.Parse(link); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			continue
+		}
+		if _, known := in.sum.Links[name]; !known && len(in.sum.Links) >= maxLinks {
+			continue
+		}
+		if in.sum.Links == nil {
+			in.sum.Links = map[string]string{}
+		}
+		if in.sum.Links[name] != link {
+			in.sum.Links[name] = link
+			in.linked = true
+		}
 	}
 }
 

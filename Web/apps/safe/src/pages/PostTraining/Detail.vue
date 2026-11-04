@@ -39,6 +39,16 @@
                 {{ run.recipeHash.slice(0, 7) }}
               </el-button>
             </span>
+            <el-link
+              v-if="run.metricSummary?.links?.wandb"
+              :href="run.metricSummary.links.wandb"
+              target="_blank"
+              rel="noopener noreferrer"
+              type="primary"
+              :underline="false"
+            >
+              View in W&B
+            </el-link>
           </div>
         </div>
         <div class="flex items-center gap-2 shrink-0">
