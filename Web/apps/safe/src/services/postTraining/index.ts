@@ -16,6 +16,9 @@ import type {
   SegmentState,
   StageEntry,
   StageSegment,
+  TemplateBody,
+  TemplateItem,
+  TemplateListResp,
 } from './types'
 
 export * from './types'
@@ -160,6 +163,34 @@ export function cleanupPostTrainingCheckpoints(runId: string, keep: 'best' | 'no
     `/post-training/runs/${runId}/checkpoints/cleanup`,
     { keep },
   )
+}
+
+/** Lists a workspace's templates, optionally of one train type. */
+export function listPostTrainingTemplates(params: { workspace: string; trainType?: string }) {
+  return request.get<TemplateListResp>('/post-training/templates', { params })
+}
+
+/** Returns one template. */
+export function getPostTrainingTemplate(templateId: string) {
+  return request.get<TemplateItem>(`/post-training/templates/${templateId}`)
+}
+
+/** Saves a template in a workspace. */
+export function createPostTrainingTemplate(body: TemplateBody) {
+  return request.post<TemplateItem>('/post-training/templates', body)
+}
+
+/** Edits a template's name, description or content; the version goes up by one. */
+export function updatePostTrainingTemplate(templateId: string, body: TemplateBody) {
+  return request.put<{ templateId: string; version: number }>(
+    `/post-training/templates/${templateId}`,
+    body,
+  )
+}
+
+/** Deletes a template; runs created from it are not affected. */
+export function deletePostTrainingTemplate(templateId: string) {
+  return request.delete(`/post-training/templates/${templateId}`)
 }
 
 /** Stops a run's training workload. */
