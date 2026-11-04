@@ -10,6 +10,7 @@ package registry
 
 import (
 	"fmt"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -71,6 +72,30 @@ type Registry struct {
 	Network    Network           `json:"network,omitempty"`
 	Evaluation Evaluation        `json:"evaluation,omitempty"`
 	Paused     Paused            `json:"paused,omitempty"`
+	Imports    Imports           `json:"imports,omitempty"`
+}
+
+// Imports configures the mounted-path import of Spur run directories. Without a mount for a cluster only the command
+// upload works there; a mount is a storage and network change approved on its own.
+type Imports struct {
+	Mounts []ImportMount `json:"mounts,omitempty"`
+}
+
+// ImportMount is a read-only PVC holding Spur's shared storage on a cluster, mounted at Root in the scan job.
+type ImportMount struct {
+	Cluster string `json:"cluster"`
+	PVC     string `json:"pvc"`
+	Root    string `json:"root"`
+}
+
+// MountFor returns the import mount of a cluster, or nil when it has none.
+func (i Imports) MountFor(cluster string) *ImportMount {
+	for k := range i.Mounts {
+		if i.Mounts[k].Cluster == cluster {
+			return &i.Mounts[k]
+		}
+	}
+	return nil
 }
 
 // Paused stops new submissions, A/B experiments, re-exports and re-evaluations; running runs carry on.
@@ -278,6 +303,12 @@ func Parse(data []byte) (*Registry, error) {
 func (r *Registry) Validate() error {
 	var errs []string
 	add := func(format string, args ...interface{}) { errs = append(errs, fmt.Sprintf(format, args...)) }
+
+	for _, m := range r.Imports.Mounts {
+		if m.Cluster == "" || m.PVC == "" || !path.IsAbs(m.Root) {
+			add("import mount %q needs a cluster, a PVC and an absolute root", m.Cluster)
+		}
+	}
 
 	frameworks := map[string]bool{}
 	defaults := 0
