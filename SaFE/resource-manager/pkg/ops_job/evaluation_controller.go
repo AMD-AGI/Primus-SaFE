@@ -233,7 +233,8 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 	if timeoutSecond <= 0 {
 		timeoutSecond = 7200 // Default 2 hours
 	}
-	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey, timeoutSecond, concurrency)
+	probes := getParamValue(job.GetParameter(v1.ParameterEvalProbes))
+	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey, timeoutSecond, concurrency, probes != "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to build eval command: %w", err)
 	}
@@ -278,6 +279,10 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 			},
 		},
 	}
+	if probes != "" {
+		workload.Spec.Env = map[string]string{
+			"EVAL_PROBES": probes, "EVAL_PROBE_ENDPOINT": modelEndpoint, "EVAL_PROBE_MODEL": modelName}
+	}
 
 	// Set workspace default
 	if workload.Spec.Workspace == "" {
@@ -315,7 +320,8 @@ type BenchmarkConfig struct {
 // Supports multiple datasets and judge model (LLM-as-Judge) evaluation mode
 // timeoutSecond is the OpsJob timeout, used to limit each evalscope command execution time
 // concurrency controls batch processing parallelism (default 32)
-func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey string, timeoutSecond int, concurrency int) (string, error) {
+// withProbes adds the output probes of $EVAL_PROBES to the pre-flight check, after the endpoint answers
+func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey string, timeoutSecond int, concurrency int, withProbes bool) (string, error) {
 	// Parse benchmarks
 	var benchmarks []BenchmarkConfig
 	if err := json.Unmarshal([]byte(benchmarksJSON), &benchmarks); err != nil {
@@ -360,6 +366,9 @@ if ! curl -s -m 10 "%s/models" > /dev/null 2>&1; then
 fi
 echo "Model endpoint verified successfully"
 `, modelEndpoint, modelEndpoint)
+	if withProbes {
+		healthCheck += outputProbeScript
+	}
 
 	// evalscope --datasets does NOT support comma-separated multiple datasets
 	// We must run evalscope separately for each dataset
@@ -388,6 +397,56 @@ echo "Model endpoint verified successfully"
 
 	return evalCommand, nil
 }
+
+// outputProbeScript sends the greedy probes of $EVAL_PROBES to $EVAL_PROBE_ENDPOINT as $EVAL_PROBE_MODEL. An
+// "exact" probe passes when the reply, without its thinking block, whitespace and periods, is the answer; a
+// "pythonCode" probe passes when the reply has a fenced code block that Python parses. Any other reply fails
+// the pre-flight check: a broken service can return fluent-looking garbage that a benchmark would score.
+const outputProbeScript = `
+echo "Pre-flight check: probing the model output..."
+if ! python3 - <<'PROBE_EOF'
+import ast, json, os, re, sys, urllib.request
+endpoint = os.environ["EVAL_PROBE_ENDPOINT"].rstrip("/")
+model = os.environ["EVAL_PROBE_MODEL"]
+probes = json.loads(os.environ.get("EVAL_PROBES") or "[]")
+fence = re.escape(chr(96) * 3)
+def ask(prompt):
+    body = json.dumps({"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0,
+                       "max_tokens": 1024, "chat_template_kwargs": {"enable_thinking": False}}).encode()
+    req = urllib.request.Request(endpoint + "/chat/completions", data=body,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=600) as resp:
+        reply = json.load(resp)["choices"][0]["message"].get("content") or ""
+    return re.sub(r"<think>.*?</think>", "", reply, flags=re.S)
+def passes(probe, reply):
+    if probe.get("expect") == "exact":
+        return re.sub(r"[\s.\u3002]", "", reply).lower() == str(probe.get("answer", "")).lower()
+    if probe.get("expect") == "pythonCode":
+        for block in re.findall(fence + r"[\w+-]*\n(.*?)" + fence, reply, flags=re.S):
+            try:
+                ast.parse(block)
+                return True
+            except SyntaxError:
+                pass
+        return False
+    print("unknown probe expectation %r" % probe.get("expect"))
+    return False
+for i, probe in enumerate(probes, 1):
+    try:
+        reply = ask(probe["prompt"])
+    except Exception as e:
+        print("probe %d failed: %s" % (i, e))
+        sys.exit(1)
+    if not passes(probe, reply):
+        print("probe %d got an unexpected reply: %r" % (i, reply[:300]))
+        sys.exit(1)
+print("all %d probes passed" % len(probes))
+PROBE_EOF
+then
+  echo "The inference service output is abnormal" > /dev/termination-log
+  exit 1
+fi
+`
 
 // buildSingleEvalCommand builds evalscope command arguments for a single evaluation run
 // Each evalscope command is wrapped with a timeout to prevent infinite hanging
