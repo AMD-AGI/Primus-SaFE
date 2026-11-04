@@ -411,3 +411,41 @@ export interface TemplateBody {
   content?: TemplateContent
   sourceRunId?: string
 }
+
+/** A variant of an A/B experiment: its name and the request fields it changes from the baseline. */
+export interface ExperimentVariant {
+  name: string
+  changes?: Record<string, unknown>
+}
+
+/** An A/B experiment with its runs in variant order, the baseline first. */
+export interface Experiment {
+  experimentId: string
+  workspace: string
+  displayName: string
+  trainType: 'sft' | 'rl'
+  baselineVariant: string
+  variants: ExperimentVariant[]
+  seed: number
+  userId: string
+  userName: string
+  createdAt?: NullTime
+  runs: PostTrainingRun[]
+}
+
+export interface ExperimentListResp {
+  total: number
+  items: Experiment[]
+}
+
+/** POST /post-training/experiments: a baseline request and the variants that change it. */
+export interface ExperimentRequest {
+  displayName: string
+  baseline: SubmitRequest
+  variants: ExperimentVariant[]
+}
+
+/** A compile finding of one variant of a refused experiment. */
+export interface VariantDiagnostic extends Diagnostic {
+  variant: string
+}

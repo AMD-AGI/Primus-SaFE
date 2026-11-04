@@ -2,8 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   cleanupHintBytes,
   configDiff,
+  flattenChanges,
   formatDuration,
+  nestChanges,
   parseJSON,
+  significance,
   smoothPoints,
   stageDurations,
   stageSegments,
@@ -203,5 +206,26 @@ describe('configDiff', () => {
     expect(configDiff([{ a: [1, 2] }, { a: [1, 2] }])).toEqual([
       { field: 'a', label: 'a', values: ['1, 2', '1, 2'], differs: false },
     ])
+  })
+})
+
+describe('significance', () => {
+  it('needs a difference larger than the re-evaluation gap and two standard errors', () => {
+    const small = significance([0.3, 0.267], 0.333, 30)
+    expect(small.threshold).toBeCloseTo(0.238, 2)
+    expect(small.significant).toBe(false)
+    const large = significance([0.812, 0.806], 0.866, 500)
+    expect(large.diff).toBeCloseTo(0.057, 3)
+    expect(large.significant).toBe(true)
+    expect(significance([0.5, 0.4], 0.52).threshold).toBeCloseTo(0.1, 5)
+  })
+})
+
+describe('variant changes', () => {
+  it('flattens and nests dotted keys', () => {
+    const changes = { choices: { lr: 2e-6, lora: { rank: 32 } }, datasetId: 'd2' }
+    const flat = flattenChanges(changes)
+    expect(flat).toEqual({ 'choices.lr': 2e-6, 'choices.lora.rank': 32, datasetId: 'd2' })
+    expect(nestChanges(flat)).toEqual(changes)
   })
 })
