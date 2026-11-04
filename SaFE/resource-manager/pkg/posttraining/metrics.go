@@ -155,22 +155,29 @@ type logCursor struct {
 	Attempts map[string]*attemptCursor `json:"attempts,omitempty"`
 	// LastStage is the log time of the last [STAGE] read, in unix seconds.
 	LastStage int64 `json:"lastStage,omitempty"`
+	// Backfilled is when the log search was last asked for the gaps, in unix seconds.
+	Backfilled int64 `json:"backfilled,omitempty"`
 }
 
 // attemptCursor tracks the metric seqs of one attempt and where it resumed training.
 type attemptCursor struct {
-	MaxSeq     int64      `json:"maxSeq"`
+	MaxSeq int64 `json:"maxSeq"`
+	// LastT is the launcher time of the point with MaxSeq.
+	LastT      float64    `json:"lastT,omitempty"`
 	Gaps       []seqRange `json:"gaps,omitempty"`
 	ResumeStep *int64     `json:"resumeStep,omitempty"`
 	// ParseFailures is the attempt's count of unparsable metric lines from its last heartbeat.
 	ParseFailures int64 `json:"parseFailures,omitempty"`
 }
 
-// seqRange is a run of missing seqs noticed at Since (unix seconds).
+// seqRange is a run of missing seqs noticed at Since (unix seconds), between the launcher times TimeFrom and
+// TimeTo of the points read around it.
 type seqRange struct {
-	From  int64 `json:"from"`
-	To    int64 `json:"to"`
-	Since int64 `json:"since"`
+	From     int64   `json:"from"`
+	To       int64   `json:"to"`
+	Since    int64   `json:"since"`
+	TimeFrom float64 `json:"timeFrom,omitempty"`
+	TimeTo   float64 `json:"timeTo,omitempty"`
 }
 
 // loadCursor decodes the metric_cursor column; an empty or unreadable value starts from scratch.
@@ -235,23 +242,44 @@ func (c *logCursor) resumedAfter(attempt string) *int64 {
 
 // hasGap reports whether any attempt has had a seq missing for longer than gapGrace.
 func (c *logCursor) hasGap(now time.Time) bool {
-	for _, a := range c.Attempts {
-		for _, g := range a.Gaps {
-			if now.Sub(time.Unix(g.Since, 0)) > gapGrace {
-				return true
-			}
-		}
-	}
-	return false
+	_, _, ok := c.gapWindow(now)
+	return ok
 }
 
-// accept records seq and reports whether it was not read before; skipped seqs become gaps until read.
-func (a *attemptCursor) accept(seq int64, now time.Time) bool {
+// gapWindow returns the launcher time span that holds every gap missing for longer than gapGrace.
+func (c *logCursor) gapWindow(now time.Time) (time.Time, time.Time, bool) {
+	var from, to float64
+	found := false
+	for _, a := range c.Attempts {
+		for _, g := range a.Gaps {
+			if now.Sub(time.Unix(g.Since, 0)) <= gapGrace {
+				continue
+			}
+			if !found || g.TimeFrom < from {
+				from = g.TimeFrom
+			}
+			if !found || g.TimeTo > to {
+				to = g.TimeTo
+			}
+			found = true
+		}
+	}
+	return unixTime(from), unixTime(to), found
+}
+
+// unixTime converts launcher seconds to a time.
+func unixTime(t float64) time.Time {
+	return time.Unix(0, int64(t*float64(time.Second))).UTC()
+}
+
+// accept records seq, sent at launcher time t, and reports whether it was not read before; skipped seqs become
+// gaps until read.
+func (a *attemptCursor) accept(seq int64, t float64, now time.Time) bool {
 	if seq > a.MaxSeq {
 		if seq > a.MaxSeq+1 && len(a.Gaps) < maxGaps {
-			a.Gaps = append(a.Gaps, seqRange{From: a.MaxSeq + 1, To: seq - 1, Since: now.Unix()})
+			a.Gaps = append(a.Gaps, seqRange{From: a.MaxSeq + 1, To: seq - 1, Since: now.Unix(), TimeFrom: a.LastT, TimeTo: t})
 		}
-		a.MaxSeq = seq
+		a.MaxSeq, a.LastT = seq, t
 		return true
 	}
 	for i, g := range a.Gaps {
@@ -260,10 +288,10 @@ func (a *attemptCursor) accept(seq int64, now time.Time) bool {
 		}
 		var rest []seqRange
 		if seq > g.From {
-			rest = append(rest, seqRange{From: g.From, To: seq - 1, Since: g.Since})
+			rest = append(rest, seqRange{From: g.From, To: seq - 1, Since: g.Since, TimeFrom: g.TimeFrom, TimeTo: t})
 		}
 		if seq < g.To {
-			rest = append(rest, seqRange{From: seq + 1, To: g.To, Since: g.Since})
+			rest = append(rest, seqRange{From: seq + 1, To: g.To, Since: g.Since, TimeFrom: t, TimeTo: g.TimeTo})
 		}
 		a.Gaps = append(a.Gaps[:i], append(rest, a.Gaps[i+1:]...)...)
 		return true
@@ -561,7 +589,7 @@ func (in *ingestion) addMetric(m *marker) {
 		in.sum.Rejected += int64(max(len(b.V), 1))
 		return
 	}
-	if !in.cur.Attempts[b.Attempt].accept(b.Seq, in.u.now) {
+	if !in.cur.Attempts[b.Attempt].accept(b.Seq, b.T, in.u.now) {
 		return
 	}
 	if b.Kind == "step" || b.Kind == "rollout" || b.Kind == "eval" {

@@ -121,16 +121,20 @@ func TestScanLogSkipsLongLines(t *testing.T) {
 func TestAttemptCursorGaps(t *testing.T) {
 	now := time.Unix(1000, 0)
 	a := &attemptCursor{}
-	require.True(t, a.accept(1, now))
-	require.True(t, a.accept(5, now))
-	require.False(t, a.accept(5, now), "a replayed seq is ignored")
-	require.True(t, a.accept(3, now))
-	require.Equal(t, []seqRange{{From: 2, To: 2, Since: 1000}, {From: 4, To: 4, Since: 1000}}, a.Gaps)
+	require.True(t, a.accept(1, 10, now))
+	require.True(t, a.accept(5, 50, now))
+	require.False(t, a.accept(5, 50, now), "a replayed seq is ignored")
+	require.True(t, a.accept(3, 30, now))
+	require.Equal(t, []seqRange{{From: 2, To: 2, Since: 1000, TimeFrom: 10, TimeTo: 30},
+		{From: 4, To: 4, Since: 1000, TimeFrom: 30, TimeTo: 50}}, a.Gaps, "each gap keeps the times around it")
 	cur := &logCursor{Attempts: map[string]*attemptCursor{"a1": a}}
 	require.False(t, cur.hasGap(now.Add(gapGrace)))
 	require.True(t, cur.hasGap(now.Add(gapGrace+time.Second)))
-	a.accept(2, now)
-	a.accept(4, now)
+	from, to, ok := cur.gapWindow(now.Add(gapGrace + time.Second))
+	require.True(t, ok)
+	require.Equal(t, []int64{10, 50}, []int64{from.Unix(), to.Unix()})
+	a.accept(2, 20, now)
+	a.accept(4, 40, now)
 	require.Empty(t, a.Gaps)
 	require.False(t, cur.hasGap(now.Add(time.Hour)))
 }
