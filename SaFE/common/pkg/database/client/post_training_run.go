@@ -71,7 +71,9 @@ type PostTrainingRun struct {
 	// StalledSince is the last progress time of a run marked stalled, NULL while it makes progress.
 	StalledSince pq.NullTime `gorm:"column:stalled_since" json:"stalledSince,omitempty" db:"stalled_since"`
 	// DiskUsage is the JSON of the run directory sizes last reported for checkpoints and exported weights.
-	DiskUsage         string `gorm:"column:disk_usage" json:"diskUsage,omitempty" db:"disk_usage"`
+	DiskUsage string `gorm:"column:disk_usage" json:"diskUsage,omitempty" db:"disk_usage"`
+	// CleanupRequest is the JSON of a checkpoint cleanup the controller has yet to finish.
+	CleanupRequest    string `gorm:"column:cleanup_request" json:"cleanupRequest,omitempty" db:"cleanup_request"`
 	ConvertWorkloadID string `gorm:"column:convert_workload_id" json:"convertWorkloadId,omitempty" db:"convert_workload_id"`
 	TemplateID        string `gorm:"column:template_id" json:"templateId,omitempty" db:"template_id"`
 	TemplateVersion   int    `gorm:"column:template_version" json:"templateVersion,omitempty" db:"template_version"`
@@ -106,8 +108,10 @@ type PostTrainingRunFilter struct {
 	TemplateID   string
 	ExperimentID string
 	Search       string // matches display_name ILIKE %search%
-	Limit        int
-	Offset       int
+	// CleanupRequested selects the runs with a checkpoint cleanup to finish.
+	CleanupRequested bool
+	Limit            int
+	Offset           int
 }
 
 // CreatePostTrainingRun inserts a new run; run_id and workload_id must be unique.
@@ -176,6 +180,9 @@ func (c *Client) ListPostTrainingRuns(
 	}
 	if filter.ExperimentID != "" {
 		query = query.Where("experiment_id = ?", filter.ExperimentID)
+	}
+	if filter.CleanupRequested {
+		query = query.Where("cleanup_request IS NOT NULL AND cleanup_request <> ''")
 	}
 	if filter.Search != "" {
 		query = query.Where("display_name ILIKE ?", "%"+filter.Search+"%")

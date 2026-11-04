@@ -29,6 +29,9 @@ const (
 	defaultMaxPoints = 1000
 	maxMaxPoints     = 20000
 	valLossMetric    = "eval/val/loss"
+	// checkpointsCleanedEvent is the stage_history event of a finished checkpoint cleanup; keptStep names the
+	// checkpoint it kept, if any.
+	checkpointsCleanedEvent = "checkpoints-cleaned"
 
 	AxisStep    = "step"
 	AxisRollout = "rollout"
@@ -335,6 +338,12 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 	var history []map[string]interface{}
 	_ = json.Unmarshal([]byte(run.StageHistory), &history)
 	for _, e := range history {
+		if e["event"] == checkpointsCleanedEvent {
+			kept, keptOne := e["keptStep"].(float64)
+			for i := range m.Checkpoints {
+				m.Checkpoints[i].Deleted = m.Checkpoints[i].Deleted || !keptOne || m.Checkpoints[i].Step != int(kept)
+			}
+		}
 		if step, ok := e["resumeStep"].(float64); ok {
 			t, _ := e["time"].(string)
 			m.Resumes = append(m.Resumes, resumeMark{Step: int(step), Time: t})
