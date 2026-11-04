@@ -11,7 +11,7 @@ import re
 import sys
 import threading
 
-from safe_post_training import launch
+from safe_post_training import launch, metrics, stages
 
 
 class FakeAdapter:
@@ -209,3 +209,49 @@ def test_ppo_resumes_only_in_step(monkeypatch, tmp_path):
     assert ms[-1][0] == "[ERROR]" and ms[-1][1]["stage"] == "train"
     assert ms[-1][1]["reason"] == "the actor checkpoints end at step 40 but the critic checkpoints at step 30"
     assert ms[-1][1]["retry"] is False, "a rerun would not bring them back in step"
+
+
+class LoraAdapter(FakeAdapter):
+    """A fake adapter that writes a PEFT adapter, or an incomplete one."""
+
+    def __init__(self, complete=True):
+        super().__init__()
+        self.complete, self.adapters = complete, []
+
+    def export_adapter(self, recipe, run_dir, run_command, iteration, out, merged):
+        self.adapters.append((out, merged))
+        os.makedirs(out, exist_ok=True)
+        open(os.path.join(out, "adapter_config.json"), "w").close()
+        if self.complete:
+            open(os.path.join(out, "adapter_model.safetensors"), "w").close()
+        return out
+
+
+def test_lora_runs_export_the_adapter(monkeypatch, tmp_path):
+    recipe = recipe_for(tmp_path)
+    recipe["lora"] = {"rank": 16, "alpha": 32}
+    recipe["output"]["peftAdapter"] = True
+    a = LoraAdapter()
+    code, _, ms = run(monkeypatch, recipe, a)
+    assert code == 0
+    assert ms[-1][1]["adapter"] == str(tmp_path / "run" / "final_adapter")
+    assert a.adapters == [(str(tmp_path / "run" / "final_adapter"), str(tmp_path / "run" / "final_model"))], \
+        "the adapter is checked against the merged model"
+
+    (tmp_path / "b").mkdir()
+    recipe = recipe_for(tmp_path / "b")
+    recipe["lora"] = {"rank": 16, "alpha": 32}
+    recipe["output"]["peftAdapter"] = True
+    code, _, ms = run(monkeypatch, recipe, LoraAdapter(complete=False))
+    assert code != 0
+    assert ms[-1][1]["reason"] == "the PEFT adapter lacks adapter_model.safetensors" and ms[-1][1]["retry"] is False
+
+
+def test_checkpoint_exports_put_the_adapter_next_to_the_model(tmp_path):
+    emitter = metrics.Emitter("pt-x", "a1", None, out=io.StringIO())
+    r = stages.Runner({"lora": {"rank": 16}}, str(tmp_path), FakeAdapter(), emitter)
+    only = {"dir": "/runs/pt-x/exports/step-8", "peftAdapter": True}
+    assert r.adapter_dir(only) == "/runs/pt-x/exports/step-8-adapter"
+    assert r.adapter_dir({"dir": "/runs/pt-x/exports/step-8"}) is None
+    full = stages.Runner({"output": {"peftAdapter": True}}, str(tmp_path), FakeAdapter(), emitter)
+    assert full.adapter_dir(None) is None, "only LoRA runs have an adapter"

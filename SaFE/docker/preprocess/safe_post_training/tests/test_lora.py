@@ -2,10 +2,12 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
+import types
+
 import pytest
 
 from safe_post_training.frameworks.slime.adapter import Adapter
-from safe_post_training.frameworks.slime.plugins import lora, lora_sync, merge_lora
+from safe_post_training.frameworks.slime.plugins import export_peft, lora, lora_sync, merge_lora
 
 QKV = "decoder.layers.self_attention.linear_qkv."
 
@@ -86,3 +88,53 @@ def test_sync_sends_merged_weights():
     out = list(lora_sync.merged_named(named, lambda w, a, b: "%s+%s%s" % (w, b, a)))
     assert out == [(layer + "weight", "W+BA"), (layer + "layer_norm_weight", "N"),
                    ("module.module.embedding.word_embeddings.weight", "E")]
+
+
+def test_peft_export_names():
+    args = types.SimpleNamespace(hidden_size=4096, num_attention_heads=32, kv_channels=None, num_query_groups=8)
+    b_args = export_peft.split_args(args, 16)
+    assert (b_args.hidden_size, b_args.kv_channels, args.hidden_size) == (16, 128, 4096), \
+        "B splits like a weight of rank columns with the model's head size"
+    layer = "module.module.decoder.layers.0.self_attention.linear_qkv"
+    assert export_peft.adapter_layers([layer + ".adapter.linear_in.weight", layer + ".adapter.linear_out.weight"]) == \
+        [(layer + ".weight", layer + ".adapter.linear_in.weight", layer + ".adapter.linear_out.weight")]
+    with pytest.raises(ValueError, match="no B matrix"):
+        export_peft.adapter_layers([layer + ".adapter.linear_in.weight"])
+    module, a, b = export_peft.peft_keys("model.layers.0.self_attn.q_proj.weight")
+    assert (module, a, b) == ("model.layers.0.self_attn.q_proj",
+                              "base_model.model.model.layers.0.self_attn.q_proj.lora_A.weight",
+                              "base_model.model.model.layers.0.self_attn.q_proj.lora_B.weight")
+    cfg = export_peft.adapter_config(16, 32.0, 0.0, ["model.layers.0.self_attn.q_proj",
+                                                     "model.layers.1.self_attn.q_proj", "model.layers.0.mlp.up_proj"],
+                                     "/models/base")
+    assert cfg["peft_type"] == "LORA" and cfg["r"] == 16 and cfg["lora_alpha"] == 32.0
+    assert cfg["target_modules"] == ["q_proj", "up_proj"] and cfg["base_model_name_or_path"] == "/models/base"
+
+
+def test_adapter_only_checkpoints_merge_on_the_hf_side(tmp_path):
+    root = tmp_path / "slime"
+    (root / "tools").mkdir(parents=True)
+    (root / "train.py").write_text("")
+    (tmp_path / "base").mkdir()
+    src = tmp_path / "checkpoints" / "iter_0000008"
+    src.mkdir(parents=True)
+    (src / "trainable_only").write_text("/models/base\n")
+    commands = []
+
+    def run_command(cmd, env=None):
+        commands.append(cmd)
+        (tmp_path / "final_model.adapter-tmp").mkdir(exist_ok=True)
+        return 0
+
+    a = Adapter(env={"SLIME_DIR": str(root)})
+    recipe = {"model": {"path": str(tmp_path / "base")}, "lora": {"rank": 16, "alpha": 32}}
+    a.export(recipe, str(tmp_path), run_command, iteration=8)
+    cmd = commands[0]
+    assert cmd[1].endswith("plugins/export_peft.py")
+    assert cmd[cmd.index("--merge-into") + 1] == str(tmp_path / "final_model")
+    assert not (tmp_path / "final_model.adapter-tmp").exists(), "the scratch adapter is removed"
+
+    a.export_adapter(recipe, str(tmp_path), run_command, 8, str(tmp_path / "final_adapter"), str(tmp_path / "m"))
+    cmd = commands[1]
+    assert cmd[cmd.index("--output-dir") + 1] == str(tmp_path / "final_adapter")
+    assert cmd[cmd.index("--verify-merged") + 1] == str(tmp_path / "m")
