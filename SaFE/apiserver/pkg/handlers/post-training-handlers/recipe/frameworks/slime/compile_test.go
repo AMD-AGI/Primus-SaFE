@@ -183,6 +183,49 @@ func TestCompileWandb(t *testing.T) {
 	require.Contains(t, errorsOf(in), "Select the secret")
 }
 
+func TestCompileRewards(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeRL)
+	argsOf := func(c recipe.Choices) (string, map[string]string) {
+		in.Request.Choices = c
+		res := compile(t, in)
+		return strings.Join(res.Recipe.FrameworkArgs, " "), res.Plan.Env
+	}
+	args, _ := argsOf(recipe.Choices{})
+	require.Contains(t, args, "--rm-type deepscaler")
+	args, _ = argsOf(recipe.Choices{RewardType: "f1"})
+	require.Contains(t, args, "--rm-type f1")
+
+	args, env := argsOf(recipe.Choices{RewardType: "custom", RewardHook: "/wekafs/ws/rm/judge.py:score"})
+	require.Contains(t, args, "--custom-rm-path "+customRewardPlugin)
+	require.NotContains(t, args, "--rm-type")
+	require.Equal(t, "/wekafs/ws/rm/judge.py:score", env[customRewardEnv])
+
+	remote := &recipe.RewardRemote{URL: "http://rm.svc:8000/score", RewardKey: "score"}
+	args, _ = argsOf(recipe.Choices{RewardType: "remote", RewardRemote: remote})
+	require.Contains(t, args, "--rm-type remote_rm --rm-url http://rm.svc:8000/score --reward-key score")
+
+	remote.SecretID = "rm-key"
+	in.Secrets = map[string]*recipe.SecretInfo{"rm-key": {Type: string(v1.SecretGeneral), Keys: []string{rewardKeyEnv}}}
+	args, _ = argsOf(recipe.Choices{RewardType: "remote", RewardRemote: remote})
+	require.Contains(t, args, "--custom-rm-path "+remoteRewardPlugin+" --rm-url http://rm.svc:8000/score")
+	require.NotContains(t, args, "PT_RM_API_KEY")
+
+	for c, want := range map[*recipe.Choices]string{
+		{RewardType: "custom", RewardHook: "rm/judge.py"}:                                       "absolute path of the Python file",
+		{RewardType: "remote", RewardRemote: &recipe.RewardRemote{URL: "rm.svc:8000"}}:          "http or https address",
+		{RewardType: "remote", RewardRemote: &recipe.RewardRemote{URL: "https://u:p@rm.svc/s"}}: "Keep credentials out",
+		{RewardType: "remote"}: "http or https address",
+		{RewardType: "remote", RewardRemote: &recipe.RewardRemote{URL: "https://rm.svc/s", SecretID: "other"}}: "doesn't exist",
+		{RewardType: "math", FieldMap: map[string]string{"prompt": "question"}}:                                "map the dataset's answer or label field",
+	} {
+		in.Request.Choices = *c
+		require.Contains(t, errorsOf(in), want)
+	}
+	in.Request.Choices = recipe.Choices{}
+	in.Dataset.Fields = []string{"prompt", "answer"}
+	require.Contains(t, errorsOf(in), "the dataset has no label field")
+}
+
 func TestCompileGRPOColocated(t *testing.T) {
 	res := compile(t, qwen3Input(t, registry.TrainTypeRL))
 	got := strings.Join(res.Recipe.FrameworkArgs, " ")
@@ -230,8 +273,8 @@ func TestSlimeRules(t *testing.T) {
 			"Fully async requires separate"},
 		"context": {registry.TrainTypeRL, func(in *recipe.Input) { in.Request.Choices.MaxResponseLen = 40960 },
 			"40960-token context"},
-		"reward": {registry.TrainTypeRL, func(in *recipe.Input) { in.Request.Choices.RewardType = "f1" },
-			`Reward type "f1" is not available`},
+		"reward": {registry.TrainTypeRL, func(in *recipe.Input) { in.Request.Choices.RewardType = "gpqa" },
+			`Reward type "gpqa" is not available`},
 		"ppo": {registry.TrainTypeRL, func(in *recipe.Input) {
 			in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeaturePPO)
 			in.Request.Choices.AdvantageEstimator = "ppo"

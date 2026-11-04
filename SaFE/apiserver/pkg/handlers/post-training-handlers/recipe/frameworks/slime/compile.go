@@ -23,6 +23,16 @@ const (
 
 	sftRolloutFunction = "slime.rollout.sft_rollout.generate_rollout"
 	defaultRewardType  = "deepscaler"
+	rewardCustom       = "custom"
+	rewardRemote       = "remote"
+	// rewardKeyEnv is the reward service key a remote reward's secret holds; the adapter's plugin sends it as a
+	// bearer token.
+	rewardKeyEnv = "PT_RM_API_KEY"
+	// remoteRewardPlugin and customRewardPlugin are the slime adapter's reward functions: the upstream remote
+	// reward with an Authorization header, and a loader for a user's reward file named by customRewardEnv.
+	remoteRewardPlugin = "safe_post_training.frameworks.slime.plugins.remote_rm.remote_rm"
+	customRewardPlugin = "safe_post_training.frameworks.slime.plugins.custom_rm.custom_rm"
+	customRewardEnv    = "PT_CUSTOM_RM"
 	defaultMaxTokens   = 9216
 	defaultResponseLen = 8192
 	defaultValSamples  = 256
@@ -49,6 +59,11 @@ func (p plugin) Options(ctx *recipe.Context) *recipe.Options {
 	}
 	opts.Fields["rewardType"] = recipe.FieldOptions{Values: []recipe.OptionValue{
 		{Value: defaultRewardType, Label: "DeepScaleR (math answer)"},
+		{Value: "dapo", Label: "DAPO (math answer)"},
+		{Value: "math", Label: "Math (equivalent answer)"},
+		{Value: "f1", Label: "F1 (reference text)"},
+		{Value: rewardCustom, Label: "Custom function"},
+		{Value: rewardRemote, Label: "Remote service"},
 	}}
 	sep := recipe.OptionValue{Value: recipe.LayoutSeparate, Label: "Disaggregated"}
 	if !ctx.Image.HasFeature(registry.FeatureSeparate) {
@@ -162,6 +177,7 @@ func parallelDefaults(fs *registry.FrameworkSpec, arch string) map[string]int {
 func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 	c := p.normalize(ctx)
 	in, l := ctx.Input, ctx.Layout
+	env := map[string]string{"CUDA_DEVICE_MAX_CONNECTIONS": "1"}
 	rl := ctx.Request.TrainType == registry.TrainTypeRL
 	convert := &recipe.RecipeConvert{Dir: in.RunDir + "/convert/torch_dist", Nodes: max(ctx.FrameworkSpec.ConvertNodes, 1)}
 	if !ctx.CustomImage {
@@ -185,8 +201,9 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		"--save-interval", itoa(c.SaveInterval))
 	a.add("--prompt-data", in.RunDir+"/data/train.jsonl", "--rollout-shuffle")
 	if rl {
-		a.add("--input-key", "prompt", "--label-key", "label", "--apply-chat-template", "--rm-type", c.RewardType,
-			"--num-rollout", itoa(c.NumRollout), "--rollout-batch-size", itoa(c.BatchSize),
+		a.add("--input-key", "prompt", "--label-key", "label", "--apply-chat-template")
+		a.add(rewardArgs(c, env)...)
+		a.add("--num-rollout", itoa(c.NumRollout), "--rollout-batch-size", itoa(c.BatchSize),
 			"--n-samples-per-prompt", itoa(c.NSamplesPerPrompt),
 			"--global-batch-size", itoa(c.BatchSize*c.NSamplesPerPrompt),
 			"--rollout-max-response-len", itoa(c.MaxResponseLen), "--rollout-temperature", "1", "--balance-data")
@@ -251,7 +268,6 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 	a.add("--attention-dropout", "0.0", "--hidden-dropout", "0.0", "--accumulate-allreduce-grads-in-fp32",
 		"--attention-softmax-in-fp32", "--attention-backend", "flash", "--no-gradient-accumulation-fusion")
 
-	env := map[string]string{"CUDA_DEVICE_MAX_CONNECTIONS": "1"}
 	if w := ctx.Request.Tracking.Wandb; w.Enabled {
 		a.add("--use-wandb", "--wandb-project", w.Project, "--wandb-group", in.RunID)
 		if w.Team != "" {
@@ -272,6 +288,31 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		plan.Val = &recipe.RecipeVal{Interval: c.ValInterval, MaxSamples: c.ValMaxSamples, Split: c.ValSplit}
 	}
 	return plan, nil
+}
+
+// rewardArgs returns slime's reward arguments for an RL request and sets the environment a reward plugin reads.
+func rewardArgs(c recipe.Choices, env map[string]string) []string {
+	switch c.RewardType {
+	case rewardCustom:
+		env[customRewardEnv] = c.RewardHook
+		return []string{"--custom-rm-path", customRewardPlugin}
+	case rewardRemote:
+		remote := c.RewardRemote
+		if remote == nil {
+			remote = &recipe.RewardRemote{}
+		}
+		out := []string{"--rm-type", "remote_rm"}
+		if remote.SecretID != "" {
+			out = []string{"--custom-rm-path", remoteRewardPlugin}
+		}
+		out = append(out, "--rm-url", remote.URL)
+		if remote.RewardKey != "" {
+			out = append(out, "--reward-key", remote.RewardKey)
+		}
+		return out
+	default:
+		return []string{"--rm-type", c.RewardType}
+	}
 }
 
 // hasValidation tells whether an SFT request has a validation set, given or split from the training data.
