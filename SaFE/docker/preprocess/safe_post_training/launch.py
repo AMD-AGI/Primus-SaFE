@@ -26,7 +26,7 @@ import time
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from safe_post_training import metrics, stages  # noqa: E402
+from safe_post_training import gpu_sampler, metrics, stages  # noqa: E402
 
 LAUNCHER_VERSION = "1.0.0"
 NORETRY_FILE = ".noretry"
@@ -178,6 +178,23 @@ def next_attempt(run_dir):
     return "a%d" % status["attempts"]
 
 
+def train_start(run_dir, clock=time.time):
+    """Return when the run first entered the train stage, recording it in status.json on the first entry; System
+    metrics count seconds from it, so every attempt continues the same time axis."""
+    path = os.path.join(run_dir, STATUS_FILE)
+    status = {}
+    if os.path.exists(path):
+        with open(path) as f:
+            status = json.load(f)
+    if "trainStart" not in status:
+        status["trainStart"] = round(clock(), 3)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(status, f)
+        os.replace(tmp, path)
+    return status["trainStart"]
+
+
 def load_adapter(framework):
     """Load the framework adapter of the recipe."""
     module = importlib.import_module("safe_post_training.frameworks.%s.adapter" % framework)
@@ -202,8 +219,8 @@ def fail(emitter, run_dir, err, sleep=time.sleep):
     return 1
 
 
-def run(recipe, out=None, gpus=stages.ray_gpus, sleep=time.sleep, watchdog=None):
-    """Run a recipe end to end and return the exit code."""
+def run(recipe, out=None, gpus=stages.ray_gpus, sleep=time.sleep, watchdog=None, sampler=gpu_sampler.GpuSampler):
+    """Run a recipe end to end and return the exit code; sampler, when set, samples the GPUs during training."""
     run_dir = recipe["output"]["base"]
     for sub in ("metrics", "logs/nccl"):
         os.makedirs(os.path.join(run_dir, sub), exist_ok=True)
@@ -219,8 +236,12 @@ def run(recipe, out=None, gpus=stages.ray_gpus, sleep=time.sleep, watchdog=None)
         return 1
     emitter.start_heartbeat()
     try:
+        start_sampler = None
+        if sampler:
+            def start_sampler():
+                return sampler(emitter, run_dir, recipe.get("layout"), train_start(run_dir))
         runner = stages.Runner(recipe, run_dir, load_adapter(recipe["framework"]), emitter, gpus=gpus,
-                               watchdog=watchdog or Watchdog(emitter, recipe.get("watchdog")))
+                               watchdog=watchdog or Watchdog(emitter, recipe.get("watchdog")), sampler=start_sampler)
         result = runner.run()
     except stages.StageError as err:
         return fail(emitter, run_dir, err, sleep=sleep)

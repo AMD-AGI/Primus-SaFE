@@ -149,9 +149,12 @@ def ray_gpus():
 class Runner:
     """Runs the stages of one recipe."""
 
-    def __init__(self, recipe, run_dir, adapter, emitter, gpus=ray_gpus, watchdog=None, sleep=time.sleep):
+    def __init__(self, recipe, run_dir, adapter, emitter, gpus=ray_gpus, watchdog=None, sleep=time.sleep,
+                 sampler=None):
         self.recipe, self.run_dir, self.adapter, self.emitter, self.gpus = recipe, run_dir, adapter, emitter, gpus
         self.watchdog, self.sleep = watchdog, sleep
+        # sampler, when set, returns the GPU sampler that runs alongside training.
+        self.sampler = sampler
         self.enospc = False
         self.reward_rejected = False
         self.checkpoint = None
@@ -328,7 +331,14 @@ class Runner:
         if resume is not None:
             cmd = cmd + ["--load", self.path("checkpoints")]
             self.emitter.stage("train", state="running", detail={"resumeStep": resume})
-        code = self.run_command(cmd, env=env, parse=True, watch="train")
+        sampler = self.sampler() if self.sampler else None
+        if sampler:
+            sampler.start()
+        try:
+            code = self.run_command(cmd, env=env, parse=True, watch="train")
+        finally:
+            if sampler:
+                sampler.stop()
         if code != 0:
             if self.watchdog and self.watchdog.reason:
                 raise StageError("train", self.watchdog.reason)

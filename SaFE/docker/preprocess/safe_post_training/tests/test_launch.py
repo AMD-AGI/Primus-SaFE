@@ -74,7 +74,7 @@ def markers(out):
 def run(monkeypatch, recipe, adapter, gpus=8):
     monkeypatch.setattr(launch, "load_adapter", lambda name: adapter)
     out = io.StringIO()
-    code = launch.run(recipe, out=out, gpus=lambda: gpus, sleep=lambda s: None)
+    code = launch.run(recipe, out=out, gpus=lambda: gpus, sleep=lambda s: None, sampler=None)
     return code, out, markers(out)
 
 

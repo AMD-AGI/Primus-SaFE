@@ -82,6 +82,8 @@ class Emitter:
         self.stage_name = ""
         self.stage_detail = None
         self.parse_failures = 0
+        # notes are added to the heartbeat detail, such as why GPU sampling stopped.
+        self.notes = {}
         self.last_metric_time = None
         self.last_values = {}
         self._recent = collections.deque()
@@ -188,7 +190,7 @@ class Emitter:
                 self.out.write(line + "\n")
             self.out.flush()
             if self.stage_name:
-                detail = {"parseFailures": self.parse_failures}
+                detail = dict(self.notes, parseFailures=self.parse_failures)
                 if isinstance(self.stage_detail, dict):
                     detail = dict(self.stage_detail, **detail)
                 self.stage(self.stage_name, state="heartbeat", detail=detail)
