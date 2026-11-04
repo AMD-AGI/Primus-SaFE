@@ -103,6 +103,19 @@
                 <el-option label="TIS" value="tis" />
               </el-select>
             </div>
+            <template v-if="algorithm === 'ppo'">
+              <NumberField
+                label="Critic learning rate"
+                field="criticLr"
+                :step="1e-6"
+                :precision="9"
+                :min="0"
+              />
+              <NumberField label="Critic-only rollouts" field="criticWarmupRollouts" :min="0" />
+            </template>
+          </div>
+          <div v-if="algorithm === 'ppo'" class="pt-help">
+            The critic shares the actor's GPUs and keeps its own checkpoints. {{ criticNote }}
           </div>
         </el-collapse-item>
       </template>
@@ -229,6 +242,18 @@ const useKlLoss = computed({
   get: () => w.form.choices.useKlLoss ?? defaults.value.useKlLoss ?? true,
   set: (v: boolean) => (w.form.choices.useKlLoss = v),
 })
+const algorithm = computed(
+  () => w.form.choices.advantageEstimator ?? defaults.value.advantageEstimator ?? 'grpo',
+)
+/** How the critic-only rollouts start a PPO run. */
+const criticNote = computed(() => {
+  const n = w.form.choices.criticWarmupRollouts ?? defaults.value.criticWarmupRollouts ?? 0
+  if (n === 0) return 'Every rollout trains the actor too.'
+  return n === 1
+    ? 'The first rollout trains the critic only.'
+    : `The first ${n} rollouts train the critic only.`
+})
+
 const correction = computed({
   get: () => w.form.choices.correction ?? defaults.value.correction ?? '',
   set: (v: string) => (w.form.choices.correction = v || undefined),
