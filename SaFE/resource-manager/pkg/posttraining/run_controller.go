@@ -547,6 +547,7 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 	in := r.newIngestion(ctx, u, cur)
 	rejected, skipped := in.sum.Rejected, cur.Skipped
 	more, readErr := r.readSubmitter(ctx, w, cur, in)
+	r.backfillFromLogSearch(ctx, w, cur, in)
 	points := in.finish()
 	if in.resumeFrom != nil {
 		if err := r.db.DeletePostTrainingRunMetricsAfterStep(ctx, run.RunID, int(*in.resumeFrom)); err != nil {
