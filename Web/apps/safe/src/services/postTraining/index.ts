@@ -1,7 +1,11 @@
 import request from '@/services/request'
 import type {
+  ConfigResp,
   ModelsResp,
   NullTime,
+  PreviewResp,
+  SubmitRequest,
+  SubmitResp,
   PostTrainingRun,
   RunListParams,
   RunListResp,
@@ -18,6 +22,51 @@ export function getPostTrainingModels(workspace: string) {
     params: { workspace },
     skipErrorHandler: true,
   })
+}
+
+/** Returns the frameworks and wizard options of a model for a train type and method. */
+export function getPostTrainingConfig(params: {
+  workspace: string
+  modelId: string
+  trainType: string
+  method: string
+  framework?: string
+}) {
+  return request.get<ConfigResp>('/post-training/config', { params })
+}
+
+/** Compiles a request without creating anything; errors are reported, not thrown. */
+export function previewPostTrainingRecipe(body: SubmitRequest) {
+  return request.post<PreviewResp>('/post-training/recipes/preview', body, {
+    skipErrorHandler: true,
+  })
+}
+
+/** Submits a run; diagnostics of a request that does not compile come back as the error body. */
+export function submitPostTrainingRun(body: SubmitRequest) {
+  return request.post<SubmitResp>('/post-training/runs', body, { skipErrorHandler: true })
+}
+
+/** Returns the wizard step, 1 to 5, that edits the request field a diagnostic names, or 0 when none does. */
+export function fieldStep(field?: string): number {
+  if (!field) return 0
+  const top = field.split('.')[0]
+  if (['framework', 'trainType', 'method', 'modelId', 'workspace', 'preset'].includes(top)) return 1
+  if (field === 'choices.advantageEstimator') return 1
+  if (
+    ['datasetId', 'evalDatasetId'].includes(top) ||
+    field.startsWith('choices.fieldMap') ||
+    field === 'choices.valSplit'
+  )
+    return 2
+  if (
+    ['resources.nodes', 'resources.gpusPerNode'].includes(field) ||
+    /^choices\.(layout|rolloutGpus|gpusPerEngine|tp|pp|cp|ep|sequenceParallel|pd)/.test(field)
+  )
+    return 3
+  if (top === 'choices') return 4
+  if (['export', 'evaluation', 'resources', 'tracking'].includes(top)) return 5
+  return 0
 }
 
 /** Lists the runs of a workspace, newest first. */

@@ -132,3 +132,137 @@ export interface StageSegment {
   label: string
   state: SegmentState
 }
+
+/** The LoRA options of a run. */
+export interface LoraChoice {
+  rank?: number
+  alpha?: number
+  dropout?: number
+  targets?: string[]
+  experts?: boolean
+  expertMode?: string
+  adapterOnlyCheckpoint?: boolean
+}
+
+/** The training options of a run; zero values take the framework's defaults. */
+export interface Choices {
+  fieldMap?: Record<string, string>
+  numEpoch?: number
+  numRollout?: number
+  batchSize?: number
+  maxTokensPerGpu?: number
+  lr?: number
+  minLr?: number
+  warmupIters?: number
+  saveInterval?: number
+  valInterval?: number
+  valMaxSamples?: number
+  valSplit?: number
+  tp?: number
+  pp?: number
+  cp?: number
+  ep?: number
+  sequenceParallel?: boolean
+  lora?: LoraChoice
+  freeze?: { trainOnly?: string[] }
+  evalInterval?: number
+  advantageEstimator?: string
+  rewardType?: string
+  rewardHook?: string
+  rewardRemote?: { url?: string; secretId?: string; rewardKey?: string }
+  generateHook?: string
+  nSamplesPerPrompt?: number
+  maxPromptLen?: number
+  maxResponseLen?: number
+  layout?: string
+  rolloutGpus?: number
+  gpusPerEngine?: number
+  useKlLoss?: boolean
+  klLossCoef?: number
+  correction?: string
+  rolloutPrecision?: string
+  kvCacheDtype?: string
+  schedule?: string
+  concurrency?: number
+  pd?: { enabled?: boolean; prefillGpus?: number }
+  criticLr?: number
+  criticWarmupRollouts?: number
+}
+
+/** The body of the preview and submit APIs. */
+export interface SubmitRequest {
+  workspace: string
+  displayName: string
+  trainType: 'sft' | 'rl'
+  method: string
+  framework?: string
+  modelId: string
+  datasetId: string
+  evalDatasetId?: string
+  preset?: string
+  choices: Choices
+  resources: {
+    nodes: number
+    gpusPerNode: number
+    priority?: number
+    timeoutSeconds?: number
+    maxRetry?: number
+    image?: string
+  }
+  export: { hf?: boolean; peftAdapter?: boolean }
+  tracking: { wandb: { enabled?: boolean; secretId?: string; project?: string; team?: string } }
+  evaluation: { enabled?: boolean; benchmarks?: string[]; keepService?: boolean }
+}
+
+/** One allowed value of a wizard field, with why it is disabled. */
+export interface OptionValue {
+  value: string
+  label: string
+  disabled?: boolean
+  reason?: string
+}
+
+/** The wizard's choices for one framework: defaults, presets and per-field values. */
+export interface RecipeOptions {
+  defaults: Choices
+  presets?: { id: string; label: string; trainType: string; method: string; choices: Choices }[]
+  fields?: Record<string, { values?: OptionValue[]; disabled?: boolean; reason?: string }>
+}
+
+/** GET /post-training/config: the frameworks and the wizard options of one model. */
+export interface ConfigResp {
+  frameworks: { name: string; default: boolean }[]
+  framework: string
+  spec?: string
+  supported: boolean
+  reason?: string
+  options?: RecipeOptions
+}
+
+/** One compiler finding: an error blocks submission, a warning is confirmed at the last step. */
+export interface Diagnostic {
+  level: 'error' | 'warning'
+  field?: string
+  message: string
+}
+
+/** POST /post-training/recipes/preview. */
+export interface PreviewResp {
+  diagnostics: Diagnostic[]
+  layout?: {
+    nodes: number
+    gpusPerNode: number
+    colocate: boolean
+    actorGpus: number
+    rolloutGpus: number
+  }
+  frameworkArgs?: string[]
+  recipe?: Record<string, unknown>
+}
+
+/** POST /post-training/runs. */
+export interface SubmitResp {
+  runId: string
+  workloadId: string
+  warnings?: Diagnostic[]
+}
