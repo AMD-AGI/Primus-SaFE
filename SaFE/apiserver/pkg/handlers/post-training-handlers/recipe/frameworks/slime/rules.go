@@ -237,6 +237,17 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	default:
 		fail("choices.advantageEstimator", "Algorithm %q is not available", c.AdvantageEstimator)
 	}
+	if c.RolloutPrecision != "" && c.RolloutPrecision != "bf16" && c.RolloutPrecision != recipe.RolloutPrecisionFP8 {
+		fail("choices.rolloutPrecision", "Rollout precision must be bf16 or fp8")
+	}
+	if c.KvCacheDtype != "" && c.KvCacheDtype != kvCacheFP8 {
+		fail("choices.kvCacheDtype", "The KV cache dtype must be %s, or empty for the model's own", kvCacheFP8)
+	}
+	if c.RolloutPrecision == recipe.RolloutPrecisionFP8 && c.Correction == "" {
+		out = append(out, recipe.Diagnostic{Level: recipe.LevelWarning, Field: "choices.correction",
+			Message: "FP8 rollout without a train-inference correction such as TIS: training uses log-probs of " +
+				"the quantized rollout"})
+	}
 	if c.Layout != recipe.LayoutColocate && c.Layout != recipe.LayoutSeparate {
 		fail("choices.layout", "Layout must be colocate or separate")
 	}

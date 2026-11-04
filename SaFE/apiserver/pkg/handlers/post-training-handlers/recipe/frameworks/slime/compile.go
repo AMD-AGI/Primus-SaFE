@@ -42,6 +42,9 @@ const (
 	defaultResponseLen  = 8192
 	defaultValSamples   = 256
 	correctionTIS       = "tis"
+	// fp8Dir holds the blockwise FP8 HF weights an FP8 rollout serves, next to the conversion's torch_dist.
+	fp8Dir     = "fp8_hf"
+	kvCacheFP8 = "fp8_e4m3"
 	// valDatasetName names the SFT validation set, so its loss is reported as eval/val/loss.
 	valDatasetName = "val"
 
@@ -263,6 +266,14 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		convert.Dir = path.Join(path.Dir(in.RunDir), recipe.ConvertCacheDir, convert.CacheKey, "torch_dist")
 	}
 
+	fp8 := rl && c.RolloutPrecision == recipe.RolloutPrecisionFP8
+	hf := in.Model.Path
+	if fp8 {
+		// Training stays BF16 and quantizes each weight sync with the FP8 weights' quantization config.
+		convert.FP8 = true
+		hf = path.Join(path.Dir(convert.Dir), fp8Dir)
+	}
+
 	var a args
 	actorNodes, actorGpusPerNode := l.Nodes, l.GpusPerNode
 	if rl && !l.Colocate {
@@ -275,7 +286,7 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		}
 		a.add("--rollout-num-gpus", itoa(l.RolloutGpus))
 	}
-	a.add("--hf-checkpoint", in.Model.Path, "--ref-load", convert.Dir, "--save", in.RunDir+"/checkpoints",
+	a.add("--hf-checkpoint", hf, "--ref-load", convert.Dir, "--save", in.RunDir+"/checkpoints",
 		"--save-interval", itoa(c.SaveInterval))
 	a.add("--prompt-data", in.RunDir+"/data/train.jsonl", "--rollout-shuffle")
 	if rl {
@@ -312,6 +323,9 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 			a.add("--use-tis", "--tis-clip-low", "0", "--tis-clip", "2")
 		}
 		a.add("--rollout-num-gpus-per-engine", itoa(c.GpusPerEngine), "--sglang-mem-fraction-static", "0.7")
+		if c.KvCacheDtype != "" {
+			a.add("--sglang-kv-cache-dtype", c.KvCacheDtype)
+		}
 		if c.Concurrency > 0 {
 			a.add("--sglang-server-concurrency", itoa(c.Concurrency))
 		}
@@ -398,7 +412,11 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		plan.Files = map[string]string{pluginsConfigFile: loraConfig(c.Lora)}
 	}
 	if rl {
-		plan.Rollout = map[string]interface{}{"precision": "bf16", "schedule": "sync", "layout": c.Layout}
+		precision := "bf16"
+		if fp8 {
+			precision = recipe.RolloutPrecisionFP8
+		}
+		plan.Rollout = map[string]interface{}{"precision": precision, "schedule": "sync", "layout": c.Layout}
 		if c.AdvantageEstimator == recipe.AlgorithmPPO {
 			plan.Critic = criticPlan(c, in.RunDir)
 		}
