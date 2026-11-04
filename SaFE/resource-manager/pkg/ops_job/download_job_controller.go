@@ -95,11 +95,13 @@ func isModelOwned(job *v1.OpsJob) bool {
 	return owner != nil && owner.Kind == v1.ModelKind
 }
 
-// mayRunEntryPoint reports whether the job may carry its own entry point: jobs of a Model, and the
-// model-inspect jobs with which the Post Training controller checks a run's output.
+// mayRunEntryPoint reports whether the job may carry its own entry point: jobs of a Model, the model-inspect
+// jobs with which the Post Training controller checks a run's output, and the model-cleanup jobs with which it
+// removes a conversion cache.
 func mayRunEntryPoint(job *v1.OpsJob) bool {
 	return isModelOwned(job) ||
-		(job.Spec.Type == v1.OpsJobModelInspectType && v1.GetLabel(job, v1.PostTrainingRunIdLabel) != "")
+		(job.Spec.Type == v1.OpsJobModelInspectType && v1.GetLabel(job, v1.PostTrainingRunIdLabel) != "") ||
+		(job.Spec.Type == v1.OpsJobModelCleanupType && v1.GetLabel(job, v1.PostTrainingConvertCacheLabel) != "")
 }
 
 // Reconcile is the main control loop for DownloadJob resources.

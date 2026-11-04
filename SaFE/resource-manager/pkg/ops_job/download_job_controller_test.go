@@ -273,3 +273,13 @@ func TestModelInspectJobWorkload(t *testing.T) {
 	assert.Equal(t, "1", wl.Spec.Resources[0].CPU)
 	assert.True(t, isDownloadWorkload(wl))
 }
+
+func TestConvertCacheCleanupMayRunItsScript(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{}},
+		Spec: v1.OpsJobSpec{Type: v1.OpsJobModelCleanupType}}
+	assert.False(t, mayRunEntryPoint(job))
+	job.Labels[v1.PostTrainingConvertCacheLabel] = "7"
+	assert.True(t, mayRunEntryPoint(job))
+	job.Spec.Type = v1.OpsJobDownloadType
+	assert.False(t, mayRunEntryPoint(job), "only cleanups of a conversion cache")
+}

@@ -1130,6 +1130,54 @@ func (r *ModelReconciler) constructModelCleanupOpsJob(model *v1.Model, workspace
 	return job, nil
 }
 
+// DirectoryCleanupJobName is the name of the job that removes a directory that belongs to no model.
+func DirectoryCleanupJobName(workspace, dir string) string {
+	return hashedJobName(CleanupJobPrefix+"dir", workspace+"\x00"+dir)
+}
+
+// NewDirectoryCleanupOpsJob builds the model-cleanup job that removes dir, which belongs to no model, such as a
+// Post Training conversion cache. It runs in the workspace that holds dir as the system user, with the same
+// path checks as a model's cleanup; labels are added to the job.
+func NewDirectoryCleanupOpsJob(workspace *v1.Workspace, dir string, labels map[string]string) (*v1.OpsJob, error) {
+	if workspace.Spec.Cluster == "" {
+		return nil, fmt.Errorf("workspace %s has no cluster configured", workspace.Name)
+	}
+	if err := validateCleanupPath(workspace, dir); err != nil {
+		return nil, err
+	}
+	image := commonconfig.GetModelCleanupImage()
+	entryPoint := base64.StdEncoding.EncodeToString([]byte(modelCleanupScript))
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: DirectoryCleanupJobName(workspace.Name, dir),
+			Labels: map[string]string{
+				v1.ClusterIdLabel:   workspace.Spec.Cluster,
+				v1.WorkspaceIdLabel: workspace.Name,
+				v1.DisplayNameLabel: jobDisplayName("cleanup-" + path.Base(dir)),
+				v1.UserIdLabel:      common.UserSystem,
+				v1.OpsJobTypeLabel:  string(v1.OpsJobModelCleanupType),
+			},
+			Annotations: map[string]string{v1.UserNameAnnotation: common.UserSystem},
+		},
+		Spec: v1.OpsJobSpec{
+			Type:                    v1.OpsJobModelCleanupType,
+			Image:                   &image,
+			EntryPoint:              &entryPoint,
+			Env:                     map[string]string{"VOLUME_ROOT": volumeRootOf(workspace, dir)},
+			TimeoutSecond:           3600,
+			TTLSecondsAfterFinished: 600,
+			Inputs: []v1.Parameter{
+				{Name: v1.ParameterDestPath, Value: dir},
+				{Name: v1.ParameterWorkspace, Value: workspace.Name},
+			},
+		},
+	}
+	for k, v := range labels {
+		job.Labels[k] = v
+	}
+	return job, nil
+}
+
 // modelCleanupScript removes $DEST_PATH and fails unless it is gone afterwards. Every
 // failure is reported on an "[ERROR]" line: only those lines reach the job's failure
 // message, which the model shows while the cleanup is retried.
