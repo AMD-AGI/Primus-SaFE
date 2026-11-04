@@ -126,6 +126,7 @@ type importPreview struct {
 	Nodes         int            `json:"nodes"`
 	StartTime     string         `json:"startTime,omitempty"`
 	MainLog       *importMainLog `json:"mainLog,omitempty"`
+	Series        int            `json:"series"`
 	Gates         int            `json:"gates"`
 	Markers       int            `json:"markers"`
 	Arguments     int            `json:"arguments"`
@@ -384,7 +385,7 @@ func importRecord(raw []byte, s *importSummary, token *dbclient.PostTrainingImpo
 func previewOf(s *importSummary) importPreview {
 	p := importPreview{Name: s.Name, Path: s.Path, Verdict: s.Verdict, Status: s.Status, TrainType: s.TrainType,
 		SlurmJobID: s.SlurmJobID, Nodes: len(s.Nodes), StartTime: s.StartTime, MainLog: s.MainLog,
-		Gates: len(s.Gates), Markers: len(s.Markers), Arguments: s.Arguments.Total,
+		Series: len(s.Metrics), Gates: len(s.Gates), Markers: len(s.Markers), Arguments: s.Arguments.Total,
 		KeptArguments: len(s.Arguments.Kept), SampleNodes: len(s.Resources),
 		Checkpoints: len(s.Checkpoints.Iterations), SaveSet: s.SaveSet, Warnings: s.Warnings}
 	for _, h := range s.Resources {

@@ -116,6 +116,7 @@ func TestImportScanStates(t *testing.T) {
 	require.Equal(t, scanReady, s.State)
 	require.Equal(t, "spur-j2r5-229357", s.ExistingRunID, "the dialog says the directory is already imported")
 	require.Equal(t, 2, s.Preview.Nodes)
+	require.Equal(t, 3, s.Preview.Series, "the dialog warns when a directory has no curves")
 	require.WithinDuration(t, old.Time.Add(importStagedTTL), *s.ExpiresAt, time.Second)
 
 	expired := *staged
