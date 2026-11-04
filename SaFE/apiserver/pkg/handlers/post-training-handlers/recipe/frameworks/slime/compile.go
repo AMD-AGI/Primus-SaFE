@@ -9,6 +9,7 @@
 package slime
 
 import (
+	"encoding/json"
 	"fmt"
 	"path"
 	"slices"
@@ -49,6 +50,15 @@ const (
 	criticCheckpoints   = "critic_checkpoints"
 	defaultCriticLr     = 1e-5
 	defaultCriticWarmup = 1
+
+	// loraPlugin builds slime's model with Megatron-Bridge LoRA on the target modules; pluginsConfigFile hands it
+	// the LoRA settings as the pt_lora argument, and loraTrainable leaves only the adapters trainable.
+	loraPlugin        = "safe_post_training.frameworks.slime.plugins.lora.model_provider"
+	pluginsConfigFile = "plugins.yaml"
+	loraTrainable     = "adapter"
+	defaultLoraRank   = 16
+	defaultLoraAlpha  = 32
+	expertModeShared  = "shared"
 )
 
 func init() {
@@ -123,6 +133,7 @@ func (plugin) normalize(ctx *recipe.Context) recipe.Choices {
 		fill(&c.MaxTokensPerGpu, d["maxTokensPerGpu"])
 	}
 	fill(&c.MaxTokensPerGpu, defaultMaxTokens)
+	c.Lora = loraDefaults(ctx)
 	if ctx.Request.TrainType != registry.TrainTypeRL {
 		if c.NumRollout == 0 && c.NumEpoch == 0 {
 			c.NumEpoch = 1
@@ -185,6 +196,41 @@ func (plugin) normalize(ctx *recipe.Context) recipe.Choices {
 		c.FieldMap = map[string]string{"prompt": "prompt", "label": "label"}
 	}
 	return c
+}
+
+// loraDefaults returns the LoRA choices of a LoRA request with the defaults filled in: rank 16, alpha 32, every
+// target module of the spec and, with expert layers, one adapter shared by the experts of a layer. Other methods
+// have none.
+func loraDefaults(ctx *recipe.Context) *recipe.LoraChoice {
+	if ctx.Request.Method != registry.MethodLora {
+		return nil
+	}
+	l := recipe.LoraChoice{}
+	if ctx.Request.Choices.Lora != nil {
+		l = *ctx.Request.Choices.Lora
+	}
+	if l.Rank == 0 {
+		l.Rank = defaultLoraRank
+	}
+	if l.Alpha == 0 {
+		l.Alpha = defaultLoraAlpha
+	}
+	if len(l.Targets) == 0 && ctx.FrameworkSpec.Lora != nil {
+		l.Targets = append([]string(nil), ctx.FrameworkSpec.Lora.Targets...)
+	}
+	if l.Experts && l.ExpertMode == "" {
+		l.ExpertMode = expertModeShared
+	}
+	return &l
+}
+
+// loraConfig renders plugins.yaml, written as JSON, which YAML reads; slime sets each entry as an argument.
+func loraConfig(l *recipe.LoraChoice) string {
+	data, _ := json.MarshalIndent(map[string]interface{}{"pt_lora": map[string]interface{}{
+		"rank": l.Rank, "alpha": l.Alpha, "dropout": l.Dropout, "targets": l.Targets,
+		"experts": l.Experts, "expertMode": l.ExpertMode,
+	}}, "", "  ")
+	return string(data) + "\n"
 }
 
 // parallelDefaults reads the spec's integer defaults, with the architecture's nested map overriding them.
@@ -288,6 +334,10 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		a.add("--eval-interval", itoa(c.EvalInterval), "--eval-prompt-data", "eval", in.RunDir+"/data/eval.jsonl")
 	}
 	a.add("--use-tensorboard")
+	if c.Lora != nil {
+		a.add("--custom-model-provider-path", loraPlugin, "--only-train-params-name-list", loraTrainable,
+			"--custom-config-path", in.RunDir+"/"+pluginsConfigFile)
+	}
 
 	a.add("--tensor-model-parallel-size", itoa(c.TP), "--pipeline-model-parallel-size", itoa(c.PP),
 		"--context-parallel-size", itoa(c.CP), "--expert-model-parallel-size", itoa(c.EP),
@@ -334,6 +384,10 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		Args:    []string(a),
 		Env:     env,
 		Convert: convert,
+		Lora:    c.Lora,
+	}
+	if c.Lora != nil {
+		plan.Files = map[string]string{pluginsConfigFile: loraConfig(c.Lora)}
 	}
 	if rl {
 		plan.Rollout = map[string]interface{}{"precision": "bf16", "schedule": "sync", "layout": c.Layout}
