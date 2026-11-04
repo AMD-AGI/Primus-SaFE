@@ -36,19 +36,24 @@ SOURCE_FILE = "source.json"
 LOCK_STALE_SECONDS = 6 * 3600
 WANDB_DEFAULT_URL = "https://api.wandb.ai"
 WANDB_PROBE_SECONDS = 10
+REWARD_PROBE_SECONDS = 10
+REWARD_KEY_ENV = "PT_RM_API_KEY"
+# REWARD_REJECTED_TEXT is what the remote_rm plugin prints when the reward service refuses the key.
+REWARD_REJECTED_TEXT = "safe-post-training: the reward service rejected the key"
 WANDB_RUN_URL = re.compile(r"View run\b.*?(https?://\S+)")
 LOCK_POLL_SECONDS = 30
 
 
-def reachable(url, timeout):
-    """Tell whether an HTTP server answers at url within timeout seconds; any HTTP status is an answer."""
+def http_status(url, timeout, headers=None):
+    """Return the status of a HEAD request to url within timeout seconds, or None when no HTTP server answers."""
     try:
-        urllib.request.urlopen(urllib.request.Request(url, method="HEAD"), timeout=timeout).close()
-    except urllib.error.HTTPError:
-        return True
+        with urllib.request.urlopen(urllib.request.Request(url, method="HEAD", headers=headers or {}),
+                                    timeout=timeout) as resp:
+            return resp.status
+    except urllib.error.HTTPError as e:
+        return e.code
     except (urllib.error.URLError, OSError, ValueError):
-        return False
-    return True
+        return None
 
 
 class StageError(Exception):
@@ -148,6 +153,7 @@ class Runner:
         self.recipe, self.run_dir, self.adapter, self.emitter, self.gpus = recipe, run_dir, adapter, emitter, gpus
         self.watchdog, self.sleep = watchdog, sleep
         self.enospc = False
+        self.reward_rejected = False
         self.checkpoint = None
         self.wandb_link = None
 
@@ -269,6 +275,7 @@ class Runner:
             raise StageError("check", "shared storage has %d GiB free, the run needs about %d GiB"
                              % (free >> 30, need >> 30), retry=False)
         self.check_wandb()
+        self.check_reward()
 
     def check_wandb(self, timeout=WANDB_PROBE_SECONDS):
         """Fail before training when W&B reporting is on and the W&B server does not answer."""
@@ -276,8 +283,31 @@ class Runner:
         if not wandb.get("enabled"):
             return
         url = os.environ.get("WANDB_BASE_URL") or WANDB_DEFAULT_URL
-        if not reachable(url, timeout):
+        if http_status(url, timeout) is None:
             raise StageError("check", "the training nodes can't reach wandb at %s" % url)
+
+    def check_reward(self, timeout=REWARD_PROBE_SECONDS):
+        """Fail before training when an RL run's reward can't work: the custom reward file is missing, or the remote
+        reward service does not answer or refuses the key."""
+        if self.recipe.get("trainType") != "rl":
+            return
+        choices = self.recipe.get("choices") or {}
+        if choices.get("rewardType") == "custom":
+            path = (choices.get("rewardHook") or "").partition(":")[0]
+            if not os.path.isfile(path):
+                raise StageError("check", "the custom reward file %s does not exist" % path, retry=False)
+        elif choices.get("rewardType") == "remote":
+            remote = choices.get("rewardRemote") or {}
+            url = remote.get("url", "")
+            headers = {}
+            if remote.get("secretId"):
+                headers["Authorization"] = "Bearer " + os.environ.get(REWARD_KEY_ENV, "")
+            status = http_status(url, timeout, headers)
+            if status is None:
+                raise StageError("check", "the training nodes can't reach the reward service at %s" % url)
+            if headers and status in (401, 403):
+                raise StageError("check", "the reward service at %s rejected the key (HTTP %d)" % (url, status),
+                                 retry=False)
 
     def space_needed(self):
         """Estimate the bytes the run writes: the checkpoints kept at the same time plus the exported model."""
@@ -304,6 +334,8 @@ class Runner:
                 raise StageError("train", self.watchdog.reason)
             if self.enospc:
                 raise StageError("train", space_reason(self.run_dir), retry=False)
+            if self.reward_rejected:
+                raise StageError("train", "the reward service rejected the key", retry=False)
             raise StageError("train", "training exited with code %d" % code)
 
     def checkpoint_tick(self):
@@ -365,6 +397,8 @@ class Runner:
                 self.emitter.forward(line)
                 if ENOSPC_TEXT in line:
                     self.enospc = True
+                if REWARD_REJECTED_TEXT in line:
+                    self.reward_rejected = True
                 if dog:
                     dog.line(line)
                 if parse:
