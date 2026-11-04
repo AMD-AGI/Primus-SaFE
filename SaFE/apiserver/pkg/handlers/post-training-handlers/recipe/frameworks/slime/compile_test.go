@@ -226,6 +226,23 @@ func TestCompileRewards(t *testing.T) {
 	require.Contains(t, errorsOf(in), "the dataset has no label field")
 }
 
+func TestCompileSeed(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeRL)
+	plain := compile(t, in)
+	require.NotContains(t, plain.Recipe.FrameworkArgs, "--seed")
+	in.Request.Seed = 1234
+	res := compile(t, in)
+	require.Contains(t, strings.Join(res.Recipe.FrameworkArgs, " "), "--seed 1234 --rollout-seed 1234")
+	require.Equal(t, plain.Recipe.Provenance.RecipeHash, res.Recipe.Provenance.RecipeHash,
+		"the variants of an experiment share a seed, which is not part of the recipe hash")
+
+	sft := qwen3Input(t, registry.TrainTypeSFT)
+	sft.Request.Seed = 7
+	args := strings.Join(compile(t, sft).Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--seed 7")
+	require.NotContains(t, args, "--rollout-seed")
+}
+
 func TestCompileGRPOColocated(t *testing.T) {
 	res := compile(t, qwen3Input(t, registry.TrainTypeRL))
 	got := strings.Join(res.Recipe.FrameworkArgs, " ")

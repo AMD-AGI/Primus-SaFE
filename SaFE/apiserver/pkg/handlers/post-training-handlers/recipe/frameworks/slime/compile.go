@@ -268,6 +268,12 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 	a.add("--attention-dropout", "0.0", "--hidden-dropout", "0.0", "--accumulate-allreduce-grads-in-fp32",
 		"--attention-softmax-in-fp32", "--attention-backend", "flash", "--no-gradient-accumulation-fusion")
 
+	if seed := ctx.Request.Seed; seed > 0 {
+		a.add("--seed", itoa(seed))
+		if rl {
+			a.add("--rollout-seed", itoa(seed))
+		}
+	}
 	if w := ctx.Request.Tracking.Wandb; w.Enabled {
 		a.add("--use-wandb", "--wandb-project", w.Project, "--wandb-group", in.RunID)
 		if w.Team != "" {
