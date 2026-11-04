@@ -320,3 +320,12 @@ export interface MetricsResp {
   series: MetricSeries[]
   markers: MetricMarkers
 }
+
+/** The sizes in bytes of the run directory parts the launcher reports. */
+export interface DiskUsage {
+  checkpoints?: number
+  criticCheckpoints?: number
+  finalModel?: number
+  finalAdapter?: number
+  total?: number
+}

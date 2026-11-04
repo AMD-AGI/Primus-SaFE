@@ -7,7 +7,13 @@
         <div v-if="s.end && s.state !== 'active'">Ended {{ formatTime(s.end) }}</div>
         <div v-if="s.detail">{{ s.detail }}</div>
       </template>
-      <div class="pt-stage" :class="`is-${s.state}`">
+      <div
+        class="pt-stage"
+        :class="[
+          `is-${s.state}`,
+          { 'is-stalled': s.stage === 'train' && s.state === 'active' && stalled },
+        ]"
+      >
         <div class="pt-dot" :class="{ dashed: s.dashed }">
           <el-icon v-if="s.state === 'done'" :size="12"><Check /></el-icon>
           <el-icon v-else-if="s.state === 'failed'" :size="12"><Close /></el-icon>
@@ -38,6 +44,7 @@ import {
   formatDuration,
   stageDurations,
   stageSegments,
+  stallNote,
   timeOf,
   type RunDetail,
   type SegmentState,
@@ -54,6 +61,7 @@ type Recipe = {
 }
 
 const recipe = computed(() => (props.run.recipe ?? {}) as Recipe)
+const stalled = computed(() => !!stallNote(props.run, props.now))
 
 /** The share of the planned steps done, when the recipe sets a step count rather than epochs. */
 const progress = computed(() => {
@@ -170,6 +178,11 @@ const stages = computed(() => {
 .is-active .pt-dot {
   border-color: var(--safe-primary);
   animation: pt-breathe 1.6s ease-in-out infinite;
+}
+.is-stalled .pt-dot {
+  border-color: var(--safe-warning);
+  background: var(--safe-warning);
+  animation: none;
 }
 .is-failed .pt-dot {
   background: var(--el-color-danger);

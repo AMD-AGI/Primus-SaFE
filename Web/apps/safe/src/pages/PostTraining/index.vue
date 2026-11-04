@@ -385,16 +385,18 @@ import { useDark, useDocumentVisibility, useIntervalFn, useNow } from '@vueuse/c
 import dayjs from 'dayjs'
 import RefreshIcon from '@/components/icons/ResetIcon.vue'
 import StageBar from './Components/StageBar.vue'
-import { formatTimeStr } from '@/utils'
+import { formatBytes, formatTimeStr } from '@/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUserStore } from '@/stores/user'
 import { useClusterStore } from '@/stores/cluster'
 import {
+  cleanupHintBytes,
   deletePostTrainingRun,
   formatDuration,
   getPostTrainingModels,
   listPostTrainingRuns,
   parseJSON,
+  stallNote,
   statusTagType,
   stopPostTrainingRun,
   timeOf,
@@ -631,12 +633,24 @@ const formatValue = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(1) : v.toPrec
 const methodLabel = (m: string) => (m === 'lora' ? 'LoRA' : 'Full')
 const shortTime = (t?: string) => (t ? dayjs(t).format('MM-DD HH:mm') : '—')
 
-/** The second line of the status: why a run waits, failed, was stopped or looks stalled. */
+/**
+ * The second line of the status: checkpoints left a week after the end, why a run waits, failed, was stopped or
+ * looks stalled.
+ */
 const statusNote = (row: PostTrainingRun): { text: string; cls: string } => {
+  const hint = cleanupHintBytes(row, now.value.getTime())
+  if (hint > 0) {
+    return {
+      text: `Clean up checkpoints · ${formatBytes(hint, 1)}`,
+      cls: 'text-[var(--safe-warning)]',
+    }
+  }
+  if (row.cleanupRequest)
+    return { text: 'Cleaning up checkpoints…', cls: 'text-[var(--safe-muted)]' }
   if (row.status === 'Failed')
     return { text: (row.message ?? '').split('\n')[0], cls: 'text-[var(--el-color-danger)]' }
-  if (timeOf(row.stalledSince) && row.message)
-    return { text: row.message, cls: 'text-[var(--safe-warning)]' }
+  const stall = stallNote(row, now.value.getTime())
+  if (stall) return { text: stall, cls: 'text-[var(--safe-warning)]' }
   if (row.status === 'Pending' || (row.status === 'Running' && row.queuePosition > 0)) {
     const position = row.queuePosition > 0 ? ` · #${row.queuePosition} in queue` : ''
     return {
