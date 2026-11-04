@@ -126,6 +126,10 @@ func (h *Handler) submit(c *gin.Context, reg *registry.Registry,
 	if res.HasErrors() {
 		return nil, res.Diagnostics, nil
 	}
+	if cv := res.Recipe.Convert; cv != nil && cv.CacheKey != "" {
+		cache, err := h.db.GetPostTrainingConvertCache(ctx, req.Workspace, cv.CacheKey)
+		cv.CacheHit = err == nil && cache.Status == dbclient.ConvertCacheReady
+	}
 	recipeJSON, err := json.Marshal(res.Recipe)
 	if err != nil {
 		return nil, nil, commonerrors.NewInternalError("failed to encode the recipe: " + err.Error())

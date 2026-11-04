@@ -10,6 +10,7 @@ package slime
 
 import (
 	"fmt"
+	"path"
 	"strconv"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
@@ -162,10 +163,10 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 	c := p.normalize(ctx)
 	in, l := ctx.Input, ctx.Layout
 	rl := ctx.Request.TrainType == registry.TrainTypeRL
-	convert := &recipe.RecipeConvert{
-		CacheKey: fmt.Sprintf("%s-%s-%s-%s", Name, ctx.Spec.Name, in.Model.ID, ctx.Image.FrameworkCommit),
-		Dir:      in.RunDir + "/convert/torch_dist",
-		Nodes:    max(ctx.FrameworkSpec.ConvertNodes, 1),
+	convert := &recipe.RecipeConvert{Dir: in.RunDir + "/convert/torch_dist", Nodes: max(ctx.FrameworkSpec.ConvertNodes, 1)}
+	if !ctx.CustomImage {
+		convert.CacheKey = fmt.Sprintf("%s-%s-%s-%s", Name, ctx.Spec.Name, in.Model.ID, ctx.Image.FrameworkCommit)
+		convert.Dir = path.Join(path.Dir(in.RunDir), recipe.ConvertCacheDir, convert.CacheKey, "torch_dist")
 	}
 
 	var a args

@@ -82,7 +82,7 @@ func TestCompileSFT(t *testing.T) {
 	res := compile(t, qwen3Input(t, registry.TrainTypeSFT))
 	want := []string{
 		"--actor-num-nodes", "1", "--actor-num-gpus-per-node", "8",
-		"--hf-checkpoint", "/wekafs/models/Qwen3-4B", "--ref-load", "/wekafs/custom/models/pt-1/convert/torch_dist",
+		"--hf-checkpoint", "/wekafs/models/Qwen3-4B", "--ref-load", "/wekafs/custom/models/post-training-cache/slime-qwen3-4B-m1-540ea91/torch_dist",
 		"--save", "/wekafs/custom/models/pt-1/checkpoints", "--save-interval", "200",
 		"--prompt-data", "/wekafs/custom/models/pt-1/data/train.jsonl", "--rollout-shuffle",
 		"--input-key", "messages", "--rollout-function-path", "slime.rollout.sft_rollout.generate_rollout",
@@ -128,6 +128,18 @@ func TestCompileSFTValidation(t *testing.T) {
 	plain := compile(t, qwen3Input(t, registry.TrainTypeSFT))
 	require.Contains(t, plain.Diagnostics[0].Message, "No validation set")
 	require.Nil(t, plain.Recipe.Val)
+}
+
+func TestCompileConvertCache(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	res := compile(t, in)
+	require.Equal(t, "/wekafs/custom/models/post-training-cache/slime-qwen3-4B-m1-540ea91/torch_dist",
+		res.Recipe.Convert.Dir, "runs of a model share its conversion")
+
+	in.Request.Resources.Image = "docker.io/me/slime:dev"
+	res = compile(t, in)
+	require.Empty(t, res.Recipe.Convert.CacheKey, "a custom image neither reads nor writes the cache")
+	require.Equal(t, "/wekafs/custom/models/pt-1/convert/torch_dist", res.Recipe.Convert.Dir)
 }
 
 func TestCompileKeepsEvaluationOutOfTheHash(t *testing.T) {
