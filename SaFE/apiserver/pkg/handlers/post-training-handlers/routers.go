@@ -43,4 +43,9 @@ func InitRoutes(engine *gin.Engine, h *Handler) {
 	group.GET("/runs/:id/samples", h.GetSamples)
 	group.GET("/runs/:id/metrics", h.GetMetrics)
 	group.GET("/runs/:id/metrics/export", h.ExportMetrics)
+	group.GET("/imports/config", h.GetImportConfig)
+	group.POST("/imports/tokens", middleware.Audit("post-training"), h.IssueImportToken)
+	group.GET("/imports/tokens/:id", h.GetImportToken)
+	// The command upload authenticates with its one-time import token, not a session.
+	engine.POST(common.PrimusRouterCustomRootPath+"/post-training/imports", h.UploadImport)
 }
