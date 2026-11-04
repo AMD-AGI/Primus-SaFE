@@ -337,6 +337,10 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 	if c.Lora != nil {
 		a.add("--custom-model-provider-path", loraPlugin, "--only-train-params-name-list", loraTrainable,
 			"--custom-config-path", in.RunDir+"/"+pluginsConfigFile)
+		if rl {
+			// The reference copy is taken from the actor loaded from the base, whose adapters start at zero.
+			a.add("--ref-trainable-only")
+		}
 	}
 
 	a.add("--tensor-model-parallel-size", itoa(c.TP), "--pipeline-model-parallel-size", itoa(c.PP),

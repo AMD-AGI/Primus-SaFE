@@ -5,7 +5,7 @@
 import pytest
 
 from safe_post_training.frameworks.slime.adapter import Adapter
-from safe_post_training.frameworks.slime.plugins import lora, merge_lora
+from safe_post_training.frameworks.slime.plugins import lora, lora_sync, merge_lora
 
 QKV = "decoder.layers.self_attention.linear_qkv."
 
@@ -70,3 +70,19 @@ def test_lora_checkpoints_export_merged(tmp_path):
     assert cmd[1].endswith("plugins/merge_lora.py")
     assert cmd[cmd.index("--rank") + 1] == "16" and cmd[cmd.index("--alpha") + 1] == "32"
     assert cmd[cmd.index("--input-dir") + 1] == str(tmp_path / "checkpoints" / "iter_0000008")
+
+
+def test_a_base_load_starts_the_adapters_at_zero():
+    state = {"linear_in.weight": "A", "linear_out.weight": "B"}
+    assert lora.fill_adapters(state, True, lambda v: "0") == {"linear_in.weight": "A", "linear_out.weight": "0"}
+    assert lora.fill_adapters(state, False, lambda v: "0") == state, "a LoRA checkpoint brings its own adapters"
+
+
+def test_sync_sends_merged_weights():
+    layer = "module.module.decoder.layers.3.self_attention.linear_qkv."
+    named = [(layer + "to_wrap.weight", "W"), (layer + "to_wrap.layer_norm_weight", "N"),
+             (layer + "adapter.linear_in.weight", "A"), (layer + "adapter.linear_out.weight", "B"),
+             ("module.module.embedding.word_embeddings.weight", "E")]
+    out = list(lora_sync.merged_named(named, lambda w, a, b: "%s+%s%s" % (w, b, a)))
+    assert out == [(layer + "weight", "W+BA"), (layer + "layer_norm_weight", "N"),
+                   ("module.module.embedding.word_embeddings.weight", "E")]

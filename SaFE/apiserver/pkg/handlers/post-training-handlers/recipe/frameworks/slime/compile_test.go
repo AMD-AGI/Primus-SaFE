@@ -445,3 +445,15 @@ func TestLoraRules(t *testing.T) {
 		})
 	}
 }
+
+func TestCompileLoraRL(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeRL)
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureLora,
+		registry.FeatureLoraRL)
+	in.Request.Method = registry.MethodLora
+	require.Contains(t, errorsOf(in), "RL with LoRA needs a separate rollout")
+	in.Workspace.Nodes, in.Request.Resources.Nodes = 4, 2
+	in.Request.Choices.Layout, in.Request.Choices.RolloutGpus = recipe.LayoutSeparate, 8
+	args := strings.Join(compile(t, in).Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--custom-config-path "+in.RunDir+"/plugins.yaml --ref-trainable-only")
+}
