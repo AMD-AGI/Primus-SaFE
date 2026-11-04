@@ -22,7 +22,7 @@ import {
   TooltipComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { useDark } from '@vueuse/core'
+import { useDark, useResizeObserver } from '@vueuse/core'
 import { smoothPoints, type MetricMarkers, type MetricSeries } from '@/services/postTraining'
 
 echarts.use([
@@ -56,9 +56,12 @@ const props = withDefaults(
     rest?: MetricSeries
     /** Divides every value, such as counts into shares of the prompts of a rollout. */
     divisor?: number
+    /** Show the legend; the compare page's run tags already name its lines. */
+    legend?: boolean
   }>(),
   {
     smoothing: 0.6,
+    legend: true,
     height: 220,
     markers: undefined,
     colors: undefined,
@@ -101,14 +104,19 @@ const markLines = () => {
     lines.push({
       xAxis: r.step,
       lineStyle: { type: 'solid', color: '#6366f1' },
-      label: { formatter: `Resumed from step ${r.step}`, fontSize: 11 },
+      label: {
+        formatter: `Resumed from step ${r.step}`,
+        fontSize: 11,
+        position: 'insideEndTop',
+        color: '#6366f1',
+      },
     })
   }
   if (m.failure) {
     lines.push({
       xAxis: m.failure.step,
       lineStyle: { type: 'solid', color: '#f56c6c' },
-      label: { formatter: 'Failed' },
+      label: { formatter: 'Failed', position: 'insideEndTop', color: '#f56c6c' },
     })
   }
   return lines
@@ -226,7 +234,7 @@ const render = () => {
       grid: { left: 48, right: 16, top: 24, bottom: 28 },
       tooltip: { trigger: 'axis' },
       legend: {
-        show: props.series.length > 1 || !!props.rest,
+        show: props.legend && (props.series.length > 1 || !!props.rest),
         top: 0,
         textStyle: { color: axisColor, fontSize: 11 },
       },
@@ -250,13 +258,20 @@ const bestCoord = (s: MetricSeries): [number, number] => {
   return near ? [step, near[1]] : [step, 0]
 }
 
-const resize = () => chart?.resize()
+/** Creates the chart once its element has a size, which a panel in a hidden tab gets when the tab is shown. */
+const ensureChart = () => {
+  if (!chart && chartRef.value?.clientWidth) {
+    chart = echarts.init(chartRef.value)
+    render()
+  }
+}
+const resize = () => {
+  ensureChart()
+  chart?.resize()
+}
+useResizeObserver(chartRef, resize)
 
-onMounted(() => {
-  if (chartRef.value) chart = echarts.init(chartRef.value)
-  render()
-  window.addEventListener('resize', resize)
-})
+onMounted(ensureChart)
 
 watch(
   () => [
@@ -275,7 +290,6 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', resize)
   chart?.dispose()
   chart = null
 })

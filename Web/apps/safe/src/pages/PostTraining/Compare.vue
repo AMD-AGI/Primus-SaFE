@@ -72,6 +72,7 @@
             :bands="p.bands"
             :smoothing="smoothing"
             :log-y="logY"
+            :legend="groupByRecipe && hasRepeats"
           />
         </div>
         <el-collapse v-if="otherPanels.length" class="mt-3">
@@ -86,6 +87,7 @@
                 :bands="p.bands"
                 :smoothing="smoothing"
                 :log-y="logY"
+                :legend="groupByRecipe && hasRepeats"
               />
             </div>
           </el-collapse-item>
@@ -150,7 +152,7 @@
           <div class="flex items-center justify-between mb-2">
             <span class="font-500">Config Differences</span>
             <span v-if="!sameRecipe" class="text-[13px] text-[var(--safe-muted)]">
-              {{ differing.length }} fields differ · {{ diff.length - differing.length }} identical
+              {{ fieldsDiffer(differing.length) }} · {{ diff.length - differing.length }} identical
               ·
               <el-button link type="primary" @click="showAll = !showAll">
                 {{ showAll ? 'Show differences' : 'Show all' }}
@@ -216,6 +218,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { copyText } from '@/utils/index'
 import {
   configDiff,
+  fieldsDiffer,
   formatDuration,
   getPostTrainingMetrics,
   getPostTrainingRun,
