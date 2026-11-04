@@ -337,6 +337,10 @@
             </el-table-column>
           </el-table>
           <div v-if="run.outputPath" class="text-[13px] mt-2">Path {{ run.outputPath }}</div>
+          <div v-if="run.outputAdapterPath" class="text-[13px] mt-1">
+            PEFT adapter {{ run.outputAdapterPath }}
+            <el-button link type="primary" @click="copyText(run.outputAdapterPath)">Copy</el-button>
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="Evaluation" name="evaluation">
