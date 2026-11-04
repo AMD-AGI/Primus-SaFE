@@ -1,0 +1,5 @@
+#!/bin/sh
+# Import a Spur run directory into SaFE Post Training. It needs only Python 3 and this copy of safe_post_training/;
+# the upload token is read from SAFE_IMPORT_TOKEN, or prompted for.
+here=$(cd "$(dirname "$0")/../.." && pwd)
+PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m safe_post_training.spur_import "$@"
