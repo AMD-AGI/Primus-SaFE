@@ -143,6 +143,13 @@ func TestBuildWorkloadSingleNode(t *testing.T) {
 
 	_, err = buildWorkload(testContext(), reg, req, res, &workspaceInfo{}, "pt-x", []byte("{}"))
 	require.Error(t, err, "a workspace without a node flavor cannot size the run")
+	require.Empty(t, w.Spec.Secrets)
+
+	req.Tracking.Wandb = recipe.Wandb{Enabled: true, SecretID: "wb", Project: "pt"}
+	w, err = buildWorkload(testContext(), reg, req, res, &workspaceInfo{flavor: flavor()}, "pt-x", []byte("{}"))
+	require.NoError(t, err)
+	require.Equal(t, []v1.SecretEntity{{Id: "wb", Type: v1.SecretGeneral, AsEnv: true}}, w.Spec.Secrets,
+		"the W&B key reaches the containers as environment variables")
 }
 
 func TestNodeResource(t *testing.T) {

@@ -6,12 +6,12 @@
 package posttraininghandlers
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,8 +21,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -118,7 +120,7 @@ func (h *Handler) submit(c *gin.Context, reg *registry.Registry,
 		return nil, nil, err
 	}
 	runID := newRunID(req.DisplayName)
-	in, ws, model, err := h.buildInput(ctx, reg, req, runID)
+	in, ws, model, err := h.buildInput(c, reg, req, runID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -154,9 +156,10 @@ func (h *Handler) submit(c *gin.Context, reg *registry.Registry,
 	return &submitResponse{RunID: runID, WorkloadID: workload.Name, Warnings: res.Diagnostics}, nil, nil
 }
 
-// buildInput gathers what the compiler needs about the workspace, model and datasets of a request.
-func (h *Handler) buildInput(ctx context.Context, reg *registry.Registry, req *recipe.SubmitRequest,
+// buildInput gathers what the compiler needs about the workspace, model, datasets and secrets of a request.
+func (h *Handler) buildInput(c *gin.Context, reg *registry.Registry, req *recipe.SubmitRequest,
 	runID string) (*recipe.Input, *workspaceInfo, *v1.Model, error) {
+	ctx := c.Request.Context()
 	ws, err := h.getWorkspace(ctx, req.Workspace)
 	if err != nil {
 		return nil, nil, nil, err
@@ -173,8 +176,51 @@ func (h *Handler) buildInput(ctx context.Context, reg *registry.Registry, req *r
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	secrets, err := h.readSecrets(c, req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	return &recipe.Input{Registry: reg, Request: req, RunID: runID, RunDir: ws.runDir(runID), Model: mi,
-		Dataset: dataset, EvalDataset: evalDataset, Workspace: ws.WorkspaceInfo}, ws, model, nil
+		Dataset: dataset, EvalDataset: evalDataset, Workspace: ws.WorkspaceInfo, Secrets: secrets}, ws, model, nil
+}
+
+// readSecrets returns the type and key names of the secrets a request names that the requesting user can read.
+func (h *Handler) readSecrets(c *gin.Context, req *recipe.SubmitRequest) (map[string]*recipe.SecretInfo, error) {
+	out := map[string]*recipe.SecretInfo{}
+	var ids []string
+	if w := req.Tracking.Wandb; w.Enabled && w.SecretID != "" {
+		ids = append(ids, w.SecretID)
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	ctx := c.Request.Context()
+	user, err := h.access.GetRequestUser(ctx, c.GetString(common.UserId))
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		secret := &corev1.Secret{}
+		if err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: id, Namespace: common.PrimusSafeNamespace},
+			secret); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to read secret %s: %v", id, err))
+		}
+		if h.access.Authorize(authority.AccessInput{Context: ctx, Resource: secret,
+			ResourceKind: authority.SecretResourceKind, Verb: v1.GetVerb, User: user,
+			Workspaces: []string{req.Workspace}}) != nil {
+			continue
+		}
+		keys := make([]string, 0, len(secret.Data))
+		for k := range secret.Data {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		out[id] = &recipe.SecretInfo{Type: v1.GetSecretType(secret), Keys: keys}
+	}
+	return out, nil
 }
 
 // pausedError is the 503 returned for new submissions while the registry pauses them.
@@ -273,6 +319,9 @@ func buildWorkload(c *gin.Context, reg *registry.Registry, req *recipe.SubmitReq
 	}
 	if t := req.Resources.TimeoutSeconds; t > 0 {
 		w.Spec.Timeout = &t
+	}
+	if wb := req.Tracking.Wandb; wb.Enabled {
+		w.Spec.Secrets = append(w.Spec.Secrets, v1.SecretEntity{Id: wb.SecretID, Type: v1.SecretGeneral, AsEnv: true})
 	}
 	return w, nil
 }

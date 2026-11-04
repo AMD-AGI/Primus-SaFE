@@ -217,6 +217,14 @@ type Input struct {
 	Dataset     *DatasetInfo
 	EvalDataset *DatasetInfo
 	Workspace   WorkspaceInfo
+	// Secrets are the secrets the request names that the user can read, by id.
+	Secrets map[string]*SecretInfo
+}
+
+// SecretInfo is what the compiler knows about a secret: its type and key names, never the values.
+type SecretInfo struct {
+	Type string
+	Keys []string
 }
 
 // Layout is the GPU split of a run.
@@ -370,7 +378,9 @@ type Recipe struct {
 	Output           RecipeOutput           `json:"output"`
 	// Evaluation is the automatic evaluation the controller runs after registration; it is not hashed.
 	Evaluation *EvaluationRequest `json:"evaluation,omitempty"`
-	Provenance Provenance         `json:"provenance"`
+	// Tracking is the W&B reporting, with the secret id only; it is not hashed.
+	Tracking   *Tracking  `json:"tracking,omitempty"`
+	Provenance Provenance `json:"provenance"`
 }
 
 // RecipeModel identifies the base model. Script is the framework's model script, which the launcher adapter turns
@@ -852,6 +862,10 @@ func assemble(ctx *Context, fw *registry.Framework, plan *FrameworkPlan) *Recipe
 	if req.Evaluation.Enabled {
 		evaluation := req.Evaluation
 		r.Evaluation = &evaluation
+	}
+	if req.Tracking.Wandb.Enabled {
+		tracking := req.Tracking
+		r.Tracking = &tracking
 	}
 	r.Provenance.RecipeHash = Hash(r)
 	return r

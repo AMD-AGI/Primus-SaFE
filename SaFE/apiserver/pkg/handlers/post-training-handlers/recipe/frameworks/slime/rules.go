@@ -7,7 +7,10 @@ package slime
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 )
@@ -46,6 +49,44 @@ func validationRules(ctx *recipe.Context, c recipe.Choices) []recipe.Diagnostic 
 	return out
 }
 
+// wandbKeyPrefix is the only key prefix a W&B secret may hold, since all of its keys become environment variables.
+const wandbKeyPrefix = "WANDB_"
+
+// trackingRules checks the W&B settings: a project, and a readable general secret that holds WANDB_API_KEY and only
+// WANDB_ keys.
+func trackingRules(ctx *recipe.Context) []recipe.Diagnostic {
+	w := ctx.Request.Tracking.Wandb
+	if !w.Enabled {
+		return nil
+	}
+	var out []recipe.Diagnostic
+	fail := func(field, format string, args ...interface{}) {
+		out = append(out, recipe.Diagnostic{Level: recipe.LevelError, Field: field, Message: fmt.Sprintf(format, args...)})
+	}
+	if strings.TrimSpace(w.Project) == "" {
+		fail("tracking.wandb.project", "Name the W&B project")
+	}
+	secret := ctx.Input.Secrets[w.SecretID]
+	switch {
+	case w.SecretID == "":
+		fail("tracking.wandb.secretId", "Select the secret that holds WANDB_API_KEY")
+	case secret == nil:
+		fail("tracking.wandb.secretId", "Secret %s doesn't exist or you can't read it", w.SecretID)
+	case secret.Type != string(v1.SecretGeneral):
+		fail("tracking.wandb.secretId", "Secret %s must be a general secret", w.SecretID)
+	case !slices.Contains(secret.Keys, "WANDB_API_KEY"):
+		fail("tracking.wandb.secretId", "Secret %s has no WANDB_API_KEY", w.SecretID)
+	default:
+		for _, k := range secret.Keys {
+			if !strings.HasPrefix(k, wandbKeyPrefix) {
+				fail("tracking.wandb.secretId", "Secret %s may only hold WANDB_ keys, not %s", w.SecretID, k)
+				break
+			}
+		}
+	}
+	return out
+}
+
 // rewardTypes are the RL reward types this version compiles.
 var rewardTypes = map[string]bool{defaultRewardType: true}
 
@@ -69,6 +110,7 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 		fail("choices.batchSize", "Batch size, max tokens per GPU, save interval and learning rate must be positive")
 	}
 
+	out = append(out, trackingRules(ctx)...)
 	if ctx.Request.TrainType != registry.TrainTypeRL {
 		return append(out, validationRules(ctx, c)...)
 	}

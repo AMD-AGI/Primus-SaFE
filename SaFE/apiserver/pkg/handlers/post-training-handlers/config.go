@@ -216,7 +216,7 @@ func (h *Handler) PreviewRecipe(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	in, _, _, err := h.buildInput(c.Request.Context(), reg, &req, "preview")
+	in, _, _, err := h.buildInput(c, reg, &req, "preview")
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return

@@ -153,6 +153,36 @@ func TestCompileKeepsEvaluationOutOfTheHash(t *testing.T) {
 	require.Equal(t, plain.Recipe.Provenance.RecipeHash, res.Recipe.Provenance.RecipeHash)
 }
 
+func TestCompileWandb(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	plain := compile(t, in)
+	require.NotContains(t, plain.Recipe.FrameworkArgs, "--use-wandb")
+	in.Request.Tracking.Wandb = recipe.Wandb{Enabled: true, SecretID: "wb", Project: "pt", Team: "lab"}
+	in.Secrets = map[string]*recipe.SecretInfo{"wb": {Type: string(v1.SecretGeneral),
+		Keys: []string{"WANDB_API_KEY", "WANDB_BASE_URL"}}}
+	res := compile(t, in)
+	args := strings.Join(res.Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--use-wandb --wandb-project pt --wandb-group pt-1 --wandb-team lab")
+	require.NotContains(t, args, "--wandb-key", "the key reaches wandb only as an environment variable")
+	require.Equal(t, "off", res.Plan.Env["WANDB_CONSOLE"])
+	require.Equal(t, "wb", res.Recipe.Tracking.Wandb.SecretID)
+	require.Equal(t, plain.Recipe.Provenance.RecipeHash, res.Recipe.Provenance.RecipeHash)
+
+	for secret, want := range map[*recipe.SecretInfo]string{
+		nil: "doesn't exist or you can't read it",
+		{Type: string(v1.SecretImage), Keys: []string{"WANDB_API_KEY"}}:               "must be a general secret",
+		{Type: string(v1.SecretGeneral), Keys: []string{"WANDB_BASE_URL"}}:            "has no WANDB_API_KEY",
+		{Type: string(v1.SecretGeneral), Keys: []string{"WANDB_API_KEY", "HF_TOKEN"}}: "only hold WANDB_ keys",
+	} {
+		in.Secrets = map[string]*recipe.SecretInfo{"wb": secret}
+		require.Contains(t, errorsOf(in), want)
+	}
+	in.Secrets = nil
+	in.Request.Tracking.Wandb = recipe.Wandb{Enabled: true}
+	require.Contains(t, errorsOf(in), "Name the W&B project")
+	require.Contains(t, errorsOf(in), "Select the secret")
+}
+
 func TestCompileGRPOColocated(t *testing.T) {
 	res := compile(t, qwen3Input(t, registry.TrainTypeRL))
 	got := strings.Join(res.Recipe.FrameworkArgs, " ")
