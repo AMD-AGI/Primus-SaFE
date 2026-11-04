@@ -239,3 +239,28 @@ func TestRegisterTimesOut(t *testing.T) {
 	require.Equal(t, "Failed", last["status"])
 	require.Equal(t, "register", last["failed_stage"])
 }
+
+func TestSaveSamplesStopsAtTheCap(t *testing.T) {
+	run := testRunRow("Running", "train")
+	run.Recipe = `{"output":{"base":"` + testRunDir + `"},"metrics":{"samples":{"maxRows":3}}}`
+	r, db, _ := newTestReconciler(t, run)
+	rows := func(n int) []*dbclient.PostTrainingRunSample {
+		out := make([]*dbclient.PostTrainingRunSample, n)
+		for i := range out {
+			out[i] = &dbclient.PostTrainingRunSample{RunID: testRun, Kind: "rollout", Step: 1, SampleIndex: i}
+		}
+		return out
+	}
+	db.EXPECT().UpsertPostTrainingRunSamples(gomock.Any(), gomock.Len(2)).Return(nil)
+	db.EXPECT().CountPostTrainingRunSamples(gomock.Any(), testRun).Return(int64(2), nil)
+	in := &ingestion{sum: &metricSummary{}}
+	require.NoError(t, r.saveSamples(context.Background(), run, in, rows(2)))
+	require.EqualValues(t, 2, in.sum.Samples)
+	require.False(t, in.sum.SamplesCapped)
+
+	db.EXPECT().UpsertPostTrainingRunSamples(gomock.Any(), gomock.Len(1)).Return(nil)
+	db.EXPECT().CountPostTrainingRunSamples(gomock.Any(), testRun).Return(int64(3), nil)
+	require.NoError(t, r.saveSamples(context.Background(), run, in, rows(4)))
+	require.True(t, in.sum.SamplesCapped, "the samples past the cap stay in the run directory")
+	require.NoError(t, r.saveSamples(context.Background(), run, in, rows(1)), "a full run stores nothing more")
+}

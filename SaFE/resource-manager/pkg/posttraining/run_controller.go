@@ -94,7 +94,15 @@ type runRecipe struct {
 	Output struct {
 		Base string `json:"base"`
 	} `json:"output"`
+	Metrics struct {
+		Samples *struct {
+			MaxRows int64 `json:"maxRows"`
+		} `json:"samples"`
+	} `json:"metrics"`
 }
+
+// defaultMaxSamples caps the stored samples of a run whose recipe names no cap.
+const defaultMaxSamples = 50000
 
 // parseRecipe decodes the run's recipe snapshot.
 func parseRecipe(run *dbclient.PostTrainingRun) *runRecipe {
@@ -565,6 +573,13 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 		if err := r.db.DeletePostTrainingRunMetricsAfterStep(ctx, run.RunID, int(*in.resumeFrom)); err != nil {
 			return false, err
 		}
+		resume := int(*in.resumeFrom)
+		if err := r.db.DeletePostTrainingRunSamples(ctx, run.RunID, &resume); err != nil {
+			return false, err
+		}
+	}
+	if err := r.saveSamples(ctx, run, in, in.finishSamples()); err != nil {
+		return false, err
 	}
 	switch {
 	case in.result != nil:
@@ -588,7 +603,7 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 		u.fields["metric_cursor"] = string(data)
 	}
 	if data, _ := json.Marshal(in.sum); string(data) != run.MetricSummary &&
-		(len(points) > 0 || in.sum.Rejected > 0 || in.linked) {
+		(len(points) > 0 || in.sum.Rejected > 0 || in.linked || in.sampled) {
 		u.fields["metric_summary"] = string(data)
 	}
 	fields := u.columns()
@@ -693,6 +708,35 @@ func syncStall(u *runUpdate, in *ingestion, running bool) {
 		u.fields["stalled_since"] = time.Unix(in.cur.LastStage, 0).UTC()
 		u.set("message", run.Message, message)
 	}
+}
+
+// saveSamples stores the samples read up to the run's cap and counts the stored ones in the summary; once the cap
+// is reached the summary says so and later samples stay only in the run directory.
+func (r *RunReconciler) saveSamples(ctx context.Context, run *dbclient.PostTrainingRun, in *ingestion,
+	samples []*dbclient.PostTrainingRunSample) error {
+	if len(samples) == 0 {
+		return nil
+	}
+	limit := int64(defaultMaxSamples)
+	if s := parseRecipe(run).Metrics.Samples; s != nil && s.MaxRows > 0 {
+		limit = s.MaxRows
+	}
+	room := limit - in.sum.Samples
+	if room < int64(len(samples)) {
+		in.sum.SamplesCapped, in.sampled = true, true
+		if room <= 0 {
+			return nil
+		}
+		samples = samples[:room]
+	}
+	if err := r.db.UpsertPostTrainingRunSamples(ctx, samples); err != nil {
+		return err
+	}
+	if n, err := r.db.CountPostTrainingRunSamples(ctx, run.RunID); err == nil {
+		in.sum.Samples = n
+	}
+	in.sampled = true
+	return nil
 }
 
 // markNotRetried records the not-retried event once.

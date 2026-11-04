@@ -401,6 +401,9 @@ func (h *Handler) deleteRun(c *gin.Context, run *dbclient.PostTrainingRun, delet
 	if err := h.db.DeletePostTrainingRunMetrics(ctx, run.RunID); err != nil {
 		klog.ErrorS(err, "failed to delete the run's metric points", "run", run.RunID)
 	}
+	if err := h.db.DeletePostTrainingRunSamples(ctx, run.RunID, nil); err != nil {
+		klog.ErrorS(err, "failed to delete the run's samples", "run", run.RunID)
+	}
 	klog.Infof("delete post training run %s by user %s", run.RunID, c.GetString(common.UserName))
 	return nil
 }

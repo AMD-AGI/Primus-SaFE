@@ -265,3 +265,21 @@ func TestLinkMarkers(t *testing.T) {
 	require.False(t, again.linked, "an unchanged link and links that are not http(s) URLs change nothing")
 	require.Len(t, again.sum.Links, 1)
 }
+
+func TestSampleMarkers(t *testing.T) {
+	in := newTestIngestion(100)
+	sample := func(attempt string, step int, kind string) string {
+		return fmt.Sprintf(`[SAMPLE] {"run":%q,"attempt":%q,"pv":1,"kind":%q,"step":%d,"dataset":"","group":2,"index":1,`+
+			`"prompt":"2+2?","response":"4","label":"4","reward":1.0,"status":"completed","tokens":1,"promptChars":4,`+
+			`"responseChars":1}`, testRun, attempt, kind, step)
+	}
+	feed(in, stageLine("a1", "train", "running", ""), sample("a1", 5, "rollout"), sample("a1", 9, "rollout"),
+		sample("a1", 3, "other"), stageLine("a2", "train", "running", `{"resumeStep":6}`), sample("a2", 7, "eval"))
+	rows := in.finishSamples()
+	require.Len(t, rows, 2, "a1's step 9 is past a2's resume and the unknown kind is dropped")
+	require.Equal(t, 5, rows[0].Step)
+	require.Equal(t, "eval", rows[1].Kind)
+	require.Equal(t, 2, rows[0].GroupIndex)
+	require.True(t, rows[0].Reward.Valid)
+	require.Equal(t, "4", rows[0].Label.String)
+}

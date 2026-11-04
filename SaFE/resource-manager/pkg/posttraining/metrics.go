@@ -8,6 +8,7 @@ package posttraining
 import (
 	"bufio"
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"math"
@@ -388,6 +389,9 @@ type metricSummary struct {
 	BestValLoss *summaryPoint `json:"bestValLoss,omitempty"`
 	// Links are the http(s) URLs the launcher reported, such as the W&B run, by name.
 	Links map[string]string `json:"links,omitempty"`
+	// Samples counts the stored RL samples; SamplesCapped says the run reached its cap.
+	Samples       int64 `json:"samples,omitempty"`
+	SamplesCapped bool  `json:"samplesCapped,omitempty"`
 }
 
 // mainMetric is the latest value and the sparkline of the train type's summary metric. The sparkline keeps
@@ -502,6 +506,68 @@ type ingestion struct {
 	conversion *conversionDetail
 	// linked is set when a link marker changed the summary's links.
 	linked bool
+	// samples are the [SAMPLE] markers read, with their attempts; sampled is set when the stored samples changed.
+	samples []pendingSample
+	sampled bool
+}
+
+// pendingSample is a read sample of an attempt, kept until the attempts it belongs after are known.
+type pendingSample struct {
+	attempt string
+	row     *dbclient.PostTrainingRunSample
+}
+
+// sampleBody is the payload of a [SAMPLE] marker.
+type sampleBody struct {
+	Kind          string          `json:"kind"`
+	Step          *int            `json:"step"`
+	Dataset       string          `json:"dataset"`
+	Group         int             `json:"group"`
+	Index         int             `json:"index"`
+	Prompt        string          `json:"prompt"`
+	Response      string          `json:"response"`
+	Label         *string         `json:"label"`
+	Reward        *float64        `json:"reward"`
+	RewardDetail  json.RawMessage `json:"rewardDetail"`
+	Status        string          `json:"status"`
+	Tokens        int             `json:"tokens"`
+	PromptChars   int             `json:"promptChars"`
+	ResponseChars int             `json:"responseChars"`
+}
+
+// addSample queues the sample of one [SAMPLE] marker of a rollout or an evaluation.
+func (in *ingestion) addSample(m *marker) {
+	var b sampleBody
+	payload := strings.TrimSpace(strings.TrimPrefix(m.Text, markerSample))
+	if json.Unmarshal([]byte(payload), &b) != nil || (b.Kind != "rollout" && b.Kind != "eval") || b.Step == nil ||
+		*b.Step < 0 || len(b.Dataset) > maxMetricNameLen {
+		return
+	}
+	row := &dbclient.PostTrainingRunSample{RunID: in.u.run.RunID, Kind: b.Kind, Step: *b.Step, Dataset: b.Dataset,
+		GroupIndex: b.Group, SampleIndex: b.Index, Prompt: b.Prompt, Response: b.Response, Status: b.Status,
+		ResponseTokens: b.Tokens, PromptChars: b.PromptChars, ResponseChars: b.ResponseChars, WallTime: in.u.now}
+	if b.Label != nil {
+		row.Label = sql.NullString{String: *b.Label, Valid: true}
+	}
+	if b.Reward != nil {
+		row.Reward = sql.NullFloat64{Float64: *b.Reward, Valid: true}
+	}
+	if len(b.RewardDetail) > 0 && string(b.RewardDetail) != "null" {
+		row.RewardDetail = sql.NullString{String: string(b.RewardDetail), Valid: true}
+	}
+	in.samples = append(in.samples, pendingSample{attempt: m.Body.Attempt, row: row})
+}
+
+// finishSamples drops the samples of an attempt past the step a later attempt resumed from and returns the rest.
+func (in *ingestion) finishSamples() []*dbclient.PostTrainingRunSample {
+	out := make([]*dbclient.PostTrainingRunSample, 0, len(in.samples))
+	for _, s := range in.samples {
+		if r := in.cur.resumedAfter(s.attempt); r != nil && int64(s.row.Step) > *r {
+			continue
+		}
+		out = append(out, s.row)
+	}
+	return out
 }
 
 // add applies one marker.
@@ -521,6 +587,8 @@ func (in *ingestion) add(m *marker) {
 	switch m.Kind {
 	case markerMetric:
 		in.addMetric(m)
+	case markerSample:
+		in.addSample(m)
 	case markerError, markerSuccess:
 		if in.result == nil || attemptIndex(attempt) >= attemptIndex(in.result.Body.Attempt) {
 			in.result = m
