@@ -52,6 +52,9 @@ type PostTrainingRun struct {
 	OutputPath    string `gorm:"column:output_path" json:"outputPath,omitempty" db:"output_path"`
 	OutputModelID string `gorm:"column:output_model_id" json:"outputModelId,omitempty" db:"output_model_id"`
 
+	// OutputAdapterPath is the PEFT adapter a LoRA run exported next to its output model.
+	OutputAdapterPath string `gorm:"column:output_adapter_path" json:"outputAdapterPath,omitempty" db:"output_adapter_path"`
+
 	Status        string `gorm:"column:status;default:Pending" json:"status" db:"status"`
 	Stage         string `gorm:"column:stage;default:queued" json:"stage" db:"stage"`
 	FailedStage   string `gorm:"column:failed_stage" json:"failedStage,omitempty" db:"failed_stage"`

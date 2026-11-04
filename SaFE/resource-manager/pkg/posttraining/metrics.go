@@ -80,6 +80,7 @@ type markerBody struct {
 	V       map[string]json.RawMessage `json:"v"`
 	Reason  string                     `json:"reason"`
 	Output  string                     `json:"output"`
+	Adapter string                     `json:"adapter"`
 }
 
 // stageDetail is the part of a [STAGE] detail the controller reads.

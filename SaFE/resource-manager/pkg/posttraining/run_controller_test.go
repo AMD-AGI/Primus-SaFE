@@ -127,6 +127,23 @@ func TestRegisterCreatesModelAndFinishes(t *testing.T) {
 	require.Equal(t, "Succeeded", last["status"])
 }
 
+func TestRegisterRecordsTheAdapter(t *testing.T) {
+	for adapter, want := range map[string]string{testRunDir + "/final_adapter": "register", "/tmp/a": "Failed"} {
+		r, db, updates := newTestReconciler(t, testRunRow("Running", "export"), endedWorkload(v1.WorkloadSucceeded))
+		db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods(`[SUCCESS] {"run":"`+
+			testRun+`","attempt":"a1","output":"`+testRunDir+`/final_model","adapter":"`+adapter+`"}`), nil).AnyTimes()
+		reconcileRun(t, r)
+		last := (*updates)[len(*updates)-1]
+		if want == "Failed" {
+			require.Equal(t, "Failed", last["status"])
+			require.Contains(t, last["message"], "The adapter path")
+			continue
+		}
+		require.Equal(t, want, last["stage"])
+		require.Equal(t, adapter, last["output_adapter_path"])
+	}
+}
+
 func TestRegisterRejectsOutputOutsideRunDir(t *testing.T) {
 	r, db, updates := newTestReconciler(t, testRunRow("Running", "export"), endedWorkload(v1.WorkloadSucceeded))
 	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods(

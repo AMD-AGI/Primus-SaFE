@@ -31,10 +31,19 @@ const (
 // register turns a successful result into the run's output Model and finishes the run once the Model is Ready.
 func (r *RunReconciler) register(ctx context.Context, u *runUpdate, res *marker, endTime time.Time) (ctrlruntime.Result, error) {
 	run := u.run
-	output := filepath.Clean(res.Body.Output)
-	if !withinDir(output, parseRecipe(run).Output.Base) {
+	output, base := filepath.Clean(res.Body.Output), parseRecipe(run).Output.Base
+	if !withinDir(output, base) {
 		u.fail("register", fmt.Sprintf("The output path %q is not under the run directory", res.Body.Output), endTime)
 		return ctrlruntime.Result{}, r.save(ctx, u)
+	}
+	if res.Body.Adapter != "" {
+		adapter := filepath.Clean(res.Body.Adapter)
+		if !withinDir(adapter, base) {
+			u.fail("register", fmt.Sprintf("The adapter path %q is not under the run directory", res.Body.Adapter),
+				endTime)
+			return ctrlruntime.Result{}, r.save(ctx, u)
+		}
+		u.set("output_adapter_path", run.OutputAdapterPath, adapter)
 	}
 	u.moveTo("register")
 	model, err := r.ensureModel(ctx, run, output)
