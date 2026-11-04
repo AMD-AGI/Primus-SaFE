@@ -8,13 +8,17 @@ import type {
   ExperimentListResp,
   ExperimentRequest,
   ImportConfig,
+  ImportGateRow,
+  ImportHostResources,
   ImportPreview,
+  ImportSummary,
   ImportResult,
   ImportScanStatus,
   ImportStage,
   ImportToken,
   ImportTokenStatus,
   MetricPanel,
+  MetricSeries,
   MetricsResp,
   ModelsResp,
   NullTime,
@@ -26,6 +30,7 @@ import type {
   RunListParams,
   RunListResp,
   RunSample,
+  RunImport,
   RunStage,
   SampleKind,
   SamplesResp,
@@ -956,4 +961,180 @@ export function spurLine(run: Pick<PostTrainingRun, 'import' | 'nodeCount'>): st
   ]
     .filter(Boolean)
     .join(' · ')
+}
+
+/** Reads what an imported run's import holds beyond its row and metric points. */
+export function getRunImport(runId: string) {
+  return request.get<RunImport>(`/post-training/runs/${runId}/import`)
+}
+
+/** A gate's or a stage's duration to the second below an hour: 38s, 2m 36s, 1h 35m. */
+export function gateDuration(seconds?: number | null): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '—'
+  const s = Math.round(seconds)
+  if (s >= 3600) return formatDuration(s)
+  if (s >= 60) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+  return `${s}s`
+}
+
+/** Seconds from one ISO time to another, or undefined when either is missing. */
+const secondsBetween = (from?: string | null, to?: string | null) =>
+  from && to ? (dayjs(to).valueOf() - dayjs(from).valueOf()) / 1000 : undefined
+
+/** The failed gate of an imported run: the first result that is neither a pass nor still running. */
+export function failedGateOf(s: Pick<ImportSummary, 'gates'>): ImportGateRow | undefined {
+  return s.gates.find((g) => g.result !== 'pass' && g.result !== 'running')
+}
+
+/** One stage of an imported run's timeline: its state, its duration or why it has none, and its gates. */
+export interface ImportTimelineStage {
+  stage: string
+  label: string
+  state: StageSegment['state']
+  text: string
+  sub?: string
+  gates: string[]
+}
+
+/**
+ * The timeline of an imported run: each stage with its head-node duration, the failed gate in place of it, or No
+ * END line; Train adds the steps or rollouts logged up to step, and Verdict ends it even without a verdict file.
+ */
+export function importTimeline(
+  s: Pick<ImportSummary, 'stages' | 'gates' | 'verdict'>,
+  trainType: 'sft' | 'rl',
+  step?: number,
+): ImportTimelineStage[] {
+  const failed = failedGateOf(s)
+  const out: ImportTimelineStage[] = s.stages
+    .filter((st) => st.stage !== 'verdict')
+    .map((st) => {
+      const state = !st.end ? 'stopped' : st.result === 'fail' ? 'failed' : 'done'
+      let text = st.end ? gateDuration(secondsBetween(st.start, st.end)) : 'No END line'
+      if (state === 'failed' && failed && st.gates.includes(failed.gate))
+        text = `${failed.gate} ${failed.result} on ${failed.node}`
+      const sub =
+        st.stage === 'train' && step != null
+          ? `${count(step + 1, trainType === 'rl' ? 'rollout' : 'step')} logged`
+          : undefined
+      const gates = s.gates
+        .filter((g) => st.gates.includes(g.gate))
+        .map(
+          (g) =>
+            `${g.gate} · ${g.node} · ${g.seconds != null ? gateDuration(g.seconds) : g.result}`,
+        )
+      return { stage: st.stage, label: st.label || st.stage, state, text, sub, gates }
+    })
+  const verdict = s.stages.find((st) => st.stage === 'verdict')
+  out.push({
+    stage: 'verdict',
+    label: 'Verdict',
+    state: !verdict ? 'pending' : verdict.result === 'pass' ? 'done' : 'failed',
+    text: s.verdict || 'No PASS or FAIL file',
+    gates: [],
+  })
+  return out
+}
+
+/** The banner of an imported run: where it came from when it passed, why it failed, or where it stopped. */
+export function importBanner(s: ImportSummary): {
+  type: 'primary' | 'error' | 'info'
+  text: string
+  evidence?: string
+  logPath?: string
+} {
+  const logPath = s.mainLog ? `${s.path}/logs/${s.mainLog.name}` : undefined
+  if (s.status === 'Failed') {
+    const g = failedGateOf(s)
+    const why = (s.message ?? '').replace(/^FAIL:\s*/, 'Check failed: ')
+    const head = g ? `Gate ${g.gate} failed on ${g.node}.` : 'The run failed.'
+    return {
+      type: 'error',
+      text: why && why !== s.failLine ? `${head} ${why.replace(/([^.!?])$/, '$1.')}` : head,
+      evidence: s.failLine || undefined,
+      logPath,
+    }
+  }
+  if (s.status === 'Stopped') {
+    const m = s.markers[s.markers.length - 1]
+    const at = (t?: string | null) => (t ? dayjs(t).format('HH:mm:ss') : 'an unknown time')
+    const marker = m ? `The last marker is ${m.name} at ${at(m.time)}, and the` : 'The'
+    return {
+      type: 'info',
+      text:
+        `No verdict. The run directory has no PASS or FAIL file. ${marker} log was last written at ` +
+        `${at(s.endTime)}. Curves and resources stop there.`,
+    }
+  }
+  return {
+    type: 'primary',
+    text:
+      `Imported from Spur. Parsed from the logs in ${s.path}. Read-only: it isn't counted in Verified, and ` +
+      'nothing from it is registered in Model Square.',
+  }
+}
+
+/** The trainable parameter count of the check output's trainable line, such as 95.91B. */
+export function trainableTotal(line?: string): string {
+  return /total\s+([\d.]+\s*[KMBT]?)/i.exec(line ?? '')?.[1]?.replace(/\s+/g, '') ?? ''
+}
+
+/** The parallelism of an imported run's arguments: TP 2 · PP 2 · CP 2 · EP 8. */
+export function parallelismText(kept: Record<string, unknown>): string {
+  const parts: [string, string][] = [
+    ['TP', 'tensor_model_parallel_size'],
+    ['PP', 'pipeline_model_parallel_size'],
+    ['CP', 'context_parallel_size'],
+    ['EP', 'expert_model_parallel_size'],
+  ]
+  return parts
+    .filter(([, k]) => kept[k] != null)
+    .map(([label, k]) => `${label} ${kept[k]}`)
+    .join(' · ')
+}
+
+/** Each node's peaks: host memory in use and the largest per-GPU VRAM, from every sample. */
+export function resourcePeaks(
+  resources: Record<string, ImportHostResources> | null,
+  head?: string,
+) {
+  return Object.entries(resources ?? {}).map(([host, r]) => ({
+    host,
+    head: host === head,
+    hostMemBytes: r.hostMemPeakKb * 1024,
+    vramBytes: r.vramPeakBytes,
+    samples: r.samples.length,
+  }))
+}
+
+/** Each node's host memory in use (TB) and largest per-GPU VRAM (GB), in minutes from start. */
+export function resourceSeries(
+  resources: Record<string, ImportHostResources> | null,
+  start?: string | null,
+): { memory: MetricSeries[]; vram: MetricSeries[] } {
+  const entries = Object.entries(resources ?? {})
+  const first = Math.min(...entries.flatMap(([, r]) => r.samples.map((p) => p[0])))
+  const t0 = start ? dayjs(start).valueOf() / 1000 : first
+  const curve = (name: string, points: [number, number][]): MetricSeries => ({
+    name,
+    axis: 'time',
+    points,
+    count: points.length,
+    last: points[points.length - 1],
+  })
+  const minutes = (t: number) => Math.round(((t - t0) / 60) * 10) / 10
+  return {
+    memory: entries.map(([host, r]) =>
+      curve(
+        host,
+        r.samples.map((p) => [minutes(p[0]), (p[1] * 1024) / 1e12]),
+      ),
+    ),
+    vram: entries.map(([host, r]) =>
+      curve(
+        host,
+        r.samples.map((p) => [minutes(p[0]), p[2] / 1e9]),
+      ),
+    ),
+  }
 }

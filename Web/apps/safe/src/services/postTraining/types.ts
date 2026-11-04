@@ -614,12 +614,92 @@ export interface RunImportInfo {
   baseModelPath?: string
 }
 
-/** A stage of an imported run, as its stage history keeps it. */
+/** A stage of an imported run, as its stage history keeps it; a stage without an end has no END line. */
 export interface ImportStage {
   stage: string
   label: string
   gates: string[]
-  start?: string
-  end?: string
+  start?: string | null
+  end?: string | null
   result: 'pass' | 'fail' | 'running'
+}
+
+/** A node of an imported run directory. */
+export interface ImportNode {
+  host: string
+  rank?: number
+  ip?: string
+  image?: string
+  head: boolean
+}
+
+/** A gate's result on one node of an imported run directory. */
+export interface ImportGateRow {
+  gate: string
+  node: string
+  result: string
+  seconds?: number | null
+  start?: string | null
+  end?: string | null
+}
+
+/** The parsed summary of an imported run directory, without its metric points and resource samples. */
+export interface ImportSummary {
+  path: string
+  name: string
+  slurmJobId?: string
+  verdict: string
+  status: RunStatus
+  message?: string
+  trainType: 'sft' | 'rl'
+  startTime?: string | null
+  endTime?: string | null
+  nodes: ImportNode[]
+  head: string
+  image?: string
+  saveSet: boolean
+  mainLog?: { name: string; bytes: number; metricLines: number } | null
+  stages: ImportStage[]
+  gates: ImportGateRow[]
+  markers: { name: string; time?: string | null }[]
+  check: string[]
+  failLine?: string
+  /** The check output's trainable line, such as "dense 18.60B …, total 95.91B". */
+  trainable?: string
+  finalEval?: { gate: string; result: string; data: Record<string, unknown> } | null
+  arguments: { kept: Record<string, unknown>; total: number }
+  checkpoints: {
+    latest?: number | null
+    iterations: {
+      iteration: number
+      step: number
+      files: number
+      bytes: number
+      time?: string | null
+    }[]
+    rollout?: { files: number; bytes: number } | null
+  }
+}
+
+/** One node's resource samples, [epoch seconds, host memory used in KB, largest per-GPU VRAM in bytes], with peaks. */
+export interface ImportHostResources {
+  samples: [number, number, number][]
+  hostMemPeakKb: number
+  vramPeakBytes: number
+}
+
+/** GET /post-training/runs/:id/import: what an imported run's import holds beyond its row and metric points. */
+export interface RunImport {
+  importId: string
+  sourcePath: string
+  format: string
+  slurmJobId?: string
+  via: 'cli' | 'scan'
+  verdict?: string
+  parserVersion?: string
+  importedAt?: string
+  importedBy?: string
+  summary: ImportSummary
+  resources: Record<string, ImportHostResources> | null
+  warnings: string[] | null
 }
