@@ -139,6 +139,14 @@ func (h *Handler) submit(c *gin.Context, reg *registry.Registry,
 		cache, err := h.db.GetPostTrainingConvertCache(ctx, req.Workspace, cv.CacheKey)
 		cv.CacheHit = err == nil && cache.Status == dbclient.ConvertCacheReady
 	}
+	if req.TemplateID != "" {
+		tpl, err := h.db.GetPostTrainingTemplate(ctx, req.TemplateID)
+		if err != nil || tpl.Workspace != req.Workspace {
+			return nil, nil, commonerrors.NewBadRequest(fmt.Sprintf("template %s not found in workspace %s",
+				req.TemplateID, req.Workspace))
+		}
+		res.Recipe.Template = &recipe.RecipeTemplate{ID: tpl.TemplateID, Version: tpl.Version}
+	}
 	recipeJSON, err := json.Marshal(res.Recipe)
 	if err != nil {
 		return nil, nil, commonerrors.NewInternalError("failed to encode the recipe: " + err.Error())
@@ -407,6 +415,8 @@ func runRow(c *gin.Context, req *recipe.SubmitRequest, res *recipe.Result, ws *w
 		RecipeHash:       r.Provenance.RecipeHash,
 		EvalEnabled:      req.Evaluation.Enabled,
 		TemplateID:       req.TemplateID,
+		ExperimentID:     req.ExperimentID,
+		VariantName:      req.VariantName,
 		Ext:              ext,
 	}
 }
