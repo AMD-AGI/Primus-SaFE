@@ -2,6 +2,7 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
+import json
 import math
 
 import pytest
@@ -96,3 +97,21 @@ def test_export_names_a_checkpoint(tmp_path):
     with pytest.raises(StageError, match="iteration 4 no longer exists") as e:
         a.export(recipe, str(tmp_path), run_command, iteration=4)
     assert not e.value.retry
+
+
+def test_critic_config(tmp_path):
+    critic = {"megatronConfig": "megatron.yaml", "checkpoints": "critic_checkpoints",
+              "overrides": {"load": str(tmp_path / "critic_checkpoints"), "save": str(tmp_path / "critic_checkpoints"),
+                            "lr": 1e-05, "custom_model_provider_path": None}}
+    (tmp_path / "model.sh").write_text("MODEL_ARGS=(--num-layers 2)\n")
+    recipe = {"model": {"script": "model.sh"}, "frameworkArgs": [], "critic": critic}
+    a = Adapter(env={"SLIME_DIR": str(tmp_path)})
+    _, _, files = a.train_command(recipe, str(tmp_path))
+    entry = json.loads(files["megatron.yaml"])["megatron"][0]
+    assert entry["role"] == "critic" and "load" not in entry["overrides"], "a new critic starts from the base model"
+    assert entry["overrides"]["save"].endswith("critic_checkpoints") and entry["overrides"]["lr"] == 1e-05
+    (tmp_path / "critic_checkpoints").mkdir()
+    (tmp_path / "critic_checkpoints" / "latest_checkpointed_iteration.txt").write_text("20\n")
+    _, _, files = a.train_command(recipe, str(tmp_path))
+    assert json.loads(files["megatron.yaml"])["megatron"][0]["overrides"]["load"].endswith("critic_checkpoints")
+    assert a.latest_checkpoint(str(tmp_path), "critic_checkpoints") == 20

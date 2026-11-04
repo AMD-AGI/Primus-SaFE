@@ -373,7 +373,8 @@ class Runner:
 
     def space_needed(self):
         """Estimate the bytes the run writes: the checkpoints kept at the same time plus the exported model. With a
-        retention policy that is keepLast, the best one and the one being written; without one, every save."""
+        retention policy that is keepLast, the best one and the one being written; without one, every save. A PPO
+        critic keeps as many checkpoints as the actor."""
         weights = weights_size(self.recipe["model"]["path"])
         keep = (self.recipe.get("checkpoint") or {}).get("keepLast", 0)
         choices = self.recipe.get("choices") or {}
@@ -384,6 +385,8 @@ class Runner:
             count = max(1, steps // interval)
         else:
             count = 3
+        if self.recipe.get("critic"):
+            count *= 2
         return weights * CHECKPOINT_FACTOR * count + weights
 
     def stage_train(self):
@@ -396,6 +399,13 @@ class Runner:
                 f.write(content)
         self.val_losses.update(load_val_losses(self.emitter.metrics_path))
         resume = self.checkpoint = self.adapter.latest_checkpoint(self.run_dir)
+        critic = self.recipe.get("critic")
+        if critic:
+            critic_dir = critic.get("checkpoints") or "critic_checkpoints"
+            critic_step = self.adapter.latest_checkpoint(self.run_dir, critic_dir)
+            if critic_step != resume:
+                raise StageError("train", "the actor checkpoints end at step %s but the critic checkpoints at step %s"
+                                 % (resume, critic_step), retry=False)
         if resume is not None:
             cmd = cmd + ["--load", self.path("checkpoints")]
             self.emitter.stage("train", state="running", detail={"resumeStep": resume})
