@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -46,9 +48,11 @@ const (
 	evalBenchmarksAnnotation = v1.PostTrainingPrefix + "eval-benchmarks"
 	evalJobAnnotation        = v1.PostTrainingPrefix + "eval-job"
 
-	// evalStartedEvent is the stage_history event that records the service of the automatic evaluation.
-	evalStartedEvent = "evaluate"
-	evalFailedEvent  = "evaluate-failed"
+	// evalStartedEvent is the stage_history event that records the service of the automatic evaluation;
+	// evalRepeatedEvent records the second one of an A/B baseline.
+	evalStartedEvent  = "evaluate"
+	evalRepeatedEvent = "evaluate-repeat"
+	evalFailedEvent   = "evaluate-failed"
 
 	defaultEvalPort      = 8000
 	defaultEvalReadiness = "/v1/models"
@@ -143,7 +147,7 @@ func (r *RunReconciler) advanceEvaluation(ctx context.Context, run *dbclient.Pos
 	if job.Status.Phase != v1.OpsJobSucceeded && job.Status.Phase != v1.OpsJobFailed {
 		return evalRequeue, nil
 	}
-	if v1.GetAnnotation(s, evalAutoAnnotation) == v1.TrueStr {
+	if v1.GetAnnotation(s, evalAutoAnnotation) == v1.TrueStr && !hasEvent(newRunUpdate(run).history, evalRepeatedEvent) {
 		r.notify(ctx, run, nil, posttrainingrun.EventEvaluated, nil)
 	}
 	return 0, r.finishEvaluation(ctx, run, s, true)
@@ -169,8 +173,41 @@ func (r *RunReconciler) finishEvaluation(ctx context.Context, run *dbclient.Post
 		return nil
 	}
 	u := newRunUpdate(run)
-	u.moveTo("done")
+	repeated, err := r.repeatBaselineEvaluation(ctx, run, u)
+	if err != nil {
+		return err
+	}
+	if !repeated {
+		u.moveTo("done")
+	}
 	return r.save(ctx, u)
+}
+
+// repeatBaselineEvaluation evaluates the baseline of an A/B experiment a second time on the same benchmarks, so the
+// experiment can tell evaluation noise from a real difference. It returns whether it started the second evaluation.
+func (r *RunReconciler) repeatBaselineEvaluation(ctx context.Context, run *dbclient.PostTrainingRun, u *runUpdate) (bool, error) {
+	if run.ExperimentID == "" || hasEvent(u.history, evalRepeatedEvent) {
+		return false, nil
+	}
+	exp, err := r.db.GetPostTrainingExperiment(ctx, run.ExperimentID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	rec := parseRecipe(run)
+	if exp.BaselineVariant != run.VariantName || rec.Evaluation == nil || len(rec.Evaluation.Benchmarks) == 0 {
+		return false, nil
+	}
+	name, err := r.startEvaluation(ctx, run, run.OutputModelID, evalRequest{Benchmarks: rec.Evaluation.Benchmarks}, true)
+	if err != nil {
+		klog.ErrorS(err, "failed to repeat the baseline evaluation", "run", run.RunID)
+		u.event(evalFailedEvent, err.Error())
+		return false, nil
+	}
+	u.event(evalRepeatedEvent, name)
+	return true, nil
 }
 
 // cancelOrphanJobs stops the evaluation jobs of a run whose inference service is gone.

@@ -168,3 +168,45 @@ func TestServiceResource(t *testing.T) {
 	require.Equal(t, v1.WorkloadResource{Replica: 1, GPU: "2", CPU: "16", Memory: "64Gi", SharedMemory: "32Gi",
 		EphemeralStorage: "50Gi"}, serviceResource(nil, 2), "without a flavor the defaults of the deploy page apply")
 }
+
+// autoService is a finished automatic evaluation service of testRun.
+func autoService(name string) *v1.Workload {
+	return &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{
+		v1.PostTrainingRunIdLabel: testRun, v1.PostTrainingRoleLabel: v1.PostTrainingRoleEval},
+		Annotations: map[string]string{evalAutoAnnotation: v1.TrueStr}}}
+}
+
+func TestBaselineIsEvaluatedTwice(t *testing.T) {
+	run, objs := evalFixtures("eval")
+	run.ExperimentID, run.VariantName = "exp-1", "baseline"
+	first := autoService("pt-eval-1")
+	r, db, updates := newTestReconciler(t, run, append(objs, first)...)
+	loadChartRegistry(t, r)
+	db.EXPECT().GetPostTrainingExperiment(gomock.Any(), "exp-1").Return(
+		&dbclient.PostTrainingExperiment{ExperimentID: "exp-1", BaselineVariant: "baseline"}, nil).Times(1)
+	ctx := context.Background()
+
+	require.NoError(t, r.finishEvaluation(ctx, run, first, true))
+	last := (*updates)[len(*updates)-1]
+	require.NotContains(t, last, "stage", "the run waits for the second evaluation")
+	require.Contains(t, last["stage_history"], `"event":"evaluate-repeat"`)
+	services := evalServices(t, r)
+	require.Len(t, services, 1, "the first service is gone and the second one serves")
+	require.Equal(t, v1.TrueStr, services[0].Annotations[evalAutoAnnotation])
+
+	run.StageHistory = last["stage_history"].(string)
+	require.NoError(t, r.finishEvaluation(ctx, run, &services[0], true))
+	require.Equal(t, "done", (*updates)[len(*updates)-1]["stage"], "the baseline is evaluated twice, not more")
+}
+
+func TestVariantIsEvaluatedOnce(t *testing.T) {
+	run, objs := evalFixtures("eval")
+	run.ExperimentID, run.VariantName = "exp-1", "tis"
+	s := autoService("pt-eval-2")
+	r, db, updates := newTestReconciler(t, run, append(objs, s)...)
+	db.EXPECT().GetPostTrainingExperiment(gomock.Any(), "exp-1").Return(
+		&dbclient.PostTrainingExperiment{ExperimentID: "exp-1", BaselineVariant: "baseline"}, nil)
+	require.NoError(t, r.finishEvaluation(context.Background(), run, s, true))
+	require.Equal(t, "done", (*updates)[len(*updates)-1]["stage"])
+	require.Empty(t, evalServices(t, r))
+}
