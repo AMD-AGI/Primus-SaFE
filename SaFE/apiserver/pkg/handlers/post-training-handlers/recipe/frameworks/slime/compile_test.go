@@ -314,10 +314,16 @@ func TestSlimeRules(t *testing.T) {
 			"40960-token context"},
 		"reward": {registry.TrainTypeRL, func(in *recipe.Input) { in.Request.Choices.RewardType = "gpqa" },
 			`Reward type "gpqa" is not available`},
-		"ppo": {registry.TrainTypeRL, func(in *recipe.Input) {
+		"ppo async": {registry.TrainTypeRL, func(in *recipe.Input) {
 			in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeaturePPO)
-			in.Request.Choices.AdvantageEstimator = "ppo"
-		}, `Algorithm "ppo" is not available yet`},
+			in.Request.Choices.AdvantageEstimator, in.Request.Choices.Schedule = "ppo", "async"
+		}, "Fully async supports GRPO only"},
+		"critic lr": {registry.TrainTypeRL, func(in *recipe.Input) {
+			in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeaturePPO)
+			in.Request.Choices.AdvantageEstimator, in.Request.Choices.CriticLr = "ppo", -1
+		}, "The critic learning rate must be positive"},
+		"algorithm": {registry.TrainTypeRL, func(in *recipe.Input) { in.Request.Choices.AdvantageEstimator = "dpo" },
+			`Algorithm "dpo" is not available`},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -338,4 +344,45 @@ func TestOptions(t *testing.T) {
 	require.True(t, layout[0].Disabled)
 	require.Equal(t, "RL with LoRA needs a separate rollout", layout[0].Reason)
 	require.False(t, layout[1].Disabled)
+}
+
+func TestCompilePPOCritic(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeRL)
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeaturePPO)
+	in.Request.Choices.AdvantageEstimator = recipe.AlgorithmPPO
+	res := compile(t, in)
+	args := strings.Join(res.Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--advantage-estimator ppo --megatron-config-path "+in.RunDir+"/megatron.yaml "+
+		"--num-critic-only-steps 1")
+	critic := res.Recipe.Critic
+	require.Equal(t, defaultCriticLr, critic["lr"])
+	overrides := critic["overrides"].(map[string]interface{})
+	require.Equal(t, in.RunDir+"/critic_checkpoints", overrides["save"], "the critic must not overwrite the actor")
+	require.Contains(t, overrides, "only_train_params_name_list")
+	require.Nil(t, overrides["custom_model_provider_path"], "the critic is always fully trained")
+
+	warmup := 0
+	in.Request.Choices.CriticWarmupRollouts = &warmup
+	require.NotContains(t, strings.Join(compile(t, in).Recipe.FrameworkArgs, " "), "--num-critic-only-steps")
+
+	grpo := compile(t, qwen3Input(t, registry.TrainTypeRL))
+	require.Nil(t, grpo.Recipe.Critic)
+	require.NotContains(t, strings.Join(grpo.Recipe.FrameworkArgs, " "), "megatron-config-path")
+	require.Zero(t, grpo.Recipe.Choices.CriticLr, "critic choices of GRPO stay out of the recipe hash")
+}
+
+func TestPPOOption(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeRL)
+	options := func(in *recipe.Input) *recipe.Options {
+		opts, reason := recipe.FrameworkOptions(in)
+		require.Empty(t, reason)
+		return opts
+	}
+	ppoOf := func(in *recipe.Input) recipe.OptionValue { return options(in).Fields["advantageEstimator"].Values[1] }
+	require.Equal(t, "The image has not been validated for PPO", ppoOf(in).Reason)
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeaturePPO)
+	require.False(t, ppoOf(in).Disabled)
+	defaults := options(in).Defaults
+	require.Equal(t, defaultCriticLr, defaults.CriticLr, "the wizard shows the critic defaults before PPO is chosen")
+	require.Equal(t, defaultCriticWarmup, *defaults.CriticWarmupRollouts)
 }

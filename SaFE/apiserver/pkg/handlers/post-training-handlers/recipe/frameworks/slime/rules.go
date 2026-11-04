@@ -184,8 +184,20 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	} else {
 		out = append(out, rewardRules(ctx, c)...)
 	}
-	if c.AdvantageEstimator != recipe.AlgorithmGRPO {
-		fail("choices.advantageEstimator", "Algorithm %q is not available yet", c.AdvantageEstimator)
+	switch c.AdvantageEstimator {
+	case recipe.AlgorithmGRPO:
+	case recipe.AlgorithmPPO:
+		if c.Schedule == recipe.ScheduleAsync {
+			fail("choices.schedule", "Fully async supports GRPO only")
+		}
+		if c.CriticLr <= 0 {
+			fail("choices.criticLr", "The critic learning rate must be positive")
+		}
+		if c.CriticWarmupRollouts != nil && *c.CriticWarmupRollouts < 0 {
+			fail("choices.criticWarmupRollouts", "Critic-only rollouts cannot be negative")
+		}
+	default:
+		fail("choices.advantageEstimator", "Algorithm %q is not available", c.AdvantageEstimator)
 	}
 	if c.Layout != recipe.LayoutColocate && c.Layout != recipe.LayoutSeparate {
 		fail("choices.layout", "Layout must be colocate or separate")
