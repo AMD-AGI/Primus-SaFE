@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { formatDuration, parseJSON, stageSegments, timeOf } from './index'
+import {
+  formatDuration,
+  parseJSON,
+  smoothPoints,
+  stageDurations,
+  stageSegments,
+  timeOf,
+} from './index'
 
 vi.mock('@/services/request', () => ({ default: {} }))
 import type { PostTrainingRun } from './types'
@@ -78,5 +85,40 @@ describe('helpers', () => {
     expect(formatDuration(5 * 3600 + 10 * 60)).toBe('5h 10m')
     expect(formatDuration(720)).toBe('12m')
     expect(formatDuration(40)).toBe('40s')
+  })
+})
+
+describe('smoothPoints', () => {
+  it('keeps the first point and moves toward later ones', () => {
+    const smoothed = smoothPoints(
+      [
+        [1, 10],
+        [2, 0],
+        [3, 0],
+      ],
+      0.5,
+    )
+    expect(smoothed[0]).toEqual([1, 10])
+    expect(smoothed[1][1]).toBeCloseTo(10 / 3)
+    expect(smoothed[2][1]).toBeLessThan(smoothed[1][1])
+    expect(smoothPoints([[1, 3]], 0)).toEqual([[1, 3]])
+  })
+})
+
+describe('stageDurations', () => {
+  it('times each stage until the next one starts', () => {
+    const d = stageDurations(
+      [
+        { stage: 'queued', time: '2026-11-03T10:00:00Z' },
+        { stage: 'prepare', time: '2026-11-03T10:05:00Z' },
+        { stage: 'train', time: '2026-11-03T10:06:00Z', event: 'preempted' },
+        { stage: 'train', time: '2026-11-03T10:10:00Z' },
+        { stage: 'train', time: '2026-11-03T10:30:00Z', attempt: '2', resumeStep: 600 },
+      ],
+      Date.parse('2026-11-03T11:00:00Z'),
+    )
+    expect((d.get('queued')!.end - d.get('queued')!.start) / 60000).toBe(5)
+    expect((d.get('prepare')!.end - d.get('prepare')!.start) / 60000).toBe(5)
+    expect((d.get('train')!.end - d.get('train')!.start) / 60000).toBe(50)
   })
 })

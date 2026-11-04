@@ -266,3 +266,57 @@ export interface SubmitResp {
   workloadId: string
   warnings?: Diagnostic[]
 }
+
+/** A nullable text column, as the API encodes evaluation tasks. */
+export interface NullString {
+  String: string
+  Valid: boolean
+}
+
+/** An evaluation task of a run; the API returns the database row with its Go field names. */
+export interface EvaluationTaskRow {
+  TaskId: string
+  TaskName: string
+  ServiceId: string
+  Status: string
+  Benchmarks: string
+  ResultSummary?: NullString
+  ReportS3Path?: NullString
+  OpsJobId?: NullString
+  ModelId?: NullString
+  CreationTime?: NullTime
+  EndTime?: NullTime
+}
+
+/** GET /post-training/runs/:id: the run with its parsed recipe, history, summary, model and evaluations. */
+export interface RunDetail extends Omit<PostTrainingRun, 'stageHistory' | 'metricSummary'> {
+  recipe?: Record<string, unknown>
+  stageHistory?: StageEntry[]
+  metricSummary?: MetricSummary
+  outputModel?: { id: string; displayName: string; phase: string }
+  evaluations: EvaluationTaskRow[]
+}
+
+/** One downsampled metric series: [step, value] points on the train, rollout or time axis. */
+export interface MetricSeries {
+  name: string
+  axis: 'step' | 'rollout' | 'time'
+  points: [number, number][]
+  count: number
+  last?: [number, number]
+  downsampled?: boolean
+  nonFinite?: [number, string][]
+}
+
+/** The checkpoints, best checkpoint, resume points and failure drawn on a run's curves. */
+export interface MetricMarkers {
+  checkpoints: { step: number; deleted?: boolean; valLoss?: number }[]
+  bestCheckpoint?: { step: number; valLoss?: number } | null
+  resumes: { step: number; time?: string }[]
+  failure?: { step: number; reason?: string } | null
+}
+
+export interface MetricsResp {
+  series: MetricSeries[]
+  markers: MetricMarkers
+}

@@ -1,9 +1,11 @@
 import request from '@/services/request'
 import type {
   ConfigResp,
+  MetricsResp,
   ModelsResp,
   NullTime,
   PreviewResp,
+  RunDetail,
   SubmitRequest,
   SubmitResp,
   PostTrainingRun,
@@ -11,6 +13,7 @@ import type {
   RunListResp,
   RunStage,
   SegmentState,
+  StageEntry,
   StageSegment,
 } from './types'
 
@@ -76,7 +79,31 @@ export function listPostTrainingRuns(params: RunListParams, quiet = false) {
 
 /** Returns a run with its recipe, stage history, output model and evaluations. */
 export function getPostTrainingRun(runId: string) {
-  return request.get<PostTrainingRun>(`/post-training/runs/${runId}`)
+  return request.get<RunDetail>(`/post-training/runs/${runId}`)
+}
+
+/** Returns a run's metric series, all of them unless names lists patterns, and the markers on them. */
+export function getPostTrainingMetrics(
+  runId: string,
+  params?: { names?: string; maxPoints?: number },
+) {
+  return request.get<MetricsResp>(`/post-training/runs/${runId}/metrics`, { params })
+}
+
+/** The URL of a run's metric points as CSV. */
+export function metricsCsvUrl(runId: string) {
+  return `/api/v1/post-training/runs/${runId}/metrics/export`
+}
+
+/** Evaluates a model of a run again: its output model unless modelId names a model exported from it. */
+export function evaluatePostTrainingRun(
+  runId: string,
+  body: { modelId?: string; benchmarks: string[]; keepService?: boolean },
+) {
+  return request.post<{ runId: string; modelId: string }>(
+    `/post-training/runs/${runId}/evaluate`,
+    body,
+  )
 }
 
 /** Stops a run's training workload. */
@@ -173,4 +200,35 @@ export function formatDuration(seconds: number): string {
   if (h > 0) return `${h}h ${m}m`
   if (m > 0) return `${m}m`
   return `${Math.floor(seconds)}s`
+}
+
+/**
+ * Smooths [x, y] points with a debiased exponential moving average, the way TensorBoard does; weight 0 keeps the
+ * points as they are.
+ */
+export function smoothPoints(points: [number, number][], weight: number): [number, number][] {
+  if (weight <= 0) return points
+  let last = 0
+  return points.map(([x, y], i) => {
+    last = last * weight + (1 - weight) * y
+    return [x, last / (1 - Math.pow(weight, i + 1))]
+  })
+}
+
+/**
+ * Returns the time a run spent in each stage of its history, from first entering it to entering a later stage;
+ * events and resume entries don't start a stage.
+ */
+export function stageDurations(
+  history: StageEntry[],
+  until: number,
+): Map<string, { start: number; end: number }> {
+  const entries = history.filter((e) => !e.event && e.resumeStep === undefined && e.time)
+  const out = new Map<string, { start: number; end: number }>()
+  entries.forEach((e, i) => {
+    if (out.has(e.stage)) return
+    const next = entries.slice(i + 1).find((n) => n.stage !== e.stage)
+    out.set(e.stage, { start: Date.parse(e.time), end: next ? Date.parse(next.time) : until })
+  })
+  return out
 }
