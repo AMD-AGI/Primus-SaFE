@@ -1558,3 +1558,18 @@ func TestInspectModelReadsConfigOnce(t *testing.T) {
 	assert.True(t, errors.IsNotFound(cli.Get(ctx, client.ObjectKey{Name: inspectJobName(failed)}, &v1.OpsJob{})),
 		"a failed read is not retried")
 }
+
+func TestNewDirectoryCleanupOpsJob(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	dir := "/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m1-540ea91"
+	job, err := NewDirectoryCleanupOpsJob(ws, dir, map[string]string{v1.PostTrainingConvertCacheLabel: "7"})
+	require.NoError(t, err)
+	assert.Equal(t, DirectoryCleanupJobName("ws1", dir), job.Name)
+	assert.Equal(t, v1.OpsJobModelCleanupType, job.Spec.Type)
+	assert.Equal(t, dir, job.GetParameter(v1.ParameterDestPath).Value)
+	assert.Equal(t, "/wekafs", job.Spec.Env["VOLUME_ROOT"])
+	assert.Equal(t, "7", job.Labels[v1.PostTrainingConvertCacheLabel])
+	_, err = NewDirectoryCleanupOpsJob(ws, "/etc/models/x", nil)
+	assert.Error(t, err, "a path outside the workspace volume is refused")
+}

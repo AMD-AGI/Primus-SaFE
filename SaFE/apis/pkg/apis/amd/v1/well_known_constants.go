@@ -370,6 +370,8 @@ const (
 	PostTrainingEvaluateAnnotation = PostTrainingPrefix + "evaluate"
 	// PostTrainingEvalDoneAnnotation marks a kept evaluation inference service whose evaluation is over.
 	PostTrainingEvalDoneAnnotation = PostTrainingPrefix + "eval-done"
+	// PostTrainingConvertCacheLabel carries the id of the conversion cache a model-cleanup job removes.
+	PostTrainingConvertCacheLabel = PostTrainingPrefix + "convert-cache"
 
 	// dynamo (DynamoDeployment workload kind; see Phase 2 of the dynamo
 	// integration plan). Webhook/dispatcher read these to decide deployment

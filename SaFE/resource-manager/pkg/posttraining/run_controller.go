@@ -79,7 +79,8 @@ type stageEntry struct {
 // runRecipe is the part of the recipe snapshot the controller reads.
 type runRecipe struct {
 	Convert *struct {
-		SeparateJob bool `json:"separateJob"`
+		CacheKey    string `json:"cacheKey"`
+		SeparateJob bool   `json:"separateJob"`
 	} `json:"convert"`
 	Evaluation *struct {
 		Benchmarks  []string `json:"benchmarks"`
@@ -257,6 +258,9 @@ func SetupPostTrainingController(_ context.Context, mgr manager.Manager) error {
 		Watches(&v1.Workload{}, handler.EnqueueRequestsFromMapFunc(runRequest), ofRun).
 		Watches(&v1.Model{}, handler.EnqueueRequestsFromMapFunc(runRequest), ofRun).
 		Watches(&v1.OpsJob{}, handler.EnqueueRequestsFromMapFunc(runRequest), ofRun).
+		Watches(&v1.Model{}, handler.Funcs{DeleteFunc: func(_ context.Context, _ event.DeleteEvent, q v1.RequestWorkQueue) {
+			q.Add(reconcile.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}})
+		}}).
 		WatchesRawSource(source.Channel(r.recovered, &handler.EnqueueRequestForObject{})).
 		Complete(r)
 	if err != nil {
@@ -266,6 +270,9 @@ func SetupPostTrainingController(_ context.Context, mgr manager.Manager) error {
 		return err
 	}
 	if err = mgr.Add(manager.RunnableFunc(r.runGauges)); err != nil {
+		return err
+	}
+	if err = mgr.Add(manager.RunnableFunc(r.runCacheSweeps)); err != nil {
 		return err
 	}
 	klog.Info("Setup Post Training controller successfully")
@@ -307,6 +314,10 @@ func (r *RunReconciler) recoverRuns(ctx context.Context) error {
 
 // Reconcile advances one run, keyed by run id.
 func (r *RunReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
+	if req.Name == cacheSweepRequest {
+		res, err := r.sweepCaches(ctx)
+		return res, reconcileError("convert-cache", err)
+	}
 	run, err := r.db.GetPostTrainingRun(ctx, req.Name)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
