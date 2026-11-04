@@ -173,7 +173,25 @@
               Download CSV
             </el-link>
           </div>
-          <div v-for="g in metricGroups" :key="g.name" class="mb-4">
+          <div v-if="registryPanels.shown.length" class="pt-grid mb-4">
+            <MetricsPanel
+              v-for="p in registryPanels.shown"
+              :key="p.panel.id"
+              :title="PANEL_TITLES[p.panel.id] ?? p.panel.id"
+              :series="seriesOf(p.metrics.series)"
+              :band="[
+                seriesByName.get(p.metrics.band[0] ?? ''),
+                seriesByName.get(p.metrics.band[1] ?? ''),
+              ]"
+              :stack="p.panel.stack"
+              :rest="p.metrics.rest ? seriesByName.get(p.metrics.rest) : undefined"
+              :divisor="p.panel.per === 'prompts' ? promptsPerRollout : undefined"
+              :log-y="p.panel.logY"
+              :markers="metrics?.markers"
+              :smoothing="p.panel.smooth ? smoothing : 0"
+            />
+          </div>
+          <div v-for="g in metricGroups" v-else :key="g.name" class="mb-4">
             <div class="font-500 mb-2">{{ g.name }}</div>
             <div class="pt-grid">
               <MetricsPanel
@@ -186,7 +204,14 @@
               />
             </div>
           </div>
-          <el-empty v-if="!metricGroups.length" description="No metrics yet" :image-size="60" />
+          <AllMetricsTable
+            v-if="metrics?.series.length"
+            :series="metrics.series"
+            :better="metrics.better"
+            :unassigned="registryPanels.unassigned"
+            :smoothing="smoothing"
+          />
+          <el-empty v-else description="No metrics yet" :image-size="60" />
         </el-tab-pane>
 
         <el-tab-pane label="Checkpoints" name="checkpoints">
@@ -476,6 +501,7 @@ import {
   getPostTrainingMetrics,
   getPostTrainingRun,
   metricsCsvUrl,
+  panelsOf,
   parseJSON,
   stallNote,
   statusTagType,
@@ -490,6 +516,7 @@ import {
 } from '@/services/postTraining'
 import StageTimeline from './Components/StageTimeline.vue'
 import MetricsPanel from './Components/MetricsPanel.vue'
+import AllMetricsTable from './Components/AllMetricsTable.vue'
 import SaveTemplateDialog from './Components/SaveTemplateDialog.vue'
 import VariantEditor from './Components/VariantEditor.vue'
 import { requestFromRun, specOfRun } from './Create/wizard'
@@ -697,7 +724,50 @@ const overviewPanels = computed(() => {
   return panels
 })
 
-/** All series grouped by the prefix of their names. */
+/** Panel titles by registry panel id. */
+const PANEL_TITLES: Record<string, string> = {
+  loss: 'Loss',
+  lr: 'Learning rate',
+  grad_norm: 'Grad norm',
+  throughput: 'Throughput',
+  reward: 'Reward',
+  signal: 'Effective signal',
+  passrate: 'Pass@k',
+  policy: 'Policy loss & KL',
+  clip_entropy: 'Clipping & entropy',
+  consistency: 'Train–inference consistency',
+  length: 'Response length & truncation',
+  time: 'Time per rollout',
+  engine: 'Inference engine',
+  grad_perf: 'Grad norm & step time',
+  staleness: 'Sample staleness',
+  critic: 'Critic',
+  mtp: 'MTP loss',
+  gpu_util: 'GPU utilization',
+  gpu_mem: 'GPU memory',
+}
+
+/** The registry's panels this run shows and the training metrics no panel draws; system metrics have their group. */
+const registryPanels = computed(() => {
+  const names = (metrics.value?.series ?? [])
+    .map((s) => s.name)
+    .filter((n) => !n.startsWith('system/'))
+  const choices = (run.value?.recipe as { choices?: { schedule?: string } } | undefined)?.choices
+  return panelsOf(metrics.value?.panels ?? [], names, {
+    algorithm: run.value?.algorithm,
+    schedule: choices?.schedule,
+  })
+})
+
+const seriesOf = (names: string[]) =>
+  names.map((n) => seriesByName.value.get(n)).filter((s): s is MetricSeries => !!s)
+
+/** The prompts of one rollout, which turn the effective-signal counts into shares. */
+const promptsPerRollout = computed(
+  () => (run.value?.recipe as { choices?: { batchSize?: number } } | undefined)?.choices?.batchSize,
+)
+
+/** All series grouped by name prefix, for runs whose metrics come without the registry's panels. */
 const metricGroups = computed(() => {
   const groups = new Map<string, MetricSeries[]>()
   for (const s of metrics.value?.series ?? []) {

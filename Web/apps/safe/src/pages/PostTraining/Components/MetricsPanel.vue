@@ -47,8 +47,25 @@ const props = withDefaults(
     colors?: string[]
     /** Draw the values on a logarithmic axis. */
     logY?: boolean
+    /** A light band between a low and a high series, such as the min and max of a value. */
+    band?: [MetricSeries | undefined, MetricSeries | undefined]
+    /** Stack the series as areas; with rest, the part of rest they leave is stacked on top as Other. */
+    stack?: boolean
+    rest?: MetricSeries
+    /** Divides every value, such as counts into shares of the prompts of a rollout. */
+    divisor?: number
   }>(),
-  { smoothing: 0.6, height: 220, markers: undefined, colors: undefined, logY: false },
+  {
+    smoothing: 0.6,
+    height: 220,
+    markers: undefined,
+    colors: undefined,
+    logY: false,
+    band: undefined,
+    stack: false,
+    rest: undefined,
+    divisor: undefined,
+  },
 )
 
 const isDark = useDark()
@@ -94,16 +111,78 @@ const markLines = () => {
   return lines
 }
 
+/** The points of a series, divided by the divisor when there is one. */
+const pointsOf = (s: MetricSeries): [number, number][] =>
+  props.divisor ? s.points.map(([x, y]) => [x, y / props.divisor!]) : s.points
+
+/** The band series: the low line, invisible, and the gap to the high line stacked on it as a light area. */
+const bandSeries = () => {
+  const [low, high] = props.band ?? []
+  if (!low || !high) return []
+  const highAt = new Map(pointsOf(high).map(([x, y]) => [x, y]))
+  const lows = pointsOf(low).filter(([x]) => highAt.has(x))
+  const color = isDark.value ? '#00e5e5' : '#0d9488'
+  return [
+    {
+      name: low.name,
+      type: 'line',
+      data: lows,
+      stack: 'band',
+      showSymbol: false,
+      lineStyle: { opacity: 0 },
+    },
+    {
+      name: `${low.name} – ${high.name}`,
+      type: 'line',
+      data: lows.map(([x, y]) => [x, highAt.get(x)! - y]),
+      stack: 'band',
+      showSymbol: false,
+      lineStyle: { opacity: 0 },
+      areaStyle: { color, opacity: 0.15 },
+    },
+  ]
+}
+
+/** The stacked series, with Other: the part of rest the stacked series leave at each step. */
+const stackSeries = () => {
+  const out: Record<string, unknown>[] = props.series.map((s, i) => ({
+    name: s.name,
+    type: 'line',
+    data: pointsOf(s),
+    stack: 'total',
+    showSymbol: false,
+    lineStyle: { width: 1, color: colorOf(s, i) },
+    itemStyle: { color: colorOf(s, i) },
+    areaStyle: { opacity: 0.5 },
+  }))
+  if (props.rest) {
+    const sums = new Map<number, number>()
+    for (const s of props.series)
+      for (const [x, y] of pointsOf(s)) sums.set(x, (sums.get(x) ?? 0) + y)
+    out.push({
+      name: 'Other',
+      type: 'line',
+      data: pointsOf(props.rest).map(([x, y]) => [x, Math.max(0, y - (sums.get(x) ?? 0))]),
+      stack: 'total',
+      showSymbol: false,
+      lineStyle: { width: 1, color: '#9aa7bd' },
+      itemStyle: { color: '#9aa7bd' },
+      areaStyle: { opacity: 0.3 },
+    })
+  }
+  return out
+}
+
 const render = () => {
   if (!chart) return
-  const out: Record<string, unknown>[] = []
-  props.series.forEach((s, i) => {
+  const out: Record<string, unknown>[] = props.stack ? stackSeries() : bandSeries()
+  ;(props.stack ? [] : props.series).forEach((s, i) => {
     const color = colorOf(s, i)
     const smoothed = props.smoothing > 0 && s.points.length > 2
     out.push({
       name: s.name,
       type: 'line',
-      data: s.points,
+      data: pointsOf(s),
       showSymbol: s.points.length < 3,
       lineStyle: { width: 1, color, opacity: smoothed ? 0.28 : 1 },
       itemStyle: { color },
@@ -123,7 +202,7 @@ const render = () => {
       out.push({
         name: `${s.name} (smoothed)`,
         type: 'line',
-        data: smoothPoints(s.points, props.smoothing),
+        data: smoothPoints(pointsOf(s), props.smoothing),
         showSymbol: false,
         lineStyle: { width: 2, color },
         itemStyle: { color },
@@ -136,7 +215,7 @@ const render = () => {
       grid: { left: 48, right: 16, top: 24, bottom: 28 },
       tooltip: { trigger: 'axis' },
       legend: {
-        show: props.series.length > 1,
+        show: props.series.length > 1 || !!props.rest,
         top: 0,
         textStyle: { color: axisColor, fontSize: 11 },
       },
@@ -168,9 +247,20 @@ onMounted(() => {
   window.addEventListener('resize', resize)
 })
 
-watch(() => [props.series, props.markers, props.smoothing, props.logY, isDark.value], render, {
-  deep: true,
-})
+watch(
+  () => [
+    props.series,
+    props.markers,
+    props.smoothing,
+    props.logY,
+    props.band,
+    props.rest,
+    props.divisor,
+    isDark.value,
+  ],
+  render,
+  { deep: true },
+)
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resize)
