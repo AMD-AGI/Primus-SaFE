@@ -475,6 +475,9 @@ post_training:
               - {id: clip_entropy, series: [train/pg_clipfrac, train/entropy_loss]}
               - {id: consistency, series: [train/train_rollout_logprob_abs_diff, train/tis, train/ois, train/tis_clipfrac]}
               - {id: grad_perf, series: [train/grad_norm, perf/step_time, perf/actor_train_tok_per_s, perf/wait_time_ratio]}
+            system:
+              - {id: gpu_util, series: [system/gpu_util_mean, "system/*/gpu_util_mean"], band: [system/gpu_util_min, system/gpu_util_max], axis: time}
+              - {id: gpu_mem, series: [system/gpu_mem_used_mean_gb, system/gpu_mem_used_max_gb, system/gpu_mem_total_gb, "system/*/gpu_mem_used_mean_gb", "system/*/gpu_mem_used_max_gb", "system/*/gpu_mem_total_gb"], axis: time}
     specs:
       - name: qwen3-4B
         match: {architectures: [Qwen3ForCausalLM], num_hidden_layers: 36, hidden_size: 2560,
