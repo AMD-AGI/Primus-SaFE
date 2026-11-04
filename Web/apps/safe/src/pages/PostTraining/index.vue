@@ -174,7 +174,26 @@
                   row.variantName
                 }}</el-tag>
               </div>
-              <span class="text-[12px] text-[var(--safe-muted)]">{{ row.runId }}</span>
+              <div class="flex items-center gap-1">
+                <span class="text-[12px] text-[var(--safe-muted)]">{{ row.runId }}</span>
+                <el-tooltip v-if="row.verifiedRuns" placement="top">
+                  <template #content>
+                    This recipe succeeded {{ row.verifiedRuns }}
+                    {{ row.verifiedRuns === 1 ? 'time' : 'times' }} on this platform.
+                    <el-button
+                      v-if="canOpenDetail && row.latestVerifiedRun"
+                      link
+                      type="primary"
+                      @click.stop="goDetail({ runId: row.latestVerifiedRun })"
+                    >
+                      Latest run
+                    </el-button>
+                  </template>
+                  <el-tag size="small" type="primary" effect="light" round
+                    >✓ Verified ×{{ row.verifiedRuns }}</el-tag
+                  >
+                </el-tooltip>
+              </div>
             </div>
           </template>
         </el-table-column>
@@ -701,7 +720,7 @@ const durationOf = (row: PostTrainingRun) => {
   return formatDuration((endMs - dayjs(start).valueOf()) / 1000)
 }
 
-const goDetail = (row: PostTrainingRun) => {
+const goDetail = (row: Pick<PostTrainingRun, 'runId'>) => {
   router.push({ path: '/post-training/detail', query: { runId: row.runId } })
 }
 
