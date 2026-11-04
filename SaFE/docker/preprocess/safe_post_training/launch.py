@@ -224,11 +224,18 @@ def run(recipe, out=None, gpus=stages.ray_gpus, sleep=time.sleep, watchdog=None,
     run_dir = recipe["output"]["base"]
     for sub in ("metrics", "logs/nccl"):
         os.makedirs(os.path.join(run_dir, sub), exist_ok=True)
-    attempt = next_attempt(run_dir)
-    emitter = metrics.Emitter(recipe["runId"], attempt, os.path.join(run_dir, "metrics", "metrics.jsonl"),
+    only = recipe.get("exportOnly")
+    if only:
+        # A checkpoint export keeps the run's attempts, metrics and stored error apart from its own.
+        os.makedirs(only["dir"], exist_ok=True)
+        attempt, metrics_path, state_dir = "x%d" % only["step"], None, only["dir"]
+    else:
+        attempt = next_attempt(run_dir)
+        metrics_path, state_dir = os.path.join(run_dir, "metrics", "metrics.jsonl"), run_dir
+    emitter = metrics.Emitter(recipe["runId"], attempt, metrics_path,
                               include=(recipe.get("metrics") or {}).get("include"), out=out)
     emitter.stage("start", detail={"launcher": LAUNCHER_VERSION})
-    noretry = os.path.join(run_dir, NORETRY_FILE)
+    noretry = os.path.join(state_dir, NORETRY_FILE)
     if os.path.exists(noretry):
         with open(noretry) as f:
             reason = json.load(f)
@@ -244,14 +251,14 @@ def run(recipe, out=None, gpus=stages.ray_gpus, sleep=time.sleep, watchdog=None,
                                watchdog=watchdog or Watchdog(emitter, recipe.get("watchdog")), sampler=start_sampler)
         result = runner.run()
     except stages.StageError as err:
-        return fail(emitter, run_dir, err, sleep=sleep)
+        return fail(emitter, state_dir, err, sleep=sleep)
     except Exception as err:  # noqa: BLE001 - any crash must still end with an [ERROR] marker
         stage = emitter.stage_name or "start"
         if isinstance(err, OSError) and err.errno == errno.ENOSPC:
             err = stages.StageError(stage, stages.space_reason(run_dir), retry=False)
         else:
             err = stages.StageError(stage, "launcher error: %s" % err)
-        return fail(emitter, run_dir, err, sleep=sleep)
+        return fail(emitter, state_dir, err, sleep=sleep)
     emitter.wait_after_last_metric(sleep=sleep)
     emitter.stop_heartbeat()
     emitter.success(**result)

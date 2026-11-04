@@ -93,5 +93,6 @@ def test_disk_usage_and_space_reason(tmp_path):
     (tmp_path / "final_model").mkdir()
     (tmp_path / "final_model" / "model.safetensors").write_bytes(b"x" * 512)
     usage = stages.disk_usage(str(tmp_path))
-    assert usage == {"checkpoints": 1024, "criticCheckpoints": 0, "finalModel": 512, "finalAdapter": 0, "total": 1536}
+    assert usage == {"checkpoints": 1024, "criticCheckpoints": 0, "finalModel": 512, "finalAdapter": 0, "exports": 0,
+                     "total": 1536}
     assert stages.space_reason(str(tmp_path)).startswith("shared storage is out of space (")

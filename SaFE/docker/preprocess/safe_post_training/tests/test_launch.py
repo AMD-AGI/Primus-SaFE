@@ -34,8 +34,9 @@ class FakeAdapter:
     def latest_checkpoint(self, run_dir):
         return 1 if os.path.exists(os.path.join(run_dir, ".train.done")) else None
 
-    def export(self, recipe, run_dir, run_command):
-        out = os.path.join(run_dir, "final_model")
+    def export(self, recipe, run_dir, run_command, iteration=None, out=None):
+        self.exported = iteration
+        out = out or os.path.join(run_dir, "final_model")
         os.makedirs(out, exist_ok=True)
         for name in ("config.json", "model.safetensors", "tokenizer.json"):
             open(os.path.join(out, name), "w").close()
@@ -157,3 +158,24 @@ def test_wandb_unreachable(monkeypatch, tmp_path):
     assert code == 1
     assert ms[-1][1]["stage"] == "check"
     assert ms[-1][1]["reason"] == "the training nodes can't reach wandb at http://127.0.0.1:9"
+
+
+def test_checkpoint_export_runs_only_the_export(monkeypatch, tmp_path):
+    recipe = recipe_for(tmp_path)
+    code, _, _ = run(monkeypatch, recipe, FakeAdapter())
+    assert code == 0
+    status = (tmp_path / "run" / "status.json").read_text()
+
+    export_dir = tmp_path / "run" / "exports" / "step-1"
+    recipe["exportOnly"] = {"step": 1, "dir": str(export_dir)}
+    adapter = FakeAdapter()
+    code, _, ms = run(monkeypatch, recipe, adapter)
+    assert code == 0 and adapter.exported == 1
+    assert {m[1]["stage"] for m in ms if m[0] == "[STAGE]"} == {"start", "export"}, "no other stage runs"
+    assert ms[-1][0] == "[SUCCESS]" and ms[-1][1]["output"] == str(export_dir) and ms[-1][1]["attempt"] == "x1"
+    assert (export_dir / ".done").exists() and json.loads((export_dir / "result.json").read_text())["iteration"] == 1
+    assert (tmp_path / "run" / "status.json").read_text() == status, "the run's attempts stay as they were"
+    assert json.loads((tmp_path / "run" / "result.json").read_text())["output"] == str(tmp_path / "run" / "final_model")
+
+    code, _, ms = run(monkeypatch, recipe, FakeAdapter())
+    assert code == 0 and ms[-1][1]["output"] == str(export_dir), "a finished export is reported again"

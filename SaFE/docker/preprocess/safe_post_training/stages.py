@@ -28,7 +28,7 @@ STAGES = ("prepare", "convert", "check", "train", "export")
 # bf16 weights plus fp32 master weights and two fp32 Adam moments, relative to the bf16 weights on disk.
 CHECKPOINT_FACTOR = 7
 DISK_DIRS = (("checkpoints", "checkpoints"), ("criticCheckpoints", "critic_checkpoints"),
-             ("finalModel", "final_model"), ("finalAdapter", "final_adapter"))
+             ("finalModel", "final_model"), ("finalAdapter", "final_adapter"), ("exports", "exports"))
 PROGRESS_KINDS = ("step", "rollout", "eval")
 ENOSPC_TEXT = "No space left on device"
 CONVERT_LOCK = ".lock"
@@ -236,8 +236,23 @@ class Runner:
         self.report_conversion("skipped")
         return True
 
+    def export_only(self):
+        """Return the checkpoint export the recipe asks for instead of a run, {"step": N, "dir": ...}, or None."""
+        return self.recipe.get("exportOnly")
+
     def run(self):
-        """Run every stage that has not finished yet and return the export result."""
+        """Run every stage that has not finished yet and return the export result; a checkpoint export runs only the
+        export stage, into its own directory."""
+        only = self.export_only()
+        if only:
+            mark = os.path.join(only["dir"], ".done")
+            if os.path.exists(mark):
+                self.emitter.stage("export", state="skipped")
+                return self.read_result(os.path.join(only["dir"], "result.json"), only["dir"])
+            self.emitter.stage("export", state="running")
+            result = self.stage_export()
+            open(mark, "w").close()
+            return result
         result = None
         for stage in STAGES:
             if stage == "convert" and self.reuse_conversion():
@@ -423,8 +438,12 @@ class Runner:
         self.emitter.notice("disk", disk_usage(self.run_dir))
 
     def stage_export(self):
-        """Export the final model and return the result the launcher reports."""
-        output = self.adapter.export(self.recipe, self.run_dir, self.run_command)
+        """Export the final model, or the checkpoint a checkpoint export names, and return the result the launcher
+        reports."""
+        only = self.export_only()
+        iteration = only["step"] if only else self.adapter.latest_checkpoint(self.run_dir)
+        output = self.adapter.export(self.recipe, self.run_dir, self.run_command, iteration=iteration,
+                                     out=only["dir"] if only else None)
         missing = [n for n in ("config.json",) if not os.path.exists(os.path.join(output, n))]
         if not any(n.endswith((".safetensors", ".bin")) for n in os.listdir(output)):
             missing.append("weights")
@@ -432,26 +451,28 @@ class Runner:
             missing.append("tokenizer")
         if missing:
             raise StageError("export", "the exported model lacks %s" % ", ".join(missing), retry=False)
-        result = {"stage": "export", "output": output, "iteration": self.adapter.latest_checkpoint(self.run_dir),
+        result = {"stage": "export", "output": output, "iteration": iteration,
                   "lastMetrics": self.emitter.last_metrics()}
-        self.write_result(result)
+        self.write_result(result, os.path.join(only["dir"], "result.json") if only else None)
         self.report_disk()
         return result
 
-    def write_result(self, result):
+    def write_result(self, result, path=None):
         """Write result.json, which the verification job reads when the result marker is lost."""
-        tmp = self.path("result.json.tmp")
+        path = path or self.path("result.json")
+        tmp = path + ".tmp"
         with open(tmp, "w") as f:
             json.dump(result, f)
-        os.replace(tmp, self.path("result.json"))
+        os.replace(tmp, path)
 
-    def read_result(self):
-        """Read the result an earlier attempt wrote."""
+    def read_result(self, path=None, output=None):
+        """Read the result an earlier attempt wrote: the run's result.json, or the one at path for the model in
+        output."""
         try:
-            with open(self.path("result.json")) as f:
+            with open(path or self.path("result.json")) as f:
                 return json.load(f)
         except (OSError, ValueError):
-            return {"stage": "export", "output": self.path("final_model")}
+            return {"stage": "export", "output": output or self.path("final_model")}
 
     def run_command(self, cmd, env=None, parse=False, watch=None):
         """Run a command in its own process group, forward its output and, when parse is set, turn metric lines

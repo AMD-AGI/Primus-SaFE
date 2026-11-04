@@ -102,19 +102,24 @@ class Adapter:
         except (OSError, ValueError):
             return None
 
-    def export(self, recipe, run_dir, run_command):
-        """Convert the latest checkpoint to HF in final_model/ and copy the tokenizer from the base model."""
-        iteration = self.latest_checkpoint(run_dir)
+    def export(self, recipe, run_dir, run_command, iteration=None, out=None):
+        """Convert a checkpoint, the latest unless iteration names one, to HF in out (final_model/ by default) and
+        copy the tokenizer from the base model."""
+        if iteration is None:
+            iteration = self.latest_checkpoint(run_dir)
         if iteration is None:
             raise StageError("export", "there is no checkpoint to export", retry=False)
         root, base = slime_dir(self.env), recipe["model"]["path"]
-        out = os.path.join(run_dir, "final_model")
+        out = out or os.path.join(run_dir, "final_model")
         src = os.path.join(run_dir, "checkpoints", "iter_%07d" % iteration)
+        if not os.path.isdir(src):
+            raise StageError("export", "the checkpoint of iteration %d no longer exists" % iteration, retry=False)
         cmd = [sys.executable, os.path.join(root, "tools", "convert_torch_dist_to_hf.py"),
                "--input-dir", src, "--output-dir", out, "--origin-hf-dir", base, "-f"]
         code = run_command(cmd, env={"PYTHONPATH": python_path(root, self.env)})
         if code != 0:
             raise StageError("export", "HF export exited with code %d" % code)
+        os.makedirs(out, exist_ok=True)
         for name in _TOKENIZER_FILES:
             if os.path.exists(os.path.join(base, name)) and not os.path.exists(os.path.join(out, name)):
                 shutil.copy(os.path.join(base, name), os.path.join(out, name))

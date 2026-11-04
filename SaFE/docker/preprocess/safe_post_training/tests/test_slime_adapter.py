@@ -72,3 +72,27 @@ def test_train_command_uses_the_model_script(tmp_path):
     assert files == {"plugins.yaml": "x: 1"}
     with pytest.raises(StageError, match="does not exist in the image"):
         a.train_command({"model": {"script": "scripts/models/none.sh"}, "frameworkArgs": []}, str(tmp_path))
+
+
+def test_export_names_a_checkpoint(tmp_path):
+    root = tmp_path / "slime"
+    (root / "tools").mkdir(parents=True)
+    (root / "train.py").write_text("")
+    (tmp_path / "base").mkdir()
+    (tmp_path / "base" / "tokenizer.json").write_text("{}")
+    (tmp_path / "checkpoints" / "iter_0000008").mkdir(parents=True)
+    commands = []
+
+    def run_command(cmd, env=None):
+        commands.append(cmd)
+        return 0
+
+    a = Adapter(env={"SLIME_DIR": str(root)})
+    recipe = {"model": {"path": str(tmp_path / "base")}}
+    out = a.export(recipe, str(tmp_path), run_command, iteration=8, out=str(tmp_path / "exports" / "step-8"))
+    assert out == str(tmp_path / "exports" / "step-8")
+    assert commands[0][commands[0].index("--input-dir") + 1] == str(tmp_path / "checkpoints" / "iter_0000008")
+    assert (tmp_path / "exports" / "step-8" / "tokenizer.json").exists()
+    with pytest.raises(StageError, match="iteration 4 no longer exists") as e:
+        a.export(recipe, str(tmp_path), run_command, iteration=4)
+    assert not e.value.retry
