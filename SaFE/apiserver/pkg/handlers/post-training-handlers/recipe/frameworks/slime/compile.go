@@ -341,6 +341,10 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 			// The reference copy is taken from the actor loaded from the base, whose adapters start at zero.
 			a.add("--ref-trainable-only")
 		}
+		if c.Lora.AdapterOnlyCheckpoint {
+			// Checkpoints hold the adapters only; loading reads the base from its HF directory first.
+			a.add("--trainable-only-ckpt-base", in.Model.Path)
+		}
 	}
 
 	a.add("--tensor-model-parallel-size", itoa(c.TP), "--pipeline-model-parallel-size", itoa(c.PP),

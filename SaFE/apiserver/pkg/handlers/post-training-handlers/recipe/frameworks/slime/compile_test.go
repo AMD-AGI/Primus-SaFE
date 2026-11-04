@@ -420,6 +420,12 @@ func TestCompileLoraSFT(t *testing.T) {
 	require.Equal(t, cfg.Lora, *res.Recipe.Lora, "the export reads rank and alpha from the recipe")
 	require.Contains(t, warningsOf(res), "has not been verified")
 
+	require.NotContains(t, args, "--trainable-only-ckpt-base")
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureLoraAdapterCkpt)
+	in.Request.Choices.Lora = &recipe.LoraChoice{AdapterOnlyCheckpoint: true}
+	require.Contains(t, strings.Join(compile(t, in).Recipe.FrameworkArgs, " "),
+		"--trainable-only-ckpt-base "+in.Model.Path, "checkpoints hold the adapters, loaded on top of the HF base")
+
 	full := compile(t, qwen3Input(t, registry.TrainTypeSFT))
 	require.Nil(t, full.Recipe.Lora)
 	require.NotContains(t, strings.Join(full.Recipe.FrameworkArgs, " "), "custom-model-provider-path")

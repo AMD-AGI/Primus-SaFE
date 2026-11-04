@@ -989,6 +989,7 @@ data:
         timeout INTEGER,
         output_path TEXT,
         output_model_id VARCHAR(64),
+        output_adapter_path TEXT,
         status VARCHAR(32) NOT NULL DEFAULT 'Pending',
         stage VARCHAR(32) NOT NULL DEFAULT 'queued',
         failed_stage VARCHAR(32),
