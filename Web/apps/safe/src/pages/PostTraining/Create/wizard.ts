@@ -230,6 +230,13 @@ export function createWizard(workspace: string, nodeFlavor?: string) {
   /** Compiles the request; an answer to an older request is dropped. */
   const runPreview = async () => {
     const seq = ++previewSeq
+    if (!form.modelId) {
+      // The compiler needs the base model; a request without one is refused.
+      preview.value = undefined
+      previewError.value = ''
+      checking.value = false
+      return
+    }
     checking.value = true
     try {
       const res = (await previewPostTrainingRecipe(

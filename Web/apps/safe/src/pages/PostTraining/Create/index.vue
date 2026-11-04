@@ -2,7 +2,7 @@
 <template>
   <div class="flex items-center gap-3">
     <el-text class="block textx-18 font-500" tag="b">New Post Training Run</el-text>
-    <span class="text-[12px] text-[var(--safe-muted)]">Workspace {{ w.workspace }}</span>
+    <span class="text-[12px] text-[var(--safe-muted)]">Workspace {{ workspaceName }}</span>
   </div>
 
   <el-alert
@@ -194,6 +194,9 @@ const router = useRouter()
 const wsStore = useWorkspaceStore()
 
 const w = createWizard(wsStore.currentWorkspaceId ?? '', wsStore.currentNodeFlavor)
+const workspaceName = computed(
+  () => wsStore.items.find((i) => i.workspaceId === w.workspace)?.workspaceName || w.workspace,
+)
 provideWizard(w)
 
 const stepComponents: Component[] = [

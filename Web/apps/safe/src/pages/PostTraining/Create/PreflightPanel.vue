@@ -11,7 +11,11 @@
       <span v-if="w.checking.value" class="text-[12px] text-[var(--safe-muted)]">Checking…</span>
     </div>
 
-    <div v-if="w.previewError.value" class="mt-3">
+    <div v-if="!w.form.modelId" class="mt-3 text-[12px] text-[var(--safe-muted)]">
+      Choose a base model to check the recipe.
+    </div>
+
+    <div v-else-if="w.previewError.value" class="mt-3">
       <div class="font-500">Preflight unavailable</div>
       <div class="text-[12px] text-[var(--safe-muted)]">{{ w.previewError.value }}</div>
       <el-button class="mt-2" size="small" round @click="w.runPreview()">Retry</el-button>
@@ -47,7 +51,7 @@
         <div class="pt-preflight-title">Resources</div>
         <el-descriptions :column="1" size="small">
           <el-descriptions-item label="Framework">{{
-            w.form.framework || '—'
+            w.form.framework || w.config.value?.framework || '—'
           }}</el-descriptions-item>
           <el-descriptions-item label="Nodes">{{ nodesText }}</el-descriptions-item>
           <el-descriptions-item label="Layout">{{ layoutText }}</el-descriptions-item>
