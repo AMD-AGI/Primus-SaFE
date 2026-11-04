@@ -41,7 +41,7 @@ func cleanupHandler(t *testing.T) *Handler {
 }
 
 func TestPlanCleanup(t *testing.T) {
-	h := cleanupHandler(t)
+	h := exportHandler(t)
 	ctx := context.Background()
 
 	plan, err := h.planCleanup(ctx, cleanupRun("Succeeded"), "best")
@@ -67,6 +67,10 @@ func TestPlanCleanup(t *testing.T) {
 	rl.TrainType = "rl"
 	_, err = h.planCleanup(ctx, rl, "best")
 	require.Equal(t, http.StatusBadRequest, statusCode(err), "RL has no validation loss to pick the best by")
+
+	h = exportHandler(t, exportJob("pt-1-x20-b", "Running", 2))
+	_, err = h.planCleanup(ctx, cleanupRun("Succeeded"), "none")
+	require.Equal(t, http.StatusConflict, statusCode(err), "a running export still reads its checkpoint")
 }
 
 func TestMarkersShowCleanedCheckpoints(t *testing.T) {
