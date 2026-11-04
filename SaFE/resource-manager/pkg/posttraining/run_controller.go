@@ -74,6 +74,8 @@ type stageEntry struct {
 	ResumeStep *int64 `json:"resumeStep,omitempty"`
 	Event      string `json:"event,omitempty"`
 	Message    string `json:"message,omitempty"`
+	// KeptStep is the checkpoint a checkpoint cleanup kept.
+	KeptStep *int `json:"keptStep,omitempty"`
 }
 
 // runRecipe is the part of the recipe snapshot the controller reads.
@@ -275,6 +277,9 @@ func SetupPostTrainingController(_ context.Context, mgr manager.Manager) error {
 	if err = mgr.Add(manager.RunnableFunc(r.runCacheSweeps)); err != nil {
 		return err
 	}
+	if err = mgr.Add(manager.RunnableFunc(r.runCleanupPolls)); err != nil {
+		return err
+	}
 	klog.Info("Setup Post Training controller successfully")
 	return nil
 }
@@ -324,6 +329,10 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) 
 			return ctrlruntime.Result{}, nil
 		}
 		return ctrlruntime.Result{}, reconcileError("database", err)
+	}
+	if run.CleanupRequest != "" && finished(run) {
+		res, err := r.reconcileCleanup(ctx, run)
+		return res, reconcileError("cleanup", err)
 	}
 	if finished(run) || run.Stage == "eval" {
 		res, err := r.reconcileEvaluations(ctx, run)

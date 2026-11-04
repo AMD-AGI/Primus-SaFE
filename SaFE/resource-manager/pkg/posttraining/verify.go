@@ -99,7 +99,7 @@ func (r *RunReconciler) verify(ctx context.Context, u *runUpdate, endTime time.T
 			u.fail(fallbackStage, fallbackReason, endTime)
 			return ctrlruntime.Result{}, r.save(ctx, u)
 		}
-		if err = r.Create(ctx, newVerifyJob(run)); err != nil && !apierrors.IsAlreadyExists(err) {
+		if err = r.Create(ctx, newRunDirJob(run, verifyJobName(run.RunID))); err != nil && !apierrors.IsAlreadyExists(err) {
 			return ctrlruntime.Result{}, err
 		}
 		u.event("verify", "The result marker is missing; checking the run directory")
@@ -133,11 +133,11 @@ func (r *RunReconciler) verify(ctx context.Context, u *runUpdate, endTime time.T
 	return ctrlruntime.Result{}, r.save(ctx, u)
 }
 
-// newVerifyJob builds the model-inspect job that checks the run directory in the run's workspace.
-func newVerifyJob(run *dbclient.PostTrainingRun) *v1.OpsJob {
+// newRunDirJob builds a model-inspect job named name that checks the run directory in the run's workspace and
+// reports its usage.
+func newRunDirJob(run *dbclient.PostTrainingRun, name string) *v1.OpsJob {
 	image := commonconfig.GetDownloadJoImage()
 	entryPoint := base64.StdEncoding.EncodeToString([]byte(runVerifyScript))
-	name := verifyJobName(run.RunID)
 	return &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
