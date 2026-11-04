@@ -586,7 +586,7 @@ func TestEvalHandleWorkloadExists(t *testing.T) {
 func TestBuildEvalCommand(t *testing.T) {
 	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
 	benchmarks := `[{"datasetName":"math_500","datasetLocalDir":"/data/math_500","limit":10}]`
-	cmd, err := r.buildEvalCommand(context.Background(), "http://m", "model", "", benchmarks, "task1", "", "", "", "", 7200, 32)
+	cmd, err := r.buildEvalCommand(context.Background(), "http://m", "model", "", benchmarks, "task1", "", "", "", "", 7200, 32, false)
 	assert.NoError(t, err)
 	assert.Contains(t, cmd, "Pre-flight check")
 	assert.Contains(t, cmd, "math_500")
@@ -595,7 +595,7 @@ func TestBuildEvalCommand(t *testing.T) {
 func TestBuildEvalCommandMultiWithUpload(t *testing.T) {
 	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
 	benchmarks := `[{"datasetName":"a","datasetLocalDir":"/d/a"},{"datasetName":"b","datasetLocalDir":"/d/b"}]`
-	cmd, err := r.buildEvalCommand(context.Background(), "http://m", "model", "", benchmarks, "task1", "http://put", "", "", "", 0, 16)
+	cmd, err := r.buildEvalCommand(context.Background(), "http://m", "model", "", benchmarks, "task1", "http://put", "", "", "", 0, 16, false)
 	assert.NoError(t, err)
 	assert.Contains(t, cmd, "http://put")
 }
@@ -603,10 +603,10 @@ func TestBuildEvalCommandMultiWithUpload(t *testing.T) {
 func TestBuildEvalCommandErrors(t *testing.T) {
 	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t)}
 	// Invalid JSON.
-	_, err := r.buildEvalCommand(context.Background(), "m", "n", "", "bad", "t", "", "", "", "", 0, 1)
+	_, err := r.buildEvalCommand(context.Background(), "m", "n", "", "bad", "t", "", "", "", "", 0, 1, false)
 	assert.Error(t, err)
 	// Empty benchmarks.
-	_, err = r.buildEvalCommand(context.Background(), "m", "n", "", "[]", "t", "", "", "", "", 0, 1)
+	_, err = r.buildEvalCommand(context.Background(), "m", "n", "", "[]", "t", "", "", "", "", 0, 1, false)
 	assert.Error(t, err)
 }
 

@@ -90,6 +90,9 @@ const (
 
 	// Evaluation performance parameters
 	ParameterEvalConcurrency = "eval.concurrency" // Concurrency level for evaluation (default 32)
+	// ParameterEvalProbes is the JSON list of output probes the pre-check sends after /models; see
+	// common/pkg/posttraining/registry.Probe.
+	ParameterEvalProbes = "eval.probes"
 
 	// Model prewarm job parameters
 	ParameterModelPath   = "model.path"
