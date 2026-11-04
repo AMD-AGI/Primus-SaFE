@@ -114,10 +114,12 @@
     <el-card class="mt-4 safe-card" shadow="never">
       <el-table
         ref="tableRef"
-        :data="rows"
+        :data="tableRows"
         :height="tableHeight"
         size="large"
         row-key="runId"
+        default-expand-all
+        :tree-props="{ children: 'children' }"
         v-loading="loading"
         :element-loading-text="$loadingText"
         @filter-change="handleFilterChange"
@@ -165,43 +167,58 @@
           :selectable="selectable"
         />
         <el-table-column label="Run Name / ID" min-width="270" fixed="left">
-          <template #default="{ row }">
-            <div class="flex flex-col items-start min-w-0">
-              <div class="flex items-center gap-1 max-w-full">
-                <el-link
-                  v-if="canOpenDetail"
-                  type="primary"
-                  class="truncate"
-                  @click.stop="goDetail(row)"
-                >
-                  {{ row.displayName }}
-                </el-link>
-                <span v-else class="truncate">{{ row.displayName }}</span>
-                <el-tag v-if="row.variantName" size="small" type="info" round>{{
-                  row.variantName
-                }}</el-tag>
-              </div>
-              <div class="flex items-center gap-1">
-                <span class="text-[12px] text-[var(--safe-muted)]">{{ row.runId }}</span>
-                <el-tooltip v-if="row.verifiedRuns" placement="top">
-                  <template #content>
-                    This recipe succeeded {{ row.verifiedRuns }}
-                    {{ row.verifiedRuns === 1 ? 'time' : 'times' }} on this platform.
-                    <el-button
-                      v-if="canOpenDetail && row.latestVerifiedRun"
-                      link
-                      type="primary"
-                      @click.stop="goDetail({ runId: row.latestVerifiedRun })"
-                    >
-                      Latest run
-                    </el-button>
-                  </template>
-                  <el-tag size="small" type="primary" effect="light" round
-                    >✓ Verified ×{{ row.verifiedRuns }}</el-tag
+          <template #default="{ row }"
+            ><template v-if="!isGroup(row)">
+              <div class="flex flex-col items-start min-w-0">
+                <div class="flex items-center gap-1 max-w-full">
+                  <el-link
+                    v-if="canOpenDetail"
+                    type="primary"
+                    class="truncate"
+                    @click.stop="goDetail(row)"
                   >
-                </el-tooltip>
+                    {{ row.displayName }}
+                  </el-link>
+                  <span v-else class="truncate">{{ row.displayName }}</span>
+                  <el-tag v-if="row.variantName" size="small" type="info" round>{{
+                    row.variantName
+                  }}</el-tag>
+                </div>
+                <div class="flex items-center gap-1">
+                  <span class="text-[12px] text-[var(--safe-muted)]">{{ row.runId }}</span>
+                  <el-tooltip v-if="row.verifiedRuns" placement="top">
+                    <template #content>
+                      This recipe succeeded {{ row.verifiedRuns }}
+                      {{ row.verifiedRuns === 1 ? 'time' : 'times' }} on this platform.
+                      <el-button
+                        v-if="canOpenDetail && row.latestVerifiedRun"
+                        link
+                        type="primary"
+                        @click.stop="goDetail({ runId: row.latestVerifiedRun })"
+                      >
+                        Latest run
+                      </el-button>
+                    </template>
+                    <el-tag size="small" type="primary" effect="light" round
+                      >✓ Verified ×{{ row.verifiedRuns }}</el-tag
+                    >
+                  </el-tooltip>
+                </div>
               </div>
-            </div>
+            </template>
+            <template v-else>
+              <div class="flex items-center gap-2">
+                <span class="font-500">{{ row.name }}</span>
+                <span class="text-[12px] text-[var(--safe-muted)]">{{ groupSummary(row) }}</span>
+                <el-link
+                  v-if="router.hasRoute('PostTrainingExperiment')"
+                  type="primary"
+                  @click.stop="openExperiment(row.experimentId)"
+                >
+                  View experiment
+                </el-link>
+              </div>
+            </template>
           </template>
         </el-table-column>
 
@@ -215,27 +232,32 @@
           filter-placement="bottom-start"
           :filter-method="passAll"
         >
-          <template #default="{ row }">
-            <div class="flex items-center gap-1">
-              <el-tag
-                size="small"
-                :type="row.trainType === 'sft' ? 'success' : 'warning'"
-                effect="plain"
-              >
-                {{ row.trainType?.toUpperCase() }}
-              </el-tag>
-              <el-tag size="small" type="info" effect="plain">{{ methodLabel(row.method) }}</el-tag>
-            </div>
-            <div v-if="row.algorithm" class="text-[12px] text-[var(--safe-muted)]">
-              {{ row.algorithm.toUpperCase() }}
-            </div>
-          </template>
+          <template #default="{ row }"
+            ><template v-if="!isGroup(row)">
+              <div class="flex items-center gap-1">
+                <el-tag
+                  size="small"
+                  :type="row.trainType === 'sft' ? 'success' : 'warning'"
+                  effect="plain"
+                >
+                  {{ row.trainType?.toUpperCase() }}
+                </el-tag>
+                <el-tag size="small" type="info" effect="plain">{{
+                  methodLabel(row.method)
+                }}</el-tag>
+              </div>
+              <div v-if="row.algorithm" class="text-[12px] text-[var(--safe-muted)]">
+                {{ row.algorithm.toUpperCase() }}
+              </div>
+            </template></template
+          >
         </el-table-column>
 
         <el-table-column label="Progress" width="150">
-          <template #default="{ row }">
-            <StageBar :run="row" :step="summaryOf(row)?.main?.step" />
-          </template>
+          <template #default="{ row }"
+            ><template v-if="!isGroup(row)">
+              <StageBar :run="row" :step="summaryOf(row)?.main?.step" /> </template
+          ></template>
         </el-table-column>
 
         <el-table-column
@@ -247,132 +269,162 @@
           :filtered-value="filters.status"
           :filter-method="passAll"
         >
-          <template #default="{ row }">
-            <el-tag
-              size="small"
-              :type="statusTagType(row.status)"
-              :effect="isDark ? 'plain' : 'light'"
-            >
-              <span v-if="row.status === 'Running'" class="pt-dot" />{{ row.status }}
-            </el-tag>
-            <el-tooltip v-if="statusNote(row).text" :content="statusNote(row).text" placement="top">
-              <div class="text-[12px] truncate" :class="statusNote(row).cls">
-                {{ statusNote(row).text }}
-              </div>
-            </el-tooltip>
-          </template>
+          <template #default="{ row }"
+            ><template v-if="!isGroup(row)">
+              <el-tag
+                size="small"
+                :type="statusTagType(row.status)"
+                :effect="isDark ? 'plain' : 'light'"
+              >
+                <span v-if="row.status === 'Running'" class="pt-dot" />{{ row.status }}
+              </el-tag>
+              <el-tooltip
+                v-if="statusNote(row).text"
+                :content="statusNote(row).text"
+                placement="top"
+              >
+                <div class="text-[12px] truncate" :class="statusNote(row).cls">
+                  {{ statusNote(row).text }}
+                </div>
+              </el-tooltip>
+            </template></template
+          >
         </el-table-column>
 
         <el-table-column label="Key Metric" width="150">
-          <template #default="{ row }">
-            <template v-if="summaryOf(row)?.main">
-              <div class="flex items-center gap-2">
-                <Sparkline
-                  :points="summaryOf(row)!.main!.spark"
-                  :color="row.status === 'Stopped' ? 'var(--safe-muted)' : 'var(--safe-primary)'"
-                />
-                <span class="font-500">{{ formatValue(summaryOf(row)!.main!.value) }}</span>
-              </div>
-              <div class="text-[12px] text-[var(--safe-muted)]">
-                {{ summaryOf(row)!.main!.name }}
-              </div>
-            </template>
-            <span v-else>—</span>
-          </template>
+          <template #default="{ row }"
+            ><template v-if="!isGroup(row)">
+              <template v-if="summaryOf(row)?.main">
+                <div class="flex items-center gap-2">
+                  <Sparkline
+                    :points="summaryOf(row)!.main!.spark"
+                    :color="row.status === 'Stopped' ? 'var(--safe-muted)' : 'var(--safe-primary)'"
+                  />
+                  <span class="font-500">{{ formatValue(summaryOf(row)!.main!.value) }}</span>
+                </div>
+                <div class="text-[12px] text-[var(--safe-muted)]">
+                  {{ summaryOf(row)!.main!.name }}
+                </div>
+              </template>
+              <span v-else>—</span>
+            </template></template
+          >
         </el-table-column>
 
         <el-table-column label="Base Model" width="130" show-overflow-tooltip>
-          <template #default="{ row }">
-            <el-link
-              type="primary"
-              @click.stop="router.push(`/model-square/detail/${row.baseModelId}`)"
-            >
-              {{ row.baseModelName || row.baseModelId }}
-            </el-link>
-          </template>
+          <template #default="{ row }"
+            ><template v-if="!isGroup(row)">
+              <el-link
+                type="primary"
+                @click.stop="router.push(`/model-square/detail/${row.baseModelId}`)"
+              >
+                {{ row.baseModelName || row.baseModelId }}
+              </el-link>
+            </template></template
+          >
         </el-table-column>
 
         <el-table-column label="Dataset" width="140" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.datasetName || row.datasetId || '—' }}</template>
+          <template #default="{ row }"
+            ><template v-if="!isGroup(row)">{{
+              row.datasetName || row.datasetId || '—'
+            }}</template></template
+          >
         </el-table-column>
 
         <el-table-column label="Output" width="220" show-overflow-tooltip>
-          <template #default="{ row }">
-            <el-link
-              v-if="row.outputModelId"
-              type="primary"
-              @click.stop="router.push(`/model-square/detail/${row.outputModelId}`)"
-            >
-              {{ row.outputModelId }}
-            </el-link>
-            <span v-else>—</span>
-          </template>
+          <template #default="{ row }"
+            ><template v-if="!isGroup(row)">
+              <el-link
+                v-if="row.outputModelId"
+                type="primary"
+                @click.stop="router.push(`/model-square/detail/${row.outputModelId}`)"
+              >
+                {{ row.outputModelId }}
+              </el-link>
+              <span v-else>—</span>
+            </template></template
+          >
         </el-table-column>
 
         <el-table-column label="Evaluation" width="180">
-          <template #default="{ row }">{{ evaluationText(row) }}</template>
+          <template #default="{ row }"
+            ><template v-if="!isGroup(row)">{{ evaluationText(row) }}</template></template
+          >
         </el-table-column>
 
         <el-table-column label="Created" width="110">
-          <template #default="{ row }">
-            <el-tooltip :content="formatTimeStr(timeOf(row.createdAt))" placement="top">
-              <span>{{ shortTime(timeOf(row.createdAt)) }}</span>
-            </el-tooltip>
-          </template>
+          <template #default="{ row }"
+            ><template v-if="!isGroup(row)">
+              <el-tooltip :content="formatTimeStr(timeOf(row.createdAt))" placement="top">
+                <span>{{ shortTime(timeOf(row.createdAt)) }}</span>
+              </el-tooltip>
+            </template></template
+          >
         </el-table-column>
 
         <el-table-column label="Duration" width="90">
-          <template #default="{ row }">{{ durationOf(row) }}</template>
+          <template #default="{ row }"
+            ><template v-if="!isGroup(row)">{{ durationOf(row) }}</template></template
+          >
         </el-table-column>
 
         <el-table-column label="Owner" width="90" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.userName || row.userId }}</template>
+          <template #default="{ row }"
+            ><template v-if="!isGroup(row)">{{ row.userName || row.userId }}</template></template
+          >
         </el-table-column>
 
         <el-table-column label="Actions" width="206" fixed="right">
-          <template #default="{ row }">
-            <el-button v-if="canOpenDetail" link type="primary" @click.stop="goDetail(row)"
-              >Details</el-button
-            >
-            <el-tooltip
-              v-if="isActive(row)"
-              :content="readOnlyTip"
-              :disabled="!isReadonly"
-              placement="top"
-            >
-              <span>
-                <el-button link type="primary" :disabled="isReadonly" @click.stop="handleStop(row)"
-                  >Stop</el-button
-                >
-              </span>
-            </el-tooltip>
-            <el-tooltip
-              v-if="canCreate"
-              :content="isReadonly ? readOnlyTip : createBlocked"
-              :disabled="!isReadonly && !createBlocked"
-              placement="top"
-            >
-              <span>
-                <el-button
-                  link
-                  type="primary"
-                  :disabled="isReadonly || !!createBlocked"
-                  @click.stop="
-                    router.push({ path: '/post-training/create', query: { fromRun: row.runId } })
-                  "
-                >
-                  Copy
-                </el-button>
-              </span>
-            </el-tooltip>
-            <el-tooltip :content="readOnlyTip" :disabled="!isReadonly" placement="top">
-              <span>
-                <el-button link type="danger" :disabled="isReadonly" @click.stop="openDelete(row)"
-                  >Delete</el-button
-                >
-              </span>
-            </el-tooltip>
-          </template>
+          <template #default="{ row }"
+            ><template v-if="!isGroup(row)">
+              <el-button v-if="canOpenDetail" link type="primary" @click.stop="goDetail(row)"
+                >Details</el-button
+              >
+              <el-tooltip
+                v-if="isActive(row)"
+                :content="readOnlyTip"
+                :disabled="!isReadonly"
+                placement="top"
+              >
+                <span>
+                  <el-button
+                    link
+                    type="primary"
+                    :disabled="isReadonly"
+                    @click.stop="handleStop(row)"
+                    >Stop</el-button
+                  >
+                </span>
+              </el-tooltip>
+              <el-tooltip
+                v-if="canCreate"
+                :content="isReadonly ? readOnlyTip : createBlocked"
+                :disabled="!isReadonly && !createBlocked"
+                placement="top"
+              >
+                <span>
+                  <el-button
+                    link
+                    type="primary"
+                    :disabled="isReadonly || !!createBlocked"
+                    @click.stop="
+                      router.push({ path: '/post-training/create', query: { fromRun: row.runId } })
+                    "
+                  >
+                    Copy
+                  </el-button>
+                </span>
+              </el-tooltip>
+              <el-tooltip :content="readOnlyTip" :disabled="!isReadonly" placement="top">
+                <span>
+                  <el-button link type="danger" :disabled="isReadonly" @click.stop="openDelete(row)"
+                    >Delete</el-button
+                  >
+                </span>
+              </el-tooltip>
+            </template></template
+          >
         </el-table-column>
       </el-table>
 
@@ -431,6 +483,8 @@ import { useClusterStore } from '@/stores/cluster'
 import {
   cleanupHintBytes,
   deletePostTrainingRun,
+  listPostTrainingExperiments,
+  type ExperimentListResp,
   formatDuration,
   getPostTrainingModels,
   listPostTrainingRuns,
@@ -668,9 +722,78 @@ const compareTip = computed(() => {
   return ''
 })
 
-/** Rows stay selectable until five are selected. */
-const selectable = (row: PostTrainingRun) =>
-  selected.value.length < MAX_COMPARE || selected.value.some((r) => r.runId === row.runId)
+/** Runs stay selectable until five are selected; experiment headers never are. */
+const selectable = (row: PostTrainingRun | ExperimentGroup) =>
+  !isGroup(row) &&
+  (selected.value.length < MAX_COMPARE || selected.value.some((r) => r.runId === row.runId))
+
+/** The header row of an A/B experiment's runs on this page. */
+type ExperimentGroup = {
+  runId: string
+  isGroup: true
+  experimentId: string
+  name: string
+  children: PostTrainingRun[]
+}
+const isGroup = (row: PostTrainingRun | ExperimentGroup): row is ExperimentGroup => 'isGroup' in row
+
+const experimentNames = reactive(new Map<string, string>())
+
+/** The page's runs with the runs of each A/B experiment folded under one header, where the first of them is. */
+const tableRows = computed(() => {
+  const out: (PostTrainingRun | ExperimentGroup)[] = []
+  const groups = new Map<string, ExperimentGroup>()
+  for (const r of rows.value) {
+    if (!r.experimentId) {
+      out.push(r)
+      continue
+    }
+    let g = groups.get(r.experimentId)
+    if (!g) {
+      g = {
+        runId: `experiment:${r.experimentId}`,
+        isGroup: true,
+        experimentId: r.experimentId,
+        name: experimentNames.get(r.experimentId) ?? r.experimentId,
+        children: [],
+      }
+      groups.set(r.experimentId, g)
+      out.push(g)
+    }
+    g.children.push(r)
+  }
+  return out
+})
+
+/** The run count and status counts of an experiment's runs on this page. */
+const groupSummary = (g: ExperimentGroup) => {
+  const counts = new Map<string, number>()
+  for (const r of g.children) counts.set(r.status, (counts.get(r.status) ?? 0) + 1)
+  const parts = [...counts].map(([s, n]) => `${n} ${s}`)
+  return [`${g.children.length} runs`, ...parts].join(' · ')
+}
+
+/** Reads the names of the experiments on this page that are not known yet. */
+const loadExperimentNames = async () => {
+  const ids = [
+    ...new Set(rows.value.map((r) => r.experimentId).filter((id): id is string => !!id)),
+  ].filter((id) => !experimentNames.has(id))
+  if (!ids.length || !wsStore.currentWorkspaceId) return
+  try {
+    const res = (await listPostTrainingExperiments(
+      { workspace: wsStore.currentWorkspaceId, experimentIds: ids.join(','), limit: ids.length },
+      true,
+    )) as unknown as ExperimentListResp
+    for (const e of res.items ?? []) experimentNames.set(e.experimentId, e.displayName)
+  } catch {
+    /* the headers show the experiment ids */
+  }
+}
+watch(rows, loadExperimentNames)
+
+const openExperiment = (experimentId: string) => {
+  router.push({ path: '/post-training/experiments/detail', query: { experimentId } })
+}
 
 const goCompare = () => {
   router.push({
