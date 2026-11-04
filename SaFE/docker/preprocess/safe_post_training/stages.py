@@ -8,12 +8,15 @@ Each stage leaves a completion mark, so a retried workload skips the stages that
 specific work (conversion, the training command, export and metric lines) comes from the recipe's adapter.
 """
 
+import contextlib
 import functools
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import time
 
 from safe_post_training import dataset
 
@@ -24,6 +27,11 @@ DISK_DIRS = (("checkpoints", "checkpoints"), ("criticCheckpoints", "critic_check
              ("finalModel", "final_model"), ("finalAdapter", "final_adapter"))
 PROGRESS_KINDS = ("step", "rollout", "eval")
 ENOSPC_TEXT = "No space left on device"
+CONVERT_LOCK = ".lock"
+SOURCE_FILE = "source.json"
+# A conversion lock older than this was left by a conversion that died; the next run takes it over.
+LOCK_STALE_SECONDS = 6 * 3600
+LOCK_POLL_SECONDS = 30
 
 
 class StageError(Exception):
@@ -63,6 +71,41 @@ def space_reason(run_dir):
         free / float(1 << 30), disk_usage(run_dir)["total"] / float(1 << 30))
 
 
+def weights_fingerprint(model_dir):
+    """Return the sha256 of the names, sizes and modification times of a model's config and weight files."""
+    digest = hashlib.sha256()
+    for name in sorted(os.listdir(model_dir)):
+        if name == "config.json" or name.endswith((".safetensors", ".bin", ".pth", ".pt")):
+            st = os.stat(os.path.join(model_dir, name))
+            digest.update(("%s\0%d\0%d\n" % (name, st.st_size, int(st.st_mtime))).encode())
+    return digest.hexdigest()
+
+
+@contextlib.contextmanager
+def cache_lock(root, sleep=time.sleep, clock=time.time):
+    """Hold the conversion lock of a cache directory. mkdir is atomic on the shared storage, so one run converts
+    while the others wait; a lock older than LOCK_STALE_SECONDS is taken over."""
+    os.makedirs(root, exist_ok=True)
+    lock = os.path.join(root, CONVERT_LOCK)
+    while True:
+        try:
+            os.mkdir(lock)
+            break
+        except FileExistsError:
+            try:
+                age = clock() - os.path.getmtime(lock)
+            except OSError:
+                continue
+            if age > LOCK_STALE_SECONDS:
+                shutil.rmtree(lock, ignore_errors=True)
+                continue
+            sleep(LOCK_POLL_SECONDS)
+    try:
+        yield
+    finally:
+        shutil.rmtree(lock, ignore_errors=True)
+
+
 def weights_size(model_dir):
     """Return the size of a HF model's weight files."""
     total = 0
@@ -84,9 +127,9 @@ def ray_gpus():
 class Runner:
     """Runs the stages of one recipe."""
 
-    def __init__(self, recipe, run_dir, adapter, emitter, gpus=ray_gpus, watchdog=None):
+    def __init__(self, recipe, run_dir, adapter, emitter, gpus=ray_gpus, watchdog=None, sleep=time.sleep):
         self.recipe, self.run_dir, self.adapter, self.emitter, self.gpus = recipe, run_dir, adapter, emitter, gpus
-        self.watchdog = watchdog
+        self.watchdog, self.sleep = watchdog, sleep
         self.enospc = False
         self.checkpoint = None
 
@@ -99,15 +142,48 @@ class Runner:
         convert = self.recipe.get("convert") or {}
         return {
             "prepare": self.path("data", ".done"),
-            "convert": os.path.join(convert.get("dir", self.path("convert")), ".complete"),
             "train": self.path(".train.done"),
             "export": self.path("final_model", ".done"),
         }.get(stage)
+
+    def convert_paths(self):
+        """Return the conversion's output directory, its cache directory and its completion mark."""
+        out = (self.recipe.get("convert") or {}).get("dir", self.path("convert", "torch_dist"))
+        return out, os.path.dirname(out), os.path.join(out, ".complete")
+
+    def report_conversion(self, state):
+        """Print the convert [STAGE] that registers a shared conversion with the controller."""
+        out, root, _ = self.convert_paths()
+        detail = None
+        if (self.recipe.get("convert") or {}).get("cacheKey"):
+            detail = {"cacheKey": self.recipe["convert"]["cacheKey"], "dir": root, "sizeBytes": dir_size(out)}
+        self.emitter.stage("convert", state=state, detail=detail)
+
+    def check_source(self, root):
+        """Fail unless the conversion in root was made from the model's current weights."""
+        try:
+            with open(os.path.join(root, SOURCE_FILE)) as f:
+                source = json.load(f)
+        except (OSError, ValueError):
+            source = {}
+        if source.get("fingerprint") != weights_fingerprint(self.recipe["model"]["path"]):
+            raise StageError("convert", "the conversion cache does not match the model weights", retry=False)
+
+    def reuse_conversion(self):
+        """Report a complete conversion of the model's current weights as skipped; returns whether there is one."""
+        _, root, complete = self.convert_paths()
+        if not os.path.exists(complete):
+            return False
+        self.check_source(root)
+        self.report_conversion("skipped")
+        return True
 
     def run(self):
         """Run every stage that has not finished yet and return the export result."""
         result = None
         for stage in STAGES:
+            if stage == "convert" and self.reuse_conversion():
+                continue
             mark = self.done_mark(stage)
             if mark and os.path.exists(mark):
                 self.emitter.stage(stage, state="skipped")
@@ -144,8 +220,19 @@ class Runner:
         self.emitter.stage("prepare", state="done", detail=stats)
 
     def stage_convert(self):
-        """Convert the base weights for training."""
-        self.adapter.convert(self.recipe, self.run_dir, functools.partial(self.run_command, watch="convert"))
+        """Convert the base weights for training under the cache lock, unless a run that held the lock first
+        converted them, and record the source fingerprint before the completion mark."""
+        _, root, complete = self.convert_paths()
+        with cache_lock(root, sleep=self.sleep):
+            if not os.path.exists(complete):
+                self.adapter.convert(self.recipe, self.run_dir, functools.partial(self.run_command, watch="convert"))
+                source = {"model": self.recipe["model"]["path"],
+                          "fingerprint": weights_fingerprint(self.recipe["model"]["path"])}
+                with open(os.path.join(root, SOURCE_FILE), "w") as f:
+                    json.dump(source, f)
+                open(complete, "w").close()
+        self.check_source(root)
+        self.report_conversion("done")
 
     def stage_check(self):
         """Check the GPU count, the inputs and the free space before training."""

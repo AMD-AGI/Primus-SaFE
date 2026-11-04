@@ -407,12 +407,19 @@ type RecipeMetrics struct {
 
 // RecipeConvert describes the weight conversion before training.
 type RecipeConvert struct {
+	// CacheKey is the framework, spec, model id and framework commit; empty for runs on a custom image, which
+	// convert into their own run directory.
 	CacheKey    string `json:"cacheKey"`
 	Dir         string `json:"dir"`
 	Nodes       int    `json:"nodes"`
 	SeparateJob bool   `json:"separateJob"`
 	FP8         bool   `json:"fp8"`
+	// CacheHit tells that a ready conversion was found at submission.
+	CacheHit bool `json:"cacheHit,omitempty"`
 }
+
+// ConvertCacheDir is the directory, next to the run directories, that holds the shared conversions.
+const ConvertCacheDir = "post-training-cache"
 
 // RecipeOutput is where the run writes its outputs.
 type RecipeOutput struct {
