@@ -32,6 +32,8 @@ from safe_post_training.frameworks.slime.adapter import Adapter  # noqa: E402
 SCHEMA = "slime-rocm-run/1"
 PARSER_VERSION = "1"
 FORMAT = "slime-rocm"
+# TERMINATION_LOG is where Kubernetes reads a container's termination message from.
+TERMINATION_LOG = "/dev/termination-log"
 TOKEN_ENV = "SAFE_IMPORT_TOKEN"
 MAX_SUMMARY = 16 << 20
 MAX_CHECK_LINES = 400
@@ -602,6 +604,7 @@ def main(argv=None):
     mode.add_argument("--out", help="write the summary to a file instead of uploading it")
     mode.add_argument("--upload", help="upload a summary written with --out")
     mode.add_argument("--stage", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--root", help=argparse.SUPPRESS)
     args = p.parse_args(argv)
     try:
         if args.upload:
@@ -612,6 +615,8 @@ def main(argv=None):
             if not args.run_dir:
                 p.error("the run directory is required")
             root = os.path.realpath(args.run_dir).rstrip("/")
+            if args.root and not root.startswith(os.path.realpath(args.root).rstrip("/") + "/"):
+                raise RunDirError("The directory must be under %s." % args.root)
             summary = FORMATS[args.format](root)
             data = encode(summary)
             report(summary)
@@ -630,11 +635,9 @@ def main(argv=None):
                 return 0
         token = read_token()
         status, answer = upload(data, token, stage=args.stage)
-    except RunDirError as e:
+    except (RunDirError, OSError, urllib.error.URLError) as e:
         print("error: %s" % e, file=sys.stderr)
-        return 1
-    except (OSError, urllib.error.URLError) as e:
-        print("error: %s" % e, file=sys.stderr)
+        note_scan_failure(args, str(e))
         return 1
     detail = token_address(token).rstrip("/") + "/post-training/detail?runId="
     if status in (200, 201):
@@ -647,13 +650,26 @@ def main(argv=None):
                   file=sys.stderr)
         return 0
     if status == 401:
-        print("Token expired or already used. Get a new command from the Import dialog in SaFE.", file=sys.stderr)
+        message = "Token expired or already used. Get a new command from the Import dialog in SaFE."
     elif status == 409 and answer.get("runId"):
-        print("This directory is already imported: %s%s" % (detail, answer["runId"]), file=sys.stderr)
+        message = "This directory is already imported: %s%s" % (detail, answer["runId"])
     else:
-        reason = answer.get("errorMessage") or answer.get("message") or "HTTP %d" % status
-        print("The upload was refused: %s" % reason, file=sys.stderr)
+        message = "The upload was refused: %s" % (answer.get("errorMessage") or answer.get("message") or
+                                                  "HTTP %d" % status)
+    print(message, file=sys.stderr)
+    note_scan_failure(args, message)
     return 2
+
+
+def note_scan_failure(args, message):
+    """Leave a scan job's failure as its container's termination message, which the import dialog shows."""
+    if not args.stage:
+        return
+    try:
+        with open(TERMINATION_LOG, "w") as f:
+            f.write(message[:4096])
+    except OSError:
+        pass
 
 
 if __name__ == "__main__":

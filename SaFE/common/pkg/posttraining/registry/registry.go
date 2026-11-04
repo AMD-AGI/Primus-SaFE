@@ -81,11 +81,12 @@ type Imports struct {
 	Mounts []ImportMount `json:"mounts,omitempty"`
 }
 
-// ImportMount is a read-only PVC holding Spur's shared storage on a cluster, mounted at Root in the scan job.
+// ImportMount is the workspace whose pods see Spur's shared storage read-only at Root, through a ReadOnlyMany volume
+// mounted there; the scans of a cluster's import dialog run in it.
 type ImportMount struct {
-	Cluster string `json:"cluster"`
-	PVC     string `json:"pvc"`
-	Root    string `json:"root"`
+	Cluster   string `json:"cluster"`
+	Workspace string `json:"workspace"`
+	Root      string `json:"root"`
 }
 
 // MountFor returns the import mount of a cluster, or nil when it has none.
@@ -305,8 +306,8 @@ func (r *Registry) Validate() error {
 	add := func(format string, args ...interface{}) { errs = append(errs, fmt.Sprintf(format, args...)) }
 
 	for _, m := range r.Imports.Mounts {
-		if m.Cluster == "" || m.PVC == "" || !path.IsAbs(m.Root) {
-			add("import mount %q needs a cluster, a PVC and an absolute root", m.Cluster)
+		if m.Cluster == "" || m.Workspace == "" || !path.IsAbs(m.Root) || path.Clean(m.Root) != m.Root {
+			add("import mount %q needs a cluster, a workspace and a clean absolute root", m.Cluster)
 		}
 	}
 
