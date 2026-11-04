@@ -153,6 +153,10 @@ class Emitter:
                     f.write(json.dumps(record, separators=(",", ":")) + "\n")
         return line
 
+    def link(self, name, url):
+        """Print a [METRIC] marker of kind link for a URL, such as the W&B run; it has no seq and is not a point."""
+        return self._write("[METRIC]", {"kind": "link", "t": round(self.clock(), 3), "v": {name: url}})
+
     def last_metrics(self, limit=64):
         """Return the last point of each metric, at most limit of them, for the result marker."""
         with self._lock:
