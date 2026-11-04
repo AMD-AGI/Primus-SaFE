@@ -6,6 +6,7 @@
 package slime
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,6 +66,17 @@ func compile(t *testing.T, in *recipe.Input) *recipe.Result {
 		require.NotEqual(t, recipe.LevelError, d.Level, d.Message)
 	}
 	return res
+}
+
+// warningsOf returns the warning messages of a compilation result.
+func warningsOf(res *recipe.Result) string {
+	var msgs []string
+	for _, d := range res.Diagnostics {
+		if d.Level == recipe.LevelWarning {
+			msgs = append(msgs, d.Message)
+		}
+	}
+	return strings.Join(msgs, "; ")
 }
 
 // errorsOf returns the error messages of a compilation.
@@ -385,4 +397,51 @@ func TestPPOOption(t *testing.T) {
 	defaults := options(in).Defaults
 	require.Equal(t, defaultCriticLr, defaults.CriticLr, "the wizard shows the critic defaults before PPO is chosen")
 	require.Equal(t, defaultCriticWarmup, *defaults.CriticWarmupRollouts)
+}
+
+func TestCompileLoraSFT(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	in.Registry.Images[0].Validated = true
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureLora,
+		registry.FeatureFull)
+	in.Request.Method = registry.MethodLora
+	res := compile(t, in)
+	args := strings.Join(res.Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--custom-model-provider-path "+loraPlugin+" --only-train-params-name-list adapter "+
+		"--custom-config-path "+in.RunDir+"/plugins.yaml")
+	var cfg struct {
+		Lora recipe.LoraChoice `json:"pt_lora"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(res.Recipe.Files["plugins.yaml"]), &cfg))
+	require.Equal(t, 16, cfg.Lora.Rank)
+	require.EqualValues(t, 32, cfg.Lora.Alpha)
+	require.Equal(t, []string{"linear_qkv", "linear_proj", "linear_fc1", "linear_fc2"}, cfg.Lora.Targets,
+		"every target module of the spec by default")
+	require.Equal(t, cfg.Lora, *res.Recipe.Lora, "the export reads rank and alpha from the recipe")
+	require.Contains(t, warningsOf(res), "has not been verified")
+
+	full := compile(t, qwen3Input(t, registry.TrainTypeSFT))
+	require.Nil(t, full.Recipe.Lora)
+	require.NotContains(t, strings.Join(full.Recipe.FrameworkArgs, " "), "custom-model-provider-path")
+}
+
+func TestLoraRules(t *testing.T) {
+	cases := map[string]struct {
+		lora recipe.LoraChoice
+		want string
+	}{
+		"rank":   {recipe.LoraChoice{Rank: 300}, "The LoRA rank must be between 1 and 256"},
+		"target": {recipe.LoraChoice{Targets: []string{"linear_q_down_proj"}}, "does not allow LoRA on linear_q_down_proj"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			in := qwen3Input(t, registry.TrainTypeSFT)
+			in.Registry.Images[0].Validated = true
+			in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureLora)
+			in.Request.Method = registry.MethodLora
+			lora := c.lora
+			in.Request.Choices.Lora = &lora
+			require.Contains(t, errorsOf(in), c.want)
+		})
+	}
 }

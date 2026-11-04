@@ -148,6 +148,43 @@ func rewardRules(ctx *recipe.Context, c recipe.Choices) []recipe.Diagnostic {
 	return out
 }
 
+// loraRules checks the LoRA choices of a LoRA request: rank, alpha and dropout in range, target modules the spec
+// allows and a known expert mode.
+func loraRules(ctx *recipe.Context, l *recipe.LoraChoice) []recipe.Diagnostic {
+	if l == nil {
+		return nil
+	}
+	var out []recipe.Diagnostic
+	fail := func(field, format string, args ...interface{}) {
+		out = append(out, recipe.Diagnostic{Level: recipe.LevelError, Field: field, Message: fmt.Sprintf(format, args...)})
+	}
+	if l.Rank < 1 || l.Rank > 256 {
+		fail("choices.lora.rank", "The LoRA rank must be between 1 and 256")
+	}
+	if l.Alpha <= 0 {
+		fail("choices.lora.alpha", "The LoRA alpha must be positive")
+	}
+	if l.Dropout < 0 || l.Dropout >= 1 {
+		fail("choices.lora.dropout", "The LoRA dropout must be at least 0 and below 1")
+	}
+	var allowed []string
+	if ctx.FrameworkSpec.Lora != nil {
+		allowed = ctx.FrameworkSpec.Lora.Targets
+	}
+	if len(l.Targets) == 0 {
+		fail("choices.lora.targets", "Choose at least one module for LoRA")
+	}
+	for _, t := range l.Targets {
+		if !slices.Contains(allowed, t) {
+			fail("choices.lora.targets", "%s does not allow LoRA on %s; the modules are %v", ctx.Spec.Name, t, allowed)
+		}
+	}
+	if l.Experts && l.ExpertMode != expertModeShared && l.ExpertMode != recipe.ExpertModePerExpert {
+		fail("choices.lora.expertMode", "The expert mode must be shared or perExpert")
+	}
+	return out
+}
+
 // rewardTypes are the RL reward types this version compiles.
 var rewardTypes = map[string]bool{defaultRewardType: true, "dapo": true, "math": true, "f1": true,
 	rewardCustom: true, rewardRemote: true}
@@ -173,6 +210,7 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	}
 
 	out = append(out, trackingRules(ctx)...)
+	out = append(out, loraRules(ctx, c.Lora)...)
 	if ctx.Request.TrainType != registry.TrainTypeRL {
 		return append(out, validationRules(ctx, c)...)
 	}
