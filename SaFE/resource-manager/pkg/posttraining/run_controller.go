@@ -81,6 +81,10 @@ type runRecipe struct {
 	Convert *struct {
 		SeparateJob bool `json:"separateJob"`
 	} `json:"convert"`
+	Evaluation *struct {
+		Benchmarks  []string `json:"benchmarks"`
+		KeepService bool     `json:"keepService"`
+	} `json:"evaluation"`
 	Output struct {
 		Base string `json:"base"`
 	} `json:"output"`
@@ -310,8 +314,9 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) 
 		}
 		return ctrlruntime.Result{}, reconcileError("database", err)
 	}
-	if finished(run) {
-		return ctrlruntime.Result{}, nil
+	if finished(run) || run.Stage == "eval" {
+		res, err := r.reconcileEvaluations(ctx, run)
+		return res, reconcileError("evaluate", err)
 	}
 	w := &v1.Workload{}
 	var res ctrlruntime.Result

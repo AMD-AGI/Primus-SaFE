@@ -9,7 +9,9 @@ import (
 	"context"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -60,6 +62,32 @@ func (r *RunReconciler) refreshGauges(ctx context.Context) {
 		rmmetrics.PostTrainingRuns.WithLabelValues(key[0], key[1]).Set(float64(n))
 	}
 	rmmetrics.PostTrainingRunsStalled.Set(float64(stalled))
+	r.countOrphanServices(ctx)
+}
+
+// countOrphanServices counts the evaluation inference services that still run after their evaluation ended,
+// without being kept.
+func (r *RunReconciler) countOrphanServices(ctx context.Context) {
+	services := &v1.WorkloadList{}
+	if err := r.List(ctx, services, client.MatchingLabels{v1.PostTrainingRoleLabel: v1.PostTrainingRoleEval}); err != nil {
+		klog.ErrorS(err, "failed to list the Post Training evaluation services")
+		return
+	}
+	orphans := 0
+	for i := range services.Items {
+		s := &services.Items[i]
+		name := v1.GetAnnotation(s, evalJobAnnotation)
+		if s.IsEnd() || name == "" || v1.GetAnnotation(s, evalKeepAnnotation) == v1.TrueStr {
+			continue
+		}
+		job := &v1.OpsJob{}
+		err := r.Get(ctx, client.ObjectKey{Name: name}, job)
+		if apierrors.IsNotFound(err) ||
+			(err == nil && (job.Status.Phase == v1.OpsJobSucceeded || job.Status.Phase == v1.OpsJobFailed)) {
+			orphans++
+		}
+	}
+	rmmetrics.PostTrainingEvalServicesOrphaned.Set(float64(orphans))
 }
 
 // reconcileError counts a reconcile error under reason and returns it.
