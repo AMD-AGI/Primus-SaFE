@@ -105,6 +105,14 @@
         >
           Save as Template
         </el-button>
+        <el-button
+          v-if="step === steps.length && !editingTemplate"
+          round
+          :disabled="userStore.isReadonlyManager || !!w.models.value?.pausedReason"
+          @click="abDrawer = true"
+        >
+          Submit as A/B…
+        </el-button>
         <el-tooltip
           v-if="step === steps.length && !editingTemplate"
           :content="submitBlocked"
@@ -131,6 +139,8 @@
       <PreflightPanel @goto="(s: number) => (step = s)" />
     </aside>
   </div>
+
+  <VariantEditor v-model="abDrawer" :baseline="w.form" />
 
   <SaveTemplateDialog
     v-model="saveDialog"
@@ -160,6 +170,7 @@ import {
   type TemplateItem,
 } from '@/services/postTraining'
 import SaveTemplateDialog from '../Components/SaveTemplateDialog.vue'
+import VariantEditor from '../Components/VariantEditor.vue'
 import PreflightPanel from './PreflightPanel.vue'
 import StepTask from './StepTask.vue'
 import StepData from './StepData.vue'
@@ -355,6 +366,7 @@ const datasetLabel = computed(() =>
 const editingTemplate = ref<TemplateItem>()
 const specWarning = ref('')
 const saveDialog = ref(false)
+const abDrawer = ref(false)
 
 /**
  * Applies a template as one change that can be undone, or opens it for editing in template mode. The parallel
