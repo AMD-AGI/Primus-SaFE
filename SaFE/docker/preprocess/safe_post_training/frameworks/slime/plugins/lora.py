@@ -8,8 +8,9 @@ slime's --custom-model-provider-path names model_provider: it builds slime's GPT
 with Bridge's LoRA, configured by the pt_lora argument plugins.yaml sets. Loading needs three fixes, installed once per
 process. A base checkpoint has no adapter entries: while one loads, every AdapterWrapper lists only the wrapped
 module in its sharded state dict, since the adapters' extra state and fc1 split would otherwise break the read. A
-pre-hook moves base keys under to_wrap. and fills the adapter keys a base checkpoint lacks, so the strict write-back
-succeeds and a real mismatch still fails. Loading from HF reads only the base parameters, under their unwrapped names.
+pre-hook moves base keys under to_wrap. and fills the adapter keys a base checkpoint lacks, with B at zero, so the
+strict write-back succeeds, a real mismatch still fails and a reference model loaded from the base equals it. Loading
+from HF reads only the base parameters, under their unwrapped names. RL also gets lora_sync's merged weight sync.
 """
 import argparse
 import importlib.util
@@ -60,13 +61,19 @@ def remap_keys(state_dict, prefix, adapter_state):
         state_dict.setdefault(prefix + "adapter." + name, value)
 
 
+def fill_adapters(adapter_state, base_load, zeros):
+    """Return the values that fill adapter entries a checkpoint lacks: the current ones, with B (linear_out) as
+    zeros(B) while a base checkpoint loads."""
+    return {n: zeros(v) if base_load and n.endswith("linear_out.weight") else v for n, v in adapter_state.items()}
+
+
 def remap_hook(module, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-    """load_state_dict pre-hook of an AdapterWrapper; adapters missing from the checkpoint keep their values."""
+    """load_state_dict pre-hook of an AdapterWrapper."""
     import torch
 
     adapter = {n: v.detach() if torch.is_tensor(v) else v
                for n, v in module.adapter.state_dict(keep_vars=True).items()}
-    remap_keys(state_dict, prefix, adapter)
+    remap_keys(state_dict, prefix, fill_adapters(adapter, _state["base_load"], torch.zeros_like))
 
 
 def checkpoint_path(load_dir):
@@ -115,10 +122,12 @@ def install(adapter_wrapper):
 
     adapter_wrapper.sharded_state_dict = sharded_state_dict
 
+    from slime.backends.megatron_utils import actor as slime_actor
+    from slime.backends.megatron_utils import checkpoint as slime_checkpoint
     from slime.backends.megatron_utils import hf_to_megatron
     from slime.backends.megatron_utils import model as slime_model
 
-    load_checkpoint = slime_model.load_checkpoint
+    load_checkpoint = slime_checkpoint.load_checkpoint
 
     def load_with_lora(*args, **kwargs):
         """Load the checkpoint, treating one without adapter entries as the base model."""
@@ -130,7 +139,9 @@ def install(adapter_wrapper):
         finally:
             _state["base_load"] = False
 
+    # The model loader and the reference loader each imported load_checkpoint by name.
     slime_model.load_checkpoint = load_with_lora
+    slime_actor.load_checkpoint = load_with_lora
 
     load_hf_weights = hf_to_megatron.load_hf_weights
 
@@ -169,6 +180,10 @@ def model_provider(pre_process=True, post_process=True, vp_stage=None):
     model = provider._get_model_provider_func(base_args)(pre_process=pre_process, post_process=post_process,
                                                           vp_stage=vp_stage)
     lora_cls, adapter_wrapper = import_bridge()
+    if not _state["installed"] and not getattr(args, "debug_train_only", False):
+        from safe_post_training.frameworks.slime.plugins import lora_sync
+
+        lora_sync.install(cfg["alpha"], int(cfg["rank"]))
     install(adapter_wrapper)
     lora = lora_cls(target_modules=list(cfg["targets"]), dim=int(cfg["rank"]), alpha=cfg["alpha"],
                     dropout=float(cfg.get("dropout") or 0.0))

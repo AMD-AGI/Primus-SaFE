@@ -498,11 +498,11 @@ post_training:
         frameworks:
           slime:
             modelScript: scripts/models/qwen3-4B.sh
-            methods: {sft: [full, lora], rl: [full]}
+            methods: {sft: [full, lora], rl: [full, lora]}
             lora: {targets: [linear_qkv, linear_proj, linear_fc1, linear_fc2]}
             defaults: {tp: 2, pp: 1, cp: 2, ep: 1, gpusPerEngine: 2}
             minNodes: {sft-full: 1, sft-lora: 1, rl: 1, rl-separate: 2}
-            unverified: [sft-lora]
+            unverified: [sft-lora, rl-lora-separate]
             convertNodes: 1
       - name: qwen3-4B-Instruct-2507
         match: {architectures: [Qwen3ForCausalLM], num_hidden_layers: 36, hidden_size: 2560,
@@ -513,11 +513,11 @@ post_training:
         frameworks:
           slime:
             modelScript: scripts/models/qwen3-4B-Instruct-2507.sh
-            methods: {sft: [full, lora], rl: [full]}
+            methods: {sft: [full, lora], rl: [full, lora]}
             lora: {targets: [linear_qkv, linear_proj, linear_fc1, linear_fc2]}
             defaults: {tp: 2, pp: 1, cp: 2, ep: 1, gpusPerEngine: 2}
             minNodes: {sft-full: 1, sft-lora: 1, rl: 1, rl-separate: 2}
-            unverified: [sft-lora]
+            unverified: [sft-lora, rl-lora-separate]
             convertNodes: 1
       - name: qwen3-8B
         match: {architectures: [Qwen3ForCausalLM], num_hidden_layers: 36, hidden_size: 4096,
@@ -528,11 +528,11 @@ post_training:
         frameworks:
           slime:
             modelScript: scripts/models/qwen3-8B.sh
-            methods: {sft: [full, lora], rl: [full]}
+            methods: {sft: [full, lora], rl: [full, lora]}
             lora: {targets: [linear_qkv, linear_proj, linear_fc1, linear_fc2]}
             defaults: {tp: 2, pp: 1, cp: 1, ep: 1, gpusPerEngine: 2}
             minNodes: {sft-full: 1, sft-lora: 1, rl: 1, rl-separate: 2}
-            unverified: [sft-lora]
+            unverified: [sft-lora, rl-lora-separate]
             convertNodes: 1
     images:
       # Registered unvalidated: mark validated and list features once the Qwen3-4B SFT and GRPO smoke runs
