@@ -56,6 +56,13 @@
             </el-button>
           </span>
         </el-tooltip>
+        <el-tooltip v-if="canCompare" :content="compareTip" :disabled="!compareTip" placement="top">
+          <span>
+            <el-button round :disabled="!!compareTip" @click="goCompare">
+              Compare ({{ selected.length }})
+            </el-button>
+          </span>
+        </el-tooltip>
         <span v-if="autoRefresh" class="text-[12px] text-[var(--safe-muted)]">
           {{ refreshFailed ? 'Refresh failed · retrying' : `Auto-refresh · ${refreshAgo}` }}
         </span>
@@ -107,6 +114,7 @@
         v-loading="loading"
         :element-loading-text="$loadingText"
         @filter-change="handleFilterChange"
+        @selection-change="(list: PostTrainingRun[]) => (selected = list)"
       >
         <template #empty>
           <div v-if="loadError" class="py-6">
@@ -141,6 +149,14 @@
           </div>
         </template>
 
+        <el-table-column
+          v-if="canCompare"
+          type="selection"
+          width="36"
+          fixed="left"
+          reserve-selection
+          :selectable="selectable"
+        />
         <el-table-column label="Run Name / ID" min-width="270" fixed="left">
           <template #default="{ row }">
             <div class="flex flex-col items-start min-w-0">
@@ -225,14 +241,10 @@
           <template #default="{ row }">
             <template v-if="summaryOf(row)?.main">
               <div class="flex items-center gap-2">
-                <svg width="60" height="20" class="shrink-0">
-                  <polyline
-                    :points="sparkline(summaryOf(row)!.main!.spark)"
-                    fill="none"
-                    :stroke="row.status === 'Stopped' ? 'var(--safe-muted)' : 'var(--safe-primary)'"
-                    stroke-width="1.5"
-                  />
-                </svg>
+                <Sparkline
+                  :points="summaryOf(row)!.main!.spark"
+                  :color="row.status === 'Stopped' ? 'var(--safe-muted)' : 'var(--safe-primary)'"
+                />
                 <span class="font-500">{{ formatValue(summaryOf(row)!.main!.value) }}</span>
               </div>
               <div class="text-[12px] text-[var(--safe-muted)]">
@@ -385,6 +397,7 @@ import { useDark, useDocumentVisibility, useIntervalFn, useNow } from '@vueuse/c
 import dayjs from 'dayjs'
 import RefreshIcon from '@/components/icons/ResetIcon.vue'
 import StageBar from './Components/StageBar.vue'
+import Sparkline from './Components/Sparkline.vue'
 import { formatBytes, formatTimeStr } from '@/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUserStore } from '@/stores/user'
@@ -403,7 +416,6 @@ import {
   type MetricSummary,
   type PostTrainingRun,
   type RunListParams,
-  type SummaryPoint,
 } from '@/services/postTraining'
 
 defineOptions({ name: 'PostTrainingPage' })
@@ -617,16 +629,28 @@ useIntervalFn(() => {
 
 const summaryOf = (row: PostTrainingRun) => parseJSON<MetricSummary>(row.metricSummary)
 
-/** Draws a 60 x 20 sparkline of the summary points. */
-const sparkline = (points?: SummaryPoint[]) => {
-  if (!points?.length) return ''
-  const values = points.map((p) => p.value)
-  const lo = Math.min(...values)
-  const span = Math.max(...values) - lo || 1
-  const step = points.length > 1 ? 60 / (points.length - 1) : 0
-  return points
-    .map((p, i) => `${(i * step).toFixed(1)},${(18 - ((p.value - lo) / span) * 16).toFixed(1)}`)
-    .join(' ')
+/** Compare opens once its page is routed. */
+const canCompare = router.hasRoute('PostTrainingCompare')
+const MAX_COMPARE = 5
+const selected = ref<PostTrainingRun[]>([])
+
+/** Why the selection can't be compared, or an empty string. */
+const compareTip = computed(() => {
+  const types = new Set(selected.value.map((r) => r.trainType))
+  if (selected.value.length < 2 || selected.value.length > MAX_COMPARE || types.size > 1)
+    return 'Select 2–5 runs of the same type to compare.'
+  return ''
+})
+
+/** Rows stay selectable until five are selected. */
+const selectable = (row: PostTrainingRun) =>
+  selected.value.length < MAX_COMPARE || selected.value.some((r) => r.runId === row.runId)
+
+const goCompare = () => {
+  router.push({
+    path: '/post-training/compare',
+    query: { runIds: selected.value.map((r) => r.runId).join(',') },
+  })
 }
 
 const formatValue = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(1) : v.toPrecision(4))
