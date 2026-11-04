@@ -53,6 +53,7 @@ export interface PlaygroundModel {
   // Fine-tuning metadata
   origin?: 'external' | 'fine_tuned' | 'rl_trained'
   sftJobId?: string
+  postTrainingRunId?: string
   baseModel?: string
   userId?: string
   userName?: string
@@ -148,8 +149,8 @@ export function getModelsList(params?: ModelsListParams) {
   return request.get<ModelsListResp>(`/playground/models`, { params })
 }
 
-export function getModelDetail(id: string) {
-  return request.get<PlaygroundModel>(`/playground/models/${id}`)
+export function getModelDetail(id: string, quiet = false) {
+  return request.get<PlaygroundModel>(`/playground/models/${id}`, { skipErrorHandler: quiet })
 }
 
 export function createModel(data: Partial<PlaygroundModel> | CreateModelPayload) {

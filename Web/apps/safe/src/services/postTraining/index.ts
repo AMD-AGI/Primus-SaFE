@@ -83,6 +83,33 @@ export function getPostTrainingRun(runId: string, quiet = false) {
   return request.get<RunDetail>(`/post-training/runs/${runId}`, { skipErrorHandler: quiet })
 }
 
+/**
+ * Loads once why Train with Post Training is unavailable for the models of a workspace and returns the reason of a
+ * model, or an empty string when the model can be trained.
+ */
+export async function postTrainingEntryReasons(
+  workspace: string,
+): Promise<(modelId: string) => string> {
+  try {
+    const res = (await getPostTrainingModels(workspace)) as unknown as ModelsResp
+    const paused = res.pausedReason
+      ? `New runs are paused on this cluster. ${res.pausedReason}`
+      : ''
+    const global = res.unavailableReason || paused
+    const byId = new Map(
+      (res.items ?? []).map((m) => [m.modelId, m.supported ? '' : m.reason || 'Not supported']),
+    )
+    return (id) => global || (byId.get(id) ?? 'No Post Training spec matches this model.')
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status
+    const reason =
+      status === 404
+        ? 'Post Training is not enabled on this cluster.'
+        : 'Post Training is unavailable.'
+    return () => reason
+  }
+}
+
 /** Returns a run's metric series, all of them unless names lists patterns, and the markers on them. */
 export function getPostTrainingMetrics(
   runId: string,
