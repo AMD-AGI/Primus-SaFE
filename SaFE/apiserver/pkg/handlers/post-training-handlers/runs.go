@@ -55,8 +55,15 @@ type listQuery struct {
 
 // listResponse is one page of runs.
 type listResponse struct {
-	Total int64                       `json:"total"`
-	Items []*dbclient.PostTrainingRun `json:"items"`
+	Total int64      `json:"total"`
+	Items []listItem `json:"items"`
+}
+
+// listItem is a run of the list with how many runs of its recipe hash succeeded on the platform.
+type listItem struct {
+	*dbclient.PostTrainingRun
+	VerifiedRuns      int    `json:"verifiedRuns,omitempty"`
+	LatestVerifiedRun string `json:"latestVerifiedRun,omitempty"`
 }
 
 // runDetail is a run with its parsed recipe, stage history, output model and evaluations.
@@ -111,10 +118,23 @@ func (h *Handler) ListRuns(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to list runs: "+err.Error()))
 		return
 	}
+	hashes := make([]string, 0, len(runs))
 	for _, r := range runs {
 		r.Recipe = ""
+		if r.RecipeHash != "" {
+			hashes = append(hashes, r.RecipeHash)
+		}
 	}
-	c.JSON(http.StatusOK, listResponse{Total: total, Items: runs})
+	records, err := h.db.CountPostTrainingRunsByRecipe(c.Request.Context(), hashes)
+	if err != nil {
+		klog.ErrorS(err, "failed to count the successful runs of the listed recipes")
+	}
+	items := make([]listItem, 0, len(runs))
+	for _, r := range runs {
+		rec := records[r.RecipeHash]
+		items = append(items, listItem{PostTrainingRun: r, VerifiedRuns: rec.Succeeded, LatestVerifiedRun: rec.LatestRun})
+	}
+	c.JSON(http.StatusOK, listResponse{Total: total, Items: items})
 }
 
 // getRun loads a run and checks the caller may act on it with verb.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
@@ -68,6 +69,10 @@ type previewResponse struct {
 	Layout        *recipe.Layout      `json:"layout,omitempty"`
 	FrameworkArgs []string            `json:"frameworkArgs,omitempty"`
 	Recipe        *recipe.Recipe      `json:"recipe,omitempty"`
+	// VerifiedRuns counts the runs of the same recipe hash that succeeded on the platform; LatestVerifiedRun is
+	// the one that ended last.
+	VerifiedRuns      int    `json:"verifiedRuns"`
+	LatestVerifiedRun string `json:"latestVerifiedRun,omitempty"`
 }
 
 // ListModels returns, for every ready local model of a workspace, whether the selected framework, train type and
@@ -228,6 +233,12 @@ func (h *Handler) PreviewRecipe(c *gin.Context) {
 	}
 	if res.Recipe != nil {
 		resp.Layout, resp.FrameworkArgs, resp.Recipe = &res.Recipe.Layout, res.Recipe.FrameworkArgs, res.Recipe
+		hash := res.Recipe.Provenance.RecipeHash
+		if records, err := h.db.CountPostTrainingRunsByRecipe(c.Request.Context(), []string{hash}); err != nil {
+			klog.ErrorS(err, "failed to count the successful runs of a recipe", "hash", hash)
+		} else {
+			resp.VerifiedRuns, resp.LatestVerifiedRun = records[hash].Succeeded, records[hash].LatestRun
+		}
 	}
 	c.JSON(http.StatusOK, resp)
 }
