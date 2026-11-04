@@ -45,8 +45,10 @@ const props = withDefaults(
     height?: number
     /** One color per series instead of the single-run palette, for comparing runs. */
     colors?: string[]
+    /** Draw the values on a logarithmic axis. */
+    logY?: boolean
   }>(),
-  { smoothing: 0.6, height: 220, markers: undefined, colors: undefined },
+  { smoothing: 0.6, height: 220, markers: undefined, colors: undefined, logY: false },
 )
 
 const isDark = useDark()
@@ -139,7 +141,9 @@ const render = () => {
         textStyle: { color: axisColor, fontSize: 11 },
       },
       xAxis: { type: 'value', axisLabel: { color: axisColor }, splitLine: { show: false } },
-      yAxis: { type: 'value', scale: true, axisLabel: { color: axisColor } },
+      yAxis: props.logY
+        ? { type: 'log', axisLabel: { color: axisColor } }
+        : { type: 'value', scale: true, axisLabel: { color: axisColor } },
       series: out,
     },
     true,
@@ -164,7 +168,9 @@ onMounted(() => {
   window.addEventListener('resize', resize)
 })
 
-watch(() => [props.series, props.markers, props.smoothing, isDark.value], render, { deep: true })
+watch(() => [props.series, props.markers, props.smoothing, props.logY, isDark.value], render, {
+  deep: true,
+})
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resize)
