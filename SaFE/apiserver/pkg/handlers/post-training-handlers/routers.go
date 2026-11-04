@@ -28,6 +28,7 @@ func InitRoutes(engine *gin.Engine, h *Handler) {
 	group.POST("/runs/:id/stop", middleware.Audit("post-training"), h.StopRun)
 	group.POST("/runs/:id/evaluate", middleware.Audit("post-training"), h.EvaluateRun)
 	group.POST("/runs/:id/checkpoints/cleanup", middleware.Audit("post-training"), h.CleanupCheckpoints)
+	group.POST("/runs/:id/exports", middleware.Audit("post-training"), h.ExportCheckpoint)
 	group.DELETE("/runs/:id", middleware.Audit("post-training"), h.DeleteRun)
 	group.GET("/runs/:id/metrics", h.GetMetrics)
 	group.GET("/runs/:id/metrics/export", h.ExportMetrics)
