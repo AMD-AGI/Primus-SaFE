@@ -13,10 +13,13 @@ import functools
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 
 from safe_post_training import dataset
 
@@ -31,7 +34,21 @@ CONVERT_LOCK = ".lock"
 SOURCE_FILE = "source.json"
 # A conversion lock older than this was left by a conversion that died; the next run takes it over.
 LOCK_STALE_SECONDS = 6 * 3600
+WANDB_DEFAULT_URL = "https://api.wandb.ai"
+WANDB_PROBE_SECONDS = 10
+WANDB_RUN_URL = re.compile(r"View run\b.*?(https?://\S+)")
 LOCK_POLL_SECONDS = 30
+
+
+def reachable(url, timeout):
+    """Tell whether an HTTP server answers at url within timeout seconds; any HTTP status is an answer."""
+    try:
+        urllib.request.urlopen(urllib.request.Request(url, method="HEAD"), timeout=timeout).close()
+    except urllib.error.HTTPError:
+        return True
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+    return True
 
 
 class StageError(Exception):
@@ -132,6 +149,7 @@ class Runner:
         self.watchdog, self.sleep = watchdog, sleep
         self.enospc = False
         self.checkpoint = None
+        self.wandb_link = None
 
     def path(self, *parts):
         """Return a path under the run directory."""
@@ -250,6 +268,16 @@ class Runner:
         if free < need:
             raise StageError("check", "shared storage has %d GiB free, the run needs about %d GiB"
                              % (free >> 30, need >> 30), retry=False)
+        self.check_wandb()
+
+    def check_wandb(self, timeout=WANDB_PROBE_SECONDS):
+        """Fail before training when W&B reporting is on and the W&B server does not answer."""
+        wandb = (self.recipe.get("tracking") or {}).get("wandb") or {}
+        if not wandb.get("enabled"):
+            return
+        url = os.environ.get("WANDB_BASE_URL") or WANDB_DEFAULT_URL
+        if not reachable(url, timeout):
+            raise StageError("check", "the training nodes can't reach wandb at %s" % url)
 
     def space_needed(self):
         """Estimate the bytes the run writes: the checkpoints kept at the same time plus the exported model."""
@@ -347,8 +375,14 @@ class Runner:
                 dog.unwatch()
 
     def parse_line(self, line):
-        """Report the metrics of one training output line; a line that looks like metrics but does not parse is
-        counted."""
+        """Report the metrics of one training output line, or the first W&B run link; a line that looks like metrics
+        but does not parse is counted."""
+        if self.wandb_link is None:
+            m = WANDB_RUN_URL.search(line)
+            if m:
+                self.wandb_link = m.group(1)
+                self.emitter.link("wandb", self.wandb_link)
+                return
         try:
             parsed = self.adapter.parse_metric_line(line)
         except (ValueError, SyntaxError):

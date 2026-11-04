@@ -3,11 +3,13 @@
 # See LICENSE for license information.
 #
 import ast
+import http.server
 import io
 import json
 import os
 import re
 import sys
+import threading
 
 from safe_post_training import launch
 
@@ -119,3 +121,39 @@ def test_dataset_errors_are_not_retried(monkeypatch, tmp_path):
 def test_too_few_gpus(monkeypatch, tmp_path):
     code, _, ms = run(monkeypatch, recipe_for(tmp_path), FakeAdapter(), gpus=4)
     assert code == 1 and ms[-1][1]["reason"] == "the Ray cluster has 4 GPUs, the recipe needs 8"
+
+
+class FakeWandbAdapter(FakeAdapter):
+    """Prints the run link the way wandb does before the metric lines."""
+
+    def train_command(self, recipe, run_dir):
+        cmd, env, files = super().train_command(recipe, run_dir)
+        cmd[-1] = "print('wandb: View run pt-x at: https://wandb.example/team/pt/runs/abc')\n" + cmd[-1]
+        return cmd, env, files
+
+
+def test_wandb_link_and_probe(monkeypatch, tmp_path):
+    server = http.server.HTTPServer(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("WANDB_BASE_URL", "http://127.0.0.1:%d" % server.server_port)
+    recipe = recipe_for(tmp_path)
+    recipe["tracking"] = {"wandb": {"enabled": True, "secretId": "wb", "project": "pt"}}
+    try:
+        code, _, ms = run(monkeypatch, recipe, FakeWandbAdapter())
+    finally:
+        server.shutdown()
+    assert code == 0, "a server that answers, even with an error status, is reachable"
+    links = [m[1] for m in ms if m[0] == "[METRIC]" and m[1]["kind"] == "link"]
+    assert len(links) == 1 and links[0]["v"] == {"wandb": "https://wandb.example/team/pt/runs/abc"}
+    assert "seq" not in links[0], "a link is not a point and leaves the seq of the points alone"
+    assert [m[1]["seq"] for m in ms if m[0] == "[METRIC]" and m[1]["kind"] != "link"] == [1, 2]
+
+
+def test_wandb_unreachable(monkeypatch, tmp_path):
+    monkeypatch.setenv("WANDB_BASE_URL", "http://127.0.0.1:9")
+    recipe = recipe_for(tmp_path)
+    recipe["tracking"] = {"wandb": {"enabled": True}}
+    code, _, ms = run(monkeypatch, recipe, FakeAdapter())
+    assert code == 1
+    assert ms[-1][1]["stage"] == "check"
+    assert ms[-1][1]["reason"] == "the training nodes can't reach wandb at http://127.0.0.1:9"
