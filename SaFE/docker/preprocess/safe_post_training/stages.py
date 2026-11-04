@@ -32,6 +32,8 @@ DISK_DIRS = (("checkpoints", "checkpoints"), ("criticCheckpoints", "critic_check
 PROGRESS_KINDS = ("step", "rollout", "eval")
 ENOSPC_TEXT = "No space left on device"
 CONVERT_LOCK = ".lock"
+# FP8_DIR holds the FP8 HF weights next to a conversion, made when an FP8 rollout needs them.
+FP8_DIR = "fp8_hf"
 SOURCE_FILE = "source.json"
 # A conversion lock older than this was left by a conversion that died; the next run takes it over.
 LOCK_STALE_SECONDS = 6 * 3600
@@ -263,12 +265,24 @@ class Runner:
         out = (self.recipe.get("convert") or {}).get("dir", self.path("convert", "torch_dist"))
         return out, os.path.dirname(out), os.path.join(out, ".complete")
 
+    def fp8_paths(self):
+        """Return the FP8 HF weights' directory next to the conversion and its completion mark."""
+        out = os.path.join(self.convert_paths()[1], FP8_DIR)
+        return out, os.path.join(out, ".complete")
+
+    def wants_fp8(self):
+        """Tell whether the rollout serves FP8 weights, which the convert stage makes next to the conversion."""
+        return bool((self.recipe.get("convert") or {}).get("fp8"))
+
     def report_conversion(self, state):
         """Print the convert [STAGE] that registers a shared conversion with the controller."""
         out, root, _ = self.convert_paths()
+        fp8_out, fp8_complete = self.fp8_paths()
         detail = None
         if (self.recipe.get("convert") or {}).get("cacheKey"):
-            detail = {"cacheKey": self.recipe["convert"]["cacheKey"], "dir": root, "sizeBytes": dir_size(out)}
+            fp8 = os.path.exists(fp8_complete)
+            detail = {"cacheKey": self.recipe["convert"]["cacheKey"], "dir": root, "fp8": fp8,
+                      "sizeBytes": dir_size(out) + (dir_size(fp8_out) if fp8 else 0)}
         self.emitter.stage("convert", state=state, detail=detail)
 
     def check_source(self, root):
@@ -284,7 +298,7 @@ class Runner:
     def reuse_conversion(self):
         """Report a complete conversion of the model's current weights as skipped; returns whether there is one."""
         _, root, complete = self.convert_paths()
-        if not os.path.exists(complete):
+        if not os.path.exists(complete) or (self.wants_fp8() and not os.path.exists(self.fp8_paths()[1])):
             return False
         self.check_source(root)
         self.report_conversion("skipped")
@@ -350,14 +364,19 @@ class Runner:
         """Convert the base weights for training under the cache lock, unless a run that held the lock first
         converted them, and record the source fingerprint before the completion mark."""
         _, root, complete = self.convert_paths()
+        fp8_out, fp8_complete = self.fp8_paths()
+        run_command = functools.partial(self.run_command, watch="convert")
         with cache_lock(root, sleep=self.sleep):
             if not os.path.exists(complete):
-                self.adapter.convert(self.recipe, self.run_dir, functools.partial(self.run_command, watch="convert"))
+                self.adapter.convert(self.recipe, self.run_dir, run_command)
                 source = {"model": self.recipe["model"]["path"],
                           "fingerprint": weights_fingerprint(self.recipe["model"]["path"])}
                 with open(os.path.join(root, SOURCE_FILE), "w") as f:
                     json.dump(source, f)
                 open(complete, "w").close()
+            if self.wants_fp8() and not os.path.exists(fp8_complete):
+                self.adapter.convert_fp8(self.recipe, self.run_dir, run_command, fp8_out)
+                open(fp8_complete, "w").close()
         self.check_source(root)
         self.report_conversion("done")
 

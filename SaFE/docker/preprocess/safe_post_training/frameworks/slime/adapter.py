@@ -106,6 +106,21 @@ class Adapter:
         os.makedirs(os.path.dirname(conv["dir"]), exist_ok=True)
         os.replace(tmp, conv["dir"])
 
+    def convert_fp8(self, recipe, run_dir, run_command, out):
+        """Quantize the base HF weights blockwise to FP8 into out, the weights an FP8 rollout serves."""
+        root = slime_dir(self.env)
+        tmp = out + ".partial"
+        shutil.rmtree(tmp, ignore_errors=True)
+        cmd = [sys.executable, os.path.join(root, "tools", "convert_hf_to_fp8.py"), "--model-dir",
+               recipe["model"]["path"], "--save-dir", tmp, "--strategy", "block", "--block-size", "128", "128",
+               "--max-workers", "4"]
+        code = run_command(cmd, env={"PYTHONPATH": python_path(root, self.env)})
+        if code != 0:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise StageError("convert", "FP8 weight conversion exited with code %d" % code)
+        shutil.rmtree(out, ignore_errors=True)
+        os.replace(tmp, out)
+
     def train_command(self, recipe, run_dir):
         """Return the train.py command, its environment and the files to write before it starts."""
         self.train_type = recipe.get("trainType", "")

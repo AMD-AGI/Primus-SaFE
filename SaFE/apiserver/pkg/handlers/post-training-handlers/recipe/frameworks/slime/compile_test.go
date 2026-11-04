@@ -529,3 +529,37 @@ func TestSpecsWithoutAFloorKeepTheirRecipe(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(data), "minHostMemoryTB", "the recipe hashes of earlier runs stay the same")
 }
+
+func TestFP8RolloutServesTheQuantizedWeights(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeRL)
+	in.Registry.Specs[0].Frameworks[Name].Rollout = &registry.Rollout{FP8: true}
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureFP8Rollout)
+	in.Request.Choices.RolloutPrecision = recipe.RolloutPrecisionFP8
+	res := compile(t, in)
+	args := strings.Join(res.Recipe.FrameworkArgs, " ")
+	conv := res.Recipe.Convert
+	require.Contains(t, args, "--hf-checkpoint "+filepath.Join(filepath.Dir(conv.Dir), "fp8_hf")+" --ref-load "+conv.Dir)
+	require.True(t, conv.FP8, "the convert stage makes the FP8 weights next to the conversion")
+	require.Equal(t, recipe.RolloutPrecisionFP8, res.Recipe.Rollout["precision"])
+	require.Equal(t, "/wekafs/models/Qwen3-4B", res.Recipe.Model.Path, "exports keep starting from the BF16 base")
+	require.Contains(t, warningsOf(res), "FP8 rollout without a train-inference correction")
+
+	in.Request.Choices.Correction, in.Request.Choices.KvCacheDtype = correctionTIS, kvCacheFP8
+	res = compile(t, in)
+	require.NotContains(t, warningsOf(res), "train-inference correction")
+	require.Contains(t, strings.Join(res.Recipe.FrameworkArgs, " "), "--sglang-kv-cache-dtype fp8_e4m3")
+
+	in.Request.Choices.KvCacheDtype = "int8"
+	var errs []string
+	for _, d := range recipe.Compile(in).Diagnostics {
+		if d.Level == recipe.LevelError {
+			errs = append(errs, d.Field)
+		}
+	}
+	require.Equal(t, []string{"choices.kvCacheDtype"}, errs)
+
+	res = compile(t, qwen3Input(t, registry.TrainTypeRL))
+	require.False(t, res.Recipe.Convert.FP8)
+	require.Contains(t, strings.Join(res.Recipe.FrameworkArgs, " "), "--hf-checkpoint /wekafs/models/Qwen3-4B ")
+	require.Equal(t, "bf16", res.Recipe.Rollout["precision"])
+}

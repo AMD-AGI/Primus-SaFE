@@ -105,3 +105,41 @@ def test_a_stale_lock_is_taken_over(tmp_path):
     runner.sleep = lambda _: pytest.fail("a stale lock is not waited for")
     runner.stage_convert()
     assert adapter.conversions == 1 and not os.path.exists(lock)
+
+
+class FP8Adapter(CountingAdapter):
+    """Also quantizes to FP8 by writing a weights file, and counts those conversions."""
+
+    def __init__(self):
+        super().__init__()
+        self.fp8 = 0
+
+    def convert_fp8(self, recipe, run_dir, run_command, out):
+        self.fp8 += 1
+        os.makedirs(out, exist_ok=True)
+        with open(os.path.join(out, "model.safetensors"), "w") as f:
+            f.write("y" * 4)
+
+
+def test_an_fp8_rollout_adds_its_weights_to_the_shared_conversion(tmp_path):
+    adapter = FP8Adapter()
+    bf16, out = setup(tmp_path, "r1")
+    bf16.adapter = adapter
+    bf16.stage_convert()
+    assert (adapter.conversions, adapter.fp8) == (1, 0)
+    assert convert_markers(out)[-1][1]["fp8"] is False
+
+    fp8, out = setup(tmp_path, "r2")
+    fp8.recipe["convert"]["fp8"], fp8.adapter = True, adapter
+    assert not fp8.reuse_conversion(), "the conversion is there, its FP8 weights are not"
+    fp8.stage_convert()
+    assert (adapter.conversions, adapter.fp8) == (1, 1), "only the FP8 weights are made"
+    state, detail = convert_markers(out)[-1]
+    assert state == "done" and detail["fp8"] is True and detail["sizeBytes"] == 14
+
+    again, _ = setup(tmp_path, "r3")
+    again.recipe["convert"]["fp8"], again.adapter = True, adapter
+    assert again.reuse_conversion() and adapter.fp8 == 1
+    plain, out = setup(tmp_path, "r4")
+    assert plain.reuse_conversion()
+    assert convert_markers(out)[-1][1]["fp8"] is True, "a BF16 run does not clear the record of the FP8 weights"
