@@ -181,3 +181,31 @@ func TestImportSummaryChecks(t *testing.T) {
 	require.Equal(t, "spur-j2r5-229357", importRunID("J2r5_229357", ""))
 	require.Equal(t, "spur-j2r5-229357-ab12", importRunID("j2r5 229357", "ab12"))
 }
+
+func TestDeletingAnImportedRunKeepsTheSpurDirectory(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h := NewHandler(fake.NewClientBuilder().WithScheme(scheme).Build(), db)
+	run := &dbclient.PostTrainingRun{RunID: "spur-j2", WorkloadID: "spur-j2", Source: dbclient.PostTrainingSourceSpur,
+		OutputModelID: "m-should-not-be-touched"}
+	gomock.InOrder(
+		db.EXPECT().DeletePostTrainingImportOfRun(gomock.Any(), "spur-j2"),
+		db.EXPECT().SetPostTrainingRunDeleted(gomock.Any(), "spur-j2"),
+	)
+	db.EXPECT().DeletePostTrainingRunMetrics(gomock.Any(), "spur-j2")
+	db.EXPECT().DeletePostTrainingRunSamples(gomock.Any(), "spur-j2", nil)
+	require.NoError(t, h.deleteRun(testContext(), run, true),
+		"no workload to stop and no model to delete; a client without those kinds would fail on either")
+	require.True(t, imported(run))
+	require.False(t, imported(&dbclient.PostTrainingRun{}), "rows before the source column are SaFE runs")
+}
+
+func TestCurvesOfDownsampledImports(t *testing.T) {
+	run := &dbclient.PostTrainingRun{MetricSummary: `{"points":2,"downsampled":{"train/loss":40}}`}
+	s := buildSeries("train/loss", "step", []*dbclient.PostTrainingRunMetric{{Step: 0, Value: 2}, {Step: 1, Value: 1}},
+		1000)
+	require.False(t, s.Downsampled)
+	require.Equal(t, 40, importedCounts(run)["train/loss"], "the curve says the log had 40 points")
+	require.Nil(t, importedCounts(&dbclient.PostTrainingRun{}))
+}
