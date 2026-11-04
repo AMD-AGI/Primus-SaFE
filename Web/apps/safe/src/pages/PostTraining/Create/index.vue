@@ -296,6 +296,9 @@ const prefillFromRun = async (runId: string) => {
   })
   if (rec.layout?.nodes) w.form.resources.nodes = rec.layout.nodes
   if (detail.image) w.form.resources.image = detail.image
+  if (detail.priority < 2 || userStore.isManager || wsStore.isCurrentWorkspaceAdmin())
+    w.form.resources.priority = detail.priority
+  if (detail.timeout > 0) w.form.resources.timeoutSeconds = detail.timeout
   prefill.value = `Copied from run ${detail.displayName}.`
   undoPrefill = () => {
     Object.assign(w.form, newRequest(w.workspace))

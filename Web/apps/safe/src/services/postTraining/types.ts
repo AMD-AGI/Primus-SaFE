@@ -91,6 +91,9 @@ export interface PostTrainingRun {
   startTime?: NullTime
   endTime?: NullTime
   createdAt?: NullTime
+  /** How many runs of this recipe succeeded on the platform, and the latest of them; list items only. */
+  verifiedRuns?: number
+  latestVerifiedRun?: string
 }
 
 export interface RunListParams {
@@ -260,6 +263,9 @@ export interface PreviewResp {
   }
   frameworkArgs?: string[]
   recipe?: Record<string, unknown>
+  /** How many runs of the compiled recipe succeeded on the platform, and the latest of them. */
+  verifiedRuns: number
+  latestVerifiedRun?: string
 }
 
 /** POST /post-training/runs. */

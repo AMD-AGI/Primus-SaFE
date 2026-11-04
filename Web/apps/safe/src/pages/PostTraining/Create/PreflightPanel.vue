@@ -56,6 +56,24 @@
         </el-descriptions>
       </div>
 
+      <div v-if="w.preview.value" class="mt-3">
+        <div class="pt-preflight-title">On this platform</div>
+        <div v-if="w.preview.value.verifiedRuns" class="flex items-center gap-2 text-[13px]">
+          <el-tag size="small" type="primary" effect="light" round
+            >✓ Verified ×{{ w.preview.value.verifiedRuns }}</el-tag
+          >
+          <el-link
+            v-if="w.preview.value.latestVerifiedRun && router.hasRoute('PostTrainingDetail')"
+            type="primary"
+            :underline="false"
+            @click="openLatest"
+          >
+            Latest run
+          </el-link>
+        </div>
+        <div v-else class="text-[13px] text-[var(--safe-muted)]">Not run on this platform yet</div>
+      </div>
+
       <div v-if="w.checkedAt.value" class="mt-2 text-[12px] text-[var(--safe-muted)]">
         Checked {{ checkedAgo }}
       </div>
@@ -65,13 +83,22 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useNow } from '@vueuse/core'
 import { fieldStep } from '@/services/postTraining'
 import { useWizard } from './wizard'
 
 const emit = defineEmits<{ goto: [step: number] }>()
 const w = useWizard()
+const router = useRouter()
 const now = useNow({ interval: 5000 })
+
+/** Opens the latest successful run of this recipe in a new tab, keeping the wizard as it is. */
+const openLatest = () => {
+  const runId = w.preview.value?.latestVerifiedRun
+  if (runId)
+    window.open(router.resolve({ path: '/post-training/detail', query: { runId } }).href, '_blank')
+}
 
 const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`
 
