@@ -266,7 +266,7 @@ def read_main_log(path, adapter):
     check output printed without a Ray prefix at its end."""
     args, in_args, check = {}, False, []
     series = {}
-    errors = 0
+    errors = lines = 0
     with open(path, errors="replace") as f:
         for line in f:
             if "--- arguments ---" in line:
@@ -288,7 +288,8 @@ def read_main_log(path, adapter):
                 except (ValueError, SyntaxError):
                     parsed, errors = None, errors + 1
                 if parsed:
-                    _, axis, step, values = parsed
+                    kind, axis, step, values = parsed
+                    lines += kind == "step"
                     t = _LOG_TIME.search(stripped)
                     wall = utc("%sT%sZ" % t.groups()) if t else None
                     for name, value in values.items():
@@ -301,7 +302,7 @@ def read_main_log(path, adapter):
                     check.append(line.rstrip("\n")[:MAX_LINE])
             else:
                 check = []
-    return args, series, check, errors
+    return args, series, check, errors, lines
 
 
 def is_secret(name, value):
@@ -420,9 +421,9 @@ def parse_slime_rocm(root):
     main = os.path.join(root, "logs", "%s-%s.log" % (train_gate, head)) if train_gate else ""
     adapter = Adapter(env={})
     adapter.train_type = "sft"
-    args, series, check, parse_errors = {}, {}, [], 0
+    args, series, check, parse_errors, metric_lines = {}, {}, [], 0, 0
     if main and os.path.exists(main):
-        args, series, check, parse_errors = read_main_log(main, adapter)
+        args, series, check, parse_errors, metric_lines = read_main_log(main, adapter)
     else:
         warnings.append("No main log of a training gate on the head node %s." % head)
     if parse_errors:
@@ -467,7 +468,9 @@ def parse_slime_rocm(root):
         "nodes": nodes, "head": head, "image": next((n.get("image") for n in nodes if n.get("image")), ""),
         "gpusPerNode": args.get("actor_num_gpus_per_node") or 8,
         "baseModel": os.path.basename(str(load).rstrip("/")), "dataset": args.get("prompt_data") or "",
-        "stepsPerRollout": spr,
+        "stepsPerRollout": spr, "saveSet": args.get("save") is not None,
+        "mainLog": {"name": os.path.basename(main), "bytes": os.path.getsize(main), "metricLines": metric_lines}
+        if main and os.path.exists(main) else None,
         "stages": stages_of(gates, head, verdict, mtime(verdict_file), warnings),
         "gates": gate_rows(results, gates, warnings),
         "markers": markers, "check": check, "failLine": fail_line, "trainable": trainable,
@@ -552,21 +555,41 @@ def upload(data, token, stage=False, opener=urllib.request.urlopen):
             return e.code, {}
 
 
+def size_text(n):
+    """Format a byte count the way the import dialog does, such as 2.7 MB."""
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1000 or unit == "GB":
+            return ("%d %s" if unit == "B" else "%.1f %s") % (n, unit)
+        n /= 1000.0
+
+
 def report(summary, out=sys.stderr):
-    """Print what a summary holds, without its points."""
-    print("%s: %s, %s, %d nodes (head %s), %s" % (summary["name"], summary["verdict"] or "no verdict",
-                                                 summary["status"], len(summary["nodes"]), summary["head"],
-                                                 summary["trainType"].upper()), file=out)
-    print("  %d gates, %d markers, %d arguments (%d kept), %d metric series with %d points" % (
-        len(summary["gates"]), len(summary["markers"]), summary["arguments"]["total"],
-        len(summary["arguments"]["kept"]), len(summary["metrics"]),
-        sum(s["count"] for s in summary["metrics"].values())), file=out)
-    for s in summary["stages"]:
-        print("  %-9s %-7s %s .. %s" % (s["label"], s["result"], s["start"], s["end"]), file=out)
-    if summary["message"]:
-        print("  %s" % summary["message"], file=out)
+    """Print what a summary holds, line by line as the import dialog previews it."""
+    verdict = summary["verdict"] or "no verdict"
+    failed = next((g for g in summary["gates"] if g["result"] not in ("pass", "running")), None)
+    if summary["verdict"] == "FAIL" and failed:
+        verdict += " (%s %s on %s)" % (failed["gate"], failed["result"], failed["node"])
+    samples = sum(len(r["samples"]) for r in summary["resources"].values())
+    ckpt = summary["checkpoints"]
+    if ckpt["iterations"]:
+        ckpt_text = "%d checkpoints" % len(ckpt["iterations"])
+    else:
+        ckpt_text = "no checkpoints" if summary["saveSet"] else "--save not set"
+    log = summary["mainLog"]
+    log_text = "none"
+    if log:
+        log_text = "%s · %s · %d step lines" % (log["name"], size_text(log["bytes"]), log["metricLines"])
+    print("Scanning %s" % summary["name"], file=out)
+    print("  node-*.log   %d nodes · %d gate results · %s" % (len(summary["nodes"]), len(summary["gates"]), verdict),
+          file=out)
+    print("  markers/     %d files" % len(summary["markers"]), file=out)
+    print("  mon/         %d samples from %d nodes" % (samples, len(summary["resources"])), file=out)
+    print("  ckpt/        %s" % ckpt_text, file=out)
+    print("  main log     %s" % log_text, file=out)
+    print("  arguments    {:,} parsed · {:d} kept".format(summary["arguments"]["total"],
+                                                         len(summary["arguments"]["kept"])), file=out)
     for w in summary["warnings"]:
-        print("  warning: %s" % w, file=out)
+        print("  note: %s" % w, file=out)
 
 
 def main(argv=None):
@@ -613,14 +636,23 @@ def main(argv=None):
     except (OSError, urllib.error.URLError) as e:
         print("error: %s" % e, file=sys.stderr)
         return 1
+    detail = token_address(token).rstrip("/") + "/post-training/detail?runId="
     if status in (200, 201):
-        print("imported as %s%s" % (answer.get("runId") or answer.get("importId", ""),
-                                    (": " + answer["url"]) if answer.get("url") else ""), file=sys.stderr)
+        if args.stage:
+            print("Staged the summary as %s." % answer.get("importId", ""), file=sys.stderr)
+        else:
+            print("Uploading the summary to workspace %s ... done" % answer.get("workspace", ""),
+                  file=sys.stderr)
+            print("Imported as %s: %s%s" % (answer.get("displayName", ""), detail, answer.get("runId", "")),
+                  file=sys.stderr)
         return 0
-    reason = answer.get("errorMessage") or answer.get("message") or "HTTP %d" % status
-    if status == 409 and answer.get("runId"):
-        reason += " (run %s)" % answer["runId"]
-    print("error: the upload was refused: %s" % reason, file=sys.stderr)
+    if status == 401:
+        print("Token expired or already used. Get a new command from the Import dialog in SaFE.", file=sys.stderr)
+    elif status == 409 and answer.get("runId"):
+        print("This directory is already imported: %s%s" % (detail, answer["runId"]), file=sys.stderr)
+    else:
+        reason = answer.get("errorMessage") or answer.get("message") or "HTTP %d" % status
+        print("The upload was refused: %s" % reason, file=sys.stderr)
     return 2
 
 

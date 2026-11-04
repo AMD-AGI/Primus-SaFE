@@ -104,6 +104,11 @@ def test_a_failed_sft_run(tmp_path):
     assert s["resources"]["h1"]["hostMemPeakKb"] == 900 and s["resources"]["h1"]["vramPeakBytes"] == 7000
     assert s["trainable"] == "dense 18.60B, total 95.91B" and s["finalEval"]["data"]["dev_nll"] == 1.23
     assert "NCCL INFO noise" not in s["check"], "the check output is the plain lines at the end"
+    assert s["mainLog"]["name"] == "b2_sft-h1.log" and s["mainLog"]["metricLines"] == 2 and s["saveSet"] is False
+    out = io.StringIO()
+    spur_import.report(s, out)
+    assert "  node-*.log   2 nodes · 6 gate results · FAIL (b2_sft fail(1) on h1)" in out.getvalue()
+    assert "b2_sft-h1.log" in out.getvalue() and "2 step lines" in out.getvalue()
 
 
 def test_a_run_without_verdict_is_stopped(tmp_path):
@@ -177,7 +182,8 @@ def test_main_reads_the_token_from_the_environment(monkeypatch, tmp_path, capsys
     monkeypatch.setenv(spur_import.TOKEN_ENV, token())
     assert spur_import.main([root]) == 2
     assert calls == [(token(), False)]
-    assert "(run spur-j2-1)" in capsys.readouterr().err
+    assert "This directory is already imported: https://safe.example.com/post-training/detail?runId=spur-j2-1" in \
+        capsys.readouterr().err
 
     assert spur_import.main([root, "--out", os.path.join(root, "summary.json")]) == 1, "the run directory is read-only"
     out = str(tmp_path / "summary.json.gz")
