@@ -1040,6 +1040,28 @@ data:
     );
     create unique index if not exists T_POST_TRAINING_RUN_METRIC_POINT_INDEX on post_training_run_metric (run_id, name, step);
     alter table post_training_run_metric owner to "primus-safe";
+    create table if not exists post_training_run_sample
+    (
+        id BIGSERIAL PRIMARY KEY,
+        run_id VARCHAR(64) NOT NULL,
+        kind VARCHAR(16) NOT NULL,
+        step INTEGER NOT NULL,
+        dataset VARCHAR(128) NOT NULL DEFAULT '',
+        group_index INTEGER NOT NULL,
+        sample_index INTEGER NOT NULL,
+        prompt TEXT NOT NULL,
+        response TEXT NOT NULL,
+        label TEXT,
+        reward DOUBLE PRECISION,
+        reward_detail TEXT,
+        status VARCHAR(16) NOT NULL,
+        response_tokens INTEGER NOT NULL DEFAULT 0,
+        prompt_chars INTEGER NOT NULL,
+        response_chars INTEGER NOT NULL,
+        wall_time TIMESTAMPTZ NOT NULL
+    );
+    create unique index if not exists T_POST_TRAINING_RUN_SAMPLE_KEY_INDEX on post_training_run_sample (run_id, kind, step, dataset, group_index, sample_index);
+    alter table post_training_run_sample owner to "primus-safe";
     create table if not exists post_training_convert_cache
     (
         id SERIAL PRIMARY KEY,
