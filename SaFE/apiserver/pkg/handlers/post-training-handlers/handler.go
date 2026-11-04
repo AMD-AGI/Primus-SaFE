@@ -217,7 +217,6 @@ func modelInfo(m *v1.Model, workspace string) recipe.ModelInfo {
 	return info
 }
 
-
 // modelPathIn returns the ready local path of a model in a workspace, or "".
 func modelPathIn(m *v1.Model, workspace string) string {
 	if m.Spec.Source.AccessMode == v1.AccessModeLocalPath && m.Spec.Source.LocalPath != "" &&

@@ -130,6 +130,17 @@ func TestCompileSFTValidation(t *testing.T) {
 	require.Nil(t, plain.Recipe.Val)
 }
 
+func TestCompileKeepsEvaluationOutOfTheHash(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	plain := compile(t, in)
+	require.Nil(t, plain.Recipe.Evaluation)
+	in.Request.Evaluation = recipe.EvaluationRequest{Enabled: true, Benchmarks: []string{"gsm8k"}, KeepService: true}
+	res := compile(t, in)
+	require.Equal(t, &recipe.EvaluationRequest{Enabled: true, Benchmarks: []string{"gsm8k"}, KeepService: true},
+		res.Recipe.Evaluation, "the controller reads the evaluation from the recipe snapshot")
+	require.Equal(t, plain.Recipe.Provenance.RecipeHash, res.Recipe.Provenance.RecipeHash)
+}
+
 func TestCompileGRPOColocated(t *testing.T) {
 	res := compile(t, qwen3Input(t, registry.TrainTypeRL))
 	got := strings.Join(res.Recipe.FrameworkArgs, " ")

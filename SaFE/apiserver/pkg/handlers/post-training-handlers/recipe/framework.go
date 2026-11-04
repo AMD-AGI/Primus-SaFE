@@ -368,7 +368,9 @@ type Recipe struct {
 	Metrics          RecipeMetrics          `json:"metrics"`
 	Convert          *RecipeConvert         `json:"convert,omitempty"`
 	Output           RecipeOutput           `json:"output"`
-	Provenance       Provenance             `json:"provenance"`
+	// Evaluation is the automatic evaluation the controller runs after registration; it is not hashed.
+	Evaluation *EvaluationRequest `json:"evaluation,omitempty"`
+	Provenance Provenance         `json:"provenance"`
 }
 
 // RecipeModel identifies the base model. Script is the framework's model script, which the launcher adapter turns
@@ -839,6 +841,10 @@ func assemble(ctx *Context, fw *registry.Framework, plan *FrameworkPlan) *Recipe
 	r.Data.Format = in.Dataset.Format
 	if in.EvalDataset != nil {
 		r.Data.Eval = in.EvalDataset.Path
+	}
+	if req.Evaluation.Enabled {
+		evaluation := req.Evaluation
+		r.Evaluation = &evaluation
 	}
 	r.Provenance.RecipeHash = Hash(r)
 	return r
