@@ -8,10 +8,14 @@ import {
   configDiff,
   flattenChanges,
   formatDuration,
+  groupSamples,
+  lastLine,
   nestChanges,
   parseJSON,
+  rewardOf,
   significance,
   smoothPoints,
+  splitTruncated,
   stageDurations,
   stageSegments,
   stallNote,
@@ -19,7 +23,7 @@ import {
 } from './index'
 
 vi.mock('@/services/request', () => ({ default: {} }))
-import type { PostTrainingRun } from './types'
+import type { PostTrainingRun, RunSample } from './types'
 
 type StageRun = Pick<
   PostTrainingRun,
@@ -295,5 +299,65 @@ describe('panels', () => {
     expect(betterOf(better, 'eval/aime')).toBe('higher')
     expect(betterOf(better, 'eval/aime-truncated_ratio')).toBe('lower')
     expect(betterOf(better, 'train/loss')).toBeUndefined()
+  })
+})
+
+describe('samples', () => {
+  const sample = (group: number, index: number, reward?: number): RunSample => ({
+    id: index,
+    runId: 'pt-x',
+    kind: 'rollout',
+    step: 3,
+    dataset: '',
+    group,
+    index,
+    prompt: 'user: 2+2?',
+    response: `thinking\n\nthe answer is ${index}\n`,
+    label: { String: '4', Valid: true },
+    reward: { Float64: reward ?? 0, Valid: reward !== undefined },
+    rewardDetail: { String: '', Valid: false },
+    status: 'completed',
+    tokens: 10,
+    promptChars: 10,
+    responseChars: 20,
+    wallTime: '',
+  })
+
+  it('groups responses and finds groups without a learning signal', () => {
+    const groups = groupSamples([
+      sample(17, 0, 1),
+      sample(17, 1, 0),
+      sample(42, 2, 1),
+      sample(42, 3, 1),
+    ])
+    expect(groups.map((g) => g.group)).toEqual([17, 42])
+    expect(groups[0]).toMatchObject({
+      rewardMean: 0.5,
+      correct: 1,
+      wrong: 1,
+      noSignal: false,
+      label: '4',
+    })
+    expect(groups[1].noSignal).toBe(true)
+    expect(groupSamples([sample(1, 0)])[0].rewardMean).toBeNull()
+  })
+
+  it('splits the launcher note out of a truncated response', () => {
+    expect(splitTruncated('Let me … [2180 characters omitted] … check again')).toEqual({
+      head: 'Let me',
+      omitted: 2180,
+      tail: 'check again',
+    })
+    expect(splitTruncated('short')).toBeNull()
+    expect(lastLine('a\n\n  b  \n')).toBe('b')
+  })
+
+  it('shows the keyed reward with the dict as detail', () => {
+    const s = {
+      ...sample(1, 0, 0.12345),
+      rewardDetail: { String: '{"score":0.12345}', Valid: true },
+    }
+    expect(rewardOf(s)).toEqual({ value: '0.123', detail: '{"score":0.12345}' })
+    expect(rewardOf(sample(1, 0)).value).toBe('—')
   })
 })

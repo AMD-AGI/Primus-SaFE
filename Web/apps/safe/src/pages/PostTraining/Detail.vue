@@ -362,6 +362,21 @@
           </el-table>
         </el-tab-pane>
 
+        <el-tab-pane v-if="hasSamples" name="samples">
+          <template #label>
+            Samples
+            <span v-if="sampleSteps" class="text-[12px] text-[var(--safe-muted)] ml-1">
+              {{ sampleSteps }}
+            </span>
+          </template>
+          <SamplesTab
+            :run-id="run.runId"
+            :active="isActive"
+            :eval-off="evalOff"
+            @count="sampleSteps = $event"
+          />
+        </el-tab-pane>
+
         <el-tab-pane label="Recipe" name="recipe">
           <div class="flex justify-end mb-2">
             <el-button link type="primary" @click="copyText(recipeText)">Copy</el-button>
@@ -529,11 +544,12 @@ import EvalByCheckpoint from './Components/EvalByCheckpoint.vue'
 import GpuPanel from './Components/GpuPanel.vue'
 import SaveTemplateDialog from './Components/SaveTemplateDialog.vue'
 import VariantEditor from './Components/VariantEditor.vue'
+import SamplesTab from './Components/SamplesTab.vue'
 import { requestFromRun, specOfRun } from './Create/wizard'
 
 defineOptions({ name: 'PostTrainingDetailPage' })
 
-const TABS = ['overview', 'metrics', 'checkpoints', 'outputs', 'evaluation', 'recipe']
+const TABS = ['overview', 'metrics', 'checkpoints', 'outputs', 'evaluation', 'samples', 'recipe']
 const VAL_LOSS = 'eval/val/loss'
 const DISK_FULL = /out of space|No space left on device/i
 const readOnlyTip = 'Read-only access'
@@ -562,10 +578,28 @@ const abDrawer = ref(false)
 const templateRequest = computed(() => (run.value ? requestFromRun(run.value) : undefined))
 
 type Recipe = {
-  choices?: { numRollout?: number; saveInterval?: number }
+  choices?: { numRollout?: number; saveInterval?: number; schedule?: string }
   checkpoint?: { keepLast?: number; keepBest?: boolean }
+  data?: { eval?: string }
+  metrics?: { samples?: { rolloutGroups?: number; evalPerSet?: number } }
 }
 const recipe = computed(() => (run.value?.recipe ?? {}) as Recipe)
+
+/** Whether the run records RL samples, which gives it the Samples tab. */
+const hasSamples = computed(() => {
+  const s = recipe.value.metrics?.samples
+  return (
+    run.value?.trainType === 'rl' && !!s && ((s.rolloutGroups ?? 0) > 0 || (s.evalPerSet ?? 0) > 0)
+  )
+})
+const sampleSteps = ref(0)
+const evalOff = computed(() => {
+  if (!recipe.value.data?.eval) return 'No evaluation set'
+  return recipe.value.choices?.schedule === 'async' ? 'Fully async skips eval during training' : ''
+})
+watch(run, (r) => {
+  if (r && tab.value === 'samples' && !hasSamples.value) tab.value = 'overview'
+})
 const recipeText = computed(() => JSON.stringify(run.value?.recipe ?? {}, null, 2))
 
 const methodLabel = (m: string) => (m === 'lora' ? 'LoRA' : 'Full')

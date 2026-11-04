@@ -16,7 +16,10 @@ import type {
   PostTrainingRun,
   RunListParams,
   RunListResp,
+  RunSample,
   RunStage,
+  SampleKind,
+  SamplesResp,
   SegmentState,
   StageEntry,
   StageSegment,
@@ -127,6 +130,82 @@ export function getPostTrainingMetrics(
     params,
     skipErrorHandler: quiet,
   })
+}
+
+/** Returns one step of a run's RL samples, the latest unless step is given; signal cancels a superseded read. */
+export function getPostTrainingSamples(
+  runId: string,
+  params: { kind: SampleKind; step?: number; dataset?: string },
+  signal?: AbortSignal,
+  quiet = false,
+) {
+  return request.get<SamplesResp>(`/post-training/runs/${runId}/samples`, {
+    params,
+    signal,
+    skipErrorHandler: quiet,
+  })
+}
+
+/** A rollout's prompt group: its responses in order, their mean reward and whether they all scored the same. */
+export interface SampleGroup {
+  group: number
+  prompt: string
+  label: string
+  samples: RunSample[]
+  rewardMean: number | null
+  correct: number
+  wrong: number
+  noSignal: boolean
+}
+
+/** Groups a rollout's samples by prompt group in order; a response with a reward above 0 counts as correct. */
+export function groupSamples(samples: RunSample[]): SampleGroup[] {
+  const groups = new Map<number, RunSample[]>()
+  for (const s of samples) groups.set(s.group, [...(groups.get(s.group) ?? []), s])
+  return [...groups.entries()].map(([group, list]) => {
+    const rewards = list.filter((s) => s.reward.Valid).map((s) => s.reward.Float64)
+    const correct = rewards.filter((r) => r > 0).length
+    return {
+      group,
+      prompt: list[0].prompt,
+      label: list[0].label.Valid ? list[0].label.String : '',
+      samples: list,
+      rewardMean: rewards.length ? rewards.reduce((a, b) => a + b, 0) / rewards.length : null,
+      correct,
+      wrong: rewards.length - correct,
+      noSignal: rewards.length > 1 && rewards.every((r) => r === rewards[0]),
+    }
+  })
+}
+
+const OMITTED = / … \[(\d+) characters omitted\] … /
+
+/** Splits a text the launcher truncated into the kept head, the number of omitted characters and the kept tail. */
+export function splitTruncated(
+  text: string,
+): { head: string; omitted: number; tail: string } | null {
+  const m = OMITTED.exec(text)
+  if (!m) return null
+  return {
+    head: text.slice(0, m.index),
+    omitted: Number(m[1]),
+    tail: text.slice(m.index + m[0].length),
+  }
+}
+
+/** The last non-empty line of a response, as the samples table shows it. */
+export function lastLine(text: string): string {
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+  return lines.length ? lines[lines.length - 1] : ''
+}
+
+/** The reward of a sample as shown, and the whole reward dict for the tooltip when the reward was one. */
+export function rewardOf(s: RunSample): { value: string; detail: string } {
+  const value = s.reward.Valid ? String(Math.round(s.reward.Float64 * 1000) / 1000) : '—'
+  return { value, detail: s.rewardDetail.Valid ? s.rewardDetail.String : '' }
 }
 
 /** The URL of a run's metric points as CSV. */
