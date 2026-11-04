@@ -127,9 +127,9 @@
       <el-card class="safe-card mt-3" shadow="never">
         <div class="font-500 mb-2">
           Config Differences
-          <span class="text-[13px] text-[var(--safe-muted)]"
-            >{{ differing.length }} fields differ</span
-          >
+          <span class="text-[13px] text-[var(--safe-muted)]">{{
+            fieldsDiffer(differing.length)
+          }}</span>
         </div>
         <el-table :data="differing" size="small">
           <el-table-column label="Field" min-width="200" prop="label" />
@@ -185,6 +185,7 @@ import { copyText } from '@/utils/index'
 import {
   VARIANT_FIELDS,
   configDiff,
+  fieldsDiffer,
   deletePostTrainingExperiment,
   flattenChanges,
   flattenRecipe,

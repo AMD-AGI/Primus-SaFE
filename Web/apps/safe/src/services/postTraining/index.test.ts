@@ -6,7 +6,9 @@ import {
   matchName,
   panelsOf,
   configDiff,
+  fieldsDiffer,
   flattenChanges,
+  formatCommand,
   formatDuration,
   groupSamples,
   lastLine,
@@ -211,6 +213,8 @@ describe('configDiff', () => {
     expect(lr.label).toBe('Learning rate')
     expect(lr.values).toEqual(['0.00001', '0.00002', '—'])
     expect(rows.some((r) => r.field === 'output.base')).toBe(false)
+    expect(configDiff([{ runId: 'pt-a' }, { runId: 'pt-b' }])).toEqual([])
+    expect([fieldsDiffer(1), fieldsDiffer(2)]).toEqual(['1 field differs', '2 fields differ'])
     expect(configDiff([{ a: [1, 2] }, { a: [1, 2] }])).toEqual([
       { field: 'a', label: 'a', values: ['1, 2', '1, 2'], differs: false },
     ])
@@ -359,5 +363,23 @@ describe('samples', () => {
     }
     expect(rewardOf(s)).toEqual({ value: '0.123', detail: '{"score":0.12345}' })
     expect(rewardOf(sample(1, 0)).value).toBe('—')
+  })
+})
+
+describe('formatCommand', () => {
+  it('puts each option with its values on a line', () => {
+    expect(
+      formatCommand([
+        '--tp',
+        '2',
+        '--sequence-parallel',
+        '--eval-prompt-data',
+        'val',
+        '/d/eval.jsonl',
+      ]),
+    ).toBe(
+      'python3 train.py \\\n  --tp 2 \\\n  --sequence-parallel \\\n  --eval-prompt-data val /d/eval.jsonl',
+    )
+    expect(formatCommand([])).toBe('python3 train.py')
   })
 })

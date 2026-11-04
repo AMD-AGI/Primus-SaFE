@@ -208,6 +208,16 @@ export function rewardOf(s: RunSample): { value: string; detail: string } {
   return { value, detail: s.rewardDetail.Valid ? s.rewardDetail.String : '' }
 }
 
+/** The training command of a recipe, one option with its values per line: `head \` then `  --flag value \`. */
+export function formatCommand(args: string[], head = 'python3 train.py'): string {
+  const lines: string[][] = []
+  for (const a of args) {
+    if (a.startsWith('--') || !lines.length) lines.push([a])
+    else lines[lines.length - 1].push(a)
+  }
+  return [head, ...lines.map((l) => `  ${l.join(' ')}`)].join(' \\\n')
+}
+
 /** The URL of a run's metric points as CSV. */
 export function metricsCsvUrl(runId: string) {
   return `/api/v1/post-training/runs/${runId}/metrics/export`
@@ -482,6 +492,7 @@ export function stallNote(
 
 /** Recipe fields that differ between any two runs by construction, or repeat other fields. */
 const DIFF_SKIPPED = new Set([
+  'runId',
   'output.base',
   'data.train',
   'data.eval',
@@ -521,6 +532,11 @@ export function flattenRecipe(value: unknown, prefix = '', out: Record<string, s
     out[prefix] = String(value)
   }
   return out
+}
+
+/** How many recipe fields differ, as the compare and experiment pages say it. */
+export function fieldsDiffer(n: number): string {
+  return n === 1 ? '1 field differs' : `${n} fields differ`
 }
 
 export interface DiffRow {
