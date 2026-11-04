@@ -152,6 +152,17 @@ func TestBuildWorkloadSingleNode(t *testing.T) {
 		"the W&B key reaches the containers as environment variables")
 }
 
+func TestRewardSecret(t *testing.T) {
+	req := &recipe.SubmitRequest{TrainType: registry.TrainTypeRL, Choices: recipe.Choices{RewardType: "remote",
+		RewardRemote: &recipe.RewardRemote{URL: "https://rm.svc/s", SecretID: "rm-key"}}}
+	require.Equal(t, "rm-key", rewardSecret(req))
+	req.Choices.RewardType = "math"
+	require.Empty(t, rewardSecret(req), "only a remote reward sends a key")
+	req.Choices.RewardType, req.TrainType = "remote", registry.TrainTypeSFT
+	require.Empty(t, rewardSecret(req))
+	require.Contains(t, nodeInitScript, "safe_post_training.pth", "Ray workers can import the slime plugins")
+}
+
 func TestNodeResource(t *testing.T) {
 	r := nodeResource(flavor(), 8)
 	require.Equal(t, "8", r.GPU)

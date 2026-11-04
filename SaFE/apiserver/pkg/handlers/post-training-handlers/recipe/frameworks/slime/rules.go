@@ -7,6 +7,8 @@ package slime
 
 import (
 	"fmt"
+	"net/url"
+	"path"
 	"slices"
 	"strings"
 
@@ -49,8 +51,39 @@ func validationRules(ctx *recipe.Context, c recipe.Choices) []recipe.Diagnostic 
 	return out
 }
 
-// wandbKeyPrefix is the only key prefix a W&B secret may hold, since all of its keys become environment variables.
-const wandbKeyPrefix = "WANDB_"
+// wandbKeyPrefix and rewardKeyPrefix are the only key prefixes a W&B or reward service secret may hold, since all
+// of a secret's keys become environment variables.
+const (
+	wandbKeyPrefix  = "WANDB_"
+	rewardKeyPrefix = "PT_RM_"
+)
+
+// secretRules checks that a secret the request names exists, is readable and general, holds key and only keys
+// starting with prefix.
+func secretRules(field, id string, secret *recipe.SecretInfo, key, prefix string) []recipe.Diagnostic {
+	var out []recipe.Diagnostic
+	fail := func(format string, args ...interface{}) {
+		out = append(out, recipe.Diagnostic{Level: recipe.LevelError, Field: field, Message: fmt.Sprintf(format, args...)})
+	}
+	switch {
+	case id == "":
+		fail("Select the secret that holds %s", key)
+	case secret == nil:
+		fail("Secret %s doesn't exist or you can't read it", id)
+	case secret.Type != string(v1.SecretGeneral):
+		fail("Secret %s must be a general secret", id)
+	case !slices.Contains(secret.Keys, key):
+		fail("Secret %s has no %s", id, key)
+	default:
+		for _, k := range secret.Keys {
+			if !strings.HasPrefix(k, prefix) {
+				fail("Secret %s may only hold %s keys, not %s", id, prefix, k)
+				break
+			}
+		}
+	}
+	return out
+}
 
 // trackingRules checks the W&B settings: a project, and a readable general secret that holds WANDB_API_KEY and only
 // WANDB_ keys.
@@ -66,29 +99,58 @@ func trackingRules(ctx *recipe.Context) []recipe.Diagnostic {
 	if strings.TrimSpace(w.Project) == "" {
 		fail("tracking.wandb.project", "Name the W&B project")
 	}
-	secret := ctx.Input.Secrets[w.SecretID]
-	switch {
-	case w.SecretID == "":
-		fail("tracking.wandb.secretId", "Select the secret that holds WANDB_API_KEY")
-	case secret == nil:
-		fail("tracking.wandb.secretId", "Secret %s doesn't exist or you can't read it", w.SecretID)
-	case secret.Type != string(v1.SecretGeneral):
-		fail("tracking.wandb.secretId", "Secret %s must be a general secret", w.SecretID)
-	case !slices.Contains(secret.Keys, "WANDB_API_KEY"):
-		fail("tracking.wandb.secretId", "Secret %s has no WANDB_API_KEY", w.SecretID)
+	return append(out, secretRules("tracking.wandb.secretId", w.SecretID, ctx.Input.Secrets[w.SecretID],
+		"WANDB_API_KEY", wandbKeyPrefix)...)
+}
+
+// rewardRules checks the reward settings of an RL request: a label for the built-in rewards, a Python file for a
+// custom reward function, and an http(s) address without credentials and an optional secret for a remote service.
+func rewardRules(ctx *recipe.Context, c recipe.Choices) []recipe.Diagnostic {
+	var out []recipe.Diagnostic
+	fail := func(field, format string, args ...interface{}) {
+		out = append(out, recipe.Diagnostic{Level: recipe.LevelError, Field: field, Message: fmt.Sprintf(format, args...)})
+	}
+	switch c.RewardType {
+	case rewardCustom:
+		file, _, _ := strings.Cut(c.RewardHook, ":")
+		if !path.IsAbs(file) || !strings.HasSuffix(file, ".py") || path.Clean(file) != file {
+			fail("choices.rewardHook", "Give the absolute path of the Python file that defines the reward function, "+
+				"optionally followed by :function_name")
+		}
+	case rewardRemote:
+		remote := c.RewardRemote
+		if remote == nil {
+			remote = &recipe.RewardRemote{}
+		}
+		u, err := url.Parse(remote.URL)
+		switch {
+		case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
+			fail("choices.rewardRemote.url", "Give the http or https address of the reward service")
+		case u.User != nil:
+			fail("choices.rewardRemote.url", "Keep credentials out of the address; put the key in a secret")
+		}
+		if remote.SecretID != "" {
+			out = append(out, secretRules("choices.rewardRemote.secretId", remote.SecretID,
+				ctx.Input.Secrets[remote.SecretID], rewardKeyEnv, rewardKeyPrefix)...)
+		}
 	default:
-		for _, k := range secret.Keys {
-			if !strings.HasPrefix(k, wandbKeyPrefix) {
-				fail("tracking.wandb.secretId", "Secret %s may only hold WANDB_ keys, not %s", w.SecretID, k)
-				break
-			}
+		label := c.FieldMap["label"]
+		ds := ctx.Input.Dataset
+		switch {
+		case label == "":
+			fail("choices.fieldMap.label", "The %s reward compares the response with a label: map the dataset's "+
+				"answer or label field", c.RewardType)
+		case len(ctx.Request.Choices.FieldMap) == 0 && ds != nil && ds.Fields != nil && !slices.Contains(ds.Fields, label):
+			fail("choices.fieldMap.label", "The %s reward needs a label, and the dataset has no %s field: map its "+
+				"answer field", c.RewardType, label)
 		}
 	}
 	return out
 }
 
 // rewardTypes are the RL reward types this version compiles.
-var rewardTypes = map[string]bool{defaultRewardType: true}
+var rewardTypes = map[string]bool{defaultRewardType: true, "dapo": true, "math": true, "f1": true,
+	rewardCustom: true, rewardRemote: true}
 
 // Validate applies slime's rules on top of the platform rules.
 func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
@@ -119,6 +181,8 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	}
 	if !rewardTypes[c.RewardType] {
 		fail("choices.rewardType", "Reward type %q is not available", c.RewardType)
+	} else {
+		out = append(out, rewardRules(ctx, c)...)
 	}
 	if c.AdvantageEstimator != recipe.AlgorithmGRPO {
 		fail("choices.advantageEstimator", "Algorithm %q is not available yet", c.AdvantageEstimator)

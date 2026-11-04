@@ -48,9 +48,16 @@ const (
 	maxRunSlugLen   = 30
 	maxExtBytes     = 16 * 1024
 	rdmaResource    = "1k"
-	// nodeInitScript clears stale aiter JIT locks, which hang SGLang after a pod restart.
+	// nodeInitScript clears stale aiter JIT locks, which hang SGLang after a pod restart, and lets every Python
+	// process on the node, Ray workers included, import the launcher's slime plugins by name: a .pth file adds a
+	// directory that holds only the safe_post_training package.
 	nodeInitScript = "#!/bin/bash\nset -e\n" +
-		"find /sgl-workspace/aiter/aiter/jit/build -name 'lock*' -exec rm -f {} \\; 2>/dev/null || true\n"
+		"find /sgl-workspace/aiter/aiter/jit/build -name 'lock*' -exec rm -f {} \\; 2>/dev/null || true\n" +
+		"{ mkdir -p /shared-data/pythonpath && ln -sfn /shared-data/safe_post_training " +
+		"/shared-data/pythonpath/safe_post_training; } || true\n" +
+		"python3 -c 'import os,site; d=[p for p in site.getsitepackages() if os.access(p, os.W_OK)]; " +
+		"d and open(os.path.join(d[0], \"safe_post_training.pth\"), \"w\").write(\"/shared-data/pythonpath\\n\")' " +
+		"|| true\n"
 )
 
 var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
@@ -191,6 +198,9 @@ func (h *Handler) readSecrets(c *gin.Context, req *recipe.SubmitRequest) (map[st
 	if w := req.Tracking.Wandb; w.Enabled && w.SecretID != "" {
 		ids = append(ids, w.SecretID)
 	}
+	if id := rewardSecret(req); id != "" {
+		ids = append(ids, id)
+	}
 	if len(ids) == 0 {
 		return out, nil
 	}
@@ -323,7 +333,19 @@ func buildWorkload(c *gin.Context, reg *registry.Registry, req *recipe.SubmitReq
 	if wb := req.Tracking.Wandb; wb.Enabled {
 		w.Spec.Secrets = append(w.Spec.Secrets, v1.SecretEntity{Id: wb.SecretID, Type: v1.SecretGeneral, AsEnv: true})
 	}
+	if id := rewardSecret(req); id != "" {
+		w.Spec.Secrets = append(w.Spec.Secrets, v1.SecretEntity{Id: id, Type: v1.SecretGeneral, AsEnv: true})
+	}
 	return w, nil
+}
+
+// rewardSecret returns the secret of an RL request's remote reward service, or an empty string.
+func rewardSecret(req *recipe.SubmitRequest) string {
+	remote := req.Choices.RewardRemote
+	if req.TrainType != registry.TrainTypeRL || req.Choices.RewardType != "remote" || remote == nil {
+		return ""
+	}
+	return remote.SecretID
 }
 
 // nodeResource requests a whole node: the flavor's allocatable CPU, memory and ephemeral storage after the
