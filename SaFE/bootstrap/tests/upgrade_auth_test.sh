@@ -5,8 +5,8 @@
 #
 
 # Runs bootstrap/upgrade.sh against the real charts with a stand-in `helm` and `kubectl`, and checks
-# what it does with the auth_* keys of .env: they reach the rendered chart, and an upgrade never
-# silently turns the external authentication of the running release off.
+# what it does with the auth_* and sso_* keys of .env: they reach the rendered chart, and an upgrade never
+# silently turns the external authentication, or the SSO settings, of the running release off.
 #
 # The stand-in `helm upgrade` runs the real `helm template` with the same chart and values files
 # instead of installing, and the stand-in `kubectl` only records its calls, so a refused upgrade is
@@ -256,8 +256,10 @@ expect "release values cannot be read: says so" grep -q 'cannot read the values 
 FAKE_LIST_FAIL=1 run_upgrade "$LIVE_EXTERNAL" ""
 expect "releases cannot be listed: refused" refused
 expect "releases cannot be listed: says so" grep -q 'cannot list the helm releases' "$OUT/log"
-# but an explicit mode needs no reading of the release's values
-FAKE_GET_FAIL=1 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"
+# but an explicit mode needs no reading of the release's values (nor do explicit SSO settings)
+FAKE_GET_FAIL=1 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV
+sso_login_enable=false
+sso_bridge_allowlist='[]'"
 expect "release values cannot be read, .env has every key: applied" applied
 
 # 10. Values that cannot be used are refused before anything is changed.
@@ -336,6 +338,97 @@ run_upgrade "" "$SSO_ON
 $SSO_LOGIN
 sso_login_client_id='a|b'"
 expect "sso_login with a '|' in a value: refused" refused
+
+# A value that the sed replacement would mangle ('&' is the matched text there) is refused.
+run_upgrade "" "$SSO_ON
+$SSO_LOGIN
+sso_login_redirect_uri='https://console.example.com/sso/callback?a=1&b=2'"
+expect "sso_login with a '&' in a value: refused" refused
+expect "sso_login with a '&' in a value: says so" grep -q "sso_login_redirect_uri in .env must not contain" "$OUT/log"
+# sso.login is an SSO setting: on with SSO off is refused, not silently ignored.
+run_upgrade "" "$SSO_LOGIN"
+expect "sso_login_enable=true with sso_enable=false: refused" refused
+expect "sso_login_enable=true with sso_enable=false: says so" grep -q 'sso_login_enable=true in .env needs sso_enable=true' "$OUT/log"
+run_upgrade "" "sso_login_enable=false"
+expect "sso_login_enable=false with sso_enable=false: applied" applied
+# Removing the Secret leaves the apiserver without a provider unless sso.login is on.
+run_upgrade "" "$SSO_ON
+sso_secret="
+expect "sso_secret empty without sso_login: refused" refused
+expect "sso_secret empty without sso_login: says why" grep -q 'needs sso_login_enable=true' "$OUT/log"
+
+# sso_bridge_allowlist: a JSON array that reaches sso.bridge_allowlist, alone or next to the auth_* keys.
+ALLOW="sso_bridge_allowlist='[\"http://localhost:5173\", \"http://127.0.0.1:5173\"]'"
+run_upgrade "" "$SSO_ON
+$ALLOW"
+expect "bridge allowlist: applied" applied
+expect "bridge allowlist: rendered" rendered 'bridge_allowlist: ["http://localhost:5173","http://127.0.0.1:5173"]'
+expect "bridge allowlist: a second values file" grep -qx 2 "$OUT/value-files"
+run_upgrade "$LIVE_BUILTIN" "$SSO_ON
+$AUTH_ENV
+$ALLOW"
+expect "bridge allowlist with auth keys: applied" applied
+expect "bridge allowlist with auth keys: allowlist rendered" rendered 'bridge_allowlist: ["http://localhost:5173","http://127.0.0.1:5173"]'
+expect "bridge allowlist with auth keys: auth still rendered" rendered 'mode: "external"'
+run_upgrade "" "$SSO_ON
+sso_bridge_allowlist="
+expect "empty bridge allowlist is the empty list: applied" applied
+expect "empty bridge allowlist is the empty list: rendered" rendered 'bridge_allowlist: []'
+run_upgrade "" "$SSO_ON
+sso_bridge_allowlist=http://localhost:5173"
+expect "bridge allowlist that is not JSON: refused" refused
+expect "bridge allowlist that is not JSON: says so" grep -q 'sso_bridge_allowlist in .env is not a JSON array' "$OUT/log"
+run_upgrade "" "$SSO_ON
+sso_bridge_allowlist='[1]'"
+expect "bridge allowlist with a non-string entry: refused" refused
+RUN_PATH="$NOJQ" run_upgrade "" "$SSO_ON
+$ALLOW"
+expect "no jq, bridge allowlist: refused" refused
+expect "no jq, bridge allowlist: asks for jq" grep -q 'jq is required when .env sets sso_bridge_allowlist' "$OUT/log"
+
+# A release that runs with sso.login on or a bridge allowlist: an .env without them is refused before the
+# cluster is touched (the next upgrade would sign everyone out, or cut the bridge); with them it applies.
+LIVE_SSO='{"global":{"sub_domain":"test"},"sso":{"enable":true,"secret":"primus-safe-sso","bridge_allowlist":["http://localhost:5173","http://127.0.0.1:5173"],"login":{"enable":true,"issuer":"https://idp.example.com","client_id":"console","redirect_uri":"https://console.example.com/sso/callback"}}}'
+LIVE_SSO_LOGIN_ONLY='{"sso":{"enable":true,"bridge_allowlist":[],"login":{"enable":true,"issuer":"https://idp.example.com"}}}'
+LIVE_SSO_ALLOW_ONLY='{"sso":{"enable":true,"bridge_allowlist":["http://localhost:5173"],"login":{"enable":false}}}'
+LIVE_SSO_OFF='{"sso":{"enable":true,"bridge_allowlist":[],"login":{"enable":false,"issuer":""}}}'
+for jqmode in jq nojq; do
+  rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
+  RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO" "$SSO_ON"
+  expect "$jqmode, live sso.login and allowlist, .env without them: refused" refused
+  expect "$jqmode, live sso.login and allowlist, .env without them: names them" grep -q 'does not set: sso_login_enable sso_login_issuer sso_login_client_id sso_login_redirect_uri sso_bridge_allowlist$' "$OUT/log"
+  RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_LOGIN_ONLY" "$SSO_ON"
+  expect "$jqmode, live sso.login only: refused" refused
+  expect "$jqmode, live sso.login only: names sso_login only" grep -q 'does not set: sso_login_enable sso_login_issuer sso_login_client_id sso_login_redirect_uri$' "$OUT/log"
+  RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_ALLOW_ONLY" "$SSO_ON"
+  expect "$jqmode, live allowlist only: refused" refused
+  expect "$jqmode, live allowlist only: names sso_bridge_allowlist only" grep -q 'does not set: sso_bridge_allowlist$' "$OUT/log"
+  RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_OFF" "$SSO_ON"
+  expect "$jqmode, live sso.login off and no allowlist: applied" applied
+  RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO" "$SSO_ON
+sso_login_enable=false"
+  expect "$jqmode, live allowlist, .env turns sso.login off but leaves the allowlist out: refused" refused
+done
+# helm keeps a value set with --set-string as a string: "true" is on all the same.
+for jqmode in jq nojq; do
+  rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
+  RUN_PATH="${rp:-}" run_upgrade '{"sso":{"enable":true,"login":{"enable":"true"}}}' "$SSO_ON"
+  expect "$jqmode, live sso.login.enable is the string \"true\": refused" refused
+done
+FAKE_GET_FAIL=1 run_upgrade "$LIVE_SSO" "$SSO_ON"
+expect "live SSO values cannot be read: refused" refused
+run_upgrade "$LIVE_SSO" "$SSO_ON
+$SSO_LOGIN
+$ALLOW"
+expect "live sso.login and allowlist, .env carries them: applied" applied
+expect "live sso.login and allowlist, .env carries them: sso.login stays on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+expect "live sso.login and allowlist, .env carries them: allowlist kept" rendered 'bridge_allowlist: ["http://localhost:5173","http://127.0.0.1:5173"]'
+run_upgrade "$LIVE_SSO" "$SSO_ON
+sso_login_enable=false
+sso_bridge_allowlist='[]'"
+expect "live sso.login and allowlist, dropped on purpose: applied" applied
+expect "live sso.login and allowlist, dropped on purpose: sso.login off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
+expect "live sso.login and allowlist, dropped on purpose: allowlist empty" rendered 'bridge_allowlist: []'
 
 echo
 if ((FAILS > 0)); then

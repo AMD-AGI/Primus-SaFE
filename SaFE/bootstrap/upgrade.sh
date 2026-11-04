@@ -198,6 +198,85 @@ write_auth_values() {
   AUTH_VALUES_FILE="$out"
 }
 
+# check_live_sso refuses an upgrade that would silently undo the SSO settings of the running release
+# that only .env can carry: helm renders sso.login and sso.bridge_allowlist from the chart defaults
+# (off, empty) unless .env sets them, so a release that signs the console in at an OIDC provider
+# would send everyone back to the other provider (and sign them out), and other web apps would lose
+# the SSO bridge. sso_login_enable=false and sso_bridge_allowlist='[]' drop them on purpose.
+check_live_sso() {
+  local releases live state login allow missing=""
+  if [[ -n "${sso_login_enable:-}" && -n "${sso_bridge_allowlist+x}" ]]; then
+    return 0 # .env says both: nothing can be dropped
+  fi
+  if ! releases=$(helm -n "$NAMESPACE" list); then
+    echo "Error: cannot list the helm releases in $NAMESPACE, so the SSO settings of the running release are unknown" >&2
+    return 1
+  fi
+  if ! grep -q "^$chart_name " <<<"$releases"; then
+    return 0 # nothing installed yet, nothing to lose
+  fi
+  if command -v jq &> /dev/null; then
+    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o json); then
+      echo "Error: cannot read the values of release $chart_name, so its SSO settings are unknown" >&2
+      return 1
+    fi
+    if ! state=$(jq -r '[((.sso.login.enable // false) | tostring) == "true", ((.sso.bridge_allowlist // []) | length > 0)] | map(tostring) | join(" ")' <<<"$live"); then
+      echo "Error: cannot read the SSO settings from the values of release $chart_name" >&2
+      return 1
+    fi
+  else
+    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o yaml); then
+      echo "Error: cannot read the values of release $chart_name, so its SSO settings are unknown" >&2
+      return 1
+    fi
+    # sso.login.enable, and whether sso.bridge_allowlist has an entry (inline, or a list on the next lines).
+    if ! state=$(awk '
+      /^sso:/ {s = 1; next}
+      /^[^ #]/ {s = 0}
+      !s {next}
+      /^  [^ -]/ {l = 0; a = 0}
+      /^  login:/ {l = 1; next}
+      l && /^    enable: *"?true"?[[:space:]]*$/ {login = 1}
+      /^  bridge_allowlist:/ {v = $0; sub(/^  bridge_allowlist:[[:space:]]*/, "", v); if (v == "") a = 1; else if (v != "[]" && v != "null") allow = 1; next}
+      a && /^  - / {allow = 1}
+      END {printf "%s %s\n", (login ? "true" : "false"), (allow ? "true" : "false")}' <<<"$live"); then
+      echo "Error: cannot read the SSO settings from the values of release $chart_name" >&2
+      return 1
+    fi
+  fi
+  read -r login allow <<<"$state"
+  if [[ "$login" == "true" && -z "${sso_login_enable:-}" ]]; then
+    missing="$missing sso_login_enable sso_login_issuer sso_login_client_id sso_login_redirect_uri"
+  fi
+  if [[ "$allow" == "true" && -z "${sso_bridge_allowlist+x}" ]]; then
+    missing="$missing sso_bridge_allowlist"
+  fi
+  if [[ -n "$missing" ]]; then
+    echo "Error: release $chart_name is running with SSO settings that .env does not set:$missing" >&2
+    echo "       Upgrading now would turn them off: the console would sign in at the other provider again (everyone" >&2
+    echo "       signed out), or other web apps would lose the SSO bridge. Nothing has been changed." >&2
+    echo "       Add them to .env (the live values are: helm -n $NAMESPACE get values $chart_name -o json | jq .sso)," >&2
+    echo "       or set sso_login_enable=false / sso_bridge_allowlist='[]' to drop them on purpose." >&2
+    return 1
+  fi
+}
+
+# write_sso_values adds sso.bridge_allowlist from .env (checked above) to the extra values file
+# AUTH_VALUES_FILE, writing it to $1 if write_auth_values wrote none; nothing when .env does not set it.
+write_sso_values() {
+  local out="$1" base='{}'
+  if [[ -z "${sso_bridge_allowlist+x}" ]]; then
+    return 0
+  fi
+  if [[ -n "$AUTH_VALUES_FILE" ]]; then
+    base=$(cat "$AUTH_VALUES_FILE")
+    out="$AUTH_VALUES_FILE"
+  fi
+  jq -n --argjson b "$base" --argjson l "$sso_bridge_allowlist" '$b * {sso: {bridge_allowlist: $l}}' > "$out.tmp"
+  mv "$out.tmp" "$out"
+  AUTH_VALUES_FILE="$out"
+}
+
 echo "====================================="
 echo "🔧 Step 1: Load Parameters from .env"
 echo "====================================="
@@ -218,6 +297,7 @@ echo "✅ Robust data-plane: managed via AddonTemplate"
 echo "✅ Support S3: \"$s3_enable\""
 echo "✅ Support SSO: \"$sso_enable\""
 echo "✅ SSO console sign-in at an OIDC provider (sso.login): \"${sso_login_enable:-unset}\""
+echo "✅ SSO bridge allowlist: $([[ -n "${sso_bridge_allowlist+x}" ]] && echo set || echo unset)"
 echo "✅ Support Tracing: \"${tracing_enable:-false}\" (mode: ${tracing_mode:-error_only})"
 echo "✅ Support LLM Gateway: \"${llm_gateway_enable:-false}\""
 echo "✅ Grafana: enable=\"${grafana_enable:-true}\" (set grafana_enable=false in .env to disable)"
@@ -244,12 +324,21 @@ echo "✅ Auth mode: \"${auth_mode:-unset}\""
 #   sso_login_redirect_uri  the console's own callback, as registered     -> sso.login.redirect_uri
 #   sso_secret              the Secret of the other SSO provider (default
 #                           primus-safe-sso); empty removes it            -> sso.secret
+#   sso_bridge_allowlist    JSON array of the other web apps (origin, optionally
+#                           with a path prefix) that may receive an SSO code
+#                           through the console, e.g.
+#                           sso_bridge_allowlist='["https://app.example.com"]' -> sso.bridge_allowlist
+# Like auth_*, a release that already runs with sso.login on or a non-empty bridge allowlist refuses
+# an upgrade whose .env leaves them out (check_live_sso); set them to false / '[]' to drop them on purpose.
+SSO_LOGIN_ON="false"
 if [[ -n "${sso_login_enable:-}" ]]; then
   if [[ "$sso_login_enable" != "true" && "$sso_login_enable" != "false" ]]; then
     echo "Error: sso_login_enable in .env must be true or false" >&2
     exit 1
   fi
-  unsafe_value='["|\\[:space:]]'
+  SSO_LOGIN_ON="$sso_login_enable"
+  # The values are written with sed, '|' as the delimiter; '&' in a replacement is the matched text.
+  unsafe_value='["|&\\[:space:]]'
   for key in sso_login_issuer sso_login_client_id sso_login_redirect_uri; do
     value="${!key:-}"
     if [[ "$sso_login_enable" == "true" && -z "$value" ]]; then
@@ -257,18 +346,44 @@ if [[ -n "${sso_login_enable:-}" ]]; then
       exit 1
     fi
     if [[ "$value" =~ $unsafe_value ]]; then
-      echo "Error: $key in .env must not contain spaces, quotes, backslashes or '|'" >&2
+      echo "Error: $key in .env must not contain spaces, quotes, backslashes, '|' or '&'" >&2
       exit 1
     fi
   done
+fi
+# sso.login is part of the SSO settings: with sso_enable=false the apiserver runs no SSO at all, and
+# the console would not offer the sign-in that .env asks for.
+if [[ "$SSO_LOGIN_ON" == "true" && "$sso_enable" != "true" ]]; then
+  echo "Error: sso_login_enable=true in .env needs sso_enable=true" >&2
+  exit 1
 fi
 if [[ "${sso_secret:-}" =~ [^a-z0-9.-] ]]; then
   echo "Error: sso_secret in .env must be the name of a Secret" >&2
   exit 1
 fi
+# Without the Secret, sso.login is the only provider the apiserver has; it refuses to start with neither.
+if [[ "$sso_enable" == "true" && -n "${sso_secret+x}" && -z "$sso_secret" && "$SSO_LOGIN_ON" != "true" ]]; then
+  echo "Error: sso_secret= (empty) in .env needs sso_login_enable=true: the apiserver would have no SSO provider" >&2
+  exit 1
+fi
+if [[ -n "${sso_bridge_allowlist+x}" ]]; then
+  if [[ -z "${sso_bridge_allowlist//[[:space:]]/}" ]]; then
+    sso_bridge_allowlist='[]'
+  fi
+  if ! command -v jq &> /dev/null; then
+    echo "Error: jq is required when .env sets sso_bridge_allowlist" >&2
+    exit 1
+  fi
+  if ! jq -e 'type == "array" and all(.[]; type == "string" and length > 0)' <<<"$sso_bridge_allowlist" &> /dev/null; then
+    echo "Error: sso_bridge_allowlist in .env is not a JSON array of non-empty strings" >&2
+    exit 1
+  fi
+fi
 
 # Before anything is changed: an upgrade must not silently turn the external authentication off.
 check_live_auth
+# ... and must not silently turn the console's sign-in at the OIDC provider, or the SSO bridge, off.
+check_live_sso
 
 echo
 
@@ -427,6 +542,7 @@ if [[ -n "${proxy_services:-}" ]]; then
 fi
 
 write_auth_values "primus-safe/.auth-values.json"
+write_sso_values "primus-safe/.sso-values.json"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"
   mkdir -p output
