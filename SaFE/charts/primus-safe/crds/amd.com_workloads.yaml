@@ -230,6 +230,10 @@ spec:
                   Image secrets automatically use all image secrets bound to the workspace.
                 items:
                   properties:
+                    asEnv:
+                      description: AsEnv also exposes the keys of a general secret
+                        to every container as environment variables, optional.
+                      type: boolean
                     id:
                       description: Secret id, required
                       type: string

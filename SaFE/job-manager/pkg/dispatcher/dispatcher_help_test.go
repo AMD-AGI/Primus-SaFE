@@ -793,6 +793,25 @@ func TestModifyServiceAccountName(t *testing.T) {
 	}
 }
 
+// TestModifyEnvFrom verifies that only general secrets marked asEnv become envFrom sources.
+func TestModifyEnvFrom(t *testing.T) {
+	workload := &v1.Workload{Spec: v1.WorkloadSpec{Secrets: []v1.SecretEntity{
+		{Id: "wandb", Type: v1.SecretGeneral, AsEnv: true},
+		{Id: "files", Type: v1.SecretGeneral},
+		{Id: "pull", Type: v1.SecretImage, AsEnv: true},
+	}}}
+	container := map[string]interface{}{"name": "main"}
+	modifyEnvFrom(container, workload)
+	assert.DeepEqual(t, container["envFrom"], []interface{}{
+		map[string]interface{}{"secretRef": map[string]interface{}{"name": "wandb"}},
+	})
+
+	plain := map[string]interface{}{"name": "main"}
+	modifyEnvFrom(plain, &v1.Workload{Spec: v1.WorkloadSpec{Secrets: []v1.SecretEntity{{Id: "files", Type: v1.SecretGeneral}}}})
+	_, found := plain["envFrom"]
+	assert.Assert(t, !found, "workloads without asEnv keep their containers unchanged")
+}
+
 func TestModifyHostPid(t *testing.T) {
 	tests := []struct {
 		name          string

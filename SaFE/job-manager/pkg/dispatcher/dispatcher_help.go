@@ -478,6 +478,7 @@ func modifyContainers(obj *unstructured.Unstructured,
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
 		modifyEnv(container, env, commonworkload.IsEnabledHostNetwork(workload, resourceId))
+		modifyEnvFrom(container, workload)
 		modifyVolumeMounts(container, workload, workspace, resourceId)
 		modifyPrivilegedSecurity(container, workload)
 		name := jobutils.NestedStringSilently(container, []string{"name"})
@@ -572,6 +573,23 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	container["volumeMounts"] = volumeMounts
+}
+
+// modifyEnvFrom exposes the general secrets marked asEnv to the container as environment variables.
+func modifyEnvFrom(container map[string]interface{}, workload *v1.Workload) {
+	var sources []interface{}
+	for _, secret := range workload.Spec.Secrets {
+		if secret.AsEnv && secret.Type == v1.SecretGeneral {
+			sources = append(sources, map[string]interface{}{
+				"secretRef": map[string]interface{}{"name": secret.Id},
+			})
+		}
+	}
+	if len(sources) == 0 {
+		return
+	}
+	existing, _ := container["envFrom"].([]interface{})
+	container["envFrom"] = append(existing, sources...)
 }
 
 // isSandboxSigningSecret reports the private key whose secret name is the workload name.

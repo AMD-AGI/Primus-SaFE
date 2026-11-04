@@ -1272,6 +1272,9 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	if err = v.validateRequiredParams(newWorkload); err != nil {
 		return err
 	}
+	if err = v.validateSecretsAsEnv(ctx, newWorkload); err != nil {
+		return err
+	}
 	if err = v.validateWorkspace(ctx, newWorkload); err != nil {
 		return err
 	}
@@ -1297,6 +1300,31 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	}
 	if err = v.validateOwnerWorkload(ctx, newWorkload); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateSecretsAsEnv allows asEnv only on secrets that the entry declares general and that are labeled general.
+func (v *WorkloadValidator) validateSecretsAsEnv(ctx context.Context, workload *v1.Workload) error {
+	for _, s := range workload.Spec.Secrets {
+		if !s.AsEnv {
+			continue
+		}
+		if s.Type != v1.SecretGeneral {
+			return commonerrors.NewBadRequest(fmt.Sprintf("secret %s: asEnv is only allowed for general secrets", s.Id))
+		}
+		secret := &corev1.Secret{}
+		key := types.NamespacedName{Name: s.Id, Namespace: common.PrimusSafeNamespace}
+		err := v.Get(ctx, key, secret)
+		if err != nil && v.secretReader != nil {
+			err = v.secretReader.Get(ctx, key, secret)
+		}
+		if err != nil {
+			return commonerrors.NewBadRequest(fmt.Sprintf("secret %s: %v", s.Id, err))
+		}
+		if v1.GetSecretType(secret) != string(v1.SecretGeneral) {
+			return commonerrors.NewBadRequest(fmt.Sprintf("secret %s: asEnv is only allowed for general secrets", s.Id))
+		}
 	}
 	return nil
 }

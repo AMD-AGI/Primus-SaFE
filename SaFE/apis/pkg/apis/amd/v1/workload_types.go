@@ -134,6 +134,8 @@ type SecretEntity struct {
 	Id string `json:"id"`
 	// Secret type, optional. e.g. ssh/image/general
 	Type SecretType `json:"type,omitempty"`
+	// AsEnv also exposes the keys of a general secret to every container as environment variables, optional.
+	AsEnv bool `json:"asEnv,omitempty"`
 }
 
 type WorkloadSpec struct {

@@ -445,6 +445,27 @@ func TestWorkloadValidateService(t *testing.T) {
 	assert.NilError(t, v.validateService(context.Background(), ok))
 }
 
+// TestWorkloadValidateSecretsAsEnv allows asEnv only on general secrets.
+func TestWorkloadValidateSecretsAsEnv(t *testing.T) {
+	scheme := newScheme(t)
+	secret := func(name string, typ v1.SecretType) *corev1.Secret {
+		return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{v1.SecretTypeLabel: string(typ)}}}
+	}
+	v := &WorkloadValidator{Client: fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(secret("wandb", v1.SecretGeneral), secret("pull", v1.SecretImage)).Build()}
+	with := func(entries ...v1.SecretEntity) *v1.Workload {
+		return &v1.Workload{Spec: v1.WorkloadSpec{Secrets: entries}}
+	}
+	ctx := context.Background()
+	assert.NilError(t, v.validateSecretsAsEnv(ctx, with(v1.SecretEntity{Id: "wandb", Type: v1.SecretGeneral, AsEnv: true})))
+	assert.NilError(t, v.validateSecretsAsEnv(ctx, with(v1.SecretEntity{Id: "pull", Type: v1.SecretImage})))
+	assert.Assert(t, v.validateSecretsAsEnv(ctx, with(v1.SecretEntity{Id: "pull", Type: v1.SecretImage, AsEnv: true})) != nil)
+	assert.Assert(t, v.validateSecretsAsEnv(ctx, with(v1.SecretEntity{Id: "pull", Type: v1.SecretGeneral, AsEnv: true})) != nil,
+		"the Secret's own label decides its type")
+	assert.Assert(t, v.validateSecretsAsEnv(ctx, with(v1.SecretEntity{Id: "missing", Type: v1.SecretGeneral, AsEnv: true})) != nil)
+}
+
 // TestWorkloadValidateServiceNameDuplicate rejects a Service name already used
 // by another service-bearing workload in the same workspace.
 func TestWorkloadValidateServiceNameDuplicate(t *testing.T) {
