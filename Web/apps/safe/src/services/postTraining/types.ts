@@ -240,6 +240,20 @@ export interface RecipeOptions {
   defaults: Choices
   presets?: { id: string; label: string; trainType: string; method: string; choices: Choices }[]
   fields?: Record<string, { values?: OptionValue[]; disabled?: boolean; reason?: string }>
+  freeze?: FreezeOptions
+}
+
+/** The spec's freezing offered to full training: its patterns, sizes and what training without it needs. */
+export interface FreezeOptions {
+  allowed: boolean
+  default?: string[]
+  label?: string
+  trainableB?: number
+  totalB?: number
+  checkpointTB?: number
+  fullCheckpointTB?: number
+  fullNodes?: number
+  fullUnverified?: boolean
 }
 
 /** GET /post-training/config: the frameworks and the wizard options of one model. */

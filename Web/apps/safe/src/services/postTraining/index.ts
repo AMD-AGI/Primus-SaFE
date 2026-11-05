@@ -2,11 +2,13 @@ import dayjs from 'dayjs'
 import request from '@/services/request'
 import { formatBytes } from '@/utils'
 import type {
+  Choices,
   ConfigResp,
   DiskUsage,
   Experiment,
   ExperimentListResp,
   ExperimentRequest,
+  FreezeOptions,
   ImportConfig,
   ImportGateRow,
   ImportHostResources,
@@ -1072,6 +1074,52 @@ export function importBanner(s: ImportSummary): {
       `Imported from Spur. Parsed from the logs in ${s.path}. Read-only: it isn't counted in Verified, and ` +
       'nothing from it is registered in Model Square.',
   }
+}
+
+/** How a full run's freeze choice relates to the spec's freezing: its default patterns, others, or none. */
+export type FreezeState = 'default' | 'custom' | 'off'
+
+/** Returns the freezing of a choice: an omitted one takes the spec's default and an empty one trains all. */
+export function freezeState(choice: Choices['freeze'], options?: FreezeOptions): FreezeState {
+  if (!choice) return 'default'
+  const patterns = choice.trainOnly ?? []
+  if (!patterns.length) return 'off'
+  const def = options?.default ?? []
+  return patterns.length === def.length && patterns.every((p, i) => p === def[i])
+    ? 'default'
+    : 'custom'
+}
+
+/** Returns how many parameters a full run trains: ≈ 95.91B of 744B, custom patterns, or all of them. */
+export function trainableText(state: FreezeState, options: FreezeOptions): string {
+  if (state === 'custom') return 'Custom patterns'
+  if (state === 'off') return options.totalB ? `All ${options.totalB}B` : 'All parameters'
+  return options.trainableB && options.totalB
+    ? `≈ ${options.trainableB}B of ${options.totalB}B`
+    : 'Spec default'
+}
+
+/** Returns the review line of a full run's freezing, e.g. "Experts in layers 0–69 frozen · 95.91B trained". */
+export function freezingText(state: FreezeState, options: FreezeOptions): string {
+  if (state === 'off') return 'Nothing frozen'
+  if (state === 'custom') return 'Custom patterns to train'
+  const label = options.label
+    ? options.label[0].toUpperCase() + options.label.slice(1)
+    : 'Spec default'
+  return options.trainableB ? `${label} frozen · ${options.trainableB}B trained` : `${label} frozen`
+}
+
+/** Returns why the patterns JavaScript cannot compile are invalid; the check stage decides with Python's re. */
+export function regexErrors(patterns: string[]): string[] {
+  const out: string[] = []
+  patterns.forEach((p, i) => {
+    try {
+      new RegExp(p)
+    } catch (e) {
+      out.push(`Line ${i + 1} is not a valid regex: ${(e as Error).message}`)
+    }
+  })
+  return out
 }
 
 /** The trainable parameter count of the check output's trainable line, such as 95.91B. */

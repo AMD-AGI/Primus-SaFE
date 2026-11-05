@@ -23,6 +23,9 @@
           <el-descriptions-item label="Nodes">
             {{ w.form.resources.nodes }} × {{ w.form.resources.gpusPerNode }} GPUs
           </el-descriptions-item>
+          <el-descriptions-item v-if="freezing" label="Freezing">{{
+            freezing
+          }}</el-descriptions-item>
           <el-descriptions-item label="Export">{{
             w.form.export.hf === false ? 'None' : 'Hugging Face model'
           }}</el-descriptions-item>
@@ -57,6 +60,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { freezeState, freezingText } from '@/services/postTraining'
 import RecipePanes from '../Components/RecipePanes.vue'
 import { useWizard } from './wizard'
 
@@ -78,6 +82,12 @@ watch(
     ),
   { immediate: true },
 )
+
+/** The freezing of a full run on a spec that offers it. */
+const freezing = computed(() => {
+  const f = w.config.value?.options?.freeze
+  return w.form.method === 'full' && f ? freezingText(freezeState(w.form.choices.freeze, f), f) : ''
+})
 
 const modelName = computed(
   () =>

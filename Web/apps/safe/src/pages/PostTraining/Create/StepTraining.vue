@@ -165,18 +165,40 @@
         <div class="pt-grid">
           <NumberField label="Save interval" field="saveInterval" :min="1" />
         </div>
-        <el-form-item
-          v-if="w.form.method === 'full'"
-          label="Train only (one regex per line, optional)"
-        >
-          <el-input
-            :model-value="(w.form.choices.freeze?.trainOnly ?? []).join('\n')"
-            type="textarea"
-            :rows="3"
-            placeholder="e.g. decoder.layers.(4[0-9]).mlp"
-            @update:model-value="setTrainOnly"
+        <template v-if="w.form.method === 'full' && freezeOptions">
+          <div class="flex items-center gap-2">
+            <el-switch v-model="frozen" />
+            <span class="text-[13px]">Freeze {{ freezeOptions.label || 'parameters' }}</span>
+            <el-tag v-if="freeze === 'default'" size="small" effect="plain" round
+              >Spec default</el-tag
+            >
+          </div>
+          <div class="pt-help">{{ freezeHelp }}</div>
+          <el-alert
+            v-if="freeze === 'off' && unfrozenNote"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="mt-2"
+            :title="unfrozenNote"
           />
-        </el-form-item>
+          <el-form-item
+            v-else-if="freeze !== 'off'"
+            label="Patterns to train (one regex per line)"
+            class="mt-2"
+          >
+            <el-input
+              :model-value="patternsText"
+              type="textarea"
+              :rows="3"
+              @update:model-value="setTrainOnly"
+            />
+            <div v-for="msg in patternErrors" :key="msg" class="pt-error">{{ msg }}</div>
+          </el-form-item>
+          <div v-if="fieldError('choices.freeze')" class="pt-error">
+            {{ fieldError('choices.freeze') }}
+          </div>
+        </template>
       </el-collapse-item>
 
       <el-collapse-item v-if="w.form.method === 'lora'" title="LoRA" name="lora">
@@ -224,6 +246,7 @@
 import { computed, defineComponent, h, ref } from 'vue'
 import { ElInputNumber } from 'element-plus'
 import type { Choices, LoraChoice, OptionValue } from '@/services/postTraining'
+import { freezeState, regexErrors, trainableText } from '@/services/postTraining'
 import { useWizard } from './wizard'
 
 const w = useWizard()
@@ -403,13 +426,58 @@ const setLora = (patch: LoraChoice) => {
   w.form.choices.lora = { ...lora.value, ...patch }
 }
 
-/** Stores the trainable-parameter regexes, one per line; none means full training. */
+const freezeOptions = computed(() => w.config.value?.options?.freeze)
+const freeze = computed(() => freezeState(w.form.choices.freeze, freezeOptions.value))
+/** On leaves the spec's default patterns to the server; off sends an empty freeze, which trains everything. */
+const frozen = computed({
+  get: () => freeze.value !== 'off',
+  set: (on: boolean) => (w.form.choices.freeze = on ? undefined : { trainOnly: [] }),
+})
+const patternsText = computed(() =>
+  (w.form.choices.freeze?.trainOnly ?? freezeOptions.value?.default ?? []).join('\n'),
+)
+const patternErrors = computed(() => regexErrors(w.form.choices.freeze?.trainOnly ?? []))
+
+/** The line under the freeze switch: what is trained and how large a checkpoint gets. */
+const freezeHelp = computed(() => {
+  const f = freezeOptions.value
+  if (!f) return ''
+  if (freeze.value === 'off') return `${trainableText('off', f)} parameters are trained.`
+  const what =
+    freeze.value === 'custom'
+      ? 'Only the parameters matching these patterns are trained.'
+      : `${trainableText('default', f)} parameters are trained.`
+  const size =
+    freeze.value === 'default' && f.checkpointTB ? `, about ${f.checkpointTB} TB each` : ''
+  return `${what} Checkpoints keep only the trainable weights and their optimizer state${size}.`
+})
+
+/** The warning when freezing is off: whether that is verified, and the nodes and checkpoint size it needs. */
+const unfrozenNote = computed(() => {
+  const f = freezeOptions.value
+  if (!f) return ''
+  const needs = [
+    f.fullNodes ? `${f.fullNodes} nodes${w.form.trainType === 'rl' ? ' with rollout' : ''}` : '',
+    f.fullCheckpointTB ? `~${f.fullCheckpointTB} TB per checkpoint` : '',
+  ].filter(Boolean)
+  return [
+    f.fullUnverified ? 'Unverified on this platform.' : '',
+    needs.length ? `Estimated ${needs.join(' and ')}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+})
+
+/** Stores the patterns of the parameters to train, one per line; the spec's patterns or none mean its default. */
 const setTrainOnly = (text: string) => {
   const patterns = text
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean)
-  w.form.choices.freeze = patterns.length ? { trainOnly: patterns } : undefined
+  w.form.choices.freeze =
+    !patterns.length || freezeState({ trainOnly: patterns }, freezeOptions.value) === 'default'
+      ? undefined
+      : { trainOnly: patterns }
 }
 
 /** The first error of the preview on a field. */
