@@ -54,6 +54,15 @@ func renderedVolumes(t *testing.T, kind string, workspace *v1.Workspace) (map[st
 func renderWorkload(t *testing.T, kind string, workspace *v1.Workspace, hostpaths []string,
 	mutate func(*v1.Workload)) (*unstructured.Unstructured, *v1.Workload, v1.ResourceSpec) {
 	t.Helper()
+	obj, workload, spec, err := renderWorkloadErr(t, kind, workspace, hostpaths, mutate)
+	assert.NilError(t, err)
+	return obj, workload, spec
+}
+
+// renderWorkloadErr is renderWorkload that returns the generateK8sObject error instead of failing.
+func renderWorkloadErr(t *testing.T, kind string, workspace *v1.Workspace, hostpaths []string,
+	mutate func(*v1.Workload)) (*unstructured.Unstructured, *v1.Workload, v1.ResourceSpec, error) {
+	t.Helper()
 	c := activeDeadlineCases[kind]
 	commonconfig.SetValue("net.rdma_name", "rdma/hca")
 	defer commonconfig.SetValue("net.rdma_name", "")
@@ -83,8 +92,7 @@ func renderWorkload(t *testing.T, kind string, workspace *v1.Workspace, hostpath
 	adminClient := fake.NewClientBuilder().WithObjects(configmap, c.rt, workspace).WithScheme(scheme).Build()
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.generateK8sObject(context.Background(), workload, nil)
-	assert.NilError(t, err)
-	return obj, workload, c.rt.Spec.ResourceSpecs[0]
+	return obj, workload, c.rt.Spec.ResourceSpecs[0], err
 }
 
 func summarizeVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload,
@@ -316,7 +324,8 @@ func TestSandboxHostPathMountedThroughDeclaredRoot(t *testing.T) {
 }
 
 // A root declared only for other scopes is not a sandbox root, and other kinds and external
-// sandboxes (whose provider refuses subPath) keep the hostpath as the volume source.
+// sandboxes (whose provider refuses subPath; modifyVolumes refuses their entries below a root)
+// keep the hostpath as the volume source.
 func TestHostPathSourceUnchangedOutsideSandboxRoots(t *testing.T) {
 	sources, mounts := renderedHostPaths(t, common.SandboxKind, []string{"/data/train/x"}, nil)
 	assert.Equal(t, sources["hostpath-3"], "/data/train/x")
@@ -364,4 +373,33 @@ func TestSandboxHostPathSourceRoots(t *testing.T) {
 	src, sub := sandboxHostPathSource(sandbox, ws, "/etc/x")
 	assert.Equal(t, src, "/")
 	assert.Equal(t, sub, "etc/x")
+}
+
+// An external Sandbox's provider refuses subPath, so an entry below a declared sandbox root could
+// only be mounted as its own hostPath and a symlink under the root would reach any node path.
+// Rendering refuses it; the declared root itself and entries under no root render as before.
+func TestExternalSandboxHostPathBelowRootRefused(t *testing.T) {
+	external := func(w *v1.Workload) {
+		w.Status.ExternalExecution = &v1.WorkloadExternalExecution{ClaimId: "claim-1",
+			Placements: []v1.WorkloadExternalPlacement{{UnitKey: "master/0", NodeName: "vk-1",
+				CPUMillis: 1000, MemoryBytes: 1 << 30}}}
+	}
+	_, workload, _, err := renderWorkloadErr(t, common.SandboxKind, sandboxRootWorkspace(),
+		[]string{"/data/shared/team/a"}, external)
+	assert.Assert(t, isExternalWorkload(workload))
+	assert.ErrorContains(t, err, `hostpath "/data/shared/team/a" of an external sandbox is below the declared root "/data/shared"`)
+
+	_, _, _, err = renderWorkloadErr(t, common.SandboxKind, sandboxRootWorkspace(),
+		[]string{"/data/shared/", "/opt/legacy"}, external)
+	assert.NilError(t, err)
+
+	// A non-external Sandbox with the same entry renders through root + subPath.
+	_, _, _, err = renderWorkloadErr(t, common.SandboxKind, sandboxRootWorkspace(),
+		[]string{"/data/shared/team/a"}, nil)
+	assert.NilError(t, err)
+	// Other kinds are not restricted by sandbox roots.
+	assert.NilError(t, checkExternalSandboxHostPath(&v1.Workload{
+		Spec:   v1.WorkloadSpec{GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind}},
+		Status: v1.WorkloadStatus{ExternalExecution: &v1.WorkloadExternalExecution{ClaimId: "claim-1"}},
+	}, sandboxRootWorkspace(), "/data/shared/team/a"))
 }

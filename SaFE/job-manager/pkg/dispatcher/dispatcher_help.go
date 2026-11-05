@@ -711,16 +711,30 @@ func workspaceVolumeAppliesTo(vol v1.WorkspaceVolume, workload *v1.Workload) boo
 // workspace declares for sandboxes, but that check is lexical: a symlink under the root could
 // still point anywhere on the node. So the pod mounts the declared root and reaches the entry
 // through subPath, which the kubelet resolves inside the volume and refuses when it escapes it.
-// Other workloads, external pods (whose provider refuses subPath) and entries under no declared
-// root (sandboxes admitted before roots were enforced) keep the entry as the hostPath source.
+// Other workloads, external pods (whose provider refuses subPath; modifyVolumes refuses their
+// entries below a root) and entries under no declared root (sandboxes admitted before roots were
+// enforced) keep the entry as the hostPath source.
 func sandboxHostPathSource(workload *v1.Workload, workspace *v1.Workspace, hostpath string) (string, string) {
-	if workspace == nil || !commonworkload.IsSandBox(workload) || isExternalWorkload(workload) ||
-		!filepath.IsAbs(hostpath) {
+	if !commonworkload.IsSandBox(workload) || isExternalWorkload(workload) {
 		return hostpath, ""
+	}
+	root, sub := sandboxHostPathRoot(workspace, hostpath)
+	if root == "" {
+		return hostpath, ""
+	}
+	return root, sub
+}
+
+// sandboxHostPathRoot returns the longest hostpath volume root the workspace declares for
+// sandboxes that lexically contains hostpath, and the path below it. It returns an empty root for
+// a relative entry, an entry with "..", or an entry under no such root.
+func sandboxHostPathRoot(workspace *v1.Workspace, hostpath string) (string, string) {
+	if workspace == nil || !filepath.IsAbs(hostpath) {
+		return "", ""
 	}
 	for _, elem := range strings.Split(hostpath, "/") {
 		if elem == ".." {
-			return hostpath, ""
+			return "", ""
 		}
 	}
 	cleaned := filepath.Clean(hostpath)
@@ -742,9 +756,23 @@ func sandboxHostPathSource(workload *v1.Workload, workspace *v1.Workspace, hostp
 		}
 	}
 	if best == "" {
-		return hostpath, ""
+		return "", ""
 	}
 	return best, strings.TrimPrefix(strings.TrimPrefix(cleaned, best), "/")
+}
+
+// checkExternalSandboxHostPath refuses an external Sandbox's hostpath entry that lies below a
+// declared sandbox root. The provider refuses subPath, so such an entry could only be mounted as
+// its own hostPath, and a symlink under the root would then reach any path on the node.
+func checkExternalSandboxHostPath(workload *v1.Workload, workspace *v1.Workspace, hostpath string) error {
+	if !commonworkload.IsSandBox(workload) || !isExternalWorkload(workload) {
+		return nil
+	}
+	if root, sub := sandboxHostPathRoot(workspace, hostpath); root != "" && sub != "" {
+		return fmt.Errorf("hostpath %q of an external sandbox is below the "+
+			"declared root %q; an external sandbox can mount only the declared root itself", hostpath, root)
+	}
+	return nil
 }
 
 // modifyVolumes adds volume definitions to the Kubernetes object based on workspace and workload specifications.
@@ -778,6 +806,9 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
+		if err = checkExternalSandboxHostPath(workload, workspace, hostpath); err != nil {
+			return err
+		}
 		source, _ := sandboxHostPathSource(workload, workspace, hostpath)
 		volumes = append(volumes, buildHostPathVolume(volumeName, source, "Directory"))
 		hasNewVolume = true
