@@ -128,3 +128,42 @@ func TestSandboxPodSecuritySkipsOtherKinds(t *testing.T) {
 	assert.Assert(t, !found)
 	assert.Equal(t, container["securityContext"].(map[string]interface{})["privileged"], true)
 }
+
+// A Sandbox whose template has no init containers, or a container entry that is not
+// an object, is still rendered; the bad entry is left alone.
+func TestSandboxPodSecurityToleratesMissingAndOddEntries(t *testing.T) {
+	w := &v1.Workload{}
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: common.DefaultVersion, Kind: common.SandboxKind}
+	obj, spec := sandboxPodObject(t, w, map[string]interface{}{
+		"containers": []interface{}{"not-a-container", map[string]interface{}{"name": "main"}},
+	})
+	assert.NilError(t, applySandboxPodSecurity(obj, w, spec))
+	containers, _, err := jobutils.NestedSlice(obj.Object, podSpecPath(w, spec, "containers"))
+	assert.NilError(t, err)
+	assert.Equal(t, containers[0], "not-a-container")
+	assertSandboxContainerSecurity(t, "main", containers[1])
+	_, found, _ := jobutils.NestedSlice(obj.Object, podSpecPath(w, spec, "initContainers"))
+	assert.Assert(t, !found)
+}
+
+// A template whose pod fields have the wrong shape fails the dispatch instead of
+// producing a Sandbox without the posture.
+func TestSandboxPodSecurityRefusesMalformedTemplate(t *testing.T) {
+	w := &v1.Workload{}
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: common.DefaultVersion, Kind: common.SandboxKind}
+	for name, podSpec := range map[string]map[string]interface{}{
+		"securityContext is not an object": {"securityContext": "x"},
+		"containers is not a list":         {"containers": "x"},
+		"initContainers is not a list":     {"initContainers": "x"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			obj, spec := sandboxPodObject(t, w, podSpec)
+			assert.Assert(t, applySandboxPodSecurity(obj, w, spec) != nil)
+		})
+	}
+	spec := jobutils.TestSandboxResourceTemplate.Spec.ResourceSpecs[0]
+	path := podSpecPath(w, &spec)
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, "not-a-pod-spec", path))
+	assert.Assert(t, applySandboxPodSecurity(obj, w, &spec) != nil, "a pod spec that is not an object")
+}

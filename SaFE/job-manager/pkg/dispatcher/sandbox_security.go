@@ -47,20 +47,13 @@ func applySandboxPodSecurity(obj *unstructured.Unstructured, workload *v1.Worklo
 			return err
 		}
 	}
-	podSecurityPath := podSpecPath(workload, resourceSpec, "securityContext")
-	podSecurity, _, err := jobutils.NestedMap(obj.Object, podSecurityPath)
-	if err != nil {
-		return err
-	}
-	if podSecurity == nil {
-		podSecurity = map[string]interface{}{}
-	}
-	podSecurity["seccompProfile"] = map[string]interface{}{"type": "RuntimeDefault"}
-	if err = jobutils.SetNestedField(obj.Object, podSecurity, podSecurityPath); err != nil {
+	// Only the profile is set; the Pod's other securityContext fields are kept.
+	if err := jobutils.SetNestedField(obj.Object, map[string]interface{}{"type": "RuntimeDefault"},
+		podSpecPath(workload, resourceSpec, "securityContext", "seccompProfile")); err != nil {
 		return err
 	}
 	for _, field := range []string{"containers", "initContainers"} {
-		if err = hardenSandboxContainers(obj, workload, resourceSpec, field); err != nil {
+		if err := hardenSandboxContainers(obj, workload, resourceSpec, field); err != nil {
 			return err
 		}
 	}
