@@ -11,7 +11,7 @@ const SELF = 'https://console.example.com'
 
 describe('outsideConsoleReturn', () => {
   it('publishes exactly the agreed prefixes', () => {
-    expect([...OUTSIDE_CONSOLE_PREFIXES]).toEqual(['/dispatron', '/autopilot', '/binding'])
+    expect([...OUTSIDE_CONSOLE_PREFIXES]).toEqual(['/dispatron', '/autopilot', '/binding', '/blog-drafts'])
   })
 
   it.each([
@@ -21,6 +21,8 @@ describe('outsideConsoleReturn', () => {
     ['/autopilot/', `${SELF}/autopilot/`],
     ['/autopilot/prs?state=open&next=%2Fx', `${SELF}/autopilot/prs?state=open&next=%2Fx`],
     ['/binding/sign-in', `${SELF}/binding/sign-in`],
+    ['/blog-drafts/', `${SELF}/blog-drafts/`],
+    ['/blog-drafts/2026/11/post.html#c3', `${SELF}/blog-drafts/2026/11/post.html#c3`],
   ])('returns %s as a full-page target', (value, want) => {
     expect(outsideConsoleReturn(value, SELF)).toBe(want)
   })
@@ -57,6 +59,10 @@ describe('outsideConsoleReturn', () => {
     '/dispatronx',
     '/dispatron.evil',
     '/autopilot-admin/',
+    '/blog-draftsx/',
+    '/blog-drafts-admin/',
+    '/blog-drafts/../login',
+    '/blog-drafts/%2e%2e/login',
     '/Dispatron/',
     '/dispatron/../login',
     '/dispatron/./runs',

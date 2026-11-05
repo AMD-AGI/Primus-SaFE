@@ -89,6 +89,7 @@ describe('sign-in callback returning outside the console', () => {
   it.each([
     ['/dispatron/runs/42?tab=log', `${SELF}/dispatron/runs/42?tab=log`],
     ['/autopilot/', `${SELF}/autopilot/`],
+    ['/blog-drafts/', `${SELF}/blog-drafts/`],
     ['/binding/sign-in', `${SELF}/binding/sign-in`],
   ])('loads %s with a full-page navigation', async (entry, want) => {
     session.set(ENTRY_KEY, entry)
@@ -175,6 +176,12 @@ describe('/login with a session already present', () => {
     const next = await login('/dispatron/runs')
     expect(replace).toHaveBeenCalledWith(`${SELF}/dispatron/runs`)
     expect(order).toEqual(['probe', 'replace'])
+    expect(next).toHaveBeenCalledWith(false)
+  })
+
+  it('loads blog-drafts once the server confirms the session', async () => {
+    const next = await login('/blog-drafts/')
+    expect(replace).toHaveBeenCalledWith(`${SELF}/blog-drafts/`)
     expect(next).toHaveBeenCalledWith(false)
   })
 
