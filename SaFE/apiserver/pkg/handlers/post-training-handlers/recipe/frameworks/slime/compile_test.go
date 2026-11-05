@@ -516,6 +516,7 @@ func TestGLMNeedsItsHostMemoryOnEveryNode(t *testing.T) {
 		NumHiddenLayers: 78, HiddenSize: 6144, NumAttentionHeads: 64, NumKeyValueHeads: 64, NumExperts: 256,
 		MaxPositionEmbeddings: 1048576}
 	in.Request.Resources.Nodes = 8
+	in.Request.Choices.Freeze = &recipe.FreezeChoice{}
 	in.Workspace.Nodes, in.Workspace.HostMemoryBytes = 8, 2_000_000_000_000
 	res := recipe.Compile(in)
 	var errs []string
@@ -563,6 +564,55 @@ func TestGLMFP8RolloutKeepsTheHFReference(t *testing.T) {
 	args := strings.Join(res.Recipe.FrameworkArgs, " ")
 	require.Contains(t, args, "--hf-checkpoint "+filepath.Join(filepath.Dir(conv.Dir), "fp8_hf")+
 		" --ref-load /wekafs/models/GLM-5.3-BF16")
+	require.Contains(t, args, "--save-hf "+in.RunDir+"/final_model --save-hf-origin-dir /wekafs/models/GLM-5.3-BF16"+
+		" --ref-trainable-only", "the export stays BF16 and the reference keeps only the trainable weights")
+}
+
+func TestGLMFreezesTheEarlyExpertsByDefault(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	in.Model.Path = "/wekafs/models/GLM-5.3-BF16"
+	in.Model.MaxTokens = 202752
+	in.Model.Config = &v1.ModelConfig{Architectures: []string{"GlmMoeDsaForCausalLM"}, ModelType: "glm_moe_dsa",
+		NumHiddenLayers: 78, HiddenSize: 6144, NumAttentionHeads: 64, NumKeyValueHeads: 64, NumExperts: 256,
+		MaxPositionEmbeddings: 1048576}
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureFreeze)
+	in.Workspace.Nodes, in.Workspace.HostMemoryBytes = 8, 3_000_000_000_000
+	in.Request.Resources.Nodes = 2
+	def := `^(?!.*decoder\.layers\.([0-9]|[1-6][0-9])\.mlp\.experts\.)`
+
+	opts, reason := recipe.FrameworkOptions(in)
+	require.Empty(t, reason)
+	require.Equal(t, []string{def}, opts.Defaults.Freeze.TrainOnly, "the wizard starts from the spec's freezing")
+	require.Equal(t, "experts in layers 0–69", opts.Freeze.Label)
+	require.Equal(t, 95.91, opts.Freeze.TrainableB)
+	require.Equal(t, 8, opts.Freeze.FullNodes, "training every parameter needs 8 nodes")
+
+	in.Request.Choices.Freeze = nil
+	res := compile(t, in)
+	require.Equal(t, []string{def}, res.Recipe.Choices.Freeze.TrainOnly, "an omitted freeze takes the default")
+	args := strings.Join(res.Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--only-train-params-name-list "+def+" --trainable-only-ckpt-base "+in.Model.Path+
+		" --save-hf "+in.RunDir+"/final_model")
+	require.NotContains(t, args, "--ref-trainable-only", "SFT has no reference model")
+	require.True(t, res.Recipe.Output.SaveHF)
+	require.Equal(t, 1.34, res.Recipe.CheckpointTB)
+	require.NotContains(t, warningsOf(res), "has not been verified")
+
+	in.Request.Choices.Freeze = &recipe.FreezeChoice{TrainOnly: []string{"decoder.layers.7[0-7]."}}
+	res = compile(t, in)
+	require.Zero(t, res.Recipe.CheckpointTB, "the spec measured its default patterns only")
+	require.True(t, res.Recipe.Output.SaveHF)
+
+	in.Request.Choices.Freeze = &recipe.FreezeChoice{TrainOnly: []string{"--lr"}}
+	require.Contains(t, errorsOf(in), "does not start with -")
+
+	in.Request.Choices.Freeze = &recipe.FreezeChoice{}
+	require.Contains(t, errorsOf(in), "This configuration needs at least 8 nodes", "an empty freeze trains everything")
+	in.Request.Resources.Nodes = 8
+	res = compile(t, in)
+	require.NotContains(t, strings.Join(res.Recipe.FrameworkArgs, " "), "--only-train-params-name-list")
+	require.False(t, res.Recipe.Output.SaveHF)
+	require.Contains(t, warningsOf(res), "has not been verified")
 }
 
 func TestSpecsWithoutAFloorKeepTheirRecipe(t *testing.T) {

@@ -416,6 +416,21 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 			a.add("--trainable-only-ckpt-base", in.Model.Path)
 		}
 	}
+	saveHF := c.Lora == nil && c.Freeze != nil && len(c.Freeze.TrainOnly) > 0
+	if saveHF {
+		// Checkpoints keep the trainable parameters only, so the training process writes the final HF model;
+		// the launcher adds --save-hf-rollouts with the last rollout.
+		a.add("--only-train-params-name-list")
+		a.add(c.Freeze.TrainOnly...)
+		a.add("--trainable-only-ckpt-base", in.Model.Path, "--save-hf", in.RunDir+"/final_model")
+		if fp8 {
+			// The export takes its quantization config from the BF16 base, not from the FP8 rollout weights.
+			a.add("--save-hf-origin-dir", in.Model.Path)
+		}
+		if rl {
+			a.add("--ref-trainable-only")
+		}
+	}
 
 	a.add("--tensor-model-parallel-size", itoa(c.TP), "--pipeline-model-parallel-size", itoa(c.PP),
 		"--context-parallel-size", itoa(c.CP), "--expert-model-parallel-size", itoa(c.EP),
@@ -463,6 +478,7 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		Env:     env,
 		Convert: convert,
 		Lora:    c.Lora,
+		SaveHF:  saveHF,
 	}
 	if c.Lora != nil {
 		plan.Files = map[string]string{pluginsConfigFile: loraConfig(c.Lora, ctx.FrameworkSpec.Lora)}

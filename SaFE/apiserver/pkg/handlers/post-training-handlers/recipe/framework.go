@@ -13,7 +13,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -270,6 +272,14 @@ type Options struct {
 	Defaults Choices                 `json:"defaults"`
 	Presets  []Preset                `json:"presets,omitempty"`
 	Fields   map[string]FieldOptions `json:"fields,omitempty"`
+	Freeze   *FreezeOptions          `json:"freeze,omitempty"`
+}
+
+// FreezeOptions is the spec's freezing that the wizard offers to full training.
+type FreezeOptions struct {
+	registry.Freeze
+	// FullNodes is the node floor without freezing, which the wizard shows when freezing is turned off.
+	FullNodes int `json:"fullNodes,omitempty"`
 }
 
 // Preset is a named starting point in the wizard.
@@ -311,6 +321,8 @@ type FrameworkPlan struct {
 	Rollout map[string]interface{}
 	Critic  map[string]interface{}
 	Convert *RecipeConvert
+	// SaveHF tells that the training process writes final_model itself, as its checkpoints lack frozen weights.
+	SaveHF bool
 }
 
 // Framework is a training framework's compiler plugin.
@@ -384,6 +396,8 @@ type Recipe struct {
 	Metrics          RecipeMetrics          `json:"metrics"`
 	Convert          *RecipeConvert         `json:"convert,omitempty"`
 	Output           RecipeOutput           `json:"output"`
+	// CheckpointTB is the spec's size of one checkpoint under its default freezing, for the storage check.
+	CheckpointTB float64 `json:"checkpointTB,omitempty"`
 	// Evaluation is the automatic evaluation the controller runs after registration; it is not hashed.
 	Evaluation *EvaluationRequest `json:"evaluation,omitempty"`
 	// Tracking is the W&B reporting, with the secret id only; it is not hashed.
@@ -455,6 +469,8 @@ type RecipeOutput struct {
 	Base        string `json:"base"`
 	ExportHF    bool   `json:"exportHf"`
 	PeftAdapter bool   `json:"peftAdapter"`
+	// SaveHF tells that training writes final_model at its last rollout; the export stage only checks it.
+	SaveHF bool `json:"saveHf,omitempty"`
 }
 
 // Provenance records what produced the recipe.
@@ -544,7 +560,15 @@ func FrameworkOptions(in *Input) (*Options, string) {
 			return nil, d.Message
 		}
 	}
-	return plugin.Options(ctx), ""
+	opts := plugin.Options(ctx)
+	if f := ctx.FrameworkSpec.Freeze; f != nil && f.Allowed && ctx.Request.Method == registry.MethodFull {
+		req := ctx.Request
+		sep := separate(req) || (req.TrainType == registry.TrainTypeRL && ctx.FrameworkSpec.Rollout != nil &&
+			ctx.FrameworkSpec.Rollout.RequireSeparate)
+		full, _ := ctx.FrameworkSpec.MinNodesFor(req.TrainType, registry.VariantFull, sep)
+		opts.Freeze = &FreezeOptions{Freeze: *f, FullNodes: full}
+	}
+	return opts, ""
 }
 
 // resolve finds the framework, plugin, spec, architecture and image of a request, recording why any is missing.
@@ -595,8 +619,19 @@ func resolve(in *Input, res *Result) (*Context, Framework, *registry.Framework) 
 	if res.HasErrors() {
 		return nil, nil, nil
 	}
+	applyFreezeDefault(req, fs)
 	return &Context{Input: in, Request: req, Spec: spec, FrameworkSpec: fs, Image: img, Arch: arch,
 		Layout: layoutOf(req), CustomImage: custom}, plugin, fw
+}
+
+// applyFreezeDefault gives full training on a spec with default freezing patterns those patterns, unless the
+// request names its own or none: an empty freeze trains every parameter.
+func applyFreezeDefault(req *SubmitRequest, fs *registry.FrameworkSpec) {
+	f := fs.Freeze
+	if req.Method != registry.MethodFull || req.Choices.Freeze != nil || f == nil || !f.Allowed || len(f.Default) == 0 {
+		return
+	}
+	req.Choices.Freeze = &FreezeChoice{TrainOnly: append([]string(nil), f.Default...)}
 }
 
 // selectImage picks the image of a request: the default image of the framework and architecture, or the named one.
@@ -760,6 +795,13 @@ func platformRules(ctx *Context, res *Result) {
 		if req.Method == registry.MethodLora {
 			res.errorf("choices.freeze", "Freezing parameters cannot be combined with LoRA")
 		}
+		for _, p := range c.Freeze.TrainOnly {
+			if strings.TrimSpace(p) == "" || strings.HasPrefix(p, "-") {
+				res.errorf("choices.freeze", "Each pattern to train must be a non-empty regex that does not start "+
+					"with -")
+				break
+			}
+		}
 	}
 	if rl {
 		// An omitted algorithm takes the framework's default, which keeps to the spec's list.
@@ -873,7 +915,8 @@ func assemble(ctx *Context, fw *registry.Framework, plan *FrameworkPlan) *Recipe
 		Watchdog:      ctx.Spec.Watchdog,
 		Metrics:       RecipeMetrics{Include: fw.Metrics.Include, Samples: rlSamples(req, fw)},
 		Convert:       plan.Convert,
-		Output:        RecipeOutput{Base: in.RunDir, ExportHF: exportHF, PeftAdapter: req.Export.PeftAdapter},
+		Output: RecipeOutput{Base: in.RunDir, ExportHF: exportHF, PeftAdapter: req.Export.PeftAdapter,
+			SaveHF: plan.SaveHF},
 		Provenance: Provenance{Compiler: CompilerVersion, FrameworkCommit: ctx.Image.FrameworkCommit,
 			Image: ctx.Image.Image, SpecSha256: SpecSha256(ctx.Spec)},
 	}
@@ -881,6 +924,10 @@ func assemble(ctx *Context, fw *registry.Framework, plan *FrameworkPlan) *Recipe
 		r.Algorithm = plan.Choices.AdvantageEstimator
 	}
 	r.MinHostMemoryTB = ctx.FrameworkSpec.MinHostMemoryTB
+	if f := ctx.FrameworkSpec.Freeze; f != nil && Variant(req) == registry.VariantFreeze &&
+		slices.Equal(req.Choices.Freeze.TrainOnly, f.Default) {
+		r.CheckpointTB = f.CheckpointTB
+	}
 	r.Data.Format = in.Dataset.Format
 	if in.EvalDataset != nil {
 		r.Data.Eval = in.EvalDataset.Path
