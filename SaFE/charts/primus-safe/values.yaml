@@ -173,6 +173,19 @@ db:
   # long as the process lives", the unbounded reuse that kept a pool writing to a
   # demoted replica for three days. Nothing reports that at runtime beyond one
   # warning at startup, so a 0 is easy to miss.
+robust:
+  # Secret (in the release namespace) holding the shared service token the
+  # Robust API accepts in X-Robust-Service-Token, under the key
+  # "service-token". apiserver, job-manager and resource-manager send it on
+  # every call to a data cluster's robust-api: log search, post-train metrics,
+  # GPU statistics and the workload sync. The same value must be configured
+  # on robust-manager (modules.robustApi.auth.writeGuard.serviceTokenExistingSecret
+  # in the primus-robust chart); without it every one of those calls gets 401.
+  # The mount is optional, so the components start while the Secret is absent.
+  # Set to "" to stop mounting it.
+  service_token_secret: "robust-service-token"
+  # Where the Secret is mounted in the three components.
+  secret_path: "/etc/secrets/robust"
 opensearch:
   # Log search feature flag. When true, log search endpoints are available.
   # Queries are proxied through robust-api on data clusters (no direct OpenSearch connection).

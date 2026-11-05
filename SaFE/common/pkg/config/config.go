@@ -720,6 +720,23 @@ func GetTracingOtlpEndpoint() string {
 	return getString(tracingOtlpEndpoint, "")
 }
 
+// RobustServiceTokenKey is the key of the Robust service token in the secret
+// mounted at robust.secret_path. It is the key robust-manager's chart reads its
+// own copy from (modules.robustApi.auth.writeGuard.serviceTokenSecretKey).
+const RobustServiceTokenKey = "service-token"
+
+// GetRobustServiceToken returns the shared service token the Robust API accepts
+// in X-Robust-Service-Token, or "" when none is mounted. It is read on every
+// call so a rotated Secret takes effect without a restart.
+func GetRobustServiceToken() string {
+	// Without a configured directory getFromFile would resolve the key against
+	// the working directory.
+	if getString(robustSecretPath, "") == "" {
+		return ""
+	}
+	return strings.TrimSpace(getFromFile(robustSecretPath, RobustServiceTokenKey))
+}
+
 // GetLangfuseProxyPublicKey returns the shared Langfuse project public key from secret.
 func GetLangfuseProxyPublicKey() string {
 	return getFromFile(langfuseProxySecretPath, "public_key")
