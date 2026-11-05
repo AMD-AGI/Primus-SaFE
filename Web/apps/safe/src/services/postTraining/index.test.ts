@@ -10,6 +10,8 @@ import {
   flattenChanges,
   formatCommand,
   formatDuration,
+  freezeState,
+  freezingText,
   gateDuration,
   importBanner,
   importTimeline,
@@ -29,6 +31,7 @@ import {
   lastLine,
   nestChanges,
   parseJSON,
+  regexErrors,
   rewardOf,
   shortSpurPath,
   significance,
@@ -39,6 +42,7 @@ import {
   stageSegments,
   stallNote,
   timeOf,
+  trainableText,
 } from './index'
 
 vi.mock('@/services/request', () => ({ default: {} }))
@@ -658,5 +662,37 @@ describe('imported run detail', () => {
     const { memory, vram } = resourceSeries(resources, '2026-10-21T10:13:43Z')
     expect(memory[0].points[1][0]).toBe(0.5)
     expect(vram[0].points[1][1]).toBeCloseTo(284.35, 2)
+  })
+})
+
+describe('freezing', () => {
+  const glm = {
+    allowed: true,
+    default: ['^(?!.*experts)'],
+    label: 'experts in layers 0–69',
+    trainableB: 95.91,
+    totalB: 744,
+  }
+
+  it('tells the default, custom and unfrozen choices apart', () => {
+    expect(freezeState(undefined, glm)).toBe('default')
+    expect(freezeState({ trainOnly: ['^(?!.*experts)'] }, glm)).toBe('default')
+    expect(freezeState({ trainOnly: ['layers\\.7'] }, glm)).toBe('custom')
+    expect(freezeState({ trainOnly: [] }, glm)).toBe('off')
+    expect(freezeState({}, glm)).toBe('off')
+  })
+
+  it('describes what a full run trains', () => {
+    expect(trainableText('default', glm)).toBe('≈ 95.91B of 744B')
+    expect(trainableText('off', glm)).toBe('All 744B')
+    expect(trainableText('custom', glm)).toBe('Custom patterns')
+    expect(freezingText('default', glm)).toBe('Experts in layers 0–69 frozen · 95.91B trained')
+    expect(freezingText('off', glm)).toBe('Nothing frozen')
+  })
+
+  it('flags the patterns JavaScript cannot compile', () => {
+    expect(regexErrors(['^(?!.*experts\\.)', 'layers\\.[0-'])).toEqual([
+      expect.stringMatching(/^Line 2 is not a valid regex: /),
+    ])
   })
 })

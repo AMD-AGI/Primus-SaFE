@@ -55,6 +55,9 @@
           }}</el-descriptions-item>
           <el-descriptions-item label="Nodes">{{ nodesText }}</el-descriptions-item>
           <el-descriptions-item label="Layout">{{ layoutText }}</el-descriptions-item>
+          <el-descriptions-item v-if="trainable" label="Trainable">{{
+            trainable
+          }}</el-descriptions-item>
           <el-descriptions-item label="Convert">{{ convertText }}</el-descriptions-item>
           <el-descriptions-item label="Image">{{ imageText }}</el-descriptions-item>
         </el-descriptions>
@@ -89,7 +92,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNow } from '@vueuse/core'
-import { fieldStep } from '@/services/postTraining'
+import { fieldStep, freezeState, trainableText } from '@/services/postTraining'
 import { useWizard } from './wizard'
 
 const emit = defineEmits<{ goto: [step: number] }>()
@@ -123,6 +126,14 @@ const layoutText = computed(() => {
   return l.colocate
     ? 'Colocated'
     : `Disaggregated · ${l.actorGpus} train + ${l.rolloutGpus} rollout`
+})
+
+/** How many parameters a full run on a spec with freezing trains. */
+const trainable = computed(() => {
+  const f = w.config.value?.options?.freeze
+  return w.form.method === 'full' && f
+    ? trainableText(freezeState(w.form.choices.freeze, f), f)
+    : ''
 })
 
 const convertText = computed(() => {
