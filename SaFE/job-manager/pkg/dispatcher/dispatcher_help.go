@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -607,7 +608,8 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumeMount := buildVolumeMount(volumeName, hostpath, "", "",
+		_, subPath := sandboxHostPathSource(workload, workspace, hostpath)
+		volumeMount := buildVolumeMount(volumeName, hostpath, subPath, "",
 			commonworkload.IsSandBox(workload), false)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
@@ -704,6 +706,47 @@ func workspaceVolumeAppliesTo(vol v1.WorkspaceVolume, workload *v1.Workload) boo
 	return vol.AppliesToScope(commonworkload.GetScope(workload))
 }
 
+// sandboxHostPathSource returns the hostPath volume source and the mount subPath for one of a
+// Sandbox's spec.hostpath entries. Admission accepts only entries under a hostpath volume the
+// workspace declares for sandboxes, but that check is lexical: a symlink under the root could
+// still point anywhere on the node. So the pod mounts the declared root and reaches the entry
+// through subPath, which the kubelet resolves inside the volume and refuses when it escapes it.
+// Other workloads, external pods (whose provider refuses subPath) and entries under no declared
+// root (sandboxes admitted before roots were enforced) keep the entry as the hostPath source.
+func sandboxHostPathSource(workload *v1.Workload, workspace *v1.Workspace, hostpath string) (string, string) {
+	if workspace == nil || !commonworkload.IsSandBox(workload) || isExternalWorkload(workload) ||
+		!filepath.IsAbs(hostpath) {
+		return hostpath, ""
+	}
+	for _, elem := range strings.Split(hostpath, "/") {
+		if elem == ".." {
+			return hostpath, ""
+		}
+	}
+	cleaned := filepath.Clean(hostpath)
+	best := ""
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type != v1.HOSTPATH || !vol.AppliesToScope(v1.SandboxScope) {
+			continue
+		}
+		root := strings.TrimSpace(vol.HostPath)
+		if root == "" {
+			continue
+		}
+		root = filepath.Clean(root)
+		if cleaned != root && root != "/" && !strings.HasPrefix(cleaned, root+"/") {
+			continue
+		}
+		if len(root) > len(best) {
+			best = root
+		}
+	}
+	if best == "" {
+		return hostpath, ""
+	}
+	return best, strings.TrimPrefix(strings.TrimPrefix(cleaned, best), "/")
+}
+
 // modifyVolumes adds volume definitions to the Kubernetes object based on workspace and workload specifications.
 func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, path []string) error {
 	volumes, _, err := jobutils.NestedSlice(obj.Object, path)
@@ -735,7 +778,8 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumes = append(volumes, buildHostPathVolume(volumeName, hostpath, "Directory"))
+		source, _ := sandboxHostPathSource(workload, workspace, hostpath)
+		volumes = append(volumes, buildHostPathVolume(volumeName, source, "Directory"))
 		hasNewVolume = true
 	}
 	for _, secret := range workload.Spec.Secrets {

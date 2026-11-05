@@ -44,6 +44,16 @@ func scopedWorkspace(scopes []v1.WorkspaceScope) *v1.Workspace {
 // whether any container carries USER_DATA_PATH.
 func renderedVolumes(t *testing.T, kind string, workspace *v1.Workspace) (map[string]bool, map[string]string, bool) {
 	t.Helper()
+	obj, workload, spec := renderWorkload(t, kind, workspace, []string{"/opt/extra"}, nil)
+	return summarizeVolumes(t, obj, workload, spec)
+}
+
+// renderWorkload renders a workload of the given kind with the given hostpaths through
+// generateK8sObject and returns the object, the workload and the resource spec it was rendered
+// with. mutate, when set, adjusts the workload before rendering.
+func renderWorkload(t *testing.T, kind string, workspace *v1.Workspace, hostpaths []string,
+	mutate func(*v1.Workload)) (*unstructured.Unstructured, *v1.Workload, v1.ResourceSpec) {
+	t.Helper()
 	c := activeDeadlineCases[kind]
 	commonconfig.SetValue("net.rdma_name", "rdma/hca")
 	defer commonconfig.SetValue("net.rdma_name", "")
@@ -60,7 +70,10 @@ func renderedVolumes(t *testing.T, kind string, workspace *v1.Workspace) (map[st
 		workload.Spec.Resources[0].RdmaResource = ""
 		workload.Spec.Env[sandboxAuthPublicKeyEnvName] = "test-public-key"
 	}
-	workload.Spec.Hostpath = []string{"/opt/extra"}
+	workload.Spec.Hostpath = hostpaths
+	if mutate != nil {
+		mutate(workload)
+	}
 	metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.UserIdLabel, "user-1")
 	configmap, err := parseConfigmap(c.template)
 	assert.NilError(t, err)
@@ -71,8 +84,12 @@ func renderedVolumes(t *testing.T, kind string, workspace *v1.Workspace) (map[st
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
+	return obj, workload, c.rt.Spec.ResourceSpecs[0]
+}
 
-	spec := c.rt.Spec.ResourceSpecs[0]
+func summarizeVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload,
+	spec v1.ResourceSpec) (map[string]bool, map[string]string, bool) {
+	t.Helper()
 	volumes, _, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &spec, "volumes"))
 	assert.NilError(t, err)
 	volumeNames := map[string]bool{}
@@ -230,4 +247,121 @@ func TestGithubRunnerSkipsVolumeOfOtherScopes(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, path, "/ceph")
 	assert.Assert(t, workspaceHasWritablePFS(workload, ws))
+}
+
+// sandboxRootWorkspace declares /data/shared as the hostpath root for sandboxes (hostpath-1) and
+// /data/train as a hostpath root for training only (hostpath-2).
+func sandboxRootWorkspace() *v1.Workspace {
+	ws := jobutils.TestWorkspaceData.DeepCopy()
+	ws.Spec.Volumes = []v1.WorkspaceVolume{{
+		Id: 1, Type: v1.HOSTPATH, MountPath: "/shared", HostPath: "/data/shared",
+		Scopes: []v1.WorkspaceScope{v1.SandboxScope},
+	}, {
+		Id: 2, Type: v1.HOSTPATH, MountPath: "/train", HostPath: "/data/train",
+		Scopes: []v1.WorkspaceScope{v1.TrainScope},
+	}}
+	return ws
+}
+
+// renderedHostPaths renders the workload and returns, per volume name, the hostPath source of the
+// pod volume and the subPath of every container and init container mount of it.
+func renderedHostPaths(t *testing.T, kind string, hostpaths []string, mutate func(*v1.Workload)) (
+	map[string]string, map[string][]string) {
+	t.Helper()
+	obj, workload, spec := renderWorkload(t, kind, sandboxRootWorkspace(), hostpaths, mutate)
+	volumes, _, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &spec, "volumes"))
+	assert.NilError(t, err)
+	sources := map[string]string{}
+	for _, vol := range volumes {
+		v := vol.(map[string]interface{})
+		if hp, ok := v["hostPath"].(map[string]interface{}); ok {
+			sources[v["name"].(string)] = hp["path"].(string)
+		}
+	}
+	subPaths := map[string][]string{}
+	for _, field := range []string{"containers", "initContainers"} {
+		containers, _, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &spec, field))
+		assert.NilError(t, err)
+		for _, ctr := range containers {
+			mounts, _ := ctr.(map[string]interface{})["volumeMounts"].([]interface{})
+			for _, mount := range mounts {
+				mm := mount.(map[string]interface{})
+				sub, _ := mm["subPath"].(string)
+				subPaths[mm["name"].(string)] = append(subPaths[mm["name"].(string)], mm["mountPath"].(string)+"|"+sub)
+			}
+		}
+	}
+	return sources, subPaths
+}
+
+// A Sandbox hostpath under a declared sandbox root is mounted as that root plus a subPath, so the
+// kubelet, not the lexical admission check, decides whether a symlink inside it escapes the root.
+func TestSandboxHostPathMountedThroughDeclaredRoot(t *testing.T) {
+	sources, mounts := renderedHostPaths(t, common.SandboxKind,
+		[]string{"/data/shared/team/a", "/data/shared", "/opt/legacy"}, nil)
+	assert.Equal(t, sources["hostpath-3"], "/data/shared")
+	assert.Equal(t, sources["hostpath-4"], "/data/shared")
+	assert.Equal(t, sources["hostpath-5"], "/opt/legacy")
+	assert.Assert(t, len(mounts["hostpath-3"]) > 0)
+	for _, m := range mounts["hostpath-3"] {
+		assert.Equal(t, m, "/data/shared/team/a|team/a")
+	}
+	for _, m := range mounts["hostpath-4"] {
+		assert.Equal(t, m, "/data/shared|")
+	}
+	// Admitted before roots were enforced: rendered as before so the sandbox keeps working.
+	for _, m := range mounts["hostpath-5"] {
+		assert.Equal(t, m, "/opt/legacy|")
+	}
+}
+
+// A root declared only for other scopes is not a sandbox root, and other kinds and external
+// sandboxes (whose provider refuses subPath) keep the hostpath as the volume source.
+func TestHostPathSourceUnchangedOutsideSandboxRoots(t *testing.T) {
+	sources, mounts := renderedHostPaths(t, common.SandboxKind, []string{"/data/train/x"}, nil)
+	assert.Equal(t, sources["hostpath-3"], "/data/train/x")
+	for _, m := range mounts["hostpath-3"] {
+		assert.Equal(t, m, "/data/train/x|")
+	}
+
+	sources, mounts = renderedHostPaths(t, common.PytorchJobKind, []string{"/data/shared/team/a"}, nil)
+	assert.Equal(t, sources["hostpath-3"], "/data/shared/team/a")
+	for _, m := range mounts["hostpath-3"] {
+		assert.Equal(t, m, "/data/shared/team/a|")
+	}
+
+	externalSandbox := &v1.Workload{
+		Spec:   v1.WorkloadSpec{GroupVersionKind: v1.GroupVersionKind{Kind: common.SandboxKind}},
+		Status: v1.WorkloadStatus{ExternalExecution: &v1.WorkloadExternalExecution{ClaimId: "claim-1"}},
+	}
+	assert.Assert(t, isExternalWorkload(externalSandbox))
+	src, sub := sandboxHostPathSource(externalSandbox, sandboxRootWorkspace(), "/data/shared/team/a")
+	assert.Equal(t, src, "/data/shared/team/a")
+	assert.Equal(t, sub, "")
+}
+
+// The longest declared root wins, ".." and relative entries are never split, and "/" as a root
+// yields a subPath without a leading slash.
+func TestSandboxHostPathSourceRoots(t *testing.T) {
+	sandbox := &v1.Workload{Spec: v1.WorkloadSpec{GroupVersionKind: v1.GroupVersionKind{Kind: common.SandboxKind}}}
+	ws := sandboxRootWorkspace()
+	ws.Spec.Volumes = append(ws.Spec.Volumes, v1.WorkspaceVolume{
+		Id: 3, Type: v1.HOSTPATH, HostPath: "/data/shared/team/",
+	})
+	cases := []struct{ in, src, sub string }{
+		{"/data/shared/team/a/b", "/data/shared/team", "a/b"},
+		{"/data/shared/other", "/data/shared", "other"},
+		{"/data/sharedx", "/data/sharedx", ""},
+		{"/data/shared/../../etc", "/data/shared/../../etc", ""},
+		{"data/shared/a", "data/shared/a", ""},
+	}
+	for _, c := range cases {
+		src, sub := sandboxHostPathSource(sandbox, ws, c.in)
+		assert.Equal(t, src, c.src, c.in)
+		assert.Equal(t, sub, c.sub, c.in)
+	}
+	ws.Spec.Volumes = []v1.WorkspaceVolume{{Id: 1, Type: v1.HOSTPATH, HostPath: "/"}}
+	src, sub := sandboxHostPathSource(sandbox, ws, "/etc/x")
+	assert.Equal(t, src, "/")
+	assert.Equal(t, sub, "etc/x")
 }
