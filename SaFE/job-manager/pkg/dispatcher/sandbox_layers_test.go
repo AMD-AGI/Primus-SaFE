@@ -26,6 +26,14 @@ const testLayerImage = "registry.example/layer@sha256:0123456789abcdef0123456789
 // renderAgentSandbox dispatches a grant-labelled Sandbox through the chart template.
 func renderAgentSandbox(t *testing.T, mutate func(*v1.Workload)) (*unstructured.Unstructured, error) {
 	t.Helper()
+	r, workload := agentSandboxFixture(t, mutate)
+	return r.generateK8sObject(context.Background(), workload, nil)
+}
+
+// agentSandboxFixture returns a reconciler serving the chart Sandbox template and a
+// grant-labelled Sandbox workload for it.
+func agentSandboxFixture(t *testing.T, mutate func(*v1.Workload)) (*DispatcherReconciler, *v1.Workload) {
+	t.Helper()
 	commonconfig.SetValue("net.rdma_name", "rdma/hca")
 	t.Cleanup(func() { commonconfig.SetValue("net.rdma_name", "") })
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
@@ -46,8 +54,7 @@ func renderAgentSandbox(t *testing.T, mutate func(*v1.Workload)) (*unstructured.
 	assert.NilError(t, err)
 	adminClient := fake.NewClientBuilder().WithObjects(configmap,
 		jobutils.TestSandboxResourceTemplate, workspace).WithScheme(scheme).Build()
-	r := DispatcherReconciler{Client: adminClient}
-	return r.generateK8sObject(context.Background(), workload, nil)
+	return &DispatcherReconciler{Client: adminClient}, workload
 }
 
 func podItems(t *testing.T, obj *unstructured.Unstructured, field string) map[string]map[string]interface{} {
