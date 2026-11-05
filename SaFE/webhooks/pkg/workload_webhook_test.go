@@ -522,7 +522,7 @@ func TestWorkloadValidateAuthoring(t *testing.T) {
 // TestWorkloadValidateSandbox verifies sandbox validation.
 func TestWorkloadValidateSandbox(t *testing.T) {
 	v := &WorkloadValidator{}
-	assert.NilError(t, v.validateSandbox(validWorkload()))
+	assert.NilError(t, v.validateSandbox(context.Background(), validWorkload(), nil))
 }
 
 // replicaEnv returns env with valid replica count settings.

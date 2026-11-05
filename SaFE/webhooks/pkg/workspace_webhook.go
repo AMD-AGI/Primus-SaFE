@@ -968,6 +968,9 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 		if !sliceutil.Contains(supportedTypes, vol.Type) {
 			return fmt.Errorf("invalid volume storage type. only %v supported", supportedTypes)
 		}
+		if err := validateVolumeScopes(vol); err != nil {
+			return err
+		}
 		if vol.Type == v1.HOSTPATH {
 			if vol.HostPath == "" {
 				return fmt.Errorf("the hostPath of volume is required for hostpath storage")
@@ -1003,6 +1006,25 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 		if !sliceutil.Contains(supportedAccessMode, vol.AccessMode) {
 			return fmt.Errorf("invalid volume access mode. only %v supported", supportedAccessMode)
 		}
+	}
+	return nil
+}
+
+// validateVolumeScopes checks that a volume's scopes are known workspace scopes and listed once.
+// Empty scopes are valid and mean the volume is mounted into every scope.
+func validateVolumeScopes(vol v1.WorkspaceVolume) error {
+	supportedScopes := []v1.WorkspaceScope{v1.TrainScope, v1.InferScope, v1.AuthoringScope,
+		v1.CICDScope, v1.RayScope, v1.SandboxScope}
+	seen := make(map[v1.WorkspaceScope]struct{}, len(vol.Scopes))
+	for _, scope := range vol.Scopes {
+		if !sliceutil.Contains(supportedScopes, scope) {
+			return fmt.Errorf("invalid scope %q of volume(%s), only %v supported",
+				scope, vol.GenFullVolumeId(), supportedScopes)
+		}
+		if _, ok := seen[scope]; ok {
+			return fmt.Errorf("duplicate scope %q of volume(%s)", scope, vol.GenFullVolumeId())
+		}
+		seen[scope] = struct{}{}
 	}
 	return nil
 }

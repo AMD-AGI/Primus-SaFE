@@ -2707,6 +2707,11 @@ func (in *WorkspaceVolume) DeepCopyInto(out *WorkspaceVolume) {
 			(*out)[key] = val
 		}
 	}
+	if in.Scopes != nil {
+		in, out := &in.Scopes, &out.Scopes
+		*out = make([]WorkspaceScope, len(*in))
+		copy(*out, *in)
+	}
 	return
 }
 

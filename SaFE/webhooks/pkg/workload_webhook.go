@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -386,14 +387,17 @@ func (m *WorkloadMutator) mutateResources(_ context.Context, workload *v1.Worklo
 }
 
 // mutateHostPath removes hostPath duplicated by the workspace; workloads inherit workspace hostPath.
+// Only the workspace volumes mounted into the workload's scope are inherited, so a hostPath that
+// duplicates a volume restricted to other scopes is kept.
 func (m *WorkloadMutator) mutateHostPath(workload *v1.Workload, workspace *v1.Workspace) {
 	if len(workload.Spec.Hostpath) == 0 {
 		return
 	}
 	hostPathSet := sets.NewSet()
 	if workspace != nil {
+		scope := commonworkload.GetScope(workload)
 		for _, vol := range workspace.Spec.Volumes {
-			if vol.Type == v1.HOSTPATH {
+			if vol.Type == v1.HOSTPATH && vol.AppliesToScope(scope) {
 				hostPathSet.Insert(vol.HostPath)
 			}
 		}
@@ -1248,7 +1252,7 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	case common.MonarchJob:
 		err = v.validateMonarchJob(newWorkload, oldWorkload)
 	case common.SandboxKind:
-		err = v.validateSandbox(newWorkload)
+		err = v.validateSandbox(ctx, newWorkload, oldWorkload)
 	case common.DynamoDeploymentKind:
 		err = v.validateDynamoDeployment(newWorkload)
 	case common.InferaDeploymentKind:
@@ -1774,11 +1778,63 @@ func (v *WorkloadValidator) validateDynamoDeployment(workload *v1.Workload) erro
 }
 
 // validateSandbox validates sandbox workload configuration.
-func (v *WorkloadValidator) validateSandbox(newWorkload *v1.Workload) error {
+func (v *WorkloadValidator) validateSandbox(ctx context.Context, newWorkload, oldWorkload *v1.Workload) error {
 	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxGeneratedNameLength {
 		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxGeneratedNameLength)
 	}
+	if len(newWorkload.Spec.Hostpath) == 0 ||
+		(oldWorkload != nil && reflect.DeepEqual(oldWorkload.Spec.Hostpath, newWorkload.Spec.Hostpath)) {
+		return nil
+	}
+	workspace, err := getWorkspace(ctx, v.Client, newWorkload.Spec.Workspace)
+	if err != nil {
+		return err
+	}
+	return validateSandboxHostPath(newWorkload, workspace)
+}
+
+// validateSandboxHostPath restricts a sandbox's hostpath entries to the host paths the workspace
+// declares for sandboxes: each entry must be a hostpath volume of the workspace mounted into the
+// Sandbox scope, or a directory under one. A sandbox cannot bind an arbitrary node path.
+func validateSandboxHostPath(workload *v1.Workload, workspace *v1.Workspace) error {
+	var declared []string
+	if workspace != nil {
+		for _, vol := range workspace.Spec.Volumes {
+			if vol.Type != v1.HOSTPATH || !vol.AppliesToScope(v1.SandboxScope) {
+				continue
+			}
+			if root := strings.TrimSpace(vol.HostPath); root != "" {
+				declared = append(declared, filepath.Clean(root))
+			}
+		}
+	}
+	for _, hostPath := range workload.Spec.Hostpath {
+		if !isUnderDeclaredHostPath(hostPath, declared) {
+			return commonerrors.NewForbidden(fmt.Sprintf("the hostpath %q of the sandbox is not declared "+
+				"by workspace %s, only paths under %v are allowed", hostPath, workload.Spec.Workspace, declared))
+		}
+	}
 	return nil
+}
+
+// isUnderDeclaredHostPath reports whether path is absolute, has no ".." element, and equals or lies
+// under one of the declared roots.
+func isUnderDeclaredHostPath(path string, declared []string) bool {
+	if !filepath.IsAbs(path) {
+		return false
+	}
+	for _, elem := range strings.Split(path, "/") {
+		if elem == ".." {
+			return false
+		}
+	}
+	cleaned := filepath.Clean(path)
+	for _, root := range declared {
+		if cleaned == root || root == "/" || strings.HasPrefix(cleaned, root+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // validateResource validates the basic fields of a WorkloadResource to ensure they are properly set
