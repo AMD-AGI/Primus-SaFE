@@ -155,3 +155,14 @@ func TestChartRendersACustomRobustSecret(t *testing.T) {
 		testifyassert.Equal(t, "/var/run/robust", viper.GetString(robustSecretPath), component)
 	}
 }
+
+// TestRobustServiceTokenNeedsAConfiguredDirectory: with robust.secret_path
+// unset the getter must not fall back to a file in the working directory.
+func TestRobustServiceTokenNeedsAConfiguredDirectory(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	dir := t.TempDir()
+	testifyrequire.NoError(t, os.WriteFile(filepath.Join(dir, RobustServiceTokenKey), []byte("stray"), 0o600))
+	t.Chdir(dir)
+	testifyassert.Equal(t, "", GetRobustServiceToken())
+}
