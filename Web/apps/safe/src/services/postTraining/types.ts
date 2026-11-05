@@ -542,6 +542,8 @@ export interface ImportConfig {
   mountCluster?: string
   mountReason?: string
   canImport: boolean
+  /** The directories the caller may scan. */
+  mountPrefixes?: string[]
 }
 
 /** A one-time token of the import command, with the command that uses it. */

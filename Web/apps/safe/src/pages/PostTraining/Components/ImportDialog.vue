@@ -26,6 +26,9 @@
           <template v-if="mode === 'mount'">
             SaFE reads the directory through {{ config.mountRoot }}, mounted read-only on cluster
             {{ config.mountCluster }}. Nothing is copied.
+            <template v-if="config.mountPrefixes?.length">
+              You can scan directories under {{ config.mountPrefixes.join(' or ') }}.
+            </template>
           </template>
           <template v-else>
             Run one command on a Spur login node. It parses the directory there and uploads a
