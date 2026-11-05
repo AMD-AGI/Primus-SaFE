@@ -271,6 +271,10 @@ func initializeObject(obj *unstructured.Unstructured,
 			return fmt.Errorf("failed to modify by opsjob: %v", err.Error())
 		}
 	}
+	// Last, so nothing above can widen a Sandbox's security posture again.
+	if err = applySandboxPodSecurity(obj, workload, resourceSpec); err != nil {
+		return fmt.Errorf("failed to apply sandbox pod security: %v", err.Error())
+	}
 	return nil
 }
 
