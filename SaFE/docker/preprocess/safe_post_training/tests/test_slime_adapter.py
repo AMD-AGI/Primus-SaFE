@@ -4,6 +4,7 @@
 #
 import json
 import math
+import os
 
 import pytest
 
@@ -115,6 +116,65 @@ def test_critic_config(tmp_path):
     _, _, files = a.train_command(recipe, str(tmp_path))
     assert json.loads(files["megatron.yaml"])["megatron"][0]["overrides"]["load"].endswith("critic_checkpoints")
     assert a.latest_checkpoint(str(tmp_path), "critic_checkpoints") == 20
+
+
+def test_the_last_rollout_writes_the_final_model(tmp_path):
+    (tmp_path / "model.sh").write_text("MODEL_ARGS=(--num-layers 2)\n")
+    a = Adapter(env={"SLIME_DIR": str(tmp_path)})
+    recipe = {"model": {"script": "model.sh"}, "output": {"saveHf": True}, "choices": {"numRollout": 120},
+              "frameworkArgs": ["--save-hf", str(tmp_path / "final_model"), "--lr", "1e-06"]}
+    cmd, _, _ = a.train_command(recipe, str(tmp_path))
+    assert cmd[-2:] == ["--save-hf-rollouts", "119"]
+
+    recipe["choices"] = {"numEpoch": 2, "batchSize": 8}
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "stats.json").write_text(json.dumps({"train": {"rows": 100, "written": 90}}))
+    cmd, _, _ = a.train_command(recipe, str(tmp_path))
+    assert cmd[-2:] == ["--save-hf-rollouts", "21"], "11 rollouts per epoch of the 90 rows left after the split"
+
+    (tmp_path / "data" / "stats.json").unlink()
+    cmd, _, _ = a.train_command(recipe, str(tmp_path))
+    assert "--save-hf" not in cmd and cmd[-2:] == ["--lr", "1e-06"], "no HF save at every checkpoint"
+
+
+def test_trainable_only_checkpoints_export_by_overlay(tmp_path):
+    root = tmp_path / "slime"
+    (root / "tools").mkdir(parents=True)
+    base = tmp_path / "base"
+    base.mkdir()
+    (base / "config.json").write_text(json.dumps({"vocab_size": 151552}))
+    (base / "tokenizer.json").write_text("{}")
+    ckpt = tmp_path / "checkpoints" / "iter_0000020"
+    ckpt.mkdir(parents=True)
+    (ckpt / "trainable_only").write_text(str(base) + "\n")
+    (tmp_path / "checkpoints" / "latest_checkpointed_iteration.txt").write_text("20\n")
+    commands = []
+
+    def run_command(cmd, env=None):
+        commands.append(cmd)
+        if cmd[1].endswith("overlay_hf.py"):
+            out = cmd[cmd.index("--out") + 1]
+            os.makedirs(out, exist_ok=True)
+            open(os.path.join(out, "config.json"), "w").close()
+        return 0
+
+    a = Adapter(env={"SLIME_DIR": str(root)})
+    recipe = {"model": {"path": str(base)}, "output": {"saveHf": True}}
+    out = a.export(recipe, str(tmp_path), run_command)
+    assert out == str(tmp_path / "final_model")
+    convert, overlay = commands
+    assert convert[1] == str(root / "tools" / "convert_torch_dist_to_hf.py") and "-a" not in convert
+    assert convert[convert.index("--output-dir") + 1] == out + ".trained-tmp"
+    assert convert[convert.index("--vocab-size") + 1] == "151552", "padded embedding rows are cut to the base"
+    assert overlay[overlay.index("--trained") + 1] == out + ".trained-tmp"
+    assert overlay[overlay.index("--base") + 1] == str(base)
+    assert (tmp_path / "final_model" / "tokenizer.json").exists()
+
+    (tmp_path / "final_model" / "model.safetensors.index.json").write_text("{}")
+    commands.clear()
+    assert a.export(recipe, str(tmp_path), run_command) == out and commands == [], "training wrote the final model"
+    a.export(recipe, str(tmp_path), run_command, iteration=20, out=str(tmp_path / "exports" / "step-20"))
+    assert len(commands) == 2, "a checkpoint export still overlays"
 
 
 def test_conversion_builds_the_model_on_the_host(tmp_path):
