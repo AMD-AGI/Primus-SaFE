@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -591,6 +592,9 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 			if vol.Id > maxId {
 				maxId = vol.Id
 			}
+			if !workspaceVolumeAppliesTo(vol, workload) {
+				continue
+			}
 			if vol.MountPath != "" {
 				// External pods mount the approved root without subPath; USER_DATA_PATH
 				// still points at the per-user directory for the program.
@@ -604,7 +608,8 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumeMount := buildVolumeMount(volumeName, hostpath, "", "",
+		_, subPath := sandboxHostPathSource(workload, workspace, hostpath)
+		volumeMount := buildVolumeMount(volumeName, hostpath, subPath, "",
 			commonworkload.IsSandBox(workload), false)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
@@ -693,6 +698,83 @@ func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
 	return jobutils.SetNestedField(obj.Object, initContainers, path)
 }
 
+// workspaceVolumeAppliesTo reports whether a workspace volume is mounted into the workload: a volume
+// that lists scopes is mounted only into workloads of those scopes, whatever the workload asks for.
+// The volume ids still count towards the hostpath volume numbering, so skipping a volume does not
+// renumber the workload's own hostpath volumes.
+func workspaceVolumeAppliesTo(vol v1.WorkspaceVolume, workload *v1.Workload) bool {
+	return vol.AppliesToScope(commonworkload.GetScope(workload))
+}
+
+// sandboxHostPathSource returns the hostPath volume source and the mount subPath for one of a
+// Sandbox's spec.hostpath entries. Admission accepts only entries under a hostpath volume the
+// workspace declares for sandboxes, but that check is lexical: a symlink under the root could
+// still point anywhere on the node. So the pod mounts the declared root and reaches the entry
+// through subPath, which the kubelet resolves inside the volume and refuses when it escapes it.
+// Other workloads, external pods (whose provider refuses subPath; modifyVolumes refuses their
+// entries below a root) and entries under no declared root (sandboxes admitted before roots were
+// enforced) keep the entry as the hostPath source.
+func sandboxHostPathSource(workload *v1.Workload, workspace *v1.Workspace, hostpath string) (string, string) {
+	if !commonworkload.IsSandBox(workload) || isExternalWorkload(workload) {
+		return hostpath, ""
+	}
+	root, sub := sandboxHostPathRoot(workspace, hostpath)
+	if root == "" {
+		return hostpath, ""
+	}
+	return root, sub
+}
+
+// sandboxHostPathRoot returns the longest hostpath volume root the workspace declares for
+// sandboxes that lexically contains hostpath, and the path below it. It returns an empty root for
+// a relative entry, an entry with "..", or an entry under no such root.
+func sandboxHostPathRoot(workspace *v1.Workspace, hostpath string) (string, string) {
+	if workspace == nil || !filepath.IsAbs(hostpath) {
+		return "", ""
+	}
+	for _, elem := range strings.Split(hostpath, "/") {
+		if elem == ".." {
+			return "", ""
+		}
+	}
+	cleaned := filepath.Clean(hostpath)
+	best := ""
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type != v1.HOSTPATH || !vol.AppliesToScope(v1.SandboxScope) {
+			continue
+		}
+		root := strings.TrimSpace(vol.HostPath)
+		if root == "" {
+			continue
+		}
+		root = filepath.Clean(root)
+		if cleaned != root && root != "/" && !strings.HasPrefix(cleaned, root+"/") {
+			continue
+		}
+		if len(root) > len(best) {
+			best = root
+		}
+	}
+	if best == "" {
+		return "", ""
+	}
+	return best, strings.TrimPrefix(strings.TrimPrefix(cleaned, best), "/")
+}
+
+// checkExternalSandboxHostPath refuses an external Sandbox's hostpath entry that lies below a
+// declared sandbox root. The provider refuses subPath, so such an entry could only be mounted as
+// its own hostPath, and a symlink under the root would then reach any path on the node.
+func checkExternalSandboxHostPath(workload *v1.Workload, workspace *v1.Workspace, hostpath string) error {
+	if !commonworkload.IsSandBox(workload) || !isExternalWorkload(workload) {
+		return nil
+	}
+	if root, sub := sandboxHostPathRoot(workspace, hostpath); root != "" && sub != "" {
+		return fmt.Errorf("hostpath %q of an external sandbox is below the "+
+			"declared root %q; an external sandbox can mount only the declared root itself", hostpath, root)
+	}
+	return nil
+}
+
 // modifyVolumes adds volume definitions to the Kubernetes object based on workspace and workload specifications.
 func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, path []string) error {
 	volumes, _, err := jobutils.NestedSlice(obj.Object, path)
@@ -706,6 +788,9 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 		for _, vol := range workspace.Spec.Volumes {
 			if vol.Id > maxId {
 				maxId = vol.Id
+			}
+			if !workspaceVolumeAppliesTo(vol, workload) {
+				continue
 			}
 			volumeName := vol.GenFullVolumeId()
 			var volume interface{}
@@ -721,7 +806,11 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumes = append(volumes, buildHostPathVolume(volumeName, hostpath, "Directory"))
+		if err = checkExternalSandboxHostPath(workload, workspace, hostpath); err != nil {
+			return err
+		}
+		source, _ := sandboxHostPathSource(workload, workspace, hostpath)
+		volumes = append(volumes, buildHostPathVolume(volumeName, source, "Directory"))
 		hasNewVolume = true
 	}
 	for _, secret := range workload.Spec.Secrets {
@@ -1238,7 +1327,7 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 	}
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
-			if vol.EnableUserDir {
+			if vol.EnableUserDir && workspaceVolumeAppliesTo(vol, workload) {
 				userDir := vol.MountPath + "/" + generateUserDir(v1.GetUserId(workload))
 				result = addEnvVar(result, workload, jobutils.UserDataEnv, userDir)
 				break
@@ -1921,7 +2010,7 @@ func githubRunnerWritableMountPath(workload *v1.Workload, workspace *v1.Workspac
 	if workspace == nil || !v1.IsEnableWorkspaceStorage(workload) {
 		return "", fmt.Errorf("github runner requires workspace storage")
 	}
-	vol, ok := pickWritableWorkspaceVolume(workspace)
+	vol, ok := pickWritableWorkspaceVolume(workload, workspace)
 	if !ok || vol.MountPath == "" {
 		return "", fmt.Errorf("github runner requires a writable workspace volume")
 	}
@@ -1936,14 +2025,14 @@ func githubRunnerWritableMountPath(workload *v1.Workload, workspace *v1.Workspac
 // without asking kubelet to change ownership across a shared filesystem.
 const githubRunnerPFSSupplementalGroup = int64(1000)
 
-func workspaceHasWritablePFS(workspace *v1.Workspace) bool {
-	vol, ok := pickWritableWorkspaceVolume(workspace)
+func workspaceHasWritablePFS(workload *v1.Workload, workspace *v1.Workspace) bool {
+	vol, ok := pickWritableWorkspaceVolume(workload, workspace)
 	return ok && vol.Type == v1.PFS
 }
 
 func applyGithubRunnerPodSecurityContext(obj *unstructured.Unstructured, workload *v1.Workload,
 	workspace *v1.Workspace, resourceSpec v1.ResourceSpec) error {
-	if !workspaceHasWritablePFS(workspace) {
+	if !workspaceHasWritablePFS(workload, workspace) {
 		return nil
 	}
 	path := podSpecPath(workload, &resourceSpec, "securityContext")
@@ -2002,11 +2091,12 @@ func supplementalGroupID(group interface{}) (int64, bool) {
 	}
 }
 
-func pickWritableWorkspaceVolume(workspace *v1.Workspace) (v1.WorkspaceVolume, bool) {
+func pickWritableWorkspaceVolume(workload *v1.Workload, workspace *v1.Workspace) (v1.WorkspaceVolume, bool) {
 	var first v1.WorkspaceVolume
 	foundFirst := false
 	for _, vol := range workspace.Spec.Volumes {
-		if vol.AccessMode == corev1.ReadOnlyMany || strings.TrimSpace(vol.MountPath) == "" {
+		if vol.AccessMode == corev1.ReadOnlyMany || strings.TrimSpace(vol.MountPath) == "" ||
+			!workspaceVolumeAppliesTo(vol, workload) {
 			continue
 		}
 		if vol.Type == v1.PFS {
@@ -4220,14 +4310,21 @@ func getNfsPathFromWorkspace(workload *v1.Workload, workspace *v1.Workspace) str
 		return ""
 	}
 	result := ""
-	for _, vol := range workspace.Spec.Volumes {
+	var first *v1.WorkspaceVolume
+	for i, vol := range workspace.Spec.Volumes {
+		if !workspaceVolumeAppliesTo(vol, workload) {
+			continue
+		}
+		if first == nil {
+			first = &workspace.Spec.Volumes[i]
+		}
 		if vol.Type == v1.PFS {
 			result = vol.MountPath
 			break
 		}
 	}
-	if result == "" && len(workspace.Spec.Volumes) > 0 {
-		result = workspace.Spec.Volumes[0].MountPath
+	if result == "" && first != nil {
+		result = first.MountPath
 	}
 	return result
 }
