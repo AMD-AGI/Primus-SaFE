@@ -210,7 +210,11 @@ type FrameworkSpec struct {
 	MinNodes        map[string]int `json:"minNodes"`
 	Unverified      []string       `json:"unverified,omitempty"`
 	MinHostMemoryTB float64        `json:"minHostMemoryTB,omitempty"`
-	ConvertNodes    int            `json:"convertNodes,omitempty"`
+	// ConvertNodes is how many nodes the torch_dist conversion needs. Unused when HFDirect is set.
+	ConvertNodes int `json:"convertNodes,omitempty"`
+	// HFDirect means training loads the base HF weights as --ref-load; the convert stage only builds FP8
+	// weights when the recipe asks for an FP8 rollout.
+	HFDirect bool `json:"hfDirect,omitempty"`
 }
 
 // Lora lists the modules a spec allows LoRA on.
