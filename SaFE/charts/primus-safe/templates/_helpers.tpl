@@ -46,3 +46,26 @@ join_default_workspaces: hasKey rather than `default`, which treats false as abs
 base_roles: {{ toJson (default (list "default") $u.base_roles) }}
 join_default_workspaces: {{ if hasKey $u "join_default_workspaces" }}{{ $u.join_default_workspaces }}{{ else }}true{{ end }}
 {{- end -}}
+
+{{/*
+The secret that copy-opensearch-secret copies into the release namespace, or "" when that job is
+not rendered. The hook Role secret-manager grants access to it by name.
+*/}}
+{{- define "primus-safe.openSearchCopySecret" -}}
+{{- if and .Values.opensearch.enable (or (empty .Values.opensearch.username) (empty .Values.opensearch.password)) -}}
+{{- .Values.opensearch.secret | default "" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The namespace copy-opensearch-secret reads from when it is not the release namespace, else "".
+The hook RBAC then includes a Role secret-manager there.
+*/}}
+{{- define "primus-safe.openSearchCopySourceNamespace" -}}
+{{- if include "primus-safe.openSearchCopySecret" . -}}
+{{- $ns := .Values.opensearch.secret_namespace | default .Release.Namespace -}}
+{{- if ne $ns .Release.Namespace -}}
+{{- $ns -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

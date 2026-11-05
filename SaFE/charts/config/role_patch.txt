@@ -39,13 +39,30 @@
   - "postgresclusters"
   verbs:
   - '*'
+# resource-manager reads admin-plane ClusterRoles to copy them to data planes; it writes data-plane
+# RBAC with the Cluster's own client, never with this account.
 - apiGroups:
   - "rbac.authorization.k8s.io"
   resources:
-  - "clusterrolebindings"
   - "clusterroles"
   verbs:
-  - '*'
+  - get
+  - list
+  - watch
+- apiGroups:
+  - "rbac.authorization.k8s.io"
+  resources:
+  - "clusterroles"
+  - "clusterrolebindings"
+  - "roles"
+  - "rolebindings"
+  # delete-preinstall-rbac (post-install/post-upgrade) removes the hook RBAC, including the
+  # ClusterRole/ClusterRoleBinding of releases before the hook became namespaced.
+  resourceNames:
+  - secret-manager
+  verbs:
+  - get
+  - delete
 - apiGroups:
   - networking.k8s.io
   resources:
