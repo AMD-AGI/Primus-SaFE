@@ -526,7 +526,11 @@ func (r *SyncerReconciler) aggregateAtomStatus(ctx context.Context, clientSets *
 			phases[role] = st.Phase
 		}
 	}
-	return combineAtomRoleStatus(phases), nil
+	kind := "atom"
+	if commonworkload.IsSGLangRouter(adminWorkload) {
+		kind = "sglang"
+	}
+	return combineAtomRoleStatus(phases, kind), nil
 }
 
 // atomRoleFromObjectName maps a derived Deployment name back to its Atom role.
@@ -544,7 +548,8 @@ func atomRoleFromObjectName(rootName, objectName string) string {
 }
 
 // combineAtomRoleStatus returns Running only when router, prefill and decode are all running.
-func combineAtomRoleStatus(phases map[string]string) *jobutils.K8sObjectStatus {
+// kind names the workload type in the message, e.g. "atom" or "sglang".
+func combineAtomRoleStatus(phases map[string]string, kind string) *jobutils.K8sObjectStatus {
 	roles := []string{common.AtomRoleRouter, common.AtomRolePrefill, common.AtomRoleDecode}
 	updating := false
 	var waiting []string
@@ -561,18 +566,18 @@ func combineAtomRoleStatus(phases map[string]string) *jobutils.K8sObjectStatus {
 	if len(waiting) == 0 {
 		return &jobutils.K8sObjectStatus{
 			Phase:   string(v1.K8sRunning),
-			Message: "atom router, prefill and decode are ready",
+			Message: kind + " router, prefill and decode are ready",
 		}
 	}
 	if updating {
 		return &jobutils.K8sObjectStatus{
 			Phase:   string(v1.K8sUpdating),
-			Message: "atom deployment is updating: " + strings.Join(waiting, ","),
+			Message: kind + " deployment is updating: " + strings.Join(waiting, ","),
 		}
 	}
 	return &jobutils.K8sObjectStatus{
 		Phase:   string(v1.K8sNotReady),
-		Message: "atom deployment is not ready: " + strings.Join(waiting, ","),
+		Message: kind + " deployment is not ready: " + strings.Join(waiting, ","),
 	}
 }
 
