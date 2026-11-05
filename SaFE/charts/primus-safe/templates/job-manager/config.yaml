@@ -57,6 +57,12 @@ data:
       proxy_relay_image: "{{ default "" (default .Values.cicd).proxy_relay_image }}"
       proxy_relay_port: {{ default 3129 (default .Values.cicd).proxy_relay_port }}
       failure_enrich_timeout_seconds: {{ default 30 (default .Values.cicd).failure_enrich_timeout_seconds }}
+    {{- if (default dict .Values.robust).service_token_secret }}
+    robust:
+      # Directory of the mounted Robust service token (key service-token), sent
+      # as X-Robust-Service-Token on every call to the Robust API.
+      secret_path: {{ default "/etc/secrets/robust" .Values.robust.secret_path }}
+    {{- end }}
     opensearch:
       # Whether to enable opensearch, it is used for log search.
       enable: {{ .Values.opensearch.enable }}

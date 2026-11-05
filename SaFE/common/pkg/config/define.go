@@ -190,6 +190,11 @@ const (
 	tracingSamplingRatio = tracingPrefix + "sampling_ratio"
 	tracingOtlpEndpoint  = tracingPrefix + "otlp_endpoint"
 
+	// robust: credentials SaFE presents to the Robust API (robust-api module of
+	// robust-manager / robust-analyzer) on the data clusters.
+	robustPrefix     = "robust."
+	robustSecretPath = robustPrefix + "secret_path"
+
 	// langfuse_proxy
 	langfuseProxyPrefix     = "langfuse_proxy."
 	langfuseProxySecretPath = langfuseProxyPrefix + "secret_path"
