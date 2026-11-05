@@ -318,19 +318,9 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 	in, l := ctx.Input, ctx.Layout
 	env := map[string]string{"CUDA_DEVICE_MAX_CONNECTIONS": "1"}
 	rl := ctx.Request.TrainType == registry.TrainTypeRL
-	convert := &recipe.RecipeConvert{Dir: in.RunDir + "/convert/torch_dist", Nodes: max(ctx.FrameworkSpec.ConvertNodes, 1)}
-	if !ctx.CustomImage {
-		convert.CacheKey = fmt.Sprintf("%s-%s-%s-%s", Name, ctx.Spec.Name, in.Model.ID, ctx.Image.FrameworkCommit)
-		convert.Dir = path.Join(path.Dir(in.RunDir), recipe.ConvertCacheDir, convert.CacheKey, "torch_dist")
-	}
-
 	fp8 := rl && c.RolloutPrecision == recipe.RolloutPrecisionFP8
-	hf := in.Model.Path
-	if fp8 {
-		// Training stays BF16 and quantizes each weight sync with the FP8 weights' quantization config.
-		convert.FP8 = true
-		hf = path.Join(path.Dir(convert.Dir), fp8Dir)
-	}
+	hfDirect := ctx.FrameworkSpec.HFDirect
+	convert, hf, refLoad := convertPlan(ctx, in, fp8, hfDirect)
 
 	var a args
 	actorNodes, actorGpusPerNode := l.Nodes, l.GpusPerNode
@@ -344,7 +334,7 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		}
 		a.add("--rollout-num-gpus", itoa(l.RolloutGpus))
 	}
-	a.add("--hf-checkpoint", hf, "--ref-load", convert.Dir, "--save", in.RunDir+"/checkpoints",
+	a.add("--hf-checkpoint", hf, "--ref-load", refLoad, "--save", in.RunDir+"/checkpoints",
 		"--save-interval", itoa(c.SaveInterval))
 	a.add("--prompt-data", in.RunDir+"/data/train.jsonl", "--rollout-shuffle")
 	if rl {
@@ -538,6 +528,34 @@ func criticPlan(c recipe.Choices, runDir string) map[string]interface{} {
 			"custom_model_provider_path": nil, "only_train_params_name_list": nil, "freeze_params_name_list": nil,
 		},
 	}
+}
+
+// convertPlan is the weight conversion and the --hf-checkpoint / --ref-load paths. HFDirect specs load the BF16
+// HF directory as the reference; convert is then only present when an FP8 rollout needs quantized weights.
+func convertPlan(ctx *recipe.Context, in *recipe.Input, fp8, hfDirect bool) (*recipe.RecipeConvert, string, string) {
+	hf, refLoad := in.Model.Path, in.Model.Path
+	if hfDirect && !fp8 {
+		return nil, hf, refLoad
+	}
+	convert := &recipe.RecipeConvert{
+		Dir: in.RunDir + "/convert/torch_dist", Nodes: max(ctx.FrameworkSpec.ConvertNodes, 1), HFDirect: hfDirect,
+	}
+	if hfDirect {
+		convert.Nodes = 1
+	}
+	if !ctx.CustomImage {
+		convert.CacheKey = fmt.Sprintf("%s-%s-%s-%s", Name, ctx.Spec.Name, in.Model.ID, ctx.Image.FrameworkCommit)
+		convert.Dir = path.Join(path.Dir(in.RunDir), recipe.ConvertCacheDir, convert.CacheKey, "torch_dist")
+	}
+	if !hfDirect {
+		refLoad = convert.Dir
+	}
+	if fp8 {
+		// Training stays BF16 and quantizes each weight sync with the FP8 weights' quantization config.
+		convert.FP8 = true
+		hf = path.Join(path.Dir(convert.Dir), fp8Dir)
+	}
+	return convert, hf, refLoad
 }
 
 // rewardArgs returns slime's reward arguments for an RL request and sets the environment a reward plugin reads.

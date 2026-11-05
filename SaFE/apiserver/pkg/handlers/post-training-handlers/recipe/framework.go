@@ -435,11 +435,14 @@ type RecipeMetrics struct {
 type RecipeConvert struct {
 	// CacheKey is the framework, spec, model id and framework commit; empty for runs on a custom image, which
 	// convert into their own run directory.
-	CacheKey    string `json:"cacheKey"`
+	CacheKey string `json:"cacheKey"`
+	// Dir is the torch_dist conversion directory; with HFDirect it is only the sibling anchor for fp8_hf.
 	Dir         string `json:"dir"`
 	Nodes       int    `json:"nodes"`
 	SeparateJob bool   `json:"separateJob"`
 	FP8         bool   `json:"fp8"`
+	// HFDirect means training loads the base HF weights; convert only builds FP8 when FP8 is true.
+	HFDirect bool `json:"hfDirect,omitempty"`
 	// CacheHit tells that a ready conversion was found at submission.
 	CacheHit bool `json:"cacheHit,omitempty"`
 }
@@ -799,7 +802,7 @@ func platformRules(ctx *Context, res *Result) {
 		res.errorf("resources.nodes", "%s needs %.1f TB of host memory per node, and this workspace's nodes have "+
 			"%.2f TB", ctx.Spec.Name, need, float64(in.Workspace.HostMemoryBytes)/1e12)
 	}
-	if ctx.CustomImage && fs.ConvertNodes > nodes {
+	if ctx.CustomImage && !fs.HFDirect && fs.ConvertNodes > nodes {
 		res.errorf("resources.nodes", "A run with an image outside the table converts weights in its own workload "+
 			"and needs at least %d nodes", fs.ConvertNodes)
 	}

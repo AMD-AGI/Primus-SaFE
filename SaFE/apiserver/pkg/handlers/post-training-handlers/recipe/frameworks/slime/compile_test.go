@@ -491,6 +491,7 @@ func TestSpecsOfTheLargerModels(t *testing.T) {
 	g := reg.MatchSpec(glm)
 	require.Equal(t, "primussafe/sglang:v0.5.18-rocm720-mi35x-aiter-dbd8bf5-flydsl032-20260921", g.EvalInference.Image)
 	require.Equal(t, []string{recipe.AlgorithmGRPO}, g.Frameworks[Name].Algorithms)
+	require.True(t, g.Frameworks[Name].HFDirect, "GLM loads HF weights; Spur never converted them")
 	n, _ := g.Frameworks[Name].MinNodesFor(registry.TrainTypeRL, registry.VariantFreeze, true)
 	require.Equal(t, 3, n, "frozen-layer GRPO runs on 2 training nodes and 1 rollout node, as J3 did")
 }
@@ -530,9 +531,38 @@ func TestGLMNeedsItsHostMemoryOnEveryNode(t *testing.T) {
 	res = compile(t, in)
 	require.Equal(t, 2.1, res.Recipe.MinHostMemoryTB, "the check stage measures every node against it")
 	require.Contains(t, warningsOf(res), "has not been verified", "full training without frozen layers")
+	require.Nil(t, res.Recipe.Convert, "GLM loads the BF16 HF directory; SFT has no conversion")
+	require.Contains(t, strings.Join(res.Recipe.FrameworkArgs, " "),
+		"--hf-checkpoint /wekafs/models/GLM-5.3-BF16 --ref-load /wekafs/models/GLM-5.3-BF16")
 
 	in.Workspace.HostMemoryBytes = 0
 	compile(t, in)
+}
+
+func TestGLMFP8RolloutKeepsTheHFReference(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeRL)
+	in.Model.Path = "/wekafs/models/GLM-5.3-BF16"
+	in.Model.MaxTokens = 202752
+	in.Model.Config = &v1.ModelConfig{Architectures: []string{"GlmMoeDsaForCausalLM"}, ModelType: "glm_moe_dsa",
+		NumHiddenLayers: 78, HiddenSize: 6144, NumAttentionHeads: 64, NumKeyValueHeads: 64, NumExperts: 256,
+		MaxPositionEmbeddings: 1048576}
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureFP8Rollout,
+		registry.FeatureFreeze)
+	in.Workspace.Nodes, in.Workspace.HostMemoryBytes = 4, 3_000_000_000_000
+	in.Request.Resources.Nodes = 3
+	in.Request.Choices.Freeze = &recipe.FreezeChoice{
+		TrainOnly: []string{`^(?!.*decoder\.layers\.([0-9]|[1-6][0-9])\.mlp\.experts\.)`}}
+	in.Request.Choices.Layout, in.Request.Choices.RolloutGpus = recipe.LayoutSeparate, 8
+	in.Request.Choices.RolloutPrecision = recipe.RolloutPrecisionFP8
+	in.Request.Choices.Correction = correctionTIS
+	res := compile(t, in)
+	conv := res.Recipe.Convert
+	require.NotNil(t, conv)
+	require.True(t, conv.HFDirect && conv.FP8)
+	require.Equal(t, 1, conv.Nodes)
+	args := strings.Join(res.Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--hf-checkpoint "+filepath.Join(filepath.Dir(conv.Dir), "fp8_hf")+
+		" --ref-load /wekafs/models/GLM-5.3-BF16")
 }
 
 func TestSpecsWithoutAFloorKeepTheirRecipe(t *testing.T) {

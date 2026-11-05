@@ -628,7 +628,9 @@ post_training:
             unverified: [sft-full, rl-full-separate]
             # J2 peaked at about 2.1 TB of host memory on a node.
             minHostMemoryTB: 2.1
-            convertNodes: 4
+            # slime 540ea91 loads the BF16 HF directory as --ref-load (as the Spur J2/J3 scripts do); convert
+            # only builds FP8 weights when the rollout needs them.
+            hfDirect: true
     images:
       # Registered unvalidated: mark validated and list features once the Qwen3-4B SFT and GRPO smoke runs
       # pass on the target nodes.
