@@ -90,14 +90,16 @@ class Adapter:
         """Convert the base HF weights to torch_dist in the recipe's convert directory on one node."""
         conv = recipe["convert"]
         if conv.get("nodes", 1) > 1:
-            raise StageError("convert", "a %d-node conversion runs in its own convert workload" % conv["nodes"])
+            raise StageError("convert", "a %d-node conversion is not supported; the model's spec should load the HF "
+                             "weights directly (hfDirect)" % conv["nodes"], retry=False)
         root = slime_dir(self.env)
         tmp = conv["dir"] + ".partial"
         shutil.rmtree(tmp, ignore_errors=True)
         cmd = ["torchrun", "--standalone", "--nproc-per-node", str(recipe["layout"]["gpusPerNode"]),
                os.path.join(root, "tools", "convert_hf_to_torch_dist.py")]
         cmd += model_args(root, recipe["model"]["script"])
-        cmd += ["--hf-checkpoint", recipe["model"]["path"], "--save", tmp]
+        # ROCm conversion builds the Megatron model on the host; without this the tool asserts.
+        cmd += ["--use-cpu-initialization", "--hf-checkpoint", recipe["model"]["path"], "--save", tmp]
         code = run_command(cmd, env={"PYTHONPATH": python_path(root, self.env)})
         if code != 0:
             shutil.rmtree(tmp, ignore_errors=True)

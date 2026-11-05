@@ -143,3 +143,22 @@ def test_an_fp8_rollout_adds_its_weights_to_the_shared_conversion(tmp_path):
     plain, out = setup(tmp_path, "r4")
     assert plain.reuse_conversion()
     assert convert_markers(out)[-1][1]["fp8"] is True, "a BF16 run does not clear the record of the FP8 weights"
+
+
+def test_an_hf_direct_spec_only_makes_the_fp8_weights(tmp_path):
+    adapter = FP8Adapter()
+    first, out = setup(tmp_path, "r1")
+    first.recipe["convert"].update(hfDirect=True, fp8=True)
+    first.adapter = adapter
+    assert not first.reuse_conversion()
+    first.stage_convert()
+    assert (adapter.conversions, adapter.fp8) == (0, 1), "training loads the HF weights; only FP8 is made"
+    state, detail = convert_markers(out)[-1]
+    assert state == "done" and detail["fp8"] is True and detail["sizeBytes"] == 4
+    assert os.path.exists(os.path.join(detail["dir"], stages.SOURCE_FILE))
+
+    second, out = setup(tmp_path, "r2")
+    second.recipe["convert"].update(hfDirect=True, fp8=True)
+    second.adapter = adapter
+    assert second.reuse_conversion() and adapter.fp8 == 1
+    assert convert_markers(out) == [("skipped", detail)]

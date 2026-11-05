@@ -117,6 +117,29 @@ def test_critic_config(tmp_path):
     assert a.latest_checkpoint(str(tmp_path), "critic_checkpoints") == 20
 
 
+def test_conversion_builds_the_model_on_the_host(tmp_path):
+    (tmp_path / "model.sh").write_text("MODEL_ARGS=(--num-layers 2)\n")
+    commands = []
+
+    def run_command(cmd, env=None):
+        commands.append(cmd)
+        (tmp_path / "cache" / "torch_dist.partial").mkdir(parents=True)
+        return 0
+
+    conv = tmp_path / "cache" / "torch_dist"
+    recipe = {"model": {"path": "/wekafs/models/Qwen3-8B", "script": "model.sh"}, "layout": {"gpusPerNode": 8},
+              "convert": {"dir": str(conv)}}
+    a = Adapter(env={"SLIME_DIR": str(tmp_path)})
+    a.convert(recipe, str(tmp_path), run_command)
+    cmd = commands[0]
+    assert "--use-cpu-initialization" in cmd, "the ROCm conversion tool asserts it"
+    assert cmd[cmd.index("--num-layers") + 1] == "2" and conv.is_dir()
+    recipe["convert"]["nodes"] = 4
+    with pytest.raises(StageError, match="4-node conversion is not supported") as e:
+        a.convert(recipe, str(tmp_path), run_command)
+    assert not e.value.retry
+
+
 def test_fp8_weights_are_quantized_blockwise(tmp_path):
     root = tmp_path / "slime"
     (root / "tools").mkdir(parents=True)
