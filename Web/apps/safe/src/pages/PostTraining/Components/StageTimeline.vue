@@ -55,12 +55,14 @@ const props = defineProps<{ run: RunDetail; now: number }>()
 const formatTime = (ms: number) => dayjs(ms).format('MM-DD HH:mm:ss')
 
 type Recipe = {
-  convert?: { cacheHit?: boolean; nodes?: number; separateJob?: boolean }
+  convert?: { cacheHit?: boolean; nodes?: number; separateJob?: boolean; hfDirect?: boolean }
   output?: { exportHf?: boolean; peftAdapter?: boolean }
   choices?: { numRollout?: number }
 }
 
 const recipe = computed(() => (props.run.recipe ?? {}) as Recipe)
+/** A recipe without a convert block trains from the HF weights and has no convert stage. */
+const loadsHF = computed(() => !!props.run.recipe && !recipe.value.convert)
 const stalled = computed(() => !!stallNote(props.run, props.now))
 
 /** The share of the planned steps done, when the recipe sets a step count rather than epochs. */
@@ -76,7 +78,9 @@ const detailOf = (stage: string, state: SegmentState): string => {
   const r = recipe.value
   switch (stage) {
     case 'convert':
+      if (loadsHF.value) return 'HF weights'
       if (r.convert?.cacheHit) return 'Cache hit'
+      if (r.convert?.hfDirect) return 'FP8 weights'
       return r.convert?.separateJob ? `${r.convert.nodes ?? 1}-node job` : ''
     case 'train': {
       const step = props.run.metricSummary?.main?.step
@@ -110,7 +114,9 @@ const stages = computed(() => {
   const finished = timeOf(r.endTime)
   const until = finished ? Date.parse(finished) : props.now
   const times = stageDurations(r.stageHistory ?? [], until)
-  const segments = stageSegments(r)
+  const segments = stageSegments(r).map((s) =>
+    s.stage === 'convert' && loadsHF.value ? { ...s, state: 'skipped' as SegmentState } : s,
+  )
   const queuedState: SegmentState =
     r.stage === 'queued'
       ? r.status === 'Failed'
