@@ -126,8 +126,16 @@ const layoutText = computed(() => {
 })
 
 const convertText = computed(() => {
-  const convert = recipe.value?.convert as { cacheKey?: string; cacheHit?: boolean } | undefined
-  if (!convert) return '—'
+  const convert = recipe.value?.convert as
+    | { cacheKey?: string; cacheHit?: boolean; hfDirect?: boolean }
+    | undefined
+  if (!convert) return recipe.value ? 'None · trains from the HF weights' : '—'
+  if (convert.hfDirect) {
+    if (convert.cacheHit) return 'Cached · FP8 weights'
+    return convert.cacheKey
+      ? 'FP8 weights on the first run, then cached'
+      : 'FP8 weights in this run'
+  }
   if (convert.cacheHit) return 'Cached · torch_dist'
   return convert.cacheKey ? 'Converts on the first run, then cached' : 'Converts in this run'
 })
