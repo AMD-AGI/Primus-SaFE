@@ -49,6 +49,36 @@ func sandboxPodObject(t *testing.T, w *v1.Workload, podSpec map[string]interface
 
 func assertSandboxPodSecurity(t *testing.T, obj *unstructured.Unstructured) {
 	t.Helper()
+	assertSandboxPodPosture(t, obj, false)
+}
+
+// assertVirtualKubeletSandboxPodSecurity checks the posture of a Sandbox Pod bound for
+// an Autopilot virtual-kubelet node: everything assertSandboxPodSecurity checks except
+// that no seccomp profile and no capabilities are set anywhere, since that backend
+// refuses a manifest with either.
+func assertVirtualKubeletSandboxPodSecurity(t *testing.T, obj *unstructured.Unstructured) {
+	t.Helper()
+	assertSandboxPodPosture(t, obj, true)
+}
+
+// assertVirtualKubeletContainerSecurity is assertSandboxContainerSecurity for a
+// virtual-kubelet node: no privilege, no privilege escalation, and neither a
+// capabilities field nor a seccomp profile.
+func assertVirtualKubeletContainerSecurity(t *testing.T, name string, raw interface{}) {
+	t.Helper()
+	container := raw.(map[string]interface{})
+	sc, ok := container["securityContext"].(map[string]interface{})
+	assert.Assert(t, ok, "%s has no securityContext", name)
+	assert.Equal(t, sc["privileged"], false, "%s privileged", name)
+	assert.Equal(t, sc["allowPrivilegeEscalation"], false, "%s allowPrivilegeEscalation", name)
+	_, hasProfile := sc["seccompProfile"]
+	assert.Assert(t, !hasProfile, "%s has a seccomp profile the virtual-kubelet backend refuses", name)
+	_, hasCaps := sc["capabilities"]
+	assert.Assert(t, !hasCaps, "%s has capabilities the virtual-kubelet backend refuses", name)
+}
+
+func assertSandboxPodPosture(t *testing.T, obj *unstructured.Unstructured, onVirtualKubelet bool) {
+	t.Helper()
 	sandbox := &v1.Workload{}
 	sandbox.Spec.GroupVersionKind = v1.GroupVersionKind{Version: common.DefaultVersion, Kind: common.SandboxKind}
 	spec, found, err := jobutils.NestedMap(obj.Object,
@@ -59,14 +89,24 @@ func assertSandboxPodSecurity(t *testing.T, obj *unstructured.Unstructured) {
 	assert.Equal(t, spec["hostNetwork"], false)
 	assert.Equal(t, spec["hostPID"], false)
 	assert.Equal(t, spec["hostIPC"], false)
-	seccomp, _, _ := unstructured.NestedString(spec, "securityContext", "seccompProfile", "type")
-	assert.Equal(t, seccomp, "RuntimeDefault")
+	_, hasProfile, _ := unstructured.NestedFieldNoCopy(spec, "securityContext", "seccompProfile")
+	if onVirtualKubelet {
+		assert.Assert(t, !hasProfile, "the Pod has a seccomp profile the virtual-kubelet backend refuses")
+	} else {
+		seccomp, _, _ := unstructured.NestedString(spec, "securityContext", "seccompProfile", "type")
+		assert.Equal(t, seccomp, "RuntimeDefault")
+	}
 	containers := spec["containers"].([]interface{})
 	inits, _ := spec["initContainers"].([]interface{})
 	assert.Assert(t, len(containers) > 0)
 	assert.Assert(t, len(inits) > 0, "the envd injector should be rendered")
 	for _, c := range append(append([]interface{}{}, containers...), inits...) {
-		assertSandboxContainerSecurity(t, c.(map[string]interface{})["name"].(string), c)
+		name := c.(map[string]interface{})["name"].(string)
+		if onVirtualKubelet {
+			assertVirtualKubeletContainerSecurity(t, name, c)
+		} else {
+			assertSandboxContainerSecurity(t, name, c)
+		}
 	}
 }
 
@@ -264,27 +304,151 @@ func TestSandboxPodSecuritySurvivesSync(t *testing.T) {
 	}
 }
 
-// On the external path applyExternalContainerSecurity strips the template's added
-// capabilities and runAsUser/runAsGroup, then applySandboxPodSecurity runs: the result
-// is drop ALL plus sandboxCapabilities, no container runAsUser, and hostNetwork false
-// even though externalHostNetworkEnabled turned it on for forceHostNetwork.
-func TestSandboxPodSecurityOnExternalPath(t *testing.T) {
-	obj, err := renderAgentSandbox(t, func(w *v1.Workload) {
-		v1.SetAnnotation(w, v1.ForceHostNetworkAnnotation, v1.TrueStr)
-		w.Spec.Resources[0].CPU = "4"
-		w.Spec.Resources[0].Memory = "8Gi"
-		w.Status.ExternalExecution = &v1.WorkloadExternalExecution{
-			ClaimId: "claim-1",
-			Placements: []v1.WorkloadExternalPlacement{{UnitKey: v1.ExternalSingleUnitKey, NodeName: "vk-1",
-				ImageRef: w.Spec.Images[0], CPUMillis: 4000, MemoryBytes: 8 << 30}},
-		}
-	})
-	assert.NilError(t, err)
-	assertSandboxPodSecurity(t, obj)
-	for name, c := range podItems(t, obj, "containers") {
-		sc := c["securityContext"].(map[string]interface{})
-		_, hasUser := sc["runAsUser"]
-		_, hasGroup := sc["runAsGroup"]
-		assert.Assert(t, !hasUser && !hasGroup, "%s keeps the external path's cleared identity", name)
+// externalSandbox marks a Sandbox workload as admitted against external capacity, which
+// sends its Pod to an Autopilot virtual-kubelet node.
+func externalSandbox(w *v1.Workload) {
+	w.Spec.Resources[0].CPU = "4"
+	w.Spec.Resources[0].Memory = "8Gi"
+	w.Status.ExternalExecution = &v1.WorkloadExternalExecution{
+		ClaimId: "claim-1",
+		Placements: []v1.WorkloadExternalPlacement{{UnitKey: v1.ExternalSingleUnitKey, NodeName: "vk-1",
+			ImageRef: w.Spec.Images[0], CPUMillis: 4000, MemoryBytes: 8 << 30}},
 	}
+}
+
+// On the external path the Pod goes to an Autopilot virtual-kubelet node, whose backend
+// refuses any seccomp profile and any capability added or dropped. The create path
+// (applyWorkloadSpecToObject, then initializeObject with applyExternalContainerSecurity
+// and applySandboxPodSecurity last) yields no seccomp profile and no capabilities
+// anywhere, no container runAsUser, and the rest of the posture: hostNetwork false even
+// though externalHostNetworkEnabled turned it on for forceHostNetwork, no token, no
+// privilege and no privilege escalation.
+func TestSandboxPodSecurityOnExternalPath(t *testing.T) {
+	for name, placement := range map[string]func(*v1.Workload){
+		"claim": func(*v1.Workload) {},
+		"kube-scheduler": func(w *v1.Workload) {
+			w.Status.ExternalExecution.ClaimId = ""
+			w.Status.ExternalExecution.PlacementMode = v1.ExternalPlacementKubeScheduler
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			obj, err := renderAgentSandbox(t, func(w *v1.Workload) {
+				v1.SetAnnotation(w, v1.ForceHostNetworkAnnotation, v1.TrueStr)
+				externalSandbox(w)
+				placement(w)
+			})
+			assert.NilError(t, err)
+			assertVirtualKubeletSandboxPodSecurity(t, obj)
+			for name, c := range podItems(t, obj, "containers") {
+				sc := c["securityContext"].(map[string]interface{})
+				_, hasUser := sc["runAsUser"]
+				_, hasGroup := sc["runAsGroup"]
+				assert.Assert(t, !hasUser && !hasGroup, "%s keeps the external path's cleared identity", name)
+			}
+		})
+	}
+}
+
+// A template that brings its own seccomp profile and capabilities, on the Pod and on
+// the containers, loses all of them when the Sandbox goes to a virtual-kubelet node,
+// and the same object for a Sandbox elsewhere gets the full posture. The Pod's other
+// securityContext fields are kept on both.
+func TestSandboxPodSecurityRemovesSeccompAndCapabilitiesForVirtualKubelet(t *testing.T) {
+	template := func() map[string]interface{} {
+		return map[string]interface{}{
+			"hostNetwork":                  true,
+			"hostPID":                      true,
+			"automountServiceAccountToken": true,
+			"securityContext": map[string]interface{}{
+				"runAsUser":      int64(0),
+				"seccompProfile": map[string]interface{}{"type": "Localhost", "localhostProfile": "x.json"},
+			},
+			"containers": []interface{}{map[string]interface{}{
+				"name": "main",
+				"securityContext": map[string]interface{}{
+					"privileged":               true,
+					"allowPrivilegeEscalation": true,
+					"capabilities": map[string]interface{}{
+						"add": []interface{}{"SYS_ADMIN"}, "drop": []interface{}{"NET_RAW"}},
+					"seccompProfile": map[string]interface{}{"type": "Unconfined"},
+				},
+			}},
+			"initContainers": []interface{}{map[string]interface{}{
+				"name": "init",
+				"securityContext": map[string]interface{}{
+					"capabilities": map[string]interface{}{"drop": []interface{}{"ALL"}},
+				},
+			}},
+		}
+	}
+	for name, tc := range map[string]struct {
+		mutate func(*v1.Workload)
+		assert func(*testing.T, *unstructured.Unstructured)
+	}{
+		"virtual-kubelet": {mutate: externalSandbox, assert: assertVirtualKubeletSandboxPodSecurity},
+		"elsewhere":       {mutate: func(*v1.Workload) {}, assert: assertSandboxPodSecurity},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := jobutils.TestWorkloadData.DeepCopy()
+			w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: common.DefaultVersion, Kind: common.SandboxKind}
+			tc.mutate(w)
+			obj, spec := sandboxPodObject(t, w, template())
+			assert.NilError(t, applySandboxPodSecurity(obj, w, spec))
+			tc.assert(t, obj)
+			runAsUser, found, _ := unstructured.NestedInt64(obj.Object,
+				append(podSpecPath(w, spec), "securityContext", "runAsUser")...)
+			assert.Assert(t, found)
+			assert.Equal(t, runAsUser, int64(0), "the Pod's other securityContext fields are kept")
+		})
+	}
+}
+
+// A Pod-level securityContext that is not an object is refused for a virtual-kubelet
+// Sandbox as it is for any other, instead of being left with whatever it holds.
+func TestSandboxPodSecurityRefusesMalformedSecurityContextForVirtualKubelet(t *testing.T) {
+	w := jobutils.TestWorkloadData.DeepCopy()
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: common.DefaultVersion, Kind: common.SandboxKind}
+	externalSandbox(w)
+	obj, spec := sandboxPodObject(t, w, map[string]interface{}{"securityContext": "x"})
+	assert.Assert(t, applySandboxPodSecurity(obj, w, spec) != nil)
+}
+
+// The sync-path entry point, enforceSandboxPodSecurity, gives an object that already
+// has the full posture (the create path's first pass, or a Sandbox rendered before it
+// was admitted externally) the virtual-kubelet posture once the workload is external,
+// and gives it back the full posture when it is not.
+func TestSandboxPodSecurityEnforceFollowsBackend(t *testing.T) {
+	created, err := renderAgentSandbox(t, func(*v1.Workload) {})
+	assert.NilError(t, err)
+	assertSandboxPodSecurity(t, created)
+
+	_, w := agentSandboxFixture(t, externalSandbox)
+	rt := jobutils.TestSandboxResourceTemplate
+	obj := created.DeepCopy()
+	assert.NilError(t, enforceSandboxPodSecurity(obj, w, rt))
+	assertVirtualKubeletSandboxPodSecurity(t, obj)
+
+	w.Status.ExternalExecution = nil
+	assert.NilError(t, enforceSandboxPodSecurity(obj, w, rt))
+	assertSandboxPodSecurity(t, obj)
+}
+
+// A spec sync does not rewrite an external Sandbox (its claim fixed the image and
+// vector), so the virtual-kubelet posture it was created with stays as it is.
+func TestSandboxPodSecurityExternalSyncKeepsVirtualKubeletPosture(t *testing.T) {
+	r, w := agentSandboxFixture(t, func(w *v1.Workload) {
+		v1.SetAnnotation(w, v1.ForceHostNetworkAnnotation, v1.TrueStr)
+		externalSandbox(w)
+	})
+	created, err := r.generateK8sObject(context.Background(), w, nil)
+	assert.NilError(t, err)
+	assertVirtualKubeletSandboxPodSecurity(t, created)
+
+	w.Spec.Images[0] = "registry.example/sandbox:v2"
+	cs, read := proxyDynamicClient(t, created)
+	current, _ := read()
+	assert.NilError(t, r.syncWorkloadToObject(context.Background(), w, cs, current))
+	synced, updates := read()
+	assert.Equal(t, updates, 0, "an external object is not synced in place")
+	assertVirtualKubeletSandboxPodSecurity(t, synced)
 }

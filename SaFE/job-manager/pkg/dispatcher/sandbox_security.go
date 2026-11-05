@@ -38,10 +38,16 @@ var sandboxCapabilities = []interface{}{
 // applyWorkloadSpecToObject (through enforceSandboxPodSecurity) on sync, so
 // updateHostNetwork cannot turn hostNetwork back on. Other workload kinds,
 // including an Agent Sandbox PyTorchJob, are untouched.
+//
+// A Sandbox admitted against external capacity runs on an Autopilot virtual-kubelet
+// node, whose backend refuses a manifest with any seccomp profile or any capability
+// added or dropped. It gets the rest of the posture and neither of those two:
+// sandboxRunsOnVirtualKubelet.
 func applySandboxPodSecurity(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
 	if !commonworkload.IsSandBox(workload) {
 		return nil
 	}
+	onVirtualKubelet := sandboxRunsOnVirtualKubelet(workload)
 	for field, value := range map[string]interface{}{
 		"automountServiceAccountToken": false,
 		"hostNetwork":                  false,
@@ -52,23 +58,53 @@ func applySandboxPodSecurity(obj *unstructured.Unstructured, workload *v1.Worklo
 			return err
 		}
 	}
-	// Only the profile is set; the Pod's other securityContext fields are kept.
-	if err := jobutils.SetNestedField(obj.Object, map[string]interface{}{"type": "RuntimeDefault"},
-		podSpecPath(workload, resourceSpec, "securityContext", "seccompProfile")); err != nil {
+	// Only the profile is set or removed; the Pod's other securityContext fields are kept.
+	seccompPath := podSpecPath(workload, resourceSpec, "securityContext", "seccompProfile")
+	if onVirtualKubelet {
+		if err := removeSandboxPodSeccomp(obj, seccompPath); err != nil {
+			return err
+		}
+	} else if err := jobutils.SetNestedField(obj.Object, map[string]interface{}{"type": "RuntimeDefault"},
+		seccompPath); err != nil {
 		return err
 	}
 	for _, field := range []string{"containers", "initContainers"} {
-		if err := hardenSandboxContainers(obj, workload, resourceSpec, field); err != nil {
+		if err := hardenSandboxContainers(obj, workload, resourceSpec, field, onVirtualKubelet); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// sandboxRunsOnVirtualKubelet reports whether a Sandbox's Pod goes to an Autopilot
+// virtual-kubelet node. That is decided by the admission against external capacity
+// (isExternalWorkload), the same signal that gives the Pod the virtual-kubelet
+// tolerations and node pin in initializeObject, so a Pod without it cannot land there.
+func sandboxRunsOnVirtualKubelet(workload *v1.Workload) bool {
+	return isExternalWorkload(workload)
+}
+
+// removeSandboxPodSeccomp removes the Pod-level seccomp profile, which an earlier pass
+// or the template may have set. A securityContext that is not an object is refused,
+// as SetNestedField refuses it for the other backends.
+func removeSandboxPodSeccomp(obj *unstructured.Unstructured, seccompPath []string) error {
+	scPath := seccompPath[:len(seccompPath)-1]
+	sc, found, err := jobutils.NestedMap(obj.Object, scPath)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	delete(sc, "seccompProfile")
+	return jobutils.SetNestedField(obj.Object, sc, scPath)
+}
+
 // hardenSandboxContainers sets the container-level part of applySandboxPodSecurity
-// on one container list. A missing list is a no-op.
+// on one container list. A missing list is a no-op. On a virtual-kubelet node the
+// containers carry no capabilities at all instead of drop ALL plus the allow-list.
 func hardenSandboxContainers(obj *unstructured.Unstructured, workload *v1.Workload,
-	resourceSpec *v1.ResourceSpec, field string) error {
+	resourceSpec *v1.ResourceSpec, field string, onVirtualKubelet bool) error {
 	path := podSpecPath(workload, resourceSpec, field)
 	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
@@ -88,9 +124,13 @@ func hardenSandboxContainers(obj *unstructured.Unstructured, workload *v1.Worklo
 		}
 		sc["privileged"] = false
 		sc["allowPrivilegeEscalation"] = false
-		sc["capabilities"] = map[string]interface{}{
-			"drop": []interface{}{"ALL"},
-			"add":  append([]interface{}{}, sandboxCapabilities...),
+		if onVirtualKubelet {
+			delete(sc, "capabilities")
+		} else {
+			sc["capabilities"] = map[string]interface{}{
+				"drop": []interface{}{"ALL"},
+				"add":  append([]interface{}{}, sandboxCapabilities...),
+			}
 		}
 		// A container-level profile would override the Pod's RuntimeDefault.
 		delete(sc, "seccompProfile")
