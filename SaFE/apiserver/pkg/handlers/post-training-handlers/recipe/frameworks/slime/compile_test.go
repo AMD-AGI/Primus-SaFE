@@ -586,6 +586,7 @@ func TestGLMFreezesTheEarlyExpertsByDefault(t *testing.T) {
 	require.Equal(t, "experts in layers 0–69", opts.Freeze.Label)
 	require.Equal(t, 95.91, opts.Freeze.TrainableB)
 	require.Equal(t, 8, opts.Freeze.FullNodes, "training every parameter needs 8 nodes")
+	require.True(t, opts.Freeze.FullUnverified)
 
 	in.Request.Choices.Freeze = nil
 	res := compile(t, in)

@@ -278,8 +278,10 @@ type Options struct {
 // FreezeOptions is the spec's freezing that the wizard offers to full training.
 type FreezeOptions struct {
 	registry.Freeze
-	// FullNodes is the node floor without freezing, which the wizard shows when freezing is turned off.
-	FullNodes int `json:"fullNodes,omitempty"`
+	// FullNodes is the node floor without freezing, and FullUnverified tells that training every parameter has
+	// not been verified; the wizard shows both when freezing is turned off.
+	FullNodes      int  `json:"fullNodes,omitempty"`
+	FullUnverified bool `json:"fullUnverified,omitempty"`
 }
 
 // Preset is a named starting point in the wizard.
@@ -566,7 +568,8 @@ func FrameworkOptions(in *Input) (*Options, string) {
 		sep := separate(req) || (req.TrainType == registry.TrainTypeRL && ctx.FrameworkSpec.Rollout != nil &&
 			ctx.FrameworkSpec.Rollout.RequireSeparate)
 		full, _ := ctx.FrameworkSpec.MinNodesFor(req.TrainType, registry.VariantFull, sep)
-		opts.Freeze = &FreezeOptions{Freeze: *f, FullNodes: full}
+		opts.Freeze = &FreezeOptions{Freeze: *f, FullNodes: full,
+			FullUnverified: ctx.FrameworkSpec.IsUnverified(req.TrainType, registry.VariantFull, sep)}
 	}
 	return opts, ""
 }
