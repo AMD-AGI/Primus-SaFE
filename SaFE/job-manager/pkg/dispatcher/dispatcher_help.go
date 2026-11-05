@@ -126,6 +126,11 @@ func initializeObject(obj *unstructured.Unstructured,
 	if len(resourceSpec.PrePaths) > 0 {
 		_, found, err := jobutils.NestedField(obj.Object, resourceSpec.PrePaths)
 		if err != nil || !found {
+			// A Sandbox has one resource spec, so a missing pod is a malformed template,
+			// not an absent optional role. Refuse it rather than skip the posture below.
+			if commonworkload.IsSandBox(workload) {
+				return sandboxMissingPodError(resourceSpec, err)
+			}
 			return nil
 		}
 	}
@@ -272,7 +277,13 @@ func initializeObject(obj *unstructured.Unstructured,
 			return fmt.Errorf("failed to modify by opsjob: %v", err.Error())
 		}
 	}
-	// Last, so nothing above can widen a Sandbox's security posture again.
+	// Last, so nothing above can widen a Sandbox's security posture again. On the
+	// external path this runs after applyExternalContainerSecurity, so the result is
+	// the external strip (no runAsUser/runAsGroup, no added capabilities) followed by
+	// the Sandbox posture (drop ALL, add sandboxCapabilities, hostNetwork false even
+	// when externalHostNetworkEnabled set it). validateExternalPodShape above checks
+	// only container count, ephemeral containers and integer requests, none of which
+	// the posture changes.
 	if err = applySandboxPodSecurity(obj, workload, resourceSpec); err != nil {
 		return fmt.Errorf("failed to apply sandbox pod security: %v", err.Error())
 	}

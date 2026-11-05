@@ -969,6 +969,13 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 			return err
 		}
 	}
+	// Last on the sync path, so updateHostNetwork (forceHostNetwork, RDMA) and
+	// updateContainers cannot give a live Sandbox back what create took away.
+	if commonworkload.IsSandBox(adminWorkload) {
+		if err = enforceSandboxPodSecurity(obj, adminWorkload, rt); err != nil {
+			return fmt.Errorf("failed to apply sandbox pod security: %v", err.Error())
+		}
+	}
 	// NB: kind-specific normalization (e.g. normalizeDynamoDGD which converts
 	// containers[main] -> extraPodSpec.mainContainer) runs in
 	// generateK8sObject after the per-ResourceSpec initializeObject loop,

@@ -6,6 +6,8 @@
 package dispatcher
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"gotest.tools/assert"
@@ -13,6 +15,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
@@ -146,8 +149,10 @@ func TestSandboxPodSecurityToleratesMissingAndOddEntries(t *testing.T) {
 	assert.Assert(t, !found)
 }
 
-// A template whose pod fields have the wrong shape fails the dispatch instead of
-// producing a Sandbox without the posture.
+// A template whose pod fields have the wrong shape makes applySandboxPodSecurity
+// fail, which fails the dispatch instead of producing a Sandbox without the posture.
+// A template with nothing at the resource spec's PrePaths is covered by
+// TestSandboxPodSecurityRefusesMissingPod.
 func TestSandboxPodSecurityRefusesMalformedTemplate(t *testing.T) {
 	w := &v1.Workload{}
 	w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: common.DefaultVersion, Kind: common.SandboxKind}
@@ -166,4 +171,120 @@ func TestSandboxPodSecurityRefusesMalformedTemplate(t *testing.T) {
 	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
 	assert.NilError(t, jobutils.SetNestedField(obj.Object, "not-a-pod-spec", path))
 	assert.Assert(t, applySandboxPodSecurity(obj, w, &spec) != nil, "a pod spec that is not an object")
+}
+
+// A Sandbox object with nothing at its PrePaths is refused on create and on sync. For
+// other kinds a missing PrePaths still means an absent optional role and is skipped.
+func TestSandboxPodSecurityRefusesMissingPod(t *testing.T) {
+	sandbox := &v1.Workload{}
+	sandbox.Spec.GroupVersionKind = v1.GroupVersionKind{Version: common.DefaultVersion, Kind: common.SandboxKind}
+	sandbox.Spec.Resources = []v1.WorkloadResource{{Replica: 1}}
+	rt := jobutils.TestSandboxResourceTemplate
+	for name, object := range map[string]map[string]interface{}{
+		"no spec":                      {},
+		"podTemplate is not an object": {"spec": map[string]interface{}{"podTemplate": "x"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			obj := &unstructured.Unstructured{Object: object}
+			if _, ok := object["spec"]; !ok {
+				err := initializeObject(obj, sandbox, nil, &rt.Spec.ResourceSpecs[0], 0)
+				assert.ErrorContains(t, err, "sandbox template has no object at [spec]")
+				assert.ErrorContains(t, enforceSandboxPodSecurity(obj, sandbox, rt),
+					"sandbox template has no object at [spec]")
+				return
+			}
+			assert.Assert(t, enforceSandboxPodSecurity(obj, sandbox, rt) != nil)
+		})
+	}
+	other := sandbox.DeepCopy()
+	other.Spec.GroupVersionKind.Kind = common.PytorchJobKind
+	assert.NilError(t, initializeObject(&unstructured.Unstructured{Object: map[string]interface{}{}},
+		other, nil, &rt.Spec.ResourceSpecs[0], 0))
+}
+
+// A Sandbox created with forceHostNetwork or an RDMA resource keeps the posture after
+// a spec sync changes its image, env, resources or entrypoint: syncWorkloadToObject
+// runs updateHostNetwork and updateContainers, and the object it writes back must
+// still have hostNetwork=false and the hardened containers.
+func TestSandboxPodSecuritySurvivesSync(t *testing.T) {
+	hostNetwork := map[string]func(*v1.Workload){
+		"forceHostNetwork": func(w *v1.Workload) { v1.SetAnnotation(w, v1.ForceHostNetworkAnnotation, v1.TrueStr) },
+		"rdma":             func(w *v1.Workload) { w.Spec.Resources[0].RdmaResource = "1" },
+	}
+	changes := map[string]struct {
+		change func(*v1.Workload)
+		landed func(t *testing.T, main map[string]interface{})
+	}{
+		"image": {
+			change: func(w *v1.Workload) { w.Spec.Images[0] = "registry.example/sandbox:v2" },
+			landed: func(t *testing.T, main map[string]interface{}) {
+				assert.Equal(t, main["image"], "registry.example/sandbox:v2")
+			},
+		},
+		"env": {
+			change: func(w *v1.Workload) { w.Spec.Env["SYNC_TEST"] = "changed" },
+			landed: func(t *testing.T, main map[string]interface{}) {
+				assert.Equal(t, envByName(main["env"].([]interface{}))["SYNC_TEST"]["value"], "changed")
+			},
+		},
+		"resource": {
+			change: func(w *v1.Workload) { w.Spec.Resources[0].CPU = "7" },
+			landed: func(t *testing.T, main map[string]interface{}) {
+				cpu, _, _ := unstructured.NestedFieldNoCopy(main, "resources", "limits", "cpu")
+				assert.Equal(t, cpu, "7")
+			},
+		},
+		"entrypoint": {
+			change: func(w *v1.Workload) { w.Spec.EntryPoints = []string{"echo synced"} },
+			landed: func(t *testing.T, main map[string]interface{}) {
+				command := main["command"].([]interface{})
+				assert.Assert(t, strings.HasSuffix(command[len(command)-1].(string), "echo synced"))
+			},
+		},
+	}
+	for hostName, enableHost := range hostNetwork {
+		for changeName, tc := range changes {
+			t.Run(hostName+"/"+changeName, func(t *testing.T) {
+				r, w := agentSandboxFixture(t, enableHost)
+				assert.Assert(t, commonworkload.IsEnabledHostNetwork(w, 0), "the fixture must ask for hostNetwork")
+				created, err := r.generateK8sObject(context.Background(), w, nil)
+				assert.NilError(t, err)
+				assertSandboxPodSecurity(t, created)
+
+				tc.change(w)
+				cs, read := proxyDynamicClient(t, created)
+				current, _ := read()
+				assert.NilError(t, r.syncWorkloadToObject(context.Background(), w, cs, current))
+				synced, updates := read()
+				assert.Equal(t, updates, 1, "the sync must write the object")
+				assertSandboxPodSecurity(t, synced)
+				tc.landed(t, podItems(t, synced, "containers")[v1.GetMainContainer(w)])
+			})
+		}
+	}
+}
+
+// On the external path applyExternalContainerSecurity strips the template's added
+// capabilities and runAsUser/runAsGroup, then applySandboxPodSecurity runs: the result
+// is drop ALL plus sandboxCapabilities, no container runAsUser, and hostNetwork false
+// even though externalHostNetworkEnabled turned it on for forceHostNetwork.
+func TestSandboxPodSecurityOnExternalPath(t *testing.T) {
+	obj, err := renderAgentSandbox(t, func(w *v1.Workload) {
+		v1.SetAnnotation(w, v1.ForceHostNetworkAnnotation, v1.TrueStr)
+		w.Spec.Resources[0].CPU = "4"
+		w.Spec.Resources[0].Memory = "8Gi"
+		w.Status.ExternalExecution = &v1.WorkloadExternalExecution{
+			ClaimId: "claim-1",
+			Placements: []v1.WorkloadExternalPlacement{{UnitKey: v1.ExternalSingleUnitKey, NodeName: "vk-1",
+				ImageRef: w.Spec.Images[0], CPUMillis: 4000, MemoryBytes: 8 << 30}},
+		}
+	})
+	assert.NilError(t, err)
+	assertSandboxPodSecurity(t, obj)
+	for name, c := range podItems(t, obj, "containers") {
+		sc := c["securityContext"].(map[string]interface{})
+		_, hasUser := sc["runAsUser"]
+		_, hasGroup := sc["runAsGroup"]
+		assert.Assert(t, !hasUser && !hasGroup, "%s keeps the external path's cleared identity", name)
+	}
 }

@@ -6,6 +6,8 @@
 package dispatcher
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -30,9 +32,12 @@ var sandboxCapabilities = []interface{}{
 // sandbox-pod-guardrails admission policy requires, whoever asked for the Sandbox:
 // no ServiceAccount token, no host namespaces, RuntimeDefault seccomp, and on every
 // container and init container no privilege, no privilege escalation and only
-// sandboxCapabilities. It runs last in initializeObject so nothing rendered before
-// it (the privileged annotation, the external path, the envd injector, template
-// layers) can widen the posture again. Other workload kinds are untouched.
+// sandboxCapabilities. It is the last Pod spec write on both paths that write one:
+// last in initializeObject on create, so the privileged annotation, the external
+// path, the envd injector and template layers cannot widen it, and last in
+// applyWorkloadSpecToObject (through enforceSandboxPodSecurity) on sync, so
+// updateHostNetwork cannot turn hostNetwork back on. Other workload kinds,
+// including an Agent Sandbox PyTorchJob, are untouched.
 func applySandboxPodSecurity(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
 	if !commonworkload.IsSandBox(workload) {
 		return nil
@@ -93,4 +98,37 @@ func hardenSandboxContainers(obj *unstructured.Unstructured, workload *v1.Worklo
 		containers[i] = container
 	}
 	return jobutils.SetNestedField(obj.Object, containers, path)
+}
+
+// enforceSandboxPodSecurity applies applySandboxPodSecurity to every resource spec
+// of a Sandbox object that is being synced. A resource spec whose pod is missing is
+// refused, as in initializeObject, instead of being left without the posture.
+func enforceSandboxPodSecurity(obj *unstructured.Unstructured, workload *v1.Workload, rt *v1.ResourceTemplate) error {
+	if !commonworkload.IsSandBox(workload) || rt == nil {
+		return nil
+	}
+	for i := range rt.Spec.ResourceSpecs {
+		if i >= len(workload.Spec.Resources) {
+			break
+		}
+		spec := &rt.Spec.ResourceSpecs[i]
+		if len(spec.PrePaths) > 0 {
+			if _, found, err := jobutils.NestedField(obj.Object, spec.PrePaths); err != nil || !found {
+				return sandboxMissingPodError(spec, err)
+			}
+		}
+		if err := applySandboxPodSecurity(obj, workload, spec); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sandboxMissingPodError reports a Sandbox object with nothing at a resource spec's
+// PrePaths, so that the dispatch fails instead of producing a Pod without the posture.
+func sandboxMissingPodError(spec *v1.ResourceSpec, err error) error {
+	if err != nil {
+		return fmt.Errorf("sandbox template has no valid object at %v: %v", spec.PrePaths, err)
+	}
+	return fmt.Errorf("sandbox template has no object at %v", spec.PrePaths)
 }
