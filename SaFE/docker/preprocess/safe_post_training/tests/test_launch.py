@@ -100,6 +100,15 @@ def test_successful_run(monkeypatch, tmp_path):
     assert {m[1]["stage"] for m in ms if m[1].get("state") == "skipped"} == {"prepare", "convert", "train", "export"}
 
 
+def test_an_hf_direct_run_has_no_convert_stage(monkeypatch, tmp_path):
+    recipe = recipe_for(tmp_path)
+    del recipe["convert"]
+    code, _, ms = run(monkeypatch, recipe, FakeAdapter())
+    assert code == 0
+    assert "convert" not in {m[1].get("stage") for m in ms if m[0] == "[STAGE]"}
+    assert not (tmp_path / "run" / "convert").exists()
+
+
 def test_training_failure_is_retried(monkeypatch, tmp_path):
     code, _, ms = run(monkeypatch, recipe_for(tmp_path), FakeAdapter(fail_train=True))
     assert code == 1

@@ -279,6 +279,10 @@ class Runner:
         """Tell whether the rollout serves FP8 weights, which the convert stage makes next to the conversion."""
         return bool((self.recipe.get("convert") or {}).get("fp8"))
 
+    def hf_direct(self):
+        """Tell whether training loads the base HF weights and convert only builds FP8 when asked."""
+        return bool((self.recipe.get("convert") or {}).get("hfDirect"))
+
     def report_conversion(self, state):
         """Print the convert [STAGE] that registers a shared conversion with the controller."""
         out, root, _ = self.convert_paths()
@@ -286,8 +290,9 @@ class Runner:
         detail = None
         if (self.recipe.get("convert") or {}).get("cacheKey"):
             fp8 = os.path.exists(fp8_complete)
+            torch_size = 0 if self.hf_direct() else dir_size(out)
             detail = {"cacheKey": self.recipe["convert"]["cacheKey"], "dir": root, "fp8": fp8,
-                      "sizeBytes": dir_size(out) + (dir_size(fp8_out) if fp8 else 0)}
+                      "sizeBytes": torch_size + (dir_size(fp8_out) if fp8 else 0)}
         self.emitter.stage("convert", state=state, detail=detail)
 
     def check_source(self, root):
@@ -300,9 +305,18 @@ class Runner:
         if source.get("fingerprint") != weights_fingerprint(self.recipe["model"]["path"]):
             raise StageError("convert", "the conversion cache does not match the model weights", retry=False)
 
+    def write_source(self, root):
+        """Record the model fingerprint next to a shared conversion so later runs can refuse a stale cache."""
+        source = {"model": self.recipe["model"]["path"],
+                  "fingerprint": weights_fingerprint(self.recipe["model"]["path"])}
+        with open(os.path.join(root, SOURCE_FILE), "w") as f:
+            json.dump(source, f)
+
     def reuse_conversion(self):
         """Report a complete conversion of the model's current weights as skipped; returns whether there is one."""
         _, root, complete = self.convert_paths()
+        if self.hf_direct():
+            complete = os.path.join(root, SOURCE_FILE)
         if not os.path.exists(complete) or (self.wants_fp8() and not os.path.exists(self.fp8_paths()[1])):
             return False
         self.check_source(root)
@@ -328,6 +342,8 @@ class Runner:
             return result
         result = None
         for stage in STAGES:
+            if stage == "convert" and not self.recipe.get("convert"):
+                continue
             if stage == "convert" and self.reuse_conversion():
                 continue
             mark = self.done_mark(stage)
@@ -367,17 +383,18 @@ class Runner:
 
     def stage_convert(self):
         """Convert the base weights for training under the cache lock, unless a run that held the lock first
-        converted them, and record the source fingerprint before the completion mark."""
+        converted them, and record the source fingerprint before the completion mark. HF-direct recipes skip
+        torch_dist and only build FP8 weights when the rollout needs them."""
         _, root, complete = self.convert_paths()
         fp8_out, fp8_complete = self.fp8_paths()
         run_command = functools.partial(self.run_command, watch="convert")
         with cache_lock(root, sleep=self.sleep):
-            if not os.path.exists(complete):
+            if self.hf_direct():
+                if not os.path.exists(os.path.join(root, SOURCE_FILE)):
+                    self.write_source(root)
+            elif not os.path.exists(complete):
                 self.adapter.convert(self.recipe, self.run_dir, run_command)
-                source = {"model": self.recipe["model"]["path"],
-                          "fingerprint": weights_fingerprint(self.recipe["model"]["path"])}
-                with open(os.path.join(root, SOURCE_FILE), "w") as f:
-                    json.dump(source, f)
+                self.write_source(root)
                 open(complete, "w").close()
             if self.wants_fp8() and not os.path.exists(fp8_complete):
                 self.adapter.convert_fp8(self.recipe, self.run_dir, run_command, fp8_out)
