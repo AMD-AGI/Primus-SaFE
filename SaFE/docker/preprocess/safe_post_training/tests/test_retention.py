@@ -71,3 +71,6 @@ def test_space_needed_counts_the_checkpoints_kept_together(monkeypatch, tmp_path
     assert stages.Runner(policy, str(tmp_path), None, None).space_needed() == 10 * 7 * 4 + 10
     epochs = {"model": model, "choices": {"numEpoch": 3}}
     assert stages.Runner(epochs, str(tmp_path), None, None).space_needed() == 10 * 7 * 3 + 10
+    frozen = dict(policy, checkpointTB=1.34)
+    assert stages.Runner(frozen, str(tmp_path), None, None).space_needed() == int(1.34e12) * 4 + 10, \
+        "the spec measured a trainable-only checkpoint"

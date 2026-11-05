@@ -418,6 +418,7 @@ class Runner:
         for path in (os.path.join(model, "config.json"), self.path("data", "train.jsonl")):
             if not os.path.exists(path):
                 raise StageError("check", "missing input %s" % path)
+        self.check_freeze()
         need = self.space_needed()
         free = shutil.disk_usage(self.run_dir).free
         if free < need:
@@ -425,6 +426,16 @@ class Runner:
                              % (free >> 30, need >> 30), retry=False)
         self.check_wandb()
         self.check_reward()
+
+    def check_freeze(self):
+        """Fail before training when a pattern of the parameters to train is not a Python regex, which slime
+        matches with re.search."""
+        for pattern in ((self.recipe.get("choices") or {}).get("freeze") or {}).get("trainOnly") or []:
+            try:
+                re.compile(pattern)
+            except re.error as e:
+                raise StageError("check", "the pattern to train %r is not a valid regex: %s" % (pattern, e),
+                                 retry=False)
 
     def check_host_memory(self, nodes):
         """Fail before training when a node has less host memory than the model's spec needs."""
@@ -484,7 +495,8 @@ class Runner:
     def space_needed(self):
         """Estimate the bytes the run writes: the checkpoints kept at the same time plus the exported model. With a
         retention policy that is keepLast, the best one and the one being written; without one, every save. A PPO
-        critic keeps as many checkpoints as the actor."""
+        critic keeps as many checkpoints as the actor. The spec's checkpointTB, measured for its default freezing,
+        replaces the estimate of one checkpoint."""
         weights = weights_size(self.recipe["model"]["path"])
         keep = (self.recipe.get("checkpoint") or {}).get("keepLast", 0)
         choices = self.recipe.get("choices") or {}
@@ -497,7 +509,8 @@ class Runner:
             count = 3
         if self.recipe.get("critic"):
             count *= 2
-        return weights * CHECKPOINT_FACTOR * count + weights
+        per = int((self.recipe.get("checkpointTB") or 0) * 1e12) or weights * CHECKPOINT_FACTOR
+        return per * count + weights
 
     def stage_train(self):
         """Run the training command, resuming from the latest checkpoint when there is one."""

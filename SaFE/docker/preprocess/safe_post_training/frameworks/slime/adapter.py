@@ -40,11 +40,46 @@ def slime_dir(env=os.environ):
 # that holds the trainable parameters only.
 PLUGINS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plugins")
 TRAINABLE_ONLY_MARKER = "trainable_only"
+# OVERLAY puts the tensors of a trainable-only checkpoint onto the base model; HF_INDEX is the index an HF save writes.
+OVERLAY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overlay_hf.py")
+HF_INDEX = "model.safetensors.index.json"
 
 
 def lora_args(lora):
     """Return the export tools' LoRA arguments of a recipe's lora section."""
     return ["--rank", str(lora["rank"]), "--alpha", str(lora["alpha"]), "--dropout", str(lora.get("dropout") or 0)]
+
+
+def last_rollout(recipe, run_dir):
+    """Return the id of a run's last rollout, which slime always saves: the rollout count less one, or for SFT by
+    epochs the epochs times the training rows per batch, less one. None when the prepared data does not tell."""
+    choices = recipe.get("choices") or {}
+    if choices.get("numRollout"):
+        return choices["numRollout"] - 1
+    try:
+        with open(os.path.join(run_dir, "data", "stats.json")) as f:
+            rows = json.load(f)["train"]["written"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    per_epoch = rows // (choices.get("batchSize") or 1)
+    return per_epoch * (choices.get("numEpoch") or 1) - 1 if per_epoch > 0 else None
+
+
+def drop_arg(cmd, flag):
+    """Return cmd without flag and the value after it."""
+    if flag not in cmd:
+        return cmd
+    i = cmd.index(flag)
+    return cmd[:i] + cmd[i + 2:]
+
+
+def hf_vocab_size(hf_dir):
+    """Return the vocabulary size in an HF directory's config.json, or None."""
+    try:
+        with open(os.path.join(hf_dir, "config.json")) as f:
+            return json.load(f).get("vocab_size")
+    except (OSError, ValueError):
+        return None
 
 
 def critic_config(critic, resume):
@@ -129,6 +164,13 @@ class Adapter:
         root = slime_dir(self.env)
         cmd = [sys.executable, os.path.join(root, "train.py")]
         cmd += model_args(root, recipe["model"]["script"]) + list(recipe["frameworkArgs"])
+        if (recipe.get("output") or {}).get("saveHf"):
+            last = last_rollout(recipe, run_dir)
+            if last is None:
+                # Without the last rollout --save-hf would write at every save; the export overlays instead.
+                cmd = drop_arg(cmd, "--save-hf")
+            else:
+                cmd += ["--save-hf-rollouts", str(last)]
         files = dict(recipe.get("files") or {})
         critic = recipe.get("critic")
         if critic:
@@ -147,7 +189,12 @@ class Adapter:
 
     def export(self, recipe, run_dir, run_command, iteration=None, out=None):
         """Convert a checkpoint, the latest unless iteration names one, to HF in out (final_model/ by default) and
-        copy the tokenizer from the base model. A LoRA checkpoint is exported with its adapters merged."""
+        copy the tokenizer from the base model. A LoRA checkpoint is exported with its adapters merged, and one that
+        holds the trainable weights only is overlaid on the base; the final model that training wrote is kept."""
+        if out is None and (recipe.get("output") or {}).get("saveHf") and \
+                os.path.exists(os.path.join(run_dir, "final_model", HF_INDEX)):
+            # Training wrote the final model itself at its last rollout.
+            return self.copy_tokenizer(recipe["model"]["path"], os.path.join(run_dir, "final_model"))
         if iteration is None:
             iteration = self.latest_checkpoint(run_dir)
         if iteration is None:
@@ -158,6 +205,8 @@ class Adapter:
         if not os.path.isdir(src):
             raise StageError("export", "the checkpoint of iteration %d no longer exists" % iteration, retry=False)
         lora, scratch = recipe.get("lora"), None
+        if not lora and os.path.exists(os.path.join(src, TRAINABLE_ONLY_MARKER)):
+            return self.copy_tokenizer(base, self.overlay(recipe, run_command, src, out))
         if lora and os.path.exists(os.path.join(src, TRAINABLE_ONLY_MARKER)):
             # The checkpoint holds the adapters only: they are merged into the base model on the HF side.
             scratch = out.rstrip("/") + ".adapter-tmp"
@@ -175,10 +224,33 @@ class Adapter:
             shutil.rmtree(scratch, ignore_errors=True)
         if code != 0:
             raise StageError("export", "HF export exited with code %d" % code)
+        return self.copy_tokenizer(base, out)
+
+    def copy_tokenizer(self, base, out):
+        """Copy the base model's tokenizer files that out lacks, and return out."""
         os.makedirs(out, exist_ok=True)
         for name in _TOKENIZER_FILES:
             if os.path.exists(os.path.join(base, name)) and not os.path.exists(os.path.join(out, name)):
                 shutil.copy(os.path.join(base, name), os.path.join(out, name))
+        return out
+
+    def overlay(self, recipe, run_command, src, out):
+        """Export a checkpoint that holds the trainable weights only: convert them to HF aside, then overlay them on
+        the base model, whose other tensors stay bit-identical."""
+        root, base = slime_dir(self.env), recipe["model"]["path"]
+        env = {"PYTHONPATH": python_path(root, self.env)}
+        scratch = out.rstrip("/") + ".trained-tmp"
+        cmd = [sys.executable, os.path.join(root, "tools", "convert_torch_dist_to_hf.py"), "--input-dir", src,
+               "--output-dir", scratch, "--origin-hf-dir", base, "-f"]
+        vocab = hf_vocab_size(base)
+        if vocab:
+            cmd += ["--vocab-size", str(vocab)]
+        code = run_command(cmd, env=env)
+        if code == 0:
+            code = run_command([sys.executable, OVERLAY, "--base", base, "--trained", scratch, "--out", out], env=env)
+        shutil.rmtree(scratch, ignore_errors=True)
+        if code != 0:
+            raise StageError("export", "HF overlay export exited with code %d" % code)
         return out
 
     def export_adapter(self, recipe, run_dir, run_command, iteration, out, merged):

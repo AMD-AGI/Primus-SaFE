@@ -290,6 +290,21 @@ def test_the_check_needs_the_spec_host_memory_on_every_node(tmp_path):
                   nodes=lambda: pytest.fail("specs without a floor are not probed")).stage_check()
 
 
+def test_the_check_refuses_a_pattern_python_cannot_compile(tmp_path):
+    recipe = dict(recipe_for(tmp_path), choices={"freeze": {"trainOnly": [r"^(?!.*experts\.)", r"layers\.[0-"]}})
+    run_dir = tmp_path / "run"
+    (run_dir / "data").mkdir(parents=True)
+    (run_dir / "data" / "train.jsonl").write_text("{}\n")
+    emitter = metrics.Emitter("pt-x", "a1", None, out=io.StringIO())
+    runner = stages.Runner(recipe, str(run_dir), FakeAdapter(), emitter, gpus=lambda: 8)
+    with pytest.raises(stages.StageError) as e:
+        runner.stage_check()
+    assert e.value.reason.startswith("the pattern to train 'layers\\\\.[0-' is not a valid regex")
+    assert not e.value.retry
+    recipe["choices"]["freeze"]["trainOnly"].pop()
+    runner.stage_check()
+
+
 def test_mooncake_pd_needs_the_rdma_devices_on_every_node(tmp_path):
     recipe = dict(recipe_for(tmp_path), rollout={"pd": {"prefillGpus": 2, "rdmaDevices": ["rdma0", "rdma1"]}})
     run_dir = tmp_path / "run"
