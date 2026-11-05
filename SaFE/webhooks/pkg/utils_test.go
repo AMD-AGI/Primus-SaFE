@@ -804,7 +804,7 @@ func TestWorkloadSandboxBranch(t *testing.T) {
 		long[i] = 'a'
 	}
 	v1.SetLabel(w, v1.DisplayNameLabel, string(long))
-	assert.Assert(t, v.validateSandbox(w) != nil)
+	assert.Assert(t, v.validateSandbox(context.Background(), w, nil) != nil)
 }
 
 // TestOpsJobValidateNodesBranches covers ops job node validation error branches.

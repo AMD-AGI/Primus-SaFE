@@ -107,6 +107,11 @@ type WorkspaceVolume struct {
 	Selector map[string]string `json:"selector,omitempty"`
 	// Responsible for automatic PV creation
 	StorageClass string `json:"storageClass,omitempty"`
+	// The workload scopes this volume is mounted into. Empty means every scope.
+	// A workload whose scope is not listed does not get the volume, even when it asks for workspace storage.
+	// +optional
+	// +listType=set
+	Scopes []WorkspaceScope `json:"scopes,omitempty"`
 }
 
 type WorkspaceStatus struct {
@@ -242,6 +247,21 @@ func (w *Workspace) GetIdleTime(scope WorkspaceScope) string {
 		return ""
 	}
 	return idleTime
+}
+
+// AppliesToScope reports whether the volume is mounted into workloads of the given scope.
+// A volume with no scopes applies to every scope. A workload without a scope (an ops job, for example)
+// is not restricted by the volume's scopes.
+func (v *WorkspaceVolume) AppliesToScope(scope WorkspaceScope) bool {
+	if len(v.Scopes) == 0 || scope == "" {
+		return true
+	}
+	for _, s := range v.Scopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *WorkspaceVolume) GenFullVolumeId() string {

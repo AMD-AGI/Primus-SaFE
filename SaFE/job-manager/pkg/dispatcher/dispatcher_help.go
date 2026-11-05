@@ -591,6 +591,9 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 			if vol.Id > maxId {
 				maxId = vol.Id
 			}
+			if !workspaceVolumeAppliesTo(vol, workload) {
+				continue
+			}
 			if vol.MountPath != "" {
 				// External pods mount the approved root without subPath; USER_DATA_PATH
 				// still points at the per-user directory for the program.
@@ -693,6 +696,14 @@ func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
 	return jobutils.SetNestedField(obj.Object, initContainers, path)
 }
 
+// workspaceVolumeAppliesTo reports whether a workspace volume is mounted into the workload: a volume
+// that lists scopes is mounted only into workloads of those scopes, whatever the workload asks for.
+// The volume ids still count towards the hostpath volume numbering, so skipping a volume does not
+// renumber the workload's own hostpath volumes.
+func workspaceVolumeAppliesTo(vol v1.WorkspaceVolume, workload *v1.Workload) bool {
+	return vol.AppliesToScope(commonworkload.GetScope(workload))
+}
+
 // modifyVolumes adds volume definitions to the Kubernetes object based on workspace and workload specifications.
 func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, path []string) error {
 	volumes, _, err := jobutils.NestedSlice(obj.Object, path)
@@ -706,6 +717,9 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 		for _, vol := range workspace.Spec.Volumes {
 			if vol.Id > maxId {
 				maxId = vol.Id
+			}
+			if !workspaceVolumeAppliesTo(vol, workload) {
+				continue
 			}
 			volumeName := vol.GenFullVolumeId()
 			var volume interface{}
@@ -1238,7 +1252,7 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 	}
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
-			if vol.EnableUserDir {
+			if vol.EnableUserDir && workspaceVolumeAppliesTo(vol, workload) {
 				userDir := vol.MountPath + "/" + generateUserDir(v1.GetUserId(workload))
 				result = addEnvVar(result, workload, jobutils.UserDataEnv, userDir)
 				break
@@ -1921,7 +1935,7 @@ func githubRunnerWritableMountPath(workload *v1.Workload, workspace *v1.Workspac
 	if workspace == nil || !v1.IsEnableWorkspaceStorage(workload) {
 		return "", fmt.Errorf("github runner requires workspace storage")
 	}
-	vol, ok := pickWritableWorkspaceVolume(workspace)
+	vol, ok := pickWritableWorkspaceVolume(workload, workspace)
 	if !ok || vol.MountPath == "" {
 		return "", fmt.Errorf("github runner requires a writable workspace volume")
 	}
@@ -1936,14 +1950,14 @@ func githubRunnerWritableMountPath(workload *v1.Workload, workspace *v1.Workspac
 // without asking kubelet to change ownership across a shared filesystem.
 const githubRunnerPFSSupplementalGroup = int64(1000)
 
-func workspaceHasWritablePFS(workspace *v1.Workspace) bool {
-	vol, ok := pickWritableWorkspaceVolume(workspace)
+func workspaceHasWritablePFS(workload *v1.Workload, workspace *v1.Workspace) bool {
+	vol, ok := pickWritableWorkspaceVolume(workload, workspace)
 	return ok && vol.Type == v1.PFS
 }
 
 func applyGithubRunnerPodSecurityContext(obj *unstructured.Unstructured, workload *v1.Workload,
 	workspace *v1.Workspace, resourceSpec v1.ResourceSpec) error {
-	if !workspaceHasWritablePFS(workspace) {
+	if !workspaceHasWritablePFS(workload, workspace) {
 		return nil
 	}
 	path := podSpecPath(workload, &resourceSpec, "securityContext")
@@ -2002,11 +2016,12 @@ func supplementalGroupID(group interface{}) (int64, bool) {
 	}
 }
 
-func pickWritableWorkspaceVolume(workspace *v1.Workspace) (v1.WorkspaceVolume, bool) {
+func pickWritableWorkspaceVolume(workload *v1.Workload, workspace *v1.Workspace) (v1.WorkspaceVolume, bool) {
 	var first v1.WorkspaceVolume
 	foundFirst := false
 	for _, vol := range workspace.Spec.Volumes {
-		if vol.AccessMode == corev1.ReadOnlyMany || strings.TrimSpace(vol.MountPath) == "" {
+		if vol.AccessMode == corev1.ReadOnlyMany || strings.TrimSpace(vol.MountPath) == "" ||
+			!workspaceVolumeAppliesTo(vol, workload) {
 			continue
 		}
 		if vol.Type == v1.PFS {
@@ -4220,14 +4235,21 @@ func getNfsPathFromWorkspace(workload *v1.Workload, workspace *v1.Workspace) str
 		return ""
 	}
 	result := ""
-	for _, vol := range workspace.Spec.Volumes {
+	var first *v1.WorkspaceVolume
+	for i, vol := range workspace.Spec.Volumes {
+		if !workspaceVolumeAppliesTo(vol, workload) {
+			continue
+		}
+		if first == nil {
+			first = &workspace.Spec.Volumes[i]
+		}
 		if vol.Type == v1.PFS {
 			result = vol.MountPath
 			break
 		}
 	}
-	if result == "" && len(workspace.Spec.Volumes) > 0 {
-		result = workspace.Spec.Volumes[0].MountPath
+	if result == "" && first != nil {
+		result = first.MountPath
 	}
 	return result
 }

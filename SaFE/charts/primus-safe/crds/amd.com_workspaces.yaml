@@ -176,6 +176,21 @@ spec:
                       description: Mount path to be used, equivalent to 'mountPath'
                         in Kubernetes volume mounts.
                       type: string
+                    scopes:
+                      description: |-
+                        The workload scopes this volume is mounted into. Empty means every scope.
+                        A workload whose scope is not listed does not get the volume, even when it asks for workspace storage.
+                      items:
+                        enum:
+                        - Train
+                        - Infer
+                        - Authoring
+                        - CICD
+                        - Ray
+                        - Sandbox
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
                     selector:
                       additionalProperties:
                         type: string

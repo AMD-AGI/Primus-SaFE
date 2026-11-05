@@ -37,6 +37,9 @@ type WorkspaceVolumeApplyConfiguration struct {
 	Selector map[string]string `json:"selector,omitempty"`
 	// Responsible for automatic PV creation
 	StorageClass *string `json:"storageClass,omitempty"`
+	// The workload scopes this volume is mounted into. Empty means every scope.
+	// A workload whose scope is not listed does not get the volume, even when it asks for workspace storage.
+	Scopes []amdv1.WorkspaceScope `json:"scopes,omitempty"`
 }
 
 // WorkspaceVolumeApplyConfiguration constructs a declarative configuration of the WorkspaceVolume type for use with
@@ -128,5 +131,15 @@ func (b *WorkspaceVolumeApplyConfiguration) WithSelector(entries map[string]stri
 // If called multiple times, the StorageClass field is set to the value of the last call.
 func (b *WorkspaceVolumeApplyConfiguration) WithStorageClass(value string) *WorkspaceVolumeApplyConfiguration {
 	b.StorageClass = &value
+	return b
+}
+
+// WithScopes adds the given value to the Scopes field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Scopes field.
+func (b *WorkspaceVolumeApplyConfiguration) WithScopes(values ...amdv1.WorkspaceScope) *WorkspaceVolumeApplyConfiguration {
+	for i := range values {
+		b.Scopes = append(b.Scopes, values[i])
+	}
 	return b
 }
