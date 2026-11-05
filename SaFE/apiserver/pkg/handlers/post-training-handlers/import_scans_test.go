@@ -32,20 +32,34 @@ import (
 )
 
 func TestScanPath(t *testing.T) {
+	all := []string{"/shared_nfs"}
 	for in, want := range map[string]string{
 		"/shared_nfs/zhanglei/runs/j2r5-229357":    "/shared_nfs/zhanglei/runs/j2r5-229357",
 		" /shared_nfs/zhanglei/runs/j2r5-229357/ ": "/shared_nfs/zhanglei/runs/j2r5-229357",
 		"/shared_nfs/runs/j2 $(id)":                "/shared_nfs/runs/j2 $(id)",
 	} {
-		got, err := scanPath(in, "/shared_nfs")
+		got, err := scanPath(in, "/shared_nfs", all)
 		require.NoError(t, err, in)
 		require.Equal(t, want, got)
 	}
 	for _, in := range []string{"", "runs/j2", "/", "/shared_nfs", "/shared_nfsx/j2", "/other/j2",
 		"/shared_nfs/a/../../etc", "/shared_nfs/./a", "/shared_nfs//a", "/shared_nfs/a\nb"} {
-		_, err := scanPath(in, "/shared_nfs")
+		_, err := scanPath(in, "/shared_nfs", all)
 		require.Error(t, err, in)
 	}
+
+	mine := []string{"/shared_nfs/zhanglei"}
+	got, err := scanPath("/shared_nfs/zhanglei/runs/j2", "/shared_nfs", mine)
+	require.NoError(t, err)
+	require.Equal(t, "/shared_nfs/zhanglei/runs/j2", got)
+	_, err = scanPath("/shared_nfs/zhanglei", "/shared_nfs", mine)
+	require.NoError(t, err, "the prefix itself may be a run directory")
+	for _, in := range []string{"/shared_nfs/alice/runs/j2", "/shared_nfs/zhangleix/runs/j2"} {
+		_, err = scanPath(in, "/shared_nfs", mine)
+		require.ErrorContains(t, err, "must be under /shared_nfs/zhanglei", in)
+	}
+	_, err = scanPath("/shared_nfs/zhanglei/runs/j2", "/shared_nfs", nil)
+	require.ErrorContains(t, err, "allowedPrefixes", "without prefixes nothing can be scanned")
 }
 
 func TestScanWorkload(t *testing.T) {

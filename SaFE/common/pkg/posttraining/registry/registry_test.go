@@ -184,4 +184,17 @@ func TestImportMounts(t *testing.T) {
 	require.ErrorContains(t, r.Validate(), "clean absolute root", "the root is compared with mount paths as written")
 	r.Imports.Mounts[0].Root, r.Imports.Mounts[0].Workspace = "/shared_nfs", ""
 	require.ErrorContains(t, r.Validate(), "a workspace")
+
+	m := ImportMount{Cluster: "spur", Workspace: "spur-import", Root: "/shared_nfs",
+		AllowedPrefixes: []string{"/shared_nfs/{user}", "/shared_nfs/shared/runs"}}
+	require.Equal(t, []string{"/shared_nfs/zhanglei", "/shared_nfs/shared/runs"}, m.ScanPrefixes("zhanglei"))
+	for _, user := range []string{"", ".", "..", "a/b"} {
+		require.Equal(t, []string{"/shared_nfs/shared/runs"}, m.ScanPrefixes(user), "%q is no path segment", user)
+	}
+	r.Imports.Mounts[0] = m
+	require.NotContains(t, r.Validate().Error(), "allowed prefix", "the test registry fails only for its other parts")
+	for _, bad := range []string{"/other/{user}", "shared_nfs/{user}", "/shared_nfs/{user}/", "/shared_nfsx"} {
+		r.Imports.Mounts[0].AllowedPrefixes = []string{bad}
+		require.ErrorContains(t, r.Validate(), "must be a clean absolute path under /shared_nfs", bad)
+	}
 }
