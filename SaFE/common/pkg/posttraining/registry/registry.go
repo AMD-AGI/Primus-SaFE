@@ -235,6 +235,14 @@ type Rollout struct {
 type Freeze struct {
 	Allowed bool     `json:"allowed"`
 	Default []string `json:"default,omitempty"`
+	// Label names what the default patterns leave frozen, e.g. "experts in layers 0-69".
+	Label string `json:"label,omitempty"`
+	// TrainableB and TotalB are the trained and total parameters in billions under the default patterns;
+	// CheckpointTB and FullCheckpointTB are the size of one checkpoint with and without them.
+	TrainableB       float64 `json:"trainableB,omitempty"`
+	TotalB           float64 `json:"totalB,omitempty"`
+	CheckpointTB     float64 `json:"checkpointTB,omitempty"`
+	FullCheckpointTB float64 `json:"fullCheckpointTB,omitempty"`
 }
 
 // Image is one training image of a framework.
@@ -460,6 +468,14 @@ func (fs *FrameworkSpec) validate() []string {
 	}
 	if fs.Lora != nil && len(fs.Lora.Targets) == 0 {
 		errs = append(errs, "lora.targets is empty")
+	}
+	if f := fs.Freeze; f != nil {
+		if len(f.Default) > 0 && !f.Allowed {
+			errs = append(errs, "freeze.default needs freeze.allowed")
+		}
+		if f.TrainableB > f.TotalB && f.TotalB > 0 {
+			errs = append(errs, "freeze.trainableB exceeds freeze.totalB")
+		}
 	}
 	return errs
 }

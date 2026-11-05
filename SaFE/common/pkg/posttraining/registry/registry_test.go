@@ -77,6 +77,7 @@ func TestParseRejects(t *testing.T) {
 		"unknown framework":  {"framework: slime,", "framework: verl,", `unknown framework "verl"`},
 		"bad method":         {"sft: [full, lora]", "sft: [full, qlora]", "unknown method qlora"},
 		"missing max points": {"maxPointsPerRun: 1000", "maxPointsPerRun: 0", "positive metrics.maxPointsPerRun"},
+		"freeze default":     {"minNodes: {", "freeze: {default: [experts]}\n        minNodes: {", "freeze.default needs freeze.allowed"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -621,8 +621,12 @@ post_training:
             lora: {targets: [linear_q_down_proj, linear_q_up_proj, linear_kv_down_proj, linear_kv_up_proj,
                              linear_proj], expertTargets: [linear_fc1, linear_fc2], adapterOnlyCheckpoint: true}
             rollout: {fp8: true, pd: true, requireSeparate: true}
-            # Full training trains every parameter but the experts of layers 0-69 by default.
-            freeze: {allowed: true, default: ['^(?!.*decoder\.layers\.([0-9]|[1-6][0-9])\.mlp\.experts\.)']}
+            # Full training trains every parameter but the experts of layers 0-69 by default. The sizes are J2's:
+            # 95.91B trainable parameters and about 1.34 TB per checkpoint with optimizer state, against about
+            # 10 TB for a checkpoint of all 744B.
+            freeze: {allowed: true, default: ['^(?!.*decoder\.layers\.([0-9]|[1-6][0-9])\.mlp\.experts\.)'],
+                     label: "experts in layers 0–69", trainableB: 95.91, totalB: 744, checkpointTB: 1.34,
+                     fullCheckpointTB: 10}
             defaults: {tp: 2, pp: 2, cp: 2, ep: 8, gpusPerEngine: 8, maxTokensPerGpu: 16384}
             minNodes: {sft-freeze: 2, sft-lora: 2, rl-separate: 3, sft-full: 8, rl-full-separate: 9}
             unverified: [sft-full, rl-full-separate]
