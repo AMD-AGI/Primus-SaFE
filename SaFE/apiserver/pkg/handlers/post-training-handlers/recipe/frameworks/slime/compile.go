@@ -223,6 +223,9 @@ func (plugin) normalize(ctx *recipe.Context) recipe.Choices {
 	}
 	if c.AdvantageEstimator == "" {
 		c.AdvantageEstimator = recipe.AlgorithmGRPO
+		if algs := ctx.FrameworkSpec.Algorithms; len(algs) > 0 && !slices.Contains(algs, c.AdvantageEstimator) {
+			c.AdvantageEstimator = algs[0]
+		}
 	}
 	if c.AdvantageEstimator == recipe.AlgorithmPPO {
 		if c.CriticLr == 0 {

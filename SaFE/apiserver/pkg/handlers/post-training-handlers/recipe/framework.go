@@ -759,7 +759,8 @@ func platformRules(ctx *Context, res *Result) {
 		}
 	}
 	if rl {
-		if len(fs.Algorithms) > 0 && !contains(fs.Algorithms, c.AdvantageEstimator) {
+		// An omitted algorithm takes the framework's default, which keeps to the spec's list.
+		if c.AdvantageEstimator != "" && len(fs.Algorithms) > 0 && !contains(fs.Algorithms, c.AdvantageEstimator) {
 			res.errorf("choices.advantageEstimator", "%s supports only %v", ctx.Spec.Name, fs.Algorithms)
 		}
 		if !sep && req.Method == registry.MethodLora {

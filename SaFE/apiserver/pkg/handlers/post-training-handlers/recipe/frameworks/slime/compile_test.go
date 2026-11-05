@@ -495,6 +495,18 @@ func TestSpecsOfTheLargerModels(t *testing.T) {
 	require.Equal(t, 3, n, "frozen-layer GRPO runs on 2 training nodes and 1 rollout node, as J3 did")
 }
 
+func TestAnOmittedAlgorithmIsTheSpecsDefault(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeRL)
+	in.Registry.Specs[0].Frameworks[Name].Algorithms = []string{recipe.AlgorithmGRPO}
+	require.Equal(t, recipe.AlgorithmGRPO, compile(t, in).Recipe.Choices.AdvantageEstimator)
+
+	in.Registry.Specs[0].Frameworks[Name].Algorithms = []string{recipe.AlgorithmPPO}
+	require.Equal(t, recipe.AlgorithmPPO, compile(t, in).Recipe.Choices.AdvantageEstimator,
+		"the default keeps to the spec's list")
+	in.Request.Choices.AdvantageEstimator = recipe.AlgorithmGRPO
+	require.Contains(t, errorsOf(in), "supports only [ppo]")
+}
+
 func TestGLMNeedsItsHostMemoryOnEveryNode(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	in.Model.Path = "/wekafs/models/GLM-5.3-BF16"
