@@ -92,7 +92,12 @@ func (h *Handler) CreateImportScan(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest(reason))
 		return
 	}
-	dir, err := scanPath(req.Path, m.Root)
+	// The scan job reads Spur's storage in the import workspace, so the caller must be able to run workloads there.
+	if err = h.authorize(c, v1.CreateVerb, m.Workspace, "", "", 0); err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	dir, err := scanPath(req.Path, m.Root, m.ScanPrefixes(c.GetString(common.UserName)))
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -111,9 +116,9 @@ func (h *Handler) CreateImportScan(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"scanId": t.TokenID, "workloadId": w.Name})
 }
 
-// scanPath checks a directory to scan: an absolute path without . or .. parts or control characters, under root.
-// The scan job checks it again after resolving symlinks.
-func scanPath(p, root string) (string, error) {
+// scanPath checks a directory to scan: an absolute path without . or .. parts or control characters, under root and
+// within one of the prefixes the user may scan. The scan job checks it again after resolving symlinks.
+func scanPath(p, root string, prefixes []string) (string, error) {
 	p = strings.TrimRight(strings.TrimSpace(p), "/")
 	if !path.IsAbs(p) || path.Clean(p) != p || strings.ContainsFunc(p, unicode.IsControl) {
 		return "", commonerrors.NewBadRequest("The run directory must be an absolute path without . or .. parts.")
@@ -121,7 +126,15 @@ func scanPath(p, root string) (string, error) {
 	if !strings.HasPrefix(p, strings.TrimRight(root, "/")+"/") {
 		return "", commonerrors.NewBadRequest(fmt.Sprintf("The run directory must be under %s.", root))
 	}
-	return p, nil
+	if len(prefixes) == 0 {
+		return "", commonerrors.NewBadRequest(importNoPrefix)
+	}
+	for _, prefix := range prefixes {
+		if prefix = strings.TrimRight(prefix, "/"); p == prefix || strings.HasPrefix(p, prefix+"/") {
+			return p, nil
+		}
+	}
+	return "", commonerrors.NewBadRequest(fmt.Sprintf("The run directory must be under %s.", strings.Join(prefixes, " or ")))
 }
 
 // scanWorkload builds the low-priority CPU job, named after the scan, that runs the import command with --stage on

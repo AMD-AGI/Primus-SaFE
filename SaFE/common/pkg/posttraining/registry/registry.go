@@ -87,6 +87,29 @@ type ImportMount struct {
 	Cluster   string `json:"cluster"`
 	Workspace string `json:"workspace"`
 	Root      string `json:"root"`
+	// AllowedPrefixes are the directories under Root that users may scan, where {user} stands for the scanning
+	// user's name; without any, no directory can be scanned.
+	AllowedPrefixes []string `json:"allowedPrefixes,omitempty"`
+}
+
+// ImportUserPlaceholder stands for the scanning user's name in an import mount's allowed prefixes.
+const ImportUserPlaceholder = "{user}"
+
+// ScanPrefixes returns the directories user may scan. A prefix with {user} is left out for a user whose name is
+// not a single path segment.
+func (m ImportMount) ScanPrefixes(user string) []string {
+	segment := user != "" && user != "." && user != ".." && !strings.ContainsAny(user, "/\x00")
+	var out []string
+	for _, p := range m.AllowedPrefixes {
+		if strings.Contains(p, ImportUserPlaceholder) {
+			if !segment {
+				continue
+			}
+			p = strings.ReplaceAll(p, ImportUserPlaceholder, user)
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // MountFor returns the import mount of a cluster, or nil when it has none.
@@ -320,6 +343,12 @@ func (r *Registry) Validate() error {
 	for _, m := range r.Imports.Mounts {
 		if m.Cluster == "" || m.Workspace == "" || !path.IsAbs(m.Root) || path.Clean(m.Root) != m.Root {
 			add("import mount %q needs a cluster, a workspace and a clean absolute root", m.Cluster)
+		}
+		for _, p := range m.AllowedPrefixes {
+			probe := strings.ReplaceAll(p, ImportUserPlaceholder, "user")
+			if !path.IsAbs(probe) || path.Clean(probe) != probe || (probe != m.Root && !strings.HasPrefix(probe, m.Root+"/")) {
+				add("import mount %q: allowed prefix %q must be a clean absolute path under %s", m.Cluster, p, m.Root)
+			}
 		}
 	}
 

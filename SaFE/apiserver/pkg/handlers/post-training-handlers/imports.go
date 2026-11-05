@@ -51,6 +51,8 @@ const (
 	// importSpentMessage is what the command prints for a token it cannot use.
 	importSpentMessage = "Token expired or already used. Get a new command from the Import dialog in SaFE."
 	importNoMount      = "Spur's /shared_nfs isn't mounted on this cluster."
+	importNoPrefix     = "No directory on the mount is open to you for scanning; an administrator lists them in the " +
+		"import mount's allowedPrefixes."
 )
 
 // importConfigResponse is GET /post-training/imports/config: whether the mounted-path import works in the workspace's
@@ -61,6 +63,8 @@ type importConfigResponse struct {
 	MountCluster   string `json:"mountCluster,omitempty"`
 	MountReason    string `json:"mountReason,omitempty"`
 	CanImport      bool   `json:"canImport"`
+	// MountPrefixes are the directories the caller may scan.
+	MountPrefixes []string `json:"mountPrefixes,omitempty"`
 }
 
 // GetImportConfig returns the import dialog's settings for a workspace.
@@ -80,10 +84,14 @@ func (h *Handler) GetImportConfig(c *gin.Context) {
 		return
 	}
 	resp := importConfigResponse{CanImport: h.authorize(c, v1.CreateVerb, workspace, "", "", 0) == nil}
-	if m, reason := h.importMount(c.Request.Context(), reg, ws.Cluster); m != nil {
-		resp.MountAvailable, resp.MountRoot, resp.MountCluster = true, m.Root, m.Cluster
-	} else {
+	if m, reason := h.importMount(c.Request.Context(), reg, ws.Cluster); m == nil {
 		resp.MountReason = reason
+	} else if prefixes := m.ScanPrefixes(c.GetString(common.UserName)); len(prefixes) == 0 {
+		resp.MountReason = importNoPrefix
+	} else if h.authorize(c, v1.CreateVerb, m.Workspace, "", "", 0) != nil {
+		resp.MountReason = fmt.Sprintf("Scans run in workspace %s, where you cannot create workloads.", m.Workspace)
+	} else {
+		resp.MountAvailable, resp.MountRoot, resp.MountCluster, resp.MountPrefixes = true, m.Root, m.Cluster, prefixes
 	}
 	c.JSON(http.StatusOK, resp)
 }
