@@ -127,15 +127,19 @@ func applyWorkloads(t *testing.T, cli client.Client) []v1.Workload {
 func TestApplyTaskAuthorizesLikeTheWorkloadCreatePath(t *testing.T) {
 	h, cli := newApplyAuthzHandler(t)
 
-	for _, workspace := range []string{applyWorkspace, ""} {
-		rec := apply(t, h, applyOutsider, workspace)
-		require.Equal(t, http.StatusForbidden, rec.Code, "workspace %q: %s", workspace, rec.Body.String())
-		require.Contains(t, rec.Body.String(), "not allowed to create workload")
+	for _, tc := range []struct{ user, workspace, refusal string }{
+		{applyMember, applyOther, "not allowed to create workload"},
+		{applyOutsider, applyWorkspace, "not allowed to get workload"},
+		{applyOutsider, "", "not allowed to get workload"},
+		{applyOutsider, applyOther, "not allowed to get workload"},
+	} {
+		rec := apply(t, h, tc.user, tc.workspace)
+		require.Equal(t, http.StatusForbidden, rec.Code, "%+v: %s", tc, rec.Body.String())
+		require.Contains(t, rec.Body.String(), tc.refusal, "%+v", tc)
 	}
 	require.Empty(t, applyWorkloads(t, cli), "a refused workload was created")
 
 	for _, tc := range []struct{ user, workspace string }{
-		{applyOutsider, applyOther},
 		{applyMember, applyWorkspace},
 		{applyOwner, ""},
 	} {
