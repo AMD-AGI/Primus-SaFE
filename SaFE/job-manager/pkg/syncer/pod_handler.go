@@ -2100,7 +2100,10 @@ func eventTime(ev *corev1.Event) time.Time {
 }
 
 // shouldClearExternalScaleUpMessage reports that a stale waiting-for-scale-up status
-// message should be cleared because every expected pod is scheduled or finished.
+// message should be cleared because every expected pod is scheduled or finished, or
+// because this pod has been bound to a node and no sibling is still waiting for one.
+// A bound pod is no longer waiting for scale-up even while it is Pending (pulling its
+// image, starting), so the message must not stay until it runs.
 // Clearing on the first scheduled member would flicker the UI while siblings wait.
 func shouldClearExternalScaleUpMessage(workload *v1.Workload, pod *corev1.Pod) bool {
 	if workload == nil || pod == nil {
@@ -2113,7 +2116,36 @@ func shouldClearExternalScaleUpMessage(workload *v1.Workload, pod *corev1.Pod) b
 	if !strings.HasPrefix(workload.Status.Message, externalWaitingScaleUpPrefix) {
 		return false
 	}
-	return isAllPodsAssigned(workload)
+	return isAllPodsAssigned(workload) || (isPodBound(pod) && !anySiblingAwaitingNode(workload, pod.Name))
+}
+
+// isPodBound says the scheduler has bound pod to a node: spec.nodeName is set, or
+// PodScheduled is True.
+func isPodBound(pod *corev1.Pod) bool {
+	if pod.Spec.NodeName != "" {
+		return true
+	}
+	for i := range pod.Status.Conditions {
+		c := &pod.Status.Conditions[i]
+		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+// anySiblingAwaitingNode says another recorded pod of the workload is still Pending
+// with no node, so its wait for scale-up is still what the workload is waiting for.
+func anySiblingAwaitingNode(workload *v1.Workload, podName string) bool {
+	for _, p := range workload.Status.Pods {
+		if p.PodId == podName {
+			continue
+		}
+		if p.Phase == corev1.PodPending && p.AdminNodeName == "" && p.HostIp == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase
