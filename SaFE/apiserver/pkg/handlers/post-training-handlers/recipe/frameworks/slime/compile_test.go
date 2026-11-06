@@ -284,7 +284,8 @@ func TestCompileGRPOColocated(t *testing.T) {
 		"--actor-num-nodes 1 --actor-num-gpus-per-node 8 --colocate --rollout-num-gpus 8",
 		"--input-key prompt --label-key label --apply-chat-template --rm-type deepscaler",
 		"--num-rollout 3 --rollout-batch-size 32 --n-samples-per-prompt 8 --global-batch-size 256",
-		"--rollout-max-response-len 8192 --rollout-temperature 1 --balance-data --log-passrate",
+		"--rollout-max-response-len 8192 --rollout-temperature 1 --balance-data --rollout-max-prompt-len 32768 " +
+			"--log-passrate",
 		"--use-kl-loss --kl-loss-coef 0 --kl-loss-type low_var_kl --entropy-coef 0 --eps-clip 0.2 --eps-clip-high 0.28",
 		"--rollout-num-gpus-per-engine 2 --sglang-mem-fraction-static 0.7",
 		"--lr 1e-06", "--lr-decay-style constant --adam-beta2 0.98",
@@ -306,6 +307,29 @@ func TestCompileGRPOSeparate(t *testing.T) {
 	require.NotContains(t, got, "--colocate")
 }
 
+func TestRolloutPromptLimitFollowsTheContext(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeRL)
+	in.Request.Choices.MaxResponseLen = 4096
+	in.Request.EvalDatasetID = "e1"
+	in.EvalDataset = &recipe.DatasetInfo{ID: "e1", Type: recipe.DatasetTypeRL, Path: "/wekafs/datasets/e1", Ready: true}
+	res := compile(t, in)
+	args := strings.Join(res.Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--rollout-max-prompt-len 36864", "a prompt must fit the context with a full response")
+	require.Contains(t, args, "--eval-prompt-data eval /wekafs/custom/models/pt-1/data/eval.jsonl "+
+		"--eval-max-prompt-len 36864")
+	require.Zero(t, res.Recipe.Choices.MaxPromptLen, "the derived limit stays out of the choices a copy starts from")
+
+	in.Request.Choices.MaxPromptLen = 1024
+	args = strings.Join(compile(t, in).Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--rollout-max-prompt-len 1024")
+	require.Contains(t, args, "--eval-max-prompt-len 36864", "the eval set is only cut to what fits the context")
+
+	in = qwen3Input(t, registry.TrainTypeRL)
+	in.Model.MaxTokens, in.Model.Config.MaxPositionEmbeddings = 0, 0
+	require.NotContains(t, strings.Join(compile(t, in).Recipe.FrameworkArgs, " "), "max-prompt-len",
+		"an unknown context keeps every prompt")
+}
+
 func TestSlimeRules(t *testing.T) {
 	cases := map[string]struct {
 		trainType string
@@ -324,6 +348,10 @@ func TestSlimeRules(t *testing.T) {
 			"Fully async requires separate"},
 		"context": {registry.TrainTypeRL, func(in *recipe.Input) { in.Request.Choices.MaxResponseLen = 40960 },
 			"40960-token context"},
+		"declared context": {registry.TrainTypeRL, func(in *recipe.Input) { in.Model.MaxTokens = 8192 },
+			"leave room for the prompt within the model's 8192-token context"},
+		"prompt limit": {registry.TrainTypeRL, func(in *recipe.Input) { in.Request.Choices.MaxPromptLen = 40000 },
+			"The prompt and response limits (40000 + 8192 tokens) exceed the model's 40960-token context"},
 		"reward": {registry.TrainTypeRL, func(in *recipe.Input) { in.Request.Choices.RewardType = "gpqa" },
 			`Reward type "gpqa" is not available`},
 		"ppo async": {registry.TrainTypeRL, func(in *recipe.Input) {
