@@ -107,6 +107,7 @@ func TestCreateAuditLogStoresTheReportedOperation(t *testing.T) {
 	assert.Equal(t, `{"name":"ci","ttlDays":1}`, stored.RequestBody.String)
 	assert.Equal(t, 200, stored.ResponseStatus)
 	assert.Equal(t, int64(12), stored.LatencyMs.Int64)
+	assert.True(t, stored.LatencyMs.Valid)
 	assert.False(t, stored.TraceId.Valid, "no trace id was reported")
 	// The time of the operation, not of the report, in UTC.
 	assert.True(t, stored.CreateTime.Valid)
@@ -162,6 +163,7 @@ func TestCreateAuditLogRefusesWhatARowCannotHold(t *testing.T) {
 		"no status":          func(m map[string]any) { delete(m, "responseStatus") },
 		"status too large":   func(m map[string]any) { m["responseStatus"] = 600 },
 		"negative latency":   func(m map[string]any) { m["latencyMs"] = -1 },
+		"latency too large":  func(m map[string]any) { m["latencyMs"] = int64(1) << 31 },
 		"no time":            func(m map[string]any) { delete(m, "createTime") },
 		"time not RFC3339":   func(m map[string]any) { m["createTime"] = "2026-11-06 10:00:00" },
 		"time in the future": func(m map[string]any) { m["createTime"] = now.Add(time.Hour).Format(time.RFC3339) },
@@ -226,4 +228,33 @@ func TestCreateAuditLogLeavesTheListRouteAuthenticated(t *testing.T) {
 	rsp := httptest.NewRecorder()
 	auditEngine(&Handler{dbClient: mockDB}).ServeHTTP(rsp, req)
 	assert.Equal(t, http.StatusUnauthorized, rsp.Code, "reading the audit log still needs a user who may: %s", rsp.Body.String())
+}
+
+func TestCreateAuditLogLatency(t *testing.T) {
+	withInternalToken(t)
+	for name, c := range map[string]struct {
+		set   func(m map[string]any)
+		valid bool
+		value int64
+	}{
+		"absent: not recorded":  {func(m map[string]any) { delete(m, "latencyMs") }, false, 0},
+		"zero is a latency":     {func(m map[string]any) { m["latencyMs"] = 0 }, true, 0},
+		"the largest INT value": {func(m map[string]any) { m["latencyMs"] = int64(1)<<31 - 1 }, true, 1<<31 - 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockDB := mock_client.NewMockInterface(ctrl)
+			var stored *dbclient.AuditLog
+			mockDB.EXPECT().InsertAuditLog(gomock.Any(), gomock.Any()).DoAndReturn(func(_ any, l *dbclient.AuditLog) error {
+				stored = l
+				return nil
+			})
+			body := apiKeyCreation(time.Now())
+			c.set(body)
+			rsp := postAuditLog(t, auditEngine(&Handler{dbClient: mockDB}), testAuditInternalToken, body)
+			require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+			assert.Equal(t, c.valid, stored.LatencyMs.Valid)
+			assert.Equal(t, c.value, stored.LatencyMs.Int64)
+		})
+	}
 }

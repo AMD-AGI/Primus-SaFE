@@ -106,8 +106,8 @@ type CreateAuditLogRequest struct {
 	ResponseStatus int `json:"responseStatus"`
 	// ResponseBody is the response body; credentials in it are redacted before it is stored
 	ResponseBody string `json:"responseBody"`
-	// LatencyMs is how long the operation took, in milliseconds
-	LatencyMs int64 `json:"latencyMs"`
+	// LatencyMs is how long the operation took, in milliseconds (absent: not recorded)
+	LatencyMs *int64 `json:"latencyMs"`
 	// TraceId is the distributed tracing ID
 	TraceId string `json:"traceId"`
 	// CreateTime is when the operation happened (required, RFC3339)

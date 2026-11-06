@@ -157,7 +157,7 @@ which reports every create and delete it answers.
 | requestBody | string | No | Request body; credentials are redacted and the body is cut at 8KB, as for the operations SaFE records itself |
 | responseStatus | int | Yes | HTTP status the operation was answered with (100-599) |
 | responseBody | string | No | Response body, redacted and cut the same way |
-| latencyMs | int64 | No | Processing time in milliseconds |
+| latencyMs | int64 | No | Processing time in milliseconds (0 to 2147483647; absent: not recorded) |
 | traceId | string | No | Distributed tracing ID (at most 64) |
 | createTime | string | Yes | When the operation happened (RFC3339), at most 5 minutes ahead of the apiserver's clock |
 

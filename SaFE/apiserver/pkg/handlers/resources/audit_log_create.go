@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
 	"strings"
@@ -113,8 +114,13 @@ func auditLogFromRequest(req *view.CreateAuditLogRequest, now time.Time) (*dbcli
 	if req.ResponseStatus < 100 || req.ResponseStatus > 599 {
 		return nil, errors.New("responseStatus must be an HTTP status code")
 	}
-	if req.LatencyMs < 0 {
-		return nil, errors.New("latencyMs must not be negative")
+	latency := sql.NullInt64{}
+	if req.LatencyMs != nil {
+		// latency_ms is an INT column.
+		if *req.LatencyMs < 0 || *req.LatencyMs > math.MaxInt32 {
+			return nil, fmt.Errorf("latencyMs must be between 0 and %d", math.MaxInt32)
+		}
+		latency = sql.NullInt64{Int64: *req.LatencyMs, Valid: true}
 	}
 	if req.CreateTime == "" {
 		return nil, errors.New("createTime is required")
@@ -138,7 +144,7 @@ func auditLogFromRequest(req *view.CreateAuditLogRequest, now time.Time) (*dbcli
 		RequestBody:    auditNullString(middleware.SanitizeAuditBody(req.RequestBody)),
 		ResponseStatus: req.ResponseStatus,
 		ResponseBody:   auditNullString(middleware.SanitizeAuditBody(req.ResponseBody)),
-		LatencyMs:      sql.NullInt64{Int64: req.LatencyMs, Valid: req.LatencyMs > 0},
+		LatencyMs:      latency,
 		TraceId:        auditNullString(req.TraceId),
 		CreateTime:     pq.NullTime{Time: createTime.UTC(), Valid: true},
 	}, nil
