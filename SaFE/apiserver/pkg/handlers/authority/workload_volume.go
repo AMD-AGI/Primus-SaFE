@@ -47,14 +47,11 @@ func (a *AccessController) AuthorizeWorkloadPrivilegedVolumes(in AccessInput,
 		requester = in.User.Name
 	}
 	if owner := v1.GetUserId(workload); owner != "" && owner != requester {
-		ownerUser, err := a.GetRequestUser(in.Context, owner)
-		if err != nil {
-			// A user that does not exist holds nothing.
-			return nil
-		}
-		in.User, in.UserId, in.Roles = ownerUser, owner, nil
+		in.User, in.UserId, in.Roles = nil, owner, nil
+		// A user that cannot be read (one that does not exist) holds nothing: no mark, and the
+		// workload is created without the volumes as it would be for any member.
 		if allowed, err = a.Allowed(in); err != nil || !allowed {
-			return err
+			return nil
 		}
 	}
 	v1.SetAnnotation(workload, v1.WorkloadPrivilegedVolumesAuthzAnnotation, v1.TrueStr)
