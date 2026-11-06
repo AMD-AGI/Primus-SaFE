@@ -251,4 +251,6 @@ def test_a_scan_reads_only_under_the_mount_root(monkeypatch, tmp_path, capsys):
     log.unlink()
     assert spur_import.main([outside, "--dry-run", "--root", str(mount)]) == 1 and not log.exists(), \
         "only a scan job leaves a termination message"
+    assert spur_import.main([inside, "--stage", "--root", inside + "/"]) == 2 and calls == [True, True], \
+        "the root itself may be the run directory"
     capsys.readouterr()

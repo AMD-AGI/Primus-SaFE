@@ -38,27 +38,31 @@ func TestScanPath(t *testing.T) {
 		" /shared_nfs/zhanglei/runs/j2r5-229357/ ": "/shared_nfs/zhanglei/runs/j2r5-229357",
 		"/shared_nfs/runs/j2 $(id)":                "/shared_nfs/runs/j2 $(id)",
 	} {
-		got, err := scanPath(in, "/shared_nfs", all)
+		got, _, err := scanPath(in, "/shared_nfs", all)
 		require.NoError(t, err, in)
 		require.Equal(t, want, got)
 	}
 	for _, in := range []string{"", "runs/j2", "/", "/shared_nfs", "/shared_nfsx/j2", "/other/j2",
 		"/shared_nfs/a/../../etc", "/shared_nfs/./a", "/shared_nfs//a", "/shared_nfs/a\nb"} {
-		_, err := scanPath(in, "/shared_nfs", all)
+		_, _, err := scanPath(in, "/shared_nfs", all)
 		require.Error(t, err, in)
 	}
 
-	mine := []string{"/shared_nfs/zhanglei"}
-	got, err := scanPath("/shared_nfs/zhanglei/runs/j2", "/shared_nfs", mine)
+	mine := []string{"/shared_nfs/zhanglei", "/shared_nfs/shared/runs/"}
+	got, prefix, err := scanPath("/shared_nfs/zhanglei/runs/j2", "/shared_nfs", mine)
 	require.NoError(t, err)
 	require.Equal(t, "/shared_nfs/zhanglei/runs/j2", got)
-	_, err = scanPath("/shared_nfs/zhanglei", "/shared_nfs", mine)
+	require.Equal(t, "/shared_nfs/zhanglei", prefix, "the scan job resolves symlinks against the prefix")
+	_, prefix, err = scanPath("/shared_nfs/shared/runs/j2", "/shared_nfs", mine)
+	require.NoError(t, err)
+	require.Equal(t, "/shared_nfs/shared/runs", prefix)
+	_, _, err = scanPath("/shared_nfs/zhanglei", "/shared_nfs", mine)
 	require.NoError(t, err, "the prefix itself may be a run directory")
 	for _, in := range []string{"/shared_nfs/alice/runs/j2", "/shared_nfs/zhangleix/runs/j2"} {
-		_, err = scanPath(in, "/shared_nfs", mine)
+		_, _, err = scanPath(in, "/shared_nfs", mine)
 		require.ErrorContains(t, err, "must be under /shared_nfs/zhanglei", in)
 	}
-	_, err = scanPath("/shared_nfs/zhanglei/runs/j2", "/shared_nfs", nil)
+	_, _, err = scanPath("/shared_nfs/zhanglei/runs/j2", "/shared_nfs", nil)
 	require.ErrorContains(t, err, "allowedPrefixes", "without prefixes nothing can be scanned")
 }
 
@@ -66,7 +70,7 @@ func TestScanWorkload(t *testing.T) {
 	m := &registry.ImportMount{Cluster: "c1", Workspace: "spur-import", Root: "/shared_nfs"}
 	tok := &dbclient.PostTrainingImportToken{TokenID: "pti-0123456789abcdef", Workspace: "ws", UserID: "u1",
 		UserName: "alice"}
-	w := scanWorkload(m, tok, "sst_a.b", "/shared_nfs/runs/j2 $(id)")
+	w := scanWorkload(m, tok, "sst_a.b", "/shared_nfs/runs/j2 $(id)", "/shared_nfs/runs")
 	require.Equal(t, "pti-0123456789abcdef", w.Name, "the scan's id finds its job")
 	require.Equal(t, "spur-import", w.Spec.Workspace, "the scan runs where Spur's storage is mounted")
 	require.Equal(t, common.JobKind, w.Spec.Kind)
@@ -76,13 +80,14 @@ func TestScanWorkload(t *testing.T) {
 	require.Equal(t, "u1", w.Labels[v1.UserIdLabel])
 	require.Equal(t, importScanTimeout, *w.Spec.Timeout)
 	require.Equal(t, map[string]string{"SAFE_IMPORT_TOKEN": "sst_a.b", "PT_IMPORT_DIR": "/shared_nfs/runs/j2 $(id)",
-		"PT_IMPORT_ROOT": "/shared_nfs", "PYTHONUNBUFFERED": "1"}, w.Spec.Env)
+		"PT_IMPORT_ROOT": "/shared_nfs/runs", "PYTHONUNBUFFERED": "1"}, w.Spec.Env,
+		"the command checks the resolved directory against the user's prefix, not the whole mount")
 	script, err := base64.StdEncoding.DecodeString(w.Spec.EntryPoints[0])
 	require.NoError(t, err)
 	require.NotContains(t, string(script), "j2", "the directory reaches the command through the environment")
 	require.Contains(t, string(script), `--stage --root "$PT_IMPORT_ROOT" "$PT_IMPORT_DIR"`)
 	require.Equal(t, "import-scan-j2r5-229357",
-		scanWorkload(m, tok, "sst_a.b", "/shared_nfs/runs/j2r5-229357").Labels[v1.DisplayNameLabel])
+		scanWorkload(m, tok, "sst_a.b", "/shared_nfs/runs/j2r5-229357", "/shared_nfs/runs").Labels[v1.DisplayNameLabel])
 }
 
 func TestImportScanStates(t *testing.T) {
