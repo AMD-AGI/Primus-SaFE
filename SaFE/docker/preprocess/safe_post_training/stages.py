@@ -65,6 +65,17 @@ def http_status(url, timeout, headers=None):
         return None
 
 
+def finite(value):
+    """Return value with every NaN or infinite float in it, however nested, replaced by None."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: finite(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [finite(v) for v in value]
+    return value
+
+
 def truncate(text, head, tail=0):
     """Keep the head and the tail of a text and name how many characters of the middle were left out."""
     if len(text) <= head + tail:
@@ -617,7 +628,7 @@ class Runner:
                           "status": r.get("status") or "", "tokens": r.get("tokens") or 0,
                           "promptChars": len(prompt), "responseChars": len(response)}
                 if r.get("rewardDetail") is not None:
-                    fields["rewardDetail"] = r["rewardDetail"]
+                    fields["rewardDetail"] = finite(r["rewardDetail"])
                 head, tail = limits.get("responseHeadChars") or 1000, limits.get("responseTailChars") or 3000
                 while True:
                     fields["response"] = truncate(response, head, tail)

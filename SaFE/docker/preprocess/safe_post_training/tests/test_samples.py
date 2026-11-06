@@ -64,7 +64,8 @@ def test_launcher_reports_truncated_samples(tmp_path):
     r = stages.Runner({"metrics": {"samples": limits}}, str(tmp_path), FakeAdapter(), emitter)
     (tmp_path / "samples").mkdir()
     record = {"dataset": "", "group": 1, "index": 0, "prompt": "p" * 30, "response": "head-" + "x" * 50 + "-tail",
-              "label": "4", "reward": float("nan"), "status": "truncated", "tokens": 4096}
+              "label": "4", "reward": float("nan"), "status": "truncated", "tokens": 4096,
+              "rewardDetail": {"score": float("nan"), "format": float("inf"), "acc": 1.0}}
     (tmp_path / "samples" / "rollout-12.jsonl").write_text(json.dumps(record) + "\n")
     (tmp_path / "samples" / "rollout-13.jsonl.tmp").write_text(json.dumps(record) + "\n")
     r.sample_tick()
@@ -76,6 +77,7 @@ def test_launcher_reports_truncated_samples(tmp_path):
     assert s["prompt"] == "p" * 10 + " … [20 characters omitted] … "
     assert s["response"] == "head- … [50 characters omitted] … -tail"
     assert s["promptChars"] == 30 and s["responseChars"] == 60 and s["reward"] is None
+    assert s["rewardDetail"] == {"score": None, "format": None, "acc": 1.0}, "a NaN component cannot stop the report"
 
 
 def test_a_file_reports_at_most_one_megabyte(tmp_path):
