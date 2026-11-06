@@ -147,6 +147,8 @@ rules:
     - create
     - list
     - delete
+# A preflight job runs privileged on its nodes, so creating one also takes workload/privileged in
+# the workspace (workspace-admin), which this role does not grant.
 - resources:
     - secret
     - opsjob/preflight

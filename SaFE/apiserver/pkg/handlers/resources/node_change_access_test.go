@@ -231,6 +231,42 @@ func TestNodeChangesTakeARoleThatGrantsThemOnEveryNode(t *testing.T) {
 	}
 }
 
+// ncPreflight asks for a preflight job on the fixture's node in its workspace.
+const ncPreflight = `{"name":"pf","type":"preflight","inputs":[{"name":"node","value":"` + ncNode + `"}],` +
+	`"workspaceId":"` + ncWorkspace + `","image":"probe:1","entryPoint":"ZXhpdCAw"}`
+
+func (f *nodeChangeFixture) opsJobs(t *testing.T) int {
+	t.Helper()
+	jobs := &v1.OpsJobList{}
+	require.NoError(t, f.cli.List(t.Context(), jobs))
+	return len(jobs.Items)
+}
+
+// A preflight job runs privileged on its nodes, so creating one takes what a privileged workload in the
+// workspace takes: a member, who may create preflight jobs but not privileged workloads, is refused and
+// no job is created; the workspace's manager and a system administrator create it.
+func TestPreflightJobsTakeThePrivilegedWorkloadGrant(t *testing.T) {
+	for _, who := range []struct {
+		user string
+		ok   bool
+	}{{ncMember, false}, {ncManager, true}, {ncAdmin, true}} {
+		t.Run(who.user, func(t *testing.T) {
+			f := newNodeChangeFixture(t, false)
+			res, err := f.h.createOpsJob(f.ctx(who.user, "", ncPreflight))
+			if who.ok {
+				require.NoError(t, err)
+				require.NotNil(t, res)
+				require.Equal(t, 1, f.opsJobs(t))
+				return
+			}
+			require.True(t, apierrors.IsForbidden(err), "%v", err)
+			require.Contains(t, err.Error(), "workload/privileged")
+			require.Nil(t, res)
+			require.Equal(t, 0, f.opsJobs(t), "a job was created for a caller who was refused")
+		})
+	}
+}
+
 // The roles the chart ships, other than system-admin, read nodes and change none: no rule that covers
 // nodes grants a verb other than get and list. Derived from the chart, so a role added later is covered.
 func TestBuiltInRolesBelowSystemAdminOnlyReadNodes(t *testing.T) {
