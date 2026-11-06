@@ -8,7 +8,7 @@
     data-testid="extra-hostpath-field"
   >
     <el-select
-      v-model="model"
+      :model-value="model"
       multiple
       clearable
       filterable
@@ -22,7 +22,7 @@
       :placeholder="placeholder"
       no-data-text="Type a directory and press Enter"
       style="width: 100%"
-      @change="onChange"
+      @update:model-value="onChange"
     />
     <div class="extra-hostpath-hint">
       <div>
@@ -46,6 +46,7 @@ import { useUserStore } from '@/stores/user'
 import {
   checkHostPathEntry,
   declaredHostPathRoots,
+  entriesToCheck,
   normalizeHostPaths,
   ownUserDirs,
   type HostPathRoot,
@@ -108,7 +109,25 @@ const placeholder = computed(() => {
   return r ? `e.g. ${r.path}/<dir> (Enter to add)` : 'Enter a directory (Enter to add)'
 })
 
+// Entries the form was filled with (Edit, Clone, Resume) rather than typed by the user: every
+// change the user makes goes through onChange, so any other change of the model is a prefill
+// (or a reset to empty on Create).
+const inherited = ref<string[]>([])
+let userChange = false
+watch(
+  model,
+  (val) => {
+    if (userChange) {
+      userChange = false
+      return
+    }
+    inherited.value = normalizeHostPaths(val)
+  },
+  { immediate: true },
+)
+
 const onChange = (val: string[]) => {
+  userChange = true
   model.value = normalizeHostPaths(val)
 }
 
@@ -116,8 +135,9 @@ const rules = computed<FormItemRule[]>(() => [
   {
     trigger: 'change',
     validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
-      if (!loaded.value) return callback()
-      for (const entry of (value as string[] | undefined) ?? []) {
+      // A disabled field (Edit, where hostpath cannot change) never blocks the form.
+      if (props.disabled || !loaded.value) return callback()
+      for (const entry of entriesToCheck(value as string[] | undefined, inherited.value)) {
         const msg = checkHostPathEntry(entry, roots.value, {
           allowUndeclared: props.allowUndeclared,
         })

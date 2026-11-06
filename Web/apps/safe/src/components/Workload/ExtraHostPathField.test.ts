@@ -47,5 +47,11 @@ describe('extra mounts field wiring', () => {
     expect(field).toContain('Keep private data in')
     expect(field).toContain('it is mounted automatically and only')
     expect(field).toContain('checkHostPathEntry(entry, roots.value')
+    // Edit cannot change hostpath, so entries that no longer pass never block an edit.
+    expect(field).toContain('if (props.disabled || !loaded.value) return callback()')
+    // Entries carried over on Clone/Resume are left to the apiserver; only typed ones are checked.
+    expect(field).toContain('entriesToCheck(value as string[] | undefined, inherited.value)')
+    expect(field).toContain('@update:model-value="onChange"')
+    expect(field).not.toContain('v-model="model"')
   })
 })

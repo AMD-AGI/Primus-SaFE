@@ -135,6 +135,20 @@ export function checkHostPathEntry(
   return `${cleaned} is not under a workspace volume (${roots.map((r) => r.path).join(', ')})`
 }
 
+/**
+ * The entries the form checks: those the user added. Entries carried over from the workload
+ * being edited, cloned or resumed were accepted by the apiserver, whose rules are looser than
+ * these (it admits a volume root without enableUserDir, a shared directory, and undeclared paths
+ * for privileged users), so the form leaves them to the apiserver rather than block the action.
+ */
+export function entriesToCheck(
+  entries: string[] | null | undefined,
+  inherited: Iterable<string>,
+): string[] {
+  const keep = new Set(normalizeHostPaths([...inherited]))
+  return normalizeHostPaths(entries).filter((e) => !keep.has(e))
+}
+
 /** Trims, cleans and de-duplicates entries, dropping empty ones. */
 export function normalizeHostPaths(entries: string[] | null | undefined): string[] {
   const out: string[] = []

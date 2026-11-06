@@ -3,6 +3,7 @@ import {
   checkHostPathEntry,
   cleanPath,
   declaredHostPathRoots,
+  entriesToCheck,
   hostPathPayload,
   normalizeHostPaths,
   ownUserDirs,
@@ -158,5 +159,16 @@ describe('ownUserDirs', () => {
       '/shared_nfs/users/u1',
     ])
     expect(ownUserDirs(declaredHostPathRoots(volumes, 'Train'), '')).toEqual([])
+  })
+})
+
+describe('entriesToCheck', () => {
+  it('checks only entries the user added, not those carried over from the workload', () => {
+    const inherited = ['/apps', '/shared_nfs/models/']
+    expect(entriesToCheck(['/apps', '/shared_nfs/models', '/shared_nfs/new'], inherited)).toEqual([
+      '/shared_nfs/new',
+    ])
+    expect(entriesToCheck(['/shared_nfs/new'], [])).toEqual(['/shared_nfs/new'])
+    expect(entriesToCheck(undefined, inherited)).toEqual([])
   })
 })
