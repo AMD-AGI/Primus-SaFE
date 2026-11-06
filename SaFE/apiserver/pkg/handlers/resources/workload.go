@@ -1626,6 +1626,9 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Env)
 	}
+	if str := dbutils.ParseNullString(dbWorkload.Hostpath); str != "" {
+		json.Unmarshal([]byte(str), &result.Hostpath)
+	}
 	if str := dbutils.ParseNullString(dbWorkload.Dependencies); str != "" {
 		var dependencies []string
 		json.Unmarshal([]byte(str), &dependencies)

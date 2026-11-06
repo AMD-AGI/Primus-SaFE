@@ -209,6 +209,13 @@
               </el-form-item>
             </el-col>
           </el-row>
+          <ExtraHostPathField
+            v-model="form.hostpath"
+            :workspace-id="targetWorkspaceId"
+            scope="Infer"
+            :disabled="isEdit"
+            :allow-undeclared="isManager || store.isCurrentWorkspaceAdmin()"
+          />
         </div>
 
         <!-- ===== Service Configuration ===== -->
@@ -481,6 +488,8 @@ import { type FormInstance, ElMessage, ElMessageBox } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/workspace'
 import KeyValueList from '@/components/Base/KeyValueList.vue'
 import ImageInput from '@/components/Base/ImageInput.vue'
+import ExtraHostPathField from '@/components/Workload/ExtraHostPathField.vue'
+import { hostPathPayload, normalizeHostPaths } from '@/utils/workloadHostPath'
 import {
   byte2Gi,
   convertKeyValueMapToList,
@@ -583,6 +592,7 @@ const initialForm = () => ({
   secretIds: [] as string[],
   nodesAffinity: '' as '' | 'required' | 'preferred',
   forceHostNetwork: false,
+  hostpath: [] as string[],
 
   // Service configuration
   service: {
@@ -745,6 +755,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       healthCheck,
       excludedNodes,
       nodesAffinity: _nodesAffinity,
+      hostpath,
       ...addPayload
     } = form
 
@@ -821,6 +832,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
         ...(form.nodesAffinity ? { nodesAffinity: form.nodesAffinity as 'required' | 'preferred' } : {}),
         ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
+        ...hostPathPayload(hostpath),
       }
 
       if (isResume.value) {
@@ -998,6 +1010,7 @@ const setInitialFormValues = async () => {
   }
 
   form.forceHostNetwork = res.forceHostNetwork ?? false
+  form.hostpath = normalizeHostPaths(res.hostpath)
 
   if (props.action === 'Clone') {
     fetchWorkspaceOption()

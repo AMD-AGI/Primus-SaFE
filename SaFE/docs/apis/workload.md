@@ -652,7 +652,8 @@ Get detailed information about a specific workload.
   "nodesAffinity": "required",
   "privileged": false,
   "useWorkspaceStorage": true,
-  "forceHostNetwork": false
+  "forceHostNetwork": false,
+  "hostpath": ["/shared_nfs/team-a"]
 }
 ```
 
@@ -709,6 +710,7 @@ Only fields not already covered by "List Workloads" are listed below. Other fiel
 | privileged                      | bool       | Whether to run the workload in privileged mode.                                                                                         |
 | useWorkspaceStorage             | bool       | Whether to use the workspace storage for workload. Default true.                                                                        |
 | forceHostNetwork                | bool       | Whether to use the Host Network  forcibly                                                                                                       |
+| hostpath                        | []string   | Extra host paths mounted into the workload (`spec.hostpath`); omitted when there are none. Refer to the CreateWorkload parameter       |
 
 > Other fields not listed here are identical to those in the "List Workloads" Field Description.
 

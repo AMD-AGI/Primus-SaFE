@@ -296,6 +296,8 @@ type GetWorkloadResponse struct {
 	UseWorkspaceStorage bool `json:"useWorkspaceStorage"`
 	// Whether to use host network forcibly.
 	ForceHostNetwork bool `json:"forceHostNetwork"`
+	// Extra host paths mounted into the workload (spec.hostpath)
+	Hostpath []string `json:"hostpath,omitempty"`
 }
 
 // WorkloadNodesHistoryItem describes one earlier run of the same workload id.
