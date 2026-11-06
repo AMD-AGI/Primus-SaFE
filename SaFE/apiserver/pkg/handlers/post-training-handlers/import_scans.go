@@ -97,7 +97,7 @@ func (h *Handler) CreateImportScan(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	dir, err := scanPath(req.Path, m.Root, m.ScanPrefixes(c.GetString(common.UserName)))
+	dir, scanRoot, err := scanPath(req.Path, m.Root, m.ScanPrefixes(c.GetString(common.UserName)))
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -107,7 +107,7 @@ func (h *Handler) CreateImportScan(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to issue the scan's token: "+err.Error()))
 		return
 	}
-	w := scanWorkload(m, t, token, dir)
+	w := scanWorkload(m, t, token, dir, scanRoot)
 	if err = h.client.Create(ctx, w); err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to start the scan: "+err.Error()))
 		return
@@ -117,29 +117,32 @@ func (h *Handler) CreateImportScan(c *gin.Context) {
 }
 
 // scanPath checks a directory to scan: an absolute path without . or .. parts or control characters, under root and
-// within one of the prefixes the user may scan. The scan job checks it again after resolving symlinks.
-func scanPath(p, root string, prefixes []string) (string, error) {
+// within one of the prefixes the user may scan. It returns the directory and its prefix, which the scan job checks
+// the directory against again after resolving symlinks.
+func scanPath(p, root string, prefixes []string) (string, string, error) {
 	p = strings.TrimRight(strings.TrimSpace(p), "/")
 	if !path.IsAbs(p) || path.Clean(p) != p || strings.ContainsFunc(p, unicode.IsControl) {
-		return "", commonerrors.NewBadRequest("The run directory must be an absolute path without . or .. parts.")
+		return "", "", commonerrors.NewBadRequest("The run directory must be an absolute path without . or .. parts.")
 	}
 	if !strings.HasPrefix(p, strings.TrimRight(root, "/")+"/") {
-		return "", commonerrors.NewBadRequest(fmt.Sprintf("The run directory must be under %s.", root))
+		return "", "", commonerrors.NewBadRequest(fmt.Sprintf("The run directory must be under %s.", root))
 	}
 	if len(prefixes) == 0 {
-		return "", commonerrors.NewBadRequest(importNoPrefix)
+		return "", "", commonerrors.NewBadRequest(importNoPrefix)
 	}
 	for _, prefix := range prefixes {
 		if prefix = strings.TrimRight(prefix, "/"); p == prefix || strings.HasPrefix(p, prefix+"/") {
-			return p, nil
+			return p, prefix, nil
 		}
 	}
-	return "", commonerrors.NewBadRequest(fmt.Sprintf("The run directory must be under %s.", strings.Join(prefixes, " or ")))
+	return "", "", commonerrors.NewBadRequest(fmt.Sprintf("The run directory must be under %s.",
+		strings.Join(prefixes, " or ")))
 }
 
 // scanWorkload builds the low-priority CPU job, named after the scan, that runs the import command with --stage on
-// dir in the import workspace.
-func scanWorkload(m *registry.ImportMount, t *dbclient.PostTrainingImportToken, token, dir string) *v1.Workload {
+// dir in the import workspace; the command refuses a directory that resolves outside scanRoot.
+func scanWorkload(m *registry.ImportMount, t *dbclient.PostTrainingImportToken, token, dir,
+	scanRoot string) *v1.Workload {
 	w := &v1.Workload{}
 	w.Name = t.TokenID
 	w.Labels = map[string]string{
@@ -159,7 +162,7 @@ func scanWorkload(m *registry.ImportMount, t *dbclient.PostTrainingImportToken, 
 		Workspace:        m.Workspace,
 		Images:           []string{commonconfig.GetDownloadJoImage()},
 		EntryPoints:      []string{base64.StdEncoding.EncodeToString([]byte(importScanEntrypoint))},
-		Env: map[string]string{"SAFE_IMPORT_TOKEN": token, "PT_IMPORT_DIR": dir, "PT_IMPORT_ROOT": m.Root,
+		Env: map[string]string{"SAFE_IMPORT_TOKEN": token, "PT_IMPORT_DIR": dir, "PT_IMPORT_ROOT": scanRoot,
 			"PYTHONUNBUFFERED": "1"},
 		Resources:               []v1.WorkloadResource{{Replica: 1, CPU: "1", Memory: "4Gi", EphemeralStorage: "1Gi"}},
 		Priority:                common.LowPriorityInt,

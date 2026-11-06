@@ -629,8 +629,10 @@ def main(argv=None):
             if not args.run_dir:
                 p.error("the run directory is required")
             root = os.path.realpath(args.run_dir).rstrip("/")
-            if args.root and not root.startswith(os.path.realpath(args.root).rstrip("/") + "/"):
-                raise RunDirError("The directory must be under %s." % args.root)
+            if args.root:
+                base = os.path.realpath(args.root).rstrip("/")
+                if root != base and not root.startswith(base + "/"):
+                    raise RunDirError("The directory must be under %s." % args.root)
             summary = FORMATS[args.format](root)
             data = encode(summary)
             report(summary)
