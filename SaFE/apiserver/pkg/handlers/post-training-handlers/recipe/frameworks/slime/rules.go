@@ -7,9 +7,11 @@ package slime
 
 import (
 	"fmt"
+	"net/netip"
 	"net/url"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -103,6 +105,49 @@ func trackingRules(ctx *recipe.Context) []recipe.Diagnostic {
 		"WANDB_API_KEY", wandbKeyPrefix)...)
 }
 
+// metadataHosts are cloud metadata endpoints outside the link-local range.
+var metadataHosts = map[string]bool{"metadata.google.internal": true, "fd00:ec2::254": true, "100.100.100.200": true}
+
+// blockedRewardHost tells whether a reward address names the pod itself, a link-local or metadata endpoint, or an
+// unspecified or multicast address. Only names and literals are checked; a name that resolves to one passes.
+func blockedRewardHost(host string) bool {
+	h := strings.TrimSuffix(strings.ToLower(host), ".")
+	if h == "localhost" || strings.HasSuffix(h, ".localhost") || metadataHosts[h] {
+		return true
+	}
+	ip, err := netip.ParseAddr(h)
+	if err != nil {
+		var ok bool
+		if ip, ok = shorthandIPv4(h); !ok {
+			return false
+		}
+	}
+	ip = ip.Unmap()
+	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() ||
+		metadataHosts[ip.WithZone("").String()]
+}
+
+// shorthandIPv4 parses the numeric IPv4 forms the C resolver accepts besides the dotted quad, such as 2130706433,
+// 0x7f.1 or 0177.0.0.1, where the last part fills the remaining bytes.
+func shorthandIPv4(h string) (netip.Addr, bool) {
+	parts := strings.Split(h, ".")
+	if len(parts) > 4 {
+		return netip.Addr{}, false
+	}
+	last, v := len(parts)-1, uint64(0)
+	for i, p := range parts {
+		n, err := strconv.ParseUint(p, 0, 32)
+		if err != nil || strings.Contains(p, "_") || (i < last && n > 255) || (i == last && n >= 1<<(8*(4-last))) {
+			return netip.Addr{}, false
+		}
+		if i < last {
+			n <<= 8 * (3 - i)
+		}
+		v |= n
+	}
+	return netip.AddrFrom4([4]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}), true
+}
+
 // rewardRules checks the reward settings of an RL request: a label for the built-in rewards, a Python file for a
 // custom reward function, and an http(s) address without credentials and an optional secret for a remote service.
 func rewardRules(ctx *recipe.Context, c recipe.Choices) []recipe.Diagnostic {
@@ -128,6 +173,9 @@ func rewardRules(ctx *recipe.Context, c recipe.Choices) []recipe.Diagnostic {
 			fail("choices.rewardRemote.url", "Give the http or https address of the reward service")
 		case u.User != nil:
 			fail("choices.rewardRemote.url", "Keep credentials out of the address; put the key in a secret")
+		case blockedRewardHost(u.Hostname()):
+			fail("choices.rewardRemote.url", "The reward service cannot be on a loopback, link-local, metadata, "+
+				"unspecified or multicast address")
 		}
 		if remote.SecretID != "" {
 			out = append(out, secretRules("choices.rewardRemote.secretId", remote.SecretID,
