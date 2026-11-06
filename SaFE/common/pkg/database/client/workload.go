@@ -52,7 +52,8 @@ var (
 		    cron_jobs = :cron_jobs,
 		    service = :service,
 		    workload_uid = :workload_uid,
-		    is_privileged = :is_privileged 
+		    is_privileged = :is_privileged,
+		    hostpath = :hostpath
 		WHERE workload_id = :workload_id`, TWorkload)
 )
 

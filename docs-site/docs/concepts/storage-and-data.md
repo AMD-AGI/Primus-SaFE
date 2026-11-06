@@ -23,6 +23,53 @@ A volume can be limited to some workload types with `scopes`; it is then mounted
 A workload can also ask for host paths of its own with `hostpath`. Each entry must be the directory a `hostpath` volume of its workspace mounts into the workload's type (the volume's `hostPath`, joined with its `subPath` when it has one), or a directory under it. For a volume with `enableUserDir` that excludes the volume's directory itself and its user directories (`users` and everything below it): each user already gets their own directory from the volume. The pod mounts the declared directory (for a volume with `enableUserDir`, the directory directly under the volume's that holds the entry) and reaches the entry through `subPath`, so a symbolic link inside it cannot lead out of it; the entry is mounted read-only when the volume is `ReadOnlyMany`. Any other host path gives the workload the node's files, so it is allowed only to users who may run privileged workloads in the workspace (the `workload/privileged` grant, held by workspace administrators and system administrators). Sandboxes can only use declared paths.
 
 
+## Your own directory and extra directories
+
+A `hostpath` volume with `enableUserDir` gives every user a directory of their own,
+`<volume>/users/<your user id>` (for example `/shared_nfs/users/<your user id>`). It is mounted
+into your workloads automatically, and only you can see it: keep private data, code and
+checkpoints there. The volume can also list shared directories (`sharedPaths`), such as model
+and cache directories, that every workload of the workspace gets beside your own directory.
+
+What a workload sees by default depends on its type, through the volume's `scopes`. A common
+setup, used for example for `/shared_nfs`, mounts the whole volume into development
+environments (Authoring), while PyTorch jobs, TorchFT, Monarch and Ray jobs, inference services
+and the other types get only your own directory and the shared directories. When such a workload
+needs more of the volume, name the directories yourself:
+
+1. Open the create form of the workload (for example **Training → PyTorch Job → Create**).
+2. Below the resource settings (the **Resource** section; **Ray Cluster** for Ray jobs), find **extra mounts**. It appears when a volume of the workspace
+   has `enableUserDir`; its hint names the volume and your own directory.
+3. Type a directory, for example `/shared_nfs/team-a`, and press Enter. Repeat for each directory.
+4. Submit. Each directory is mounted at the same path inside the container.
+
+Each directory must lie under a `hostpath` volume of the workspace that is mounted into this
+workload type. The form refuses, before you submit:
+
+- the volume itself (for example `/shared_nfs`);
+- the `users` directory and anything below it, your own directory included: yours is already
+  mounted, and other users' directories cannot be;
+- a shared directory or a path inside one, which every workload already gets;
+- a relative path or one with `..`.
+
+**Clone** and **Resume** keep the extra directories of the original workload; you can change
+them in the cloned form. **Edit** shows them but cannot change them: clone the workload instead.
+Through the API, the same list is the `hostpath` field of the workload (see the API reference).
+
+<!-- @test
+mode: behavior
+priority: P1
+personas: [member]
+preconditions: [running-cluster, workspace-with-userdir-volume]
+do: follow "Your own directory and extra directories" steps 1 to 4 with one directory under the volume, then clone the workload
+expect:
+  - the form shows extra mounts with a hint that names your own directory under users
+  - the form refuses the volume itself and a path under users before submit
+  - the created workload's container has the directory mounted at the same path
+  - the clone form is prefilled with the same extra mounts
+cleanup: delete the workload and its clone via their row actions
+-->
+
 ## What backs PFS
 
 PFS is provisioned as a Kubernetes PersistentVolume/PersistentVolumeClaim per workspace,

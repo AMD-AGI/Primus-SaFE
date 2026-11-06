@@ -179,6 +179,15 @@ func TestWorkloadUpsertExcludesNodesHistory(t *testing.T) {
 	}
 }
 
+// A resume reuses the workload id, so the exporter's update must rewrite hostpath: otherwise the
+// detail of a resumed workload would show the previous run's extra mounts.
+func TestWorkloadUpdateRewritesHostpath(t *testing.T) {
+	t.Parallel()
+	if !strings.Contains(updateWorkloadCmd, "hostpath = :hostpath") {
+		t.Errorf("exporter updates must rewrite hostpath: %s", updateWorkloadCmd)
+	}
+}
+
 func TestArchiveWorkloadNodesForResume(t *testing.T) {
 	c, mock := newMockClient(t)
 	mock.ExpectQuery(regexp.QuoteMeta(selectWorkloadForNodesArchiveCmd)).

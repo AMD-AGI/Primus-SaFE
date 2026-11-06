@@ -68,6 +68,22 @@ func TestWorkloadMapper(t *testing.T) {
 	assert.Equal(t, dbutils.ParseNullTime(dbWorkload.CreationTime).Unix(), w.CreationTimestamp.Time.Unix())
 }
 
+// The workload's spec.hostpath is kept in the row, so that a clone or resume read from the
+// workload detail can carry it over; a workload without it leaves the column NULL.
+func TestWorkloadMapperHostpath(t *testing.T) {
+	w := TestWorkloadData.DeepCopy()
+	obj, err := unstructured.ConvertObjectToUnstructured(w)
+	assert.NilError(t, err)
+	assert.Equal(t, workloadMapper(obj).Hostpath.Valid, false)
+
+	w.Spec.Hostpath = []string{"/shared_nfs/team-a", "/shared_nfs/datasets/x"}
+	obj, err = unstructured.ConvertObjectToUnstructured(w)
+	assert.NilError(t, err)
+	var got []string
+	assert.NilError(t, json.Unmarshal([]byte(dbutils.ParseNullString(workloadMapper(obj).Hostpath)), &got))
+	assert.DeepEqual(t, got, w.Spec.Hostpath)
+}
+
 func TestTruncateString(t *testing.T) {
 	assert.Equal(t, "abc", truncateString("abc", 5))
 	assert.Equal(t, "ab", truncateString("abcdef", 2))

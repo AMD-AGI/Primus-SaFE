@@ -1913,6 +1913,7 @@ func Test_cvtDBWorkloadToGetResponse(t *testing.T) {
 		Env:            sql.NullString{String: envJSON, Valid: true},
 		CronJobs:       sql.NullString{String: cronJobsJSON, Valid: true},
 		Secrets:        sql.NullString{String: secretsJSON, Valid: true},
+		Hostpath:       sql.NullString{String: `["/shared_nfs/team-a","/shared_nfs/data/x"]`, Valid: true},
 	}
 
 	roles := []*v1.Role{role}
@@ -1942,6 +1943,9 @@ func Test_cvtDBWorkloadToGetResponse(t *testing.T) {
 	// Verify Conditions are parsed
 	assert.Equal(t, len(result.Conditions), 1)
 	assert.Equal(t, result.Conditions[0].Type, "Ready")
+
+	// Verify spec.hostpath is returned, so a clone or resume can keep it
+	assert.DeepEqual(t, result.Hostpath, []string{"/shared_nfs/team-a", "/shared_nfs/data/x"})
 
 	// Verify Pods are parsed
 	assert.Equal(t, len(result.Pods), 1)

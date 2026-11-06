@@ -176,6 +176,8 @@ export type GitHubAuthPayload =
 
 export interface SubmitWorkloadRequest {
   workspace?: string
+  // Extra host directories to mount (spec.hostpath), each at the same path in the container.
+  hostpath?: string[]
   workspaceId?: string
   githubAuth?: GitHubAuthPayload
   displayName: string

@@ -225,6 +225,13 @@
             <el-icon class="mr-1"><InfoFilled /></el-icon>
             <span>persistentStoragePath: {{ persistentStoragePaths }}</span>
           </div>
+          <ExtraHostPathField
+            v-model="form.hostpath"
+            :workspace-id="targetWorkspaceId"
+            scope="Train"
+            :disabled="isEdit"
+            :allow-undeclared="isManager || store.isCurrentWorkspaceAdmin()"
+          />
         </div>
 
         <!-- ===== Advanced Options (collapsible) ===== -->
@@ -490,6 +497,8 @@ import { type FormInstance, type FormItemRule, type FormRules, ElMessage, ElMess
 import { useWorkspaceStore } from '@/stores/workspace'
 import KeyValueList from '@/components/Base/KeyValueList.vue'
 import ImageInput from '@/components/Base/ImageInput.vue'
+import ExtraHostPathField from '@/components/Workload/ExtraHostPathField.vue'
+import { hostPathPayload, normalizeHostPaths } from '@/utils/workloadHostPath'
 import {
   byte2Gi,
   convertKeyValueMapToList,
@@ -612,6 +621,7 @@ const initialForm = () => ({
   preheat: false,
   nodesAffinity: '' as '' | 'required' | 'preferred',
   forceHostNetwork: false,
+  hostpath: [] as string[],
 })
 const form = reactive({ ...initialForm() })
 const isRetry = ref(false) // isAutoRetry
@@ -739,6 +749,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       secretIds,
       excludedNodes,
       nodesAffinity: _nodesAffinity,
+      hostpath,
       ...addPayload
     } = form
 
@@ -799,6 +810,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
         ...(form.nodesAffinity ? { nodesAffinity: form.nodesAffinity as 'required' | 'preferred' } : {}),
         ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
+        ...hostPathPayload(hostpath),
       })
       ElMessage({ message: 'Create successful', type: 'success' })
     } else {
@@ -956,6 +968,7 @@ const setInitialFormValues = async () => {
   }
 
   form.forceHostNetwork = res.forceHostNetwork ?? false
+  form.hostpath = normalizeHostPaths(res.hostpath)
 
   if (props.action === 'Clone') {
     fetchWorkspaceOption()

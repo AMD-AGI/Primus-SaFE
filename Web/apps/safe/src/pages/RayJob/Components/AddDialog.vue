@@ -262,6 +262,13 @@
               </el-col>
             </el-row>
           </div>
+          <ExtraHostPathField
+            v-model="form.hostpath"
+            :workspace-id="targetWorkspaceId"
+            scope="Ray"
+            :disabled="isEdit"
+            :allow-undeclared="isManager || store.isCurrentWorkspaceAdmin()"
+          />
         </div>
 
         <!-- ===== Advanced Options (collapsible) ===== -->
@@ -534,6 +541,8 @@ import { type FormInstance, ElMessage, ElMessageBox } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/workspace'
 import KeyValueList from '@/components/Base/KeyValueList.vue'
 import ImageInput from '@/components/Base/ImageInput.vue'
+import ExtraHostPathField from '@/components/Workload/ExtraHostPathField.vue'
+import { hostPathPayload, normalizeHostPaths } from '@/utils/workloadHostPath'
 import {
   byte2Gi,
   convertKeyValueMapToList,
@@ -664,6 +673,7 @@ const initialForm = () => ({
   nodesAffinity: '' as '' | 'required' | 'preferred',
   privileged: false,
   forceHostNetwork: false,
+  hostpath: [] as string[],
 })
 const form = reactive({ ...initialForm() })
 const isRetry = ref(false) // isAutoRetry
@@ -785,6 +795,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       header,
       jobEntrypoint,
       nodesAffinity: _nodesAffinity,
+      hostpath,
       ...addPayload
     } = form
 
@@ -844,6 +855,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
         ...(form.nodesAffinity ? { nodesAffinity: form.nodesAffinity as 'required' | 'preferred' } : {}),
         ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
+        ...hostPathPayload(hostpath),
       })
       ElMessage({ message: 'Create successful', type: 'success' })
     } else {
@@ -1048,6 +1060,7 @@ const setInitialFormValues = async () => {
   }
 
   form.forceHostNetwork = res.forceHostNetwork ?? false
+  form.hostpath = normalizeHostPaths(res.hostpath)
 
   if (props.action === 'Clone') {
     fetchWorkspaceOption()

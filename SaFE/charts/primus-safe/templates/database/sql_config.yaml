@@ -80,6 +80,8 @@ data:
     -- JSON array of the node assignment of earlier runs sharing this workload id,
     -- written when a resumed workload overwrites the stored run. Oldest first.
     alter table workload add column if not exists nodes_history TEXT;
+    -- JSON array of the workload's spec.hostpath, so a clone or resume can keep it.
+    alter table workload add column if not exists hostpath TEXT;
 
     create table if not exists fault
     (
