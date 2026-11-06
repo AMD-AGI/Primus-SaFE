@@ -31,6 +31,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
@@ -1435,7 +1436,12 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 		adminWorkload.Spec.Timeout = pointer.Int(*req.Timeout)
 	}
 	if req.Env != nil {
-		adminWorkload.Spec.Env = maputil.Copy(*req.Env, GithubPAT, common.RunnerToken)
+		env := maputil.Copy(*req.Env, GithubPAT, common.RunnerToken)
+		// A caller who read the workload without the right to see its env got
+		// RedactedEnvValue back; sending that placeholder unchanged keeps the
+		// stored value instead of overwriting the secret with the mask.
+		restoreRedactedEnv(env, adminWorkload.Spec.Env)
+		adminWorkload.Spec.Env = env
 	}
 	if req.MaxRetry != nil {
 		adminWorkload.Spec.MaxRetry = *req.MaxRetry
@@ -1623,8 +1629,12 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.Service); str != "" {
 		json.Unmarshal([]byte(str), &result.Service)
 	}
+	canSeeSecrets := h.canSeeWorkloadSecrets(ctx, user, result.UserId)
 	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Env)
+		if !canSeeSecrets {
+			result.Env = redactEnvValues(result.Env)
+		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Hostpath); str != "" {
 		json.Unmarshal([]byte(str), &result.Hostpath)
@@ -1642,20 +1652,103 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.CronJobs); str != "" {
 		json.Unmarshal([]byte(str), &result.CronJobs)
 	}
-	// Only the user themselves or an administrator can get this info.
-	if err := h.accessController.Authorize(authority.AccessInput{
-		Context:       ctx,
-		ResourceKind:  v1.WorkloadKind,
-		ResourceOwner: result.UserId,
-		Verb:          v1.GetVerb,
-		User:          user,
-		Roles:         roles,
-	}); err == nil {
+	// Only the owner or a system administrator can get this info.
+	if canSeeSecrets {
 		if str := dbutils.ParseNullString(dbWorkload.Secrets); str != "" {
 			json.Unmarshal([]byte(str), &result.Secrets)
 		}
 	}
 	return result
+}
+
+// RedactedEnvValue replaces the value of a credential env variable of a workload
+// returned to a caller who is neither its owner nor a system administrator.
+const RedactedEnvValue = "******"
+
+// canSeeWorkloadSecrets reports whether user may see a workload's credential env
+// values and secrets: only its owner or a system administrator (read-only included).
+// Being allowed to get the workload is not enough: workspace members and any
+// role granted to all users ("*") can get workloads they do not own, and env
+// commonly carries the owner's credentials.
+func (h *Handler) canSeeWorkloadSecrets(ctx context.Context, user *v1.User, ownerId string) bool {
+	if user == nil {
+		return false
+	}
+	if ownerId != "" && user.Name == ownerId {
+		return true
+	}
+	if h.accessController == nil {
+		return false
+	}
+	return h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
+		Context: ctx,
+		User:    user,
+	}, true) == nil
+}
+
+// isCredentialEnv reports whether an env variable holds a credential: its name names
+// one (the audit log's judgement, middleware.IsCredentialName), or its value is a URL
+// with a password in it.
+func isCredentialEnv(name, value string) bool {
+	return middleware.IsCredentialName(name) || middleware.HasURLPassword(value)
+}
+
+// redactEnvValues keeps every env key and every value that is plain configuration
+// (IMAGES, REPLICA_COUNT, UNIFIED_JOB_ENABLE, ...), which callers such as the Web UI
+// parse, and replaces the value of each credential variable with RedactedEnvValue.
+func redactEnvValues(env map[string]string) map[string]string {
+	if env == nil {
+		return nil
+	}
+	out := make(map[string]string, len(env))
+	for k, v := range env {
+		if isCredentialEnv(k, v) {
+			out[k] = RedactedEnvValue
+		} else {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// restoreRedactedEnv puts the stored value back for every variable of env sent as
+// RedactedEnvValue that the workload already has. A key it never had is kept as sent.
+func restoreRedactedEnv(env, stored map[string]string) {
+	for k, v := range env {
+		if v != RedactedEnvValue {
+			continue
+		}
+		if orig, ok := stored[k]; ok {
+			env[k] = orig
+		}
+	}
+}
+
+// restoreRedactedResumeBody returns the resume request body with the env values masked for a
+// caller who could not see them put back from the stored workload; req is updated to match.
+// Secrets are not restored: such a caller resumes with the secrets it names, each authorized
+// against the caller as on create, so it cannot attach the owner's secrets to a spec it wrote.
+func restoreRedactedResumeBody(body []byte, req *view.CreateWorkloadRequest, dbWorkload *dbclient.Workload) ([]byte, error) {
+	if len(req.Env) == 0 {
+		return body, nil
+	}
+	fields := map[string]json.RawMessage{}
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil, err
+	}
+	var stored map[string]string
+	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
+		if err := json.Unmarshal([]byte(str), &stored); err != nil {
+			return nil, err
+		}
+	}
+	restoreRedactedEnv(req.Env, stored)
+	raw, err := json.Marshal(req.Env)
+	if err != nil {
+		return nil, err
+	}
+	fields["env"] = raw
+	return json.Marshal(fields)
 }
 
 // listOffloadedPods returns a workload's pods from the workload_pod table as
@@ -1907,6 +2000,16 @@ func (h *Handler) resumeWorkload(c *gin.Context) (interface{}, error) {
 	req.UserEntity = &view.UserEntity{
 		Id:   dbutils.ParseNullString(dbWorkload.UserId),
 		Name: dbutils.ParseNullString(dbWorkload.UserName),
+	}
+	// A caller who may resume the workload but not see its credentials read it with
+	// the credential env values masked and without its secrets (GET), and sends that
+	// back: the stored env values are kept, so the owner's workload is not restarted
+	// with the mask in place of its credentials. Its secrets are those the caller
+	// names, authorized against the caller below, as before.
+	if !h.canSeeWorkloadSecrets(ctx, requestUser, req.UserEntity.Id) {
+		if body, err = restoreRedactedResumeBody(body, req, dbWorkload); err != nil {
+			return nil, commonerrors.NewBadRequest(err.Error())
+		}
 	}
 
 	adminWorkload, err = h.generateWorkload(ctx, req, body, requestUser)
