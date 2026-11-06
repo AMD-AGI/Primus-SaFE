@@ -219,6 +219,18 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 // then calls afterCreate before publishing the Pending phase.
 func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Workload,
 	requestUser *v1.User, roles []*v1.Role, afterCreate func(context.Context) error) (*view.CreateWorkloadResponse, error) {
+	return h.createWorkloadImplWithStoredSecrets(c, workload, requestUser, roles, afterCreate, nil)
+}
+
+// createWorkloadImplWithStoredSecrets is createWorkloadImplWithHook for a workload some of
+// whose secrets were taken from the stored workload by the server rather than named by the
+// caller (storedSecretIds, built server-side, never from the request). Those were authorized
+// for the workload's owner when it was created, so they are not authorized again against
+// the caller, who may lack get on them (a workspace administrator resuming a member's
+// workload); every other secret is still authorized against the caller.
+func (h *Handler) createWorkloadImplWithStoredSecrets(c *gin.Context, workload *v1.Workload,
+	requestUser *v1.User, roles []*v1.Role, afterCreate func(context.Context) error,
+	storedSecretIds map[string]struct{}) (*view.CreateWorkloadResponse, error) {
 	var err error
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		klog.ErrorS(err, "failed to auth workload", "workload", workload.Name,
@@ -246,7 +258,12 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 	}
 
 	for i, sec := range workload.Spec.Secrets {
-		secret, err := h.getAndAuthorizeSecret(c.Request.Context(), sec.Id, workload.Spec.Workspace, requestUser, v1.GetVerb)
+		var secret *corev1.Secret
+		if _, stored := storedSecretIds[sec.Id]; stored {
+			secret, err = h.getAdminSecret(c.Request.Context(), sec.Id)
+		} else {
+			secret, err = h.getAndAuthorizeSecret(c.Request.Context(), sec.Id, workload.Spec.Workspace, requestUser, v1.GetVerb)
+		}
 		if err != nil {
 			klog.ErrorS(err, "failed to get workload secrets", "workload", workload.Name,
 				"secret", sec.Id, "user", c.GetString(common.UserName))
@@ -1726,40 +1743,49 @@ func restoreRedactedEnv(env, stored map[string]string) {
 }
 
 // restoreRedactedResumeBody returns the resume request body with the masked env values
-// restored from the stored workload and, when the request names no secrets, the stored
-// secrets, for a caller who could not see them. req is updated to match.
-func restoreRedactedResumeBody(body []byte, req *view.CreateWorkloadRequest, dbWorkload *dbclient.Workload) ([]byte, error) {
+// restored from the stored workload and, when the request has no "secrets" field at all
+// (what GET gave such a caller), the stored secrets, for a caller who could not see them.
+// An explicit "secrets" field, an empty list included, is taken as sent. req is updated to
+// match. The ids of the secrets it restored are returned: they come from the stored
+// workload, so the create path does not authorize them against the caller.
+func restoreRedactedResumeBody(body []byte, req *view.CreateWorkloadRequest,
+	dbWorkload *dbclient.Workload) ([]byte, map[string]struct{}, error) {
 	fields := map[string]json.RawMessage{}
 	if err := json.Unmarshal(body, &fields); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	var restoredSecrets map[string]struct{}
 	changed := false
 	if len(req.Env) > 0 {
 		var stored map[string]string
 		if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 			if err := json.Unmarshal([]byte(str), &stored); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 		restoreRedactedEnv(req.Env, stored)
 		raw, err := json.Marshal(req.Env)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		fields["env"] = raw
 		changed = true
 	}
-	if len(req.Secrets) == 0 {
+	if raw, sent := fields["secrets"]; (!sent || string(raw) == "null") && len(req.Secrets) == 0 {
 		if str := dbutils.ParseNullString(dbWorkload.Secrets); str != "" {
 			var stored []v1.SecretEntity
 			if err := json.Unmarshal([]byte(str), &stored); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if len(stored) > 0 {
 				req.Secrets = stored
+				restoredSecrets = make(map[string]struct{}, len(stored))
+				for _, sec := range stored {
+					restoredSecrets[sec.Id] = struct{}{}
+				}
 				raw, err := json.Marshal(stored)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				fields["secrets"] = raw
 				changed = true
@@ -1767,9 +1793,10 @@ func restoreRedactedResumeBody(body []byte, req *view.CreateWorkloadRequest, dbW
 		}
 	}
 	if !changed {
-		return body, nil
+		return body, nil, nil
 	}
-	return json.Marshal(fields)
+	out, err := json.Marshal(fields)
+	return out, restoredSecrets, err
 }
 
 // listOffloadedPods returns a workload's pods from the workload_pod table as
@@ -2026,8 +2053,9 @@ func (h *Handler) resumeWorkload(c *gin.Context) (interface{}, error) {
 	// the credential env values masked and without its secrets (GET), and sends that
 	// back: the stored values and secrets are kept, so the owner's workload is not
 	// restarted with the mask in place of its credentials.
+	var storedSecretIds map[string]struct{}
 	if !h.canSeeWorkloadSecrets(ctx, requestUser, req.UserEntity.Id) {
-		if body, err = restoreRedactedResumeBody(body, req, dbWorkload); err != nil {
+		if body, storedSecretIds, err = restoreRedactedResumeBody(body, req, dbWorkload); err != nil {
 			return nil, commonerrors.NewBadRequest(err.Error())
 		}
 	}
@@ -2042,10 +2070,10 @@ func (h *Handler) resumeWorkload(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(snapshotErr, "failed to snapshot previous workload nodes", "workload", workloadId)
 	}
 	roles := h.accessController.GetRoles(ctx, requestUser)
-	return h.createWorkloadImplWithHook(c, adminWorkload, requestUser, roles, func(ctx context.Context) error {
+	return h.createWorkloadImplWithStoredSecrets(c, adminWorkload, requestUser, roles, func(ctx context.Context) error {
 		return h.dbClient.ArchiveWorkloadNodesForResume(
 			ctx, dbWorkload, string(adminWorkload.UID), dispatchRows)
-	})
+	}, storedSecretIds)
 }
 
 func cvtToWorkloadResources(dbWorkload *dbclient.Workload, kind string) []v1.WorkloadResource {

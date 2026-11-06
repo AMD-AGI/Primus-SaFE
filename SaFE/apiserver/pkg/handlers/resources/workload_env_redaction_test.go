@@ -25,6 +25,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority/authtest"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -255,4 +256,109 @@ func Test_resumeWorkload_MaskedEnvKeepsStoredValues(t *testing.T) {
 	assert.Equal(t, resumed.Spec.Env["MODE"], "new")
 	assert.Equal(t, len(resumed.Spec.Secrets), 1)
 	assert.Equal(t, resumed.Spec.Secrets[0].Id, redactSecretId)
+}
+
+// resumeAsWorkspaceAdmin resumes the stored workload of redactOwnerId as a workspace
+// administrator of its workspace who holds the shipped default and workspace-admin roles,
+// which grant every verb on workloads there but only list on secrets: the caller cannot get
+// the owner's secret.
+func resumeAsWorkspaceAdmin(t *testing.T, secretsField string) (*Handler, error) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	commonconfig.SetValue("db.enable", "true")
+	t.Cleanup(func() { commonconfig.SetValue("db.enable", "") })
+	const workspace = "test-workspace"
+	caller := genMockUser()
+	caller.Name = "ws-admin"
+	caller.Labels[v1.UserIdLabel] = caller.Name
+	caller.Spec.Roles = []v1.UserRole{v1.DefaultRole}
+	commonuser.AssignWorkspace(caller, workspace)
+	commonuser.AssignManagedWorkspace(caller, workspace)
+	controlPlaneNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "control-plane-node-1",
+			Labels: map[string]string{common.KubernetesControlPlane: ""}},
+		Status: corev1.NodeStatus{Addresses: []corev1.NodeAddress{
+			{Type: corev1.NodeInternalIP, Address: "192.168.1.100"}}},
+	}
+	mockScheme := scheme.Scheme
+	_ = corev1.AddToScheme(mockScheme)
+	_ = v1.AddToScheme(mockScheme)
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(append(authtest.ChartRoles(t), caller, controlPlaneNode)...).
+		WithScheme(mockScheme).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+	ownerSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name: redactSecretId, Namespace: common.PrimusSafeNamespace,
+		Labels: map[string]string{v1.SecretTypeLabel: string(v1.SecretGeneral), v1.UserIdLabel: redactOwnerId},
+	}}
+	h := &Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        k8sfake.NewSimpleClientset(ownerSecret),
+		accessController: &authority.AccessController{Client: fakeCtrlClient},
+	}
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	mockDBClient := mockdb.NewMockInterface(ctrl)
+	row := &dbclient.Workload{
+		WorkloadId: redactWorkload,
+		Workspace:  workspace,
+		Cluster:    "test-cluster",
+		Phase:      sql.NullString{String: string(v1.WorkloadStopped), Valid: true},
+		UserId:     sql.NullString{String: redactOwnerId, Valid: true},
+		UserName:   sql.NullString{String: redactOwnerId, Valid: true},
+		Env:        sql.NullString{Valid: true, String: fmt.Sprintf(`{"ANTHROPIC_API_KEY":%q}`, redactOwnerKey)},
+		Secrets:    sql.NullString{Valid: true, String: fmt.Sprintf(`[{"id":%q}]`, redactSecretId)},
+	}
+	mockDBClient.EXPECT().GetWorkload(gomock.Any(), redactWorkload).Return(row, nil).AnyTimes()
+	mockDBClient.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDBClient.EXPECT().ArchiveWorkloadNodesForResume(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	h.dbClient = mockDBClient
+
+	body := fmt.Sprintf(`{
+		"displayName": "resumed",
+		"workspaceId": %q,
+		"images": ["pytorch/pytorch:latest"],
+		"entryPoints": ["python train.py"],
+		"groupVersionKind": {"version": "v1", "kind": "PyTorchJob"},
+		"resources": [{"replica": 1, "cpu": "16", "gpu": "4", "memory": "64Gi"}],
+		"env": {"ANTHROPIC_API_KEY": %q}%s
+	}`, workspace, RedactedEnvValue, secretsField)
+	c := userIdRequest(caller, http.MethodPost, "/api/v1/workloads/"+redactWorkload+"/resume", body)
+	c.Set(common.Name, redactWorkload)
+	_, err := h.resumeWorkload(c)
+	return h, err
+}
+
+// Test_resumeWorkload_WorkspaceAdminWithoutSecretGet: a workspace administrator who may not
+// get the owner's secret resumes the owner's workload with what GET gave it (no secrets).
+// The stored secrets are kept and are not authorized against the caller, since the server,
+// not the caller, put them in the request; a secret the caller names itself still is, and an
+// explicit empty list is taken as sent.
+func Test_resumeWorkload_WorkspaceAdminWithoutSecretGet(t *testing.T) {
+	t.Run("no secrets field: stored secrets kept", func(t *testing.T) {
+		h, err := resumeAsWorkspaceAdmin(t, "")
+		assert.NilError(t, err)
+		resumed := &v1.Workload{}
+		assert.NilError(t, h.Get(context.Background(), client.ObjectKey{Name: redactWorkload}, resumed))
+		assert.Equal(t, v1.GetUserId(resumed), redactOwnerId)
+		assert.Equal(t, resumed.Spec.Env["ANTHROPIC_API_KEY"], redactOwnerKey)
+		assert.Equal(t, len(resumed.Spec.Secrets), 1)
+		assert.Equal(t, resumed.Spec.Secrets[0].Id, redactSecretId)
+		assert.Equal(t, resumed.Spec.Secrets[0].Type, v1.SecretGeneral)
+	})
+	t.Run("caller names the secret: authorized against the caller", func(t *testing.T) {
+		h, err := resumeAsWorkspaceAdmin(t, fmt.Sprintf(`, "secrets": [{"id": %q}]`, redactSecretId))
+		assert.ErrorContains(t, err, "not allowed to get")
+		resumed := &v1.Workload{}
+		assert.Assert(t, h.Get(context.Background(), client.ObjectKey{Name: redactWorkload}, resumed) != nil)
+	})
+	t.Run("explicit empty secrets: resumed without secrets", func(t *testing.T) {
+		h, err := resumeAsWorkspaceAdmin(t, `, "secrets": []`)
+		assert.NilError(t, err)
+		resumed := &v1.Workload{}
+		assert.NilError(t, h.Get(context.Background(), client.ObjectKey{Name: redactWorkload}, resumed))
+		assert.Equal(t, len(resumed.Spec.Secrets), 0)
+	})
 }
