@@ -199,6 +199,7 @@ var publicRoutes = map[string]string{
 	"POST /api/v1/users":                       "registers (refused when single sign-on is on)",
 	"GET /api/v1/envs":                         "the sign-in page needs it before anyone is signed in",
 	"POST /api/v1/auth/verify":                 "services call it with the internal token",
+	"POST /api/v1/auditlogs":                   "services report operations with the internal token (checked in the handler)",
 	"PUT /api/v1/images:import/:name/progress": "the image import job reports progress (checked in the handler)",
 }
 

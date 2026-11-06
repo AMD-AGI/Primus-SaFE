@@ -383,6 +383,13 @@ func sanitizeBody(body string) string {
 	return result
 }
 
+// SanitizeAuditBody prepares a request or response body for the audit log exactly as the middleware does for the
+// requests it records: credentials redacted, the body cut at maxAuditBodySize. For records SaFE stores on another
+// service's behalf (POST /auditlogs), so those rows hold no more than SaFE's own.
+func SanitizeAuditBody(body string) string {
+	return sanitizeBody(truncateString(body, maxAuditBodySize))
+}
+
 // truncateString truncates a string to the specified maximum length
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
