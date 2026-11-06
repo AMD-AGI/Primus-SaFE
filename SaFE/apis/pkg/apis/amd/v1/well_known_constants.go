@@ -294,6 +294,11 @@ const (
 	// so the workload may mount host paths its workspace does not declare. Requests cannot set it:
 	// the apiserver drops every primus-safe annotation a request carries.
 	WorkloadHostPathAuthzAnnotation = WorkloadPrefix + "hostpath.authorized"
+	// Set by the apiserver once the creator was authorized for workload/privileged in a workspace
+	// with a volume that has requiresPrivilegedGrant, so the dispatcher mounts such volumes into the
+	// workload. Requests cannot set it: the apiserver drops every primus-safe annotation a request
+	// carries, and the check removes the mark before it decides.
+	WorkloadPrivilegedVolumesAuthzAnnotation = WorkloadPrefix + "privileged.volumes.authorized"
 	// Data-plane Kubernetes Service object name. Dispatcher and the service
 	// API read this label instead of treating Workload.Name as the Service name.
 	ServiceNameLabel              = PrimusSafePrefix + "service.name"

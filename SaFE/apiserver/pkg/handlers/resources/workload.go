@@ -238,8 +238,8 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 			return nil, err
 		}
 	}
-	if err = h.authWorkloadHostPath(c, workload, requestUser, roles); err != nil {
-		klog.ErrorS(err, "failed to auth workload hostpath", "workload", workload.Name,
+	if err = h.authWorkloadStorage(c, workload, requestUser, roles); err != nil {
+		klog.ErrorS(err, "failed to auth workload storage", "workload", workload.Name,
 			"hostpath", workload.Spec.Hostpath, "user", c.GetString(common.UserName))
 		return nil, err
 	}
@@ -880,24 +880,35 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 	return nil
 }
 
-// authWorkloadHostPath checks the workload's hostpath entries against its workspace: entries the
-// workspace does not declare for the workload's scope need the workload/privileged grant
-// (authority.AccessController.AuthorizeWorkloadHostPath).
-func (h *Handler) authWorkloadHostPath(c *gin.Context,
+// authWorkloadStorage checks what the workload mounts from the node and its workspace: hostpath
+// entries the workspace does not declare for the workload's scope need the workload/privileged
+// grant (authority.AccessController.AuthorizeWorkloadHostPath), and the workspace volumes that
+// require that grant are mounted only when the creator holds it
+// (authority.AccessController.AuthorizeWorkloadPrivilegedVolumes).
+func (h *Handler) authWorkloadStorage(c *gin.Context,
 	workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) error {
 	var workspace *v1.Workspace
-	if len(workload.Spec.Hostpath) > 0 {
+	if commonworkload.MayMountWorkspaceStorage(workload) {
 		var err error
 		if workspace, err = h.getAdminWorkspace(c.Request.Context(), workload.Spec.Workspace); err != nil {
-			return err
+			// Without hostpath entries the workspace only decides the volumes that require the
+			// grant: a workspace that does not exist has none, and no mark is set.
+			if len(workload.Spec.Hostpath) > 0 || !apierrors.IsNotFound(err) {
+				return err
+			}
+			workspace = nil
 		}
 	}
-	return h.accessController.AuthorizeWorkloadHostPath(authority.AccessInput{
+	in := authority.AccessInput{
 		Context: c.Request.Context(),
 		User:    requestUser,
 		UserId:  c.GetString(common.UserId),
 		Roles:   roles,
-	}, workload, workspace)
+	}
+	if err := h.accessController.AuthorizeWorkloadHostPath(in, workload, workspace); err != nil {
+		return err
+	}
+	return h.accessController.AuthorizeWorkloadPrivilegedVolumes(in, workload, workspace)
 }
 
 // validateWorkloadId checks a caller-chosen id against every constraint it has

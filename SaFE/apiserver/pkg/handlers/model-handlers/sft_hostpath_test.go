@@ -131,3 +131,59 @@ func TestSftJobHostPathNeedsTheGrant(t *testing.T) {
 		require.Equal(t, v1.TrueStr, v1.GetAnnotation(stored, v1.WorkloadHostPathAuthzAnnotation), who)
 	}
 }
+
+// The SFT route marks its workload for the volumes that require workload/privileged only when the
+// creator holds that grant in the workspace, and refuses a member who names such a volume.
+func TestSftJobPrivilegedVolumeNeedsTheGrant(t *testing.T) {
+	h, cli := newSftHostPathHandler(t)
+	ws := &v1.Workspace{}
+	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: "ws1"}, ws))
+	ws.Spec.Volumes = append(ws.Spec.Volumes, v1.WorkspaceVolume{
+		Id: 2, Type: v1.HOSTPATH, HostPath: "/secret", MountPath: "/secret", RequiresPrivilegedGrant: true,
+	})
+	require.NoError(t, cli.Update(t.Context(), ws))
+
+	stored := &v1.Workload{}
+	resp, err := createSft(t, h, "sft-member", "member", nil)
+	require.NoError(t, err)
+	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: resp.WorkloadId}, stored))
+	require.False(t, v1.HasAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
+
+	_, err = createSft(t, h, "sft-member", "member-asks", []string{"/secret"})
+	require.True(t, apierrors.IsForbidden(err), "want 403, got %v", err)
+	require.Contains(t, err.Error(), "requiresPrivilegedGrant")
+
+	for _, who := range []string{"sft-manager", "sft-admin"} {
+		resp, err = createSft(t, h, who, who, nil)
+		require.NoError(t, err, who)
+		require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: resp.WorkloadId}, stored))
+		require.Equal(t, v1.TrueStr, v1.GetAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation), who)
+	}
+}
+
+// The SFT route's storage check with a workspace that does not exist: refused with hostpath
+// entries, no mark without; and without an access controller nothing is granted.
+func TestSftStorageCheckEdges(t *testing.T) {
+	h, _ := newSftHostPathHandler(t)
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", Annotations: map[string]string{
+		v1.WorkloadPrivilegedVolumesAuthzAnnotation: v1.TrueStr, v1.WorkloadHostPathAuthzAnnotation: v1.TrueStr}}}
+	w.Spec.Workspace = "nope"
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.PytorchJobKind}
+	w.Spec.Hostpath = []string{"/shared_nfs"}
+	err := h.authorizeWorkloadHostPath(t.Context(), "sft-admin", w.DeepCopy())
+	require.True(t, apierrors.IsBadRequest(err), "want 400, got %v", err)
+
+	noHostPath := w.DeepCopy()
+	noHostPath.Spec.Hostpath = nil
+	require.NoError(t, h.authorizeWorkloadHostPath(t.Context(), "sft-admin", noHostPath))
+	require.False(t, v1.HasAnnotation(noHostPath, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
+
+	h.accessController = nil
+	inWs := w.DeepCopy()
+	inWs.Spec.Workspace = "ws1"
+	require.True(t, apierrors.IsForbidden(h.authorizeWorkloadHostPath(t.Context(), "sft-admin", inWs)))
+	inWs.Spec.Hostpath = nil
+	require.NoError(t, h.authorizeWorkloadHostPath(t.Context(), "sft-admin", inWs))
+	require.False(t, v1.HasAnnotation(inWs, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
+	require.False(t, v1.HasAnnotation(inWs, v1.WorkloadHostPathAuthzAnnotation))
+}

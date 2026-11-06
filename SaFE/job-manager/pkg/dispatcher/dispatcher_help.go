@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"slices"
@@ -740,11 +741,13 @@ func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
 }
 
 // workspaceVolumeAppliesTo reports whether a workspace volume is mounted into the workload: a volume
-// that lists scopes is mounted only into workloads of those scopes, whatever the workload asks for.
-// The volume ids still count towards the hostpath volume numbering, so skipping a volume does not
-// renumber the workload's own hostpath volumes.
+// that lists scopes is mounted only into workloads of those scopes, whatever the workload asks for,
+// and a volume with requiresPrivilegedGrant only into workloads the apiserver marked as created with
+// the workload/privileged grant (commonworkload.WorkspaceVolumeMountedInto). The volume ids still
+// count towards the hostpath volume numbering, so skipping a volume does not renumber the
+// workload's own hostpath volumes.
 func workspaceVolumeAppliesTo(vol v1.WorkspaceVolume, workload *v1.Workload) bool {
-	return vol.AppliesToScope(commonworkload.GetScope(workload))
+	return commonworkload.WorkspaceVolumeMountedInto(&vol, workload)
 }
 
 // hostPathSource returns the hostPath volume source and the mount subPath for one of a workload's
@@ -771,6 +774,23 @@ func hostPathSource(workload *v1.Workload, workspace *v1.Workspace, hostpath str
 	default:
 		return declared.Root, declared.Sub, declared.ReadOnly
 	}
+}
+
+// checkPrivilegedVolumeHostPath refuses to mount a hostpath entry that reaches a workspace volume
+// with requiresPrivilegedGrant (commonworkload.PrivilegedVolumeOverlapping) into a workload whose
+// creator was not found to hold the workload/privileged grant: neither privileged nor marked by
+// the apiserver with WorkloadHostPathAuthzAnnotation. The apiserver and the webhook refuse such an
+// entry when it is added, but a workload created before the volume required the grant still
+// carries it, and an update that keeps it is not judged again.
+func checkPrivilegedVolumeHostPath(workload *v1.Workload, workspace *v1.Workspace, hostpath string) error {
+	if v1.IsPrivileged(workload) || v1.GetAnnotation(workload, v1.WorkloadHostPathAuthzAnnotation) == v1.TrueStr {
+		return nil
+	}
+	if reason := commonworkload.PrivilegedVolumeRefusal(workspace, []string{hostpath},
+		commonworkload.WorkloadPrivilegedGrant); reason != "" {
+		return errors.New(reason)
+	}
+	return nil
 }
 
 // checkExternalHostPath refuses an external workload's hostpath entry that lies below the hostPath
@@ -835,6 +855,9 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
 		if err = checkExternalHostPath(workload, workspace, hostpath); err != nil {
+			return err
+		}
+		if err = checkPrivilegedVolumeHostPath(workload, workspace, hostpath); err != nil {
 			return err
 		}
 		source, _, _ := hostPathSource(workload, workspace, hostpath)

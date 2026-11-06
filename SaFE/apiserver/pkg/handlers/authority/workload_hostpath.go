@@ -17,7 +17,8 @@ import (
 
 // AuthorizeWorkloadHostPath decides whether the requesting user may create a workload with its
 // hostpath entries. An entry that is a hostpath volume the workspace declares for the workload's
-// scope, or a directory under one, needs nothing more. Any other entry mounts a node path nobody
+// scope, or a directory under one, needs nothing more, unless it reaches a volume with
+// requiresPrivilegedGrant (commonworkload.PrivilegedVolumeOverlapping). Any other entry mounts a node path nobody
 // declared for the workspace, which is as much as running privileged, so it needs the
 // workload/privileged grant in the workload's workspace (built-in: workspace-admin and
 // system-admin). When that grant is what admits the workload, the workload is marked with
@@ -45,6 +46,10 @@ func (a *AccessController) AuthorizeWorkloadHostPath(in AccessInput, workload *v
 	in.Workspaces = []string{workload.Spec.Workspace}
 	if err := a.Authorize(in); err != nil {
 		if apierrors.IsForbidden(err) {
+			if reason := commonworkload.PrivilegedVolumeRefusal(workspace, undeclared,
+				WorkloadPrivilegedKind); reason != "" {
+				return commonerrors.NewForbidden(reason)
+			}
 			return commonerrors.NewForbidden(fmt.Sprintf("the hostpath %v is not declared by workspace %s "+
 				"for %s workloads; mounting it requires the %s grant in the workspace",
 				undeclared, workload.Spec.Workspace, workload.SpecKind(), WorkloadPrivilegedKind))

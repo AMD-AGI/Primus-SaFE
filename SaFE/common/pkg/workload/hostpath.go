@@ -42,6 +42,10 @@ func (r HostPathRoot) String() string {
 // A volume with enableUserDir shows each workload its own user directory there, so it keeps the
 // user directories out of what it declares (HostPathRoot.UserDirs).
 //
+// A volume with requiresPrivilegedGrant declares nothing, whoever creates the workload: it is
+// mounted only into workloads whose creator holds the workload/privileged grant, which may name any
+// node path anyway.
+//
 // The hostPath is taken exactly as the volume mounts it, only cleaned, which does not change the
 // directory a path without ".." names: it is not trimmed ("/srv/share " is another directory than
 // "/srv/share"), and a volume whose hostPath is not absolute or has a ".." element, or whose subPath
@@ -54,7 +58,9 @@ func DeclaredHostPathRoots(workspace *v1.Workspace, scope v1.WorkspaceScope) []H
 	}
 	var roots []HostPathRoot
 	for _, vol := range workspace.Spec.Volumes {
-		if vol.Type != v1.HOSTPATH || !vol.AppliesToScope(scope) {
+		// A volume that requires the workload/privileged grant declares nothing: an entry under it
+		// needs the grant like any other undeclared node path.
+		if vol.Type != v1.HOSTPATH || !vol.AppliesToScope(scope) || vol.RequiresPrivilegedGrant {
 			continue
 		}
 		if !filepath.IsAbs(vol.HostPath) || hasDotDot(vol.HostPath) ||
@@ -148,12 +154,14 @@ func below(root, cleaned string) (string, bool) {
 }
 
 // UndeclaredHostPaths returns the entries of hostpaths that the workspace does not declare for
-// workloads of the given scope (DeclaredHostPathRoot). Mounting such an entry gives a workload a
-// node path nobody declared for the workspace.
+// workloads of the given scope (DeclaredHostPathRoot), and the entries that reach a volume with
+// requiresPrivilegedGrant (PrivilegedVolumeOverlapping) even when another volume declares them.
+// Mounting such an entry gives a workload a node path nobody declared for its every user.
 func UndeclaredHostPaths(workspace *v1.Workspace, scope v1.WorkspaceScope, hostpaths []string) []string {
 	var undeclared []string
 	for _, hostpath := range hostpaths {
-		if DeclaredHostPathRoot(workspace, scope, hostpath).Root == "" {
+		if DeclaredHostPathRoot(workspace, scope, hostpath).Root == "" ||
+			PrivilegedVolumeOverlapping(workspace, hostpath) != nil {
 			undeclared = append(undeclared, hostpath)
 		}
 	}
@@ -164,9 +172,10 @@ func UndeclaredHostPaths(workspace *v1.Workspace, scope v1.WorkspaceScope, hostp
 // into workloads of the given scope that lexically contains hostpath, whatever part of it the
 // volume declares, and the path below it ("" when hostpath is that hostPath itself). It takes the
 // same volumes, and their hostPath the same way, as DeclaredHostPathRoots, so every declared entry
-// lies under one. It returns an empty root for a relative entry, an entry with a ".." element, an
-// entry under no such hostPath, or a nil workspace. An external Pod, which cannot use subPath, is
-// held to it.
+// lies under one; it also takes the volumes with requiresPrivilegedGrant, which declare nothing, so
+// an external Pod is held to their hostPath as a whole as well. It returns an empty root for a
+// relative entry, an entry with a ".." element, an entry under no such hostPath, or a nil
+// workspace. An external Pod, which cannot use subPath, is held to it.
 func HostPathVolumeRoot(workspace *v1.Workspace, scope v1.WorkspaceScope, hostpath string) (string, string) {
 	if workspace == nil || !filepath.IsAbs(hostpath) || hasDotDot(hostpath) {
 		return "", ""
