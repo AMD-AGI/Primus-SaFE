@@ -195,6 +195,18 @@ type ModelInfo struct {
 	MaxTokens   int
 }
 
+// ContextLen returns the model's context length in tokens: its declared maximum, else the config's position
+// embeddings, or 0 when neither is known.
+func (m ModelInfo) ContextLen() int {
+	if m.MaxTokens > 0 {
+		return m.MaxTokens
+	}
+	if m.Config != nil {
+		return m.Config.MaxPositionEmbeddings
+	}
+	return 0
+}
+
 // DatasetInfo is what the compiler knows about a dataset in the target workspace.
 type DatasetInfo struct {
 	ID     string
@@ -822,10 +834,6 @@ func platformRules(ctx *Context, res *Result) {
 		}
 		if c.PD != nil && c.PD.Enabled && (fs.Rollout == nil || !fs.Rollout.PD) {
 			res.errorf("choices.pd", "Mooncake PD is not enabled for %s", ctx.Spec.Name)
-		}
-		if c.MaxPromptLen > 0 && in.Model.MaxTokens > 0 && c.MaxPromptLen+c.MaxResponseLen > in.Model.MaxTokens {
-			res.errorf("choices.maxResponseLen", "Prompt and response lengths exceed the model's %d tokens",
-				in.Model.MaxTokens)
 		}
 	}
 	if c.Lora != nil && c.Lora.Experts && (fs.Lora == nil || len(fs.Lora.ExpertTargets) == 0) {

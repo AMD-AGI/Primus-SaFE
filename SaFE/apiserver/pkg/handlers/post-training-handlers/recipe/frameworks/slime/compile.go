@@ -344,8 +344,8 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 			"--n-samples-per-prompt", itoa(c.NSamplesPerPrompt),
 			"--global-batch-size", itoa(c.BatchSize*c.NSamplesPerPrompt),
 			"--rollout-max-response-len", itoa(c.MaxResponseLen), "--rollout-temperature", "1", "--balance-data")
-		if c.MaxPromptLen > 0 {
-			a.add("--rollout-max-prompt-len", itoa(c.MaxPromptLen))
+		if n := promptLimit(c, in.Model); n > 0 {
+			a.add("--rollout-max-prompt-len", itoa(n))
 		}
 		if c.NSamplesPerPrompt > 1 {
 			// Pass@k needs several samples per prompt.
@@ -402,6 +402,9 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 	}
 	if rl && in.EvalDataset != nil && c.EvalInterval > 0 && c.Schedule != recipe.ScheduleAsync {
 		a.add("--eval-interval", itoa(c.EvalInterval), "--eval-prompt-data", "eval", in.RunDir+"/data/eval.jsonl")
+		if n := in.Model.ContextLen() - c.MaxResponseLen; n > 0 {
+			a.add("--eval-max-prompt-len", itoa(n))
+		}
 	}
 	a.add("--use-tensorboard")
 	if c.Lora != nil {
@@ -597,6 +600,15 @@ func rewardArgs(c recipe.Choices, env map[string]string) []string {
 	default:
 		return []string{"--rm-type", c.RewardType}
 	}
+}
+
+// promptLimit returns the longest prompt rollout keeps: the requested limit, else what the model's context leaves
+// after the response limit, or 0 when the context is unknown.
+func promptLimit(c recipe.Choices, m recipe.ModelInfo) int {
+	if c.MaxPromptLen > 0 {
+		return c.MaxPromptLen
+	}
+	return max(m.ContextLen()-c.MaxResponseLen, 0)
 }
 
 // hasValidation tells whether an SFT request has a validation set, given or split from the training data.

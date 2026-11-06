@@ -302,10 +302,15 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	if c.Schedule == recipe.ScheduleAsync && c.Layout == recipe.LayoutColocate {
 		fail("choices.schedule", "Fully async requires separate training and rollout GPUs")
 	}
-	if cfg := ctx.Input.Model.Config; cfg != nil && cfg.MaxPositionEmbeddings > 0 &&
-		c.MaxResponseLen >= cfg.MaxPositionEmbeddings {
-		fail("choices.maxResponseLen", "The response limit must leave room for the prompt within the model's "+
-			"%d-token context", cfg.MaxPositionEmbeddings)
+	if n := ctx.Input.Model.ContextLen(); n > 0 {
+		switch {
+		case c.MaxResponseLen >= n:
+			fail("choices.maxResponseLen", "The response limit must leave room for the prompt within the model's "+
+				"%d-token context", n)
+		case c.MaxPromptLen+c.MaxResponseLen > n:
+			fail("choices.maxResponseLen", "The prompt and response limits (%d + %d tokens) exceed the model's "+
+				"%d-token context", c.MaxPromptLen, c.MaxResponseLen, n)
+		}
 	}
 	if c.GpusPerEngine < 1 || l.RolloutGpus%c.GpusPerEngine != 0 {
 		fail("choices.gpusPerEngine", "Rollout GPUs (%d) must be a multiple of GPUs per engine (%d)",
