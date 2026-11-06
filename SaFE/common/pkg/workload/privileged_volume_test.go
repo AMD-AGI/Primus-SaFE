@@ -92,3 +92,16 @@ func TestWorkspaceVolumeMountedInto(t *testing.T) {
 	require.False(t, HasPrivilegedVolume(ws, v1.SandboxScope))
 	require.False(t, HasPrivilegedVolume(nil, v1.AuthoringScope))
 }
+
+// The workspace's volumes matter to a workload that names hostpath entries or has not turned
+// workspace storage off.
+func TestMayMountWorkspaceStorage(t *testing.T) {
+	w := &v1.Workload{}
+	require.True(t, MayMountWorkspaceStorage(w))
+	v1.SetAnnotation(w, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	require.True(t, MayMountWorkspaceStorage(w))
+	v1.SetAnnotation(w, v1.UseWorkspaceStorageAnnotation, "false")
+	require.False(t, MayMountWorkspaceStorage(w))
+	w.Spec.Hostpath = []string{"/shared"}
+	require.True(t, MayMountWorkspaceStorage(w))
+}

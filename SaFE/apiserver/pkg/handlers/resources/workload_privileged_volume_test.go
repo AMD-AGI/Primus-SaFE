@@ -182,3 +182,32 @@ func TestPrivilegedVolumesOnBehalfOfAnotherUser(t *testing.T) {
 		})
 	}
 }
+
+// A workload whose workspace does not exist is refused when it names hostpath entries, which the
+// workspace must declare, and created without a mark when it names none.
+func TestPrivilegedVolumeCheckWithoutWorkspace(t *testing.T) {
+	f := newPrivilegedVolumeFixture(t)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/workloads", nil)
+	c.Set(common.UserId, hpAdmin)
+	admin := &v1.User{}
+	require.NoError(t, f.cli.Get(t.Context(), client.ObjectKey{Name: hpAdmin}, admin))
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "no-ws", Annotations: map[string]string{
+			v1.WorkloadPrivilegedVolumesAuthzAnnotation: v1.TrueStr}},
+		Spec: v1.WorkloadSpec{
+			Workspace:        "nope",
+			GroupVersionKind: v1.GroupVersionKind{Version: "v1", Kind: common.PytorchJobKind},
+			Hostpath:         []string{"/shared_nfs"},
+		},
+	}
+	_, err := f.h.createWorkloadImpl(c, w.DeepCopy(), admin, nil)
+	require.True(t, apierrors.IsNotFound(err), "want not found, got %v", err)
+
+	w.Spec.Hostpath = nil
+	_, err = f.h.createWorkloadImpl(c, w.DeepCopy(), admin, nil)
+	require.NoError(t, err)
+	stored := &v1.Workload{}
+	require.NoError(t, f.cli.Get(t.Context(), client.ObjectKey{Name: "no-ws"}, stored))
+	require.False(t, v1.HasAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
+}
