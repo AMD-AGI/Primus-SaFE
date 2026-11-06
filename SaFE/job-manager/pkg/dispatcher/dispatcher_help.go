@@ -265,6 +265,9 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = applyExternalNodePin(obj, workload, *resourceSpec, resourceId); err != nil {
 			return err
 		}
+		if err = checkExternalPodHostPaths(obj, workload, workspace, *resourceSpec); err != nil {
+			return err
+		}
 		if err = validateExternalPodShape(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
@@ -801,7 +804,7 @@ func sandboxHostPathRoot(workspace *v1.Workspace, hostpath string) (string, stri
 //
 // With external_execution.user_dir_mounts on, the provider admits a path below an approved root and
 // mounts it without following symlinks, so such an entry is allowed and mounted, read-only, as its
-// own hostPath; checkExternalUserDirHostPath keeps it out of the user directories.
+// own hostPath; checkExternalPodHostPaths keeps it out of the user directories.
 func checkExternalSandboxHostPath(workload *v1.Workload, workspace *v1.Workspace, hostpath string) error {
 	if !commonworkload.IsSandBox(workload) || !isExternalWorkload(workload) ||
 		commonconfig.IsExternalUserDirMountsEnable() {
@@ -831,14 +834,9 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			if !workspaceVolumeAppliesTo(vol, workload) {
 				continue
 			}
-			mounts, replaced, err := externalUserDirMounts(workload, vol)
-			if err == nil {
-				err = checkExternalWorkspaceVolume(workload, workspace, vol, mounts, replaced)
-			}
-			if err != nil {
+			if mounts, replaced, err := externalUserDirMounts(workload, vol); err != nil {
 				return err
-			}
-			if replaced {
+			} else if replaced {
 				for _, m := range mounts {
 					volumes = append(volumes, buildHostPathVolume(m.name, m.hostPath, m.hostType))
 				}
@@ -860,9 +858,6 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
 		if err = checkExternalSandboxHostPath(workload, workspace, hostpath); err != nil {
-			return err
-		}
-		if err = checkExternalUserDirHostPath(workload, workspace, hostpath); err != nil {
 			return err
 		}
 		source, _ := sandboxHostPathSource(workload, workspace, hostpath)

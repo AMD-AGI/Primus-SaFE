@@ -6,6 +6,7 @@
 package dispatcher
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -283,8 +284,9 @@ func TestExternalUserDirMountsRefuseHostPathsOverUserDirs(t *testing.T) {
 			[]string{"/shared_nfs/usersx/a", "/opt/data"}, externalPlacement)
 		assert.NilError(t, err, kind)
 	}
-	// Not external: unchanged.
-	assert.NilError(t, checkExternalUserDirHostPath(&v1.Workload{}, topModelsWorkspace(), "/shared_nfs/users/other"))
+	// Not external: unchanged (a non-sandbox kind is not limited to declared roots).
+	_, _, _, err := renderWorkloadErr(t, common.PytorchJobKind, topModelsWorkspace(), []string{"/shared_nfs/users/other"}, nil)
+	assert.NilError(t, err)
 }
 
 // The user directory needs the creator's user id, and a shared path is checked again when the
@@ -351,10 +353,12 @@ func TestExternalUserDirMountsVolumesMatchMounts(t *testing.T) {
 }
 
 // With the flag on, no other hostpath volume of the workspace may reach the user directories in an
-// external Pod: not a second volume over the same tree mounted whole (at another mountPath), not one
-// over a single user's directory, and not a shared path of another volume. Such a workspace is
-// refused for external Pods instead of leaking; an unrelated volume and Pods on the cluster's own
-// nodes render as before, and so does everything with the flag off.
+// external Pod: not a second volume over the same tree mounted whole (at another mountPath, with or
+// without a subPath, which an external Pod cannot use), not one over a single user's directory, not
+// a shared path of another volume, and not a second volume with user directories nested in another
+// user's directory. Such a workspace is refused for external Pods instead of leaking. An unrelated
+// volume, a second user-directory volume over the same tree (the Pod's own directory twice), Pods
+// on the cluster's own nodes, and everything with the flag off render as before.
 func TestExternalUserDirMountsRefuseOtherVolumesOverUserDirs(t *testing.T) {
 	withUserDirMounts(t, true)
 	second := func(vol v1.WorkspaceVolume) *v1.Workspace {
@@ -364,17 +368,19 @@ func TestExternalUserDirMountsRefuseOtherVolumesOverUserDirs(t *testing.T) {
 		return ws
 	}
 	refused := map[string]*v1.Workspace{
-		"same tree":        second(v1.WorkspaceVolume{HostPath: "/shared_nfs", MountPath: "/legacy"}),
-		"root":             second(v1.WorkspaceVolume{HostPath: "/", MountPath: "/host"}),
-		"one user's dir":   second(v1.WorkspaceVolume{HostPath: "/shared_nfs/users/other", MountPath: "/other"}),
-		"shared users":     second(v1.WorkspaceVolume{HostPath: "/shared_nfs", MountPath: "/legacy", SharedPaths: []v1.WorkspaceSharedPath{{Path: "users"}}}),
-		"shared root path": second(v1.WorkspaceVolume{HostPath: "/shared_nfs/users", MountPath: "/u", SharedPaths: []v1.WorkspaceSharedPath{{Path: "other"}}}),
+		"same tree":         second(v1.WorkspaceVolume{HostPath: "/shared_nfs", MountPath: "/legacy"}),
+		"root":              second(v1.WorkspaceVolume{HostPath: "/", MountPath: "/host"}),
+		"one user's dir":    second(v1.WorkspaceVolume{HostPath: "/shared_nfs/users/other", MountPath: "/other"}),
+		"shared users":      second(v1.WorkspaceVolume{HostPath: "/shared_nfs", MountPath: "/legacy", SharedPaths: []v1.WorkspaceSharedPath{{Path: "users"}}}),
+		"shared root path":  second(v1.WorkspaceVolume{HostPath: "/shared_nfs/users", MountPath: "/u", SharedPaths: []v1.WorkspaceSharedPath{{Path: "other"}}}),
+		"same tree subPath": second(v1.WorkspaceVolume{HostPath: "/shared_nfs", SubPath: "models", MountPath: "/m"}),
+		"nested user dirs":  second(v1.WorkspaceVolume{HostPath: "/shared_nfs/users/other", MountPath: "/other", EnableUserDir: true}),
 	}
 	for name, ws := range refused {
 		for _, kind := range []string{common.SandboxKind, common.PytorchJobKind} {
 			_, _, _, err := renderWorkloadErr(t, kind, ws, nil, externalPlacement)
 			assert.ErrorContains(t, err, `overlaps the user directories under "/shared_nfs/users"`, "%s %s", name, kind)
-			assert.ErrorContains(t, err, "volume(hostpath-2)", "%s %s", name, kind)
+			assert.ErrorContains(t, err, `volume "hostpath-2`, "%s %s", name, kind)
 		}
 		// Pods on the cluster's own nodes are not affected.
 		_, _, _, err := renderWorkloadErr(t, common.SandboxKind, ws, nil, nil)
@@ -386,7 +392,48 @@ func TestExternalUserDirMountsRefuseOtherVolumesOverUserDirs(t *testing.T) {
 	assert.Equal(t, pod.mounts["containers"]["/data"].HostPath, "/data")
 	assert.Equal(t, pod.mounts["containers"]["/shared_nfs/users/user-1"].HostPath, "/shared_nfs/users/user-1")
 
+	twice := second(v1.WorkspaceVolume{HostPath: "/shared_nfs", MountPath: "/legacy", EnableUserDir: true})
+	pod = renderPodMounts(t, common.SandboxKind, twice, nil, externalPlacement)
+	assert.Equal(t, pod.mounts["containers"]["/shared_nfs/users/user-1"].HostPath, "/shared_nfs/users/user-1")
+	assert.Equal(t, pod.mounts["containers"]["/legacy/users/user-1"].HostPath, "/shared_nfs/users/user-1")
+
 	withUserDirMounts(t, false)
 	_, _, _, err := renderWorkloadErr(t, common.SandboxKind, refused["same tree"], nil, externalPlacement)
 	assert.NilError(t, err)
+}
+
+// The check covers every hostPath volume of the rendered Pod, also one the resource template brings
+// along, and a volume subPath that leaves the hostPath is refused.
+func TestExternalUserDirMountsCheckEveryPodHostPath(t *testing.T) {
+	withUserDirMounts(t, true)
+	workload := &v1.Workload{}
+	externalPlacement(workload)
+	workload.Labels = map[string]string{v1.UserIdLabel: "user-1"}
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{Kind: common.SandboxKind, Version: common.DefaultVersion}
+	spec := jobutils.TestSandboxResourceTemplate.Spec.ResourceSpecs[0]
+	pod := func(paths ...string) *unstructured.Unstructured {
+		obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+		var volumes []interface{}
+		for i, p := range paths {
+			volumes = append(volumes, buildHostPathVolume(fmt.Sprintf("tmpl-%d", i), p, "Directory"))
+		}
+		volumes = append(volumes, map[string]interface{}{"name": "scratch", "emptyDir": map[string]interface{}{}})
+		assert.NilError(t, jobutils.SetNestedField(obj.Object, volumes, podSpecPath(workload, &spec, "volumes")))
+		return obj
+	}
+	ws := topModelsWorkspace()
+	assert.NilError(t, checkExternalPodHostPaths(pod("/shared_nfs/users/user-1", "/shared_nfs/models", "/opt"), workload, ws, spec))
+	assert.ErrorContains(t, checkExternalPodHostPaths(pod("/opt", "/shared_nfs"), workload, ws, spec), `volume "tmpl-1" of an external Pod mounts "/shared_nfs"`)
+	assert.ErrorContains(t, checkExternalPodHostPaths(pod("/shared_nfs/users/user-10"), workload, ws, spec), "overlaps the user directories")
+	assert.ErrorContains(t, checkExternalPodHostPaths(pod("/shared_nfs/x/../users"), workload, ws, spec), `has a ".." element`)
+	assert.ErrorContains(t, checkExternalPodHostPaths(pod("shared_nfs"), workload, ws, spec), "is not absolute")
+	// Not external, or the flag off: not checked.
+	assert.NilError(t, checkExternalPodHostPaths(pod("/shared_nfs"), &v1.Workload{}, ws, spec))
+	withUserDirMounts(t, false)
+	assert.NilError(t, checkExternalPodHostPaths(pod("/shared_nfs"), workload, ws, spec))
+	withUserDirMounts(t, true)
+
+	ws.Spec.Volumes[0].SubPath = "../other"
+	_, _, _, err := renderWorkloadErr(t, common.SandboxKind, ws, nil, externalPlacement)
+	assert.ErrorContains(t, err, `volume(hostpath-1) has subPath "../other", which is not a path below its hostPath`)
 }
