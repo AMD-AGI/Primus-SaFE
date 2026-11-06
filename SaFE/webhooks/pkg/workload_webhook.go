@@ -2133,6 +2133,12 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 	if v1.GetUserAccount(newWorkload) != v1.GetUserAccount(oldWorkload) {
 		return field.Forbidden(field.NewPath("annotations").Key(v1.UserAccountAnnotation), "immutable")
 	}
+	// The creator's id is what an external Pod's user id label carries, and with it the one user
+	// directory the provider lets the Pod mount; changing it would hand the workload another
+	// user's directory on its next dispatch.
+	if v1.GetUserId(newWorkload) != v1.GetUserId(oldWorkload) {
+		return field.Forbidden(field.NewPath("labels").Key(v1.UserIdLabel), "immutable")
+	}
 	if commonworkload.IsCICDScalingRunnerSet(newWorkload) {
 		val1, _ := oldWorkload.Spec.Env[common.UnifiedJobEnable]
 		val2, _ := newWorkload.Spec.Env[common.UnifiedJobEnable]

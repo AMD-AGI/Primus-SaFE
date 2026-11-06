@@ -1270,6 +1270,14 @@ func expectedEntryPoint(adminWorkload *v1.Workload, id int) string {
 }
 
 // buildObjectLabels creates a map of labels for object tracking.
+//
+// An external workload's labels also carry primus-safe.user.id, the id of the workload's creator
+// (the Workload's own label, which the apiserver sets from the authenticated user and the
+// webhook keeps immutable). The provider admits a hostPath below a per-user root only for a Pod
+// whose label names that user, so the value is SaFE's alone: every caller writes these labels
+// over what the template carried, and the workload's other labels are copied only without the
+// primus-safe. prefix. It is empty when the workload has none, which the provider reads as no
+// user, rather than left to whatever the template said.
 func buildObjectLabels(workload *v1.Workload) map[string]interface{} {
 	result := map[string]interface{}{
 		v1.WorkloadIdLabel:          getRootWorkloadId(workload),
@@ -1285,6 +1293,9 @@ func buildObjectLabels(workload *v1.Workload) map[string]interface{} {
 	}
 	if v1.GetGroupId(workload) != "" {
 		result[v1.GroupIdLabel] = v1.GetGroupId(workload)
+	}
+	if isExternalWorkload(workload) {
+		result[v1.UserIdLabel] = v1.GetUserId(workload)
 	}
 	return result
 }
