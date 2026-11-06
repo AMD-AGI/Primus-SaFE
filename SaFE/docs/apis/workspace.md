@@ -83,6 +83,7 @@ Create a new workspace in a cluster.
 | capacity | string | No | Capacity size, such as 100Gi. This is a required parameter when creating a PVC (type=pfs)                    |
 | selector | object | No | Selector is a label query over volumes to consider for binding. It cannot be used together with storageClass |
 | storageClass | string | No | esponsible for automatic PV creation                                                                         |
+| requiresPrivilegedGrant | bool | No | Mount the volume only into workloads whose creator holds the `workload/privileged` grant in the workspace (workspace administrators and system administrators). Other members' workloads run without it, and a `hostpath` entry that names its `hostPath`, a path under it or a path containing it is refused for them. Workloads created before the option was set do not carry the grant mark and lose the volume when they are dispatched again. |
 
 **Response Example**:
 
