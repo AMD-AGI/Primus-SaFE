@@ -139,9 +139,29 @@ func TestSanitizeBody(t *testing.T) {
 			expected: `{"[REDACTED]"}`,
 		},
 		{
-			name:     "case_sensitive_PASSWORD_uppercase_not_matched",
+			name:     "uppercase_PASSWORD_redacted",
 			input:    `{"PASSWORD": "secret"}`,
-			expected: `{"PASSWORD": "secret"}`, // regex is case-sensitive
+			expected: `{"PASSWORD": "[REDACTED]"}`,
+		},
+		{
+			name:     "workload_env_credentials_redacted_keys_kept",
+			input:    `{"workspaceId":"ws","env":{"ANTHROPIC_API_KEY":"ak-` + `abc","AUTH_CLAW_TOKEN":"tok","LANGFUSE_SECRET_KEY":"sk","DB_CREDENTIALS":"c","CLAW_SESSION_ID":"sid-1"}}`,
+			expected: `{"workspaceId":"ws","env":{"ANTHROPIC_API_KEY": "[REDACTED]","AUTH_CLAW_TOKEN": "[REDACTED]","LANGFUSE_SECRET_KEY": "[REDACTED]","DB_CREDENTIALS": "[REDACTED]","CLAW_SESSION_ID":"sid-1"}}`,
+		},
+		{
+			name:     "env_value_with_escaped_quote_fully_redacted",
+			input:    `{"env":{"GH_TOKEN":"a\"b-tail","MODE":"x"}}`,
+			expected: `{"env":{"GH_TOKEN": "[REDACTED]","MODE":"x"}}`,
+		},
+		{
+			name:     "env_value_cut_by_truncation_redacted",
+			input:    `{"env":{"MODE":"x","OPENAI_API_KEY":"sk-` + `partial`,
+			expected: `{"env":{"MODE":"x","OPENAI_API_KEY": "[REDACTED]"`,
+		},
+		{
+			name:     "value_mentioning_token_is_not_a_key",
+			input:    `{"description":"rotate the token","name":"n"}`,
+			expected: `{"description":"rotate the token","name":"n"}`,
 		},
 		{
 			name:     "form_data_password",

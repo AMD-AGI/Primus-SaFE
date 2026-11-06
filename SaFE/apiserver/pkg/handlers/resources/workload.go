@@ -1435,7 +1435,19 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 		adminWorkload.Spec.Timeout = pointer.Int(*req.Timeout)
 	}
 	if req.Env != nil {
-		adminWorkload.Spec.Env = maputil.Copy(*req.Env, GithubPAT, common.RunnerToken)
+		env := maputil.Copy(*req.Env, GithubPAT, common.RunnerToken)
+		// A caller who read the workload without the right to see its env got
+		// RedactedEnvValue back; sending that placeholder unchanged keeps the
+		// stored value instead of overwriting the secret with the mask.
+		for k, v := range env {
+			if v != RedactedEnvValue {
+				continue
+			}
+			if orig, ok := adminWorkload.Spec.Env[k]; ok {
+				env[k] = orig
+			}
+		}
+		adminWorkload.Spec.Env = env
 	}
 	if req.MaxRetry != nil {
 		adminWorkload.Spec.MaxRetry = *req.MaxRetry
@@ -1623,8 +1635,12 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.Service); str != "" {
 		json.Unmarshal([]byte(str), &result.Service)
 	}
+	canSeeSecrets := h.canSeeWorkloadSecrets(ctx, user, result.UserId)
 	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Env)
+		if !canSeeSecrets {
+			result.Env = redactEnvValues(result.Env)
+		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Dependencies); str != "" {
 		var dependencies []string
@@ -1639,20 +1655,50 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.CronJobs); str != "" {
 		json.Unmarshal([]byte(str), &result.CronJobs)
 	}
-	// Only the user themselves or an administrator can get this info.
-	if err := h.accessController.Authorize(authority.AccessInput{
-		Context:       ctx,
-		ResourceKind:  v1.WorkloadKind,
-		ResourceOwner: result.UserId,
-		Verb:          v1.GetVerb,
-		User:          user,
-		Roles:         roles,
-	}); err == nil {
+	// Only the owner or a system administrator can get this info.
+	if canSeeSecrets {
 		if str := dbutils.ParseNullString(dbWorkload.Secrets); str != "" {
 			json.Unmarshal([]byte(str), &result.Secrets)
 		}
 	}
 	return result
+}
+
+// RedactedEnvValue replaces every env value of a workload returned to a caller
+// who is neither its owner nor a system administrator.
+const RedactedEnvValue = "******"
+
+// canSeeWorkloadSecrets reports whether user may see a workload's env values
+// and secrets: only its owner or a system administrator (read-only included).
+// Being allowed to get the workload is not enough: workspace members and any
+// role granted to all users ("*") can get workloads they do not own, and env
+// commonly carries the owner's credentials.
+func (h *Handler) canSeeWorkloadSecrets(ctx context.Context, user *v1.User, ownerId string) bool {
+	if user == nil {
+		return false
+	}
+	if ownerId != "" && user.Name == ownerId {
+		return true
+	}
+	if h.accessController == nil {
+		return false
+	}
+	return h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
+		Context: ctx,
+		User:    user,
+	}, true) == nil
+}
+
+// redactEnvValues keeps the env keys and replaces every value with RedactedEnvValue.
+func redactEnvValues(env map[string]string) map[string]string {
+	if env == nil {
+		return nil
+	}
+	out := make(map[string]string, len(env))
+	for k := range env {
+		out[k] = RedactedEnvValue
+	}
+	return out
 }
 
 // listOffloadedPods returns a workload's pods from the workload_pod table as

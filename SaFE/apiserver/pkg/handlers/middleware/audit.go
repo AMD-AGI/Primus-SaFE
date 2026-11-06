@@ -348,6 +348,12 @@ func isInvalidTraceId(traceId string) bool {
 	return true
 }
 
+// sensitiveJSONKeyValue matches "<key>": "<value>" where the key contains
+// key, token, secret, password or credential (case-insensitive). The value
+// pattern honours escaped quotes and also matches an unterminated value.
+var sensitiveJSONKeyValue = regexp.MustCompile(
+	`"([^"\\]*(?i:key|token|secret|password|passwd|credential)[^"\\]*)"\s*:\s*"(?:[^"\\]|\\.)*(?:"|\\?$)`)
+
 // sanitizeBody removes sensitive information from request body
 func sanitizeBody(body string) string {
 	if body == "" {
@@ -355,6 +361,12 @@ func sanitizeBody(body string) string {
 	}
 
 	result := body
+
+	// JSON string values whose key names a credential, in any case and as part
+	// of a longer name (workload env such as "ANTHROPIC_API_KEY": "...").
+	// The key is kept and the value replaced, so the body stays valid JSON.
+	// A value cut off by truncation (no closing quote) is redacted too.
+	result = sensitiveJSONKeyValue.ReplaceAllString(result, `"$1": "[REDACTED]"`)
 
 	// JSON format: "password": "value"
 	jsonPatterns := []*regexp.Regexp{
