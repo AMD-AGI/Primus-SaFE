@@ -177,6 +177,20 @@ def test_upload_sends_the_gzip_summary_with_the_token():
         spur_import.token_address("sst_garbage")
 
 
+def test_a_token_must_name_an_http_address(capsys):
+    for address in ("file:///etc/passwd", "ftp://safe.example.com", "https://", "safe.example.com", "http://[::1"):
+        with pytest.raises(spur_import.RunDirError, match="not an http or https address"):
+            spur_import.token_address(token(address))
+
+    def answer(req, timeout):
+        return Answer(b"{}")
+
+    assert spur_import.upload(b"{}", token("http://safe.example.com"), opener=answer)[0] == 201
+    assert "plain http, so the token and the summary travel unencrypted" in capsys.readouterr().err
+    spur_import.upload(b"{}", token(), opener=answer)
+    assert capsys.readouterr().err == "", "https needs no warning"
+
+
 def test_main_reads_the_token_from_the_environment(monkeypatch, tmp_path, capsys):
     root = make_run(str(tmp_path / "j2-1"))
     calls = []

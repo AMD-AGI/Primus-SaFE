@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 if __package__ in (None, ""):
@@ -524,14 +525,22 @@ def encode(summary, limit=None):
 
 
 def token_address(token):
-    """Return the SaFE address a token names: sst_<base64url of the address>.<secret>."""
+    """Return the http(s) SaFE address a token names: sst_<base64url of the address>.<secret>."""
     if not token.startswith("sst_") or "." not in token:
         raise RunDirError("the token is not a SaFE import token")
     head = token[len("sst_"):].split(".", 1)[0]
     try:
-        return base64.urlsafe_b64decode(head + "=" * (-len(head) % 4)).decode()
+        address = base64.urlsafe_b64decode(head + "=" * (-len(head) % 4)).decode()
     except (ValueError, UnicodeDecodeError):
         raise RunDirError("the token is not a SaFE import token")
+    try:
+        parts = urllib.parse.urlsplit(address)
+        valid = parts.scheme in ("http", "https") and bool(parts.hostname)
+    except ValueError:
+        valid = False
+    if not valid:
+        raise RunDirError("the token names %r, which is not an http or https address" % address)
+    return address
 
 
 def read_token():
@@ -546,7 +555,10 @@ def read_token():
 
 def upload(data, token, stage=False, opener=urllib.request.urlopen):
     """POST a gzip-compressed summary to SaFE with the token; return the HTTP status and the JSON answer."""
-    url = token_address(token).rstrip("/") + "/api/v1/post-training/imports" + ("?stage=true" if stage else "")
+    address = token_address(token)
+    if urllib.parse.urlsplit(address).scheme == "http":
+        print("warning: %s is plain http, so the token and the summary travel unencrypted" % address, file=sys.stderr)
+    url = address.rstrip("/") + "/api/v1/post-training/imports" + ("?stage=true" if stage else "")
     req = urllib.request.Request(url, data=gzip.compress(data), method="POST", headers={
         "Authorization": "Bearer " + token, "Content-Type": "application/json", "Content-Encoding": "gzip"})
     try:
