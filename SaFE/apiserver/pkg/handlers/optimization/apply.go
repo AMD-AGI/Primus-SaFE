@@ -36,7 +36,7 @@ var (
 // v1 keeps the API intentionally small: it creates a single Deployment using
 // the optimized launch command and the image already used during Hyperloom.
 func (h *Handler) ApplyTask(c *gin.Context) {
-	task, err := h.getTaskForAction(c)
+	task, err := h.getTaskForAction(c, v1.GetVerb)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return

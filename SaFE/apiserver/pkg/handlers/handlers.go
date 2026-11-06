@@ -135,7 +135,8 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	if commonconfig.IsDBEnable() {
 		optDBClient := dbclient.NewClient()
 		if optDBClient != nil {
-			optHandler, optErr := optimizationhandlers.NewHandler(mgr.GetClient(), optDBClient)
+			optHandler, optErr := optimizationhandlers.NewHandler(mgr.GetClient(), optDBClient,
+				authority.NewAccessController(mgr.GetClient()))
 			if optErr != nil {
 				klog.ErrorS(optErr, "failed to initialize Model Optimization handler")
 			} else {

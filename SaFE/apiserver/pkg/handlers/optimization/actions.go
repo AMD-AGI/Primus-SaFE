@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm"
 	"k8s.io/klog/v2"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -39,6 +40,14 @@ func (h *Handler) BatchCreateTasks(c *gin.Context) {
 	}
 	userID := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
+	// Check every item before submitting any, so that a refused item does not leave the items
+	// before it submitted. submitTask checks each one again.
+	for i := range req.Items {
+		if err := h.authorizeTaskCreate(c.Request.Context(), userID, h.taskWorkspace(&req.Items[i])); err != nil {
+			apiutils.AbortWithApiError(c, err)
+			return
+		}
+	}
 	items := make([]CreateTaskResponse, 0, len(req.Items))
 	for i := range req.Items {
 		resp, err := h.submitTask(c.Request.Context(), &req.Items[i], userID, userName, "", h.clawBearerForGin(c))
@@ -53,7 +62,7 @@ func (h *Handler) BatchCreateTasks(c *gin.Context) {
 
 // ListArtifacts returns the session artifacts Claw has stored for this task.
 func (h *Handler) ListArtifacts(c *gin.Context) {
-	task, err := h.getTaskForAction(c)
+	task, err := h.getTaskForAction(c, v1.GetVerb)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -95,7 +104,7 @@ func (h *Handler) ListArtifacts(c *gin.Context) {
 
 // DownloadArtifact proxies the bytes of a Claw session artifact back to the client.
 func (h *Handler) DownloadArtifact(c *gin.Context) {
-	task, err := h.getTaskForAction(c)
+	task, err := h.getTaskForAction(c, v1.GetVerb)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -121,7 +130,7 @@ func (h *Handler) DownloadArtifact(c *gin.Context) {
 
 // InterruptTask requests cancellation from Claw and marks the task interrupted.
 func (h *Handler) InterruptTask(c *gin.Context) {
-	task, err := h.getTaskForAction(c)
+	task, err := h.getTaskForAction(c, v1.DeleteVerb)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -146,7 +155,7 @@ func (h *Handler) InterruptTask(c *gin.Context) {
 // RetryTask clones a failed/interrupted task into a fresh task with the same
 // parameters, preserving the original task history intact.
 func (h *Handler) RetryTask(c *gin.Context) {
-	task, err := h.getTaskForAction(c)
+	task, err := h.getTaskForAction(c, v1.ResumeVerb)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -170,17 +179,23 @@ func (h *Handler) RetryTask(c *gin.Context) {
 	})
 }
 
-func (h *Handler) getTaskForAction(c *gin.Context) (*dbclient.OptimizationTask, error) {
+// getTaskForAction loads the task the request names and checks that the request user may perform
+// verb on it (see task_authz.go).
+func (h *Handler) getTaskForAction(c *gin.Context, verb v1.RoleVerb) (*dbclient.OptimizationTask, error) {
 	id := c.Param("id")
 	task, err := h.dbClient.GetOptimizationTask(c.Request.Context(), id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, commonerrors.NewNotFoundWithMessage("task not found")
 		}
+		klog.ErrorS(err, "get optimization task", "id", id)
 		return nil, commonerrors.NewInternalError("failed to load task")
 	}
 	if task == nil {
 		return nil, commonerrors.NewNotFoundWithMessage("task not found")
+	}
+	if err := h.authorizeTask(c, task, verb); err != nil {
+		return nil, err
 	}
 	return task, nil
 }

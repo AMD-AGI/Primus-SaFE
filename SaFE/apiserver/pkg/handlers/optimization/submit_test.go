@@ -82,12 +82,13 @@ func TestSubmitTaskBranches(t *testing.T) {
 	h3 := &Handler{
 		clawClient:    NewClawClient("https://claw", ""),
 		dbClient:      mockDB,
+		accessCtrl:    authzAccessController(t),
 		hubs:          newHubRegistry(),
 		maxConcurrent: 3,
 		defaultWS:     "ws",
 	}
-	_, err = h3.submitTask(context.Background(), &CreateTaskRequest{ModelID: "m1"}, "u1", "user", "", "bearer")
-	assert.Error(t, err)
+	_, err = h3.submitTask(context.Background(), &CreateTaskRequest{ModelID: "m1"}, authzAdmin, "user", "", "bearer")
+	assert.ErrorContains(t, err, "active optimization sandboxes")
 }
 
 func TestCreateTaskInvalidJSON(t *testing.T) {
