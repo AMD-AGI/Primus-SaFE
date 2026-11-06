@@ -66,8 +66,7 @@ func TestIsInvalidTraceId(t *testing.T) {
 }
 
 func TestSanitizeBody(t *testing.T) {
-	// Note: sanitizeBody replaces the entire "field": "value" with "[REDACTED]"
-	// It uses regex patterns: "password"\s*:\s*"[^"]*" -> "[REDACTED]"
+	// Note: sanitizeBody keeps the key and replaces the value: "password": "[REDACTED]"
 	tests := []struct {
 		name     string
 		input    string
@@ -86,57 +85,57 @@ func TestSanitizeBody(t *testing.T) {
 		{
 			name:     "password_field",
 			input:    `{"username": "admin", "password": "secret123"}`,
-			expected: `{"username": "admin", "[REDACTED]"}`,
+			expected: `{"username": "admin", "password": "[REDACTED]"}`,
 		},
 		{
 			name:     "apiKey_field",
 			input:    `{"name": "test", "apiKey": "ak-` + `xxxxx"}`,
-			expected: `{"name": "test", "[REDACTED]"}`,
+			expected: `{"name": "test", "apiKey": "[REDACTED]"}`,
 		},
 		{
 			name:     "api_key_field",
 			input:    `{"name": "test", "api_key": "ak-` + `xxxxx"}`,
-			expected: `{"name": "test", "[REDACTED]"}`,
+			expected: `{"name": "test", "api_key": "[REDACTED]"}`,
 		},
 		{
 			name:     "privateKey_field",
 			input:    `{"githubAuth": {"type": "github_app", "appId": "123", "installationId": "456", "privateKey": "pem-data"}}`,
-			expected: `{"githubAuth": {"type": "github_app", "appId": "123", "installationId": "456", "[REDACTED]"}}`,
+			expected: `{"githubAuth": {"type": "github_app", "appId": "123", "installationId": "456", "privateKey": "[REDACTED]"}}`,
 		},
 		{
 			name:     "private_key_field",
 			input:    `{"name": "test", "private_key": "pem-data"}`,
-			expected: `{"name": "test", "[REDACTED]"}`,
+			expected: `{"name": "test", "private_key": "[REDACTED]"}`,
 		},
 		{
 			name:     "github_app_private_key_field",
 			input:    `{"github_app_id": "123", "github_app_private_key": "pem-data"}`,
-			expected: `{"github_app_id": "123", "[REDACTED]"}`,
+			expected: `{"github_app_id": "123", "github_app_private_key": "[REDACTED]"}`,
 		},
 		{
 			name:     "token_field",
 			input:    `{"userId": "123", "token": "jwt-token-here"}`,
-			expected: `{"userId": "123", "[REDACTED]"}`,
+			expected: `{"userId": "123", "token": "[REDACTED]"}`,
 		},
 		{
 			name:     "secret_field",
 			input:    `{"name": "mysecret", "secret": "super-secret"}`,
-			expected: `{"name": "mysecret", "[REDACTED]"}`,
+			expected: `{"name": "mysecret", "secret": "[REDACTED]"}`,
 		},
 		{
 			name:     "multiple_sensitive_fields",
 			input:    `{"password": "pass1", "token": "tok1", "apiKey": "key1"}`,
-			expected: `{"[REDACTED]", "[REDACTED]", "[REDACTED]"}`,
+			expected: `{"password": "[REDACTED]", "token": "[REDACTED]", "apiKey": "[REDACTED]"}`,
 		},
 		{
 			name:     "password_with_spaces",
 			input:    `{"password" : "secret"}`,
-			expected: `{"[REDACTED]"}`,
+			expected: `{"password": "[REDACTED]"}`,
 		},
 		{
 			name:     "case_sensitive_password_lowercase",
 			input:    `{"password": "secret"}`,
-			expected: `{"[REDACTED]"}`,
+			expected: `{"password": "[REDACTED]"}`,
 		},
 		{
 			name:     "uppercase_PASSWORD_redacted",

@@ -357,6 +357,15 @@ var jsonStringMember = regexp.MustCompile(`"((?:[^"\\]|\\.)*)"\s*:\s*"(?:[^"\\]|
 // name (workload env such as ANTHROPIC_API_KEY or AUTH_TOKEN).
 var sensitiveKeyName = regexp.MustCompile(`(?i)key|token|secret|passw(?:or)?d|credential`)
 
+// IsCredentialName reports whether a key or environment variable name names a
+// credential: it contains key, token, secret, password, passwd or credential, in
+// any case and as part of a longer name (ANTHROPIC_API_KEY, AUTH_TOKEN). The
+// audit log and the workload env shown to callers who are not its owner use the
+// same judgement.
+func IsCredentialName(name string) bool {
+	return sensitiveKeyName.MatchString(name)
+}
+
 // redactSensitiveJSONMembers replaces the string value of every member whose key, once its JSON
 // escapes are decoded (so "API_\u004bEY" counts as API_KEY), names a credential. The key is kept,
 // so the body stays valid JSON.
@@ -389,19 +398,20 @@ func sanitizeBody(body string) string {
 	// A value cut off by truncation (no closing quote) is redacted too.
 	result = redactSensitiveJSONMembers(result)
 
-	// JSON format: "password": "value"
+	// JSON format: "password": "value". The key is kept, as above, so a member
+	// the pass above already redacted is left as it is.
 	jsonPatterns := []*regexp.Regexp{
-		regexp.MustCompile(`"password"\s*:\s*"[^"]*"`),
-		regexp.MustCompile(`"token"\s*:\s*"[^"]*"`),
-		regexp.MustCompile(`"secret"\s*:\s*"[^"]*"`),
-		regexp.MustCompile(`"apiKey"\s*:\s*"[^"]*"`),
-		regexp.MustCompile(`"api_key"\s*:\s*"[^"]*"`),
-		regexp.MustCompile(`"privateKey"\s*:\s*"[^"]*(?:"|$)`),
-		regexp.MustCompile(`"private_key"\s*:\s*"[^"]*(?:"|$)`),
-		regexp.MustCompile(`"github_app_private_key"\s*:\s*"[^"]*(?:"|$)`),
+		regexp.MustCompile(`("password"\s*:\s*)"[^"]*"`),
+		regexp.MustCompile(`("token"\s*:\s*)"[^"]*"`),
+		regexp.MustCompile(`("secret"\s*:\s*)"[^"]*"`),
+		regexp.MustCompile(`("apiKey"\s*:\s*)"[^"]*"`),
+		regexp.MustCompile(`("api_key"\s*:\s*)"[^"]*"`),
+		regexp.MustCompile(`("privateKey"\s*:\s*)"[^"]*(?:"|$)`),
+		regexp.MustCompile(`("private_key"\s*:\s*)"[^"]*(?:"|$)`),
+		regexp.MustCompile(`("github_app_private_key"\s*:\s*)"[^"]*(?:"|$)`),
 	}
 	for _, pattern := range jsonPatterns {
-		result = pattern.ReplaceAllString(result, `"[REDACTED]"`)
+		result = pattern.ReplaceAllString(result, `${1}"[REDACTED]"`)
 	}
 
 	// Form-urlencoded format: field=value or field=value&

@@ -6,6 +6,7 @@
 package resources
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -15,8 +16,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"gotest.tools/assert"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlruntimefake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -37,6 +40,8 @@ const (
 	redactOwnerKey  = "owner-credential-value"
 	redactOwnerSID  = "session-1234"
 	redactSecretId  = "owner-secret-1"
+	redactImages    = `["rocm/pytorch:latest","rocm/vllm:latest"]`
+	redactDBURL     = "postgres://app:owner-db-pass@db:5432/app"
 )
 
 func redactUser(name string, roles ...v1.UserRole) *v1.User {
@@ -56,10 +61,11 @@ func redactRole(name string, rules ...v1.PolicyRule) *v1.Role {
 	return &v1.Role{ObjectMeta: metav1.ObjectMeta{Name: name}, Rules: rules}
 }
 
-// Test_getWorkload_EnvVisibleOnlyToOwnerAndSystemAdmin pins who sees a workload's env
-// values and secrets through GET /workloads/{id}: the owner and system administrators
+// Test_getWorkload_EnvVisibleOnlyToOwnerAndSystemAdmin pins who sees a workload's credential
+// env values and secrets through GET /workloads/{id}: the owner and system administrators
 // see the stored values; a workspace member and a holder of a role granted to all users
-// ("*") can get the workload but see only the env keys, with masked values, and no secrets.
+// ("*") can get the workload but see credential values masked and no secrets. Plain
+// configuration values are returned to every caller.
 func Test_getWorkload_EnvVisibleOnlyToOwnerAndSystemAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	commonconfig.SetValue("db.enable", "true")
@@ -117,7 +123,8 @@ func Test_getWorkload_EnvVisibleOnlyToOwnerAndSystemAdmin(t *testing.T) {
 				UserId:     sql.NullString{String: redactOwnerId, Valid: true},
 				GVK:        `{"group":"amd.com","version":"v1","kind":"Sandbox"}`,
 				Env: sql.NullString{Valid: true, String: fmt.Sprintf(
-					`{"ANTHROPIC_API_KEY":%q,"CLAW_SESSION_ID":%q}`, redactOwnerKey, redactOwnerSID)},
+					`{"ANTHROPIC_API_KEY":%q,"CLAW_SESSION_ID":%q,"IMAGES":%q,"UNIFIED_JOB_ENABLE":"true","DATABASE_URL":%q}`,
+					redactOwnerKey, redactOwnerSID, redactImages, redactDBURL)},
 				Secrets: sql.NullString{Valid: true, String: fmt.Sprintf(`[{"id":%q}]`, redactSecretId)},
 			}
 			mockDBClient.EXPECT().GetWorkload(gomock.Any(), redactWorkload).Return(row, nil).AnyTimes()
@@ -138,15 +145,20 @@ func Test_getWorkload_EnvVisibleOnlyToOwnerAndSystemAdmin(t *testing.T) {
 			result, err := h.getWorkload(c)
 			assert.NilError(t, err, tt.description)
 			resp := result.(*view.GetWorkloadResponse)
-			assert.Equal(t, len(resp.Env), 2, tt.description)
+			assert.Equal(t, len(resp.Env), 5, tt.description)
+			// Plain configuration is returned as stored to every caller: the Web UI parses it
+			// (JSON.parse(IMAGES), UNIFIED_JOB_ENABLE === "true").
+			assert.Equal(t, resp.Env["CLAW_SESSION_ID"], redactOwnerSID, tt.description)
+			assert.Equal(t, resp.Env["IMAGES"], redactImages, tt.description)
+			assert.Equal(t, resp.Env["UNIFIED_JOB_ENABLE"], "true", tt.description)
 			if tt.wantValues {
 				assert.Equal(t, resp.Env["ANTHROPIC_API_KEY"], redactOwnerKey, tt.description)
-				assert.Equal(t, resp.Env["CLAW_SESSION_ID"], redactOwnerSID, tt.description)
+				assert.Equal(t, resp.Env["DATABASE_URL"], redactDBURL, tt.description)
 				assert.Equal(t, len(resp.Secrets), 1, tt.description)
 				assert.Equal(t, resp.Secrets[0].Id, redactSecretId, tt.description)
 			} else {
 				assert.Equal(t, resp.Env["ANTHROPIC_API_KEY"], RedactedEnvValue, tt.description)
-				assert.Equal(t, resp.Env["CLAW_SESSION_ID"], RedactedEnvValue, tt.description)
+				assert.Equal(t, resp.Env["DATABASE_URL"], RedactedEnvValue, tt.description)
 				assert.Equal(t, len(resp.Secrets), 0, tt.description)
 			}
 		})
@@ -165,4 +177,82 @@ func Test_applyWorkloadPatch_MaskedEnvKeepsStoredValue(t *testing.T) {
 	// A key the workload never had is stored as sent: there is nothing to keep.
 	assert.Equal(t, w.Spec.Env["NEW_KEY"], RedactedEnvValue)
 	assert.Equal(t, len(w.Spec.Env), 3)
+}
+
+// Test_redactEnvValues_MasksOnlyCredentials: a variable is masked when its name names a
+// credential (the audit log's judgement) or its value is a URL with a password in it.
+func Test_redactEnvValues_MasksOnlyCredentials(t *testing.T) {
+	out := redactEnvValues(map[string]string{
+		"ANTHROPIC_API_KEY": "k", "AUTH_TOKEN": "t", "LANGFUSE_SECRET_KEY": "s", "DB_PASSWORD": "p",
+		"DB_CREDENTIALS": "c", "DATABASE_URL": redactDBURL, "PROXY_URL": "http://proxy:3128",
+		"IMAGES": redactImages, "REPLICA_COUNT": "2", "UNIFIED_JOB_ENABLE": "true",
+	})
+	for _, k := range []string{"ANTHROPIC_API_KEY", "AUTH_TOKEN", "LANGFUSE_SECRET_KEY", "DB_PASSWORD", "DB_CREDENTIALS", "DATABASE_URL"} {
+		assert.Equal(t, out[k], RedactedEnvValue, k)
+	}
+	assert.Equal(t, out["PROXY_URL"], "http://proxy:3128")
+	assert.Equal(t, out["IMAGES"], redactImages)
+	assert.Equal(t, out["REPLICA_COUNT"], "2")
+	assert.Equal(t, out["UNIFIED_JOB_ENABLE"], "true")
+	assert.Equal(t, len(out), 10)
+}
+
+// Test_resumeWorkload_MaskedEnvKeepsStoredValues: a caller who may resume another user's
+// workload but not see its credentials (a workspace administrator) sends back what GET gave
+// it: credential env values masked and no secrets. The resumed workload keeps the stored
+// values and secrets; values the caller changed are taken as sent.
+func Test_resumeWorkload_MaskedEnvKeepsStoredValues(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	commonconfig.SetValue("db.enable", "true")
+	defer commonconfig.SetValue("db.enable", "")
+	ownerSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name: redactSecretId, Namespace: common.PrimusSafeNamespace,
+		Labels: map[string]string{v1.SecretTypeLabel: string(v1.SecretGeneral)},
+	}}
+	h, caller := userIdHandler(t)
+	h.clientSet = k8sfake.NewSimpleClientset(ownerSecret)
+	assert.Assert(t, caller.Name != redactOwnerId)
+	assert.Assert(t, !caller.IsSystemAdmin())
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDBClient := mockdb.NewMockInterface(ctrl)
+	row := &dbclient.Workload{
+		WorkloadId: redactWorkload,
+		Workspace:  "test-workspace",
+		Cluster:    "test-cluster",
+		Phase:      sql.NullString{String: string(v1.WorkloadStopped), Valid: true},
+		UserId:     sql.NullString{String: redactOwnerId, Valid: true},
+		UserName:   sql.NullString{String: redactOwnerId, Valid: true},
+		Env: sql.NullString{Valid: true, String: fmt.Sprintf(
+			`{"ANTHROPIC_API_KEY":%q,"DATABASE_URL":%q,"MODE":"old"}`, redactOwnerKey, redactDBURL)},
+		Secrets: sql.NullString{Valid: true, String: fmt.Sprintf(`[{"id":%q}]`, redactSecretId)},
+	}
+	mockDBClient.EXPECT().GetWorkload(gomock.Any(), redactWorkload).Return(row, nil).AnyTimes()
+	mockDBClient.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDBClient.EXPECT().ArchiveWorkloadNodesForResume(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	h.dbClient = mockDBClient
+
+	body := fmt.Sprintf(`{
+		"displayName": "resumed",
+		"workspaceId": "test-workspace",
+		"images": ["pytorch/pytorch:latest"],
+		"entryPoints": ["python train.py"],
+		"groupVersionKind": {"version": "v1", "kind": "PyTorchJob"},
+		"resources": [{"replica": 1, "cpu": "16", "gpu": "4", "memory": "64Gi"}],
+		"env": {"ANTHROPIC_API_KEY": %q, "DATABASE_URL": %q, "MODE": "new"}
+	}`, RedactedEnvValue, RedactedEnvValue)
+	c := userIdRequest(caller, http.MethodPost, "/api/v1/workloads/"+redactWorkload+"/resume", body)
+	c.Set(common.Name, redactWorkload)
+	_, err := h.resumeWorkload(c)
+	assert.NilError(t, err)
+
+	resumed := &v1.Workload{}
+	assert.NilError(t, h.Get(context.Background(), client.ObjectKey{Name: redactWorkload}, resumed))
+	assert.Equal(t, v1.GetUserId(resumed), redactOwnerId)
+	assert.Equal(t, resumed.Spec.Env["ANTHROPIC_API_KEY"], redactOwnerKey)
+	assert.Equal(t, resumed.Spec.Env["DATABASE_URL"], redactDBURL)
+	assert.Equal(t, resumed.Spec.Env["MODE"], "new")
+	assert.Equal(t, len(resumed.Spec.Secrets), 1)
+	assert.Equal(t, resumed.Spec.Secrets[0].Id, redactSecretId)
 }
