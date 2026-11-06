@@ -3826,3 +3826,66 @@ func TestExternalWaitingMessageKeepsScaleUpDecision(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// A pod bound to a node is no longer waiting for scale-up, even while it is still
+// Pending (pulling, starting): the message is cleared then, not when it runs.
+func TestClearScaleUpMessageOnceBound(t *testing.T) {
+	waiting := func(pods ...v1.WorkloadPod) *v1.Workload {
+		return &v1.Workload{
+			Spec: v1.WorkloadSpec{Resources: []v1.WorkloadResource{{Replica: len(pods)}}},
+			Status: v1.WorkloadStatus{
+				Message: externalWaitingScaleUpPrefix + " - Scheduling is blocked due to non-empty scheduling gates" +
+					" - TriggeredScaleUp: pod triggered scale-up",
+				ExternalExecution: &v1.WorkloadExternalExecution{PlacementMode: v1.ExternalPlacementKubeScheduler},
+				Pods:              pods,
+			},
+		}
+	}
+	pending := func(conds ...corev1.PodCondition) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "p0", Namespace: "vk"},
+			Status:     corev1.PodStatus{Phase: corev1.PodPending, Conditions: conds},
+		}
+	}
+	scheduled := corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}
+
+	// Bound by nodeName, still Pending, its record without an admin node yet.
+	byName := pending()
+	byName.Spec.NodeName = "autopilot-node-1"
+	w := waiting(v1.WorkloadPod{PodId: "p0", Phase: corev1.PodPending})
+	if externalUnschedulableMessage(w, byName) != "" || !shouldClearExternalScaleUpMessage(w, byName) {
+		t.Fatal("a pod bound by nodeName must clear the scale-up message")
+	}
+	// Bound by PodScheduled=True alone.
+	if !shouldClearExternalScaleUpMessage(w, pending(scheduled)) {
+		t.Fatal("a pod with PodScheduled=True must clear the scale-up message")
+	}
+	// Not bound yet: the message stays.
+	if shouldClearExternalScaleUpMessage(w, pending()) {
+		t.Fatal("an unbound pod must not clear the scale-up message")
+	}
+	// A sibling still waiting for a node keeps it, so the UI does not flicker.
+	gang := waiting(
+		v1.WorkloadPod{PodId: "p0", Phase: corev1.PodPending},
+		v1.WorkloadPod{PodId: "p1", Phase: corev1.PodPending},
+	)
+	if shouldClearExternalScaleUpMessage(gang, byName) {
+		t.Fatal("must not clear while a sibling still waits for a node")
+	}
+	gang.Status.Pods[1] = v1.WorkloadPod{PodId: "p1", Phase: corev1.PodPending, AdminNodeName: "n1", HostIp: "10.0.0.2"}
+	if !shouldClearExternalScaleUpMessage(gang, byName) {
+		t.Fatal("must clear once every sibling has a node")
+	}
+	// A sibling not recorded yet may still be waiting: with fewer records than replicas, keep it.
+	partial := waiting(v1.WorkloadPod{PodId: "p0", Phase: corev1.PodPending})
+	partial.Spec.Resources = []v1.WorkloadResource{{Replica: 2}}
+	if shouldClearExternalScaleUpMessage(partial, byName) {
+		t.Fatal("must not clear before every expected pod is recorded")
+	}
+	// Any other message is left alone.
+	other := waiting(v1.WorkloadPod{PodId: "p0", Phase: corev1.PodPending})
+	other.Status.Message = "In queue - insufficient resources"
+	if shouldClearExternalScaleUpMessage(other, byName) {
+		t.Fatal("only the scale-up wait message is cleared")
+	}
+}

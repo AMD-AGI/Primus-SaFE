@@ -2100,7 +2100,10 @@ func eventTime(ev *corev1.Event) time.Time {
 }
 
 // shouldClearExternalScaleUpMessage reports that a stale waiting-for-scale-up status
-// message should be cleared because every expected pod is scheduled or finished.
+// message should be cleared because every expected pod is scheduled or finished, or
+// because this pod has been bound to a node and no sibling is still waiting for one.
+// A bound pod is no longer waiting for scale-up even while it is Pending (pulling its
+// image, starting), so the message must not stay until it runs.
 // Clearing on the first scheduled member would flicker the UI while siblings wait.
 func shouldClearExternalScaleUpMessage(workload *v1.Workload, pod *corev1.Pod) bool {
 	if workload == nil || pod == nil {
@@ -2113,17 +2116,53 @@ func shouldClearExternalScaleUpMessage(workload *v1.Workload, pod *corev1.Pod) b
 	if !strings.HasPrefix(workload.Status.Message, externalWaitingScaleUpPrefix) {
 		return false
 	}
-	return isAllPodsAssigned(workload)
+	return isAllPodsAssigned(workload) ||
+		(isPodBound(pod) && allExpectedPodsRecorded(workload) && !anySiblingAwaitingNode(workload, pod.Name))
+}
+
+// isPodBound says the scheduler has bound pod to a node: spec.nodeName is set, or
+// PodScheduled is True.
+func isPodBound(pod *corev1.Pod) bool {
+	if pod.Spec.NodeName != "" {
+		return true
+	}
+	for i := range pod.Status.Conditions {
+		c := &pod.Status.Conditions[i]
+		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+// anySiblingAwaitingNode says another recorded pod of the workload is still Pending
+// with no node, so its wait for scale-up is still what the workload is waiting for.
+func anySiblingAwaitingNode(workload *v1.Workload, podName string) bool {
+	for _, p := range workload.Status.Pods {
+		if p.PodId == podName {
+			continue
+		}
+		if p.Phase == corev1.PodPending && p.AdminNodeName == "" && p.HostIp == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// allExpectedPodsRecorded says the workload has a pod record for every pod it expects.
+// Records arrive through separate pod events, so a sibling that has not been recorded
+// yet may still be waiting for a node.
+func allExpectedPodsRecorded(workload *v1.Workload) bool {
+	if commonworkload.IsRayJob(workload) {
+		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
+		return len(workload.Status.Pods) == commonworkload.GetTotalReplica(workload)+1
+	}
+	return len(workload.Status.Pods) == commonworkload.GetTotalReplica(workload)
 }
 
 // isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase
 func isAllPodsAssigned(workload *v1.Workload) bool {
-	if commonworkload.IsRayJob(workload) {
-		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
-		if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload)+1 {
-			return false
-		}
-	} else if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload) {
+	if !allExpectedPodsRecorded(workload) {
 		return false
 	}
 	for _, p := range workload.Status.Pods {
