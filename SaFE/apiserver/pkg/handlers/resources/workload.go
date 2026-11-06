@@ -237,6 +237,11 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 			return nil, err
 		}
 	}
+	if err = h.authWorkloadHostPath(c, workload, requestUser, roles); err != nil {
+		klog.ErrorS(err, "failed to auth workload hostpath", "workload", workload.Name,
+			"hostpath", workload.Spec.Hostpath, "user", c.GetString(common.UserName))
+		return nil, err
+	}
 
 	for i, sec := range workload.Spec.Secrets {
 		secret, err := h.getAndAuthorizeSecret(c.Request.Context(), sec.Id, workload.Spec.Workspace, requestUser, v1.GetVerb)
@@ -872,6 +877,26 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 		return err
 	}
 	return nil
+}
+
+// authWorkloadHostPath checks the workload's hostpath entries against its workspace: entries the
+// workspace does not declare for the workload's scope need the workload/privileged grant
+// (authority.AccessController.AuthorizeWorkloadHostPath).
+func (h *Handler) authWorkloadHostPath(c *gin.Context,
+	workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) error {
+	var workspace *v1.Workspace
+	if len(workload.Spec.Hostpath) > 0 {
+		var err error
+		if workspace, err = h.getAdminWorkspace(c.Request.Context(), workload.Spec.Workspace); err != nil {
+			return err
+		}
+	}
+	return h.accessController.AuthorizeWorkloadHostPath(authority.AccessInput{
+		Context: c.Request.Context(),
+		User:    requestUser,
+		UserId:  c.GetString(common.UserId),
+		Roles:   roles,
+	}, workload, workspace)
 }
 
 // validateWorkloadId checks a caller-chosen id against every constraint it has

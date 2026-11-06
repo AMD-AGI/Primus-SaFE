@@ -114,11 +114,12 @@ func TestValidateSandboxHostPath(t *testing.T) {
 	assert.ErrorContains(t, v.validateSandbox(ctx, missing, nil), `"nope" not found`)
 	assert.ErrorContains(t, validateSandboxHostPath(missing, nil), "is not declared by workspace nope")
 
-	// Other kinds are not restricted by this rule.
+	// Other kinds are judged by validateHostPath (workload_hostpath_test.go), not by the sandbox rule.
 	job := sandboxWorkload("/etc")
 	job.Spec.Kind = common.PytorchJobKind
 	err = v.validateCommon(ctx, job, nil)
-	assert.Assert(t, err == nil || !strings.Contains(err.Error(), "of the sandbox is not declared"))
+	assert.Assert(t, err != nil && !strings.Contains(err.Error(), "of the sandbox is not declared"))
+	assert.ErrorContains(t, err, `the hostpath "/etc" is not declared by workspace ws1 for PyTorchJob workloads`)
 }
 
 // TestMutateHostPathRespectsVolumeScopes verifies a hostpath duplicating a workspace volume is

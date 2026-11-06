@@ -7,10 +7,12 @@ package dispatcher
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	"gotest.tools/assert"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -323,10 +325,11 @@ func TestSandboxHostPathMountedThroughDeclaredRoot(t *testing.T) {
 	}
 }
 
-// A root declared only for other scopes is not a sandbox root, and other kinds and external
-// sandboxes (whose provider refuses subPath; modifyVolumes refuses their entries below a root)
-// keep the hostpath as the volume source.
-func TestHostPathSourceUnchangedOutsideSandboxRoots(t *testing.T) {
+// A root declared only for other scopes is not a root for the workload's scope, so a sandbox under
+// a Train root and a PyTorchJob under a Sandbox root keep the hostpath as the volume source, as do
+// external sandboxes (whose provider refuses subPath; modifyVolumes refuses their entries below a
+// root).
+func TestHostPathSourceUnchangedOutsideDeclaredRoots(t *testing.T) {
 	sources, mounts := renderedHostPaths(t, common.SandboxKind, []string{"/data/train/x"}, nil)
 	assert.Equal(t, sources["hostpath-3"], "/data/train/x")
 	for _, m := range mounts["hostpath-3"] {
@@ -344,7 +347,7 @@ func TestHostPathSourceUnchangedOutsideSandboxRoots(t *testing.T) {
 		Status: v1.WorkloadStatus{ExternalExecution: &v1.WorkloadExternalExecution{ClaimId: "claim-1"}},
 	}
 	assert.Assert(t, isExternalWorkload(externalSandbox))
-	src, sub := sandboxHostPathSource(externalSandbox, sandboxRootWorkspace(), "/data/shared/team/a")
+	src, sub, _ := hostPathSource(externalSandbox, sandboxRootWorkspace(), "/data/shared/team/a")
 	assert.Equal(t, src, "/data/shared/team/a")
 	assert.Equal(t, sub, "")
 }
@@ -365,12 +368,12 @@ func TestSandboxHostPathSourceRoots(t *testing.T) {
 		{"data/shared/a", "data/shared/a", ""},
 	}
 	for _, c := range cases {
-		src, sub := sandboxHostPathSource(sandbox, ws, c.in)
+		src, sub, _ := hostPathSource(sandbox, ws, c.in)
 		assert.Equal(t, src, c.src, c.in)
 		assert.Equal(t, sub, c.sub, c.in)
 	}
 	ws.Spec.Volumes = []v1.WorkspaceVolume{{Id: 1, Type: v1.HOSTPATH, HostPath: "/"}}
-	src, sub := sandboxHostPathSource(sandbox, ws, "/etc/x")
+	src, sub, _ := hostPathSource(sandbox, ws, "/etc/x")
 	assert.Equal(t, src, "/")
 	assert.Equal(t, sub, "etc/x")
 }
@@ -387,7 +390,7 @@ func TestExternalSandboxHostPathBelowRootRefused(t *testing.T) {
 	_, workload, _, err := renderWorkloadErr(t, common.SandboxKind, sandboxRootWorkspace(),
 		[]string{"/data/shared/team/a"}, external)
 	assert.Assert(t, isExternalWorkload(workload))
-	assert.ErrorContains(t, err, `hostpath "/data/shared/team/a" of an external sandbox is below the declared root "/data/shared"`)
+	assert.ErrorContains(t, err, `hostpath "/data/shared/team/a" of an external workload is below the declared root "/data/shared"`)
 
 	_, _, _, err = renderWorkloadErr(t, common.SandboxKind, sandboxRootWorkspace(),
 		[]string{"/data/shared/", "/opt/legacy"}, external)
@@ -397,9 +400,166 @@ func TestExternalSandboxHostPathBelowRootRefused(t *testing.T) {
 	_, _, _, err = renderWorkloadErr(t, common.SandboxKind, sandboxRootWorkspace(),
 		[]string{"/data/shared/team/a"}, nil)
 	assert.NilError(t, err)
-	// Other kinds are not restricted by sandbox roots.
-	assert.NilError(t, checkExternalSandboxHostPath(&v1.Workload{
+	// A root declared only for sandboxes does not restrict other kinds; their own roots do.
+	externalJob := &v1.Workload{
 		Spec:   v1.WorkloadSpec{GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind}},
 		Status: v1.WorkloadStatus{ExternalExecution: &v1.WorkloadExternalExecution{ClaimId: "claim-1"}},
-	}, sandboxRootWorkspace(), "/data/shared/team/a"))
+	}
+	assert.NilError(t, checkExternalHostPath(externalJob, sandboxRootWorkspace(), "/data/shared/team/a"))
+	assert.NilError(t, checkExternalHostPath(externalJob, sandboxRootWorkspace(), "/data/train"))
+	assert.ErrorContains(t, checkExternalHostPath(externalJob, sandboxRootWorkspace(), "/data/train/x"),
+		`hostpath "/data/train/x" of an external workload is below the declared root "/data/train"`)
+}
+
+// A member may name a directory under a hostpath volume its workspace declares for the workload's
+// scope, and may also be able to write a symlink there through the volume itself. So every kind,
+// not only sandboxes, mounts such an entry as the declared root plus a subPath, which the kubelet
+// resolves inside the root. An entry under no root for the scope (one the creator was granted
+// through workload/privileged) is mounted as named.
+func TestHostPathMountedThroughDeclaredRootForEveryKind(t *testing.T) {
+	sources, mounts := renderedHostPaths(t, common.PytorchJobKind,
+		[]string{"/data/train/team/a", "/data/train/", "/opt/granted"}, nil)
+	assert.Equal(t, sources["hostpath-3"], "/data/train")
+	assert.Equal(t, sources["hostpath-4"], "/data/train")
+	assert.Equal(t, sources["hostpath-5"], "/opt/granted")
+	assert.Assert(t, len(mounts["hostpath-3"]) > 0)
+	for _, m := range mounts["hostpath-3"] {
+		assert.Equal(t, m, "/data/train/team/a|team/a")
+	}
+	assert.Assert(t, len(mounts["hostpath-4"]) > 0)
+	for _, m := range mounts["hostpath-4"] {
+		assert.Equal(t, m, "/data/train/|")
+	}
+	assert.Assert(t, len(mounts["hostpath-5"]) > 0)
+	for _, m := range mounts["hostpath-5"] {
+		assert.Equal(t, m, "/opt/granted|")
+	}
+
+	// The same entry rendered for an external job is refused: its provider cannot take subPath.
+	external := func(w *v1.Workload) {
+		w.Status.ExternalExecution = &v1.WorkloadExternalExecution{ClaimId: "claim-1",
+			Placements: []v1.WorkloadExternalPlacement{{UnitKey: "master/0", NodeName: "vk-1",
+				CPUMillis: 1000, MemoryBytes: 1 << 30}}}
+	}
+	_, _, _, err := renderWorkloadErr(t, common.PytorchJobKind, sandboxRootWorkspace(),
+		[]string{"/data/train/team/a"}, external)
+	assert.ErrorContains(t, err, `hostpath "/data/train/team/a" of an external workload is below the declared root "/data/train"`)
+}
+
+// exposedPartWorkspace has a read-only volume that mounts only /data/shared/teamA (hostpath-1), a
+// volume with user directories over /data/home (hostpath-2), a writable volume (hostpath-3) and a
+// read-only one (hostpath-4).
+func exposedPartWorkspace() *v1.Workspace {
+	ws := jobutils.TestWorkspaceData.DeepCopy()
+	ws.Spec.Volumes = []v1.WorkspaceVolume{
+		{Id: 1, Type: v1.HOSTPATH, MountPath: "/team", HostPath: "/data/shared", SubPath: "teamA",
+			AccessMode: corev1.ReadOnlyMany},
+		{Id: 2, Type: v1.HOSTPATH, MountPath: "/home", HostPath: "/data/home", EnableUserDir: true},
+		{Id: 3, Type: v1.HOSTPATH, MountPath: "/rw", HostPath: "/data/rw"},
+		{Id: 4, Type: v1.HOSTPATH, MountPath: "/ro", HostPath: "/data/ro", AccessMode: corev1.ReadOnlyMany},
+	}
+	return ws
+}
+
+// renderedHostPathMounts renders the workload and returns, per volume name, the hostPath source of
+// the pod volume and "mountPath|subPath|readOnly" for every container and init container mount.
+func renderedHostPathMounts(t *testing.T, kind string, ws *v1.Workspace, hostpaths []string,
+	mutate func(*v1.Workload)) (map[string]string, map[string][]string) {
+	t.Helper()
+	obj, workload, spec := renderWorkload(t, kind, ws, hostpaths, mutate)
+	volumes, _, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &spec, "volumes"))
+	assert.NilError(t, err)
+	sources := map[string]string{}
+	for _, vol := range volumes {
+		v := vol.(map[string]interface{})
+		if hp, ok := v["hostPath"].(map[string]interface{}); ok {
+			sources[v["name"].(string)] = hp["path"].(string)
+		}
+	}
+	mounts := map[string][]string{}
+	for _, field := range []string{"containers", "initContainers"} {
+		containers, _, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &spec, field))
+		assert.NilError(t, err)
+		for _, ctr := range containers {
+			ms, _ := ctr.(map[string]interface{})["volumeMounts"].([]interface{})
+			for _, mount := range ms {
+				mm := mount.(map[string]interface{})
+				sub, _ := mm["subPath"].(string)
+				mounts[mm["name"].(string)] = append(mounts[mm["name"].(string)],
+					fmt.Sprintf("%s|%s|%v", mm["mountPath"], sub, mm["readOnly"]))
+			}
+		}
+	}
+	return sources, mounts
+}
+
+// A hostpath entry is mounted through what its volume declares: hostPath/subPath for a volume with
+// a subPath, and for a volume with user directories the directory under it that the entry is in,
+// so a symlink there cannot lead the mount into the user directories. It is read-only when the
+// volume is ReadOnlyMany, so the entry gives the workload no more than the volume does. An entry
+// the workspace does not declare (a sibling of the subPath, a user directory: only the
+// workload/privileged grant admits these) is mounted as named.
+func TestHostPathMountedAsTheVolumeShowsIt(t *testing.T) {
+	sources, mounts := renderedHostPathMounts(t, common.PytorchJobKind, exposedPartWorkspace(), []string{
+		"/data/shared/teamA/x", "/data/rw/y", "/data/home/models/m", "/data/home/users/user-1/z",
+		"/data/shared/teamB", "/data/ro/q",
+	}, nil)
+	want := map[string]struct{ source, mount string }{
+		"hostpath-5":  {"/data/shared/teamA", "/data/shared/teamA/x|x|true"},
+		"hostpath-6":  {"/data/rw", "/data/rw/y|y|false"},
+		"hostpath-7":  {"/data/home/models", "/data/home/models/m|m|false"},
+		"hostpath-8":  {"/data/home/users/user-1/z", "/data/home/users/user-1/z||false"},
+		"hostpath-9":  {"/data/shared/teamB", "/data/shared/teamB||false"},
+		"hostpath-10": {"/data/ro", "/data/ro/q|q|true"},
+	}
+	for name, w := range want {
+		assert.Equal(t, sources[name], w.source, name)
+		assert.Assert(t, len(mounts[name]) > 0, name)
+		for _, m := range mounts[name] {
+			assert.Equal(t, m, w.mount, name)
+		}
+	}
+	// The workspace's own mounts of the same volumes, for comparison.
+	for _, m := range mounts["hostpath-1"] {
+		assert.Equal(t, m, "/team|teamA|true")
+	}
+	for _, m := range mounts["hostpath-2"] {
+		assert.Equal(t, m, "/home/users/user-1|users/user-1|false")
+	}
+
+	// External jobs mount the entry as named, read-only under a read-only volume. Without user
+	// directories for external Pods they are held to the volume's hostPath itself, whatever the
+	// volume declares below it.
+	external := func(w *v1.Workload) {
+		w.Status.ExternalExecution = &v1.WorkloadExternalExecution{ClaimId: "claim-1",
+			Placements: []v1.WorkloadExternalPlacement{{UnitKey: "master/0", NodeName: "vk-1",
+				CPUMillis: 1000, MemoryBytes: 1 << 30}}}
+	}
+	sources, mounts = renderedHostPathMounts(t, common.PytorchJobKind, exposedPartWorkspace(),
+		[]string{"/data/ro", "/data/rw"}, external)
+	assert.Equal(t, sources["hostpath-5"], "/data/ro")
+	assert.Equal(t, sources["hostpath-6"], "/data/rw")
+	assert.Assert(t, len(mounts["hostpath-5"]) > 0 && len(mounts["hostpath-6"]) > 0)
+	for _, m := range mounts["hostpath-5"] {
+		assert.Equal(t, m, "/data/ro||true")
+	}
+	for _, m := range mounts["hostpath-6"] {
+		assert.Equal(t, m, "/data/rw||false")
+	}
+	_, _, _, err := renderWorkloadErr(t, common.PytorchJobKind, exposedPartWorkspace(),
+		[]string{"/data/shared/teamA"}, external)
+	assert.ErrorContains(t, err, `hostpath "/data/shared/teamA" of an external workload is below the declared root "/data/shared"`)
+
+	withUserDirMounts(t, true)
+	sources, mounts = renderedHostPathMounts(t, common.PytorchJobKind, exposedPartWorkspace(),
+		[]string{"/data/shared/teamA/x", "/data/home/models/m"}, external)
+	assert.Equal(t, sources["hostpath-5"], "/data/shared/teamA/x")
+	assert.Equal(t, sources["hostpath-6"], "/data/home/models/m")
+	assert.Assert(t, len(mounts["hostpath-5"]) > 0 && len(mounts["hostpath-6"]) > 0)
+	for _, m := range mounts["hostpath-5"] {
+		assert.Equal(t, m, "/data/shared/teamA/x||true")
+	}
+	for _, m := range mounts["hostpath-6"] {
+		assert.Equal(t, m, "/data/home/models/m||false")
+	}
 }

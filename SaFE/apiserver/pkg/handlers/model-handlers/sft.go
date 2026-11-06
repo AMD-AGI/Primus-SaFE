@@ -20,6 +20,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -239,6 +240,11 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		workload.Spec.Timeout = &timeout
 	}
 
+	// This handler creates the workload itself, so it applies the workload create path's
+	// hostpath rule itself.
+	if err := h.authorizeWorkloadHostPath(ctx, userId, workload); err != nil {
+		return nil, err
+	}
 	if err := h.k8sClient.Create(ctx, workload); err != nil {
 		klog.ErrorS(err, "failed to create SFT workload", "name", workload.Name)
 		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to create workload: %v", err))
@@ -263,6 +269,30 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	return &CreateSftJobResponse{
 		WorkloadId: workload.Name,
 	}, nil
+}
+
+// authorizeWorkloadHostPath applies the hostpath rule of the workload create path to a workload
+// this handler creates directly: host paths the workspace does not declare for the workload's
+// scope need the workload/privileged grant (authority.AccessController.AuthorizeWorkloadHostPath).
+func (h *Handler) authorizeWorkloadHostPath(ctx context.Context, userId string, workload *v1.Workload) error {
+	var workspace *v1.Workspace
+	if len(workload.Spec.Hostpath) > 0 {
+		workspace = &v1.Workspace{}
+		if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: workload.Spec.Workspace}, workspace); err != nil {
+			if k8serrors.IsNotFound(err) || workload.Spec.Workspace == "" {
+				return commonerrors.NewBadRequest(fmt.Sprintf("workspace not found: %q", workload.Spec.Workspace))
+			}
+			return commonerrors.NewInternalError("failed to fetch workspace: " + err.Error())
+		}
+	}
+	if h.accessController == nil {
+		if len(workload.Spec.Hostpath) > 0 {
+			return commonerrors.NewForbidden("the hostpath of the workload cannot be authorized")
+		}
+		return nil
+	}
+	return h.accessController.AuthorizeWorkloadHostPath(
+		authority.AccessInput{Context: ctx, UserId: userId}, workload, workspace)
 }
 
 func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {

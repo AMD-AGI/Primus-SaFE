@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -650,9 +649,9 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		_, subPath := sandboxHostPathSource(workload, workspace, hostpath)
+		_, subPath, readOnly := hostPathSource(workload, workspace, hostpath)
 		volumeMount := buildVolumeMount(volumeName, hostpath, subPath, "",
-			commonworkload.IsSandBox(workload), false)
+			commonworkload.IsSandBox(workload) || readOnly, false)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	sortVolumeMountsByDepth(volumeMounts)
@@ -748,76 +747,49 @@ func workspaceVolumeAppliesTo(vol v1.WorkspaceVolume, workload *v1.Workload) boo
 	return vol.AppliesToScope(commonworkload.GetScope(workload))
 }
 
-// sandboxHostPathSource returns the hostPath volume source and the mount subPath for one of a
-// Sandbox's spec.hostpath entries. Admission accepts only entries under a hostpath volume the
-// workspace declares for sandboxes, but that check is lexical: a symlink under the root could
-// still point anywhere on the node. So the pod mounts the declared root and reaches the entry
-// through subPath, which the kubelet resolves inside the volume and refuses when it escapes it.
-// Other workloads, external pods (whose provider refuses subPath; modifyVolumes refuses their
-// entries below a root unless user directories are mounted for external Pods) and entries under no
-// declared root (sandboxes admitted before roots were enforced) keep the entry as the hostPath source.
-func sandboxHostPathSource(workload *v1.Workload, workspace *v1.Workspace, hostpath string) (string, string) {
-	if !commonworkload.IsSandBox(workload) || isExternalWorkload(workload) {
-		return hostpath, ""
+// hostPathSource returns the hostPath volume source and the mount subPath for one of a workload's
+// spec.hostpath entries, and whether the workspace shows the entry only read-only. Admission lets a
+// workload mount, without the workload/privileged grant, only entries under a root its workspace
+// declares for the workload's scope (commonworkload.DeclaredHostPathRoot: below a hostpath volume's
+// hostPath joined with its subPath, and outside its user directories), but that check is lexical:
+// a symlink under the root, which any workload mounting the root can create, could still point
+// anywhere on the node or into the user directories. So the pod mounts the declared root and
+// reaches the entry through subPath, which the kubelet resolves inside the root and refuses when it
+// escapes it; and the entry is mounted read-only when every volume that declares it is read-only
+// (ReadOnlyMany). External pods (whose provider refuses subPath; modifyVolumes refuses their
+// entries below a volume's hostPath unless user directories are mounted for external Pods) keep the
+// entry as the hostPath source, read-only on the same terms. Entries under no declared root
+// (granted by workload/privileged, or admitted before roots were enforced) keep the entry as the
+// hostPath source.
+func hostPathSource(workload *v1.Workload, workspace *v1.Workspace, hostpath string) (string, string, bool) {
+	declared := commonworkload.DeclaredHostPathRoot(workspace, commonworkload.GetScope(workload), hostpath)
+	switch {
+	case declared.Root == "":
+		return hostpath, "", false
+	case isExternalWorkload(workload):
+		return hostpath, "", declared.ReadOnly
+	default:
+		return declared.Root, declared.Sub, declared.ReadOnly
 	}
-	root, sub := sandboxHostPathRoot(workspace, hostpath)
-	if root == "" {
-		return hostpath, ""
-	}
-	return root, sub
 }
 
-// sandboxHostPathRoot returns the longest hostpath volume root the workspace declares for
-// sandboxes that lexically contains hostpath, and the path below it. It returns an empty root for
-// a relative entry, an entry with "..", or an entry under no such root.
-func sandboxHostPathRoot(workspace *v1.Workspace, hostpath string) (string, string) {
-	if workspace == nil || !filepath.IsAbs(hostpath) {
-		return "", ""
-	}
-	for _, elem := range strings.Split(hostpath, "/") {
-		if elem == ".." {
-			return "", ""
-		}
-	}
-	cleaned := filepath.Clean(hostpath)
-	best := ""
-	for _, vol := range workspace.Spec.Volumes {
-		if vol.Type != v1.HOSTPATH || !vol.AppliesToScope(v1.SandboxScope) {
-			continue
-		}
-		root := strings.TrimSpace(vol.HostPath)
-		if root == "" {
-			continue
-		}
-		root = filepath.Clean(root)
-		if cleaned != root && root != "/" && !strings.HasPrefix(cleaned, root+"/") {
-			continue
-		}
-		if len(root) > len(best) {
-			best = root
-		}
-	}
-	if best == "" {
-		return "", ""
-	}
-	return best, strings.TrimPrefix(strings.TrimPrefix(cleaned, best), "/")
-}
-
-// checkExternalSandboxHostPath refuses an external Sandbox's hostpath entry that lies below a
-// declared sandbox root. The provider refuses subPath, so such an entry could only be mounted as
-// its own hostPath, and a symlink under the root would then reach any path on the node.
+// checkExternalHostPath refuses an external workload's hostpath entry that lies below the hostPath
+// of a hostpath volume of its workspace (commonworkload.HostPathVolumeRoot, the root the provider
+// approves). The provider refuses subPath, so such an entry could only be mounted as its own
+// hostPath, and a symlink under the root would then reach any path on the node.
 //
 // With external_execution.user_dir_mounts on, the provider admits a path below an approved root and
-// mounts it without following symlinks, so such an entry is allowed and mounted, read-only, as its
-// own hostPath; checkExternalPodHostPaths keeps it out of the user directories.
-func checkExternalSandboxHostPath(workload *v1.Workload, workspace *v1.Workspace, hostpath string) error {
-	if !commonworkload.IsSandBox(workload) || !isExternalWorkload(workload) ||
-		commonconfig.IsExternalUserDirMountsEnable() {
+// mounts it without following symlinks, so such an entry is allowed and mounted as its own hostPath
+// (read-only for a Sandbox or under a read-only volume); checkExternalPodHostPaths keeps it out of
+// the user directories.
+func checkExternalHostPath(workload *v1.Workload, workspace *v1.Workspace, hostpath string) error {
+	if !isExternalWorkload(workload) || commonconfig.IsExternalUserDirMountsEnable() {
 		return nil
 	}
-	if root, sub := sandboxHostPathRoot(workspace, hostpath); root != "" && sub != "" {
-		return fmt.Errorf("hostpath %q of an external sandbox is below the "+
-			"declared root %q; an external sandbox can mount only the declared root itself", hostpath, root)
+	root, sub := commonworkload.HostPathVolumeRoot(workspace, commonworkload.GetScope(workload), hostpath)
+	if root != "" && sub != "" {
+		return fmt.Errorf("hostpath %q of an external workload is below the "+
+			"declared root %q; an external workload can mount only the declared root itself", hostpath, root)
 	}
 	return nil
 }
@@ -862,10 +834,10 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		if err = checkExternalSandboxHostPath(workload, workspace, hostpath); err != nil {
+		if err = checkExternalHostPath(workload, workspace, hostpath); err != nil {
 			return err
 		}
-		source, _ := sandboxHostPathSource(workload, workspace, hostpath)
+		source, _, _ := hostPathSource(workload, workspace, hostpath)
 		volumes = append(volumes, buildHostPathVolume(volumeName, source, "Directory"))
 		hasNewVolume = true
 	}
