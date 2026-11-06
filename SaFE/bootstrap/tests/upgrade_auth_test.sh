@@ -256,10 +256,12 @@ expect "release values cannot be read: says so" grep -q 'cannot read the values 
 FAKE_LIST_FAIL=1 run_upgrade "$LIVE_EXTERNAL" ""
 expect "releases cannot be listed: refused" refused
 expect "releases cannot be listed: says so" grep -q 'cannot list the helm releases' "$OUT/log"
-# but an explicit mode needs no reading of the release's values (nor do explicit SSO settings)
+# but an explicit mode needs no reading of the release's values (nor do explicit SSO settings, nor
+# an explicit external_user_dir_mounts)
 FAKE_GET_FAIL=1 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV
 sso_login_enable=false
-sso_bridge_allowlist='[]'"
+sso_bridge_allowlist='[]'
+external_user_dir_mounts=true"
 expect "release values cannot be read, .env has every key: applied" applied
 
 # 10. Values that cannot be used are refused before anything is changed.
@@ -429,6 +431,34 @@ sso_bridge_allowlist='[]'"
 expect "live sso.login and allowlist, dropped on purpose: applied" applied
 expect "live sso.login and allowlist, dropped on purpose: sso.login off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
 expect "live sso.login and allowlist, dropped on purpose: allowlist empty" rendered 'bridge_allowlist: []'
+
+# external_execution.user_dir_mounts: .env wins, otherwise the running release keeps its value, so an
+# upgrade never silently goes back to external Pods mounting a hostpath volume whole.
+UDM_ON='      user_dir_mounts: true'
+UDM_OFF='      user_dir_mounts: false'
+run_upgrade "" ""
+expect "user_dir_mounts, fresh install: applied" applied
+expect "user_dir_mounts, fresh install: chart default false" grep -qxF "$UDM_OFF" "$OUT/rendered.yaml"
+for jqmode in jq nojq; do
+  rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
+  RUN_PATH="${rp:-}" run_upgrade '{"external_execution":{"enabled":true,"user_dir_mounts":true}}' ""
+  expect "$jqmode, live user_dir_mounts on, no .env key: applied" applied
+  expect "$jqmode, live user_dir_mounts on, no .env key: stays on" grep -qxF "$UDM_ON" "$OUT/rendered.yaml"
+  RUN_PATH="${rp:-}" run_upgrade '{"external_execution":{"user_dir_mounts":"true"}}' ""
+  expect "$jqmode, live user_dir_mounts is the string \"true\": stays on" grep -qxF "$UDM_ON" "$OUT/rendered.yaml"
+  RUN_PATH="${rp:-}" run_upgrade '{"external_execution":{"enabled":true}}' ""
+  expect "$jqmode, live release without the value: chart default false" grep -qxF "$UDM_OFF" "$OUT/rendered.yaml"
+done
+run_upgrade '{"external_execution":{"user_dir_mounts":true}}' 'external_user_dir_mounts=false'
+expect "live on, .env external_user_dir_mounts=false: applied" applied
+expect "live on, .env external_user_dir_mounts=false: off on purpose" grep -qxF "$UDM_OFF" "$OUT/rendered.yaml"
+run_upgrade '{"external_execution":{"user_dir_mounts":false}}' 'external_user_dir_mounts=true'
+expect "live off, .env external_user_dir_mounts=true: on" grep -qxF "$UDM_ON" "$OUT/rendered.yaml"
+run_upgrade "" 'external_user_dir_mounts=yes'
+expect "external_user_dir_mounts=yes: refused" refused
+expect "external_user_dir_mounts=yes: names the key" grep -q 'external_user_dir_mounts in .env is' "$OUT/log"
+FAKE_GET_FAIL=1 run_upgrade '{"external_execution":{"user_dir_mounts":true}}' ""
+expect "live user_dir_mounts cannot be read: refused" refused
 
 echo
 if ((FAILS > 0)); then

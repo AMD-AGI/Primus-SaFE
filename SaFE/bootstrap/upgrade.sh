@@ -380,10 +380,58 @@ if [[ -n "${sso_bridge_allowlist+x}" ]]; then
   fi
 fi
 
+# resolve_user_dir_mounts sets USER_DIR_MOUNTS to the external_execution.user_dir_mounts the upgrade
+# renders. external_user_dir_mounts in .env (true or false) wins. Without it the running release keeps
+# its value: helm renders every value from the chart defaults and the files it is given, so a release
+# whose switch was turned on (by hand or by an earlier .env) would go back to the chart's false on the
+# next upgrade, and external Pods would again mount a hostpath volume whole, other users' directories
+# included. A release that cannot be read stops the upgrade rather than guessing.
+resolve_user_dir_mounts() {
+  local releases live
+  USER_DIR_MOUNTS=""
+  if [[ -n "${external_user_dir_mounts:-}" ]]; then
+    if [[ "$external_user_dir_mounts" != "true" && "$external_user_dir_mounts" != "false" ]]; then
+      echo "Error: external_user_dir_mounts in .env is '$external_user_dir_mounts'; set it to true or false" >&2
+      return 1
+    fi
+    USER_DIR_MOUNTS="$external_user_dir_mounts"
+    return 0
+  fi
+  if ! releases=$(helm -n "$NAMESPACE" list); then
+    echo "Error: cannot list the helm releases in $NAMESPACE, so external_execution.user_dir_mounts of the running release is unknown" >&2
+    return 1
+  fi
+  if ! grep -q "^$chart_name " <<<"$releases"; then
+    return 0 # nothing installed yet: the chart default applies
+  fi
+  if command -v jq &> /dev/null; then
+    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o json); then
+      echo "Error: cannot read the values of release $chart_name, so its external_execution.user_dir_mounts is unknown" >&2
+      return 1
+    fi
+    if ! USER_DIR_MOUNTS=$(jq -r '.external_execution.user_dir_mounts // empty | tostring' <<<"$live"); then
+      echo "Error: cannot read external_execution.user_dir_mounts from the values of release $chart_name" >&2
+      return 1
+    fi
+  else
+    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o yaml); then
+      echo "Error: cannot read the values of release $chart_name, so its external_execution.user_dir_mounts is unknown" >&2
+      return 1
+    fi
+    USER_DIR_MOUNTS=$(awk '/^external_execution:/ {a = 1; next} /^[^ #]/ {a = 0} a && /^  user_dir_mounts:/ {gsub(/["\047]/, "", $2); print $2; exit}' <<<"$live")
+  fi
+  # helm keeps a value set with --set-string as a string; anything but true or false is the chart default.
+  if [[ "$USER_DIR_MOUNTS" != "true" && "$USER_DIR_MOUNTS" != "false" ]]; then
+    USER_DIR_MOUNTS=""
+  fi
+}
+
 # Before anything is changed: an upgrade must not silently turn the external authentication off.
 check_live_auth
 # ... and must not silently turn the console's sign-in at the OIDC provider, or the SSO bridge, off.
 check_live_sso
+# ... and must not silently turn the per-user directories of external Pods off.
+resolve_user_dir_mounts || exit 1
 
 echo
 
@@ -495,6 +543,9 @@ fi
 # Prefer external_enable; keep external_execution_enabled as an alias.
 if [[ -n "${external_enable:-${external_execution_enabled:-}}" ]]; then
   sed -i '/^external_execution:/,/^[a-z]/ s/enabled: .*/enabled: '"${external_enable:-$external_execution_enabled}"'/' "$values_yaml"
+fi
+if [[ -n "$USER_DIR_MOUNTS" ]]; then
+  sed -i '/^external_execution:/,/^[a-z]/ s/user_dir_mounts: .*/user_dir_mounts: '"$USER_DIR_MOUNTS"'/' "$values_yaml"
 fi
 
 # Configure metrics port if defined in .env
