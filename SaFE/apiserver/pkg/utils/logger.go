@@ -20,10 +20,13 @@ import (
 
 // Logger returns a Gin middleware function that logs HTTP request and response information.
 // It captures request details, response status, latency, and any errors that occurred during processing.
-// The log entries are formatted and written using klog, with automatic flushing after each request.
+// The log entries are formatted and written using klog.
+//
+// It does not flush klog: a flush syncs every log file to disk, and this middleware returns before
+// net/http sends a small response, so each response waited for that sync, seconds on a busy disk.
+// klog's flush daemon writes the buffered entries every few seconds, and the server flushes on exit.
 func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		defer klog.Flush()
 		start := time.Now().UTC()
 		path := c.Request.URL.Path
 		raw := c.Request.URL.RawQuery
