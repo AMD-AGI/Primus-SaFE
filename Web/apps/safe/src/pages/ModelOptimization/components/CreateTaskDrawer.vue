@@ -36,6 +36,27 @@
           </el-form-item>
 
 
+          <el-form-item label="Workspace" prop="workspace">
+            <el-select
+              v-model="form.workspace"
+              filterable
+              placeholder="Select a workspace"
+              style="width: 100%"
+              :loading="workspacesLoading"
+              @change="submitError = ''"
+            >
+              <el-option
+                v-for="w in workspaceOptions"
+                :key="w.id"
+                :label="w.label"
+                :value="w.id"
+              />
+            </el-select>
+            <div v-if="!workspacesLoading && workspaceOptions.length === 0" class="form-hint">
+              You are not a member of any workspace. Ask a workspace manager to add you.
+            </div>
+          </el-form-item>
+
           <el-form-item label="Display Name" prop="displayName">
             <el-input v-model="form.displayName" placeholder="Optional display name" />
           </el-form-item>
@@ -181,6 +202,14 @@
     </div>
 
     <template #footer>
+      <el-alert
+        v-if="submitError"
+        class="submit-error"
+        type="error"
+        :title="submitError"
+        :closable="false"
+        show-icon
+      />
       <el-button @click="handleClose">Cancel</el-button>
       <el-button type="primary" :loading="submitting" @click="handleSubmit">
         Create Task
@@ -193,10 +222,11 @@
 import { ref, reactive, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { createOptimizationTask } from '@/services/model-optimization'
 import type { CreateOptimizationTaskPayload } from '@/services/model-optimization/type'
 import { getModelsList } from '@/services/playground'
 import { useRouter } from 'vue-router'
+import { newTaskForm } from './taskWorkspace'
+import { useTaskWorkspaces } from './useTaskWorkspaces'
 
 const FRAMEWORK_OPTIONS = ['sglang', 'vllm']
 const PRECISION_OPTIONS = ['FP4', 'FP8', 'INT4', 'BF16']
@@ -220,39 +250,26 @@ const submitting = ref(false)
 const modelsLoading = ref(false)
 const readyModels = ref<Array<{ id: string; displayName: string }>>([])
 
-const defaultForm = (): CreateOptimizationTaskPayload => ({
-  modelId: '',
-  workspace: 'core42-sandbox',
-  displayName: '',
-  mode: 'local',
-  framework: 'sglang',
-  precision: 'FP4',
-  tp: 1,
-  ep: 1,
-  gpuType: 'MI355X',
-  isl: 1024,
-  osl: 1024,
-  concurrency: 64,
-  kernelBackends: ['Claude Code'],
-  geakStepLimit: 100,
-  image: '',
-  resultsPath: '/workspace/hyperloom/',
-  rayReplica: 1,
-  rayGpu: 1,
-  rayCpu: 32,
-  rayMemory: 128,
-})
-
-const form = reactive(defaultForm())
+const form = reactive<CreateOptimizationTaskPayload>(newTaskForm(''))
+const {
+  loading: workspacesLoading,
+  options: workspaceOptions,
+  submitError,
+  load: loadWorkspaces,
+  submit,
+} = useTaskWorkspaces(form)
 
 const rules: FormRules = {
   modelId: [{ required: true, message: 'Please select a model', trigger: 'change' }],
+  workspace: [{ required: true, message: 'Please select a workspace', trigger: 'change' }],
 }
 
 watch(() => props.visible, (v) => {
   if (v) {
-    Object.assign(form, defaultForm())
+    Object.assign(form, newTaskForm(''))
+    submitError.value = ''
     loadModels()
+    loadWorkspaces()
   }
 })
 
@@ -290,17 +307,15 @@ const handleSubmit = async () => {
 
   submitting.value = true
   try {
-    const payload: CreateOptimizationTaskPayload = { ...form }
-    if (!payload.image) delete payload.image
-    if (!payload.displayName) delete payload.displayName
-
-    const task = await createOptimizationTask(payload)
+    const { task, error } = await submit()
+    if (!task) {
+      if (!submitError.value) ElMessage.error(error)
+      return
+    }
     ElMessage.success('Task created')
     emit('update:visible', false)
     emit('success')
     router.push(`/model-optimization/${task.id}`)
-  } catch (e: any) {
-    ElMessage.error(e?.message || 'Failed to create task')
   } finally {
     submitting.value = false
   }
@@ -337,5 +352,14 @@ const handleSubmit = async () => {
 }
 .w-full {
   width: 100%;
+}
+.form-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.submit-error {
+  margin-bottom: 12px;
+  text-align: left;
 }
 </style>

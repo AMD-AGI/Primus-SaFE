@@ -16,8 +16,13 @@ export const listOptimizationTasks = (params?: OptimizationTaskParams): Promise<
 export const getOptimizationTask = (id: string): Promise<OptimizationTask> =>
   request.get(`${BASE}/tasks/${id}`)
 
-export const createOptimizationTask = (data: CreateOptimizationTaskPayload): Promise<OptimizationTask> =>
-  request.post(`${BASE}/tasks`, data)
+// With `quiet` a failure is left to the caller (no toast) and rejects with the raw error, so the
+// form can say why a workspace was refused.
+export const createOptimizationTask = (
+  data: CreateOptimizationTaskPayload,
+  quiet = false,
+): Promise<OptimizationTask> =>
+  request.post(`${BASE}/tasks`, data, quiet ? { skipErrorHandler: true } : undefined)
 
 export const batchCreateOptimizationTasks = (data: { tasks: CreateOptimizationTaskPayload[] }): Promise<any> =>
   request.post(`${BASE}/tasks/batch`, data)
