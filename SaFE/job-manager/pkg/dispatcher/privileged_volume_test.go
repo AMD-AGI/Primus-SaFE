@@ -93,3 +93,34 @@ func TestPrivilegedVolumeMarkKeepsScopes(t *testing.T) {
 		assert.Equal(t, getNfsPathFromWorkspace(workload, ws), wantNfs, "kind %s mark %q", tt.kind, tt.mark)
 	}
 }
+
+// A hostpath entry that reaches a volume requiring the grant is not mounted into a workload whose
+// creator was not found to hold it (a workload created before the volume required the grant
+// keeps such an entry): dispatching fails with the reason. The apiserver's hostpath grant mark, or
+// a privileged workload, mounts it.
+func TestPrivilegedVolumeHostPathNotRenderedWithoutTheGrant(t *testing.T) {
+	ws := func() *v1.Workspace {
+		ws := scopedWorkspace(nil)
+		ws.Spec.Volumes[1].RequiresPrivilegedGrant = true // hostpath-2 over /apps
+		return ws
+	}
+	for _, hostpath := range []string{"/apps", "/apps/keys", "/"} {
+		_, _, _, err := renderWorkloadErr(t, common.PytorchJobKind, ws(), []string{hostpath}, nil)
+		assert.ErrorContains(t, err, "requiresPrivilegedGrant")
+		assert.ErrorContains(t, err, `"`+hostpath+`"`)
+	}
+	_, _, _, err := renderWorkloadErr(t, common.PytorchJobKind, ws(), []string{"/opt/extra"}, nil)
+	assert.NilError(t, err)
+
+	for _, mark := range []string{v1.WorkloadHostPathAuthzAnnotation, v1.WorkloadPrivilegedAnnotation} {
+		_, _, _, err = renderWorkloadErr(t, common.PytorchJobKind, ws(), []string{"/apps/keys"},
+			func(w *v1.Workload) { metav1.SetMetaDataAnnotation(&w.ObjectMeta, mark, v1.TrueStr) })
+		assert.NilError(t, err, mark)
+	}
+	// The privileged-volume mark alone is not the hostpath grant.
+	_, _, _, err = renderWorkloadErr(t, common.PytorchJobKind, ws(), []string{"/apps/keys"},
+		func(w *v1.Workload) {
+			metav1.SetMetaDataAnnotation(&w.ObjectMeta, v1.WorkloadPrivilegedVolumesAuthzAnnotation, v1.TrueStr)
+		})
+	assert.ErrorContains(t, err, "requiresPrivilegedGrant")
+}

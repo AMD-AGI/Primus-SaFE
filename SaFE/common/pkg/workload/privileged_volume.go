@@ -12,6 +12,10 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
+// WorkloadPrivilegedGrant names, in messages, the grant the volumes with requiresPrivilegedGrant
+// take: the workload/privileged resource of the workspace's roles.
+const WorkloadPrivilegedGrant = "workload/privileged"
+
 // HasPrivilegedVolumesGrant reports whether the apiserver found, when the workload was created,
 // that its creator held the workload/privileged grant in the workspace, so that the volumes of the
 // workspace with requiresPrivilegedGrant are mounted into it.
