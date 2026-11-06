@@ -242,9 +242,10 @@ type FrameworkSpec struct {
 
 // Lora lists the modules a spec allows LoRA on.
 type Lora struct {
-	Targets               []string `json:"targets"`
-	ExpertTargets         []string `json:"expertTargets,omitempty"`
-	AdapterOnlyCheckpoint bool     `json:"adapterOnlyCheckpoint,omitempty"`
+	Targets       []string `json:"targets"`
+	ExpertTargets []string `json:"expertTargets,omitempty"`
+	// AdapterOnlyCheckpoint makes every LoRA run of the spec save only the adapters and their optimizer state.
+	AdapterOnlyCheckpoint bool `json:"adapterOnlyCheckpoint,omitempty"`
 }
 
 // Rollout lists the RL rollout options a spec allows.

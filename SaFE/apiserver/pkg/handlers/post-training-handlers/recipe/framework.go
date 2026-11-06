@@ -575,6 +575,13 @@ func FrameworkOptions(in *Input) (*Options, string) {
 		}
 	}
 	opts := plugin.Options(ctx)
+	if l := ctx.FrameworkSpec.Lora; l != nil && l.AdapterOnlyCheckpoint && ctx.Request.Method == registry.MethodLora {
+		if opts.Fields == nil {
+			opts.Fields = map[string]FieldOptions{}
+		}
+		opts.Fields["lora.adapterOnlyCheckpoint"] = FieldOptions{Disabled: true,
+			Reason: ctx.Spec.Name + " keeps only the adapters in its checkpoints"}
+	}
 	if f := ctx.FrameworkSpec.Freeze; f != nil && f.Allowed && ctx.Request.Method == registry.MethodFull {
 		req := ctx.Request
 		sep := separate(req) || (req.TrainType == registry.TrainTypeRL && ctx.FrameworkSpec.Rollout != nil &&
@@ -635,6 +642,7 @@ func resolve(in *Input, res *Result) (*Context, Framework, *registry.Framework) 
 		return nil, nil, nil
 	}
 	applyFreezeDefault(req, fs)
+	applyAdapterOnly(req, fs)
 	return &Context{Input: in, Request: req, Spec: spec, FrameworkSpec: fs, Image: img, Arch: arch,
 		Layout: layoutOf(req), CustomImage: custom}, plugin, fw
 }
@@ -647,6 +655,20 @@ func applyFreezeDefault(req *SubmitRequest, fs *registry.FrameworkSpec) {
 		return
 	}
 	req.Choices.Freeze = &FreezeChoice{TrainOnly: append([]string(nil), f.Default...)}
+}
+
+// applyAdapterOnly gives a LoRA request on a spec whose checkpoints keep only the adapters adapter-only
+// checkpoints, so the image check and the recipe see them.
+func applyAdapterOnly(req *SubmitRequest, fs *registry.FrameworkSpec) {
+	if req.Method != registry.MethodLora || fs.Lora == nil || !fs.Lora.AdapterOnlyCheckpoint {
+		return
+	}
+	l := LoraChoice{}
+	if req.Choices.Lora != nil {
+		l = *req.Choices.Lora
+	}
+	l.AdapterOnlyCheckpoint = true
+	req.Choices.Lora = &l
 }
 
 // selectImage picks the image of a request: the default image of the framework and architecture, or the named one.
