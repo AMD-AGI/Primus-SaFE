@@ -150,13 +150,13 @@ var (
 func taskRoutes() []taskRoute {
 	noDB := func(*mock_client.MockInterface) {}
 	return []taskRoute{{
-		name: "get", call: (*Handler).GetTask, verb: v1.GetVerb, allowed: taskReaders, expect: noDB,
+		name: "get", call: (*Handler).GetTask, verb: v1.ListVerb, allowed: taskReaders, expect: noDB,
 		served: func(t *testing.T, code int, body string, _ int32) {
 			require.Equal(t, http.StatusOK, code, body)
 			require.Contains(t, body, authzTaskID)
 		},
 	}, {
-		name: "events", call: (*Handler).StreamEvents, verb: v1.GetVerb, allowed: taskReaders,
+		name: "events", call: (*Handler).StreamEvents, verb: v1.ListVerb, allowed: taskReaders,
 		expect: func(db *mock_client.MockInterface) {
 			db.EXPECT().ListOptimizationEvents(gomock.Any(), authzTaskID, int64(0), gomock.Any()).Return(nil, nil)
 		},
@@ -165,13 +165,13 @@ func taskRoutes() []taskRoute {
 			require.Contains(t, body, "event: done")
 		},
 	}, {
-		name: "artifacts", call: (*Handler).ListArtifacts, verb: v1.GetVerb, allowed: taskReaders, expect: noDB,
+		name: "artifacts", call: (*Handler).ListArtifacts, verb: v1.ListVerb, allowed: taskReaders, expect: noDB,
 		served: func(t *testing.T, code int, body string, clawCalls int32) {
 			require.Equal(t, http.StatusOK, code, body)
 			require.Positive(t, clawCalls)
 		},
 	}, {
-		name: "download", call: (*Handler).DownloadArtifact, target: "?path=out.txt", verb: v1.GetVerb,
+		name: "download", call: (*Handler).DownloadArtifact, target: "?path=out.txt", verb: v1.ListVerb,
 		allowed: taskReaders, expect: noDB,
 		served: func(t *testing.T, code int, body string, clawCalls int32) {
 			require.Equal(t, http.StatusOK, code, body)
@@ -180,7 +180,7 @@ func taskRoutes() []taskRoute {
 	}, {
 		// Reading the task is all this change checks for apply; the model lookup that follows
 		// fails here, which shows the request got past the check.
-		name: "apply", call: (*Handler).ApplyTask, verb: v1.GetVerb, allowed: taskReaders,
+		name: "apply", call: (*Handler).ApplyTask, verb: v1.ListVerb, allowed: taskReaders,
 		expect: func(db *mock_client.MockInterface) {
 			db.EXPECT().GetModelByID(gomock.Any(), "model-1").Return(nil, errors.New("model lookup reached"))
 		},

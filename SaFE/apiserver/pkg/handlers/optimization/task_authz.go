@@ -25,9 +25,9 @@ import (
 // administrator may do everything; a member of the task's workspace and a read-only system
 // administrator may read it; nobody else may see it.
 //
-// Each route uses the verb the workload route that does the same thing uses:
+// Each route uses the verb the workload route that does the same thing uses, except reading:
 //
-//	read the task, its events or artifacts, or apply it   get     (GET /workloads/:name)
+//	read the task, its events or artifacts, or apply it   list    (GET /workloads?workspaceId=)
 //	interrupt it                                          delete  (POST /workloads/:name/stop)
 //	retry it                                              resume  (POST /workloads/:name/resume)
 //	delete it                                             delete  (DELETE /workloads/:name)
@@ -40,6 +40,12 @@ import (
 // (#844) makes first. The route builds no SaFE workload itself (the sandbox is requested from
 // Claw), so that function's priority and privileged checks have nothing to apply to here.
 
+// Reading a task is checked as listing the workloads of its workspace, not as getting the
+// task's workload: get on a workload also returns its env (often the owner's credentials) and
+// opens its pod logs and SSH, which the built-in default role keeps to the owner, while members
+// of the workspace may read its tasks. With the built-in roles the readers are unchanged: the
+// submitter, members and managers of the task's workspace, and system administrators.
+
 const accessControllerMissing = "the access controller is not initialized"
 
 // authorizeTask checks that the request user may perform verb on the task.
@@ -50,6 +56,9 @@ func (h *Handler) authorizeTask(c *gin.Context, task *dbclient.OptimizationTask,
 	var workspaces []string
 	if task.Workspace != "" {
 		workspaces = []string{task.Workspace}
+	}
+	if verb == v1.GetVerb {
+		verb = v1.ListVerb
 	}
 	return h.accessCtrl.Authorize(authority.AccessInput{
 		Context:       c.Request.Context(),

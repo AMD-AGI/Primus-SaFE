@@ -66,6 +66,9 @@ rules:
     - update
     - delete
     - resume
+# Members create and list workloads in their workspaces but do not get another member's workload:
+# get returns the workload's env (often the owner's credentials) and also authorizes its pod
+# logs, service and SSH/webshell. The owner rule above keeps get for one's own workloads.
 - resources:
     - workload
     - workload/low-priority
@@ -74,7 +77,6 @@ rules:
     - workspace-user
   verbs:
     - create
-    - get
     - list
 # Members read the nodes of their workspaces and change none of them. Changing a node (taints,
 # labels, flavor, address, provisioning retry, delete) takes a role that grants it on every node,
