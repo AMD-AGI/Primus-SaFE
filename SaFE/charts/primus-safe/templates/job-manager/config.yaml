@@ -98,6 +98,8 @@ data:
       enabled: {{ default false (default dict .Values.external_execution).enabled }}
       observation_max_age_seconds: {{ default 120 (default dict .Values.external_execution).observation_max_age_seconds }}
       workspace_resync_seconds: {{ default 30 (default dict .Values.external_execution).workspace_resync_seconds }}
+      # Off by default: external Pods mount a hostpath volume whole, as before.
+      user_dir_mounts: {{ default false (default dict .Values.external_execution).user_dir_mounts }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-job-manager

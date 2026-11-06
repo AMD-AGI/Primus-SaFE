@@ -198,6 +198,34 @@ spec:
                         selector is a label query over volumes to consider for binding.
                         It cannot be used together with storageClass. If both are set, the selector takes priority
                       type: object
+                    sharedPaths:
+                      description: |-
+                        The directories of a hostpath volume that the workspace's users share, such as model and
+                        cache directories. They are used only when the job-manager mounts user directories for
+                        external Pods (external_execution.user_dir_mounts): an external Pod then mounts its own user
+                        directory (with enableUserDir) and these directories, each at the path it has below
+                        mountPath, instead of the whole volume. Pods on the cluster's own nodes are not affected.
+                      items:
+                        description: WorkspaceSharedPath is a directory of a hostpath
+                          workspace volume that the workspace's users share.
+                        properties:
+                          path:
+                            description: |-
+                              The directory, relative to the volume's root: hostPath (and subPath, when set) on the node,
+                              mountPath in the container. For example "models" is mounted from {hostPath}/models at
+                              {mountPath}/models. It must be a clean relative path without "..", and with enableUserDir it
+                              may not be "users" or lie under it.
+                            type: string
+                          readOnly:
+                            description: Mount the directory read-only.
+                            type: boolean
+                        required:
+                        - path
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - path
+                      x-kubernetes-list-type: map
                     storageClass:
                       description: Responsible for automatic PV creation
                       type: string

@@ -491,6 +491,16 @@ external_execution:
   # Bounds how long an external workspace goes without a reconcile, so a stale observation
   # is noticed well before the controller's own fifteen minute backstop.
   workspace_resync_seconds: 30
+  # When true, an external Pod mounts from a hostpath workspace volume with enableUserDir or
+  # sharedPaths only its own user directory (read-write, at <mountPath>/users/<user id>, which
+  # is still USER_DATA_PATH) and the volume's sharedPaths, each at the same path, instead of
+  # the whole volume. A Sandbox that does not use workspace storage gets neither; its
+  # spec.hostpath entries below a declared root are mounted read-only as their own hostPath.
+  # Enable it only after the external provider (Autopilot) is released with sub-path
+  # admission: it must admit a hostPath below an approved root, mount it without following
+  # symlinks, and admit <root>/users/<id> only for Pods whose creator is <id>. Before that,
+  # the provider refuses these Pods. Set the workspace's sharedPaths first.
+  user_dir_mounts: false
 workload:
   # Seconds to keep a finished workload before TTL deletion.
   ttl_second: 60
