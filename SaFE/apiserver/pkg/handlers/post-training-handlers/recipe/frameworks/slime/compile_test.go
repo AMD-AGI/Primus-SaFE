@@ -233,6 +233,19 @@ func TestCompileRewards(t *testing.T) {
 		in.Request.Choices = *c
 		require.Contains(t, errorsOf(in), want)
 	}
+	for _, u := range []string{"http://localhost:8000/s", "http://RM.localhost./s", "http://127.0.0.1/s",
+		"http://[::1]:8000/s", "http://0.0.0.0:8000/s", "http://169.254.169.254/latest/meta-data",
+		"http://[fe80::1%25eth0]/s", "http://metadata.google.internal/computeMetadata/v1", "http://[fd00:ec2::254]/s",
+		"http://100.100.100.200/s", "http://[::ffff:169.254.169.254]/s", "http://2130706433/s", "http://0x7f.1/s",
+		"http://0177.0.0.1/s", "http://224.0.0.1/s"} {
+		in.Request.Choices = recipe.Choices{RewardType: "remote", RewardRemote: &recipe.RewardRemote{URL: u}}
+		require.Contains(t, errorsOf(in), "cannot be on a loopback, link-local, metadata", u)
+	}
+	for _, u := range []string{"http://10.0.0.5:8000/score", "https://cafe.babe/score", "http://0x7f.svc/s",
+		"http://rm.ws.svc.cluster.local:8000/score"} {
+		args, _ = argsOf(recipe.Choices{RewardType: "remote", RewardRemote: &recipe.RewardRemote{URL: u}})
+		require.Contains(t, args, "--rm-url "+u, "private addresses and cluster names stay allowed")
+	}
 	in.Request.Choices = recipe.Choices{}
 	in.Dataset.Fields = []string{"prompt", "answer"}
 	require.Contains(t, errorsOf(in), "the dataset has no label field")
