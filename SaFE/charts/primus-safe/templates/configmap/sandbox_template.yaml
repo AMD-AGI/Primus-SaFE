@@ -130,7 +130,9 @@ data:
                 if [ -f "$f" ]; then
                   umask 077
                   cp "$f" /run/signing-key/signing-key.pem
-                  chown 1000:1000 /run/signing-key/signing-key.pem
+                  if ! chown 1000:1000 /run/signing-key/signing-key.pem; then
+                    { read -r first outside ids && ! read -r more; } < /proc/self/uid_map && [ "$first" = 0 ] && [ "$ids" = 1 ] || exit 1
+                  fi
                   chmod 0400 /run/signing-key/signing-key.pem
                   break
                 fi

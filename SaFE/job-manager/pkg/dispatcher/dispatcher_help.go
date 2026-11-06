@@ -58,6 +58,11 @@ const (
 	envdBinMount   = "/shared/bin"
 	// envdInjectorScript copies the envd binary into the shared volume. It is the
 	// Sandbox template's envd-injector script; a test keeps the two in step.
+	// The signing key goes to uid 1000. A user namespace that maps one uid has
+	// no uid 1000: that is the root-mapped namespace apptainer --fakeroot gives
+	// a root container on an Autopilot user-mode node, where every container of
+	// the Pod runs as that one root and reads the key as its owner. Only there
+	// may the chown fail.
 	envdInjectorScript = `set -e
 cp /envd /shared/bin/envd
 cp /tmux /shared/bin/tmux 2>/dev/null || true
@@ -73,7 +78,9 @@ for f in /etc/secrets/*/signing-key.pem; do
   if [ -f "$f" ]; then
     umask 077
     cp "$f" /run/signing-key/signing-key.pem
-    chown 1000:1000 /run/signing-key/signing-key.pem
+    if ! chown 1000:1000 /run/signing-key/signing-key.pem; then
+      { read -r first outside ids && ! read -r more; } < /proc/self/uid_map && [ "$first" = 0 ] && [ "$ids" = 1 ] || exit 1
+    fi
     chmod 0400 /run/signing-key/signing-key.pem
     break
   fi
