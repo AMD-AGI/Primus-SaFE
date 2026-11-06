@@ -194,5 +194,8 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		noAuthGroup.POST("/users", middleware.Audit("user", "register"), h.CreateUser)
 		noAuthGroup.GET("/envs", h.GetEnvs)
 		noAuthGroup.POST("/auth/verify", authority.VerifyToken)
+		// Operations other SaFE services perform for a user (e.g. API keys, served by the identity service) are
+		// reported here; the handler admits only the internal service token.
+		noAuthGroup.POST("/auditlogs", h.CreateAuditLog)
 	}
 }

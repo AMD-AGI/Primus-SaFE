@@ -79,3 +79,37 @@ type AuditLogItem struct {
 	// CreateTime is when the audit log was created (RFC3339 format)
 	CreateTime string `json:"createTime"`
 }
+
+// CreateAuditLogRequest is one operation that another SaFE service performed for a user and that belongs in SaFE's
+// audit log (POST /api/v1/auditlogs, internal services only). The fields are those of AuditLogItem; CreateTime is
+// when the operation happened (RFC3339), not when it is reported.
+type CreateAuditLogRequest struct {
+	// UserId is the ID of the user who performed the operation (required)
+	UserId string `json:"userId"`
+	// UserName is the name of the user who performed the operation
+	UserName string `json:"userName"`
+	// UserType is the type of user (e.g., "default", "sso")
+	UserType string `json:"userType"`
+	// ClientIP is the IP address of the client
+	ClientIP string `json:"clientIp"`
+	// HttpMethod is the HTTP method of the operation (required, e.g., "POST")
+	HttpMethod string `json:"httpMethod"`
+	// RequestPath is the URL path of the operation (required, starts with "/")
+	RequestPath string `json:"requestPath"`
+	// ResourceType is the type of resource operated on (e.g., "apikey")
+	ResourceType string `json:"resourceType"`
+	// Action is the operation with its resource type (e.g., "create apikey")
+	Action string `json:"action"`
+	// RequestBody is the request body; credentials in it are redacted before it is stored
+	RequestBody string `json:"requestBody"`
+	// ResponseStatus is the HTTP status the operation was answered with (required)
+	ResponseStatus int `json:"responseStatus"`
+	// ResponseBody is the response body; credentials in it are redacted before it is stored
+	ResponseBody string `json:"responseBody"`
+	// LatencyMs is how long the operation took, in milliseconds
+	LatencyMs int64 `json:"latencyMs"`
+	// TraceId is the distributed tracing ID
+	TraceId string `json:"traceId"`
+	// CreateTime is when the operation happened (required, RFC3339)
+	CreateTime string `json:"createTime"`
+}

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Audit Log API provides read-only access to system operation records for security compliance and operational monitoring. All write operations (POST, PUT, PATCH, DELETE) in the system are automatically recorded, enabling administrators to track user activities, investigate security incidents, and maintain compliance audit trails.
+The Audit Log API provides access to system operation records for security compliance and operational monitoring. All write operations (POST, PUT, PATCH, DELETE) in the system are automatically recorded, enabling administrators to track user activities, investigate security incidents, and maintain compliance audit trails.
 
 ### Core Concepts
 
@@ -130,6 +130,57 @@ GET /api/v1/auditlogs?userName=admin&resourceType=workloads&httpMethod=DELETE&li
 | items[].latencyMs | int64 | Request processing time in milliseconds |
 | items[].traceId | string | Distributed tracing ID |
 | items[].createTime | string | Timestamp when the operation occurred (RFC3339) |
+
+### Record an Operation (internal services)
+
+Another SaFE service that performs a write operation for a user reports it here, so that the audit log stays the one
+place an administrator reads. The API key routes (`/api/v1/apikeys`), for example, are served by the identity service,
+which reports every create and delete it answers.
+
+**Endpoint**: `POST /api/v1/auditlogs`
+
+**Authentication Required**: the internal service token in `X-Internal-Token` (Secret `apiserver-internal-auth`, key
+`token`). A user's session or API key is refused with `403`.
+
+**Request Body**: one operation, with the fields of an audit log entry.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| userId | string | Yes | ID of the user who performed the operation (at most 64 characters) |
+| userName | string | No | Display name of the user (at most 256) |
+| userType | string | No | User type, e.g. `default`, `sso` (at most 32) |
+| clientIp | string | No | Address the user's request came from (at most 64) |
+| httpMethod | string | Yes | Upper-case HTTP method, e.g. `POST` |
+| requestPath | string | Yes | Request path, starting with `/` (at most 512) |
+| resourceType | string | No | Resource type, e.g. `apikey` (at most 64) |
+| action | string | No | Action, e.g. `create apikey` (at most 64) |
+| requestBody | string | No | Request body; credentials are redacted and the body is cut at 8KB, as for the operations SaFE records itself |
+| responseStatus | int | Yes | HTTP status the operation was answered with (100-599) |
+| responseBody | string | No | Response body, redacted and cut the same way |
+| latencyMs | int64 | No | Processing time in milliseconds |
+| traceId | string | No | Distributed tracing ID (at most 64) |
+| createTime | string | Yes | When the operation happened (RFC3339), at most 5 minutes ahead of the apiserver's clock |
+
+```json
+{
+  "userId": "a01e7b83f5661e327503f0eacbfef97d",
+  "userName": "zhangsan",
+  "userType": "sso",
+  "clientIp": "10.176.17.167",
+  "httpMethod": "POST",
+  "requestPath": "/api/v1/apikeys",
+  "resourceType": "apikey",
+  "action": "create apikey",
+  "requestBody": "{\"name\":\"ci\",\"ttlDays\":30}",
+  "responseStatus": 200,
+  "latencyMs": 12,
+  "createTime": "2026-11-06T10:00:00Z"
+}
+```
+
+**Response**: `200` with `null` once the entry is stored; the caller may then forget it. A value an entry cannot hold
+is refused with `400` (nothing is cut silently), a body over 64KB with `413`, and a failed database write with `500`,
+after which the caller should report the operation again.
 
 ---
 
