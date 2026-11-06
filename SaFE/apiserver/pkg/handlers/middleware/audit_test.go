@@ -373,3 +373,26 @@ func TestWriteBatchEmpty(t *testing.T) {
 	b := &auditLogBuffer{}
 	b.writeBatch(nil)
 }
+
+// TestSanitizeBodyRedactsURLPasswords: a string value that is a URL with a password in it is
+// redacted whatever its key, as the workload env shown to non-owners masks it, so a
+// DATABASE_URL in a workload create, resume or PATCH body does not reach the audit log.
+func TestSanitizeBodyRedactsURLPasswords(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{`{"env":{"DATABASE_URL":"postgres://app:hunter2@db:5432/x","MODE":"x"}}`,
+			`{"env":{"DATABASE_URL": "[REDACTED]","MODE":"x"}}`},
+		{`{"env":{"DATABASE_URL":"postgres:\/\/app:hunter2@db\/x"}}`,
+			`{"env":{"DATABASE_URL": "[REDACTED]"}}`},
+		{`{"env":{"PROXY_URL":"http://proxy:3128","REPO":"https://github.com/a/b"}}`,
+			`{"env":{"PROXY_URL":"http://proxy:3128","REPO":"https://github.com/a/b"}}`},
+	}
+	for _, c := range cases {
+		got := sanitizeBody(c.in)
+		if got != c.want {
+			t.Errorf("sanitizeBody(%s) = %s, want %s", c.in, got, c.want)
+		}
+		if strings.Contains(got, "hunter2") {
+			t.Errorf("password left in %s", got)
+		}
+	}
+}

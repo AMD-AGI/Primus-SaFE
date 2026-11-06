@@ -351,11 +351,21 @@ func isInvalidTraceId(traceId string) bool {
 
 // jsonStringMember matches a JSON object member whose value is a string: "<key>": "<value>".
 // Key and value honour escapes, and a value cut off by truncation (no closing quote) matches too.
-var jsonStringMember = regexp.MustCompile(`"((?:[^"\\]|\\.)*)"\s*:\s*"(?:[^"\\]|\\.)*(?:"|\\?$)`)
+var jsonStringMember = regexp.MustCompile(`"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]|\\.)*)(?:"|\\?$)`)
 
 // sensitiveKeyName matches a key that names a credential, in any case and as part of a longer
 // name (workload env such as ANTHROPIC_API_KEY or AUTH_TOKEN).
 var sensitiveKeyName = regexp.MustCompile(`(?i)key|token|secret|passw(?:or)?d|credential`)
+
+// urlWithPassword matches a URL that carries a password (scheme://user:password@host).
+var urlWithPassword = regexp.MustCompile(`://[^/\s:@]+:[^/\s@]+@`)
+
+// HasURLPassword reports whether a value is, or contains, a URL with a password in it
+// (postgres://user:password@host/db). The audit log and the workload env shown to
+// callers who are not its owner treat such a value as a credential whatever its name.
+func HasURLPassword(value string) bool {
+	return urlWithPassword.MatchString(value)
+}
 
 // IsCredentialName reports whether a key or environment variable name names a
 // credential: it contains key, token, secret, password, passwd or credential, in
@@ -367,17 +377,22 @@ func IsCredentialName(name string) bool {
 }
 
 // redactSensitiveJSONMembers replaces the string value of every member whose key, once its JSON
-// escapes are decoded (so "API_\u004bEY" counts as API_KEY), names a credential. The key is kept,
-// so the body stays valid JSON.
+// escapes are decoded (so "API_\u004bEY" counts as API_KEY), names a credential, or whose value
+// is a URL with a password in it (DATABASE_URL). The key is kept, so the body stays valid JSON.
 func redactSensitiveJSONMembers(body string) string {
 	return jsonStringMember.ReplaceAllStringFunc(body, func(member string) string {
-		rawKey := jsonStringMember.FindStringSubmatch(member)[1]
+		groups := jsonStringMember.FindStringSubmatch(member)
+		rawKey, rawValue := groups[1], groups[2]
 		key := rawKey
 		var decoded string
 		if err := json.Unmarshal([]byte(`"`+rawKey+`"`), &decoded); err == nil {
 			key = decoded
 		}
-		if !sensitiveKeyName.MatchString(key) {
+		value := rawValue
+		if err := json.Unmarshal([]byte(`"`+rawValue+`"`), &decoded); err == nil {
+			value = decoded
+		}
+		if !sensitiveKeyName.MatchString(key) && !HasURLPassword(value) && !HasURLPassword(rawValue) {
 			return member
 		}
 		return `"` + rawKey + `": "[REDACTED]"`

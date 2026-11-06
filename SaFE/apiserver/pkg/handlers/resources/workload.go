@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -1680,9 +1679,6 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 // returned to a caller who is neither its owner nor a system administrator.
 const RedactedEnvValue = "******"
 
-// urlWithPassword matches a URL that carries a password (scheme://user:password@host).
-var urlWithPassword = regexp.MustCompile(`://[^/\s:@]+:[^/\s@]+@`)
-
 // canSeeWorkloadSecrets reports whether user may see a workload's credential env
 // values and secrets: only its owner or a system administrator (read-only included).
 // Being allowed to get the workload is not enough: workspace members and any
@@ -1708,7 +1704,7 @@ func (h *Handler) canSeeWorkloadSecrets(ctx context.Context, user *v1.User, owne
 // one (the audit log's judgement, middleware.IsCredentialName), or its value is a URL
 // with a password in it.
 func isCredentialEnv(name, value string) bool {
-	return middleware.IsCredentialName(name) || urlWithPassword.MatchString(value)
+	return middleware.IsCredentialName(name) || middleware.HasURLPassword(value)
 }
 
 // redactEnvValues keeps every env key and every value that is plain configuration
