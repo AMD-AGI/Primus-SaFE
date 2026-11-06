@@ -6,6 +6,8 @@
 package optimization
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -30,6 +32,13 @@ import (
 //	retry it                                              resume  (POST /workloads/:name/resume)
 //	delete it                                             delete  (DELETE /workloads/:name)
 //	list tasks                                            list    (GET /workloads)
+//	submit one (create, batch, and the copy retry makes)  create  (POST /workloads)
+//
+// Submitting a task takes the first of the checks the workload create path makes, create on
+// workload in the task's workspace (with the built-in roles: a member, the workspace's manager
+// or a system administrator); it is the decision authority.AccessController.AuthorizeWorkloadCreate
+// (#844) makes first. The route builds no SaFE workload itself (the sandbox is requested from
+// Claw), so that function's priority and privileged checks have nothing to apply to here.
 
 const accessControllerMissing = "the access controller is not initialized"
 
@@ -50,6 +59,32 @@ func (h *Handler) authorizeTask(c *gin.Context, task *dbclient.OptimizationTask,
 		Verb:          verb,
 		Workspaces:    workspaces,
 		UserId:        c.GetString(common.UserId),
+	})
+}
+
+// taskWorkspace is the workspace a task submitted with req runs in.
+func (h *Handler) taskWorkspace(req *CreateTaskRequest) string {
+	if req.Workspace != "" {
+		return req.Workspace
+	}
+	return h.defaultWS
+}
+
+// authorizeTaskCreate checks that the user may submit a task in workspace.
+func (h *Handler) authorizeTaskCreate(ctx context.Context, userID, workspace string) error {
+	if h.accessCtrl == nil {
+		return commonerrors.NewInternalError(accessControllerMissing)
+	}
+	var workspaces []string
+	if workspace != "" {
+		workspaces = []string{workspace}
+	}
+	return h.accessCtrl.Authorize(authority.AccessInput{
+		Context:      ctx,
+		ResourceKind: v1.WorkloadKind,
+		Verb:         v1.CreateVerb,
+		Workspaces:   workspaces,
+		UserId:       userID,
 	})
 }
 

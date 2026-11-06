@@ -40,6 +40,14 @@ func (h *Handler) BatchCreateTasks(c *gin.Context) {
 	}
 	userID := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
+	// Check every item before submitting any, so that a refused item does not leave the items
+	// before it submitted. submitTask checks each one again.
+	for i := range req.Items {
+		if err := h.authorizeTaskCreate(c.Request.Context(), userID, h.taskWorkspace(&req.Items[i])); err != nil {
+			apiutils.AbortWithApiError(c, err)
+			return
+		}
+	}
 	items := make([]CreateTaskResponse, 0, len(req.Items))
 	for i := range req.Items {
 		resp, err := h.submitTask(c.Request.Context(), &req.Items[i], userID, userName, "", h.clawBearerForGin(c))

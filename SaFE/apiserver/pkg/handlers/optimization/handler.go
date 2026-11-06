@@ -143,9 +143,9 @@ func (h *Handler) submitTask(
 		)
 	}
 
-	workspace := req.Workspace
-	if workspace == "" {
-		workspace = h.defaultWS
+	workspace := h.taskWorkspace(req)
+	if err := h.authorizeTaskCreate(ctx, userID, workspace); err != nil {
+		return nil, err
 	}
 
 	if h.maxConcurrent > 0 {

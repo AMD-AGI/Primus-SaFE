@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -88,6 +89,12 @@ func authzAccessController(t *testing.T) *authority.AccessController {
 // authzWorkspace, and whose Claw counts the requests it is sent.
 func authzTaskHandler(t *testing.T) (*Handler, *mock_client.MockInterface, *atomic.Int32) {
 	t.Helper()
+	return authzTaskHandlerOwnedBy(t, authzOwner)
+}
+
+// authzTaskHandlerOwnedBy is authzTaskHandler with the task submitted by owner.
+func authzTaskHandlerOwnedBy(t *testing.T, owner string) (*Handler, *mock_client.MockInterface, *atomic.Int32) {
+	t.Helper()
 	var clawCalls atomic.Int32
 	claw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		clawCalls.Add(1)
@@ -96,7 +103,7 @@ func authzTaskHandler(t *testing.T) (*Handler, *mock_client.MockInterface, *atom
 	t.Cleanup(claw.Close)
 	mockDB := mock_client.NewMockInterface(gomock.NewController(t))
 	mockDB.EXPECT().GetOptimizationTask(gomock.Any(), authzTaskID).Return(&dbclient.OptimizationTask{
-		ID: authzTaskID, DisplayName: "opt", Workspace: authzWorkspace, UserID: authzOwner, UserName: authzOwner,
+		ID: authzTaskID, DisplayName: "opt", Workspace: authzWorkspace, UserID: owner, UserName: owner,
 		ModelID: "model-1", ClawSessionID: "session-1", Status: dbclient.OptimizationTaskStatusFailed,
 	}, nil).AnyTimes()
 	return &Handler{
@@ -306,4 +313,112 @@ func TestListTasksRefusesWithoutAUser(t *testing.T) {
 	h.accessCtrl = nil
 	code, body = callAs(t, (*Handler).ListTasks, h, authzOwner, "")
 	require.Equal(t, http.StatusInternalServerError, code, body)
+}
+
+// submitAs calls a submitting route (CreateTask, BatchCreateTasks, RetryTask for authzTaskID) as
+// userId with body and a Claw key, so that a request the checks let through goes on to resolve
+// the task's model, which the caller arms to fail with "model lookup reached".
+func submitAs(t *testing.T, route func(*Handler, *gin.Context), h *Handler, userId, body string) (int, string) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("Authorization", "Bearer ak-opt-authz-test")
+	c.Params = gin.Params{{Key: "id", Value: authzTaskID}}
+	c.Set(common.UserId, userId)
+	c.Set(common.UserName, userId)
+	route(h, c)
+	return c.Writer.Status(), rec.Body.String()
+}
+
+func expectModelLookup(db *mock_client.MockInterface) {
+	db.EXPECT().GetModelByID(gomock.Any(), "model-1").Return(nil, errors.New("model lookup reached"))
+}
+
+// Submitting a task takes the workload create path's check in the task's workspace: a member,
+// the workspace's manager and a system administrator may submit there; a member of another
+// workspace, a read-only system administrator and a member whose roles grant nothing are refused
+// with 403 before anything is read or sent. A batch item without a workspace is checked in the
+// default workspace.
+func TestCreateTaskAuthorizesLikeAWorkloadCreate(t *testing.T) {
+	inWorkspace := []string{authzOwner, authzMember, authzManager, authzAdmin}
+	for _, tc := range []struct {
+		name    string
+		route   func(*Handler, *gin.Context)
+		body    string
+		allowed []string
+	}{
+		{"create in the workspace", (*Handler).CreateTask,
+			`{"modelId":"model-1","workspace":"` + authzWorkspace + `"}`, inWorkspace},
+		{"create in another workspace", (*Handler).CreateTask,
+			`{"modelId":"model-1","workspace":"` + authzOtherWS + `"}`, []string{authzOutsider, authzAdmin}},
+		{"batch in the default workspace", (*Handler).BatchCreateTasks,
+			`{"items":[{"modelId":"model-1"}]}`, inWorkspace},
+	} {
+		allowed := map[string]bool{}
+		for _, u := range tc.allowed {
+			allowed[u] = true
+		}
+		for _, user := range authzUsers {
+			t.Run(tc.name+"/"+user, func(t *testing.T) {
+				h, db, clawCalls := authzTaskHandler(t)
+				h.defaultWS = authzWorkspace
+				if allowed[user] {
+					expectModelLookup(db)
+				}
+				code, body := submitAs(t, tc.route, h, user, tc.body)
+				if allowed[user] {
+					require.Equal(t, http.StatusBadRequest, code, body)
+					require.Contains(t, body, "model lookup reached")
+					return
+				}
+				require.Equal(t, http.StatusForbidden, code, body)
+				require.Contains(t, body, "not allowed to create workload")
+				require.Zero(t, clawCalls.Load(), "a refused request reached Claw")
+			})
+		}
+	}
+}
+
+// A batch is checked item by item before any item is submitted: one item in a workspace the caller
+// may not submit to refuses the whole batch, and the items before it are not submitted.
+func TestBatchCreateTasksChecksEveryItemFirst(t *testing.T) {
+	h, _, clawCalls := authzTaskHandler(t)
+	code, body := submitAs(t, (*Handler).BatchCreateTasks, h, authzOwner,
+		`{"items":[{"modelId":"model-1","workspace":"`+authzWorkspace+`"},{"modelId":"model-1","workspace":"`+authzOtherWS+`"}]}`)
+	require.Equal(t, http.StatusForbidden, code, body)
+	require.Contains(t, body, "not allowed to create workload")
+	require.Zero(t, clawCalls.Load())
+}
+
+// Retrying submits a copy of the task as the caller, so the caller also needs create in the task's
+// workspace: the submitter who has since left it may not retry it there; one who is still a member
+// may.
+func TestRetryTaskTakesTheCreateCheck(t *testing.T) {
+	h, _, clawCalls := authzTaskHandlerOwnedBy(t, authzOutsider)
+	code, body := submitAs(t, (*Handler).RetryTask, h, authzOutsider, "")
+	require.Equal(t, http.StatusForbidden, code, body)
+	require.Contains(t, body, "not allowed to create workload")
+	require.Zero(t, clawCalls.Load())
+
+	h, db, _ := authzTaskHandler(t)
+	expectModelLookup(db)
+	code, body = submitAs(t, (*Handler).RetryTask, h, authzOwner, "")
+	require.Equal(t, http.StatusBadRequest, code, body)
+	require.Contains(t, body, "model lookup reached")
+}
+
+// Without an access controller nothing is submitted.
+func TestCreateTaskFailsClosedWithoutAccessController(t *testing.T) {
+	for _, route := range []func(*Handler, *gin.Context){(*Handler).CreateTask, (*Handler).BatchCreateTasks} {
+		h, _, clawCalls := authzTaskHandler(t)
+		h.accessCtrl = nil
+		code, body := submitAs(t, route, h, authzOwner,
+			`{"modelId":"model-1","workspace":"`+authzWorkspace+`","items":[{"modelId":"model-1","workspace":"`+authzWorkspace+`"}]}`)
+		require.Equal(t, http.StatusInternalServerError, code, body)
+		require.Contains(t, body, accessControllerMissing)
+		require.Zero(t, clawCalls.Load())
+	}
 }
