@@ -740,11 +740,13 @@ func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
 }
 
 // workspaceVolumeAppliesTo reports whether a workspace volume is mounted into the workload: a volume
-// that lists scopes is mounted only into workloads of those scopes, whatever the workload asks for.
-// The volume ids still count towards the hostpath volume numbering, so skipping a volume does not
-// renumber the workload's own hostpath volumes.
+// that lists scopes is mounted only into workloads of those scopes, whatever the workload asks for,
+// and a volume with requiresPrivilegedGrant only into workloads the apiserver marked as created with
+// the workload/privileged grant (commonworkload.WorkspaceVolumeMountedInto). The volume ids still
+// count towards the hostpath volume numbering, so skipping a volume does not renumber the
+// workload's own hostpath volumes.
 func workspaceVolumeAppliesTo(vol v1.WorkspaceVolume, workload *v1.Workload) bool {
-	return vol.AppliesToScope(commonworkload.GetScope(workload))
+	return commonworkload.WorkspaceVolumeMountedInto(&vol, workload)
 }
 
 // hostPathSource returns the hostPath volume source and the mount subPath for one of a workload's

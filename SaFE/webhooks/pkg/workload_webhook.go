@@ -386,17 +386,18 @@ func (m *WorkloadMutator) mutateResources(_ context.Context, workload *v1.Worklo
 }
 
 // mutateHostPath removes hostPath duplicated by the workspace; workloads inherit workspace hostPath.
-// Only the workspace volumes mounted into the workload's scope are inherited, so a hostPath that
-// duplicates a volume restricted to other scopes is kept.
+// Only the workspace volumes mounted into the workload are inherited, so a hostPath that duplicates
+// a volume restricted to other scopes, or one that requires the workload/privileged grant the
+// workload was not marked with, is kept (and judged as any other entry).
 func (m *WorkloadMutator) mutateHostPath(workload *v1.Workload, workspace *v1.Workspace) {
 	if len(workload.Spec.Hostpath) == 0 {
 		return
 	}
 	hostPathSet := sets.NewSet()
 	if workspace != nil {
-		scope := commonworkload.GetScope(workload)
-		for _, vol := range workspace.Spec.Volumes {
-			if vol.Type == v1.HOSTPATH && vol.AppliesToScope(scope) {
+		for i := range workspace.Spec.Volumes {
+			vol := &workspace.Spec.Volumes[i]
+			if vol.Type == v1.HOSTPATH && commonworkload.WorkspaceVolumeMountedInto(vol, workload) {
 				hostPathSet.Insert(vol.HostPath)
 			}
 		}
@@ -1802,6 +1803,9 @@ func (v *WorkloadValidator) validateSandbox(ctx context.Context, newWorkload, ol
 // Sandbox scope, or a directory under one. A sandbox cannot bind an arbitrary node path.
 func validateSandboxHostPath(workload *v1.Workload, workspace *v1.Workspace) error {
 	undeclared := commonworkload.UndeclaredHostPaths(workspace, v1.SandboxScope, workload.Spec.Hostpath)
+	if reason := commonworkload.PrivilegedVolumeRefusal(workspace, undeclared, workloadPrivilegedKind); reason != "" {
+		return commonerrors.NewForbidden("a sandbox cannot mount it: " + reason)
+	}
 	if len(undeclared) > 0 {
 		return commonerrors.NewForbidden(fmt.Sprintf("the hostpath %q of the sandbox is not declared "+
 			"by workspace %s, only paths under %v are allowed", undeclared[0], workload.Spec.Workspace,
@@ -1836,7 +1840,11 @@ func (v *WorkloadValidator) validateHostPath(ctx context.Context, newWorkload, o
 		return err
 	}
 	scope := commonworkload.GetScope(newWorkload)
-	if undeclared := commonworkload.UndeclaredHostPaths(workspace, scope, added); len(undeclared) > 0 {
+	undeclared := commonworkload.UndeclaredHostPaths(workspace, scope, added)
+	if reason := commonworkload.PrivilegedVolumeRefusal(workspace, undeclared, workloadPrivilegedKind); reason != "" {
+		return commonerrors.NewForbidden(reason)
+	}
+	if len(undeclared) > 0 {
 		return commonerrors.NewForbidden(fmt.Sprintf("the hostpath %q is not declared by workspace %s "+
 			"for %s workloads, only paths under %v are allowed; mounting another host path requires "+
 			"the %s grant in the workspace", undeclared[0], newWorkload.Spec.Workspace,

@@ -115,6 +115,14 @@ type WorkspaceVolume struct {
 	// +optional
 	// +listType=set
 	Scopes []WorkspaceScope `json:"scopes,omitempty"`
+	// When set, the volume is mounted only into workloads whose creator held the
+	// workload/privileged grant in the workspace when the workload was created (built-in:
+	// workspace-admin and system-admin). Workloads of other members are still admitted and run
+	// without this volume, as if its scopes did not list theirs. A member whose spec.hostpath
+	// names the volume's hostPath, a path under it or a path containing it is refused, with the
+	// reason, even when another volume declares that path.
+	// +optional
+	RequiresPrivilegedGrant bool `json:"requiresPrivilegedGrant,omitempty"`
 	// The directories of a hostpath volume that the workspace's users share, such as model and
 	// cache directories. They are used only when the job-manager mounts user directories for
 	// external Pods (external_execution.user_dir_mounts): an external Pod then mounts its own user

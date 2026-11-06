@@ -24,6 +24,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 )
 
@@ -271,12 +272,14 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
-// authorizeWorkloadHostPath applies the hostpath rule of the workload create path to a workload
+// authorizeWorkloadHostPath applies the storage rules of the workload create path to a workload
 // this handler creates directly: host paths the workspace does not declare for the workload's
-// scope need the workload/privileged grant (authority.AccessController.AuthorizeWorkloadHostPath).
+// scope need the workload/privileged grant (authority.AccessController.AuthorizeWorkloadHostPath),
+// and the workspace volumes that require that grant are mounted only when the creator holds it
+// (authority.AccessController.AuthorizeWorkloadPrivilegedVolumes).
 func (h *Handler) authorizeWorkloadHostPath(ctx context.Context, userId string, workload *v1.Workload) error {
 	var workspace *v1.Workspace
-	if len(workload.Spec.Hostpath) > 0 {
+	if commonworkload.MayMountWorkspaceStorage(workload) {
 		workspace = &v1.Workspace{}
 		if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: workload.Spec.Workspace}, workspace); err != nil {
 			if k8serrors.IsNotFound(err) || workload.Spec.Workspace == "" {
@@ -286,13 +289,20 @@ func (h *Handler) authorizeWorkloadHostPath(ctx context.Context, userId string, 
 		}
 	}
 	if h.accessController == nil {
+		// Without an access controller nothing can be granted: no undeclared hostpath, and no mark
+		// for the volumes that require the grant.
+		v1.RemoveAnnotation(workload, v1.WorkloadHostPathAuthzAnnotation)
+		v1.RemoveAnnotation(workload, v1.WorkloadPrivilegedVolumesAuthzAnnotation)
 		if len(workload.Spec.Hostpath) > 0 {
 			return commonerrors.NewForbidden("the hostpath of the workload cannot be authorized")
 		}
 		return nil
 	}
-	return h.accessController.AuthorizeWorkloadHostPath(
-		authority.AccessInput{Context: ctx, UserId: userId}, workload, workspace)
+	in := authority.AccessInput{Context: ctx, UserId: userId}
+	if err := h.accessController.AuthorizeWorkloadHostPath(in, workload, workspace); err != nil {
+		return err
+	}
+	return h.accessController.AuthorizeWorkloadPrivilegedVolumes(in, workload, workspace)
 }
 
 func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
