@@ -201,7 +201,7 @@ func Test_redactEnvValues_MasksOnlyCredentials(t *testing.T) {
 // Test_resumeWorkload_MaskedEnvKeepsStoredValues: a caller who may resume another user's
 // workload but not see its credentials (a workspace administrator) sends back what GET gave
 // it: credential env values masked and no secrets. The resumed workload keeps the stored
-// values and secrets; values the caller changed are taken as sent.
+// values; values the caller changed are taken as sent; secrets are only those it names.
 func Test_resumeWorkload_MaskedEnvKeepsStoredValues(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	commonconfig.SetValue("db.enable", "true")
@@ -254,8 +254,7 @@ func Test_resumeWorkload_MaskedEnvKeepsStoredValues(t *testing.T) {
 	assert.Equal(t, resumed.Spec.Env["ANTHROPIC_API_KEY"], redactOwnerKey)
 	assert.Equal(t, resumed.Spec.Env["DATABASE_URL"], redactDBURL)
 	assert.Equal(t, resumed.Spec.Env["MODE"], "new")
-	assert.Equal(t, len(resumed.Spec.Secrets), 1)
-	assert.Equal(t, resumed.Spec.Secrets[0].Id, redactSecretId)
+	assert.Equal(t, len(resumed.Spec.Secrets), 0)
 }
 
 // resumeAsWorkspaceAdmin resumes the stored workload of redactOwnerId as a workspace
@@ -333,20 +332,18 @@ func resumeAsWorkspaceAdmin(t *testing.T, secretsField string) (*Handler, error)
 
 // Test_resumeWorkload_WorkspaceAdminWithoutSecretGet: a workspace administrator who may not
 // get the owner's secret resumes the owner's workload with what GET gave it (no secrets).
-// The stored secrets are kept and are not authorized against the caller, since the server,
-// not the caller, put them in the request; a secret the caller names itself still is, and an
-// explicit empty list is taken as sent.
+// The resume succeeds, as on main, without the owner's secrets: they are not put back for a
+// caller who could write the rest of the spec (image, entry point) and so run its own code
+// with them. A secret the caller names itself is authorized against the caller and refused.
 func Test_resumeWorkload_WorkspaceAdminWithoutSecretGet(t *testing.T) {
-	t.Run("no secrets field: stored secrets kept", func(t *testing.T) {
+	t.Run("no secrets field: resumed without the owner's secrets", func(t *testing.T) {
 		h, err := resumeAsWorkspaceAdmin(t, "")
 		assert.NilError(t, err)
 		resumed := &v1.Workload{}
 		assert.NilError(t, h.Get(context.Background(), client.ObjectKey{Name: redactWorkload}, resumed))
 		assert.Equal(t, v1.GetUserId(resumed), redactOwnerId)
 		assert.Equal(t, resumed.Spec.Env["ANTHROPIC_API_KEY"], redactOwnerKey)
-		assert.Equal(t, len(resumed.Spec.Secrets), 1)
-		assert.Equal(t, resumed.Spec.Secrets[0].Id, redactSecretId)
-		assert.Equal(t, resumed.Spec.Secrets[0].Type, v1.SecretGeneral)
+		assert.Equal(t, len(resumed.Spec.Secrets), 0)
 	})
 	t.Run("caller names the secret: authorized against the caller", func(t *testing.T) {
 		h, err := resumeAsWorkspaceAdmin(t, fmt.Sprintf(`, "secrets": [{"id": %q}]`, redactSecretId))
