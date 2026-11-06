@@ -72,8 +72,8 @@ func (w *WorkloadInformer) OnUpdate(oldObj, newObj interface{}) {
 // submitWorkloadNotification deduplicates by workload name + phase, ensuring
 // at most one notification per workload per phase transition.
 func (w *WorkloadInformer) submitWorkloadNotification(workload *v1.Workload) {
-	// Post Training sends run-level notifications from its controller instead.
-	if v1.GetLabel(workload, v1.PostTrainingRunIdLabel) != "" {
+	// Post Training sends run-level notifications from its controller instead, and its import scans need none.
+	if v1.GetLabel(workload, v1.PostTrainingRunIdLabel) != "" || v1.GetLabel(workload, v1.PostTrainingRoleLabel) != "" {
 		return
 	}
 	ctx := context.Background()

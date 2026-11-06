@@ -6,13 +6,16 @@
 package informer
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
@@ -57,6 +60,30 @@ func TestOnUpdate(t *testing.T) {
 	oldW := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl1"}, Status: v1.WorkloadStatus{Phase: v1.WorkloadPending}}
 	newW := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl1"}, Status: v1.WorkloadStatus{Phase: v1.WorkloadRunning}}
 	w.OnUpdate(oldW, newW)
+}
+
+func TestPostTrainingWorkloadsGetNoGenericNotification(t *testing.T) {
+	s := runtime.NewScheme()
+	assert.NoError(t, v1.AddToScheme(s))
+	lookups := 0
+	w := NewWorkloadInformer(ctrlfake.NewClientBuilder().WithScheme(s).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption) error {
+			lookups++
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}).Build())
+	running := v1.WorkloadStatus{Phase: v1.WorkloadRunning}
+	for _, labels := range []map[string]string{
+		{v1.PostTrainingRunIdLabel: "pt-1", v1.PostTrainingRoleLabel: v1.PostTrainingRoleTrain},
+		{v1.PostTrainingRoleLabel: v1.PostTrainingRoleImportScan},
+	} {
+		w.submitWorkloadNotification(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl1", Labels: labels},
+			Status: running})
+	}
+	assert.Zero(t, lookups, "post-training workloads stop before looking up whom to notify")
+	w.submitWorkloadNotification(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl1"}, Status: running})
+	assert.Equal(t, 1, lookups, "other workloads look up their user")
 }
 
 func TestOnDelete(t *testing.T) {
