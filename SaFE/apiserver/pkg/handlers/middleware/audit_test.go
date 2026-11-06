@@ -159,6 +159,16 @@ func TestSanitizeBody(t *testing.T) {
 			expected: `{"env":{"MODE":"x","OPENAI_API_KEY": "[REDACTED]"`,
 		},
 		{
+			name:     "escaped_credential_key_redacted",
+			input:    `{"env":{"OPENAI_API_\u004bEY":"example-secret","MODE":"x"}}`,
+			expected: `{"env":{"OPENAI_API_\u004bEY": "[REDACTED]","MODE":"x"}}`,
+		},
+		{
+			name:     "escaped_quote_in_key_and_number_value_untouched",
+			input:    `{"a\"b":"v","count":5,"GH_TOKEN":"t"}`,
+			expected: `{"a\"b":"v","count":5,"GH_TOKEN": "[REDACTED]"}`,
+		},
+		{
 			name:     "value_mentioning_token_is_not_a_key",
 			input:    `{"description":"rotate the token","name":"n"}`,
 			expected: `{"description":"rotate the token","name":"n"}`,

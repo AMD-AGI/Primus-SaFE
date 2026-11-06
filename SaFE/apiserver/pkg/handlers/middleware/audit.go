@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"io"
 	"net/http"
 	"regexp"
@@ -348,11 +349,31 @@ func isInvalidTraceId(traceId string) bool {
 	return true
 }
 
-// sensitiveJSONKeyValue matches "<key>": "<value>" where the key contains
-// key, token, secret, password or credential (case-insensitive). The value
-// pattern honours escaped quotes and also matches an unterminated value.
-var sensitiveJSONKeyValue = regexp.MustCompile(
-	`"([^"\\]*(?i:key|token|secret|password|passwd|credential)[^"\\]*)"\s*:\s*"(?:[^"\\]|\\.)*(?:"|\\?$)`)
+// jsonStringMember matches a JSON object member whose value is a string: "<key>": "<value>".
+// Key and value honour escapes, and a value cut off by truncation (no closing quote) matches too.
+var jsonStringMember = regexp.MustCompile(`"((?:[^"\\]|\\.)*)"\s*:\s*"(?:[^"\\]|\\.)*(?:"|\\?$)`)
+
+// sensitiveKeyName matches a key that names a credential, in any case and as part of a longer
+// name (workload env such as ANTHROPIC_API_KEY or AUTH_TOKEN).
+var sensitiveKeyName = regexp.MustCompile(`(?i)key|token|secret|passw(?:or)?d|credential`)
+
+// redactSensitiveJSONMembers replaces the string value of every member whose key, once its JSON
+// escapes are decoded (so "API_\u004bEY" counts as API_KEY), names a credential. The key is kept,
+// so the body stays valid JSON.
+func redactSensitiveJSONMembers(body string) string {
+	return jsonStringMember.ReplaceAllStringFunc(body, func(member string) string {
+		rawKey := jsonStringMember.FindStringSubmatch(member)[1]
+		key := rawKey
+		var decoded string
+		if err := json.Unmarshal([]byte(`"`+rawKey+`"`), &decoded); err == nil {
+			key = decoded
+		}
+		if !sensitiveKeyName.MatchString(key) {
+			return member
+		}
+		return `"` + rawKey + `": "[REDACTED]"`
+	})
+}
 
 // sanitizeBody removes sensitive information from request body
 func sanitizeBody(body string) string {
@@ -366,7 +387,7 @@ func sanitizeBody(body string) string {
 	// of a longer name (workload env such as "ANTHROPIC_API_KEY": "...").
 	// The key is kept and the value replaced, so the body stays valid JSON.
 	// A value cut off by truncation (no closing quote) is redacted too.
-	result = sensitiveJSONKeyValue.ReplaceAllString(result, `"$1": "[REDACTED]"`)
+	result = redactSensitiveJSONMembers(result)
 
 	// JSON format: "password": "value"
 	jsonPatterns := []*regexp.Regexp{
