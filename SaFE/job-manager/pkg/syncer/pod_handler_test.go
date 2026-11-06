@@ -3692,3 +3692,137 @@ func TestTiedAttemptsReadOnlyTheirOwnDisruption(t *testing.T) {
 	carried.FailedMessage = earlierPodPrefix + wantEviction()
 	assertSucceeded(t, runObjectSucceeded(t, 1, []v1.WorkloadPod{evictedRecord(), carried}))
 }
+
+// Autopilot's group-job pools gate a Pod at admission and buy its node before
+// kube-scheduler sees it: the Pod is SchedulingGated, never Unschedulable, and the
+// only word on it is the autoscaler's Event. That wait has to reach the workload.
+func TestExternalWaitingMessageForGatedPod(t *testing.T) {
+	w := &v1.Workload{
+		Status: v1.WorkloadStatus{
+			ExternalExecution: &v1.WorkloadExternalExecution{
+				PlacementMode: v1.ExternalPlacementKubeScheduler,
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "sb-1", Namespace: "vk"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodPending,
+			Conditions: []corev1.PodCondition{{
+				Type:    corev1.PodScheduled,
+				Status:  corev1.ConditionFalse,
+				Reason:  corev1.PodReasonSchedulingGated,
+				Message: "Scheduling is blocked due to non-empty scheduling gates",
+			}},
+		},
+	}
+	base := externalUnschedulableMessage(w, pod)
+	if base != externalWaitingScaleUpPrefix+" - Scheduling is blocked due to non-empty scheduling gates" {
+		t.Fatalf("gated pod: got %q", base)
+	}
+
+	// The autoscaler's decision arrives as an Event and is carried on the message.
+	ev := &corev1.Event{
+		ObjectMeta:     metav1.ObjectMeta{Name: "sb-1.1", Namespace: "vk"},
+		InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "sb-1", Namespace: "vk"},
+		Type:           corev1.EventTypeNormal,
+		Reason:         "TriggeredScaleUp",
+		Message:        "pod triggered scale-up: job 271406 queued in pool p-1",
+		LastTimestamp:  metav1.NewTime(time.Date(2026, 11, 6, 18, 4, 59, 0, time.UTC)),
+	}
+	sets := &ClusterClientSets{}
+	sets.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1",
+		k8sfake.NewSimpleClientset(ev)))
+	got := externalWaitingMessage(context.Background(), sets, w, pod)
+	if !strings.HasSuffix(got, " - TriggeredScaleUp: pod triggered scale-up: job 271406 queued in pool p-1") {
+		t.Fatalf("got %q", got)
+	}
+
+	// A gate that is not this wait's (other reasons on PodScheduled) is not reported.
+	other := pod.DeepCopy()
+	other.Status.Conditions[0].Reason = "SomethingElse"
+	if externalUnschedulableMessage(w, other) != "" {
+		t.Fatal("only Unschedulable and SchedulingGated are a wait for a node")
+	}
+}
+
+// The autoscaler's decision stays on the message through the newer Events that
+// follow it: the scheduler's repeated FailedScheduling, the autoscaler's own
+// progress notes and unrelated warnings. Only a newer decision replaces it.
+func TestExternalWaitingMessageKeepsScaleUpDecision(t *testing.T) {
+	w := &v1.Workload{
+		Status: v1.WorkloadStatus{
+			ExternalExecution: &v1.WorkloadExternalExecution{
+				PlacementMode: v1.ExternalPlacementKubeScheduler,
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ws"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodPending,
+			Conditions: []corev1.PodCondition{{
+				Type: corev1.PodScheduled, Status: corev1.ConditionFalse,
+				Reason: corev1.PodReasonUnschedulable, Message: "0/3 nodes are available",
+			}},
+		},
+	}
+	at := func(sec int) metav1.Time {
+		return metav1.NewTime(time.Date(2026, 11, 6, 18, 0, sec, 0, time.UTC))
+	}
+	event := func(name, typ, reason, msg string, ts metav1.Time) *corev1.Event {
+		return &corev1.Event{
+			ObjectMeta:     metav1.ObjectMeta{Name: name, Namespace: "ws"},
+			InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "p1", Namespace: "ws"},
+			Type:           typ, Reason: reason, Message: msg, LastTimestamp: ts,
+		}
+	}
+	read := func(events ...*corev1.Event) string {
+		objs := make([]runtime.Object, 0, len(events))
+		for _, e := range events {
+			objs = append(objs, e)
+		}
+		sets := &ClusterClientSets{}
+		sets.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1",
+			k8sfake.NewSimpleClientset(objs...)))
+		return externalWaitingMessage(context.Background(), sets, w, pod)
+	}
+
+	triggered := event("e1", corev1.EventTypeNormal, "TriggeredScaleUp", "pod triggered scale-up", at(1))
+	got := read(
+		triggered,
+		event("e2", corev1.EventTypeWarning, "FailedScheduling", "0/3 nodes are available", at(2)),
+		event("e3", corev1.EventTypeNormal, "ScaleUpQueued", "the node is a job queued at the scheduler", at(3)),
+		event("e4", corev1.EventTypeWarning, "PartitionToleranceTooShort", "raise tolerationSeconds", at(4)),
+	)
+	if !strings.HasSuffix(got, " - TriggeredScaleUp: pod triggered scale-up") {
+		t.Fatalf("newer events must not hide the scale-up: got %q", got)
+	}
+
+	// A newer decision replaces it, and says why no node is coming.
+	got = read(triggered,
+		event("e5", corev1.EventTypeNormal, "NotTriggerScaleUp", "pod didn't trigger scale-up: NoHeadroom", at(5)))
+	if !strings.HasSuffix(got, " - NotTriggerScaleUp: pod didn't trigger scale-up: NoHeadroom") {
+		t.Fatalf("the newest decision must win: got %q", got)
+	}
+
+	// A decision about an earlier Pod of the same name is not this Pod's.
+	recreated := pod.DeepCopy()
+	recreated.UID = "uid-new"
+	stale := event("e6", corev1.EventTypeNormal, "TriggeredScaleUp", "pod triggered scale-up", at(1))
+	stale.InvolvedObject.UID = "uid-old"
+	sets := &ClusterClientSets{}
+	sets.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1",
+		k8sfake.NewSimpleClientset(stale,
+			event("e7", corev1.EventTypeWarning, "FailedScheduling", "0/3 nodes are available", at(2)))))
+	got = externalWaitingMessage(context.Background(), sets, w, recreated)
+	if !strings.HasSuffix(got, " - FailedScheduling: 0/3 nodes are available") {
+		t.Fatalf("an earlier Pod's decision must not be reported: got %q", got)
+	}
+
+	// With no decision yet, the newest scheduling event is still reported.
+	got = read(event("e2", corev1.EventTypeWarning, "FailedScheduling", "0/4 nodes are available: quota", at(2)))
+	if !strings.HasSuffix(got, " - FailedScheduling: 0/4 nodes are available: quota") {
+		t.Fatalf("got %q", got)
+	}
+}

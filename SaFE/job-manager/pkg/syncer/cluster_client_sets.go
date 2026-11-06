@@ -27,6 +27,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
@@ -259,6 +260,9 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 		}
 		return
 	}
+	if newUnstructured.GroupVersionKind().Kind == eventKind && action != ResourceDel {
+		r.resyncPodOfScaleUpEvent(newUnstructured)
+	}
 	msg := &resourceMessage{
 		cluster:       r.name,
 		name:          newUnstructured.GetName(),
@@ -316,6 +320,43 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 	r.syncGithubAnnotations(newUnstructured)
 
 	r.handler(msg)
+}
+
+// eventKind is the core Event kind; the "event" resource template watches it.
+const eventKind = "Event"
+
+// resyncPodOfScaleUpEvent re-delivers the Pod an autoscaler's scale-up decision
+// is about, so the wait reason on its workload (externalWaitingMessage) is
+// rebuilt as soon as the decision is made. The decision is an Event and nothing
+// else: the Pod itself does not change when a node is bought for it (or refused),
+// and a gated Pod is never touched by kube-scheduler again, so without this the
+// workload keeps whatever was true when the Pod last changed.
+func (r *ClusterClientSets) resyncPodOfScaleUpEvent(event *unstructured.Unstructured) {
+	reason, _, _ := unstructured.NestedString(event.Object, "reason")
+	if !isScaleUpDecisionReason(reason) {
+		return
+	}
+	kind, _, _ := unstructured.NestedString(event.Object, "involvedObject", "kind")
+	name, _, _ := unstructured.NestedString(event.Object, "involvedObject", "name")
+	namespace, _, _ := unstructured.NestedString(event.Object, "involvedObject", "namespace")
+	uid, _, _ := unstructured.NestedString(event.Object, "involvedObject", "uid")
+	if kind != common.PodKind || name == "" || namespace == "" {
+		return
+	}
+	informer := r.getResourceInformer(podResourceGVK)
+	if informer == nil {
+		return
+	}
+	pod, err := jobutils.GetObjectByInformer(informer.GenericInformer, name, namespace)
+	if err != nil || pod == nil {
+		return
+	}
+	// An Event outlives its Pod: one about an earlier Pod of the same name says
+	// nothing about this one.
+	if uid != "" && string(pod.GetUID()) != uid {
+		return
+	}
+	r.handleResource(r.ctx, nil, pod, ResourceUpdate)
 }
 
 // syncGithubAnnotations copies GitHub workflow metadata from the remote
