@@ -773,7 +773,7 @@ func TestGLMExpertLoRA(t *testing.T) {
 		NumHiddenLayers: 78, HiddenSize: 6144, NumAttentionHeads: 64, NumKeyValueHeads: 64, NumExperts: 256,
 		MaxPositionEmbeddings: 1048576}
 	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureLora,
-		registry.FeatureLoraExperts)
+		registry.FeatureLoraExperts, registry.FeatureLoraAdapterCkpt)
 	in.Request.Method, in.Request.Resources.Nodes = registry.MethodLora, 2
 	in.Request.Choices.Lora = &recipe.LoraChoice{Experts: true}
 	in.Workspace.Nodes, in.Workspace.HostMemoryBytes = 8, 3_000_000_000_000
@@ -788,4 +788,31 @@ func TestGLMExpertLoRA(t *testing.T) {
 
 	in.Request.Export.PeftAdapter = true
 	require.Contains(t, errorsOf(in), "A PEFT adapter cannot hold the experts' LoRA; export the merged model")
+}
+
+func TestGLMLoRAKeepsOnlyAdaptersInCheckpoints(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	in.Model.Path, in.Model.MaxTokens = "/wekafs/models/GLM-5.3-BF16", 202752
+	in.Model.Config = &v1.ModelConfig{Architectures: []string{"GlmMoeDsaForCausalLM"}, ModelType: "glm_moe_dsa",
+		NumHiddenLayers: 78, HiddenSize: 6144, NumAttentionHeads: 64, NumKeyValueHeads: 64, NumExperts: 256,
+		MaxPositionEmbeddings: 1048576}
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureLora)
+	in.Request.Method, in.Request.Resources.Nodes = registry.MethodLora, 2
+	in.Workspace.Nodes, in.Workspace.HostMemoryBytes = 8, 3_000_000_000_000
+	require.Contains(t, errorsOf(in), "The image has not been validated for "+registry.FeatureLoraAdapterCkpt,
+		"the spec's adapter-only checkpoints need an image that supports them")
+
+	in.Request.Choices.Lora = nil
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureLoraAdapterCkpt)
+	res := compile(t, in)
+	require.Contains(t, strings.Join(res.Recipe.FrameworkArgs, " "), "--trainable-only-ckpt-base "+in.Model.Path,
+		"a GLM-5.3 LoRA run saves only the adapters without asking")
+	require.True(t, res.Recipe.Choices.Lora.AdapterOnlyCheckpoint)
+
+	in.Request.Choices.Lora = nil
+	opts, reason := recipe.FrameworkOptions(in)
+	require.Empty(t, reason)
+	require.True(t, opts.Defaults.Lora.AdapterOnlyCheckpoint)
+	want := recipe.FieldOptions{Disabled: true, Reason: "glm5.3-744B-A40B keeps only the adapters in its checkpoints"}
+	require.Equal(t, want, opts.Fields["lora.adapterOnlyCheckpoint"], "the wizard cannot turn it off")
 }

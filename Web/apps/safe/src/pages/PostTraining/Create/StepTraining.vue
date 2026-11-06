@@ -230,11 +230,13 @@
           <div>
             <div class="pt-label">Save adapter only</div>
             <el-switch
-              :model-value="!!lora.adapterOnlyCheckpoint"
+              :model-value="!!adapterOnly.disabled || !!lora.adapterOnlyCheckpoint"
+              :disabled="!!adapterOnly.disabled"
               @update:model-value="
                 (v: string | number | boolean) => setLora({ adapterOnlyCheckpoint: !!v })
               "
             />
+            <div v-if="adapterOnly.disabled" class="pt-help">{{ adapterOnly.reason }}</div>
           </div>
         </div>
       </el-collapse-item>
@@ -422,6 +424,10 @@ const prefillGpus = computed({
 })
 
 const lora = computed<LoraChoice>(() => w.form.choices.lora ?? defaults.value.lora ?? {})
+/** Set when the spec keeps only adapters in checkpoints, which the switch then cannot turn off. */
+const adapterOnly = computed(
+  () => w.config.value?.options?.fields?.['lora.adapterOnlyCheckpoint'] ?? {},
+)
 const setLora = (patch: LoraChoice) => {
   w.form.choices.lora = { ...lora.value, ...patch }
 }
