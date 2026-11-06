@@ -40,6 +40,12 @@ type WorkspaceVolumeApplyConfiguration struct {
 	// The workload scopes this volume is mounted into. Empty means every scope.
 	// A workload whose scope is not listed does not get the volume, even when it asks for workspace storage.
 	Scopes []amdv1.WorkspaceScope `json:"scopes,omitempty"`
+	// The directories of a hostpath volume that the workspace's users share, such as model and
+	// cache directories. They are used only when the job-manager mounts user directories for
+	// external Pods (external_execution.user_dir_mounts): an external Pod then mounts its own user
+	// directory (with enableUserDir) and these directories, each at the path it has below
+	// mountPath, instead of the whole volume. Pods on the cluster's own nodes are not affected.
+	SharedPaths []WorkspaceSharedPathApplyConfiguration `json:"sharedPaths,omitempty"`
 }
 
 // WorkspaceVolumeApplyConfiguration constructs a declarative configuration of the WorkspaceVolume type for use with
@@ -140,6 +146,19 @@ func (b *WorkspaceVolumeApplyConfiguration) WithStorageClass(value string) *Work
 func (b *WorkspaceVolumeApplyConfiguration) WithScopes(values ...amdv1.WorkspaceScope) *WorkspaceVolumeApplyConfiguration {
 	for i := range values {
 		b.Scopes = append(b.Scopes, values[i])
+	}
+	return b
+}
+
+// WithSharedPaths adds the given value to the SharedPaths field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the SharedPaths field.
+func (b *WorkspaceVolumeApplyConfiguration) WithSharedPaths(values ...*WorkspaceSharedPathApplyConfiguration) *WorkspaceVolumeApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithSharedPaths")
+		}
+		b.SharedPaths = append(b.SharedPaths, *values[i])
 	}
 	return b
 }

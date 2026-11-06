@@ -166,6 +166,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.WorkloadStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Workspace"):
 		return &amdv1.WorkspaceApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("WorkspaceSharedPath"):
+		return &amdv1.WorkspaceSharedPathApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("WorkspaceSpec"):
 		return &amdv1.WorkspaceSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("WorkspaceStatus"):

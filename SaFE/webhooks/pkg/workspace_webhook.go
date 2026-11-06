@@ -971,6 +971,9 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 		if err := validateVolumeScopes(vol); err != nil {
 			return err
 		}
+		if err := validateVolumeSharedPaths(vol); err != nil {
+			return err
+		}
 		if vol.Type == v1.HOSTPATH {
 			if vol.HostPath == "" {
 				return fmt.Errorf("the hostPath of volume is required for hostpath storage")
@@ -1025,6 +1028,28 @@ func validateVolumeScopes(vol v1.WorkspaceVolume) error {
 			return fmt.Errorf("duplicate scope %q of volume(%s)", scope, vol.GenFullVolumeId())
 		}
 		seen[scope] = struct{}{}
+	}
+	return nil
+}
+
+// validateVolumeSharedPaths checks that only a hostpath volume lists shared paths, and that each is
+// a clean relative path, listed once, outside the user directories of a volume with enableUserDir.
+func validateVolumeSharedPaths(vol v1.WorkspaceVolume) error {
+	if len(vol.SharedPaths) == 0 {
+		return nil
+	}
+	if vol.Type != v1.HOSTPATH {
+		return fmt.Errorf("volume(%s) lists sharedPaths, which only a hostpath volume can have", vol.GenFullVolumeId())
+	}
+	seen := make(map[string]struct{}, len(vol.SharedPaths))
+	for _, shared := range vol.SharedPaths {
+		if err := vol.ValidateSharedPath(shared.Path); err != nil {
+			return err
+		}
+		if _, ok := seen[shared.Path]; ok {
+			return fmt.Errorf("duplicate shared path %q of volume(%s)", shared.Path, vol.GenFullVolumeId())
+		}
+		seen[shared.Path] = struct{}{}
 	}
 	return nil
 }

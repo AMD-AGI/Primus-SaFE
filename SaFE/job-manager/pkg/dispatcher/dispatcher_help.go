@@ -620,6 +620,16 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 				continue
 			}
 			if vol.MountPath != "" {
+				if mounts, replaced, err := externalUserDirMounts(workload, vol); replaced {
+					// modifyVolumes refuses the workload when err is set.
+					if err == nil {
+						for _, m := range mounts {
+							volumeMounts = append(volumeMounts,
+								buildVolumeMount(m.name, m.mountPath, "", "", m.readOnly, false))
+						}
+					}
+					continue
+				}
 				// External pods mount the approved root without subPath; USER_DATA_PATH
 				// still points at the per-user directory for the program.
 				enableUserDir := vol.EnableUserDir && !isExternalWorkload(workload)
@@ -736,8 +746,8 @@ func workspaceVolumeAppliesTo(vol v1.WorkspaceVolume, workload *v1.Workload) boo
 // still point anywhere on the node. So the pod mounts the declared root and reaches the entry
 // through subPath, which the kubelet resolves inside the volume and refuses when it escapes it.
 // Other workloads, external pods (whose provider refuses subPath; modifyVolumes refuses their
-// entries below a root) and entries under no declared root (sandboxes admitted before roots were
-// enforced) keep the entry as the hostPath source.
+// entries below a root unless user directories are mounted for external Pods) and entries under no
+// declared root (sandboxes admitted before roots were enforced) keep the entry as the hostPath source.
 func sandboxHostPathSource(workload *v1.Workload, workspace *v1.Workspace, hostpath string) (string, string) {
 	if !commonworkload.IsSandBox(workload) || isExternalWorkload(workload) {
 		return hostpath, ""
@@ -788,8 +798,13 @@ func sandboxHostPathRoot(workspace *v1.Workspace, hostpath string) (string, stri
 // checkExternalSandboxHostPath refuses an external Sandbox's hostpath entry that lies below a
 // declared sandbox root. The provider refuses subPath, so such an entry could only be mounted as
 // its own hostPath, and a symlink under the root would then reach any path on the node.
+//
+// With external_execution.user_dir_mounts on, the provider admits a path below an approved root and
+// mounts it without following symlinks, so such an entry is allowed and mounted, read-only, as its
+// own hostPath; checkExternalUserDirHostPath keeps it out of the user directories.
 func checkExternalSandboxHostPath(workload *v1.Workload, workspace *v1.Workspace, hostpath string) error {
-	if !commonworkload.IsSandBox(workload) || !isExternalWorkload(workload) {
+	if !commonworkload.IsSandBox(workload) || !isExternalWorkload(workload) ||
+		commonconfig.IsExternalUserDirMountsEnable() {
 		return nil
 	}
 	if root, sub := sandboxHostPathRoot(workspace, hostpath); root != "" && sub != "" {
@@ -816,6 +831,15 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			if !workspaceVolumeAppliesTo(vol, workload) {
 				continue
 			}
+			if mounts, replaced, err := externalUserDirMounts(workload, vol); err != nil {
+				return err
+			} else if replaced {
+				for _, m := range mounts {
+					volumes = append(volumes, buildHostPathVolume(m.name, m.hostPath, m.hostType))
+				}
+				hasNewVolume = true
+				continue
+			}
 			volumeName := vol.GenFullVolumeId()
 			var volume interface{}
 			if vol.Type == v1.HOSTPATH {
@@ -831,6 +855,9 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
 		if err = checkExternalSandboxHostPath(workload, workspace, hostpath); err != nil {
+			return err
+		}
+		if err = checkExternalUserDirHostPath(workload, workspace, hostpath); err != nil {
 			return err
 		}
 		source, _ := sandboxHostPathSource(workload, workspace, hostpath)
@@ -4377,5 +4404,5 @@ func podSpecPath(w *v1.Workload, resourceSpec *v1.ResourceSpec, fields ...string
 }
 
 func generateUserDir(userId string) string {
-	return "users/" + userId
+	return v1.UserDirsPath + "/" + userId
 }

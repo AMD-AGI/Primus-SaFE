@@ -830,6 +830,15 @@ func GetExternalWorkspaceResync() time.Duration {
 	return time.Duration(getInt(externalExecutionWorkspaceResync, 30)) * time.Second
 }
 
+// IsExternalUserDirMountsEnable reports whether an external Pod mounts, from a hostpath volume
+// with enableUserDir or sharedPaths, only its user directory and the volume's shared paths, each
+// as its own hostPath at the path it has inside the volume, instead of the whole volume.
+// Off by default: the provider must first admit a hostPath below an approved root (and mount it
+// without following symlinks), and must allow a user directory only to that user's Pods.
+func IsExternalUserDirMountsEnable() bool {
+	return getBool(externalExecutionUserDirMounts, false)
+}
+
 // ── MCP (Model Context Protocol) ────────────────────────────────────────
 
 func IsMCPEnable() bool {
