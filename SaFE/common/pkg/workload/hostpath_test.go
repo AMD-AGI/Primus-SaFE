@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"gotest.tools/assert"
+	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
@@ -49,17 +50,15 @@ func TestDeclaredHostPathRoot(t *testing.T) {
 		{v1.TrainScope, "", "", ""},
 		{v1.TrainScope, "/", "", ""},
 	} {
-		root, sub := DeclaredHostPathRoot(ws, c.scope, c.in)
-		assert.Equal(t, root, c.root, "%s %q", c.scope, c.in)
-		assert.Equal(t, sub, c.sub, "%s %q", c.scope, c.in)
+		got := DeclaredHostPathRoot(ws, c.scope, c.in)
+		assert.Equal(t, got.Root, c.root, "%s %q", c.scope, c.in)
+		assert.Equal(t, got.Sub, c.sub, "%s %q", c.scope, c.in)
+		assert.Equal(t, got.ReadOnly, false, "%s %q", c.scope, c.in)
 	}
 
-	root, sub := DeclaredHostPathRoot(nil, v1.TrainScope, "/shared_nfs")
-	assert.Equal(t, root+sub, "")
+	assert.Equal(t, DeclaredHostPathRoot(nil, v1.TrainScope, "/shared_nfs"), DeclaredHostPath{})
 	slash := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{{Type: v1.HOSTPATH, HostPath: "/"}}}}
-	root, sub = DeclaredHostPathRoot(slash, v1.TrainScope, "/etc/x")
-	assert.Equal(t, root, "/")
-	assert.Equal(t, sub, "etc/x")
+	assert.Equal(t, DeclaredHostPathRoot(slash, v1.TrainScope, "/etc/x"), DeclaredHostPath{Root: "/", Sub: "etc/x"})
 }
 
 func TestUndeclaredHostPaths(t *testing.T) {
@@ -68,4 +67,112 @@ func TestUndeclaredHostPaths(t *testing.T) {
 	assert.DeepEqual(t, got, []string{"/etc", "/apps"})
 	assert.Assert(t, UndeclaredHostPaths(ws, v1.TrainScope, nil) == nil)
 	assert.DeepEqual(t, UndeclaredHostPaths(nil, v1.TrainScope, []string{"/shared_nfs"}), []string{"/shared_nfs"})
+}
+
+// exposedPartWorkspace has a volume that shows only its subPath, read-only (hostpath-1), a volume
+// with user directories (hostpath-2) and one with a subPath (hostpath-9), volumes whose subPath
+// leaves hostPath (hostpath-3, -4), and nested volumes with different access modes (hostpath-5 to
+// -8).
+func exposedPartWorkspace() *v1.Workspace {
+	return &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Id: 1, Type: v1.HOSTPATH, HostPath: "/shared", SubPath: "teamA", AccessMode: corev1.ReadOnlyMany},
+		{Id: 2, Type: v1.HOSTPATH, HostPath: "/home", EnableUserDir: true},
+		{Id: 3, Type: v1.HOSTPATH, HostPath: "/bad", SubPath: "../etc"},
+		{Id: 4, Type: v1.HOSTPATH, HostPath: "/abs", SubPath: "/etc"},
+		{Id: 5, Type: v1.HOSTPATH, HostPath: "/data", AccessMode: corev1.ReadOnlyMany},
+		{Id: 6, Type: v1.HOSTPATH, HostPath: "/data/rw", AccessMode: corev1.ReadWriteMany},
+		{Id: 7, Type: v1.HOSTPATH, HostPath: "/models"},
+		{Id: 8, Type: v1.HOSTPATH, HostPath: "/models/ro", AccessMode: corev1.ReadOnlyMany},
+		{Id: 9, Type: v1.HOSTPATH, HostPath: "/nfs", SubPath: "site", EnableUserDir: true,
+			AccessMode: corev1.ReadOnlyMany},
+	}}}
+}
+
+// A volume declares only what it mounts: hostPath joined with subPath, nothing for a subPath that
+// leaves hostPath, and with user directories neither the volume's directory itself nor anything
+// in or over its user directories. Each directory directly under a volume with user directories is
+// a root of its own, so the kubelet keeps a symlink in it from reaching the user directories. An
+// entry is read-only when every root declaring it is; a writable volume over or under a read-only
+// one shows the entry writable already.
+func TestDeclaredHostPathRootOnlyWhatTheVolumeShows(t *testing.T) {
+	ws := exposedPartWorkspace()
+	for _, c := range []struct {
+		in   string
+		want DeclaredHostPath
+	}{
+		{"/shared/teamA", DeclaredHostPath{Root: "/shared/teamA", ReadOnly: true}},
+		{"/shared/teamA/x/", DeclaredHostPath{Root: "/shared/teamA", Sub: "x", ReadOnly: true}},
+		{"/shared", DeclaredHostPath{}},
+		{"/shared/teamB", DeclaredHostPath{}},
+		{"/shared/teamAB", DeclaredHostPath{}},
+		{"/home", DeclaredHostPath{}},
+		{"/home/", DeclaredHostPath{}},
+		{"/home/users", DeclaredHostPath{}},
+		{"/home/users/u1", DeclaredHostPath{}},
+		{"/home/users/u2/x", DeclaredHostPath{}},
+		{"/home/models", DeclaredHostPath{Root: "/home/models"}},
+		{"/home/hyperloom/runner-cache", DeclaredHostPath{Root: "/home/hyperloom", Sub: "runner-cache"}},
+		{"/home/usersX/a", DeclaredHostPath{Root: "/home/usersX", Sub: "a"}},
+		{"/nfs/site/models/m", DeclaredHostPath{Root: "/nfs/site/models", Sub: "m", ReadOnly: true}},
+		{"/nfs/site", DeclaredHostPath{}},
+		{"/nfs/site/users/u1", DeclaredHostPath{}},
+		{"/nfs/other", DeclaredHostPath{}},
+		{"/bad", DeclaredHostPath{}},
+		{"/etc", DeclaredHostPath{}},
+		{"/abs/etc", DeclaredHostPath{}},
+		{"/data/x", DeclaredHostPath{Root: "/data", Sub: "x", ReadOnly: true}},
+		{"/data/rw/x", DeclaredHostPath{Root: "/data/rw", Sub: "x"}},
+		{"/models/x", DeclaredHostPath{Root: "/models", Sub: "x"}},
+		{"/models/ro/x", DeclaredHostPath{Root: "/models/ro", Sub: "x"}},
+	} {
+		assert.Equal(t, DeclaredHostPathRoot(ws, v1.TrainScope, c.in), c.want, c.in)
+	}
+	roots := DeclaredHostPathRoots(ws, v1.TrainScope)
+	assert.DeepEqual(t, roots, []HostPathRoot{
+		{Path: "/shared/teamA", ReadOnly: true},
+		{Path: "/home", UserDirs: true},
+		{Path: "/data", ReadOnly: true},
+		{Path: "/data/rw"},
+		{Path: "/models"},
+		{Path: "/models/ro", ReadOnly: true},
+		{Path: "/nfs/site", ReadOnly: true, UserDirs: true},
+	})
+	assert.Equal(t, roots[0].String(), "/shared/teamA")
+	assert.Equal(t, roots[1].String(), "/home/* but /home/users")
+	assert.DeepEqual(t, UndeclaredHostPaths(ws, v1.TrainScope,
+		[]string{"/shared/teamA/x", "/shared/teamB", "/home/users/u1", "/home/models"}),
+		[]string{"/shared/teamB", "/home/users/u1"})
+
+	// Two volumes with the same root: writable when either is.
+	same := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Id: 1, Type: v1.HOSTPATH, HostPath: "/same", AccessMode: corev1.ReadOnlyMany},
+		{Id: 2, Type: v1.HOSTPATH, HostPath: "/same/"},
+	}}}
+	assert.Equal(t, DeclaredHostPathRoot(same, v1.TrainScope, "/same/x"), DeclaredHostPath{Root: "/same", Sub: "x"})
+	same.Spec.Volumes[1].Scopes = []v1.WorkspaceScope{v1.InferScope}
+	assert.Equal(t, DeclaredHostPathRoot(same, v1.TrainScope, "/same/x"),
+		DeclaredHostPath{Root: "/same", Sub: "x", ReadOnly: true})
+}
+
+// HostPathVolumeRoot, which external Pods are held to, is the volume's hostPath whatever the
+// volume declares below it.
+func TestHostPathVolumeRoot(t *testing.T) {
+	ws := exposedPartWorkspace()
+	for _, c := range []struct{ in, root, sub string }{
+		{"/shared/teamB", "/shared", "teamB"},
+		{"/shared/teamA", "/shared", "teamA"},
+		{"/home/users/u1", "/home", "users/u1"},
+		{"/home/", "/home", ""},
+		{"/data/rw", "/data/rw", ""},
+		{"/data/rw/x", "/data/rw", "x"},
+		{"/etc", "", ""},
+		{"/home/../etc", "", ""},
+		{"home/x", "", ""},
+	} {
+		root, sub := HostPathVolumeRoot(ws, v1.TrainScope, c.in)
+		assert.Equal(t, root, c.root, c.in)
+		assert.Equal(t, sub, c.sub, c.in)
+	}
+	root, sub := HostPathVolumeRoot(nil, v1.TrainScope, "/home")
+	assert.Equal(t, root+sub, "")
 }

@@ -13,6 +13,7 @@ import (
 	"gotest.tools/assert"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -140,4 +141,55 @@ func TestWorkloadAdmissionRefusesUndeclaredHostPath(t *testing.T) {
 	assert.Assert(t, !resp.Allowed)
 	assert.Assert(t, strings.Contains(resp.Result.Message, `the hostpath "/etc" is not declared by workspace ws1`),
 		resp.Result.Message)
+}
+
+// exposedPartWorkspace is workspace ws1 with a volume that shows workloads only /shared/teamA,
+// read-only, and a volume with user directories over /home.
+func exposedPartWorkspace() *v1.Workspace {
+	return &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Id: 1, Type: v1.HOSTPATH, MountPath: "/team", HostPath: "/shared", SubPath: "teamA",
+			AccessMode: corev1.ReadOnlyMany},
+		{Id: 2, Type: v1.HOSTPATH, MountPath: "/home", HostPath: "/home", EnableUserDir: true},
+	}}}
+}
+
+// TestValidateHostPathOnlyWhatTheVolumeShows verifies a volume declares, for every kind and for
+// sandboxes, only what it mounts: a volume with a subPath declares hostPath/subPath and not its
+// siblings or hostPath itself, and a volume with user directories declares the directories under it
+// but neither its user directories (another user's or the user's own, which the volume mounts
+// already) nor its own directory, which holds them. None of these is admitted without the grant.
+func TestValidateHostPathOnlyWhatTheVolumeShows(t *testing.T) {
+	scheme := newScheme(t)
+	v := &WorkloadValidator{Client: fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(exposedPartWorkspace()).Build()}
+	ctx := context.Background()
+
+	for _, allowed := range []string{
+		"/shared/teamA", "/shared/teamA/", "/shared/teamA/data",
+		"/home/models", "/home/hyperloom/runner-cache",
+	} {
+		assert.NilError(t, v.validateHostPath(ctx, jobWithHostPath(common.PytorchJobKind, allowed), nil), allowed)
+		assert.NilError(t, v.validateSandbox(ctx, sandboxWorkload(allowed), nil), allowed)
+	}
+	declared := "only paths under [/shared/teamA /home/* but /home/users] are allowed"
+	for _, refused := range []string{
+		"/shared",           // above the subPath
+		"/shared/teamB",     // next to it
+		"/shared/teamAB",    // a look-alike of it
+		"/home",             // the directory of a volume with user directories
+		"/home/users",       // every user's directory
+		"/home/users/other", // another user's directory
+		"/home/users/u1",    // the user's own, which the volume mounts already
+	} {
+		job := jobWithHostPath(common.PytorchJobKind, refused)
+		v1.SetLabel(job, v1.UserIdLabel, "u1")
+		err := v.validateHostPath(ctx, job, nil)
+		assert.ErrorContains(t, err, `the hostpath "`+refused+`" is not declared by workspace ws1 for PyTorchJob workloads, `+
+			declared)
+		sandbox := sandboxWorkload(refused)
+		v1.SetLabel(sandbox, v1.UserIdLabel, "u1")
+		err = v.validateSandbox(ctx, sandbox, nil)
+		assert.ErrorContains(t, err, `the hostpath "`+refused+`" of the sandbox is not declared by workspace ws1, `+
+			declared)
+	}
 }

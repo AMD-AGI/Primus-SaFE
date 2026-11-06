@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -1850,19 +1849,12 @@ func (v *WorkloadValidator) validateHostPath(ctx context.Context, newWorkload, o
 // the workspace does not declare (authority.WorkloadPrivilegedKind in the apiserver).
 const workloadPrivilegedKind = "workload/privileged"
 
-// declaredHostPaths lists the hostpath volume roots the workspace mounts into the given scope.
+// declaredHostPaths names what the workspace declares for the given scope
+// (commonworkload.DeclaredHostPathRoots), the paths under which hostpath entries are admitted.
 func declaredHostPaths(workspace *v1.Workspace, scope v1.WorkspaceScope) []string {
 	var declared []string
-	if workspace == nil {
-		return declared
-	}
-	for _, vol := range workspace.Spec.Volumes {
-		if vol.Type != v1.HOSTPATH || !vol.AppliesToScope(scope) {
-			continue
-		}
-		if root := strings.TrimSpace(vol.HostPath); root != "" {
-			declared = append(declared, filepath.Clean(root))
-		}
+	for _, root := range commonworkload.DeclaredHostPathRoots(workspace, scope) {
+		declared = append(declared, root.String())
 	}
 	return declared
 }

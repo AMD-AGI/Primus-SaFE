@@ -45,9 +45,9 @@ type hostPathFixture struct {
 }
 
 // newHostPathFixture is a cluster with the built-in roles as the chart ships them, a workspace that
-// declares /shared_nfs as a hostpath volume for every scope, /apps for training only and a PFS
-// volume, the control-plane node the create path reads, and users in different relations to the
-// workspace.
+// declares /shared_nfs as a hostpath volume for every scope, /apps for training only, a read-only
+// volume that shows only /teams/a, a volume with user directories over /home and a PFS volume, the
+// control-plane node the create path reads, and users in different relations to the workspace.
 func newHostPathFixture(t *testing.T) *hostPathFixture {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -72,6 +72,9 @@ func newHostPathFixture(t *testing.T) *hostPathFixture {
 			{Id: 2, Type: v1.HOSTPATH, HostPath: "/apps", MountPath: "/apps",
 				Scopes: []v1.WorkspaceScope{v1.TrainScope}},
 			{Id: 3, Type: v1.PFS, MountPath: "/mnt/ceph", StorageClass: "sc", Capacity: "1Ti"},
+			{Id: 4, Type: v1.HOSTPATH, HostPath: "/teams", SubPath: "a", MountPath: "/team",
+				AccessMode: corev1.ReadOnlyMany},
+			{Id: 5, Type: v1.HOSTPATH, HostPath: "/home", MountPath: "/home", EnableUserDir: true},
 		}},
 	}
 	controlPlane := &corev1.Node{
@@ -153,6 +156,11 @@ func TestMembersCannotMountUndeclaredHostPaths(t *testing.T) {
 		{"dot-dot out of a declared path", hpMember, common.PytorchJobKind, []string{"/shared_nfs/../etc"}, nil},
 		{"a training path in an inference workload", hpMember, common.DeploymentKind, []string{"/apps"}, nil},
 		{"a PFS mount path", hpMember, common.AuthoringKind, []string{"/mnt/ceph"}, nil},
+		{"above a volume's subPath", hpMember, common.PytorchJobKind, []string{"/teams"}, nil},
+		{"next to a volume's subPath", hpMember, common.PytorchJobKind, []string{"/teams/b"}, nil},
+		{"a volume with user directories", hpMember, common.PytorchJobKind, []string{"/home"}, nil},
+		{"another user's directory", hpMember, common.PytorchJobKind, []string{"/home/users/" + hpManager}, nil},
+		{"the user's own directory", hpMember, common.PytorchJobKind, []string{"/home/users/" + hpMember}, nil},
 		{"with the grant annotation in the request", hpMember, common.PytorchJobKind, []string{"/etc"},
 			map[string]string{v1.WorkloadHostPathAuthzAnnotation: v1.TrueStr}},
 		{"as a manager of another workspace", hpOtherManager, common.PytorchJobKind, []string{"/"}, nil},
@@ -178,6 +186,12 @@ func TestMembersMountDeclaredHostPaths(t *testing.T) {
 	require.False(t, v1.HasAnnotation(stored, v1.WorkloadHostPathAuthzAnnotation))
 
 	stored, err = f.create(t, hpMember, common.DeploymentKind, []string{"/shared_nfs"}, nil)
+	require.NoError(t, err)
+	require.False(t, v1.HasAnnotation(stored, v1.WorkloadHostPathAuthzAnnotation))
+
+	// What a volume with a subPath declares: hostPath/subPath and directories under it; and what a
+	// volume with user directories declares: the directories under it but its user directories.
+	stored, err = f.create(t, hpMember, common.PytorchJobKind, []string{"/teams/a", "/teams/a/x", "/home/models"}, nil)
 	require.NoError(t, err)
 	require.False(t, v1.HasAnnotation(stored, v1.WorkloadHostPathAuthzAnnotation))
 }
