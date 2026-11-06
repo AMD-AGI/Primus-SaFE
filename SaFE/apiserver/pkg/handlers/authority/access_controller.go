@@ -85,6 +85,31 @@ func NewAccessController(cli client.Client) *AccessController {
 // It retrieves user and roles if not provided, then validates if the user
 // has permission to perform the requested action on the resource.
 func (a *AccessController) Authorize(in AccessInput) error {
+	if err := a.resolveUserAndRoles(&in); err != nil {
+		return err
+	}
+	return a.authorize(in)
+}
+
+// Allowed reports whether Authorize would allow the request, without logging or counting a
+// refusal. It is for a caller that asks what a user may see, for example to narrow a list to what
+// the user's roles grant, rather than one that refuses a request. The error is the one Authorize
+// returns when the user cannot be loaded.
+func (a *AccessController) Allowed(in AccessInput) (bool, error) {
+	if err := a.resolveUserAndRoles(&in); err != nil {
+		return false, err
+	}
+	if in.User.IsRestricted() {
+		return false, nil
+	}
+	isOwner, isWorkspaceUser := a.determineOwnership(&in)
+	resourceKind, resourceName := a.extractResourceInfo(in)
+	return a.rolesGrant(in, resourceKind, resourceName, isOwner, isWorkspaceUser), nil
+}
+
+// resolveUserAndRoles fills in the request user, as this request sees it, and the user's roles
+// when the input does not carry them.
+func (a *AccessController) resolveUserAndRoles(in *AccessInput) error {
 	if in.User == nil {
 		var err error
 		if in.User, err = a.GetRequestUser(in.Context, in.UserId); err != nil {
@@ -95,7 +120,7 @@ func (a *AccessController) Authorize(in AccessInput) error {
 	if len(in.Roles) == 0 {
 		in.Roles = a.GetRoles(in.Context, in.User)
 	}
-	return a.authorize(in)
+	return nil
 }
 
 // AuthorizeSystemAdmin checks if the user has system administrator privileges.
@@ -169,11 +194,24 @@ func (a *AccessController) authorize(in AccessInput) error {
 	}
 	isOwner, isWorkspaceUser := a.determineOwnership(&in)
 	resourceKind, resourceName := a.extractResourceInfo(in)
+	if a.rolesGrant(in, resourceKind, resourceName, isOwner, isWorkspaceUser) {
+		return nil
+	}
+	klog.Errorf("failed to authorize user(%s) to %s %s/%s, workspace: %s, isOwner: %t, isWorkspaceUser: %t",
+		in.User.Name, in.Verb, resourceKind, resourceName, in.Workspaces, isOwner, isWorkspaceUser)
+	apimetrics.AuthzDeniedTotal.WithLabelValues(strings.ToLower(resourceKind), string(in.Verb)).Inc()
+	return commonerrors.NewForbidden(fmt.Sprintf("The user(%s) is not allowed to %s %s,"+
+		" workspace: %s", in.User.Name, in.Verb, resourceKind, in.Workspaces))
+}
 
+// rolesGrant reports whether one of the user's roles, or the workspace administrator role in a
+// workspace the user manages, grants the verb on the resource.
+func (a *AccessController) rolesGrant(in AccessInput,
+	resourceKind, resourceName string, isOwner, isWorkspaceUser bool) bool {
 	for _, r := range in.Roles {
 		rules := a.getPolicyRules(r, resourceKind, resourceName, isOwner, isWorkspaceUser)
 		if isMatchVerb(rules, in.Verb) {
-			return nil
+			return true
 		}
 	}
 	if len(commonuser.GetManagedWorkspace(in.User)) > 0 {
@@ -184,15 +222,11 @@ func (a *AccessController) authorize(in AccessInput) error {
 		if role, err := a.getWorkspaceAdminRole(in.Context); err == nil {
 			rules := a.getPolicyRules(role, resourceKind, resourceName, isOwner, isWorkspaceManager)
 			if isMatchVerb(rules, in.Verb) {
-				return nil
+				return true
 			}
 		}
 	}
-	klog.Errorf("failed to authorize user(%s) to %s %s/%s, workspace: %s, isOwner: %t, isWorkspaceUser: %t",
-		in.User.Name, in.Verb, resourceKind, resourceName, in.Workspaces, isOwner, isWorkspaceUser)
-	apimetrics.AuthzDeniedTotal.WithLabelValues(strings.ToLower(resourceKind), string(in.Verb)).Inc()
-	return commonerrors.NewForbidden(fmt.Sprintf("The user(%s) is not allowed to %s %s,"+
-		" workspace: %s", in.User.Name, in.Verb, resourceKind, in.Workspaces))
+	return false
 }
 
 // checkUserStatus checks UserStatus and returns the result.

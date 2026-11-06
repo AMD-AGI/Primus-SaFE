@@ -7,7 +7,12 @@ package client
 
 import (
 	"context"
+	"database/sql/driver"
+	"strings"
 	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOptimizationTaskCRUD(t *testing.T) {
@@ -39,5 +44,41 @@ func TestOptimizationTaskGormNotInitialized(t *testing.T) {
 	_, err := c.GetOptimizationTask(ctx, "t1")
 	if err == nil {
 		t.Fatal("expected error when gorm not initialized")
+	}
+}
+
+// ListOptimizationTasks keeps only the tasks in the filter's scope: those of the scope's user or in
+// one of its workspaces, those of the user alone, those of the workspaces alone, or none at all
+// for the zero scope; without a scope it keeps every task.
+func TestListOptimizationTasksScope(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		scope *OptimizationTaskScope
+		where string
+		args  []driver.Value
+	}{
+		{"none", nil, `WHERE is_deleted = \$1 ORDER BY`, []driver.Value{false}},
+		{"user and workspaces", &OptimizationTaskScope{UserID: "u1", Workspaces: []string{"ws1", "ws2"}},
+			`WHERE is_deleted = \$1 AND \(+user_id = \$2 OR workspace IN \(\$3,\$4\)\)+ ORDER BY`,
+			[]driver.Value{false, "u1", "ws1", "ws2"}},
+		{"user", &OptimizationTaskScope{UserID: "u1"},
+			`WHERE is_deleted = \$1 AND user_id = \$2 ORDER BY`, []driver.Value{false, "u1"}},
+		{"workspaces", &OptimizationTaskScope{Workspaces: []string{"ws1"}},
+			`WHERE is_deleted = \$1 AND workspace IN \(\$2\) ORDER BY`, []driver.Value{false, "ws1"}},
+		{"empty", &OptimizationTaskScope{}, `WHERE is_deleted = \$1 AND FALSE ORDER BY`, []driver.Value{false}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, mock := newMockClient(t)
+			count := strings.Replace(tc.where, " ORDER BY", "$", 1)
+			mock.ExpectQuery(`SELECT count\(\*\) FROM "optimization_task" ` + count).
+				WithArgs(tc.args...).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+			mock.ExpectQuery(`SELECT \* FROM "optimization_task" ` + tc.where + ` created_at DESC`).
+				WithArgs(tc.args...).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("t1"))
+			tasks, total, err := c.ListOptimizationTasks(context.Background(), OptimizationTaskFilter{Scope: tc.scope})
+			require.NoError(t, err)
+			require.Equal(t, int64(1), total)
+			require.Len(t, tasks, 1)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
 	}
 }

@@ -17,6 +17,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 )
@@ -30,6 +32,7 @@ func newOptHandlerWithClaw(t *testing.T, ctrl *gomock.Controller, clawURL string
 	h := &Handler{
 		dbClient:   mockDB,
 		k8sClient:  k8sClient,
+		accessCtrl: authzAccessController(t),
 		clawClient: NewClawClient(clawURL, "test-key"),
 		hubs:       newHubRegistry(),
 	}
@@ -47,8 +50,9 @@ func TestGetTaskForActionNotFound(t *testing.T) {
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, authzAdmin)
 	c.Params = gin.Params{{Key: "id", Value: "missing"}}
-	_, err := h.getTaskForAction(c)
+	_, err := h.getTaskForAction(c, v1.GetVerb)
 	assert.Error(t, err)
 }
 
@@ -67,6 +71,7 @@ func TestInterruptTask(t *testing.T) {
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	c.Set(common.UserId, authzAdmin)
 	c.Params = gin.Params{{Key: "id", Value: "t1"}}
 	h.InterruptTask(c)
 	assert.Equal(t, http.StatusOK, rsp.Code)
@@ -84,6 +89,7 @@ func TestInterruptTaskNoSession(t *testing.T) {
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	c.Set(common.UserId, authzAdmin)
 	c.Params = gin.Params{{Key: "id", Value: "t1"}}
 	h.InterruptTask(c)
 	assert.NotEqual(t, http.StatusOK, rsp.Code)
@@ -102,6 +108,7 @@ func TestRetryTaskNonRetryable(t *testing.T) {
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	c.Set(common.UserId, authzAdmin)
 	c.Params = gin.Params{{Key: "id", Value: "t1"}}
 	h.RetryTask(c)
 	assert.NotEqual(t, http.StatusOK, rsp.Code)
@@ -118,8 +125,9 @@ func TestGetTaskForActionDBError(t *testing.T) {
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, authzAdmin)
 	c.Params = gin.Params{{Key: "id", Value: "t1"}}
-	_, err := h.getTaskForAction(c)
+	_, err := h.getTaskForAction(c, v1.GetVerb)
 	assert.Error(t, err)
 }
 

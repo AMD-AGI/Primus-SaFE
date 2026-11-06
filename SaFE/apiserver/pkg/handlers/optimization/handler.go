@@ -22,7 +22,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
-	"gorm.io/gorm"
 	"k8s.io/klog/v2"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -53,6 +52,7 @@ var (
 type Handler struct {
 	dbClient        dbclient.Interface
 	k8sClient       ctrlclient.Client
+	accessCtrl      *authority.AccessController
 	clawClient      *ClawClient
 	clawAgentID     string
 	defaultWS       string
@@ -64,12 +64,16 @@ type Handler struct {
 // NewHandler instantiates the handler. Returns nil and a log warning when
 // prerequisite configuration is missing, so the caller can skip route
 // registration without failing apiserver startup.
-func NewHandler(k8sClient ctrlclient.Client, dbClient dbclient.Interface) (*Handler, error) {
+func NewHandler(k8sClient ctrlclient.Client, dbClient dbclient.Interface,
+	accessCtrl *authority.AccessController) (*Handler, error) {
 	if dbClient == nil {
 		return nil, errors.New("model optimization: database client is required")
 	}
 	if k8sClient == nil {
 		return nil, errors.New("model optimization: k8s client is required")
+	}
+	if accessCtrl == nil {
+		return nil, errors.New("model optimization: access controller is required")
 	}
 	baseURL := commonconfig.GetModelOptimizationClawBaseURL()
 	if baseURL == "" {
@@ -79,6 +83,7 @@ func NewHandler(k8sClient ctrlclient.Client, dbClient dbclient.Interface) (*Hand
 	return &Handler{
 		dbClient:        dbClient,
 		k8sClient:       k8sClient,
+		accessCtrl:      accessCtrl,
 		clawClient:      NewClawClient(baseURL, apiKey),
 		clawAgentID:     commonconfig.GetModelOptimizationClawAgentID(),
 		defaultWS:       commonconfig.GetModelOptimizationDefaultWorkspace(),
@@ -501,6 +506,11 @@ func (h *Handler) ListTasks(c *gin.Context) {
 	if q.Limit <= 0 {
 		q.Limit = 50
 	}
+	scope, err := h.taskListScope(c)
+	if err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
 	filter := dbclient.OptimizationTaskFilter{
 		Workspace: q.Workspace,
 		Status:    q.Status,
@@ -509,6 +519,7 @@ func (h *Handler) ListTasks(c *gin.Context) {
 		Search:    q.Search,
 		Limit:     q.Limit,
 		Offset:    q.Offset,
+		Scope:     scope,
 	}
 	tasks, total, err := h.dbClient.ListOptimizationTasks(c.Request.Context(), filter)
 	if err != nil {
@@ -528,19 +539,9 @@ func (h *Handler) ListTasks(c *gin.Context) {
 
 // GetTask handles GET /v1/optimization/tasks/:id.
 func (h *Handler) GetTask(c *gin.Context) {
-	id := c.Param("id")
-	task, err := h.dbClient.GetOptimizationTask(c.Request.Context(), id)
+	task, err := h.getTaskForAction(c, v1.GetVerb)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("task not found"))
-			return
-		}
-		klog.ErrorS(err, "get optimization task", "id", id)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to load task"))
-		return
-	}
-	if task == nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("task not found"))
+		apiutils.AbortWithApiError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, taskInfoFromDB(task, true))
@@ -549,12 +550,12 @@ func (h *Handler) GetTask(c *gin.Context) {
 // DeleteTask handles DELETE /v1/optimization/tasks/:id. The underlying Claw
 // session is closed best-effort; DB soft-delete is authoritative.
 func (h *Handler) DeleteTask(c *gin.Context) {
-	id := c.Param("id")
-	task, err := h.dbClient.GetOptimizationTask(c.Request.Context(), id)
-	if err != nil || task == nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("task not found"))
+	task, err := h.getTaskForAction(c, v1.DeleteVerb)
+	if err != nil {
+		apiutils.AbortWithApiError(c, err)
 		return
 	}
+	id := task.ID
 	if task.ClawSessionID != "" {
 		_ = h.clawClient.DeleteSession(WithClawBearer(context.Background(), h.clawBearerForGin(c)), task.ClawSessionID)
 	}
@@ -574,12 +575,12 @@ func (h *Handler) DeleteTask(c *gin.Context) {
 //  2. attaches the caller as a hub subscriber for future events;
 //  3. writes SSE frames until the task completes or the client disconnects.
 func (h *Handler) StreamEvents(c *gin.Context) {
-	id := c.Param("id")
-	task, err := h.dbClient.GetOptimizationTask(c.Request.Context(), id)
-	if err != nil || task == nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("task not found"))
+	task, err := h.getTaskForAction(c, v1.GetVerb)
+	if err != nil {
+		apiutils.AbortWithApiError(c, err)
 		return
 	}
+	id := task.ID
 
 	afterSeq := h.resolveAfterSeq(c.Request.Context(), id, c.Query("after_event_id"))
 
