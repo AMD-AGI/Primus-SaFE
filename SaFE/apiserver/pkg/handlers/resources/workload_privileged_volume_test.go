@@ -6,8 +6,10 @@
 package resources
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -17,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
@@ -136,4 +139,46 @@ func TestPrivilegedVolumeMarkIsSetOnlyByTheCheck(t *testing.T) {
 	stored := &v1.Workload{}
 	require.NoError(t, f.cli.Get(t.Context(), client.ObjectKey{Name: "preset"}, stored))
 	require.False(t, v1.HasAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
+}
+
+// A system administrator who creates a workload on behalf of another user (userEntity, as the
+// runner proxy does for CI jobs) gives it the volumes that require the grant only when that user
+// holds the grant as well, since the workload runs as them.
+func TestPrivilegedVolumesOnBehalfOfAnotherUser(t *testing.T) {
+	for _, tt := range []struct {
+		owner string
+		want  bool
+	}{
+		{hpMember, false},
+		{hpOtherManager, false},
+		{"no-such-user", false},
+		{hpManager, true},
+	} {
+		t.Run(tt.owner, func(t *testing.T) {
+			f := newPrivilegedVolumeFixture(t)
+			body, err := json.Marshal(map[string]any{
+				"displayName": "hp",
+				"workspaceId": hpWorkspace,
+				"images":      []string{"img"},
+				"entryPoints": []string{"sleep"},
+				"groupVersionKind": map[string]string{
+					"version": "v1", "kind": common.PytorchJobKind,
+				},
+				"resources":  []map[string]any{{"replica": 1, "cpu": "1", "memory": "1Gi"}},
+				"userEntity": map[string]string{"id": tt.owner, "name": tt.owner},
+			})
+			require.NoError(t, err)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/workloads", strings.NewReader(string(body)))
+			c.Request.Header.Set("Content-Type", "application/json")
+			c.Set(common.UserId, hpAdmin)
+			res, err := f.h.createWorkload(c)
+			require.NoError(t, err)
+			stored := &v1.Workload{}
+			require.NoError(t, f.cli.Get(t.Context(),
+				client.ObjectKey{Name: res.(*view.CreateWorkloadResponse).WorkloadId}, stored))
+			require.Equal(t, tt.owner, v1.GetUserId(stored))
+			require.Equal(t, tt.want, v1.HasAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
+		})
+	}
 }

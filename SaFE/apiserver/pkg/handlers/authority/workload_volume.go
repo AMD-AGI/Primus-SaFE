@@ -16,7 +16,8 @@ import (
 // workload/privileged in the workload's workspace (built-in: workspace-admin and system-admin), the
 // workload is marked with WorkloadPrivilegedVolumesAuthzAnnotation, which is what the dispatcher
 // mounts those volumes on. A user without the grant is not refused: the workload is created and
-// runs without those volumes, as it would in a scope they do not apply to. The mark is removed
+// runs without those volumes, as it would in a scope they do not apply to. When the workload runs
+// as another user than the requester, that user must hold the grant too. The mark is removed
 // first, so a workload never carries it unless this check set it.
 //
 // in carries the request: Context, User or UserId, and Roles when already known. The resource,
@@ -37,6 +38,24 @@ func (a *AccessController) AuthorizeWorkloadPrivilegedVolumes(in AccessInput,
 	allowed, err := a.Allowed(in)
 	if err != nil || !allowed {
 		return err
+	}
+	// A system administrator may create a workload on behalf of another user (userEntity, resume,
+	// the runner proxy's CI jobs), which then runs as that user: the volumes go only to a workload
+	// whose own user holds the grant as well.
+	requester := in.UserId
+	if in.User != nil {
+		requester = in.User.Name
+	}
+	if owner := v1.GetUserId(workload); owner != "" && owner != requester {
+		ownerUser, err := a.GetRequestUser(in.Context, owner)
+		if err != nil {
+			// A user that does not exist holds nothing.
+			return nil
+		}
+		in.User, in.UserId, in.Roles = ownerUser, owner, nil
+		if allowed, err = a.Allowed(in); err != nil || !allowed {
+			return err
+		}
 	}
 	v1.SetAnnotation(workload, v1.WorkloadPrivilegedVolumesAuthzAnnotation, v1.TrueStr)
 	return nil
