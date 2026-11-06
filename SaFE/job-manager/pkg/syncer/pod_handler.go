@@ -2020,6 +2020,11 @@ func latestPodSchedulingEvent(ctx context.Context, clientSet kubernetes.Interfac
 	var best, decision *corev1.Event
 	for i := range list.Items {
 		ev := &list.Items[i]
+		// An Event outlives its Pod: one about an earlier Pod of the same name
+		// says nothing about this one.
+		if ev.InvolvedObject.UID != "" && pod.UID != "" && ev.InvolvedObject.UID != pod.UID {
+			continue
+		}
 		if isScaleUpDecisionReason(ev.Reason) &&
 			(decision == nil || eventTime(ev).After(eventTime(decision))) {
 			decision = ev

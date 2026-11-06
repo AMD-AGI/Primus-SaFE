@@ -3806,6 +3806,20 @@ func TestExternalWaitingMessageKeepsScaleUpDecision(t *testing.T) {
 		t.Fatalf("the newest decision must win: got %q", got)
 	}
 
+	// A decision about an earlier Pod of the same name is not this Pod's.
+	recreated := pod.DeepCopy()
+	recreated.UID = "uid-new"
+	stale := event("e6", corev1.EventTypeNormal, "TriggeredScaleUp", "pod triggered scale-up", at(1))
+	stale.InvolvedObject.UID = "uid-old"
+	sets := &ClusterClientSets{}
+	sets.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1",
+		k8sfake.NewSimpleClientset(stale,
+			event("e7", corev1.EventTypeWarning, "FailedScheduling", "0/3 nodes are available", at(2)))))
+	got = externalWaitingMessage(context.Background(), sets, w, recreated)
+	if !strings.HasSuffix(got, " - FailedScheduling: 0/3 nodes are available") {
+		t.Fatalf("an earlier Pod's decision must not be reported: got %q", got)
+	}
+
 	// With no decision yet, the newest scheduling event is still reported.
 	got = read(event("e2", corev1.EventTypeWarning, "FailedScheduling", "0/4 nodes are available: quota", at(2)))
 	if !strings.HasSuffix(got, " - FailedScheduling: 0/4 nodes are available: quota") {
