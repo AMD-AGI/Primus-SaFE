@@ -162,9 +162,11 @@ func UndeclaredHostPaths(workspace *v1.Workspace, scope v1.WorkspaceScope, hostp
 
 // HostPathVolumeRoot returns the longest hostPath of a hostpath volume of the workspace mounted
 // into workloads of the given scope that lexically contains hostpath, whatever part of it the
-// volume declares, and the path below it ("" when hostpath is that hostPath itself). It returns an
-// empty root for a relative entry, an entry with a ".." element, an entry under no such hostPath,
-// or a nil workspace. An external Pod, which cannot use subPath, is held to it.
+// volume declares, and the path below it ("" when hostpath is that hostPath itself). It takes the
+// same volumes, and their hostPath the same way, as DeclaredHostPathRoots, so every declared entry
+// lies under one. It returns an empty root for a relative entry, an entry with a ".." element, an
+// entry under no such hostPath, or a nil workspace. An external Pod, which cannot use subPath, is
+// held to it.
 func HostPathVolumeRoot(workspace *v1.Workspace, scope v1.WorkspaceScope, hostpath string) (string, string) {
 	if workspace == nil || !filepath.IsAbs(hostpath) || hasDotDot(hostpath) {
 		return "", ""
@@ -172,14 +174,11 @@ func HostPathVolumeRoot(workspace *v1.Workspace, scope v1.WorkspaceScope, hostpa
 	cleaned := filepath.Clean(hostpath)
 	best, bestSub := "", ""
 	for _, vol := range workspace.Spec.Volumes {
-		if vol.Type != v1.HOSTPATH || !vol.AppliesToScope(scope) {
+		if vol.Type != v1.HOSTPATH || !vol.AppliesToScope(scope) ||
+			!filepath.IsAbs(vol.HostPath) || hasDotDot(vol.HostPath) {
 			continue
 		}
-		root := strings.TrimSpace(vol.HostPath)
-		if root == "" {
-			continue
-		}
-		root = filepath.Clean(root)
+		root := filepath.Clean(vol.HostPath)
 		if sub, ok := below(root, cleaned); ok && len(root) > len(best) {
 			best, bestSub = root, sub
 		}

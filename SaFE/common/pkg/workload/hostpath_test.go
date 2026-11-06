@@ -173,7 +173,7 @@ func TestDeclaredHostPathRootOnlyWhatTheVolumeShows(t *testing.T) {
 }
 
 // HostPathVolumeRoot, which external Pods are held to, is the volume's hostPath whatever the
-// volume declares below it.
+// volume declares below it, so every declared entry lies under one.
 func TestHostPathVolumeRoot(t *testing.T) {
 	ws := exposedPartWorkspace()
 	for _, c := range []struct{ in, root, sub string }{
@@ -186,6 +186,12 @@ func TestHostPathVolumeRoot(t *testing.T) {
 		{"/etc", "", ""},
 		{"/home/../etc", "", ""},
 		{"home/x", "", ""},
+		// The volumes and hostPaths DeclaredHostPathRoots takes: "/srv/share " as written, none
+		// for " /srv/lead" or "/var/run/../tmp".
+		{"/srv/share /x", "/srv/share ", "x"},
+		{"/srv/share/x", "", ""},
+		{"/srv/lead/x", "", ""},
+		{"/var/tmp/x", "", ""},
 	} {
 		root, sub := HostPathVolumeRoot(ws, v1.TrainScope, c.in)
 		assert.Equal(t, root, c.root, c.in)
