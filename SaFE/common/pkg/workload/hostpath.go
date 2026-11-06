@@ -40,11 +40,14 @@ func (r HostPathRoot) String() string {
 // (hostPath joined with subPath, not the rest of hostPath), read-only when the volume is.
 //
 // A volume with enableUserDir shows each workload its own user directory there, so it keeps the
-// user directories out of what it declares (HostPathRoot.UserDirs). A volume whose hostPath is not
-// absolute or has a ".." element, or whose subPath is absolute or has one, declares nothing: the
-// node resolves ".." after following symlinks, not lexically (where /var/run links to /run,
-// /var/run/../tmp is /tmp, not /var/tmp), so cleaning such a path could declare a directory the
-// volume does not mount. The kubelet refuses such a hostPath anyway.
+// user directories out of what it declares (HostPathRoot.UserDirs).
+//
+// The hostPath is taken exactly as the volume mounts it, only cleaned, which does not change the
+// directory a path without ".." names: it is not trimmed ("/srv/share " is another directory than
+// "/srv/share"), and a volume whose hostPath is not absolute or has a ".." element, or whose subPath
+// is absolute or has one, declares nothing. The node resolves ".." after following symlinks, not
+// lexically (where /var/run links to /run, /var/run/../tmp is /tmp, not /var/tmp), so cleaning such
+// a path could declare a directory the volume does not mount; the kubelet refuses it anyway.
 func DeclaredHostPathRoots(workspace *v1.Workspace, scope v1.WorkspaceScope) []HostPathRoot {
 	if workspace == nil {
 		return nil
@@ -54,12 +57,12 @@ func DeclaredHostPathRoots(workspace *v1.Workspace, scope v1.WorkspaceScope) []H
 		if vol.Type != v1.HOSTPATH || !vol.AppliesToScope(scope) {
 			continue
 		}
-		hostPath := strings.TrimSpace(vol.HostPath)
-		if !filepath.IsAbs(hostPath) || hasDotDot(hostPath) || filepath.IsAbs(vol.SubPath) || hasDotDot(vol.SubPath) {
+		if !filepath.IsAbs(vol.HostPath) || hasDotDot(vol.HostPath) ||
+			filepath.IsAbs(vol.SubPath) || hasDotDot(vol.SubPath) {
 			continue
 		}
 		roots = append(roots, HostPathRoot{
-			Path:     filepath.Join(hostPath, vol.SubPath),
+			Path:     filepath.Join(vol.HostPath, vol.SubPath),
 			ReadOnly: vol.AccessMode == corev1.ReadOnlyMany,
 			UserDirs: vol.EnableUserDir,
 		})

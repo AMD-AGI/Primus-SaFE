@@ -17,7 +17,7 @@ import (
 func hostPathRootsWorkspace() *v1.Workspace {
 	return &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
 		{Id: 1, Type: v1.HOSTPATH, HostPath: "/shared_nfs"},
-		{Id: 2, Type: v1.HOSTPATH, HostPath: " /shared_nfs/team/ ", Scopes: []v1.WorkspaceScope{v1.TrainScope}},
+		{Id: 2, Type: v1.HOSTPATH, HostPath: "/shared_nfs/team/", Scopes: []v1.WorkspaceScope{v1.TrainScope}},
 		{Id: 3, Type: v1.HOSTPATH, HostPath: "/apps", Scopes: []v1.WorkspaceScope{v1.SandboxScope}},
 		{Id: 4, Type: v1.PFS, MountPath: "/mnt/ceph"},
 		{Id: 5, Type: v1.HOSTPATH, HostPath: "  "},
@@ -72,7 +72,8 @@ func TestUndeclaredHostPaths(t *testing.T) {
 // exposedPartWorkspace has a volume that shows only its subPath, read-only (hostpath-1), a volume
 // with user directories (hostpath-2) and one with a subPath (hostpath-9), volumes whose subPath
 // leaves hostPath (hostpath-3, -4), nested volumes with different access modes (hostpath-5 to -8),
-// and volumes whose hostPath has ".." or is relative (hostpath-10, -11).
+// volumes whose hostPath has ".." or is relative (hostpath-10, -11), and volumes whose hostPath has
+// a trailing or a leading space (hostpath-12, -13).
 func exposedPartWorkspace() *v1.Workspace {
 	return &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
 		{Id: 1, Type: v1.HOSTPATH, HostPath: "/shared", SubPath: "teamA", AccessMode: corev1.ReadOnlyMany},
@@ -87,6 +88,8 @@ func exposedPartWorkspace() *v1.Workspace {
 			AccessMode: corev1.ReadOnlyMany},
 		{Id: 10, Type: v1.HOSTPATH, HostPath: "/var/run/../tmp"},
 		{Id: 11, Type: v1.HOSTPATH, HostPath: "relative/dir"},
+		{Id: 12, Type: v1.HOSTPATH, HostPath: "/srv/share "},
+		{Id: 13, Type: v1.HOSTPATH, HostPath: " /srv/lead"},
 	}}}
 }
 
@@ -126,6 +129,12 @@ func TestDeclaredHostPathRootOnlyWhatTheVolumeShows(t *testing.T) {
 		{"/var/tmp/x", DeclaredHostPath{}},
 		{"/tmp", DeclaredHostPath{}},
 		{"/relative/dir", DeclaredHostPath{}},
+		// A hostPath is used as the volume mounts it: "/srv/share " is not "/srv/share", and
+		// " /srv/lead" is not absolute.
+		{"/srv/share/secret", DeclaredHostPath{}},
+		{"/srv/share", DeclaredHostPath{}},
+		{"/srv/share /x", DeclaredHostPath{Root: "/srv/share ", Sub: "x"}},
+		{"/srv/lead", DeclaredHostPath{}},
 		{"/etc", DeclaredHostPath{}},
 		{"/abs/etc", DeclaredHostPath{}},
 		{"/data/x", DeclaredHostPath{Root: "/data", Sub: "x", ReadOnly: true}},
@@ -144,6 +153,7 @@ func TestDeclaredHostPathRootOnlyWhatTheVolumeShows(t *testing.T) {
 		{Path: "/models"},
 		{Path: "/models/ro", ReadOnly: true},
 		{Path: "/nfs/site", ReadOnly: true, UserDirs: true},
+		{Path: "/srv/share "},
 	})
 	assert.Equal(t, roots[0].String(), "/shared/teamA")
 	assert.Equal(t, roots[1].String(), "/home/* but /home/users")

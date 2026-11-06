@@ -144,13 +144,15 @@ func TestWorkloadAdmissionRefusesUndeclaredHostPath(t *testing.T) {
 }
 
 // exposedPartWorkspace is workspace ws1 with a volume that shows workloads only /shared/teamA,
-// read-only, a volume with user directories over /home, and a volume whose hostPath has "..".
+// read-only, a volume with user directories over /home, a volume whose hostPath has ".." and one
+// whose hostPath ends in a space.
 func exposedPartWorkspace() *v1.Workspace {
 	return &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
 		{Id: 1, Type: v1.HOSTPATH, MountPath: "/team", HostPath: "/shared", SubPath: "teamA",
 			AccessMode: corev1.ReadOnlyMany},
 		{Id: 2, Type: v1.HOSTPATH, MountPath: "/home", HostPath: "/home", EnableUserDir: true},
 		{Id: 3, Type: v1.HOSTPATH, MountPath: "/scratch", HostPath: "/var/run/../tmp"},
+		{Id: 4, Type: v1.HOSTPATH, MountPath: "/srv", HostPath: "/srv/share "},
 	}}}
 }
 
@@ -172,7 +174,7 @@ func TestValidateHostPathOnlyWhatTheVolumeShows(t *testing.T) {
 		assert.NilError(t, v.validateHostPath(ctx, jobWithHostPath(common.PytorchJobKind, allowed), nil), allowed)
 		assert.NilError(t, v.validateSandbox(ctx, sandboxWorkload(allowed), nil), allowed)
 	}
-	declared := "only paths under [/shared/teamA /home/* but /home/users] are allowed"
+	declared := "only paths under [/shared/teamA /home/* but /home/users /srv/share ] are allowed"
 	for _, refused := range []string{
 		"/shared",           // above the subPath
 		"/shared/teamB",     // next to it
@@ -182,6 +184,7 @@ func TestValidateHostPathOnlyWhatTheVolumeShows(t *testing.T) {
 		"/home/users/other", // another user's directory
 		"/home/users/u1",    // the user's own, which the volume mounts already
 		"/var/tmp",          // the lexical form of a hostPath with "..", which the node resolves elsewhere
+		"/srv/share/secret", // under the trimmed form of "/srv/share ", another directory
 	} {
 		job := jobWithHostPath(common.PytorchJobKind, refused)
 		v1.SetLabel(job, v1.UserIdLabel, "u1")
