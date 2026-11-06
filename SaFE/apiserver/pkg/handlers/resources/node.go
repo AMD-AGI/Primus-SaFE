@@ -141,7 +141,7 @@ func (h *Handler) retryNodes(c *gin.Context) (interface{}, error) {
 
 	for _, nodeName := range req.NodeIds {
 		// Authorize node access
-		if err := h.authorizeNodeAccess(ctx, nodeName, v1.UpdateVerb, requestUser, roles); err != nil {
+		if err := h.authorizeNodeChange(ctx, nodeName, v1.UpdateVerb, requestUser, roles); err != nil {
 			klog.ErrorS(err, "authorization failed for node retry", "node", nodeName)
 			response.FailedNodes = append(response.FailedNodes, view.RetryFailedNode{
 				NodeId: nodeName,
@@ -213,21 +213,25 @@ func (h *Handler) rejectExternalNodeByName(ctx context.Context, name string) err
 	return rejectExternalNodeMutation(node)
 }
 
-// authorizeNodeAccess checks if the user has permission to perform the specified verb on a node.
-// It retrieves the node and validates access based on the user's roles and workspace membership.
-func (h *Handler) authorizeNodeAccess(ctx context.Context, nodeName string, verb v1.RoleVerb, user *v1.User, roles []*v1.Role) error {
-	node, err := h.getAdminNode(ctx, nodeName)
-	if err != nil {
-		return err
-	}
-
+// authorizeNodeChange checks whether the user may change a node: update it (taints, labels,
+// flavor, template, address), re-run its provisioning, or delete it. roles may be nil, in which
+// case they are looked up.
+//
+// The check names neither the node's workspace nor its owner, so a rule granted to the members
+// of a workspace or to the owner of a resource does not match: only a role that grants the verb
+// on nodes outright does, which among the built-in roles is system-admin. A node is a machine
+// of the platform. The workspace it is assigned to runs work on it, but the same machine can
+// host other workspaces' pods and the platform's own services, and a taint or label set here is
+// applied to the Kubernetes node they all run on. Members still read the nodes of their
+// workspaces; reads are checked against the workspace as before.
+func (h *Handler) authorizeNodeChange(ctx context.Context, nodeName string, verb v1.RoleVerb, user *v1.User, roles []*v1.Role) error {
 	return h.accessController.Authorize(authority.AccessInput{
-		Context:    ctx,
-		Resource:   node,
-		Verb:       verb,
-		Workspaces: []string{v1.GetWorkspaceId(node)},
-		User:       user,
-		Roles:      roles,
+		Context:      ctx,
+		ResourceKind: v1.NodeKind,
+		ResourceName: nodeName,
+		Verb:         verb,
+		User:         user,
+		Roles:        roles,
 	})
 }
 
@@ -777,13 +781,7 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 	if err = rejectExternalNodeMutation(node); err != nil {
 		return nil, err
 	}
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:    ctx,
-		Resource:   node,
-		Verb:       v1.UpdateVerb,
-		Workspaces: []string{v1.GetWorkspaceId(node)},
-		User:       requestUser,
-	}); err != nil {
+	if err = h.authorizeNodeChange(ctx, node.Name, v1.UpdateVerb, requestUser, nil); err != nil {
 		return nil, err
 	}
 
@@ -836,14 +834,7 @@ func (h *Handler) deleteNodeImpl(c *gin.Context, name string, requestUser *v1.Us
 	if err = rejectExternalNodeMutation(node); err != nil {
 		return nil, err
 	}
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:    ctx,
-		Resource:   node,
-		Verb:       v1.DeleteVerb,
-		Workspaces: []string{v1.GetWorkspaceId(node)},
-		User:       requestUser,
-		Roles:      roles,
-	}); err != nil {
+	if err = h.authorizeNodeChange(ctx, node.Name, v1.DeleteVerb, requestUser, roles); err != nil {
 		return nil, err
 	}
 
