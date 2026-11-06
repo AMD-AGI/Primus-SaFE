@@ -623,9 +623,8 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 	if data, _ := json.Marshal(cur); string(data) != run.MetricCursor {
 		u.fields["metric_cursor"] = string(data)
 	}
-	if data, _ := json.Marshal(in.sum); string(data) != run.MetricSummary &&
-		(len(points) > 0 || in.sum.Rejected > 0 || in.linked || in.sampled) {
-		u.fields["metric_summary"] = string(data)
+	if summary, ok := in.summaryUpdate(points, run.MetricSummary); ok {
+		u.fields["metric_summary"] = summary
 	}
 	fields := u.columns()
 	if err := r.db.SavePostTrainingRunMetrics(ctx, run.RunID, points, fields); err != nil {

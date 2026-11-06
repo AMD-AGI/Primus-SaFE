@@ -166,6 +166,23 @@ func TestIngestionResumeDropsReplacedPoints(t *testing.T) {
 	require.Equal(t, []string{"a2@9"}, resumes, "the first attempt starting at step 0 is not a resume")
 }
 
+func TestResumeWithoutPointsStoresTheRewoundSummary(t *testing.T) {
+	first := newTestIngestion(100)
+	feed(first, stageLine("a1", "train", "running", `{"resumeStep":0}`),
+		metricLine("a1", 1, 9, `{"train/loss":1.0}`), metricLine("a1", 2, 12, `{"train/loss":0.8}`))
+	stored, ok := first.summaryUpdate(first.finish(), "")
+	require.True(t, ok)
+	require.Contains(t, stored, `{"step":12,"value":0.8}`)
+
+	next := newTestIngestion(100)
+	next.cur, next.sum = first.cur, loadSummary(stored)
+	feed(next, stageLine("a2", "train", "running", `{"resumeStep":9}`))
+	summary, ok := next.summaryUpdate(next.finish(), stored)
+	require.True(t, ok, "the rewound summary is stored with the read that deletes the later points")
+	require.NotContains(t, summary, `{"step":12,"value":0.8}`, "the sparkline loses the points after the resume")
+	require.Contains(t, summary, `{"step":9,"value":1}`)
+}
+
 func TestIngestionStageOrderAndResult(t *testing.T) {
 	in := newTestIngestion(100)
 	feed(in,
