@@ -21,6 +21,12 @@ the jobs, then scales them back down. A runner scale set is a workload of kind
   sets will not start without it.
 - You have access to a **workspace** with the **`CICD`** scope (and the **`Train`** scope too if you
   will use multi-node unified jobs). See [Manage access & quota](/administration/manage-access-and-quota).
+- You hold the **`workload/privileged`** grant in that workspace: workspace administrators (in the
+  workspaces they manage) and system administrators do. Runner pods run privileged containers (the
+  Docker-in-Docker daemon that workflow steps use, and the runner itself), so creating or changing a
+  runner scale set, a runner or a unified job takes the same grant as a privileged workload. Runners
+  and unified jobs are started as the scale set's user, so that user needs the grant for as long as
+  the scale set runs.
 - A **GitHub App** (recommended) or a **personal access token (PAT)** with permission to register
   runners for your repository or organization.
 - A **runner container image** the cluster can pull (build one below).

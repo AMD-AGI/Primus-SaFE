@@ -2361,7 +2361,8 @@ func TestWorkloadProxyValidation_ErrorResponses(t *testing.T) {
 				if tc.name == "unauthorized" {
 					createProxyAPISecret(t, h, user)
 					role := genMockRole()
-					role.Rules = []v1.PolicyRule{{Resources: []string{strings.ToLower(v1.WorkloadKind)}, Verbs: []v1.RoleVerb{v1.AllVerb}, GrantedUsers: []string{authority.GrantedAllUser}}}
+					// May change the runner scale set (which runs privileged), but not read the secret.
+					role.Rules = []v1.PolicyRule{{Resources: []string{strings.ToLower(v1.WorkloadKind), authority.WorkloadPrivilegedKind}, Verbs: []v1.RoleVerb{v1.AllVerb}, GrantedUsers: []string{authority.GrantedAllUser}}}
 					stored := &v1.Role{}
 					assert.NilError(t, h.Get(context.Background(), client.ObjectKeyFromObject(role), stored))
 					stored.Rules = role.Rules
