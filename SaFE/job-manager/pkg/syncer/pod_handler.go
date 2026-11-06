@@ -1946,8 +1946,11 @@ func syncExternalWaitCondition(workload *v1.Workload, message string) bool {
 	return true
 }
 
-// externalWaitingMessage builds the UI wait reason from PodScheduled plus the newest
-// scheduling-related Event (TriggeredScaleUp / NotTriggerScaleUp / lease / pool / …).
+// externalWaitingMessage builds the UI wait reason from PodScheduled plus the
+// autoscaler's newest decision on the Pod (TriggeredScaleUp / NotTriggerScaleUp),
+// or, before it has made one, the newest scheduling-related Event.
+// The decision is carried last so that a caller can read whether a node is being
+// added for the Pod; Events are best-effort, the workload's status is what callers read.
 func externalWaitingMessage(ctx context.Context, clusterClientSets *ClusterClientSets,
 	workload *v1.Workload, pod *corev1.Pod) string {
 	base := externalUnschedulableMessage(workload, pod)
@@ -1965,7 +1968,10 @@ func externalWaitingMessage(ctx context.Context, clusterClientSets *ClusterClien
 }
 
 // externalUnschedulableMessage builds the waiting-for-scale-up reason for kube-scheduler
-// external pods that kube-scheduler left Unschedulable (R11).
+// external pods that kube-scheduler left Unschedulable (R11), or that are held by a
+// scheduling gate until their node is bought (Autopilot's group-job pools gate a Pod
+// at admission and buy its group's node before kube-scheduler ever sees it, so such
+// a Pod is SchedulingGated and never Unschedulable).
 func externalUnschedulableMessage(workload *v1.Workload, pod *corev1.Pod) string {
 	if workload == nil || pod == nil || workload.IsEnd() {
 		return ""
@@ -1982,7 +1988,7 @@ func externalUnschedulableMessage(workload *v1.Workload, pod *corev1.Pod) string
 		if c.Type != corev1.PodScheduled || c.Status != corev1.ConditionFalse {
 			continue
 		}
-		if c.Reason != corev1.PodReasonUnschedulable {
+		if c.Reason != corev1.PodReasonUnschedulable && c.Reason != corev1.PodReasonSchedulingGated {
 			continue
 		}
 		msg := strings.TrimSpace(c.Message)
@@ -1994,8 +2000,12 @@ func externalUnschedulableMessage(workload *v1.Workload, pod *corev1.Pod) string
 	return ""
 }
 
-// latestPodSchedulingEvent returns "reason: message" for the newest Event on the pod that
-// looks like a scheduling / scale-up signal. Best-effort: empty on any list failure.
+// latestPodSchedulingEvent returns "reason: message" for the autoscaler's newest decision
+// on the pod (TriggeredScaleUp / NotTriggerScaleUp), or, when it has made none, for the
+// newest Event that looks like a scheduling signal. The decision wins over newer events
+// of other kinds (the scheduler's repeated FailedScheduling, an autoscaler's progress
+// notes, unrelated warnings): it is what says whether a node is coming, and it stands
+// until the autoscaler makes another. Best-effort: empty on any list failure.
 func latestPodSchedulingEvent(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod) string {
 	if clientSet == nil || pod == nil || pod.Name == "" || pod.Namespace == "" {
 		return ""
@@ -2007,15 +2017,22 @@ func latestPodSchedulingEvent(ctx context.Context, clientSet kubernetes.Interfac
 	if err != nil || list == nil || len(list.Items) == 0 {
 		return ""
 	}
-	var best *corev1.Event
+	var best, decision *corev1.Event
 	for i := range list.Items {
 		ev := &list.Items[i]
+		if isScaleUpDecisionReason(ev.Reason) &&
+			(decision == nil || eventTime(ev).After(eventTime(decision))) {
+			decision = ev
+		}
 		if !isSchedulingRelatedEvent(ev) {
 			continue
 		}
 		if best == nil || eventTime(ev).After(eventTime(best)) {
 			best = ev
 		}
+	}
+	if decision != nil {
+		best = decision
 	}
 	if best == nil {
 		return ""
@@ -2030,6 +2047,18 @@ func latestPodSchedulingEvent(ctx context.Context, clientSet kubernetes.Interfac
 	default:
 		return msg
 	}
+}
+
+// The autoscaler's Event reasons for its decision on a pending Pod: cluster-autoscaler's
+// own, which Autopilot reuses.
+const (
+	eventReasonTriggeredScaleUp  = "TriggeredScaleUp"
+	eventReasonNotTriggerScaleUp = "NotTriggerScaleUp"
+)
+
+// isScaleUpDecisionReason says reason is an autoscaler's decision on a pending Pod.
+func isScaleUpDecisionReason(reason string) bool {
+	return reason == eventReasonTriggeredScaleUp || reason == eventReasonNotTriggerScaleUp
 }
 
 func isSchedulingRelatedEvent(ev *corev1.Event) bool {
