@@ -230,8 +230,8 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 		return nil, err
 	}
 
-	if v1.IsPrivileged(workload) {
-		if err = h.authWorkloadAction(c, workload, v1.CreateVerb, authority.WorkloadPrivilegedKind, requestUser, roles); err != nil {
+	if commonworkload.RunsPrivileged(workload) {
+		if err = h.authWorkloadPrivileged(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
 			klog.ErrorS(err, "failed to auth workload privileged",
 				"workload", workload.Name, "user", c.GetString(common.UserName))
 			return nil, err
@@ -615,7 +615,31 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 			}
 		}
 	}
+	// A change to a workload that runs privileged changes what runs privileged, so it takes the
+	// grant its creation took.
+	if commonworkload.RunsPrivileged(adminWorkload) {
+		if err = h.authWorkloadPrivileged(c, adminWorkload, v1.UpdateVerb, requestUser, roles); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// authWorkloadPrivileged checks the workload/privileged grant in the workload's workspace for a
+// workload that runs a privileged container (commonworkload.RunsPrivileged). A GitHub Actions
+// runner or a unified job does not ask for privileged mode, but its template runs a privileged
+// Docker-in-Docker daemon (and, for the runner kinds, a privileged runner), which is as much as
+// privileged mode, so it takes the same grant. Among the built-in roles workspace-admin (in the
+// workspaces it manages) and system-admin hold it.
+func (h *Handler) authWorkloadPrivileged(c *gin.Context, workload *v1.Workload, verb v1.RoleVerb,
+	requestUser *v1.User, roles []*v1.Role) error {
+	err := h.authWorkloadAction(c, workload, verb, authority.WorkloadPrivilegedKind, requestUser, roles)
+	if err != nil && apierrors.IsForbidden(err) && !v1.IsPrivileged(workload) {
+		return commonerrors.NewForbidden(fmt.Sprintf("%s workloads run privileged containers; to %s one "+
+			"in workspace %s requires the %s grant in the workspace", workload.SpecKind(), verb,
+			workload.Spec.Workspace, authority.WorkloadPrivilegedKind))
+	}
+	return err
 }
 
 // updateWorkload updates the workload in the system and handles CICD auth secret updates.
