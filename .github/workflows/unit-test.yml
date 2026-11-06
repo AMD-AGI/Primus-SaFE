@@ -192,6 +192,11 @@ jobs:
       - name: Test chart RBAC
         run: bash SaFE/bootstrap/tests/chart_rbac_test.sh
 
+      # Renders the primus-safe-cr chart and checks that no non-admin SaFE role lets one user get
+      # another user's workload (env, logs, SSH) (helm, yq and jq are on the runner image).
+      - name: Test chart SaFE roles
+        run: bash SaFE/bootstrap/tests/chart_default_role_test.sh
+
   coverage-summary:
     name: Coverage Summary
     runs-on: ubuntu-latest
