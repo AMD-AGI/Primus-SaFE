@@ -34,6 +34,8 @@ func TestConvertMarkerRegistersTheCache(t *testing.T) {
 
 	run := testRunRow("Running", "convert")
 	run.Framework = "slime"
+	run.Recipe = `{"convert":{"cacheKey":"slime-qwen3-8B-m1-abc",` +
+		`"dir":"/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m1-abc/torch_dist"}}`
 	r, db, _ := newTestReconciler(t, run)
 	db.EXPECT().UpsertPostTrainingConvertCache(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, cache *dbclient.PostTrainingConvertCache) error {
@@ -43,6 +45,15 @@ func TestConvertMarkerRegistersTheCache(t *testing.T) {
 				*cache, "the FP8 weights the launcher found are on record for the next FP8 rollout")
 			return nil
 		})
+	r.registerConversion(context.Background(), run, in.conversion)
+
+	for _, forged := range []*conversionDetail{
+		{CacheKey: "slime-qwen3-8B-m1-abc", Dir: "/wekafs/custom/models/pt-other-run"},
+		{CacheKey: "x", Dir: "/wekafs/custom/models/post-training-cache/x"},
+	} {
+		r.registerConversion(context.Background(), run, forged)
+	}
+	run.Recipe = `{"output":{"base":"/wekafs/custom/models/pt-1"}}`
 	r.registerConversion(context.Background(), run, in.conversion)
 }
 
@@ -94,6 +105,27 @@ func TestSweepReclaimsCachesOfDeletedModels(t *testing.T) {
 	require.Zero(t, res.RequeueAfter)
 	require.NoError(t, r.List(ctx, jobs))
 	require.Empty(t, jobs.Items, "the finished cleanup job is removed")
+}
+
+func TestSweepDropsRecordsOutsideTheCacheDirectory(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	r, db, _ := newTestReconciler(t, testRunRow("Running", "train"), ws)
+	loadChartRegistry(t, r)
+	forged := &dbclient.PostTrainingConvertCache{ID: 7, Workspace: "ws1", CacheKey: "x", ModelID: "m-gone",
+		Path: "/wekafs/custom/models/pt-other-run", Status: dbclient.ConvertCacheReady}
+	db.EXPECT().ListPostTrainingConvertCaches(gomock.Any(), gomock.Any()).Return(
+		[]*dbclient.PostTrainingConvertCache{forged}, nil)
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
+	db.EXPECT().DeletePostTrainingConvertCache(gomock.Any(), int64(7)).Return(nil)
+
+	ctx := context.Background()
+	res, err := r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}})
+	require.NoError(t, err)
+	require.Zero(t, res.RequeueAfter)
+	jobs := &v1.OpsJobList{}
+	require.NoError(t, r.List(ctx, jobs))
+	require.Empty(t, jobs.Items, "a record whose path is no cache directory loses the record, never the directory")
 }
 
 func TestCacheCommit(t *testing.T) {

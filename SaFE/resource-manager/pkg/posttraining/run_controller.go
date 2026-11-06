@@ -86,6 +86,7 @@ type stageEntry struct {
 type runRecipe struct {
 	Convert *struct {
 		CacheKey    string `json:"cacheKey"`
+		Dir         string `json:"dir"`
 		SeparateJob bool   `json:"separateJob"`
 	} `json:"convert"`
 	Evaluation *struct {
