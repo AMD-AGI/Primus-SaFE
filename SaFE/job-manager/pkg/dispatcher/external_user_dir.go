@@ -112,7 +112,7 @@ func checkExternalPodHostPaths(obj *unstructured.Unstructured, workload *v1.Work
 		case hasDotDot(path):
 			return fmt.Errorf("volume %q of an external Pod mounts %q, which has a \"..\" element", name, path)
 		}
-		if users := userDirsOverlapping(workspace, path, userId); users != "" {
+		if users := userDirsOverlapping(workspace, workload, path, userId); users != "" {
 			return fmt.Errorf("volume %q of an external Pod mounts %q, which overlaps the user directories "+
 				"under %q; a Pod gets only its own user directory, from the workspace volume", name, path, users)
 		}
@@ -121,16 +121,22 @@ func checkExternalPodHostPaths(obj *unstructured.Unstructured, workload *v1.Work
 }
 
 // userDirsOverlapping returns the user directories ({hostPath}[/{subPath}]/users, v1.UserDirsPath)
-// of a hostpath volume with enableUserDir in the workspace that path equals, lies under or contains,
-// or "" when there is none. "/" contains every one. Exactly {users}/{ownUserId} is the Pod's own
+// of a hostpath volume with enableUserDir mounted into the workload's scope that path equals, lies
+// under or contains, or "" when there is none. "/" contains every one. Exactly {users}/{ownUserId} is the Pod's own
 // user directory and does not count.
-func userDirsOverlapping(workspace *v1.Workspace, path, ownUserId string) string {
+func userDirsOverlapping(workspace *v1.Workspace, workload *v1.Workload, path, ownUserId string) string {
 	if workspace == nil {
 		return ""
 	}
 	cleaned := filepath.Clean(path)
 	for _, vol := range workspace.Spec.Volumes {
 		if vol.Type != v1.HOSTPATH || !vol.EnableUserDir || strings.TrimSpace(vol.HostPath) == "" {
+			continue
+		}
+		// A volume whose scopes leave out the workload's scope is not mounted into it, so its user
+		// directories say nothing about this Pod: a workspace can give, say, Authoring the whole tree
+		// through a volume of its own while every other scope gets only its own user directory.
+		if !workspaceVolumeAppliesTo(vol, workload) {
 			continue
 		}
 		users := filepath.Join(vol.HostPath, vol.SubPath, v1.UserDirsPath)
