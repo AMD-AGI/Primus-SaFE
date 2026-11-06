@@ -129,9 +129,9 @@ func TestApplyTaskAuthorizesLikeTheWorkloadCreatePath(t *testing.T) {
 
 	for _, tc := range []struct{ user, workspace, refusal string }{
 		{applyMember, applyOther, "not allowed to create workload"},
-		{applyOutsider, applyWorkspace, "not allowed to get workload"},
-		{applyOutsider, "", "not allowed to get workload"},
-		{applyOutsider, applyOther, "not allowed to get workload"},
+		{applyOutsider, applyWorkspace, "not allowed to list workload"},
+		{applyOutsider, "", "not allowed to list workload"},
+		{applyOutsider, applyOther, "not allowed to list workload"},
 	} {
 		rec := apply(t, h, tc.user, tc.workspace)
 		require.Equal(t, http.StatusForbidden, rec.Code, "%+v: %s", tc, rec.Body.String())
