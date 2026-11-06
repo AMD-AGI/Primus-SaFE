@@ -144,12 +144,13 @@ func TestWorkloadAdmissionRefusesUndeclaredHostPath(t *testing.T) {
 }
 
 // exposedPartWorkspace is workspace ws1 with a volume that shows workloads only /shared/teamA,
-// read-only, and a volume with user directories over /home.
+// read-only, a volume with user directories over /home, and a volume whose hostPath has "..".
 func exposedPartWorkspace() *v1.Workspace {
 	return &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
 		{Id: 1, Type: v1.HOSTPATH, MountPath: "/team", HostPath: "/shared", SubPath: "teamA",
 			AccessMode: corev1.ReadOnlyMany},
 		{Id: 2, Type: v1.HOSTPATH, MountPath: "/home", HostPath: "/home", EnableUserDir: true},
+		{Id: 3, Type: v1.HOSTPATH, MountPath: "/scratch", HostPath: "/var/run/../tmp"},
 	}}}
 }
 
@@ -180,6 +181,7 @@ func TestValidateHostPathOnlyWhatTheVolumeShows(t *testing.T) {
 		"/home/users",       // every user's directory
 		"/home/users/other", // another user's directory
 		"/home/users/u1",    // the user's own, which the volume mounts already
+		"/var/tmp",          // the lexical form of a hostPath with "..", which the node resolves elsewhere
 	} {
 		job := jobWithHostPath(common.PytorchJobKind, refused)
 		v1.SetLabel(job, v1.UserIdLabel, "u1")

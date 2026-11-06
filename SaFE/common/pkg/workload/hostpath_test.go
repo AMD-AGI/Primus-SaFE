@@ -71,8 +71,8 @@ func TestUndeclaredHostPaths(t *testing.T) {
 
 // exposedPartWorkspace has a volume that shows only its subPath, read-only (hostpath-1), a volume
 // with user directories (hostpath-2) and one with a subPath (hostpath-9), volumes whose subPath
-// leaves hostPath (hostpath-3, -4), and nested volumes with different access modes (hostpath-5 to
-// -8).
+// leaves hostPath (hostpath-3, -4), nested volumes with different access modes (hostpath-5 to -8),
+// and volumes whose hostPath has ".." or is relative (hostpath-10, -11).
 func exposedPartWorkspace() *v1.Workspace {
 	return &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
 		{Id: 1, Type: v1.HOSTPATH, HostPath: "/shared", SubPath: "teamA", AccessMode: corev1.ReadOnlyMany},
@@ -85,6 +85,8 @@ func exposedPartWorkspace() *v1.Workspace {
 		{Id: 8, Type: v1.HOSTPATH, HostPath: "/models/ro", AccessMode: corev1.ReadOnlyMany},
 		{Id: 9, Type: v1.HOSTPATH, HostPath: "/nfs", SubPath: "site", EnableUserDir: true,
 			AccessMode: corev1.ReadOnlyMany},
+		{Id: 10, Type: v1.HOSTPATH, HostPath: "/var/run/../tmp"},
+		{Id: 11, Type: v1.HOSTPATH, HostPath: "relative/dir"},
 	}}}
 }
 
@@ -118,6 +120,12 @@ func TestDeclaredHostPathRootOnlyWhatTheVolumeShows(t *testing.T) {
 		{"/nfs/site/users/u1", DeclaredHostPath{}},
 		{"/nfs/other", DeclaredHostPath{}},
 		{"/bad", DeclaredHostPath{}},
+		// The node resolves /var/run/../tmp after following symlinks (to /tmp where /var/run links
+		// to /run), so neither its lexical form nor anything else is declared for it.
+		{"/var/tmp", DeclaredHostPath{}},
+		{"/var/tmp/x", DeclaredHostPath{}},
+		{"/tmp", DeclaredHostPath{}},
+		{"/relative/dir", DeclaredHostPath{}},
 		{"/etc", DeclaredHostPath{}},
 		{"/abs/etc", DeclaredHostPath{}},
 		{"/data/x", DeclaredHostPath{Root: "/data", Sub: "x", ReadOnly: true}},
