@@ -18,6 +18,10 @@ Primus-SaFE supports two types of volume:
 | **`pfs`** | A shared parallel filesystem exposed through a CSI interface. It creates one PV/PVC per workspace that is mounted on each node and shared across workloads. | Datasets, checkpoints, and models shared across a distributed job. |
 | **`hostpath`** | A path on the node mounted into the pod. | Storage systems that only support a host mount, or sharing with other systems such as NFS-mounted home directories. |
 
+A volume can be limited to some workload types with `scopes`; it is then mounted only into workloads of those types.
+
+A workload can also ask for host paths of its own with `hostpath`. Each entry must be a `hostpath` volume of its workspace that is mounted into the workload's type, or a directory under one; the pod mounts the volume's path and reaches a directory under it through `subPath`, so a symbolic link inside the volume cannot lead out of it. Any other host path gives the workload the node's files, so it is allowed only to users who may run privileged workloads in the workspace (the `workload/privileged` grant, held by workspace administrators and system administrators). Sandboxes can only use declared paths.
+
 
 ## What backs PFS
 

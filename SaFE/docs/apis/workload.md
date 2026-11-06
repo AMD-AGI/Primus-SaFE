@@ -404,6 +404,7 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 | userEntry.name               | string   | NO       | The workload will be created using that specific user name. This field is only accessible to administrators.                                                                                              |
 | privileged                   | bool     | No       | Whether to run the workload in privileged mode, only accessible to administrators                                                                                                                         |
 | useWorkspaceStorage          | bool     | No       | Whether to use the workspace storage for workload. Default true.                                                                                                                                          |
+| hostpath                     | []string | No       | Host paths to mount into the workload. Each must be a `hostpath` volume of the workspace mounted into the workload's scope, or a directory under one; any other host path requires the `workload/privileged` grant in the workspace (workspace administrators and system administrators). |
 | forceHostNetwork             | bool     | No       | Whether to use host network forcibly. Default logic relies on task size: it triggers only for multi-node tasks using full GPU allocation.                                                    |
 
 **Replica Rules when `specifiedNodes` is provided**:

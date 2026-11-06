@@ -1268,6 +1268,11 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	if err != nil {
 		return err
 	}
+	if !commonworkload.IsSandBox(newWorkload) {
+		if err = v.validateHostPath(ctx, newWorkload, oldWorkload); err != nil {
+			return err
+		}
+	}
 
 	if err = v.validateRequiredParams(newWorkload); err != nil {
 		return err
@@ -1797,44 +1802,69 @@ func (v *WorkloadValidator) validateSandbox(ctx context.Context, newWorkload, ol
 // declares for sandboxes: each entry must be a hostpath volume of the workspace mounted into the
 // Sandbox scope, or a directory under one. A sandbox cannot bind an arbitrary node path.
 func validateSandboxHostPath(workload *v1.Workload, workspace *v1.Workspace) error {
-	var declared []string
-	if workspace != nil {
-		for _, vol := range workspace.Spec.Volumes {
-			if vol.Type != v1.HOSTPATH || !vol.AppliesToScope(v1.SandboxScope) {
-				continue
-			}
-			if root := strings.TrimSpace(vol.HostPath); root != "" {
-				declared = append(declared, filepath.Clean(root))
-			}
-		}
-	}
-	for _, hostPath := range workload.Spec.Hostpath {
-		if !isUnderDeclaredHostPath(hostPath, declared) {
-			return commonerrors.NewForbidden(fmt.Sprintf("the hostpath %q of the sandbox is not declared "+
-				"by workspace %s, only paths under %v are allowed", hostPath, workload.Spec.Workspace, declared))
-		}
+	undeclared := commonworkload.UndeclaredHostPaths(workspace, v1.SandboxScope, workload.Spec.Hostpath)
+	if len(undeclared) > 0 {
+		return commonerrors.NewForbidden(fmt.Sprintf("the hostpath %q of the sandbox is not declared "+
+			"by workspace %s, only paths under %v are allowed", undeclared[0], workload.Spec.Workspace,
+			declaredHostPaths(workspace, v1.SandboxScope)))
 	}
 	return nil
 }
 
-// isUnderDeclaredHostPath reports whether path is absolute, has no ".." element, and equals or lies
-// under one of the declared roots.
-func isUnderDeclaredHostPath(path string, declared []string) bool {
-	if !filepath.IsAbs(path) {
-		return false
+// validateHostPath restricts the hostpath entries of a workload that is not a sandbox (sandboxes
+// follow validateSandbox) to the host paths its workspace declares for the workload's scope, or
+// directories under them. Mounting any other node path needs the workload/privileged grant in the
+// workspace, which only the apiserver can check; it records the grant on the workload with
+// WorkloadHostPathAuthzAnnotation, which no request can set. A privileged workload took that grant
+// to be created and reaches the node's file system anyway, so it is not restricted either.
+// An update is judged only on the entries it adds, so a workload admitted earlier can still be
+// updated after its workspace changed.
+func (v *WorkloadValidator) validateHostPath(ctx context.Context, newWorkload, oldWorkload *v1.Workload) error {
+	if v1.IsPrivileged(newWorkload) || v1.GetAnnotation(newWorkload, v1.WorkloadHostPathAuthzAnnotation) == v1.TrueStr {
+		return nil
 	}
-	for _, elem := range strings.Split(path, "/") {
-		if elem == ".." {
-			return false
+	var added []string
+	for _, hostPath := range newWorkload.Spec.Hostpath {
+		if oldWorkload == nil || !slice.Contains(oldWorkload.Spec.Hostpath, hostPath) {
+			added = append(added, hostPath)
 		}
 	}
-	cleaned := filepath.Clean(path)
-	for _, root := range declared {
-		if cleaned == root || root == "/" || strings.HasPrefix(cleaned, root+"/") {
-			return true
+	if len(added) == 0 {
+		return nil
+	}
+	workspace, err := getWorkspace(ctx, v.Client, newWorkload.Spec.Workspace)
+	if err != nil {
+		return err
+	}
+	scope := commonworkload.GetScope(newWorkload)
+	if undeclared := commonworkload.UndeclaredHostPaths(workspace, scope, added); len(undeclared) > 0 {
+		return commonerrors.NewForbidden(fmt.Sprintf("the hostpath %q is not declared by workspace %s "+
+			"for %s workloads, only paths under %v are allowed; mounting another host path requires "+
+			"the %s grant in the workspace", undeclared[0], newWorkload.Spec.Workspace,
+			newWorkload.SpecKind(), declaredHostPaths(workspace, scope), workloadPrivilegedKind))
+	}
+	return nil
+}
+
+// workloadPrivilegedKind is the resource a role grants to allow privileged workloads and host paths
+// the workspace does not declare (authority.WorkloadPrivilegedKind in the apiserver).
+const workloadPrivilegedKind = "workload/privileged"
+
+// declaredHostPaths lists the hostpath volume roots the workspace mounts into the given scope.
+func declaredHostPaths(workspace *v1.Workspace, scope v1.WorkspaceScope) []string {
+	var declared []string
+	if workspace == nil {
+		return declared
+	}
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type != v1.HOSTPATH || !vol.AppliesToScope(scope) {
+			continue
+		}
+		if root := strings.TrimSpace(vol.HostPath); root != "" {
+			declared = append(declared, filepath.Clean(root))
 		}
 	}
-	return false
+	return declared
 }
 
 // validateResource validates the basic fields of a WorkloadResource to ensure they are properly set
