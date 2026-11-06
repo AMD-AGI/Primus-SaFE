@@ -76,12 +76,10 @@ rules:
     - create
     - get
     - list
-- resources:
-    - node
-  grantedUsers:
-    - workspace-user
-  verbs:
-    - update
+# Members read the nodes of their workspaces and change none of them. Changing a node (taints,
+# labels, flavor, address, provisioning retry, delete) takes a role that grants it on every node,
+# which among these roles is system-admin; the apiserver does not match a rule granted to
+# workspace members for it.
 - resources:
     - node
     - workspace
@@ -149,6 +147,8 @@ rules:
     - create
     - list
     - delete
+# A preflight job runs privileged on its nodes, so creating one also takes workload/privileged in
+# the workspace (workspace-admin), which this role does not grant.
 - resources:
     - secret
     - opsjob/preflight

@@ -1010,6 +1010,7 @@ const getActions = (row: Row): Action[] => [
       curId.value = r.nodeId
       addVisible.value = true
     },
+    show: !!isManager.value,
   },
   {
     key: 'bind',

@@ -188,6 +188,9 @@ This is the step that actually lets a user do work. Two levels of workspace acce
   workspace config, grant access to others, and use the highest priority. **Granting someone
   manager also grants them access.**
 
+Both levels can view the nodes of the workspace; neither can change them. Node taints, labels,
+flavor, address, provisioning retry and deletion are for system administrators.
+
 Update a user with the workspaces and/or roles they should have:
 
 ```bash
