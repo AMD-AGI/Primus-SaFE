@@ -437,3 +437,56 @@ func TestExternalUserDirMountsCheckEveryPodHostPath(t *testing.T) {
 	_, _, _, err := renderWorkloadErr(t, common.SandboxKind, ws, nil, externalPlacement)
 	assert.ErrorContains(t, err, `volume(hostpath-1) has subPath "../other", which is not a path below its hostPath`)
 }
+
+// A workspace can split one tree by scope: Authoring gets /shared_nfs whole through a volume of its
+// own, and every other scope gets only its own user directory and the shared paths. The user
+// directories of a volume that is not mounted into the workload's scope do not refuse the whole
+// tree, and the other scopes still never see it.
+func TestExternalUserDirMountsSplitByScope(t *testing.T) {
+	withUserDirMounts(t, true)
+	split := func() *v1.Workspace {
+		ws := topModelsWorkspace()
+		ws.Spec.Volumes[0].Scopes = []v1.WorkspaceScope{v1.TrainScope, v1.InferScope, v1.CICDScope,
+			v1.RayScope, v1.SandboxScope}
+		ws.Spec.Volumes = append(ws.Spec.Volumes, v1.WorkspaceVolume{
+			Id: 2, Type: v1.HOSTPATH, MountPath: "/shared_nfs", HostPath: "/shared_nfs",
+			AccessMode: corev1.ReadWriteMany, Scopes: []v1.WorkspaceScope{v1.AuthoringScope},
+		})
+		return ws
+	}
+
+	// Sandbox and Job: the Authoring volume is not mounted, the user directory volume is.
+	for _, kind := range []string{common.SandboxKind, common.PytorchJobKind} {
+		pod := renderPodMounts(t, kind, split(), nil, externalPlacement)
+		assert.Equal(t, len(pod.mounts["containers"]), 1+len(topModelsSharedPaths), kind)
+		assert.Equal(t, pod.mounts["containers"]["/shared_nfs/users/user-1"].HostPath, "/shared_nfs/users/user-1", kind)
+		_, whole := pod.mounts["containers"]["/shared_nfs"]
+		assert.Assert(t, !whole, kind)
+	}
+
+	// Authoring: the whole tree passes the check, which a Sandbox's Pod would not.
+	whole := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	authoring := &v1.Workload{}
+	externalPlacement(authoring)
+	authoring.Labels = map[string]string{v1.UserIdLabel: "user-1"}
+	authoring.Spec.GroupVersionKind = v1.GroupVersionKind{Kind: common.AuthoringKind, Version: common.DefaultVersion}
+	spec := jobutils.TestPytorchResourceTemplate.Spec.ResourceSpecs[0]
+	assert.NilError(t, jobutils.SetNestedField(whole.Object,
+		[]interface{}{buildHostPathVolume("hostpath-2", "/shared_nfs", "Directory")},
+		podSpecPath(authoring, &spec, "volumes")))
+	assert.NilError(t, checkExternalPodHostPaths(whole, authoring, split(), spec))
+
+	sandbox := authoring.DeepCopy()
+	sandbox.Spec.GroupVersionKind.Kind = common.SandboxKind
+	sandboxSpec := jobutils.TestSandboxResourceTemplate.Spec.ResourceSpecs[0]
+	sandboxPod := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	assert.NilError(t, jobutils.SetNestedField(sandboxPod.Object,
+		[]interface{}{buildHostPathVolume("hostpath-2", "/shared_nfs", "Directory")},
+		podSpecPath(sandbox, &sandboxSpec, "volumes")))
+	assert.ErrorContains(t, checkExternalPodHostPaths(sandboxPod, sandbox, split(), sandboxSpec), "overlaps the user directories")
+
+	// Without the split the same Authoring Pod may not have the whole tree.
+	unsplit := split()
+	unsplit.Spec.Volumes[0].Scopes = nil
+	assert.ErrorContains(t, checkExternalPodHostPaths(whole, authoring, unsplit, spec), "overlaps the user directories")
+}
