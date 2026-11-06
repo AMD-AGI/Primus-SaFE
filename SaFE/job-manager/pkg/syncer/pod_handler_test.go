@@ -3876,6 +3876,12 @@ func TestClearScaleUpMessageOnceBound(t *testing.T) {
 	if !shouldClearExternalScaleUpMessage(gang, byName) {
 		t.Fatal("must clear once every sibling has a node")
 	}
+	// A sibling not recorded yet may still be waiting: with fewer records than replicas, keep it.
+	partial := waiting(v1.WorkloadPod{PodId: "p0", Phase: corev1.PodPending})
+	partial.Spec.Resources = []v1.WorkloadResource{{Replica: 2}}
+	if shouldClearExternalScaleUpMessage(partial, byName) {
+		t.Fatal("must not clear before every expected pod is recorded")
+	}
 	// Any other message is left alone.
 	other := waiting(v1.WorkloadPod{PodId: "p0", Phase: corev1.PodPending})
 	other.Status.Message = "In queue - insufficient resources"

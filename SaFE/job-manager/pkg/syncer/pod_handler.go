@@ -2116,7 +2116,8 @@ func shouldClearExternalScaleUpMessage(workload *v1.Workload, pod *corev1.Pod) b
 	if !strings.HasPrefix(workload.Status.Message, externalWaitingScaleUpPrefix) {
 		return false
 	}
-	return isAllPodsAssigned(workload) || (isPodBound(pod) && !anySiblingAwaitingNode(workload, pod.Name))
+	return isAllPodsAssigned(workload) ||
+		(isPodBound(pod) && allExpectedPodsRecorded(workload) && !anySiblingAwaitingNode(workload, pod.Name))
 }
 
 // isPodBound says the scheduler has bound pod to a node: spec.nodeName is set, or
@@ -2148,14 +2149,20 @@ func anySiblingAwaitingNode(workload *v1.Workload, podName string) bool {
 	return false
 }
 
-// isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase
-func isAllPodsAssigned(workload *v1.Workload) bool {
+// allExpectedPodsRecorded says the workload has a pod record for every pod it expects.
+// Records arrive through separate pod events, so a sibling that has not been recorded
+// yet may still be waiting for a node.
+func allExpectedPodsRecorded(workload *v1.Workload) bool {
 	if commonworkload.IsRayJob(workload) {
 		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
-		if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload)+1 {
-			return false
-		}
-	} else if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload) {
+		return len(workload.Status.Pods) == commonworkload.GetTotalReplica(workload)+1
+	}
+	return len(workload.Status.Pods) == commonworkload.GetTotalReplica(workload)
+}
+
+// isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase
+func isAllPodsAssigned(workload *v1.Workload) bool {
+	if !allExpectedPodsRecorded(workload) {
 		return false
 	}
 	for _, p := range workload.Status.Pods {
