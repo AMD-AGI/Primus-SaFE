@@ -383,6 +383,8 @@ func TestSanitizeBodyRedactsURLPasswords(t *testing.T) {
 			`{"env":{"DATABASE_URL": "[REDACTED]","MODE":"x"}}`},
 		{`{"env":{"DATABASE_URL":"postgres:\/\/app:hunter2@db\/x"}}`,
 			`{"env":{"DATABASE_URL": "[REDACTED]"}}`},
+		{`{"env":{"CACHE_URL":"redis://:hunter2@cache:6379/0"}}`,
+			`{"env":{"CACHE_URL": "[REDACTED]"}}`},
 		{`{"env":{"PROXY_URL":"http://proxy:3128","REPO":"https://github.com/a/b"}}`,
 			`{"env":{"PROXY_URL":"http://proxy:3128","REPO":"https://github.com/a/b"}}`},
 	}

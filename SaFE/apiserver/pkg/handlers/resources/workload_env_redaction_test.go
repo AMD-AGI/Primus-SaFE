@@ -185,17 +185,17 @@ func Test_applyWorkloadPatch_MaskedEnvKeepsStoredValue(t *testing.T) {
 func Test_redactEnvValues_MasksOnlyCredentials(t *testing.T) {
 	out := redactEnvValues(map[string]string{
 		"ANTHROPIC_API_KEY": "k", "AUTH_TOKEN": "t", "LANGFUSE_SECRET_KEY": "s", "DB_PASSWORD": "p",
-		"DB_CREDENTIALS": "c", "DATABASE_URL": redactDBURL, "PROXY_URL": "http://proxy:3128",
+		"DB_CREDENTIALS": "c", "DATABASE_URL": redactDBURL, "CACHE_URL": "redis://:pw@cache:6379/0", "PROXY_URL": "http://proxy:3128",
 		"IMAGES": redactImages, "REPLICA_COUNT": "2", "UNIFIED_JOB_ENABLE": "true",
 	})
-	for _, k := range []string{"ANTHROPIC_API_KEY", "AUTH_TOKEN", "LANGFUSE_SECRET_KEY", "DB_PASSWORD", "DB_CREDENTIALS", "DATABASE_URL"} {
+	for _, k := range []string{"ANTHROPIC_API_KEY", "AUTH_TOKEN", "LANGFUSE_SECRET_KEY", "DB_PASSWORD", "DB_CREDENTIALS", "DATABASE_URL", "CACHE_URL"} {
 		assert.Equal(t, out[k], RedactedEnvValue, k)
 	}
 	assert.Equal(t, out["PROXY_URL"], "http://proxy:3128")
 	assert.Equal(t, out["IMAGES"], redactImages)
 	assert.Equal(t, out["REPLICA_COUNT"], "2")
 	assert.Equal(t, out["UNIFIED_JOB_ENABLE"], "true")
-	assert.Equal(t, len(out), 10)
+	assert.Equal(t, len(out), 11)
 }
 
 // Test_resumeWorkload_MaskedEnvKeepsStoredValues: a caller who may resume another user's

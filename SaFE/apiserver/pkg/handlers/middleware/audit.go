@@ -357,8 +357,9 @@ var jsonStringMember = regexp.MustCompile(`"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]
 // name (workload env such as ANTHROPIC_API_KEY or AUTH_TOKEN).
 var sensitiveKeyName = regexp.MustCompile(`(?i)key|token|secret|passw(?:or)?d|credential`)
 
-// urlWithPassword matches a URL that carries a password (scheme://user:password@host).
-var urlWithPassword = regexp.MustCompile(`://[^/\s:@]+:[^/\s@]+@`)
+// urlWithPassword matches a URL that carries a password (scheme://user:password@host),
+// the user name possibly empty (redis://:password@host).
+var urlWithPassword = regexp.MustCompile(`://[^/\s:@]*:[^/\s@]+@`)
 
 // HasURLPassword reports whether a value is, or contains, a URL with a password in it
 // (postgres://user:password@host/db). The audit log and the workload env shown to
