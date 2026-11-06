@@ -713,6 +713,14 @@ func (in *ingestion) addLinks(values map[string]json.RawMessage) {
 	}
 }
 
+// summaryUpdate returns the summary to store and whether this read stores it: it changed, and the read had
+// points, rejections, links, samples or a resume that rewound it.
+func (in *ingestion) summaryUpdate(points []*dbclient.PostTrainingRunMetric, stored string) (string, bool) {
+	data, _ := json.Marshal(in.sum)
+	return string(data), string(data) != stored &&
+		(len(points) > 0 || in.sum.Rejected > 0 || in.linked || in.sampled || in.resumeFrom != nil)
+}
+
 // finish drops the points that a later attempt has replaced, applies the point cap and updates the summary.
 // It returns the points to save.
 func (in *ingestion) finish() []*dbclient.PostTrainingRunMetric {
