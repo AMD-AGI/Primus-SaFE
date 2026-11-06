@@ -230,6 +230,11 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		Priority:         req.Priority,
 		Workspace:        req.Workspace,
 	}
+	// This route creates the workload itself, so it holds the caller to the workload
+	// create path's rules: allowed to create workloads in the workspace, at this priority.
+	if err := h.authorizeWorkloadCreate(c, workload); err != nil {
+		return nil, err
+	}
 	if timeout > 0 {
 		workload.Spec.Timeout = &timeout
 	}
