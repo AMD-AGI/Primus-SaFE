@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -978,6 +979,9 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 			if vol.HostPath == "" {
 				return fmt.Errorf("the hostPath of volume is required for hostpath storage")
 			}
+			if err := validatePrivilegedVolumeOverlap(newWorkspace, vol); err != nil {
+				return err
+			}
 			continue
 		}
 
@@ -1009,6 +1013,23 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 		if !sliceutil.Contains(supportedAccessMode, vol.AccessMode) {
 			return fmt.Errorf("invalid volume access mode. only %v supported", supportedAccessMode)
 		}
+	}
+	return nil
+}
+
+// validatePrivilegedVolumeOverlap refuses a hostpath volume without requiresPrivilegedGrant whose
+// mounted directory (hostPath joined with subPath) equals, lies under or contains the hostPath of a
+// hostpath volume of the workspace that requires the grant: it would mount the protected directory,
+// or part of it, into workloads whose creator does not hold the grant.
+func validatePrivilegedVolumeOverlap(workspace *v1.Workspace, vol v1.WorkspaceVolume) error {
+	if vol.RequiresPrivilegedGrant {
+		return nil
+	}
+	if protected := commonworkload.PrivilegedVolumeOverlapping(workspace,
+		filepath.Join(vol.HostPath, vol.SubPath)); protected != nil {
+		return fmt.Errorf("the hostpath volume %q overlaps the hostPath %q of volume %d, which "+
+			"requiresPrivilegedGrant; set requiresPrivilegedGrant on both or keep them apart",
+			filepath.Join(vol.HostPath, vol.SubPath), protected.HostPath, protected.Id)
 	}
 	return nil
 }

@@ -71,3 +71,35 @@ func TestMutateHostPathKeepsUnmountedPrivilegedVolume(t *testing.T) {
 	m.mutateHostPath(marked, ws)
 	assert.DeepEqual(t, marked.Spec.Hostpath, []string{})
 }
+
+// TestValidateVolumesRefusesOverlapWithPrivilegedVolume verifies a workspace cannot have an
+// ordinary hostpath volume whose mounted directory equals, contains or lies under the hostPath of a
+// volume requiring the grant, since it would hand the protected directory to every member; volumes
+// beside it, a subPath that leads away from it, or both volumes requiring the grant are accepted.
+func TestValidateVolumesRefusesOverlapWithPrivilegedVolume(t *testing.T) {
+	v := &WorkspaceValidator{}
+	ws := func(vols ...v1.WorkspaceVolume) *v1.Workspace {
+		return &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: vols}}
+	}
+	protected := v1.WorkspaceVolume{Id: 1, Type: v1.HOSTPATH, HostPath: "/shared/secret", MountPath: "/secret",
+		RequiresPrivilegedGrant: true}
+	ordinary := func(hostPath, subPath string) v1.WorkspaceVolume {
+		return v1.WorkspaceVolume{Id: 2, Type: v1.HOSTPATH, HostPath: hostPath, SubPath: subPath, MountPath: "/data"}
+	}
+	for _, o := range []v1.WorkspaceVolume{
+		ordinary("/shared", ""), ordinary("/shared/secret", ""), ordinary("/shared/secret/keys", ""),
+		ordinary("/", ""), ordinary("/shared", "secret"),
+	} {
+		err := v.validateVolumes(ws(protected, o), nil)
+		assert.ErrorContains(t, err, "requiresPrivilegedGrant")
+		err = v.validateVolumes(ws(o, protected), nil)
+		assert.ErrorContains(t, err, "requiresPrivilegedGrant")
+	}
+	for _, o := range []v1.WorkspaceVolume{ordinary("/shared/other", ""), ordinary("/shared", "team"),
+		ordinary("/shared/secretive", "")} {
+		assert.NilError(t, v.validateVolumes(ws(protected, o), nil))
+	}
+	both := ordinary("/shared", "")
+	both.RequiresPrivilegedGrant = true
+	assert.NilError(t, v.validateVolumes(ws(protected, both), nil))
+}
