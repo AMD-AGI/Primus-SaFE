@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -659,7 +660,8 @@ func (r *EvaluationJobReconciler) updateDBStatus(ctx context.Context, obj client
 	}
 }
 
-// updateReportPath tries to extract report path from workload and update database
+// updateReportPath records the report path of a finished evaluation and, read from the report, the score of each
+// benchmark in result_summary.
 func (r *EvaluationJobReconciler) updateReportPath(ctx context.Context, taskId string, workload *v1.Workload) {
 	if r.dbClient == nil {
 		return
@@ -668,10 +670,97 @@ func (r *EvaluationJobReconciler) updateReportPath(ctx context.Context, taskId s
 	// S3 key for the evaluation report (same format as in generateEvaluationWorkload)
 	s3Key := fmt.Sprintf("evaluations/%s/report.json", taskId)
 
-	// Pass "{}" for empty result_summary since the field is JSONB type
-	if err := r.dbClient.UpdateEvaluationTaskResult(ctx, taskId, "{}", s3Key); err != nil {
+	// "{}" when the scores cannot be read, since the field is JSONB type
+	summary := "{}"
+	if r.s3Client != nil {
+		if report, err := r.s3Client.GetObject(ctx, s3Key, 60); err != nil {
+			klog.ErrorS(err, "failed to read the evaluation report", "taskId", taskId, "s3Key", s3Key)
+		} else if s, err := reportSummary(report); err != nil {
+			klog.ErrorS(err, "failed to read the scores of the evaluation report", "taskId", taskId, "s3Key", s3Key)
+		} else {
+			summary = s
+		}
+	}
+	if err := r.dbClient.UpdateEvaluationTaskResult(ctx, taskId, summary, s3Key); err != nil {
 		klog.ErrorS(err, "failed to update evaluation task result",
 			"taskId", taskId,
 			"s3Key", s3Key)
 	}
+}
+
+// evalReport is the part of an evalscope report its score comes from: schema 1 has a top-level score, schema 2
+// names its primary metric.
+type evalReport struct {
+	DatasetName string   `json:"dataset_name"`
+	Score       *float64 `json:"score"`
+	Num         *int64   `json:"num"`
+	Metrics     []struct {
+		Identity json.RawMessage `json:"identity"`
+		Num      int64           `json:"num"`
+		Score    float64         `json:"score"`
+	} `json:"metrics"`
+	PrimaryMetricIdentity json.RawMessage `json:"primary_metric_identity"`
+}
+
+// benchmarkScore is one benchmark of result_summary: its score as a fraction and its sample count.
+type benchmarkScore struct {
+	Accuracy float64 `json:"accuracy"`
+	Samples  int64   `json:"samples,omitempty"`
+}
+
+// reportSummary turns an uploaded report, one evalscope report or the {"datasets": [...]} merge of several, into
+// result_summary: the score of each benchmark by dataset name and their mean.
+func reportSummary(report string) (string, error) {
+	parts := []json.RawMessage{json.RawMessage(report)}
+	var merged struct {
+		Datasets []json.RawMessage `json:"datasets"`
+	}
+	if err := json.Unmarshal([]byte(report), &merged); err != nil {
+		return "", err
+	}
+	if len(merged.Datasets) > 0 {
+		parts = merged.Datasets
+	}
+	benchmarks, total := map[string]benchmarkScore{}, 0.0
+	for _, part := range parts {
+		var rep evalReport
+		if err := json.Unmarshal(part, &rep); err != nil {
+			return "", err
+		}
+		if score, ok := rep.primaryScore(); ok && rep.DatasetName != "" {
+			benchmarks[rep.DatasetName] = score
+			total += score.Accuracy
+		}
+	}
+	if len(benchmarks) == 0 {
+		return "", fmt.Errorf("the report holds no benchmark score")
+	}
+	data, err := json.Marshal(map[string]interface{}{"benchmarks": benchmarks,
+		"overall_score": total / float64(len(benchmarks))})
+	return string(data), err
+}
+
+// primaryScore returns the report's main score: the top-level score of schema 1, else the primary metric of
+// schema 2, else the first metric.
+func (rep *evalReport) primaryScore() (benchmarkScore, bool) {
+	var s benchmarkScore
+	found := false
+	for i, m := range rep.Metrics {
+		if i == 0 || (len(rep.PrimaryMetricIdentity) > 0 && sameJSON(m.Identity, rep.PrimaryMetricIdentity)) {
+			s, found = benchmarkScore{Accuracy: m.Score, Samples: m.Num}, true
+		}
+	}
+	if rep.Score != nil {
+		s.Accuracy, found = *rep.Score, true
+	}
+	if rep.Num != nil && *rep.Num > 0 {
+		s.Samples = *rep.Num
+	}
+	return s, found
+}
+
+// sameJSON tells whether two JSON values are equal regardless of key order and spacing.
+func sameJSON(a, b json.RawMessage) bool {
+	var x, y interface{}
+	return json.Unmarshal(a, &x) == nil && json.Unmarshal(b, &y) == nil && reflect.DeepEqual(x, y)
 }

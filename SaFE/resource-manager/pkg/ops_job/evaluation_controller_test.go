@@ -22,6 +22,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 )
 
 func evalJob(name string) *v1.OpsJob {
@@ -520,6 +521,60 @@ func TestEvalUpdateReportPath(t *testing.T) {
 	db.EXPECT().UpdateEvaluationTaskResult(gomock.Any(), "t1", "{}", gomock.Any()).Return(nil)
 	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t), dbClient: db}
 	r.updateReportPath(context.Background(), "t1", evalWorkload("t1", v1.WorkloadSucceeded))
+}
+
+// v2Report is an evalscope schema 2 report whose primary metric is its second.
+const v2Report = `{"schema_version":2,"name":"m@gsm8k","dataset_name":"gsm8k","model_name":"m",
+"metrics":[{"identity":{"name":"pass","aggregation":"mean","dimensions":{}},"num":1319,"score":0.5},
+{"identity":{"aggregation":"mean","name":"acc","dimensions":{}},"num":1319,"score":0.81}],
+"primary_metric_identity":{"name":"acc","aggregation":"mean","dimensions":{}},"num":1319}`
+
+func TestEvalReportSummary(t *testing.T) {
+	got, err := reportSummary(v2Report)
+	assert.NoError(t, err)
+	assert.JSONEq(t, `{"benchmarks":{"gsm8k":{"accuracy":0.81,"samples":1319}},"overall_score":0.81}`, got,
+		"schema 2 scores its primary metric")
+
+	v1 := `{"name":"m@arc","dataset_name":"arc","score":0.7,` +
+		`"metrics":[{"name":"AverageAccuracy","num":100,"score":0.7}]}`
+	got, err = reportSummary(`{"datasets":[` + v1 + `,` + v2Report + `],"summary":{"total_datasets":2}}`)
+	assert.NoError(t, err)
+	assert.JSONEq(t, `{"benchmarks":{"arc":{"accuracy":0.7,"samples":100},"gsm8k":{"accuracy":0.81,"samples":1319}},`+
+		`"overall_score":0.755}`, got, "a merged report scores each dataset")
+
+	for _, bad := range []string{"not json", `{"dataset_name":"x","metrics":[]}`, `{"datasets":[1]}`} {
+		_, err = reportSummary(bad)
+		assert.Error(t, err, bad)
+	}
+}
+
+// reportStore serves the objects it holds and fails a read of any other; other S3 calls are not expected.
+type reportStore struct {
+	commons3.Interface
+	objects map[string]string
+}
+
+// GetObject returns a held object, or an error for a missing one.
+func (s reportStore) GetObject(_ context.Context, key string, _ int64) (string, error) {
+	if v, ok := s.objects[key]; ok {
+		return v, nil
+	}
+	return "", assert.AnError
+}
+
+func TestEvalUpdateReportPathStoresTheScores(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mockclient.NewMockInterface(ctrl)
+	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t), dbClient: db,
+		s3Client: reportStore{objects: map[string]string{"evaluations/t1/report.json": v2Report}}}
+	db.EXPECT().UpdateEvaluationTaskResult(gomock.Any(), "t1",
+		`{"benchmarks":{"gsm8k":{"accuracy":0.81,"samples":1319}},"overall_score":0.81}`,
+		"evaluations/t1/report.json").Return(nil)
+	r.updateReportPath(context.Background(), "t1", evalWorkload("t1", v1.WorkloadSucceeded))
+
+	db.EXPECT().UpdateEvaluationTaskResult(gomock.Any(), "t2", "{}", "evaluations/t2/report.json").Return(nil)
+	r.updateReportPath(context.Background(), "t2", evalWorkload("t2", v1.WorkloadSucceeded))
 }
 
 func TestEvalHandleWorkloadEventImplRunning(t *testing.T) {
