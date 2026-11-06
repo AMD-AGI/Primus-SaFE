@@ -7,6 +7,7 @@ package posttraining
 
 import (
 	"context"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -28,17 +29,26 @@ const (
 	// cacheSweepRequest is the work queue key of a sweep of the conversion caches; run ids never take this form.
 	cacheSweepRequest = "#convert-cache-sweep"
 	cacheSweepRequeue = time.Minute
+	// convertCacheDir is the directory the compiler keeps shared conversions in, one <cache key> directory each.
+	convertCacheDir = "post-training-cache"
 )
 
 // registerConversion records the shared conversion a run's launcher reused or made as ready, so other runs of
-// the model find it and it is reclaimed with the model.
+// the model find it and it is reclaimed with the model. The key and the directory come from the run's recipe,
+// which the server wrote; a marker naming others is ignored.
 func (r *RunReconciler) registerConversion(ctx context.Context, run *dbclient.PostTrainingRun, conversion *conversionDetail) {
+	rec := parseRecipe(run).Convert
+	if rec == nil || rec.CacheKey == "" || conversion.CacheKey != rec.CacheKey || conversion.Dir != path.Dir(rec.Dir) {
+		klog.InfoS("ignoring a convert marker that does not match the recipe", "run", run.RunID,
+			"cacheKey", conversion.CacheKey, "dir", conversion.Dir)
+		return
+	}
 	cache := &dbclient.PostTrainingConvertCache{
 		Workspace: run.Workspace,
 		Framework: run.Framework,
-		CacheKey:  conversion.CacheKey,
+		CacheKey:  rec.CacheKey,
 		ModelID:   run.BaseModelID,
-		Path:      conversion.Dir,
+		Path:      path.Dir(rec.Dir),
 		Status:    dbclient.ConvertCacheReady,
 		FP8Ready:  conversion.FP8,
 		SizeBytes: conversion.SizeBytes,
@@ -134,9 +144,14 @@ func cacheCommit(key string) string {
 }
 
 // reclaimCache removes a cache directory with a model-cleanup job, marking the record invalid meanwhile, and
-// deletes the record once the job succeeded. A failed job is deleted, so the next sweep tries again. It
-// reports whether the cache is gone.
+// deletes the record once the job succeeded. A failed job is deleted, so the next sweep tries again. A record
+// whose path is not a cache directory loses only the record. It reports whether the cache is gone.
 func (r *RunReconciler) reclaimCache(ctx context.Context, cache *dbclient.PostTrainingConvertCache) (bool, error) {
+	if path.Base(cache.Path) != cache.CacheKey || path.Base(path.Dir(cache.Path)) != convertCacheDir {
+		klog.InfoS("dropping a conversion cache record whose path is not a cache directory", "cache", cache.CacheKey,
+			"path", cache.Path)
+		return true, r.db.DeletePostTrainingConvertCache(ctx, cache.ID)
+	}
 	job := &v1.OpsJob{}
 	err := r.Get(ctx, client.ObjectKey{Name: resource.DirectoryCleanupJobName(cache.Workspace, cache.Path)}, job)
 	if apierrors.IsNotFound(err) {
