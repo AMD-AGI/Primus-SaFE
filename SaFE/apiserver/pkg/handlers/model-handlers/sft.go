@@ -282,10 +282,16 @@ func (h *Handler) authorizeWorkloadHostPath(ctx context.Context, userId string, 
 	if commonworkload.MayMountWorkspaceStorage(workload) {
 		workspace = &v1.Workspace{}
 		if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: workload.Spec.Workspace}, workspace); err != nil {
-			if k8serrors.IsNotFound(err) || workload.Spec.Workspace == "" {
+			// Without hostpath entries the workspace only decides the volumes that require the
+			// grant: a workspace that does not exist has none, and no mark is set.
+			switch {
+			case len(workload.Spec.Hostpath) == 0 && k8serrors.IsNotFound(err):
+				workspace = nil
+			case k8serrors.IsNotFound(err) || workload.Spec.Workspace == "":
 				return commonerrors.NewBadRequest(fmt.Sprintf("workspace not found: %q", workload.Spec.Workspace))
+			default:
+				return commonerrors.NewInternalError("failed to fetch workspace: " + err.Error())
 			}
-			return commonerrors.NewInternalError("failed to fetch workspace: " + err.Error())
 		}
 	}
 	if h.accessController == nil {

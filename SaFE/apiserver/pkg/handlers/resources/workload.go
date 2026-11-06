@@ -890,7 +890,12 @@ func (h *Handler) authWorkloadStorage(c *gin.Context,
 	if commonworkload.MayMountWorkspaceStorage(workload) {
 		var err error
 		if workspace, err = h.getAdminWorkspace(c.Request.Context(), workload.Spec.Workspace); err != nil {
-			return err
+			// Without hostpath entries the workspace only decides the volumes that require the
+			// grant: a workspace that does not exist has none, and no mark is set.
+			if len(workload.Spec.Hostpath) > 0 || !apierrors.IsNotFound(err) {
+				return err
+			}
+			workspace = nil
 		}
 	}
 	in := authority.AccessInput{
