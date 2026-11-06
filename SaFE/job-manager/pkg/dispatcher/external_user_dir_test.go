@@ -349,3 +349,44 @@ func TestExternalUserDirMountsVolumesMatchMounts(t *testing.T) {
 	}
 	assert.Assert(t, parent >= 0 && child > parent, "mount order %v", paths)
 }
+
+// With the flag on, no other hostpath volume of the workspace may reach the user directories in an
+// external Pod: not a second volume over the same tree mounted whole (at another mountPath), not one
+// over a single user's directory, and not a shared path of another volume. Such a workspace is
+// refused for external Pods instead of leaking; an unrelated volume and Pods on the cluster's own
+// nodes render as before, and so does everything with the flag off.
+func TestExternalUserDirMountsRefuseOtherVolumesOverUserDirs(t *testing.T) {
+	withUserDirMounts(t, true)
+	second := func(vol v1.WorkspaceVolume) *v1.Workspace {
+		ws := topModelsWorkspace()
+		vol.Id, vol.Type = 2, v1.HOSTPATH
+		ws.Spec.Volumes = append(ws.Spec.Volumes, vol)
+		return ws
+	}
+	refused := map[string]*v1.Workspace{
+		"same tree":        second(v1.WorkspaceVolume{HostPath: "/shared_nfs", MountPath: "/legacy"}),
+		"root":             second(v1.WorkspaceVolume{HostPath: "/", MountPath: "/host"}),
+		"one user's dir":   second(v1.WorkspaceVolume{HostPath: "/shared_nfs/users/other", MountPath: "/other"}),
+		"shared users":     second(v1.WorkspaceVolume{HostPath: "/shared_nfs", MountPath: "/legacy", SharedPaths: []v1.WorkspaceSharedPath{{Path: "users"}}}),
+		"shared root path": second(v1.WorkspaceVolume{HostPath: "/shared_nfs/users", MountPath: "/u", SharedPaths: []v1.WorkspaceSharedPath{{Path: "other"}}}),
+	}
+	for name, ws := range refused {
+		for _, kind := range []string{common.SandboxKind, common.PytorchJobKind} {
+			_, _, _, err := renderWorkloadErr(t, kind, ws, nil, externalPlacement)
+			assert.ErrorContains(t, err, `overlaps the user directories under "/shared_nfs/users"`, "%s %s", name, kind)
+			assert.ErrorContains(t, err, "volume(hostpath-2)", "%s %s", name, kind)
+		}
+		// Pods on the cluster's own nodes are not affected.
+		_, _, _, err := renderWorkloadErr(t, common.SandboxKind, ws, nil, nil)
+		assert.NilError(t, err, name)
+	}
+
+	unrelated := second(v1.WorkspaceVolume{HostPath: "/data", MountPath: "/data"})
+	pod := renderPodMounts(t, common.SandboxKind, unrelated, nil, externalPlacement)
+	assert.Equal(t, pod.mounts["containers"]["/data"].HostPath, "/data")
+	assert.Equal(t, pod.mounts["containers"]["/shared_nfs/users/user-1"].HostPath, "/shared_nfs/users/user-1")
+
+	withUserDirMounts(t, false)
+	_, _, _, err := renderWorkloadErr(t, common.SandboxKind, refused["same tree"], nil, externalPlacement)
+	assert.NilError(t, err)
+}

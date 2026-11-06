@@ -24,6 +24,8 @@ type userDirMount struct {
 	hostType  string
 	mountPath string
 	readOnly  bool
+	// userDir marks the Pod's own user directory.
+	userDir bool
 }
 
 // externalUserDirMounts returns what replaces the whole-volume mount of vol in an external Pod, and
@@ -57,6 +59,7 @@ func externalUserDirMounts(workload *v1.Workload, vol v1.WorkspaceVolume) ([]use
 			hostType:  string(corev1.HostPathDirectoryOrCreate),
 			mountPath: vol.MountPath + "/" + userDir,
 			readOnly:  volumeReadOnly,
+			userDir:   true,
 		})
 	}
 	for i, shared := range vol.SharedPaths {
@@ -72,6 +75,54 @@ func externalUserDirMounts(workload *v1.Workload, vol v1.WorkspaceVolume) ([]use
 		})
 	}
 	return mounts, true, nil
+}
+
+// checkExternalWorkspaceVolume refuses, while user directories are mounted for external Pods, a
+// hostpath workspace volume that an external workload would mount whole, or a shared path, whose
+// source on the node overlaps the user directories of a volume with enableUserDir: a second volume
+// over the same tree, or a shared path of another volume, would otherwise mount other users'
+// directories beside the Pod's own. mounts and replaced are what externalUserDirMounts returned.
+func checkExternalWorkspaceVolume(workload *v1.Workload, workspace *v1.Workspace, vol v1.WorkspaceVolume,
+	mounts []userDirMount, replaced bool) error {
+	if !commonconfig.IsExternalUserDirMountsEnable() || !isExternalWorkload(workload) || vol.Type != v1.HOSTPATH {
+		return nil
+	}
+	sources := []string{filepath.Join(vol.HostPath, vol.SubPath)}
+	if replaced {
+		sources = sources[:0]
+		for _, m := range mounts {
+			if !m.userDir {
+				sources = append(sources, m.hostPath)
+			}
+		}
+	}
+	for _, source := range sources {
+		if users := userDirsOverlapping(workspace, source); users != "" {
+			return fmt.Errorf("volume(%s) of workspace %s would mount %q into an external Pod, which "+
+				"overlaps the user directories under %q", vol.GenFullVolumeId(), workspace.Name, source, users)
+		}
+	}
+	return nil
+}
+
+// userDirsOverlapping returns the user directories ({hostPath}[/{subPath}]/users, v1.UserDirsPath)
+// of a hostpath volume with enableUserDir in the workspace that path equals, lies under or contains,
+// or "" when there is none. "/" contains every one.
+func userDirsOverlapping(workspace *v1.Workspace, path string) string {
+	if workspace == nil {
+		return ""
+	}
+	cleaned := filepath.Clean(path)
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type != v1.HOSTPATH || !vol.EnableUserDir || strings.TrimSpace(vol.HostPath) == "" {
+			continue
+		}
+		users := filepath.Join(vol.HostPath, vol.SubPath, v1.UserDirsPath)
+		if cleaned == "/" || pathsOverlap(cleaned, users) {
+			return users
+		}
+	}
+	return ""
 }
 
 // checkExternalUserDirHostPath refuses, while user directories are mounted for external Pods, a
@@ -90,19 +141,9 @@ func checkExternalUserDirHostPath(workload *v1.Workload, workspace *v1.Workspace
 			return fmt.Errorf("hostpath %q of an external workload has a \"..\" element", hostpath)
 		}
 	}
-	if workspace == nil {
-		return nil
-	}
-	cleaned := filepath.Clean(hostpath)
-	for _, vol := range workspace.Spec.Volumes {
-		if vol.Type != v1.HOSTPATH || !vol.EnableUserDir || strings.TrimSpace(vol.HostPath) == "" {
-			continue
-		}
-		users := filepath.Join(vol.HostPath, vol.SubPath, v1.UserDirsPath)
-		if cleaned == "/" || pathsOverlap(cleaned, users) {
-			return fmt.Errorf("hostpath %q of an external workload overlaps the user directories under %q; "+
-				"a Pod gets its own user directory from the workspace volume", hostpath, users)
-		}
+	if users := userDirsOverlapping(workspace, hostpath); users != "" {
+		return fmt.Errorf("hostpath %q of an external workload overlaps the user directories under %q; "+
+			"a Pod gets its own user directory from the workspace volume", hostpath, users)
 	}
 	return nil
 }

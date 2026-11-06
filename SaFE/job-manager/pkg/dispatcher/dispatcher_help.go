@@ -831,9 +831,14 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			if !workspaceVolumeAppliesTo(vol, workload) {
 				continue
 			}
-			if mounts, replaced, err := externalUserDirMounts(workload, vol); err != nil {
+			mounts, replaced, err := externalUserDirMounts(workload, vol)
+			if err == nil {
+				err = checkExternalWorkspaceVolume(workload, workspace, vol, mounts, replaced)
+			}
+			if err != nil {
 				return err
-			} else if replaced {
+			}
+			if replaced {
 				for _, m := range mounts {
 					volumes = append(volumes, buildHostPathVolume(m.name, m.hostPath, m.hostType))
 				}
