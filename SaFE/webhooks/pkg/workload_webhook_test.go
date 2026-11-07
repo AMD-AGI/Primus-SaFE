@@ -3054,3 +3054,47 @@ func TestWorkloadMutateEphemeralRunnerWorkspaceStorageUnresolvedParent(t *testin
 	assert.NilError(t, m.mutateOnCreation(context.Background(), child))
 	assert.Equal(t, v1.GetAnnotation(child, v1.UseWorkspaceStorageAnnotation), v1.TrueStr)
 }
+
+// TestValidateEphemeralStorageLimit verifies an ephemeralStorageLimit must be a
+// positive quantity no smaller than ephemeralStorage, and that it is optional.
+func TestValidateEphemeralStorageLimit(t *testing.T) {
+	r := wlResource()
+	r.EphemeralStorageLimit = "100Gi"
+	assert.NilError(t, validateResource(&r, "ws1"))
+
+	r.EphemeralStorageLimit = r.EphemeralStorage
+	assert.NilError(t, validateResource(&r, "ws1"))
+
+	r.EphemeralStorageLimit = "1Gi"
+	err := validateResource(&r, "ws1")
+	assert.ErrorContains(t, err, "smaller than the ephemeralStorage")
+
+	r.EphemeralStorageLimit = "lots"
+	assert.ErrorContains(t, validateResource(&r, "ws1"), "invalid ephemeralStorageLimit")
+
+	r.EphemeralStorageLimit = "0"
+	assert.ErrorContains(t, validateResource(&r, "ws1"), "must be positive")
+}
+
+// TestValidateResourceEnoughEphemeralStorageLimit verifies the limit, like the
+// request, may not exceed the per-node maximum ephemeral storage.
+func TestValidateResourceEnoughEphemeralStorageLimit(t *testing.T) {
+	commonconfig.SetValue("workload.max_ephemeral_store_percent", "0.5")
+	defer commonconfig.SetValue("workload.max_ephemeral_store_percent", "0")
+	nf := &v1.NodeFlavor{
+		ObjectMeta: metav1.ObjectMeta{Name: "amd-cpu"},
+		Spec: v1.NodeFlavorSpec{
+			Cpu:    v1.CpuChip{Quantity: resource.MustParse("32")},
+			Memory: resource.MustParse("256Gi"),
+			ExtendResources: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceEphemeralStorage: resource.MustParse("400Gi"),
+			},
+		},
+	}
+	res := &v1.WorkloadResource{CPU: "1", Memory: "2Gi", EphemeralStorage: "20Gi",
+		EphemeralStorageLimit: "100Gi", Replica: 1}
+	assert.NilError(t, validateResourceEnough(nf, res))
+
+	res.EphemeralStorageLimit = "300Gi"
+	assert.ErrorContains(t, validateResourceEnough(nf, res), "Resource limit exceeds maximum available")
+}

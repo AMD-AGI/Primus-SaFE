@@ -1887,8 +1887,39 @@ func validateResource(resource *v1.WorkloadResource, workspaceName string) error
 	if resource.EphemeralStorage == "" {
 		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
 	}
+	if err := validateEphemeralStorageLimit(resource); err != nil {
+		errs = append(errs, err)
+	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateEphemeralStorageLimit checks that an ephemeralStorageLimit, when set, is a
+// positive quantity no smaller than ephemeralStorage: the pod requests ephemeralStorage
+// and Kubernetes rejects a container whose limit is below its request.
+func validateEphemeralStorageLimit(res *v1.WorkloadResource) error {
+	if res.EphemeralStorageLimit == "" {
+		return nil
+	}
+	limit, err := resource.ParseQuantity(res.EphemeralStorageLimit)
+	if err != nil {
+		return fmt.Errorf("invalid ephemeralStorageLimit %q: %v", res.EphemeralStorageLimit, err)
+	}
+	if limit.Sign() <= 0 {
+		return fmt.Errorf("the ephemeralStorageLimit %q must be positive", res.EphemeralStorageLimit)
+	}
+	if res.EphemeralStorage == "" {
+		return nil
+	}
+	request, err := resource.ParseQuantity(res.EphemeralStorage)
+	if err != nil {
+		return nil // reported by the ephemeralStorage checks
+	}
+	if limit.Cmp(request) < 0 {
+		return fmt.Errorf("the ephemeralStorageLimit %s is smaller than the ephemeralStorage %s",
+			res.EphemeralStorageLimit, res.EphemeralStorage)
 	}
 	return nil
 }
@@ -2126,6 +2157,17 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 			return commonerrors.NewForbidden(
 				fmt.Sprintf("Resource request exceeds maximum available: %s, requested: %v, max.available: %v",
 					corev1.ResourceEphemeralStorage, requestQuantity, *maxEphemeralStoreQuantity))
+		}
+		if res.EphemeralStorageLimit != "" {
+			limitQuantity, err := resource.ParseQuantity(res.EphemeralStorageLimit)
+			if err != nil {
+				return err
+			}
+			if maxEphemeralStoreQuantity.Cmp(limitQuantity) < 0 {
+				return commonerrors.NewForbidden(
+					fmt.Sprintf("Resource limit exceeds maximum available: %s, limit: %v, max.available: %v",
+						corev1.ResourceEphemeralStorage, limitQuantity, *maxEphemeralStoreQuantity))
+			}
 		}
 	}
 	return nil

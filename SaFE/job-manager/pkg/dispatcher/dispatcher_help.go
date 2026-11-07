@@ -3571,6 +3571,10 @@ func updateContainers(adminWorkload *v1.Workload,
 	for key, val := range resourceList {
 		resources[string(key)] = val.String()
 	}
+	// The limits are the requests, except that EphemeralStorageLimit, when set,
+	// raises the ephemeral-storage limit above the request the pod is scheduled with.
+	limits := resources
+	approvedVector := false
 	// The reservation was granted against the provider's approved vector. Using the
 	// workload request instead would let a rounded or padded Spec disagree with the
 	// claim, and VK admission refuses anything that is not an exact match.
@@ -3581,6 +3585,8 @@ func updateContainers(adminWorkload *v1.Workload,
 		}
 		if approved != nil {
 			resources = approved
+			limits = approved
+			approvedVector = true
 		}
 		// The approved vector has no RDMA field; a gang member receives the node's RDMA
 		// devices by requesting them.
@@ -3588,12 +3594,26 @@ func updateContainers(adminWorkload *v1.Workload,
 			resources[name] = res.RdmaResource
 		}
 	}
+	if res.EphemeralStorageLimit != "" && !approvedVector {
+		limitList, err := quantity.CvtToResourceList("", "", "", "",
+			res.EphemeralStorageLimit, "", 1.0/float64(len(containers)))
+		if err != nil {
+			return err
+		}
+		limits = make(map[string]interface{}, len(resources))
+		for key, val := range resources {
+			limits[key] = val
+		}
+		if q, ok := limitList[corev1.ResourceEphemeralStorage]; ok {
+			limits[string(corev1.ResourceEphemeralStorage)] = q.String()
+		}
+	}
 
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
 		updateContainerEnv(adminWorkload.Spec.Env, container, v1.GetEnvToBeRemoved(adminWorkload))
 		container["resources"] = map[string]interface{}{
-			"limits":   resources,
+			"limits":   limits,
 			"requests": resources,
 		}
 		name := jobutils.NestedStringSilently(container, []string{"name"})

@@ -908,3 +908,33 @@ func TestGetInferaIdleRoles(t *testing.T) {
 	assert.Equal(t, IsInferaIdleRole(w, common.DynamoRoleDecode), true)
 	assert.Equal(t, IsInferaIdleRole(w, common.DynamoRoleWorker), false)
 }
+
+// TestGetPodLimitList verifies that EphemeralStorageLimit replaces only the
+// ephemeral-storage entry of the pod limits, and that without it the limits
+// equal the requests.
+func TestGetPodLimitList(t *testing.T) {
+	res := &v1.WorkloadResource{Replica: 1, CPU: "4", Memory: "16Gi", EphemeralStorage: "20Gi"}
+	requests, err := GetPodResourceList(res)
+	assert.NilError(t, err)
+	limits, err := GetPodLimitList(res)
+	assert.NilError(t, err)
+	assert.Assert(t, quantity.Equal(requests, limits))
+
+	res.EphemeralStorageLimit = "100Gi"
+	limits, err = GetPodLimitList(res)
+	assert.NilError(t, err)
+	got := limits[corev1.ResourceEphemeralStorage]
+	assert.Equal(t, got.Cmp(resource.MustParse("100Gi")), 0)
+	got = limits[corev1.ResourceCPU]
+	assert.Equal(t, got.Cmp(resource.MustParse("4")), 0)
+	got = limits[corev1.ResourceMemory]
+	assert.Equal(t, got.Cmp(resource.MustParse("16Gi")), 0)
+	requests, err = GetPodResourceList(res)
+	assert.NilError(t, err)
+	got = requests[corev1.ResourceEphemeralStorage]
+	assert.Equal(t, got.Cmp(resource.MustParse("20Gi")), 0)
+
+	res.EphemeralStorageLimit = "lots"
+	_, err = GetPodLimitList(res)
+	assert.Assert(t, err != nil)
+}

@@ -367,6 +367,7 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 | resources[].gpu              | string   | No       | Number of GPU cards                                                                                                                                                                                       |
 | resources[].memory           | string   | Yes      | Memory size, e.g. "256Gi"                                                                                                                                                                                 |
 | resources[].ephemeralStorage | string   | No       | Ephemeral-storage for pod. default 50Gi                                                                                                                                                                   |
+| resources[].ephemeralStorageLimit | string | No | Ephemeral-storage limit for pod, e.g. "100Gi". Default: equal to ephemeralStorage. Must not be smaller than ephemeralStorage; the pod is scheduled on ephemeralStorage and evicted by the kubelet when its usage passes this limit |
 | resources[].replica          | int      | Yes      | Number of replicas. See below for special rules when `specifiedNodes` is provided.                                                                                                                        |
 | priority                     | int      | No       | Priority (0-2), default 0                                                                                                                                                                                 |
 | timeout                      | int      | No       | Timeout in seconds, 0 means no timeout, 	The timeout is calculated from the moment the workload is dispatched.                                                                                            |
@@ -545,6 +546,7 @@ Get workload list with filtering and pagination support.
 | resources[].gpu              | string | GPU cards, e.g. "8"                                                                      |
 | resources[].memory           | string | Memory size, e.g. "256Gi"                                                                |
 | resources[].ephemeralStorage | string | Ephemeral storage size, e.g. "256Gi"                                                     |
+| resources[].ephemeralStorageLimit | string | Ephemeral storage limit, when larger than ephemeralStorage |
 | resources[].sharedMemory     | string | Shared memory size, e.g. "64Gi"                                                          |
 | resources[].replica          | int | Replica count                                                                            |
 
