@@ -48,6 +48,42 @@ join_default_workspaces: {{ if hasKey $u "join_default_workspaces" }}{{ $u.join_
 {{- end -}}
 
 {{/*
+nodeSelector and tolerations of the management components' pods, from
+global.management_node_selector and global.management_tolerations. Empty when both are, so
+the default placement renders unchanged.
+*/}}
+{{- define "primus-safe.managementPlacement" -}}
+{{- with .Values.global.management_node_selector }}
+nodeSelector:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with .Values.global.management_tolerations }}
+tolerations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end -}}
+
+{{/*
+global.management_node_selector as a required node affinity, for the database instances:
+a PostgresCluster instance takes affinity and tolerations but no nodeSelector. One term, so
+every label must match, as with a nodeSelector.
+*/}}
+{{- define "primus-safe.managementNodeAffinity" -}}
+{{- with .Values.global.management_node_selector }}
+nodeAffinity:
+  requiredDuringSchedulingIgnoredDuringExecution:
+    nodeSelectorTerms:
+      - matchExpressions:
+          {{- range $key, $value := . }}
+          - key: {{ $key | quote }}
+            operator: In
+            values:
+              - {{ $value | quote }}
+          {{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
 The secret that copy-opensearch-secret copies into the release namespace, or "" when that job is
 not rendered. The hook Role secret-manager grants access to it by name.
 */}}

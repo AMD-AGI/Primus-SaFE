@@ -47,6 +47,9 @@ spec:
                     operator: NotIn
                     values:
                       - "true"
+      {{- with include "primus-safe.managementPlacement" . }}
+      {{- . | trim | nindent 6 }}
+      {{- end }}
       serviceAccountName: {{ .Release.Name }}
       containers:
         - name: {{ .Release.Name }}-webhooks

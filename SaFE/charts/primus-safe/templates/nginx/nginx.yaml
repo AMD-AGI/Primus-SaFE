@@ -88,6 +88,9 @@ spec:
                     operator: NotIn
                     values:
                       - "true"
+      {{- with include "primus-safe.managementPlacement" . }}
+      {{- . | trim | nindent 6 }}
+      {{- end }}
       containers:
         - name: nginx
           image: {{ .Values.global.image_registry }}/library/nginx:latest

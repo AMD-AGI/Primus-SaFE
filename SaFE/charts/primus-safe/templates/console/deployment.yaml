@@ -43,6 +43,9 @@ spec:
                     operator: NotIn
                     values:
                       - "true"
+      {{- with include "primus-safe.managementPlacement" . }}
+      {{- . | trim | nindent 6 }}
+      {{- end }}
       containers:
         - name: app
           image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.web.image }}
