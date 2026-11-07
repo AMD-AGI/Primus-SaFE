@@ -275,6 +275,9 @@ func TestBuiltinKeyActorsOffByDefault(t *testing.T) {
 		"only introspection and builtin": {actors: []string{keyActorClient}, chain: func(e *bkaEnv) []map[string]any {
 			return []map[string]any{{"type": "introspection", "url": e.issuer.URL + "/introspect", "client_id": "c", "client_secret_file": "/nonexistent", "audience": extAudience}, {"type": "builtin"}}
 		}},
+		"an oidc authenticator that reads the user id from another claim": {actors: []string{keyActorClient}, chain: func(e *bkaEnv) []map[string]any {
+			return []map[string]any{{"type": "oidc", "issuer": e.issuer.URL, "audience": extAudience, "jwks_url": e.issuer.URL + "/jwks", "id_claim": "email"}}
+		}},
 		"an oidc authenticator that cannot be built": {actors: []string{keyActorClient}, chain: func(e *bkaEnv) []map[string]any {
 			return []map[string]any{{"type": "oidc", "issuer": e.issuer.URL}}
 		}},
@@ -290,6 +293,27 @@ func TestBuiltinKeyActorsOffByDefault(t *testing.T) {
 			require.Zero(t, e.introspected.Load())
 		})
 	}
+}
+
+// An oidc entry whose id_claim is sub, said explicitly, is used like one that leaves it to the default; one that reads
+// the user id from another claim is skipped, and the others still work.
+func TestBuiltinKeyActorsUseOnlyTheSubject(t *testing.T) {
+	defer setupInternalAuth(t)()
+	defer setupDefaultToken(t)()
+	asked := stubPlatformKeys(t)
+	e := newBuiltinKeyActorEnv(t, []string{keyActorClient}, func(e *bkaEnv) []map[string]any {
+		return []map[string]any{
+			{"type": "oidc", "name": "by-email", "issuer": e.issuer.URL, "audience": extAudience, "jwks_url": e.issuer.URL + "/jwks", "id_claim": "uid"},
+			{"type": "oidc", "name": "by-sub", "issuer": e.issuer.URL, "audience": extAudience, "jwks_url": e.issuer.URL + "/jwks", "id_claim": "sub"},
+		}
+	})
+	// The token names alice as its subject and bob in the claim the skipped entry would read.
+	w := callVerifyToken(t, VerifyTokenRequest{Authorization: "Bearer " + e.tok(map[string]any{"uid": bkaOther}), IncludePlatformKey: true}, testInternalToken)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var resp verifyResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, bkaUser, resp.Data.Id)
+	require.Equal(t, []string{bkaUser}, *asked)
 }
 
 // The apiserver's own credentials are answered by the builtin path exactly as before when key actors are configured,

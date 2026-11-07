@@ -60,6 +60,12 @@ func initBuiltinKeyActors(cli client.Client) {
 	var oidc []commonconfig.AuthenticatorConfig
 	for _, c := range cfgs {
 		if strings.EqualFold(c.Type, "oidc") {
+			// The user the keys are for is the token's subject: an entry that reads the user id from another claim
+			// could point a token of one subject at another user's keys, so it is not used here.
+			if c.IDClaim != "" && c.IDClaim != "sub" {
+				klog.Warningf("auth.mode is builtin: the oidc authenticator %q reads the user id from %q, not sub; it is not used for auth.key_actors", c.Name, c.IDClaim)
+				continue
+			}
 			oidc = append(oidc, c)
 		} else {
 			klog.Warningf("auth.mode is builtin: the %q authenticator %q is not used for auth.key_actors (only oidc is)", c.Type, c.Name)
