@@ -68,7 +68,12 @@ type WorkloadResource struct {
 	// Requested Shared Memory size (e.g., 128Gi). Used for sharing data between processes. default: Memory/2
 	SharedMemory string `json:"sharedMemory,omitempty"`
 	// Ephemeral-storage for pod. default 50Gi
+	// It is the request the pod is scheduled with, and also its limit unless EphemeralStorageLimit is set.
 	EphemeralStorage string `json:"ephemeralStorage,omitempty"`
+	// Ephemeral-storage limit for pod (e.g., 100Gi). Optional; when empty the limit equals EphemeralStorage.
+	// When set it must not be smaller than EphemeralStorage. Only the limit is raised: scheduling and quota
+	// still count EphemeralStorage, and the kubelet evicts the pod when its usage passes this limit.
+	EphemeralStorageLimit string `json:"ephemeralStorageLimit,omitempty"`
 	// RDMA resource is effective only with hostNetwork enabled (default: 1).
 	// This field is set internally
 	RdmaResource string `json:"rdmaResource,omitempty"`
