@@ -134,7 +134,7 @@ func (opts *ImageOptions) newSystemContext() (*types.SystemContext, error) {
 		ctx.DockerDaemonInsecureSkipTLSVerify = !opts.TlsVerify
 	}
 	if opts.TlsVerify {
-		ctx.DockerInsecureSkipTLSVerify = types.NewOptionalBool(opts.TlsVerify)
+		ctx.DockerInsecureSkipTLSVerify = types.NewOptionalBool(!opts.TlsVerify)
 	}
 	if opts.CredsOption != "" && opts.NoCreds {
 		return nil, errors.New("creds and no-creds cannot be specified at the same time")
