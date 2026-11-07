@@ -21,6 +21,20 @@ global:
   storage_class: "local-path"
   # csi volume handle name for wekafs
   csi_volume_handle: ""
+  # Placement of the management components: the apiserver, resource-manager, job-manager,
+  # webhooks, web console and nginx pods, and the database instances. Both empty (the default)
+  # leaves placement to the scheduler, preferring non-GPU nodes. To run them on the
+  # control-plane nodes:
+  #   management_node_selector:
+  #     node-role.kubernetes.io/control-plane: ""
+  #   management_tolerations:
+  #     - key: node-role.kubernetes.io/control-plane
+  #       operator: Exists
+  #       effect: NoSchedule
+  # The database instances are created only at install, so on an installed cluster these
+  # settings move the Deployments only; patch the PostgresCluster to move the database.
+  management_node_selector: {}
+  management_tolerations: []
 net:
   # Network interface for NCCL socket communication
   nccl_socket_ifname: "eno0"
