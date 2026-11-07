@@ -131,7 +131,8 @@ func VerifyToken(c *gin.Context) {
 	// The context the apiserver would judge a request with the same credential in: the overlay of
 	// the identity in it, so the user is seen with the roles it lends.
 	accessCtx := c.Request.Context()
-	external := false
+	// decided is true once a path other than the builtin one has authenticated the credentials.
+	decided := false
 	var delegated *externalVerdict
 	if st := externalState.Load(); st != nil {
 		verdict, builtin, ok := verifyExternal(c, st, &req)
@@ -139,14 +140,27 @@ func VerifyToken(c *gin.Context) {
 			return
 		}
 		if !builtin {
-			userInfo, userType, roles, external = verdict.info, verdict.userType, verdict.roles, true
+			userInfo, userType, roles, decided = verdict.info, verdict.userType, verdict.roles, true
 			accessCtx = extauth.WithOverlay(c.Request.Context(), verdict.overlay)
 			if verdict.actor != "" {
 				delegated = verdict
 			}
 		}
 	}
-	if !external {
+	if !decided {
+		if st := builtinKeyActorState.Load(); st != nil {
+			// Builtin mode with auth.key_actors: a delegated token of a listed party is answered here, about the
+			// existing user it acts for; every other credential goes on to the builtin path below, as before.
+			verdict, handled, ok := verifyBuiltinKeyActor(c, st, &req)
+			if !ok {
+				return
+			}
+			if handled {
+				userInfo, userType, roles, decided, delegated = verdict.info, verdict.userType, verdict.roles, true, verdict
+			}
+		}
+	}
+	if !decided {
 		var ok bool
 		if userInfo, userType, ok = verifyBuiltin(c, &req); !ok {
 			return

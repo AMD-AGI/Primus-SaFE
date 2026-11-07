@@ -305,6 +305,8 @@ auth:
   # claim naming the client) and receive the keys of the user the token acts for, and of that user only.
   # The token must carry the safe.api scope and be accepted by an authenticator of the chain, which checks
   # its audience. Exact ids, no wildcards. Empty (the default): a delegated token never calls it.
+  # With mode builtin it applies too, to that endpoint only, using the oidc entries of `authenticators`
+  # (introspection and builtin entries are ignored there); requests and logins stay builtin.
   key_actors: []
   # Where API key creation, listing and revocation are routed to the identity provider when mode is external:
   # a path on the console's own origin, such as /api/v1/apikeys. The apiserver refuses to issue keys in that
