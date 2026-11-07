@@ -3916,9 +3916,15 @@ func stripExternalContainerPrivileges(obj *unstructured.Unstructured, workload *
 }
 
 // externalNodeFailureTolerationSeconds is how long a pod remains after its node
-// is tainted NotReady or Unreachable. Declaring it here keeps the apiserver
-// from injecting its 300s default.
-const externalNodeFailureTolerationSeconds int64 = 30
+// is tainted NotReady or Unreachable. It matches the 300s kube-apiserver
+// default the clusters run with, and is declared rather than inherited so an
+// apiserver with a shorter --default-*-toleration-seconds cannot shorten it.
+// The Autopilot virtual kubelet derives each task's execution lease from this
+// value: anything under grace + 40s (70s for the 30s default grace) leaves a
+// partitioned task killed before it could be safely replaced, and it emits a
+// PartitionToleranceTooShort Warning. A short virtual-kubelet blip must not
+// evict a long-running GPU pod.
+const externalNodeFailureTolerationSeconds int64 = 300
 
 // applyExternalVirtualKubeletToleration adds tolerations for the provider's virtual-node
 // taints so kube-scheduler can place the pod on an external VK. Both the community

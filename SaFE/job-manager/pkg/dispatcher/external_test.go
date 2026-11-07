@@ -526,7 +526,8 @@ func TestApplyExternalPodPolicy(t *testing.T) {
 		assert.Assert(t, got != nil, "missing node-failure toleration %s", key)
 		assert.Equal(t, got["operator"], "Exists")
 		assert.Equal(t, got["effect"], "NoExecute")
-		assert.Equal(t, got["tolerationSeconds"], externalNodeFailureTolerationSeconds)
+		// A literal, not the constant: the oracle must not move with the code.
+		assert.Equal(t, got["tolerationSeconds"], int64(300))
 	}
 
 	containers, _ := podSpec["containers"].([]interface{})
