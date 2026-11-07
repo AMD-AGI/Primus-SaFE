@@ -53,8 +53,12 @@ var externalState atomic.Pointer[externalAuth]
 func InitExternalAuth(cli client.Client) error {
 	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
 		externalState.Store(nil)
+		// The one thing builtin mode takes from the external configuration: POST /auth/verify answering the
+		// delegated tokens of auth.key_actors (builtin_key_actors.go). Off unless both are configured.
+		initBuiltinKeyActors(cli)
 		return nil
 	}
+	builtinKeyActorState.Store(nil)
 	cfgs, err := commonconfig.GetAuthenticators()
 	if err != nil {
 		return err
