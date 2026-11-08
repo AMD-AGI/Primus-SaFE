@@ -277,6 +277,28 @@ write_sso_values() {
   AUTH_VALUES_FILE="$out"
 }
 
+# write_post_training_values merges post_training_registry from .env, a base64-encoded JSON object whose
+# keys replace those of post_training.registry (e.g. images, network), into the extra values file
+# AUTH_VALUES_FILE, writing it to $1 if no other writer did; nothing when .env does not set it.
+write_post_training_values() {
+  local out="$1" base='{}' registry
+  if [[ -z "${post_training_registry:-}" ]]; then
+    return 0
+  fi
+  if ! registry=$(printf '%s' "$post_training_registry" | base64 -d 2>/dev/null) || \
+     ! jq -e 'type == "object"' <<<"$registry" &> /dev/null; then
+    echo "Error: post_training_registry in .env is not a base64-encoded JSON object" >&2
+    return 1
+  fi
+  if [[ -n "$AUTH_VALUES_FILE" ]]; then
+    base=$(cat "$AUTH_VALUES_FILE")
+    out="$AUTH_VALUES_FILE"
+  fi
+  jq -n --argjson b "$base" --argjson r "$registry" '$b * {post_training: {registry: $r}}' > "$out.tmp"
+  mv "$out.tmp" "$out"
+  AUTH_VALUES_FILE="$out"
+}
+
 echo "====================================="
 echo "🔧 Step 1: Load Parameters from .env"
 echo "====================================="
@@ -433,6 +455,14 @@ sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
   sed -i '/^s3:/,/^[a-z]/ s#secret: ".*"#secret: "'"$S3_SECRET"'"#' "$values_yaml"
 fi
+# Post Training stays at the chart default (off) unless post_training_enable is set in .env.
+if [[ -n "${post_training_enable:-}" ]]; then
+  if [[ "$post_training_enable" != "true" && "$post_training_enable" != "false" ]]; then
+    echo "Error: post_training_enable in .env must be true or false" >&2
+    exit 1
+  fi
+  sed -i '/^post_training:/,/^[a-z]/ s/^  enabled: .*/  enabled: '"$post_training_enable"'/' "$values_yaml"
+fi
 # Grafana is required for the SaFE UI (training-workload dashboard, cluster
 # GPU heatmap, log-based alerts overview). Default it to "on"; only opt-out
 # when the operator explicitly sets grafana_enable=false in .env.
@@ -543,6 +573,7 @@ fi
 
 write_auth_values "primus-safe/.auth-values.json"
 write_sso_values "primus-safe/.sso-values.json"
+write_post_training_values "primus-safe/.post-training-values.json"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"
   mkdir -p output
