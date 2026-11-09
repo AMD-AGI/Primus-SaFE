@@ -45,7 +45,9 @@ install_or_upgrade_helm_chart() {
 # the other settings of this script. Every key is optional; one that .env does not set keeps the
 # chart default, except that a release which is already external refuses to lose it (check_live_auth).
 #   auth_mode            builtin | external                                  -> auth.mode
-#   auth_login_url       where the console sends users to sign in            -> auth.login_url
+#   auth_login_url       where the console sends users to sign in.
+#                        Omitted: https://<sub_domain>.<domain>/login/password.
+#                        A stored value is not kept.                            -> auth.login_url
 #   auth_client_secret   name of the Secret holding the client secret of an
 #                        introspection authenticator (a name, not the secret) -> auth.client_secret
 #   auth_authenticators  JSON array, the authenticator chain                 -> auth.authenticators
@@ -59,7 +61,9 @@ install_or_upgrade_helm_chart() {
 #   auth_scim_enabled    true | false. Omitted: the chart default, true.
 #                        A stored false is not kept.                           -> auth.scim.enabled
 #   auth_scim_identity_url  identity service root                          -> auth.scim.identity_url
-#   auth_scim_public_url    base URL the identity service calls for SCIM   -> auth.scim.public_url
+#   auth_scim_public_url    base URL the identity service calls for SCIM.
+#                        Omitted: this release's apiserver Service, /scim/v2.
+#                        A stored value is not kept.                           -> auth.scim.public_url
 #   auth_scim_token_secret  name of the Secret holding the SCIM bearer     -> auth.scim.token_secret
 # JSON values are single-quoted in .env, e.g. auth_key_actors='["client-a"]'.
 AUTH_ENV_KEYS=(auth_mode auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
@@ -121,13 +125,12 @@ check_live_auth() {
     return 1
   fi
   for var in $unset_keys; do
-    # auth.mode defaults to external. auth.scim.enabled defaults to true, so a stored false is not kept.
-    if [[ "$var" == "auth_mode" || "$var" == "auth_scim_enabled" ]]; then
+    # These have a chart value when .env omits them. A stored login URL or SCIM callback is not kept.
+    if [[ "$var" == "auth_mode" || "$var" == "auth_scim_enabled" || "$var" == "auth_login_url" || "$var" == "auth_scim_public_url" ]]; then
       continue
     fi
     case "$var" in
       auth_scim_identity_url) expr='.auth.scim.identity_url' ;;
-      auth_scim_public_url) expr='.auth.scim.public_url' ;;
       auth_scim_token_secret) expr='.auth.scim.token_secret' ;;
       *) expr=".auth.${var#auth_}" ;;
     esac

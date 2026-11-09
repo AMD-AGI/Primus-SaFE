@@ -90,8 +90,12 @@ func TestChartRendersAuthKeyActors(t *testing.T) {
 	testifyassert.Empty(t, GetAuthKeyActors())
 	testifyassert.True(t, IsSCIMEnabled())
 	testifyassert.Empty(t, GetSCIMIdentityURL())
-	testifyassert.Empty(t, GetSCIMPublicURL())
+	testifyassert.Empty(t, GetAuthLoginURL())
+	testifyassert.Equal(t, "http://release-name-apiserver.default.svc.cluster.local:8088/scim/v2", GetSCIMPublicURL())
 	testifyassert.Equal(t, DefaultSCIMTokenSecret, GetSCIMTokenSecret())
+
+	loadRendered(t, renderApiserverConfig(t, "--set", "global.sub_domain=ccs300"))
+	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com/login/password", GetAuthLoginURL())
 
 	loadRendered(t, renderApiserverConfig(t, "--set", "auth.key_actors={client-a,client-b}"))
 	testifyassert.Equal(t, []string{"client-a", "client-b"}, GetAuthKeyActors())

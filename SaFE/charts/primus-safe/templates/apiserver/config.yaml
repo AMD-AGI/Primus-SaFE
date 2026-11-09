@@ -163,20 +163,29 @@ data:
     {{- /* the path the console's nginx routes to that upstream */}}
     {{- $apiKeysURL = "/api/v1/apikeys" }}
     {{- end }}
+    {{- /* Empty login and SCIM callback URLs follow the release: the console host, and this apiserver. */}}
+    {{- $loginURL := .Values.auth.login_url }}
+    {{- if and (not $loginURL) .Values.global.sub_domain .Values.global.domain }}
+    {{- $loginURL = printf "https://%s.%s/login/password" .Values.global.sub_domain .Values.global.domain }}
+    {{- end }}
+    {{- $scimPublic := (default dict .Values.auth.scim).public_url }}
+    {{- if not $scimPublic }}
+    {{- $scimPublic = printf "http://%s-apiserver.%s.svc.cluster.local:%v/scim/v2" .Release.Name .Release.Namespace (default 8088 (default dict .Values.apiserver).port) }}
+    {{- end }}
     auth:
       # builtin (default): local accounts, built-in sessions, SSO login and API keys.
       # external: authenticate requests with the chain in `authenticators` (OIDC/JWT, RFC 7662 token introspection, builtin).
       mode: {{ default "external" .Values.auth.mode | quote }}
       authenticators: {{ toJson (default (list) .Values.auth.authenticators) }}
       group_mappings: {{ toJson (default (list) .Values.auth.group_mappings) }}
-      login_url: {{ default "" .Values.auth.login_url | quote }}
+      login_url: {{ $loginURL | quote }}
       key_actors: {{ toJson (default (list) .Values.auth.key_actors) }}
       # The path where the deployment routes API key creation, listing and revocation to the identity provider.
       api_keys_url: {{ $apiKeysURL | quote }}
       scim:
         enabled: {{ if kindIs "bool" (default dict .Values.auth.scim).enabled }}{{ (default dict .Values.auth.scim).enabled }}{{ else }}true{{ end }}
         identity_url: {{ default "" (default dict .Values.auth.scim).identity_url | quote }}
-        public_url: {{ default "" (default dict .Values.auth.scim).public_url | quote }}
+        public_url: {{ $scimPublic | quote }}
         token_secret: {{ default "primus-safe-scim-token" (default dict .Values.auth.scim).token_secret | quote }}
     {{- end }}
     rbac:

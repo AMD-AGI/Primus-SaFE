@@ -316,7 +316,7 @@ auth:
   #     roles: [workspace-admin]
   #     workspaces: [team-a]
   group_mappings: []
-  # Where the console sends users to sign in when mode is external.
+  # Where the console sends users to sign in. Empty: https://<sub_domain>.<domain>/login/password.
   login_url: ""
   # Client ids of the parties that may call POST /auth/verify with a delegated token (RFC 8693: an `act`
   # claim naming the client) and receive the keys of the user the token acts for, and of that user only.
@@ -343,7 +343,8 @@ auth:
     enabled: true
     # Identity service root. Empty: derived from the introspection authenticator (the URL or issuer, with /oauth/... removed).
     identity_url: ""
-    # Base URL the identity service calls. It appends /Users/{id}. Example: https://console.example.com/scim/v2
+    # Base URL the identity service calls. It appends /Users/{id}.
+    # Empty: http://<release>-apiserver.<namespace>.svc.cluster.local:<apiserver port>/scim/v2.
     public_url: ""
     # Secret in the primus-safe namespace that holds the bearer token. The apiserver creates it when absent.
     token_secret: primus-safe-scim-token

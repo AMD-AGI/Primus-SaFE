@@ -188,6 +188,8 @@ run_upgrade "" ""
 expect "no auth keys, fresh install: applied" applied
 expect "no auth keys, fresh install: external" rendered 'mode: "external"'
 expect "no auth keys, fresh install: only the one values file" grep -qx 1 "$OUT/value-files"
+expect "no auth keys, fresh install: login url" rendered 'login_url: "https://test.primus-safe.amd.com/login/password"'
+expect "no auth keys, fresh install: scim public url" rendered '  public_url: "http://primus-safe-apiserver.primus-safe.svc.cluster.local:8088/scim/v2"'
 
 # 2. The auth_* keys reach the rendered chart, on a release that is not external yet.
 run_upgrade "$LIVE_BUILTIN" "$AUTH_ENV"
@@ -212,7 +214,7 @@ expect "rendering with and without the keys differs only in the auth segment" te
 # 3. The running release is external and .env has no auth_* keys: refuse, and touch nothing.
 run_upgrade "$LIVE_EXTERNAL" ""
 expect "live external, no auth keys: refused before the cluster is touched" refused
-expect "live external, no auth keys: the message names what is missing" grep -q 'does not set: auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors' "$OUT/log"
+expect "live external, no auth keys: the message names what is missing" grep -q 'does not set: auth_client_secret auth_authenticators auth_group_mappings auth_key_actors' "$OUT/log"
 expect "live external, no auth keys: the message says how to go back on purpose" grep -q 'auth_mode=builtin' "$OUT/log"
 
 # 4. One key missing is enough, here the one that grants the administrator roles.
@@ -229,6 +231,7 @@ expect "live external, api_keys_upstream missing: names it" grep -q 'does not se
 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"
 expect "live external, all keys in .env: applied" applied
 expect "live external, all keys in .env: still external" rendered 'mode: "external"'
+expect "live external, empty public url: derived" rendered '  public_url: "http://primus-safe-apiserver.primus-safe.svc.cluster.local:8088/scim/v2"'
 
 # 5b. A stored scim.enabled=false is not kept. Omitting the key renders the chart default, true.
 #     An explicit false in .env still turns it off.
