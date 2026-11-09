@@ -115,6 +115,9 @@ web:
   cpu: 2000m
   # Memory resources allocated to web console
   memory: 4Gi
+  # Where the console's nginx redirects a browser opening the host's bare /: a path on that host, e.g. /portal/; empty
+  # keeps the console at /
+  root_redirect: ""
 preprocess:
   # Preprocessing component image version. used for pytorch-job etc.
   image: "preprocess:latest"

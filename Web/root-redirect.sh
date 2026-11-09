@@ -1,0 +1,33 @@
+#!/bin/bash
+# Writes the nginx rule that redirects a browser opening the bare / of the console's host, to the file named by
+# the first argument (nginx.conf includes it in its location for /). It is driven by ROOT_REDIRECT (chart:
+# web.root_redirect), for example /portal/. Unset or empty, the file is empty and / serves the console.
+#
+# Only a GET or HEAD of / without a query string is redirected ($plain_page_load in nginx.conf): a sign-in comes
+# back to / with one (an OAuth callback's ?code=...&state=..., an identity provider's ?error=...), and the console
+# must load to finish it.
+set -eu
+
+out="${1:?usage: root-redirect.sh <output file>}"
+target="${ROOT_REDIRECT:-}"
+
+if [ -z "$target" ]; then
+  : > "$out"
+  exit 0
+fi
+
+# A path on this host, so the redirect cannot leave it: the leading / is followed by something other than a /
+# (//host is another host, and / alone would redirect to itself). The value is written into nginx configuration, so
+# it may hold nothing nginx reads as the end of the directive, a block, a quoted string, a variable or an escape;
+# a \ is refused for that reason, and because a browser reads /\host as //host. Searched in the whole string (a
+# line-by-line grep would miss a second line).
+shape='^/[^/]'
+unsafe='[[:space:][:cntrl:]"'\'';{}$\\]'
+if ! [[ "$target" =~ $shape ]] || [[ "$target" =~ $unsafe ]]; then
+  echo "ERROR: ROOT_REDIRECT must be a path on this host such as /portal/, without whitespace, quotes, ;, {, }, \$ or \\, got: $target" >&2
+  exit 1
+fi
+
+cat > "$out" <<CONF
+if (\$plain_page_load) { return 302 ${target}; }
+CONF
