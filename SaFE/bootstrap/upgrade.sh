@@ -64,7 +64,10 @@ install_or_upgrade_helm_chart() {
 #   auth_scim_public_url    base URL the identity service calls for SCIM.
 #                        Omitted: this release's apiserver Service, /scim/v2.
 #                        A stored value is not kept.                           -> auth.scim.public_url
-#   auth_scim_token_secret  name of the Secret holding the SCIM bearer     -> auth.scim.token_secret
+#   auth_scim_token_secret  name of the Secret holding the SCIM bearer.
+#                        Omitted: the chart default primus-safe-scim-token, when the
+#                        running release already uses that name. A different stored
+#                        name is kept only when .env sets it.                    -> auth.scim.token_secret
 # JSON values are single-quoted in .env, e.g. auth_key_actors='["client-a"]'.
 AUTH_ENV_KEYS=(auth_mode auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
 
@@ -128,6 +131,17 @@ check_live_auth() {
     # These have a chart value when .env omits them. A stored login URL or SCIM callback is not kept.
     if [[ "$var" == "auth_mode" || "$var" == "auth_scim_enabled" || "$var" == "auth_login_url" || "$var" == "auth_scim_public_url" ]]; then
       continue
+    fi
+    # The apiserver creates primus-safe-scim-token. Omitting the key keeps that chart default.
+    # A release that stores another name still has to restate it.
+    if [[ "$var" == "auth_scim_token_secret" ]]; then
+      if ! token_name=$(jq -r '.auth.scim.token_secret // ""' <<<"$live"); then
+        echo "Error: cannot read .auth.scim.token_secret from the values of release $chart_name" >&2
+        return 1
+      fi
+      if [[ -z "$token_name" || "$token_name" == "primus-safe-scim-token" ]]; then
+        continue
+      fi
     fi
     case "$var" in
       auth_scim_identity_url) expr='.auth.scim.identity_url' ;;

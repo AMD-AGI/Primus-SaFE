@@ -207,7 +207,16 @@ expect "all auth keys: the script prints no auth value" bash -c '! grep -q "idp.
 # Rendered with and without: only the auth segment differs.
 cp "$OUT/rendered.yaml" "$W/with-auth.yaml"
 run_upgrade "" ""
-diff_lines="$(diff "$OUT/rendered.yaml" "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|enabled:|API_KEYS_UPSTREAM|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|secret:$' || true)"
+# The identity copy job exists only when auth.client_secret is set. Drop that document, then compare.
+strip_copy_job() {
+  awk '
+    /^# Source: .*copy_identity_auth_secret_job.yaml$/ { skip = 1; next }
+    skip && /^# Source: / { skip = 0 }
+    skip { next }
+    { print }
+  '
+}
+diff_lines="$(diff <(strip_copy_job < "$OUT/rendered.yaml") <(strip_copy_job < "$W/with-auth.yaml") | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|enabled:|API_KEYS_UPSTREAM|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|"safe-introspection"|secret:$' || true)"
 expect "rendering with and without the keys differs only in the auth segment" test -z "$diff_lines"
 [[ -z "$diff_lines" ]] || echo "$diff_lines"
 
@@ -241,6 +250,17 @@ expect "live scim off, key omitted: enabled" rendered '  enabled: true'
 run_upgrade '{"auth":{"mode":"external","scim":{"enabled":false}}}' 'auth_scim_enabled=false'
 expect "live scim off, explicit false: applied" applied
 expect "live scim off, explicit false: disabled" rendered '  enabled: false'
+
+# 5c. The chart default SCIM token Secret name needs no .env key. Another stored name does.
+run_upgrade '{"auth":{"mode":"external","scim":{"token_secret":"primus-safe-scim-token"}}}' ""
+expect "live default scim token secret, key omitted: applied" applied
+expect "live default scim token secret, key omitted: chart default" rendered '  token_secret: "primus-safe-scim-token"'
+run_upgrade '{"auth":{"mode":"external","scim":{"token_secret":"custom-scim-token"}}}' ""
+expect "live custom scim token secret, key omitted: refused" refused
+expect "live custom scim token secret, key omitted: names it" grep -q 'does not set: auth_scim_token_secret$' "$OUT/log"
+run_upgrade '{"auth":{"mode":"external","scim":{"token_secret":"custom-scim-token"}}}' 'auth_scim_token_secret=custom-scim-token'
+expect "live custom scim token secret, key set: applied" applied
+expect "live custom scim token secret, key set: kept" rendered '  token_secret: "custom-scim-token"'
 
 # 6. A key the release does not have is not demanded.
 run_upgrade '{"auth":{"mode":"external","authenticators":[{"type":"builtin"}]}}' 'auth_mode=external
