@@ -272,6 +272,8 @@ Update user information or permissions.
 | restrictedType | int | No | Restriction type: 0 (normal)/1 (frozen) |
 | email | string | No | Email address |
 
+When `auth.mode` is `external`, a change of `restrictedType` between normal (`0`) and frozen (`1`) is sent to the identity service first: `PUT /api/v1/identities/{UserId}/status` with `{"status":"disabled"}` when freezing and `{"status":"active"}` when unfreezing. The call uses the caller's bearer credential. The local user is updated only after that call succeeds. If the identity service cannot be reached the response is 503; if it refuses, 502. Clearing a freeze also removes the annotation `primus-safe.scim.deactivated`. Builtin mode updates the local user only. See [External Authentication](external-authentication.md).
+
 **Permission Requirements**:
 - Updating roles and workspaces requires system admin permission
 - Users can update their own password, email and avatar
@@ -297,6 +299,8 @@ Delete a specific user.
 **Permission Requirements**: System administrator
 
 **Response**: 200 OK with no response body
+
+When `auth.mode` is `external`, the apiserver first calls `DELETE /api/v1/identities/{UserId}` with the caller's bearer credential. A 404 from the identity service is success. It then removes the user from workspaces the user manages and deletes the local user. If the identity service cannot be reached the response is 503; if it refuses, 502, and the local user stays. Builtin mode deletes the local user only.
 
 ---
 

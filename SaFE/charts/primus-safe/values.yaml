@@ -277,10 +277,10 @@ console:
 # Pluggable authentication, in the Kubernetes style. Authorization (roles, workspaces) always stays in SaFE.
 # See docs/apis/external-authentication.md.
 auth:
-  # builtin: the apiserver's own accounts, sessions, SSO login and API keys (default, nothing else to configure).
-  # external: requests are authenticated by `authenticators`, in order; the first to accept decides.
-  mode: builtin
-  # Entries when mode is external. Durations are Go durations ("30s", "30m").
+  # Requests are authenticated by `authenticators`, in order; the first to accept decides.
+  # Accounts, sign-in and platform roles belong to the identity service. auth.mode is ignored.
+  mode: external
+  # Authenticator entries. Durations are Go durations ("30s", "30m").
   #   - type: oidc        # validate JWTs from one issuer
   #     issuer: https://idp.example.com
   #     audience: safe-apiserver          # required
@@ -338,6 +338,20 @@ auth:
   # touched: it lists and revokes the keys the apiserver issued before the switch. Ignored when mode is not
   # external.
   api_keys_upstream: ""
+  # SCIM 2.0 user endpoint for the identity service. Served when enabled is true.
+  scim:
+    enabled: false
+    # Identity service root. Empty: derived from the introspection authenticator (the URL or issuer, with /oauth/... removed).
+    identity_url: ""
+    # Base URL the identity service calls. It appends /Users/{id}. Example: https://console.example.com/scim/v2
+    public_url: ""
+    # Secret in the primus-safe namespace that holds the bearer token. The apiserver creates it when absent.
+    token_secret: primus-safe-scim-token
+# Projection of workspace membership into Kubernetes RBAC on the global cluster (by resource-manager).
+rbac:
+  # Prepended to user ids and group names in the projected ClusterRoleBinding subjects; consumers that ask
+  # SubjectAccessReview must use the same prefix.
+  subject_prefix: "primus:"
 sso:
   # Enable sso login
   enable: true
@@ -572,6 +586,27 @@ sandbox:
   # upgrade.sh, in the environment for install.sh). Only writes from this version on are checked:
   # before turning it on, look for a sandbox-env written earlier (docs/apis/secret.md).
   env_secret: ""
+  # The webhooks check each Workload created by the sandbox control plane: the identity assertion in the
+  # annotation agent-sandbox.io/identity-attestation must verify, and a SubjectAccessReview must allow the
+  # asserted user and groups to use the Workload's workspace. Off by default.
+  admission:
+    enabled: false
+    # Username of the sandbox control plane account; the same value as the Gatekeeper sandboxCreator.
+    creator: "system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane"
+    # Identity provider JWKS document, JSON text (the same value as the Gatekeeper identity.jwks).
+    jwks: ""
+    # iss of the assertion.
+    issuer: ""
+    # aud of the assertion.
+    audience: agent-sandbox-admission
+    # typ header of the assertion.
+    token_type: assertion+jwt
+    # The only signature algorithm accepted.
+    algorithm: ES256
+    # act.sub of the assertion: the control plane client id.
+    actor: ""
+    # authorization_details type that names the Workload.
+    detail_type: agent-sandbox-workload
 mcp:
   enabled: true
   base_path: "/api/v1/safe-mcp/mcp"

@@ -25,6 +25,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -428,6 +429,9 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	if !isChanged || err != nil {
 		return nil, err
 	}
+	if err = forwardIdentityStatus(c, targetUser, req); err != nil {
+		return nil, err
+	}
 
 	if err = backoff.ConflictRetry(func() error {
 		applyUserPatch(targetUser, req)
@@ -462,6 +466,9 @@ func applyUserPatch(targetUser *v1.User, req *view.PatchUserRequest) {
 	}
 	if req.RestrictedType != nil {
 		targetUser.Spec.RestrictedType = *req.RestrictedType
+		if *req.RestrictedType != v1.UserFrozen {
+			v1.RemoveAnnotation(targetUser, identity.DeactivatedAnnotation)
+		}
 	}
 	if req.AvatarUrl != nil {
 		v1.SetAnnotation(targetUser, v1.UserAvatarUrlAnnotation, *req.AvatarUrl)
@@ -566,20 +573,61 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 		commonuser.GetWorkspace(targetUser), "", nil, v1.DeleteVerb); err != nil {
 		return nil, err
 	}
-	if workspaceIds := commonuser.GetManagedWorkspace(targetUser); len(workspaceIds) > 0 {
-		for _, id := range workspaceIds {
-			if err = h.removeWorkspaceManager(c.Request.Context(), id, targetUser.Name); err != nil {
-				if apierrors.IsNotFound(err) {
-					continue
-				}
-				return nil, err
-			}
-		}
+	if err = forwardIdentityDelete(c, targetUser.Name); err != nil {
+		return nil, err
 	}
-	if err = h.Delete(c.Request.Context(), targetUser); err != nil {
+	if err = h.DeleteUserRecord(c.Request.Context(), targetUser); err != nil {
 		return nil, err
 	}
 	return nil, nil
+}
+
+// DeleteUserRecord removes the user from the workspaces the user manages and deletes the user record.
+func (h *Handler) DeleteUserRecord(ctx context.Context, user *v1.User) error {
+	if workspaceIds := commonuser.GetManagedWorkspace(user); len(workspaceIds) > 0 {
+		for _, id := range workspaceIds {
+			if err := h.removeWorkspaceManager(ctx, id, user.Name); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				return err
+			}
+		}
+	}
+	return h.Delete(ctx, user)
+}
+
+// forwardIdentityDelete asks the identity service to delete the user before the local record is removed.
+// Builtin mode does nothing. A 404 from the identity service is success.
+func forwardIdentityDelete(c *gin.Context, userID string) error {
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
+		return nil
+	}
+	return identity.DeleteIdentity(c.Request.Context(), userID, authority.CallerBearer(c))
+}
+
+// forwardIdentityStatus asks the identity service to disable or activate the user before the local
+// restricted type changes. Builtin mode does nothing. The local user is not updated when this returns an error.
+func forwardIdentityStatus(c *gin.Context, user *v1.User, req *view.PatchUserRequest) error {
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal || req.RestrictedType == nil {
+		return nil
+	}
+	status, ok := identityStatus(*req.RestrictedType, user.Spec.RestrictedType)
+	if !ok {
+		return nil
+	}
+	return identity.SetStatus(c.Request.Context(), user.Name, status, authority.CallerBearer(c))
+}
+
+// identityStatus returns the identity status for a change into or out of the frozen restriction.
+func identityStatus(next, prev v1.UserRestrictedType) (string, bool) {
+	if (next == v1.UserFrozen) == (prev == v1.UserFrozen) {
+		return "", false
+	}
+	if next == v1.UserFrozen {
+		return "disabled", true
+	}
+	return "active", true
 }
 
 // getAdminUser retrieves a user resource by ID from the admin data plane.

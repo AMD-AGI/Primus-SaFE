@@ -200,13 +200,21 @@ const (
 	langfuseProxySecretPath = langfuseProxyPrefix + "secret_path"
 
 	// pluggable authentication
-	authPrefix         = "auth."
-	authMode           = authPrefix + "mode"
-	authAuthenticators = authPrefix + "authenticators"
-	authGroupMappings  = authPrefix + "group_mappings"
-	authLoginURL       = authPrefix + "login_url"
-	authKeyActors      = authPrefix + "key_actors"
-	authAPIKeysURL     = authPrefix + "api_keys_url"
+	authPrefix          = "auth."
+	authMode            = authPrefix + "mode"
+	authAuthenticators  = authPrefix + "authenticators"
+	authGroupMappings   = authPrefix + "group_mappings"
+	authLoginURL        = authPrefix + "login_url"
+	authKeyActors       = authPrefix + "key_actors"
+	authAPIKeysURL      = authPrefix + "api_keys_url"
+	authSCIMEnabled     = authPrefix + "scim.enabled"
+	authSCIMIdentityURL = authPrefix + "scim.identity_url"
+	authSCIMPublicURL   = authPrefix + "scim.public_url"
+	authSCIMTokenSecret = authPrefix + "scim.token_secret"
+
+	// rbac projection of workspace membership
+	rbacPrefix        = "rbac."
+	rbacSubjectPrefix = rbacPrefix + "subject_prefix"
 
 	// llm_gateway
 	llmGatewayPrefix     = "llm_gateway."
@@ -224,6 +232,18 @@ const (
 	sandboxNamespace         = sandboxPrefix + "namespace"
 	sandboxSecret            = sandboxPrefix + "secret"
 	sandboxEnvdInjectorImage = sandboxPrefix + "envd_injector_image"
+
+	// sandbox identity admission (webhooks)
+	sandboxAdmissionPrefix     = sandboxPrefix + "admission."
+	sandboxAdmissionEnabled    = sandboxAdmissionPrefix + "enabled"
+	sandboxAdmissionCreator    = sandboxAdmissionPrefix + "creator"
+	sandboxAdmissionJWKS       = sandboxAdmissionPrefix + "jwks"
+	sandboxAdmissionIssuer     = sandboxAdmissionPrefix + "issuer"
+	sandboxAdmissionAudience   = sandboxAdmissionPrefix + "audience"
+	sandboxAdmissionTokenType  = sandboxAdmissionPrefix + "token_type"
+	sandboxAdmissionAlgorithm  = sandboxAdmissionPrefix + "algorithm"
+	sandboxAdmissionActor      = sandboxAdmissionPrefix + "actor"
+	sandboxAdmissionDetailType = sandboxAdmissionPrefix + "detail_type"
 
 	// mcp
 	mcpPrefix         = "mcp."

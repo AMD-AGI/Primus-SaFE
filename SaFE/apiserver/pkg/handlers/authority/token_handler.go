@@ -192,6 +192,16 @@ func extractTokenAndUserType(c *gin.Context) (string, string, error) {
 	return rawToken, userType, nil
 }
 
+// CallerBearer returns the credential to forward to the identity service.
+// It is the Authorization bearer when the request has one, otherwise the session cookie.
+func CallerBearer(c *gin.Context) string {
+	if token := getBearerToken(c); token != "" {
+		return token
+	}
+	token, _ := c.Cookie(CookieToken)
+	return token
+}
+
 // getBearerToken extracts the Bearer token from the Authorization header.
 // Returns the token string if valid, otherwise returns an empty string.
 func getBearerToken(c *gin.Context) string {

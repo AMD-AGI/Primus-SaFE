@@ -1180,6 +1180,9 @@ func (v *WorkloadValidator) Handle(ctx context.Context, req admission.Request) a
 		if !workload.GetDeletionTimestamp().IsZero() {
 			break
 		}
+		if err = v.validateSandboxIdentity(ctx, req, workload, nil); err != nil {
+			break
+		}
 		err = v.validateOnCreation(ctx, workload)
 	case admissionv1.Update:
 		if err = v.decoder.Decode(req, workload); err != nil {
@@ -1190,7 +1193,9 @@ func (v *WorkloadValidator) Handle(ctx context.Context, req admission.Request) a
 		}
 		oldWorkload := &v1.Workload{}
 		if err = v.decoder.DecodeRaw(req.OldObject, oldWorkload); err == nil {
-			err = v.validateOnUpdate(ctx, workload, oldWorkload)
+			if err = v.validateSandboxIdentity(ctx, req, workload, oldWorkload); err == nil {
+				err = v.validateOnUpdate(ctx, workload, oldWorkload)
+			}
 		}
 	default:
 	}

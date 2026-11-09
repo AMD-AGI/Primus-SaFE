@@ -154,6 +154,25 @@ auth:
   key_actors: [client-a]
 ```
 
+## SCIM
+
+When `auth.mode` is `external` and `auth.scim.enabled` is `true`, the apiserver serves SCIM 2.0 under `/scim/v2/Users` for the identity service. The routes are not behind user authentication. The caller sends `Authorization: Bearer <token>`, compared in constant time with the token in Secret `auth.scim.token_secret` (default `primus-safe-scim-token`, namespace `primus-safe`). The apiserver creates that Secret, holding 32 random bytes, when it is absent. The apiserver's service account already may create Secrets. If `auth.scim.enabled` is set and `auth.mode` is not `external`, the endpoint is not served.
+
+Responses use `Content-Type: application/scim+json`. Errors use the SCIM error schema (`schemas`, `status`, `detail`).
+
+| Request | Behaviour |
+|---|---|
+| `GET /scim/v2/Users?startIndex=&count=` | ListResponse. `startIndex` is 1-based (below 1 counts as 1). `count` defaults to 100, a negative value counts as 0, and values above 1000 are capped at 1000. `active` is false when `restrictedType` is frozen. `id` and `externalId` are the user id. |
+| `GET /scim/v2/Users/{id}` | That user. An unknown id is 404. |
+| `PATCH /scim/v2/Users/{id}` | Replaces `active`. `false` sets `restrictedType` to frozen and annotation `primus-safe.scim.deactivated` to `true`. `true` clears the freeze only when that annotation is present, then removes it. The body is a PatchOp (`Operations` of `{"op":"replace","path":"active","value":false}`) or `{"op":"replace","value":{"active":false}}`. |
+| `DELETE /scim/v2/Users/{id}` | Removes the user from workspaces the user manages, then deletes the user (the same cleanup as `DELETE /api/v1/users/{id}`). An unknown id is 204. |
+
+The apiserver registers the endpoint in the background, retrying with backoff, with `PUT {identity}/oauth/scim-target` and HTTP Basic. The client id and secret are the introspection authenticator's `client_id` and `client_secret_file`. The body is `{"url":"<auth.scim.public_url>","bearerToken":"<token>"}`. `auth.scim.public_url` is the base the identity service calls; it appends `/Users/{id}`. The identity root is `auth.scim.identity_url` when set. Otherwise it is taken from the introspection URL or issuer by dropping a `/oauth/...` suffix. A URL that is neither a host root nor under `/oauth/` is not derived; set `auth.scim.identity_url`.
+
+In external mode, whether or not SCIM is enabled, the user API calls the identity service before it changes the local user. `DELETE /api/v1/users/{id}` sends `DELETE /api/v1/identities/{id}` with the caller's bearer (the `Authorization` bearer, or the session cookie when there is no bearer). A 404 from the identity service is success; the local user is then deleted. A patch that sets `restrictedType` to frozen sends `PUT /api/v1/identities/{id}/status` with `{"status":"disabled"}`; a patch that clears a freeze sends `{"status":"active"}`. If the identity service cannot be reached, or its base URL is not configured, the answer is 503. If it refuses the call, the answer is 502. The local user is left unchanged in both cases. Builtin mode does not call the identity service.
+
+`bootstrap/upgrade.sh` carries `auth_scim_enabled` (`true` or `false`), `auth_scim_identity_url`, `auth_scim_public_url` and `auth_scim_token_secret` with the other `auth_*` keys.
+
 ## Database
 
 `audit_logs` gains two nullable columns (`actor_client_id`, `token_jti`). The chart adds them with `ADD COLUMN IF NOT EXISTS`; apply the database job before rolling the apiserver.
@@ -169,9 +188,13 @@ auth_client_secret=primus-safe-auth
 auth_authenticators='[{"type":"oidc","issuer":"https://idp.example.com","audience":"safe-apiserver"}]'
 auth_group_mappings='[{"group":"platform-admins","roles":["system-admin"]}]'
 auth_key_actors='["client-a"]'
+auth_scim_enabled=true
+auth_scim_identity_url=https://idp.example.com
+auth_scim_public_url=https://console.example.com/scim/v2
+auth_scim_token_secret=primus-safe-scim-token
 ```
 
-They set `auth.mode`, `auth.login_url`, `auth.client_secret` (the name of the Secret that holds the introspection client secret, not the secret itself), `auth.authenticators`, `auth.group_mappings` and `auth.key_actors`. Values that are not usable (a JSON key that is not an array, a mode that is neither `builtin` nor `external`, `external` without authenticators) stop the upgrade before it changes anything; the script needs `jq` when `.env` sets any of them (`auth_mode=builtin` on its own excepted) and to upgrade a release that is already external; a release that is not external upgrades without it.
+They set `auth.mode`, `auth.login_url`, `auth.client_secret` (the name of the Secret that holds the introspection client secret, not the secret itself), `auth.authenticators`, `auth.group_mappings`, `auth.key_actors`, and the SCIM settings `auth.scim.enabled`, `auth.scim.identity_url`, `auth.scim.public_url` and `auth.scim.token_secret` (`auth_scim_enabled` is `true` or `false`). Values that are not usable (a JSON key that is not an array, a mode that is neither `builtin` nor `external`, `external` without authenticators) stop the upgrade before it changes anything; the script needs `jq` when `.env` sets any of them (`auth_mode=builtin` on its own excepted) and to upgrade a release that is already external; a release that is not external upgrades without it.
 
 An upgrade never silently turns external authentication off. When the running release has `auth.mode: external` and `.env` does not set a key the release has (the mode itself, or any of the others with a value), the script exits non-zero before it applies anything and names the missing keys; copy them from `helm -n primus-safe get values primus-safe -o json | jq .auth`. It also refuses when it cannot read the running release, because an unknown mode is not a safe one.
 

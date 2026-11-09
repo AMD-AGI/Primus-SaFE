@@ -60,6 +60,13 @@ rules:
   - get
   - patch
   - update
+# The workload webhook asks whether a sandbox user may use a workspace.
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
 - apiGroups:
   - batch
   resources:
@@ -125,6 +132,27 @@ rules:
   verbs:
   - get
   - delete
+# resource-manager projects workspace membership into ClusterRoles/ClusterRoleBindings on this cluster.
+- apiGroups:
+  - "rbac.authorization.k8s.io"
+  resources:
+  - "clusterroles"
+  - "clusterrolebindings"
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+# Holding the "use" verb on workspaces lets resource-manager create and bind the projected roles that grant it.
+- apiGroups:
+  - amd.com
+  resources:
+  - workspaces
+  verbs:
+  - use
 - apiGroups:
   - networking.k8s.io
   resources:

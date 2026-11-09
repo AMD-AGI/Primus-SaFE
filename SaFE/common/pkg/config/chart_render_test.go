@@ -88,6 +88,10 @@ func loadRendered(t *testing.T, rendered string) {
 func TestChartRendersAuthKeyActors(t *testing.T) {
 	loadRendered(t, renderApiserverConfig(t))
 	testifyassert.Empty(t, GetAuthKeyActors())
+	testifyassert.False(t, IsSCIMEnabled())
+	testifyassert.Empty(t, GetSCIMIdentityURL())
+	testifyassert.Empty(t, GetSCIMPublicURL())
+	testifyassert.Equal(t, DefaultSCIMTokenSecret, GetSCIMTokenSecret())
 
 	loadRendered(t, renderApiserverConfig(t, "--set", "auth.key_actors={client-a,client-b}"))
 	testifyassert.Equal(t, []string{"client-a", "client-b"}, GetAuthKeyActors())
@@ -96,6 +100,17 @@ func TestChartRendersAuthKeyActors(t *testing.T) {
 	loadRendered(t, renderApiserverConfig(t, "--set", "auth.mode=external", "--set", "auth.key_actors={client-a}"))
 	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
 	testifyassert.Equal(t, []string{"client-a"}, GetAuthKeyActors())
+
+	loadRendered(t, renderApiserverConfig(t,
+		"--set", "auth.scim.enabled=true",
+		"--set-string", "auth.scim.identity_url=https://idp.example.com",
+		"--set-string", "auth.scim.public_url=https://safe.example.com/scim/v2",
+		"--set-string", "auth.scim.token_secret=custom-scim-token",
+	))
+	testifyassert.True(t, IsSCIMEnabled())
+	testifyassert.Equal(t, "https://idp.example.com", GetSCIMIdentityURL())
+	testifyassert.Equal(t, "https://safe.example.com/scim/v2", GetSCIMPublicURL())
+	testifyassert.Equal(t, "custom-scim-token", GetSCIMTokenSecret())
 }
 
 // renderWebEnv returns the environment of the console container (the "-web" Deployment) of the rendered chart.
@@ -152,8 +167,7 @@ func renderWebEnv(t *testing.T, values ...string) map[string]string {
 // TestChartRoutesAPIKeysToTheIdentityProvider pins the two halves of the console's key routing: the path the
 // apiserver reports to the console (auth.api_keys_url, from GET /envs), and the route the console's nginx
 // gets (API_KEYS_UPSTREAM). The one value api_keys_upstream gives both; api_keys_url alone is for a deployment
-// whose own gateway routes the path; and nothing is routed unless the mode is external, so a built-in
-// deployment's /api/v1/apikeys still reaches the apiserver.
+// whose own gateway routes the path. The route does not depend on auth.mode.
 func TestChartRoutesAPIKeysToTheIdentityProvider(t *testing.T) {
 	const upstream = "identity.idns.svc.cluster.local:8080"
 	for _, tt := range []struct {
@@ -170,10 +184,10 @@ func TestChartRoutesAPIKeysToTheIdentityProvider(t *testing.T) {
 			[]string{"auth.mode=external", "auth.api_keys_url=/api/v1/apikeys"}, "/api/v1/apikeys", ""},
 		{"external, a url and an upstream: the path reported is the one the console's nginx routes",
 			[]string{"auth.mode=external", "auth.api_keys_url=/idp/apikeys", "auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", upstream},
-		{"builtin, upstream set: the console's nginx must not take the path",
-			[]string{"auth.mode=builtin", "auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", ""},
-		{"no mode, upstream set: the console's nginx must not take the path",
-			[]string{"auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", ""},
+		{"mode ignored, upstream set: the console's nginx routes it",
+			[]string{"auth.mode=builtin", "auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", upstream},
+		{"no mode, upstream set: the console's nginx routes it",
+			[]string{"auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", upstream},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var args []string

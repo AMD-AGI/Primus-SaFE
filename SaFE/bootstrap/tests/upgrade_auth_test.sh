@@ -137,7 +137,11 @@ auth_authenticators='[{\"type\":\"oidc\",\"issuer\":\"https://idp.example.com\",
 auth_group_mappings='[{\"group\":\"admins\",\"roles\":[\"system-admin\"]}]'
 auth_key_actors='[\"client-a\"]'
 auth_api_keys_url=/api/v1/apikeys
-auth_api_keys_upstream=identity.idns.svc.cluster.local:8080"
+auth_api_keys_upstream=identity.idns.svc.cluster.local:8080
+auth_scim_enabled=false
+auth_scim_identity_url=
+auth_scim_public_url=
+auth_scim_token_secret=primus-safe-scim-token"
 
 # What helm get values says for a release that is running with that auth setting.
 LIVE_EXTERNAL='{"global":{"sub_domain":"test"},"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","client_secret":"safe-introspection","authenticators":[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"key_actors":["client-a"],"api_keys_upstream":"identity.idns.svc.cluster.local:8080"}}'

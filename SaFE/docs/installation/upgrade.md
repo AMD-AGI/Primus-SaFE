@@ -57,6 +57,10 @@ For additional upgrade-specific behavior, you may add these optional keys to `.e
 | `auth_key_actors` | JSON array of identity client ids. Sets `auth.key_actors`. |
 | `auth_api_keys_url` | In external mode, the path on the console's origin where something other than the chart routes API key creation to the identity provider, for example `/api/v1/apikeys`. Sets `auth.api_keys_url`. |
 | `auth_api_keys_upstream` | In external mode, the identity provider's service as `host[:port]` (the full in-cluster name): the console's nginx then routes `/api/v1/apikeys` to it. Sets `auth.api_keys_upstream`. |
+| `auth_scim_enabled` | `true` or `false`. Sets `auth.scim.enabled`. The SCIM endpoint is served only when this is `true` and `auth.mode` is `external`. |
+| `auth_scim_identity_url` | Identity service root. Sets `auth.scim.identity_url`. Empty derives it from the introspection authenticator. |
+| `auth_scim_public_url` | Base URL the identity service calls for SCIM. Sets `auth.scim.public_url`. |
+| `auth_scim_token_secret` | Name of the Secret that holds the SCIM bearer token. Sets `auth.scim.token_secret`. |
 
 The `auth_*` keys persist [external authentication](../apis/external-authentication.md#keeping-the-settings-across-upgrades) across upgrades and CD runs; they need `jq`, except `auth_mode=builtin` on its own. A release that is not external upgrades without `jq` as before. When the running release is external and `.env` does not set one of them that the release has, the script refuses to upgrade (it exits non-zero before changing anything) instead of switching authentication back to builtin; `auth_mode=builtin` is the deliberate way back.
 

@@ -56,8 +56,12 @@ install_or_upgrade_helm_chart() {
 #                        provider, when something else routes it              -> auth.api_keys_url
 #   auth_api_keys_upstream  host[:port] of the identity provider's service,
 #                        which the console's nginx routes /api/v1/apikeys to  -> auth.api_keys_upstream
+#   auth_scim_enabled    true | false                                      -> auth.scim.enabled
+#   auth_scim_identity_url  identity service root                          -> auth.scim.identity_url
+#   auth_scim_public_url    base URL the identity service calls for SCIM   -> auth.scim.public_url
+#   auth_scim_token_secret  name of the Secret holding the SCIM bearer     -> auth.scim.token_secret
 # JSON values are single-quoted in .env, e.g. auth_key_actors='["client-a"]'.
-AUTH_ENV_KEYS=(auth_mode auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream)
+AUTH_ENV_KEYS=(auth_mode auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
 
 # check_live_auth refuses an upgrade that would silently turn the external authentication of the
 # running release off. helm renders every value from the chart defaults and the files it is given, so a
@@ -117,9 +121,15 @@ check_live_auth() {
     return 1
   fi
   for var in $unset_keys; do
-    key="${var#auth_}"
-    if ! present=$(jq -r --arg k "$key" '.auth[$k] | (. != null and . != "" and . != [] and . != {})' <<<"$live"); then
-      echo "Error: cannot read auth.$key from the values of release $chart_name" >&2
+    case "$var" in
+      auth_scim_enabled) expr='.auth.scim.enabled' ;;
+      auth_scim_identity_url) expr='.auth.scim.identity_url' ;;
+      auth_scim_public_url) expr='.auth.scim.public_url' ;;
+      auth_scim_token_secret) expr='.auth.scim.token_secret' ;;
+      *) expr=".auth.${var#auth_}" ;;
+    esac
+    if ! present=$(jq -r "$expr | (. != null and . != \"\" and . != [] and . != {})" <<<"$live"); then
+      echo "Error: cannot read $expr from the values of release $chart_name" >&2
       return 1
     fi
     if [[ "$present" == "true" ]]; then
@@ -152,7 +162,7 @@ write_auth_values() {
   fi
   if ! command -v jq &> /dev/null; then
     # The break-glass alone, auth_mode=builtin, needs no jq to be written.
-    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_client_secret+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}${auth_api_keys_url+x}${auth_api_keys_upstream+x}" ]]; then
+    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_client_secret+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}${auth_api_keys_url+x}${auth_api_keys_upstream+x}${auth_scim_enabled+x}${auth_scim_identity_url+x}${auth_scim_public_url+x}${auth_scim_token_secret+x}" ]]; then
       printf '{"auth":{"mode":"builtin"}}\n' > "$out"
       AUTH_VALUES_FILE="$out"
       return 0
@@ -183,6 +193,16 @@ write_auth_values() {
           return 1
         fi
         json=$(jq -c --arg k "$key" --arg v "$val" '.[$k] = $v' <<<"$json")
+        ;;
+      auth_scim_enabled)
+        if [[ "$val" != "true" && "$val" != "false" ]]; then
+          echo "Error: auth_scim_enabled in .env must be true or false" >&2
+          return 1
+        fi
+        json=$(jq -c --argjson v "$val" '.scim.enabled = $v' <<<"$json")
+        ;;
+      auth_scim_identity_url|auth_scim_public_url|auth_scim_token_secret)
+        json=$(jq -c --arg k "${var#auth_scim_}" --arg v "$val" '.scim[$k] = $v' <<<"$json")
         ;;
       *)
         json=$(jq -c --arg k "$key" --arg v "$val" '.[$k] = $v' <<<"$json")

@@ -166,14 +166,22 @@ data:
     auth:
       # builtin (default): local accounts, built-in sessions, SSO login and API keys.
       # external: authenticate requests with the chain in `authenticators` (OIDC/JWT, RFC 7662 token introspection, builtin).
-      mode: {{ default "builtin" .Values.auth.mode | quote }}
+      mode: {{ default "external" .Values.auth.mode | quote }}
       authenticators: {{ toJson (default (list) .Values.auth.authenticators) }}
       group_mappings: {{ toJson (default (list) .Values.auth.group_mappings) }}
       login_url: {{ default "" .Values.auth.login_url | quote }}
       key_actors: {{ toJson (default (list) .Values.auth.key_actors) }}
       # The path where the deployment routes API key creation, listing and revocation to the identity provider.
       api_keys_url: {{ $apiKeysURL | quote }}
+      scim:
+        enabled: {{ default false (default dict .Values.auth.scim).enabled }}
+        identity_url: {{ default "" (default dict .Values.auth.scim).identity_url | quote }}
+        public_url: {{ default "" (default dict .Values.auth.scim).public_url | quote }}
+        token_secret: {{ default "primus-safe-scim-token" (default dict .Values.auth.scim).token_secret | quote }}
     {{- end }}
+    rbac:
+      # Prefix of the user and group subjects that project workspace membership into Kubernetes RBAC.
+      subject_prefix: {{ default "primus:" (default dict .Values.rbac).subject_prefix | quote }}
     {{- if or .Values.proxy .Values.langfuse_proxy }}
     proxy:
       services:

@@ -74,6 +74,7 @@ func sweepHandlers(t *testing.T) routeHandlers {
 		inferencex:     inferencexhandlers.NewHandler(time.Hour),
 		optimization:   &optimizationhandlers.Handler{},
 		mcp:            true,
+		scimToken:      "sweep-token",
 	}
 }
 
@@ -257,12 +258,16 @@ func TestEveryAuthenticatedRouteRefusesAUserWhoHoldsNoAccess(t *testing.T) {
 		"handlers/authority", "handlers/cd-handlers", "handlers/email-relay-handlers", "handlers/github-workflow",
 		"handlers/image-handlers", "handlers/inferencex", "handlers/lens-compat", "handlers/llm-gateway",
 		"handlers/model-handlers", "handlers/optimization", "handlers/proxy-handlers", "handlers/resources",
-		"handlers/ssh-handlers", "mcp/router",
+		"handlers/scim", "handlers/ssh-handlers", "mcp/router",
 	}, gotPackages, "the packages that register routes changed: check that registerRoutes still registers them all")
 
 	// 3. A user who holds no access is refused by the gate everywhere but on the routes it is served.
 	var served []string
 	for _, r := range authenticated {
+		// SCIM authenticates its own bearer. A user session is not that token, so the gate does not run.
+		if strings.HasPrefix(r.Path, "/scim/") {
+			continue
+		}
 		code, body := env.call(r, env.tokens["no-access-user"])
 		if authority.IsNoAccessRoute(r.Method, r.Path) {
 			served = append(served, r.Method+" "+r.Path)

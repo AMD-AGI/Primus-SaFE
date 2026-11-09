@@ -808,6 +808,47 @@ func GetSandboxEnvdInjectorImage() string {
 	return getString(sandboxEnvdInjectorImage, "")
 }
 
+// SandboxAdmissionConfig is the identity assertion check the Workload webhook applies to Workloads
+// created by the sandbox control plane.
+type SandboxAdmissionConfig struct {
+	// Creator is the username of the sandbox control plane account.
+	Creator string
+	// JWKS is the identity provider JWKS document, JSON text.
+	JWKS string
+	// Issuer is the expected iss of the assertion.
+	Issuer string
+	// Audience is the expected aud of the assertion.
+	Audience string
+	// TokenType is the expected typ header of the assertion.
+	TokenType string
+	// Algorithm is the only signature algorithm accepted.
+	Algorithm string
+	// Actor is the expected act.sub of the assertion, the control plane client id.
+	Actor string
+	// DetailType is the authorization_details type that names the Workload.
+	DetailType string
+}
+
+// IsSandboxAdmissionEnable reports whether sandbox Workloads are checked against the identity assertion
+// and workspace membership. Disabled by default.
+func IsSandboxAdmissionEnable() bool {
+	return getBool(sandboxAdmissionEnabled, false)
+}
+
+// GetSandboxAdmissionConfig returns the sandbox.admission settings with their defaults applied.
+func GetSandboxAdmissionConfig() SandboxAdmissionConfig {
+	return SandboxAdmissionConfig{
+		Creator:    strings.TrimSpace(getString(sandboxAdmissionCreator, "")),
+		JWKS:       getString(sandboxAdmissionJWKS, ""),
+		Issuer:     strings.TrimSpace(getString(sandboxAdmissionIssuer, "")),
+		Audience:   strings.TrimSpace(getString(sandboxAdmissionAudience, "agent-sandbox-admission")),
+		TokenType:  strings.TrimSpace(getString(sandboxAdmissionTokenType, "assertion+jwt")),
+		Algorithm:  strings.TrimSpace(getString(sandboxAdmissionAlgorithm, "ES256")),
+		Actor:      strings.TrimSpace(getString(sandboxAdmissionActor, "")),
+		DetailType: strings.TrimSpace(getString(sandboxAdmissionDetailType, "agent-sandbox-workload")),
+	}
+}
+
 // ── External execution capacity ─────────────────────────────────────────
 
 // IsExternalExecutionEnable reports whether external execution capacity is admitted.
@@ -929,11 +970,12 @@ func GetModelOptimizationClawPluginID() int {
 	return getInt(modelOptimizationClawPluginID, 4)
 }
 
-// Authentication modes (auth.mode).
+// Authentication. There is one path: accounts, sign-in and platform roles belong to the
+// identity service. AuthModeBuiltin remains only so existing references compile; GetAuthMode never returns it.
 const (
-	// AuthModeBuiltin is the default: local accounts, built-in sessions, SSO login and API keys.
+	// AuthModeBuiltin is unused. Local accounts are not a second authentication path.
 	AuthModeBuiltin = "builtin"
-	// AuthModeExternal authenticates requests with the configured authenticator chain.
+	// AuthModeExternal is the only mode: requests are authenticated by the configured authenticator chain.
 	AuthModeExternal = "external"
 )
 
@@ -982,14 +1024,9 @@ type AuthGroupMapping struct {
 	Workspaces []string `json:"workspaces" yaml:"workspaces" mapstructure:"workspaces"`
 }
 
-// GetAuthMode returns auth.mode: "builtin" (default) or "external". Any other value
-// is treated as builtin, so a typo never switches authentication off.
-func GetAuthMode() string {
-	if getString(authMode, AuthModeBuiltin) == AuthModeExternal {
-		return AuthModeExternal
-	}
-	return AuthModeBuiltin
-}
+// GetAuthMode returns the only authentication path. auth.mode is not consulted:
+// a deployment cannot select a second, local-account path.
+func GetAuthMode() string { return AuthModeExternal }
 
 // GetAuthenticators returns the authenticator chain, in order. A chain that cannot be
 // read is an error: the caller must not fall back to another mode.
@@ -1032,3 +1069,36 @@ func GetAuthAPIKeysURL() string {
 // GetAuthLoginURL returns auth.login_url, where the console sends users to sign in when
 // authentication is external.
 func GetAuthLoginURL() string { return getString(authLoginURL, "") }
+
+// DefaultSCIMTokenSecret is the Secret the apiserver creates for the SCIM bearer token
+// when auth.scim.token_secret is unset.
+const DefaultSCIMTokenSecret = "primus-safe-scim-token"
+
+// IsSCIMEnabled reports auth.scim.enabled.
+func IsSCIMEnabled() bool { return getBool(authSCIMEnabled, false) }
+
+// GetSCIMIdentityURL returns auth.scim.identity_url with no trailing slash.
+// Empty means the identity base is derived from the introspection authenticator.
+func GetSCIMIdentityURL() string { return trimURL(getString(authSCIMIdentityURL, "")) }
+
+// GetSCIMPublicURL returns auth.scim.public_url with no trailing slash: the base
+// the identity service calls, appending /Users/{id}.
+func GetSCIMPublicURL() string { return trimURL(getString(authSCIMPublicURL, "")) }
+
+// GetSCIMTokenSecret returns the name of the Secret that holds the SCIM bearer token.
+func GetSCIMTokenSecret() string {
+	name := strings.TrimSpace(getString(authSCIMTokenSecret, DefaultSCIMTokenSecret))
+	if name == "" {
+		return DefaultSCIMTokenSecret
+	}
+	return name
+}
+
+// trimURL drops surrounding space and a trailing slash.
+func trimURL(raw string) string {
+	return strings.TrimRight(strings.TrimSpace(raw), "/")
+}
+
+// GetRBACSubjectPrefix returns rbac.subject_prefix, prepended to user ids and group names in the
+// Kubernetes RBAC subjects that project workspace membership. Default "primus:".
+func GetRBACSubjectPrefix() string { return getString(rbacSubjectPrefix, "primus:") }

@@ -44,6 +44,9 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupWorkspaceController(mgr, &defaultWorkspaceOption); err != nil {
 		return fmt.Errorf("failed to set up workspace controller: %v", err)
 	}
+	if err := SetupWorkspaceRBACController(mgr); err != nil {
+		return fmt.Errorf("failed to set up workspace rbac controller: %v", err)
+	}
 	if err := SetupFaultController(mgr, &defaultFaultOption); err != nil {
 		return fmt.Errorf("failed to set up fault controller: %v", err)
 	}
