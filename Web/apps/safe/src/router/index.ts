@@ -390,11 +390,6 @@ const router = createRouter({
           props: true,
         },
         {
-          path: '/manageapikeys',
-          name: 'APIKeys',
-          component: () => import('@/pages/APIKeys/index.vue'),
-        },
-        {
           path: '/auditlogs',
           name: 'AuditLogs',
           component: () => import('@/pages/AuditLogs/index.vue'),

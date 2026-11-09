@@ -138,9 +138,10 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		}
 
 		// ==================== Users ====================
+		// Creating and deleting accounts is served by the identity service. This list reports the
+		// workspaces a user can use, which stay on this apiserver.
 		users := authGroup.Group("/users")
 		{
-			users.DELETE(fmt.Sprintf("/:%s", common.Name), middleware.Audit("user"), h.DeleteUser)
 			users.PATCH(fmt.Sprintf("/:%s", common.Name), middleware.Audit("user"), h.PatchUser)
 			users.GET("", h.ListUser)
 			users.GET(fmt.Sprintf("/:%s", common.Name), h.GetUser)
@@ -159,14 +160,8 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 			publicKeys.GET("", h.ListPublicKeys)
 		}
 
-		// ==================== API Keys ====================
-		apiKeys := authGroup.Group("/apikeys")
-		{
-			apiKeys.POST("", middleware.Audit("apikey"), h.CreateApiKey)
-			apiKeys.DELETE("/:id", middleware.Audit("apikey"), h.DeleteApiKey)
-			apiKeys.GET("", h.ListApiKey)
-			apiKeys.GET("/current", h.GetCurrentApiKey)
-		}
+		// API key creation, deletion and listing are served by the identity service.
+		// This apiserver only checks a presented key through the identity introspection endpoint.
 
 		// ==================== Persistent Volumes ====================
 		persistentvolumes := authGroup.Group("/persistentvolumes")
@@ -191,7 +186,6 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, middleware.Preprocess())
 	{
 		noAuthGroup.POST("/login", middleware.Audit("auth", "login"), h.Login)
-		noAuthGroup.POST("/users", middleware.Audit("user", "register"), h.CreateUser)
 		noAuthGroup.GET("/envs", h.GetEnvs)
 		noAuthGroup.POST("/auth/verify", authority.VerifyToken)
 		// Operations other SaFE services perform for a user (e.g. API keys, served by the identity service) are

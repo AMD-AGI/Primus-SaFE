@@ -1,27 +1,7 @@
 <template>
   <div>
     <el-text class="block textx-18 font-500" tag="b">User Manage</el-text>
-    <div class="flex flex-wrap items-center justify-between gap-2 mt-4">
-      <div class="flex flex-wrap items-center">
-        <el-button
-          v-if="creatable"
-          type="primary"
-          round
-          :icon="Plus"
-          class="text-black"
-          @click="
-            () => {
-              state.showDialog = true
-              state.curAction = 'Create'
-            }
-          "
-        >
-          Create User
-        </el-button>
-        <el-text v-else type="info">
-          Accounts are created by the external identity provider.
-        </el-text>
-      </div>
+    <div class="flex flex-wrap items-center justify-end gap-2 mt-4">
       <div class="flex flex-wrap items-center">
         <el-input
           v-model="searchName"
@@ -72,15 +52,6 @@
       <el-table-column label="Actions" width="120" fixed="right">
         <template #default="{ row }">
           <template v-if="userStore.isManager">
-            <el-tooltip content="Delete" placement="top">
-              <el-button
-                circle
-                size="default"
-                class="btn-danger-plain"
-                :icon="Delete"
-                @click="onDelete(row.id)"
-              />
-            </el-tooltip>
             <el-tooltip content="Edit" placement="top">
               <el-button
                 circle
@@ -128,16 +99,10 @@
   />
 </template>
 <script lang="ts" setup>
-import { ref, onMounted, reactive, h, computed } from 'vue'
-import { Edit, Delete, Plus, Minus, Search } from '@element-plus/icons-vue'
+import { ref, onMounted, reactive } from 'vue'
+import { Edit, Plus, Minus, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type TableColumnCtx } from 'element-plus'
-import {
-  getUserDataList,
-  type UserSelfData,
-  deleteUser,
-  editUser,
-  type EditUserResp,
-} from '@/services'
+import { getUserDataList, type UserSelfData, editUser, type EditUserResp } from '@/services'
 import AddDialog from './Components/AddDialog.vue'
 import { formatTimeStr } from '@/utils'
 import { useUserStore } from '@/stores/user'
@@ -157,8 +122,6 @@ const state = reactive({
 
 const router = useRouter()
 const userStore = useUserStore()
-// The server refuses registration when an external identity provider owns accounts.
-const creatable = computed(() => !userStore.isExternalAuth)
 const wsStore = useWorkspaceStore()
 const isInCurrentWorkspace = (row: UserSelfData) => {
   return row.workspaces?.some((ws: Workspace) => ws.id === wsStore.currentWorkspaceId)
@@ -207,27 +170,6 @@ const openDialog = (row: UserSelfData) => {
     creationTime: row?.creationTime,
   }
   getUserList()
-}
-
-const onDelete = (id: string) => {
-  const msg = h('span', null, [
-    'Are you sure you want to delete user: ',
-    h('span', { style: 'color: var(--el-color-primary); font-weight: 600' }, id),
-    ' ?',
-  ])
-
-  ElMessageBox.confirm(msg, 'Delete user', {
-    confirmButtonText: 'Delete',
-    cancelButtonText: 'Cancel',
-    type: 'warning',
-  }).then(async () => {
-    await deleteUser(id)
-    ElMessage({
-      type: 'success',
-      message: 'Delete completed',
-    })
-    getUserList()
-  })
 }
 
 const handleUpdateWorkspace = async (row: UserSelfData, action: 'add' | 'remove') => {

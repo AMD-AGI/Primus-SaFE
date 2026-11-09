@@ -1,6 +1,6 @@
 ---
 name: primus-safe
-description: Primus-SaFE (GPU cluster platform on Kubernetes) product knowledge and operations. Use to answer questions about workspaces, workloads, nodes, flavors, opsjobs, API keys, and to list, inspect, troubleshoot or operate them through the SaFE MCP tools.
+description: Primus-SaFE (GPU cluster platform on Kubernetes) product knowledge and operations. Use to answer questions about workspaces, workloads, nodes, flavors, opsjobs, and to list, inspect, troubleshoot or operate them through the SaFE MCP tools.
 ---
 
 # Primus-SaFE
@@ -23,7 +23,6 @@ Use the SaFE MCP tools (streamable HTTP endpoint `<SAFE_URL>/api/v1/safe-mcp/mcp
 - **Node**: a machine in a cluster, belonging to at most one workspace. `phase` Ready or a failure phase (SSHFailed, ManagedFailed, ...); `available=false` plus a `message` means unschedulable (taints, health-check failure).
 - **Flavor** (node flavor): a hardware shape (CPU, memory, GPU product and count, disks, RDMA). A workspace uses one flavor.
 - **OpsJob**: an administrative job run by the platform: addon, preflight, reboot, dumplog, exportimage, and similar. Has its own phase and outputs.
-- **API key**: per-user credential (`ak-...`); `apikey_current` describes the key in use. The key value is shown only at creation.
 
 ## Which tool answers what
 
@@ -41,13 +40,12 @@ Use the SaFE MCP tools (streamable HTTP endpoint `<SAFE_URL>/api/v1/safe-mcp/mcp
 | Clusters | `cluster_list`, `cluster_get`, `cluster_logs` |
 | OpsJobs (filters: `phase`, `type`, `workspace_id`) | `opsjob_list`, `opsjob_get` |
 | Image-pull and SSH secrets (names only, never values) | `secret_list` |
-| My API keys | `apikey_list`, `apikey_current` |
 
 `workload_logs` and `workload_events` return a bounded amount, newest first unless you pass `order` asc; `node_pod_logs` returns the last `tail_lines` lines of the node agent's log in log order, newest last. `truncated: true` means entries were left out, text was cut, or more matched than came back. For `workload_logs` and `workload_events`, narrow with `since` / `until` or page with `offset`; `workload_logs` also takes `keywords` and `pod_names`. For `node_pod_logs`, ask for a recent window (`since_seconds`) or fewer lines; it has no paging.
 
 ## Changing things
 
-Writes are tools too: `workload_create`, `workload_update`, `workload_stop`, `workload_resume`, `workload_delete`, `workload_batch_stop`, `workload_batch_delete`; `workspace_create`, `workspace_update`, `workspace_scale`, `workspace_manage_nodes`, `workspace_delete`; `node_create`, `node_update`, `node_cordon`, `node_uncordon`, `node_drain`, `node_reboot`, `node_delete`; `cluster_create`, `cluster_update`, `cluster_manage_nodes`, `cluster_delete`; `opsjob_create`, `opsjob_stop`, `opsjob_delete`; `apikey_create`, `apikey_delete`. Field reference in `references/api-cheatsheet.md`.
+Writes are tools too: `workload_create`, `workload_update`, `workload_stop`, `workload_resume`, `workload_delete`, `workload_batch_stop`, `workload_batch_delete`; `workspace_create`, `workspace_update`, `workspace_scale`, `workspace_manage_nodes`, `workspace_delete`; `node_create`, `node_update`, `node_cordon`, `node_uncordon`, `node_drain`, `node_reboot`, `node_delete`; `cluster_create`, `cluster_update`, `cluster_manage_nodes`, `cluster_delete`; `opsjob_create`, `opsjob_stop`, `opsjob_delete`. Field reference in `references/api-cheatsheet.md`.
 
 - Call `cluster_list`, `flavor_list` and `workspace_list` before creating a workspace or workload, and use the IDs they return.
 - Every write needs the user's approval. A host that holds write tools shows an approval card; in one that does not, ask in chat and wait for a yes. Either way say in one line what you are about to do and to which IDs. If the user denies, nothing was done: say so.

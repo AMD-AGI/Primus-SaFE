@@ -30,4 +30,4 @@ Always start from the workload detail: `workload_get`. Fields that matter: `phas
 4. Remedies (admin only, confirm first): cordon/drain, reboot (opsjob), fix or disable the failing monitor, remove node from workspace.
 
 ## Permission errors
-401: key missing/expired (`apikey_current`). 403: the user's role or workspace membership does not allow the action; `user_self` shows roles and workspaces.
+401: the credential is missing or expired. 403: the user's role or workspace membership does not allow the action; `user_self` shows roles and workspaces.

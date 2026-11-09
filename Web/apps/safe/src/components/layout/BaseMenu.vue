@@ -109,16 +109,6 @@
               match="prefix"
             />Secrets
           </el-menu-item>
-          <el-menu-item index="/manageapikeys">
-            <MenuItemIcon
-              index="/manageapikeys"
-              :light="menuIcons.apikey.light"
-              :dark="menuIcons.apikey.dark"
-              :active="menuIcons.apikey.active"
-              :size="16"
-              match="prefix"
-            />API Keys
-          </el-menu-item>
         </el-sub-menu>
 
         <!-- Model Lab Menu -->
@@ -614,7 +604,6 @@ const staticNavItems: FlatNavItem[] = [
   { name: 'Datasync', path: '/download', section: 'Artifacts' },
   { name: 'Images', path: '/images', section: 'Artifacts' },
   { name: 'Secrets', path: '/secrets', section: 'Artifacts' },
-  { name: 'API Keys', path: '/manageapikeys', section: 'Artifacts' },
   { name: 'Catalog · Helm', path: '/addontemplate?type=helm', section: 'System' },
   { name: 'Catalog · Node', path: '/addontemplate?type=default', section: 'System' },
 ]

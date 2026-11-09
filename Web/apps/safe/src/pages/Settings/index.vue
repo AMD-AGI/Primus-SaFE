@@ -89,15 +89,6 @@
           <el-button size="small" plain @click="router.push('/publickeys')">Manage</el-button>
         </div>
 
-        <el-divider style="margin: 14px 0" />
-
-        <div class="setting-row">
-          <div>
-            <div class="setting-label">API Keys</div>
-            <div class="setting-desc">Manage API keys for programmatic access.</div>
-          </div>
-          <el-button size="small" plain @click="router.push('/manageapikeys')">Manage</el-button>
-        </div>
       </el-card>
 
       <!-- Environment (admin only) -->

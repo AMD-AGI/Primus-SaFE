@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang/mock/gomock"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,7 +36,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -271,19 +269,6 @@ func TestExternalModeRefusesCredentialAndRoleWrites(t *testing.T) {
 			},
 		},
 		{
-			name: "register an account",
-			req:  guardRequest{method: http.MethodPost, path: "/api/v1/users", body: `{"name":"intruder","password":"pw"}`},
-			after: func(t *testing.T, _ *httptest.ResponseRecorder) {
-				err := guardCluster.Get(context.Background(),
-					client.ObjectKey{Name: commonuser.GenerateUserIdByName("intruder")}, &v1.User{})
-				assert.True(t, apierrors.IsNotFound(err), "the account must not exist, got %v", err)
-			},
-		},
-		{
-			name: "create an API key as an administrator",
-			req:  guardRequest{method: http.MethodPost, path: "/api/v1/apikeys", body: `{"name":"k","ttlDays":7}`, bearer: "idp-admin"},
-		},
-		{
 			name: "set the password of a local account",
 			req: guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-password-local",
 				body: `{"password":"changed-by-a-script"}`, bearer: "idp-admin"},
@@ -372,26 +357,17 @@ func TestExternalModeAllowsRemovingStoredPlatformRoles(t *testing.T) {
 	}
 }
 
-// An API key issued before the switch is still accepted through the built-in entry, so it
-// must stay possible to revoke one that leaked: creation is refused in external mode,
-// deletion is not.
+// Creating, deleting and listing API keys is not served here.
 func TestExternalModeKeepsApiKeyRevocation(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	db := mock_client.NewMockInterface(ctrl)
-	e := guardEngineWithDB(t, true, db)
-
-	// A key of a local account, as issued before the switch.
-	db.EXPECT().GetApiKeyById(gomock.Any(), int64(5)).Return(&dbclient.ApiKey{Id: 5, UserId: localName}, nil)
-	db.EXPECT().SetApiKeyDeleted(gomock.Any(), "idp-admin-id", int64(5)).Return(nil).Times(1)
-	w := guardRequest{method: http.MethodDelete, path: "/api/v1/apikeys/5", bearer: "idp-admin"}.serve(e)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	assert.NotContains(t, w.Body.String(), refusal)
-
-	// Creating one is still refused, before anything reaches the database.
-	w = guardRequest{method: http.MethodPost, path: "/api/v1/apikeys", body: `{"name":"k","ttlDays":7}`, bearer: "idp-admin"}.serve(e)
-	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	assert.Contains(t, w.Body.String(), refusal)
+	e := guardEngine(t, true)
+	for _, req := range []guardRequest{
+		{method: http.MethodDelete, path: "/api/v1/apikeys/5", bearer: "idp-admin"},
+		{method: http.MethodPost, path: "/api/v1/apikeys", body: `{"name":"k","ttlDays":7}`, bearer: "idp-admin"},
+		{method: http.MethodGet, path: "/api/v1/apikeys", bearer: "idp-admin"},
+	} {
+		w := req.serve(e)
+		require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+	}
 }
 
 // The refusal does not depend on the shape of the chain: without the built-in authenticator
@@ -406,9 +382,8 @@ func TestExternalModeRefusesLoginWhateverTheChain(t *testing.T) {
 	}
 }
 
-// Authentication is always external, including when auth.mode is unset. Registration, local
-// sign-in, password changes, platform-role grants and API key creation are refused. Deleting
-// an API key still reaches the handler.
+// Authentication is always external, including when auth.mode is unset. Registration is not
+// served here. Local sign-in, password changes and platform-role grants are refused.
 func TestBuiltinModeKeepsAccountEndpoints(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cli := sharedGuardCluster(t)
@@ -418,10 +393,9 @@ func TestBuiltinModeKeepsAccountEndpoints(t *testing.T) {
 	e := gin.New()
 	InitCustomRouters(e, h)
 
-	t.Run("registration is refused", func(t *testing.T) {
+	t.Run("registration is not served here", func(t *testing.T) {
 		w := guardRequest{method: http.MethodPost, path: "/api/v1/users", body: `{"name":"newcomer","password":"pw"}`}.serve(e)
-		require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-		assert.Contains(t, w.Body.String(), refusal)
+		require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
 		err := cli.Get(context.Background(),
 			client.ObjectKey{Name: commonuser.GenerateUserIdByName("newcomer")}, &v1.User{})
 		assert.True(t, apierrors.IsNotFound(err), "the account must not exist, got %v", err)
