@@ -174,7 +174,7 @@ data:
       # The path where the deployment routes API key creation, listing and revocation to the identity provider.
       api_keys_url: {{ $apiKeysURL | quote }}
       scim:
-        enabled: {{ default false (default dict .Values.auth.scim).enabled }}
+        enabled: {{ if kindIs "bool" (default dict .Values.auth.scim).enabled }}{{ (default dict .Values.auth.scim).enabled }}{{ else }}true{{ end }}
         identity_url: {{ default "" (default dict .Values.auth.scim).identity_url | quote }}
         public_url: {{ default "" (default dict .Values.auth.scim).public_url | quote }}
         token_secret: {{ default "primus-safe-scim-token" (default dict .Values.auth.scim).token_secret | quote }}

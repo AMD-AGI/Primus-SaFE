@@ -88,7 +88,7 @@ func loadRendered(t *testing.T, rendered string) {
 func TestChartRendersAuthKeyActors(t *testing.T) {
 	loadRendered(t, renderApiserverConfig(t))
 	testifyassert.Empty(t, GetAuthKeyActors())
-	testifyassert.False(t, IsSCIMEnabled())
+	testifyassert.True(t, IsSCIMEnabled())
 	testifyassert.Empty(t, GetSCIMIdentityURL())
 	testifyassert.Empty(t, GetSCIMPublicURL())
 	testifyassert.Equal(t, DefaultSCIMTokenSecret, GetSCIMTokenSecret())

@@ -719,7 +719,7 @@ func TestAuthConfig(t *testing.T) {
 	testifyassert.True(t, list[1].AllowMissingAudience)
 	testifyassert.False(t, list[0].AllowMissingAudience, "an entry that does not say so refuses answers that name no audience")
 
-	testifyassert.False(t, IsSCIMEnabled())
+	testifyassert.True(t, IsSCIMEnabled())
 	testifyassert.Empty(t, GetSCIMIdentityURL())
 	testifyassert.Empty(t, GetSCIMPublicURL())
 	testifyassert.Equal(t, DefaultSCIMTokenSecret, GetSCIMTokenSecret())
@@ -731,6 +731,8 @@ func TestAuthConfig(t *testing.T) {
 	testifyassert.Equal(t, "https://idp.example.com", GetSCIMIdentityURL())
 	testifyassert.Equal(t, "https://safe.example.com/scim/v2", GetSCIMPublicURL())
 	testifyassert.Equal(t, DefaultSCIMTokenSecret, GetSCIMTokenSecret(), "a blank name keeps the default secret")
+	viper.Set("auth.scim.enabled", false)
+	testifyassert.False(t, IsSCIMEnabled())
 
 	viper.Set("auth.group_mappings", []map[string]any{{"group": "admins", "roles": []string{"system-admin"}, "workspaces": []string{"w1"}}})
 	maps, err := GetAuthGroupMappings()

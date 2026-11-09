@@ -340,7 +340,7 @@ auth:
   api_keys_upstream: ""
   # SCIM 2.0 user endpoint for the identity service. Served when enabled is true.
   scim:
-    enabled: false
+    enabled: true
     # Identity service root. Empty: derived from the introspection authenticator (the URL or issuer, with /oauth/... removed).
     identity_url: ""
     # Base URL the identity service calls. It appends /Users/{id}. Example: https://console.example.com/scim/v2
