@@ -56,7 +56,8 @@ install_or_upgrade_helm_chart() {
 #                        provider, when something else routes it              -> auth.api_keys_url
 #   auth_api_keys_upstream  host[:port] of the identity provider's service,
 #                        which the console's nginx routes /api/v1/apikeys to  -> auth.api_keys_upstream
-#   auth_scim_enabled    true | false                                      -> auth.scim.enabled
+#   auth_scim_enabled    true | false. Omitted: the chart default, true.
+#                        A stored false is not kept.                           -> auth.scim.enabled
 #   auth_scim_identity_url  identity service root                          -> auth.scim.identity_url
 #   auth_scim_public_url    base URL the identity service calls for SCIM   -> auth.scim.public_url
 #   auth_scim_token_secret  name of the Secret holding the SCIM bearer     -> auth.scim.token_secret
@@ -120,12 +121,11 @@ check_live_auth() {
     return 1
   fi
   for var in $unset_keys; do
-    # auth.mode is not a setting this upgrade can drop. The chart default is external.
-    if [[ "$var" == "auth_mode" ]]; then
+    # auth.mode defaults to external. auth.scim.enabled defaults to true, so a stored false is not kept.
+    if [[ "$var" == "auth_mode" || "$var" == "auth_scim_enabled" ]]; then
       continue
     fi
     case "$var" in
-      auth_scim_enabled) expr='.auth.scim.enabled' ;;
       auth_scim_identity_url) expr='.auth.scim.identity_url' ;;
       auth_scim_public_url) expr='.auth.scim.public_url' ;;
       auth_scim_token_secret) expr='.auth.scim.token_secret' ;;

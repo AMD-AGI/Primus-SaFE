@@ -205,7 +205,7 @@ expect "all auth keys: the script prints no auth value" bash -c '! grep -q "idp.
 # Rendered with and without: only the auth segment differs.
 cp "$OUT/rendered.yaml" "$W/with-auth.yaml"
 run_upgrade "" ""
-diff_lines="$(diff "$OUT/rendered.yaml" "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|API_KEYS_UPSTREAM|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|secret:$' || true)"
+diff_lines="$(diff "$OUT/rendered.yaml" "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|enabled:|API_KEYS_UPSTREAM|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|secret:$' || true)"
 expect "rendering with and without the keys differs only in the auth segment" test -z "$diff_lines"
 [[ -z "$diff_lines" ]] || echo "$diff_lines"
 
@@ -229,6 +229,15 @@ expect "live external, api_keys_upstream missing: names it" grep -q 'does not se
 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"
 expect "live external, all keys in .env: applied" applied
 expect "live external, all keys in .env: still external" rendered 'mode: "external"'
+
+# 5b. A stored scim.enabled=false is not kept. Omitting the key renders the chart default, true.
+#     An explicit false in .env still turns it off.
+run_upgrade '{"auth":{"mode":"external","scim":{"enabled":false}}}' ""
+expect "live scim off, key omitted: applied" applied
+expect "live scim off, key omitted: enabled" rendered '  enabled: true'
+run_upgrade '{"auth":{"mode":"external","scim":{"enabled":false}}}' 'auth_scim_enabled=false'
+expect "live scim off, explicit false: applied" applied
+expect "live scim off, explicit false: disabled" rendered '  enabled: false'
 
 # 6. A key the release does not have is not demanded.
 run_upgrade '{"auth":{"mode":"external","authenticators":[{"type":"builtin"}]}}' 'auth_mode=external
