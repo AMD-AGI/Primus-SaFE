@@ -14,7 +14,9 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -167,6 +169,17 @@ func TestServiceResource(t *testing.T) {
 	require.Equal(t, "512Gi", whole.SharedMemory)
 	require.Equal(t, v1.WorkloadResource{Replica: 1, GPU: "2", CPU: "16", Memory: "64Gi", SharedMemory: "32Gi",
 		EphemeralStorage: "50Gi"}, serviceResource(nil, 2), "without a flavor the defaults of the deploy page apply")
+
+	viper.Set("workspace.ephemeral_store_reserve_percent", 0.05)
+	viper.Set("workload.max_ephemeral_store_percent", 0.6)
+	t.Cleanup(func() {
+		viper.Set("workspace.ephemeral_store_reserve_percent", nil)
+		viper.Set("workload.max_ephemeral_store_percent", nil)
+	})
+	nf.Spec.ExtendResources = corev1.ResourceList{corev1.ResourceEphemeralStorage: resource.MustParse("1000Gi")}
+	require.Equal(t, "600Gi", serviceResource(nf, 8).EphemeralStorage,
+		"the ephemeral storage stays within the per-workload maximum, not the 950Gi left after the reserve")
+	require.Equal(t, "75Gi", serviceResource(nf, 1).EphemeralStorage, "the maximum is shared by the GPUs")
 }
 
 // autoService is a finished automatic evaluation service of testRun.

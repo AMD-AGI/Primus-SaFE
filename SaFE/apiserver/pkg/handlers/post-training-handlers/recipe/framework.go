@@ -156,6 +156,9 @@ type Resources struct {
 	TimeoutSeconds int    `json:"timeoutSeconds,omitempty"`
 	MaxRetry       *int   `json:"maxRetry,omitempty"`
 	Image          string `json:"image,omitempty"`
+	// EphemeralStorage, e.g. "70Gi", replaces the ephemeral storage each node of the run requests; empty requests
+	// the GPUs' share of the node.
+	EphemeralStorage string `json:"ephemeralStorage,omitempty"`
 }
 
 // Export selects what the run exports when training ends.

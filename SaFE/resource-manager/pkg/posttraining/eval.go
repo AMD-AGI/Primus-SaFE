@@ -457,7 +457,8 @@ func mergeInference(global registry.Inference, own *registry.Inference) registry
 }
 
 // serviceResource requests the share of a node that tp of its GPUs carry: the same fraction of its CPU, memory
-// and ephemeral storage, and half that memory as shared memory.
+// and ephemeral storage, and half that memory as shared memory. The ephemeral storage is capped at the
+// per-workload maximum the workload webhook enforces before it is shared.
 func serviceResource(flavor *v1.NodeFlavor, tp int) v1.WorkloadResource {
 	r := v1.WorkloadResource{Replica: 1, GPU: strconv.Itoa(tp)}
 	gpus := 0
@@ -478,6 +479,10 @@ func serviceResource(flavor *v1.NodeFlavor, tp int) v1.WorkloadResource {
 		r.SharedMemory = resource.NewQuantity(share(q)/2, resource.BinarySI).String()
 	}
 	if q, ok := avail[corev1.ResourceEphemeralStorage]; ok {
+		if limit, err := quantity.GetMaxEphemeralStoreQuantity(flavor.ToResourceList("")); err == nil &&
+			limit.Cmp(q) < 0 {
+			q = *limit
+		}
 		r.EphemeralStorage = resource.NewQuantity(share(q), resource.BinarySI).String()
 	}
 	return r
