@@ -357,9 +357,11 @@ func rewardSecret(req *recipe.SubmitRequest) string {
 }
 
 // nodeResource requests a whole node: the flavor's allocatable CPU, memory and ephemeral storage after the
-// workspace reserves, half the memory as shared memory, and the requested GPUs.
+// workspace reserves, half the memory as shared memory, and the requested GPUs. The ephemeral storage is capped at
+// the per-workload maximum the workload webhook enforces.
 func nodeResource(nf *v1.NodeFlavor, gpus int) v1.WorkloadResource {
-	avail := quantity.GetAvailableResource(nf.ToResourceList(""))
+	nodeResources := nf.ToResourceList("")
+	avail := quantity.GetAvailableResource(nodeResources)
 	r := v1.WorkloadResource{GPU: strconv.Itoa(gpus)}
 	if q, ok := avail[corev1.ResourceCPU]; ok {
 		r.CPU = q.String()
@@ -369,6 +371,9 @@ func nodeResource(nf *v1.NodeFlavor, gpus int) v1.WorkloadResource {
 		r.SharedMemory = resource.NewQuantity(q.Value()/2, resource.BinarySI).String()
 	}
 	if q, ok := avail[corev1.ResourceEphemeralStorage]; ok {
+		if limit, err := quantity.GetMaxEphemeralStoreQuantity(nodeResources); err == nil && limit.Cmp(q) < 0 {
+			q = *limit
+		}
 		r.EphemeralStorage = q.String()
 	}
 	return r
