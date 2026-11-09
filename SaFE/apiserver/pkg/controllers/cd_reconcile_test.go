@@ -142,6 +142,18 @@ func TestCDReconcileFailedUpdatesStatus(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestCDReconcileSucceededAlreadyDeployedSkipsSnapshot(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock_client.NewMockInterface(ctrl)
+	mockDB.EXPECT().GetDeploymentRequest(gomock.Any(), int64(9)).
+		Return(&dbclient.DeploymentRequest{Id: 9, Status: StatusDeployed, DeployType: DeployTypeSafe, EnvConfig: `{"env_file_config":"old"}`}, nil)
+
+	r := newCDReconciler(t, mockDB, cdJob("cd-9", "9", v1.OpsJobSucceeded))
+	_, err := r.Reconcile(context.Background(), reconcileReq("cd-9"))
+	assert.NoError(t, err)
+}
+
 func TestCDReconcileSucceededCreatesSnapshot(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
