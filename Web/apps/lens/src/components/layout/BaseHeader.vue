@@ -370,7 +370,7 @@ import SparklesIcon from '@/assets/icons/sparkles.png'
   }
 
 const goToSaFE = () => {
-  window.open(window.location.origin, '_blank')
+  window.open(`${window.location.origin}/home`, '_blank')
 }
 
 const goToChatbot = () => {
