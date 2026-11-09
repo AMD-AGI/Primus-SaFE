@@ -212,7 +212,7 @@ expect "rendering with and without the keys differs only in the auth segment" te
 # 3. The running release is external and .env has no auth_* keys: refuse, and touch nothing.
 run_upgrade "$LIVE_EXTERNAL" ""
 expect "live external, no auth keys: refused before the cluster is touched" refused
-expect "live external, no auth keys: the message names what is missing" grep -q 'does not set: auth_mode auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors' "$OUT/log"
+expect "live external, no auth keys: the message names what is missing" grep -q 'does not set: auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors' "$OUT/log"
 expect "live external, no auth keys: the message says how to go back on purpose" grep -q 'auth_mode=builtin' "$OUT/log"
 
 # 4. One key missing is enough, here the one that grants the administrator roles.
