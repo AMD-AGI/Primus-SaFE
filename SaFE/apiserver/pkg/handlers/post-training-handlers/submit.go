@@ -297,6 +297,13 @@ func buildWorkload(c *gin.Context, reg *registry.Registry, req *recipe.SubmitReq
 	}
 
 	node := nodeResource(ws.flavor, req.Resources.GpusPerNode)
+	if s := req.Resources.EphemeralStorage; s != "" {
+		q, err := resource.ParseQuantity(s)
+		if err != nil || q.Sign() <= 0 {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("resources.ephemeralStorage %q is not a positive quantity", s))
+		}
+		node.EphemeralStorage = q.String()
+	}
 	if nodes > 1 {
 		node.RdmaResource = rdmaResource
 	}
@@ -356,25 +363,33 @@ func rewardSecret(req *recipe.SubmitRequest) string {
 	return remote.SecretID
 }
 
-// nodeResource requests a whole node: the flavor's allocatable CPU, memory and ephemeral storage after the
-// workspace reserves, half the memory as shared memory, and the requested GPUs. The ephemeral storage is capped at
-// the per-workload maximum the workload webhook enforces.
+// nodeResource requests the share of a node that gpus of its GPUs carry, the whole node when they are all of them:
+// that fraction of the flavor's allocatable CPU, memory and ephemeral storage after the workspace reserves, and
+// half that memory as shared memory. The ephemeral storage is capped at the per-workload maximum the workload
+// webhook enforces before it is shared.
 func nodeResource(nf *v1.NodeFlavor, gpus int) v1.WorkloadResource {
 	nodeResources := nf.ToResourceList("")
 	avail := quantity.GetAvailableResource(nodeResources)
 	r := v1.WorkloadResource{GPU: strconv.Itoa(gpus)}
+	total := nf.GetGpuCount()
+	share := func(v int64) int64 {
+		if total <= 0 || gpus >= total {
+			return v
+		}
+		return v * int64(gpus) / int64(total)
+	}
 	if q, ok := avail[corev1.ResourceCPU]; ok {
-		r.CPU = q.String()
+		r.CPU = resource.NewMilliQuantity(share(q.MilliValue()), resource.DecimalSI).String()
 	}
 	if q, ok := avail[corev1.ResourceMemory]; ok {
-		r.Memory = q.String()
-		r.SharedMemory = resource.NewQuantity(q.Value()/2, resource.BinarySI).String()
+		r.Memory = resource.NewQuantity(share(q.Value()), resource.BinarySI).String()
+		r.SharedMemory = resource.NewQuantity(share(q.Value())/2, resource.BinarySI).String()
 	}
 	if q, ok := avail[corev1.ResourceEphemeralStorage]; ok {
 		if limit, err := quantity.GetMaxEphemeralStoreQuantity(nodeResources); err == nil && limit.Cmp(q) < 0 {
 			q = *limit
 		}
-		r.EphemeralStorage = q.String()
+		r.EphemeralStorage = resource.NewQuantity(share(q.Value()), resource.BinarySI).String()
 	}
 	return r
 }

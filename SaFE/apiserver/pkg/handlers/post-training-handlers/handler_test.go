@@ -152,6 +152,14 @@ func TestBuildWorkloadSingleNode(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []v1.SecretEntity{{Id: "wb", Type: v1.SecretGeneral, AsEnv: true}}, w.Spec.Secrets,
 		"the W&B key reaches the containers as environment variables")
+
+	req.Resources.EphemeralStorage = "70Gi"
+	w, err = buildWorkload(testContext(), reg, req, res, &workspaceInfo{flavor: flavor()}, "pt-x", []byte("{}"))
+	require.NoError(t, err)
+	require.Equal(t, "70Gi", w.Spec.Resources[0].EphemeralStorage, "the request can set the ephemeral storage")
+	req.Resources.EphemeralStorage = "-1Gi"
+	_, err = buildWorkload(testContext(), reg, req, res, &workspaceInfo{flavor: flavor()}, "pt-x", []byte("{}"))
+	require.Error(t, err)
 }
 
 func TestRewardSecret(t *testing.T) {
@@ -168,10 +176,15 @@ func TestRewardSecret(t *testing.T) {
 func TestNodeResource(t *testing.T) {
 	r := nodeResource(flavor(), 8)
 	require.Equal(t, "8", r.GPU)
-	require.NotEmpty(t, r.CPU)
+	require.Equal(t, "256", r.CPU)
 	mem := resource.MustParse(r.Memory)
 	shm := resource.MustParse(r.SharedMemory)
 	require.Equal(t, mem.Value()/2, shm.Value())
+
+	half := nodeResource(flavor(), 4)
+	halfMem := resource.MustParse(half.Memory)
+	require.Equal(t, "128", half.CPU, "a run on part of a node requests its GPUs' share")
+	require.Equal(t, mem.Value()/2, halfMem.Value())
 
 	viper.Set("workspace.ephemeral_store_reserve_percent", 0.05)
 	viper.Set("workload.max_ephemeral_store_percent", 0.6)
@@ -181,9 +194,9 @@ func TestNodeResource(t *testing.T) {
 	})
 	nf := flavor()
 	nf.Spec.ExtendResources = corev1.ResourceList{corev1.ResourceEphemeralStorage: resource.MustParse("1000Gi")}
-	eph, want := resource.MustParse(nodeResource(nf, 4).EphemeralStorage), resource.MustParse("600Gi")
-	require.Equal(t, want.Value(), eph.Value(),
+	require.Equal(t, "600Gi", nodeResource(nf, 8).EphemeralStorage,
 		"the ephemeral storage stays within the per-workload maximum, not the 950Gi left after the reserve")
+	require.Equal(t, "75Gi", nodeResource(nf, 1).EphemeralStorage, "the maximum is shared by the GPUs")
 }
 
 func TestModelPathIn(t *testing.T) {
