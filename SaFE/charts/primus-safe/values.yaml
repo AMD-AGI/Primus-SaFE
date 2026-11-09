@@ -307,8 +307,13 @@ auth:
   authenticators: []
   # Name of the Secret that holds the client secret of an `introspection` authenticator, under the key
   # `client-secret`. It is mounted into the apiserver at client_secret_path. Leave empty when unused.
+  # When set, a pre-install job copies it from identity (keys client_secret or client-secret) if that
+  # Secret is absent here. A missing identity namespace or Secret is skipped.
   client_secret: ""
   client_secret_path: /etc/secrets/auth
+  # Namespace and name of the identity Secret the copy job reads. An empty name uses client_secret.
+  identity_client_secret_namespace: primus-identity
+  identity_client_secret: ""
   # Identity groups mapped to SaFE roles on every request; never stored on the user.
   #   - group: platform-admins
   #     roles: [system-admin]

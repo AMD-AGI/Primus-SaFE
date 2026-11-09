@@ -105,3 +105,19 @@ The hook RBAC then includes a Role secret-manager there.
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The Secret copy-identity-auth-secret writes in the release namespace, or "" when client_secret is empty.
+*/}}
+{{- define "primus-safe.identityAuthSecret" -}}
+{{- .Values.auth.client_secret | default "" -}}
+{{- end -}}
+
+{{/*
+The identity Secret that copy-identity-auth-secret reads. Empty when the job is not rendered.
+*/}}
+{{- define "primus-safe.identityAuthSourceSecret" -}}
+{{- if include "primus-safe.identityAuthSecret" . -}}
+{{- .Values.auth.identity_client_secret | default .Values.auth.client_secret -}}
+{{- end -}}
+{{- end -}}
