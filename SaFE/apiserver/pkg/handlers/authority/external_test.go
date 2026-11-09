@@ -86,6 +86,27 @@ func (e *extEnv) userWebhook() interceptor.Funcs {
 	}
 }
 
+// clearAuthState removes auth configuration and the in-process authenticator state.
+func clearAuthState() {
+	viper.Set("auth.mode", nil)
+	viper.Set("auth.authenticators", nil)
+	viper.Set("auth.group_mappings", nil)
+	viper.Set("auth.key_actors", nil)
+	externalState.Store(nil)
+	builtinKeyActorState.Store(nil)
+}
+
+// useBuiltinChain configures external mode with only the builtin authenticator.
+func useBuiltinChain(t *testing.T, cli client.Client) {
+	t.Helper()
+	viper.Set("auth.mode", nil)
+	viper.Set("auth.group_mappings", nil)
+	viper.Set("auth.key_actors", nil)
+	viper.Set("auth.authenticators", []map[string]any{{"type": "builtin"}})
+	require.NoError(t, InitExternalAuth(cli))
+	t.Cleanup(clearAuthState)
+}
+
 func newExtEnv(t *testing.T, mapping []map[string]any, builtin bool) *extEnv {
 	t.Helper()
 	// Most tests are not about the audience of an introspected answer, and theirs name none.
@@ -152,12 +173,7 @@ func newExtEnvWith(t *testing.T, mapping []map[string]any, builtin bool, introsp
 	require.NoError(t, v1.AddToScheme(scheme))
 	e.cli = fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(e.userWebhook()).Build()
 	require.NoError(t, InitExternalAuth(e.cli))
-	t.Cleanup(func() {
-		viper.Set("auth.mode", nil)
-		viper.Set("auth.authenticators", nil)
-		viper.Set("auth.group_mappings", nil)
-		require.NoError(t, InitExternalAuth(nil))
-	})
+	t.Cleanup(clearAuthState)
 	return e
 }
 
@@ -218,35 +234,35 @@ var adminMapping = []map[string]any{
 }
 
 func TestBuiltinModeIsUnchanged(t *testing.T) {
-	// The default: no configuration, no chain, ParseToken runs only the built-in path.
+	// No authenticator is configured, so external auth does not start.
 	viper.Set("auth.mode", nil)
-	require.NoError(t, InitExternalAuth(nil))
+	viper.Set("auth.authenticators", nil)
+	t.Cleanup(clearAuthState)
+	require.Error(t, InitExternalAuth(nil))
 	require.Nil(t, externalState.Load())
 
+	// An unrecognised auth.mode is ignored. The mode stays external, and an empty chain still fails.
+	viper.Set("auth.mode", "externl")
+	require.Error(t, InitExternalAuth(nil))
+	require.Nil(t, externalState.Load())
+
+	// A builtin-only chain accepts a local session token.
+	defer setupDefaultToken(t)()
+	useBuiltinChain(t, nil)
+	c, err := extParse(t, http.MethodGet, "/api/v1/users/self", generateTestToken(t, "u1", "name1"))
+	require.NoError(t, err)
+	require.Equal(t, "u1", c.GetString(common.UserId))
+
+	// A JWT is not a local session, so the builtin entry rejects it.
 	e := &extEnv{t: t}
-	var err error
-	e.key, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	e.key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
 	e.issuer = srv
-	// A well-formed JWT is just an unknown credential to the built-in path, as before.
-	c, err := extParse(t, http.MethodGet, "/api/v1/workloads", e.jwt(nil))
+	c, err = extParse(t, http.MethodGet, "/api/v1/workloads", e.jwt(nil))
 	require.Error(t, err)
 	require.Empty(t, c.GetString(common.UserId))
-
-	// An unrecognised value of auth.mode is builtin, never "no authentication".
-	viper.Set("auth.mode", "externl")
-	t.Cleanup(func() { viper.Set("auth.mode", nil) })
-	require.NoError(t, InitExternalAuth(nil))
-	require.Nil(t, externalState.Load())
-
-	// Built-in tokens work, as before.
-	defer setupDefaultToken(t)()
-	viper.Set("auth.mode", nil)
-	require.NoError(t, InitExternalAuth(nil))
-	c, err = extParse(t, http.MethodGet, "/api/v1/users/self", generateTestToken(t, "u1", "name1"))
-	require.NoError(t, err)
-	require.Equal(t, "u1", c.GetString(common.UserId))
 }
 
 func TestExternalModeRefusesAChainItCannotBuild(t *testing.T) {
@@ -255,11 +271,7 @@ func TestExternalModeRefusesAChainItCannotBuild(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	goodSecret := filepath.Join(t.TempDir(), "secret")
 	require.NoError(t, os.WriteFile(goodSecret, []byte("x"), 0o600))
-	t.Cleanup(func() {
-		viper.Set("auth.mode", nil)
-		viper.Set("auth.authenticators", nil)
-		require.NoError(t, InitExternalAuth(nil))
-	})
+	t.Cleanup(clearAuthState)
 	for name, chain := range map[string]any{
 		"empty":                     nil,
 		"unknown type":              []map[string]any{{"type": "ldap"}},

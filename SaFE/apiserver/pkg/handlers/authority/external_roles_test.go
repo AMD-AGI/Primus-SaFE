@@ -185,10 +185,8 @@ func TestBuiltinEntryDoesNotKeepStoredPlatformRoles(t *testing.T) {
 	require.Equal(t, []v1.UserRole{v1.SystemAdminRole}, e.user("local-admin").Spec.Roles)
 }
 
-// Builtin mode has no chain and no overlay: the stored roles are the roles, as before.
+// A builtin-only chain accepts a local session. The stored platform role does not authorize.
 func TestBuiltinModeKeepsStoredPlatformRoles(t *testing.T) {
-	viper.Set("auth.mode", nil)
-	require.NoError(t, InitExternalAuth(nil))
 	defer setupDefaultToken(t)()
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
@@ -196,10 +194,12 @@ func TestBuiltinModeKeepsStoredPlatformRoles(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "local-admin"},
 		Spec:       v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.SystemAdminRole}},
 	}).Build()
+	useBuiltinChain(t, cli)
 	c, err := extParse(t, http.MethodGet, "/api/v1/users/self", generateTestToken(t, "local-admin", "admin"))
 	require.NoError(t, err)
+	require.Equal(t, "local-admin", c.GetString(common.UserId))
 	ac := &AccessController{Client: cli}
-	require.NoError(t, ac.AuthorizeSystemAdmin(AccessInput{Context: c.Request.Context(), UserId: "local-admin"}, false))
+	require.Error(t, ac.AuthorizeSystemAdmin(AccessInput{Context: c.Request.Context(), UserId: "local-admin"}, false))
 }
 
 // What GetRequestUser returns is the user as the request sees it, and never the record.
@@ -268,11 +268,10 @@ func TestVerifyReturnsNoStoredPlatformRoleInExternalMode(t *testing.T) {
 	apiKey := verifyRequestWithAuthKey(VerifyTokenRequest{ClientIP: "10.0.0.1"}, testKey)
 	creds := map[string]VerifyTokenRequest{"cookie": cookie, "bearer": bearer, "api key": apiKey}
 
-	// Positive control, builtin mode: the stored role is returned, so the empty answers
-	// below cannot be a fixture that never carried one.
-	require.Nil(t, externalState.Load())
+	// A builtin-only chain accepts the local credentials and does not honour the stored platform role.
+	useBuiltinChain(t, nil)
 	for name, req := range creds {
-		require.Equal(t, stored, verify(newCli(), req), "builtin mode, %s", name)
+		require.Equal(t, []v1.UserRole{v1.DefaultRole}, verify(newCli(), req), "builtin chain, %s", name)
 	}
 
 	newExtEnv(t, adminMapping, true)
@@ -320,12 +319,14 @@ func TestWithoutIdentityDropsStoredPlatformRoles(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, other.IsSystemAdmin(), "an overlay is for the user it names")
 
-	// Builtin mode: no chain, the context is returned as it is and the stored roles are the roles.
+	// Clearing auth.mode does not restore stored platform roles: with no authenticators init fails
+	// and the external chain stays in place.
 	viper.Set("auth.mode", nil)
-	require.NoError(t, InitExternalAuth(nil))
+	viper.Set("auth.authenticators", nil)
+	require.Error(t, InitExternalAuth(nil))
 	plain := context.WithValue(context.Background(), struct{}{}, "marker")
-	require.Equal(t, plain, WithoutIdentity(plain, extUser))
-	require.True(t, isAdmin(WithoutIdentity(context.Background(), extUser)))
+	require.NotEqual(t, plain, WithoutIdentity(plain, extUser))
+	require.False(t, isAdmin(WithoutIdentity(context.Background(), extUser)))
 }
 
 // An operator who relied on a local administrator is told at start-up that stored platform roles no
@@ -345,8 +346,10 @@ func TestExternalModeWarnsThatStoredPlatformRolesNoLongerCount(t *testing.T) {
 		})
 	}
 
-	// Builtin mode changes nothing, so it warns of nothing.
+	// No authenticators: init fails before the external-mode warning.
 	viper.Set("auth.mode", nil)
-	out := captureKlog(t, func() { require.NoError(t, InitExternalAuth(nil)) })
+	viper.Set("auth.authenticators", nil)
+	t.Cleanup(clearAuthState)
+	out := captureKlog(t, func() { require.Error(t, InitExternalAuth(nil)) })
 	require.NotContains(t, out, "no longer count")
 }

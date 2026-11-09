@@ -183,10 +183,10 @@ refused() { # the upgrade stopped before it touched the cluster
 applied() { [[ $RC -eq 0 ]] && grep -q 'helm upgrade -i primus-safe ' "$FAKE_LOG" && [[ -s "$OUT/rendered.yaml" ]]; }
 rendered() { grep -qxF -- "      $1" "$OUT/rendered.yaml"; }
 
-# 1. No auth_* keys, nothing installed: the chart default, builtin; no second values file.
+# 1. No auth_* keys, nothing installed: the chart default, external; no second values file.
 run_upgrade "" ""
 expect "no auth keys, fresh install: applied" applied
-expect "no auth keys, fresh install: builtin" rendered 'mode: "builtin"'
+expect "no auth keys, fresh install: external" rendered 'mode: "external"'
 expect "no auth keys, fresh install: only the one values file" grep -qx 1 "$OUT/value-files"
 
 # 2. The auth_* keys reach the rendered chart, on a release that is not external yet.
@@ -247,7 +247,7 @@ expect "break-glass with nothing else in .env: builtin" rendered 'mode: "builtin
 # 8. A release that is builtin has nothing to lose.
 run_upgrade "$LIVE_BUILTIN" ""
 expect "live builtin, no auth keys: applied" applied
-expect "live builtin, no auth keys: builtin" rendered 'mode: "builtin"'
+expect "live builtin, no auth keys: external" rendered 'mode: "external"'
 run_upgrade '{"global":{"sub_domain":"test"}}' ""
 expect "an older release that has no auth values: applied" applied
 run_upgrade 'null' ""
@@ -289,7 +289,7 @@ expect "an empty key_actors is the empty list: applied" applied
 export NOJQ="$W/nojq"
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_BUILTIN" ""
 expect "no jq, live builtin, no auth keys: applied" applied
-expect "no jq, live builtin, no auth keys: builtin" rendered 'mode: "builtin"'
+expect "no jq, live builtin, no auth keys: external" rendered 'mode: "external"'
 RUN_PATH="$NOJQ" run_upgrade '{"global":{"sub_domain":"test"}}' ""
 expect "no jq, release without auth values: applied" applied
 RUN_PATH="$NOJQ" run_upgrade "" ""

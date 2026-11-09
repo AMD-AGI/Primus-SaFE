@@ -310,7 +310,7 @@ func TestCreateApiKeyHandler(t *testing.T) {
 		assert.NotEqual(t, http.StatusOK, rsp.Code)
 	})
 
-	t.Run("successful creation", func(t *testing.T) {
+	t.Run("creation is refused before the database", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
@@ -322,13 +322,6 @@ func TestCreateApiKeyHandler(t *testing.T) {
 			accessController: authority.NewAccessController(fakeClient),
 			dbClient:         mockDB,
 		}
-
-		mockDB.EXPECT().InsertApiKey(gomock.Any(), gomock.Any()).DoAndReturn(
-			func(ctx interface{}, apiKey *dbclient.ApiKey) error {
-				apiKey.Id = 123 // Simulate database assigned ID
-				return nil
-			},
-		)
 
 		reqBody := view.CreateApiKeyRequest{
 			Name:      "my-api-key",
@@ -344,16 +337,8 @@ func TestCreateApiKeyHandler(t *testing.T) {
 		c.Set(common.UserId, mockUser.Name)
 
 		h.CreateApiKey(c)
-		assert.Equal(t, http.StatusOK, rsp.Code)
-
-		var response view.CreateApiKeyResponse
-		err := json.Unmarshal(rsp.Body.Bytes(), &response)
-		assert.NoError(t, err)
-
-		assert.NotEmpty(t, response.ApiKey) // API key should be returned on creation
-		assert.Equal(t, "my-api-key", response.Name)
-		assert.NotEmpty(t, response.ExpirationTime)
-		assert.NotEmpty(t, response.CreationTime)
+		assert.Equal(t, http.StatusForbidden, rsp.Code)
+		assert.Contains(t, rsp.Body.String(), "creating an API key is not available")
 	})
 
 	t.Run("nil db client returns error", func(t *testing.T) {
@@ -384,7 +369,7 @@ func TestCreateApiKeyHandler(t *testing.T) {
 		assert.NotEqual(t, http.StatusOK, rsp.Code)
 	})
 
-	t.Run("database insert error returns error", func(t *testing.T) {
+	t.Run("a database insert is not reached", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
@@ -396,8 +381,6 @@ func TestCreateApiKeyHandler(t *testing.T) {
 			accessController: authority.NewAccessController(fakeClient),
 			dbClient:         mockDB,
 		}
-
-		mockDB.EXPECT().InsertApiKey(gomock.Any(), gomock.Any()).Return(assert.AnError)
 
 		reqBody := view.CreateApiKeyRequest{
 			Name:    "my-api-key",
@@ -412,10 +395,11 @@ func TestCreateApiKeyHandler(t *testing.T) {
 		c.Set(common.UserId, mockUser.Name)
 
 		h.CreateApiKey(c)
-		assert.NotEqual(t, http.StatusOK, rsp.Code)
+		assert.Equal(t, http.StatusForbidden, rsp.Code)
+		assert.Contains(t, rsp.Body.String(), "creating an API key is not available")
 	})
 
-	t.Run("successful creation with empty whitelist", func(t *testing.T) {
+	t.Run("creation with an empty whitelist is refused", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
@@ -427,13 +411,6 @@ func TestCreateApiKeyHandler(t *testing.T) {
 			accessController: authority.NewAccessController(fakeClient),
 			dbClient:         mockDB,
 		}
-
-		mockDB.EXPECT().InsertApiKey(gomock.Any(), gomock.Any()).DoAndReturn(
-			func(ctx interface{}, apiKey *dbclient.ApiKey) error {
-				apiKey.Id = 124
-				return nil
-			},
-		)
 
 		reqBody := view.CreateApiKeyRequest{
 			Name:      "my-api-key",
@@ -449,10 +426,11 @@ func TestCreateApiKeyHandler(t *testing.T) {
 		c.Set(common.UserId, mockUser.Name)
 
 		h.CreateApiKey(c)
-		assert.Equal(t, http.StatusOK, rsp.Code)
+		assert.Equal(t, http.StatusForbidden, rsp.Code)
+		assert.Contains(t, rsp.Body.String(), "creating an API key is not available")
 	})
 
-	t.Run("successful creation with CIDR whitelist", func(t *testing.T) {
+	t.Run("creation with a CIDR whitelist is refused", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
@@ -464,13 +442,6 @@ func TestCreateApiKeyHandler(t *testing.T) {
 			accessController: authority.NewAccessController(fakeClient),
 			dbClient:         mockDB,
 		}
-
-		mockDB.EXPECT().InsertApiKey(gomock.Any(), gomock.Any()).DoAndReturn(
-			func(ctx interface{}, apiKey *dbclient.ApiKey) error {
-				apiKey.Id = 125
-				return nil
-			},
-		)
 
 		reqBody := view.CreateApiKeyRequest{
 			Name:      "my-api-key",
@@ -486,7 +457,8 @@ func TestCreateApiKeyHandler(t *testing.T) {
 		c.Set(common.UserId, mockUser.Name)
 
 		h.CreateApiKey(c)
-		assert.Equal(t, http.StatusOK, rsp.Code)
+		assert.Equal(t, http.StatusForbidden, rsp.Code)
+		assert.Contains(t, rsp.Body.String(), "creating an API key is not available")
 	})
 
 	t.Run("invalid CIDR in whitelist returns bad request", func(t *testing.T) {

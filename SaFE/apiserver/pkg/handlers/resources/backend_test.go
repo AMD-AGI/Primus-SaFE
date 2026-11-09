@@ -40,7 +40,7 @@ func TestGetEnvs(t *testing.T) {
 	}, resp.KubeSprayK8sVersions)
 }
 
-// With external authentication the console is sent to the configured sign-in URL.
+// The console is sent to auth.login_url. auth.mode is not consulted.
 func TestGetEnvsExternalLoginURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	get := func() view.GetEnvResponse {
@@ -56,17 +56,23 @@ func TestGetEnvsExternalLoginURL(t *testing.T) {
 	t.Cleanup(func() { viper.Set("auth.mode", nil); viper.Set("auth.login_url", nil) })
 
 	viper.Set("auth.login_url", "https://sign-in.example.com/start")
-	assert.Empty(t, get().SSOAuthUrl, "builtin mode ignores login_url")
-
-	viper.Set("auth.mode", "external")
 	got := get()
 	assert.True(t, got.SSOEnable)
 	assert.Equal(t, "https://sign-in.example.com/start", got.SSOAuthUrl)
+
+	viper.Set("auth.mode", "builtin")
+	got = get()
+	assert.True(t, got.SSOEnable)
+	assert.Equal(t, "https://sign-in.example.com/start", got.SSOAuthUrl)
+
+	viper.Set("auth.login_url", "")
+	got = get()
+	assert.False(t, got.SSOEnable)
+	assert.Empty(t, got.SSOAuthUrl)
 }
 
 // The console creates API keys at the identity provider only where the deployment says the provider's route
-// exists (auth.api_keys_url), and only in external mode: otherwise nothing is reported and the console keeps
-// the apiserver's own keys and its note.
+// exists (auth.api_keys_url). Authentication is always external, so auth.mode does not hide a valid path.
 func TestGetEnvsAPIKeysURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	get := func() view.GetEnvResponse {
@@ -87,8 +93,8 @@ func TestGetEnvsAPIKeysURL(t *testing.T) {
 		{"external, routed", "external", "/api/v1/apikeys", "/api/v1/apikeys"},
 		{"external, trailing slash", "external", "/api/v1/apikeys/", "/api/v1/apikeys"},
 		{"external, nothing routed", "external", "", ""},
-		{"builtin ignores it", "builtin", "/api/v1/apikeys", ""},
-		{"default mode ignores it", "", "/api/v1/apikeys", ""},
+		{"auth.mode builtin still reports it", "builtin", "/api/v1/apikeys", "/api/v1/apikeys"},
+		{"unset auth.mode still reports it", "", "/api/v1/apikeys", "/api/v1/apikeys"},
 		{"external, an absolute URL is not a path on the console's origin", "external", "https://other.example.com/api/v1/apikeys", ""},
 		{"external, a protocol relative URL", "external", "//other.example.com/api/v1/apikeys", ""},
 		{"external, no leading slash", "external", "api/v1/apikeys", ""},

@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 	testifyassert "github.com/stretchr/testify/assert"
 
 	"gotest.tools/assert"
@@ -26,6 +27,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -204,9 +206,22 @@ func TestDeleteUserHandler(t *testing.T) {
 	}}
 	h, user := newAdminHandlerWithObjects(target)
 
+	// Deletion is forwarded to the identity service, which accepts the call.
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete && r.Header.Get("Authorization") == "Bearer caller-token" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(idp.Close)
+	viper.Set("auth.scim.identity_url", idp.URL)
+	t.Cleanup(func() { viper.Set("auth.scim.identity_url", nil) })
+
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodDelete, "/", nil)
+	c.Request.Header.Set("Authorization", "Bearer caller-token")
 	c.Set(common.UserId, user.Name)
 	c.Set(common.Name, "to-delete")
 	h.DeleteUser(c)
@@ -472,6 +487,9 @@ func TestCreateUserHandler(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	h.CreateUser(c)
-	// SSO disabled in test env -> user created successfully.
-	assert.Equal(t, http.StatusOK, rsp.Code)
+	// Registration is refused. The account is not stored.
+	assert.Equal(t, http.StatusForbidden, rsp.Code)
+	testifyassert.Contains(t, rsp.Body.String(), "user registration is not available")
+	err := h.Get(context.Background(), client.ObjectKey{Name: commonuser.GenerateUserIdByName("newbie")}, &v1.User{})
+	testifyassert.Error(t, err)
 }
