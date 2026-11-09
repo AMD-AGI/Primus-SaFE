@@ -291,6 +291,9 @@ async function onSubmit() {
         // First-time regular user: go to UserQuickStart
         const full = typeof safe === 'string' ? safe : router.resolve(safe).fullPath
         await router.replace({ name: 'UserQuickStart', query: { next: full } })
+      } else if (!away && safe === '/') {
+        // No page to return to: load / itself, which the console's nginx may send elsewhere
+        window.location.replace('/')
       } else {
         // Returning user: redirect per original logic
         await router.replace(safe)
