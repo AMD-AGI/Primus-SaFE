@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -171,6 +172,18 @@ func TestNodeResource(t *testing.T) {
 	mem := resource.MustParse(r.Memory)
 	shm := resource.MustParse(r.SharedMemory)
 	require.Equal(t, mem.Value()/2, shm.Value())
+
+	viper.Set("workspace.ephemeral_store_reserve_percent", 0.05)
+	viper.Set("workload.max_ephemeral_store_percent", 0.6)
+	t.Cleanup(func() {
+		viper.Set("workspace.ephemeral_store_reserve_percent", nil)
+		viper.Set("workload.max_ephemeral_store_percent", nil)
+	})
+	nf := flavor()
+	nf.Spec.ExtendResources = corev1.ResourceList{corev1.ResourceEphemeralStorage: resource.MustParse("1000Gi")}
+	eph, want := resource.MustParse(nodeResource(nf, 4).EphemeralStorage), resource.MustParse("600Gi")
+	require.Equal(t, want.Value(), eph.Value(),
+		"the ephemeral storage stays within the per-workload maximum, not the 950Gi left after the reserve")
 }
 
 func TestModelPathIn(t *testing.T) {
