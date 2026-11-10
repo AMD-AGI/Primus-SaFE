@@ -43,7 +43,7 @@
           </div>
         </el-menu-item-group>
         <!-- MenuBody -->
-        <el-menu-item index="/">
+        <el-menu-item index="/home">
           <el-icon><House /></el-icon>Homepage
         </el-menu-item>
         <el-menu-item index="/userquickstart" data-tour="menu-userquickstart">
@@ -608,7 +608,7 @@ interface FlatNavItem {
 
 // Hardcoded template entries not covered by the dynamic *MenuItems arrays.
 const staticNavItems: FlatNavItem[] = [
-  { name: 'Homepage', path: '/', section: '' },
+  { name: 'Homepage', path: '/home', section: '' },
   { name: 'Quick Start', path: '/userquickstart', section: '' },
   { name: 'Bench', path: '/preflight/ws', section: 'Artifacts' },
   { name: 'Datasync', path: '/download', section: 'Artifacts' },

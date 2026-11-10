@@ -27,6 +27,7 @@ if [[ -n "$sandbox_env_secret" && "$sandbox_env_secret" != "sandbox-env" ]]; the
   echo "Error: sandbox_env_secret '$sandbox_env_secret' is not supported: set it to sandbox-env or leave it empty" >&2
   exit 1
 fi
+web_root_redirect="${web_root_redirect:-}"
 
 # Do not modify the value of namespace
 NAMESPACE="primus-safe"
@@ -281,6 +282,7 @@ echo "✅ Helm Registry: \"$helm_registry\""
 echo "✅ Image Registry: \"$proxy_image_registry\""
 echo "✅ Sandbox Extra CA Secret: \"$sandbox_extra_ca_secret\""
 echo "✅ Sandbox Env Secret: \"$sandbox_env_secret\""
+echo "✅ Web Root Redirect: \"$web_root_redirect\""
 
 replicas=1
 cpu=2000m
@@ -418,6 +420,10 @@ fi
 if [[ -n "$sandbox_env_secret" ]]; then
   sed -i '/^sandbox:/,/^[a-z]/ s/^  env_secret: .*/  env_secret: "'"$sandbox_env_secret"'"/' "$values_yaml"
 fi
+if [[ -n "$web_root_redirect" ]]; then
+  root_redirect=$(printf '%s\n' "$web_root_redirect" | sed 's/[&|\]/\\&/g')
+  sed -i '/^web:/,/^[a-z]/ s|root_redirect: .*|root_redirect: "'"$root_redirect"'"|' "$values_yaml"
+fi
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
 echo "⏳ Waiting for Postgres Operator pod..."
@@ -538,4 +544,5 @@ node_agent_resolv_search_domain=
 metrics_port=8000
 sandbox_extra_ca_secret=$sandbox_extra_ca_secret
 sandbox_env_secret=$sandbox_env_secret
+web_root_redirect=$web_root_redirect
 EOF

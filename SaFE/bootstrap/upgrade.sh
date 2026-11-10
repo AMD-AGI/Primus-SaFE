@@ -531,6 +531,14 @@ if [[ -n "${sandbox_env_secret+x}" ]]; then
   sed -i '/^sandbox:/,/^[a-z]/ s/^  env_secret: .*/  env_secret: "'"$sandbox_env_secret"'"/' "$values_yaml"
 fi
 
+# Where the console's nginx redirects a browser opening the bare / of the console's host
+# (web.root_redirect, e.g. /portal/). Only set when web_root_redirect is in .env, so a site
+# without it keeps the console at /.
+if [[ -n "${web_root_redirect:-}" ]]; then
+  root_redirect=$(printf '%s\n' "$web_root_redirect" | sed 's/[&|\]/\\&/g')
+  sed -i '/^web:/,/^[a-z]/ s|root_redirect: .*|root_redirect: "'"$root_redirect"'"|' "$values_yaml"
+fi
+
 # CICD runner concurrency (maxRunners per AutoscalingRunnerSet). Only override
 # the chart default when cicd_max_runners is explicitly set in .env so a missing
 # key leaves the chart default untouched. Takes effect for AutoscalingRunnerSets

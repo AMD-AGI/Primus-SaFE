@@ -122,18 +122,25 @@ describe('sign-in callback returning outside the console', () => {
     '/\\evil.example.net/dispatron',
     '/\t/evil.example.net',
     'https://evil.example.net/dispatron',
-    '/dispatron/%2f%2fevil.example.net',
-    '/dispatron/../login',
-    '/dispatronx',
-  ])('never leaves the console router for %j', async (entry) => {
+  ])('loads / of this origin instead of %j', async (entry) => {
     session.set(ENTRY_KEY, entry)
     const next = await callback()
-    expect(replace).not.toHaveBeenCalled()
-    const target = next.mock.calls[0][0]
-    expect(typeof target).toBe('string')
-    // whatever the router gets is a same-origin path
-    expect(new URL(target, SELF).origin).toBe(SELF)
+    expect(replace).toHaveBeenCalledWith('/')
+    expect(next).toHaveBeenCalledWith(false)
   })
+
+  it.each(['/dispatron/%2f%2fevil.example.net', '/dispatron/../login', '/dispatronx'])(
+    'never leaves the console router for %j',
+    async (entry) => {
+      session.set(ENTRY_KEY, entry)
+      const next = await callback()
+      expect(replace).not.toHaveBeenCalled()
+      const target = next.mock.calls[0][0]
+      expect(typeof target).toBe('string')
+      // whatever the router gets is a same-origin path
+      expect(new URL(target, SELF).origin).toBe(SELF)
+    },
+  )
 
   it('stays in the console when the app sends the browser straight back', async () => {
     session.set(ENTRY_KEY, '/dispatron/runs')
@@ -157,6 +164,24 @@ describe('sign-in callback returning outside the console', () => {
     const next = await callback()
     expect(replace).not.toHaveBeenCalled()
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ path: '/sso-error' }))
+  })
+})
+
+// The console's nginx may redirect the bare / of the host (web.root_redirect), so a sign-in with
+// nowhere to return to loads / instead of routing to it.
+describe('sign-in callback with no page to return to', () => {
+  it('loads / with a full-page navigation', async () => {
+    const next = await callback()
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/')
+    expect(replace).toHaveBeenCalledWith('/')
+    expect(next).toHaveBeenCalledWith(false)
+  })
+
+  it('still starts the first-login onboarding in the router', async () => {
+    userState = signedIn({ shouldAutoShowQuickStart: true })
+    const next = await callback()
+    expect(replace).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledWith({ path: '/quickstart', query: { next: '/' } })
   })
 })
 
