@@ -1,7 +1,8 @@
 <template>
   <div>
     <el-text class="block textx-18 font-500" tag="b">User Manage</el-text>
-    <div class="flex flex-wrap items-center justify-end gap-2 mt-4">
+    <div class="flex flex-wrap items-center justify-between gap-2 mt-4">
+      <el-button type="primary" round @click="openIdentityAccounts">Manage accounts</el-button>
       <div class="flex flex-wrap items-center">
         <el-input
           v-model="searchName"
@@ -121,6 +122,9 @@ const state = reactive({
 })
 
 const router = useRouter()
+const openIdentityAccounts = () => {
+  window.location.assign('/identity/#accounts')
+}
 const userStore = useUserStore()
 const wsStore = useWorkspaceStore()
 const isInCurrentWorkspace = (row: UserSelfData) => {

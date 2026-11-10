@@ -57,7 +57,7 @@ describe('external mode hides the password, registration and role controls', () 
     const dialog = source('pages/UserManage/Components/AddDialog.vue')
     // What the body leaves out in external mode is buildUserPatch's, tested in userPatch.test.ts.
     expect(dialog).toContain('buildUserPatch(props.user, form, external.value)')
-    expect(dialog).toContain(':disabled="external"')
+    expect(dialog).toContain('v-if="isEdit && !external" label="Roles"')
     expect(dialog).toContain('v-if="!external" label="Password"')
   })
 })
