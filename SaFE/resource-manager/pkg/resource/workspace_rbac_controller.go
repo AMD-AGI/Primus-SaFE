@@ -57,7 +57,7 @@ type WorkspaceRBACReconciler struct {
 
 // SetupWorkspaceRBACController initializes and registers the WorkspaceRBACReconciler with the controller manager.
 func SetupWorkspaceRBACController(mgr manager.Manager) error {
-	mappings, err := commonconfig.GetAuthGroupMappings()
+	mappings, err := projectedGroupMappings()
 	if err != nil {
 		return err
 	}
@@ -97,7 +97,19 @@ func (workspaceRBACPredicate) Update(e event.UpdateEvent) bool {
 	return e.ObjectOld.GetDeletionTimestamp().IsZero() && !e.ObjectNew.GetDeletionTimestamp().IsZero()
 }
 
-// handleUserEvent enqueues the workspaces a User lists before and after the change, plus the platform key.
+// projectedGroupMappings returns auth.group_mappings in external mode. Builtin mode projects none.
+func projectedGroupMappings() ([]commonconfig.AuthGroupMapping, error) {
+	if err := commonconfig.CheckAuthMode(); err != nil {
+		return nil, err
+	}
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
+		return nil, nil
+	}
+	return commonconfig.GetAuthGroupMappings()
+}
+
+// handleUserEvent enqueues the workspaces a User lists before and after the change.
+// The platform binding depends on group mappings, which are read at start, so a User change does not enqueue it.
 func (r *WorkspaceRBACReconciler) handleUserEvent() handler.EventHandler {
 	enqueue := func(q v1.RequestWorkQueue, users ...*v1.User) {
 		seen := map[string]bool{}
@@ -110,7 +122,6 @@ func (r *WorkspaceRBACReconciler) handleUserEvent() handler.EventHandler {
 				q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: ws}})
 			}
 		}
-		q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: rbacPlatformReconcileKey}})
 	}
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
@@ -137,7 +148,6 @@ func (r *WorkspaceRBACReconciler) handleUserEvent() handler.EventHandler {
 // isUserRBACChanged reports whether a User change affects any projected subject.
 func isUserRBACChanged(oldUser, newUser *v1.User) bool {
 	return oldUser.Spec.RestrictedType != newUser.Spec.RestrictedType ||
-		oldUser.IsSystemAdmin() != newUser.IsSystemAdmin() ||
 		!reflect.DeepEqual(commonuser.GetWorkspace(oldUser), commonuser.GetWorkspace(newUser))
 }
 

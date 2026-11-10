@@ -7,7 +7,6 @@ package identity
 
 import (
 	"context"
-	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"io"
@@ -15,7 +14,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -54,8 +52,8 @@ func TestIntrospectionSecretClientID(t *testing.T) {
 	require.ErrorAs(t, err, &cfg, "no id and no id file is a configuration error")
 }
 
-// Registration sends the certificate the public URL presents.
-func TestRegisterTargetSendsThePresentedCertificate(t *testing.T) {
+// Registration sends the certificate mounted from the ingress TLS secret, and none when that file is absent.
+func TestRegisterTargetSendsTheMountedCertificate(t *testing.T) {
 	t.Cleanup(viper.Reset)
 	var body []byte
 	idn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -68,24 +66,50 @@ func TestRegisterTargetSendsThePresentedCertificate(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	t.Cleanup(idn.Close)
-	pub := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	t.Cleanup(pub.Close)
+	leaf := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(leaf.Close)
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Certificate().Raw})
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tls.crt"), pemBytes, 0o600))
+	scimCertDir = dir
+	t.Cleanup(func() { scimCertDir = "/etc/secrets/scim-tls" })
 	secret := writeFile(t, "client_secret", "secret\n")
 	viper.Set("auth.scim.identity_url", idn.URL)
+	viper.Set("auth.scim.public_url", "https://apiserver.example.com/scim/v2")
 	viper.Set("auth.authenticators", []map[string]any{{
 		"type": "introspection", "client_id": "svc", "client_secret_file": secret,
 	}})
 
-	require.NoError(t, RegisterTarget(context.Background(), pub.URL, "tok"))
+	require.NoError(t, RegisterTarget(context.Background(), "https://apiserver.example.com/scim/v2", "tok"))
 	var got scimTarget
 	require.NoError(t, json.Unmarshal(body, &got))
-	require.Equal(t, strings.TrimRight(pub.URL, "/"), got.URL)
+	require.Equal(t, "https://apiserver.example.com/scim/v2", got.URL)
 	require.Equal(t, "tok", got.BearerToken)
-	block, _ := pem.Decode([]byte(got.Certificate))
-	require.NotNil(t, block)
-	parsed, err := x509.ParseCertificate(block.Bytes)
+	require.Equal(t, string(pemBytes), got.Certificate)
+
+	scimCertDir = t.TempDir()
+	require.NoError(t, RegisterTarget(context.Background(), "https://apiserver.example.com/scim/v2", "tok"))
+	got = scimTarget{}
+	require.NoError(t, json.Unmarshal(body, &got))
+	require.Empty(t, got.Certificate)
+}
+
+// Repeated calls share one client, including its connections.
+func TestHTTPClientIsShared(t *testing.T) {
+	t.Cleanup(func() {
+		viper.Reset()
+		httpClientsMu.Lock()
+		httpClients = map[string]*http.Client{}
+		httpClientsMu.Unlock()
+	})
+	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection"}})
+	first, err := httpClient()
 	require.NoError(t, err)
-	require.True(t, parsed.Equal(pub.Certificate()))
+	second, err := httpClient()
+	require.NoError(t, err)
+	require.Same(t, first, second)
+
+	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection", "ca_bundle": "not a certificate"}})
+	_, err = httpClient()
+	require.Error(t, err)
 }

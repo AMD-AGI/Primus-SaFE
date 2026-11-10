@@ -4,7 +4,7 @@
  */
 
 // Package identity calls the identity service for SCIM registration and for
-// user delete and freeze forwarding.
+// freeze forwarding.
 package identity
 
 import (
@@ -13,30 +13,34 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
+
+// scimCertDir is the mounted ingress TLS secret. install.sh writes it under the fixed name
+// global.tls_secret ("default"). A missing file registers the SCIM target without a certificate.
+var scimCertDir = "/etc/secrets/scim-tls"
 
 const (
 	// DeactivatedAnnotation marks a user frozen by a SCIM patch that set active to false.
 	// A later patch sets the user active only while this annotation is present, and then removes it.
 	DeactivatedAnnotation = "primus-safe.scim.deactivated"
 
-	maxClientSecretSize = 4096
-	requestTimeout      = 10 * time.Second
+	requestTimeout = 10 * time.Second
 )
 
 // ConfigError is a registration or call failure that a retry will not change
@@ -56,23 +60,6 @@ type scimTarget struct {
 
 type statusBody struct {
 	Status string `json:"status"`
-}
-
-// DeleteIdentity soft-deletes the identity. A 404 is success. The caller's bearer
-// is forwarded. Other failures are 502 or 503 and leave the local user unchanged.
-func DeleteIdentity(ctx context.Context, userID, bearer string) error {
-	if bearer == "" {
-		return badGateway("the request has no credential to forward to the identity service")
-	}
-	endpoint, err := userURL(userID)
-	if err != nil {
-		return mapCall("deleting the user", 0, err)
-	}
-	status, err := do(ctx, http.MethodDelete, endpoint, nil, bearerAuth(bearer))
-	if err == nil && (status == http.StatusNotFound || status >= 200 && status < 300) {
-		return nil
-	}
-	return mapCall("deleting the user", status, err)
 }
 
 // SetStatus sets the identity status to "active" or "disabled". The caller's bearer
@@ -111,7 +98,7 @@ func RegisterTarget(ctx context.Context, publicURL, token string) error {
 	if err != nil {
 		return &ConfigError{Msg: "cannot build the scim target URL"}
 	}
-	cert, err := presentedCertificates(ctx, publicURL)
+	cert, err := targetCertificate()
 	if err != nil {
 		return err
 	}
@@ -198,35 +185,33 @@ func normalizeBase(raw string) (string, error) {
 	return strings.TrimRight(u.String(), "/"), nil
 }
 
-// presentedCertificates reads the certificates rawURL presents and returns them as PEM.
-// The dial reads those certificates. The identity service verifies the target with the PEM it receives.
-func presentedCertificates(ctx context.Context, rawURL string) (string, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
+// targetCertificate reads tls.crt from the mounted ingress TLS secret, and ca.crt when it is present.
+// A missing tls.crt registers the target without a certificate.
+func targetCertificate() (string, error) {
+	crt, err := os.ReadFile(filepath.Join(scimCertDir, "tls.crt"))
+	if os.IsNotExist(err) {
 		return "", nil
 	}
-	host := u.Host
-	if _, _, splitErr := net.SplitHostPort(u.Host); splitErr != nil {
-		host = net.JoinHostPort(u.Hostname(), "443")
-	}
-	dialCtx, cancel := context.WithTimeout(ctx, requestTimeout)
-	defer cancel()
-	conn, err := (&tls.Dialer{Config: &tls.Config{
-		InsecureSkipVerify: true,
-		MinVersion:         tls.VersionTLS12,
-		ServerName:         u.Hostname(),
-	}}).DialContext(dialCtx, "tcp", host)
 	if err != nil {
-		return "", fmt.Errorf("reading the scim target certificate: %w", err)
+		return "", err
 	}
-	defer conn.Close()
-	certs := conn.(*tls.Conn).ConnectionState().PeerCertificates
-	if len(certs) == 0 {
-		return "", errors.New("the scim target presented no certificate")
+	if strings.TrimSpace(string(crt)) == "" {
+		return "", nil
 	}
 	var b strings.Builder
-	for _, c := range certs {
-		b.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Raw}))
+	b.Write(crt)
+	if !strings.HasSuffix(string(crt), "\n") {
+		b.WriteByte('\n')
+	}
+	ca, err := os.ReadFile(filepath.Join(scimCertDir, "ca.crt"))
+	if os.IsNotExist(err) {
+		return b.String(), nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(string(ca)) != "" {
+		b.Write(ca)
 	}
 	return b.String(), nil
 }
@@ -269,41 +254,17 @@ func introspectionSecret() (string, string, error) {
 		if !strings.EqualFold(c.Type, "introspection") || (c.ClientID == "" && c.ClientIDFile == "") || c.ClientSecretFile == "" {
 			continue
 		}
-		id := c.ClientID
-		if id == "" {
-			var rerr error
-			if id, rerr = readSecretFile(c.ClientIDFile); rerr != nil {
-				return "", "", rerr
-			}
+		id, rerr := extauth.ResolveClientID(c.ClientID, c.ClientIDFile)
+		if rerr != nil {
+			return "", "", rerr
 		}
-		secret, rerr := readSecretFile(c.ClientSecretFile)
+		secret, rerr := extauth.ReadClientSecret(c.ClientSecretFile)
 		if rerr != nil {
 			return "", "", rerr
 		}
 		return id, secret, nil
 	}
 	return "", "", &ConfigError{Msg: "no introspection client_id and client_secret_file are configured"}
-}
-
-// readSecretFile reads a client secret file. Trailing whitespace is not part of the secret.
-func readSecretFile(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, maxClientSecretSize+1))
-	if err != nil {
-		return "", err
-	}
-	if len(data) > maxClientSecretSize {
-		return "", errors.New("the client secret file is too large")
-	}
-	secret := strings.TrimSpace(string(data))
-	if secret == "" {
-		return "", errors.New("the client secret file is empty")
-	}
-	return secret, nil
 }
 
 // bearerAuth sets Authorization to the forwarded bearer token.
@@ -348,56 +309,57 @@ func do(ctx context.Context, method, endpoint string, body any, setAuth func(*ht
 	return resp.StatusCode, nil
 }
 
-// httpClient uses the introspection authenticator's CA bundle when one is set.
+var (
+	httpClientsMu sync.Mutex
+	httpClients   = map[string]*http.Client{}
+)
+
+// httpClient returns the shared client for the introspection authenticator's CA bundle.
+// One client is kept per bundle, so connections are reused. An empty bundle uses the default roots.
 func httpClient() (*http.Client, error) {
-	pool, err := caPool()
+	key, pool, err := clientCA()
 	if err != nil {
 		return nil, err
+	}
+	httpClientsMu.Lock()
+	defer httpClientsMu.Unlock()
+	if c := httpClients[key]; c != nil {
+		return c, nil
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if pool != nil {
 		transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 	}
-	return &http.Client{
+	c := &http.Client{
 		Timeout:   requestTimeout + 2*time.Second,
 		Transport: transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
-	}, nil
+	}
+	httpClients[key] = c
+	return c, nil
 }
 
-// caPool returns the PEM pool of the first introspection authenticator that sets ca_bundle.
-// A nil pool means the default roots.
-func caPool() (*x509.CertPool, error) {
+// clientCA returns the cache key and certificate pool of the first introspection authenticator
+// that sets ca_bundle. An empty key and a nil pool mean the default roots.
+func clientCA() (string, *x509.CertPool, error) {
 	cfgs, err := commonconfig.GetAuthenticators()
 	if err != nil {
-		return nil, &ConfigError{Msg: "cannot read auth.authenticators"}
+		return "", nil, &ConfigError{Msg: "cannot read auth.authenticators"}
 	}
 	for _, c := range cfgs {
-		if !strings.EqualFold(c.Type, "introspection") || strings.TrimSpace(c.CABundle) == "" {
+		bundle := strings.TrimSpace(c.CABundle)
+		if !strings.EqualFold(c.Type, "introspection") || bundle == "" {
 			continue
 		}
-		return certPool(c.CABundle)
-	}
-	return nil, nil
-}
-
-// certPool parses PEM text or a PEM file into a certificate pool.
-func certPool(bundle string) (*x509.CertPool, error) {
-	data := []byte(bundle)
-	if !strings.Contains(bundle, "-----BEGIN") {
-		var err error
-		data, err = os.ReadFile(bundle)
+		pool, err := extauth.CertPool(bundle)
 		if err != nil {
-			return nil, err
+			return "", nil, err
 		}
+		return bundle, pool, nil
 	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(data) {
-		return nil, errors.New("no certificate found in the introspection ca_bundle")
-	}
-	return pool, nil
+	return "", nil, nil
 }
 
 // mapCall turns a transport or HTTP failure into 503 or 502.

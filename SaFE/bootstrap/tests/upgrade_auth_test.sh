@@ -396,6 +396,12 @@ expect "sso_login with a '&' in a value: says so" grep -q "oidc_login_redirect_u
 run_upgrade "" "$SSO_LOGIN"
 expect "oidc_login_enable=true with sso_enable=false: applied" applied
 expect "oidc_login_enable=true with sso_enable=false: sso.login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+run_upgrade "" "sso_login_enable=true
+sso_login_issuer=https://idp.example.com
+sso_login_client_id=safe-console
+sso_login_redirect_uri=https://console.example.com/sso/callback"
+expect "sso_login_* is ignored: applied" applied
+expect "sso_login_* is ignored: sso.login stays off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
 run_upgrade "" "oidc_login_enable=false"
 expect "oidc_login_enable=false with sso_enable=false: applied" applied
 # Removing the Secret leaves the apiserver without a provider unless sso.login is on.

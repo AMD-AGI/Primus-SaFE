@@ -52,6 +52,7 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 		}
 	} else if resp.SSOEnable {
 		if inst := authority.SSOInstance(); inst != nil {
+			resp.SSOAuthUrl = inst.AuthURL()
 			resp.SSOLoginUrl = inst.LoginAuthURL()
 			resp.SSOPkce = inst.LoginEnabled()
 		}

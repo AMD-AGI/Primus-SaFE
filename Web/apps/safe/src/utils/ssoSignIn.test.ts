@@ -111,10 +111,14 @@ describe('takeCallbackVerifier', () => {
 })
 
 describe('signInTarget', () => {
-  it('uses ssoLoginUrl with PKCE, and has no target without it', () => {
-    expect(signInTarget({ ssoLoginUrl: 'https://b/authorize' })).toEqual({
+  it('uses ssoLoginUrl with PKCE, and ssoAuthUrl without it', () => {
+    expect(signInTarget({ ssoLoginUrl: 'https://b/authorize', ssoAuthUrl: 'https://a/authorize' })).toEqual({
       url: 'https://b/authorize',
       pkce: true,
+    })
+    expect(signInTarget({ ssoAuthUrl: 'https://a/authorize' })).toEqual({
+      url: 'https://a/authorize',
+      pkce: false,
     })
     expect(signInTarget({ ssoPkce: true })).toBeNull()
     expect(signInTarget({})).toBeNull()

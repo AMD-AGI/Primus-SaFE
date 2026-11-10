@@ -51,6 +51,9 @@ var externalState atomic.Pointer[externalAuth]
 // the default. In builtin mode it leaves the chain unset and ParseToken stays the local
 // one. An external mode that cannot be built is an error: it must not start as builtin.
 func InitExternalAuth(cli client.Client) error {
+	if err := commonconfig.CheckAuthMode(); err != nil {
+		return err
+	}
 	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
 		externalState.Store(nil)
 		// The one thing builtin mode takes from the external configuration: POST /auth/verify answering the

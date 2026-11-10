@@ -372,6 +372,40 @@ func TestExternalModeKeepsApiKeyRevocation(t *testing.T) {
 
 // The refusal does not depend on the shape of the chain: without the built-in authenticator
 // in it, sign-in is refused all the same.
+// sso.enable does not let an external-mode caller exchange a code from the sso Secret provider.
+func TestExternalModeRefusesSecretProviderCode(t *testing.T) {
+	commonconfig.SetValue("sso.enable", "true")
+	t.Cleanup(func() { commonconfig.SetValue("sso.enable", "") })
+	e := guardEngine(t, false)
+	w := guardRequest{method: http.MethodPost, path: "/api/v1/login", body: `{"type":"sso","code":"c","name":"x"}`}.serve(e)
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), refusal)
+}
+
+func TestBuiltinModeServesAccountRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &Handler{Client: sharedGuardCluster(t)}
+	serve := func(mode, method, path, body string) int {
+		if mode == "" {
+			viper.Set("auth.mode", nil)
+		} else {
+			viper.Set("auth.mode", mode)
+		}
+		e := gin.New()
+		InitCustomRouters(e, h)
+		return guardRequest{method: method, path: path, body: body}.serve(e).Code
+	}
+	t.Cleanup(func() { viper.Set("auth.mode", nil) })
+
+	require.NotEqual(t, http.StatusNotFound, serve("builtin", http.MethodPost, "/api/v1/users", `{}`))
+	require.NotEqual(t, http.StatusNotFound, serve("builtin", http.MethodDelete, "/api/v1/users/u1", ""))
+	require.NotEqual(t, http.StatusNotFound, serve("builtin", http.MethodPatch, "/api/v1/users/u1", `{}`))
+
+	require.Equal(t, http.StatusNotFound, serve("external", http.MethodPost, "/api/v1/users", `{}`))
+	require.Equal(t, http.StatusNotFound, serve("external", http.MethodDelete, "/api/v1/users/u1", ""))
+	require.NotEqual(t, http.StatusNotFound, serve("external", http.MethodPatch, "/api/v1/users/u1", `{}`))
+}
+
 func TestExternalModeRefusesLoginWhateverTheChain(t *testing.T) {
 	e := guardEngine(t, false)
 	for _, body := range []string{loginBody("default", localName, localPassword), loginBody("sso", "x", "")} {
@@ -491,7 +525,7 @@ func TestEnvsReportsAuthMode(t *testing.T) {
 	viper.Set("auth.mode", "builtin")
 	assert.Equal(t, "builtin", getEnvsResponse(t).AuthMode)
 	viper.Set("auth.mode", "externl")
-	assert.Equal(t, "external", getEnvsResponse(t).AuthMode, "a typo is still external")
+	assert.Empty(t, getEnvsResponse(t).AuthMode, "a typo is not a mode")
 }
 
 // loginUrl is auth.login_url and is returned only in external mode. ssoEnable still reports sso.enable.
@@ -529,12 +563,13 @@ func TestEnvsDoesNotAdvertiseBuiltinSignInInExternalMode(t *testing.T) {
 	assert.Empty(t, got.LoginURL)
 	assert.Equal(t, "external", got.AuthMode)
 
-	// builtin reports sso.enable and does not return loginUrl.
+	// builtin reports sso.enable, the secret provider's authorize URL, and does not return loginUrl.
 	viper.Set("auth.mode", "builtin")
 	got = getEnvsResponse(t)
 	assert.True(t, got.SSOEnable)
 	assert.Empty(t, got.LoginURL)
 	assert.Equal(t, "builtin", got.AuthMode)
+	assert.Contains(t, got.SSOAuthUrl, idp.URL+"/authorize")
 
 	// loginUrl is only the external sign-in, including while sso.enable is on.
 	viper.Set("auth.mode", "external")

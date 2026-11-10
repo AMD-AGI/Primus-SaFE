@@ -241,9 +241,11 @@ func TestBuiltinModeIsUnchanged(t *testing.T) {
 	require.Error(t, InitExternalAuth(nil))
 	require.Nil(t, externalState.Load())
 
-	// An unrecognised auth.mode is ignored. The mode stays external, and an empty chain still fails.
+	// An unrecognised auth.mode is refused. It is not treated as external.
 	viper.Set("auth.mode", "externl")
-	require.Error(t, InitExternalAuth(nil))
+	err := InitExternalAuth(nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "must be builtin or external")
 	require.Nil(t, externalState.Load())
 
 	// A builtin-only chain accepts a local session token.

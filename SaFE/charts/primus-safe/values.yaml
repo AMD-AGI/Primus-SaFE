@@ -279,7 +279,7 @@ console:
 auth:
   # external (the default) authenticates with authenticators, in order, and takes platform
   # roles from group_mappings. builtin uses local accounts, sign-in and the roles stored
-  # on user objects. Any other value is external.
+  # on user objects. Any other value is refused when the apiserver starts.
   mode: external
   # Authenticator entries. Durations are Go durations ("30s", "30m").
   #   - type: oidc        # validate JWTs from one issuer

@@ -171,6 +171,11 @@ func NewIntrospectionAuthenticator(cfg IntrospectionConfig) (*IntrospectionAuthe
 	return &IntrospectionAuthenticator{cfg: cfg, cache: map[string]*cacheEntry{}}, nil
 }
 
+// CertPool parses PEM text or a PEM file into a certificate pool.
+func CertPool(bundle string) (*x509.CertPool, error) {
+	return certPool(bundle)
+}
+
 func certPool(bundle string) (*x509.CertPool, error) {
 	data := []byte(bundle)
 	if !strings.Contains(bundle, "-----BEGIN") {
@@ -184,6 +189,11 @@ func certPool(bundle string) (*x509.CertPool, error) {
 		return nil, errors.New("no certificate found")
 	}
 	return pool, nil
+}
+
+// ReadClientSecret reads the secret from its file. Trailing whitespace is not part of the secret.
+func ReadClientSecret(path string) (string, error) {
+	return readClientSecret(path)
 }
 
 // readClientSecret reads the secret from its file. Trailing whitespace (the newline an

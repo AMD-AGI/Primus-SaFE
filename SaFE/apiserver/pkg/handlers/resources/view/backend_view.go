@@ -33,6 +33,9 @@ type GetEnvResponse struct {
 	Connection string `json:"connection,omitempty"`
 	// Whether to enable sso. This is sso.enable. The console uses it only when AuthMode is not external.
 	SSOEnable bool `json:"ssoEnable"`
+	// The authorization URL of the sso Secret provider, when AuthMode is not external and that provider
+	// is configured. The console uses it when SSOLoginUrl is empty. Absent in external mode.
+	SSOAuthUrl string `json:"ssoAuthUrl,omitempty"`
 	// The console's sign-in at the sso.login provider, when AuthMode is not external and sso.login is on:
 	// an authorization URL that needs PKCE (the console adds its state and an S256 code_challenge, and
 	// sends the code verifier with the code).

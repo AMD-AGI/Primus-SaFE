@@ -573,9 +573,6 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 		commonuser.GetWorkspace(targetUser), "", nil, v1.DeleteVerb); err != nil {
 		return nil, err
 	}
-	if err = forwardIdentityDelete(c, targetUser.Name); err != nil {
-		return nil, err
-	}
 	if err = h.DeleteUserRecord(c.Request.Context(), targetUser); err != nil {
 		return nil, err
 	}
@@ -595,15 +592,6 @@ func (h *Handler) DeleteUserRecord(ctx context.Context, user *v1.User) error {
 		}
 	}
 	return h.Delete(ctx, user)
-}
-
-// forwardIdentityDelete asks the identity service to delete the user before the local record is removed.
-// Builtin mode does nothing. A 404 from the identity service is success.
-func forwardIdentityDelete(c *gin.Context, userID string) error {
-	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
-		return nil
-	}
-	return identity.DeleteIdentity(c.Request.Context(), userID, authority.CallerBearer(c))
 }
 
 // forwardIdentityStatus asks the identity service to disable or activate the user before the local
@@ -652,9 +640,11 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	// A code from identity is exchanged here in external mode when SSO is on. A local password is not.
+	// External mode exchanges only a code from sso.login, which carries a PKCE verifier.
+	// A code for the sso Secret provider, and a local password, are refused.
+	identityCode := query.Type == v1.SSOUserType && query.CodeVerifier != "" && commonconfig.IsSSOLoginEnable()
 	ssoOn := commonconfig.IsSSOEnable() || commonconfig.IsSSOLoginEnable()
-	if query.Type != v1.SSOUserType || !ssoOn {
+	if !identityCode {
 		if err = refuseExternal("sign-in through this endpoint"); err != nil {
 			c.Set(common.UserId, "login-failed:"+query.Name)
 			c.Set(common.UserName, query.Name)

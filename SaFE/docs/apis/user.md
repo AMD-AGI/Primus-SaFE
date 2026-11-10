@@ -10,6 +10,8 @@ Create a new user account.
 
 **Endpoint**: `POST /api/v1/users`
 
+Served when `auth.mode` is `builtin`. External mode does not register this route.
+
 **Authentication Required**: No (Public endpoint)
 
 **Request Parameters**:
@@ -288,6 +290,8 @@ Delete a specific user.
 
 **Endpoint**: `DELETE /api/v1/users/{UserId}`
 
+Served when `auth.mode` is `builtin`. The route removes the user from workspaces the user manages and deletes the local user. External mode does not register this route.
+
 **Authentication Required**: Yes
 
 **Path Parameters**:
@@ -299,8 +303,6 @@ Delete a specific user.
 **Permission Requirements**: System administrator
 
 **Response**: 200 OK with no response body
-
-When `auth.mode` is `external`, the apiserver first calls `DELETE /api/v1/identities/{UserId}` with the caller's bearer credential. A 404 from the identity service is success. It then removes the user from workspaces the user manages and deletes the local user. If the identity service cannot be reached the response is 503; if it refuses, 502, and the local user stays. Builtin mode deletes the local user only.
 
 ---
 
