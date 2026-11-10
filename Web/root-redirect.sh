@@ -28,6 +28,15 @@ if ! [[ "$target" =~ $shape ]] || [[ "$target" =~ $unsafe ]]; then
   exit 1
 fi
 
+# A browser resolves the . and .. segments of the path (%2e is a dot there too) before it follows the redirect, so
+# /. or /portal/.. would land on / and redirect again.
+path="${target%%[?#]*}"
+dot_segment='(^|/)(\.|%2e){1,2}(/|$)'
+if [[ "${path,,}" =~ $dot_segment ]]; then
+  echo "ERROR: ROOT_REDIRECT must not have a . or .. segment, which a browser resolves (/portal/.. is /), got: $target" >&2
+  exit 1
+fi
+
 cat > "$out" <<CONF
 if (\$bare_root_request) { return 302 ${target}; }
 CONF

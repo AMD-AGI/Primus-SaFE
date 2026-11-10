@@ -38,7 +38,7 @@ describe('root-redirect.sh', () => {
   })
 
   it('redirects a plain page load of / to the path, so a sign-in returning to /?code=... still loads the console', () => {
-    for (const target of ['/portal/', '/team/portal/']) {
+    for (const target of ['/portal/', '/team/portal/', '/portal.v2/']) {
       const r = run(target)
       expect(r.status).toBe(0)
       expect(r.conf).toBe(`if ($bare_root_request) { return 302 ${target}; }\n`)
@@ -66,6 +66,15 @@ describe('root-redirect.sh', () => {
       const r = run(target)
       expect(r.status).not.toBe(0)
       expect(r.stderr).toContain('ROOT_REDIRECT must be a path on this host such as /portal/')
+    },
+  )
+
+  it.each(['/.', '/..', '/portal/..', '/./portal/', '/portal/../', '/%2e', '/%2E%2e/', '/portal/.%2e?x=1'])(
+    'refuses a target with a . or .. segment, which a browser resolves and can bring back to /: %j',
+    (target) => {
+      const r = run(target)
+      expect(r.status).not.toBe(0)
+      expect(r.stderr).toContain('ROOT_REDIRECT must not have a . or .. segment')
     },
   )
 })
