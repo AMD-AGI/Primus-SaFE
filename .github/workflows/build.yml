@@ -304,7 +304,7 @@ jobs:
             CONTEXT="."
           fi
           if [[ "${{ matrix.name }}" == "primus-safe-web" ]]; then
-            EXTRA_ARGS+=" --build-arg VITE_MCP_BASE_URL=${VITE_MCP_BASE_URL}"
+            EXTRA_ARGS+=" --build-arg VITE_MCP_BASE_URL=/sso-mcp/mcp"
             EXTRA_ARGS+=" --build-arg VITE_MCP_API_KEY=${VITE_MCP_API_KEY}"
           fi
           if [[ "${{ matrix.name }}" == "preprocess" ]]; then
