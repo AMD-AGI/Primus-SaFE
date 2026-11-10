@@ -1,12 +1,46 @@
 package scim
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 	"github.com/spf13/viper"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// The apiserver decodes JSON strictly (server.go enables DisallowUnknownFields). A SCIM client sends the PatchOp
+// schemas member, so the patch body must declare it.
+func TestParsePatchAcceptsSCIMPatchOpSchemas(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	binding.EnableDecoderDisallowUnknownFields = true
+	t.Cleanup(func() { binding.EnableDecoderDisallowUnknownFields = false })
+	for _, tc := range []struct {
+		name, body string
+		groups     bool
+	}{
+		{"clear groups", `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"groups","value":[]}]}`, true},
+		{"set groups", `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"groups","value":["system-admin"]}]}`, true},
+		{"deactivate", `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"active","value":false}]}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPatch, "/scim/v2/Users/x", strings.NewReader(tc.body))
+			c.Request.Header.Set("Content-Type", "application/scim+json")
+			plan, err := parsePatch(c)
+			if err != nil {
+				t.Fatalf("parsePatch: %v", err)
+			}
+			if (plan.groups != nil) != tc.groups {
+				t.Fatalf("groups set %v, want %v", plan.groups != nil, tc.groups)
+			}
+		})
+	}
+}
 
 func TestApplyMappedRolesReplacesPlatformRoles(t *testing.T) {
 	viper.Set("auth.group_mappings", []map[string]any{

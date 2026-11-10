@@ -71,6 +71,7 @@ type scimError struct {
 }
 
 type patchBody struct {
+	Schemas    []string        `json:"schemas"`
 	Operations []patchOp       `json:"Operations"`
 	Op         string          `json:"op"`
 	Path       string          `json:"path"`
