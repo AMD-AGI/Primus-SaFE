@@ -163,14 +163,14 @@ data:
     {{- /* the path the console's nginx routes to that upstream */}}
     {{- $apiKeysURL = "/api/v1/apikeys" }}
     {{- end }}
-    {{- /* Empty login and SCIM callback URLs follow the release: the console host, and this apiserver. */}}
+    {{- /* Empty login and SCIM callback URLs follow the release: the console host, and the apiserver host. */}}
     {{- $loginURL := .Values.auth.login_url }}
     {{- if and (not $loginURL) .Values.global.sub_domain .Values.global.domain }}
     {{- $loginURL = printf "https://%s.%s/login/password" .Values.global.sub_domain .Values.global.domain }}
     {{- end }}
     {{- $scimPublic := (default dict .Values.auth.scim).public_url }}
-    {{- if not $scimPublic }}
-    {{- $scimPublic = printf "http://%s-apiserver.%s.svc.cluster.local:%v/scim/v2" .Release.Name .Release.Namespace (default 8088 (default dict .Values.apiserver).port) }}
+    {{- if and (not $scimPublic) .Values.global.sub_domain .Values.global.domain }}
+    {{- $scimPublic = printf "https://apiserver.%s.%s/scim/v2" .Values.global.sub_domain .Values.global.domain }}
     {{- end }}
     auth:
       # builtin (default): local accounts, built-in sessions, SSO login and API keys.

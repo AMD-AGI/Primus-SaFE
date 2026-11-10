@@ -65,8 +65,11 @@ type IntrospectionConfig struct {
 	CABundle string
 	// ClientID and ClientSecretFile authenticate this apiserver to the introspection endpoint
 	// (HTTP Basic). The secret is read from the file, a mounted Secret, on every call, so a
-	// rotated Secret is picked up without a restart; it is never logged.
+	// rotated Secret is picked up without a restart; it is never logged. ClientIDFile names a
+	// file holding the client id, for a client whose id is generated and kept in the same Secret.
+	// It is used only when ClientID is empty.
 	ClientID         string
+	ClientIDFile     string
 	ClientSecretFile string
 	Timeout          time.Duration
 	// CacheTTL is how long an accepted credential is used without asking again.
@@ -117,11 +120,16 @@ func NewIntrospectionAuthenticator(cfg IntrospectionConfig) (*IntrospectionAuthe
 	if cfg.URL == "" && cfg.Issuer == "" {
 		return nil, errors.New("introspection authenticator: url or issuer is required")
 	}
-	if cfg.ClientID == "" || cfg.ClientSecretFile == "" {
-		return nil, errors.New("introspection authenticator: client_id and client_secret_file are required")
+	if (cfg.ClientID == "" && cfg.ClientIDFile == "") || cfg.ClientSecretFile == "" {
+		return nil, errors.New("introspection authenticator: client_id (or client_id_file) and client_secret_file are required")
 	}
 	if cfg.Audience == "" {
 		return nil, errors.New("introspection authenticator: audience is required")
+	}
+	if cfg.ClientID == "" {
+		if _, err := readClientSecret(cfg.ClientIDFile); err != nil {
+			return nil, fmt.Errorf("introspection authenticator: client_id_file: %w", err)
+		}
 	}
 	if _, err := readClientSecret(cfg.ClientSecretFile); err != nil {
 		return nil, fmt.Errorf("introspection authenticator: client_secret_file: %w", err)
@@ -198,6 +206,17 @@ func readClientSecret(path string) (string, error) {
 		return "", errors.New("the file is too large to be a client secret")
 	}
 	return secret, nil
+}
+
+// ResolveClientID returns id when it is set, and otherwise the client id read from file.
+func ResolveClientID(id, file string) (string, error) {
+	if id != "" {
+		return id, nil
+	}
+	if file == "" {
+		return "", errors.New("no client id is configured")
+	}
+	return readClientSecret(file)
 }
 
 // Name implements Authenticator.
@@ -324,6 +343,10 @@ func (a *IntrospectionAuthenticator) introspect(ctx context.Context, cred Creden
 	if err != nil {
 		return nil, err
 	}
+	clientID, err := ResolveClientID(a.cfg.ClientID, a.cfg.ClientIDFile)
+	if err != nil {
+		return nil, fmt.Errorf("client id: %w", err)
+	}
 	secret, err := readClientSecret(a.cfg.ClientSecretFile)
 	if err != nil {
 		return nil, fmt.Errorf("client secret: %w", err)
@@ -345,7 +368,7 @@ func (a *IntrospectionAuthenticator) introspect(ctx context.Context, cred Creden
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	req.SetBasicAuth(a.cfg.ClientID, secret)
+	req.SetBasicAuth(clientID, secret)
 	resp, err := a.cfg.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err

@@ -238,6 +238,7 @@ const (
 	sandboxAdmissionEnabled    = sandboxAdmissionPrefix + "enabled"
 	sandboxAdmissionCreator    = sandboxAdmissionPrefix + "creator"
 	sandboxAdmissionJWKS       = sandboxAdmissionPrefix + "jwks"
+	sandboxAdmissionJWKSURL    = sandboxAdmissionPrefix + "jwks_url"
 	sandboxAdmissionIssuer     = sandboxAdmissionPrefix + "issuer"
 	sandboxAdmissionAudience   = sandboxAdmissionPrefix + "audience"
 	sandboxAdmissionTokenType  = sandboxAdmissionPrefix + "token_type"

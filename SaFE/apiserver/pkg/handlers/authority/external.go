@@ -156,7 +156,7 @@ func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error)
 			a, err := extauth.NewIntrospectionAuthenticator(extauth.IntrospectionConfig{
 				Name: c.Name, URL: c.URL, Issuer: c.Issuer, CABundle: c.CABundle,
 				Audience: c.Audience, AllowMissingAudience: c.AllowMissingAudience,
-				ClientID: c.ClientID, ClientSecretFile: c.ClientSecretFile,
+				ClientID: c.ClientID, ClientIDFile: c.ClientIDFile, ClientSecretFile: c.ClientSecretFile,
 				Timeout: d[0], CacheTTL: d[1], CacheNegativeTTL: d[2], StaleIfError: d[3],
 			})
 			if err != nil {

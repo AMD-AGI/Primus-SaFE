@@ -189,7 +189,7 @@ expect "no auth keys, fresh install: applied" applied
 expect "no auth keys, fresh install: external" rendered 'mode: "external"'
 expect "no auth keys, fresh install: only the one values file" grep -qx 1 "$OUT/value-files"
 expect "no auth keys, fresh install: login url" rendered 'login_url: "https://test.primus-safe.amd.com/login/password"'
-expect "no auth keys, fresh install: scim public url" rendered '  public_url: "http://primus-safe-apiserver.primus-safe.svc.cluster.local:8088/scim/v2"'
+expect "no auth keys, fresh install: scim public url" rendered '  public_url: "https://apiserver.test.primus-safe.amd.com/scim/v2"'
 
 # 2. The auth_* keys reach the rendered chart, on a release that is not external yet.
 run_upgrade "$LIVE_BUILTIN" "$AUTH_ENV"
@@ -240,7 +240,7 @@ expect "live external, api_keys_upstream missing: names it" grep -q 'does not se
 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"
 expect "live external, all keys in .env: applied" applied
 expect "live external, all keys in .env: still external" rendered 'mode: "external"'
-expect "live external, empty public url: derived" rendered '  public_url: "http://primus-safe-apiserver.primus-safe.svc.cluster.local:8088/scim/v2"'
+expect "live external, empty public url: derived" rendered '  public_url: "https://apiserver.test.primus-safe.amd.com/scim/v2"'
 
 # 5b. A stored scim.enabled=false is not kept. Omitting the key renders the chart default, true.
 #     An explicit false in .env still turns it off.

@@ -226,14 +226,21 @@ func introspectionSecret() (string, string, error) {
 		return "", "", &ConfigError{Msg: "cannot read auth.authenticators"}
 	}
 	for _, c := range cfgs {
-		if !strings.EqualFold(c.Type, "introspection") || c.ClientID == "" || c.ClientSecretFile == "" {
+		if !strings.EqualFold(c.Type, "introspection") || (c.ClientID == "" && c.ClientIDFile == "") || c.ClientSecretFile == "" {
 			continue
+		}
+		id := c.ClientID
+		if id == "" {
+			var rerr error
+			if id, rerr = readSecretFile(c.ClientIDFile); rerr != nil {
+				return "", "", rerr
+			}
 		}
 		secret, rerr := readSecretFile(c.ClientSecretFile)
 		if rerr != nil {
 			return "", "", rerr
 		}
-		return c.ClientID, secret, nil
+		return id, secret, nil
 	}
 	return "", "", &ConfigError{Msg: "no introspection client_id and client_secret_file are configured"}
 }

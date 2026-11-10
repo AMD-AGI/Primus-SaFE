@@ -91,11 +91,12 @@ func TestChartRendersAuthKeyActors(t *testing.T) {
 	testifyassert.True(t, IsSCIMEnabled())
 	testifyassert.Empty(t, GetSCIMIdentityURL())
 	testifyassert.Empty(t, GetAuthLoginURL())
-	testifyassert.Equal(t, "http://release-name-apiserver.default.svc.cluster.local:8088/scim/v2", GetSCIMPublicURL())
+	testifyassert.Empty(t, GetSCIMPublicURL())
 	testifyassert.Equal(t, DefaultSCIMTokenSecret, GetSCIMTokenSecret())
 
 	loadRendered(t, renderApiserverConfig(t, "--set", "global.sub_domain=ccs300"))
 	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com/login/password", GetAuthLoginURL())
+	testifyassert.Equal(t, "https://apiserver.ccs300.primus-safe.amd.com/scim/v2", GetSCIMPublicURL())
 
 	loadRendered(t, renderApiserverConfig(t, "--set", "auth.key_actors={client-a,client-b}"))
 	testifyassert.Equal(t, []string{"client-a", "client-b"}, GetAuthKeyActors())
@@ -812,6 +813,28 @@ func TestChartRendersTheMinimalUsersConfiguration(t *testing.T) {
 	testifyassert.Equal(t, []string{"self-read", "viewer"}, GetUserBaseRoles())
 	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml", "--set", "users.base_roles=null"))
 	testifyassert.Equal(t, []string{"default"}, GetUserBaseRoles())
+}
+
+// TestChartDefaultsTheSandboxAdmissionKeySet pins that the key set URL and the issuer are the cluster host
+// when the values leave them empty, and that an explicit URL is kept.
+func TestChartDefaultsTheSandboxAdmissionKeySet(t *testing.T) {
+	rendered := renderConfigMapData(t, "webhooks", "config.yaml")
+	testifyassert.Contains(t, rendered, "jwks_url: \"\"")
+	testifyassert.Contains(t, rendered, "issuer: \"\"")
+
+	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml", "--set", "global.sub_domain=ccs300"))
+	cfg := GetSandboxAdmissionConfig()
+	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com/.well-known/jwks.json", cfg.JWKSURL)
+	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com", cfg.Issuer)
+	testifyassert.False(t, IsSandboxAdmissionEnable())
+
+	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml",
+		"--set", "global.sub_domain=ccs300",
+		"--set-string", "sandbox.admission.jwks_url=https://idp.example/.well-known/jwks.json",
+		"--set-string", "sandbox.admission.issuer=https://idp.example"))
+	cfg = GetSandboxAdmissionConfig()
+	testifyassert.Equal(t, "https://idp.example/.well-known/jwks.json", cfg.JWKSURL)
+	testifyassert.Equal(t, "https://idp.example", cfg.Issuer)
 }
 
 // TestChartRendersTheAccessContact pins that the line is carried as text (a value with a colon or a quote

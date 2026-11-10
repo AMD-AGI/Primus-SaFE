@@ -137,6 +137,7 @@ them. See [upgrade.md](upgrade.md) for what each does.
 - **sandbox_extra_ca_secret**: Secret of extra CA certificates that sandboxes trust (`sandbox.extra_ca_secret`)
 - **sandbox_env_secret**: `sandbox-env` or empty (`sandbox.env_secret`); any other value stops the install before anything is installed
 - **web_root_redirect**: where a browser opening the bare `/` of the console's host is sent, a path on that host such as `/portal/`; empty keeps the console there (`web.root_redirect`)
+- **sandbox_admission_actor**: client id of the sandbox control plane; when set, sandbox admission is turned on. The key set URL is derived from the cluster host and is not set here
 
 ### 🚀 Installation Process
 
@@ -168,7 +169,7 @@ The script performs the following steps after configuration:
   - `ingress`, `sub_domain`
   - `install_node_agent`, `csi_volume_handle`
   - `sandbox_extra_ca_secret`, `sandbox_env_secret`
-  - `web_root_redirect`
+  - `web_root_redirect`, `sandbox_admission_actor`
 
 ### 🔄 Install Command
 

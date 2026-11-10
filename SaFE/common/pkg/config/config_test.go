@@ -789,3 +789,21 @@ func TestUsersAndConsoleConfig(t *testing.T) {
 	UnsetValue("users.join_default_workspaces")
 	testifyassert.True(t, IsUserJoinDefaultWorkspaces(), "UnsetValue reads as not configured, not as configured empty")
 }
+
+// TestSandboxAdmissionKeySetDefaultsToTheClusterHost pins that an empty key set URL and issuer are the
+// identity provider of this cluster, and that an explicit value is kept.
+func TestSandboxAdmissionKeySetDefaultsToTheClusterHost(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set(subDomain, "ccs300")
+	viper.Set(domain, "primus-safe.amd.com")
+	cfg := GetSandboxAdmissionConfig()
+	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com/.well-known/jwks.json", cfg.JWKSURL)
+	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com", cfg.Issuer)
+
+	viper.Set(sandboxAdmissionJWKSURL, "https://idp.example/.well-known/jwks.json")
+	viper.Set(sandboxAdmissionIssuer, "https://idp.example")
+	cfg = GetSandboxAdmissionConfig()
+	testifyassert.Equal(t, "https://idp.example/.well-known/jwks.json", cfg.JWKSURL)
+	testifyassert.Equal(t, "https://idp.example", cfg.Issuer)
+}

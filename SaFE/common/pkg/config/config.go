@@ -813,9 +813,11 @@ func GetSandboxEnvdInjectorImage() string {
 type SandboxAdmissionConfig struct {
 	// Creator is the username of the sandbox control plane account.
 	Creator string
-	// JWKS is the identity provider JWKS document, JSON text.
+	// JWKS is the identity provider key set, JSON text. It is used when set; otherwise the key set is read from JWKSURL.
 	JWKS string
-	// Issuer is the expected iss of the assertion.
+	// JWKSURL is where the key set is read from. Empty uses https://<sub_domain>.<domain>/.well-known/jwks.json.
+	JWKSURL string
+	// Issuer is the expected iss of the assertion. Empty uses https://<sub_domain>.<domain>.
 	Issuer string
 	// Audience is the expected aud of the assertion.
 	Audience string
@@ -835,12 +837,35 @@ func IsSandboxAdmissionEnable() bool {
 	return getBool(sandboxAdmissionEnabled, false)
 }
 
+// clusterOrigin is the identity provider of this cluster, https://<sub_domain>.<domain>.
+// It is empty when either part is unset.
+func clusterOrigin() string {
+	d := strings.TrimSpace(getString(domain, ""))
+	sub := strings.TrimSpace(getString(subDomain, ""))
+	if d == "" || sub == "" {
+		return ""
+	}
+	return "https://" + sub + "." + d
+}
+
 // GetSandboxAdmissionConfig returns the sandbox.admission settings with their defaults applied.
 func GetSandboxAdmissionConfig() SandboxAdmissionConfig {
+	origin := clusterOrigin()
+	jwksURL := strings.TrimSpace(getString(sandboxAdmissionJWKSURL, ""))
+	if jwksURL == "" {
+		if origin != "" {
+			jwksURL = origin + "/.well-known/jwks.json"
+		}
+	}
+	issuer := strings.TrimSpace(getString(sandboxAdmissionIssuer, ""))
+	if issuer == "" {
+		issuer = origin
+	}
 	return SandboxAdmissionConfig{
 		Creator:    strings.TrimSpace(getString(sandboxAdmissionCreator, "")),
 		JWKS:       getString(sandboxAdmissionJWKS, ""),
-		Issuer:     strings.TrimSpace(getString(sandboxAdmissionIssuer, "")),
+		JWKSURL:    jwksURL,
+		Issuer:     issuer,
 		Audience:   strings.TrimSpace(getString(sandboxAdmissionAudience, "agent-sandbox-admission")),
 		TokenType:  strings.TrimSpace(getString(sandboxAdmissionTokenType, "assertion+jwt")),
 		Algorithm:  strings.TrimSpace(getString(sandboxAdmissionAlgorithm, "ES256")),
@@ -1003,6 +1028,7 @@ type AuthenticatorConfig struct {
 	URL              string `json:"url" yaml:"url" mapstructure:"url"`
 	CABundle         string `json:"ca_bundle" yaml:"ca_bundle" mapstructure:"ca_bundle"` // PEM text or a file path
 	ClientID         string `json:"client_id" yaml:"client_id" mapstructure:"client_id"`
+	ClientIDFile     string `json:"client_id_file" yaml:"client_id_file" mapstructure:"client_id_file"` // used when client_id is empty
 	ClientSecretFile string `json:"client_secret_file" yaml:"client_secret_file" mapstructure:"client_secret_file"`
 	Timeout          string `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
 	CacheTTL         string `json:"cache_ttl" yaml:"cache_ttl" mapstructure:"cache_ttl"`

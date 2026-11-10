@@ -62,7 +62,7 @@ install_or_upgrade_helm_chart() {
 #                        A stored false is not kept.                           -> auth.scim.enabled
 #   auth_scim_identity_url  identity service root                          -> auth.scim.identity_url
 #   auth_scim_public_url    base URL the identity service calls for SCIM.
-#                        Omitted: this release's apiserver Service, /scim/v2.
+#                        Omitted: https://apiserver.<sub_domain>.<domain>/scim/v2.
 #                        A stored value is not kept.                           -> auth.scim.public_url
 #   auth_scim_token_secret  name of the Secret holding the SCIM bearer.
 #                        Omitted: the chart default primus-safe-scim-token, when the
@@ -557,6 +557,14 @@ fi
 # default and renders no extra CA.
 if [[ -n "${sandbox_extra_ca_secret:-}" ]]; then
   sed -i '/^sandbox:/,/^[a-z]/ s/extra_ca_secret: .*/extra_ca_secret: "'"$sandbox_extra_ca_secret"'"/' "$values_yaml"
+fi
+
+# Client id of the sandbox control plane, the act.sub of the workload assertion. When set, sandbox
+# admission is turned on. When omitted, admission stays off. The key set URL and the issuer are the
+# cluster host and are not set here.
+if [[ -n "${sandbox_admission_actor:-}" ]]; then
+  sed -i '/^sandbox:/,/^[a-z]/ s/^    enabled: .*/    enabled: true/' "$values_yaml"
+  sed -i '/^sandbox:/,/^[a-z]/ s/^    actor: .*/    actor: "'"$sandbox_admission_actor"'"/' "$values_yaml"
 fi
 
 # Secret whose keys sandboxes receive as environment variables. Synced whenever

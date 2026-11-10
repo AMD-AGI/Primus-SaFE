@@ -21,6 +21,7 @@ fi
 # See docs/installation/upgrade.md for each.
 sandbox_extra_ca_secret="${sandbox_extra_ca_secret:-}"
 sandbox_env_secret="${sandbox_env_secret:-}"
+sandbox_admission_actor="${sandbox_admission_actor:-}"
 # The only accepted name is the one the apiserver and resource-manager always reserve (the chart
 # refuses any other); checked here, before anything is installed.
 if [[ -n "$sandbox_env_secret" && "$sandbox_env_secret" != "sandbox-env" ]]; then
@@ -320,6 +321,7 @@ echo "✅ Image Registry: \"$proxy_image_registry\""
 echo "✅ Sandbox Extra CA Secret: \"$sandbox_extra_ca_secret\""
 echo "✅ Sandbox Env Secret: \"$sandbox_env_secret\""
 echo "✅ Web Root Redirect: \"$web_root_redirect\""
+echo "✅ Sandbox Admission Actor: \"$sandbox_admission_actor\""
 
 replicas=1
 cpu=2000m
@@ -466,6 +468,10 @@ if [[ -n "$web_root_redirect" ]]; then
   root_redirect=$(printf '%s\n' "$web_root_redirect" | sed 's/[&|\]/\\&/g')
   sed -i '/^web:/,/^[a-z]/ s|root_redirect: .*|root_redirect: "'"$root_redirect"'"|' "$values_yaml"
 fi
+if [[ -n "$sandbox_admission_actor" ]]; then
+  sed -i '/^sandbox:/,/^[a-z]/ s/^    enabled: .*/    enabled: true/' "$values_yaml"
+  sed -i '/^sandbox:/,/^[a-z]/ s/^    actor: .*/    actor: "'"$sandbox_admission_actor"'"/' "$values_yaml"
+fi
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
 echo "⏳ Waiting for Postgres Operator pod..."
@@ -587,6 +593,7 @@ metrics_port=8000
 sandbox_extra_ca_secret=$sandbox_extra_ca_secret
 sandbox_env_secret=$sandbox_env_secret
 web_root_redirect=$web_root_redirect
+sandbox_admission_actor=$sandbox_admission_actor
 EOF
 if [[ -n "$auth_client_secret_installed" ]]; then
   printf 'auth_client_secret=%s\n' "$auth_client_secret_installed" >> .env

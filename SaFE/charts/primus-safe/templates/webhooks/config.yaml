@@ -41,13 +41,22 @@ data:
     users:
       {{- include "primus-safe.usersConfig" . | nindent 6 }}
     {{- $admission := default dict (default dict .Values.sandbox).admission }}
+    {{- $jwksURL := $admission.jwks_url }}
+    {{- if and (not $jwksURL) .Values.global.sub_domain .Values.global.domain }}
+    {{- $jwksURL = printf "https://%s.%s/.well-known/jwks.json" .Values.global.sub_domain .Values.global.domain }}
+    {{- end }}
+    {{- $issuer := $admission.issuer }}
+    {{- if and (not $issuer) .Values.global.sub_domain .Values.global.domain }}
+    {{- $issuer = printf "https://%s.%s" .Values.global.sub_domain .Values.global.domain }}
+    {{- end }}
     sandbox:
       admission:
         # Whether Workloads created by the sandbox control plane are checked against the identity assertion and workspace membership.
         enabled: {{ default false $admission.enabled }}
         creator: {{ default "" $admission.creator | quote }}
         jwks: {{ default "" $admission.jwks | quote }}
-        issuer: {{ default "" $admission.issuer | quote }}
+        jwks_url: {{ $jwksURL | quote }}
+        issuer: {{ $issuer | quote }}
         audience: {{ default "agent-sandbox-admission" $admission.audience | quote }}
         token_type: {{ default "assertion+jwt" $admission.token_type | quote }}
         algorithm: {{ default "ES256" $admission.algorithm | quote }}

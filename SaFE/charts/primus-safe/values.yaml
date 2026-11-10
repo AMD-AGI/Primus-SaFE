@@ -348,8 +348,8 @@ auth:
     enabled: true
     # Identity service root. Empty: derived from the introspection authenticator (the URL or issuer, with /oauth/... removed).
     identity_url: ""
-    # Base URL the identity service calls. It appends /Users/{id}.
-    # Empty: http://<release>-apiserver.<namespace>.svc.cluster.local:<apiserver port>/scim/v2.
+    # Base URL the identity service calls. It appends /Users/{id}. The identity service accepts https only.
+    # Empty: https://apiserver.<global.sub_domain>.<global.domain>/scim/v2.
     public_url: ""
     # Secret in the primus-safe namespace that holds the bearer token. The apiserver creates it when absent.
     token_secret: primus-safe-scim-token
@@ -594,14 +594,16 @@ sandbox:
   env_secret: ""
   # The webhooks check each Workload created by the sandbox control plane: the identity assertion in the
   # annotation agent-sandbox.io/identity-attestation must verify, and a SubjectAccessReview must allow the
-  # asserted user and groups to use the Workload's workspace. Off by default.
+  # asserted user and groups to use the Workload's workspace. Off until sandbox_admission_actor is set.
   admission:
     enabled: false
     # Username of the sandbox control plane account; the same value as the Gatekeeper sandboxCreator.
     creator: "system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane"
-    # Identity provider JWKS document, JSON text (the same value as the Gatekeeper identity.jwks).
+    # Identity provider key set, JSON text. Empty reads jwks_url instead.
     jwks: ""
-    # iss of the assertion.
+    # Where the key set is read from. Empty: https://<global.sub_domain>.<global.domain>/.well-known/jwks.json.
+    jwks_url: ""
+    # iss of the assertion. Empty: https://<global.sub_domain>.<global.domain>.
     issuer: ""
     # aud of the assertion.
     audience: agent-sandbox-admission
