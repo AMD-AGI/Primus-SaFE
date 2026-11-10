@@ -1850,6 +1850,42 @@ func Test_cvtDBWorkloadToResponseItem(t *testing.T) {
 	assert.Equal(t, result.Message, "Waiting for resources", "Should retrieve message from etcd for pending workload")
 }
 
+// A dispatched workload whose Pod no node has taken (NotReady) carries the scale-up
+// wait on the live object; list and detail both serve it, so a caller can tell a node
+// being added from a Pod no node will take. Running does not read the live object.
+func TestNotReadyWorkloadMessage_ListAndDetail(t *testing.T) {
+	const waiting = "In queue - waiting for scale-up - Scheduling is blocked due to non-empty scheduling gates" +
+		" - TriggeredScaleUp: pod triggered scale-up: job 1 queued in pool p"
+	for _, tc := range []struct {
+		phase v1.WorkloadPhase
+		want  string
+	}{
+		{phase: v1.WorkloadNotReady, want: waiting},
+		{phase: v1.WorkloadPending, want: waiting},
+		{phase: v1.WorkloadRunning, want: ""},
+	} {
+		t.Run(string(tc.phase), func(t *testing.T) {
+			user := genMockUser()
+			role := genMockRole()
+			live := genMockWorkload("test-cluster", "test-workspace")
+			live.Name = "wait-" + strings.ToLower(string(tc.phase))
+			live.Status.Phase = tc.phase
+			live.Status.Message = waiting
+			h := Handler{Client: ctrlruntimefake.NewClientBuilder().
+				WithObjects(user, role, live).WithScheme(scheme.Scheme).Build()}
+			row := &dbclient.Workload{
+				WorkloadId: live.Name,
+				Workspace:  "test-workspace",
+				Cluster:    "test-cluster",
+				Phase:      sql.NullString{String: string(tc.phase), Valid: true},
+				GVK:        `{"group":"agents.x-k8s.io","version":"v1alpha1","kind":"Sandbox"}`,
+			}
+			assert.Equal(t, h.cvtDBWorkloadToResponseItem(context.Background(), row).Message, tc.want)
+			assert.Equal(t, h.cvtDBWorkloadToGetResponse(context.Background(), user, []*v1.Role{role}, row).Message, tc.want)
+		})
+	}
+}
+
 // Test_cvtDBWorkloadToGetResponse tests converting database workload to detailed response
 func Test_cvtDBWorkloadToGetResponse(t *testing.T) {
 	ctx := context.Background()

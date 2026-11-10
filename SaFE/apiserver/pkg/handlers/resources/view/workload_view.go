@@ -203,7 +203,8 @@ type WorkloadResponseItem struct {
 	ClusterId string `json:"clusterId"`
 	// The status of workload, e.g. Succeeded, Failed, Pending, Running, Stopped, Updating
 	Phase string `json:"phase"`
-	// Shows the pending reason
+	// Shows the pending reason, the wait of a dispatched workload no node has taken
+	// yet (NotReady), or the failure reason (Failed)
 	Message string `json:"message"`
 	// Workload scheduling Priority (0-2), default 0
 	Priority int `json:"priority"`
