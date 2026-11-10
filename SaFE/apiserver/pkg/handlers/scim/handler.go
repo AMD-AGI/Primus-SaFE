@@ -21,8 +21,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 )
 
@@ -145,9 +148,10 @@ func (s *server) getUser(c *gin.Context) {
 	writeJSON(c, http.StatusOK, toSCIMUser(user))
 }
 
-// patchUser applies replace operations on active.
+// patchUser applies replace operations on active and on groups.
+// groups is the identity's platform groups; spec.roles is rewritten from auth.group_mappings.
 func (s *server) patchUser(c *gin.Context) {
-	ops, err := parseActiveOps(c)
+	plan, err := parsePatch(c)
 	if err != nil {
 		writeError(c, http.StatusBadRequest, err.Error())
 		return
@@ -160,8 +164,17 @@ func (s *server) patchUser(c *gin.Context) {
 			return gerr
 		}
 		changed := false
-		for _, active := range ops {
+		for _, active := range plan.active {
 			if applyActive(user, active) {
+				changed = true
+			}
+		}
+		if plan.groups != nil {
+			rolesChanged, rerr := applyMappedRoles(user, *plan.groups)
+			if rerr != nil {
+				return rerr
+			}
+			if rolesChanged {
 				changed = true
 			}
 		}
@@ -179,7 +192,7 @@ func (s *server) patchUser(c *gin.Context) {
 		writeAPIError(c, err, "failed to update the user")
 		return
 	}
-	klog.Infof("scim patch user %s active", id)
+	klog.Infof("scim patch user %s", id)
 	writeJSON(c, http.StatusOK, toSCIMUser(updated))
 }
 
@@ -258,28 +271,77 @@ func errBadQuery(name string) error {
 	return queryError(name + " must be an integer")
 }
 
-// parseActiveOps reads a PatchOp or a single replace operation and returns the active values in order.
-func parseActiveOps(c *gin.Context) ([]bool, error) {
+// parsedPatch is the replace operations a SCIM PATCH carries.
+type parsedPatch struct {
+	active []bool
+	// groups is set when the patch replaces groups, including with an empty list.
+	groups *[]string
+}
+
+// parsePatch reads a PatchOp or a single replace operation. active and groups are accepted; anything else is refused.
+func parsePatch(c *gin.Context) (parsedPatch, error) {
 	var body patchBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		return nil, queryError("the patch body is not valid JSON")
+		return parsedPatch{}, queryError("the patch body is not valid JSON")
 	}
 	ops := body.Operations
 	if len(ops) == 0 && body.Op != "" {
 		ops = []patchOp{{Op: body.Op, Path: body.Path, Value: body.Value}}
 	}
 	if len(ops) == 0 {
-		return nil, queryError("the patch has no operations")
+		return parsedPatch{}, queryError("the patch has no operations")
 	}
-	out := make([]bool, 0, len(ops))
+	var plan parsedPatch
 	for _, op := range ops {
-		active, ok := activeOf(op)
-		if !ok {
-			return nil, queryError("only replace of active is supported")
+		if active, ok := activeOf(op); ok {
+			plan.active = append(plan.active, active)
+			continue
 		}
-		out = append(out, active)
+		groups, ok := groupsOf(op)
+		if !ok {
+			return parsedPatch{}, queryError("only replace of active or groups is supported")
+		}
+		plan.groups = &groups
 	}
-	return out, nil
+	return plan, nil
+}
+
+// groupsOf reads a replace of groups, a JSON array of group names.
+func groupsOf(op patchOp) ([]string, bool) {
+	if !strings.EqualFold(strings.TrimSpace(op.Op), "replace") || !strings.EqualFold(strings.TrimSpace(op.Path), "groups") {
+		return nil, false
+	}
+	var groups []string
+	if err := json.Unmarshal(op.Value, &groups); err != nil || groups == nil {
+		return nil, false
+	}
+	return groups, true
+}
+
+// applyMappedRoles replaces the platform roles on user with the roles auth.group_mappings gives groups.
+// Roles that are not platform roles stay. It reports whether spec.roles changed.
+func applyMappedRoles(user *v1.User, groups []string) (bool, error) {
+	mappings, err := commonconfig.GetAuthGroupMappings()
+	if err != nil {
+		return false, err
+	}
+	mapped := extauth.MapGroups(user.Name, groups, mappings, false).Roles
+	next := make([]v1.UserRole, 0, len(user.Spec.Roles)+len(mapped))
+	for _, r := range user.Spec.Roles {
+		if !v1.IsContainRole(extauth.PlatformRoles, r) {
+			next = append(next, r)
+		}
+	}
+	for _, r := range mapped {
+		if !v1.IsContainRole(next, r) {
+			next = append(next, r)
+		}
+	}
+	if commonuser.IsRolesEqual(user.Spec.Roles, next) {
+		return false, nil
+	}
+	user.Spec.Roles = next
+	return true, nil
 }
 
 // activeOf reads a replace of active, either a boolean or {"active": <bool>}.
