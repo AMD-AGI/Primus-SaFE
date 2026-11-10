@@ -3,7 +3,7 @@
 # the first argument (nginx.conf includes it in its location for /). It is driven by ROOT_REDIRECT (chart:
 # web.root_redirect), for example /portal/. Unset or empty, the file is empty and / serves the console.
 #
-# Only a GET or HEAD of / without a query string is redirected ($plain_page_load in nginx.conf): a sign-in comes
+# Only a GET or HEAD of / without a query string is redirected ($bare_root_request in nginx.conf): a sign-in comes
 # back to / with one (an OAuth callback's ?code=...&state=..., an identity provider's ?error=...), and the console
 # must load to finish it.
 set -eu
@@ -29,5 +29,5 @@ if ! [[ "$target" =~ $shape ]] || [[ "$target" =~ $unsafe ]]; then
 fi
 
 cat > "$out" <<CONF
-if (\$plain_page_load) { return 302 ${target}; }
+if (\$bare_root_request) { return 302 ${target}; }
 CONF

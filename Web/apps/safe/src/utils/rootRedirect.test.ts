@@ -41,7 +41,7 @@ describe('root-redirect.sh', () => {
     for (const target of ['/portal/', '/team/portal/']) {
       const r = run(target)
       expect(r.status).toBe(0)
-      expect(r.conf).toBe(`if ($plain_page_load) { return 302 ${target}; }\n`)
+      expect(r.conf).toBe(`if ($bare_root_request) { return 302 ${target}; }\n`)
     }
   })
 
@@ -81,11 +81,11 @@ describe('the console image wires the redirect', () => {
     expect(conf.match(/include \/tmp\/root-redirect\.conf;/g)).toHaveLength(1)
   })
 
-  it('nginx.conf lets the redirect answer only a GET or HEAD without a query string', () => {
+  it('nginx.conf lets the redirect answer only a GET or HEAD of exactly /, so /? and /?code=... load the console', () => {
     const conf = readFileSync(web('nginx.conf'), 'utf-8')
-    const map = conf.match(/map "\$request_method:\$args" \$plain_page_load \{[^}]*\}/)?.[0]
-    expect(map?.match(/"[A-Z]+:"(?=\s+1;)/g)).toEqual(['"GET:"', '"HEAD:"'])
-    expect(map).toContain('default 0;')
+    const map = conf.match(/map "\$request_method:\$request_uri" \$bare_root_request \{[^}]*\}/)?.[0]
+    expect(map?.match(/"[A-Z]+:[^"]*"(?=\s+1;)/g)).toEqual(['"GET:/"', '"HEAD:/"'])
+    expect(map).toMatch(/default\s+0;/)
   })
 
   it('start.sh generates it before nginx starts, and the Dockerfile ships the script', () => {
