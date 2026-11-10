@@ -242,10 +242,10 @@ write_auth_values() {
 # that only .env can carry: helm renders sso.login and sso.bridge_allowlist from the chart defaults
 # (off, empty) unless .env sets them, so a release that signs the console in at an OIDC provider
 # would send everyone back to the other provider (and sign them out), and other web apps would lose
-# the SSO bridge. sso_login_enable=false and sso_bridge_allowlist='[]' drop them on purpose.
+# the SSO bridge. oidc_login_enable=false and sso_bridge_allowlist='[]' drop them on purpose.
 check_live_sso() {
   local releases live state login allow missing=""
-  if [[ -n "${sso_login_enable:-}" && -n "${sso_bridge_allowlist+x}" ]]; then
+  if [[ -n "${oidc_login_enable:-}" && -n "${sso_bridge_allowlist+x}" ]]; then
     return 0 # .env says both: nothing can be dropped
   fi
   if ! releases=$(helm -n "$NAMESPACE" list); then
@@ -285,8 +285,8 @@ check_live_sso() {
     fi
   fi
   read -r login allow <<<"$state"
-  if [[ "$login" == "true" && -z "${sso_login_enable:-}" ]]; then
-    missing="$missing sso_login_enable sso_login_issuer sso_login_client_id sso_login_redirect_uri"
+  if [[ "$login" == "true" && -z "${oidc_login_enable:-}" ]]; then
+    missing="$missing oidc_login_enable oidc_login_issuer oidc_login_client_id oidc_login_redirect_uri"
   fi
   if [[ "$allow" == "true" && -z "${sso_bridge_allowlist+x}" ]]; then
     missing="$missing sso_bridge_allowlist"
@@ -296,7 +296,7 @@ check_live_sso() {
     echo "       Upgrading now would turn them off: the console would sign in at the other provider again (everyone" >&2
     echo "       signed out), or other web apps would lose the SSO bridge. Nothing has been changed." >&2
     echo "       Add them to .env (the live values are: helm -n $NAMESPACE get values $chart_name -o json | jq .sso)," >&2
-    echo "       or set sso_login_enable=false / sso_bridge_allowlist='[]' to drop them on purpose." >&2
+    echo "       or set oidc_login_enable=false / sso_bridge_allowlist='[]' to drop them on purpose." >&2
     return 1
   fi
 }
@@ -336,7 +336,7 @@ lens_enable="false"
 echo "✅ Robust data-plane: managed via AddonTemplate"
 echo "✅ Support S3: \"$s3_enable\""
 echo "✅ Support SSO: \"$sso_enable\""
-echo "✅ SSO console sign-in at an OIDC provider (sso.login): \"${sso_login_enable:-unset}\""
+echo "✅ SSO console sign-in at an OIDC provider (sso.login): \"${oidc_login_enable:-unset}\""
 echo "✅ SSO bridge allowlist: $([[ -n "${sso_bridge_allowlist+x}" ]] && echo set || echo unset)"
 echo "✅ Support Tracing: \"${tracing_enable:-false}\" (mode: ${tracing_mode:-error_only})"
 echo "✅ Support LLM Gateway: \"${llm_gateway_enable:-false}\""
@@ -356,13 +356,13 @@ echo "✅ Node Agent Toggles: net_bnxt_load_204=${node_agent_toggle_net_bnxt_loa
 echo "✅ Auth mode: \"${auth_mode:-unset}\""
 
 # The console's sign-in at an OpenID Connect provider (sso.login, see docs/installation/install.md),
-# from .env like the rest. Written only when .env sets sso_login_enable, so a site without it keeps
+# from .env like the rest. Written only when .env sets oidc_login_enable, so a site without it keeps
 # the chart default (off, the console signs in at the provider of the sso Secret).
-#   sso_login_enable        true | false                                 -> sso.login.enable
-#   sso_login_issuer        the provider's issuer; empty is the cluster host
+#   oidc_login_enable        true | false                                 -> sso.login.enable
+#   oidc_login_issuer        the provider's issuer; empty is the cluster host
 #                           https://<sub_domain>.<domain>                 -> sso.login.issuer
-#   sso_login_client_id     the console's client id; empty is safe-console -> sso.login.client_id
-#   sso_login_redirect_uri  the console's callback; empty is
+#   oidc_login_client_id     the console's client id; empty is safe-console -> sso.login.client_id
+#   oidc_login_redirect_uri  the console's callback; empty is
 #                           https://<sub_domain>.<domain>/sso/callback    -> sso.login.redirect_uri
 #   sso_secret              the Secret of the other SSO provider (default
 #                           primus-safe-sso); empty removes it            -> sso.secret
@@ -373,15 +373,15 @@ echo "✅ Auth mode: \"${auth_mode:-unset}\""
 # Like auth_*, a release that already runs with sso.login on or a non-empty bridge allowlist refuses
 # an upgrade whose .env leaves them out (check_live_sso); set them to false / '[]' to drop them on purpose.
 SSO_LOGIN_ON="false"
-if [[ -n "${sso_login_enable:-}" ]]; then
-  if [[ "$sso_login_enable" != "true" && "$sso_login_enable" != "false" ]]; then
-    echo "Error: sso_login_enable in .env must be true or false" >&2
+if [[ -n "${oidc_login_enable:-}" ]]; then
+  if [[ "$oidc_login_enable" != "true" && "$oidc_login_enable" != "false" ]]; then
+    echo "Error: oidc_login_enable in .env must be true or false" >&2
     exit 1
   fi
-  SSO_LOGIN_ON="$sso_login_enable"
+  SSO_LOGIN_ON="$oidc_login_enable"
   # The values are written with sed, '|' as the delimiter; '&' in a replacement is the matched text.
   unsafe_value='["|&\\[:space:]]'
-  for key in sso_login_issuer sso_login_client_id sso_login_redirect_uri; do
+  for key in oidc_login_issuer oidc_login_client_id oidc_login_redirect_uri; do
     value="${!key:-}"
     # Unset values stay empty here. The chart fills the cluster host, safe-console, and /sso/callback.
     if [[ -z "$value" ]]; then
@@ -393,19 +393,13 @@ if [[ -n "${sso_login_enable:-}" ]]; then
     fi
   done
 fi
-# sso.login is part of the SSO settings: with sso_enable=false the apiserver runs no SSO at all, and
-# the console would not offer the sign-in that .env asks for.
-if [[ "$SSO_LOGIN_ON" == "true" && "$sso_enable" != "true" ]]; then
-  echo "Error: sso_login_enable=true in .env needs sso_enable=true" >&2
-  exit 1
-fi
 if [[ "${sso_secret:-}" =~ [^a-z0-9.-] ]]; then
   echo "Error: sso_secret in .env must be the name of a Secret" >&2
   exit 1
 fi
 # Without the Secret, sso.login is the only provider the apiserver has; it refuses to start with neither.
 if [[ "$sso_enable" == "true" && -n "${sso_secret+x}" && -z "$sso_secret" && "$SSO_LOGIN_ON" != "true" ]]; then
-  echo "Error: sso_secret= (empty) in .env needs sso_login_enable=true: the apiserver would have no SSO provider" >&2
+  echo "Error: sso_secret= (empty) in .env needs oidc_login_enable=true: the apiserver would have no SSO provider" >&2
   exit 1
 fi
 if [[ -n "${sso_bridge_allowlist+x}" ]]; then
@@ -539,11 +533,11 @@ sed -i '/sso:/,/^[a-z]/ s/^  enable: .*/  enable: '"$sso_enable"'/' "$values_yam
 if [[ "$sso_enable" == "true" ]]; then
   sed -i '/^sso:/,/^[a-z]/ s#^  secret: ".*"#  secret: "'"${sso_secret-$SSO_SECRET}"'"#' "$values_yaml"
 fi
-if [[ -n "${sso_login_enable:-}" ]]; then
-  sed -i -e '/^sso:/,/^[a-z]/ s|^    enable: .*|    enable: '"$sso_login_enable"'|' \
-    -e '/^sso:/,/^[a-z]/ s|^    issuer: .*|    issuer: "'"${sso_login_issuer:-}"'"|' \
-    -e '/^sso:/,/^[a-z]/ s|^    client_id: .*|    client_id: "'"${sso_login_client_id:-}"'"|' \
-    -e '/^sso:/,/^[a-z]/ s|^    redirect_uri: .*|    redirect_uri: "'"${sso_login_redirect_uri:-}"'"|' "$values_yaml"
+if [[ -n "${oidc_login_enable:-}" ]]; then
+  sed -i -e '/^sso:/,/^[a-z]/ s|^    enable: .*|    enable: '"$oidc_login_enable"'|' \
+    -e '/^sso:/,/^[a-z]/ s|^    issuer: .*|    issuer: "'"${oidc_login_issuer:-}"'"|' \
+    -e '/^sso:/,/^[a-z]/ s|^    client_id: .*|    client_id: "'"${oidc_login_client_id:-}"'"|' \
+    -e '/^sso:/,/^[a-z]/ s|^    redirect_uri: .*|    redirect_uri: "'"${oidc_login_redirect_uri:-}"'"|' "$values_yaml"
 fi
 sed -i '/^cd:/,/^[a-z]/ s/require_approval: .*/require_approval: '"$cd_require_approval"'/' "$values_yaml"
 

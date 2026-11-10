@@ -295,7 +295,7 @@ expect "releases cannot be listed: says so" grep -q 'cannot list the helm releas
 # but an explicit mode needs no reading of the release's values (nor do explicit SSO settings, nor
 # an explicit external_user_dir_mounts)
 FAKE_GET_FAIL=1 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV
-sso_login_enable=false
+oidc_login_enable=false
 sso_bridge_allowlist='[]'
 external_user_dir_mounts=true"
 expect "release values cannot be read, .env has every key: applied" applied
@@ -338,7 +338,7 @@ expect "no jq, every key in .env: says why" grep -q 'jq is required when .env se
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_BUILTIN" "auth_mode=extrenal"
 expect "no jq, a mode that is neither: refused" refused
 
-# The console's sign-in at an OIDC provider (sso_login_*): off unless .env says so; then on, with the
+# The console's sign-in at an OIDC provider (oidc_login_*): off unless .env says so; then on, with the
 # other provider's Secret kept or removed (sso_secret); and refused before anything is touched when
 # a value is not usable.
 SSO_ON="sso_enable=true"
@@ -347,10 +347,10 @@ expect "sso, no sso_login keys: applied" applied
 expect "sso, no sso_login keys: sso.enable is true" rendered 'enable: true'
 expect "sso, no sso_login keys: sso.login stays off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
 expect "sso, no sso_login keys: the sso Secret is mounted" grep -qxF '            secretName: primus-safe-sso' "$OUT/rendered.yaml"
-SSO_LOGIN="sso_login_enable=true
-sso_login_issuer=https://idp.example.com
-sso_login_client_id=console
-sso_login_redirect_uri=https://console.example.com/sso/callback"
+SSO_LOGIN="oidc_login_enable=true
+oidc_login_issuer=https://idp.example.com
+oidc_login_client_id=console
+oidc_login_redirect_uri=https://console.example.com/sso/callback"
 run_upgrade "" "$SSO_ON
 $SSO_LOGIN"
 expect "sso_login: applied" applied
@@ -366,43 +366,43 @@ expect "sso_login, sso_secret empty: applied" applied
 expect "sso_login, sso_secret empty: no sso Secret is mounted" bash -c '! grep -q "sso-secret" "$1"' _ "$OUT/rendered.yaml"
 expect "sso_login, sso_secret empty: sso stays enabled" rendered 'enable: true'
 run_upgrade "" "$SSO_ON
-sso_login_enable=yes"
-expect "sso_login_enable neither true nor false: refused" refused
+oidc_login_enable=yes"
+expect "oidc_login_enable neither true nor false: refused" refused
 run_upgrade "" "$SSO_ON
-sso_login_enable=true"
+oidc_login_enable=true"
 expect "sso_login with no issuer, client id, or redirect: applied" applied
 expect "sso_login with no issuer, client id, or redirect: issuer is the cluster host" grep -qxF '        issuer: "https://test.primus-safe.amd.com"' "$OUT/rendered.yaml"
 expect "sso_login with no issuer, client id, or redirect: client id is safe-console" grep -qxF '        client_id: "safe-console"' "$OUT/rendered.yaml"
 expect "sso_login with no issuer, client id, or redirect: redirect is the cluster callback" grep -qxF '        redirect_uri: "https://test.primus-safe.amd.com/sso/callback"' "$OUT/rendered.yaml"
 run_upgrade "" "$SSO_ON
-sso_login_enable=true
-sso_login_issuer=https://idp.example.com"
+oidc_login_enable=true
+oidc_login_issuer=https://idp.example.com"
 expect "sso_login without a client id: applied" applied
 expect "sso_login without a client id: issuer stays the one set" grep -qxF '        issuer: "https://idp.example.com"' "$OUT/rendered.yaml"
 expect "sso_login without a client id: client id is safe-console" grep -qxF '        client_id: "safe-console"' "$OUT/rendered.yaml"
 expect "sso_login without a client id: redirect is the cluster callback" grep -qxF '        redirect_uri: "https://test.primus-safe.amd.com/sso/callback"' "$OUT/rendered.yaml"
 run_upgrade "" "$SSO_ON
 $SSO_LOGIN
-sso_login_client_id='a|b'"
+oidc_login_client_id='a|b'"
 expect "sso_login with a '|' in a value: refused" refused
 
 # A value that the sed replacement would mangle ('&' is the matched text there) is refused.
 run_upgrade "" "$SSO_ON
 $SSO_LOGIN
-sso_login_redirect_uri='https://console.example.com/sso/callback?a=1&b=2'"
+oidc_login_redirect_uri='https://console.example.com/sso/callback?a=1&b=2'"
 expect "sso_login with a '&' in a value: refused" refused
-expect "sso_login with a '&' in a value: says so" grep -q "sso_login_redirect_uri in .env must not contain" "$OUT/log"
-# sso.login is an SSO setting: on with SSO off is refused, not silently ignored.
+expect "sso_login with a '&' in a value: says so" grep -q "oidc_login_redirect_uri in .env must not contain" "$OUT/log"
+# The OIDC console sign-in is independent of sso_enable: the local connection runs with SSO off.
 run_upgrade "" "$SSO_LOGIN"
-expect "sso_login_enable=true with sso_enable=false: refused" refused
-expect "sso_login_enable=true with sso_enable=false: says so" grep -q 'sso_login_enable=true in .env needs sso_enable=true' "$OUT/log"
-run_upgrade "" "sso_login_enable=false"
-expect "sso_login_enable=false with sso_enable=false: applied" applied
+expect "oidc_login_enable=true with sso_enable=false: applied" applied
+expect "oidc_login_enable=true with sso_enable=false: sso.login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+run_upgrade "" "oidc_login_enable=false"
+expect "oidc_login_enable=false with sso_enable=false: applied" applied
 # Removing the Secret leaves the apiserver without a provider unless sso.login is on.
 run_upgrade "" "$SSO_ON
 sso_secret="
 expect "sso_secret empty without sso_login: refused" refused
-expect "sso_secret empty without sso_login: says why" grep -q 'needs sso_login_enable=true' "$OUT/log"
+expect "sso_secret empty without sso_login: says why" grep -q 'needs oidc_login_enable=true' "$OUT/log"
 
 # sso_bridge_allowlist: a JSON array that reaches sso.bridge_allowlist, alone or next to the auth_* keys.
 ALLOW="sso_bridge_allowlist='[\"http://localhost:5173\", \"http://127.0.0.1:5173\"]'"
@@ -443,17 +443,17 @@ for jqmode in jq nojq; do
   rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO" "$SSO_ON"
   expect "$jqmode, live sso.login and allowlist, .env without them: refused" refused
-  expect "$jqmode, live sso.login and allowlist, .env without them: names them" grep -q 'does not set: sso_login_enable sso_login_issuer sso_login_client_id sso_login_redirect_uri sso_bridge_allowlist$' "$OUT/log"
+  expect "$jqmode, live sso.login and allowlist, .env without them: names them" grep -q 'does not set: oidc_login_enable oidc_login_issuer oidc_login_client_id oidc_login_redirect_uri sso_bridge_allowlist$' "$OUT/log"
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_LOGIN_ONLY" "$SSO_ON"
   expect "$jqmode, live sso.login only: refused" refused
-  expect "$jqmode, live sso.login only: names sso_login only" grep -q 'does not set: sso_login_enable sso_login_issuer sso_login_client_id sso_login_redirect_uri$' "$OUT/log"
+  expect "$jqmode, live sso.login only: names sso_login only" grep -q 'does not set: oidc_login_enable oidc_login_issuer oidc_login_client_id oidc_login_redirect_uri$' "$OUT/log"
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_ALLOW_ONLY" "$SSO_ON"
   expect "$jqmode, live allowlist only: refused" refused
   expect "$jqmode, live allowlist only: names sso_bridge_allowlist only" grep -q 'does not set: sso_bridge_allowlist$' "$OUT/log"
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_OFF" "$SSO_ON"
   expect "$jqmode, live sso.login off and no allowlist: applied" applied
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO" "$SSO_ON
-sso_login_enable=false"
+oidc_login_enable=false"
   expect "$jqmode, live allowlist, .env turns sso.login off but leaves the allowlist out: refused" refused
 done
 # helm keeps a value set with --set-string as a string: "true" is on all the same.
@@ -471,7 +471,7 @@ expect "live sso.login and allowlist, .env carries them: applied" applied
 expect "live sso.login and allowlist, .env carries them: sso.login stays on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
 expect "live sso.login and allowlist, .env carries them: allowlist kept" rendered 'bridge_allowlist: ["http://localhost:5173","http://127.0.0.1:5173"]'
 run_upgrade "$LIVE_SSO" "$SSO_ON
-sso_login_enable=false
+oidc_login_enable=false
 sso_bridge_allowlist='[]'"
 expect "live sso.login and allowlist, dropped on purpose: applied" applied
 expect "live sso.login and allowlist, dropped on purpose: sso.login off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
