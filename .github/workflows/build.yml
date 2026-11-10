@@ -54,7 +54,7 @@ jobs:
           echo "Manual dispatch (build_all): building all modules"
           for module in apiserver resource_manager job_manager preprocess \
             cicd_runner_proxy cicd_unified_job_proxy cicd_proxy_relay s3_downloader \
-            webhooks node_agent sync_image; do
+            webhooks node_agent sync_image web; do
             echo "${module}_changed=true" >> $GITHUB_OUTPUT
           done
           exit 0
@@ -197,6 +197,13 @@ jobs:
         else
           echo "primus_safe_adapter_changed=false" >> $GITHUB_OUTPUT
         fi
+
+        # web: Web/** (console and lens, one nginx image)
+        if echo "$CHANGED_FILES" | grep -qE '^Web/'; then
+          echo "web_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "web_changed=false" >> $GITHUB_OUTPUT
+        fi
     
     - name: Generate matrix
       id: generate-matrix
@@ -237,6 +244,9 @@ jobs:
         fi
         if [[ "${{ steps.detect-changes.outputs.sync_image_changed }}" == "true" ]]; then
           MATRIX+='{"name":"sync-image","basepath":"SaFE/tools/sync-image","dockerfile_path":"SaFE/tools/sync-image/Dockerfile"},'
+        fi
+        if [[ "${{ steps.detect-changes.outputs.web_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"primus-safe-web","basepath":"Web","dockerfile_path":"Web/Dockerfile","context":"Web"},'
         fi
         MATRIX=${MATRIX%,} # remove trailing comma
         MATRIX+=']}'
@@ -281,6 +291,7 @@ jobs:
           QUAYIO_REPOSITORY: quay.io/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
+          VITE_MCP_API_KEY: ${{ secrets.VITE_MCP_API_KEY }}
         run: |
           set -e
           echo "🚧 Building ${{ matrix.name }}..."
@@ -288,6 +299,14 @@ jobs:
           # For preprocess: include driver paths for BNXT and AINIC (tw325 cluster)
           # Change these paths when switching to a different cluster
           EXTRA_ARGS=""
+          CONTEXT="${{ matrix.context }}"
+          if [[ -z "$CONTEXT" ]]; then
+            CONTEXT="."
+          fi
+          if [[ "${{ matrix.name }}" == "primus-safe-web" ]]; then
+            EXTRA_ARGS+=" --build-arg VITE_MCP_BASE_URL=${VITE_MCP_BASE_URL}"
+            EXTRA_ARGS+=" --build-arg VITE_MCP_API_KEY=${VITE_MCP_API_KEY}"
+          fi
           if [[ "${{ matrix.name }}" == "preprocess" ]]; then
             # Copy drivers from shared storage to build context
             mkdir -p ./drivers ./apps
@@ -313,7 +332,7 @@ jobs:
             $EXTRA_ARGS \
             -t ${{ matrix.name }}:${IMAGE_VERSION} \
             -t ${{ matrix.name }}:${DATE_TIME} \
-            -f ${{ matrix.dockerfile_path }} .
+            -f ${{ matrix.dockerfile_path }} "$CONTEXT"
 
           for repo in ${DOCKERIO_REPOSITORY} ${QUAYIO_REPOSITORY}; do
             echo "🚀 Pushing ${{ matrix.name }} to $repo..."
