@@ -652,15 +652,19 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = refuseExternal("sign-in through this endpoint"); err != nil {
-		c.Set(common.UserId, "login-failed:"+query.Name)
-		c.Set(common.UserName, query.Name)
-		c.Set(common.UserType, string(query.Type))
-		return nil, err
+	// A code from identity is exchanged here in external mode when SSO is on. A local password is not.
+	ssoOn := commonconfig.IsSSOEnable() || commonconfig.IsSSOLoginEnable()
+	if query.Type != v1.SSOUserType || !ssoOn {
+		if err = refuseExternal("sign-in through this endpoint"); err != nil {
+			c.Set(common.UserId, "login-failed:"+query.Name)
+			c.Set(common.UserName, query.Name)
+			c.Set(common.UserType, string(query.Type))
+			return nil, err
+		}
 	}
 	var tokenInstance authority.TokenInterface
 	if query.Type == v1.SSOUserType {
-		if !commonconfig.IsSSOEnable() {
+		if !ssoOn {
 			return nil, commonerrors.NewInternalError("SSO is not enabled")
 		}
 		tokenInstance = authority.SSOInstance()

@@ -369,9 +369,18 @@ run_upgrade "" "$SSO_ON
 sso_login_enable=yes"
 expect "sso_login_enable neither true nor false: refused" refused
 run_upgrade "" "$SSO_ON
+sso_login_enable=true"
+expect "sso_login with no issuer, client id, or redirect: applied" applied
+expect "sso_login with no issuer, client id, or redirect: issuer is the cluster host" grep -qxF '        issuer: "https://test.primus-safe.amd.com"' "$OUT/rendered.yaml"
+expect "sso_login with no issuer, client id, or redirect: client id is safe-console" grep -qxF '        client_id: "safe-console"' "$OUT/rendered.yaml"
+expect "sso_login with no issuer, client id, or redirect: redirect is the cluster callback" grep -qxF '        redirect_uri: "https://test.primus-safe.amd.com/sso/callback"' "$OUT/rendered.yaml"
+run_upgrade "" "$SSO_ON
 sso_login_enable=true
 sso_login_issuer=https://idp.example.com"
-expect "sso_login without a client id: refused" refused
+expect "sso_login without a client id: applied" applied
+expect "sso_login without a client id: issuer stays the one set" grep -qxF '        issuer: "https://idp.example.com"' "$OUT/rendered.yaml"
+expect "sso_login without a client id: client id is safe-console" grep -qxF '        client_id: "safe-console"' "$OUT/rendered.yaml"
+expect "sso_login without a client id: redirect is the cluster callback" grep -qxF '        redirect_uri: "https://test.primus-safe.amd.com/sso/callback"' "$OUT/rendered.yaml"
 run_upgrade "" "$SSO_ON
 $SSO_LOGIN
 sso_login_client_id='a|b'"

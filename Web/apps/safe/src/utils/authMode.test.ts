@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { apiKeyRouting, apiKeysProviderUrl, isExternalAuth } from './authMode'
+import { apiKeyRouting, apiKeysProviderUrl, externalLoginUrl, isExternalAuth } from './authMode'
 
 const source = (rel: string) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf-8')
 
@@ -59,6 +59,33 @@ describe('external mode hides the password, registration and role controls', () 
     expect(dialog).toContain('buildUserPatch(props.user, form, external.value)')
     expect(dialog).toContain('v-if="isEdit && !external" label="Roles"')
     expect(dialog).toContain('v-if="!external" label="Password"')
+  })
+})
+
+describe('externalLoginUrl', () => {
+  it.each([
+    [
+      'external',
+      { authMode: 'external' as const, loginUrl: 'https://console.example.com/login/password' },
+      'https://console.example.com/login/password',
+    ],
+    [
+      'a path on this origin',
+      { authMode: 'external' as const, loginUrl: '/login/password' },
+      '/login/password',
+    ],
+    ['builtin ignores it', { authMode: 'builtin' as const, loginUrl: 'https://idp.example/login' }, ''],
+    ['no mode ignores it', { loginUrl: 'https://idp.example/login' }, ''],
+    ['external, nothing set', { authMode: 'external' as const }, ''],
+    [
+      'an SSO flag is not the external login',
+      { authMode: 'external' as const, ssoEnable: true, ssoLoginUrl: 'https://idp.example/authorize' },
+      '',
+    ],
+    ['a protocol relative URL', { authMode: 'external' as const, loginUrl: '//idp.example/login' }, ''],
+    ['javascript', { authMode: 'external' as const, loginUrl: 'javascript:alert(1)' }, ''],
+  ])('%s', (_name, envs, want) => {
+    expect(externalLoginUrl(envs)).toBe(want)
   })
 })
 

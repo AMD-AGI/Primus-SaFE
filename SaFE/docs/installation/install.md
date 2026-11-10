@@ -74,10 +74,12 @@ The [install.sh](../../bootstrap/install.sh) script provides a one-click install
         holds the provider's ID token (its `exp` is the session's end), and the user id comes from the `email` claim
         (else `sub`) by the same rule as for the other provider, so a person keeps one account whichever provider signed
         them in. Ask the provider for ID tokens that live as long as a session should.
-      - Helm values (or `.env` for `bootstrap/upgrade.sh`): `sso.login.enable` (`sso_login_enable`), `sso.login.issuer`
-        (`sso_login_issuer`), `sso.login.client_id` (`sso_login_client_id`), `sso.login.redirect_uri`
-        (`sso_login_redirect_uri`). `sso.enable` stays `true`: `upgrade.sh` refuses `sso_login_enable=true` with
-        `sso_enable=false`, and a value with a space, a quote, a backslash, `|` or `&`.
+      - Helm values (or `.env` for `bootstrap/upgrade.sh`): `sso.login.enable` (`sso_login_enable`). `sso.login.issuer`
+        (`sso_login_issuer`), `sso.login.client_id` (`sso_login_client_id`), and `sso.login.redirect_uri`
+        (`sso_login_redirect_uri`) can be left unset. Unset, they are `https://<sub_domain>.<domain>`, `safe-console`,
+        and `https://<sub_domain>.<domain>/sso/callback`. A set value replaces that default. `sso.enable` stays `true`:
+        `upgrade.sh` refuses `sso_login_enable=true` with `sso_enable=false`, and a value with a space, a quote, a
+        backslash, `|` or `&`.
       - Other web apps that sign in through the console (SSO bridge) are listed in `sso.bridge_allowlist`
         (`.env`: `sso_bridge_allowlist`, a JSON array in single quotes). For example, a site whose identity provider
         serves the console's own host:

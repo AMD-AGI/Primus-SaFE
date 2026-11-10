@@ -383,7 +383,7 @@ func TestSSOLoginSharedIssuerTwoClients(t *testing.T) {
 	assert.True(t, inst.LoginEnabled())
 }
 
-// With both providers, the sso Secret's keeps serving what it served: its authorization URL stays ssoAuthUrl, a code
+// With both providers, the sso Secret's keeps serving what it served: its authorization URL stays that provider's, a code
 // without a verifier is exchanged there with the client secret (the web apps that bridge through the console), and its
 // sessions stay valid. The console's sign-in is the sso.login provider's.
 func TestSSOLoginKeepsTheSecretProvider(t *testing.T) {

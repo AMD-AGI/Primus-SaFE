@@ -376,10 +376,12 @@ sso:
   login:
     enable: false
     # Issuer of the provider (its discovery document is <issuer>/.well-known/openid-configuration).
+    # Empty: https://<global.sub_domain>.<global.domain>.
     issuer: ""
-    # Client id the console is registered with there.
+    # Client id the console is registered with there. Empty: safe-console.
     client_id: ""
-    # The console's own callback, registered exactly at the provider, e.g. "https://console.example.com/sso/callback".
+    # The console's own callback, registered exactly at the provider.
+    # Empty: https://<global.sub_domain>.<global.domain>/sso/callback.
     redirect_uri: ""
 workspace:
   # Reserved system resources for management components

@@ -122,12 +122,25 @@ data:
       # Origins (optionally with a path prefix) that may receive an SSO code besides this console's own origin
       bridge_allowlist: {{ toJson (default (list) .Values.sso.bridge_allowlist) }}
       {{- $login := default dict .Values.sso.login }}
+      {{- /* Empty issuer and callback are this cluster's identity: https://<sub_domain>.<domain>. */}}
+      {{- $loginIssuer := $login.issuer }}
+      {{- $loginClient := $login.client_id }}
+      {{- $loginRedirect := $login.redirect_uri }}
+      {{- if and (not $loginIssuer) .Values.global.sub_domain .Values.global.domain }}
+      {{- $loginIssuer = printf "https://%s.%s" .Values.global.sub_domain .Values.global.domain }}
+      {{- end }}
+      {{- if not $loginClient }}
+      {{- $loginClient = "safe-console" }}
+      {{- end }}
+      {{- if and (not $loginRedirect) .Values.global.sub_domain .Values.global.domain }}
+      {{- $loginRedirect = printf "https://%s.%s/sso/callback" .Values.global.sub_domain .Values.global.domain }}
+      {{- end }}
       # The console signs in at this OpenID Connect provider (public client, PKCE) when enabled
       login:
         enable: {{ default false $login.enable }}
-        issuer: {{ toJson (toString (default "" $login.issuer)) }}
-        client_id: {{ toJson (toString (default "" $login.client_id)) }}
-        redirect_uri: {{ toJson (toString (default "" $login.redirect_uri)) }}
+        issuer: {{ toJson (toString $loginIssuer) }}
+        client_id: {{ toJson (toString $loginClient) }}
+        redirect_uri: {{ toJson (toString $loginRedirect) }}
     cicd:
       enable: {{ .Values.cicd.enable }}
       controller_name: {{ .Values.cicd.controller_name }}

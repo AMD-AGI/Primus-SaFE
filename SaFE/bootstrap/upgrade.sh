@@ -359,9 +359,11 @@ echo "✅ Auth mode: \"${auth_mode:-unset}\""
 # from .env like the rest. Written only when .env sets sso_login_enable, so a site without it keeps
 # the chart default (off, the console signs in at the provider of the sso Secret).
 #   sso_login_enable        true | false                                 -> sso.login.enable
-#   sso_login_issuer        the provider's issuer                         -> sso.login.issuer
-#   sso_login_client_id     the console's client id at the provider       -> sso.login.client_id
-#   sso_login_redirect_uri  the console's own callback, as registered     -> sso.login.redirect_uri
+#   sso_login_issuer        the provider's issuer; empty is the cluster host
+#                           https://<sub_domain>.<domain>                 -> sso.login.issuer
+#   sso_login_client_id     the console's client id; empty is safe-console -> sso.login.client_id
+#   sso_login_redirect_uri  the console's callback; empty is
+#                           https://<sub_domain>.<domain>/sso/callback    -> sso.login.redirect_uri
 #   sso_secret              the Secret of the other SSO provider (default
 #                           primus-safe-sso); empty removes it            -> sso.secret
 #   sso_bridge_allowlist    JSON array of the other web apps (origin, optionally
@@ -381,9 +383,9 @@ if [[ -n "${sso_login_enable:-}" ]]; then
   unsafe_value='["|&\\[:space:]]'
   for key in sso_login_issuer sso_login_client_id sso_login_redirect_uri; do
     value="${!key:-}"
-    if [[ "$sso_login_enable" == "true" && -z "$value" ]]; then
-      echo "Error: sso_login_enable=true in .env needs $key" >&2
-      exit 1
+    # Unset values stay empty here. The chart fills the cluster host, safe-console, and /sso/callback.
+    if [[ -z "$value" ]]; then
+      continue
     fi
     if [[ "$value" =~ $unsafe_value ]]; then
       echo "Error: $key in .env must not contain spaces, quotes, backslashes, '|' or '&'" >&2

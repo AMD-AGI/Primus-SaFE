@@ -40,7 +40,7 @@ func TestGetEnvs(t *testing.T) {
 	}, resp.KubeSprayK8sVersions)
 }
 
-// The console is sent to auth.login_url in external mode. builtin does not use that URL.
+// The console is sent to auth.login_url in external mode, as loginUrl. builtin does not use that URL.
 func TestGetEnvsExternalLoginURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	get := func() view.GetEnvResponse {
@@ -57,20 +57,22 @@ func TestGetEnvsExternalLoginURL(t *testing.T) {
 
 	viper.Set("auth.login_url", "https://sign-in.example.com/start")
 	got := get()
-	assert.True(t, got.SSOEnable)
-	assert.Equal(t, "https://sign-in.example.com/start", got.SSOAuthUrl)
+	assert.Equal(t, "external", got.AuthMode)
+	assert.False(t, got.SSOEnable)
+	assert.Equal(t, "local", got.Connection)
+	assert.Equal(t, "https://sign-in.example.com/start", got.LoginURL)
 
 	viper.Set("auth.mode", "builtin")
 	got = get()
 	assert.Equal(t, "builtin", got.AuthMode)
 	assert.False(t, got.SSOEnable)
-	assert.Empty(t, got.SSOAuthUrl)
+	assert.Empty(t, got.LoginURL)
 	viper.Set("auth.mode", "external")
 
 	viper.Set("auth.login_url", "")
 	got = get()
 	assert.False(t, got.SSOEnable)
-	assert.Empty(t, got.SSOAuthUrl)
+	assert.Empty(t, got.LoginURL)
 }
 
 // The console creates API keys at the identity provider only where the deployment says the provider's route

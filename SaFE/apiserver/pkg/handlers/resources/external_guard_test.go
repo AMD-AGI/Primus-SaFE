@@ -471,6 +471,17 @@ func getEnvsResponse(t *testing.T) view.GetEnvResponse {
 	return resp
 }
 
+func envsJSON(t *testing.T) string {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/envs", nil)
+	(&Handler{}).GetEnvs(c)
+	require.Equal(t, http.StatusOK, w.Code)
+	return w.Body.String()
+}
+
 func TestEnvsReportsAuthMode(t *testing.T) {
 	t.Cleanup(func() { viper.Set("auth.mode", nil) })
 
@@ -483,9 +494,8 @@ func TestEnvsReportsAuthMode(t *testing.T) {
 	assert.Equal(t, "external", getEnvsResponse(t).AuthMode, "a typo is still external")
 }
 
-// POST /login is refused, so /envs must not send the console to the built-in SSO.
-// With sso.enable on and no auth.login_url it advertises no sign-in, and with auth.login_url
-// it advertises that URL. auth.mode does not bring the built-in authorize URL back.
+// loginUrl is auth.login_url and is returned only in external mode. ssoEnable still reports sso.enable.
+// The env response has no ssoAuthUrl.
 func TestEnvsDoesNotAdvertiseBuiltinSignInInExternalMode(t *testing.T) {
 	// A real OIDC provider, so this test can tell its authorize URL from auth.login_url.
 	var idp *httptest.Server
@@ -513,26 +523,27 @@ func TestEnvsDoesNotAdvertiseBuiltinSignInInExternalMode(t *testing.T) {
 	})
 	require.NotNil(t, authority.NewSSOToken(nil), "the built-in SSO must be configured for this test to mean anything")
 
-	// No login_url: the built-in authorize URL is not advertised.
+	// No login_url: sso.enable is still reported, and loginUrl is absent outside a set external URL.
 	got := getEnvsResponse(t)
-	assert.False(t, got.SSOEnable)
-	assert.Empty(t, got.SSOAuthUrl)
+	assert.True(t, got.SSOEnable)
+	assert.Empty(t, got.LoginURL)
 	assert.Equal(t, "external", got.AuthMode)
 
-	// builtin advertises the built-in SSO when sso.enable is set.
+	// builtin reports sso.enable and does not return loginUrl.
 	viper.Set("auth.mode", "builtin")
 	got = getEnvsResponse(t)
 	assert.True(t, got.SSOEnable)
-	assert.True(t, strings.HasPrefix(got.SSOAuthUrl, idp.URL+"/authorize?"))
+	assert.Empty(t, got.LoginURL)
 	assert.Equal(t, "builtin", got.AuthMode)
 
-	// A login_url is advertised in external mode, and it is not the built-in authorize URL.
+	// loginUrl is only the external sign-in, including while sso.enable is on.
 	viper.Set("auth.mode", "external")
 	viper.Set("auth.login_url", "https://console.example.com/sign-in")
 	got = getEnvsResponse(t)
 	assert.True(t, got.SSOEnable)
-	assert.Equal(t, "https://console.example.com/sign-in", got.SSOAuthUrl)
-	assert.False(t, strings.HasPrefix(got.SSOAuthUrl, idp.URL+"/authorize?"))
+	assert.Equal(t, "https://console.example.com/sign-in", got.LoginURL)
+	assert.NotContains(t, envsJSON(t), "ssoAuthUrl")
+	assert.NotContains(t, envsJSON(t), idp.URL+"/authorize")
 }
 
 // Which role changes count: only granting a platform role the stored record does not have.

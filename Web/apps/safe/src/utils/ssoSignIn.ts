@@ -3,23 +3,20 @@
 // The authorization URL comes from /envs. With ssoLoginUrl the sign-in is at an OpenID Connect provider
 // where the console is a public client: the request carries an S256 code challenge (RFC 7636), and the
 // verifier stays in this tab's sessionStorage until the callback sends it with the code. A code that
-// arrives without one was not asked for by this tab and is not used. Without it the sign-in is at
-// ssoAuthUrl, as before.
+// arrives without one was not asked for by this tab and is not used. External sign-in is loginUrl
+// and does not come through here.
 
 export const OAUTH_STATE_KEY = 'oauth_state'
 export const PKCE_VERIFIER_KEY = 'oauth_pkce_verifier'
 
 /**
- * Where the console signs in, from /envs: ssoLoginUrl with PKCE when there is one, else ssoAuthUrl. When
- * the server says the sign-in is PKCE's (ssoPkce) and has no ssoLoginUrl just now, there is none: falling
- * back to ssoAuthUrl would accept codes without PKCE again.
+ * Where the console's built-in SSO signs in, from /envs: ssoLoginUrl with PKCE when there is one.
+ * There is none while sso.login is on but its URL is missing. External sign-in uses loginUrl instead.
  */
 export function signInTarget(
-  envs?: { ssoAuthUrl?: string; ssoLoginUrl?: string; ssoPkce?: boolean } | null,
+  envs?: { ssoLoginUrl?: string; ssoPkce?: boolean } | null,
 ): { url: string; pkce: boolean } | null {
   if (envs?.ssoLoginUrl) return { url: envs.ssoLoginUrl, pkce: true }
-  if (envs?.ssoPkce) return null
-  if (envs?.ssoAuthUrl) return { url: envs.ssoAuthUrl, pkce: false }
   return null
 }
 
@@ -117,17 +114,19 @@ export function sha256(msg: Uint8Array): Uint8Array {
 }
 
 /**
- * The URL to send the browser to: ssoAuthUrl with this tab's state and, with PKCE, the code
+ * The URL to send the browser to: the sign-in URL with this tab's state and, with PKCE, the code
  * challenge. The state and the verifier are kept in sessionStorage for the callback.
  */
 export async function buildSignInUrl(
   authUrl: string,
   state: string,
   pkce: boolean,
+  connection?: string,
 ): Promise<string> {
   const u = new URL(authUrl)
   sessionStorage.setItem(OAUTH_STATE_KEY, state)
   u.searchParams.set('state', state)
+  if (connection) u.searchParams.set('connection', connection)
   if (!u.searchParams.has('response_mode')) u.searchParams.set('response_mode', 'query')
   sessionStorage.removeItem(PKCE_VERIFIER_KEY)
   if (pkce) {
