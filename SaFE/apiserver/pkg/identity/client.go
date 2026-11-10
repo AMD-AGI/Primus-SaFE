@@ -13,9 +13,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -49,6 +51,7 @@ func (e *ConfigError) Error() string { return e.Msg }
 type scimTarget struct {
 	URL         string `json:"url"`
 	BearerToken string `json:"bearerToken"`
+	Certificate string `json:"certificate,omitempty"`
 }
 
 type statusBody struct {
@@ -108,7 +111,11 @@ func RegisterTarget(ctx context.Context, publicURL, token string) error {
 	if err != nil {
 		return &ConfigError{Msg: "cannot build the scim target URL"}
 	}
-	code, err := do(ctx, http.MethodPut, endpoint, scimTarget{URL: publicURL, BearerToken: token}, func(r *http.Request) {
+	cert, err := presentedCertificates(ctx, publicURL)
+	if err != nil {
+		return err
+	}
+	code, err := do(ctx, http.MethodPut, endpoint, scimTarget{URL: publicURL, BearerToken: token, Certificate: cert}, func(r *http.Request) {
 		r.SetBasicAuth(clientID, secret)
 	})
 	if err != nil {
@@ -189,6 +196,39 @@ func normalizeBase(raw string) (string, error) {
 	u.RawQuery, u.Fragment = "", ""
 	u.User = nil
 	return strings.TrimRight(u.String(), "/"), nil
+}
+
+// presentedCertificates reads the certificates rawURL presents and returns them as PEM.
+// The dial reads those certificates. The identity service verifies the target with the PEM it receives.
+func presentedCertificates(ctx context.Context, rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return "", nil
+	}
+	host := u.Host
+	if _, _, splitErr := net.SplitHostPort(u.Host); splitErr != nil {
+		host = net.JoinHostPort(u.Hostname(), "443")
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+	conn, err := (&tls.Dialer{Config: &tls.Config{
+		InsecureSkipVerify: true,
+		MinVersion:         tls.VersionTLS12,
+		ServerName:         u.Hostname(),
+	}}).DialContext(dialCtx, "tcp", host)
+	if err != nil {
+		return "", fmt.Errorf("reading the scim target certificate: %w", err)
+	}
+	defer conn.Close()
+	certs := conn.(*tls.Conn).ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		return "", errors.New("the scim target presented no certificate")
+	}
+	var b strings.Builder
+	for _, c := range certs {
+		b.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Raw}))
+	}
+	return b.String(), nil
 }
 
 // normalizePublic checks auth.scim.public_url and drops a trailing slash.
