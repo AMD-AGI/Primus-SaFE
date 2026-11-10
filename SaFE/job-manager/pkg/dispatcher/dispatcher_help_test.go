@@ -1382,6 +1382,32 @@ func TestBuildServiceSelector_DynamoUsesOperatorLabels(t *testing.T) {
 		"primus-safe.k8s.object.id is on the DGD CR, not the pods — must not be in the selector")
 }
 
+// TestBuildServiceSelector_InferaSelectsRouterPods verifies an InferaDeployment
+// Service selects the operator's router label instead of a role slot.
+func TestBuildServiceSelector_InferaSelectsRouterPods(t *testing.T) {
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "test-idep",
+			Annotations: map[string]string{v1.InferaServiceRolesAnnotation: "frontend,worker"},
+		},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.InferaDeploymentKind, Version: common.DefaultVersion},
+		},
+	}
+	specService := &v1.Service{Port: 8000, ExtraSelectors: map[string]string{
+		common.InferaOperatorServiceLabel: "role0",
+		"team":                            "a",
+	}}
+
+	selector := buildServiceSelector(workload, specService)
+
+	assert.DeepEqual(t, selector, map[string]string{
+		common.InferaOperatorDeploymentLabel: "test-idep",
+		common.InferaOperatorRouterLabel:     "true",
+		"team":                               "a",
+	})
+}
+
 // TestBuildServiceSelector_NonDynamoKeepsK8sObjectIdLabel verifies the
 // non-dynamo path is unchanged: pods inherit primus-safe.k8s.object.id from
 // the dispatcher-managed template and the Service targets them by name.
