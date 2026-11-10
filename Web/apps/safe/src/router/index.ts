@@ -390,6 +390,16 @@ const router = createRouter({
           props: true,
         },
         {
+          path: '/manageapikeys',
+          name: 'APIKeys',
+          // API keys are managed on the identity console. A full navigation keeps the URL hash.
+          beforeEnter() {
+            window.location.assign('/identity/#keys')
+            return false
+          },
+          component: { template: '<div></div>' },
+        },
+        {
           path: '/auditlogs',
           name: 'AuditLogs',
           component: () => import('@/pages/AuditLogs/index.vue'),

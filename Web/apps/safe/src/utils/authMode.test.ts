@@ -43,10 +43,10 @@ describe('external mode hides the password, registration and role controls', () 
     expect(settings.match(/<template v-if="!userStore\.isExternalAuth">/g)).toHaveLength(1)
   })
 
-  it('the console does not offer API key management', () => {
-    expect(source('components/layout/BaseMenu.vue')).not.toContain('/manageapikeys')
-    expect(source('pages/Settings/index.vue')).not.toContain('/manageapikeys')
-    expect(source('router/index.ts')).not.toContain('/manageapikeys')
+  it('API key management opens the identity console', () => {
+    expect(source('components/layout/BaseMenu.vue')).toContain('index="/manageapikeys"')
+    expect(source('pages/Settings/index.vue')).toContain("router.push('/manageapikeys')")
+    expect(source('router/index.ts')).toContain("window.location.assign('/identity/#keys')")
     expect(source('pages/LLMGateway/index.vue')).toContain('if (userStore.isExternalAuth) return')
   })
 
