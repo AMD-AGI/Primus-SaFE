@@ -246,6 +246,9 @@ const (
 	// with deploy/operator/internal/controller/builders.go::labelsFor.
 	InferaOperatorDeploymentLabel = "infera.amd.com/deployment"
 	InferaOperatorServiceLabel    = "infera.amd.com/service"
+	// InferaOperatorRouterLabel marks every pod that runs the Infera server,
+	// either a standalone server pod or a worker pod with the server colocated.
+	InferaOperatorRouterLabel = "infera.amd.com/router"
 
 	// Defaults applied when the corresponding annotation is missing.
 	DynamoDefaultKVBackend        = DynamoKVBackendNixl
