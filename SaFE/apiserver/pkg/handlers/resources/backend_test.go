@@ -40,7 +40,7 @@ func TestGetEnvs(t *testing.T) {
 	}, resp.KubeSprayK8sVersions)
 }
 
-// The console is sent to auth.login_url. auth.mode is not consulted.
+// The console is sent to auth.login_url in external mode. builtin does not use that URL.
 func TestGetEnvsExternalLoginURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	get := func() view.GetEnvResponse {
@@ -62,8 +62,10 @@ func TestGetEnvsExternalLoginURL(t *testing.T) {
 
 	viper.Set("auth.mode", "builtin")
 	got = get()
-	assert.True(t, got.SSOEnable)
-	assert.Equal(t, "https://sign-in.example.com/start", got.SSOAuthUrl)
+	assert.Equal(t, "builtin", got.AuthMode)
+	assert.False(t, got.SSOEnable)
+	assert.Empty(t, got.SSOAuthUrl)
+	viper.Set("auth.mode", "external")
 
 	viper.Set("auth.login_url", "")
 	got = get()
@@ -72,7 +74,7 @@ func TestGetEnvsExternalLoginURL(t *testing.T) {
 }
 
 // The console creates API keys at the identity provider only where the deployment says the provider's route
-// exists (auth.api_keys_url). Authentication is always external, so auth.mode does not hide a valid path.
+// exists (auth.api_keys_url), and only in external mode. Unset auth.mode is external.
 func TestGetEnvsAPIKeysURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	get := func() view.GetEnvResponse {
@@ -93,7 +95,7 @@ func TestGetEnvsAPIKeysURL(t *testing.T) {
 		{"external, routed", "external", "/api/v1/apikeys", "/api/v1/apikeys"},
 		{"external, trailing slash", "external", "/api/v1/apikeys/", "/api/v1/apikeys"},
 		{"external, nothing routed", "external", "", ""},
-		{"auth.mode builtin still reports it", "builtin", "/api/v1/apikeys", "/api/v1/apikeys"},
+		{"auth.mode builtin does not report it", "builtin", "/api/v1/apikeys", ""},
 		{"unset auth.mode still reports it", "", "/api/v1/apikeys", "/api/v1/apikeys"},
 		{"external, an absolute URL is not a path on the console's origin", "external", "https://other.example.com/api/v1/apikeys", ""},
 		{"external, a protocol relative URL", "external", "//other.example.com/api/v1/apikeys", ""},

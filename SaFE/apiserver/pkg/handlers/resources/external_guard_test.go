@@ -478,7 +478,7 @@ func TestEnvsReportsAuthMode(t *testing.T) {
 	viper.Set("auth.mode", "external")
 	assert.Equal(t, "external", getEnvsResponse(t).AuthMode)
 	viper.Set("auth.mode", "builtin")
-	assert.Equal(t, "external", getEnvsResponse(t).AuthMode, "auth.mode is ignored")
+	assert.Equal(t, "builtin", getEnvsResponse(t).AuthMode)
 	viper.Set("auth.mode", "externl")
 	assert.Equal(t, "external", getEnvsResponse(t).AuthMode, "a typo is still external")
 }
@@ -519,14 +519,15 @@ func TestEnvsDoesNotAdvertiseBuiltinSignInInExternalMode(t *testing.T) {
 	assert.Empty(t, got.SSOAuthUrl)
 	assert.Equal(t, "external", got.AuthMode)
 
-	// auth.mode does not advertise the built-in SSO either.
+	// builtin advertises the built-in SSO when sso.enable is set.
 	viper.Set("auth.mode", "builtin")
 	got = getEnvsResponse(t)
-	assert.False(t, got.SSOEnable)
-	assert.Empty(t, got.SSOAuthUrl)
-	assert.Equal(t, "external", got.AuthMode)
+	assert.True(t, got.SSOEnable)
+	assert.True(t, strings.HasPrefix(got.SSOAuthUrl, idp.URL+"/authorize?"))
+	assert.Equal(t, "builtin", got.AuthMode)
 
-	// A login_url is advertised, and it is not the built-in authorize URL.
+	// A login_url is advertised in external mode, and it is not the built-in authorize URL.
+	viper.Set("auth.mode", "external")
 	viper.Set("auth.login_url", "https://console.example.com/sign-in")
 	got = getEnvsResponse(t)
 	assert.True(t, got.SSOEnable)

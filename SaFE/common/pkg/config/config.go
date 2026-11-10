@@ -995,12 +995,12 @@ func GetModelOptimizationClawPluginID() int {
 	return getInt(modelOptimizationClawPluginID, 4)
 }
 
-// Authentication. There is one path: accounts, sign-in and platform roles belong to the
-// identity service. AuthModeBuiltin remains only so existing references compile; GetAuthMode never returns it.
+// Authentication. auth.mode selects the path. External, the default, authenticates with the
+// configured chain and takes platform roles from group mappings. Builtin uses local accounts.
 const (
-	// AuthModeBuiltin is unused. Local accounts are not a second authentication path.
+	// AuthModeBuiltin is local accounts, sign-in and the platform roles stored on user objects.
 	AuthModeBuiltin = "builtin"
-	// AuthModeExternal is the only mode: requests are authenticated by the configured authenticator chain.
+	// AuthModeExternal authenticates with the configured authenticator chain.
 	AuthModeExternal = "external"
 )
 
@@ -1050,9 +1050,14 @@ type AuthGroupMapping struct {
 	Workspaces []string `json:"workspaces" yaml:"workspaces" mapstructure:"workspaces"`
 }
 
-// GetAuthMode returns the only authentication path. auth.mode is not consulted:
-// a deployment cannot select a second, local-account path.
-func GetAuthMode() string { return AuthModeExternal }
+// GetAuthMode returns auth.mode. builtin selects local accounts. An empty value and any other
+// value, including an unrecognised one, are external.
+func GetAuthMode() string {
+	if strings.EqualFold(strings.TrimSpace(getString(authMode, "")), AuthModeBuiltin) {
+		return AuthModeBuiltin
+	}
+	return AuthModeExternal
+}
 
 // GetAuthenticators returns the authenticator chain, in order. A chain that cannot be
 // read is an error: the caller must not fall back to another mode.

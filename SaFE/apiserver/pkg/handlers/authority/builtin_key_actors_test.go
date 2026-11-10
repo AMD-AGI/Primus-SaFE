@@ -40,7 +40,7 @@ const (
 )
 
 // bkaEnv is external mode with auth.key_actors: a fake issuer (JWKS), an authenticator chain (oidc, then builtin),
-// and a cluster that holds the users alice and bob and a frozen user. auth.mode is ignored.
+// and a cluster that holds the users alice and bob and a frozen user. auth.mode is external.
 type bkaEnv struct {
 	*extEnv
 	introspected atomic.Int64
@@ -75,8 +75,8 @@ func newBuiltinKeyActorEnv(t *testing.T, actors []string, authenticators func(e 
 	if authenticators != nil {
 		chain = authenticators(e)
 	}
-	// auth.mode is ignored; the chain above is what runs.
-	viper.Set("auth.mode", "builtin")
+	// The chain above runs only in external mode.
+	viper.Set("auth.mode", "external")
 	viper.Set("auth.authenticators", chain)
 	viper.Set("auth.key_actors", actors)
 
@@ -353,7 +353,7 @@ func TestBuiltinKeyActorsLeaveBuiltinCredentialsAlone(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, w.Code)
 }
 
-// auth.mode builtin does not enable the builtin key-actor path. A later external chain leaves that path off too.
+// External mode does not enable the builtin key-actor path. A later external chain leaves that path off too.
 func TestExternalModeTurnsBuiltinKeyActorsOff(t *testing.T) {
 	_, err := newBuiltinKeyActorEnv(t, []string{keyActorClient}, nil)
 	require.NoError(t, err)

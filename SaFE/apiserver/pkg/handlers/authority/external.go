@@ -47,9 +47,9 @@ type externalAuth struct {
 
 var externalState atomic.Pointer[externalAuth]
 
-// InitExternalAuth builds the authenticator chain when auth.mode is external; in
-// builtin mode (the default) it does nothing and ParseToken is unchanged. An
-// external mode that cannot be built is an error: it must not start as builtin.
+// InitExternalAuth builds the authenticator chain when auth.mode is external, which is
+// the default. In builtin mode it leaves the chain unset and ParseToken stays the local
+// one. An external mode that cannot be built is an error: it must not start as builtin.
 func InitExternalAuth(cli client.Client) error {
 	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
 		externalState.Store(nil)

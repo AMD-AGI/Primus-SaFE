@@ -690,7 +690,7 @@ func TestAuthConfig(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
-	// Authentication has one path. auth.mode does not select another.
+	// Unset auth.mode is external. Only builtin selects local accounts.
 	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
 	testifyassert.Equal(t, "", GetAuthLoginURL())
 	list, err := GetAuthenticators()
@@ -698,8 +698,12 @@ func TestAuthConfig(t *testing.T) {
 	testifyassert.Empty(t, list)
 
 	viper.Set("auth.mode", "builtin")
-	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
+	testifyassert.Equal(t, AuthModeBuiltin, GetAuthMode())
+	viper.Set("auth.mode", " Builtin ")
+	testifyassert.Equal(t, AuthModeBuiltin, GetAuthMode())
 	viper.Set("auth.mode", "external")
+	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
+	viper.Set("auth.mode", "externl")
 	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
 
 	viper.Set("auth.authenticators", []map[string]any{
