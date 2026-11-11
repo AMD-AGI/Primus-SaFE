@@ -166,7 +166,9 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		}
 
 		// ==================== API Keys ====================
-		// External mode refuses creation; listing and deletion stay so earlier keys can be revoked.
+		// Builtin mode serves create, list, delete, and the current key on this apiserver.
+		// External mode refuses creation and leaves new keys to the identity service. Listing
+		// and deletion stay here so a key issued before the switch can still be revoked.
 		apiKeys := authGroup.Group("/apikeys")
 		{
 			apiKeys.POST("", middleware.Audit("apikey"), h.CreateApiKey)
