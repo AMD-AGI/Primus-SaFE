@@ -60,7 +60,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Plus, Search } from '@element-plus/icons-vue'
 import { debounce } from 'lodash'
 import AddDialog from './Components/AddDialog.vue'
@@ -73,6 +73,14 @@ const userStore = useUserStore()
 // with otherwise. Without a route the list is the apiserver's, as before. See apiKeyRouting.
 const providerUrl = computed(() => userStore.apiKeyRouting.providerUrl)
 const creatable = computed(() => userStore.apiKeyRouting.creatable)
+// Builtin keeps this page. External mode sends the browser to the identity console.
+watch(
+  () => userStore.isExternalAuth,
+  (external) => {
+    if (external) window.location.assign('/identity/#keys')
+  },
+  { immediate: true },
+)
 const legacy = computed(() => userStore.apiKeyRouting.legacy)
 const addVisible = ref(false)
 const primary = ref<InstanceType<typeof KeyList> | null>(null)
