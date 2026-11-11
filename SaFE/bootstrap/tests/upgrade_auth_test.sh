@@ -189,7 +189,7 @@ expect "no auth keys, fresh install: applied" applied
 expect "no auth keys, fresh install: builtin" rendered 'mode: "builtin"'
 expect "no auth keys, fresh install: only the one values file" grep -qx 1 "$OUT/value-files"
 expect "no auth keys, fresh install: login url" rendered 'login_url: "https://test.primus-safe.amd.com/login/password"'
-expect "no auth keys, fresh install: scim public url" rendered '  public_url: "https://apiserver.test.primus-safe.amd.com/scim/v2"'
+expect "no auth keys, fresh install: scim public url" rendered '  public_url: "https://test.primus-safe.amd.com/scim/v2"'
 
 # 2. The auth_* keys reach the rendered chart, on a release that is not external yet.
 run_upgrade "$LIVE_BUILTIN" "$AUTH_ENV"
@@ -247,7 +247,7 @@ expect "live external, api_keys_upstream missing: names it" grep -q 'does not se
 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"
 expect "live external, all keys in .env: applied" applied
 expect "live external, all keys in .env: still external" rendered 'mode: "external"'
-expect "live external, empty public url: derived" rendered '  public_url: "https://apiserver.test.primus-safe.amd.com/scim/v2"'
+expect "live external, empty public url: derived" rendered '  public_url: "https://test.primus-safe.amd.com/scim/v2"'
 
 # 5b. A stored scim.enabled=false is not kept. Omitting the key renders the chart default, true.
 #     An explicit false in .env still turns it off.
@@ -296,10 +296,20 @@ expect "higress external: login path" grep -qxF '          - path: /api/(login|l
 expect "higress external: identity namespace" grep -qxF '  namespace: primus-identity' "$OUT/rendered.yaml"
 expect "higress external: does not delete the route" bash -c '! grep -q "kubectl delete ingress primus-identity-login" "$1"' _ "$FAKE_LOG"
 expect "higress external: adopts an existing route" grep -q 'kubectl annotate ingress primus-identity-login -n primus-identity' "$FAKE_LOG"
+expect "higress external, scim off: no console scim route" bash -c '! grep -q "name: primus-safe-scim" "$1"' _ "$OUT/rendered.yaml"
+expect "higress external, scim off: deletes the console scim route" grep -qxF 'kubectl delete ingress primus-safe-scim -n primus-safe --ignore-not-found' "$FAKE_LOG"
+run_upgrade "$LIVE_EXTERNAL" "$(sed 's/^auth_scim_enabled=false/auth_scim_enabled=true/' <<<"$AUTH_ENV")"$'\ningress=higress'
+expect "higress external, scim on: applied" applied
+expect "higress external, scim on: console scim route" grep -qxF '  name: primus-safe-scim' "$OUT/rendered.yaml"
+expect "higress external, scim on: scim path" grep -qxF '          - path: /scim/v2' "$OUT/rendered.yaml"
+expect "higress external, scim on: apiserver service" grep -qxF '                name: primus-safe-apiserver' "$OUT/rendered.yaml"
+expect "higress external, scim on: adopts an existing route" grep -q 'kubectl annotate ingress primus-safe-scim -n primus-safe' "$FAKE_LOG"
+expect "higress external, scim on: does not delete the route" bash -c '! grep -q "kubectl delete ingress primus-safe-scim" "$1"' _ "$FAKE_LOG"
 run_upgrade "$LIVE_EXTERNAL" $'auth_mode=builtin\ningress=higress'
 expect "higress builtin: applied" applied
 expect "higress builtin: no login route" bash -c '! grep -q "name: primus-identity-login" "$1"' _ "$OUT/rendered.yaml"
 expect "higress builtin: deletes the route" grep -qxF 'kubectl delete ingress primus-identity-login -n primus-identity --ignore-not-found' "$FAKE_LOG"
+expect "higress builtin: deletes the console scim route" grep -qxF 'kubectl delete ingress primus-safe-scim -n primus-safe --ignore-not-found' "$FAKE_LOG"
 run_upgrade "$LIVE_BUILTIN" ""
 expect "nginx builtin: leaves the higress route alone" bash -c '! grep -q primus-identity-login "$1"' _ "$FAKE_LOG"
 

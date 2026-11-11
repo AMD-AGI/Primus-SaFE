@@ -97,7 +97,7 @@ func TestChartRendersAuthKeyActors(t *testing.T) {
 
 	loadRendered(t, renderApiserverConfig(t, "--set", "global.sub_domain=ccs300"))
 	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com/login/password", GetAuthLoginURL())
-	testifyassert.Equal(t, "https://apiserver.ccs300.primus-safe.amd.com/scim/v2", GetSCIMPublicURL())
+	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com/scim/v2", GetSCIMPublicURL())
 
 	loadRendered(t, renderApiserverConfig(t, "--set", "auth.key_actors={client-a,client-b}"))
 	testifyassert.Equal(t, []string{"client-a", "client-b"}, GetAuthKeyActors())

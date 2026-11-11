@@ -62,7 +62,7 @@ install_or_upgrade_helm_chart() {
 #                        A stored false is not kept.                           -> auth.scim.enabled
 #   auth_scim_identity_url  identity service root                          -> auth.scim.identity_url
 #   auth_scim_public_url    base URL the identity service calls for SCIM.
-#                        Omitted: https://apiserver.<sub_domain>.<domain>/scim/v2.
+#                        Omitted: https://<sub_domain>.<domain>/scim/v2.
 #                        A stored value is not kept.                           -> auth.scim.public_url
 #   auth_scim_token_secret  name of the Secret holding the SCIM bearer.
 #                        Omitted: the chart default primus-safe-scim-token, when the
@@ -263,6 +263,28 @@ sync_identity_login_route() {
     "meta.helm.sh/release-name=$chart_name" \
     "meta.helm.sh/release-namespace=$NAMESPACE" --overwrite
   kubectl label ingress primus-identity-login -n "$ns" app.kubernetes.io/managed-by=Helm --overwrite
+}
+
+# sync_console_scim_route keeps /scim/v2 on the console host pointed at the apiserver.
+# The chart renders that Ingress only for Higress with auth.mode=external and SCIM enabled.
+# An Ingress of the same name created outside the release is deleted when this upgrade does not
+# render it, and marked as this release's when it does, so Helm can adopt it.
+sync_console_scim_route() {
+  local name="$chart_name-scim"
+  if [[ "${ingress:-}" != "higress" ]]; then
+    return 0
+  fi
+  if [[ "${auth_mode:-builtin}" != "external" || "${auth_scim_enabled:-true}" == "false" ]]; then
+    kubectl delete ingress "$name" -n "$NAMESPACE" --ignore-not-found
+    return 0
+  fi
+  if ! kubectl get ingress "$name" -n "$NAMESPACE" > /dev/null 2>&1; then
+    return 0
+  fi
+  kubectl annotate ingress "$name" -n "$NAMESPACE" \
+    "meta.helm.sh/release-name=$chart_name" \
+    "meta.helm.sh/release-namespace=$NAMESPACE" --overwrite
+  kubectl label ingress "$name" -n "$NAMESPACE" app.kubernetes.io/managed-by=Helm --overwrite
 }
 
 # check_live_sso refuses an upgrade that would silently undo the SSO settings of the running release
@@ -674,6 +696,7 @@ fi
 write_auth_values "primus-safe/.auth-values.json"
 write_sso_values "primus-safe/.sso-values.json"
 sync_identity_login_route
+sync_console_scim_route
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"
   mkdir -p output
