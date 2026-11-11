@@ -220,7 +220,13 @@ func TestGenerateAddon(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}
 	tpl := &v1.AddonTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "tpl-1"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "tpl-1",
+			Labels: map[string]string{
+				v1.DisplayNameLabel: "primus-robust",
+				"primus-safe.kept":  "from-template",
+			},
+		},
 		Spec: v1.AddonTemplateSpec{
 			Type:                 v1.AddonTemplateHelm,
 			URL:                  "oci://repo/chart",
@@ -243,6 +249,10 @@ func TestGenerateAddon(t *testing.T) {
 	testifyassert.NotNil(t, addon.Spec.AddonSource.HelmRepository)
 	assert.Equal(t, "addon-ns", addon.Spec.AddonSource.HelmRepository.Namespace)
 	assert.Equal(t, "key: val", addon.Spec.AddonSource.HelmRepository.Values)
+	// The release name is the Addon's own display name, so it wins over the template label.
+	assert.Equal(t, "rel", addon.Labels[v1.DisplayNameLabel])
+	assert.Equal(t, "from-template", addon.Labels["primus-safe.kept"])
+	assert.Equal(t, user.Name, addon.Labels[v1.UserIdLabel])
 
 	// Missing template -> bad request.
 	_, err = h.generateAddon(c, &view.CreateAddonRequestBody{}, []byte(`{}`))

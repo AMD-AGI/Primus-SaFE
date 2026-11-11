@@ -1551,7 +1551,12 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, dbWorkload *d
 			}
 		}
 	}
-	if result.Phase == string(v1.WorkloadPending) {
+	// Pending carries the queue reason. NotReady carries the wait of a dispatched
+	// workload whose Pod no node has taken yet (on the kube-scheduler path: the
+	// scheduler's account and the autoscaler's TriggeredScaleUp / NotTriggerScaleUp
+	// decision). Callers read this field to tell a node being added from a Pod no
+	// node will take, so it is served from the live object in both phases.
+	if result.Phase == string(v1.WorkloadPending) || result.Phase == string(v1.WorkloadNotReady) {
 		adminWorkload, err := h.getAdminWorkload(ctx, result.WorkloadId)
 		if err == nil {
 			result.Message = adminWorkload.Status.Message

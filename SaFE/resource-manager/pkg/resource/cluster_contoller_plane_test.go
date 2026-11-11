@@ -348,8 +348,11 @@ func TestGuaranteeDefaultAddonCreatesAddon(t *testing.T) {
 	cluster := testCluster("c1")
 	template := &v1.AddonTemplate{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "infera-operator.0.1.0",
-			Labels: map[string]string{v1.AddonDefaultLabel: ""},
+			Name: "infera-operator.0.1.0",
+			Labels: map[string]string{
+				v1.AddonDefaultLabel: "",
+				"primus-safe.kept":   "from-template",
+			},
 		},
 	}
 	r := newPlaneReconciler(t, cluster, template)
@@ -359,6 +362,7 @@ func TestGuaranteeDefaultAddonCreatesAddon(t *testing.T) {
 	// Addon should be created with name "c1-infera-operator".
 	addon := &v1.Addon{}
 	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-infera-operator"}, addon))
+	assert.Equal(t, "from-template", addon.Labels["primus-safe.kept"])
 }
 
 func TestGuaranteeDefaultAddonDeletesLegacyAutoNginx(t *testing.T) {

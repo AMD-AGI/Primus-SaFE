@@ -6,7 +6,11 @@
 package resources
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
+	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -14,14 +18,18 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
+// robustAddonDisplayName is the Addon label value that identifies Robust.
+const robustAddonDisplayName = "primus-robust"
+
 // GetEnvs retrieves environment configuration values for the system.
 func (h *Handler) GetEnvs(c *gin.Context) {
 	handle(c, h.getEnvs)
 }
 
 // getEnvs lists the environment variables supported by the backend.
-func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
+func (h *Handler) getEnvs(c *gin.Context) (interface{}, error) {
 	resp := view.GetEnvResponse{
+		EnableRobust:         h.robustInstalled(c.Request.Context()),
 		EnableLog:            commonconfig.IsOpenSearchEnable(),
 		EnableLogDownload:    commonconfig.IsS3Enable(),
 		EnableSSH:            commonconfig.IsSSHEnable(),
@@ -58,4 +66,18 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 		}
 	}
 	return resp, nil
+}
+
+// robustInstalled reports whether an Addon labeled for Robust is present.
+// A lookup that cannot be made is reported as not installed.
+func (h *Handler) robustInstalled(ctx context.Context) bool {
+	if h.Client == nil {
+		return false
+	}
+	list := &v1.AddonList{}
+	if err := h.List(ctx, list, client.MatchingLabels{v1.DisplayNameLabel: robustAddonDisplayName}); err != nil {
+		klog.Errorf("list Addons with %s=%s: %v", v1.DisplayNameLabel, robustAddonDisplayName, err)
+		return false
+	}
+	return len(list.Items) > 0
 }
