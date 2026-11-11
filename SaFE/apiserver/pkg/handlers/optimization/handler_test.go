@@ -14,11 +14,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	testifyassert "github.com/stretchr/testify/assert"
+	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 )
@@ -123,6 +125,7 @@ func newOptHandler(t *testing.T, ctrl *gomock.Controller) (*Handler, *mock_clien
 	h := &Handler{
 		dbClient:   mockDB,
 		k8sClient:  k8sClient,
+		accessCtrl: authzAccessController(t),
 		clawClient: NewClawClient("", ""),
 		hubs:       newHubRegistry(),
 	}
@@ -130,12 +133,16 @@ func newOptHandler(t *testing.T, ctrl *gomock.Controller) (*Handler, *mock_clien
 }
 
 func TestNewHandlerValidation(t *testing.T) {
-	_, err := NewHandler(nil, nil)
+	_, err := NewHandler(nil, nil, nil)
 	testifyassert.Error(t, err)
 
 	k8sClient := ctrlfake.NewClientBuilder().WithScheme(runtime.NewScheme()).Build()
-	_, err = NewHandler(k8sClient, nil)
+	_, err = NewHandler(k8sClient, nil, nil)
 	testifyassert.Error(t, err)
+
+	ctrl := gomock.NewController(t)
+	_, err = NewHandler(k8sClient, mock_client.NewMockInterface(ctrl), nil)
+	testifyassert.ErrorContains(t, err, "access controller is required")
 }
 
 func TestListTasksHandler(t *testing.T) {
@@ -150,6 +157,7 @@ func TestListTasksHandler(t *testing.T) {
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, authzAdmin)
 	h.ListTasks(c)
 	assert.Equal(t, http.StatusOK, rsp.Code)
 	testifyassert.Contains(t, rsp.Body.String(), "t1")
@@ -160,6 +168,7 @@ func TestListTasksHandler(t *testing.T) {
 	rsp2 := httptest.NewRecorder()
 	c2, _ := gin.CreateTestContext(rsp2)
 	c2.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c2.Set(common.UserId, authzAdmin)
 	h2.ListTasks(c2)
 	testifyassert.NotEqual(t, http.StatusOK, rsp2.Code)
 }
@@ -176,6 +185,7 @@ func TestGetTaskHandler(t *testing.T) {
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, authzAdmin)
 	c.Params = gin.Params{{Key: "id", Value: "t1"}}
 	h.GetTask(c)
 	assert.Equal(t, http.StatusOK, rsp.Code)
@@ -186,6 +196,7 @@ func TestGetTaskHandler(t *testing.T) {
 	rsp2 := httptest.NewRecorder()
 	c2, _ := gin.CreateTestContext(rsp2)
 	c2.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c2.Set(common.UserId, authzAdmin)
 	c2.Params = gin.Params{{Key: "id", Value: "missing"}}
 	h2.GetTask(c2)
 	assert.Equal(t, http.StatusNotFound, rsp2.Code)
@@ -204,16 +215,18 @@ func TestDeleteTaskHandler(t *testing.T) {
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodDelete, "/", nil)
+	c.Set(common.UserId, authzAdmin)
 	c.Params = gin.Params{{Key: "id", Value: "t1"}}
 	h.DeleteTask(c)
 	assert.Equal(t, http.StatusNoContent, c.Writer.Status())
 
 	// Task not found.
 	h2, mockDB2 := newOptHandler(t, ctrl)
-	mockDB2.EXPECT().GetOptimizationTask(gomock.Any(), "missing").Return(nil, errors.New("not found"))
+	mockDB2.EXPECT().GetOptimizationTask(gomock.Any(), "missing").Return(nil, gorm.ErrRecordNotFound)
 	rsp2 := httptest.NewRecorder()
 	c2, _ := gin.CreateTestContext(rsp2)
 	c2.Request = httptest.NewRequest(http.MethodDelete, "/", nil)
+	c2.Set(common.UserId, authzAdmin)
 	c2.Params = gin.Params{{Key: "id", Value: "missing"}}
 	h2.DeleteTask(c2)
 	assert.Equal(t, http.StatusNotFound, rsp2.Code)

@@ -176,6 +176,30 @@ spec:
                       description: Mount path to be used, equivalent to 'mountPath'
                         in Kubernetes volume mounts.
                       type: string
+                    requiresPrivilegedGrant:
+                      description: |-
+                        When set, the volume is mounted only into workloads whose creator held the
+                        workload/privileged grant in the workspace when the workload was created (built-in:
+                        workspace-admin and system-admin). Workloads of other members are still admitted and run
+                        without this volume, as if its scopes did not list theirs. A member whose spec.hostpath
+                        names the volume's hostPath, a path under it or a path containing it is refused, with the
+                        reason, even when another volume declares that path.
+                      type: boolean
+                    scopes:
+                      description: |-
+                        The workload scopes this volume is mounted into. Empty means every scope.
+                        A workload whose scope is not listed does not get the volume, even when it asks for workspace storage.
+                      items:
+                        enum:
+                        - Train
+                        - Infer
+                        - Authoring
+                        - CICD
+                        - Ray
+                        - Sandbox
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
                     selector:
                       additionalProperties:
                         type: string
@@ -183,6 +207,34 @@ spec:
                         selector is a label query over volumes to consider for binding.
                         It cannot be used together with storageClass. If both are set, the selector takes priority
                       type: object
+                    sharedPaths:
+                      description: |-
+                        The directories of a hostpath volume that the workspace's users share, such as model and
+                        cache directories. They are used only when the job-manager mounts user directories for
+                        external Pods (external_execution.user_dir_mounts): an external Pod then mounts its own user
+                        directory (with enableUserDir) and these directories, each at the path it has below
+                        mountPath, instead of the whole volume. Pods on the cluster's own nodes are not affected.
+                      items:
+                        description: WorkspaceSharedPath is a directory of a hostpath
+                          workspace volume that the workspace's users share.
+                        properties:
+                          path:
+                            description: |-
+                              The directory, relative to the volume's root: hostPath (and subPath, when set) on the node,
+                              mountPath in the container. For example "models" is mounted from {hostPath}/models at
+                              {mountPath}/models. It must be a clean relative path without "..", and with enableUserDir it
+                              may not be "users" or lie under it.
+                            type: string
+                          readOnly:
+                            description: Mount the directory read-only.
+                            type: boolean
+                        required:
+                        - path
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - path
+                      x-kubernetes-list-type: map
                     storageClass:
                       description: Responsible for automatic PV creation
                       type: string

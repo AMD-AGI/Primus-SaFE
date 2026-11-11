@@ -618,6 +618,12 @@ async function getDetail() {
 
 async function fetchGPUData() {
   if (!dateRange.value || !store.currentWorkspaceId || !clusterStore.currentClusterId) return
+  // GPU aggregation is served by Robust. Call it only when /envs reports enableRobust.
+  if (userStore.envs?.enableRobust !== true) {
+    gpuData.value = []
+    await renderGpuChart()
+    return
+  }
   if (store.isCurrentWorkspaceExternal) {
     gpuData.value = []
     await renderGpuChart()
@@ -685,6 +691,13 @@ watch([() => store.currentWorkspaceId, () => userStore.userId], fetchMyWorkloads
 
 watch(
   () => clusterStore.currentClusterId,
+  () => {
+    fetchGPUData()
+  },
+)
+
+watch(
+  () => userStore.envs?.enableRobust,
   () => {
     fetchGPUData()
   },

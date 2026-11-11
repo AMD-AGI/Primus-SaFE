@@ -17,7 +17,15 @@ import (
 	"time"
 
 	"k8s.io/klog/v2"
+
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
+
+// ServiceTokenHeader carries the shared service token the Robust API accepts
+// from other components, on reads and on its machine-to-machine writes
+// (workloads/sync and the like). It must match the robust-api write guard's
+// auth.write_guard.service_token.
+const ServiceTokenHeader = "X-Robust-Service-Token"
 
 // Client manages per-cluster HTTP client connections to data-plane robust-analyzer instances.
 // All SaFE modules (apiserver, resource-manager, etc.) share a single Client via DI.
@@ -32,6 +40,12 @@ type ClientConfig struct {
 	HealthInterval  time.Duration
 	DefaultPort     int
 	ServiceTemplate string
+	// ServiceToken returns the Robust service token sent on every request, or
+	// "" to send none. It is called per request so a rotated Secret is picked
+	// up without a restart. Every caller of this client is a SaFE component
+	// acting after its own authentication and authorization, which is what the
+	// Robust API's service token stands for.
+	ServiceToken func() string
 }
 
 func DefaultClientConfig() ClientConfig {
@@ -40,10 +54,19 @@ func DefaultClientConfig() ClientConfig {
 		HealthInterval:  30 * time.Second,
 		DefaultPort:     8085,
 		ServiceTemplate: "http://robust-analyzer.primus-robust.svc.cluster.local:8085",
+		ServiceToken:    commonconfig.GetRobustServiceToken,
 	}
 }
 
 func NewClient(cfg ClientConfig) *Client {
+	// Say once whether calls will be authenticated: without the token the
+	// Robust API answers every request except /healthz with 401.
+	if cfg.ServiceToken == nil || cfg.ServiceToken() == "" {
+		klog.Warning("[robustclient] no Robust service token configured (robust.secret_path); " +
+			"the Robust API rejects unauthenticated calls")
+	} else {
+		klog.Info("[robustclient] Robust service token configured")
+	}
 	return &Client{
 		clusters: make(map[string]*ClusterClient),
 		defaults: cfg,
@@ -58,6 +81,7 @@ func (c *Client) RegisterCluster(clusterName, endpoint string) {
 		clusterName: clusterName,
 		baseURL:     endpoint,
 		httpClient:  &http.Client{Timeout: c.defaults.Timeout},
+		token:       c.defaults.ServiceToken,
 	}
 	klog.V(2).Infof("[robustclient] registered cluster %s -> %s", clusterName, endpoint)
 }
@@ -92,6 +116,18 @@ type ClusterClient struct {
 	clusterName string
 	baseURL     string
 	httpClient  *http.Client
+	token       func() string
+}
+
+// do sends req with the service token attached. Every request goes through
+// here, so no method can reach the Robust API without credentials.
+func (cc *ClusterClient) do(req *http.Request) (*http.Response, error) {
+	if cc.token != nil {
+		if token := cc.token(); token != "" {
+			req.Header.Set(ServiceTokenHeader, token)
+		}
+	}
+	return cc.httpClient.Do(req)
 }
 
 func (cc *ClusterClient) ClusterName() string { return cc.clusterName }
@@ -173,7 +209,7 @@ func (cc *ClusterClient) RawGet(ctx context.Context, path string, query url.Valu
 }
 
 func (cc *ClusterClient) doRaw(req *http.Request, path string) ([]byte, error) {
-	resp, err := cc.httpClient.Do(req)
+	resp, err := cc.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("robust-analyzer %s %s: %w", cc.clusterName, path, err)
 	}
@@ -196,7 +232,7 @@ func (cc *ClusterClient) HealthCheck(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	resp, err := cc.httpClient.Do(req)
+	resp, err := cc.do(req)
 	if err != nil {
 		return err
 	}
@@ -208,7 +244,7 @@ func (cc *ClusterClient) HealthCheck(ctx context.Context) error {
 }
 
 func (cc *ClusterClient) doAndDecode(req *http.Request, out interface{}) error {
-	resp, err := cc.httpClient.Do(req)
+	resp, err := cc.do(req)
 	if err != nil {
 		return fmt.Errorf("robust-analyzer %s %s %s: %w", cc.clusterName, req.Method, req.URL.Path, err)
 	}

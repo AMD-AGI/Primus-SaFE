@@ -109,6 +109,9 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 	if len(workload.Spec.Env) > 0 {
 		result.Env = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Env)))
 	}
+	if len(workload.Spec.Hostpath) > 0 {
+		result.Hostpath = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Hostpath)))
+	}
 	// Offloaded workloads store per-pod detail and dispatch history directly in
 	// the workload_pod / workload_dispatch_node tables via the job-manager syncer,
 	// so they are not mirrored into the row columns. Legacy (pre-offload) workloads

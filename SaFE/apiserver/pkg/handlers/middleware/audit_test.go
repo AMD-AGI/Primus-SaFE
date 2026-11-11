@@ -66,8 +66,7 @@ func TestIsInvalidTraceId(t *testing.T) {
 }
 
 func TestSanitizeBody(t *testing.T) {
-	// Note: sanitizeBody replaces the entire "field": "value" with "[REDACTED]"
-	// It uses regex patterns: "password"\s*:\s*"[^"]*" -> "[REDACTED]"
+	// Note: sanitizeBody keeps the key and replaces the value: "password": "[REDACTED]"
 	tests := []struct {
 		name     string
 		input    string
@@ -86,62 +85,92 @@ func TestSanitizeBody(t *testing.T) {
 		{
 			name:     "password_field",
 			input:    `{"username": "admin", "password": "secret123"}`,
-			expected: `{"username": "admin", "[REDACTED]"}`,
+			expected: `{"username": "admin", "password": "[REDACTED]"}`,
 		},
 		{
 			name:     "apiKey_field",
 			input:    `{"name": "test", "apiKey": "ak-` + `xxxxx"}`,
-			expected: `{"name": "test", "[REDACTED]"}`,
+			expected: `{"name": "test", "apiKey": "[REDACTED]"}`,
 		},
 		{
 			name:     "api_key_field",
 			input:    `{"name": "test", "api_key": "ak-` + `xxxxx"}`,
-			expected: `{"name": "test", "[REDACTED]"}`,
+			expected: `{"name": "test", "api_key": "[REDACTED]"}`,
 		},
 		{
 			name:     "privateKey_field",
 			input:    `{"githubAuth": {"type": "github_app", "appId": "123", "installationId": "456", "privateKey": "pem-data"}}`,
-			expected: `{"githubAuth": {"type": "github_app", "appId": "123", "installationId": "456", "[REDACTED]"}}`,
+			expected: `{"githubAuth": {"type": "github_app", "appId": "123", "installationId": "456", "privateKey": "[REDACTED]"}}`,
 		},
 		{
 			name:     "private_key_field",
 			input:    `{"name": "test", "private_key": "pem-data"}`,
-			expected: `{"name": "test", "[REDACTED]"}`,
+			expected: `{"name": "test", "private_key": "[REDACTED]"}`,
 		},
 		{
 			name:     "github_app_private_key_field",
 			input:    `{"github_app_id": "123", "github_app_private_key": "pem-data"}`,
-			expected: `{"github_app_id": "123", "[REDACTED]"}`,
+			expected: `{"github_app_id": "123", "github_app_private_key": "[REDACTED]"}`,
 		},
 		{
 			name:     "token_field",
 			input:    `{"userId": "123", "token": "jwt-token-here"}`,
-			expected: `{"userId": "123", "[REDACTED]"}`,
+			expected: `{"userId": "123", "token": "[REDACTED]"}`,
 		},
 		{
 			name:     "secret_field",
 			input:    `{"name": "mysecret", "secret": "super-secret"}`,
-			expected: `{"name": "mysecret", "[REDACTED]"}`,
+			expected: `{"name": "mysecret", "secret": "[REDACTED]"}`,
 		},
 		{
 			name:     "multiple_sensitive_fields",
 			input:    `{"password": "pass1", "token": "tok1", "apiKey": "key1"}`,
-			expected: `{"[REDACTED]", "[REDACTED]", "[REDACTED]"}`,
+			expected: `{"password": "[REDACTED]", "token": "[REDACTED]", "apiKey": "[REDACTED]"}`,
 		},
 		{
 			name:     "password_with_spaces",
 			input:    `{"password" : "secret"}`,
-			expected: `{"[REDACTED]"}`,
+			expected: `{"password": "[REDACTED]"}`,
 		},
 		{
 			name:     "case_sensitive_password_lowercase",
 			input:    `{"password": "secret"}`,
-			expected: `{"[REDACTED]"}`,
+			expected: `{"password": "[REDACTED]"}`,
 		},
 		{
-			name:     "case_sensitive_PASSWORD_uppercase_not_matched",
+			name:     "uppercase_PASSWORD_redacted",
 			input:    `{"PASSWORD": "secret"}`,
-			expected: `{"PASSWORD": "secret"}`, // regex is case-sensitive
+			expected: `{"PASSWORD": "[REDACTED]"}`,
+		},
+		{
+			name:     "workload_env_credentials_redacted_keys_kept",
+			input:    `{"workspaceId":"ws","env":{"ANTHROPIC_API_KEY":"ak-` + `abc","AUTH_CLAW_TOKEN":"tok","LANGFUSE_SECRET_KEY":"sk","DB_CREDENTIALS":"c","CLAW_SESSION_ID":"sid-1"}}`,
+			expected: `{"workspaceId":"ws","env":{"ANTHROPIC_API_KEY": "[REDACTED]","AUTH_CLAW_TOKEN": "[REDACTED]","LANGFUSE_SECRET_KEY": "[REDACTED]","DB_CREDENTIALS": "[REDACTED]","CLAW_SESSION_ID":"sid-1"}}`,
+		},
+		{
+			name:     "env_value_with_escaped_quote_fully_redacted",
+			input:    `{"env":{"GH_TOKEN":"a\"b-tail","MODE":"x"}}`,
+			expected: `{"env":{"GH_TOKEN": "[REDACTED]","MODE":"x"}}`,
+		},
+		{
+			name:     "env_value_cut_by_truncation_redacted",
+			input:    `{"env":{"MODE":"x","OPENAI_API_KEY":"sk-` + `partial`,
+			expected: `{"env":{"MODE":"x","OPENAI_API_KEY": "[REDACTED]"`,
+		},
+		{
+			name:     "escaped_credential_key_redacted",
+			input:    `{"env":{"OPENAI_API_\u004bEY":"example-secret","MODE":"x"}}`,
+			expected: `{"env":{"OPENAI_API_\u004bEY": "[REDACTED]","MODE":"x"}}`,
+		},
+		{
+			name:     "escaped_quote_in_key_and_number_value_untouched",
+			input:    `{"a\"b":"v","count":5,"GH_TOKEN":"t"}`,
+			expected: `{"a\"b":"v","count":5,"GH_TOKEN": "[REDACTED]"}`,
+		},
+		{
+			name:     "value_mentioning_token_is_not_a_key",
+			input:    `{"description":"rotate the token","name":"n"}`,
+			expected: `{"description":"rotate the token","name":"n"}`,
 		},
 		{
 			name:     "form_data_password",
@@ -343,4 +372,29 @@ func TestWriteBatchFallbackToIndividual(t *testing.T) {
 func TestWriteBatchEmpty(t *testing.T) {
 	b := &auditLogBuffer{}
 	b.writeBatch(nil)
+}
+
+// TestSanitizeBodyRedactsURLPasswords: a string value that is a URL with a password in it is
+// redacted whatever its key, as the workload env shown to non-owners masks it, so a
+// DATABASE_URL in a workload create, resume or PATCH body does not reach the audit log.
+func TestSanitizeBodyRedactsURLPasswords(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{`{"env":{"DATABASE_URL":"postgres://app:hunter2@db:5432/x","MODE":"x"}}`,
+			`{"env":{"DATABASE_URL": "[REDACTED]","MODE":"x"}}`},
+		{`{"env":{"DATABASE_URL":"postgres:\/\/app:hunter2@db\/x"}}`,
+			`{"env":{"DATABASE_URL": "[REDACTED]"}}`},
+		{`{"env":{"CACHE_URL":"redis://:hunter2@cache:6379/0"}}`,
+			`{"env":{"CACHE_URL": "[REDACTED]"}}`},
+		{`{"env":{"PROXY_URL":"http://proxy:3128","REPO":"https://github.com/a/b"}}`,
+			`{"env":{"PROXY_URL":"http://proxy:3128","REPO":"https://github.com/a/b"}}`},
+	}
+	for _, c := range cases {
+		got := sanitizeBody(c.in)
+		if got != c.want {
+			t.Errorf("sanitizeBody(%s) = %s, want %s", c.in, got, c.want)
+		}
+		if strings.Contains(got, "hunter2") {
+			t.Errorf("password left in %s", got)
+		}
+	}
 }

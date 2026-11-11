@@ -36,7 +36,7 @@ var (
 // v1 keeps the API intentionally small: it creates a single Deployment using
 // the optimized launch command and the image already used during Hyperloom.
 func (h *Handler) ApplyTask(c *gin.Context) {
-	task, err := h.getTaskForAction(c)
+	task, err := h.getTaskForAction(c, v1.GetVerb)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -66,9 +66,20 @@ func (h *Handler) ApplyTask(c *gin.Context) {
 		return
 	}
 
-	workload, err := h.buildOptimizedWorkload(c.Request.Context(), task, model, launchCommand, req)
+	workload, err := h.buildOptimizedWorkload(c.Request.Context(), task, model, launchCommand, req,
+		c.GetString(common.UserId), c.GetString(common.UserName))
 	if err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to build workload: "+err.Error()))
+		return
+	}
+	// This route creates the workload itself, so it holds the caller to the workload create
+	// path's checks: allowed to create workloads in the workspace, at this priority.
+	if h.accessCtrl == nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("workload access controller is not initialized"))
+		return
+	}
+	if err := h.accessCtrl.AuthorizeWorkloadCreate(c.Request.Context(), c.GetString(common.UserId), workload); err != nil {
+		apiutils.AbortWithApiError(c, err)
 		return
 	}
 	if err := h.k8sClient.Create(c.Request.Context(), workload); err != nil {
@@ -156,6 +167,7 @@ func (h *Handler) buildOptimizedWorkload(
 	model *ResolvedModel,
 	command string,
 	req ApplyTaskRequest,
+	userID, userName string,
 ) (*v1.Workload, error) {
 	workspace := firstNonEmpty(req.Workspace, task.Workspace)
 	displayName := firstNonEmpty(req.DisplayName, stringutil.NormalizeForDNS(fmt.Sprintf("%s-opt-infer", task.DisplayName)))
@@ -186,11 +198,11 @@ func (h *Handler) buildOptimizedWorkload(
 			Labels: map[string]string{
 				v1.DisplayNameLabel:  normalizedName,
 				v1.WorkloadKindLabel: common.DeploymentKind,
-				v1.UserIdLabel:       task.UserID,
+				v1.UserIdLabel:       userID,
 			},
 			Annotations: map[string]string{
 				v1.DescriptionAnnotation:         fmt.Sprintf("Optimized inference service for %s", task.DisplayName),
-				v1.UserNameAnnotation:            task.UserName,
+				v1.UserNameAnnotation:            userName,
 				v1.AdminControlPlaneAnnotation:   controlPlaneIP,
 				v1.UseWorkspaceStorageAnnotation: v1.TrueStr,
 			},

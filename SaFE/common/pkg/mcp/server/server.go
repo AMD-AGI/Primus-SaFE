@@ -54,7 +54,10 @@ type MCPTool struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
-	Handler     MCPToolHandler `json:"-"`
+	// Annotations is optional; nil means the tool declares nothing, which a client reads as
+	// "may change state".
+	Annotations *ToolAnnotations `json:"annotations,omitempty"`
+	Handler     MCPToolHandler   `json:"-"`
 }
 
 // MCPToolHandler is the function signature for MCP tool handlers.
@@ -156,6 +159,7 @@ func (s *Server) handleToolsList(_ context.Context, req *JSONRPCRequest) *JSONRP
 			Name:        tool.Name,
 			Description: tool.Description,
 			InputSchema: tool.InputSchema,
+			Annotations: tool.Annotations,
 		})
 	}
 	klog.V(4).Infof("MCP Server: Listed %d tools", len(tools))

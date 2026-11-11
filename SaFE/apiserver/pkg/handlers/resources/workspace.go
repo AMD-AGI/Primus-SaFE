@@ -647,7 +647,7 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 		ClusterId:         w.Spec.Cluster,
 		FlavorId:          w.Spec.NodeFlavor,
 		UserId:            v1.GetUserId(w),
-		TargetNodeCount:   h.workspaceTargetNodeCount(ctx, w),
+		TargetNodeCount:   w.Spec.Replica,
 		CurrentNodeCount:  w.CurrentReplica(),
 		AbnormalNodeCount: w.Status.AbnormalReplica,
 		Phase:             string(w.Status.Phase),
@@ -662,6 +662,9 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 		IdleTime:          w.Spec.IdleTime,
 		GpuProduct:        v1.GetAnnotation(w, v1.GpuProductAnnotation),
 		External:          v1.IsExternalWorkspace(w),
+	}
+	if result.External {
+		h.setExternalNodeCounts(ctx, w, &result)
 	}
 	for _, m := range w.Spec.Managers {
 		user, err := h.getAdminUser(ctx, m)
@@ -757,40 +760,26 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 	return usedQuota, len(nodeSet), nil
 }
 
-// defaultExternalGPUsPerNode is used when an external workspace has no flavor
-// GPU count. Matches the common MI355X / budget-pools unit size.
-const defaultExternalGPUsPerNode = 8
-
-// workspaceTargetNodeCount returns the node count shown in API responses.
-// For normal workspaces this is Spec.Replica. For external workspaces Spec.Replica
-// stays at 0 and the count is derived from the budget quota: gpu_hard / gpus_per_node
-// (NodeFlavor GPU quantity, or defaultExternalGPUsPerNode when unset).
-func (h *Handler) workspaceTargetNodeCount(ctx context.Context, w *v1.Workspace) int {
-	if !v1.IsExternalWorkspace(w) {
-		return w.Spec.Replica
+// setExternalNodeCounts reports the nodes an external workspace really holds. Its status
+// replica counters are pinned to zero because its capacity is the budget quota, and a count
+// derived from the budget divided by one flavor's GPU count would be wrong for virtual nodes
+// that are sized per Pod. There is no target: capacity is supplied on demand, so the target
+// equals the nodes held now. A failed read leaves the counters as the status has them.
+func (h *Handler) setExternalNodeCounts(ctx context.Context, w *v1.Workspace, item *view.WorkspaceResponseItem) {
+	nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, h.Client, []string{w.Name},
+		commonnodes.FilterUnclaimedNode(w.Name))
+	if err != nil {
+		return
 	}
-	gpuName := v1.GetGpuResourceName(w)
-	gpusPerNode := 0
-	if w.Spec.NodeFlavor != "" {
-		nf := &v1.NodeFlavor{}
-		if err := h.Get(ctx, client.ObjectKey{Name: w.Spec.NodeFlavor}, nf); err == nil && nf.HasGpu() {
-			gpusPerNode = nf.GetGpuCount()
-			if nf.Spec.Gpu.ResourceName != "" {
-				gpuName = nf.Spec.Gpu.ResourceName
-			}
+	abnormal := 0
+	for i := range nodes {
+		if !nodes[i].IsAvailable(false) {
+			abnormal++
 		}
 	}
-	if gpuName == "" {
-		gpuName = common.AmdGpu
-	}
-	if gpusPerNode <= 0 {
-		gpusPerNode = defaultExternalGPUsPerNode
-	}
-	qty, ok := w.Status.TotalResources[corev1.ResourceName(gpuName)]
-	if !ok || qty.IsZero() {
-		return 0
-	}
-	return int(qty.Value()) / gpusPerNode
+	item.CurrentNodeCount = len(nodes)
+	item.AbnormalNodeCount = abnormal
+	item.TargetNodeCount = len(nodes)
 }
 
 // getWorkspaceAvailQuota computes the workspace available quota as the sum of
@@ -803,16 +792,6 @@ func (h *Handler) workspaceTargetNodeCount(ctx context.Context, w *v1.Workspace)
 // capacity on other nodes, so the workspace available never goes negative and
 // stays consistent with the per-node view.
 func (h *Handler) getWorkspaceAvailQuota(ctx context.Context, workspace *v1.Workspace) (corev1.ResourceList, error) {
-	// The claim, not the label -- see FilterUnclaimedNode. syncWorkspace counts this
-	// workspace's nodes the same way, and a quota computed over a different set than the
-	// replica count is computed over is a quota that disagrees with the workspace's own
-	// status: a node already released to another workspace would keep contributing its
-	// capacity here for as long as its label lagged behind.
-	nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, h.Client, []string{workspace.Name},
-		commonnodes.FilterUnclaimedNode(workspace.Name))
-	if err != nil {
-		return nil, err
-	}
 	workloads, err := h.getRunningWorkloads(ctx, workspace.Spec.Cluster, []string{workspace.Name})
 	if err != nil {
 		return nil, err
@@ -826,6 +805,26 @@ func (h *Handler) getWorkspaceAvailQuota(ctx context.Context, workspace *v1.Work
 		for nodeName, resList := range resourcePerNode {
 			usedPerNode[nodeName] = quantity.AddResource(usedPerNode[nodeName], resList)
 		}
+	}
+	if v1.IsExternalWorkspace(workspace) {
+		// The budget is the capacity, and the nodes are sized to the Pods on them, so what
+		// is left is the budget minus what runs. Summing the nodes' own leftovers would
+		// report zero for a budget nothing has used yet.
+		var used corev1.ResourceList
+		for _, res := range usedPerNode {
+			used = quantity.AddResource(used, res)
+		}
+		return quantity.NonNegative(quantity.SubResource(workspace.Status.TotalResources, used)), nil
+	}
+	// The claim, not the label -- see FilterUnclaimedNode. syncWorkspace counts this
+	// workspace's nodes the same way, and a quota computed over a different set than the
+	// replica count is computed over is a quota that disagrees with the workspace's own
+	// status: a node already released to another workspace would keep contributing its
+	// capacity here for as long as its label lagged behind.
+	nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, h.Client, []string{workspace.Name},
+		commonnodes.FilterUnclaimedNode(workspace.Name))
+	if err != nil {
+		return nil, err
 	}
 	var availQuota corev1.ResourceList
 	for i := range nodes {

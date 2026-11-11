@@ -110,6 +110,8 @@ import { useRoute } from 'vue-router'
 import { CircleCloseFilled, SuccessFilled, RefreshRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
+import { randomState } from '@/utils'
+import { buildSignInUrl, signInTarget } from '@/utils/ssoSignIn'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -164,21 +166,15 @@ const retrySSO = async () => {
     // Get SSO URL and redirect
     await userStore.fetchEnvs()
     const envs = userStore.envs
-    if (envs?.ssoAuthUrl) {
-      // Generate new state
-      const state = Math.random().toString(36).substring(2, 15)
-      sessionStorage.setItem('oauth_state', state)
+    const target = signInTarget(envs)
+    if (target) {
       sessionStorage.setItem('sso.redirect', redirect)
 
-      // Use configured SSO URL
-      const u = new URL(envs.ssoAuthUrl)
-      u.searchParams.set('state', state)
-      if (!u.searchParams.has('response_mode')) {
-        u.searchParams.set('response_mode', 'query')
-      }
+      // Use configured SSO URL, with a new state and, when the provider needs it, a PKCE challenge
+      const url = await buildSignInUrl(target.url, randomState(), target.pkce)
 
       // Redirect to SSO
-      window.location.assign(u.toString())
+      window.location.assign(url)
     } else {
       throw new Error('SSO configuration not found')
     }

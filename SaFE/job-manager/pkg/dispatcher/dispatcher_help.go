@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"slices"
@@ -57,6 +58,11 @@ const (
 	envdBinMount   = "/shared/bin"
 	// envdInjectorScript copies the envd binary into the shared volume. It is the
 	// Sandbox template's envd-injector script; a test keeps the two in step.
+	// The signing key goes to uid 1000. A user namespace that maps one uid has
+	// no uid 1000: that is the root-mapped namespace apptainer --fakeroot gives
+	// a root container on an Autopilot user-mode node, where every container of
+	// the Pod runs as that one root and reads the key as its owner. Only there
+	// may the chown fail.
 	envdInjectorScript = `set -e
 cp /envd /shared/bin/envd
 cp /tmux /shared/bin/tmux 2>/dev/null || true
@@ -72,17 +78,30 @@ for f in /etc/secrets/*/signing-key.pem; do
   if [ -f "$f" ]; then
     umask 077
     cp "$f" /run/signing-key/signing-key.pem
-    chown 1000:1000 /run/signing-key/signing-key.pem
+    if ! chown 1000:1000 /run/signing-key/signing-key.pem; then
+      { read -r first outside ids && ! read -r more; } < /proc/self/uid_map && [ "$first" = 0 ] && [ "$ids" = 1 ] || exit 1
+    fi
     chmod 0400 /run/signing-key/signing-key.pem
     break
   fi
-done`
+done
+if [ -n "${SIGNING_KEY_REQUIRED-}" ] && [ ! -f /run/signing-key/signing-key.pem ]; then
+  echo "signing key secret is not mounted" >&2
+  exit 1
+fi`
 	// envdStartupScript starts envd in the main container. It is the Sandbox
 	// template's startup command (PATH setup, work directory, CA setup, the
 	// signing key file, and the SANDBOX_STARTUP snippet); a test keeps the two in step.
 	// A PEM in the environment is written mode 0400 to HYPERLOOM_SIGNING_KEY_FILE,
 	// defaulting to tmpfs, then removed from the environment. The file is never under /app.
-	envdStartupScript = `__sandbox_path_rest="${PATH-}:"'/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin:'; __sandbox_path=; while [ -n "$__sandbox_path_rest" ]; do __sandbox_path_dir="${__sandbox_path_rest%%:*}"; __sandbox_path_rest="${__sandbox_path_rest#*:}"; case "$__sandbox_path_dir" in */../*|*/..) ;; /*) case ":$__sandbox_path:" in *":$__sandbox_path_dir:"*) ;; *) __sandbox_path="${__sandbox_path:+$__sandbox_path:}$__sandbox_path_dir" ;; esac ;; esac; done; PATH="$__sandbox_path"; export PATH; unset __sandbox_path_rest __sandbox_path_dir __sandbox_path; mkdir -p /app /app/work && /shared/bin/setup-amd-ca.sh && if [ -n "${HYPERLOOM_SIGNING_KEY_PEM-}" ]; then keyfile="${HYPERLOOM_SIGNING_KEY_FILE:-/dev/shm/hyperloom-signing-key.pem}"; case "$keyfile" in /app|/app/*) echo "signing key path is under /app" >&2; exit 1;; esac; mkdir -p "$(dirname "$keyfile")"; umask 077; printf '%s\n' "$HYPERLOOM_SIGNING_KEY_PEM" > "$keyfile"; chmod 0400 "$keyfile"; unset HYPERLOOM_SIGNING_KEY_PEM; export HYPERLOOM_SIGNING_KEY_FILE="$keyfile"; fi && if [ -n "${SANDBOX_STARTUP-}" ]; then eval "$SANDBOX_STARTUP"; fi && exec /shared/bin/envd --port=8080 --workspace=/app`
+	// HYPERLOOM_SIGNING_KEY_FILE is unset when no key file is there, so a Sandbox
+	// created without a signing key does not name a key it lacks.
+	// SANDBOX_STARTUP and envd, and so every command envd starts, run under umask
+	// 002, set after the key is written under its own umask 077: a file or
+	// directory a session creates is writable by the group of the directory it
+	// lands in, which keeps a directory operators share through a setgid group
+	// shared; elsewhere the group is the creator's primary group.
+	envdStartupScript = `__sandbox_path_rest="${PATH-}:"'/shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin:'; __sandbox_path=; while [ -n "$__sandbox_path_rest" ]; do __sandbox_path_dir="${__sandbox_path_rest%%:*}"; __sandbox_path_rest="${__sandbox_path_rest#*:}"; case "$__sandbox_path_dir" in */../*|*/..) ;; /*) case ":$__sandbox_path:" in *":$__sandbox_path_dir:"*) ;; *) __sandbox_path="${__sandbox_path:+$__sandbox_path:}$__sandbox_path_dir" ;; esac ;; esac; done; PATH="$__sandbox_path"; export PATH; unset __sandbox_path_rest __sandbox_path_dir __sandbox_path; mkdir -p /app /app/work && /shared/bin/setup-amd-ca.sh && if [ -n "${HYPERLOOM_SIGNING_KEY_PEM-}" ]; then keyfile="${HYPERLOOM_SIGNING_KEY_FILE:-/dev/shm/hyperloom-signing-key.pem}"; case "$keyfile" in /app|/app/*) echo "signing key path is under /app" >&2; exit 1;; esac; mkdir -p "$(dirname "$keyfile")"; umask 077; printf '%s\n' "$HYPERLOOM_SIGNING_KEY_PEM" > "$keyfile"; chmod 0400 "$keyfile"; unset HYPERLOOM_SIGNING_KEY_PEM; export HYPERLOOM_SIGNING_KEY_FILE="$keyfile"; fi && if [ ! -f "${HYPERLOOM_SIGNING_KEY_FILE-}" ]; then unset HYPERLOOM_SIGNING_KEY_FILE; fi && umask 002 && if [ -n "${SANDBOX_STARTUP-}" ]; then eval "$SANDBOX_STARTUP"; fi && exec /shared/bin/envd --port=8080 --workspace=/app`
 	// sessionIDAnnotation is the downward-API field envd compares with the Router token.
 	sessionIDAnnotation   = "runtime.agent-sandbox.io/session-id"
 	sessionIdentityVolume = "envd-session-identity"
@@ -121,6 +140,11 @@ func initializeObject(obj *unstructured.Unstructured,
 	if len(resourceSpec.PrePaths) > 0 {
 		_, found, err := jobutils.NestedField(obj.Object, resourceSpec.PrePaths)
 		if err != nil || !found {
+			// A Sandbox has one resource spec, so a missing pod is a malformed template,
+			// not an absent optional role. Refuse it rather than skip the posture below.
+			if commonworkload.IsSandBox(workload) {
+				return sandboxMissingPodError(resourceSpec, err)
+			}
 			return nil
 		}
 	}
@@ -246,6 +270,9 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = applyExternalNodePin(obj, workload, *resourceSpec, resourceId); err != nil {
 			return err
 		}
+		if err = checkExternalPodHostPaths(obj, workload, workspace, *resourceSpec); err != nil {
+			return err
+		}
 		if err = validateExternalPodShape(obj, workload, *resourceSpec); err != nil {
 			return err
 		}
@@ -266,6 +293,16 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = modifyHostPid(obj, workload, resourceSpec); err != nil {
 			return fmt.Errorf("failed to modify by opsjob: %v", err.Error())
 		}
+	}
+	// Last, so nothing above can widen a Sandbox's security posture again. On the
+	// external path this runs after applyExternalContainerSecurity, so the result is
+	// the external strip (no runAsUser/runAsGroup, no added capabilities) followed by
+	// the Sandbox posture (drop ALL, add sandboxCapabilities, hostNetwork false even
+	// when externalHostNetworkEnabled set it). validateExternalPodShape above checks
+	// only container count, ephemeral containers and integer requests, none of which
+	// the posture changes.
+	if err = applySandboxPodSecurity(obj, workload, resourceSpec); err != nil {
+		return fmt.Errorf("failed to apply sandbox pod security: %v", err.Error())
 	}
 	return nil
 }
@@ -587,7 +624,20 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 			if vol.Id > maxId {
 				maxId = vol.Id
 			}
+			if !workspaceVolumeAppliesTo(vol, workload) {
+				continue
+			}
 			if vol.MountPath != "" {
+				if mounts, replaced, err := externalUserDirMounts(workload, vol); replaced {
+					// modifyVolumes refuses the workload when err is set.
+					if err == nil {
+						for _, m := range mounts {
+							volumeMounts = append(volumeMounts,
+								buildVolumeMount(m.name, m.mountPath, "", "", m.readOnly, false))
+						}
+					}
+					continue
+				}
 				// External pods mount the approved root without subPath; USER_DATA_PATH
 				// still points at the per-user directory for the program.
 				enableUserDir := vol.EnableUserDir && !isExternalWorkload(workload)
@@ -600,8 +650,9 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumeMount := buildVolumeMount(volumeName, hostpath, "", "",
-			commonworkload.IsSandBox(workload), false)
+		_, subPath, readOnly := hostPathSource(workload, workspace, hostpath)
+		volumeMount := buildVolumeMount(volumeName, hostpath, subPath, "",
+			commonworkload.IsSandBox(workload) || readOnly, false)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	sortVolumeMountsByDepth(volumeMounts)
@@ -674,6 +725,10 @@ func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
 		if !ok {
 			continue
 		}
+		// Layer copy containers see only their own emptyDir.
+		if name, _ := c["name"].(string); strings.HasPrefix(name, sandboxLayerVolume) {
+			continue
+		}
 		var volumeMounts []interface{}
 		if existing, ok := c["volumeMounts"].([]interface{}); ok {
 			volumeMounts = existing
@@ -683,6 +738,80 @@ func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
 		initContainers[i] = c
 	}
 	return jobutils.SetNestedField(obj.Object, initContainers, path)
+}
+
+// workspaceVolumeAppliesTo reports whether a workspace volume is mounted into the workload: a volume
+// that lists scopes is mounted only into workloads of those scopes, whatever the workload asks for,
+// and a volume with requiresPrivilegedGrant only into workloads the apiserver marked as created with
+// the workload/privileged grant (commonworkload.WorkspaceVolumeMountedInto). The volume ids still
+// count towards the hostpath volume numbering, so skipping a volume does not renumber the
+// workload's own hostpath volumes.
+func workspaceVolumeAppliesTo(vol v1.WorkspaceVolume, workload *v1.Workload) bool {
+	return commonworkload.WorkspaceVolumeMountedInto(&vol, workload)
+}
+
+// hostPathSource returns the hostPath volume source and the mount subPath for one of a workload's
+// spec.hostpath entries, and whether the workspace shows the entry only read-only. Admission lets a
+// workload mount, without the workload/privileged grant, only entries under a root its workspace
+// declares for the workload's scope (commonworkload.DeclaredHostPathRoot: below a hostpath volume's
+// hostPath joined with its subPath, and outside its user directories), but that check is lexical:
+// a symlink under the root, which any workload mounting the root can create, could still point
+// anywhere on the node or into the user directories. So the pod mounts the declared root and
+// reaches the entry through subPath, which the kubelet resolves inside the root and refuses when it
+// escapes it; and the entry is mounted read-only when every volume that declares it is read-only
+// (ReadOnlyMany). External pods (whose provider refuses subPath; modifyVolumes refuses their
+// entries below a volume's hostPath unless user directories are mounted for external Pods) keep the
+// entry as the hostPath source, read-only on the same terms. Entries under no declared root
+// (granted by workload/privileged, or admitted before roots were enforced) keep the entry as the
+// hostPath source.
+func hostPathSource(workload *v1.Workload, workspace *v1.Workspace, hostpath string) (string, string, bool) {
+	declared := commonworkload.DeclaredHostPathRoot(workspace, commonworkload.GetScope(workload), hostpath)
+	switch {
+	case declared.Root == "":
+		return hostpath, "", false
+	case isExternalWorkload(workload):
+		return hostpath, "", declared.ReadOnly
+	default:
+		return declared.Root, declared.Sub, declared.ReadOnly
+	}
+}
+
+// checkPrivilegedVolumeHostPath refuses to mount a hostpath entry that reaches a workspace volume
+// with requiresPrivilegedGrant (commonworkload.PrivilegedVolumeOverlapping) into a workload whose
+// creator was not found to hold the workload/privileged grant: neither privileged nor marked by
+// the apiserver with WorkloadHostPathAuthzAnnotation. The apiserver and the webhook refuse such an
+// entry when it is added, but a workload created before the volume required the grant still
+// carries it, and an update that keeps it is not judged again.
+func checkPrivilegedVolumeHostPath(workload *v1.Workload, workspace *v1.Workspace, hostpath string) error {
+	if v1.IsPrivileged(workload) || v1.GetAnnotation(workload, v1.WorkloadHostPathAuthzAnnotation) == v1.TrueStr {
+		return nil
+	}
+	if reason := commonworkload.PrivilegedVolumeRefusal(workspace, []string{hostpath},
+		commonworkload.WorkloadPrivilegedGrant); reason != "" {
+		return errors.New(reason)
+	}
+	return nil
+}
+
+// checkExternalHostPath refuses an external workload's hostpath entry that lies below the hostPath
+// of a hostpath volume of its workspace (commonworkload.HostPathVolumeRoot, the root the provider
+// approves). The provider refuses subPath, so such an entry could only be mounted as its own
+// hostPath, and a symlink under the root would then reach any path on the node.
+//
+// With external_execution.user_dir_mounts on, the provider admits a path below an approved root and
+// mounts it without following symlinks, so such an entry is allowed and mounted as its own hostPath
+// (read-only for a Sandbox or under a read-only volume); checkExternalPodHostPaths keeps it out of
+// the user directories.
+func checkExternalHostPath(workload *v1.Workload, workspace *v1.Workspace, hostpath string) error {
+	if !isExternalWorkload(workload) || commonconfig.IsExternalUserDirMountsEnable() {
+		return nil
+	}
+	root, sub := commonworkload.HostPathVolumeRoot(workspace, commonworkload.GetScope(workload), hostpath)
+	if root != "" && sub != "" {
+		return fmt.Errorf("hostpath %q of an external workload is below the "+
+			"declared root %q; an external workload can mount only the declared root itself", hostpath, root)
+	}
+	return nil
 }
 
 // modifyVolumes adds volume definitions to the Kubernetes object based on workspace and workload specifications.
@@ -699,6 +828,18 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			if vol.Id > maxId {
 				maxId = vol.Id
 			}
+			if !workspaceVolumeAppliesTo(vol, workload) {
+				continue
+			}
+			if mounts, replaced, err := externalUserDirMounts(workload, vol); err != nil {
+				return err
+			} else if replaced {
+				for _, m := range mounts {
+					volumes = append(volumes, buildHostPathVolume(m.name, m.hostPath, m.hostType))
+				}
+				hasNewVolume = true
+				continue
+			}
 			volumeName := vol.GenFullVolumeId()
 			var volume interface{}
 			if vol.Type == v1.HOSTPATH {
@@ -713,7 +854,14 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumes = append(volumes, buildHostPathVolume(volumeName, hostpath, "Directory"))
+		if err = checkExternalHostPath(workload, workspace, hostpath); err != nil {
+			return err
+		}
+		if err = checkPrivilegedVolumeHostPath(workload, workspace, hostpath); err != nil {
+			return err
+		}
+		source, _, _ := hostPathSource(workload, workspace, hostpath)
+		volumes = append(volumes, buildHostPathVolume(volumeName, source, "Directory"))
 		hasNewVolume = true
 	}
 	for _, secret := range workload.Spec.Secrets {
@@ -1117,6 +1265,14 @@ func expectedEntryPoint(adminWorkload *v1.Workload, id int) string {
 }
 
 // buildObjectLabels creates a map of labels for object tracking.
+//
+// An external workload's labels also carry primus-safe.user.id, the id of the workload's creator
+// (the Workload's own label, which the apiserver sets from the authenticated user and the
+// webhook keeps immutable). The provider admits a hostPath below a per-user root only for a Pod
+// whose label names that user, so the value is SaFE's alone: every caller writes these labels
+// over what the template carried, and the workload's other labels are copied only without the
+// primus-safe. prefix. It is empty when the workload has none, which the provider reads as no
+// user, rather than left to whatever the template said.
 func buildObjectLabels(workload *v1.Workload) map[string]interface{} {
 	result := map[string]interface{}{
 		v1.WorkloadIdLabel:          getRootWorkloadId(workload),
@@ -1132,6 +1288,9 @@ func buildObjectLabels(workload *v1.Workload) map[string]interface{} {
 	}
 	if v1.GetGroupId(workload) != "" {
 		result[v1.GroupIdLabel] = v1.GetGroupId(workload)
+	}
+	if isExternalWorkload(workload) {
+		result[v1.UserIdLabel] = v1.GetUserId(workload)
 	}
 	return result
 }
@@ -1230,7 +1389,7 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 	}
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
-			if vol.EnableUserDir {
+			if vol.EnableUserDir && workspaceVolumeAppliesTo(vol, workload) {
 				userDir := vol.MountPath + "/" + generateUserDir(v1.GetUserId(workload))
 				result = addEnvVar(result, workload, jobutils.UserDataEnv, userDir)
 				break
@@ -1913,7 +2072,7 @@ func githubRunnerWritableMountPath(workload *v1.Workload, workspace *v1.Workspac
 	if workspace == nil || !v1.IsEnableWorkspaceStorage(workload) {
 		return "", fmt.Errorf("github runner requires workspace storage")
 	}
-	vol, ok := pickWritableWorkspaceVolume(workspace)
+	vol, ok := pickWritableWorkspaceVolume(workload, workspace)
 	if !ok || vol.MountPath == "" {
 		return "", fmt.Errorf("github runner requires a writable workspace volume")
 	}
@@ -1928,14 +2087,14 @@ func githubRunnerWritableMountPath(workload *v1.Workload, workspace *v1.Workspac
 // without asking kubelet to change ownership across a shared filesystem.
 const githubRunnerPFSSupplementalGroup = int64(1000)
 
-func workspaceHasWritablePFS(workspace *v1.Workspace) bool {
-	vol, ok := pickWritableWorkspaceVolume(workspace)
+func workspaceHasWritablePFS(workload *v1.Workload, workspace *v1.Workspace) bool {
+	vol, ok := pickWritableWorkspaceVolume(workload, workspace)
 	return ok && vol.Type == v1.PFS
 }
 
 func applyGithubRunnerPodSecurityContext(obj *unstructured.Unstructured, workload *v1.Workload,
 	workspace *v1.Workspace, resourceSpec v1.ResourceSpec) error {
-	if !workspaceHasWritablePFS(workspace) {
+	if !workspaceHasWritablePFS(workload, workspace) {
 		return nil
 	}
 	path := podSpecPath(workload, &resourceSpec, "securityContext")
@@ -1994,11 +2153,12 @@ func supplementalGroupID(group interface{}) (int64, bool) {
 	}
 }
 
-func pickWritableWorkspaceVolume(workspace *v1.Workspace) (v1.WorkspaceVolume, bool) {
+func pickWritableWorkspaceVolume(workload *v1.Workload, workspace *v1.Workspace) (v1.WorkspaceVolume, bool) {
 	var first v1.WorkspaceVolume
 	foundFirst := false
 	for _, vol := range workspace.Spec.Volumes {
-		if vol.AccessMode == corev1.ReadOnlyMany || strings.TrimSpace(vol.MountPath) == "" {
+		if vol.AccessMode == corev1.ReadOnlyMany || strings.TrimSpace(vol.MountPath) == "" ||
+			!workspaceVolumeAppliesTo(vol, workload) {
 			continue
 		}
 		if vol.Type == v1.PFS {
@@ -2936,6 +3096,27 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context, clientSets *sy
 			return err
 		}
 	}
+	if v1.GetLabel(adminWorkload, grantIDLabel) == "" {
+		return nil
+	}
+	for i := range rt.Spec.ResourceSpecs {
+		spec := &rt.Spec.ResourceSpecs[i]
+		if len(spec.PrePaths) > 0 {
+			_, found, err := jobutils.NestedField(obj.Object, spec.PrePaths)
+			if err != nil {
+				return err
+			}
+			if !found {
+				continue
+			}
+		}
+		if err := ensureSandboxLayers(obj, adminWorkload, workspace, spec); err != nil {
+			return err
+		}
+		if err := requireSandboxSigningKey(obj, adminWorkload, spec); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -2991,6 +3172,9 @@ func (r *DispatcherReconciler) applyAgentSandboxPyTorch(ctx context.Context, cli
 			return err
 		}
 		if err := ensureSessionIdentity(obj, adminWorkload, spec); err != nil {
+			return err
+		}
+		if err := requireSandboxSigningKey(obj, adminWorkload, spec); err != nil {
 			return err
 		}
 	}
@@ -3387,6 +3571,10 @@ func updateContainers(adminWorkload *v1.Workload,
 	for key, val := range resourceList {
 		resources[string(key)] = val.String()
 	}
+	// The limits are the requests, except that EphemeralStorageLimit, when set,
+	// raises the ephemeral-storage limit above the request the pod is scheduled with.
+	limits := resources
+	approvedVector := false
 	// The reservation was granted against the provider's approved vector. Using the
 	// workload request instead would let a rounded or padded Spec disagree with the
 	// claim, and VK admission refuses anything that is not an exact match.
@@ -3397,6 +3585,8 @@ func updateContainers(adminWorkload *v1.Workload,
 		}
 		if approved != nil {
 			resources = approved
+			limits = approved
+			approvedVector = true
 		}
 		// The approved vector has no RDMA field; a gang member receives the node's RDMA
 		// devices by requesting them.
@@ -3404,12 +3594,26 @@ func updateContainers(adminWorkload *v1.Workload,
 			resources[name] = res.RdmaResource
 		}
 	}
+	if res.EphemeralStorageLimit != "" && !approvedVector {
+		limitList, err := quantity.CvtToResourceList("", "", "", "",
+			res.EphemeralStorageLimit, "", 1.0/float64(len(containers)))
+		if err != nil {
+			return err
+		}
+		limits = make(map[string]interface{}, len(resources))
+		for key, val := range resources {
+			limits[key] = val
+		}
+		if q, ok := limitList[corev1.ResourceEphemeralStorage]; ok {
+			limits[string(corev1.ResourceEphemeralStorage)] = q.String()
+		}
+	}
 
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
 		updateContainerEnv(adminWorkload.Spec.Env, container, v1.GetEnvToBeRemoved(adminWorkload))
 		container["resources"] = map[string]interface{}{
-			"limits":   resources,
+			"limits":   limits,
 			"requests": resources,
 		}
 		name := jobutils.NestedStringSilently(container, []string{"name"})
@@ -3732,9 +3936,15 @@ func stripExternalContainerPrivileges(obj *unstructured.Unstructured, workload *
 }
 
 // externalNodeFailureTolerationSeconds is how long a pod remains after its node
-// is tainted NotReady or Unreachable. Declaring it here keeps the apiserver
-// from injecting its 300s default.
-const externalNodeFailureTolerationSeconds int64 = 30
+// is tainted NotReady or Unreachable. It matches the 300s kube-apiserver
+// default the clusters run with, and is declared rather than inherited so an
+// apiserver with a shorter --default-*-toleration-seconds cannot shorten it.
+// The Autopilot virtual kubelet derives each task's execution lease from this
+// value: anything under grace + 40s (70s for the 30s default grace) leaves a
+// partitioned task killed before it could be safely replaced, and it emits a
+// PartitionToleranceTooShort Warning. A short virtual-kubelet blip must not
+// evict a long-running GPU pod.
+const externalNodeFailureTolerationSeconds int64 = 300
 
 // applyExternalVirtualKubeletToleration adds tolerations for the provider's virtual-node
 // taints so kube-scheduler can place the pod on an external VK. Both the community
@@ -4188,14 +4398,21 @@ func getNfsPathFromWorkspace(workload *v1.Workload, workspace *v1.Workspace) str
 		return ""
 	}
 	result := ""
-	for _, vol := range workspace.Spec.Volumes {
+	var first *v1.WorkspaceVolume
+	for i, vol := range workspace.Spec.Volumes {
+		if !workspaceVolumeAppliesTo(vol, workload) {
+			continue
+		}
+		if first == nil {
+			first = &workspace.Spec.Volumes[i]
+		}
 		if vol.Type == v1.PFS {
 			result = vol.MountPath
 			break
 		}
 	}
-	if result == "" && len(workspace.Spec.Volumes) > 0 {
-		result = workspace.Spec.Volumes[0].MountPath
+	if result == "" && first != nil {
+		result = first.MountPath
 	}
 	return result
 }
@@ -4224,5 +4441,5 @@ func podSpecPath(w *v1.Workload, resourceSpec *v1.ResourceSpec, fields ...string
 }
 
 func generateUserDir(userId string) string {
-	return "users/" + userId
+	return v1.UserDirsPath + "/" + userId
 }

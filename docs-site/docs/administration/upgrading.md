@@ -53,6 +53,15 @@ Requests require admin approval before they run (the install-time `cd_require_ap
 A created request sits idle until an admin approves it.
 :::
 
+:::note Deployment account
+An approved request runs `bootstrap/cd-deploy.sh` as the ServiceAccount `default/primus-safe`. Give
+it the rights in `SaFE/bootstrap/cd-installer-rbac.yaml` (apply it once with an administrator
+kubeconfig) rather than `cluster-admin`: it may replace the platform's CRDs, ClusterRoles and webhook
+configurations and upgrade the two Helm releases, but cannot create cluster-wide RBAC or read secrets
+outside `primus-safe`. The file lists the cases that still need an administrator, such as enabling
+CI/CD or Monarch on a running install.
+:::
+
 ## From the script — `upgrade.sh`
 
 `upgrade.sh` is the day-2 counterpart to `install.sh`: instead of prompting you again, it

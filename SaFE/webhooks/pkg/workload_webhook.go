@@ -234,12 +234,40 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserId(workload))
 	}
 	m.mutateUserAccount(ctx, workload)
+	m.mutateEphemeralRunnerWorkspaceStorage(ctx, workload)
 	if !v1.HasAnnotation(workload, v1.UseWorkspaceStorageAnnotation) {
 		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
 	}
 	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	commonworkload.SetMainContainerViaTemplate(ctx, m.Client, workload)
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
+}
+
+// mutateEphemeralRunnerWorkspaceStorage makes an EphemeralRunner use the workspace
+// storage setting of the AutoscalingRunnerSet that owns it. The runner-proxy creates
+// these children through the apiserver without the field, so the request default
+// (true) would otherwise mount the workspace volume into every CI job even when the
+// scale set was created with useWorkspaceStorage=false. The parent is resolved through
+// the controller reference set by mutateOwnerReference and checked for kind, UID,
+// workspace and cluster, the same way the dispatcher resolves it. When the parent
+// cannot be resolved or carries no setting, the child keeps what it already has.
+func (m *WorkloadMutator) mutateEphemeralRunnerWorkspaceStorage(ctx context.Context, workload *v1.Workload) {
+	if !commonworkload.IsCICDEphemeralRunner(workload) {
+		return
+	}
+	parent, err := commonworkload.ResolveCICDProxySource(ctx, m.Client, workload)
+	if err != nil || parent == nil {
+		if err != nil {
+			klog.ErrorS(err, "failed to resolve the scale set of the ephemeral runner",
+				"workload", workload.Name)
+		}
+		return
+	}
+	if !v1.HasAnnotation(parent, v1.UseWorkspaceStorageAnnotation) {
+		return
+	}
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation,
+		strconv.FormatBool(v1.IsEnableWorkspaceStorage(parent)))
 }
 
 // mutateUserAccount stamps the submitter account from the User CR preferred name.
@@ -358,14 +386,18 @@ func (m *WorkloadMutator) mutateResources(_ context.Context, workload *v1.Worklo
 }
 
 // mutateHostPath removes hostPath duplicated by the workspace; workloads inherit workspace hostPath.
+// Only the workspace volumes mounted into the workload are inherited, so a hostPath that duplicates
+// a volume restricted to other scopes, or one that requires the workload/privileged grant the
+// workload was not marked with, is kept (and judged as any other entry).
 func (m *WorkloadMutator) mutateHostPath(workload *v1.Workload, workspace *v1.Workspace) {
 	if len(workload.Spec.Hostpath) == 0 {
 		return
 	}
 	hostPathSet := sets.NewSet()
 	if workspace != nil {
-		for _, vol := range workspace.Spec.Volumes {
-			if vol.Type == v1.HOSTPATH {
+		for i := range workspace.Spec.Volumes {
+			vol := &workspace.Spec.Volumes[i]
+			if vol.Type == v1.HOSTPATH && commonworkload.WorkspaceVolumeMountedInto(vol, workload) {
 				hostPathSet.Insert(vol.HostPath)
 			}
 		}
@@ -1055,8 +1087,13 @@ func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Worklo
 			continue
 		}
 		secret := &corev1.Secret{}
-		if reader == nil ||
-			reader.Get(ctx, types.NamespacedName{Name: s.Id, Namespace: common.PrimusSafeNamespace}, secret) != nil {
+		key := types.NamespacedName{Name: s.Id, Namespace: common.PrimusSafeNamespace}
+		if reader == nil {
+			continue
+		}
+		// A secret created just before the workload may not be in the cache yet.
+		if err := reader.Get(ctx, key, secret); err != nil &&
+			(m.secretReader == nil || m.secretReader.Get(ctx, key, secret) != nil) {
 			continue
 		}
 		secretsSet.Insert(s.Id)
@@ -1215,7 +1252,7 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	case common.MonarchJob:
 		err = v.validateMonarchJob(newWorkload, oldWorkload)
 	case common.SandboxKind:
-		err = v.validateSandbox(newWorkload)
+		err = v.validateSandbox(ctx, newWorkload, oldWorkload)
 	case common.DynamoDeploymentKind:
 		err = v.validateDynamoDeployment(newWorkload)
 	case common.InferaDeploymentKind:
@@ -1230,6 +1267,11 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	}
 	if err != nil {
 		return err
+	}
+	if !commonworkload.IsSandBox(newWorkload) {
+		if err = v.validateHostPath(ctx, newWorkload, oldWorkload); err != nil {
+			return err
+		}
 	}
 
 	if err = v.validateRequiredParams(newWorkload); err != nil {
@@ -1741,11 +1783,88 @@ func (v *WorkloadValidator) validateDynamoDeployment(workload *v1.Workload) erro
 }
 
 // validateSandbox validates sandbox workload configuration.
-func (v *WorkloadValidator) validateSandbox(newWorkload *v1.Workload) error {
+func (v *WorkloadValidator) validateSandbox(ctx context.Context, newWorkload, oldWorkload *v1.Workload) error {
 	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxGeneratedNameLength {
 		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxGeneratedNameLength)
 	}
+	if len(newWorkload.Spec.Hostpath) == 0 ||
+		(oldWorkload != nil && reflect.DeepEqual(oldWorkload.Spec.Hostpath, newWorkload.Spec.Hostpath)) {
+		return nil
+	}
+	workspace, err := getWorkspace(ctx, v.Client, newWorkload.Spec.Workspace)
+	if err != nil {
+		return err
+	}
+	return validateSandboxHostPath(newWorkload, workspace)
+}
+
+// validateSandboxHostPath restricts a sandbox's hostpath entries to the host paths the workspace
+// declares for sandboxes: each entry must be a hostpath volume of the workspace mounted into the
+// Sandbox scope, or a directory under one. A sandbox cannot bind an arbitrary node path.
+func validateSandboxHostPath(workload *v1.Workload, workspace *v1.Workspace) error {
+	undeclared := commonworkload.UndeclaredHostPaths(workspace, v1.SandboxScope, workload.Spec.Hostpath)
+	if reason := commonworkload.PrivilegedVolumeRefusal(workspace, undeclared, workloadPrivilegedKind); reason != "" {
+		return commonerrors.NewForbidden("a sandbox cannot mount it: " + reason)
+	}
+	if len(undeclared) > 0 {
+		return commonerrors.NewForbidden(fmt.Sprintf("the hostpath %q of the sandbox is not declared "+
+			"by workspace %s, only paths under %v are allowed", undeclared[0], workload.Spec.Workspace,
+			declaredHostPaths(workspace, v1.SandboxScope)))
+	}
 	return nil
+}
+
+// validateHostPath restricts the hostpath entries of a workload that is not a sandbox (sandboxes
+// follow validateSandbox) to the host paths its workspace declares for the workload's scope, or
+// directories under them. Mounting any other node path needs the workload/privileged grant in the
+// workspace, which only the apiserver can check; it records the grant on the workload with
+// WorkloadHostPathAuthzAnnotation, which no request can set. A privileged workload took that grant
+// to be created and reaches the node's file system anyway, so it is not restricted either.
+// An update is judged only on the entries it adds, so a workload admitted earlier can still be
+// updated after its workspace changed.
+func (v *WorkloadValidator) validateHostPath(ctx context.Context, newWorkload, oldWorkload *v1.Workload) error {
+	if v1.IsPrivileged(newWorkload) || v1.GetAnnotation(newWorkload, v1.WorkloadHostPathAuthzAnnotation) == v1.TrueStr {
+		return nil
+	}
+	var added []string
+	for _, hostPath := range newWorkload.Spec.Hostpath {
+		if oldWorkload == nil || !slice.Contains(oldWorkload.Spec.Hostpath, hostPath) {
+			added = append(added, hostPath)
+		}
+	}
+	if len(added) == 0 {
+		return nil
+	}
+	workspace, err := getWorkspace(ctx, v.Client, newWorkload.Spec.Workspace)
+	if err != nil {
+		return err
+	}
+	scope := commonworkload.GetScope(newWorkload)
+	undeclared := commonworkload.UndeclaredHostPaths(workspace, scope, added)
+	if reason := commonworkload.PrivilegedVolumeRefusal(workspace, undeclared, workloadPrivilegedKind); reason != "" {
+		return commonerrors.NewForbidden(reason)
+	}
+	if len(undeclared) > 0 {
+		return commonerrors.NewForbidden(fmt.Sprintf("the hostpath %q is not declared by workspace %s "+
+			"for %s workloads, only paths under %v are allowed; mounting another host path requires "+
+			"the %s grant in the workspace", undeclared[0], newWorkload.Spec.Workspace,
+			newWorkload.SpecKind(), declaredHostPaths(workspace, scope), workloadPrivilegedKind))
+	}
+	return nil
+}
+
+// workloadPrivilegedKind is the resource a role grants to allow privileged workloads and host paths
+// the workspace does not declare (authority.WorkloadPrivilegedKind in the apiserver).
+const workloadPrivilegedKind = "workload/privileged"
+
+// declaredHostPaths names what the workspace declares for the given scope
+// (commonworkload.DeclaredHostPathRoots), the paths under which hostpath entries are admitted.
+func declaredHostPaths(workspace *v1.Workspace, scope v1.WorkspaceScope) []string {
+	var declared []string
+	for _, root := range commonworkload.DeclaredHostPathRoots(workspace, scope) {
+		declared = append(declared, root.String())
+	}
+	return declared
 }
 
 // validateResource validates the basic fields of a WorkloadResource to ensure they are properly set
@@ -1768,8 +1887,39 @@ func validateResource(resource *v1.WorkloadResource, workspaceName string) error
 	if resource.EphemeralStorage == "" {
 		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
 	}
+	if err := validateEphemeralStorageLimit(resource); err != nil {
+		errs = append(errs, err)
+	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateEphemeralStorageLimit checks that an ephemeralStorageLimit, when set, is a
+// positive quantity no smaller than ephemeralStorage: the pod requests ephemeralStorage
+// and Kubernetes rejects a container whose limit is below its request.
+func validateEphemeralStorageLimit(res *v1.WorkloadResource) error {
+	if res.EphemeralStorageLimit == "" {
+		return nil
+	}
+	limit, err := resource.ParseQuantity(res.EphemeralStorageLimit)
+	if err != nil {
+		return fmt.Errorf("invalid ephemeralStorageLimit %q: %v", res.EphemeralStorageLimit, err)
+	}
+	if limit.Sign() <= 0 {
+		return fmt.Errorf("the ephemeralStorageLimit %q must be positive", res.EphemeralStorageLimit)
+	}
+	if res.EphemeralStorage == "" {
+		return nil
+	}
+	request, err := resource.ParseQuantity(res.EphemeralStorage)
+	if err != nil {
+		return nil // reported by the ephemeralStorage checks
+	}
+	if limit.Cmp(request) < 0 {
+		return fmt.Errorf("the ephemeralStorageLimit %s is smaller than the ephemeralStorage %s",
+			res.EphemeralStorageLimit, res.EphemeralStorage)
 	}
 	return nil
 }
@@ -2008,6 +2158,17 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 				fmt.Sprintf("Resource request exceeds maximum available: %s, requested: %v, max.available: %v",
 					corev1.ResourceEphemeralStorage, requestQuantity, *maxEphemeralStoreQuantity))
 		}
+		if res.EphemeralStorageLimit != "" {
+			limitQuantity, err := resource.ParseQuantity(res.EphemeralStorageLimit)
+			if err != nil {
+				return err
+			}
+			if maxEphemeralStoreQuantity.Cmp(limitQuantity) < 0 {
+				return commonerrors.NewForbidden(
+					fmt.Sprintf("Resource limit exceeds maximum available: %s, limit: %v, max.available: %v",
+						corev1.ResourceEphemeralStorage, limitQuantity, *maxEphemeralStoreQuantity))
+			}
+		}
 	}
 	return nil
 }
@@ -2043,6 +2204,12 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 	}
 	if v1.GetUserAccount(newWorkload) != v1.GetUserAccount(oldWorkload) {
 		return field.Forbidden(field.NewPath("annotations").Key(v1.UserAccountAnnotation), "immutable")
+	}
+	// The creator's id is what an external Pod's user id label carries, and with it the one user
+	// directory the provider lets the Pod mount; changing it would hand the workload another
+	// user's directory on its next dispatch.
+	if v1.GetUserId(newWorkload) != v1.GetUserId(oldWorkload) {
+		return field.Forbidden(field.NewPath("labels").Key(v1.UserIdLabel), "immutable")
 	}
 	if commonworkload.IsCICDScalingRunnerSet(newWorkload) {
 		val1, _ := oldWorkload.Spec.Env[common.UnifiedJobEnable]

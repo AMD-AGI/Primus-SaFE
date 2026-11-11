@@ -90,7 +90,15 @@ spec:
                     description: Requested CPU core count (e.g., 128)
                     type: string
                   ephemeralStorage:
-                    description: Ephemeral-storage for pod. default 50Gi
+                    description: |-
+                      Ephemeral-storage for pod. default 50Gi
+                      It is the request the pod is scheduled with, and also its limit unless EphemeralStorageLimit is set.
+                    type: string
+                  ephemeralStorageLimit:
+                    description: |-
+                      Ephemeral-storage limit for pod (e.g., 100Gi). Optional; when empty the limit equals EphemeralStorage.
+                      When set it must not be smaller than EphemeralStorage. Only the limit is raised: scheduling and quota
+                      still count EphemeralStorage, and the kubelet evicts the pod when its usage passes this limit.
                     type: string
                   gpu:
                     description: Requested GPU card count (e.g., 8)

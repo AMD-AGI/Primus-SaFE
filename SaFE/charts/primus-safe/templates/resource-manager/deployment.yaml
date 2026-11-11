@@ -47,6 +47,9 @@ spec:
                     operator: NotIn
                     values:
                       - "true"
+      {{- with include "primus-safe.managementPlacement" . }}
+      {{- . | trim | nindent 6 }}
+      {{- end }}
       serviceAccountName: {{ .Release.Name }}
       containers:
         - name: {{ .Release.Name }}-resource-manager
@@ -59,6 +62,11 @@ spec:
             - name: server-config
               mountPath: /opt/primus-safe/resource-manager/config
               readOnly: true
+            {{- if (default dict .Values.robust).service_token_secret }}
+            - name: robust-service-token
+              mountPath: {{ default "/etc/secrets/robust" .Values.robust.secret_path }}
+              readOnly: true
+            {{- end }}
             {{- if .Values.db.enable }}
             - name: db-secret
               mountPath: {{ default "/etc/secrets/db" (default .Values.db).secret_path }}
@@ -135,6 +143,14 @@ spec:
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-resource-manager
+        {{- if (default dict .Values.robust).service_token_secret }}
+        - name: robust-service-token
+          secret:
+            secretName: {{ .Values.robust.service_token_secret }}
+            # Optional so the components start before the Secret exists; the
+            # Robust API then answers their calls with 401 until it is created.
+            optional: true
+        {{- end }}
       terminationGracePeriodSeconds: 10
       priorityClassName: system-cluster-critical
       restartPolicy: Always

@@ -47,6 +47,9 @@ spec:
                     operator: NotIn
                     values:
                       - "true"
+      {{- with include "primus-safe.managementPlacement" . }}
+      {{- . | trim | nindent 6 }}
+      {{- end }}
       serviceAccountName: {{ .Release.Name }}
       containers:
         - name: {{ .Release.Name }}-apiserver
@@ -62,6 +65,11 @@ spec:
             - name: server-config
               mountPath: /opt/primus-safe/apiserver/config
               readOnly: true
+            {{- if (default dict .Values.robust).service_token_secret }}
+            - name: robust-service-token
+              mountPath: {{ default "/etc/secrets/robust" .Values.robust.secret_path }}
+              readOnly: true
+            {{- end }}
             {{- if .Values.db.enable }}
             - name: db-secret
               mountPath: {{ default "/etc/secrets/db" (default .Values.db).secret_path }}
@@ -82,7 +90,7 @@ spec:
               mountPath: {{ .Values.s3.secret_path }}
               readOnly: true
             {{- end }}
-            {{- if .Values.sso.enable }}
+            {{- if and .Values.sso.enable .Values.sso.secret }}
             - name: sso-secret
               mountPath: {{ .Values.sso.secret_path }}
               readOnly: true
@@ -168,7 +176,15 @@ spec:
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-apiserver
-        {{- if .Values.sso.enable }}
+        {{- if (default dict .Values.robust).service_token_secret }}
+        - name: robust-service-token
+          secret:
+            secretName: {{ .Values.robust.service_token_secret }}
+            # Optional so the components start before the Secret exists; the
+            # Robust API then answers their calls with 401 until it is created.
+            optional: true
+        {{- end }}
+        {{- if and .Values.sso.enable .Values.sso.secret }}
         - name: sso-secret
           secret:
             secretName: {{ .Values.sso.secret }}

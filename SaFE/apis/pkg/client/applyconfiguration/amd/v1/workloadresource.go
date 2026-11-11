@@ -22,7 +22,12 @@ type WorkloadResourceApplyConfiguration struct {
 	// Requested Shared Memory size (e.g., 128Gi). Used for sharing data between processes. default: Memory/2
 	SharedMemory *string `json:"sharedMemory,omitempty"`
 	// Ephemeral-storage for pod. default 50Gi
+	// It is the request the pod is scheduled with, and also its limit unless EphemeralStorageLimit is set.
 	EphemeralStorage *string `json:"ephemeralStorage,omitempty"`
+	// Ephemeral-storage limit for pod (e.g., 100Gi). Optional; when empty the limit equals EphemeralStorage.
+	// When set it must not be smaller than EphemeralStorage. Only the limit is raised: scheduling and quota
+	// still count EphemeralStorage, and the kubelet evicts the pod when its usage passes this limit.
+	EphemeralStorageLimit *string `json:"ephemeralStorageLimit,omitempty"`
 	// RDMA resource is effective only with hostNetwork enabled (default: 1).
 	// This field is set internally
 	RdmaResource *string `json:"rdmaResource,omitempty"`
@@ -87,6 +92,14 @@ func (b *WorkloadResourceApplyConfiguration) WithSharedMemory(value string) *Wor
 // If called multiple times, the EphemeralStorage field is set to the value of the last call.
 func (b *WorkloadResourceApplyConfiguration) WithEphemeralStorage(value string) *WorkloadResourceApplyConfiguration {
 	b.EphemeralStorage = &value
+	return b
+}
+
+// WithEphemeralStorageLimit sets the EphemeralStorageLimit field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the EphemeralStorageLimit field is set to the value of the last call.
+func (b *WorkloadResourceApplyConfiguration) WithEphemeralStorageLimit(value string) *WorkloadResourceApplyConfiguration {
+	b.EphemeralStorageLimit = &value
 	return b
 }
 

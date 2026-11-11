@@ -4,7 +4,9 @@ import { useUserStore } from '@/stores/user'
 import { getEnvs, ssoLoginRaw } from '@/services/login'
 import { addUserToGroup, getUserNTID } from '@/services/mcp'
 import { getSafeRedirect } from '@/utils'
+import { leaveConsoleFor, outsideConsoleReturn, RETURN_REFUSED_MESSAGE } from '@/utils/returnPath'
 import { resolveAllowedBridge } from '@/utils/ssoBridge'
+import { pkceRequired, takeCallbackVerifier } from '@/utils/ssoSignIn'
 
 const SSO_GROUP = 'dl.primus-safe-users'
 const PUBLIC_NAME = new Set(['Login', 'LoginAdmin', 'Register', 'SSOError'])
@@ -48,6 +50,30 @@ async function loadBridgeAllowlist(): Promise<string[]> {
   } catch {
     return []
   }
+}
+
+/** Whether the console's sign-in uses PKCE (/envs ssoPkce); false if /envs cannot be read. */
+async function loadPkceRequired(): Promise<boolean> {
+  try {
+    return pkceRequired(await getEnvs())
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether the server, not only localStorage, says this browser is signed in. The saved session
+ * may be stale (the session cookie expired since); ensureSessionOnce asks the server (the probe
+ * main.ts starts on load, or a new one after a 401 reset it) and clears the saved session when
+ * the server refuses it.
+ */
+async function sessionConfirmed(user: ReturnType<typeof useUserStore>): Promise<boolean> {
+  try {
+    await user.ensureSessionOnce()
+  } catch {
+    return false
+  }
+  return !!(user.isLogin && user.userId)
 }
 
 export default function setupAuthGuard(router: Router) {
@@ -98,8 +124,21 @@ export default function setupAuthGuard(router: Router) {
         })
       }
 
+      // With PKCE the code is used only with the verifier this tab kept for this state.
+      const pkce = takeCallbackVerifier(state, await loadPkceRequired())
+      if (!pkce.ok) {
+        history.replaceState(null, '', to.path)
+        return next({
+          path: '/sso-error',
+          query: {
+            error: 'state_mismatch',
+            error_description: 'The sign-in did not start in this tab. Please try again.',
+          },
+        })
+      }
+
       // ========== SSO login: use raw request to get the full response ==========
-      const resp = await ssoLoginRaw(code, state)
+      const resp = await ssoLoginRaw(code, state, pkce.verifier)
 
       const loginOk = resp.status >= 200 && resp.status < 300 && resp.data?.id
 
@@ -120,8 +159,18 @@ export default function setupAuthGuard(router: Router) {
           localStorage.removeItem(SSO_ATTEMPTS_KEY)
           sessionStorage.removeItem('sso.blocked')
 
-          const target = getSafeRedirect(sessionStorage.getItem(ENTRY_KEY))
+          const entry = sessionStorage.getItem(ENTRY_KEY)
           sessionStorage.removeItem(ENTRY_KEY)
+
+          // The sign-in was started by another app on this host (Dispatron, autopilot, the
+          // identity service): load its page, which the console router does not know.
+          const away = outsideConsoleReturn(entry, window.location.origin)
+          if (away) {
+            if (leaveConsoleFor(away)) return next(false)
+            ElMessage.warning(RETURN_REFUSED_MESSAGE)
+          }
+
+          const target = away ? '/' : getSafeRedirect(entry)
           history.replaceState(null, '', target)
 
           // First-login onboarding: admin → QuickStart, regular user → UserQuickStart
@@ -130,6 +179,11 @@ export default function setupAuthGuard(router: Router) {
           }
           if (user.shouldAutoShowUserQuickStart) {
             return next({ path: '/userquickstart', query: { next: target } })
+          }
+          // No page to return to: load / itself, which the console's nginx may send elsewhere.
+          if (!away && target === '/') {
+            window.location.replace('/')
+            return next(false)
           }
           return next(target)
         } catch (fetchErr: any) {
@@ -248,10 +302,19 @@ export default function setupAuthGuard(router: Router) {
 
     // D) Already logged in — skip login-related pages
     if (user.isLogin && user.userId) {
-      if (PUBLIC_NAME.has(to.name as string)) {
-        return next(getSafeRedirect(to.query.redirect))
+      if (!PUBLIC_NAME.has(to.name as string)) return next()
+
+      const away = outsideConsoleReturn(to.query.redirect, window.location.origin)
+      if (!away) return next(getSafeRedirect(to.query.redirect))
+
+      // Leaving the console on a session only localStorage vouches for would send a browser
+      // whose cookie expired back to the app, which sends it here again: a loop with no sign-in.
+      // Ask the server first; without a session, fall through to the sign-in below.
+      if (await sessionConfirmed(user)) {
+        if (leaveConsoleFor(away)) return next(false)
+        ElMessage.warning(RETURN_REFUSED_MESSAGE)
+        return next('/')
       }
-      return next()
     }
 
     // E) Not logged in: non-public routes → redirect to /login (SSO entry point)

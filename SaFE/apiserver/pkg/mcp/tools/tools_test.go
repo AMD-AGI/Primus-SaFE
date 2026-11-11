@@ -31,8 +31,8 @@ func findTool(t *testing.T, name string) *mcpserver.MCPTool {
 
 func TestRegisterAllTools_Count(t *testing.T) {
 	t.Parallel()
-	if n := len(RegisterAllTools()); n != 47 {
-		t.Fatalf("RegisterAllTools: got %d tools want 47", n)
+	if n := len(RegisterAllTools()); n != 55 {
+		t.Fatalf("RegisterAllTools: got %d tools want 55", n)
 	}
 }
 
@@ -127,15 +127,19 @@ func TestRegisterAllTools_GroupCounts(t *testing.T) {
 		"workload_":  0,
 		"opsjob_":    0,
 		"apikey_":    0,
+		"secret_":    0,
+		"user_":      0,
 	}
 	want := map[string]int{
 		"cluster_":   7,
 		"workspace_": 7,
-		"flavor_":    2,
-		"node_":      12,
-		"workload_":  10,
+		"flavor_":    3,
+		"node_":      13,
+		"workload_":  14,
 		"opsjob_":    5,
 		"apikey_":    4,
+		"secret_":    1,
+		"user_":      1,
 	}
 	for _, tl := range RegisterAllTools() {
 		for prefix := range counts {
@@ -285,7 +289,7 @@ func TestTool_QueryParamMapping(t *testing.T) {
 // required fields.
 func minimalArgsForTool(name string) json.RawMessage {
 	args := map[string]any{}
-	// Cover every "required" field referenced by InputSchema across the 47 tools.
+	// Cover every "required" field referenced by InputSchema across all registered tools.
 	defaults := map[string]any{
 		"cluster_id":   "test-cluster",
 		"workspace_id": "ws-1",

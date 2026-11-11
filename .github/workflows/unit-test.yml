@@ -187,6 +187,22 @@ jobs:
       - name: Test upgrade.sh authentication settings
         run: bash SaFE/bootstrap/tests/upgrade_auth_test.sh
 
+      # Renders the primus-safe chart and checks its RBAC and that of bootstrap/cd-installer-rbac.yaml
+      # (helm, yq and jq are on the runner image).
+      - name: Test chart RBAC
+        run: bash SaFE/bootstrap/tests/chart_rbac_test.sh
+
+      # Renders the primus-safe-cr chart and checks that no non-admin SaFE role lets one user get
+      # another user's workload (env, logs, SSH) (helm, yq and jq are on the runner image).
+      - name: Test chart SaFE roles
+        run: bash SaFE/bootstrap/tests/chart_default_role_test.sh
+
+      # Renders the primus-safe chart and checks that global.management_node_selector and
+      # global.management_tolerations reach every management component and change nothing when
+      # unset (helm, yq and jq are on the runner image).
+      - name: Test chart management placement
+        run: bash SaFE/bootstrap/tests/chart_placement_test.sh
+
   coverage-summary:
     name: Coverage Summary
     runs-on: ubuntu-latest

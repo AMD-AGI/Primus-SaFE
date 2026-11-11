@@ -19,6 +19,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 )
@@ -143,10 +144,11 @@ func TestStreamEventsReplaysAllPagesForTerminalTask(t *testing.T) {
 		mockDB.EXPECT().ListOptimizationEvents(gomock.Any(), "t1", int64(10000), 10000).Return(page2, nil),
 	)
 
-	h := &Handler{dbClient: mockDB, hubs: newHubRegistry()}
+	h := &Handler{dbClient: mockDB, accessCtrl: authzAccessController(t), hubs: newHubRegistry()}
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodGet, "/events", nil)
+	c.Set(common.UserId, authzAdmin)
 	c.Params = gin.Params{{Key: "id", Value: "t1"}}
 
 	h.StreamEvents(c)

@@ -103,6 +103,19 @@ func RemoveAnnotation(obj metav1.Object, key string) bool {
 	return true
 }
 
+// InheritLabels copies labels from src onto dst. A key already present on dst is left unchanged.
+func InheritLabels(dst, src metav1.Object) {
+	if dst == nil || src == nil {
+		return
+	}
+	for key, val := range src.GetLabels() {
+		if _, exists := dst.GetLabels()[key]; exists {
+			continue
+		}
+		SetLabel(dst, key, val)
+	}
+}
+
 // SetLabel sets a label on a Kubernetes object, creating the labels map if needed.
 func SetLabel(obj metav1.Object, key, val string) bool {
 	if obj == nil {

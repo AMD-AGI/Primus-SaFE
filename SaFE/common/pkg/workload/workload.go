@@ -364,6 +364,23 @@ func GetPodResourceList(res *v1.WorkloadResource) (corev1.ResourceList, error) {
 	return result, nil
 }
 
+// GetPodLimitList returns the per-pod limits of a workload resource. It equals
+// GetPodResourceList except that ephemeral-storage is EphemeralStorageLimit when
+// that is set, so a pod can be scheduled on a small ephemeral-storage request and
+// still be allowed to grow to a larger limit.
+func GetPodLimitList(res *v1.WorkloadResource) (corev1.ResourceList, error) {
+	result, err := GetPodResourceList(res)
+	if err != nil || res.EphemeralStorageLimit == "" {
+		return result, err
+	}
+	limit, err := quantity.CvtToResourceList("", "", "", "", res.EphemeralStorageLimit, "", 1)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	result[corev1.ResourceEphemeralStorage] = limit[corev1.ResourceEphemeralStorage]
+	return result, nil
+}
+
 // toPodResourceLists converts workload resources to a list of resource lists
 func toPodResourceLists(workload *v1.Workload) ([]corev1.ResourceList, error) {
 	result := make([]corev1.ResourceList, len(workload.Spec.Resources))

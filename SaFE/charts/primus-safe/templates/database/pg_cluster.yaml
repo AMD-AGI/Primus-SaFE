@@ -43,6 +43,9 @@ spec:
               storageClassName: {{ .Values.global.storage_class }}
   instances:
     - affinity:
+        {{- with include "primus-safe.managementNodeAffinity" . }}
+        {{- . | trim | nindent 8 }}
+        {{- end }}
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
@@ -61,6 +64,10 @@ spec:
             storage: 1Ti
       name: db
       replicas: 2
+      {{- with .Values.global.management_tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       resources:
         limits:
           cpu: 2000m

@@ -61,7 +61,8 @@ COPY --from=builder /workspace/apps/lens/dist/ /usr/share/nginx/html/lens/
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY start.sh /start.sh
 COPY api-keys-route.sh /api-keys-route.sh
-RUN chmod +x /start.sh /api-keys-route.sh
+COPY root-redirect.sh /root-redirect.sh
+RUN chmod +x /start.sh /api-keys-route.sh /root-redirect.sh
 
 # 80   = HTTP
 # 7890 = goaccess real-time WebSocket (proxied via /__internal_analytics/ws)

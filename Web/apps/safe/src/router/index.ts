@@ -49,9 +49,10 @@ const router = createRouter({
     {
       path: '/',
       component: () => import('@/layouts/AppLayout.vue'),
+      redirect: '/home',
       children: [
         {
-          path: '',
+          path: '/home',
           name: 'Homepage',
           component: () => import('../pages/Homepage/index.vue'),
         },

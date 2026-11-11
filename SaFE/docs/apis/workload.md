@@ -367,6 +367,7 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 | resources[].gpu              | string   | No       | Number of GPU cards                                                                                                                                                                                       |
 | resources[].memory           | string   | Yes      | Memory size, e.g. "256Gi"                                                                                                                                                                                 |
 | resources[].ephemeralStorage | string   | No       | Ephemeral-storage for pod. default 50Gi                                                                                                                                                                   |
+| resources[].ephemeralStorageLimit | string | No | Ephemeral-storage limit for pod, e.g. "100Gi". Default: equal to ephemeralStorage. Must not be smaller than ephemeralStorage; the pod is scheduled on ephemeralStorage and evicted by the kubelet when its usage passes this limit |
 | resources[].replica          | int      | Yes      | Number of replicas. See below for special rules when `specifiedNodes` is provided.                                                                                                                        |
 | priority                     | int      | No       | Priority (0-2), default 0                                                                                                                                                                                 |
 | timeout                      | int      | No       | Timeout in seconds, 0 means no timeout, 	The timeout is calculated from the moment the workload is dispatched.                                                                                            |
@@ -404,6 +405,7 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 | userEntry.name               | string   | NO       | The workload will be created using that specific user name. This field is only accessible to administrators.                                                                                              |
 | privileged                   | bool     | No       | Whether to run the workload in privileged mode, only accessible to administrators                                                                                                                         |
 | useWorkspaceStorage          | bool     | No       | Whether to use the workspace storage for workload. Default true.                                                                                                                                          |
+| hostpath                     | []string | No       | Host paths to mount into the workload. Each must be the directory a `hostpath` volume of the workspace mounted into the workload's scope mounts (`hostPath`, joined with `subPath`), or a directory under it, but not, for a volume with `enableUserDir`, that directory itself or its `users` directories; it is mounted read-only when that volume is `ReadOnlyMany`. Any other host path, and any path that reaches a volume with `requiresPrivilegedGrant`, requires the `workload/privileged` grant in the workspace (workspace administrators and system administrators). |
 | forceHostNetwork             | bool     | No       | Whether to use host network forcibly. Default logic relies on task size: it triggers only for multi-node tasks using full GPU allocation.                                                    |
 
 **Replica Rules when `specifiedNodes` is provided**:
@@ -544,6 +546,7 @@ Get workload list with filtering and pagination support.
 | resources[].gpu              | string | GPU cards, e.g. "8"                                                                      |
 | resources[].memory           | string | Memory size, e.g. "256Gi"                                                                |
 | resources[].ephemeralStorage | string | Ephemeral storage size, e.g. "256Gi"                                                     |
+| resources[].ephemeralStorageLimit | string | Ephemeral storage limit, when larger than ephemeralStorage |
 | resources[].sharedMemory     | string | Shared memory size, e.g. "64Gi"                                                          |
 | resources[].replica          | int | Replica count                                                                            |
 
@@ -651,7 +654,8 @@ Get detailed information about a specific workload.
   "nodesAffinity": "required",
   "privileged": false,
   "useWorkspaceStorage": true,
-  "forceHostNetwork": false
+  "forceHostNetwork": false,
+  "hostpath": ["/shared_nfs/team-a"]
 }
 ```
 
@@ -708,6 +712,7 @@ Only fields not already covered by "List Workloads" are listed below. Other fiel
 | privileged                      | bool       | Whether to run the workload in privileged mode.                                                                                         |
 | useWorkspaceStorage             | bool       | Whether to use the workspace storage for workload. Default true.                                                                        |
 | forceHostNetwork                | bool       | Whether to use the Host Network  forcibly                                                                                                       |
+| hostpath                        | []string   | Extra host paths mounted into the workload (`spec.hostpath`); omitted when there are none. Refer to the CreateWorkload parameter       |
 
 > Other fields not listed here are identical to those in the "List Workloads" Field Description.
 

@@ -531,6 +531,29 @@ func GetSSOBridgeAllowlist() []string {
 	return getStringSlice(ssoBridgeAllowlist, nil)
 }
 
+// IsSSOLoginEnable returns whether the console signs in at the OpenID Connect provider of
+// sso.login (a public client with PKCE) instead of at the provider of sso.secret_path.
+func IsSSOLoginEnable() bool {
+	return getBool(ssoLoginEnable, false)
+}
+
+// GetSSOLoginIssuer returns the issuer of the sso.login provider; its discovery document is at
+// <issuer>/.well-known/openid-configuration.
+func GetSSOLoginIssuer() string {
+	return strings.TrimSpace(getString(ssoLoginIssuer, ""))
+}
+
+// GetSSOLoginClientId returns the client id the console is registered with at the sso.login provider.
+func GetSSOLoginClientId() string {
+	return strings.TrimSpace(getString(ssoLoginClientId, ""))
+}
+
+// GetSSOLoginRedirectURI returns the console's own callback address registered at the sso.login
+// provider, for example https://console.example.com/sso/callback.
+func GetSSOLoginRedirectURI() string {
+	return strings.TrimSpace(getString(ssoLoginRedirectURI, ""))
+}
+
 func GetSSOClientId() string {
 	return getFromFile(ssoSecretPath, "id")
 }
@@ -697,6 +720,23 @@ func GetTracingOtlpEndpoint() string {
 	return getString(tracingOtlpEndpoint, "")
 }
 
+// RobustServiceTokenKey is the key of the Robust service token in the secret
+// mounted at robust.secret_path. It is the key robust-manager's chart reads its
+// own copy from (modules.robustApi.auth.writeGuard.serviceTokenSecretKey).
+const RobustServiceTokenKey = "service-token"
+
+// GetRobustServiceToken returns the shared service token the Robust API accepts
+// in X-Robust-Service-Token, or "" when none is mounted. It is read on every
+// call so a rotated Secret takes effect without a restart.
+func GetRobustServiceToken() string {
+	// Without a configured directory getFromFile would resolve the key against
+	// the working directory.
+	if getString(robustSecretPath, "") == "" {
+		return ""
+	}
+	return strings.TrimSpace(getFromFile(robustSecretPath, RobustServiceTokenKey))
+}
+
 // GetLangfuseProxyPublicKey returns the shared Langfuse project public key from secret.
 func GetLangfuseProxyPublicKey() string {
 	return getFromFile(langfuseProxySecretPath, "public_key")
@@ -788,6 +828,15 @@ func GetExternalObservationMaxAge() time.Duration {
 // observation stay counted as available capacity for that long.
 func GetExternalWorkspaceResync() time.Duration {
 	return time.Duration(getInt(externalExecutionWorkspaceResync, 30)) * time.Second
+}
+
+// IsExternalUserDirMountsEnable reports whether an external Pod mounts, from a hostpath volume
+// with enableUserDir or sharedPaths, only its user directory and the volume's shared paths, each
+// as its own hostPath at the path it has inside the volume, instead of the whole volume.
+// Off by default: the provider must first admit a hostPath below an approved root (and mount it
+// without following symlinks), and must allow a user directory only to that user's Pods.
+func IsExternalUserDirMountsEnable() bool {
+	return getBool(externalExecutionUserDirMounts, false)
 }
 
 // ── MCP (Model Context Protocol) ────────────────────────────────────────

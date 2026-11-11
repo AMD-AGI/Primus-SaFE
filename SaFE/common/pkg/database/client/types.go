@@ -73,6 +73,8 @@ type Workload struct {
 	NodesAffinity       sql.NullString `db:"nodes_affinity"`
 	// JSON-encoded []WorkloadNodesHistoryEntry
 	NodesHistory sql.NullString `db:"nodes_history"`
+	// JSON-encoded spec.hostpath
+	Hostpath sql.NullString `db:"hostpath"`
 }
 
 // GetWorkloadFieldTags returns the WorkloadFieldTags value.

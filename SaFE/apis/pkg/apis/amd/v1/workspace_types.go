@@ -6,7 +6,10 @@
 package v1
 
 import (
+	"fmt"
+	"path"
 	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -107,6 +110,41 @@ type WorkspaceVolume struct {
 	Selector map[string]string `json:"selector,omitempty"`
 	// Responsible for automatic PV creation
 	StorageClass string `json:"storageClass,omitempty"`
+	// The workload scopes this volume is mounted into. Empty means every scope.
+	// A workload whose scope is not listed does not get the volume, even when it asks for workspace storage.
+	// +optional
+	// +listType=set
+	Scopes []WorkspaceScope `json:"scopes,omitempty"`
+	// When set, the volume is mounted only into workloads whose creator held the
+	// workload/privileged grant in the workspace when the workload was created (built-in:
+	// workspace-admin and system-admin). Workloads of other members are still admitted and run
+	// without this volume, as if its scopes did not list theirs. A member whose spec.hostpath
+	// names the volume's hostPath, a path under it or a path containing it is refused, with the
+	// reason, even when another volume declares that path.
+	// +optional
+	RequiresPrivilegedGrant bool `json:"requiresPrivilegedGrant,omitempty"`
+	// The directories of a hostpath volume that the workspace's users share, such as model and
+	// cache directories. They are used only when the job-manager mounts user directories for
+	// external Pods (external_execution.user_dir_mounts): an external Pod then mounts its own user
+	// directory (with enableUserDir) and these directories, each at the path it has below
+	// mountPath, instead of the whole volume. Pods on the cluster's own nodes are not affected.
+	// +optional
+	// +listType=map
+	// +listMapKey=path
+	SharedPaths []WorkspaceSharedPath `json:"sharedPaths,omitempty"`
+}
+
+// WorkspaceSharedPath is a directory of a hostpath workspace volume that the workspace's users share.
+type WorkspaceSharedPath struct {
+	// The directory, relative to the volume's root: hostPath (and subPath, when set) on the node,
+	// mountPath in the container. For example "models" is mounted from {hostPath}/models at
+	// {mountPath}/models. It must be a clean relative path without "..", and with enableUserDir it
+	// may not be "users" or lie under it.
+	// +required
+	Path string `json:"path"`
+	// Mount the directory read-only.
+	// +optional
+	ReadOnly bool `json:"readOnly,omitempty"`
 }
 
 type WorkspaceStatus struct {
@@ -242,6 +280,48 @@ func (w *Workspace) GetIdleTime(scope WorkspaceScope) string {
 		return ""
 	}
 	return idleTime
+}
+
+// AppliesToScope reports whether the volume is mounted into workloads of the given scope.
+// A volume with no scopes applies to every scope. A workload without a scope (an ops job, for example)
+// is not restricted by the volume's scopes.
+func (v *WorkspaceVolume) AppliesToScope(scope WorkspaceScope) bool {
+	if len(v.Scopes) == 0 || scope == "" {
+		return true
+	}
+	for _, s := range v.Scopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
+}
+
+// UserDirsPath is the directory, relative to the root of a volume with EnableUserDir, that holds the
+// user directories: the directory of user {user_id} is {UserDirsPath}/{user_id}.
+const UserDirsPath = "users"
+
+// ValidateSharedPath reports why p cannot be one of the volume's shared paths: it must be a clean
+// relative path, not "." and without "..", and on a volume with EnableUserDir it may be neither
+// UserDirsPath nor below it, because a user directory is only ever mounted for its own user.
+func (v *WorkspaceVolume) ValidateSharedPath(p string) error {
+	switch {
+	case p == "":
+		return fmt.Errorf("a shared path of volume(%s) is empty", v.GenFullVolumeId())
+	case path.IsAbs(p):
+		return fmt.Errorf("shared path %q of volume(%s) must be relative to the volume root", p, v.GenFullVolumeId())
+	case p == "." || path.Clean(p) != p:
+		return fmt.Errorf("shared path %q of volume(%s) must be a clean path below the volume root", p, v.GenFullVolumeId())
+	}
+	for _, elem := range strings.Split(p, "/") {
+		if elem == ".." {
+			return fmt.Errorf("shared path %q of volume(%s) has a \"..\" element", p, v.GenFullVolumeId())
+		}
+	}
+	if v.EnableUserDir && (p == UserDirsPath || strings.HasPrefix(p, UserDirsPath+"/")) {
+		return fmt.Errorf("shared path %q of volume(%s) is in the user directories %q", p, v.GenFullVolumeId(), UserDirsPath)
+	}
+	return nil
 }
 
 func (v *WorkspaceVolume) GenFullVolumeId() string {

@@ -173,6 +173,7 @@ To rotate only the token, you may send:
 3. `GITHUB_CONFIG_URL` matches PAT / App scope (repository vs organization).  
 4. After Base64 decode, `ENTRYPOINT` exists and is executable **inside the `IMAGE` container**.  
 5. `env.RESOURCES` is valid JSON and stays within workspace / cluster policy.
+6. You hold the `workload/privileged` grant in the workspace (workspace administrators of that workspace and system administrators do). Runner pods run privileged containers, so creating or changing an `AutoscalingRunnerSet`, `EphemeralRunner`, `GithubRunner` or `UnifiedJob` takes the grant a privileged workload takes; without it the request is refused with 403. The runners and unified jobs a scale set starts are created as the scale set's user, who therefore needs the grant while the scale set runs.
 
 ### 2.9 `runs-on` and other workflow fields
 

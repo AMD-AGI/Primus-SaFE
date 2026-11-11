@@ -6,6 +6,7 @@ import { ensureResumeCooldownElapsed } from '@/composables/useWorkloadResumePerm
 import { buildAtomResumePayload } from '@/pages/Atom/atomPayload'
 import { buildSGLangRouterResumePayload } from '@/pages/SGLangRouter/sglangRouterPayload'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { hostPathPayload } from '@/utils/workloadHostPath'
 
 export interface UseWorkloadDetailOptions {
   /** Redirect path after deletion */
@@ -354,6 +355,9 @@ export function useWorkloadDetail(options: UseWorkloadDetailOptions) {
           ...(detail.useWorkspaceStorage !== undefined ? { useWorkspaceStorage: detail.useWorkspaceStorage } : {}),
         }
       }
+
+      // Extra host directories (spec.hostpath) are kept for every kind.
+      Object.assign(payload, hostPathPayload(detail.hostpath))
 
       // TypeScript workaround: payload already contains all required fields, but type inference has issues
       await addWorkload(payload as unknown as Parameters<typeof addWorkload>[0])

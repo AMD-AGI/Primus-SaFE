@@ -74,6 +74,7 @@ User authentication and access token retrieval.
 | password | string | Conditionally | User Password           |
 | type     | string | No | Login type: default/sso |
 | code     | string | Conditionally |  Authorization code returned by OAuth2 server, used to exchange for access token and ID token      |
+| codeVerifier | string | No | The PKCE code verifier (RFC 7636) of a code the console asked for at the `sso.login` provider (form field `code_verifier`). A code that comes with one is exchanged at that provider as a public client; a code without one is exchanged at the provider of the `sso` Secret, as before. |
 
 **Response Example**:
 

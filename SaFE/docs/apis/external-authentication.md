@@ -142,6 +142,18 @@ Naming a client opens this one endpoint and nothing else: every other route a de
 
 The list is for operators to reason about: a listed client can obtain the platform key of any user it can get a delegated token for, so list only clients whose token issuance the identity provider limits to users that have authorized them. The endpoint is legacy (see above); `key_actors` goes with it.
 
+#### In builtin mode
+
+`auth.key_actors` also works with `auth.mode: builtin`, for this one endpoint, when `auth.authenticators` holds at least one `oidc` authenticator (its issuer, JWKS and required `audience`). Nothing else of the external mode is turned on: requests are still authenticated by the built-in mode only, logins, sessions and API keys are unchanged, and no group mapping applies. `POST /auth/verify` then answers a bearer JWT that one of those `oidc` authenticators accepts (issuer signature, expiry, audience), whose actor is a listed client id read as above, and whose `scope` contains `safe.api`, with the keys of its subject, which must be an existing user: builtin mode creates no user, and a subject that is not one is `401`. The `name`, `email` and roles of the answer are the user record's, never the token's claims, so the gateway virtual key is looked up by the record's email. A restricted user gets no key (`403`). Every other credential, including a token of the issuer that is not delegated or that no authenticator accepts, goes to the built-in path exactly as before. Only `oidc` entries that take the user id from `sub` (the default `id_claim`) are used; `introspection` and `builtin` entries, and an `oidc` entry with another `id_claim`, are ignored in this mode, so the endpoint never asks an introspection server about the apiserver's own sessions. Either list empty: the endpoint is as it always was.
+
+```yaml
+auth:
+  mode: builtin
+  authenticators:
+    - {type: oidc, issuer: "https://idp.example.com", audience: primus-safe, jwks_url: "http://idp.idp.svc/.well-known/jwks.json"}
+  key_actors: [client-a]
+```
+
 ## Database
 
 `audit_logs` gains two nullable columns (`actor_client_id`, `token_jti`). The chart adds them with `ADD COLUMN IF NOT EXISTS`; apply the database job before rolling the apiserver.

@@ -64,6 +64,42 @@ The [install.sh](../../bootstrap/install.sh) script provides a one-click install
     - What the installer does:
       - Creates a Kubernetes secret `primus-safe-sso` in namespace `primus-safe` with keys: `id`, `secret`, `endpoint`, `redirect_uri`
       - Enables the `sso.enable` flag and wires the secret into the Primus‑SaFE Helm values
+    - Signing the console in at another OpenID Connect provider (`sso.login`, off by default):
+      - The console can sign in at an OIDC provider where it is registered as a **public client**: no client secret,
+        the authorization code flow with PKCE (S256), and a callback of the console's own, for example
+        `https://<console host>/sso/callback`, registered exactly at the provider. The console sends the browser to the
+        provider's authorization endpoint, the provider redirects back to that callback, and the apiserver exchanges the
+        code with the PKCE verifier at the provider's token endpoint. `/envs` reports this sign-in as `ssoLoginUrl`;
+        `ssoAuthUrl` stays the URL of the provider of the secret while it is configured. Sessions and users are kept as before: the session
+        holds the provider's ID token (its `exp` is the session's end), and the user id comes from the `email` claim
+        (else `sub`) by the same rule as for the other provider, so a person keeps one account whichever provider signed
+        them in. Ask the provider for ID tokens that live as long as a session should.
+      - Helm values (or `.env` for `bootstrap/upgrade.sh`): `sso.login.enable` (`sso_login_enable`), `sso.login.issuer`
+        (`sso_login_issuer`), `sso.login.client_id` (`sso_login_client_id`), `sso.login.redirect_uri`
+        (`sso_login_redirect_uri`). `sso.enable` stays `true`: `upgrade.sh` refuses `sso_login_enable=true` with
+        `sso_enable=false`, and a value with a space, a quote, a backslash, `|` or `&`.
+      - Other web apps that sign in through the console (SSO bridge) are listed in `sso.bridge_allowlist`
+        (`.env`: `sso_bridge_allowlist`, a JSON array in single quotes). For example, a site whose identity provider
+        serves the console's own host:
+
+        ```bash
+        sso_enable=true
+        sso_login_enable=true
+        sso_login_issuer=https://console.example.com
+        sso_login_client_id=safe-console
+        sso_login_redirect_uri=https://console.example.com/sso/callback
+        sso_bridge_allowlist='["http://localhost:5173","http://127.0.0.1:5173"]'
+        ```
+
+        Keep these keys in `.env` for every later upgrade: helm renders `sso.login` and `sso.bridge_allowlist` from the
+        chart defaults (off, empty) unless `.env` sets them, so `upgrade.sh` refuses to upgrade a release that runs with
+        `sso.login` on or a non-empty allowlist when `.env` leaves them out. `sso_login_enable=false` and
+        `sso_bridge_allowlist='[]'` turn them off on purpose.
+      - The provider of the `primus-safe-sso` secret keeps working while the secret is there: codes other web apps bring
+        through the SSO bridge (no PKCE verifier) are exchanged there, and sessions it made stay valid until they expire.
+        Once nothing uses it, remove it with `sso.secret: ""` (`.env`: `sso_secret=`): the secret is then not mounted.
+        `upgrade.sh` accepts `sso_secret=` only together with `sso_login_enable=true`, since the apiserver needs one of the two.
+      - Off again: `sso.login.enable: false` (with the secret still configured) and roll the apiserver.
 
 #### Image and Network Configuration
 
@@ -100,6 +136,7 @@ them. See [upgrade.md](upgrade.md) for what each does.
 
 - **sandbox_extra_ca_secret**: Secret of extra CA certificates that sandboxes trust (`sandbox.extra_ca_secret`)
 - **sandbox_env_secret**: `sandbox-env` or empty (`sandbox.env_secret`); any other value stops the install before anything is installed
+- **web_root_redirect**: where a browser opening the bare `/` of the console's host is sent, a path on that host such as `/portal/`; empty keeps the console there (`web.root_redirect`)
 
 ### 🚀 Installation Process
 
@@ -131,6 +168,7 @@ The script performs the following steps after configuration:
   - `ingress`, `sub_domain`
   - `install_node_agent`, `csi_volume_handle`
   - `sandbox_extra_ca_secret`, `sandbox_env_secret`
+  - `web_root_redirect`
 
 ### 🔄 Install Command
 

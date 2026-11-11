@@ -31,6 +31,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
@@ -230,12 +231,17 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 		return nil, err
 	}
 
-	if v1.IsPrivileged(workload) {
-		if err = h.authWorkloadAction(c, workload, v1.CreateVerb, authority.WorkloadPrivilegedKind, requestUser, roles); err != nil {
+	if commonworkload.RunsPrivileged(workload) {
+		if err = h.authWorkloadPrivileged(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
 			klog.ErrorS(err, "failed to auth workload privileged",
 				"workload", workload.Name, "user", c.GetString(common.UserName))
 			return nil, err
 		}
+	}
+	if err = h.authWorkloadStorage(c, workload, requestUser, roles); err != nil {
+		klog.ErrorS(err, "failed to auth workload storage", "workload", workload.Name,
+			"hostpath", workload.Spec.Hostpath, "user", c.GetString(common.UserName))
+		return nil, err
 	}
 
 	for i, sec := range workload.Spec.Secrets {
@@ -615,7 +621,31 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 			}
 		}
 	}
+	// A change to a workload that runs privileged changes what runs privileged, so it takes the
+	// grant its creation took.
+	if commonworkload.RunsPrivileged(adminWorkload) {
+		if err = h.authWorkloadPrivileged(c, adminWorkload, v1.UpdateVerb, requestUser, roles); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// authWorkloadPrivileged checks the workload/privileged grant in the workload's workspace for a
+// workload that runs a privileged container (commonworkload.RunsPrivileged). A GitHub Actions
+// runner or a unified job does not ask for privileged mode, but its template runs a privileged
+// Docker-in-Docker daemon (and, for the runner kinds, a privileged runner), which is as much as
+// privileged mode, so it takes the same grant. Among the built-in roles workspace-admin (in the
+// workspaces it manages) and system-admin hold it.
+func (h *Handler) authWorkloadPrivileged(c *gin.Context, workload *v1.Workload, verb v1.RoleVerb,
+	requestUser *v1.User, roles []*v1.Role) error {
+	err := h.authWorkloadAction(c, workload, verb, authority.WorkloadPrivilegedKind, requestUser, roles)
+	if err != nil && apierrors.IsForbidden(err) && !v1.IsPrivileged(workload) {
+		return commonerrors.NewForbidden(fmt.Sprintf("%s workloads run privileged containers; to %s one "+
+			"in workspace %s requires the %s grant in the workspace", workload.SpecKind(), verb,
+			workload.Spec.Workspace, authority.WorkloadPrivilegedKind))
+	}
+	return err
 }
 
 // updateWorkload updates the workload in the system and handles CICD auth secret updates.
@@ -848,6 +878,37 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 		return err
 	}
 	return nil
+}
+
+// authWorkloadStorage checks what the workload mounts from the node and its workspace: hostpath
+// entries the workspace does not declare for the workload's scope need the workload/privileged
+// grant (authority.AccessController.AuthorizeWorkloadHostPath), and the workspace volumes that
+// require that grant are mounted only when the creator holds it
+// (authority.AccessController.AuthorizeWorkloadPrivilegedVolumes).
+func (h *Handler) authWorkloadStorage(c *gin.Context,
+	workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) error {
+	var workspace *v1.Workspace
+	if commonworkload.MayMountWorkspaceStorage(workload) {
+		var err error
+		if workspace, err = h.getAdminWorkspace(c.Request.Context(), workload.Spec.Workspace); err != nil {
+			// Without hostpath entries the workspace only decides the volumes that require the
+			// grant: a workspace that does not exist has none, and no mark is set.
+			if len(workload.Spec.Hostpath) > 0 || !apierrors.IsNotFound(err) {
+				return err
+			}
+			workspace = nil
+		}
+	}
+	in := authority.AccessInput{
+		Context: c.Request.Context(),
+		User:    requestUser,
+		UserId:  c.GetString(common.UserId),
+		Roles:   roles,
+	}
+	if err := h.accessController.AuthorizeWorkloadHostPath(in, workload, workspace); err != nil {
+		return err
+	}
+	return h.accessController.AuthorizeWorkloadPrivilegedVolumes(in, workload, workspace)
 }
 
 // validateWorkloadId checks a caller-chosen id against every constraint it has
@@ -1386,7 +1447,12 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 		adminWorkload.Spec.Timeout = pointer.Int(*req.Timeout)
 	}
 	if req.Env != nil {
-		adminWorkload.Spec.Env = maputil.Copy(*req.Env, GithubPAT, common.RunnerToken)
+		env := maputil.Copy(*req.Env, GithubPAT, common.RunnerToken)
+		// A caller who read the workload without the right to see its env got
+		// RedactedEnvValue back; sending that placeholder unchanged keeps the
+		// stored value instead of overwriting the secret with the mask.
+		restoreRedactedEnv(env, adminWorkload.Spec.Env)
+		adminWorkload.Spec.Env = env
 	}
 	if req.MaxRetry != nil {
 		adminWorkload.Spec.MaxRetry = *req.MaxRetry
@@ -1485,7 +1551,12 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, dbWorkload *d
 			}
 		}
 	}
-	if result.Phase == string(v1.WorkloadPending) {
+	// Pending carries the queue reason. NotReady carries the wait of a dispatched
+	// workload whose Pod no node has taken yet (on the kube-scheduler path: the
+	// scheduler's account and the autoscaler's TriggeredScaleUp / NotTriggerScaleUp
+	// decision). Callers read this field to tell a node being added from a Pod no
+	// node will take, so it is served from the live object in both phases.
+	if result.Phase == string(v1.WorkloadPending) || result.Phase == string(v1.WorkloadNotReady) {
 		adminWorkload, err := h.getAdminWorkload(ctx, result.WorkloadId)
 		if err == nil {
 			result.Message = adminWorkload.Status.Message
@@ -1574,8 +1645,15 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.Service); str != "" {
 		json.Unmarshal([]byte(str), &result.Service)
 	}
+	canSeeSecrets := h.canSeeWorkloadSecrets(ctx, user, result.UserId)
 	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Env)
+		if !canSeeSecrets {
+			result.Env = redactEnvValues(result.Env)
+		}
+	}
+	if str := dbutils.ParseNullString(dbWorkload.Hostpath); str != "" {
+		json.Unmarshal([]byte(str), &result.Hostpath)
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Dependencies); str != "" {
 		var dependencies []string
@@ -1590,20 +1668,103 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.CronJobs); str != "" {
 		json.Unmarshal([]byte(str), &result.CronJobs)
 	}
-	// Only the user themselves or an administrator can get this info.
-	if err := h.accessController.Authorize(authority.AccessInput{
-		Context:       ctx,
-		ResourceKind:  v1.WorkloadKind,
-		ResourceOwner: result.UserId,
-		Verb:          v1.GetVerb,
-		User:          user,
-		Roles:         roles,
-	}); err == nil {
+	// Only the owner or a system administrator can get this info.
+	if canSeeSecrets {
 		if str := dbutils.ParseNullString(dbWorkload.Secrets); str != "" {
 			json.Unmarshal([]byte(str), &result.Secrets)
 		}
 	}
 	return result
+}
+
+// RedactedEnvValue replaces the value of a credential env variable of a workload
+// returned to a caller who is neither its owner nor a system administrator.
+const RedactedEnvValue = "******"
+
+// canSeeWorkloadSecrets reports whether user may see a workload's credential env
+// values and secrets: only its owner or a system administrator (read-only included).
+// Being allowed to get the workload is not enough: workspace members and any
+// role granted to all users ("*") can get workloads they do not own, and env
+// commonly carries the owner's credentials.
+func (h *Handler) canSeeWorkloadSecrets(ctx context.Context, user *v1.User, ownerId string) bool {
+	if user == nil {
+		return false
+	}
+	if ownerId != "" && user.Name == ownerId {
+		return true
+	}
+	if h.accessController == nil {
+		return false
+	}
+	return h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
+		Context: ctx,
+		User:    user,
+	}, true) == nil
+}
+
+// isCredentialEnv reports whether an env variable holds a credential: its name names
+// one (the audit log's judgement, middleware.IsCredentialName), or its value is a URL
+// with a password in it.
+func isCredentialEnv(name, value string) bool {
+	return middleware.IsCredentialName(name) || middleware.HasURLPassword(value)
+}
+
+// redactEnvValues keeps every env key and every value that is plain configuration
+// (IMAGES, REPLICA_COUNT, UNIFIED_JOB_ENABLE, ...), which callers such as the Web UI
+// parse, and replaces the value of each credential variable with RedactedEnvValue.
+func redactEnvValues(env map[string]string) map[string]string {
+	if env == nil {
+		return nil
+	}
+	out := make(map[string]string, len(env))
+	for k, v := range env {
+		if isCredentialEnv(k, v) {
+			out[k] = RedactedEnvValue
+		} else {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// restoreRedactedEnv puts the stored value back for every variable of env sent as
+// RedactedEnvValue that the workload already has. A key it never had is kept as sent.
+func restoreRedactedEnv(env, stored map[string]string) {
+	for k, v := range env {
+		if v != RedactedEnvValue {
+			continue
+		}
+		if orig, ok := stored[k]; ok {
+			env[k] = orig
+		}
+	}
+}
+
+// restoreRedactedResumeBody returns the resume request body with the env values masked for a
+// caller who could not see them put back from the stored workload; req is updated to match.
+// Secrets are not restored: such a caller resumes with the secrets it names, each authorized
+// against the caller as on create, so it cannot attach the owner's secrets to a spec it wrote.
+func restoreRedactedResumeBody(body []byte, req *view.CreateWorkloadRequest, dbWorkload *dbclient.Workload) ([]byte, error) {
+	if len(req.Env) == 0 {
+		return body, nil
+	}
+	fields := map[string]json.RawMessage{}
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil, err
+	}
+	var stored map[string]string
+	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
+		if err := json.Unmarshal([]byte(str), &stored); err != nil {
+			return nil, err
+		}
+	}
+	restoreRedactedEnv(req.Env, stored)
+	raw, err := json.Marshal(req.Env)
+	if err != nil {
+		return nil, err
+	}
+	fields["env"] = raw
+	return json.Marshal(fields)
 }
 
 // listOffloadedPods returns a workload's pods from the workload_pod table as
@@ -1855,6 +2016,16 @@ func (h *Handler) resumeWorkload(c *gin.Context) (interface{}, error) {
 	req.UserEntity = &view.UserEntity{
 		Id:   dbutils.ParseNullString(dbWorkload.UserId),
 		Name: dbutils.ParseNullString(dbWorkload.UserName),
+	}
+	// A caller who may resume the workload but not see its credentials read it with
+	// the credential env values masked and without its secrets (GET), and sends that
+	// back: the stored env values are kept, so the owner's workload is not restarted
+	// with the mask in place of its credentials. Its secrets are those the caller
+	// names, authorized against the caller below, as before.
+	if !h.canSeeWorkloadSecrets(ctx, requestUser, req.UserEntity.Id) {
+		if body, err = restoreRedactedResumeBody(body, req, dbWorkload); err != nil {
+			return nil, commonerrors.NewBadRequest(err.Error())
+		}
 	}
 
 	adminWorkload, err = h.generateWorkload(ctx, req, body, requestUser)

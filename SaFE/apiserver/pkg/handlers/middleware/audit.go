@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"io"
 	"net/http"
 	"regexp"
@@ -348,6 +349,57 @@ func isInvalidTraceId(traceId string) bool {
 	return true
 }
 
+// jsonStringMember matches a JSON object member whose value is a string: "<key>": "<value>".
+// Key and value honour escapes, and a value cut off by truncation (no closing quote) matches too.
+var jsonStringMember = regexp.MustCompile(`"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]|\\.)*)(?:"|\\?$)`)
+
+// sensitiveKeyName matches a key that names a credential, in any case and as part of a longer
+// name (workload env such as ANTHROPIC_API_KEY or AUTH_TOKEN).
+var sensitiveKeyName = regexp.MustCompile(`(?i)key|token|secret|passw(?:or)?d|credential`)
+
+// urlWithPassword matches a URL that carries a password (scheme://user:password@host),
+// the user name possibly empty (redis://:password@host).
+var urlWithPassword = regexp.MustCompile(`://[^/\s:@]*:[^/\s@]+@`)
+
+// HasURLPassword reports whether a value is, or contains, a URL with a password in it
+// (postgres://user:password@host/db). The audit log and the workload env shown to
+// callers who are not its owner treat such a value as a credential whatever its name.
+func HasURLPassword(value string) bool {
+	return urlWithPassword.MatchString(value)
+}
+
+// IsCredentialName reports whether a key or environment variable name names a
+// credential: it contains key, token, secret, password, passwd or credential, in
+// any case and as part of a longer name (ANTHROPIC_API_KEY, AUTH_TOKEN). The
+// audit log and the workload env shown to callers who are not its owner use the
+// same judgement.
+func IsCredentialName(name string) bool {
+	return sensitiveKeyName.MatchString(name)
+}
+
+// redactSensitiveJSONMembers replaces the string value of every member whose key, once its JSON
+// escapes are decoded (so "API_\u004bEY" counts as API_KEY), names a credential, or whose value
+// is a URL with a password in it (DATABASE_URL). The key is kept, so the body stays valid JSON.
+func redactSensitiveJSONMembers(body string) string {
+	return jsonStringMember.ReplaceAllStringFunc(body, func(member string) string {
+		groups := jsonStringMember.FindStringSubmatch(member)
+		rawKey, rawValue := groups[1], groups[2]
+		key := rawKey
+		var decoded string
+		if err := json.Unmarshal([]byte(`"`+rawKey+`"`), &decoded); err == nil {
+			key = decoded
+		}
+		value := rawValue
+		if err := json.Unmarshal([]byte(`"`+rawValue+`"`), &decoded); err == nil {
+			value = decoded
+		}
+		if !sensitiveKeyName.MatchString(key) && !HasURLPassword(value) && !HasURLPassword(rawValue) {
+			return member
+		}
+		return `"` + rawKey + `": "[REDACTED]"`
+	})
+}
+
 // sanitizeBody removes sensitive information from request body
 func sanitizeBody(body string) string {
 	if body == "" {
@@ -356,19 +408,26 @@ func sanitizeBody(body string) string {
 
 	result := body
 
-	// JSON format: "password": "value"
+	// JSON string values whose key names a credential, in any case and as part
+	// of a longer name (workload env such as "ANTHROPIC_API_KEY": "...").
+	// The key is kept and the value replaced, so the body stays valid JSON.
+	// A value cut off by truncation (no closing quote) is redacted too.
+	result = redactSensitiveJSONMembers(result)
+
+	// JSON format: "password": "value". The key is kept, as above, so a member
+	// the pass above already redacted is left as it is.
 	jsonPatterns := []*regexp.Regexp{
-		regexp.MustCompile(`"password"\s*:\s*"[^"]*"`),
-		regexp.MustCompile(`"token"\s*:\s*"[^"]*"`),
-		regexp.MustCompile(`"secret"\s*:\s*"[^"]*"`),
-		regexp.MustCompile(`"apiKey"\s*:\s*"[^"]*"`),
-		regexp.MustCompile(`"api_key"\s*:\s*"[^"]*"`),
-		regexp.MustCompile(`"privateKey"\s*:\s*"[^"]*(?:"|$)`),
-		regexp.MustCompile(`"private_key"\s*:\s*"[^"]*(?:"|$)`),
-		regexp.MustCompile(`"github_app_private_key"\s*:\s*"[^"]*(?:"|$)`),
+		regexp.MustCompile(`("password"\s*:\s*)"[^"]*"`),
+		regexp.MustCompile(`("token"\s*:\s*)"[^"]*"`),
+		regexp.MustCompile(`("secret"\s*:\s*)"[^"]*"`),
+		regexp.MustCompile(`("apiKey"\s*:\s*)"[^"]*"`),
+		regexp.MustCompile(`("api_key"\s*:\s*)"[^"]*"`),
+		regexp.MustCompile(`("privateKey"\s*:\s*)"[^"]*(?:"|$)`),
+		regexp.MustCompile(`("private_key"\s*:\s*)"[^"]*(?:"|$)`),
+		regexp.MustCompile(`("github_app_private_key"\s*:\s*)"[^"]*(?:"|$)`),
 	}
 	for _, pattern := range jsonPatterns {
-		result = pattern.ReplaceAllString(result, `"[REDACTED]"`)
+		result = pattern.ReplaceAllString(result, `${1}"[REDACTED]"`)
 	}
 
 	// Form-urlencoded format: field=value or field=value&
@@ -381,6 +440,13 @@ func sanitizeBody(body string) string {
 	}
 
 	return result
+}
+
+// SanitizeAuditBody prepares a request or response body for the audit log exactly as the middleware does for the
+// requests it records: credentials redacted, the body cut at maxAuditBodySize. For records SaFE stores on another
+// service's behalf (POST /auditlogs), so those rows hold no more than SaFE's own.
+func SanitizeAuditBody(body string) string {
+	return sanitizeBody(truncateString(body, maxAuditBodySize))
 }
 
 // truncateString truncates a string to the specified maximum length

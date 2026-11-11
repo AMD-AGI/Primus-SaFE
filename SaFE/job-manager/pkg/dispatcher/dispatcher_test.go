@@ -1744,6 +1744,63 @@ func TestCreateSandboxWithResources(t *testing.T) {
 	// fmt.Println(unstructuredutils.ToString(obj))
 }
 
+// TestCreateSandboxWithEphemeralStorageLimit verifies that ephemeralStorageLimit
+// raises only the ephemeral-storage limit: the pod is scheduled on the smaller
+// request, every other resource keeps requests equal to limits, and the created
+// object does not read as a resource change on the next reconcile.
+func TestCreateSandboxWithEphemeralStorageLimit(t *testing.T) {
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
+		Version: common.DefaultVersion,
+		Kind:    common.SandboxKind,
+	}
+	workload.Spec.JobPort = 0
+	workload.Spec.EntryPoints = nil
+	workload.Spec.Resources[0].RdmaResource = ""
+	workload.Spec.Resources[0].EphemeralStorage = "20Gi"
+	workload.Spec.Resources[0].EphemeralStorageLimit = "100Gi"
+	workload.Spec.Env[sandboxAuthPublicKeyEnvName] = "test-public-key"
+
+	configmap, err := parseConfigmap(TestSandboxConfig)
+	assert.NilError(t, err)
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap,
+		jobutils.TestSandboxResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+
+	template := &jobutils.TestSandboxResourceTemplate.Spec.ResourceSpecs[0]
+	path := commonworkload.ResolvePodSpecPath(template, workload.SpecKind(), "containers")
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	resources := containers[0].(map[string]interface{})["resources"].(map[string]interface{})
+	requests := resources["requests"].(map[string]interface{})
+	limits := resources["limits"].(map[string]interface{})
+	assert.Equal(t, requests["ephemeral-storage"], "20Gi")
+	assert.Equal(t, limits["ephemeral-storage"], "100Gi")
+	for key, val := range requests {
+		if key == "ephemeral-storage" {
+			continue
+		}
+		assert.Equal(t, limits[key], val, "limit of %s differs from its request", key)
+	}
+	assert.Equal(t, len(limits), len(requests))
+
+	assert.Equal(t, isResourceChanged(workload, obj, jobutils.TestSandboxResourceTemplate), false)
+	workload.Spec.Resources[0].EphemeralStorageLimit = "200Gi"
+	assert.Equal(t, isResourceChanged(workload, obj, jobutils.TestSandboxResourceTemplate), true)
+}
+
 // --- merged from dispatcher_dispatched_test.go ---
 
 func TestMarkAsDispatchedRootWorkload(t *testing.T) {

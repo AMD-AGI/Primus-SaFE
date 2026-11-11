@@ -343,8 +343,9 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 }
 
 // generatePreflightJob creates a preflight-type ops job.
-// It authorizes the request for system admin,
-// and generates a job object with resource, image, and entrypoint specifications.
+// It generates a job object with resource, image, and entrypoint specifications, and authorizes
+// both the preflight job and, because the job runs privileged, a privileged workload in its
+// workspace.
 func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
 	req := &view.CreatePreflightRequest{}
 	if err := jsonutils.Unmarshal(body, req); err != nil {
@@ -373,6 +374,19 @@ func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob,
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: authority.PreflightKind,
+		Verb:         v1.CreateVerb,
+		Workspaces:   []string{v1.GetWorkspaceId(job)},
+		User:         requestUser,
+	}); err != nil {
+		return nil, err
+	}
+	// The job runs the caller's image and entry point as a privileged container on each of its
+	// nodes, with the host's PID and IPC namespaces and the host paths it names (see the preflight
+	// controller and the dispatcher). That is what a privileged workload is, so it takes the same
+	// grant a privileged workload in this workspace takes.
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.WorkloadPrivilegedKind,
 		Verb:         v1.CreateVerb,
 		Workspaces:   []string{v1.GetWorkspaceId(job)},
 		User:         requestUser,

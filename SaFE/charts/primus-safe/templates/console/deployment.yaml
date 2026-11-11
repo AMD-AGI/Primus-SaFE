@@ -43,17 +43,28 @@ spec:
                     operator: NotIn
                     values:
                       - "true"
+      {{- with include "primus-safe.managementPlacement" . }}
+      {{- . | trim | nindent 6 }}
+      {{- end }}
       containers:
         - name: app
           image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.web.image }}
           ports:
             - containerPort: 80
           {{- $auth := default dict .Values.auth }}
-          {{- if and (eq (toString $auth.mode) "external") $auth.api_keys_upstream }}
+          {{- $apiKeysUpstream := and (eq (toString $auth.mode) "external") $auth.api_keys_upstream }}
+          {{- if or $apiKeysUpstream .Values.web.root_redirect }}
           env:
+            {{- if $apiKeysUpstream }}
             # The console's nginx proxies /api/v1/apikeys to the identity provider (Web/api-keys-route.sh).
             - name: API_KEYS_UPSTREAM
               value: {{ $auth.api_keys_upstream | quote }}
+            {{- end }}
+            {{- if .Values.web.root_redirect }}
+            # The console's nginx redirects the bare / of its host there (Web/root-redirect.sh).
+            - name: ROOT_REDIRECT
+              value: {{ .Values.web.root_redirect | quote }}
+            {{- end }}
           {{- end }}
           resources:
             limits:

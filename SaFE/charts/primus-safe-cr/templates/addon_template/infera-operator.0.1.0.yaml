@@ -16,7 +16,7 @@
 # Both earlier worker-probe and deletion-timestamp fixes are in this build.
 #
 #   chart  oci://<helm_registry>/primussafe/infera-operator:0.1.0
-#   image  <proxy_image_registry>/primussafe/infera:operator-v0.1.0
+#   image  <proxy_image_registry>/primussafe/infera:operator-colocate-9a474284
 #
 # The image is a tag of primussafe/infera, alongside the engine images; the
 # chart is a separate OCI repo, so an image tag and a chart version cannot
@@ -71,7 +71,7 @@ spec:
 
     image:
       repository: {{ .Values.global.proxy_image_registry }}/primussafe/infera
-      tag: "operator-v0.1.0"
+      tag: "operator-colocate-9a474284"
       pullPolicy: IfNotPresent
 
     leaderElection:

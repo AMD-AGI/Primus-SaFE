@@ -1946,8 +1946,11 @@ func syncExternalWaitCondition(workload *v1.Workload, message string) bool {
 	return true
 }
 
-// externalWaitingMessage builds the UI wait reason from PodScheduled plus the newest
-// scheduling-related Event (TriggeredScaleUp / NotTriggerScaleUp / lease / pool / …).
+// externalWaitingMessage builds the UI wait reason from PodScheduled plus the
+// autoscaler's newest decision on the Pod (TriggeredScaleUp / NotTriggerScaleUp),
+// or, before it has made one, the newest scheduling-related Event.
+// The decision is carried last so that a caller can read whether a node is being
+// added for the Pod; Events are best-effort, the workload's status is what callers read.
 func externalWaitingMessage(ctx context.Context, clusterClientSets *ClusterClientSets,
 	workload *v1.Workload, pod *corev1.Pod) string {
 	base := externalUnschedulableMessage(workload, pod)
@@ -1965,7 +1968,10 @@ func externalWaitingMessage(ctx context.Context, clusterClientSets *ClusterClien
 }
 
 // externalUnschedulableMessage builds the waiting-for-scale-up reason for kube-scheduler
-// external pods that kube-scheduler left Unschedulable (R11).
+// external pods that kube-scheduler left Unschedulable (R11), or that are held by a
+// scheduling gate until their node is bought (Autopilot's group-job pools gate a Pod
+// at admission and buy its group's node before kube-scheduler ever sees it, so such
+// a Pod is SchedulingGated and never Unschedulable).
 func externalUnschedulableMessage(workload *v1.Workload, pod *corev1.Pod) string {
 	if workload == nil || pod == nil || workload.IsEnd() {
 		return ""
@@ -1982,7 +1988,7 @@ func externalUnschedulableMessage(workload *v1.Workload, pod *corev1.Pod) string
 		if c.Type != corev1.PodScheduled || c.Status != corev1.ConditionFalse {
 			continue
 		}
-		if c.Reason != corev1.PodReasonUnschedulable {
+		if c.Reason != corev1.PodReasonUnschedulable && c.Reason != corev1.PodReasonSchedulingGated {
 			continue
 		}
 		msg := strings.TrimSpace(c.Message)
@@ -1994,8 +2000,12 @@ func externalUnschedulableMessage(workload *v1.Workload, pod *corev1.Pod) string
 	return ""
 }
 
-// latestPodSchedulingEvent returns "reason: message" for the newest Event on the pod that
-// looks like a scheduling / scale-up signal. Best-effort: empty on any list failure.
+// latestPodSchedulingEvent returns "reason: message" for the autoscaler's newest decision
+// on the pod (TriggeredScaleUp / NotTriggerScaleUp), or, when it has made none, for the
+// newest Event that looks like a scheduling signal. The decision wins over newer events
+// of other kinds (the scheduler's repeated FailedScheduling, an autoscaler's progress
+// notes, unrelated warnings): it is what says whether a node is coming, and it stands
+// until the autoscaler makes another. Best-effort: empty on any list failure.
 func latestPodSchedulingEvent(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod) string {
 	if clientSet == nil || pod == nil || pod.Name == "" || pod.Namespace == "" {
 		return ""
@@ -2007,15 +2017,27 @@ func latestPodSchedulingEvent(ctx context.Context, clientSet kubernetes.Interfac
 	if err != nil || list == nil || len(list.Items) == 0 {
 		return ""
 	}
-	var best *corev1.Event
+	var best, decision *corev1.Event
 	for i := range list.Items {
 		ev := &list.Items[i]
+		// An Event outlives its Pod: one about an earlier Pod of the same name
+		// says nothing about this one.
+		if ev.InvolvedObject.UID != "" && pod.UID != "" && ev.InvolvedObject.UID != pod.UID {
+			continue
+		}
+		if isScaleUpDecisionReason(ev.Reason) &&
+			(decision == nil || eventTime(ev).After(eventTime(decision))) {
+			decision = ev
+		}
 		if !isSchedulingRelatedEvent(ev) {
 			continue
 		}
 		if best == nil || eventTime(ev).After(eventTime(best)) {
 			best = ev
 		}
+	}
+	if decision != nil {
+		best = decision
 	}
 	if best == nil {
 		return ""
@@ -2030,6 +2052,18 @@ func latestPodSchedulingEvent(ctx context.Context, clientSet kubernetes.Interfac
 	default:
 		return msg
 	}
+}
+
+// The autoscaler's Event reasons for its decision on a pending Pod: cluster-autoscaler's
+// own, which Autopilot reuses.
+const (
+	eventReasonTriggeredScaleUp  = "TriggeredScaleUp"
+	eventReasonNotTriggerScaleUp = "NotTriggerScaleUp"
+)
+
+// isScaleUpDecisionReason says reason is an autoscaler's decision on a pending Pod.
+func isScaleUpDecisionReason(reason string) bool {
+	return reason == eventReasonTriggeredScaleUp || reason == eventReasonNotTriggerScaleUp
 }
 
 func isSchedulingRelatedEvent(ev *corev1.Event) bool {
@@ -2066,7 +2100,10 @@ func eventTime(ev *corev1.Event) time.Time {
 }
 
 // shouldClearExternalScaleUpMessage reports that a stale waiting-for-scale-up status
-// message should be cleared because every expected pod is scheduled or finished.
+// message should be cleared because every expected pod is scheduled or finished, or
+// because this pod has been bound to a node and no sibling is still waiting for one.
+// A bound pod is no longer waiting for scale-up even while it is Pending (pulling its
+// image, starting), so the message must not stay until it runs.
 // Clearing on the first scheduled member would flicker the UI while siblings wait.
 func shouldClearExternalScaleUpMessage(workload *v1.Workload, pod *corev1.Pod) bool {
 	if workload == nil || pod == nil {
@@ -2079,17 +2116,53 @@ func shouldClearExternalScaleUpMessage(workload *v1.Workload, pod *corev1.Pod) b
 	if !strings.HasPrefix(workload.Status.Message, externalWaitingScaleUpPrefix) {
 		return false
 	}
-	return isAllPodsAssigned(workload)
+	return isAllPodsAssigned(workload) ||
+		(isPodBound(pod) && allExpectedPodsRecorded(workload) && !anySiblingAwaitingNode(workload, pod.Name))
+}
+
+// isPodBound says the scheduler has bound pod to a node: spec.nodeName is set, or
+// PodScheduled is True.
+func isPodBound(pod *corev1.Pod) bool {
+	if pod.Spec.NodeName != "" {
+		return true
+	}
+	for i := range pod.Status.Conditions {
+		c := &pod.Status.Conditions[i]
+		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+// anySiblingAwaitingNode says another recorded pod of the workload is still Pending
+// with no node, so its wait for scale-up is still what the workload is waiting for.
+func anySiblingAwaitingNode(workload *v1.Workload, podName string) bool {
+	for _, p := range workload.Status.Pods {
+		if p.PodId == podName {
+			continue
+		}
+		if p.Phase == corev1.PodPending && p.AdminNodeName == "" && p.HostIp == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// allExpectedPodsRecorded says the workload has a pod record for every pod it expects.
+// Records arrive through separate pod events, so a sibling that has not been recorded
+// yet may still be waiting for a node.
+func allExpectedPodsRecorded(workload *v1.Workload) bool {
+	if commonworkload.IsRayJob(workload) {
+		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
+		return len(workload.Status.Pods) == commonworkload.GetTotalReplica(workload)+1
+	}
+	return len(workload.Status.Pods) == commonworkload.GetTotalReplica(workload)
 }
 
 // isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase
 func isAllPodsAssigned(workload *v1.Workload) bool {
-	if commonworkload.IsRayJob(workload) {
-		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
-		if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload)+1 {
-			return false
-		}
-	} else if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload) {
+	if !allExpectedPodsRecorded(workload) {
 		return false
 	}
 	for _, p := range workload.Status.Pods {

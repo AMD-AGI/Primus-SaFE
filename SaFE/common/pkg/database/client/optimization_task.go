@@ -26,6 +26,15 @@ type OptimizationTaskFilter struct {
 	Search    string // matches display_name ILIKE %search%
 	Limit     int
 	Offset    int
+	// Scope, when set, keeps only the tasks the caller may see; nil keeps every task.
+	Scope *OptimizationTaskScope
+}
+
+// OptimizationTaskScope is a set of tasks a caller may see: those UserID submitted, when UserID is
+// not empty, and those in any of Workspaces. The zero scope holds no task.
+type OptimizationTaskScope struct {
+	UserID     string
+	Workspaces []string
 }
 
 // UpsertOptimizationTask creates or fully replaces an OptimizationTask row by id.
@@ -80,6 +89,18 @@ func (c *Client) ListOptimizationTasks(
 	}
 	if filter.Search != "" {
 		query = query.Where("display_name ILIKE ?", "%"+filter.Search+"%")
+	}
+	if s := filter.Scope; s != nil {
+		switch {
+		case s.UserID != "" && len(s.Workspaces) > 0:
+			query = query.Where("(user_id = ? OR workspace IN ?)", s.UserID, s.Workspaces)
+		case s.UserID != "":
+			query = query.Where("user_id = ?", s.UserID)
+		case len(s.Workspaces) > 0:
+			query = query.Where("workspace IN ?", s.Workspaces)
+		default:
+			query = query.Where("FALSE")
+		}
 	}
 
 	var total int64

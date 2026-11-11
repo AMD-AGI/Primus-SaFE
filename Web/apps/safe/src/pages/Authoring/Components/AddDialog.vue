@@ -180,6 +180,13 @@
             <el-icon class="mr-1"><InfoFilled /></el-icon>
             <span>persistentStoragePath: {{ persistentStoragePaths }}</span>
           </div>
+          <ExtraHostPathField
+            v-model="form.hostpath"
+            :workspace-id="targetWorkspaceId"
+            scope="Authoring"
+            :disabled="isEdit"
+            :allow-undeclared="isManager || store.isCurrentWorkspaceAdmin()"
+          />
         </div>
 
         <!-- ===== Advanced Options (collapsible) ===== -->
@@ -330,6 +337,8 @@ import { type FormInstance, ElMessage, ElMessageBox } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/workspace'
 import KeyValueList from '@/components/Base/KeyValueList.vue'
 import ImageInput from '@/components/Base/ImageInput.vue'
+import ExtraHostPathField from '@/components/Workload/ExtraHostPathField.vue'
+import { hostPathPayload, normalizeHostPaths } from '@/utils/workloadHostPath'
 import {
   byte2Gi,
   convertKeyValueMapToList,
@@ -424,6 +433,7 @@ const initialForm = () => ({
   timeout: undefined as number | undefined,
   nodesAffinity: '' as '' | 'required' | 'preferred',
   forceHostNetwork: false,
+  hostpath: [] as string[],
 })
 const form = reactive({ ...initialForm() })
 
@@ -491,7 +501,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     await formEl.validate()
     submitting.value = true
 
-    const { envList, resourceType, nodeId, resource, excludedNodes, image, timeout, nodesAffinity: _nodesAffinity, ...addPayload } = form
+    const { envList, resourceType, nodeId, resource, excludedNodes, image, timeout, nodesAffinity: _nodesAffinity, hostpath, ...addPayload } = form
 
     if (!flavorMaxVal.value?.['amd.com/gpu']) form.resource.gpu = ''
 
@@ -531,6 +541,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         ...(form.nodesAffinity ? { nodesAffinity: form.nodesAffinity as 'required' | 'preferred' } : {}),
         privileged: form.privileged,
         ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
+        ...hostPathPayload(hostpath),
       }
 
       if (isResume.value) {
@@ -686,6 +697,7 @@ const setInitialFormValues = async () => {
   }
 
   form.forceHostNetwork = res.forceHostNetwork ?? false
+  form.hostpath = normalizeHostPaths(res.hostpath)
   await nextTick()
   ruleFormRef.value?.clearValidate()
 }

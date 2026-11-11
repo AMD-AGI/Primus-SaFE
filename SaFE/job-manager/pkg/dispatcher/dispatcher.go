@@ -714,7 +714,8 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 
 	if len(resourceList) == len(adminWorkload.Spec.Resources) {
 		for i := range resourceList {
-			podResource, err := commonworkload.GetPodResourceList(&adminWorkload.Spec.Resources[i])
+			// GetResources reads the main container's limits, so compare against the limits.
+			podResource, err := commonworkload.GetPodLimitList(&adminWorkload.Spec.Resources[i])
 			if err != nil {
 				klog.ErrorS(err, "failed to get pod resource", "resource", adminWorkload.Spec.Resources[i])
 				return false
@@ -967,6 +968,13 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 		}
 		if err = updateGithubRunner(obj, adminWorkload, workspace, rt); err != nil {
 			return err
+		}
+	}
+	// Last on the sync path, so updateHostNetwork (forceHostNetwork, RDMA) and
+	// updateContainers cannot give a live Sandbox back what create took away.
+	if commonworkload.IsSandBox(adminWorkload) {
+		if err = enforceSandboxPodSecurity(obj, adminWorkload, rt); err != nil {
+			return fmt.Errorf("failed to apply sandbox pod security: %v", err.Error())
 		}
 	}
 	// NB: kind-specific normalization (e.g. normalizeDynamoDGD which converts
@@ -1736,30 +1744,22 @@ func buildServiceSelector(workload *v1.Workload, specService *v1.Service) map[st
 	// InferaDeployment: pods are produced by the standalone Infera operator
 	// (IDEP -> Deployment/LeaderWorkerSet -> Pod) and carry infera.amd.com/*
 	// labels, NOT SaFE's primus-safe.k8s.object.id — same situation as Dynamo.
-	// Select the frontend role's pods (the only role on the user-facing HTTP
-	// port; workers/prefill/decode listen on internal endpoints registered via
-	// the discovery backend).
+	// Select the pods running the server (the only process on the user-facing
+	// HTTP port; workers/prefill/decode listen on internal endpoints registered
+	// via the discovery backend). The operator marks them with the router
+	// label, whether the server has its own pod or shares the worker pod.
 	if commonworkload.IsInferaDeployment(workload) {
 		selector := make(map[string]string, 2+len(specService.ExtraSelectors))
 		for k, v := range specService.ExtraSelectors {
 			if k == common.InferaOperatorDeploymentLabel ||
-				k == common.InferaOperatorServiceLabel {
+				k == common.InferaOperatorServiceLabel ||
+				k == common.InferaOperatorRouterLabel {
 				continue
 			}
 			selector[k] = v
 		}
 		selector[common.InferaOperatorDeploymentLabel] = workload.Name
-		// The operator labels each pod by its IDEP slot key (role0, role1, ...).
-		// The frontend is the server role; find its slot by its index in
-		// service-roles (default role0 when unset).
-		frontendSlot := "role0"
-		for i, r := range commonworkload.GetInferaServiceRoles(workload) {
-			if r == common.DynamoRoleFrontend {
-				frontendSlot = fmt.Sprintf("role%d", i)
-				break
-			}
-		}
-		selector[common.InferaOperatorServiceLabel] = frontendSlot
+		selector[common.InferaOperatorRouterLabel] = "true"
 		return selector
 	}
 

@@ -21,6 +21,20 @@ global:
   storage_class: "local-path"
   # csi volume handle name for wekafs
   csi_volume_handle: ""
+  # Placement of the management components: the apiserver, resource-manager, job-manager,
+  # webhooks, web console and nginx pods, and the database instances. Both empty (the default)
+  # leaves placement to the scheduler, preferring non-GPU nodes. To run them on the
+  # control-plane nodes:
+  #   management_node_selector:
+  #     node-role.kubernetes.io/control-plane: ""
+  #   management_tolerations:
+  #     - key: node-role.kubernetes.io/control-plane
+  #       operator: Exists
+  #       effect: NoSchedule
+  # The database instances are created only at install, so on an installed cluster these
+  # settings move the Deployments only; patch the PostgresCluster to move the database.
+  management_node_selector: {}
+  management_tolerations: []
 net:
   # Network interface for NCCL socket communication
   nccl_socket_ifname: "eno0"
@@ -101,6 +115,9 @@ web:
   cpu: 2000m
   # Memory resources allocated to web console
   memory: 4Gi
+  # Where the console's nginx redirects a browser opening the host's bare /: a path on that host, e.g. /portal/; empty
+  # keeps the console at /
+  root_redirect: ""
 preprocess:
   # Preprocessing component image version. used for pytorch-job etc.
   image: "preprocess:latest"
@@ -173,6 +190,19 @@ db:
   # long as the process lives", the unbounded reuse that kept a pool writing to a
   # demoted replica for three days. Nothing reports that at runtime beyond one
   # warning at startup, so a 0 is easy to miss.
+robust:
+  # Secret (in the release namespace) holding the shared service token the
+  # Robust API accepts in X-Robust-Service-Token, under the key
+  # "service-token". apiserver, job-manager and resource-manager send it on
+  # every call to a data cluster's robust-api: log search, post-train metrics,
+  # GPU statistics and the workload sync. The same value must be configured
+  # on robust-manager (modules.robustApi.auth.writeGuard.serviceTokenExistingSecret
+  # in the primus-robust chart); without it every one of those calls gets 401.
+  # The mount is optional, so the components start while the Secret is absent.
+  # Set to "" to stop mounting it.
+  service_token_secret: "robust-service-token"
+  # Where the Secret is mounted in the three components.
+  secret_path: "/etc/secrets/robust"
 opensearch:
   # Log search feature flag. When true, log search endpoints are available.
   # Queries are proxied through robust-api on data clusters (no direct OpenSearch connection).
@@ -292,6 +322,8 @@ auth:
   # claim naming the client) and receive the keys of the user the token acts for, and of that user only.
   # The token must carry the safe.api scope and be accepted by an authenticator of the chain, which checks
   # its audience. Exact ids, no wildcards. Empty (the default): a delegated token never calls it.
+  # With mode builtin it applies too, to that endpoint only, using the oidc entries of `authenticators`
+  # (introspection and builtin entries are ignored there); requests and logins stay builtin.
   key_actors: []
   # Where API key creation, listing and revocation are routed to the identity provider when mode is external:
   # a path on the console's own origin, such as /api/v1/apikeys. The apiserver refuses to issue keys in that
@@ -316,6 +348,18 @@ sso:
   # Other web apps allowed to receive the SSO authorization code (the console's own origin is always allowed).
   # Each entry is an origin, optionally followed by a path prefix, e.g. "https://app.example.com/console".
   bridge_allowlist: []
+  # The console signs in at an OpenID Connect provider as a public client (no client secret) with PKCE,
+  # instead of at the provider of the secret above. Off by default. The provider of the secret, when it is
+  # still set, keeps serving the codes other web apps bring (SSO bridge) and the sessions it made; set the
+  # secret to an empty string to remove it once nothing uses it.
+  login:
+    enable: false
+    # Issuer of the provider (its discovery document is <issuer>/.well-known/openid-configuration).
+    issuer: ""
+    # Client id the console is registered with there.
+    client_id: ""
+    # The console's own callback, registered exactly at the provider, e.g. "https://console.example.com/sso/callback".
+    redirect_uri: ""
 workspace:
   # Reserved system resources for management components
   mem_reserve_percent: 0.05
@@ -466,6 +510,17 @@ external_execution:
   # Bounds how long an external workspace goes without a reconcile, so a stale observation
   # is noticed well before the controller's own fifteen minute backstop.
   workspace_resync_seconds: 30
+  # When true, an external Pod mounts from a hostpath workspace volume with enableUserDir or
+  # sharedPaths only its own user directory (read-write, at <mountPath>/users/<user id>, which
+  # is still USER_DATA_PATH) and the volume's sharedPaths, each at the same path, instead of
+  # the whole volume. A Sandbox that does not use workspace storage gets neither; its
+  # spec.hostpath entries below a declared root are mounted read-only as their own hostPath.
+  # Enable it only after the external provider (Autopilot) is released with sub-path
+  # admission: it must admit a hostPath below an approved root, mount it without following
+  # symlinks, and admit <root>/users/<id> only for Pods whose creator is <id>. Before that,
+  # the provider refuses these Pods. Set the workspace's sharedPaths first. Set per site with
+  # external_user_dir_mounts in .env; an upgrade without it keeps the running release's value.
+  user_dir_mounts: false
 workload:
   # Seconds to keep a finished workload before TTL deletion.
   ttl_second: 60
@@ -475,7 +530,7 @@ sandbox:
   secret: "envd-router-identity"
   # EnvD injector initContainer image. Repo path only; the template adds harbor.<sub_domain>.<domain>/proxy/,
   # so the digest has to exist on Docker Hub. Must include GET /api/jobs for Brain idle sandbox reclaim.
-  envd_injector_image: "primussafe/agent-sandbox-envd-injector@sha256:0b5dc0743c691a77e2a8ed472661bb2701c108dc8243a741384e038514c39090"
+  envd_injector_image: "primussafe/agent-sandbox-envd-injector@sha256:1a4725fbf9db511f558e48c3c2222818f0ca82be7da5303e20f10f5e46c4c79c"
   # Secret holding extra CA certificates (PEM, any key name) that sandboxes must trust. Create it in the
   # primus-safe namespace with the annotations
   #   primus-safe.workspace.selector: "primus-safe.workspace.scope.sandbox=true"

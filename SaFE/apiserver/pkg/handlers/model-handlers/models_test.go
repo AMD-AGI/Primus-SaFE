@@ -977,7 +977,8 @@ func TestCreateSftJob_InjectsAinicEnvForSharedNfsMultinode(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("POST", "/sft/jobs", bytes.NewReader(reqBody))
 	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set(common.UserId, "user-1")
+	// The route authorizes the caller like the workload create path does.
+	c.Set(common.UserId, adminModelUserID)
 	c.Set(common.UserName, "Test User")
 
 	result, err := h.createSftJob(c)
@@ -1061,7 +1062,8 @@ func TestCreateSftJob_OverrideAllowsUnknownModel(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("POST", "/sft/jobs", bytes.NewReader(reqBody))
 	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set(common.UserId, "user-1")
+	// The route authorizes the caller like the workload create path does.
+	c.Set(common.UserId, adminModelUserID)
 	c.Set(common.UserName, "Test User")
 
 	result, err := h.createSftJob(c)
@@ -1145,7 +1147,8 @@ func TestCreateSftJob_UnknownModelFallsBackToDefaultRecipe(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("POST", "/sft/jobs", bytes.NewReader(reqBody))
 	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set(common.UserId, "user-1")
+	// The route authorizes the caller like the workload create path does.
+	c.Set(common.UserId, adminModelUserID)
 	c.Set(common.UserName, "Test User")
 
 	result, err := h.createSftJob(c)

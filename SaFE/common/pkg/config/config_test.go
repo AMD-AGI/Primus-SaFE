@@ -48,6 +48,7 @@ func TestGettersDefaults(t *testing.T) {
 	viper.Reset()
 
 	testifyassert.True(t, IsCryptoEnable())
+	testifyassert.Equal(t, "", GetRobustServiceToken())
 	testifyassert.True(t, IsHealthCheckEnabled())
 	testifyassert.Equal(t, 0, GetHealthCheckPort())
 	testifyassert.False(t, IsMetricsEnabled())
@@ -230,11 +231,12 @@ func TestSecretFileGetters(t *testing.T) {
 	write("shared_apim_user", " svc-user\n")
 	write("claw_base_url", "http://claw")
 	write("claw_api_key", "clawkey")
+	write(RobustServiceTokenKey, " robust-token\n")
 
 	for _, k := range []string{
 		cryptoSecretPath, sshSecretPath, openSearchSecretPath, dbSecretPath,
 		s3SecretPath, notificationSecretPath, ssoSecretPath, langfuseProxySecretPath,
-		llmGatewaySecretPath, modelOptimizationSecretPath,
+		llmGatewaySecretPath, modelOptimizationSecretPath, robustSecretPath,
 	} {
 		viper.Set(k, dir)
 	}
@@ -266,6 +268,7 @@ func TestSecretFileGetters(t *testing.T) {
 	testifyassert.Equal(t, []string{"hash1", "hash2"}, GetLLMGatewaySharedApimKeyHashes())
 	testifyassert.Equal(t, "svc-user", GetLLMGatewaySharedApimUser())
 	testifyassert.Equal(t, "clawkey", GetModelOptimizationClawAPIKey())
+	testifyassert.Equal(t, "robust-token", GetRobustServiceToken())
 
 	// GetDBPort with non-numeric content -> 0
 	write("port", "not-a-number")

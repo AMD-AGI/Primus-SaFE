@@ -463,3 +463,55 @@ func TestSyncGithubAnnotationsWorkloadNotFound(t *testing.T) {
 	// Workload not found -> no-op, no panic.
 	c.syncGithubAnnotations(u)
 }
+
+// scaleUpEvent is an Event as the "event" resource template's informer delivers it.
+func scaleUpEvent(reason, namespace, pod, podUID string) *unstructured.Unstructured {
+	ev := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Event", "reason": reason,
+		"involvedObject": map[string]interface{}{
+			"kind": "Pod", "namespace": namespace, "name": pod, "uid": podUID,
+		},
+	}}
+	ev.SetNamespace(namespace)
+	ev.SetName(pod + ".1")
+	return ev
+}
+
+// An autoscaler's decision is an Event; the Pod it is about does not change. The
+// Pod is delivered again so that its workload's wait reason is rebuilt at once.
+func TestScaleUpEventResyncsItsPod(t *testing.T) {
+	pod := podInCache("vk", "sb-1", "sb-1")
+	pod.SetUID("uid-1")
+	cs := clientSetsWithPodCache(t, true, pod, podInCache("vk", "unmanaged", ""))
+	var got []*resourceMessage
+	cs.handler = ResourceHandler(func(m *resourceMessage) { got = append(got, m) })
+
+	for _, reason := range []string{"TriggeredScaleUp", "NotTriggerScaleUp"} {
+		got = nil
+		cs.handleResource(context.Background(), nil, scaleUpEvent(reason, "vk", "sb-1", "uid-1"), ResourceAdd)
+		assert.Equal(t, len(got), 1, reason)
+		assert.Equal(t, got[0].gvk.Kind, common.PodKind)
+		assert.Equal(t, got[0].name, "sb-1")
+		assert.Equal(t, got[0].workloadId, "sb-1")
+		assert.Equal(t, got[0].action, ResourceUpdate)
+	}
+	// An aggregated Event (its count bumped) is an update, and resyncs too.
+	got = nil
+	cs.handleResource(context.Background(), nil, scaleUpEvent("TriggeredScaleUp", "vk", "sb-1", "uid-1"), ResourceUpdate)
+	assert.Equal(t, len(got), 1)
+
+	for name, ev := range map[string]*unstructured.Unstructured{
+		"other reason":       scaleUpEvent("FailedScheduling", "vk", "sb-1", "uid-1"),
+		"earlier pod":        scaleUpEvent("TriggeredScaleUp", "vk", "sb-1", "uid-0"),
+		"pod not in cache":   scaleUpEvent("TriggeredScaleUp", "vk", "gone", ""),
+		"pod not a workload": scaleUpEvent("TriggeredScaleUp", "vk", "unmanaged", ""),
+	} {
+		got = nil
+		cs.handleResource(context.Background(), nil, ev, ResourceAdd)
+		assert.Equal(t, len(got), 0, name)
+	}
+	// A deleted Event is not a decision.
+	got = nil
+	cs.handleResource(context.Background(), nil, scaleUpEvent("TriggeredScaleUp", "vk", "sb-1", "uid-1"), ResourceDel)
+	assert.Equal(t, len(got), 0)
+}

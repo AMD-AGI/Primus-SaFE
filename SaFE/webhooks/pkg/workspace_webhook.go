@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -968,9 +969,18 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 		if !sliceutil.Contains(supportedTypes, vol.Type) {
 			return fmt.Errorf("invalid volume storage type. only %v supported", supportedTypes)
 		}
+		if err := validateVolumeScopes(vol); err != nil {
+			return err
+		}
+		if err := validateVolumeSharedPaths(vol); err != nil {
+			return err
+		}
 		if vol.Type == v1.HOSTPATH {
 			if vol.HostPath == "" {
 				return fmt.Errorf("the hostPath of volume is required for hostpath storage")
+			}
+			if err := validatePrivilegedVolumeOverlap(newWorkspace, vol); err != nil {
+				return err
 			}
 			continue
 		}
@@ -1003,6 +1013,64 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 		if !sliceutil.Contains(supportedAccessMode, vol.AccessMode) {
 			return fmt.Errorf("invalid volume access mode. only %v supported", supportedAccessMode)
 		}
+	}
+	return nil
+}
+
+// validatePrivilegedVolumeOverlap refuses a hostpath volume without requiresPrivilegedGrant whose
+// mounted directory (hostPath joined with subPath) equals, lies under or contains the hostPath of a
+// hostpath volume of the workspace that requires the grant: it would mount the protected directory,
+// or part of it, into workloads whose creator does not hold the grant.
+func validatePrivilegedVolumeOverlap(workspace *v1.Workspace, vol v1.WorkspaceVolume) error {
+	if vol.RequiresPrivilegedGrant {
+		return nil
+	}
+	if protected := commonworkload.PrivilegedVolumeOverlapping(workspace,
+		filepath.Join(vol.HostPath, vol.SubPath)); protected != nil {
+		return fmt.Errorf("the hostpath volume %q overlaps the hostPath %q of volume %d, which "+
+			"requiresPrivilegedGrant; set requiresPrivilegedGrant on both or keep them apart",
+			filepath.Join(vol.HostPath, vol.SubPath), protected.HostPath, protected.Id)
+	}
+	return nil
+}
+
+// validateVolumeScopes checks that a volume's scopes are known workspace scopes and listed once.
+// Empty scopes are valid and mean the volume is mounted into every scope.
+func validateVolumeScopes(vol v1.WorkspaceVolume) error {
+	supportedScopes := []v1.WorkspaceScope{v1.TrainScope, v1.InferScope, v1.AuthoringScope,
+		v1.CICDScope, v1.RayScope, v1.SandboxScope}
+	seen := make(map[v1.WorkspaceScope]struct{}, len(vol.Scopes))
+	for _, scope := range vol.Scopes {
+		if !sliceutil.Contains(supportedScopes, scope) {
+			return fmt.Errorf("invalid scope %q of volume(%s), only %v supported",
+				scope, vol.GenFullVolumeId(), supportedScopes)
+		}
+		if _, ok := seen[scope]; ok {
+			return fmt.Errorf("duplicate scope %q of volume(%s)", scope, vol.GenFullVolumeId())
+		}
+		seen[scope] = struct{}{}
+	}
+	return nil
+}
+
+// validateVolumeSharedPaths checks that only a hostpath volume lists shared paths, and that each is
+// a clean relative path, listed once, outside the user directories of a volume with enableUserDir.
+func validateVolumeSharedPaths(vol v1.WorkspaceVolume) error {
+	if len(vol.SharedPaths) == 0 {
+		return nil
+	}
+	if vol.Type != v1.HOSTPATH {
+		return fmt.Errorf("volume(%s) lists sharedPaths, which only a hostpath volume can have", vol.GenFullVolumeId())
+	}
+	seen := make(map[string]struct{}, len(vol.SharedPaths))
+	for _, shared := range vol.SharedPaths {
+		if err := vol.ValidateSharedPath(shared.Path); err != nil {
+			return err
+		}
+		if _, ok := seen[shared.Path]; ok {
+			return fmt.Errorf("duplicate shared path %q of volume(%s)", shared.Path, vol.GenFullVolumeId())
+		}
+		seen[shared.Path] = struct{}{}
 	}
 	return nil
 }
