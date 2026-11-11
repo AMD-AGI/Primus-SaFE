@@ -18,8 +18,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -30,10 +28,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
-
-// scimCertDir is the mounted ingress TLS secret. install.sh writes it under the fixed name
-// global.tls_secret ("default"). A missing file registers the SCIM target without a certificate.
-var scimCertDir = "/etc/secrets/scim-tls"
 
 const (
 	// DeactivatedAnnotation marks a user frozen by a SCIM patch that set active to false.
@@ -55,7 +49,6 @@ func (e *ConfigError) Error() string { return e.Msg }
 type scimTarget struct {
 	URL         string `json:"url"`
 	BearerToken string `json:"bearerToken"`
-	Certificate string `json:"certificate,omitempty"`
 }
 
 type statusBody struct {
@@ -98,11 +91,7 @@ func RegisterTarget(ctx context.Context, publicURL, token string) error {
 	if err != nil {
 		return &ConfigError{Msg: "cannot build the scim target URL"}
 	}
-	cert, err := targetCertificate()
-	if err != nil {
-		return err
-	}
-	code, err := do(ctx, http.MethodPut, endpoint, scimTarget{URL: publicURL, BearerToken: token, Certificate: cert}, func(r *http.Request) {
+	code, err := do(ctx, http.MethodPut, endpoint, scimTarget{URL: publicURL, BearerToken: token}, func(r *http.Request) {
 		r.SetBasicAuth(clientID, secret)
 	})
 	if err != nil {
@@ -183,37 +172,6 @@ func normalizeBase(raw string) (string, error) {
 	u.RawQuery, u.Fragment = "", ""
 	u.User = nil
 	return strings.TrimRight(u.String(), "/"), nil
-}
-
-// targetCertificate reads tls.crt from the mounted ingress TLS secret, and ca.crt when it is present.
-// A missing tls.crt registers the target without a certificate.
-func targetCertificate() (string, error) {
-	crt, err := os.ReadFile(filepath.Join(scimCertDir, "tls.crt"))
-	if os.IsNotExist(err) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(string(crt)) == "" {
-		return "", nil
-	}
-	var b strings.Builder
-	b.Write(crt)
-	if !strings.HasSuffix(string(crt), "\n") {
-		b.WriteByte('\n')
-	}
-	ca, err := os.ReadFile(filepath.Join(scimCertDir, "ca.crt"))
-	if os.IsNotExist(err) {
-		return b.String(), nil
-	}
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(string(ca)) != "" {
-		b.Write(ca)
-	}
-	return b.String(), nil
 }
 
 // normalizePublic checks auth.scim.public_url and drops a trailing slash.

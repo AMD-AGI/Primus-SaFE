@@ -66,7 +66,11 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 			return nil, commonerrors.NewInternalError("failed to initialize scim: " + err.Error())
 		}
 		scimToken = scim.NewToken(token)
-		scim.StartRegistration(context.Background(), mgr.GetClient(), scimToken)
+		if commonconfig.IsSSOLoginEnable() {
+			scim.StartRegistration(context.Background(), mgr.GetClient(), scimToken)
+		} else {
+			klog.Info("sso login is disabled; the scim target is not registered with identity")
+		}
 	} else if commonconfig.IsSCIMEnabled() {
 		klog.Warning("auth.scim.enabled is set but auth.mode is not external; the scim endpoint is not served")
 	}
