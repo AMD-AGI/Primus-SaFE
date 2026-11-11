@@ -3,7 +3,7 @@
 The SaFE MCP tools (see SKILL.md) take snake_case arguments; the REST API behind them uses camelCase fields, shown in parentheses where they differ. Errors come back as the HTTP status plus SaFE's `errorCode` (404 NotFound, 401/403 auth); the message text is not passed on. List tools take `offset` (default 0) and `limit`.
 
 ## Read tools
-- `user_self`: the caller (`roles`, `workspaces`, `managedWorkspaces`).
+- `user_self`: the caller (`roles`, `workspaces`, `managedWorkspaces`). `apikey_current`: the key in use, not the user.
 - `cluster_list`, `cluster_get`, `cluster_logs`.
 - `workspace_list`, `workspace_get`: `flavorId`, `scopes`, `currentNodeCount`, `targetNodeCount`, `phase`, `queuePolicy`, `enablePreempt`.
 - `flavor_list`, `flavor_get`, `flavor_avail` (resources still free for that flavor).
@@ -14,6 +14,7 @@ The SaFE MCP tools (see SKILL.md) take snake_case arguments; the REST API behind
 - `node_list` filters: `workspace_id`, `cluster_id`, `flavor_id`, `node_id`, `phase`, `available`, `brief`, `limit`. `node_get`, `node_status`, `node_reboot_logs`, `node_pod_logs` (the node agent's log: the last `tail_lines` lines, newest last), `node_export`.
 - `opsjob_list` filters: `cluster_id`, `workspace_id`, `user_name`, `phase`, `type`, `job_name`, `since`, `until`. `opsjob_get`.
 - `secret_list` (`type`, `workspace_id`): id, name, type, workspaces, owner; never a value.
+- `apikey_list`.
 - `workload_logs_download` is NOT read-only: it creates a log-dump OpsJob and waits for it. Use `workload_logs` to read logs in chat.
 
 ## Write tools (each needs the user's approval)
@@ -21,3 +22,4 @@ The SaFE MCP tools (see SKILL.md) take snake_case arguments; the REST API behind
 - `workload_stop`, `workload_resume`, `workload_delete`, `workload_update`, `workload_batch_stop`, `workload_batch_delete` (`workload_ids`).
 - `node_update` (labels, taints, flavor), `node_cordon`, `node_uncordon`, `node_drain`, `node_reboot`, `node_create`, `node_delete`; `workspace_manage_nodes` (add/remove nodes), `workspace_update`, `workspace_scale`, `workspace_create`, `workspace_delete`; `cluster_create`, `cluster_update`, `cluster_manage_nodes`, `cluster_delete`.
 - `opsjob_create` (types such as addon, preflight, reboot, dumplog), `opsjob_stop`, `opsjob_delete`.
+- `apikey_create`, `apikey_delete`.

@@ -59,14 +59,14 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	if err := authority.InitExternalAuth(mgr.GetClient()); err != nil {
 		return nil, commonerrors.NewInternalError("failed to initialize external authentication: " + err.Error())
 	}
-	var scimToken string
+	var scimToken *scim.Token
 	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal && commonconfig.IsSCIMEnabled() {
-		var err error
-		scimToken, err = scim.EnsureToken(context.Background(), mgr.GetClient())
+		token, err := scim.EnsureToken(context.Background(), mgr.GetClient())
 		if err != nil {
 			return nil, commonerrors.NewInternalError("failed to initialize scim: " + err.Error())
 		}
-		scim.StartRegistration(context.Background(), scimToken)
+		scimToken = scim.NewToken(token)
+		scim.StartRegistration(context.Background(), mgr.GetClient(), scimToken)
 	} else if commonconfig.IsSCIMEnabled() {
 		klog.Warning("auth.scim.enabled is set but auth.mode is not external; the scim endpoint is not served")
 	}
@@ -185,8 +185,8 @@ type routeHandlers struct {
 	inferencex     *inferencexhandlers.Handler
 	optimization   *optimizationhandlers.Handler
 	mcp            bool
-	// scimToken is set when the SCIM endpoint is served. Empty leaves the routes unregistered.
-	scimToken string
+	// scimToken is set when the SCIM endpoint is served. Nil leaves the routes unregistered.
+	scimToken *scim.Token
 }
 
 // registerRoutes registers the routes of the handlers on the engine, in the order that matters: the
@@ -201,7 +201,7 @@ func registerRoutes(engine *gin.Engine, h routeHandlers) {
 	if h.resources != nil {
 		reshandler.InitCustomRouters(engine, h.resources)
 	}
-	if h.scimToken != "" && h.resources != nil {
+	if h.scimToken != nil && h.resources != nil {
 		scim.Mount(engine, h.resources, h.scimToken)
 	}
 	if h.cd != nil {

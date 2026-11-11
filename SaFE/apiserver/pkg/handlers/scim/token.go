@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -25,6 +26,43 @@ import (
 )
 
 const tokenKey = "token"
+
+// Token is the SCIM bearer token the endpoint accepts. It is safe for concurrent use.
+type Token struct {
+	v atomic.Value
+}
+
+// NewToken returns a Token holding value.
+func NewToken(value string) *Token {
+	t := &Token{}
+	t.v.Store(value)
+	return t
+}
+
+// Load returns the current token.
+func (t *Token) Load() string {
+	s, _ := t.v.Load().(string)
+	return s
+}
+
+// Store replaces the current token.
+func (t *Token) Store(value string) {
+	t.v.Store(value)
+}
+
+// refreshToken reads the token Secret, creating it when it is absent, and stores the token in tok.
+// changed reports whether the token differs from the one tok held.
+func refreshToken(ctx context.Context, cli client.Client, tok *Token) (changed bool, err error) {
+	value, err := EnsureToken(ctx, cli)
+	if err != nil {
+		return false, err
+	}
+	if value == tok.Load() {
+		return false, nil
+	}
+	tok.Store(value)
+	return true, nil
+}
 
 // EnsureToken returns the SCIM bearer token, creating the Secret when it is absent.
 // The token is 32 random bytes, stored hex-encoded.

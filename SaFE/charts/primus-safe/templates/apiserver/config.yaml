@@ -188,7 +188,7 @@ data:
     auth:
       # builtin (default): local accounts, built-in sessions, SSO login and API keys.
       # external: authenticate requests with the chain in `authenticators` (OIDC/JWT, RFC 7662 token introspection, builtin).
-      mode: {{ default "external" .Values.auth.mode | quote }}
+      mode: {{ default "builtin" .Values.auth.mode | quote }}
       authenticators: {{ toJson (default (list) .Values.auth.authenticators) }}
       group_mappings: {{ toJson (default (list) .Values.auth.group_mappings) }}
       login_url: {{ $loginURL | quote }}

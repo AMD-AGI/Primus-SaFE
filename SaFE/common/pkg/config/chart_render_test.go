@@ -87,6 +87,7 @@ func loadRendered(t *testing.T, rendered string) {
 // may fetch keys with a delegated token) unless the operator sets it.
 func TestChartRendersAuthKeyActors(t *testing.T) {
 	loadRendered(t, renderApiserverConfig(t))
+	testifyassert.Equal(t, AuthModeBuiltin, GetAuthMode())
 	testifyassert.Empty(t, GetAuthKeyActors())
 	testifyassert.True(t, IsSCIMEnabled())
 	testifyassert.Empty(t, GetSCIMIdentityURL())
@@ -172,7 +173,8 @@ func renderWebEnv(t *testing.T, values ...string) map[string]string {
 // TestChartRoutesAPIKeysToTheIdentityProvider pins the two halves of the console's key routing: the path the
 // apiserver reports to the console (auth.api_keys_url, from GET /envs), and the route the console's nginx
 // gets (API_KEYS_UPSTREAM). The one value api_keys_upstream gives both; api_keys_url alone is for a deployment
-// whose own gateway routes the path. The route does not depend on auth.mode.
+// whose own gateway routes the path; and nothing is routed unless the mode is external, so a built-in
+// deployment's /api/v1/apikeys still reaches the apiserver.
 func TestChartRoutesAPIKeysToTheIdentityProvider(t *testing.T) {
 	const upstream = "identity.idns.svc.cluster.local:8080"
 	for _, tt := range []struct {
@@ -189,10 +191,10 @@ func TestChartRoutesAPIKeysToTheIdentityProvider(t *testing.T) {
 			[]string{"auth.mode=external", "auth.api_keys_url=/api/v1/apikeys"}, "/api/v1/apikeys", ""},
 		{"external, a url and an upstream: the path reported is the one the console's nginx routes",
 			[]string{"auth.mode=external", "auth.api_keys_url=/idp/apikeys", "auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", upstream},
-		{"mode ignored, upstream set: the console's nginx routes it",
-			[]string{"auth.mode=builtin", "auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", upstream},
-		{"no mode, upstream set: the console's nginx routes it",
-			[]string{"auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", upstream},
+		{"builtin, upstream set: the console's nginx must not take the path",
+			[]string{"auth.mode=builtin", "auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", ""},
+		{"no mode, upstream set: the console's nginx must not take the path",
+			[]string{"auth.api_keys_upstream=" + upstream}, "/api/v1/apikeys", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var args []string

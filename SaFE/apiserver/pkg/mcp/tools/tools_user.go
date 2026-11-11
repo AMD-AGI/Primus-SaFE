@@ -21,7 +21,7 @@ func userSelf() *mcpserver.MCPTool {
 	return &mcpserver.MCPTool{
 		Name: "user_self",
 		Description: "Get the record of the user making the call: name, email, roles, the workspaces the user can use and the ones the user manages. " +
-			"Use it to answer who the caller is and what the caller may do.",
+			"Use it to answer who the caller is and what the caller may do. apikey_current describes the API key, not the user.",
 		InputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},

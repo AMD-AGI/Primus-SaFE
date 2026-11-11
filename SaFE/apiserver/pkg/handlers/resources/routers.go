@@ -165,8 +165,15 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 			publicKeys.GET("", h.ListPublicKeys)
 		}
 
-		// API key creation, deletion and listing are served by the identity service.
-		// This apiserver only checks a presented key through the identity introspection endpoint.
+		// ==================== API Keys ====================
+		// External mode refuses creation; listing and deletion stay so earlier keys can be revoked.
+		apiKeys := authGroup.Group("/apikeys")
+		{
+			apiKeys.POST("", middleware.Audit("apikey"), h.CreateApiKey)
+			apiKeys.DELETE("/:id", middleware.Audit("apikey"), h.DeleteApiKey)
+			apiKeys.GET("", h.ListApiKey)
+			apiKeys.GET("/current", h.GetCurrentApiKey)
+		}
 
 		// ==================== Persistent Volumes ====================
 		persistentvolumes := authGroup.Group("/persistentvolumes")

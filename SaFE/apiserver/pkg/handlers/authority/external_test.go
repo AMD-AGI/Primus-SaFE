@@ -99,7 +99,7 @@ func clearAuthState() {
 // useBuiltinChain configures external mode with only the builtin authenticator.
 func useBuiltinChain(t *testing.T, cli client.Client) {
 	t.Helper()
-	viper.Set("auth.mode", nil)
+	viper.Set("auth.mode", "external")
 	viper.Set("auth.group_mappings", nil)
 	viper.Set("auth.key_actors", nil)
 	viper.Set("auth.authenticators", []map[string]any{{"type": "builtin"}})
@@ -234,10 +234,15 @@ var adminMapping = []map[string]any{
 }
 
 func TestBuiltinModeIsUnchanged(t *testing.T) {
-	// No authenticator is configured, so external auth does not start.
+	// Unset auth.mode is builtin, so the chain is not built.
 	viper.Set("auth.mode", nil)
 	viper.Set("auth.authenticators", nil)
 	t.Cleanup(clearAuthState)
+	require.NoError(t, InitExternalAuth(nil))
+	require.Nil(t, externalState.Load())
+
+	// External mode with an empty chain does not start.
+	viper.Set("auth.mode", "external")
 	require.Error(t, InitExternalAuth(nil))
 	require.Nil(t, externalState.Load())
 

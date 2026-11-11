@@ -36,6 +36,7 @@ import (
 	optimizationhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/optimization"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/scim"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -74,7 +75,7 @@ func sweepHandlers(t *testing.T) routeHandlers {
 		inferencex:     inferencexhandlers.NewHandler(time.Hour),
 		optimization:   &optimizationhandlers.Handler{},
 		mcp:            true,
-		scimToken:      "sweep-token",
+		scimToken:      scim.NewToken("sweep-token"),
 	}
 }
 
@@ -197,6 +198,7 @@ func refusedByTheGate(code int, body string) bool {
 // of the exceptions and the test fails for a new one.
 var publicRoutes = map[string]string{
 	"POST /api/v1/login":                       "signs in",
+	"POST /api/v1/users":                       "registers in builtin mode (refused when single sign-on is on)",
 	"GET /api/v1/envs":                         "the sign-in page needs it before anyone is signed in",
 	"POST /api/v1/auth/verify":                 "services call it with the internal token",
 	"POST /api/v1/auditlogs":                   "services report operations with the internal token (checked in the handler)",

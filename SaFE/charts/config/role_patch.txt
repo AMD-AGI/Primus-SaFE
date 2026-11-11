@@ -84,6 +84,13 @@
   - workspaces
   verbs:
   - use
+# The workload webhook asks whether a sandbox user may use a workspace.
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
 - apiGroups:
   - networking.k8s.io
   resources:

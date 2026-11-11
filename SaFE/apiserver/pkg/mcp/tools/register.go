@@ -272,6 +272,7 @@ func RegisterAllTools() []*mcpserver.MCPTool {
 	tools = append(tools, nodeTools()...)
 	tools = append(tools, workloadTools()...)
 	tools = append(tools, opsjobTools()...)
+	tools = append(tools, apikeyTools()...)
 	tools = append(tools, secretTools()...)
 	tools = append(tools, userTools()...)
 	markReadOnly(tools)
@@ -286,6 +287,7 @@ func RegisterAllTools() []*mcpserver.MCPTool {
 // which take their query as a body) and tools_skill_test.go checks every tool against
 // this list by what it actually sends.
 var readOnlyTools = []string{
+	"apikey_current", "apikey_list",
 	"cluster_get", "cluster_list", "cluster_logs",
 	"flavor_avail", "flavor_get", "flavor_list",
 	"node_export", "node_get", "node_list", "node_pod_logs", "node_reboot_logs", "node_status",

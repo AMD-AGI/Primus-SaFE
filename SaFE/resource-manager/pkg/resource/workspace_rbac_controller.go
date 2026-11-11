@@ -53,6 +53,8 @@ type WorkspaceRBACReconciler struct {
 	client.Client
 	subjectPrefix string
 	groupMappings []commonconfig.AuthGroupMapping
+	// storedRoles is true in builtin mode, where a system-admin role stored on a User counts.
+	storedRoles bool
 }
 
 // SetupWorkspaceRBACController initializes and registers the WorkspaceRBACReconciler with the controller manager.
@@ -65,6 +67,7 @@ func SetupWorkspaceRBACController(mgr manager.Manager) error {
 		Client:        mgr.GetClient(),
 		subjectPrefix: commonconfig.GetRBACSubjectPrefix(),
 		groupMappings: mappings,
+		storedRoles:   commonconfig.GetAuthMode() == commonconfig.AuthModeBuiltin,
 	}
 	managedPredicate := builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
 		return obj.GetLabels()[rbacManagedByLabelKey] == rbacManagedByLabelVal
@@ -109,8 +112,13 @@ func projectedGroupMappings() ([]commonconfig.AuthGroupMapping, error) {
 }
 
 // handleUserEvent enqueues the workspaces a User lists before and after the change.
-// The platform binding depends on group mappings, which are read at start, so a User change does not enqueue it.
+// In builtin mode a User whose system-admin role or restriction changes also enqueues the platform binding.
 func (r *WorkspaceRBACReconciler) handleUserEvent() handler.EventHandler {
+	enqueuePlatform := func(q v1.RequestWorkQueue, u *v1.User) {
+		if r.storedRoles && u.IsSystemAdmin() {
+			q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: rbacPlatformReconcileKey}})
+		}
+	}
 	enqueue := func(q v1.RequestWorkQueue, users ...*v1.User) {
 		seen := map[string]bool{}
 		for _, u := range users {
@@ -127,19 +135,27 @@ func (r *WorkspaceRBACReconciler) handleUserEvent() handler.EventHandler {
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
 			if u, ok := evt.Object.(*v1.User); ok {
 				enqueue(q, u)
+				enqueuePlatform(q, u)
 			}
 		},
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
 			oldUser, ok1 := evt.ObjectOld.(*v1.User)
 			newUser, ok2 := evt.ObjectNew.(*v1.User)
-			if !ok1 || !ok2 || !isUserRBACChanged(oldUser, newUser) {
+			if !ok1 || !ok2 {
 				return
 			}
-			enqueue(q, oldUser, newUser)
+			if isUserRBACChanged(oldUser, newUser) {
+				enqueue(q, oldUser, newUser)
+			}
+			if isPlatformRoleChanged(oldUser, newUser) {
+				enqueuePlatform(q, oldUser)
+				enqueuePlatform(q, newUser)
+			}
 		},
 		DeleteFunc: func(ctx context.Context, evt event.DeleteEvent, q v1.RequestWorkQueue) {
 			if u, ok := evt.Object.(*v1.User); ok {
 				enqueue(q, u)
+				enqueuePlatform(q, u)
 			}
 		},
 	}
@@ -149,6 +165,12 @@ func (r *WorkspaceRBACReconciler) handleUserEvent() handler.EventHandler {
 func isUserRBACChanged(oldUser, newUser *v1.User) bool {
 	return oldUser.Spec.RestrictedType != newUser.Spec.RestrictedType ||
 		!reflect.DeepEqual(commonuser.GetWorkspace(oldUser), commonuser.GetWorkspace(newUser))
+}
+
+// isPlatformRoleChanged reports whether a User change affects the platform binding in builtin mode.
+func isPlatformRoleChanged(oldUser, newUser *v1.User) bool {
+	return oldUser.IsSystemAdmin() != newUser.IsSystemAdmin() ||
+		oldUser.Spec.RestrictedType != newUser.Spec.RestrictedType
 }
 
 // rbacObjectToRequests maps a managed ClusterRole or ClusterRoleBinding back to its reconcile key.
@@ -226,7 +248,14 @@ func (r *WorkspaceRBACReconciler) reconcilePlatform(ctx context.Context) error {
 	if err := r.applyClusterRole(ctx, rbacPlatformRoleName, rules, nil); err != nil {
 		return err
 	}
-	return r.applyClusterRoleBinding(ctx, rbacPlatformBindingName, rbacPlatformRoleName, r.platformSubjects(), nil)
+	var users []v1.User
+	if r.storedRoles {
+		var err error
+		if users, err = r.listUsers(ctx); err != nil {
+			return err
+		}
+	}
+	return r.applyClusterRoleBinding(ctx, rbacPlatformBindingName, rbacPlatformRoleName, r.platformSubjects(users), nil)
 }
 
 // listUsers returns all Users from the cache.
@@ -257,15 +286,23 @@ func (r *WorkspaceRBACReconciler) workspaceSubjects(workspace string, users []v1
 	return r.buildSubjects(userNames, groupNames)
 }
 
-// platformSubjects returns the groups mapped to system-admin. A role stored on a User does not count.
-func (r *WorkspaceRBACReconciler) platformSubjects() []rbacv1.Subject {
-	var groupNames []string
+// platformSubjects returns the groups mapped to system-admin and, in builtin mode, the users that are
+// not frozen and hold system-admin on the User. In external mode a role stored on a User does not count.
+func (r *WorkspaceRBACReconciler) platformSubjects(users []v1.User) []rbacv1.Subject {
+	var userNames, groupNames []string
+	if r.storedRoles {
+		for i := range users {
+			if users[i].Spec.RestrictedType != v1.UserFrozen && users[i].IsSystemAdmin() {
+				userNames = append(userNames, users[i].Name)
+			}
+		}
+	}
 	for _, m := range r.groupMappings {
 		if m.Group != "" && containsString(m.Roles, string(v1.SystemAdminRole)) {
 			groupNames = append(groupNames, m.Group)
 		}
 	}
-	return r.buildSubjects(nil, groupNames)
+	return r.buildSubjects(userNames, groupNames)
 }
 
 // buildSubjects turns user and group names into prefixed, de-duplicated subjects, users first, each sorted by name.

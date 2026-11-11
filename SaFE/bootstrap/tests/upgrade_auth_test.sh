@@ -183,10 +183,10 @@ refused() { # the upgrade stopped before it touched the cluster
 applied() { [[ $RC -eq 0 ]] && grep -q 'helm upgrade -i primus-safe ' "$FAKE_LOG" && [[ -s "$OUT/rendered.yaml" ]]; }
 rendered() { grep -qxF -- "      $1" "$OUT/rendered.yaml"; }
 
-# 1. No auth_* keys, nothing installed: the chart default, external; no second values file.
+# 1. No auth_* keys, nothing installed: the chart default, builtin; no second values file.
 run_upgrade "" ""
 expect "no auth keys, fresh install: applied" applied
-expect "no auth keys, fresh install: external" rendered 'mode: "external"'
+expect "no auth keys, fresh install: builtin" rendered 'mode: "builtin"'
 expect "no auth keys, fresh install: only the one values file" grep -qx 1 "$OUT/value-files"
 expect "no auth keys, fresh install: login url" rendered 'login_url: "https://test.primus-safe.amd.com/login/password"'
 expect "no auth keys, fresh install: scim public url" rendered '  public_url: "https://apiserver.test.primus-safe.amd.com/scim/v2"'
@@ -220,11 +220,11 @@ diff_lines="$(diff <(strip_copy_job < "$OUT/rendered.yaml") <(strip_copy_job < "
 expect "rendering with and without the keys differs only in the auth segment" test -z "$diff_lines"
 [[ -z "$diff_lines" ]] || echo "$diff_lines"
 
-# 3. The running release is external and .env has no auth_* keys: refuse, and touch nothing.
+# 3. The running release is external and .env sets no auth_mode: the chart default is builtin.
+# The authenticator chain is used only in external mode, so its absence does not refuse the upgrade.
 run_upgrade "$LIVE_EXTERNAL" ""
-expect "live external, no auth keys: refused before the cluster is touched" refused
-expect "live external, no auth keys: the message names what is missing" grep -q 'does not set: auth_client_secret auth_authenticators auth_group_mappings auth_key_actors' "$OUT/log"
-expect "live external, no auth keys: the message says how to go back on purpose" grep -q 'auth_mode=builtin' "$OUT/log"
+expect "live external, no auth keys: applied" applied
+expect "live external, no auth keys: builtin" rendered 'mode: "builtin"'
 
 # 4. One key missing is enough, here the one that grants the administrator roles.
 run_upgrade "$LIVE_EXTERNAL" "$(grep -v '^auth_group_mappings' <<<"$AUTH_ENV")"
@@ -256,8 +256,8 @@ run_upgrade '{"auth":{"mode":"external","scim":{"token_secret":"primus-safe-scim
 expect "live default scim token secret, key omitted: applied" applied
 expect "live default scim token secret, key omitted: chart default" rendered '  token_secret: "primus-safe-scim-token"'
 run_upgrade '{"auth":{"mode":"external","scim":{"token_secret":"custom-scim-token"}}}' ""
-expect "live custom scim token secret, key omitted: refused" refused
-expect "live custom scim token secret, key omitted: names it" grep -q 'does not set: auth_scim_token_secret$' "$OUT/log"
+expect "live custom scim token secret, key omitted: applied" applied
+expect "live custom scim token secret, key omitted: chart default" rendered '  token_secret: "primus-safe-scim-token"'
 run_upgrade '{"auth":{"mode":"external","scim":{"token_secret":"custom-scim-token"}}}' 'auth_scim_token_secret=custom-scim-token'
 expect "live custom scim token secret, key set: applied" applied
 expect "live custom scim token secret, key set: kept" rendered '  token_secret: "custom-scim-token"'
@@ -279,7 +279,7 @@ expect "break-glass with nothing else in .env: builtin" rendered 'mode: "builtin
 # 8. A release that is builtin has nothing to lose.
 run_upgrade "$LIVE_BUILTIN" ""
 expect "live builtin, no auth keys: applied" applied
-expect "live builtin, no auth keys: external" rendered 'mode: "external"'
+expect "live builtin, no auth keys: builtin" rendered 'mode: "builtin"'
 run_upgrade '{"global":{"sub_domain":"test"}}' ""
 expect "an older release that has no auth values: applied" applied
 run_upgrade 'null' ""
@@ -321,14 +321,14 @@ expect "an empty key_actors is the empty list: applied" applied
 export NOJQ="$W/nojq"
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_BUILTIN" ""
 expect "no jq, live builtin, no auth keys: applied" applied
-expect "no jq, live builtin, no auth keys: external" rendered 'mode: "external"'
+expect "no jq, live builtin, no auth keys: builtin" rendered 'mode: "builtin"'
 RUN_PATH="$NOJQ" run_upgrade '{"global":{"sub_domain":"test"}}' ""
 expect "no jq, release without auth values: applied" applied
 RUN_PATH="$NOJQ" run_upgrade "" ""
 expect "no jq, fresh install: applied" applied
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_EXTERNAL" ""
-expect "no jq, live external, no auth keys: refused" refused
-expect "no jq, live external, no auth keys: asks for jq" grep -q 'jq is required' "$OUT/log"
+expect "no jq, live external, no auth keys: applied" applied
+expect "no jq, live external, no auth keys: builtin" rendered 'mode: "builtin"'
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_EXTERNAL" 'auth_mode=builtin'
 expect "no jq, break-glass: applied" applied
 expect "no jq, break-glass: builtin" rendered 'mode: "builtin"'

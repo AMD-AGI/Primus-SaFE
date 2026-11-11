@@ -31,8 +31,8 @@ func findTool(t *testing.T, name string) *mcpserver.MCPTool {
 
 func TestRegisterAllTools_Count(t *testing.T) {
 	t.Parallel()
-	if n := len(RegisterAllTools()); n != 51 {
-		t.Fatalf("RegisterAllTools: got %d tools want 51", n)
+	if n := len(RegisterAllTools()); n != 55 {
+		t.Fatalf("RegisterAllTools: got %d tools want 55", n)
 	}
 }
 
@@ -137,7 +137,7 @@ func TestRegisterAllTools_GroupCounts(t *testing.T) {
 		"node_":      13,
 		"workload_":  14,
 		"opsjob_":    5,
-		"apikey_":    0,
+		"apikey_":    4,
 		"secret_":    1,
 		"user_":      1,
 	}

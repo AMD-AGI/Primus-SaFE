@@ -555,6 +555,7 @@ func TestNodePodLogs_ShortReplyIsUntouched(t *testing.T) {
 // every tool except a named read-only set, so this set has to be exactly right.
 
 var wantReadOnlyTools = []string{
+	"apikey_current", "apikey_list",
 	"cluster_get", "cluster_list", "cluster_logs",
 	"flavor_avail", "flavor_get", "flavor_list",
 	"node_export", "node_get", "node_list", "node_pod_logs", "node_reboot_logs", "node_status",
@@ -566,6 +567,7 @@ var wantReadOnlyTools = []string{
 }
 
 var wantStateChangingTools = []string{
+	"apikey_create", "apikey_delete",
 	"cluster_create", "cluster_delete", "cluster_manage_nodes", "cluster_update",
 	"node_cordon", "node_create", "node_delete", "node_drain", "node_reboot", "node_uncordon", "node_update",
 	"opsjob_create", "opsjob_delete", "opsjob_stop",

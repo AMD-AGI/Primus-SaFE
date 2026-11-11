@@ -55,6 +55,7 @@ func TestGetEnvsExternalLoginURL(t *testing.T) {
 	}
 	t.Cleanup(func() { viper.Set("auth.mode", nil); viper.Set("auth.login_url", nil) })
 
+	viper.Set("auth.mode", "external")
 	viper.Set("auth.login_url", "https://sign-in.example.com/start")
 	got := get()
 	assert.Equal(t, "external", got.AuthMode)
@@ -76,7 +77,7 @@ func TestGetEnvsExternalLoginURL(t *testing.T) {
 }
 
 // The console creates API keys at the identity provider only where the deployment says the provider's route
-// exists (auth.api_keys_url), and only in external mode. Unset auth.mode is external.
+// exists (auth.api_keys_url), and only in external mode. Unset auth.mode is builtin.
 func TestGetEnvsAPIKeysURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	get := func() view.GetEnvResponse {
@@ -98,7 +99,7 @@ func TestGetEnvsAPIKeysURL(t *testing.T) {
 		{"external, trailing slash", "external", "/api/v1/apikeys/", "/api/v1/apikeys"},
 		{"external, nothing routed", "external", "", ""},
 		{"auth.mode builtin does not report it", "builtin", "/api/v1/apikeys", ""},
-		{"unset auth.mode still reports it", "", "/api/v1/apikeys", "/api/v1/apikeys"},
+		{"unset auth.mode does not report it", "", "/api/v1/apikeys", ""},
 		{"external, an absolute URL is not a path on the console's origin", "external", "https://other.example.com/api/v1/apikeys", ""},
 		{"external, a protocol relative URL", "external", "//other.example.com/api/v1/apikeys", ""},
 		{"external, no leading slash", "external", "api/v1/apikeys", ""},

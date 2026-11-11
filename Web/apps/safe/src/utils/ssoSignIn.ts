@@ -11,13 +11,14 @@ export const PKCE_VERIFIER_KEY = 'oauth_pkce_verifier'
 
 /**
  * Where the console's built-in SSO signs in, from /envs: ssoLoginUrl with PKCE when there is one,
- * and otherwise ssoAuthUrl without PKCE. There is none while sso.login is on but its URL is missing.
- * External sign-in uses loginUrl instead.
+ * and otherwise ssoAuthUrl without PKCE. There is none while sso.login is on (ssoPkce) but its URL
+ * is missing. External sign-in uses loginUrl instead.
  */
 export function signInTarget(
   envs?: { ssoLoginUrl?: string; ssoAuthUrl?: string; ssoPkce?: boolean } | null,
 ): { url: string; pkce: boolean } | null {
   if (envs?.ssoLoginUrl) return { url: envs.ssoLoginUrl, pkce: true }
+  if (envs?.ssoPkce) return null
   if (envs?.ssoAuthUrl) return { url: envs.ssoAuthUrl, pkce: false }
   return null
 }

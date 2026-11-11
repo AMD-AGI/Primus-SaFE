@@ -111,8 +111,10 @@ describe('takeCallbackVerifier', () => {
 })
 
 describe('signInTarget', () => {
-  it('uses ssoLoginUrl with PKCE, and ssoAuthUrl without it', () => {
-    expect(signInTarget({ ssoLoginUrl: 'https://b/authorize', ssoAuthUrl: 'https://a/authorize' })).toEqual({
+  it('prefers the PKCE sign-in, and keeps ssoAuthUrl otherwise', () => {
+    expect(
+      signInTarget({ ssoAuthUrl: 'https://a/authorize', ssoLoginUrl: 'https://b/authorize' }),
+    ).toEqual({
       url: 'https://b/authorize',
       pkce: true,
     })
@@ -120,10 +122,27 @@ describe('signInTarget', () => {
       url: 'https://a/authorize',
       pkce: false,
     })
-    expect(signInTarget({ ssoPkce: true })).toBeNull()
+    expect(signInTarget({ ssoLoginUrl: 'https://b/authorize' })).toEqual({
+      url: 'https://b/authorize',
+      pkce: true,
+    })
     expect(signInTarget({})).toBeNull()
     expect(signInTarget(undefined)).toBeNull()
     expect(signInTarget(null)).toBeNull()
+  })
+
+  it('does not fall back to ssoAuthUrl while the PKCE sign-in is configured but unavailable', () => {
+    expect(signInTarget({ ssoAuthUrl: 'https://a/authorize', ssoPkce: true })).toBeNull()
+    expect(
+      signInTarget({
+        ssoAuthUrl: 'https://a/authorize',
+        ssoLoginUrl: 'https://b/authorize',
+        ssoPkce: true,
+      }),
+    ).toEqual({
+      url: 'https://b/authorize',
+      pkce: true,
+    })
   })
 })
 
@@ -131,7 +150,7 @@ describe('pkceRequired', () => {
   it('follows ssoPkce, and ssoLoginUrl from a server that does not report ssoPkce', () => {
     expect(pkceRequired({ ssoPkce: true })).toBe(true)
     expect(pkceRequired({ ssoLoginUrl: 'https://b/authorize' })).toBe(true)
-    expect(pkceRequired({})).toBe(false)
+    expect(pkceRequired({ ssoAuthUrl: 'https://a/authorize' } as never)).toBe(false)
     expect(pkceRequired(null)).toBe(false)
   })
 })

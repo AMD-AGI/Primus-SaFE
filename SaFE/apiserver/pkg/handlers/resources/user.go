@@ -595,7 +595,8 @@ func (h *Handler) DeleteUserRecord(ctx context.Context, user *v1.User) error {
 }
 
 // forwardIdentityStatus asks the identity service to disable or activate the user before the local
-// restricted type changes. Builtin mode does nothing. The local user is not updated when this returns an error.
+// restricted type changes. Builtin mode does nothing. Only a credential an identity provider accepted
+// is forwarded; any other credential gets a conflict. The local user is not updated when this returns an error.
 func forwardIdentityStatus(c *gin.Context, user *v1.User, req *view.PatchUserRequest) error {
 	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal || req.RestrictedType == nil {
 		return nil
@@ -603,6 +604,9 @@ func forwardIdentityStatus(c *gin.Context, user *v1.User, req *view.PatchUserReq
 	status, ok := identityStatus(*req.RestrictedType, user.Spec.RestrictedType)
 	if !ok {
 		return nil
+	}
+	if userType := c.GetString(common.UserType); userType != authority.UserTypeExternal && userType != authority.UserTypeDelegated {
+		return commonerrors.NewConflict("changing the user status needs an identity provider sign-in; use the identity console")
 	}
 	return identity.SetStatus(c.Request.Context(), user.Name, status, authority.CallerBearer(c))
 }

@@ -486,10 +486,10 @@ func TestCreateUserHandler(t *testing.T) {
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
+	viper.Set("auth.mode", nil)
 	h.CreateUser(c)
-	// Registration is refused. The account is not stored.
-	assert.Equal(t, http.StatusForbidden, rsp.Code)
-	testifyassert.Contains(t, rsp.Body.String(), "user registration is not available")
+	// Builtin mode with SSO disabled: the account is created and stored.
+	assert.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
 	err := h.Get(context.Background(), client.ObjectKey{Name: commonuser.GenerateUserIdByName("newbie")}, &v1.User{})
-	testifyassert.Error(t, err)
+	testifyassert.NoError(t, err)
 }

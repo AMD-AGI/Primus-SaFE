@@ -45,7 +45,7 @@ const (
 
 type server struct {
 	h     *resources.Handler
-	token string
+	token *Token
 }
 
 type scimUser struct {
@@ -65,9 +65,10 @@ type listResponse struct {
 }
 
 type scimError struct {
-	Schemas []string `json:"schemas"`
-	Status  string   `json:"status"`
-	Detail  string   `json:"detail"`
+	Schemas  []string `json:"schemas"`
+	Status   string   `json:"status"`
+	ScimType string   `json:"scimType,omitempty"`
+	Detail   string   `json:"detail"`
 }
 
 type patchBody struct {
@@ -84,8 +85,8 @@ type patchOp struct {
 	Value json.RawMessage `json:"value"`
 }
 
-// Mount registers /scim/v2/Users. The routes use the SCIM bearer and are outside user authentication.
-func Mount(e *gin.Engine, h *resources.Handler, token string) {
+// Mount registers /scim/v2/Users. The routes use the current SCIM bearer and are outside user authentication.
+func Mount(e *gin.Engine, h *resources.Handler, token *Token) {
 	s := &server{h: h, token: token}
 	g := e.Group("/scim/v2")
 	g.Use(s.authenticate)
@@ -97,13 +98,13 @@ func Mount(e *gin.Engine, h *resources.Handler, token string) {
 
 // authenticate accepts only a bearer token that matches the SCIM secret.
 func (s *server) authenticate(c *gin.Context) {
-	if !bearerMatches(c.GetHeader("Authorization"), s.token) {
+	if !bearerMatches(c.GetHeader("Authorization"), s.token.Load()) {
 		writeError(c, http.StatusUnauthorized, "the bearer token is invalid")
 		c.Abort()
 	}
 }
 
-// listUsers returns one page of users. startIndex is 1-based. count defaults to 100.
+// listUsers returns one page of the users that match filter. startIndex is 1-based. count defaults to 100.
 func (s *server) listUsers(c *gin.Context) {
 	start, count, err := pageParams(c)
 	if err != nil {
@@ -115,7 +116,16 @@ func (s *server) listUsers(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "failed to list users")
 		return
 	}
-	items := list.Items
+	items, err := filterUsers(list.Items, c.Query("filter"))
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, scimError{
+			Schemas:  []string{schemaError},
+			Status:   strconv.Itoa(http.StatusBadRequest),
+			ScimType: "invalidFilter",
+			Detail:   err.Error(),
+		})
+		return
+	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 	from := start - 1
 	if from > len(items) {
@@ -266,6 +276,44 @@ type queryError string
 
 // Error returns the query message.
 func (e queryError) Error() string { return string(e) }
+
+// filterUsers returns the users that match a SCIM filter of the form `attr eq "value"`, where attr
+// is id, externalId or userName. Attribute names, the operator and the value compare case-insensitively.
+// An empty filter matches every user; any other filter is an error.
+func filterUsers(users []v1.User, raw string) ([]v1.User, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return users, nil
+	}
+	fields := strings.SplitN(raw, " ", 3)
+	if len(fields) != 3 || !strings.EqualFold(fields[1], "eq") {
+		return nil, queryError(`filter must be attr eq "value"`)
+	}
+	value := strings.TrimSpace(fields[2])
+	if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
+		return nil, queryError("filter value must be a quoted string")
+	}
+	value, err := strconv.Unquote(value)
+	if err != nil {
+		return nil, queryError("filter value must be a quoted string")
+	}
+	var attr func(u *v1.User) string
+	switch strings.ToLower(fields[0]) {
+	case "id", "externalid":
+		attr = func(u *v1.User) string { return u.Name }
+	case "username":
+		attr = func(u *v1.User) string { return toSCIMUser(u).UserName }
+	default:
+		return nil, queryError("filter supports id, externalId and userName")
+	}
+	out := make([]v1.User, 0, 1)
+	for i := range users {
+		if strings.EqualFold(attr(&users[i]), value) {
+			out = append(out, users[i])
+		}
+	}
+	return out, nil
+}
 
 // errBadQuery reports a query parameter that is not an integer.
 func errBadQuery(name string) error {

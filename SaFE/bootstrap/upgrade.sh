@@ -71,12 +71,13 @@ install_or_upgrade_helm_chart() {
 # JSON values are single-quoted in .env, e.g. auth_key_actors='["client-a"]'.
 AUTH_ENV_KEYS=(auth_mode auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
 
-# check_live_auth refuses an upgrade that would drop the external authentication of the running
-# release. helm renders every value from the chart defaults and the files it is given, so a release
-# that carries an authenticator chain, a login URL, or group mappings loses them on the next upgrade
-# whose .env leaves those keys out. auth.mode is not one of those keys: the chart default and the
-# apiserver are external whether or not .env sets auth_mode. auth_mode=builtin in .env is the
-# deliberate way back (the break-glass for an identity provider outage) and is always allowed.
+# check_live_auth refuses an upgrade that would drop the external authentication of a release whose
+# .env sets auth_mode=external. helm renders every value from the chart defaults and the files it is
+# given, so a release that carries an authenticator chain, a login URL, or group mappings loses them
+# on the next upgrade whose .env leaves those keys out. Omitting auth_mode renders the chart default,
+# builtin, including for a release that is external now. The authenticator chain is used only in
+# external mode, so that upgrade is not refused for a chain .env does not set. auth_mode=builtin is
+# the same result written down, and is always allowed.
 check_live_auth() {
   local releases live live_mode var key present unset_keys="" missing=""
   if ! releases=$(helm -n "$NAMESPACE" list); then
@@ -119,6 +120,10 @@ check_live_auth() {
     fi
   fi
   if [[ "$live_mode" != "external" ]]; then
+    return 0
+  fi
+  # The chart default is builtin. An omitted auth_mode renders that, so the chain is not used.
+  if [[ -z "${auth_mode+x}" ]]; then
     return 0
   fi
   if ! command -v jq &> /dev/null; then

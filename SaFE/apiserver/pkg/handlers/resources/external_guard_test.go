@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang/mock/gomock"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,6 +37,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -169,7 +171,7 @@ func guardEngineWithMappings(t *testing.T, builtin bool, db dbclient.Interface, 
 	require.NoError(t, authority.InitExternalAuth(cli))
 	t.Cleanup(func() {
 		commonconfig.SetValue("crypto.enable", "")
-		viper.Set("auth.mode", nil)
+		viper.Set("auth.mode", "external")
 		// Authentication stays external, so the process-wide chain keeps a builtin entry.
 		viper.Set("auth.authenticators", []map[string]any{{"type": "builtin"}})
 		viper.Set("auth.group_mappings", nil)
@@ -357,17 +359,24 @@ func TestExternalModeAllowsRemovingStoredPlatformRoles(t *testing.T) {
 	}
 }
 
-// Creating, deleting and listing API keys is not served here.
+// External mode refuses creating an API key and keeps deleting one issued before the switch.
 func TestExternalModeKeepsApiKeyRevocation(t *testing.T) {
-	e := guardEngine(t, true)
-	for _, req := range []guardRequest{
-		{method: http.MethodDelete, path: "/api/v1/apikeys/5", bearer: "idp-admin"},
-		{method: http.MethodPost, path: "/api/v1/apikeys", body: `{"name":"k","ttlDays":7}`, bearer: "idp-admin"},
-		{method: http.MethodGet, path: "/api/v1/apikeys", bearer: "idp-admin"},
-	} {
-		w := req.serve(e)
-		require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
-	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock_client.NewMockInterface(ctrl)
+	e := guardEngineWithDB(t, true, db)
+
+	// A key of a local account, as issued before the switch.
+	db.EXPECT().GetApiKeyById(gomock.Any(), int64(5)).Return(&dbclient.ApiKey{Id: 5, UserId: localName}, nil)
+	db.EXPECT().SetApiKeyDeleted(gomock.Any(), "idp-admin-id", int64(5)).Return(nil).Times(1)
+	w := guardRequest{method: http.MethodDelete, path: "/api/v1/apikeys/5", bearer: "idp-admin"}.serve(e)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.NotContains(t, w.Body.String(), refusal)
+
+	// Creating one is still refused, before anything reaches the database.
+	w = guardRequest{method: http.MethodPost, path: "/api/v1/apikeys", body: `{"name":"k","ttlDays":7}`, bearer: "idp-admin"}.serve(e)
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), refusal)
 }
 
 // The refusal does not depend on the shape of the chain: without the built-in authenticator
@@ -519,7 +528,8 @@ func envsJSON(t *testing.T) string {
 func TestEnvsReportsAuthMode(t *testing.T) {
 	t.Cleanup(func() { viper.Set("auth.mode", nil) })
 
-	assert.Equal(t, "external", getEnvsResponse(t).AuthMode, "auth.mode unset")
+	viper.Set("auth.mode", nil)
+	assert.Equal(t, "builtin", getEnvsResponse(t).AuthMode, "auth.mode unset")
 	viper.Set("auth.mode", "external")
 	assert.Equal(t, "external", getEnvsResponse(t).AuthMode)
 	viper.Set("auth.mode", "builtin")
@@ -558,6 +568,7 @@ func TestEnvsDoesNotAdvertiseBuiltinSignInInExternalMode(t *testing.T) {
 	require.NotNil(t, authority.NewSSOToken(nil), "the built-in SSO must be configured for this test to mean anything")
 
 	// No login_url: sso.enable is still reported, and loginUrl is absent outside a set external URL.
+	viper.Set("auth.mode", "external")
 	got := getEnvsResponse(t)
 	assert.True(t, got.SSOEnable)
 	assert.Empty(t, got.LoginURL)
@@ -592,7 +603,7 @@ func TestRefuseExternalRoleChange(t *testing.T) {
 		request  *[]v1.UserRole
 		refused  bool
 	}{
-		{"a grant is refused when auth.mode is unset", false, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.SystemAdminRole), true},
+		{"a grant is allowed when auth.mode is unset", false, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.SystemAdminRole), false},
 		{"no roles in the patch", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), nil, false},
 		{"grant system-admin", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.DefaultRole, v1.SystemAdminRole), true},
 		{"grant system-admin-readonly", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.DefaultRole, v1.SystemAdminReadonlyRole), true},
@@ -633,7 +644,7 @@ func TestRefuseExternalPasswordChange(t *testing.T) {
 		request  *string
 		refused  bool
 	}{
-		{"a password is refused when auth.mode is unset", false, pointer.String("pw"), true},
+		{"a password is allowed when auth.mode is unset", false, pointer.String("pw"), false},
 		{"no password in the patch", true, nil, false},
 		{"a password", true, pointer.String("pw"), true},
 	}

@@ -319,14 +319,12 @@ func TestWithoutIdentityDropsStoredPlatformRoles(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, other.IsSystemAdmin(), "an overlay is for the user it names")
 
-	// Clearing auth.mode does not restore stored platform roles: with no authenticators init fails
-	// and the external chain stays in place.
+	// Clearing auth.mode selects builtin. The chain is unset and the stored platform role counts.
 	viper.Set("auth.mode", nil)
 	viper.Set("auth.authenticators", nil)
-	require.Error(t, InitExternalAuth(nil))
-	plain := context.WithValue(context.Background(), struct{}{}, "marker")
-	require.NotEqual(t, plain, WithoutIdentity(plain, extUser))
-	require.False(t, isAdmin(WithoutIdentity(context.Background(), extUser)))
+	require.NoError(t, InitExternalAuth(nil))
+	require.Nil(t, externalState.Load())
+	require.True(t, isAdmin(context.Background()))
 }
 
 // An operator who relied on a local administrator is told at start-up that stored platform roles no
@@ -346,10 +344,10 @@ func TestExternalModeWarnsThatStoredPlatformRolesNoLongerCount(t *testing.T) {
 		})
 	}
 
-	// No authenticators: init fails before the external-mode warning.
+	// Builtin mode does not warn that stored platform roles no longer count.
 	viper.Set("auth.mode", nil)
 	viper.Set("auth.authenticators", nil)
 	t.Cleanup(clearAuthState)
-	out := captureKlog(t, func() { require.Error(t, InitExternalAuth(nil)) })
+	out := captureKlog(t, func() { require.NoError(t, InitExternalAuth(nil)) })
 	require.NotContains(t, out, "no longer count")
 }

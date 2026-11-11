@@ -122,7 +122,7 @@ data:
       workspace_resync_seconds: {{ default 30 (default dict .Values.external_execution).workspace_resync_seconds }}
     auth:
       # Read by the workspace RBAC projection: group mappings become subjects only in external mode.
-      mode: {{ default "external" (default dict .Values.auth).mode | quote }}
+      mode: {{ default "builtin" (default dict .Values.auth).mode | quote }}
       group_mappings: {{ toJson (default (list) (default dict .Values.auth).group_mappings) }}
     rbac:
       # Prefix of the user and group subjects that project workspace membership into Kubernetes RBAC.

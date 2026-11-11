@@ -1050,8 +1050,8 @@ type AuthGroupMapping struct {
 	Workspaces []string `json:"workspaces" yaml:"workspaces" mapstructure:"workspaces"`
 }
 
-// GetAuthMode returns auth.mode. builtin selects local accounts. An empty value is external.
-// Call CheckAuthMode at start-up: any other value is refused there.
+// GetAuthMode returns auth.mode. builtin selects local accounts and is the value of an empty
+// setting. Call CheckAuthMode at start-up: any other value is refused there.
 func GetAuthMode() string {
 	mode, err := parseAuthMode()
 	if err != nil {
@@ -1061,20 +1061,20 @@ func GetAuthMode() string {
 }
 
 // CheckAuthMode rejects an auth.mode that is set and is neither builtin nor external.
-// An empty value is external.
+// An empty value is builtin.
 func CheckAuthMode() error {
 	_, err := parseAuthMode()
 	return err
 }
 
-// parseAuthMode reads auth.mode. An empty value is external.
+// parseAuthMode reads auth.mode. An empty value is builtin.
 func parseAuthMode() (string, error) {
 	raw := strings.TrimSpace(getString(authMode, ""))
 	switch {
-	case raw == "" || strings.EqualFold(raw, AuthModeExternal):
-		return AuthModeExternal, nil
-	case strings.EqualFold(raw, AuthModeBuiltin):
+	case raw == "" || strings.EqualFold(raw, AuthModeBuiltin):
 		return AuthModeBuiltin, nil
+	case strings.EqualFold(raw, AuthModeExternal):
+		return AuthModeExternal, nil
 	default:
 		return "", fmt.Errorf("auth.mode %q must be builtin or external", raw)
 	}

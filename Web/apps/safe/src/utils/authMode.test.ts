@@ -43,17 +43,27 @@ describe('external mode hides the password, registration and role controls', () 
     expect(settings.match(/<template v-if="!userStore\.isExternalAuth">/g)).toHaveLength(1)
   })
 
-  it('API key management opens the identity console', () => {
+  it('API key management is not hidden: where it goes is decided by apiKeyRouting', () => {
+    // The apiserver refuses to issue keys in external mode, so the page creates them at the
+    // identity provider's route when the deployment has one, and offers no creation otherwise.
     expect(source('components/layout/BaseMenu.vue')).toContain('index="/manageapikeys"')
     expect(source('pages/Settings/index.vue')).toContain("router.push('/manageapikeys')")
-    expect(source('router/index.ts')).toContain("window.location.assign('/identity/#keys')")
+    expect(source('router/index.ts')).toContain("import('@/pages/APIKeys/index.vue')")
+    expect(source('stores/user.ts')).toContain('apiKeyRouting: (s) => apiKeyRouting(s.envs)')
+    const keys = source('pages/APIKeys/index.vue')
+    expect(keys).toContain('v-if="creatable"')
+    expect(keys).toContain('const creatable = computed(() => userStore.apiKeyRouting.creatable)')
+    expect(keys).toContain(':provider-url="providerUrl"')
+    expect(keys).toMatch(/<KeyList\s+v-if="legacy"\s+hide-until-present/)
     expect(source('pages/LLMGateway/index.vue')).toContain('if (userStore.isExternalAuth) return')
   })
 
-  it('the user list has no create or delete, and the edit dialog sends neither roles nor password', () => {
+  it('the user list creates and deletes only in builtin mode, and the edit dialog sends neither roles nor password', () => {
     const list = source('pages/UserManage/index.vue')
-    expect(list).not.toContain('Create User')
-    expect(list).not.toContain('deleteUser')
+    expect(list).toContain('const creatable = computed(() => !userStore.isExternalAuth)')
+    expect(list).toContain('v-if="creatable"')
+    expect(list).toContain('v-if="creatable" content="Delete"')
+    expect(list).toContain("window.location.assign('/identity/#accounts')")
     const dialog = source('pages/UserManage/Components/AddDialog.vue')
     // What the body leaves out in external mode is buildUserPatch's, tested in userPatch.test.ts.
     expect(dialog).toContain('buildUserPatch(props.user, form, external.value)')
