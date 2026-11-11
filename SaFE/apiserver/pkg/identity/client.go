@@ -18,6 +18,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +30,10 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
+
+// scimCertDir holds the ingress certificate the callback presents. Only tls.crt is mounted.
+// A missing file registers the target without a certificate, and identity then uses its own trust roots.
+var scimCertDir = "/etc/secrets/scim-tls"
 
 const (
 	// DeactivatedAnnotation marks a user frozen by a SCIM patch that set active to false.
@@ -49,6 +55,7 @@ func (e *ConfigError) Error() string { return e.Msg }
 type scimTarget struct {
 	URL         string `json:"url"`
 	BearerToken string `json:"bearerToken"`
+	Certificate string `json:"certificate,omitempty"`
 }
 
 type statusBody struct {
@@ -91,7 +98,11 @@ func RegisterTarget(ctx context.Context, publicURL, token string) error {
 	if err != nil {
 		return &ConfigError{Msg: "cannot build the scim target URL"}
 	}
-	code, err := do(ctx, http.MethodPut, endpoint, scimTarget{URL: publicURL, BearerToken: token}, func(r *http.Request) {
+	cert, err := targetCertificate()
+	if err != nil {
+		return err
+	}
+	code, err := do(ctx, http.MethodPut, endpoint, scimTarget{URL: publicURL, BearerToken: token, Certificate: cert}, func(r *http.Request) {
 		r.SetBasicAuth(clientID, secret)
 	})
 	if err != nil {
@@ -172,6 +183,24 @@ func normalizeBase(raw string) (string, error) {
 	u.RawQuery, u.Fragment = "", ""
 	u.User = nil
 	return strings.TrimRight(u.String(), "/"), nil
+}
+
+// targetCertificate reads the mounted ingress certificate. A missing or empty file registers without one.
+func targetCertificate() (string, error) {
+	crt, err := os.ReadFile(filepath.Join(scimCertDir, "tls.crt"))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(string(crt)) == "" {
+		return "", nil
+	}
+	if strings.HasSuffix(string(crt), "\n") {
+		return string(crt), nil
+	}
+	return string(crt) + "\n", nil
 }
 
 // normalizePublic checks auth.scim.public_url and drops a trailing slash.

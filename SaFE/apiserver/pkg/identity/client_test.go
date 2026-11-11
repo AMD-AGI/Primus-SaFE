@@ -8,6 +8,7 @@ package identity
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -51,8 +52,8 @@ func TestIntrospectionSecretClientID(t *testing.T) {
 	require.ErrorAs(t, err, &cfg, "no id and no id file is a configuration error")
 }
 
-// Registration sends the URL and the bearer token only. identity trusts the AMD internal CAs, so no certificate is sent.
-func TestRegisterTargetSendsNoCertificate(t *testing.T) {
+// Registration sends the mounted ingress certificate, and none when that file is absent.
+func TestRegisterTargetSendsTheMountedCertificate(t *testing.T) {
 	t.Cleanup(viper.Reset)
 	var body []byte
 	idn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +66,13 @@ func TestRegisterTargetSendsNoCertificate(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	t.Cleanup(idn.Close)
+	leaf := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(leaf.Close)
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Certificate().Raw})
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tls.crt"), pemBytes, 0o600))
+	scimCertDir = dir
+	t.Cleanup(func() { scimCertDir = "/etc/secrets/scim-tls" })
 	secret := writeFile(t, "client_secret", "secret\n")
 	viper.Set("auth.scim.identity_url", idn.URL)
 	viper.Set("auth.scim.public_url", "https://apiserver.example.com/scim/v2")
@@ -73,11 +81,17 @@ func TestRegisterTargetSendsNoCertificate(t *testing.T) {
 	}})
 
 	require.NoError(t, RegisterTarget(context.Background(), "https://apiserver.example.com/scim/v2", "tok"))
-	var got map[string]any
+	var got scimTarget
 	require.NoError(t, json.Unmarshal(body, &got))
-	require.Equal(t, "https://apiserver.example.com/scim/v2", got["url"])
-	require.Equal(t, "tok", got["bearerToken"])
-	require.NotContains(t, got, "certificate")
+	require.Equal(t, "https://apiserver.example.com/scim/v2", got.URL)
+	require.Equal(t, "tok", got.BearerToken)
+	require.Equal(t, string(pemBytes), got.Certificate)
+
+	scimCertDir = t.TempDir()
+	require.NoError(t, RegisterTarget(context.Background(), "https://apiserver.example.com/scim/v2", "tok"))
+	got = scimTarget{}
+	require.NoError(t, json.Unmarshal(body, &got))
+	require.Empty(t, got.Certificate)
 }
 
 // Repeated calls share one client, including its connections.
