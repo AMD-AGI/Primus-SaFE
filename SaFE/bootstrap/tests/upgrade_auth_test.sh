@@ -227,11 +227,11 @@ diff_lines="$(diff <(strip_copy_job < "$OUT/rendered.yaml") <(strip_copy_job < "
 expect "rendering with and without the keys differs only in the auth segment" test -z "$diff_lines"
 [[ -z "$diff_lines" ]] || echo "$diff_lines"
 
-# 3. The running release is external and .env sets no auth_mode: the chart default is builtin.
-# The authenticator chain is used only in external mode, so its absence does not refuse the upgrade.
+# 3. The running release is external and .env sets no auth_mode: that renders builtin, so it is refused.
+# auth_mode=builtin is the explicit way back.
 run_upgrade "$LIVE_EXTERNAL" ""
-expect "live external, no auth keys: applied" applied
-expect "live external, no auth keys: builtin" rendered 'mode: "builtin"'
+expect "live external, no auth keys: refused" refused
+expect "live external, no auth keys: names auth_mode" grep -q 'does not set:.*auth_mode' "$OUT/log"
 
 # 4. One key missing is enough, here the one that grants the administrator roles.
 run_upgrade "$LIVE_EXTERNAL" "$(grep -v '^auth_group_mappings' <<<"$AUTH_ENV")"
@@ -251,21 +251,26 @@ expect "live external, empty public url: derived" rendered '  public_url: "https
 
 # 5b. A stored scim.enabled=false is not kept. Omitting the key renders the chart default, true.
 #     An explicit false in .env still turns it off.
-run_upgrade '{"auth":{"mode":"external","scim":{"enabled":false}}}' ""
+run_upgrade '{"auth":{"scim":{"enabled":false}}}' ""
 expect "live scim off, key omitted: applied" applied
 expect "live scim off, key omitted: enabled" rendered '  enabled: true'
-run_upgrade '{"auth":{"mode":"external","scim":{"enabled":false}}}' 'auth_scim_enabled=false'
+run_upgrade '{"auth":{"scim":{"enabled":false}}}' 'auth_scim_enabled=false'
 expect "live scim off, explicit false: applied" applied
 expect "live scim off, explicit false: disabled" rendered '  enabled: false'
 
-# 5c. The chart default SCIM token Secret name needs no .env key. Another stored name does.
-run_upgrade '{"auth":{"mode":"external","scim":{"token_secret":"primus-safe-scim-token"}}}' ""
+# 5c. The chart default SCIM token Secret name needs no .env key. On an external release a
+# stored name that is not the chart default is one of the keys .env must restate.
+run_upgrade '{"auth":{"mode":"external","authenticators":[{"type":"builtin"}],"scim":{"token_secret":"custom-scim-token"}}}' 'auth_mode=external
+auth_authenticators='"'"'[{"type":"builtin"}]'"'"
+expect "live external, custom scim token secret omitted: refused" refused
+expect "live external, custom scim token secret omitted: names it" grep -q 'does not set:.*auth_scim_token_secret' "$OUT/log"
+run_upgrade '{"auth":{"scim":{"token_secret":"primus-safe-scim-token"}}}' ""
 expect "live default scim token secret, key omitted: applied" applied
 expect "live default scim token secret, key omitted: chart default" rendered '  token_secret: "primus-safe-scim-token"'
-run_upgrade '{"auth":{"mode":"external","scim":{"token_secret":"custom-scim-token"}}}' ""
+run_upgrade '{"auth":{"scim":{"token_secret":"custom-scim-token"}}}' ""
 expect "live custom scim token secret, key omitted: applied" applied
 expect "live custom scim token secret, key omitted: chart default" rendered '  token_secret: "primus-safe-scim-token"'
-run_upgrade '{"auth":{"mode":"external","scim":{"token_secret":"custom-scim-token"}}}' 'auth_scim_token_secret=custom-scim-token'
+run_upgrade '{"auth":{"scim":{"token_secret":"custom-scim-token"}}}' 'auth_scim_token_secret=custom-scim-token'
 expect "live custom scim token secret, key set: applied" applied
 expect "live custom scim token secret, key set: kept" rendered '  token_secret: "custom-scim-token"'
 
@@ -349,8 +354,8 @@ expect "no jq, release without auth values: applied" applied
 RUN_PATH="$NOJQ" run_upgrade "" ""
 expect "no jq, fresh install: applied" applied
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_EXTERNAL" ""
-expect "no jq, live external, no auth keys: applied" applied
-expect "no jq, live external, no auth keys: builtin" rendered 'mode: "builtin"'
+expect "no jq, live external, no auth keys: refused" refused
+expect "no jq, live external, no auth keys: says why" grep -q 'jq is required to see which of its auth settings' "$OUT/log"
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_EXTERNAL" 'auth_mode=builtin'
 expect "no jq, break-glass: applied" applied
 expect "no jq, break-glass: builtin" rendered 'mode: "builtin"'

@@ -155,10 +155,12 @@ func parseTokenFromRequest(c *gin.Context) error {
 
 	var tokenInstance TokenInterface
 	if userType == string(v1.SSOUserType) {
-		if !commonconfig.IsSSOEnable() {
+		if !commonconfig.IsSSOEnable() && !commonconfig.IsSSOLoginEnable() {
 			return commonerrors.NewNotFoundWithMessage("SSO authentication not initialized")
 		}
-		tokenInstance = SSOInstance()
+		if s := SSOInstance(); s != nil {
+			tokenInstance = s
+		}
 	} else {
 		tokenInstance = DefaultTokenInstance()
 	}

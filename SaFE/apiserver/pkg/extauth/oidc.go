@@ -118,10 +118,15 @@ func NewOIDCAuthenticator(cfg OIDCConfig) (*OIDCAuthenticator, error) {
 // Name implements Authenticator.
 func (a *OIDCAuthenticator) Name() string { return a.cfg.Name }
 
-// Authenticate implements Authenticator. A bearer JWT whose issuer is not ours is
-// not ours to judge (ErrNotApplicable), so several issuers can share a chain.
+// Authenticate implements Authenticator. A JWT whose issuer is not ours is not ours to
+// judge (ErrNotApplicable), so several issuers can share a chain. The console presents
+// its sign-in token in the session cookie, so a cookie that is a JWT is judged when the
+// bearer is not one.
 func (a *OIDCAuthenticator) Authenticate(ctx context.Context, cred Credentials) (*Identity, error) {
 	raw := cred.Bearer
+	if strings.Count(raw, ".") != 2 {
+		raw = cred.Cookie
+	}
 	if strings.Count(raw, ".") != 2 {
 		return nil, ErrNotApplicable
 	}
