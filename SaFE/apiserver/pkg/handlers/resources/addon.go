@@ -144,6 +144,8 @@ func (h *Handler) generateAddon(c *gin.Context, req *view.CreateAddonRequestBody
 			},
 		},
 	}
+	// Template labels are copied onto the Addon. Labels this Addon already sets stay.
+	v1.InheritLabels(addon, addonTemplate)
 
 	// Determine namespace - use request value or template default
 	namespace := req.Namespace
