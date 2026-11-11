@@ -210,13 +210,20 @@ run_upgrade "" ""
 # The identity copy job exists only when auth.client_secret is set. Drop that document, then compare.
 strip_copy_job() {
   awk '
+    function flush() {
+      if (doc == "") return
+      if (doc !~ /namespace: primus-identity/) print doc
+      doc = ""
+    }
     /^# Source: .*copy_identity_auth_secret_job.yaml$/ { skip = 1; next }
     skip && /^# Source: / { skip = 0 }
     skip { next }
-    { print }
+    /^---$/ { flush(); doc = $0 ORS; next }
+    { doc = doc $0 ORS }
+    END { flush() }
   '
 }
-diff_lines="$(diff <(strip_copy_job < "$OUT/rendered.yaml") <(strip_copy_job < "$W/with-auth.yaml") | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|enabled:|API_KEYS_UPSTREAM|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|"safe-introspection"|secret:$' || true)"
+diff_lines="$(diff <(strip_copy_job < "$OUT/rendered.yaml") <(strip_copy_job < "$W/with-auth.yaml") | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|enabled:|API_KEYS_UPSTREAM|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|"safe-introspection"|secret:$|kubectl -n primus-identity ' || true)"
 expect "rendering with and without the keys differs only in the auth segment" test -z "$diff_lines"
 [[ -z "$diff_lines" ]] || echo "$diff_lines"
 
@@ -275,6 +282,21 @@ expect "break-glass, auth_mode=builtin: the chain is kept for the way back" rend
 run_upgrade "$LIVE_EXTERNAL" 'auth_mode=builtin'
 expect "break-glass with nothing else in .env: applied" applied
 expect "break-glass with nothing else in .env: builtin" rendered 'mode: "builtin"'
+
+# Higress: external renders the console login route to identity; builtin deletes it, including one Helm does not own yet.
+run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"$'\ningress=higress'
+expect "higress external: applied" applied
+expect "higress external: routes console login to identity" grep -qxF '  name: primus-identity-login' "$OUT/rendered.yaml"
+expect "higress external: login path" grep -qxF '          - path: /api/(login|logout)' "$OUT/rendered.yaml"
+expect "higress external: identity namespace" grep -qxF '  namespace: primus-identity' "$OUT/rendered.yaml"
+expect "higress external: does not delete the route" bash -c '! grep -q "kubectl delete ingress primus-identity-login" "$1"' _ "$FAKE_LOG"
+expect "higress external: adopts an existing route" grep -q 'kubectl annotate ingress primus-identity-login -n primus-identity' "$FAKE_LOG"
+run_upgrade "$LIVE_EXTERNAL" $'auth_mode=builtin\ningress=higress'
+expect "higress builtin: applied" applied
+expect "higress builtin: no login route" bash -c '! grep -q "name: primus-identity-login" "$1"' _ "$OUT/rendered.yaml"
+expect "higress builtin: deletes the route" grep -qxF 'kubectl delete ingress primus-identity-login -n primus-identity --ignore-not-found' "$FAKE_LOG"
+run_upgrade "$LIVE_BUILTIN" ""
+expect "nginx builtin: leaves the higress route alone" bash -c '! grep -q primus-identity-login "$1"' _ "$FAKE_LOG"
 
 # 8. A release that is builtin has nothing to lose.
 run_upgrade "$LIVE_BUILTIN" ""

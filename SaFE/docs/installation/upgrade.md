@@ -65,6 +65,8 @@ For additional upgrade-specific behavior, you may add these optional keys to `.e
 
 The `auth_*` keys persist [external authentication](../apis/external-authentication.md#keeping-the-settings-across-upgrades) across upgrades and CD runs; they need `jq`, except `auth_mode=builtin` on its own. A release that is not external upgrades without `jq` as before. Omitting `auth_mode` renders the chart default `builtin`. When `.env` sets `auth_mode=external` and does not set a key the running release has, the script refuses to upgrade (it exits non-zero before changing anything).
 
+With Higress, `auth.mode: external` renders Ingress `primus-identity-login` in `auth.identity_client_secret_namespace` (default `primus-identity`). It sends `POST /api/login` and `POST /api/logout` on the console host to the identity service. A builtin upgrade removes that Ingress. One of the same name that was created outside the release is deleted on a builtin upgrade, and labeled as this release's on an external upgrade so Helm adopts it.
+
 > resource-manager adds a finalizer to every Secret that has workspace mirror targets, including ones made by hand with `kubectl`, and removes it again once the Secret has no targets and its copies are gone (for example after the selector annotation is deleted). Before `helm uninstall` and deleting the `primus-safe` namespace, delete such Secrets or remove the annotations and wait for the finalizer to go, or the namespace stays in `Terminating`.
 
 ### 🚀 Upgrade Process

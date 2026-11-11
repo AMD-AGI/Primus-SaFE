@@ -1,0 +1,46 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# External mode sends the console's POST /api/login and POST /api/logout to the identity service.
+# Builtin mode does not render this Ingress, so an upgrade removes it and those paths stay on the console.
+{{- if and (eq .Values.net.ingress "higress") (eq (default "builtin" .Values.auth.mode) "external") }}
+{{- $idns := default "primus-identity" .Values.auth.identity_client_secret_namespace }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: primus-identity-login
+  namespace: {{ $idns }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    higress.io/resource-definer: higress
+    higress.io/domain_{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}: "true"
+  annotations:
+    higress.io/enable-rewrite: "true"
+    higress.io/ignore-path-case: "false"
+    higress.io/proxy-http-version: "1.1"
+    higress.io/request-set-header: |
+      X-Forwarded-For $proxy_add_x_forwarded_for
+      X-Forwarded-Proto $scheme
+    higress.io/rewrite-target: /api/v1/$1
+    higress.io/route-priority: "200"
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  ingressClassName: higress
+  tls:
+    - hosts:
+        - {{ .Values.global.sub_domain }}.{{ .Values.global.domain }}
+      secretName: {{ .Values.global.tls_secret }}
+  rules:
+    - host: {{ .Values.global.sub_domain }}.{{ .Values.global.domain }}
+      http:
+        paths:
+          - path: /api/(login|logout)
+            pathType: Prefix
+            backend:
+              service:
+                name: primus-identity
+                port:
+                  name: http
+{{- end }}

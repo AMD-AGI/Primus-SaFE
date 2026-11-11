@@ -243,6 +243,32 @@ write_auth_values() {
   AUTH_VALUES_FILE="$out"
 }
 
+# sync_identity_login_route keeps the console's /api/login and /api/logout on the release.
+# The chart renders that Ingress only for Higress with auth.mode=external, and Helm removes it
+# on the next builtin upgrade once the release owns it. An Ingress created outside the release
+# is deleted here when this upgrade renders builtin, and marked as this release's when it renders
+# external, so Helm can adopt it instead of refusing.
+sync_identity_login_route() {
+  local ns mode
+  if [[ "${ingress:-}" != "higress" ]]; then
+    return 0
+  fi
+  mode="${auth_mode:-builtin}"
+  ns=$(awk '/^auth:/ {a = 1; next} /^[^ #]/ {a = 0} a && /^  identity_client_secret_namespace:/ {gsub(/["\047]/, "", $2); print $2; exit}' "$values_yaml")
+  ns="${ns:-primus-identity}"
+  if [[ "$mode" != "external" ]]; then
+    kubectl delete ingress primus-identity-login -n "$ns" --ignore-not-found
+    return 0
+  fi
+  if ! kubectl get ingress primus-identity-login -n "$ns" > /dev/null 2>&1; then
+    return 0
+  fi
+  kubectl annotate ingress primus-identity-login -n "$ns" \
+    "meta.helm.sh/release-name=$chart_name" \
+    "meta.helm.sh/release-namespace=$NAMESPACE" --overwrite
+  kubectl label ingress primus-identity-login -n "$ns" app.kubernetes.io/managed-by=Helm --overwrite
+}
+
 # check_live_sso refuses an upgrade that would silently undo the SSO settings of the running release
 # that only .env can carry: helm renders sso.login and sso.bridge_allowlist from the chart defaults
 # (off, empty) unless .env sets them, so a release that signs the console in at an OIDC provider
@@ -651,6 +677,7 @@ fi
 
 write_auth_values "primus-safe/.auth-values.json"
 write_sso_values "primus-safe/.sso-values.json"
+sync_identity_login_route
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"
   mkdir -p output

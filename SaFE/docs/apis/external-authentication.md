@@ -203,3 +203,5 @@ Omitting `auth_mode` renders the chart default `builtin`, including when the run
 Set `auth.mode: builtin` and roll the apiserver. No user object or table is changed by either mode, and the endpoints listed under "What the apiserver stops offering" work again.
 
 With `bootstrap/upgrade.sh` or the CD job, `auth_mode=builtin` in `.env`, or leaving `auth_mode` unset, renders builtin. To run external again, set `auth_mode=external` and the other `auth_*` keys.
+
+On Higress the same upgrade removes Ingress `primus-identity-login`, which sends the console host's `POST /api/login` and `POST /api/logout` to the identity service. The next external upgrade renders it again.
