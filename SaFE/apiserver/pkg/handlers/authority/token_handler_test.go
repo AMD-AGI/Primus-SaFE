@@ -38,7 +38,7 @@ func TestParseToken(t *testing.T) {
 		apiKeyTokenInstance = &ApiKeyToken{dbClient: mockDB}
 		defer func() { apiKeyTokenInstance = oldInstance }()
 
-		testApiKey := "ak-valid-test-key-for-parse"
+		testApiKey := "ak-valid-test-key"
 		mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey(testApiKey, nil)).Return(&dbclient.ApiKey{
 			Id:             1,
 			UserId:         "user-parse-123",
