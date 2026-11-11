@@ -794,61 +794,92 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 	return jobutils.PatchWorkloadStatusFields(ctx, r.Client, workload, statusPatch)
 }
 
+// workloadLeftQueue reports whether w is no longer waiting to be scheduled.
+// markAsScheduled writes the AdminScheduled condition before the scheduled annotation,
+// so the condition is checked as well.
+func workloadLeftQueue(w *v1.Workload) bool {
+	if w == nil || v1.IsWorkloadScheduled(w) || w.IsEnd() {
+		return true
+	}
+	reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(w) + 1)
+	probe := jobutils.NewCondition(string(v1.AdminScheduled), "", reason)
+	return jobutils.FindCondition(w, probe) != nil
+}
+
 // writeQueueStatus stores the queue position and wait message already applied to w.
-// A status conflict reloads the workload and writes those fields on the latest object,
-// up to defaultRetryCount. A workload that is scheduled or ended is left unchanged.
-func (r *SchedulerReconciler) writeQueueStatus(ctx context.Context, w *v1.Workload) error {
+// On a status conflict it reloads the workload and writes those fields once.
+// queued is false when the latest object has left the queue and was not modified.
+func (r *SchedulerReconciler) writeQueueStatus(ctx context.Context, w *v1.Workload) (bool, error) {
 	position := w.Status.QueuePosition
 	message := w.Status.Message
-	return backoff.ConflictRetry(func() error {
-		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
-			return nil
+	fields := func(current *v1.Workload) map[string]any {
+		return map[string]any{
+			"queuePosition": current.Status.QueuePosition,
+			"message":       current.Status.Message,
+			"conditions":    current.Status.Conditions,
 		}
-		err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, w, map[string]any{
-			"queuePosition": w.Status.QueuePosition,
-			"message":       w.Status.Message,
-			"conditions":    w.Status.Conditions,
-		})
-		if err == nil || !apierrors.IsConflict(err) {
-			return err
+	}
+	err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, w, fields(w))
+	if err == nil {
+		return true, nil
+	}
+	if !apierrors.IsConflict(err) {
+		return true, err
+	}
+	fresh := &v1.Workload{}
+	if getErr := r.Get(ctx, client.ObjectKey{Name: w.Name}, fresh); getErr != nil {
+		if apierrors.IsNotFound(getErr) {
+			return false, nil
 		}
-		fresh := &v1.Workload{}
-		if getErr := r.Get(ctx, client.ObjectKey{Name: w.Name}, fresh); getErr != nil {
-			return getErr
-		}
-		*w = *fresh
-		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
-			return nil
-		}
-		changed := false
-		if w.Status.QueuePosition != position {
-			w.Status.QueuePosition = position
-			changed = true
-		}
-		if w.Status.Message != message {
-			w.Status.Message = message
-			changed = true
-		}
-		if jobutils.SyncAdminSchedulingCondition(w, message) {
-			changed = true
-		}
-		if !changed {
-			return nil
-		}
-		return err
-	}, defaultRetryCount, defaultRetryDelay)
+		return true, getErr
+	}
+	*w = *fresh
+	if workloadLeftQueue(w) {
+		return false, nil
+	}
+	changed := false
+	if w.Status.QueuePosition != position {
+		w.Status.QueuePosition = position
+		changed = true
+	}
+	if w.Status.Message != message {
+		w.Status.Message = message
+		changed = true
+	}
+	if jobutils.SyncAdminSchedulingCondition(w, message) {
+		changed = true
+	}
+	if !changed {
+		return true, nil
+	}
+	if err = jobutils.PatchWorkloadStatusFields(ctx, r.Client, w, fields(w)); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+// requeueWorkspace schedules one later pass after a queue-status write is lost.
+// The same workspace is coalesced, so repeated calls do not stack reconciles.
+func (r *SchedulerReconciler) requeueWorkspace(workspace *v1.Workspace) {
+	if r.KeyedController == nil || workspace == nil {
+		return
+	}
+	r.AddAfter(&SchedulerMessage{
+		WorkspaceId: workspace.Name,
+		ClusterId:   workspace.Spec.Cluster,
+	}, externalExchangeRetry)
 }
 
 // updateUnScheduled updates the status of unscheduled workloads with ordering and reasons.
 // Status-only patches here do not re-enter this controller: relevantChangePredicate ignores
 // them and generation is unchanged. Only write when queuePosition, message, or the
-// AdminScheduling condition actually differs. A conflict reloads the workload and retries
-// the write a bounded number of times.
+// AdminScheduling condition actually differs. A conflict reloads the workload and writes
+// the queue fields once; a lost write requeues the workspace.
 func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 	workloads []*v1.Workload, unScheduledReasons map[string]string, workspace *v1.Workspace) {
 	position := 1
 	for i, w := range workloads {
-		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
+		if workloadLeftQueue(w) {
 			continue
 		}
 		isChanged := false
@@ -881,8 +912,13 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 			isChanged = true
 		}
 		if isChanged {
-			if err := r.writeQueueStatus(ctx, workloads[i]); err != nil {
+			queued, err := r.writeQueueStatus(ctx, workloads[i])
+			if err != nil {
 				klog.ErrorS(err, "failed to patch workload status", "name", workloads[i].Name)
+				r.requeueWorkspace(workspace)
+			}
+			if !queued {
+				continue
 			}
 		}
 		position++

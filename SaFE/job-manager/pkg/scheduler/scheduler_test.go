@@ -539,6 +539,55 @@ func TestUpdateUnScheduledRetriesQueuePositionAfterConflict(t *testing.T) {
 	assert.Equal(t, fresh.Status.Phase, v1.WorkloadPending)
 	assert.Equal(t, fresh.Status.QueuePosition, 1)
 	assert.Equal(t, fresh.Status.Message, reason)
+	found := false
+	for _, c := range fresh.Status.Conditions {
+		if c.Type == string(v1.AdminScheduling) {
+			found = true
+			assert.Equal(t, c.Message, reason)
+		}
+	}
+	assert.Assert(t, found, "AdminScheduling condition required after a conflict retry")
+}
+
+func TestUpdateUnScheduledConflictWithScheduledStatusKeepsItOutOfQueue(t *testing.T) {
+	first := schedWorkload("scheduled-wl")
+	first.Spec.Workspace = "ws-q"
+	first.Status.Phase = v1.WorkloadPending
+	second := schedWorkload("waiting-wl")
+	second.Spec.Workspace = "ws-q"
+	second.Status.Phase = v1.WorkloadPending
+	cli := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithStatusSubresource(first, second).Build()
+	assert.NilError(t, cli.Create(context.Background(), first))
+	assert.NilError(t, cli.Create(context.Background(), second))
+	stale := first.DeepCopy()
+	r := &SchedulerReconciler{Client: cli}
+	assert.NilError(t, r.updateStatus(context.Background(), first))
+	assert.Assert(t, !v1.IsWorkloadScheduled(first))
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-q"}}
+	r.updateUnScheduled(context.Background(), []*v1.Workload{stale, second}, map[string]string{
+		first.Name:  "In queue - waiting for external capacity",
+		second.Name: "In queue - waiting for earlier or higher priority workloads",
+	}, ws)
+
+	storedFirst := &v1.Workload{}
+	assert.NilError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(first), storedFirst))
+	assert.Equal(t, storedFirst.Status.QueuePosition, 0)
+	assert.Equal(t, storedFirst.Status.Message, "")
+	scheduled, scheduling := 0, 0
+	for _, c := range storedFirst.Status.Conditions {
+		if c.Type == string(v1.AdminScheduled) {
+			scheduled++
+		}
+		if c.Type == string(v1.AdminScheduling) {
+			scheduling++
+		}
+	}
+	assert.Equal(t, scheduled, 1)
+	assert.Equal(t, scheduling, 0)
+
+	storedSecond := &v1.Workload{}
+	assert.NilError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(second), storedSecond))
+	assert.Equal(t, storedSecond.Status.QueuePosition, 1)
 }
 
 func TestUpdateUnScheduledWritesAdminScheduling(t *testing.T) {
