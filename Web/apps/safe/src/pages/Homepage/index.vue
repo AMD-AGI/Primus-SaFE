@@ -249,7 +249,7 @@ import {
 const isProd = import.meta.env.PROD
 
 const goToHyperloom = () => {
-  window.open(`${location.origin}/hyperloom/`, '_blank', 'noopener,noreferrer')
+  window.open(`${location.origin}/claw`, '_blank', 'noopener,noreferrer')
 }
 
 const store = useWorkspaceStore()
