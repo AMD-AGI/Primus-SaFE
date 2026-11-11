@@ -520,6 +520,27 @@ func TestSchedulerMessage_DoesNotEraseConcurrentFailure(t *testing.T) {
 	assert.Equal(t, fresh.Status.Message, "registration failed")
 }
 
+func TestUpdateUnScheduledRetriesQueuePositionAfterConflict(t *testing.T) {
+	w := schedWorkload("queued-wl")
+	w.Spec.Workspace = "ws-q"
+	w.Status.Phase = v1.WorkloadPending
+	cli := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithStatusSubresource(w).Build()
+	assert.NilError(t, cli.Create(context.Background(), w))
+	stale := w.DeepCopy()
+	assert.NilError(t, jobutils.PatchWorkloadStatusFields(context.Background(), cli, w, map[string]any{
+		"message": "touched",
+	}))
+	r := &SchedulerReconciler{Client: cli}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-q"}}
+	reason := "In queue - waiting for earlier or higher priority workloads"
+	r.updateUnScheduled(context.Background(), []*v1.Workload{stale}, map[string]string{w.Name: reason}, ws)
+	fresh := &v1.Workload{}
+	assert.NilError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(w), fresh))
+	assert.Equal(t, fresh.Status.Phase, v1.WorkloadPending)
+	assert.Equal(t, fresh.Status.QueuePosition, 1)
+	assert.Equal(t, fresh.Status.Message, reason)
+}
+
 func TestUpdateUnScheduledWritesAdminScheduling(t *testing.T) {
 	w := schedWorkload("pending-wl")
 	w.Spec.Workspace = "ws-q"

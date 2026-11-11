@@ -794,10 +794,56 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 	return jobutils.PatchWorkloadStatusFields(ctx, r.Client, workload, statusPatch)
 }
 
+// writeQueueStatus stores the queue position and wait message already applied to w.
+// A status conflict reloads the workload and writes those fields on the latest object,
+// up to defaultRetryCount. A workload that is scheduled or ended is left unchanged.
+func (r *SchedulerReconciler) writeQueueStatus(ctx context.Context, w *v1.Workload) error {
+	position := w.Status.QueuePosition
+	message := w.Status.Message
+	return backoff.ConflictRetry(func() error {
+		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
+			return nil
+		}
+		err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, w, map[string]any{
+			"queuePosition": w.Status.QueuePosition,
+			"message":       w.Status.Message,
+			"conditions":    w.Status.Conditions,
+		})
+		if err == nil || !apierrors.IsConflict(err) {
+			return err
+		}
+		fresh := &v1.Workload{}
+		if getErr := r.Get(ctx, client.ObjectKey{Name: w.Name}, fresh); getErr != nil {
+			return getErr
+		}
+		*w = *fresh
+		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
+			return nil
+		}
+		changed := false
+		if w.Status.QueuePosition != position {
+			w.Status.QueuePosition = position
+			changed = true
+		}
+		if w.Status.Message != message {
+			w.Status.Message = message
+			changed = true
+		}
+		if jobutils.SyncAdminSchedulingCondition(w, message) {
+			changed = true
+		}
+		if !changed {
+			return nil
+		}
+		return err
+	}, defaultRetryCount, defaultRetryDelay)
+}
+
 // updateUnScheduled updates the status of unscheduled workloads with ordering and reasons.
 // Status-only patches here do not re-enter this controller: relevantChangePredicate ignores
 // them and generation is unchanged. Only write when queuePosition, message, or the
-// AdminScheduling condition actually differs.
+// AdminScheduling condition actually differs. A conflict reloads the workload and retries
+// the write a bounded number of times.
 func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 	workloads []*v1.Workload, unScheduledReasons map[string]string, workspace *v1.Workspace) {
 	position := 1
@@ -835,12 +881,7 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 			isChanged = true
 		}
 		if isChanged {
-			fields := map[string]any{
-				"queuePosition": workloads[i].Status.QueuePosition,
-				"message":       workloads[i].Status.Message,
-				"conditions":    workloads[i].Status.Conditions,
-			}
-			if err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, workloads[i], fields); err != nil {
+			if err := r.writeQueueStatus(ctx, workloads[i]); err != nil {
 				klog.ErrorS(err, "failed to patch workload status", "name", workloads[i].Name)
 			}
 		}
