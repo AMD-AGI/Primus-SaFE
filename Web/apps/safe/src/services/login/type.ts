@@ -58,6 +58,8 @@ export interface UsersItemResp {
 }
 
 export interface EnvsResp {
+  // Robust GPU aggregation. Absent or false means the homepage must not call it.
+  enableRobust?: boolean
   enableLogDownload: boolean
   enableLog: boolean
   enableSsh: boolean

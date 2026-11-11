@@ -14,7 +14,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 )
 
@@ -38,6 +42,35 @@ func TestGetEnvs(t *testing.T) {
 		"primussafe/kubespray:v2.29.1":  "1.33.7",
 		"primussafe/kubespray:v2.30.0":  "1.34.3",
 	}, resp.KubeSprayK8sVersions)
+	assert.False(t, resp.EnableRobust)
+}
+
+// enableRobust is true only when an AddonTemplate carries the Robust display name.
+func TestGetEnvsRobustEnable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	labeled := func(name, displayName string) *v1.AddonTemplate {
+		return &v1.AddonTemplate{ObjectMeta: metav1.ObjectMeta{
+			Name:   name,
+			Labels: map[string]string{v1.DisplayNameLabel: displayName},
+		}}
+	}
+
+	get := func(objs ...client.Object) view.GetEnvResponse {
+		cli := fake.NewClientBuilder().WithScheme(getTestScheme()).WithObjects(objs...).Build()
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/envs", nil)
+		(&Handler{Client: cli}).GetEnvs(c)
+		assert.Equal(t, http.StatusOK, rsp.Code)
+		var resp view.GetEnvResponse
+		assert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &resp))
+		return resp
+	}
+
+	assert.False(t, get().EnableRobust)
+	assert.False(t, get(labeled("infera", "infera-operator")).EnableRobust)
+	assert.True(t, get(labeled("primus-robust", robustAddonDisplayName)).EnableRobust)
 }
 
 // With external authentication the console is sent to the configured sign-in URL.
