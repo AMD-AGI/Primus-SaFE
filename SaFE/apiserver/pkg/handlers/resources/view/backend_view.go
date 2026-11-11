@@ -6,7 +6,7 @@
 package view
 
 type GetEnvResponse struct {
-	// Whether a Robust AddonTemplate is installed. The console queries GPU aggregation only when this is true.
+	// Whether a Robust Addon is installed. The console queries GPU aggregation only when this is true.
 	EnableRobust bool `json:"enableRobust"`
 	// Whether to enable log download.
 	EnableLogDownload bool `json:"enableLogDownload"`

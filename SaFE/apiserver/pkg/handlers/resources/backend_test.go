@@ -45,12 +45,12 @@ func TestGetEnvs(t *testing.T) {
 	assert.False(t, resp.EnableRobust)
 }
 
-// enableRobust is true only when an AddonTemplate carries the Robust display name.
+// enableRobust is true only when an Addon carries the Robust display name.
 func TestGetEnvsRobustEnable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	labeled := func(name, displayName string) *v1.AddonTemplate {
-		return &v1.AddonTemplate{ObjectMeta: metav1.ObjectMeta{
+	labeled := func(name, displayName string) *v1.Addon {
+		return &v1.Addon{ObjectMeta: metav1.ObjectMeta{
 			Name:   name,
 			Labels: map[string]string{v1.DisplayNameLabel: displayName},
 		}}

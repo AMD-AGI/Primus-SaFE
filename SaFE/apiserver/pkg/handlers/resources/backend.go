@@ -18,7 +18,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
-// robustAddonDisplayName is the AddonTemplate label value that identifies Robust.
+// robustAddonDisplayName is the Addon label value that identifies Robust.
 const robustAddonDisplayName = "primus-robust"
 
 // GetEnvs retrieves environment configuration values for the system.
@@ -63,15 +63,15 @@ func (h *Handler) getEnvs(c *gin.Context) (interface{}, error) {
 	return resp, nil
 }
 
-// robustInstalled reports whether an AddonTemplate labeled for Robust is present.
+// robustInstalled reports whether an Addon labeled for Robust is present.
 // A lookup that cannot be made is reported as not installed.
 func (h *Handler) robustInstalled(ctx context.Context) bool {
 	if h.Client == nil {
 		return false
 	}
-	list := &v1.AddonTemplateList{}
+	list := &v1.AddonList{}
 	if err := h.List(ctx, list, client.MatchingLabels{v1.DisplayNameLabel: robustAddonDisplayName}); err != nil {
-		klog.Errorf("list AddonTemplates with %s=%s: %v", v1.DisplayNameLabel, robustAddonDisplayName, err)
+		klog.Errorf("list Addons with %s=%s: %v", v1.DisplayNameLabel, robustAddonDisplayName, err)
 		return false
 	}
 	return len(list.Items) > 0

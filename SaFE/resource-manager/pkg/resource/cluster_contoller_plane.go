@@ -1294,6 +1294,7 @@ func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *
 					},
 					Status: v1.AddonStatus{},
 				}
+				v1.InheritLabels(addon, &template)
 				err = r.Create(ctx, addon)
 				if err != nil {
 					return reconcile.Result{}, fmt.Errorf("create addon %s failed %+v", name, err)
