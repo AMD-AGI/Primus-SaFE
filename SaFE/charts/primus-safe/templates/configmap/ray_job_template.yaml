@@ -109,6 +109,11 @@ data:
           restartPolicy: Never
       rayClusterSpec:
         headGroupSpec:
+          # hostNetwork pods share the node's ports: export metrics on the port the job-manager reserves
+          # (common.RayJobMetricsPort) instead of KubeRay's default 8080, which node agents may hold. It must stay
+          # outside Ray's worker port range (10002-19999).
+          rayStartParams:
+            metrics-export-port: "8090"
           template:
             metadata:
               labels:
@@ -192,7 +197,7 @@ data:
                 - containerPort: 8265
                   name: dashboard
                   protocol: TCP
-                - containerPort: 18081      
+                - containerPort: 8090
                   name: metrics
                   protocol: TCP
                 imagePullPolicy: IfNotPresent
@@ -215,6 +220,8 @@ data:
               terminationGracePeriodSeconds: 15
         workerGroupSpecs:
         - groupName: "1"
+          rayStartParams:
+            metrics-export-port: "8090"
           template:
             spec:
               dnsPolicy: ClusterFirstWithHostNet
@@ -317,7 +324,7 @@ data:
                     mountPath: /etc/podinfo
                     readOnly: true
                 ports:
-                  - containerPort: 18081
+                  - containerPort: 8090
                     name: metrics
                     protocol: TCP
               schedulerName: kube-scheduler-plugins
@@ -332,6 +339,8 @@ data:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 10
         - groupName: "2"
+          rayStartParams:
+            metrics-export-port: "8090"
           template:
             spec:
               dnsPolicy: ClusterFirstWithHostNet
@@ -423,7 +432,7 @@ data:
                       apiVersion: v1
                       fieldPath: metadata.namespace
                 ports:
-                  - containerPort: 18081
+                  - containerPort: 8090
                     name: metrics
                     protocol: TCP
                 imagePullPolicy: IfNotPresent

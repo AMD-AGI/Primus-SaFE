@@ -1865,9 +1865,9 @@ func TestSetInferaReadinessPortSkipsASlotWithoutAMainContainer(t *testing.T) {
 	assert.Equal(t, hasExtra, false)
 }
 
-// SaFE's fixed host ports (e.g. the RayJob metrics port 18080, inside the
-// readiness range) are held by other hostNetwork workloads on the node, so a
-// random readiness port must never land on one.
+// SaFE's fixed host ports (e.g. the RayJob metrics port) are held by other
+// hostNetwork workloads on the node, so a random readiness port must never
+// land on one.
 func TestInferaReadinessPortsStartWithSaFEFixedHostPorts(t *testing.T) {
 	used := inferaReservedHostPorts()
 	_, reserved := used[common.RayJobMetricsPort]
