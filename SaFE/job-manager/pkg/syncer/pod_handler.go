@@ -1371,7 +1371,7 @@ func (r *SyncerReconciler) deleteStaleStickyNodeFaults(
 }
 
 func (r *SyncerReconciler) handleRaySubmitterTimeout(ctx context.Context, adminWorkload *v1.Workload, pod *corev1.Pod) (bool, error) {
-	if !commonworkload.IsRayJob(adminWorkload) {
+	if !commonworkload.IsRayJob(adminWorkload) || adminWorkload.IsEnd() {
 		return false, nil
 	}
 	id := -1
