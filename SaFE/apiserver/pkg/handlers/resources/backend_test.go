@@ -90,11 +90,15 @@ func TestGetEnvsExternalLoginURL(t *testing.T) {
 
 	viper.Set("auth.mode", "external")
 	viper.Set("auth.login_url", "https://sign-in.example.com/start")
+	viper.Set("auth.connection", "okta-amd")
 	got := get()
 	assert.Equal(t, "external", got.AuthMode)
 	assert.False(t, got.SSOEnable)
-	assert.Equal(t, "local", got.Connection)
+	assert.Equal(t, "okta-amd", got.Connection)
 	assert.Equal(t, "https://sign-in.example.com/start", got.LoginURL)
+	viper.Set("auth.connection", "")
+	got = get()
+	assert.Empty(t, got.Connection)
 
 	viper.Set("auth.mode", "builtin")
 	got = get()

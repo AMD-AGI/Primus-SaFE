@@ -73,11 +73,11 @@ const userStore = useUserStore()
 // with otherwise. Without a route the list is the apiserver's, as before. See apiKeyRouting.
 const providerUrl = computed(() => userStore.apiKeyRouting.providerUrl)
 const creatable = computed(() => userStore.apiKeyRouting.creatable)
-// Builtin keeps this page. External mode sends the browser to the identity console.
+// Builtin keeps this page. External mode opens auth.keys_console_url when /envs provides it.
 watch(
-  () => userStore.isExternalAuth,
-  (external) => {
-    if (external) window.location.assign('/identity/#keys')
+  () => (userStore.isExternalAuth ? userStore.envs?.keysUrl : ''),
+  (url) => {
+    if (url) window.location.assign(url)
   },
   { immediate: true },
 )

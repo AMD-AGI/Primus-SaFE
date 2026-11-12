@@ -35,7 +35,7 @@ func admissionFixture(t *testing.T, key *ecdsa.PrivateKey, kid string) (commonco
 	wl.Spec.Kind = sandboxDetailKind
 	wl.Labels = map[string]string{v1.UserIdLabel: "user-1"}
 	claims := identityClaims{}
-	claims.Issuer = "https://ccs300.primus-safe.amd.com"
+	claims.Issuer = "https://site.example.com"
 	claims.Subject = "user-1"
 	claims.Audience = []string{"agent-sandbox-admission"}
 	claims.Expiry = jwt.NewNumericDate(time.Now().Add(time.Hour))
@@ -53,7 +53,7 @@ func admissionFixture(t *testing.T, key *ecdsa.PrivateKey, kid string) (commonco
 	token, err := signed.CompactSerialize()
 	testifyrequire.NoError(t, err)
 	return commonconfig.SandboxAdmissionConfig{
-		Issuer: "https://ccs300.primus-safe.amd.com", Audience: "agent-sandbox-admission",
+		Issuer: "https://site.example.com", Audience: "agent-sandbox-admission",
 		TokenType: "assertion+jwt", Algorithm: "ES256", Actor: "svc-actor", DetailType: "agent-sandbox-workload",
 	}, wl, token
 }
@@ -138,6 +138,6 @@ func mustParseJWKS(t *testing.T, body []byte) jose.JSONWebKeySet {
 
 // TestFetchJWKSRejectsPlaintext pins that a key set is not read over http.
 func TestFetchJWKSRejectsPlaintext(t *testing.T) {
-	_, err := fetchJWKS(context.Background(), "http://identity.example/.well-known/jwks.json")
+	_, err := fetchJWKS(context.Background(), "http://identity.example/.well-known/jwks.json", "")
 	testifyassert.ErrorContains(t, err, "https")
 }

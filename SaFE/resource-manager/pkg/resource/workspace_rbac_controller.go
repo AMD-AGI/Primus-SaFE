@@ -58,6 +58,7 @@ type WorkspaceRBACReconciler struct {
 }
 
 // SetupWorkspaceRBACController initializes and registers the WorkspaceRBACReconciler with the controller manager.
+// Group mappings are read here and kept for the process. A change takes effect when resource-manager starts again.
 func SetupWorkspaceRBACController(mgr manager.Manager) error {
 	mappings, err := projectedGroupMappings()
 	if err != nil {

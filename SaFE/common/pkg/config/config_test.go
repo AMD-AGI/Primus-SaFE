@@ -803,11 +803,11 @@ func TestUsersAndConsoleConfig(t *testing.T) {
 func TestSandboxAdmissionKeySetDefaultsToTheClusterHost(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	viper.Set(subDomain, "ccs300")
-	viper.Set(domain, "primus-safe.amd.com")
+	viper.Set(subDomain, "site")
+	viper.Set(domain, "example.com")
 	cfg := GetSandboxAdmissionConfig()
-	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com/.well-known/jwks.json", cfg.JWKSURL)
-	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com", cfg.Issuer)
+	testifyassert.Equal(t, "https://site.example.com/.well-known/jwks.json", cfg.JWKSURL)
+	testifyassert.Equal(t, "https://site.example.com", cfg.Issuer)
 
 	viper.Set(sandboxAdmissionJWKSURL, "https://idp.example/.well-known/jwks.json")
 	viper.Set(sandboxAdmissionIssuer, "https://idp.example")

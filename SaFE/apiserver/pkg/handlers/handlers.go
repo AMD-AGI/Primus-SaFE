@@ -59,6 +59,9 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	if err := authority.InitExternalAuth(mgr.GetClient()); err != nil {
 		return nil, commonerrors.NewInternalError("failed to initialize external authentication: " + err.Error())
 	}
+	if err := authority.CheckExternalDeployment(); err != nil {
+		return nil, commonerrors.NewInternalError("failed to initialize external authentication: " + err.Error())
+	}
 	var scimToken *scim.Token
 	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal && commonconfig.IsSCIMEnabled() {
 		token, err := scim.EnsureToken(context.Background(), mgr.GetClient())
@@ -66,10 +69,10 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 			return nil, commonerrors.NewInternalError("failed to initialize scim: " + err.Error())
 		}
 		scimToken = scim.NewToken(token)
-		if commonconfig.IsSSOLoginEnable() {
+		if commonconfig.ProviderClientEnabled() {
 			scim.StartRegistration(context.Background(), mgr.GetClient(), scimToken)
 		} else {
-			klog.Info("sso login is disabled; the scim target is not registered with identity")
+			klog.Info("auth.provider_client is off; the scim target is not registered")
 		}
 	} else if commonconfig.IsSCIMEnabled() {
 		klog.Warning("auth.scim.enabled is set but auth.mode is not external; the scim endpoint is not served")

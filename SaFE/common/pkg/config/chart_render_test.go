@@ -25,6 +25,19 @@ import (
 // chartPath is the chart that renders the configuration consumed by SaFE services.
 const chartPath = "../../../charts/primus-safe"
 
+// externalAuthArgs is a complete external auth setting that helm template accepts.
+func externalAuthArgs(extra ...string) []string {
+	args := []string{
+		"--set", "auth.mode=external",
+		"--set-string", "auth.login_url=https://idp.example/sign-in/start",
+		"--set", "auth.authenticators[0].type=builtin",
+		"--set", "auth.group_mappings[0].group=admins",
+		"--set", "auth.group_mappings[0].roles[0]=system-admin",
+		"--set", "auth.scim.enabled=false",
+	}
+	return append(args, extra...)
+}
+
 func renderConfigMapData(t *testing.T, name, key string, values ...string) string {
 	t.Helper()
 	if _, err := exec.LookPath("helm"); err != nil {
@@ -95,15 +108,15 @@ func TestChartRendersAuthKeyActors(t *testing.T) {
 	testifyassert.Empty(t, GetSCIMPublicURL())
 	testifyassert.Equal(t, DefaultSCIMTokenSecret, GetSCIMTokenSecret())
 
-	loadRendered(t, renderApiserverConfig(t, "--set", "global.sub_domain=ccs300"))
-	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com/login/password", GetAuthLoginURL())
-	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com/scim/v2", GetSCIMPublicURL())
+	loadRendered(t, renderApiserverConfig(t, "--set", "global.sub_domain=site", "--set", "global.domain=example.com"))
+	testifyassert.Empty(t, GetAuthLoginURL())
+	testifyassert.Equal(t, "https://site.example.com/scim/v2", GetSCIMPublicURL())
 
 	loadRendered(t, renderApiserverConfig(t, "--set", "auth.key_actors={client-a,client-b}"))
 	testifyassert.Equal(t, []string{"client-a", "client-b"}, GetAuthKeyActors())
 
 	// The other auth settings are rendered next to it and are not disturbed.
-	loadRendered(t, renderApiserverConfig(t, "--set", "auth.mode=external", "--set", "auth.key_actors={client-a}"))
+	loadRendered(t, renderApiserverConfig(t, append(externalAuthArgs(), "--set", "auth.key_actors={client-a}")...))
 	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
 	testifyassert.Equal(t, []string{"client-a"}, GetAuthKeyActors())
 
@@ -199,6 +212,9 @@ func TestChartRoutesAPIKeysToTheIdentityProvider(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var args []string
 			for _, v := range tt.values {
+				if v == "auth.mode=external" || strings.HasPrefix(v, "auth.mode=external") {
+					args = append(args, externalAuthArgs()...)
+				}
 				args = append(args, "--set", v)
 			}
 			loadRendered(t, renderApiserverConfig(t, args...))
@@ -824,14 +840,14 @@ func TestChartDefaultsTheSandboxAdmissionKeySet(t *testing.T) {
 	testifyassert.Contains(t, rendered, "jwks_url: \"\"")
 	testifyassert.Contains(t, rendered, "issuer: \"\"")
 
-	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml", "--set", "global.sub_domain=ccs300"))
+	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml", "--set", "global.sub_domain=site", "--set", "global.domain=example.com"))
 	cfg := GetSandboxAdmissionConfig()
-	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com/.well-known/jwks.json", cfg.JWKSURL)
-	testifyassert.Equal(t, "https://ccs300.primus-safe.amd.com", cfg.Issuer)
+	testifyassert.Equal(t, "https://site.example.com/.well-known/jwks.json", cfg.JWKSURL)
+	testifyassert.Equal(t, "https://site.example.com", cfg.Issuer)
 	testifyassert.False(t, IsSandboxAdmissionEnable())
 
 	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml",
-		"--set", "global.sub_domain=ccs300",
+		"--set", "global.sub_domain=site", "--set", "global.domain=example.com",
 		"--set-string", "sandbox.admission.jwks_url=https://idp.example/.well-known/jwks.json",
 		"--set-string", "sandbox.admission.issuer=https://idp.example"))
 	cfg = GetSandboxAdmissionConfig()

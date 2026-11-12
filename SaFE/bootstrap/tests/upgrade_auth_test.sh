@@ -141,7 +141,7 @@ install_node_agent=n'
 AUTH_ENV="auth_mode=external
 auth_login_url=https://idp.example.com/sign-in/start
 auth_client_secret=safe-introspection
-auth_authenticators='[{\"type\":\"oidc\",\"issuer\":\"https://idp.example.com\",\"audience\":\"primus-safe\"}]'
+auth_authenticators='[{\"type\":\"oidc\",\"issuer\":\"https://idp.example.com\",\"audience\":\"primus-safe\"},{\"type\":\"builtin\"}]'
 auth_group_mappings='[{\"group\":\"admins\",\"roles\":[\"system-admin\"]}]'
 auth_key_actors='[\"client-a\"]'
 auth_api_keys_url=/api/v1/apikeys
@@ -152,7 +152,7 @@ auth_scim_public_url=
 auth_scim_token_secret=primus-safe-scim-token"
 
 # What helm get values says for a release that is running with that auth setting.
-LIVE_EXTERNAL='{"global":{"sub_domain":"test"},"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","client_secret":"safe-introspection","authenticators":[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"key_actors":["client-a"],"api_keys_upstream":"identity.idns.svc.cluster.local:8080"}}'
+LIVE_EXTERNAL='{"global":{"sub_domain":"test"},"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","client_secret":"safe-introspection","authenticators":[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"},{"type":"builtin"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"key_actors":["client-a"],"api_keys_upstream":"identity.idns.svc.cluster.local:8080"}}'
 LIVE_BUILTIN='{"global":{"sub_domain":"test"},"auth":{"mode":"builtin","authenticators":[],"group_mappings":[],"login_url":""}}'
 
 FAILS=0
@@ -196,7 +196,7 @@ run_upgrade "" ""
 expect "no auth keys, fresh install: applied" applied
 expect "no auth keys, fresh install: builtin" rendered 'mode: "builtin"'
 expect "no auth keys, fresh install: only the one values file" grep -qx 1 "$OUT/value-files"
-expect "no auth keys, fresh install: login url" rendered 'login_url: "https://test.primus-safe.amd.com/login/password"'
+expect "no auth keys, fresh install: login url" rendered 'login_url: ""'
 expect "no auth keys, fresh install: scim public url" rendered '  public_url: "https://test.primus-safe.amd.com/scim/v2"'
 
 # 2. The auth_* keys reach the rendered chart, on a release that is not external yet.
@@ -204,7 +204,7 @@ run_upgrade "$LIVE_BUILTIN" "$AUTH_ENV"
 expect "all auth keys: applied" applied
 expect "all auth keys: mode" rendered 'mode: "external"'
 expect "all auth keys: login_url" rendered 'login_url: "https://idp.example.com/sign-in/start"'
-expect "all auth keys: authenticators" rendered 'authenticators: [{"audience":"primus-safe","issuer":"https://idp.example.com","type":"oidc"}]'
+expect "all auth keys: authenticators" rendered 'authenticators: [{"audience":"primus-safe","issuer":"https://idp.example.com","type":"oidc"},{"type":"builtin"}]'
 expect "all auth keys: group_mappings" rendered 'group_mappings: [{"group":"admins","roles":["system-admin"]}]'
 expect "all auth keys: client secret mounted into the apiserver" grep -qxF '            secretName: safe-introspection' "$OUT/rendered.yaml"
 expect "all auth keys: key_actors reach the values" grep -qx 2 "$OUT/value-files"
@@ -235,11 +235,11 @@ diff_lines="$(diff <(strip_copy_job < "$OUT/rendered.yaml") <(strip_copy_job < "
 expect "rendering with and without the keys differs only in the auth segment" test -z "$diff_lines"
 [[ -z "$diff_lines" ]] || echo "$diff_lines"
 
-# 3. The running release is external and .env sets no auth_mode: that is the chart default, builtin.
-# auth_mode=builtin is the same, written out.
+# 3. The running release is external and .env sets no auth_mode: that would render builtin, so it is refused.
+# auth_mode=builtin is the explicit way back.
 run_upgrade "$LIVE_EXTERNAL" ""
-expect "live external, no auth keys: applied" applied
-expect "live external, no auth keys: builtin" rendered 'mode: "builtin"'
+expect "live external, no auth keys: refused" refused
+expect "live external, no auth keys: says why" grep -q 'does not set auth_mode' "$OUT/log"
 
 # 4. One key missing is enough, here the one that grants the administrator roles.
 run_upgrade "$LIVE_EXTERNAL" "$(grep -v '^auth_group_mappings' <<<"$AUTH_ENV")"
@@ -283,30 +283,30 @@ expect "live custom scim token secret, key set: applied" applied
 expect "live custom scim token secret, key set: kept" rendered '  token_secret: "custom-scim-token"'
 
 # 6. A key the release does not have is not demanded.
-run_upgrade '{"auth":{"mode":"external","authenticators":[{"type":"builtin"}]}}' 'auth_mode=external
-auth_authenticators='"'"'[{"type":"builtin"}]'"'"
+run_upgrade '{"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","authenticators":[{"type":"builtin"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"scim":{"enabled":false}}}' 'auth_mode=external
+auth_login_url=https://idp.example.com/sign-in/start
+auth_authenticators='"'"'[{"type":"builtin"}]'"'"'
+auth_group_mappings='"'"'[{"group":"admins","roles":["system-admin"]}]'"'"'
+auth_scim_enabled=false'
 expect "live external without optional keys: applied" applied
 
 # 7. auth_mode=builtin is the deliberate way back: allowed, and the other keys still apply.
 run_upgrade "$LIVE_EXTERNAL" "$(sed 's/^auth_mode=.*/auth_mode=builtin/' <<<"$AUTH_ENV")"
 expect "break-glass, auth_mode=builtin: applied" applied
 expect "break-glass, auth_mode=builtin: builtin" rendered 'mode: "builtin"'
-expect "break-glass, auth_mode=builtin: the chain is kept for the way back" rendered 'authenticators: [{"audience":"primus-safe","issuer":"https://idp.example.com","type":"oidc"}]'
+expect "break-glass, auth_mode=builtin: the chain is kept for the way back" rendered 'authenticators: [{"audience":"primus-safe","issuer":"https://idp.example.com","type":"oidc"},{"type":"builtin"}]'
 run_upgrade "$LIVE_EXTERNAL" 'auth_mode=builtin'
 expect "break-glass with nothing else in .env: applied" applied
 expect "break-glass with nothing else in .env: builtin" rendered 'mode: "builtin"'
 
-# Higress: external renders the console login route to identity; builtin deletes it, including one Helm does not own yet.
+# Higress: external with SCIM renders the console /scim/v2 route in this namespace. builtin deletes it.
+SCIM_ON="$(sed -e 's/^auth_scim_enabled=false/auth_scim_enabled=true/' -e 's|^auth_scim_identity_url=.*|auth_scim_identity_url=https://idp.example.com|' <<<"$AUTH_ENV")"
 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"$'\ningress=higress'
 expect "higress external: applied" applied
-expect "higress external: routes console login to identity" grep -qxF '  name: primus-identity-login' "$OUT/rendered.yaml"
-expect "higress external: login path" grep -qxF '          - path: /api/(login|logout)' "$OUT/rendered.yaml"
-expect "higress external: identity namespace" grep -qxF '  namespace: primus-identity' "$OUT/rendered.yaml"
-expect "higress external: does not delete the route" bash -c '! grep -q "kubectl delete ingress primus-identity-login" "$1"' _ "$FAKE_LOG"
-expect "higress external: adopts an existing route" grep -q 'kubectl annotate ingress primus-identity-login -n primus-identity' "$FAKE_LOG"
+expect "higress external: no identity namespace" bash -c '! grep -q "namespace: primus-identity" "$1"' _ "$OUT/rendered.yaml"
 expect "higress external, scim off: no console scim route" bash -c '! grep -q "name: primus-safe-scim" "$1"' _ "$OUT/rendered.yaml"
 expect "higress external, scim off: deletes the console scim route" grep -qxF 'kubectl delete ingress primus-safe-scim -n primus-safe --ignore-not-found' "$FAKE_LOG"
-run_upgrade "$LIVE_EXTERNAL" "$(sed 's/^auth_scim_enabled=false/auth_scim_enabled=true/' <<<"$AUTH_ENV")"$'\ningress=higress'
+run_upgrade "$LIVE_EXTERNAL" "$SCIM_ON"$'\ningress=higress'
 expect "higress external, scim on: applied" applied
 expect "higress external, scim on: console scim route" grep -qxF '  name: primus-safe-scim' "$OUT/rendered.yaml"
 expect "higress external, scim on: scim path" grep -qxF '          - path: /scim/v2' "$OUT/rendered.yaml"
@@ -315,20 +315,18 @@ expect "higress external, scim on: adopts an existing route" grep -q 'kubectl an
 expect "higress external, scim on: does not delete the route" bash -c '! grep -q "kubectl delete ingress primus-safe-scim" "$1"' _ "$FAKE_LOG"
 run_upgrade "$LIVE_EXTERNAL" $'auth_mode=builtin\ningress=higress'
 expect "higress builtin: applied" applied
-expect "higress builtin: no login route" bash -c '! grep -q "name: primus-identity-login" "$1"' _ "$OUT/rendered.yaml"
-expect "higress builtin: deletes the route" grep -qxF 'kubectl delete ingress primus-identity-login -n primus-identity --ignore-not-found' "$FAKE_LOG"
 expect "higress builtin: deletes the console scim route" grep -qxF 'kubectl delete ingress primus-safe-scim -n primus-safe --ignore-not-found' "$FAKE_LOG"
 run_upgrade "$LIVE_BUILTIN" ""
-expect "nginx builtin: leaves the higress route alone" bash -c '! grep -q primus-identity-login "$1"' _ "$FAKE_LOG"
+expect "nginx builtin: leaves the higress route alone" bash -c '! grep -q primus-safe-scim "$1"' _ "$FAKE_LOG"
 # An Ingress of the same name that another release owns is neither adopted nor deleted.
-FAKE_INGRESS_OWNER=other/other-ns run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"$'\ningress=higress'
+FAKE_INGRESS_OWNER=other/other-ns run_upgrade "$LIVE_EXTERNAL" "$SCIM_ON"$'\ningress=higress'
 expect "higress external, route of another release: refused" bash -c '[[ $1 -ne 0 ]] && ! grep -q "helm upgrade" "$2"' _ "$RC" "$FAKE_LOG"
 expect "higress external, route of another release: not adopted" bash -c '! grep -q "kubectl annotate" "$1"' _ "$FAKE_LOG"
 expect "higress external, route of another release: names the owner" grep -q 'owned by release other/other-ns' "$OUT/log"
 FAKE_INGRESS_OWNER=other/other-ns run_upgrade "$LIVE_EXTERNAL" $'auth_mode=builtin\ningress=higress'
 expect "higress builtin, route of another release: applied" applied
 expect "higress builtin, route of another release: not deleted" bash -c '! grep -q "kubectl delete ingress" "$1"' _ "$FAKE_LOG"
-FAKE_INGRESS_OWNER=primus-safe/primus-safe run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"$'\ningress=higress'
+FAKE_INGRESS_OWNER=primus-safe/primus-safe run_upgrade "$LIVE_EXTERNAL" "$SCIM_ON"$'\ningress=higress'
 expect "higress external, route of this release: applied" applied
 
 # 8. A release that is builtin has nothing to lose.
@@ -382,8 +380,8 @@ expect "no jq, release without auth values: applied" applied
 RUN_PATH="$NOJQ" run_upgrade "" ""
 expect "no jq, fresh install: applied" applied
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_EXTERNAL" ""
-expect "no jq, live external, no auth keys: applied" applied
-expect "no jq, live external, no auth keys: builtin" rendered 'mode: "builtin"'
+expect "no jq, live external, no auth keys: refused" refused
+expect "no jq, live external, no auth keys: says why" grep -q 'does not set auth_mode' "$OUT/log"
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_EXTERNAL" 'auth_mode=builtin'
 expect "no jq, break-glass: applied" applied
 expect "no jq, break-glass: builtin" rendered 'mode: "builtin"'

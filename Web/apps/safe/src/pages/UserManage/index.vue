@@ -18,7 +18,7 @@
         >
           Create User
         </el-button>
-        <el-button v-else type="primary" round @click="openIdentityAccounts">
+        <el-button v-else-if="userStore.envs?.accountsUrl" type="primary" round @click="openIdentityAccounts">
           Manage accounts
         </el-button>
       </div>
@@ -156,10 +156,11 @@ const state = reactive({
 })
 
 const router = useRouter()
-const openIdentityAccounts = () => {
-  window.location.assign('/identity/#accounts')
-}
 const userStore = useUserStore()
+const openIdentityAccounts = () => {
+  const url = userStore.envs?.accountsUrl
+  if (url) window.location.assign(url)
+}
 // The server refuses registration and deletion when an external identity provider owns accounts.
 const creatable = computed(() => !userStore.isExternalAuth)
 const wsStore = useWorkspaceStore()

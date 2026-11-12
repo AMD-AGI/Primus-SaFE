@@ -125,20 +125,6 @@ rules:
   verbs:
   - get
   - delete
-# resource-manager projects workspace membership into ClusterRoles/ClusterRoleBindings on this cluster.
-- apiGroups:
-  - "rbac.authorization.k8s.io"
-  resources:
-  - "clusterroles"
-  - "clusterrolebindings"
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
 # Holding the "use" verb on workspaces lets resource-manager create and bind the projected roles that grant it.
 - apiGroups:
   - amd.com

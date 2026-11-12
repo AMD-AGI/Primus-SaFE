@@ -283,7 +283,7 @@ async function startSSO() {
     signIn.url,
     randomState(),
     signIn.pkce,
-    identityAuthorize.value ? userStore.envs?.connection || 'local' : undefined,
+    identityAuthorize.value ? userStore.envs?.connection : undefined,
   )
 
   // 3. Redirect

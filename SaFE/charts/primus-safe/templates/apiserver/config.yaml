@@ -176,10 +176,47 @@ data:
     {{- /* the path the console's nginx routes to that upstream */}}
     {{- $apiKeysURL = "/api/v1/apikeys" }}
     {{- end }}
-    {{- /* Empty login and SCIM callback URLs use the console host, which a caller outside this cluster can resolve. Higress sends /scim/v2 to this apiserver. */}}
-    {{- $loginURL := .Values.auth.login_url }}
-    {{- if and (not $loginURL) .Values.global.sub_domain .Values.global.domain }}
-    {{- $loginURL = printf "https://%s.%s/login/password" .Values.global.sub_domain .Values.global.domain }}
+    {{- /* External mode requires auth.login_url. An empty SCIM callback uses the console host. Higress sends /scim/v2 to this apiserver. */}}
+    {{- $loginURL := .Values.auth.login_url | default "" }}
+    {{- if eq (default "builtin" .Values.auth.mode) "external" }}
+    {{- if not $loginURL }}
+    {{- fail "auth.mode is external but auth.login_url is empty" }}
+    {{- end }}
+    {{- $fallback := false }}
+    {{- range $a := default (list) .Values.auth.authenticators }}
+    {{- $t := lower (default "" $a.type) }}
+    {{- if or (eq $t "introspection") (eq $t "builtin") }}
+    {{- $fallback = true }}
+    {{- end }}
+    {{- end }}
+    {{- if and (not $fallback) (not .Values.auth.allow_oidc_only) }}
+    {{- fail "auth.mode is external but auth.authenticators has no introspection or builtin entry; set auth.allow_oidc_only to accept an oidc-only chain" }}
+    {{- end }}
+    {{- $admin := false }}
+    {{- range $m := default (list) .Values.auth.group_mappings }}
+    {{- range $r := default (list) $m.roles }}
+    {{- if eq ($r | toString) "system-admin" }}
+    {{- $admin = true }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- if not $admin }}
+    {{- fail "auth.mode is external but auth.group_mappings grants system-admin to no group" }}
+    {{- end }}
+    {{- $scimOn := default dict .Values.auth.scim }}
+    {{- if ne ($scimOn.enabled | toString) "false" }}
+    {{- $idBase := $scimOn.identity_url | default "" | toString }}
+    {{- if not $idBase }}
+    {{- range $a := default (list) .Values.auth.authenticators }}
+    {{- if and (not $idBase) (eq (lower (default "" $a.type)) "introspection") }}
+    {{- $idBase = $a.url | default $a.issuer | default "" | toString }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- if not $idBase }}
+    {{- fail "auth.scim is enabled but auth.scim.identity_url cannot be resolved from an introspection authenticator" }}
+    {{- end }}
+    {{- end }}
     {{- end }}
     {{- $scimPublic := (default dict .Values.auth.scim).public_url }}
     {{- if and (not $scimPublic) .Values.global.sub_domain .Values.global.domain }}
@@ -192,6 +229,11 @@ data:
       authenticators: {{ toJson (default (list) .Values.auth.authenticators) }}
       group_mappings: {{ toJson (default (list) .Values.auth.group_mappings) }}
       login_url: {{ $loginURL | quote }}
+      allow_oidc_only: {{ default false .Values.auth.allow_oidc_only }}
+      provider_client: {{ default false .Values.auth.provider_client }}
+      connection: {{ default "" .Values.auth.connection | quote }}
+      accounts_url: {{ default "" .Values.auth.accounts_url | quote }}
+      keys_console_url: {{ default "" .Values.auth.keys_console_url | quote }}
       key_actors: {{ toJson (default (list) .Values.auth.key_actors) }}
       # The path where the deployment routes API key creation, listing and revocation to the identity provider.
       api_keys_url: {{ $apiKeysURL | quote }}

@@ -57,11 +57,14 @@ data:
         jwks: {{ default "" $admission.jwks | quote }}
         jwks_url: {{ $jwksURL | quote }}
         issuer: {{ $issuer | quote }}
-        audience: {{ default "agent-sandbox-admission" $admission.audience | quote }}
-        token_type: {{ default "assertion+jwt" $admission.token_type | quote }}
-        algorithm: {{ default "ES256" $admission.algorithm | quote }}
+        audience: {{ default "" $admission.audience | quote }}
+        token_type: {{ default "" $admission.token_type | quote }}
+        algorithm: {{ default "" $admission.algorithm | quote }}
         actor: {{ default "" $admission.actor | quote }}
-        detail_type: {{ default "agent-sandbox-workload" $admission.detail_type | quote }}
+        detail_type: {{ default "" $admission.detail_type | quote }}
+        annotation: {{ default "" $admission.annotation | quote }}
+        kind: {{ default "" $admission.kind | quote }}
+        ca_file: {{ if $admission.ca_secret }}"/etc/secrets/admission-ca/ca.crt"{{ else }}""{{ end }}
     rbac:
       subject_prefix: {{ default "primus:" (default dict .Values.rbac).subject_prefix | quote }}
     ops_job:

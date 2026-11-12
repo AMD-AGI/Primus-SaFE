@@ -7,12 +7,15 @@ package webhooks
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,9 +32,7 @@ import (
 )
 
 const (
-	// identityAttestationAnnotation carries the identity assertion the sandbox control plane attaches.
-	identityAttestationAnnotation = "agent-sandbox.io/identity-attestation"
-	// sandboxDetailKind is the workload kind an authorization detail must name.
+	// sandboxDetailKind is the workload kind the identity assertion tests use.
 	sandboxDetailKind = "Sandbox"
 	// workspaceResource is the resource of the workspace membership check.
 	workspaceResource = "workspaces"
@@ -88,13 +89,16 @@ func (v *WorkloadValidator) validateSandboxIdentity(ctx context.Context, req adm
 	if cfg.Creator == "" || req.UserInfo.Username != cfg.Creator {
 		return nil
 	}
-	token := v1.GetAnnotation(workload, identityAttestationAnnotation)
+	if cfg.Annotation == "" {
+		return commonerrors.NewForbidden("sandbox admission annotation is not configured")
+	}
+	token := v1.GetAnnotation(workload, cfg.Annotation)
 	if token == "" {
-		return commonerrors.NewForbidden(fmt.Sprintf("annotation %s is required", identityAttestationAnnotation))
+		return commonerrors.NewForbidden(fmt.Sprintf("annotation %s is required", cfg.Annotation))
 	}
 	oldToken := ""
 	if oldWorkload != nil {
-		oldToken = v1.GetAnnotation(oldWorkload, identityAttestationAnnotation)
+		oldToken = v1.GetAnnotation(oldWorkload, cfg.Annotation)
 	}
 	claims, err := verifyIdentityAssertion(ctx, cfg, token, token == oldToken, workload)
 	if err != nil {
@@ -146,7 +150,7 @@ func admissionKeys(ctx context.Context, cfg commonconfig.SandboxAdmissionConfig,
 			return set, true, nil
 		}
 	}
-	set, err := fetchJWKS(ctx, cfg.JWKSURL)
+	set, err := fetchJWKS(ctx, cfg.JWKSURL, cfg.CAFile)
 	if err != nil {
 		jwksMu.Lock()
 		defer jwksMu.Unlock()
@@ -162,7 +166,8 @@ func admissionKeys(ctx context.Context, cfg commonconfig.SandboxAdmissionConfig,
 }
 
 // fetchJWKS reads the key set at raw. Only https is accepted, and the body is capped.
-func fetchJWKS(ctx context.Context, raw string) (jose.JSONWebKeySet, error) {
+// caFile, when set, is a PEM bundle added to the system trust store. Verification stays on.
+func fetchJWKS(ctx context.Context, raw, caFile string) (jose.JSONWebKeySet, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
 		return jose.JSONWebKeySet{}, fmt.Errorf("identity jwks url must be https")
@@ -171,7 +176,11 @@ func fetchJWKS(ctx context.Context, raw string) (jose.JSONWebKeySet, error) {
 	if err != nil {
 		return jose.JSONWebKeySet{}, err
 	}
-	resp, err := jwksClient.Do(req)
+	client, err := jwksHTTPClient(caFile)
+	if err != nil {
+		return jose.JSONWebKeySet{}, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return jose.JSONWebKeySet{}, fmt.Errorf("identity jwks: %w", err)
 	}
@@ -243,23 +252,48 @@ func checkAssertion(keys jose.JSONWebKeySet, cfg commonconfig.SandboxAdmissionCo
 	if err != nil {
 		return nil, err
 	}
-	if !hasMatchingDetail(claims.AuthorizationDetails, cfg.DetailType, workload, gpus) {
+	if !hasMatchingDetail(claims.AuthorizationDetails, cfg, workload, gpus) {
 		return nil, fmt.Errorf("no authorization detail of type %s matches the workload", cfg.DetailType)
 	}
 	return &claims, nil
 }
 
-// hasMatchingDetail reports whether one authorization detail of the given type names this Workload.
-func hasMatchingDetail(details []map[string]any, detailType string, workload *v1.Workload, gpus float64) bool {
+// hasMatchingDetail reports whether one authorization detail of the configured type names this Workload.
+func hasMatchingDetail(details []map[string]any, cfg commonconfig.SandboxAdmissionConfig, workload *v1.Workload, gpus float64) bool {
 	for _, d := range details {
 		got, ok := d["gpus"].(float64)
-		if d["type"] == detailType && d["workspace"] == workload.Spec.Workspace &&
-			d["kind"] == sandboxDetailKind && d["kind"] == workload.SpecKind() &&
+		if d["type"] == cfg.DetailType && d["workspace"] == workload.Spec.Workspace &&
+			d["kind"] == workload.SpecKind() && (cfg.Kind == "" || d["kind"] == cfg.Kind) &&
 			d["name"] == workload.Name && ok && got == gpus {
 			return true
 		}
 	}
 	return false
+}
+
+// jwksHTTPClient returns the shared client, or one that also trusts caFile.
+func jwksHTTPClient(caFile string) (*http.Client, error) {
+	if strings.TrimSpace(caFile) == "" {
+		return jwksClient, nil
+	}
+	pemBytes, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("identity jwks ca: %w", err)
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pemBytes) {
+		return nil, fmt.Errorf("identity jwks ca is not readable")
+	}
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("identity jwks transport is not available")
+	}
+	transport := base.Clone()
+	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}
+	return &http.Client{Timeout: jwksClient.Timeout, Transport: transport, CheckRedirect: jwksClient.CheckRedirect}, nil
 }
 
 // workloadGpuCount sums the gpu count times the replica over the Workload resources; an unset replica counts as one.

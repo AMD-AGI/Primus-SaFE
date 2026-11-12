@@ -285,13 +285,14 @@ func (v *UserValidator) validateMetadata(user *v1.User) error {
 	return nil
 }
 
-// validateImmutableFields rejects a type change other than sso to default, and a rename of a default user.
+// validateImmutableFields rejects a type change, and a rename of a default user.
+// External mode allows a change from sso to default.
 func (v *UserValidator) validateImmutableFields(newUser, oldUser *v1.User) error {
-	// A record created before the issuer reported the account kind can move from sso to default.
-	// No other change of type is accepted.
-	if newUser.Spec.Type != oldUser.Spec.Type &&
-		(oldUser.Spec.Type != v1.SSOUserType || newUser.Spec.Type != v1.DefaultUserType) {
-		return field.Forbidden(field.NewPath("spec").Key("type"), "immutable")
+	if newUser.Spec.Type != oldUser.Spec.Type {
+		external := commonconfig.GetAuthMode() == commonconfig.AuthModeExternal
+		if !external || oldUser.Spec.Type != v1.SSOUserType || newUser.Spec.Type != v1.DefaultUserType {
+			return field.Forbidden(field.NewPath("spec").Key("type"), "immutable")
+		}
 	}
 	if newUser.Spec.Type == v1.DefaultUserType && v1.GetUserName(newUser) != v1.GetUserName(oldUser) {
 		return field.Forbidden(field.NewPath("user").Key("name"), "immutable")
@@ -308,7 +309,11 @@ func (v *UserValidator) validateRequiredParams(user *v1.User) error {
 	if len(user.Spec.Roles) == 0 {
 		errs = append(errs, fmt.Errorf("the user's roles is empty"))
 	}
-	// A default account may have no password stored here: the identity service holds it.
+	// External mode stores no password: the identity service holds it.
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal &&
+		user.Spec.Type == v1.DefaultUserType && user.Spec.Password == "" {
+		errs = append(errs, fmt.Errorf("the user's password is empty"))
+	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
 	}

@@ -74,8 +74,13 @@ export interface EnvsResp {
   apiKeysUrl?: string
   // Present only when authMode is external: where the browser signs in (auth.login_url). Not an SSO URL.
   loginUrl?: string
-  // Present only when authMode is external: the one identity connection named on the authorize request.
-  connection?: 'okta-amd' | 'local'
+  // Present only when authMode is external: the connection named on the authorize request.
+  // Empty omits the parameter.
+  connection?: string
+  // Page to open for accounts when authMode is external. Absent when the deployment sets none.
+  accountsUrl?: string
+  // Page to open for API keys when authMode is external. Absent when the deployment sets none.
+  keysUrl?: string
   // sso.enable. The console uses this only when authMode is not external.
   ssoEnable?: boolean
   // The console's sign-in when authMode is not external and the server has one with PKCE (sso.login).

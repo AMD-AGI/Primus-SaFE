@@ -63,7 +63,7 @@ describe('external mode hides the password, registration and role controls', () 
     expect(list).toContain('const creatable = computed(() => !userStore.isExternalAuth)')
     expect(list).toContain('v-if="creatable"')
     expect(list).toContain('v-if="creatable" content="Delete"')
-    expect(list).toContain("window.location.assign('/identity/#accounts')")
+    expect(list).toContain('userStore.envs?.accountsUrl')
     const dialog = source('pages/UserManage/Components/AddDialog.vue')
     // What the body leaves out in external mode is buildUserPatch's, tested in userPatch.test.ts.
     expect(dialog).toContain('buildUserPatch(props.user, form, external.value)')

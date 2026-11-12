@@ -71,11 +71,11 @@ install_or_upgrade_helm_chart() {
 # JSON values are single-quoted in .env, e.g. auth_key_actors='["client-a"]'.
 AUTH_ENV_KEYS=(auth_mode auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
 
-# check_live_auth refuses an upgrade that would drop the external authentication of a release while
-# .env still says auth_mode=external. helm renders every value from the chart defaults and the files
-# it is given, so a release that carries an authenticator chain or group mappings loses them on the
-# next upgrade whose .env leaves those keys out. Omitting auth_mode is the chart default, builtin,
-# and is allowed. auth_mode=builtin is the same.
+# check_live_auth refuses an upgrade that would drop the external authentication of a release.
+# helm renders every value from the chart defaults and the files it is given, so a release that
+# carries an authenticator chain or group mappings loses them on the next upgrade whose .env leaves
+# those keys out. auth_mode=builtin is the explicit way back. Omitting auth_mode on a release that
+# is already external is refused: that omission would render builtin.
 check_live_auth() {
   local releases live live_mode var key present unset_keys="" missing=""
   if ! releases=$(helm -n "$NAMESPACE" list); then
@@ -85,8 +85,8 @@ check_live_auth() {
   if ! grep -q "^$chart_name " <<<"$releases"; then
     return 0 # nothing installed yet, nothing to lose
   fi
-  # Unset is the chart default, builtin.
-  if [[ "${auth_mode:-builtin}" == "builtin" ]]; then
+  # An explicit builtin is the way back, including from an external release.
+  if [[ -n "${auth_mode+x}" && "$auth_mode" == "builtin" ]]; then
     return 0
   fi
   for var in "${AUTH_ENV_KEYS[@]}"; do
@@ -121,6 +121,12 @@ check_live_auth() {
   if [[ "$live_mode" != "external" ]]; then
     return 0
   fi
+  if [[ -z "${auth_mode+x}" ]]; then
+    echo "Error: release $chart_name is running with auth.mode=external, but .env does not set auth_mode." >&2
+    echo "       Omitting it would render builtin and replace the external sign-in. Nothing has been changed." >&2
+    echo "       Set auth_mode=external and the auth_* keys the release uses, or set auth_mode=builtin to go back on purpose." >&2
+    return 1
+  fi
   if ! command -v jq &> /dev/null; then
     echo "Error: release $chart_name is running with auth.mode=external, and jq is required to see which of its auth settings .env must carry" >&2
     echo "       Nothing has been changed. Install jq, or set every auth_* key in .env, or set auth_mode=builtin to go back" >&2
@@ -128,9 +134,9 @@ check_live_auth() {
     return 1
   fi
   for var in $unset_keys; do
-    # These have a chart value when .env omits them. A stored login URL or SCIM callback is not kept.
-    # auth_mode is not one of them: omitting it renders builtin, so an external release has to set it.
-    if [[ "$var" == "auth_scim_enabled" || "$var" == "auth_login_url" || "$var" == "auth_scim_public_url" ]]; then
+    # These have a chart value when .env omits them. A stored SCIM callback is not kept.
+    # auth_login_url is kept: external mode refuses to start without it.
+    if [[ "$var" == "auth_scim_enabled" || "$var" == "auth_scim_public_url" ]]; then
       continue
     fi
     # The apiserver creates primus-safe-scim-token. Omitting the key keeps that chart default.
@@ -236,7 +242,44 @@ write_auth_values() {
     return 1
   fi
   jq -n --argjson a "$json" '{auth: $a}' > "$out"
+  if ! require_external_chain "$out"; then
+    return 1
+  fi
   AUTH_VALUES_FILE="$out"
+}
+
+# require_external_chain refuses an external auth object that has no sign-in URL, no fallback
+# authenticator, no group that is granted system-admin, or SCIM enabled without a base URL.
+require_external_chain() {
+  local file="$1" mode n base
+  mode=$(jq -r '.auth.mode // "builtin"' "$file")
+  [[ "$mode" == "external" ]] || return 0
+  if [[ -z "$(jq -r '.auth.login_url // empty' "$file")" ]]; then
+    echo "Error: auth_mode=external needs auth_login_url" >&2
+    return 1
+  fi
+  if [[ "$(jq -r '.auth.allow_oidc_only // false' "$file")" != "true" ]]; then
+    n=$(jq '[.auth.authenticators[]? | select((.type | ascii_downcase) == "introspection" or (.type | ascii_downcase) == "builtin")] | length' "$file")
+    if [[ "$n" == "0" ]]; then
+      echo "Error: auth_mode=external needs an introspection or builtin authenticator, or auth_allow_oidc_only=true" >&2
+      return 1
+    fi
+  fi
+  n=$(jq '[.auth.group_mappings[]?.roles[]? | select(. == "system-admin")] | length' "$file")
+  if [[ "$n" == "0" ]]; then
+    echo "Error: auth_mode=external needs a group_mapping whose roles include system-admin" >&2
+    return 1
+  fi
+  if [[ "$(jq -r 'if .auth.scim.enabled == false then "false" else "true" end' "$file")" != "false" ]]; then
+    base=$(jq -r '.auth.scim.identity_url // empty' "$file")
+    if [[ -z "$base" ]]; then
+      base=$(jq -r '[.auth.authenticators[]? | select((.type | ascii_downcase) == "introspection") | (.url // .issuer // empty)] | map(select(length > 0)) | .[0] // empty' "$file")
+    fi
+    if [[ -z "$base" ]]; then
+      echo "Error: auth.scim is enabled but auth_scim_identity_url cannot be resolved" >&2
+      return 1
+    fi
+  fi
 }
 
 # sync_release_ingress <name> <namespace> <rendered>: an Ingress the chart renders only in some modes.
@@ -265,21 +308,6 @@ sync_release_ingress() {
     "meta.helm.sh/release-name=$chart_name" \
     "meta.helm.sh/release-namespace=$NAMESPACE" --overwrite
   kubectl label ingress "$name" -n "$ns" app.kubernetes.io/managed-by=Helm --overwrite
-}
-
-# sync_identity_login_route keeps the console's /api/login and /api/logout on the release.
-# The chart renders that Ingress only for Higress with auth.mode=external.
-sync_identity_login_route() {
-  local ns rendered=false
-  if [[ "${ingress:-}" != "higress" ]]; then
-    return 0
-  fi
-  ns=$(awk '/^auth:/ {a = 1; next} /^[^ #]/ {a = 0} a && /^  identity_client_secret_namespace:/ {gsub(/["\047]/, "", $2); print $2; exit}' "$values_yaml")
-  ns="${ns:-primus-identity}"
-  if [[ "${auth_mode:-builtin}" == "external" ]]; then
-    rendered=true
-  fi
-  sync_release_ingress primus-identity-login "$ns" "$rendered"
 }
 
 # sync_console_scim_route keeps /scim/v2 on the console host pointed at the apiserver.
@@ -640,7 +668,6 @@ fi
 
 write_auth_values "primus-safe/.auth-values.json"
 write_sso_values "primus-safe/.sso-values.json"
-sync_identity_login_route
 sync_console_scim_route
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"

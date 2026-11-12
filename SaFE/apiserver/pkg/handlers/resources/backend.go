@@ -43,15 +43,13 @@ func (h *Handler) getEnvs(c *gin.Context) (interface{}, error) {
 		KubeSprayK8sVersions: v1.KubeSprayK8sVersions(),
 	}
 	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
-		// The console starts an authorize request at identity. connection names one identity source.
-		// sso.enable selects it: okta-amd or local. sso.login, when set, is that authorize URL.
+		// The console starts an authorize request at identity. connection, accountsUrl and keysUrl
+		// come from the deployment. sso.login, when set, is that authorize URL.
 		resp.APIKeysURL = commonconfig.GetAuthAPIKeysURL()
 		resp.LoginURL = commonconfig.GetAuthLoginURL()
-		if resp.SSOEnable {
-			resp.Connection = "okta-amd"
-		} else {
-			resp.Connection = "local"
-		}
+		resp.Connection = commonconfig.GetAuthConnection()
+		resp.AccountsURL = commonconfig.GetAuthAccountsURL()
+		resp.KeysURL = commonconfig.GetAuthKeysConsoleURL()
 		if commonconfig.IsSSOLoginEnable() {
 			if inst := authority.SSOInstance(); inst != nil {
 				resp.SSOLoginUrl = inst.LoginAuthURL()

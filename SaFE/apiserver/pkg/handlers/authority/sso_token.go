@@ -244,7 +244,7 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 		metrics.ObserveLoginFailure(metrics.StageBadRequest)
 		return nil, nil, commonerrors.NewBadRequest("no code in request")
 	}
-	if c.httpClient == nil {
+	if c == nil || c.httpClient == nil {
 		metrics.ObserveLoginFailure(metrics.StageBadRequest)
 		return nil, nil, commonerrors.NewInternalError("http client is nil")
 	}
@@ -268,10 +268,11 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 		metrics.ObserveLoginFailure(metrics.StageUserSync)
 		return nil, nil, err
 	}
-	// With the database on, the ID token is stored and the browser gets a session id.
+	// Builtin mode stores the ID token and gives the browser a session id.
+	// External mode keeps the identity-issued token so the authenticator chain can validate it.
 	userToken := rawIDToken
 	expire := userInfo.Exp
-	if commonconfig.IsDBEnable() {
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal && commonconfig.IsDBEnable() {
 		if userToken, err = c.updateUserInfoInDB(ctx, rawIDToken, userInfo); err != nil {
 			metrics.ObserveLoginFailure(metrics.StageDBSession)
 			return nil, nil, err

@@ -77,6 +77,7 @@ func newBuiltinKeyActorEnv(t *testing.T, actors []string, authenticators func(e 
 	}
 	// The chain above runs only in external mode.
 	viper.Set("auth.mode", "external")
+	viper.Set("auth.allow_oidc_only", true)
 	viper.Set("auth.authenticators", chain)
 	viper.Set("auth.key_actors", actors)
 

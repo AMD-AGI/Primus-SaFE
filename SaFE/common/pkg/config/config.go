@@ -7,6 +7,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -829,6 +830,12 @@ type SandboxAdmissionConfig struct {
 	Actor string
 	// DetailType is the authorization_details type that names the Workload.
 	DetailType string
+	// Annotation is the Workload annotation that carries the assertion.
+	Annotation string
+	// Kind is the workload kind an authorization detail must name. Empty matches the Workload's own kind.
+	Kind string
+	// CAFile is a PEM bundle added to the key-set client's trust store. Empty uses the system pool.
+	CAFile string
 }
 
 // IsSandboxAdmissionEnable reports whether sandbox Workloads are checked against the identity assertion
@@ -866,11 +873,14 @@ func GetSandboxAdmissionConfig() SandboxAdmissionConfig {
 		JWKS:       getString(sandboxAdmissionJWKS, ""),
 		JWKSURL:    jwksURL,
 		Issuer:     issuer,
-		Audience:   strings.TrimSpace(getString(sandboxAdmissionAudience, "agent-sandbox-admission")),
-		TokenType:  strings.TrimSpace(getString(sandboxAdmissionTokenType, "assertion+jwt")),
-		Algorithm:  strings.TrimSpace(getString(sandboxAdmissionAlgorithm, "ES256")),
+		Audience:   strings.TrimSpace(getString(sandboxAdmissionAudience, "")),
+		TokenType:  strings.TrimSpace(getString(sandboxAdmissionTokenType, "")),
+		Algorithm:  strings.TrimSpace(getString(sandboxAdmissionAlgorithm, "")),
 		Actor:      strings.TrimSpace(getString(sandboxAdmissionActor, "")),
-		DetailType: strings.TrimSpace(getString(sandboxAdmissionDetailType, "agent-sandbox-workload")),
+		DetailType: strings.TrimSpace(getString(sandboxAdmissionDetailType, "")),
+		Annotation: strings.TrimSpace(getString(sandboxAdmissionAnnotation, "")),
+		Kind:       strings.TrimSpace(getString(sandboxAdmissionKind, "")),
+		CAFile:     strings.TrimSpace(getString(sandboxAdmissionCAFile, "")),
 	}
 }
 
@@ -1119,8 +1129,41 @@ func GetAuthAPIKeysURL() string {
 }
 
 // GetAuthLoginURL returns auth.login_url, where the console sends users to sign in when
-// authentication is external.
+// authentication is external. External mode requires it.
 func GetAuthLoginURL() string { return getString(authLoginURL, "") }
+
+// AllowOIDCOnly reports auth.allow_oidc_only. Off by default: an external chain then needs
+// an introspection or builtin authenticator.
+func AllowOIDCOnly() bool { return getBool(authAllowOIDCOnly, false) }
+
+// ProviderClientEnabled reports auth.provider_client. Off by default: the apiserver does not
+// call the identity service to register a SCIM target or to forward a status change.
+func ProviderClientEnabled() bool { return getBool(authProviderClient, false) }
+
+// GetAuthConnection returns auth.connection. Empty omits the connection parameter.
+func GetAuthConnection() string { return strings.TrimSpace(getString(authConnection, "")) }
+
+// GetAuthAccountsURL returns auth.accounts_url when it is a path or an http(s) URL.
+func GetAuthAccountsURL() string { return consoleURL(getString(authAccountsURL, "")) }
+
+// GetAuthKeysConsoleURL returns auth.keys_console_url when it is a path or an http(s) URL.
+func GetAuthKeysConsoleURL() string { return consoleURL(getString(authKeysConsoleURL, "")) }
+
+// consoleURL keeps a path or an absolute http(s) URL and drops anything else.
+func consoleURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") && !strings.ContainsAny(raw, "\\ \t\r\n") {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return ""
+	}
+	return raw
+}
 
 // DefaultSCIMTokenSecret is the Secret the apiserver creates for the SCIM bearer token
 // when auth.scim.token_secret is unset.

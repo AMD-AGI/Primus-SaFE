@@ -323,8 +323,8 @@ func TestExternalJITCreatesAndRefreshesUser(t *testing.T) {
 	require.Len(t, list.Items, 1)
 }
 
-// TestExternalLocalAccountIsDefault records a username/password account as default, and
-// moves an existing sso record to default. A default record is never rewritten as sso.
+// TestExternalLocalAccountIsDefault records a new username/password account as default.
+// An existing sso record is not rewritten. A default record is never rewritten as sso.
 func TestExternalLocalAccountIsDefault(t *testing.T) {
 	e := newExtEnv(t, nil, false)
 	e.revUsers["local"] = map[string]any{
@@ -343,7 +343,7 @@ func TestExternalLocalAccountIsDefault(t *testing.T) {
 	e.revUsers["old"] = map[string]any{"sub": "old-id", "username": "old", "name": "Old", "user_type": "default"}
 	_, err = extParse(t, http.MethodGet, "/apis/v1/users", "old")
 	require.NoError(t, err)
-	require.Equal(t, v1.DefaultUserType, e.user("old-id").Spec.Type)
+	require.Equal(t, v1.SSOUserType, e.user("old-id").Spec.Type)
 
 	kept := &v1.User{}
 	kept.Name = "kept-id"

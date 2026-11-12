@@ -598,7 +598,7 @@ func (h *Handler) DeleteUserRecord(ctx context.Context, user *v1.User) error {
 // restricted type changes. Builtin mode does nothing. Only a credential an identity provider accepted
 // is forwarded; any other credential gets a conflict. The local user is not updated when this returns an error.
 func forwardIdentityStatus(c *gin.Context, user *v1.User, req *view.PatchUserRequest) error {
-	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal || req.RestrictedType == nil {
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal || req.RestrictedType == nil || !commonconfig.ProviderClientEnabled() {
 		return nil
 	}
 	status, ok := identityStatus(*req.RestrictedType, user.Spec.RestrictedType)
@@ -644,13 +644,19 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	// External mode leaves every sign-in to the identity service.
+	// External mode refuses a password sign-in. An authorization code is exchanged here and the
+	// identity-issued token is kept.
 	ssoOn := commonconfig.IsSSOEnable() || commonconfig.IsSSOLoginEnable()
-	if err = refuseExternal("sign-in through this endpoint"); err != nil {
-		c.Set(common.UserId, "login-failed:"+query.Name)
-		c.Set(common.UserName, query.Name)
-		c.Set(common.UserType, string(query.Type))
-		return nil, err
+	externalCode := commonconfig.GetAuthMode() == commonconfig.AuthModeExternal &&
+		query.Type == v1.SSOUserType && query.Code != "" && query.CodeVerifier != "" &&
+		commonconfig.IsSSOLoginEnable()
+	if !externalCode {
+		if err = refuseExternal("sign-in through this endpoint"); err != nil {
+			c.Set(common.UserId, "login-failed:"+query.Name)
+			c.Set(common.UserName, query.Name)
+			c.Set(common.UserType, string(query.Type))
+			return nil, err
+		}
 	}
 	var tokenInstance authority.TokenInterface
 	if query.Type == v1.SSOUserType {

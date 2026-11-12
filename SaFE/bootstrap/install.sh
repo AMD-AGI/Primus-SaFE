@@ -72,41 +72,14 @@ convert_to_boolean() {
   fi
 }
 
-# Copy the identity introspection client Secret into this namespace. An existing Secret is kept.
-# A missing identity namespace or Secret is skipped. The value is not printed.
+# Record an introspection client Secret that already exists in this namespace.
+# The chart mounts auth.client_secret from this namespace.
 ensure_identity_auth_secret() {
   local target="primus-safe-auth-client"
-  local source_ns="primus-identity"
-  local source_name="$target"
-  local encoded=""
-
   if kubectl get secret "$target" -n "$NAMESPACE" >/dev/null 2>&1; then
-    echo "⚠️ Auth client secret $target already exists in namespace \"$NAMESPACE\", keeping existing secret."
+    echo "Auth client secret $target is present in namespace \"$NAMESPACE\"."
     auth_client_secret_installed="$target"
-    return 0
   fi
-  if ! kubectl get namespace "$source_ns" >/dev/null 2>&1; then
-    echo "⚠️ Identity namespace $source_ns is absent, skipping auth client secret."
-    return 0
-  fi
-  if ! kubectl get secret "$source_name" -n "$source_ns" >/dev/null 2>&1; then
-    echo "⚠️ Identity secret ${source_ns}/${source_name} is absent, skipping auth client secret."
-    return 0
-  fi
-
-  encoded=$(kubectl get secret "$source_name" -n "$source_ns" -o jsonpath="{.data['client-secret']}" 2>/dev/null || true)
-  if [[ -z "$encoded" ]]; then
-    encoded=$(kubectl get secret "$source_name" -n "$source_ns" -o jsonpath="{.data['client_secret']}" 2>/dev/null || true)
-  fi
-  if [[ -z "$encoded" ]]; then
-    echo "⚠️ Identity secret ${source_ns}/${source_name} has no client secret, skipping."
-    return 0
-  fi
-
-  kubectl -n "$NAMESPACE" create secret generic "$target" \
-    --from-literal=client-secret="$(printf '%s' "$encoded" | base64 -d)"
-  auth_client_secret_installed="$target"
-  echo "✅ Auth client secret($target) copied from ${source_ns}/${source_name}"
 }
 
 ensure_opensearch_secret() {

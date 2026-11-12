@@ -22,6 +22,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -114,6 +115,19 @@ func warnStoredPlatformRoles(cfgs []commonconfig.AuthenticatorConfig) {
 func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error) {
 	if len(cfgs) == 0 {
 		return nil, errors.New("auth.mode is external but auth.authenticators is empty")
+	}
+	if !commonconfig.AllowOIDCOnly() {
+		fallback := false
+		for _, c := range cfgs {
+			t := strings.ToLower(c.Type)
+			if t == "introspection" || t == "builtin" {
+				fallback = true
+				break
+			}
+		}
+		if !fallback {
+			return nil, errors.New("auth.mode is external but auth.authenticators has no introspection or builtin entry; set auth.allow_oidc_only to accept an oidc-only chain")
+		}
 	}
 	var list []extauth.Authenticator
 	for i, c := range cfgs {
@@ -302,7 +316,6 @@ func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) (*
 	user := &v1.User{}
 	err := st.client.Get(ctx, client.ObjectKey{Name: id.ID}, user)
 	if err == nil {
-		st.adoptLocalAccount(ctx, user, id)
 		st.refreshUser(ctx, user, id)
 		return user, nil
 	}
@@ -334,18 +347,36 @@ func accountType(id *extauth.Identity) v1.UserType {
 	return v1.SSOUserType
 }
 
-// adoptLocalAccount records a username/password account as default. A record that is already
-// default is left alone, and a default record is never rewritten as sso. A patch that the
-// admission webhook refuses is logged and the request goes on.
-func (st *externalAuth) adoptLocalAccount(ctx context.Context, user *v1.User, id *extauth.Identity) {
-	if accountType(id) != v1.DefaultUserType || user.Spec.Type == v1.DefaultUserType {
-		return
+// CheckExternalDeployment rejects an external configuration that cannot sign in, grant an
+// administrator, or resolve a SCIM base URL while SCIM is enabled. Builtin mode returns nil.
+func CheckExternalDeployment() error {
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
+		return nil
 	}
-	patch := client.MergeFrom(user.DeepCopy())
-	user.Spec.Type = v1.DefaultUserType
-	if err := st.client.Patch(ctx, user, patch); err != nil {
-		klog.ErrorS(err, "failed to record a local account; continuing", "user", id.ID)
+	if strings.TrimSpace(commonconfig.GetAuthLoginURL()) == "" {
+		return errors.New("auth.mode is external but auth.login_url is empty")
 	}
+	mappings, err := commonconfig.GetAuthGroupMappings()
+	if err != nil {
+		return err
+	}
+	admin := false
+	for _, m := range mappings {
+		for _, role := range m.Roles {
+			if role == string(v1.SystemAdminRole) {
+				admin = true
+			}
+		}
+	}
+	if !admin {
+		return errors.New("auth.mode is external but auth.group_mappings grants system-admin to no group")
+	}
+	if commonconfig.IsSCIMEnabled() {
+		if _, err = identity.ResolveBase(); err != nil {
+			return fmt.Errorf("auth.scim is enabled but auth.scim.identity_url cannot be resolved: %w", err)
+		}
+	}
+	return nil
 }
 
 // refreshUser makes the name and email annotations of an existing record follow the

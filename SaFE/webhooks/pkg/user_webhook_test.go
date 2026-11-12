@@ -16,6 +16,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 )
 
@@ -139,9 +140,11 @@ func TestUserValidateRequiredParams(t *testing.T) {
 	v := &UserValidator{}
 	assert.NilError(t, v.validateRequiredParams(validUser("u1")))
 	assert.Assert(t, v.validateRequiredParams(&v1.User{Spec: v1.UserSpec{Type: "bad"}}) != nil)
-	assert.NilError(t, v.validateRequiredParams(&v1.User{
-		Spec: v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.DefaultRole}},
-	}))
+	noPassword := &v1.User{Spec: v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.DefaultRole}}}
+	assert.Assert(t, v.validateRequiredParams(noPassword) != nil)
+	commonconfig.SetValue("auth.mode", "external")
+	t.Cleanup(func() { commonconfig.UnsetValue("auth.mode") })
+	assert.NilError(t, v.validateRequiredParams(noPassword))
 }
 
 // TestUserValidateImmutableFields verifies type/name immutability.
@@ -156,6 +159,9 @@ func TestUserValidateImmutableFields(t *testing.T) {
 
 	sso := validUser("u1")
 	sso.Spec.Type = v1.SSOUserType
+	assert.Assert(t, v.validateImmutableFields(validUser("u1"), sso) != nil)
+	commonconfig.SetValue("auth.mode", "external")
+	t.Cleanup(func() { commonconfig.UnsetValue("auth.mode") })
 	assert.NilError(t, v.validateImmutableFields(validUser("u1"), sso))
 }
 

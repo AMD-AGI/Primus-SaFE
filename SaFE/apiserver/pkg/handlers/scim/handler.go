@@ -356,6 +356,7 @@ func parsePatch(c *gin.Context) (parsedPatch, error) {
 }
 
 // groupsOf reads a replace of groups, a JSON array of group names.
+// RFC 7643 defines groups as read-only. This server accepts the replace as an extension.
 func groupsOf(op patchOp) ([]string, bool) {
 	if !strings.EqualFold(strings.TrimSpace(op.Op), "replace") || !strings.EqualFold(strings.TrimSpace(op.Path), "groups") {
 		return nil, false
@@ -368,18 +369,35 @@ func groupsOf(op patchOp) ([]string, bool) {
 }
 
 // applyMappedRoles replaces the platform roles on user with the roles auth.group_mappings gives groups.
-// Roles that are not platform roles stay. It reports whether spec.roles changed.
+// A role that some mapping can grant is dropped when the new groups do not grant it.
+// A role that no mapping grants stays. It reports whether spec.roles changed.
 func applyMappedRoles(user *v1.User, groups []string) (bool, error) {
 	mappings, err := commonconfig.GetAuthGroupMappings()
 	if err != nil {
 		return false, err
 	}
+	grantable := map[v1.UserRole]struct{}{}
+	for _, m := range mappings {
+		for _, role := range m.Roles {
+			grantable[v1.UserRole(role)] = struct{}{}
+		}
+	}
 	mapped := extauth.MapGroups(user.Name, groups, mappings, false).Roles
+	granted := map[v1.UserRole]struct{}{}
+	for _, r := range mapped {
+		granted[r] = struct{}{}
+	}
 	next := make([]v1.UserRole, 0, len(user.Spec.Roles)+len(mapped))
 	for _, r := range user.Spec.Roles {
-		if !v1.IsContainRole(extauth.PlatformRoles, r) {
-			next = append(next, r)
+		if v1.IsContainRole(extauth.PlatformRoles, r) {
+			continue
 		}
+		if _, ok := grantable[r]; ok {
+			if _, still := granted[r]; !still {
+				continue
+			}
+		}
+		next = append(next, r)
 	}
 	for _, r := range mapped {
 		if !v1.IsContainRole(next, r) {

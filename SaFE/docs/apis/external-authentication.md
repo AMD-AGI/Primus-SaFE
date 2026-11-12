@@ -194,14 +194,29 @@ auth_scim_public_url=https://console.example.com/scim/v2
 auth_scim_token_secret=primus-safe-scim-token
 ```
 
-They set `auth.mode`, `auth.login_url`, `auth.client_secret` (the name of the Secret that holds the introspection client secret, not the secret itself), `auth.authenticators`, `auth.group_mappings`, `auth.key_actors`, and the SCIM settings `auth.scim.enabled`, `auth.scim.identity_url`, `auth.scim.public_url` and `auth.scim.token_secret` (`auth_scim_enabled` is `true` or `false`). Values that are not usable (a JSON key that is not an array, a mode that is neither `builtin` nor `external`, `external` without authenticators) stop the upgrade before it changes anything; the script needs `jq` when `.env` sets any of them (`auth_mode=builtin` on its own excepted) and to upgrade a release that is already external when `.env` sets `auth_mode=external`; a release that is not external upgrades without it.
+They set `auth.mode`, `auth.login_url`, `auth.client_secret` (the name of the Secret in the release namespace that holds the introspection client secret, not the secret itself), `auth.authenticators`, `auth.group_mappings`, `auth.key_actors`, and the SCIM settings `auth.scim.enabled`, `auth.scim.identity_url`, `auth.scim.public_url` and `auth.scim.token_secret` (`auth_scim_enabled` is `true` or `false`). Values that are not usable (a JSON key that is not an array, a mode that is neither `builtin` nor `external`, `external` without authenticators, without `login_url`, without a group granted `system-admin`, without an introspection or builtin authenticator unless `auth.allow_oidc_only` is true, or with SCIM enabled and no resolvable identity URL) stop the upgrade before it changes anything; the script needs `jq` when `.env` sets any of them (`auth_mode=builtin` on its own excepted) and to upgrade a release that is already external when `.env` sets `auth_mode=external`; a release that is not external upgrades without it.
 
-Omitting `auth_mode` renders the chart default `builtin`, including on a release that is already `external`. Setting `auth_mode=external` refuses an upgrade that would drop another key the release has: the script exits non-zero before it applies anything and names the missing keys; copy them from `helm -n primus-safe get values primus-safe -o json | jq .auth`. With `auth_mode=external` it also refuses when it cannot read the running release.
+An introspection authenticator sets `allow_missing_audience: true`. An API key's introspection answer names no audience.
+
+`auth.login_url` is required when `auth.mode` is `external`. The chart does not derive it. `auth.provider_client` is off by default: the apiserver serves SCIM and does not call the identity service to register the target or to forward a status change. `auth.connection`, `auth.accounts_url` and `auth.keys_console_url` are what `GET /envs` returns for the console. An empty connection omits that parameter on the authorize request.
+
+`rbac.subject_prefix` is the same value a consumer sets as `RBAC_SUBJECT_PREFIX`. Builtin mode projects platform administrators as Users and writes no Groups. External mode binds platform roles only to the Groups `<prefix>system-admin` and `<prefix>system-admin-readonly`, so the mapped group names are those names. Sandbox admission and a SubjectAccessReview of a sandbox user need external mode and those mappings. `auth.group_mappings` is read when resource-manager starts. The SCIM server accepts a replace of `groups`; RFC 7643 defines that attribute as read-only, and this replace is an extension.
+
+Omitting `auth_mode` on a release that is not external renders the chart default `builtin`. Omitting it on a release that is already `external` is refused. Setting `auth_mode=external` refuses an upgrade that would drop another key the release has: the script exits non-zero before it applies anything and names the missing keys; copy them from `helm -n primus-safe get values primus-safe -o json | jq .auth`. With `auth_mode=external` it also refuses when it cannot read the running release.
+
+The client Secret is created in the release namespace. The chart mounts that Secret and does not read another namespace.
+
+## Turning external authentication on
+
+1. The identity provider is serving discovery, token, introspection and, when SCIM is enabled, the SCIM client.
+2. The client Secret exists in the SaFE namespace.
+3. The SCIM target is configured on the provider. `auth.provider_client` stays off unless this deployment should register that target itself.
+4. The database job has finished.
+5. `auth.authenticators` is `oidc`, then `introspection`, then `builtin`.
+6. Sign-in, `GET /users/self`, API keys and the LLM proxy succeed.
 
 ## Rolling back
 
 Set `auth.mode: builtin` and roll the apiserver. No user object or table is changed by either mode, and the endpoints listed under "What the apiserver stops offering" work again.
 
-With `bootstrap/upgrade.sh` or the CD job, `auth_mode=builtin` in `.env` renders builtin. Leaving `auth_mode` unset renders builtin. To run external again, set `auth_mode=external` and the other `auth_*` keys.
-
-On Higress the same upgrade removes Ingress `primus-identity-login`, which sends the console host's `POST /api/login` and `POST /api/logout` to the identity service. The next external upgrade renders it again.
+With `bootstrap/upgrade.sh` or the CD job, `auth_mode=builtin` in `.env` renders builtin. Leaving `auth_mode` unset on an external release is refused. To run external again, set `auth_mode=external` and the other `auth_*` keys.
