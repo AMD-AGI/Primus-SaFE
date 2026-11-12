@@ -230,19 +230,21 @@ class GpuSampler:
         env["PYTHONPATH"] = os.pathsep.join(filter(None, [os.path.dirname(os.path.dirname(os.path.abspath(
             __file__))), env.get("PYTHONPATH")]))
         try:
-            self._proc = subprocess.Popen(self.command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env,
-                                          text=True, start_new_session=True)
+            proc = subprocess.Popen(self.command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env,
+                                    text=True, start_new_session=True)
         except OSError as e:
             return "cannot start the sampler: %s" % e
+        # stop() clears self._proc from another thread, so the loop reads through its own reference.
+        self._proc = proc
         deadline = self.startup
         try:
             while not self._stop.is_set():
-                ready, _, _ = select.select([self._proc.stdout], [], [], deadline)
+                ready, _, _ = select.select([proc.stdout], [], [], deadline)
                 if not ready:
                     return "no GPU reading for %d seconds" % deadline
-                line = self._proc.stdout.readline()
+                line = proc.stdout.readline()
                 if not line:
-                    return "the sampler exited with code %s" % self._proc.wait()
+                    return "the sampler exited with code %s" % proc.wait()
                 self._report(line)
                 deadline = self.interval + self.timeout
         finally:
