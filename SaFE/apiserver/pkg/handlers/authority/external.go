@@ -302,6 +302,7 @@ func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) (*
 	user := &v1.User{}
 	err := st.client.Get(ctx, client.ObjectKey{Name: id.ID}, user)
 	if err == nil {
+		st.adoptLocalAccount(ctx, user, id)
 		st.refreshUser(ctx, user, id)
 		return user, nil
 	}
@@ -316,12 +317,35 @@ func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) (*
 				v1.UserEmailAnnotation: id.Email,
 			},
 		},
-		Spec: v1.UserSpec{Type: v1.SSOUserType},
+		Spec: v1.UserSpec{Type: accountType(id)},
 	}
 	if err = client.IgnoreAlreadyExists(st.client.Create(ctx, user)); err != nil {
 		return nil, err
 	}
 	return user, nil
+}
+
+// accountType is the user type to store. A username/password account is default. An answer
+// that names anything else, or names nothing, is sso.
+func accountType(id *extauth.Identity) v1.UserType {
+	if id != nil && id.AccountType == string(v1.DefaultUserType) {
+		return v1.DefaultUserType
+	}
+	return v1.SSOUserType
+}
+
+// adoptLocalAccount records a username/password account as default. A record that is already
+// default is left alone, and a default record is never rewritten as sso. A patch that the
+// admission webhook refuses is logged and the request goes on.
+func (st *externalAuth) adoptLocalAccount(ctx context.Context, user *v1.User, id *extauth.Identity) {
+	if accountType(id) != v1.DefaultUserType || user.Spec.Type == v1.DefaultUserType {
+		return
+	}
+	patch := client.MergeFrom(user.DeepCopy())
+	user.Spec.Type = v1.DefaultUserType
+	if err := st.client.Patch(ctx, user, patch); err != nil {
+		klog.ErrorS(err, "failed to record a local account; continuing", "user", id.ID)
+	}
 }
 
 // refreshUser makes the name and email annotations of an existing record follow the

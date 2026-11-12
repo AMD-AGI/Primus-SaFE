@@ -60,9 +60,9 @@ type extEnv struct {
 	userPatches atomic.Int64
 }
 
-// userWebhook stands in for the user admission webhook on the fake cluster: the user's
-// type is immutable, and so is the user name of a local (default) account, the same
-// rules as validateImmutableFields in the webhooks package.
+// userWebhook stands in for the user admission webhook on the fake cluster. Type may move
+// from sso to default, and the user name of a local account is immutable, the same rules
+// as validateImmutableFields in the webhooks package.
 func (e *extEnv) userWebhook() interceptor.Funcs {
 	return interceptor.Funcs{
 		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
@@ -73,7 +73,8 @@ func (e *extEnv) userWebhook() interceptor.Funcs {
 				}
 				old := &v1.User{}
 				if err := c.Get(ctx, client.ObjectKeyFromObject(u), old); err == nil {
-					if u.Spec.Type != old.Spec.Type {
+					if u.Spec.Type != old.Spec.Type &&
+						(old.Spec.Type != v1.SSOUserType || u.Spec.Type != v1.DefaultUserType) {
 						return apierrors.NewBadRequest("spec.type: Forbidden: immutable")
 					}
 					if u.Spec.Type == v1.DefaultUserType && v1.GetUserName(u) != v1.GetUserName(old) {
@@ -320,6 +321,40 @@ func TestExternalJITCreatesAndRefreshesUser(t *testing.T) {
 	list := &v1.UserList{}
 	require.NoError(t, e.cli.List(context.Background(), list))
 	require.Len(t, list.Items, 1)
+}
+
+// TestExternalLocalAccountIsDefault records a username/password account as default, and
+// moves an existing sso record to default. A default record is never rewritten as sso.
+func TestExternalLocalAccountIsDefault(t *testing.T) {
+	e := newExtEnv(t, nil, false)
+	e.revUsers["local"] = map[string]any{
+		"sub": "local-id", "username": "local", "name": "Local", "email": "local@example.test", "user_type": "default",
+	}
+	_, err := extParse(t, http.MethodGet, "/apis/v1/users", "local")
+	require.NoError(t, err)
+	require.Equal(t, v1.DefaultUserType, e.user("local-id").Spec.Type)
+	require.Equal(t, "Local", v1.GetUserName(e.user("local-id")))
+
+	sso := &v1.User{}
+	sso.Name = "old-id"
+	sso.Spec.Type = v1.SSOUserType
+	v1.SetAnnotation(sso, v1.UserNameAnnotation, "Old")
+	require.NoError(t, e.cli.Create(context.Background(), sso))
+	e.revUsers["old"] = map[string]any{"sub": "old-id", "username": "old", "name": "Old", "user_type": "default"}
+	_, err = extParse(t, http.MethodGet, "/apis/v1/users", "old")
+	require.NoError(t, err)
+	require.Equal(t, v1.DefaultUserType, e.user("old-id").Spec.Type)
+
+	kept := &v1.User{}
+	kept.Name = "kept-id"
+	kept.Spec.Type = v1.DefaultUserType
+	v1.SetAnnotation(kept, v1.UserNameAnnotation, "Kept")
+	require.NoError(t, e.cli.Create(context.Background(), kept))
+	e.revUsers["kept"] = map[string]any{"sub": "kept-id", "username": "kept", "name": "Renamed"}
+	_, err = extParse(t, http.MethodGet, "/apis/v1/users", "kept")
+	require.NoError(t, err)
+	require.Equal(t, v1.DefaultUserType, e.user("kept-id").Spec.Type)
+	require.Equal(t, "Kept", v1.GetUserName(e.user("kept-id")))
 }
 
 // The identity provider names existing users by their SaFE user id, so a login can land

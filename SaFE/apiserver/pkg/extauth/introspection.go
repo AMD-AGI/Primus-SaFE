@@ -330,6 +330,7 @@ type introspectionAnswer struct {
 	Username   string          `json:"username"`
 	Name       string          `json:"name"`
 	Email      string          `json:"email"`
+	UserType   string          `json:"user_type"`
 	Groups     []string        `json:"groups"`
 	Roles      []string        `json:"roles"`
 	Scope      string          `json:"scope"`
@@ -468,7 +469,7 @@ func (a *IntrospectionAuthenticator) identity(r *introspectionAnswer) (*Identity
 		return nil, nil
 	}
 	id := &Identity{
-		ID: r.Sub, Name: r.Name, Email: r.Email, Jti: r.Jti, Restricted: r.Restricted,
+		ID: r.Sub, Name: r.Name, Email: r.Email, AccountType: r.UserType, Jti: r.Jti, Restricted: r.Restricted,
 		Groups: unionOf(r.Groups, r.Roles), Scopes: strings.Fields(r.Scope),
 	}
 	if id.Name == "" {

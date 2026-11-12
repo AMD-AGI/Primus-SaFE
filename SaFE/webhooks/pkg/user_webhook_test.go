@@ -139,9 +139,9 @@ func TestUserValidateRequiredParams(t *testing.T) {
 	v := &UserValidator{}
 	assert.NilError(t, v.validateRequiredParams(validUser("u1")))
 	assert.Assert(t, v.validateRequiredParams(&v1.User{Spec: v1.UserSpec{Type: "bad"}}) != nil)
-	assert.Assert(t, v.validateRequiredParams(&v1.User{
+	assert.NilError(t, v.validateRequiredParams(&v1.User{
 		Spec: v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.DefaultRole}},
-	}) != nil)
+	}))
 }
 
 // TestUserValidateImmutableFields verifies type/name immutability.
@@ -153,6 +153,10 @@ func TestUserValidateImmutableFields(t *testing.T) {
 	changed := validUser("u1")
 	changed.Spec.Type = v1.SSOUserType
 	assert.Assert(t, v.validateImmutableFields(changed, oldUser) != nil)
+
+	sso := validUser("u1")
+	sso.Spec.Type = v1.SSOUserType
+	assert.NilError(t, v.validateImmutableFields(validUser("u1"), sso))
 }
 
 // TestUserValidateRoles verifies referenced roles existence.
