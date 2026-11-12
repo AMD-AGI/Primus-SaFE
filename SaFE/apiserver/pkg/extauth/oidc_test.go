@@ -225,6 +225,10 @@ func TestOIDCSignatureAndIssuer(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, testIssuerID, id.ID)
 	})
+	t.Run("a bearer that is not a JWT is judged without the cookie", func(t *testing.T) {
+		_, err := a.Authenticate(context.Background(), Credentials{Bearer: "ak-opaque", Cookie: f.sign("k1", nil)})
+		require.ErrorIs(t, err, ErrNotApplicable)
+	})
 	t.Run("signed by a key the issuer does not publish", func(t *testing.T) {
 		rogue, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		_, err := auth(a, signWith(t, rogue, "k1", jose.ES256, f.claims(nil)))

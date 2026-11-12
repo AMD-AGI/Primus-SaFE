@@ -249,14 +249,12 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 		return nil, nil, commonerrors.NewInternalError("http client is nil")
 	}
 	var (
-		rawIDToken  string
-		accessToken string
-		accessExp   time.Time
-		userInfo    *UserInfo
-		err         error
+		rawIDToken string
+		userInfo   *UserInfo
+		err        error
 	)
 	if input.CodeVerifier != "" {
-		rawIDToken, accessToken, accessExp, userInfo, err = c.exchangeAtLoginProvider(ctx, input)
+		rawIDToken, userInfo, err = c.exchangeAtLoginProvider(ctx, input)
 	} else {
 		rawIDToken, userInfo, err = c.exchangeAtSecretProvider(ctx, input.Code)
 	}
@@ -270,21 +268,10 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 		metrics.ObserveLoginFailure(metrics.StageUserSync)
 		return nil, nil, err
 	}
-	// Builtin mode stores the ID token and hands the browser a session id. External mode hands
-	// the provider's access token: the authenticator chain validates that credential and applies
-	// the groups it carries. A session id is not a credential the chain accepts.
+	// With the database on, the ID token is stored and the browser gets a session id.
 	userToken := rawIDToken
 	expire := userInfo.Exp
-	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
-		if accessToken == "" {
-			metrics.ObserveLoginFailure(metrics.StageTokenExchange)
-			return nil, nil, commonerrors.NewInternalError("no access token in token response")
-		}
-		userToken = accessToken
-		if !accessExp.IsZero() {
-			expire = accessExp.Unix()
-		}
-	} else if commonconfig.IsDBEnable() {
+	if commonconfig.IsDBEnable() {
 		if userToken, err = c.updateUserInfoInDB(ctx, rawIDToken, userInfo); err != nil {
 			metrics.ObserveLoginFailure(metrics.StageDBSession)
 			return nil, nil, err
@@ -336,19 +323,19 @@ func (c *ssoToken) exchangeAtSecretProvider(ctx context.Context, code string) (s
 
 // exchangeAtLoginProvider redeems a code of the sso.login provider as a public client: the client id
 // in the form, no secret, and the PKCE verifier the console kept since it sent the challenge.
-func (c *ssoToken) exchangeAtLoginProvider(ctx context.Context, input TokenInput) (string, string, time.Time, *UserInfo, error) {
+func (c *ssoToken) exchangeAtLoginProvider(ctx context.Context, input TokenInput) (string, *UserInfo, error) {
 	if c.login == nil {
 		metrics.ObserveLoginFailure(metrics.StageBadRequest)
-		return "", "", time.Time{}, nil, commonerrors.NewBadRequest("a code verifier was sent, but sso.login is not enabled")
+		return "", nil, commonerrors.NewBadRequest("a code verifier was sent, but sso.login is not enabled")
 	}
 	if !codeVerifierPattern.MatchString(input.CodeVerifier) {
 		metrics.ObserveLoginFailure(metrics.StageBadRequest)
-		return "", "", time.Time{}, nil, commonerrors.NewBadRequest("invalid code verifier")
+		return "", nil, commonerrors.NewBadRequest("invalid code verifier")
 	}
 	provider, verifier, err := c.login.get()
 	if err != nil {
 		metrics.ObserveLoginFailure(metrics.StageTokenExchange)
-		return "", "", time.Time{}, nil, commonerrors.NewInternalError(err.Error())
+		return "", nil, commonerrors.NewInternalError(err.Error())
 	}
 	config := &oauth2.Config{
 		ClientID: c.login.clientId,
@@ -366,19 +353,19 @@ func (c *ssoToken) exchangeAtLoginProvider(ctx context.Context, input TokenInput
 	metrics.ObserveIdPRequest(metrics.OpTokenExchange, exchangeStart, err)
 	if err != nil {
 		metrics.ObserveLoginFailure(metrics.StageTokenExchange)
-		return "", "", time.Time{}, nil, commonerrors.NewInternalError(fmt.Sprintf("failed to get token: %v", err))
+		return "", nil, commonerrors.NewInternalError(fmt.Sprintf("failed to get token: %v", err))
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
 		metrics.ObserveLoginFailure(metrics.StageTokenExchange)
-		return "", "", time.Time{}, nil, commonerrors.NewInternalError("no id_token in token response")
+		return "", nil, commonerrors.NewInternalError("no id_token in token response")
 	}
 	userInfo, err := c.verifyWith(ctx, verifier, rawIDToken)
 	if err != nil {
 		metrics.ObserveLoginFailure(metrics.StageTokenVerify)
-		return "", "", time.Time{}, nil, err
+		return "", nil, err
 	}
-	return rawIDToken, token.AccessToken, token.Expiry, userInfo, nil
+	return rawIDToken, userInfo, nil
 }
 
 // Validate verifies the user token based on the provided rawToken

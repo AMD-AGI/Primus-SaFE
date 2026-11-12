@@ -106,7 +106,15 @@ PY
 esac
 exit 0
 EOF
-printf '#!/bin/bash\necho "kubectl $*" >> "$FAKE_LOG"\nexit 0\n' > "$W/bin/kubectl"
+# FAKE_INGRESS_OWNER is the <release>/<namespace> that `kubectl get ingress` reports; unset, it reports none.
+cat > "$W/bin/kubectl" <<'EOF'
+#!/bin/bash
+echo "kubectl $*" >> "$FAKE_LOG"
+if [[ "$1 $2" == "get ingress" && -n "${FAKE_INGRESS_OWNER:-}" ]]; then
+  echo "$FAKE_INGRESS_OWNER"
+fi
+exit 0
+EOF
 printf '#!/bin/bash\nexit 0\n' > "$W/bin/sleep"
 chmod +x "$W/bin/"*
 # A PATH without jq, for a host that has helm and kubectl only.
@@ -312,6 +320,16 @@ expect "higress builtin: deletes the route" grep -qxF 'kubectl delete ingress pr
 expect "higress builtin: deletes the console scim route" grep -qxF 'kubectl delete ingress primus-safe-scim -n primus-safe --ignore-not-found' "$FAKE_LOG"
 run_upgrade "$LIVE_BUILTIN" ""
 expect "nginx builtin: leaves the higress route alone" bash -c '! grep -q primus-identity-login "$1"' _ "$FAKE_LOG"
+# An Ingress of the same name that another release owns is neither adopted nor deleted.
+FAKE_INGRESS_OWNER=other/other-ns run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"$'\ningress=higress'
+expect "higress external, route of another release: refused" bash -c '[[ $1 -ne 0 ]] && ! grep -q "helm upgrade" "$2"' _ "$RC" "$FAKE_LOG"
+expect "higress external, route of another release: not adopted" bash -c '! grep -q "kubectl annotate" "$1"' _ "$FAKE_LOG"
+expect "higress external, route of another release: names the owner" grep -q 'owned by release other/other-ns' "$OUT/log"
+FAKE_INGRESS_OWNER=other/other-ns run_upgrade "$LIVE_EXTERNAL" $'auth_mode=builtin\ningress=higress'
+expect "higress builtin, route of another release: applied" applied
+expect "higress builtin, route of another release: not deleted" bash -c '! grep -q "kubectl delete ingress" "$1"' _ "$FAKE_LOG"
+FAKE_INGRESS_OWNER=primus-safe/primus-safe run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"$'\ningress=higress'
+expect "higress external, route of this release: applied" applied
 
 # 8. A release that is builtin has nothing to lose.
 run_upgrade "$LIVE_BUILTIN" ""

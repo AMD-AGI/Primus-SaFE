@@ -644,17 +644,13 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	// External mode exchanges only a code from sso.login, which carries a PKCE verifier.
-	// A code for the sso Secret provider, and a local password, are refused.
-	identityCode := query.Type == v1.SSOUserType && query.CodeVerifier != "" && commonconfig.IsSSOLoginEnable()
+	// External mode leaves every sign-in to the identity service.
 	ssoOn := commonconfig.IsSSOEnable() || commonconfig.IsSSOLoginEnable()
-	if !identityCode {
-		if err = refuseExternal("sign-in through this endpoint"); err != nil {
-			c.Set(common.UserId, "login-failed:"+query.Name)
-			c.Set(common.UserName, query.Name)
-			c.Set(common.UserType, string(query.Type))
-			return nil, err
-		}
+	if err = refuseExternal("sign-in through this endpoint"); err != nil {
+		c.Set(common.UserId, "login-failed:"+query.Name)
+		c.Set(common.UserName, query.Name)
+		c.Set(common.UserType, string(query.Type))
+		return nil, err
 	}
 	var tokenInstance authority.TokenInterface
 	if query.Type == v1.SSOUserType {

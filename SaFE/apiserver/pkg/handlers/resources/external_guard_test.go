@@ -391,6 +391,19 @@ func TestExternalModeRefusesSecretProviderCode(t *testing.T) {
 	assert.Contains(t, w.Body.String(), refusal)
 }
 
+// External mode leaves sign-in to the identity service: a PKCE code from sso.login is refused too.
+func TestExternalModeRefusesLoginProviderCode(t *testing.T) {
+	commonconfig.SetValue("sso.login.enable", "true")
+	t.Cleanup(func() { commonconfig.SetValue("sso.login.enable", "") })
+	require.True(t, commonconfig.IsSSOLoginEnable())
+	e := guardEngine(t, false)
+	body := `{"type":"sso","code":"c","codeVerifier":"` + strings.Repeat("v", 43) + `"}`
+	w := guardRequest{method: http.MethodPost, path: "/api/v1/login", body: body}.serve(e)
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), refusal)
+	assert.Empty(t, w.Header().Values("Set-Cookie"))
+}
+
 func TestBuiltinModeServesAccountRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &Handler{Client: sharedGuardCluster(t)}

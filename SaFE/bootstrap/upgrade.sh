@@ -239,52 +239,60 @@ write_auth_values() {
   AUTH_VALUES_FILE="$out"
 }
 
+# sync_release_ingress <name> <namespace> <rendered>: an Ingress the chart renders only in some modes.
+# One that no release owns, or that this release owns, is marked as this release's when <rendered> is
+# true, so Helm adopts it instead of refusing, and deleted when it is false. One that another release
+# owns is left alone: this upgrade refuses to render it, and does not delete it.
+sync_release_ingress() {
+  local name="$1" ns="$2" rendered="$3" owner
+  if ! owner=$(kubectl get ingress "$name" -n "$ns" \
+    -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}/{.metadata.annotations.meta\.helm\.sh/release-namespace}' 2> /dev/null); then
+    return 0
+  fi
+  if [[ -n "$owner" && "$owner" != "/" && "$owner" != "$chart_name/$NAMESPACE" ]]; then
+    if [[ "$rendered" == "true" ]]; then
+      echo "Error: Ingress $ns/$name is owned by release $owner; remove it or its release first" >&2
+      return 1
+    fi
+    echo "Ingress $ns/$name is owned by release $owner; left in place"
+    return 0
+  fi
+  if [[ "$rendered" != "true" ]]; then
+    kubectl delete ingress "$name" -n "$ns" --ignore-not-found
+    return 0
+  fi
+  kubectl annotate ingress "$name" -n "$ns" \
+    "meta.helm.sh/release-name=$chart_name" \
+    "meta.helm.sh/release-namespace=$NAMESPACE" --overwrite
+  kubectl label ingress "$name" -n "$ns" app.kubernetes.io/managed-by=Helm --overwrite
+}
+
 # sync_identity_login_route keeps the console's /api/login and /api/logout on the release.
-# The chart renders that Ingress only for Higress with auth.mode=external, and Helm removes it
-# on the next builtin upgrade once the release owns it. An Ingress created outside the release
-# is deleted here when this upgrade renders builtin, and marked as this release's when it renders
-# external, so Helm can adopt it instead of refusing.
+# The chart renders that Ingress only for Higress with auth.mode=external.
 sync_identity_login_route() {
-  local ns mode
+  local ns rendered=false
   if [[ "${ingress:-}" != "higress" ]]; then
     return 0
   fi
-  mode="${auth_mode:-builtin}"
   ns=$(awk '/^auth:/ {a = 1; next} /^[^ #]/ {a = 0} a && /^  identity_client_secret_namespace:/ {gsub(/["\047]/, "", $2); print $2; exit}' "$values_yaml")
   ns="${ns:-primus-identity}"
-  if [[ "$mode" != "external" ]]; then
-    kubectl delete ingress primus-identity-login -n "$ns" --ignore-not-found
-    return 0
+  if [[ "${auth_mode:-builtin}" == "external" ]]; then
+    rendered=true
   fi
-  if ! kubectl get ingress primus-identity-login -n "$ns" > /dev/null 2>&1; then
-    return 0
-  fi
-  kubectl annotate ingress primus-identity-login -n "$ns" \
-    "meta.helm.sh/release-name=$chart_name" \
-    "meta.helm.sh/release-namespace=$NAMESPACE" --overwrite
-  kubectl label ingress primus-identity-login -n "$ns" app.kubernetes.io/managed-by=Helm --overwrite
+  sync_release_ingress primus-identity-login "$ns" "$rendered"
 }
 
 # sync_console_scim_route keeps /scim/v2 on the console host pointed at the apiserver.
 # The chart renders that Ingress only for Higress with auth.mode=external and SCIM enabled.
-# An Ingress of the same name created outside the release is deleted when this upgrade does not
-# render it, and marked as this release's when it does, so Helm can adopt it.
 sync_console_scim_route() {
-  local name="$chart_name-scim"
+  local rendered=false
   if [[ "${ingress:-}" != "higress" ]]; then
     return 0
   fi
-  if [[ "${auth_mode:-builtin}" != "external" || "${auth_scim_enabled:-true}" == "false" ]]; then
-    kubectl delete ingress "$name" -n "$NAMESPACE" --ignore-not-found
-    return 0
+  if [[ "${auth_mode:-builtin}" == "external" && "${auth_scim_enabled:-true}" != "false" ]]; then
+    rendered=true
   fi
-  if ! kubectl get ingress "$name" -n "$NAMESPACE" > /dev/null 2>&1; then
-    return 0
-  fi
-  kubectl annotate ingress "$name" -n "$NAMESPACE" \
-    "meta.helm.sh/release-name=$chart_name" \
-    "meta.helm.sh/release-namespace=$NAMESPACE" --overwrite
-  kubectl label ingress "$name" -n "$NAMESPACE" app.kubernetes.io/managed-by=Helm --overwrite
+  sync_release_ingress "$chart_name-scim" "$NAMESPACE" "$rendered"
 }
 
 # check_live_sso refuses an upgrade that would silently undo the SSO settings of the running release

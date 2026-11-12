@@ -4,6 +4,7 @@
 #
 # External mode sends the console's POST /api/login and POST /api/logout to the identity service.
 # Builtin mode does not render this Ingress, so an upgrade removes it and those paths stay on the console.
+# Higress serves it with the host's certificate from the console Ingress, so it carries no tls section.
 {{- if and (eq .Values.net.ingress "higress") (eq (default "builtin" .Values.auth.mode) "external") }}
 {{- $idns := default "primus-identity" .Values.auth.identity_client_secret_namespace }}
 apiVersion: networking.k8s.io/v1
@@ -23,21 +24,18 @@ metadata:
       X-Forwarded-For $proxy_add_x_forwarded_for
       X-Forwarded-Proto $scheme
     higress.io/rewrite-target: /api/v1/$1
+    higress.io/use-regex: "true"
     higress.io/route-priority: "200"
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   ingressClassName: higress
-  tls:
-    - hosts:
-        - {{ .Values.global.sub_domain }}.{{ .Values.global.domain }}
-      secretName: {{ .Values.global.tls_secret }}
   rules:
     - host: {{ .Values.global.sub_domain }}.{{ .Values.global.domain }}
       http:
         paths:
           - path: /api/(login|logout)
-            pathType: Prefix
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: primus-identity

@@ -287,28 +287,6 @@ func TestSSOLoginExchangesWithPKCEAsPublicClient(t *testing.T) {
 	assert.Equal(t, wantID, info.Id)
 }
 
-// External mode with the database on still hands the browser the provider's ID token.
-// A session id is not a credential the authenticator chain can validate.
-func TestExternalLoginReturnsTheProviderToken(t *testing.T) {
-	f := newFakeLoginProvider(t)
-	withLoginConfig(t, f.srv.URL)
-	inst, err := initializeSSOToken(newLoginTestClient(t))
-	require.NoError(t, err)
-	commonconfig.SetValue("db.enable", "true")
-	commonconfig.SetValue("auth.mode", "external")
-	t.Cleanup(func() {
-		commonconfig.SetValue("db.enable", "false")
-		commonconfig.SetValue("auth.mode", "")
-	})
-	inst.dbClient = nil
-
-	f.issue("code-ext", loginVerifier)
-	_, resp, err := inst.Login(context.Background(), TokenInput{Code: "code-ext", CodeVerifier: loginVerifier})
-	require.NoError(t, err)
-	assert.Equal(t, "at", resp.Token)
-	assert.InDelta(t, time.Now().Add(300*time.Second).Unix(), resp.Expire, 5)
-}
-
 func TestSSOLoginRefusals(t *testing.T) {
 	f := newFakeLoginProvider(t)
 	withLoginConfig(t, f.srv.URL)
