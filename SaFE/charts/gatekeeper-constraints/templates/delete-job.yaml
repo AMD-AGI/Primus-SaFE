@@ -49,4 +49,5 @@ spec:
                 cat /tmp/resp >&2
                 return 1
               }
+              delete "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadmembership/sandbox-workload-membership"
               delete "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadattestation/sandbox-workload-attestation"

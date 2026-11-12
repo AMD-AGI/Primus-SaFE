@@ -18,11 +18,16 @@ rules:
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
     resourceNames:
+      - sandboxworkloadmembership.constraints.gatekeeper.sh
       - sandboxworkloadattestation.constraints.gatekeeper.sh
     verbs: ["get"]
   - apiGroups: ["constraints.gatekeeper.sh"]
-    resources: ["sandboxworkloadattestation"]
+    resources: ["sandboxworkloadmembership", "sandboxworkloadattestation"]
     verbs: ["create"]
+  - apiGroups: ["constraints.gatekeeper.sh"]
+    resources: ["sandboxworkloadmembership"]
+    resourceNames: ["sandbox-workload-membership"]
+    verbs: ["get", "patch", "update", "delete"]
   - apiGroups: ["constraints.gatekeeper.sh"]
     resources: ["sandboxworkloadattestation"]
     resourceNames: ["sandbox-workload-attestation"]
@@ -114,7 +119,9 @@ spec:
                 cat /tmp/resp >&2
                 return 1
               }
+              wait_crd sandboxworkloadmembership.constraints.gatekeeper.sh sandboxCreator
               wait_crd sandboxworkloadattestation.constraints.gatekeeper.sh identity
+              apply "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadmembership" sandbox-workload-membership /manifests/sandbox-workload-membership.json /manifests/sandbox-workload-membership.spec.json
               apply "${api}/apis/constraints.gatekeeper.sh/v1beta1/sandboxworkloadattestation" sandbox-workload-attestation /manifests/sandbox-workload-attestation.json /manifests/sandbox-workload-attestation.spec.json
           volumeMounts:
             - name: manifests
