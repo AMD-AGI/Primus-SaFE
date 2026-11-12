@@ -76,6 +76,15 @@ def load_converter(slime_dir):
     return module
 
 
+def megatron_args_of(conv, input_dir):
+    """Return the Megatron arguments of a torch_dist checkpoint: from the converter's common state reader when it
+    has one, else from the legacy common.pt."""
+    if hasattr(conv, "load_common_state"):
+        return conv.load_common_state(input_dir)["args"]
+    import torch
+    return torch.load(os.path.join(input_dir, "common.pt"), weights_only=False)["args"]
+
+
 def load_adapters(conv, input_dir):
     """Read only the adapter tensors of a torch_dist checkpoint and return them per layer, with the checkpoint's
     Megatron arguments."""
@@ -93,7 +102,7 @@ def load_adapters(conv, input_dir):
                     state_dict[key] = torch.empty(value.size, dtype=value.properties.dtype)
             super().set_up_planner(state_dict, metadata, is_coordinator)
 
-    megatron_args = torch.load(os.path.join(input_dir, "common.pt"), weights_only=False)["args"]
+    megatron_args = megatron_args_of(conv, input_dir)
     state = {}
     conv.dist_cp.state_dict_loader._load_state_dict(state, storage_reader=conv.WrappedStorageReader(input_dir),
                                                     planner=AdapterPlanner(), no_dist=True)

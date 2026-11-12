@@ -72,6 +72,15 @@ def load_converter(slime_dir):
     return module
 
 
+def megatron_args_of(conv, input_dir):
+    """Return the Megatron arguments of a torch_dist checkpoint: from the converter's common state reader when it
+    has one, else from the legacy common.pt."""
+    if hasattr(conv, "load_common_state"):
+        return conv.load_common_state(input_dir)["args"]
+    import torch
+    return torch.load(os.path.join(input_dir, "common.pt"), weights_only=False)["args"]
+
+
 def main(argv=None):
     """Merge the checkpoint's adapters and write the HF model with the base model's assets."""
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
@@ -85,12 +94,11 @@ def main(argv=None):
     p.add_argument("--vocab-size", type=int, default=None)
     args = p.parse_args(argv)
 
-    import torch
     from transformers import AutoConfig
 
     conv = load_converter(args.slime_dir)
     model_name = type(AutoConfig.from_pretrained(args.origin_hf_dir, trust_remote_code=True)).__name__.lower()
-    megatron_args = torch.load(os.path.join(args.input_dir, "common.pt"), weights_only=False)["args"]
+    megatron_args = megatron_args_of(conv, args.input_dir)
     state_dict = {}
     reader = conv.WrappedStorageReader(args.input_dir)
     conv.dist_cp.state_dict_loader._load_state_dict(state_dict, storage_reader=reader,
