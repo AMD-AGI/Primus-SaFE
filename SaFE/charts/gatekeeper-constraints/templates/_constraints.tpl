@@ -39,25 +39,6 @@ meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
 helm.sh/resource-policy: keep
 {{- end -}}
 
-{{- define "constraints.membership" -}}
-apiVersion: constraints.gatekeeper.sh/v1beta1
-kind: SandboxWorkloadMembership
-metadata:
-  name: sandbox-workload-membership
-  labels:
-    {{- include "constraints.ownership" . | nindent 4 }}
-  annotations:
-    {{- include "constraints.constraintAnnotations" . | nindent 4 }}
-spec:
-  enforcementAction: {{ .Values.enforcementAction | quote }}
-  match:
-    kinds:
-      - apiGroups: ["amd.com"]
-        kinds: ["Workload"]
-  parameters:
-    sandboxCreator: {{ .Values.sandboxCreator | quote }}
-{{- end -}}
-
 {{- define "constraints.attestation" -}}
 apiVersion: constraints.gatekeeper.sh/v1beta1
 kind: SandboxWorkloadAttestation
@@ -84,52 +65,6 @@ spec:
       actor: {{ .Values.identity.actor | quote }}
       detailType: {{ .Values.identity.detailType | quote }}
       algorithm: {{ .Values.identity.algorithm | quote }}
-{{- end -}}
-
-{{- define "constraints.syncConfig" -}}
-apiVersion: config.gatekeeper.sh/v1alpha1
-kind: Config
-metadata:
-  name: config
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "constraints.ownership" . | nindent 4 }}
-  annotations:
-    meta.helm.sh/release-name: {{ .Release.Name | quote }}
-    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
-spec:
-  sync:
-    syncOnly:
-      - group: amd.com
-        version: v1
-        kind: User
-{{- end -}}
-
-{{- define "constraints.membershipTemplate" -}}
-apiVersion: templates.gatekeeper.sh/v1
-kind: ConstraintTemplate
-metadata:
-  name: sandboxworkloadmembership
-  labels:
-    {{- include "constraints.ownership" . | nindent 4 }}
-  annotations:
-    meta.helm.sh/release-name: {{ .Release.Name | quote }}
-    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
-spec:
-  crd:
-    spec:
-      names:
-        kind: SandboxWorkloadMembership
-      validation:
-        openAPIV3Schema:
-          type: object
-          properties:
-            sandboxCreator:
-              type: string
-  targets:
-    - target: admission.k8s.gatekeeper.sh
-      rego: |
-{{ .Files.Get "rego/membership.rego" | indent 8 }}
 {{- end -}}
 
 {{- define "constraints.attestationTemplate" -}}
