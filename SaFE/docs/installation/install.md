@@ -93,10 +93,9 @@ The [install.sh](../../bootstrap/install.sh) script provides a one-click install
         sso_bridge_allowlist='["http://localhost:5173","http://127.0.0.1:5173"]'
         ```
 
-        Keep these keys in `.env` for every later upgrade: helm renders `sso.login` and `sso.bridge_allowlist` from the
-        chart defaults (off, empty) unless `.env` sets them, so `upgrade.sh` refuses to upgrade a release that runs with
-        `sso.login` on or a non-empty allowlist when `.env` leaves them out. `oidc_login_enable=false` and
-        `sso_bridge_allowlist='[]'` turn them off on purpose.
+        Helm renders `sso.login` and `sso.bridge_allowlist` from the chart defaults unless `.env` sets them.
+        An omitted `oidc_login_enable` is `false`. An omitted `sso_bridge_allowlist` is `[]`. An omitted
+        `sso_enable` is `true`. A release that had sign-in or an allowlist keeps them only when `.env` sets the keys.
       - The provider of the `primus-safe-sso` secret keeps working while the secret is there: codes other web apps bring
         through the SSO bridge (no PKCE verifier) are exchanged there, and sessions it made stay valid until they expire.
         Once nothing uses it, remove it with `sso.secret: ""` (`.env`: `sso_secret=`): the secret is then not mounted.

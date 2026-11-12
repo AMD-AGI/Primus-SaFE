@@ -235,11 +235,11 @@ diff_lines="$(diff <(strip_copy_job < "$OUT/rendered.yaml") <(strip_copy_job < "
 expect "rendering with and without the keys differs only in the auth segment" test -z "$diff_lines"
 [[ -z "$diff_lines" ]] || echo "$diff_lines"
 
-# 3. The running release is external and .env sets no auth_mode: that renders builtin, so it is refused.
-# auth_mode=builtin is the explicit way back.
+# 3. The running release is external and .env sets no auth_mode: that is the chart default, builtin.
+# auth_mode=builtin is the same, written out.
 run_upgrade "$LIVE_EXTERNAL" ""
-expect "live external, no auth keys: refused" refused
-expect "live external, no auth keys: names auth_mode" grep -q 'does not set:.*auth_mode' "$OUT/log"
+expect "live external, no auth keys: applied" applied
+expect "live external, no auth keys: builtin" rendered 'mode: "builtin"'
 
 # 4. One key missing is enough, here the one that grants the administrator roles.
 run_upgrade "$LIVE_EXTERNAL" "$(grep -v '^auth_group_mappings' <<<"$AUTH_ENV")"
@@ -382,8 +382,8 @@ expect "no jq, release without auth values: applied" applied
 RUN_PATH="$NOJQ" run_upgrade "" ""
 expect "no jq, fresh install: applied" applied
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_EXTERNAL" ""
-expect "no jq, live external, no auth keys: refused" refused
-expect "no jq, live external, no auth keys: says why" grep -q 'jq is required to see which of its auth settings' "$OUT/log"
+expect "no jq, live external, no auth keys: applied" applied
+expect "no jq, live external, no auth keys: builtin" rendered 'mode: "builtin"'
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_EXTERNAL" 'auth_mode=builtin'
 expect "no jq, break-glass: applied" applied
 expect "no jq, break-glass: builtin" rendered 'mode: "builtin"'
@@ -494,8 +494,8 @@ $ALLOW"
 expect "no jq, bridge allowlist: refused" refused
 expect "no jq, bridge allowlist: asks for jq" grep -q 'jq is required when .env sets sso_bridge_allowlist' "$OUT/log"
 
-# A release that runs with sso.login on or a bridge allowlist: an .env without them is refused before the
-# cluster is touched (the next upgrade would sign everyone out, or cut the bridge); with them it applies.
+# A release that runs with sso.login on or a bridge allowlist, and an .env that leaves them out,
+# renders the chart defaults: login off, allowlist empty. .env keeps them by setting the keys.
 LIVE_SSO='{"global":{"sub_domain":"test"},"sso":{"enable":true,"secret":"primus-safe-sso","bridge_allowlist":["http://localhost:5173","http://127.0.0.1:5173"],"login":{"enable":true,"issuer":"https://idp.example.com","client_id":"console","redirect_uri":"https://console.example.com/sso/callback"}}}'
 LIVE_SSO_LOGIN_ONLY='{"sso":{"enable":true,"bridge_allowlist":[],"login":{"enable":true,"issuer":"https://idp.example.com"}}}'
 LIVE_SSO_ALLOW_ONLY='{"sso":{"enable":true,"bridge_allowlist":["http://localhost:5173"],"login":{"enable":false}}}'
@@ -503,26 +503,34 @@ LIVE_SSO_OFF='{"sso":{"enable":true,"bridge_allowlist":[],"login":{"enable":fals
 for jqmode in jq nojq; do
   rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO" "$SSO_ON"
-  expect "$jqmode, live sso.login and allowlist, .env without them: refused" refused
-  expect "$jqmode, live sso.login and allowlist, .env without them: names them" grep -q 'does not set: oidc_login_enable oidc_login_issuer oidc_login_client_id oidc_login_redirect_uri sso_bridge_allowlist$' "$OUT/log"
+  expect "$jqmode, live sso.login and allowlist, .env without them: applied" applied
+  expect "$jqmode, live sso.login and allowlist, .env without them: login off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
+  expect "$jqmode, live sso.login and allowlist, .env without them: allowlist empty" rendered 'bridge_allowlist: []'
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_LOGIN_ONLY" "$SSO_ON"
-  expect "$jqmode, live sso.login only: refused" refused
-  expect "$jqmode, live sso.login only: names sso_login only" grep -q 'does not set: oidc_login_enable oidc_login_issuer oidc_login_client_id oidc_login_redirect_uri$' "$OUT/log"
+  expect "$jqmode, live sso.login only: applied" applied
+  expect "$jqmode, live sso.login only: login off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_ALLOW_ONLY" "$SSO_ON"
-  expect "$jqmode, live allowlist only: refused" refused
-  expect "$jqmode, live allowlist only: names sso_bridge_allowlist only" grep -q 'does not set: sso_bridge_allowlist$' "$OUT/log"
+  expect "$jqmode, live allowlist only: applied" applied
+  expect "$jqmode, live allowlist only: allowlist empty" rendered 'bridge_allowlist: []'
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_OFF" "$SSO_ON"
   expect "$jqmode, live sso.login off and no allowlist: applied" applied
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO" "$SSO_ON
 oidc_login_enable=false"
-  expect "$jqmode, live allowlist, .env turns sso.login off but leaves the allowlist out: refused" refused
+  expect "$jqmode, live allowlist, .env turns sso.login off and leaves the allowlist out: applied" applied
+  expect "$jqmode, live allowlist, .env turns sso.login off and leaves the allowlist out: allowlist empty" rendered 'bridge_allowlist: []'
 done
-# helm keeps a value set with --set-string as a string: "true" is on all the same.
+# helm keeps a value set with --set-string as a string. .env still wins with the chart default.
 for jqmode in jq nojq; do
   rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
   RUN_PATH="${rp:-}" run_upgrade '{"sso":{"enable":true,"login":{"enable":"true"}}}' "$SSO_ON"
-  expect "$jqmode, live sso.login.enable is the string \"true\": refused" refused
+  expect "$jqmode, live sso.login.enable is the string \"true\", .env omits it: login off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
 done
+saved_base="$BASE_ENV"
+BASE_ENV=$(grep -v '^sso_enable=' <<<"$saved_base")
+run_upgrade "" ""
+expect "sso_enable omitted: applied" applied
+expect "sso_enable omitted: chart default true" rendered 'enable: true'
+BASE_ENV="$saved_base"
 FAKE_GET_FAIL=1 run_upgrade "$LIVE_SSO" "$SSO_ON"
 expect "live SSO values cannot be read: refused" refused
 run_upgrade "$LIVE_SSO" "$SSO_ON

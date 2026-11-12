@@ -196,12 +196,12 @@ auth_scim_token_secret=primus-safe-scim-token
 
 They set `auth.mode`, `auth.login_url`, `auth.client_secret` (the name of the Secret that holds the introspection client secret, not the secret itself), `auth.authenticators`, `auth.group_mappings`, `auth.key_actors`, and the SCIM settings `auth.scim.enabled`, `auth.scim.identity_url`, `auth.scim.public_url` and `auth.scim.token_secret` (`auth_scim_enabled` is `true` or `false`). Values that are not usable (a JSON key that is not an array, a mode that is neither `builtin` nor `external`, `external` without authenticators) stop the upgrade before it changes anything; the script needs `jq` when `.env` sets any of them (`auth_mode=builtin` on its own excepted) and to upgrade a release that is already external when `.env` sets `auth_mode=external`; a release that is not external upgrades without it.
 
-Omitting `auth_mode` renders the chart default `builtin`. On a release that is already `external` that drops the identity provider, so the upgrade is refused unless `.env` sets `auth_mode=external` or `auth_mode=builtin`. Setting `auth_mode=external` also refuses an upgrade that would drop another key the release has: the script exits non-zero before it applies anything and names the missing keys; copy them from `helm -n primus-safe get values primus-safe -o json | jq .auth`. It also refuses when it cannot read the running release, because an unknown mode is not a safe one.
+Omitting `auth_mode` renders the chart default `builtin`, including on a release that is already `external`. Setting `auth_mode=external` refuses an upgrade that would drop another key the release has: the script exits non-zero before it applies anything and names the missing keys; copy them from `helm -n primus-safe get values primus-safe -o json | jq .auth`. With `auth_mode=external` it also refuses when it cannot read the running release.
 
 ## Rolling back
 
 Set `auth.mode: builtin` and roll the apiserver. No user object or table is changed by either mode, and the endpoints listed under "What the apiserver stops offering" work again.
 
-With `bootstrap/upgrade.sh` or the CD job, `auth_mode=builtin` in `.env` renders builtin. Leaving `auth_mode` unset renders builtin on a release that is not external, and is refused on one that is. To run external again, set `auth_mode=external` and the other `auth_*` keys.
+With `bootstrap/upgrade.sh` or the CD job, `auth_mode=builtin` in `.env` renders builtin. Leaving `auth_mode` unset renders builtin. To run external again, set `auth_mode=external` and the other `auth_*` keys.
 
 On Higress the same upgrade removes Ingress `primus-identity-login`, which sends the console host's `POST /api/login` and `POST /api/logout` to the identity service. The next external upgrade renders it again.
