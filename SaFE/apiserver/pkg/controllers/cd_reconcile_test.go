@@ -154,6 +154,20 @@ func TestCDReconcileSucceededAlreadyDeployedSkipsSnapshot(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestCDReconcileSnapshotFailureRequeuesWithoutDeployed(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock_client.NewMockInterface(ctrl)
+	mockDB.EXPECT().GetDeploymentRequest(gomock.Any(), int64(1)).
+		Return(&dbclient.DeploymentRequest{Id: 1, Status: StatusDeploying, DeployType: DeployTypeLens, EnvConfig: "{}"}, nil)
+	mockDB.EXPECT().CreateEnvironmentSnapshot(gomock.Any(), gomock.Any()).Return(int64(0), assertErr())
+
+	r := newCDReconciler(t, mockDB, cdJob("j1", "1", v1.OpsJobSucceeded))
+	res, err := r.Reconcile(context.Background(), reconcileReq("j1"))
+	assert.NoError(t, err)
+	assert.Equal(t, time.Second*5, res.RequeueAfter)
+}
+
 func TestCDReconcileSucceededCreatesSnapshot(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

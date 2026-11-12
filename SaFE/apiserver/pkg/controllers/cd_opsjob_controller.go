@@ -191,9 +191,10 @@ func (r *CDOpsJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 		}
 		if err := r.createSnapshot(ctx, requestId, dbReq.EnvConfig, deployType); err != nil {
 			klog.ErrorS(err, "Failed to create snapshot", "id", requestId)
-		} else {
-			klog.Infof("Snapshot created for deployment request %d", requestId)
+			// Leave the request status unchanged so the next reconcile records the snapshot.
+			return ctrlruntime.Result{RequeueAfter: time.Second * 5}, nil
 		}
+		klog.Infof("Snapshot created for deployment request %d", requestId)
 	}
 
 	// Update database status
