@@ -744,7 +744,7 @@ func TestChartPullsTheEnvdInjectorThroughTheSiteProxy(t *testing.T) {
 	pod := renderSandboxPod(t, "--set", "global.sub_domain=site", "--set", "global.domain=example.com")
 	testifyrequire.Len(t, pod.Spec.PodTemplate.Spec.InitContainers, 1)
 	testifyassert.True(t, strings.HasPrefix(pod.Spec.PodTemplate.Spec.InitContainers[0].Image,
-		"harbor.site.example.com/proxy/primussafe/agent-sandbox-envd-injector@sha256:"))
+		"harbor.site.example.com/proxy/rocm/primusclaw@sha256:"))
 }
 
 // TestChartRendersModelMaxConcurrentDownloads pins what an operator's value means: unset
