@@ -573,25 +573,20 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 		commonuser.GetWorkspace(targetUser), "", nil, v1.DeleteVerb); err != nil {
 		return nil, err
 	}
-	if err = h.DeleteUserRecord(c.Request.Context(), targetUser); err != nil {
-		return nil, err
-	}
-	return nil, nil
-}
-
-// DeleteUserRecord removes the user from the workspaces the user manages and deletes the user record.
-func (h *Handler) DeleteUserRecord(ctx context.Context, user *v1.User) error {
-	if workspaceIds := commonuser.GetManagedWorkspace(user); len(workspaceIds) > 0 {
+	if workspaceIds := commonuser.GetManagedWorkspace(targetUser); len(workspaceIds) > 0 {
 		for _, id := range workspaceIds {
-			if err := h.removeWorkspaceManager(ctx, id, user.Name); err != nil {
+			if err = h.removeWorkspaceManager(c.Request.Context(), id, targetUser.Name); err != nil {
 				if apierrors.IsNotFound(err) {
 					continue
 				}
-				return err
+				return nil, err
 			}
 		}
 	}
-	return h.Delete(ctx, user)
+	if err = h.Delete(c.Request.Context(), targetUser); err != nil {
+		return nil, err
+	}
+	return nil, nil
 }
 
 // forwardIdentityStatus asks the identity service to disable or activate the user before the local

@@ -70,9 +70,4 @@ func TestRegisterLoop(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("register loop did not stop")
 	}
-
-	ctx, cancel = context.WithCancel(context.Background())
-	cancel()
-	StartRegistration(ctx, cli, tok)
-	time.Sleep(20 * time.Millisecond)
 }

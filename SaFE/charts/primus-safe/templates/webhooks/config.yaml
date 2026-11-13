@@ -45,13 +45,14 @@ data:
     users:
       {{- include "primus-safe.usersConfig" . | nindent 6 }}
     {{- $admission := default dict (default dict .Values.sandbox).admission }}
+    {{- $origin := include "primus-safe.publicOrigin" . }}
     {{- $jwksURL := $admission.jwks_url }}
-    {{- if and (not $jwksURL) .Values.global.sub_domain .Values.global.domain }}
-    {{- $jwksURL = printf "https://%s.%s/.well-known/jwks.json" .Values.global.sub_domain .Values.global.domain }}
+    {{- if and (not $jwksURL) $origin }}
+    {{- $jwksURL = printf "%s/.well-known/jwks.json" $origin }}
     {{- end }}
     {{- $issuer := $admission.issuer }}
-    {{- if and (not $issuer) .Values.global.sub_domain .Values.global.domain }}
-    {{- $issuer = printf "https://%s.%s" .Values.global.sub_domain .Values.global.domain }}
+    {{- if and (not $issuer) $origin }}
+    {{- $issuer = $origin }}
     {{- end }}
     sandbox:
       admission:

@@ -45,9 +45,12 @@ install_or_upgrade_helm_chart() {
 # the other settings of this script. Every key is optional; one that .env does not set keeps the
 # chart default, except that a release which is already external refuses to lose it (check_live_auth).
 #   auth_mode            builtin | external                                  -> auth.mode
-#   auth_login_url       where the console sends users to sign in.
-#                        Omitted: https://<sub_domain>.<domain>/login/password.
-#                        A stored value is not kept.                            -> auth.login_url
+#   auth_login_url       where the console sends users to sign in. Not derived: external mode
+#                        needs it, and a release that stores one must restate it -> auth.login_url
+#   auth_allow_oidc_only true | false. true allows a chain without an
+#                        introspection or builtin authenticator              -> auth.allow_oidc_only
+#   auth_provider_client true | false. true lets the apiserver call the
+#                        identity service (status changes, SCIM registration)  -> auth.provider_client
 #   auth_client_secret   name of the Secret holding the client secret of an
 #                        introspection authenticator (a name, not the secret) -> auth.client_secret
 #   auth_authenticators  JSON array, the authenticator chain                 -> auth.authenticators
@@ -69,7 +72,7 @@ install_or_upgrade_helm_chart() {
 #                        running release already uses that name. A different stored
 #                        name is kept only when .env sets it.                    -> auth.scim.token_secret
 # JSON values are single-quoted in .env, e.g. auth_key_actors='["client-a"]'.
-AUTH_ENV_KEYS=(auth_mode auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
+AUTH_ENV_KEYS=(auth_mode auth_login_url auth_allow_oidc_only auth_provider_client auth_client_secret auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
 
 # check_live_auth refuses an upgrade that would drop the external authentication of a release.
 # helm renders every value from the chart defaults and the files it is given, so a release that
@@ -77,7 +80,7 @@ AUTH_ENV_KEYS=(auth_mode auth_login_url auth_client_secret auth_authenticators a
 # those keys out. auth_mode=builtin is the explicit way back. Omitting auth_mode on a release that
 # is already external is refused: that omission would render builtin.
 check_live_auth() {
-  local releases live live_mode var key present unset_keys="" missing=""
+  local releases live live_mode var key present test_expr unset_keys="" missing=""
   if ! releases=$(helm -n "$NAMESPACE" list); then
     echo "Error: cannot list the helm releases in $NAMESPACE, so the authentication mode of the running release is unknown" >&2
     return 1
@@ -150,12 +153,15 @@ check_live_auth() {
         continue
       fi
     fi
+    # A boolean switch is lost only when the release has it on.
+    test_expr='(. != null and . != "" and . != [] and . != {})'
     case "$var" in
       auth_scim_identity_url) expr='.auth.scim.identity_url' ;;
       auth_scim_token_secret) expr='.auth.scim.token_secret' ;;
+      auth_allow_oidc_only|auth_provider_client) expr=".auth.${var#auth_}"; test_expr='(. == true)' ;;
       *) expr=".auth.${var#auth_}" ;;
     esac
-    if ! present=$(jq -r "$expr | (. != null and . != \"\" and . != [] and . != {})" <<<"$live"); then
+    if ! present=$(jq -r "$expr | $test_expr" <<<"$live"); then
       echo "Error: cannot read $expr from the values of release $chart_name" >&2
       return 1
     fi
@@ -189,7 +195,7 @@ write_auth_values() {
   fi
   if ! command -v jq &> /dev/null; then
     # The break-glass alone, auth_mode=builtin, needs no jq to be written.
-    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_client_secret+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}${auth_api_keys_url+x}${auth_api_keys_upstream+x}${auth_scim_enabled+x}${auth_scim_identity_url+x}${auth_scim_public_url+x}${auth_scim_token_secret+x}" ]]; then
+    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_allow_oidc_only+x}${auth_provider_client+x}${auth_client_secret+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}${auth_api_keys_url+x}${auth_api_keys_upstream+x}${auth_scim_enabled+x}${auth_scim_identity_url+x}${auth_scim_public_url+x}${auth_scim_token_secret+x}" ]]; then
       printf '{"auth":{"mode":"builtin"}}\n' > "$out"
       AUTH_VALUES_FILE="$out"
       return 0
@@ -227,6 +233,13 @@ write_auth_values() {
           return 1
         fi
         json=$(jq -c --argjson v "$val" '.scim.enabled = $v' <<<"$json")
+        ;;
+      auth_allow_oidc_only|auth_provider_client)
+        if [[ "$val" != "true" && "$val" != "false" ]]; then
+          echo "Error: $var in .env must be true or false" >&2
+          return 1
+        fi
+        json=$(jq -c --arg k "$key" --argjson v "$val" '.[$k] = $v' <<<"$json")
         ;;
       auth_scim_identity_url|auth_scim_public_url|auth_scim_token_secret)
         json=$(jq -c --arg k "${var#auth_scim_}" --arg v "$val" '.scim[$k] = $v' <<<"$json")

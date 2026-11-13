@@ -40,9 +40,12 @@ const (
 	rbacWorkspaceNamePrefix  = "primus-safe:workspace:"
 	rbacWorkspaceRoleSuffix  = ":member"
 	rbacWorkspaceBindSuffix  = ":members"
+	rbacManagerRoleSuffix    = ":manager"
+	rbacManagerBindSuffix    = ":managers"
 	rbacPlatformRoleName     = "primus-safe:platform:system-admin"
 	rbacPlatformBindingName  = "primus-safe:platform:system-admins"
 	rbacWorkspaceUseVerb     = "use"
+	rbacWorkspaceManageVerb  = "manage"
 	rbacWorkspaceResource    = "workspaces"
 	rbacPlatformReconcileKey = "primus-safe:platform"
 )
@@ -112,7 +115,7 @@ func projectedGroupMappings() ([]commonconfig.AuthGroupMapping, error) {
 	return commonconfig.GetAuthGroupMappings()
 }
 
-// handleUserEvent enqueues the workspaces a User lists before and after the change.
+// handleUserEvent enqueues the workspaces a User lists or manages before and after the change.
 // In builtin mode a User whose system-admin role or restriction changes also enqueues the platform binding.
 func (r *WorkspaceRBACReconciler) handleUserEvent() handler.EventHandler {
 	enqueuePlatform := func(q v1.RequestWorkQueue, u *v1.User) {
@@ -123,12 +126,14 @@ func (r *WorkspaceRBACReconciler) handleUserEvent() handler.EventHandler {
 	enqueue := func(q v1.RequestWorkQueue, users ...*v1.User) {
 		seen := map[string]bool{}
 		for _, u := range users {
-			for _, ws := range commonuser.GetWorkspace(u) {
-				if ws == "" || seen[ws] {
-					continue
+			for _, list := range [][]string{commonuser.GetWorkspace(u), commonuser.GetManagedWorkspace(u)} {
+				for _, ws := range list {
+					if ws == "" || seen[ws] {
+						continue
+					}
+					seen[ws] = true
+					q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: ws}})
 				}
-				seen[ws] = true
-				q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: ws}})
 			}
 		}
 	}
@@ -165,7 +170,8 @@ func (r *WorkspaceRBACReconciler) handleUserEvent() handler.EventHandler {
 // isUserRBACChanged reports whether a User change affects any projected subject.
 func isUserRBACChanged(oldUser, newUser *v1.User) bool {
 	return oldUser.Spec.RestrictedType != newUser.Spec.RestrictedType ||
-		!reflect.DeepEqual(commonuser.GetWorkspace(oldUser), commonuser.GetWorkspace(newUser))
+		!reflect.DeepEqual(commonuser.GetWorkspace(oldUser), commonuser.GetWorkspace(newUser)) ||
+		!reflect.DeepEqual(commonuser.GetManagedWorkspace(oldUser), commonuser.GetManagedWorkspace(newUser))
 }
 
 // isPlatformRoleChanged reports whether a User change affects the platform binding in builtin mode.
@@ -183,10 +189,11 @@ func rbacObjectToRequests(_ context.Context, obj client.Object) []reconcile.Requ
 		key = rbacPlatformReconcileKey
 	case strings.HasPrefix(name, rbacWorkspaceNamePrefix):
 		rest := strings.TrimPrefix(name, rbacWorkspaceNamePrefix)
-		if ws, ok := strings.CutSuffix(rest, rbacWorkspaceBindSuffix); ok {
-			key = ws
-		} else if ws, ok = strings.CutSuffix(rest, rbacWorkspaceRoleSuffix); ok {
-			key = ws
+		for _, suffix := range []string{rbacWorkspaceBindSuffix, rbacWorkspaceRoleSuffix, rbacManagerBindSuffix, rbacManagerRoleSuffix} {
+			if ws, ok := strings.CutSuffix(rest, suffix); ok {
+				key = ws
+				break
+			}
 		}
 	}
 	if key == "" {
@@ -203,10 +210,11 @@ func (r *WorkspaceRBACReconciler) Reconcile(ctx context.Context, req ctrlruntime
 	return ctrlruntime.Result{}, r.reconcileWorkspace(ctx, req.Name)
 }
 
-// reconcileWorkspace converges the member ClusterRole and ClusterRoleBinding of a workspace,
+// reconcileWorkspace converges the member and manager ClusterRoles and ClusterRoleBindings of a workspace,
 // and deletes them when the workspace is gone or being deleted.
 func (r *WorkspaceRBACReconciler) reconcileWorkspace(ctx context.Context, name string) error {
 	roleName, bindingName := workspaceRoleName(name), workspaceBindingName(name)
+	managerRole, managerBinding := workspaceManagerRoleName(name), workspaceManagerBindingName(name)
 	workspace := &v1.Workspace{}
 	if err := r.Get(ctx, client.ObjectKey{Name: name}, workspace); err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -215,6 +223,9 @@ func (r *WorkspaceRBACReconciler) reconcileWorkspace(ctx context.Context, name s
 		workspace = nil
 	}
 	if workspace == nil || !workspace.GetDeletionTimestamp().IsZero() {
+		if err := r.deleteRBACObjects(ctx, managerRole, managerBinding); err != nil {
+			return err
+		}
 		return r.deleteRBACObjects(ctx, roleName, bindingName)
 	}
 	users, err := r.listUsers(ctx)
@@ -236,7 +247,19 @@ func (r *WorkspaceRBACReconciler) reconcileWorkspace(ctx context.Context, name s
 	if err = r.applyClusterRole(ctx, roleName, rules, owner); err != nil {
 		return err
 	}
-	return r.applyClusterRoleBinding(ctx, bindingName, roleName, r.workspaceSubjects(name, users), owner)
+	if err = r.applyClusterRoleBinding(ctx, bindingName, roleName, r.workspaceSubjects(name, users), owner); err != nil {
+		return err
+	}
+	managerRules := []rbacv1.PolicyRule{{
+		APIGroups:     []string{v1.SchemeGroupVersion.Group},
+		Resources:     []string{rbacWorkspaceResource},
+		ResourceNames: []string{name},
+		Verbs:         []string{rbacWorkspaceUseVerb, rbacWorkspaceManageVerb},
+	}}
+	if err = r.applyClusterRole(ctx, managerRole, managerRules, owner); err != nil {
+		return err
+	}
+	return r.applyClusterRoleBinding(ctx, managerBinding, managerRole, r.managerSubjects(name, users), owner)
 }
 
 // reconcilePlatform converges the platform system-admin ClusterRole and ClusterRoleBinding.
@@ -244,7 +267,7 @@ func (r *WorkspaceRBACReconciler) reconcilePlatform(ctx context.Context) error {
 	rules := []rbacv1.PolicyRule{{
 		APIGroups: []string{v1.SchemeGroupVersion.Group},
 		Resources: []string{rbacWorkspaceResource},
-		Verbs:     []string{rbacWorkspaceUseVerb},
+		Verbs:     []string{rbacWorkspaceUseVerb, rbacWorkspaceManageVerb},
 	}}
 	if err := r.applyClusterRole(ctx, rbacPlatformRoleName, rules, nil); err != nil {
 		return err
@@ -285,6 +308,17 @@ func (r *WorkspaceRBACReconciler) workspaceSubjects(workspace string, users []v1
 		}
 	}
 	return r.buildSubjects(userNames, groupNames)
+}
+
+// managerSubjects returns the sorted users that are not frozen and manage the workspace.
+func (r *WorkspaceRBACReconciler) managerSubjects(workspace string, users []v1.User) []rbacv1.Subject {
+	var userNames []string
+	for i := range users {
+		if users[i].Spec.RestrictedType != v1.UserFrozen && commonuser.HasWorkspaceManagedRight(&users[i], workspace) {
+			userNames = append(userNames, users[i].Name)
+		}
+	}
+	return r.buildSubjects(userNames, nil)
 }
 
 // platformSubjects returns the groups mapped to system-admin and, in builtin mode, the users that are
@@ -446,4 +480,14 @@ func workspaceRoleName(workspace string) string {
 // workspaceBindingName returns the name of the member ClusterRoleBinding of a workspace.
 func workspaceBindingName(workspace string) string {
 	return rbacWorkspaceNamePrefix + workspace + rbacWorkspaceBindSuffix
+}
+
+// workspaceManagerRoleName returns the name of the manager ClusterRole of a workspace.
+func workspaceManagerRoleName(workspace string) string {
+	return rbacWorkspaceNamePrefix + workspace + rbacManagerRoleSuffix
+}
+
+// workspaceManagerBindingName returns the name of the manager ClusterRoleBinding of a workspace.
+func workspaceManagerBindingName(workspace string) string {
+	return rbacWorkspaceNamePrefix + workspace + rbacManagerBindSuffix
 }

@@ -52,6 +52,8 @@ For additional upgrade-specific behavior, you may add these optional keys to `.e
 | `proxy_services` | YAML list for proxy services configuration |
 | `auth_mode` | `builtin` or `external`. Sets `auth.mode`. |
 | `auth_login_url` | Where the console sends users to sign in in external mode. Sets `auth.login_url`. |
+| `auth_allow_oidc_only` | `true` or `false`. `true` allows an external chain without an introspection or builtin authenticator. Sets `auth.allow_oidc_only`. |
+| `auth_provider_client` | `true` or `false`. `true` lets the apiserver call the identity service for status changes and SCIM registration. Sets `auth.provider_client`. |
 | `auth_client_secret` | Name of the Secret that holds the client secret of an introspection authenticator. Sets `auth.client_secret`. |
 | `auth_authenticators` | JSON array, the authenticator chain. Single-quote it in `.env`. Sets `auth.authenticators`. |
 | `auth_group_mappings` | JSON array, identity groups to roles. Sets `auth.group_mappings`. |

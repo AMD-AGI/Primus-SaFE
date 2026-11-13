@@ -62,11 +62,14 @@ func workspaceObject(name string) *v1.Workspace {
 	return ws
 }
 
-// A workspace reconcile creates the member role and binding, a second pass leaves them, and a gone workspace deletes them.
+// A workspace reconcile creates the member and manager roles and bindings, a second pass leaves them,
+// and a gone workspace deletes them.
 func TestReconcileWorkspaceCreatesUpdatesAndDeletes(t *testing.T) {
 	ctx := context.Background()
 	alice := memberUser("alice", "lab", v1.DefaultRole)
+	commonuser.AddManagedWorkspace(alice, "lab")
 	frozen := memberUser("frank", "lab", v1.DefaultRole)
+	commonuser.AddManagedWorkspace(frozen, "lab")
 	frozen.Spec.RestrictedType = v1.UserFrozen
 	ws := workspaceObject("lab")
 	r := testReconciler(t, ws, alice, frozen, memberUser("bob", "prod", v1.DefaultRole))
@@ -86,6 +89,17 @@ func TestReconcileWorkspaceCreatesUpdatesAndDeletes(t *testing.T) {
 		{Kind: rbacv1.UserKind, APIGroup: rbacv1.GroupName, Name: "primus:alice"},
 		{Kind: rbacv1.GroupKind, APIGroup: rbacv1.GroupName, Name: "primus:lab-users"},
 	}, binding.Subjects)
+
+	managerRole := &rbacv1.ClusterRole{}
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: workspaceManagerRoleName("lab")}, managerRole))
+	require.Equal(t, []string{"use", "manage"}, managerRole.Rules[0].Verbs)
+	require.Equal(t, []string{"lab"}, managerRole.Rules[0].ResourceNames)
+	managerBinding := &rbacv1.ClusterRoleBinding{}
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: workspaceManagerBindingName("lab")}, managerBinding))
+	require.Equal(t, workspaceManagerRoleName("lab"), managerBinding.RoleRef.Name)
+	require.Equal(t, []rbacv1.Subject{
+		{Kind: rbacv1.UserKind, APIGroup: rbacv1.GroupName, Name: "primus:alice"},
+	}, managerBinding.Subjects)
 
 	role.Rules = nil
 	require.NoError(t, r.Update(ctx, role))
@@ -107,6 +121,8 @@ func TestReconcileWorkspaceCreatesUpdatesAndDeletes(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, r.Get(ctx, client.ObjectKey{Name: workspaceRoleName("lab")}, &rbacv1.ClusterRole{}))
 	require.Error(t, r.Get(ctx, client.ObjectKey{Name: workspaceBindingName("lab")}, &rbacv1.ClusterRoleBinding{}))
+	require.Error(t, r.Get(ctx, client.ObjectKey{Name: workspaceManagerRoleName("lab")}, &rbacv1.ClusterRole{}))
+	require.Error(t, r.Get(ctx, client.ObjectKey{Name: workspaceManagerBindingName("lab")}, &rbacv1.ClusterRoleBinding{}))
 }
 
 // A workspace that has started deletion loses its projected objects.
@@ -118,11 +134,13 @@ func TestReconcileDeletesObjectsOfADeletingWorkspace(t *testing.T) {
 	ws.Finalizers = []string{"keep"}
 	role := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: workspaceRoleName("lab")}}
 	binding := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: workspaceBindingName("lab")}}
-	r := testReconciler(t, ws, role, binding)
+	managerRole := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: workspaceManagerRoleName("lab")}}
+	r := testReconciler(t, ws, role, binding, managerRole)
 
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "lab"}})
 	require.NoError(t, err)
 	require.Error(t, r.Get(ctx, client.ObjectKey{Name: role.Name}, &rbacv1.ClusterRole{}))
+	require.Error(t, r.Get(ctx, client.ObjectKey{Name: managerRole.Name}, &rbacv1.ClusterRole{}))
 }
 
 // The platform reconcile binds mapped groups and, in builtin mode, stored system-admin users.
@@ -140,6 +158,9 @@ func TestReconcilePlatform(t *testing.T) {
 
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: rbacPlatformReconcileKey}})
 	require.NoError(t, err)
+	role := &rbacv1.ClusterRole{}
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: rbacPlatformRoleName}, role))
+	require.Equal(t, []string{"use", "manage"}, role.Rules[0].Verbs)
 	binding := &rbacv1.ClusterRoleBinding{}
 	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: rbacPlatformBindingName}, binding))
 	require.Equal(t, []string{"primus:alice", "primus:admins"}, []string{binding.Subjects[0].Name, binding.Subjects[1].Name})
@@ -209,9 +230,20 @@ func TestUserAndRBACEventsEnqueue(t *testing.T) {
 	require.NotZero(t, got["prod"])
 	require.NotZero(t, got[rbacPlatformReconcileKey])
 
+	carol := memberUser("carol", "")
+	promoted := carol.DeepCopy()
+	commonuser.AddManagedWorkspace(promoted, "ops")
+	require.True(t, isUserRBACChanged(carol, promoted))
+	h.Update(ctx, event.UpdateEvent{ObjectOld: carol, ObjectNew: promoted}, q)
+	item, _ := q.Get()
+	require.Equal(t, "ops", item.Name)
+	q.Done(item)
+
 	require.Nil(t, rbacObjectToRequests(ctx, &rbacv1.ClusterRole{}))
 	require.Equal(t, "lab", rbacObjectToRequests(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: workspaceRoleName("lab")}})[0].Name)
 	require.Equal(t, "lab", rbacObjectToRequests(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: workspaceBindingName("lab")}})[0].Name)
+	require.Equal(t, "lab", rbacObjectToRequests(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: workspaceManagerRoleName("lab")}})[0].Name)
+	require.Equal(t, "lab", rbacObjectToRequests(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: workspaceManagerBindingName("lab")}})[0].Name)
 	require.Equal(t, rbacPlatformReconcileKey, rbacObjectToRequests(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: rbacPlatformRoleName}})[0].Name)
 	require.Equal(t, rbacPlatformReconcileKey, rbacObjectToRequests(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: rbacPlatformBindingName}})[0].Name)
 

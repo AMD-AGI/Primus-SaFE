@@ -84,7 +84,8 @@ func TestSCIMUserRoutes(t *testing.T) {
 	require.True(t, apierrors.IsBadRequest(err))
 }
 
-// A patch freezes the user and rewrites roles from group mappings. A delete removes the record, and an unknown id is 204.
+// A patch freezes the user and rewrites roles from group mappings. A delete freezes the user and keeps
+// the record, a patch of active=true restores it, and an unknown id is 204.
 func TestSCIMPatchAndDelete(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -118,7 +119,13 @@ func TestSCIMPatchAndDelete(t *testing.T) {
 
 	require.Equal(t, http.StatusNoContent, scimDo(engine, http.MethodDelete, "/scim/v2/Users/missing", "", "secret").Code)
 	require.Equal(t, http.StatusNoContent, scimDo(engine, http.MethodDelete, "/scim/v2/Users/u-1", "", "secret").Code)
-	require.True(t, apierrors.IsNotFound(cli.Get(context.Background(), client.ObjectKey{Name: "u-1"}, &v1.User{})))
+	require.NoError(t, cli.Get(context.Background(), client.ObjectKey{Name: "u-1"}, got))
+	require.Equal(t, v1.UserFrozen, got.Spec.RestrictedType)
+	require.Equal(t, v1.TrueStr, v1.GetAnnotation(got, identity.DeactivatedAnnotation))
+	require.Equal(t, http.StatusNoContent, scimDo(engine, http.MethodDelete, "/scim/v2/Users/u-1", "", "secret").Code)
+	require.Equal(t, http.StatusOK, scimDo(engine, http.MethodPatch, "/scim/v2/Users/u-1", on, "secret").Code)
+	require.NoError(t, cli.Get(context.Background(), client.ObjectKey{Name: "u-1"}, got))
+	require.Equal(t, v1.UserNormal, got.Spec.RestrictedType)
 }
 
 // A list or delete that the API server refuses is a 500.
@@ -132,7 +139,7 @@ func TestSCIMRoutesReportAPIErrors(t *testing.T) {
 		List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
 			return apierrors.NewInternalError(context.Canceled)
 		},
-		Delete: func(context.Context, client.WithWatch, client.Object, ...client.DeleteOption) error {
+		Update: func(context.Context, client.WithWatch, client.Object, ...client.UpdateOption) error {
 			return apierrors.NewInternalError(context.Canceled)
 		},
 	})

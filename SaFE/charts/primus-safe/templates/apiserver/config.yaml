@@ -132,14 +132,15 @@ data:
       {{- $loginIssuer := $login.issuer }}
       {{- $loginClient := $login.client_id }}
       {{- $loginRedirect := $login.redirect_uri }}
-      {{- if and (not $loginIssuer) .Values.global.sub_domain .Values.global.domain }}
-      {{- $loginIssuer = printf "https://%s.%s" .Values.global.sub_domain .Values.global.domain }}
+      {{- $origin := include "primus-safe.publicOrigin" . }}
+      {{- if and (not $loginIssuer) $origin }}
+      {{- $loginIssuer = $origin }}
       {{- end }}
       {{- if not $loginClient }}
       {{- $loginClient = "safe-console" }}
       {{- end }}
-      {{- if and (not $loginRedirect) .Values.global.sub_domain .Values.global.domain }}
-      {{- $loginRedirect = printf "https://%s.%s/sso/callback" .Values.global.sub_domain .Values.global.domain }}
+      {{- if and (not $loginRedirect) $origin }}
+      {{- $loginRedirect = printf "%s/sso/callback" $origin }}
       {{- end }}
       # The console signs in at this OpenID Connect provider (public client, PKCE) when enabled
       login:
@@ -237,8 +238,9 @@ data:
     {{- end }}
     {{- end }}
     {{- $scimPublic := (default dict .Values.auth.scim).public_url }}
-    {{- if and (not $scimPublic) .Values.global.sub_domain .Values.global.domain }}
-    {{- $scimPublic = printf "https://%s.%s/scim/v2" .Values.global.sub_domain .Values.global.domain }}
+    {{- $scimOrigin := include "primus-safe.publicOrigin" . }}
+    {{- if and (not $scimPublic) $scimOrigin }}
+    {{- $scimPublic = printf "%s/scim/v2" $scimOrigin }}
     {{- end }}
     auth:
       # builtin (default): local accounts, built-in sessions, SSO login and API keys.

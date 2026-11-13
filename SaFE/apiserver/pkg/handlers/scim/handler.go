@@ -207,19 +207,21 @@ func (s *server) patchUser(c *gin.Context) {
 	writeJSON(c, http.StatusOK, toSCIMUser(updated))
 }
 
-// deleteUser removes managed workspaces and deletes the user. An unknown id is 204.
+// deleteUser freezes the user as a patch of active=false does and keeps the record, so a later
+// active=true restores it. An unknown id is 204.
 func (s *server) deleteUser(c *gin.Context) {
 	id := c.Param("id")
-	user, err := s.load(c.Request.Context(), id)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			c.Status(http.StatusNoContent)
-			return
+	err := backoff.ConflictRetry(func() error {
+		user, gerr := s.load(c.Request.Context(), id)
+		if gerr != nil {
+			return gerr
 		}
-		writeAPIError(c, err, "failed to read the user")
-		return
-	}
-	if err = s.h.DeleteUserRecord(c.Request.Context(), user); err != nil {
+		if !applyActive(user, false) {
+			return nil
+		}
+		return s.h.Update(c.Request.Context(), user)
+	}, retryCount, retryDelay)
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			c.Status(http.StatusNoContent)
 			return

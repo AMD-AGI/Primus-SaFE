@@ -80,7 +80,7 @@ Mapped roles and workspaces are part of the user every handler resolves for the 
 Before upgrading a deployment in external mode:
 
 * Make sure every administrator is granted `system-admin` (or `system-admin-readonly`) by a group mapping at the identity provider. There is no local fallback while the identity provider is down.
-* If a local administrator is needed as a break-glass path, that is `auth.mode: builtin`: set it back (a configuration change and an apiserver roll) to sign in with local accounts. User records created while external mode was on remain. Roles that SCIM wrote from `group_mappings`, including `system-admin`, are stored on those records and count again under builtin. A user SCIM deleted is gone. Review the User list before rolling back.
+* If a local administrator is needed as a break-glass path, that is `auth.mode: builtin`: set it back (a configuration change and an apiserver roll) to sign in with local accounts. User records created while external mode was on remain. Roles that SCIM wrote from `group_mappings`, including `system-admin`, are stored on those records and count again under builtin. A user SCIM deleted stays as a frozen record with the deactivated annotation. Review the User list before rolling back.
 
 The apiserver logs a warning at start-up in external mode, and names the `builtin` entry when the chain has one, so the change is visible before an outage and not during it.
 
@@ -165,7 +165,7 @@ Responses use `Content-Type: application/scim+json`. Errors use the SCIM error s
 | `GET /scim/v2/Users?startIndex=&count=` | ListResponse. `startIndex` is 1-based (below 1 counts as 1). `count` defaults to 100, a negative value counts as 0, and values above 1000 are capped at 1000. `active` is false when `restrictedType` is frozen. `id` and `externalId` are the user id. |
 | `GET /scim/v2/Users/{id}` | That user. An unknown id is 404. |
 | `PATCH /scim/v2/Users/{id}` | Replaces `active`. `false` sets `restrictedType` to frozen and annotation `primus-safe.scim.deactivated` to `true`. `true` clears the freeze only when that annotation is present, then removes it. The body is a PatchOp (`Operations` of `{"op":"replace","path":"active","value":false}`) or `{"op":"replace","value":{"active":false}}`. |
-| `DELETE /scim/v2/Users/{id}` | Removes the user from workspaces the user manages, then deletes the user (the same cleanup as `DELETE /api/v1/users/{id}`). An unknown id is 204. |
+| `DELETE /scim/v2/Users/{id}` | Freezes the user and sets the deactivated annotation, as a patch of `active=false` does. The record and its workspace manager entries are kept, and a patch of `active=true` restores the user. An unknown id is 204. |
 
 The apiserver registers the endpoint in the background, retrying with backoff, with `PUT {identity}/oauth/scim-target` and HTTP Basic. The client id and secret are the introspection authenticator's `client_id` and `client_secret_file`. The body is `{"url":"<auth.scim.public_url>","bearerToken":"<token>"}`. `auth.scim.public_url` is the base the identity service calls; it appends `/Users/{id}`. The identity root is `auth.scim.identity_url` when set. Otherwise it is taken from the introspection URL or issuer by dropping a `/oauth/...` suffix. A URL that is neither a host root nor under `/oauth/` is not derived; set `auth.scim.identity_url`.
 
@@ -185,22 +185,23 @@ The apiserver registers the endpoint in the background, retrying with backoff, w
 auth_mode=external
 auth_login_url=https://console.example.com/sign-in
 auth_client_secret=primus-safe-auth
-auth_authenticators='[{"type":"oidc","issuer":"https://idp.example.com","audience":"safe-apiserver"}]'
+auth_authenticators='[{"type":"oidc","issuer":"https://idp.example.com","audience":"safe-apiserver"},{"type":"introspection","url":"https://idp.example.com/oauth/introspect","client_id":"safe-apiserver","allow_missing_audience":true}]'
 auth_group_mappings='[{"group":"platform-admins","roles":["system-admin"]}]'
 auth_key_actors='["client-a"]'
+auth_provider_client=false
 auth_scim_enabled=true
 auth_scim_identity_url=https://idp.example.com
 auth_scim_public_url=https://console.example.com/scim/v2
 auth_scim_token_secret=primus-safe-scim-token
 ```
 
-They set `auth.mode`, `auth.login_url`, `auth.client_secret` (the name of the Secret in the release namespace that holds the introspection client secret, not the secret itself), `auth.authenticators`, `auth.group_mappings`, `auth.key_actors`, and the SCIM settings `auth.scim.enabled`, `auth.scim.identity_url`, `auth.scim.public_url` and `auth.scim.token_secret` (`auth_scim_enabled` is `true` or `false`). Values that are not usable (a JSON key that is not an array, a mode that is neither `builtin` nor `external`, `external` without authenticators, without `login_url`, without a group granted `system-admin`, without an introspection or builtin authenticator unless `auth.allow_oidc_only` is true, or with SCIM enabled and no resolvable identity URL) stop the upgrade before it changes anything; the script needs `jq` when `.env` sets any of them (`auth_mode=builtin` on its own excepted) and to upgrade a release that is already external when `.env` sets `auth_mode=external`; a release that is not external upgrades without it.
+They set `auth.mode`, `auth.login_url`, `auth.client_secret` (the name of the Secret in the release namespace that holds the introspection client secret, not the secret itself), `auth.authenticators`, `auth.group_mappings`, `auth.key_actors`, `auth.allow_oidc_only`, `auth.provider_client`, and the SCIM settings `auth.scim.enabled`, `auth.scim.identity_url`, `auth.scim.public_url` and `auth.scim.token_secret` (`auth_allow_oidc_only`, `auth_provider_client` and `auth_scim_enabled` are `true` or `false`). Values that are not usable (a JSON key that is not an array, a boolean key that is neither `true` nor `false`, a mode that is neither `builtin` nor `external`, `external` without authenticators, without `login_url`, without a group granted `system-admin`, without an introspection or builtin authenticator unless `auth.allow_oidc_only` is true, with SCIM and `auth.provider_client` enabled and no resolvable identity URL, or with `sso.login.enable` and no `oidc` entry whose `audience` is `sso.login.client_id`) stop the upgrade before it changes anything; the script needs `jq` when `.env` sets any of them (`auth_mode=builtin` on its own excepted) and to upgrade a release that is already external when `.env` sets `auth_mode=external`; a release that is not external upgrades without it.
 
 An introspection authenticator sets `allow_missing_audience: true`. An API key's introspection answer names no audience.
 
 `auth.login_url` is required when `auth.mode` is `external`. The chart does not derive it. `auth.provider_client` is off by default: the apiserver serves SCIM and does not call the identity service to register the target or to forward a status change. `auth.connection`, `auth.accounts_url` and `auth.keys_console_url` are what `GET /envs` returns for the console. An empty connection omits that parameter on the authorize request.
 
-`rbac.subject_prefix` is the same value a consumer sets as `RBAC_SUBJECT_PREFIX`. Builtin mode projects platform administrators as Users and writes no Groups. External mode binds platform roles only to the Groups `<prefix>system-admin` and `<prefix>system-admin-readonly`, so the mapped group names are those names. Sandbox admission and a SubjectAccessReview of a sandbox user need external mode and those mappings. `auth.group_mappings` is read when resource-manager starts. The SCIM server accepts a replace of `groups`; RFC 7643 defines that attribute as read-only, and this replace is an extension.
+`rbac.subject_prefix` is the same value a consumer sets as `RBAC_SUBJECT_PREFIX`. resource-manager projects each workspace as ClusterRole `primus-safe:workspace:<name>:member`, which grants `use` on that workspace to its members and mapped groups, and ClusterRole `primus-safe:workspace:<name>:manager`, which grants `use` and `manage` to its managers. A frozen user is in neither binding. The platform system-admin role grants `use` and `manage` on every workspace. Builtin mode projects platform administrators as Users and writes no Groups. External mode binds platform roles only to the Groups `<prefix>system-admin` and `<prefix>system-admin-readonly`, so the mapped group names are those names. Sandbox admission and a SubjectAccessReview of a sandbox user need external mode and those mappings. `auth.group_mappings` is read when resource-manager starts. The SCIM server accepts a replace of `groups`; RFC 7643 defines that attribute as read-only, and this replace is an extension.
 
 Omitting `auth_mode` on a release that is not external renders the chart default `builtin`. Omitting it on a release that is already `external` is refused. Setting `auth_mode=external` refuses an upgrade that would drop another key the release has: the script exits non-zero before it applies anything and names the missing keys; copy them from `helm -n primus-safe get values primus-safe -o json | jq .auth`. With `auth_mode=external` it also refuses when it cannot read the running release.
 
@@ -218,6 +219,6 @@ The client Secret is created in the release namespace. The chart mounts that Sec
 
 ## Rolling back
 
-Set `auth.mode: builtin` and roll the apiserver. The endpoints listed under "What the apiserver stops offering" work again. User records that external mode created stay. `spec.roles` that a SCIM PATCH wrote from `group_mappings` stay on the record and are effective again, including platform roles. A user that SCIM deleted is not recreated. Review those records after the rollback.
+Set `auth.mode: builtin` and roll the apiserver. The endpoints listed under "What the apiserver stops offering" work again. User records that external mode created stay. `spec.roles` that a SCIM PATCH wrote from `group_mappings` stay on the record and are effective again, including platform roles. A user that SCIM deleted stays frozen. Review those records after the rollback.
 
 With `bootstrap/upgrade.sh` or the CD job, `auth_mode=builtin` in `.env` renders builtin. Leaving `auth_mode` unset on an external release is refused. To run external again, set `auth_mode=external` and the other `auth_*` keys.
