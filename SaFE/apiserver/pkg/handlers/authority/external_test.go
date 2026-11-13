@@ -60,9 +60,9 @@ type extEnv struct {
 	userPatches atomic.Int64
 }
 
-// userWebhook stands in for the user admission webhook on the fake cluster. Type may move
-// from sso to default, and the user name of a local account is immutable, the same rules
-// as validateImmutableFields in the webhooks package.
+// userWebhook stands in for the user admission webhook on the fake cluster. The type and
+// the user name of a local account are immutable, the same rules as validateImmutableFields
+// in the webhooks package.
 func (e *extEnv) userWebhook() interceptor.Funcs {
 	return interceptor.Funcs{
 		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
@@ -73,8 +73,7 @@ func (e *extEnv) userWebhook() interceptor.Funcs {
 				}
 				old := &v1.User{}
 				if err := c.Get(ctx, client.ObjectKeyFromObject(u), old); err == nil {
-					if u.Spec.Type != old.Spec.Type &&
-						(old.Spec.Type != v1.SSOUserType || u.Spec.Type != v1.DefaultUserType) {
+					if u.Spec.Type != old.Spec.Type {
 						return apierrors.NewBadRequest("spec.type: Forbidden: immutable")
 					}
 					if u.Spec.Type == v1.DefaultUserType && v1.GetUserName(u) != v1.GetUserName(old) {

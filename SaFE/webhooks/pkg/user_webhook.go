@@ -286,13 +286,9 @@ func (v *UserValidator) validateMetadata(user *v1.User) error {
 }
 
 // validateImmutableFields rejects a type change, and a rename of a default user.
-// External mode allows a change from sso to default.
 func (v *UserValidator) validateImmutableFields(newUser, oldUser *v1.User) error {
 	if newUser.Spec.Type != oldUser.Spec.Type {
-		external := commonconfig.GetAuthMode() == commonconfig.AuthModeExternal
-		if !external || oldUser.Spec.Type != v1.SSOUserType || newUser.Spec.Type != v1.DefaultUserType {
-			return field.Forbidden(field.NewPath("spec").Key("type"), "immutable")
-		}
+		return field.Forbidden(field.NewPath("spec").Key("type"), "immutable")
 	}
 	if newUser.Spec.Type == v1.DefaultUserType && v1.GetUserName(newUser) != v1.GetUserName(oldUser) {
 		return field.Forbidden(field.NewPath("user").Key("name"), "immutable")

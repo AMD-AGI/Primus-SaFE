@@ -369,7 +369,8 @@ func accountType(id *extauth.Identity) v1.UserType {
 }
 
 // CheckExternalDeployment rejects an external configuration that cannot sign in, grant an
-// administrator, or resolve a SCIM base URL while SCIM is enabled. Builtin mode returns nil.
+// administrator, or resolve the identity service URL while SCIM and auth.provider_client are
+// enabled. Builtin mode returns nil.
 func CheckExternalDeployment() error {
 	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
 		return nil
@@ -392,9 +393,9 @@ func CheckExternalDeployment() error {
 	if !admin {
 		return errors.New("auth.mode is external but auth.group_mappings grants system-admin to no group")
 	}
-	if commonconfig.IsSCIMEnabled() {
+	if commonconfig.IsSCIMEnabled() && commonconfig.ProviderClientEnabled() {
 		if _, err = identity.ResolveBase(); err != nil {
-			return fmt.Errorf("auth.scim is enabled but auth.scim.identity_url cannot be resolved: %w", err)
+			return fmt.Errorf("auth.scim and auth.provider_client are enabled but auth.scim.identity_url cannot be resolved: %w", err)
 		}
 	}
 	return nil

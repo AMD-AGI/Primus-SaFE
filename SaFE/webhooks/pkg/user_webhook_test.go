@@ -162,7 +162,7 @@ func TestUserValidateImmutableFields(t *testing.T) {
 	assert.Assert(t, v.validateImmutableFields(validUser("u1"), sso) != nil)
 	commonconfig.SetValue("auth.mode", "external")
 	t.Cleanup(func() { commonconfig.UnsetValue("auth.mode") })
-	assert.NilError(t, v.validateImmutableFields(validUser("u1"), sso))
+	assert.Assert(t, v.validateImmutableFields(validUser("u1"), sso) != nil, "the type is immutable in external mode too")
 }
 
 // TestUserValidateRoles verifies referenced roles existence.

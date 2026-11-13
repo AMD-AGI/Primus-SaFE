@@ -209,8 +209,20 @@ data:
     {{- if not $admin }}
     {{- fail "auth.mode is external but auth.group_mappings grants system-admin to no group" }}
     {{- end }}
+    {{- if eq (toString (default false $login.enable)) "true" }}
+    {{- $audience := false }}
+    {{- range $a := default (list) .Values.auth.authenticators }}
+    {{- if and (eq (lower (default "" $a.type)) "oidc") (eq (toString (default "" $a.audience)) (toString $loginClient)) }}
+    {{- $audience = true }}
+    {{- end }}
+    {{- end }}
+    {{- if not $audience }}
+    {{- fail (printf "sso.login.enable is set but no oidc authenticator audience equals sso.login.client_id %q" (toString $loginClient)) }}
+    {{- end }}
+    {{- end }}
+    {{- /* Only auth.provider_client calls the identity service, so only it needs the SCIM identity URL. */}}
     {{- $scimOn := default dict .Values.auth.scim }}
-    {{- if ne ($scimOn.enabled | toString) "false" }}
+    {{- if and (ne ($scimOn.enabled | toString) "false") .Values.auth.provider_client }}
     {{- $idBase := $scimOn.identity_url | default "" | toString }}
     {{- if not $idBase }}
     {{- range $a := default (list) .Values.auth.authenticators }}
@@ -220,7 +232,7 @@ data:
     {{- end }}
     {{- end }}
     {{- if not $idBase }}
-    {{- fail "auth.scim is enabled but auth.scim.identity_url cannot be resolved from an introspection authenticator" }}
+    {{- fail "auth.scim and auth.provider_client are enabled but auth.scim.identity_url cannot be resolved from an introspection authenticator" }}
     {{- end }}
     {{- end }}
     {{- end }}

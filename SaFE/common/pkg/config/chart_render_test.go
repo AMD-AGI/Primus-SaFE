@@ -842,6 +842,65 @@ func TestChartRendersAuthModeForTheWebhooks(t *testing.T) {
 	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
 }
 
+// renderApiserverError renders the apiserver config and returns helm's error output. It is empty when the render
+// succeeds.
+func renderApiserverError(t *testing.T, values ...string) string {
+	t.Helper()
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+	args := append([]string{"template", chartPath, "--show-only", "templates/apiserver/config.yaml"}, values...)
+	cmd := exec.Command("helm", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		testifyrequire.NotEmpty(t, stderr.String(), "helm failed without a reason")
+		return stderr.String()
+	}
+	return ""
+}
+
+// TestChartRefusesAnIncompleteExternalAuth pins the external-mode checks the apiserver makes at start-up, so a
+// release the apiserver would refuse is refused at render time instead.
+func TestChartRefusesAnIncompleteExternalAuth(t *testing.T) {
+	oidcConsole := []string{"--set", "auth.authenticators[1].type=oidc", "--set", "auth.authenticators[1].issuer=https://idp.example",
+		"--set", "auth.authenticators[1].audience=safe-console"}
+	for _, tt := range []struct {
+		name   string
+		values []string
+		want   string
+	}{
+		{"complete", externalAuthArgs(), ""},
+		{"no login url", externalAuthArgs("--set-string", "auth.login_url="), "auth.login_url is empty"},
+		{"oidc only", externalAuthArgs("--set", "auth.authenticators[0].type=oidc", "--set", "auth.authenticators[0].audience=safe-console"),
+			"no introspection or builtin entry"},
+		{"oidc only, allowed", externalAuthArgs("--set", "auth.authenticators[0].type=oidc", "--set", "auth.allow_oidc_only=true"), ""},
+		{"no system-admin group", externalAuthArgs("--set", "auth.group_mappings[0].roles[0]=system-admin-readonly"),
+			"grants system-admin to no group"},
+		{"scim on without provider_client needs no identity URL", externalAuthArgs("--set", "auth.scim.enabled=true"), ""},
+		{"scim and provider_client without an identity URL", externalAuthArgs("--set", "auth.scim.enabled=true", "--set", "auth.provider_client=true"),
+			"auth.scim.identity_url cannot be resolved"},
+		{"scim and provider_client with an identity URL", externalAuthArgs("--set", "auth.scim.enabled=true", "--set", "auth.provider_client=true",
+			"--set-string", "auth.scim.identity_url=https://idp.example"), ""},
+		{"scim and provider_client with an introspection URL", externalAuthArgs("--set", "auth.scim.enabled=true", "--set", "auth.provider_client=true",
+			"--set", "auth.authenticators[1].type=introspection", "--set-string", "auth.authenticators[1].url=https://idp.example/oauth/introspect"), ""},
+		{"sso.login without an oidc audience", externalAuthArgs("--set", "sso.login.enable=true"), `sso.login.client_id "safe-console"`},
+		{"sso.login with another oidc audience", externalAuthArgs(append([]string{"--set", "sso.login.enable=true",
+			"--set-string", "sso.login.client_id=other-console"}, oidcConsole...)...), `sso.login.client_id "other-console"`},
+		{"sso.login with the default client id as audience", externalAuthArgs(append([]string{"--set", "sso.login.enable=true"}, oidcConsole...)...), ""},
+		{"builtin mode is not checked", []string{"--set", "sso.login.enable=true"}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := renderApiserverError(t, tt.values...)
+			if tt.want == "" {
+				testifyassert.Empty(t, got)
+			} else {
+				testifyassert.Contains(t, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestChartDefaultsTheSandboxAdmissionKeySet pins that the key set URL and the issuer are the cluster host
 // when the values leave them empty, and that an explicit URL is kept.
 func TestChartDefaultsTheSandboxAdmissionKeySet(t *testing.T) {

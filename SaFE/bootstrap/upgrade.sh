@@ -249,7 +249,8 @@ write_auth_values() {
 }
 
 # require_external_chain refuses an external auth object that has no sign-in URL, no fallback
-# authenticator, no group that is granted system-admin, or SCIM enabled without a base URL.
+# authenticator, no group that is granted system-admin, or SCIM and auth.provider_client enabled
+# without an identity service URL.
 require_external_chain() {
   local file="$1" mode n base
   mode=$(jq -r '.auth.mode // "builtin"' "$file")
@@ -270,15 +271,30 @@ require_external_chain() {
     echo "Error: auth_mode=external needs a group_mapping whose roles include system-admin" >&2
     return 1
   fi
-  if [[ "$(jq -r 'if .auth.scim.enabled == false then "false" else "true" end' "$file")" != "false" ]]; then
+  if [[ "$(jq -r 'if .auth.scim.enabled == false then "false" else "true" end' "$file")" != "false" &&
+    "$(jq -r '.auth.provider_client // false' "$file")" == "true" ]]; then
     base=$(jq -r '.auth.scim.identity_url // empty' "$file")
     if [[ -z "$base" ]]; then
       base=$(jq -r '[.auth.authenticators[]? | select((.type | ascii_downcase) == "introspection") | (.url // .issuer // empty)] | map(select(length > 0)) | .[0] // empty' "$file")
     fi
     if [[ -z "$base" ]]; then
-      echo "Error: auth.scim is enabled but auth_scim_identity_url cannot be resolved" >&2
+      echo "Error: auth.scim and auth.provider_client are enabled but auth_scim_identity_url cannot be resolved" >&2
       return 1
     fi
+  fi
+}
+
+# render_preflight renders the chart with the values files this upgrade applies. A value the chart
+# refuses (for example an external chain that cannot accept the console sign-in) stops the upgrade
+# before any cluster object is changed.
+render_preflight() {
+  local values_yaml="$1" extra=()
+  if [[ -n "$AUTH_VALUES_FILE" ]]; then
+    extra=(-f "$AUTH_VALUES_FILE")
+  fi
+  if ! helm template "$chart_name" "./$chart_name" -n "$NAMESPACE" -f "$values_yaml" ${extra[@]+"${extra[@]}"} > /dev/null; then
+    echo "Error: the chart refuses these values; nothing in the cluster was changed" >&2
+    return 1
   fi
 }
 
@@ -397,7 +413,7 @@ keep_live_sso() {
   if [[ -n "${oidc_login_enable+x}" && -n "${sso_bridge_allowlist+x}" && -n "${oidc_login_issuer+x}" && -n "${oidc_login_client_id+x}" && -n "${oidc_login_redirect_uri+x}" ]]; then
     return 0
   fi
-  if [[ -n "${oidc_login_enable+x}" && -n "${sso_bridge_allowlist+x}" ]]; then
+  if [[ "${oidc_login_enable-}" == "false" && -n "${sso_bridge_allowlist+x}" ]]; then
     return 0
   fi
   if ! releases=$(helm -n "$NAMESPACE" list 2>/dev/null); then
@@ -850,6 +866,7 @@ fi
 write_auth_values "primus-safe/.auth-values.json"
 write_sso_values "primus-safe/.sso-values.json"
 write_console_values "primus-safe/.console-values.json"
+render_preflight "$values_yaml"
 sync_console_scim_route
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"
