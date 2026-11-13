@@ -303,6 +303,11 @@ func IsControlPlane(obj metav1.Object) bool {
 	return HasLabel(obj, KubernetesControlPlane)
 }
 
+// IsAdoptedWorkspace reports a workspace recorded from a data plane that already has it.
+func IsAdoptedWorkspace(obj metav1.Object) bool {
+	return GetAnnotation(obj, WorkspaceAdoptAnnotation) == TrueStr
+}
+
 // IsExternalWorkspace reports whether the workspace draws capacity from an external
 // execution provider. The label must be set to "true"; any other value is native.
 func IsExternalWorkspace(obj metav1.Object) bool {

@@ -120,6 +120,9 @@ const (
 	WorkspacePrefix    = PrimusSafePrefix + "workspace."
 	WorkspaceFinalizer = PrimusSafeDomain + "workspace.finalizer"
 	WorkspaceIdLabel   = WorkspacePrefix + "id"
+	// WorkspaceAdoptAnnotation marks a workspace that already exists on the data plane.
+	// The workspace controller records it and does not create or delete data plane resources.
+	WorkspaceAdoptAnnotation = WorkspacePrefix + "adopt"
 	// WorkspaceExternalLabel marks a workspace whose capacity is supplied by an external
 	// execution provider rather than by managed physical nodes. The value "true" selects the
 	// external path; any other value is native. It is immutable after creation, because flipping

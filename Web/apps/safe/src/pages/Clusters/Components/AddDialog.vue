@@ -21,7 +21,8 @@
         <span class="fs-subtitle font-medium">Basic Information</span>
       </div>
       <el-text v-if="isAdopt" size="small" type="info" class="block m-b-4">
-        Registers an existing Kubernetes cluster. Kubernetes is not installed again.
+        Registers an existing Kubernetes cluster. Kubernetes is not installed again. Select the
+        control plane nodes already registered in SaFE. They are used to read the cluster.
       </el-text>
 
       <el-form-item label="Name" prop="name">
@@ -42,7 +43,7 @@
         </el-select>
       </el-form-item>
 
-      <el-form-item label="Image Secret" prop="imageSecretId">
+      <el-form-item v-if="!isAdopt" label="Image Secret" prop="imageSecretId">
         <el-select
           v-model="form.imageSecretId"
           placeholder="please select image secret"
@@ -61,11 +62,11 @@
         <el-switch v-model="form.isProtected" :disabled="isUpgrade" />
       </el-form-item>
 
-      <el-form-item label="Managed Cluster">
+      <el-form-item v-if="!isAdopt" label="Managed Cluster">
         <el-switch v-model="form.isManagedCluster" :disabled="isUpgrade" />
       </el-form-item>
 
-      <el-form-item label="Kube Network Plugin" prop="kubeNetworkPlugin">
+      <el-form-item v-if="!isAdopt" label="Kube Network Plugin" prop="kubeNetworkPlugin">
         <el-select v-model="form.kubeNetworkPlugin" :disabled="isUpgrade">
           <el-option v-for="p in state.pluginOptions" :key="p" :label="p" :value="p" />
         </el-select>
@@ -91,7 +92,7 @@
         </el-select>
       </el-form-item>
 
-      <el-form-item label="Kube Spray Image" prop="kubeSprayImage">
+      <el-form-item v-if="!isAdopt" label="Kube Spray Image" prop="kubeSprayImage">
         <el-select
           v-model="form.kubeSprayImage"
           filterable
@@ -107,14 +108,14 @@
         </el-text>
       </el-form-item>
 
-      <el-form-item label="Kubernetes Version" prop="kubernetesVersion">
+      <el-form-item v-if="!isAdopt" label="Kubernetes Version" prop="kubernetesVersion">
         <el-input v-model="form.kubernetesVersion" :disabled="isVersionDerived" />
         <el-text v-if="isVersionDerived" size="small" type="info">
           Installed by the selected KubeSpray image.
         </el-text>
       </el-form-item>
 
-      <el-form-item label="Max Pods per Node" prop="kubeletMaxPods">
+      <el-form-item v-if="!isAdopt" label="Max Pods per Node" prop="kubeletMaxPods">
         <el-input-number
           v-model="form.kubeletMaxPods"
           :min="1"
@@ -127,7 +128,7 @@
         </el-text>
       </el-form-item>
 
-      <el-form-item label="Kube Apiserver Args">
+      <el-form-item v-if="!isAdopt" label="Kube Apiserver Args">
         <KeyValueList
           v-model="form.kubeApiServerArgsList"
           keyMode="input"
@@ -138,18 +139,18 @@
       </el-form-item>
 
       <!-- Network Settings -->
-      <div class="flex items-center m-b-4 mt-4">
+      <div v-if="!isAdopt" class="flex items-center m-b-4 mt-4">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
         <span class="fs-subtitle font-medium">Network Settings</span>
       </div>
 
       <!-- CidrPicker has no disabled state, and a subnet cannot be changed after the
            cluster is installed anyway, so an upgrade shows the stored value as text. -->
-      <el-form-item label="Kube Pods Subnet" prop="kubePodsSubnet">
+      <el-form-item v-if="!isAdopt" label="Kube Pods Subnet" prop="kubePodsSubnet">
         <el-input v-if="isUpgrade" :model-value="form.kubePodsSubnet" disabled />
         <CidrPicker v-else v-model="form.kubePodsSubnet" />
       </el-form-item>
-      <el-form-item label="Kube Service Address" prop="kubeServiceAddress">
+      <el-form-item v-if="!isAdopt" label="Kube Service Address" prop="kubeServiceAddress">
         <el-input v-if="isUpgrade" :model-value="form.kubeServiceAddress" disabled />
         <CidrPicker v-else v-model="form.kubeServiceAddress" />
       </el-form-item>
@@ -270,9 +271,7 @@ const isValidCIDR = (cidr: string) => {
   })
 }
 
-const rules: FormRules = {
-  name: [{ required: true, message: 'Please input name', trigger: 'blur' }],
-  sshSecretId: [{ required: true, message: 'Please select SSH secret', trigger: 'change' }],
+const installRules: FormRules = {
   imageSecretId: [{ required: true, message: 'Please select Image secret', trigger: 'change' }],
   kubeNetworkPlugin: [
     { required: true, message: 'Please select network plugin', trigger: 'change' },
@@ -314,6 +313,12 @@ const rules: FormRules = {
     },
   ],
 }
+const rules = computed<FormRules>(() => ({
+  name: [{ required: true, message: 'Please input name', trigger: 'blur' }],
+  sshSecretId: [{ required: true, message: 'Please select SSH secret', trigger: 'change' }],
+  nodes: installRules.nodes,
+  ...(isAdopt.value ? {} : installRules),
+}))
 
 // ====== lifecycle ======
 const fetchNodes = async () => {
@@ -423,24 +428,32 @@ const onSubmit = async (el?: FormInstance) => {
       (form.kubeApiServerArgsList || []).filter((kv) => kv.key).map((kv) => [kv.key, kv.value]),
     )
 
-    // Assemble payload
-    const payload = {
-      name: form.name,
-      description: form.description || undefined,
-      sshSecretId: form.sshSecretId,
-      imageSecretId: form.imageSecretId,
-      isProtected: form.isProtected,
-      kubeNetworkPlugin: form.kubeNetworkPlugin,
-      nodes: form.nodes,
-      kubeSprayImage: form.kubeSprayImage,
-      kubePodsSubnet: form.kubePodsSubnet,
-      kubeServiceAddress: form.kubeServiceAddress,
-      kubernetesVersion: form.kubernetesVersion,
-      kubeletMaxPods: form.kubeletMaxPods,
-      kubeApiServerArgs: Object.keys(kubeApiServerArgs).length ? kubeApiServerArgs : undefined,
-      ...(form.isManagedCluster ? { labels: { 'primus-safe.cluster.control-plane': '' } } : {}),
-      ...(isAdopt.value ? { adopt: true } : {}),
-    }
+    // Adoption only records how to reach the cluster. Install settings stay on the cluster.
+    const payload = isAdopt.value
+      ? {
+          name: form.name,
+          description: form.description || undefined,
+          sshSecretId: form.sshSecretId,
+          isProtected: form.isProtected,
+          nodes: form.nodes,
+          adopt: true,
+        }
+      : {
+          name: form.name,
+          description: form.description || undefined,
+          sshSecretId: form.sshSecretId,
+          imageSecretId: form.imageSecretId,
+          isProtected: form.isProtected,
+          kubeNetworkPlugin: form.kubeNetworkPlugin,
+          nodes: form.nodes,
+          kubeSprayImage: form.kubeSprayImage,
+          kubePodsSubnet: form.kubePodsSubnet,
+          kubeServiceAddress: form.kubeServiceAddress,
+          kubernetesVersion: form.kubernetesVersion,
+          kubeletMaxPods: form.kubeletMaxPods,
+          kubeApiServerArgs: Object.keys(kubeApiServerArgs).length ? kubeApiServerArgs : undefined,
+          ...(form.isManagedCluster ? { labels: { 'primus-safe.cluster.control-plane': '' } } : {}),
+        }
 
     await addCluster(payload)
     ElMessage.success(isAdopt.value ? 'Cluster adoption started' : 'Cluster created')

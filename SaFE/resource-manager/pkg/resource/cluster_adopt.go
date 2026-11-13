@@ -140,7 +140,18 @@ func (r *ClusterReconciler) syncAdoptedInventory(ctx context.Context, cluster *v
 			return err
 		}
 	}
-	return nil
+	return r.syncAdoptedControlPlane(ctx, cluster, nodes)
+}
+
+// syncAdoptedControlPlane records the data plane control plane nodes on the cluster.
+func (r *ClusterReconciler) syncAdoptedControlPlane(ctx context.Context, cluster *v1.Cluster, nodes []corev1.Node) error {
+	names := adoptedControlPlaneNames(nodes)
+	if len(names) == 0 || sameStringSet(cluster.Spec.ControlPlane.Nodes, names) {
+		return nil
+	}
+	original := client.MergeFrom(cluster.DeepCopy())
+	cluster.Spec.ControlPlane.Nodes = names
+	return r.Patch(ctx, cluster, original)
 }
 
 func (r *ClusterReconciler) ensureAdoptedFlavor(ctx context.Context, flavor *v1.NodeFlavor) error {
@@ -187,6 +198,7 @@ func (r *ClusterReconciler) ensureAdoptedWorkspace(ctx context.Context, cluster 
 			Volumes:     volumesFromPVCs(pvcs),
 		},
 	}
+	v1.SetAnnotation(workspace, v1.WorkspaceAdoptAnnotation, v1.TrueStr)
 	return r.Create(ctx, workspace)
 }
 
@@ -201,16 +213,27 @@ func (r *ClusterReconciler) ensureAdoptedNode(ctx context.Context, cluster *v1.C
 			klog.Infof("skip adopted node %s, it belongs to cluster %s", k8sNode.Name, existing.GetSpecCluster())
 			return nil
 		}
+		original := client.MergeFrom(existing.DeepCopy())
+		changed := false
+		if isK8sControlPlaneNode(k8sNode) && !v1.IsControlPlane(existing) {
+			if existing.Labels == nil {
+				existing.Labels = map[string]string{}
+			}
+			existing.Labels[v1.KubernetesControlPlane] = ""
+			changed = true
+		}
 		workspace := v1.GetWorkspaceId(k8sNode)
-		if workspace == "" || existing.GetSpecWorkspace() != "" {
+		if workspace != "" && existing.GetSpecWorkspace() == "" {
+			existing.Spec.Workspace = pointer.String(workspace)
+			if existing.Labels == nil {
+				existing.Labels = map[string]string{}
+			}
+			existing.Labels[v1.WorkspaceIdLabel] = workspace
+			changed = true
+		}
+		if !changed {
 			return nil
 		}
-		original := client.MergeFrom(existing.DeepCopy())
-		existing.Spec.Workspace = pointer.String(workspace)
-		if existing.Labels == nil {
-			existing.Labels = map[string]string{}
-		}
-		existing.Labels[v1.WorkspaceIdLabel] = workspace
 		return r.Patch(ctx, existing, original)
 	}
 	if !apierrors.IsNotFound(err) {
@@ -240,7 +263,53 @@ func (r *ClusterReconciler) ensureAdoptedNode(ctx context.Context, cluster *v1.C
 		node.Spec.Workspace = pointer.String(workspace)
 		node.Labels[v1.WorkspaceIdLabel] = workspace
 	}
+	if isK8sControlPlaneNode(k8sNode) {
+		node.Labels[v1.KubernetesControlPlane] = ""
+	}
 	return r.Create(ctx, node)
+}
+
+// legacyControlPlaneLabel is the role label used before node-role.kubernetes.io/control-plane.
+const legacyControlPlaneLabel = "node-role.kubernetes.io/master"
+
+// isK8sControlPlaneNode reports a data plane node that serves the Kubernetes control plane.
+func isK8sControlPlaneNode(node *corev1.Node) bool {
+	if node == nil || len(node.Labels) == 0 {
+		return false
+	}
+	if _, ok := node.Labels[v1.KubernetesControlPlane]; ok {
+		return true
+	}
+	_, ok := node.Labels[legacyControlPlaneLabel]
+	return ok
+}
+
+// adoptedControlPlaneNames returns the data plane control plane node names.
+func adoptedControlPlaneNames(nodes []corev1.Node) []string {
+	names := make([]string, 0)
+	for i := range nodes {
+		if isK8sControlPlaneNode(&nodes[i]) && nodes[i].Name != "" {
+			names = append(names, nodes[i].Name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func sameStringSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	a := append([]string(nil), left...)
+	b := append([]string(nil), right...)
+	sort.Strings(a)
+	sort.Strings(b)
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // adoptedFlavor names a flavor from the node label, the cluster annotation, or node capacity.
@@ -396,7 +465,7 @@ func (r *ClusterReconciler) pendingAdoptedWorkerIPs(ctx context.Context, cluster
 	}
 	ips := make([]string, 0)
 	for i := range nodes {
-		if controlPlanes[nodes[i].Name] {
+		if controlPlanes[nodes[i].Name] || isK8sControlPlaneNode(&nodes[i]) {
 			continue
 		}
 		ip := internalIP(&nodes[i])

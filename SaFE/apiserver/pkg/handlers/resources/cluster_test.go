@@ -192,6 +192,7 @@ func TestGenerateCluster(t *testing.T) {
 	adopted, err := h.generateCluster(context.Background(), user, req, []byte(`{}`))
 	testifyassert.NoError(t, err)
 	assert.Equal(t, v1.TrueStr, v1.GetAnnotation(adopted, v1.ClusterAdoptAnnotation))
+	testifyassert.False(t, v1.HasLabel(adopted, v1.ClusterControlPlaneLabel))
 }
 
 func TestCreateClusterHandler(t *testing.T) {

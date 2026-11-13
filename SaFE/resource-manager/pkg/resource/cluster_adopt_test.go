@@ -65,6 +65,7 @@ func TestSyncAdoptedInventoryCreatesFlavorWorkspaceAndNode(t *testing.T) {
 	workspace := &v1.Workspace{}
 	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "ccs300-gpu"}, workspace))
 	assert.Equal(t, 1, workspace.Spec.Replica)
+	assert.Equal(t, v1.TrueStr, v1.GetAnnotation(workspace, v1.WorkspaceAdoptAnnotation))
 	assert.Equal(t, "pfs-1", workspace.Spec.Volumes[0].GenFullVolumeId())
 	assert.Equal(t, "cephfs", workspace.Spec.Volumes[0].StorageClass)
 
@@ -110,6 +111,50 @@ func TestSyncAdoptedInventoryPlainClusterHasNoWorkspace(t *testing.T) {
 	list := &v1.WorkspaceList{}
 	assert.NoError(t, r.List(context.Background(), list))
 	assert.Empty(t, list.Items)
+}
+
+func TestSyncAdoptedInventoryRecordsControlPlaneAndWorkspace(t *testing.T) {
+	cluster := testCluster("ccs300")
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	cluster.Spec.ControlPlane.SSHSecret = &corev1.ObjectReference{Name: "ccs-root", Namespace: "primus-safe"}
+	cluster.Spec.ControlPlane.Nodes = []string{"bootstrap"}
+	capacity := corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse("32"),
+		corev1.ResourceMemory: resource.MustParse("64Gi"),
+	}
+	nodes := []corev1.Node{
+		{ObjectMeta: metav1.ObjectMeta{Name: "gpu4455", Labels: map[string]string{v1.KubernetesControlPlane: ""}},
+			Status: corev1.NodeStatus{Addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.235.225.238"}}, Capacity: capacity}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "gpu4456", Labels: map[string]string{"node-role.kubernetes.io/master": ""}},
+			Status: corev1.NodeStatus{Addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.235.225.239"}}, Capacity: capacity}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "gpu9458", Labels: map[string]string{v1.WorkspaceIdLabel: "ccs300-gpu"}},
+			Status: corev1.NodeStatus{Addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.235.225.46"}}, Capacity: capacity}},
+	}
+	r := newPlaneReconciler(t, cluster)
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), nodes))
+
+	for _, name := range []string{"gpu4455", "gpu4456", "gpu9458"} {
+		node := &v1.Node{}
+		assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: name}, node))
+		assert.Equal(t, "ccs300", node.GetSpecCluster())
+		assert.NotEmpty(t, node.Spec.PrivateIP)
+	}
+	control := &v1.Node{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "gpu4455"}, control))
+	assert.True(t, v1.IsControlPlane(control))
+	worker := &v1.Node{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "gpu9458"}, worker))
+	assert.False(t, v1.IsControlPlane(worker))
+	assert.Equal(t, "ccs300-gpu", worker.GetSpecWorkspace())
+
+	workspace := &v1.Workspace{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "ccs300-gpu"}, workspace))
+	assert.True(t, v1.IsAdoptedWorkspace(workspace))
+	assert.Equal(t, 1, workspace.Spec.Replica)
+
+	got := &v1.Cluster{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "ccs300"}, got))
+	assert.ElementsMatch(t, []string{"gpu4455", "gpu4456"}, got.Spec.ControlPlane.Nodes)
 }
 
 func TestSyncAdoptedInventoryUsesManualFlavor(t *testing.T) {

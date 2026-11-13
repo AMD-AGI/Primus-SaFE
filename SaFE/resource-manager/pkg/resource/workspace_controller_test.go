@@ -636,6 +636,26 @@ func newWorkspaceReconcilerFull(t *testing.T, cs *k8sfake.Clientset, objs ...ctr
 	}
 }
 
+func TestAdoptedWorkspaceReconcileSkipsDataPlane(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "ccs300-gpu",
+			Labels:      map[string]string{v1.ClusterIdLabel: "ccs300", v1.DisplayNameLabel: "ccs300-gpu"},
+			Annotations: map[string]string{v1.WorkspaceAdoptAnnotation: v1.TrueStr},
+		},
+		Spec: v1.WorkspaceSpec{Cluster: "ccs300", Replica: 1, QueuePolicy: v1.QueueFifoPolicy, NodeFlavor: "flavor"},
+	}
+	r := newWorkspaceReconcilerFull(t, cs, ws)
+	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: ws.Name}})
+	testifyassert.NoError(t, err)
+	_, err = cs.CoreV1().Namespaces().Get(context.Background(), ws.Name, metav1.GetOptions{})
+	testifyassert.True(t, apierrors.IsNotFound(err))
+	got := &v1.Workspace{}
+	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: ws.Name}, got))
+	testifyassert.Equal(t, v1.WorkspaceRunning, got.Status.Phase)
+}
+
 func TestGuaranteeAndDeleteDataPlaneResourcesFull(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset()
 	cluster := testCluster("c1")

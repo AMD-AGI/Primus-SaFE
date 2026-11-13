@@ -66,9 +66,18 @@ func (m *ClusterMutator) Handle(ctx context.Context, req admission.Request) admi
 func (m *ClusterMutator) mutateOnCreation(_ context.Context, cluster *v1.Cluster) {
 	cluster.Name = stringutil.NormalizeName(cluster.Name)
 	controllerutil.AddFinalizer(cluster, v1.ClusterFinalizer)
+	// Adopted clusters already have a network plugin. Do not record the install default.
+	if adoptedCluster(cluster) {
+		return
+	}
 	if cluster.Spec.ControlPlane.KubeNetworkPlugin == nil || *cluster.Spec.ControlPlane.KubeNetworkPlugin == "" {
 		cluster.Spec.ControlPlane.KubeNetworkPlugin = pointer.String(v1.FlannelNetworkPlugin)
 	}
+}
+
+// adoptedCluster reports a cluster that is registered from an existing installation.
+func adoptedCluster(cluster *v1.Cluster) bool {
+	return v1.GetAnnotation(cluster, v1.ClusterAdoptAnnotation) == v1.TrueStr
 }
 
 // ClusterValidator validates Cluster resources on create, update, and delete operations.
@@ -114,13 +123,32 @@ func (v *ClusterValidator) validateOnCreation(ctx context.Context, cluster *v1.C
 	if err := validateDisplayName(v1.GetDisplayName(cluster), ""); err != nil {
 		return err
 	}
-	if err := v.validateControlPlane(ctx, cluster); err != nil {
+	if adoptedCluster(cluster) {
+		if err := v.validateAdoptedCluster(ctx, cluster); err != nil {
+			return err
+		}
+	} else if err := v.validateControlPlane(ctx, cluster); err != nil {
 		return err
 	}
 	if err := validateLabels(cluster.GetLabels()); err != nil {
 		return err
 	}
 	return nil
+}
+
+// validateAdoptedCluster checks the SSH targets of an existing cluster.
+// Install settings already exist on that cluster and are not required here.
+func (v *ClusterValidator) validateAdoptedCluster(ctx context.Context, cluster *v1.Cluster) error {
+	if v1.HasLabel(cluster, v1.ClusterControlPlaneLabel) {
+		return fmt.Errorf("an adopted cluster cannot be a management cluster")
+	}
+	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
+		return fmt.Errorf("the KubeControlPlane nodes of spec are empty")
+	}
+	if err := v.validateNodesInUse(ctx, cluster); err != nil {
+		return err
+	}
+	return v.validateNodesReady(ctx, cluster)
 }
 
 // validateControlPlane validates control plane nodes and network configuration.
@@ -277,7 +305,11 @@ func uint32PointerValue(value *uint32) string {
 }
 
 // validateImmutableFields ensures control plane nodes cannot be modified.
+// An adopted cluster records those nodes after it can list the data plane.
 func (v *ClusterValidator) validateImmutableFields(newCluster, oldCluster *v1.Cluster) error {
+	if adoptedCluster(oldCluster) {
+		return nil
+	}
 	if !slice.EqualIgnoreOrder(newCluster.Spec.ControlPlane.Nodes, oldCluster.Spec.ControlPlane.Nodes) {
 		return field.Forbidden(field.NewPath("spec").Key("controlPlane").
 			Key("nodes"), "immutable")

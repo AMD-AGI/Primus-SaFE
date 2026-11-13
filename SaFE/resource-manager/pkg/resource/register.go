@@ -35,6 +35,9 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupClusterController(mgr); err != nil {
 		return fmt.Errorf("failed to set up cluster controller: %v", err)
 	}
+	if err := SetupClusterAdoptController(mgr); err != nil {
+		return fmt.Errorf("failed to set up cluster adopt controller: %v", err)
+	}
 	if err := SetupNodeController(mgr); err != nil {
 		return fmt.Errorf("failed to set up node controller: %v", err)
 	}

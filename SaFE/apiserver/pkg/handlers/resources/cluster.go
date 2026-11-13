@@ -154,11 +154,11 @@ func (h *Handler) generateCluster(ctx context.Context,
 	if req.IsProtected {
 		v1.SetLabel(cluster, v1.ProtectLabel, "")
 	}
-	if req.IsControlPlane {
-		v1.SetLabel(cluster, v1.ClusterControlPlaneLabel, "")
-	}
+	// An adopted cluster is an existing data plane, so it is never marked as the management cluster.
 	if req.Adopt {
 		v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	} else if req.IsControlPlane {
+		v1.SetLabel(cluster, v1.ClusterControlPlaneLabel, "")
 	}
 
 	if cluster.Spec.ControlPlane.ImageSecret == nil && commonconfig.GetImageSecret() != "" {
