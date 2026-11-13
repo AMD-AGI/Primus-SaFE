@@ -106,7 +106,15 @@ PY
 esac
 exit 0
 EOF
-printf '#!/bin/bash\necho "kubectl $*" >> "$FAKE_LOG"\nexit 0\n' > "$W/bin/kubectl"
+# FAKE_INGRESS_OWNER is the <release>/<namespace> that `kubectl get ingress` reports; unset, it reports none.
+cat > "$W/bin/kubectl" <<'EOF'
+#!/bin/bash
+echo "kubectl $*" >> "$FAKE_LOG"
+if [[ "$1 $2" == "get ingress" && -n "${FAKE_INGRESS_OWNER:-}" ]]; then
+  echo "$FAKE_INGRESS_OWNER"
+fi
+exit 0
+EOF
 printf '#!/bin/bash\nexit 0\n' > "$W/bin/sleep"
 chmod +x "$W/bin/"*
 # A PATH without jq, for a host that has helm and kubectl only.
@@ -132,15 +140,21 @@ install_node_agent=n'
 
 AUTH_ENV="auth_mode=external
 auth_login_url=https://idp.example.com/sign-in/start
+auth_allow_oidc_only=false
+auth_provider_client=false
 auth_client_secret=safe-introspection
-auth_authenticators='[{\"type\":\"oidc\",\"issuer\":\"https://idp.example.com\",\"audience\":\"primus-safe\"}]'
+auth_authenticators='[{\"type\":\"oidc\",\"issuer\":\"https://idp.example.com\",\"audience\":\"primus-safe\"},{\"type\":\"builtin\"}]'
 auth_group_mappings='[{\"group\":\"admins\",\"roles\":[\"system-admin\"]}]'
 auth_key_actors='[\"client-a\"]'
 auth_api_keys_url=/api/v1/apikeys
-auth_api_keys_upstream=identity.idns.svc.cluster.local:8080"
+auth_api_keys_upstream=identity.idns.svc.cluster.local:8080
+auth_scim_enabled=false
+auth_scim_identity_url=
+auth_scim_public_url=
+auth_scim_token_secret=primus-safe-scim-token"
 
 # What helm get values says for a release that is running with that auth setting.
-LIVE_EXTERNAL='{"global":{"sub_domain":"test"},"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","client_secret":"safe-introspection","authenticators":[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"key_actors":["client-a"],"api_keys_upstream":"identity.idns.svc.cluster.local:8080"}}'
+LIVE_EXTERNAL='{"global":{"sub_domain":"test"},"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","client_secret":"safe-introspection","authenticators":[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"},{"type":"builtin"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"key_actors":["client-a"],"api_keys_upstream":"identity.idns.svc.cluster.local:8080"}}'
 LIVE_BUILTIN='{"global":{"sub_domain":"test"},"auth":{"mode":"builtin","authenticators":[],"group_mappings":[],"login_url":""}}'
 
 FAILS=0
@@ -184,13 +198,15 @@ run_upgrade "" ""
 expect "no auth keys, fresh install: applied" applied
 expect "no auth keys, fresh install: builtin" rendered 'mode: "builtin"'
 expect "no auth keys, fresh install: only the one values file" grep -qx 1 "$OUT/value-files"
+expect "no auth keys, fresh install: login url" rendered 'login_url: ""'
+expect "no auth keys, fresh install: scim public url" rendered '  public_url: "https://test.primus-safe.amd.com/scim/v2"'
 
 # 2. The auth_* keys reach the rendered chart, on a release that is not external yet.
 run_upgrade "$LIVE_BUILTIN" "$AUTH_ENV"
 expect "all auth keys: applied" applied
 expect "all auth keys: mode" rendered 'mode: "external"'
 expect "all auth keys: login_url" rendered 'login_url: "https://idp.example.com/sign-in/start"'
-expect "all auth keys: authenticators" rendered 'authenticators: [{"audience":"primus-safe","issuer":"https://idp.example.com","type":"oidc"}]'
+expect "all auth keys: authenticators" rendered 'authenticators: [{"audience":"primus-safe","issuer":"https://idp.example.com","type":"oidc"},{"type":"builtin"}]'
 expect "all auth keys: group_mappings" rendered 'group_mappings: [{"group":"admins","roles":["system-admin"]}]'
 expect "all auth keys: client secret mounted into the apiserver" grep -qxF '            secretName: safe-introspection' "$OUT/rendered.yaml"
 expect "all auth keys: key_actors reach the values" grep -qx 2 "$OUT/value-files"
@@ -201,15 +217,15 @@ expect "all auth keys: the script prints no auth value" bash -c '! grep -q "idp.
 # Rendered with and without: only the auth segment differs.
 cp "$OUT/rendered.yaml" "$W/with-auth.yaml"
 run_upgrade "" ""
-diff_lines="$(diff "$OUT/rendered.yaml" "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|API_KEYS_UPSTREAM|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|secret:$' || true)"
+diff_lines="$(diff "$OUT/rendered.yaml" "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|enabled:|API_KEYS_UPSTREAM|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|"safe-introspection"|secret:$' || true)"
 expect "rendering with and without the keys differs only in the auth segment" test -z "$diff_lines"
 [[ -z "$diff_lines" ]] || echo "$diff_lines"
 
-# 3. The running release is external and .env has no auth_* keys: refuse, and touch nothing.
+# 3. The running release is external and .env sets no auth_mode: that would render builtin, so it is refused.
+# auth_mode=builtin is the explicit way back.
 run_upgrade "$LIVE_EXTERNAL" ""
-expect "live external, no auth keys: refused before the cluster is touched" refused
-expect "live external, no auth keys: the message names what is missing" grep -q 'does not set: auth_mode auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors' "$OUT/log"
-expect "live external, no auth keys: the message says how to go back on purpose" grep -q 'auth_mode=builtin' "$OUT/log"
+expect "live external, no auth keys: refused" refused
+expect "live external, no auth keys: says why" grep -q 'does not set auth_mode' "$OUT/log"
 
 # 4. One key missing is enough, here the one that grants the administrator roles.
 run_upgrade "$LIVE_EXTERNAL" "$(grep -v '^auth_group_mappings' <<<"$AUTH_ENV")"
@@ -225,20 +241,79 @@ expect "live external, api_keys_upstream missing: names it" grep -q 'does not se
 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"
 expect "live external, all keys in .env: applied" applied
 expect "live external, all keys in .env: still external" rendered 'mode: "external"'
+expect "live external, empty public url: derived" rendered '  public_url: "https://test.primus-safe.amd.com/scim/v2"'
+
+# 5b. A stored scim.enabled=false is not kept. Omitting the key renders the chart default, true.
+#     An explicit false in .env still turns it off.
+run_upgrade '{"auth":{"scim":{"enabled":false}}}' ""
+expect "live scim off, key omitted: applied" applied
+expect "live scim off, key omitted: enabled" rendered '  enabled: true'
+run_upgrade '{"auth":{"scim":{"enabled":false}}}' 'auth_scim_enabled=false'
+expect "live scim off, explicit false: applied" applied
+expect "live scim off, explicit false: disabled" rendered '  enabled: false'
+
+# 5c. The chart default SCIM token Secret name needs no .env key. On an external release a
+# stored name that is not the chart default is one of the keys .env must restate.
+run_upgrade '{"auth":{"mode":"external","authenticators":[{"type":"builtin"}],"scim":{"token_secret":"custom-scim-token"}}}' 'auth_mode=external
+auth_authenticators='"'"'[{"type":"builtin"}]'"'"
+expect "live external, custom scim token secret omitted: refused" refused
+expect "live external, custom scim token secret omitted: names it" grep -q 'does not set:.*auth_scim_token_secret' "$OUT/log"
+run_upgrade '{"auth":{"scim":{"token_secret":"primus-safe-scim-token"}}}' ""
+expect "live default scim token secret, key omitted: applied" applied
+expect "live default scim token secret, key omitted: chart default" rendered '  token_secret: "primus-safe-scim-token"'
+run_upgrade '{"auth":{"scim":{"token_secret":"custom-scim-token"}}}' ""
+expect "live custom scim token secret, key omitted: applied" applied
+expect "live custom scim token secret, key omitted: chart default" rendered '  token_secret: "primus-safe-scim-token"'
+run_upgrade '{"auth":{"scim":{"token_secret":"custom-scim-token"}}}' 'auth_scim_token_secret=custom-scim-token'
+expect "live custom scim token secret, key set: applied" applied
+expect "live custom scim token secret, key set: kept" rendered '  token_secret: "custom-scim-token"'
 
 # 6. A key the release does not have is not demanded.
-run_upgrade '{"auth":{"mode":"external","authenticators":[{"type":"builtin"}]}}' 'auth_mode=external
-auth_authenticators='"'"'[{"type":"builtin"}]'"'"
+run_upgrade '{"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","authenticators":[{"type":"builtin"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"scim":{"enabled":false}}}' 'auth_mode=external
+auth_login_url=https://idp.example.com/sign-in/start
+auth_authenticators='"'"'[{"type":"builtin"}]'"'"'
+auth_group_mappings='"'"'[{"group":"admins","roles":["system-admin"]}]'"'"'
+auth_scim_enabled=false'
 expect "live external without optional keys: applied" applied
 
 # 7. auth_mode=builtin is the deliberate way back: allowed, and the other keys still apply.
 run_upgrade "$LIVE_EXTERNAL" "$(sed 's/^auth_mode=.*/auth_mode=builtin/' <<<"$AUTH_ENV")"
 expect "break-glass, auth_mode=builtin: applied" applied
 expect "break-glass, auth_mode=builtin: builtin" rendered 'mode: "builtin"'
-expect "break-glass, auth_mode=builtin: the chain is kept for the way back" rendered 'authenticators: [{"audience":"primus-safe","issuer":"https://idp.example.com","type":"oidc"}]'
+expect "break-glass, auth_mode=builtin: the chain is kept for the way back" rendered 'authenticators: [{"audience":"primus-safe","issuer":"https://idp.example.com","type":"oidc"},{"type":"builtin"}]'
 run_upgrade "$LIVE_EXTERNAL" 'auth_mode=builtin'
 expect "break-glass with nothing else in .env: applied" applied
 expect "break-glass with nothing else in .env: builtin" rendered 'mode: "builtin"'
+
+# Higress: external with SCIM renders the console /scim/v2 route in this namespace. builtin deletes it.
+SCIM_ON="$(sed -e 's/^auth_scim_enabled=false/auth_scim_enabled=true/' -e 's|^auth_scim_identity_url=.*|auth_scim_identity_url=https://idp.example.com|' <<<"$AUTH_ENV")"
+run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"$'\ningress=higress'
+expect "higress external: applied" applied
+expect "higress external: no identity namespace" bash -c '! grep -q "namespace: primus-identity" "$1"' _ "$OUT/rendered.yaml"
+expect "higress external, scim off: no console scim route" bash -c '! grep -q "name: primus-safe-scim" "$1"' _ "$OUT/rendered.yaml"
+expect "higress external, scim off: deletes the console scim route" grep -qxF 'kubectl delete ingress primus-safe-scim -n primus-safe --ignore-not-found' "$FAKE_LOG"
+run_upgrade "$LIVE_EXTERNAL" "$SCIM_ON"$'\ningress=higress'
+expect "higress external, scim on: applied" applied
+expect "higress external, scim on: console scim route" grep -qxF '  name: primus-safe-scim' "$OUT/rendered.yaml"
+expect "higress external, scim on: scim path" grep -qxF '          - path: /scim/v2' "$OUT/rendered.yaml"
+expect "higress external, scim on: apiserver service" grep -qxF '                name: primus-safe-apiserver' "$OUT/rendered.yaml"
+expect "higress external, scim on: adopts an existing route" grep -q 'kubectl annotate ingress primus-safe-scim -n primus-safe' "$FAKE_LOG"
+expect "higress external, scim on: does not delete the route" bash -c '! grep -q "kubectl delete ingress primus-safe-scim" "$1"' _ "$FAKE_LOG"
+run_upgrade "$LIVE_EXTERNAL" $'auth_mode=builtin\ningress=higress'
+expect "higress builtin: applied" applied
+expect "higress builtin: deletes the console scim route" grep -qxF 'kubectl delete ingress primus-safe-scim -n primus-safe --ignore-not-found' "$FAKE_LOG"
+run_upgrade "$LIVE_BUILTIN" ""
+expect "nginx builtin: leaves the higress route alone" bash -c '! grep -q primus-safe-scim "$1"' _ "$FAKE_LOG"
+# An Ingress of the same name that another release owns is neither adopted nor deleted.
+FAKE_INGRESS_OWNER=other/other-ns run_upgrade "$LIVE_EXTERNAL" "$SCIM_ON"$'\ningress=higress'
+expect "higress external, route of another release: refused" bash -c '[[ $1 -ne 0 ]] && ! grep -q "helm upgrade" "$2"' _ "$RC" "$FAKE_LOG"
+expect "higress external, route of another release: not adopted" bash -c '! grep -q "kubectl annotate" "$1"' _ "$FAKE_LOG"
+expect "higress external, route of another release: names the owner" grep -q 'owned by release other/other-ns' "$OUT/log"
+FAKE_INGRESS_OWNER=other/other-ns run_upgrade "$LIVE_EXTERNAL" $'auth_mode=builtin\ningress=higress'
+expect "higress builtin, route of another release: applied" applied
+expect "higress builtin, route of another release: not deleted" bash -c '! grep -q "kubectl delete ingress" "$1"' _ "$FAKE_LOG"
+FAKE_INGRESS_OWNER=primus-safe/primus-safe run_upgrade "$LIVE_EXTERNAL" "$SCIM_ON"$'\ningress=higress'
+expect "higress external, route of this release: applied" applied
 
 # 8. A release that is builtin has nothing to lose.
 run_upgrade "$LIVE_BUILTIN" ""
@@ -259,7 +334,7 @@ expect "releases cannot be listed: says so" grep -q 'cannot list the helm releas
 # but an explicit mode needs no reading of the release's values (nor do explicit SSO settings, nor
 # an explicit external_user_dir_mounts, nor explicit console_return_prefixes)
 FAKE_GET_FAIL=1 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV
-sso_login_enable=false
+oidc_login_enable=false
 sso_bridge_allowlist='[]'
 external_user_dir_mounts=true
 console_return_prefixes='[]'"
@@ -281,6 +356,46 @@ expect "external without a chain: says why" grep -q 'needs a non-empty auth_auth
 run_upgrade "$LIVE_BUILTIN" "auth_key_actors="
 expect "an empty key_actors is the empty list: applied" applied
 
+# 10b. An external chain the apiserver would refuse at start-up is refused before anything is changed.
+run_upgrade "$LIVE_BUILTIN" "$(grep -v '^auth_login_url' <<<"$AUTH_ENV")"
+expect "external without a login url: refused" refused
+expect "external without a login url: says why" grep -q 'needs auth_login_url' "$OUT/log"
+run_upgrade "$LIVE_BUILTIN" "$(sed 's|^auth_authenticators=.*|auth_authenticators='"'"'[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"}]'"'"'|' <<<"$AUTH_ENV")"
+expect "external with an oidc-only chain: refused" refused
+expect "external with an oidc-only chain: says why" grep -q 'needs an introspection or builtin authenticator' "$OUT/log"
+run_upgrade "$LIVE_BUILTIN" "$(sed 's|^auth_group_mappings=.*|auth_group_mappings='"'"'[{"group":"readers","roles":["system-admin-readonly"]}]'"'"'|' <<<"$AUTH_ENV")"
+expect "external without a system-admin group: refused" refused
+expect "external without a system-admin group: says why" grep -q 'roles include system-admin' "$OUT/log"
+run_upgrade "$LIVE_BUILTIN" "$(sed 's/^auth_scim_enabled=false/auth_scim_enabled=true/' <<<"$AUTH_ENV")"
+expect "external with scim and no identity url, provider_client off: applied" applied
+run_upgrade "$LIVE_BUILTIN" "$(sed -e 's/^auth_scim_enabled=false/auth_scim_enabled=true/' -e 's/^auth_provider_client=false/auth_provider_client=true/' <<<"$AUTH_ENV")"
+expect "external with scim and no identity url, provider_client on: refused" refused
+expect "external with scim and no identity url, provider_client on: says why" grep -q 'auth_scim_identity_url cannot be resolved' "$OUT/log"
+run_upgrade "$LIVE_BUILTIN" "$(sed -e 's/^auth_provider_client=false/auth_provider_client=true/' -e 's|^auth_scim_identity_url=.*|auth_scim_identity_url=https://idp.example.com|' <<<"$AUTH_ENV")"
+expect "external, provider_client on: applied" applied
+expect "external, provider_client on: rendered" rendered 'provider_client: true'
+run_upgrade "$LIVE_BUILTIN" "$(sed 's/^auth_provider_client=false/auth_provider_client=yes/' <<<"$AUTH_ENV")"
+expect "provider_client that is not a boolean: refused" refused
+expect "provider_client that is not a boolean: says so" grep -q 'auth_provider_client in .env must be true or false' "$OUT/log"
+run_upgrade "$LIVE_BUILTIN" "$(sed -e 's/^auth_allow_oidc_only=false/auth_allow_oidc_only=true/' -e 's|^auth_authenticators=.*|auth_authenticators='"'"'[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"}]'"'"'|' <<<"$AUTH_ENV")"
+expect "external with an oidc-only chain, allow_oidc_only on: applied" applied
+expect "external with an oidc-only chain, allow_oidc_only on: rendered" rendered 'allow_oidc_only: true'
+run_upgrade '{"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","authenticators":[{"type":"builtin"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"provider_client":true}}' "$(grep -v '^auth_provider_client' <<<"$AUTH_ENV")"
+expect "live external, provider_client on and omitted: refused" refused
+expect "live external, provider_client on and omitted: names it" grep -q 'does not set:.*auth_provider_client' "$OUT/log"
+CONSOLE_LOGIN="oidc_login_enable=true
+oidc_login_issuer=https://idp.example.com
+oidc_login_client_id=console
+oidc_login_redirect_uri=https://console.example.com/sso/callback
+sso_bridge_allowlist='[]'"
+run_upgrade "$LIVE_BUILTIN" "$AUTH_ENV
+$CONSOLE_LOGIN"
+expect "external, sso.login client id is no oidc audience: refused" refused
+expect "external, sso.login client id is no oidc audience: names the chart's reason" grep -q 'no oidc authenticator audience equals sso.login.client_id "console"' "$OUT/log"
+run_upgrade "$LIVE_BUILTIN" "$(sed 's|"audience":"primus-safe"|"audience":"console"|' <<<"$AUTH_ENV")
+$CONSOLE_LOGIN"
+expect "external, sso.login client id is an oidc audience: applied" applied
+
 # 11. A host without jq: a release that is not external upgrades as it always did, and the break-glass
 # needs no jq; an external release asks for it instead of guessing.
 export NOJQ="$W/nojq"
@@ -293,7 +408,7 @@ RUN_PATH="$NOJQ" run_upgrade "" ""
 expect "no jq, fresh install: applied" applied
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_EXTERNAL" ""
 expect "no jq, live external, no auth keys: refused" refused
-expect "no jq, live external, no auth keys: asks for jq" grep -q 'jq is required' "$OUT/log"
+expect "no jq, live external, no auth keys: says why" grep -q 'does not set auth_mode' "$OUT/log"
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_EXTERNAL" 'auth_mode=builtin'
 expect "no jq, break-glass: applied" applied
 expect "no jq, break-glass: builtin" rendered 'mode: "builtin"'
@@ -303,7 +418,7 @@ expect "no jq, every key in .env: says why" grep -q 'jq is required when .env se
 RUN_PATH="$NOJQ" run_upgrade "$LIVE_BUILTIN" "auth_mode=extrenal"
 expect "no jq, a mode that is neither: refused" refused
 
-# The console's sign-in at an OIDC provider (sso_login_*): off unless .env says so; then on, with the
+# The console's sign-in at an OIDC provider (oidc_login_*): off unless .env says so; then on, with the
 # other provider's Secret kept or removed (sso_secret); and refused before anything is touched when
 # a value is not usable.
 SSO_ON="sso_enable=true"
@@ -312,10 +427,10 @@ expect "sso, no sso_login keys: applied" applied
 expect "sso, no sso_login keys: sso.enable is true" rendered 'enable: true'
 expect "sso, no sso_login keys: sso.login stays off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
 expect "sso, no sso_login keys: the sso Secret is mounted" grep -qxF '            secretName: primus-safe-sso' "$OUT/rendered.yaml"
-SSO_LOGIN="sso_login_enable=true
-sso_login_issuer=https://idp.example.com
-sso_login_client_id=console
-sso_login_redirect_uri=https://console.example.com/sso/callback"
+SSO_LOGIN="oidc_login_enable=true
+oidc_login_issuer=https://idp.example.com
+oidc_login_client_id=console
+oidc_login_redirect_uri=https://console.example.com/sso/callback"
 run_upgrade "" "$SSO_ON
 $SSO_LOGIN"
 expect "sso_login: applied" applied
@@ -331,34 +446,50 @@ expect "sso_login, sso_secret empty: applied" applied
 expect "sso_login, sso_secret empty: no sso Secret is mounted" bash -c '! grep -q "sso-secret" "$1"' _ "$OUT/rendered.yaml"
 expect "sso_login, sso_secret empty: sso stays enabled" rendered 'enable: true'
 run_upgrade "" "$SSO_ON
-sso_login_enable=yes"
-expect "sso_login_enable neither true nor false: refused" refused
+oidc_login_enable=yes"
+expect "oidc_login_enable neither true nor false: refused" refused
 run_upgrade "" "$SSO_ON
-sso_login_enable=true
-sso_login_issuer=https://idp.example.com"
-expect "sso_login without a client id: refused" refused
+oidc_login_enable=true"
+expect "sso_login with no issuer, client id, or redirect: applied" applied
+expect "sso_login with no issuer, client id, or redirect: issuer is the cluster host" grep -qxF '        issuer: "https://test.primus-safe.amd.com"' "$OUT/rendered.yaml"
+expect "sso_login with no issuer, client id, or redirect: client id is safe-console" grep -qxF '        client_id: "safe-console"' "$OUT/rendered.yaml"
+expect "sso_login with no issuer, client id, or redirect: redirect is the cluster callback" grep -qxF '        redirect_uri: "https://test.primus-safe.amd.com/sso/callback"' "$OUT/rendered.yaml"
+run_upgrade "" "$SSO_ON
+oidc_login_enable=true
+oidc_login_issuer=https://idp.example.com"
+expect "sso_login without a client id: applied" applied
+expect "sso_login without a client id: issuer stays the one set" grep -qxF '        issuer: "https://idp.example.com"' "$OUT/rendered.yaml"
+expect "sso_login without a client id: client id is safe-console" grep -qxF '        client_id: "safe-console"' "$OUT/rendered.yaml"
+expect "sso_login without a client id: redirect is the cluster callback" grep -qxF '        redirect_uri: "https://test.primus-safe.amd.com/sso/callback"' "$OUT/rendered.yaml"
 run_upgrade "" "$SSO_ON
 $SSO_LOGIN
-sso_login_client_id='a|b'"
+oidc_login_client_id='a|b'"
 expect "sso_login with a '|' in a value: refused" refused
 
 # A value that the sed replacement would mangle ('&' is the matched text there) is refused.
 run_upgrade "" "$SSO_ON
 $SSO_LOGIN
-sso_login_redirect_uri='https://console.example.com/sso/callback?a=1&b=2'"
+oidc_login_redirect_uri='https://console.example.com/sso/callback?a=1&b=2'"
 expect "sso_login with a '&' in a value: refused" refused
-expect "sso_login with a '&' in a value: says so" grep -q "sso_login_redirect_uri in .env must not contain" "$OUT/log"
-# sso.login is an SSO setting: on with SSO off is refused, not silently ignored.
+expect "sso_login with a '&' in a value: says so" grep -q "oidc_login_redirect_uri in .env must not contain" "$OUT/log"
+# The OIDC console sign-in is independent of sso_enable: the local connection runs with SSO off.
 run_upgrade "" "$SSO_LOGIN"
-expect "sso_login_enable=true with sso_enable=false: refused" refused
-expect "sso_login_enable=true with sso_enable=false: says so" grep -q 'sso_login_enable=true in .env needs sso_enable=true' "$OUT/log"
-run_upgrade "" "sso_login_enable=false"
-expect "sso_login_enable=false with sso_enable=false: applied" applied
+expect "oidc_login_enable=true with sso_enable=false: applied" applied
+expect "oidc_login_enable=true with sso_enable=false: sso.login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+run_upgrade "" "sso_login_enable=true
+sso_login_issuer=https://idp.example.com
+sso_login_client_id=safe-console
+sso_login_redirect_uri=https://console.example.com/sso/callback"
+expect "sso_login_* is the previous name: applied" applied
+expect "sso_login_* is the previous name: sso.login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+expect "sso_login_* is the previous name: issuer" grep -qxF '        issuer: "https://idp.example.com"' "$OUT/rendered.yaml"
+run_upgrade "" "oidc_login_enable=false"
+expect "oidc_login_enable=false with sso_enable=false: applied" applied
 # Removing the Secret leaves the apiserver without a provider unless sso.login is on.
 run_upgrade "" "$SSO_ON
 sso_secret="
 expect "sso_secret empty without sso_login: refused" refused
-expect "sso_secret empty without sso_login: says why" grep -q 'needs sso_login_enable=true' "$OUT/log"
+expect "sso_secret empty without sso_login: says why" grep -q 'needs oidc_login_enable=true' "$OUT/log"
 
 # sso_bridge_allowlist: a JSON array that reaches sso.bridge_allowlist, alone or next to the auth_* keys.
 ALLOW="sso_bridge_allowlist='[\"http://localhost:5173\", \"http://127.0.0.1:5173\"]'"
@@ -389,35 +520,77 @@ $ALLOW"
 expect "no jq, bridge allowlist: refused" refused
 expect "no jq, bridge allowlist: asks for jq" grep -q 'jq is required when .env sets sso_bridge_allowlist' "$OUT/log"
 
-# A release that runs with sso.login on or a bridge allowlist: an .env without them is refused before the
-# cluster is touched (the next upgrade would sign everyone out, or cut the bridge); with them it applies.
+# A release that runs with sso.login on or a bridge allowlist, and an .env that leaves them out,
+# keeps those values. .env turns them off only by setting the keys.
 LIVE_SSO='{"global":{"sub_domain":"test"},"sso":{"enable":true,"secret":"primus-safe-sso","bridge_allowlist":["http://localhost:5173","http://127.0.0.1:5173"],"login":{"enable":true,"issuer":"https://idp.example.com","client_id":"console","redirect_uri":"https://console.example.com/sso/callback"}}}'
 LIVE_SSO_LOGIN_ONLY='{"sso":{"enable":true,"bridge_allowlist":[],"login":{"enable":true,"issuer":"https://idp.example.com"}}}'
 LIVE_SSO_ALLOW_ONLY='{"sso":{"enable":true,"bridge_allowlist":["http://localhost:5173"],"login":{"enable":false}}}'
 LIVE_SSO_OFF='{"sso":{"enable":true,"bridge_allowlist":[],"login":{"enable":false,"issuer":""}}}'
+# .env turns the login on and sets the allowlist but omits the issuer, client id and redirect URI: they keep the live values.
+run_upgrade "$LIVE_SSO" "$SSO_ON
+oidc_login_enable=true
+sso_bridge_allowlist='[\"http://localhost:5173\"]'"
+expect "jq, .env sets login and allowlist only: applied" applied
+expect "jq, .env sets login and allowlist only: issuer kept" grep -qxF '        issuer: "https://idp.example.com"' "$OUT/rendered.yaml"
+expect "jq, .env sets login and allowlist only: client kept" grep -qxF '        client_id: "console"' "$OUT/rendered.yaml"
+expect "jq, .env sets login and allowlist only: redirect kept" grep -qxF '        redirect_uri: "https://console.example.com/sso/callback"' "$OUT/rendered.yaml"
+expect "jq, .env sets login and allowlist only: allowlist from .env" rendered 'bridge_allowlist: ["http://localhost:5173"]'
 for jqmode in jq nojq; do
   rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO" "$SSO_ON"
-  expect "$jqmode, live sso.login and allowlist, .env without them: refused" refused
-  expect "$jqmode, live sso.login and allowlist, .env without them: names them" grep -q 'does not set: sso_login_enable sso_login_issuer sso_login_client_id sso_login_redirect_uri sso_bridge_allowlist$' "$OUT/log"
+  if [[ "$jqmode" == "jq" ]]; then
+    expect "$jqmode, live sso.login and allowlist, .env without them: applied" applied
+    expect "$jqmode, live sso.login and allowlist, .env without them: login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+    expect "$jqmode, live sso.login and allowlist, .env without them: allowlist kept" rendered 'bridge_allowlist: ["http://localhost:5173","http://127.0.0.1:5173"]'
+    expect "$jqmode, live sso.login and allowlist, .env without them: issuer kept" grep -qxF '        issuer: "https://idp.example.com"' "$OUT/rendered.yaml"
+    expect "$jqmode, live sso.login and allowlist, .env without them: client kept" grep -qxF '        client_id: "console"' "$OUT/rendered.yaml"
+    expect "$jqmode, live sso.login and allowlist, .env without them: redirect kept" grep -qxF '        redirect_uri: "https://console.example.com/sso/callback"' "$OUT/rendered.yaml"
+  else
+    expect "$jqmode, live sso.login and allowlist, .env without them: refused" refused
+  fi
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_LOGIN_ONLY" "$SSO_ON"
-  expect "$jqmode, live sso.login only: refused" refused
-  expect "$jqmode, live sso.login only: names sso_login only" grep -q 'does not set: sso_login_enable sso_login_issuer sso_login_client_id sso_login_redirect_uri$' "$OUT/log"
+  if [[ "$jqmode" == "jq" ]]; then
+    expect "$jqmode, live sso.login only: applied" applied
+    expect "$jqmode, live sso.login only: login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+    expect "$jqmode, live sso.login only: issuer kept" grep -qxF '        issuer: "https://idp.example.com"' "$OUT/rendered.yaml"
+  else
+    expect "$jqmode, live sso.login only: refused" refused
+    expect "$jqmode, live sso.login only: names the issuer" grep -q 'sso.login issuer, client_id and redirect_uri' "$OUT/log"
+  fi
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_ALLOW_ONLY" "$SSO_ON"
-  expect "$jqmode, live allowlist only: refused" refused
-  expect "$jqmode, live allowlist only: names sso_bridge_allowlist only" grep -q 'does not set: sso_bridge_allowlist$' "$OUT/log"
+  if [[ "$jqmode" == "jq" ]]; then
+    expect "$jqmode, live allowlist only: applied" applied
+    expect "$jqmode, live allowlist only: allowlist kept" rendered 'bridge_allowlist: ["http://localhost:5173"]'
+  else
+    expect "$jqmode, live allowlist only: refused" refused
+  fi
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_OFF" "$SSO_ON"
   expect "$jqmode, live sso.login off and no allowlist: applied" applied
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO" "$SSO_ON
-sso_login_enable=false"
-  expect "$jqmode, live allowlist, .env turns sso.login off but leaves the allowlist out: refused" refused
+oidc_login_enable=false"
+  if [[ "$jqmode" == "jq" ]]; then
+    expect "$jqmode, live allowlist, .env turns sso.login off and leaves the allowlist out: applied" applied
+    expect "$jqmode, live allowlist, .env turns sso.login off and leaves the allowlist out: allowlist kept" rendered 'bridge_allowlist: ["http://localhost:5173","http://127.0.0.1:5173"]'
+  else
+    expect "$jqmode, live allowlist, .env turns sso.login off and leaves the allowlist out: refused" refused
+  fi
 done
-# helm keeps a value set with --set-string as a string: "true" is on all the same.
+# helm keeps a value set with --set-string as a string. That still counts as on.
 for jqmode in jq nojq; do
   rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
   RUN_PATH="${rp:-}" run_upgrade '{"sso":{"enable":true,"login":{"enable":"true"}}}' "$SSO_ON"
-  expect "$jqmode, live sso.login.enable is the string \"true\": refused" refused
+  if [[ "$jqmode" == "jq" ]]; then
+    expect "$jqmode, live sso.login.enable is the string \"true\", .env omits it: login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+  else
+    expect "$jqmode, live sso.login.enable is the string \"true\", .env omits it: refused" refused
+  fi
 done
+saved_base="$BASE_ENV"
+BASE_ENV=$(grep -v '^sso_enable=' <<<"$saved_base")
+run_upgrade "" ""
+expect "sso_enable omitted: applied" applied
+expect "sso_enable omitted: chart default true" rendered 'enable: true'
+BASE_ENV="$saved_base"
 FAKE_GET_FAIL=1 run_upgrade "$LIVE_SSO" "$SSO_ON"
 expect "live SSO values cannot be read: refused" refused
 run_upgrade "$LIVE_SSO" "$SSO_ON
@@ -427,7 +600,7 @@ expect "live sso.login and allowlist, .env carries them: applied" applied
 expect "live sso.login and allowlist, .env carries them: sso.login stays on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
 expect "live sso.login and allowlist, .env carries them: allowlist kept" rendered 'bridge_allowlist: ["http://localhost:5173","http://127.0.0.1:5173"]'
 run_upgrade "$LIVE_SSO" "$SSO_ON
-sso_login_enable=false
+oidc_login_enable=false
 sso_bridge_allowlist='[]'"
 expect "live sso.login and allowlist, dropped on purpose: applied" applied
 expect "live sso.login and allowlist, dropped on purpose: sso.login off" grep -qxF '        enable: false' "$OUT/rendered.yaml"

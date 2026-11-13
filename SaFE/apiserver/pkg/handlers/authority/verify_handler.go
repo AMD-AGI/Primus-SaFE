@@ -315,14 +315,16 @@ func verifyBuiltin(c *gin.Context, req *VerifyTokenRequest) (userInfo *UserInfo,
 
 		var tokenInstance TokenInterface
 		if userType == string(v1.SSOUserType) {
-			if !commonconfig.IsSSOEnable() {
+			if !commonconfig.IsSSOEnable() && !commonconfig.IsSSOLoginEnable() {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 					"code":    http.StatusBadRequest,
 					"message": "SSO is not enabled",
 				})
 				return nil, "", false
 			}
-			tokenInstance = SSOInstance()
+			if s := SSOInstance(); s != nil {
+				tokenInstance = s
+			}
 		} else {
 			tokenInstance = DefaultTokenInstance()
 		}

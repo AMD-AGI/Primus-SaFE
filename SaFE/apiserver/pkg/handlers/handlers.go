@@ -26,6 +26,7 @@ import (
 	optimizationhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/optimization"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/scim"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
 	mcprouter "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/mcp/router"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
@@ -46,7 +47,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	engine.NoRoute(func(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage(c.Request.RequestURI+" not found"))
 	})
-	if commonconfig.IsSSOEnable() {
+	if commonconfig.IsSSOEnable() || commonconfig.IsSSOLoginEnable() {
 		if authority.NewSSOToken(mgr.GetClient()) == nil {
 			return nil, commonerrors.NewInternalError("failed to new sso token")
 		}
@@ -57,6 +58,24 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	// Pluggable authentication: a no-op in the default builtin mode.
 	if err := authority.InitExternalAuth(mgr.GetClient()); err != nil {
 		return nil, commonerrors.NewInternalError("failed to initialize external authentication: " + err.Error())
+	}
+	if err := authority.CheckExternalDeployment(); err != nil {
+		return nil, commonerrors.NewInternalError("failed to initialize external authentication: " + err.Error())
+	}
+	var scimToken *scim.Token
+	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal && commonconfig.IsSCIMEnabled() {
+		token, err := scim.EnsureToken(context.Background(), mgr.GetClient())
+		if err != nil {
+			return nil, commonerrors.NewInternalError("failed to initialize scim: " + err.Error())
+		}
+		scimToken = scim.NewToken(token)
+		if commonconfig.ProviderClientEnabled() {
+			scim.StartRegistration(context.Background(), mgr.GetClient(), scimToken)
+		} else {
+			klog.Info("auth.provider_client is off; the scim target is not registered")
+		}
+	} else if commonconfig.IsSCIMEnabled() {
+		klog.Warning("auth.scim.enabled is set but auth.mode is not external; the scim endpoint is not served")
 	}
 	// Initialize internal auth for service-to-service authentication
 	if _, err := authority.NewInternalAuth(mgr.GetClient()); err != nil {
@@ -69,7 +88,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 			authority.NewApiKeyToken(dbClient, mgr.GetClient())
 		}
 	}
-	routes := routeHandlers{}
+	routes := routeHandlers{scimToken: scimToken}
 
 	// Proxy handlers are registered first to avoid route conflicts with resource handlers.
 	var err error
@@ -173,6 +192,8 @@ type routeHandlers struct {
 	inferencex     *inferencexhandlers.Handler
 	optimization   *optimizationhandlers.Handler
 	mcp            bool
+	// scimToken is set when the SCIM endpoint is served. Nil leaves the routes unregistered.
+	scimToken *scim.Token
 }
 
 // registerRoutes registers the routes of the handlers on the engine, in the order that matters: the
@@ -186,6 +207,9 @@ func registerRoutes(engine *gin.Engine, h routeHandlers) {
 	}
 	if h.resources != nil {
 		reshandler.InitCustomRouters(engine, h.resources)
+	}
+	if h.scimToken != nil && h.resources != nil {
+		scim.Mount(engine, h.resources, h.scimToken)
 	}
 	if h.cd != nil {
 		cdhandlers.InitCDRouters(engine, h.cd)

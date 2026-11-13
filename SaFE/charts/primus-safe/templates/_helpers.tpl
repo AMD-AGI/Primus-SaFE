@@ -105,3 +105,19 @@ The hook RBAC then includes a Role secret-manager there.
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The name of the introspection client Secret in the release namespace, or "" when client_secret is empty.
+*/}}
+{{- define "primus-safe.identityAuthSecret" -}}
+{{- .Values.auth.client_secret | default "" -}}
+{{- end -}}
+
+{{/*
+The cluster's public origin, https://<sub_domain>.<domain>, or "" when either value is empty.
+*/}}
+{{- define "primus-safe.publicOrigin" -}}
+{{- if and .Values.global.sub_domain .Values.global.domain -}}
+{{- printf "https://%s.%s" .Values.global.sub_domain .Values.global.domain -}}
+{{- end -}}
+{{- end -}}

@@ -18,9 +18,9 @@
         >
           Create User
         </el-button>
-        <el-text v-else type="info">
-          Accounts are created by the external identity provider.
-        </el-text>
+        <el-button v-else-if="userStore.envs?.accountsUrl" type="primary" round @click="openIdentityAccounts">
+          Manage accounts
+        </el-button>
       </div>
       <div class="flex flex-wrap items-center">
         <el-input
@@ -72,7 +72,7 @@
       <el-table-column label="Actions" width="120" fixed="right">
         <template #default="{ row }">
           <template v-if="userStore.isManager">
-            <el-tooltip content="Delete" placement="top">
+            <el-tooltip v-if="creatable" content="Delete" placement="top">
               <el-button
                 circle
                 size="default"
@@ -157,7 +157,11 @@ const state = reactive({
 
 const router = useRouter()
 const userStore = useUserStore()
-// The server refuses registration when an external identity provider owns accounts.
+const openIdentityAccounts = () => {
+  const url = userStore.envs?.accountsUrl
+  if (url) window.location.assign(url)
+}
+// The server refuses registration and deletion when an external identity provider owns accounts.
 const creatable = computed(() => !userStore.isExternalAuth)
 const wsStore = useWorkspaceStore()
 const isInCurrentWorkspace = (row: UserSelfData) => {

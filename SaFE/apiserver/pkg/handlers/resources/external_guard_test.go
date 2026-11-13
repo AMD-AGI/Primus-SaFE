@@ -139,8 +139,8 @@ func guardEngineWithDB(t *testing.T, builtin bool, db dbclient.Interface) *gin.E
 }
 
 // guardEngineWithMappings is guardEngineWithDB with the group mappings given: what the identity
-// provider's groups grant, which becomes the overlay of the request.
-func guardEngineWithMappings(t *testing.T, builtin bool, db dbclient.Interface, mappings []map[string]any) *gin.Engine {
+// provider's groups grant, which becomes the overlay of the request. extra entries join the chain.
+func guardEngineWithMappings(t *testing.T, builtin bool, db dbclient.Interface, mappings []map[string]any, extra ...map[string]any) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	cli := sharedGuardCluster(t)
@@ -164,18 +164,21 @@ func guardEngineWithMappings(t *testing.T, builtin bool, db dbclient.Interface, 
 	if builtin {
 		chain = append(chain, map[string]any{"type": "builtin"})
 	}
+	chain = append(chain, extra...)
 	commonconfig.SetValue("crypto.enable", "false")
 	viper.Set("auth.mode", "external")
 	viper.Set("auth.authenticators", chain)
 	viper.Set("auth.group_mappings", mappings)
-	require.NoError(t, authority.InitExternalAuth(cli))
+	// Registered before the start-up check, so a refused chain does not leave its settings behind.
 	t.Cleanup(func() {
 		commonconfig.SetValue("crypto.enable", "")
-		viper.Set("auth.mode", nil)
-		viper.Set("auth.authenticators", nil)
+		viper.Set("auth.mode", "external")
+		// Authentication stays external, so the process-wide chain keeps a builtin entry.
+		viper.Set("auth.authenticators", []map[string]any{{"type": "builtin"}})
 		viper.Set("auth.group_mappings", nil)
 		require.NoError(t, authority.InitExternalAuth(nil))
 	})
+	require.NoError(t, authority.InitExternalAuth(cli))
 
 	e := gin.New()
 	InitCustomRouters(e, &Handler{Client: cli, accessController: &authority.AccessController{Client: cli}, dbClient: db})
@@ -270,19 +273,6 @@ func TestExternalModeRefusesCredentialAndRoleWrites(t *testing.T) {
 			},
 		},
 		{
-			name: "register an account",
-			req:  guardRequest{method: http.MethodPost, path: "/api/v1/users", body: `{"name":"intruder","password":"pw"}`},
-			after: func(t *testing.T, _ *httptest.ResponseRecorder) {
-				err := guardCluster.Get(context.Background(),
-					client.ObjectKey{Name: commonuser.GenerateUserIdByName("intruder")}, &v1.User{})
-				assert.True(t, apierrors.IsNotFound(err), "the account must not exist, got %v", err)
-			},
-		},
-		{
-			name: "create an API key as an administrator",
-			req:  guardRequest{method: http.MethodPost, path: "/api/v1/apikeys", body: `{"name":"k","ttlDays":7}`, bearer: "idp-admin"},
-		},
-		{
 			name: "set the password of a local account",
 			req: guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-password-local",
 				body: `{"password":"changed-by-a-script"}`, bearer: "idp-admin"},
@@ -371,9 +361,7 @@ func TestExternalModeAllowsRemovingStoredPlatformRoles(t *testing.T) {
 	}
 }
 
-// An API key issued before the switch is still accepted through the built-in entry, so it
-// must stay possible to revoke one that leaked: creation is refused in external mode,
-// deletion is not.
+// External mode refuses creating an API key and keeps deleting one issued before the switch.
 func TestExternalModeKeepsApiKeyRevocation(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -395,6 +383,62 @@ func TestExternalModeKeepsApiKeyRevocation(t *testing.T) {
 
 // The refusal does not depend on the shape of the chain: without the built-in authenticator
 // in it, sign-in is refused all the same.
+// sso.enable does not let an external-mode caller exchange a code from the sso Secret provider.
+func TestExternalModeRefusesSecretProviderCode(t *testing.T) {
+	commonconfig.SetValue("sso.enable", "true")
+	t.Cleanup(func() { commonconfig.SetValue("sso.enable", "") })
+	e := guardEngine(t, false)
+	w := guardRequest{method: http.MethodPost, path: "/api/v1/login", body: `{"type":"sso","code":"c","name":"x"}`}.serve(e)
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), refusal)
+}
+
+// A PKCE code is exchanged by this apiserver. The external-mode guard does not refuse it.
+// A provider that is not configured does not set a cookie.
+func TestExternalModeExchangesLoginProviderCode(t *testing.T) {
+	commonconfig.SetValue("sso.login.enable", "true")
+	commonconfig.SetValue("sso.login.client_id", guardAudience)
+	require.True(t, commonconfig.IsSSOLoginEnable())
+	// The console token's audience must be accepted by one oidc authenticator. The issuer is never
+	// contacted: the exchange fails at the provider, which is what this test leaves to it.
+	oidc := map[string]any{"type": "oidc", "issuer": "https://idp.invalid", "audience": guardAudience, "jwks_url": "https://idp.invalid/jwks"}
+	e := guardEngineWithMappings(t, false, nil, []map[string]any{{"group": "platform-admins", "roles": []string{"system-admin"}}}, oidc)
+	// Registered after the engine, so it runs before the engine's cleanup re-checks the chain with sso.login off.
+	t.Cleanup(func() {
+		commonconfig.SetValue("sso.login.enable", "")
+		commonconfig.SetValue("sso.login.client_id", "")
+	})
+	body := `{"type":"sso","code":"c","codeVerifier":"` + strings.Repeat("v", 43) + `"}`
+	w := guardRequest{method: http.MethodPost, path: "/api/v1/login", body: body}.serve(e)
+	require.NotEqual(t, http.StatusForbidden, w.Code, w.Body.String())
+	assert.NotContains(t, w.Body.String(), refusal)
+	assert.Empty(t, w.Header().Values("Set-Cookie"))
+}
+
+func TestBuiltinModeServesAccountRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &Handler{Client: sharedGuardCluster(t)}
+	serve := func(mode, method, path, body string) int {
+		if mode == "" {
+			viper.Set("auth.mode", nil)
+		} else {
+			viper.Set("auth.mode", mode)
+		}
+		e := gin.New()
+		InitCustomRouters(e, h)
+		return guardRequest{method: method, path: path, body: body}.serve(e).Code
+	}
+	t.Cleanup(func() { viper.Set("auth.mode", nil) })
+
+	require.NotEqual(t, http.StatusNotFound, serve("builtin", http.MethodPost, "/api/v1/users", `{}`))
+	require.NotEqual(t, http.StatusNotFound, serve("builtin", http.MethodDelete, "/api/v1/users/u1", ""))
+	require.NotEqual(t, http.StatusNotFound, serve("builtin", http.MethodPatch, "/api/v1/users/u1", `{}`))
+
+	require.Equal(t, http.StatusNotFound, serve("external", http.MethodPost, "/api/v1/users", `{}`))
+	require.Equal(t, http.StatusNotFound, serve("external", http.MethodDelete, "/api/v1/users/u1", ""))
+	require.NotEqual(t, http.StatusNotFound, serve("external", http.MethodPatch, "/api/v1/users/u1", `{}`))
+}
+
 func TestExternalModeRefusesLoginWhateverTheChain(t *testing.T) {
 	e := guardEngine(t, false)
 	for _, body := range []string{loginBody("default", localName, localPassword), loginBody("sso", "x", "")} {
@@ -405,8 +449,8 @@ func TestExternalModeRefusesLoginWhateverTheChain(t *testing.T) {
 	}
 }
 
-// Builtin mode, the default, is untouched: registration, local sign-in, role edits and the
-// API key handlers all behave as they always did.
+// Authentication is always external, including when auth.mode is unset. Registration is not
+// served here. Local sign-in, password changes and platform-role grants are refused.
 func TestBuiltinModeKeepsAccountEndpoints(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cli := sharedGuardCluster(t)
@@ -416,19 +460,22 @@ func TestBuiltinModeKeepsAccountEndpoints(t *testing.T) {
 	e := gin.New()
 	InitCustomRouters(e, h)
 
-	t.Run("registration creates an account", func(t *testing.T) {
+	t.Run("registration is not served here", func(t *testing.T) {
 		w := guardRequest{method: http.MethodPost, path: "/api/v1/users", body: `{"name":"newcomer","password":"pw"}`}.serve(e)
-		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-		require.NoError(t, cli.Get(context.Background(),
-			client.ObjectKey{Name: commonuser.GenerateUserIdByName("newcomer")}, &v1.User{}))
+		require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+		err := cli.Get(context.Background(),
+			client.ObjectKey{Name: commonuser.GenerateUserIdByName("newcomer")}, &v1.User{})
+		assert.True(t, apierrors.IsNotFound(err), "the account must not exist, got %v", err)
 	})
 
-	t.Run("a local account signs in", func(t *testing.T) {
+	t.Run("a local account cannot sign in here", func(t *testing.T) {
 		w := guardRequest{method: http.MethodPost, path: "/api/v1/login", body: loginBody("default", localName, localPassword)}.serve(e)
-		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+		assert.Contains(t, w.Body.String(), refusal)
+		assert.NotContains(t, w.Body.String(), `"token"`)
 	})
 
-	t.Run("an administrator sets a password", func(t *testing.T) {
+	t.Run("an administrator cannot set a password", func(t *testing.T) {
 		body, _ := json.Marshal(view.PatchUserRequest{Password: pointer.String("new-password")})
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -437,11 +484,12 @@ func TestBuiltinModeKeepsAccountEndpoints(t *testing.T) {
 		c.Set(common.UserId, commonuser.GenerateUserIdByName(localName))
 		c.Set(common.Name, "t-builtin-password")
 		h.PatchUser(c)
-		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-		assert.Equal(t, "new-password", storedPassword(t, "t-builtin-password"))
+		require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+		assert.Contains(t, w.Body.String(), refusal)
+		assert.Equal(t, targetPassword, storedPassword(t, "t-builtin-password"))
 	})
 
-	t.Run("an administrator grants a platform role", func(t *testing.T) {
+	t.Run("an administrator cannot grant a platform role", func(t *testing.T) {
 		body, _ := json.Marshal(view.PatchUserRequest{Roles: &[]v1.UserRole{v1.DefaultRole, v1.SystemAdminRole}})
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -450,22 +498,29 @@ func TestBuiltinModeKeepsAccountEndpoints(t *testing.T) {
 		c.Set(common.UserId, commonuser.GenerateUserIdByName(localName))
 		c.Set(common.Name, "t-builtin")
 		h.PatchUser(c)
-		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-		assert.ElementsMatch(t, []v1.UserRole{v1.DefaultRole, v1.SystemAdminRole}, storedRoles(t, "t-builtin"))
+		require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+		assert.Contains(t, w.Body.String(), refusal)
+		assert.Equal(t, []v1.UserRole{v1.DefaultRole}, storedRoles(t, "t-builtin"))
 	})
 
-	t.Run("the API key handlers reach their own logic", func(t *testing.T) {
-		for name, handler := range map[string]gin.HandlerFunc{"create": h.CreateApiKey, "delete": h.DeleteApiKey} {
-			w := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(w)
-			c.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
-			c.Set(common.UserId, "someone")
-			handler(c)
-			// There is no database in this test: that answer comes from the handler's own
-			// first check, which a refusal in front of it would have pre-empted.
-			assert.Equal(t, http.StatusInternalServerError, w.Code, name)
-			assert.Contains(t, w.Body.String(), "database is not enabled", name)
-		}
+	t.Run("API key creation is refused and deletion reaches the handler", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
+		c.Set(common.UserId, "someone")
+		h.CreateApiKey(c)
+		assert.Equal(t, http.StatusForbidden, w.Code, "create")
+		assert.Contains(t, w.Body.String(), refusal, "create")
+
+		w = httptest.NewRecorder()
+		c, _ = gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodDelete, "/", nil)
+		c.Set(common.UserId, "someone")
+		h.DeleteApiKey(c)
+		// There is no database in this test: deletion is still offered, so this answer
+		// comes from the handler's own first check.
+		assert.Equal(t, http.StatusInternalServerError, w.Code, "delete")
+		assert.Contains(t, w.Body.String(), "database is not enabled", "delete")
 	})
 }
 
@@ -483,22 +538,34 @@ func getEnvsResponse(t *testing.T) view.GetEnvResponse {
 	return resp
 }
 
+func envsJSON(t *testing.T) string {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/envs", nil)
+	(&Handler{}).GetEnvs(c)
+	require.Equal(t, http.StatusOK, w.Code)
+	return w.Body.String()
+}
+
 func TestEnvsReportsAuthMode(t *testing.T) {
 	t.Cleanup(func() { viper.Set("auth.mode", nil) })
 
-	assert.Equal(t, "builtin", getEnvsResponse(t).AuthMode, "the default")
+	viper.Set("auth.mode", nil)
+	assert.Equal(t, "builtin", getEnvsResponse(t).AuthMode, "auth.mode unset")
 	viper.Set("auth.mode", "external")
 	assert.Equal(t, "external", getEnvsResponse(t).AuthMode)
+	viper.Set("auth.mode", "builtin")
+	assert.Equal(t, "builtin", getEnvsResponse(t).AuthMode)
 	viper.Set("auth.mode", "externl")
-	assert.Equal(t, "builtin", getEnvsResponse(t).AuthMode, "a typo is builtin, as everywhere else")
+	assert.Empty(t, getEnvsResponse(t).AuthMode, "a typo is not a mode")
 }
 
-// In external mode POST /login is refused, so /envs must not send the console to the built-in
-// SSO: with sso.enable on and no auth.login_url (a deployment in the middle of the migration)
-// it advertises no sign-in, and with auth.login_url it advertises that URL. Builtin mode keeps
-// advertising the built-in SSO.
+// loginUrl is auth.login_url and is returned only in external mode. ssoEnable still reports sso.enable.
+// The env response has no ssoAuthUrl.
 func TestEnvsDoesNotAdvertiseBuiltinSignInInExternalMode(t *testing.T) {
-	// A real OIDC provider for the built-in SSO, so its authorize URL is what builtin mode returns.
+	// A real OIDC provider, so this test can tell its authorize URL from auth.login_url.
 	var idp *httptest.Server
 	idp = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/.well-known/openid-configuration", r.URL.Path)
@@ -524,23 +591,29 @@ func TestEnvsDoesNotAdvertiseBuiltinSignInInExternalMode(t *testing.T) {
 	})
 	require.NotNil(t, authority.NewSSOToken(nil), "the built-in SSO must be configured for this test to mean anything")
 
-	// Builtin mode: the built-in SSO is advertised (the positive control for the cases below).
-	got := getEnvsResponse(t)
-	require.True(t, got.SSOEnable)
-	require.True(t, strings.HasPrefix(got.SSOAuthUrl, idp.URL+"/authorize?"), got.SSOAuthUrl)
-
-	// External mode, no login_url: nothing to sign in with is advertised.
+	// No login_url: sso.enable is still reported, and loginUrl is absent outside a set external URL.
 	viper.Set("auth.mode", "external")
-	got = getEnvsResponse(t)
-	assert.False(t, got.SSOEnable)
-	assert.Empty(t, got.SSOAuthUrl)
+	got := getEnvsResponse(t)
+	assert.True(t, got.SSOEnable)
+	assert.Empty(t, got.LoginURL)
 	assert.Equal(t, "external", got.AuthMode)
 
-	// External mode with login_url: that URL, never the built-in SSO.
+	// builtin reports sso.enable, the secret provider's authorize URL, and does not return loginUrl.
+	viper.Set("auth.mode", "builtin")
+	got = getEnvsResponse(t)
+	assert.True(t, got.SSOEnable)
+	assert.Empty(t, got.LoginURL)
+	assert.Equal(t, "builtin", got.AuthMode)
+	assert.Contains(t, got.SSOAuthUrl, idp.URL+"/authorize")
+
+	// loginUrl is only the external sign-in, including while sso.enable is on.
+	viper.Set("auth.mode", "external")
 	viper.Set("auth.login_url", "https://console.example.com/sign-in")
 	got = getEnvsResponse(t)
 	assert.True(t, got.SSOEnable)
-	assert.Equal(t, "https://console.example.com/sign-in", got.SSOAuthUrl)
+	assert.Equal(t, "https://console.example.com/sign-in", got.LoginURL)
+	assert.NotContains(t, envsJSON(t), "ssoAuthUrl")
+	assert.NotContains(t, envsJSON(t), idp.URL+"/authorize")
 }
 
 // Which role changes count: only granting a platform role the stored record does not have.
@@ -554,7 +627,7 @@ func TestRefuseExternalRoleChange(t *testing.T) {
 		request  *[]v1.UserRole
 		refused  bool
 	}{
-		{"builtin mode never refuses", false, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.SystemAdminRole), false},
+		{"a grant is allowed when auth.mode is unset", false, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.SystemAdminRole), false},
 		{"no roles in the patch", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), nil, false},
 		{"grant system-admin", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.DefaultRole, v1.SystemAdminRole), true},
 		{"grant system-admin-readonly", true, guardUser("u", v1.SSOUserType, v1.DefaultRole), roles(v1.DefaultRole, v1.SystemAdminReadonlyRole), true},
@@ -595,7 +668,7 @@ func TestRefuseExternalPasswordChange(t *testing.T) {
 		request  *string
 		refused  bool
 	}{
-		{"builtin mode never refuses", false, pointer.String("pw"), false},
+		{"a password is allowed when auth.mode is unset", false, pointer.String("pw"), false},
 		{"no password in the patch", true, nil, false},
 		{"a password", true, pointer.String("pw"), true},
 	}

@@ -13,8 +13,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 )
 
@@ -40,16 +39,15 @@ const (
 	bkaFrozen = "frozen-id"
 )
 
-// bkaEnv is builtin mode with auth.key_actors: a fake issuer (JWKS), the chain of auth.authenticators (an oidc
-// authenticator, an introspection one that must never be asked, and a builtin entry), and a cluster that holds
-// the users alice and bob and a frozen user.
+// bkaEnv is external mode with auth.key_actors: a fake issuer (JWKS), an authenticator chain (oidc, then builtin),
+// and a cluster that holds the users alice and bob and a frozen user. auth.mode is external.
 type bkaEnv struct {
 	*extEnv
 	introspected atomic.Int64
 	jwksDown     atomic.Bool
 }
 
-func newBuiltinKeyActorEnv(t *testing.T, actors []string, authenticators func(e *bkaEnv) []map[string]any) *bkaEnv {
+func newBuiltinKeyActorEnv(t *testing.T, actors []string, authenticators func(e *bkaEnv) []map[string]any) (*bkaEnv, error) {
 	t.Helper()
 	e := &bkaEnv{extEnv: &extEnv{t: t}}
 	var err error
@@ -70,17 +68,16 @@ func newBuiltinKeyActorEnv(t *testing.T, actors []string, authenticators func(e 
 	e.issuer = httptest.NewServer(mux)
 	t.Cleanup(e.issuer.Close)
 
-	secretFile := filepath.Join(t.TempDir(), "client-secret")
-	require.NoError(t, os.WriteFile(secretFile, []byte("x\n"), 0o600))
 	chain := []map[string]any{
 		{"type": "oidc", "issuer": e.issuer.URL, "audience": extAudience, "jwks_url": e.issuer.URL + "/jwks"},
-		{"type": "introspection", "url": e.issuer.URL + "/introspect", "client_id": "c", "client_secret_file": secretFile, "audience": extAudience},
 		{"type": "builtin"},
 	}
 	if authenticators != nil {
 		chain = authenticators(e)
 	}
-	viper.Set("auth.mode", "builtin")
+	// The chain above runs only in external mode.
+	viper.Set("auth.mode", "external")
+	viper.Set("auth.allow_oidc_only", true)
 	viper.Set("auth.authenticators", chain)
 	viper.Set("auth.key_actors", actors)
 
@@ -99,14 +96,9 @@ func newBuiltinKeyActorEnv(t *testing.T, actors []string, authenticators func(e 
 		b = b.WithObjects(u)
 	}
 	e.cli = b.Build()
-	require.NoError(t, InitExternalAuth(e.cli))
-	t.Cleanup(func() {
-		viper.Set("auth.mode", nil)
-		viper.Set("auth.authenticators", nil)
-		viper.Set("auth.key_actors", nil)
-		require.NoError(t, InitExternalAuth(nil))
-	})
-	return e
+	err = InitExternalAuth(e.cli)
+	t.Cleanup(clearAuthState)
+	return e, err
 }
 
 // tok is what Claw shows SaFE for a chat user: the identity provider's token for audience extAudience, issued to the
@@ -129,10 +121,9 @@ func (e *bkaEnv) userCount() int {
 	return len(list.Items)
 }
 
-// In builtin mode, with auth.key_actors and an oidc authenticator configured, POST /auth/verify answers a delegated
-// token of a listed client that carries safe.api and the configured audience, signed by the issuer, with the keys of
-// the existing user the token is for and of nobody else. Everything else is refused, with no key looked up and no
-// user created.
+// With auth.key_actors and an oidc authenticator configured, POST /auth/verify answers a delegated token of a listed
+// client that carries safe.api and the configured audience, signed by the issuer, with the keys of the token's
+// subject. A subject with no record is provisioned. A token the oidc authenticator rejects is refused.
 func TestBuiltinKeyActors(t *testing.T) {
 	defer setupInternalAuth(t)()
 	defer setupDefaultToken(t)()
@@ -144,6 +135,8 @@ func TestBuiltinKeyActors(t *testing.T) {
 		wantCode    int
 		wantSubject string
 		wantMessage string
+		wantType    string
+		userDelta   int
 	}{
 		{name: "listed actor, safe.api, chat service earlier in the chain", token: func(e *bkaEnv) string { return e.tok(nil) },
 			wantCode: http.StatusOK, wantSubject: bkaUser},
@@ -181,8 +174,8 @@ func TestBuiltinKeyActors(t *testing.T) {
 		{name: "the provider restricts the user", token: func(e *bkaEnv) string { return e.tok(map[string]any{"restricted": true}) },
 			wantCode: http.StatusForbidden, wantMessage: "the user is restricted"},
 
-		{name: "a subject with no user here: none is created", token: func(e *bkaEnv) string { return e.tok(map[string]any{"sub": "nobody-id"}) },
-			wantCode: http.StatusUnauthorized, wantMessage: ErrInvalidToken},
+		{name: "a subject with no user here is provisioned", token: func(e *bkaEnv) string { return e.tok(map[string]any{"sub": "nobody-id"}) },
+			wantCode: http.StatusOK, wantSubject: "nobody-id", userDelta: 1},
 		{name: "a subject that is not a user id", token: func(e *bkaEnv) string { return e.tok(map[string]any{"sub": "Not/A_Name"}) },
 			wantCode: http.StatusUnauthorized, wantMessage: ErrInvalidToken},
 		{name: "wrong audience", token: func(e *bkaEnv) string { return e.tok(map[string]any{"aud": []string{"claw-api"}}) },
@@ -200,22 +193,23 @@ func TestBuiltinKeyActors(t *testing.T) {
 		}, wantCode: http.StatusUnauthorized},
 		{name: "another issuer", token: func(e *bkaEnv) string { return e.tok(map[string]any{"iss": "https://elsewhere.example.com"}) },
 			wantCode: http.StatusUnauthorized},
-		{name: "a token of the issuer that is not delegated is still unknown here", token: func(e *bkaEnv) string {
+		{name: "a token of the issuer that is not delegated is an external user", token: func(e *bkaEnv) string {
 			return e.tok(map[string]any{"act": nil, "client_id": nil})
-		}, wantCode: http.StatusUnauthorized},
+		}, wantCode: http.StatusOK, wantSubject: bkaUser, wantType: UserTypeExternal},
 		{name: "the issuer's keys cannot be fetched", token: func(e *bkaEnv) string { e.jwksDown.Store(true); return e.tok(nil) },
-			wantCode: http.StatusServiceUnavailable},
+			wantCode: http.StatusUnauthorized},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			asked := stubPlatformKeys(t)
-			e := newBuiltinKeyActorEnv(t, []string{"svc-another", keyActorClient}, nil)
+			e, err := newBuiltinKeyActorEnv(t, []string{"svc-another", keyActorClient}, nil)
+			require.NoError(t, err)
 			users := e.userCount()
 
 			w := callVerifyToken(t, VerifyTokenRequest{Authorization: "Bearer " + tc.token(e), IncludePlatformKey: true}, testInternalToken)
 			require.Equal(t, tc.wantCode, w.Code, w.Body.String())
-			require.Equal(t, users, e.userCount(), "builtin mode creates no user")
-			require.Zero(t, e.introspected.Load(), "an introspection authenticator is never asked in builtin mode")
+			require.Equal(t, users+tc.userDelta, e.userCount())
+			require.Zero(t, e.introspected.Load())
 			if tc.wantCode != http.StatusOK {
 				require.Empty(t, *asked, "no key is looked up for a refused token")
 				if tc.wantMessage != "" {
@@ -230,7 +224,11 @@ func TestBuiltinKeyActors(t *testing.T) {
 			var resp verifyResponse
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 			require.Equal(t, tc.wantSubject, resp.Data.Id, "the verdict is about the token's subject")
-			require.Equal(t, UserTypeDelegated, resp.Data.Type)
+			wantType := tc.wantType
+			if wantType == "" {
+				wantType = UserTypeDelegated
+			}
+			require.Equal(t, wantType, resp.Data.Type)
 			require.Equal(t, "pk-of-"+tc.wantSubject, resp.Data.PlatformKey)
 			require.Equal(t, []string{tc.wantSubject}, *asked, "keys were looked up for the subject, and only for it")
 			require.Equal(t, []v1.UserRole{v1.DefaultRole}, resp.Data.Roles, "the stored roles, never the token's groups")
@@ -242,7 +240,8 @@ func TestBuiltinKeyActors(t *testing.T) {
 func TestBuiltinKeyActorVirtualKeyIsFoundBySubjectRecord(t *testing.T) {
 	defer setupInternalAuth(t)()
 	stubPlatformKeys(t)
-	e := newBuiltinKeyActorEnv(t, []string{keyActorClient}, nil)
+	e, err := newBuiltinKeyActorEnv(t, []string{keyActorClient}, nil)
+	require.NoError(t, err)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mockDB := mock_client.NewMockInterface(ctrl)
@@ -260,22 +259,25 @@ func TestBuiltinKeyActorVirtualKeyIsFoundBySubjectRecord(t *testing.T) {
 	require.Equal(t, "alice", resp.Data.Name)
 }
 
-// Off unless both auth.key_actors and an oidc authenticator are configured: a delegated token is then the unknown
-// credential it has always been in builtin mode (401), and no key is looked up.
+// A chain that cannot be built fails init. A chain that builds with no listed key actor refuses a delegated
+// token, and an oidc authenticator that names the user by a claim other than a resource name refuses the token.
+// No key is looked up.
 func TestBuiltinKeyActorsOffByDefault(t *testing.T) {
 	defer setupInternalAuth(t)()
 	defer setupDefaultToken(t)()
 	cases := map[string]struct {
 		actors []string
 		chain  func(e *bkaEnv) []map[string]any
+		initOK bool
+		code   int
 	}{
-		"no key actor":         {actors: nil},
-		"only blank key actor": {actors: []string{" ", ""}},
+		"no key actor":         {initOK: true, code: http.StatusForbidden},
+		"only blank key actor": {actors: []string{" ", ""}, initOK: true, code: http.StatusForbidden},
 		"no authenticator":     {actors: []string{keyActorClient}, chain: func(*bkaEnv) []map[string]any { return nil }},
 		"only introspection and builtin": {actors: []string{keyActorClient}, chain: func(e *bkaEnv) []map[string]any {
 			return []map[string]any{{"type": "introspection", "url": e.issuer.URL + "/introspect", "client_id": "c", "client_secret_file": "/nonexistent", "audience": extAudience}, {"type": "builtin"}}
 		}},
-		"an oidc authenticator that reads the user id from another claim": {actors: []string{keyActorClient}, chain: func(e *bkaEnv) []map[string]any {
+		"an oidc authenticator that reads the user id from another claim": {actors: []string{keyActorClient}, initOK: true, code: http.StatusUnauthorized, chain: func(e *bkaEnv) []map[string]any {
 			return []map[string]any{{"type": "oidc", "issuer": e.issuer.URL, "audience": extAudience, "jwks_url": e.issuer.URL + "/jwks", "id_claim": "email"}}
 		}},
 		"an oidc authenticator that cannot be built": {actors: []string{keyActorClient}, chain: func(e *bkaEnv) []map[string]any {
@@ -285,46 +287,53 @@ func TestBuiltinKeyActorsOffByDefault(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			asked := stubPlatformKeys(t)
-			e := newBuiltinKeyActorEnv(t, tc.actors, tc.chain)
+			e, err := newBuiltinKeyActorEnv(t, tc.actors, tc.chain)
 			require.Nil(t, builtinKeyActorState.Load())
+			if !tc.initOK {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
 			w := callVerifyToken(t, VerifyTokenRequest{Authorization: "Bearer " + e.tok(nil), IncludePlatformKey: true}, testInternalToken)
-			require.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
+			require.Equal(t, tc.code, w.Code, w.Body.String())
 			require.Empty(t, *asked)
 			require.Zero(t, e.introspected.Load())
 		})
 	}
 }
 
-// An oidc entry whose id_claim is sub, said explicitly, is used like one that leaves it to the default; one that reads
-// the user id from another claim is skipped, and the others still work.
+// The first oidc authenticator that accepts the token supplies the user id, including one that reads it from a claim
+// other than sub.
 func TestBuiltinKeyActorsUseOnlyTheSubject(t *testing.T) {
 	defer setupInternalAuth(t)()
 	defer setupDefaultToken(t)()
 	asked := stubPlatformKeys(t)
-	e := newBuiltinKeyActorEnv(t, []string{keyActorClient}, func(e *bkaEnv) []map[string]any {
+	e, err := newBuiltinKeyActorEnv(t, []string{keyActorClient}, func(e *bkaEnv) []map[string]any {
 		return []map[string]any{
-			{"type": "oidc", "name": "by-email", "issuer": e.issuer.URL, "audience": extAudience, "jwks_url": e.issuer.URL + "/jwks", "id_claim": "uid"},
+			{"type": "oidc", "name": "by-uid", "issuer": e.issuer.URL, "audience": extAudience, "jwks_url": e.issuer.URL + "/jwks", "id_claim": "uid"},
 			{"type": "oidc", "name": "by-sub", "issuer": e.issuer.URL, "audience": extAudience, "jwks_url": e.issuer.URL + "/jwks", "id_claim": "sub"},
 		}
 	})
-	// The token names alice as its subject and bob in the claim the skipped entry would read.
+	require.NoError(t, err)
+	// The token names alice as its subject and bob in the claim the first authenticator reads.
 	w := callVerifyToken(t, VerifyTokenRequest{Authorization: "Bearer " + e.tok(map[string]any{"uid": bkaOther}), IncludePlatformKey: true}, testInternalToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var resp verifyResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, bkaUser, resp.Data.Id)
-	require.Equal(t, []string{bkaUser}, *asked)
+	require.Equal(t, bkaOther, resp.Data.Id)
+	require.Equal(t, []string{bkaOther}, *asked)
 }
 
-// The apiserver's own credentials are answered by the builtin path exactly as before when key actors are configured,
-// and no request other than POST /auth/verify accepts a delegated token.
+// The apiserver's own credentials are answered by the builtin entry when key actors are configured, and no request
+// other than POST /auth/verify accepts a delegated token. The builtin-mode key-actor path stays off.
 func TestBuiltinKeyActorsLeaveBuiltinCredentialsAlone(t *testing.T) {
 	defer setupInternalAuth(t)()
 	defer setupDefaultToken(t)()
 	stubPlatformKeys(t)
-	e := newBuiltinKeyActorEnv(t, []string{keyActorClient}, nil)
-	require.NotNil(t, builtinKeyActorState.Load())
-	require.Nil(t, externalState.Load(), "the mode is still builtin")
+	e, err := newBuiltinKeyActorEnv(t, []string{keyActorClient}, nil)
+	require.NoError(t, err)
+	require.Nil(t, builtinKeyActorState.Load())
+	require.NotNil(t, externalState.Load())
 
 	w := callVerifyToken(t, VerifyTokenRequest{Authorization: "Bearer " + generateTestToken(t, "user-300", "eve")}, testInternalToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -333,8 +342,11 @@ func TestBuiltinKeyActorsLeaveBuiltinCredentialsAlone(t *testing.T) {
 	require.Equal(t, "user-300", resp.Data.Id)
 	require.Equal(t, string(v1.DefaultUserType), resp.Data.Type)
 
-	// A request to the API with the same delegated token is refused: only /auth/verify knows it.
-	_, err := extParse(t, http.MethodGet, "/api/v1/users/self", e.tok(nil))
+	// The external chain accepts the delegated token for a route it may call, and refuses user management.
+	c, err := extParse(t, http.MethodGet, "/api/v1/users/self", e.tok(nil))
+	require.NoError(t, err)
+	require.Equal(t, bkaUser, c.GetString(common.UserId))
+	_, err = extParse(t, http.MethodGet, "/api/v1/users", e.tok(nil))
 	require.Error(t, err)
 
 	// The internal token is still required.
@@ -342,11 +354,14 @@ func TestBuiltinKeyActorsLeaveBuiltinCredentialsAlone(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, w.Code)
 }
 
-// Switching to external mode turns the builtin-mode path off: the external chain is then the only one.
+// External mode does not enable the builtin key-actor path. A later external chain leaves that path off too.
 func TestExternalModeTurnsBuiltinKeyActorsOff(t *testing.T) {
-	newBuiltinKeyActorEnv(t, []string{keyActorClient}, nil)
-	require.NotNil(t, builtinKeyActorState.Load())
+	_, err := newBuiltinKeyActorEnv(t, []string{keyActorClient}, nil)
+	require.NoError(t, err)
+	require.Nil(t, builtinKeyActorState.Load())
+	require.NotNil(t, externalState.Load())
 	withKeyActors(t, keyActorClient)
 	newExtEnv(t, adminMapping, false)
 	require.Nil(t, builtinKeyActorState.Load())
+	require.NotNil(t, externalState.Load())
 }

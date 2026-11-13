@@ -285,7 +285,7 @@ func (v *UserValidator) validateMetadata(user *v1.User) error {
 	return nil
 }
 
-// validateImmutableFields ensures user type and username cannot be modified.
+// validateImmutableFields rejects a type change, and a rename of a default user.
 func (v *UserValidator) validateImmutableFields(newUser, oldUser *v1.User) error {
 	if newUser.Spec.Type != oldUser.Spec.Type {
 		return field.Forbidden(field.NewPath("spec").Key("type"), "immutable")
@@ -305,7 +305,9 @@ func (v *UserValidator) validateRequiredParams(user *v1.User) error {
 	if len(user.Spec.Roles) == 0 {
 		errs = append(errs, fmt.Errorf("the user's roles is empty"))
 	}
-	if user.Spec.Type == v1.DefaultUserType && user.Spec.Password == "" {
+	// External mode stores no password: the identity service holds it.
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal &&
+		user.Spec.Type == v1.DefaultUserType && user.Spec.Password == "" {
 		errs = append(errs, fmt.Errorf("the user's password is empty"))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {

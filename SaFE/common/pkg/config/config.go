@@ -7,6 +7,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -844,6 +845,81 @@ func GetSandboxEnvdInjectorImage() string {
 	return getString(sandboxEnvdInjectorImage, "")
 }
 
+// SandboxAdmissionConfig is the identity assertion check the Workload webhook applies to Workloads
+// created by the sandbox control plane.
+type SandboxAdmissionConfig struct {
+	// Creator is the username of the sandbox control plane account.
+	Creator string
+	// JWKS is the identity provider key set, JSON text. It is used when set; otherwise the key set is read from JWKSURL.
+	JWKS string
+	// JWKSURL is where the key set is read from. Empty uses https://<sub_domain>.<domain>/.well-known/jwks.json.
+	JWKSURL string
+	// Issuer is the expected iss of the assertion. Empty uses https://<sub_domain>.<domain>.
+	Issuer string
+	// Audience is the expected aud of the assertion.
+	Audience string
+	// TokenType is the expected typ header of the assertion.
+	TokenType string
+	// Algorithm is the only signature algorithm accepted.
+	Algorithm string
+	// Actor is the expected act.sub of the assertion, the control plane client id.
+	Actor string
+	// DetailType is the authorization_details type that names the Workload.
+	DetailType string
+	// Annotation is the Workload annotation that carries the assertion.
+	Annotation string
+	// Kind is the workload kind an authorization detail must name. Empty matches the Workload's own kind.
+	Kind string
+	// CAFile is a PEM bundle added to the key-set client's trust store. Empty uses the system pool.
+	CAFile string
+}
+
+// IsSandboxAdmissionEnable reports whether sandbox Workloads are checked against the identity assertion
+// and workspace membership. Disabled by default.
+func IsSandboxAdmissionEnable() bool {
+	return getBool(sandboxAdmissionEnabled, false)
+}
+
+// clusterOrigin is the identity provider of this cluster, https://<sub_domain>.<domain>.
+// It is empty when either part is unset.
+func clusterOrigin() string {
+	d := strings.TrimSpace(getString(domain, ""))
+	sub := strings.TrimSpace(getString(subDomain, ""))
+	if d == "" || sub == "" {
+		return ""
+	}
+	return "https://" + sub + "." + d
+}
+
+// GetSandboxAdmissionConfig returns the sandbox.admission settings with their defaults applied.
+func GetSandboxAdmissionConfig() SandboxAdmissionConfig {
+	origin := clusterOrigin()
+	jwksURL := strings.TrimSpace(getString(sandboxAdmissionJWKSURL, ""))
+	if jwksURL == "" {
+		if origin != "" {
+			jwksURL = origin + "/.well-known/jwks.json"
+		}
+	}
+	issuer := strings.TrimSpace(getString(sandboxAdmissionIssuer, ""))
+	if issuer == "" {
+		issuer = origin
+	}
+	return SandboxAdmissionConfig{
+		Creator:    strings.TrimSpace(getString(sandboxAdmissionCreator, "")),
+		JWKS:       getString(sandboxAdmissionJWKS, ""),
+		JWKSURL:    jwksURL,
+		Issuer:     issuer,
+		Audience:   strings.TrimSpace(getString(sandboxAdmissionAudience, "")),
+		TokenType:  strings.TrimSpace(getString(sandboxAdmissionTokenType, "")),
+		Algorithm:  strings.TrimSpace(getString(sandboxAdmissionAlgorithm, "")),
+		Actor:      strings.TrimSpace(getString(sandboxAdmissionActor, "")),
+		DetailType: strings.TrimSpace(getString(sandboxAdmissionDetailType, "")),
+		Annotation: strings.TrimSpace(getString(sandboxAdmissionAnnotation, "")),
+		Kind:       strings.TrimSpace(getString(sandboxAdmissionKind, "")),
+		CAFile:     strings.TrimSpace(getString(sandboxAdmissionCAFile, "")),
+	}
+}
+
 // ── External execution capacity ─────────────────────────────────────────
 
 // IsExternalExecutionEnable reports whether external execution capacity is admitted.
@@ -965,11 +1041,12 @@ func GetModelOptimizationClawPluginID() int {
 	return getInt(modelOptimizationClawPluginID, 4)
 }
 
-// Authentication modes (auth.mode).
+// Authentication. auth.mode selects the path. External, the default, authenticates with the
+// configured chain and takes platform roles from group mappings. Builtin uses local accounts.
 const (
-	// AuthModeBuiltin is the default: local accounts, built-in sessions, SSO login and API keys.
+	// AuthModeBuiltin is local accounts, sign-in and the platform roles stored on user objects.
 	AuthModeBuiltin = "builtin"
-	// AuthModeExternal authenticates requests with the configured authenticator chain.
+	// AuthModeExternal authenticates with the configured authenticator chain.
 	AuthModeExternal = "external"
 )
 
@@ -997,6 +1074,7 @@ type AuthenticatorConfig struct {
 	URL              string `json:"url" yaml:"url" mapstructure:"url"`
 	CABundle         string `json:"ca_bundle" yaml:"ca_bundle" mapstructure:"ca_bundle"` // PEM text or a file path
 	ClientID         string `json:"client_id" yaml:"client_id" mapstructure:"client_id"`
+	ClientIDFile     string `json:"client_id_file" yaml:"client_id_file" mapstructure:"client_id_file"` // used when client_id is empty
 	ClientSecretFile string `json:"client_secret_file" yaml:"client_secret_file" mapstructure:"client_secret_file"`
 	Timeout          string `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
 	CacheTTL         string `json:"cache_ttl" yaml:"cache_ttl" mapstructure:"cache_ttl"`
@@ -1018,13 +1096,34 @@ type AuthGroupMapping struct {
 	Workspaces []string `json:"workspaces" yaml:"workspaces" mapstructure:"workspaces"`
 }
 
-// GetAuthMode returns auth.mode: "builtin" (default) or "external". Any other value
-// is treated as builtin, so a typo never switches authentication off.
+// GetAuthMode returns auth.mode. builtin selects local accounts and is the value of an empty
+// setting. Call CheckAuthMode at start-up: any other value is refused there.
 func GetAuthMode() string {
-	if getString(authMode, AuthModeBuiltin) == AuthModeExternal {
-		return AuthModeExternal
+	mode, err := parseAuthMode()
+	if err != nil {
+		return ""
 	}
-	return AuthModeBuiltin
+	return mode
+}
+
+// CheckAuthMode rejects an auth.mode that is set and is neither builtin nor external.
+// An empty value is builtin.
+func CheckAuthMode() error {
+	_, err := parseAuthMode()
+	return err
+}
+
+// parseAuthMode reads auth.mode. An empty value is builtin.
+func parseAuthMode() (string, error) {
+	raw := strings.TrimSpace(getString(authMode, ""))
+	switch {
+	case raw == "" || strings.EqualFold(raw, AuthModeBuiltin):
+		return AuthModeBuiltin, nil
+	case strings.EqualFold(raw, AuthModeExternal):
+		return AuthModeExternal, nil
+	default:
+		return "", fmt.Errorf("auth.mode %q must be builtin or external", raw)
+	}
 }
 
 // GetAuthenticators returns the authenticator chain, in order. A chain that cannot be
@@ -1066,5 +1165,71 @@ func GetAuthAPIKeysURL() string {
 }
 
 // GetAuthLoginURL returns auth.login_url, where the console sends users to sign in when
-// authentication is external.
+// authentication is external. External mode requires it.
 func GetAuthLoginURL() string { return getString(authLoginURL, "") }
+
+// AllowOIDCOnly reports auth.allow_oidc_only. Off by default: an external chain then needs
+// an introspection or builtin authenticator.
+func AllowOIDCOnly() bool { return getBool(authAllowOIDCOnly, false) }
+
+// ProviderClientEnabled reports auth.provider_client. Off by default: the apiserver does not
+// call the identity service to register a SCIM target or to forward a status change.
+func ProviderClientEnabled() bool { return getBool(authProviderClient, false) }
+
+// GetAuthConnection returns auth.connection. Empty omits the connection parameter.
+func GetAuthConnection() string { return strings.TrimSpace(getString(authConnection, "")) }
+
+// GetAuthAccountsURL returns auth.accounts_url when it is a path or an http(s) URL.
+func GetAuthAccountsURL() string { return consoleURL(getString(authAccountsURL, "")) }
+
+// GetAuthKeysConsoleURL returns auth.keys_console_url when it is a path or an http(s) URL.
+func GetAuthKeysConsoleURL() string { return consoleURL(getString(authKeysConsoleURL, "")) }
+
+// consoleURL keeps a path or an absolute http(s) URL and drops anything else.
+func consoleURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") && !strings.ContainsAny(raw, "\\ \t\r\n") {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return ""
+	}
+	return raw
+}
+
+// DefaultSCIMTokenSecret is the Secret the apiserver creates for the SCIM bearer token
+// when auth.scim.token_secret is unset.
+const DefaultSCIMTokenSecret = "primus-safe-scim-token"
+
+// IsSCIMEnabled reports auth.scim.enabled. A missing value is enabled.
+func IsSCIMEnabled() bool { return getBool(authSCIMEnabled, true) }
+
+// GetSCIMIdentityURL returns auth.scim.identity_url with no trailing slash.
+// Empty means the identity base is derived from the introspection authenticator.
+func GetSCIMIdentityURL() string { return trimURL(getString(authSCIMIdentityURL, "")) }
+
+// GetSCIMPublicURL returns auth.scim.public_url with no trailing slash: the base
+// the identity service calls, appending /Users/{id}.
+func GetSCIMPublicURL() string { return trimURL(getString(authSCIMPublicURL, "")) }
+
+// GetSCIMTokenSecret returns the name of the Secret that holds the SCIM bearer token.
+func GetSCIMTokenSecret() string {
+	name := strings.TrimSpace(getString(authSCIMTokenSecret, DefaultSCIMTokenSecret))
+	if name == "" {
+		return DefaultSCIMTokenSecret
+	}
+	return name
+}
+
+// trimURL drops surrounding space and a trailing slash.
+func trimURL(raw string) string {
+	return strings.TrimRight(strings.TrimSpace(raw), "/")
+}
+
+// GetRBACSubjectPrefix returns rbac.subject_prefix, prepended to user ids and group names in the
+// Kubernetes RBAC subjects that project workspace membership. Default "primus:".
+func GetRBACSubjectPrefix() string { return getString(rbacSubjectPrefix, "primus:") }

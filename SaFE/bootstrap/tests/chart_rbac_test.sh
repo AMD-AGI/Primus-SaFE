@@ -6,7 +6,8 @@
 
 # Checks the RBAC that the primus-safe chart renders and that the console deployment account is given
 # (bootstrap/cd-installer-rbac.yaml):
-# - the components' ClusterRole cannot write RBAC (it reads ClusterRoles and deletes the hook RBAC);
+# - ClusterRole primus-safe reads ClusterRoles and deletes the hook RBAC, and does not write them;
+#   ClusterRole primus-safe-resource-manager is the only one that writes clusterroles and clusterrolebindings;
 # - the pre-install/pre-upgrade hook account secret-manager gets a Role in the release namespace limited
 #   to the secrets its jobs write, never a ClusterRole, and the cleanup job removes what was rendered;
 # - nothing binds cluster-admin;
@@ -51,16 +52,25 @@ render crossns --set opensearch.secret_namespace=logging --set opensearch.secret
 render nocopy --set opensearch.username=u --set opensearch.password=p
 yq ea -o=json -I=0 '[.] | map(select(. != null))' "$INSTALLER" > "$W/installer.json"
 
-# 1. The components' ClusterRole.
+# 1. The components' ClusterRoles. Workspace projection is written only by the resource-manager role.
 CR='.[] | select(.kind == "ClusterRole" and .metadata.name == "primus-safe")'
+RM='.[] | select(.kind == "ClusterRole" and .metadata.name == "primus-safe-resource-manager")'
 RBAC_RULES="[$CR | .rules[] | select(.apiGroups | index(\"rbac.authorization.k8s.io\"))]"
+RM_RULES="[$RM | .rules[] | select(.apiGroups | index(\"rbac.authorization.k8s.io\"))]"
 q default "$RBAC_RULES | length > 0" || fail "ClusterRole primus-safe has no rbac.authorization.k8s.io rules"
-q default "$RBAC_RULES | all(.verbs - [\"get\", \"list\", \"watch\", \"delete\"] | length == 0)" \
-  && pass "ClusterRole primus-safe only reads RBAC (and deletes)" \
+PROJ='(.resources | sort) == ["clusterrolebindings", "clusterroles"] and (.verbs | sort) == ["create", "delete", "get", "list", "patch", "update", "watch"] and .resourceNames == null'
+READ='((.verbs - ["get", "list", "watch", "delete"]) | length) == 0 and ((.verbs | index("delete")) == null or .resourceNames == ["secret-manager"])'
+q default "$RBAC_RULES | map(select($PROJ)) | length == 0" \
+  && pass "ClusterRole primus-safe does not project workspace RBAC" \
+  || fail "ClusterRole primus-safe still writes clusterroles: $(jq -c "$RBAC_RULES" "$W/default.json")"
+q default "$RM_RULES | map(select($PROJ)) | length == 1" \
+  && pass "ClusterRole primus-safe-resource-manager projects workspace RBAC" \
+  || fail "ClusterRole primus-safe-resource-manager projection rule is missing: $(jq -c "$RM_RULES" "$W/default.json")"
+q default "$RBAC_RULES | all(.[]; ($READ))" \
+  && pass "ClusterRole primus-safe writes no other RBAC" \
   || fail "ClusterRole primus-safe can write RBAC: $(jq -c "$RBAC_RULES" "$W/default.json")"
-q default "$RBAC_RULES | map(select(.verbs | index(\"delete\"))) | all(.resourceNames == [\"secret-manager\"])" \
-  && pass "ClusterRole primus-safe deletes only RBAC named secret-manager" \
-  || fail "ClusterRole primus-safe deletes RBAC beyond secret-manager"
+q default '[.[] | select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "primus-safe-rbac-projection")] | length == 1' \
+  || fail "ValidatingAdmissionPolicy primus-safe-rbac-projection is not rendered"
 
 # 2. Hook RBAC: namespaced, scoped to the secrets of the jobs.
 for set in default crossns nocopy; do

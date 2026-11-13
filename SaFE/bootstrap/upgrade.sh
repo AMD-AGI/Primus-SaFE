@@ -45,7 +45,12 @@ install_or_upgrade_helm_chart() {
 # the other settings of this script. Every key is optional; one that .env does not set keeps the
 # chart default, except that a release which is already external refuses to lose it (check_live_auth).
 #   auth_mode            builtin | external                                  -> auth.mode
-#   auth_login_url       where the console sends users to sign in            -> auth.login_url
+#   auth_login_url       where the console sends users to sign in. Not derived: external mode
+#                        needs it, and a release that stores one must restate it -> auth.login_url
+#   auth_allow_oidc_only true | false. true allows a chain without an
+#                        introspection or builtin authenticator              -> auth.allow_oidc_only
+#   auth_provider_client true | false. true lets the apiserver call the
+#                        identity service (status changes, SCIM registration)  -> auth.provider_client
 #   auth_client_secret   name of the Secret holding the client secret of an
 #                        introspection authenticator (a name, not the secret) -> auth.client_secret
 #   auth_authenticators  JSON array, the authenticator chain                 -> auth.authenticators
@@ -56,18 +61,26 @@ install_or_upgrade_helm_chart() {
 #                        provider, when something else routes it              -> auth.api_keys_url
 #   auth_api_keys_upstream  host[:port] of the identity provider's service,
 #                        which the console's nginx routes /api/v1/apikeys to  -> auth.api_keys_upstream
+#   auth_scim_enabled    true | false. Omitted: the chart default, true.
+#                        A stored false is not kept.                           -> auth.scim.enabled
+#   auth_scim_identity_url  identity service root                          -> auth.scim.identity_url
+#   auth_scim_public_url    base URL the identity service calls for SCIM.
+#                        Omitted: https://<sub_domain>.<domain>/scim/v2.
+#                        A stored value is not kept.                           -> auth.scim.public_url
+#   auth_scim_token_secret  name of the Secret holding the SCIM bearer.
+#                        Omitted: the chart default primus-safe-scim-token, when the
+#                        running release already uses that name. A different stored
+#                        name is kept only when .env sets it.                    -> auth.scim.token_secret
 # JSON values are single-quoted in .env, e.g. auth_key_actors='["client-a"]'.
-AUTH_ENV_KEYS=(auth_mode auth_login_url auth_client_secret auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream)
+AUTH_ENV_KEYS=(auth_mode auth_login_url auth_allow_oidc_only auth_provider_client auth_client_secret auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
 
-# check_live_auth refuses an upgrade that would silently turn the external authentication of the
-# running release off. helm renders every value from the chart defaults and the files it is given, so a
-# release that was switched to external, by hand or by an earlier .env, goes back to builtin on the
-# next upgrade whose .env carries no auth_* keys: the apiserver stops accepting the identity
-# provider's credentials and the platform roles its groups granted. The same goes for any auth.*
-# setting that the release has and .env leaves out. auth_mode=builtin in .env is the deliberate way
-# back (the break-glass for an identity provider outage) and is always allowed.
+# check_live_auth refuses an upgrade that would drop the external authentication of a release.
+# helm renders every value from the chart defaults and the files it is given, so a release that
+# carries an authenticator chain or group mappings loses them on the next upgrade whose .env leaves
+# those keys out. auth_mode=builtin is the explicit way back. Omitting auth_mode on a release that
+# is already external is refused: that omission would render builtin.
 check_live_auth() {
-  local releases live live_mode var key present unset_keys="" missing=""
+  local releases live live_mode var key present test_expr unset_keys="" missing=""
   if ! releases=$(helm -n "$NAMESPACE" list); then
     echo "Error: cannot list the helm releases in $NAMESPACE, so the authentication mode of the running release is unknown" >&2
     return 1
@@ -75,7 +88,8 @@ check_live_auth() {
   if ! grep -q "^$chart_name " <<<"$releases"; then
     return 0 # nothing installed yet, nothing to lose
   fi
-  if [[ "${auth_mode:-}" == "builtin" ]]; then
+  # An explicit builtin is the way back, including from an external release.
+  if [[ -n "${auth_mode+x}" && "$auth_mode" == "builtin" ]]; then
     return 0
   fi
   for var in "${AUTH_ENV_KEYS[@]}"; do
@@ -110,6 +124,12 @@ check_live_auth() {
   if [[ "$live_mode" != "external" ]]; then
     return 0
   fi
+  if [[ -z "${auth_mode+x}" ]]; then
+    echo "Error: release $chart_name is running with auth.mode=external, but .env does not set auth_mode." >&2
+    echo "       Omitting it would render builtin and replace the external sign-in. Nothing has been changed." >&2
+    echo "       Set auth_mode=external and the auth_* keys the release uses, or set auth_mode=builtin to go back on purpose." >&2
+    return 1
+  fi
   if ! command -v jq &> /dev/null; then
     echo "Error: release $chart_name is running with auth.mode=external, and jq is required to see which of its auth settings .env must carry" >&2
     echo "       Nothing has been changed. Install jq, or set every auth_* key in .env, or set auth_mode=builtin to go back" >&2
@@ -117,9 +137,32 @@ check_live_auth() {
     return 1
   fi
   for var in $unset_keys; do
-    key="${var#auth_}"
-    if ! present=$(jq -r --arg k "$key" '.auth[$k] | (. != null and . != "" and . != [] and . != {})' <<<"$live"); then
-      echo "Error: cannot read auth.$key from the values of release $chart_name" >&2
+    # These have a chart value when .env omits them. A stored SCIM callback is not kept.
+    # auth_login_url is kept: external mode refuses to start without it.
+    if [[ "$var" == "auth_scim_enabled" || "$var" == "auth_scim_public_url" ]]; then
+      continue
+    fi
+    # The apiserver creates primus-safe-scim-token. Omitting the key keeps that chart default.
+    # A release that stores another name still has to restate it.
+    if [[ "$var" == "auth_scim_token_secret" ]]; then
+      if ! token_name=$(jq -r '.auth.scim.token_secret // ""' <<<"$live"); then
+        echo "Error: cannot read .auth.scim.token_secret from the values of release $chart_name" >&2
+        return 1
+      fi
+      if [[ -z "$token_name" || "$token_name" == "primus-safe-scim-token" ]]; then
+        continue
+      fi
+    fi
+    # A boolean switch is lost only when the release has it on.
+    test_expr='(. != null and . != "" and . != [] and . != {})'
+    case "$var" in
+      auth_scim_identity_url) expr='.auth.scim.identity_url' ;;
+      auth_scim_token_secret) expr='.auth.scim.token_secret' ;;
+      auth_allow_oidc_only|auth_provider_client) expr=".auth.${var#auth_}"; test_expr='(. == true)' ;;
+      *) expr=".auth.${var#auth_}" ;;
+    esac
+    if ! present=$(jq -r "$expr | $test_expr" <<<"$live"); then
+      echo "Error: cannot read $expr from the values of release $chart_name" >&2
       return 1
     fi
     if [[ "$present" == "true" ]]; then
@@ -152,7 +195,7 @@ write_auth_values() {
   fi
   if ! command -v jq &> /dev/null; then
     # The break-glass alone, auth_mode=builtin, needs no jq to be written.
-    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_client_secret+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}${auth_api_keys_url+x}${auth_api_keys_upstream+x}" ]]; then
+    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_allow_oidc_only+x}${auth_provider_client+x}${auth_client_secret+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}${auth_api_keys_url+x}${auth_api_keys_upstream+x}${auth_scim_enabled+x}${auth_scim_identity_url+x}${auth_scim_public_url+x}${auth_scim_token_secret+x}" ]]; then
       printf '{"auth":{"mode":"builtin"}}\n' > "$out"
       AUTH_VALUES_FILE="$out"
       return 0
@@ -184,6 +227,23 @@ write_auth_values() {
         fi
         json=$(jq -c --arg k "$key" --arg v "$val" '.[$k] = $v' <<<"$json")
         ;;
+      auth_scim_enabled)
+        if [[ "$val" != "true" && "$val" != "false" ]]; then
+          echo "Error: auth_scim_enabled in .env must be true or false" >&2
+          return 1
+        fi
+        json=$(jq -c --argjson v "$val" '.scim.enabled = $v' <<<"$json")
+        ;;
+      auth_allow_oidc_only|auth_provider_client)
+        if [[ "$val" != "true" && "$val" != "false" ]]; then
+          echo "Error: $var in .env must be true or false" >&2
+          return 1
+        fi
+        json=$(jq -c --arg k "$key" --argjson v "$val" '.[$k] = $v' <<<"$json")
+        ;;
+      auth_scim_identity_url|auth_scim_public_url|auth_scim_token_secret)
+        json=$(jq -c --arg k "${var#auth_scim_}" --arg v "$val" '.scim[$k] = $v' <<<"$json")
+        ;;
       *)
         json=$(jq -c --arg k "$key" --arg v "$val" '.[$k] = $v' <<<"$json")
         ;;
@@ -195,70 +255,101 @@ write_auth_values() {
     return 1
   fi
   jq -n --argjson a "$json" '{auth: $a}' > "$out"
+  if ! require_external_chain "$out"; then
+    return 1
+  fi
   AUTH_VALUES_FILE="$out"
 }
 
-# check_live_sso refuses an upgrade that would silently undo the SSO settings of the running release
-# that only .env can carry: helm renders sso.login and sso.bridge_allowlist from the chart defaults
-# (off, empty) unless .env sets them, so a release that signs the console in at an OIDC provider
-# would send everyone back to the other provider (and sign them out), and other web apps would lose
-# the SSO bridge. sso_login_enable=false and sso_bridge_allowlist='[]' drop them on purpose.
-check_live_sso() {
-  local releases live state login allow missing=""
-  if [[ -n "${sso_login_enable:-}" && -n "${sso_bridge_allowlist+x}" ]]; then
-    return 0 # .env says both: nothing can be dropped
-  fi
-  if ! releases=$(helm -n "$NAMESPACE" list); then
-    echo "Error: cannot list the helm releases in $NAMESPACE, so the SSO settings of the running release are unknown" >&2
+# require_external_chain refuses an external auth object that has no sign-in URL, no fallback
+# authenticator, no group that is granted system-admin, or SCIM and auth.provider_client enabled
+# without an identity service URL.
+require_external_chain() {
+  local file="$1" mode n base
+  mode=$(jq -r '.auth.mode // "builtin"' "$file")
+  [[ "$mode" == "external" ]] || return 0
+  if [[ -z "$(jq -r '.auth.login_url // empty' "$file")" ]]; then
+    echo "Error: auth_mode=external needs auth_login_url" >&2
     return 1
   fi
-  if ! grep -q "^$chart_name " <<<"$releases"; then
-    return 0 # nothing installed yet, nothing to lose
-  fi
-  if command -v jq &> /dev/null; then
-    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o json); then
-      echo "Error: cannot read the values of release $chart_name, so its SSO settings are unknown" >&2
-      return 1
-    fi
-    if ! state=$(jq -r '[((.sso.login.enable // false) | tostring) == "true", ((.sso.bridge_allowlist // []) | length > 0)] | map(tostring) | join(" ")' <<<"$live"); then
-      echo "Error: cannot read the SSO settings from the values of release $chart_name" >&2
-      return 1
-    fi
-  else
-    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o yaml); then
-      echo "Error: cannot read the values of release $chart_name, so its SSO settings are unknown" >&2
-      return 1
-    fi
-    # sso.login.enable, and whether sso.bridge_allowlist has an entry (inline, or a list on the next lines).
-    if ! state=$(awk '
-      /^sso:/ {s = 1; next}
-      /^[^ #]/ {s = 0}
-      !s {next}
-      /^  [^ -]/ {l = 0; a = 0}
-      /^  login:/ {l = 1; next}
-      l && /^    enable: *"?true"?[[:space:]]*$/ {login = 1}
-      /^  bridge_allowlist:/ {v = $0; sub(/^  bridge_allowlist:[[:space:]]*/, "", v); if (v == "") a = 1; else if (v != "[]" && v != "null") allow = 1; next}
-      a && /^  - / {allow = 1}
-      END {printf "%s %s\n", (login ? "true" : "false"), (allow ? "true" : "false")}' <<<"$live"); then
-      echo "Error: cannot read the SSO settings from the values of release $chart_name" >&2
+  if [[ "$(jq -r '.auth.allow_oidc_only // false' "$file")" != "true" ]]; then
+    n=$(jq '[.auth.authenticators[]? | select((.type | ascii_downcase) == "introspection" or (.type | ascii_downcase) == "builtin")] | length' "$file")
+    if [[ "$n" == "0" ]]; then
+      echo "Error: auth_mode=external needs an introspection or builtin authenticator, or auth_allow_oidc_only=true" >&2
       return 1
     fi
   fi
-  read -r login allow <<<"$state"
-  if [[ "$login" == "true" && -z "${sso_login_enable:-}" ]]; then
-    missing="$missing sso_login_enable sso_login_issuer sso_login_client_id sso_login_redirect_uri"
-  fi
-  if [[ "$allow" == "true" && -z "${sso_bridge_allowlist+x}" ]]; then
-    missing="$missing sso_bridge_allowlist"
-  fi
-  if [[ -n "$missing" ]]; then
-    echo "Error: release $chart_name is running with SSO settings that .env does not set:$missing" >&2
-    echo "       Upgrading now would turn them off: the console would sign in at the other provider again (everyone" >&2
-    echo "       signed out), or other web apps would lose the SSO bridge. Nothing has been changed." >&2
-    echo "       Add them to .env (the live values are: helm -n $NAMESPACE get values $chart_name -o json | jq .sso)," >&2
-    echo "       or set sso_login_enable=false / sso_bridge_allowlist='[]' to drop them on purpose." >&2
+  n=$(jq '[.auth.group_mappings[]?.roles[]? | select(. == "system-admin")] | length' "$file")
+  if [[ "$n" == "0" ]]; then
+    echo "Error: auth_mode=external needs a group_mapping whose roles include system-admin" >&2
     return 1
   fi
+  if [[ "$(jq -r 'if .auth.scim.enabled == false then "false" else "true" end' "$file")" != "false" &&
+    "$(jq -r '.auth.provider_client // false' "$file")" == "true" ]]; then
+    base=$(jq -r '.auth.scim.identity_url // empty' "$file")
+    if [[ -z "$base" ]]; then
+      base=$(jq -r '[.auth.authenticators[]? | select((.type | ascii_downcase) == "introspection") | (.url // .issuer // empty)] | map(select(length > 0)) | .[0] // empty' "$file")
+    fi
+    if [[ -z "$base" ]]; then
+      echo "Error: auth.scim and auth.provider_client are enabled but auth_scim_identity_url cannot be resolved" >&2
+      return 1
+    fi
+  fi
+}
+
+# render_preflight renders the chart with the values files this upgrade applies. A value the chart
+# refuses (for example an external chain that cannot accept the console sign-in) stops the upgrade
+# before any cluster object is changed.
+render_preflight() {
+  local values_yaml="$1" extra=()
+  if [[ -n "$AUTH_VALUES_FILE" ]]; then
+    extra=(-f "$AUTH_VALUES_FILE")
+  fi
+  if ! helm template "$chart_name" "./$chart_name" -n "$NAMESPACE" -f "$values_yaml" ${extra[@]+"${extra[@]}"} > /dev/null; then
+    echo "Error: the chart refuses these values; nothing in the cluster was changed" >&2
+    return 1
+  fi
+}
+
+# sync_release_ingress <name> <namespace> <rendered>: an Ingress the chart renders only in some modes.
+# One that no release owns, or that this release owns, is marked as this release's when <rendered> is
+# true, so Helm adopts it instead of refusing, and deleted when it is false. One that another release
+# owns is left alone: this upgrade refuses to render it, and does not delete it.
+sync_release_ingress() {
+  local name="$1" ns="$2" rendered="$3" owner
+  if ! owner=$(kubectl get ingress "$name" -n "$ns" \
+    -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}/{.metadata.annotations.meta\.helm\.sh/release-namespace}' 2> /dev/null); then
+    return 0
+  fi
+  if [[ -n "$owner" && "$owner" != "/" && "$owner" != "$chart_name/$NAMESPACE" ]]; then
+    if [[ "$rendered" == "true" ]]; then
+      echo "Error: Ingress $ns/$name is owned by release $owner; remove it or its release first" >&2
+      return 1
+    fi
+    echo "Ingress $ns/$name is owned by release $owner; left in place"
+    return 0
+  fi
+  if [[ "$rendered" != "true" ]]; then
+    kubectl delete ingress "$name" -n "$ns" --ignore-not-found
+    return 0
+  fi
+  kubectl annotate ingress "$name" -n "$ns" \
+    "meta.helm.sh/release-name=$chart_name" \
+    "meta.helm.sh/release-namespace=$NAMESPACE" --overwrite
+  kubectl label ingress "$name" -n "$ns" app.kubernetes.io/managed-by=Helm --overwrite
+}
+
+# sync_console_scim_route keeps /scim/v2 on the console host pointed at the apiserver.
+# The chart renders that Ingress only for Higress with auth.mode=external and SCIM enabled.
+sync_console_scim_route() {
+  local rendered=false
+  if [[ "${ingress:-}" != "higress" ]]; then
+    return 0
+  fi
+  if [[ "${auth_mode:-builtin}" == "external" && "${auth_scim_enabled:-true}" != "false" ]]; then
+    rendered=true
+  fi
+  sync_release_ingress "$chart_name-scim" "$NAMESPACE" "$rendered"
 }
 
 # write_console_values adds console.return_prefixes (CONSOLE_RETURN_PREFIXES, see
@@ -305,6 +396,106 @@ else
   exit 1
 fi
 
+# sso_login_* is the previous name of oidc_login_*. A .env that still sets the old name keeps that value.
+adopt_sso_login_aliases() {
+  local new old
+  for pair in \
+    oidc_login_enable:sso_login_enable \
+    oidc_login_issuer:sso_login_issuer \
+    oidc_login_client_id:sso_login_client_id \
+    oidc_login_redirect_uri:sso_login_redirect_uri
+  do
+    new="${pair%%:*}"
+    old="${pair##*:}"
+    if [[ -n "${!old+x}" ]]; then
+      if [[ -n "${!new+x}" && "${!new}" != "${!old}" ]]; then
+        echo "Error: .env sets both $old and $new. Use $new." >&2
+        exit 1
+      fi
+      printf -v "$new" '%s' "${!old}"
+      echo "Warning: $old is the previous name of $new" >&2
+    fi
+  done
+}
+
+# keep_live_sso copies sso.login and a non-empty bridge allowlist from the running release when .env
+# does not set them. An upgrade then does not turn the console sign-in off or empty the allowlist.
+# An explicit oidc_login_enable and sso_bridge_allowlist need no read of the release.
+keep_live_sso() {
+  local releases live en al
+  if [[ -n "${oidc_login_enable+x}" && -n "${sso_bridge_allowlist+x}" && -n "${oidc_login_issuer+x}" && -n "${oidc_login_client_id+x}" && -n "${oidc_login_redirect_uri+x}" ]]; then
+    return 0
+  fi
+  if [[ "${oidc_login_enable-}" == "false" && -n "${sso_bridge_allowlist+x}" ]]; then
+    return 0
+  fi
+  if ! releases=$(helm -n "$NAMESPACE" list 2>/dev/null); then
+    return 0
+  fi
+  if ! grep -q "^$chart_name " <<<"$releases"; then
+    return 0
+  fi
+  if command -v jq &> /dev/null; then
+    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o json); then
+      echo "Error: cannot read the values of release $chart_name, so its console sign-in settings are unknown" >&2
+      exit 1
+    fi
+    if [[ -z "${oidc_login_enable+x}" ]]; then
+      en=$(jq -r 'if .sso.login.enable == true or .sso.login.enable == "true" then "true" else "false" end' <<<"$live")
+      if [[ "$en" == "true" ]]; then
+        oidc_login_enable=true
+      fi
+    fi
+    if [[ -z "${oidc_login_issuer+x}" ]]; then
+      oidc_login_issuer=$(jq -r '.sso.login.issuer // ""' <<<"$live")
+    fi
+    if [[ -z "${oidc_login_client_id+x}" ]]; then
+      oidc_login_client_id=$(jq -r '.sso.login.client_id // ""' <<<"$live")
+    fi
+    if [[ -z "${oidc_login_redirect_uri+x}" ]]; then
+      oidc_login_redirect_uri=$(jq -r '.sso.login.redirect_uri // ""' <<<"$live")
+    fi
+    if [[ -z "${sso_bridge_allowlist+x}" ]]; then
+      al=$(jq -c '.sso.bridge_allowlist // []' <<<"$live")
+      if [[ "$al" != "[]" && "$al" != "null" ]]; then
+        sso_bridge_allowlist="$al"
+      fi
+    fi
+    return 0
+  fi
+  if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o yaml); then
+    echo "Error: cannot read the values of release $chart_name, so its console sign-in settings are unknown" >&2
+    exit 1
+  fi
+  en=""
+  if [[ -z "${oidc_login_enable+x}" ]]; then
+    en=$(awk '/^sso:/ {s = 1; next} /^[^ #]/ {s = 0} s && /^  login:/ {l = 1; next} s && /^  [^ ]/ {l = 0} s && l && /^    enable:/ {gsub(/["\047]/, "", $2); print $2; exit}' <<<"$live")
+    if [[ "$en" == "true" ]]; then
+      oidc_login_enable=true
+    fi
+  fi
+  # issuer, client_id and redirect_uri are not in this yaml path. Leaving them unset renders the chart
+  # defaults and the apiserver redeems console codes at the wrong issuer.
+  if [[ "${oidc_login_enable:-}" == "true" ]]; then
+    if [[ -z "${oidc_login_issuer+x}" || -z "${oidc_login_client_id+x}" || -z "${oidc_login_redirect_uri+x}" ]]; then
+      echo "Error: jq is required to keep the running release's sso.login issuer, client_id and redirect_uri when .env does not set them" >&2
+      exit 1
+    fi
+  fi
+  if [[ -z "${sso_bridge_allowlist+x}" ]] && grep -qE '^  bridge_allowlist:[[:space:]]*$' <<<"$live"; then
+    echo "Error: jq is required to keep the running release's sso.bridge_allowlist when .env does not set it" >&2
+    exit 1
+  fi
+}
+
+adopt_sso_login_aliases
+keep_live_sso
+
+# Chart defaults (charts/primus-safe/values.yaml). A key .env does not set, and the running release
+# does not already have, is that value.
+sso_enable="${sso_enable:-true}"
+oidc_login_enable="${oidc_login_enable:-false}"
+
 echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
@@ -313,8 +504,8 @@ lens_enable="false"
 echo "✅ Robust data-plane: managed via AddonTemplate"
 echo "✅ Support S3: \"$s3_enable\""
 echo "✅ Support SSO: \"$sso_enable\""
-echo "✅ SSO console sign-in at an OIDC provider (sso.login): \"${sso_login_enable:-unset}\""
-echo "✅ SSO bridge allowlist: $([[ -n "${sso_bridge_allowlist+x}" ]] && echo set || echo unset)"
+echo "✅ SSO console sign-in at an OIDC provider (sso.login): \"$oidc_login_enable\""
+echo "✅ SSO bridge allowlist: $([[ -n "${sso_bridge_allowlist+x}" ]] && echo set || echo '[]')"
 echo "✅ Console return prefixes: $([[ -n "${console_return_prefixes+x}" ]] && echo set || echo unset)"
 echo "✅ Support Tracing: \"${tracing_enable:-false}\" (mode: ${tracing_mode:-error_only})"
 echo "✅ Support LLM Gateway: \"${llm_gateway_enable:-false}\""
@@ -331,37 +522,39 @@ echo "✅ CSI Volume Handle: \"$csi_volume_handle\""
 echo "✅ Node Agent GPU Driver: \"${node_agent_gpu_driver:-6.12.12}\""
 echo "✅ Node Agent ROCm Version: \"${node_agent_rocm_version:-6.4}\""
 echo "✅ Node Agent Toggles: net_bnxt_load_204=${node_agent_toggle_net_bnxt_load_204:-off}, net_ainic_load_205=${node_agent_toggle_net_ainic_load_205:-off}, net_ainic_devices_208=${node_agent_toggle_net_ainic_devices_208:-off}, sys_csi_wekafs_309=${node_agent_toggle_sys_csi_wekafs_309:-on}"
-echo "✅ Auth mode: \"${auth_mode:-unset}\""
+echo "✅ Auth mode: \"${auth_mode:-builtin}\""
 
-# The console's sign-in at an OpenID Connect provider (sso.login, see docs/installation/install.md),
-# from .env like the rest. Written only when .env sets sso_login_enable, so a site without it keeps
-# the chart default (off, the console signs in at the provider of the sso Secret).
-#   sso_login_enable        true | false                                 -> sso.login.enable
-#   sso_login_issuer        the provider's issuer                         -> sso.login.issuer
-#   sso_login_client_id     the console's client id at the provider       -> sso.login.client_id
-#   sso_login_redirect_uri  the console's own callback, as registered     -> sso.login.redirect_uri
+# The console's sign-in at an OpenID Connect provider (sso.login, see docs/installation/install.md).
+# oidc_login_* is the name .env uses. sso_login_* is accepted as the previous name. A running release
+# keeps sso.login and a non-empty bridge allowlist when .env sets neither. A fresh install with the
+# keys unset uses the chart defaults: sso.login off, allowlist []. auth.login_url is not derived; external
+# mode refuses to start without it, and check_live_auth requires .env to carry a stored auth_login_url.
+#   oidc_login_enable        true | false                                 -> sso.login.enable
+#   oidc_login_issuer        the provider's issuer; empty is the cluster host
+#                           https://<sub_domain>.<domain>                 -> sso.login.issuer
+#   oidc_login_client_id     the console's client id; empty is safe-console -> sso.login.client_id
+#   oidc_login_redirect_uri  the console's callback; empty is
+#                           https://<sub_domain>.<domain>/sso/callback    -> sso.login.redirect_uri
 #   sso_secret              the Secret of the other SSO provider (default
 #                           primus-safe-sso); empty removes it            -> sso.secret
 #   sso_bridge_allowlist    JSON array of the other web apps (origin, optionally
 #                           with a path prefix) that may receive an SSO code
 #                           through the console, e.g.
 #                           sso_bridge_allowlist='["https://app.example.com"]' -> sso.bridge_allowlist
-# Like auth_*, a release that already runs with sso.login on or a non-empty bridge allowlist refuses
-# an upgrade whose .env leaves them out (check_live_sso); set them to false / '[]' to drop them on purpose.
 SSO_LOGIN_ON="false"
-if [[ -n "${sso_login_enable:-}" ]]; then
-  if [[ "$sso_login_enable" != "true" && "$sso_login_enable" != "false" ]]; then
-    echo "Error: sso_login_enable in .env must be true or false" >&2
+if [[ -n "$oidc_login_enable" ]]; then
+  if [[ "$oidc_login_enable" != "true" && "$oidc_login_enable" != "false" ]]; then
+    echo "Error: oidc_login_enable in .env must be true or false" >&2
     exit 1
   fi
-  SSO_LOGIN_ON="$sso_login_enable"
+  SSO_LOGIN_ON="$oidc_login_enable"
   # The values are written with sed, '|' as the delimiter; '&' in a replacement is the matched text.
   unsafe_value='["|&\\[:space:]]'
-  for key in sso_login_issuer sso_login_client_id sso_login_redirect_uri; do
+  for key in oidc_login_issuer oidc_login_client_id oidc_login_redirect_uri; do
     value="${!key:-}"
-    if [[ "$sso_login_enable" == "true" && -z "$value" ]]; then
-      echo "Error: sso_login_enable=true in .env needs $key" >&2
-      exit 1
+    # Unset values stay empty here. The chart fills the cluster host, safe-console, and /sso/callback.
+    if [[ -z "$value" ]]; then
+      continue
     fi
     if [[ "$value" =~ $unsafe_value ]]; then
       echo "Error: $key in .env must not contain spaces, quotes, backslashes, '|' or '&'" >&2
@@ -369,19 +562,13 @@ if [[ -n "${sso_login_enable:-}" ]]; then
     fi
   done
 fi
-# sso.login is part of the SSO settings: with sso_enable=false the apiserver runs no SSO at all, and
-# the console would not offer the sign-in that .env asks for.
-if [[ "$SSO_LOGIN_ON" == "true" && "$sso_enable" != "true" ]]; then
-  echo "Error: sso_login_enable=true in .env needs sso_enable=true" >&2
-  exit 1
-fi
 if [[ "${sso_secret:-}" =~ [^a-z0-9.-] ]]; then
   echo "Error: sso_secret in .env must be the name of a Secret" >&2
   exit 1
 fi
 # Without the Secret, sso.login is the only provider the apiserver has; it refuses to start with neither.
 if [[ "$sso_enable" == "true" && -n "${sso_secret+x}" && -z "$sso_secret" && "$SSO_LOGIN_ON" != "true" ]]; then
-  echo "Error: sso_secret= (empty) in .env needs sso_login_enable=true: the apiserver would have no SSO provider" >&2
+  echo "Error: sso_secret= (empty) in .env needs oidc_login_enable=true: the apiserver would have no SSO provider" >&2
   exit 1
 fi
 if [[ -n "${sso_bridge_allowlist+x}" ]]; then
@@ -507,10 +694,8 @@ resolve_console_return_prefixes() {
   fi
 }
 
-# Before anything is changed: an upgrade must not silently turn the external authentication off.
+# Before anything is changed: an upgrade that keeps auth_mode=external must not drop that release's auth settings.
 check_live_auth
-# ... and must not silently turn the console's sign-in at the OIDC provider, or the SSO bridge, off.
-check_live_sso
 # ... and must not silently turn the per-user directories of external Pods off.
 resolve_user_dir_mounts || exit 1
 # ... and must not silently drop the console's return prefixes.
@@ -580,11 +765,11 @@ sed -i '/sso:/,/^[a-z]/ s/^  enable: .*/  enable: '"$sso_enable"'/' "$values_yam
 if [[ "$sso_enable" == "true" ]]; then
   sed -i '/^sso:/,/^[a-z]/ s#^  secret: ".*"#  secret: "'"${sso_secret-$SSO_SECRET}"'"#' "$values_yaml"
 fi
-if [[ -n "${sso_login_enable:-}" ]]; then
-  sed -i -e '/^sso:/,/^[a-z]/ s|^    enable: .*|    enable: '"$sso_login_enable"'|' \
-    -e '/^sso:/,/^[a-z]/ s|^    issuer: .*|    issuer: "'"${sso_login_issuer:-}"'"|' \
-    -e '/^sso:/,/^[a-z]/ s|^    client_id: .*|    client_id: "'"${sso_login_client_id:-}"'"|' \
-    -e '/^sso:/,/^[a-z]/ s|^    redirect_uri: .*|    redirect_uri: "'"${sso_login_redirect_uri:-}"'"|' "$values_yaml"
+if [[ -n "${oidc_login_enable:-}" ]]; then
+  sed -i -e '/^sso:/,/^[a-z]/ s|^    enable: .*|    enable: '"$oidc_login_enable"'|' \
+    -e '/^sso:/,/^[a-z]/ s|^    issuer: .*|    issuer: "'"${oidc_login_issuer:-}"'"|' \
+    -e '/^sso:/,/^[a-z]/ s|^    client_id: .*|    client_id: "'"${oidc_login_client_id:-}"'"|' \
+    -e '/^sso:/,/^[a-z]/ s|^    redirect_uri: .*|    redirect_uri: "'"${oidc_login_redirect_uri:-}"'"|' "$values_yaml"
 fi
 sed -i '/^cd:/,/^[a-z]/ s/require_approval: .*/require_approval: '"$cd_require_approval"'/' "$values_yaml"
 
@@ -600,6 +785,14 @@ fi
 # default and renders no extra CA.
 if [[ -n "${sandbox_extra_ca_secret:-}" ]]; then
   sed -i '/^sandbox:/,/^[a-z]/ s/extra_ca_secret: .*/extra_ca_secret: "'"$sandbox_extra_ca_secret"'"/' "$values_yaml"
+fi
+
+# Client id of the sandbox control plane, the act.sub of the workload assertion. When set, sandbox
+# admission is turned on. When omitted, admission stays off. The key set URL and the issuer are the
+# cluster host and are not set here.
+if [[ -n "${sandbox_admission_actor:-}" ]]; then
+  sed -i '/^sandbox:/,/^[a-z]/ s/^    enabled: .*/    enabled: true/' "$values_yaml"
+  sed -i '/^sandbox:/,/^[a-z]/ s/^    actor: .*/    actor: "'"$sandbox_admission_actor"'"/' "$values_yaml"
 fi
 
 # Secret whose keys sandboxes receive as environment variables. Synced whenever
@@ -686,6 +879,8 @@ fi
 write_auth_values "primus-safe/.auth-values.json"
 write_sso_values "primus-safe/.sso-values.json"
 write_console_values "primus-safe/.console-values.json"
+render_preflight "$values_yaml"
+sync_console_scim_route
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"
   mkdir -p output

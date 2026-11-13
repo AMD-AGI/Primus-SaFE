@@ -1,0 +1,12 @@
+# AgentSandbox values for sandbox.admission. The chart default leaves these empty.
+sandbox:
+  admission:
+    enabled: true
+    creator: system:serviceaccount:agent-sandbox-system:agent-sandbox-controlplane
+    audience: agent-sandbox-admission
+    token_type: assertion+jwt
+    algorithm: ES256
+    actor: ""
+    detail_type: agent-sandbox-workload
+    annotation: agent-sandbox.io/identity-attestation
+    kind: Sandbox

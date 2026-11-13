@@ -14,6 +14,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
 // InitCustomRouters initializes and registers all custom API routes with the Gin engine.
@@ -138,9 +139,14 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		}
 
 		// ==================== Users ====================
+		// Creating and deleting accounts is served here when auth.mode is builtin.
+		// External mode leaves both to the identity service. Patching a user, and this list of the
+		// workspaces a user can use, stay on this apiserver in both modes.
 		users := authGroup.Group("/users")
 		{
-			users.DELETE(fmt.Sprintf("/:%s", common.Name), middleware.Audit("user"), h.DeleteUser)
+			if commonconfig.GetAuthMode() == commonconfig.AuthModeBuiltin {
+				users.DELETE(fmt.Sprintf("/:%s", common.Name), middleware.Audit("user"), h.DeleteUser)
+			}
 			users.PATCH(fmt.Sprintf("/:%s", common.Name), middleware.Audit("user"), h.PatchUser)
 			users.GET("", h.ListUser)
 			users.GET(fmt.Sprintf("/:%s", common.Name), h.GetUser)
@@ -160,6 +166,9 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		}
 
 		// ==================== API Keys ====================
+		// Builtin mode serves create, list, delete, and the current key on this apiserver.
+		// External mode refuses creation and leaves new keys to the identity service. Listing
+		// and deletion stay here so a key issued before the switch can still be revoked.
 		apiKeys := authGroup.Group("/apikeys")
 		{
 			apiKeys.POST("", middleware.Audit("apikey"), h.CreateApiKey)
@@ -191,7 +200,9 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, middleware.Preprocess())
 	{
 		noAuthGroup.POST("/login", middleware.Audit("auth", "login"), h.Login)
-		noAuthGroup.POST("/users", middleware.Audit("user", "register"), h.CreateUser)
+		if commonconfig.GetAuthMode() == commonconfig.AuthModeBuiltin {
+			noAuthGroup.POST("/users", middleware.Audit("user", "register"), h.CreateUser)
+		}
 		noAuthGroup.GET("/envs", h.GetEnvs)
 		noAuthGroup.POST("/auth/verify", authority.VerifyToken)
 		// Operations other SaFE services perform for a user (e.g. API keys, served by the identity service) are

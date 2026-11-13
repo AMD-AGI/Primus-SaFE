@@ -18,8 +18,11 @@
 #   another namespace, also grant this account there: get on that secret, and get/create/delete on
 #   roles and rolebindings (the hook Role secret-manager in that namespace).
 # Enabling cicd or monarch on a running install creates a new ClusterRole; run that upgrade as an
-# administrator once. Deploying a chart from before the namespaced secret-manager hook (it created a
-# ClusterRole with every secret) also needs an administrator.
+# administrator once. The first upgrade that adds ClusterRole primus-safe-resource-manager, its
+# bindings, and ValidatingAdmissionPolicy primus-safe-rbac-projection also needs an administrator:
+# this account can update and bind those objects by name, and cannot create them. Deploying a chart
+# from before the namespaced secret-manager hook (it created a ClusterRole with every secret) also
+# needs an administrator.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -64,15 +67,19 @@ rules:
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["clusterroles"]
     verbs: ["get", "update", "patch", "escalate"]
-    resourceNames: ["primus-safe", "gha-rs-manager", "github-runner", "monarch-client"]
+    resourceNames: ["primus-safe", "primus-safe-resource-manager", "gha-rs-manager", "github-runner", "monarch-client"]
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["clusterrolebindings"]
     verbs: ["get", "update", "patch"]
-    resourceNames: ["primus-safe"]
+    resourceNames: ["primus-safe", "primus-safe-resource-manager", "primus-safe-resource-manager-shared"]
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["clusterroles"]
     verbs: ["bind"]
-    resourceNames: ["primus-safe"]
+    resourceNames: ["primus-safe", "primus-safe-resource-manager"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingadmissionpolicies", "validatingadmissionpolicybindings"]
+    verbs: ["get", "update", "patch"]
+    resourceNames: ["primus-safe-rbac-projection"]
   # primus-safe-cr (cluster-scoped SaFE resources) and the reads of cd-deploy.sh.
   - apiGroups: ["amd.com"]
     resources: ["addontemplates", "nodeflavors", "nodetemplates", "resourcetemplates", "roles", "users"]

@@ -25,6 +25,10 @@ type Identity struct {
 	ID    string
 	Name  string
 	Email string
+	// AccountType is the account kind the issuer reported: "default" for a username/password
+	// account, "sso" for one that signs in through an identity provider. Empty when the
+	// issuer did not say.
+	AccountType string
 	// Groups are mapped to roles on every request; they are never stored.
 	Groups []string
 	// Actor is set when the credential is delegated: the party acting for ID

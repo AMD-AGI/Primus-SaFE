@@ -146,6 +146,8 @@ func TestSendError(t *testing.T) {
 }
 
 func TestAuthUser(t *testing.T) {
+	setAuthMode(t, "external")
+
 	adminUser := &v1.User{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "admin",
@@ -153,6 +155,13 @@ func TestAuthUser(t *testing.T) {
 			Annotations: map[string]string{v1.UserNameAnnotation: "admin"},
 		},
 		Spec: v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.SystemAdminRole}},
+	}
+	ownerUser := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "owner",
+			Labels: map[string]string{v1.UserIdLabel: "owner"},
+		},
+		Spec: v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.DefaultRole}},
 	}
 	adminRole := &v1.Role{
 		ObjectMeta: metav1.ObjectMeta{Name: string(v1.SystemAdminRole)},
@@ -162,20 +171,33 @@ func TestAuthUser(t *testing.T) {
 			GrantedUsers: []string{authority.GrantedAllUser},
 		}},
 	}
+	defaultRole := &v1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: string(v1.DefaultRole)},
+		Rules: []v1.PolicyRule{{
+			Resources:    []string{authority.AllResource},
+			Verbs:        []v1.RoleVerb{v1.GetVerb},
+			GrantedUsers: []string{authority.GrantedOwner, authority.GrantedWorkspaceUser},
+		}},
+	}
 
 	scheme := runtime.NewScheme()
 	_ = v1.AddToScheme(scheme)
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(adminUser, adminRole).Build()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(adminUser, ownerUser, adminRole, defaultRole).Build()
 
-	h := &SshHandler{accessController: authority.NewAccessController(fakeClient)}
+	// Not NewAccessController: that is a singleton, and another test's client would win.
+	h := &SshHandler{accessController: &authority.AccessController{Client: fakeClient}}
 	workload := &v1.Workload{
-		ObjectMeta: metav1.ObjectMeta{Name: "wl-1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-1", Labels: map[string]string{v1.UserIdLabel: "owner"}},
 		Spec:       v1.WorkloadSpec{Workspace: "ws-1"},
 	}
 
-	// Admin user is authorized.
-	err := h.authUser(context.Background(), &UserInfo{User: "admin"}, workload)
+	// The owner of the workload is authorized.
+	err := h.authUser(context.Background(), &UserInfo{User: "owner"}, workload)
 	testifyassert.NoError(t, err)
+
+	// A stored platform role does not authorize a local account.
+	err = h.authUser(context.Background(), &UserInfo{User: "admin"}, workload)
+	testifyassert.Error(t, err)
 
 	// Unknown user is rejected.
 	err = h.authUser(context.Background(), &UserInfo{User: "nobody"}, workload)

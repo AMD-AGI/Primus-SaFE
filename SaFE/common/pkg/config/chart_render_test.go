@@ -25,6 +25,19 @@ import (
 // chartPath is the chart that renders the configuration consumed by SaFE services.
 const chartPath = "../../../charts/primus-safe"
 
+// externalAuthArgs is a complete external auth setting that helm template accepts.
+func externalAuthArgs(extra ...string) []string {
+	args := []string{
+		"--set", "auth.mode=external",
+		"--set-string", "auth.login_url=https://idp.example/sign-in/start",
+		"--set", "auth.authenticators[0].type=builtin",
+		"--set", "auth.group_mappings[0].group=admins",
+		"--set", "auth.group_mappings[0].roles[0]=system-admin",
+		"--set", "auth.scim.enabled=false",
+	}
+	return append(args, extra...)
+}
+
 func renderConfigMapData(t *testing.T, name, key string, values ...string) string {
 	t.Helper()
 	if _, err := exec.LookPath("helm"); err != nil {
@@ -87,15 +100,36 @@ func loadRendered(t *testing.T, rendered string) {
 // may fetch keys with a delegated token) unless the operator sets it.
 func TestChartRendersAuthKeyActors(t *testing.T) {
 	loadRendered(t, renderApiserverConfig(t))
+	testifyassert.Equal(t, AuthModeBuiltin, GetAuthMode())
 	testifyassert.Empty(t, GetAuthKeyActors())
+	testifyassert.True(t, IsSCIMEnabled())
+	testifyassert.Empty(t, GetSCIMIdentityURL())
+	testifyassert.Empty(t, GetAuthLoginURL())
+	testifyassert.Empty(t, GetSCIMPublicURL())
+	testifyassert.Equal(t, DefaultSCIMTokenSecret, GetSCIMTokenSecret())
+
+	loadRendered(t, renderApiserverConfig(t, "--set", "global.sub_domain=site", "--set", "global.domain=example.com"))
+	testifyassert.Empty(t, GetAuthLoginURL())
+	testifyassert.Equal(t, "https://site.example.com/scim/v2", GetSCIMPublicURL())
 
 	loadRendered(t, renderApiserverConfig(t, "--set", "auth.key_actors={client-a,client-b}"))
 	testifyassert.Equal(t, []string{"client-a", "client-b"}, GetAuthKeyActors())
 
 	// The other auth settings are rendered next to it and are not disturbed.
-	loadRendered(t, renderApiserverConfig(t, "--set", "auth.mode=external", "--set", "auth.key_actors={client-a}"))
+	loadRendered(t, renderApiserverConfig(t, append(externalAuthArgs(), "--set", "auth.key_actors={client-a}")...))
 	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
 	testifyassert.Equal(t, []string{"client-a"}, GetAuthKeyActors())
+
+	loadRendered(t, renderApiserverConfig(t,
+		"--set", "auth.scim.enabled=true",
+		"--set-string", "auth.scim.identity_url=https://idp.example.com",
+		"--set-string", "auth.scim.public_url=https://safe.example.com/scim/v2",
+		"--set-string", "auth.scim.token_secret=custom-scim-token",
+	))
+	testifyassert.True(t, IsSCIMEnabled())
+	testifyassert.Equal(t, "https://idp.example.com", GetSCIMIdentityURL())
+	testifyassert.Equal(t, "https://safe.example.com/scim/v2", GetSCIMPublicURL())
+	testifyassert.Equal(t, "custom-scim-token", GetSCIMTokenSecret())
 }
 
 // renderWebEnv returns the environment of the console container (the "-web" Deployment) of the rendered chart.
@@ -178,6 +212,9 @@ func TestChartRoutesAPIKeysToTheIdentityProvider(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var args []string
 			for _, v := range tt.values {
+				if v == "auth.mode=external" || strings.HasPrefix(v, "auth.mode=external") {
+					args = append(args, externalAuthArgs()...)
+				}
 				args = append(args, "--set", v)
 			}
 			loadRendered(t, renderApiserverConfig(t, args...))
@@ -794,6 +831,96 @@ func TestChartRendersTheMinimalUsersConfiguration(t *testing.T) {
 	testifyassert.Equal(t, []string{"self-read", "viewer"}, GetUserBaseRoles())
 	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml", "--set", "users.base_roles=null"))
 	testifyassert.Equal(t, []string{"default"}, GetUserBaseRoles())
+}
+
+// TestChartRendersAuthModeForTheWebhooks pins that the webhooks process sees auth.mode. Without the key
+// every gate in that process stays on the builtin default.
+func TestChartRendersAuthModeForTheWebhooks(t *testing.T) {
+	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml"))
+	testifyassert.Equal(t, AuthModeBuiltin, GetAuthMode())
+	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml", externalAuthArgs()...))
+	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
+}
+
+// renderApiserverError renders the apiserver config and returns helm's error output. It is empty when the render
+// succeeds.
+func renderApiserverError(t *testing.T, values ...string) string {
+	t.Helper()
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+	args := append([]string{"template", chartPath, "--show-only", "templates/apiserver/config.yaml"}, values...)
+	cmd := exec.Command("helm", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		testifyrequire.NotEmpty(t, stderr.String(), "helm failed without a reason")
+		return stderr.String()
+	}
+	return ""
+}
+
+// TestChartRefusesAnIncompleteExternalAuth pins the external-mode checks the apiserver makes at start-up, so a
+// release the apiserver would refuse is refused at render time instead.
+func TestChartRefusesAnIncompleteExternalAuth(t *testing.T) {
+	oidcConsole := []string{"--set", "auth.authenticators[1].type=oidc", "--set", "auth.authenticators[1].issuer=https://idp.example",
+		"--set", "auth.authenticators[1].audience=safe-console"}
+	for _, tt := range []struct {
+		name   string
+		values []string
+		want   string
+	}{
+		{"complete", externalAuthArgs(), ""},
+		{"no login url", externalAuthArgs("--set-string", "auth.login_url="), "auth.login_url is empty"},
+		{"oidc only", externalAuthArgs("--set", "auth.authenticators[0].type=oidc", "--set", "auth.authenticators[0].audience=safe-console"),
+			"no introspection or builtin entry"},
+		{"oidc only, allowed", externalAuthArgs("--set", "auth.authenticators[0].type=oidc", "--set", "auth.allow_oidc_only=true"), ""},
+		{"no system-admin group", externalAuthArgs("--set", "auth.group_mappings[0].roles[0]=system-admin-readonly"),
+			"grants system-admin to no group"},
+		{"scim on without provider_client needs no identity URL", externalAuthArgs("--set", "auth.scim.enabled=true"), ""},
+		{"scim and provider_client without an identity URL", externalAuthArgs("--set", "auth.scim.enabled=true", "--set", "auth.provider_client=true"),
+			"auth.scim.identity_url cannot be resolved"},
+		{"scim and provider_client with an identity URL", externalAuthArgs("--set", "auth.scim.enabled=true", "--set", "auth.provider_client=true",
+			"--set-string", "auth.scim.identity_url=https://idp.example"), ""},
+		{"scim and provider_client with an introspection URL", externalAuthArgs("--set", "auth.scim.enabled=true", "--set", "auth.provider_client=true",
+			"--set", "auth.authenticators[1].type=introspection", "--set-string", "auth.authenticators[1].url=https://idp.example/oauth/introspect"), ""},
+		{"sso.login without an oidc audience", externalAuthArgs("--set", "sso.login.enable=true"), `sso.login.client_id "safe-console"`},
+		{"sso.login with another oidc audience", externalAuthArgs(append([]string{"--set", "sso.login.enable=true",
+			"--set-string", "sso.login.client_id=other-console"}, oidcConsole...)...), `sso.login.client_id "other-console"`},
+		{"sso.login with the default client id as audience", externalAuthArgs(append([]string{"--set", "sso.login.enable=true"}, oidcConsole...)...), ""},
+		{"builtin mode is not checked", []string{"--set", "sso.login.enable=true"}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := renderApiserverError(t, tt.values...)
+			if tt.want == "" {
+				testifyassert.Empty(t, got)
+			} else {
+				testifyassert.Contains(t, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestChartDefaultsTheSandboxAdmissionKeySet pins that the key set URL and the issuer are the cluster host
+// when the values leave them empty, and that an explicit URL is kept.
+func TestChartDefaultsTheSandboxAdmissionKeySet(t *testing.T) {
+	rendered := renderConfigMapData(t, "webhooks", "config.yaml")
+	testifyassert.Contains(t, rendered, "jwks_url: \"\"")
+	testifyassert.Contains(t, rendered, "issuer: \"\"")
+
+	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml", "--set", "global.sub_domain=site", "--set", "global.domain=example.com"))
+	cfg := GetSandboxAdmissionConfig()
+	testifyassert.Equal(t, "https://site.example.com/.well-known/jwks.json", cfg.JWKSURL)
+	testifyassert.Equal(t, "https://site.example.com", cfg.Issuer)
+	testifyassert.False(t, IsSandboxAdmissionEnable())
+
+	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml",
+		"--set", "global.sub_domain=site", "--set", "global.domain=example.com",
+		"--set-string", "sandbox.admission.jwks_url=https://idp.example/.well-known/jwks.json",
+		"--set-string", "sandbox.admission.issuer=https://idp.example"))
+	cfg = GetSandboxAdmissionConfig()
+	testifyassert.Equal(t, "https://idp.example/.well-known/jwks.json", cfg.JWKSURL)
+	testifyassert.Equal(t, "https://idp.example", cfg.Issuer)
 }
 
 // TestChartRendersTheAccessContact pins that the line is carried as text (a value with a colon or a quote

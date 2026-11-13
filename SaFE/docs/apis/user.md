@@ -10,6 +10,8 @@ Create a new user account.
 
 **Endpoint**: `POST /api/v1/users`
 
+Served when `auth.mode` is `builtin`. External mode does not register this route.
+
 **Authentication Required**: No (Public endpoint)
 
 **Request Parameters**:
@@ -272,6 +274,8 @@ Update user information or permissions.
 | restrictedType | int | No | Restriction type: 0 (normal)/1 (frozen) |
 | email | string | No | Email address |
 
+When `auth.mode` is `external`, a change of `restrictedType` between normal (`0`) and frozen (`1`) is sent to the identity service first: `PUT /api/v1/identities/{UserId}/status` with `{"status":"disabled"}` when freezing and `{"status":"active"}` when unfreezing. The call uses the caller's bearer credential. The local user is updated only after that call succeeds. If the identity service cannot be reached the response is 503; if it refuses, 502. Clearing a freeze also removes the annotation `primus-safe.scim.deactivated`. Builtin mode updates the local user only. See [External Authentication](external-authentication.md).
+
 **Permission Requirements**:
 - Updating roles and workspaces requires system admin permission
 - Users can update their own password, email and avatar
@@ -285,6 +289,8 @@ Update user information or permissions.
 Delete a specific user.
 
 **Endpoint**: `DELETE /api/v1/users/{UserId}`
+
+Served when `auth.mode` is `builtin`. The route removes the user from workspaces the user manages and deletes the local user. External mode does not register this route.
 
 **Authentication Required**: Yes
 

@@ -38,8 +38,40 @@ data:
     ssh:
       # Whether to enable ssh, Users can log in directly to their own pods.
       enable: {{ .Values.ssh.enable }}
+    auth:
+      # The webhooks process reads this the same way the apiserver does. Without it every gate
+      # that checks auth.mode stays on the builtin default.
+      mode: {{ default "builtin" .Values.auth.mode | quote }}
     users:
       {{- include "primus-safe.usersConfig" . | nindent 6 }}
+    {{- $admission := default dict (default dict .Values.sandbox).admission }}
+    {{- $origin := include "primus-safe.publicOrigin" . }}
+    {{- $jwksURL := $admission.jwks_url }}
+    {{- if and (not $jwksURL) $origin }}
+    {{- $jwksURL = printf "%s/.well-known/jwks.json" $origin }}
+    {{- end }}
+    {{- $issuer := $admission.issuer }}
+    {{- if and (not $issuer) $origin }}
+    {{- $issuer = $origin }}
+    {{- end }}
+    sandbox:
+      admission:
+        # Whether Workloads created by the sandbox control plane are checked against the identity assertion and workspace membership.
+        enabled: {{ default false $admission.enabled }}
+        creator: {{ default "" $admission.creator | quote }}
+        jwks: {{ default "" $admission.jwks | quote }}
+        jwks_url: {{ $jwksURL | quote }}
+        issuer: {{ $issuer | quote }}
+        audience: {{ default "" $admission.audience | quote }}
+        token_type: {{ default "" $admission.token_type | quote }}
+        algorithm: {{ default "" $admission.algorithm | quote }}
+        actor: {{ default "" $admission.actor | quote }}
+        detail_type: {{ default "" $admission.detail_type | quote }}
+        annotation: {{ default "" $admission.annotation | quote }}
+        kind: {{ default "" $admission.kind | quote }}
+        ca_file: {{ if $admission.ca_secret }}"/etc/secrets/admission-ca/ca.crt"{{ else }}""{{ end }}
+    rbac:
+      subject_prefix: {{ default "primus:" (default dict .Values.rbac).subject_prefix | quote }}
     ops_job:
       # The lifecycle of the opsjob after completion, in seconds. Default is 60.
       ttl_second: {{ default 60 (default .Values.ops_job).ttl_second }}

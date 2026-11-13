@@ -24,8 +24,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -383,7 +385,7 @@ func TestSSOLoginSharedIssuerTwoClients(t *testing.T) {
 	assert.True(t, inst.LoginEnabled())
 }
 
-// With both providers, the sso Secret's keeps serving what it served: its authorization URL stays ssoAuthUrl, a code
+// With both providers, the sso Secret's keeps serving what it served: its authorization URL stays that provider's, a code
 // without a verifier is exchanged there with the client secret (the web apps that bridge through the console), and its
 // sessions stay valid. The console's sign-in is the sso.login provider's.
 func TestSSOLoginKeepsTheSecretProvider(t *testing.T) {
@@ -472,4 +474,58 @@ func TestSSOSecretProviderDownWithoutLogin(t *testing.T) {
 	_, err := initializeSSOToken(newLoginTestClient(t))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to new provider")
+}
+
+// External mode names the user by the chain's id claim and accepts the same ID token as the session cookie.
+func TestExternalLoginUsesTheChainUser(t *testing.T) {
+	f := newFakeLoginProvider(t)
+	withLoginConfig(t, f.srv.URL)
+	viper.Set("auth.mode", "external")
+	viper.Set("auth.authenticators", []map[string]any{
+		{"type": "oidc", "issuer": f.srv.URL, "audience": loginClientID, "jwks_url": f.srv.URL + "/jwks"},
+		{"type": "builtin"},
+	})
+	t.Cleanup(func() {
+		viper.Set("auth.mode", nil)
+		viper.Set("auth.authenticators", nil)
+		externalState.Store(nil)
+	})
+	cli := newLoginTestClient(t)
+	require.NoError(t, InitExternalAuth(cli))
+	inst, err := initializeSSOToken(cli)
+	require.NoError(t, err)
+	f.issue("code-ext", loginVerifier)
+	user, resp, err := inst.Login(context.Background(), TokenInput{Code: "code-ext", CodeVerifier: loginVerifier})
+	require.NoError(t, err)
+	assert.Equal(t, "u-1", user.Name)
+	stored := &v1.User{}
+	require.NoError(t, cli.Get(context.Background(), client.ObjectKey{Name: "u-1"}, stored))
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/users/self", nil)
+	c.Request.AddCookie(&http.Cookie{Name: CookieToken, Value: resp.Token})
+	c.Request.AddCookie(&http.Cookie{Name: "userType", Value: "sso"})
+	handled, err := parseExternal(c, externalState.Load())
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Equal(t, "u-1", c.GetString("userId"))
+}
+
+func TestExternalLoginRequiresTheConsoleAudience(t *testing.T) {
+	f := newFakeLoginProvider(t)
+	withLoginConfig(t, f.srv.URL)
+	viper.Set("auth.mode", "external")
+	viper.Set("auth.authenticators", []map[string]any{
+		{"type": "oidc", "issuer": f.srv.URL, "audience": "safe-apiserver", "jwks_url": f.srv.URL + "/jwks"},
+		{"type": "builtin"},
+	})
+	t.Cleanup(func() {
+		viper.Set("auth.mode", nil)
+		viper.Set("auth.authenticators", nil)
+		externalState.Store(nil)
+	})
+	err := InitExternalAuth(newLoginTestClient(t))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sso.login.client_id")
 }

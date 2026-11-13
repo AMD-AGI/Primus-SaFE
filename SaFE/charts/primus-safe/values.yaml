@@ -282,10 +282,13 @@ console:
 # Pluggable authentication, in the Kubernetes style. Authorization (roles, workspaces) always stays in SaFE.
 # See docs/apis/external-authentication.md.
 auth:
-  # builtin: the apiserver's own accounts, sessions, SSO login and API keys (default, nothing else to configure).
-  # external: requests are authenticated by `authenticators`, in order; the first to accept decides.
+  # builtin (the default) uses local accounts, sign-in and the roles stored on user objects.
+  # external authenticates with authenticators, in order, and takes platform roles from
+  # group_mappings. Any other value is refused when the apiserver starts.
+  # External mode requires login_url, a group_mapping that grants system-admin, and an
+  # introspection or builtin authenticator unless allow_oidc_only is true.
   mode: builtin
-  # Entries when mode is external. Durations are Go durations ("30s", "30m").
+  # Authenticator entries. Durations are Go durations ("30s", "30m").
   #   - type: oidc        # validate JWTs from one issuer
   #     issuer: https://idp.example.com
   #     audience: safe-apiserver          # required
@@ -300,7 +303,7 @@ auth:
   #     issuer: https://idp.example.com   # its discovery document names the endpoint when url is empty
   #     url: ""                           # the introspection endpoint
   #     audience: safe-apiserver          # required: the answer's aud (else client_id) must name it
-  #     allow_missing_audience: false     # true accepts answers that name no audience, e.g. an API key's
+  #     allow_missing_audience: true      # introspection answers for API keys name no audience
   #     client_id: safe-apiserver
   #     client_secret_file: /etc/secrets/auth/client-secret   # the mounted auth.client_secret Secret
   #     ca_bundle: ""                     # PEM text or file path
@@ -310,8 +313,9 @@ auth:
   #     stale_if_error: 30m               # keep accepted credentials working while the endpoint is down
   #   - type: builtin     # fall through to the built-in mode; what it authenticates holds no platform role
   authenticators: []
-  # Name of the Secret that holds the client secret of an `introspection` authenticator, under the key
-  # `client-secret`. It is mounted into the apiserver at client_secret_path. Leave empty when unused.
+  # Name of the Secret in this namespace that holds the client secret of an `introspection`
+  # authenticator, under the key `client-secret`. It is mounted into the apiserver at
+  # client_secret_path. Leave empty when unused. The operator creates the Secret here.
   client_secret: ""
   client_secret_path: /etc/secrets/auth
   # Identity groups mapped to SaFE roles on every request; never stored on the user.
@@ -321,8 +325,20 @@ auth:
   #     roles: [workspace-admin]
   #     workspaces: [team-a]
   group_mappings: []
-  # Where the console sends users to sign in when mode is external.
+  # Where the console sends users to sign in when mode is external. Required in that mode.
   login_url: ""
+  # Accept an authenticator list that is only oidc. Off by default: external mode then needs
+  # an introspection or builtin entry.
+  allow_oidc_only: false
+  # When true, the apiserver calls the identity service to register the SCIM target and to
+  # forward a restricted-type change. Off by default: configure the SCIM target on the provider.
+  provider_client: false
+  # Value of the connection parameter on the authorize request. Empty omits the parameter.
+  connection: ""
+  # Page the console opens for accounts when mode is external. Empty leaves the user list in place.
+  accounts_url: ""
+  # Page the console opens for API keys when mode is external. Empty leaves the key page in place.
+  keys_console_url: ""
   # Client ids of the parties that may call POST /auth/verify with a delegated token (RFC 8693: an `act`
   # claim naming the client) and receive the keys of the user the token acts for, and of that user only.
   # The token must carry the safe.api scope and be accepted by an authenticator of the chain, which checks
@@ -343,6 +359,23 @@ auth:
   # touched: it lists and revokes the keys the apiserver issued before the switch. Ignored when mode is not
   # external.
   api_keys_upstream: ""
+  # SCIM 2.0 user endpoint for the identity service. Served when enabled is true.
+  scim:
+    enabled: true
+    # Identity service root. Empty: derived from the introspection authenticator (the URL or issuer, with /oauth/... removed).
+    identity_url: ""
+    # Base URL the identity service calls. It appends /Users/{id}. The identity service accepts https only.
+    # Empty: https://<global.sub_domain>.<global.domain>/scim/v2. Higress routes that path to the apiserver.
+    public_url: ""
+    # Secret in the primus-safe namespace that holds the bearer token. The apiserver creates it when absent.
+    token_secret: primus-safe-scim-token
+# Projection of workspace membership into Kubernetes RBAC on the global cluster (by resource-manager).
+rbac:
+  # Prepended to user ids and group names in the projected ClusterRoleBinding subjects.
+  # A consumer that asks SubjectAccessReview uses this same value as RBAC_SUBJECT_PREFIX.
+  # Builtin mode projects platform administrators as Users and writes no Groups.
+  # External mode binds platform roles only to Groups <prefix>system-admin and <prefix>system-admin-readonly.
+  subject_prefix: "primus:"
 sso:
   # Enable sso login
   enable: true
@@ -360,10 +393,12 @@ sso:
   login:
     enable: false
     # Issuer of the provider (its discovery document is <issuer>/.well-known/openid-configuration).
+    # Empty: https://<global.sub_domain>.<global.domain>.
     issuer: ""
-    # Client id the console is registered with there.
+    # Client id the console is registered with there. Empty: safe-console.
     client_id: ""
-    # The console's own callback, registered exactly at the provider, e.g. "https://console.example.com/sso/callback".
+    # The console's own callback, registered exactly at the provider.
+    # Empty: https://<global.sub_domain>.<global.domain>/sso/callback.
     redirect_uri: ""
 workspace:
   # Reserved system resources for management components
@@ -578,6 +613,37 @@ sandbox:
   # upgrade.sh, in the environment for install.sh). Only writes from this version on are checked:
   # before turning it on, look for a sandbox-env written earlier (docs/apis/secret.md).
   env_secret: ""
+  # The webhooks check each Workload created by the named account: the assertion in annotation
+  # must verify, and a SubjectAccessReview must allow the asserted user to use the Workload's workspace.
+  # Off by default. charts/primus-safe/examples/agentsandbox-admission.yaml sets the AgentSandbox values.
+  # Sandbox admission and that SubjectAccessReview need external mode and group mappings.
+  admission:
+    enabled: false
+    # Username of the account whose creates are checked. Empty checks nobody.
+    creator: ""
+    # Identity provider key set, JSON text. Empty reads jwks_url instead.
+    jwks: ""
+    # Where the key set is read from. Empty: https://<global.sub_domain>.<global.domain>/.well-known/jwks.json.
+    jwks_url: ""
+    # iss of the assertion. Empty: https://<global.sub_domain>.<global.domain>.
+    issuer: ""
+    # aud of the assertion. Empty refuses a check that has no audience configured.
+    audience: ""
+    # typ header of the assertion.
+    token_type: ""
+    # The only signature algorithm accepted.
+    algorithm: ""
+    # act.sub of the assertion: the control plane client id.
+    actor: ""
+    # authorization_details type that names the Workload.
+    detail_type: ""
+    # Annotation that carries the assertion. Empty means the check is not configured.
+    annotation: ""
+    # Workload kind the authorization detail must name. Empty matches the Workload's own kind.
+    kind: ""
+    # Secret in this namespace whose ca.crt is added to the key-set client's trust store.
+    # Empty uses the system certificate pool. Verification stays on.
+    ca_secret: ""
 mcp:
   enabled: true
   base_path: "/api/v1/safe-mcp/mcp"
