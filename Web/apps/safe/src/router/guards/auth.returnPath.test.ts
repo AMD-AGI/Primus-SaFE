@@ -90,6 +90,10 @@ describe('sign-in callback returning outside the console', () => {
     ['/dispatron/runs/42?tab=log', `${SELF}/dispatron/runs/42?tab=log`],
     ['/autopilot/', `${SELF}/autopilot/`],
     ['/blog-drafts/', `${SELF}/blog-drafts/`],
+    [
+      '/claw-api/v1/sessions/s-1/deliveries/0f8fad5b-d9cb-469f-a165-70867728950e',
+      `${SELF}/claw-api/v1/sessions/s-1/deliveries/0f8fad5b-d9cb-469f-a165-70867728950e`,
+    ],
     ['/binding/sign-in', `${SELF}/binding/sign-in`],
   ])('loads %s with a full-page navigation', async (entry, want) => {
     session.set(ENTRY_KEY, entry)
@@ -208,6 +212,23 @@ describe('/login with a session already present', () => {
     const next = await login('/blog-drafts/')
     expect(replace).toHaveBeenCalledWith(`${SELF}/blog-drafts/`)
     expect(next).toHaveBeenCalledWith(false)
+  })
+
+  const CLAW_LINK = '/claw-api/v1/sessions/s-1/deliveries/0f8fad5b-d9cb-469f-a165-70867728950e'
+
+  it('loads a Claw API download link once the server confirms the session', async () => {
+    const next = await login(CLAW_LINK)
+    expect(replace).toHaveBeenCalledWith(`${SELF}${CLAW_LINK}`)
+    expect(next).toHaveBeenCalledWith(false)
+  })
+
+  it('stays in the console when the Claw API sends the browser straight back', async () => {
+    await login(CLAW_LINK)
+    replace.mockClear()
+    const next = await login(CLAW_LINK)
+    expect(replace).not.toHaveBeenCalled()
+    expect(warning).toHaveBeenCalledTimes(1)
+    expect(next).toHaveBeenCalledWith('/')
   })
 
   // localStorage still says 'authenticated', but the session cookie has expired: the server

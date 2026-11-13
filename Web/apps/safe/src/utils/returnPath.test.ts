@@ -11,7 +11,13 @@ const SELF = 'https://console.example.com'
 
 describe('outsideConsoleReturn', () => {
   it('publishes exactly the agreed prefixes', () => {
-    expect([...OUTSIDE_CONSOLE_PREFIXES]).toEqual(['/dispatron', '/autopilot', '/binding', '/blog-drafts'])
+    expect([...OUTSIDE_CONSOLE_PREFIXES]).toEqual([
+      '/dispatron',
+      '/autopilot',
+      '/binding',
+      '/blog-drafts',
+      '/claw-api',
+    ])
   })
 
   it.each([
@@ -23,6 +29,10 @@ describe('outsideConsoleReturn', () => {
     ['/binding/sign-in', `${SELF}/binding/sign-in`],
     ['/blog-drafts/', `${SELF}/blog-drafts/`],
     ['/blog-drafts/2026/11/post.html#c3', `${SELF}/blog-drafts/2026/11/post.html#c3`],
+    [
+      '/claw-api/v1/sessions/s-1/deliveries/0f8fad5b-d9cb-469f-a165-70867728950e',
+      `${SELF}/claw-api/v1/sessions/s-1/deliveries/0f8fad5b-d9cb-469f-a165-70867728950e`,
+    ],
   ])('returns %s as a full-page target', (value, want) => {
     expect(outsideConsoleReturn(value, SELF)).toBe(want)
   })
@@ -63,6 +73,12 @@ describe('outsideConsoleReturn', () => {
     '/blog-drafts-admin/',
     '/blog-drafts/../login',
     '/blog-drafts/%2e%2e/login',
+    '/claw-apix/',
+    '/claw-api-admin/',
+    '/claw-api/../login',
+    '/claw-api/%2e%2e/login',
+    '/claw-api/v1/sessions/s%2F..%2Fx/deliveries/d',
+    '/Claw-api/',
     '/Dispatron/',
     '/dispatron/../login',
     '/dispatron/./runs',

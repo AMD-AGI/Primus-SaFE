@@ -1,7 +1,8 @@
 /**
  * Returning to a web app outside the console after sign-in.
  *
- * Other web apps on this host (Dispatron, autopilot, blog-drafts, the identity service's own pages)
+ * Other web apps on this host (Dispatron, autopilot, blog-drafts, the Claw API's download links,
+ * the identity service's own pages)
  * sign a browser in by sending it to the console's `/login` with the path to come back to:
  *
  *   /login?redirect=<encodeURIComponent('/dispatron/runs/42?tab=log')>
@@ -11,7 +12,13 @@
  * path the URL parser could turn into one ("//host", "/\host", control characters), and
  * never a path that leaves its prefix ("/dispatron/../x", "/dispatronx").
  */
-export const OUTSIDE_CONSOLE_PREFIXES: readonly string[] = ['/dispatron', '/autopilot', '/binding', '/blog-drafts']
+export const OUTSIDE_CONSOLE_PREFIXES: readonly string[] = [
+  '/dispatron',
+  '/autopilot',
+  '/binding',
+  '/blog-drafts',
+  '/claw-api',
+]
 
 // Whitespace and control characters are dropped or folded by the URL parser ("/\t/host").
 const UNSAFE_CHARS = /[\u0000- \u007f\\]/
