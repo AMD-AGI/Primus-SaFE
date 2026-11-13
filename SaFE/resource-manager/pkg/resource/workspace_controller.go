@@ -383,11 +383,16 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 		// one, and a failed one comes back through the work queue.
 		return ctrlruntime.Result{}, r.delete(ctx, workspace)
 	}
+	// An adopted workspace only reports status and resource totals. It is never scaled and
+	// never writes to the data plane, so spec edits have no effect.
 	if v1.IsAdoptedWorkspace(workspace) {
-		if workspace.Status.Phase == v1.WorkspaceRunning {
-			return ctrlruntime.Result{}, nil
+		if err := r.updatePhase(ctx, workspace, v1.WorkspaceRunning); err != nil {
+			return ctrlruntime.Result{}, err
 		}
-		return ctrlruntime.Result{}, r.updatePhase(ctx, workspace, v1.WorkspaceRunning)
+		if err := r.syncWorkspace(ctx, workspace); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		return keepAlive(ctrlruntime.Result{}), nil
 	}
 	clientSet, err := r.getClientSetOfDataplane(ctx, workspace.Spec.Cluster)
 	if err != nil {

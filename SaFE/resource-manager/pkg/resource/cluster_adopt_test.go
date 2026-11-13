@@ -7,9 +7,18 @@ package resource
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/pem"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -202,7 +211,8 @@ func TestEnsureAdoptedNodeFillsEmptyWorkspace(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "cp"},
 		Spec:       v1.NodeSpec{Cluster: pointer.String("ccs300"), Hostname: pointer.String("cp")},
 	}
-	r := newPlaneReconciler(t, existing)
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ccs300-cpu"}, Spec: v1.WorkspaceSpec{Cluster: "ccs300"}}
+	r := newPlaneReconciler(t, existing, ws)
 	k8sNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "cp", Labels: map[string]string{v1.WorkspaceIdLabel: "ccs300-cpu"}}}
 	assert.NoError(t, r.ensureAdoptedNode(context.Background(), cluster, k8sNode))
 	got := &v1.Node{}
@@ -254,6 +264,7 @@ func TestAuthorizeAdoptedWorkersSkipsExistingNodes(t *testing.T) {
 	cluster.Spec.ControlPlane.SSHSecret = &corev1.ObjectReference{Name: "ccs-root", Namespace: "primus-safe"}
 	cp := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "cp"}}
 	worker := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "gpu9458"}}
+	worker.Status.MachineStatus.Phase = v1.NodeReady
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ccs-root", Namespace: "primus-safe"},
 		Data: map[string][]byte{utils.AuthorizePub: []byte("ssh-ed25519 AAAA ccs")}}
 	r := newPlaneReconciler(t, cluster, cp, worker, secret)
@@ -273,6 +284,140 @@ func TestAuthorizeAdoptedWorkersSkipsExistingNodes(t *testing.T) {
 	}
 	assert.NoError(t, r.authorizeAdoptedWorkers(context.Background(), cluster, k8sNodes))
 	assert.False(t, called)
+}
+
+// adoptAuthorizeFixture returns an adopted cluster with one control plane and the given secret data.
+func adoptAuthorizeFixture(t *testing.T, data map[string][]byte, objs ...client.Object) (*ClusterReconciler, *v1.Cluster) {
+	t.Helper()
+	cluster := testCluster("ccs300")
+	cluster.Spec.ControlPlane.Nodes = []string{"cp"}
+	cluster.Spec.ControlPlane.SSHSecret = &corev1.ObjectReference{Name: "ccs-root", Namespace: "primus-safe"}
+	cp := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "cp"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1", Port: pointer.Int32(22)}}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ccs-root", Namespace: "primus-safe"}, Data: data}
+	return newPlaneReconciler(t, append([]client.Object{cluster, cp, secret}, objs...)...), cluster
+}
+
+func workerNode(name, ip string) corev1.Node {
+	return corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}, Status: corev1.NodeStatus{
+		Addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: ip}}}}
+}
+
+func captureNodeSSH(t *testing.T, err error) *string {
+	t.Helper()
+	cmd := new(string)
+	previous := runNodeSSH
+	runNodeSSH = func(_ context.Context, _ client.Client, _ *v1.Node, c string) error {
+		*cmd = c
+		return err
+	}
+	t.Cleanup(func() { runNodeSSH = previous })
+	return cmd
+}
+
+func TestAdoptedWorkerAuthorizeScriptFailsOnAnyWorker(t *testing.T) {
+	r, cluster := adoptAuthorizeFixture(t, map[string][]byte{utils.AuthorizePub: []byte("ssh-ed25519 AAAA ccs")})
+	cmd := captureNodeSSH(t, nil)
+	assert.NoError(t, r.authorizeAdoptedWorkers(context.Background(), cluster,
+		[]corev1.Node{workerNode("w1", "10.0.0.11"), workerNode("w2", "10.0.0.12")}))
+
+	bin := t.TempDir()
+	stub := "#!/bin/sh\ncase \"$*\" in *10.0.0.11*) exit 255;; esac\nexit 0\n"
+	assert.NoError(t, os.WriteFile(filepath.Join(bin, "ssh"), []byte(stub), 0o755))
+	run := exec.Command("bash", "-c", *cmd)
+	run.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
+	out, err := run.CombinedOutput()
+	assert.Error(t, err)
+	assert.Contains(t, string(out), "10.0.0.11")
+	assert.NotContains(t, string(out), "10.0.0.12")
+}
+
+func TestAuthorizeAdoptedWorkersUsesSecretUsername(t *testing.T) {
+	r, cluster := adoptAuthorizeFixture(t, map[string][]byte{
+		utils.Username: []byte("ubuntu"), utils.AuthorizePub: []byte("ssh-ed25519 AAAA ccs")})
+	cmd := captureNodeSSH(t, nil)
+	assert.NoError(t, r.authorizeAdoptedWorkers(context.Background(), cluster, []corev1.Node{workerNode("w1", "10.0.0.11")}))
+	assert.Contains(t, *cmd, "ubuntu@10.0.0.11")
+	assert.NotContains(t, *cmd, "root@")
+	assert.NotContains(t, *cmd, "/root/.ssh")
+}
+
+func TestAuthorizeAdoptedWorkersRejectsUnsafeUsername(t *testing.T) {
+	r, cluster := adoptAuthorizeFixture(t, map[string][]byte{
+		utils.Username: []byte("a;reboot"), utils.AuthorizePub: []byte("ssh-ed25519 AAAA ccs")})
+	captureNodeSSH(t, nil)
+	assert.Error(t, r.authorizeAdoptedWorkers(context.Background(), cluster, []corev1.Node{workerNode("w1", "10.0.0.11")}))
+}
+
+func TestAdoptedSSHPublicKeyDerivedFromPrivateKey(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	assert.NoError(t, err)
+	block, err := ssh.MarshalPrivateKey(priv, "")
+	assert.NoError(t, err)
+	secret := &corev1.Secret{Data: map[string][]byte{utils.Authorize: pem.EncodeToMemory(block)}}
+	pub, err := sshPublicKeyFromSecret(secret)
+	assert.NoError(t, err)
+	assert.True(t, strings.HasPrefix(pub, "ssh-ed25519 "))
+}
+
+func TestAuthorizeAdoptedWorkersSkipsPasswordSecret(t *testing.T) {
+	r, cluster := adoptAuthorizeFixture(t, map[string][]byte{
+		utils.Username: []byte("root"), utils.Password: []byte("secret")})
+	cmd := captureNodeSSH(t, nil)
+	assert.NoError(t, r.authorizeAdoptedWorkers(context.Background(), cluster, []corev1.Node{workerNode("w1", "10.0.0.11")}))
+	assert.Empty(t, *cmd)
+}
+
+func TestPendingAdoptedWorkerIPsRetriesUnreadyNodes(t *testing.T) {
+	unready := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "w1"}}
+	ready := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "w2"}}
+	ready.Status.MachineStatus.Phase = v1.NodeReady
+	r, cluster := adoptAuthorizeFixture(t, nil, unready, ready)
+	ips, err := r.pendingAdoptedWorkerIPs(context.Background(), cluster,
+		[]corev1.Node{workerNode("w1", "10.0.0.11"), workerNode("w2", "10.0.0.12"), workerNode("w3", "10.0.0.13")})
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"10.0.0.11", "10.0.0.13"}, ips)
+}
+
+func TestAdoptClusterContentsRegistersNodesWhenAuthorizeFails(t *testing.T) {
+	cluster := testCluster("c1")
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	cluster.Spec.ControlPlane.Nodes = []string{"cp"}
+	cluster.Spec.ControlPlane.SSHSecret = &corev1.ObjectReference{Name: "ccs-root", Namespace: "primus-safe"}
+	cluster.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
+	cp := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "cp"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1", Port: pointer.Int32(22)}}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ccs-root", Namespace: "primus-safe"},
+		Data: map[string][]byte{utils.AuthorizePub: []byte("ssh-ed25519 AAAA ccs")}}
+	worker := workerNode("w1", "10.0.0.11")
+	r := newClusterReconcilerFull(t, fake.NewSimpleClientset(&worker), cluster, cp, secret)
+	captureNodeSSH(t, fmt.Errorf("ssh failed"))
+
+	assert.Error(t, r.adoptClusterContents(context.Background(), cluster))
+	got := &v1.Node{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "w1"}, got))
+	assert.Equal(t, "c1", got.GetSpecCluster())
+}
+
+func TestSyncAdoptedInventorySkipsForeignWorkspace(t *testing.T) {
+	cluster := testCluster("ccs300")
+	foreign := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "dev"}, Spec: v1.WorkspaceSpec{Cluster: "other"}}
+	k8sNode := corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "gpu1", Labels: map[string]string{v1.WorkspaceIdLabel: "dev"}}}
+	r := newPlaneReconciler(t, cluster, foreign)
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{k8sNode}))
+	got := &v1.Node{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "gpu1"}, got))
+	assert.Empty(t, got.GetSpecWorkspace())
+	assert.Empty(t, v1.GetWorkspaceId(got))
+}
+
+func TestEnsureAdoptedNodeClaimsUnboundNode(t *testing.T) {
+	cluster := testCluster("ccs300")
+	unbound := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "gpu1"}}
+	r := newPlaneReconciler(t, unbound)
+	assert.NoError(t, r.ensureAdoptedNode(context.Background(), cluster, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "gpu1"}}))
+	got := &v1.Node{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "gpu1"}, got))
+	assert.Equal(t, "ccs300", got.GetSpecCluster())
+	assert.Equal(t, "ccs300", v1.GetClusterId(got))
 }
 
 func TestVolumesFromPVCsIgnoresUnrelatedClaims(t *testing.T) {

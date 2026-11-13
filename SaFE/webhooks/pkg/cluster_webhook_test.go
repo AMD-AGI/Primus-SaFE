@@ -234,6 +234,22 @@ func TestClusterValidateImmutableFields(t *testing.T) {
 	assert.NilError(t, v.validateImmutableFields(recorded, adopted))
 }
 
+// TestAdoptAnnotationIsImmutable verifies the adopt annotation cannot be added or removed on update.
+func TestAdoptAnnotationIsImmutable(t *testing.T) {
+	v := &ClusterValidator{}
+	adopted := &v1.Cluster{Spec: v1.ClusterSpec{ControlPlane: v1.ControlPlane{Nodes: []string{"cp"}}}}
+	v1.SetAnnotation(adopted, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	removed := adopted.DeepCopy()
+	removed.Annotations = nil
+	removed.Spec.ControlPlane.Nodes = []string{"cp", "cp2"}
+	assert.Assert(t, v.validateImmutableFields(removed, adopted) != nil)
+
+	installed := &v1.Cluster{Spec: v1.ClusterSpec{ControlPlane: v1.ControlPlane{Nodes: []string{"cp"}}}}
+	added := installed.DeepCopy()
+	v1.SetAnnotation(added, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	assert.Assert(t, v.validateImmutableFields(added, installed) != nil)
+}
+
 // TestClusterValidateOnUpdate verifies update-time validation.
 func TestClusterValidateOnUpdate(t *testing.T) {
 	v := &ClusterValidator{}

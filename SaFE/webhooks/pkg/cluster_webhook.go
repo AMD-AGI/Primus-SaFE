@@ -322,9 +322,13 @@ func uint32PointerValue(value *uint32) string {
 	return fmt.Sprintf("%d", *value)
 }
 
-// validateImmutableFields ensures control plane nodes cannot be modified.
+// validateImmutableFields ensures the adopt annotation and control plane nodes cannot be modified.
 // An adopted cluster records those nodes after it can list the data plane.
 func (v *ClusterValidator) validateImmutableFields(newCluster, oldCluster *v1.Cluster) error {
+	if v1.GetAnnotation(newCluster, v1.ClusterAdoptAnnotation) != v1.GetAnnotation(oldCluster, v1.ClusterAdoptAnnotation) {
+		return field.Forbidden(field.NewPath("metadata").Key("annotations").
+			Key(v1.ClusterAdoptAnnotation), "immutable")
+	}
 	if adoptedCluster(oldCluster) {
 		return nil
 	}

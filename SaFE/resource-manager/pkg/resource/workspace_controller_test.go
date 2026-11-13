@@ -646,7 +646,7 @@ func TestAdoptedWorkspaceReconcileSkipsDataPlane(t *testing.T) {
 		},
 		Spec: v1.WorkspaceSpec{Cluster: "ccs300", Replica: 1, QueuePolicy: v1.QueueFifoPolicy, NodeFlavor: "flavor"},
 	}
-	r := newWorkspaceReconcilerFull(t, cs, ws)
+	r := newWorkspaceReconcilerFull(t, cs, ws, &v1.NodeFlavor{ObjectMeta: metav1.ObjectMeta{Name: "flavor"}})
 	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: ws.Name}})
 	testifyassert.NoError(t, err)
 	_, err = cs.CoreV1().Namespaces().Get(context.Background(), ws.Name, metav1.GetOptions{})
@@ -654,6 +654,32 @@ func TestAdoptedWorkspaceReconcileSkipsDataPlane(t *testing.T) {
 	got := &v1.Workspace{}
 	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: ws.Name}, got))
 	testifyassert.Equal(t, v1.WorkspaceRunning, got.Status.Phase)
+}
+
+func TestAdoptedWorkspaceReconcileSyncsStatus(t *testing.T) {
+	ctx := context.Background()
+	nf := genMockNodeFlavor()
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ccs300-gpu",
+			Annotations: map[string]string{v1.WorkspaceAdoptAnnotation: v1.TrueStr}},
+		Spec: v1.WorkspaceSpec{Cluster: "c1", Replica: 1, NodeFlavor: nf.Name},
+	}
+	node := genMockAdminNode("gpu1", "c1", nf)
+	node.Spec.Workspace = pointer.String(ws.Name)
+	node.Labels[v1.WorkspaceIdLabel] = ws.Name
+	node.Status.Resources = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("256")}
+	cs := k8sfake.NewSimpleClientset()
+	r := newWorkspaceReconcilerFull(t, cs, nf, ws, node)
+
+	_, err := r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: ws.Name}})
+	testifyassert.NoError(t, err)
+	got := &v1.Workspace{}
+	testifyassert.NoError(t, r.Get(ctx, client.ObjectKey{Name: ws.Name}, got))
+	testifyassert.Equal(t, v1.WorkspaceRunning, got.Status.Phase)
+	testifyassert.NotEmpty(t, got.Status.TotalResources)
+	testifyassert.Equal(t, 1, got.Status.AvailableReplica+got.Status.AbnormalReplica)
+	_, err = cs.CoreV1().Namespaces().Get(ctx, ws.Name, metav1.GetOptions{})
+	testifyassert.True(t, apierrors.IsNotFound(err))
 }
 
 func TestWorkspaceDeletionOnAdoptedClusterKeepsDataPlane(t *testing.T) {

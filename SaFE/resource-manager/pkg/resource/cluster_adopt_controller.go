@@ -7,6 +7,8 @@ package resource
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -38,7 +40,7 @@ func SetupClusterAdoptController(mgr manager.Manager) error {
 		clientManager:         commonutils.NewObjectManagerSingleton(),
 	}}
 	if r.clientManager == nil {
-		return err
+		return fmt.Errorf("failed to new clientManager")
 	}
 	err = ctrlruntime.NewControllerManagedBy(mgr).
 		Named("cluster-adopt").
@@ -51,21 +53,29 @@ func SetupClusterAdoptController(mgr manager.Manager) error {
 	return nil
 }
 
-// Reconcile registers flavors, workspaces and nodes from a connected adopted cluster.
+// adoptResyncInterval is how often an adopted cluster is rescanned for nodes added later.
+const adoptResyncInterval = 5 * time.Minute
+
+// Reconcile registers flavors, workspaces and nodes from a connected adopted cluster
+// and requeues periodically to pick up data plane changes.
 func (r *ClusterAdoptReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	cluster := &v1.Cluster{}
 	if err := r.Get(ctx, req.NamespacedName, cluster); err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
+	}
+	if !isAdoptedClusterPending(cluster) {
+		return ctrlruntime.Result{}, nil
 	}
 	if err := r.adoptClusterContents(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to adopt cluster contents", "cluster", cluster.Name)
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("adopt_cluster").Inc()
 		return ctrlruntime.Result{}, err
 	}
-	return ctrlruntime.Result{}, nil
+	return ctrlruntime.Result{RequeueAfter: adoptResyncInterval}, nil
 }
 
-// adoptedClusterPredicate admits clusters marked for adoption.
+// adoptedClusterPredicate admits clusters marked for adoption on creation, spec changes and
+// control plane phase changes. Other updates rely on the periodic requeue.
 func adoptedClusterPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
@@ -73,8 +83,16 @@ func adoptedClusterPredicate() predicate.Predicate {
 			return ok && isAdoptedClusterPending(cluster)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			cluster, ok := e.ObjectNew.(*v1.Cluster)
-			return ok && isAdoptedClusterPending(cluster)
+			oldCluster, ok := e.ObjectOld.(*v1.Cluster)
+			if !ok {
+				return false
+			}
+			newCluster, ok := e.ObjectNew.(*v1.Cluster)
+			if !ok || !isAdoptedClusterPending(newCluster) {
+				return false
+			}
+			return oldCluster.GetGeneration() != newCluster.GetGeneration() ||
+				oldCluster.Status.ControlPlaneStatus.Phase != newCluster.Status.ControlPlaneStatus.Phase
 		},
 		DeleteFunc: func(event.DeleteEvent) bool { return false },
 	}

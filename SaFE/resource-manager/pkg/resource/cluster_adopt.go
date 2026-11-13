@@ -9,11 +9,13 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -44,8 +46,14 @@ func defaultRunNodeSSH(ctx context.Context, cli client.Client, node *v1.Node, cm
 		return err
 	}
 	defer session.Close()
-	return session.Run(cmd)
+	if out, err := session.CombinedOutput(cmd); err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
+
+// adoptedSSHUserPattern limits the secret username before it is placed in a remote command.
+var adoptedSSHUserPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
 
 // adoptClusterContents creates admin NodeFlavor, Workspace and Node objects for a cluster
 // that already has a Kubernetes control plane. Existing admin objects are left unchanged.
@@ -61,24 +69,41 @@ func (r *ClusterReconciler) adoptClusterContents(ctx context.Context, cluster *v
 	if err != nil {
 		return err
 	}
-	if err = r.authorizeAdoptedWorkers(ctx, cluster, nodeList.Items); err != nil {
+	authorizeErr := r.authorizeAdoptedWorkers(ctx, cluster, nodeList.Items)
+	if err = r.syncAdoptedInventory(ctx, cluster, factory.ClientSet(), nodeList.Items); err != nil {
 		return err
 	}
-	return r.syncAdoptedInventory(ctx, cluster, factory.ClientSet(), nodeList.Items)
+	return authorizeErr
 }
 
-// authorizeAdoptedWorkers appends the management public key to worker root accounts.
+// authorizeAdoptedWorkers appends the management public key to the SSH user of each pending worker.
 // The command runs on a control plane node, which already holds a key the workers accept.
+// A secret with only a password has no key to install, so the step is skipped.
 func (r *ClusterReconciler) authorizeAdoptedWorkers(ctx context.Context, cluster *v1.Cluster, nodes []corev1.Node) error {
 	ips, err := r.pendingAdoptedWorkerIPs(ctx, cluster, nodes)
 	if err != nil || len(ips) == 0 {
 		return err
 	}
-	pub, err := r.adoptedSSHPublicKey(ctx, cluster)
+	secret, err := r.getAdoptedSSHSecret(ctx, cluster)
 	if err != nil {
 		return err
 	}
-	cmd := adoptedWorkerAuthorizeCommand(pub, ips)
+	pub, err := sshPublicKeyFromSecret(secret)
+	if err != nil {
+		return err
+	}
+	if pub == "" {
+		klog.Infof("ssh secret of adopted cluster %s has no key, skip authorizing workers", cluster.Name)
+		return nil
+	}
+	username := string(secret.Data[utils.Username])
+	if username == "" {
+		username = utils.Root
+	}
+	if !adoptedSSHUserPattern.MatchString(username) {
+		return fmt.Errorf("invalid ssh username %q in secret %s/%s", username, secret.Namespace, secret.Name)
+	}
+	cmd := adoptedWorkerAuthorizeCommand(pub, username, ips)
 	controlPlanes, err := r.getControllerPlaneNodes(ctx, cluster)
 	if err != nil {
 		return err
@@ -98,20 +123,37 @@ func (r *ClusterReconciler) authorizeAdoptedWorkers(ctx context.Context, cluster
 	return lastErr
 }
 
-func (r *ClusterReconciler) adoptedSSHPublicKey(ctx context.Context, cluster *v1.Cluster) (string, error) {
+// getAdoptedSSHSecret returns the SSH secret referenced by the adopted cluster control plane.
+func (r *ClusterReconciler) getAdoptedSSHSecret(ctx context.Context, cluster *v1.Cluster) (*corev1.Secret, error) {
 	ref := cluster.Spec.ControlPlane.SSHSecret
 	if ref == nil || ref.Name == "" {
-		return "", fmt.Errorf("adopted cluster %s has no ssh secret", cluster.Name)
+		return nil, fmt.Errorf("adopted cluster %s has no ssh secret", cluster.Name)
 	}
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}, secret); err != nil {
-		return "", err
+		return nil, err
 	}
-	pub := strings.TrimSpace(string(secret.Data[utils.AuthorizePub]))
-	if pub == "" {
-		return "", fmt.Errorf("ssh secret %s/%s has no public key", ref.Namespace, ref.Name)
+	return secret, nil
+}
+
+// sshPublicKeyFromSecret returns the authorized public key, or derives it from the private key.
+// It returns an empty key without error when the secret only holds a password.
+func sshPublicKeyFromSecret(secret *corev1.Secret) (string, error) {
+	if pub := strings.TrimSpace(string(secret.Data[utils.AuthorizePub])); pub != "" {
+		return pub, nil
 	}
-	return pub, nil
+	key := secret.Data[utils.Authorize]
+	if len(key) == 0 {
+		if len(secret.Data[utils.Password]) > 0 {
+			return "", nil
+		}
+		return "", fmt.Errorf("ssh secret %s/%s has no key or password", secret.Namespace, secret.Name)
+	}
+	signer, err := ssh.ParsePrivateKey(key)
+	if err != nil {
+		return "", fmt.Errorf("ssh secret %s/%s has an invalid private key: %v", secret.Namespace, secret.Name, err)
+	}
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))), nil
 }
 
 // bootstrapAdoptedNodes builds in-memory control plane nodes from the adopt IPs of a pending cluster.
@@ -200,6 +242,9 @@ func (r *ClusterReconciler) ensureAdoptedWorkspace(ctx context.Context, cluster 
 	existing := &v1.Workspace{}
 	err := r.Get(ctx, types.NamespacedName{Name: name}, existing)
 	if err == nil {
+		if existing.Spec.Cluster != cluster.Name {
+			klog.Infof("skip adopted workspace %s, it belongs to cluster %s", name, existing.Spec.Cluster)
+		}
 		return nil
 	}
 	if !apierrors.IsNotFound(err) {
@@ -229,8 +274,12 @@ func (r *ClusterReconciler) ensureAdoptedNode(ctx context.Context, cluster *v1.C
 	if k8sNode == nil || k8sNode.Name == "" {
 		return nil
 	}
+	workspace, err := r.adoptedNodeWorkspace(ctx, cluster, k8sNode)
+	if err != nil {
+		return err
+	}
 	existing := &v1.Node{}
-	err := r.Get(ctx, types.NamespacedName{Name: k8sNode.Name}, existing)
+	err = r.Get(ctx, types.NamespacedName{Name: k8sNode.Name}, existing)
 	if err == nil {
 		if existing.GetSpecCluster() != "" && existing.GetSpecCluster() != cluster.Name {
 			klog.Infof("skip adopted node %s, it belongs to cluster %s", k8sNode.Name, existing.GetSpecCluster())
@@ -238,19 +287,20 @@ func (r *ClusterReconciler) ensureAdoptedNode(ctx context.Context, cluster *v1.C
 		}
 		original := client.MergeFrom(existing.DeepCopy())
 		changed := false
+		if existing.Labels == nil {
+			existing.Labels = map[string]string{}
+		}
+		if existing.GetSpecCluster() == "" {
+			existing.Spec.Cluster = pointer.String(cluster.Name)
+			existing.Labels[v1.ClusterIdLabel] = cluster.Name
+			changed = true
+		}
 		if isK8sControlPlaneNode(k8sNode) && !v1.IsControlPlane(existing) {
-			if existing.Labels == nil {
-				existing.Labels = map[string]string{}
-			}
 			existing.Labels[v1.KubernetesControlPlane] = ""
 			changed = true
 		}
-		workspace := v1.GetWorkspaceId(k8sNode)
 		if workspace != "" && existing.GetSpecWorkspace() == "" {
 			existing.Spec.Workspace = pointer.String(workspace)
-			if existing.Labels == nil {
-				existing.Labels = map[string]string{}
-			}
 			existing.Labels[v1.WorkspaceIdLabel] = workspace
 			changed = true
 		}
@@ -282,7 +332,7 @@ func (r *ClusterReconciler) ensureAdoptedNode(ctx context.Context, cluster *v1.C
 			NodeFlavor: &corev1.ObjectReference{Name: flavorName, Kind: v1.NodeFlavorKind, APIVersion: v1.SchemeGroupVersion.String()},
 		},
 	}
-	if workspace := v1.GetWorkspaceId(k8sNode); workspace != "" {
+	if workspace != "" {
 		node.Spec.Workspace = pointer.String(workspace)
 		node.Labels[v1.WorkspaceIdLabel] = workspace
 	}
@@ -290,6 +340,23 @@ func (r *ClusterReconciler) ensureAdoptedNode(ctx context.Context, cluster *v1.C
 		node.Labels[v1.KubernetesControlPlane] = ""
 	}
 	return r.Create(ctx, node)
+}
+
+// adoptedNodeWorkspace returns the workspace named by the data plane node label when that
+// workspace exists in the admin plane and belongs to the cluster, otherwise an empty name.
+func (r *ClusterReconciler) adoptedNodeWorkspace(ctx context.Context, cluster *v1.Cluster, k8sNode *corev1.Node) (string, error) {
+	name := v1.GetWorkspaceId(k8sNode)
+	if name == "" {
+		return "", nil
+	}
+	workspace := &v1.Workspace{}
+	if err := r.Get(ctx, types.NamespacedName{Name: name}, workspace); err != nil {
+		return "", client.IgnoreNotFound(err)
+	}
+	if workspace.Spec.Cluster != cluster.Name {
+		return "", nil
+	}
+	return name, nil
 }
 
 // legacyControlPlaneLabel is the role label used before node-role.kubernetes.io/control-plane.
@@ -477,8 +544,9 @@ func volumesFromPVCs(pvcs []corev1.PersistentVolumeClaim) []v1.WorkspaceVolume {
 	return volumes
 }
 
-// pendingAdoptedWorkerIPs returns worker addresses that do not yet have an admin Node.
-// Workers already recorded are left alone, so later reconciles do not repeat the SSH fan-out.
+// pendingAdoptedWorkerIPs returns worker addresses whose admin Node is missing or not machine-ready.
+// Machine-ready workers and workers of another cluster are left alone, so later reconciles only
+// repeat the SSH fan-out for workers that still cannot be reached.
 func (r *ClusterReconciler) pendingAdoptedWorkerIPs(ctx context.Context, cluster *v1.Cluster, nodes []corev1.Node) ([]string, error) {
 	controlPlanes := map[string]bool{}
 	if cluster != nil {
@@ -498,9 +566,11 @@ func (r *ClusterReconciler) pendingAdoptedWorkerIPs(ctx context.Context, cluster
 		existing := &v1.Node{}
 		err := r.Get(ctx, types.NamespacedName{Name: nodes[i].Name}, existing)
 		if err == nil {
-			continue
-		}
-		if !apierrors.IsNotFound(err) {
+			owner := existing.GetSpecCluster()
+			if existing.IsMachineReady() || (owner != "" && cluster != nil && owner != cluster.Name) {
+				continue
+			}
+		} else if !apierrors.IsNotFound(err) {
 			return nil, err
 		}
 		ips = append(ips, ip)
@@ -518,17 +588,21 @@ func internalIP(node *corev1.Node) string {
 	return ""
 }
 
-// adoptedWorkerAuthorizeCommand builds the remote script that installs one public key.
-func adoptedWorkerAuthorizeCommand(pub string, ips []string) string {
+// adoptedWorkerAuthorizeCommand builds the remote script that installs one public key for the
+// given user on every worker. It reports the workers that failed and exits non-zero if any did.
+func adoptedWorkerAuthorizeCommand(pub, username string, ips []string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "pub=$(cat <<'EOF'\n%s\nEOF\n)\n", strings.TrimSpace(pub))
+	fmt.Fprintf(&b, "pub=$(cat <<'EOF'\n%s\nEOF\n)\nfailed=\"\"\n", strings.TrimSpace(pub))
 	for _, ip := range ips {
 		if net.ParseIP(ip) == nil {
 			continue
 		}
-		fmt.Fprintf(&b, "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 root@%s "+
-			"\"mkdir -p /root/.ssh && touch /root/.ssh/authorized_keys && grep -qxF \\\"$pub\\\" /root/.ssh/authorized_keys || echo \\\"$pub\\\" >> /root/.ssh/authorized_keys\"\n", ip)
+		fmt.Fprintf(&b, "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 %s@%s "+
+			"\"mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && "+
+			"(grep -qxF \\\"$pub\\\" ~/.ssh/authorized_keys || echo \\\"$pub\\\" >> ~/.ssh/authorized_keys)\" "+
+			"|| failed=\"$failed %s\"\n", username, ip, ip)
 	}
+	b.WriteString("if [ -n \"$failed\" ]; then echo \"failed to authorize workers:$failed\" >&2; exit 1; fi\n")
 	return b.String()
 }
 
