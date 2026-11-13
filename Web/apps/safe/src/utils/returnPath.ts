@@ -7,11 +7,42 @@
  *   /login?redirect=<encodeURIComponent('/dispatron/runs/42?tab=log')>
  *
  * The console router only knows its own routes, so such a return is a full-page navigation.
- * Only same-origin paths under the prefixes below qualify: never another origin, never a
+ * Only same-origin paths under the allowed prefixes qualify: never another origin, never a
  * path the URL parser could turn into one ("//host", "/\host", control characters), and
  * never a path that leaves its prefix ("/dispatron/../x", "/dispatronx").
+ *
+ * The prefixes are the deployment's (console.return_prefixes, served by /envs as
+ * consoleReturnPrefixes); the console's own list below applies while /envs has not answered,
+ * cannot be read, or comes from a server that does not say.
  */
-export const OUTSIDE_CONSOLE_PREFIXES: readonly string[] = ['/dispatron', '/autopilot', '/binding', '/blog-drafts']
+export const DEFAULT_OUTSIDE_CONSOLE_PREFIXES: readonly string[] = [
+  '/dispatron',
+  '/autopilot',
+  '/binding',
+  '/blog-drafts',
+]
+
+// One or more plain path segments, none starting with a dot (so no "." or ".." segment), and no
+// trailing slash: the same rule the server applies to console.return_prefixes.
+const PREFIX_SHAPE = /^(\/[A-Za-z0-9_~-][A-Za-z0-9._~-]*)+$/
+
+/** Whether `value` can be an allowed prefix: '/dispatron', '/apps/blog'; not '/', '//x', '/x/'. */
+export function isValidReturnPrefix(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 256 && PREFIX_SHAPE.test(value)
+}
+
+/**
+ * The prefixes the console returns to, from /envs (`envs`, null when it could not be read): its
+ * consoleReturnPrefixes without the entries that are not a plain path prefix, or the console's
+ * default list when it carries none. An empty list from the server allows none.
+ */
+export function returnPrefixes(
+  envs?: { consoleReturnPrefixes?: unknown } | null,
+): readonly string[] {
+  const configured = envs?.consoleReturnPrefixes
+  if (!Array.isArray(configured)) return DEFAULT_OUTSIDE_CONSOLE_PREFIXES
+  return [...new Set(configured.filter(isValidReturnPrefix))]
+}
 
 // Whitespace and control characters are dropped or folded by the URL parser ("/\t/host").
 const UNSAFE_CHARS = /[\u0000- \u007f\\]/
@@ -26,9 +57,14 @@ function underPrefix(pathname: string, prefix: string): boolean {
 /**
  * Returns the absolute same-origin URL to load with a full-page navigation when `value`
  * (a `redirect` query value, or the target saved for the sign-in) is a return to an
- * allow-listed app outside the console; otherwise null, and the caller stays in the console.
+ * allow-listed app outside the console (`prefixes`, see returnPrefixes); otherwise null, and
+ * the caller stays in the console.
  */
-export function outsideConsoleReturn(value: unknown, origin: string): string | null {
+export function outsideConsoleReturn(
+  value: unknown,
+  origin: string,
+  prefixes: readonly string[] = DEFAULT_OUTSIDE_CONSOLE_PREFIXES,
+): string | null {
   const raw = Array.isArray(value) ? value[0] : value
   if (typeof raw !== 'string' || !raw.startsWith('/') || raw.startsWith('//')) return null
   if (UNSAFE_CHARS.test(raw)) return null
@@ -45,7 +81,8 @@ export function outsideConsoleReturn(value: unknown, origin: string): string | n
   // The path as written must already be the normalised one: "/dispatron/../login" is refused
   // rather than resolved, so what the app behind the prefix sees is what was checked here.
   if (!raw.startsWith(url.pathname)) return null
-  if (!OUTSIDE_CONSOLE_PREFIXES.some((p) => underPrefix(url.pathname, p))) return null
+  // Checked again here: a caller may pass a list that did not come through returnPrefixes.
+  if (!prefixes.some((p) => isValidReturnPrefix(p) && underPrefix(url.pathname, p))) return null
   return url.href
 }
 

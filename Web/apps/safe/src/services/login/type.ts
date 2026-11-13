@@ -83,6 +83,9 @@ export interface EnvsResp {
   ssoPkce?: boolean
   // origins (optionally with a path prefix) other than this console allowed to receive the SSO code
   ssoBridgeAllowlist?: string[]
+  // Path prefixes on this host the console returns to after sign-in (console.return_prefixes);
+  // absent on older servers, which leaves the console's default list (utils/returnPath.ts)
+  consoleReturnPrefixes?: string[]
   // cd
   cdRequireApproval?: boolean
   // Whom a signed-in user without access should ask for it (plain text, may be empty or absent

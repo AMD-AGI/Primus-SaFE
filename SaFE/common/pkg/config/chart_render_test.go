@@ -812,3 +812,20 @@ func TestChartRendersTheAccessContact(t *testing.T) {
 		testifyassert.Equal(t, tt.want, GetConsoleAccessContact(), tt.name)
 	}
 }
+
+// TestChartRendersTheConsoleReturnPrefixes pins that a stock install leaves console.return_prefixes out, so the
+// apiserver's default list applies, and that a list an operator sets reaches the apiserver as that list.
+func TestChartRendersTheConsoleReturnPrefixes(t *testing.T) {
+	loadRendered(t, renderApiserverConfig(t))
+	testifyassert.Equal(t, DefaultConsoleReturnPrefixes, GetConsoleReturnPrefixes())
+
+	loadRendered(t, renderApiserverConfig(t, "--set", "console.return_prefixes={/dispatron,/claw-api}"))
+	testifyassert.Equal(t, []string{"/dispatron", "/claw-api"}, GetConsoleReturnPrefixes())
+
+	loadRendered(t, renderApiserverConfig(t, "--set", "console.return_prefixes=null"))
+	testifyassert.Equal(t, DefaultConsoleReturnPrefixes, GetConsoleReturnPrefixes())
+
+	// An empty list is none, not the default put back.
+	loadRendered(t, renderApiserverConfig(t, "--set-json", "console.return_prefixes=[]"))
+	testifyassert.Equal(t, []string{}, GetConsoleReturnPrefixes())
+}

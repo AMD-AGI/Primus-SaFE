@@ -135,3 +135,51 @@ func TestGetEnvsAPIKeysURL(t *testing.T) {
 		})
 	}
 }
+
+// The console returns after sign-in only to the path prefixes /envs names (console.return_prefixes): the four
+// it always had while the key is unset, the configured list (without entries that are not plain path
+// prefixes) when it is set, and an empty list, never null, when nothing is left.
+func TestGetEnvsConsoleReturnPrefixes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	get := func() (view.GetEnvResponse, map[string]json.RawMessage) {
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/envs", nil)
+		(&Handler{}).GetEnvs(c)
+		assert.Equal(t, http.StatusOK, rsp.Code)
+		var resp view.GetEnvResponse
+		assert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &resp))
+		var raw map[string]json.RawMessage
+		assert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &raw))
+		return resp, raw
+	}
+	t.Cleanup(func() { viper.Set("console.return_prefixes", nil) })
+
+	viper.Set("console.return_prefixes", nil)
+	resp, _ := get()
+	assert.Equal(t, []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts"}, resp.ConsoleReturnPrefixes)
+
+	for _, tt := range []struct {
+		name  string
+		value any
+		want  []string
+	}{
+		{"a list", []string{"/dispatron", "/claw-api"}, []string{"/dispatron", "/claw-api"}},
+		{"a comma separated scalar", "/dispatron, /claw-api", []string{"/dispatron", "/claw-api"}},
+		{"nested segments", []string{"/apps/blog-drafts"}, []string{"/apps/blog-drafts"}},
+		{"invalid entries are dropped", []string{
+			"/claw-api", "claw-api", "/", "//evil.example.net", "/claw-api/", "/a/../b", "/./a", "/.hidden",
+			"/a b", "/a?x", "/a#x", "/a%2fb", "/a\\b", "https://evil.example.net/x", " ",
+		}, []string{"/claw-api"}},
+		{"duplicates are dropped", []string{"/claw-api", " /claw-api "}, []string{"/claw-api"}},
+		{"an empty list is none, not the default", []string{}, []string{}},
+		{"nothing valid is none", []string{"//x"}, []string{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Set("console.return_prefixes", tt.value)
+			resp, raw := get()
+			assert.Equal(t, tt.want, resp.ConsoleReturnPrefixes)
+			assert.NotEqual(t, "null", string(raw["consoleReturnPrefixes"]))
+		})
+	}
+}

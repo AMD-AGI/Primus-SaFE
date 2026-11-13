@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -480,6 +481,41 @@ func IsUserJoinDefaultWorkspaces() bool {
 // "no access yet" page shows to a user who holds no access. It is empty unless set.
 func GetConsoleAccessContact() string {
 	return strings.TrimSpace(getString(consoleAccessContact, ""))
+}
+
+// DefaultConsoleReturnPrefixes are the web apps on the console's host that a sign-in returns to
+// when console.return_prefixes is not set.
+var DefaultConsoleReturnPrefixes = []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts"}
+
+// consoleReturnPrefixRE is one or more plain path segments, none starting with a dot (so no "."
+// or ".." segment) and no trailing slash: "/dispatron", "/apps/blog".
+var consoleReturnPrefixRE = regexp.MustCompile(`^(/[A-Za-z0-9_~-][A-Za-z0-9._~-]*)+$`)
+
+// IsValidConsoleReturnPrefix reports whether p can be a console.return_prefixes entry.
+func IsValidConsoleReturnPrefix(p string) bool {
+	return len(p) <= 256 && consoleReturnPrefixRE.MatchString(p)
+}
+
+// GetConsoleReturnPrefixes returns console.return_prefixes: the path prefixes on the console's
+// own host (Dispatron, autopilot, ...) that the console returns to with a full-page navigation
+// after a sign-in that app started with /login?redirect=<path>. Unset is
+// DefaultConsoleReturnPrefixes; an entry that is not a plain path prefix is dropped, and a key
+// set to an empty list (or to nothing valid) returns none. Never nil.
+func GetConsoleReturnPrefixes() []string {
+	if !viper.IsSet(consoleReturnPrefixes) {
+		return append([]string{}, DefaultConsoleReturnPrefixes...)
+	}
+	out := []string{}
+	seen := map[string]bool{}
+	for _, p := range getStringSlice(consoleReturnPrefixes, nil) {
+		p = strings.TrimSpace(p)
+		if !IsValidConsoleReturnPrefix(p) || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
 }
 
 // IsOutboundTLSVerifyEnabled reports whether outbound HTTPS requests to model

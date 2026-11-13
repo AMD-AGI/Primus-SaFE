@@ -109,6 +109,12 @@ data:
       # The line the console's "no access yet" page shows to a user who holds no access.
       {{- /* hasKey rather than `default`: an operator who sets it to "" gets no line, not the default. */}}
       access_contact: {{ if hasKey (default dict .Values.console) "access_contact" }}{{ toJson (toString .Values.console.access_contact) }}{{ else }}"请联系管理员开通"{{ end }}
+      {{- /* Unset or null leaves the apiserver's default list; [] (which `with` would skip) allows none. */}}
+      {{- $returnPrefixes := (default dict .Values.console).return_prefixes }}
+      {{- if not (kindIs "invalid" $returnPrefixes) }}
+      # Path prefixes on this host the console returns to after sign-in; unset is the apiserver's default list.
+      return_prefixes: {{ toJson $returnPrefixes }}
+      {{- end }}
     tls:
       # Verify TLS certificates for outbound HTTPS calls to model endpoints and
       # third-party services (InferenceX). Default false keeps
