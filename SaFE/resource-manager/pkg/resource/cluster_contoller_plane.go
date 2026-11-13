@@ -59,7 +59,7 @@ const (
 func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cluster *v1.Cluster) error {
 	klog.Infof("cluster %s, phase %s", cluster.Name, cluster.Status.ControlPlaneStatus.Phase)
 
-	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
+	if len(cluster.Spec.ControlPlane.Nodes) == 0 && len(bootstrapAdoptedNodes(cluster)) == 0 {
 		return nil
 	}
 
@@ -718,6 +718,9 @@ func retryCountBelongsToTarget(cluster *v1.Cluster) bool {
 
 // getControllerPlaneNodes retrieves all control plane nodes for the cluster.
 func (r *ClusterReconciler) getControllerPlaneNodes(ctx context.Context, cluster *v1.Cluster) ([]*v1.Node, error) {
+	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
+		return bootstrapAdoptedNodes(cluster), nil
+	}
 	nodes := make([]*v1.Node, 0, len(cluster.Spec.ControlPlane.Nodes))
 
 	for _, v := range cluster.Spec.ControlPlane.Nodes {

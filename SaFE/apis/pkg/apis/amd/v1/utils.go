@@ -308,6 +308,17 @@ func IsAdoptedWorkspace(obj metav1.Object) bool {
 	return GetAnnotation(obj, WorkspaceAdoptAnnotation) == TrueStr
 }
 
+// GetAdoptControlPlaneIPs returns the trimmed, non-empty control plane IPs of an adopted cluster.
+func GetAdoptControlPlaneIPs(obj metav1.Object) []string {
+	ips := make([]string, 0)
+	for _, ip := range strings.Split(GetAnnotation(obj, ClusterAdoptControlPlaneIPsAnnotation), ",") {
+		if ip = strings.TrimSpace(ip); ip != "" {
+			ips = append(ips, ip)
+		}
+	}
+	return ips
+}
+
 // IsExternalWorkspace reports whether the workspace draws capacity from an external
 // execution provider. The label must be set to "true"; any other value is native.
 func IsExternalWorkspace(obj metav1.Object) bool {

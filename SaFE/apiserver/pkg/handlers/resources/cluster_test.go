@@ -193,6 +193,12 @@ func TestGenerateCluster(t *testing.T) {
 	testifyassert.NoError(t, err)
 	assert.Equal(t, v1.TrueStr, v1.GetAnnotation(adopted, v1.ClusterAdoptAnnotation))
 	testifyassert.False(t, v1.HasLabel(adopted, v1.ClusterControlPlaneLabel))
+	testifyassert.Empty(t, v1.GetAdoptControlPlaneIPs(adopted))
+
+	req.ControlPlaneIPs = []string{"10.235.225.238", "10.235.225.239"}
+	withIPs, err := h.generateCluster(context.Background(), user, req, []byte(`{}`))
+	testifyassert.NoError(t, err)
+	assert.Equal(t, []string{"10.235.225.238", "10.235.225.239"}, v1.GetAdoptControlPlaneIPs(withIPs))
 }
 
 func TestCreateClusterHandler(t *testing.T) {

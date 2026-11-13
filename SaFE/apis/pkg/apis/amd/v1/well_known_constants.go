@@ -105,6 +105,8 @@ const (
 	ClusterAdoptAnnotation = ClusterPrefix + "adopt"
 	// ClusterAdoptNodeFlavorAnnotation names the NodeFlavor used for nodes that carry no flavor label.
 	ClusterAdoptNodeFlavorAnnotation = ClusterPrefix + "adopt.node-flavor"
+	// ClusterAdoptControlPlaneIPsAnnotation lists comma-separated control plane IPs used to read an adopted kubeconfig.
+	ClusterAdoptControlPlaneIPsAnnotation = ClusterPrefix + "adopt.control-plane-ips"
 
 	// storage
 	StoragePrefix              = PrimusSafePrefix + "storage."

@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -143,12 +144,29 @@ func (v *ClusterValidator) validateAdoptedCluster(ctx context.Context, cluster *
 		return fmt.Errorf("an adopted cluster cannot be a management cluster")
 	}
 	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
-		return fmt.Errorf("the KubeControlPlane nodes of spec are empty")
+		return validateAdoptControlPlaneIPs(cluster)
 	}
 	if err := v.validateNodesInUse(ctx, cluster); err != nil {
 		return err
 	}
 	return v.validateNodesReady(ctx, cluster)
+}
+
+// validateAdoptControlPlaneIPs checks the bootstrap addresses used before control plane nodes are registered.
+func validateAdoptControlPlaneIPs(cluster *v1.Cluster) error {
+	ips := v1.GetAdoptControlPlaneIPs(cluster)
+	if len(ips) == 0 {
+		return fmt.Errorf("the control plane IPs of an adopted cluster are required")
+	}
+	if cluster.Spec.ControlPlane.SSHSecret == nil {
+		return fmt.Errorf("the ssh secret of an adopted cluster is required to read its control plane")
+	}
+	for _, ip := range ips {
+		if net.ParseIP(ip) == nil {
+			return fmt.Errorf("invalid control plane IP %q", ip)
+		}
+	}
+	return nil
 }
 
 // validateControlPlane validates control plane nodes and network configuration.

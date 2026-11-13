@@ -159,6 +159,8 @@ export interface CreateClusterPayload {
   kubeApiServerArgs?: Record<string, string>
   // Registers an existing Kubernetes cluster instead of installing one.
   adopt?: boolean
+  // Control plane IPs used to read the kubeconfig of an adopted cluster.
+  controlPlaneIps?: string[]
 }
 export const NODE_PHASE = [
   'Ready',

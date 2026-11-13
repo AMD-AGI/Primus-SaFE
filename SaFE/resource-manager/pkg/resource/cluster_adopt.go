@@ -112,6 +112,27 @@ func (r *ClusterReconciler) adoptedSSHPublicKey(ctx context.Context, cluster *v1
 	return pub, nil
 }
 
+// bootstrapAdoptedNodes builds in-memory control plane nodes from the adopt IPs of a pending cluster.
+// They are never persisted; they only carry the SSH address and secret used to read the kubeconfig.
+func bootstrapAdoptedNodes(cluster *v1.Cluster) []*v1.Node {
+	if !isAdoptedClusterPending(cluster) || cluster.Spec.ControlPlane.SSHSecret == nil {
+		return nil
+	}
+	ips := v1.GetAdoptControlPlaneIPs(cluster)
+	nodes := make([]*v1.Node, 0, len(ips))
+	for _, ip := range ips {
+		nodes = append(nodes, &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: ip},
+			Spec: v1.NodeSpec{
+				PrivateIP: ip,
+				Port:      pointer.Int32(22),
+				SSHSecret: cluster.Spec.ControlPlane.SSHSecret,
+			},
+		})
+	}
+	return nodes
+}
+
 // syncAdoptedInventory creates missing flavors, workspaces and nodes from the data plane.
 func (r *ClusterReconciler) syncAdoptedInventory(ctx context.Context, cluster *v1.Cluster,
 	clientSet kubernetes.Interface, nodes []corev1.Node) error {

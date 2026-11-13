@@ -21,8 +21,8 @@
         <span class="fs-subtitle font-medium">Basic Information</span>
       </div>
       <el-text v-if="isAdopt" size="small" type="info" class="block m-b-4">
-        Registers an existing Kubernetes cluster. Kubernetes is not installed again. Select the
-        control plane nodes already registered in SaFE. They are used to read the cluster.
+        Registers an existing Kubernetes cluster. Kubernetes is not installed again. Enter the
+        control plane IPs. SaFE reads the kubeconfig from them and registers all nodes.
       </el-text>
 
       <el-form-item label="Name" prop="name">
@@ -72,7 +72,23 @@
         </el-select>
       </el-form-item>
 
-      <el-form-item label="Nodes" prop="nodes">
+      <el-form-item v-if="isAdopt" label="Control Plane IPs" prop="controlPlaneIps">
+        <el-select
+          v-model="form.controlPlaneIps"
+          multiple
+          filterable
+          allow-create
+          default-first-option
+          :reserve-keyword="false"
+          collapse-tags
+          collapse-tags-tooltip
+          :max-collapse-tags="5"
+          placeholder="Enter one or more control plane IPs (required)"
+          :disabled="isUpgrade"
+        />
+      </el-form-item>
+
+      <el-form-item v-if="!isAdopt" label="Nodes" prop="nodes">
         <el-select
           v-model="form.nodes"
           multiple
@@ -222,6 +238,7 @@ const initialForm = () => ({
   imageSecretId: '',
   kubeNetworkPlugin: 'cilium',
   nodes: [] as string[],
+  controlPlaneIps: [] as string[],
   kubeSprayImage: '',
   kubePodsSubnet: '',
   kubeServiceAddress: '',
@@ -271,6 +288,28 @@ const isValidCIDR = (cidr: string) => {
   })
 }
 
+const isValidIPv4 = (ip: string) => {
+  const m = /^(\d{1,3}(?:\.\d{1,3}){3})$/.exec(ip || '')
+  if (!m) return false
+  return m[1].split('.').every((n) => Number(n) <= 255)
+}
+
+const adoptRules: FormRules = {
+  controlPlaneIps: [
+    {
+      type: 'array',
+      required: true,
+      message: 'Please input at least one control plane IP',
+      trigger: 'change',
+    },
+    {
+      validator: (_r, v: string[], cb) =>
+        cb(v.every(isValidIPv4) ? undefined : new Error('Invalid IPv4 address')),
+      trigger: 'change',
+    },
+  ],
+}
+
 const installRules: FormRules = {
   imageSecretId: [{ required: true, message: 'Please select Image secret', trigger: 'change' }],
   kubeNetworkPlugin: [
@@ -316,8 +355,7 @@ const installRules: FormRules = {
 const rules = computed<FormRules>(() => ({
   name: [{ required: true, message: 'Please input name', trigger: 'blur' }],
   sshSecretId: [{ required: true, message: 'Please select SSH secret', trigger: 'change' }],
-  nodes: installRules.nodes,
-  ...(isAdopt.value ? {} : installRules),
+  ...(isAdopt.value ? adoptRules : installRules),
 }))
 
 // ====== lifecycle ======
@@ -435,7 +473,7 @@ const onSubmit = async (el?: FormInstance) => {
           description: form.description || undefined,
           sshSecretId: form.sshSecretId,
           isProtected: form.isProtected,
-          nodes: form.nodes,
+          controlPlaneIps: form.controlPlaneIps,
           adopt: true,
         }
       : {

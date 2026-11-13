@@ -25,6 +25,8 @@ type CreateClusterRequest struct {
 	IsControlPlane bool `json:"isControlPlane"`
 	// Adopt reports that Kubernetes is already installed and must not be provisioned again.
 	Adopt bool `json:"adopt,omitempty"`
+	// Control plane IPs of an adopted cluster, used to read its kubeconfig before nodes are registered.
+	ControlPlaneIPs []string `json:"controlPlaneIps,omitempty"`
 }
 
 type CreateClusterResponse struct {

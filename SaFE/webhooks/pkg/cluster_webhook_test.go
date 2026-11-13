@@ -11,6 +11,7 @@ import (
 
 	"gotest.tools/assert"
 	admissionv1 "k8s.io/api/admission/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -196,6 +197,24 @@ func TestAdoptedClusterSkipsInstallConfig(t *testing.T) {
 
 	v1.SetLabel(cluster, v1.ClusterControlPlaneLabel, "")
 	assert.Assert(t, v.validateOnCreation(context.Background(), cluster) != nil)
+}
+
+// TestAdoptedClusterAcceptsControlPlaneIPs verifies an adopted cluster may be declared by control plane IPs only.
+func TestAdoptedClusterAcceptsControlPlaneIPs(t *testing.T) {
+	v := &ClusterValidator{Client: fake.NewClientBuilder().WithScheme(newScheme(t)).Build()}
+	newCluster := func(ips string, secret bool) *v1.Cluster {
+		cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "ccs300"}}
+		v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+		v1.SetAnnotation(cluster, v1.ClusterAdoptControlPlaneIPsAnnotation, ips)
+		if secret {
+			cluster.Spec.ControlPlane.SSHSecret = &corev1.ObjectReference{Name: "ccs300", Namespace: "primus-safe"}
+		}
+		return cluster
+	}
+	assert.NilError(t, v.validateOnCreation(context.Background(), newCluster("10.235.225.238,10.235.225.239", true)))
+	assert.Assert(t, v.validateOnCreation(context.Background(), newCluster("", true)) != nil)
+	assert.Assert(t, v.validateOnCreation(context.Background(), newCluster("10.235.225.238,not-an-ip", true)) != nil)
+	assert.Assert(t, v.validateOnCreation(context.Background(), newCluster("10.235.225.238", false)) != nil)
 }
 
 // TestClusterValidateImmutableFields verifies control plane node immutability.

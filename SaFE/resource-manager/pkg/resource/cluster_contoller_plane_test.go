@@ -180,6 +180,55 @@ func TestAdoptedClusterDeletionSkipsKubeConfigCheck(t *testing.T) {
 	testifyassert.NoError(t, r.fetchProvisionedClusterKubeConfig(context.Background(), cluster))
 }
 
+// ipBootstrapCluster returns an adopted cluster declared only by control plane IPs.
+func ipBootstrapCluster(t *testing.T) (*v1.Cluster, *ClusterReconciler) {
+	t.Helper()
+	cluster, r := planeClusterWithNode(t)
+	cluster.Spec.ControlPlane.Nodes = nil
+	cluster.Spec.ControlPlane.SSHSecret = &corev1.ObjectReference{Name: "c1", Namespace: common.PrimusSafeNamespace}
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	v1.SetAnnotation(cluster, v1.ClusterAdoptControlPlaneIPsAnnotation, "10.0.0.9, 10.0.0.10")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	r.clientSet = k8sfake.NewSimpleClientset()
+	return cluster, r
+}
+
+// An adopted cluster declared only by IPs reads its kubeconfig from those addresses and becomes ready.
+func TestAdoptedClusterBootstrapsFromControlPlaneIPs(t *testing.T) {
+	cluster, r := ipBootstrapCluster(t)
+	var dialed []string
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
+		func(_ *ClusterReconciler, _ context.Context, node *v1.Node) (*rest.Config, error) {
+			dialed = append(dialed, node.Spec.PrivateIP)
+			return &rest.Config{Host: "https://10.0.0.9:6443", TLSClientConfig: rest.TLSClientConfig{
+				CAData: []byte("ca"), CertData: []byte("cert"), KeyData: []byte("key"),
+			}}, nil
+		})
+	defer patches.Reset()
+
+	testifyassert.NoError(t, r.fetchProvisionedClusterKubeConfig(context.Background(), cluster))
+	testifyassert.Equal(t, []string{"10.0.0.9"}, dialed)
+	testifyassert.Equal(t, v1.ReadyPhase, cluster.Status.ControlPlaneStatus.Phase)
+	testifyassert.Len(t, cluster.Status.ControlPlaneStatus.Endpoints, 2)
+	testifyassert.Empty(t, cluster.Spec.ControlPlane.Nodes)
+}
+
+// An IP-declared adopted cluster whose kubeconfig cannot be read stays pending and never installs.
+func TestAdoptedClusterBootstrapUnreadableKubeConfigStaysPending(t *testing.T) {
+	cluster, r := ipBootstrapCluster(t)
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
+		func(_ *ClusterReconciler, _ context.Context, _ *v1.Node) (*rest.Config, error) {
+			return nil, nil
+		})
+	defer patches.Reset()
+
+	testifyassert.Error(t, r.guaranteeClusterControlPlane(context.Background(), cluster))
+	testifyassert.NotEqual(t, v1.ReadyPhase, cluster.Status.ControlPlaneStatus.Phase)
+	pods := &corev1.PodList{}
+	testifyassert.NoError(t, r.List(context.Background(), pods, client.InNamespace(common.PrimusSafeNamespace)))
+	testifyassert.Empty(t, pods.Items)
+}
+
 func newPlaneReconciler(t *testing.T, objs ...client.Object) *ClusterReconciler {
 	t.Helper()
 	scheme, err := genMockScheme()
