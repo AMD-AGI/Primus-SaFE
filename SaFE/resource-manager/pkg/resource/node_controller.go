@@ -172,13 +172,27 @@ func (r *NodeReconciler) delete(ctx context.Context, adminNode *v1.Node) (ctrlru
 	// part of releasing the allocation. Deleting that node object here would evict pods
 	// whose tasks the provider has not finished stopping, and the deletion would race the
 	// provider's own cleanup rather than replace it.
-	if !adminNode.DeclaresExternalLifecycle() {
+	// A node of an adopted cluster stays in its data plane; only the admin record is removed.
+	adopted, err := r.belongsToAdoptedCluster(ctx, adminNode)
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	if !adminNode.DeclaresExternalLifecycle() && !adopted {
 		result, err := r.deleteK8sNode(ctx, adminNode)
 		if err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
 	}
 	return ctrlruntime.Result{}, utils.RemoveFinalizer(ctx, r.Client, adminNode, v1.NodeFinalizer)
+}
+
+// belongsToAdoptedCluster reports whether the admin node is bound to an adopted cluster.
+func (r *NodeReconciler) belongsToAdoptedCluster(ctx context.Context, adminNode *v1.Node) (bool, error) {
+	cluster, err := getAdminCluster(ctx, r.Client, getClusterId(adminNode))
+	if err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return v1.IsAdoptedCluster(cluster), nil
 }
 
 // getK8sNode retrieves the Kubernetes Node object in the data plane associated with the admin Node.

@@ -656,6 +656,22 @@ func TestAdoptedWorkspaceReconcileSkipsDataPlane(t *testing.T) {
 	testifyassert.Equal(t, v1.WorkspaceRunning, got.Status.Phase)
 }
 
+func TestWorkspaceDeletionOnAdoptedClusterKeepsDataPlane(t *testing.T) {
+	ctx := context.Background()
+	cs := k8sfake.NewSimpleClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}})
+	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1",
+		Annotations: map[string]string{v1.ClusterAdoptAnnotation: v1.TrueStr}}}
+	now := metav1.Now()
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1", DeletionTimestamp: &now,
+		Finalizers: []string{v1.WorkspaceFinalizer}}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+	r := newWorkspaceReconcilerFull(t, cs, cluster, ws)
+
+	testifyassert.NoError(t, r.delete(ctx, ws))
+	_, err := cs.CoreV1().Namespaces().Get(ctx, "ws1", metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, apierrors.IsNotFound(r.Get(ctx, client.ObjectKey{Name: "ws1"}, &v1.Workspace{})))
+}
+
 func TestGuaranteeAndDeleteDataPlaneResourcesFull(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset()
 	cluster := testCluster("c1")

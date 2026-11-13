@@ -308,6 +308,11 @@ func IsAdoptedWorkspace(obj metav1.Object) bool {
 	return GetAnnotation(obj, WorkspaceAdoptAnnotation) == TrueStr
 }
 
+// IsAdoptedCluster reports a cluster that SaFE manages without owning its data plane lifecycle.
+func IsAdoptedCluster(cluster *Cluster) bool {
+	return cluster != nil && GetAnnotation(cluster, ClusterAdoptAnnotation) == TrueStr
+}
+
 // GetAdoptControlPlaneIPs returns the trimmed, non-empty control plane IPs of an adopted cluster.
 func GetAdoptControlPlaneIPs(obj metav1.Object) []string {
 	ips := make([]string, 0)

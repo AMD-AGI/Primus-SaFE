@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -21,6 +22,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -528,4 +530,78 @@ func adoptedWorkerAuthorizeCommand(pub string, ips []string) string {
 			"\"mkdir -p /root/.ssh && touch /root/.ssh/authorized_keys && grep -qxF \\\"$pub\\\" /root/.ssh/authorized_keys || echo \\\"$pub\\\" >> /root/.ssh/authorized_keys\"\n", ip)
 	}
 	return b.String()
+}
+
+// releaseAdoptedCluster deletes the admin records of an adopted cluster in order: Addons, Nodes,
+// Workspaces, then the Cluster finalizer. The data plane is neither reset nor modified.
+func (r *ClusterReconciler) releaseAdoptedCluster(ctx context.Context, cluster *v1.Cluster) (ctrlruntime.Result, error) {
+	for _, list := range []func(context.Context, string) ([]client.Object, error){
+		r.listClusterAddons, r.listClusterNodes, r.listClusterWorkspaces,
+	} {
+		objs, err := list(ctx, cluster.Name)
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if len(objs) == 0 {
+			continue
+		}
+		for _, obj := range objs {
+			if !obj.GetDeletionTimestamp().IsZero() {
+				continue
+			}
+			if err = r.Delete(ctx, obj); client.IgnoreNotFound(err) != nil {
+				return ctrlruntime.Result{}, err
+			}
+		}
+		return ctrlruntime.Result{RequeueAfter: 3 * time.Second}, nil
+	}
+	if err := r.clientManager.Delete(cluster.Name); err != nil {
+		klog.ErrorS(err, "failed to delete cluster clients", "cluster", cluster.Name)
+	}
+	return ctrlruntime.Result{}, utils.RemoveFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer)
+}
+
+// listClusterAddons returns the Addons that target the cluster.
+func (r *ClusterReconciler) listClusterAddons(ctx context.Context, clusterName string) ([]client.Object, error) {
+	list := &v1.AddonList{}
+	if err := r.List(ctx, list); err != nil {
+		return nil, err
+	}
+	objs := make([]client.Object, 0)
+	for i := range list.Items {
+		if list.Items[i].Spec.Cluster != nil && list.Items[i].Spec.Cluster.Name == clusterName {
+			objs = append(objs, &list.Items[i])
+		}
+	}
+	return objs, nil
+}
+
+// listClusterNodes returns the admin Nodes bound to the cluster.
+func (r *ClusterReconciler) listClusterNodes(ctx context.Context, clusterName string) ([]client.Object, error) {
+	list := &v1.NodeList{}
+	if err := r.List(ctx, list); err != nil {
+		return nil, err
+	}
+	objs := make([]client.Object, 0)
+	for i := range list.Items {
+		if getClusterId(&list.Items[i]) == clusterName {
+			objs = append(objs, &list.Items[i])
+		}
+	}
+	return objs, nil
+}
+
+// listClusterWorkspaces returns the Workspaces of the cluster.
+func (r *ClusterReconciler) listClusterWorkspaces(ctx context.Context, clusterName string) ([]client.Object, error) {
+	list := &v1.WorkspaceList{}
+	if err := r.List(ctx, list); err != nil {
+		return nil, err
+	}
+	objs := make([]client.Object, 0)
+	for i := range list.Items {
+		if list.Items[i].Spec.Cluster == clusterName {
+			objs = append(objs, &list.Items[i])
+		}
+	}
+	return objs, nil
 }

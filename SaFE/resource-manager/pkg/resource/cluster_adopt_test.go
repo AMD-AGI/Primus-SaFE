@@ -11,10 +11,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/utils/pointer"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -285,4 +288,52 @@ func TestVolumesFromPVCsIgnoresUnrelatedClaims(t *testing.T) {
 	assert.Len(t, volumes, 1)
 	assert.Equal(t, 2, volumes[0].Id)
 	assert.Equal(t, "/mnt/pfs-2", volumes[0].MountPath)
+}
+
+func TestAdoptedClusterDeletionReleasesAdminRecordsOnly(t *testing.T) {
+	ctx := context.Background()
+	now := metav1.Now()
+	cluster := testCluster("c1")
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	cluster.Spec.ControlPlane.Nodes = []string{"cp1"}
+	cluster.Finalizers = []string{v1.ClusterFinalizer}
+	cluster.DeletionTimestamp = &now
+	cluster.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
+
+	adminNode := func(name string) *v1.Node {
+		n := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{v1.ClusterIdLabel: "c1"}}}
+		n.Spec.Cluster = pointer.String("c1")
+		n.Status.MachineStatus.HostName = name
+		return n
+	}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+	addon := &v1.Addon{ObjectMeta: metav1.ObjectMeta{Name: "c1-a1"},
+		Spec: v1.AddonSpec{Cluster: &corev1.ObjectReference{Name: "c1"}}}
+	otherAddon := &v1.Addon{ObjectMeta: metav1.ObjectMeta{Name: "c2-a1"},
+		Spec: v1.AddonSpec{Cluster: &corev1.ObjectReference{Name: "c2"}}}
+
+	cs := fake.NewSimpleClientset(
+		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "cp1"}},
+		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "w1"}})
+	r := newClusterReconcilerFull(t, cs, cluster, adminNode("cp1"), adminNode("w1"), ws, addon, otherAddon)
+
+	for i := 0; i < 10; i++ {
+		_, err := r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "c1"}})
+		assert.NoError(t, err)
+	}
+
+	assert.True(t, apierrors.IsNotFound(r.Get(ctx, client.ObjectKey{Name: "c1"}, &v1.Cluster{})))
+	nodes := &v1.NodeList{}
+	assert.NoError(t, r.List(ctx, nodes))
+	assert.Empty(t, nodes.Items)
+	assert.True(t, apierrors.IsNotFound(r.Get(ctx, client.ObjectKey{Name: "ws1"}, &v1.Workspace{})))
+	assert.True(t, apierrors.IsNotFound(r.Get(ctx, client.ObjectKey{Name: "c1-a1"}, &v1.Addon{})))
+	assert.NoError(t, r.Get(ctx, client.ObjectKey{Name: "c2-a1"}, &v1.Addon{}))
+
+	pods := &corev1.PodList{}
+	assert.NoError(t, r.List(ctx, pods))
+	assert.Empty(t, pods.Items)
+	k8sNodes, err := cs.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	assert.NoError(t, err)
+	assert.Len(t, k8sNodes.Items, 2)
 }

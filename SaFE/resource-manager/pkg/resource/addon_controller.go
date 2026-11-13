@@ -95,8 +95,10 @@ func (r *AddonController) guaranteeHelmAddon(ctx context.Context, addon *v1.Addo
 	if addon.Spec.AddonSource.HelmRepository == nil {
 		return nil
 	}
+	var cluster *v1.Cluster
 	if addon.Spec.Cluster != nil {
-		if _, err := getAdminCluster(ctx, r.Client, addon.Spec.Cluster.Name); err != nil {
+		var err error
+		if cluster, err = getAdminCluster(ctx, r.Client, addon.Spec.Cluster.Name); err != nil {
 			return client.IgnoreNotFound(err)
 		}
 	}
@@ -111,13 +113,15 @@ func (r *AddonController) guaranteeHelmAddon(ctx context.Context, addon *v1.Addo
 			return r.Status().Patch(ctx, addon, originalAddon)
 		}
 		originalAddon := client.MergeFrom(addon.DeepCopy())
-		err := r.helmUninstall(ctx, addon)
-		if err != nil {
-			return err
+		// The release of an adopted cluster stays installed in its data plane.
+		if !v1.IsAdoptedCluster(cluster) {
+			if err := r.helmUninstall(ctx, addon); err != nil {
+				return err
+			}
 		}
 		r.cleanupRobustGrafanaDatasources(ctx, addon)
 		addon.Status.Phase = v1.AddonDeleted
-		err = r.Status().Patch(ctx, addon, originalAddon)
+		err := r.Status().Patch(ctx, addon, originalAddon)
 		if err != nil {
 			return err
 		}
