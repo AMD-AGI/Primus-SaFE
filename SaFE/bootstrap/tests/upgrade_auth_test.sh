@@ -215,23 +215,7 @@ expect "all auth keys: the script prints no auth value" bash -c '! grep -q "idp.
 # Rendered with and without: only the auth segment differs.
 cp "$OUT/rendered.yaml" "$W/with-auth.yaml"
 run_upgrade "" ""
-# The identity copy job exists only when auth.client_secret is set. Drop that document, then compare.
-strip_copy_job() {
-  awk '
-    function flush() {
-      if (doc == "") return
-      if (doc !~ /namespace: primus-identity/) print doc
-      doc = ""
-    }
-    /^# Source: .*copy_identity_auth_secret_job.yaml$/ { skip = 1; next }
-    skip && /^# Source: / { skip = 0 }
-    skip { next }
-    /^---$/ { flush(); doc = $0 ORS; next }
-    { doc = doc $0 ORS }
-    END { flush() }
-  '
-}
-diff_lines="$(diff <(strip_copy_job < "$OUT/rendered.yaml") <(strip_copy_job < "$W/with-auth.yaml") | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|enabled:|API_KEYS_UPSTREAM|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|"safe-introspection"|secret:$|kubectl -n primus-identity ' || true)"
+diff_lines="$(diff "$OUT/rendered.yaml" "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|enabled:|API_KEYS_UPSTREAM|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|"safe-introspection"|secret:$' || true)"
 expect "rendering with and without the keys differs only in the auth segment" test -z "$diff_lines"
 [[ -z "$diff_lines" ]] || echo "$diff_lines"
 
@@ -453,8 +437,9 @@ run_upgrade "" "sso_login_enable=true
 sso_login_issuer=https://idp.example.com
 sso_login_client_id=safe-console
 sso_login_redirect_uri=https://console.example.com/sso/callback"
-expect "sso_login_* is ignored: applied" applied
-expect "sso_login_* is ignored: sso.login stays off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
+expect "sso_login_* is the previous name: applied" applied
+expect "sso_login_* is the previous name: sso.login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+expect "sso_login_* is the previous name: issuer" grep -qxF '        issuer: "https://idp.example.com"' "$OUT/rendered.yaml"
 run_upgrade "" "oidc_login_enable=false"
 expect "oidc_login_enable=false with sso_enable=false: applied" applied
 # Removing the Secret leaves the apiserver without a provider unless sso.login is on.
@@ -493,7 +478,7 @@ expect "no jq, bridge allowlist: refused" refused
 expect "no jq, bridge allowlist: asks for jq" grep -q 'jq is required when .env sets sso_bridge_allowlist' "$OUT/log"
 
 # A release that runs with sso.login on or a bridge allowlist, and an .env that leaves them out,
-# renders the chart defaults: login off, allowlist empty. .env keeps them by setting the keys.
+# keeps those values. .env turns them off only by setting the keys.
 LIVE_SSO='{"global":{"sub_domain":"test"},"sso":{"enable":true,"secret":"primus-safe-sso","bridge_allowlist":["http://localhost:5173","http://127.0.0.1:5173"],"login":{"enable":true,"issuer":"https://idp.example.com","client_id":"console","redirect_uri":"https://console.example.com/sso/callback"}}}'
 LIVE_SSO_LOGIN_ONLY='{"sso":{"enable":true,"bridge_allowlist":[],"login":{"enable":true,"issuer":"https://idp.example.com"}}}'
 LIVE_SSO_ALLOW_ONLY='{"sso":{"enable":true,"bridge_allowlist":["http://localhost:5173"],"login":{"enable":false}}}'
@@ -501,27 +486,39 @@ LIVE_SSO_OFF='{"sso":{"enable":true,"bridge_allowlist":[],"login":{"enable":fals
 for jqmode in jq nojq; do
   rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO" "$SSO_ON"
-  expect "$jqmode, live sso.login and allowlist, .env without them: applied" applied
-  expect "$jqmode, live sso.login and allowlist, .env without them: login off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
-  expect "$jqmode, live sso.login and allowlist, .env without them: allowlist empty" rendered 'bridge_allowlist: []'
+  if [[ "$jqmode" == "jq" ]]; then
+    expect "$jqmode, live sso.login and allowlist, .env without them: applied" applied
+    expect "$jqmode, live sso.login and allowlist, .env without them: login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+    expect "$jqmode, live sso.login and allowlist, .env without them: allowlist kept" rendered 'bridge_allowlist: ["http://localhost:5173","http://127.0.0.1:5173"]'
+  else
+    expect "$jqmode, live sso.login and allowlist, .env without them: refused" refused
+  fi
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_LOGIN_ONLY" "$SSO_ON"
   expect "$jqmode, live sso.login only: applied" applied
-  expect "$jqmode, live sso.login only: login off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
+  expect "$jqmode, live sso.login only: login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_ALLOW_ONLY" "$SSO_ON"
-  expect "$jqmode, live allowlist only: applied" applied
-  expect "$jqmode, live allowlist only: allowlist empty" rendered 'bridge_allowlist: []'
+  if [[ "$jqmode" == "jq" ]]; then
+    expect "$jqmode, live allowlist only: applied" applied
+    expect "$jqmode, live allowlist only: allowlist kept" rendered 'bridge_allowlist: ["http://localhost:5173"]'
+  else
+    expect "$jqmode, live allowlist only: refused" refused
+  fi
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_OFF" "$SSO_ON"
   expect "$jqmode, live sso.login off and no allowlist: applied" applied
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO" "$SSO_ON
 oidc_login_enable=false"
-  expect "$jqmode, live allowlist, .env turns sso.login off and leaves the allowlist out: applied" applied
-  expect "$jqmode, live allowlist, .env turns sso.login off and leaves the allowlist out: allowlist empty" rendered 'bridge_allowlist: []'
+  if [[ "$jqmode" == "jq" ]]; then
+    expect "$jqmode, live allowlist, .env turns sso.login off and leaves the allowlist out: applied" applied
+    expect "$jqmode, live allowlist, .env turns sso.login off and leaves the allowlist out: allowlist kept" rendered 'bridge_allowlist: ["http://localhost:5173","http://127.0.0.1:5173"]'
+  else
+    expect "$jqmode, live allowlist, .env turns sso.login off and leaves the allowlist out: refused" refused
+  fi
 done
-# helm keeps a value set with --set-string as a string. .env still wins with the chart default.
+# helm keeps a value set with --set-string as a string. That still counts as on.
 for jqmode in jq nojq; do
   rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
   RUN_PATH="${rp:-}" run_upgrade '{"sso":{"enable":true,"login":{"enable":"true"}}}' "$SSO_ON"
-  expect "$jqmode, live sso.login.enable is the string \"true\", .env omits it: login off" grep -qxF '        enable: false' "$OUT/rendered.yaml"
+  expect "$jqmode, live sso.login.enable is the string \"true\", .env omits it: login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
 done
 saved_base="$BASE_ENV"
 BASE_ENV=$(grep -v '^sso_enable=' <<<"$saved_base")

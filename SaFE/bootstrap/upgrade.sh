@@ -350,7 +350,94 @@ else
   exit 1
 fi
 
-# Chart defaults (charts/primus-safe/values.yaml). A key .env does not set is that value.
+# sso_login_* is the previous name of oidc_login_*. A .env that still sets the old name keeps that value.
+adopt_sso_login_aliases() {
+  local new old
+  for pair in \
+    oidc_login_enable:sso_login_enable \
+    oidc_login_issuer:sso_login_issuer \
+    oidc_login_client_id:sso_login_client_id \
+    oidc_login_redirect_uri:sso_login_redirect_uri
+  do
+    new="${pair%%:*}"
+    old="${pair##*:}"
+    if [[ -n "${!old+x}" ]]; then
+      if [[ -n "${!new+x}" && "${!new}" != "${!old}" ]]; then
+        echo "Error: .env sets both $old and $new. Use $new." >&2
+        exit 1
+      fi
+      printf -v "$new" '%s' "${!old}"
+      echo "Warning: $old is the previous name of $new" >&2
+    fi
+  done
+}
+
+# keep_live_sso copies sso.login and a non-empty bridge allowlist from the running release when .env
+# does not set them. An upgrade then does not turn the console sign-in off or empty the allowlist.
+# An explicit oidc_login_enable and sso_bridge_allowlist need no read of the release.
+keep_live_sso() {
+  local releases live en al
+  if [[ -n "${oidc_login_enable+x}" && -n "${sso_bridge_allowlist+x}" && -n "${oidc_login_issuer+x}" && -n "${oidc_login_client_id+x}" && -n "${oidc_login_redirect_uri+x}" ]]; then
+    return 0
+  fi
+  if [[ -n "${oidc_login_enable+x}" && -n "${sso_bridge_allowlist+x}" ]]; then
+    return 0
+  fi
+  if ! releases=$(helm -n "$NAMESPACE" list 2>/dev/null); then
+    return 0
+  fi
+  if ! grep -q "^$chart_name " <<<"$releases"; then
+    return 0
+  fi
+  if command -v jq &> /dev/null; then
+    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o json); then
+      echo "Error: cannot read the values of release $chart_name, so its console sign-in settings are unknown" >&2
+      exit 1
+    fi
+    if [[ -z "${oidc_login_enable+x}" ]]; then
+      en=$(jq -r 'if .sso.login.enable == true or .sso.login.enable == "true" then "true" else "false" end' <<<"$live")
+      if [[ "$en" == "true" ]]; then
+        oidc_login_enable=true
+      fi
+    fi
+    if [[ -z "${oidc_login_issuer+x}" ]]; then
+      oidc_login_issuer=$(jq -r '.sso.login.issuer // ""' <<<"$live")
+    fi
+    if [[ -z "${oidc_login_client_id+x}" ]]; then
+      oidc_login_client_id=$(jq -r '.sso.login.client_id // ""' <<<"$live")
+    fi
+    if [[ -z "${oidc_login_redirect_uri+x}" ]]; then
+      oidc_login_redirect_uri=$(jq -r '.sso.login.redirect_uri // ""' <<<"$live")
+    fi
+    if [[ -z "${sso_bridge_allowlist+x}" ]]; then
+      al=$(jq -c '.sso.bridge_allowlist // []' <<<"$live")
+      if [[ "$al" != "[]" && "$al" != "null" ]]; then
+        sso_bridge_allowlist="$al"
+      fi
+    fi
+    return 0
+  fi
+  if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o yaml); then
+    echo "Error: cannot read the values of release $chart_name, so its console sign-in settings are unknown" >&2
+    exit 1
+  fi
+  if [[ -z "${oidc_login_enable+x}" ]]; then
+    en=$(awk '/^sso:/ {s = 1; next} /^[^ #]/ {s = 0} s && /^  login:/ {l = 1; next} s && /^  [^ ]/ {l = 0} s && l && /^    enable:/ {gsub(/["\047]/, "", $2); print $2; exit}' <<<"$live")
+    if [[ "$en" == "true" ]]; then
+      oidc_login_enable=true
+    fi
+  fi
+  if [[ -z "${sso_bridge_allowlist+x}" ]] && grep -qE '^  bridge_allowlist:[[:space:]]*$' <<<"$live"; then
+    echo "Error: jq is required to keep the running release's sso.bridge_allowlist when .env does not set it" >&2
+    exit 1
+  fi
+}
+
+adopt_sso_login_aliases
+keep_live_sso
+
+# Chart defaults (charts/primus-safe/values.yaml). A key .env does not set, and the running release
+# does not already have, is that value.
 sso_enable="${sso_enable:-true}"
 oidc_login_enable="${oidc_login_enable:-false}"
 
@@ -381,9 +468,11 @@ echo "✅ Node Agent ROCm Version: \"${node_agent_rocm_version:-6.4}\""
 echo "✅ Node Agent Toggles: net_bnxt_load_204=${node_agent_toggle_net_bnxt_load_204:-off}, net_ainic_load_205=${node_agent_toggle_net_ainic_load_205:-off}, net_ainic_devices_208=${node_agent_toggle_net_ainic_devices_208:-off}, sys_csi_wekafs_309=${node_agent_toggle_sys_csi_wekafs_309:-on}"
 echo "✅ Auth mode: \"${auth_mode:-builtin}\""
 
-# The console's sign-in at an OpenID Connect provider (sso.login, see docs/installation/install.md),
-# from .env like the rest. Unset oidc_login_enable is the chart default, false: the console signs in
-# at the provider of the sso Secret. Unset sso_bridge_allowlist is the chart default, [].
+# The console's sign-in at an OpenID Connect provider (sso.login, see docs/installation/install.md).
+# oidc_login_* is the name .env uses. sso_login_* is accepted as the previous name. A running release
+# keeps sso.login and a non-empty bridge allowlist when .env sets neither. A fresh install with the
+# keys unset uses the chart defaults: sso.login off, allowlist []. auth.login_url is not derived; external
+# mode refuses to start without it, and check_live_auth requires .env to carry a stored auth_login_url.
 #   oidc_login_enable        true | false                                 -> sso.login.enable
 #   oidc_login_issuer        the provider's issuer; empty is the cluster host
 #                           https://<sub_domain>.<domain>                 -> sso.login.issuer

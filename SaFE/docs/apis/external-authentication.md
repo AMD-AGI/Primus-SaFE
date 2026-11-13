@@ -80,7 +80,7 @@ Mapped roles and workspaces are part of the user every handler resolves for the 
 Before upgrading a deployment in external mode:
 
 * Make sure every administrator is granted `system-admin` (or `system-admin-readonly`) by a group mapping at the identity provider. There is no local fallback while the identity provider is down.
-* If a local administrator is needed as a break-glass path, that is `auth.mode: builtin`: set it back (a configuration change and an apiserver roll) to sign in with local accounts. No user object or table is changed by either mode.
+* If a local administrator is needed as a break-glass path, that is `auth.mode: builtin`: set it back (a configuration change and an apiserver roll) to sign in with local accounts. User records created while external mode was on remain. Roles that SCIM wrote from `group_mappings`, including `system-admin`, are stored on those records and count again under builtin. A user SCIM deleted is gone. Review the User list before rolling back.
 
 The apiserver logs a warning at start-up in external mode, and names the `builtin` entry when the chain has one, so the change is visible before an outage and not during it.
 
@@ -212,11 +212,12 @@ The client Secret is created in the release namespace. The chart mounts that Sec
 2. The client Secret exists in the SaFE namespace.
 3. The SCIM target is configured on the provider. `auth.provider_client` stays off unless this deployment should register that target itself.
 4. The database job has finished.
-5. `auth.authenticators` is `oidc`, then `introspection`, then `builtin`.
+5. `auth.authenticators` is `oidc`, then `introspection`, then `builtin`. When `sso.login.enable` is true, one `oidc` entry's `audience` is `sso.login.client_id`. The console sign-in cookie is that client's ID token, and the chain rejects it otherwise.
 6. Sign-in, `GET /users/self`, API keys and the LLM proxy succeed.
+7. For sandbox admission, deploy this release with `sandbox.admission` enabled (the example overlay, plus `actor` and the key set) and check that a non-member is denied. Then move the gatekeeper-constraints addon to 0.1.5. That addon no longer checks membership.
 
 ## Rolling back
 
-Set `auth.mode: builtin` and roll the apiserver. No user object or table is changed by either mode, and the endpoints listed under "What the apiserver stops offering" work again.
+Set `auth.mode: builtin` and roll the apiserver. The endpoints listed under "What the apiserver stops offering" work again. User records that external mode created stay. `spec.roles` that a SCIM PATCH wrote from `group_mappings` stay on the record and are effective again, including platform roles. A user that SCIM deleted is not recreated. Review those records after the rollback.
 
 With `bootstrap/upgrade.sh` or the CD job, `auth_mode=builtin` in `.env` renders builtin. Leaving `auth_mode` unset on an external release is refused. To run external again, set `auth_mode=external` and the other `auth_*` keys.

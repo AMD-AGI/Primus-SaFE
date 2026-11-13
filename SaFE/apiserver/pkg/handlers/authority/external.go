@@ -75,6 +75,9 @@ func InitExternalAuth(cli client.Client) error {
 	if err != nil {
 		return err
 	}
+	if err = requireLoginAudience(cfgs); err != nil {
+		return err
+	}
 	keyActors := map[string]struct{}{}
 	for _, a := range commonconfig.GetAuthKeyActors() {
 		keyActors[a] = struct{}{}
@@ -110,6 +113,24 @@ func warnStoredPlatformRoles(cfgs []commonconfig.AuthenticatorConfig) {
 		}
 	}
 	klog.Warning(msg)
+}
+
+// requireLoginAudience refuses an external deployment whose console sign-in token the chain cannot
+// accept. The ID token from sso.login carries sso.login.client_id as its audience.
+func requireLoginAudience(cfgs []commonconfig.AuthenticatorConfig) error {
+	if !commonconfig.IsSSOLoginEnable() {
+		return nil
+	}
+	want := commonconfig.GetSSOLoginClientId()
+	if want == "" {
+		return errors.New("sso.login.enable is set but sso.login.client_id is empty")
+	}
+	for _, c := range cfgs {
+		if strings.EqualFold(c.Type, "oidc") && c.Audience == want {
+			return nil
+		}
+	}
+	return fmt.Errorf("sso.login.enable is set but no oidc authenticator audience equals sso.login.client_id %q", want)
 }
 
 func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error) {

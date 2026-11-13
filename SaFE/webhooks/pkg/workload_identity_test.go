@@ -26,6 +26,9 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
+// sandboxDetailKind is the workload kind these identity assertion tests use.
+const sandboxDetailKind = "Sandbox"
+
 // admissionFixture is a signed assertion and the workload it names.
 func admissionFixture(t *testing.T, key *ecdsa.PrivateKey, kid string) (commonconfig.SandboxAdmissionConfig, *v1.Workload, string) {
 	t.Helper()

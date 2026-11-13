@@ -32,8 +32,6 @@ import (
 )
 
 const (
-	// sandboxDetailKind is the workload kind the identity assertion tests use.
-	sandboxDetailKind = "Sandbox"
 	// workspaceResource is the resource of the workspace membership check.
 	workspaceResource = "workspaces"
 	// workspaceUseVerb is the verb of the workspace membership check.
