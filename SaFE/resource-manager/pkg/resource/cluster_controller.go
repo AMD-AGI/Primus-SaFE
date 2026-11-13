@@ -282,6 +282,9 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	if err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
+	if !cluster.GetDeletionTimestamp().IsZero() && v1.IsAdoptedCluster(cluster) {
+		return r.releaseAdoptedCluster(ctx, cluster)
+	}
 	if !cluster.GetDeletionTimestamp().IsZero() && !cluster.IsInDeletion() {
 		if err = r.cleanupClusterResources(ctx, cluster); err != nil {
 			return ctrlruntime.Result{}, err

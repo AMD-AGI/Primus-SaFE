@@ -422,6 +422,26 @@ func TestHelmUninstallViaMemory(t *testing.T) {
 	testifyassert.NoError(t, err)
 }
 
+func TestAdoptedClusterAddonDeletionKeepsRelease(t *testing.T) {
+	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1",
+		Annotations: map[string]string{v1.ClusterAdoptAnnotation: v1.TrueStr}}}
+	addon := helmAddon("c1-a1", "rel1")
+	addon.Spec.Cluster = &corev1.ObjectReference{Name: "c1"}
+	now := metav1.Now()
+	addon.DeletionTimestamp = &now
+	addon.Finalizers = []string{v1.AddonFinalizer}
+	addon.Status.Phase = v1.AddonDeleting
+	r := newHelmAddonController(t, cluster, addon)
+	cfg := newMemActionConfig(t, "rel1", 1)
+	patches := patchAddonHelm(r, cfg)
+	defer patches.Reset()
+
+	testifyassert.NoError(t, r.guaranteeHelmAddon(context.Background(), addon))
+	_, err := cfg.Releases.Get("rel1", 1)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, v1.AddonPhaseType(v1.AddonDeleted), addon.Status.Phase)
+}
+
 func TestHelmUninstallNoStatus(t *testing.T) {
 	addon := helmAddon("a1", "rel1")
 	addon.Status.AddonSourceStatus.HelmRepositoryStatus = nil

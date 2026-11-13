@@ -59,7 +59,7 @@ const (
 func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cluster *v1.Cluster) error {
 	klog.Infof("cluster %s, phase %s", cluster.Name, cluster.Status.ControlPlaneStatus.Phase)
 
-	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
+	if len(cluster.Spec.ControlPlane.Nodes) == 0 && len(bootstrapAdoptedNodes(cluster)) == 0 {
 		return nil
 	}
 
@@ -718,6 +718,9 @@ func retryCountBelongsToTarget(cluster *v1.Cluster) bool {
 
 // getControllerPlaneNodes retrieves all control plane nodes for the cluster.
 func (r *ClusterReconciler) getControllerPlaneNodes(ctx context.Context, cluster *v1.Cluster) ([]*v1.Node, error) {
+	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
+		return bootstrapAdoptedNodes(cluster), nil
+	}
 	nodes := make([]*v1.Node, 0, len(cluster.Spec.ControlPlane.Nodes))
 
 	for _, v := range cluster.Spec.ControlPlane.Nodes {
@@ -747,8 +750,18 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 	if err != nil {
 		return err
 	}
+	// An adopted cluster must never fall through to installation when its kubeconfig is unreadable.
+	if config == nil && isAdoptedClusterPending(cluster) {
+		return fmt.Errorf("kubeconfig of adopted cluster %s is not readable from control plane", cluster.Name)
+	}
 
 	return r.updateClusterKubeConfig(ctx, cluster, nodes, config)
+}
+
+// isAdoptedClusterPending reports whether an adopted cluster is still being brought under management.
+func isAdoptedClusterPending(cluster *v1.Cluster) bool {
+	return cluster.GetDeletionTimestamp().IsZero() &&
+		v1.GetAnnotation(cluster, v1.ClusterAdoptAnnotation) == v1.TrueStr
 }
 
 // fetchConfigFromControlPlane reads the provisioned kubeconfig from the first control plane that

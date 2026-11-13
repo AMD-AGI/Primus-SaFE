@@ -186,6 +186,24 @@ func TestGenerateCluster(t *testing.T) {
 	assert.Equal(t, "infra", cluster.Labels["team"])
 	testifyassert.True(t, v1.IsProtected(cluster))
 	testifyassert.True(t, v1.HasLabel(cluster, v1.ClusterControlPlaneLabel))
+	assert.Empty(t, v1.GetAnnotation(cluster, v1.ClusterAdoptAnnotation))
+
+	req.Adopt = true
+	adopted, err := h.generateCluster(context.Background(), user, req, []byte(`{}`))
+	testifyassert.NoError(t, err)
+	assert.Equal(t, v1.TrueStr, v1.GetAnnotation(adopted, v1.ClusterAdoptAnnotation))
+	testifyassert.False(t, v1.HasLabel(adopted, v1.ClusterControlPlaneLabel))
+	testifyassert.Empty(t, v1.GetAdoptControlPlaneIPs(adopted))
+
+	req.ControlPlaneIPs = []string{"10.235.225.238", "10.235.225.239", "10.235.225.240"}
+	withIPs, err := h.generateCluster(context.Background(), user, req, []byte(`{}`))
+	testifyassert.NoError(t, err)
+	assert.Equal(t, []string{"10.235.225.238", "10.235.225.239", "10.235.225.240"}, v1.GetAdoptControlPlaneIPs(withIPs))
+	// A nil slice is encoded as null, which the Cluster CRD rejects. An adopted cluster has no nodes yet.
+	raw, err := json.Marshal(withIPs)
+	testifyassert.NoError(t, err)
+	testifyassert.Contains(t, string(raw), `"nodes":[]`)
+	testifyassert.NotContains(t, string(raw), `"nodes":null`)
 }
 
 func TestCreateClusterHandler(t *testing.T) {

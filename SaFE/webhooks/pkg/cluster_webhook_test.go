@@ -11,6 +11,7 @@ import (
 
 	"gotest.tools/assert"
 	admissionv1 "k8s.io/api/admission/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -52,6 +53,11 @@ func TestClusterMutateOnCreation(t *testing.T) {
 	assert.Equal(t, cluster.Name, "mycluster")
 	assert.Assert(t, cluster.Spec.ControlPlane.KubeNetworkPlugin != nil)
 	assert.Equal(t, *cluster.Spec.ControlPlane.KubeNetworkPlugin, v1.FlannelNetworkPlugin)
+
+	adopted := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "ccs300"}}
+	v1.SetAnnotation(adopted, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	m.mutateOnCreation(context.Background(), adopted)
+	assert.Assert(t, adopted.Spec.ControlPlane.KubeNetworkPlugin == nil)
 }
 
 // TestClusterMutatorHandle verifies the cluster mutator admission handler.
@@ -177,6 +183,40 @@ func TestClusterValidateOnCreation(t *testing.T) {
 	assert.NilError(t, v.validateOnCreation(context.Background(), validControlPlaneCluster()))
 }
 
+// TestAdoptedClusterSkipsInstallConfig verifies an adopted cluster does not need install settings.
+func TestAdoptedClusterSkipsInstallConfig(t *testing.T) {
+	scheme := newScheme(t)
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(readyNode("node1")).Build()
+	v := &ClusterValidator{Client: k8sClient}
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "ccs300"},
+		Spec:       v1.ClusterSpec{ControlPlane: v1.ControlPlane{Nodes: []string{"node1"}}},
+	}
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	assert.NilError(t, v.validateOnCreation(context.Background(), cluster))
+
+	v1.SetLabel(cluster, v1.ClusterControlPlaneLabel, "")
+	assert.Assert(t, v.validateOnCreation(context.Background(), cluster) != nil)
+}
+
+// TestAdoptedClusterAcceptsControlPlaneIPs verifies an adopted cluster may be declared by control plane IPs only.
+func TestAdoptedClusterAcceptsControlPlaneIPs(t *testing.T) {
+	v := &ClusterValidator{Client: fake.NewClientBuilder().WithScheme(newScheme(t)).Build()}
+	newCluster := func(ips string, secret bool) *v1.Cluster {
+		cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "ccs300"}}
+		v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+		v1.SetAnnotation(cluster, v1.ClusterAdoptControlPlaneIPsAnnotation, ips)
+		if secret {
+			cluster.Spec.ControlPlane.SSHSecret = &corev1.ObjectReference{Name: "ccs300", Namespace: "primus-safe"}
+		}
+		return cluster
+	}
+	assert.NilError(t, v.validateOnCreation(context.Background(), newCluster("10.235.225.238,10.235.225.239", true)))
+	assert.Assert(t, v.validateOnCreation(context.Background(), newCluster("", true)) != nil)
+	assert.Assert(t, v.validateOnCreation(context.Background(), newCluster("10.235.225.238,not-an-ip", true)) != nil)
+	assert.Assert(t, v.validateOnCreation(context.Background(), newCluster("10.235.225.238", false)) != nil)
+}
+
 // TestClusterValidateImmutableFields verifies control plane node immutability.
 func TestClusterValidateImmutableFields(t *testing.T) {
 	v := &ClusterValidator{}
@@ -186,6 +226,12 @@ func TestClusterValidateImmutableFields(t *testing.T) {
 
 	changed := &v1.Cluster{Spec: v1.ClusterSpec{ControlPlane: v1.ControlPlane{Nodes: []string{"node2"}}}}
 	assert.Assert(t, v.validateImmutableFields(changed, oldCluster) != nil)
+
+	adopted := oldCluster.DeepCopy()
+	v1.SetAnnotation(adopted, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	recorded := adopted.DeepCopy()
+	recorded.Spec.ControlPlane.Nodes = []string{"gpu4455", "gpu4456"}
+	assert.NilError(t, v.validateImmutableFields(recorded, adopted))
 }
 
 // TestClusterValidateOnUpdate verifies update-time validation.

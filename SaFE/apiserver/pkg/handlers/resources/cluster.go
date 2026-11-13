@@ -154,7 +154,17 @@ func (h *Handler) generateCluster(ctx context.Context,
 	if req.IsProtected {
 		v1.SetLabel(cluster, v1.ProtectLabel, "")
 	}
-	if req.IsControlPlane {
+	// An adopted cluster is an existing data plane, so it is never marked as the management cluster.
+	if req.Adopt {
+		v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+		if len(req.ControlPlaneIPs) > 0 {
+			v1.SetAnnotation(cluster, v1.ClusterAdoptControlPlaneIPsAnnotation, strings.Join(req.ControlPlaneIPs, ","))
+		}
+		// Nodes are discovered after the kubeconfig is read. A nil slice encodes as null and the CRD rejects it.
+		if cluster.Spec.ControlPlane.Nodes == nil {
+			cluster.Spec.ControlPlane.Nodes = []string{}
+		}
+	} else if req.IsControlPlane {
 		v1.SetLabel(cluster, v1.ClusterControlPlaneLabel, "")
 	}
 

@@ -101,6 +101,12 @@ const (
 	ClusterUpgradeRetryCountAnnotation = ClusterPrefix + "upgrade.retry.count"
 	// ClusterUpgradeRetryTargetAnnotation records the target the retry count belongs to.
 	ClusterUpgradeRetryTargetAnnotation = ClusterPrefix + "upgrade.retry.target"
+	// ClusterAdoptAnnotation marks an existing Kubernetes cluster that must be adopted, never installed.
+	ClusterAdoptAnnotation = ClusterPrefix + "adopt"
+	// ClusterAdoptNodeFlavorAnnotation names the NodeFlavor used for nodes that carry no flavor label.
+	ClusterAdoptNodeFlavorAnnotation = ClusterPrefix + "adopt.node-flavor"
+	// ClusterAdoptControlPlaneIPsAnnotation lists comma-separated control plane IPs used to read an adopted kubeconfig.
+	ClusterAdoptControlPlaneIPsAnnotation = ClusterPrefix + "adopt.control-plane-ips"
 
 	// storage
 	StoragePrefix              = PrimusSafePrefix + "storage."
@@ -116,6 +122,9 @@ const (
 	WorkspacePrefix    = PrimusSafePrefix + "workspace."
 	WorkspaceFinalizer = PrimusSafeDomain + "workspace.finalizer"
 	WorkspaceIdLabel   = WorkspacePrefix + "id"
+	// WorkspaceAdoptAnnotation marks a workspace that already exists on the data plane.
+	// The workspace controller records it and does not create or delete data plane resources.
+	WorkspaceAdoptAnnotation = WorkspacePrefix + "adopt"
 	// WorkspaceExternalLabel marks a workspace whose capacity is supplied by an external
 	// execution provider rather than by managed physical nodes. The value "true" selects the
 	// external path; any other value is native. It is immutable after creation, because flipping

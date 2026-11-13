@@ -17,6 +17,7 @@ import (
 	"gotest.tools/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -685,6 +686,24 @@ func TestDeleteK8sNodeFull(t *testing.T) {
 	testifyassert.NoError(t, err)
 	_, err = cs.CoreV1().Nodes().Get(ctx, "kn1", metav1.GetOptions{})
 	testifyassert.Error(t, err)
+}
+
+func TestAdoptedClusterNodeDeletionKeepsK8sNode(t *testing.T) {
+	ctx := context.Background()
+	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1",
+		Annotations: map[string]string{v1.ClusterAdoptAnnotation: v1.TrueStr}}}
+	now := metav1.Now()
+	adminNode := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1", DeletionTimestamp: &now,
+		Finalizers: []string{v1.NodeFinalizer}, Labels: map[string]string{v1.ClusterIdLabel: "c1"}}}
+	adminNode.Status.MachineStatus.HostName = "kn1"
+	cs := k8sfake.NewSimpleClientset(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "kn1"}})
+	r := newNodeReconcilerFull(t, cs, cluster, adminNode)
+
+	_, err := r.delete(ctx, adminNode)
+	testifyassert.NoError(t, err)
+	_, err = cs.CoreV1().Nodes().Get(ctx, "kn1", metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, apierrors.IsNotFound(r.Get(ctx, ctrlclient.ObjectKey{Name: "n1"}, &v1.Node{})))
 }
 
 // --- merged from node_predicate_test.go ---

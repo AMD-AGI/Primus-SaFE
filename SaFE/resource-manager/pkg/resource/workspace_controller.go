@@ -383,6 +383,12 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 		// one, and a failed one comes back through the work queue.
 		return ctrlruntime.Result{}, r.delete(ctx, workspace)
 	}
+	if v1.IsAdoptedWorkspace(workspace) {
+		if workspace.Status.Phase == v1.WorkspaceRunning {
+			return ctrlruntime.Result{}, nil
+		}
+		return ctrlruntime.Result{}, r.updatePhase(ctx, workspace, v1.WorkspaceRunning)
+	}
 	clientSet, err := r.getClientSetOfDataplane(ctx, workspace.Spec.Cluster)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -475,11 +481,31 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 	// goroutines by now, so nothing is left to write the entry back; a late Node event finds
 	// no entry and settles nothing.
 	r.removeExpectations(workspace.Name)
-	if err = r.deleteDataPlaneResources(ctx, workspace); err != nil {
-		klog.ErrorS(err, "failed to delete data plane resources for workspace", "name", workspace.Name)
+	// An adopted workspace, or any workspace of an adopted cluster, names a namespace that the
+	// data plane owns. Deleting the record must not delete that namespace or its volumes.
+	keepDataPlane, err := r.keepsDataPlane(ctx, workspace)
+	if err != nil {
 		return err
 	}
+	if !keepDataPlane {
+		if err = r.deleteDataPlaneResources(ctx, workspace); err != nil {
+			klog.ErrorS(err, "failed to delete data plane resources for workspace", "name", workspace.Name)
+			return err
+		}
+	}
 	return utils.RemoveFinalizer(ctx, r.Client, workspace, v1.WorkspaceFinalizer)
+}
+
+// keepsDataPlane reports whether the workspace is adopted or belongs to an adopted cluster.
+func (r *WorkspaceReconciler) keepsDataPlane(ctx context.Context, workspace *v1.Workspace) (bool, error) {
+	if v1.IsAdoptedWorkspace(workspace) {
+		return true, nil
+	}
+	cluster, err := getAdminCluster(ctx, r.Client, workspace.Spec.Cluster)
+	if err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return v1.IsAdoptedCluster(cluster), nil
 }
 
 // updatePhase updates the phase of a Workspace resource.
