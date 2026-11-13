@@ -100,6 +100,19 @@ The [install.sh](../../bootstrap/install.sh) script provides a one-click install
         Once nothing uses it, remove it with `sso.secret: ""` (`.env`: `sso_secret=`): the secret is then not mounted.
         `upgrade.sh` accepts `sso_secret=` only together with `sso_login_enable=true`, since the apiserver needs one of the two.
       - Off again: `sso.login.enable: false` (with the secret still configured) and roll the apiserver.
+    - Other web apps on the console's host that send a signed-out browser to the console's
+      `/login?redirect=<path>` get it back after sign-in only when the path is under one of
+      `console.return_prefixes` (`.env`: `console_return_prefixes`, a JSON array in single quotes). Each entry is a
+      plain path prefix (`/dispatron`, `/apps/x`: no trailing slash, no `.` or `..` segment); others are ignored.
+      Unset, the list is `/dispatron`, `/autopilot`, `/binding` and `/blog-drafts`; `'[]'` allows none. The console
+      reads it from `/api/v1/envs` (`consoleReturnPrefixes`) and uses the default list while that cannot be read.
+      For example, to also return to the Claw API's download links:
+
+      ```bash
+      console_return_prefixes='["/dispatron","/autopilot","/binding","/blog-drafts","/claw-api"]'
+      ```
+
+      Left out of `.env`, `upgrade.sh` keeps the list of the running release.
 
 #### Image and Network Configuration
 

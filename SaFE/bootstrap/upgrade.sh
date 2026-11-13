@@ -261,6 +261,23 @@ check_live_sso() {
   fi
 }
 
+# write_console_values adds console.return_prefixes (CONSOLE_RETURN_PREFIXES, see
+# resolve_console_return_prefixes) to the extra values file AUTH_VALUES_FILE, writing it to $1 if no
+# earlier step wrote one; nothing when it is unset, which leaves the apiserver's default list.
+write_console_values() {
+  local out="$1" base='{}'
+  if [[ -z "$CONSOLE_RETURN_PREFIXES" ]]; then
+    return 0
+  fi
+  if [[ -n "$AUTH_VALUES_FILE" ]]; then
+    base=$(cat "$AUTH_VALUES_FILE")
+    out="$AUTH_VALUES_FILE"
+  fi
+  jq -n --argjson b "$base" --argjson l "$CONSOLE_RETURN_PREFIXES" '$b * {console: {return_prefixes: $l}}' > "$out.tmp"
+  mv "$out.tmp" "$out"
+  AUTH_VALUES_FILE="$out"
+}
+
 # write_sso_values adds sso.bridge_allowlist from .env (checked above) to the extra values file
 # AUTH_VALUES_FILE, writing it to $1 if write_auth_values wrote none; nothing when .env does not set it.
 write_sso_values() {
@@ -298,6 +315,7 @@ echo "✅ Support S3: \"$s3_enable\""
 echo "✅ Support SSO: \"$sso_enable\""
 echo "✅ SSO console sign-in at an OIDC provider (sso.login): \"${sso_login_enable:-unset}\""
 echo "✅ SSO bridge allowlist: $([[ -n "${sso_bridge_allowlist+x}" ]] && echo set || echo unset)"
+echo "✅ Console return prefixes: $([[ -n "${console_return_prefixes+x}" ]] && echo set || echo unset)"
 echo "✅ Support Tracing: \"${tracing_enable:-false}\" (mode: ${tracing_mode:-error_only})"
 echo "✅ Support LLM Gateway: \"${llm_gateway_enable:-false}\""
 echo "✅ Grafana: enable=\"${grafana_enable:-true}\" (set grafana_enable=false in .env to disable)"
@@ -379,6 +397,26 @@ if [[ -n "${sso_bridge_allowlist+x}" ]]; then
     exit 1
   fi
 fi
+# The path prefixes on the console's host that the console returns to after a sign-in another web
+# app started (/login?redirect=<path>); see console.return_prefixes in the chart's values.yaml.
+#   console_return_prefixes  JSON array of plain path prefixes, e.g.
+#                            console_return_prefixes='["/dispatron","/autopilot","/binding","/blog-drafts","/claw-api"]'
+#                            -> console.return_prefixes
+# Left out, the running release keeps its list (resolve_console_return_prefixes), and a fresh install
+# gets the apiserver's default; '[]' allows none.
+if [[ -n "${console_return_prefixes+x}" ]]; then
+  if [[ -z "${console_return_prefixes//[[:space:]]/}" ]]; then
+    console_return_prefixes='[]'
+  fi
+  if ! command -v jq &> /dev/null; then
+    echo "Error: jq is required when .env sets console_return_prefixes" >&2
+    exit 1
+  fi
+  if ! jq -e 'type == "array" and all(.[]; type == "string" and test("^(/[A-Za-z0-9_~-][A-Za-z0-9._~-]*)+$"))' <<<"$console_return_prefixes" &> /dev/null; then
+    echo "Error: console_return_prefixes in .env is not a JSON array of path prefixes such as \"/dispatron\"" >&2
+    exit 1
+  fi
+fi
 
 # resolve_user_dir_mounts sets USER_DIR_MOUNTS to the external_execution.user_dir_mounts the upgrade
 # renders. external_user_dir_mounts in .env (true or false) wins. Without it the running release keeps
@@ -426,12 +464,57 @@ resolve_user_dir_mounts() {
   fi
 }
 
+# resolve_console_return_prefixes sets CONSOLE_RETURN_PREFIXES to the console.return_prefixes (JSON) the
+# upgrade renders, or "" for the apiserver's default. console_return_prefixes in .env wins. Without it the
+# running release keeps its list: helm renders every value from the chart defaults and the files it is
+# given, so a list set by hand would be dropped by the next upgrade, and the apps added to it would land
+# on the console's 404 page after sign-in again. Without jq a release that has a list cannot carry it
+# over, so the upgrade stops and asks for the key in .env.
+resolve_console_return_prefixes() {
+  local releases live
+  CONSOLE_RETURN_PREFIXES=""
+  if [[ -n "${console_return_prefixes+x}" ]]; then
+    CONSOLE_RETURN_PREFIXES="$console_return_prefixes"
+    return 0
+  fi
+  if ! releases=$(helm -n "$NAMESPACE" list); then
+    echo "Error: cannot list the helm releases in $NAMESPACE, so console.return_prefixes of the running release is unknown" >&2
+    return 1
+  fi
+  if ! grep -q "^$chart_name " <<<"$releases"; then
+    return 0 # nothing installed yet: the apiserver's default applies
+  fi
+  if command -v jq &> /dev/null; then
+    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o json); then
+      echo "Error: cannot read the values of release $chart_name, so its console.return_prefixes is unknown" >&2
+      return 1
+    fi
+    if ! CONSOLE_RETURN_PREFIXES=$(jq -c '.console.return_prefixes // empty | select(type == "array")' <<<"$live"); then
+      echo "Error: cannot read console.return_prefixes from the values of release $chart_name" >&2
+      return 1
+    fi
+    return 0
+  fi
+  if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o yaml); then
+    echo "Error: cannot read the values of release $chart_name, so its console.return_prefixes is unknown" >&2
+    return 1
+  fi
+  if awk '/^console:/ {c = 1; next} /^[^ #]/ {c = 0} c && /^  return_prefixes:/ && !/: *null *$/ {found = 1} END {exit !found}' <<<"$live"; then
+    echo "Error: release $chart_name runs with console.return_prefixes, which .env does not set, and without jq it" >&2
+    echo "       cannot be carried over. Nothing has been changed. Add console_return_prefixes to .env" >&2
+    echo "       (the live value is: helm -n $NAMESPACE get values $chart_name -o yaml, under console)." >&2
+    return 1
+  fi
+}
+
 # Before anything is changed: an upgrade must not silently turn the external authentication off.
 check_live_auth
 # ... and must not silently turn the console's sign-in at the OIDC provider, or the SSO bridge, off.
 check_live_sso
 # ... and must not silently turn the per-user directories of external Pods off.
 resolve_user_dir_mounts || exit 1
+# ... and must not silently drop the console's return prefixes.
+resolve_console_return_prefixes || exit 1
 
 echo
 
@@ -602,6 +685,7 @@ fi
 
 write_auth_values "primus-safe/.auth-values.json"
 write_sso_values "primus-safe/.sso-values.json"
+write_console_values "primus-safe/.console-values.json"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"
   mkdir -p output

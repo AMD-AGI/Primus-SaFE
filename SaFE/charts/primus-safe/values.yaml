@@ -274,6 +274,11 @@ console:
   # The line the web console's "no access yet" page shows to a user who holds no access. Plain
   # text; set it to "" to show none.
   access_contact: "请联系管理员开通"
+  # Path prefixes on the console's own host that the console returns to with a full-page navigation
+  # after a sign-in another web app started with /login?redirect=<path under the prefix>. Each is a
+  # plain path ("/dispatron", "/apps/x"): no trailing slash, no "." or ".." segment; others are
+  # ignored. Unset (the default) is /dispatron, /autopilot, /binding and /blog-drafts; [] allows none.
+  # return_prefixes: ["/dispatron", "/autopilot", "/binding", "/blog-drafts"]
 # Pluggable authentication, in the Kubernetes style. Authorization (roles, workspaces) always stays in SaFE.
 # See docs/apis/external-authentication.md.
 auth:

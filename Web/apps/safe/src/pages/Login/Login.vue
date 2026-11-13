@@ -153,7 +153,12 @@ import { useUserStore } from '@/stores/user'
 import { toggleDark } from '@/composables'
 import { randomState, getSafeRedirect } from '@/utils'
 import { buildSignInUrl, signInTarget } from '@/utils/ssoSignIn'
-import { leaveConsoleFor, outsideConsoleReturn, RETURN_REFUSED_MESSAGE } from '@/utils/returnPath'
+import {
+  leaveConsoleFor,
+  outsideConsoleReturn,
+  RETURN_REFUSED_MESSAGE,
+  returnPrefixes,
+} from '@/utils/returnPath'
 import { useDark } from '@vueuse/core'
 
 const isDark = useDark()
@@ -275,7 +280,12 @@ async function onSubmit() {
       else localStorage.removeItem('login.name')
 
       // Signed in for another app on this host: load its page, outside the console router.
-      const away = outsideConsoleReturn(route.query.redirect, window.location.origin)
+      // The allowed prefixes are those of /envs (fetched on mount), else the console's defaults.
+      const away = outsideConsoleReturn(
+        route.query.redirect,
+        window.location.origin,
+        returnPrefixes(userStore.envs),
+      )
       if (away) {
         if (leaveConsoleFor(away)) return
         ElMessage.warning(RETURN_REFUSED_MESSAGE)
