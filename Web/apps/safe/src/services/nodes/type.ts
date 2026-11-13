@@ -154,6 +154,8 @@ export interface CreateClusterPayload {
   kubernetesVersion: string
   kubeletMaxPods?: number
   kubeApiServerArgs?: Record<string, string>
+  // Registers an existing Kubernetes cluster instead of installing one.
+  adopt?: boolean
 }
 export const NODE_PHASE = [
   'Ready',

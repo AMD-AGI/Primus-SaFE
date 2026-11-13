@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="visible"
-    :title="`${action} Cluster`"
+    :title="isAdopt ? '纳管集群' : `${action} Cluster`"
     width="720"
     :close-on-click-modal="false"
     @close="emit('update:visible', false)"
@@ -20,6 +20,9 @@
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
         <span class="fs-subtitle font-medium">Basic Information</span>
       </div>
+      <el-text v-if="isAdopt" size="small" type="info" class="block m-b-4">
+        Registers an existing Kubernetes cluster. Kubernetes is not installed again.
+      </el-text>
 
       <el-form-item label="Name" prop="name">
         <el-input v-model="form.name" :disabled="isUpgrade" />
@@ -156,7 +159,7 @@
       <div class="dialog-footer">
         <el-button :disabled="loading" @click="emit('update:visible', false)">Cancel</el-button>
         <el-button type="primary" :loading="loading" @click="onSubmit(formRef)">
-          {{ action }}
+          {{ isAdopt ? '纳管集群' : action }}
         </el-button>
       </div>
     </template>
@@ -179,7 +182,7 @@ import CidrPicker from './CidrPicker.vue'
 
 // ====== props & emits ======
 const props = withDefaults(
-  defineProps<{ visible: boolean; action?: 'Create' | 'Upgrade'; clusterId?: string }>(),
+  defineProps<{ visible: boolean; action?: 'Create' | 'Upgrade' | 'Adopt'; clusterId?: string }>(),
   { action: 'Create', clusterId: '' },
 )
 const emit = defineEmits<{
@@ -189,6 +192,7 @@ const emit = defineEmits<{
 
 const userStore = useUserStore()
 const isUpgrade = computed(() => props.action === 'Upgrade')
+const isAdopt = computed(() => props.action === 'Adopt')
 
 // ====== state ======
 const state = reactive({
@@ -435,10 +439,11 @@ const onSubmit = async (el?: FormInstance) => {
       kubeletMaxPods: form.kubeletMaxPods,
       kubeApiServerArgs: Object.keys(kubeApiServerArgs).length ? kubeApiServerArgs : undefined,
       ...(form.isManagedCluster ? { labels: { 'primus-safe.cluster.control-plane': '' } } : {}),
+      ...(isAdopt.value ? { adopt: true } : {}),
     }
 
     await addCluster(payload)
-    ElMessage.success('Cluster created')
+    ElMessage.success(isAdopt.value ? 'Cluster adoption started' : 'Cluster created')
     emit('update:visible', false)
     emit('success')
   } catch (e: any) {

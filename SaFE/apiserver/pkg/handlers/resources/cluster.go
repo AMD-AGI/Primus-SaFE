@@ -157,6 +157,9 @@ func (h *Handler) generateCluster(ctx context.Context,
 	if req.IsControlPlane {
 		v1.SetLabel(cluster, v1.ClusterControlPlaneLabel, "")
 	}
+	if req.Adopt {
+		v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	}
 
 	if cluster.Spec.ControlPlane.ImageSecret == nil && commonconfig.GetImageSecret() != "" {
 		imageSecret, err := h.getAndAuthorizeSecret(ctx, commonconfig.GetImageSecret(), "", requestUser, v1.GetVerb)

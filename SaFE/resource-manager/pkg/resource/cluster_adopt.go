@@ -1,0 +1,441 @@
+/*
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
+package resource
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"sort"
+	"strconv"
+	"strings"
+
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
+)
+
+// runNodeSSH runs one command on a node. Tests replace it.
+var runNodeSSH = defaultRunNodeSSH
+
+func defaultRunNodeSSH(ctx context.Context, cli client.Client, node *v1.Node, cmd string) error {
+	sshClient, err := utils.GetSSHClient(ctx, cli, node)
+	if err != nil {
+		return err
+	}
+	defer sshClient.Close()
+	session, err := sshClient.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+	return session.Run(cmd)
+}
+
+// adoptClusterContents creates admin NodeFlavor, Workspace and Node objects for a cluster
+// that already has a Kubernetes control plane. Existing admin objects are left unchanged.
+func (r *ClusterReconciler) adoptClusterContents(ctx context.Context, cluster *v1.Cluster) error {
+	if !isAdoptedClusterPending(cluster) || !cluster.IsReady() {
+		return nil
+	}
+	factory, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
+	if err != nil || factory == nil || !factory.IsValid() {
+		return fmt.Errorf("data plane client for adopted cluster %s is not ready", cluster.Name)
+	}
+	nodeList, err := factory.ClientSet().CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+	if err = r.authorizeAdoptedWorkers(ctx, cluster, nodeList.Items); err != nil {
+		return err
+	}
+	return r.syncAdoptedInventory(ctx, cluster, factory.ClientSet(), nodeList.Items)
+}
+
+// authorizeAdoptedWorkers appends the management public key to worker root accounts.
+// The command runs on a control plane node, which already holds a key the workers accept.
+func (r *ClusterReconciler) authorizeAdoptedWorkers(ctx context.Context, cluster *v1.Cluster, nodes []corev1.Node) error {
+	ips, err := r.pendingAdoptedWorkerIPs(ctx, cluster, nodes)
+	if err != nil || len(ips) == 0 {
+		return err
+	}
+	pub, err := r.adoptedSSHPublicKey(ctx, cluster)
+	if err != nil {
+		return err
+	}
+	cmd := adoptedWorkerAuthorizeCommand(pub, ips)
+	controlPlanes, err := r.getControllerPlaneNodes(ctx, cluster)
+	if err != nil {
+		return err
+	}
+	var lastErr error
+	for _, node := range controlPlanes {
+		if err = runNodeSSH(ctx, r.Client, node, cmd); err != nil {
+			klog.ErrorS(err, "failed to authorize workers from control plane", "node", node.Name)
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	if lastErr == nil {
+		return fmt.Errorf("no control plane node available to authorize workers of %s", cluster.Name)
+	}
+	return lastErr
+}
+
+func (r *ClusterReconciler) adoptedSSHPublicKey(ctx context.Context, cluster *v1.Cluster) (string, error) {
+	ref := cluster.Spec.ControlPlane.SSHSecret
+	if ref == nil || ref.Name == "" {
+		return "", fmt.Errorf("adopted cluster %s has no ssh secret", cluster.Name)
+	}
+	secret := &corev1.Secret{}
+	if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}, secret); err != nil {
+		return "", err
+	}
+	pub := strings.TrimSpace(string(secret.Data[utils.AuthorizePub]))
+	if pub == "" {
+		return "", fmt.Errorf("ssh secret %s/%s has no public key", ref.Namespace, ref.Name)
+	}
+	return pub, nil
+}
+
+// syncAdoptedInventory creates missing flavors, workspaces and nodes from the data plane.
+func (r *ClusterReconciler) syncAdoptedInventory(ctx context.Context, cluster *v1.Cluster,
+	clientSet kubernetes.Interface, nodes []corev1.Node) error {
+	for i := range nodes {
+		flavor := adoptedFlavor(cluster, &nodes[i])
+		if err := r.ensureAdoptedFlavor(ctx, flavor); err != nil {
+			return err
+		}
+	}
+	grouped := groupNodesByWorkspace(nodes)
+	for name, members := range grouped {
+		pvcs, err := clientSet.CoreV1().PersistentVolumeClaims(name).List(ctx, metav1.ListOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+		var items []corev1.PersistentVolumeClaim
+		if pvcs != nil {
+			items = pvcs.Items
+		}
+		if err = r.ensureAdoptedWorkspace(ctx, cluster, name, members, items); err != nil {
+			return err
+		}
+	}
+	for i := range nodes {
+		if err := r.ensureAdoptedNode(ctx, cluster, &nodes[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *ClusterReconciler) ensureAdoptedFlavor(ctx context.Context, flavor *v1.NodeFlavor) error {
+	if flavor == nil || flavor.Name == "" {
+		return nil
+	}
+	existing := &v1.NodeFlavor{}
+	err := r.Get(ctx, types.NamespacedName{Name: flavor.Name}, existing)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return err
+	}
+	return r.Create(ctx, flavor)
+}
+
+func (r *ClusterReconciler) ensureAdoptedWorkspace(ctx context.Context, cluster *v1.Cluster, name string,
+	members []corev1.Node, pvcs []corev1.PersistentVolumeClaim) error {
+	if name == "" {
+		return nil
+	}
+	existing := &v1.Workspace{}
+	err := r.Get(ctx, types.NamespacedName{Name: name}, existing)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return err
+	}
+	workspace := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string]string{
+				v1.DisplayNameLabel: name,
+				v1.ClusterIdLabel:   cluster.Name,
+			},
+		},
+		Spec: v1.WorkspaceSpec{
+			Cluster:     cluster.Name,
+			NodeFlavor:  adoptedWorkspaceFlavor(cluster, members),
+			Replica:     len(members),
+			QueuePolicy: v1.QueueFifoPolicy,
+			Volumes:     volumesFromPVCs(pvcs),
+		},
+	}
+	return r.Create(ctx, workspace)
+}
+
+func (r *ClusterReconciler) ensureAdoptedNode(ctx context.Context, cluster *v1.Cluster, k8sNode *corev1.Node) error {
+	if k8sNode == nil || k8sNode.Name == "" {
+		return nil
+	}
+	existing := &v1.Node{}
+	err := r.Get(ctx, types.NamespacedName{Name: k8sNode.Name}, existing)
+	if err == nil {
+		if existing.GetSpecCluster() != "" && existing.GetSpecCluster() != cluster.Name {
+			klog.Infof("skip adopted node %s, it belongs to cluster %s", k8sNode.Name, existing.GetSpecCluster())
+			return nil
+		}
+		workspace := v1.GetWorkspaceId(k8sNode)
+		if workspace == "" || existing.GetSpecWorkspace() != "" {
+			return nil
+		}
+		original := client.MergeFrom(existing.DeepCopy())
+		existing.Spec.Workspace = pointer.String(workspace)
+		if existing.Labels == nil {
+			existing.Labels = map[string]string{}
+		}
+		existing.Labels[v1.WorkspaceIdLabel] = workspace
+		return r.Patch(ctx, existing, original)
+	}
+	if !apierrors.IsNotFound(err) {
+		return err
+	}
+	ip := internalIP(k8sNode)
+	flavorName := adoptedFlavor(cluster, k8sNode).Name
+	node := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: k8sNode.Name,
+			Labels: map[string]string{
+				v1.DisplayNameLabel: k8sNode.Name,
+				v1.NodeIdLabel:      k8sNode.Name,
+				v1.ClusterIdLabel:   cluster.Name,
+			},
+		},
+		Spec: v1.NodeSpec{
+			Cluster:    pointer.String(cluster.Name),
+			Hostname:   pointer.String(k8sNode.Name),
+			PrivateIP:  ip,
+			Port:       pointer.Int32(22),
+			SSHSecret:  cluster.Spec.ControlPlane.SSHSecret,
+			NodeFlavor: &corev1.ObjectReference{Name: flavorName, Kind: v1.NodeFlavorKind, APIVersion: v1.SchemeGroupVersion.String()},
+		},
+	}
+	if workspace := v1.GetWorkspaceId(k8sNode); workspace != "" {
+		node.Spec.Workspace = pointer.String(workspace)
+		node.Labels[v1.WorkspaceIdLabel] = workspace
+	}
+	return r.Create(ctx, node)
+}
+
+// adoptedFlavor names a flavor from the node label, the cluster annotation, or node capacity.
+// A plain Kubernetes node has none of the SaFE labels, so nodes with the same capacity share one flavor.
+func adoptedFlavor(cluster *v1.Cluster, node *corev1.Node) *v1.NodeFlavor {
+	if node == nil {
+		return nil
+	}
+	cpu := node.Status.Capacity[corev1.ResourceCPU]
+	if cpu.IsZero() {
+		cpu = resource.MustParse("1")
+	}
+	memory := node.Status.Capacity[corev1.ResourceMemory]
+	if memory.IsZero() {
+		memory = resource.MustParse("1Gi")
+	}
+	name := v1.GetNodeFlavorId(node)
+	if name == "" && cluster != nil {
+		name = v1.GetAnnotation(cluster, v1.ClusterAdoptNodeFlavorAnnotation)
+	}
+	gpu, gpuResource := adoptedGPU(node)
+	if name == "" {
+		name = capacityFlavorName(cpu, memory, gpu, gpuResource)
+	}
+	flavor := &v1.NodeFlavor{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: v1.NodeFlavorSpec{
+			Cpu:    v1.CpuChip{Quantity: cpu},
+			Memory: memory,
+		},
+	}
+	if gpuResource != "" {
+		flavor.Spec.Gpu = &v1.GpuChip{ResourceName: gpuResource, Quantity: gpu}
+	}
+	return flavor
+}
+
+func adoptedGPU(node *corev1.Node) (resource.Quantity, string) {
+	if node == nil {
+		return resource.Quantity{}, ""
+	}
+	if gpu, ok := node.Status.Capacity[corev1.ResourceName(common.AmdGpu)]; ok && !gpu.IsZero() {
+		return gpu, common.AmdGpu
+	}
+	if gpu, ok := node.Status.Capacity[corev1.ResourceName(common.NvidiaGpu)]; ok && !gpu.IsZero() {
+		return gpu, common.NvidiaGpu
+	}
+	return resource.Quantity{}, ""
+}
+
+func capacityFlavorName(cpu, memory resource.Quantity, gpu resource.Quantity, gpuResource string) string {
+	name := "adopted-c" + quantityToken(cpu) + "-m" + quantityToken(memory)
+	if gpuResource != "" && !gpu.IsZero() {
+		vendor := "gpu"
+		switch gpuResource {
+		case common.AmdGpu:
+			vendor = "amd"
+		case common.NvidiaGpu:
+			vendor = "nvidia"
+		}
+		name += "-" + vendor + quantityToken(gpu)
+	}
+	return name
+}
+
+func quantityToken(q resource.Quantity) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(q.String()) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return "0"
+	}
+	return b.String()
+}
+
+func groupNodesByWorkspace(nodes []corev1.Node) map[string][]corev1.Node {
+	grouped := map[string][]corev1.Node{}
+	for i := range nodes {
+		name := v1.GetWorkspaceId(&nodes[i])
+		if name == "" {
+			continue
+		}
+		grouped[name] = append(grouped[name], nodes[i])
+	}
+	return grouped
+}
+
+func adoptedWorkspaceFlavor(cluster *v1.Cluster, nodes []corev1.Node) string {
+	counts := map[string]int{}
+	for i := range nodes {
+		name := adoptedFlavor(cluster, &nodes[i]).Name
+		counts[name]++
+	}
+	best, bestCount := "", 0
+	for name, count := range counts {
+		if count > bestCount || (count == bestCount && (best == "" || name < best)) {
+			best, bestCount = name, count
+		}
+	}
+	return best
+}
+
+func volumesFromPVCs(pvcs []corev1.PersistentVolumeClaim) []v1.WorkspaceVolume {
+	volumes := make([]v1.WorkspaceVolume, 0)
+	for i := range pvcs {
+		pvc := &pvcs[i]
+		if !strings.HasPrefix(pvc.Name, string(v1.PFS)+"-") {
+			continue
+		}
+		id, err := strconv.Atoi(strings.TrimPrefix(pvc.Name, string(v1.PFS)+"-"))
+		if err != nil {
+			continue
+		}
+		storageClass := ""
+		if pvc.Spec.StorageClassName != nil {
+			storageClass = *pvc.Spec.StorageClassName
+		}
+		if storageClass == "" {
+			storageClass = "manual"
+		}
+		capacity := pvc.Spec.Resources.Requests[corev1.ResourceStorage]
+		if capacity.IsZero() {
+			capacity = resource.MustParse("1Gi")
+		}
+		access := corev1.ReadWriteMany
+		if len(pvc.Spec.AccessModes) > 0 {
+			access = pvc.Spec.AccessModes[0]
+		}
+		volumes = append(volumes, v1.WorkspaceVolume{
+			Id:           id,
+			Type:         v1.PFS,
+			MountPath:    "/mnt/" + pvc.Name,
+			AccessMode:   access,
+			Capacity:     capacity.String(),
+			StorageClass: storageClass,
+		})
+	}
+	sort.Slice(volumes, func(i, j int) bool { return volumes[i].Id < volumes[j].Id })
+	return volumes
+}
+
+// pendingAdoptedWorkerIPs returns worker addresses that do not yet have an admin Node.
+// Workers already recorded are left alone, so later reconciles do not repeat the SSH fan-out.
+func (r *ClusterReconciler) pendingAdoptedWorkerIPs(ctx context.Context, cluster *v1.Cluster, nodes []corev1.Node) ([]string, error) {
+	controlPlanes := map[string]bool{}
+	if cluster != nil {
+		for _, name := range cluster.Spec.ControlPlane.Nodes {
+			controlPlanes[name] = true
+		}
+	}
+	ips := make([]string, 0)
+	for i := range nodes {
+		if controlPlanes[nodes[i].Name] {
+			continue
+		}
+		ip := internalIP(&nodes[i])
+		if net.ParseIP(ip) == nil {
+			continue
+		}
+		existing := &v1.Node{}
+		err := r.Get(ctx, types.NamespacedName{Name: nodes[i].Name}, existing)
+		if err == nil {
+			continue
+		}
+		if !apierrors.IsNotFound(err) {
+			return nil, err
+		}
+		ips = append(ips, ip)
+	}
+	sort.Strings(ips)
+	return ips, nil
+}
+
+func internalIP(node *corev1.Node) string {
+	for _, addr := range node.Status.Addresses {
+		if addr.Type == corev1.NodeInternalIP {
+			return addr.Address
+		}
+	}
+	return ""
+}
+
+// adoptedWorkerAuthorizeCommand builds the remote script that installs one public key.
+func adoptedWorkerAuthorizeCommand(pub string, ips []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "pub=$(cat <<'EOF'\n%s\nEOF\n)\n", strings.TrimSpace(pub))
+	for _, ip := range ips {
+		if net.ParseIP(ip) == nil {
+			continue
+		}
+		fmt.Fprintf(&b, "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 root@%s "+
+			"\"mkdir -p /root/.ssh && touch /root/.ssh/authorized_keys && grep -qxF \\\"$pub\\\" /root/.ssh/authorized_keys || echo \\\"$pub\\\" >> /root/.ssh/authorized_keys\"\n", ip)
+	}
+	return b.String()
+}

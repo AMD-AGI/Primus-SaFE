@@ -305,6 +305,11 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("client_factory").Inc()
 		return ctrlruntime.Result{}, err
 	}
+	if err = r.adoptClusterContents(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to adopt cluster contents", "cluster", cluster.Name)
+		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("adopt_cluster").Inc()
+		return ctrlruntime.Result{}, err
+	}
 	if result, err := r.guaranteeDefaultAddon(ctx, cluster); err != nil || result.RequeueAfter > 0 {
 		if err != nil {
 			klog.ErrorS(err, "failed to guarantee default addon", "cluster", cluster.Name)

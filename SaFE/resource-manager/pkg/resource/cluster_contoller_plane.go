@@ -747,8 +747,18 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 	if err != nil {
 		return err
 	}
+	// An adopted cluster must never fall through to installation when its kubeconfig is unreadable.
+	if config == nil && isAdoptedClusterPending(cluster) {
+		return fmt.Errorf("kubeconfig of adopted cluster %s is not readable from control plane", cluster.Name)
+	}
 
 	return r.updateClusterKubeConfig(ctx, cluster, nodes, config)
+}
+
+// isAdoptedClusterPending reports whether an adopted cluster is still being brought under management.
+func isAdoptedClusterPending(cluster *v1.Cluster) bool {
+	return cluster.GetDeletionTimestamp().IsZero() &&
+		v1.GetAnnotation(cluster, v1.ClusterAdoptAnnotation) == v1.TrueStr
 }
 
 // fetchConfigFromControlPlane reads the provisioned kubeconfig from the first control plane that

@@ -149,6 +149,37 @@ func TestFetchConfigFromControlPlaneAllNodesFail(t *testing.T) {
 	testifyassert.Error(t, err)
 }
 
+// An adopted cluster whose kubeconfig cannot be read must not get a cluster-create worker pod.
+func TestAdoptedClusterUnreadableKubeConfigDoesNotInstall(t *testing.T) {
+	cluster, r := planeClusterWithNode(t)
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
+		func(_ *ClusterReconciler, _ context.Context, _ *v1.Node) (*rest.Config, error) {
+			return nil, nil
+		})
+	defer patches.Reset()
+
+	testifyassert.Error(t, r.guaranteeClusterControlPlane(context.Background(), cluster))
+	pods := &corev1.PodList{}
+	testifyassert.NoError(t, r.List(context.Background(), pods, client.InNamespace(common.PrimusSafeNamespace)))
+	testifyassert.Empty(t, pods.Items)
+}
+
+// Deleting an adopted cluster must not be blocked by a missing kubeconfig.
+func TestAdoptedClusterDeletionSkipsKubeConfigCheck(t *testing.T) {
+	cluster, r := planeClusterWithNode(t)
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	now := metav1.Now()
+	cluster.DeletionTimestamp = &now
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
+		func(_ *ClusterReconciler, _ context.Context, _ *v1.Node) (*rest.Config, error) {
+			return nil, nil
+		})
+	defer patches.Reset()
+
+	testifyassert.NoError(t, r.fetchProvisionedClusterKubeConfig(context.Background(), cluster))
+}
+
 func newPlaneReconciler(t *testing.T, objs ...client.Object) *ClusterReconciler {
 	t.Helper()
 	scheme, err := genMockScheme()

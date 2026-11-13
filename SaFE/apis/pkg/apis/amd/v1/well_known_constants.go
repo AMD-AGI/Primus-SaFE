@@ -101,6 +101,10 @@ const (
 	ClusterUpgradeRetryCountAnnotation = ClusterPrefix + "upgrade.retry.count"
 	// ClusterUpgradeRetryTargetAnnotation records the target the retry count belongs to.
 	ClusterUpgradeRetryTargetAnnotation = ClusterPrefix + "upgrade.retry.target"
+	// ClusterAdoptAnnotation marks an existing Kubernetes cluster that must be adopted, never installed.
+	ClusterAdoptAnnotation = ClusterPrefix + "adopt"
+	// ClusterAdoptNodeFlavorAnnotation names the NodeFlavor used for nodes that carry no flavor label.
+	ClusterAdoptNodeFlavorAnnotation = ClusterPrefix + "adopt.node-flavor"
 
 	// storage
 	StoragePrefix              = PrimusSafePrefix + "storage."

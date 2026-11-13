@@ -16,6 +16,19 @@
     >
       Create Cluster
     </el-button>
+    <el-button
+      round
+      class="m-t-4 ml-3"
+      @click="
+        () => {
+          curAction = 'Adopt'
+          curClusterId = ''
+          addVisible = true
+        }
+      "
+    >
+      纳管集群
+    </el-button>
   </div>
   <el-card class="mt-6 safe-card" shadow="never">
     <el-table
@@ -205,7 +218,7 @@ const editState = reactive({
 const selectedSecretId = ref('')
 
 const addVisible = ref(false)
-const curAction = ref<'Create' | 'Upgrade'>('Create')
+const curAction = ref<'Create' | 'Upgrade' | 'Adopt'>('Create')
 const curClusterId = ref('')
 const clusterStore = useClusterStore()
 const loading = ref(false)
