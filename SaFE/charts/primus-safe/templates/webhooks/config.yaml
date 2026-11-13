@@ -38,6 +38,10 @@ data:
     ssh:
       # Whether to enable ssh, Users can log in directly to their own pods.
       enable: {{ .Values.ssh.enable }}
+    auth:
+      # The webhooks process reads this the same way the apiserver does. Without it every gate
+      # that checks auth.mode stays on the builtin default.
+      mode: {{ default "builtin" .Values.auth.mode | quote }}
     users:
       {{- include "primus-safe.usersConfig" . | nindent 6 }}
     {{- $admission := default dict (default dict .Values.sandbox).admission }}

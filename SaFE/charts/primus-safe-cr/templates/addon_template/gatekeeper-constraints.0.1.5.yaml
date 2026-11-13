@@ -2,36 +2,35 @@
 # Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
-# Membership, grant-attestation, and identity provider assertion constraints.
+# Grant-attestation and identity provider assertion constraints.
 # Install this Addon on the management cluster after gatekeeper.3.23.1.
 # It is not a default addon.
 #
 # Notes:
 #   1. Package SaFE/charts/gatekeeper-constraints and push it before applying:
-#        oci://<helm registry host>/primussafe/gatekeeper-constraints:0.1.4
+#        oci://<helm registry host>/primussafe/gatekeeper-constraints:0.1.5
 #      A helm_registry value ending in /proxy names the cache project, so the host is used.
 #      The apply Job uses <proxy_image_registry>/primussafe/curl:8.20.0.
 #   2. enforcementAction is dryrun. deny requires jwks, or identity.jwks, identity.issuer, and identity.actor.
 #      A Workload carries a Claw grant, an identity provider assertion, or both; each one it carries must verify.
-#   3. User membership reads spec.resources.workspaces on the synced User CR. A system-admin User
-#      is a member of every workspace.
+#   3. Workspace membership is checked by the SaFE webhooks with a SubjectAccessReview, not by Gatekeeper.
 #
 
 apiVersion: amd.com/v1
 kind: AddonTemplate
 metadata:
   labels:
-    primus-safe.display.name: "gatekeeper-constraints.0.1.4"
+    primus-safe.display.name: "gatekeeper-constraints.0.1.5"
     app.kubernetes.io/managed-by: Helm
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-  name: gatekeeper-constraints.0.1.4
+  name: gatekeeper-constraints.0.1.5
 spec:
   category: plugin
-  description: Gatekeeper constraints that check Agent Sandbox Workload membership, the Claw grant attestation, and the identity provider assertion. Install on the management cluster after Gatekeeper. Enforcement defaults to dryrun.
+  description: Gatekeeper constraints that check the Agent Sandbox Workload Claw grant attestation and the identity provider assertion. Install on the management cluster after Gatekeeper. Enforcement defaults to dryrun.
   url: oci://{{ .Values.global.helm_registry | trimSuffix "/proxy" }}/primussafe/gatekeeper-constraints
-  version: 0.1.4
+  version: 0.1.5
   type: helm
   required: false
   helmDefaultNamespace: gatekeeper-system

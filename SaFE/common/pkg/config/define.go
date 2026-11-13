@@ -129,6 +129,9 @@ const (
 	// console: what the web console shows
 	consolePrefix        = "console."
 	consoleAccessContact = consolePrefix + "access_contact"
+	// consoleReturnPrefixes lists the path prefixes on the console's own host that the console
+	// returns to with a full-page navigation after sign-in (/login?redirect=<path>).
+	consoleReturnPrefixes = consolePrefix + "return_prefixes"
 
 	// tls (outbound HTTPS verification for third-party / model endpoints)
 	tlsPrefix         = "tls."

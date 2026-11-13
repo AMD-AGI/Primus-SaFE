@@ -2,9 +2,15 @@ import type { Router } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { getEnvs, ssoLoginRaw } from '@/services/login'
+import type { EnvsResp } from '@/services/login/type'
 import { addUserToGroup, getUserNTID } from '@/services/mcp'
 import { getSafeRedirect } from '@/utils'
-import { leaveConsoleFor, outsideConsoleReturn, RETURN_REFUSED_MESSAGE } from '@/utils/returnPath'
+import {
+  leaveConsoleFor,
+  outsideConsoleReturn,
+  RETURN_REFUSED_MESSAGE,
+  returnPrefixes,
+} from '@/utils/returnPath'
 import { resolveAllowedBridge } from '@/utils/ssoBridge'
 import { pkceRequired, takeCallbackVerifier } from '@/utils/ssoSignIn'
 
@@ -52,12 +58,28 @@ async function loadBridgeAllowlist(): Promise<string[]> {
   }
 }
 
-/** Whether the console's sign-in uses PKCE (/envs ssoPkce); false if /envs cannot be read. */
-async function loadPkceRequired(): Promise<boolean> {
+/** /envs for the sign-in callback, or null if it cannot be read. */
+async function loadEnvs(): Promise<EnvsResp | null> {
   try {
-    return pkceRequired(await getEnvs())
+    return (await getEnvs()) ?? null
   } catch {
-    return false
+    return null
+  }
+}
+
+/** How long /login waits for /envs (the allowed return prefixes) before using the defaults. */
+export const ENVS_WAIT_MS = 3000
+
+/** /envs within `ms`, or null when it is slower or cannot be read (no toast either way). */
+async function envsWithin(ms: number): Promise<EnvsResp | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms)
+  })
+  try {
+    return (await Promise.race([getEnvs(true).catch(() => null), late])) ?? null
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -124,8 +146,10 @@ export default function setupAuthGuard(router: Router) {
         })
       }
 
-      // With PKCE the code is used only with the verifier this tab kept for this state.
-      const pkce = takeCallbackVerifier(state, await loadPkceRequired())
+      // With PKCE the code is used only with the verifier this tab kept for this state; whether
+      // the sign-in uses PKCE (ssoPkce) is false if /envs cannot be read.
+      const envs = await loadEnvs()
+      const pkce = takeCallbackVerifier(state, pkceRequired(envs))
       if (!pkce.ok) {
         history.replaceState(null, '', to.path)
         return next({
@@ -164,7 +188,11 @@ export default function setupAuthGuard(router: Router) {
 
           // The sign-in was started by another app on this host (Dispatron, autopilot, the
           // identity service): load its page, which the console router does not know.
-          const away = outsideConsoleReturn(entry, window.location.origin)
+          const away = outsideConsoleReturn(
+            entry,
+            window.location.origin,
+            returnPrefixes(envs ?? user.envs),
+          )
           if (away) {
             if (leaveConsoleFor(away)) return next(false)
             ElMessage.warning(RETURN_REFUSED_MESSAGE)
@@ -304,7 +332,13 @@ export default function setupAuthGuard(router: Router) {
     if (user.isLogin && user.userId) {
       if (!PUBLIC_NAME.has(to.name as string)) return next()
 
-      const away = outsideConsoleReturn(to.query.redirect, window.location.origin)
+      // The allowed prefixes come from /envs; a fresh page load may not have it yet.
+      const envs = user.envs ?? (to.query.redirect ? await envsWithin(ENVS_WAIT_MS) : null)
+      const away = outsideConsoleReturn(
+        to.query.redirect,
+        window.location.origin,
+        returnPrefixes(envs),
+      )
       if (!away) return next(getSafeRedirect(to.query.redirect))
 
       // Leaving the console on a session only localStorage vouches for would send a browser

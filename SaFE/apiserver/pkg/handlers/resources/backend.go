@@ -29,18 +29,19 @@ func (h *Handler) GetEnvs(c *gin.Context) {
 // getEnvs lists the environment variables supported by the backend.
 func (h *Handler) getEnvs(c *gin.Context) (interface{}, error) {
 	resp := view.GetEnvResponse{
-		EnableRobust:         h.robustInstalled(c.Request.Context()),
-		EnableLog:            commonconfig.IsOpenSearchEnable(),
-		EnableLogDownload:    commonconfig.IsS3Enable(),
-		EnableSSH:            commonconfig.IsSSHEnable(),
-		SSHIP:                commonconfig.GetSSHServerIP(),
-		SSHPort:              commonconfig.GetSSHServerPort(),
-		AuthMode:             commonconfig.GetAuthMode(),
-		SSOEnable:            commonconfig.IsSSOEnable(),
-		SSOBridgeAllowlist:   commonconfig.GetSSOBridgeAllowlist(),
-		CDRequireApproval:    commonconfig.IsCDRequireApproval(),
-		AccessContact:        commonconfig.GetConsoleAccessContact(),
-		KubeSprayK8sVersions: v1.KubeSprayK8sVersions(),
+		EnableRobust:          h.robustInstalled(c.Request.Context()),
+		EnableLog:             commonconfig.IsOpenSearchEnable(),
+		EnableLogDownload:     commonconfig.IsS3Enable(),
+		EnableSSH:             commonconfig.IsSSHEnable(),
+		SSHIP:                 commonconfig.GetSSHServerIP(),
+		SSHPort:               commonconfig.GetSSHServerPort(),
+		AuthMode:              commonconfig.GetAuthMode(),
+		SSOEnable:             commonconfig.IsSSOEnable(),
+		SSOBridgeAllowlist:    commonconfig.GetSSOBridgeAllowlist(),
+		CDRequireApproval:     commonconfig.IsCDRequireApproval(),
+		AccessContact:         commonconfig.GetConsoleAccessContact(),
+		ConsoleReturnPrefixes: commonconfig.GetConsoleReturnPrefixes(),
+		KubeSprayK8sVersions:  v1.KubeSprayK8sVersions(),
 	}
 	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
 		// The console starts an authorize request at identity. connection, accountsUrl and keysUrl

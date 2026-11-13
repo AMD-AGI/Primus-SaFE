@@ -93,14 +93,28 @@ The [install.sh](../../bootstrap/install.sh) script provides a one-click install
         sso_bridge_allowlist='["http://localhost:5173","http://127.0.0.1:5173"]'
         ```
 
-        Helm renders `sso.login` and `sso.bridge_allowlist` from the chart defaults unless `.env` sets them.
+        Helm renders `sso.login` and `sso.bridge_allowlist` from the chart defaults on a fresh install.
         An omitted `oidc_login_enable` is `false`. An omitted `sso_bridge_allowlist` is `[]`. An omitted
-        `sso_enable` is `true`. A release that had sign-in or an allowlist keeps them only when `.env` sets the keys.
+        `sso_enable` is `true`. An upgrade keeps a running release's `sso.login` and a non-empty allowlist
+        when `.env` sets neither. Without `jq` that upgrade stops instead of writing the chart defaults.
       - The provider of the `primus-safe-sso` secret keeps working while the secret is there: codes other web apps bring
         through the SSO bridge (no PKCE verifier) are exchanged there, and sessions it made stay valid until they expire.
         Once nothing uses it, remove it with `sso.secret: ""` (`.env`: `sso_secret=`): the secret is then not mounted.
         `upgrade.sh` accepts `sso_secret=` only together with `oidc_login_enable=true`, since the apiserver needs one of the two.
       - Off again: `sso.login.enable: false` (with the secret still configured) and roll the apiserver.
+    - Other web apps on the console's host that send a signed-out browser to the console's
+      `/login?redirect=<path>` get it back after sign-in only when the path is under one of
+      `console.return_prefixes` (`.env`: `console_return_prefixes`, a JSON array in single quotes). Each entry is a
+      plain path prefix (`/dispatron`, `/apps/x`: no trailing slash, no `.` or `..` segment); others are ignored.
+      Unset, the list is `/dispatron`, `/autopilot`, `/binding` and `/blog-drafts`; `'[]'` allows none. The console
+      reads it from `/api/v1/envs` (`consoleReturnPrefixes`) and uses the default list while that cannot be read.
+      For example, to also return to the Claw API's download links:
+
+      ```bash
+      console_return_prefixes='["/dispatron","/autopilot","/binding","/blog-drafts","/claw-api"]'
+      ```
+
+      Left out of `.env`, `upgrade.sh` keeps the list of the running release.
 
 #### Image and Network Configuration
 

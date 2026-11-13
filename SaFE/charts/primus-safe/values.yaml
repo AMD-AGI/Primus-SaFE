@@ -274,6 +274,11 @@ console:
   # The line the web console's "no access yet" page shows to a user who holds no access. Plain
   # text; set it to "" to show none.
   access_contact: "请联系管理员开通"
+  # Path prefixes on the console's own host that the console returns to with a full-page navigation
+  # after a sign-in another web app started with /login?redirect=<path under the prefix>. Each is a
+  # plain path ("/dispatron", "/apps/x"): no trailing slash, no "." or ".." segment; others are
+  # ignored. Unset (the default) is /dispatron, /autopilot, /binding and /blog-drafts; [] allows none.
+  # return_prefixes: ["/dispatron", "/autopilot", "/binding", "/blog-drafts"]
 # Pluggable authentication, in the Kubernetes style. Authorization (roles, workspaces) always stays in SaFE.
 # See docs/apis/external-authentication.md.
 auth:
@@ -565,7 +570,7 @@ sandbox:
   secret: "envd-router-identity"
   # EnvD injector initContainer image. Repo path only; the template adds harbor.<sub_domain>.<domain>/proxy/,
   # so the digest has to exist on Docker Hub. Must include GET /api/jobs for Brain idle sandbox reclaim.
-  envd_injector_image: "primussafe/agent-sandbox-envd-injector@sha256:1a4725fbf9db511f558e48c3c2222818f0ca82be7da5303e20f10f5e46c4c79c"
+  envd_injector_image: "primussafe/agent-sandbox-envd-injector@sha256:b059f6d952a1436d249eddb7a1f88522c2f5f2963b6e7cac2053d1c9e1343ce9"
   # Secret holding extra CA certificates (PEM, any key name) that sandboxes must trust. Create it in the
   # primus-safe namespace with the annotations
   #   primus-safe.workspace.selector: "primus-safe.workspace.scope.sandbox=true"

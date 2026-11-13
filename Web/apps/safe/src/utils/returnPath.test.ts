@@ -1,17 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getSafeRedirect } from '@/utils'
 import {
+  DEFAULT_OUTSIDE_CONSOLE_PREFIXES,
+  isValidReturnPrefix,
   leaveConsoleFor,
-  OUTSIDE_CONSOLE_PREFIXES,
   outsideConsoleReturn,
   REPEAT_RETURN_WINDOW_MS,
+  returnPrefixes,
 } from './returnPath'
 
 const SELF = 'https://console.example.com'
 
 describe('outsideConsoleReturn', () => {
-  it('publishes exactly the agreed prefixes', () => {
-    expect([...OUTSIDE_CONSOLE_PREFIXES]).toEqual(['/dispatron', '/autopilot', '/binding', '/blog-drafts'])
+  it('defaults to exactly the agreed prefixes', () => {
+    expect([...DEFAULT_OUTSIDE_CONSOLE_PREFIXES]).toEqual([
+      '/dispatron',
+      '/autopilot',
+      '/binding',
+      '/blog-drafts',
+    ])
   })
 
   it.each([
@@ -92,6 +99,94 @@ describe('outsideConsoleReturn', () => {
       const got = outsideConsoleReturn(v, SELF)
       if (got !== null) expect(new URL(got).origin).toBe(SELF)
     }
+  })
+})
+
+const CLAW_LINK = '/claw-api/v1/sessions/s-1/deliveries/0f8fad5b-d9cb-469f-a165-70867728950e'
+
+describe('outsideConsoleReturn with configured prefixes', () => {
+  const configured = ['/dispatron', '/claw-api']
+
+  it('returns to a configured prefix', () => {
+    expect(outsideConsoleReturn(CLAW_LINK, SELF, configured)).toBe(`${SELF}${CLAW_LINK}`)
+    expect(outsideConsoleReturn('/claw-api', SELF, configured)).toBe(`${SELF}/claw-api`)
+  })
+
+  it('refuses a prefix that is not configured, default or not', () => {
+    expect(outsideConsoleReturn(CLAW_LINK, SELF)).toBeNull()
+    expect(outsideConsoleReturn('/autopilot/', SELF, configured)).toBeNull()
+    expect(outsideConsoleReturn('/dispatron/runs', SELF, [])).toBeNull()
+  })
+
+  it.each([
+    '/claw-apix/',
+    '/claw-api-admin/',
+    '/claw-api/../login',
+    '/claw-api/%2e%2e/login',
+    '/claw-api/v1/sessions/s%2F..%2Fx/deliveries/d',
+    '/Claw-api/',
+    '//evil.example.net/claw-api',
+    '/\\evil.example.net/claw-api',
+    '/claw-api\t/x',
+  ])('keeps every check for a configured prefix: refuses %j', (value) => {
+    expect(outsideConsoleReturn(value, SELF, configured)).toBeNull()
+  })
+
+  it('ignores an invalid entry even when a caller passes it directly', () => {
+    expect(outsideConsoleReturn('/x', SELF, ['/'])).toBeNull()
+    expect(outsideConsoleReturn('//evil.example.net/x', SELF, ['//evil.example.net'])).toBeNull()
+    expect(outsideConsoleReturn('/a/b', SELF, ['/a/'])).toBeNull()
+  })
+})
+
+describe('returnPrefixes', () => {
+  it.each([
+    undefined,
+    null,
+    {},
+    { consoleReturnPrefixes: null },
+    { consoleReturnPrefixes: '/claw-api' },
+  ])('uses the defaults when /envs says nothing usable: %j', (envs) => {
+    expect(returnPrefixes(envs as never)).toEqual(DEFAULT_OUTSIDE_CONSOLE_PREFIXES)
+  })
+
+  it('uses the configured list', () => {
+    expect(returnPrefixes({ consoleReturnPrefixes: ['/dispatron', '/claw-api'] })).toEqual([
+      '/dispatron',
+      '/claw-api',
+    ])
+  })
+
+  it('drops invalid and repeated entries', () => {
+    expect(
+      returnPrefixes({
+        consoleReturnPrefixes: [
+          '/claw-api',
+          '/',
+          '//evil.example.net',
+          '/claw-api/',
+          'claw-api',
+          '/a/../b',
+          '/./a',
+          '/a b',
+          '/a?x',
+          '/a%2fb',
+          '/a\\b',
+          'https://evil.example.net/x',
+          42,
+          null,
+          '/claw-api',
+        ],
+      }),
+    ).toEqual(['/claw-api'])
+  })
+
+  it('an empty list allows none', () => {
+    expect(returnPrefixes({ consoleReturnPrefixes: [] })).toEqual([])
+  })
+
+  it.each(['/dispatron', '/apps/blog-drafts', '/a_b~c.d'])('accepts the prefix %j', (p) => {
+    expect(isValidReturnPrefix(p)).toBe(true)
   })
 })
 

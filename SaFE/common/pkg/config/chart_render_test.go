@@ -833,6 +833,15 @@ func TestChartRendersTheMinimalUsersConfiguration(t *testing.T) {
 	testifyassert.Equal(t, []string{"default"}, GetUserBaseRoles())
 }
 
+// TestChartRendersAuthModeForTheWebhooks pins that the webhooks process sees auth.mode. Without the key
+// every gate in that process stays on the builtin default.
+func TestChartRendersAuthModeForTheWebhooks(t *testing.T) {
+	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml"))
+	testifyassert.Equal(t, AuthModeBuiltin, GetAuthMode())
+	loadRendered(t, renderConfigMapData(t, "webhooks", "config.yaml", externalAuthArgs()...))
+	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
+}
+
 // TestChartDefaultsTheSandboxAdmissionKeySet pins that the key set URL and the issuer are the cluster host
 // when the values leave them empty, and that an explicit URL is kept.
 func TestChartDefaultsTheSandboxAdmissionKeySet(t *testing.T) {
@@ -870,4 +879,21 @@ func TestChartRendersTheAccessContact(t *testing.T) {
 		loadRendered(t, renderApiserverConfig(t, tt.args...))
 		testifyassert.Equal(t, tt.want, GetConsoleAccessContact(), tt.name)
 	}
+}
+
+// TestChartRendersTheConsoleReturnPrefixes pins that a stock install leaves console.return_prefixes out, so the
+// apiserver's default list applies, and that a list an operator sets reaches the apiserver as that list.
+func TestChartRendersTheConsoleReturnPrefixes(t *testing.T) {
+	loadRendered(t, renderApiserverConfig(t))
+	testifyassert.Equal(t, DefaultConsoleReturnPrefixes, GetConsoleReturnPrefixes())
+
+	loadRendered(t, renderApiserverConfig(t, "--set", "console.return_prefixes={/dispatron,/claw-api}"))
+	testifyassert.Equal(t, []string{"/dispatron", "/claw-api"}, GetConsoleReturnPrefixes())
+
+	loadRendered(t, renderApiserverConfig(t, "--set", "console.return_prefixes=null"))
+	testifyassert.Equal(t, DefaultConsoleReturnPrefixes, GetConsoleReturnPrefixes())
+
+	// An empty list is none, not the default put back.
+	loadRendered(t, renderApiserverConfig(t, "--set-json", "console.return_prefixes=[]"))
+	testifyassert.Equal(t, []string{}, GetConsoleReturnPrefixes())
 }

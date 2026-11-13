@@ -22,7 +22,7 @@ vi.mock('@/services/login', () => ({
 }))
 vi.mock('@/services/mcp', () => ({ addUserToGroup: vi.fn(), getUserNTID: vi.fn() }))
 
-import setupAuthGuard from './auth'
+import setupAuthGuard, { ENVS_WAIT_MS } from './auth'
 
 const SELF = 'https://console.example.com'
 const ENTRY_KEY = 'sso.redirect'
@@ -281,5 +281,100 @@ describe('/login with a session already present', () => {
     const next = await login('/workloads')
     expect(replace).not.toHaveBeenCalled()
     expect(next).toHaveBeenCalledWith('/workloads')
+  })
+})
+
+// The prefixes come from /envs (consoleReturnPrefixes); the console's defaults apply when it says
+// nothing, cannot be read, or is too slow.
+describe('returning to a prefix the deployment configured', () => {
+  const CLAW_LINK = '/claw-api/v1/sessions/s-1/deliveries/0f8fad5b-d9cb-469f-a165-70867728950e'
+  const CONFIGURED = {
+    consoleReturnPrefixes: ['/dispatron', '/autopilot', '/binding', '/blog-drafts', '/claw-api'],
+  }
+  const login = (redirect: unknown) =>
+    run({ query: { redirect }, path: '/login', fullPath: '/login', name: 'Login' })
+
+  it('the sign-in callback loads a configured prefix', async () => {
+    getEnvs.mockResolvedValue(CONFIGURED)
+    session.set(ENTRY_KEY, CLAW_LINK)
+    const next = await callback()
+    expect(getEnvs).toHaveBeenCalledTimes(1)
+    expect(replace).toHaveBeenCalledWith(`${SELF}${CLAW_LINK}`)
+    expect(next).toHaveBeenCalledWith(false)
+  })
+
+  it('the sign-in callback keeps an unconfigured prefix in the console', async () => {
+    getEnvs.mockResolvedValue({ consoleReturnPrefixes: ['/dispatron'] })
+    session.set(ENTRY_KEY, '/autopilot/')
+    const next = await callback()
+    expect(replace).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledWith('/autopilot/')
+  })
+
+  it('the sign-in callback ignores invalid configured entries', async () => {
+    getEnvs.mockResolvedValue({ consoleReturnPrefixes: ['/', '//evil.example.net', '/claw-api/'] })
+    session.set(ENTRY_KEY, CLAW_LINK)
+    await callback()
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it('the sign-in callback falls back to the defaults when /envs fails', async () => {
+    getEnvs.mockRejectedValue(new Error('down'))
+    session.set(ENTRY_KEY, '/dispatron/runs')
+    const next = await callback()
+    expect(replace).toHaveBeenCalledWith(`${SELF}/dispatron/runs`)
+    expect(next).toHaveBeenCalledWith(false)
+  })
+
+  it('/login with a session loads a configured prefix', async () => {
+    getEnvs.mockResolvedValue(CONFIGURED)
+    const next = await login(CLAW_LINK)
+    expect(replace).toHaveBeenCalledWith(`${SELF}${CLAW_LINK}`)
+    expect(next).toHaveBeenCalledWith(false)
+  })
+
+  it('/login with a session uses the /envs the store already holds', async () => {
+    userState = signedIn({ envs: CONFIGURED })
+    const next = await login(CLAW_LINK)
+    expect(getEnvs).not.toHaveBeenCalled()
+    expect(replace).toHaveBeenCalledWith(`${SELF}${CLAW_LINK}`)
+    expect(next).toHaveBeenCalledWith(false)
+  })
+
+  it('/login with a session keeps an unconfigured prefix in the console', async () => {
+    const next = await login(CLAW_LINK)
+    expect(replace).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledWith(CLAW_LINK)
+  })
+
+  it('/login with a session falls back to the defaults when /envs fails', async () => {
+    getEnvs.mockRejectedValue(new Error('down'))
+    const next = await login('/dispatron/runs')
+    expect(replace).toHaveBeenCalledWith(`${SELF}/dispatron/runs`)
+    expect(next).toHaveBeenCalledWith(false)
+  })
+
+  it('/login with a session does not wait for a slow /envs past ENVS_WAIT_MS', async () => {
+    vi.useFakeTimers()
+    try {
+      getEnvs.mockReturnValue(new Promise(() => {}))
+      const pending = login('/dispatron/runs')
+      await vi.advanceTimersByTimeAsync(ENVS_WAIT_MS)
+      const next = await pending
+      expect(replace).toHaveBeenCalledWith(`${SELF}/dispatron/runs`)
+      expect(next).toHaveBeenCalledWith(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stays in the console when a configured app sends the browser straight back', async () => {
+    getEnvs.mockResolvedValue(CONFIGURED)
+    await login(CLAW_LINK)
+    replace.mockClear()
+    const next = await login(CLAW_LINK)
+    expect(replace).not.toHaveBeenCalled()
+    expect(warning).toHaveBeenCalledTimes(1)
+    expect(next).toHaveBeenCalledWith('/')
   })
 })

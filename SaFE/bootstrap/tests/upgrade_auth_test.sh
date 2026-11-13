@@ -5,7 +5,7 @@
 #
 
 # Runs bootstrap/upgrade.sh against the real charts with a stand-in `helm` and `kubectl`, and checks
-# what it does with the auth_* and sso_* keys of .env: they reach the rendered chart, and an upgrade never
+# what it does with the auth_*, sso_* and console_* keys of .env: they reach the rendered chart, and an upgrade never
 # silently turns the external authentication, or the SSO settings, of the running release off.
 #
 # The stand-in `helm upgrade` runs the real `helm template` with the same chart and values files
@@ -330,11 +330,12 @@ FAKE_LIST_FAIL=1 run_upgrade "$LIVE_EXTERNAL" ""
 expect "releases cannot be listed: refused" refused
 expect "releases cannot be listed: says so" grep -q 'cannot list the helm releases' "$OUT/log"
 # but an explicit mode needs no reading of the release's values (nor do explicit SSO settings, nor
-# an explicit external_user_dir_mounts)
+# an explicit external_user_dir_mounts, nor explicit console_return_prefixes)
 FAKE_GET_FAIL=1 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV
 oidc_login_enable=false
 sso_bridge_allowlist='[]'
-external_user_dir_mounts=true"
+external_user_dir_mounts=true
+console_return_prefixes='[]'"
 expect "release values cannot be read, .env has every key: applied" applied
 
 # 10. Values that cannot be used are refused before anything is changed.
@@ -490,12 +491,21 @@ for jqmode in jq nojq; do
     expect "$jqmode, live sso.login and allowlist, .env without them: applied" applied
     expect "$jqmode, live sso.login and allowlist, .env without them: login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
     expect "$jqmode, live sso.login and allowlist, .env without them: allowlist kept" rendered 'bridge_allowlist: ["http://localhost:5173","http://127.0.0.1:5173"]'
+    expect "$jqmode, live sso.login and allowlist, .env without them: issuer kept" grep -qxF '        issuer: "https://idp.example.com"' "$OUT/rendered.yaml"
+    expect "$jqmode, live sso.login and allowlist, .env without them: client kept" grep -qxF '        client_id: "console"' "$OUT/rendered.yaml"
+    expect "$jqmode, live sso.login and allowlist, .env without them: redirect kept" grep -qxF '        redirect_uri: "https://console.example.com/sso/callback"' "$OUT/rendered.yaml"
   else
     expect "$jqmode, live sso.login and allowlist, .env without them: refused" refused
   fi
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_LOGIN_ONLY" "$SSO_ON"
-  expect "$jqmode, live sso.login only: applied" applied
-  expect "$jqmode, live sso.login only: login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+  if [[ "$jqmode" == "jq" ]]; then
+    expect "$jqmode, live sso.login only: applied" applied
+    expect "$jqmode, live sso.login only: login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+    expect "$jqmode, live sso.login only: issuer kept" grep -qxF '        issuer: "https://idp.example.com"' "$OUT/rendered.yaml"
+  else
+    expect "$jqmode, live sso.login only: refused" refused
+    expect "$jqmode, live sso.login only: names the issuer" grep -q 'sso.login issuer, client_id and redirect_uri' "$OUT/log"
+  fi
   RUN_PATH="${rp:-}" run_upgrade "$LIVE_SSO_ALLOW_ONLY" "$SSO_ON"
   if [[ "$jqmode" == "jq" ]]; then
     expect "$jqmode, live allowlist only: applied" applied
@@ -518,7 +528,11 @@ done
 for jqmode in jq nojq; do
   rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
   RUN_PATH="${rp:-}" run_upgrade '{"sso":{"enable":true,"login":{"enable":"true"}}}' "$SSO_ON"
-  expect "$jqmode, live sso.login.enable is the string \"true\", .env omits it: login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+  if [[ "$jqmode" == "jq" ]]; then
+    expect "$jqmode, live sso.login.enable is the string \"true\", .env omits it: login on" grep -qxF '        enable: true' "$OUT/rendered.yaml"
+  else
+    expect "$jqmode, live sso.login.enable is the string \"true\", .env omits it: refused" refused
+  fi
 done
 saved_base="$BASE_ENV"
 BASE_ENV=$(grep -v '^sso_enable=' <<<"$saved_base")
@@ -568,6 +582,53 @@ expect "external_user_dir_mounts=yes: refused" refused
 expect "external_user_dir_mounts=yes: names the key" grep -q 'external_user_dir_mounts in .env is' "$OUT/log"
 FAKE_GET_FAIL=1 run_upgrade '{"external_execution":{"user_dir_mounts":true}}' ""
 expect "live user_dir_mounts cannot be read: refused" refused
+
+# console.return_prefixes: .env wins (a JSON array of path prefixes); otherwise the running release keeps
+# its list, so an upgrade never silently sends an app added to it back to the console's 404 page.
+CRP='console_return_prefixes='"'"'["/dispatron","/autopilot","/binding","/blog-drafts","/claw-api"]'"'"
+CRP_RENDERED='return_prefixes: ["/dispatron","/autopilot","/binding","/blog-drafts","/claw-api"]'
+no_return_prefixes() { ! grep -q 'return_prefixes:' "$OUT/rendered.yaml"; }
+run_upgrade "" ""
+expect "return prefixes, fresh install: applied" applied
+expect "return prefixes, fresh install: left to the apiserver's default" no_return_prefixes
+run_upgrade "" "$CRP"
+expect "return prefixes from .env: applied" applied
+expect "return prefixes from .env: rendered" rendered "$CRP_RENDERED"
+run_upgrade "" "console_return_prefixes="
+expect "empty return prefixes is the empty list: rendered" rendered 'return_prefixes: []'
+for bad in '/claw-api' '["/"]' '["claw-api"]' '["/claw-api/"]' '["/a/../b"]' '["//evil.example.net"]' '[1]'; do
+  run_upgrade "" "console_return_prefixes='$bad'"
+  expect "return prefixes $bad: refused" refused
+  expect "return prefixes $bad: says so" grep -q 'console_return_prefixes in .env is not a JSON array of path prefixes' "$OUT/log"
+done
+RUN_PATH="$NOJQ" run_upgrade "" "$CRP"
+expect "no jq, return prefixes: refused" refused
+expect "no jq, return prefixes: asks for jq" grep -q 'jq is required when .env sets console_return_prefixes' "$OUT/log"
+LIVE_CRP='{"console":{"access_contact":"x","return_prefixes":["/dispatron","/autopilot","/binding","/blog-drafts","/claw-api"]}}'
+run_upgrade "$LIVE_CRP" ""
+expect "live return prefixes, no .env key: applied" applied
+expect "live return prefixes, no .env key: kept" rendered "$CRP_RENDERED"
+run_upgrade '{"console":{"return_prefixes":[]}}' ""
+expect "live empty return prefixes, no .env key: kept empty" rendered 'return_prefixes: []'
+run_upgrade '{"console":{"access_contact":"x"}}' ""
+expect "live release without return prefixes: left to the apiserver's default" no_return_prefixes
+run_upgrade "$LIVE_CRP" "console_return_prefixes='[\"/dispatron\"]'"
+expect "live return prefixes, .env wins: rendered" rendered 'return_prefixes: ["/dispatron"]'
+RUN_PATH="$NOJQ" run_upgrade "$LIVE_CRP" ""
+expect "no jq, live return prefixes, no .env key: refused" refused
+expect "no jq, live return prefixes, no .env key: names the key" grep -q 'Add console_return_prefixes to .env' "$OUT/log"
+RUN_PATH="$NOJQ" run_upgrade '{"console":{"access_contact":"x"}}' ""
+expect "no jq, live release without return prefixes: applied" applied
+FAKE_GET_FAIL=1 run_upgrade "$LIVE_CRP" "external_user_dir_mounts=false"
+expect "live return prefixes cannot be read: refused" refused
+run_upgrade "$LIVE_BUILTIN" "$SSO_ON
+$AUTH_ENV
+$ALLOW
+$CRP"
+expect "return prefixes with auth keys and allowlist: applied" applied
+expect "return prefixes with auth keys and allowlist: prefixes rendered" rendered "$CRP_RENDERED"
+expect "return prefixes with auth keys and allowlist: allowlist rendered" rendered 'bridge_allowlist: ["http://localhost:5173","http://127.0.0.1:5173"]'
+expect "return prefixes with auth keys and allowlist: auth rendered" rendered 'mode: "external"'
 
 echo
 if ((FAILS > 0)); then

@@ -7,6 +7,8 @@ package scheduler
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -21,10 +23,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -518,6 +522,212 @@ func TestSchedulerMessage_DoesNotEraseConcurrentFailure(t *testing.T) {
 	r.updateUnScheduled(context.Background(), []*v1.Workload{fresh}, map[string]string{}, &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: w.Spec.Workspace}})
 	assert.NilError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(w), fresh))
 	assert.Equal(t, fresh.Status.Message, "registration failed")
+}
+
+func TestUpdateUnScheduledRetriesQueuePositionAfterConflict(t *testing.T) {
+	w := schedWorkload("queued-wl")
+	w.Spec.Workspace = "ws-q"
+	w.Status.Phase = v1.WorkloadPending
+	cli := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithStatusSubresource(w).Build()
+	assert.NilError(t, cli.Create(context.Background(), w))
+	stale := w.DeepCopy()
+	assert.NilError(t, jobutils.PatchWorkloadStatusFields(context.Background(), cli, w, map[string]any{
+		"message": "touched",
+	}))
+	r := &SchedulerReconciler{Client: cli}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-q"}}
+	reason := "In queue - waiting for earlier or higher priority workloads"
+	r.updateUnScheduled(context.Background(), []*v1.Workload{stale}, map[string]string{w.Name: reason}, ws)
+	fresh := &v1.Workload{}
+	assert.NilError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(w), fresh))
+	assert.Equal(t, fresh.Status.Phase, v1.WorkloadPending)
+	assert.Equal(t, fresh.Status.QueuePosition, 1)
+	assert.Equal(t, fresh.Status.Message, reason)
+	found := false
+	for _, c := range fresh.Status.Conditions {
+		if c.Type == string(v1.AdminScheduling) {
+			found = true
+			assert.Equal(t, c.Message, reason)
+		}
+	}
+	assert.Assert(t, found, "AdminScheduling condition required after a conflict retry")
+}
+
+func TestUpdateUnScheduledConflictWithScheduledStatusKeepsItOutOfQueue(t *testing.T) {
+	first := schedWorkload("scheduled-wl")
+	first.Spec.Workspace = "ws-q"
+	first.Status.Phase = v1.WorkloadPending
+	second := schedWorkload("waiting-wl")
+	second.Spec.Workspace = "ws-q"
+	second.Status.Phase = v1.WorkloadPending
+	cli := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithStatusSubresource(first, second).Build()
+	assert.NilError(t, cli.Create(context.Background(), first))
+	assert.NilError(t, cli.Create(context.Background(), second))
+	stale := first.DeepCopy()
+	r := &SchedulerReconciler{Client: cli}
+	assert.NilError(t, r.updateStatus(context.Background(), first))
+	assert.Assert(t, !v1.IsWorkloadScheduled(first))
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-q"}}
+	r.updateUnScheduled(context.Background(), []*v1.Workload{stale, second}, map[string]string{
+		first.Name:  "In queue - waiting for external capacity",
+		second.Name: "In queue - waiting for earlier or higher priority workloads",
+	}, ws)
+
+	storedFirst := &v1.Workload{}
+	assert.NilError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(first), storedFirst))
+	assert.Equal(t, storedFirst.Status.QueuePosition, 0)
+	assert.Equal(t, storedFirst.Status.Message, "")
+	scheduled, scheduling := 0, 0
+	for _, c := range storedFirst.Status.Conditions {
+		if c.Type == string(v1.AdminScheduled) {
+			scheduled++
+		}
+		if c.Type == string(v1.AdminScheduling) {
+			scheduling++
+		}
+	}
+	assert.Equal(t, scheduled, 1)
+	assert.Equal(t, scheduling, 0)
+
+	storedSecond := &v1.Workload{}
+	assert.NilError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(second), storedSecond))
+	assert.Equal(t, storedSecond.Status.QueuePosition, 1)
+}
+
+func testSchedulerQueue(t *testing.T) *controller.KeyedController[*SchedulerMessage] {
+	t.Helper()
+	q := controller.NewKeyedController[*SchedulerMessage](nil, schedulerMessageKey, nil, 1)
+	t.Cleanup(q.ShutDown)
+	return q
+}
+
+func TestRequeueWorkspace(t *testing.T) {
+	r := &SchedulerReconciler{}
+	r.requeueWorkspace(nil)
+	r.requeueWorkspace(&v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-q"}})
+
+	r.KeyedController = testSchedulerQueue(t)
+	r.requeueWorkspace(nil)
+	r.requeueWorkspace(&v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-q"}, Spec: v1.WorkspaceSpec{Cluster: "cluster-1"}})
+	assert.Equal(t, r.GetQueueSize(), 0)
+}
+
+func TestWriteQueueStatusNonConflictErrorRequeues(t *testing.T) {
+	w := schedWorkload("patch-err")
+	w.Spec.Workspace = "ws-q"
+	w.Status.Phase = v1.WorkloadPending
+	base := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithStatusSubresource(w).Build()
+	assert.NilError(t, base.Create(context.Background(), w))
+	r := &SchedulerReconciler{
+		Client: interceptor.NewClient(base, interceptor.Funcs{SubResourcePatch: func(context.Context, client.Client, string, client.Object, client.Patch, ...client.SubResourcePatchOption) error {
+			return fmt.Errorf("status unavailable")
+		}}),
+		KeyedController: testSchedulerQueue(t),
+	}
+	r.updateUnScheduled(context.Background(), []*v1.Workload{w}, map[string]string{w.Name: "In queue - waiting"}, &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-q"}, Spec: v1.WorkspaceSpec{Cluster: "cluster-1"}})
+	stored := &v1.Workload{}
+	assert.NilError(t, base.Get(context.Background(), client.ObjectKeyFromObject(w), stored))
+	assert.Equal(t, stored.Status.QueuePosition, 0)
+}
+
+func TestWriteQueueStatusGoneAfterConflict(t *testing.T) {
+	w := schedWorkload("gone-wl")
+	w.Spec.Workspace = "ws-q"
+	w.Status.Phase = v1.WorkloadPending
+	waiting := schedWorkload("still-waiting")
+	waiting.Spec.Workspace = "ws-q"
+	waiting.Status.Phase = v1.WorkloadPending
+	base := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithStatusSubresource(w, waiting).Build()
+	assert.NilError(t, base.Create(context.Background(), w))
+	assert.NilError(t, base.Create(context.Background(), waiting))
+	r := &SchedulerReconciler{Client: interceptor.NewClient(base, interceptor.Funcs{SubResourcePatch: func(ctx context.Context, cli client.Client, sub string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+		if obj.GetName() == w.Name {
+			assert.NilError(t, base.Delete(ctx, w))
+			return apierrors.NewConflict(schema.GroupResource{Group: "amd.com", Resource: "workloads"}, w.Name, errors.New("object was modified"))
+		}
+		return cli.SubResource(sub).Patch(ctx, obj, patch, opts...)
+	}})}
+	r.updateUnScheduled(context.Background(), []*v1.Workload{w, waiting}, map[string]string{
+		w.Name:       "In queue - waiting",
+		waiting.Name: "In queue - waiting for earlier or higher priority workloads",
+	}, &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-q"}})
+	err := base.Get(context.Background(), client.ObjectKeyFromObject(w), &v1.Workload{})
+	assert.Assert(t, apierrors.IsNotFound(err))
+	stored := &v1.Workload{}
+	assert.NilError(t, base.Get(context.Background(), client.ObjectKeyFromObject(waiting), stored))
+	assert.Equal(t, stored.Status.QueuePosition, 1)
+}
+
+func TestWriteQueueStatusGetFailureRequeues(t *testing.T) {
+	w := schedWorkload("get-err")
+	w.Spec.Workspace = "ws-q"
+	w.Status.Phase = v1.WorkloadPending
+	base := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithStatusSubresource(w).Build()
+	assert.NilError(t, base.Create(context.Background(), w))
+	r := &SchedulerReconciler{
+		Client: interceptor.NewClient(base, interceptor.Funcs{
+			SubResourcePatch: func(context.Context, client.Client, string, client.Object, client.Patch, ...client.SubResourcePatchOption) error {
+				return apierrors.NewConflict(schema.GroupResource{Group: "amd.com", Resource: "workloads"}, w.Name, errors.New("object was modified"))
+			},
+			Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+				return fmt.Errorf("apiserver down")
+			},
+		}),
+		KeyedController: testSchedulerQueue(t),
+	}
+	r.updateUnScheduled(context.Background(), []*v1.Workload{w}, map[string]string{w.Name: "In queue - waiting"}, &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-q"}, Spec: v1.WorkspaceSpec{Cluster: "cluster-1"}})
+	stored := &v1.Workload{}
+	assert.NilError(t, base.Get(context.Background(), client.ObjectKeyFromObject(w), stored))
+	assert.Equal(t, stored.Status.QueuePosition, 0)
+}
+
+func TestWriteQueueStatusSecondPatchErrorRequeues(t *testing.T) {
+	w := schedWorkload("second-patch")
+	w.Spec.Workspace = "ws-q"
+	w.Status.Phase = v1.WorkloadPending
+	base := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithStatusSubresource(w).Build()
+	assert.NilError(t, base.Create(context.Background(), w))
+	patches := 0
+	r := &SchedulerReconciler{
+		Client: interceptor.NewClient(base, interceptor.Funcs{SubResourcePatch: func(ctx context.Context, cli client.Client, sub string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+			patches++
+			if patches == 1 {
+				return apierrors.NewConflict(schema.GroupResource{Group: "amd.com", Resource: "workloads"}, w.Name, errors.New("object was modified"))
+			}
+			return fmt.Errorf("status unavailable")
+		}}),
+		KeyedController: testSchedulerQueue(t),
+	}
+	r.updateUnScheduled(context.Background(), []*v1.Workload{w}, map[string]string{w.Name: "In queue - waiting"}, &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-q"}, Spec: v1.WorkspaceSpec{Cluster: "cluster-1"}})
+	assert.Equal(t, patches, 2)
+	stored := &v1.Workload{}
+	assert.NilError(t, base.Get(context.Background(), client.ObjectKeyFromObject(w), stored))
+	assert.Equal(t, stored.Status.QueuePosition, 0)
+}
+
+func TestWriteQueueStatusReloadAlreadyCurrent(t *testing.T) {
+	w := schedWorkload("current-wl")
+	w.Spec.Workspace = "ws-q"
+	w.Status.Phase = v1.WorkloadPending
+	base := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithStatusSubresource(w).Build()
+	assert.NilError(t, base.Create(context.Background(), w))
+	stale := w.DeepCopy()
+	r := &SchedulerReconciler{Client: base}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-q"}}
+	reason := "In queue - waiting for earlier or higher priority workloads"
+	r.updateUnScheduled(context.Background(), []*v1.Workload{w}, map[string]string{w.Name: reason}, ws)
+	r.updateUnScheduled(context.Background(), []*v1.Workload{stale}, map[string]string{w.Name: reason}, ws)
+	stored := &v1.Workload{}
+	assert.NilError(t, base.Get(context.Background(), client.ObjectKeyFromObject(w), stored))
+	assert.Equal(t, stored.Status.QueuePosition, 1)
+	assert.Equal(t, stored.Status.Message, reason)
+	count := 0
+	for _, c := range stored.Status.Conditions {
+		if c.Type == string(v1.AdminScheduling) {
+			count++
+		}
+	}
+	assert.Equal(t, count, 1)
 }
 
 func TestUpdateUnScheduledWritesAdminScheduling(t *testing.T) {
