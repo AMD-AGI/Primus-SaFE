@@ -27,7 +27,7 @@
         }
       "
     >
-      纳管集群
+      Adopt Cluster
     </el-button>
   </div>
   <el-card class="mt-6 safe-card" shadow="never">

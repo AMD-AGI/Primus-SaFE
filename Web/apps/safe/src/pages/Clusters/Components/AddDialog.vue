@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="visible"
-    :title="isAdopt ? '纳管集群' : `${action} Cluster`"
+    :title="`${action} Cluster`"
     width="720"
     :close-on-click-modal="false"
     @close="emit('update:visible', false)"
@@ -159,7 +159,7 @@
       <div class="dialog-footer">
         <el-button :disabled="loading" @click="emit('update:visible', false)">Cancel</el-button>
         <el-button type="primary" :loading="loading" @click="onSubmit(formRef)">
-          {{ isAdopt ? '纳管集群' : action }}
+          {{ action }}
         </el-button>
       </div>
     </template>
