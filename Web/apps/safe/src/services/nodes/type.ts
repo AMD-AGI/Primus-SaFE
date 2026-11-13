@@ -145,13 +145,16 @@ export interface CreateClusterPayload {
   name: string
   description?: string
   sshSecretId: string
+  imageSecretId?: string
   isProtected?: boolean
-  kubeNetworkPlugin: string
-  nodes: string[] // e.g. ["smc300x-ccs-aus-a16-10", ...]
-  kubeSprayImage: string
-  kubePodsSubnet: string // e.g. "10.0.0.0/16"
-  kubeServiceAddress: string // e.g. "10.254.0.0/16"
-  kubernetesVersion: string
+  labels?: Record<string, string>
+  // Install settings. Omitted when registering an existing cluster.
+  kubeNetworkPlugin?: string
+  nodes?: string[]
+  kubeSprayImage?: string
+  kubePodsSubnet?: string
+  kubeServiceAddress?: string
+  kubernetesVersion?: string
   kubeletMaxPods?: number
   kubeApiServerArgs?: Record<string, string>
   // Registers an existing Kubernetes cluster instead of installing one.
