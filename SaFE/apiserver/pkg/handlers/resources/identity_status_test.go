@@ -31,14 +31,22 @@ func statusContext(userType string) *gin.Context {
 }
 
 func TestForwardIdentityStatusNeedsAnIdentityCredential(t *testing.T) {
-	t.Cleanup(func() { viper.Set("auth.mode", nil) })
+	t.Cleanup(func() {
+		viper.Set("auth.mode", nil)
+		viper.Set("auth.provider_client", nil)
+	})
 	frozen := v1.UserFrozen
 	req := &view.PatchUserRequest{RestrictedType: &frozen}
 	user := &v1.User{}
 	user.Name = "bob"
 
-	// A SaFE session is not an identity credential: the change is refused before identity is called.
+	// Without auth.provider_client the status stays local and nothing is forwarded.
 	viper.Set("auth.mode", "external")
+	viper.Set("auth.provider_client", false)
+	require.NoError(t, forwardIdentityStatus(statusContext(authority.UserTypeExternal), user, req))
+	viper.Set("auth.provider_client", true)
+
+	// A SaFE session is not an identity credential: the change is refused before identity is called.
 	err := forwardIdentityStatus(statusContext(string(v1.SSOUserType)), user, req)
 	require.Error(t, err)
 	require.True(t, apierrors.IsConflict(err), "got %v", err)

@@ -139,8 +139,8 @@ func guardEngineWithDB(t *testing.T, builtin bool, db dbclient.Interface) *gin.E
 }
 
 // guardEngineWithMappings is guardEngineWithDB with the group mappings given: what the identity
-// provider's groups grant, which becomes the overlay of the request.
-func guardEngineWithMappings(t *testing.T, builtin bool, db dbclient.Interface, mappings []map[string]any) *gin.Engine {
+// provider's groups grant, which becomes the overlay of the request. extra entries join the chain.
+func guardEngineWithMappings(t *testing.T, builtin bool, db dbclient.Interface, mappings []map[string]any, extra ...map[string]any) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	cli := sharedGuardCluster(t)
@@ -164,11 +164,12 @@ func guardEngineWithMappings(t *testing.T, builtin bool, db dbclient.Interface, 
 	if builtin {
 		chain = append(chain, map[string]any{"type": "builtin"})
 	}
+	chain = append(chain, extra...)
 	commonconfig.SetValue("crypto.enable", "false")
 	viper.Set("auth.mode", "external")
 	viper.Set("auth.authenticators", chain)
 	viper.Set("auth.group_mappings", mappings)
-	require.NoError(t, authority.InitExternalAuth(cli))
+	// Registered before the start-up check, so a refused chain does not leave its settings behind.
 	t.Cleanup(func() {
 		commonconfig.SetValue("crypto.enable", "")
 		viper.Set("auth.mode", "external")
@@ -177,6 +178,7 @@ func guardEngineWithMappings(t *testing.T, builtin bool, db dbclient.Interface, 
 		viper.Set("auth.group_mappings", nil)
 		require.NoError(t, authority.InitExternalAuth(nil))
 	})
+	require.NoError(t, authority.InitExternalAuth(cli))
 
 	e := gin.New()
 	InitCustomRouters(e, &Handler{Client: cli, accessController: &authority.AccessController{Client: cli}, dbClient: db})
@@ -395,9 +397,17 @@ func TestExternalModeRefusesSecretProviderCode(t *testing.T) {
 // A provider that is not configured does not set a cookie.
 func TestExternalModeExchangesLoginProviderCode(t *testing.T) {
 	commonconfig.SetValue("sso.login.enable", "true")
-	t.Cleanup(func() { commonconfig.SetValue("sso.login.enable", "") })
+	commonconfig.SetValue("sso.login.client_id", guardAudience)
 	require.True(t, commonconfig.IsSSOLoginEnable())
-	e := guardEngine(t, false)
+	// The console token's audience must be accepted by one oidc authenticator. The issuer is never
+	// contacted: the exchange fails at the provider, which is what this test leaves to it.
+	oidc := map[string]any{"type": "oidc", "issuer": "https://idp.invalid", "audience": guardAudience, "jwks_url": "https://idp.invalid/jwks"}
+	e := guardEngineWithMappings(t, false, nil, []map[string]any{{"group": "platform-admins", "roles": []string{"system-admin"}}}, oidc)
+	// Registered after the engine, so it runs before the engine's cleanup re-checks the chain with sso.login off.
+	t.Cleanup(func() {
+		commonconfig.SetValue("sso.login.enable", "")
+		commonconfig.SetValue("sso.login.client_id", "")
+	})
 	body := `{"type":"sso","code":"c","codeVerifier":"` + strings.Repeat("v", 43) + `"}`
 	w := guardRequest{method: http.MethodPost, path: "/api/v1/login", body: body}.serve(e)
 	require.NotEqual(t, http.StatusForbidden, w.Code, w.Body.String())
