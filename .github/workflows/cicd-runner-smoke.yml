@@ -1,0 +1,21 @@
+name: CICD runner smoke
+
+on:
+  push:
+    branches:
+      - test/cicd-runner-primus-safe
+
+jobs:
+  smoke:
+    runs-on: primus-safe
+    steps:
+      - name: Show the runner that took this job
+        run: |
+          echo "runner=${RUNNER_NAME:-unknown}"
+          uname -a
+          id
+          if command -v docker >/dev/null 2>&1; then
+            docker info
+          else
+            echo "docker cli is not in this image"
+          fi
