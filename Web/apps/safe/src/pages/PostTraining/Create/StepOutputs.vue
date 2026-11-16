@@ -1,5 +1,5 @@
 <template>
-  <el-form label-position="top">
+  <el-form label-width="auto">
     <el-form-item label="Export Hugging Face model">
       <el-switch v-model="exportHf" />
       <div class="pt-help">
@@ -32,8 +32,11 @@
           />
         </el-select>
       </el-form-item>
-      <el-form-item label="Keep the inference service after evaluation">
-        <el-switch v-model="keepService" />
+      <el-form-item label="Keep service">
+        <el-switch v-model="keepService" class="mr-2" />
+        <el-text size="small" type="info">
+          <el-icon class="mr-1"><InfoFilled /></el-icon>Keep the inference service after evaluation
+        </el-text>
       </el-form-item>
     </template>
 
@@ -107,6 +110,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { InfoFilled } from '@element-plus/icons-vue'
 import { getSecrets } from '@/services/nodes'
 import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'

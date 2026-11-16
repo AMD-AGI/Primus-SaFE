@@ -1,17 +1,25 @@
 <template>
-  <el-form label-position="top">
-    <el-form-item label="Nodes" required :error="fieldError('resources.nodes')">
-      <div class="flex items-center gap-2">
-        <el-input-number v-model="w.form.resources.nodes" :min="1" :max="64" />
-        <span>×</span>
-        <el-input-number
-          v-model="w.form.resources.gpusPerNode"
-          :min="1"
-          :max="w.nodeGpus.value || undefined"
-        />
-        <span>GPUs per node</span>
-      </div>
-    </el-form-item>
+  <el-form label-width="auto">
+    <el-row :gutter="20">
+      <el-col :span="12">
+        <el-form-item label="Nodes" required :error="fieldError('resources.nodes')">
+          <el-input-number v-model="w.form.resources.nodes" :min="1" :max="64" />
+        </el-form-item>
+      </el-col>
+      <el-col :span="12">
+        <el-form-item label="GPUs per node" required>
+          <el-input-number
+            v-model="w.form.resources.gpusPerNode"
+            :min="1"
+            :max="w.nodeGpus.value || undefined"
+          />
+        </el-form-item>
+      </el-col>
+    </el-row>
+    <el-text class="mx-1 mb-4 block" size="small" type="info">
+      <el-icon class="mr-1"><InfoFilled /></el-icon>CPU, memory and ephemeral storage follow the
+      share of each node's GPUs.
+    </el-text>
 
     <template v-if="w.form.trainType === 'rl'">
       <el-form-item label="Layout" required :error="fieldError('choices.layout')">
@@ -21,65 +29,71 @@
         </div>
       </el-form-item>
 
-      <el-form-item v-if="layout === 'separate'" label="Rollout">
-        <div class="flex flex-wrap items-center gap-4">
-          <div>
-            <div class="pt-label">Rollout GPUs</div>
-            <el-input-number
-              :model-value="
-                w.form.choices.rolloutGpus ?? defaults.rolloutGpus ?? w.form.resources.gpusPerNode
-              "
-              :min="1"
-              :max="totalGpus - 1"
-              @update:model-value="(v?: number) => (w.form.choices.rolloutGpus = v ?? undefined)"
-            />
-          </div>
-          <div>
-            <div class="pt-label">GPUs per engine</div>
-            <el-input-number
-              :model-value="w.form.choices.gpusPerEngine ?? defaults.gpusPerEngine ?? 1"
-              :min="1"
-              :max="w.form.resources.gpusPerNode"
-              @update:model-value="(v?: number) => (w.form.choices.gpusPerEngine = v ?? undefined)"
-            />
-          </div>
-        </div>
-        <div class="pt-help">{{ rolloutSummary }}</div>
-      </el-form-item>
+      <template v-if="layout === 'separate'">
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="Rollout GPUs">
+              <el-input-number
+                :model-value="
+                  w.form.choices.rolloutGpus ?? defaults.rolloutGpus ?? w.form.resources.gpusPerNode
+                "
+                :min="1"
+                :max="totalGpus - 1"
+                @update:model-value="(v?: number) => (w.form.choices.rolloutGpus = v ?? undefined)"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="GPUs per engine">
+              <el-input-number
+                :model-value="w.form.choices.gpusPerEngine ?? defaults.gpusPerEngine ?? 1"
+                :min="1"
+                :max="w.form.resources.gpusPerNode"
+                @update:model-value="
+                  (v?: number) => (w.form.choices.gpusPerEngine = v ?? undefined)
+                "
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-text class="mx-1 mb-4 block" size="small" type="info">
+          <el-icon class="mr-1"><InfoFilled /></el-icon>{{ rolloutSummary }}
+        </el-text>
+      </template>
     </template>
 
-    <el-form-item>
-      <template #label>
-        <span>Parallelism</span>
-        <span v-if="w.config.value?.spec" class="pt-help-inline"
-          >from spec {{ w.config.value.spec }}</span
-        >
-        <el-link type="primary" class="ml-2" @click="resetParallelism">Reset to spec</el-link>
-      </template>
-      <div class="flex flex-wrap items-center gap-4">
-        <div v-for="key in parallelKeys" :key="key">
-          <div class="pt-label">{{ key.toUpperCase() }}</div>
+    <el-form-item label="Parallelism">
+      <span v-if="w.config.value?.spec" class="pt-help-inline"
+        >From spec {{ w.config.value.spec }}</span
+      >
+      <el-link type="primary" class="ml-2" @click="resetParallelism">Reset to spec</el-link>
+    </el-form-item>
+    <el-row :gutter="20">
+      <el-col v-for="key in parallelKeys" :key="key" :span="12">
+        <el-form-item :label="key.toUpperCase()">
           <el-input-number
             :model-value="w.form.choices[key] ?? defaults[key] ?? 1"
             :min="1"
             :max="64"
             @update:model-value="(v?: number) => (w.form.choices[key] = v ?? undefined)"
           />
-        </div>
-        <div>
-          <div class="pt-label">Sequence parallel</div>
+        </el-form-item>
+      </el-col>
+      <el-col :span="12">
+        <el-form-item label="Sequence parallel">
           <el-switch v-model="sequenceParallel" />
-        </div>
-      </div>
-      <div v-if="fieldError('choices.tp')" class="text-[12px] text-[var(--el-color-danger)]">
-        {{ fieldError('choices.tp') }}
-      </div>
-    </el-form-item>
+        </el-form-item>
+      </el-col>
+    </el-row>
+    <div v-if="fieldError('choices.tp')" class="text-[12px] text-[var(--el-color-danger)]">
+      {{ fieldError('choices.tp') }}
+    </div>
   </el-form>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { InfoFilled } from '@element-plus/icons-vue'
 import { useWizard } from './wizard'
 
 const w = useWizard()
@@ -128,13 +142,7 @@ const fieldError = (field: string) => w.errors.value.find((d) => d.field === fie
   color: var(--safe-muted);
 }
 .pt-help-inline {
-  margin-left: 8px;
   font-size: 12px;
   color: var(--safe-muted);
-}
-.pt-label {
-  font-size: 12px;
-  color: var(--safe-muted);
-  margin-bottom: 2px;
 }
 </style>
