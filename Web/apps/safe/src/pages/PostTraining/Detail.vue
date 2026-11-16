@@ -159,33 +159,50 @@
           <div v-else-if="!imported" class="pt-cards">
             <div v-for="c in cards" :key="c.label" class="pt-stat">
               <div class="text-[12px] text-[var(--safe-muted)]">{{ c.label }}</div>
-              <div class="text-[20px] font-600">{{ c.value }}</div>
+              <div class="text-[20px] font-600 truncate" :title="c.value">{{ c.value }}</div>
               <el-button
                 v-if="c.link"
                 link
                 type="primary"
                 class="text-[12px]"
-                @click="tab = c.link.tab"
+                @click="openCardLink(c.link)"
               >
                 {{ c.link.text }}
               </el-button>
             </div>
           </div>
-          <div v-if="!imported" class="pt-grid mt-3">
-            <MetricsPanel
-              v-for="p in overviewPanels"
-              :key="p.title"
-              :title="p.title"
-              :series="p.series"
-              :markers="metrics?.markers"
-              :smoothing="smoothing"
+          <div v-if="!imported" class="pt-overview mt-3">
+            <div class="min-w-0">
+              <div class="pt-grid">
+                <MetricsPanel
+                  v-for="p in overviewPanels"
+                  :key="p.title"
+                  :title="p.title"
+                  :series="p.series"
+                  :markers="metrics?.markers"
+                  :smoothing="smoothing"
+                />
+              </div>
+              <el-empty
+                v-if="!overviewPanels.length"
+                description="No metrics yet"
+                :image-size="60"
+              />
+              <GpuPanel
+                v-if="systemSeries.length"
+                class="mt-3"
+                :series="systemSeries"
+                :layout="runLayout"
+                :workload-id="run.workloadId"
+              />
+            </div>
+            <RunSummary
+              :run="run"
+              :metrics="metrics"
+              :checkpoints="checkpoints"
+              :now="now.getTime()"
             />
           </div>
-          <el-empty
-            v-if="!imported && !overviewPanels.length"
-            description="No metrics yet"
-            :image-size="60"
-          />
         </el-tab-pane>
 
         <el-tab-pane label="Metrics" name="metrics">
@@ -598,6 +615,7 @@ import MetricsPanel from './Components/MetricsPanel.vue'
 import AllMetricsTable from './Components/AllMetricsTable.vue'
 import EvalByCheckpoint from './Components/EvalByCheckpoint.vue'
 import GpuPanel from './Components/GpuPanel.vue'
+import RunSummary from './Components/RunSummary.vue'
 import SaveTemplateDialog from './Components/SaveTemplateDialog.vue'
 import VariantEditor from './Components/VariantEditor.vue'
 import SamplesTab from './Components/SamplesTab.vue'
@@ -828,12 +846,20 @@ const eta = computed(() => {
   return formatDuration(((total - step) * perStep) / 1000)
 })
 
+type CardLink = { text: string; tab?: string; path?: string }
+
+/** Opens what a card links to: another tab of this page or another page. */
+const openCardLink = (link: CardLink) => {
+  if (link.path) router.push(link.path)
+  else if (link.tab) tab.value = link.tab
+}
+
 const cards = computed(() => {
   const r = run.value
   const main = r?.metricSummary?.main
   const total = recipe.value.choices?.numRollout
   const unit = r?.trainType === 'rl' ? 'Rollout' : 'Step'
-  const out: { label: string; value: string; link?: { text: string; tab: string } }[] = [
+  const out: { label: string; value: string; link?: CardLink }[] = [
     {
       label: unit,
       value: main
@@ -851,12 +877,34 @@ const cards = computed(() => {
     })
   }
   out.push({ label: 'Time left', value: eta.value || '—' })
+  const evaluation = [...(r?.evaluations ?? [])].sort(
+    (a, b) => Date.parse(timeOf(b.CreationTime) ?? '') - Date.parse(timeOf(a.CreationTime) ?? ''),
+  )[0]
+  out.push({
+    label: 'Evaluation',
+    value: !evaluation
+      ? '—'
+      : evaluation.Status === 'Succeeded'
+        ? scores(evaluation)
+        : evaluation.Status,
+    link: evaluation ? { text: 'View evaluation', tab: 'evaluation' } : undefined,
+  })
+  const model = r?.outputModel
+  out.push({
+    label: 'Output model',
+    value: model
+      ? `${model.displayName || model.id}${model.phase === 'Ready' ? '' : ` · ${model.phase}`}`
+      : '—',
+    link: model
+      ? { text: 'Open in Model Square', path: `/model-square/detail/${model.id}` }
+      : undefined,
+  })
   return out
 })
 
 const seriesByName = computed(() => new Map((metrics.value?.series ?? []).map((s) => [s.name, s])))
 
-/** The two curves of the overview: loss and validation loss for SFT, the main metric and a loss for RL. */
+/** The curves of the overview: loss and validation loss for SFT, the main metric and a loss for RL, and throughput. */
 const overviewPanels = computed(() => {
   const r = run.value
   const all = metrics.value?.series ?? []
@@ -872,6 +920,9 @@ const overviewPanels = computed(() => {
     const loss = all.find((s) => s.name !== main?.name && /loss/.test(s.name))
     if (loss) panels.push({ title: loss.name, series: [loss] })
   }
+  const throughput = registryPanels.value.shown.find((p) => p.panel.id === 'throughput')
+  const perf = throughput ? seriesOf(throughput.metrics.series) : []
+  if (perf.length) panels.push({ title: PANEL_TITLES.throughput, series: perf })
   return panels
 })
 
@@ -1240,8 +1291,19 @@ onMounted(() => {
 }
 .pt-cards {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
+}
+.pt-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 1280px) {
+  .pt-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .pt-stat {
   padding: 12px;
