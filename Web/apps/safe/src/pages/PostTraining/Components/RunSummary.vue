@@ -1,7 +1,11 @@
 <template>
-  <div class="min-w-0">
-    <SectionCard title="Configuration" subtitle="What the run trains, on which data and resources">
-      <el-descriptions :column="1" size="small">
+  <div>
+    <el-card class="safe-card" shadow="never">
+      <div class="flex items-center">
+        <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
+        <span class="fs-subtitle font-medium">Configuration</span>
+      </div>
+      <el-descriptions class="m-t-4" border :column="5" direction="vertical">
         <el-descriptions-item label="Task">{{ taskText }}</el-descriptions-item>
         <el-descriptions-item label="Framework">{{ frameworkText }}</el-descriptions-item>
         <el-descriptions-item label="Base model">
@@ -29,30 +33,41 @@
         </el-descriptions-item>
         <el-descriptions-item label="Scheduling">{{ schedulingText }}</el-descriptions-item>
       </el-descriptions>
-    </SectionCard>
+    </el-card>
 
-    <SectionCard
-      title="Efficiency & storage"
-      subtitle="Time, throughput, GPU use and disk of the run"
-    >
-      <el-descriptions :column="1" size="small">
-        <el-descriptions-item label="Total time">{{ totalTime }}</el-descriptions-item>
-        <el-descriptions-item label="Training">{{ trainTime }}</el-descriptions-item>
-        <el-descriptions-item label="Throughput">{{ throughputText }}</el-descriptions-item>
-        <el-descriptions-item label="Step time">{{ stepTimeText }}</el-descriptions-item>
-        <el-descriptions-item label="GPU utilization">{{ gpuUtilText }}</el-descriptions-item>
-        <el-descriptions-item label="GPU memory">{{ gpuMemText }}</el-descriptions-item>
-        <el-descriptions-item label="Checkpoints">{{ checkpointText }}</el-descriptions-item>
-        <el-descriptions-item label="Storage">{{ storageText }}</el-descriptions-item>
-      </el-descriptions>
-    </SectionCard>
+    <el-card class="safe-card mt-3" shadow="never">
+      <div class="flex items-center">
+        <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
+        <span class="fs-subtitle font-medium">Efficiency & storage</span>
+      </div>
+      <div class="grid gap-3 mt-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          v-for="t in tiles"
+          :key="t.label"
+          :label="t.label"
+          :value="t.value"
+          :suffix="t.suffix"
+          :icon="t.icon"
+        />
+      </div>
+    </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, type Component } from 'vue'
 import { useRouter } from 'vue-router'
-import SectionCard from '@/components/Base/SectionCard.vue'
+import {
+  Box,
+  Clock,
+  Collection,
+  Files,
+  Monitor,
+  Stopwatch,
+  Timer,
+  TrendCharts,
+} from '@element-plus/icons-vue'
+import StatCard from '@/components/Base/StatCard.vue'
 import { formatBytes } from '@/utils'
 import {
   checkpointBytes,
@@ -189,51 +204,77 @@ const trainTime = computed(() => {
   return end ? formatDuration((end - Date.parse(list[first].time)) / 1000) : '—'
 })
 
-/** The points of a metric series, or none. */
+/** The values of a metric series, or none. */
 const points = (name: string) =>
   props.metrics?.series.find((s) => s.name === name)?.points.map((p) => p[1]) ?? []
 const mean = (v: number[]) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : undefined)
 const peak = (v: number[]) => (v.length ? Math.max(...v) : undefined)
 
-const throughputText = computed(() => {
+type Tile = { label: string; value: string; suffix?: string; icon: Component }
+
+/** The efficiency and storage figures, each a value and a short note in the stat card style. */
+const tiles = computed((): Tile[] => {
   const tokens = mean(points('perf/actor_train_tok_per_s'))
   const tflops = mean(points('perf/actor_train_tflops'))
-  if (tokens === undefined) return '—'
-  const flops = tflops !== undefined ? ` · ${tflops.toFixed(1)} TFLOPS` : ''
-  return `avg ${Math.round(tokens).toLocaleString()} tokens/s${flops}`
-})
-
-const stepTimeText = computed(() => {
-  const s = mean(points('perf/step_time'))
-  return s === undefined ? '—' : `avg ${s.toFixed(1)} s`
-})
-
-const gpuUtilText = computed(() => {
-  const avg = mean(points('system/gpu_util_mean'))
-  const max = peak(points('system/gpu_util_max'))
-  if (avg === undefined) return '—'
-  return `avg ${avg.toFixed(0)}%${max !== undefined ? ` · peak ${max.toFixed(0)}%` : ''}`
-})
-
-const gpuMemText = computed(() => {
-  const used = peak(points('system/gpu_mem_used_max_gb'))
-  const total = peak(points('system/gpu_mem_total_gb'))
-  if (used === undefined) return '—'
-  return `peak ${used.toFixed(1)}${total !== undefined ? ` of ${total.toFixed(0)}` : ''} GiB per GPU`
-})
-
-const checkpointText = computed(() => {
-  const all = props.checkpoints
-  if (!all.length) return '—'
-  const kept = all.filter((c) => !c.deletedBy).length
-  const best = all.find((c) => c.best)
-  return `${kept} kept of ${all.length}${best ? ` · best at step ${best.step}` : ''}`
-})
-
-const storageText = computed(() => {
-  const d = parseJSON<DiskUsage>(props.run.diskUsage)
-  if (!d) return '—'
-  const outputs = (d.finalModel ?? 0) + (d.finalAdapter ?? 0) + (d.exports ?? 0)
-  return `checkpoints ${formatBytes(checkpointBytes(d), 1)} · outputs ${formatBytes(outputs, 1)}`
+  const step = mean(points('perf/step_time'))
+  const util = mean(points('system/gpu_util_mean'))
+  const utilPeak = peak(points('system/gpu_util_max'))
+  const mem = peak(points('system/gpu_mem_used_max_gb'))
+  const memTotal = peak(points('system/gpu_mem_total_gb'))
+  const kept = props.checkpoints.filter((c) => !c.deletedBy).length
+  const best = props.checkpoints.find((c) => c.best)
+  const disk = parseJSON<DiskUsage>(props.run.diskUsage)
+  const outputs = (disk?.finalModel ?? 0) + (disk?.finalAdapter ?? 0) + (disk?.exports ?? 0)
+  return [
+    { label: 'Total time', value: totalTime.value, icon: Timer },
+    { label: 'Training', value: trainTime.value, icon: Clock },
+    {
+      label: 'Throughput',
+      value: tokens === undefined ? '—' : Math.round(tokens).toLocaleString(),
+      suffix:
+        tokens === undefined
+          ? undefined
+          : `tokens/s${tflops !== undefined ? ` · ${tflops.toFixed(1)} TFLOPS` : ''}`,
+      icon: TrendCharts,
+    },
+    {
+      label: 'Step time',
+      value: step === undefined ? '—' : `${step.toFixed(1)} s`,
+      suffix: step === undefined ? undefined : 'avg',
+      icon: Stopwatch,
+    },
+    {
+      label: 'GPU utilization',
+      value: util === undefined ? '—' : `${util.toFixed(0)}%`,
+      suffix:
+        util === undefined
+          ? undefined
+          : `avg${utilPeak !== undefined ? ` · peak ${utilPeak.toFixed(0)}%` : ''}`,
+      icon: Monitor,
+    },
+    {
+      label: 'GPU memory',
+      value: mem === undefined ? '—' : `${mem.toFixed(1)} GiB`,
+      suffix:
+        mem === undefined
+          ? undefined
+          : `peak${memTotal !== undefined ? ` of ${memTotal.toFixed(0)}` : ''} per GPU`,
+      icon: Box,
+    },
+    {
+      label: 'Checkpoints',
+      value: props.checkpoints.length ? String(kept) : '—',
+      suffix: props.checkpoints.length
+        ? `kept of ${props.checkpoints.length}${best ? ` · best at ${best.step}` : ''}`
+        : undefined,
+      icon: Files,
+    },
+    {
+      label: 'Storage',
+      value: disk ? formatBytes(checkpointBytes(disk) + outputs, 1) : '—',
+      suffix: disk ? `${formatBytes(outputs, 1)} in outputs` : undefined,
+      icon: Collection,
+    },
+  ]
 })
 </script>

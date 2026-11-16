@@ -206,38 +206,33 @@
               </el-button>
             </div>
           </div>
-          <div v-if="!imported" class="pt-overview mt-3">
-            <div class="min-w-0">
-              <div class="pt-grid">
-                <MetricsPanel
-                  v-for="p in overviewPanels"
-                  :key="p.title"
-                  :title="p.title"
-                  :series="p.series"
-                  :markers="metrics?.markers"
-                  :smoothing="smoothing"
-                />
-              </div>
-              <el-empty
-                v-if="!overviewPanels.length"
-                description="No metrics yet"
-                :image-size="60"
-              />
-              <GpuPanel
-                v-if="systemSeries.length"
-                class="mt-3"
-                :series="systemSeries"
-                :layout="runLayout"
-                :workload-id="run.workloadId"
+          <template v-if="!imported">
+            <div class="pt-grid mt-3">
+              <MetricsPanel
+                v-for="p in overviewPanels"
+                :key="p.title"
+                :title="p.title"
+                :series="p.series"
+                :markers="metrics?.markers"
+                :smoothing="smoothing"
               />
             </div>
+            <el-empty v-if="!overviewPanels.length" description="No metrics yet" :image-size="60" />
+            <GpuPanel
+              v-if="systemSeries.length"
+              class="mt-3"
+              :series="systemSeries"
+              :layout="runLayout"
+              :workload-id="run.workloadId"
+            />
             <RunSummary
+              class="mt-3"
               :run="run"
               :metrics="metrics"
               :checkpoints="checkpoints"
               :now="now.getTime()"
             />
-          </div>
+          </template>
         </el-tab-pane>
 
         <el-tab-pane label="Metrics" name="metrics">
@@ -1339,17 +1334,6 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
-}
-.pt-overview {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
-  gap: 12px;
-  align-items: start;
-}
-@media (max-width: 1280px) {
-  .pt-overview {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 .pt-stat {
   padding: 12px;
