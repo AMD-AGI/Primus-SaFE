@@ -437,6 +437,29 @@ class Runner:
                              % (free >> 30, need >> 30), retry=False)
         self.check_wandb()
         self.check_reward()
+        self.check_val()
+
+    def check_val(self):
+        """Fail before training when an SFT run's validation set has fewer rows than the data-parallel ranks, which
+        its eval loss needs, and note the batch the eval loss uses when the set is smaller than a global batch."""
+        if self.recipe.get("trainType") != "sft":
+            return
+        try:
+            with open(self.path("data", "stats.json")) as f:
+                stats = json.load(f)
+        except (OSError, ValueError):
+            return
+        rows = (stats.get("eval") or {}).get("written", (stats.get("train") or {}).get("split", 0))
+        if not rows:
+            return
+        choices = self.recipe.get("choices") or {}
+        model_parallel = (choices.get("tp") or 1) * (choices.get("pp") or 1) * (choices.get("cp") or 1)
+        dp = max(1, self.recipe["layout"]["actorGpus"] // model_parallel)
+        if rows < dp:
+            raise StageError("check", "the validation set has %d rows, fewer than the %d data-parallel ranks its "
+                             "eval loss splits them over" % (rows, dp), retry=False)
+        if rows < (choices.get("batchSize") or 0):
+            self.emitter.stage("check", state="running", detail={"valRows": rows, "valBatch": rows // dp * dp})
 
     def check_freeze(self):
         """Fail before training when a pattern of the parameters to train is not a Python regex, which slime
