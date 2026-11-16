@@ -314,13 +314,13 @@ const undo = () => {
   formKey.value++
 }
 
-/** Copies a run's recipe snapshot into the request, as "Copy as New Run" does. */
+/** Copies a run's recipe snapshot into the request, as Clone does. */
 const prefillFromRun = async (runId: string) => {
   const detail = (await getPostTrainingRun(runId)) as unknown as RunDetail
   const { resources, ...copied } = requestFromRun(detail)
   Object.assign(w.form, copied, {
     workspace: w.form.workspace,
-    displayName: `${detail.displayName}-copy`,
+    displayName: `${detail.displayName}-clone`,
   })
   if (resources.nodes) w.form.resources.nodes = resources.nodes
   if (resources.gpusPerNode) w.form.resources.gpusPerNode = resources.gpusPerNode
@@ -328,7 +328,7 @@ const prefillFromRun = async (runId: string) => {
   if (detail.priority < 2 || userStore.isManager || wsStore.isCurrentWorkspaceAdmin())
     w.form.resources.priority = detail.priority
   if (detail.timeout > 0) w.form.resources.timeoutSeconds = detail.timeout
-  prefill.value = `Copied from run ${detail.displayName}.`
+  prefill.value = `Cloned from run ${detail.displayName}.`
   undoPrefill = () => {
     Object.assign(w.form, newRequest(w.workspace))
     prefill.value = ''

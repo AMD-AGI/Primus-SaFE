@@ -450,7 +450,7 @@
                       router.push({ path: '/post-training/create', query: { fromRun: row.runId } })
                     "
                   >
-                    Copy
+                    Clone
                   </el-button>
                 </span>
               </el-tooltip>
@@ -950,7 +950,7 @@ const baseModelTip = ({ row }: { row: PostTrainingRun }) =>
 /** Why a run cannot be copied, or an empty string. */
 const copyBlocked = (row: PostTrainingRun) =>
   isImportedRun(row)
-    ? "Imported runs can't be copied: they have no SaFE recipe."
+    ? "Imported runs can't be cloned: they have no SaFE recipe."
     : isReadonly.value
       ? readOnlyTip
       : createBlocked.value

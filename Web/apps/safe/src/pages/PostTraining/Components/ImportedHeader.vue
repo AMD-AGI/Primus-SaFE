@@ -144,7 +144,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ tab: [name: string] }>()
 
-const RECIPE_ACTIONS = ['Copy as New Run', 'Save as Template', 'A/B from This Run']
+const RECIPE_ACTIONS = ['Clone', 'Save as Template', 'A/B from This Run']
 const NO_RECIPE = 'Imported runs are read-only: SaFE has no recipe for them.'
 const NO_MODEL = 'No model to evaluate: nothing from an imported run is registered in Model Square.'
 const readOnlyTip = 'Read-only access'

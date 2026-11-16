@@ -71,7 +71,7 @@
           </el-tooltip>
           <el-tooltip :content="readOnlyTip" :disabled="!isReadonly" placement="top">
             <span>
-              <el-button round :disabled="isReadonly" @click="copyAsNew">Copy as New Run</el-button>
+              <el-button round :disabled="isReadonly" @click="copyAsNew">Clone</el-button>
             </span>
           </el-tooltip>
           <el-tooltip :content="readOnlyTip" :disabled="!isReadonly" placement="top">
@@ -129,7 +129,7 @@
             :disabled="isReadonly"
             @click="copyAsNew"
           >
-            Copy as New Run
+            Clone
           </el-button>
           <el-button v-if="banner.cleanup" link type="primary" @click="tab = 'checkpoints'">
             Clean up checkpoints
