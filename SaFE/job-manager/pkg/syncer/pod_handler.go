@@ -1477,10 +1477,12 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 			mainContainerName = c.Name
 		}
 		// The preflight results are handled by job self-parse.
+		// A job that logs no result lines keeps its termination message, the reason it gives for ending.
 		if commonworkload.IsOpsJob(adminWorkload) && c.Name == mainContainerName &&
 			v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobPreflightType) {
-			message := getPodLog(ctx, clientSet, pod, mainContainerName)
-			c.Message = message
+			if message := getPodLog(ctx, clientSet, pod, mainContainerName); message != "" {
+				c.Message = message
+			}
 		}
 		if commonworkload.IsPostTraining(adminWorkload) && c.Name == common.RayJobSubmitterName {
 			c.Message = getPostTrainingResult(ctx, clientSet, pod, v1.GetLabel(adminWorkload, v1.PostTrainingRunIdLabel))
