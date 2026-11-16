@@ -1,5 +1,14 @@
 <template>
-  <el-form label-position="top">
+  <el-form label-width="auto">
+    <el-form-item label="Run name" required>
+      <el-input
+        v-model="w.form.displayName"
+        placeholder="e.g. qwen3-8b-sft-lr2e-5"
+        maxlength="64"
+        style="width: 420px"
+      />
+    </el-form-item>
+
     <el-form-item label="Framework">
       <el-select
         v-if="frameworks.length > 1"

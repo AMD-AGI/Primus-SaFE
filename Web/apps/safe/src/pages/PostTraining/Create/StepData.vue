@@ -1,5 +1,5 @@
 <template>
-  <el-form label-position="top">
+  <el-form label-width="auto">
     <el-form-item label="Training dataset" required :error="fieldError('datasetId')">
       <el-select
         v-model="w.form.datasetId"

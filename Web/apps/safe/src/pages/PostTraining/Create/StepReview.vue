@@ -1,14 +1,5 @@
 <template>
   <el-form label-position="top">
-    <el-form-item label="Run name" required>
-      <el-input
-        v-model="w.form.displayName"
-        placeholder="e.g. qwen3-8b-sft-lr2e-5"
-        maxlength="64"
-        style="width: 420px"
-      />
-    </el-form-item>
-
     <el-tabs v-model="tab">
       <el-tab-pane label="Summary" name="summary">
         <el-descriptions :column="2" border size="small">
