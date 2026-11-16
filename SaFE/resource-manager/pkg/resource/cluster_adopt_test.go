@@ -28,6 +28,8 @@ import (
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -176,7 +178,8 @@ func TestSyncAdoptedInventoryUsesManualFlavor(t *testing.T) {
 		Cpu: v1.CpuChip{Quantity: resource.MustParse("4")}, Memory: resource.MustParse("8Gi"),
 	}}
 	node := corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Status: corev1.NodeStatus{
-		Capacity: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("64"), corev1.ResourceMemory: resource.MustParse("256Gi")},
+		Addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.0.0.11"}},
+		Capacity:  corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("64"), corev1.ResourceMemory: resource.MustParse("256Gi")},
 	}}
 	r := newPlaneReconciler(t, cluster, existing)
 	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{node}))
@@ -400,7 +403,8 @@ func TestAdoptClusterContentsRegistersNodesWhenAuthorizeFails(t *testing.T) {
 func TestSyncAdoptedInventorySkipsForeignWorkspace(t *testing.T) {
 	cluster := testCluster("ccs300")
 	foreign := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "dev"}, Spec: v1.WorkspaceSpec{Cluster: "other"}}
-	k8sNode := corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "gpu1", Labels: map[string]string{v1.WorkspaceIdLabel: "dev"}}}
+	k8sNode := workerNode("gpu1", "10.0.0.11")
+	k8sNode.Labels = map[string]string{v1.WorkspaceIdLabel: "dev"}
 	r := newPlaneReconciler(t, cluster, foreign)
 	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{k8sNode}))
 	got := &v1.Node{}
@@ -418,6 +422,58 @@ func TestEnsureAdoptedNodeClaimsUnboundNode(t *testing.T) {
 	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "gpu1"}, got))
 	assert.Equal(t, "ccs300", got.GetSpecCluster())
 	assert.Equal(t, "ccs300", v1.GetClusterId(got))
+}
+
+func TestSyncAdoptedInventorySkipsInvalidNodes(t *testing.T) {
+	cluster := testCluster("ccs300")
+	noIP := corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "a-no-ip"}}
+	badName := workerNode("10-0-0-7", "10.0.0.7")
+	cp := workerNode("cp1", "10.0.0.1")
+	cp.Labels = map[string]string{v1.KubernetesControlPlane: ""}
+	r := newPlaneReconciler(t, cluster)
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(),
+		[]corev1.Node{noIP, badName, cp}))
+	nodes := &v1.NodeList{}
+	assert.NoError(t, r.List(context.Background(), nodes))
+	assert.Len(t, nodes.Items, 1)
+	assert.Equal(t, "cp1", nodes.Items[0].Name)
+	got := &v1.Cluster{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "ccs300"}, got))
+	assert.Equal(t, []string{"cp1"}, got.Spec.ControlPlane.Nodes)
+}
+
+func TestSyncAdoptedInventoryToleratesStaleCache(t *testing.T) {
+	cluster := testCluster("ccs300")
+	scheme, err := genMockScheme()
+	assert.NoError(t, err)
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				switch obj.(type) {
+				case *v1.NodeFlavor, *v1.Node:
+					return apierrors.NewNotFound(v1.Resource("object"), key.Name)
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+	r := &ClusterReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl}}
+	k8sNodes := []corev1.Node{workerNode("gpu1", "10.0.0.11"), workerNode("gpu2", "10.0.0.12")}
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), k8sNodes))
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), k8sNodes))
+}
+
+func TestAdoptedFlavorRoundsMemoryToGi(t *testing.T) {
+	node := func(memory string) *corev1.Node {
+		return &corev1.Node{Status: corev1.NodeStatus{Capacity: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("192"),
+			corev1.ResourceMemory: resource.MustParse(memory),
+		}}}
+	}
+	a := adoptedFlavor(nil, node("2113629180Ki"))
+	b := adoptedFlavor(nil, node("2113629184Ki"))
+	assert.Equal(t, a.Name, b.Name)
+	assert.Equal(t, "adopted-c192-m2015gi", a.Name)
+	assert.Equal(t, "2015Gi", a.Spec.Memory.String())
 }
 
 func TestVolumesFromPVCsIgnoresUnrelatedClaims(t *testing.T) {

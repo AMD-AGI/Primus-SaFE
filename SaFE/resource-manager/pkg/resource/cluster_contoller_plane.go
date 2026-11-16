@@ -355,8 +355,9 @@ func (r *ClusterReconciler) createResetPod(ctx context.Context, cluster *v1.Clus
 }
 
 // guaranteeClusterUpgrade runs upgrade-cluster.yml when the desired pair differs from the applied pair.
+// An adopted cluster was not installed by KubeSpray and is never upgraded by it.
 func (r *ClusterReconciler) guaranteeClusterUpgrade(ctx context.Context, cluster *v1.Cluster) error {
-	if !cluster.DeletionTimestamp.IsZero() {
+	if !cluster.DeletionTimestamp.IsZero() || v1.IsAdoptedCluster(cluster) {
 		return nil
 	}
 	phase := cluster.Status.ControlPlaneStatus.Phase

@@ -234,6 +234,32 @@ func TestClusterValidateImmutableFields(t *testing.T) {
 	assert.NilError(t, v.validateImmutableFields(recorded, adopted))
 }
 
+// TestAdoptedClusterRejectsUpgrade verifies an adopted cluster cannot change its KubeSpray settings.
+func TestAdoptedClusterRejectsUpgrade(t *testing.T) {
+	v := &ClusterValidator{}
+	old := &v1.Cluster{Spec: v1.ClusterSpec{ControlPlane: v1.ControlPlane{
+		Nodes:          []string{"cp"},
+		KubeVersion:    pointer.String("1.32.5"),
+		KubeSprayImage: pointer.String("primussafe/kubespray:20200530"),
+	}}}
+	v1.SetAnnotation(old, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	v1.SetAnnotation(old, v1.ClusterAppliedKubeVersionAnnotation, "1.32.5")
+	v1.SetAnnotation(old, v1.ClusterAppliedKubeSprayImageAnnotation, "primussafe/kubespray:20200530")
+	upgraded := old.DeepCopy()
+	upgraded.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	upgraded.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	assert.Assert(t, v.validateOnUpdate(upgraded, old) != nil)
+
+	installed := old.DeepCopy()
+	installed.Annotations = nil
+	v1.SetAnnotation(installed, v1.ClusterAppliedKubeVersionAnnotation, "1.32.5")
+	v1.SetAnnotation(installed, v1.ClusterAppliedKubeSprayImageAnnotation, "primussafe/kubespray:20200530")
+	installedUpgrade := installed.DeepCopy()
+	installedUpgrade.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	installedUpgrade.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	assert.NilError(t, v.validateOnUpdate(installedUpgrade, installed))
+}
+
 // TestAdoptAnnotationIsImmutable verifies the adopt annotation cannot be added or removed on update.
 func TestAdoptAnnotationIsImmutable(t *testing.T) {
 	v := &ClusterValidator{}

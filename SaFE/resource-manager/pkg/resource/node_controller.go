@@ -410,6 +410,16 @@ func (r *NodeReconciler) syncHostname(ctx context.Context, node *v1.Node, sshCli
 	if node.Status.MachineStatus.HostName != "" && node.Status.MachineStatus.HostName == node.GetSpecHostName() {
 		return node.Status.MachineStatus.HostName, nil
 	}
+	// A node of an adopted cluster keeps the name its kubelet registered; the host is never renamed.
+	if specHostname := node.GetSpecHostName(); specHostname != "" {
+		adopted, err := r.belongsToAdoptedCluster(ctx, node)
+		if err != nil {
+			return "", err
+		}
+		if adopted {
+			return specHostname, nil
+		}
+	}
 	hostname, err := getHostname(sshClient)
 	if err != nil {
 		return "", err
@@ -831,6 +841,12 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 	if r.syncClusterStatus(ctx, adminNode) != nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
 	}
+	// A node of an adopted cluster is already part of its data plane: the host is not
+	// reconfigured, rebooted or provisioned, and only SaFE labels are synced to its Kubernetes Node.
+	adopted, err := r.belongsToAdoptedCluster(ctx, adminNode)
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
 
 	// if the Kubernetes node is already present, it means the node has been successfully managed.
 	if k8sNode != nil {
@@ -841,11 +857,13 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		if err = r.syncLabelsToK8sNode(ctx, k8sClients.ClientSet(), adminNode, k8sNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		if err = r.modifyResolvConf(ctx, adminNode); err != nil {
-			return ctrlruntime.Result{}, err
-		}
-		if err = r.installAddons(ctx, adminNode); err != nil {
-			return ctrlruntime.Result{}, err
+		if !adopted {
+			if err = r.modifyResolvConf(ctx, adminNode); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+			if err = r.installAddons(ctx, adminNode); err != nil {
+				return ctrlruntime.Result{}, err
+			}
 		}
 		if err = r.deletePods(ctx, adminNode.GetSpecCluster(), adminNode.Name, string(v1.ClusterScaleUpAction)); err != nil {
 			return ctrlruntime.Result{}, err
@@ -863,7 +881,7 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		adminNode.Status.ClusterStatus.Cluster = adminNode.Spec.Cluster
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
 		klog.Infof("managed node %s", k8sNode.Name)
-		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeManageRebootLabel), v1.TrueStr) {
+		if !adopted && stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeManageRebootLabel), v1.TrueStr) {
 			r.rebootNode(ctx, adminNode)
 			return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil
 		}
@@ -871,6 +889,9 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 	}
 	if isControlPlaneNode(adminNode) {
 		return ctrlruntime.Result{}, r.syncControlPlaneNodeStatus(ctx, adminNode)
+	}
+	if adopted {
+		return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
 	}
 	return r.syncOrCreateScaleUpPod(ctx, adminNode)
 }

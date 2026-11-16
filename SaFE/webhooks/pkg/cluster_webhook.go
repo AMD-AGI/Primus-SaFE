@@ -263,6 +263,9 @@ func validateClusterUpgradeUpdate(newCluster, oldCluster *v1.Cluster) error {
 	if newImage == oldImage && newVersion == oldVersion && newMaxPods == oldMaxPods {
 		return nil
 	}
+	if adoptedCluster(oldCluster) {
+		return fmt.Errorf("the KubeSprayImage, KubernetesVersion and KubeletMaxPods of an adopted cluster cannot be changed")
+	}
 	annotations := oldCluster.GetAnnotations()
 	appliedImage, hasImage := annotations[v1.ClusterAppliedKubeSprayImageAnnotation]
 	appliedVersion, hasVersion := annotations[v1.ClusterAppliedKubeVersionAnnotation]

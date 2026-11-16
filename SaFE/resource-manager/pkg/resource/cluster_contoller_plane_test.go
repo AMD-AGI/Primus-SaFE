@@ -729,6 +729,18 @@ func TestGuaranteeClusterUpgradeCreatesPod(t *testing.T) {
 	}, new(corev1.ConfigMap)))
 }
 
+func TestGuaranteeClusterUpgradeSkipsAdoptedCluster(t *testing.T) {
+	cluster, r := readyUpgradeCluster(t)
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
+	podList := &corev1.PodList{}
+	testifyassert.NoError(t, r.List(context.Background(), podList))
+	assert.Equal(t, 0, len(podList.Items))
+}
+
 func TestGuaranteeClusterUpgradeAppliesMaxPodsOnly(t *testing.T) {
 	cluster, r := readyUpgradeCluster(t)
 	maxPods := uint32(250)

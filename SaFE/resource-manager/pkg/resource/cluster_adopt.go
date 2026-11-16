@@ -7,6 +7,7 @@ package resource
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"regexp"
@@ -29,6 +30,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
@@ -69,8 +71,9 @@ func (r *ClusterReconciler) adoptClusterContents(ctx context.Context, cluster *v
 	if err != nil {
 		return err
 	}
-	authorizeErr := r.authorizeAdoptedWorkers(ctx, cluster, nodeList.Items)
-	if err = r.syncAdoptedInventory(ctx, cluster, factory.ClientSet(), nodeList.Items); err != nil {
+	nodes := adoptableNodes(nodeList.Items)
+	authorizeErr := r.authorizeAdoptedWorkers(ctx, cluster, nodes)
+	if err = r.syncAdoptedInventory(ctx, cluster, factory.ClientSet(), nodes); err != nil {
 		return err
 	}
 	return authorizeErr
@@ -178,34 +181,64 @@ func bootstrapAdoptedNodes(cluster *v1.Cluster) []*v1.Node {
 }
 
 // syncAdoptedInventory creates missing flavors, workspaces and nodes from the data plane.
+// Nodes that cannot be recorded are skipped, and a failure on one object does not stop the others.
 func (r *ClusterReconciler) syncAdoptedInventory(ctx context.Context, cluster *v1.Cluster,
 	clientSet kubernetes.Interface, nodes []corev1.Node) error {
+	nodes = adoptableNodes(nodes)
+	var errs []error
+	flavors := map[string]bool{}
 	for i := range nodes {
 		flavor := adoptedFlavor(cluster, &nodes[i])
+		if flavor == nil || flavors[flavor.Name] {
+			continue
+		}
+		flavors[flavor.Name] = true
 		if err := r.ensureAdoptedFlavor(ctx, flavor); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
 	grouped := groupNodesByWorkspace(nodes)
 	for name, members := range grouped {
 		pvcs, err := clientSet.CoreV1().PersistentVolumeClaims(name).List(ctx, metav1.ListOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
-			return err
+			errs = append(errs, err)
+			continue
 		}
 		var items []corev1.PersistentVolumeClaim
 		if pvcs != nil {
 			items = pvcs.Items
 		}
 		if err = r.ensureAdoptedWorkspace(ctx, cluster, name, members, items); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
 	for i := range nodes {
 		if err := r.ensureAdoptedNode(ctx, cluster, &nodes[i]); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return r.syncAdoptedControlPlane(ctx, cluster, nodes)
+	if err := r.syncAdoptedControlPlane(ctx, cluster, nodes); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// adoptedNodeNameRule is the admin Node display name rule enforced by the Node webhook.
+var adoptedNodeNameRule = regexp.MustCompile(fmt.Sprintf(`^[a-z][-a-z0-9\.]{0,%d}[a-z0-9]$`,
+	commonutils.MaxGeneratedNameLength))
+
+// adoptableNodes returns the data plane nodes that can be recorded as admin Nodes:
+// each needs an internal IP and a name that satisfies the admin Node naming rule.
+func adoptableNodes(nodes []corev1.Node) []corev1.Node {
+	result := make([]corev1.Node, 0, len(nodes))
+	for i := range nodes {
+		if net.ParseIP(internalIP(&nodes[i])) == nil || !adoptedNodeNameRule.MatchString(nodes[i].Name) {
+			klog.Infof("skip adopted node %s, it has no internal IP or its name is not a valid node name", nodes[i].Name)
+			continue
+		}
+		result = append(result, nodes[i])
+	}
+	return result
 }
 
 // syncAdoptedControlPlane records the data plane control plane nodes on the cluster.
@@ -231,7 +264,7 @@ func (r *ClusterReconciler) ensureAdoptedFlavor(ctx context.Context, flavor *v1.
 	if !apierrors.IsNotFound(err) {
 		return err
 	}
-	return r.Create(ctx, flavor)
+	return client.IgnoreAlreadyExists(r.Create(ctx, flavor))
 }
 
 func (r *ClusterReconciler) ensureAdoptedWorkspace(ctx context.Context, cluster *v1.Cluster, name string,
@@ -267,7 +300,7 @@ func (r *ClusterReconciler) ensureAdoptedWorkspace(ctx context.Context, cluster 
 		},
 	}
 	v1.SetAnnotation(workspace, v1.WorkspaceAdoptAnnotation, v1.TrueStr)
-	return r.Create(ctx, workspace)
+	return client.IgnoreAlreadyExists(r.Create(ctx, workspace))
 }
 
 func (r *ClusterReconciler) ensureAdoptedNode(ctx context.Context, cluster *v1.Cluster, k8sNode *corev1.Node) error {
@@ -339,7 +372,7 @@ func (r *ClusterReconciler) ensureAdoptedNode(ctx context.Context, cluster *v1.C
 	if isK8sControlPlaneNode(k8sNode) {
 		node.Labels[v1.KubernetesControlPlane] = ""
 	}
-	return r.Create(ctx, node)
+	return client.IgnoreAlreadyExists(r.Create(ctx, node))
 }
 
 // adoptedNodeWorkspace returns the workspace named by the data plane node label when that
@@ -412,10 +445,7 @@ func adoptedFlavor(cluster *v1.Cluster, node *corev1.Node) *v1.NodeFlavor {
 	if cpu.IsZero() {
 		cpu = resource.MustParse("1")
 	}
-	memory := node.Status.Capacity[corev1.ResourceMemory]
-	if memory.IsZero() {
-		memory = resource.MustParse("1Gi")
-	}
+	memory := roundDownToGi(node.Status.Capacity[corev1.ResourceMemory])
 	name := v1.GetNodeFlavorId(node)
 	if name == "" && cluster != nil {
 		name = v1.GetAnnotation(cluster, v1.ClusterAdoptNodeFlavorAnnotation)
@@ -435,6 +465,16 @@ func adoptedFlavor(cluster *v1.Cluster, node *corev1.Node) *v1.NodeFlavor {
 		flavor.Spec.Gpu = &v1.GpuChip{ResourceName: gpuResource, Quantity: gpu}
 	}
 	return flavor
+}
+
+// roundDownToGi rounds memory down to whole GiB, at least 1Gi, so that identical machines
+// whose reported capacity differs by a few KiB share one flavor.
+func roundDownToGi(memory resource.Quantity) resource.Quantity {
+	gi := memory.Value() >> 30
+	if gi < 1 {
+		gi = 1
+	}
+	return *resource.NewQuantity(gi<<30, resource.BinarySI)
 }
 
 func adoptedGPU(node *corev1.Node) (resource.Quantity, string) {

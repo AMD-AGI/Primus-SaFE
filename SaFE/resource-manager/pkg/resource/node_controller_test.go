@@ -706,6 +706,58 @@ func TestAdoptedClusterNodeDeletionKeepsK8sNode(t *testing.T) {
 	testifyassert.True(t, apierrors.IsNotFound(r.Get(ctx, ctrlclient.ObjectKey{Name: "n1"}, &v1.Node{})))
 }
 
+// adoptedManagedNode returns an adopted cluster and a machine-ready node of it.
+func adoptedManagedNode() (*v1.Cluster, *v1.Node) {
+	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1",
+		Annotations: map[string]string{v1.ClusterAdoptAnnotation: v1.TrueStr}}}
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{v1.ClusterIdLabel: "c1"}}}
+	node.Spec.Cluster = pointer.String("c1")
+	node.Spec.Hostname = pointer.String("ip-10-0-0-5.ec2.internal")
+	node.Status.MachineStatus.Phase = v1.NodeReady
+	node.Status.ClusterStatus.Phase = v1.NodeManaged
+	return cluster, node
+}
+
+func TestSyncHostnameKeepsAdoptedHost(t *testing.T) {
+	cluster, node := adoptedManagedNode()
+	r := newNodeReconcilerFull(t, k8sfake.NewSimpleClientset(), cluster, node)
+	var hostname string
+	var err error
+	testifyassert.NotPanics(t, func() { hostname, err = r.syncHostname(context.Background(), node, nil) })
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, "ip-10-0-0-5.ec2.internal", hostname)
+}
+
+func TestManageAdoptedNodeSkipsHostChanges(t *testing.T) {
+	cluster, node := adoptedManagedNode()
+	k8sNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "ip-10-0-0-5.ec2.internal"}}
+	cs := k8sfake.NewSimpleClientset(k8sNode)
+	r := newNodeReconcilerFull(t, cs, cluster, node)
+	called := []string{}
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	for _, name := range []string{"modifyResolvConf", "installAddons"} {
+		name := name
+		patches.ApplyPrivateMethod(r, name, func(_ *NodeReconciler, _ context.Context, _ *v1.Node) error {
+			called = append(called, name)
+			return nil
+		})
+	}
+	patches.ApplyPrivateMethod(r, "syncOrCreateScaleUpPod", func(_ *NodeReconciler, _ context.Context, _ *v1.Node) (ctrlruntime.Result, error) {
+		called = append(called, "syncOrCreateScaleUpPod")
+		return ctrlruntime.Result{}, nil
+	})
+
+	_, err := r.manage(context.Background(), node, k8sNode)
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, v1.NodeManaged, node.Status.ClusterStatus.Phase)
+
+	result, err := r.manage(context.Background(), node, nil)
+	testifyassert.NoError(t, err)
+	testifyassert.Positive(t, result.RequeueAfter)
+	testifyassert.Empty(t, called)
+}
+
 // --- merged from node_predicate_test.go ---
 
 func ptrString(s string) *string { return &s }
