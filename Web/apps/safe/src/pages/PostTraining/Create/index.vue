@@ -245,7 +245,7 @@ const summary = (s: number) => {
     case 3: {
       const layout =
         f.trainType === 'rl' && f.choices.layout === 'separate' ? ' · disaggregated' : ''
-      return `${f.resources.nodes} node${f.resources.nodes === 1 ? '' : 's'}${layout}`
+      return `${f.resources.nodes} node${f.resources.nodes === 1 ? '' : 's'} × ${f.resources.gpusPerNode} GPUs${layout}`
     }
     case 4:
       return f.method === 'lora'
@@ -342,6 +342,7 @@ const prefillFromRun = async (runId: string) => {
     displayName: `${detail.displayName}-copy`,
   })
   if (resources.nodes) w.form.resources.nodes = resources.nodes
+  if (resources.gpusPerNode) w.form.resources.gpusPerNode = resources.gpusPerNode
   if (detail.image) w.form.resources.image = detail.image
   if (detail.priority < 2 || userStore.isManager || wsStore.isCurrentWorkspaceAdmin())
     w.form.resources.priority = detail.priority

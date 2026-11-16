@@ -3,7 +3,13 @@
     <el-form-item label="Nodes" required :error="fieldError('resources.nodes')">
       <div class="flex items-center gap-2">
         <el-input-number v-model="w.form.resources.nodes" :min="1" :max="64" />
-        <span>× {{ w.form.resources.gpusPerNode }} GPUs per node</span>
+        <span>×</span>
+        <el-input-number
+          v-model="w.form.resources.gpusPerNode"
+          :min="1"
+          :max="w.nodeGpus.value || undefined"
+        />
+        <span>GPUs per node</span>
       </div>
     </el-form-item>
 

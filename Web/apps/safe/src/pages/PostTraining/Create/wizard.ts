@@ -186,6 +186,8 @@ export function createWizard(workspace: string, nodeFlavor?: string) {
   const previewError = ref('')
   const checking = ref(false)
   const checkedAt = ref(0)
+  // The GPU count of the workspace's nodes, zero until it is read.
+  const nodeGpus = ref(0)
   let previewSeq = 0
 
   /** Reads which models of the workspace can be trained and why the workspace cannot run now. */
@@ -193,13 +195,20 @@ export function createWizard(workspace: string, nodeFlavor?: string) {
     models.value = (await getPostTrainingModels(workspace)) as unknown as ModelsResp
   }
 
-  /** Reads the GPU count of the workspace's nodes. */
+  /** Reads the GPU count of the workspace's nodes; the request starts with all of them. */
   const loadNodeGpus = async () => {
     if (!nodeFlavor) return
     const avail = (await getNodeFlavorAvail(nodeFlavor)) as Record<string, number>
     const gpus = Number(avail['amd.com/gpu'] ?? avail['nvidia.com/gpu'] ?? 0)
-    if (gpus > 0) form.resources.gpusPerNode = gpus
+    if (gpus > 0) {
+      nodeGpus.value = gpus
+      form.resources.gpusPerNode = gpus
+    }
   }
+  // A copied run or a template cannot ask for more GPUs than a node has.
+  watch([() => form.resources.gpusPerNode, nodeGpus], ([gpus, max]) => {
+    if (max > 0 && gpus > max) form.resources.gpusPerNode = max
+  })
 
   /** Reads the frameworks and options of the selected model, train type and method. */
   const loadConfig = async () => {
@@ -279,6 +288,7 @@ export function createWizard(workspace: string, nodeFlavor?: string) {
     previewError,
     checking,
     checkedAt,
+    nodeGpus,
     errors,
     warnings,
     byStep,
