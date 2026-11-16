@@ -60,9 +60,9 @@ type extEnv struct {
 	userPatches atomic.Int64
 }
 
-// userWebhook stands in for the user admission webhook on the fake cluster: the user's
-// type is immutable, and so is the user name of a local (default) account, the same
-// rules as validateImmutableFields in the webhooks package.
+// userWebhook stands in for the user admission webhook on the fake cluster. The type and
+// the user name of a local account are immutable, the same rules as validateImmutableFields
+// in the webhooks package.
 func (e *extEnv) userWebhook() interceptor.Funcs {
 	return interceptor.Funcs{
 		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
@@ -84,6 +84,27 @@ func (e *extEnv) userWebhook() interceptor.Funcs {
 			return c.Patch(ctx, obj, patch, opts...)
 		},
 	}
+}
+
+// clearAuthState removes auth configuration and the in-process authenticator state.
+func clearAuthState() {
+	viper.Set("auth.mode", nil)
+	viper.Set("auth.authenticators", nil)
+	viper.Set("auth.group_mappings", nil)
+	viper.Set("auth.key_actors", nil)
+	externalState.Store(nil)
+	builtinKeyActorState.Store(nil)
+}
+
+// useBuiltinChain configures external mode with only the builtin authenticator.
+func useBuiltinChain(t *testing.T, cli client.Client) {
+	t.Helper()
+	viper.Set("auth.mode", "external")
+	viper.Set("auth.group_mappings", nil)
+	viper.Set("auth.key_actors", nil)
+	viper.Set("auth.authenticators", []map[string]any{{"type": "builtin"}})
+	require.NoError(t, InitExternalAuth(cli))
+	t.Cleanup(clearAuthState)
 }
 
 func newExtEnv(t *testing.T, mapping []map[string]any, builtin bool) *extEnv {
@@ -152,12 +173,7 @@ func newExtEnvWith(t *testing.T, mapping []map[string]any, builtin bool, introsp
 	require.NoError(t, v1.AddToScheme(scheme))
 	e.cli = fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(e.userWebhook()).Build()
 	require.NoError(t, InitExternalAuth(e.cli))
-	t.Cleanup(func() {
-		viper.Set("auth.mode", nil)
-		viper.Set("auth.authenticators", nil)
-		viper.Set("auth.group_mappings", nil)
-		require.NoError(t, InitExternalAuth(nil))
-	})
+	t.Cleanup(clearAuthState)
 	return e
 }
 
@@ -218,35 +234,42 @@ var adminMapping = []map[string]any{
 }
 
 func TestBuiltinModeIsUnchanged(t *testing.T) {
-	// The default: no configuration, no chain, ParseToken runs only the built-in path.
+	// Unset auth.mode is builtin, so the chain is not built.
 	viper.Set("auth.mode", nil)
+	viper.Set("auth.authenticators", nil)
+	t.Cleanup(clearAuthState)
 	require.NoError(t, InitExternalAuth(nil))
 	require.Nil(t, externalState.Load())
 
+	// External mode with an empty chain does not start.
+	viper.Set("auth.mode", "external")
+	require.Error(t, InitExternalAuth(nil))
+	require.Nil(t, externalState.Load())
+
+	// An unrecognised auth.mode is refused. It is not treated as external.
+	viper.Set("auth.mode", "externl")
+	err := InitExternalAuth(nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "must be builtin or external")
+	require.Nil(t, externalState.Load())
+
+	// A builtin-only chain accepts a local session token.
+	defer setupDefaultToken(t)()
+	useBuiltinChain(t, nil)
+	c, err := extParse(t, http.MethodGet, "/api/v1/users/self", generateTestToken(t, "u1", "name1"))
+	require.NoError(t, err)
+	require.Equal(t, "u1", c.GetString(common.UserId))
+
+	// A JWT is not a local session, so the builtin entry rejects it.
 	e := &extEnv{t: t}
-	var err error
-	e.key, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	e.key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
 	e.issuer = srv
-	// A well-formed JWT is just an unknown credential to the built-in path, as before.
-	c, err := extParse(t, http.MethodGet, "/api/v1/workloads", e.jwt(nil))
+	c, err = extParse(t, http.MethodGet, "/api/v1/workloads", e.jwt(nil))
 	require.Error(t, err)
 	require.Empty(t, c.GetString(common.UserId))
-
-	// An unrecognised value of auth.mode is builtin, never "no authentication".
-	viper.Set("auth.mode", "externl")
-	t.Cleanup(func() { viper.Set("auth.mode", nil) })
-	require.NoError(t, InitExternalAuth(nil))
-	require.Nil(t, externalState.Load())
-
-	// Built-in tokens work, as before.
-	defer setupDefaultToken(t)()
-	viper.Set("auth.mode", nil)
-	require.NoError(t, InitExternalAuth(nil))
-	c, err = extParse(t, http.MethodGet, "/api/v1/users/self", generateTestToken(t, "u1", "name1"))
-	require.NoError(t, err)
-	require.Equal(t, "u1", c.GetString(common.UserId))
 }
 
 func TestExternalModeRefusesAChainItCannotBuild(t *testing.T) {
@@ -255,11 +278,7 @@ func TestExternalModeRefusesAChainItCannotBuild(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	goodSecret := filepath.Join(t.TempDir(), "secret")
 	require.NoError(t, os.WriteFile(goodSecret, []byte("x"), 0o600))
-	t.Cleanup(func() {
-		viper.Set("auth.mode", nil)
-		viper.Set("auth.authenticators", nil)
-		require.NoError(t, InitExternalAuth(nil))
-	})
+	t.Cleanup(clearAuthState)
 	for name, chain := range map[string]any{
 		"empty":                     nil,
 		"unknown type":              []map[string]any{{"type": "ldap"}},
@@ -301,6 +320,40 @@ func TestExternalJITCreatesAndRefreshesUser(t *testing.T) {
 	list := &v1.UserList{}
 	require.NoError(t, e.cli.List(context.Background(), list))
 	require.Len(t, list.Items, 1)
+}
+
+// TestExternalLocalAccountIsDefault records a new username/password account as default.
+// An existing sso record is not rewritten. A default record is never rewritten as sso.
+func TestExternalLocalAccountIsDefault(t *testing.T) {
+	e := newExtEnv(t, nil, false)
+	e.revUsers["local"] = map[string]any{
+		"sub": "local-id", "username": "local", "name": "Local", "email": "local@example.test", "user_type": "default",
+	}
+	_, err := extParse(t, http.MethodGet, "/apis/v1/users", "local")
+	require.NoError(t, err)
+	require.Equal(t, v1.DefaultUserType, e.user("local-id").Spec.Type)
+	require.Equal(t, "Local", v1.GetUserName(e.user("local-id")))
+
+	sso := &v1.User{}
+	sso.Name = "old-id"
+	sso.Spec.Type = v1.SSOUserType
+	v1.SetAnnotation(sso, v1.UserNameAnnotation, "Old")
+	require.NoError(t, e.cli.Create(context.Background(), sso))
+	e.revUsers["old"] = map[string]any{"sub": "old-id", "username": "old", "name": "Old", "user_type": "default"}
+	_, err = extParse(t, http.MethodGet, "/apis/v1/users", "old")
+	require.NoError(t, err)
+	require.Equal(t, v1.SSOUserType, e.user("old-id").Spec.Type)
+
+	kept := &v1.User{}
+	kept.Name = "kept-id"
+	kept.Spec.Type = v1.DefaultUserType
+	v1.SetAnnotation(kept, v1.UserNameAnnotation, "Kept")
+	require.NoError(t, e.cli.Create(context.Background(), kept))
+	e.revUsers["kept"] = map[string]any{"sub": "kept-id", "username": "kept", "name": "Renamed"}
+	_, err = extParse(t, http.MethodGet, "/apis/v1/users", "kept")
+	require.NoError(t, err)
+	require.Equal(t, v1.DefaultUserType, e.user("kept-id").Spec.Type)
+	require.Equal(t, "Kept", v1.GetUserName(e.user("kept-id")))
 }
 
 // The identity provider names existing users by their SaFE user id, so a login can land

@@ -44,15 +44,18 @@ func (h *Handler) getEnvs(c *gin.Context) (interface{}, error) {
 		KubeSprayK8sVersions:  v1.KubeSprayK8sVersions(),
 	}
 	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
-		// POST /login is refused whoever asks, so the built-in sign-in (the password form, the
-		// authorize URL of the built-in SSO) is not advertised: a console sent there would end
-		// on a 403. The sign-in page is wherever the deployment says, if it says.
-		resp.SSOEnable, resp.SSOAuthUrl = false, ""
-		// The apiserver refuses to issue API keys here. The identity provider does, at the path the
-		// deployment routes to it; the console uses that path only when it is told one.
+		// The console starts an authorize request at identity. connection, accountsUrl and keysUrl
+		// come from the deployment. sso.login, when set, is that authorize URL.
 		resp.APIKeysURL = commonconfig.GetAuthAPIKeysURL()
-		if url := commonconfig.GetAuthLoginURL(); url != "" {
-			resp.SSOEnable, resp.SSOAuthUrl = true, url
+		resp.LoginURL = commonconfig.GetAuthLoginURL()
+		resp.Connection = commonconfig.GetAuthConnection()
+		resp.AccountsURL = commonconfig.GetAuthAccountsURL()
+		resp.KeysURL = commonconfig.GetAuthKeysConsoleURL()
+		if commonconfig.IsSSOLoginEnable() {
+			if inst := authority.SSOInstance(); inst != nil {
+				resp.SSOLoginUrl = inst.LoginAuthURL()
+				resp.SSOPkce = inst.LoginEnabled()
+			}
 		}
 	} else if resp.SSOEnable {
 		if inst := authority.SSOInstance(); inst != nil {

@@ -125,6 +125,21 @@ rules:
   verbs:
   - get
   - delete
+# Holding the "use" and "manage" verbs on workspaces lets resource-manager create and bind the projected roles that grant them.
+- apiGroups:
+  - amd.com
+  resources:
+  - workspaces
+  verbs:
+  - use
+  - manage
+# The workload webhook asks whether a sandbox user may use a workspace.
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
 - apiGroups:
   - networking.k8s.io
   resources:

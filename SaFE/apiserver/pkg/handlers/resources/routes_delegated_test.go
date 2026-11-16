@@ -20,7 +20,7 @@ import (
 var delegatedRouteParam = regexp.MustCompile(`:[A-Za-z]+`)
 
 // The delegated-token exclusion list is pinned against the real route table:
-// every route that touches API keys, Secrets, user management or SSH keys must be
+// every route that touches Secrets, user management or SSH keys must be
 // refused for a delegated token, and a new route whose path mentions a credential
 // has to be classified on purpose.
 func TestDelegatedTokenExclusionsCoverTheRouteTable(t *testing.T) {
@@ -46,7 +46,7 @@ func TestDelegatedTokenExclusionsCoverTheRouteTable(t *testing.T) {
 		res, rest := segs[2], segs[3:]
 		_, forbidden := extauth.Forbidden(r.Method, path)
 		switch {
-		case res == "apikeys" || res == "secrets":
+		case res == "secrets":
 			require.True(t, forbidden, "%s %s must be refused for delegated tokens", r.Method, r.Path)
 			seen[res]++
 		case res == "users":
@@ -68,7 +68,7 @@ func TestDelegatedTokenExclusionsCoverTheRouteTable(t *testing.T) {
 	}
 	_, forbidden := extauth.Forbidden(http.MethodGet, "/api/v1/users/self")
 	require.False(t, forbidden, "a delegated token reads the user it acts for")
-	for _, res := range []string{"apikeys", "secrets", "users", "publickeys", "auth"} {
+	for _, res := range []string{"secrets", "users", "publickeys", "auth"} {
 		require.Positive(t, seen[res], "no route found for %s: the test would pass vacuously", res)
 	}
 }

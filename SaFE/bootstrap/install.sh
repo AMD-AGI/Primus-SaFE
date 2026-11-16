@@ -21,6 +21,7 @@ fi
 # See docs/installation/upgrade.md for each.
 sandbox_extra_ca_secret="${sandbox_extra_ca_secret:-}"
 sandbox_env_secret="${sandbox_env_secret:-}"
+sandbox_admission_actor="${sandbox_admission_actor:-}"
 # The only accepted name is the one the apiserver and resource-manager always reserve (the chart
 # refuses any other); checked here, before anything is installed.
 if [[ -n "$sandbox_env_secret" && "$sandbox_env_secret" != "sandbox-env" ]]; then
@@ -68,6 +69,16 @@ convert_to_boolean() {
       echo "true"
   else
       echo "false"
+  fi
+}
+
+# Record an introspection client Secret that already exists in this namespace.
+# The chart mounts auth.client_secret from this namespace.
+ensure_identity_auth_secret() {
+  local target="primus-safe-auth-client"
+  if kubectl get secret "$target" -n "$NAMESPACE" >/dev/null 2>&1; then
+    echo "Auth client secret $target is present in namespace \"$NAMESPACE\"."
+    auth_client_secret_installed="$target"
   fi
 }
 
@@ -283,6 +294,7 @@ echo "✅ Image Registry: \"$proxy_image_registry\""
 echo "✅ Sandbox Extra CA Secret: \"$sandbox_extra_ca_secret\""
 echo "✅ Sandbox Env Secret: \"$sandbox_env_secret\""
 echo "✅ Web Root Redirect: \"$web_root_redirect\""
+echo "✅ Sandbox Admission Actor: \"$sandbox_admission_actor\""
 
 replicas=1
 cpu=2000m
@@ -360,6 +372,8 @@ else
 fi
 
 ensure_opensearch_secret "$opensearch_secret" "$opensearch_username" "$opensearch_password"
+auth_client_secret_installed=""
+ensure_identity_auth_secret
 ensure_higress_tls_secret
 
 echo
@@ -409,6 +423,9 @@ fi
 sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: false/' "$values_yaml"
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
+if kubectl get secret primus-safe-auth-client -n "$NAMESPACE" >/dev/null 2>&1; then
+  sed -i 's/^  client_secret: .*/  client_secret: "primus-safe-auth-client"/' "$values_yaml"
+fi
 sed -i '/sso:/,/^[a-z]/ s/enable: .*/enable: '"$sso_enable"'/' "$values_yaml"
 if [[ "$sso_enable" == "true" ]]; then
   sed -i '/^sso:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
@@ -423,6 +440,10 @@ fi
 if [[ -n "$web_root_redirect" ]]; then
   root_redirect=$(printf '%s\n' "$web_root_redirect" | sed 's/[&|\]/\\&/g')
   sed -i '/^web:/,/^[a-z]/ s|root_redirect: .*|root_redirect: "'"$root_redirect"'"|' "$values_yaml"
+fi
+if [[ -n "$sandbox_admission_actor" ]]; then
+  sed -i '/^sandbox:/,/^[a-z]/ s/^    enabled: .*/    enabled: true/' "$values_yaml"
+  sed -i '/^sandbox:/,/^[a-z]/ s/^    actor: .*/    actor: "'"$sandbox_admission_actor"'"/' "$values_yaml"
 fi
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
@@ -545,4 +566,8 @@ metrics_port=8000
 sandbox_extra_ca_secret=$sandbox_extra_ca_secret
 sandbox_env_secret=$sandbox_env_secret
 web_root_redirect=$web_root_redirect
+sandbox_admission_actor=$sandbox_admission_actor
 EOF
+if [[ -n "$auth_client_secret_installed" ]]; then
+  printf 'auth_client_secret=%s\n' "$auth_client_secret_installed" >> .env
+fi

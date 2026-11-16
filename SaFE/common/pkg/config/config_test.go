@@ -690,18 +690,25 @@ func TestAuthConfig(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
-	// The default is the built-in mode, with nothing configured.
+	// Unset auth.mode is builtin. Only external selects the authenticator chain.
 	testifyassert.Equal(t, AuthModeBuiltin, GetAuthMode())
 	testifyassert.Equal(t, "", GetAuthLoginURL())
 	list, err := GetAuthenticators()
 	testifyassert.NoError(t, err)
 	testifyassert.Empty(t, list)
 
-	// Only the exact word switches the mode; a typo never turns authentication off.
-	viper.Set("auth.mode", "externl")
+	viper.Set("auth.mode", "builtin")
+	testifyassert.Equal(t, AuthModeBuiltin, GetAuthMode())
+	viper.Set("auth.mode", " Builtin ")
 	testifyassert.Equal(t, AuthModeBuiltin, GetAuthMode())
 	viper.Set("auth.mode", "external")
 	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
+	testifyassert.NoError(t, CheckAuthMode())
+	viper.Set("auth.mode", "externl")
+	_, err = parseAuthMode()
+	testifyassert.Error(t, err)
+	testifyassert.Error(t, CheckAuthMode())
+	testifyassert.Empty(t, GetAuthMode())
 
 	viper.Set("auth.authenticators", []map[string]any{
 		{"type": "oidc", "issuer": "https://idp.example.com", "audience": "a", "jwks_url": "https://idp.example.com/keys", "clock_skew": "1m", "groups_claim": "roles"},
@@ -719,6 +726,21 @@ func TestAuthConfig(t *testing.T) {
 	testifyassert.Equal(t, "safe-apiserver", list[1].Audience)
 	testifyassert.True(t, list[1].AllowMissingAudience)
 	testifyassert.False(t, list[0].AllowMissingAudience, "an entry that does not say so refuses answers that name no audience")
+
+	testifyassert.True(t, IsSCIMEnabled())
+	testifyassert.Empty(t, GetSCIMIdentityURL())
+	testifyassert.Empty(t, GetSCIMPublicURL())
+	testifyassert.Equal(t, DefaultSCIMTokenSecret, GetSCIMTokenSecret())
+	viper.Set("auth.scim.enabled", true)
+	viper.Set("auth.scim.identity_url", "https://idp.example.com/")
+	viper.Set("auth.scim.public_url", " https://safe.example.com/scim/v2/ ")
+	viper.Set("auth.scim.token_secret", "  ")
+	testifyassert.True(t, IsSCIMEnabled())
+	testifyassert.Equal(t, "https://idp.example.com", GetSCIMIdentityURL())
+	testifyassert.Equal(t, "https://safe.example.com/scim/v2", GetSCIMPublicURL())
+	testifyassert.Equal(t, DefaultSCIMTokenSecret, GetSCIMTokenSecret(), "a blank name keeps the default secret")
+	viper.Set("auth.scim.enabled", false)
+	testifyassert.False(t, IsSCIMEnabled())
 
 	viper.Set("auth.group_mappings", []map[string]any{{"group": "admins", "roles": []string{"system-admin"}, "workspaces": []string{"w1"}}})
 	maps, err := GetAuthGroupMappings()
@@ -774,4 +796,22 @@ func TestUsersAndConsoleConfig(t *testing.T) {
 	testifyassert.False(t, IsUserJoinDefaultWorkspaces())
 	UnsetValue("users.join_default_workspaces")
 	testifyassert.True(t, IsUserJoinDefaultWorkspaces(), "UnsetValue reads as not configured, not as configured empty")
+}
+
+// TestSandboxAdmissionKeySetDefaultsToTheClusterHost pins that an empty key set URL and issuer are the
+// identity provider of this cluster, and that an explicit value is kept.
+func TestSandboxAdmissionKeySetDefaultsToTheClusterHost(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set(subDomain, "site")
+	viper.Set(domain, "example.com")
+	cfg := GetSandboxAdmissionConfig()
+	testifyassert.Equal(t, "https://site.example.com/.well-known/jwks.json", cfg.JWKSURL)
+	testifyassert.Equal(t, "https://site.example.com", cfg.Issuer)
+
+	viper.Set(sandboxAdmissionJWKSURL, "https://idp.example/.well-known/jwks.json")
+	viper.Set(sandboxAdmissionIssuer, "https://idp.example")
+	cfg = GetSandboxAdmissionConfig()
+	testifyassert.Equal(t, "https://idp.example/.well-known/jwks.json", cfg.JWKSURL)
+	testifyassert.Equal(t, "https://idp.example", cfg.Issuer)
 }

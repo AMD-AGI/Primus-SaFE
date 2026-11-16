@@ -155,10 +155,12 @@ func parseTokenFromRequest(c *gin.Context) error {
 
 	var tokenInstance TokenInterface
 	if userType == string(v1.SSOUserType) {
-		if !commonconfig.IsSSOEnable() {
+		if !commonconfig.IsSSOEnable() && !commonconfig.IsSSOLoginEnable() {
 			return commonerrors.NewNotFoundWithMessage("SSO authentication not initialized")
 		}
-		tokenInstance = SSOInstance()
+		if s := SSOInstance(); s != nil {
+			tokenInstance = s
+		}
 	} else {
 		tokenInstance = DefaultTokenInstance()
 	}
@@ -190,6 +192,16 @@ func extractTokenAndUserType(c *gin.Context) (string, string, error) {
 		return "", "", commonerrors.NewUnauthorized("token not present")
 	}
 	return rawToken, userType, nil
+}
+
+// CallerBearer returns the credential to forward to the identity service.
+// It is the Authorization bearer when the request has one, otherwise the session cookie.
+func CallerBearer(c *gin.Context) string {
+	if token := getBearerToken(c); token != "" {
+		return token
+	}
+	token, _ := c.Cookie(CookieToken)
+	return token
 }
 
 // getBearerToken extracts the Bearer token from the Authorization header.

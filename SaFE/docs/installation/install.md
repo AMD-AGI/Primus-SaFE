@@ -74,31 +74,33 @@ The [install.sh](../../bootstrap/install.sh) script provides a one-click install
         holds the provider's ID token (its `exp` is the session's end), and the user id comes from the `email` claim
         (else `sub`) by the same rule as for the other provider, so a person keeps one account whichever provider signed
         them in. Ask the provider for ID tokens that live as long as a session should.
-      - Helm values (or `.env` for `bootstrap/upgrade.sh`): `sso.login.enable` (`sso_login_enable`), `sso.login.issuer`
-        (`sso_login_issuer`), `sso.login.client_id` (`sso_login_client_id`), `sso.login.redirect_uri`
-        (`sso_login_redirect_uri`). `sso.enable` stays `true`: `upgrade.sh` refuses `sso_login_enable=true` with
-        `sso_enable=false`, and a value with a space, a quote, a backslash, `|` or `&`.
+      - Helm values (or `.env` for `bootstrap/upgrade.sh`): `sso.login.enable` (`oidc_login_enable`). `sso.login.issuer`
+        (`oidc_login_issuer`), `sso.login.client_id` (`oidc_login_client_id`), and `sso.login.redirect_uri`
+        (`oidc_login_redirect_uri`) can be left unset. Unset, they are `https://<sub_domain>.<domain>`, `safe-console`,
+        and `https://<sub_domain>.<domain>/sso/callback`. A set value replaces that default. `sso.enable` may be
+        `false`: the console then names the `local` connection on the identity authorize request, and sign-in is by
+        local password. `upgrade.sh` refuses a value with a space, a quote, a backslash, `|` or `&`.
       - Other web apps that sign in through the console (SSO bridge) are listed in `sso.bridge_allowlist`
         (`.env`: `sso_bridge_allowlist`, a JSON array in single quotes). For example, a site whose identity provider
         serves the console's own host:
 
         ```bash
         sso_enable=true
-        sso_login_enable=true
-        sso_login_issuer=https://console.example.com
-        sso_login_client_id=safe-console
-        sso_login_redirect_uri=https://console.example.com/sso/callback
+        oidc_login_enable=true
+        oidc_login_issuer=https://console.example.com
+        oidc_login_client_id=safe-console
+        oidc_login_redirect_uri=https://console.example.com/sso/callback
         sso_bridge_allowlist='["http://localhost:5173","http://127.0.0.1:5173"]'
         ```
 
-        Keep these keys in `.env` for every later upgrade: helm renders `sso.login` and `sso.bridge_allowlist` from the
-        chart defaults (off, empty) unless `.env` sets them, so `upgrade.sh` refuses to upgrade a release that runs with
-        `sso.login` on or a non-empty allowlist when `.env` leaves them out. `sso_login_enable=false` and
-        `sso_bridge_allowlist='[]'` turn them off on purpose.
+        Helm renders `sso.login` and `sso.bridge_allowlist` from the chart defaults on a fresh install.
+        An omitted `oidc_login_enable` is `false`. An omitted `sso_bridge_allowlist` is `[]`. An omitted
+        `sso_enable` is `true`. An upgrade keeps a running release's `sso.login` and a non-empty allowlist
+        when `.env` sets neither. Without `jq` that upgrade stops instead of writing the chart defaults.
       - The provider of the `primus-safe-sso` secret keeps working while the secret is there: codes other web apps bring
         through the SSO bridge (no PKCE verifier) are exchanged there, and sessions it made stay valid until they expire.
         Once nothing uses it, remove it with `sso.secret: ""` (`.env`: `sso_secret=`): the secret is then not mounted.
-        `upgrade.sh` accepts `sso_secret=` only together with `sso_login_enable=true`, since the apiserver needs one of the two.
+        `upgrade.sh` accepts `sso_secret=` only together with `oidc_login_enable=true`, since the apiserver needs one of the two.
       - Off again: `sso.login.enable: false` (with the secret still configured) and roll the apiserver.
     - Other web apps on the console's host that send a signed-out browser to the console's
       `/login?redirect=<path>` get it back after sign-in only when the path is under one of
@@ -150,6 +152,7 @@ them. See [upgrade.md](upgrade.md) for what each does.
 - **sandbox_extra_ca_secret**: Secret of extra CA certificates that sandboxes trust (`sandbox.extra_ca_secret`)
 - **sandbox_env_secret**: `sandbox-env` or empty (`sandbox.env_secret`); any other value stops the install before anything is installed
 - **web_root_redirect**: where a browser opening the bare `/` of the console's host is sent, a path on that host such as `/portal/`; empty keeps the console there (`web.root_redirect`)
+- **sandbox_admission_actor**: client id of the sandbox control plane; when set, sandbox admission is turned on. The key set URL is derived from the cluster host and is not set here
 
 ### 🚀 Installation Process
 
@@ -181,7 +184,7 @@ The script performs the following steps after configuration:
   - `ingress`, `sub_domain`
   - `install_node_agent`, `csi_volume_handle`
   - `sandbox_extra_ca_secret`, `sandbox_env_secret`
-  - `web_root_redirect`
+  - `web_root_redirect`, `sandbox_admission_actor`
 
 ### 🔄 Install Command
 

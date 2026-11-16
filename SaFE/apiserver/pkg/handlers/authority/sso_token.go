@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -244,7 +245,7 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 		metrics.ObserveLoginFailure(metrics.StageBadRequest)
 		return nil, nil, commonerrors.NewBadRequest("no code in request")
 	}
-	if c.httpClient == nil {
+	if c == nil || c.httpClient == nil {
 		metrics.ObserveLoginFailure(metrics.StageBadRequest)
 		return nil, nil, commonerrors.NewInternalError("http client is nil")
 	}
@@ -262,27 +263,50 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 		return nil, nil, err
 	}
 
-	// Synchronize user with system
-	user, err := c.synchronizeUser(ctx, userInfo)
+	// External mode authenticates the ID token with the chain and stores the user that chain names.
+	// Builtin mode stores the ID token and gives the browser a session id.
+	var user *v1.User
+	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
+		user, err = resolveExternalLogin(ctx, rawIDToken)
+		if err != nil {
+			metrics.ObserveLoginFailure(metrics.StageUserSync)
+			return nil, nil, err
+		}
+		metrics.ObserveLoginSuccess()
+		return user, &TokenResponse{Expire: userInfo.Exp, Token: rawIDToken}, nil
+	}
+	user, err = c.synchronizeUser(ctx, userInfo)
 	if err != nil {
 		metrics.ObserveLoginFailure(metrics.StageUserSync)
 		return nil, nil, err
 	}
-	userToken := ""
+	userToken := rawIDToken
+	expire := userInfo.Exp
 	if commonconfig.IsDBEnable() {
 		if userToken, err = c.updateUserInfoInDB(ctx, rawIDToken, userInfo); err != nil {
 			metrics.ObserveLoginFailure(metrics.StageDBSession)
 			return nil, nil, err
 		}
-	} else {
-		userToken = rawIDToken
 	}
 	metrics.ObserveLoginSuccess()
 	response := &TokenResponse{
-		Expire: userInfo.Exp,
+		Expire: expire,
 		Token:  userToken,
 	}
 	return user, response, nil
+}
+
+// resolveExternalLogin authenticates a console sign-in token with the external chain and returns the user that chain names.
+func resolveExternalLogin(ctx context.Context, rawToken string) (*v1.User, error) {
+	st := externalState.Load()
+	if st == nil {
+		return nil, commonerrors.NewInternalError("external authentication is not configured")
+	}
+	id, _, err := st.authenticate(ctx, extauth.Credentials{Cookie: rawToken, UserType: string(v1.SSOUserType)}, "/login")
+	if err != nil {
+		return nil, err
+	}
+	return st.provision(ctx, id)
 }
 
 // exchangeAtSecretProvider redeems a code of the sso.secret_path provider with the client secret.

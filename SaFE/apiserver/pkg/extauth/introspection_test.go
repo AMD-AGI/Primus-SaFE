@@ -525,6 +525,34 @@ func TestIntrospectionClientSecretFromFile(t *testing.T) {
 	require.NotContains(t, err.Error(), testSecret)
 }
 
+// A client whose id is generated and kept in the same Secret as its secret gives the id as a file. It is read on each
+// call and used only when client_id is empty.
+func TestIntrospectionClientIDFromFile(t *testing.T) {
+	f := newFakeIntrospector(t)
+	f.accept("tok", aliceAnswer)
+	idPath := secretFile(t, testClientID+"\n")
+	a := newIntrospection(t, f, newTestClock(), func(c *IntrospectionConfig) {
+		c.ClientID, c.ClientIDFile = "", idPath
+	})
+	_, err := introspect(a, "tok", "")
+	require.NoError(t, err)
+	require.Equal(t, testClientID, f.lastCall().BasicID)
+
+	require.NoError(t, os.WriteFile(idPath, []byte("svc-other"), 0o600))
+	_, err = introspect(a, "tok2", "")
+	var u *UnavailableError
+	require.ErrorAs(t, err, &u, "the endpoint refuses the id the file now holds")
+	require.Equal(t, "svc-other", f.lastCall().BasicID)
+
+	b := newIntrospection(t, f, newTestClock(), func(c *IntrospectionConfig) { c.ClientIDFile = "/no/such/file" })
+	_, err = introspect(b, "tok", "")
+	require.NoError(t, err, "client_id wins over client_id_file")
+
+	_, err = NewIntrospectionAuthenticator(IntrospectionConfig{URL: f.srv.URL, ClientIDFile: "/no/such/file",
+		ClientSecretFile: secretFile(t, testSecret), Audience: testAudience})
+	require.Error(t, err, "an unreadable client_id_file is refused at start")
+}
+
 func TestIntrospectionConfigValidation(t *testing.T) {
 	good := IntrospectionConfig{URL: "https://iam.example.com/oauth/introspect", ClientID: "c", ClientSecretFile: secretFile(t, "s"), Audience: testAudience}
 	_, err := NewIntrospectionAuthenticator(good)

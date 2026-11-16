@@ -31,8 +31,8 @@
       <el-form-item label="Email" prop="email" v-if="isEdit">
         <el-input v-model="form.email" />
       </el-form-item>
-      <el-form-item label="Roles" prop="roles" v-if="isEdit">
-        <el-select v-model="form.roles" multiple clearable :disabled="external">
+      <el-form-item v-if="isEdit && !external" label="Roles" prop="roles">
+        <el-select v-model="form.roles" multiple clearable>
           <el-option label="default" value="default" />
           <el-option label="system-admin" value="system-admin" />
           <el-option label="system-admin-readonly" value="system-admin-readonly" />

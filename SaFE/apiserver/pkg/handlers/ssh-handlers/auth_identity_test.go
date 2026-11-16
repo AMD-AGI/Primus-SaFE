@@ -44,13 +44,13 @@ import (
 // What identity an authorization sees depends on how the session was authenticated:
 //   - the web shell is an HTTP request the identity middleware (ParseToken) authenticated, and its
 //     context already carries the overlay of the identity provider's roles and workspaces (or, for
-//     a built-in credential in external mode, the overlay of a user no identity vouched for);
+//     a built-in credential, the overlay of a user no identity vouched for);
 //   - an SSH session (shell, SFTP, direct-tcpip, remote forward) is authenticated by public key on
-//     the SSH port, so in external mode its user is one no identity vouched for, and the platform
-//     roles stored on the user object do not count.
+//     the SSH port, so its user is one no identity vouched for, and the platform roles stored on
+//     the user object do not count.
 //
-// The tests below run every path against the same users in both modes, through the entry point of
-// each path, and watch whether the request got past authorization to the pod.
+// The tests below run every path against the same users, through the entry point of each path,
+// and watch whether the request got past authorization to the pod.
 
 const (
 	authTestNamespace = "ns-auth"
@@ -197,10 +197,10 @@ func newAuthFixture(t *testing.T) *authFixture {
 	return f
 }
 
-// requestContext is the context ParseToken leaves on a request. identity is "" in builtin mode,
-// where it adds nothing; in external mode it is "idp" for a request an identity provider vouched
-// for, whose groups the mappings turn into roles and workspaces, and "builtin" for a built-in
-// session or API key, which no identity vouched for.
+// requestContext is the context ParseToken leaves on a request. identity is "" when the request
+// carries no overlay; "idp" is a request an identity provider vouched for, whose groups the
+// mappings turn into roles and workspaces, and "builtin" is a built-in session or API key, which
+// no identity vouched for.
 func requestContext(ctx context.Context, userId, identity string, groups []string) context.Context {
 	switch identity {
 	case "idp":
@@ -211,11 +211,12 @@ func requestContext(ctx context.Context, userId, identity string, groups []strin
 	return ctx
 }
 
-// setAuthMode puts the apiserver in builtin or external mode for the test.
+// setAuthMode enables external authentication with the builtin authenticator, which accepts
+// local sessions and API keys. mode is "external"; there is no other authentication path.
 func setAuthMode(t *testing.T, mode string) {
 	t.Helper()
 	if mode != "external" {
-		return
+		t.Fatalf("authentication mode %q is not supported", mode)
 	}
 	viper.Set("auth.mode", "external")
 	viper.Set("auth.authenticators", []map[string]any{{"type": "builtin"}})
@@ -223,56 +224,55 @@ func setAuthMode(t *testing.T, mode string) {
 	t.Cleanup(func() {
 		viper.Set("auth.mode", nil)
 		viper.Set("auth.authenticators", nil)
-		require.NoError(t, authority.InitExternalAuth(nil))
 	})
 }
 
-// authCase is a user and the identity of their web shell request in external mode, with whether
-// each path lets them in, per mode. In builtin mode there is no identity: the stored record decides.
+// authCase is a user and the identity of their web shell request, with whether each path lets
+// them in. A built-in credential carries no identity-provider grant: platform roles stored on
+// the user object do not count.
 type authCase struct {
 	name     string
 	user     string
-	identity string   // external mode, web shell: "idp" or "builtin"
-	groups   []string // external mode, web shell: the groups of the identity
-	// want is whether the user reaches the pod: [builtin web shell, builtin SSH, external web shell,
-	// external SSH]
-	want [4]bool
+	identity string   // web shell: "idp" or "builtin"
+	groups   []string // web shell: the groups of the identity
+	// want is whether the user reaches the pod: [web shell, SSH]
+	want [2]bool
 }
 
 var authCases = []authCase{
 	{
 		// An administrator by the stored record alone: the identity provider never granted it.
 		name: "stored system-admin, no identity provider", user: "stored-admin", identity: "builtin",
-		want: [4]bool{true, true, false, false},
+		want: [2]bool{false, false},
 	},
 	{
 		// The identity provider took the admin group away and the record still lists the role.
 		name: "stored system-admin whose group was removed", user: "stored-admin", identity: "idp", groups: []string{},
-		want: [4]bool{true, true, false, false},
+		want: [2]bool{false, false},
 	},
 	{
 		// The role stored on the record is what the group grants: the web shell must see it.
 		name: "system-admin stored and granted by group", user: "stored-admin", identity: "idp", groups: []string{"admins"},
-		want: [4]bool{true, true, true, false},
+		want: [2]bool{true, false},
 	},
 	{
-		// The scenario of the review: a workspace only the identity provider grants.
+		// A workspace only the identity provider grants.
 		name: "workspace granted by a group", user: "member", identity: "idp", groups: []string{"team-a"},
-		want: [4]bool{false, false, true, false},
+		want: [2]bool{true, false},
 	},
 	{
-		// The other scenario of the review: system-admin only the identity provider grants.
+		// system-admin only the identity provider grants.
 		name: "system-admin granted by a group", user: "member", identity: "idp", groups: []string{"admins"},
-		want: [4]bool{false, false, true, false},
+		want: [2]bool{true, false},
 	},
 	{
 		// The account is kept: only the platform role went, not ownership of the workload.
 		name: "owner of the workload", user: "owner", identity: "builtin",
-		want: [4]bool{true, true, true, true},
+		want: [2]bool{true, true},
 	},
 	{
 		name: "unrelated user", user: "nobody", identity: "idp", groups: []string{},
-		want: [4]bool{false, false, false, false},
+		want: [2]bool{false, false},
 	},
 }
 
@@ -371,36 +371,26 @@ var authPaths = []authPath{
 	}},
 }
 
-// Both modes, every user, every path: the web shell holds what the identity provider granted and
-// the SSH paths hold what a built-in credential holds.
+// Every user, every path: the web shell holds what the identity provider granted and the SSH
+// paths hold what a built-in credential holds.
 func TestAuthorizationByPathAndMode(t *testing.T) {
-	for _, mode := range []string{"builtin", "external"} {
-		mode := mode
-		t.Run(mode, func(t *testing.T) {
-			setAuthMode(t, mode)
-			f := newAuthFixture(t)
-			for _, c := range authCases {
-				for _, p := range authPaths {
-					want := c.want[0]
-					switch {
-					case mode == "builtin" && !p.web:
-						want = c.want[1]
-					case mode == "external" && p.web:
-						want = c.want[2]
-					case mode == "external":
-						want = c.want[3]
-					}
-					t.Run(c.name+"/"+p.name, func(t *testing.T) {
-						reached, err := p.run(t, f, c, mode)
-						require.Equal(t, want, reached, "reaches the pod (error: %v)", err)
-						if !want && err != nil {
-							// A refusal is the authorization's, not a lookup that failed.
-							require.True(t, commonerrors.IsForbidden(err), "refused for another reason: %v", err)
-						}
-					})
-				}
+	setAuthMode(t, "external")
+	f := newAuthFixture(t)
+	for _, c := range authCases {
+		for _, p := range authPaths {
+			want := c.want[0]
+			if !p.web {
+				want = c.want[1]
 			}
-		})
+			t.Run(c.name+"/"+p.name, func(t *testing.T) {
+				reached, err := p.run(t, f, c, "external")
+				require.Equal(t, want, reached, "reaches the pod (error: %v)", err)
+				if !want && err != nil {
+					// A refusal is the authorization's, not a lookup that failed.
+					require.True(t, commonerrors.IsForbidden(err), "refused for another reason: %v", err)
+				}
+			})
+		}
 	}
 }
 
@@ -470,10 +460,9 @@ func TestWebShellPingLoopDoesNotReadTheGinContextAfterTheHandlerReturns(t *testi
 }
 
 // authUser is the restrictive function, so an entry path added later that calls it as it is, with
-// whatever context it has, gets the restrictive behaviour: in external mode the roles stored on the
-// user object do not count, and an overlay in ctx (here one that grants system-admin) is not
-// honoured either, because only authUserAsRequestIdentity, which the web shell alone calls, opts in
-// to it. In builtin mode the stored record decides, as it always did.
+// whatever context it has, gets the restrictive behaviour: the roles stored on the user object do
+// not count, and an overlay in ctx (here one that grants system-admin) is not honoured either,
+// because only authUserAsRequestIdentity, which the web shell alone calls, opts in to it.
 func TestAuthUserDefaultIsRestrictiveForANewCaller(t *testing.T) {
 	grantedByIdentity := func() context.Context {
 		return extauth.WithOverlay(context.Background(),
@@ -490,7 +479,6 @@ func TestAuthUserDefaultIsRestrictiveForANewCaller(t *testing.T) {
 		{"external: stored system-admin, no overlay in ctx", "external", "stored-admin", context.Background, false},
 		{"external: system-admin only an overlay grants", "external", "member", grantedByIdentity, false},
 		{"external: owner of the workload", "external", "owner", context.Background, true},
-		{"builtin: stored system-admin", "builtin", "stored-admin", context.Background, true},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {

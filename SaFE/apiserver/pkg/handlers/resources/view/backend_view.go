@@ -27,16 +27,27 @@ type GetEnvResponse struct {
 	// revocation are routed to the identity provider (auth.api_keys_url). Absent when authentication is not
 	// external or nothing is routed there: the console then offers no key creation.
 	APIKeysURL string `json:"apiKeysUrl,omitempty"`
-	// Whether to enable sso
+	// Where the console sends the browser to sign in when AuthMode is external (auth.login_url).
+	// Absent unless authentication is external and the deployment sets one. Not an SSO URL.
+	LoginURL string `json:"loginUrl,omitempty"`
+	// The one identity connection the console names on the authorize request when AuthMode is external.
+	// Empty omits the parameter. Absent when authentication is not external.
+	Connection string `json:"connection,omitempty"`
+	// Page the console opens for accounts when AuthMode is external (auth.accounts_url).
+	AccountsURL string `json:"accountsUrl,omitempty"`
+	// Page the console opens for API keys when AuthMode is external (auth.keys_console_url).
+	KeysURL string `json:"keysUrl,omitempty"`
+	// Whether to enable sso. This is sso.enable. The console uses it only when AuthMode is not external.
 	SSOEnable bool `json:"ssoEnable"`
-	// The url for sso authorization
-	SSOAuthUrl string `json:"ssoAuthUrl"`
-	// The console's sign-in at the sso.login provider, when it is on: an authorization URL that needs
-	// PKCE (the console adds its state and an S256 code_challenge, and sends the code verifier with the
-	// code). ssoAuthUrl stays the URL of the provider of the sso Secret while that is configured.
+	// The authorization URL of the sso Secret provider, when AuthMode is not external and that provider
+	// is configured. The console uses it when SSOLoginUrl is empty. Absent in external mode.
+	SSOAuthUrl string `json:"ssoAuthUrl,omitempty"`
+	// The console's sign-in at the sso.login provider, when AuthMode is not external and sso.login is on:
+	// an authorization URL that needs PKCE (the console adds its state and an S256 code_challenge, and
+	// sends the code verifier with the code).
 	SSOLoginUrl string `json:"ssoLoginUrl,omitempty"`
 	// True when sso.login is on, even while its provider cannot be reached (ssoLoginUrl empty): the
-	// console then signs in only with PKCE, and does not fall back to ssoAuthUrl.
+	// console then signs in only with PKCE.
 	SSOPkce bool `json:"ssoPkce,omitempty"`
 	// Origins (optionally with a path prefix) other than the web console itself that may receive an SSO code.
 	SSOBridgeAllowlist []string `json:"ssoBridgeAllowlist"`

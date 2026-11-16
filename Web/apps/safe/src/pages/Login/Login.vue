@@ -27,10 +27,11 @@
         <div class="flex items-center gapx-8">
           <div>
             <div class="textx-18 font-600 leading-tight">
-              {{ autoSSO ? 'Redirecting...' : 'Sign in' }}
+              {{ autoSSO || identityAuthorize || externalSignIn ? 'Redirecting...' : 'Sign in' }}
             </div>
             <div class="text-[13px] opacity-80 mt-1">
               <span v-if="autoSSO"> Redirecting to single sign-on, please wait… </span>
+              <span v-else-if="identityAuthorize || externalSignIn"> Redirecting to sign in, please wait… </span>
               <span v-else> Access your account to continue </span>
             </div>
           </div>
@@ -54,13 +55,27 @@
           </div>
         </template>
 
+        <!-- External mode names one identity connection on the authorize request. -->
+        <template v-else-if="identityAuthorize">
+          <div class="py-12 text-center text-[13px] opacity-80">
+            <el-icon class="mb-3">
+              <Loading />
+            </el-icon>
+            <div class="mb-4">Redirecting to sign in…</div>
+          </div>
+        </template>
+
         <!-- An identity provider owns sign-in: there is no password form, not even on /login-admin -->
         <template v-else-if="userStore.isExternalAuth">
           <div class="py-12 text-center text-[13px] opacity-80">
-            <div class="mb-4">Sign-in is managed by an external identity provider.</div>
-            <el-button v-if="signInTarget(userStore.envs)" type="primary" @click="startSSO">
-              Continue to sign in
-            </el-button>
+            <template v-if="externalSignIn">
+              <el-icon class="mb-3">
+                <Loading />
+              </el-icon>
+              <div class="mb-4">Redirecting to sign in…</div>
+              <el-button type="primary" @click="startExternalSignIn"> Continue to sign in </el-button>
+            </template>
+            <div v-else class="mb-4">Sign-in is managed by an external identity provider.</div>
           </div>
         </template>
 
@@ -153,6 +168,7 @@ import { useUserStore } from '@/stores/user'
 import { toggleDark } from '@/composables'
 import { randomState, getSafeRedirect } from '@/utils'
 import { buildSignInUrl, signInTarget } from '@/utils/ssoSignIn'
+import { externalLoginUrl } from '@/utils/authMode'
 import {
   leaveConsoleFor,
   outsideConsoleReturn,
@@ -196,7 +212,13 @@ const rules: FormRules = {
 }
 
 const isAdminLogin = computed(() => route.name === 'LoginAdmin')
-const autoSSO = computed(() => !isAdminLogin.value && !!userStore.envs?.ssoEnable)
+const externalSignIn = computed(() => externalLoginUrl(userStore.envs))
+const identityAuthorize = computed(
+  () => userStore.isExternalAuth && !!signInTarget(userStore.envs),
+)
+const autoSSO = computed(
+  () => !isAdminLogin.value && !userStore.isExternalAuth && !!userStore.envs?.ssoEnable,
+)
 
 function cleanExpiredAttempts() {
   // Clean up expired SSO attempt records
@@ -238,6 +260,12 @@ function clearSSOAttempts() {
   localStorage.removeItem(SSO_ATTEMPTS_KEY)
 }
 
+function startExternalSignIn() {
+  const url = externalSignIn.value
+  if (!url) return
+  window.location.assign(url)
+}
+
 // ========== Core function: redirect to SSO login page ==========
 async function startSSO() {
   const signIn = signInTarget(userStore.envs)
@@ -256,7 +284,12 @@ async function startSSO() {
 
   // 2. Build SSO URL with a random state (security verification) and, when the provider needs it,
   // a PKCE code challenge; both are kept in sessionStorage for the callback
-  const url = await buildSignInUrl(signIn.url, randomState(), signIn.pkce)
+  const url = await buildSignInUrl(
+    signIn.url,
+    randomState(),
+    signIn.pkce,
+    identityAuthorize.value ? userStore.envs?.connection : undefined,
+  )
 
   // 3. Redirect
   window.location.assign(url)
@@ -369,6 +402,16 @@ onMounted(async () => {
 
     // ✅ Core: redirect to SSO
     startSSO() // 👈👈👈 This is the core! Redirect to SSO
+    return
+  }
+
+  if (identityAuthorize.value) {
+    startSSO()
+    return
+  }
+
+  if (externalSignIn.value) {
+    startExternalSignIn()
     return
   }
 

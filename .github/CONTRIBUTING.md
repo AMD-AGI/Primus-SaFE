@@ -24,7 +24,7 @@ Use [GitHub Issues](../../issues) to report bugs or request features. Include a 
    - Python components: `black` / `pytest`
    - Keep changes scoped — split large refactors into multiple PRs.
 3. Open a PR against `main`. Describe *what* changed and *why*; link any related issue.
-4. Ensure CI passes — at minimum: `unit-test`, `build`, component-specific workflows (`lens-build`, `web-ci`, `web-safe-docker-build`), and `block-sensitive-secrets`. Request review from the relevant [CODEOWNERS](CODEOWNERS).
+4. Ensure CI passes — at minimum: `unit-test`, `build` (the web image is built there with the other images), component-specific workflows (`lens-build`, `web-ci`), and `block-sensitive-secrets`. Request review from the relevant [CODEOWNERS](CODEOWNERS).
 
 By opening a PR, you agree your contribution is licensed under the terms in [LICENSE](../LICENSE).
 

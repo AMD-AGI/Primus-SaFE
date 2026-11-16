@@ -115,6 +115,9 @@ spec:
               mountPath: {{ default "/etc/secrets/auth" .Values.auth.client_secret_path }}
               readOnly: true
             {{- end }}
+            - name: scim-tls
+              mountPath: /etc/secrets/scim-tls
+              readOnly: true
           ports:
             - name: metrics
               containerPort: {{ default 8000 (default .Values.job_manager).metrics_port }}
@@ -209,6 +212,13 @@ spec:
           secret:
             secretName: {{ .Values.auth.client_secret }}
         {{- end }}
+        - name: scim-tls
+          secret:
+            secretName: {{ .Values.global.tls_secret | default "default" }}
+            optional: true
+            items:
+              - key: tls.crt
+                path: tls.crt
       {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:
         - name: {{ .Values.global.image_pull_secret }}

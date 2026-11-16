@@ -128,12 +128,26 @@ data:
       # Origins (optionally with a path prefix) that may receive an SSO code besides this console's own origin
       bridge_allowlist: {{ toJson (default (list) .Values.sso.bridge_allowlist) }}
       {{- $login := default dict .Values.sso.login }}
+      {{- /* Empty issuer and callback are this cluster's identity: https://<sub_domain>.<domain>. */}}
+      {{- $loginIssuer := $login.issuer }}
+      {{- $loginClient := $login.client_id }}
+      {{- $loginRedirect := $login.redirect_uri }}
+      {{- $origin := include "primus-safe.publicOrigin" . }}
+      {{- if and (not $loginIssuer) $origin }}
+      {{- $loginIssuer = $origin }}
+      {{- end }}
+      {{- if not $loginClient }}
+      {{- $loginClient = "safe-console" }}
+      {{- end }}
+      {{- if and (not $loginRedirect) $origin }}
+      {{- $loginRedirect = printf "%s/sso/callback" $origin }}
+      {{- end }}
       # The console signs in at this OpenID Connect provider (public client, PKCE) when enabled
       login:
         enable: {{ default false $login.enable }}
-        issuer: {{ toJson (toString (default "" $login.issuer)) }}
-        client_id: {{ toJson (toString (default "" $login.client_id)) }}
-        redirect_uri: {{ toJson (toString (default "" $login.redirect_uri)) }}
+        issuer: {{ toJson (toString $loginIssuer) }}
+        client_id: {{ toJson (toString $loginClient) }}
+        redirect_uri: {{ toJson (toString $loginRedirect) }}
     cicd:
       enable: {{ .Values.cicd.enable }}
       controller_name: {{ .Values.cicd.controller_name }}
@@ -169,17 +183,89 @@ data:
     {{- /* the path the console's nginx routes to that upstream */}}
     {{- $apiKeysURL = "/api/v1/apikeys" }}
     {{- end }}
+    {{- /* External mode requires auth.login_url. An empty SCIM callback uses the console host. Higress sends /scim/v2 to this apiserver. */}}
+    {{- $loginURL := .Values.auth.login_url | default "" }}
+    {{- if eq (default "builtin" .Values.auth.mode) "external" }}
+    {{- if not $loginURL }}
+    {{- fail "auth.mode is external but auth.login_url is empty" }}
+    {{- end }}
+    {{- $fallback := false }}
+    {{- range $a := default (list) .Values.auth.authenticators }}
+    {{- $t := lower (default "" $a.type) }}
+    {{- if or (eq $t "introspection") (eq $t "builtin") }}
+    {{- $fallback = true }}
+    {{- end }}
+    {{- end }}
+    {{- if and (not $fallback) (not .Values.auth.allow_oidc_only) }}
+    {{- fail "auth.mode is external but auth.authenticators has no introspection or builtin entry; set auth.allow_oidc_only to accept an oidc-only chain" }}
+    {{- end }}
+    {{- $admin := false }}
+    {{- range $m := default (list) .Values.auth.group_mappings }}
+    {{- range $r := default (list) $m.roles }}
+    {{- if eq ($r | toString) "system-admin" }}
+    {{- $admin = true }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- if not $admin }}
+    {{- fail "auth.mode is external but auth.group_mappings grants system-admin to no group" }}
+    {{- end }}
+    {{- if eq (toString (default false $login.enable)) "true" }}
+    {{- $audience := false }}
+    {{- range $a := default (list) .Values.auth.authenticators }}
+    {{- if and (eq (lower (default "" $a.type)) "oidc") (eq (toString (default "" $a.audience)) (toString $loginClient)) }}
+    {{- $audience = true }}
+    {{- end }}
+    {{- end }}
+    {{- if not $audience }}
+    {{- fail (printf "sso.login.enable is set but no oidc authenticator audience equals sso.login.client_id %q" (toString $loginClient)) }}
+    {{- end }}
+    {{- end }}
+    {{- /* Only auth.provider_client calls the identity service, so only it needs the SCIM identity URL. */}}
+    {{- $scimOn := default dict .Values.auth.scim }}
+    {{- if and (ne ($scimOn.enabled | toString) "false") .Values.auth.provider_client }}
+    {{- $idBase := $scimOn.identity_url | default "" | toString }}
+    {{- if not $idBase }}
+    {{- range $a := default (list) .Values.auth.authenticators }}
+    {{- if and (not $idBase) (eq (lower (default "" $a.type)) "introspection") }}
+    {{- $idBase = $a.url | default $a.issuer | default "" | toString }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- if not $idBase }}
+    {{- fail "auth.scim and auth.provider_client are enabled but auth.scim.identity_url cannot be resolved from an introspection authenticator" }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- $scimPublic := (default dict .Values.auth.scim).public_url }}
+    {{- $scimOrigin := include "primus-safe.publicOrigin" . }}
+    {{- if and (not $scimPublic) $scimOrigin }}
+    {{- $scimPublic = printf "%s/scim/v2" $scimOrigin }}
+    {{- end }}
     auth:
       # builtin (default): local accounts, built-in sessions, SSO login and API keys.
       # external: authenticate requests with the chain in `authenticators` (OIDC/JWT, RFC 7662 token introspection, builtin).
       mode: {{ default "builtin" .Values.auth.mode | quote }}
       authenticators: {{ toJson (default (list) .Values.auth.authenticators) }}
       group_mappings: {{ toJson (default (list) .Values.auth.group_mappings) }}
-      login_url: {{ default "" .Values.auth.login_url | quote }}
+      login_url: {{ $loginURL | quote }}
+      allow_oidc_only: {{ default false .Values.auth.allow_oidc_only }}
+      provider_client: {{ default false .Values.auth.provider_client }}
+      connection: {{ default "" .Values.auth.connection | quote }}
+      accounts_url: {{ default "" .Values.auth.accounts_url | quote }}
+      keys_console_url: {{ default "" .Values.auth.keys_console_url | quote }}
       key_actors: {{ toJson (default (list) .Values.auth.key_actors) }}
       # The path where the deployment routes API key creation, listing and revocation to the identity provider.
       api_keys_url: {{ $apiKeysURL | quote }}
+      scim:
+        enabled: {{ if kindIs "bool" (default dict .Values.auth.scim).enabled }}{{ (default dict .Values.auth.scim).enabled }}{{ else }}true{{ end }}
+        identity_url: {{ default "" (default dict .Values.auth.scim).identity_url | quote }}
+        public_url: {{ $scimPublic | quote }}
+        token_secret: {{ default "primus-safe-scim-token" (default dict .Values.auth.scim).token_secret | quote }}
     {{- end }}
+    rbac:
+      # Prefix of the user and group subjects that project workspace membership into Kubernetes RBAC.
+      subject_prefix: {{ default "primus:" (default dict .Values.rbac).subject_prefix | quote }}
     {{- if or .Values.proxy .Values.langfuse_proxy }}
     proxy:
       services:

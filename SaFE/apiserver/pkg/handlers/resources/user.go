@@ -25,6 +25,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -428,6 +429,9 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	if !isChanged || err != nil {
 		return nil, err
 	}
+	if err = forwardIdentityStatus(c, targetUser, req); err != nil {
+		return nil, err
+	}
 
 	if err = backoff.ConflictRetry(func() error {
 		applyUserPatch(targetUser, req)
@@ -462,6 +466,9 @@ func applyUserPatch(targetUser *v1.User, req *view.PatchUserRequest) {
 	}
 	if req.RestrictedType != nil {
 		targetUser.Spec.RestrictedType = *req.RestrictedType
+		if *req.RestrictedType != v1.UserFrozen {
+			v1.RemoveAnnotation(targetUser, identity.DeactivatedAnnotation)
+		}
 	}
 	if req.AvatarUrl != nil {
 		v1.SetAnnotation(targetUser, v1.UserAvatarUrlAnnotation, *req.AvatarUrl)
@@ -582,6 +589,34 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// forwardIdentityStatus asks the identity service to disable or activate the user before the local
+// restricted type changes. Builtin mode does nothing. Only a credential an identity provider accepted
+// is forwarded; any other credential gets a conflict. The local user is not updated when this returns an error.
+func forwardIdentityStatus(c *gin.Context, user *v1.User, req *view.PatchUserRequest) error {
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal || req.RestrictedType == nil || !commonconfig.ProviderClientEnabled() {
+		return nil
+	}
+	status, ok := identityStatus(*req.RestrictedType, user.Spec.RestrictedType)
+	if !ok {
+		return nil
+	}
+	if userType := c.GetString(common.UserType); userType != authority.UserTypeExternal && userType != authority.UserTypeDelegated {
+		return commonerrors.NewConflict("changing the user status needs an identity provider sign-in; use the identity console")
+	}
+	return identity.SetStatus(c.Request.Context(), user.Name, status, authority.CallerBearer(c))
+}
+
+// identityStatus returns the identity status for a change into or out of the frozen restriction.
+func identityStatus(next, prev v1.UserRestrictedType) (string, bool) {
+	if (next == v1.UserFrozen) == (prev == v1.UserFrozen) {
+		return "", false
+	}
+	if next == v1.UserFrozen {
+		return "disabled", true
+	}
+	return "active", true
+}
+
 // getAdminUser retrieves a user resource by ID from the admin data plane.
 // Returns an error if the user doesn't exist or the ID is empty.
 func (h *Handler) getAdminUser(ctx context.Context, userId string) (*v1.User, error) {
@@ -604,15 +639,23 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = refuseExternal("sign-in through this endpoint"); err != nil {
-		c.Set(common.UserId, "login-failed:"+query.Name)
-		c.Set(common.UserName, query.Name)
-		c.Set(common.UserType, string(query.Type))
-		return nil, err
+	// External mode refuses a password sign-in. An authorization code is exchanged here and the
+	// identity-issued token is kept.
+	ssoOn := commonconfig.IsSSOEnable() || commonconfig.IsSSOLoginEnable()
+	externalCode := commonconfig.GetAuthMode() == commonconfig.AuthModeExternal &&
+		query.Type == v1.SSOUserType && query.Code != "" && query.CodeVerifier != "" &&
+		commonconfig.IsSSOLoginEnable()
+	if !externalCode {
+		if err = refuseExternal("sign-in through this endpoint"); err != nil {
+			c.Set(common.UserId, "login-failed:"+query.Name)
+			c.Set(common.UserName, query.Name)
+			c.Set(common.UserType, string(query.Type))
+			return nil, err
+		}
 	}
 	var tokenInstance authority.TokenInterface
 	if query.Type == v1.SSOUserType {
-		if !commonconfig.IsSSOEnable() {
+		if !ssoOn {
 			return nil, commonerrors.NewInternalError("SSO is not enabled")
 		}
 		tokenInstance = authority.SSOInstance()
