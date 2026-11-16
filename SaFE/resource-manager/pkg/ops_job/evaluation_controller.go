@@ -402,7 +402,8 @@ echo "Model endpoint verified successfully"
 // outputProbeScript sends the greedy probes of $EVAL_PROBES to $EVAL_PROBE_ENDPOINT as $EVAL_PROBE_MODEL. An
 // "exact" probe passes when the reply, without its thinking block, whitespace and periods, is the answer; a
 // "pythonCode" probe passes when the reply has a fenced code block that Python parses. Any other reply fails
-// the pre-flight check: a broken service can return fluent-looking garbage that a benchmark would score.
+// the pre-flight check: a broken service can return fluent-looking garbage that a benchmark would score. A
+// "warnOnly" probe only reports its unexpected reply. The reason of a failure goes to the termination log.
 const outputProbeScript = `
 echo "Pre-flight check: probing the model output..."
 if ! python3 - <<'PROBE_EOF'
@@ -432,19 +433,31 @@ def passes(probe, reply):
         return False
     print("unknown probe expectation %r" % probe.get("expect"))
     return False
+def fail(message):
+    print(message)
+    if os.path.exists("/dev/termination-log"):
+        with open("/dev/termination-log", "w") as f:
+            f.write(message[:1000])
+    sys.exit(1)
+warned = 0
 for i, probe in enumerate(probes, 1):
     try:
         reply = ask(probe["prompt"])
     except Exception as e:
-        print("probe %d failed: %s" % (i, e))
-        sys.exit(1)
+        fail("probe %d failed: %s" % (i, e))
     if not passes(probe, reply):
-        print("probe %d got an unexpected reply: %r" % (i, reply[:300]))
-        sys.exit(1)
-print("all %d probes passed" % len(probes))
+        if probe.get("warnOnly"):
+            print("warning: probe %d got an unexpected reply: %r" % (i, reply[:300]))
+            warned += 1
+            continue
+        fail("probe %d got an unexpected reply: %r" % (i, reply[:300]))
+if warned:
+    print("%d of %d probes passed, the others only warn" % (len(probes) - warned, len(probes)))
+else:
+    print("all %d probes passed" % len(probes))
 PROBE_EOF
 then
-  echo "The inference service output is abnormal" > /dev/termination-log
+  [ -s /dev/termination-log ] || echo "The inference service output is abnormal" > /dev/termination-log
   exit 1
 fi
 `

@@ -322,6 +322,9 @@ type Probe struct {
 	Prompt string `json:"prompt"`
 	Expect string `json:"expect"`
 	Answer string `json:"answer,omitempty"`
+	// WarnOnly probes report an unexpected reply without stopping the evaluation, for skills that a small or
+	// specialised model may lack.
+	WarnOnly bool `json:"warnOnly,omitempty"`
 }
 
 // Parse decodes registry YAML strictly and validates it.

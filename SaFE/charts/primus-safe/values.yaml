@@ -732,7 +732,7 @@ post_training:
         maxWaitSeconds: 7200
       probes:
         - {prompt: "What is the capital of France? Answer with one word.", expect: exact, answer: Paris}
-        - {prompt: "Write a Triton kernel that adds two vectors.", expect: pythonCode}
+        - {prompt: "Write a Triton kernel that adds two vectors.", expect: pythonCode, warnOnly: true}
     # Mounted-path imports of Spur run directories: per cluster, the workspace whose pods see Spur's /shared_nfs
     # read-only at root (a ReadOnlyMany volume mounted there), where the scan jobs run, e.g.
     # {cluster: <cluster>, workspace: spur-import, root: /shared_nfs, allowedPrefixes: ["/shared_nfs/{user}"]}.
