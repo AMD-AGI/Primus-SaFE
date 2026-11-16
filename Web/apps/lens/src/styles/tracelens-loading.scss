@@ -1,7 +1,7 @@
 // TraceLens Loading Animation Shared Styles
-// 共享的加载动画样式，减少重复代码
+// Shared by the loading pages so they do not repeat these rules
 
-// 加载内容容器
+// Loading content container
 .tracelens-loading-content {
   text-align: center;
   padding: 20px;
@@ -9,7 +9,7 @@
   max-width: 600px;
   margin: 0 auto;
   
-  // 加载动画
+  // Loading animation
   .loading-animation {
     margin-bottom: 24px;
     
@@ -19,7 +19,7 @@
     }
   }
   
-  // 标题
+  // Title
   .loading-title {
     margin: 0 0 12px 0;
     font-size: 24px;
@@ -27,21 +27,21 @@
     color: #303133;
   }
   
-  // 消息
+  // Message
   .loading-message {
     margin: 0 0 8px 0;
     font-size: 16px;
     color: #606266;
   }
   
-  // 预估时间
+  // Estimated time
   .loading-estimate {
     margin: 0 0 32px 0;
     font-size: 14px;
     color: #909399;
   }
   
-  // State进度条
+  // Status progress bar
   .status-progress {
     display: flex;
     justify-content: center;
@@ -49,7 +49,7 @@
     margin-bottom: 32px;
     position: relative;
     
-    // Connect线
+    // Connector line
     &::before {
       content: '';
       position: absolute;
@@ -61,7 +61,7 @@
       z-index: 0;
     }
     
-    // State步骤
+    // Status step
     .status-step {
       flex: 1;
       display: flex;
@@ -70,7 +70,7 @@
       position: relative;
       z-index: 1;
       
-      // 步骤图标
+      // Step icon
       .step-icon {
         width: 40px;
         height: 40px;
@@ -96,7 +96,7 @@
         }
       }
       
-      // 步骤标签
+      // Step label
       .step-label {
         font-size: 13px;
         color: #909399;
@@ -118,7 +118,7 @@
         }
       }
       
-      // 进行中State
+      // In-progress state
       &.is-active {
         .step-icon {
           background: var(--el-color-primary);
@@ -137,7 +137,7 @@
     }
   }
   
-  // Session 信息区域
+  // Session info
   .session-loading-info {
     background: #f5f7fa;
     border-radius: 8px;
@@ -175,13 +175,13 @@
     }
   }
   
-  // 操作按钮区域
+  // Action buttons
   .loading-actions {
     margin-top: 24px;
   }
 }
 
-// 旋转动画
+// Rotation animation
 @keyframes rotate {
   from {
     transform: rotate(0deg);
@@ -191,7 +191,7 @@
   }
 }
 
-// 深色主题支持
+// Dark theme
 .dark {
   .tracelens-loading-content {
     .loading-title {

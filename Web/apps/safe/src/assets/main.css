@@ -6,7 +6,7 @@
   --scale: 1;
   --compact-scale: 1;
   --zoom: 1;
-} /* 全局默认 */
+} /* Global defaults */
 
 /* Small-screen global zoom: below 1440px shrink the whole app to raise
    information density. `zoom` is applied to #app (not transform: scale) so the
@@ -98,16 +98,16 @@ $btn-colors: (
   info:    #909399
 ); */
 
-/* 圆形操作按钮样式 */
+/* Round action button styles */
 .btn-danger-plain {
-  color: #f56c6c; /* 红标 */
+  color: #f56c6c; /* Red text */
   background-color: var(--safe-card);
   border: 1px solid #f56c6c;
 }
 
 .btn-danger-plain:hover {
-  color: #fff; /* 白标 */
-  background-color: #f56c6c; /* 红底 */
+  color: #fff; /* White text */
+  background-color: #f56c6c; /* Red background */
   border-color: #f56c6c;
 }
 
@@ -145,7 +145,7 @@ $btn-colors: (
   border-color: #e6a23c;
 }
 
-/* 详情页标题部分样式 */
+/* Detail page header */
 .w-row {
   display: flex;
   align-items: center;
@@ -201,7 +201,7 @@ $btn-colors: (
   opacity: 0.8;
 }
 
-/* **********操作栏-三个折叠+展开pop按钮样式****************** */
+/* ********** Action column: inline buttons plus a "more" popover ********** */
 /* Row action buttons. Each inline action is wrapped in a span because a native
    disabled button never fires the hover el-tooltip listens for, which left a
    greyed-out action unable to say why it is unavailable. Those wrappers break
@@ -251,12 +251,12 @@ $btn-colors: (
   font-size: 14px;
 }
 
-/* 保险起见，确保 popover 层级足够高（与 :z-index 配合） */
+/* Keep the popover high enough, to be safe (works with :z-index) */
 .actions-menu.el-popper {
   z-index: 99999;
 }
 
-/* 确保 training drawer 及其遮罩层在最顶层 */
+/* Keep the training drawer and its overlay on top */
 .training-drawer.el-drawer {
   z-index: 100001 !important;
 }
@@ -265,8 +265,8 @@ $btn-colors: (
   z-index: 100000 !important;
 }
 
-/* 确保所有 Element Plus 的 popper 组件都有足够的层级 */
-/* 设置为 100002，高于 drawer 的 100001，这样 drawer 内的下拉框才能正常显示 */
+/* Give every Element Plus popper a high enough z-index: */
+/* 100002, above the drawer's 100001, so dropdowns inside the drawer can show */
 .el-popper,
 .el-select__popper,
 .el-picker__popper,
@@ -275,12 +275,12 @@ $btn-colors: (
   z-index: 100002 !important;
 }
 
-/* 确保 Message 提示框在抽屉上方显示 */
+/* Show message toasts above the drawer */
 .el-message {
   z-index: 100003 !important;
 }
 
-/* *********************全局组件字体大小等样式适配****************** */
+/* ********************* Global component font sizes and similar adjustments ****************** */
 .el-tabs__item {
   font-size: calc(12px * var(--scale, 1));
 }

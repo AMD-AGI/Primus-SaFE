@@ -323,9 +323,9 @@ describe('encodeToBase64String', () => {
   })
 
   it('encodes Unicode characters', () => {
-    const encoded = encodeToBase64String('你好世界')
+    const encoded = encodeToBase64String('café — 10 €')
     expect(encoded).toBeTruthy()
-    expect(decodeFromBase64String(encoded)).toBe('你好世界')
+    expect(decodeFromBase64String(encoded)).toBe('café — 10 €')
   })
 
   it('returns empty string for empty input', () => {
