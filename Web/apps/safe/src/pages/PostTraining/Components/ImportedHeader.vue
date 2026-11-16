@@ -32,26 +32,37 @@
       </div>
     </div>
     <div class="flex max-w-[58%] flex-wrap items-center justify-end gap-2">
-      <el-button round @click="copyText(sourcePath)">Copy Spur Path</el-button>
-      <el-tooltip v-for="label in RECIPE_ACTIONS" :key="label" :content="NO_RECIPE" placement="top">
-        <span
-          ><el-button round disabled>{{ label }}</el-button></span
-        >
+      <el-tooltip content="Copy Spur Path" placement="top">
+        <el-button
+          circle
+          class="btn-primary-plain"
+          :icon="FolderOpened"
+          @click="copyText(sourcePath)"
+        />
       </el-tooltip>
-      <el-tooltip :content="NO_MODEL" placement="top">
-        <span><el-button round disabled>Evaluate</el-button></span>
+      <el-tooltip
+        v-for="a in RECIPE_ACTIONS"
+        :key="a.label"
+        :content="`${a.label} · ${NO_RECIPE}`"
+        placement="top"
+      >
+        <span><el-button circle :class="a.btnClass" :icon="a.icon" disabled /></span>
       </el-tooltip>
-      <el-tooltip :content="readOnlyTip" :disabled="!isReadonly" placement="top">
+      <el-tooltip :content="`Evaluate · ${NO_MODEL}`" placement="top">
+        <span><el-button circle class="btn-primary-plain" :icon="Odometer" disabled /></span>
+      </el-tooltip>
+      <el-tooltip
+        :content="isReadonly ? `Delete Record · ${readOnlyTip}` : 'Delete Record'"
+        placement="top"
+      >
         <span>
           <el-button
-            round
-            plain
-            type="danger"
+            circle
+            class="btn-danger-plain"
+            :icon="Delete"
             :disabled="isReadonly"
             @click="deleteDialog.visible = true"
-          >
-            Delete Record
-          </el-button>
+          />
         </span>
       </el-tooltip>
     </div>
@@ -121,7 +132,15 @@
 import { computed, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, CopyDocument } from '@element-plus/icons-vue'
+import {
+  ArrowLeft,
+  CopyDocument,
+  Delete,
+  FolderAdd,
+  FolderOpened,
+  Odometer,
+  Switch,
+} from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import { useUserStore } from '@/stores/user'
 import { copyText } from '@/utils'
@@ -144,7 +163,11 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ tab: [name: string] }>()
 
-const RECIPE_ACTIONS = ['Clone', 'Save as Template', 'A/B from This Run']
+const RECIPE_ACTIONS = [
+  { label: 'Clone', icon: CopyDocument, btnClass: 'btn-success-plain' },
+  { label: 'Save as Template', icon: FolderAdd, btnClass: 'btn-primary-plain' },
+  { label: 'A/B from This Run', icon: Switch, btnClass: 'btn-primary-plain' },
+]
 const NO_RECIPE = 'Imported runs are read-only: SaFE has no recipe for them.'
 const NO_MODEL = 'No model to evaluate: nothing from an imported run is registered in Model Square.'
 const readOnlyTip = 'Read-only access'

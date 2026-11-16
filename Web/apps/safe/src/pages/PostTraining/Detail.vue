@@ -61,43 +61,78 @@
         <div class="flex items-center gap-2 shrink-0">
           <el-tooltip
             v-if="isActive"
-            :content="readOnlyTip"
-            :disabled="!isReadonly"
+            :content="actionTip('Stop', isReadonly ? readOnlyTip : '')"
             placement="top"
           >
             <span>
-              <el-button round :disabled="isReadonly" @click="handleStop">Stop</el-button>
+              <el-button
+                circle
+                class="btn-danger-plain"
+                :icon="CloseBold"
+                :disabled="isReadonly"
+                @click="handleStop"
+              />
             </span>
           </el-tooltip>
-          <el-tooltip :content="readOnlyTip" :disabled="!isReadonly" placement="top">
+          <el-tooltip :content="actionTip('Clone', isReadonly ? readOnlyTip : '')" placement="top">
             <span>
-              <el-button round :disabled="isReadonly" @click="copyAsNew">Clone</el-button>
+              <el-button
+                circle
+                class="btn-success-plain"
+                :icon="CopyDocument"
+                :disabled="isReadonly"
+                @click="copyAsNew"
+              />
             </span>
           </el-tooltip>
-          <el-tooltip :content="readOnlyTip" :disabled="!isReadonly" placement="top">
+          <el-tooltip
+            :content="actionTip('Save as Template', isReadonly ? readOnlyTip : '')"
+            placement="top"
+          >
             <span>
-              <el-button round :disabled="isReadonly" @click="saveTemplate = true">
-                Save as Template
-              </el-button>
+              <el-button
+                circle
+                class="btn-primary-plain"
+                :icon="FolderAdd"
+                :disabled="isReadonly"
+                @click="saveTemplate = true"
+              />
             </span>
           </el-tooltip>
-          <el-tooltip :content="readOnlyTip" :disabled="!isReadonly" placement="top">
+          <el-tooltip
+            :content="actionTip('A/B from This Run', isReadonly ? readOnlyTip : '')"
+            placement="top"
+          >
             <span>
-              <el-button round :disabled="isReadonly" @click="abDrawer = true">
-                A/B from This Run
-              </el-button>
+              <el-button
+                circle
+                class="btn-primary-plain"
+                :icon="Switch"
+                :disabled="isReadonly"
+                @click="abDrawer = true"
+              />
             </span>
           </el-tooltip>
-          <el-tooltip :content="evaluateTip" :disabled="!evaluateTip" placement="top">
+          <el-tooltip :content="actionTip('Evaluate', evaluateTip)" placement="top">
             <span>
-              <el-button round :disabled="!!evaluateTip" @click="openEvaluate">Evaluate</el-button>
+              <el-button
+                circle
+                class="btn-primary-plain"
+                :icon="Odometer"
+                :disabled="!!evaluateTip"
+                @click="openEvaluate"
+              />
             </span>
           </el-tooltip>
-          <el-tooltip :content="readOnlyTip" :disabled="!isReadonly" placement="top">
+          <el-tooltip :content="actionTip('Delete', isReadonly ? readOnlyTip : '')" placement="top">
             <span>
-              <el-button round plain type="danger" :disabled="isReadonly" @click="openDelete">
-                Delete
-              </el-button>
+              <el-button
+                circle
+                class="btn-danger-plain"
+                :icon="Delete"
+                :disabled="isReadonly"
+                @click="openDelete"
+              />
             </span>
           </el-tooltip>
         </div>
@@ -571,7 +606,15 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, CopyDocument } from '@element-plus/icons-vue'
+import {
+  ArrowLeft,
+  CloseBold,
+  CopyDocument,
+  Delete,
+  FolderAdd,
+  Odometer,
+  Switch,
+} from '@element-plus/icons-vue'
 import { useDocumentVisibility, useIntervalFn, useNow } from '@vueuse/core'
 import dayjs from 'dayjs'
 import { useUserStore } from '@/stores/user'
@@ -845,6 +888,9 @@ const eta = computed(() => {
   const perStep = (now.value.getTime() - from.t) / (step - from.step)
   return formatDuration(((total - step) * perStep) / 1000)
 })
+
+/** The tooltip of a header action: its name, and why it is unavailable when it is. */
+const actionTip = (label: string, reason?: string) => (reason ? `${label} · ${reason}` : label)
 
 type CardLink = { text: string; tab?: string; path?: string }
 

@@ -413,56 +413,56 @@
           >
         </el-table-column>
 
-        <el-table-column label="Actions" width="240" fixed="right">
+        <el-table-column label="Actions" width="140" fixed="right">
           <template #default="{ row }"
-            ><template v-if="!isGroup(row)">
-              <el-button v-if="canOpenDetail" link type="primary" @click.stop="goDetail(row)"
-                >Details</el-button
-              >
+            ><div v-if="!isGroup(row)" class="flex items-center gap-2">
               <el-tooltip
                 v-if="isActive(row)"
-                :content="readOnlyTip"
-                :disabled="!isReadonly"
+                :content="actionTip('Stop', isReadonly ? readOnlyTip : '')"
                 placement="top"
               >
                 <span>
                   <el-button
-                    link
-                    type="primary"
+                    circle
+                    class="btn-danger-plain"
+                    :icon="Close"
                     :disabled="isReadonly"
                     @click.stop="handleStop(row)"
-                    >Stop</el-button
-                  >
+                  />
                 </span>
               </el-tooltip>
               <el-tooltip
                 v-if="canCreate"
-                :content="copyBlocked(row)"
-                :disabled="!copyBlocked(row)"
+                :content="actionTip('Clone', copyBlocked(row))"
                 placement="top"
               >
                 <span>
                   <el-button
-                    link
-                    type="primary"
+                    circle
+                    class="btn-success-plain"
+                    :icon="DocumentCopy"
                     :disabled="!!copyBlocked(row)"
                     @click.stop="
                       router.push({ path: '/post-training/create', query: { fromRun: row.runId } })
                     "
-                  >
-                    Clone
-                  </el-button>
+                  />
                 </span>
               </el-tooltip>
-              <el-tooltip :content="readOnlyTip" :disabled="!isReadonly" placement="top">
+              <el-tooltip
+                :content="actionTip('Delete', isReadonly ? readOnlyTip : '')"
+                placement="top"
+              >
                 <span>
-                  <el-button link type="danger" :disabled="isReadonly" @click.stop="openDelete(row)"
-                    >Delete</el-button
-                  >
+                  <el-button
+                    circle
+                    class="btn-danger-plain"
+                    :icon="Delete"
+                    :disabled="isReadonly"
+                    @click.stop="openDelete(row)"
+                  />
                 </span>
-              </el-tooltip>
-            </template></template
-          >
+              </el-tooltip></div
+          ></template>
         </el-table-column>
       </el-table>
 
@@ -525,7 +525,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Download, Plus, Refresh } from '@element-plus/icons-vue'
+import { Close, Delete, DocumentCopy, Download, Plus, Refresh } from '@element-plus/icons-vue'
 import { useDark, useDocumentVisibility, useIntervalFn, useNow } from '@vueuse/core'
 import dayjs from 'dayjs'
 import RefreshIcon from '@/components/icons/ResetIcon.vue'
@@ -954,6 +954,9 @@ const copyBlocked = (row: PostTrainingRun) =>
     : isReadonly.value
       ? readOnlyTip
       : createBlocked.value
+
+/** The tooltip of a row action: its name, and why it is unavailable when it is. */
+const actionTip = (label: string, reason?: string) => (reason ? `${label} · ${reason}` : label)
 
 const goDetail = (row: Pick<PostTrainingRun, 'runId'>) => {
   router.push({ path: '/post-training/detail', query: { runId: row.runId } })
