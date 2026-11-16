@@ -135,10 +135,7 @@ func (h *Handler) submit(c *gin.Context, reg *registry.Registry,
 	if res.HasErrors() {
 		return nil, res.Diagnostics, nil
 	}
-	if cv := res.Recipe.Convert; cv != nil && cv.CacheKey != "" {
-		cache, err := h.db.GetPostTrainingConvertCache(ctx, req.Workspace, cv.CacheKey)
-		cv.CacheHit = err == nil && cache.Status == dbclient.ConvertCacheReady
-	}
+	h.markConvertCache(c, req.Workspace, res.Recipe)
 	if req.TemplateID != "" {
 		tpl, err := h.db.GetPostTrainingTemplate(ctx, req.TemplateID)
 		if err != nil || tpl.Workspace != req.Workspace {
@@ -361,6 +358,14 @@ func rewardSecret(req *recipe.SubmitRequest) string {
 		return ""
 	}
 	return remote.SecretID
+}
+
+// markConvertCache records on a compiled recipe whether the workspace already holds its converted weights.
+func (h *Handler) markConvertCache(c *gin.Context, workspace string, r *recipe.Recipe) {
+	if cv := r.Convert; cv != nil && cv.CacheKey != "" {
+		cache, err := h.db.GetPostTrainingConvertCache(c.Request.Context(), workspace, cv.CacheKey)
+		cv.CacheHit = err == nil && cache.Status == dbclient.ConvertCacheReady
+	}
 }
 
 // nodeResource requests the share of a node that gpus of its GPUs carry, the whole node when they are all of them:

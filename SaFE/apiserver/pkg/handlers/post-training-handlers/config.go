@@ -232,6 +232,7 @@ func (h *Handler) PreviewRecipe(c *gin.Context) {
 		resp.Diagnostics = []recipe.Diagnostic{}
 	}
 	if res.Recipe != nil {
+		h.markConvertCache(c, req.Workspace, res.Recipe)
 		resp.Layout, resp.FrameworkArgs, resp.Recipe = &res.Recipe.Layout, res.Recipe.FrameworkArgs, res.Recipe
 		hash := res.Recipe.Provenance.RecipeHash
 		if records, err := h.db.CountPostTrainingRunsByRecipe(c.Request.Context(), []string{hash}); err != nil {
