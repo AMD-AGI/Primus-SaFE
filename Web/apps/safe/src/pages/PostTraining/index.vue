@@ -516,6 +516,8 @@
       :initial-mode="importDialog.mode"
       @imported="fetchData()"
     />
+
+    <router-view />
   </template>
 </template>
 
@@ -677,8 +679,9 @@ const readQuery = () => {
   pagination.pageSize = Number(q.pageSize || pagination.pageSize)
 }
 
-/** Writes the filters and page into the URL, so a refresh or a shared link keeps them. */
+/** Writes the filters and page into the URL, so a refresh or a shared link keeps them; the create drawer keeps its own. */
 const writeQuery = () => {
+  if (router.currentRoute.value.name !== 'PostTraining') return
   const query: Record<string, string> = {}
   if (filters.type) query.type = filters.type
   if (filters.method) query.method = filters.method

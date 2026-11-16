@@ -359,11 +359,13 @@ const router = createRouter({
           path: '/post-training',
           name: 'PostTraining',
           component: () => import('@/pages/PostTraining/index.vue'),
-        },
-        {
-          path: '/post-training/create',
-          name: 'PostTrainingCreate',
-          component: () => import('@/pages/PostTraining/Create/index.vue'),
+          children: [
+            {
+              path: 'create',
+              name: 'PostTrainingCreate',
+              component: () => import('@/pages/PostTraining/Create/index.vue'),
+            },
+          ],
         },
         {
           path: '/post-training/detail',
