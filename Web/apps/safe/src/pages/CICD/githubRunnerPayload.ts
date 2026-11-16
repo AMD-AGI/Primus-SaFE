@@ -11,6 +11,26 @@ export const PROXY_URL_ENV = 'PROXY_URL'
 // through, or the runner is left naming a credential it no longer has.
 export const PROXY_CREDENTIAL_SECRET_ENV = 'PROXY_CREDENTIAL_SECRET'
 
+// Keys the form owns. A user-supplied env entry with one of these names is dropped so it
+// cannot replace the URL, the runner label, or the proxy credential the backend records.
+export const GITHUB_RUNNER_MANAGED_ENV = [
+  GITHUB_CONFIG_URL_ENV,
+  RUNNER_LABELS_ENV,
+  PROXY_URL_ENV,
+  PROXY_CREDENTIAL_SECRET_ENV,
+] as const
+
+// Keys the AutoscalingRunnerSet form writes itself. Custom env is merged around them.
+export const SCALE_SET_MANAGED_ENV = [
+  'UNIFIED_JOB_ENABLE',
+  'GITHUB_CONFIG_URL',
+  'RESOURCES',
+  'IMAGE',
+  'ENTRYPOINT',
+  'IMAGES',
+  'ENTRYPOINTS',
+] as const
+
 // The proxy is reached with a service account rather than a per-user login, so the
 // username is the same for every runner unless an operator changed it.
 export const DEFAULT_PROXY_USERNAME = 'github'
@@ -38,6 +58,8 @@ export interface GithubRunnerForm {
   excludedNodes: string[]
   secretIds: string[]
   resource: GithubRunnerResourceForm
+  // Extra container env. Managed keys are ignored. Absent means "leave stored env alone".
+  extraEnv?: Record<string, string>
 }
 
 export interface GithubRunnerProxyAuth {
@@ -115,15 +137,47 @@ export function isValidProxyUrl(value: string): boolean {
 // The runner registers itself under RUNNER_LABELS, which is what workflows target in
 // `runs-on`. Deriving it from the workload name keeps the label discoverable from the
 // list page instead of being a second value users have to remember.
+// Copies user env onto a base map. Managed keys stay with the caller that already set them.
+export function mergeUserEnv(
+  base: Record<string, string>,
+  extra: Record<string, string> | undefined,
+  managed: readonly string[],
+): Record<string, string> {
+  const owned = new Set<string>(managed)
+  const merged = { ...base }
+  for (const [rawKey, value] of Object.entries(extra ?? {})) {
+    const key = rawKey.trim()
+    if (!key || owned.has(key)) continue
+    merged[key] = value
+  }
+  return merged
+}
+
+// Env entries the form should show again. Managed keys have their own fields.
+export function userEnvList(
+  env: Record<string, string> | undefined,
+  managed: readonly string[],
+): { key: string; value: string }[] {
+  const owned = new Set<string>(managed)
+  const list = Object.entries(env ?? {})
+    .filter(([key]) => !owned.has(key))
+    .map(([key, value]) => ({ key, value: String(value) }))
+  return list.length > 0 ? list : [{ key: '', value: '' }]
+}
+
 export function buildGithubRunnerEnv(
-  form: Pick<GithubRunnerForm, 'displayName' | 'githubConfigUrl' | 'proxyUrl'>,
+  form: Pick<GithubRunnerForm, 'displayName' | 'githubConfigUrl' | 'proxyUrl' | 'extraEnv'>,
 ): Record<string, string> {
   const proxyUrl = clean(form.proxyUrl)
-  return {
-    [GITHUB_CONFIG_URL_ENV]: clean(form.githubConfigUrl),
-    [RUNNER_LABELS_ENV]: clean(form.displayName),
-    ...(proxyUrl ? { [PROXY_URL_ENV]: proxyUrl } : {}),
-  }
+  return mergeUserEnv(
+    {
+      [GITHUB_CONFIG_URL_ENV]: clean(form.githubConfigUrl),
+      [RUNNER_LABELS_ENV]: clean(form.displayName),
+      ...(proxyUrl ? { [PROXY_URL_ENV]: proxyUrl } : {}),
+    },
+    form.extraEnv,
+    GITHUB_RUNNER_MANAGED_ENV,
+  )
 }
 
 // The credential is a sibling of env, not a member of it: the backend moves it into a
@@ -146,6 +200,15 @@ export function mergeGithubRunnerEnv(
   if (!clean(form.proxyUrl)) {
     delete merged[PROXY_URL_ENV]
     delete merged[PROXY_CREDENTIAL_SECRET_ENV]
+  }
+  // An edit that supplies extraEnv replaces the previous custom keys. Omitting it
+  // leaves stored env that this form does not own, including PROXY_CREDENTIAL_SECRET.
+  if (form.extraEnv) {
+    const kept = new Set<string>(GITHUB_RUNNER_MANAGED_ENV)
+    for (const key of Object.keys(form.extraEnv)) kept.add(key.trim())
+    for (const key of Object.keys(merged)) {
+      if (!kept.has(key)) delete merged[key]
+    }
   }
   return merged
 }
