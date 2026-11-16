@@ -135,6 +135,8 @@ data:
           image: {{ default "ghcr.io/actions/actions-runner:2.328.0" (default .Values.cicd).github_runner_image }}
           imagePullPolicy: IfNotPresent
           env:
+            - name: RUNNER_ALLOW_RUNASROOT
+              value: "1"
             - name: ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT
               value: "1"
             - name: DOCKER_HOST
