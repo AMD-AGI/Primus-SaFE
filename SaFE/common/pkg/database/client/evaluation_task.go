@@ -7,6 +7,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -224,8 +225,8 @@ func (c *Client) SetEvaluationTaskFailed(ctx context.Context, taskId, message st
 		return err
 	}
 	cmd := fmt.Sprintf(`UPDATE %s SET status=$1, result_summary=$2, end_time=$3 WHERE task_id=$4`, TEvaluationTask)
-	resultSummary := fmt.Sprintf(`{"error": "%s"}`, message)
-	_, err = db.ExecContext(ctx, cmd, EvaluationTaskStatusFailed, resultSummary, time.Now().UTC(), taskId)
+	resultSummary, _ := json.Marshal(map[string]string{"error": message})
+	_, err = db.ExecContext(ctx, cmd, EvaluationTaskStatusFailed, string(resultSummary), time.Now().UTC(), taskId)
 	if err != nil {
 		klog.ErrorS(err, "failed to set evaluation task failed", "TaskId", taskId)
 		return err
