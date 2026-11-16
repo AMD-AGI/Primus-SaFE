@@ -37,7 +37,8 @@ const (
 )
 
 // GetOrCreatePlatformKey returns the plaintext platform key for a user.
-// If no platform key exists, it creates one automatically.
+// If no platform key exists, it creates one automatically, except in external auth mode,
+// where it returns an empty key and creates nothing.
 func GetOrCreatePlatformKey(ctx context.Context, db dbclient.Interface, userId, userName string) (string, error) {
 	if db == nil {
 		return "", commonerrors.NewInternalError("database client not initialized")
@@ -51,6 +52,9 @@ func GetOrCreatePlatformKey(ctx context.Context, db dbclient.Interface, userId, 
 
 	if record != nil {
 		return decryptPlatformRecord(record, userId)
+	}
+	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
+		return "", nil
 	}
 
 	plainToken, err := generatePlainToken()

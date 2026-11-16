@@ -14,6 +14,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/lib/pq"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -166,6 +167,41 @@ func TestPlatformKeyCryptoHelpers(t *testing.T) {
 	generated, err := generatePlainToken()
 	assert.NoError(t, err)
 	assert.True(t, strings.HasPrefix(generated, tokenPrefix))
+}
+
+// TestGetOrCreatePlatformKeyExternalMode checks that external mode returns an existing platform key
+// and never inserts a new one.
+func TestGetOrCreatePlatformKeyExternalMode(t *testing.T) {
+	viper.Set("auth.mode", "external")
+	t.Cleanup(func() { viper.Set("auth.mode", "") })
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock_client.NewMockInterface(ctrl)
+
+	t.Run("returns existing platform key", func(t *testing.T) {
+		plainKey := testPlainToken('x')
+		encryptedKey, err := encryptPlainToken(plainKey, nil)
+		assert.NoError(t, err)
+		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-existing").Return(&dbclient.ApiKey{
+			UserId:       "user-existing",
+			KeyType:      keyTypePlatform,
+			EncryptedKey: &encryptedKey,
+		}, nil)
+
+		result, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-existing", "testuser")
+		assert.NoError(t, err)
+		assert.Equal(t, plainKey, result)
+	})
+
+	t.Run("does not create a platform key", func(t *testing.T) {
+		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-new").Return(nil, sql.ErrNoRows)
+		mockDB.EXPECT().InsertApiKey(gomock.Any(), gomock.Any()).Times(0)
+
+		result, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-new", "newuser")
+		assert.NoError(t, err)
+		assert.Empty(t, result)
+	})
 }
 
 func TestIsUniqueViolation(t *testing.T) {

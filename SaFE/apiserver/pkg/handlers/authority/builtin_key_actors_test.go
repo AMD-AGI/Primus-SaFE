@@ -229,8 +229,8 @@ func TestBuiltinKeyActors(t *testing.T) {
 				wantType = UserTypeDelegated
 			}
 			require.Equal(t, wantType, resp.Data.Type)
-			require.Equal(t, "pk-of-"+tc.wantSubject, resp.Data.PlatformKey)
-			require.Equal(t, []string{tc.wantSubject}, *asked, "keys were looked up for the subject, and only for it")
+			require.Empty(t, resp.Data.PlatformKey, "external mode returns no platform key")
+			require.Empty(t, *asked)
 			require.Equal(t, []v1.UserRole{v1.DefaultRole}, resp.Data.Roles, "the stored roles, never the token's groups")
 		})
 	}
@@ -321,7 +321,7 @@ func TestBuiltinKeyActorsUseOnlyTheSubject(t *testing.T) {
 	var resp verifyResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, bkaOther, resp.Data.Id)
-	require.Equal(t, []string{bkaOther}, *asked)
+	require.Empty(t, *asked)
 }
 
 // The apiserver's own credentials are answered by the builtin entry when key actors are configured, and no request

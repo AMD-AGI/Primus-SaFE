@@ -30,3 +30,12 @@ func TestChartRendersExternalUserDirMounts(t *testing.T) {
 	testifyassert.False(t, IsExternalUserDirMountsEnable())
 	testifyassert.True(t, IsExternalExecutionEnable())
 }
+
+// The job-manager reads auth.mode from the config the chart renders, so it creates no platform key in external mode.
+func TestChartRendersJobManagerAuthMode(t *testing.T) {
+	loadRendered(t, renderConfigMapData(t, "job-manager", "config.yaml"))
+	testifyassert.Equal(t, AuthModeBuiltin, GetAuthMode())
+
+	loadRendered(t, renderConfigMapData(t, "job-manager", "config.yaml", externalAuthArgs()...))
+	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
+}

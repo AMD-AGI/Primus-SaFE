@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"github.com/lib/pq"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -700,6 +701,27 @@ func TestVerifyToken_IncludePlatformKey(t *testing.T) {
 		assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 		assert.Equal(t, platformToken, resp.Data.PlatformKey)
 	})
+}
+
+// TestVerifyToken_ExternalModeOmitsPlatformKey checks that external mode ignores includePlatformKey.
+func TestVerifyToken_ExternalModeOmitsPlatformKey(t *testing.T) {
+	defer setupInternalAuth(t)()
+	e := newExtEnv(t, adminMapping, false)
+	viper.Set("auth.mode", "external")
+	t.Cleanup(func() { viper.Set("auth.mode", "") })
+	old := platformKeyFetcher
+	platformKeyFetcher = func(context.Context, string, string) (string, error) {
+		t.Error("the platform key is not looked up in external mode")
+		return "pk-unexpected", nil
+	}
+	t.Cleanup(func() { platformKeyFetcher = old })
+
+	w := callVerifyToken(t, VerifyTokenRequest{Authorization: "Bearer " + e.jwt(nil), IncludePlatformKey: true}, testInternalToken)
+	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var resp verifyResponse
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, extUser, resp.Data.Id)
+	assert.Empty(t, resp.Data.PlatformKey)
 }
 
 // TestFetchPlatformKey covers the default fetcher's DB-availability guards.

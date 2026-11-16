@@ -351,8 +351,8 @@ func TestVerifyKeyActors(t *testing.T) {
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 			require.Equal(t, tc.wantSubject, resp.Data.Id, "the verdict is about the token's subject")
 			require.Equal(t, UserTypeDelegated, resp.Data.Type)
-			require.Equal(t, "pk-of-"+tc.wantSubject, resp.Data.PlatformKey)
-			require.Equal(t, []string{tc.wantSubject}, *asked, "keys were looked up for the subject, and only for it")
+			require.Empty(t, resp.Data.PlatformKey, "external mode returns no platform key")
+			require.Empty(t, *asked)
 			require.ElementsMatch(t, []v1.UserRole{v1.SystemAdminRole}, resp.Data.Roles, "the roles are the subject's, as a request of the subject sees them")
 			require.Equal(t, v1.SSOUserType, e.user(tc.wantSubject).Spec.Type)
 			for _, r := range []string{"delegated_forbidden", "delegated_scope"} {
@@ -386,7 +386,7 @@ func TestVerifyKeyActorsDoNotChangeOrdinaryCredentials(t *testing.T) {
 			var resp verifyResponse
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 			require.Equal(t, UserTypeExternal, resp.Data.Type, "not reported as delegated")
-			require.Equal(t, []string{extUser}, *asked)
+			require.Empty(t, *asked)
 		})
 	}
 }
@@ -433,8 +433,8 @@ func TestVerifyKeyActorCannotNameAnotherUser(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, extUser, resp.Data.Id)
 	require.Equal(t, "alice@example.com", resp.Data.Email)
-	require.Equal(t, "pk-of-"+extUser, resp.Data.PlatformKey)
-	require.Equal(t, []string{extUser}, *asked)
+	require.Empty(t, resp.Data.PlatformKey)
+	require.Empty(t, *asked)
 	list := &v1.UserList{}
 	require.NoError(t, e.cli.List(context.Background(), list))
 	require.Len(t, list.Items, 1, "only the subject was provisioned")
@@ -581,9 +581,7 @@ func TestVerifyRefusesKeysForARestrictedUser(t *testing.T) {
 			var resp verifyResponse
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 			require.Equal(t, extUser, resp.Data.Id)
-			if tc.req.IncludePlatformKey {
-				require.Equal(t, "pk-of-"+extUser, resp.Data.PlatformKey)
-			}
+			require.Empty(t, resp.Data.PlatformKey, "external mode returns no platform key")
 		})
 	}
 }
@@ -668,9 +666,8 @@ func TestVerifyLogsTheKeysIssuedToAKeyActor(t *testing.T) {
 		jwt  map[string]any
 		want string // a substring of the log; empty: nothing is logged about an issue
 	}{
-		{"delegated, platform key", VerifyTokenRequest{IncludePlatformKey: true},
-			map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient, "scope": "safe.api", "jti": "jti-7"},
-			"keys issued to a delegated credential: actor svc-bot, user alice-id, jti jti-7, platform key true, virtual key false"},
+		{"delegated, platform key: none is issued in external mode", VerifyTokenRequest{IncludePlatformKey: true},
+			map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient, "scope": "safe.api", "jti": "jti-7"}, ""},
 		{"delegated, no key asked for", VerifyTokenRequest{},
 			map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient, "scope": "safe.api"}, ""},
 		{"direct token, platform key", VerifyTokenRequest{IncludePlatformKey: true}, nil, ""},

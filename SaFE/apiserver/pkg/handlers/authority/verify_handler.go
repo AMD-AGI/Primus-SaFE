@@ -36,7 +36,7 @@ type VerifyTokenRequest struct {
 	ApiKey string `json:"apiKey,omitempty"`
 	// Original client IP, used for API key whitelist validation
 	ClientIP string `json:"clientIP,omitempty"`
-	// If true, returns the user's platform API key (GetOrCreate).
+	// If true, returns the user's platform API key (GetOrCreate). Ignored in external auth mode.
 	// NOTE: this platform key is effectively a "shadow" of the user's API key:
 	// it is a stable per-user ak-... minted/fetched via GetOrCreate and is NOT
 	// the specific ak-... presented for this verification.
@@ -197,8 +197,8 @@ func VerifyToken(c *gin.Context) {
 		}
 	}
 
-	// Optionally include platform API key (GetOrCreate)
-	if req.IncludePlatformKey {
+	// Optionally include platform API key (GetOrCreate). External mode returns none.
+	if req.IncludePlatformKey && commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
 		if platformKey, err := platformKeyFetcher(c.Request.Context(), userInfo.Id, userInfo.Name); err != nil {
 			klog.ErrorS(err, "failed to get/create platform key", "userId", userInfo.Id)
 		} else if platformKey != "" {
