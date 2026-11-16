@@ -473,6 +473,8 @@ if helm list -n "$NAMESPACE" -q | grep -qx "$chart_name"; then
 fi
 install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
 rm -f "$values_yaml"
+# The console deployment account (see cd-installer-rbac.yaml) is granted with the chart.
+kubectl apply -f ../bootstrap/cd-installer-rbac.yaml
 sleep 10
 
 echo

@@ -311,6 +311,44 @@ render_preflight() {
   fi
 }
 
+# check_cd_cluster_objects stops a console deployment before it changes the cluster when a
+# cluster-scoped RBAC, admission policy or webhook object of the chart does not exist, or cannot be
+# updated by the deployment account. The account updates such objects but does not create them;
+# an administrator upgrade does (see cd-installer-rbac.yaml).
+check_cd_cluster_objects() {
+  local values_yaml="$1" extra=() kind name resource missing=()
+  if [[ -n "$AUTH_VALUES_FILE" ]]; then
+    extra=(-f "$AUTH_VALUES_FILE")
+  fi
+  local rendered
+  rendered=$(helm template "$chart_name" "./$chart_name" -n "$NAMESPACE" -f "$values_yaml" ${extra[@]+"${extra[@]}"})
+  while read -r kind name; do
+    case "$kind" in
+      ClusterRole) resource=clusterroles.rbac.authorization.k8s.io ;;
+      ClusterRoleBinding) resource=clusterrolebindings.rbac.authorization.k8s.io ;;
+      ValidatingAdmissionPolicy) resource=validatingadmissionpolicies.admissionregistration.k8s.io ;;
+      ValidatingAdmissionPolicyBinding) resource=validatingadmissionpolicybindings.admissionregistration.k8s.io ;;
+      MutatingWebhookConfiguration) resource=mutatingwebhookconfigurations.admissionregistration.k8s.io ;;
+      ValidatingWebhookConfiguration) resource=validatingwebhookconfigurations.admissionregistration.k8s.io ;;
+      *) continue ;;
+    esac
+    kind="${kind,,}"
+    if ! kubectl get "$kind" "$name" > /dev/null 2>&1 \
+      || ! kubectl auth can-i update "$resource/$name" > /dev/null 2>&1; then
+      missing+=("$kind/$name")
+    fi
+  done < <(awk '/^---/ { k = ""; m = 0 }
+    /^kind:/ { k = $2 }
+    /^metadata:/ { m = 1; next }
+    m && /^  name:/ { n = $2; gsub(/"/, "", n); if (!seen[k " " n]++) print k, n; m = 0 }
+    /^[a-zA-Z]/ { m = 0 }' <<< "$rendered")
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "Error: the deployment account cannot create or update these cluster objects of the chart: ${missing[*]}" >&2
+    echo "An administrator applies bootstrap/cd-installer-rbac.yaml and runs bootstrap/upgrade.sh once; nothing in the cluster was changed" >&2
+    return 1
+  fi
+}
+
 # sync_release_ingress <name> <namespace> <rendered>: an Ingress the chart renders only in some modes.
 # One that no release owns, or that this release owns, is marked as this release's when <rendered> is
 # true, so Helm adopts it instead of refusing, and deleted when it is false. One that another release
@@ -880,6 +918,9 @@ write_auth_values "primus-safe/.auth-values.json"
 write_sso_values "primus-safe/.sso-values.json"
 write_console_values "primus-safe/.console-values.json"
 render_preflight "$values_yaml"
+if [[ "${CALLED_BY_CD:-false}" == "true" ]]; then
+  check_cd_cluster_objects "$values_yaml"
+fi
 sync_console_scim_route
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"
@@ -892,6 +933,10 @@ if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
 fi
 install_or_upgrade_helm_chart "$chart_name" "$values_yaml" "$AUTH_VALUES_FILE"
 rm -f "$values_yaml" "$AUTH_VALUES_FILE"
+# An administrator upgrade keeps the console deployment account in step with the chart.
+if [[ "${CALLED_BY_CD:-false}" != "true" ]]; then
+  kubectl apply -f ../bootstrap/cd-installer-rbac.yaml
+fi
 sleep 10
 
 echo

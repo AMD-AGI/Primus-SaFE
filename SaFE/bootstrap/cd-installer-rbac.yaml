@@ -8,8 +8,11 @@
 # installed release: replace the CRDs, the chart's ClusterRoles (templates/rbac/role.yaml) and webhook
 # configurations, then helm upgrade primus-safe (hooks included) and primus-safe-cr.
 #
-# Apply it once with an administrator kubeconfig, instead of binding cluster-admin:
+# install.sh, and upgrade.sh run by an administrator, apply it after the primus-safe chart. To apply
+# it by hand with an administrator kubeconfig, instead of binding cluster-admin:
 #   kubectl apply -f SaFE/bootstrap/cd-installer-rbac.yaml
+# A console deployment stops before it changes the cluster when a ClusterRole, ClusterRoleBinding,
+# admission policy or webhook configuration of the chart is missing or not updatable by this account.
 #
 # Adjust it when your install differs from the chart defaults:
 # - the release namespace is primus-safe;
