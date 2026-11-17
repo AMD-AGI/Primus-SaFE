@@ -21,6 +21,9 @@ data:
       enable: true
       # The path of crypto secret
       secret_path: {{ default "/etc/secrets/crypto" (default .Values.crypto).secret_path }}
+    auth:
+      # In external mode a workload gets the owner's existing platform key and none is created.
+      mode: {{ default "builtin" (default dict .Values.auth).mode | quote }}
     health_check:
       # Whether to enable health check
       enable: {{ default true (default .Values.k8s).enable_health_check }}

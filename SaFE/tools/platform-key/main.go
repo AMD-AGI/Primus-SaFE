@@ -1,13 +1,13 @@
-// Command platform-key mirrors common/pkg/apikey.GetOrCreatePlatformKey against
-// the api_keys table directly, so an operator can fetch (or mint) a user's
-// platform API key ("ak-...") by user id without any user credential.
+// Command platform-key looks up (or optionally mints) a user's platform API key
+// ("ak-...") by user id against the api_keys table, without any user credential.
 //
-// Behavior (identical to the server):
+// Behavior:
 //   - If an active platform key exists, its encrypted_key is AES-GCM decrypted
 //     and the plaintext is printed.
 //   - If none exists and --create is set, a new plaintext is generated, hashed
 //     (api_key column) and encrypted (encrypted_key column), inserted, and the
-//     plaintext printed.
+//     plaintext printed. --create is refused when --auth-mode=external (or AUTH_MODE=external)
+//     unless --force-create is also set. An unset mode is treated as builtin.
 //
 // The crypto key MUST be the same one the apiserver uses (Secret
 // <release>-crypto, key "key"), otherwise the minted/decrypted token will not
@@ -45,9 +45,11 @@ const (
 
 func main() {
 	var (
-		userID   = flag.String("user-id", "", "target user id (required)")
-		userName = flag.String("user-name", "", "target user name (stored on create)")
-		create   = flag.Bool("create", false, "mint a new platform key if none exists (WRITES to DB)")
+		userID      = flag.String("user-id", "", "target user id (required)")
+		userName    = flag.String("user-name", "", "target user name (stored on create)")
+		create      = flag.Bool("create", false, "mint a new platform key if none exists (WRITES to DB)")
+		forceCreate = flag.Bool("force-create", false, "allow --create when --auth-mode=external")
+		authMode    = flag.String("auth-mode", strings.TrimSpace(os.Getenv("AUTH_MODE")), "builtin or external (default AUTH_MODE)")
 
 		cryptoKey     = flag.String("crypto-key", "", "crypto secret string")
 		cryptoKeyFile = flag.String("crypto-key-file", "", "file containing the crypto secret")
@@ -64,6 +66,16 @@ func main() {
 
 	if *userID == "" || *dbHost == "" || *dbName == "" || *dbUser == "" {
 		fatalf("required: --user-id, --db-host, --db-name, --db-user")
+	}
+	mode := strings.ToLower(strings.TrimSpace(*authMode))
+	if mode == "" {
+		mode = "builtin"
+	}
+	if mode != "builtin" && mode != "external" {
+		fatalf("--auth-mode must be builtin or external")
+	}
+	if *create && mode == "external" && !*forceCreate {
+		fatalf("--create is refused when auth-mode is external; use --force-create only when deliberately minting a SaFE platform key")
 	}
 
 	secret, err := loadValue(*cryptoKey, *cryptoKeyFile)

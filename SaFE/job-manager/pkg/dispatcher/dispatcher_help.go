@@ -341,12 +341,18 @@ const platformKeyReadTimeout = 5 * time.Second
 var (
 	platformDBEnabled = commonconfig.IsDBEnable
 	platformDBClient  = dbclient.NewClient
-	platformKeyLookup = apikey.GetOrCreatePlatformKey
+	platformKeyLookup = lookupPlatformKey
 )
+
+// lookupPlatformKey returns an existing platform key, and creates one only when
+// config.PlatformKeyCreationAllowed reports that minting is allowed.
+func lookupPlatformKey(ctx context.Context, db dbclient.Interface, userId, userName string) (string, error) {
+	return apikey.GetOrCreatePlatformKey(ctx, db, userId, userName, commonconfig.PlatformKeyCreationAllowed())
+}
 
 // platformKeyForUser returns the plaintext platform API key for the workload owner.
 // Best-effort: returns empty string when DB is disabled, the client is unavailable,
-// or lookup/creation fails.
+// or lookup/creation fails. In external mode a missing key is not created.
 func platformKeyForUser(workload *v1.Workload) string {
 	if !platformDBEnabled() {
 		return ""

@@ -140,6 +140,11 @@ func TestClawClientPureHelpers(t *testing.T) {
 	req2, _ := http.NewRequestWithContext(WithClawBearer(context.Background(), "ctx-tok"), http.MethodGet, "https://x", nil)
 	c.applyHeaders(req2)
 	assert.Equal(t, "Bearer ctx-tok", req2.Header.Get("Authorization"))
+
+	// An empty override refuses the static key (no Authorization header).
+	req3, _ := http.NewRequestWithContext(WithClawBearer(context.Background(), ""), http.MethodGet, "https://x", nil)
+	c.applyHeaders(req3)
+	assert.Equal(t, "", req3.Header.Get("Authorization"))
 }
 
 func TestTruncate(t *testing.T) {
