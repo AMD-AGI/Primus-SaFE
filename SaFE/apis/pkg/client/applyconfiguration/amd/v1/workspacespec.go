@@ -41,7 +41,6 @@ type WorkspaceSpecApplyConfiguration struct {
 	IsDefault *bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecrets []corev1.ObjectReference `json:"imageSecrets,omitempty"`
-	// The maximum workload runtime of each scope, Unit: hours
 	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
 	// only for sandbox workload
 	IdleTime map[amdv1.WorkspaceScope]string `json:"idleTime,omitempty"`

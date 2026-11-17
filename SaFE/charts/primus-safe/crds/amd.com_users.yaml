@@ -46,9 +46,47 @@ spec:
                 description: User password, base64 encoded, optional
                 type: string
               qos:
-                description: Per-user resource and runtime ceilings. Unset fields fall through to Qos defaults.
+                description: Per-user resource and runtime ceilings. Unset fields
+                  fall through to the Qos defaults.
+                properties:
+                  clusters:
+                    additionalProperties:
+                      description: UserQosScope is one user's ceiling, either for
+                        every cluster or for one cluster.
+                      properties:
+                        maxResources:
+                          description: ResourceCap is a GPU, CPU and memory ceiling.
+                            An empty field is unset.
+                          properties:
+                            cpu:
+                              type: string
+                            gpu:
+                              type: string
+                            memory:
+                              type: string
+                          type: object
+                        maxRuntime:
+                          additionalProperties:
+                            type: integer
+                          type: object
+                      type: object
+                    type: object
+                  maxResources:
+                    description: ResourceCap is a GPU, CPU and memory ceiling. An
+                      empty field is unset.
+                    properties:
+                      cpu:
+                        type: string
+                      gpu:
+                        type: string
+                      memory:
+                        type: string
+                    type: object
+                  maxRuntime:
+                    additionalProperties:
+                      type: integer
+                    type: object
                 type: object
-                x-kubernetes-preserve-unknown-fields: true
               resources:
                 additionalProperties:
                   items:

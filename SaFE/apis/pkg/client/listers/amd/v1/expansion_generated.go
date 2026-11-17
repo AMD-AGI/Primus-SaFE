@@ -78,6 +78,14 @@ type OpsJobListerExpansion interface{}
 // OpsJobNamespaceLister.
 type OpsJobNamespaceListerExpansion interface{}
 
+// QosListerExpansion allows custom methods to be added to
+// QosLister.
+type QosListerExpansion interface{}
+
+// QosNamespaceListerExpansion allows custom methods to be added to
+// QosNamespaceLister.
+type QosNamespaceListerExpansion interface{}
+
 // ResourceTemplateListerExpansion allows custom methods to be added to
 // ResourceTemplateLister.
 type ResourceTemplateListerExpansion interface{}
