@@ -183,11 +183,14 @@ data:
     {{- /* the path the console's nginx routes to that upstream */}}
     {{- $apiKeysURL = "/api/v1/apikeys" }}
     {{- end }}
-    {{- /* External mode requires auth.login_url. An empty SCIM callback uses the console host. Higress sends /scim/v2 to this apiserver. */}}
+    {{- /* An empty login URL is the console host. An empty SCIM callback uses that host too. Higress sends /scim/v2 to this apiserver. */}}
     {{- $loginURL := .Values.auth.login_url | default "" }}
+    {{- if and (not $loginURL) .Values.global.sub_domain .Values.global.domain }}
+    {{- $loginURL = printf "https://%s.%s/login/password" .Values.global.sub_domain .Values.global.domain }}
+    {{- end }}
     {{- if eq (default "builtin" .Values.auth.mode) "external" }}
     {{- if not $loginURL }}
-    {{- fail "auth.mode is external but auth.login_url is empty" }}
+    {{- fail "auth.mode is external but auth.login_url is empty and global.sub_domain or global.domain is empty" }}
     {{- end }}
     {{- $fallback := false }}
     {{- range $a := default (list) .Values.auth.authenticators }}
