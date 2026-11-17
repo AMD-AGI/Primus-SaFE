@@ -324,11 +324,14 @@ const prefillFromRun = async (runId: string) => {
   })
   if (resources.nodes) w.form.resources.nodes = resources.nodes
   if (resources.gpusPerNode) w.form.resources.gpusPerNode = resources.gpusPerNode
-  if (detail.image) w.form.resources.image = detail.image
+  const unlisted = !!detail.image && detail.imageListed === false
+  if (detail.image && !unlisted) w.form.resources.image = detail.image
   if (detail.priority < 2 || userStore.isManager || wsStore.isCurrentWorkspaceAdmin())
     w.form.resources.priority = detail.priority
   if (detail.timeout > 0) w.form.resources.timeoutSeconds = detail.timeout
-  prefill.value = `Cloned from run ${detail.displayName}.`
+  prefill.value = unlisted
+    ? `Cloned from run ${detail.displayName}. Its image is no longer in the registry, so the clone uses the default image.`
+    : `Cloned from run ${detail.displayName}.`
   undoPrefill = () => {
     Object.assign(w.form, newRequest(w.workspace))
     prefill.value = ''

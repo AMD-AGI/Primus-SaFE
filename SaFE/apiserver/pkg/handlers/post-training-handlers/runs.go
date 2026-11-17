@@ -88,6 +88,8 @@ type runDetail struct {
 	OutputModel  *outputModel               `json:"outputModel,omitempty"`
 	Evaluations  []*dbclient.EvaluationTask `json:"evaluations"`
 	Exports      []exportItem               `json:"exports"`
+	// ImageListed is whether the registry still lists the run's image, which a copy of the run then keeps.
+	ImageListed bool `json:"imageListed"`
 }
 
 // outputModel summarizes the model a run registered.
@@ -265,7 +267,8 @@ func rawOrNull(s string) json.RawMessage {
 
 // GetRun returns a run with its recipe snapshot, stage history, output model and evaluations.
 func (h *Handler) GetRun(c *gin.Context) {
-	if _, _, ok := h.requireEnabled(c); !ok {
+	reg, _, ok := h.requireEnabled(c)
+	if !ok {
 		return
 	}
 	run, err := h.getRun(c, v1.GetVerb)
@@ -275,7 +278,8 @@ func (h *Handler) GetRun(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	detail := &runDetail{PostTrainingRun: run, Recipe: rawJSON(run.Recipe), StageHistory: rawJSON(run.StageHistory),
-		Summary: rawJSON(run.MetricSummary), Evaluations: []*dbclient.EvaluationTask{}}
+		Summary: rawJSON(run.MetricSummary), Evaluations: []*dbclient.EvaluationTask{},
+		ImageListed: reg != nil && reg.ImageByName(run.Image) != nil}
 	if run.OutputModelID != "" {
 		m := &v1.Model{}
 		if err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: run.OutputModelID}, m); err == nil {

@@ -385,6 +385,8 @@ export interface RunDetail extends Omit<PostTrainingRun, 'stageHistory' | 'metri
   outputModel?: { id: string; displayName: string; phase: string }
   evaluations: EvaluationTaskRow[]
   exports?: ExportItem[]
+  /** Whether the registry still lists the run's image; a copy of the run keeps only a listed image. */
+  imageListed?: boolean
 }
 
 /** One downsampled metric series: [step, value] points on the train, rollout or time axis. */
