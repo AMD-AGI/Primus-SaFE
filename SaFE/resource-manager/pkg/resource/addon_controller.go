@@ -479,12 +479,11 @@ func (r *AddonController) getCluster(ctx context.Context, cluster *corev1.Object
 const (
 	robustAddonPrefix        = "primus-robust"
 	annotationRobustEndpoint = "primus-safe.amd.com/robust-api-endpoint"
-	// The primus-robust chart deploys a single Deployment called
-	// "robust-analyzer" that embeds the robust-api module on port 8085.
-	// There is no standalone "robust-api" Service — the previous default
-	// pointed at a DNS name that did not exist, which surfaced as
-	// "connection refused" on every cross-cluster call.
-	defaultRobustAPIService = "robust-analyzer"
+	// The primus-robust chart serves the Robust API from the "robust-api"
+	// Service on port 8085: a standalone robust-api Deployment, or
+	// robust-manager's compatibility Service when that is enabled. Its
+	// robust-analyzer runs as a worker and answers every API route with 404.
+	defaultRobustAPIService = "robust-api"
 	defaultRobustAPIPort    = "8085"
 )
 

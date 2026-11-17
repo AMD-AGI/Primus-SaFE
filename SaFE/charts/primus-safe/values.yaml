@@ -325,7 +325,8 @@ auth:
   #     roles: [workspace-admin]
   #     workspaces: [team-a]
   group_mappings: []
-  # Where the console sends users to sign in when mode is external. Required in that mode.
+  # Where the console sends users to sign in when mode is external.
+  # Empty: https://<global.sub_domain>.<global.domain>/login/password.
   login_url: ""
   # Accept an authenticator list that is only oidc. Off by default: external mode then needs
   # an introspection or builtin entry.

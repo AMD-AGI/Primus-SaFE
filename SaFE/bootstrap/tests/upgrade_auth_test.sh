@@ -198,7 +198,7 @@ run_upgrade "" ""
 expect "no auth keys, fresh install: applied" applied
 expect "no auth keys, fresh install: builtin" rendered 'mode: "builtin"'
 expect "no auth keys, fresh install: only the one values file" grep -qx 1 "$OUT/value-files"
-expect "no auth keys, fresh install: login url" rendered 'login_url: ""'
+expect "no auth keys, fresh install: login url" rendered 'login_url: "https://test.primus-safe.amd.com/login/password"'
 expect "no auth keys, fresh install: scim public url" rendered '  public_url: "https://test.primus-safe.amd.com/scim/v2"'
 
 # 2. The auth_* keys reach the rendered chart, on a release that is not external yet.
@@ -358,8 +358,8 @@ expect "an empty key_actors is the empty list: applied" applied
 
 # 10b. An external chain the apiserver would refuse at start-up is refused before anything is changed.
 run_upgrade "$LIVE_BUILTIN" "$(grep -v '^auth_login_url' <<<"$AUTH_ENV")"
-expect "external without a login url: refused" refused
-expect "external without a login url: says why" grep -q 'needs auth_login_url' "$OUT/log"
+expect "external without a login url: applied" applied
+expect "external without a login url: derived" rendered 'login_url: "https://test.primus-safe.amd.com/login/password"'
 run_upgrade "$LIVE_BUILTIN" "$(sed 's|^auth_authenticators=.*|auth_authenticators='"'"'[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"}]'"'"'|' <<<"$AUTH_ENV")"
 expect "external with an oidc-only chain: refused" refused
 expect "external with an oidc-only chain: says why" grep -q 'needs an introspection or builtin authenticator' "$OUT/log"

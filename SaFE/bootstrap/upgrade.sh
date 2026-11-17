@@ -45,8 +45,9 @@ install_or_upgrade_helm_chart() {
 # the other settings of this script. Every key is optional; one that .env does not set keeps the
 # chart default, except that a release which is already external refuses to lose it (check_live_auth).
 #   auth_mode            builtin | external                                  -> auth.mode
-#   auth_login_url       where the console sends users to sign in. Not derived: external mode
-#                        needs it, and a release that stores one must restate it -> auth.login_url
+#   auth_login_url       where the console sends users to sign in.
+#                        Omitted: https://<sub_domain>.<domain>/login/password.
+#                        A stored value is not kept.                            -> auth.login_url
 #   auth_allow_oidc_only true | false. true allows a chain without an
 #                        introspection or builtin authenticator              -> auth.allow_oidc_only
 #   auth_provider_client true | false. true lets the apiserver call the
@@ -137,9 +138,8 @@ check_live_auth() {
     return 1
   fi
   for var in $unset_keys; do
-    # These have a chart value when .env omits them. A stored SCIM callback is not kept.
-    # auth_login_url is kept: external mode refuses to start without it.
-    if [[ "$var" == "auth_scim_enabled" || "$var" == "auth_scim_public_url" ]]; then
+    # These have a chart value when .env omits them. A stored login URL or SCIM callback is not kept.
+    if [[ "$var" == "auth_scim_enabled" || "$var" == "auth_scim_public_url" || "$var" == "auth_login_url" ]]; then
       continue
     fi
     # The apiserver creates primus-safe-scim-token. Omitting the key keeps that chart default.
@@ -261,17 +261,13 @@ write_auth_values() {
   AUTH_VALUES_FILE="$out"
 }
 
-# require_external_chain refuses an external auth object that has no sign-in URL, no fallback
-# authenticator, no group that is granted system-admin, or SCIM and auth.provider_client enabled
-# without an identity service URL.
+# require_external_chain refuses an external auth object that has no fallback authenticator, no
+# group that is granted system-admin, or SCIM and auth.provider_client enabled without an identity
+# service URL. An omitted auth.login_url is filled by the chart from the cluster host.
 require_external_chain() {
   local file="$1" mode n base
   mode=$(jq -r '.auth.mode // "builtin"' "$file")
   [[ "$mode" == "external" ]] || return 0
-  if [[ -z "$(jq -r '.auth.login_url // empty' "$file")" ]]; then
-    echo "Error: auth_mode=external needs auth_login_url" >&2
-    return 1
-  fi
   if [[ "$(jq -r '.auth.allow_oidc_only // false' "$file")" != "true" ]]; then
     n=$(jq '[.auth.authenticators[]? | select((.type | ascii_downcase) == "introspection" or (.type | ascii_downcase) == "builtin")] | length' "$file")
     if [[ "$n" == "0" ]]; then
@@ -565,8 +561,8 @@ echo "✅ Auth mode: \"${auth_mode:-builtin}\""
 # The console's sign-in at an OpenID Connect provider (sso.login, see docs/installation/install.md).
 # oidc_login_* is the name .env uses. sso_login_* is accepted as the previous name. A running release
 # keeps sso.login and a non-empty bridge allowlist when .env sets neither. A fresh install with the
-# keys unset uses the chart defaults: sso.login off, allowlist []. auth.login_url is not derived; external
-# mode refuses to start without it, and check_live_auth requires .env to carry a stored auth_login_url.
+# keys unset uses the chart defaults: sso.login off, allowlist []. An omitted auth.login_url is
+# https://<sub_domain>.<domain>/login/password; a stored login URL is not kept.
 #   oidc_login_enable        true | false                                 -> sso.login.enable
 #   oidc_login_issuer        the provider's issuer; empty is the cluster host
 #                           https://<sub_domain>.<domain>                 -> sso.login.issuer
