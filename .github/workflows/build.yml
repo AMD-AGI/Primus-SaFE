@@ -246,7 +246,7 @@ jobs:
           MATRIX+='{"name":"sync-image","basepath":"SaFE/tools/sync-image","dockerfile_path":"SaFE/tools/sync-image/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.web_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"primus-safe-web","basepath":"Web","dockerfile_path":"Web/Dockerfile","context":"Web"},'
+          MATRIX+='{"name":"web","basepath":"Web","dockerfile_path":"Web/Dockerfile","context":"Web"},'
         fi
         MATRIX=${MATRIX%,} # remove trailing comma
         MATRIX+=']}'
@@ -303,7 +303,7 @@ jobs:
           if [[ -z "$CONTEXT" ]]; then
             CONTEXT="."
           fi
-          if [[ "${{ matrix.name }}" == "primus-safe-web" ]]; then
+          if [[ "${{ matrix.name }}" == "web" ]]; then
             EXTRA_ARGS+=" --build-arg VITE_MCP_BASE_URL=/sso-mcp/mcp"
             EXTRA_ARGS+=" --build-arg VITE_MCP_API_KEY=${VITE_MCP_API_KEY}"
           fi
@@ -335,8 +335,8 @@ jobs:
             -f ${{ matrix.dockerfile_path }} "$CONTEXT"
 
           # The web image is published from main and tags. Other refs are built and not pushed.
-          if [[ "${{ matrix.name }}" == "primus-safe-web" && "$GITHUB_REF" != "refs/heads/main" && "$GITHUB_REF" != refs/tags/* ]]; then
-            echo "Built primus-safe-web; not pushing from $GITHUB_REF"
+          if [[ "${{ matrix.name }}" == "web" && "$GITHUB_REF" != "refs/heads/main" && "$GITHUB_REF" != refs/tags/* ]]; then
+            echo "Built web; not pushing from $GITHUB_REF"
           else
             for repo in ${DOCKERIO_REPOSITORY} ${QUAYIO_REPOSITORY}; do
               echo "🚀 Pushing ${{ matrix.name }} to $repo..."
