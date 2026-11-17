@@ -9,6 +9,7 @@ import pytest
 
 from safe_post_training.frameworks.slime.adapter import Adapter
 from safe_post_training.frameworks.slime.plugins import export_peft, lora, lora_sync, merge_lora
+from safe_post_training.stages import StageError
 
 QKV = "decoder.layers.self_attention.linear_qkv."
 
@@ -139,6 +140,12 @@ def test_adapter_only_checkpoints_merge_on_the_hf_side(tmp_path):
     cmd = commands[1]
     assert cmd[cmd.index("--output-dir") + 1] == str(tmp_path / "final_adapter")
     assert cmd[cmd.index("--verify-merged") + 1] == str(tmp_path / "m")
+
+    for code, retry in ((export_peft.VERIFY_FAILED, False), (1, True)):
+        with pytest.raises(StageError) as err:
+            a.export_adapter(recipe, str(tmp_path), lambda cmd, env=None, code=code: code, 8,
+                             str(tmp_path / "final_adapter"), str(tmp_path / "m"))
+        assert err.value.retry is retry, "a failed check gives the same logits on a retry"
 
 
 def test_lora_targets_on_a_moe_model():

@@ -17,6 +17,7 @@ import subprocess
 import sys
 
 from safe_post_training import metrics
+from safe_post_training.frameworks.slime.plugins import export_peft
 from safe_post_training.stages import StageError
 
 SLIME_DIRS = ("/root/slime", "/workspace/slime", "/sgl-workspace/slime", "/opt/slime")
@@ -260,6 +261,8 @@ class Adapter:
         cmd = [sys.executable, os.path.join(PLUGINS, "export_peft.py"), "--slime-dir", root, "--input-dir", src,
                "--origin-hf-dir", base, "--output-dir", out, "--verify-merged", merged] + lora_args(recipe["lora"])
         code = run_command(cmd, env={"PYTHONPATH": python_path(root, self.env)})
+        if code == export_peft.VERIFY_FAILED:
+            raise StageError("export", "the PEFT adapter does not reproduce the merged model", retry=False)
         if code != 0:
             raise StageError("export", "PEFT adapter export exited with code %d" % code)
         return out

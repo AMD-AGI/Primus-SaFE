@@ -28,6 +28,8 @@ WEIGHTS = "adapter_model.safetensors"
 CONFIG = "adapter_config.json"
 PROMPT = "The capital of France is Paris. The capital of Japan is"
 MAX_RELATIVE_DIFF = 0.02
+# The exit code of a check that ran and failed: running it again gives the same logits.
+VERIFY_FAILED = 3
 
 
 def split_args(args, rank):
@@ -160,26 +162,26 @@ def merge_into(base, tensors, modules, scale, out):
 
 def verify(base, adapter, merged):
     """Return the largest logit difference between the base model with the adapter and the merged model, relative
-    to the largest logit."""
+    to the largest logit. Both run in float32 over the visible devices: bfloat16 alone moves these logits by about
+    as much as the bound."""
     import torch
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    ids = AutoTokenizer.from_pretrained(merged)(PROMPT, return_tensors="pt").input_ids.to(device)
+    ids = AutoTokenizer.from_pretrained(merged)(PROMPT, return_tensors="pt").input_ids
 
     def logits(model):
         """Return the model's logits on the prompt and free the model."""
         with torch.no_grad():
-            out = model.to(device).eval()(ids).logits.float().cpu()
+            out = model.eval()(ids.to(model.device)).logits.float().cpu()
         del model
-        if device == "cuda":
+        if torch.cuda.is_available():
             torch.cuda.empty_cache()
         return out
 
-    want = logits(AutoModelForCausalLM.from_pretrained(merged, torch_dtype=torch.bfloat16))
-    got = logits(PeftModel.from_pretrained(AutoModelForCausalLM.from_pretrained(base, torch_dtype=torch.bfloat16),
-                                           adapter))
+    load = {"torch_dtype": torch.float32, "device_map": "auto"}
+    want = logits(AutoModelForCausalLM.from_pretrained(merged, **load))
+    got = logits(PeftModel.from_pretrained(AutoModelForCausalLM.from_pretrained(base, **load), adapter))
     return ((want - got).abs().max() / want.abs().max().clamp(min=1e-6)).item()
 
 
@@ -216,7 +218,7 @@ def main(argv=None):
         print("peft logits differ from the merged model's by %.4f of the largest logit" % diff)
         if diff > MAX_RELATIVE_DIFF:
             print("the adapter does not reproduce the merged model", file=sys.stderr)
-            return 1
+            return VERIFY_FAILED
     return 0
 
 
