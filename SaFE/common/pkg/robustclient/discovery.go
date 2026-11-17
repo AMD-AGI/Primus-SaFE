@@ -7,6 +7,7 @@ package robustclient
 
 import (
 	"context"
+	"net"
 	"sync"
 	"time"
 
@@ -16,11 +17,15 @@ import (
 )
 
 const (
-	// defaultRobustEndpoint is the in-cluster service DNS of robust-analyzer
-	// (which hosts the robust-api module). Used when no annotation is set on
-	// the Cluster CR and SaFE apiserver is co-located with robust-analyzer in
-	// the same K8s cluster.
-	defaultRobustEndpoint    = "http://robust-analyzer.primus-robust.svc:8085"
+	// The in-cluster services that serve the Robust API, used when no
+	// annotation is set on the Cluster CR and SaFE runs in the same K8s
+	// cluster as Robust. The primus-robust-stack chart serves it from a
+	// standalone robust-api and runs robust-analyzer as a worker, which
+	// answers every API route with 404; a robust-analyzer installed alone
+	// (role combined) serves the API itself.
+	robustAPIHost            = "robust-api.primus-robust.svc"
+	robustAPIEndpoint        = "http://" + robustAPIHost + ":8085"
+	robustAnalyzerEndpoint   = "http://robust-analyzer.primus-robust.svc:8085"
 	annotationRobustEndpoint = "primus-safe.amd.com/robust-api-endpoint"
 )
 
@@ -31,15 +36,18 @@ type Discovery struct {
 	interval  time.Duration
 	stopOnce  sync.Once
 	stopCh    chan struct{}
+	// lookupHost resolves a service name, to tell which Robust services exist.
+	lookupHost func(ctx context.Context, host string) ([]string, error)
 }
 
 // NewDiscovery creates a discovery that syncs Cluster CRs to robust client endpoints.
 func NewDiscovery(k8sClient client.Client, rc *Client, interval time.Duration) *Discovery {
 	return &Discovery{
-		k8sClient: k8sClient,
-		rc:        rc,
-		interval:  interval,
-		stopCh:    make(chan struct{}),
+		k8sClient:  k8sClient,
+		rc:         rc,
+		interval:   interval,
+		stopCh:     make(chan struct{}),
+		lookupHost: net.DefaultResolver.LookupHost,
 	}
 }
 
@@ -75,6 +83,7 @@ func (d *Discovery) syncOnce(ctx context.Context) {
 		return
 	}
 
+	defaultEndpoint := d.defaultEndpoint(ctx)
 	seen := make(map[string]bool, len(clusterList.Items))
 	for i := range clusterList.Items {
 		cluster := &clusterList.Items[i]
@@ -85,7 +94,7 @@ func (d *Discovery) syncOnce(ctx context.Context) {
 			continue
 		}
 
-		endpoint := resolveRobustEndpoint(cluster)
+		endpoint := resolveRobustEndpoint(cluster, defaultEndpoint)
 		if endpoint == "" {
 			continue
 		}
@@ -107,22 +116,31 @@ func (d *Discovery) syncOnce(ctx context.Context) {
 	}
 }
 
-// resolveRobustEndpoint determines the robust-analyzer endpoint for a cluster.
+// defaultEndpoint is the in-cluster Robust API: robust-api when that
+// service exists, else robust-analyzer.
+func (d *Discovery) defaultEndpoint(ctx context.Context) string {
+	lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if addrs, err := d.lookupHost(lookupCtx, robustAPIHost); err == nil && len(addrs) > 0 {
+		return robustAPIEndpoint
+	}
+	return robustAnalyzerEndpoint
+}
+
+// resolveRobustEndpoint determines the Robust API endpoint for a cluster.
 // Priority:
 //  1. Annotation primus-safe.amd.com/robust-api-endpoint on the Cluster CR.
-//     Use this for cross-cluster setups where robust-analyzer is reachable
+//     Use this for cross-cluster setups where the Robust API is reachable
 //     via NodePort, LoadBalancer, or Ingress on the data cluster.
-//  2. In-cluster service DNS of robust-analyzer. This works when SaFE
-//     apiserver and robust-analyzer are deployed in the same K8s cluster.
+//  2. The in-cluster service, fallback. This works when SaFE apiserver and
+//     Robust are deployed in the same K8s cluster.
 //
 // Note: ControlPlaneStatus.Endpoints (K8s API server addresses) are NOT
-// used here. robust-analyzer is a regular pod behind a ClusterIP service,
+// used here. The Robust API is a regular pod behind a ClusterIP service,
 // not a hostNetwork process listening on the control-plane node IP.
-// The annotation key keeps the legacy "robust-api" name for backward
-// compatibility with already-deployed Cluster CRs.
-func resolveRobustEndpoint(cluster *v1.Cluster) string {
+func resolveRobustEndpoint(cluster *v1.Cluster, fallback string) string {
 	if ep, ok := cluster.Annotations[annotationRobustEndpoint]; ok && ep != "" {
 		return ep
 	}
-	return defaultRobustEndpoint
+	return fallback
 }

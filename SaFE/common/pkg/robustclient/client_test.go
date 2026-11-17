@@ -7,6 +7,7 @@ package robustclient
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -134,7 +135,25 @@ func TestTruncate(t *testing.T) {
 
 func TestResolveRobustEndpoint(t *testing.T) {
 	c := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}
-	assert.Equal(t, defaultRobustEndpoint, resolveRobustEndpoint(c))
+	assert.Equal(t, robustAPIEndpoint, resolveRobustEndpoint(c, robustAPIEndpoint))
 	c.Annotations = map[string]string{annotationRobustEndpoint: "http://custom"}
-	assert.Equal(t, "http://custom", resolveRobustEndpoint(c))
+	assert.Equal(t, "http://custom", resolveRobustEndpoint(c, robustAPIEndpoint))
+}
+
+// The in-cluster default is robust-api where that service exists, as the
+// primus-robust-stack chart deploys it, and robust-analyzer otherwise.
+func TestDefaultEndpoint(t *testing.T) {
+	d := &Discovery{}
+	d.lookupHost = func(_ context.Context, host string) ([]string, error) {
+		if host == robustAPIHost {
+			return []string{"192.168.0.10"}, nil
+		}
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+	assert.Equal(t, "http://robust-api.primus-robust.svc:8085", d.defaultEndpoint(context.Background()))
+
+	d.lookupHost = func(_ context.Context, host string) ([]string, error) {
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+	assert.Equal(t, "http://robust-analyzer.primus-robust.svc:8085", d.defaultEndpoint(context.Background()))
 }
