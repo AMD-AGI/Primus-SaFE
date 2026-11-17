@@ -29,7 +29,7 @@
               :key="key"
               class="flex items-center gap-1"
             >
-              <span>{{ labelOf(key) }}: {{ baselineValue(key) }} → {{ value }}</span>
+              <span>{{ changeText(key, value) }}</span>
               <el-button link type="danger" @click="removeChange(row.variant, key)">×</el-button>
             </div>
             <span v-if="!Object.keys(row.variant.changes).length" class="text-[var(--safe-muted)]">
@@ -205,8 +205,14 @@ const valueAt = (req: unknown, key: string) =>
     .reduce<unknown>((node, k) => (node as Record<string, unknown> | undefined)?.[k], req)
 const baselineValue = (key: string) => {
   const v = valueAt(props.baseline, key)
-  return v === undefined || v === '' ? 'default' : String(v)
+  return v === undefined || v === '' ? 'default' : valueLabel(key, v)
 }
+/** How a field value reads: the label of its choice, such as a model or dataset name, or the value itself. */
+const valueLabel = (key: string, v: unknown) =>
+  options(key)?.find((o) => o.value === v)?.label ?? String(v)
+/** One change of a variant, from the baseline's value to the variant's. */
+const changeText = (key: string, v: unknown) =>
+  `${labelOf(key)}: ${baselineValue(key)} → ${valueLabel(key, v)}`
 
 type Choice = { label: string; value: string; disabled?: boolean }
 

@@ -101,10 +101,13 @@ import { ArrowLeft } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { getDatasets } from '@/services/dataset'
 import {
   deletePostTrainingTemplate,
+  getPostTrainingModels,
   listPostTrainingTemplates,
   timeOf,
+  type ModelsResp,
   type TemplateItem,
   type TemplateListResp,
 } from '@/services/postTraining'
@@ -123,6 +126,7 @@ const workspaceName = computed(
 )
 
 const items = ref<TemplateItem[]>([])
+const names = ref<Record<string, string>>({})
 const loading = ref(false)
 const trainType = ref('')
 const search = ref('')
@@ -148,15 +152,29 @@ const load = async () => {
   }
 }
 
+/** Loads the names of the workspace's models and datasets, which templates store by ID. */
+const loadNames = async () => {
+  if (!workspace.value) return
+  const [m, d] = await Promise.all([
+    getPostTrainingModels(workspace.value).catch(() => undefined),
+    getDatasets({ workspace: workspace.value, pageSize: 200 }).catch(() => undefined),
+  ])
+  const out: Record<string, string> = {}
+  for (const x of (m as unknown as ModelsResp | undefined)?.items ?? [])
+    out[x.modelId] = x.displayName
+  for (const x of d?.items ?? []) out[x.datasetId] = x.displayName
+  names.value = out
+}
+const nameOf = (id: string) => names.value[id] || id
+
 const algorithmOf = (t: TemplateItem) =>
   t.trainType === 'rl' ? (t.content.choices?.advantageEstimator ?? '').toUpperCase() : ''
 
 /** What the template stores besides the options: base model, datasets, benchmarks and W&B. */
 const includesText = (t: TemplateItem) => {
   const c = t.content
-  const parts = [c.modelId, [c.datasetId, c.evalDatasetId].filter(Boolean).join(', ')].filter(
-    Boolean,
-  )
+  const datasets = [c.datasetId, c.evalDatasetId].filter((id): id is string => !!id).map(nameOf)
+  const parts = [c.modelId && nameOf(c.modelId), datasets.join(', ')].filter(Boolean)
   const benchmarks = c.evaluation?.benchmarks?.length ?? 0
   if (benchmarks) parts.push(`${benchmarks} benchmark${benchmarks === 1 ? '' : 's'}`)
   if (c.tracking?.wandb?.enabled) parts.push('W&B')
@@ -194,6 +212,12 @@ const remove = async (t: TemplateItem) => {
   load()
 }
 
-watch(workspace, load)
-onMounted(load)
+watch(workspace, () => {
+  load()
+  loadNames()
+})
+onMounted(() => {
+  load()
+  loadNames()
+})
 </script>
