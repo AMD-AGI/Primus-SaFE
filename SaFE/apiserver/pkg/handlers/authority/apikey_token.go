@@ -339,11 +339,6 @@ func deriveAESKey(secret []byte) []byte {
 	return hash[:]
 }
 
-// GetPlatformKey returns the plaintext platform key for a user, or "" when none exists.
-func (a *ApiKeyToken) GetPlatformKey(ctx context.Context, userId, userName string) (string, error) {
-	return apikey.GetPlatformKey(ctx, a.dbClient, userId, userName)
-}
-
 // GetOrCreatePlatformKey returns the plaintext platform key for a user.
 // createIfMissing controls whether a missing key is created.
 func (a *ApiKeyToken) GetOrCreatePlatformKey(ctx context.Context, userId, userName string, createIfMissing bool) (string, error) {

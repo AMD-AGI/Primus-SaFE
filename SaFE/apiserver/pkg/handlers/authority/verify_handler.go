@@ -72,15 +72,21 @@ type VerifyTokenResponse struct {
 // variable so tests can substitute a stub without patching the DB layer.
 var platformKeyFetcher = fetchPlatformKey
 
+// platformDBEnabled / platformDBClient are seams for fetchPlatformKey tests.
+var (
+	platformDBEnabled = commonconfig.IsDBEnable
+	platformDBClient  = func() dbclient.Interface { return dbclient.NewClient() }
+)
+
 // fetchPlatformKey fetches the platform API key from the database. In builtin mode a missing
 // key is created; in external mode only an existing key is returned.
 // Returns an empty key (no error) when the database is unavailable.
 func fetchPlatformKey(ctx context.Context, userId, userName string) (string, error) {
-	if !commonconfig.IsDBEnable() {
+	if !platformDBEnabled() {
 		klog.Warning("database not enabled, cannot provide platform key")
 		return "", nil
 	}
-	db := dbclient.NewClient()
+	db := platformDBClient()
 	if db == nil {
 		klog.Warning("database client not available, cannot provide platform key")
 		return "", nil
@@ -204,6 +210,8 @@ func VerifyToken(c *gin.Context) {
 			klog.ErrorS(err, "failed to get/create platform key", "userId", userInfo.Id)
 		} else if platformKey != "" {
 			resp.PlatformKey = platformKey
+		} else if !commonconfig.PlatformKeyCreationAllowed() {
+			klog.V(1).InfoS("platform key asked for and none exists in external mode", "userId", userInfo.Id)
 		}
 	}
 

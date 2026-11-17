@@ -36,20 +36,11 @@ const (
 	platformKeyName = "platform-key"
 )
 
-// GetPlatformKey returns the plaintext platform key for a user, or "" when the user has none.
-// It never creates a key.
-func GetPlatformKey(ctx context.Context, db dbclient.Interface, userId, userName string) (string, error) {
-	return getPlatformKey(ctx, db, userId, userName, false)
-}
-
 // GetOrCreatePlatformKey returns the plaintext platform key for a user.
 // When createIfMissing is true and the user has none, it creates one. Callers choose createIfMissing
-// from their own auth mode; this helper does not read auth.mode.
+// (for example via config.PlatformKeyCreationAllowed); this helper does not read auth.mode.
+// Pass false for lookup-only.
 func GetOrCreatePlatformKey(ctx context.Context, db dbclient.Interface, userId, userName string, createIfMissing bool) (string, error) {
-	return getPlatformKey(ctx, db, userId, userName, createIfMissing)
-}
-
-func getPlatformKey(ctx context.Context, db dbclient.Interface, userId, userName string, createIfMissing bool) (string, error) {
 	if db == nil {
 		return "", commonerrors.NewInternalError("database client not initialized")
 	}

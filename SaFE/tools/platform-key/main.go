@@ -6,8 +6,8 @@
 //     and the plaintext is printed.
 //   - If none exists and --create is set, a new plaintext is generated, hashed
 //     (api_key column) and encrypted (encrypted_key column), inserted, and the
-//     plaintext printed. --create is refused when --auth-mode=external (or
-//     AUTH_MODE=external) unless --force-create is also set.
+//     plaintext printed. --create is refused when --auth-mode=external (or AUTH_MODE=external)
+//     unless --force-create is also set. An unset mode is treated as builtin.
 //
 // The crypto key MUST be the same one the apiserver uses (Secret
 // <release>-crypto, key "key"), otherwise the minted/decrypted token will not
@@ -68,17 +68,14 @@ func main() {
 		fatalf("required: --user-id, --db-host, --db-name, --db-user")
 	}
 	mode := strings.ToLower(strings.TrimSpace(*authMode))
-	if *create {
-		switch mode {
-		case "builtin", "external":
-		default:
-			fatalf("--create requires --auth-mode=builtin or --auth-mode=external (or AUTH_MODE)")
-		}
-		if mode == "external" && !*forceCreate {
-			fatalf("--create is refused when auth-mode is external; use --force-create only when deliberately minting a SaFE platform key")
-		}
-	} else if mode != "" && mode != "builtin" && mode != "external" {
+	if mode == "" {
+		mode = "builtin"
+	}
+	if mode != "builtin" && mode != "external" {
 		fatalf("--auth-mode must be builtin or external")
+	}
+	if *create && mode == "external" && !*forceCreate {
+		fatalf("--create is refused when auth-mode is external; use --force-create only when deliberately minting a SaFE platform key")
 	}
 
 	secret, err := loadValue(*cryptoKey, *cryptoKeyFile)

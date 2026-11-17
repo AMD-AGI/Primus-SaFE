@@ -137,12 +137,8 @@ func (h *Handler) submitTask(
 	if h.clawClient == nil || h.clawClient.baseURL == "" {
 		return nil, commonerrors.NewInternalError("Claw base URL not configured; Model Optimization disabled")
 	}
-	if strings.TrimSpace(clawBearer) == "" {
-		msg := "PrimusClaw authentication required: log in (platform key) or send Authorization: Bearer ak-..."
-		if commonconfig.PlatformKeyCreationAllowed() {
-			msg += ", or mount claw_api_key under model_optimization.secret_path"
-		}
-		return nil, commonerrors.NewUnauthorized(msg)
+	if err := requireClawBearer(clawBearer); err != nil {
+		return nil, err
 	}
 
 	workspace := h.taskWorkspace(req)
@@ -1169,12 +1165,42 @@ func (h *Handler) clawBearerForTask(ctx context.Context, userID, userName string
 //  1. Explicit user API key from the request Authorization header.
 //  2. Per-user platform key (lookup; create only in builtin mode).
 //  3. File-based service key from model_optimization config (builtin mode only).
+//
 // In external mode a missing user key does not fall back to the shared service key.
 func (h *Handler) clawBearerForGin(c *gin.Context) string {
 	if c == nil {
 		return h.resolveClawBearer(context.Background(), "", "", "")
 	}
 	return h.resolveClawBearer(c.Request.Context(), c.GetHeader("Authorization"), c.GetString(common.UserId), c.GetString(common.UserName))
+}
+
+// clawPlatformKeyLookup and clawServiceAPIKey are seams for resolveClawBearer tests.
+var (
+	clawPlatformKeyLookup = defaultClawPlatformKeyLookup
+	clawServiceAPIKey     = commonconfig.GetModelOptimizationClawAPIKey
+)
+
+func defaultClawPlatformKeyLookup(ctx context.Context, userID, userName string, createIfMissing bool) (string, error) {
+	tok := authority.ApiKeyTokenInstance()
+	if tok == nil {
+		return "", nil
+	}
+	return tok.GetOrCreatePlatformKey(ctx, userID, userName, createIfMissing)
+}
+
+// requireClawBearer refuses an empty PrimusClaw bearer with a mode-specific message.
+func requireClawBearer(clawBearer string) error {
+	if strings.TrimSpace(clawBearer) != "" {
+		return nil
+	}
+	if commonconfig.PlatformKeyCreationAllowed() {
+		return commonerrors.NewUnauthorized(
+			"PrimusClaw authentication required: send Authorization: Bearer ak-..., or mount claw_api_key under model_optimization.secret_path",
+		)
+	}
+	return commonerrors.NewUnauthorized(
+		"this user has no platform key; send Authorization: Bearer ak-...",
+	)
 }
 
 // resolveClawBearer picks the PrimusClaw credential for a call.
@@ -1186,30 +1212,21 @@ func (h *Handler) resolveClawBearer(ctx context.Context, authorization, userID, 
 	if k := authority.ExtractApiKeyFromRequest(authorization); k != "" {
 		return k
 	}
+	create := commonconfig.PlatformKeyCreationAllowed()
 	if userID != "" {
-		if tok := authority.ApiKeyTokenInstance(); tok != nil {
-			var (
-				pk  string
-				err error
-			)
-			if commonconfig.PlatformKeyCreationAllowed() {
-				pk, err = tok.GetOrCreatePlatformKey(ctx, userID, userName, true)
-			} else {
-				pk, err = tok.GetPlatformKey(ctx, userID, userName)
-			}
-			if err != nil {
-				klog.ErrorS(err, "model optimization: platform key for PrimusClaw", "userId", userID)
-			} else if strings.TrimSpace(pk) != "" {
-				return pk
-			}
+		pk, err := clawPlatformKeyLookup(ctx, userID, userName, create)
+		if err != nil {
+			klog.ErrorS(err, "model optimization: platform key for PrimusClaw", "userId", userID)
+		} else if strings.TrimSpace(pk) != "" {
+			return pk
 		}
-		if !commonconfig.PlatformKeyCreationAllowed() {
+		if !create {
 			klog.V(2).InfoS("model optimization: no user platform key in external mode; not using the shared claw API key",
 				"userId", userID)
 			return ""
 		}
 	}
-	return commonconfig.GetModelOptimizationClawAPIKey()
+	return clawServiceAPIKey()
 }
 
 // Start runs background recovery after the handler is registered. It should

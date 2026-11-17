@@ -699,16 +699,21 @@ func TestAuthConfig(t *testing.T) {
 
 	viper.Set("auth.mode", "builtin")
 	testifyassert.Equal(t, AuthModeBuiltin, GetAuthMode())
+	testifyassert.True(t, PlatformKeyCreationAllowed())
 	viper.Set("auth.mode", " Builtin ")
 	testifyassert.Equal(t, AuthModeBuiltin, GetAuthMode())
+	testifyassert.True(t, PlatformKeyCreationAllowed())
 	viper.Set("auth.mode", "external")
 	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
+	testifyassert.False(t, PlatformKeyCreationAllowed())
 	testifyassert.NoError(t, CheckAuthMode())
 	viper.Set("auth.mode", "externl")
 	_, err = parseAuthMode()
 	testifyassert.Error(t, err)
 	testifyassert.Error(t, CheckAuthMode())
 	testifyassert.Empty(t, GetAuthMode())
+	// Invalid mode is not external, so minting stays allowed until CheckAuthMode refuses start-up.
+	testifyassert.True(t, PlatformKeyCreationAllowed())
 
 	viper.Set("auth.authenticators", []map[string]any{
 		{"type": "oidc", "issuer": "https://idp.example.com", "audience": "a", "jwks_url": "https://idp.example.com/keys", "clock_skew": "1m", "groups_claim": "roles"},

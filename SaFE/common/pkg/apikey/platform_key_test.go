@@ -168,8 +168,8 @@ func TestPlatformKeyCryptoHelpers(t *testing.T) {
 	assert.True(t, strings.HasPrefix(generated, tokenPrefix))
 }
 
-// TestGetPlatformKeyAndCreateIfMissingFalse checks lookup-only behavior (createIfMissing=false).
-func TestGetPlatformKeyAndCreateIfMissingFalse(t *testing.T) {
+// TestGetOrCreatePlatformKeyLookupOnly checks lookup-only behavior (createIfMissing=false).
+func TestGetOrCreatePlatformKeyLookupOnly(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mockDB := mock_client.NewMockInterface(ctrl)
@@ -193,7 +193,7 @@ func TestGetPlatformKeyAndCreateIfMissingFalse(t *testing.T) {
 		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-new").Return(nil, sql.ErrNoRows)
 		mockDB.EXPECT().InsertApiKey(gomock.Any(), gomock.Any()).Times(0)
 
-		result, err := GetPlatformKey(context.Background(), mockDB, "user-new", "newuser")
+		result, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-new", "newuser", false)
 		assert.NoError(t, err)
 		assert.Empty(t, result)
 	})
