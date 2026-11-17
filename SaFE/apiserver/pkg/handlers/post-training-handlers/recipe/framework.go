@@ -213,6 +213,7 @@ func (m ModelInfo) ContextLen() int {
 // DatasetInfo is what the compiler knows about a dataset in the target workspace.
 type DatasetInfo struct {
 	ID     string
+	Name   string
 	Type   string
 	Path   string
 	Format string

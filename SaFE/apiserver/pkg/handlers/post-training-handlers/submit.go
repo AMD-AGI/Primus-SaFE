@@ -153,6 +153,9 @@ func (h *Handler) submit(c *gin.Context, reg *registry.Registry,
 		return nil, nil, err
 	}
 	row := runRow(c, req, res, ws, model, runID, string(recipeJSON))
+	if in.Dataset != nil {
+		row.DatasetName = in.Dataset.Name
+	}
 	if err := h.db.CreatePostTrainingRun(ctx, row); err != nil {
 		return nil, nil, commonerrors.NewInternalError("failed to record the run: " + err.Error())
 	}

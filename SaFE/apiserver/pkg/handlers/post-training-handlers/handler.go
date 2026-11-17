@@ -259,7 +259,7 @@ func (h *Handler) getDataset(ctx context.Context, id, workspace string) (*recipe
 	if err != nil {
 		return nil, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("dataset %s not found", id))
 	}
-	info := &recipe.DatasetInfo{ID: ds.DatasetId, Type: ds.DatasetType}
+	info := &recipe.DatasetInfo{ID: ds.DatasetId, Name: ds.DisplayName, Type: ds.DatasetType}
 	var paths []dbclient.DatasetLocalPathDB
 	if ds.LocalPaths != "" {
 		if err := json.Unmarshal([]byte(ds.LocalPaths), &paths); err != nil {
