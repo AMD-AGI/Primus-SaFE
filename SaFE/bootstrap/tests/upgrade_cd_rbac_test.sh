@@ -43,7 +43,9 @@ esac
 exit 0
 EOF
 # FAKE_MISSING lists <kind>/<name> that `kubectl get` does not find; FAKE_DENIED lists
-# <resource>/<name> that `kubectl auth can-i update` refuses.
+# <resource>/<name> that `kubectl auth can-i update` refuses. FAKE_CRD_ABSENT is a CRD
+# file name that is not in the cluster: a directory-wide replace or create fails, and
+# replace of that one file fails.
 cat > "$W/bin/kubectl" <<'EOF'
 #!/bin/bash
 echo "kubectl $*" >> "$FAKE_LOG"
@@ -53,6 +55,15 @@ fi
 if [[ "$1 $2 $3" == "auth can-i update" && " ${FAKE_DENIED:-} " == *" $4 "* ]]; then
   echo no
   exit 1
+fi
+if [[ -n "${FAKE_CRD_ABSENT:-}" && ( "$1" == "replace" || "$1" == "create" ) && "$2" == "-f" ]]; then
+  target="$3"
+  if [[ -d "$target" || "$target" == */crds || "$target" == */crds/ ]]; then
+    exit 1
+  fi
+  if [[ "$1" == "replace" && "$(basename "$target")" == "$FAKE_CRD_ABSENT" ]]; then
+    exit 1
+  fi
 fi
 exit 0
 EOF
@@ -77,8 +88,8 @@ EOF
 
 FAILS=0
 CASE=0
-# run_upgrade <called by cd> <missing> <denied>: runs upgrade.sh; leaves the log in $OUT/log, the
-# exit code in $RC and the recorded cluster calls in $FAKE_LOG.
+# run_upgrade <called by cd> <missing> <denied> [absent crd file]: runs upgrade.sh; leaves the
+# log in $OUT/log, the exit code in $RC and the recorded cluster calls in $FAKE_LOG.
 run_upgrade() {
   CASE=$((CASE + 1))
   OUT="$W/out$CASE"
@@ -87,7 +98,7 @@ run_upgrade() {
   : > "$FAKE_LOG"
   (
     cd "$W/bootstrap" && export FAKE_LOG CALLED_BY_CD="$1" FAKE_MISSING="$2" FAKE_DENIED="$3" \
-      && PATH="$W/bin:$PATH" bash ./upgrade.sh
+      FAKE_CRD_ABSENT="${4:-}" && PATH="$W/bin:$PATH" bash ./upgrade.sh
   ) > "$OUT/log" 2>&1
   RC=$?
 }
@@ -129,6 +140,13 @@ expect "admin: applied" applied
 expect "admin: applies cd-installer-rbac.yaml" rbac_applied
 expect "admin: applies it after the chart" bash -c 'grep -n "" "$1" | grep -E "helm upgrade -i primus-safe |cd-installer-rbac.yaml" | head -1 | grep -q "helm upgrade"' _ "$FAKE_LOG"
 expect "admin: no deployment-account check" bash -c '! grep -q "auth can-i" "$1"' _ "$FAKE_LOG"
+
+# 5. One new CRD among CRDs that already exist: that file is created, the upgrade continues.
+run_upgrade true "" "" "amd.com_qos.yaml"
+expect "cd, new crd: applied" applied
+expect "cd, new crd: replaces an existing crd" grep -q 'kubectl replace -f primus-safe/crds/amd.com_users.yaml ' "$FAKE_LOG"
+expect "cd, new crd: creates the missing file" grep -q 'kubectl create -f primus-safe/crds/amd.com_qos.yaml ' "$FAKE_LOG"
+expect "cd, new crd: does not apply the directory" bash -c '! grep -Eq "^kubectl (replace|create) -f primus-safe/crds/ " "$1"' _ "$FAKE_LOG"
 
 echo
 if [[ $FAILS -eq 0 ]]; then
