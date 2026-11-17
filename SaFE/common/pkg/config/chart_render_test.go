@@ -109,7 +109,7 @@ func TestChartRendersAuthKeyActors(t *testing.T) {
 	testifyassert.Equal(t, DefaultSCIMTokenSecret, GetSCIMTokenSecret())
 
 	loadRendered(t, renderApiserverConfig(t, "--set", "global.sub_domain=site", "--set", "global.domain=example.com"))
-	testifyassert.Empty(t, GetAuthLoginURL())
+	testifyassert.Equal(t, "https://site.example.com/login/password", GetAuthLoginURL())
 	testifyassert.Equal(t, "https://site.example.com/scim/v2", GetSCIMPublicURL())
 
 	loadRendered(t, renderApiserverConfig(t, "--set", "auth.key_actors={client-a,client-b}"))
