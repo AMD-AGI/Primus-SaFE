@@ -86,19 +86,27 @@ func TestGetEnvsExternalLoginURL(t *testing.T) {
 		assert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &resp))
 		return resp
 	}
-	t.Cleanup(func() { viper.Set("auth.mode", nil); viper.Set("auth.login_url", nil) })
+	t.Cleanup(func() {
+		viper.Set("auth.mode", nil)
+		viper.Set("auth.login_url", nil)
+		viper.Set("auth.connection", nil)
+		viper.Set("sso.enable", nil)
+	})
 
 	viper.Set("auth.mode", "external")
 	viper.Set("auth.login_url", "https://sign-in.example.com/start")
-	viper.Set("auth.connection", "okta-amd")
+	viper.Set("auth.connection", "kept-but-ignored")
+	viper.Set("sso.enable", false)
 	got := get()
 	assert.Equal(t, "external", got.AuthMode)
 	assert.False(t, got.SSOEnable)
-	assert.Equal(t, "okta-amd", got.Connection)
+	assert.Equal(t, "local", got.Connection)
 	assert.Equal(t, "https://sign-in.example.com/start", got.LoginURL)
-	viper.Set("auth.connection", "")
+	viper.Set("sso.enable", true)
 	got = get()
-	assert.Empty(t, got.Connection)
+	assert.True(t, got.SSOEnable)
+	assert.Equal(t, "okta-amd", got.Connection)
+	viper.Set("sso.enable", false)
 
 	viper.Set("auth.mode", "builtin")
 	got = get()
