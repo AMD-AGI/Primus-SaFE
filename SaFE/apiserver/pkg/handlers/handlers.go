@@ -150,9 +150,9 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	// persistence + event log. Routes register whenever DB is enabled; Claw base
 	// URL from model_optimization.claw_base_url or derived https://<global host>/claw-api/v1;
 	// auth: Bearer ak-... if sent, else per-user platform key (lookup; create in builtin mode only).
-	// In builtin mode an optional secret claw_api_key covers service calls and users without a key.
-	// In external mode a named user without a platform key is refused; claw_api_key is only for
-	// calls with no user id.
+	// In builtin mode the optional claw_api_key file under model_optimization.secret_path covers
+	// service calls and users without a key. In external mode a named user without a platform key
+	// is refused; that file is only for calls with no user id.
 	if commonconfig.IsDBEnable() {
 		optDBClient := dbclient.NewClient()
 		if optDBClient != nil {

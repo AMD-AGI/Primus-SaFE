@@ -140,7 +140,7 @@ func (h *Handler) submitTask(
 	if strings.TrimSpace(clawBearer) == "" {
 		msg := "PrimusClaw authentication required: log in (platform key) or send Authorization: Bearer ak-..."
 		if commonconfig.PlatformKeyCreationAllowed() {
-			msg += ", or configure model_optimization secret claw_api_key"
+			msg += ", or mount claw_api_key under model_optimization.secret_path"
 		}
 		return nil, commonerrors.NewUnauthorized(msg)
 	}
@@ -1180,8 +1180,8 @@ func (h *Handler) clawBearerForGin(c *gin.Context) string {
 // resolveClawBearer picks the PrimusClaw credential for a call.
 //
 // A named user in external mode uses only that user's platform key (lookup, never create)
-// and never the shared model_optimization.claw_api_key. A call with no user id may still
-// use the shared service key (recover / service paths).
+// and never the shared claw_api_key file under model_optimization.secret_path. A call with
+// no user id may still use that service key (recover / service paths).
 func (h *Handler) resolveClawBearer(ctx context.Context, authorization, userID, userName string) string {
 	if k := authority.ExtractApiKeyFromRequest(authorization); k != "" {
 		return k
