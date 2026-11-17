@@ -211,15 +211,15 @@ func (cc *ClusterClient) RawGet(ctx context.Context, path string, query url.Valu
 func (cc *ClusterClient) doRaw(req *http.Request, path string) ([]byte, error) {
 	resp, err := cc.do(req)
 	if err != nil {
-		return nil, fmt.Errorf("robust-analyzer %s %s: %w", cc.clusterName, path, err)
+		return nil, fmt.Errorf("robust-api %s %s: %w", cc.clusterName, path, err)
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read robust-analyzer response: %w", err)
+		return nil, fmt.Errorf("read robust-api response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("robust-analyzer %s %s returned HTTP %d: %s",
+		return nil, fmt.Errorf("robust-api %s %s returned HTTP %d: %s",
 			cc.clusterName, path, resp.StatusCode, truncate(string(respBody), 200))
 	}
 	return respBody, nil
@@ -246,7 +246,7 @@ func (cc *ClusterClient) HealthCheck(ctx context.Context) error {
 func (cc *ClusterClient) doAndDecode(req *http.Request, out interface{}) error {
 	resp, err := cc.do(req)
 	if err != nil {
-		return fmt.Errorf("robust-analyzer %s %s %s: %w", cc.clusterName, req.Method, req.URL.Path, err)
+		return fmt.Errorf("robust-api %s %s %s: %w", cc.clusterName, req.Method, req.URL.Path, err)
 	}
 	defer resp.Body.Close()
 
@@ -256,7 +256,7 @@ func (cc *ClusterClient) doAndDecode(req *http.Request, out interface{}) error {
 	}
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("robust-analyzer %s returned %d: %s",
+		return fmt.Errorf("robust-api %s returned %d: %s",
 			req.URL.Path, resp.StatusCode, truncate(string(body), 500))
 	}
 
@@ -271,7 +271,7 @@ func (cc *ClusterClient) doAndDecode(req *http.Request, out interface{}) error {
 			if msg == "" {
 				msg = "unknown error"
 			}
-			return fmt.Errorf("robust-analyzer %s error code %d: %s", req.URL.Path, envelope.Meta.Code, msg)
+			return fmt.Errorf("robust-api %s error code %d: %s", req.URL.Path, envelope.Meta.Code, msg)
 		}
 		if len(bytes.TrimSpace(envelope.Data)) == 0 || bytes.Equal(bytes.TrimSpace(envelope.Data), []byte("null")) {
 			return nil
