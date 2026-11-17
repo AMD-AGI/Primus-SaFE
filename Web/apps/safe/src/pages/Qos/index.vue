@@ -7,11 +7,14 @@
     </el-text>
   </div>
   <el-card class="mt-6 safe-card" shadow="never" v-loading="loading">
-    <el-radio-group v-if="clusters.length > 1" v-model="target" class="mb-6">
-      <el-radio-button v-for="cluster in clusters" :key="cluster.clusterId" :value="cluster.clusterId">
-        {{ cluster.clusterId }}
-      </el-radio-button>
-    </el-radio-group>
+    <div v-if="clusters.length" class="mb-6">
+      <el-text class="mb-2 block" type="info">Cluster</el-text>
+      <el-radio-group v-model="target">
+        <el-radio-button v-for="cluster in clusters" :key="cluster.clusterId" :value="cluster.clusterId">
+          {{ cluster.clusterId }}
+        </el-radio-button>
+      </el-radio-group>
+    </div>
     <QosScopeForm v-if="drafts[target]" v-model="drafts[target]" />
     <div v-if="target" class="mt-4">
       <el-button type="primary" :loading="saving" @click="onSave">Save</el-button>
@@ -45,12 +48,11 @@ const ensureDraft = (name: string) => {
   if (!drafts[name]) drafts[name] = emptyDraft()
 }
 
-/** selectCluster keeps the current cluster when it is still listed. */
+/** selectCluster keeps the chosen cluster, or selects the first one. */
 const selectCluster = () => {
   const ids = clusters.value.map((cluster) => cluster.clusterId)
-  if (ids.includes(target.value)) return
-  const current = clusterStore.currentClusterId ?? ''
-  target.value = ids.includes(current) ? current : (ids[0] ?? '')
+  if (target.value && ids.includes(target.value)) return
+  target.value = ids[0] ?? ''
 }
 
 /** load copies stored cluster ceilings into the forms. */
