@@ -39,7 +39,7 @@ const (
 	ImageResourceManager = "resource-manager"
 	ImageJobManager      = "job-manager"
 	ImageWebhooks        = "webhooks"
-	ImageWeb             = "web"
+	ImageWeb             = "primus-safe-web"
 	ImagePreprocess      = "preprocess"
 	ImageNodeAgent       = "node-agent"
 	ImageCICDRunner      = "cicd-runner-proxy"
