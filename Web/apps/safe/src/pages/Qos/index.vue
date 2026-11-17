@@ -38,7 +38,7 @@ const clusters = computed(() =>
 
 const loading = ref(false)
 const saving = ref(false)
-// Selected scope: 'default' for the global ceiling, or a cluster id for its override.
+// Selected scope: "default" is the global ceiling, and a cluster id is that cluster's override.
 const target = ref('default')
 const stored = ref<string[]>([])
 const drafts = reactive<Record<string, ScopeDraft>>({ default: emptyDraft() })

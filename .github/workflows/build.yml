@@ -335,20 +335,15 @@ jobs:
             -t ${IMAGE_NAME}:${DATE_TIME} \
             -f ${{ matrix.dockerfile_path }} "$CONTEXT"
 
-          # The web image is published from main and tags. Other refs are built and not pushed.
-          if [[ "${{ matrix.name }}" == "web" && "$GITHUB_REF" != "refs/heads/main" && "$GITHUB_REF" != refs/tags/* ]]; then
-            echo "Built web; not pushing from $GITHUB_REF"
-          else
-            for repo in ${DOCKERIO_REPOSITORY} ${QUAYIO_REPOSITORY}; do
-              echo "🚀 Pushing ${IMAGE_NAME} to $repo..."
-              buildah tag ${IMAGE_NAME}:${IMAGE_VERSION} ${repo}/${IMAGE_NAME}:${IMAGE_VERSION}
-              buildah tag ${IMAGE_NAME}:${DATE_TIME} ${repo}/${IMAGE_NAME}:${DATE_TIME}
-              echo "Pushing tags: ${repo}/${IMAGE_NAME}:${IMAGE_VERSION}"
-              buildah push --tls-verify=false ${repo}/${IMAGE_NAME}:${IMAGE_VERSION}
-              echo "Pushing tags: ${repo}/${IMAGE_NAME}:${DATE_TIME}"
-              buildah push --tls-verify=false ${repo}/${IMAGE_NAME}:${DATE_TIME}
-            done
-          fi
+          for repo in ${DOCKERIO_REPOSITORY} ${QUAYIO_REPOSITORY}; do
+            echo "🚀 Pushing ${IMAGE_NAME} to $repo..."
+            buildah tag ${IMAGE_NAME}:${IMAGE_VERSION} ${repo}/${IMAGE_NAME}:${IMAGE_VERSION}
+            buildah tag ${IMAGE_NAME}:${DATE_TIME} ${repo}/${IMAGE_NAME}:${DATE_TIME}
+            echo "Pushing tags: ${repo}/${IMAGE_NAME}:${IMAGE_VERSION}"
+            buildah push --tls-verify=false ${repo}/${IMAGE_NAME}:${IMAGE_VERSION}
+            echo "Pushing tags: ${repo}/${IMAGE_NAME}:${DATE_TIME}"
+            buildah push --tls-verify=false ${repo}/${IMAGE_NAME}:${DATE_TIME}
+          done
 
 
 
