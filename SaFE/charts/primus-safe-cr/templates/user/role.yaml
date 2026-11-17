@@ -78,6 +78,15 @@ rules:
   verbs:
     - create
     - list
+# Workspace members run privileged workloads in their workspaces. Creating or changing one,
+# including a GitHub Actions runner, a unified job, or a preflight job, takes this grant.
+- resources:
+    - workload/privileged
+  grantedUsers:
+    - workspace-user
+  verbs:
+    - create
+    - update
 # Members read the nodes of their workspaces and change none of them. Changing a node (taints,
 # labels, flavor, address, provisioning retry, delete) takes a role that grants it on every node,
 # which among these roles is system-admin; the apiserver does not match a rule granted to
@@ -149,8 +158,8 @@ rules:
     - create
     - list
     - delete
-# A preflight job runs privileged on its nodes, so creating one also takes workload/privileged in
-# the workspace (workspace-admin), which this role does not grant.
+# A preflight job runs privileged on its nodes. Creating one takes workload/privileged, which
+# workspace members hold.
 - resources:
     - secret
     - opsjob/preflight

@@ -635,8 +635,8 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 // workload that runs a privileged container (commonworkload.RunsPrivileged). A GitHub Actions
 // runner or a unified job does not ask for privileged mode, but its template runs a privileged
 // Docker-in-Docker daemon (and, for the runner kinds, a privileged runner), which is as much as
-// privileged mode, so it takes the same grant. Among the built-in roles workspace-admin (in the
-// workspaces it manages) and system-admin hold it.
+// privileged mode, so it takes the same grant. The default role grants it to workspace members.
+// workspace-admin (in the workspaces it manages) and system-admin hold it as well.
 func (h *Handler) authWorkloadPrivileged(c *gin.Context, workload *v1.Workload, verb v1.RoleVerb,
 	requestUser *v1.User, roles []*v1.Role) error {
 	err := h.authWorkloadAction(c, workload, verb, authority.WorkloadPrivilegedKind, requestUser, roles)

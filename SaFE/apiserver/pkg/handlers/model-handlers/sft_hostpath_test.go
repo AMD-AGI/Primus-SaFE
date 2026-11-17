@@ -8,6 +8,7 @@ package model_handlers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -99,27 +100,22 @@ func createSft(t *testing.T, h *Handler, userId, name string, hostpath []string)
 }
 
 // The SFT route creates its workload itself, not through the workload create path, so it holds
-// the same rule: a member cannot mount a node path the workspace does not declare (403, nothing
-// created), may mount a declared one, and the manager and a system administrator, who hold
-// workload/privileged in the workspace, may mount any, which the workload records for the webhook.
+// the same rule: a workspace member holds workload/privileged and may mount a node path the
+// workspace does not declare, which the workload records for the webhook, and may mount a declared
+// one without that mark. The manager and a system administrator may mount any path the same way.
 func TestSftJobHostPathNeedsTheGrant(t *testing.T) {
 	h, cli := newSftHostPathHandler(t)
-	count := func() int {
-		list := &v1.WorkloadList{}
-		require.NoError(t, cli.List(t.Context(), list))
-		return len(list.Items)
-	}
+	stored := &v1.Workload{}
 
-	for _, hostpath := range [][]string{{"/"}, {"/etc"}, {"/shared_nfs/a", "/var/run/docker.sock"}} {
-		_, err := createSft(t, h, "sft-member", "refused", hostpath)
-		require.True(t, apierrors.IsForbidden(err), "hostpath %v: want 403, got %v", hostpath, err)
-		require.Contains(t, err.Error(), "requires the workload/privileged grant")
+	for i, hostpath := range [][]string{{"/"}, {"/etc"}, {"/shared_nfs/a", "/var/run/docker.sock"}} {
+		resp, err := createSft(t, h, "sft-member", fmt.Sprintf("undeclared-%d", i), hostpath)
+		require.NoError(t, err, "hostpath %v", hostpath)
+		require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: resp.WorkloadId}, stored))
+		require.Equal(t, v1.TrueStr, v1.GetAnnotation(stored, v1.WorkloadHostPathAuthzAnnotation))
 	}
-	require.Equal(t, 0, count(), "a refused SFT workload was created")
 
 	resp, err := createSft(t, h, "sft-member", "declared", []string{"/shared_nfs/sft"})
 	require.NoError(t, err)
-	stored := &v1.Workload{}
 	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: resp.WorkloadId}, stored))
 	require.Equal(t, []string{"/shared_nfs/sft"}, stored.Spec.Hostpath)
 	require.False(t, v1.HasAnnotation(stored, v1.WorkloadHostPathAuthzAnnotation))
@@ -132,8 +128,8 @@ func TestSftJobHostPathNeedsTheGrant(t *testing.T) {
 	}
 }
 
-// The SFT route marks its workload for the volumes that require workload/privileged only when the
-// creator holds that grant in the workspace, and refuses a member who names such a volume.
+// The SFT route marks its workload for the volumes that require workload/privileged when the
+// creator holds that grant in the workspace. A workspace member holds it, and may name such a volume.
 func TestSftJobPrivilegedVolumeNeedsTheGrant(t *testing.T) {
 	h, cli := newSftHostPathHandler(t)
 	ws := &v1.Workspace{}
@@ -147,11 +143,13 @@ func TestSftJobPrivilegedVolumeNeedsTheGrant(t *testing.T) {
 	resp, err := createSft(t, h, "sft-member", "member", nil)
 	require.NoError(t, err)
 	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: resp.WorkloadId}, stored))
-	require.False(t, v1.HasAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
+	require.Equal(t, v1.TrueStr, v1.GetAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
 
-	_, err = createSft(t, h, "sft-member", "member-asks", []string{"/secret"})
-	require.True(t, apierrors.IsForbidden(err), "want 403, got %v", err)
-	require.Contains(t, err.Error(), "requiresPrivilegedGrant")
+	resp, err = createSft(t, h, "sft-member", "member-asks", []string{"/secret"})
+	require.NoError(t, err)
+	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: resp.WorkloadId}, stored))
+	require.Equal(t, v1.TrueStr, v1.GetAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
+	require.Equal(t, v1.TrueStr, v1.GetAnnotation(stored, v1.WorkloadHostPathAuthzAnnotation))
 
 	for _, who := range []string{"sft-manager", "sft-admin"} {
 		resp, err = createSft(t, h, who, who, nil)

@@ -242,14 +242,13 @@ func (f *nodeChangeFixture) opsJobs(t *testing.T) int {
 	return len(jobs.Items)
 }
 
-// A preflight job runs privileged on its nodes, so creating one takes what a privileged workload in the
-// workspace takes: a member, who may create preflight jobs but not privileged workloads, is refused and
-// no job is created; the workspace's manager and a system administrator create it.
+// A preflight job runs privileged on its nodes, so creating one takes workload/privileged. Workspace
+// members hold that grant, and so do the workspace's manager and a system administrator: each creates it.
 func TestPreflightJobsTakeThePrivilegedWorkloadGrant(t *testing.T) {
 	for _, who := range []struct {
 		user string
 		ok   bool
-	}{{ncMember, false}, {ncManager, true}, {ncAdmin, true}} {
+	}{{ncMember, true}, {ncManager, true}, {ncAdmin, true}} {
 		t.Run(who.user, func(t *testing.T) {
 			f := newNodeChangeFixture(t, false)
 			res, err := f.h.createOpsJob(f.ctx(who.user, "", ncPreflight))
