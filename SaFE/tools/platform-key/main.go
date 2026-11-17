@@ -45,11 +45,11 @@ const (
 
 func main() {
 	var (
-		userID   = flag.String("user-id", "", "target user id (required)")
-		userName = flag.String("user-name", "", "target user name (stored on create)")
-		create   = flag.Bool("create", false, "mint a new platform key if none exists (WRITES to DB)")
+		userID      = flag.String("user-id", "", "target user id (required)")
+		userName    = flag.String("user-name", "", "target user name (stored on create)")
+		create      = flag.Bool("create", false, "mint a new platform key if none exists (WRITES to DB)")
 		forceCreate = flag.Bool("force-create", false, "allow --create when --auth-mode=external")
-		authMode = flag.String("auth-mode", strings.TrimSpace(os.Getenv("AUTH_MODE")), "builtin or external (default AUTH_MODE)")
+		authMode    = flag.String("auth-mode", strings.TrimSpace(os.Getenv("AUTH_MODE")), "builtin or external (default AUTH_MODE)")
 
 		cryptoKey     = flag.String("crypto-key", "", "crypto secret string")
 		cryptoKeyFile = flag.String("crypto-key-file", "", "file containing the crypto secret")
@@ -67,8 +67,18 @@ func main() {
 	if *userID == "" || *dbHost == "" || *dbName == "" || *dbUser == "" {
 		fatalf("required: --user-id, --db-host, --db-name, --db-user")
 	}
-	if *create && strings.EqualFold(strings.TrimSpace(*authMode), "external") && !*forceCreate {
-		fatalf("--create is refused when auth-mode is external; use --force-create only when deliberately minting a SaFE platform key")
+	mode := strings.ToLower(strings.TrimSpace(*authMode))
+	if *create {
+		switch mode {
+		case "builtin", "external":
+		default:
+			fatalf("--create requires --auth-mode=builtin or --auth-mode=external (or AUTH_MODE)")
+		}
+		if mode == "external" && !*forceCreate {
+			fatalf("--create is refused when auth-mode is external; use --force-create only when deliberately minting a SaFE platform key")
+		}
+	} else if mode != "" && mode != "builtin" && mode != "external" {
+		fatalf("--auth-mode must be builtin or external")
 	}
 
 	secret, err := loadValue(*cryptoKey, *cryptoKeyFile)

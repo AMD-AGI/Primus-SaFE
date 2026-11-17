@@ -138,9 +138,11 @@ func (h *Handler) submitTask(
 		return nil, commonerrors.NewInternalError("Claw base URL not configured; Model Optimization disabled")
 	}
 	if strings.TrimSpace(clawBearer) == "" {
-		return nil, commonerrors.NewUnauthorized(
-			"PrimusClaw authentication required: log in (platform key), send Authorization: Bearer ak-..., or configure model_optimization secret claw_api_key",
-		)
+		msg := "PrimusClaw authentication required: log in (platform key) or send Authorization: Bearer ak-..."
+		if commonconfig.PlatformKeyCreationAllowed() {
+			msg += ", or configure model_optimization secret claw_api_key"
+		}
+		return nil, commonerrors.NewUnauthorized(msg)
 	}
 
 	workspace := h.taskWorkspace(req)
@@ -1175,26 +1177,37 @@ func (h *Handler) clawBearerForGin(c *gin.Context) string {
 	return h.resolveClawBearer(c.Request.Context(), c.GetHeader("Authorization"), c.GetString(common.UserId), c.GetString(common.UserName))
 }
 
-// resolveClawBearer picks the PrimusClaw credential for a user-attributed call.
+// resolveClawBearer picks the PrimusClaw credential for a call.
+//
+// A named user in external mode uses only that user's platform key (lookup, never create)
+// and never the shared model_optimization.claw_api_key. A call with no user id may still
+// use the shared service key (recover / service paths).
 func (h *Handler) resolveClawBearer(ctx context.Context, authorization, userID, userName string) string {
 	if k := authority.ExtractApiKeyFromRequest(authorization); k != "" {
 		return k
 	}
-	external := commonconfig.GetAuthMode() == commonconfig.AuthModeExternal
 	if userID != "" {
 		if tok := authority.ApiKeyTokenInstance(); tok != nil {
-			pk, err := tok.GetOrCreatePlatformKey(ctx, userID, userName, !external)
+			var (
+				pk  string
+				err error
+			)
+			if commonconfig.PlatformKeyCreationAllowed() {
+				pk, err = tok.GetOrCreatePlatformKey(ctx, userID, userName, true)
+			} else {
+				pk, err = tok.GetPlatformKey(ctx, userID, userName)
+			}
 			if err != nil {
 				klog.ErrorS(err, "model optimization: platform key for PrimusClaw", "userId", userID)
 			} else if strings.TrimSpace(pk) != "" {
 				return pk
 			}
 		}
-	}
-	if external {
-		klog.ErrorS(nil, "model optimization: no user platform key in external mode; refusing the shared claw API key",
-			"userId", userID)
-		return ""
+		if !commonconfig.PlatformKeyCreationAllowed() {
+			klog.V(2).InfoS("model optimization: no user platform key in external mode; not using the shared claw API key",
+				"userId", userID)
+			return ""
+		}
 	}
 	return commonconfig.GetModelOptimizationClawAPIKey()
 }

@@ -96,12 +96,18 @@ func TestHubRegistry(t *testing.T) {
 
 func TestWithClawBearer(t *testing.T) {
 	ctx := context.Background()
-	// Empty bearer leaves ctx unchanged.
-	assert.Equal(t, "", clawBearerFromContext(WithClawBearer(ctx, "  ")))
+	// Empty bearer still records an override (no fallback to the default apiKey).
+	b, ok := clawBearerFromContext(WithClawBearer(ctx, "  "))
+	assert.True(t, ok)
+	assert.Equal(t, "", b)
 	// Set bearer round-trips.
 	ctx2 := WithClawBearer(ctx, "tok-123")
-	assert.Equal(t, "tok-123", clawBearerFromContext(ctx2))
+	b, ok = clawBearerFromContext(ctx2)
+	assert.True(t, ok)
+	assert.Equal(t, "tok-123", b)
 	// Nil context.
 	assert.Nil(t, WithClawBearer(nil, "x"))
-	assert.Equal(t, "", clawBearerFromContext(nil))
+	b, ok = clawBearerFromContext(nil)
+	assert.False(t, ok)
+	assert.Equal(t, "", b)
 }

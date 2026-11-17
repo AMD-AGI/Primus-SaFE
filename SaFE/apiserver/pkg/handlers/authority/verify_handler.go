@@ -85,8 +85,7 @@ func fetchPlatformKey(ctx context.Context, userId, userName string) (string, err
 		klog.Warning("database client not available, cannot provide platform key")
 		return "", nil
 	}
-	create := commonconfig.GetAuthMode() != commonconfig.AuthModeExternal
-	return apikey.GetOrCreatePlatformKey(ctx, db, userId, userName, create)
+	return apikey.GetOrCreatePlatformKey(ctx, db, userId, userName, commonconfig.PlatformKeyCreationAllowed())
 }
 
 // VerifyToken validates a user token and returns user information
@@ -480,20 +479,19 @@ func verifyExternal(c *gin.Context, st *externalAuth, req *VerifyTokenRequest) (
 	}
 	overlay := st.overlay(id)
 	effective := extauth.ApplyOverlay(extauth.WithOverlay(ctx, overlay), user)
-	if effective.IsRestricted() {
-		// Virtual keys are still looked up here. A restricted user must not receive one: refuse.
-		// includePlatformKey alone does not change the verdict in external mode (no key is created);
-		// clear it so an existing platform key is not returned either (it would bypass the claim).
-		if req.IncludeVirtualKey {
-			klog.Warningf("keys refused for a restricted user: user %s, actor %q", id.ID, id.Actor)
-			apimetrics.AuthFailuresTotal.WithLabelValues("restricted").Inc()
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"code":    http.StatusForbidden,
-				"message": "the user is restricted",
-			})
-			return nil, false, false
-		}
-		req.IncludePlatformKey = false
+	if effective.IsRestricted() && (req.IncludePlatformKey || req.IncludeVirtualKey) {
+		// A restricted user (the provider's "restricted" claim, or the user record) is refused by every request
+		// the apiserver authenticates through the chain. The keys this endpoint hands out are authenticated
+		// through the built-in entry, which has no such claim to apply, so a key issued to a restricted user
+		// would go on working while the provider has frozen the user: it is not issued. This holds for any
+		// credential, and a key actor's token is one more.
+		klog.Warningf("keys refused for a restricted user: user %s, actor %q", id.ID, id.Actor)
+		apimetrics.AuthFailuresTotal.WithLabelValues("restricted").Inc()
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"code":    http.StatusForbidden,
+			"message": "the user is restricted",
+		})
+		return nil, false, false
 	}
 	return &externalVerdict{info: info, roles: effective.Spec.Roles, overlay: overlay, userType: userType, actor: id.Actor, jti: id.Jti}, false, true
 }

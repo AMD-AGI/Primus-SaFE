@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -526,22 +525,22 @@ func TestVerifyRefusesKeysForARestrictedUser(t *testing.T) {
 		req      VerifyTokenRequest
 		wantCode int
 	}{
-		{"delegated, the provider restricts the user, platform key only: verdict ok, no key", nil, delegated(map[string]any{"restricted": true}),
-			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusOK},
+		{"delegated, the provider restricts the user, platform key", nil, delegated(map[string]any{"restricted": true}),
+			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusForbidden},
 		{"delegated, the provider restricts the user, virtual key", nil, delegated(map[string]any{"restricted": true}),
 			VerifyTokenRequest{IncludeVirtualKey: true}, http.StatusForbidden},
 		{"delegated, the provider restricts the user, both keys", nil, delegated(map[string]any{"restricted": true}),
 			VerifyTokenRequest{IncludePlatformKey: true, IncludeVirtualKey: true}, http.StatusForbidden},
-		{"delegated, the user record is frozen, platform key only: verdict ok, no key", frozenRecord, delegated(nil),
-			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusOK},
-		{"direct token, the provider restricts the user, platform key only: verdict ok, no key", nil, func(e *extEnv) string { return e.jwt(map[string]any{"restricted": true}) },
-			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusOK},
+		{"delegated, the user record is frozen", frozenRecord, delegated(nil),
+			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusForbidden},
+		{"direct token, the provider restricts the user", nil, func(e *extEnv) string { return e.jwt(map[string]any{"restricted": true}) },
+			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusForbidden},
 		{"direct token, the user record is frozen", frozenRecord, func(e *extEnv) string { return e.jwt(nil) },
 			VerifyTokenRequest{IncludeVirtualKey: true}, http.StatusForbidden},
-		{"introspected, the provider restricts the user, platform key only: verdict ok, no key", nil, func(e *extEnv) string {
+		{"introspected, the provider restricts the user", nil, func(e *extEnv) string {
 			e.revUsers["opaque-frozen"] = map[string]any{"sub": extUser, "username": "alice", "restricted": true}
 			return "opaque-frozen"
-		}, VerifyTokenRequest{IncludePlatformKey: true}, http.StatusOK},
+		}, VerifyTokenRequest{IncludePlatformKey: true}, http.StatusForbidden},
 
 		{"direct token, restricted, no key asked for: the verdict is as it was", nil, func(e *extEnv) string { return e.jwt(map[string]any{"restricted": true}) },
 			VerifyTokenRequest{}, http.StatusOK},
@@ -582,10 +581,7 @@ func TestVerifyRefusesKeysForARestrictedUser(t *testing.T) {
 			var resp verifyResponse
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 			require.Equal(t, extUser, resp.Data.Id)
-			if strings.Contains(tc.name, "platform key only") || strings.Contains(tc.name, "no key asked for") {
-				require.Empty(t, resp.Data.PlatformKey)
-				require.Empty(t, *asked)
-			} else if tc.req.IncludePlatformKey {
+			if tc.req.IncludePlatformKey {
 				require.Equal(t, "pk-of-"+extUser, resp.Data.PlatformKey)
 			}
 		})

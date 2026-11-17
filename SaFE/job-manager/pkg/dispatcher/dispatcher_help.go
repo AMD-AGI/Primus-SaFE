@@ -344,10 +344,10 @@ var (
 	platformKeyLookup = lookupPlatformKey
 )
 
-// lookupPlatformKey returns an existing platform key, and creates one only in builtin mode.
+// lookupPlatformKey returns an existing platform key, and creates one only when
+// config.PlatformKeyCreationAllowed reports that minting is allowed.
 func lookupPlatformKey(ctx context.Context, db dbclient.Interface, userId, userName string) (string, error) {
-	create := commonconfig.GetAuthMode() != commonconfig.AuthModeExternal
-	return apikey.GetOrCreatePlatformKey(ctx, db, userId, userName, create)
+	return apikey.GetOrCreatePlatformKey(ctx, db, userId, userName, commonconfig.PlatformKeyCreationAllowed())
 }
 
 // platformKeyForUser returns the plaintext platform API key for the workload owner.

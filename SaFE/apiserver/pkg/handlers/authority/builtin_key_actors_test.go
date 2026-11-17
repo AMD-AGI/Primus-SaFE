@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -170,10 +169,10 @@ func TestBuiltinKeyActors(t *testing.T) {
 		{name: "ids are compared exactly", token: func(e *bkaEnv) string {
 			return e.tok(map[string]any{"act": map[string]any{"sub": "SVC-BOT"}, "client_id": "SVC-BOT"})
 		}, wantCode: http.StatusForbidden, wantMessage: msgDelegatedForbidden},
-		{name: "a frozen user, platform key only: verdict ok, no key", token: func(e *bkaEnv) string { return e.tok(map[string]any{"sub": bkaFrozen}) },
-			wantCode: http.StatusOK, wantSubject: bkaFrozen},
-		{name: "the provider restricts the user, platform key only: verdict ok, no key", token: func(e *bkaEnv) string { return e.tok(map[string]any{"restricted": true}) },
-			wantCode: http.StatusOK, wantSubject: bkaUser},
+		{name: "a frozen user has no keys", token: func(e *bkaEnv) string { return e.tok(map[string]any{"sub": bkaFrozen}) },
+			wantCode: http.StatusForbidden, wantMessage: "the user is restricted"},
+		{name: "the provider restricts the user", token: func(e *bkaEnv) string { return e.tok(map[string]any{"restricted": true}) },
+			wantCode: http.StatusForbidden, wantMessage: "the user is restricted"},
 
 		{name: "a subject with no user here is provisioned", token: func(e *bkaEnv) string { return e.tok(map[string]any{"sub": "nobody-id"}) },
 			wantCode: http.StatusOK, wantSubject: "nobody-id", userDelta: 1},
@@ -230,13 +229,8 @@ func TestBuiltinKeyActors(t *testing.T) {
 				wantType = UserTypeDelegated
 			}
 			require.Equal(t, wantType, resp.Data.Type)
-			if strings.Contains(tc.name, "platform key only") {
-				require.Empty(t, resp.Data.PlatformKey)
-				require.Empty(t, *asked)
-			} else {
-				require.Equal(t, "pk-of-"+tc.wantSubject, resp.Data.PlatformKey)
-				require.Equal(t, []string{tc.wantSubject}, *asked, "keys were looked up for the subject, and only for it")
-			}
+			require.Equal(t, "pk-of-"+tc.wantSubject, resp.Data.PlatformKey)
+			require.Equal(t, []string{tc.wantSubject}, *asked, "keys were looked up for the subject, and only for it")
 			require.Equal(t, []v1.UserRole{v1.DefaultRole}, resp.Data.Roles, "the stored roles, never the token's groups")
 		})
 	}

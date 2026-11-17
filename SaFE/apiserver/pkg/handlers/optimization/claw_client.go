@@ -723,12 +723,11 @@ func (c *ClawClient) doStream(req *http.Request) (*http.Response, error) {
 
 func (c *ClawClient) applyHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
-	bearer := ""
+	bearer := c.apiKey
 	if req != nil {
-		bearer = clawBearerFromContext(req.Context())
-	}
-	if bearer == "" {
-		bearer = c.apiKey
+		if override, ok := clawBearerFromContext(req.Context()); ok {
+			bearer = override
+		}
 	}
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)

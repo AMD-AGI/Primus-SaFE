@@ -1106,6 +1106,12 @@ func GetAuthMode() string {
 	return mode
 }
 
+// PlatformKeyCreationAllowed reports whether this process may mint a new platform API key.
+// External mode looks up existing keys only.
+func PlatformKeyCreationAllowed() bool {
+	return GetAuthMode() != AuthModeExternal
+}
+
 // CheckAuthMode rejects an auth.mode that is set and is neither builtin nor external.
 // An empty value is builtin.
 func CheckAuthMode() error {
