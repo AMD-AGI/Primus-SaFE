@@ -10,8 +10,10 @@ package posttraininghandlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
@@ -37,6 +39,8 @@ const (
 	defaultStorageRoot = "/wekafs"
 	// runDirParent is where runs write their directory under the workspace storage.
 	runDirParent = "custom/models"
+	// registryRetryInterval is how often a version rejected for images in use is checked again.
+	registryRetryInterval = time.Minute
 )
 
 // Handler serves the Post Training routes.
@@ -48,6 +52,7 @@ type Handler struct {
 	store    registry.Store
 	mu       sync.Mutex
 	loadedRV string
+	retryAt  time.Time
 }
 
 // NewHandler creates the Post Training handler.
@@ -56,7 +61,8 @@ func NewHandler(cli ctrlclient.Client, db dbclient.Interface) *Handler {
 }
 
 // registry returns the current registry. A missing ConfigMap means Post Training is off (404); an invalid one keeps
-// the previous valid version and, before any valid version was seen, returns the validation error.
+// the previous valid version and, before any valid version was seen, returns the validation error. A version rejected
+// for images that unfinished runs use is checked again every registryRetryInterval.
 func (h *Handler) registry(ctx context.Context) (*registry.Registry, error) {
 	cm := &corev1.ConfigMap{}
 	key := ctrlclient.ObjectKey{Namespace: common.PrimusSafeNamespace, Name: registry.ConfigMapName}
@@ -67,7 +73,7 @@ func (h *Handler) registry(ctx context.Context) (*registry.Registry, error) {
 		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to read the Post Training registry: %v", err))
 	}
 	h.mu.Lock()
-	if cm.ResourceVersion != h.loadedRV {
+	if cm.ResourceVersion != h.loadedRV || (!h.retryAt.IsZero() && time.Now().After(h.retryAt)) {
 		prev, _ := h.store.Get()
 		check := func(next *registry.Registry) error {
 			if err := recipe.CheckRegistry(next); err != nil {
@@ -75,10 +81,14 @@ func (h *Handler) registry(ctx context.Context) (*registry.Registry, error) {
 			}
 			return registry.CheckRemovedImages(prev, next, h.imagesInUse(ctx))
 		}
-		if err := h.store.Load([]byte(cm.Data[registry.DataKey]), check); err != nil {
+		err := h.store.Load([]byte(cm.Data[registry.DataKey]), check)
+		h.loadedRV, h.retryAt = cm.ResourceVersion, time.Time{}
+		if err != nil {
 			klog.ErrorS(err, "rejected a Post Training registry version", "resourceVersion", cm.ResourceVersion)
+			if errors.Is(err, registry.ErrRemovedImagesInUse) {
+				h.retryAt = time.Now().Add(registryRetryInterval)
+			}
 		}
-		h.loadedRV = cm.ResourceVersion
 	}
 	h.mu.Unlock()
 	return h.store.Get()

@@ -9,6 +9,7 @@
 package registry
 
 import (
+	"errors"
 	"fmt"
 	"path"
 	"sort"
@@ -712,6 +713,9 @@ func (img *Image) HasFeature(feature string) bool {
 	return false
 }
 
+// ErrRemovedImagesInUse is the CheckRemovedImages rejection; the version becomes valid once those runs finish.
+var ErrRemovedImagesInUse = errors.New("invalid registry: unfinished runs still use the removed images")
+
 // CheckRemovedImages rejects a new version that drops an image of the previous version which unfinished runs
 // still use; inUse lists those runs' images.
 func CheckRemovedImages(prev, next *Registry, inUse []string) error {
@@ -730,7 +734,7 @@ func CheckRemovedImages(prev, next *Registry, inUse []string) error {
 	}
 	if len(removed) > 0 {
 		sort.Strings(removed)
-		return fmt.Errorf("invalid registry: unfinished runs still use the removed images %s", strings.Join(removed, ", "))
+		return fmt.Errorf("%w %s", ErrRemovedImagesInUse, strings.Join(removed, ", "))
 	}
 	return nil
 }

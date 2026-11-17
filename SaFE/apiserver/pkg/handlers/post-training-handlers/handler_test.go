@@ -12,8 +12,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang/mock/gomock"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -26,6 +28,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 )
@@ -231,6 +234,38 @@ func TestRegistryLoading(t *testing.T) {
 	require.Equal(t, "qwen3-4B", reg.Specs[0].Name)
 	require.Empty(t, workspaceUnavailable(reg, "", "MI355X"))
 	require.Equal(t, `The workspace GPU "MI325X" has no known architecture`, workspaceUnavailable(reg, "", "MI325X"))
+}
+
+func TestRegistryRetriesImagesInUse(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+	running := []*dbclient.PostTrainingRun{{RunID: "r1", Image: "img:1"}}
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, dbclient.PostTrainingRunFilter) ([]*dbclient.PostTrainingRun, int64, error) {
+			return running, int64(len(running)), nil
+		}).AnyTimes()
+	h := NewHandler(cli, db)
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: common.PrimusSafeNamespace,
+		Name: registry.ConfigMapName}, Data: map[string]string{registry.DataKey: testRegistry}}
+	require.NoError(t, cli.Create(ctx, cm))
+	_, err := h.registry(ctx)
+	require.NoError(t, err)
+
+	cm.Data[registry.DataKey] = strings.Replace(testRegistry, `"img:1"`, `"img:2"`, 1)
+	require.NoError(t, cli.Update(ctx, cm))
+	reg, _ := h.registry(ctx)
+	require.NotNil(t, reg.ImageByName("img:1"), "a run still uses img:1, so the new version waits")
+
+	running = nil
+	reg, _ = h.registry(ctx)
+	require.NotNil(t, reg.ImageByName("img:1"), "the version is checked again only after the retry interval")
+	h.retryAt = time.Now().Add(-time.Second)
+	reg, _ = h.registry(ctx)
+	require.NotNil(t, reg.ImageByName("img:2"), "once no run uses img:1 the new version is loaded")
+	require.True(t, h.retryAt.IsZero())
 }
 
 func TestPausedError(t *testing.T) {
