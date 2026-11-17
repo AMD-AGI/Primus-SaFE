@@ -69,9 +69,18 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="Actions" width="120" fixed="right">
+      <el-table-column label="Actions" :width="userStore.isManager ? 168 : 120" fixed="right">
         <template #default="{ row }">
           <template v-if="userStore.isManager">
+            <el-tooltip content="QoS" placement="top">
+              <el-button
+                circle
+                class="btn-primary-plain"
+                :icon="Setting"
+                size="default"
+                @click="openQos(row)"
+              />
+            </el-tooltip>
             <el-tooltip v-if="creatable" content="Delete" placement="top">
               <el-button
                 circle
@@ -126,10 +135,11 @@
     :user="state.curUser"
     @success="getUserList()"
   />
+  <QosDialog v-model:visible="qosVisible" :user="qosUser" @success="getUserList()" />
 </template>
 <script lang="ts" setup>
 import { ref, onMounted, reactive, h, computed } from 'vue'
-import { Edit, Delete, Plus, Minus, Search } from '@element-plus/icons-vue'
+import { Edit, Delete, Plus, Minus, Search, Setting } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type TableColumnCtx } from 'element-plus'
 import {
   getUserDataList,
@@ -139,6 +149,7 @@ import {
   type EditUserResp,
 } from '@/services'
 import AddDialog from './Components/AddDialog.vue'
+import QosDialog from './Components/QosDialog.vue'
 import { formatTimeStr } from '@/utils'
 import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -146,6 +157,8 @@ import type { Workspace } from '@/services'
 import { useRouter } from 'vue-router'
 
 const searchName = ref('')
+const qosVisible = ref(false)
+const qosUser = ref<UserSelfData | null>(null)
 const allUserData = ref<UserSelfData[]>([])
 
 const state = reactive({
@@ -194,6 +207,11 @@ const filterUsers = () => {
 // Handle search input change
 const onSearchChange = () => {
   filterUsers()
+}
+
+const openQos = (row: UserSelfData) => {
+  qosUser.value = row
+  qosVisible.value = true
 }
 
 const openDialog = (row: UserSelfData) => {

@@ -21,7 +21,6 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -247,8 +246,7 @@ func (m *WorkspaceMutator) mutateCommon(ctx context.Context, oldWorkspace, newWo
 	m.mutateVolumes(newWorkspace)
 	m.mutateQueuePolicy(newWorkspace)
 	mutateSandboxScopeLabel(newWorkspace)
-	if oldWorkspace != nil && (oldWorkspace.Spec.EnablePreempt != newWorkspace.Spec.EnablePreempt ||
-		!isMaxRuntimeEqual(oldWorkspace.Spec.MaxRuntime, newWorkspace.Spec.MaxRuntime)) {
+	if oldWorkspace != nil && oldWorkspace.Spec.EnablePreempt != newWorkspace.Spec.EnablePreempt {
 		if err := m.mutateWorkloadsOfWorkspace(ctx, newWorkspace); err != nil {
 			return err
 		}
@@ -263,18 +261,6 @@ func (m *WorkspaceMutator) mutateCommon(ctx context.Context, oldWorkspace, newWo
 		return err
 	}
 	return nil
-}
-
-func isMaxRuntimeEqual(old, new map[v1.WorkspaceScope]int) bool {
-	if len(old) != len(new) {
-		return false
-	}
-	for k, v := range old {
-		if new[k] != v {
-			return false
-		}
-	}
-	return true
 }
 
 // mutateSandboxScopeLabel derives WorkspaceSandboxScopeLabel from Spec.Scopes, so that a label
@@ -678,13 +664,6 @@ func (m *WorkspaceMutator) mutateWorkloadsOfWorkspace(ctx context.Context, works
 			}
 		}
 
-		if w.Spec.Timeout == nil {
-			scope := commonworkload.GetScope(w)
-			if maxRuntime := workspace.GetMaxRunTime(scope); maxRuntime > 0 {
-				w.Spec.Timeout = pointer.Int(maxRuntime)
-				isChanged = true
-			}
-		}
 		if isChanged {
 			if err = m.Update(ctx, w); err != nil {
 				klog.ErrorS(err, "failed to patch workload")

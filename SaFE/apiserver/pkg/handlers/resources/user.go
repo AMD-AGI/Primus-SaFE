@@ -299,6 +299,7 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 		sort.Sort(view.UserSlice(userList.Items))
 	}
 	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
+	adminView := h.isSystemAdminRequest(c.Request.Context(), requestUser)
 	for _, item := range userList.Items {
 		if query.WorkspaceId != "" {
 			if !commonuser.HasWorkspaceRight(&item, query.WorkspaceId) {
@@ -308,7 +309,11 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 		if h.authUserGet(c, query.WorkspaceId, requestUser, &item, roles, v1.ListVerb) != nil {
 			continue
 		}
-		result.Items = append(result.Items, h.cvtToUserResponseItem(c.Request.Context(), &item))
+		resp := h.cvtToUserResponseItem(c.Request.Context(), &item)
+		if !adminView && item.Name != requestUser.Name {
+			resp.Qos = nil
+		}
+		result.Items = append(result.Items, resp)
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
@@ -370,7 +375,23 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 	if err = h.authUserGet(c, "", requestUser, targetUser, roles, v1.GetVerb); err != nil {
 		return nil, err
 	}
-	return h.cvtToUserResponseItem(c.Request.Context(), targetUser), nil
+	resp := h.cvtToUserResponseItem(c.Request.Context(), targetUser)
+	if !h.isSystemAdminRequest(c.Request.Context(), requestUser) && targetUser.Name != requestUser.Name {
+		resp.Qos = nil
+	}
+	return resp, nil
+}
+
+// isSystemAdminRequest reports whether the request user is a system administrator.
+// Only system administrators may read other users' personal qos.
+func (h *Handler) isSystemAdminRequest(ctx context.Context, requestUser *v1.User) bool {
+	if requestUser == nil {
+		return false
+	}
+	return h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
+		Context: ctx,
+		User:    requestUser,
+	}, false) == nil
 }
 
 // getSelfWorkspaces implements the lookup behind GET /users/self/workspaces.
@@ -480,6 +501,9 @@ func applyUserPatch(targetUser *v1.User, req *view.PatchUserRequest) {
 		v1.SetLabel(targetUser, v1.UserEmailMd5Label, stringutil.MD5(*req.Email))
 		v1.SetAnnotation(targetUser, v1.UserEmailAnnotation, *req.Email)
 	}
+	if req.Qos != nil {
+		targetUser.Spec.Qos = req.Qos
+	}
 }
 
 // authUserUpdate validates authorization for user patch operations.
@@ -518,6 +542,16 @@ func (h *Handler) authUserUpdate(c *gin.Context, targetUser *v1.User, req *view.
 			}
 			isChanged = true
 		}
+	}
+
+	if req.Qos != nil {
+		if err = h.requireSystemAdmin(c); err != nil {
+			return false, err
+		}
+		if err = view.ValidateUserQos(req.Qos); err != nil {
+			return false, err
+		}
+		isChanged = true
 	}
 
 	if req.Email != nil && *req.Email != v1.GetUserEmail(targetUser) ||
@@ -737,6 +771,7 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) view
 		CreationTime:   timeutil.FormatRFC3339(user.CreationTimestamp.Time),
 		RestrictedType: user.Spec.RestrictedType,
 		AvatarUrl:      v1.GetUserAvatarUrl(user),
+		Qos:            user.Spec.Qos,
 	}
 	result.Workspaces, result.ManagedWorkspaces = h.userWorkspaces(ctx, user)
 	return result

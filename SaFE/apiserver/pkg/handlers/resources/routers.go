@@ -138,6 +138,15 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 			opsJobs.GET(fmt.Sprintf("/:%s", common.Name), h.GetOpsJob)
 		}
 
+		// ==================== QoS ====================
+		qosGroup := authGroup.Group("/qos")
+		{
+			qosGroup.GET("", h.ListQos)
+			qosGroup.GET(fmt.Sprintf("/:%s", common.Name), h.GetQos)
+			qosGroup.PUT(fmt.Sprintf("/:%s", common.Name), middleware.Audit("qos"), h.PutQos)
+			qosGroup.DELETE(fmt.Sprintf("/:%s", common.Name), middleware.Audit("qos"), h.DeleteQos)
+		}
+
 		// ==================== Users ====================
 		// Creating and deleting accounts is served here when auth.mode is builtin.
 		// External mode leaves both to the identity service. Patching a user, and this list of the

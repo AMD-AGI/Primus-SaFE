@@ -65,6 +65,8 @@ type UserResponseItem struct {
 	RestrictedType v1.UserRestrictedType `json:"restrictedType"`
 	// User avatar URL
 	AvatarUrl string `json:"avatarUrl,omitempty"`
+	// Per-user resource and runtime ceilings.
+	Qos *v1.UserQos `json:"qos,omitempty"`
 }
 
 // UserWorkspacesResponse is the answer of GET /users/self/workspaces: the same two lists
@@ -90,6 +92,8 @@ type PatchUserRequest struct {
 	RestrictedType *v1.UserRestrictedType `json:"restrictedType,omitempty"`
 	// User email
 	Email *string `json:"email,omitempty"`
+	// Per-user resource and runtime ceilings. System administrators only.
+	Qos *v1.UserQos `json:"qos,omitempty"`
 }
 
 type UserSettingsResponse struct {

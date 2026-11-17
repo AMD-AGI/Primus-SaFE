@@ -322,9 +322,6 @@ func (h *Handler) applyWorkspacePatch(ctx context.Context,
 			return err
 		}
 	}
-	if req.MaxRuntime != nil {
-		workspace.Spec.MaxRuntime = *req.MaxRuntime
-	}
 	if req.IdleTime != nil {
 		workspace.Spec.IdleTime = *req.IdleTime
 	}
@@ -581,7 +578,6 @@ func (h *Handler) generateWorkspace(ctx context.Context,
 			Scopes:        req.Scopes,
 			EnablePreempt: req.EnablePreempt,
 			IsDefault:     req.IsDefault,
-			MaxRuntime:    req.MaxRuntime,
 			IdleTime:      req.IdleTime,
 		},
 	}
@@ -658,7 +654,6 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 		Volumes:           w.Spec.Volumes,
 		EnablePreempt:     w.Spec.EnablePreempt,
 		IsDefault:         w.Spec.IsDefault,
-		MaxRuntime:        w.Spec.MaxRuntime,
 		IdleTime:          w.Spec.IdleTime,
 		GpuProduct:        v1.GetAnnotation(w, v1.GpuProductAnnotation),
 		External:          v1.IsExternalWorkspace(w),

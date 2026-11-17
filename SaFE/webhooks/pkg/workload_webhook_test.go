@@ -360,13 +360,15 @@ func TestWorkloadMutateSecrets(t *testing.T) {
 	assert.Equal(t, len(w.Spec.Secrets), 1)
 }
 
-// TestWorkloadMutateTimeout verifies timeout assignment from workspace max runtime.
+// TestWorkloadMutateTimeout verifies an empty timeout is filled from the global qos.
 func TestWorkloadMutateTimeout(t *testing.T) {
-	m := &WorkloadMutator{}
+	scheme := newScheme(t)
+	qos := &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: v1.QosDefaultName}, Spec: v1.QosSpec{MaxRuntime: map[string]int{common.PytorchJobKind: 7200}}}
+	m := &WorkloadMutator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos).Build()}
 	w := &v1.Workload{Spec: v1.WorkloadSpec{GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind}}}
-	ws := &v1.Workspace{Spec: v1.WorkspaceSpec{MaxRuntime: map[v1.WorkspaceScope]int{v1.TrainScope: 2}}}
-	m.mutateTimeout(w, ws)
+	assert.NilError(t, m.mutateTimeout(context.Background(), w, &v1.Workspace{Spec: v1.WorkspaceSpec{Cluster: "c1"}}))
 	assert.Assert(t, w.Spec.Timeout != nil)
+	assert.Equal(t, *w.Spec.Timeout, 7200)
 }
 
 // TestWorkloadMutateMeta verifies labels and finalizer on workload.

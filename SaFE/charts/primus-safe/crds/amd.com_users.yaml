@@ -45,6 +45,10 @@ spec:
               password:
                 description: User password, base64 encoded, optional
                 type: string
+              qos:
+                description: Per-user resource and runtime ceilings. Unset fields fall through to Qos defaults.
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
               resources:
                 additionalProperties:
                   items:

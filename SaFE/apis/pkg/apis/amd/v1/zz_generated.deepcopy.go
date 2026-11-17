@@ -2193,6 +2193,10 @@ func (in *UserSpec) DeepCopyInto(out *UserSpec) {
 			(*out)[key] = outVal
 		}
 	}
+	if in.Qos != nil {
+		in, out := &in.Qos, &out.Qos
+		*out = (*in).DeepCopy()
+	}
 	return
 }
 
@@ -2644,13 +2648,6 @@ func (in *WorkspaceSpec) DeepCopyInto(out *WorkspaceSpec) {
 		in, out := &in.ImageSecrets, &out.ImageSecrets
 		*out = make([]corev1.ObjectReference, len(*in))
 		copy(*out, *in)
-	}
-	if in.MaxRuntime != nil {
-		in, out := &in.MaxRuntime, &out.MaxRuntime
-		*out = make(map[WorkspaceScope]int, len(*in))
-		for key, val := range *in {
-			(*out)[key] = val
-		}
 	}
 	if in.IdleTime != nil {
 		in, out := &in.IdleTime, &out.IdleTime

@@ -33,6 +33,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonqos "github.com/AMD-AIG-AIMA/SAFE/common/pkg/qos"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
@@ -446,10 +447,60 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 	return nil
 }
 
+// userQuotaReason reports when this user's running work on the cluster cannot take the request.
+// Queued work is not counted. A request that is already larger than the ceiling stays pending.
+func (r *SchedulerReconciler) userQuotaReason(ctx context.Context, workload *v1.Workload) (string, error) {
+	userID := v1.GetUserId(workload)
+	clusterID := v1.GetClusterId(workload)
+	if userID == "" || clusterID == "" {
+		return "", nil
+	}
+	limits, err := commonqos.Ceiling(ctx, r.Client, userID, clusterID, workload.SpecKind())
+	if err != nil {
+		return "", err
+	}
+	if limits.CPU == "" && limits.Memory == "" && limits.GPU == "" {
+		return "", nil
+	}
+	held := &v1.WorkloadList{}
+	if err = r.List(ctx, held, client.MatchingLabels{
+		v1.ClusterIdLabel: clusterID,
+		v1.UserIdLabel:    userID,
+	}); err != nil {
+		return "", err
+	}
+	used := corev1.ResourceList{}
+	for i := range held.Items {
+		item := &held.Items[i]
+		if item.Name == workload.Name || item.IsEnd() || !v1.IsWorkloadScheduled(item) {
+			continue
+		}
+		part, partErr := commonworkload.GetTotalResourceList(item)
+		if partErr != nil {
+			return "", partErr
+		}
+		used = quantity.AddResource(used, part)
+	}
+	request, err := commonworkload.GetTotalResourceList(workload)
+	if err != nil {
+		return "", err
+	}
+	return commonqos.QuotaReason(userID, clusterID, used, request, limits)
+}
+
 // canScheduleWorkload checks if a workload can be scheduled based on resource availability.
 func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWorkload *v1.Workload,
 	workspace *v1.Workspace, scheduledWorkloads []*v1.Workload, requestResources, leftResources corev1.ResourceList) (bool, string, error) {
 	var reason string
+	reason, err := r.userQuotaReason(ctx, requestWorkload)
+	if err != nil {
+		return false, "", err
+	}
+	if reason != "" {
+		klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
+		jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonInsufficient).Inc()
+		return false, reason, nil
+	}
 	if sourceWorkloadId := v1.GetSourceWorkloadId(workspace); sourceWorkloadId != "" {
 		sourceWorkload := &v1.Workload{}
 		err := r.Get(ctx, client.ObjectKey{Name: sourceWorkloadId}, sourceWorkload)

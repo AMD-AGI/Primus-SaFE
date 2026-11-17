@@ -53,6 +53,7 @@ rules:
       - nodes.amd.com
       - nodetemplates.amd.com
       - opsjobs.amd.com
+      - qos.amd.com
       - resourcetemplates.amd.com
       - roles.amd.com
       - users.amd.com

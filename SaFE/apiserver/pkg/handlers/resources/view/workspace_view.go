@@ -43,8 +43,6 @@ type CreateWorkspaceRequest struct {
 	IsDefault bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecretIds []string `json:"imageSecretIds,omitempty"`
-	// The maximum workload runtime of each scope, Unit: hours
-	MaxRuntime map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
 	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
 	// only for sandbox workload
 	IdleTime map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`
@@ -105,8 +103,6 @@ type WorkspaceResponseItem struct {
 	Managers []UserEntity `json:"managers"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault bool `json:"isDefault"`
-	// The maximum workload runtime of each scope, Unit: hours
-	MaxRuntime map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
 	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
 	// only for sandbox workload
 	IdleTime map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`
@@ -154,8 +150,6 @@ type PatchWorkspaceRequest struct {
 	IsDefault *bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecretIds *[]string `json:"imageSecretIds,omitempty"`
-	// The maximum workload runtime of each scope, Unit: hours
-	MaxRuntime *map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
 	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "0h0m0s"
 	// only for sandbox workload
 	IdleTime *map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`

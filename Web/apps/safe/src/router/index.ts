@@ -227,6 +227,12 @@ const router = createRouter({
           meta: { requiresWorkspaceAdmin: true },
         },
         {
+          path: '/qos',
+          name: 'Qos',
+          component: () => import('../pages/Qos/index.vue'),
+          meta: { requiresSystemAdminWrite: true },
+        },
+        {
           path: '/preflight',
           name: 'Diagnoser',
           component: () => import('../pages/Diagnoser/index.vue'),

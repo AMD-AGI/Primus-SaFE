@@ -36,6 +36,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonqos "github.com/AMD-AIG-AIMA/SAFE/common/pkg/qos"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonquantity "github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -123,7 +124,9 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	if err := m.mutateCommon(ctx, nil, workload, workspace); err != nil {
 		return err
 	}
-	m.mutateTimeout(workload, workspace)
+	if err := m.mutateTimeout(ctx, workload, workspace); err != nil {
+		return err
+	}
 	// Stamp the status-offload marker so only workloads created by this version
 	// store large status fields in DB; pre-existing workloads stay on etcd.
 	v1.SetAnnotation(workload, v1.WorkloadStatusOffloadAnnotation, v1.TrueStr)
@@ -139,7 +142,7 @@ func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWo
 	if err := m.mutateCommon(ctx, oldWorkload, newWorkload, workspace); err != nil {
 		return err
 	}
-	return nil
+	return m.mutateTimeout(ctx, newWorkload, workspace)
 }
 
 // mutateCommon normalizes resources, hostpath, priority, image, entry point, host network and so on
@@ -1147,18 +1150,48 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 	}
 }
 
-func (m *WorkloadMutator) mutateTimeout(workload *v1.Workload, workspace *v1.Workspace) {
-	if workspace == nil {
-		return
+// mutateTimeout fills an empty timeout from the qos ceiling for this user, cluster and kind.
+// A shorter explicit timeout is kept. A longer one is left for the validator to reject.
+func (m *WorkloadMutator) mutateTimeout(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) error {
+	ceiling, err := runtimeCeiling(ctx, m.Client, workload, workspace)
+	if err != nil || ceiling <= 0 {
+		return err
 	}
-	scope := commonworkload.GetScope(workload)
-	maxRuntime := workspace.GetMaxRunTime(scope)
-	if maxRuntime <= 0 {
-		return
+	if workload.Spec.Timeout == nil || *workload.Spec.Timeout <= 0 {
+		workload.Spec.Timeout = pointer.Int(ceiling)
 	}
-	if workload.Spec.Timeout == nil {
-		workload.Spec.Timeout = pointer.Int(maxRuntime)
+	return nil
+}
+
+// runtimeCeiling is the qos timeout, in seconds, for this workload. Zero means no timeout.
+func runtimeCeiling(ctx context.Context, c client.Reader, workload *v1.Workload, workspace *v1.Workspace) (int, error) {
+	clusterID := v1.GetClusterId(workload)
+	if clusterID == "" && workspace != nil {
+		clusterID = workspace.Spec.Cluster
 	}
+	limits, err := commonqos.Ceiling(ctx, c, v1.GetUserId(workload), clusterID, workload.SpecKind())
+	if err != nil {
+		return 0, err
+	}
+	return limits.RuntimeSeconds, nil
+}
+
+// validateTimeout rejects a timeout above the qos ceiling for the workload kind.
+func (v *WorkloadValidator) validateTimeout(ctx context.Context, workload *v1.Workload) error {
+	workspace, _ := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
+	ceiling, err := runtimeCeiling(ctx, v.Client, workload, workspace)
+	if err != nil {
+		return err
+	}
+	if ceiling <= 0 || workload.Spec.Timeout == nil {
+		return nil
+	}
+	if *workload.Spec.Timeout <= 0 || *workload.Spec.Timeout > ceiling {
+		return commonerrors.NewBadRequest(fmt.Sprintf(
+			"timeout %d exceeds the qos limit of %d seconds for kind %s",
+			*workload.Spec.Timeout, ceiling, workload.SpecKind()))
+	}
+	return nil
 }
 
 // WorkloadValidator validates Workload resources on create and update operations.
@@ -1279,6 +1312,9 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		}
 	}
 
+	if err = v.validateTimeout(ctx, newWorkload); err != nil {
+		return err
+	}
 	if err = v.validateRequiredParams(newWorkload); err != nil {
 		return err
 	}
