@@ -7,7 +7,6 @@ package v1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -179,14 +178,6 @@ func (in *Qos) DeepCopy() *Qos {
 	return out
 }
 
-// DeepCopyObject copies a Qos as a runtime.Object.
-func (in *Qos) DeepCopyObject() runtime.Object {
-	if c := in.DeepCopy(); c != nil {
-		return c
-	}
-	return nil
-}
-
 // DeepCopyInto copies a QosList.
 func (in *QosList) DeepCopyInto(out *QosList) {
 	*out = *in
@@ -208,12 +199,4 @@ func (in *QosList) DeepCopy() *QosList {
 	out := new(QosList)
 	in.DeepCopyInto(out)
 	return out
-}
-
-// DeepCopyObject copies a QosList as a runtime.Object.
-func (in *QosList) DeepCopyObject() runtime.Object {
-	if c := in.DeepCopy(); c != nil {
-		return c
-	}
-	return nil
 }
