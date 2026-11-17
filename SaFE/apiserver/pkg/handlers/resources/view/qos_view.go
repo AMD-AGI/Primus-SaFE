@@ -56,12 +56,22 @@ func ValidateQosLimits(cap *v1.ResourceCap, runtime map[string]int) error {
 			}
 		}
 	}
-	for kind, seconds := range runtime {
-		if strings.TrimSpace(kind) == "" || seconds <= 0 {
-			return commonerrors.NewBadRequest(fmt.Sprintf("invalid timeout for kind %q", kind))
+	for scope, seconds := range runtime {
+		if !knownQosScope(scope) || seconds <= 0 {
+			return commonerrors.NewBadRequest(fmt.Sprintf("invalid timeout for scope %q", scope))
 		}
 	}
 	return nil
+}
+
+// knownQosScope reports whether name is a workspace scope that can carry a timeout.
+func knownQosScope(name string) bool {
+	switch v1.WorkspaceScope(name) {
+	case v1.TrainScope, v1.InferScope, v1.AuthoringScope, v1.CICDScope, v1.RayScope, v1.SandboxScope:
+		return true
+	default:
+		return false
+	}
 }
 
 // ValidateUserQos checks the personal ceiling and each per-cluster override.

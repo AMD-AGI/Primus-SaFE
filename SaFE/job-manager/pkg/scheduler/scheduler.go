@@ -455,7 +455,7 @@ func (r *SchedulerReconciler) userQuotaReason(ctx context.Context, workload *v1.
 	if userID == "" || clusterID == "" {
 		return "", nil
 	}
-	limits, err := commonqos.Ceiling(ctx, r.Client, userID, clusterID, workload.SpecKind())
+	limits, err := commonqos.Ceiling(ctx, r.Client, userID, clusterID, string(commonworkload.GetScope(workload)))
 	if err != nil {
 		return "", err
 	}

@@ -1150,8 +1150,9 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 	}
 }
 
-// mutateTimeout fills an empty timeout from the qos ceiling for this user, cluster and kind.
-// A shorter explicit timeout is kept. A longer one is left for the validator to reject.
+// mutateTimeout fills an empty timeout from the qos ceiling for this user, cluster and workspace scope.
+// The workload kind is mapped to a scope first. A shorter explicit timeout is kept.
+// A longer one is left for the validator to reject.
 func (m *WorkloadMutator) mutateTimeout(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) error {
 	ceiling, err := runtimeCeiling(ctx, m.Client, workload, workspace)
 	if err != nil || ceiling <= 0 {
@@ -1163,20 +1164,21 @@ func (m *WorkloadMutator) mutateTimeout(ctx context.Context, workload *v1.Worklo
 	return nil
 }
 
-// runtimeCeiling is the qos timeout, in seconds, for this workload. Zero means no timeout.
+// runtimeCeiling is the qos timeout, in seconds, for this workload's workspace scope.
+// Zero means no timeout.
 func runtimeCeiling(ctx context.Context, c client.Reader, workload *v1.Workload, workspace *v1.Workspace) (int, error) {
 	clusterID := v1.GetClusterId(workload)
 	if clusterID == "" && workspace != nil {
 		clusterID = workspace.Spec.Cluster
 	}
-	limits, err := commonqos.Ceiling(ctx, c, v1.GetUserId(workload), clusterID, workload.SpecKind())
+	limits, err := commonqos.Ceiling(ctx, c, v1.GetUserId(workload), clusterID, string(commonworkload.GetScope(workload)))
 	if err != nil {
 		return 0, err
 	}
 	return limits.RuntimeSeconds, nil
 }
 
-// validateTimeout rejects a timeout above the qos ceiling for the workload kind.
+// validateTimeout rejects a timeout above the qos ceiling for the workload's workspace scope.
 func (v *WorkloadValidator) validateTimeout(ctx context.Context, workload *v1.Workload) error {
 	workspace, _ := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
 	ceiling, err := runtimeCeiling(ctx, v.Client, workload, workspace)
@@ -1188,8 +1190,8 @@ func (v *WorkloadValidator) validateTimeout(ctx context.Context, workload *v1.Wo
 	}
 	if *workload.Spec.Timeout <= 0 || *workload.Spec.Timeout > ceiling {
 		return commonerrors.NewBadRequest(fmt.Sprintf(
-			"timeout %d exceeds the qos limit of %d seconds for kind %s",
-			*workload.Spec.Timeout, ceiling, workload.SpecKind()))
+			"timeout %d exceeds the qos limit of %d seconds for scope %s",
+			*workload.Spec.Timeout, ceiling, commonworkload.GetScope(workload)))
 	}
 	return nil
 }

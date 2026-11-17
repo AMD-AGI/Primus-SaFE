@@ -19,27 +19,31 @@ import (
 func TestResolveFallsThroughEachField(t *testing.T) {
 	user := &v1.User{Spec: v1.UserSpec{Qos: &v1.UserQos{
 		MaxResources: &v1.ResourceCap{CPU: "32"},
-		MaxRuntime:   map[string]int{"Authoring": 3600},
+		MaxRuntime:   map[string]int{string(v1.AuthoringScope): 3600},
 		Clusters: map[string]v1.UserQosScope{
 			"c1": {MaxResources: &v1.ResourceCap{GPU: "2"}},
 		},
 	}}}
 	cluster := &v1.Qos{Spec: v1.QosSpec{
 		MaxResources: &v1.ResourceCap{GPU: "8", Memory: "128Gi"},
-		MaxRuntime:   map[string]int{"PyTorchJob": 7200},
+		MaxRuntime:   map[string]int{string(v1.TrainScope): 7200},
 	}}
 	global := &v1.Qos{Spec: v1.QosSpec{
 		MaxResources: &v1.ResourceCap{CPU: "4", Memory: "64Gi", GPU: "1"},
-		MaxRuntime:   map[string]int{"Authoring": 600, "PyTorchJob": 600, "Job": 900},
+		MaxRuntime:   map[string]int{string(v1.AuthoringScope): 600, string(v1.TrainScope): 600, string(v1.RayScope): 900},
 	}}
 
-	got := Resolve(user, cluster, global, "c1", "Authoring")
+	got := Resolve(user, cluster, global, "c1", string(v1.AuthoringScope))
 	if got.GPU != "2" || got.CPU != "32" || got.Memory != "128Gi" || got.RuntimeSeconds != 3600 {
 		t.Fatalf("c1 authoring: %+v", got)
 	}
-	got = Resolve(user, nil, global, "c2", "Job")
+	got = Resolve(user, nil, global, "c2", string(v1.RayScope))
 	if got.GPU != "1" || got.CPU != "32" || got.Memory != "64Gi" || got.RuntimeSeconds != 900 {
-		t.Fatalf("c2 job: %+v", got)
+		t.Fatalf("c2 ray: %+v", got)
+	}
+	got = Resolve(user, cluster, global, "c1", "PyTorchJob")
+	if got.RuntimeSeconds != 0 {
+		t.Fatalf("a workload kind is not a timeout key: %+v", got)
 	}
 }
 

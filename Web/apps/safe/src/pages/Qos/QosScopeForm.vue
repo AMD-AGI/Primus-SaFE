@@ -11,10 +11,10 @@
     </el-form-item>
     <el-form-item label="Timeout">
       <div class="limit-entries">
-        <div v-for="kind in configuredKinds" :key="kind" class="limit-row">
-          <el-tag closable effect="plain" @close="removeKind(kind)">{{ kind }}</el-tag>
+        <div v-for="scope in configuredScopes" :key="scope" class="limit-row">
+          <el-tag closable effect="plain" @close="removeScope(scope)">{{ scope }}</el-tag>
           <el-input-number
-            v-model="model.runtimeHours[kind]"
+            v-model="model.runtimeHours[scope]"
             :min="0"
             :step="1"
             :precision="2"
@@ -24,12 +24,12 @@
           />
           <span class="limit-unit">h</span>
         </div>
-        <el-dropdown v-if="availableKinds.length" trigger="click" @command="addKind">
-          <el-button size="small" text type="primary">+ Add kind</el-button>
+        <el-dropdown v-if="availableScopes.length" trigger="click" @command="addScope">
+          <el-button size="small" text type="primary">+ Add scope</el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-for="kind in availableKinds" :key="kind" :command="kind">
-                {{ kind }}
+              <el-dropdown-item v-for="scope in availableScopes" :key="scope" :command="scope">
+                {{ scope }}
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -41,26 +41,28 @@
 
 <script lang="ts" setup>
 import { computed } from 'vue'
-import { WORKLOAD_KINDS, type ScopeDraft } from '@/services/qos/type'
+import { QOS_SCOPES, type ScopeDraft } from '@/services/qos/type'
 
 const model = defineModel<ScopeDraft>({ required: true })
 
-const configuredKinds = computed(() =>
-  Object.keys(model.value.runtimeHours).filter((kind) => WORKLOAD_KINDS.includes(kind)),
+const configuredScopes = computed(() =>
+  Object.keys(model.value.runtimeHours).filter((scope) =>
+    (QOS_SCOPES as readonly string[]).includes(scope),
+  ),
 )
 
-const availableKinds = computed(() =>
-  WORKLOAD_KINDS.filter((kind) => !(kind in model.value.runtimeHours)),
+const availableScopes = computed(() =>
+  QOS_SCOPES.filter((scope) => !(scope in model.value.runtimeHours)),
 )
 
-/** addKind starts an empty timeout for one workload kind. */
-const addKind = (kind: string) => {
-  model.value.runtimeHours[kind] = undefined
+/** addScope starts an empty timeout for one workspace scope. */
+const addScope = (scope: string) => {
+  model.value.runtimeHours[scope] = undefined
 }
 
-/** removeKind drops the timeout so that kind falls through. */
-const removeKind = (kind: string) => {
-  delete model.value.runtimeHours[kind]
+/** removeScope drops the timeout so that scope falls through. */
+const removeScope = (scope: string) => {
+  delete model.value.runtimeHours[scope]
 }
 </script>
 

@@ -2,7 +2,8 @@
   <div>
     <el-text class="block textx-18 font-500" tag="b">QoS</el-text>
     <el-text class="block mt-2" type="info">
-      Resource totals and timeouts for a cluster. Personal values are set on a user.
+      Resource totals and timeouts for a cluster. Timeouts are set per workspace scope: Train, Infer,
+      Authoring, CICD, Ray, Sandbox. Personal values are set on a user.
     </el-text>
   </div>
   <el-card class="mt-6 safe-card" shadow="never" v-loading="loading">

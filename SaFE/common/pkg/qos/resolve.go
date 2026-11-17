@@ -24,7 +24,7 @@ import (
 // as blocked by earlier workloads.
 const UserQuotaReasonPrefix = "In queue - user quota exceeded"
 
-// Limits is the ceiling that applies to one user on one cluster for one workload kind.
+// Limits is the ceiling that applies to one user on one cluster for one workspace scope.
 // An empty resource field and a zero runtime mean that dimension is not limited.
 type Limits struct {
 	CPU            string
@@ -48,9 +48,9 @@ func Load(ctx context.Context, c client.Reader, name string) (*v1.Qos, error) {
 	return qos, nil
 }
 
-// Ceiling loads the user and the global and cluster defaults, then resolves the kind.
+// Ceiling loads the user and the global and cluster defaults, then resolves the workspace scope.
 // A missing user or Qos is an empty contribution, not an error.
-func Ceiling(ctx context.Context, c client.Reader, userID, clusterID, kind string) (Limits, error) {
+func Ceiling(ctx context.Context, c client.Reader, userID, clusterID, scope string) (Limits, error) {
 	var user *v1.User
 	if userID != "" {
 		user = &v1.User{}
@@ -69,12 +69,13 @@ func Ceiling(ctx context.Context, c client.Reader, userID, clusterID, kind strin
 	if err != nil {
 		return Limits{}, err
 	}
-	return Resolve(user, clusterQos, globalQos, clusterID, kind), nil
+	return Resolve(user, clusterQos, globalQos, clusterID, scope), nil
 }
 
 // Resolve picks each field independently. A set value stops the search.
 // Order: this user on the cluster, the cluster default, this user on every cluster, the global default.
-func Resolve(user *v1.User, clusterQos, globalQos *v1.Qos, clusterID, kind string) Limits {
+// scope is a workspace scope such as Train or Infer.
+func Resolve(user *v1.User, clusterQos, globalQos *v1.Qos, clusterID, scope string) Limits {
 	var userCluster, userGlobal v1.UserQosScope
 	if user != nil && user.Spec.Qos != nil {
 		userGlobal = v1.UserQosScope{MaxResources: user.Spec.Qos.MaxResources, MaxRuntime: user.Spec.Qos.MaxRuntime}
@@ -86,7 +87,7 @@ func Resolve(user *v1.User, clusterQos, globalQos *v1.Qos, clusterID, kind strin
 		CPU:            firstSet(capCPU(userCluster.MaxResources), capCPU(specCap(clusterQos)), capCPU(userGlobal.MaxResources), capCPU(specCap(globalQos))),
 		Memory:         firstSet(capMemory(userCluster.MaxResources), capMemory(specCap(clusterQos)), capMemory(userGlobal.MaxResources), capMemory(specCap(globalQos))),
 		GPU:            firstSet(capGPU(userCluster.MaxResources), capGPU(specCap(clusterQos)), capGPU(userGlobal.MaxResources), capGPU(specCap(globalQos))),
-		RuntimeSeconds: firstRuntime(kind, userCluster.MaxRuntime, specRuntime(clusterQos), userGlobal.MaxRuntime, specRuntime(globalQos)),
+		RuntimeSeconds: firstRuntime(scope, userCluster.MaxRuntime, specRuntime(clusterQos), userGlobal.MaxRuntime, specRuntime(globalQos)),
 	}
 }
 
@@ -177,10 +178,10 @@ func firstSet(values ...string) string {
 	return ""
 }
 
-// firstRuntime returns the first positive ceiling for kind.
-func firstRuntime(kind string, runtimes ...map[string]int) int {
+// firstRuntime returns the first positive ceiling for a workspace scope.
+func firstRuntime(scope string, runtimes ...map[string]int) int {
 	for _, item := range runtimes {
-		if seconds, ok := item[kind]; ok && seconds > 0 {
+		if seconds, ok := item[scope]; ok && seconds > 0 {
 			return seconds
 		}
 	}

@@ -609,15 +609,16 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 		}
 	}
 	if request.Timeout != nil && (adminWorkload.Spec.Timeout == nil || *request.Timeout != *adminWorkload.Spec.Timeout) {
+		scope := string(commonworkload.GetScope(adminWorkload))
 		limits, err := commonqos.Ceiling(c.Request.Context(), h.Client, v1.GetUserId(adminWorkload),
-			v1.GetClusterId(adminWorkload), adminWorkload.SpecKind())
+			v1.GetClusterId(adminWorkload), scope)
 		if err != nil {
 			return err
 		}
 		if limits.RuntimeSeconds > 0 && (*request.Timeout > limits.RuntimeSeconds || *request.Timeout <= 0) {
 			return commonerrors.NewBadRequest(fmt.Sprintf(
-				"timeout %d exceeds the qos limit of %d seconds for kind %s",
-				*request.Timeout, limits.RuntimeSeconds, adminWorkload.SpecKind()))
+				"timeout %d exceeds the qos limit of %d seconds for scope %s",
+				*request.Timeout, limits.RuntimeSeconds, scope))
 		}
 	}
 	// A change to a workload that runs privileged changes what runs privileged, so it takes the

@@ -25,22 +25,28 @@ type ResourceCap struct {
 
 // UserQosScope is one user's ceiling, either for every cluster or for one cluster.
 type UserQosScope struct {
-	MaxResources *ResourceCap   `json:"maxResources,omitempty"`
-	MaxRuntime   map[string]int `json:"maxRuntime,omitempty"`
+	MaxResources *ResourceCap `json:"maxResources,omitempty"`
+	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope
+	// (Train, Infer, Authoring, CICD, Ray, Sandbox). A missing or non-positive entry is unset.
+	MaxRuntime map[string]int `json:"maxRuntime,omitempty"`
 }
 
 // UserQos is stored on the User. Clusters holds per-cluster overrides keyed by cluster id.
 type UserQos struct {
-	MaxResources *ResourceCap            `json:"maxResources,omitempty"`
-	MaxRuntime   map[string]int          `json:"maxRuntime,omitempty"`
-	Clusters     map[string]UserQosScope `json:"clusters,omitempty"`
+	MaxResources *ResourceCap `json:"maxResources,omitempty"`
+	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope
+	// (Train, Infer, Authoring, CICD, Ray, Sandbox). A missing or non-positive entry is unset.
+	MaxRuntime map[string]int          `json:"maxRuntime,omitempty"`
+	Clusters   map[string]UserQosScope `json:"clusters,omitempty"`
 }
 
 // QosSpec is the default ceiling for one scope. The object name selects the scope:
 // "default" is global, any other name is a cluster id.
 type QosSpec struct {
-	MaxResources *ResourceCap   `json:"maxResources,omitempty"`
-	MaxRuntime   map[string]int `json:"maxRuntime,omitempty"`
+	MaxResources *ResourceCap `json:"maxResources,omitempty"`
+	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope
+	// (Train, Infer, Authoring, CICD, Ray, Sandbox). A missing or non-positive entry is unset.
+	MaxRuntime map[string]int `json:"maxRuntime,omitempty"`
 }
 
 // +genclient

@@ -61,6 +61,8 @@ spec:
               maxRuntime:
                 additionalProperties:
                   type: integer
+                description: Timeout ceiling in seconds, keyed by workspace scope
+                  (Train, Infer, Authoring, CICD, Ray, Sandbox).
                 type: object
             type: object
         type: object

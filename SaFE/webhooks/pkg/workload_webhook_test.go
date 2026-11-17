@@ -363,7 +363,7 @@ func TestWorkloadMutateSecrets(t *testing.T) {
 // TestWorkloadMutateTimeout verifies an empty timeout is filled from the global qos.
 func TestWorkloadMutateTimeout(t *testing.T) {
 	scheme := newScheme(t)
-	qos := &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: v1.QosDefaultName}, Spec: v1.QosSpec{MaxRuntime: map[string]int{common.PytorchJobKind: 7200}}}
+	qos := &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: v1.QosDefaultName}, Spec: v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 7200}}}
 	m := &WorkloadMutator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos).Build()}
 	w := &v1.Workload{Spec: v1.WorkloadSpec{GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind}}}
 	assert.NilError(t, m.mutateTimeout(context.Background(), w, &v1.Workspace{Spec: v1.WorkspaceSpec{Cluster: "c1"}}))
