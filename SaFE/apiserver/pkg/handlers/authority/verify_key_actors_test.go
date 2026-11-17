@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -351,8 +352,8 @@ func TestVerifyKeyActors(t *testing.T) {
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 			require.Equal(t, tc.wantSubject, resp.Data.Id, "the verdict is about the token's subject")
 			require.Equal(t, UserTypeDelegated, resp.Data.Type)
-			require.Empty(t, resp.Data.PlatformKey, "external mode returns no platform key")
-			require.Empty(t, *asked)
+			require.Equal(t, "pk-of-"+tc.wantSubject, resp.Data.PlatformKey)
+			require.Equal(t, []string{tc.wantSubject}, *asked, "keys were looked up for the subject, and only for it")
 			require.ElementsMatch(t, []v1.UserRole{v1.SystemAdminRole}, resp.Data.Roles, "the roles are the subject's, as a request of the subject sees them")
 			require.Equal(t, v1.SSOUserType, e.user(tc.wantSubject).Spec.Type)
 			for _, r := range []string{"delegated_forbidden", "delegated_scope"} {
@@ -386,7 +387,7 @@ func TestVerifyKeyActorsDoNotChangeOrdinaryCredentials(t *testing.T) {
 			var resp verifyResponse
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 			require.Equal(t, UserTypeExternal, resp.Data.Type, "not reported as delegated")
-			require.Empty(t, *asked)
+			require.Equal(t, []string{extUser}, *asked)
 		})
 	}
 }
@@ -433,8 +434,8 @@ func TestVerifyKeyActorCannotNameAnotherUser(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, extUser, resp.Data.Id)
 	require.Equal(t, "alice@example.com", resp.Data.Email)
-	require.Empty(t, resp.Data.PlatformKey)
-	require.Empty(t, *asked)
+	require.Equal(t, "pk-of-"+extUser, resp.Data.PlatformKey)
+	require.Equal(t, []string{extUser}, *asked)
 	list := &v1.UserList{}
 	require.NoError(t, e.cli.List(context.Background(), list))
 	require.Len(t, list.Items, 1, "only the subject was provisioned")
@@ -525,22 +526,22 @@ func TestVerifyRefusesKeysForARestrictedUser(t *testing.T) {
 		req      VerifyTokenRequest
 		wantCode int
 	}{
-		{"delegated, the provider restricts the user, platform key", nil, delegated(map[string]any{"restricted": true}),
-			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusForbidden},
+		{"delegated, the provider restricts the user, platform key only: verdict ok, no key", nil, delegated(map[string]any{"restricted": true}),
+			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusOK},
 		{"delegated, the provider restricts the user, virtual key", nil, delegated(map[string]any{"restricted": true}),
 			VerifyTokenRequest{IncludeVirtualKey: true}, http.StatusForbidden},
 		{"delegated, the provider restricts the user, both keys", nil, delegated(map[string]any{"restricted": true}),
 			VerifyTokenRequest{IncludePlatformKey: true, IncludeVirtualKey: true}, http.StatusForbidden},
-		{"delegated, the user record is frozen", frozenRecord, delegated(nil),
-			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusForbidden},
-		{"direct token, the provider restricts the user", nil, func(e *extEnv) string { return e.jwt(map[string]any{"restricted": true}) },
-			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusForbidden},
+		{"delegated, the user record is frozen, platform key only: verdict ok, no key", frozenRecord, delegated(nil),
+			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusOK},
+		{"direct token, the provider restricts the user, platform key only: verdict ok, no key", nil, func(e *extEnv) string { return e.jwt(map[string]any{"restricted": true}) },
+			VerifyTokenRequest{IncludePlatformKey: true}, http.StatusOK},
 		{"direct token, the user record is frozen", frozenRecord, func(e *extEnv) string { return e.jwt(nil) },
 			VerifyTokenRequest{IncludeVirtualKey: true}, http.StatusForbidden},
-		{"introspected, the provider restricts the user", nil, func(e *extEnv) string {
+		{"introspected, the provider restricts the user, platform key only: verdict ok, no key", nil, func(e *extEnv) string {
 			e.revUsers["opaque-frozen"] = map[string]any{"sub": extUser, "username": "alice", "restricted": true}
 			return "opaque-frozen"
-		}, VerifyTokenRequest{IncludePlatformKey: true}, http.StatusForbidden},
+		}, VerifyTokenRequest{IncludePlatformKey: true}, http.StatusOK},
 
 		{"direct token, restricted, no key asked for: the verdict is as it was", nil, func(e *extEnv) string { return e.jwt(map[string]any{"restricted": true}) },
 			VerifyTokenRequest{}, http.StatusOK},
@@ -581,7 +582,12 @@ func TestVerifyRefusesKeysForARestrictedUser(t *testing.T) {
 			var resp verifyResponse
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 			require.Equal(t, extUser, resp.Data.Id)
-			require.Empty(t, resp.Data.PlatformKey, "external mode returns no platform key")
+			if strings.Contains(tc.name, "platform key only") || strings.Contains(tc.name, "no key asked for") {
+				require.Empty(t, resp.Data.PlatformKey)
+				require.Empty(t, *asked)
+			} else if tc.req.IncludePlatformKey {
+				require.Equal(t, "pk-of-"+extUser, resp.Data.PlatformKey)
+			}
 		})
 	}
 }
@@ -666,8 +672,9 @@ func TestVerifyLogsTheKeysIssuedToAKeyActor(t *testing.T) {
 		jwt  map[string]any
 		want string // a substring of the log; empty: nothing is logged about an issue
 	}{
-		{"delegated, platform key: none is issued in external mode", VerifyTokenRequest{IncludePlatformKey: true},
-			map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient, "scope": "safe.api", "jti": "jti-7"}, ""},
+		{"delegated, platform key", VerifyTokenRequest{IncludePlatformKey: true},
+			map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient, "scope": "safe.api", "jti": "jti-7"},
+			"keys issued to a delegated credential: actor svc-bot, user alice-id, jti jti-7, platform key true, virtual key false"},
 		{"delegated, no key asked for", VerifyTokenRequest{},
 			map[string]any{"act": map[string]any{"sub": keyActorClient}, "client_id": keyActorClient, "scope": "safe.api"}, ""},
 		{"direct token, platform key", VerifyTokenRequest{IncludePlatformKey: true}, nil, ""},

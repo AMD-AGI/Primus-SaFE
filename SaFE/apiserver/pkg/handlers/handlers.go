@@ -149,7 +149,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	// Model Optimization (Hyperloom via PrimusClaw). Requires DB for task
 	// persistence + event log. Routes register whenever DB is enabled; Claw base
 	// URL from model_optimization.claw_base_url or derived https://<global host>/claw-api/v1;
-	// auth: Bearer ak-... if sent, else per-user platform key (GetOrCreatePlatformKey, same
+	// auth: Bearer ak-... if sent, else per-user platform key (lookup; create in builtin mode only, same
 	// idea as Primus-Claw + /auth/verify), else optional secret claw_api_key for service use.
 	if commonconfig.IsDBEnable() {
 		optDBClient := dbclient.NewClient()

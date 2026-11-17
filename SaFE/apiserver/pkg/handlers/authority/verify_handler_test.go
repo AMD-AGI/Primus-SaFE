@@ -703,16 +703,17 @@ func TestVerifyToken_IncludePlatformKey(t *testing.T) {
 	})
 }
 
-// TestVerifyToken_ExternalModeOmitsPlatformKey checks that external mode ignores includePlatformKey.
-func TestVerifyToken_ExternalModeOmitsPlatformKey(t *testing.T) {
+// TestVerifyToken_ExternalModeReturnsExistingPlatformKey checks that external mode still looks up
+// an existing platform key and returns it.
+func TestVerifyToken_ExternalModeReturnsExistingPlatformKey(t *testing.T) {
 	defer setupInternalAuth(t)()
 	e := newExtEnv(t, adminMapping, false)
+	prev := viper.Get("auth.mode")
 	viper.Set("auth.mode", "external")
-	t.Cleanup(func() { viper.Set("auth.mode", "") })
+	t.Cleanup(func() { viper.Set("auth.mode", prev) })
 	old := platformKeyFetcher
 	platformKeyFetcher = func(context.Context, string, string) (string, error) {
-		t.Error("the platform key is not looked up in external mode")
-		return "pk-unexpected", nil
+		return "pk-existing", nil
 	}
 	t.Cleanup(func() { platformKeyFetcher = old })
 
@@ -721,7 +722,7 @@ func TestVerifyToken_ExternalModeOmitsPlatformKey(t *testing.T) {
 	var resp verifyResponse
 	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, extUser, resp.Data.Id)
-	assert.Empty(t, resp.Data.PlatformKey)
+	assert.Equal(t, "pk-existing", resp.Data.PlatformKey)
 }
 
 // TestFetchPlatformKey covers the default fetcher's DB-availability guards.

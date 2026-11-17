@@ -14,7 +14,6 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/lib/pq"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -32,7 +31,7 @@ func TestGetOrCreatePlatformKey(t *testing.T) {
 	mockDB := mock_client.NewMockInterface(ctrl)
 
 	t.Run("nil db client returns error", func(t *testing.T) {
-		_, err := GetOrCreatePlatformKey(context.Background(), nil, "user-1", "testuser")
+		_, err := GetOrCreatePlatformKey(context.Background(), nil, "user-1", "testuser", true)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "database client not initialized")
 	})
@@ -49,7 +48,7 @@ func TestGetOrCreatePlatformKey(t *testing.T) {
 			EncryptedKey: &encryptedKey,
 		}, nil)
 
-		result, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-existing", "testuser")
+		result, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-existing", "testuser", true)
 		assert.NoError(t, err)
 		assert.Equal(t, plainKey, result)
 	})
@@ -69,7 +68,7 @@ func TestGetOrCreatePlatformKey(t *testing.T) {
 			},
 		)
 
-		result, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-new", "newuser")
+		result, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-new", "newuser", true)
 		assert.NoError(t, err)
 		assert.True(t, strings.HasPrefix(result, tokenPrefix))
 	})
@@ -77,7 +76,7 @@ func TestGetOrCreatePlatformKey(t *testing.T) {
 	t.Run("db query error returns error", func(t *testing.T) {
 		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-err").Return(nil, fmt.Errorf("db connection failed"))
 
-		_, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-err", "erruser")
+		_, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-err", "erruser", true)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to query platform key")
 	})
@@ -90,7 +89,7 @@ func TestGetOrCreatePlatformKey(t *testing.T) {
 			EncryptedKey: nil,
 		}, nil)
 
-		_, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-nil-enc", "testuser")
+		_, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-nil-enc", "testuser", true)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "platform key has no encrypted value")
 	})
@@ -99,7 +98,7 @@ func TestGetOrCreatePlatformKey(t *testing.T) {
 		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-insert-fail").Return(nil, sql.ErrNoRows)
 		mockDB.EXPECT().InsertApiKey(gomock.Any(), gomock.Any()).Return(fmt.Errorf("insert failed"))
 
-		_, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-insert-fail", "failuser")
+		_, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-insert-fail", "failuser", true)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to create platform key")
 	})
@@ -125,7 +124,7 @@ func TestGetOrCreatePlatformKeyInsertConflict(t *testing.T) {
 		}, nil),
 	)
 
-	result, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-conflict", "conflict-user")
+	result, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-conflict", "conflict-user", true)
 	assert.NoError(t, err)
 	assert.Equal(t, plainKey, result)
 }
@@ -141,7 +140,7 @@ func TestGetOrCreatePlatformKeyInsertConflictRequeryFails(t *testing.T) {
 		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-conflict-err").Return(nil, fmt.Errorf("requery failed")),
 	)
 
-	_, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-conflict-err", "conflict-user")
+	_, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-conflict-err", "conflict-user", true)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to query platform key")
 }
@@ -169,12 +168,8 @@ func TestPlatformKeyCryptoHelpers(t *testing.T) {
 	assert.True(t, strings.HasPrefix(generated, tokenPrefix))
 }
 
-// TestGetOrCreatePlatformKeyExternalMode checks that external mode returns an existing platform key
-// and never inserts a new one.
-func TestGetOrCreatePlatformKeyExternalMode(t *testing.T) {
-	viper.Set("auth.mode", "external")
-	t.Cleanup(func() { viper.Set("auth.mode", "") })
-
+// TestGetPlatformKeyAndCreateIfMissingFalse checks lookup-only behavior (createIfMissing=false).
+func TestGetPlatformKeyAndCreateIfMissingFalse(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mockDB := mock_client.NewMockInterface(ctrl)
@@ -189,7 +184,7 @@ func TestGetOrCreatePlatformKeyExternalMode(t *testing.T) {
 			EncryptedKey: &encryptedKey,
 		}, nil)
 
-		result, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-existing", "testuser")
+		result, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-existing", "testuser", false)
 		assert.NoError(t, err)
 		assert.Equal(t, plainKey, result)
 	})
@@ -198,7 +193,7 @@ func TestGetOrCreatePlatformKeyExternalMode(t *testing.T) {
 		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-new").Return(nil, sql.ErrNoRows)
 		mockDB.EXPECT().InsertApiKey(gomock.Any(), gomock.Any()).Times(0)
 
-		result, err := GetOrCreatePlatformKey(context.Background(), mockDB, "user-new", "newuser")
+		result, err := GetPlatformKey(context.Background(), mockDB, "user-new", "newuser")
 		assert.NoError(t, err)
 		assert.Empty(t, result)
 	})

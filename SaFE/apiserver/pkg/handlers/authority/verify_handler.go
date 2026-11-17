@@ -36,10 +36,10 @@ type VerifyTokenRequest struct {
 	ApiKey string `json:"apiKey,omitempty"`
 	// Original client IP, used for API key whitelist validation
 	ClientIP string `json:"clientIP,omitempty"`
-	// If true, returns the user's platform API key (GetOrCreate). Ignored in external auth mode.
+	// If true, returns the user's platform API key. In external auth mode an existing key is
+	// returned and none is created; in builtin mode a missing key is created.
 	// NOTE: this platform key is effectively a "shadow" of the user's API key:
-	// it is a stable per-user ak-... minted/fetched via GetOrCreate and is NOT
-	// the specific ak-... presented for this verification.
+	// it is a stable per-user ak-... and is NOT the specific ak-... presented for this verification.
 	IncludePlatformKey bool `json:"includePlatformKey,omitempty"`
 	// If true, returns the user's LiteLLM virtual key (decrypted)
 	IncludeVirtualKey bool `json:"includeVirtualKey,omitempty"`
@@ -72,7 +72,8 @@ type VerifyTokenResponse struct {
 // variable so tests can substitute a stub without patching the DB layer.
 var platformKeyFetcher = fetchPlatformKey
 
-// fetchPlatformKey fetches or creates the platform API key from the database.
+// fetchPlatformKey fetches the platform API key from the database. In builtin mode a missing
+// key is created; in external mode only an existing key is returned.
 // Returns an empty key (no error) when the database is unavailable.
 func fetchPlatformKey(ctx context.Context, userId, userName string) (string, error) {
 	if !commonconfig.IsDBEnable() {
@@ -84,7 +85,8 @@ func fetchPlatformKey(ctx context.Context, userId, userName string) (string, err
 		klog.Warning("database client not available, cannot provide platform key")
 		return "", nil
 	}
-	return apikey.GetOrCreatePlatformKey(ctx, db, userId, userName)
+	create := commonconfig.GetAuthMode() != commonconfig.AuthModeExternal
+	return apikey.GetOrCreatePlatformKey(ctx, db, userId, userName, create)
 }
 
 // VerifyToken validates a user token and returns user information
@@ -197,8 +199,8 @@ func VerifyToken(c *gin.Context) {
 		}
 	}
 
-	// Optionally include platform API key (GetOrCreate). External mode returns none.
-	if req.IncludePlatformKey && commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
+	// Optionally include platform API key (lookup; create only in builtin mode).
+	if req.IncludePlatformKey {
 		if platformKey, err := platformKeyFetcher(c.Request.Context(), userInfo.Id, userInfo.Name); err != nil {
 			klog.ErrorS(err, "failed to get/create platform key", "userId", userInfo.Id)
 		} else if platformKey != "" {
@@ -478,19 +480,20 @@ func verifyExternal(c *gin.Context, st *externalAuth, req *VerifyTokenRequest) (
 	}
 	overlay := st.overlay(id)
 	effective := extauth.ApplyOverlay(extauth.WithOverlay(ctx, overlay), user)
-	if effective.IsRestricted() && (req.IncludePlatformKey || req.IncludeVirtualKey) {
-		// A restricted user (the provider's "restricted" claim, or the user record) is refused by every request
-		// the apiserver authenticates through the chain. The keys this endpoint hands out are authenticated
-		// through the built-in entry, which has no such claim to apply, so a key issued to a restricted user
-		// would go on working while the provider has frozen the user: it is not issued. This holds for any
-		// credential, and a key actor's token is one more.
-		klog.Warningf("keys refused for a restricted user: user %s, actor %q", id.ID, id.Actor)
-		apimetrics.AuthFailuresTotal.WithLabelValues("restricted").Inc()
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-			"code":    http.StatusForbidden,
-			"message": "the user is restricted",
-		})
-		return nil, false, false
+	if effective.IsRestricted() {
+		// Virtual keys are still looked up here. A restricted user must not receive one: refuse.
+		// includePlatformKey alone does not change the verdict in external mode (no key is created);
+		// clear it so an existing platform key is not returned either (it would bypass the claim).
+		if req.IncludeVirtualKey {
+			klog.Warningf("keys refused for a restricted user: user %s, actor %q", id.ID, id.Actor)
+			apimetrics.AuthFailuresTotal.WithLabelValues("restricted").Inc()
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"code":    http.StatusForbidden,
+				"message": "the user is restricted",
+			})
+			return nil, false, false
+		}
+		req.IncludePlatformKey = false
 	}
 	return &externalVerdict{info: info, roles: effective.Spec.Roles, overlay: overlay, userType: userType, actor: id.Actor, jti: id.Jti}, false, true
 }

@@ -1158,43 +1158,43 @@ func (h *Handler) hasOptimizationReport(sessionID, clawBearer string) bool {
 // platform key. Used by recoverRunningTasks so it can access Claw sessions
 // that were created with a user-specific token rather than the service key.
 func (h *Handler) clawBearerForTask(ctx context.Context, userID, userName string) string {
-	if userID != "" {
-		if tok := authority.ApiKeyTokenInstance(); tok != nil {
-			pk, err := tok.GetOrCreatePlatformKey(ctx, userID, userName)
-			if err != nil {
-				klog.ErrorS(err, "clawBearerForTask: GetOrCreatePlatformKey failed", "userId", userID)
-			} else if strings.TrimSpace(pk) != "" {
-				return pk
-			}
-		}
-	}
-	return commonconfig.GetModelOptimizationClawAPIKey()
+	return h.resolveClawBearer(ctx, "", userID, userName)
 }
 
 // clawBearerForGin resolves the Bearer token for outbound PrimusClaw calls.
 //
 // Priority:
 //  1. Explicit user API key from the request Authorization header.
-//  2. Per-user platform key (ak-xxx) via GetOrCreatePlatformKey.
-//  3. File-based service key from model_optimization config.
+//  2. Per-user platform key (lookup; create only in builtin mode).
+//  3. File-based service key from model_optimization config (builtin mode only).
+// In external mode a missing user key does not fall back to the shared service key.
 func (h *Handler) clawBearerForGin(c *gin.Context) string {
-	if c != nil {
-		if k := authority.ExtractApiKeyFromRequest(c.GetHeader("Authorization")); k != "" {
-			return k
-		}
-		userID := c.GetString(common.UserId)
-		userName := c.GetString(common.UserName)
-		if userID != "" {
-			if tok := authority.ApiKeyTokenInstance(); tok != nil {
-				pk, err := tok.GetOrCreatePlatformKey(c.Request.Context(), userID, userName)
-				if err != nil {
-					klog.ErrorS(err, "model optimization: GetOrCreatePlatformKey for PrimusClaw",
-						"userId", userID)
-				} else if strings.TrimSpace(pk) != "" {
-					return pk
-				}
+	if c == nil {
+		return h.resolveClawBearer(context.Background(), "", "", "")
+	}
+	return h.resolveClawBearer(c.Request.Context(), c.GetHeader("Authorization"), c.GetString(common.UserId), c.GetString(common.UserName))
+}
+
+// resolveClawBearer picks the PrimusClaw credential for a user-attributed call.
+func (h *Handler) resolveClawBearer(ctx context.Context, authorization, userID, userName string) string {
+	if k := authority.ExtractApiKeyFromRequest(authorization); k != "" {
+		return k
+	}
+	external := commonconfig.GetAuthMode() == commonconfig.AuthModeExternal
+	if userID != "" {
+		if tok := authority.ApiKeyTokenInstance(); tok != nil {
+			pk, err := tok.GetOrCreatePlatformKey(ctx, userID, userName, !external)
+			if err != nil {
+				klog.ErrorS(err, "model optimization: platform key for PrimusClaw", "userId", userID)
+			} else if strings.TrimSpace(pk) != "" {
+				return pk
 			}
 		}
+	}
+	if external {
+		klog.ErrorS(nil, "model optimization: no user platform key in external mode; refusing the shared claw API key",
+			"userId", userID)
+		return ""
 	}
 	return commonconfig.GetModelOptimizationClawAPIKey()
 }
