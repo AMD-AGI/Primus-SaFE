@@ -10,6 +10,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -101,6 +102,22 @@ func uploadContext(h *Handler, token string, summary []byte) (*httptest.Response
 	c.Request.Header.Set("Content-Encoding", "gzip")
 	h.UploadImport(c)
 	return w, c
+}
+
+func TestIssuingATokenDeletesTheExpiredOnes(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h := &Handler{db: db}
+	db.EXPECT().CreatePostTrainingImportToken(gomock.Any(), gomock.Any()).Return(nil)
+	db.EXPECT().DeleteExpiredPostTrainingImports(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, before time.Time) error {
+			require.WithinDuration(t, time.Now().Add(-importSweepAge), before, time.Minute)
+			return errors.New("the database is gone")
+		})
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	_, token, err := h.newImportToken(c, "ws1", importPurposeCLI, "https://safe.example.com")
+	require.NoError(t, err, "a failed sweep does not fail the token")
+	require.NotEmpty(t, token)
 }
 
 func TestTheUploadAddressTakesOnlyAHost(t *testing.T) {

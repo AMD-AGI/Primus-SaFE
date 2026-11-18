@@ -36,7 +36,9 @@ import (
 )
 
 const (
-	importTokenTTL    = 30 * time.Minute
+	importTokenTTL = 30 * time.Minute
+	// importSweepAge is how long after its time a token or scan record is kept, past what any dialog polls.
+	importSweepAge    = 24 * time.Hour
 	importTokenPrefix = "sst_"
 	importBodyLimit   = 16 << 20
 	importPurposeCLI  = "cli"
@@ -175,6 +177,10 @@ func (h *Handler) newImportToken(c *gin.Context, workspace, purpose, address str
 		ExpiresAt: time.Now().UTC().Add(importTokenTTL)}
 	if err := h.db.CreatePostTrainingImportToken(c.Request.Context(), t); err != nil {
 		return nil, "", err
+	}
+	if err := h.db.DeleteExpiredPostTrainingImports(c.Request.Context(),
+		time.Now().UTC().Add(-importSweepAge)); err != nil {
+		klog.ErrorS(err, "failed to delete the expired import tokens and scan records")
 	}
 	return t, token, nil
 }
