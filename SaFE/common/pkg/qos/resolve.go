@@ -73,21 +73,20 @@ func Ceiling(ctx context.Context, c client.Reader, userID, clusterID, scope stri
 }
 
 // Resolve picks each field independently. A set value stops the search.
-// Order: this user on the cluster, the cluster default, this user on every cluster, the global default.
-// scope is a workspace scope such as Train or Infer.
+// Order: this user on the cluster, the cluster ceiling, the global ceiling.
+// A user's top-level qos fields are not a ceiling. scope is a workspace scope such as Train or Infer.
 func Resolve(user *v1.User, clusterQos, globalQos *v1.Qos, clusterID, scope string) Limits {
-	var userCluster, userGlobal v1.UserQosScope
+	var userCluster v1.UserQosScope
 	if user != nil && user.Spec.Qos != nil {
-		userGlobal = v1.UserQosScope{MaxResources: user.Spec.Qos.MaxResources, MaxRuntime: user.Spec.Qos.MaxRuntime}
-		if scope, ok := user.Spec.Qos.Clusters[clusterID]; ok {
-			userCluster = scope
+		if item, ok := user.Spec.Qos.Clusters[clusterID]; ok {
+			userCluster = item
 		}
 	}
 	return Limits{
-		CPU:            firstSet(capCPU(userCluster.MaxResources), capCPU(specCap(clusterQos)), capCPU(userGlobal.MaxResources), capCPU(specCap(globalQos))),
-		Memory:         firstSet(capMemory(userCluster.MaxResources), capMemory(specCap(clusterQos)), capMemory(userGlobal.MaxResources), capMemory(specCap(globalQos))),
-		GPU:            firstSet(capGPU(userCluster.MaxResources), capGPU(specCap(clusterQos)), capGPU(userGlobal.MaxResources), capGPU(specCap(globalQos))),
-		RuntimeSeconds: firstRuntime(scope, userCluster.MaxRuntime, specRuntime(clusterQos), userGlobal.MaxRuntime, specRuntime(globalQos)),
+		CPU:            firstSet(capCPU(userCluster.MaxResources), capCPU(specCap(clusterQos)), capCPU(specCap(globalQos))),
+		Memory:         firstSet(capMemory(userCluster.MaxResources), capMemory(specCap(clusterQos)), capMemory(specCap(globalQos))),
+		GPU:            firstSet(capGPU(userCluster.MaxResources), capGPU(specCap(clusterQos)), capGPU(specCap(globalQos))),
+		RuntimeSeconds: firstRuntime(scope, userCluster.MaxRuntime, specRuntime(clusterQos), specRuntime(globalQos)),
 	}
 }
 

@@ -476,6 +476,17 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// clusterOnlyQos keeps per-cluster ceilings. A user's top-level qos fields are not stored.
+func clusterOnlyQos(qos *v1.UserQos) *v1.UserQos {
+	if qos == nil || len(qos.Clusters) == 0 {
+		return nil
+	}
+	copied := qos.DeepCopy()
+	copied.MaxResources = nil
+	copied.MaxRuntime = nil
+	return copied
+}
+
 // applyUserPatch updates the target user with values from the patch request.
 // Only modifies fields that are present in the request.
 func applyUserPatch(targetUser *v1.User, req *view.PatchUserRequest) {
@@ -502,7 +513,7 @@ func applyUserPatch(targetUser *v1.User, req *view.PatchUserRequest) {
 		v1.SetAnnotation(targetUser, v1.UserEmailAnnotation, *req.Email)
 	}
 	if req.Qos != nil {
-		targetUser.Spec.Qos = req.Qos
+		targetUser.Spec.Qos = clusterOnlyQos(req.Qos)
 	}
 }
 

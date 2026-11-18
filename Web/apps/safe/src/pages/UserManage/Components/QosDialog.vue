@@ -6,8 +6,7 @@
     @open="onOpen"
     @close="emit('update:visible', false)"
   >
-    <el-radio-group v-model="target" class="mb-6">
-      <el-radio-button value="all">All clusters</el-radio-button>
+    <el-radio-group v-if="clusters.length > 1" v-model="target" class="mb-6">
       <el-radio-button v-for="cluster in clusters" :key="cluster.clusterId" :value="cluster.clusterId">
         {{ cluster.clusterId }}
       </el-radio-button>
@@ -43,21 +42,22 @@ const clusters = computed(() =>
 )
 
 const saving = ref(false)
-const target = ref('all')
-const drafts = reactive<Record<string, ScopeDraft>>({ all: emptyDraft() })
+const target = ref('')
+const drafts = reactive<Record<string, ScopeDraft>>({})
 
-/** resetDrafts loads the user's stored ceilings into the form. */
+/** resetDrafts loads the user's per-cluster ceilings into the form. */
 const resetDrafts = () => {
   for (const key of Object.keys(drafts)) delete drafts[key]
   const qos = props.user?.qos
-  drafts.all = scopeToDraft(qos)
   for (const [clusterId, scope] of Object.entries(qos?.clusters ?? {})) {
     drafts[clusterId] = scopeToDraft(scope)
   }
   for (const cluster of clusters.value) {
     if (!drafts[cluster.clusterId]) drafts[cluster.clusterId] = emptyDraft()
   }
-  target.value = 'all'
+  const ids = clusters.value.map((cluster) => cluster.clusterId)
+  const current = clusterStore.currentClusterId ?? ''
+  target.value = ids.includes(current) ? current : (ids[0] ?? '')
 }
 
 /** onOpen prepares the form when the dialog is shown. */
@@ -66,20 +66,14 @@ const onOpen = async () => {
   resetDrafts()
 }
 
-/** buildQos keeps only the scopes that set a value. */
+/** buildQos keeps only per-cluster ceilings that set a value. */
 const buildQos = (): UserQos => {
-  const qos: UserQos = {}
-  const all = draftToScope(drafts.all)
-  if (all?.maxResources) qos.maxResources = all.maxResources
-  if (all?.maxRuntime) qos.maxRuntime = all.maxRuntime
   const clusters: UserQos['clusters'] = {}
   for (const [name, draft] of Object.entries(drafts)) {
-    if (name === 'all') continue
     const scope = draftToScope(draft)
     if (scope) clusters[name] = scope
   }
-  if (Object.keys(clusters).length) qos.clusters = clusters
-  return qos
+  return Object.keys(clusters).length ? { clusters } : {}
 }
 
 /** onSave writes this user's ceilings. Other user fields stay unchanged. */

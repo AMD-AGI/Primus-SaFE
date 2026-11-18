@@ -19,9 +19,12 @@ import (
 func TestResolveFallsThroughEachField(t *testing.T) {
 	user := &v1.User{Spec: v1.UserSpec{Qos: &v1.UserQos{
 		MaxResources: &v1.ResourceCap{CPU: "32"},
-		MaxRuntime:   map[string]int{string(v1.AuthoringScope): 3600},
+		MaxRuntime:   map[string]int{string(v1.AuthoringScope): 86400},
 		Clusters: map[string]v1.UserQosScope{
-			"c1": {MaxResources: &v1.ResourceCap{GPU: "2"}},
+			"c1": {
+				MaxResources: &v1.ResourceCap{GPU: "2", CPU: "32"},
+				MaxRuntime:   map[string]int{string(v1.AuthoringScope): 3600},
+			},
 		},
 	}}}
 	cluster := &v1.Qos{Spec: v1.QosSpec{
@@ -38,8 +41,12 @@ func TestResolveFallsThroughEachField(t *testing.T) {
 		t.Fatalf("c1 authoring: %+v", got)
 	}
 	got = Resolve(user, nil, global, "c2", string(v1.RayScope))
-	if got.GPU != "1" || got.CPU != "32" || got.Memory != "64Gi" || got.RuntimeSeconds != 900 {
+	if got.GPU != "1" || got.CPU != "4" || got.Memory != "64Gi" || got.RuntimeSeconds != 900 {
 		t.Fatalf("c2 ray: %+v", got)
+	}
+	got = Resolve(user, nil, global, "c2", string(v1.AuthoringScope))
+	if got.RuntimeSeconds != 600 {
+		t.Fatalf("a user-wide timeout does not apply: %+v", got)
 	}
 	got = Resolve(user, cluster, global, "c1", "PyTorchJob")
 	if got.RuntimeSeconds != 0 {
