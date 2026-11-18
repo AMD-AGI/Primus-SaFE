@@ -463,7 +463,7 @@ webhooks:
     - UPDATE
     resources:
     - workloads
-  sideEffects: None
+  sideEffects: NoneOnDryRun
 - admissionReviewVersions:
   - v1
   - v1beta1

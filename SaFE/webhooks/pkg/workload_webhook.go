@@ -1179,7 +1179,7 @@ func runtimeCeiling(ctx context.Context, c client.Reader, workload *v1.Workload,
 // validateScaleQuota rejects an update of a scheduled workload that grows CPU, memory or GPU
 // past the user's ceiling. A queued workload is left to the scheduler, which holds it instead
 // of rejecting the update. A shrink or an unchanged dimension is left alone.
-func (v *WorkloadValidator) validateScaleQuota(ctx context.Context, newWorkload, oldWorkload *v1.Workload) error {
+func (v *WorkloadValidator) validateScaleQuota(ctx context.Context, newWorkload, oldWorkload *v1.Workload, dryRun bool) error {
 	if newWorkload == nil || oldWorkload == nil || !v1.IsWorkloadScheduled(oldWorkload) ||
 		reflect.DeepEqual(newWorkload.Spec.Resources, oldWorkload.Spec.Resources) {
 		return nil
@@ -1218,7 +1218,11 @@ func (v *WorkloadValidator) validateScaleQuota(ctx context.Context, newWorkload,
 	if reason != "" {
 		return commonerrors.NewBadRequest(reason)
 	}
-	v.rememberScale(newWorkload)
+	// A dry-run must not keep the allowed size. The apiserver sends dry-run requests
+	// because this webhook's sideEffects is NoneOnDryRun.
+	if !dryRun {
+		v.rememberScale(newWorkload)
+	}
 	return nil
 }
 
@@ -1376,7 +1380,7 @@ func (v *WorkloadValidator) Handle(ctx context.Context, req admission.Request) a
 		oldWorkload := &v1.Workload{}
 		if err = v.decoder.DecodeRaw(req.OldObject, oldWorkload); err == nil {
 			if err = v.validateSandboxIdentity(ctx, req, workload, oldWorkload); err == nil {
-				err = v.validateOnUpdate(ctx, workload, oldWorkload)
+				err = v.validateOnUpdate(ctx, workload, oldWorkload, req.DryRun != nil && *req.DryRun)
 			}
 		}
 	default:
@@ -1405,14 +1409,14 @@ func (v *WorkloadValidator) validateOnCreation(ctx context.Context, workload *v1
 }
 
 // validateOnUpdate validates immutable fields, spec changes and cron jobs on update.
-func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, oldWorkload *v1.Workload) error {
+func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, oldWorkload *v1.Workload, dryRun bool) error {
 	if err := v.validateImmutableFields(newWorkload, oldWorkload); err != nil {
 		return err
 	}
 	if err := v.validateCommon(ctx, newWorkload, oldWorkload); err != nil {
 		return err
 	}
-	if err := v.validateScaleQuota(ctx, newWorkload, oldWorkload); err != nil {
+	if err := v.validateScaleQuota(ctx, newWorkload, oldWorkload, false); err != nil {
 		return err
 	}
 	if !reflect.DeepEqual(oldWorkload.Spec.CronJobs, newWorkload.Spec.CronJobs) {

@@ -386,7 +386,7 @@ func TestWorkloadTimeoutCeilingOnCreateOnly(t *testing.T) {
 	w := fullValidWorkload()
 	w.Spec.Timeout = &long
 	assert.Assert(t, v.validateOnCreation(ctx, w) != nil)
-	assert.NilError(t, v.validateOnUpdate(ctx, w, fullValidWorkload()))
+	assert.NilError(t, v.validateOnUpdate(ctx, w, fullValidWorkload(), false))
 
 	m := &WorkloadMutator{Client: c}
 	updated := fullValidWorkload()
@@ -423,15 +423,15 @@ func TestScaleUpOverQuotaIsRejected(t *testing.T) {
 	v := &WorkloadValidator{Client: c}
 	ctx := context.Background()
 
-	err := v.validateScaleQuota(ctx, scaleQuotaWorkload("self", "4", true), self)
+	err := v.validateScaleQuota(ctx, scaleQuotaWorkload("self", "4", true), self, false)
 	assert.Assert(t, err != nil)
-	assert.NilError(t, v.validateScaleQuota(ctx, scaleQuotaWorkload("self", "2", true), self))
+	assert.NilError(t, v.validateScaleQuota(ctx, scaleQuotaWorkload("self", "2", true), self, false))
 	larger := self.DeepCopy()
 	larger.Spec.Resources[0].GPU = "4"
-	assert.NilError(t, v.validateScaleQuota(ctx, self, larger))
+	assert.NilError(t, v.validateScaleQuota(ctx, self, larger, false))
 
 	open := fake.NewClientBuilder().WithScheme(scheme).WithObjects(self).Build()
-	assert.NilError(t, (&WorkloadValidator{Client: open}).validateScaleQuota(ctx, scaleQuotaWorkload("self", "16", true), self))
+	assert.NilError(t, (&WorkloadValidator{Client: open}).validateScaleQuota(ctx, scaleQuotaWorkload("self", "16", true), self, false))
 }
 
 func TestConcurrentScaleReservesOne(t *testing.T) {
@@ -454,7 +454,7 @@ func TestConcurrentScaleReservesOne(t *testing.T) {
 		go func(i int, item *v1.Workload) {
 			defer wg.Done()
 			<-start
-			errs[i] = v.validateScaleQuota(ctx, scaleQuotaWorkload(item.Name, "8", true), item)
+			errs[i] = v.validateScaleQuota(ctx, scaleQuotaWorkload(item.Name, "8", true), item, false)
 		}(i, item)
 	}
 	close(start)
@@ -482,7 +482,25 @@ func TestUnscheduledScaleSkipsQuota(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, running, queued).Build()
 	v := &WorkloadValidator{Client: c}
 	grown := scaleQuotaWorkload("queued", "8", false)
-	assert.NilError(t, v.validateScaleQuota(context.Background(), grown, queued))
+	assert.NilError(t, v.validateScaleQuota(context.Background(), grown, queued, false))
+}
+
+func TestDryRunScaleDoesNotReserve(t *testing.T) {
+	scheme := newScheme(t)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "10"}},
+	}
+	first := scaleQuotaWorkload("first", "1", true)
+	second := scaleQuotaWorkload("second", "1", true)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, first, second).Build()
+	v := &WorkloadValidator{Client: c}
+	ctx := context.Background()
+	assert.NilError(t, v.validateScaleQuota(ctx, scaleQuotaWorkload("first", "8", true), first, true))
+	assert.NilError(t, v.validateScaleQuota(ctx, scaleQuotaWorkload("second", "8", true), second, false))
+	if len(v.scaleReserved) != 1 {
+		t.Fatalf("only the real scale is reserved, got %d", len(v.scaleReserved))
+	}
 }
 
 func TestScaleReservationDropsWhenLandedOrExpired(t *testing.T) {
@@ -1018,7 +1036,7 @@ func TestWorkloadValidateFullChain(t *testing.T) {
 	c := fullWorkloadEnvClient(t)
 	v := &WorkloadValidator{Client: c}
 	assert.NilError(t, v.validateOnCreation(context.Background(), fullValidWorkload()))
-	assert.NilError(t, v.validateOnUpdate(context.Background(), fullValidWorkload(), fullValidWorkload()))
+	assert.NilError(t, v.validateOnUpdate(context.Background(), fullValidWorkload(), fullValidWorkload(), false))
 }
 
 // TestWorkloadValidateCreationDuplicateServiceName verifies creation is denied
@@ -2726,7 +2744,7 @@ func TestWorkloadValidateOnUpdateBranches(t *testing.T) {
 	oldW := fullValidWorkload()
 	newW := fullValidWorkload()
 	newW.Spec.Workspace = "other"
-	assert.Assert(t, v.validateOnUpdate(context.Background(), newW, oldW) != nil)
+	assert.Assert(t, v.validateOnUpdate(context.Background(), newW, oldW, false) != nil)
 
 	// spec changed on dispatched workload
 	oldD := fullValidWorkload()
@@ -2734,7 +2752,7 @@ func TestWorkloadValidateOnUpdateBranches(t *testing.T) {
 	newD := fullValidWorkload()
 	v1.SetAnnotation(newD, v1.WorkloadDispatchedAnnotation, v1.TrueStr)
 	newD.Spec.Resources = []v1.WorkloadResource{{Replica: 2, CPU: "2", Memory: "4Gi", EphemeralStorage: "5Gi"}}
-	assert.Assert(t, v.validateOnUpdate(context.Background(), newD, oldD) != nil)
+	assert.Assert(t, v.validateOnUpdate(context.Background(), newD, oldD, false) != nil)
 }
 
 // TestWorkloadValidateOnUpdateCronJobs covers cron change validation on update.
@@ -2744,7 +2762,7 @@ func TestWorkloadValidateOnUpdateCronJobs(t *testing.T) {
 	oldW := fullValidWorkload()
 	newW := fullValidWorkload()
 	newW.Spec.CronJobs = []v1.CronJob{{Schedule: "", Action: v1.CronStart}}
-	assert.Assert(t, v.validateOnUpdate(context.Background(), newW, oldW) != nil)
+	assert.Assert(t, v.validateOnUpdate(context.Background(), newW, oldW, false) != nil)
 }
 
 // TestWorkloadValidateWorkspaceQuotaOk covers the quota sub-resource success branch.
