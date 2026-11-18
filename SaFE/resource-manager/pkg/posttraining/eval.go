@@ -24,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -387,12 +386,10 @@ func (r *RunReconciler) evalService(ctx context.Context, run *dbclient.PostTrain
 	w := &v1.Workload{}
 	w.Name = commonutils.GenerateName(run.RunID + "-eval")
 	w.Labels = map[string]string{
+		v1.DisplayNameLabel:       commonutils.DNSDisplayName("eval-", run.DisplayName, commonutils.MaxDeploymentNameLen),
 		v1.PostTrainingRunIdLabel: run.RunID,
 		v1.PostTrainingRoleLabel:  v1.PostTrainingRoleEval,
 		v1.UserIdLabel:            run.UserID,
-	}
-	if name := "eval-" + run.DisplayName; len(validation.IsValidLabelValue(name)) == 0 {
-		w.Labels[v1.DisplayNameLabel] = name
 	}
 	w.Annotations = map[string]string{
 		v1.UserNameAnnotation:    run.UserName,

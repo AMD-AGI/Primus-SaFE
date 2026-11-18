@@ -48,7 +48,7 @@ func TestBackfillPending(t *testing.T) {
 
 func TestBackfillWorkload(t *testing.T) {
 	run := testRunRow("Failed", "train")
-	run.OutputPath = testRunDir
+	run.OutputPath, run.DisplayName = testRunDir, "Qwen3 SFT demo"
 	run.MetricCursor = `{"order":["a1","a2"],"attempts":{"a1":{"maxSeq":9,"gaps":[{"from":4,"to":5,"since":1}]},"a2":{"maxSeq":3}}}`
 	r, _, _ := newTestReconciler(t, run)
 	ctx := context.Background()
@@ -56,6 +56,7 @@ func TestBackfillWorkload(t *testing.T) {
 	w := &v1.Workload{}
 	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: backfillWorkloadName(testRun)}, w))
 	require.Equal(t, "Job", w.Spec.Kind)
+	require.Equal(t, "backfill-qwen3-sft-demo", w.Labels[v1.DisplayNameLabel], "the workload webhook needs a DNS name")
 	require.Equal(t, v1.PostTrainingRoleBackfill, w.Labels[v1.PostTrainingRoleLabel])
 	raw, err := base64.StdEncoding.DecodeString(w.Spec.Env["PT_BACKFILL"])
 	require.NoError(t, err)

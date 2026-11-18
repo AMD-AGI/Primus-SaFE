@@ -17,7 +17,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -29,6 +28,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
@@ -173,12 +173,11 @@ func newBackfillWorkload(run *dbclient.PostTrainingRun, cur *logCursor) *v1.Work
 	w := &v1.Workload{}
 	w.Name = backfillWorkloadName(run.RunID)
 	w.Labels = map[string]string{
+		v1.DisplayNameLabel: commonutils.DNSDisplayName("backfill-", run.DisplayName,
+			commonutils.MaxGeneratedNameLength),
 		v1.PostTrainingRunIdLabel: run.RunID,
 		v1.PostTrainingRoleLabel:  v1.PostTrainingRoleBackfill,
 		v1.UserIdLabel:            run.UserID,
-	}
-	if name := "backfill-" + run.DisplayName; len(validation.IsValidLabelValue(name)) == 0 {
-		w.Labels[v1.DisplayNameLabel] = name
 	}
 	w.Annotations = map[string]string{
 		v1.UserNameAnnotation:    run.UserName,

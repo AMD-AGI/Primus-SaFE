@@ -8,6 +8,7 @@ package posttraining
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,6 +25,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 // loadChartRegistry makes the chart's default registry the reconciler's current one.
@@ -114,6 +116,20 @@ func TestAutoEvaluationLifecycle(t *testing.T) {
 	reconcileRun(t, r)
 	require.Empty(t, evalServices(t, r), "the service goes once the evaluation is over")
 	require.Equal(t, "done", (*updates)[len(*updates)-1]["stage"])
+}
+
+func TestEvaluationServiceHasAValidDisplayName(t *testing.T) {
+	run, objs := evalFixtures("eval")
+	run.DisplayName = "Qwen3 SFT demo"
+	r, _, _ := newTestReconciler(t, run, objs...)
+	loadChartRegistry(t, r)
+	reconcileRun(t, r)
+	services := evalServices(t, r)
+	require.Len(t, services, 1)
+	name := services[0].Labels[v1.DisplayNameLabel]
+	require.Regexp(t, fmt.Sprintf("^[a-z][-a-z0-9]{0,%d}[a-z0-9]$", commonutils.MaxDeploymentNameLen), name,
+		"the workload webhook refuses a Deployment without a DNS display name")
+	require.Equal(t, "eval-qwen3-sft-demo", name)
 }
 
 func TestEvaluationServiceNotReadyInTime(t *testing.T) {
