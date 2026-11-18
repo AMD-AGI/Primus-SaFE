@@ -112,11 +112,11 @@ export function getPostTrainingRun(runId: string, quiet = false) {
 
 /**
  * Loads once why Train with Post Training is unavailable for the models of a workspace and returns the reason of a
- * model, or an empty string when the model can be trained.
+ * model, or an empty string when the model can be trained; there is none where Post Training is off.
  */
 export async function postTrainingEntryReasons(
   workspace: string,
-): Promise<(modelId: string) => string> {
+): Promise<((modelId: string) => string) | undefined> {
   try {
     const res = (await getPostTrainingModels(workspace)) as unknown as ModelsResp
     const paused = res.pausedReason
@@ -128,12 +128,8 @@ export async function postTrainingEntryReasons(
     )
     return (id) => global || (byId.get(id) ?? 'No Post Training spec matches this model.')
   } catch (err) {
-    const status = (err as { response?: { status?: number } })?.response?.status
-    const reason =
-      status === 404
-        ? 'Post Training is not enabled on this cluster.'
-        : 'Post Training is unavailable.'
-    return () => reason
+    if ((err as { response?: { status?: number } })?.response?.status === 404) return undefined
+    return () => 'Post Training is unavailable.'
   }
 }
 

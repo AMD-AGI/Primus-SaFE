@@ -44,9 +44,11 @@ import {
   stallNote,
   timeOf,
   trainableText,
+  postTrainingEntryReasons,
 } from './index'
+import request from '@/services/request'
 
-vi.mock('@/services/request', () => ({ default: {} }))
+vi.mock('@/services/request', () => ({ default: { get: vi.fn() } }))
 import type { ImportPreview, ImportSummary, PostTrainingRun, RunSample } from './types'
 
 type StageRun = Pick<
@@ -385,6 +387,15 @@ describe('samples', () => {
     }
     expect(rewardOf(s)).toEqual({ value: '0.123', detail: '{"score":0.12345}' })
     expect(rewardOf(sample(1, 0)).value).toBe('—')
+  })
+})
+
+describe('postTrainingEntryReasons', () => {
+  it('offers no entry where Post Training is off', async () => {
+    vi.mocked(request.get).mockRejectedValueOnce({ response: { status: 404 } })
+    expect(await postTrainingEntryReasons('ws1')).toBeUndefined()
+    vi.mocked(request.get).mockRejectedValueOnce({ response: { status: 503 } })
+    expect((await postTrainingEntryReasons('ws1'))?.('m1')).toBe('Post Training is unavailable.')
   })
 })
 
