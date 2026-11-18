@@ -397,6 +397,15 @@ describe('postTrainingEntryReasons', () => {
     vi.mocked(request.get).mockRejectedValueOnce({ response: { status: 503 } })
     expect((await postTrainingEntryReasons('ws1'))?.('m1')).toBe('Post Training is unavailable.')
   })
+
+  it('names a model missing from the list as not ready here', async () => {
+    vi.mocked(request.get).mockResolvedValueOnce({
+      items: [{ modelId: 'm1', supported: true }],
+    })
+    const reasonOf = await postTrainingEntryReasons('ws1')
+    expect(reasonOf?.('m1')).toBe('')
+    expect(reasonOf?.('m2')).toBe('The model is not ready in this workspace.')
+  })
 })
 
 describe('scatterTooltip', () => {

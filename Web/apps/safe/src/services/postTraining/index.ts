@@ -126,7 +126,8 @@ export async function postTrainingEntryReasons(
     const byId = new Map(
       (res.items ?? []).map((m) => [m.modelId, m.supported ? '' : m.reason || 'Not supported']),
     )
-    return (id) => global || (byId.get(id) ?? 'No Post Training spec matches this model.')
+    // The list leaves out the models not ready in the workspace.
+    return (id) => global || (byId.get(id) ?? 'The model is not ready in this workspace.')
   } catch (err) {
     if ((err as { response?: { status?: number } })?.response?.status === 404) return undefined
     return () => 'Post Training is unavailable.'
