@@ -496,8 +496,13 @@
       :source-run-id="run?.runId"
     />
 
-    <el-dialog v-model="evalDialog.visible" title="Evaluate the output model" width="520px">
+    <el-dialog v-model="evalDialog.visible" title="Evaluate a model of the run" width="520px">
       <el-form label-position="top">
+        <el-form-item label="Model" required>
+          <el-select v-model="evalDialog.modelId" style="width: 100%">
+            <el-option v-for="m in evalModels" :key="m.id" :label="m.label" :value="m.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="Benchmarks" required>
           <el-select v-model="evalDialog.benchmarks" multiple filterable style="width: 100%">
             <el-option
@@ -516,7 +521,7 @@
         <el-button @click="evalDialog.visible = false">Cancel</el-button>
         <el-button
           type="primary"
-          :disabled="!evalDialog.benchmarks.length"
+          :disabled="!evalDialog.modelId || !evalDialog.benchmarks.length"
           :loading="evalDialog.loading"
           @click="confirmEvaluate"
         >
@@ -1231,10 +1236,28 @@ const scores = (row: EvaluationTaskRow) => {
   )
 }
 
+/** The models of the run that can be evaluated: the output model and the exported checkpoints, once ready. */
+const evalModels = computed(() => {
+  const r = run.value
+  const out: { id: string; label: string }[] = []
+  if (r?.outputModel?.phase === 'Ready')
+    out.push({
+      id: r.outputModel.id,
+      label: `Output model · ${r.outputModel.displayName || r.outputModel.id}`,
+    })
+  for (const e of r?.exports ?? [])
+    if (e.modelId && e.modelPhase === 'Ready')
+      out.push({
+        id: e.modelId,
+        label: `Step ${e.step.toLocaleString()} · ${e.displayName || e.modelId}`,
+      })
+  return out
+})
+
 const evaluateTip = computed(() => {
   if (isReadonly.value) return readOnlyTip
-  if (run.value?.status !== 'Succeeded' || run.value.outputModel?.phase !== 'Ready')
-    return 'Available after the output model is ready.'
+  if (!evalModels.value.length)
+    return 'Available once the output model or an exported checkpoint is ready.'
   return ''
 })
 
@@ -1268,13 +1291,20 @@ const evalDialog = reactive({
   visible: false,
   loading: false,
   keepService: false,
+  modelId: '',
   benchmarks: [] as string[],
   datasets: [] as DatasetItem[],
 })
 
 const openEvaluate = async () => {
   if (!run.value) return
-  Object.assign(evalDialog, { visible: true, loading: false, keepService: false, benchmarks: [] })
+  Object.assign(evalDialog, {
+    visible: true,
+    loading: false,
+    keepService: false,
+    modelId: evalModels.value[0]?.id ?? '',
+    benchmarks: [],
+  })
   const res = await getDatasets({
     workspace: run.value.workspace,
     datasetType: 'evaluation',
@@ -1287,6 +1317,7 @@ const confirmEvaluate = async () => {
   evalDialog.loading = true
   try {
     await evaluatePostTrainingRun(runId.value, {
+      modelId: evalDialog.modelId,
       benchmarks: evalDialog.benchmarks,
       keepService: evalDialog.keepService,
     })
