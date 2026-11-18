@@ -406,6 +406,22 @@ func cicdAPIKey(workload *v1.Workload) (string, error) {
 	return plain, nil
 }
 
+// cicdWorkloadWithParentAPIKey returns a copy of an EphemeralRunner workload carrying the encrypted
+// API key annotation of its owning scale set (source), so its runner pod gets the same USER_APIKEY.
+// Other workloads, or a scale set without the annotation, are returned unchanged.
+func cicdWorkloadWithParentAPIKey(workload, source *v1.Workload) *v1.Workload {
+	if source == nil || !commonworkload.IsCICDEphemeralRunner(workload) {
+		return workload
+	}
+	enc := v1.GetAnnotation(source, v1.UserEncryptedAPIKeyAnnotation)
+	if enc == "" {
+		return workload
+	}
+	derived := workload.DeepCopy()
+	v1.SetAnnotation(derived, v1.UserEncryptedAPIKeyAnnotation, enc)
+	return derived
+}
+
 // cicdIdentityURL returns the identity API base for CICD pods: the public control-plane origin,
 // whose console routes /api/v1/apikeys to identity. Empty unless auth.mode is external and
 // auth.api_keys_upstream is set.
@@ -1381,7 +1397,8 @@ func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]inter
 }
 
 // buildEnvironment creates environment variables for the workload container.
-// CICD scale sets and github runners require the encrypted API key annotation.
+// CICD scale sets, github runners and ephemeral runners require the encrypted API key annotation;
+// an ephemeral runner carries its scale set's annotation (cicdWorkloadWithParentAPIKey).
 func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId int) ([]interface{}, error) {
 	var result []interface{}
 	if resourceId >= 0 && resourceId < len(workload.Spec.Resources) && workload.Spec.Resources[resourceId].HasGpu() {
@@ -1418,10 +1435,10 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 	result = addEnvVar(result, workload, "SAFE_WORKSPACE", workload.Spec.Workspace)
 	result = addEnvVar(result, workload, "DISPLAY_NAME", v1.GetDisplayName(workload))
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
-	// USER_ID is skipped if already set via Spec.Env. CICD scale sets / github runners
-	// require the encrypted API key annotation; UnifiedJob uses the DB lookup.
+	// USER_ID is skipped if already set via Spec.Env. CICD scale sets, github runners and
+	// ephemeral runners require the encrypted API key annotation; UnifiedJob uses the DB lookup.
 	result = addEnvVar(result, workload, jobutils.UserIdEnv, v1.GetUserId(workload))
-	if commonworkload.IsCICDProxyRoot(workload) {
+	if commonworkload.IsCICDProxyRoot(workload) || commonworkload.IsCICDEphemeralRunner(workload) {
 		apiKey, err := cicdAPIKey(workload)
 		if err != nil {
 			return nil, err

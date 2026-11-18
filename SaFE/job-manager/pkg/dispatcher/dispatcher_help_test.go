@@ -3722,3 +3722,28 @@ func mountPathCounts(raw interface{}) map[string]int {
 	}
 	return counts
 }
+
+func TestCICDWorkloadWithParentAPIKey(t *testing.T) {
+	parent := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "scale-set"}}
+	parent.Spec.GroupVersionKind.Kind = common.CICDScaleRunnerSetKind
+	v1.SetAnnotation(parent, v1.UserEncryptedAPIKeyAnnotation, "parent-api-key")
+
+	runner := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "runner", Labels: map[string]string{v1.UserIdLabel: "user-1"}}}
+	runner.Spec.GroupVersionKind.Kind = common.CICDEphemeralRunnerKind
+	runner.Spec.Workspace = "ws"
+
+	derived := cicdWorkloadWithParentAPIKey(runner, parent)
+	assert.Equal(t, "parent-api-key", v1.GetAnnotation(derived, v1.UserEncryptedAPIKeyAnnotation))
+	assert.Equal(t, "", v1.GetAnnotation(runner, v1.UserEncryptedAPIKeyAnnotation), "the runner workload itself is not changed")
+	envs, err := buildEnvironment(derived, nil, -1)
+	assert.NilError(t, err)
+	assert.Equal(t, true, findEnv(envs, jobutils.UserApiKeyEnv, "parent-api-key"))
+
+	_, err = buildEnvironment(runner, nil, -1)
+	assert.Assert(t, err != nil, "an ephemeral runner without its scale set's key fails")
+
+	other := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "train"}}
+	other.Spec.GroupVersionKind.Kind = common.PytorchJobKind
+	assert.Assert(t, cicdWorkloadWithParentAPIKey(other, parent) == other)
+	assert.Assert(t, cicdWorkloadWithParentAPIKey(runner, nil) == runner)
+}
