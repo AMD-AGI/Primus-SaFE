@@ -114,6 +114,23 @@ func TestAMemberReadsTheTemplatesOfTheWorkspace(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, "a member may use the templates the list shows: %s", body)
 }
 
+func TestTheTemplateListIsBounded(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
+	db.EXPECT().CountPostTrainingRunsByTemplate(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	h := templateHandler(t, db)
+	for query, want := range map[string]int{"limit=0&offset=-5": 100, "limit=100000": maxListLimit} {
+		db.EXPECT().ListPostTrainingTemplates(gomock.Any(), dbclient.PostTrainingTemplateFilter{Workspace: "ws1",
+			Limit: want}).Return(nil, int64(0), nil)
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/?workspace=ws1&"+query, nil)
+		c.Set(common.UserId, "u1")
+		h.ListTemplates(c)
+		require.Equal(t, http.StatusOK, w.Code, "%s: %s", query, w.Body.String())
+	}
+}
+
 func TestUpdateTemplateNeedsTheVersionItWasReadAt(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()

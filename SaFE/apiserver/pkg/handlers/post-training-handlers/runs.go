@@ -124,12 +124,7 @@ func (h *Handler) ListRuns(c *gin.Context) {
 	if q.Status != "" {
 		filter.Statuses = strings.Split(q.Status, ",")
 	}
-	if filter.Limit <= 0 {
-		filter.Limit = defaultListLimit
-	}
-	if filter.Limit > maxListLimit {
-		filter.Limit = maxListLimit
-	}
+	filter.Limit, filter.Offset = pageLimit(filter.Limit, defaultListLimit), max(filter.Offset, 0)
 	runs, total, err := h.db.ListPostTrainingRuns(c.Request.Context(), filter)
 	if err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to list runs: "+err.Error()))
@@ -153,6 +148,14 @@ func (h *Handler) ListRuns(c *gin.Context) {
 			Import: h.listImportOf(c.Request.Context(), r)})
 	}
 	c.JSON(http.StatusOK, listResponse{Total: total, Items: items})
+}
+
+// pageLimit returns a list's page size: limit, def when limit is not positive, and at most maxListLimit.
+func pageLimit(limit, def int) int {
+	if limit <= 0 {
+		return def
+	}
+	return min(limit, maxListLimit)
 }
 
 // listImportOf reads what the list shows of an imported run's import, or nil for a SaFE run or an unreadable record.

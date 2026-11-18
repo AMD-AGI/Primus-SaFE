@@ -276,8 +276,9 @@ func (h *Handler) ListExperiments(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
+	limit, offset = pageLimit(limit, 20), max(offset, 0)
 	var ids []string
 	if raw := c.Query("experimentIds"); raw != "" {
 		ids = strings.Split(raw, ",")

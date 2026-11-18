@@ -147,8 +147,9 @@ func (h *Handler) ListTemplates(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
+	limit, offset = pageLimit(limit, 100), max(offset, 0)
 	ctx := c.Request.Context()
 	items, total, err := h.db.ListPostTrainingTemplates(ctx, dbclient.PostTrainingTemplateFilter{Workspace: workspace,
 		TrainType: c.Query("trainType"), Search: c.Query("search"), Limit: limit, Offset: offset})
