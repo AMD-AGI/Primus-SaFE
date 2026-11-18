@@ -140,7 +140,7 @@ func (f *privilegedTemplateFixture) createBuilt(t *testing.T, userId, name, kind
 	c := f.ginContext(t, userId, http.MethodPost, "")
 	// ScaleSet and GithubRunner encrypt the owner's platform key at create.
 	if kind == common.CICDScaleRunnerSetKind || kind == common.CICDGithubRunnerKind {
-		stubCICDPlatformKey(t, "ak-privileged-template-test")
+		stubCICDPlatformKey(t, "ak-test-key")
 	}
 	_, err := f.h.createWorkloadImpl(c, workload, user, f.h.accessController.GetRoles(t.Context(), user))
 	return err

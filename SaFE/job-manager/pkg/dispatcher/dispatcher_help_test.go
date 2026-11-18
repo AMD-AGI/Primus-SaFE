@@ -3724,7 +3724,7 @@ func mountPathCounts(raw interface{}) map[string]int {
 }
 
 func TestCICDWorkloadWithParentAPIKey(t *testing.T) {
-	parent := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "scale-set"}}
+	parent := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "scale-set", Labels: map[string]string{v1.UserIdLabel: "user-1"}}}
 	parent.Spec.GroupVersionKind.Kind = common.CICDScaleRunnerSetKind
 	v1.SetAnnotation(parent, v1.UserEncryptedAPIKeyAnnotation, "parent-api-key")
 
@@ -3746,4 +3746,14 @@ func TestCICDWorkloadWithParentAPIKey(t *testing.T) {
 	other.Spec.GroupVersionKind.Kind = common.PytorchJobKind
 	assert.Assert(t, cicdWorkloadWithParentAPIKey(other, parent) == other)
 	assert.Assert(t, cicdWorkloadWithParentAPIKey(runner, nil) == runner)
+
+	foreign := runner.DeepCopy()
+	foreign.Labels[v1.UserIdLabel] = "user-2"
+	assert.Assert(t, cicdWorkloadWithParentAPIKey(foreign, parent) == foreign, "a runner of another user gets no key")
+	_, err = buildEnvironment(cicdWorkloadWithParentAPIKey(foreign, parent), nil, -1)
+	assert.Assert(t, err != nil)
+
+	unowned := runner.DeepCopy()
+	delete(unowned.Labels, v1.UserIdLabel)
+	assert.Assert(t, cicdWorkloadWithParentAPIKey(unowned, parent) == unowned, "a runner without a user id gets no key")
 }

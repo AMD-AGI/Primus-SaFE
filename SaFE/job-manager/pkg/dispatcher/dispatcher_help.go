@@ -408,9 +408,13 @@ func cicdAPIKey(workload *v1.Workload) (string, error) {
 
 // cicdWorkloadWithParentAPIKey returns a copy of an EphemeralRunner workload carrying the encrypted
 // API key annotation of its owning scale set (source), so its runner pod gets the same USER_APIKEY.
-// Other workloads, or a scale set without the annotation, are returned unchanged.
+// The key is copied only when both workloads have the same user id. Other workloads, a runner of
+// another user, or a scale set without the annotation are returned unchanged.
 func cicdWorkloadWithParentAPIKey(workload, source *v1.Workload) *v1.Workload {
 	if source == nil || !commonworkload.IsCICDEphemeralRunner(workload) {
+		return workload
+	}
+	if userId := v1.GetUserId(workload); userId == "" || userId != v1.GetUserId(source) {
 		return workload
 	}
 	enc := v1.GetAnnotation(source, v1.UserEncryptedAPIKeyAnnotation)
