@@ -27,6 +27,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
@@ -153,6 +154,27 @@ func TestTheChildrenOfADeletedRunAreRemoved(t *testing.T) {
 		"an evaluation service of a deleted run holds GPUs nothing else frees")
 	require.Error(t, r.Get(ctx, client.ObjectKeyFromObject(job), &v1.OpsJob{}))
 	require.NoError(t, r.Get(ctx, client.ObjectKeyFromObject(kept), &v1.Workload{}), "a kept service goes on serving")
+}
+
+func TestAnEvaluationWhoseTaskCannotBeBuiltEnds(t *testing.T) {
+	run, objs := evalFixtures("eval")
+	s := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "svc-2", CreationTimestamp: metav1.Now(),
+		Labels:      map[string]string{v1.PostTrainingRunIdLabel: testRun, v1.PostTrainingRoleLabel: v1.PostTrainingRoleEval},
+		Annotations: map[string]string{evalAutoAnnotation: v1.TrueStr, evalBenchmarksAnnotation: `["gsm8k"]`}}}
+	s.Spec.Env = map[string]string{"PRIMUS_SOURCE_MODEL": "m-out"}
+	s.Status.Phase = v1.WorkloadRunning
+	r, db, updates := newTestReconciler(t, run, append(objs, s)...)
+	loadChartRegistry(t, r)
+	db.EXPECT().GetDataset(gomock.Any(), "gsm8k").Return(nil, commonerrors.NewNotFoundWithMessage("gone"))
+	db.EXPECT().UpsertEvaluationTask(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *dbclient.EvaluationTask) error {
+			require.Equal(t, evalTaskID("svc-2"), task.TaskId, "the failure is recorded on the service's own task")
+			return nil
+		})
+	db.EXPECT().SetEvaluationTaskFailed(gomock.Any(), evalTaskID("svc-2"), gomock.Any()).Return(nil)
+	reconcileRun(t, r)
+	require.Empty(t, evalServices(t, r), "a benchmark deleted during training ends the evaluation and frees its GPUs")
+	require.Equal(t, "done", (*updates)[len(*updates)-1]["stage"])
 }
 
 func TestEvaluationServiceNotReadyInTime(t *testing.T) {

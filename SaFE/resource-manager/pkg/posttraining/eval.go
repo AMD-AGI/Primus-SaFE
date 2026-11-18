@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
@@ -31,6 +30,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/evaluation"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/topic/posttrainingrun"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
@@ -129,7 +129,11 @@ func (r *RunReconciler) advanceEvaluation(ctx context.Context, run *dbclient.Pos
 		}
 		name, err := r.createEvalJob(ctx, run, s)
 		if err != nil {
-			return 0, err
+			if wait := r.evalWait(ctx); !commonerrors.IsBadRequest(err) && time.Since(s.CreationTimestamp.Time) <= wait {
+				return 0, err
+			}
+			r.recordEvalFailure(ctx, run, s, fmt.Sprintf("The evaluation job could not be created: %v", err))
+			return 0, r.finishEvaluation(ctx, run, s, true)
 		}
 		patch := client.MergeFrom(s.DeepCopy())
 		v1.SetAnnotation(s, evalJobAnnotation, name)
@@ -500,6 +504,12 @@ func evalJobName(service string) string {
 	return "pt-eval-" + hex.EncodeToString(sum[:8])
 }
 
+// evalTaskID is the id of the evaluation task of an inference service, so a retry upserts the same row.
+func evalTaskID(service string) string {
+	sum := sha256.Sum256([]byte("task/" + service))
+	return "eval-task-" + hex.EncodeToString(sum[:8])
+}
+
 // createEvalJob builds the evaluation task of a ready inference service, with the registry's output probes,
 // and creates its OpsJob; it returns the job name.
 func (r *RunReconciler) createEvalJob(ctx context.Context, run *dbclient.PostTrainingRun, s *v1.Workload) (string, error) {
@@ -507,9 +517,14 @@ func (r *RunReconciler) createEvalJob(ctx context.Context, run *dbclient.PostTra
 	if err := r.Get(ctx, client.ObjectKey{Name: name}, &v1.OpsJob{}); err == nil {
 		return name, nil
 	}
+	port := 0
+	if s.Spec.Service != nil {
+		port = s.Spec.Service.Port
+	}
 	task, err := evaluation.BuildTask(ctx, r.Client, r.db, r.adminSecret, evaluation.TaskRequest{
-		Name: s.Name, ServiceID: s.Name, ServiceType: evaluation.ServiceTypeLocalWorkload,
-		Benchmarks: benchmarkList(v1.GetAnnotation(s, evalBenchmarksAnnotation)), Workspace: run.Workspace,
+		TaskID: evalTaskID(s.Name), Name: s.Name, ServiceID: s.Name, ServiceType: evaluation.ServiceTypeLocalWorkload,
+		ServicePort: port,
+		Benchmarks:  benchmarkList(v1.GetAnnotation(s, evalBenchmarksAnnotation)), Workspace: run.Workspace,
 		UserID: run.UserID, UserName: run.UserName, PostTrainingRunID: run.RunID, ModelID: s.Spec.Env["PRIMUS_SOURCE_MODEL"],
 	})
 	if err != nil {
@@ -567,7 +582,7 @@ func benchmarkList(ids string) string {
 // its evaluation has no scores.
 func (r *RunReconciler) recordEvalFailure(ctx context.Context, run *dbclient.PostTrainingRun, s *v1.Workload, reason string) {
 	task := &dbclient.EvaluationTask{
-		TaskId:            fmt.Sprintf("eval-task-%s", uuid.New().String()[:8]),
+		TaskId:            evalTaskID(s.Name),
 		TaskName:          s.Name,
 		ServiceId:         s.Name,
 		ServiceType:       evaluation.ServiceTypeLocalWorkload,
