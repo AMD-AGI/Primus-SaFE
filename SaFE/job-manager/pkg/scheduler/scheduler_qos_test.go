@@ -152,3 +152,28 @@ func TestQuotaReservationDropsWhenWorkloadIsGone(t *testing.T) {
 		t.Fatalf("a deleted workload must not keep its reservation, reason %q", reason)
 	}
 }
+
+func TestReserveUserQuotaEdges(t *testing.T) {
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).Build()
+	r := &SchedulerReconciler{Client: cl}
+	ctx := context.Background()
+	plain := qosWorkload("plain", "alice", "1")
+	if reason := r.reserveUserQuota(ctx, plain); reason != "" {
+		t.Fatalf("no qos means no ceiling, reason %q", reason)
+	}
+	plain.Labels[v1.UserIdLabel] = ""
+	if reason := r.reserveUserQuota(ctx, plain); reason != "" {
+		t.Fatalf("a workload without a user is not counted, reason %q", reason)
+	}
+	bad := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{CPU: "abc"}},
+	}
+	cl = ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(bad, qosWorkload("w", "alice", "1")).Build()
+	r = &SchedulerReconciler{Client: cl}
+	reason := r.reserveUserQuota(ctx, qosWorkload("w", "alice", "1"))
+	if !strings.HasPrefix(reason, commonqos.UserQuotaCheckFailedPrefix) {
+		t.Fatalf("a bad ceiling holds the workload, reason %q", reason)
+	}
+	r.releaseUserQuota(nil)
+}

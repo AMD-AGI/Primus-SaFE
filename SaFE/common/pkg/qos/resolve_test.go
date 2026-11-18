@@ -101,3 +101,50 @@ func TestQuotaReasonNamesTheExceededDimension(t *testing.T) {
 		t.Fatalf("within the ceiling: %q %v", reason, err)
 	}
 }
+
+func TestIsUserQuotaReasonAndResourceGrew(t *testing.T) {
+	if !IsUserQuotaReason(UserQuotaReasonPrefix+": gpu") || !IsUserQuotaReason(UserQuotaCheckFailedPrefix+": bad") {
+		t.Fatal("quota reasons must be recognized")
+	}
+	if IsUserQuotaReason("insufficient resources") {
+		t.Fatal("a capacity reason is not a user quota reason")
+	}
+	prev := corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse("1"),
+		corev1.ResourceMemory: resource.MustParse("1Gi"),
+		common.AmdGpu:         resource.MustParse("1"),
+	}
+	cpu, memory, gpu := ResourceGrew(nil, prev)
+	if !cpu || !memory || !gpu {
+		t.Fatalf("growing from empty: %v %v %v", cpu, memory, gpu)
+	}
+	same := prev.DeepCopy()
+	cpu, memory, gpu = ResourceGrew(prev, same)
+	if cpu || memory || gpu {
+		t.Fatalf("an unchanged list does not grow: %v %v %v", cpu, memory, gpu)
+	}
+	_, err := Exceeded("alice", "c1", nil, nil, Limits{CPU: "nope"}, true, false, false)
+	if err == nil {
+		t.Fatal("a limit that is not a quantity must fail")
+	}
+}
+
+func TestCeilingIgnoresAMissingUser(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	cluster := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{CPU: "4"}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).Build()
+	got, err := Ceiling(context.Background(), c, "missing-user", "c1", string(v1.TrainScope))
+	if err != nil || got.CPU != "4" {
+		t.Fatalf("a missing user leaves the cluster ceiling: %+v %v", got, err)
+	}
+	got, err = Ceiling(context.Background(), c, "", "", string(v1.TrainScope))
+	if err != nil || got != (Limits{}) {
+		t.Fatalf("no cluster has no ceiling: %+v %v", got, err)
+	}
+}

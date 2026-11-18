@@ -485,6 +485,34 @@ func TestUnscheduledScaleSkipsQuota(t *testing.T) {
 	assert.NilError(t, v.validateScaleQuota(context.Background(), grown, queued))
 }
 
+func TestScaleReservationDropsWhenLandedOrExpired(t *testing.T) {
+	scheme := newScheme(t)
+	landed := scaleQuotaWorkload("landed", "2", true)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(landed).Build()
+	v := &WorkloadValidator{Client: c}
+	v.scaleReserved = map[string]scaleReservation{
+		scaleReservationKey("alice", "c1", "landed"): {at: time.Now(), resources: landed.Spec.Resources},
+		scaleReservationKey("alice", "c1", "gone"):   {at: time.Now().Add(-time.Hour), resources: landed.Spec.Resources},
+		scaleReservationKey("bob", "c2", "other"):    {at: time.Now().Add(-time.Hour), resources: landed.Spec.Resources},
+	}
+	used, err := v.scaleUsage(context.Background(), "alice", "c1", "someone")
+	assert.NilError(t, err)
+	cpu := used[corev1.ResourceCPU]
+	assert.Equal(t, cpu.String(), "1")
+	if _, ok := v.scaleReserved[scaleReservationKey("alice", "c1", "landed")]; ok {
+		t.Fatal("a reservation matching the cache must be dropped")
+	}
+	if _, ok := v.scaleReserved[scaleReservationKey("alice", "c1", "gone")]; ok {
+		t.Fatal("an expired reservation must be dropped")
+	}
+	if _, ok := v.scaleReserved[scaleReservationKey("bob", "c2", "other")]; !ok {
+		t.Fatal("another user's reservation stays")
+	}
+	empty, err := v.scaleUsage(context.Background(), "", "c1", "someone")
+	assert.NilError(t, err)
+	assert.Equal(t, len(empty), 0)
+}
+
 // TestWorkloadMutateMeta verifies labels and finalizer on workload.
 func TestWorkloadMutateMeta(t *testing.T) {
 	scheme := newScheme(t)
