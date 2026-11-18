@@ -17,9 +17,11 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
@@ -130,6 +132,27 @@ func TestEvaluationServiceHasAValidDisplayName(t *testing.T) {
 	require.Regexp(t, fmt.Sprintf("^[a-z][-a-z0-9]{0,%d}[a-z0-9]$", commonutils.MaxDeploymentNameLen), name,
 		"the workload webhook refuses a Deployment without a DNS display name")
 	require.Equal(t, "eval-qwen3-sft-demo", name)
+}
+
+func TestTheChildrenOfADeletedRunAreRemoved(t *testing.T) {
+	labels := func(role string) map[string]string {
+		return map[string]string{v1.PostTrainingRunIdLabel: "pt-gone", v1.PostTrainingRoleLabel: role}
+	}
+	service := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-gone-eval", Labels: labels(v1.PostTrainingRoleEval)}}
+	kept := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-gone-kept", Labels: labels(v1.PostTrainingRoleEval),
+		Annotations: map[string]string{v1.PostTrainingEvalDoneAnnotation: v1.TrueStr}}}
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "pt-gone-eval-job", Labels: labels("")},
+		Spec: v1.OpsJobSpec{Inputs: []v1.Parameter{{Name: v1.ParameterEvalTaskId, Value: "task-9"}}}}
+	r, db, _ := newTestReconciler(t, testRunRow("Succeeded", "done"), service, kept, job)
+	db.EXPECT().GetPostTrainingRun(gomock.Any(), "pt-gone").Return(nil, gorm.ErrRecordNotFound)
+	db.EXPECT().UpdateEvaluationTaskStatus(gomock.Any(), "task-9", dbclient.EvaluationTaskStatusCancelled).Return(nil)
+	ctx := context.Background()
+	_, err := r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: "pt-gone"}})
+	require.NoError(t, err)
+	require.Error(t, r.Get(ctx, client.ObjectKeyFromObject(service), &v1.Workload{}),
+		"an evaluation service of a deleted run holds GPUs nothing else frees")
+	require.Error(t, r.Get(ctx, client.ObjectKeyFromObject(job), &v1.OpsJob{}))
+	require.NoError(t, r.Get(ctx, client.ObjectKeyFromObject(kept), &v1.Workload{}), "a kept service goes on serving")
 }
 
 func TestEvaluationServiceNotReadyInTime(t *testing.T) {

@@ -341,7 +341,7 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) 
 	run, err := r.db.GetPostTrainingRun(ctx, req.Name)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ctrlruntime.Result{}, nil
+			return ctrlruntime.Result{}, reconcileError("orphans", r.removeOrphans(ctx, req.Name))
 		}
 		return ctrlruntime.Result{}, reconcileError("database", err)
 	}
@@ -377,6 +377,35 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) 
 		res, err = r.reconcileWorkload(ctx, run, w)
 	}
 	return res, reconcileError("advance", err)
+}
+
+// removeOrphans removes what a deleted run left running: its workloads, except kept evaluation services whose
+// evaluation is over, and its unfinished OpsJobs, whose evaluation tasks are recorded as cancelled.
+func (r *RunReconciler) removeOrphans(ctx context.Context, runID string) error {
+	workloads := &v1.WorkloadList{}
+	if err := r.List(ctx, workloads, client.MatchingLabels{v1.PostTrainingRunIdLabel: runID}); err != nil {
+		return err
+	}
+	for i := range workloads.Items {
+		w := &workloads.Items[i]
+		if w.IsEnd() || v1.GetAnnotation(w, v1.PostTrainingEvalDoneAnnotation) == v1.TrueStr {
+			continue
+		}
+		klog.Infof("delete workload %s of deleted post training run %s", w.Name, runID)
+		if err := r.Delete(ctx, w); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+	}
+	jobs := &v1.OpsJobList{}
+	if err := r.List(ctx, jobs, client.MatchingLabels{v1.PostTrainingRunIdLabel: runID}); err != nil {
+		return err
+	}
+	for i := range jobs.Items {
+		if err := r.cancelJob(ctx, jobs.Items[i].Name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // finished reports whether the controller has nothing left to do for run.
